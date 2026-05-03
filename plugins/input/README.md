@@ -10,6 +10,7 @@ Input plugins produce entries. Each task has exactly one input plugin. An entry 
 | [discover](discover/README.md) | Actively search multiple sources for a configured title list |
 | [input_trakt](trakt/README.md) | Fetch movies or shows from a Trakt.tv list |
 | [input_tvdb](tvdb/README.md) | Fetch shows from a TheTVDB user's favorites list |
+| [search_rss](search/rss/README.md) | RSS search backend driven by query terms from `discover` |
 
 ## Active vs passive
 

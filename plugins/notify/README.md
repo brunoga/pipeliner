@@ -5,6 +5,7 @@ Notify plugins send side-channel notifications about a completed run — indepen
 | Plugin | Description |
 |--------|-------------|
 | [email](email/README.md) | Send a run-summary email via SMTP |
+| [pushover](pushover/README.md) | Send a Pushover push notification |
 | [webhook](webhook/README.md) | POST a run summary to an HTTP endpoint |
 
 Notify plugins are typically used via the [`notify` output plugin](../output/notify/README.md), which selects the notifier type at runtime:
