@@ -1,0 +1,130 @@
+// Package tvdb implements a filter plugin that fetches a user's TheTVDB favorites
+// and accepts entries whose parsed series name matches a favorited show.
+//
+// The favorites list is cached and refreshed according to the ttl setting
+// (default 1h). With a db path the cache survives process restarts.
+//
+// Config keys:
+//
+//	api_key   - TheTVDB API key (required)
+//	user_pin  - User PIN from thetvdb.com (required; enables favorites access)
+//	ttl       - cache lifetime, e.g. "1h", "30m" (default: "1h")
+//	db        - SQLite path for persistent cache (default: "pipeliner.db")
+package tvdb
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/brunoga/pipeliner/internal/cache"
+	"github.com/brunoga/pipeliner/internal/entry"
+	"github.com/brunoga/pipeliner/internal/match"
+	"github.com/brunoga/pipeliner/internal/plugin"
+	iseries "github.com/brunoga/pipeliner/internal/series"
+	"github.com/brunoga/pipeliner/internal/store"
+	itvdb "github.com/brunoga/pipeliner/internal/tvdb"
+)
+
+func init() {
+	plugin.Register(&plugin.Descriptor{
+		PluginName:  "tvdb",
+		PluginPhase: plugin.PhaseFilter,
+		Description: "Accept entries whose series name appears in the user's TheTVDB favorites",
+		Factory:     newPlugin,
+	})
+}
+
+const cacheKey = "favorites"
+
+type tvdbFilter struct {
+	client *itvdb.Client
+	cache  *cache.Cache[[]string]
+}
+
+func newPlugin(cfg map[string]any) (plugin.Plugin, error) {
+	apiKey, _ := cfg["api_key"].(string)
+	if apiKey == "" {
+		return nil, fmt.Errorf("tvdb filter: api_key is required")
+	}
+
+	userPin, _ := cfg["user_pin"].(string)
+	if userPin == "" {
+		return nil, fmt.Errorf("tvdb filter: user_pin is required")
+	}
+
+	ttl := time.Hour
+	if v, _ := cfg["ttl"].(string); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return nil, fmt.Errorf("tvdb filter: invalid ttl %q: %w", v, err)
+		}
+		ttl = d
+	}
+
+	dbPath, _ := cfg["db"].(string)
+	if dbPath == "" {
+		dbPath = "pipeliner.db"
+	}
+
+	db, err := store.OpenSQLite(dbPath)
+	if err != nil {
+		return nil, fmt.Errorf("tvdb filter: open store: %w", err)
+	}
+
+	return &tvdbFilter{
+		client: itvdb.NewWithPin(apiKey, userPin),
+		cache:  cache.NewPersistent[[]string](ttl, db.Bucket("cache_filter_tvdb")),
+	}, nil
+}
+
+func (p *tvdbFilter) Name() string        { return "tvdb" }
+func (p *tvdbFilter) Phase() plugin.Phase { return plugin.PhaseFilter }
+
+func (p *tvdbFilter) Filter(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
+	titles, err := p.ensureTitles(ctx)
+	if err != nil {
+		tc.Logger.Warn("tvdb: could not fetch favorites, skipping filter", "err", err)
+		return nil
+	}
+
+	ep, ok := iseries.Parse(e.Title)
+	if !ok {
+		return nil
+	}
+
+	norm := match.Normalize(ep.SeriesName)
+	for _, t := range titles {
+		if match.Fuzzy(norm, t) {
+			e.Accept()
+			return nil
+		}
+	}
+	return nil
+}
+
+// ensureTitles returns the cached titles, fetching from TheTVDB if stale.
+func (p *tvdbFilter) ensureTitles(ctx context.Context) ([]string, error) {
+	if titles, ok := p.cache.Get(cacheKey); ok {
+		return titles, nil
+	}
+
+	ids, err := p.client.GetFavorites(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	titles := make([]string, 0, len(ids))
+	for _, id := range ids {
+		s, err := p.client.GetSeriesByID(ctx, id)
+		if err != nil {
+			continue // best-effort; skip unreachable IDs
+		}
+		if s.Name != "" {
+			titles = append(titles, match.Normalize(s.Name))
+		}
+	}
+
+	p.cache.Set(cacheKey, titles)
+	return titles, nil
+}
