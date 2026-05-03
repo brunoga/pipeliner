@@ -2,7 +2,7 @@
 
 A media-automation tool that pulls entries from RSS feeds, active searches, or local filesystems, filters them against configurable rules, enriches them with metadata, and hands them off to download clients, notification services, or arbitrary shell commands.
 
-Pipelines are described in YAML. Each pipeline task chains a sequence of plugins — one input, any number of filters and metainfo annotators, optional modifiers, and one or more outputs. The scheduler runs tasks on cron or interval schedules.
+Heavily inspired by [FlexGet](https://flexget.com). Pipelines are described in YAML. Each pipeline task chains a sequence of plugins — one input, any number of filters and metainfo annotators, optional modifiers, and one or more outputs. The scheduler runs tasks on cron or interval schedules.
 
 ## Installation
 
