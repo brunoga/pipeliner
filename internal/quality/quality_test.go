@@ -1,0 +1,466 @@
+package quality
+
+import (
+	"testing"
+)
+
+// --- Parse tests ---
+
+func TestParseKnownTitles(t *testing.T) {
+	cases := []struct {
+		title string
+		want  Quality
+	}{
+		{
+			"Movie.2023.1080p.BluRay.x264-GROUP",
+			Quality{Resolutionp1080, SourceBluRay, CodecH264, AudioUnknown, ColorRangeUnknown},
+		},
+		{
+			"Show.S01E01.720p.HDTV.AAC",
+			Quality{Resolutionp720, SourceHDTV, CodecUnknown, AudioAAC, ColorRangeUnknown},
+		},
+		{
+			"Film.2160p.UHD.BluRay.HDR.DTS-HD",
+			Quality{Resolutionp2160, SourceBluRay, CodecUnknown, AudioDTS, ColorRangeHDR},
+		},
+		{
+			"Show.S02E05.720p.WEB-DL.DD5.1.H.264",
+			Quality{Resolutionp720, SourceWebDL, CodecH264, AudioDolbyDigital, ColorRangeUnknown},
+		},
+		{
+			"Movie.2022.4K.REMUX.HEVC.TrueHD.Atmos",
+			Quality{Resolutionp2160, SourceRemux, CodecH265, AudioAtmos, ColorRangeUnknown},
+		},
+		{
+			"Show.S01E01.576p.HDTV.XviD",
+			Quality{Resolutionp576, SourceHDTV, CodecXviD, AudioUnknown, ColorRangeUnknown},
+		},
+		{
+			"Movie.DVDRip.DivX.MP3",
+			Quality{ResolutionUnknown, SourceDVDRip, CodecDivX, AudioMP3, ColorRangeUnknown},
+		},
+		{
+			"Show.S03E01.1080p.WEBRip.x265.HDR10",
+			Quality{Resolutionp1080, SourceWEBRip, CodecH265, AudioUnknown, ColorRangeHDR10},
+		},
+		{
+			"Movie.2023.2160p.BluRay.DV.TrueHD",
+			Quality{Resolutionp2160, SourceBluRay, CodecUnknown, AudioTrueHD, ColorRangeDolbyVision},
+		},
+		{
+			"No.Quality.Markers.At.All",
+			Quality{},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.title, func(t *testing.T) {
+			got := Parse(tc.title)
+			if got != tc.want {
+				t.Errorf("Parse(%q)\n  got  %+v\n  want %+v", tc.title, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestParseSourceVariants(t *testing.T) {
+	cases := []struct{ title string; want Source }{
+		{"Movie.BluRay.x264", SourceBluRay},
+		{"Movie.Blu-Ray.x264", SourceBluRay},
+		{"Movie.BDRip.x264", SourceBluRay},
+		{"Movie.BDRemux.x264", SourceRemux},
+		{"Movie.Remux.x264", SourceRemux},
+		{"Movie.WEB-DL.x264", SourceWebDL},
+		{"Movie.WEBDL.x264", SourceWebDL},
+		{"Movie.WEBRip.x264", SourceWEBRip},
+		{"Movie.HDTV.x264", SourceHDTV},
+		{"Movie.DVDRip.XviD", SourceDVDRip},
+		{"Movie.TVRip.XviD", SourceTVRip},
+	}
+	for _, tc := range cases {
+		t.Run(tc.title, func(t *testing.T) {
+			if got := Parse(tc.title).Source; got != tc.want {
+				t.Errorf("source: got %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestParseCodecVariants(t *testing.T) {
+	cases := []struct{ title string; want Codec }{
+		{"Movie.x265", CodecH265},
+		{"Movie.H.265", CodecH265},
+		{"Movie.HEVC", CodecH265},
+		{"Movie.x264", CodecH264},
+		{"Movie.H.264", CodecH264},
+		{"Movie.XviD", CodecXviD},
+		{"Movie.DivX", CodecDivX},
+		{"Movie.AV1", CodecAV1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.title, func(t *testing.T) {
+			if got := Parse(tc.title).Codec; got != tc.want {
+				t.Errorf("codec: got %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestParseAudioVariants(t *testing.T) {
+	cases := []struct{ title string; want Audio }{
+		{"Movie.Atmos", AudioAtmos},
+		{"Movie.TrueHD", AudioTrueHD},
+		{"Movie.DTS-HD", AudioDTS},
+		{"Movie.DTS-MA", AudioDTS},
+		{"Movie.DTS", AudioDTS},
+		{"Movie.DD5.1", AudioDolbyDigital},
+		{"Movie.DD+5.1", AudioDolbyDigital},
+		{"Movie.Dolby.Digital", AudioDolbyDigital},
+		{"Movie.AAC", AudioAAC},
+		{"Movie.MP3", AudioMP3},
+	}
+	for _, tc := range cases {
+		t.Run(tc.title, func(t *testing.T) {
+			if got := Parse(tc.title).Audio; got != tc.want {
+				t.Errorf("audio: got %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// --- String ---
+
+func TestQualityString(t *testing.T) {
+	q := Quality{Resolutionp1080, SourceBluRay, CodecH264, AudioDTS, ColorRangeHDR}
+	s := q.String()
+	if s == "" || s == "unknown" {
+		t.Errorf("unexpected String(): %q", s)
+	}
+}
+
+func TestQualityStringUnknown(t *testing.T) {
+	if (Quality{}).String() != "unknown" {
+		t.Error("empty quality should return 'unknown'")
+	}
+}
+
+// --- Better ---
+
+func TestBetterResolutionWins(t *testing.T) {
+	hi := Quality{Resolution: Resolutionp2160}
+	lo := Quality{Resolution: Resolutionp1080}
+	if !hi.Better(lo) {
+		t.Error("2160p should be better than 1080p")
+	}
+	if lo.Better(hi) {
+		t.Error("1080p should not be better than 2160p")
+	}
+}
+
+func TestBetterSourceBreaksTie(t *testing.T) {
+	a := Quality{Resolution: Resolutionp1080, Source: SourceBluRay}
+	b := Quality{Resolution: Resolutionp1080, Source: SourceHDTV}
+	if !a.Better(b) {
+		t.Error("BluRay should beat HDTV at same resolution")
+	}
+}
+
+func TestBetterCodecBreaksTie(t *testing.T) {
+	a := Quality{Resolution: Resolutionp1080, Source: SourceBluRay, Codec: CodecH265}
+	b := Quality{Resolution: Resolutionp1080, Source: SourceBluRay, Codec: CodecH264}
+	if !a.Better(b) {
+		t.Error("H265 should beat H264 at same resolution+source")
+	}
+}
+
+func TestBetterEqualReturnsFalse(t *testing.T) {
+	q := Quality{Resolutionp720, SourceHDTV, CodecH264, AudioAAC, ColorRangeSDR}
+	if q.Better(q) {
+		t.Error("quality should not be better than itself")
+	}
+}
+
+// --- ParseSpec and Spec.Matches ---
+
+func TestSpecMatchesResolutionRange(t *testing.T) {
+	spec, err := ParseSpec("720p-1080p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		q    Quality
+		want bool
+	}{
+		{Quality{Resolution: Resolutionp480}, false},
+		{Quality{Resolution: Resolutionp720}, true},
+		{Quality{Resolution: Resolutionp1080}, true},
+		{Quality{Resolution: Resolutionp2160}, false},
+	}
+	for _, tc := range cases {
+		if got := spec.Matches(tc.q); got != tc.want {
+			t.Errorf("Matches(%v): got %v, want %v", tc.q, got, tc.want)
+		}
+	}
+}
+
+func TestSpecMatchesSourceRange(t *testing.T) {
+	spec, err := ParseSpec("hdtv-bluray")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !spec.Matches(Quality{Source: SourceHDTV}) {
+		t.Error("HDTV should match hdtv-bluray")
+	}
+	if !spec.Matches(Quality{Source: SourceWebDL}) {
+		t.Error("WEB-DL should match hdtv-bluray")
+	}
+	if !spec.Matches(Quality{Source: SourceBluRay}) {
+		t.Error("BluRay should match hdtv-bluray")
+	}
+	if spec.Matches(Quality{Source: SourceTVRip}) {
+		t.Error("TVRip should not match hdtv-bluray")
+	}
+}
+
+func TestSpecMatchesMultipleDimensions(t *testing.T) {
+	spec, err := ParseSpec("720p-1080p hdtv-bluray")
+	if err != nil {
+		t.Fatal(err)
+	}
+	good := Quality{Resolution: Resolutionp720, Source: SourceWebDL}
+	bad1 := Quality{Resolution: Resolutionp480, Source: SourceWebDL}  // res too low
+	bad2 := Quality{Resolution: Resolutionp720, Source: SourceTVRip}  // source too low
+
+	if !spec.Matches(good) {
+		t.Error("good quality should match")
+	}
+	if spec.Matches(bad1) {
+		t.Error("bad resolution should not match")
+	}
+	if spec.Matches(bad2) {
+		t.Error("bad source should not match")
+	}
+}
+
+func TestSpecSingleValue(t *testing.T) {
+	spec, err := ParseSpec("1080p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// min=max=1080p
+	if !spec.Matches(Quality{Resolution: Resolutionp1080}) {
+		t.Error("1080p should match spec '1080p'")
+	}
+	if spec.Matches(Quality{Resolution: Resolutionp720}) {
+		t.Error("720p should not match spec '1080p'")
+	}
+}
+
+func TestSpecUnknownDimensionAlwaysMatches(t *testing.T) {
+	spec, err := ParseSpec("720p-1080p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Unknown source — source constraint is unconstrained, so it matches.
+	q := Quality{Resolution: Resolutionp720, Source: SourceUnknown}
+	if !spec.Matches(q) {
+		t.Error("unknown source should not fail an unconstrained source spec")
+	}
+}
+
+func TestParseSpecInvalidToken(t *testing.T) {
+	_, err := ParseSpec("not-a-quality")
+	if err == nil {
+		t.Error("expected error for unknown quality value")
+	}
+}
+
+func TestParseSpecEmpty(t *testing.T) {
+	spec, err := ParseSpec("")
+	if err != nil {
+		t.Fatalf("empty spec should not error: %v", err)
+	}
+	// Empty spec matches everything.
+	if !spec.Matches(Quality{}) {
+		t.Error("empty spec should match zero quality")
+	}
+	if !spec.Matches(Quality{Resolution: Resolutionp2160, Source: SourceBluRay}) {
+		t.Error("empty spec should match any quality")
+	}
+}
+
+func TestParseSpecAllDimensions(t *testing.T) {
+	_, err := ParseSpec("720p-1080p hdtv-bluray x264-x265 aac-dts sdr-hdr")
+	if err != nil {
+		t.Fatalf("full spec parse: %v", err)
+	}
+}
+
+// --- parseResolution full coverage ---
+
+func TestParseResolutionValues(t *testing.T) {
+	cases := []struct{ s string; want Resolution }{
+		{"sd", ResolutionSD},
+		{"480p", Resolutionp480},
+		{"576p", Resolutionp576},
+		{"720p", Resolutionp720},
+		{"1080p", Resolutionp1080},
+		{"2160p", Resolutionp2160},
+		{"4k", Resolutionp2160},
+	}
+	for _, tc := range cases {
+		spec, err := ParseSpec(tc.s)
+		if err != nil {
+			t.Errorf("ParseSpec(%q): %v", tc.s, err)
+			continue
+		}
+		if spec.MinResolution != tc.want {
+			t.Errorf("ParseSpec(%q): got %v, want %v", tc.s, spec.MinResolution, tc.want)
+		}
+	}
+}
+
+// --- parseSource full coverage ---
+
+func TestParseSourceValues(t *testing.T) {
+	cases := []struct{ s string; want Source }{
+		{"dvdrip", SourceDVDRip},
+		{"tvrip", SourceTVRip},
+		{"hdtv", SourceHDTV},
+		{"webrip", SourceWEBRip},
+		{"webdl", SourceWebDL},
+		{"web-dl", SourceWebDL},
+		{"bluray", SourceBluRay},
+		{"bdrip", SourceBluRay},
+		{"remux", SourceRemux},
+	}
+	for _, tc := range cases {
+		spec, err := ParseSpec(tc.s)
+		if err != nil {
+			t.Errorf("ParseSpec(%q): %v", tc.s, err)
+			continue
+		}
+		if spec.MinSource != tc.want {
+			t.Errorf("ParseSpec(%q): got %v, want %v", tc.s, spec.MinSource, tc.want)
+		}
+	}
+}
+
+// --- parseCodec full coverage ---
+
+func TestParseCodecValues(t *testing.T) {
+	cases := []struct{ s string; want Codec }{
+		{"xvid", CodecXviD},
+		{"divx", CodecDivX},
+		{"x264", CodecH264},
+		{"h264", CodecH264},
+		{"x265", CodecH265},
+		{"h265", CodecH265},
+		{"hevc", CodecH265},
+		{"av1", CodecAV1},
+	}
+	for _, tc := range cases {
+		spec, err := ParseSpec(tc.s)
+		if err != nil {
+			t.Errorf("ParseSpec(%q): %v", tc.s, err)
+			continue
+		}
+		if spec.MinCodec != tc.want {
+			t.Errorf("ParseSpec(%q): got %v, want %v", tc.s, spec.MinCodec, tc.want)
+		}
+	}
+}
+
+// --- parseAudio full coverage ---
+
+func TestParseAudioValues(t *testing.T) {
+	cases := []struct{ s string; want Audio }{
+		{"mp3", AudioMP3},
+		{"aac", AudioAAC},
+		{"dd", AudioDolbyDigital},
+		{"dolbydigital", AudioDolbyDigital},
+		{"dts", AudioDTS},
+		{"truehd", AudioTrueHD},
+		{"atmos", AudioAtmos},
+	}
+	for _, tc := range cases {
+		spec, err := ParseSpec(tc.s)
+		if err != nil {
+			t.Errorf("ParseSpec(%q): %v", tc.s, err)
+			continue
+		}
+		if spec.MinAudio != tc.want {
+			t.Errorf("ParseSpec(%q): got %v, want %v", tc.s, spec.MinAudio, tc.want)
+		}
+	}
+}
+
+// --- parseColorRange full coverage ---
+
+func TestParseColorRangeValues(t *testing.T) {
+	cases := []struct{ s string; want ColorRange }{
+		{"sdr", ColorRangeSDR},
+		{"hdr", ColorRangeHDR},
+		{"hdr10", ColorRangeHDR10},
+		{"hdr10+", ColorRangeHDR10},
+		{"dv", ColorRangeDolbyVision},
+		{"dolbyvision", ColorRangeDolbyVision},
+	}
+	for _, tc := range cases {
+		spec, err := ParseSpec(tc.s)
+		if err != nil {
+			t.Errorf("ParseSpec(%q): %v", tc.s, err)
+			continue
+		}
+		if spec.MinColorRange != tc.want {
+			t.Errorf("ParseSpec(%q): got %v, want %v", tc.s, spec.MinColorRange, tc.want)
+		}
+	}
+}
+
+// --- Matches full dimension coverage ---
+
+func TestMatchesAllDimensionBounds(t *testing.T) {
+	spec, _ := ParseSpec("720p-1080p hdtv-bluray x264-x265 aac-dts sdr-hdr")
+
+	// Codec bounds
+	if spec.Matches(Quality{Resolution: Resolutionp720, Source: SourceHDTV, Codec: CodecXviD, Audio: AudioAAC}) {
+		t.Error("XviD below x264 should not match")
+	}
+	if spec.Matches(Quality{Resolution: Resolutionp720, Source: SourceHDTV, Codec: CodecAV1, Audio: AudioAAC}) {
+		t.Error("AV1 above x265 should not match")
+	}
+
+	// Audio bounds
+	if spec.Matches(Quality{Resolution: Resolutionp720, Source: SourceHDTV, Codec: CodecH264, Audio: AudioMP3}) {
+		t.Error("MP3 below AAC should not match")
+	}
+	if spec.Matches(Quality{Resolution: Resolutionp720, Source: SourceHDTV, Codec: CodecH264, Audio: AudioTrueHD}) {
+		t.Error("TrueHD above DTS should not match")
+	}
+
+	// ColorRange bounds
+	specHDR, _ := ParseSpec("hdr-hdr10")
+	if specHDR.Matches(Quality{ColorRange: ColorRangeSDR}) {
+		t.Error("SDR below HDR should not match")
+	}
+	if specHDR.Matches(Quality{ColorRange: ColorRangeDolbyVision}) {
+		t.Error("DolbyVision above HDR10 should not match")
+	}
+}
+
+func TestBetterAudioBreaksTie(t *testing.T) {
+	a := Quality{Resolution: Resolutionp1080, Source: SourceBluRay, Codec: CodecH265, Audio: AudioAtmos}
+	b := Quality{Resolution: Resolutionp1080, Source: SourceBluRay, Codec: CodecH265, Audio: AudioDTS}
+	if !a.Better(b) {
+		t.Error("Atmos should beat DTS at same res+source+codec")
+	}
+}
+
+func TestBetterColorRangeBreaksTie(t *testing.T) {
+	a := Quality{Resolution: Resolutionp2160, Source: SourceBluRay, Codec: CodecH265, Audio: AudioAtmos, ColorRange: ColorRangeDolbyVision}
+	b := Quality{Resolution: Resolutionp2160, Source: SourceBluRay, Codec: CodecH265, Audio: AudioAtmos, ColorRange: ColorRangeHDR}
+	if !a.Better(b) {
+		t.Error("Dolby Vision should beat HDR at same res+source+codec+audio")
+	}
+}
