@@ -1,0 +1,73 @@
+// Package quality provides a filter that accepts entries matching a quality spec.
+package quality
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/brunoga/pipeliner/internal/entry"
+	"github.com/brunoga/pipeliner/internal/plugin"
+	internalquality "github.com/brunoga/pipeliner/internal/quality"
+)
+
+func init() {
+	plugin.Register(&plugin.Descriptor{
+		PluginName:  "quality",
+		Description: "reject entries whose video quality falls outside the configured range",
+		PluginPhase: plugin.PhaseFilter,
+		Factory:     newPlugin,
+	})
+}
+
+type qualityPlugin struct {
+	spec internalquality.Spec
+}
+
+func newPlugin(cfg map[string]any) (plugin.Plugin, error) {
+	min, _ := cfg["min"].(string)
+	max, _ := cfg["max"].(string)
+
+	if min == "" && max == "" {
+		return nil, fmt.Errorf("quality: at least one of 'min' or 'max' must be set")
+	}
+
+	// Parse min and max separately so they don't constrain each other's bound.
+	// ParseSpec("720p") would set both Min and Max to 720p; we only want Min.
+	var spec internalquality.Spec
+	if min != "" {
+		s, err := internalquality.ParseSpec(min)
+		if err != nil {
+			return nil, fmt.Errorf("quality: invalid min spec: %w", err)
+		}
+		spec.MinResolution = s.MinResolution
+		spec.MinSource = s.MinSource
+		spec.MinCodec = s.MinCodec
+		spec.MinAudio = s.MinAudio
+		spec.MinColorRange = s.MinColorRange
+	}
+	if max != "" {
+		s, err := internalquality.ParseSpec(max)
+		if err != nil {
+			return nil, fmt.Errorf("quality: invalid max spec: %w", err)
+		}
+		spec.MaxResolution = s.MaxResolution
+		spec.MaxSource = s.MaxSource
+		spec.MaxCodec = s.MaxCodec
+		spec.MaxAudio = s.MaxAudio
+		spec.MaxColorRange = s.MaxColorRange
+	}
+	return &qualityPlugin{spec: spec}, nil
+}
+
+func (p *qualityPlugin) Name() string        { return "quality" }
+func (p *qualityPlugin) Phase() plugin.Phase { return plugin.PhaseFilter }
+
+func (p *qualityPlugin) Filter(_ context.Context, _ *plugin.TaskContext, e *entry.Entry) error {
+	q := internalquality.Parse(e.Title)
+	e.Set("quality", q.String())
+
+	if !p.spec.Matches(q) {
+		e.Reject(fmt.Sprintf("quality %s does not match spec", q.String()))
+	}
+	return nil
+}
