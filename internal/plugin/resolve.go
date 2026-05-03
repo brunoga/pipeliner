@@ -1,0 +1,48 @@
+package plugin
+
+import "fmt"
+
+// MakeInputPlugin creates an InputPlugin from a config item. item may be a
+// plugin name string or a map[string]any with a "name" key plus config keys.
+func MakeInputPlugin(item any) (InputPlugin, error) {
+	name, cfg, err := ResolveNameAndConfig(item)
+	if err != nil {
+		return nil, err
+	}
+	d, ok := Lookup(name)
+	if !ok {
+		return nil, fmt.Errorf("unknown plugin %q", name)
+	}
+	p, err := d.Factory(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("instantiate plugin %q: %w", name, err)
+	}
+	inp, ok := p.(InputPlugin)
+	if !ok {
+		return nil, fmt.Errorf("plugin %q does not implement InputPlugin", name)
+	}
+	return inp, nil
+}
+
+// ResolveNameAndConfig extracts a plugin name and config map from either a
+// plain string (name only) or a map[string]any with a "name" key.
+func ResolveNameAndConfig(item any) (string, map[string]any, error) {
+	switch v := item.(type) {
+	case string:
+		return v, map[string]any{}, nil
+	case map[string]any:
+		name, ok := v["name"].(string)
+		if !ok || name == "" {
+			return "", nil, fmt.Errorf("plugin config map must have a non-empty \"name\" field")
+		}
+		cfg := make(map[string]any, len(v))
+		for k, val := range v {
+			if k != "name" {
+				cfg[k] = val
+			}
+		}
+		return name, cfg, nil
+	default:
+		return "", nil, fmt.Errorf("plugin config must be a name string or object, got %T", item)
+	}
+}
