@@ -1,0 +1,443 @@
+package main
+
+import (
+	"context"
+	"flag"
+	"fmt"
+	"log/slog"
+	"os"
+	"os/signal"
+	"strings"
+	"sync"
+	"syscall"
+	"time"
+
+	"github.com/brunoga/pipeliner/internal/clog"
+	"github.com/brunoga/pipeliner/internal/config"
+	"github.com/brunoga/pipeliner/internal/plugin"
+	"github.com/brunoga/pipeliner/internal/scheduler"
+	"github.com/brunoga/pipeliner/internal/task"
+	"github.com/brunoga/pipeliner/internal/web"
+
+	// Register all built-in plugins via side-effect imports.
+	_ "github.com/brunoga/pipeliner/plugins/filter/accept_all"
+	_ "github.com/brunoga/pipeliner/plugins/filter/condition"
+	_ "github.com/brunoga/pipeliner/plugins/filter/content"
+	_ "github.com/brunoga/pipeliner/plugins/filter/exists"
+	_ "github.com/brunoga/pipeliner/plugins/filter/list_match"
+	_ "github.com/brunoga/pipeliner/plugins/filter/movies"
+	_ "github.com/brunoga/pipeliner/plugins/filter/premiere"
+	_ "github.com/brunoga/pipeliner/plugins/filter/quality"
+	_ "github.com/brunoga/pipeliner/plugins/filter/regexp"
+	_ "github.com/brunoga/pipeliner/plugins/filter/require"
+	_ "github.com/brunoga/pipeliner/plugins/filter/seen"
+	_ "github.com/brunoga/pipeliner/plugins/filter/series"
+	_ "github.com/brunoga/pipeliner/plugins/filter/torrentalive"
+	_ "github.com/brunoga/pipeliner/plugins/filter/trakt"
+	_ "github.com/brunoga/pipeliner/plugins/filter/tvdb"
+	_ "github.com/brunoga/pipeliner/plugins/filter/upgrade"
+	_ "github.com/brunoga/pipeliner/plugins/input/discover"
+	_ "github.com/brunoga/pipeliner/plugins/input/filesystem"
+	_ "github.com/brunoga/pipeliner/plugins/input/html"
+	_ "github.com/brunoga/pipeliner/plugins/input/rss"
+	_ "github.com/brunoga/pipeliner/plugins/input/search/rss"
+	_ "github.com/brunoga/pipeliner/plugins/input/trakt"
+	_ "github.com/brunoga/pipeliner/plugins/input/tvdb"
+	_ "github.com/brunoga/pipeliner/plugins/metainfo/magnet"
+	_ "github.com/brunoga/pipeliner/plugins/metainfo/quality"
+	_ "github.com/brunoga/pipeliner/plugins/metainfo/series"
+	_ "github.com/brunoga/pipeliner/plugins/metainfo/tmdb"
+	_ "github.com/brunoga/pipeliner/plugins/metainfo/trakt"
+	_ "github.com/brunoga/pipeliner/plugins/metainfo/tvdb"
+	_ "github.com/brunoga/pipeliner/plugins/modify/pathfmt"
+	_ "github.com/brunoga/pipeliner/plugins/modify/pathscrub"
+	_ "github.com/brunoga/pipeliner/plugins/modify/set"
+	_ "github.com/brunoga/pipeliner/plugins/notify/email"
+	_ "github.com/brunoga/pipeliner/plugins/notify/pushover"
+	_ "github.com/brunoga/pipeliner/plugins/notify/webhook"
+
+	_ "github.com/brunoga/pipeliner/plugins/output/decompress"
+	_ "github.com/brunoga/pipeliner/plugins/output/deluge"
+	_ "github.com/brunoga/pipeliner/plugins/output/download"
+	_ "github.com/brunoga/pipeliner/plugins/output/email"
+	_ "github.com/brunoga/pipeliner/plugins/output/exec"
+	_ "github.com/brunoga/pipeliner/plugins/output/list_add"
+	_ "github.com/brunoga/pipeliner/plugins/output/notify"
+	_ "github.com/brunoga/pipeliner/plugins/output/print"
+	_ "github.com/brunoga/pipeliner/plugins/output/qbittorrent"
+)
+
+var version = "dev"
+
+func main() {
+	os.Exit(run(os.Args[1:]))
+}
+
+func run(args []string) int {
+	if len(args) == 0 {
+		printUsage()
+		return 1
+	}
+
+	switch args[0] {
+	case "run":
+		return cmdRun(args[1:])
+	case "daemon":
+		return cmdDaemon(args[1:])
+	case "check":
+		return cmdCheck(args[1:])
+	case "list-plugins":
+		return cmdListPlugins(args[1:])
+	case "version":
+		fmt.Printf("pipeliner %s\n", version)
+		return 0
+	case "help", "--help", "-h":
+		printUsage()
+		return 0
+	default:
+		fmt.Fprintf(os.Stderr, "unknown command %q\n", args[0])
+		printUsage()
+		return 1
+	}
+}
+
+func printUsage() {
+	fmt.Fprintln(os.Stderr, `pipeliner - media automation tool
+
+Usage:
+  pipeliner run     [--config path] [--log-level level] [--dry-run] [task ...]  run one or all tasks once
+  pipeliner daemon  [--config path] [--log-level level] [--web :8080]           run tasks on their schedules
+
+  pipeliner check   [--config path]                                         validate config
+  pipeliner list-plugins                                                    list registered plugins
+  pipeliner version                                                         print version`)
+}
+
+// --- run command ---
+
+func cmdRun(args []string) int {
+	fs := flag.NewFlagSet("run", flag.ContinueOnError)
+	cfgPath := fs.String("config", "config.yaml", "path to config file")
+	logLevel := fs.String("log-level", "info", "log level (debug, info, warn, error)")
+	dryRun := fs.Bool("dry-run", false, "execute pipeline but skip output phase")
+	if err := fs.Parse(args); err != nil {
+		return 1
+	}
+
+	logger := makeLogger(*logLevel)
+	cfg, err := config.Load(*cfgPath)
+	if err != nil {
+		logger.Error("failed to load config", "err", err)
+		return 1
+	}
+
+	if errs := config.Validate(cfg); len(errs) > 0 {
+		for _, e := range errs {
+			logger.Error("config validation error", "err", e)
+		}
+		return 1
+	}
+
+	tasks, err := config.BuildTasks(cfg, logger)
+	if err != nil {
+		logger.Error("failed to build tasks", "err", err)
+		return 1
+	}
+
+	// Filter tasks by name if specified on command line.
+	wanted := map[string]bool{}
+	for _, name := range fs.Args() {
+		wanted[name] = true
+	}
+
+	if len(wanted) > 0 {
+		knownTasks := make(map[string]bool)
+		for _, t := range tasks {
+			knownTasks[t.Name()] = true
+		}
+		for name := range wanted {
+			if !knownTasks[name] {
+				logger.Error("unknown task specified", "task", name)
+				return 1
+			}
+		}
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	exitCode := 0
+	for _, t := range tasks {
+		if len(wanted) > 0 && !wanted[t.Name()] {
+			continue
+		}
+		if *dryRun {
+			t.SetDryRun(true)
+		}
+		result, err := t.Run(ctx)
+
+		if err != nil {
+			logger.Error("task failed", "task", t.Name(), "err", err)
+			exitCode = 2
+			continue
+		}
+		logger.Info("task complete",
+			"task", t.Name(),
+			"accepted", result.Accepted,
+			"rejected", result.Rejected,
+			"failed", result.Failed,
+			"duration", result.Duration,
+		)
+	}
+	return exitCode
+}
+
+// --- daemon command ---
+
+func cmdDaemon(args []string) int {
+	fs := flag.NewFlagSet("daemon", flag.ContinueOnError)
+	cfgPath := fs.String("config", "config.yaml", "path to config file")
+	logLevel := fs.String("log-level", "info", "log level (debug, info, warn, error)")
+	webAddr := fs.String("web", "", "web interface listen address (e.g. :8080); empty disables it")
+	if err := fs.Parse(args); err != nil {
+		return 1
+	}
+
+	opts := logHandlerOptions(*logLevel)
+	var bcast *web.Broadcaster
+	var logger *slog.Logger
+	if *webAddr != "" {
+		bcast = web.NewBroadcaster()
+		logger = slog.New(clog.New(bcast, opts))
+	} else {
+		logger = slog.New(clog.New(os.Stderr, opts))
+	}
+
+	cfg, err := config.Load(*cfgPath)
+	if err != nil {
+		logger.Error("failed to load config", "err", err)
+		return 1
+	}
+
+	if errs := config.Validate(cfg); len(errs) > 0 {
+		for _, e := range errs {
+			logger.Error("config validation error", "err", e)
+		}
+		return 1
+	}
+
+	tasks, err := config.BuildTasks(cfg, logger)
+	if err != nil {
+		logger.Error("failed to build tasks", "err", err)
+		return 1
+	}
+
+	// taskByName is replaced atomically on reload; protect all accesses with taskMu.
+	var taskMu sync.RWMutex
+	taskByName := make(map[string]*task.Task, len(tasks))
+	for _, t := range tasks {
+		taskByName[t.Name()] = t
+	}
+
+	d := &scheduler.Daemon{}
+	if scheduled, ok := addSchedules(d, cfg.Schedules, taskByName, logger); !ok {
+		return 1
+	} else {
+		for _, s := range scheduled {
+			logger.Info("scheduled", "task", s.Name, "schedule", cfg.Schedules[s.Name])
+		}
+	}
+
+	hist := web.NewHistory()
+
+	// ws is captured by both runner and reload closures below; declared before both.
+	var ws *web.Server
+
+	runner := func(ctx context.Context, name string) {
+		if ws != nil {
+			ws.TaskStarted(name)
+			defer ws.TaskDone(name)
+		}
+		taskMu.RLock()
+		t, ok := taskByName[name]
+		taskMu.RUnlock()
+		if !ok {
+			return
+		}
+		at := time.Now()
+		result, runErr := t.Run(ctx)
+
+		rec := web.RunRecord{Task: name, At: at}
+		if runErr != nil {
+			rec.Err = runErr.Error()
+			logger.Error("task failed", "task", name, "err", runErr)
+		} else {
+			rec.Accepted = result.Accepted
+			rec.Rejected = result.Rejected
+			rec.Failed = result.Failed
+			rec.Total = result.Total
+			rec.Duration = result.Duration
+			logger.Info("task complete",
+				"task", name,
+				"accepted", result.Accepted,
+				"rejected", result.Rejected,
+				"failed", result.Failed,
+				"duration", result.Duration,
+			)
+		}
+		hist.Add(rec)
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	reload := func() error {
+		newCfg, err := config.Load(*cfgPath)
+		if err != nil {
+			return fmt.Errorf("load config: %w", err)
+		}
+		if errs := config.Validate(newCfg); len(errs) > 0 {
+			return errs[0]
+		}
+		newTasks, err := config.BuildTasks(newCfg, logger)
+		if err != nil {
+			return fmt.Errorf("build tasks: %w", err)
+		}
+		newMap := make(map[string]*task.Task, len(newTasks))
+		for _, t := range newTasks {
+			newMap[t.Name()] = t
+		}
+		scheduled, ok := addSchedules(nil, newCfg.Schedules, newMap, logger)
+		if !ok {
+			return fmt.Errorf("invalid schedules in new config")
+		}
+
+		taskMu.Lock()
+		taskByName = newMap
+		taskMu.Unlock()
+
+		d.Reset(scheduled)
+		logger.Info("config reloaded", "tasks", len(newTasks))
+
+		if ws != nil {
+			infos := make([]web.TaskInfo, len(newTasks))
+			for i, t := range newTasks {
+				infos[i] = web.TaskInfo{Name: t.Name(), Schedule: newCfg.Schedules[t.Name()]}
+			}
+			ws.SetTasks(infos)
+		}
+		return nil
+	}
+
+	if *webAddr != "" {
+		taskInfos := make([]web.TaskInfo, len(tasks))
+		for i, t := range tasks {
+			taskInfos[i] = web.TaskInfo{Name: t.Name(), Schedule: cfg.Schedules[t.Name()]}
+		}
+		ws = web.New(taskInfos, d, hist, bcast)
+		ws.SetReload(reload)
+		go func() {
+			if err := ws.Start(ctx, *webAddr); err != nil {
+				logger.Error("web server error", "err", err)
+			}
+		}()
+		logger.Info("web interface enabled", "addr", *webAddr)
+	}
+
+	logger.Info("daemon started")
+	d.Run(ctx, runner)
+	logger.Info("daemon stopped")
+	return 0
+}
+
+// addSchedules parses schedule expressions from cfg and registers them on d
+// (if non-nil). Returns the slice of ScheduledTasks and ok=true on success.
+func addSchedules(d *scheduler.Daemon, schedules map[string]string, tasks map[string]*task.Task, logger *slog.Logger) ([]scheduler.ScheduledTask, bool) {
+	var out []scheduler.ScheduledTask
+	for name, expr := range schedules {
+		if _, ok := tasks[name]; !ok {
+			logger.Error("schedule references unknown task", "task", name)
+			return nil, false
+		}
+		sched, err := scheduler.ParseInterval(expr)
+		runAtStart := err == nil
+		if err != nil {
+			sched, err = scheduler.ParseCron(expr)
+		}
+		if err != nil {
+			logger.Error("invalid schedule", "task", name, "expr", expr, "err", err)
+			return nil, false
+		}
+		out = append(out, scheduler.ScheduledTask{Name: name, Schedule: sched, RunAtStart: runAtStart})
+		if d != nil {
+			d.Add(name, sched)
+			if runAtStart {
+				d.TriggerAtStart(name)
+			}
+		}
+	}
+	return out, true
+}
+
+// --- check command ---
+
+func cmdCheck(args []string) int {
+	fs := flag.NewFlagSet("check", flag.ContinueOnError)
+	cfgPath := fs.String("config", "config.yaml", "path to config file")
+	if err := fs.Parse(args); err != nil {
+		return 1
+	}
+
+	cfg, err := config.Load(*cfgPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+
+	errs := config.Validate(cfg)
+	if len(errs) == 0 {
+		fmt.Println("config OK")
+		return 0
+	}
+	for _, e := range errs {
+		fmt.Fprintf(os.Stderr, "error: %v\n", e)
+	}
+	return 1
+}
+
+// --- list-plugins command ---
+
+func cmdListPlugins(_ []string) int {
+	descs := plugin.All()
+	if len(descs) == 0 {
+		fmt.Println("no plugins registered")
+		return 0
+	}
+	fmt.Printf("%-24s %-10s %s\n", "NAME", "PHASE", "DESCRIPTION")
+	fmt.Println(strings.Repeat("-", 60))
+	for _, d := range descs {
+		fmt.Printf("%-24s %-10s %s\n", d.PluginName, d.PluginPhase, d.Description)
+	}
+	return 0
+}
+
+// --- helpers ---
+
+func logHandlerOptions(level string) *slog.HandlerOptions {
+	var l slog.Level
+	switch strings.ToLower(level) {
+	case "debug":
+		l = slog.LevelDebug
+	case "warn":
+		l = slog.LevelWarn
+	case "error":
+		l = slog.LevelError
+	default:
+		l = slog.LevelInfo
+	}
+	return &slog.HandlerOptions{Level: l}
+}
+
+func makeLogger(level string) *slog.Logger {
+	return slog.New(clog.New(os.Stderr, logHandlerOptions(level)))
+}
