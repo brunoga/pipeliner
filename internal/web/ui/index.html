@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pipeliner</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:      #0d1117;
+  --surface: #161b22;
+  --border:  #30363d;
+  --text:    #e6edf3;
+  --muted:   #8b949e;
+  --accent:  #58a6ff;
+  --green:   #3fb950;
+  --amber:   #d29922;
+  --red:     #f85149;
+  --purple:  #bc8cff;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  padding: 24px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 28px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+h1 { font-size: 18px; font-weight: 600; }
+h1 span { color: var(--accent); }
+
+.header-meta { color: var(--muted); font-size: 12px; }
+
+h2 {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  margin-bottom: 14px;
+}
+
+section { margin-bottom: 32px; }
+
+/* task grid */
+.task-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.task-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.task-card-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.task-name { font-weight: 600; font-size: 15px; word-break: break-all; }
+.task-schedule {
+  font-size: 11px;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  color: var(--muted);
+  background: var(--bg);
+  padding: 2px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.task-timing { font-size: 12px; color: var(--muted); display: flex; flex-direction: column; gap: 3px; }
+.task-timing span { display: flex; justify-content: space-between; gap: 8px; }
+.task-timing b { color: var(--text); font-weight: 400; }
+
+.task-stats { display: flex; gap: 20px; justify-content: center; }
+.stat { display: flex; flex-direction: column; align-items: center; }
+.stat-val { font-size: 22px; font-weight: 700; line-height: 1.1; }
+.stat-val.a { color: var(--green); }
+.stat-val.r { color: var(--amber); }
+.stat-val.f { color: var(--red); }
+.stat-lbl { font-size: 10px; color: var(--muted); text-transform: uppercase; margin-top: 2px; }
+
+.task-empty { font-size: 12px; color: var(--muted); }
+.task-err { font-size: 11px; color: var(--red); }
+
+.btn-run {
+  margin-top: auto;
+  padding: 7px 0;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+  width: 100%;
+}
+.btn-run:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(88,166,255,0.06);
+}
+.btn-run:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-run.triggered { border-color: var(--amber); color: var(--amber); }
+.btn-run.running   { border-color: var(--accent); color: var(--accent); }
+
+.running-badge {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+  background: rgba(88,166,255,0.12);
+  border: 1px solid rgba(88,166,255,0.3);
+  border-radius: 4px;
+  padding: 1px 6px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+/* log console */
+.log-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.log-header h2 { margin: 0; }
+.log-controls { display: flex; align-items: center; gap: 10px; }
+
+.log-status { font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 5px; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--red); flex-shrink: 0; }
+.dot.on { background: var(--green); }
+
+.btn-clear {
+  padding: 3px 8px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+}
+.btn-clear:hover { border-color: var(--text); color: var(--text); }
+
+.btn-reload {
+  padding: 5px 12px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  transition: border-color 0.15s, color 0.15s;
+}
+.btn-reload:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.btn-reload:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-reload.ok  { border-color: var(--green); color: var(--green); }
+.btn-reload.err { border-color: var(--red);   color: var(--red); }
+
+.log-console {
+  background: #010409;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  height: 300px;
+  overflow-y: auto;
+  overflow-x: auto;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.log-line { white-space: pre; }
+.ll-time          { color: var(--muted); }
+.ll-level-debug   { color: var(--muted); }
+.ll-level-info    { color: var(--accent); }
+.ll-level-warn    { color: var(--amber); }
+.ll-level-error   { color: var(--red); font-weight: 600; }
+.ll-msg-accepted  { color: var(--green); font-weight: 600; }
+.ll-msg-rejected  { color: var(--red); }
+.ll-msg-failed    { color: var(--purple); font-weight: 600; }
+.ll-msg-undecided { color: var(--amber); }
+.ll-msg-warn      { color: var(--amber); }
+.ll-msg-error     { color: var(--red); }
+.ll-attrs         { color: var(--text); }
+
+.no-tasks { color: var(--muted); padding: 40px 0; text-align: center; font-size: 13px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1><span>▶</span> Pipeliner</h1>
+  <div style="display:flex;align-items:center;gap:12px">
+    <span class="header-meta" id="header-meta">connecting…</span>
+    <button class="btn-reload" id="btn-run-all" onclick="runAll(this)">Run all</button>
+    <button class="btn-reload" id="btn-reload" onclick="reloadConfig(this)">Reload config</button>
+  </div>
+</header>
+
+<section>
+  <h2>Tasks</h2>
+  <div class="task-grid" id="task-grid"><div class="no-tasks">Loading…</div></div>
+</section>
+
+<section>
+  <div class="log-header">
+    <h2>Live Log</h2>
+    <div class="log-controls">
+      <div class="log-status">
+        <div class="dot" id="log-dot"></div>
+        <span id="log-status-text">disconnected</span>
+      </div>
+      <button class="btn-clear" onclick="clearLog()">Clear</button>
+    </div>
+  </div>
+  <div class="log-console" id="log-console"></div>
+</section>
+
+<script>
+'use strict';
+
+const MAX_LINES = 500;
+let logLines = [];
+let startedAt = Date.now();
+
+// ── polling ───────────────────────────────────────────────────────────────────
+
+let reloading = false;
+
+async function refresh() {
+  try {
+    const [sr, hr] = await Promise.all([fetch('/api/status'), fetch('/api/history')]);
+    const status  = await sr.json();
+    const history = await hr.json();
+    const tasks   = status.tasks || [];
+    render(tasks, history);
+    document.getElementById('header-meta').textContent =
+      'up ' + fmtUptime(Math.round((Date.now() - startedAt) / 1000)) +
+      ' · ' + tasks.length + ' task' + (tasks.length !== 1 ? 's' : '');
+    if (!reloading) {
+      const anyRunning = tasks.some(t => t.running);
+      const btn = document.getElementById('btn-reload');
+      btn.disabled = anyRunning;
+      btn.title = anyRunning ? 'Cannot reload while a task is running' : '';
+    }
+  } catch (e) {
+    document.getElementById('header-meta').textContent = 'error — retrying';
+  }
+}
+
+function render(tasks, history) {
+  const grid = document.getElementById('task-grid');
+  if (!tasks.length) {
+    grid.innerHTML = '<div class="no-tasks">No tasks configured.</div>';
+    return;
+  }
+  grid.innerHTML = tasks.map(t => card(t, (history[t.name] || [])[0])).join('');
+}
+
+function card(t, last) {
+  const schedBadge = t.schedule
+    ? `<span class="task-schedule">${esc(t.schedule)}</span>`
+    : `<span class="task-schedule" style="opacity:.5">manual</span>`;
+
+  const runningBadge = t.running ? `<span class="running-badge">running</span>` : '';
+
+  const nextStr = t.nextRun ? 'in ' + relTime(new Date(t.nextRun)) : '—';
+  const lastStr = last ? relTime(new Date(last.at)) + ' ago' : 'never';
+  const durStr  = last ? ' · ' + last.duration : '';
+
+  const stats = last
+    ? `<div class="task-stats">
+         <div class="stat"><div class="stat-val a">${last.accepted}</div><div class="stat-lbl">accepted</div></div>
+         <div class="stat"><div class="stat-val r">${last.rejected}</div><div class="stat-lbl">rejected</div></div>
+         <div class="stat"><div class="stat-val f">${last.failed}</div><div class="stat-lbl">failed</div></div>
+       </div>`
+    : `<div class="task-empty">No runs yet</div>`;
+
+  const errLine = (last && last.err)
+    ? `<div class="task-err">⚠ ${esc(last.err)}</div>` : '';
+
+  const runBtn = t.running
+    ? `<button class="btn-run running" disabled>Running…</button>`
+    : `<button class="btn-run" onclick="triggerRun(${esc(JSON.stringify(t.name))}, this)">Run now</button>`;
+
+  return `
+    <div class="task-card">
+      <div class="task-card-header">
+        <div class="task-name">${esc(t.name)}</div>
+        <div style="display:flex;gap:6px;align-items:center">${runningBadge}${schedBadge}</div>
+      </div>
+      <div class="task-timing">
+        <span><span>Next run</span><b>${nextStr}</b></span>
+        <span><span>Last run</span><b>${lastStr}${esc(durStr)}</b></span>
+      </div>
+      ${stats}
+      ${errLine}
+      ${runBtn}
+    </div>`;
+}
+
+// ── manual trigger ────────────────────────────────────────────────────────────
+
+async function triggerRun(name, btn) {
+  btn.disabled = true;
+  btn.textContent = 'Triggered…';
+  btn.classList.add('triggered');
+  try {
+    await fetch('/api/tasks/' + encodeURIComponent(name) + '/run', { method: 'POST' });
+  } catch (_) {}
+  setTimeout(() => {
+    btn.disabled = false;
+    btn.textContent = 'Run now';
+    btn.classList.remove('triggered');
+    refresh();
+  }, 3000);
+}
+
+// ── SSE log stream ────────────────────────────────────────────────────────────
+
+function connectLogs() {
+  const dot  = document.getElementById('log-dot');
+  const text = document.getElementById('log-status-text');
+  const es   = new EventSource('/api/logs');
+
+  es.onopen = () => { dot.classList.add('on'); text.textContent = 'connected'; };
+
+  es.onmessage = ev => appendLog(ev.data);
+
+  es.onerror = () => {
+    dot.classList.remove('on');
+    text.textContent = 'reconnecting…';
+    es.close();
+    setTimeout(connectLogs, 3000);
+  };
+}
+
+function appendLog(line) {
+  const el = document.createElement('div');
+  el.className = 'log-line';
+  el.innerHTML = renderLogLine(line);
+
+  const con = document.getElementById('log-console');
+  const atBottom = con.scrollHeight - con.scrollTop - con.clientHeight < 60;
+  con.appendChild(el);
+  logLines.push(el);
+  if (logLines.length > MAX_LINES) logLines.shift().remove();
+  if (atBottom) con.scrollTop = con.scrollHeight;
+}
+
+function clearLog() {
+  document.getElementById('log-console').innerHTML = '';
+  logLines = [];
+}
+
+// Parse a clog-format line and return HTML with per-part coloring.
+// Format: "2026-05-03 16:32:33.474 INFO  MESSAGE [key=val ...]"
+//      or "16:32:33.474 INFO  MESSAGE [key=val ...]"
+function renderLogLine(line) {
+  const m = line.match(/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}|\d{2}:\d{2}:\d{2}\.\d{3}) (.{5}) (.*)/);
+  if (!m) return esc(line);
+
+  const [, ts, levelPadded, body] = m;
+  const level = levelPadded.trim();
+
+  // Attrs begin at the first " word=" token after the message.
+  const attrIdx = body.search(/ \w+=/);
+  const msg   = attrIdx === -1 ? body : body.slice(0, attrIdx);
+  const attrs = attrIdx === -1 ? '' : body.slice(attrIdx);
+
+  return (
+    `<span class="ll-time">${esc(ts)}</span> ` +
+    `<span class="ll-level-${level.toLowerCase()}">${esc(levelPadded)}</span> ` +
+    `<span class="${msgColorClass(msg, level)}">${esc(msg)}</span>` +
+    (attrs ? `<span class="ll-attrs">${esc(attrs)}</span>` : '')
+  );
+}
+
+function msgColorClass(msg, level) {
+  switch (msg) {
+    case 'entry accepted':  return 'll-msg-accepted';
+    case 'entry rejected':  return 'll-msg-rejected';
+    case 'entry failed':    return 'll-msg-failed';
+    case 'entry undecided': return 'll-msg-undecided';
+  }
+  switch (level) {
+    case 'ERROR': return 'll-msg-error';
+    case 'WARN':  return 'll-msg-warn';
+  }
+  return '';
+}
+
+// ── helpers ───────────────────────────────────────────────────────────────────
+
+function esc(s) {
+  return String(s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function relTime(d) {
+  const s = Math.round(Math.abs(Date.now() - d) / 1000);
+  if (s < 90)    return s + 's';
+  if (s < 5400)  return Math.round(s / 60) + 'm';
+  if (s < 86400) return Math.round(s / 3600) + 'h';
+  return Math.round(s / 86400) + 'd';
+}
+
+function fmtUptime(s) {
+  if (s < 60)   return s + 's';
+  if (s < 3600) return Math.floor(s/60) + 'm ' + (s%60) + 's';
+  return Math.floor(s/3600) + 'h ' + Math.floor((s%3600)/60) + 'm';
+}
+
+// ── run all tasks ─────────────────────────────────────────────────────────────
+
+async function runAll(btn) {
+  btn.disabled = true;
+  btn.textContent = 'Triggered…';
+  try {
+    await fetch('/api/tasks/run', { method: 'POST' });
+  } catch (_) {}
+  setTimeout(() => {
+    btn.disabled = false;
+    btn.textContent = 'Run all';
+    refresh();
+  }, 3000);
+}
+
+// ── reload config ─────────────────────────────────────────────────────────────
+
+async function reloadConfig(btn) {
+  reloading = true;
+  btn.disabled = true;
+  btn.textContent = 'Reloading…';
+  btn.className = 'btn-reload';
+  btn.title = '';
+  try {
+    const r = await fetch('/api/reload', { method: 'POST' });
+    if (r.ok) {
+      btn.textContent = 'Reloaded ✓';
+      btn.classList.add('ok');
+      await refresh();
+    } else {
+      const msg = await r.text();
+      btn.textContent = 'Error';
+      btn.classList.add('err');
+      btn.title = msg.trim();
+    }
+  } catch (e) {
+    btn.textContent = 'Error';
+    btn.classList.add('err');
+    btn.title = String(e);
+  }
+  setTimeout(() => {
+    reloading = false;
+    btn.textContent = 'Reload config';
+    btn.className = 'btn-reload';
+    btn.title = '';
+    refresh(); // re-evaluate disabled state
+  }, 3000);
+}
+
+// ── boot ──────────────────────────────────────────────────────────────────────
+
+refresh();
+setInterval(refresh, 10000);
+connectLogs();
+</script>
+</body>
+</html>
