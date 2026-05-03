@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Test Feed</title>
+    <link>http://example.com</link>
+    <item>
+      <title>Episode One</title>
+      <link>http://example.com/ep1</link>
+      <description>First episode</description>
+      <pubDate>Mon, 01 Jan 2024 00:00:00 +0000</pubDate>
+      <guid>guid-ep1</guid>
+    </item>
+    <item>
+      <title>Episode Two</title>
+      <link>http://example.com/ep2</link>
+      <description>Second episode</description>
+      <pubDate>Tue, 02 Jan 2024 00:00:00 +0000</pubDate>
+      <guid>guid-ep2</guid>
+    </item>
+    <item>
+      <title>Torrent Item</title>
+      <link>http://example.com/torrent-page</link>
+      <enclosure url="http://example.com/file.torrent" type="application/x-bittorrent"/>
+      <pubDate>Wed, 03 Jan 2024 00:00:00 +0000</pubDate>
+      <guid>guid-torrent</guid>
+    </item>
+  </channel>
+</rss>

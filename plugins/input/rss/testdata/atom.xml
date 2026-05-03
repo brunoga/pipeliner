@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Atom Test Feed</title>
+  <entry>
+    <title>Atom Entry One</title>
+    <link href="http://example.com/atom-ep1" rel="alternate"/>
+    <summary>First atom entry</summary>
+    <updated>2024-01-01T00:00:00Z</updated>
+    <id>urn:uuid:atom-ep1</id>
+  </entry>
+  <entry>
+    <title>Atom Entry Two</title>
+    <link href="http://example.com/atom-ep2" rel="alternate"/>
+    <summary>Second atom entry</summary>
+    <updated>2024-01-02T00:00:00Z</updated>
+    <id>urn:uuid:atom-ep2</id>
+  </entry>
+  <entry>
+    <title>Atom Enclosure</title>
+    <link href="http://example.com/atom-page" rel="alternate"/>
+    <link href="http://example.com/atom.torrent" rel="enclosure" type="application/x-bittorrent"/>
+    <summary>Enclosure test</summary>
+    <updated>2024-01-03T00:00:00Z</updated>
+    <id>urn:uuid:atom-enc</id>
+  </entry>
+</feed>
