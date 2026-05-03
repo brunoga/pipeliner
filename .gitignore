@@ -1,0 +1,11 @@
+# compiled binary
+cmd/pipeliner/pipeliner
+
+# SQLite files created during tests
+*.db
+*.db-shm
+*.db-wal
+*.db.lock
+
+# editor and tool metadata
+.claude/
