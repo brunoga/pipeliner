@@ -1,0 +1,31 @@
+version: "2"
+
+linters:
+  default: standard
+  enable:
+    - misspell      # catch common spelling mistakes in comments and strings
+    - noctx         # detect http calls without context
+    - gosec         # security checks
+    - revive        # opinionated but practical style checks
+
+linters-settings:
+  revive:
+    rules:
+      - name: exported
+        disabled: true   # don't require every exported symbol to have a doc comment
+
+issues:
+  exclude-rules:
+    # errcheck is noisy in test helpers — allow unchecked calls in _test.go files.
+    - path: _test\.go
+      linters: [errcheck]
+
+    # gosec G204 (subprocess launched with variable) is expected in output/exec.
+    - path: plugins/output/exec/exec\.go
+      linters: [gosec]
+      text: G204
+
+    # gosec G304 (file path from variable) is expected in decompress/download.
+    - path: plugins/output/(decompress|download)/
+      linters: [gosec]
+      text: G304
