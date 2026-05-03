@@ -1,15 +1,13 @@
-version: "2"
-
 run:
   go: "1.24"   # pin to the highest version golangci-lint itself was built with
 
 linters:
-  default: standard
+  # Default linters (errcheck, govet, staticcheck, etc.) remain enabled.
   enable:
-    - misspell      # catch common spelling mistakes in comments and strings
-    - noctx         # detect http calls without context
-    - gosec         # security checks
-    - revive        # opinionated but practical style checks
+    - misspell   # catch common spelling mistakes in comments and strings
+    - noctx      # detect http calls without context
+    - gosec      # security checks
+    - revive     # opinionated but practical style checks
 
 linters-settings:
   revive:
