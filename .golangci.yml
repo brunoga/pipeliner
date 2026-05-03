@@ -1,5 +1,8 @@
 version: "2"
 
+run:
+  go: "1.24"   # pin to the highest version golangci-lint itself was built with
+
 linters:
   default: standard
   enable:
