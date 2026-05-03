@@ -1,0 +1,221 @@
+// Package movies provides a movie filter and learn plugin.
+//
+// It parses movie information from entry titles, matches them against a configured
+// title list, deduplicates against a persistent tracker, and enforces quality constraints.
+//
+// The movie list may be provided statically via 'movies', dynamically via 'from'
+// (a list of input plugins whose entry titles are used as movie names), or both.
+// Dynamic lists are cached for the configured ttl (default: 1h).
+package movies
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/brunoga/pipeliner/internal/cache"
+	"github.com/brunoga/pipeliner/internal/entry"
+	"github.com/brunoga/pipeliner/internal/match"
+	imovies "github.com/brunoga/pipeliner/internal/movies"
+	"github.com/brunoga/pipeliner/internal/plugin"
+	"github.com/brunoga/pipeliner/internal/quality"
+	"github.com/brunoga/pipeliner/internal/store"
+)
+
+func init() {
+	plugin.Register(&plugin.Descriptor{
+		PluginName:  "movies",
+		Description: "accept movies from a configured list; track downloads across runs",
+		PluginPhase: plugin.PhaseFilter,
+		Factory:     newPlugin,
+	})
+}
+
+type moviesPlugin struct {
+	staticTitles []string          // normalised movie titles from config
+	from         []plugin.InputPlugin
+	listCache    *cache.Cache[[]string]
+	spec         quality.Spec
+	tracker      *imovies.Tracker
+}
+
+func newPlugin(cfg map[string]any) (plugin.Plugin, error) {
+	raw := toStringSlice(cfg["movies"])
+	staticTitles := make([]string, len(raw))
+	for i, s := range raw {
+		staticTitles[i] = match.Normalize(s)
+	}
+
+	fromRaw, _ := cfg["from"].([]any)
+	var froms []plugin.InputPlugin
+	for _, item := range fromRaw {
+		inp, err := plugin.MakeInputPlugin(item)
+		if err != nil {
+			return nil, fmt.Errorf("movies: from: %w", err)
+		}
+		froms = append(froms, inp)
+	}
+
+	if len(staticTitles) == 0 && len(froms) == 0 {
+		return nil, fmt.Errorf("movies: at least one of 'movies' or 'from' is required")
+	}
+
+	ttl := time.Hour
+	if v, _ := cfg["ttl"].(string); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return nil, fmt.Errorf("movies: invalid ttl %q: %w", v, err)
+		}
+		ttl = d
+	}
+
+	dbPath, _ := cfg["db"].(string)
+	if dbPath == "" {
+		dbPath = "pipeliner.db"
+	}
+
+	var spec quality.Spec
+	if q, _ := cfg["quality"].(string); q != "" {
+		s, err := quality.ParseSpec(q)
+		if err != nil {
+			return nil, fmt.Errorf("movies: invalid quality spec: %w", err)
+		}
+		spec.MinResolution = s.MinResolution
+		spec.MinSource = s.MinSource
+		spec.MinCodec = s.MinCodec
+		spec.MinAudio = s.MinAudio
+		spec.MinColorRange = s.MinColorRange
+	}
+
+	db, err := store.OpenSQLite(dbPath)
+	if err != nil {
+		return nil, fmt.Errorf("movies: open store: %w", err)
+	}
+
+	return &moviesPlugin{
+		staticTitles: staticTitles,
+		from:         froms,
+		listCache:    cache.NewPersistent[[]string](ttl, db.Bucket("cache_movies_from")),
+		spec:         spec,
+		tracker:      imovies.NewTracker(db.Bucket("movies")),
+	}, nil
+}
+
+func (p *moviesPlugin) Name() string        { return "movies" }
+func (p *moviesPlugin) Phase() plugin.Phase { return plugin.PhaseFilter }
+
+func (p *moviesPlugin) Filter(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
+	m, ok := imovies.Parse(e.Title)
+	if !ok {
+		return nil
+	}
+
+	titles := p.resolveTitles(ctx, tc)
+	matchedTitle, ok := matchTitle(m.Title, titles)
+	if !ok {
+		return nil
+	}
+
+	e.Set("movie_title", matchedTitle)
+	e.Set("movie_year", m.Year)
+
+	if p.tracker.IsSeen(matchedTitle, m.Year) {
+		if rec, ok := p.tracker.Latest(matchedTitle); ok && rec.Year == m.Year {
+			if m.Quality.Better(rec.Quality) {
+				e.Accept()
+				return nil
+			}
+		}
+		e.Reject(fmt.Sprintf("movies: %s (%d) already downloaded", matchedTitle, m.Year))
+		return nil
+	}
+
+	if (p.spec != quality.Spec{}) && !p.spec.Matches(m.Quality) {
+		e.Reject(fmt.Sprintf("movies: %s (%d) quality %s does not match spec",
+			matchedTitle, m.Year, m.Quality.String()))
+		return nil
+	}
+
+	e.Accept()
+	return nil
+}
+
+func (p *moviesPlugin) Learn(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
+	titles := p.resolveTitles(ctx, tc)
+	for _, e := range entries {
+		if !e.IsAccepted() {
+			continue
+		}
+		m, ok := imovies.Parse(e.Title)
+		if !ok {
+			continue
+		}
+		matchedTitle, ok := matchTitle(m.Title, titles)
+		if !ok {
+			continue
+		}
+		if err := p.tracker.Mark(imovies.Record{
+			Title:   matchedTitle,
+			Year:    m.Year,
+			Quality: m.Quality,
+		}); err != nil {
+			return fmt.Errorf("movies: mark %s (%d): %w", matchedTitle, m.Year, err)
+		}
+	}
+	return nil
+}
+
+// resolveTitles returns the full titles list: static + dynamically fetched.
+// Dynamic results are cached for the configured TTL.
+func (p *moviesPlugin) resolveTitles(ctx context.Context, tc *plugin.TaskContext) []string {
+	if len(p.from) == 0 {
+		return p.staticTitles
+	}
+	if dynamic, ok := p.listCache.Get("titles"); ok {
+		return append(p.staticTitles, dynamic...)
+	}
+	var dynamic []string
+	innerTC := &plugin.TaskContext{Name: tc.Name, Logger: tc.Logger}
+	for _, inp := range p.from {
+		fromEntries, err := inp.Run(ctx, innerTC)
+		if err != nil {
+			tc.Logger.Warn("movies: from source failed", "plugin", inp.Name(), "err", err)
+			continue
+		}
+		for _, e := range fromEntries {
+			if e.Title != "" {
+				dynamic = append(dynamic, match.Normalize(e.Title))
+			}
+		}
+	}
+	p.listCache.Set("titles", dynamic)
+	return append(p.staticTitles, dynamic...)
+}
+
+func matchTitle(parsed string, titles []string) (string, bool) {
+	norm := match.Normalize(parsed)
+	for _, title := range titles {
+		if match.Fuzzy(norm, title) {
+			return title, true
+		}
+	}
+	return "", false
+}
+
+func toStringSlice(v any) []string {
+	switch t := v.(type) {
+	case string:
+		return []string{t}
+	case []string:
+		return t
+	case []any:
+		out := make([]string, 0, len(t))
+		for _, item := range t {
+			if s, ok := item.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+	return nil
+}
