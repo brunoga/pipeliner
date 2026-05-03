@@ -1,0 +1,35 @@
+variables:
+  deluge_host: localhost
+  deluge_pass: changeme
+  db_path: pipeliner.db
+  tv_path: /media/tv
+
+templates:
+  common:
+    rss:
+      url: "https://example.com/rss/torrents"
+    seen:
+      db: "{$ db_path $}"
+
+tasks:
+  tv-series:
+    template: common
+    metainfo_quality:
+    series:
+      db: "{$ db_path $}"
+      tracking: strict
+      quality: 720p
+      shows:
+        - "Breaking Bad"
+        - "Better Call Saul"
+        - "The Wire"
+        - "Severance"
+    pathfmt:
+      path: '{$ tv_path $}/{series_name}/Season {series_season:02d}'
+    deluge:
+      host: "{$ deluge_host $}"
+      password: "{$ deluge_pass $}"
+      path: "{download_path}"
+
+schedules:
+  tv-series: 1h

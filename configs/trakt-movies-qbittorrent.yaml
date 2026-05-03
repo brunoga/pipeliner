@@ -1,0 +1,83 @@
+variables:
+  trakt_client_id: YOUR_TRAKT_CLIENT_ID
+  trakt_access_token: YOUR_TRAKT_ACCESS_TOKEN
+  qbit_host: localhost
+  qbit_port: "8080"
+  qbit_user: admin
+  qbit_pass: changeme
+  db_path: pipeliner.db
+  movies_path: /media/movies
+
+templates:
+  common:
+    rss:
+      url: "https://example.com/rss/movies"
+    seen:
+      db: "{$ db_path $}"
+
+tasks:
+  # Movies on the Trakt watchlist — 720p minimum quality.
+  # movies.from fetches the watchlist, caches it for 4h, and uses it as the title list.
+  movies-watchlist:
+    template: common
+    metainfo_quality:
+    movies:
+      db: "{$ db_path $}"
+      quality: 720p
+      ttl: 4h
+      from:
+        - name: input_trakt
+          client_id: "{$ trakt_client_id $}"
+          access_token: "{$ trakt_access_token $}"
+          type: movies
+          list: watchlist
+    metainfo_tmdb:
+      api_key: YOUR_TMDB_API_KEY
+      db: "{$ db_path $}"
+    metainfo_trakt:
+      client_id: "{$ trakt_client_id $}"
+      type: movies
+      db: "{$ db_path $}"
+    pathfmt:
+      path: '{$ movies_path $}/{{.tmdb_title}} ({{.tmdb_release_date | slice 0 4}})'
+    qbittorrent:
+      host: "{$ qbit_host $}"
+      port: "{$ qbit_port $}"
+      username: "{$ qbit_user $}"
+      password: "{$ qbit_pass $}"
+      savepath: "{download_path}"
+
+  # High-quality picks: movies from the Trakt ratings list, filtered by TMDb score.
+  # Uses condition.rules to apply multiple gates without duplicate YAML keys.
+  movies-top-rated:
+    template: common
+    metainfo_quality:
+    movies:
+      db: "{$ db_path $}"
+      quality: 1080p
+      ttl: 4h
+      from:
+        - name: input_trakt
+          client_id: "{$ trakt_client_id $}"
+          access_token: "{$ trakt_access_token $}"
+          type: movies
+          list: ratings
+    metainfo_tmdb:
+      api_key: YOUR_TMDB_API_KEY
+      db: "{$ db_path $}"
+    condition:
+      rules:
+        - reject: 'source == "CAM"'
+        - reject: 'tmdb_vote_average < 7.5'
+    pathfmt:
+      path: '{$ movies_path $}/{{.tmdb_title}} ({{.tmdb_release_date | slice 0 4}})'
+    qbittorrent:
+      host: "{$ qbit_host $}"
+      port: "{$ qbit_port $}"
+      username: "{$ qbit_user $}"
+      password: "{$ qbit_pass $}"
+      savepath: "{download_path}"
+
+schedules:
+  movies-watchlist: 2h
+  movies-top-rated: 6h

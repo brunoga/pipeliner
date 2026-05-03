@@ -1,0 +1,39 @@
+variables:
+  qbt_host: localhost
+  qbt_user: admin
+  qbt_pass: changeme
+  db_path: pipeliner.db
+  tmdb_key: YOUR_TMDB_API_KEY
+  movies_path: /media/movies
+
+tasks:
+  movies:
+    rss:
+      url: "https://example.com/rss/movies"
+    seen:
+      db: "{$ db_path $}"
+    metainfo_quality:
+    metainfo_tmdb:
+      api_key: "{$ tmdb_key $}"
+    movies:
+      db: "{$ db_path $}"
+      quality: 1080p
+      movies:
+        - Inception
+        - Interstellar
+        - "The Dark Knight"
+        - Oppenheimer
+        - Dune
+    condition:
+      reject: 'tmdb_vote_average < 7.0'
+    pathfmt:
+      path: '{$ movies_path $}/{movie_title} ({movie_year})'
+    qbittorrent:
+      host: "{$ qbt_host $}"
+      username: "{$ qbt_user $}"
+      password: "{$ qbt_pass $}"
+      savepath: "{download_path}"
+      category: movies
+
+schedules:
+  movies: 6h

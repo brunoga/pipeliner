@@ -1,0 +1,70 @@
+variables:
+  trakt_client_id: YOUR_TRAKT_CLIENT_ID
+  trakt_access_token: YOUR_TRAKT_ACCESS_TOKEN
+  db_path: pipeliner.db
+  tv_path: /media/tv
+
+templates:
+  common:
+    rss:
+      url: "https://example.com/rss/shows"
+    seen:
+      db: "{$ db_path $}"
+
+tasks:
+  # Downloads episodes for every show on the Trakt watchlist.
+  # series.from fetches the watchlist once per ttl and uses it as the show list.
+  tv-watchlist:
+    template: common
+    metainfo_quality:
+    series:
+      db: "{$ db_path $}"
+      tracking: strict
+      quality: 720p
+      ttl: 2h
+      from:
+        - name: input_trakt
+          client_id: "{$ trakt_client_id $}"
+          access_token: "{$ trakt_access_token $}"
+          type: shows
+          list: watchlist
+    metainfo_trakt:
+      client_id: "{$ trakt_client_id $}"
+      type: shows
+      db: "{$ db_path $}"
+    metainfo_tvdb:
+      api_key: YOUR_TVDB_API_KEY
+      db: "{$ db_path $}"
+    pathfmt:
+      path: '{$ tv_path $}/{series_name}/Season {series_season:02d}'
+    transmission:
+      host: localhost
+      port: 9091
+      path: "{download_path}"
+
+  # A second task pulling from the Trakt trending list.
+  # Uses backfill tracking so it can catch up on already-started shows.
+  tv-trending:
+    template: common
+    metainfo_quality:
+    series:
+      db: "{$ db_path $}"
+      tracking: backfill
+      quality: 1080p
+      ttl: 6h
+      from:
+        - name: input_trakt
+          client_id: "{$ trakt_client_id $}"
+          type: shows
+          list: trending
+          limit: 50
+    pathfmt:
+      path: '{$ tv_path $}/{series_name}/Season {series_season:02d}'
+    transmission:
+      host: localhost
+      port: 9091
+      path: "{download_path}"
+
+schedules:
+  tv-watchlist: 1h
+  tv-trending: 6h
