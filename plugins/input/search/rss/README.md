@@ -1,0 +1,38 @@
+# search_rss
+
+A search plugin that fetches entries from a parameterized RSS URL. The URL is
+constructed by rendering a Go template with the search query substituted for
+`{{.Query}}` or `{{.QueryEscaped}}`.
+
+This plugin is used as a sub-plugin of [`discover`](../../../input/discover/)
+via the `via` config key. It cannot be used directly as a task-level plugin.
+
+## Config
+
+```yaml
+# inline in discover.via:
+- name: search_rss
+  url_template: "https://example.com/search?q={{.QueryEscaped}}"
+```
+
+| Key            | Description                                           |
+|----------------|-------------------------------------------------------|
+| `url_template` | Go template for the search URL (required)             |
+
+**Template variables:**
+- `{{.Query}}` — raw query string (not URL-encoded; use only for path segments)
+- `{{.QueryEscaped}}` — URL-encoded query string (safe for query parameters)
+
+## Example
+
+```yaml
+tasks:
+  discover-tv:
+    discover:
+      titles:
+        - "Breaking Bad"
+      via:
+        - name: search_rss
+          url_template: "https://jackett.example.com/api/v2.0/indexers/all/results/torznab/api?t=search&q={{.QueryEscaped}}&apikey=${JACKETT_API_KEY}"
+      interval: 6h
+```
