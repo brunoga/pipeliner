@@ -1,7 +1,6 @@
 variables:
   deluge_host: localhost
   deluge_pass: changeme
-  db_path: pipeliner.db
   tv_path: /media/tv
 
 templates:
@@ -9,14 +8,12 @@ templates:
     rss:
       url: "https://example.com/rss/torrents"
     seen:
-      db: "{$ db_path $}"
 
 tasks:
   tv-series:
     template: common
     metainfo_quality:
     series:
-      db: "{$ db_path $}"
       tracking: strict
       quality: 720p
       shows:

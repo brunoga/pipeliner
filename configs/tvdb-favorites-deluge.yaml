@@ -3,7 +3,6 @@ variables:
   tvdb_user_pin: YOUR_TVDB_USER_PIN
   deluge_host: localhost
   deluge_pass: changeme
-  db_path: pipeliner.db
   tv_path: /media/tv
 
 templates:
@@ -11,7 +10,6 @@ templates:
     rss:
       url: "https://example.com/rss/shows"
     seen:
-      db: "{$ db_path $}"
 
 tasks:
   # Downloads episodes for every show in the TheTVDB favorites list.
@@ -20,7 +18,6 @@ tasks:
     template: common
     metainfo_quality:
     series:
-      db: "{$ db_path $}"
       tracking: strict
       quality: 720p
       ttl: 2h
@@ -30,7 +27,6 @@ tasks:
           user_pin: "{$ tvdb_user_pin $}"
     metainfo_tvdb:
       api_key: "{$ tvdb_api_key $}"
-      db: "{$ db_path $}"
     pathfmt:
       path: '{$ tv_path $}/{tvdb_series_name}/Season {series_season:02d}'
     deluge:

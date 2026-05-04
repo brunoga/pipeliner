@@ -7,7 +7,6 @@ variables:
   qbit_port: "8080"
   qbit_user: admin
   qbit_pass: changeme
-  db_path: pipeliner.db
   movies_path: /media/movies
   tv_path: /media/tv
 
@@ -28,14 +27,11 @@ tasks:
         - name: search_rss
           url_template: "{$ jackett_url $}/api/v2.0/indexers/all/results/torznab?q={QueryEscaped}&apikey={$ jackett_key $}"
       interval: 6h
-      db: "{$ db_path $}"
     seen:
-      db: "{$ db_path $}"
     metainfo_quality:
     metainfo_magnet:
       resolve_timeout: 30s
     movies:
-      db: "{$ db_path $}"
       quality: 1080p
       ttl: 4h
       from:
@@ -46,7 +42,6 @@ tasks:
           list: watchlist
     metainfo_tmdb:
       api_key: YOUR_TMDB_API_KEY
-      db: "{$ db_path $}"
     condition:
       rules:
         - reject: 'source == "CAM"'
@@ -75,12 +70,9 @@ tasks:
         - name: search_rss
           url_template: "{$ jackett_url $}/api/v2.0/indexers/all/results/torznab?q={QueryEscaped}&apikey={$ jackett_key $}"
       interval: 3h
-      db: "{$ db_path $}"
     seen:
-      db: "{$ db_path $}"
     metainfo_quality:
     series:
-      db: "{$ db_path $}"
       tracking: strict
       quality: 720p
       ttl: 2h
