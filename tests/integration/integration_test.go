@@ -36,6 +36,7 @@ import (
 	_ "github.com/brunoga/pipeliner/plugins/input/filesystem"
 	_ "github.com/brunoga/pipeliner/plugins/input/html"
 	_ "github.com/brunoga/pipeliner/plugins/input/rss"
+	_ "github.com/brunoga/pipeliner/plugins/input/search/jackett"
 	_ "github.com/brunoga/pipeliner/plugins/input/search/rss"
 	_ "github.com/brunoga/pipeliner/plugins/input/trakt"
 	_ "github.com/brunoga/pipeliner/plugins/input/tvdb"
@@ -489,7 +490,7 @@ func TestAllPluginsRegistered(t *testing.T) {
 		"set", "pathfmt", "pathscrub",
 		"print", "exec", "list_add",
 		"metainfo_quality", "metainfo_series", "metainfo_trakt", "metainfo_magnet",
-		"search_rss",
+		"search_rss", "jackett",
 	}
 	for _, name := range want {
 		if _, ok := plugin.Lookup(name); !ok {
