@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"syscall"
@@ -68,7 +69,25 @@ import (
 	_ "github.com/brunoga/pipeliner/plugins/output/qbittorrent"
 )
 
+// version is overridden at build time via:
+//
+//	go build -ldflags "-X main.version=$(git describe --tags --dirty --always)"
+//
+// When installed with "go install" (no ldflags), resolveVersion() falls back
+// to the module version embedded by the Go toolchain via debug/buildinfo.
 var version = "dev"
+
+func resolveVersion() string {
+	if version != "dev" {
+		return version
+	}
+	if info, ok := debug.ReadBuildInfo(); ok {
+		if v := info.Main.Version; v != "" && v != "(devel)" {
+			return v
+		}
+	}
+	return version
+}
 
 func main() {
 	os.Exit(run(os.Args[1:]))
@@ -90,7 +109,7 @@ func run(args []string) int {
 	case "list-plugins":
 		return cmdListPlugins(args[1:])
 	case "version":
-		fmt.Printf("pipeliner %s\n", version)
+		fmt.Printf("Pipeliner %s\n", resolveVersion())
 		return 0
 	case "help", "--help", "-h":
 		printUsage()
@@ -103,7 +122,7 @@ func run(args []string) int {
 }
 
 func printUsage() {
-	fmt.Fprintln(os.Stderr, `pipeliner - media automation tool
+	fmt.Fprintln(os.Stderr, `Pipeliner — media automation tool
 
 Usage:
   pipeliner run     [--config path] [--log-level level] [--dry-run] [task ...]  run one or all tasks once
@@ -335,7 +354,7 @@ func cmdDaemon(args []string) int {
 		for i, t := range tasks {
 			taskInfos[i] = web.TaskInfo{Name: t.Name(), Schedule: cfg.Schedules[t.Name()]}
 		}
-		ws = web.New(taskInfos, d, hist, bcast)
+		ws = web.New(taskInfos, d, hist, bcast, resolveVersion())
 		ws.SetReload(reload)
 		go func() {
 			if err := ws.Start(ctx, *webAddr); err != nil {

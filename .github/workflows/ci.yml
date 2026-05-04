@@ -39,7 +39,10 @@ jobs:
           cache: true
 
       - name: Build
-        run: go build ./...
+        run: |
+          VERSION=$(git describe --tags --dirty --always 2>/dev/null || echo "dev")
+          go build -ldflags "-X main.version=${VERSION}" ./cmd/pipeliner
+          go build ./...
 
       - name: Verify go.mod is tidy
         run: |
