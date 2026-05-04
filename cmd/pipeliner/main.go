@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -127,12 +128,20 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, `Pipeliner — media automation tool
 
 Usage:
-  pipeliner run     [--config path] [--log-level level] [--dry-run] [task ...]  run one or all tasks once
-  pipeliner daemon  [--config path] [--log-level level] [--web :8080]           run tasks on their schedules
+  pipeliner run     [--config path] [--log-level level] [--dry-run] [task ...]
+  pipeliner daemon  [--config path] [--log-level level]
+                    [--web :8080 --web-user USER --web-password PASS]
+                    [--tls-cert cert.pem --tls-key key.pem]
 
-  pipeliner check   [--config path]                                         validate config
-  pipeliner list-plugins                                                    list registered plugins
-  pipeliner version                                                         print version`)
+  pipeliner check        [--config path]   validate config
+  pipeliner list-plugins                   list registered plugins
+  pipeliner version                        print version
+
+Web UI flags (all required together with --web):
+  --web-user       username for the web interface
+  --web-password   password for the web interface
+  --tls-cert       TLS certificate file (optional; self-signed cert used if omitted)
+  --tls-key        TLS private key file  (optional; self-signed cert used if omitted)`)
 }
 
 // --- run command ---
@@ -225,11 +234,26 @@ func cmdRun(args []string) int {
 
 func cmdDaemon(args []string) int {
 	fs := flag.NewFlagSet("daemon", flag.ContinueOnError)
-	cfgPath := fs.String("config", "config.yaml", "path to config file")
-	logLevel := fs.String("log-level", "info", "log level (debug, info, warn, error)")
-	webAddr := fs.String("web", "", "web interface listen address (e.g. :8080); empty disables it")
+	cfgPath  := fs.String("config",       "config.yaml", "path to config file")
+	logLevel := fs.String("log-level",    "info",        "log level (debug, info, warn, error)")
+	webAddr  := fs.String("web",          "",            "web interface listen address (e.g. :8080); empty disables it")
+	webUser  := fs.String("web-user",     "",            "username for the web interface (required with --web)")
+	webPass  := fs.String("web-password", "",            "password for the web interface (required with --web)")
+	tlsCert  := fs.String("tls-cert",     "",            "path to TLS certificate file (optional; self-signed used if omitted)")
+	tlsKey   := fs.String("tls-key",      "",            "path to TLS private key file (optional; self-signed used if omitted)")
 	if err := fs.Parse(args); err != nil {
 		return 1
+	}
+
+	if *webAddr != "" {
+		if *webUser == "" || *webPass == "" {
+			fmt.Fprintln(os.Stderr, "error: --web-user and --web-password are required when --web is set")
+			return 1
+		}
+		if (*tlsCert == "") != (*tlsKey == "") {
+			fmt.Fprintln(os.Stderr, "error: --tls-cert and --tls-key must be provided together")
+			return 1
+		}
 	}
 
 	opts := logHandlerOptions(*logLevel)
@@ -366,18 +390,27 @@ func cmdDaemon(args []string) int {
 	}
 
 	if *webAddr != "" {
+		tlsCfg, fp, err := buildTLSConfig(*tlsCert, *tlsKey)
+		if err != nil {
+			logger.Error("failed to set up TLS", "err", err)
+			return 1
+		}
+		if fp != "" {
+			logger.Info("using self-signed TLS certificate", "fingerprint", fp)
+		}
+
 		taskInfos := make([]web.TaskInfo, len(tasks))
 		for i, t := range tasks {
 			taskInfos[i] = web.TaskInfo{Name: t.Name(), Schedule: cfg.Schedules[t.Name()]}
 		}
-		ws = web.New(taskInfos, d, hist, bcast, resolveVersion())
+		ws = web.New(taskInfos, d, hist, bcast, resolveVersion(), *webUser, *webPass)
 		ws.SetReload(reload)
 		go func() {
-			if err := ws.Start(ctx, *webAddr); err != nil {
+			if err := ws.Start(ctx, *webAddr, tlsCfg); err != nil {
 				logger.Error("web server error", "err", err)
 			}
 		}()
-		logger.Info("web interface enabled", "addr", *webAddr)
+		logger.Info("web interface enabled", "addr", "https://"+*webAddr)
 	}
 
 	logger.Info("daemon started")
@@ -482,4 +515,22 @@ func makeLogger(level string) *slog.Logger {
 // pipeliner.db in the same directory as the config file.
 func dbPath(cfgPath string) string {
 	return filepath.Join(filepath.Dir(filepath.Clean(cfgPath)), "pipeliner.db")
+}
+
+// buildTLSConfig returns a *tls.Config ready for use with the web server.
+// If certFile and keyFile are provided they are loaded; otherwise a self-signed
+// certificate is generated in memory and its fingerprint is returned for display.
+func buildTLSConfig(certFile, keyFile string) (*tls.Config, string, error) {
+	if certFile != "" && keyFile != "" {
+		cfg, err := web.TLSConfigFromFiles(certFile, keyFile)
+		return cfg, "", err
+	}
+	cert, fp, err := web.GenerateSelfSigned()
+	if err != nil {
+		return nil, "", err
+	}
+	return &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		MinVersion:   tls.VersionTLS12,
+	}, fp, nil
 }
