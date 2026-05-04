@@ -40,6 +40,7 @@ import (
 	_ "github.com/brunoga/pipeliner/plugins/input/filesystem"
 	_ "github.com/brunoga/pipeliner/plugins/input/html"
 	_ "github.com/brunoga/pipeliner/plugins/input/rss"
+	_ "github.com/brunoga/pipeliner/plugins/input/search/jackett"
 	_ "github.com/brunoga/pipeliner/plugins/input/search/rss"
 	_ "github.com/brunoga/pipeliner/plugins/input/trakt"
 	_ "github.com/brunoga/pipeliner/plugins/input/tvdb"
