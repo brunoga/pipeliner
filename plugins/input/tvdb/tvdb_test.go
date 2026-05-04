@@ -43,14 +43,14 @@ func makeTVDBServer(t *testing.T, favoriteIDs []int, series []itvdb.Series) *htt
 }
 
 func TestMissingAPIKey(t *testing.T) {
-	_, err := newPlugin(map[string]any{"user_pin": "pin"})
+	_, err := newPlugin(map[string]any{"user_pin": "pin"}, nil)
 	if err == nil {
 		t.Fatal("expected error for missing api_key")
 	}
 }
 
 func TestMissingUserPin(t *testing.T) {
-	_, err := newPlugin(map[string]any{"api_key": "key"})
+	_, err := newPlugin(map[string]any{"api_key": "key"}, nil)
 	if err == nil {
 		t.Fatal("expected error for missing user_pin")
 	}
@@ -72,7 +72,7 @@ func TestRunReturnsEntries(t *testing.T) {
 		{ID: 2, Name: "Better Call Saul", Slug: "better-call-saul"},
 	})
 
-	p, err := newPlugin(map[string]any{"api_key": "key", "user_pin": "pin"})
+	p, err := newPlugin(map[string]any{"api_key": "key", "user_pin": "pin"}, nil)
 	if err != nil {
 		t.Fatalf("newPlugin: %v", err)
 	}
@@ -105,7 +105,7 @@ func TestRunSkipsMissingShows(t *testing.T) {
 		{ID: 1, Name: "Firefly", Slug: "firefly"},
 	})
 
-	p, err := newPlugin(map[string]any{"api_key": "key", "user_pin": "pin"})
+	p, err := newPlugin(map[string]any{"api_key": "key", "user_pin": "pin"}, nil)
 	if err != nil {
 		t.Fatalf("newPlugin: %v", err)
 	}

@@ -29,12 +29,16 @@ func makeCtx() *plugin.TaskContext { return &plugin.TaskContext{Name: "test"} }
 
 func openPlugin(t *testing.T, extra map[string]any) *moviesPlugin {
 	t.Helper()
+	db, err := store.OpenSQLite(":memory:")
+	if err != nil {
+		t.Fatalf("OpenSQLite: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
 	cfg := map[string]any{
 		"movies": []any{"Inception"},
-		"db":     ":memory:",
 	}
 	maps.Copy(cfg, extra)
-	p, err := newPlugin(cfg)
+	p, err := newPlugin(cfg, db)
 	if err != nil {
 		t.Fatalf("newPlugin: %v", err)
 	}
@@ -113,7 +117,9 @@ func TestDuplicateRejected(t *testing.T) {
 }
 
 func TestRequiredMoviesList(t *testing.T) {
-	_, err := newPlugin(map[string]any{"db": ":memory:"})
+	db, _ := store.OpenSQLite(":memory:")
+	defer db.Close()
+	_, err := newPlugin(map[string]any{}, db)
 	if err == nil {
 		t.Fatal("expected error when movies list is missing")
 	}
@@ -232,7 +238,9 @@ func (c *countingInput) Run(ctx context.Context, tc *plugin.TaskContext) ([]*ent
 }
 
 func TestMissingMoviesAndFrom(t *testing.T) {
-	_, err := newPlugin(map[string]any{"db": ":memory:"})
+	db, _ := store.OpenSQLite(":memory:")
+	defer db.Close()
+	_, err := newPlugin(map[string]any{}, db)
 	if err == nil {
 		t.Fatal("expected error when neither movies nor from is configured")
 	}

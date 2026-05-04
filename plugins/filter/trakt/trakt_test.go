@@ -10,6 +10,7 @@ import (
 
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/plugin"
+	"github.com/brunoga/pipeliner/internal/store"
 	itrakt "github.com/brunoga/pipeliner/internal/trakt"
 )
 
@@ -50,10 +51,12 @@ func tc() *plugin.TaskContext { return &plugin.TaskContext{Name: "test"} }
 
 func makeFilter(t *testing.T, cfg map[string]any) *traktFilter {
 	t.Helper()
-	if _, ok := cfg["db"]; !ok {
-		cfg["db"] = ":memory:"
+	db, err := store.OpenSQLite(":memory:")
+	if err != nil {
+		t.Fatalf("OpenSQLite: %v", err)
 	}
-	p, err := newPlugin(cfg)
+	t.Cleanup(func() { db.Close() })
+	p, err := newPlugin(cfg, db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,12 +160,14 @@ func TestFilterRefreshesAfterTTL(t *testing.T) {
 }
 
 func TestFilterWatchlistRequiresToken(t *testing.T) {
+	db, _ := store.OpenSQLite(":memory:")
+	defer db.Close()
 	_, err := newPlugin(map[string]any{
 		"client_id": "key",
 		"type":      "shows",
 		"list":      "watchlist",
 		// no access_token
-	})
+	}, db)
 	// Factory succeeds; error comes at fetch time (tested via GetList)
 	if err != nil {
 		t.Fatal(err) // factory should not fail
@@ -233,14 +238,14 @@ func TestFilterNonParseableTitle(t *testing.T) {
 }
 
 func TestInvalidType(t *testing.T) {
-	_, err := newPlugin(map[string]any{"client_id": "k", "type": "podcasts"})
+	_, err := newPlugin(map[string]any{"client_id": "k", "type": "podcasts"}, nil)
 	if err == nil {
 		t.Error("expected error for invalid type")
 	}
 }
 
 func TestMissingClientID(t *testing.T) {
-	_, err := newPlugin(map[string]any{"type": "shows"})
+	_, err := newPlugin(map[string]any{"type": "shows"}, nil)
 	if err == nil {
 		t.Error("expected error for missing client_id")
 	}
@@ -251,7 +256,7 @@ func TestInvalidTTL(t *testing.T) {
 		"client_id": "key",
 		"type":      "shows",
 		"ttl":       "not-a-duration",
-	})
+	}, nil)
 	if err == nil {
 		t.Error("expected error for invalid ttl")
 	}

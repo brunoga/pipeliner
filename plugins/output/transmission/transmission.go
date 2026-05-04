@@ -28,6 +28,7 @@ import (
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/interp"
 	"github.com/brunoga/pipeliner/internal/plugin"
+	"github.com/brunoga/pipeliner/internal/store"
 )
 
 func init() {
@@ -50,7 +51,7 @@ type transmissionPlugin struct {
 	sessionID string
 }
 
-func newPlugin(cfg map[string]any) (plugin.Plugin, error) {
+func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
 	host := "localhost"
 	if v, ok := cfg["host"].(string); ok && v != "" {
 		host = v

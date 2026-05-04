@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/brunoga/pipeliner/internal/entry"
+	"github.com/brunoga/pipeliner/internal/store"
 )
 
 // resetForTest clears the global registry between test cases.
@@ -24,7 +25,7 @@ func (s *stubInput) Run(_ context.Context, _ *TaskContext) ([]*entry.Entry, erro
 }
 
 func newStubFactory(name string) Factory {
-	return func(_ map[string]any) (Plugin, error) {
+	return func(_ map[string]any, _ *store.SQLiteStore) (Plugin, error) {
 		return &stubInput{name: name}, nil
 	}
 }

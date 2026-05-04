@@ -9,7 +9,6 @@
 #   - JACKETT_API_KEY set as an environment variable
 
 variables:
-  db:          pipeliner.db
   jackett_url: "${JACKETT_URL}"
   jackett_key: "${JACKETT_API_KEY}"
 
@@ -25,15 +24,12 @@ tasks:
             indexers:   [all]
             categories: [5000, 5030, 5040]   # TV, TV/HD, TV/SD
       interval: 6h
-      db: "{$ db $}"
 
     # Skip anything already downloaded.
     seen:
-      db: "{$ db $}"
 
     # Accept episodes of the configured shows; track what has been downloaded.
     series:
-      db: "{$ db $}"
       shows:
         - "Breaking Bad"
         - "Better Call Saul"

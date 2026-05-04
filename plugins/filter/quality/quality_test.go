@@ -11,7 +11,7 @@ import (
 func makeCtx() *plugin.TaskContext { return &plugin.TaskContext{Name: "test"} }
 
 func TestAcceptsMatchingQuality(t *testing.T) {
-	p, err := newPlugin(map[string]any{"min": "720p", "max": "1080p"})
+	p, err := newPlugin(map[string]any{"min": "720p", "max": "1080p"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -23,7 +23,7 @@ func TestAcceptsMatchingQuality(t *testing.T) {
 }
 
 func TestRejectsBelowMin(t *testing.T) {
-	p, _ := newPlugin(map[string]any{"min": "720p", "max": "1080p"})
+	p, _ := newPlugin(map[string]any{"min": "720p", "max": "1080p"}, nil)
 	e := entry.New("Show.S01E01.480p.HDTV", "http://x.com/a")
 	p.(*qualityPlugin).Filter(context.Background(), makeCtx(), e) //nolint:errcheck
 	if !e.IsRejected() {
@@ -32,7 +32,7 @@ func TestRejectsBelowMin(t *testing.T) {
 }
 
 func TestRejectsAboveMax(t *testing.T) {
-	p, _ := newPlugin(map[string]any{"min": "720p", "max": "1080p"})
+	p, _ := newPlugin(map[string]any{"min": "720p", "max": "1080p"}, nil)
 	e := entry.New("Show.S01E01.2160p.BluRay.x265", "http://x.com/a")
 	p.(*qualityPlugin).Filter(context.Background(), makeCtx(), e) //nolint:errcheck
 	if !e.IsRejected() {
@@ -41,7 +41,7 @@ func TestRejectsAboveMax(t *testing.T) {
 }
 
 func TestMinOnly(t *testing.T) {
-	p, err := newPlugin(map[string]any{"min": "720p"})
+	p, err := newPlugin(map[string]any{"min": "720p"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +59,7 @@ func TestMinOnly(t *testing.T) {
 }
 
 func TestMaxOnly(t *testing.T) {
-	p, err := newPlugin(map[string]any{"max": "1080p"})
+	p, err := newPlugin(map[string]any{"max": "1080p"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func TestMaxOnly(t *testing.T) {
 }
 
 func TestQualityFieldSet(t *testing.T) {
-	p, _ := newPlugin(map[string]any{"min": "720p"})
+	p, _ := newPlugin(map[string]any{"min": "720p"}, nil)
 	e := entry.New("Show.S01E01.1080p.BluRay.x264", "http://x.com/a")
 	p.(*qualityPlugin).Filter(context.Background(), makeCtx(), e) //nolint:errcheck
 	if v := e.GetString("quality"); v == "" {
@@ -80,7 +80,7 @@ func TestQualityFieldSet(t *testing.T) {
 }
 
 func TestMissingBothBounds(t *testing.T) {
-	if _, err := newPlugin(map[string]any{}); err == nil {
+	if _, err := newPlugin(map[string]any{}, nil); err == nil {
 		t.Error("expected error when neither min nor max is set")
 	}
 }

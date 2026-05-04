@@ -37,7 +37,7 @@ func makeTorrent(name string, size int64) []byte {
 
 func makePlugin(t *testing.T) *torrentPlugin {
 	t.Helper()
-	p, err := newPlugin(map[string]any{})
+	p, err := newPlugin(map[string]any{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

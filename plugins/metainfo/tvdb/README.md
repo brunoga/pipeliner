@@ -1,6 +1,6 @@
 # metainfo_tvdb
 
-Enriches series entries with metadata from TheTVDB. Searches by parsed series name, caches results in SQLite. If a specific season and episode are parsed, also fetches episode-level detail.
+Enriches series entries with metadata from TheTVDB. Searches by parsed series name and caches results. If a specific season and episode are parsed, also fetches episode-level detail.
 
 ## Config
 
@@ -8,7 +8,6 @@ Enriches series entries with metadata from TheTVDB. Searches by parsed series na
 |-----|------|----------|---------|-------------|
 | `api_key` | string | yes | — | TheTVDB v4 API key |
 | `cache_ttl` | string | no | `24h` | How long to cache search results |
-| `db` | string | no | `pipeliner.db` | SQLite path for persistent cache |
 
 ## Fields set on entry
 
@@ -33,13 +32,12 @@ tasks:
       url: "https://example.com/feed"
     series:
       shows: ["Breaking Bad"]
-      db: pipeliner.db
     metainfo_tvdb:
       api_key: YOUR_API_KEY
-      db: pipeliner.db
 ```
 
 ## Notes
 
 - API keys at [thetvdb.com/api-information](https://thetvdb.com/api-information).
 - Only annotates entries whose title can be parsed as a series episode. Non-episode titles are skipped.
+- Results are cached in `pipeliner.db` in the same directory as the config file.

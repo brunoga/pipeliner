@@ -25,7 +25,7 @@ func setup(t *testing.T, files ...string) string {
 
 func TestMatchingTitleRejected(t *testing.T) {
 	dir := setup(t, "My.Show.S01E01.mkv")
-	p, err := newPlugin(map[string]any{"path": dir})
+	p, err := newPlugin(map[string]any{"path": dir}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +38,7 @@ func TestMatchingTitleRejected(t *testing.T) {
 
 func TestNonMatchingTitleAccepted(t *testing.T) {
 	dir := setup(t, "My.Show.S01E01.mkv")
-	p, _ := newPlugin(map[string]any{"path": dir})
+	p, _ := newPlugin(map[string]any{"path": dir}, nil)
 	e := entry.New("My Show S01E02", "http://x.com/a")
 	p.(*existsPlugin).Filter(context.Background(), makeCtx(), e) //nolint:errcheck
 	if e.IsRejected() {
@@ -48,7 +48,7 @@ func TestNonMatchingTitleAccepted(t *testing.T) {
 
 func TestFilenameFieldChecked(t *testing.T) {
 	dir := setup(t, "downloaded_file.mkv")
-	p, _ := newPlugin(map[string]any{"path": dir})
+	p, _ := newPlugin(map[string]any{"path": dir}, nil)
 	e := entry.New("Something Else", "http://x.com/a")
 	e.Set("filename", "downloaded_file.mkv")
 	p.(*existsPlugin).Filter(context.Background(), makeCtx(), e) //nolint:errcheck
@@ -67,7 +67,7 @@ func TestNonRecursiveSkipsSubdirs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	p, _ := newPlugin(map[string]any{"path": dir, "recursive": false})
+	p, _ := newPlugin(map[string]any{"path": dir, "recursive": false}, nil)
 	e := entry.New("Hidden Show S01E01", "http://x.com/a")
 	p.(*existsPlugin).Filter(context.Background(), makeCtx(), e) //nolint:errcheck
 	if e.IsRejected() {
@@ -85,7 +85,7 @@ func TestRecursiveFindsSubdirFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	p, _ := newPlugin(map[string]any{"path": dir, "recursive": true})
+	p, _ := newPlugin(map[string]any{"path": dir, "recursive": true}, nil)
 	e := entry.New("Hidden Show S01E01", "http://x.com/a")
 	p.(*existsPlugin).Filter(context.Background(), makeCtx(), e) //nolint:errcheck
 	if !e.IsRejected() {
@@ -94,7 +94,7 @@ func TestRecursiveFindsSubdirFiles(t *testing.T) {
 }
 
 func TestMissingPath(t *testing.T) {
-	if _, err := newPlugin(map[string]any{}); err == nil {
+	if _, err := newPlugin(map[string]any{}, nil); err == nil {
 		t.Error("expected error when path missing")
 	}
 }

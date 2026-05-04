@@ -19,7 +19,6 @@ tasks:
   tv:
     series:
       shows: ["Breaking Bad"]
-      db: pipeliner.db
     metainfo_series:
     pathfmt:
       path: "/media/tv/{{.series_name}}/Season {{printf \"%02d\" .series_season}}"

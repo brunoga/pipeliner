@@ -28,23 +28,13 @@ type seenPlugin struct {
 	db     *store.SQLiteStore
 }
 
-func newPlugin(cfg map[string]any) (plugin.Plugin, error) {
-	dbPath, _ := cfg["db"].(string)
-	if dbPath == "" {
-		dbPath = "pipeliner.db"
-	}
-
+func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
 	fields := toStringSlice(cfg["fields"])
 	if len(fields) == 0 {
 		fields = []string{"url"}
 	}
 
 	local, _ := cfg["local"].(bool)
-
-	db, err := store.OpenSQLite(dbPath)
-	if err != nil {
-		return nil, fmt.Errorf("seen: open store: %w", err)
-	}
 
 	return &seenPlugin{
 		fields: fields,

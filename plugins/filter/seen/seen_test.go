@@ -3,11 +3,11 @@ package seen
 import (
 	"context"
 	"maps"
-	"path/filepath"
 	"testing"
 
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/plugin"
+	"github.com/brunoga/pipeliner/internal/store"
 )
 
 func makeCtx(name string) *plugin.TaskContext {
@@ -16,11 +16,14 @@ func makeCtx(name string) *plugin.TaskContext {
 
 func openPlugin(t *testing.T, extra map[string]any) *seenPlugin {
 	t.Helper()
-	cfg := map[string]any{
-		"db": filepath.Join(t.TempDir(), "seen.db"),
+	db, err := store.OpenSQLite(":memory:")
+	if err != nil {
+		t.Fatalf("OpenSQLite: %v", err)
 	}
+	t.Cleanup(func() { db.Close() })
+	cfg := map[string]any{}
 	maps.Copy(cfg, extra)
-	p, err := newPlugin(cfg)
+	p, err := newPlugin(cfg, db)
 	if err != nil {
 		t.Fatalf("newPlugin: %v", err)
 	}
@@ -157,12 +160,13 @@ func TestRegistration(t *testing.T) {
 	}
 }
 
-func TestMissingDBDefaultPath(t *testing.T) {
-	// No db path → uses default "pipeliner.db" — plugin creation should succeed.
-	// We can't actually use it in a test without leaving files, so just verify
-	// the error path from a bad path is not triggered on empty config.
-	// (The default path creates a file in cwd; we test the parsing logic only.)
-	_, err := newPlugin(map[string]any{"db": filepath.Join(t.TempDir(), "ok.db")})
+func TestPluginCreation(t *testing.T) {
+	db, err := store.OpenSQLite(":memory:")
+	if err != nil {
+		t.Fatalf("OpenSQLite: %v", err)
+	}
+	defer db.Close()
+	_, err = newPlugin(map[string]any{}, db)
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}

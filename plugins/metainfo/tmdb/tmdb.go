@@ -4,7 +4,6 @@
 //
 //	api_key   - TMDb API key (required)
 //	cache_ttl - how long to cache search results, e.g. "24h" (default: "24h")
-//	db        - path to SQLite database for persistent cache (default: "pipeliner.db"; use ":memory:" in tests)
 package tmdb
 
 import (
@@ -35,7 +34,7 @@ type tmdbPlugin struct {
 	cache  *cache.Cache[[]itmdb.Movie]
 }
 
-func newPlugin(cfg map[string]any) (plugin.Plugin, error) {
+func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
 	apiKey, _ := cfg["api_key"].(string)
 	if apiKey == "" {
 		return nil, fmt.Errorf("metainfo_tmdb: 'api_key' is required")
@@ -48,16 +47,6 @@ func newPlugin(cfg map[string]any) (plugin.Plugin, error) {
 			return nil, fmt.Errorf("metainfo_tmdb: invalid cache_ttl %q: %w", v, err)
 		}
 		ttl = d
-	}
-
-	dbPath, _ := cfg["db"].(string)
-	if dbPath == "" {
-		dbPath = "pipeliner.db"
-	}
-
-	db, err := store.OpenSQLite(dbPath)
-	if err != nil {
-		return nil, fmt.Errorf("metainfo_tmdb: open store: %w", err)
 	}
 
 	return &tmdbPlugin{

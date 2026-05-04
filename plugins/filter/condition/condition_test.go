@@ -20,7 +20,7 @@ func makeEntry(title string, fields map[string]any) *entry.Entry {
 
 func open(t *testing.T, cfg map[string]any) *conditionPlugin {
 	t.Helper()
-	p, err := newPlugin(cfg)
+	p, err := newPlugin(cfg, nil)
 	if err != nil {
 		t.Fatalf("newPlugin: %v", err)
 	}
@@ -95,21 +95,21 @@ func TestTmdbIntegration(t *testing.T) {
 }
 
 func TestMissingConditionError(t *testing.T) {
-	_, err := newPlugin(map[string]any{})
+	_, err := newPlugin(map[string]any{}, nil)
 	if err == nil {
 		t.Fatal("expected error when neither accept nor reject is set")
 	}
 }
 
 func TestInvalidAcceptTemplate(t *testing.T) {
-	_, err := newPlugin(map[string]any{"accept": `{{invalid`})
+	_, err := newPlugin(map[string]any{"accept": `{{invalid`}, nil)
 	if err == nil {
 		t.Fatal("expected error for invalid template")
 	}
 }
 
 func TestInvalidRejectTemplate(t *testing.T) {
-	_, err := newPlugin(map[string]any{"reject": `{{invalid`})
+	_, err := newPlugin(map[string]any{"reject": `{{invalid`}, nil)
 	if err == nil {
 		t.Fatal("expected error for invalid template")
 	}
@@ -171,14 +171,14 @@ func TestRulesNoMatchLeavesUndecided(t *testing.T) {
 }
 
 func TestEmptyRulesError(t *testing.T) {
-	_, err := newPlugin(map[string]any{"rules": []any{}})
+	_, err := newPlugin(map[string]any{"rules": []any{}}, nil)
 	if err == nil {
 		t.Fatal("expected error for empty rules list")
 	}
 }
 
 func TestRulesInvalidItemError(t *testing.T) {
-	_, err := newPlugin(map[string]any{"rules": []any{"not-a-map"}})
+	_, err := newPlugin(map[string]any{"rules": []any{"not-a-map"}}, nil)
 	if err == nil {
 		t.Fatal("expected error for non-map rule item")
 	}

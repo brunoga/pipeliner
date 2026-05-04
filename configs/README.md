@@ -23,19 +23,21 @@ schedules:    # when to run each task in daemon mode
   task-name: "0 * * * *" # cron expression
 ```
 
+## Database
+
+Pipeliner automatically maintains a single SQLite database named `pipeliner.db` in the same directory as the config file. All stateful plugins (`seen`, `series`, `movies`, `upgrade`, `premiere`, `discover`, the Trakt/TVDB caches, and the cross-task lists) share this one file. No configuration is needed — the file is created on first run and grows as state accumulates.
+
 ## Variables
 
 Variables are substituted using `{$ key $}` anywhere in the file before YAML is parsed. They are useful for secrets and paths shared across multiple tasks.
 
 ```yaml
 variables:
-  db: /var/lib/pipeliner/pipeliner.db
   tv_root: /media/tv
 
 tasks:
   my-task:
     seen:
-      db: "{$ db $}"
     pathfmt:
       path: "{$ tv_root $}/{series_name}"
 ```
@@ -50,13 +52,11 @@ templates:
     rss:
       url: "https://example.com/rss"
     seen:
-      db: pipeliner.db
 
 tasks:
   task-a:
     template: base
     series:
-      db: pipeliner.db
       shows: ["Breaking Bad"]
     transmission:
       host: localhost
@@ -64,7 +64,6 @@ tasks:
   task-b:
     template: base       # same rss + seen config
     movies:
-      db: pipeliner.db
       movies: ["Inception"]
     deluge:
       host: localhost
@@ -88,9 +87,7 @@ tasks:
     rss:
       url: "https://feeds.example.com/torrents"
     seen:
-      db: pipeliner.db
     series:
-      db: pipeliner.db
       shows:
         - "My Show"
     metainfo_quality:    # no config needed

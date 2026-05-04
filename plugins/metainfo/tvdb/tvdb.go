@@ -4,7 +4,6 @@
 //
 //	api_key   - TheTVDB API key (required)
 //	cache_ttl - how long to cache search results, e.g. "24h" (default: "24h")
-//	db        - path to SQLite database for persistent cache (default: "pipeliner.db"; use ":memory:" in tests)
 package tvdb
 
 import (
@@ -34,7 +33,7 @@ type tvdbPlugin struct {
 	cache  *cache.Cache[[]itvdb.Series]
 }
 
-func newPlugin(cfg map[string]any) (plugin.Plugin, error) {
+func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
 	apiKey, _ := cfg["api_key"].(string)
 	if apiKey == "" {
 		return nil, fmt.Errorf("metainfo_tvdb: 'api_key' is required")
@@ -47,16 +46,6 @@ func newPlugin(cfg map[string]any) (plugin.Plugin, error) {
 			return nil, fmt.Errorf("metainfo_tvdb: invalid cache_ttl %q: %w", v, err)
 		}
 		ttl = d
-	}
-
-	dbPath, _ := cfg["db"].(string)
-	if dbPath == "" {
-		dbPath = "pipeliner.db"
-	}
-
-	db, err := store.OpenSQLite(dbPath)
-	if err != nil {
-		return nil, fmt.Errorf("metainfo_tvdb: open store: %w", err)
 	}
 
 	return &tvdbPlugin{

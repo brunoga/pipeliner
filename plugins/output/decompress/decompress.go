@@ -24,6 +24,7 @@ import (
 
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/plugin"
+	"github.com/brunoga/pipeliner/internal/store"
 )
 
 func init() {
@@ -46,7 +47,7 @@ type decompressPlugin struct {
 	toolPath      string // absolute path to the binary
 }
 
-func newPlugin(cfg map[string]any) (plugin.Plugin, error) {
+func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
 	to, _ := cfg["to"].(string)
 	if to == "" {
 		return nil, fmt.Errorf("decompress: 'to' destination directory is required")

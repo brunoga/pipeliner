@@ -18,35 +18,28 @@ func makeTC() *plugin.TaskContext {
 	}
 }
 
-func TestListMatchMissingDB(t *testing.T) {
-	_, err := newPlugin(map[string]any{"list": "mylist"})
-	if err == nil {
-		t.Error("expected error for missing 'db'")
-	}
-}
-
 func TestListMatchMissingList(t *testing.T) {
-	_, err := newPlugin(map[string]any{"db": "/tmp/test.db"})
+	db, _ := store.OpenSQLite(":memory:")
+	defer db.Close()
+	_, err := newPlugin(map[string]any{}, db)
 	if err == nil {
 		t.Error("expected error for missing 'list'")
 	}
 }
 
 func TestListMatchFound(t *testing.T) {
-	dbPath := t.TempDir() + "/test.db"
-
-	// Pre-populate the list.
-	s, err := store.OpenSQLite(dbPath)
+	db, err := store.OpenSQLite(":memory:")
 	if err != nil {
 		t.Fatalf("OpenSQLite: %v", err)
 	}
-	l := entrylist.Open(s, "mylist")
+	defer db.Close()
+
+	l := entrylist.Open(db, "mylist")
 	if err := l.Add("Show S01E01", "http://example.com/1"); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
-	s.Close()
 
-	p := &listMatchPlugin{dbPath: dbPath, listName: "mylist"}
+	p := &listMatchPlugin{db: db, listName: "mylist"}
 	e := entry.New("Show S01E01", "http://example.com/1")
 	if err := p.Filter(context.Background(), makeTC(), e); err != nil {
 		t.Fatalf("Filter: %v", err)
@@ -57,12 +50,10 @@ func TestListMatchFound(t *testing.T) {
 }
 
 func TestListMatchNotFound(t *testing.T) {
-	dbPath := t.TempDir() + "/test.db"
-	// Empty list — no pre-population.
-	s, _ := store.OpenSQLite(dbPath)
-	s.Close()
+	db, _ := store.OpenSQLite(":memory:")
+	defer db.Close()
 
-	p := &listMatchPlugin{dbPath: dbPath, listName: "mylist"}
+	p := &listMatchPlugin{db: db, listName: "mylist"}
 	e := entry.New("Not In List", "http://example.com/x")
 	if err := p.Filter(context.Background(), makeTC(), e); err != nil {
 		t.Fatalf("Filter: %v", err)
@@ -73,19 +64,18 @@ func TestListMatchNotFound(t *testing.T) {
 }
 
 func TestListMatchRemoveOnMatch(t *testing.T) {
-	dbPath := t.TempDir() + "/test.db"
-
-	s, err := store.OpenSQLite(dbPath)
+	db, err := store.OpenSQLite(":memory:")
 	if err != nil {
 		t.Fatalf("OpenSQLite: %v", err)
 	}
-	l := entrylist.Open(s, "mylist")
+	defer db.Close()
+
+	l := entrylist.Open(db, "mylist")
 	if err := l.Add("Episode One", "http://example.com/1"); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
-	s.Close()
 
-	p := &listMatchPlugin{dbPath: dbPath, listName: "mylist", removeOnMatch: true}
+	p := &listMatchPlugin{db: db, listName: "mylist", removeOnMatch: true}
 	e := entry.New("Episode One", "http://example.com/1")
 	if err := p.Filter(context.Background(), makeTC(), e); err != nil {
 		t.Fatalf("Filter: %v", err)
@@ -94,13 +84,7 @@ func TestListMatchRemoveOnMatch(t *testing.T) {
 		t.Errorf("expected entry to be accepted")
 	}
 
-	// Verify removal.
-	s2, err := store.OpenSQLite(dbPath)
-	if err != nil {
-		t.Fatalf("OpenSQLite: %v", err)
-	}
-	defer s2.Close()
-	l2 := entrylist.Open(s2, "mylist")
+	l2 := entrylist.Open(db, "mylist")
 	found, err := l2.Contains("Episode One")
 	if err != nil {
 		t.Fatalf("Contains: %v", err)

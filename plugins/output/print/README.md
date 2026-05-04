@@ -17,7 +17,6 @@ tasks:
       url: "https://example.com/feed"
     series:
       shows: ["Breaking Bad"]
-      db: ":memory:"
     print:
       format: "[{{.Task}}] {{.Title}}"
 ```

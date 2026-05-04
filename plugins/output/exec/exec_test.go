@@ -19,7 +19,7 @@ func TestRunsCommand(t *testing.T) {
 	dir := t.TempDir()
 	marker := filepath.Join(dir, "marker.txt")
 
-	p, err := newPlugin(map[string]any{"command": "touch " + marker})
+	p, err := newPlugin(map[string]any{"command": "touch " + marker}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +36,7 @@ func TestTemplateInterpolation(t *testing.T) {
 	dir := t.TempDir()
 	marker := filepath.Join(dir, "marker.txt")
 
-	p, _ := newPlugin(map[string]any{"command": "touch " + marker + "_{{.series_season}}"})
+	p, _ := newPlugin(map[string]any{"command": "touch " + marker + "_{{.series_season}}"}, nil)
 	e := entry.New("Test", "http://x.com/a")
 	e.Set("series_season", 3)
 	p.(*execPlugin).Output(context.Background(), makeCtx(), []*entry.Entry{e}) //nolint:errcheck
@@ -47,7 +47,7 @@ func TestTemplateInterpolation(t *testing.T) {
 }
 
 func TestFailedCommandLogged(t *testing.T) {
-	p, _ := newPlugin(map[string]any{"command": "false"})
+	p, _ := newPlugin(map[string]any{"command": "false"}, nil)
 	e := entry.New("Test", "http://x.com/a")
 	// Output should not propagate individual command errors.
 	err := p.(*execPlugin).Output(context.Background(), makeCtx(), []*entry.Entry{e})
@@ -57,7 +57,7 @@ func TestFailedCommandLogged(t *testing.T) {
 }
 
 func TestContextCancellation(t *testing.T) {
-	p, _ := newPlugin(map[string]any{"command": "sleep 60"})
+	p, _ := newPlugin(map[string]any{"command": "sleep 60"}, nil)
 	e := entry.New("Test", "http://x.com/a")
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -67,7 +67,7 @@ func TestContextCancellation(t *testing.T) {
 
 func TestMultipleEntries(t *testing.T) {
 	dir := t.TempDir()
-	p, _ := newPlugin(map[string]any{"command": "touch " + dir + "/{{.series_episode}}"})
+	p, _ := newPlugin(map[string]any{"command": "touch " + dir + "/{{.series_episode}}"}, nil)
 	entries := []*entry.Entry{
 		func() *entry.Entry { e := entry.New("A", "http://x.com/a"); e.Set("series_episode", 1); return e }(),
 		func() *entry.Entry { e := entry.New("B", "http://x.com/b"); e.Set("series_episode", 2); return e }(),
@@ -82,13 +82,13 @@ func TestMultipleEntries(t *testing.T) {
 }
 
 func TestMissingCommand(t *testing.T) {
-	if _, err := newPlugin(map[string]any{}); err == nil {
+	if _, err := newPlugin(map[string]any{}, nil); err == nil {
 		t.Error("expected error when command missing")
 	}
 }
 
 func TestInvalidTemplate(t *testing.T) {
-	if _, err := newPlugin(map[string]any{"command": "echo {{.Unclosed"}); err == nil {
+	if _, err := newPlugin(map[string]any{"command": "echo {{.Unclosed"}, nil); err == nil {
 		t.Error("expected error for invalid template")
 	}
 }

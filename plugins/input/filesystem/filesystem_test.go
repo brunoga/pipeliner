@@ -15,7 +15,7 @@ func makeCtx(t *testing.T) *plugin.TaskContext {
 }
 
 func TestRequiresPath(t *testing.T) {
-	_, err := newFilesystemPlugin(map[string]any{})
+	_, err := newFilesystemPlugin(map[string]any{}, nil)
 	if err == nil {
 		t.Error("expected error when path is missing")
 	}
@@ -29,7 +29,7 @@ func TestScansDirectory(t *testing.T) {
 		}
 	}
 
-	p, err := newFilesystemPlugin(map[string]any{"path": dir})
+	p, err := newFilesystemPlugin(map[string]any{"path": dir}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +48,7 @@ func TestGlobMask(t *testing.T) {
 		os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o600)
 	}
 
-	p, _ := newFilesystemPlugin(map[string]any{"path": dir, "mask": "*.torrent"})
+	p, _ := newFilesystemPlugin(map[string]any{"path": dir, "mask": "*.torrent"}, nil)
 	entries, err := p.(*filesystemPlugin).Run(context.Background(), makeCtx(t))
 	if err != nil {
 		t.Fatal(err)
@@ -70,7 +70,7 @@ func TestNonRecursiveSkipsSubdirs(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "top.txt"), []byte("x"), 0o600)
 	os.WriteFile(filepath.Join(sub, "nested.txt"), []byte("x"), 0o600)
 
-	p, _ := newFilesystemPlugin(map[string]any{"path": dir, "recursive": false})
+	p, _ := newFilesystemPlugin(map[string]any{"path": dir, "recursive": false}, nil)
 	entries, _ := p.(*filesystemPlugin).Run(context.Background(), makeCtx(t))
 	if len(entries) != 1 {
 		t.Errorf("want 1 entry (non-recursive), got %d", len(entries))
@@ -84,7 +84,7 @@ func TestRecursiveIncludesSubdirs(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "top.txt"), []byte("x"), 0o600)
 	os.WriteFile(filepath.Join(sub, "nested.txt"), []byte("x"), 0o600)
 
-	p, _ := newFilesystemPlugin(map[string]any{"path": dir, "recursive": true})
+	p, _ := newFilesystemPlugin(map[string]any{"path": dir, "recursive": true}, nil)
 	entries, _ := p.(*filesystemPlugin).Run(context.Background(), makeCtx(t))
 	if len(entries) != 2 {
 		t.Errorf("want 2 entries (recursive), got %d", len(entries))
@@ -95,7 +95,7 @@ func TestEntryFields(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "file.torrent"), []byte("hello"), 0o600)
 
-	p, _ := newFilesystemPlugin(map[string]any{"path": dir})
+	p, _ := newFilesystemPlugin(map[string]any{"path": dir}, nil)
 	entries, _ := p.(*filesystemPlugin).Run(context.Background(), makeCtx(t))
 	if len(entries) != 1 {
 		t.Fatalf("want 1 entry, got %d", len(entries))

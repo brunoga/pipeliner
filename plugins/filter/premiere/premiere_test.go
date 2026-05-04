@@ -6,14 +6,17 @@ import (
 
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/plugin"
+	"github.com/brunoga/pipeliner/internal/store"
 )
 
 func makePlugin(t *testing.T, cfg map[string]any) *premierePlugin {
 	t.Helper()
-	if _, ok := cfg["db"]; !ok {
-		cfg["db"] = ":memory:"
+	db, err := store.OpenSQLite(":memory:")
+	if err != nil {
+		t.Fatalf("OpenSQLite: %v", err)
 	}
-	p, err := newPlugin(cfg)
+	t.Cleanup(func() { db.Close() })
+	p, err := newPlugin(cfg, db)
 	if err != nil {
 		t.Fatalf("newPlugin: %v", err)
 	}

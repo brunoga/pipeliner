@@ -22,17 +22,12 @@ go build -o pipeliner ./cmd/pipeliner
 
 ```yaml
 # config.yaml
-variables:
-  db: pipeliner.db
-
 tasks:
   breaking-bad:
     rss:
       url: "https://example.com/rss"
     seen:
-      db: "{$ db $}"
     series:
-      db: "{$ db $}"
       shows:
         - "Breaking Bad"
     transmission:

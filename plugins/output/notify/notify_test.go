@@ -27,7 +27,7 @@ func (m *mockNotifier) Send(_ context.Context, msg inotify.Message) error {
 
 func openPlugin(t *testing.T, cfg map[string]any) *notifyPlugin {
 	t.Helper()
-	p, err := newPlugin(cfg)
+	p, err := newPlugin(cfg, nil)
 	if err != nil {
 		t.Fatalf("newPlugin: %v", err)
 	}
@@ -86,14 +86,14 @@ func TestOutputOnAllSendsWhenEmpty(t *testing.T) {
 }
 
 func TestMissingVia(t *testing.T) {
-	_, err := newPlugin(map[string]any{})
+	_, err := newPlugin(map[string]any{}, nil)
 	if err == nil {
 		t.Fatal("expected error when via is missing")
 	}
 }
 
 func TestUnknownNotifier(t *testing.T) {
-	_, err := newPlugin(map[string]any{"via": "no-such-notifier"})
+	_, err := newPlugin(map[string]any{"via": "no-such-notifier"}, nil)
 	if err == nil {
 		t.Fatal("expected error for unknown notifier")
 	}

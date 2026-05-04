@@ -14,7 +14,6 @@
 //	via       - list of search plugin configs (required); each entry is either a
 //	            plugin name string or a map with a "name" key plus plugin options
 //	interval  - minimum time between searches for the same title (default: "24h")
-//	db        - path to SQLite state file (default: "pipeliner.db")
 //
 // At least one of 'titles' or 'from' must produce titles.
 package discover
@@ -52,13 +51,13 @@ type searchRecord struct {
 	LastSearched time.Time `json:"last_searched"`
 }
 
-func newPlugin(cfg map[string]any) (plugin.Plugin, error) {
+func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
 	titles := toStringSlice(cfg["titles"])
 
 	fromRaw, _ := cfg["from"].([]any)
 	var froms []plugin.InputPlugin
 	for _, item := range fromRaw {
-		inp, err := plugin.MakeInputPlugin(item)
+		inp, err := plugin.MakeInputPlugin(item, db)
 		if err != nil {
 			return nil, fmt.Errorf("discover: from: %w", err)
 		}
@@ -80,20 +79,11 @@ func newPlugin(cfg map[string]any) (plugin.Plugin, error) {
 	}
 	var searchers []plugin.SearchPlugin
 	for _, item := range viaRaw {
-		sp, err := resolveSearchPlugin(item)
+		sp, err := resolveSearchPlugin(item, db)
 		if err != nil {
 			return nil, fmt.Errorf("discover: %w", err)
 		}
 		searchers = append(searchers, sp)
-	}
-
-	dbPath, _ := cfg["db"].(string)
-	if dbPath == "" {
-		dbPath = "pipeliner.db"
-	}
-	db, err := store.OpenSQLite(dbPath)
-	if err != nil {
-		return nil, fmt.Errorf("discover: open store: %w", err)
 	}
 
 	return &discoverPlugin{
@@ -105,7 +95,7 @@ func newPlugin(cfg map[string]any) (plugin.Plugin, error) {
 	}, nil
 }
 
-func resolveSearchPlugin(item any) (plugin.SearchPlugin, error) {
+func resolveSearchPlugin(item any, db *store.SQLiteStore) (plugin.SearchPlugin, error) {
 	name, pluginCfg, err := plugin.ResolveNameAndConfig(item)
 	if err != nil {
 		return nil, err
@@ -114,7 +104,7 @@ func resolveSearchPlugin(item any) (plugin.SearchPlugin, error) {
 	if !ok {
 		return nil, fmt.Errorf("unknown search plugin %q", name)
 	}
-	p, err := desc.Factory(pluginCfg)
+	p, err := desc.Factory(pluginCfg, db)
 	if err != nil {
 		return nil, fmt.Errorf("instantiate search plugin %q: %w", name, err)
 	}
