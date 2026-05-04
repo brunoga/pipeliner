@@ -24,7 +24,7 @@ func TestRequiresPath(t *testing.T) {
 func TestScansDirectory(t *testing.T) {
 	dir := t.TempDir()
 	for _, name := range []string{"a.txt", "b.txt", "c.torrent"} {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -45,7 +45,7 @@ func TestScansDirectory(t *testing.T) {
 func TestGlobMask(t *testing.T) {
 	dir := t.TempDir()
 	for _, name := range []string{"a.txt", "b.torrent", "c.torrent"} {
-		os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o644)
+		os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o600)
 	}
 
 	p, _ := newFilesystemPlugin(map[string]any{"path": dir, "mask": "*.torrent"})
@@ -67,8 +67,8 @@ func TestNonRecursiveSkipsSubdirs(t *testing.T) {
 	dir := t.TempDir()
 	sub := filepath.Join(dir, "sub")
 	os.Mkdir(sub, 0o755)
-	os.WriteFile(filepath.Join(dir, "top.txt"), []byte("x"), 0o644)
-	os.WriteFile(filepath.Join(sub, "nested.txt"), []byte("x"), 0o644)
+	os.WriteFile(filepath.Join(dir, "top.txt"), []byte("x"), 0o600)
+	os.WriteFile(filepath.Join(sub, "nested.txt"), []byte("x"), 0o600)
 
 	p, _ := newFilesystemPlugin(map[string]any{"path": dir, "recursive": false})
 	entries, _ := p.(*filesystemPlugin).Run(context.Background(), makeCtx(t))
@@ -81,8 +81,8 @@ func TestRecursiveIncludesSubdirs(t *testing.T) {
 	dir := t.TempDir()
 	sub := filepath.Join(dir, "sub")
 	os.Mkdir(sub, 0o755)
-	os.WriteFile(filepath.Join(dir, "top.txt"), []byte("x"), 0o644)
-	os.WriteFile(filepath.Join(sub, "nested.txt"), []byte("x"), 0o644)
+	os.WriteFile(filepath.Join(dir, "top.txt"), []byte("x"), 0o600)
+	os.WriteFile(filepath.Join(sub, "nested.txt"), []byte("x"), 0o600)
 
 	p, _ := newFilesystemPlugin(map[string]any{"path": dir, "recursive": true})
 	entries, _ := p.(*filesystemPlugin).Run(context.Background(), makeCtx(t))
@@ -93,7 +93,7 @@ func TestRecursiveIncludesSubdirs(t *testing.T) {
 
 func TestEntryFields(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "file.torrent"), []byte("hello"), 0o644)
+	os.WriteFile(filepath.Join(dir, "file.torrent"), []byte("hello"), 0o600)
 
 	p, _ := newFilesystemPlugin(map[string]any{"path": dir})
 	entries, _ := p.(*filesystemPlugin).Run(context.Background(), makeCtx(t))

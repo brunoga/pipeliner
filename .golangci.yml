@@ -1,12 +1,10 @@
-version: "2"
-
 linters:
-  default: standard
+  # Default linters (errcheck, govet, staticcheck, etc.) remain enabled.
   enable:
-    - misspell      # catch common spelling mistakes in comments and strings
-    - noctx         # detect http calls without context
-    - gosec         # security checks
-    - revive        # opinionated but practical style checks
+    - misspell   # catch common spelling mistakes in comments and strings
+    - noctx      # detect http calls without context
+    - gosec      # security checks
+    - revive     # opinionated but practical style checks
 
 linters-settings:
   revive:

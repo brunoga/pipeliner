@@ -436,7 +436,6 @@ func TestMultipleOutputsConcurrent(t *testing.T) {
 func TestOutputsRunConcurrentlyNotSerially(t *testing.T) {
 	// Two outputs each sleep briefly; if serial they'd take >2x the sleep,
 	// if concurrent they complete in ~1x. We verify via timing.
-	type slowOutput struct{ capturingOutput }
 	slow1 := &capturingOutput{}
 	slow2 := &capturingOutput{}
 

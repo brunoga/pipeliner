@@ -104,7 +104,7 @@ func (s *Server) Start(ctx context.Context, addr string) error {
 	mux.HandleFunc("POST /api/reload", s.apiReload)
 	mux.HandleFunc("GET /api/logs", s.apiLogs)
 
-	srv := &http.Server{Addr: addr, Handler: mux}
+	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		<-ctx.Done()
 		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

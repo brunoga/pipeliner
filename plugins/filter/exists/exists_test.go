@@ -16,7 +16,7 @@ func setup(t *testing.T, files ...string) string {
 	t.Helper()
 	dir := t.TempDir()
 	for _, f := range files {
-		if err := os.WriteFile(filepath.Join(dir, f), []byte("x"), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, f), []byte("x"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -63,7 +63,7 @@ func TestNonRecursiveSkipsSubdirs(t *testing.T) {
 	if err := os.Mkdir(sub, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(sub, "Hidden.Show.S01E01.mkv"), []byte("x"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(sub, "Hidden.Show.S01E01.mkv"), []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -81,7 +81,7 @@ func TestRecursiveFindsSubdirFiles(t *testing.T) {
 	if err := os.Mkdir(sub, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(sub, "Hidden.Show.S01E01.mkv"), []byte("x"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(sub, "Hidden.Show.S01E01.mkv"), []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 

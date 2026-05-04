@@ -123,8 +123,7 @@ func parseHTTPScrape(data []byte, ih [20]byte) (int, error) {
 	}
 
 	// Try exact match on the 20-byte binary key.
-	key := string(ih[:])
-	stats, ok := files[key].(map[string]any)
+	stats, ok := files[string(ih[:])].(map[string]any)
 	if !ok {
 		// Fall back to the first entry (some trackers return a single result
 		// regardless of requested hash).
@@ -170,7 +169,7 @@ func scrapeUDP(ctx context.Context, ih [20]byte, announceURL string) (int, error
 	defer conn.Close()
 	conn.SetDeadline(time.Now().Add(timeout)) //nolint:errcheck
 
-	txID := rand.Uint32()
+	txID := rand.Uint32() //nolint:gosec // transaction IDs are correlation tokens, not security primitives
 
 	// 1. Connect request
 	connReq := make([]byte, 16)

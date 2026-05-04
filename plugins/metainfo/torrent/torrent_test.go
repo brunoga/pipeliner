@@ -54,7 +54,7 @@ func TestAnnotateLocalFile(t *testing.T) {
 	torrentData := makeTorrent("my.show.s01e01.mkv", 2_000_000_000)
 	dir := t.TempDir()
 	path := filepath.Join(dir, "my.show.s01e01.torrent")
-	if err := os.WriteFile(path, torrentData, 0o644); err != nil {
+	if err := os.WriteFile(path, torrentData, 0o600); err != nil {
 		t.Fatal(err)
 	}
 
