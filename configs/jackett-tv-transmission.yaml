@@ -1,0 +1,62 @@
+# jackett-tv-transmission.yaml
+#
+# Download HD TV episodes for a configured show list using Jackett as the
+# search backend and Transmission as the download client.
+#
+# Requirements:
+#   - Jackett running and reachable at JACKETT_URL
+#   - Transmission running and reachable at localhost:9091
+#   - JACKETT_API_KEY set as an environment variable
+
+variables:
+  db:          pipeliner.db
+  jackett_url: "${JACKETT_URL}"
+  jackett_key: "${JACKETT_API_KEY}"
+
+tasks:
+  tv-jackett:
+    # Actively search Jackett for each show in the series tracker.
+    discover:
+      from: series
+      via:
+        - jackett:
+            url:        "{$ jackett_url $}"
+            api_key:    "{$ jackett_key $}"
+            indexers:   [all]
+            categories: [5000, 5030, 5040]   # TV, TV/HD, TV/SD
+      interval: 6h
+      db: "{$ db $}"
+
+    # Skip anything already downloaded.
+    seen:
+      db: "{$ db $}"
+
+    # Accept episodes of the configured shows; track what has been downloaded.
+    series:
+      db: "{$ db $}"
+      shows:
+        - "Breaking Bad"
+        - "Better Call Saul"
+        - "The Wire"
+
+    # Require at least HD quality.
+    quality:
+      min: 720p
+
+    # Require seeders (jackett provides this without an extra fetch).
+    condition:
+      accept: 'torrent_seeders >= 3'
+
+    # Build a structured download path.
+    metainfo_series:
+    pathfmt:
+      path: "/media/tv/{series_name}/Season {series_season:02d}"
+
+    # Send to Transmission.
+    transmission:
+      host: localhost
+      port: 9091
+      path: "{download_path}"
+
+schedules:
+  tv-jackett: 6h
