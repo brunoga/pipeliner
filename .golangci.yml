@@ -1,6 +1,3 @@
-run:
-  go: "1.24"   # pin to the highest version golangci-lint itself was built with
-
 linters:
   # Default linters (errcheck, govet, staticcheck, etc.) remain enabled.
   enable:
@@ -17,11 +14,6 @@ linters-settings:
 
 issues:
   exclude-rules:
-    # typecheck fires when golangci-lint's bundled Go toolchain is older than the
-    # module's go directive. Real type errors are caught by the separate Build job.
-    - linters: [typecheck]
-      text: "."
-
     # errcheck is noisy in test helpers — allow unchecked calls in _test.go files.
     - path: _test\.go
       linters: [errcheck]
