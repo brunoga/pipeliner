@@ -108,11 +108,11 @@ func TestOnLowerAccept(t *testing.T) {
 	e1 := entryWithQuality("Show.S01E01.1080p.BluRay")
 	filterLearn(t, p, e1)
 
-	// Then: 720p with on_lower=accept — should not be rejected.
+	// Then: 720p with on_lower=accept — should be explicitly accepted.
 	e2 := entryWithQuality("Show.S01E01.720p.HDTV")
 	filterLearn(t, p, e2)
-	if e2.IsRejected() {
-		t.Errorf("720p should not be rejected when on_lower=accept; reason: %q", e2.RejectReason)
+	if !e2.IsAccepted() {
+		t.Errorf("720p should be accepted when on_lower=accept; state is %v", e2.State)
 	}
 }
 
