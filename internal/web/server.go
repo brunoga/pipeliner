@@ -30,15 +30,16 @@ type TaskInfo struct {
 
 // Server is the HTTP status interface for the daemon.
 type Server struct {
-	tasksMu sync.RWMutex
-	tasks   []TaskInfo
-	daemon  DaemonControl
-	history *History
-	bcast   *Broadcaster
-	reload  func() error // nil if reload is not configured
-	version string
-	creds   credentials
+	tasksMu  sync.RWMutex
+	tasks    []TaskInfo
+	daemon   DaemonControl
+	history  *History
+	bcast    *Broadcaster
+	reload   func() error // nil if reload is not configured
+	version  string
+	creds    credentials
 	sessions *sessionStore
+	secure   bool // true when serving over TLS; controls the Secure cookie flag
 
 	runMu   sync.Mutex
 	running map[string]int // task name → active run count
@@ -106,8 +107,12 @@ func (s *Server) SetTasks(tasks []TaskInfo) {
 	s.tasksMu.Unlock()
 }
 
-// Start begins listening on addr over TLS and blocks until ctx is cancelled.
+// Start begins listening on addr and blocks until ctx is cancelled.
+// If tlsCfg is non-nil the server speaks HTTPS; otherwise plain HTTP is used
+// (suitable for running behind a reverse proxy that terminates TLS).
 func (s *Server) Start(ctx context.Context, addr string, tlsCfg *tls.Config) error {
+	s.secure = tlsCfg != nil
+
 	// Unauthenticated routes.
 	open := http.NewServeMux()
 	open.HandleFunc("GET /login", s.handleLoginGet)
@@ -142,9 +147,15 @@ func (s *Server) Start(ctx context.Context, addr string, tlsCfg *tls.Config) err
 		defer cancel()
 		_ = srv.Shutdown(shutCtx)
 	}()
-	// TLSConfig already has certificates loaded; pass empty strings to use them.
-	if err := srv.ListenAndServeTLS("", ""); err != http.ErrServerClosed {
-		return err
+	if tlsCfg != nil {
+		// TLSConfig already has certificates loaded; pass empty strings to use them.
+		if err := srv.ListenAndServeTLS("", ""); err != http.ErrServerClosed {
+			return err
+		}
+	} else {
+		if err := srv.ListenAndServe(); err != http.ErrServerClosed {
+			return err
+		}
 	}
 	return nil
 }
