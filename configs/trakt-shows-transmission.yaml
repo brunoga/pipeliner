@@ -1,7 +1,6 @@
 variables:
   trakt_client_id: YOUR_TRAKT_CLIENT_ID
   trakt_access_token: YOUR_TRAKT_ACCESS_TOKEN
-  db_path: pipeliner.db
   tv_path: /media/tv
 
 templates:
@@ -9,7 +8,6 @@ templates:
     rss:
       url: "https://example.com/rss/shows"
     seen:
-      db: "{$ db_path $}"
 
 tasks:
   # Downloads episodes for every show on the Trakt watchlist.
@@ -18,7 +16,6 @@ tasks:
     template: common
     metainfo_quality:
     series:
-      db: "{$ db_path $}"
       tracking: strict
       quality: 720p
       ttl: 2h
@@ -31,10 +28,8 @@ tasks:
     metainfo_trakt:
       client_id: "{$ trakt_client_id $}"
       type: shows
-      db: "{$ db_path $}"
     metainfo_tvdb:
       api_key: YOUR_TVDB_API_KEY
-      db: "{$ db_path $}"
     pathfmt:
       path: '{$ tv_path $}/{series_name}/Season {series_season:02d}'
     transmission:
@@ -48,7 +43,6 @@ tasks:
     template: common
     metainfo_quality:
     series:
-      db: "{$ db_path $}"
       tracking: backfill
       quality: 1080p
       ttl: 6h

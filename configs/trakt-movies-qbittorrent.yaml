@@ -5,7 +5,6 @@ variables:
   qbit_port: "8080"
   qbit_user: admin
   qbit_pass: changeme
-  db_path: pipeliner.db
   movies_path: /media/movies
 
 templates:
@@ -13,7 +12,6 @@ templates:
     rss:
       url: "https://example.com/rss/movies"
     seen:
-      db: "{$ db_path $}"
 
 tasks:
   # Movies on the Trakt watchlist — 720p minimum quality.
@@ -22,7 +20,6 @@ tasks:
     template: common
     metainfo_quality:
     movies:
-      db: "{$ db_path $}"
       quality: 720p
       ttl: 4h
       from:
@@ -33,11 +30,9 @@ tasks:
           list: watchlist
     metainfo_tmdb:
       api_key: YOUR_TMDB_API_KEY
-      db: "{$ db_path $}"
     metainfo_trakt:
       client_id: "{$ trakt_client_id $}"
       type: movies
-      db: "{$ db_path $}"
     pathfmt:
       path: '{$ movies_path $}/{{.tmdb_title}} ({{.tmdb_release_date | slice 0 4}})'
     qbittorrent:
@@ -53,7 +48,6 @@ tasks:
     template: common
     metainfo_quality:
     movies:
-      db: "{$ db_path $}"
       quality: 1080p
       ttl: 4h
       from:
@@ -64,7 +58,6 @@ tasks:
           list: ratings
     metainfo_tmdb:
       api_key: YOUR_TMDB_API_KEY
-      db: "{$ db_path $}"
     condition:
       rules:
         - reject: 'source == "CAM"'
