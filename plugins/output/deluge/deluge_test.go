@@ -57,7 +57,7 @@ func newTestPlugin(t *testing.T, srv *httptest.Server, extra map[string]any) *de
 		"host":     "127.0.0.1",
 		"port":     0, // overridden below
 		"password": "secret",
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +138,7 @@ func TestSavePathTemplate(t *testing.T) {
 		"host":     "127.0.0.1",
 		"password": "x",
 		"path":     "/downloads/{{.series_name}}",
-	})
+	}, nil)
 	dp := p.(*delugePlugin)
 	dp.endpoint = srv.URL + "/json"
 

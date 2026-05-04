@@ -119,7 +119,7 @@ func TestAnnotateBatchSkipsNonMagnet(t *testing.T) {
 func TestAnnotateBatchSetsURIFields(t *testing.T) {
 	uri := "magnet:?xt=urn:btih:" + hexHash + "&tr=" + tracker + "&dn=My+Show"
 
-	p, err := newPlugin(map[string]any{"resolve_timeout": "1ms"})
+	p, err := newPlugin(map[string]any{"resolve_timeout": "1ms"}, nil)
 	if err != nil {
 		t.Fatalf("newPlugin: %v", err)
 	}
@@ -144,7 +144,7 @@ func TestAnnotateBatchSetsURIFields(t *testing.T) {
 // TestAnnotateBatchMalformedMagnetSkipped verifies that a malformed magnet URI
 // in a batch does not cause an error and leaves the entry unmodified.
 func TestAnnotateBatchMalformedMagnetSkipped(t *testing.T) {
-	p, err := newPlugin(map[string]any{"resolve_timeout": "1ms"})
+	p, err := newPlugin(map[string]any{"resolve_timeout": "1ms"}, nil)
 	if err != nil {
 		t.Fatalf("newPlugin: %v", err)
 	}
@@ -161,7 +161,7 @@ func TestAnnotateBatchMalformedMagnetSkipped(t *testing.T) {
 
 // TestNewPluginInvalidTimeout verifies that an invalid resolve_timeout returns an error.
 func TestNewPluginInvalidTimeout(t *testing.T) {
-	_, err := newPlugin(map[string]any{"resolve_timeout": "not-a-duration"})
+	_, err := newPlugin(map[string]any{"resolve_timeout": "not-a-duration"}, nil)
 	if err == nil {
 		t.Error("expected error for invalid resolve_timeout")
 	}

@@ -42,7 +42,6 @@ tasks:
     rss:
       url: "https://example.com/rss/magnets"
     seen:
-      db: pipeliner.db
     metainfo_magnet:
       resolve_timeout: 45s
     content:

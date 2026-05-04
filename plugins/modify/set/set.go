@@ -11,6 +11,7 @@ import (
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/interp"
 	"github.com/brunoga/pipeliner/internal/plugin"
+	"github.com/brunoga/pipeliner/internal/store"
 )
 
 func init() {
@@ -26,7 +27,7 @@ type setPlugin struct {
 	fields map[string]*interp.Interpolator
 }
 
-func newSetPlugin(cfg map[string]any) (plugin.Plugin, error) {
+func newSetPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
 	fields := make(map[string]*interp.Interpolator, len(cfg))
 	for k, v := range cfg {
 		s := fmt.Sprintf("%v", v)

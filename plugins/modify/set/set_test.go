@@ -11,7 +11,7 @@ import (
 func makeCtx() *plugin.TaskContext { return &plugin.TaskContext{Name: "test"} }
 
 func TestSetLiteralField(t *testing.T) {
-	p, err := newSetPlugin(map[string]any{"category": "tv"})
+	p, err := newSetPlugin(map[string]any{"category": "tv"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -25,7 +25,7 @@ func TestSetLiteralField(t *testing.T) {
 }
 
 func TestSetTemplateField(t *testing.T) {
-	p, err := newSetPlugin(map[string]any{"label": "{{.Title}}-tagged"})
+	p, err := newSetPlugin(map[string]any{"label": "{{.Title}}-tagged"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +37,7 @@ func TestSetTemplateField(t *testing.T) {
 }
 
 func TestSetFromExistingField(t *testing.T) {
-	p, err := newSetPlugin(map[string]any{"copy": "{{.src}}"})
+	p, err := newSetPlugin(map[string]any{"copy": "{{.src}}"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +53,7 @@ func TestSetMultipleFields(t *testing.T) {
 	p, err := newSetPlugin(map[string]any{
 		"a": "alpha",
 		"b": "beta",
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +65,7 @@ func TestSetMultipleFields(t *testing.T) {
 }
 
 func TestSetInvalidTemplate(t *testing.T) {
-	_, err := newSetPlugin(map[string]any{"bad": "{{.Unclosed"})
+	_, err := newSetPlugin(map[string]any{"bad": "{{.Unclosed"}, nil)
 	if err == nil {
 		t.Error("expected error for invalid template")
 	}

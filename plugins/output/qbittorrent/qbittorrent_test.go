@@ -50,7 +50,7 @@ func newTestPlugin(t *testing.T, srv *httptest.Server) *qbtPlugin {
 		"port":     0,
 		"username": "admin",
 		"password": "secret",
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +107,7 @@ func TestCategoryAndTags(t *testing.T) {
 		"host":     "127.0.0.1",
 		"category": "tv",
 		"tags":     "auto,pipeliner",
-	})
+	}, nil)
 	qp := p.(*qbtPlugin)
 	qp.baseURL = srv.URL
 
@@ -136,7 +136,7 @@ func TestSavepathTemplate(t *testing.T) {
 	p, _ := newPlugin(map[string]any{
 		"host":     "127.0.0.1",
 		"savepath": "/downloads/{{.series_name}}",
-	})
+	}, nil)
 	qp := p.(*qbtPlugin)
 	qp.baseURL = srv.URL
 

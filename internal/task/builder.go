@@ -5,6 +5,7 @@ import (
 	"log/slog"
 
 	"github.com/brunoga/pipeliner/internal/plugin"
+	"github.com/brunoga/pipeliner/internal/store"
 )
 
 // PluginConfig pairs a plugin name with its configuration block.
@@ -22,8 +23,9 @@ func WithLogger(l *slog.Logger) BuildOption {
 }
 
 // Build constructs a Task from a name, an ordered list of plugin configs, and a logger.
+// db is the shared store for this config; it is forwarded to every plugin factory.
 // Plugins are instantiated via the global registry.
-func Build(name string, plugins []PluginConfig, logger *slog.Logger, opts ...BuildOption) (*Task, error) {
+func Build(name string, plugins []PluginConfig, db *store.SQLiteStore, logger *slog.Logger, opts ...BuildOption) (*Task, error) {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -40,7 +42,7 @@ func Build(name string, plugins []PluginConfig, logger *slog.Logger, opts ...Bui
 		if cfg == nil {
 			cfg = map[string]any{}
 		}
-		impl, err := desc.Factory(cfg)
+		impl, err := desc.Factory(cfg, db)
 		if err != nil {
 			return nil, fmt.Errorf("task %q: plugin %q: %w", name, pc.Name, err)
 		}

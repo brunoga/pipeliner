@@ -8,7 +8,6 @@
 //
 // Config keys:
 //
-//	db             - path to the SQLite database (required)
 //	list           - name of the list to match against (required)
 //	remove_on_match - remove the entry from the list on match (default: false)
 package list_match
@@ -33,35 +32,25 @@ func init() {
 }
 
 type listMatchPlugin struct {
-	dbPath        string
+	db            *store.SQLiteStore
 	listName      string
 	removeOnMatch bool
 }
 
-func newPlugin(cfg map[string]any) (plugin.Plugin, error) {
-	dbPath, _ := cfg["db"].(string)
-	if dbPath == "" {
-		return nil, fmt.Errorf("list_match: 'db' is required")
-	}
+func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
 	listName, _ := cfg["list"].(string)
 	if listName == "" {
 		return nil, fmt.Errorf("list_match: 'list' is required")
 	}
 	remove, _ := cfg["remove_on_match"].(bool)
-	return &listMatchPlugin{dbPath: dbPath, listName: listName, removeOnMatch: remove}, nil
+	return &listMatchPlugin{db: db, listName: listName, removeOnMatch: remove}, nil
 }
 
 func (p *listMatchPlugin) Name() string        { return "list_match" }
 func (p *listMatchPlugin) Phase() plugin.Phase { return plugin.PhaseFilter }
 
 func (p *listMatchPlugin) Filter(_ context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
-	s, err := store.OpenSQLite(p.dbPath)
-	if err != nil {
-		return fmt.Errorf("list_match: open db: %w", err)
-	}
-	defer s.Close()
-
-	list := entrylist.Open(s, p.listName)
+	list := entrylist.Open(p.db, p.listName)
 	found, err := list.Contains(e.Title)
 	if err != nil {
 		return fmt.Errorf("list_match: lookup: %w", err)

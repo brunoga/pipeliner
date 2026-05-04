@@ -27,28 +27,28 @@ func makeServer(t *testing.T, movies []map[string]any) *httptest.Server {
 }
 
 func TestMissingClientID(t *testing.T) {
-	_, err := newPlugin(map[string]any{"type": "movies"})
+	_, err := newPlugin(map[string]any{"type": "movies"}, nil)
 	if err == nil {
 		t.Fatal("expected error for missing client_id")
 	}
 }
 
 func TestMissingType(t *testing.T) {
-	_, err := newPlugin(map[string]any{"client_id": "id"})
+	_, err := newPlugin(map[string]any{"client_id": "id"}, nil)
 	if err == nil {
 		t.Fatal("expected error for missing type")
 	}
 }
 
 func TestInvalidType(t *testing.T) {
-	_, err := newPlugin(map[string]any{"client_id": "id", "type": "songs"})
+	_, err := newPlugin(map[string]any{"client_id": "id", "type": "songs"}, nil)
 	if err == nil {
 		t.Fatal("expected error for invalid type")
 	}
 }
 
 func TestDefaultList(t *testing.T) {
-	p, err := newPlugin(map[string]any{"client_id": "id", "type": "movies"})
+	p, err := newPlugin(map[string]any{"client_id": "id", "type": "movies"}, nil)
 	if err != nil {
 		t.Fatalf("newPlugin: %v", err)
 	}
@@ -81,7 +81,7 @@ func TestRunReturnsEntries(t *testing.T) {
 		"client_id":    "test",
 		"type":         "movies",
 		"list":         "trending",
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("newPlugin: %v", err)
 	}

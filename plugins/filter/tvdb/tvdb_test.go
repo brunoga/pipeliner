@@ -13,6 +13,7 @@ import (
 
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/plugin"
+	"github.com/brunoga/pipeliner/internal/store"
 )
 
 func tc() *plugin.TaskContext { return &plugin.TaskContext{Name: "test"} }
@@ -68,13 +69,17 @@ func newMockServer(t *testing.T, favorites []int, series map[int]string) (*httpt
 
 func makeFilter(t *testing.T, srv *httptest.Server, extra map[string]any) *tvdbFilter {
 	t.Helper()
+	db, err := store.OpenSQLite(":memory:")
+	if err != nil {
+		t.Fatalf("OpenSQLite: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
 	cfg := map[string]any{
 		"api_key":  "test-key",
 		"user_pin": "test-pin",
-		"db":       ":memory:",
 	}
 	maps.Copy(cfg, extra)
-	p, err := newPlugin(cfg)
+	p, err := newPlugin(cfg, db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,14 +166,14 @@ func TestFilterRefreshesAfterTTL(t *testing.T) {
 }
 
 func TestMissingAPIKey(t *testing.T) {
-	_, err := newPlugin(map[string]any{"user_pin": "pin"})
+	_, err := newPlugin(map[string]any{"user_pin": "pin"}, nil)
 	if err == nil {
 		t.Error("expected error for missing api_key")
 	}
 }
 
 func TestMissingUserPin(t *testing.T) {
-	_, err := newPlugin(map[string]any{"api_key": "key"})
+	_, err := newPlugin(map[string]any{"api_key": "key"}, nil)
 	if err == nil {
 		t.Error("expected error for missing user_pin")
 	}
@@ -179,7 +184,7 @@ func TestInvalidTTL(t *testing.T) {
 		"api_key":  "key",
 		"user_pin": "pin",
 		"ttl":      "not-a-duration",
-	})
+	}, nil)
 	if err == nil {
 		t.Error("expected error for invalid ttl")
 	}

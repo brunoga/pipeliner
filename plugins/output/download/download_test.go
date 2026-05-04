@@ -29,7 +29,7 @@ func TestDownloadsFile(t *testing.T) {
 	defer srv.Close()
 
 	dir := t.TempDir()
-	p, err := newPlugin(map[string]any{"path": dir})
+	p, err := newPlugin(map[string]any{"path": dir}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +55,7 @@ func TestDownloadPathFieldSet(t *testing.T) {
 	defer srv.Close()
 
 	dir := t.TempDir()
-	p, _ := newPlugin(map[string]any{"path": dir})
+	p, _ := newPlugin(map[string]any{"path": dir}, nil)
 	e := entry.New("Test", srv.URL+"/ep.mkv")
 	p.(*downloadPlugin).Output(context.Background(), makeCtx(), []*entry.Entry{e}) //nolint:errcheck
 
@@ -72,7 +72,7 @@ func TestCustomFilenameTemplate(t *testing.T) {
 	p, err := newPlugin(map[string]any{
 		"path":     dir,
 		"filename": "{{.series_name}}.S{{.series_season}}E01.mkv",
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +92,7 @@ func TestAtomicWrite(t *testing.T) {
 	defer srv.Close()
 
 	dir := t.TempDir()
-	p, _ := newPlugin(map[string]any{"path": dir})
+	p, _ := newPlugin(map[string]any{"path": dir}, nil)
 	e := entry.New("T", srv.URL+"/f.bin")
 	p.(*downloadPlugin).Output(context.Background(), makeCtx(), []*entry.Entry{e}) //nolint:errcheck
 
@@ -112,7 +112,7 @@ func TestHTTPError(t *testing.T) {
 	defer srv.Close()
 
 	dir := t.TempDir()
-	p, _ := newPlugin(map[string]any{"path": dir})
+	p, _ := newPlugin(map[string]any{"path": dir}, nil)
 	e := entry.New("T", srv.URL+"/f.bin")
 	// Error is logged per-entry; Output itself succeeds.
 	err := p.(*downloadPlugin).Output(context.Background(), makeCtx(), []*entry.Entry{e})
@@ -130,7 +130,7 @@ func TestContextCancellation(t *testing.T) {
 	defer srv.Close()
 
 	dir := t.TempDir()
-	p, _ := newPlugin(map[string]any{"path": dir})
+	p, _ := newPlugin(map[string]any{"path": dir}, nil)
 	e := entry.New("T", srv.URL+"/f.bin")
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -147,7 +147,7 @@ func TestContextCancellation(t *testing.T) {
 }
 
 func TestMissingPath(t *testing.T) {
-	if _, err := newPlugin(map[string]any{}); err == nil {
+	if _, err := newPlugin(map[string]any{}, nil); err == nil {
 		t.Error("expected error when path missing")
 	}
 }

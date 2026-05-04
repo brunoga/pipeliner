@@ -28,7 +28,7 @@ func rssServer(t *testing.T, items []struct{ title, link string }) *httptest.Ser
 
 func makePlugin(t *testing.T, urlTemplate string) *searchRSSPlugin {
 	t.Helper()
-	p, err := newPlugin(map[string]any{"url_template": urlTemplate})
+	p, err := newPlugin(map[string]any{"url_template": urlTemplate}, nil)
 	if err != nil {
 		t.Fatalf("newPlugin: %v", err)
 	}
@@ -113,7 +113,7 @@ func TestSearchRSSEmptyFeed(t *testing.T) {
 }
 
 func TestSearchRSSMissingURLTemplate(t *testing.T) {
-	_, err := newPlugin(map[string]any{})
+	_, err := newPlugin(map[string]any{}, nil)
 	if err == nil {
 		t.Error("expected error when url_template is missing")
 	}

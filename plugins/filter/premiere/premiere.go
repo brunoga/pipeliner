@@ -10,7 +10,6 @@
 //
 //	episode - episode number to treat as premiere (default: 1)
 //	season  - season number to match; 0 means any season (default: 1)
-//	db      - SQLite database path (default: "pipeliner.db"; use ":memory:" in tests)
 package premiere
 
 import (
@@ -41,18 +40,10 @@ type premierePlugin struct {
 	db      *store.SQLiteStore
 }
 
-func newPlugin(cfg map[string]any) (plugin.Plugin, error) {
+func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
 	episode := intVal(cfg["episode"], 1)
 	season := intVal(cfg["season"], 1)
 
-	dbPath, _ := cfg["db"].(string)
-	if dbPath == "" {
-		dbPath = "pipeliner.db"
-	}
-	db, err := store.OpenSQLite(dbPath)
-	if err != nil {
-		return nil, fmt.Errorf("premiere: open store: %w", err)
-	}
 	return &premierePlugin{episode: episode, season: season, db: db}, nil
 }
 

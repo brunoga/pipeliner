@@ -7,55 +7,56 @@ import (
 	"github.com/brunoga/pipeliner/internal/config"
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/plugin"
+	"github.com/brunoga/pipeliner/internal/store"
 )
 
 func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "mock_input",
 		PluginPhase: plugin.PhaseInput,
-		Factory: func(cfg map[string]any) (plugin.Plugin, error) {
+		Factory: func(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
 			return &mockInput{}, nil
 		},
 	})
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "mock_filter",
 		PluginPhase: plugin.PhaseFilter,
-		Factory: func(cfg map[string]any) (plugin.Plugin, error) {
+		Factory: func(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
 			return &mockFilter{}, nil
 		},
 	})
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "mock_output",
 		PluginPhase: plugin.PhaseOutput,
-		Factory: func(cfg map[string]any) (plugin.Plugin, error) {
+		Factory: func(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
 			return &mockOutput{called: &outputCalled}, nil
 		},
 	})
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "learn_input",
 		PluginPhase: plugin.PhaseInput,
-		Factory: func(cfg map[string]any) (plugin.Plugin, error) {
+		Factory: func(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
 			return &learnInput{called: &learnCalled}, nil
 		},
 	})
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "order1",
 		PluginPhase: plugin.PhaseModify,
-		Factory: func(cfg map[string]any) (plugin.Plugin, error) {
+		Factory: func(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
 			return &orderPlugin{name: "order1", order: &orderList}, nil
 		},
 	})
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "order2",
 		PluginPhase: plugin.PhaseModify,
-		Factory: func(cfg map[string]any) (plugin.Plugin, error) {
+		Factory: func(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
 			return &orderPlugin{name: "order2", order: &orderList}, nil
 		},
 	})
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "order3",
 		PluginPhase: plugin.PhaseModify,
-		Factory: func(cfg map[string]any) (plugin.Plugin, error) {
+		Factory: func(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
 			return &orderPlugin{name: "order3", order: &orderList}, nil
 		},
 	})
@@ -129,7 +130,7 @@ tasks:
     learn_input: {}
 `
 	cfg, _ := config.ParseBytes([]byte(cfgYAML))
-	tasks, _ := config.BuildTasks(cfg, nil)
+	tasks, _ := config.BuildTasks(cfg, nil, nil)
 	_, _ = tasks[0].Run(context.Background())
 
 	if !learnCalled {
@@ -147,7 +148,7 @@ tasks:
     mock_output: {}
 `
 	cfg, _ := config.ParseBytes([]byte(cfgYAML))
-	tasks, _ := config.BuildTasks(cfg, nil)
+	tasks, _ := config.BuildTasks(cfg, nil, nil)
 	tk := tasks[0]
 
 	// Test without dry-run
@@ -181,7 +182,7 @@ tasks:
 		if err != nil {
 			t.Fatalf("parse: %v", err)
 		}
-		tasks, err := config.BuildTasks(cfg, nil)
+		tasks, err := config.BuildTasks(cfg, nil, nil)
 		if err != nil {
 			t.Fatalf("build: %v", err)
 		}

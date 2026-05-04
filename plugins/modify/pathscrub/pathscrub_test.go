@@ -10,7 +10,7 @@ import (
 
 func makePlugin(t *testing.T, cfg map[string]any) *scrubPlugin {
 	t.Helper()
-	p, err := newPlugin(cfg)
+	p, err := newPlugin(cfg, nil)
 	if err != nil {
 		t.Fatalf("newPlugin: %v", err)
 	}
@@ -84,7 +84,7 @@ func TestMissingFieldSkipped(t *testing.T) {
 }
 
 func TestInvalidTarget(t *testing.T) {
-	_, err := newPlugin(map[string]any{"target": "macos"})
+	_, err := newPlugin(map[string]any{"target": "macos"}, nil)
 	if err == nil {
 		t.Error("expected error for invalid target")
 	}

@@ -6,17 +6,20 @@ import (
 
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/plugin"
+	"github.com/brunoga/pipeliner/internal/store"
 )
 
 func makePlugin(t *testing.T, cfg map[string]any) *upgradePlugin {
 	t.Helper()
-	if _, ok := cfg["db"]; !ok {
-		cfg["db"] = ":memory:"
+	db, err := store.OpenSQLite(":memory:")
+	if err != nil {
+		t.Fatalf("OpenSQLite: %v", err)
 	}
+	t.Cleanup(func() { db.Close() })
 	if _, ok := cfg["target"]; !ok {
 		cfg["target"] = "2160p"
 	}
-	p, err := newPlugin(cfg)
+	p, err := newPlugin(cfg, db)
 	if err != nil {
 		t.Fatalf("newPlugin: %v", err)
 	}
@@ -117,14 +120,18 @@ func TestOnLowerAccept(t *testing.T) {
 }
 
 func TestMissingTarget(t *testing.T) {
-	_, err := newPlugin(map[string]any{"db": ":memory:"})
+	db, _ := store.OpenSQLite(":memory:")
+	defer db.Close()
+	_, err := newPlugin(map[string]any{}, db)
 	if err == nil {
 		t.Error("expected error when target is missing")
 	}
 }
 
 func TestInvalidOnLower(t *testing.T) {
-	_, err := newPlugin(map[string]any{"db": ":memory:", "target": "1080p", "on_lower": "maybe"})
+	db, _ := store.OpenSQLite(":memory:")
+	defer db.Close()
+	_, err := newPlugin(map[string]any{"target": "1080p", "on_lower": "maybe"}, db)
 	if err == nil {
 		t.Error("expected error for invalid on_lower value")
 	}

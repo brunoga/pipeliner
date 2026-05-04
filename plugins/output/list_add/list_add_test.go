@@ -11,23 +11,23 @@ import (
 	"github.com/brunoga/pipeliner/internal/store"
 )
 
-func TestListAddMissingDB(t *testing.T) {
-	_, err := newPlugin(map[string]any{"list": "mylist"})
-	if err == nil {
-		t.Error("expected error for missing 'db'")
-	}
-}
-
 func TestListAddMissingList(t *testing.T) {
-	_, err := newPlugin(map[string]any{"db": "/tmp/test.db"})
+	db, _ := store.OpenSQLite(":memory:")
+	defer db.Close()
+	_, err := newPlugin(map[string]any{}, db)
 	if err == nil {
 		t.Error("expected error for missing 'list'")
 	}
 }
 
 func TestListAddOutput(t *testing.T) {
-	dbPath := t.TempDir() + "/test.db"
-	p := &listAddPlugin{dbPath: dbPath, listName: "mylist"}
+	db, err := store.OpenSQLite(":memory:")
+	if err != nil {
+		t.Fatalf("OpenSQLite: %v", err)
+	}
+	defer db.Close()
+
+	p := &listAddPlugin{db: db, listName: "mylist"}
 
 	tc := &plugin.TaskContext{
 		Name:   "test-task",
@@ -42,14 +42,7 @@ func TestListAddOutput(t *testing.T) {
 		t.Fatalf("Output: %v", err)
 	}
 
-	// Verify entries are stored.
-	s, err := store.OpenSQLite(dbPath)
-	if err != nil {
-		t.Fatalf("OpenSQLite: %v", err)
-	}
-	defer s.Close()
-
-	l := entrylist.Open(s, "mylist")
+	l := entrylist.Open(db, "mylist")
 	for _, e := range entries {
 		found, err := l.Contains(e.Title)
 		if err != nil {

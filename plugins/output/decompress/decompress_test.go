@@ -152,7 +152,7 @@ func TestBuildArgsUnarNoDirectory(t *testing.T) {
 // --- newPlugin config defaults ---
 
 func TestNewPluginMissingTo(t *testing.T) {
-	_, err := newPlugin(map[string]any{})
+	_, err := newPlugin(map[string]any{}, nil)
 	if err == nil {
 		t.Error("expected error when 'to' is missing")
 	}

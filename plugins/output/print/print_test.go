@@ -14,7 +14,7 @@ func makeCtx() *plugin.TaskContext {
 }
 
 func TestNewPrintPlugin(t *testing.T) {
-	p, err := newPrintPlugin(map[string]any{})
+	p, err := newPrintPlugin(map[string]any{}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -27,7 +27,7 @@ func TestNewPrintPlugin(t *testing.T) {
 }
 
 func TestNewPrintPluginCustomFormat(t *testing.T) {
-	p, err := newPrintPlugin(map[string]any{"format": "{{.Title}}"})
+	p, err := newPrintPlugin(map[string]any{"format": "{{.Title}}"}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -42,14 +42,14 @@ func TestNewPrintPluginCustomFormat(t *testing.T) {
 }
 
 func TestNewPrintPluginInvalidTemplate(t *testing.T) {
-	_, err := newPrintPlugin(map[string]any{"format": "{{.Bad"})
+	_, err := newPrintPlugin(map[string]any{"format": "{{.Bad"}, nil)
 	if err == nil {
 		t.Error("expected error for invalid template")
 	}
 }
 
 func TestOutputRunsWithoutError(t *testing.T) {
-	p, _ := newPrintPlugin(map[string]any{})
+	p, _ := newPrintPlugin(map[string]any{}, nil)
 	entries := []*entry.Entry{
 		entry.New("title1", "http://a.com"),
 		entry.New("title2", "http://b.com"),
@@ -60,7 +60,7 @@ func TestOutputRunsWithoutError(t *testing.T) {
 }
 
 func TestDefaultFormatRendersFields(t *testing.T) {
-	p, _ := newPrintPlugin(map[string]any{})
+	p, _ := newPrintPlugin(map[string]any{}, nil)
 	pp := p.(*printPlugin)
 	result, err := pp.ip.Render(map[string]any{"title": "my title", "url": "http://example.com"})
 	if err != nil {

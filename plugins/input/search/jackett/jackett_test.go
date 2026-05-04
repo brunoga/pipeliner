@@ -43,7 +43,7 @@ func makePlugin(t *testing.T, baseURL, apiKey string, extra map[string]any) *jac
 	t.Helper()
 	cfg := map[string]any{"url": baseURL, "api_key": apiKey}
 	maps.Copy(cfg, extra)
-	p, err := newPlugin(cfg)
+	p, err := newPlugin(cfg, nil)
 	if err != nil {
 		t.Fatalf("newPlugin: %v", err)
 	}
@@ -60,14 +60,14 @@ func tc() *plugin.TaskContext {
 // --- constructor tests ---
 
 func TestMissingURL(t *testing.T) {
-	_, err := newPlugin(map[string]any{"api_key": "key"})
+	_, err := newPlugin(map[string]any{"api_key": "key"}, nil)
 	if err == nil {
 		t.Error("expected error when url is missing")
 	}
 }
 
 func TestMissingAPIKey(t *testing.T) {
-	_, err := newPlugin(map[string]any{"url": "http://localhost:9117"})
+	_, err := newPlugin(map[string]any{"url": "http://localhost:9117"}, nil)
 	if err == nil {
 		t.Error("expected error when api_key is missing")
 	}

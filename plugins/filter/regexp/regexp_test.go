@@ -12,7 +12,7 @@ func makeCtx() *plugin.TaskContext { return &plugin.TaskContext{Name: "test"} }
 
 func run(t *testing.T, cfg map[string]any, e *entry.Entry) *entry.Entry {
 	t.Helper()
-	p, err := newRegexpPlugin(cfg)
+	p, err := newRegexpPlugin(cfg, nil)
 	if err != nil {
 		t.Fatalf("newRegexpPlugin error: %v", err)
 	}
@@ -97,7 +97,7 @@ func TestBareStringPattern(t *testing.T) {
 }
 
 func TestInvalidPattern(t *testing.T) {
-	_, err := newRegexpPlugin(map[string]any{"accept": []any{"[invalid"}})
+	_, err := newRegexpPlugin(map[string]any{"accept": []any{"[invalid"}}, nil)
 	if err == nil {
 		t.Error("expected error for invalid regex pattern")
 	}
@@ -114,7 +114,7 @@ func TestRegistered(t *testing.T) {
 }
 
 func TestNameAndPhase(t *testing.T) {
-	p, _ := newRegexpPlugin(map[string]any{})
+	p, _ := newRegexpPlugin(map[string]any{}, nil)
 	if p.(*regexpPlugin).Name() != "regexp" {
 		t.Error("Name() wrong")
 	}
@@ -144,14 +144,14 @@ func TestToStringSliceTypes(t *testing.T) {
 }
 
 func TestInvalidFromType(t *testing.T) {
-	_, err := newRegexpPlugin(map[string]any{"from": 42})
+	_, err := newRegexpPlugin(map[string]any{"from": 42}, nil)
 	if err == nil {
 		t.Error("expected error for invalid 'from' type")
 	}
 }
 
 func TestInvalidRejectPattern(t *testing.T) {
-	_, err := newRegexpPlugin(map[string]any{"reject": []any{"[bad"}})
+	_, err := newRegexpPlugin(map[string]any{"reject": []any{"[bad"}}, nil)
 	if err == nil {
 		t.Error("expected error for invalid reject pattern")
 	}

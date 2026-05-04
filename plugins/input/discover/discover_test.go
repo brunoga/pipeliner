@@ -8,6 +8,7 @@ import (
 
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/plugin"
+	"github.com/brunoga/pipeliner/internal/store"
 )
 
 // mockInputPlugin is an InputPlugin that returns pre-configured entries.
@@ -30,7 +31,7 @@ func registerMockInput(mock *mockInputPlugin) string {
 		plugin.Register(&plugin.Descriptor{
 			PluginName:  name,
 			PluginPhase: plugin.PhaseInput,
-			Factory: func(_ map[string]any) (plugin.Plugin, error) {
+			Factory: func(_ map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
 				return mock, nil
 			},
 		})
@@ -68,7 +69,7 @@ func registerMock(mock *mockSearch) string {
 		plugin.Register(&plugin.Descriptor{
 			PluginName:  name,
 			PluginPhase: plugin.PhaseSearch,
-			Factory: func(_ map[string]any) (plugin.Plugin, error) {
+			Factory: func(_ map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
 				return mock, nil
 			},
 		})
@@ -78,15 +79,19 @@ func registerMock(mock *mockSearch) string {
 
 func buildPlugin(t *testing.T, mock *mockSearch, titles []string, extraCfg map[string]any) *discoverPlugin {
 	t.Helper()
+	db, err := store.OpenSQLite(":memory:")
+	if err != nil {
+		t.Fatalf("OpenSQLite: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
 	pluginName := registerMock(mock)
 	cfg := map[string]any{
 		"titles":   titlesToAny(titles),
 		"via":      []any{pluginName},
 		"interval": "1h",
-		"db":       ":memory:",
 	}
 	maps.Copy(cfg, extraCfg)
-	p, err := newPlugin(cfg)
+	p, err := newPlugin(cfg, db)
 	if err != nil {
 		t.Fatalf("newPlugin: %v", err)
 	}
@@ -182,8 +187,7 @@ func TestDiscoverMultipleTitles(t *testing.T) {
 func TestDiscoverMissingVia(t *testing.T) {
 	_, err := newPlugin(map[string]any{
 		"titles": []any{"Show"},
-		"db":     ":memory:",
-	})
+			}, nil)
 	if err == nil {
 		t.Error("expected error when via is missing")
 	}
@@ -194,8 +198,7 @@ func TestDiscoverInvalidInterval(t *testing.T) {
 		"titles":   []any{"Show"},
 		"via":      []any{"x"},
 		"interval": "not-a-duration",
-		"db":       ":memory:",
-	})
+			}, nil)
 	if err == nil {
 		t.Error("expected error for invalid interval")
 	}
@@ -205,8 +208,7 @@ func TestDiscoverUnknownSearchPlugin(t *testing.T) {
 	_, err := newPlugin(map[string]any{
 		"titles": []any{"Show"},
 		"via":    []any{"no-such-search-plugin"},
-		"db":     ":memory:",
-	})
+			}, nil)
 	if err == nil {
 		t.Error("expected error for unknown search plugin")
 	}
@@ -229,13 +231,14 @@ func TestDiscoverFromSuppliesTitles(t *testing.T) {
 	}
 	searchName := registerMock(mock)
 
+	db, _ := store.OpenSQLite(":memory:")
+	defer db.Close()
 	cfg := map[string]any{
 		"from":     []any{inpName},
 		"via":      []any{searchName},
 		"interval": "1h",
-		"db":       ":memory:",
 	}
-	p, err := newPlugin(cfg)
+	p, err := newPlugin(cfg, db)
 	if err != nil {
 		t.Fatalf("newPlugin: %v", err)
 	}
@@ -265,14 +268,15 @@ func TestDiscoverFromDeduplicatesTitles(t *testing.T) {
 	}
 	searchName := registerMock(mock)
 
+	db2, _ := store.OpenSQLite(":memory:")
+	defer db2.Close()
 	cfg := map[string]any{
 		"titles":   []any{"My Show"},
 		"from":     []any{inpName},
 		"via":      []any{searchName},
 		"interval": "1h",
-		"db":       ":memory:",
 	}
-	p, err := newPlugin(cfg)
+	p, err := newPlugin(cfg, db2)
 	if err != nil {
 		t.Fatalf("newPlugin: %v", err)
 	}

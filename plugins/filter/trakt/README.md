@@ -1,6 +1,6 @@
 # trakt
 
-Accepts entries whose parsed title fuzzy-matches something on a Trakt.tv list. Fetches the list once per TTL window and caches the result in SQLite, so the API is called at most once per TTL regardless of how many entries or how often the process runs.
+Accepts entries whose parsed title fuzzy-matches something on a Trakt.tv list. Fetches the list once per TTL window and caches the result, so the API is called at most once per TTL regardless of how many entries or how often the process runs.
 
 ## Config
 
@@ -13,7 +13,6 @@ Accepts entries whose parsed title fuzzy-matches something on a Trakt.tv list. F
 | `limit` | int | no | 100 | Max results for public lists |
 | `min_rating` | int | no | — | Minimum user rating to include (1–10, `ratings` list only) |
 | `ttl` | string | no | `1h` | How long to cache the list |
-| `db` | string | no | `pipeliner.db` | SQLite path for persistent cache |
 
 ## Example
 
@@ -23,13 +22,11 @@ tasks:
     rss:
       url: "https://example.com/feed"
     seen:
-      db: pipeliner.db
     trakt:
       client_id: YOUR_CLIENT_ID
       access_token: YOUR_ACCESS_TOKEN
       type: shows
       list: watchlist
-      db: pipeliner.db
     transmission:
       host: localhost
 ```
@@ -40,3 +37,4 @@ tasks:
 - The `trending` and `popular` lists are public and require only a `client_id`.
 - `watchlist`, `ratings`, and `collection` are private and require an `access_token`.
 - The cache key includes `type`, `list`, and `min_rating`, so separate plugin instances with different settings coexist safely.
+- The cache is stored in `pipeliner.db` in the same directory as the config file.

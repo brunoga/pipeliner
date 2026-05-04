@@ -10,6 +10,7 @@ import (
 
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/plugin"
+	"github.com/brunoga/pipeliner/internal/store"
 )
 
 func init() {
@@ -27,7 +28,7 @@ type filesystemPlugin struct {
 	mask      string // glob pattern, e.g. "*.torrent"
 }
 
-func newFilesystemPlugin(cfg map[string]any) (plugin.Plugin, error) {
+func newFilesystemPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
 	path, ok := cfg["path"].(string)
 	if !ok || path == "" {
 		return nil, fmt.Errorf("filesystem: 'path' is required")

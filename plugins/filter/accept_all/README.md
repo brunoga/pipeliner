@@ -22,11 +22,9 @@ tasks:
       type: movies
       list: watchlist
     seen:
-      db: pipeliner.db
       local: true   # don't mark these as globally seen
     accept_all:
     list_add:
-      db: pipeliner.db
       list: movie_watchlist
 
 schedules:

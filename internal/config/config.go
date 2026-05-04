@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/brunoga/pipeliner/internal/plugin"
+	"github.com/brunoga/pipeliner/internal/store"
 	"github.com/brunoga/pipeliner/internal/task"
 	"github.com/brunoga/pipeliner/internal/yaml"
 )
@@ -202,8 +203,9 @@ func Validate(c *Config) []error {
 // BuildTasks instantiates all tasks defined in the config. Template merging is
 // applied before plugin instantiation. Tasks are returned sorted by priority
 // (ascending); tasks with equal priority are sorted alphabetically by name.
+// db is the shared store for this config and is forwarded to every plugin factory.
 // If logger is nil, slog.Default() is used for each task.
-func BuildTasks(c *Config, logger *slog.Logger, opts ...task.BuildOption) ([]*task.Task, error) {
+func BuildTasks(c *Config, db *store.SQLiteStore, logger *slog.Logger, opts ...task.BuildOption) ([]*task.Task, error) {
 	type built struct {
 		t        *task.Task
 		priority int
@@ -221,7 +223,7 @@ func BuildTasks(c *Config, logger *slog.Logger, opts ...task.BuildOption) ([]*ta
 		if err != nil {
 			return nil, err
 		}
-		t, err := task.Build(name, pcs, logger, opts...)
+		t, err := task.Build(name, pcs, db, logger, opts...)
 		if err != nil {
 			return nil, err
 		}

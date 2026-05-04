@@ -29,6 +29,7 @@ import (
 
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/plugin"
+	"github.com/brunoga/pipeliner/internal/store"
 )
 
 func init() {
@@ -48,7 +49,7 @@ type jackettPlugin struct {
 	client     *http.Client
 }
 
-func newPlugin(cfg map[string]any) (plugin.Plugin, error) {
+func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
 	baseURL, _ := cfg["url"].(string)
 	if baseURL == "" {
 		return nil, fmt.Errorf("jackett: 'url' is required")

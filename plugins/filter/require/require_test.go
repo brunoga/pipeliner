@@ -11,7 +11,7 @@ import (
 
 func makePlugin(t *testing.T, cfg map[string]any) *requirePlugin {
 	t.Helper()
-	p, err := newPlugin(cfg)
+	p, err := newPlugin(cfg, nil)
 	if err != nil {
 		t.Fatalf("newPlugin: %v", err)
 	}
@@ -99,14 +99,14 @@ func TestRequireMultipleFieldsAllPresent(t *testing.T) {
 }
 
 func TestRequireEmptyFieldsConfig(t *testing.T) {
-	_, err := newPlugin(map[string]any{"fields": []any{}})
+	_, err := newPlugin(map[string]any{"fields": []any{}}, nil)
 	if err == nil {
 		t.Error("expected error for empty fields list")
 	}
 }
 
 func TestRequireMissingFieldsKey(t *testing.T) {
-	_, err := newPlugin(map[string]any{})
+	_, err := newPlugin(map[string]any{}, nil)
 	if err == nil {
 		t.Error("expected error when fields key is absent")
 	}

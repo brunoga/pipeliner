@@ -25,6 +25,7 @@ import (
 
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/plugin"
+	"github.com/brunoga/pipeliner/internal/store"
 	"github.com/brunoga/pipeliner/internal/tracker"
 )
 
@@ -43,7 +44,7 @@ type torrentAlivePlugin struct {
 	scrapeTimeout time.Duration
 }
 
-func newPlugin(cfg map[string]any) (plugin.Plugin, error) {
+func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
 	min := intVal(cfg["min_seeds"], 1)
 	if min < 1 {
 		return nil, fmt.Errorf("torrent_alive: min_seeds must be at least 1")

@@ -10,6 +10,7 @@ import (
 
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/plugin"
+	"github.com/brunoga/pipeliner/internal/store"
 )
 
 // --- test plugin registration ---
@@ -34,12 +35,12 @@ func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "nop-input",
 		PluginPhase: plugin.PhaseInput,
-		Factory:     func(_ map[string]any) (plugin.Plugin, error) { return &nopInput{}, nil },
+		Factory:     func(_ map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) { return &nopInput{}, nil },
 	})
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "nop-output",
 		PluginPhase: plugin.PhaseOutput,
-		Factory:     func(_ map[string]any) (plugin.Plugin, error) { return &nopOutput{}, nil },
+		Factory:     func(_ map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) { return &nopOutput{}, nil },
 	})
 }
 
@@ -136,7 +137,7 @@ func TestBuildTasksSuccess(t *testing.T) {
 			"t": td("nop-input", `{}`, "nop-output", `{}`),
 		},
 	}
-	tasks, err := BuildTasks(c, nil)
+	tasks, err := BuildTasks(c, nil, nil)
 	if err != nil {
 		t.Fatalf("BuildTasks error: %v", err)
 	}
@@ -151,7 +152,7 @@ func TestBuildTasksUnknownPlugin(t *testing.T) {
 			"t": td("ghost", `{}`),
 		},
 	}
-	_, err := BuildTasks(c, nil)
+	_, err := BuildTasks(c, nil, nil)
 	if err == nil {
 		t.Error("expected error building task with unknown plugin")
 	}
@@ -171,7 +172,7 @@ tasks:
 	if err != nil {
 		t.Fatal(err)
 	}
-	tasks, err := BuildTasks(c, nil)
+	tasks, err := BuildTasks(c, nil, nil)
 	if err != nil {
 		t.Fatalf("BuildTasks error: %v", err)
 	}
@@ -232,7 +233,7 @@ func TestTemplatesMergeUnknown(t *testing.T) {
 		},
 		Templates: map[string]TaskDef{},
 	}
-	_, err := BuildTasks(c, nil)
+	_, err := BuildTasks(c, nil, nil)
 	if err == nil {
 		t.Error("expected error for missing template reference")
 	}
@@ -247,7 +248,7 @@ func TestPrioritySorting(t *testing.T) {
 			"mid":  td("priority", `5`, "nop-input", `{}`, "nop-output", `{}`),
 		},
 	}
-	tasks, err := BuildTasks(c, nil)
+	tasks, err := BuildTasks(c, nil, nil)
 	if err != nil {
 		t.Fatalf("BuildTasks: %v", err)
 	}

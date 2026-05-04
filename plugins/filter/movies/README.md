@@ -12,7 +12,6 @@ The movie list can be provided statically via `movies`, dynamically via `from` (
 | `from` | list | conditional | — | Input plugin configs whose entry titles supplement the movie list |
 | `ttl` | string | no | `1h` | How long to cache the dynamic list fetched via `from` |
 | `quality` | string | no | — | Minimum quality spec (e.g. `720p`, `1080p bluray`) |
-| `db` | string | no | `pipeliner.db` | SQLite database path for download history and dynamic list cache |
 
 At least one of `movies` or `from` is required.
 
@@ -44,9 +43,7 @@ tasks:
     rss:
       url: "https://example.com/rss/movies"
     seen:
-      db: pipeliner.db
     movies:
-      db: pipeliner.db
       quality: 1080p
       movies:
         - Inception
@@ -62,9 +59,7 @@ tasks:
     rss:
       url: "https://example.com/rss/movies"
     seen:
-      db: pipeliner.db
     movies:
-      db: pipeliner.db
       quality: 1080p
       ttl: 4h
       from:
@@ -83,7 +78,6 @@ tasks:
     rss:
       url: "https://example.com/rss/movies"
     movies:
-      db: pipeliner.db
       movies:
         - Oppenheimer       # always included regardless of watchlist
       from:
@@ -93,3 +87,7 @@ tasks:
           type: movies
           list: watchlist
 ```
+
+## Notes
+
+- Download history and dynamic list cache are stored in `pipeliner.db` in the same directory as the config file.

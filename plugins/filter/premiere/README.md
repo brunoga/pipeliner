@@ -5,16 +5,14 @@ discovering new shows: once a series premiere is accepted, subsequent episodes
 of that show are rejected by this filter (other filters such as `series` take
 over).
 
-State is persisted in SQLite so the filter is effective across runs.
+State is persisted in `pipeliner.db` in the same directory as the config file.
 
 ## Config
 
-```yaml
-premiere:
-  episode: 1        # episode number to treat as premiere (default: 1)
-  season: 1         # season number; set to 0 to accept any season (default: 1)
-  db: premiere.db   # SQLite database path (default: pipeliner.db)
-```
+| Key | Type | Required | Default | Description |
+|-----|------|----------|---------|-------------|
+| `episode` | int | no | `1` | Episode number to treat as premiere |
+| `season` | int | no | `1` | Season number to match; `0` means any season |
 
 Requires `series_name`, `series_season`, and `series_episode` fields to be set
 (e.g., by `metainfo_series` or the `series` filter). Entries without
@@ -32,7 +30,6 @@ tasks:
     quality:
       min: 720p
     premiere:
-      db: premiere.db
     deluge:
       path: /downloads/tv
 ```

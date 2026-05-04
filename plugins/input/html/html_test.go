@@ -35,7 +35,7 @@ func TestExtractLinks(t *testing.T) {
 	srv := serve(t, testPage)
 	defer srv.Close()
 
-	p, err := newPlugin(map[string]any{"url": srv.URL})
+	p, err := newPlugin(map[string]any{"url": srv.URL}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,7 @@ func TestMaskFilter(t *testing.T) {
 	srv := serve(t, testPage)
 	defer srv.Close()
 
-	p, err := newPlugin(map[string]any{"url": srv.URL, "mask": "*.torrent"})
+	p, err := newPlugin(map[string]any{"url": srv.URL, "mask": "*.torrent"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +99,7 @@ func TestRelativeURLResolution(t *testing.T) {
 	srv := serve(t, `<a href="/path/file.torrent">File</a>`)
 	defer srv.Close()
 
-	p, _ := newPlugin(map[string]any{"url": srv.URL})
+	p, _ := newPlugin(map[string]any{"url": srv.URL}, nil)
 	entries, err := p.(*htmlPlugin).Run(context.Background(), makeCtx())
 	if err != nil {
 		t.Fatal(err)
@@ -119,7 +119,7 @@ func TestHTTPError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p, _ := newPlugin(map[string]any{"url": srv.URL})
+	p, _ := newPlugin(map[string]any{"url": srv.URL}, nil)
 	_, err := p.(*htmlPlugin).Run(context.Background(), makeCtx())
 	if err == nil {
 		t.Error("expected error on 403")
@@ -127,7 +127,7 @@ func TestHTTPError(t *testing.T) {
 }
 
 func TestMissingURL(t *testing.T) {
-	if _, err := newPlugin(map[string]any{}); err == nil {
+	if _, err := newPlugin(map[string]any{}, nil); err == nil {
 		t.Error("expected error when url missing")
 	}
 }
@@ -136,7 +136,7 @@ func TestHtmlPageField(t *testing.T) {
 	srv := serve(t, `<a href="/x">X</a>`)
 	defer srv.Close()
 
-	p, _ := newPlugin(map[string]any{"url": srv.URL})
+	p, _ := newPlugin(map[string]any{"url": srv.URL}, nil)
 	entries, _ := p.(*htmlPlugin).Run(context.Background(), makeCtx())
 	if len(entries) == 0 {
 		t.Fatal("no entries")

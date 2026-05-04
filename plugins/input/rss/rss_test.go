@@ -30,7 +30,7 @@ func TestRSS2Parse(t *testing.T) {
 	srv := serveFile(t, "testdata/rss2.xml")
 	defer srv.Close()
 
-	p, err := newPlugin(map[string]any{"url": srv.URL})
+	p, err := newPlugin(map[string]any{"url": srv.URL}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +59,7 @@ func TestRSS2EnclosureURL(t *testing.T) {
 	srv := serveFile(t, "testdata/rss2.xml")
 	defer srv.Close()
 
-	p, _ := newPlugin(map[string]any{"url": srv.URL})
+	p, _ := newPlugin(map[string]any{"url": srv.URL}, nil)
 	entries, _ := p.(*rssPlugin).Run(context.Background(), makeCtx())
 
 	// Third item has an enclosure — URL should be the enclosure URL.
@@ -77,7 +77,7 @@ func TestAtomParse(t *testing.T) {
 	srv := serveFile(t, "testdata/atom.xml")
 	defer srv.Close()
 
-	p, err := newPlugin(map[string]any{"url": srv.URL})
+	p, err := newPlugin(map[string]any{"url": srv.URL}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +100,7 @@ func TestAtomEnclosurePreferred(t *testing.T) {
 	srv := serveFile(t, "testdata/atom.xml")
 	defer srv.Close()
 
-	p, _ := newPlugin(map[string]any{"url": srv.URL})
+	p, _ := newPlugin(map[string]any{"url": srv.URL}, nil)
 	entries, _ := p.(*rssPlugin).Run(context.Background(), makeCtx())
 
 	enc := entries[2]
@@ -115,7 +115,7 @@ func TestHTTPErrorNonRetriable(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p, _ := newPlugin(map[string]any{"url": srv.URL})
+	p, _ := newPlugin(map[string]any{"url": srv.URL}, nil)
 	_, err := p.(*rssPlugin).Run(context.Background(), makeCtx())
 	if err == nil {
 		t.Error("expected error on 404")
@@ -130,7 +130,7 @@ func TestHTTPError5xx(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p, _ := newPlugin(map[string]any{"url": srv.URL})
+	p, _ := newPlugin(map[string]any{"url": srv.URL}, nil)
 	rp := p.(*rssPlugin)
 	// Speed up retries for the test.
 	_, err := rp.Run(context.Background(), makeCtx())
@@ -143,7 +143,7 @@ func TestHTTPError5xx(t *testing.T) {
 }
 
 func TestMissingURL(t *testing.T) {
-	_, err := newPlugin(map[string]any{})
+	_, err := newPlugin(map[string]any{}, nil)
 	if err == nil {
 		t.Error("expected error when url is missing")
 	}

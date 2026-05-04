@@ -54,7 +54,7 @@ func mockTransmission(t *testing.T, handler func(rpcRequest) any) *httptest.Serv
 
 func pluginWithEndpoint(t *testing.T, srv *httptest.Server, cfg map[string]any) *transmissionPlugin {
 	t.Helper()
-	p, err := newPlugin(cfg)
+	p, err := newPlugin(cfg, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +155,7 @@ func TestPathTemplate(t *testing.T) {
 }
 
 func TestDefaultConfig(t *testing.T) {
-	p, err := newPlugin(map[string]any{})
+	p, err := newPlugin(map[string]any{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +169,7 @@ func TestDefaultConfig(t *testing.T) {
 }
 
 func TestInvalidPathTemplate(t *testing.T) {
-	_, err := newPlugin(map[string]any{"path": "{{invalid"})
+	_, err := newPlugin(map[string]any{"path": "{{invalid"}, nil)
 	if err == nil {
 		t.Error("expected error for invalid path template")
 	}
