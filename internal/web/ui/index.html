@@ -173,8 +173,9 @@ section { margin-bottom: 32px; }
 }
 .btn-reload:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
 .btn-reload:disabled { opacity: 0.4; cursor: not-allowed; }
-.btn-reload.ok  { border-color: var(--green); color: var(--green); }
-.btn-reload.err { border-color: var(--red);   color: var(--red); }
+.btn-reload.ok        { border-color: var(--green); color: var(--green); }
+.btn-reload.err       { border-color: var(--red);   color: var(--red); }
+.btn-reload.triggered { border-color: var(--amber); color: var(--amber); }
 
 .log-console {
   background: #010409;
@@ -442,12 +443,14 @@ function fmtUptime(s) {
 
 async function runAll(btn) {
   btn.disabled = true;
+  btn.classList.add('triggered');
   btn.textContent = 'Triggered…';
   try {
     await fetch('/api/tasks/run', { method: 'POST' });
   } catch (_) {}
   setTimeout(() => {
     btn.disabled = false;
+    btn.classList.remove('triggered');
     btn.textContent = 'Run all';
     refresh();
   }, 3000);
