@@ -127,6 +127,7 @@ func (d *Daemon) Run(ctx context.Context, runner TaskRunner) {
 	d.mu.Lock()
 	imm := d.immediate
 	d.immediate = nil
+	d.running = make(map[string]struct{})
 	d.mu.Unlock()
 	for _, name := range imm {
 		go d.runTask(ctx, name, runner)
@@ -164,9 +165,6 @@ func (d *Daemon) Run(ctx context.Context, runner TaskRunner) {
 // runTask executes the runner if the task is not already running.
 func (d *Daemon) runTask(ctx context.Context, name string, runner TaskRunner) {
 	d.mu.Lock()
-	if d.running == nil {
-		d.running = make(map[string]struct{})
-	}
 	if _, ok := d.running[name]; ok {
 		d.mu.Unlock()
 		return
