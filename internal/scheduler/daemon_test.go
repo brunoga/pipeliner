@@ -112,3 +112,86 @@ func TestDaemonEmptyStartup(t *testing.T) {
 		t.Error("daemon did not stop after context cancel")
 	}
 }
+
+func TestDaemonTriggerOverlap(t *testing.T) {
+	d := &Daemon{}
+
+	var mu sync.Mutex
+	running := 0
+	maxRunning := 0
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	runner := func(ctx context.Context, name string) {
+		mu.Lock()
+		running++
+		if running > maxRunning {
+			maxRunning = running
+		}
+		mu.Unlock()
+
+		time.Sleep(50 * time.Millisecond)
+
+		mu.Lock()
+		running--
+		mu.Unlock()
+	}
+
+	go d.Run(ctx, runner)
+
+	// Trigger the same task twice quickly.
+	d.Trigger("manual-task")
+	d.Trigger("manual-task")
+
+	<-ctx.Done()
+
+	mu.Lock()
+	m := maxRunning
+	mu.Unlock()
+
+	if m > 1 {
+		t.Errorf("expected at most 1 instance of manual-task to run, but found %d", m)
+	}
+}
+
+func TestDaemonScheduledOverlap(t *testing.T) {
+	d := &Daemon{}
+	// Schedule a task to fire every 10ms.
+	d.Add("scheduled-overlap", fixedSchedule{10 * time.Millisecond})
+
+	var mu sync.Mutex
+	running := 0
+	maxRunning := 0
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	runner := func(ctx context.Context, name string) {
+		mu.Lock()
+		running++
+		if running > maxRunning {
+			maxRunning = running
+		}
+		mu.Unlock()
+
+		// Sleep for longer than the interval.
+		time.Sleep(30 * time.Millisecond)
+
+		mu.Lock()
+		running--
+		mu.Unlock()
+	}
+
+	go d.Run(ctx, runner)
+
+	<-ctx.Done()
+
+	mu.Lock()
+	m := maxRunning
+	mu.Unlock()
+
+	if m > 1 {
+		t.Errorf("expected at most 1 instance of scheduled-overlap to run, but found %d", m)
+	}
+}

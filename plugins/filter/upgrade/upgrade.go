@@ -108,8 +108,9 @@ func (p *upgradePlugin) Filter(_ context.Context, tc *plugin.TaskContext, e *ent
 		if p.onLower == "reject" {
 			e.Reject(fmt.Sprintf("upgrade: quality %q is not better than stored %q for %q",
 				e.GetString("quality"), stored.Quality, key))
+		} else {
+			e.Accept()
 		}
-		// on_lower=accept: leave entry undecided (it will be accepted by default)
 		return nil
 	}
 

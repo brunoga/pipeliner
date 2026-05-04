@@ -29,7 +29,8 @@ type Daemon struct {
 	entries   []*entry
 	triggerCh chan string
 	wakeCh    chan struct{}
-	immediate []string // tasks to fire at the start of Run
+	immediate []string            // tasks to fire at the start of Run
+	running   map[string]struct{} // tasks currently executing
 }
 
 // triggerChan returns the trigger channel, creating it lazily.
@@ -118,7 +119,7 @@ func (d *Daemon) Add(taskName string, s Schedule) {
 
 // Run blocks until ctx is cancelled, firing tasks as they become due.
 // Each task fires in its own goroutine; concurrent runs of the same task
-// are possible if it takes longer than its schedule interval.
+// are skipped if one is already in progress.
 func (d *Daemon) Run(ctx context.Context, runner TaskRunner) {
 	triggerCh := d.triggerChan()
 	wakeCh := d.wakeupChan()
@@ -128,7 +129,7 @@ func (d *Daemon) Run(ctx context.Context, runner TaskRunner) {
 	d.immediate = nil
 	d.mu.Unlock()
 	for _, name := range imm {
-		go runner(ctx, name)
+		go d.runTask(ctx, name, runner)
 	}
 
 	for {
@@ -153,11 +154,33 @@ func (d *Daemon) Run(ctx context.Context, runner TaskRunner) {
 			d.fireDue(ctx, runner, now)
 		case name := <-triggerCh:
 			timer.Stop()
-			go runner(ctx, name)
+			go d.runTask(ctx, name, runner)
 		case <-wakeCh:
 			timer.Stop() // recalculate timer with new entries
 		}
 	}
+}
+
+// runTask executes the runner if the task is not already running.
+func (d *Daemon) runTask(ctx context.Context, name string, runner TaskRunner) {
+	d.mu.Lock()
+	if d.running == nil {
+		d.running = make(map[string]struct{})
+	}
+	if _, ok := d.running[name]; ok {
+		d.mu.Unlock()
+		return
+	}
+	d.running[name] = struct{}{}
+	d.mu.Unlock()
+
+	defer func() {
+		d.mu.Lock()
+		delete(d.running, name)
+		d.mu.Unlock()
+	}()
+
+	runner(ctx, name)
 }
 
 // nextWake returns the earliest scheduled fire time across all entries.
@@ -174,22 +197,16 @@ func (d *Daemon) nextWake() time.Time {
 // fireDue runs all entries whose next time is at or before now.
 func (d *Daemon) fireDue(ctx context.Context, runner TaskRunner, now time.Time) {
 	d.mu.Lock()
-	var due []*entry
+	var due []string
 	for _, e := range d.entries {
 		if !e.next.After(now) {
-			due = append(due, e)
+			due = append(due, e.taskName)
 			e.next = e.schedule.Next(now)
 		}
 	}
 	d.mu.Unlock()
 
-	var wg sync.WaitGroup
-	for _, e := range due {
-		wg.Add(1)
-		go func(name string) {
-			defer wg.Done()
-			runner(ctx, name)
-		}(e.taskName)
+	for _, name := range due {
+		go d.runTask(ctx, name, runner)
 	}
-	wg.Wait()
 }
