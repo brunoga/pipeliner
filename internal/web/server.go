@@ -35,6 +35,7 @@ type Server struct {
 	history *History
 	bcast   *Broadcaster
 	reload  func() error // nil if reload is not configured
+	version string
 
 	runMu   sync.Mutex
 	running map[string]int // task name → active run count
@@ -79,8 +80,8 @@ func (s *Server) isRunning(name string) bool {
 }
 
 // New creates a Server. Call Start to begin serving.
-func New(tasks []TaskInfo, d DaemonControl, h *History, b *Broadcaster) *Server {
-	return &Server{tasks: tasks, daemon: d, history: h, bcast: b}
+func New(tasks []TaskInfo, d DaemonControl, h *History, b *Broadcaster, version string) *Server {
+	return &Server{tasks: tasks, daemon: d, history: h, bcast: b, version: version}
 }
 
 // SetReload configures the function called when the user requests a config reload.
@@ -125,8 +126,9 @@ func (s *Server) serveUI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data, _ := uiFS.ReadFile("ui/index.html")
+	html := strings.ReplaceAll(string(data), "__VERSION__", s.version)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write(data)
+	_, _ = fmt.Fprint(w, html)
 }
 
 func (s *Server) apiStatus(w http.ResponseWriter, _ *http.Request) {
