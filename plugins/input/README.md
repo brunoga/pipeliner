@@ -1,6 +1,6 @@
 # Input plugins
 
-Input plugins produce entries. Each task has exactly one input plugin. An entry carries a title, a URL, and an extensible field map. All entries returned by the input start in the **undecided** state.
+Input plugins produce entries. A task can have one or more input plugins; all of them run concurrently and their results are merged, with duplicate URLs deduplicated. An entry carries a title, a URL, and an extensible field map. All entries start in the **undecided** state.
 
 | Plugin | Description |
 |--------|-------------|
