@@ -10,6 +10,7 @@ import (
 
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/plugin"
+	"github.com/brunoga/pipeliner/internal/store"
 )
 
 func init() {
@@ -34,7 +35,7 @@ type regexpPlugin struct {
 	from   []string // entry fields to match against; defaults to ["title"]
 }
 
-func newRegexpPlugin(cfg map[string]any) (plugin.Plugin, error) {
+func newRegexpPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
 	p := &regexpPlugin{from: []string{"title"}}
 
 	if err := p.compilePatterns(cfg, "accept", &p.accept); err != nil {

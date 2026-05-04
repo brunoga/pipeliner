@@ -107,7 +107,7 @@ func TestSendsEmail(t *testing.T) {
 	defer srv.ln.Close()
 
 	cfg := pluginCfg(srv.addr())
-	p, err := newPlugin(cfg)
+	p, err := newPlugin(cfg, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +132,7 @@ func TestSubjectTemplate(t *testing.T) {
 
 	cfg := pluginCfg(srv.addr())
 	cfg["subject"] = "New: {{(index .Entries 0).Title}}"
-	p, _ := newPlugin(cfg)
+	p, _ := newPlugin(cfg, nil)
 
 	e := entry.New("Cool Episode", "http://x.com/a")
 	p.(*emailPlugin).Output(context.Background(), makeCtx(), []*entry.Entry{e}) //nolint:errcheck
@@ -150,7 +150,7 @@ func TestNoEntriesSkipsSend(t *testing.T) {
 		"smtp_port": 1, // would fail if called
 		"from":      "a@b.com",
 		"to":        "b@c.com",
-	})
+	}, nil)
 	err := p.(*emailPlugin).Output(context.Background(), makeCtx(), nil)
 	if err != nil {
 		t.Errorf("no entries: unexpected error: %v", err)
@@ -158,21 +158,21 @@ func TestNoEntriesSkipsSend(t *testing.T) {
 }
 
 func TestMissingHost(t *testing.T) {
-	_, err := newPlugin(map[string]any{"from": "a@b.com", "to": "b@c.com"})
+	_, err := newPlugin(map[string]any{"from": "a@b.com", "to": "b@c.com"}, nil)
 	if err == nil {
 		t.Error("expected error when smtp_host missing")
 	}
 }
 
 func TestMissingFrom(t *testing.T) {
-	_, err := newPlugin(map[string]any{"smtp_host": "localhost", "to": "b@c.com"})
+	_, err := newPlugin(map[string]any{"smtp_host": "localhost", "to": "b@c.com"}, nil)
 	if err == nil {
 		t.Error("expected error when from missing")
 	}
 }
 
 func TestMissingTo(t *testing.T) {
-	_, err := newPlugin(map[string]any{"smtp_host": "localhost", "from": "a@b.com"})
+	_, err := newPlugin(map[string]any{"smtp_host": "localhost", "from": "a@b.com"}, nil)
 	if err == nil {
 		t.Error("expected error when to missing")
 	}

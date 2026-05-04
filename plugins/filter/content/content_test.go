@@ -10,7 +10,7 @@ import (
 
 func makePlugin(t *testing.T, cfg map[string]any) *contentPlugin {
 	t.Helper()
-	p, err := newPlugin(cfg)
+	p, err := newPlugin(cfg, nil)
 	if err != nil {
 		t.Fatalf("newPlugin: %v", err)
 	}
@@ -108,14 +108,14 @@ func TestBothRejectAndRequire(t *testing.T) {
 }
 
 func TestInvalidPattern(t *testing.T) {
-	_, err := newPlugin(map[string]any{"reject": []any{"[invalid"}})
+	_, err := newPlugin(map[string]any{"reject": []any{"[invalid"}}, nil)
 	if err == nil {
 		t.Error("expected error for invalid glob pattern")
 	}
 }
 
 func TestEmptyConfig(t *testing.T) {
-	_, err := newPlugin(map[string]any{})
+	_, err := newPlugin(map[string]any{}, nil)
 	if err == nil {
 		t.Error("expected error when neither reject nor require is set")
 	}

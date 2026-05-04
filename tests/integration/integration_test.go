@@ -13,6 +13,7 @@ import (
 	"github.com/brunoga/pipeliner/internal/config"
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/plugin"
+	"github.com/brunoga/pipeliner/internal/store"
 	"github.com/brunoga/pipeliner/internal/task"
 
 	// Register all plugins under test.
@@ -81,13 +82,27 @@ type rssItem struct {
 // buildTask parses cfgYAML and returns the single task it defines.
 // Plugin instances (and their stores) are created once here and reused
 // across multiple Run calls — exactly as the daemon does between cycles.
+// An in-memory SQLite store is used so tests are isolated and leave no files.
 func buildTask(t *testing.T, cfgYAML string) *task.Task {
 	t.Helper()
+	return buildTaskWithDB(t, cfgYAML, nil)
+}
+
+func buildTaskWithDB(t *testing.T, cfgYAML string, db *store.SQLiteStore) *task.Task {
+	t.Helper()
+	if db == nil {
+		var err error
+		db, err = store.OpenSQLite(":memory:")
+		if err != nil {
+			t.Fatalf("open store: %v", err)
+		}
+		t.Cleanup(func() { db.Close() })
+	}
 	cfg, err := config.ParseBytes([]byte(cfgYAML))
 	if err != nil {
 		t.Fatalf("parse config: %v", err)
 	}
-	tasks, err := config.BuildTasks(cfg, nil)
+	tasks, err := config.BuildTasks(cfg, db, nil)
 	if err != nil {
 		t.Fatalf("build tasks: %v", err)
 	}
@@ -110,6 +125,12 @@ func run(t *testing.T, tk *task.Task) *result {
 func buildAndRun(t *testing.T, cfgYAML string) *result {
 	t.Helper()
 	return run(t, buildTask(t, cfgYAML))
+}
+
+// buildAndRunWithDB runs a single task using the provided shared store.
+func buildAndRunWithDB(t *testing.T, cfgYAML string, db *store.SQLiteStore) *result {
+	t.Helper()
+	return run(t, buildTaskWithDB(t, cfgYAML, db))
 }
 
 type result struct {
@@ -173,7 +194,6 @@ tasks:
     rss:
       url: %q
     seen:
-      db: ":memory:"
     regexp:
       accept:
         - '.+'
@@ -203,7 +223,6 @@ tasks:
     rss:
       url: %q
     series:
-      db: ":memory:"
       shows:
         - "Breaking Bad"
     print:
@@ -225,7 +244,6 @@ tasks:
     rss:
       url: %q
     series:
-      db: ":memory:"
       shows:
         - "Breaking Bad"
     print:
@@ -545,10 +563,12 @@ tasks:
 }
 
 func TestListAddAndMatch(t *testing.T) {
-	// Two independent task runs share a :memory: DB path — but SQLite
-	// :memory: databases are per-connection, so we use a temp file instead
-	// to allow list_add and list_match to share state.
-	dbFile := t.TempDir() + "/lists.db"
+	// Both tasks share the same store so list_add and list_match see the same data.
+	db, err := store.OpenSQLite(":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer db.Close()
 
 	srvAdd := rssServer(t, []rssItem{
 		{"Breaking Bad", "http://example.com/bb"},
@@ -557,16 +577,15 @@ func TestListAddAndMatch(t *testing.T) {
 	defer srvAdd.Close()
 
 	// Task A: accept everything and add to a list.
-	buildAndRun(t, fmt.Sprintf(`
+	buildAndRunWithDB(t, fmt.Sprintf(`
 tasks:
   add-task:
     rss:
       url: %q
     accept_all:
     list_add:
-      db: %q
       list: watchlist
-`, srvAdd.URL, dbFile))
+`, srvAdd.URL), db)
 
 	// Task B: feed with three entries; only the two in the list should be accepted.
 	srvMatch := rssServer(t, []rssItem{
@@ -576,16 +595,15 @@ tasks:
 	})
 	defer srvMatch.Close()
 
-	res := buildAndRun(t, fmt.Sprintf(`
+	res := buildAndRunWithDB(t, fmt.Sprintf(`
 tasks:
   match-task:
     rss:
       url: %q
     list_match:
-      db: %q
       list: watchlist
     print:
-`, srvMatch.URL, dbFile))
+`, srvMatch.URL), db)
 
 	res.assertAccepted(t, 2)
 	res.assertRejected(t, 1)
@@ -737,7 +755,6 @@ templates:
       min: 720p
   bb-only:
     series:
-      db: ":memory:"
       shows:
         - "Breaking Bad"
 

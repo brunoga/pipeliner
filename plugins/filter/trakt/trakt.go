@@ -3,8 +3,8 @@
 // entries whose parsed title matches something on that list.
 //
 // The fetched list is cached and refreshed according to the ttl setting
-// (default 1h). With a db path the cache survives process restarts —
-// one API call per TTL window regardless of how often the process runs.
+// (default 1h); one API call per TTL window regardless of how often the
+// process runs.
 //
 // Config keys:
 //
@@ -16,7 +16,6 @@
 //	limit        - max results for public lists (default: 100)
 //	min_rating   - minimum user rating to include (ratings list only; 1–10)
 //	ttl          - cache lifetime, e.g. "1h", "30m" (default: "1h")
-//	db           - SQLite path for persistent cache (default: "pipeliner.db")
 package trakt
 
 import (
@@ -52,7 +51,7 @@ type traktFilter struct {
 	cache     *cache.Cache[[]string]
 }
 
-func newPlugin(cfg map[string]any) (plugin.Plugin, error) {
+func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
 	clientID, _ := cfg["client_id"].(string)
 	if clientID == "" {
 		return nil, fmt.Errorf("trakt filter: client_id is required")
@@ -103,16 +102,6 @@ func newPlugin(cfg map[string]any) (plugin.Plugin, error) {
 			return nil, fmt.Errorf("trakt filter: invalid ttl %q: %w", v, err)
 		}
 		ttl = d
-	}
-
-	dbPath, _ := cfg["db"].(string)
-	if dbPath == "" {
-		dbPath = "pipeliner.db"
-	}
-
-	db, err := store.OpenSQLite(dbPath)
-	if err != nil {
-		return nil, fmt.Errorf("trakt filter: open store: %w", err)
 	}
 
 	accessToken, _ := cfg["access_token"].(string)

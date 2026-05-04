@@ -12,7 +12,7 @@ func makeCtx() *plugin.TaskContext { return &plugin.TaskContext{Name: "test"} }
 
 func annotate(t *testing.T, title string) *entry.Entry {
 	t.Helper()
-	p, _ := newPlugin(nil)
+	p, _ := newPlugin(nil, nil)
 	e := entry.New(title, "http://x.com/a")
 	if err := p.(*seriesMetaPlugin).Annotate(context.Background(), makeCtx(), e); err != nil {
 		t.Fatal(err)

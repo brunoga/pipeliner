@@ -16,7 +16,7 @@ import (
 
 func makePlugin(t *testing.T, cfg map[string]any) *torrentAlivePlugin {
 	t.Helper()
-	p, err := newPlugin(cfg)
+	p, err := newPlugin(cfg, nil)
 	if err != nil {
 		t.Fatalf("newPlugin: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestDefaultMinSeeds(t *testing.T) {
 }
 
 func TestInvalidMinSeeds(t *testing.T) {
-	_, err := newPlugin(map[string]any{"min_seeds": 0})
+	_, err := newPlugin(map[string]any{"min_seeds": 0}, nil)
 	if err == nil {
 		t.Error("expected error for min_seeds=0")
 	}
@@ -103,7 +103,7 @@ func TestScrapeDisabled(t *testing.T) {
 }
 
 func TestInvalidScrapeTimeout(t *testing.T) {
-	_, err := newPlugin(map[string]any{"scrape_timeout": "not-a-duration"})
+	_, err := newPlugin(map[string]any{"scrape_timeout": "not-a-duration"}, nil)
 	if err == nil {
 		t.Error("expected error for invalid scrape_timeout")
 	}

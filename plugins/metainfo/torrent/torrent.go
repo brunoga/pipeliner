@@ -31,6 +31,7 @@ import (
 	"github.com/brunoga/pipeliner/internal/bencode"
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/plugin"
+	"github.com/brunoga/pipeliner/internal/store"
 )
 
 func init() {
@@ -46,7 +47,7 @@ type torrentPlugin struct {
 	client *http.Client
 }
 
-func newPlugin(_ map[string]any) (plugin.Plugin, error) {
+func newPlugin(_ map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
 	return &torrentPlugin{
 		client: &http.Client{Timeout: 30 * time.Second},
 	}, nil

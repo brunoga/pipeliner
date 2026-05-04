@@ -25,7 +25,6 @@ discover:
         indexers: [all]
         categories: [5000, 5030]
   interval: 12h
-  db: pipeliner.db
 ```
 
 ## search_rss
@@ -47,5 +46,4 @@ discover:
     - search_rss:
         url_template: "https://some-tracker.example.com/rss?q={QueryEscaped}"
   interval: 6h
-  db: pipeliner.db
 ```

@@ -23,7 +23,6 @@ tasks:
       url: "https://example.com/feed"
     series:
       shows: ["Breaking Bad"]
-      db: pipeliner.db
     pathfmt:
       path: "/media/tv/{{.series_name}}/Season {{printf \"%02d\" .series_season}}"
     transmission:

@@ -29,6 +29,7 @@ import (
 	"github.com/brunoga/pipeliner/internal/entry"
 	imagnet "github.com/brunoga/pipeliner/internal/magnet"
 	"github.com/brunoga/pipeliner/internal/plugin"
+	"github.com/brunoga/pipeliner/internal/store"
 )
 
 func init() {
@@ -45,7 +46,7 @@ type magnetPlugin struct {
 	resolveTimeout time.Duration
 }
 
-func newPlugin(cfg map[string]any) (plugin.Plugin, error) {
+func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
 	resolveTimeout := 30 * time.Second
 	if v, ok := cfg["resolve_timeout"]; ok {
 		s, _ := v.(string)

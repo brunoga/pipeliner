@@ -13,6 +13,7 @@ import (
 
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/plugin"
+	"github.com/brunoga/pipeliner/internal/store"
 	itpl "github.com/brunoga/pipeliner/internal/template"
 )
 
@@ -37,7 +38,7 @@ type emailPlugin struct {
 	bodyTmpl    *template.Template
 }
 
-func newPlugin(cfg map[string]any) (plugin.Plugin, error) {
+func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
 	host, _ := cfg["smtp_host"].(string)
 	if host == "" {
 		return nil, fmt.Errorf("email: 'smtp_host' is required")

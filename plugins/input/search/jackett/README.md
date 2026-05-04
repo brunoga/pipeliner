@@ -55,11 +55,8 @@ tasks:
             indexers: [all]
             categories: [5000, 5030]
       interval: 12h
-      db: pipeliner.db
     seen:
-      db: pipeliner.db
     series:
-      db: pipeliner.db
       shows:
         - "Breaking Bad"
         - "Better Call Saul"

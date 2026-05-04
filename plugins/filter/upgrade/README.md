@@ -4,16 +4,14 @@ Accepts entries only when they offer a quality improvement over the previously
 downloaded version of the same title. Once the configured target quality is
 reached, further downloads are rejected.
 
-State is persisted in SQLite.
+State is persisted in `pipeliner.db` in the same directory as the config file.
 
 ## Config
 
-```yaml
-upgrade:
-  target: 1080p     # quality ceiling — stop accepting once this is reached (required)
-  on_lower: reject  # what to do when a lower quality is offered: "reject" or "accept" (default: reject)
-  db: upgrade.db    # SQLite database path (default: pipeliner.db)
-```
+| Key | Type | Required | Default | Description |
+|-----|------|----------|---------|-------------|
+| `target` | string | yes | — | Quality ceiling — stop accepting once reached (e.g. `1080p`, `2160p bluray`) |
+| `on_lower` | string | no | `reject` | What to do when the incoming quality is not better: `reject` or `accept` |
 
 The entry key is `series_name:series_id` when series metadata is present
 (set by `metainfo_series` or the `series` filter); otherwise the raw title is
@@ -31,7 +29,6 @@ tasks:
     upgrade:
       target: 1080p
       on_lower: reject
-      db: upgrade.db
     deluge:
       path: /downloads/tv
 ```

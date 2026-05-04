@@ -5,7 +5,6 @@
 //	client_id  - Trakt API Client ID (required)
 //	type       - "shows" or "movies" (required)
 //	cache_ttl  - how long to cache search results, e.g. "24h" (default: "24h")
-//	db         - path to SQLite database for persistent cache (default: "pipeliner.db"; use ":memory:" in tests)
 package trakt
 
 import (
@@ -38,7 +37,7 @@ type traktMetaPlugin struct {
 	cache    *cache.Cache[[]itrakt.Item]
 }
 
-func newPlugin(cfg map[string]any) (plugin.Plugin, error) {
+func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
 	clientID, _ := cfg["client_id"].(string)
 	if clientID == "" {
 		return nil, fmt.Errorf("metainfo_trakt: client_id is required")
@@ -60,16 +59,6 @@ func newPlugin(cfg map[string]any) (plugin.Plugin, error) {
 			return nil, fmt.Errorf("metainfo_trakt: invalid cache_ttl %q: %w", v, err)
 		}
 		ttl = d
-	}
-
-	dbPath, _ := cfg["db"].(string)
-	if dbPath == "" {
-		dbPath = "pipeliner.db"
-	}
-
-	db, err := store.OpenSQLite(dbPath)
-	if err != nil {
-		return nil, fmt.Errorf("metainfo_trakt: open store: %w", err)
 	}
 
 	return &traktMetaPlugin{

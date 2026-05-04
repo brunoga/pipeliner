@@ -10,7 +10,6 @@
 //
 //	target   - quality ceiling spec, e.g. "2160p bluray" (required)
 //	on_lower - action when incoming quality ≤ stored: "reject" (default) or "accept"
-//	db       - SQLite path (default: "pipeliner.db"; use ":memory:" in tests)
 package upgrade
 
 import (
@@ -40,7 +39,7 @@ type upgradePlugin struct {
 	db      *store.SQLiteStore
 }
 
-func newPlugin(cfg map[string]any) (plugin.Plugin, error) {
+func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
 	targetStr, _ := cfg["target"].(string)
 	if targetStr == "" {
 		return nil, fmt.Errorf("upgrade: 'target' quality spec is required (e.g. \"2160p\")")
@@ -58,14 +57,6 @@ func newPlugin(cfg map[string]any) (plugin.Plugin, error) {
 		return nil, fmt.Errorf("upgrade: 'on_lower' must be \"reject\" or \"accept\"")
 	}
 
-	dbPath, _ := cfg["db"].(string)
-	if dbPath == "" {
-		dbPath = "pipeliner.db"
-	}
-	db, err := store.OpenSQLite(dbPath)
-	if err != nil {
-		return nil, fmt.Errorf("upgrade: open store: %w", err)
-	}
 	return &upgradePlugin{target: target, onLower: onLower, db: db}, nil
 }
 

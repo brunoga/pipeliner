@@ -4,10 +4,14 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+
+	"github.com/brunoga/pipeliner/internal/store"
 )
 
 // Factory creates a new Plugin instance from a configuration block.
-type Factory func(cfg map[string]any) (Plugin, error)
+// db is the shared store for the current config; plugins that need persistent
+// state use it directly rather than opening their own connection.
+type Factory func(cfg map[string]any, db *store.SQLiteStore) (Plugin, error)
 
 // Descriptor holds metadata about a registered plugin type.
 type Descriptor struct {

@@ -260,7 +260,7 @@ func TestURLDeduplication(t *testing.T) {
 }
 
 func TestBuildUnknownPlugin(t *testing.T) {
-	_, err := Build("t", []PluginConfig{{Name: "does-not-exist"}}, slog.Default())
+	_, err := Build("t", []PluginConfig{{Name: "does-not-exist"}}, nil, slog.Default())
 	if err == nil {
 		t.Error("expected error for unknown plugin")
 	}
@@ -344,6 +344,7 @@ func TestWithLogger(t *testing.T) {
 	task, err := Build("t",
 		[]PluginConfig{},
 		nil,
+		slog.Default(),
 		WithLogger(slog.Default()),
 	)
 	if err != nil {

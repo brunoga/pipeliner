@@ -23,7 +23,6 @@ tasks:
     torrent_alive:
       min_seeds: 3
     series:
-      db: anime.db
       shows:
         - "My Hero Academia"
 ```

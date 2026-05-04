@@ -11,6 +11,7 @@ import (
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/interp"
 	"github.com/brunoga/pipeliner/internal/plugin"
+	"github.com/brunoga/pipeliner/internal/store"
 )
 
 const defaultFormat = "{title}\t{url}"
@@ -28,7 +29,7 @@ type printPlugin struct {
 	ip *interp.Interpolator
 }
 
-func newPrintPlugin(cfg map[string]any) (plugin.Plugin, error) {
+func newPrintPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
 	format := defaultFormat
 	if v, ok := cfg["format"].(string); ok && v != "" {
 		format = v

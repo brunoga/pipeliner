@@ -1,6 +1,6 @@
 # metainfo_trakt
 
-Annotates entries with metadata from Trakt.tv via the search API. Searches by parsed show or movie name, caches results in SQLite.
+Annotates entries with metadata from Trakt.tv via the search API. Searches by parsed show or movie name and caches results.
 
 ## Config
 
@@ -9,7 +9,6 @@ Annotates entries with metadata from Trakt.tv via the search API. Searches by pa
 | `client_id` | string | yes | — | Trakt API Client ID |
 | `type` | string | yes | — | `shows` or `movies` |
 | `cache_ttl` | string | no | `24h` | How long to cache search results |
-| `db` | string | no | `pipeliner.db` | SQLite path for persistent cache |
 
 ## Fields set on entry
 
@@ -39,9 +38,11 @@ tasks:
       access_token: YOUR_TOKEN
       type: shows
       list: watchlist
-      db: pipeliner.db
     metainfo_trakt:                 # annotate with Trakt metadata
       client_id: YOUR_CLIENT_ID
       type: shows
-      db: pipeliner.db
 ```
+
+## Notes
+
+- Results are cached in `pipeliner.db` in the same directory as the config file.

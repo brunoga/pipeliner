@@ -6,6 +6,7 @@ import (
 
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/plugin"
+	"github.com/brunoga/pipeliner/internal/store"
 )
 
 func init() {
@@ -13,7 +14,7 @@ func init() {
 		PluginName:  "accept_all",
 		Description: "accept every undecided entry unconditionally",
 		PluginPhase: plugin.PhaseFilter,
-		Factory: func(cfg map[string]any) (plugin.Plugin, error) {
+		Factory: func(_ map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
 			return &acceptAllPlugin{}, nil
 		},
 	})

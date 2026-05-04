@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime/debug"
 	"strings"
 	"sync"
@@ -17,6 +18,7 @@ import (
 	"github.com/brunoga/pipeliner/internal/config"
 	"github.com/brunoga/pipeliner/internal/plugin"
 	"github.com/brunoga/pipeliner/internal/scheduler"
+	"github.com/brunoga/pipeliner/internal/store"
 	"github.com/brunoga/pipeliner/internal/task"
 	"github.com/brunoga/pipeliner/internal/web"
 
@@ -158,7 +160,14 @@ func cmdRun(args []string) int {
 		return 1
 	}
 
-	tasks, err := config.BuildTasks(cfg, logger)
+	db, err := store.OpenSQLite(dbPath(*cfgPath))
+	if err != nil {
+		logger.Error("failed to open store", "err", err)
+		return 1
+	}
+	defer db.Close()
+
+	tasks, err := config.BuildTasks(cfg, db, logger)
 	if err != nil {
 		logger.Error("failed to build tasks", "err", err)
 		return 1
@@ -246,7 +255,14 @@ func cmdDaemon(args []string) int {
 		return 1
 	}
 
-	tasks, err := config.BuildTasks(cfg, logger)
+	db, err := store.OpenSQLite(dbPath(*cfgPath))
+	if err != nil {
+		logger.Error("failed to open store", "err", err)
+		return 1
+	}
+	defer db.Close()
+
+	tasks, err := config.BuildTasks(cfg, db, logger)
 	if err != nil {
 		logger.Error("failed to build tasks", "err", err)
 		return 1
@@ -319,7 +335,7 @@ func cmdDaemon(args []string) int {
 		if errs := config.Validate(newCfg); len(errs) > 0 {
 			return errs[0]
 		}
-		newTasks, err := config.BuildTasks(newCfg, logger)
+		newTasks, err := config.BuildTasks(newCfg, db, logger)
 		if err != nil {
 			return fmt.Errorf("build tasks: %w", err)
 		}
@@ -460,4 +476,10 @@ func logHandlerOptions(level string) *slog.HandlerOptions {
 
 func makeLogger(level string) *slog.Logger {
 	return slog.New(clog.New(os.Stderr, logHandlerOptions(level)))
+}
+
+// dbPath returns the SQLite store path for the given config file:
+// pipeliner.db in the same directory as the config file.
+func dbPath(cfgPath string) string {
+	return filepath.Join(filepath.Dir(filepath.Clean(cfgPath)), "pipeliner.db")
 }
