@@ -1,10 +1,14 @@
 package plugin
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/brunoga/pipeliner/internal/store"
+)
 
 // MakeInputPlugin creates an InputPlugin from a config item. item may be a
 // plugin name string or a map[string]any with a "name" key plus config keys.
-func MakeInputPlugin(item any) (InputPlugin, error) {
+func MakeInputPlugin(item any, db *store.SQLiteStore) (InputPlugin, error) {
 	name, cfg, err := ResolveNameAndConfig(item)
 	if err != nil {
 		return nil, err
@@ -13,7 +17,7 @@ func MakeInputPlugin(item any) (InputPlugin, error) {
 	if !ok {
 		return nil, fmt.Errorf("unknown plugin %q", name)
 	}
-	p, err := d.Factory(cfg)
+	p, err := d.Factory(cfg, db)
 	if err != nil {
 		return nil, fmt.Errorf("instantiate plugin %q: %w", name, err)
 	}

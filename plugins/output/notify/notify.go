@@ -11,6 +11,7 @@ import (
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/notify"
 	"github.com/brunoga/pipeliner/internal/plugin"
+	"github.com/brunoga/pipeliner/internal/store"
 	itpl "github.com/brunoga/pipeliner/internal/template"
 )
 
@@ -30,7 +31,7 @@ type notifyPlugin struct {
 	onAll     bool // if true, notify even when no entries were accepted
 }
 
-func newPlugin(cfg map[string]any) (plugin.Plugin, error) {
+func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
 	via, _ := cfg["via"].(string)
 	if via == "" {
 		return nil, fmt.Errorf("notify: 'via' is required (e.g. \"webhook\", \"email\")")

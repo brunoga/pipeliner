@@ -11,6 +11,7 @@ import (
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/interp"
 	"github.com/brunoga/pipeliner/internal/plugin"
+	"github.com/brunoga/pipeliner/internal/store"
 )
 
 func init() {
@@ -26,7 +27,7 @@ type pathfmtPlugin struct {
 	ip *interp.Interpolator
 }
 
-func newPlugin(cfg map[string]any) (plugin.Plugin, error) {
+func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
 	path, _ := cfg["path"].(string)
 	if path == "" {
 		return nil, fmt.Errorf("pathfmt: 'path' is required")

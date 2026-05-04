@@ -24,7 +24,6 @@ tasks:
       url: "https://example.com/feed"
     movies:
       movies: ["Inception"]
-      db: pipeliner.db
     pathfmt:
       path: "/media/movies/{{.movie_title}}"
     qbittorrent:

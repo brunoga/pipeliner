@@ -7,6 +7,7 @@ import (
 
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/plugin"
+	"github.com/brunoga/pipeliner/internal/store"
 	internalquality "github.com/brunoga/pipeliner/internal/quality"
 )
 
@@ -23,7 +24,7 @@ type qualityPlugin struct {
 	spec internalquality.Spec
 }
 
-func newPlugin(cfg map[string]any) (plugin.Plugin, error) {
+func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
 	min, _ := cfg["min"].(string)
 	max, _ := cfg["max"].(string)
 

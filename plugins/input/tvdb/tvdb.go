@@ -16,6 +16,7 @@ import (
 
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/plugin"
+	"github.com/brunoga/pipeliner/internal/store"
 	itvdb "github.com/brunoga/pipeliner/internal/tvdb"
 )
 
@@ -32,7 +33,7 @@ type tvdbInputPlugin struct {
 	client *itvdb.Client
 }
 
-func newPlugin(cfg map[string]any) (plugin.Plugin, error) {
+func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
 	apiKey, _ := cfg["api_key"].(string)
 	if apiKey == "" {
 		return nil, fmt.Errorf("input_tvdb: api_key is required")

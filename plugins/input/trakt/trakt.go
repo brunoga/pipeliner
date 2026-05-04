@@ -20,6 +20,7 @@ import (
 
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/plugin"
+	"github.com/brunoga/pipeliner/internal/store"
 	itrakt "github.com/brunoga/pipeliner/internal/trakt"
 )
 
@@ -39,7 +40,7 @@ type traktInputPlugin struct {
 	limit    int
 }
 
-func newPlugin(cfg map[string]any) (plugin.Plugin, error) {
+func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
 	clientID, _ := cfg["client_id"].(string)
 	if clientID == "" {
 		return nil, fmt.Errorf("input_trakt: client_id is required")

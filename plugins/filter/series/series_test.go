@@ -29,12 +29,16 @@ func makeCtx() *plugin.TaskContext { return &plugin.TaskContext{Name: "test"} }
 
 func openPlugin(t *testing.T, extra map[string]any) *seriesPlugin {
 	t.Helper()
+	db, err := store.OpenSQLite(":memory:")
+	if err != nil {
+		t.Fatalf("OpenSQLite: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
 	cfg := map[string]any{
 		"shows": []any{"My Show"},
-		"db":    ":memory:",
 	}
 	maps.Copy(cfg, extra)
-	p, err := newPlugin(cfg)
+	p, err := newPlugin(cfg, db)
 	if err != nil {
 		t.Fatalf("newPlugin: %v", err)
 	}
@@ -228,18 +232,21 @@ func TestEpisodeFieldsSet(t *testing.T) {
 // --- Config validation ---
 
 func TestMissingShows(t *testing.T) {
-	_, err := newPlugin(map[string]any{"db": "/tmp/x.db"})
+	db, _ := store.OpenSQLite(":memory:")
+	defer db.Close()
+	_, err := newPlugin(map[string]any{}, db)
 	if err == nil {
 		t.Error("expected error when shows list is empty")
 	}
 }
 
 func TestUnknownTrackingMode(t *testing.T) {
+	db, _ := store.OpenSQLite(":memory:")
+	defer db.Close()
 	_, err := newPlugin(map[string]any{
 		"shows":    []any{"My Show"},
 		"tracking": "invalid",
-		"db":       "/tmp/x.db",
-	})
+	}, db)
 	if err == nil {
 		t.Error("expected error for unknown tracking mode")
 	}
@@ -330,7 +337,9 @@ func (c *countingInput) Run(ctx context.Context, tc *plugin.TaskContext) ([]*ent
 }
 
 func TestMissingShowsAndFrom(t *testing.T) {
-	_, err := newPlugin(map[string]any{"db": ":memory:"})
+	db, _ := store.OpenSQLite(":memory:")
+	defer db.Close()
+	_, err := newPlugin(map[string]any{}, db)
 	if err == nil {
 		t.Error("expected error when neither shows nor from is configured")
 	}

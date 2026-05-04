@@ -1,6 +1,6 @@
 # metainfo_tmdb
 
-Enriches movie entries with metadata from The Movie Database (TMDb). Searches by parsed title and year, caches results in SQLite.
+Enriches movie entries with metadata from The Movie Database (TMDb). Searches by parsed title and year and caches results.
 
 ## Config
 
@@ -8,7 +8,6 @@ Enriches movie entries with metadata from The Movie Database (TMDb). Searches by
 |-----|------|----------|---------|-------------|
 | `api_key` | string | yes | — | TMDb API v3 key |
 | `cache_ttl` | string | no | `24h` | How long to cache search results |
-| `db` | string | no | `pipeliner.db` | SQLite path for persistent cache |
 
 ## Fields set on entry
 
@@ -35,10 +34,8 @@ tasks:
       url: "https://example.com/feed"
     movies:
       movies: ["Inception"]
-      db: pipeliner.db
     metainfo_tmdb:
       api_key: YOUR_API_KEY
-      db: pipeliner.db
     pathfmt:
       path: "/media/movies/{{.tmdb_title}} ({{.tmdb_release_date | slice 0 4}})"
 ```
@@ -47,3 +44,4 @@ tasks:
 
 - Free API keys at [themoviedb.org/settings/api](https://www.themoviedb.org/settings/api).
 - Only annotates entries whose title can be parsed as a movie (title + year). Entries without a parseable year are skipped.
+- Results are cached in `pipeliner.db` in the same directory as the config file.

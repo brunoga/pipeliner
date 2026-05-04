@@ -12,9 +12,8 @@ A per-title cooldown (`interval`) prevents redundant searches on successive runs
 | `from` | list | conditional | — | Input plugin configs whose entry titles supplement the title list |
 | `via` | list | yes | — | Search plugins to query |
 | `interval` | string | no | `24h` | Minimum time between searches per title |
-| `db` | string | no | `pipeliner.db` | SQLite state file for interval tracking |
 
-At least one of `titles` or `from` must produce titles. The combined title list is deduplicated case-insensitively before searching.
+At least one of `titles` or `from` must produce titles. The combined title list is deduplicated case-insensitively before searching. Search timestamps are stored in `pipeliner.db` in the same directory as the config file.
 
 ### `from` entries
 
@@ -53,12 +52,10 @@ tasks:
         - name: search_rss
           url_template: "https://jackett.example.com/api?q={{.QueryEscaped}}&apikey=abc"
       interval: 12h
-      db: pipeliner.db
     metainfo_quality:
     quality:
       min: 1080p
     seen:
-      db: pipeliner.db
     qbittorrent:
       host: localhost
 ```
@@ -79,12 +76,10 @@ tasks:
         - name: search_rss
           url_template: "https://jackett.example.com/api?q={{.QueryEscaped}}&apikey=abc"
       interval: 6h
-      db: pipeliner.db
     metainfo_quality:
     quality:
       min: 1080p
     seen:
-      db: pipeliner.db
     qbittorrent:
       host: localhost
 ```
@@ -107,9 +102,7 @@ tasks:
         - name: search_rss
           url_template: "https://jackett.example.com/api?q={{.QueryEscaped}}&apikey=abc"
       interval: 12h
-      db: pipeliner.db
     series:
-      db: pipeliner.db
       tracking: strict
     qbittorrent:
       host: localhost

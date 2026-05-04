@@ -31,7 +31,6 @@ tasks:
         - series_name
         - quality
     series:
-      db: tv.db
       shows:
         - "Breaking Bad"
 ```

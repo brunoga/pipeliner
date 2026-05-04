@@ -7,6 +7,7 @@ import (
 
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/plugin"
+	"github.com/brunoga/pipeliner/internal/store"
 	"github.com/brunoga/pipeliner/internal/series"
 )
 
@@ -21,7 +22,7 @@ func init() {
 
 type seriesMetaPlugin struct{}
 
-func newPlugin(_ map[string]any) (plugin.Plugin, error) {
+func newPlugin(_ map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
 	return &seriesMetaPlugin{}, nil
 }
 

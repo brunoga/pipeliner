@@ -11,7 +11,7 @@ import (
 func makeCtx() *plugin.TaskContext { return &plugin.TaskContext{Name: "test"} }
 
 func TestLiteralPath(t *testing.T) {
-	p, err := newPlugin(map[string]any{"path": "/downloads/tv"})
+	p, err := newPlugin(map[string]any{"path": "/downloads/tv"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -25,7 +25,7 @@ func TestLiteralPath(t *testing.T) {
 }
 
 func TestTemplateInterpolation(t *testing.T) {
-	p, _ := newPlugin(map[string]any{"path": "/downloads/{{.series_name}}/Season {{.series_season}}"})
+	p, _ := newPlugin(map[string]any{"path": "/downloads/{{.series_name}}/Season {{.series_season}}"}, nil)
 	e := entry.New("My Show S02E03", "http://x.com/a")
 	e.Set("series_name", "My Show")
 	e.Set("series_season", 2)
@@ -36,7 +36,7 @@ func TestTemplateInterpolation(t *testing.T) {
 }
 
 func TestTemplateTitleURL(t *testing.T) {
-	p, _ := newPlugin(map[string]any{"path": "/dl/{{.Title}}"})
+	p, _ := newPlugin(map[string]any{"path": "/dl/{{.Title}}"}, nil)
 	e := entry.New("Episode One", "http://x.com/a")
 	p.(*pathfmtPlugin).Modify(context.Background(), makeCtx(), e) //nolint:errcheck
 	if v := e.GetString("download_path"); v != "/dl/Episode One" {
@@ -45,13 +45,13 @@ func TestTemplateTitleURL(t *testing.T) {
 }
 
 func TestMissingPath(t *testing.T) {
-	if _, err := newPlugin(map[string]any{}); err == nil {
+	if _, err := newPlugin(map[string]any{}, nil); err == nil {
 		t.Error("expected error when path missing")
 	}
 }
 
 func TestInvalidTemplate(t *testing.T) {
-	if _, err := newPlugin(map[string]any{"path": "{{.Unclosed"}); err == nil {
+	if _, err := newPlugin(map[string]any{"path": "{{.Unclosed"}, nil); err == nil {
 		t.Error("expected error for invalid template")
 	}
 }

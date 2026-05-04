@@ -2,14 +2,13 @@
 // and accepts entries whose parsed series name matches a favorited show.
 //
 // The favorites list is cached and refreshed according to the ttl setting
-// (default 1h). With a db path the cache survives process restarts.
+// (default 1h).
 //
 // Config keys:
 //
 //	api_key   - TheTVDB API key (required)
 //	user_pin  - User PIN from thetvdb.com (required; enables favorites access)
 //	ttl       - cache lifetime, e.g. "1h", "30m" (default: "1h")
-//	db        - SQLite path for persistent cache (default: "pipeliner.db")
 package tvdb
 
 import (
@@ -42,7 +41,7 @@ type tvdbFilter struct {
 	cache  *cache.Cache[[]string]
 }
 
-func newPlugin(cfg map[string]any) (plugin.Plugin, error) {
+func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
 	apiKey, _ := cfg["api_key"].(string)
 	if apiKey == "" {
 		return nil, fmt.Errorf("tvdb filter: api_key is required")
@@ -60,16 +59,6 @@ func newPlugin(cfg map[string]any) (plugin.Plugin, error) {
 			return nil, fmt.Errorf("tvdb filter: invalid ttl %q: %w", v, err)
 		}
 		ttl = d
-	}
-
-	dbPath, _ := cfg["db"].(string)
-	if dbPath == "" {
-		dbPath = "pipeliner.db"
-	}
-
-	db, err := store.OpenSQLite(dbPath)
-	if err != nil {
-		return nil, fmt.Errorf("tvdb filter: open store: %w", err)
 	}
 
 	return &tvdbFilter{

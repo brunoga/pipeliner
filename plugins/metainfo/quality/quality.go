@@ -7,6 +7,7 @@ import (
 
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/plugin"
+	"github.com/brunoga/pipeliner/internal/store"
 	q "github.com/brunoga/pipeliner/internal/quality"
 )
 
@@ -49,7 +50,7 @@ var colorRangeNames = map[q.ColorRange]string{
 
 type qualityMetaPlugin struct{}
 
-func newPlugin(_ map[string]any) (plugin.Plugin, error) {
+func newPlugin(_ map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
 	return &qualityMetaPlugin{}, nil
 }
 

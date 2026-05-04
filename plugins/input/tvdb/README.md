@@ -24,9 +24,7 @@ tasks:
     rss:
       url: "https://example.com/rss/shows"
     seen:
-      db: pipeliner.db
     series:
-      db: pipeliner.db
       tracking: strict
       quality: 720p
       from:

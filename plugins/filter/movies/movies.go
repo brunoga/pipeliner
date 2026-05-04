@@ -39,7 +39,7 @@ type moviesPlugin struct {
 	tracker      *imovies.Tracker
 }
 
-func newPlugin(cfg map[string]any) (plugin.Plugin, error) {
+func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
 	raw := toStringSlice(cfg["movies"])
 	staticTitles := make([]string, len(raw))
 	for i, s := range raw {
@@ -49,7 +49,7 @@ func newPlugin(cfg map[string]any) (plugin.Plugin, error) {
 	fromRaw, _ := cfg["from"].([]any)
 	var froms []plugin.InputPlugin
 	for _, item := range fromRaw {
-		inp, err := plugin.MakeInputPlugin(item)
+		inp, err := plugin.MakeInputPlugin(item, db)
 		if err != nil {
 			return nil, fmt.Errorf("movies: from: %w", err)
 		}
@@ -69,11 +69,6 @@ func newPlugin(cfg map[string]any) (plugin.Plugin, error) {
 		ttl = d
 	}
 
-	dbPath, _ := cfg["db"].(string)
-	if dbPath == "" {
-		dbPath = "pipeliner.db"
-	}
-
 	var spec quality.Spec
 	if q, _ := cfg["quality"].(string); q != "" {
 		s, err := quality.ParseSpec(q)
@@ -85,11 +80,6 @@ func newPlugin(cfg map[string]any) (plugin.Plugin, error) {
 		spec.MinCodec = s.MinCodec
 		spec.MinAudio = s.MinAudio
 		spec.MinColorRange = s.MinColorRange
-	}
-
-	db, err := store.OpenSQLite(dbPath)
-	if err != nil {
-		return nil, fmt.Errorf("movies: open store: %w", err)
 	}
 
 	return &moviesPlugin{

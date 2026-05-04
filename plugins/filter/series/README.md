@@ -13,7 +13,6 @@ The show list can be provided statically via `shows`, dynamically via `from` (a 
 | `ttl` | string | no | `1h` | How long to cache the dynamic list fetched via `from` |
 | `tracking` | string | no | `strict` | Episode ordering mode: `strict`, `backfill`, or `all` |
 | `quality` | string | no | — | Minimum quality spec (e.g. `720p`, `1080p bluray`) |
-| `db` | string | no | `pipeliner.db` | SQLite database path for episode history and dynamic list cache |
 
 At least one of `shows` or `from` is required.
 
@@ -54,9 +53,7 @@ tasks:
     rss:
       url: "https://example.com/feed"
     seen:
-      db: pipeliner.db
     series:
-      db: pipeliner.db
       tracking: strict
       quality: 720p
       shows:
@@ -73,9 +70,7 @@ tasks:
     rss:
       url: "https://example.com/feed"
     seen:
-      db: pipeliner.db
     series:
-      db: pipeliner.db
       tracking: strict
       quality: 720p
       ttl: 2h
@@ -95,9 +90,7 @@ tasks:
     rss:
       url: "https://example.com/feed"
     seen:
-      db: pipeliner.db
     series:
-      db: pipeliner.db
       tracking: strict
       quality: 720p
       from:
@@ -114,7 +107,6 @@ tasks:
     rss:
       url: "https://example.com/feed"
     series:
-      db: pipeliner.db
       shows:
         - "Severance"      # always included regardless of watchlist
       from:
@@ -124,3 +116,7 @@ tasks:
           type: shows
           list: watchlist
 ```
+
+## Notes
+
+- Episode history and dynamic list cache are stored in `pipeliner.db` in the same directory as the config file.

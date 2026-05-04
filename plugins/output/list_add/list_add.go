@@ -5,7 +5,6 @@
 //
 // Config keys:
 //
-//	db   - path to the SQLite database (required)
 //	list - name of the list to add entries to (required)
 package list_add
 
@@ -29,33 +28,23 @@ func init() {
 }
 
 type listAddPlugin struct {
-	dbPath   string
+	db       *store.SQLiteStore
 	listName string
 }
 
-func newPlugin(cfg map[string]any) (plugin.Plugin, error) {
-	dbPath, _ := cfg["db"].(string)
-	if dbPath == "" {
-		return nil, fmt.Errorf("list_add: 'db' is required")
-	}
+func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
 	listName, _ := cfg["list"].(string)
 	if listName == "" {
 		return nil, fmt.Errorf("list_add: 'list' is required")
 	}
-	return &listAddPlugin{dbPath: dbPath, listName: listName}, nil
+	return &listAddPlugin{db: db, listName: listName}, nil
 }
 
 func (p *listAddPlugin) Name() string        { return "list_add" }
 func (p *listAddPlugin) Phase() plugin.Phase { return plugin.PhaseOutput }
 
 func (p *listAddPlugin) Output(_ context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
-	s, err := store.OpenSQLite(p.dbPath)
-	if err != nil {
-		return fmt.Errorf("list_add: open db: %w", err)
-	}
-	defer s.Close()
-
-	list := entrylist.Open(s, p.listName)
+	list := entrylist.Open(p.db, p.listName)
 	for _, e := range entries {
 		if err := list.Add(e.Title, e.URL); err != nil {
 			tc.Logger.Error("list_add: store entry", "title", e.Title, "err", err)

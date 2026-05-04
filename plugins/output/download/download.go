@@ -16,6 +16,7 @@ import (
 
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/plugin"
+	"github.com/brunoga/pipeliner/internal/store"
 	itpl "github.com/brunoga/pipeliner/internal/template"
 )
 
@@ -34,7 +35,7 @@ type downloadPlugin struct {
 	client   *http.Client
 }
 
-func newPlugin(cfg map[string]any) (plugin.Plugin, error) {
+func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
 	dir, _ := cfg["path"].(string)
 	if dir == "" {
 		return nil, fmt.Errorf("download: 'path' is required")

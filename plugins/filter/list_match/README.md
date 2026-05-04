@@ -8,7 +8,6 @@ This pair of plugins replaces FlexGet's `list_add` / `list_match` / `movie_list`
 
 | Key | Type | Required | Default | Description |
 |-----|------|----------|---------|-------------|
-| `db` | string | yes | — | Path to the SQLite database |
 | `list` | string | yes | — | Name of the list to match against |
 | `remove_on_match` | bool | no | `false` | Remove the entry from the list after a successful match |
 
@@ -25,11 +24,9 @@ tasks:
       type: movies
       list: watchlist
     seen:
-      db: pipeliner.db
       local: true
     accept_all:
     list_add:
-      db: pipeliner.db
       list: movie_watchlist
 
   # Task 2 (priority 10): search and download, matching against the local list
@@ -45,12 +42,9 @@ tasks:
         - name: search_rss
           url_template: "https://example.com/search?q={QueryEscaped}"
       interval: 24h
-      db: pipeliner.db
     seen:
-      db: pipeliner.db
     metainfo_quality:
     list_match:
-      db: pipeliner.db
       list: movie_watchlist
       remove_on_match: true   # remove from list once downloaded
     pathfmt:
@@ -68,3 +62,4 @@ schedules:
 
 - Matching is by exact entry title. The `movies` filter (with `from`) is often the better choice when the source is a single Trakt or TVDB list — `list_match` is most useful when combining multiple sources or when you want manual list management.
 - `remove_on_match: true` is appropriate for one-shot download queues (download once, then stop). Leave it `false` (the default) if multiple tasks should be able to match the same list entry.
+- The list is stored in `pipeliner.db` in the same directory as the config file, shared with all other stateful plugins.
