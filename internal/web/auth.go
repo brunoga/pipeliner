@@ -125,7 +125,7 @@ func (s *Server) handleLoginPost(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		MaxAge:   int(sessionTTL.Seconds()),
 		HttpOnly: true,
-		Secure:   true,
+		Secure:   s.secure,
 		SameSite: http.SameSiteStrictMode,
 	})
 	http.Redirect(w, r, "/", http.StatusSeeOther)
@@ -140,7 +140,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		MaxAge:   -1,
 		HttpOnly: true,
-		Secure:   true,
+		Secure:   s.secure,
 		SameSite: http.SameSiteStrictMode,
 	})
 	http.Redirect(w, r, "/login", http.StatusSeeOther)
