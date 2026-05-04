@@ -259,9 +259,15 @@ async function refresh() {
       ' · ' + tasks.length + ' task' + (tasks.length !== 1 ? 's' : '');
     if (!reloading) {
       const anyRunning = tasks.some(t => t.running);
-      const btn = document.getElementById('btn-reload');
-      btn.disabled = anyRunning;
-      btn.title = anyRunning ? 'Cannot reload while a task is running' : '';
+      const allRunning = tasks.length > 0 && tasks.every(t => t.running);
+      
+      const reloadBtn = document.getElementById('btn-reload');
+      reloadBtn.disabled = anyRunning;
+      reloadBtn.title = anyRunning ? 'Cannot reload while a task is running' : '';
+
+      const runAllBtn = document.getElementById('btn-run-all');
+      runAllBtn.disabled = allRunning;
+      runAllBtn.title = allRunning ? 'All tasks are already running' : '';
     }
   } catch (e) {
     document.getElementById('header-meta').textContent = 'error — retrying';
