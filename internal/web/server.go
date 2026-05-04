@@ -3,6 +3,7 @@ package web
 
 import (
 	"context"
+	"crypto/tls"
 	"embed"
 	"encoding/json"
 	"fmt"
@@ -29,13 +30,16 @@ type TaskInfo struct {
 
 // Server is the HTTP status interface for the daemon.
 type Server struct {
-	tasksMu sync.RWMutex
-	tasks   []TaskInfo
-	daemon  DaemonControl
-	history *History
-	bcast   *Broadcaster
-	reload  func() error // nil if reload is not configured
-	version string
+	tasksMu  sync.RWMutex
+	tasks    []TaskInfo
+	daemon   DaemonControl
+	history  *History
+	bcast    *Broadcaster
+	reload   func() error // nil if reload is not configured
+	version  string
+	creds    credentials
+	sessions *sessionStore
+	secure   bool // true when serving over TLS; controls the Secure cookie flag
 
 	runMu   sync.Mutex
 	running map[string]int // task name → active run count
@@ -80,8 +84,17 @@ func (s *Server) isRunning(name string) bool {
 }
 
 // New creates a Server. Call Start to begin serving.
-func New(tasks []TaskInfo, d DaemonControl, h *History, b *Broadcaster, version string) *Server {
-	return &Server{tasks: tasks, daemon: d, history: h, bcast: b, version: version}
+// username and password are required; all routes are protected by session auth.
+func New(tasks []TaskInfo, d DaemonControl, h *History, b *Broadcaster, version, username, password string) *Server {
+	return &Server{
+		tasks:    tasks,
+		daemon:   d,
+		history:  h,
+		bcast:    b,
+		version:  version,
+		creds:    newCredentials(username, password),
+		sessions: newSessionStore(),
+	}
 }
 
 // SetReload configures the function called when the user requests a config reload.
@@ -95,25 +108,54 @@ func (s *Server) SetTasks(tasks []TaskInfo) {
 }
 
 // Start begins listening on addr and blocks until ctx is cancelled.
-func (s *Server) Start(ctx context.Context, addr string) error {
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /", s.serveUI)
-	mux.HandleFunc("GET /api/status", s.apiStatus)
-	mux.HandleFunc("GET /api/history", s.apiHistory)
-	mux.HandleFunc("POST /api/tasks/{name}/run", s.apiTrigger)
-	mux.HandleFunc("POST /api/tasks/run", s.apiRunAll)
-	mux.HandleFunc("POST /api/reload", s.apiReload)
-	mux.HandleFunc("GET /api/logs", s.apiLogs)
+// If tlsCfg is non-nil the server speaks HTTPS; otherwise plain HTTP is used
+// (suitable for running behind a reverse proxy that terminates TLS).
+func (s *Server) Start(ctx context.Context, addr string, tlsCfg *tls.Config) error {
+	s.secure = tlsCfg != nil
 
-	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	// Unauthenticated routes.
+	open := http.NewServeMux()
+	open.HandleFunc("GET /login", s.handleLoginGet)
+	open.HandleFunc("POST /login", s.handleLoginPost)
+	open.HandleFunc("POST /logout", s.handleLogout)
+
+	// Authenticated routes wrapped in session middleware.
+	protected := http.NewServeMux()
+	protected.HandleFunc("GET /", s.serveUI)
+	protected.HandleFunc("GET /api/status", s.apiStatus)
+	protected.HandleFunc("GET /api/history", s.apiHistory)
+	protected.HandleFunc("POST /api/tasks/{name}/run", s.apiTrigger)
+	protected.HandleFunc("POST /api/tasks/run", s.apiRunAll)
+	protected.HandleFunc("POST /api/reload", s.apiReload)
+	protected.HandleFunc("GET /api/logs", s.apiLogs)
+
+	// Top-level mux: open routes take priority; everything else goes through auth.
+	top := http.NewServeMux()
+	top.Handle("/login", open)
+	top.Handle("/logout", open)
+	top.Handle("/", s.requireSession(protected))
+
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           top,
+		ReadHeaderTimeout: 10 * time.Second,
+		TLSConfig:         tlsCfg,
+	}
 	go func() {
 		<-ctx.Done()
 		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_ = srv.Shutdown(shutCtx)
 	}()
-	if err := srv.ListenAndServe(); err != http.ErrServerClosed {
-		return err
+	if tlsCfg != nil {
+		// TLSConfig already has certificates loaded; pass empty strings to use them.
+		if err := srv.ListenAndServeTLS("", ""); err != http.ErrServerClosed {
+			return err
+		}
+	} else {
+		if err := srv.ListenAndServe(); err != http.ErrServerClosed {
+			return err
+		}
 	}
 	return nil
 }
