@@ -36,7 +36,7 @@ func GenerateSelfSigned() (tls.Certificate, string, error) {
 		NotAfter:     time.Now().Add(10 * 365 * 24 * time.Hour),
 		KeyUsage:     x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		IPAddresses:  []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("::1")},
+		IPAddresses:  allLocalIPs(),
 		DNSNames:     []string{"localhost"},
 	}
 
@@ -68,6 +68,37 @@ func GenerateSelfSigned() (tls.Certificate, string, error) {
 	}
 
 	return cert, fp, nil
+}
+
+// allLocalIPs returns all IP addresses currently assigned to local network
+// interfaces, including loopback. These are embedded as SANs in the
+// self-signed certificate so the cert is valid regardless of which interface
+// the server is accessed through.
+func allLocalIPs() []net.IP {
+	ips := []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("::1")}
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return ips
+	}
+	seen := map[string]bool{"127.0.0.1": true, "::1": true}
+	for _, addr := range addrs {
+		var ip net.IP
+		switch v := addr.(type) {
+		case *net.IPNet:
+			ip = v.IP
+		case *net.IPAddr:
+			ip = v.IP
+		}
+		if ip == nil || ip.IsLoopback() {
+			continue
+		}
+		key := ip.String()
+		if !seen[key] {
+			seen[key] = true
+			ips = append(ips, ip)
+		}
+	}
+	return ips
 }
 
 // TLSConfigFromFiles loads a TLS certificate from the given PEM file paths.
