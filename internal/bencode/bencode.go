@@ -11,10 +11,10 @@
 package bencode
 
 import (
-	"crypto/sha1"
+	"crypto/sha1" //nolint:gosec // SHA1 is specified by the BitTorrent protocol (BEP 3) for info hashes; not a security choice.
 	"fmt"
-	"strings"
 	"strconv"
+	"strings"
 )
 
 // Decode decodes bencoded data and returns the top-level Go value.
@@ -243,7 +243,7 @@ func (d *decoder) decodeDict() (map[string]any, error) {
 		}
 		// Capture raw bytes of the info dict for info hash computation.
 		if key == "info" && !d.infoSet {
-			d.infoSHA1 = sha1.Sum(d.data[valueStart:d.pos])
+			d.infoSHA1 = sha1.Sum(d.data[valueStart:d.pos]) //nolint:gosec
 			d.infoSet = true
 		}
 		m[key] = val
