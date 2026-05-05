@@ -310,7 +310,7 @@ func (s *Server) apiLogs(w http.ResponseWriter, r *http.Request) {
 	// have not seen yet, preventing the buffer from being replayed on reconnect.
 	var afterSeq int64
 	if s := r.Header.Get("Last-Event-ID"); s != "" {
-		fmt.Sscanf(s, "%d", &afterSeq)
+		fmt.Sscanf(s, "%d", &afterSeq) //nolint:errcheck
 	}
 
 	snap, ch := s.bcast.Subscribe(afterSeq)
