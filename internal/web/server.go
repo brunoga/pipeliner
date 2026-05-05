@@ -306,24 +306,36 @@ func (s *Server) apiLogs(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 
-	snap, ch := s.bcast.Subscribe()
+	// Parse Last-Event-ID so reconnecting clients only receive lines they
+	// have not seen yet, preventing the buffer from being replayed on reconnect.
+	var afterSeq int64
+	if s := r.Header.Get("Last-Event-ID"); s != "" {
+		fmt.Sscanf(s, "%d", &afterSeq) //nolint:errcheck
+	}
+
+	snap, ch := s.bcast.Subscribe(afterSeq)
 	defer s.bcast.Unsubscribe(ch)
 
-	// Replay buffered lines from the last run before going live.
-	for _, line := range snap {
-		escaped := strings.ReplaceAll(line, "\n", "\ndata: ")
-		fmt.Fprintf(w, "data: %s\n\n", escaped)
+	for _, ll := range snap {
+		escaped := strings.ReplaceAll(ll.text, "\n", "\ndata: ")
+		fmt.Fprintf(w, "id: %d\ndata: %s\n\n", ll.seq, escaped)
 	}
 	fmt.Fprint(w, ": connected\n\n")
 	flusher.Flush()
+
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
 
 	for {
 		select {
 		case <-r.Context().Done():
 			return
-		case line := <-ch:
-			escaped := strings.ReplaceAll(line, "\n", "\ndata: ")
-			fmt.Fprintf(w, "data: %s\n\n", escaped)
+		case ll := <-ch:
+			escaped := strings.ReplaceAll(ll.text, "\n", "\ndata: ")
+			fmt.Fprintf(w, "id: %d\ndata: %s\n\n", ll.seq, escaped)
+			flusher.Flush()
+		case <-ticker.C:
+			fmt.Fprint(w, ": heartbeat\n\n")
 			flusher.Flush()
 		}
 	}
