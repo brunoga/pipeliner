@@ -734,6 +734,7 @@ async function validateConfig() {
     if (r.status === 422) {
       const { errors } = await r.json();
       showConfigErrors(errors);
+      setConfigStatus('err', '✗ ' + errors.length + ' error' + (errors.length !== 1 ? 's' : ''));
     } else if (r.ok) {
       showConfigErrors([]);
       setConfigStatus('ok', '✓ Config is valid');
@@ -757,6 +758,7 @@ async function saveConfig() {
     if (r.status === 422) {
       const { errors } = await r.json();
       showConfigErrors(errors);
+      setConfigStatus('err', '✗ ' + errors.length + ' error' + (errors.length !== 1 ? 's' : '') + ' — not saved');
       return;
     }
     if (!r.ok) { setConfigStatus('err', 'Save failed: ' + r.status); return; }
@@ -785,7 +787,7 @@ function showConfigErrors(errors) {
     el.style.display = 'none';
     el.textContent = '';
   } else {
-    el.style.display = '';
+    el.style.display = 'block';
     el.textContent = errors.join('\n');
   }
 }
