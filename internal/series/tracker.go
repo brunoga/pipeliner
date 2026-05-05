@@ -1,6 +1,7 @@
 package series
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -22,6 +23,7 @@ type bucket interface {
 	Get(key string, dest any) (bool, error)
 	Delete(key string) error
 	Keys() ([]string, error)
+	All() (map[string][]byte, error)
 }
 
 // Tracker tracks which episodes of which series have been downloaded.
@@ -49,21 +51,21 @@ func (t *Tracker) Mark(r Record) error {
 }
 
 // Latest returns the most recently downloaded episode for the given series,
-// determined by DownloadedAt timestamp. This performs a full bucket scan;
-// use SQLiteStore.Latest for large libraries.
+// determined by DownloadedAt timestamp. Uses All() to fetch all records in
+// a single query rather than Keys() + N×Get().
 func (t *Tracker) Latest(seriesName string) (*Record, bool) {
-	keys, err := t.bucket.Keys()
+	all, err := t.bucket.All()
 	if err != nil {
 		return nil, false
 	}
 	prefix := seriesName + "|"
 	var latest *Record
-	for _, k := range keys {
+	for k, raw := range all {
 		if !hasPrefix(k, prefix) {
 			continue
 		}
 		var rec Record
-		if found, _ := t.bucket.Get(k, &rec); !found {
+		if err := json.Unmarshal(raw, &rec); err != nil {
 			continue
 		}
 		if rec.SeriesName != seriesName {
