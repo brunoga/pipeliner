@@ -1,7 +1,11 @@
 // Package tvdb provides a minimal TheTVDB v4 API client.
 //
-// It uses only stdlib (net/http, encoding/json) and requires no external dependencies.
-// Obtain an API key at https://thetvdb.com/api-information
+// It uses only stdlib (net/http, encoding/json) and requires no external
+// dependencies. Obtain an API key at https://thetvdb.com/api-information
+//
+// The flexString type handles the TheTVDB API's inconsistency of returning
+// tvdb_id as a quoted string in search results but as a bare integer in series
+// detail endpoints — both unmarshal cleanly into a Go string.
 package tvdb
 
 import (
@@ -46,15 +50,16 @@ func NewWithPin(apiKey, userPin string) *Client {
 // Fields like Genres, Network, and FirstAired are populated when the search
 // result includes them; they may be absent for some entries.
 type Series struct {
-	ID         int      `json:"tvdb_id"`
+	ID         string   `json:"tvdb_id"`
 	Name       string   `json:"name"`
 	Overview   string   `json:"overview"`
 	Year       string   `json:"year"`
 	Slug       string   `json:"slug"`
-	Status     string   `json:"status"`
-	Genres     []string `json:"genres"`      // genre names, e.g. ["Drama","Crime"]
-	Network    string   `json:"network"`     // originating network name
-	FirstAired string   `json:"first_air_time"` // ISO-8601 from search; may be empty
+	Genres     []string `json:"genres"`           // genre names, e.g. ["Drama","Crime"]
+	Network    string   `json:"network"`           // originating network name
+	Language   string   `json:"originalLanguage"`  // original language code, e.g. "eng"
+	ImageURL   string   `json:"image_url"`         // poster image URL
+	FirstAired string   `json:"first_air_time"`    // ISO-8601 from search; may be empty
 }
 
 // Episode represents a single episode from the series episodes endpoint.
@@ -91,12 +96,12 @@ func (c *Client) SearchSeries(ctx context.Context, name string) ([]Series, error
 }
 
 // GetEpisodes retrieves episodes for a series (official ordering) using the series TVDB ID.
-func (c *Client) GetEpisodes(ctx context.Context, seriesID int) ([]Episode, error) {
+func (c *Client) GetEpisodes(ctx context.Context, seriesID string) ([]Episode, error) {
 	if err := c.ensureToken(ctx); err != nil {
 		return nil, err
 	}
 
-	u := fmt.Sprintf("%s/series/%d/episodes/official?page=0", c.BaseURL, seriesID)
+	u := fmt.Sprintf("%s/series/%s/episodes/official?page=0", c.BaseURL, seriesID)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return nil, err
@@ -110,7 +115,7 @@ func (c *Client) GetEpisodes(ctx context.Context, seriesID int) ([]Episode, erro
 		Status string `json:"status"`
 	}
 	if err := c.do(req, &resp); err != nil {
-		return nil, fmt.Errorf("tvdb: episodes %d: %w", seriesID, err)
+		return nil, fmt.Errorf("tvdb: episodes %s: %w", seriesID, err)
 	}
 	return resp.Data.Episodes, nil
 }
@@ -141,6 +146,52 @@ func (c *Client) GetFavorites(ctx context.Context) ([]int, error) {
 		return nil, fmt.Errorf("tvdb: favorites: %w", err)
 	}
 	return resp.Data.Series, nil
+}
+
+// SeriesExtended holds richer metadata from the /series/{id}/extended endpoint.
+// The search endpoint inconsistently omits genres and language; this endpoint
+// is the authoritative source for both.
+type SeriesExtended struct {
+	Language   string `json:"originalLanguage"` // e.g. "eng"
+	FirstAired string `json:"firstAired"`       // YYYY-MM-DD
+	Genres     []struct {
+		Name string `json:"name"`
+	} `json:"genres"`
+}
+
+// GenreNames returns the genre names as a plain string slice.
+func (s *SeriesExtended) GenreNames() []string {
+	names := make([]string, 0, len(s.Genres))
+	for _, g := range s.Genres {
+		if g.Name != "" {
+			names = append(names, g.Name)
+		}
+	}
+	return names
+}
+
+// GetSeriesExtended fetches the extended series record for the given TVDB ID.
+// It returns language and genres which are unreliable in search results.
+func (c *Client) GetSeriesExtended(ctx context.Context, id string) (*SeriesExtended, error) {
+	if err := c.ensureToken(ctx); err != nil {
+		return nil, err
+	}
+
+	u := fmt.Sprintf("%s/series/%s/extended", c.BaseURL, id)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+
+	var resp struct {
+		Data   SeriesExtended `json:"data"`
+		Status string         `json:"status"`
+	}
+	if err := c.do(req, &resp); err != nil {
+		return nil, fmt.Errorf("tvdb: series %s extended: %w", id, err)
+	}
+	return &resp.Data, nil
 }
 
 // GetSeriesByID fetches a series record by its TVDB ID.
