@@ -238,6 +238,74 @@ func TestSearchEmptyFeed(t *testing.T) {
 	}
 }
 
+func TestLimitSentAsQueryParam(t *testing.T) {
+	var gotLimit string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotLimit = r.URL.Query().Get("limit")
+		fmt.Fprint(w, torznabResponse(nil)) //nolint:errcheck
+	}))
+	defer srv.Close()
+
+	p := makePlugin(t, srv.URL, "key", map[string]any{"limit": int64(50)})
+	_, err := p.Search(context.Background(), tc(), "test")
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if gotLimit != "50" {
+		t.Errorf("limit: got %q, want \"50\"", gotLimit)
+	}
+}
+
+func TestNoLimitOmitsParam(t *testing.T) {
+	var gotRaw string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotRaw = r.URL.RawQuery
+		fmt.Fprint(w, torznabResponse(nil)) //nolint:errcheck
+	}))
+	defer srv.Close()
+
+	p := makePlugin(t, srv.URL, "key", nil) // no limit configured
+	_, _ = p.Search(context.Background(), tc(), "test")
+	if strings.Contains(gotRaw, "limit=") {
+		t.Errorf("limit param should be absent when not configured; got %q", gotRaw)
+	}
+}
+
+func TestLimitDefaultIsZero(t *testing.T) {
+	p := makePlugin(t, "http://localhost", "key", nil)
+	if p.limit != 0 {
+		t.Errorf("default limit: got %d, want 0", p.limit)
+	}
+}
+
+func TestValidateLimitRejectsZero(t *testing.T) {
+	errs := validate(map[string]any{"url": "http://localhost", "api_key": "key", "limit": int64(0)})
+	if len(errs) == 0 {
+		t.Error("expected error for limit=0")
+	}
+}
+
+func TestValidateLimitRejectsNegative(t *testing.T) {
+	errs := validate(map[string]any{"url": "http://localhost", "api_key": "key", "limit": int64(-5)})
+	if len(errs) == 0 {
+		t.Error("expected error for limit=-5")
+	}
+}
+
+func TestValidateLimitAcceptsPositive(t *testing.T) {
+	errs := validate(map[string]any{"url": "http://localhost", "api_key": "key", "limit": int64(100)})
+	if len(errs) != 0 {
+		t.Errorf("unexpected errors for valid limit: %v", errs)
+	}
+}
+
+func TestValidateLimitAbsentIsOk(t *testing.T) {
+	errs := validate(map[string]any{"url": "http://localhost", "api_key": "key"})
+	if len(errs) != 0 {
+		t.Errorf("unexpected errors when limit absent: %v", errs)
+	}
+}
+
 func TestCategoriesJoined(t *testing.T) {
 	p := makePlugin(t, "http://localhost", "key", map[string]any{
 		"categories": []any{"2000", "2010"},

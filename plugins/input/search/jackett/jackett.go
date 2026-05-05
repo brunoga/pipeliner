@@ -8,12 +8,14 @@
 //	url        - Jackett base URL, e.g. "http://localhost:9117" (required)
 //	api_key    - Jackett API key (required)
 //	indexers   - list of indexer IDs to query; use ["all"] for all configured
-//	             indexers (default: ["all"])
+//	             indexers (default: ["all"]). Order matters: results from the
+//	             first indexer appear first after merging.
 //	categories - list of Torznab category codes to restrict results
 //	             (optional). Common codes:
 //	               2000  Movies        5000  TV
 //	               2010  Movies/HD     5030  TV/HD
 //	               2020  Movies/SD     5040  TV/SD
+//	limit      - maximum results to request per indexer (optional, default: no limit)
 package jackett
 
 import (
@@ -50,7 +52,33 @@ func validate(cfg map[string]any) []error {
 	if err := plugin.RequireString(cfg, "api_key", "jackett"); err != nil {
 		errs = append(errs, err)
 	}
+	if err := validateLimit(cfg, "jackett"); err != nil {
+		errs = append(errs, err)
+	}
 	return errs
+}
+
+// validateLimit checks that the optional limit key, if set, is a positive integer.
+func validateLimit(cfg map[string]any, pluginName string) error {
+	v, ok := cfg["limit"]
+	if !ok {
+		return nil
+	}
+	var n int
+	switch t := v.(type) {
+	case int:
+		n = t
+	case int64:
+		n = int(t)
+	case float64:
+		n = int(t)
+	default:
+		return fmt.Errorf("%s: \"limit\" must be a positive integer", pluginName)
+	}
+	if n <= 0 {
+		return fmt.Errorf("%s: \"limit\" must be a positive integer, got %d", pluginName, n)
+	}
+	return nil
 }
 
 type jackettPlugin struct {
@@ -58,6 +86,7 @@ type jackettPlugin struct {
 	apiKey     string
 	indexers   []string
 	categories string // comma-separated Torznab category codes
+	limit      int    // 0 = no limit
 	client     *http.Client
 }
 
@@ -80,11 +109,22 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 
 	categories := toStringSlice(cfg["categories"])
 
+	var limit int
+	switch v := cfg["limit"].(type) {
+	case int:
+		limit = v
+	case int64:
+		limit = int(v)
+	case float64:
+		limit = int(v)
+	}
+
 	return &jackettPlugin{
 		baseURL:    baseURL,
 		apiKey:     apiKey,
 		indexers:   indexers,
 		categories: strings.Join(categories, ","),
+		limit:      limit,
 		client:     &http.Client{Timeout: 30 * time.Second},
 	}, nil
 }
@@ -126,6 +166,9 @@ func (p *jackettPlugin) searchIndexer(ctx context.Context, indexer, query string
 	}
 	if p.categories != "" {
 		params.Set("cat", p.categories)
+	}
+	if p.limit > 0 {
+		params.Set("limit", strconv.Itoa(p.limit))
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint+"?"+params.Encode(), nil)

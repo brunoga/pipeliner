@@ -26,6 +26,9 @@ func validateInput(cfg map[string]any) []error {
 	if err := plugin.RequireString(cfg, "api_key", "jackett_input"); err != nil {
 		errs = append(errs, err)
 	}
+	if err := validateLimit(cfg, "jackett_input"); err != nil {
+		errs = append(errs, err)
+	}
 	return errs
 }
 
