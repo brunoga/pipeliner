@@ -3,8 +3,9 @@
 // pipelines. A series is considered "seen" once its premiere has been accepted
 // and persisted across runs via an SQLite-backed store.
 //
-// Requires metainfo/series (or filter/series) to have already run so that
-// series_name, series_season, and series_episode are set on the entry.
+// Episode metadata is parsed directly from the entry title, so metainfo/series
+// is not required. The parsed series_name, series_season, and series_episode
+// fields are set on the entry for use by downstream plugins.
 //
 // Config keys:
 //
@@ -22,6 +23,8 @@ import (
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/match"
 	"github.com/brunoga/pipeliner/internal/plugin"
+	"github.com/brunoga/pipeliner/internal/quality"
+	"github.com/brunoga/pipeliner/internal/series"
 	"github.com/brunoga/pipeliner/internal/store"
 )
 
@@ -37,6 +40,7 @@ func init() {
 type premierePlugin struct {
 	episode int
 	season  int // 0 = any season
+	spec    quality.Spec
 	db      *store.SQLiteStore
 }
 
@@ -44,32 +48,52 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 	episode := intVal(cfg["episode"], 1)
 	season := intVal(cfg["season"], 1)
 
-	return &premierePlugin{episode: episode, season: season, db: db}, nil
+	var spec quality.Spec
+	if q, _ := cfg["quality"].(string); q != "" {
+		s, err := quality.ParseSpec(q)
+		if err != nil {
+			return nil, fmt.Errorf("premiere: invalid quality spec: %w", err)
+		}
+		spec = s
+	}
+
+	return &premierePlugin{episode: episode, season: season, spec: spec, db: db}, nil
 }
 
 func (p *premierePlugin) Name() string        { return "premiere" }
 func (p *premierePlugin) Phase() plugin.Phase { return plugin.PhaseFilter }
 
 func (p *premierePlugin) Filter(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
-	seriesName := e.GetString("series_name")
-	if seriesName == "" {
-		e.Reject("premiere: series_name not set — run metainfo/series first")
+	ep, ok := series.Parse(e.Title)
+	if !ok {
+		tc.Logger.Debug("premiere: title did not parse as episode", "entry", e.Title)
 		return nil
 	}
-	season := e.GetInt("series_season")
-	episode := e.GetInt("series_episode")
+
+	epID := series.EpisodeID(ep)
+	e.Set("series_name", ep.SeriesName)
+	e.Set("series_episode_id", epID)
+	e.Set("series_season", ep.Season)
+	e.Set("series_episode", ep.Episode)
 
 	// Check season constraint.
-	if p.season != 0 && season != p.season {
-		e.Reject(fmt.Sprintf("premiere: season %d does not match premiere season %d", season, p.season))
+	if p.season != 0 && ep.Season != p.season {
+		e.Reject(fmt.Sprintf("premiere: season %d does not match premiere season %d", ep.Season, p.season))
 		return nil
 	}
 
 	// Check episode number.
-	if episode != p.episode {
-		e.Reject(fmt.Sprintf("premiere: episode %d is not premiere episode %d", episode, p.episode))
+	if ep.Episode != p.episode {
+		e.Reject(fmt.Sprintf("premiere: episode %d is not premiere episode %d", ep.Episode, p.episode))
 		return nil
 	}
+
+	if (p.spec != quality.Spec{}) && !p.spec.Matches(ep.Quality) {
+		e.Reject(fmt.Sprintf("premiere: %s %s quality %s does not match spec", ep.SeriesName, epID, ep.Quality.String()))
+		return nil
+	}
+
+	seriesName := ep.SeriesName
 
 	// Check if this series has already had its premiere accepted.
 	key := normalize(seriesName)
