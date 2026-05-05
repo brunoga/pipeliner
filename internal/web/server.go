@@ -373,7 +373,7 @@ func (s *Server) apiSaveConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := os.WriteFile(s.configPath, data, 0644); err != nil {
+	if err := os.WriteFile(s.configPath, data, 0600); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

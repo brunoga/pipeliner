@@ -2,12 +2,12 @@ package web
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 )
@@ -42,10 +42,38 @@ func newTestServer(t *testing.T, configPath string, validateFn func([]byte) []st
 func writeConfig(t *testing.T, dir, content string) string {
 	t.Helper()
 	path := filepath.Join(dir, "config.yaml")
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 	return path
+}
+
+// get and post are context-aware wrappers used in tests to satisfy noctx.
+func get(t *testing.T, url string) *http.Response {
+	t.Helper()
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp
+}
+
+func post(t *testing.T, url, contentType string, body []byte) *http.Response {
+	t.Helper()
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", contentType)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp
 }
 
 // ── GET /api/config ───────────────────────────────────────────────────────────
@@ -58,10 +86,7 @@ func TestGetConfigReturnsContent(t *testing.T) {
 	_, ts := newTestServer(t, path, nil)
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/api/config")
-	if err != nil {
-		t.Fatal(err)
-	}
+	resp := get(t, ts.URL+"/api/config")
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
@@ -80,7 +105,7 @@ func TestGetConfigNotConfigured(t *testing.T) {
 	_, ts := newTestServer(t, "", nil)
 	defer ts.Close()
 
-	resp, _ := http.Get(ts.URL + "/api/config")
+	resp := get(t, ts.URL+"/api/config")
 	if resp.StatusCode != http.StatusNotImplemented {
 		t.Errorf("status: got %d, want 501", resp.StatusCode)
 	}
@@ -97,10 +122,7 @@ func TestSaveConfigDryRunValid(t *testing.T) {
 	defer ts.Close()
 
 	body, _ := json.Marshal(map[string]any{"content": "new content\n", "dry_run": true})
-	resp, err := http.Post(ts.URL+"/api/config", "application/json", bytes.NewReader(body))
-	if err != nil {
-		t.Fatal(err)
-	}
+	resp := post(t, ts.URL+"/api/config", "application/json", body)
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
@@ -130,7 +152,7 @@ func TestSaveConfigDryRunInvalid(t *testing.T) {
 	defer ts.Close()
 
 	body, _ := json.Marshal(map[string]any{"content": "bad yaml", "dry_run": true})
-	resp, _ := http.Post(ts.URL+"/api/config", "application/json", bytes.NewReader(body))
+	resp := post(t, ts.URL+"/api/config", "application/json", body)
 
 	if resp.StatusCode != http.StatusUnprocessableEntity {
 		t.Fatalf("status: got %d, want 422", resp.StatusCode)
@@ -156,10 +178,7 @@ func TestSaveConfigWritesFile(t *testing.T) {
 
 	newContent := "new content\n"
 	body, _ := json.Marshal(map[string]any{"content": newContent})
-	resp, err := http.Post(ts.URL+"/api/config", "application/json", bytes.NewReader(body))
-	if err != nil {
-		t.Fatal(err)
-	}
+	resp := post(t, ts.URL+"/api/config", "application/json", body)
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
@@ -191,7 +210,7 @@ func TestSaveConfigValidationError(t *testing.T) {
 	defer ts.Close()
 
 	body, _ := json.Marshal(map[string]any{"content": "invalid yaml here"})
-	resp, _ := http.Post(ts.URL+"/api/config", "application/json", bytes.NewReader(body))
+	resp := post(t, ts.URL+"/api/config", "application/json", body)
 
 	if resp.StatusCode != http.StatusUnprocessableEntity {
 		t.Fatalf("status: got %d, want 422", resp.StatusCode)
@@ -219,10 +238,7 @@ func TestSaveConfigQueuesPendingReloadWhenBusy(t *testing.T) {
 	srv.TaskStarted("my-task")
 
 	body, _ := json.Marshal(map[string]any{"content": "new\n"})
-	resp, err := http.Post(ts.URL+"/api/config", "application/json", bytes.NewReader(body))
-	if err != nil {
-		t.Fatal(err)
-	}
+	resp := post(t, ts.URL+"/api/config", "application/json", body)
 	defer resp.Body.Close()
 
 	var result map[string]string
@@ -263,7 +279,7 @@ func TestReloadBlockedWhileRunning(t *testing.T) {
 	defer ts.Close()
 
 	srv.TaskStarted("task")
-	resp, _ := http.Post(ts.URL+"/api/reload", "application/json", strings.NewReader(""))
+	resp := post(t, ts.URL+"/api/reload", "application/json", []byte{})
 	if resp.StatusCode != http.StatusConflict {
 		t.Errorf("status: got %d, want 409", resp.StatusCode)
 	}
