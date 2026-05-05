@@ -205,18 +205,6 @@ section { margin-bottom: 32px; }
 }
 
 .log-line { white-space: pre; }
-.ll-time          { color: var(--muted); }
-.ll-level-debug   { color: var(--muted); }
-.ll-level-info    { color: var(--accent); }
-.ll-level-warn    { color: var(--amber); }
-.ll-level-error   { color: var(--red); font-weight: 600; }
-.ll-msg-accepted  { color: var(--green); font-weight: 600; }
-.ll-msg-rejected  { color: var(--red); }
-.ll-msg-failed    { color: var(--purple); font-weight: 600; }
-.ll-msg-undecided { color: var(--amber); }
-.ll-msg-warn      { color: var(--amber); }
-.ll-msg-error     { color: var(--red); }
-.ll-attrs         { color: var(--text); }
 
 .no-tasks { color: var(--muted); padding: 40px 0; text-align: center; font-size: 13px; }
 
@@ -527,41 +515,55 @@ function applyFilter() {
   }
 }
 
-// Parse a clog-format line and return HTML with per-part coloring.
-// Format: "2026-05-03 16:32:33.474 INFO  MESSAGE [key=val ...]"
-//      or "16:32:33.474 INFO  MESSAGE [key=val ...]"
+// Convert ANSI escape sequences in a log line to HTML spans.
+// The server sends ANSI-colored output; this renders it faithfully without
+// any message-content guessing.
 function renderLogLine(line) {
-  const m = line.match(/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}|\d{2}:\d{2}:\d{2}\.\d{3}) (.{5}) (.*)/);
-  if (!m) return esc(line);
-
-  const [, ts, levelPadded, body] = m;
-  const level = levelPadded.trim();
-
-  // Attrs begin at the first " word=" token after the message.
-  const attrIdx = body.search(/ \w+=/);
-  const msg   = attrIdx === -1 ? body : body.slice(0, attrIdx);
-  const attrs = attrIdx === -1 ? '' : body.slice(attrIdx);
-
-  return (
-    `<span class="ll-time">${esc(ts)}</span> ` +
-    `<span class="ll-level-${level.toLowerCase()}">${esc(levelPadded)}</span> ` +
-    `<span class="${msgColorClass(msg, level)}">${esc(msg)}</span>` +
-    (attrs ? `<span class="ll-attrs">${esc(attrs)}</span>` : '')
-  );
+  return ansiToHtml(line);
 }
 
-function msgColorClass(msg, level) {
-  switch (msg) {
-    case 'entry accepted':  return 'll-msg-accepted';
-    case 'entry rejected':  return 'll-msg-rejected';
-    case 'entry failed':    return 'll-msg-failed';
-    case 'entry undecided': return 'll-msg-undecided';
+const ANSI_COLORS = {
+  '1':  { bold: true },
+  '31': { color: '#f85149' }, // red
+  '32': { color: '#3fb950' }, // green
+  '33': { color: '#d29922' }, // amber
+  '35': { color: '#bc8cff' }, // magenta
+  '36': { color: '#58a6ff' }, // cyan
+  '90': { color: '#8b949e' }, // gray
+};
+
+function ansiToHtml(text) {
+  // Split on ESC[...m sequences; odd parts are code strings, even parts are text.
+  const parts = text.split(/\x1b\[([0-9;]*)m/);
+  let style = {};
+  let out = '';
+
+  for (let i = 0; i < parts.length; i++) {
+    if (i % 2 === 0) {
+      // Text segment — wrap in span only when a style is active.
+      const content = parts[i]
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      if (!content) continue;
+      const css = [];
+      if (style.color) css.push('color:' + style.color);
+      if (style.bold)  css.push('font-weight:600');
+      out += css.length
+        ? `<span style="${css.join(';')}">${content}</span>`
+        : content;
+    } else {
+      // ANSI code segment — update current style state.
+      const codes = parts[i] === '' ? ['0'] : parts[i].split(';');
+      for (const code of codes) {
+        if (code === '0' || code === '') {
+          style = {};
+        } else {
+          const def = ANSI_COLORS[code];
+          if (def) Object.assign(style, def);
+        }
+      }
+    }
   }
-  switch (level) {
-    case 'ERROR': return 'll-msg-error';
-    case 'WARN':  return 'll-msg-warn';
-  }
-  return '';
+  return out;
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
