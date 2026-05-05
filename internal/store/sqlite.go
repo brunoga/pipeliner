@@ -202,6 +202,27 @@ func (b *sqliteBucket) Delete(key string) error {
 	return nil
 }
 
+// All returns all key→raw-JSON pairs in this bucket in a single query.
+func (b *sqliteBucket) All() (map[string][]byte, error) {
+	rows, err := b.db.Query(
+		`SELECT key, value FROM store WHERE bucket = ?`,
+		b.name,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("store: all %q: %w", b.name, err)
+	}
+	defer rows.Close()
+	result := make(map[string][]byte)
+	for rows.Next() {
+		var key, val string
+		if err := rows.Scan(&key, &val); err != nil {
+			return nil, fmt.Errorf("store: all %q: scan: %w", b.name, err)
+		}
+		result[key] = []byte(val)
+	}
+	return result, rows.Err()
+}
+
 // Keys returns all keys in this bucket.
 func (b *sqliteBucket) Keys() ([]string, error) {
 	rows, err := b.db.Query(

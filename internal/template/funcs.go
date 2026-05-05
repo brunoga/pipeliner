@@ -75,10 +75,24 @@ func FuncMap() template.FuncMap {
 			return x
 		},
 
-		// join sep items — joins a []string with sep.
+		// join sep items — joins a string slice with sep. Accepts []string or
+		// []any (e.g. when retrieved from an entry Fields map). Returns "" for
+		// nil or unsupported types.
 		// Pipe-friendly: {{.items | join ", "}}
-		"join": func(sep string, items []string) string {
-			return strings.Join(items, sep)
+		"join": func(sep string, items any) string {
+			switch v := items.(type) {
+			case []string:
+				return strings.Join(v, sep)
+			case []any:
+				parts := make([]string, 0, len(v))
+				for _, item := range v {
+					if s, ok := item.(string); ok {
+						parts = append(parts, s)
+					}
+				}
+				return strings.Join(parts, sep)
+			}
+			return ""
 		},
 
 		// hasSuffix s suffix — reports whether s ends with suffix.

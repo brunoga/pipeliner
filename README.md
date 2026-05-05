@@ -72,8 +72,16 @@ See [`plugins/`](plugins/README.md) for the plugin model and links to every plug
 | [`html`](plugins/input/html/README.md) | Scrape entries from an HTML page with CSS selectors |
 | [`filesystem`](plugins/input/filesystem/README.md) | Walk a directory tree and emit file entries |
 | [`discover`](plugins/input/discover/README.md) | Actively search multiple sources for a configured title list |
+| [`jackett_input`](plugins/input/search/jackett/README.md) | Fetch recent results from Jackett indexers as a passive feed |
 | [`input_trakt`](plugins/input/trakt/README.md) | Fetch movies or shows from a Trakt.tv list |
 | [`input_tvdb`](plugins/input/tvdb/README.md) | Fetch shows from a TheTVDB user's favorites list |
+
+#### Search backends (used by `discover`)
+
+| Plugin | Description |
+|--------|-------------|
+| [`jackett`](plugins/input/search/jackett/README.md) | Query Jackett indexers via Torznab |
+| [`search_rss`](plugins/input/search/rss/README.md) | Search an RSS feed by querying its URL with a `q=` parameter |
 
 ### Filter
 

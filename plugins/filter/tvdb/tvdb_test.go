@@ -50,7 +50,7 @@ func (m *mockTVDB) handler(w http.ResponseWriter, r *http.Request) {
 		if n, _ := fmt.Sscanf(r.URL.Path, "/series/%d", &id); n == 1 {
 			if name, ok := m.series[id]; ok {
 				json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
-					"data":   map[string]any{"id": id, "name": name, "tvdb_id": id},
+					"data":   map[string]any{"id": id, "name": name, "tvdb_id": fmt.Sprintf("%d", id)},
 					"status": "success",
 				})
 				return

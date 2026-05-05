@@ -424,6 +424,103 @@ rules:
 	}
 }
 
+func TestBlockScalarLiteral(t *testing.T) {
+	yaml := `
+key: |
+  line one
+  line two
+  line three
+other: done
+`
+	var m map[string]string
+	if err := Unmarshal([]byte(yaml), &m); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	want := "line one\nline two\nline three"
+	if m["key"] != want {
+		t.Errorf("key:\ngot:  %q\nwant: %q", m["key"], want)
+	}
+	if m["other"] != "done" {
+		t.Errorf("other: got %q", m["other"])
+	}
+}
+
+func TestBlockScalarLiteralIndented(t *testing.T) {
+	yaml := `
+template: |
+  <div>
+    <p>hello</p>
+  </div>
+`
+	var m map[string]string
+	if err := Unmarshal([]byte(yaml), &m); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	want := "<div>\n  <p>hello</p>\n</div>"
+	if m["template"] != want {
+		t.Errorf("template:\ngot:  %q\nwant: %q", m["template"], want)
+	}
+}
+
+func TestBlockScalarFolded(t *testing.T) {
+	yaml := `
+key: >
+  word one
+  word two
+`
+	var m map[string]string
+	if err := Unmarshal([]byte(yaml), &m); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	want := "word one word two"
+	if m["key"] != want {
+		t.Errorf("key: got %q, want %q", m["key"], want)
+	}
+}
+
+func TestBlockScalarStrip(t *testing.T) {
+	yaml := `
+key: |-
+  line one
+  line two
+other: done
+`
+	var m map[string]string
+	if err := Unmarshal([]byte(yaml), &m); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	want := "line one\nline two"
+	if m["key"] != want {
+		t.Errorf("key: got %q, want %q", m["key"], want)
+	}
+}
+
+func TestFlowSequenceInMapping(t *testing.T) {
+	yaml := `
+indexers: ["all"]
+categories: [5000, 5030]
+tags: ["drama", "crime"]
+empty: []
+`
+	var m map[string]any
+	if err := Unmarshal([]byte(yaml), &m); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+
+	if got, ok := m["indexers"].([]any); !ok || len(got) != 1 || got[0] != "all" {
+		t.Errorf("indexers: got %v (%T)", m["indexers"], m["indexers"])
+	}
+	if got, ok := m["categories"].([]any); !ok || len(got) != 2 {
+		t.Errorf("categories: got %v", m["categories"])
+	}
+	if got, ok := m["tags"].([]any); !ok || len(got) != 2 || got[0] != "drama" || got[1] != "crime" {
+		t.Errorf("tags: got %v", m["tags"])
+	}
+	if got, ok := m["empty"].([]any); !ok || len(got) != 0 {
+		t.Errorf("empty: got %v", m["empty"])
+	}
+}
+
 func TestStripComment(t *testing.T) {
 	cases := []struct {
 		in, want string

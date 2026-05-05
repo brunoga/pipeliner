@@ -52,6 +52,7 @@ import (
 	_ "github.com/brunoga/pipeliner/plugins/metainfo/quality"
 	_ "github.com/brunoga/pipeliner/plugins/metainfo/series"
 	_ "github.com/brunoga/pipeliner/plugins/metainfo/tmdb"
+	_ "github.com/brunoga/pipeliner/plugins/metainfo/torrent"
 	_ "github.com/brunoga/pipeliner/plugins/metainfo/trakt"
 	_ "github.com/brunoga/pipeliner/plugins/metainfo/tvdb"
 	_ "github.com/brunoga/pipeliner/plugins/modify/pathfmt"
@@ -60,7 +61,6 @@ import (
 	_ "github.com/brunoga/pipeliner/plugins/notify/email"
 	_ "github.com/brunoga/pipeliner/plugins/notify/pushover"
 	_ "github.com/brunoga/pipeliner/plugins/notify/webhook"
-
 	_ "github.com/brunoga/pipeliner/plugins/output/decompress"
 	_ "github.com/brunoga/pipeliner/plugins/output/deluge"
 	_ "github.com/brunoga/pipeliner/plugins/output/download"

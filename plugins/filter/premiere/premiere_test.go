@@ -2,6 +2,10 @@ package premiere
 
 import (
 	"context"
+	"fmt"
+	"io"
+	"log/slog"
+	"strings"
 	"testing"
 
 	"github.com/brunoga/pipeliner/internal/entry"
@@ -24,17 +28,21 @@ func makePlugin(t *testing.T, cfg map[string]any) *premierePlugin {
 }
 
 func makeEntry(seriesName string, season, episode int) *entry.Entry {
-	e := entry.New(seriesName+".S01E01.720p", "http://example.com/"+seriesName+".torrent")
-	e.Set("series_name", seriesName)
-	e.Set("series_season", season)
-	e.Set("series_episode", episode)
-	return e
+	slug := strings.ReplaceAll(seriesName, " ", ".")
+	title := fmt.Sprintf("%s.S%02dE%02d.720p.HDTV", slug, season, episode)
+	return entry.New(title, "http://example.com/"+slug+".torrent")
+}
+
+func makeCtx() *plugin.TaskContext {
+	return &plugin.TaskContext{
+		Name:   "test-task",
+		Logger: slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelDebug})),
+	}
 }
 
 func filter(t *testing.T, p *premierePlugin, e *entry.Entry) {
 	t.Helper()
-	tc := &plugin.TaskContext{Name: "test-task"}
-	if err := p.Filter(context.Background(), tc, e); err != nil {
+	if err := p.Filter(context.Background(), makeCtx(), e); err != nil {
 		t.Fatalf("Filter: %v", err)
 	}
 }
@@ -77,7 +85,7 @@ func TestAnySeasonMode(t *testing.T) {
 
 func TestAlreadySeenRejected(t *testing.T) {
 	p := makePlugin(t, map[string]any{})
-	tc := &plugin.TaskContext{Name: "test-task"}
+	tc := makeCtx()
 
 	// First run — accept.
 	e1 := makeEntry("Breaking Bad", 1, 1)
@@ -98,18 +106,18 @@ func TestAlreadySeenRejected(t *testing.T) {
 	}
 }
 
-func TestNoSeriesNameRejected(t *testing.T) {
+func TestNonEpisodeLeftUndecided(t *testing.T) {
 	p := makePlugin(t, map[string]any{})
 	e := entry.New("random.file.mkv", "http://example.com/file.mkv")
 	filter(t, p, e)
-	if !e.IsRejected() {
-		t.Error("entry without series_name should be rejected")
+	if !e.IsUndecided() {
+		t.Errorf("entry that does not parse as an episode should be left undecided, got: %s", e.State)
 	}
 }
 
 func TestDifferentSeriesIndependent(t *testing.T) {
 	p := makePlugin(t, map[string]any{})
-	tc := &plugin.TaskContext{Name: "test-task"}
+	tc := makeCtx()
 
 	e1 := makeEntry("Breaking Bad", 1, 1)
 	_ = p.Filter(context.Background(), tc, e1)
