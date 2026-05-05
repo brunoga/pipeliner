@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -41,8 +42,12 @@ type Server struct {
 	sessions *sessionStore
 	secure   bool // true when serving over TLS; controls the Secure cookie flag
 
-	runMu   sync.Mutex
-	running map[string]int // task name → active run count
+	runMu         sync.Mutex
+	running       map[string]int // task name → active run count
+	pendingReload bool           // reload queued until all tasks are idle
+
+	configPath      string                 // path to config file on disk
+	validateConfig  func([]byte) []string  // returns validation error strings; nil if not set
 }
 
 // TaskStarted records that a task has begun executing.
@@ -62,13 +67,21 @@ func (s *Server) TaskStarted(name string) {
 }
 
 // TaskDone records that a task execution has finished.
+// If a config save is pending and all tasks are now idle, the reload fires.
 func (s *Server) TaskDone(name string) {
 	s.runMu.Lock()
 	s.running[name]--
 	if s.running[name] <= 0 {
 		delete(s.running, name)
 	}
+	shouldReload := len(s.running) == 0 && s.pendingReload
+	if shouldReload {
+		s.pendingReload = false
+	}
 	s.runMu.Unlock()
+	if shouldReload && s.reload != nil {
+		_ = s.reload()
+	}
 }
 
 func (s *Server) anyRunning() bool {
@@ -100,6 +113,13 @@ func New(tasks []TaskInfo, d DaemonControl, h *History, b *Broadcaster, version,
 // SetReload configures the function called when the user requests a config reload.
 func (s *Server) SetReload(fn func() error) { s.reload = fn }
 
+// SetConfigPath sets the path to the config file for the editor endpoints.
+func (s *Server) SetConfigPath(path string) { s.configPath = path }
+
+// SetConfigValidator sets the function used to validate raw YAML before saving.
+// It returns a slice of human-readable error strings (empty = valid).
+func (s *Server) SetConfigValidator(fn func([]byte) []string) { s.validateConfig = fn }
+
 // SetTasks atomically replaces the task list shown in the UI.
 func (s *Server) SetTasks(tasks []TaskInfo) {
 	s.tasksMu.Lock()
@@ -128,6 +148,8 @@ func (s *Server) Start(ctx context.Context, addr string, tlsCfg *tls.Config) err
 	protected.HandleFunc("POST /api/tasks/run", s.apiRunAll)
 	protected.HandleFunc("POST /api/reload", s.apiReload)
 	protected.HandleFunc("GET /api/logs", s.apiLogs)
+	protected.HandleFunc("GET /api/config", s.apiGetConfig)
+	protected.HandleFunc("POST /api/config", s.apiSaveConfig)
 
 	// Top-level mux: open routes take priority; everything else goes through auth.
 	top := http.NewServeMux()
@@ -305,6 +327,74 @@ func (s *Server) apiLogs(w http.ResponseWriter, r *http.Request) {
 			flusher.Flush()
 		}
 	}
+}
+
+func (s *Server) apiGetConfig(w http.ResponseWriter, _ *http.Request) {
+	if s.configPath == "" {
+		http.Error(w, "config path not set", http.StatusNotImplemented)
+		return
+	}
+	data, err := os.ReadFile(s.configPath)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]string{"content": string(data)})
+}
+
+func (s *Server) apiSaveConfig(w http.ResponseWriter, r *http.Request) {
+	if s.configPath == "" {
+		http.Error(w, "config path not set", http.StatusNotImplemented)
+		return
+	}
+	var req struct {
+		Content string `json:"content"`
+		DryRun  bool   `json:"dry_run"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	data := []byte(req.Content)
+
+	// Always validate first.
+	if s.validateConfig != nil {
+		if errs := s.validateConfig(data); len(errs) > 0 {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			_ = json.NewEncoder(w).Encode(map[string]any{"errors": errs})
+			return
+		}
+	}
+
+	// Dry-run: validation passed, don't write.
+	if req.DryRun {
+		writeJSON(w, map[string]string{"status": "valid"})
+		return
+	}
+
+	if err := os.WriteFile(s.configPath, data, 0600); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Reload immediately if idle, otherwise queue for when tasks finish.
+	s.runMu.Lock()
+	idle := len(s.running) == 0
+	if !idle {
+		s.pendingReload = true
+	}
+	s.runMu.Unlock()
+
+	if idle && s.reload != nil {
+		if err := s.reload(); err != nil {
+			writeJSON(w, map[string]string{"status": "saved", "warning": err.Error()})
+			return
+		}
+		writeJSON(w, map[string]string{"status": "reloaded"})
+		return
+	}
+	writeJSON(w, map[string]string{"status": "pending"})
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
