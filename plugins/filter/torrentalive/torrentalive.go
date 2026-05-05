@@ -30,6 +30,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"net/url"
 
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/magnet"
@@ -102,13 +103,18 @@ func (p *torrentAlivePlugin) Filter(ctx context.Context, tc *plugin.TaskContext,
 	// Check both torrent_seeds (RSS namespace extensions) and torrent_seeders
 	// (Jackett/Torznab) so Jackett entries always take the fast path.
 	if v, ok := e.Get("torrent_seeds"); ok {
-		return p.applyMinSeeds(e, toInt(v))
+		n := toInt(v)
+		tc.Logger.Debug("torrent_alive: fast path (torrent_seeds)", "entry", e.Title, "seeds", n)
+		return p.applyMinSeeds(e, n)
 	}
 	if v, ok := e.Get("torrent_seeders"); ok {
-		return p.applyMinSeeds(e, toInt(v))
+		n := toInt(v)
+		tc.Logger.Debug("torrent_alive: fast path (torrent_seeders)", "entry", e.Title, "seeds", n)
+		return p.applyMinSeeds(e, n)
 	}
 
 	if !p.scrape {
+		tc.Logger.Debug("torrent_alive: no seed data, scrape disabled — leaving undecided", "entry", e.Title)
 		return nil
 	}
 
@@ -123,19 +129,32 @@ func (p *torrentAlivePlugin) Filter(ctx context.Context, tc *plugin.TaskContext,
 	infoHash := e.GetString("torrent_info_hash")
 	announces := announceList(e)
 	if infoHash == "" || len(announces) == 0 {
-		return nil // not enough info to scrape; leave undecided
+		tc.Logger.Debug("torrent_alive: no info hash or announces — leaving undecided",
+			"entry", e.Title, "has_hash", infoHash != "", "announces", len(announces))
+		return nil
 	}
 
+	// Log only the hostname of the first announce to keep lines readable.
+	firstHost := announces[0]
+	if u, err := url.Parse(announces[0]); err == nil {
+		firstHost = u.Host
+	}
+	tc.Logger.Debug("torrent_alive: scraping",
+		"entry", e.Title, "hash", infoHash[:8]+"…", "trackers", len(announces), "first", firstHost)
+
+	t0 := time.Now()
 	scrapeCtx, cancel := context.WithTimeout(ctx, p.scrapeTimeout)
 	defer cancel()
 
 	seeds, err := tracker.Scrape(scrapeCtx, infoHash, announces)
 	if err != nil {
-		tc.Logger.Debug("torrent_alive: scrape failed, skipping filter",
-			"entry", e.Title, "err", err)
+		tc.Logger.Debug("torrent_alive: scrape failed",
+			"entry", e.Title, "duration", time.Since(t0).Round(time.Millisecond), "err", err)
 		return nil
 	}
 
+	tc.Logger.Debug("torrent_alive: scrape ok",
+		"entry", e.Title, "seeds", seeds, "duration", time.Since(t0).Round(time.Millisecond))
 	e.Set("torrent_seeds", seeds)
 	return p.applyMinSeeds(e, seeds)
 }
