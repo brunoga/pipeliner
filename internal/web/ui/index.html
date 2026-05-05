@@ -145,6 +145,20 @@ section { margin-bottom: 32px; }
 .log-header h2 { margin: 0; }
 .log-controls { display: flex; align-items: center; gap: 10px; }
 
+.log-filter {
+  padding: 3px 8px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--fg);
+  font-size: 12px;
+  font-family: inherit;
+  width: 200px;
+  outline: none;
+}
+.log-filter:focus { border-color: var(--blue); }
+.log-filter::placeholder { color: var(--muted); }
+
 .log-status { font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 5px; }
 .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--red); flex-shrink: 0; }
 .dot.on { background: var(--green); }
@@ -227,6 +241,7 @@ section { margin-bottom: 32px; }
   <div class="log-header">
     <h2>Live Log</h2>
     <div class="log-controls">
+      <input type="text" id="log-filter" class="log-filter" placeholder="filter…" oninput="applyFilter()" autocomplete="off">
       <div class="log-status">
         <div class="dot" id="log-dot"></div>
         <span id="log-status-text">disconnected</span>
@@ -241,7 +256,7 @@ section { margin-bottom: 32px; }
 'use strict';
 
 const MAX_LINES = 500;
-let logLines = [];
+let logLines = []; // [{el, raw}]
 let startedAt = Date.now();
 
 // ── polling ───────────────────────────────────────────────────────────────────
@@ -367,17 +382,29 @@ function appendLog(line) {
   el.className = 'log-line';
   el.innerHTML = renderLogLine(line);
 
+  const filter = document.getElementById('log-filter').value.toLowerCase();
+  if (filter && !line.toLowerCase().includes(filter)) {
+    el.style.display = 'none';
+  }
+
   const con = document.getElementById('log-console');
   const atBottom = con.scrollHeight - con.scrollTop - con.clientHeight < 60;
   con.appendChild(el);
-  logLines.push(el);
-  if (logLines.length > MAX_LINES) logLines.shift().remove();
+  logLines.push({el, raw: line});
+  if (logLines.length > MAX_LINES) { logLines.shift().el.remove(); }
   if (atBottom) con.scrollTop = con.scrollHeight;
 }
 
 function clearLog() {
   document.getElementById('log-console').innerHTML = '';
   logLines = [];
+}
+
+function applyFilter() {
+  const filter = document.getElementById('log-filter').value.toLowerCase();
+  for (const {el, raw} of logLines) {
+    el.style.display = (!filter || raw.toLowerCase().includes(filter)) ? '' : 'none';
+  }
 }
 
 // Parse a clog-format line and return HTML with per-part coloring.
