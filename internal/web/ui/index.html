@@ -78,13 +78,13 @@ section { margin-bottom: 32px; }
 .task-name { font-weight: 600; font-size: 15px; word-break: break-all; }
 .task-schedule {
   font-size: 11px;
-  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
   color: var(--muted);
   background: var(--bg);
   padding: 2px 6px;
   border-radius: 4px;
   white-space: nowrap;
   flex-shrink: 0;
+  cursor: default;
 }
 
 .task-timing { font-size: 12px; color: var(--muted); display: flex; flex-direction: column; gap: 3px; }
@@ -410,13 +410,14 @@ function render(tasks, history) {
 }
 
 function card(t, last) {
-  const schedBadge = t.schedule
-    ? `<span class="task-schedule">${esc(t.schedule)}</span>`
-    : `<span class="task-schedule" style="opacity:.5">manual</span>`;
+  const nextDate   = t.nextRun ? new Date(t.nextRun) : null;
+  const schedLabel = nextDate ? fmtDatetime(nextDate) : (t.schedule ? t.schedule : 'manual');
+  const schedOpacity = (!nextDate && !t.schedule) ? ' style="opacity:.5"' : '';
+  const schedBadge = `<span class="task-schedule"${schedOpacity} title="${esc(t.schedule || '')}">${esc(schedLabel)}</span>`;
 
   const runningBadge = t.running ? `<span class="running-badge">running</span>` : '';
 
-  const nextStr = t.nextRun ? 'in ' + relTime(new Date(t.nextRun)) : '—';
+  const nextStr = nextDate ? 'in ' + relTime(nextDate) : '—';
   const lastStr = last ? relTime(new Date(last.at)) + ' ago' : 'never';
   const durStr  = last ? ' · ' + last.duration : '';
 
@@ -588,6 +589,10 @@ function fmtUptime(s) {
   if (s < 60)   return s + 's';
   if (s < 3600) return Math.floor(s/60) + 'm ' + (s%60) + 's';
   return Math.floor(s/3600) + 'h ' + Math.floor((s%3600)/60) + 'm';
+}
+
+function fmtDatetime(d) {
+  return d.toLocaleString(undefined, {month:'short', day:'numeric', hour:'numeric', minute:'2-digit'});
 }
 
 // ── run all tasks ─────────────────────────────────────────────────────────────
