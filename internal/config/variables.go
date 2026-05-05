@@ -15,6 +15,12 @@ var envVarRe = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
 //
 // Missing environment variables cause an error. Unknown {$ key $} tokens are
 // left unchanged (for forward compatibility).
+//
+// Security note: substitution is performed on raw YAML bytes before parsing.
+// Values containing YAML structural characters (newlines, unquoted colons)
+// could alter the parsed config structure. This is acceptable because both
+// substitution sources (env vars and the variables: block) are operator-
+// controlled. Do not source env vars from untrusted external systems.
 func applyVariables(data []byte, vars map[string]string) ([]byte, error) {
 	s := string(data)
 
