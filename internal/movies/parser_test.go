@@ -40,6 +40,46 @@ func TestParse(t *testing.T) {
 	}
 }
 
+func TestParse3D(t *testing.T) {
+	cases := []struct {
+		title  string
+		want3D bool
+	}{
+		{"Avatar.2009.3D.1080p.BluRay.x264", true},
+		{"Gravity.2013.HSBS.1080p.BluRay", true},
+		{"Interstellar.2014.H-SBS.1080p", true},
+		{"Pacific.Rim.2013.HALF-SBS.1080p.BluRay", true},
+		{"Prometheus.2012.SBS.1080p.BluRay", true},
+		{"Gravity.2013.HOU.1080p.BluRay", true},
+		{"Avatar.2009.BD3D.1080p.BluRay", true},
+		{"The.Dark.Knight.2008.1080p.BluRay.x264", false},
+		{"Inception.2010.720p.HDTV", false},
+	}
+	for _, c := range cases {
+		m, ok := Parse(c.title)
+		if !ok {
+			t.Errorf("Parse(%q): expected ok", c.title)
+			continue
+		}
+		if m.Is3D != c.want3D {
+			t.Errorf("Parse(%q).Is3D = %v, want %v", c.title, m.Is3D, c.want3D)
+		}
+	}
+}
+
+func TestParseQuality(t *testing.T) {
+	m, ok := Parse("Inception.2010.1080p.BluRay.x264")
+	if !ok {
+		t.Fatal("expected ok")
+	}
+	if m.Quality.String() == "unknown" {
+		t.Error("quality should be parsed from title")
+	}
+	if m.Quality.Resolution == 0 {
+		t.Error("resolution should be parsed")
+	}
+}
+
 func TestNormalizeTitle(t *testing.T) {
 	tests := []struct {
 		input string
