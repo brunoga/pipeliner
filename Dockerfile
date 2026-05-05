@@ -6,6 +6,7 @@ FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS builder
 ARG TARGETOS=linux
 ARG TARGETARCH
 ARG TARGETVARIANT
+ARG VERSION=dev
 
 WORKDIR /build
 
@@ -19,7 +20,7 @@ COPY . .
 # GOARM is derived from TARGETVARIANT (e.g. "v7" → "7") for linux/arm/v7.
 RUN GOARM="${TARGETVARIANT#v}" \
     CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
-    go build -ldflags="-s -w" -o pipeliner ./cmd/pipeliner
+    go build -ldflags="-s -w -X main.version=${VERSION}" -o pipeliner ./cmd/pipeliner
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────
 FROM alpine:latest
