@@ -11,12 +11,21 @@ import (
 	"time"
 
 	"github.com/brunoga/pipeliner/internal/notify"
+	"github.com/brunoga/pipeliner/internal/plugin"
 )
 
 func init() {
 	notify.Register("webhook", func(cfg map[string]any) (notify.Notifier, error) {
 		return newNotifier(cfg)
 	})
+}
+
+// Validate checks the webhook notifier configuration.
+func Validate(cfg map[string]any) []error {
+	if err := plugin.RequireString(cfg, "url", "webhook"); err != nil {
+		return []error{err}
+	}
+	return nil
 }
 
 type webhookNotifier struct {

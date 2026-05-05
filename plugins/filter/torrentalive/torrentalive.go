@@ -35,7 +35,21 @@ func init() {
 		Description: "reject torrent entries with fewer seeds than min_seeds; optionally scrapes trackers",
 		PluginPhase: plugin.PhaseFilter,
 		Factory:     newPlugin,
+		Validate:    validate,
 	})
+}
+
+func validate(cfg map[string]any) []error {
+	var errs []error
+	if v, ok := cfg["min_seeds"]; ok {
+		if n := intVal(v, 0); n < 1 {
+			errs = append(errs, fmt.Errorf("torrent_alive: \"min_seeds\" must be at least 1"))
+		}
+	}
+	if err := plugin.OptDuration(cfg, "scrape_timeout", "torrent_alive"); err != nil {
+		errs = append(errs, err)
+	}
+	return errs
 }
 
 type torrentAlivePlugin struct {

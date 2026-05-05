@@ -19,7 +19,15 @@ func init() {
 		Description: "scan a local directory and emit one entry per file",
 		PluginPhase: plugin.PhaseInput,
 		Factory:     newFilesystemPlugin,
+		Validate:    validate,
 	})
+}
+
+func validate(cfg map[string]any) []error {
+	if err := plugin.RequireString(cfg, "path", "filesystem"); err != nil {
+		return []error{err}
+	}
+	return nil
 }
 
 type filesystemPlugin struct {

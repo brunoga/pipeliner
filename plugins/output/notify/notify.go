@@ -21,7 +21,15 @@ func init() {
 		Description: "send notifications via a configured notifier (webhook, email, …)",
 		PluginPhase: plugin.PhaseOutput,
 		Factory:     newPlugin,
+		Validate:    validate,
 	})
+}
+
+func validate(cfg map[string]any) []error {
+	if err := plugin.RequireString(cfg, "via", "notify"); err != nil {
+		return []error{err}
+	}
+	return nil
 }
 
 type notifyPlugin struct {

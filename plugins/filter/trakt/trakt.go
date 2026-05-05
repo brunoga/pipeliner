@@ -39,7 +39,25 @@ func init() {
 		PluginPhase: plugin.PhaseFilter,
 		Description: "Accept entries matching titles from a Trakt.tv list (watchlist, trending, popular, etc.)",
 		Factory:     newPlugin,
+		Validate:    validate,
 	})
+}
+
+func validate(cfg map[string]any) []error {
+	var errs []error
+	if err := plugin.RequireString(cfg, "client_id", "trakt"); err != nil {
+		errs = append(errs, err)
+	}
+	if err := plugin.RequireString(cfg, "type", "trakt"); err != nil {
+		errs = append(errs, err)
+	}
+	if err := plugin.OptEnum(cfg, "type", "trakt", "shows", "movies"); err != nil {
+		errs = append(errs, err)
+	}
+	if err := plugin.OptDuration(cfg, "ttl", "trakt"); err != nil {
+		errs = append(errs, err)
+	}
+	return errs
 }
 
 type traktFilter struct {

@@ -25,7 +25,19 @@ func init() {
 		Description: "enrich series entries with TheTVDB metadata (title, air date, overview)",
 		PluginPhase: plugin.PhaseMetainfo,
 		Factory:     newPlugin,
+		Validate:    validate,
 	})
+}
+
+func validate(cfg map[string]any) []error {
+	var errs []error
+	if err := plugin.RequireString(cfg, "api_key", "metainfo_tvdb"); err != nil {
+		errs = append(errs, err)
+	}
+	if err := plugin.OptDuration(cfg, "cache_ttl", "metainfo_tvdb"); err != nil {
+		errs = append(errs, err)
+	}
+	return errs
 }
 
 type tvdbPlugin struct {

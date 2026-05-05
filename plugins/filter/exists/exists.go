@@ -21,7 +21,15 @@ func init() {
 		Description: "reject entries whose title matches a file already present on disk",
 		PluginPhase: plugin.PhaseFilter,
 		Factory:     newPlugin,
+		Validate:    validate,
 	})
+}
+
+func validate(cfg map[string]any) []error {
+	if err := plugin.RequireString(cfg, "path", "exists"); err != nil {
+		return []error{err}
+	}
+	return nil
 }
 
 type existsPlugin struct {
