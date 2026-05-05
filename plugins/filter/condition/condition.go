@@ -44,8 +44,10 @@ func init() {
 }
 
 type rule struct {
-	accept *expr.Expr // nil if not configured
-	reject *expr.Expr // nil if not configured
+	accept     *expr.Expr
+	reject     *expr.Expr
+	acceptExpr string
+	rejectExpr string
 }
 
 type conditionPlugin struct {
@@ -103,6 +105,7 @@ func parseRule(m map[string]any, prefix string) (rule, error) {
 			return rule{}, fmt.Errorf("condition: invalid %s expression: %w", label("accept"), err)
 		}
 		r.accept = e
+		r.acceptExpr = a
 	}
 	if rej, _ := m["reject"].(string); rej != "" {
 		e, err := expr.Compile(rej)
@@ -110,6 +113,7 @@ func parseRule(m map[string]any, prefix string) (rule, error) {
 			return rule{}, fmt.Errorf("condition: invalid %s expression: %w", label("reject"), err)
 		}
 		r.reject = e
+		r.rejectExpr = rej
 	}
 	return r, nil
 }
@@ -127,7 +131,7 @@ func (p *conditionPlugin) Filter(_ context.Context, _ *plugin.TaskContext, e *en
 				return fmt.Errorf("condition: reject expression: %w", err)
 			}
 			if matched {
-				e.Reject("condition: reject condition matched")
+				e.Reject(fmt.Sprintf("condition: %s", r.rejectExpr))
 				return nil
 			}
 		}
