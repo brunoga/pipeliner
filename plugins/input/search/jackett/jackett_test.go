@@ -173,52 +173,41 @@ func TestSearchParsesEntries(t *testing.T) {
 	}
 }
 
-func TestSearchDeduplicatesAcrossIndexers(t *testing.T) {
-	// Both indexers return the same URL — should appear only once.
-	body := torznabResponse([]torznabItem{
-		{Title: "Show.S01E01", Link: "http://example.com/1"},
-	})
+func TestSearchMultipleIndexersSentAsOneCall(t *testing.T) {
+	// Multiple indexers should be joined and sent in a single API call.
+	var gotPath string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, body) //nolint:errcheck
+		gotPath = r.URL.Path
+		fmt.Fprint(w, torznabResponse(nil)) //nolint:errcheck
 	}))
 	defer srv.Close()
 
 	p := makePlugin(t, srv.URL, "key", map[string]any{
-		"indexers": []any{"idx1", "idx2"},
+		"indexers": []any{"idx1", "idx2", "idx3"},
 	})
-	entries, err := p.Search(context.Background(), tc(), "Show")
+	_, err := p.Search(context.Background(), tc(), "Show")
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
-	if len(entries) != 1 {
-		t.Errorf("got %d entries after dedup, want 1", len(entries))
+	if !strings.Contains(gotPath, "idx1,idx2,idx3") {
+		t.Errorf("expected comma-joined indexers in path, got %q", gotPath)
 	}
 }
 
-func TestSearchSkipsFailingIndexer(t *testing.T) {
-	// First indexer returns an error, second returns a result.
-	call := 0
+func TestSearchFailureReturnsNoEntriesNoError(t *testing.T) {
+	// A failed call logs a warning and returns (nil, nil) — no error propagated.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		call++
-		if call == 1 {
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			return
-		}
-		fmt.Fprint(w, torznabResponse([]torznabItem{ //nolint:errcheck
-			{Title: "Show.S01E01", Link: "http://example.com/1"},
-		}))
+		http.Error(w, "internal error", http.StatusInternalServerError)
 	}))
 	defer srv.Close()
 
-	p := makePlugin(t, srv.URL, "key", map[string]any{
-		"indexers": []any{"bad", "good"},
-	})
+	p := makePlugin(t, srv.URL, "key", nil)
 	entries, err := p.Search(context.Background(), tc(), "Show")
 	if err != nil {
-		t.Fatalf("Search returned error: %v", err)
+		t.Errorf("Search should not return error on failure, got: %v", err)
 	}
-	if len(entries) != 1 {
-		t.Errorf("got %d entries, want 1", len(entries))
+	if len(entries) != 0 {
+		t.Errorf("expected 0 entries on failure, got %d", len(entries))
 	}
 }
 
@@ -235,6 +224,95 @@ func TestSearchEmptyFeed(t *testing.T) {
 	}
 	if len(entries) != 0 {
 		t.Errorf("got %d entries, want 0", len(entries))
+	}
+}
+
+func TestLimitSentAsQueryParam(t *testing.T) {
+	var gotLimit string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotLimit = r.URL.Query().Get("limit")
+		fmt.Fprint(w, torznabResponse(nil)) //nolint:errcheck
+	}))
+	defer srv.Close()
+
+	p := makePlugin(t, srv.URL, "key", map[string]any{"limit": int64(50)})
+	_, err := p.Search(context.Background(), tc(), "test")
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if gotLimit != "50" {
+		t.Errorf("limit: got %q, want \"50\"", gotLimit)
+	}
+}
+
+func TestNoLimitOmitsParam(t *testing.T) {
+	var gotRaw string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotRaw = r.URL.RawQuery
+		fmt.Fprint(w, torznabResponse(nil)) //nolint:errcheck
+	}))
+	defer srv.Close()
+
+	p := makePlugin(t, srv.URL, "key", nil) // no limit configured
+	_, _ = p.Search(context.Background(), tc(), "test")
+	if strings.Contains(gotRaw, "limit=") {
+		t.Errorf("limit param should be absent when not configured; got %q", gotRaw)
+	}
+}
+
+func TestLimitDefaultIsZero(t *testing.T) {
+	p := makePlugin(t, "http://localhost", "key", nil)
+	if p.limit != 0 {
+		t.Errorf("default limit: got %d, want 0", p.limit)
+	}
+}
+
+func TestValidateLimitRejectsZero(t *testing.T) {
+	errs := validate(map[string]any{"url": "http://localhost", "api_key": "key", "limit": int64(0)})
+	if len(errs) == 0 {
+		t.Error("expected error for limit=0")
+	}
+}
+
+func TestValidateLimitRejectsNegative(t *testing.T) {
+	errs := validate(map[string]any{"url": "http://localhost", "api_key": "key", "limit": int64(-5)})
+	if len(errs) == 0 {
+		t.Error("expected error for limit=-5")
+	}
+}
+
+func TestValidateLimitAcceptsPositive(t *testing.T) {
+	errs := validate(map[string]any{"url": "http://localhost", "api_key": "key", "limit": int64(100)})
+	if len(errs) != 0 {
+		t.Errorf("unexpected errors for valid limit: %v", errs)
+	}
+}
+
+func TestValidateLimitAbsentIsOk(t *testing.T) {
+	errs := validate(map[string]any{"url": "http://localhost", "api_key": "key"})
+	if len(errs) != 0 {
+		t.Errorf("unexpected errors when limit absent: %v", errs)
+	}
+}
+
+func TestTimeoutConfigured(t *testing.T) {
+	p := makePlugin(t, "http://localhost", "key", map[string]any{"timeout": "2m"})
+	if p.timeout != 2*60*1000*1000*1000 {
+		t.Errorf("timeout: got %v, want 2m", p.timeout)
+	}
+}
+
+func TestTimeoutDefault(t *testing.T) {
+	p := makePlugin(t, "http://localhost", "key", nil)
+	if p.timeout != 60*1000*1000*1000 {
+		t.Errorf("default timeout: got %v, want 60s", p.timeout)
+	}
+}
+
+func TestValidateTimeoutRejectsInvalid(t *testing.T) {
+	errs := validate(map[string]any{"url": "http://localhost", "api_key": "key", "timeout": "notaduration"})
+	if len(errs) == 0 {
+		t.Error("expected error for invalid timeout")
 	}
 }
 
