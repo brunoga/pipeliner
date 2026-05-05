@@ -129,22 +129,15 @@ func (p *premierePlugin) Filter(ctx context.Context, tc *plugin.TaskContext, e *
 		return nil
 	}
 
-	// New series premiere — accept and record it.
-	rec = premiereRecord{
-		SeriesName: seriesName,
-		AcceptedAt: time.Now().UTC(),
-		EntryURL:   e.URL,
-	}
-	if err := bucket.Put(key, rec); err != nil {
-		tc.Logger.Warn("premiere: failed to persist record", "series", seriesName, "err", err)
-	}
+	// Accept all matching entries — dedup will keep the best one, Learn persists.
 	e.Accept()
 	return nil
 }
 
-// Learn is also implemented so the store write happens in the learn phase for
-// consistency with other stateful plugins. The filter phase write above is
-// kept as a belt-and-suspenders measure.
+// Learn persists the accepted premiere. Multiple entries for the same series
+// may be accepted by Filter in the same run (different qualities/sources);
+// the task engine deduplicates them before output and Learn only records the
+// survivor.
 func (p *premierePlugin) Learn(_ context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
 	bucket := p.db.Bucket("premiere:" + tc.Name)
 	for _, e := range entries {

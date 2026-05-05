@@ -87,7 +87,7 @@ func TestAlreadySeenRejected(t *testing.T) {
 	p := makePlugin(t, map[string]any{})
 	tc := makeCtx()
 
-	// First run — accept.
+	// First run — accept then persist via Learn.
 	e1 := makeEntry("Breaking Bad", 1, 1)
 	if err := p.Filter(context.Background(), tc, e1); err != nil {
 		t.Fatal(err)
@@ -95,14 +95,31 @@ func TestAlreadySeenRejected(t *testing.T) {
 	if !e1.IsAccepted() {
 		t.Fatal("first run should accept")
 	}
+	if err := p.Learn(context.Background(), tc, []*entry.Entry{e1}); err != nil {
+		t.Fatal(err)
+	}
 
-	// Second run — same series, should be rejected.
+	// Second run — same series should now be rejected.
 	e2 := makeEntry("Breaking Bad", 1, 1)
 	if err := p.Filter(context.Background(), tc, e2); err != nil {
 		t.Fatal(err)
 	}
 	if !e2.IsRejected() {
 		t.Error("second run should reject already-seen premiere")
+	}
+}
+
+func TestMultipleEntriesSameSeriesAllAccepted(t *testing.T) {
+	p := makePlugin(t, map[string]any{})
+
+	// Multiple entries for the same unseen premiere should all be accepted
+	// so the dedup step can pick the best one.
+	e1 := makeEntry("Breaking Bad", 1, 1)
+	e2 := makeEntry("Breaking Bad", 1, 1)
+	filter(t, p, e1)
+	filter(t, p, e2)
+	if !e1.IsAccepted() || !e2.IsAccepted() {
+		t.Error("all entries for the same unseen premiere should be accepted")
 	}
 }
 
