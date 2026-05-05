@@ -173,52 +173,41 @@ func TestSearchParsesEntries(t *testing.T) {
 	}
 }
 
-func TestSearchDeduplicatesAcrossIndexers(t *testing.T) {
-	// Both indexers return the same URL — should appear only once.
-	body := torznabResponse([]torznabItem{
-		{Title: "Show.S01E01", Link: "http://example.com/1"},
-	})
+func TestSearchMultipleIndexersSentAsOneCall(t *testing.T) {
+	// Multiple indexers should be joined and sent in a single API call.
+	var gotPath string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, body) //nolint:errcheck
+		gotPath = r.URL.Path
+		fmt.Fprint(w, torznabResponse(nil)) //nolint:errcheck
 	}))
 	defer srv.Close()
 
 	p := makePlugin(t, srv.URL, "key", map[string]any{
-		"indexers": []any{"idx1", "idx2"},
+		"indexers": []any{"idx1", "idx2", "idx3"},
 	})
-	entries, err := p.Search(context.Background(), tc(), "Show")
+	_, err := p.Search(context.Background(), tc(), "Show")
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
-	if len(entries) != 1 {
-		t.Errorf("got %d entries after dedup, want 1", len(entries))
+	if !strings.Contains(gotPath, "idx1,idx2,idx3") {
+		t.Errorf("expected comma-joined indexers in path, got %q", gotPath)
 	}
 }
 
-func TestSearchSkipsFailingIndexer(t *testing.T) {
-	// First indexer returns an error, second returns a result.
-	call := 0
+func TestSearchFailureReturnsNoEntriesNoError(t *testing.T) {
+	// A failed call logs a warning and returns (nil, nil) — no error propagated.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		call++
-		if call == 1 {
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			return
-		}
-		fmt.Fprint(w, torznabResponse([]torznabItem{ //nolint:errcheck
-			{Title: "Show.S01E01", Link: "http://example.com/1"},
-		}))
+		http.Error(w, "internal error", http.StatusInternalServerError)
 	}))
 	defer srv.Close()
 
-	p := makePlugin(t, srv.URL, "key", map[string]any{
-		"indexers": []any{"bad", "good"},
-	})
+	p := makePlugin(t, srv.URL, "key", nil)
 	entries, err := p.Search(context.Background(), tc(), "Show")
 	if err != nil {
-		t.Fatalf("Search returned error: %v", err)
+		t.Errorf("Search should not return error on failure, got: %v", err)
 	}
-	if len(entries) != 1 {
-		t.Errorf("got %d entries, want 1", len(entries))
+	if len(entries) != 0 {
+		t.Errorf("expected 0 entries on failure, got %d", len(entries))
 	}
 }
 

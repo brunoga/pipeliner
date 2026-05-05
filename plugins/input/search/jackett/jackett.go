@@ -8,17 +8,15 @@
 //	url        - Jackett base URL, e.g. "http://localhost:9117" (required)
 //	api_key    - Jackett API key (required)
 //	indexers   - list of indexer IDs to query; use ["all"] for all configured
-//	             indexers (default: ["all"]). Order matters: results from the
-//	             first indexer appear first after merging.
+//	             indexers (default: ["all"]). All indexers are passed to Jackett
+//	             in a single API call as a comma-separated list; Jackett
+//	             aggregates results server-side.
 //	categories - list of Torznab category codes to restrict results
 //	             (optional). Common codes:
 //	               2000  Movies        5000  TV
 //	               2010  Movies/HD     5030  TV/HD
 //	               2020  Movies/SD     5040  TV/SD
-//	limit      - maximum results per API call (optional, default: no limit).
-//	             With indexers=["all"] this is effectively the total result count
-//	             since Jackett aggregates all indexers in a single call. With
-//	             multiple specific indexers, each call is capped independently.
+//	limit      - maximum number of results to return (optional, default: no limit).
 package jackett
 
 import (
@@ -135,27 +133,17 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 func (p *jackettPlugin) Name() string        { return "jackett" }
 func (p *jackettPlugin) Phase() plugin.Phase { return plugin.PhaseSearch }
 
-// Search queries each configured indexer and returns the merged, deduplicated
-// results. Indexer errors are logged and skipped rather than aborting the
-// search, so a single broken indexer doesn't prevent results from others.
+// Search queries all configured indexers in a single Jackett API call by
+// passing them as a comma-separated list. Jackett aggregates the results
+// server-side, so limit (if set) applies to the combined result set.
 func (p *jackettPlugin) Search(ctx context.Context, tc *plugin.TaskContext, query string) ([]*entry.Entry, error) {
-	seen := map[string]bool{}
-	var all []*entry.Entry
-
-	for _, indexer := range p.indexers {
-		results, err := p.searchIndexer(ctx, indexer, query)
-		if err != nil {
-			tc.Logger.Warn("jackett: indexer search failed", "indexer", indexer, "err", err)
-			continue
-		}
-		for _, e := range results {
-			if !seen[e.URL] {
-				seen[e.URL] = true
-				all = append(all, e)
-			}
-		}
+	indexer := strings.Join(p.indexers, ",")
+	results, err := p.searchIndexer(ctx, indexer, query)
+	if err != nil {
+		tc.Logger.Warn("jackett: search failed", "indexers", indexer, "err", err)
+		return nil, nil
 	}
-	return all, nil
+	return results, nil
 }
 
 func (p *jackettPlugin) searchIndexer(ctx context.Context, indexer, query string) ([]*entry.Entry, error) {
