@@ -1,4 +1,5 @@
-// Package movies parses movie title and year information from media release names.
+// Package movies parses movie metadata from media release names, including
+// title, year, video quality, and 3D format detection.
 package movies
 
 import (
