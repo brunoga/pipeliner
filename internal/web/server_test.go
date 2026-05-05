@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -284,4 +285,90 @@ func TestReloadBlockedWhileRunning(t *testing.T) {
 		t.Errorf("status: got %d, want 409", resp.StatusCode)
 	}
 	srv.TaskDone("task")
+}
+
+// ── SSE log replay / Last-Event-ID ───────────────────────────────────────────
+
+func TestBroadcasterSequenceNumbers(t *testing.T) {
+	b := NewBroadcaster()
+	b.Write([]byte("line one\n"))   //nolint:errcheck
+	b.Write([]byte("line two\n"))   //nolint:errcheck
+	b.Write([]byte("line three\n")) //nolint:errcheck
+
+	// Full snapshot: all three lines with ascending seq numbers.
+	snap, ch := b.Subscribe(0)
+	b.Unsubscribe(ch)
+	if len(snap) != 3 {
+		t.Fatalf("expected 3 lines, got %d", len(snap))
+	}
+	for i, ll := range snap {
+		if ll.seq != int64(i+1) {
+			t.Errorf("snap[%d].seq = %d, want %d", i, ll.seq, i+1)
+		}
+	}
+}
+
+func TestBroadcasterResumeAfterSeq(t *testing.T) {
+	b := NewBroadcaster()
+	b.Write([]byte("line one\n"))   //nolint:errcheck
+	b.Write([]byte("line two\n"))   //nolint:errcheck
+	b.Write([]byte("line three\n")) //nolint:errcheck
+
+	// Reconnect after having seen seq=2: should only get line three.
+	snap, ch := b.Subscribe(2)
+	b.Unsubscribe(ch)
+	if len(snap) != 1 {
+		t.Fatalf("expected 1 line after seq=2, got %d", len(snap))
+	}
+	if snap[0].text != "line three" {
+		t.Errorf("text: got %q, want %q", snap[0].text, "line three")
+	}
+}
+
+func TestBroadcasterNoReplayWhenFullyUpToDate(t *testing.T) {
+	b := NewBroadcaster()
+	b.Write([]byte("line one\n")) //nolint:errcheck
+	b.Write([]byte("line two\n")) //nolint:errcheck
+
+	// Client already has everything (afterSeq matches latest).
+	snap, ch := b.Subscribe(2)
+	b.Unsubscribe(ch)
+	if len(snap) != 0 {
+		t.Errorf("expected empty replay, got %d lines", len(snap))
+	}
+}
+
+func TestSSELastEventIDHeaderParsed(t *testing.T) {
+	b := NewBroadcaster()
+	b.Write([]byte("line one\n")) //nolint:errcheck
+	b.Write([]byte("line two\n")) //nolint:errcheck
+
+	srv := New(nil, stubDaemon{}, NewHistory(), b, "test", "user", "pass")
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/logs", srv.apiLogs)
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	// Request with Last-Event-ID: 1 — should only stream "line two".
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, ts.URL+"/api/logs", nil)
+	req.Header.Set("Last-Event-ID", "1")
+	req.Header.Set("Accept", "text/event-stream")
+
+	client := &http.Client{Timeout: 500 * time.Millisecond}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	buf := make([]byte, 4096)
+	n, _ := resp.Body.Read(buf)
+	body := string(buf[:n])
+
+	if strings.Contains(body, "line one") {
+		t.Error("line one should not be replayed after Last-Event-ID: 1")
+	}
+	if !strings.Contains(body, "line two") {
+		t.Errorf("line two should be replayed, got: %s", body)
+	}
 }
