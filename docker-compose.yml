@@ -1,0 +1,16 @@
+services:
+  pipeliner:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      # Persists config.yaml and pipeliner.db (state/history) across restarts.
+      - pipeliner-data:/config
+    environment:
+      PIPELINER_WEB_USER: admin
+      PIPELINER_WEB_PASSWORD: changeme     # change before exposing to a network
+      PIPELINER_LOG_LEVEL: info
+    restart: unless-stopped
+
+volumes:
+  pipeliner-data:
