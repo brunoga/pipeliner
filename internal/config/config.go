@@ -197,6 +197,27 @@ func Validate(c *Config) []error {
 			}
 		}
 	}
+
+	// Decode each plugin's raw config and run its Validate function.
+	for taskName, def := range c.Tasks {
+		for _, e := range def {
+			if e.name == "template" || e.name == "priority" || e.name == "schedule" {
+				continue
+			}
+			d, ok := plugin.Lookup(e.name)
+			if !ok || d.Validate == nil {
+				continue
+			}
+			var cfg map[string]any
+			if len(e.raw) > 0 {
+				_ = json.Unmarshal(e.raw, &cfg)
+			}
+			for _, err := range d.Validate(cfg) {
+				errs = append(errs, fmt.Errorf("task %q plugin %q: %w", taskName, e.name, err))
+			}
+		}
+	}
+
 	return errs
 }
 

@@ -19,7 +19,15 @@ func init() {
 		Description: "accept or reject entries by matching regular expressions against fields",
 		PluginPhase: plugin.PhaseFilter,
 		Factory:     newRegexpPlugin,
+		Validate:    validate,
 	})
+}
+
+func validate(cfg map[string]any) []error {
+	if err := plugin.RequireOneOf(cfg, "regexp", "accept", "reject", "from"); err != nil {
+		return []error{err}
+	}
+	return nil
 }
 
 // regexpRule pairs a compiled regexp with an optional per-pattern field list.

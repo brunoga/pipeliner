@@ -40,7 +40,15 @@ func init() {
 		Description: "accept or reject entries via boolean expressions",
 		PluginPhase: plugin.PhaseFilter,
 		Factory:     newPlugin,
+		Validate:    validate,
 	})
+}
+
+func validate(cfg map[string]any) []error {
+	if err := plugin.RequireOneOf(cfg, "condition", "rules", "accept", "reject"); err != nil {
+		return []error{err}
+	}
+	return nil
 }
 
 type rule struct {

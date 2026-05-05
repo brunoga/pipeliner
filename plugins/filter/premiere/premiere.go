@@ -34,7 +34,28 @@ func init() {
 		Description: "accept only the first episode of series not previously seen (series premiere detection)",
 		PluginPhase: plugin.PhaseFilter,
 		Factory:     newPlugin,
+		Validate:    validate,
 	})
+}
+
+func validate(cfg map[string]any) []error {
+	var errs []error
+	if q, _ := cfg["quality"].(string); q != "" {
+		if _, err := quality.ParseSpec(q); err != nil {
+			errs = append(errs, fmt.Errorf("premiere: invalid quality spec: %w", err))
+		}
+	}
+	if v, ok := cfg["episode"]; ok {
+		if n := intVal(v, -1); n < 0 {
+			errs = append(errs, fmt.Errorf("premiere: \"episode\" must be a non-negative integer"))
+		}
+	}
+	if v, ok := cfg["season"]; ok {
+		if n := intVal(v, -1); n < 0 {
+			errs = append(errs, fmt.Errorf("premiere: \"season\" must be a non-negative integer"))
+		}
+	}
+	return errs
 }
 
 type premierePlugin struct {

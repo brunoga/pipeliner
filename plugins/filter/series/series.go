@@ -29,7 +29,27 @@ func init() {
 		Description: "accept episodes for configured shows; track downloads across runs",
 		PluginPhase: plugin.PhaseFilter,
 		Factory:     newPlugin,
+		Validate:    validate,
 	})
+}
+
+func validate(cfg map[string]any) []error {
+	var errs []error
+	if err := plugin.RequireOneOf(cfg, "series", "series", "shows", "from"); err != nil {
+		errs = append(errs, err)
+	}
+	if err := plugin.OptDuration(cfg, "ttl", "series"); err != nil {
+		errs = append(errs, err)
+	}
+	if err := plugin.OptEnum(cfg, "tracking", "series", "strict", "backfill", "all"); err != nil {
+		errs = append(errs, err)
+	}
+	if q, _ := cfg["quality"].(string); q != "" {
+		if _, err := quality.ParseSpec(q); err != nil {
+			errs = append(errs, fmt.Errorf("series: invalid quality spec: %w", err))
+		}
+	}
+	return errs
 }
 
 // tracking controls how episode ordering is enforced.

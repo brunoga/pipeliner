@@ -26,7 +26,19 @@ func init() {
 		Description: "fetch shows from a TheTVDB user's favorites list as pipeline entries",
 		PluginPhase: plugin.PhaseInput,
 		Factory:     newPlugin,
+		Validate:    validate,
 	})
+}
+
+func validate(cfg map[string]any) []error {
+	var errs []error
+	if err := plugin.RequireString(cfg, "api_key", "input_tvdb"); err != nil {
+		errs = append(errs, err)
+	}
+	if err := plugin.RequireString(cfg, "user_pin", "input_tvdb"); err != nil {
+		errs = append(errs, err)
+	}
+	return errs
 }
 
 type tvdbInputPlugin struct {

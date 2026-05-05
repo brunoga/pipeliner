@@ -8,12 +8,29 @@ import (
 	"strings"
 
 	"github.com/brunoga/pipeliner/internal/notify"
+	"github.com/brunoga/pipeliner/internal/plugin"
 )
 
 func init() {
 	notify.Register("email", func(cfg map[string]any) (notify.Notifier, error) {
 		return newNotifier(cfg)
 	})
+}
+
+// Validate checks the email notifier configuration.
+func Validate(cfg map[string]any) []error {
+	var errs []error
+	if err := plugin.RequireString(cfg, "smtp_host", "email"); err != nil {
+		errs = append(errs, err)
+	}
+	if err := plugin.RequireString(cfg, "from", "email"); err != nil {
+		errs = append(errs, err)
+	}
+	to := toStringSlice(cfg["to"])
+	if len(to) == 0 {
+		errs = append(errs, fmt.Errorf("email: \"to\" list must be non-empty"))
+	}
+	return errs
 }
 
 type emailNotifier struct {

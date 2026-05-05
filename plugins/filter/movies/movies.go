@@ -28,7 +28,24 @@ func init() {
 		Description: "accept movies from a configured list; track downloads across runs",
 		PluginPhase: plugin.PhaseFilter,
 		Factory:     newPlugin,
+		Validate:    validate,
 	})
+}
+
+func validate(cfg map[string]any) []error {
+	var errs []error
+	if err := plugin.RequireOneOf(cfg, "movies", "movies", "shows", "from"); err != nil {
+		errs = append(errs, err)
+	}
+	if err := plugin.OptDuration(cfg, "ttl", "movies"); err != nil {
+		errs = append(errs, err)
+	}
+	if q, _ := cfg["quality"].(string); q != "" {
+		if _, err := quality.ParseSpec(q); err != nil {
+			errs = append(errs, fmt.Errorf("movies: invalid quality spec: %w", err))
+		}
+	}
+	return errs
 }
 
 type moviesPlugin struct {

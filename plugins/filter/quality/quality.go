@@ -17,7 +17,26 @@ func init() {
 		Description: "reject entries whose video quality falls outside the configured range",
 		PluginPhase: plugin.PhaseFilter,
 		Factory:     newPlugin,
+		Validate:    validate,
 	})
+}
+
+func validate(cfg map[string]any) []error {
+	var errs []error
+	if err := plugin.RequireOneOf(cfg, "quality", "quality", "min", "max"); err != nil {
+		errs = append(errs, err)
+	}
+	if q, _ := cfg["min"].(string); q != "" {
+		if _, err := internalquality.ParseSpec(q); err != nil {
+			errs = append(errs, fmt.Errorf("quality: invalid min spec: %w", err))
+		}
+	}
+	if q, _ := cfg["max"].(string); q != "" {
+		if _, err := internalquality.ParseSpec(q); err != nil {
+			errs = append(errs, fmt.Errorf("quality: invalid max spec: %w", err))
+		}
+	}
+	return errs
 }
 
 type qualityPlugin struct {

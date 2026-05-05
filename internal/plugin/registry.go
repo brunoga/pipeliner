@@ -19,6 +19,11 @@ type Descriptor struct {
 	Description string
 	PluginPhase Phase
 	Factory     Factory
+	// Validate checks the plugin's configuration map and returns any errors.
+	// It is called by config.Validate before plugin construction so all
+	// config errors are surfaced at once by pipeliner check.
+	// nil means no validation beyond what the factory enforces.
+	Validate func(cfg map[string]any) []error
 }
 
 var (

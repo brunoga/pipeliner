@@ -26,7 +26,15 @@ func init() {
 		Description: "download entry URLs to a local directory",
 		PluginPhase: plugin.PhaseOutput,
 		Factory:     newPlugin,
+		Validate:    validate,
 	})
+}
+
+func validate(cfg map[string]any) []error {
+	if err := plugin.RequireString(cfg, "path", "download"); err != nil {
+		return []error{err}
+	}
+	return nil
 }
 
 type downloadPlugin struct {
