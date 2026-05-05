@@ -38,7 +38,15 @@ func init() {
 		Description: "annotate entries whose URL is a magnet link with info hash, tracker and DHT metadata",
 		PluginPhase: plugin.PhaseMetainfo,
 		Factory:     newPlugin,
+		Validate:    validate,
 	})
+}
+
+func validate(cfg map[string]any) []error {
+	if err := plugin.OptDuration(cfg, "resolve_timeout", "metainfo_magnet"); err != nil {
+		return []error{err}
+	}
+	return nil
 }
 
 type magnetPlugin struct {

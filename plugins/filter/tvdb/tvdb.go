@@ -31,7 +31,22 @@ func init() {
 		PluginPhase: plugin.PhaseFilter,
 		Description: "Accept entries whose series name appears in the user's TheTVDB favorites",
 		Factory:     newPlugin,
+		Validate:    validate,
 	})
+}
+
+func validate(cfg map[string]any) []error {
+	var errs []error
+	if err := plugin.RequireString(cfg, "api_key", "tvdb"); err != nil {
+		errs = append(errs, err)
+	}
+	if err := plugin.RequireString(cfg, "user_pin", "tvdb"); err != nil {
+		errs = append(errs, err)
+	}
+	if err := plugin.OptDuration(cfg, "ttl", "tvdb"); err != nil {
+		errs = append(errs, err)
+	}
+	return errs
 }
 
 const cacheKey = "favorites"

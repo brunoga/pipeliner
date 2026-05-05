@@ -22,7 +22,15 @@ func init() {
 		Description: "run a shell command for each accepted entry",
 		PluginPhase: plugin.PhaseOutput,
 		Factory:     newPlugin,
+		Validate:    validate,
 	})
+}
+
+func validate(cfg map[string]any) []error {
+	if err := plugin.RequireString(cfg, "command", "exec"); err != nil {
+		return []error{err}
+	}
+	return nil
 }
 
 type execPlugin struct {

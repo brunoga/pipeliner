@@ -28,7 +28,25 @@ func init() {
 		Description: "annotate entries with Trakt.tv metadata (rating, votes, genres, overview, external IDs)",
 		PluginPhase: plugin.PhaseMetainfo,
 		Factory:     newPlugin,
+		Validate:    validate,
 	})
+}
+
+func validate(cfg map[string]any) []error {
+	var errs []error
+	if err := plugin.RequireString(cfg, "client_id", "metainfo_trakt"); err != nil {
+		errs = append(errs, err)
+	}
+	if err := plugin.RequireString(cfg, "type", "metainfo_trakt"); err != nil {
+		errs = append(errs, err)
+	}
+	if err := plugin.OptEnum(cfg, "type", "metainfo_trakt", "shows", "movies"); err != nil {
+		errs = append(errs, err)
+	}
+	if err := plugin.OptDuration(cfg, "cache_ttl", "metainfo_trakt"); err != nil {
+		errs = append(errs, err)
+	}
+	return errs
 }
 
 type traktMetaPlugin struct {

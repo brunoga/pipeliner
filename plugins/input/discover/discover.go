@@ -36,7 +36,20 @@ func init() {
 		Description: "actively search multiple sources for items from a title list",
 		PluginPhase: plugin.PhaseInput,
 		Factory:     newPlugin,
+		Validate:    validate,
 	})
+}
+
+func validate(cfg map[string]any) []error {
+	var errs []error
+	viaRaw, _ := cfg["via"].([]any)
+	if len(viaRaw) == 0 {
+		errs = append(errs, fmt.Errorf("discover: \"via\" must list at least one search plugin"))
+	}
+	if err := plugin.OptDuration(cfg, "interval", "discover"); err != nil {
+		errs = append(errs, err)
+	}
+	return errs
 }
 
 type discoverPlugin struct {

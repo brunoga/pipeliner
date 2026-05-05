@@ -20,7 +20,15 @@ func init() {
 		Description: "set download_path from a pattern rendered against entry fields",
 		PluginPhase: plugin.PhaseModify,
 		Factory:     newPlugin,
+		Validate:    validate,
 	})
+}
+
+func validate(cfg map[string]any) []error {
+	if err := plugin.RequireString(cfg, "path", "pathfmt"); err != nil {
+		return []error{err}
+	}
+	return nil
 }
 
 type pathfmtPlugin struct {
