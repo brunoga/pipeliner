@@ -59,6 +59,7 @@ func validate(cfg map[string]any) []error {
 	if err := plugin.OptDuration(cfg, "scrape_timeout", "torrent_alive"); err != nil {
 		errs = append(errs, err)
 	}
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "torrent_alive", "min_seeds", "scrape", "scrape_timeout")...)
 	return errs
 }
 

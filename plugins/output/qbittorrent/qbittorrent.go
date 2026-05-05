@@ -24,7 +24,12 @@ func init() {
 		Description: "add torrents to a qBittorrent daemon via Web API v2",
 		PluginPhase: plugin.PhaseOutput,
 		Factory:     newPlugin,
+		Validate:    validate,
 	})
+}
+
+func validate(cfg map[string]any) []error {
+	return plugin.OptUnknownKeys(cfg, "qbittorrent", "host", "port", "username", "password", "savepath", "category", "tags", "tls")
 }
 
 type qbtPlugin struct {

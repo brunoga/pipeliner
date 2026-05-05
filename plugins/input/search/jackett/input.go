@@ -32,6 +32,7 @@ func validateInput(cfg map[string]any) []error {
 	if err := plugin.OptDuration(cfg, "timeout", "jackett_input"); err != nil {
 		errs = append(errs, err)
 	}
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "jackett_input", "url", "api_key", "indexers", "categories", "limit", "timeout", "query")...)
 	return errs
 }
 

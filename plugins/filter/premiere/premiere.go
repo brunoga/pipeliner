@@ -59,6 +59,7 @@ func validate(cfg map[string]any) []error {
 			errs = append(errs, fmt.Errorf("premiere: \"season\" must be a non-negative integer"))
 		}
 	}
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "premiere", "episode", "season", "quality")...)
 	return errs
 }
 

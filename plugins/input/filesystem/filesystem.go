@@ -24,10 +24,12 @@ func init() {
 }
 
 func validate(cfg map[string]any) []error {
+	var errs []error
 	if err := plugin.RequireString(cfg, "path", "filesystem"); err != nil {
-		return []error{err}
+		errs = append(errs, err)
 	}
-	return nil
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "filesystem", "path", "recursive", "mask")...)
+	return errs
 }
 
 type filesystemPlugin struct {

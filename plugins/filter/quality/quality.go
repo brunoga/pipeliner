@@ -36,6 +36,7 @@ func validate(cfg map[string]any) []error {
 			errs = append(errs, fmt.Errorf("quality: invalid max spec: %w", err))
 		}
 	}
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "quality", "min", "max")...)
 	return errs
 }
 

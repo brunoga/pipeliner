@@ -43,10 +43,12 @@ func init() {
 }
 
 func validate(cfg map[string]any) []error {
+	var errs []error
 	if err := plugin.OptDuration(cfg, "resolve_timeout", "metainfo_magnet"); err != nil {
-		return []error{err}
+		errs = append(errs, err)
 	}
-	return nil
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "metainfo_magnet", "resolve_timeout")...)
+	return errs
 }
 
 type magnetPlugin struct {

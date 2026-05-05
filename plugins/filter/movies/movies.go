@@ -51,6 +51,7 @@ func validate(cfg map[string]any) []error {
 			errs = append(errs, fmt.Errorf("movies: invalid quality spec: %w", err))
 		}
 	}
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "movies", "movies", "from", "ttl", "quality")...)
 	return errs
 }
 

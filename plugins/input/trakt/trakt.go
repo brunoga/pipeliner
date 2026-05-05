@@ -45,6 +45,7 @@ func validate(cfg map[string]any) []error {
 	if err := plugin.OptEnum(cfg, "type", "input_trakt", "movies", "shows"); err != nil {
 		errs = append(errs, err)
 	}
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "input_trakt", "client_id", "type", "list", "limit", "access_token")...)
 	return errs
 }
 
