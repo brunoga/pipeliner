@@ -121,12 +121,14 @@ func (p *seriesPlugin) Phase() plugin.Phase { return plugin.PhaseFilter }
 func (p *seriesPlugin) Filter(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
 	ep, ok := series.Parse(e.Title)
 	if !ok {
+		tc.Logger.Debug("series: title did not parse as episode", "entry", e.Title)
 		return nil
 	}
 
 	shows := p.resolveShows(ctx, tc)
 	matchedShow, ok := matchShow(ep.SeriesName, shows)
 	if !ok {
+		tc.Logger.Debug("series: no show match", "series", ep.SeriesName, "shows_loaded", len(shows))
 		return nil
 	}
 
@@ -201,6 +203,7 @@ func (p *seriesPlugin) resolveShows(ctx context.Context, tc *plugin.TaskContext)
 		return p.staticShows
 	}
 	if dynamic, ok := p.listCache.Get("shows"); ok {
+		tc.Logger.Debug("series: loaded shows from cache", "count", len(dynamic))
 		return append(p.staticShows, dynamic...)
 	}
 	var dynamic []string
@@ -211,6 +214,7 @@ func (p *seriesPlugin) resolveShows(ctx context.Context, tc *plugin.TaskContext)
 			tc.Logger.Warn("series: from source failed", "plugin", inp.Name(), "err", err)
 			continue
 		}
+		tc.Logger.Debug("series: loaded shows from source", "plugin", inp.Name(), "count", len(fromEntries))
 		for _, e := range fromEntries {
 			if e.Title != "" {
 				dynamic = append(dynamic, match.Normalize(e.Title))

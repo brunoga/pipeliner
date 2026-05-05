@@ -2,6 +2,8 @@ package series
 
 import (
 	"context"
+	"io"
+	"log/slog"
 	"maps"
 	"testing"
 	"time"
@@ -25,7 +27,12 @@ func (m *mockInput) Run(_ context.Context, _ *plugin.TaskContext) ([]*entry.Entr
 	return m.entries, nil
 }
 
-func makeCtx() *plugin.TaskContext { return &plugin.TaskContext{Name: "test"} }
+func makeCtx() *plugin.TaskContext {
+	return &plugin.TaskContext{
+		Name:   "test",
+		Logger: slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelDebug})),
+	}
+}
 
 func openPlugin(t *testing.T, extra map[string]any) *seriesPlugin {
 	t.Helper()
