@@ -80,7 +80,7 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 
 	timeoutStr, _ := cfg["scrape_timeout"].(string)
 	if timeoutStr == "" {
-		timeoutStr = "15s"
+		timeoutStr = "5s"
 	}
 	scrapeTimeout, err := time.ParseDuration(timeoutStr)
 	if err != nil {
@@ -98,8 +98,13 @@ func (p *torrentAlivePlugin) Name() string        { return "torrent_alive" }
 func (p *torrentAlivePlugin) Phase() plugin.Phase { return plugin.PhaseFilter }
 
 func (p *torrentAlivePlugin) Filter(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
-	// 1. Use feed-provided seed count if available (Jackett, nyaa, etc.).
+	// 1. Use feed-provided seed count if available.
+	// Check both torrent_seeds (RSS namespace extensions) and torrent_seeders
+	// (Jackett/Torznab) so Jackett entries always take the fast path.
 	if v, ok := e.Get("torrent_seeds"); ok {
+		return p.applyMinSeeds(e, toInt(v))
+	}
+	if v, ok := e.Get("torrent_seeders"); ok {
 		return p.applyMinSeeds(e, toInt(v))
 	}
 
