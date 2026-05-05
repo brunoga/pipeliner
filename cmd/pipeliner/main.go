@@ -272,7 +272,7 @@ func cmdDaemon(args []string) int {
 	var logger *slog.Logger
 	if *webAddr != "" {
 		bcast = web.NewBroadcaster()
-		h := clog.New(bcast, opts)
+		h := clog.NewColored(bcast, opts) // force ANSI for web ANSI→HTML conversion
 		if *logPlugin != "" {
 			logger = slog.New(clog.NewPluginFilter(h, *logPlugin))
 		} else {
