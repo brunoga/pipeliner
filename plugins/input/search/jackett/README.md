@@ -18,7 +18,7 @@ Used as a backend for the [`discover`](../../discover/README.md) input plugin.
 | `api_key` | string | yes | — | Jackett API key (found in the Jackett web UI) |
 | `indexers` | list | no | `["all"]` | Indexer IDs to query. `"all"` searches every configured indexer. Order matters — results from earlier indexers appear first. |
 | `categories` | list | no | (none) | Torznab category codes to filter results. |
-| `limit` | int | no | (none) | Maximum number of results to request per indexer. |
+| `limit` | int | no | (none) | Maximum results per API call. With `indexers: ["all"]` this is the total result count (Jackett aggregates internally). With multiple specific indexers each call is capped independently, so total results may be up to `limit × len(indexers)`. |
 
 ### Example
 
@@ -63,7 +63,7 @@ Accepts all the same keys as `jackett`, plus:
 | `api_key` | string | yes | — | Jackett API key |
 | `indexers` | list | no | `["all"]` | Indexer IDs to query. Order matters — results from earlier indexers appear first. |
 | `categories` | list | no | (none) | Torznab category codes to filter |
-| `limit` | int | no | (none) | Maximum results per indexer |
+| `limit` | int | no | (none) | Maximum results per API call (see above) |
 | `query` | string | no | `""` | Optional search query; empty returns all recent results |
 
 ### Example

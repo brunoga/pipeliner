@@ -15,7 +15,10 @@
 //	               2000  Movies        5000  TV
 //	               2010  Movies/HD     5030  TV/HD
 //	               2020  Movies/SD     5040  TV/SD
-//	limit      - maximum results to request per indexer (optional, default: no limit)
+//	limit      - maximum results per API call (optional, default: no limit).
+//	             With indexers=["all"] this is effectively the total result count
+//	             since Jackett aggregates all indexers in a single call. With
+//	             multiple specific indexers, each call is capped independently.
 package jackett
 
 import (
