@@ -112,11 +112,31 @@ func (t *Task) Run(ctx context.Context) (*Result, error) {
 		return nil, err
 	}
 	for _, pi := range t.pluginsForPhase(plugin.PhaseFilter) {
+		if batch, ok := pi.impl.(plugin.BatchFilterPlugin); ok {
+			if err := safeRunFilterBatch(ctx, batch, tc(pi), entries); err != nil {
+				t.logger.Warn("filter plugin error", "phase", pi.impl.Phase(), "plugin", pi.impl.Name(), "err", err)
+			}
+			// Log state changes from the batch call.
+			for _, e := range entries {
+				switch e.State {
+				case entry.Accepted:
+					t.logger.Info("entry accepted", "plugin", pi.impl.Name(), "entry", e.Title)
+				case entry.Rejected:
+					t.logger.Info("entry rejected", "plugin", pi.impl.Name(), "entry", e.Title, "reason", e.RejectReason)
+				case entry.Failed:
+					t.logger.Warn("entry failed", "plugin", pi.impl.Name(), "entry", e.Title, "reason", e.FailReason)
+				}
+			}
+			continue
+		}
 		flt, ok := pi.impl.(plugin.FilterPlugin)
 		if !ok {
 			continue
 		}
 		for _, e := range entries {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
 			if e.IsRejected() || e.IsFailed() {
 				continue // already decided; skip further filtering
 			}
@@ -141,6 +161,12 @@ func (t *Task) Run(ctx context.Context) (*Result, error) {
 			t.logger.Info("entry undecided", "entry", e.Title)
 		}
 	}
+
+	// --- Episode deduplication (automatic, post-filter) ---
+	// When multiple accepted entries share the same series + episode ID, keep
+	// the best one (seed tier → resolution → seeds) and reject the rest.
+	// Entries without series_name or series_episode_id are not affected.
+	deduplicate(entries, t.logger)
 
 	// --- Modify phase (serial per entry — plugins may depend on each other's writes) ---
 	if err := ctx.Err(); err != nil {
@@ -336,6 +362,15 @@ func safeRunAnnotateBatch(ctx context.Context, p plugin.BatchMetainfoPlugin, tc 
 		}
 	}()
 	return p.AnnotateBatch(ctx, tc, entries)
+}
+
+func safeRunFilterBatch(ctx context.Context, p plugin.BatchFilterPlugin, tc *plugin.TaskContext, entries []*entry.Entry) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("panic in batch filter plugin %q: %v", p.Name(), r)
+		}
+	}()
+	return p.FilterBatch(ctx, tc, entries)
 }
 
 func safeRunFilter(ctx context.Context, p plugin.FilterPlugin, tc *plugin.TaskContext, e *entry.Entry) (err error) {

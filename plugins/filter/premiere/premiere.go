@@ -1,16 +1,20 @@
-// Package premiere provides a filter that accepts only the first episode of a
-// series that has never been seen before, enabling automatic "try new shows"
-// pipelines. A series is considered "seen" once its premiere has been accepted
-// and persisted across runs via an SQLite-backed store.
+// Package premiere provides a filter that accepts premiere episodes of
+// previously unseen series, enabling automatic "try new shows" pipelines.
+//
+// All qualifying entries for an unseen series are accepted — multiple
+// quality variants from different sources pass through so the task engine's
+// automatic deduplication can keep the best copy. A series is marked "seen"
+// in the Learn phase (not Filter) so only the dedup survivor is recorded.
 //
 // Episode metadata is parsed directly from the entry title, so metainfo/series
-// is not required. The parsed series_name, series_season, and series_episode
-// fields are set on the entry for use by downstream plugins.
+// is not required. The parsed series_name, series_season, series_episode, and
+// series_episode_id fields are set on the entry for use by downstream plugins.
 //
 // Config keys:
 //
 //	episode - episode number to treat as premiere (default: 1)
 //	season  - season number to match; 0 means any season (default: 1)
+//	quality - quality spec the entry must satisfy (e.g. "720p+ webrip+")
 package premiere
 
 import (
@@ -129,22 +133,15 @@ func (p *premierePlugin) Filter(ctx context.Context, tc *plugin.TaskContext, e *
 		return nil
 	}
 
-	// New series premiere — accept and record it.
-	rec = premiereRecord{
-		SeriesName: seriesName,
-		AcceptedAt: time.Now().UTC(),
-		EntryURL:   e.URL,
-	}
-	if err := bucket.Put(key, rec); err != nil {
-		tc.Logger.Warn("premiere: failed to persist record", "series", seriesName, "err", err)
-	}
+	// Accept all matching entries — dedup will keep the best one, Learn persists.
 	e.Accept()
 	return nil
 }
 
-// Learn is also implemented so the store write happens in the learn phase for
-// consistency with other stateful plugins. The filter phase write above is
-// kept as a belt-and-suspenders measure.
+// Learn persists the accepted premiere. Multiple entries for the same series
+// may be accepted by Filter in the same run (different qualities/sources);
+// the task engine deduplicates them before output and Learn only records the
+// survivor.
 func (p *premierePlugin) Learn(_ context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
 	bucket := p.db.Bucket("premiere:" + tc.Name)
 	for _, e := range entries {

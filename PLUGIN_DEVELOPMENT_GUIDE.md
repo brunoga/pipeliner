@@ -46,7 +46,8 @@ A plugin is a Go struct that:
 |-------|-----------|-----------|----------|
 | `input` | `InputPlugin` | Concurrent — all inputs run in parallel | — |
 | `metainfo` | `MetainfoPlugin` / `BatchMetainfoPlugin` | Serial per entry (batch if implemented) | All entries from input |
-| `filter` | `FilterPlugin` | Serial per entry | All entries |
+| `filter` | `FilterPlugin` / `BatchFilterPlugin` | Serial per entry (batch if implemented) | All entries |
+| *(dedup)* | *(automatic)* | Built-in, post-filter | Accepted entries with series/movie fields |
 | `modify` | `ModifyPlugin` | Serial per entry | Undecided + Accepted entries |
 | `output` | `OutputPlugin` | Concurrent — all outputs run in parallel | Accepted entries only |
 | `learn` | `LearnPlugin` | Serial | All entries (all states) |
@@ -57,6 +58,19 @@ A plugin is a Go struct that:
 - Metainfo, filter, modify, and learn phases are serial. Ordering matters — a filter plugin can read fields set by a metainfo plugin earlier in the same run.
 - Input results are deduplicated by URL before the metainfo phase begins.
 - Output plugins each receive the same read-only slice of accepted entries; do not mutate entries in an output plugin.
+
+**Automatic episode/movie deduplication:**
+
+After all filter plugins complete, the task engine automatically deduplicates accepted entries so that at most one copy of each episode or movie reaches the output phase. This means filter plugins (`series`, `premiere`, `movies`) should accept **all** qualifying entries — including multiple quality variants of the same item from different sources — and let the engine pick the best one.
+
+The winning entry is chosen by:
+1. **Seed tier** — entries with 2+ seeds always beat entries with exactly 1 seed
+2. **Resolution** — higher resolution wins within the same seed tier
+3. **Seeds** — more seeds wins when tier and resolution are equal
+
+Entries are keyed by `series_name` + `series_episode_id` for episodes, and `movie_title` for movies. Entries without these fields are unaffected.
+
+**Implication for stateful plugins:** Do not write tracking state (SQLite) in `Filter` — do it in `Learn`. `Learn` runs after output and receives only the entries that survived dedup, so only the winning copy is recorded as downloaded.
 
 ---
 
@@ -290,6 +304,39 @@ func (p *myFilter) Filter(_ context.Context, _ *plugin.TaskContext, e *entry.Ent
 ```
 
 Return a non-nil error only for unexpected internal failures (e.g. a corrupted store read). Use `e.Reject` for expected negative decisions.
+
+**Important — do not write state in Filter:** If your plugin tracks downloads (like `series`, `premiere`, `movies`), write to SQLite in `Learn`, not `Filter`. Multiple quality variants of the same item may all be accepted by Filter; the engine deduplicates them after the filter phase and only the winner reaches `Learn`. Writing in Filter would prevent those variants from being considered.
+
+### BatchFilterPlugin
+
+```go
+type BatchFilterPlugin interface {
+    Plugin
+    FilterBatch(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error
+}
+```
+
+An optional extension for filter plugins that can process all entries more efficiently at once — for example, by firing network requests in parallel. The task engine calls `FilterBatch` instead of `Filter` for any plugin that implements this interface.
+
+`FilterBatch` must respect already-decided entries (`IsRejected`/`IsFailed`) and must honour context cancellation. A common pattern is to fan out per-entry work into goroutines:
+
+```go
+func (p *myPlugin) FilterBatch(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
+    var wg sync.WaitGroup
+    for _, e := range entries {
+        if e.IsRejected() || e.IsFailed() {
+            continue
+        }
+        wg.Add(1)
+        go func(e *entry.Entry) {
+            defer wg.Done()
+            p.Filter(ctx, tc, e) //nolint:errcheck
+        }(e)
+    }
+    wg.Wait()
+    return nil
+}
+```
 
 ---
 
@@ -703,6 +750,8 @@ func (p *seenPlugin) Learn(_ context.Context, tc *plugin.TaskContext, entries []
 ```
 
 `Phase()` must return the **filter** phase even though the plugin also implements `LearnPlugin` — the engine dispatches by interface, not by phase value, for the learn pass.
+
+Note that `seen` keys on URL, so each URL is a unique entry — there is no multi-variant dedup concern. For plugins that track by series/movie title (like `series`, `premiere`, `movies`), writing in `Learn` rather than `Filter` is essential: multiple quality variants of the same item are all accepted by Filter and deduplicated by the engine before Learn runs, ensuring only the winner is persisted.
 
 ---
 

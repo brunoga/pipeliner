@@ -146,6 +146,24 @@ func parseHTTPScrape(data []byte, ih [20]byte) (int, error) {
 const udpMagic uint64 = 0x41727101980
 
 func scrapeUDP(ctx context.Context, ih [20]byte, announceURL string) (int, error) {
+	type result struct {
+		seeds int
+		err   error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		s, err := doScrapeUDP(ctx, ih, announceURL)
+		ch <- result{s, err}
+	}()
+	select {
+	case r := <-ch:
+		return r.seeds, r.err
+	case <-ctx.Done():
+		return 0, ctx.Err()
+	}
+}
+
+func doScrapeUDP(ctx context.Context, ih [20]byte, announceURL string) (int, error) {
 	u, err := url.Parse(announceURL)
 	if err != nil {
 		return 0, fmt.Errorf("tracker UDP: parse URL: %w", err)
