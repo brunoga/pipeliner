@@ -172,8 +172,8 @@ func TestAnnotateSeries(t *testing.T) {
 		t.Errorf("tvdb_poster: got %q", v)
 	}
 	// Extended fields always fetched.
-	if v := e.GetString("tvdb_country"); v != "usa" {
-		t.Errorf("tvdb_country: got %q, want usa", v)
+	if v := e.GetString("tvdb_country"); v != "United States" {
+		t.Errorf("tvdb_country: got %q, want United States", v)
 	}
 	if v := e.GetString("tvdb_status"); v != "Ended" {
 		t.Errorf("tvdb_status: got %q, want Ended", v)
@@ -212,8 +212,8 @@ func TestAnnotateExtendedFallback(t *testing.T) {
 	if len(names) != 2 || names[0] != "Drama" || names[1] != "Crime" {
 		t.Errorf("tvdb_genres: got %v", genres)
 	}
-	if v := e.GetString("tvdb_country"); v != "usa" {
-		t.Errorf("tvdb_country: got %q, want usa", v)
+	if v := e.GetString("tvdb_country"); v != "United States" {
+		t.Errorf("tvdb_country: got %q, want United States", v)
 	}
 	if v := e.GetString("tvdb_status"); v != "Ended" {
 		t.Errorf("tvdb_status: got %q, want Ended", v)

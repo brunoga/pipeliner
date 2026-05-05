@@ -127,7 +127,7 @@ func (p *tvdbPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 		e.Set("tvdb_language", languageName(s.Language))
 	}
 	if s.Country != "" {
-		e.Set("tvdb_country", s.Country)
+		e.Set("tvdb_country", countryName(s.Country))
 	}
 	if s.ImageURL != "" {
 		e.Set("tvdb_poster", s.ImageURL)
@@ -165,7 +165,7 @@ func (p *tvdbPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 				country = ext.OriginalCountry
 			}
 			if country != "" {
-				e.Set("tvdb_country", country)
+				e.Set("tvdb_country", countryName(country))
 			}
 			if ext.Status.Name != "" {
 				e.Set("tvdb_status", ext.Status.Name)
@@ -298,6 +298,58 @@ var iso639 = map[string]string{
 	"tur": "Turkish",
 	"ukr": "Ukrainian",
 	"vie": "Vietnamese",
+}
+
+// countryName maps ISO 3166-1 alpha-3 lowercase codes to English display names.
+// Covers the most common TV-producing countries; falls back to the original
+// code for anything not in the table.
+func countryName(code string) string {
+	if name, ok := iso3166[code]; ok {
+		return name
+	}
+	return code
+}
+
+var iso3166 = map[string]string{
+	"arg": "Argentina",
+	"aus": "Australia",
+	"aut": "Austria",
+	"bel": "Belgium",
+	"bra": "Brazil",
+	"can": "Canada",
+	"chl": "Chile",
+	"chn": "China",
+	"col": "Colombia",
+	"cze": "Czech Republic",
+	"dnk": "Denmark",
+	"fin": "Finland",
+	"fra": "France",
+	"deu": "Germany",
+	"hkg": "Hong Kong",
+	"hun": "Hungary",
+	"ind": "India",
+	"idn": "Indonesia",
+	"irl": "Ireland",
+	"isr": "Israel",
+	"ita": "Italy",
+	"jpn": "Japan",
+	"kor": "South Korea",
+	"mex": "Mexico",
+	"nld": "Netherlands",
+	"nzl": "New Zealand",
+	"nor": "Norway",
+	"pol": "Poland",
+	"prt": "Portugal",
+	"rus": "Russia",
+	"zaf": "South Africa",
+	"esp": "Spain",
+	"swe": "Sweden",
+	"che": "Switzerland",
+	"twn": "Taiwan",
+	"tha": "Thailand",
+	"tur": "Turkey",
+	"gbr": "United Kingdom",
+	"usa": "United States",
 }
 
 // parseFirstAired parses the first-air-time string returned by the TVDB search
