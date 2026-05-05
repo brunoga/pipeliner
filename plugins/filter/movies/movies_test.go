@@ -237,6 +237,37 @@ func (c *countingInput) Run(ctx context.Context, tc *plugin.TaskContext) ([]*ent
 	return c.wrapped.Run(ctx, tc)
 }
 
+func TestFilterSetsQualityAndNot3D(t *testing.T) {
+	p := openPlugin(t, nil)
+	e := entry.New("Inception.2010.1080p.BluRay.x264", "http://x.com/a")
+	if err := p.Filter(context.Background(), makeCtx(), e); err != nil {
+		t.Fatal(err)
+	}
+	if !e.IsAccepted() {
+		t.Fatalf("expected accepted: %s", e.RejectReason)
+	}
+	if e.GetString("movie_quality") == "" {
+		t.Error("movie_quality should be set")
+	}
+	if e.GetBool("movie_3d") {
+		t.Error("movie_3d should be false for non-3D title")
+	}
+}
+
+func TestFilterSets3D(t *testing.T) {
+	p := openPlugin(t, nil)
+	e := entry.New("Inception.2010.3D.1080p.BluRay.x264", "http://x.com/a")
+	if err := p.Filter(context.Background(), makeCtx(), e); err != nil {
+		t.Fatal(err)
+	}
+	if !e.IsAccepted() {
+		t.Fatalf("expected accepted: %s", e.RejectReason)
+	}
+	if !e.GetBool("movie_3d") {
+		t.Error("movie_3d should be true for 3D title")
+	}
+}
+
 func TestMultipleEntriesSameMovieAllAccepted(t *testing.T) {
 	// Multiple entries for the same movie (different quality/source) should all
 	// be accepted by movies.Filter so the dedup step can pick the best one.
