@@ -1,16 +1,20 @@
-// Package premiere provides a filter that accepts only the first episode of a
-// series that has never been seen before, enabling automatic "try new shows"
-// pipelines. A series is considered "seen" once its premiere has been accepted
-// and persisted across runs via an SQLite-backed store.
+// Package premiere provides a filter that accepts premiere episodes of
+// previously unseen series, enabling automatic "try new shows" pipelines.
+//
+// All qualifying entries for an unseen series are accepted — multiple
+// quality variants from different sources pass through so the task engine's
+// automatic deduplication can keep the best copy. A series is marked "seen"
+// in the Learn phase (not Filter) so only the dedup survivor is recorded.
 //
 // Episode metadata is parsed directly from the entry title, so metainfo/series
-// is not required. The parsed series_name, series_season, and series_episode
-// fields are set on the entry for use by downstream plugins.
+// is not required. The parsed series_name, series_season, series_episode, and
+// series_episode_id fields are set on the entry for use by downstream plugins.
 //
 // Config keys:
 //
 //	episode - episode number to treat as premiere (default: 1)
 //	season  - season number to match; 0 means any season (default: 1)
+//	quality - quality spec the entry must satisfy (e.g. "720p+ webrip+")
 package premiere
 
 import (

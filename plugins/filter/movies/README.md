@@ -1,6 +1,8 @@
 # movies
 
-Accepts movies from a configured title list. Parses the movie title and year from the entry title, matches with fuzzy matching, deduplicates against a persistent download history, and enforces an optional quality floor. Accepts a re-download when a proper or repack with strictly better quality is available.
+Accepts movies from a configured title list. Parses the movie title and year from the entry title, matches with fuzzy matching, and enforces an optional quality floor. Accepts a re-download when a proper or repack with strictly better quality is available.
+
+**Multiple quality variants** of the same movie (from different sources or input feeds) are all accepted so the task engine's automatic deduplication can pick the best copy. The download history is updated in the Learn phase — only the winning copy is recorded.
 
 The movie list can be provided statically via `movies`, dynamically via `from` (a list of input plugins whose entry titles are used as movie titles), or both. Dynamic results are cached for the configured `ttl` so external APIs are not called on every pipeline run.
 

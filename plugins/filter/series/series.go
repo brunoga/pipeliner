@@ -1,8 +1,11 @@
 // Package series provides a TV series filter and learn plugin.
 //
 // It parses episode information from entry titles, matches them against a
-// configured show list, deduplicates against a persistent tracker, and enforces
-// quality and tracking constraints.
+// configured show list, and enforces quality and tracking constraints.
+// Multiple quality variants of the same episode are all accepted so the
+// task engine's automatic deduplication can choose the best copy. The
+// tracker is updated in the Learn phase so only the dedup survivor is
+// recorded as downloaded.
 //
 // The show list may be provided statically via 'shows', dynamically via 'from'
 // (a list of input plugins whose entry titles are used as show names), or both.
