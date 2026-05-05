@@ -37,6 +37,15 @@ type Handler struct {
 	groupPrefix  string // nested group prefix, e.g. "outer.inner."
 }
 
+// NewColored returns a Handler that always produces ANSI-colored output
+// regardless of whether w is a terminal. Useful for streaming to web clients
+// that convert ANSI codes to HTML.
+func NewColored(w io.Writer, opts *slog.HandlerOptions) *Handler {
+	h := New(w, opts)
+	h.color = true
+	return h
+}
+
 // New returns a Handler that writes to w.
 func New(w io.Writer, opts *slog.HandlerOptions) *Handler {
 	h := &Handler{w: w}
