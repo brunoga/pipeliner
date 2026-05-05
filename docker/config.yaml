@@ -1,0 +1,5 @@
+# Pipeliner configuration
+# Add your tasks here, or use the web UI (Edit Config tab) to edit this file.
+# See the documentation for available plugins and config options.
+
+tasks: {}

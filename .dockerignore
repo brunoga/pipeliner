@@ -1,0 +1,22 @@
+# Build artifacts
+pipeliner
+*.db
+*.db-wal
+*.db-shm
+*.lock
+
+# Dev / test artefacts
+.git
+.github
+configs/
+tests/
+*_test.go
+
+# Documentation
+*.md
+docs/
+PLUGIN_DEVELOPMENT_GUIDE.md
+
+# IDE
+.vscode/
+.idea/
