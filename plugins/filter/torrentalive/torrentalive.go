@@ -14,7 +14,9 @@
 //     URL and uses the highest seed count returned.
 //
 // Entries where no seed count can be determined are left undecided.
-// metainfo_torrent and metainfo_magnet are NOT required in the pipeline.
+// metainfo_magnet is NOT required — magnet URIs are parsed inline.
+// For .torrent URL entries, add metainfo_torrent before torrent_alive if
+// you want seed checking on those as well.
 //
 // Config keys:
 //
@@ -26,12 +28,9 @@ package torrentalive
 import (
 	"context"
 	"fmt"
-	"io"
-	"net/http"
 	"strings"
 	"time"
 
-	"github.com/brunoga/pipeliner/internal/bencode"
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/magnet"
 	"github.com/brunoga/pipeliner/internal/plugin"
@@ -66,7 +65,6 @@ type torrentAlivePlugin struct {
 	minSeeds      int
 	scrape        bool
 	scrapeTimeout time.Duration
-	client        *http.Client
 }
 
 func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
@@ -93,7 +91,6 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 		minSeeds:      min,
 		scrape:        scrapeEnabled,
 		scrapeTimeout: scrapeTimeout,
-		client:        &http.Client{Timeout: 30 * time.Second},
 	}, nil
 }
 
@@ -140,21 +137,12 @@ func (p *torrentAlivePlugin) Filter(ctx context.Context, tc *plugin.TaskContext,
 
 // populate fills torrent_info_hash and torrent_announce_list from the entry URL
 // when they have not been set by a prior metainfo plugin.
-//
-// For magnet: URIs the info hash and tracker URLs are extracted directly from
-// the URI — no network call is made. For .torrent URLs the file is downloaded
-// and parsed. For all other URLs this is a no-op.
-func (p *torrentAlivePlugin) populate(ctx context.Context, e *entry.Entry) error {
-	if strings.HasPrefix(e.URL, "magnet:") {
-		return p.populateFromMagnet(e)
+// Only magnet: URIs are handled — info hash and tracker URLs are extracted
+// directly from the URI with no network call. All other URL types are a no-op.
+func (p *torrentAlivePlugin) populate(_ context.Context, e *entry.Entry) error {
+	if !strings.HasPrefix(e.URL, "magnet:") {
+		return nil
 	}
-	if strings.HasSuffix(strings.ToLower(e.URL), ".torrent") {
-		return p.populateFromTorrent(ctx, e)
-	}
-	return nil
-}
-
-func (p *torrentAlivePlugin) populateFromMagnet(e *entry.Entry) error {
 	m, err := magnet.Parse(e.URL)
 	if err != nil {
 		return err
@@ -163,37 +151,6 @@ func (p *torrentAlivePlugin) populateFromMagnet(e *entry.Entry) error {
 	if len(m.Trackers) > 0 {
 		e.Set("torrent_announce_list", m.Trackers)
 		e.Set("torrent_announce", m.Trackers[0])
-	}
-	return nil
-}
-
-func (p *torrentAlivePlugin) populateFromTorrent(ctx context.Context, e *entry.Entry) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, e.URL, nil)
-	if err != nil {
-		return err
-	}
-	resp, err := p.client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("HTTP %d fetching torrent", resp.StatusCode)
-	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
-	if err != nil {
-		return err
-	}
-	ti, err := bencode.DecodeTorrent(data)
-	if err != nil {
-		return err
-	}
-	e.Set("torrent_info_hash", ti.InfoHash)
-	if ti.AnnounceList != nil {
-		e.Set("torrent_announce_list", ti.AnnounceList)
-	}
-	if ti.Announce != "" {
-		e.Set("torrent_announce", ti.Announce)
 	}
 	return nil
 }
