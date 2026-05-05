@@ -6,6 +6,10 @@
 // warm across runs: on a cache miss the bucket is checked before making an
 // API call, and successful lookups are written back to the bucket so future
 // runs skip the API entirely until the TTL expires.
+//
+// Call Preload() at startup to bulk-load all non-expired entries from the
+// bucket into memory in a single query, eliminating per-key SQLite reads
+// during normal operation.
 package cache
 
 import (
@@ -104,6 +108,46 @@ func (c *Cache[V]) Get(key string) (V, bool) {
 	c.mu.Unlock()
 
 	return value, true
+}
+
+// bulkBucket is an optional extension of Bucket that supports loading all
+// entries in one query, used by Preload.
+type bulkBucket interface {
+	All() (map[string][]byte, error)
+}
+
+// Preload bulk-loads all non-expired entries from the backing bucket into the
+// in-memory map. Call once at startup to eliminate per-key SQLite reads during
+// normal operation. No-op if the bucket does not implement bulkBucket.
+func (c *Cache[V]) Preload() {
+	if c == nil || c.ttl == 0 || c.bucket == nil {
+		return
+	}
+	bb, ok := c.bucket.(bulkBucket)
+	if !ok {
+		return
+	}
+	all, err := bb.All()
+	if err != nil || len(all) == 0 {
+		return
+	}
+	now := time.Now()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for key, raw := range all {
+		var stored storedEntry
+		if err := json.Unmarshal(raw, &stored); err != nil {
+			continue
+		}
+		if now.After(stored.ExpiresAt) {
+			continue
+		}
+		var value V
+		if err := json.Unmarshal(stored.Value, &value); err != nil {
+			continue
+		}
+		c.entries[key] = cacheEntry[V]{value: value, expiresAt: stored.ExpiresAt}
+	}
 }
 
 // Set stores value under key with the configured TTL.
