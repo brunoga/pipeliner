@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
-	"syscall"
 
 	_ "modernc.org/sqlite" // registers "sqlite" driver with database/sql
 )
@@ -39,7 +38,7 @@ func acquireDBLock(path string) (func(), error) {
 	if err != nil {
 		return nil, fmt.Errorf("store: open lock file: %w", err)
 	}
-	if err := syscall.Flock(int(lf.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+	if err := acquireFileLock(lf); err != nil {
 		lf.Close()
 		return nil, fmt.Errorf("store: %q is already in use by another pipeliner process", path)
 	}

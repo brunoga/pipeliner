@@ -21,15 +21,27 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Install SQLite
-        run: sudo apt-get install -y libsqlite3-dev
-
       - name: Test
         run: go test -race -timeout 120s ./...
 
   build:
-    name: Build
+    name: Build (${{ matrix.goos }}/${{ matrix.goarch }}${{ matrix.goarm && format('/v{0}', matrix.goarm) || '' }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux
+          - goos: linux    goarch: amd64
+          - goos: linux    goarch: arm64
+          - goos: linux    goarch: arm    goarm: "7"
+          # Windows
+          - goos: windows  goarch: amd64
+          - goos: windows  goarch: arm64
+          # macOS
+          - goos: darwin   goarch: amd64
+          - goos: darwin   goarch: arm64
+
     steps:
       - uses: actions/checkout@v6
 
@@ -38,13 +50,18 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Build
+      - name: Cross-compile
+        env:
+          GOOS:        ${{ matrix.goos }}
+          GOARCH:      ${{ matrix.goarch }}
+          GOARM:       ${{ matrix.goarm }}
+          CGO_ENABLED: "0"
         run: |
           VERSION=$(git describe --tags --dirty --always 2>/dev/null || echo "dev")
-          go build -ldflags "-X main.version=${VERSION}" ./cmd/pipeliner
-          go build ./...
+          go build -ldflags "-s -w -X main.version=${VERSION}" ./cmd/pipeliner
 
       - name: Verify go.mod is tidy
+        if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
         run: |
           go mod tidy
           git diff --exit-code go.mod go.sum
