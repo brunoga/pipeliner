@@ -22,7 +22,15 @@ func init() {
 		Description: "extract links from an HTML page",
 		PluginPhase: plugin.PhaseInput,
 		Factory:     newPlugin,
+		Validate:    validate,
 	})
+}
+
+func validate(cfg map[string]any) []error {
+	if err := plugin.RequireString(cfg, "url", "html"); err != nil {
+		return []error{err}
+	}
+	return nil
 }
 
 type htmlPlugin struct {

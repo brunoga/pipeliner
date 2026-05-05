@@ -20,7 +20,17 @@ func init() {
 		Description: "add torrents to a Deluge daemon via JSON-RPC",
 		PluginPhase: plugin.PhaseOutput,
 		Factory:     newPlugin,
+		Validate:    validate,
 	})
+}
+
+func validate(cfg map[string]any) []error {
+	if v, ok := cfg["port"]; ok {
+		if n := intVal(v, 0); n <= 0 {
+			return []error{fmt.Errorf("deluge: \"port\" must be a positive integer")}
+		}
+	}
+	return nil
 }
 
 type delugePlugin struct {

@@ -27,7 +27,15 @@ func init() {
 		Description: "reject entries whose torrent file listing matches unwanted glob patterns",
 		PluginPhase: plugin.PhaseFilter,
 		Factory:     newPlugin,
+		Validate:    validate,
 	})
+}
+
+func validate(cfg map[string]any) []error {
+	if err := plugin.RequireOneOf(cfg, "content", "reject", "require"); err != nil {
+		return []error{err}
+	}
+	return nil
 }
 
 type contentPlugin struct {

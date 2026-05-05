@@ -26,7 +26,19 @@ func init() {
 		Description: "enrich movie entries with TMDb metadata (title, overview, genres, runtime)",
 		PluginPhase: plugin.PhaseMetainfo,
 		Factory:     newPlugin,
+		Validate:    validate,
 	})
+}
+
+func validate(cfg map[string]any) []error {
+	var errs []error
+	if err := plugin.RequireString(cfg, "api_key", "metainfo_tmdb"); err != nil {
+		errs = append(errs, err)
+	}
+	if err := plugin.OptDuration(cfg, "cache_ttl", "metainfo_tmdb"); err != nil {
+		errs = append(errs, err)
+	}
+	return errs
 }
 
 type tmdbPlugin struct {

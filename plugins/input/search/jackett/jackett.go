@@ -38,7 +38,19 @@ func init() {
 		Description: "search Jackett indexers via the Torznab API",
 		PluginPhase: plugin.PhaseSearch,
 		Factory:     newPlugin,
+		Validate:    validate,
 	})
+}
+
+func validate(cfg map[string]any) []error {
+	var errs []error
+	if err := plugin.RequireString(cfg, "url", "jackett"); err != nil {
+		errs = append(errs, err)
+	}
+	if err := plugin.RequireString(cfg, "api_key", "jackett"); err != nil {
+		errs = append(errs, err)
+	}
+	return errs
 }
 
 type jackettPlugin struct {

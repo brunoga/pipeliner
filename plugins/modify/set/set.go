@@ -20,7 +20,15 @@ func init() {
 		Description: "set entry fields; values are patterns interpolated against entry fields",
 		PluginPhase: plugin.PhaseModify,
 		Factory:     newSetPlugin,
+		Validate:    validate,
 	})
+}
+
+func validate(cfg map[string]any) []error {
+	if len(cfg) == 0 {
+		return []error{fmt.Errorf("set: at least one field must be configured")}
+	}
+	return nil
 }
 
 type setPlugin struct {
