@@ -2,7 +2,8 @@
 // by pipeliner config files. It supports block mappings, block sequences,
 // and scalar values (null, bool, int, float, quoted/unquoted strings).
 // It does not support anchors/aliases, multi-document streams, or flow
-// collections beyond empty {} and [].
+// mappings beyond empty {}. Flow sequences like ["a", "b"] and block scalars
+// (| and >) are supported. Blank lines within block scalars are not preserved.
 //
 // Parsing is done by converting the YAML document to a Go value tree (any),
 // then round-tripping through encoding/json to populate typed target structs.
@@ -198,7 +199,13 @@ func (p *parser) parseMapping(indent int) (orderedMap, error) {
 		case "[]":
 			val = []any{}
 		default:
-			val = parseScalar(valText)
+			if isBlockScalar(valText) {
+				val = p.parseBlockScalar(valText, indent)
+			} else if items, ok := parseFlowSeq(valText); ok {
+				val = items
+			} else {
+				val = parseScalar(valText)
+			}
 		}
 		m = append(m, pair{key, val})
 	}
@@ -291,6 +298,8 @@ func (p *parser) parseSequence(indent int) ([]any, error) {
 				if err != nil {
 					return nil, err
 				}
+			} else if items, ok := parseFlowSeq(itemText); ok {
+				item = items
 			} else {
 				item = parseScalar(itemText)
 			}
@@ -345,6 +354,78 @@ func unquote(s string) string {
 		}
 	}
 	return s
+}
+
+// isBlockScalar reports whether valText is a block scalar indicator.
+func isBlockScalar(s string) bool {
+	switch s {
+	case "|", "|-", "|+", ">", ">-", ">+":
+		return true
+	}
+	return false
+}
+
+// parseBlockScalar reads lines indented past parentIndent and joins them.
+// For literal style (|) newlines are preserved. For folded style (>)
+// newlines are replaced with spaces. Relative indentation within the block
+// is preserved. Blank lines are not preserved (they are lost at tokenisation).
+func (p *parser) parseBlockScalar(style string, parentIndent int) string {
+	l := p.peek()
+	if l == nil || l.indent <= parentIndent {
+		return ""
+	}
+	contentIndent := l.indent
+
+	var lines []string
+	for {
+		l = p.peek()
+		if l == nil || l.indent < contentIndent {
+			break
+		}
+		rel := l.indent - contentIndent
+		lines = append(lines, strings.Repeat(" ", rel)+l.text)
+		p.pos++
+	}
+
+	if strings.HasPrefix(style, ">") {
+		return strings.Join(lines, " ")
+	}
+	return strings.Join(lines, "\n")
+}
+
+// parseFlowSeq parses a YAML flow sequence like ["a", "b"] or [1, 2].
+// Returns (items, true) on success, (nil, false) if s is not a flow sequence.
+func parseFlowSeq(s string) ([]any, bool) {
+	if len(s) < 2 || s[0] != '[' || s[len(s)-1] != ']' {
+		return nil, false
+	}
+	inner := strings.TrimSpace(s[1 : len(s)-1])
+	if inner == "" {
+		return []any{}, true
+	}
+	var items []any
+	var cur strings.Builder
+	inDouble, inSingle := false, false
+	for i := 0; i < len(inner); i++ {
+		c := inner[i]
+		switch {
+		case c == '"' && !inSingle:
+			inDouble = !inDouble
+			cur.WriteByte(c)
+		case c == '\'' && !inDouble:
+			inSingle = !inSingle
+			cur.WriteByte(c)
+		case c == ',' && !inDouble && !inSingle:
+			items = append(items, parseScalar(strings.TrimSpace(cur.String())))
+			cur.Reset()
+		default:
+			cur.WriteByte(c)
+		}
+	}
+	if tok := strings.TrimSpace(cur.String()); tok != "" {
+		items = append(items, parseScalar(tok))
+	}
+	return items, true
 }
 
 // parseScalar converts a raw YAML scalar string to the appropriate Go type.
