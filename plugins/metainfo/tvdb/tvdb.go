@@ -126,17 +126,25 @@ func (p *tvdbPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 	if s.Language != "" {
 		e.Set("tvdb_language", languageName(s.Language))
 	}
+	if s.Country != "" {
+		e.Set("tvdb_country", s.Country)
+	}
 	if s.ImageURL != "" {
 		e.Set("tvdb_poster", s.ImageURL)
 	}
 	if t := parseFirstAired(s.FirstAired); !t.IsZero() {
 		e.Set("tvdb_first_air_date", t)
 	}
+	if s.Score > 0 {
+		e.Set("tvdb_score", s.Score)
+	}
 
-	// Fetch extended data when the search result is missing genres or language,
-	// which happens inconsistently across TVDB series.
-	if s.ID != "" && (len(s.Genres) == 0 || s.Language == "" || s.FirstAired == "") {
+	// Always fetch extended data — it provides richer and more reliable
+	// metadata (country, status, trailers, content ratings, aliases, etc.)
+	// that the search endpoint returns inconsistently or not at all.
+	if s.ID != "" {
 		if ext, err := p.fetchExtended(ctx, tc, s.ID); err == nil {
+			// Fill in search gaps with extended data.
 			if len(s.Genres) == 0 {
 				if names := ext.GenreNames(); len(names) > 0 {
 					e.Set("tvdb_genres", names)
@@ -149,6 +157,39 @@ func (p *tvdbPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 				if t := parseFirstAired(ext.FirstAired); !t.IsZero() {
 					e.Set("tvdb_first_air_date", t)
 				}
+			}
+
+			// Extended-only fields.
+			country := s.Country
+			if country == "" {
+				country = ext.OriginalCountry
+			}
+			if country != "" {
+				e.Set("tvdb_country", country)
+			}
+			if ext.Status.Name != "" {
+				e.Set("tvdb_status", ext.Status.Name)
+			}
+			if urls := ext.TrailerURLs(); len(urls) > 0 {
+				e.Set("tvdb_trailers", urls)
+			}
+			if rating := ext.ContentRatingName(); rating != "" {
+				e.Set("tvdb_content_rating", rating)
+			}
+			if t := parseFirstAired(ext.LastAired); !t.IsZero() {
+				e.Set("tvdb_last_air_date", t)
+			}
+			if t := parseFirstAired(ext.NextAired); !t.IsZero() {
+				e.Set("tvdb_next_air_date", t)
+			}
+			if ext.Score > 0 && s.Score == 0 {
+				e.Set("tvdb_score", ext.Score)
+			}
+			if aliases := ext.AliasNames(); len(aliases) > 0 {
+				e.Set("tvdb_aliases", aliases)
+			}
+			if cast := ext.ActorNames(); len(cast) > 0 {
+				e.Set("tvdb_cast", cast)
 			}
 		}
 	}
@@ -165,6 +206,12 @@ func (p *tvdbPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 				e.Set("tvdb_episode_name", ep2.Name)
 				e.Set("tvdb_air_date", ep2.AirDate)
 				e.Set("tvdb_episode_overview", ep2.Overview)
+				if ep2.Runtime > 0 {
+					e.Set("tvdb_episode_runtime", ep2.Runtime)
+				}
+				if ep2.Image != "" {
+					e.Set("tvdb_episode_image", ep2.Image)
+				}
 				break
 			}
 		}

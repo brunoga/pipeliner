@@ -58,8 +58,10 @@ type Series struct {
 	Genres     []string `json:"genres"`           // genre names, e.g. ["Drama","Crime"]
 	Network    string   `json:"network"`           // originating network name
 	Language   string   `json:"originalLanguage"`  // original language code, e.g. "eng"
+	Country    string   `json:"country"`           // country of origin, e.g. "usa"
 	ImageURL   string   `json:"image_url"`         // poster image URL
 	FirstAired string   `json:"first_air_time"`    // ISO-8601 from search; may be empty
+	Score      float64  `json:"score"`             // popularity score
 }
 
 // Episode represents a single episode from the series episodes endpoint.
@@ -70,6 +72,8 @@ type Episode struct {
 	EpisodeNumber int    `json:"number"`
 	Overview      string `json:"overview"`
 	AirDate       string `json:"aired"`
+	Runtime       int    `json:"runtime"` // minutes
+	Image         string `json:"image"`   // episode still/thumbnail URL
 }
 
 // SearchSeries searches for TV series by name.
@@ -151,12 +155,52 @@ func (c *Client) GetFavorites(ctx context.Context) ([]int, error) {
 // SeriesExtended holds richer metadata from the /series/{id}/extended endpoint.
 // The search endpoint inconsistently omits genres and language; this endpoint
 // is the authoritative source for both.
+// Trailer holds a single trailer entry from the extended series endpoint.
+type Trailer struct {
+	URL      string `json:"url"`
+	Name     string `json:"name"`
+	Language string `json:"language"`
+	Runtime  int    `json:"runtime"` // seconds
+}
+
+// ContentRating holds a content rating entry (e.g. TV-MA, PG-13).
+type ContentRating struct {
+	Name    string `json:"name"`
+	Country string `json:"country"`
+}
+
+// Alias holds an alternative title for a series.
+type Alias struct {
+	Language string `json:"language"`
+	Name     string `json:"name"`
+}
+
+// Character holds a cast or crew member from the extended series endpoint.
+type Character struct {
+	Name       string `json:"name"`       // character name
+	PersonName string `json:"personName"` // actor/person real name
+	Type       int    `json:"type"`       // 3 = Actor, 4 = Director, etc.
+	Image      string `json:"image"`      // headshot URL
+	Sort       int    `json:"sort"`       // display order
+}
+
 type SeriesExtended struct {
-	Language   string `json:"originalLanguage"` // e.g. "eng"
-	FirstAired string `json:"firstAired"`       // YYYY-MM-DD
-	Genres     []struct {
+	Language        string          `json:"originalLanguage"` // e.g. "eng"
+	OriginalCountry string          `json:"originalCountry"`  // e.g. "usa"
+	FirstAired      string          `json:"firstAired"`       // YYYY-MM-DD
+	LastAired       string          `json:"lastAired"`        // YYYY-MM-DD
+	NextAired       string          `json:"nextAired"`        // YYYY-MM-DD
+	Score           float64         `json:"score"`
+	Status          struct {
+		Name string `json:"name"`
+	} `json:"status"`
+	Genres []struct {
 		Name string `json:"name"`
 	} `json:"genres"`
+	Trailers       []Trailer       `json:"trailers"`
+	ContentRatings []ContentRating `json:"contentRatings"`
+	Aliases        []Alias         `json:"aliases"`
+	Characters     []Character     `json:"characters"`
 }
 
 // GenreNames returns the genre names as a plain string slice.
@@ -170,6 +214,65 @@ func (s *SeriesExtended) GenreNames() []string {
 	return names
 }
 
+// AliasNames returns alias names as a plain string slice.
+func (s *SeriesExtended) AliasNames() []string {
+	names := make([]string, 0, len(s.Aliases))
+	for _, a := range s.Aliases {
+		if a.Name != "" {
+			names = append(names, a.Name)
+		}
+	}
+	return names
+}
+
+// TrailerURLs returns all trailer URLs in order.
+func (s *SeriesExtended) TrailerURLs() []string {
+	urls := make([]string, 0, len(s.Trailers))
+	for _, t := range s.Trailers {
+		if t.URL != "" {
+			urls = append(urls, t.URL)
+		}
+	}
+	return urls
+}
+
+// ContentRatingName returns the first content rating name (e.g. "TV-MA"), or "".
+func (s *SeriesExtended) ContentRatingName() string {
+	for _, cr := range s.ContentRatings {
+		if cr.Name != "" {
+			return cr.Name
+		}
+	}
+	return ""
+}
+
+// ActorNames returns the real names of actors (type 3), sorted by their
+// display order.
+func (s *SeriesExtended) ActorNames() []string {
+	const typeActor = 3
+	type entry struct {
+		name string
+		sort int
+	}
+	var actors []entry
+	for _, c := range s.Characters {
+		if c.Type == typeActor && c.PersonName != "" {
+			actors = append(actors, entry{c.PersonName, c.Sort})
+		}
+	}
+	// Sort by display order.
+	for i := 1; i < len(actors); i++ {
+		for j := i; j > 0 && actors[j].sort < actors[j-1].sort; j-- {
+			actors[j], actors[j-1] = actors[j-1], actors[j]
+		}
+	}
+	names := make([]string, len(actors))
+	for i, a := range actors {
+		names[i] = a.name
+	}
+	return names
+}
+
 // GetSeriesExtended fetches the extended series record for the given TVDB ID.
 // It returns language and genres which are unreliable in search results.
 func (c *Client) GetSeriesExtended(ctx context.Context, id string) (*SeriesExtended, error) {
@@ -177,7 +280,7 @@ func (c *Client) GetSeriesExtended(ctx context.Context, id string) (*SeriesExten
 		return nil, err
 	}
 
-	u := fmt.Sprintf("%s/series/%s/extended", c.BaseURL, id)
+	u := fmt.Sprintf("%s/series/%s/extended?meta=actors", c.BaseURL, id)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return nil, err
