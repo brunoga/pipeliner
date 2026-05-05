@@ -431,6 +431,19 @@ func cmdDaemon(args []string) int {
 		}
 		ws = web.New(taskInfos, d, hist, bcast, resolveVersion(), *webUser, *webPass)
 		ws.SetReload(reload)
+		ws.SetConfigPath(*cfgPath)
+		ws.SetConfigValidator(func(data []byte) []string {
+			c, err := config.ParseBytes(data)
+			if err != nil {
+				return []string{err.Error()}
+			}
+			errs := config.Validate(c)
+			msgs := make([]string, len(errs))
+			for i, e := range errs {
+				msgs[i] = e.Error()
+			}
+			return msgs
+		})
 		go func() {
 			if err := ws.Start(ctx, *webAddr, tlsCfg); err != nil {
 				logger.Error("web server error", "err", err)

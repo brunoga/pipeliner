@@ -219,6 +219,55 @@ section { margin-bottom: 32px; }
 .ll-attrs         { color: var(--text); }
 
 .no-tasks { color: var(--muted); padding: 40px 0; text-align: center; font-size: 13px; }
+
+/* config editor */
+.config-editor {
+  width: 100%;
+  min-height: 400px;
+  background: #010409;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--text);
+  resize: vertical;
+  outline: none;
+  tab-size: 2;
+}
+.config-editor:focus { border-color: var(--accent); }
+.config-toolbar { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+.config-status { font-size: 12px; }
+.config-status.ok      { color: var(--green); }
+.config-status.pending { color: var(--amber); }
+.config-status.err     { color: var(--red); }
+.btn-config {
+  padding: 5px 14px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  transition: border-color 0.15s, color 0.15s;
+}
+.btn-config:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.btn-config.primary:hover:not(:disabled) { border-color: var(--green); color: var(--green); }
+.btn-config:disabled { opacity: 0.4; cursor: not-allowed; }
+.config-errors {
+  margin-top: 10px;
+  padding: 10px 14px;
+  background: rgba(248, 81, 73, 0.08);
+  border: 1px solid rgba(248, 81, 73, 0.3);
+  border-radius: 6px;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 12px;
+  color: var(--red);
+  white-space: pre-wrap;
+  display: none;
+}
 </style>
 </head>
 <body>
@@ -229,6 +278,7 @@ section { margin-bottom: 32px; }
     <span class="header-meta" id="header-meta">connecting…</span>
     <button class="btn-reload" id="btn-run-all" onclick="runAll(this)">Run all</button>
     <button class="btn-reload" id="btn-reload" onclick="reloadConfig(this)">Reload config</button>
+    <button class="btn-reload" id="btn-config-editor" onclick="toggleConfig()">Edit config</button>
   </div>
 </header>
 
@@ -250,6 +300,17 @@ section { margin-bottom: 32px; }
     </div>
   </div>
   <div class="log-console" id="log-console"></div>
+</section>
+
+<section id="config-section" style="display:none">
+  <h2>Config</h2>
+  <textarea class="config-editor" id="config-editor" spellcheck="false" autocomplete="off"></textarea>
+  <div class="config-toolbar">
+    <button class="btn-config" onclick="validateConfig()">Validate</button>
+    <button class="btn-config primary" onclick="saveConfig()">Save &amp; Reload</button>
+    <span class="config-status" id="config-status"></span>
+  </div>
+  <div class="config-errors" id="config-errors"></div>
 </section>
 
 <script>
@@ -515,6 +576,97 @@ async function reloadConfig(btn) {
     btn.title = '';
     refresh(); // re-evaluate disabled state
   }, 3000);
+}
+
+// ── config editor ─────────────────────────────────────────────────────────────
+
+let configLoaded = false;
+
+function toggleConfig() {
+  const sec = document.getElementById('config-section');
+  const btn = document.getElementById('btn-config-editor');
+  const visible = sec.style.display !== 'none';
+  sec.style.display = visible ? 'none' : '';
+  btn.textContent = visible ? 'Edit config' : 'Hide config';
+  if (!visible && !configLoaded) loadConfig();
+}
+
+async function loadConfig() {
+  try {
+    const r = await fetch('/api/config');
+    if (!r.ok) return;
+    const { content } = await r.json();
+    document.getElementById('config-editor').value = content;
+    configLoaded = true;
+  } catch (e) { /* silently skip if endpoint not available */ }
+}
+
+async function validateConfig() {
+  const content = document.getElementById('config-editor').value;
+  setConfigStatus('', '');
+  try {
+    const r = await fetch('/api/config', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({content, dry_run: true}),
+    });
+    if (r.status === 422) {
+      const { errors } = await r.json();
+      showConfigErrors(errors);
+    } else if (r.ok) {
+      showConfigErrors([]);
+      setConfigStatus('ok', '✓ Config is valid');
+    } else {
+      setConfigStatus('err', 'Server error: ' + r.status);
+    }
+  } catch (e) {
+    setConfigStatus('err', String(e));
+  }
+}
+
+async function saveConfig() {
+  const content = document.getElementById('config-editor').value;
+  setConfigStatus('', '');
+  try {
+    const r = await fetch('/api/config', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({content}),
+    });
+    if (r.status === 422) {
+      const { errors } = await r.json();
+      showConfigErrors(errors);
+      return;
+    }
+    if (!r.ok) { setConfigStatus('err', 'Save failed: ' + r.status); return; }
+    showConfigErrors([]);
+    const { status } = await r.json();
+    if (status === 'reloaded') {
+      setConfigStatus('ok', '✓ Saved and reloaded');
+      refresh();
+    } else {
+      setConfigStatus('pending', '⏳ Saved — will reload when tasks finish');
+    }
+  } catch (e) {
+    setConfigStatus('err', String(e));
+  }
+}
+
+function setConfigStatus(cls, msg) {
+  const el = document.getElementById('config-status');
+  el.className = 'config-status' + (cls ? ' ' + cls : '');
+  el.textContent = msg;
+}
+
+function showConfigErrors(errors) {
+  const el = document.getElementById('config-errors');
+  if (!errors || errors.length === 0) {
+    el.style.display = 'none';
+    el.textContent = '';
+  } else {
+    el.style.display = '';
+    el.textContent = errors.join('\n');
+  }
 }
 
 // ── boot ──────────────────────────────────────────────────────────────────────
