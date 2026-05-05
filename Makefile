@@ -4,7 +4,7 @@ COVER   := coverage.out
 VERSION := $(shell git describe --tags --dirty --always 2>/dev/null || echo "dev")
 LDFLAGS := -ldflags "-X main.version=$(VERSION)"
 
-.PHONY: build test lint vet cover clean
+.PHONY: build test lint vet cover clean docker-build docker-up
 
 build:
 	go build $(LDFLAGS) -o $(BINARY) ./cmd/pipeliner
@@ -24,3 +24,9 @@ cover:
 
 clean:
 	rm -f $(BINARY) $(COVER) coverage.html
+
+docker-build:
+	VERSION=$(VERSION) docker compose build
+
+docker-up:
+	VERSION=$(VERSION) docker compose up --build
