@@ -23,7 +23,7 @@ func TestLoginAndSearch(t *testing.T) {
 			}
 			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
 				"data": []map[string]any{
-					{"tvdb_id": 81189, "name": "Breaking Bad", "year": "2008"},
+					{"tvdb_id": "81189", "name": "Breaking Bad", "year": "2008"},
 				},
 				"status": "success",
 			})
@@ -46,8 +46,8 @@ func TestLoginAndSearch(t *testing.T) {
 	if results[0].Name != "Breaking Bad" {
 		t.Errorf("name: got %q", results[0].Name)
 	}
-	if results[0].ID != 81189 {
-		t.Errorf("id: got %d", results[0].ID)
+	if results[0].ID != "81189" {
+		t.Errorf("id: got %q", results[0].ID)
 	}
 }
 
@@ -77,7 +77,7 @@ func TestGetEpisodes(t *testing.T) {
 	c := New("test-key")
 	c.BaseURL = srv.URL + "/v4"
 
-	eps, err := c.GetEpisodes(context.Background(), 81189)
+	eps, err := c.GetEpisodes(context.Background(), "81189")
 	if err != nil {
 		t.Fatalf("GetEpisodes: %v", err)
 	}
