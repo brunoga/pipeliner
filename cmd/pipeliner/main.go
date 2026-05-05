@@ -272,7 +272,13 @@ func cmdDaemon(args []string) int {
 	var logger *slog.Logger
 	if *webAddr != "" {
 		bcast = web.NewBroadcaster()
-		h := clog.NewColored(bcast, opts) // force ANSI for web ANSI→HTML conversion
+		// Write to both stderr and the broadcaster so startup errors (config not
+		// found, invalid config, etc.) are always visible on the terminal even
+		// before any web client connects.
+		h := clog.Multi(
+			clog.New(os.Stderr, opts),
+			clog.NewColored(bcast, opts),
+		)
 		if *logPlugin != "" {
 			logger = slog.New(clog.NewPluginFilter(h, *logPlugin))
 		} else {
