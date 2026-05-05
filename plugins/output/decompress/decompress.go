@@ -46,6 +46,7 @@ func validate(cfg map[string]any) []error {
 	if err := plugin.OptEnum(cfg, "tool", "decompress", "unrar", "7z", "unar"); err != nil {
 		errs = append(errs, err)
 	}
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "decompress", "to", "keep_dirs", "delete_archive", "tool")...)
 	return errs
 }
 

@@ -38,6 +38,7 @@ func validate(cfg map[string]any) []error {
 	if err := plugin.RequireString(cfg, "user_pin", "input_tvdb"); err != nil {
 		errs = append(errs, err)
 	}
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "input_tvdb", "api_key", "user_pin")...)
 	return errs
 }
 

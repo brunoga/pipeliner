@@ -32,10 +32,12 @@ func init() {
 }
 
 func validate(cfg map[string]any) []error {
+	var errs []error
 	if err := plugin.RequireOneOf(cfg, "content", "reject", "require"); err != nil {
-		return []error{err}
+		errs = append(errs, err)
 	}
-	return nil
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "content", "reject", "require")...)
+	return errs
 }
 
 type contentPlugin struct {

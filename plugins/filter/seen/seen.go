@@ -19,7 +19,12 @@ func init() {
 		Description: "reject already-processed entries; marks accepted entries as seen in learn phase",
 		PluginPhase: plugin.PhaseFilter,
 		Factory:     newPlugin,
+		Validate:    validate,
 	})
+}
+
+func validate(cfg map[string]any) []error {
+	return plugin.OptUnknownKeys(cfg, "seen", "fields", "local")
 }
 
 type seenPlugin struct {

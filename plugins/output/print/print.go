@@ -22,7 +22,12 @@ func init() {
 		Description: "print accepted entries to stdout",
 		PluginPhase: plugin.PhaseOutput,
 		Factory:     newPrintPlugin,
+		Validate:    validate,
 	})
+}
+
+func validate(cfg map[string]any) []error {
+	return plugin.OptUnknownKeys(cfg, "print", "format")
 }
 
 type printPlugin struct {

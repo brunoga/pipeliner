@@ -51,6 +51,19 @@ func OptDuration(cfg map[string]any, key, plugin string) error {
 	return nil
 }
 
+// OptUnknownKeys returns an error for each key in cfg that is not in the known
+// set. Call this at the end of every Validate function to catch typos like
+// "timeout" instead of "scrape_timeout".
+func OptUnknownKeys(cfg map[string]any, pluginName string, known ...string) []error {
+	var errs []error
+	for k := range cfg {
+		if !slices.Contains(known, k) {
+			errs = append(errs, fmt.Errorf("%s: unknown config key %q", pluginName, k))
+		}
+	}
+	return errs
+}
+
 // OptEnum returns an error if cfg[key] is set but not one of the valid values.
 func OptEnum(cfg map[string]any, key, plugin string, valid ...string) error {
 	v, _ := cfg[key].(string)
