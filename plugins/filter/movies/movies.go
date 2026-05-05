@@ -1,10 +1,13 @@
 // Package movies provides a movie filter and learn plugin.
 //
-// It parses movie information from entry titles, matches them against a configured
-// title list, and enforces quality constraints. Multiple quality variants of the
-// same movie are all accepted so the task engine's automatic deduplication can
-// choose the best copy. The tracker is updated in the Learn phase so only the
-// dedup survivor is recorded as downloaded.
+// It parses movie title, year, quality, and 3D format from entry titles,
+// matches against a configured title list, and enforces quality constraints.
+// Multiple quality variants of the same movie are all accepted so the task
+// engine's automatic deduplication can choose the best copy. The tracker is
+// updated in the Learn phase so only the dedup survivor is recorded.
+//
+// Fields set on each matched entry: movie_title, movie_year, movie_quality,
+// movie_3d.
 //
 // The movie list may be provided statically via 'movies', dynamically via 'from'
 // (a list of input plugins whose entry titles are used as movie names), or both.
@@ -37,7 +40,7 @@ func init() {
 
 func validate(cfg map[string]any) []error {
 	var errs []error
-	if err := plugin.RequireOneOf(cfg, "movies", "movies", "shows", "from"); err != nil {
+	if err := plugin.RequireOneOf(cfg, "movies", "movies", "from"); err != nil {
 		errs = append(errs, err)
 	}
 	if err := plugin.OptDuration(cfg, "ttl", "movies"); err != nil {
@@ -117,17 +120,23 @@ func (p *moviesPlugin) Phase() plugin.Phase { return plugin.PhaseFilter }
 func (p *moviesPlugin) Filter(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
 	m, ok := imovies.Parse(e.Title)
 	if !ok {
+		tc.Logger.Debug("movies: title did not parse as movie", "entry", e.Title)
 		return nil
 	}
 
 	titles := p.resolveTitles(ctx, tc)
 	matchedTitle, ok := matchTitle(m.Title, titles)
 	if !ok {
+		tc.Logger.Debug("movies: no title match", "title", m.Title, "titles_loaded", len(titles))
 		return nil
 	}
 
 	e.Set("movie_title", matchedTitle)
 	e.Set("movie_year", m.Year)
+	e.Set("movie_3d", m.Is3D)
+	if q := m.Quality.String(); q != "unknown" {
+		e.Set("movie_quality", q)
+	}
 
 	if p.tracker.IsSeen(matchedTitle, m.Year) {
 		if rec, ok := p.tracker.Latest(matchedTitle); ok && rec.Year == m.Year {
@@ -182,6 +191,7 @@ func (p *moviesPlugin) resolveTitles(ctx context.Context, tc *plugin.TaskContext
 		return p.staticTitles
 	}
 	if dynamic, ok := p.listCache.Get("titles"); ok {
+		tc.Logger.Debug("movies: loaded titles from cache", "count", len(dynamic))
 		return append(p.staticTitles, dynamic...)
 	}
 	var dynamic []string
@@ -192,6 +202,7 @@ func (p *moviesPlugin) resolveTitles(ctx context.Context, tc *plugin.TaskContext
 			tc.Logger.Warn("movies: from source failed", "plugin", inp.Name(), "err", err)
 			continue
 		}
+		tc.Logger.Debug("movies: loaded titles from source", "plugin", inp.Name(), "count", len(fromEntries))
 		for _, e := range fromEntries {
 			if e.Title != "" {
 				dynamic = append(dynamic, match.Normalize(e.Title))

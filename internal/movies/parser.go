@@ -1,4 +1,5 @@
-// Package movies parses movie title and year information from media release names.
+// Package movies parses movie metadata from media release names, including
+// title, year, video quality, and 3D format detection.
 package movies
 
 import (
@@ -15,10 +16,14 @@ type Movie struct {
 	Title   string
 	Year    int
 	Quality quality.Quality
+	Is3D    bool
 }
 
 var (
 	reYear = regexp.MustCompile(`\b((?:19|20)\d{2})\b`)
+
+	// re3D matches common 3D release markers.
+	re3D = regexp.MustCompile(`(?i)\b(3D|HSBS|H-SBS|HALF-SBS|FSBS|F-SBS|FULL-SBS|SBS|HOU|H-OU|HALF-OU|FOU|F-OU|FULL-OU|OU|BD3D)\b`)
 
 	// Tokens that commonly appear right after the year in scene release names.
 	reQualityStart = regexp.MustCompile(
@@ -46,6 +51,7 @@ var (
 func Parse(title string) (*Movie, bool) {
 	m := &Movie{}
 	m.Quality = quality.Parse(title)
+	m.Is3D = re3D.MatchString(title)
 
 	// Strip file container extension.
 	if ext := reContainer.FindString(title); ext != "" {
