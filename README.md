@@ -147,6 +147,55 @@ See [`plugins/`](plugins/README.md) for the plugin model and links to every plug
 | [`pushover`](plugins/notify/pushover/README.md) | Send a notification via the Pushover API |
 | [`webhook`](plugins/notify/webhook/README.md) | POST a run summary to an HTTP endpoint |
 
+## Platforms
+
+Pre-built binaries are available for every [release](https://github.com/brunoga/pipeliner/releases):
+
+| OS | Architectures |
+|----|---------------|
+| Linux | `amd64`, `arm64`, `arm/v7` |
+| Windows | `amd64`, `arm64` |
+| macOS | `amd64` (Intel), `arm64` (Apple Silicon) |
+
+## Docker
+
+Multi-platform Linux images are published to the GitHub Container Registry on every release tag:
+
+```sh
+docker pull ghcr.io/brunoga/pipeliner:latest
+```
+
+Supported platforms: `linux/amd64`, `linux/arm64`, `linux/arm/v7`.
+
+```sh
+docker run -d \
+  -p 8080:8080 \
+  -v pipeliner-data:/config \
+  -e PIPELINER_WEB_USER=admin \
+  -e PIPELINER_WEB_PASSWORD=secret \
+  ghcr.io/brunoga/pipeliner:latest
+```
+
+| Environment variable | Default | Description |
+|----------------------|---------|-------------|
+| `PIPELINER_WEB_USER` | — | Web UI username **(required)** |
+| `PIPELINER_WEB_PASSWORD` | — | Web UI password **(required)** |
+| `PIPELINER_WEB_ADDR` | `:8080` | Listen address |
+| `PIPELINER_LOG_LEVEL` | `info` | Log level (`debug`, `info`, `warn`, `error`) |
+| `PIPELINER_CONFIG` | `/config/config.yaml` | Config file path |
+
+The `/config` volume holds both `config.yaml` and `pipeliner.db` (state database). Mount a named volume or bind-mount to persist across restarts. The config can be edited live through the web UI's **Edit Config** tab.
+
+## Security
+
+### Variable substitution
+
+Config files support `${ENV_VAR}` and `{$ variable $}` substitution, which is applied to the raw YAML bytes before parsing. If a substituted value contains YAML structural characters (newlines, unquoted colons, etc.) it could alter the parsed structure of the config.
+
+**Practical risk is low** — substituted values come from environment variables and the `variables:` block in the config file, both of which are controlled by the operator. If an attacker can set your environment variables, they have broader access to your system anyway.
+
+**Mitigation**: do not source environment variables from untrusted external systems when running pipeliner, and ensure `{$ variable $}` values are simple strings without YAML metacharacters.
+
 ## Example configs
 
 | File | Description |
