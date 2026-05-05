@@ -24,9 +24,18 @@ All results are cached in `pipeliner.db` to avoid redundant API calls across run
 | `tvdb_slug` | string | URL slug (use to build `https://thetvdb.com/series/{slug}`) |
 | `tvdb_network` | string | Originating network (e.g. `AMC`) |
 | `tvdb_language` | string | Original language (e.g. `English`) |
+| `tvdb_country` | string | Country of origin (e.g. `usa`) |
 | `tvdb_genres` | []string | Genre names (e.g. `["Drama", "Crime"]`) |
 | `tvdb_poster` | string | Poster image URL |
 | `tvdb_first_air_date` | time.Time | Date of first broadcast |
+| `tvdb_last_air_date` | time.Time | Date of most recent episode |
+| `tvdb_next_air_date` | time.Time | Next scheduled air date (if known) |
+| `tvdb_status` | string | Series status (e.g. `Ended`, `Continuing`) |
+| `tvdb_content_rating` | string | Content rating (e.g. `TV-MA`, `TV-14`) |
+| `tvdb_trailers` | []string | Trailer URLs |
+| `tvdb_score` | float64 | Popularity score |
+| `tvdb_aliases` | []string | Alternative titles |
+| `tvdb_cast` | []string | Actor names in display order |
 
 ### Episode-level (when season and episode are parsed)
 
@@ -36,6 +45,8 @@ All results are cached in `pipeliner.db` to avoid redundant API calls across run
 | `tvdb_episode_name` | string | Episode title |
 | `tvdb_air_date` | string | Episode air date (`YYYY-MM-DD`) |
 | `tvdb_episode_overview` | string | Episode overview |
+| `tvdb_episode_runtime` | int | Episode runtime in minutes |
+| `tvdb_episode_image` | string | Episode still/thumbnail URL |
 
 ## Example
 
