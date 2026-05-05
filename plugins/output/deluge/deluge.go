@@ -31,15 +31,16 @@ func validate(cfg map[string]any) []error {
 			errs = append(errs, fmt.Errorf("deluge: \"port\" must be a positive integer"))
 		}
 	}
-	errs = append(errs, plugin.OptUnknownKeys(cfg, "deluge", "host", "port", "password", "path", "tls")...)
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "deluge", "host", "port", "password", "path", "move_completed_path", "tls")...)
 	return errs
 }
 
 type delugePlugin struct {
-	endpoint string // e.g. "http://host:8112/json"
-	password string
-	pathIP   *interp.Interpolator
-	client   *http.Client
+	endpoint          string // e.g. "http://host:8112/json"
+	password          string
+	pathIP            *interp.Interpolator
+	moveCompletedIP   *interp.Interpolator // nil = don't set move_completed
+	client            *http.Client
 }
 
 func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
@@ -59,16 +60,26 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 		return nil, fmt.Errorf("deluge: invalid path pattern: %w", err)
 	}
 
+	var moveCompletedIP *interp.Interpolator
+	if mcPat, _ := cfg["move_completed_path"].(string); mcPat != "" {
+		ip, err := interp.Compile(mcPat)
+		if err != nil {
+			return nil, fmt.Errorf("deluge: invalid move_completed_path pattern: %w", err)
+		}
+		moveCompletedIP = ip
+	}
+
 	scheme := "http"
 	if tls, _ := cfg["tls"].(bool); tls {
 		scheme = "https"
 	}
 
 	return &delugePlugin{
-		endpoint: fmt.Sprintf("%s://%s:%d/json", scheme, host, port),
-		password: password,
-		pathIP:   pathIP,
-		client:   &http.Client{},
+		endpoint:        fmt.Sprintf("%s://%s:%d/json", scheme, host, port),
+		password:        password,
+		pathIP:          pathIP,
+		moveCompletedIP: moveCompletedIP,
+		client:          &http.Client{},
 	}, nil
 }
 
@@ -85,7 +96,15 @@ func (p *delugePlugin) Output(ctx context.Context, tc *plugin.TaskContext, entri
 			tc.Logger.Error("deluge: render path", "title", e.Title, "err", err)
 			continue
 		}
-		if err := p.addTorrent(ctx, e.URL, savePath); err != nil {
+		var moveCompleted string
+		if p.moveCompletedIP != nil {
+			moveCompleted, err = p.moveCompletedIP.Render(interp.EntryData(e))
+			if err != nil {
+				tc.Logger.Error("deluge: render move_completed_path", "title", e.Title, "err", err)
+				continue
+			}
+		}
+		if err := p.addTorrent(ctx, e.URL, savePath, moveCompleted); err != nil {
 			tc.Logger.Error("deluge: add torrent", "title", e.Title, "err", err)
 		}
 	}
@@ -103,10 +122,14 @@ func (p *delugePlugin) login(ctx context.Context) error {
 	return nil
 }
 
-func (p *delugePlugin) addTorrent(ctx context.Context, url, savePath string) error {
+func (p *delugePlugin) addTorrent(ctx context.Context, url, savePath, moveCompletedPath string) error {
 	opts := map[string]any{}
 	if savePath != "" {
 		opts["download_location"] = savePath
+	}
+	if moveCompletedPath != "" {
+		opts["move_completed"] = true
+		opts["move_completed_path"] = moveCompletedPath
 	}
 	_, err := p.rpc(ctx, "core.add_torrent_url", []any{url, opts})
 	return err
