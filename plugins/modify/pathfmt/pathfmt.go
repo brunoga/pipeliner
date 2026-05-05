@@ -25,10 +25,12 @@ func init() {
 }
 
 func validate(cfg map[string]any) []error {
+	var errs []error
 	if err := plugin.RequireString(cfg, "path", "pathfmt"); err != nil {
-		return []error{err}
+		errs = append(errs, err)
 	}
-	return nil
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "pathfmt", "path")...)
+	return errs
 }
 
 type pathfmtPlugin struct {

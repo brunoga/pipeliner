@@ -49,6 +49,7 @@ func validate(cfg map[string]any) []error {
 	if err := plugin.OptDuration(cfg, "interval", "discover"); err != nil {
 		errs = append(errs, err)
 	}
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "discover", "titles", "from", "via", "interval")...)
 	return errs
 }
 

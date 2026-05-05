@@ -24,10 +24,12 @@ func init() {
 }
 
 func validate(cfg map[string]any) []error {
+	var errs []error
 	if err := plugin.RequireOneOf(cfg, "regexp", "accept", "reject", "from"); err != nil {
-		return []error{err}
+		errs = append(errs, err)
 	}
-	return nil
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "regexp", "accept", "reject", "from")...)
+	return errs
 }
 
 // regexpRule pairs a compiled regexp with an optional per-pattern field list.

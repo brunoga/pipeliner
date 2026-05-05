@@ -46,6 +46,7 @@ func validate(cfg map[string]any) []error {
 	if err := plugin.OptDuration(cfg, "cache_ttl", "metainfo_trakt"); err != nil {
 		errs = append(errs, err)
 	}
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "metainfo_trakt", "client_id", "type", "cache_ttl")...)
 	return errs
 }
 

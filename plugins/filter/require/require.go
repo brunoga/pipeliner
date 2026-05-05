@@ -24,15 +24,18 @@ func init() {
 }
 
 func validate(cfg map[string]any) []error {
+	var errs []error
 	v := cfg["fields"]
 	if v == nil {
-		return []error{fmt.Errorf("require: \"fields\" must be a non-empty string or list of strings")}
+		errs = append(errs, fmt.Errorf("require: \"fields\" must be a non-empty string or list of strings"))
+	} else {
+		fields, err := toStringSlice(v)
+		if err != nil || len(fields) == 0 {
+			errs = append(errs, fmt.Errorf("require: \"fields\" must be a non-empty string or list of strings"))
+		}
 	}
-	fields, err := toStringSlice(v)
-	if err != nil || len(fields) == 0 {
-		return []error{fmt.Errorf("require: \"fields\" must be a non-empty string or list of strings")}
-	}
-	return nil
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "require", "fields")...)
+	return errs
 }
 
 type requirePlugin struct {

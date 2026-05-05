@@ -30,6 +30,7 @@ func Validate(cfg map[string]any) []error {
 	if len(to) == 0 {
 		errs = append(errs, fmt.Errorf("email: \"to\" list must be non-empty"))
 	}
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "email", "smtp_host", "smtp_port", "from", "to", "username", "password", "html")...)
 	return errs
 }
 

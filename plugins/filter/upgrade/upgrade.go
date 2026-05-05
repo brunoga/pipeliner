@@ -42,6 +42,7 @@ func validate(cfg map[string]any) []error {
 	if err := plugin.OptEnum(cfg, "on_lower", "upgrade", "reject", "accept"); err != nil {
 		errs = append(errs, err)
 	}
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "upgrade", "target", "on_lower")...)
 	return errs
 }
 

@@ -25,12 +25,14 @@ func init() {
 }
 
 func validate(cfg map[string]any) []error {
+	var errs []error
 	if v, ok := cfg["port"]; ok {
 		if n := intVal(v, 0); n <= 0 {
-			return []error{fmt.Errorf("deluge: \"port\" must be a positive integer")}
+			errs = append(errs, fmt.Errorf("deluge: \"port\" must be a positive integer"))
 		}
 	}
-	return nil
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "deluge", "host", "port", "password", "path", "tls")...)
+	return errs
 }
 
 type delugePlugin struct {

@@ -26,10 +26,12 @@ func init() {
 }
 
 func validate(cfg map[string]any) []error {
+	var errs []error
 	if err := plugin.RequireString(cfg, "path", "exists"); err != nil {
-		return []error{err}
+		errs = append(errs, err)
 	}
-	return nil
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "exists", "path", "recursive")...)
+	return errs
 }
 
 type existsPlugin struct {
