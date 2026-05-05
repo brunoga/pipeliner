@@ -1,9 +1,13 @@
 # premiere
 
-Accepts only the first episode of previously unseen series. Useful for
-discovering new shows: once a series premiere is accepted, subsequent episodes
-of that show are rejected by this filter (other filters such as `series` take
-over).
+Accepts premiere episodes of previously unseen series. Useful for discovering
+new shows: once a premiere is downloaded, subsequent runs reject that series so
+it is not re-triggered (other filters such as `series` take over episode tracking).
+
+**Multiple quality variants** of the same premiere are all accepted so the task
+engine's automatic deduplication can pick the best copy (highest resolution among
+torrents with 2+ seeds, falling back to most seeds). The series is marked seen in
+the Learn phase — only the winning copy is recorded.
 
 State is persisted in `pipeliner.db` in the same directory as the config file.
 

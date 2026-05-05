@@ -1,6 +1,8 @@
 # series
 
-Accepts episodes of configured TV shows. Parses the episode identifier from the entry title, matches the series name with fuzzy matching, deduplicates against a persistent download history, and enforces optional quality and ordering constraints.
+Accepts episodes of configured TV shows. Parses the episode identifier from the entry title, matches the series name with fuzzy matching, and enforces optional quality and ordering constraints.
+
+**Multiple quality variants** of the same episode (from different sources or input feeds) are all accepted so the task engine's automatic deduplication can pick the best copy. The download history is updated in the Learn phase — only the winning copy is recorded.
 
 The show list can be provided statically via `shows`, dynamically via `from` (a list of input plugins whose entry titles are used as show names), or both. Dynamic results are cached for the configured `ttl` so external APIs are not called on every pipeline run.
 
