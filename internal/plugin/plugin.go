@@ -67,6 +67,17 @@ type FilterPlugin interface {
 	Filter(ctx context.Context, task *TaskContext, e *entry.Entry) error
 }
 
+// BatchFilterPlugin is an optional extension of FilterPlugin for plugins that
+// can process all entries at once more efficiently than one at a time (e.g.
+// by firing network requests in parallel). The task engine calls FilterBatch
+// instead of Filter for any plugin that implements this interface.
+// The plugin must respect already-decided entries (IsRejected/IsFailed) and
+// must honour context cancellation.
+type BatchFilterPlugin interface {
+	Plugin
+	FilterBatch(ctx context.Context, task *TaskContext, entries []*entry.Entry) error
+}
+
 // ModifyPlugin transforms entry fields without changing acceptance state.
 type ModifyPlugin interface {
 	Plugin
