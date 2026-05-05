@@ -147,16 +147,16 @@ section { margin-bottom: 32px; }
 
 .log-filter {
   padding: 3px 8px;
-  background: var(--bg2);
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 4px;
-  color: var(--fg);
+  color: var(--text);
   font-size: 12px;
   font-family: inherit;
   width: 200px;
   outline: none;
 }
-.log-filter:focus { border-color: var(--blue); }
+.log-filter:focus { border-color: var(--accent); }
 .log-filter::placeholder { color: var(--muted); }
 
 .log-status { font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 5px; }
@@ -220,23 +220,71 @@ section { margin-bottom: 32px; }
 
 .no-tasks { color: var(--muted); padding: 40px 0; text-align: center; font-size: 13px; }
 
-/* config editor */
-.config-editor {
+/* tabs */
+.tab-bar { display: flex; gap: 2px; border-bottom: 1px solid var(--border); margin-bottom: 24px; }
+.tab-btn {
+  padding: 8px 16px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: -1px;
+  transition: color 0.15s;
+}
+.tab-btn.active { color: var(--text); border-bottom-color: var(--accent); }
+.tab-btn:hover:not(.active) { color: var(--text); }
+
+/* config editor — textarea+pre overlay for syntax highlighting */
+.editor-wrap {
+  position: relative;
   width: 100%;
   min-height: 400px;
-  background: #010409;
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 12px 14px;
+  overflow: hidden;
+}
+.editor-wrap:focus-within { border-color: var(--accent); }
+.editor-hl, .editor-ta {
   font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
   font-size: 12px;
   line-height: 1.65;
-  color: var(--text);
-  resize: vertical;
-  outline: none;
+  padding: 12px 14px;
+  margin: 0;
+  width: 100%;
+  min-height: 400px;
+  white-space: pre-wrap;
+  word-wrap: break-word;
   tab-size: 2;
+  border: none;
+  border-radius: 0;
+  outline: none;
 }
-.config-editor:focus { border-color: var(--accent); }
+.editor-hl {
+  background: #010409;
+  color: var(--text);
+  pointer-events: none;
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  overflow: hidden;
+}
+.editor-ta {
+  background: transparent;
+  color: transparent;
+  caret-color: var(--text);
+  position: relative;
+  resize: vertical;
+  z-index: 1;
+}
+/* YAML token colours */
+.y-key     { color: #79c0ff; }
+.y-str     { color: #a5d6ff; }
+.y-num     { color: #f2cc60; }
+.y-bool    { color: #ff7b72; }
+.y-null    { color: #ff7b72; }
+.y-comment { color: var(--muted); font-style: italic; }
 .config-toolbar { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
 .config-status { font-size: 12px; }
 .config-status.ok      { color: var(--green); }
@@ -278,40 +326,51 @@ section { margin-bottom: 32px; }
     <span class="header-meta" id="header-meta">connecting…</span>
     <button class="btn-reload" id="btn-run-all" onclick="runAll(this)">Run all</button>
     <button class="btn-reload" id="btn-reload" onclick="reloadConfig(this)">Reload config</button>
-    <button class="btn-reload" id="btn-config-editor" onclick="toggleConfig()">Edit config</button>
   </div>
 </header>
 
-<section>
-  <h2>Tasks</h2>
-  <div class="task-grid" id="task-grid"><div class="no-tasks">Loading…</div></div>
-</section>
+<div class="tab-bar">
+  <button class="tab-btn active" id="tab-btn-dashboard" onclick="showTab('dashboard')">Dashboard</button>
+  <button class="tab-btn" id="tab-btn-config" onclick="showTab('config')">Edit Config</button>
+</div>
 
-<section>
-  <div class="log-header">
-    <h2>Live Log</h2>
-    <div class="log-controls">
-      <input type="text" id="log-filter" class="log-filter" placeholder="filter…" oninput="applyFilter()" autocomplete="off">
-      <div class="log-status">
-        <div class="dot" id="log-dot"></div>
-        <span id="log-status-text">disconnected</span>
+<div id="tab-dashboard">
+  <section>
+    <h2>Tasks</h2>
+    <div class="task-grid" id="task-grid"><div class="no-tasks">Loading…</div></div>
+  </section>
+
+  <section>
+    <div class="log-header">
+      <h2>Live Log</h2>
+      <div class="log-controls">
+        <input type="text" id="log-filter" class="log-filter" placeholder="filter…" oninput="applyFilter()" autocomplete="off">
+        <div class="log-status">
+          <div class="dot" id="log-dot"></div>
+          <span id="log-status-text">disconnected</span>
+        </div>
+        <button class="btn-clear" onclick="clearLog()">Clear</button>
       </div>
-      <button class="btn-clear" onclick="clearLog()">Clear</button>
     </div>
-  </div>
-  <div class="log-console" id="log-console"></div>
-</section>
+    <div class="log-console" id="log-console"></div>
+  </section>
+</div>
 
-<section id="config-section" style="display:none">
-  <h2>Config</h2>
-  <textarea class="config-editor" id="config-editor" spellcheck="false" autocomplete="off"></textarea>
-  <div class="config-toolbar">
-    <button class="btn-config" onclick="validateConfig()">Validate</button>
-    <button class="btn-config primary" onclick="saveConfig()">Save &amp; Reload</button>
-    <span class="config-status" id="config-status"></span>
-  </div>
-  <div class="config-errors" id="config-errors"></div>
-</section>
+<div id="tab-config" style="display:none">
+  <section>
+    <div class="editor-wrap">
+      <pre class="editor-hl" id="editor-hl" aria-hidden="true"></pre>
+      <textarea class="editor-ta" id="config-editor" spellcheck="false" autocomplete="off"
+        oninput="syncHighlight()" onscroll="syncScroll()" onkeydown="editorTab(event)"></textarea>
+    </div>
+    <div class="config-toolbar">
+      <button class="btn-config" onclick="validateConfig()">Validate</button>
+      <button class="btn-config primary" onclick="saveConfig()">Save &amp; Reload</button>
+      <span class="config-status" id="config-status"></span>
+    </div>
+    <div class="config-errors" id="config-errors"></div>
+  </section>
+</div>
 
 <script>
 'use strict';
@@ -578,18 +637,79 @@ async function reloadConfig(btn) {
   }, 3000);
 }
 
-// ── config editor ─────────────────────────────────────────────────────────────
+// ── tabs ──────────────────────────────────────────────────────────────────────
 
 let configLoaded = false;
 
-function toggleConfig() {
-  const sec = document.getElementById('config-section');
-  const btn = document.getElementById('btn-config-editor');
-  const visible = sec.style.display !== 'none';
-  sec.style.display = visible ? 'none' : '';
-  btn.textContent = visible ? 'Edit config' : 'Hide config';
-  if (!visible && !configLoaded) loadConfig();
+function showTab(name) {
+  document.getElementById('tab-dashboard').style.display = name === 'dashboard' ? '' : 'none';
+  document.getElementById('tab-config').style.display    = name === 'config'    ? '' : 'none';
+  document.getElementById('tab-btn-dashboard').classList.toggle('active', name === 'dashboard');
+  document.getElementById('tab-btn-config').classList.toggle('active', name === 'config');
+  if (name === 'config' && !configLoaded) loadConfig();
 }
+
+// ── YAML syntax highlighting ──────────────────────────────────────────────────
+
+function highlightYAML(text) {
+  return text.split('\n').map(line => {
+    const e = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    // Comment line
+    if (/^\s*#/.test(line)) return `<span class="y-comment">${e(line)}</span>`;
+    // Key: value
+    const kv = line.match(/^(\s*)([\w\-\.]+)(\s*:)([ \t]*.*)$/);
+    if (kv) {
+      const [,ind,key,colon,rest] = kv;
+      return e(ind) + `<span class="y-key">${e(key)}</span>` + e(colon) + hlVal(rest, e);
+    }
+    // List item
+    const li = line.match(/^(\s*-[ \t]*)(.*)$/);
+    if (li) return e(li[1]) + hlVal(li[2], e);
+    return e(line);
+  }).join('\n') + '\n'; // trailing newline keeps caret on last line visible
+}
+
+function hlVal(s, e) {
+  const t = s.trim();
+  if (!t) return e(s);
+  // Inline comment
+  const cm = s.match(/^([^#"']*)(#.*)$/);
+  if (cm && !/^["']/.test(t)) return e(cm[1]) + `<span class="y-comment">${e(cm[2])}</span>`;
+  // Quoted string
+  if (/^["']/.test(t)) return `<span class="y-str">${e(s)}</span>`;
+  // Bool
+  if (/^(true|false|yes|no|on|off)$/i.test(t)) return `<span class="y-bool">${e(s)}</span>`;
+  // Null
+  if (/^(null|~)$/.test(t)) return `<span class="y-null">${e(s)}</span>`;
+  // Number
+  if (/^-?\d+(\.\d+)?$/.test(t)) return `<span class="y-num">${e(s)}</span>`;
+  return e(s);
+}
+
+function syncHighlight() {
+  const ta = document.getElementById('config-editor');
+  document.getElementById('editor-hl').innerHTML = highlightYAML(ta.value);
+  syncScroll();
+}
+
+function syncScroll() {
+  const ta = document.getElementById('config-editor');
+  const hl = document.getElementById('editor-hl');
+  hl.scrollTop  = ta.scrollTop;
+  hl.scrollLeft = ta.scrollLeft;
+}
+
+function editorTab(e) {
+  if (e.key !== 'Tab') return;
+  e.preventDefault();
+  const ta = document.getElementById('config-editor');
+  const s = ta.selectionStart, end = ta.selectionEnd;
+  ta.value = ta.value.slice(0, s) + '  ' + ta.value.slice(end);
+  ta.selectionStart = ta.selectionEnd = s + 2;
+  syncHighlight();
+}
+
+// ── config editor ─────────────────────────────────────────────────────────────
 
 async function loadConfig() {
   try {
@@ -598,6 +718,7 @@ async function loadConfig() {
     const { content } = await r.json();
     document.getElementById('config-editor').value = content;
     configLoaded = true;
+    syncHighlight();
   } catch (e) { /* silently skip if endpoint not available */ }
 }
 
