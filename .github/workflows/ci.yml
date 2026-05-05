@@ -82,3 +82,18 @@ jobs:
 
       - name: Run golangci-lint
         run: golangci-lint run
+
+  # Summary job so branch-protection can require a single "Build" check
+  # instead of one entry per matrix combination.
+  build-summary:
+    name: Build
+    needs: [build]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Check all builds passed
+        run: |
+          if [[ "${{ needs.build.result }}" != "success" ]]; then
+            echo "One or more cross-compile jobs failed"
+            exit 1
+          fi
