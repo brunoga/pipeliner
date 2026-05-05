@@ -31,10 +31,12 @@ func init() {
 }
 
 func validate(cfg map[string]any) []error {
+	var errs []error
 	if err := plugin.RequireString(cfg, "path", "download"); err != nil {
-		return []error{err}
+		errs = append(errs, err)
 	}
-	return nil
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "download", "path", "filename")...)
+	return errs
 }
 
 type downloadPlugin struct {

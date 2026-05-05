@@ -37,7 +37,12 @@ func init() {
 		PluginPhase: plugin.PhaseOutput,
 		Description: "Adds accepted torrents to a Transmission client via JSON-RPC",
 		Factory:     newPlugin,
+		Validate:    validate,
 	})
+}
+
+func validate(cfg map[string]any) []error {
+	return plugin.OptUnknownKeys(cfg, "transmission", "host", "port", "username", "password", "path", "paused", "rpc_path")
 }
 
 type transmissionPlugin struct {

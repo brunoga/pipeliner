@@ -45,10 +45,12 @@ func init() {
 }
 
 func validate(cfg map[string]any) []error {
+	var errs []error
 	if err := plugin.RequireOneOf(cfg, "condition", "rules", "accept", "reject"); err != nil {
-		return []error{err}
+		errs = append(errs, err)
 	}
-	return nil
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "condition", "rules", "accept", "reject")...)
+	return errs
 }
 
 type rule struct {

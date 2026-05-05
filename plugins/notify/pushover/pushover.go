@@ -29,6 +29,7 @@ func Validate(cfg map[string]any) []error {
 	if err := plugin.RequireString(cfg, "token", "pushover"); err != nil {
 		errs = append(errs, err)
 	}
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "pushover", "user", "token", "device", "url")...)
 	return errs
 }
 

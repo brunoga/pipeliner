@@ -46,6 +46,7 @@ func validate(cfg map[string]any) []error {
 	if err := plugin.OptDuration(cfg, "ttl", "tvdb"); err != nil {
 		errs = append(errs, err)
 	}
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "tvdb", "api_key", "user_pin", "ttl")...)
 	return errs
 }
 

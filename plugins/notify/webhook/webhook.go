@@ -22,10 +22,12 @@ func init() {
 
 // Validate checks the webhook notifier configuration.
 func Validate(cfg map[string]any) []error {
+	var errs []error
 	if err := plugin.RequireString(cfg, "url", "webhook"); err != nil {
-		return []error{err}
+		errs = append(errs, err)
 	}
-	return nil
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "webhook", "url", "headers")...)
+	return errs
 }
 
 type webhookNotifier struct {
