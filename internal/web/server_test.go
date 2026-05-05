@@ -1,0 +1,271 @@
+package web
+
+import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+)
+
+// stubDaemon satisfies DaemonControl with no-op implementations.
+type stubDaemon struct{}
+
+func (s stubDaemon) NextRun(_ string) time.Time { return time.Time{} }
+func (s stubDaemon) Trigger(_ string)           {}
+
+// newTestServer builds a Server wired for testing.
+// configPath and validateFn are optional; pass "" / nil to skip.
+func newTestServer(t *testing.T, configPath string, validateFn func([]byte) []string) (*Server, *httptest.Server) {
+	t.Helper()
+	srv := New(nil, stubDaemon{}, NewHistory(), NewBroadcaster(), "test", "user", "pass")
+	if configPath != "" {
+		srv.SetConfigPath(configPath)
+	}
+	if validateFn != nil {
+		srv.SetConfigValidator(validateFn)
+	}
+
+	// Register all protected routes on a plain mux (no session middleware for tests).
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/config", srv.apiGetConfig)
+	mux.HandleFunc("POST /api/config", srv.apiSaveConfig)
+	mux.HandleFunc("POST /api/reload", srv.apiReload)
+
+	return srv, httptest.NewServer(mux)
+}
+
+func writeConfig(t *testing.T, dir, content string) string {
+	t.Helper()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	return path
+}
+
+// ── GET /api/config ───────────────────────────────────────────────────────────
+
+func TestGetConfigReturnsContent(t *testing.T) {
+	dir := t.TempDir()
+	content := "tasks:\n  test:\n    rss:\n      url: http://example.com\n"
+	path := writeConfig(t, dir, content)
+
+	_, ts := newTestServer(t, path, nil)
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/api/config")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status: got %d, want 200", resp.StatusCode)
+	}
+	var body map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body["content"] != content {
+		t.Errorf("content mismatch:\ngot:  %q\nwant: %q", body["content"], content)
+	}
+}
+
+func TestGetConfigNotConfigured(t *testing.T) {
+	_, ts := newTestServer(t, "", nil)
+	defer ts.Close()
+
+	resp, _ := http.Get(ts.URL + "/api/config")
+	if resp.StatusCode != http.StatusNotImplemented {
+		t.Errorf("status: got %d, want 501", resp.StatusCode)
+	}
+}
+
+// ── POST /api/config — dry_run ────────────────────────────────────────────────
+
+func TestSaveConfigDryRunValid(t *testing.T) {
+	dir := t.TempDir()
+	original := "original content\n"
+	path := writeConfig(t, dir, original)
+
+	_, ts := newTestServer(t, path, func(_ []byte) []string { return nil })
+	defer ts.Close()
+
+	body, _ := json.Marshal(map[string]any{"content": "new content\n", "dry_run": true})
+	resp, err := http.Post(ts.URL+"/api/config", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status: got %d, want 200", resp.StatusCode)
+	}
+	var result map[string]string
+	json.NewDecoder(resp.Body).Decode(&result) //nolint:errcheck
+	if result["status"] != "valid" {
+		t.Errorf("status: got %q, want \"valid\"", result["status"])
+	}
+
+	// File must NOT have been modified.
+	got, _ := os.ReadFile(path)
+	if string(got) != original {
+		t.Errorf("dry_run should not modify the file")
+	}
+}
+
+func TestSaveConfigDryRunInvalid(t *testing.T) {
+	dir := t.TempDir()
+	path := writeConfig(t, dir, "")
+
+	validate := func(_ []byte) []string {
+		return []string{"error one", "error two"}
+	}
+	_, ts := newTestServer(t, path, validate)
+	defer ts.Close()
+
+	body, _ := json.Marshal(map[string]any{"content": "bad yaml", "dry_run": true})
+	resp, _ := http.Post(ts.URL+"/api/config", "application/json", bytes.NewReader(body))
+
+	if resp.StatusCode != http.StatusUnprocessableEntity {
+		t.Fatalf("status: got %d, want 422", resp.StatusCode)
+	}
+	var result map[string]any
+	json.NewDecoder(resp.Body).Decode(&result) //nolint:errcheck
+	errs, _ := result["errors"].([]any)
+	if len(errs) != 2 {
+		t.Errorf("expected 2 errors, got %v", errs)
+	}
+}
+
+// ── POST /api/config — save ───────────────────────────────────────────────────
+
+func TestSaveConfigWritesFile(t *testing.T) {
+	dir := t.TempDir()
+	path := writeConfig(t, dir, "old content\n")
+
+	reloaded := false
+	srv, ts := newTestServer(t, path, func(_ []byte) []string { return nil })
+	srv.SetReload(func() error { reloaded = true; return nil })
+	defer ts.Close()
+
+	newContent := "new content\n"
+	body, _ := json.Marshal(map[string]any{"content": newContent})
+	resp, err := http.Post(ts.URL+"/api/config", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status: got %d, want 200", resp.StatusCode)
+	}
+
+	got, _ := os.ReadFile(path)
+	if string(got) != newContent {
+		t.Errorf("file content: got %q, want %q", string(got), newContent)
+	}
+	if !reloaded {
+		t.Error("expected reload to be called when idle")
+	}
+
+	var result map[string]string
+	json.NewDecoder(resp.Body).Decode(&result) //nolint:errcheck
+	if result["status"] != "reloaded" {
+		t.Errorf("status: got %q, want \"reloaded\"", result["status"])
+	}
+}
+
+func TestSaveConfigValidationError(t *testing.T) {
+	dir := t.TempDir()
+	path := writeConfig(t, dir, "original\n")
+	original, _ := os.ReadFile(path)
+
+	validate := func(_ []byte) []string { return []string{"plugin \"bad\": unknown"} }
+	_, ts := newTestServer(t, path, validate)
+	defer ts.Close()
+
+	body, _ := json.Marshal(map[string]any{"content": "invalid yaml here"})
+	resp, _ := http.Post(ts.URL+"/api/config", "application/json", bytes.NewReader(body))
+
+	if resp.StatusCode != http.StatusUnprocessableEntity {
+		t.Fatalf("status: got %d, want 422", resp.StatusCode)
+	}
+
+	// File must be untouched.
+	got, _ := os.ReadFile(path)
+	if !bytes.Equal(got, original) {
+		t.Error("validation failure should not modify the file")
+	}
+}
+
+// ── POST /api/config — pending reload ─────────────────────────────────────────
+
+func TestSaveConfigQueuesPendingReloadWhenBusy(t *testing.T) {
+	dir := t.TempDir()
+	path := writeConfig(t, dir, "old\n")
+
+	reloadCalls := 0
+	srv, ts := newTestServer(t, path, func(_ []byte) []string { return nil })
+	srv.SetReload(func() error { reloadCalls++; return nil })
+	defer ts.Close()
+
+	// Simulate a running task.
+	srv.TaskStarted("my-task")
+
+	body, _ := json.Marshal(map[string]any{"content": "new\n"})
+	resp, err := http.Post(ts.URL+"/api/config", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	var result map[string]string
+	json.NewDecoder(resp.Body).Decode(&result) //nolint:errcheck
+	if result["status"] != "pending" {
+		t.Errorf("status: got %q, want \"pending\"", result["status"])
+	}
+	if reloadCalls != 0 {
+		t.Error("reload should not fire while task is running")
+	}
+
+	// Task finishes → reload fires automatically.
+	srv.TaskDone("my-task")
+	if reloadCalls != 1 {
+		t.Errorf("expected 1 reload after task done, got %d", reloadCalls)
+	}
+}
+
+func TestSaveConfigNoPendingReloadWithoutSave(t *testing.T) {
+	srv, _ := newTestServer(t, "", nil)
+
+	reloaded := false
+	srv.SetReload(func() error { reloaded = true; return nil })
+
+	srv.TaskStarted("task")
+	srv.TaskDone("task")
+
+	if reloaded {
+		t.Error("should not reload when no config was saved")
+	}
+}
+
+// ── POST /api/reload ──────────────────────────────────────────────────────────
+
+func TestReloadBlockedWhileRunning(t *testing.T) {
+	srv, ts := newTestServer(t, "", nil)
+	srv.SetReload(func() error { return nil })
+	defer ts.Close()
+
+	srv.TaskStarted("task")
+	resp, _ := http.Post(ts.URL+"/api/reload", "application/json", strings.NewReader(""))
+	if resp.StatusCode != http.StatusConflict {
+		t.Errorf("status: got %d, want 409", resp.StatusCode)
+	}
+	srv.TaskDone("task")
+}
