@@ -43,10 +43,8 @@ func deduplicate(entries []*entry.Entry, logger *slog.Logger) {
 		if best[k] != e {
 			reason := fmt.Sprintf("dedup: better copy already accepted for %q", k)
 			e.Reject(reason)
-			logger.Debug("dedup: rejected duplicate",
-				"rejected", e.Title,
-				"kept", best[k].Title,
-			)
+			logStateChange(logger, entry.Accepted, entry.Rejected, e.Title, reason)
+			logger.Debug("dedup: kept", "entry", best[k].Title)
 		}
 	}
 }

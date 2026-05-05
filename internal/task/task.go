@@ -82,85 +82,92 @@ func (t *Task) Run(ctx context.Context) (*Result, error) {
 	}
 
 	// --- Input phase (concurrent) ---
+	t.logger.Info("phase started", "phase", "input")
+	phaseStart := time.Now()
 	entries := t.runInputPhase(ctx, t.logger, tc)
-	t.logger.Info("input phase done", "entries", len(entries))
+	t.logger.Info("phase done", "phase", "input", "entries", len(entries), "duration", time.Since(phaseStart).Round(time.Millisecond))
 
 	// --- Metainfo phase (batch or serial per entry) ---
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	t.logger.Info("phase started", "phase", "metainfo")
+	phaseStart = time.Now()
 	for _, pi := range t.pluginsForPhase(plugin.PhaseMetainfo) {
+		plog := t.logger.With("phase", pi.impl.Phase(), "plugin", pi.impl.Name())
+		plog.Info("plugin started", "in", len(entries))
+		pluginStart := time.Now()
 		if batch, ok := pi.impl.(plugin.BatchMetainfoPlugin); ok {
 			if err := safeRunAnnotateBatch(ctx, batch, tc(pi), entries); err != nil {
-				t.logger.Warn("metainfo plugin error", "phase", pi.impl.Phase(), "plugin", pi.impl.Name(), "err", err)
+				plog.Warn("metainfo plugin error", "err", err)
 			}
-			continue
-		}
-		meta, ok := pi.impl.(plugin.MetainfoPlugin)
-		if !ok {
-			continue
-		}
-		for _, e := range entries {
-			if err := safeRunAnnotate(ctx, meta, tc(pi), e); err != nil {
-				t.logger.Warn("metainfo plugin error", "phase", pi.impl.Phase(), "plugin", pi.impl.Name(), "entry", e.Title, "err", err)
+		} else if meta, ok := pi.impl.(plugin.MetainfoPlugin); ok {
+			for _, e := range entries {
+				if err := safeRunAnnotate(ctx, meta, tc(pi), e); err != nil {
+					plog.Warn("metainfo plugin error", "entry", e.Title, "err", err)
+				}
 			}
 		}
+		plog.Info("plugin done", "out", len(entries), "duration", time.Since(pluginStart).Round(time.Millisecond))
 	}
+
+	t.logger.Info("phase done", "phase", "metainfo", "entries", len(entries), "duration", time.Since(phaseStart).Round(time.Millisecond))
 
 	// --- Filter phase (serial per entry — ordering matters for series tracking) ---
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	t.logger.Info("phase started", "phase", "filter")
+	phaseStart = time.Now()
 	for _, pi := range t.pluginsForPhase(plugin.PhaseFilter) {
+		plog := t.logger.With("phase", pi.impl.Phase(), "plugin", pi.impl.Name())
+		beforeA, beforeR, beforeU := countStates(entries)
+		plog.Info("plugin started", "in", beforeA+beforeU)
+		pluginStart := time.Now()
 		if batch, ok := pi.impl.(plugin.BatchFilterPlugin); ok {
-			if err := safeRunFilterBatch(ctx, batch, tc(pi), entries); err != nil {
-				t.logger.Warn("filter plugin error", "phase", pi.impl.Phase(), "plugin", pi.impl.Name(), "err", err)
-			}
-			// Log state changes from the batch call.
+			prevStates := make(map[*entry.Entry]entry.State, len(entries))
 			for _, e := range entries {
-				switch e.State {
-				case entry.Accepted:
-					t.logger.Info("entry accepted", "plugin", pi.impl.Name(), "entry", e.Title)
-				case entry.Rejected:
-					t.logger.Info("entry rejected", "plugin", pi.impl.Name(), "entry", e.Title, "reason", e.RejectReason)
-				case entry.Failed:
-					t.logger.Warn("entry failed", "plugin", pi.impl.Name(), "entry", e.Title, "reason", e.FailReason)
+				prevStates[e] = e.State
+			}
+			if err := safeRunFilterBatch(ctx, batch, tc(pi), entries); err != nil {
+				plog.Warn("filter plugin error", "err", err)
+			}
+			for _, e := range entries {
+				if prev := prevStates[e]; e.State != prev {
+					logStateChange(plog, prev, e.State, e.Title, e.RejectReason+e.FailReason)
 				}
 			}
-			continue
-		}
-		flt, ok := pi.impl.(plugin.FilterPlugin)
-		if !ok {
-			continue
-		}
-		for _, e := range entries {
-			if ctx.Err() != nil {
-				return nil, ctx.Err()
-			}
-			if e.IsRejected() || e.IsFailed() {
-				continue // already decided; skip further filtering
-			}
-			prev := e.State
-			if err := safeRunFilter(ctx, flt, tc(pi), e); err != nil {
-				t.logger.Warn("filter plugin error", "phase", pi.impl.Phase(), "plugin", pi.impl.Name(), "entry", e.Title, "err", err)
-			}
-			if e.State != prev {
-				switch e.State {
-				case entry.Accepted:
-					t.logger.Info("entry accepted", "plugin", pi.impl.Name(), "entry", e.Title)
-				case entry.Rejected:
-					t.logger.Info("entry rejected", "plugin", pi.impl.Name(), "entry", e.Title, "reason", e.RejectReason)
-				case entry.Failed:
-					t.logger.Warn("entry failed", "plugin", pi.impl.Name(), "entry", e.Title, "reason", e.FailReason)
+		} else if flt, ok := pi.impl.(plugin.FilterPlugin); ok {
+			for _, e := range entries {
+				if ctx.Err() != nil {
+					return nil, ctx.Err()
+				}
+				if e.IsRejected() || e.IsFailed() {
+					continue
+				}
+				prev := e.State
+				if err := safeRunFilter(ctx, flt, tc(pi), e); err != nil {
+					plog.Warn("filter plugin error", "entry", e.Title, "err", err)
+				}
+				if e.State != prev {
+					logStateChange(plog, prev, e.State, e.Title, e.RejectReason+e.FailReason)
 				}
 			}
 		}
+		afterA, afterR, afterU := countStates(entries)
+		plog.Info("plugin done",
+			"in", beforeA+beforeU, "out", afterA+afterU,
+			"accepted", afterA-beforeA, "rejected", afterR-beforeR,
+			"duration", time.Since(pluginStart).Round(time.Millisecond))
 	}
 	for _, e := range entries {
 		if e.IsUndecided() {
 			t.logger.Info("entry undecided", "entry", e.Title)
 		}
 	}
+
+	accepted, rejected, undecided := countStates(entries)
+	t.logger.Info("phase done", "phase", "filter", "accepted", accepted, "rejected", rejected, "undecided", undecided, "duration", time.Since(phaseStart).Round(time.Millisecond))
 
 	// --- Episode deduplication (automatic, post-filter) ---
 	// When multiple accepted entries share the same series + episode ID, keep
@@ -172,52 +179,64 @@ func (t *Task) Run(ctx context.Context) (*Result, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	t.logger.Info("phase started", "phase", "modify")
+	phaseStart = time.Now()
 	for _, pi := range t.pluginsForPhase(plugin.PhaseModify) {
 		mod, ok := pi.impl.(plugin.ModifyPlugin)
 		if !ok {
 			continue
 		}
+		n := len(entries) - countRejected(entries)
+		plog := t.logger.With("phase", pi.impl.Phase(), "plugin", pi.impl.Name())
+		plog.Info("plugin started", "in", n)
+		pluginStart := time.Now()
 		for _, e := range entries {
 			if e.IsRejected() || e.IsFailed() {
 				continue
 			}
 			if err := safeRunModify(ctx, mod, tc(pi), e); err != nil {
-				t.logger.Warn("modify plugin error", "phase", pi.impl.Phase(), "plugin", pi.impl.Name(), "entry", e.Title, "err", err)
+				plog.Warn("modify plugin error", "entry", e.Title, "err", err)
 			}
 		}
+		plog.Info("plugin done", "out", n, "duration", time.Since(pluginStart).Round(time.Millisecond))
 	}
+
+	t.logger.Info("phase done", "phase", "modify", "duration", time.Since(phaseStart).Round(time.Millisecond))
 
 	// --- Output phase (concurrent — independent external systems, entries are read-only) ---
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	accepted := filterByState(entries, entry.Accepted)
+	acceptedEntries := filterByState(entries, entry.Accepted)
+	t.logger.Info("phase started", "phase", "output", "accepted", len(acceptedEntries))
+	phaseStart = time.Now()
 	if t.dryRun {
-		t.logger.Info("skipping output phase (dry run)", "accepted", len(accepted))
+		t.logger.Info("skipping output phase (dry run)", "accepted", len(acceptedEntries))
 	} else {
-		t.runOutputPhase(ctx, t.logger, tc, accepted)
+		t.runOutputPhase(ctx, t.logger, tc, acceptedEntries)
 	}
+	t.logger.Info("phase done", "phase", "output", "duration", time.Since(phaseStart).Round(time.Millisecond))
 
 	// --- Learn phase (serial — writes to shared store) ---
+	t.logger.Info("phase started", "phase", "learn")
+	phaseStart = time.Now()
 	// All plugins that implement LearnPlugin receive the entries here.
 	for _, pi := range t.plugins {
 		lrn, ok := pi.impl.(plugin.LearnPlugin)
 		if !ok {
 			continue
 		}
+		plog := t.logger.With("phase", "learn", "plugin", pi.impl.Name())
+		plog.Info("plugin started", "in", len(entries))
+		pluginStart := time.Now()
 		if err := safeRunLearn(ctx, lrn, tc(pi), entries); err != nil {
-			t.logger.Warn("learn plugin error", "phase", pi.impl.Phase(), "plugin", pi.impl.Name(), "err", err)
+			plog.Warn("learn plugin error", "err", err)
 		}
+		plog.Info("plugin done", "out", len(entries), "duration", time.Since(pluginStart).Round(time.Millisecond))
 	}
+	t.logger.Info("phase done", "phase", "learn", "duration", time.Since(phaseStart).Round(time.Millisecond))
 
-	result := buildResult(entries, time.Since(start))
-	t.logger.Info("task finished",
-		"accepted", result.Accepted,
-		"rejected", result.Rejected,
-		"failed", result.Failed,
-		"duration", result.Duration,
-	)
-	return result, nil
+	return buildResult(entries, time.Since(start)), nil
 }
 
 // runInputPhase runs all input plugins concurrently and merges their results,
@@ -245,7 +264,13 @@ func (t *Task) runInputPhase(ctx context.Context, log *slog.Logger, tc func(plug
 		wg.Add(1)
 		go func(inp plugin.InputPlugin, tctx *plugin.TaskContext) {
 			defer wg.Done()
+			plog := log.With("phase", plugin.PhaseInput, "plugin", inp.Name())
+			plog.Info("plugin started", "in", 0)
+			pluginStart := time.Now()
 			produced, err := safeRunInput(ctx, inp, tctx)
+			if err == nil {
+				plog.Info("plugin done", "out", len(produced), "duration", time.Since(pluginStart).Round(time.Millisecond))
+			}
 			ch <- result{entries: produced, err: err, name: inp.Name()}
 		}(inp, tc(pi))
 	}
@@ -292,9 +317,13 @@ func (t *Task) runOutputPhase(ctx context.Context, log *slog.Logger, tc func(plu
 		wg.Add(1)
 		go func(out plugin.OutputPlugin, tctx *plugin.TaskContext) {
 			defer wg.Done()
+			plog := log.With("phase", plugin.PhaseOutput, "plugin", out.Name())
+			plog.Info("plugin started", "in", len(accepted))
+			pluginStart := time.Now()
 			if err := safeRunOutput(ctx, out, tctx, accepted); err != nil {
-				log.Warn("output plugin error", "phase", plugin.PhaseOutput, "plugin", out.Name(), "err", err)
+				plog.Warn("output plugin error", "err", err)
 			}
+			plog.Info("plugin done", "out", len(accepted), "duration", time.Since(pluginStart).Round(time.Millisecond))
 		}(out, tc(pi))
 	}
 	wg.Wait()
@@ -308,6 +337,53 @@ func (t *Task) pluginsForPhase(p plugin.Phase) []pluginInstance {
 		}
 	}
 	return out
+}
+
+func countStates(entries []*entry.Entry) (accepted, rejected, undecided int) {
+	for _, e := range entries {
+		switch {
+		case e.IsAccepted():
+			accepted++
+		case e.IsRejected() || e.IsFailed():
+			rejected++
+		default:
+			undecided++
+		}
+	}
+	return
+}
+
+// logStateChange logs a filter state transition. When an already-accepted
+// entry is rejected or failed it is logged at WARN with the prior state so
+// the override is clearly visible.
+func logStateChange(log *slog.Logger, prev, next entry.State, title, reason string) {
+	override := prev == entry.Accepted && (next == entry.Rejected || next == entry.Failed)
+	switch next {
+	case entry.Accepted:
+		log.Info("entry accepted", "entry", title)
+	case entry.Rejected:
+		if override {
+			log.Info("entry accepted then rejected", "entry", title, "reason", reason)
+		} else {
+			log.Info("entry rejected", "entry", title, "reason", reason)
+		}
+	case entry.Failed:
+		if override {
+			log.Info("entry accepted then failed", "entry", title, "reason", reason)
+		} else {
+			log.Warn("entry failed", "entry", title, "reason", reason)
+		}
+	}
+}
+
+func countRejected(entries []*entry.Entry) int {
+	n := 0
+	for _, e := range entries {
+		if e.IsRejected() || e.IsFailed() {
+			n++
+		}
+	}
+	return n
 }
 
 func filterByState(entries []*entry.Entry, s entry.State) []*entry.Entry {
