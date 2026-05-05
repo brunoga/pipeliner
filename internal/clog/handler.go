@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"unicode"
 
@@ -162,53 +163,68 @@ func levelColor(l slog.Level) string {
 	}
 }
 
-// renderMsg writes the message to buf with appropriate ANSI coloring.
-// Most messages get a single color prefix; a few use inline mixed colors.
+// keywords that receive their own fixed color inside any message.
+var msgKeywords = []struct {
+	word  string
+	color string
+}{
+	{"accepted",  ansiGreen + ansiBold},
+	{"rejected",  ansiRed + ansiBold},
+	{"undecided", ansiYellow},
+	{"failed",    ansiMagenta + ansiBold},
+}
+
+// renderMsg writes the message to buf. The base color comes from the log level
+// (cyan for INFO, yellow for WARN, red for ERROR). Within that base color,
+// the words "accepted", "rejected", "undecided", and "failed" are highlighted
+// with their own fixed colors so they stand out regardless of context.
 func renderMsg(buf *bytes.Buffer, msg string, l slog.Level, color bool) {
 	if !color {
 		buf.WriteString(msg)
 		return
 	}
-	switch msg {
-	case "entry accepted then rejected":
-		buf.WriteString(ansiRed + ansiBold + "entry " + ansiGreen + "accepted" + ansiRed + " then rejected" + ansiReset)
-		return
-	case "entry accepted then failed":
-		buf.WriteString(ansiRed + ansiBold + "entry " + ansiGreen + "accepted" + ansiRed + " then failed" + ansiReset)
-		return
-	}
-	mc := msgColor(msg, l)
-	if mc != "" {
-		buf.WriteString(mc)
-	}
-	buf.WriteString(msg)
-	if mc != "" {
-		buf.WriteString(ansiReset)
-	}
-}
 
-// msgColor returns an ANSI prefix for the log message.
-// Entry state messages use distinct colors; other messages inherit the level color.
-func msgColor(msg string, l slog.Level) string {
-	switch msg {
-	case "entry accepted":
-		return ansiGreen + ansiBold
-	case "entry rejected":
-		return ansiRed + ansiBold
-	case "entry undecided":
-		return ansiYellow
-	case "entry failed":
-		return ansiMagenta + ansiBold
+	base := levelColor(l)
+
+	// Fast path: no keywords present.
+	hasKeyword := false
+	for _, kw := range msgKeywords {
+		if strings.Contains(msg, kw.word) {
+			hasKeyword = true
+			break
+		}
 	}
-	switch {
-	case l >= slog.LevelError:
-		return ansiRed
-	case l >= slog.LevelWarn:
-		return ansiYellow
-	case l >= slog.LevelInfo:
-		return ansiCyan
+	if !hasKeyword {
+		buf.WriteString(base)
+		buf.WriteString(msg)
+		buf.WriteString(ansiReset)
+		return
 	}
-	return ""
+
+	// Scan left-to-right, coloring each keyword occurrence inline.
+	buf.WriteString(base)
+	rem := msg
+	for len(rem) > 0 {
+		// Find the earliest keyword in the remaining string.
+		best, bestKW := len(rem), ""
+		bestColor := ""
+		for _, kw := range msgKeywords {
+			if i := strings.Index(rem, kw.word); i >= 0 && i < best {
+				best = i
+				bestKW = kw.word
+				bestColor = kw.color
+			}
+		}
+		// Write text before the keyword in base color.
+		buf.WriteString(rem[:best])
+		if bestKW == "" {
+			break
+		}
+		// Write the keyword in its own color, then restore base.
+		buf.WriteString(ansiReset + bestColor + bestKW + ansiReset + base)
+		rem = rem[best+len(bestKW):]
+	}
+	buf.WriteString(ansiReset)
 }
 
 func writeAttr(buf *bytes.Buffer, a slog.Attr, prefix string) {
