@@ -25,4 +25,6 @@ type Bucket interface {
 	Delete(key string) error
 	// Keys returns all keys in the bucket (order is unspecified).
 	Keys() ([]string, error)
+	// All returns all key→raw-JSON pairs in the bucket in one query.
+	All() (map[string][]byte, error)
 }

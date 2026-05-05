@@ -1,83 +1,97 @@
 # condition
 
-Accepts or rejects entries using Go template expressions evaluated against the entry's field map. Useful for rules that don't fit a dedicated plugin, such as score thresholds, genre exclusions, or multi-condition logic.
+Accepts or rejects entries using boolean expressions evaluated against the entry's field map. Useful for rules that don't fit a dedicated plugin — score thresholds, genre exclusions, date comparisons, multi-condition logic.
+
+## Expression syntax
+
+Expressions use infix syntax. Identifiers resolve to entry fields; unknown fields return `""`.
+
+```
+tmdb_vote_average >= 7.0
+tvdb_language != "English"
+tvdb_genres contains "Documentary"
+tvdb_first_air_date > daysago(365)
+not (source == "CAM" or source == "TS")
+```
+
+**Operators:** `==`, `!=`, `<`, `<=`, `>`, `>=`, `contains`, `matches` (regex)  
+**Logical:** `and` (`&&`), `or` (`||`), `not` (`!`)  
+**Functions:** `now()`, `daysago(n)`, `weeksago(n)`, `monthsago(n)`, `date("YYYY-MM-DD")`
+
+Go template syntax (`{{gt .field value}}`) is also accepted for backward compatibility.
 
 ## Config formats
 
 ### Single rule
 
-Both `accept` and `reject` are optional top-level keys; at least one must be present. Within a rule, `reject` is evaluated before `accept`.
-
 ```yaml
 condition:
-  accept: '{{gt .tmdb_vote_average 7.0}}'
-  reject: '{{eq .source "CAM"}}'
+  reject: 'tvdb_language != "" and tvdb_language != "English"'
+  accept: 'tmdb_vote_average >= 7.0'
 ```
+
+Both `accept` and `reject` are optional; at least one must be present. Within a rule, `reject` is evaluated before `accept`.
 
 ### Multiple rules (`rules` list)
 
-When you need more than one condition block in a task — YAML does not allow duplicate keys — put all conditions in one `condition` block using the `rules` list. Rules are evaluated in order; the first rule that fires terminates processing.
+YAML does not allow duplicate keys — use `rules` when you need more than one condition:
 
 ```yaml
 condition:
   rules:
-    - reject: '{{eq .source "CAM"}}'
-    - reject: '{{lt .tmdb_vote_average 6.0}}'
-    - accept: '{{gt .tmdb_vote_average 8.0}}'
+    - reject: 'tvdb_language != "" and tvdb_language != "English"'
+    - reject: 'tvdb_genres contains "Documentary"'
+    - reject: 'tvdb_genres contains "Reality"'
+    - reject: 'tvdb_first_air_date != "" and tvdb_first_air_date < daysago(365)'
+    - accept: 'tmdb_vote_average >= 7.0'
 ```
 
-Within each rule, `reject` is checked before `accept`.
+Rules are evaluated in order; the first one that fires terminates processing. `reject` takes precedence over `accept` within the same rule.
 
 ## Config keys
 
 | Key | Type | Required | Description |
 |-----|------|----------|-------------|
-| `accept` | string | conditional | Template; entry accepted when it renders truthy |
-| `reject` | string | conditional | Template; entry rejected when it renders truthy |
+| `accept` | string | conditional | Expression; entry accepted when it evaluates to true |
+| `reject` | string | conditional | Expression; entry rejected when it evaluates to true |
 | `rules` | list | conditional | Ordered list of `{accept, reject}` rule objects |
 
-Use either the single-rule format (`accept`/`reject` at top level) or `rules`; they cannot be mixed.
+## Reject reason
+
+When a `reject` expression fires, the reject reason is set to the expression itself, e.g.:
+
+```
+reason="condition: tvdb_genres contains \"Documentary\""
+```
 
 ## Template context
 
-The data map contains `.Title`, `.URL`, `.OriginalURL`, `.Task`, and all entry fields written by filter, metainfo, and modify plugins.
+`.Title`, `.URL`, `.OriginalURL`, `.Task`, and all entry fields set by input, metainfo, filter, and modify plugins.
 
-A template output is truthy when it is non-empty and not equal (case-insensitive) to `"false"` or `"0"`.
-
-## Template functions
-
-All functions from the internal template package are available, including `daysago`, `before`, `after`, `contains`, `lower`, `upper`, `join`, `slice`, and `replace`.
-
-## Example — single rule
+## Example — TV series discovery filter
 
 ```yaml
 tasks:
-  movies:
+  discover:
     rss:
-      url: "https://example.com/rss/movies"
-    metainfo_tmdb:
-      api_key: YOUR_TMDB_KEY
-    condition:
-      accept: '{{gt .tmdb_vote_average 7.0}}'
-      reject: '{{eq .source "CAM"}}'
-    qbittorrent:
-      host: localhost
-```
-
-## Example — multi-rule
-
-```yaml
-tasks:
-  movies:
-    rss:
-      url: "https://example.com/rss/movies"
-    metainfo_tmdb:
-      api_key: YOUR_TMDB_KEY
+      url: "https://example.com/feed"
+    metainfo_tvdb:
+      api_key: YOUR_KEY
     condition:
       rules:
-        - reject: '{{eq .source "CAM"}}'
-        - reject: '{{lt .tmdb_vote_average 6.0}}'
-        - accept: '{{gt .tmdb_vote_average 8.0}}'
-    qbittorrent:
-      host: localhost
+        - reject: 'tvdb_language != "" and tvdb_language != "English"'
+        - reject: 'tvdb_genres contains "Documentary"'
+        - reject: 'tvdb_genres contains "Reality"'
+        - reject: 'tvdb_genres contains "Game Show"'
+        - reject: 'tvdb_first_air_date != "" and tvdb_first_air_date < daysago(365)'
+    premiere:
+      quality: 720p+ webrip+
+```
+
+## Example — rating gate
+
+```yaml
+condition:
+  reject: 'tmdb_vote_average < 6.5'
+  accept: 'tmdb_vote_average >= 7.0'
 ```

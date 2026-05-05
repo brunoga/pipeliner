@@ -71,7 +71,7 @@ func (p *tvdbFilter) Name() string        { return "tvdb" }
 func (p *tvdbFilter) Phase() plugin.Phase { return plugin.PhaseFilter }
 
 func (p *tvdbFilter) Filter(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
-	titles, err := p.ensureTitles(ctx)
+	titles, err := p.ensureTitles(ctx, tc)
 	if err != nil {
 		tc.Logger.Warn("tvdb: could not fetch favorites, skipping filter", "err", err)
 		return nil
@@ -93,7 +93,7 @@ func (p *tvdbFilter) Filter(ctx context.Context, tc *plugin.TaskContext, e *entr
 }
 
 // ensureTitles returns the cached titles, fetching from TheTVDB if stale.
-func (p *tvdbFilter) ensureTitles(ctx context.Context) ([]string, error) {
+func (p *tvdbFilter) ensureTitles(ctx context.Context, tc *plugin.TaskContext) ([]string, error) {
 	if titles, ok := p.cache.Get(cacheKey); ok {
 		return titles, nil
 	}
@@ -107,7 +107,8 @@ func (p *tvdbFilter) ensureTitles(ctx context.Context) ([]string, error) {
 	for _, id := range ids {
 		s, err := p.client.GetSeriesByID(ctx, id)
 		if err != nil {
-			continue // best-effort; skip unreachable IDs
+			tc.Logger.Warn("tvdb: GetSeriesByID failed", "id", id, "err", err)
+			continue
 		}
 		if s.Name != "" {
 			titles = append(titles, match.Normalize(s.Name))

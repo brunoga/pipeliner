@@ -1,5 +1,9 @@
 // Package quality parses video quality attributes from media release titles
 // and provides a multi-dimensional comparison and filter-spec system.
+//
+// A Spec is built from a human-readable string such as "720p-1080p webrip+"
+// where each space-separated token constrains one quality dimension. The "+"
+// suffix means "this value or better" (sets only the minimum, no upper bound).
 package quality
 
 import (
@@ -334,10 +338,20 @@ func ParseSpec(s string) (Spec, error) {
 	return spec, nil
 }
 
-// applySpecToken parses a single spec token (e.g. "720p", "720p-1080p", "web-dl")
+// applySpecToken parses a single spec token (e.g. "720p", "720p-1080p", "720p+", "web-dl")
 // and applies it to spec.  The full token is tried first so that hyphenated
 // quality names like "web-dl" and "blu-ray" are not mistakenly split into a range.
+// A trailing "+" means "this value or better" (sets only the minimum, no upper bound).
 func applySpecToken(spec *Spec, token string) error {
+	// "720p+" → minimum 720p, no upper bound.
+	if strings.HasSuffix(token, "+") {
+		base := token[:len(token)-1]
+		if applyMinOnly(spec, base) {
+			return nil
+		}
+		return fmt.Errorf("unknown quality value %q", base)
+	}
+
 	// Try the full token as a single value first.
 	if applySingle(spec, token) {
 		return nil
@@ -362,6 +376,32 @@ func applySpecToken(spec *Spec, token string) error {
 		return nil
 	}
 	return fmt.Errorf("unknown quality value %q", lo)
+}
+
+// applyMinOnly sets only the minimum for whichever dimension v belongs to,
+// leaving the maximum at zero (no upper bound). Returns true if v was recognised.
+func applyMinOnly(spec *Spec, v string) bool {
+	if r, ok := parseResolution(v); ok {
+		spec.MinResolution = r
+		return true
+	}
+	if s, ok := parseSource(v); ok {
+		spec.MinSource = s
+		return true
+	}
+	if c, ok := parseCodec(v); ok {
+		spec.MinCodec = c
+		return true
+	}
+	if a, ok := parseAudio(v); ok {
+		spec.MinAudio = a
+		return true
+	}
+	if cr, ok := parseColorRange(v); ok {
+		spec.MinColorRange = cr
+		return true
+	}
+	return false
 }
 
 // applySingle sets min=max=value for whichever dimension v belongs to.
