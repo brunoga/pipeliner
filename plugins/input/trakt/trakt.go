@@ -30,7 +30,22 @@ func init() {
 		Description: "fetch movies or shows from a Trakt.tv list as pipeline entries",
 		PluginPhase: plugin.PhaseInput,
 		Factory:     newPlugin,
+		Validate:    validate,
 	})
+}
+
+func validate(cfg map[string]any) []error {
+	var errs []error
+	if err := plugin.RequireString(cfg, "client_id", "input_trakt"); err != nil {
+		errs = append(errs, err)
+	}
+	if err := plugin.RequireString(cfg, "type", "input_trakt"); err != nil {
+		errs = append(errs, err)
+	}
+	if err := plugin.OptEnum(cfg, "type", "input_trakt", "movies", "shows"); err != nil {
+		errs = append(errs, err)
+	}
+	return errs
 }
 
 type traktInputPlugin struct {

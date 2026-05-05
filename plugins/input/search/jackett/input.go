@@ -14,7 +14,19 @@ func init() {
 		Description: "return recent results from Jackett indexers as pipeline entries (no query required)",
 		PluginPhase: plugin.PhaseInput,
 		Factory:     newInputPlugin,
+		Validate:    validateInput,
 	})
+}
+
+func validateInput(cfg map[string]any) []error {
+	var errs []error
+	if err := plugin.RequireString(cfg, "url", "jackett_input"); err != nil {
+		errs = append(errs, err)
+	}
+	if err := plugin.RequireString(cfg, "api_key", "jackett_input"); err != nil {
+		errs = append(errs, err)
+	}
+	return errs
 }
 
 type jackettInputPlugin struct {

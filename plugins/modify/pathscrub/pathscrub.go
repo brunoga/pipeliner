@@ -20,7 +20,15 @@ func init() {
 		Description: "sanitize entry fields for use as safe filesystem path components",
 		PluginPhase: plugin.PhaseModify,
 		Factory:     newPlugin,
+		Validate:    validate,
 	})
+}
+
+func validate(cfg map[string]any) []error {
+	if err := plugin.OptEnum(cfg, "target", "pathscrub", "windows", "linux", "generic"); err != nil {
+		return []error{err}
+	}
+	return nil
 }
 
 // windowsReserved lists names that are reserved on Windows regardless of extension.

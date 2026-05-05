@@ -19,7 +19,20 @@ func init() {
 		Description: "reject entries that are missing any of the specified fields",
 		PluginPhase: plugin.PhaseFilter,
 		Factory:     newPlugin,
+		Validate:    validate,
 	})
+}
+
+func validate(cfg map[string]any) []error {
+	v := cfg["fields"]
+	if v == nil {
+		return []error{fmt.Errorf("require: \"fields\" must be a non-empty string or list of strings")}
+	}
+	fields, err := toStringSlice(v)
+	if err != nil || len(fields) == 0 {
+		return []error{fmt.Errorf("require: \"fields\" must be a non-empty string or list of strings")}
+	}
+	return nil
 }
 
 type requirePlugin struct {

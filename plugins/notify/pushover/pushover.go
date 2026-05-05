@@ -11,12 +11,25 @@ import (
 	"time"
 
 	"github.com/brunoga/pipeliner/internal/notify"
+	"github.com/brunoga/pipeliner/internal/plugin"
 )
 
 func init() {
 	notify.Register("pushover", func(cfg map[string]any) (notify.Notifier, error) {
 		return newNotifier(cfg)
 	})
+}
+
+// Validate checks the pushover notifier configuration.
+func Validate(cfg map[string]any) []error {
+	var errs []error
+	if err := plugin.RequireString(cfg, "user", "pushover"); err != nil {
+		errs = append(errs, err)
+	}
+	if err := plugin.RequireString(cfg, "token", "pushover"); err != nil {
+		errs = append(errs, err)
+	}
+	return errs
 }
 
 type pushoverNotifier struct {

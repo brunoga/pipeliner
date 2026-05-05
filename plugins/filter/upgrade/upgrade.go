@@ -30,7 +30,19 @@ func init() {
 		Description: "accept entries only when they offer a quality improvement over what was previously downloaded",
 		PluginPhase: plugin.PhaseFilter,
 		Factory:     newPlugin,
+		Validate:    validate,
 	})
+}
+
+func validate(cfg map[string]any) []error {
+	var errs []error
+	if err := plugin.RequireString(cfg, "target", "upgrade"); err != nil {
+		errs = append(errs, err)
+	}
+	if err := plugin.OptEnum(cfg, "on_lower", "upgrade", "reject", "accept"); err != nil {
+		errs = append(errs, err)
+	}
+	return errs
 }
 
 type upgradePlugin struct {

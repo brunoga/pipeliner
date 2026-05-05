@@ -21,7 +21,15 @@ func init() {
 		Description: "fetch entries from an RSS 2.0 or Atom 1.0 feed",
 		PluginPhase: plugin.PhaseInput,
 		Factory:     newPlugin,
+		Validate:    validate,
 	})
+}
+
+func validate(cfg map[string]any) []error {
+	if err := plugin.RequireString(cfg, "url", "rss"); err != nil {
+		return []error{err}
+	}
+	return nil
 }
 
 type rssPlugin struct {

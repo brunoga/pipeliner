@@ -23,7 +23,23 @@ func init() {
 		Description: "send a batch email for all accepted entries via SMTP",
 		PluginPhase: plugin.PhaseOutput,
 		Factory:     newPlugin,
+		Validate:    validate,
 	})
+}
+
+func validate(cfg map[string]any) []error {
+	var errs []error
+	if err := plugin.RequireString(cfg, "smtp_host", "email"); err != nil {
+		errs = append(errs, err)
+	}
+	if err := plugin.RequireString(cfg, "from", "email"); err != nil {
+		errs = append(errs, err)
+	}
+	to := toStringSlice(cfg["to"])
+	if len(to) == 0 {
+		errs = append(errs, fmt.Errorf("email: \"to\" list must be non-empty"))
+	}
+	return errs
 }
 
 type emailPlugin struct {
