@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,10 +14,17 @@ import (
 	itvdb "github.com/brunoga/pipeliner/internal/tvdb"
 )
 
+func makeCtx() *plugin.TaskContext {
+	return &plugin.TaskContext{
+		Name:   "test",
+		Logger: slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelDebug})),
+	}
+}
+
 // makeTVDBServer builds a minimal TVDB-shaped test server.
 func makeTVDBServer(t *testing.T, favoriteIDs []int, series []itvdb.Series) *httptest.Server {
 	t.Helper()
-	byID := make(map[int]itvdb.Series, len(series))
+	byID := make(map[string]itvdb.Series, len(series))
 	for _, s := range series {
 		byID[s.ID] = s
 	}
@@ -30,7 +39,7 @@ func makeTVDBServer(t *testing.T, favoriteIDs []int, series []itvdb.Series) *htt
 		default:
 			var id int
 			if _, err := fmt.Sscanf(r.URL.Path, "/series/%d", &id); err == nil {
-				if s, ok := byID[id]; ok {
+				if s, ok := byID[fmt.Sprintf("%d", id)]; ok {
 					encode(map[string]any{"data": s, "status": "success"})
 					return
 				}
@@ -68,8 +77,8 @@ func TestRegistration(t *testing.T) {
 
 func TestRunReturnsEntries(t *testing.T) {
 	srv := makeTVDBServer(t, []int{1, 2}, []itvdb.Series{
-		{ID: 1, Name: "Breaking Bad", Slug: "breaking-bad", Year: "2008"},
-		{ID: 2, Name: "Better Call Saul", Slug: "better-call-saul"},
+		{ID: "1", Name: "Breaking Bad", Slug: "breaking-bad", Year: "2008"},
+		{ID: "2", Name: "Better Call Saul", Slug: "better-call-saul"},
 	})
 
 	p, err := newPlugin(map[string]any{"api_key": "key", "user_pin": "pin"}, nil)
@@ -78,7 +87,7 @@ func TestRunReturnsEntries(t *testing.T) {
 	}
 	p.(*tvdbInputPlugin).client.BaseURL = srv.URL
 
-	entries, err := p.(*tvdbInputPlugin).Run(context.Background(), nil)
+	entries, err := p.(*tvdbInputPlugin).Run(context.Background(), makeCtx())
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -102,7 +111,7 @@ func TestRunReturnsEntries(t *testing.T) {
 func TestRunSkipsMissingShows(t *testing.T) {
 	// Favorites list includes ID 99 which the server doesn't know about.
 	srv := makeTVDBServer(t, []int{1, 99}, []itvdb.Series{
-		{ID: 1, Name: "Firefly", Slug: "firefly"},
+		{ID: "1", Name: "Firefly", Slug: "firefly"},
 	})
 
 	p, err := newPlugin(map[string]any{"api_key": "key", "user_pin": "pin"}, nil)
@@ -111,7 +120,7 @@ func TestRunSkipsMissingShows(t *testing.T) {
 	}
 	p.(*tvdbInputPlugin).client.BaseURL = srv.URL
 
-	entries, err := p.(*tvdbInputPlugin).Run(context.Background(), nil)
+	entries, err := p.(*tvdbInputPlugin).Run(context.Background(), makeCtx())
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}

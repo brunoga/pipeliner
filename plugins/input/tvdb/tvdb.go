@@ -50,7 +50,7 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 func (p *tvdbInputPlugin) Name() string        { return "input_tvdb" }
 func (p *tvdbInputPlugin) Phase() plugin.Phase { return plugin.PhaseInput }
 
-func (p *tvdbInputPlugin) Run(ctx context.Context, _ *plugin.TaskContext) ([]*entry.Entry, error) {
+func (p *tvdbInputPlugin) Run(ctx context.Context, tc *plugin.TaskContext) ([]*entry.Entry, error) {
 	ids, err := p.client.GetFavorites(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("input_tvdb: get favorites: %w", err)
@@ -59,8 +59,12 @@ func (p *tvdbInputPlugin) Run(ctx context.Context, _ *plugin.TaskContext) ([]*en
 	entries := make([]*entry.Entry, 0, len(ids))
 	for _, id := range ids {
 		s, err := p.client.GetSeriesByID(ctx, id)
-		if err != nil || s == nil || s.Name == "" {
-			continue // best-effort; skip unreachable IDs
+		if err != nil {
+			tc.Logger.Warn("input_tvdb: GetSeriesByID failed", "id", id, "err", err)
+			continue
+		}
+		if s == nil || s.Name == "" {
+			continue
 		}
 		url := fmt.Sprintf("https://thetvdb.com/series/%s", s.Slug)
 		e := entry.New(s.Name, url)
