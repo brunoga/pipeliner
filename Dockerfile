@@ -30,7 +30,6 @@ RUN apk --no-cache add ca-certificates tzdata
 
 WORKDIR /app
 COPY --from=builder /build/pipeliner .
-COPY docker/config.yaml /config/config.yaml
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
