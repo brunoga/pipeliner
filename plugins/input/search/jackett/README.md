@@ -19,6 +19,7 @@ Used as a backend for the [`discover`](../../discover/README.md) input plugin.
 | `indexers` | list | no | `["all"]` | Indexer IDs to query. All are passed to Jackett in a single API call (comma-separated); Jackett aggregates results server-side. `"all"` queries every configured indexer. |
 | `categories` | list | no | (none) | Torznab category codes to filter results. |
 | `limit` | int | no | (none) | Maximum number of results to return across all indexers. |
+| `timeout` | string | no | `60s` | HTTP request timeout, e.g. `60s`, `2m`. Increase when querying many indexers. |
 
 ### Example
 
@@ -64,6 +65,7 @@ Accepts all the same keys as `jackett`, plus:
 | `indexers` | list | no | `["all"]` | Indexer IDs to query. All passed in a single call; Jackett aggregates results server-side. |
 | `categories` | list | no | (none) | Torznab category codes to filter |
 | `limit` | int | no | (none) | Maximum number of results to return across all indexers. |
+| `timeout` | string | no | `60s` | HTTP request timeout, e.g. `60s`, `2m`. Increase when querying many indexers. |
 | `query` | string | no | `""` | Optional search query; empty returns all recent results |
 
 ### Example

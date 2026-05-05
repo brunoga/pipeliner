@@ -295,6 +295,27 @@ func TestValidateLimitAbsentIsOk(t *testing.T) {
 	}
 }
 
+func TestTimeoutConfigured(t *testing.T) {
+	p := makePlugin(t, "http://localhost", "key", map[string]any{"timeout": "2m"})
+	if p.timeout != 2*60*1000*1000*1000 {
+		t.Errorf("timeout: got %v, want 2m", p.timeout)
+	}
+}
+
+func TestTimeoutDefault(t *testing.T) {
+	p := makePlugin(t, "http://localhost", "key", nil)
+	if p.timeout != 60*1000*1000*1000 {
+		t.Errorf("default timeout: got %v, want 60s", p.timeout)
+	}
+}
+
+func TestValidateTimeoutRejectsInvalid(t *testing.T) {
+	errs := validate(map[string]any{"url": "http://localhost", "api_key": "key", "timeout": "notaduration"})
+	if len(errs) == 0 {
+		t.Error("expected error for invalid timeout")
+	}
+}
+
 func TestCategoriesJoined(t *testing.T) {
 	p := makePlugin(t, "http://localhost", "key", map[string]any{
 		"categories": []any{"2000", "2010"},

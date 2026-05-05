@@ -17,6 +17,7 @@
 //	               2010  Movies/HD     5030  TV/HD
 //	               2020  Movies/SD     5040  TV/SD
 //	limit      - maximum number of results to return (optional, default: no limit).
+//	timeout    - HTTP request timeout, e.g. "60s", "2m" (default: "60s").
 package jackett
 
 import (
@@ -56,6 +57,9 @@ func validate(cfg map[string]any) []error {
 	if err := validateLimit(cfg, "jackett"); err != nil {
 		errs = append(errs, err)
 	}
+	if err := plugin.OptDuration(cfg, "timeout", "jackett"); err != nil {
+		errs = append(errs, err)
+	}
 	return errs
 }
 
@@ -89,6 +93,7 @@ type jackettPlugin struct {
 	categories string // comma-separated Torznab category codes
 	limit      int    // 0 = no limit
 	client     *http.Client
+	timeout    time.Duration
 }
 
 func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
@@ -120,13 +125,23 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 		limit = int(v)
 	}
 
+	timeout := 60 * time.Second
+	if v, _ := cfg["timeout"].(string); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return nil, fmt.Errorf("jackett: invalid timeout %q: %w", v, err)
+		}
+		timeout = d
+	}
+
 	return &jackettPlugin{
 		baseURL:    baseURL,
 		apiKey:     apiKey,
 		indexers:   indexers,
 		categories: strings.Join(categories, ","),
 		limit:      limit,
-		client:     &http.Client{Timeout: 30 * time.Second},
+		timeout:    timeout,
+		client:     &http.Client{Timeout: timeout},
 	}, nil
 }
 
