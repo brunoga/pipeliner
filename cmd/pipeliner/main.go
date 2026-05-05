@@ -224,7 +224,7 @@ func cmdRun(args []string) int {
 			exitCode = 2
 			continue
 		}
-		logger.Info("task complete",
+		logger.Info("task done",
 			"task", t.Name(),
 			"accepted", result.Accepted,
 			"rejected", result.Rejected,
@@ -358,7 +358,7 @@ func cmdDaemon(args []string) int {
 			rec.Failed = result.Failed
 			rec.Total = result.Total
 			rec.Duration = result.Duration
-			logger.Info("task complete",
+			logger.Info("task done",
 				"task", name,
 				"accepted", result.Accepted,
 				"rejected", result.Rejected,

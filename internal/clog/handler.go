@@ -86,17 +86,7 @@ func (h *Handler) Handle(_ context.Context, r slog.Record) error {
 	}
 	buf.WriteByte(' ')
 
-	mc := ""
-	if h.color {
-		mc = msgColor(r.Message, r.Level)
-	}
-	if mc != "" {
-		buf.WriteString(mc)
-	}
-	buf.WriteString(r.Message)
-	if mc != "" {
-		buf.WriteString(ansiReset)
-	}
+	renderMsg(&buf, r.Message, r.Level, h.color)
 
 	if len(h.preFormatted) > 0 {
 		buf.WriteByte(' ')
@@ -160,6 +150,31 @@ func levelColor(l slog.Level) string {
 		return ansiCyan
 	default: // Debug
 		return ansiGray
+	}
+}
+
+// renderMsg writes the message to buf with appropriate ANSI coloring.
+// Most messages get a single color prefix; a few use inline mixed colors.
+func renderMsg(buf *bytes.Buffer, msg string, l slog.Level, color bool) {
+	if !color {
+		buf.WriteString(msg)
+		return
+	}
+	switch msg {
+	case "entry accepted then rejected":
+		buf.WriteString(ansiRed + ansiBold + "entry " + ansiGreen + "accepted" + ansiRed + " then rejected" + ansiReset)
+		return
+	case "entry accepted then failed":
+		buf.WriteString(ansiRed + ansiBold + "entry " + ansiGreen + "accepted" + ansiRed + " then failed" + ansiReset)
+		return
+	}
+	mc := msgColor(msg, l)
+	if mc != "" {
+		buf.WriteString(mc)
+	}
+	buf.WriteString(msg)
+	if mc != "" {
+		buf.WriteString(ansiReset)
 	}
 }
 
