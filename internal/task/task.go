@@ -117,6 +117,9 @@ func (t *Task) Run(ctx context.Context) (*Result, error) {
 			continue
 		}
 		for _, e := range entries {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
 			if e.IsRejected() || e.IsFailed() {
 				continue // already decided; skip further filtering
 			}
