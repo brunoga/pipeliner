@@ -4,12 +4,19 @@
 // Seed counts are sourced in order:
 //  1. The torrent_seeds entry field, set by the RSS input plugin from torrent
 //     namespace extensions (nyaa, Jackett, ezrss, etc.).
-//  2. Live tracker scraping: when torrent_seeds is absent and scrape is enabled
-//     (default), the plugin queries the announce URLs in torrent_announce_list
-//     (or torrent_announce) using the HTTP scrape convention or UDP tracker
-//     protocol. Only entries that also have torrent_info_hash are scraped.
+//  2. If torrent_info_hash is not already set, the plugin populates it
+//     automatically:
+//     - magnet: URIs — info hash and tracker URLs are extracted from the URI
+//       itself (no network call required).
+//     - .torrent URLs — the file is downloaded and parsed to extract the info
+//       hash and announce list.
+//  3. Live tracker scraping: the plugin sends a scrape request to each announce
+//     URL and uses the highest seed count returned.
 //
 // Entries where no seed count can be determined are left undecided.
+// metainfo_magnet is NOT required — magnet URIs are parsed inline.
+// For .torrent URL entries, add metainfo_torrent before torrent_alive if
+// you want seed checking on those as well.
 //
 // Config keys:
 //
@@ -21,9 +28,12 @@ package torrentalive
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
+	"net/url"
 
 	"github.com/brunoga/pipeliner/internal/entry"
+	"github.com/brunoga/pipeliner/internal/magnet"
 	"github.com/brunoga/pipeliner/internal/plugin"
 	"github.com/brunoga/pipeliner/internal/store"
 	"github.com/brunoga/pipeliner/internal/tracker"
@@ -32,10 +42,10 @@ import (
 func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "torrent_alive",
-		Description: "reject torrent entries with fewer seeds than min_seeds; optionally scrapes trackers",
+		Description: "reject torrent entries with fewer seeds than min_seeds; auto-resolves info hash from magnet URIs and .torrent URLs",
 		PluginPhase: plugin.PhaseFilter,
-		Factory:     newPlugin,
-		Validate:    validate,
+		Factory:  newPlugin,
+		Validate: validate,
 	})
 }
 
@@ -71,7 +81,7 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 
 	timeoutStr, _ := cfg["scrape_timeout"].(string)
 	if timeoutStr == "" {
-		timeoutStr = "15s"
+		timeoutStr = "5s"
 	}
 	scrapeTimeout, err := time.ParseDuration(timeoutStr)
 	if err != nil {
@@ -89,38 +99,84 @@ func (p *torrentAlivePlugin) Name() string        { return "torrent_alive" }
 func (p *torrentAlivePlugin) Phase() plugin.Phase { return plugin.PhaseFilter }
 
 func (p *torrentAlivePlugin) Filter(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
-	// 1. Use RSS-provided seed count if available.
+	// 1. Use feed-provided seed count if available.
+	// Check both torrent_seeds (RSS namespace extensions) and torrent_seeders
+	// (Jackett/Torznab) so Jackett entries always take the fast path.
 	if v, ok := e.Get("torrent_seeds"); ok {
-		return p.applyMinSeeds(e, toInt(v))
+		n := toInt(v)
+		tc.Logger.Debug("torrent_alive: fast path (torrent_seeds)", "entry", e.Title, "seeds", n)
+		return p.applyMinSeeds(e, n)
+	}
+	if v, ok := e.Get("torrent_seeders"); ok {
+		n := toInt(v)
+		tc.Logger.Debug("torrent_alive: fast path (torrent_seeders)", "entry", e.Title, "seeds", n)
+		return p.applyMinSeeds(e, n)
 	}
 
-	// 2. Optionally scrape trackers.
 	if !p.scrape {
-		return nil // no seed count available; don't reject
+		tc.Logger.Debug("torrent_alive: no seed data, scrape disabled — leaving undecided", "entry", e.Title)
+		return nil
+	}
+
+	// 2. Populate info hash and announce list from the URL if not already set.
+	if e.GetString("torrent_info_hash") == "" {
+		if err := p.populate(ctx, e); err != nil {
+			tc.Logger.Debug("torrent_alive: could not resolve torrent metadata",
+				"entry", e.Title, "err", err)
+		}
 	}
 
 	infoHash := e.GetString("torrent_info_hash")
 	announces := announceList(e)
 	if infoHash == "" || len(announces) == 0 {
-		return nil // not enough info to scrape; leave undecided
+		tc.Logger.Debug("torrent_alive: no info hash or announces — leaving undecided",
+			"entry", e.Title, "has_hash", infoHash != "", "announces", len(announces))
+		return nil
 	}
 
+	// Log only the hostname of the first announce to keep lines readable.
+	firstHost := announces[0]
+	if u, err := url.Parse(announces[0]); err == nil {
+		firstHost = u.Host
+	}
+	tc.Logger.Debug("torrent_alive: scraping",
+		"entry", e.Title, "hash", infoHash[:8]+"…", "trackers", len(announces), "first", firstHost)
+
+	t0 := time.Now()
 	scrapeCtx, cancel := context.WithTimeout(ctx, p.scrapeTimeout)
 	defer cancel()
 
 	seeds, err := tracker.Scrape(scrapeCtx, infoHash, announces)
 	if err != nil {
-		// Tracker unreachable — leave undecided rather than reject.
-		if tc.Logger != nil {
-			tc.Logger.Debug("torrent_alive: scrape failed, skipping filter",
-				"entry", e.Title, "err", err)
-		}
+		tc.Logger.Debug("torrent_alive: scrape failed",
+			"entry", e.Title, "duration", time.Since(t0).Round(time.Millisecond), "err", err)
 		return nil
 	}
 
-	// Successfully scraped; write back so downstream plugins can see it.
+	tc.Logger.Debug("torrent_alive: scrape ok",
+		"entry", e.Title, "seeds", seeds, "duration", time.Since(t0).Round(time.Millisecond))
 	e.Set("torrent_seeds", seeds)
 	return p.applyMinSeeds(e, seeds)
+}
+
+// populate fills torrent_info_hash and torrent_announce_list from the entry URL
+// when they have not been set by a prior metainfo plugin.
+// Only magnet: URIs are handled — info hash and tracker URLs are extracted
+// directly from the URI with no network call. All other URL types are a no-op.
+func (p *torrentAlivePlugin) populate(_ context.Context, e *entry.Entry) error {
+	if !strings.HasPrefix(e.URL, "magnet:") {
+		return nil
+	}
+	m, err := magnet.Parse(e.URL)
+	if err != nil {
+		return err
+	}
+	e.Set("torrent_info_hash", m.InfoHash)
+	if len(m.Trackers) > 0 {
+		e.Set("torrent_announce_list", m.Trackers)
+		e.Set("torrent_announce", m.Trackers[0])
+	}
+	return nil
 }
 
 func (p *torrentAlivePlugin) applyMinSeeds(e *entry.Entry, seeds int) error {
@@ -130,9 +186,7 @@ func (p *torrentAlivePlugin) applyMinSeeds(e *entry.Entry, seeds int) error {
 	return nil
 }
 
-// announceList returns the deduplicated list of announce URLs for an entry,
-// reading from torrent_announce_list ([]string) then falling back to the
-// torrent_announce string field.
+// announceList returns the deduplicated list of announce URLs for an entry.
 func announceList(e *entry.Entry) []string {
 	if v, ok := e.Get("torrent_announce_list"); ok {
 		switch t := v.(type) {

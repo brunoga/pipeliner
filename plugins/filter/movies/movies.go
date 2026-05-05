@@ -1,7 +1,10 @@
 // Package movies provides a movie filter and learn plugin.
 //
 // It parses movie information from entry titles, matches them against a configured
-// title list, deduplicates against a persistent tracker, and enforces quality constraints.
+// title list, and enforces quality constraints. Multiple quality variants of the
+// same movie are all accepted so the task engine's automatic deduplication can
+// choose the best copy. The tracker is updated in the Learn phase so only the
+// dedup survivor is recorded as downloaded.
 //
 // The movie list may be provided statically via 'movies', dynamically via 'from'
 // (a list of input plugins whose entry titles are used as movie names), or both.

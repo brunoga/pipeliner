@@ -237,6 +237,52 @@ func (c *countingInput) Run(ctx context.Context, tc *plugin.TaskContext) ([]*ent
 	return c.wrapped.Run(ctx, tc)
 }
 
+func TestMultipleEntriesSameMovieAllAccepted(t *testing.T) {
+	// Multiple entries for the same movie (different quality/source) should all
+	// be accepted by movies.Filter so the dedup step can pick the best one.
+	p := openPlugin(t, nil)
+	tc := makeCtx()
+
+	e1 := entry.New("Inception.2010.720p.HDTV", "http://x.com/a")
+	e2 := entry.New("Inception.2010.1080p.WEB-DL", "http://x.com/b")
+	e3 := entry.New("Inception.2010.2160p.BluRay", "http://x.com/c")
+
+	for _, e := range []*entry.Entry{e1, e2, e3} {
+		if err := p.Filter(context.Background(), tc, e); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for _, e := range []*entry.Entry{e1, e2, e3} {
+		if !e.IsAccepted() {
+			t.Errorf("entry %q should be accepted before dedup: %s", e.Title, e.RejectReason)
+		}
+	}
+}
+
+func TestMultipleEntriesSameMovieLearnRejectsOldOnNextRun(t *testing.T) {
+	// After Learn persists one accepted entry, subsequent runs reject that movie.
+	p := openPlugin(t, nil)
+	tc := makeCtx()
+
+	e1 := entry.New("Inception.2010.1080p.WEB-DL", "http://x.com/a")
+	e1.Set("movie_title", "Inception")
+	if err := p.Filter(context.Background(), tc, e1); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Learn(context.Background(), tc, []*entry.Entry{e1}); err != nil {
+		t.Fatal(err)
+	}
+
+	e2 := entry.New("Inception.2010.720p.HDTV", "http://x.com/b")
+	if err := p.Filter(context.Background(), tc, e2); err != nil {
+		t.Fatal(err)
+	}
+	if !e2.IsRejected() {
+		t.Error("already-downloaded movie should be rejected on next run")
+	}
+}
+
 func TestMissingMoviesAndFrom(t *testing.T) {
 	db, _ := store.OpenSQLite(":memory:")
 	defer db.Close()

@@ -343,6 +343,43 @@ func (c *countingInput) Run(ctx context.Context, tc *plugin.TaskContext) ([]*ent
 	return c.wrapped.Run(ctx, tc)
 }
 
+func TestMultipleEntriesSameEpisodeAllAccepted(t *testing.T) {
+	// Multiple entries for the same episode (different quality/source) should all
+	// be accepted by series.Filter so the dedup step can pick the best one.
+	p := openPlugin(t, nil)
+	tc := makeCtx()
+
+	e1 := entry.New("My.Show.S01E01.720p.HDTV", "http://x.com/a")
+	e2 := entry.New("My.Show.S01E01.1080p.WEB-DL", "http://x.com/b")
+	e3 := entry.New("My.Show.S01E01.2160p.BluRay", "http://x.com/c")
+
+	for _, e := range []*entry.Entry{e1, e2, e3} {
+		p.Filter(context.Background(), tc, e) //nolint:errcheck
+	}
+
+	for _, e := range []*entry.Entry{e1, e2, e3} {
+		if !e.IsAccepted() {
+			t.Errorf("entry %q should be accepted before dedup: %s", e.Title, e.RejectReason)
+		}
+	}
+}
+
+func TestMultipleEntriesSameEpisodeLearnRejectsOldOnNextRun(t *testing.T) {
+	// After Learn persists one accepted entry, subsequent runs reject that episode.
+	p := openPlugin(t, nil)
+	tc := makeCtx()
+
+	e1 := entry.New("My.Show.S01E01.1080p.WEB-DL", "http://x.com/a")
+	p.Filter(context.Background(), tc, e1) //nolint:errcheck
+	p.Learn(context.Background(), tc, []*entry.Entry{e1}) //nolint:errcheck
+
+	e2 := entry.New("My.Show.S01E01.720p.HDTV", "http://x.com/b")
+	p.Filter(context.Background(), tc, e2) //nolint:errcheck
+	if !e2.IsRejected() {
+		t.Error("episode already in tracker should be rejected on next run")
+	}
+}
+
 func TestMissingShowsAndFrom(t *testing.T) {
 	db, _ := store.OpenSQLite(":memory:")
 	defer db.Close()
