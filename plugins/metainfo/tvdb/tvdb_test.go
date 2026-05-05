@@ -43,11 +43,27 @@ func makeServer() *httptest.Server {
 				},
 				"status": "success",
 			})
+		case "/v4/series/81189/extended":
+			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+				"data": map[string]any{
+					"originalLanguage": "eng",
+					"originalCountry":  "usa",
+					"firstAired":       "2008-01-20",
+					"lastAired":        "2013-09-29",
+					"score":            99869.0,
+					"status":           map[string]any{"name": "Ended"},
+					"genres":           []map[string]any{{"name": "Drama"}, {"name": "Crime"}},
+					"trailers":         []map[string]any{{"url": "https://youtube.com/watch?v=xyz", "language": "eng"}},
+					"contentRatings":   []map[string]any{{"name": "TV-MA", "country": "usa"}},
+					"characters":       []map[string]any{{"personName": "Bryan Cranston", "type": 3, "sort": 1}},
+				},
+				"status": "success",
+			})
 		case "/v4/series/81189/episodes/official":
 			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
 				"data": map[string]any{
 					"episodes": []map[string]any{
-						{"id": 111, "seasonNumber": 1, "number": 1, "name": "Pilot", "aired": "2008-01-20"},
+						{"id": 111, "seasonNumber": 1, "number": 1, "name": "Pilot", "aired": "2008-01-20", "runtime": 47, "image": "https://artworks.thetvdb.com/banners/episodes/81189/1.jpg"},
 					},
 				},
 				"status": "success",
@@ -79,9 +95,27 @@ func makeServerSparseSearch() *httptest.Server {
 			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
 				"data": map[string]any{
 					"originalLanguage": "eng",
+					"originalCountry":  "usa",
+					"firstAired":       "2008-01-20",
+					"lastAired":        "2013-09-29",
+					"score":            99869.0,
+					"status":           map[string]any{"name": "Ended"},
 					"genres": []map[string]any{
 						{"id": 3, "name": "Drama"},
 						{"id": 4, "name": "Crime"},
+					},
+					"trailers": []map[string]any{
+						{"url": "https://youtube.com/watch?v=abc123", "language": "eng"},
+					},
+					"contentRatings": []map[string]any{
+						{"name": "TV-MA", "country": "usa"},
+					},
+					"aliases": []map[string]any{
+						{"language": "spa", "name": "Breaking Bad (Spanish)"},
+					},
+					"characters": []map[string]any{
+						{"personName": "Bryan Cranston", "type": 3, "sort": 1},
+						{"personName": "Aaron Paul", "type": 3, "sort": 2},
 					},
 				},
 				"status": "success",
@@ -137,6 +171,27 @@ func TestAnnotateSeries(t *testing.T) {
 	if v := e.GetString("tvdb_poster"); v != "https://artworks.thetvdb.com/banners/posters/81189-1.jpg" {
 		t.Errorf("tvdb_poster: got %q", v)
 	}
+	// Extended fields always fetched.
+	if v := e.GetString("tvdb_country"); v != "United States" {
+		t.Errorf("tvdb_country: got %q, want United States", v)
+	}
+	if v := e.GetString("tvdb_status"); v != "Ended" {
+		t.Errorf("tvdb_status: got %q, want Ended", v)
+	}
+	if v := e.GetString("tvdb_content_rating"); v != "TV-MA" {
+		t.Errorf("tvdb_content_rating: got %q, want TV-MA", v)
+	}
+	trailers, _ := e.Get("tvdb_trailers")
+	if urls, _ := trailers.([]string); len(urls) == 0 {
+		t.Error("tvdb_trailers should be set")
+	}
+	// Episode fields.
+	if v := e.GetInt("tvdb_episode_runtime"); v != 47 {
+		t.Errorf("tvdb_episode_runtime: got %d, want 47", v)
+	}
+	if v := e.GetString("tvdb_episode_image"); v == "" {
+		t.Error("tvdb_episode_image should be set")
+	}
 }
 
 func TestAnnotateExtendedFallback(t *testing.T) {
@@ -156,6 +211,33 @@ func TestAnnotateExtendedFallback(t *testing.T) {
 	names, _ := genres.([]string)
 	if len(names) != 2 || names[0] != "Drama" || names[1] != "Crime" {
 		t.Errorf("tvdb_genres: got %v", genres)
+	}
+	if v := e.GetString("tvdb_country"); v != "United States" {
+		t.Errorf("tvdb_country: got %q, want United States", v)
+	}
+	if v := e.GetString("tvdb_status"); v != "Ended" {
+		t.Errorf("tvdb_status: got %q, want Ended", v)
+	}
+	trailers, _ := e.Get("tvdb_trailers")
+	trailerURLs, _ := trailers.([]string)
+	if len(trailerURLs) != 1 || trailerURLs[0] != "https://youtube.com/watch?v=abc123" {
+		t.Errorf("tvdb_trailers: got %v", trailers)
+	}
+	if v := e.GetString("tvdb_content_rating"); v != "TV-MA" {
+		t.Errorf("tvdb_content_rating: got %q, want TV-MA", v)
+	}
+	aliases, _ := e.Get("tvdb_aliases")
+	aliasNames, _ := aliases.([]string)
+	if len(aliasNames) != 1 {
+		t.Errorf("tvdb_aliases: got %v", aliases)
+	}
+	if score := e.GetInt("tvdb_score"); score == 0 {
+		t.Error("tvdb_score should be set")
+	}
+	cast, _ := e.Get("tvdb_cast")
+	castNames, _ := cast.([]string)
+	if len(castNames) != 2 || castNames[0] != "Bryan Cranston" {
+		t.Errorf("tvdb_cast: got %v", cast)
 	}
 }
 
