@@ -126,17 +126,25 @@ func (p *tvdbPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 	if s.Language != "" {
 		e.Set("tvdb_language", languageName(s.Language))
 	}
+	if s.Country != "" {
+		e.Set("tvdb_country", countryName(s.Country))
+	}
 	if s.ImageURL != "" {
 		e.Set("tvdb_poster", s.ImageURL)
 	}
 	if t := parseFirstAired(s.FirstAired); !t.IsZero() {
 		e.Set("tvdb_first_air_date", t)
 	}
+	if s.Score > 0 {
+		e.Set("tvdb_score", s.Score)
+	}
 
-	// Fetch extended data when the search result is missing genres or language,
-	// which happens inconsistently across TVDB series.
-	if s.ID != "" && (len(s.Genres) == 0 || s.Language == "" || s.FirstAired == "") {
+	// Always fetch extended data — it provides richer and more reliable
+	// metadata (country, status, trailers, content ratings, aliases, etc.)
+	// that the search endpoint returns inconsistently or not at all.
+	if s.ID != "" {
 		if ext, err := p.fetchExtended(ctx, tc, s.ID); err == nil {
+			// Fill in search gaps with extended data.
 			if len(s.Genres) == 0 {
 				if names := ext.GenreNames(); len(names) > 0 {
 					e.Set("tvdb_genres", names)
@@ -149,6 +157,39 @@ func (p *tvdbPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 				if t := parseFirstAired(ext.FirstAired); !t.IsZero() {
 					e.Set("tvdb_first_air_date", t)
 				}
+			}
+
+			// Extended-only fields.
+			country := s.Country
+			if country == "" {
+				country = ext.OriginalCountry
+			}
+			if country != "" {
+				e.Set("tvdb_country", countryName(country))
+			}
+			if ext.Status.Name != "" {
+				e.Set("tvdb_status", ext.Status.Name)
+			}
+			if urls := ext.TrailerURLs(); len(urls) > 0 {
+				e.Set("tvdb_trailers", urls)
+			}
+			if rating := ext.ContentRatingName(); rating != "" {
+				e.Set("tvdb_content_rating", rating)
+			}
+			if t := parseFirstAired(ext.LastAired); !t.IsZero() {
+				e.Set("tvdb_last_air_date", t)
+			}
+			if t := parseFirstAired(ext.NextAired); !t.IsZero() {
+				e.Set("tvdb_next_air_date", t)
+			}
+			if ext.Score > 0 && s.Score == 0 {
+				e.Set("tvdb_score", ext.Score)
+			}
+			if aliases := ext.AliasNames(); len(aliases) > 0 {
+				e.Set("tvdb_aliases", aliases)
+			}
+			if cast := ext.ActorNames(); len(cast) > 0 {
+				e.Set("tvdb_cast", cast)
 			}
 		}
 	}
@@ -165,6 +206,12 @@ func (p *tvdbPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 				e.Set("tvdb_episode_name", ep2.Name)
 				e.Set("tvdb_air_date", ep2.AirDate)
 				e.Set("tvdb_episode_overview", ep2.Overview)
+				if ep2.Runtime > 0 {
+					e.Set("tvdb_episode_runtime", ep2.Runtime)
+				}
+				if ep2.Image != "" {
+					e.Set("tvdb_episode_image", ep2.Image)
+				}
 				break
 			}
 		}
@@ -251,6 +298,58 @@ var iso639 = map[string]string{
 	"tur": "Turkish",
 	"ukr": "Ukrainian",
 	"vie": "Vietnamese",
+}
+
+// countryName maps ISO 3166-1 alpha-3 lowercase codes to English display names.
+// Covers the most common TV-producing countries; falls back to the original
+// code for anything not in the table.
+func countryName(code string) string {
+	if name, ok := iso3166[code]; ok {
+		return name
+	}
+	return code
+}
+
+var iso3166 = map[string]string{
+	"arg": "Argentina",
+	"aus": "Australia",
+	"aut": "Austria",
+	"bel": "Belgium",
+	"bra": "Brazil",
+	"can": "Canada",
+	"chl": "Chile",
+	"chn": "China",
+	"col": "Colombia",
+	"cze": "Czech Republic",
+	"dnk": "Denmark",
+	"fin": "Finland",
+	"fra": "France",
+	"deu": "Germany",
+	"hkg": "Hong Kong",
+	"hun": "Hungary",
+	"ind": "India",
+	"idn": "Indonesia",
+	"irl": "Ireland",
+	"isr": "Israel",
+	"ita": "Italy",
+	"jpn": "Japan",
+	"kor": "South Korea",
+	"mex": "Mexico",
+	"nld": "Netherlands",
+	"nzl": "New Zealand",
+	"nor": "Norway",
+	"pol": "Poland",
+	"prt": "Portugal",
+	"rus": "Russia",
+	"zaf": "South Africa",
+	"esp": "Spain",
+	"swe": "Sweden",
+	"che": "Switzerland",
+	"twn": "Taiwan",
+	"tha": "Thailand",
+	"tur": "Turkey",
+	"gbr": "United Kingdom",
+	"usa": "United States",
 }
 
 // parseFirstAired parses the first-air-time string returned by the TVDB search
