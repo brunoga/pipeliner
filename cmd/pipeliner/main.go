@@ -128,8 +128,8 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, `Pipeliner — media automation tool
 
 Usage:
-  pipeliner run     [--config path] [--log-level level] [--dry-run] [task ...]
-  pipeliner daemon  [--config path] [--log-level level]
+  pipeliner run     [--config path] [--log-level level] [--log-plugin name] [--dry-run] [task ...]
+  pipeliner daemon  [--config path] [--log-level level] [--log-plugin name]
                     [--web :8080 --web-user USER --web-password PASS]
                     [--tls-self-signed | --tls-cert cert.pem --tls-key key.pem]
 
@@ -152,14 +152,15 @@ TLS flags (optional; plain HTTP is used when none are set, suitable for a
 
 func cmdRun(args []string) int {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
-	cfgPath := fs.String("config", "config.yaml", "path to config file")
-	logLevel := fs.String("log-level", "info", "log level (debug, info, warn, error)")
-	dryRun := fs.Bool("dry-run", false, "execute pipeline but skip output phase")
+	cfgPath   := fs.String("config",     "config.yaml", "path to config file")
+	logLevel  := fs.String("log-level",  "info",        "log level (debug, info, warn, error)")
+	logPlugin := fs.String("log-plugin", "",            "only show log output from this plugin (task-level logs always shown)")
+	dryRun    := fs.Bool("dry-run",      false,         "execute pipeline but skip output phase")
 	if err := fs.Parse(args); err != nil {
 		return 1
 	}
 
-	logger := makeLogger(*logLevel)
+	logger := makeLogger(*logLevel, *logPlugin)
 	cfg, err := config.Load(*cfgPath)
 	if err != nil {
 		logger.Error("failed to load config", "err", err)
@@ -240,6 +241,7 @@ func cmdDaemon(args []string) int {
 	fs := flag.NewFlagSet("daemon", flag.ContinueOnError)
 	cfgPath       := fs.String("config",          "config.yaml", "path to config file")
 	logLevel      := fs.String("log-level",       "info",        "log level (debug, info, warn, error)")
+	logPlugin     := fs.String("log-plugin",      "",            "only show log output from this plugin (task-level logs always shown)")
 	webAddr       := fs.String("web",             "",            "web interface listen address (e.g. :8080); empty disables it")
 	webUser       := fs.String("web-user",        "",            "username for the web interface (required with --web)")
 	webPass       := fs.String("web-password",    "",            "password for the web interface (required with --web)")
@@ -270,9 +272,19 @@ func cmdDaemon(args []string) int {
 	var logger *slog.Logger
 	if *webAddr != "" {
 		bcast = web.NewBroadcaster()
-		logger = slog.New(clog.New(bcast, opts))
+		h := clog.New(bcast, opts)
+		if *logPlugin != "" {
+			logger = slog.New(clog.NewPluginFilter(h, *logPlugin))
+		} else {
+			logger = slog.New(h)
+		}
 	} else {
-		logger = slog.New(clog.New(os.Stderr, opts))
+		h := clog.New(os.Stderr, opts)
+		if *logPlugin != "" {
+			logger = slog.New(clog.NewPluginFilter(h, *logPlugin))
+		} else {
+			logger = slog.New(h)
+		}
 	}
 
 	cfg, err := config.Load(*cfgPath)
@@ -521,8 +533,12 @@ func logHandlerOptions(level string) *slog.HandlerOptions {
 	return &slog.HandlerOptions{Level: l}
 }
 
-func makeLogger(level string) *slog.Logger {
-	return slog.New(clog.New(os.Stderr, logHandlerOptions(level)))
+func makeLogger(level, pluginFilter string) *slog.Logger {
+	h := clog.New(os.Stderr, logHandlerOptions(level))
+	if pluginFilter != "" {
+		return slog.New(clog.NewPluginFilter(h, pluginFilter))
+	}
+	return slog.New(h)
 }
 
 // dbPath returns the SQLite store path for the given config file:
