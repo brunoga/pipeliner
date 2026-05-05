@@ -323,6 +323,9 @@ func (s *Server) apiLogs(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, ": connected\n\n")
 	flusher.Flush()
 
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
 	for {
 		select {
 		case <-r.Context().Done():
@@ -330,6 +333,9 @@ func (s *Server) apiLogs(w http.ResponseWriter, r *http.Request) {
 		case ll := <-ch:
 			escaped := strings.ReplaceAll(ll.text, "\n", "\ndata: ")
 			fmt.Fprintf(w, "id: %d\ndata: %s\n\n", ll.seq, escaped)
+			flusher.Flush()
+		case <-ticker.C:
+			fmt.Fprint(w, ": heartbeat\n\n")
 			flusher.Flush()
 		}
 	}
