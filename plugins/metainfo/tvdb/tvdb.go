@@ -29,8 +29,10 @@ func init() {
 }
 
 type tvdbPlugin struct {
-	client *itvdb.Client
-	cache  *cache.Cache[[]itvdb.Series]
+	client        *itvdb.Client
+	cache         *cache.Cache[[]itvdb.Series]
+	extendedCache *cache.Cache[*itvdb.SeriesExtended]
+	episodeCache  *cache.Cache[[]itvdb.Episode]
 }
 
 func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
@@ -48,10 +50,16 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 		ttl = d
 	}
 
-	return &tvdbPlugin{
-		client: itvdb.New(apiKey),
-		cache:  cache.NewPersistent[[]itvdb.Series](ttl, db.Bucket("cache_metainfo_tvdb")),
-	}, nil
+	p := &tvdbPlugin{
+		client:        itvdb.New(apiKey),
+		cache:         cache.NewPersistent[[]itvdb.Series](ttl, db.Bucket("cache_metainfo_tvdb")),
+		extendedCache: cache.NewPersistent[*itvdb.SeriesExtended](ttl, db.Bucket("cache_metainfo_tvdb_ext")),
+		episodeCache:  cache.NewPersistent[[]itvdb.Episode](ttl, db.Bucket("cache_metainfo_tvdb_eps")),
+	}
+	p.cache.Preload()
+	p.extendedCache.Preload()
+	p.episodeCache.Preload()
+	return p, nil
 }
 
 func (p *tvdbPlugin) Name() string        { return "metainfo_tvdb" }
@@ -65,6 +73,7 @@ func (p *tvdbPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 
 	results, cached := p.cache.Get(ep.SeriesName)
 	if !cached {
+		t0 := time.Now()
 		var err error
 		results, err = p.client.SearchSeries(ctx, ep.SeriesName)
 		if err != nil {
@@ -72,6 +81,9 @@ func (p *tvdbPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 			return nil
 		}
 		p.cache.Set(ep.SeriesName, results)
+		tc.Logger.Debug("metainfo_tvdb: search", "series", ep.SeriesName, "duration", time.Since(t0).Round(time.Millisecond))
+	} else {
+		tc.Logger.Debug("metainfo_tvdb: search cache hit", "series", ep.SeriesName)
 	}
 	if len(results) == 0 {
 		return nil
@@ -79,6 +91,14 @@ func (p *tvdbPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 
 	// Use the first result (highest relevance from TVDB).
 	s := results[0]
+	tc.Logger.Debug("metainfo_tvdb: search result",
+		"series", ep.SeriesName,
+		"id", s.ID,
+		"network", s.Network,
+		"language", s.Language,
+		"genres", s.Genres,
+		"image_url", s.ImageURL,
+	)
 	e.Set("tvdb_id", s.ID)
 	e.Set("tvdb_series_name", s.Name)
 	e.Set("tvdb_series_year", s.Year)
@@ -90,15 +110,40 @@ func (p *tvdbPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 	if s.Network != "" {
 		e.Set("tvdb_network", s.Network)
 	}
+	if s.Language != "" {
+		e.Set("tvdb_language", languageName(s.Language))
+	}
+	if s.ImageURL != "" {
+		e.Set("tvdb_poster", s.ImageURL)
+	}
 	if t := parseFirstAired(s.FirstAired); !t.IsZero() {
 		e.Set("tvdb_first_air_date", t)
 	}
 
+	// Fetch extended data when the search result is missing genres or language,
+	// which happens inconsistently across TVDB series.
+	if s.ID != "" && (len(s.Genres) == 0 || s.Language == "" || s.FirstAired == "") {
+		if ext, err := p.fetchExtended(ctx, tc, s.ID); err == nil {
+			if len(s.Genres) == 0 {
+				if names := ext.GenreNames(); len(names) > 0 {
+					e.Set("tvdb_genres", names)
+				}
+			}
+			if s.Language == "" && ext.Language != "" {
+				e.Set("tvdb_language", languageName(ext.Language))
+			}
+			if s.FirstAired == "" {
+				if t := parseFirstAired(ext.FirstAired); !t.IsZero() {
+					e.Set("tvdb_first_air_date", t)
+				}
+			}
+		}
+	}
+
 	// Fetch episode-level detail if we have a specific episode.
 	if ep.Season > 0 && ep.Episode > 0 {
-		eps, err := p.client.GetEpisodes(ctx, s.ID)
+		eps, err := p.fetchEpisodes(ctx, tc, s.ID)
 		if err != nil {
-			tc.Logger.Warn("metainfo_tvdb: episodes fetch failed", "id", s.ID, "err", err)
 			return nil
 		}
 		for _, ep2 := range eps {
@@ -113,6 +158,86 @@ func (p *tvdbPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 	}
 
 	return nil
+}
+
+func (p *tvdbPlugin) fetchEpisodes(ctx context.Context, tc *plugin.TaskContext, id string) ([]itvdb.Episode, error) {
+	if eps, ok := p.episodeCache.Get(id); ok {
+		tc.Logger.Debug("metainfo_tvdb: episodes cache hit", "id", id)
+		return eps, nil
+	}
+	t0 := time.Now()
+	eps, err := p.client.GetEpisodes(ctx, id)
+	if err != nil {
+		tc.Logger.Warn("metainfo_tvdb: episodes fetch failed", "id", id, "err", err)
+		return nil, err
+	}
+	p.episodeCache.Set(id, eps)
+	tc.Logger.Debug("metainfo_tvdb: episodes fetch", "id", id, "count", len(eps), "duration", time.Since(t0).Round(time.Millisecond))
+	return eps, nil
+}
+
+func (p *tvdbPlugin) fetchExtended(ctx context.Context, tc *plugin.TaskContext, id string) (*itvdb.SeriesExtended, error) {
+	if ext, ok := p.extendedCache.Get(id); ok {
+		tc.Logger.Debug("metainfo_tvdb: extended cache hit", "id", id)
+		return ext, nil
+	}
+	t0 := time.Now()
+	ext, err := p.client.GetSeriesExtended(ctx, id)
+	if err != nil {
+		tc.Logger.Warn("metainfo_tvdb: extended fetch failed", "id", id, "err", err)
+		return nil, err
+	}
+	p.extendedCache.Set(id, ext)
+	tc.Logger.Debug("metainfo_tvdb: extended fetch", "id", id, "duration", time.Since(t0).Round(time.Millisecond))
+	return ext, nil
+}
+
+// languageName maps ISO 639-2 three-letter codes to English display names.
+// Falls back to the original code when not found.
+func languageName(code string) string {
+	if name, ok := iso639[code]; ok {
+		return name
+	}
+	return code
+}
+
+var iso639 = map[string]string{
+	"ara": "Arabic",
+	"bul": "Bulgarian",
+	"ces": "Czech",
+	"chi": "Chinese",
+	"zho": "Chinese",
+	"hrv": "Croatian",
+	"dan": "Danish",
+	"nld": "Dutch",
+	"eng": "English",
+	"fin": "Finnish",
+	"fra": "French",
+	"deu": "German",
+	"ger": "German",
+	"ell": "Greek",
+	"heb": "Hebrew",
+	"hin": "Hindi",
+	"hun": "Hungarian",
+	"ind": "Indonesian",
+	"ita": "Italian",
+	"jpn": "Japanese",
+	"kor": "Korean",
+	"msa": "Malay",
+	"nor": "Norwegian",
+	"pol": "Polish",
+	"por": "Portuguese",
+	"ron": "Romanian",
+	"rum": "Romanian",
+	"rus": "Russian",
+	"slk": "Slovak",
+	"slo": "Slovak",
+	"spa": "Spanish",
+	"swe": "Swedish",
+	"tha": "Thai",
+	"tur": "Turkish",
+	"ukr": "Ukrainian",
+	"vie": "Vietnamese",
 }
 
 // parseFirstAired parses the first-air-time string returned by the TVDB search
