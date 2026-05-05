@@ -121,19 +121,17 @@ func (t *Task) Run(ctx context.Context) (*Result, error) {
 	phaseStart = time.Now()
 	for _, pi := range t.pluginsForPhase(plugin.PhaseFilter) {
 		plog := t.logger.With("phase", pi.impl.Phase(), "plugin", pi.impl.Name())
-		beforeA, beforeR, beforeU := countStates(entries)
-		plog.Info("plugin started", "in", beforeA+beforeU)
+		snap := snapshotStates(entries)
+		_, _, inU := countStates(entries)
+		inA := len(entries) - countRejected(entries)
+		plog.Info("plugin started", "in", inA)
 		pluginStart := time.Now()
 		if batch, ok := pi.impl.(plugin.BatchFilterPlugin); ok {
-			prevStates := make(map[*entry.Entry]entry.State, len(entries))
-			for _, e := range entries {
-				prevStates[e] = e.State
-			}
 			if err := safeRunFilterBatch(ctx, batch, tc(pi), entries); err != nil {
 				plog.Warn("filter plugin error", "err", err)
 			}
 			for _, e := range entries {
-				if prev := prevStates[e]; e.State != prev {
+				if prev := snap[e]; e.State != prev {
 					logStateChange(plog, prev, e.State, e.Title, e.RejectReason+e.FailReason)
 				}
 			}
@@ -154,11 +152,15 @@ func (t *Task) Run(ctx context.Context) (*Result, error) {
 				}
 			}
 		}
-		afterA, afterR, afterU := countStates(entries)
-		plog.Info("plugin done",
-			"in", beforeA+beforeU, "out", afterA+afterU,
-			"accepted", afterA-beforeA, "rejected", afterR-beforeR,
-			"duration", time.Since(pluginStart).Round(time.Millisecond))
+		accepted, rejected, overridden := filterDelta(snap, entries)
+		outA := len(entries) - countRejected(entries)
+		args := []any{"in", inA, "out", outA}
+		if accepted > 0   { args = append(args, "accepted", accepted) }
+		if rejected > 0   { args = append(args, "rejected", rejected) }
+		if overridden > 0 { args = append(args, "overridden", overridden) }
+		args = append(args, "duration", time.Since(pluginStart).Round(time.Millisecond))
+		_ = inU
+		plog.Info("plugin done", args...)
 	}
 	for _, e := range entries {
 		if e.IsUndecided() {
@@ -374,6 +376,37 @@ func logStateChange(log *slog.Logger, prev, next entry.State, title, reason stri
 			log.Warn("entry failed", "entry", title, "reason", reason)
 		}
 	}
+}
+
+// snapshotStates captures the current state of every entry.
+func snapshotStates(entries []*entry.Entry) map[*entry.Entry]entry.State {
+	m := make(map[*entry.Entry]entry.State, len(entries))
+	for _, e := range entries {
+		m[e] = e.State
+	}
+	return m
+}
+
+// filterDelta counts state transitions since the snapshot.
+// Returns (accepted, rejected, overridden) where overridden counts
+// entries that moved from Accepted → Rejected/Failed.
+func filterDelta(before map[*entry.Entry]entry.State, entries []*entry.Entry) (accepted, rejected, overridden int) {
+	for _, e := range entries {
+		prev := before[e]
+		if prev == e.State {
+			continue
+		}
+		switch {
+		case e.IsAccepted():
+			accepted++
+		case e.IsRejected() || e.IsFailed():
+			rejected++
+			if prev == entry.Accepted {
+				overridden++
+			}
+		}
+	}
+	return
 }
 
 func countRejected(entries []*entry.Entry) int {
