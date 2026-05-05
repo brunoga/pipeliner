@@ -1,13 +1,16 @@
 package task
 
 import (
+	"io"
 	"log/slog"
 	"testing"
 
 	"github.com/brunoga/pipeliner/internal/entry"
 )
 
-func nopLogger() *slog.Logger { return slog.New(slog.NewTextHandler(nil, nil)) }
+func nopLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelDebug}))
+}
 
 func ep(title, series, epID string, seeds int) *entry.Entry {
 	e := entry.New(title, "http://example.com/"+title)
