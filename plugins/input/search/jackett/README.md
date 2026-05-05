@@ -16,8 +16,10 @@ Used as a backend for the [`discover`](../../discover/README.md) input plugin.
 |-----|------|----------|---------|-------------|
 | `url` | string | yes | — | Jackett base URL, e.g. `http://localhost:9117` |
 | `api_key` | string | yes | — | Jackett API key (found in the Jackett web UI) |
-| `indexers` | list | no | `["all"]` | Indexer IDs to query. `"all"` searches every configured indexer. |
+| `indexers` | list | no | `["all"]` | Indexer IDs to query. All are passed to Jackett in a single API call (comma-separated); Jackett aggregates results server-side. `"all"` queries every configured indexer. |
 | `categories` | list | no | (none) | Torznab category codes to filter results. |
+| `limit` | int | no | (none) | Maximum number of results to return across all indexers. |
+| `timeout` | string | no | `60s` | HTTP request timeout, e.g. `60s`, `2m`. Increase when querying many indexers. |
 
 ### Example
 
@@ -60,8 +62,10 @@ Accepts all the same keys as `jackett`, plus:
 |-----|------|----------|---------|-------------|
 | `url` | string | yes | — | Jackett base URL |
 | `api_key` | string | yes | — | Jackett API key |
-| `indexers` | list | no | `["all"]` | Indexer IDs to query |
+| `indexers` | list | no | `["all"]` | Indexer IDs to query. All passed in a single call; Jackett aggregates results server-side. |
 | `categories` | list | no | (none) | Torznab category codes to filter |
+| `limit` | int | no | (none) | Maximum number of results to return across all indexers. |
+| `timeout` | string | no | `60s` | HTTP request timeout, e.g. `60s`, `2m`. Increase when querying many indexers. |
 | `query` | string | no | `""` | Optional search query; empty returns all recent results |
 
 ### Example
@@ -109,7 +113,7 @@ tasks:
 
 ## Notes
 
-- If multiple indexers are configured, each is queried separately and results are deduplicated by URL. A failing indexer is logged and skipped.
+- All configured indexers are queried in a single Jackett API call by passing them as a comma-separated list; Jackett aggregates results server-side.
 - Category filtering is applied server-side by Jackett.
 - The error response body is included in the log when Jackett returns a non-200 status, making misconfiguration easier to diagnose.
 - `torrent_info_hash` being set makes `metainfo_magnet` and `metainfo_torrent` redundant for hash-based operations.

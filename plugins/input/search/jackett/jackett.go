@@ -8,12 +8,16 @@
 //	url        - Jackett base URL, e.g. "http://localhost:9117" (required)
 //	api_key    - Jackett API key (required)
 //	indexers   - list of indexer IDs to query; use ["all"] for all configured
-//	             indexers (default: ["all"])
+//	             indexers (default: ["all"]). All indexers are passed to Jackett
+//	             in a single API call as a comma-separated list; Jackett
+//	             aggregates results server-side.
 //	categories - list of Torznab category codes to restrict results
 //	             (optional). Common codes:
 //	               2000  Movies        5000  TV
 //	               2010  Movies/HD     5030  TV/HD
 //	               2020  Movies/SD     5040  TV/SD
+//	limit      - maximum number of results to return (optional, default: no limit).
+//	timeout    - HTTP request timeout, e.g. "60s", "2m" (default: "60s").
 package jackett
 
 import (
@@ -50,7 +54,36 @@ func validate(cfg map[string]any) []error {
 	if err := plugin.RequireString(cfg, "api_key", "jackett"); err != nil {
 		errs = append(errs, err)
 	}
+	if err := validateLimit(cfg, "jackett"); err != nil {
+		errs = append(errs, err)
+	}
+	if err := plugin.OptDuration(cfg, "timeout", "jackett"); err != nil {
+		errs = append(errs, err)
+	}
 	return errs
+}
+
+// validateLimit checks that the optional limit key, if set, is a positive integer.
+func validateLimit(cfg map[string]any, pluginName string) error {
+	v, ok := cfg["limit"]
+	if !ok {
+		return nil
+	}
+	var n int
+	switch t := v.(type) {
+	case int:
+		n = t
+	case int64:
+		n = int(t)
+	case float64:
+		n = int(t)
+	default:
+		return fmt.Errorf("%s: \"limit\" must be a positive integer", pluginName)
+	}
+	if n <= 0 {
+		return fmt.Errorf("%s: \"limit\" must be a positive integer, got %d", pluginName, n)
+	}
+	return nil
 }
 
 type jackettPlugin struct {
@@ -58,7 +91,9 @@ type jackettPlugin struct {
 	apiKey     string
 	indexers   []string
 	categories string // comma-separated Torznab category codes
+	limit      int    // 0 = no limit
 	client     *http.Client
+	timeout    time.Duration
 }
 
 func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
@@ -80,39 +115,50 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 
 	categories := toStringSlice(cfg["categories"])
 
+	var limit int
+	switch v := cfg["limit"].(type) {
+	case int:
+		limit = v
+	case int64:
+		limit = int(v)
+	case float64:
+		limit = int(v)
+	}
+
+	timeout := 60 * time.Second
+	if v, _ := cfg["timeout"].(string); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return nil, fmt.Errorf("jackett: invalid timeout %q: %w", v, err)
+		}
+		timeout = d
+	}
+
 	return &jackettPlugin{
 		baseURL:    baseURL,
 		apiKey:     apiKey,
 		indexers:   indexers,
 		categories: strings.Join(categories, ","),
-		client:     &http.Client{Timeout: 30 * time.Second},
+		limit:      limit,
+		timeout:    timeout,
+		client:     &http.Client{Timeout: timeout},
 	}, nil
 }
 
 func (p *jackettPlugin) Name() string        { return "jackett" }
 func (p *jackettPlugin) Phase() plugin.Phase { return plugin.PhaseSearch }
 
-// Search queries each configured indexer and returns the merged, deduplicated
-// results. Indexer errors are logged and skipped rather than aborting the
-// search, so a single broken indexer doesn't prevent results from others.
+// Search queries all configured indexers in a single Jackett API call by
+// passing them as a comma-separated list. Jackett aggregates the results
+// server-side, so limit (if set) applies to the combined result set.
 func (p *jackettPlugin) Search(ctx context.Context, tc *plugin.TaskContext, query string) ([]*entry.Entry, error) {
-	seen := map[string]bool{}
-	var all []*entry.Entry
-
-	for _, indexer := range p.indexers {
-		results, err := p.searchIndexer(ctx, indexer, query)
-		if err != nil {
-			tc.Logger.Warn("jackett: indexer search failed", "indexer", indexer, "err", err)
-			continue
-		}
-		for _, e := range results {
-			if !seen[e.URL] {
-				seen[e.URL] = true
-				all = append(all, e)
-			}
-		}
+	indexer := strings.Join(p.indexers, ",")
+	results, err := p.searchIndexer(ctx, indexer, query)
+	if err != nil {
+		tc.Logger.Warn("jackett: search failed", "indexers", indexer, "err", err)
+		return nil, nil
 	}
-	return all, nil
+	return results, nil
 }
 
 func (p *jackettPlugin) searchIndexer(ctx context.Context, indexer, query string) ([]*entry.Entry, error) {
@@ -126,6 +172,9 @@ func (p *jackettPlugin) searchIndexer(ctx context.Context, indexer, query string
 	}
 	if p.categories != "" {
 		params.Set("cat", p.categories)
+	}
+	if p.limit > 0 {
+		params.Set("limit", strconv.Itoa(p.limit))
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint+"?"+params.Encode(), nil)
