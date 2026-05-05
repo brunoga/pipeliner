@@ -10,6 +10,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -446,10 +447,16 @@ func buildResult(entries []*entry.Entry, dur time.Duration) *Result {
 
 // --- safe wrappers that convert panics to errors ---
 
+// panicErr converts a recovered panic value into an error that includes
+// the full stack trace for easier debugging in production.
+func panicErr(pluginName string, r any) error {
+	return fmt.Errorf("panic in plugin %q: %v\n%s", pluginName, r, debug.Stack())
+}
+
 func safeRunInput(ctx context.Context, p plugin.InputPlugin, tc *plugin.TaskContext) (out []*entry.Entry, err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			err = fmt.Errorf("panic in input plugin %q: %v", p.Name(), r)
+			err = panicErr(p.Name(), r)
 		}
 	}()
 	return p.Run(ctx, tc)
@@ -458,7 +465,7 @@ func safeRunInput(ctx context.Context, p plugin.InputPlugin, tc *plugin.TaskCont
 func safeRunAnnotate(ctx context.Context, p plugin.MetainfoPlugin, tc *plugin.TaskContext, e *entry.Entry) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			err = fmt.Errorf("panic in metainfo plugin %q: %v", p.Name(), r)
+			err = panicErr(p.Name(), r)
 		}
 	}()
 	return p.Annotate(ctx, tc, e)
@@ -467,7 +474,7 @@ func safeRunAnnotate(ctx context.Context, p plugin.MetainfoPlugin, tc *plugin.Ta
 func safeRunAnnotateBatch(ctx context.Context, p plugin.BatchMetainfoPlugin, tc *plugin.TaskContext, entries []*entry.Entry) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			err = fmt.Errorf("panic in metainfo plugin %q: %v", p.Name(), r)
+			err = panicErr(p.Name(), r)
 		}
 	}()
 	return p.AnnotateBatch(ctx, tc, entries)
@@ -476,7 +483,7 @@ func safeRunAnnotateBatch(ctx context.Context, p plugin.BatchMetainfoPlugin, tc 
 func safeRunFilterBatch(ctx context.Context, p plugin.BatchFilterPlugin, tc *plugin.TaskContext, entries []*entry.Entry) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			err = fmt.Errorf("panic in batch filter plugin %q: %v", p.Name(), r)
+			err = panicErr(p.Name(), r)
 		}
 	}()
 	return p.FilterBatch(ctx, tc, entries)
@@ -485,7 +492,7 @@ func safeRunFilterBatch(ctx context.Context, p plugin.BatchFilterPlugin, tc *plu
 func safeRunFilter(ctx context.Context, p plugin.FilterPlugin, tc *plugin.TaskContext, e *entry.Entry) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			err = fmt.Errorf("panic in filter plugin %q: %v", p.Name(), r)
+			err = panicErr(p.Name(), r)
 		}
 	}()
 	return p.Filter(ctx, tc, e)
@@ -494,7 +501,7 @@ func safeRunFilter(ctx context.Context, p plugin.FilterPlugin, tc *plugin.TaskCo
 func safeRunModify(ctx context.Context, p plugin.ModifyPlugin, tc *plugin.TaskContext, e *entry.Entry) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			err = fmt.Errorf("panic in modify plugin %q: %v", p.Name(), r)
+			err = panicErr(p.Name(), r)
 		}
 	}()
 	return p.Modify(ctx, tc, e)
@@ -503,7 +510,7 @@ func safeRunModify(ctx context.Context, p plugin.ModifyPlugin, tc *plugin.TaskCo
 func safeRunOutput(ctx context.Context, p plugin.OutputPlugin, tc *plugin.TaskContext, entries []*entry.Entry) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			err = fmt.Errorf("panic in output plugin %q: %v", p.Name(), r)
+			err = panicErr(p.Name(), r)
 		}
 	}()
 	return p.Output(ctx, tc, entries)
@@ -512,7 +519,7 @@ func safeRunOutput(ctx context.Context, p plugin.OutputPlugin, tc *plugin.TaskCo
 func safeRunLearn(ctx context.Context, p plugin.LearnPlugin, tc *plugin.TaskContext, entries []*entry.Entry) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			err = fmt.Errorf("panic in learn plugin %q: %v", p.Name(), r)
+			err = panicErr(p.Name(), r)
 		}
 	}()
 	return p.Learn(ctx, tc, entries)
