@@ -255,8 +255,9 @@ section { margin-bottom: 32px; }
   color: var(--text);
   pointer-events: none;
   position: absolute;
-  top: 0; left: 0; right: 0;
+  top: 0; left: 0; right: 0; bottom: 0;
   overflow: hidden;
+  height: auto; /* overridden by bottom:0 constraint */
 }
 .editor-ta {
   background: transparent;
@@ -265,6 +266,7 @@ section { margin-bottom: 32px; }
   position: relative;
   resize: vertical;
   z-index: 1;
+  overflow-y: auto;
 }
 /* YAML token colours */
 .y-key     { color: #79c0ff; }
@@ -691,12 +693,15 @@ function hlVal(s, e) {
 function syncHighlight() {
   const ta = document.getElementById('config-editor');
   document.getElementById('editor-hl').innerHTML = highlightYAML(ta.value);
-  syncScroll();
+  syncScroll(); // re-sync height and scroll position after content changes
 }
 
 function syncScroll() {
   const ta = document.getElementById('config-editor');
   const hl = document.getElementById('editor-hl');
+  // Keep the pre constrained to the textarea's visible height so its
+  // content can overflow and be scrolled in sync.
+  hl.style.height = ta.clientHeight + 'px';
   hl.scrollTop  = ta.scrollTop;
   hl.scrollLeft = ta.scrollLeft;
 }
