@@ -2,6 +2,8 @@ package movies
 
 import (
 	"context"
+	"io"
+	"log/slog"
 	"maps"
 	"testing"
 	"time"
@@ -25,7 +27,12 @@ func (m *mockInput) Run(_ context.Context, _ *plugin.TaskContext) ([]*entry.Entr
 	return m.entries, nil
 }
 
-func makeCtx() *plugin.TaskContext { return &plugin.TaskContext{Name: "test"} }
+func makeCtx() *plugin.TaskContext {
+	return &plugin.TaskContext{
+		Name:   "test",
+		Logger: slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelDebug})),
+	}
+}
 
 func openPlugin(t *testing.T, extra map[string]any) *moviesPlugin {
 	t.Helper()
@@ -235,6 +242,37 @@ func (c *countingInput) Phase() plugin.Phase { return plugin.PhaseInput }
 func (c *countingInput) Run(ctx context.Context, tc *plugin.TaskContext) ([]*entry.Entry, error) {
 	*c.count++
 	return c.wrapped.Run(ctx, tc)
+}
+
+func TestFilterSetsQualityAndNot3D(t *testing.T) {
+	p := openPlugin(t, nil)
+	e := entry.New("Inception.2010.1080p.BluRay.x264", "http://x.com/a")
+	if err := p.Filter(context.Background(), makeCtx(), e); err != nil {
+		t.Fatal(err)
+	}
+	if !e.IsAccepted() {
+		t.Fatalf("expected accepted: %s", e.RejectReason)
+	}
+	if e.GetString("movie_quality") == "" {
+		t.Error("movie_quality should be set")
+	}
+	if e.GetBool("movie_3d") {
+		t.Error("movie_3d should be false for non-3D title")
+	}
+}
+
+func TestFilterSets3D(t *testing.T) {
+	p := openPlugin(t, nil)
+	e := entry.New("Inception.2010.3D.1080p.BluRay.x264", "http://x.com/a")
+	if err := p.Filter(context.Background(), makeCtx(), e); err != nil {
+		t.Fatal(err)
+	}
+	if !e.IsAccepted() {
+		t.Fatalf("expected accepted: %s", e.RejectReason)
+	}
+	if !e.GetBool("movie_3d") {
+		t.Error("movie_3d should be true for 3D title")
+	}
 }
 
 func TestMultipleEntriesSameMovieAllAccepted(t *testing.T) {
