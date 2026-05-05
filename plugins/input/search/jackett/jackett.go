@@ -127,13 +127,16 @@ func (p *jackettPlugin) searchIndexer(ctx context.Context, indexer, query string
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP %d from %s", resp.StatusCode, indexer)
-	}
-
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 4*1024*1024))
 	if err != nil {
 		return nil, fmt.Errorf("read body: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		snippet := strings.TrimSpace(string(body))
+		if len(snippet) > 200 {
+			snippet = snippet[:200]
+		}
+		return nil, fmt.Errorf("HTTP %d from %s: %s", resp.StatusCode, indexer, snippet)
 	}
 
 	return parseTorznab(body, indexer)
