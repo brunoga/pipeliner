@@ -20,6 +20,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/brunoga/pipeliner/internal/entry"
@@ -33,7 +34,19 @@ func init() {
 		Description: "extract archive files (RAR, ZIP, 7z) to a destination directory",
 		PluginPhase: plugin.PhaseOutput,
 		Factory:     newPlugin,
+		Validate:    validate,
 	})
+}
+
+func validate(cfg map[string]any) []error {
+	var errs []error
+	if err := plugin.RequireString(cfg, "to", "decompress"); err != nil {
+		errs = append(errs, err)
+	}
+	if err := plugin.OptEnum(cfg, "tool", "decompress", "unrar", "7z", "unar"); err != nil {
+		errs = append(errs, err)
+	}
+	return errs
 }
 
 // supportedTools lists extraction tools in preference order.
@@ -173,14 +186,7 @@ func archiveLocation(e *entry.Entry) string {
 func resolveTool(force string) (name, path string, err error) {
 	candidates := supportedTools
 	if force != "" {
-		valid := false
-		for _, t := range supportedTools {
-			if t == force {
-				valid = true
-				break
-			}
-		}
-		if !valid {
+		if !slices.Contains(supportedTools, force) {
 			return "", "", fmt.Errorf("unsupported tool %q; choose from: %s",
 				force, strings.Join(supportedTools, ", "))
 		}

@@ -24,7 +24,15 @@ func init() {
 		Description: "add accepted entries to a named persistent list",
 		PluginPhase: plugin.PhaseOutput,
 		Factory:     newPlugin,
+		Validate:    validate,
 	})
+}
+
+func validate(cfg map[string]any) []error {
+	if err := plugin.RequireString(cfg, "list", "list_add"); err != nil {
+		return []error{err}
+	}
+	return nil
 }
 
 type listAddPlugin struct {

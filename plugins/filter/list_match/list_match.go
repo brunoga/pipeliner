@@ -28,7 +28,15 @@ func init() {
 		Description: "accept entries whose title is in a named persistent list; reject others",
 		PluginPhase: plugin.PhaseFilter,
 		Factory:     newPlugin,
+		Validate:    validate,
 	})
+}
+
+func validate(cfg map[string]any) []error {
+	if err := plugin.RequireString(cfg, "list", "list_match"); err != nil {
+		return []error{err}
+	}
+	return nil
 }
 
 type listMatchPlugin struct {
