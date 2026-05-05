@@ -29,6 +29,9 @@ func validateInput(cfg map[string]any) []error {
 	if err := validateLimit(cfg, "jackett_input"); err != nil {
 		errs = append(errs, err)
 	}
+	if err := plugin.OptDuration(cfg, "timeout", "jackett_input"); err != nil {
+		errs = append(errs, err)
+	}
 	return errs
 }
 
