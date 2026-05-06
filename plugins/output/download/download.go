@@ -72,11 +72,15 @@ func (p *downloadPlugin) Phase() plugin.Phase { return plugin.PhaseOutput }
 
 func (p *downloadPlugin) Output(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
 	if err := os.MkdirAll(p.dir, 0o755); err != nil {
+		for _, e := range entries {
+			e.Fail("download: create dir: " + err.Error())
+		}
 		return fmt.Errorf("download: create dir %s: %w", p.dir, err)
 	}
 	for _, e := range entries {
 		if err := p.downloadEntry(ctx, tc, e); err != nil {
 			tc.Logger.Error("download failed", "title", e.Title, "err", err)
+			e.Fail("download: " + err.Error())
 		}
 	}
 	return nil
