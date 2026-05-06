@@ -187,8 +187,8 @@ func (p *moviesPlugin) Learn(ctx context.Context, tc *plugin.TaskContext, entrie
 
 func (p *moviesPlugin) resolveTitles(ctx context.Context, tc *plugin.TaskContext) []string {
 	return plugin.ResolveDynamicList(ctx, tc, p.from, p.staticTitles,
-		func() ([]string, bool) { return p.listCache.Get("titles") },
-		func(v []string) { p.listCache.Set("titles", v) },
+		func(src string) ([]string, bool) { return p.listCache.Get(src) },
+		func(src string, v []string) { p.listCache.Set(src, v) },
 		match.Normalize,
 	)
 }
