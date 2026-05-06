@@ -99,6 +99,11 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 func (p *traktInputPlugin) Name() string        { return "trakt_list" }
 func (p *traktInputPlugin) Phase() plugin.Phase { return plugin.PhaseFrom }
 
+// CacheKey returns a key that includes type and list so that two trakt_list
+// instances with different parameters (e.g. watchlist vs ratings) are cached
+// independently.
+func (p *traktInputPlugin) CacheKey() string { return "trakt_list:" + p.itemType + ":" + p.list }
+
 func (p *traktInputPlugin) Run(ctx context.Context, _ *plugin.TaskContext) ([]*entry.Entry, error) {
 	items, err := p.client.GetList(ctx, p.itemType, p.list, p.limit)
 	if err != nil {

@@ -57,6 +57,25 @@ func TestDefaultList(t *testing.T) {
 	}
 }
 
+func TestCacheKeyIncludesTypeAndList(t *testing.T) {
+	cases := []struct {
+		itemType string
+		list     string
+		want     string
+	}{
+		{"shows", "watchlist", "trakt_list:shows:watchlist"},
+		{"movies", "watchlist", "trakt_list:movies:watchlist"},
+		{"shows", "ratings", "trakt_list:shows:ratings"},
+		{"movies", "collection", "trakt_list:movies:collection"},
+	}
+	for _, tc := range cases {
+		p := &traktInputPlugin{itemType: tc.itemType, list: tc.list}
+		if got := p.CacheKey(); got != tc.want {
+			t.Errorf("CacheKey(%s,%s): got %q, want %q", tc.itemType, tc.list, got, tc.want)
+		}
+	}
+}
+
 func TestRegistration(t *testing.T) {
 	d, ok := plugin.Lookup("trakt_list")
 	if !ok {

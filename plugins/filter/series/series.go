@@ -247,8 +247,8 @@ func (p *seriesPlugin) Learn(ctx context.Context, tc *plugin.TaskContext, entrie
 
 func (p *seriesPlugin) resolveShows(ctx context.Context, tc *plugin.TaskContext) []string {
 	return plugin.ResolveDynamicList(ctx, tc, p.from, p.staticShows,
-		func() ([]string, bool) { return p.listCache.Get("shows") },
-		func(v []string) { p.listCache.Set("shows", v) },
+		func(src string) ([]string, bool) { return p.listCache.Get(src) },
+		func(src string, v []string) { p.listCache.Set(src, v) },
 		match.Normalize,
 	)
 }
