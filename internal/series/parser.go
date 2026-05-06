@@ -37,6 +37,11 @@ var (
 	// 2026 05 05 — space-separated date (talk shows, daily episodes)
 	// Month and day are validated in Parse to avoid false positives.
 	reDateSpace = regexp.MustCompile(`\b((?:19|20)\d{2}) (\d{2}) (\d{2})\b`)
+	// "Episode 2", "Episode.2", "Episode-2" — natural-language episode identifier (sports vlogs, specials).
+	// Must come before reAbsolute to avoid "E2" matching first.
+	reEpisodeWord = regexp.MustCompile(`(?i)\bEpisode[.\s\-]*(\d{1,4})\b`)
+	// Ordinal British date: "6th May 2026", "1st January 2025".
+	reOrdinalDate = regexp.MustCompile(`(?i)\b(\d{1,2})(?:st|nd|rd|th)\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+((?:19|20)\d{2})\b`)
 	// EP123 or E123 (absolute, anime-style)
 	reAbsolute = regexp.MustCompile(`(?i)\bE(?:P)?(\d{2,4})\b`)
 
@@ -172,6 +177,23 @@ func Parse(title string) (*Episode, bool) {
 		}
 	}
 
+	if m := reEpisodeWord.FindStringSubmatchIndex(title); m != nil {
+		sub := reEpisodeWord.FindStringSubmatch(title)
+		ep.Episode, _ = strconv.Atoi(sub[1])
+		ep.SeriesName = extractName(title, m[0])
+		return ep, true
+	}
+
+	if m := reOrdinalDate.FindStringSubmatchIndex(title); m != nil {
+		sub := reOrdinalDate.FindStringSubmatch(title)
+		ep.IsDate = true
+		ep.Day, _ = strconv.Atoi(sub[1])
+		ep.Month = monthNumber(sub[2])
+		ep.Year, _ = strconv.Atoi(sub[3])
+		ep.SeriesName = extractName(title, m[0])
+		return ep, true
+	}
+
 	if m := reAbsolute.FindStringSubmatchIndex(title); m != nil {
 		sub := reAbsolute.FindStringSubmatch(title)
 		ep.Episode, _ = strconv.Atoi(sub[1])
@@ -180,6 +202,16 @@ func Parse(title string) (*Episode, bool) {
 	}
 
 	return nil, false
+}
+
+var monthNames = map[string]int{
+	"january": 1, "february": 2, "march": 3, "april": 4,
+	"may": 5, "june": 6, "july": 7, "august": 8,
+	"september": 9, "october": 10, "november": 11, "december": 12,
+}
+
+func monthNumber(name string) int {
+	return monthNames[strings.ToLower(name)]
 }
 
 // extractName derives the series name from the portion of the title that
