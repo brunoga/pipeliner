@@ -990,16 +990,34 @@ function renderSeriesTable(shows, bucketName) {
   return html;
 }
 
+// episodeSummary builds a compact season→episode-count string from a cached
+// []Episode array, e.g. "S01×13  S02×10  S03×8".
+function episodeSummary(episodes) {
+  if (!Array.isArray(episodes) || !episodes.length) return '';
+  const seasons = {};
+  for (const ep of episodes) {
+    const s = ep.seasonNumber ?? ep.season_number ?? 0;
+    seasons[s] = (seasons[s] || 0) + 1;
+  }
+  return Object.keys(seasons)
+    .sort((a, b) => Number(a) - Number(b))
+    .map(s => `<span style="color:var(--accent)">S${String(s).padStart(2,'0')}</span><span style="color:var(--muted)">×${seasons[s]}</span>`)
+    .join('  ');
+}
+
 function renderGenericTable(entries, bucketName, idToName = {}) {
   if (!entries.length) return '<div class="db-empty">Empty bucket.</div>';
   const hasNames = Object.keys(idToName).length > 0;
+  const isEpsCache = bucketName === 'cache_metainfo_tvdb_eps';
   let html = `<table class="db-table" id="db-content-table">
-    <thead><tr><th>Key</th>${hasNames ? '<th>Series</th>' : ''}<th></th></tr></thead><tbody>`;
+    <thead><tr><th>Key</th>${hasNames ? '<th>Series</th>' : ''}${isEpsCache ? '<th>Episodes</th>' : ''}<th></th></tr></thead><tbody>`;
   for (const e of entries) {
     const seriesName = idToName[e.key];
+    const epsSummary = isEpsCache ? episodeSummary(e.value?.v) : '';
     html += `<tr>
       <td style="word-break:break-all;font-family:monospace;font-size:12px">${esc(e.key)}</td>
       ${hasNames ? `<td style="color:var(--text)">${seriesName ? esc(seriesName) : '<span style="color:var(--muted)">unknown</span>'}</td>` : ''}
+      ${isEpsCache ? `<td style="font-size:12px;white-space:nowrap">${epsSummary || '<span style="color:var(--muted)">—</span>'}</td>` : ''}
       <td style="text-align:right;white-space:nowrap"><button class="btn-sm" onclick="deleteEntry(${esc(JSON.stringify(bucketName))},${esc(JSON.stringify(e.key))})">×</button></td>
     </tr>`;
   }
