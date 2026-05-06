@@ -9,6 +9,9 @@ package tvdb
 import (
 	"context"
 	"fmt"
+	"regexp"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/brunoga/pipeliner/internal/cache"
@@ -18,6 +21,14 @@ import (
 	"github.com/brunoga/pipeliner/internal/store"
 	itvdb "github.com/brunoga/pipeliner/internal/tvdb"
 )
+
+// reTrailingYearParen matches a series name ending with a parenthesized year —
+// unambiguously a production year: "Show (2019)" or "Show(2019)".
+var reTrailingYearParen = regexp.MustCompile(`^(.*\S)\s*\(((?:19|20)\d{2})\)$`)
+
+// reTrailingYearBare matches a series name ending with a bare year — ambiguous
+// since the year might be part of the title: "Dark 2017" but also "Class of 1984".
+var reTrailingYearBare = regexp.MustCompile(`^(.*\S)\s+((?:19|20)\d{2})$`)
 
 func init() {
 	plugin.Register(&plugin.Descriptor{
@@ -85,20 +96,7 @@ func (p *tvdbPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 		return nil
 	}
 
-	results, cached := p.cache.Get(ep.SeriesName)
-	if !cached {
-		t0 := time.Now()
-		var err error
-		results, err = p.client.SearchSeries(ctx, ep.SeriesName)
-		if err != nil {
-			tc.Logger.Warn("metainfo_tvdb: search failed", "series", ep.SeriesName, "err", err)
-			return nil
-		}
-		p.cache.Set(ep.SeriesName, results)
-		tc.Logger.Debug("metainfo_tvdb: search", "series", ep.SeriesName, "duration", time.Since(t0).Round(time.Millisecond))
-	} else {
-		tc.Logger.Debug("metainfo_tvdb: search cache hit", "series", ep.SeriesName)
-	}
+	results := p.searchSeries(ctx, tc, ep.SeriesName)
 	if len(results) == 0 {
 		tc.Logger.Warn("metainfo_tvdb: no results", "series", ep.SeriesName, "entry", e.Title)
 		return nil
@@ -220,6 +218,127 @@ func (p *tvdbPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 	}
 
 	return nil
+}
+
+// searchSeries resolves TVDB search results for name, using the cache where
+// possible. If the name ends with a trailing 4-digit year (e.g. "Dark 2017"),
+// two queries are dispatched in parallel — one with the year, one without.
+// The full-name result is preferred; the stripped result is used as a fallback.
+// Both results are cached individually regardless of outcome.
+//
+// Cache semantics: a non-empty cached result for the full name short-circuits
+// immediately. A cached *empty* result does not block the stripped search,
+// because the empty result may have been stored before this fallback logic
+// existed, or the year may have been the reason for the miss.
+func (p *tvdbPlugin) searchSeries(ctx context.Context, tc *plugin.TaskContext, name string) []itvdb.Series {
+	stripped, definitive := stripTrailingYear(name)
+	hasYear := stripped != name
+
+	// Fast path: full name cached with results.
+	fullCached, fullInCache := p.cache.Get(name)
+	if fullInCache && len(fullCached) > 0 {
+		tc.Logger.Debug("metainfo_tvdb: search cache hit", "series", name)
+		return fullCached
+	}
+
+	if !hasYear {
+		// No trailing year — single search (or honour cached empty result).
+		if fullInCache {
+			return nil
+		}
+		return p.fetchSearch(ctx, tc, name)
+	}
+
+	if definitive {
+		// Year is parenthesized — unambiguously a production year.
+		// Search only the stripped name; no need to try the full name.
+		tc.Logger.Debug("metainfo_tvdb: stripping parenthesized year from search",
+			"original", name, "stripped", stripped)
+		if results, ok := p.cache.Get(stripped); ok {
+			tc.Logger.Debug("metainfo_tvdb: stripped search cache hit", "series", stripped)
+			return results
+		}
+		return p.fetchSearch(ctx, tc, stripped)
+	}
+
+	// Bare trailing year — ambiguous; run both queries in parallel.
+	// A cached empty result for the full name does not block the stripped search.
+	strippedCached, strippedInCache := p.cache.Get(stripped)
+
+	if fullInCache && strippedInCache {
+		if len(fullCached) > 0 {
+			return fullCached
+		}
+		if len(strippedCached) > 0 {
+			tc.Logger.Debug("metainfo_tvdb: returning stripped search cached result",
+				"original", name, "stripped", stripped)
+			return strippedCached
+		}
+		return nil
+	}
+
+	tc.Logger.Debug("metainfo_tvdb: parallel search triggered by trailing year",
+		"series", name, "stripped", stripped)
+
+	type result struct{ results []itvdb.Series }
+	fullCh     := make(chan result, 1)
+	strippedCh := make(chan result, 1)
+
+	if fullInCache {
+		fullCh <- result{fullCached}
+	} else {
+		go func() { fullCh <- result{p.fetchSearch(ctx, tc, name)} }()
+	}
+	if strippedInCache {
+		strippedCh <- result{strippedCached}
+	} else {
+		go func() { strippedCh <- result{p.fetchSearch(ctx, tc, stripped)} }()
+	}
+
+	fullRes     := <-fullCh
+	strippedRes := <-strippedCh
+
+	if len(fullRes.results) > 0 {
+		return fullRes.results
+	}
+	if len(strippedRes.results) > 0 {
+		tc.Logger.Debug("metainfo_tvdb: results found with year stripped",
+			"original", name, "stripped", stripped)
+		return strippedRes.results
+	}
+	return nil
+}
+
+// fetchSearch performs a single live TVDB search, caches the result, and logs timing.
+func (p *tvdbPlugin) fetchSearch(ctx context.Context, tc *plugin.TaskContext, name string) []itvdb.Series {
+	t0 := time.Now()
+	results, err := p.client.SearchSeries(ctx, name)
+	if err != nil {
+		tc.Logger.Warn("metainfo_tvdb: search failed", "series", name, "err", err)
+		return nil
+	}
+	p.cache.Set(name, results)
+	tc.Logger.Debug("metainfo_tvdb: search", "series", name, "duration", time.Since(t0).Round(time.Millisecond))
+	return results
+}
+
+// stripTrailingYear removes a trailing 4-digit year from name.
+// Returns (stripped, definitive) where definitive is true when the year was
+// parenthesized — unambiguously a production year — and false when it was a
+// bare year that could be part of the title. Returns (name, false) if no
+// trailing year is detected.
+func stripTrailingYear(name string) (string, bool) {
+	if m := reTrailingYearParen.FindStringSubmatch(name); m != nil {
+		if y, _ := strconv.Atoi(m[2]); y >= 1900 && y <= 2099 {
+			return strings.TrimSpace(m[1]), true // definitive: "(2019)"
+		}
+	}
+	if m := reTrailingYearBare.FindStringSubmatch(name); m != nil {
+		if y, _ := strconv.Atoi(m[2]); y >= 1900 && y <= 2099 {
+			return strings.TrimSpace(m[1]), false // ambiguous: " 2019"
+		}
+	}
+	return name, false
 }
 
 func (p *tvdbPlugin) fetchEpisodes(ctx context.Context, tc *plugin.TaskContext, id string) ([]itvdb.Episode, error) {
