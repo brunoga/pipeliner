@@ -291,7 +291,7 @@ func enforceStrict(ep *series.Episode, epID string, latest *series.Record) error
 func seasonFromEpisodeID(epID string) int {
 	if len(epID) >= 3 && (epID[0] == 'S' || epID[0] == 's') {
 		var s int
-		fmt.Sscanf(epID[1:], "%d", &s)
+		fmt.Sscanf(epID[1:], "%d", &s) //nolint:errcheck
 		return s
 	}
 	return 0
