@@ -3,6 +3,8 @@ package trakt
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -13,7 +15,12 @@ import (
 	itrakt "github.com/brunoga/pipeliner/internal/trakt"
 )
 
-func tc() *plugin.TaskContext { return &plugin.TaskContext{Name: "test"} }
+func tc() *plugin.TaskContext {
+	return &plugin.TaskContext{
+		Name:   "test",
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+}
 
 func searchResponse(title string, year, traktID, tvdbID int, rating float64, genres []string) []byte {
 	type ids struct {
