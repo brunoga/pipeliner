@@ -876,7 +876,9 @@ After DHT: <code>torrent_name</code>, <code>torrent_size</code>, <code>torrent_f
 
 <!-- ─────────── seen ─────────── -->
 <h2 id="seen">seen</h2>
-<p>Rejects entries already processed in a previous run, using a fingerprint of configured fields stored in <code>pipeliner.db</code>. Fingerprints are written in the Learn phase.</p>
+<p>Rejects entries already processed in a previous run, using a SHA-256 fingerprint of configured fields stored in <code>pipeliner.db</code>. Fingerprints are written in the Learn phase — if an output plugin fails, the entry is <em>not</em> marked seen and will be retried.</p>
+
+<div class="note"><strong>Not needed for TV series, movies, or premieres.</strong> Those filters maintain their own download trackers and handle deduplication automatically. Use <code>seen</code> for pipelines without a domain-specific tracker — the most common case is RSS news or article feeds, where the same article would otherwise be re-processed every run.</div>
 
 <table>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
@@ -884,7 +886,20 @@ After DHT: <code>torrent_name</code>, <code>torrent_size</code>, <code>torrent_f
   <tr><td><code>local</code></td><td>no</td><td>false</td><td>Scope seen store to this task name only</td></tr>
 </table>
 
-<pre><code><span class="y-key">seen</span>:             <span class="y-comment"># default: fingerprint by URL</span></code></pre>
+<p>Typical use — tech news to email, preventing re-delivery of already-sent articles:</p>
+<pre><code><span class="y-key">tasks</span>:
+  <span class="y-key">tech-news</span>:
+    <span class="y-key">rss</span>:
+      <span class="y-key">url</span>: <span class="y-str">"https://feeds.arstechnica.com/arstechnica/technology-lab"</span>
+    <span class="y-key">seen</span>:                  <span class="y-comment"># reject already-sent articles by URL</span>
+    <span class="y-key">regexp</span>:
+      <span class="y-key">accept</span>: <span class="y-str">"(?i)linux|golang|open.?source"</span>
+    <span class="y-key">email</span>:
+      <span class="y-key">smtp_host</span>: <span class="y-str">smtp.gmail.com</span>
+      <span class="y-key">subject</span>: <span class="y-str">"{{len .Entries}} new article(s)"</span>
+
+<span class="y-key">schedules</span>:
+  <span class="y-key">tech-news</span>: <span class="y-str">1h</span></code></pre>
 
 <!-- ─────────── tvdb filter ─────────── -->
 <h2 id="tvdb-filter">tvdb</h2>
@@ -1274,6 +1289,8 @@ After DHT: <code>torrent_name</code>, <code>torrent_size</code>, <code>torrent_f
 
 <p>Start the web UI with <code>pipeliner daemon --web :8080 --web-user admin --web-password secret</code>. Navigate to <code>http://localhost:8080</code>.</p>
 
+<p>The interface has three tabs: <strong>Dashboard</strong>, <strong>Config</strong>, and <strong>Database</strong>. A <strong>User Guide</strong> link in the header opens this document.</p>
+
 <h3>Dashboard tab</h3>
 <ul>
   <li><strong>Task cards</strong> — each card shows the next scheduled run datetime (hover for the raw cron/interval), the last run time, accepted/rejected/failed counts, and a <em>Run now</em> button.</li>
@@ -1282,8 +1299,17 @@ After DHT: <code>torrent_name</code>, <code>torrent_size</code>, <code>torrent_f
   <li><strong>Live Log</strong> — SSE-streamed log with a filter box. Reconnects automatically; replays the last 10,000 lines for new connections.</li>
 </ul>
 
-<h3>Edit Config tab</h3>
+<h3>Config tab</h3>
 <p>A live YAML editor with syntax highlighting. Use <strong>Validate</strong> to check config without saving, or <strong>Save &amp; Reload</strong> to write and apply immediately (or queue a reload if tasks are running). Tab key inserts two spaces.</p>
+
+<h3>Database tab</h3>
+<p>Inspect and manage the two download trackers stored in <code>pipeliner.db</code>.</p>
+<p>A sidebar lists the available trackers; click one to load its contents in the main panel. A filter box and <strong>Clear all</strong> button appear for the active tracker.</p>
+<ul>
+  <li><strong>Series</strong> — all TV episodes recorded as downloaded, grouped by show. Expand a show to see each episode's ID, quality, and download date. Delete an individual episode or an entire show to force a re-download on the next run. Includes entries from both the <code>series</code> and <code>premiere</code> filters.</li>
+  <li><strong>Movies</strong> — all movies recorded as downloaded. Delete a movie to force a re-download.</li>
+  <li><strong>Seen</strong> — entries recorded by the <code>seen</code> filter, showing title, task name, and date. Delete an entry to allow it to be processed again. Per-task local seen stores (<code>local: true</code>) appear as separate sidebar entries named <em>Seen: task-name</em>.</li>
+</ul>
 
 <h3>HTTPS</h3>
 <p>Pass <code>--tls-cert</code> and <code>--tls-key</code> for a real certificate, or <code>--tls-self-signed</code> to generate one automatically. With TLS the <code>Secure</code> cookie flag is set automatically.</p>
