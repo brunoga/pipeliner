@@ -153,7 +153,7 @@ TLS flags (optional; plain HTTP is used when none are set, suitable for a
 
 func cmdRun(args []string) int {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
-	cfgPath   := fs.String("config",     "config.yaml", "path to config file")
+	cfgPath   := fs.String("config",     "config.yml", "path to config file")
 	logLevel  := fs.String("log-level",  "info",        "log level (debug, info, warn, error)")
 	logPlugin := fs.String("log-plugin", "",            "only show log output from this plugin (task-level logs always shown)")
 	dryRun    := fs.Bool("dry-run",      false,         "execute pipeline but skip output and learn phases (idempotent)")
@@ -240,7 +240,7 @@ func cmdRun(args []string) int {
 
 func cmdDaemon(args []string) int {
 	fs := flag.NewFlagSet("daemon", flag.ContinueOnError)
-	cfgPath       := fs.String("config",          "config.yaml", "path to config file")
+	cfgPath       := fs.String("config",          "config.yml", "path to config file")
 	logLevel      := fs.String("log-level",       "info",        "log level (debug, info, warn, error)")
 	logPlugin     := fs.String("log-plugin",      "",            "only show log output from this plugin (task-level logs always shown)")
 	webAddr       := fs.String("web",             "",            "web interface listen address (e.g. :8080); empty disables it")
@@ -498,7 +498,7 @@ func addSchedules(d *scheduler.Daemon, schedules map[string]string, tasks map[st
 
 func cmdCheck(args []string) int {
 	fs := flag.NewFlagSet("check", flag.ContinueOnError)
-	cfgPath := fs.String("config", "config.yaml", "path to config file")
+	cfgPath := fs.String("config", "config.yml", "path to config file")
 	if err := fs.Parse(args); err != nil {
 		return 1
 	}

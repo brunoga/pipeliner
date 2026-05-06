@@ -1,6 +1,6 @@
 # Configuration
 
-Pipeliner uses a single YAML file (default `config.yaml`). Pass a custom path with `--config`.
+Pipeliner uses a single YAML file (default `config.yml`). Pass a custom path with `--config`.
 
 ## Top-level structure
 
@@ -186,11 +186,11 @@ Go template syntax (`{{gt .field value}}`) is still accepted for backward compat
 
 See the other files in this directory for complete working examples:
 
-- [`tv-series-deluge.yaml`](tv-series-deluge.yaml) — explicit show list → Deluge
-- [`movie-downloads.yaml`](movie-downloads.yaml) — explicit movie list + TMDb rating gate → qBittorrent
-- [`trakt-shows-transmission.yaml`](trakt-shows-transmission.yaml) — Trakt watchlist via `series.from` → Transmission
-- [`trakt-movies-qbittorrent.yaml`](trakt-movies-qbittorrent.yaml) — Trakt watchlist via `movies.from` → qBittorrent
-- [`tvdb-favorites-deluge.yaml`](tvdb-favorites-deluge.yaml) — TheTVDB favorites via `series.from` → Deluge
-- [`discover-trakt-qbittorrent.yaml`](discover-trakt-qbittorrent.yaml) — active search driven by Trakt via `discover.from` → qBittorrent
-- [`ars-technica-email.yaml`](ars-technica-email.yaml) — RSS → keyword filter → email
-- [`filesystem-cleanup.yaml`](filesystem-cleanup.yaml) — filesystem entries → exec
+- [`tv-series-deluge.yml`](tv-series-deluge.yml) — explicit show list → Deluge
+- [`movie-downloads.yml`](movie-downloads.yml) — explicit movie list + TMDb rating gate → qBittorrent
+- [`trakt-shows-transmission.yml`](trakt-shows-transmission.yml) — Trakt watchlist via `series.from` → Transmission
+- [`trakt-movies-qbittorrent.yml`](trakt-movies-qbittorrent.yml) — Trakt watchlist via `movies.from` → qBittorrent
+- [`tvdb-favorites-deluge.yml`](tvdb-favorites-deluge.yml) — TheTVDB favorites via `series.from` → Deluge
+- [`discover-trakt-qbittorrent.yml`](discover-trakt-qbittorrent.yml) — active search driven by Trakt via `discover.from` → qBittorrent
+- [`ars-technica-email.yml`](ars-technica-email.yml) — RSS → keyword filter → email
+- [`filesystem-cleanup.yml`](filesystem-cleanup.yml) — filesystem entries → exec
