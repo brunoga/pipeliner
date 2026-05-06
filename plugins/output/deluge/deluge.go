@@ -113,8 +113,12 @@ func (p *delugePlugin) Output(ctx context.Context, tc *plugin.TaskContext, entri
 			}
 		}
 		if err := p.addTorrent(ctx, e.URL, savePath, moveCompleted); err != nil {
-			tc.Logger.Error("deluge: add torrent", "title", e.Title, "err", err)
-			e.Fail("deluge: " + err.Error())
+			if strings.Contains(err.Error(), "already in session") {
+				tc.Logger.Info("deluge: torrent already in session, treating as success", "title", e.Title)
+			} else {
+				tc.Logger.Error("deluge: add torrent", "title", e.Title, "err", err)
+				e.Fail("deluge: " + err.Error())
+			}
 		}
 	}
 	return nil
