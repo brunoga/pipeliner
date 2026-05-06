@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/cookiejar"
+	"strings"
 
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/interp"
@@ -139,7 +140,11 @@ func (p *delugePlugin) addTorrent(ctx context.Context, url, savePath, moveComple
 		opts["move_completed"] = true
 		opts["move_completed_path"] = moveCompletedPath
 	}
-	_, err := p.rpc(ctx, "core.add_torrent_url", []any{url, opts})
+	method := "core.add_torrent_url"
+	if strings.HasPrefix(url, "magnet:") {
+		method = "core.add_torrent_magnet"
+	}
+	_, err := p.rpc(ctx, method, []any{url, opts})
 	return err
 }
 
