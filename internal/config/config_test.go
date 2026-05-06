@@ -3,6 +3,7 @@ package config
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,6 +32,16 @@ func (n *nopOutput) Output(_ context.Context, _ *plugin.TaskContext, _ []*entry.
 	return nil
 }
 
+// nopOutputValidated is an output plugin that requires "host" in its config,
+// used to test that Validate runs against the merged (post-template) config.
+type nopOutputValidated struct{}
+
+func (n *nopOutputValidated) Name() string        { return "nop-output-validated" }
+func (n *nopOutputValidated) Phase() plugin.Phase { return plugin.PhaseOutput }
+func (n *nopOutputValidated) Output(_ context.Context, _ *plugin.TaskContext, _ []*entry.Entry) error {
+	return nil
+}
+
 func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "nop-input",
@@ -41,6 +52,17 @@ func init() {
 		PluginName:  "nop-output",
 		PluginPhase: plugin.PhaseOutput,
 		Factory:     func(_ map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) { return &nopOutput{}, nil },
+	})
+	plugin.Register(&plugin.Descriptor{
+		PluginName:  "nop-output-validated",
+		PluginPhase: plugin.PhaseOutput,
+		Factory:     func(_ map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) { return &nopOutputValidated{}, nil },
+		Validate: func(cfg map[string]any) []error {
+			if _, ok := cfg["host"].(string); !ok {
+				return []error{fmt.Errorf("nop-output-validated: \"host\" is required")}
+			}
+			return nil
+		},
 	})
 }
 
@@ -341,5 +363,39 @@ func TestTemplateJSONObjectMerge(t *testing.T) {
 	}
 	if strings.Contains(string(raw), `"timeout":30`) {
 		t.Errorf("template timeout should be overridden by task: %s", raw)
+	}
+}
+
+// TestValidateRunsOnMergedConfig ensures that per-plugin validators see the
+// fully merged config (template fields + task fields) rather than just the
+// task-level fragment. Regression test for the bug where a plugin split across
+// a template (smtp settings) and a task (subject/body) failed validation
+// because the validator only saw the task fragment.
+func TestValidateRunsOnMergedConfig(t *testing.T) {
+	// Template provides the required "host" field; task provides an extra field.
+	c := &Config{
+		Templates: map[string]TaskDef{
+			"base": td("nop-input", `{}`, "nop-output-validated", `{"host":"localhost"}`),
+		},
+		Tasks: map[string]TaskDef{
+			"t": td("template", `"base"`, "nop-output-validated", `{"port":8080}`),
+		},
+	}
+	if errs := Validate(c); len(errs) != 0 {
+		t.Errorf("expected no errors when required field comes from template, got: %v", errs)
+	}
+}
+
+// TestValidateReportsErrorWhenRequiredFieldMissing confirms that validation
+// still catches a genuinely missing required field after merging.
+func TestValidateReportsErrorWhenRequiredFieldMissing(t *testing.T) {
+	c := &Config{
+		Tasks: map[string]TaskDef{
+			"t": td("nop-input", `{}`, "nop-output-validated", `{"port":8080}`),
+		},
+	}
+	errs := Validate(c)
+	if len(errs) == 0 {
+		t.Error("expected validation error for missing required field, got none")
 	}
 }
