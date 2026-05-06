@@ -901,6 +901,13 @@ function renderDBSidebar() {
   document.getElementById('db-sidebar').innerHTML = html || '<div class="db-empty">No data.</div>';
 }
 
+// Buckets whose keys are TVDB series IDs — we resolve them to names using
+// the search cache (cache_metainfo_tvdb) as a companion lookup.
+const TVDB_ID_KEYED_BUCKETS = new Set([
+  'cache_metainfo_tvdb_ext',
+  'cache_metainfo_tvdb_eps',
+]);
+
 async function selectBucket(name) {
   dbActiveBucket = name;
   dbSearch = '';
@@ -908,16 +915,34 @@ async function selectBucket(name) {
   const main = document.getElementById('db-main');
   main.innerHTML = '<div class="db-loading">Loading…</div>';
   try {
-    const r = await fetch('/api/db/buckets/' + encodeURIComponent(name));
-    if (!r.ok) { main.innerHTML = '<div class="db-empty">Error loading bucket.</div>'; return; }
-    const data = await r.json();
-    renderDBMain(name, data);
+    const requests = [fetch('/api/db/buckets/' + encodeURIComponent(name))];
+    if (TVDB_ID_KEYED_BUCKETS.has(name)) {
+      requests.push(fetch('/api/db/buckets/cache_metainfo_tvdb'));
+    }
+    const responses = await Promise.all(requests);
+    if (!responses[0].ok) { main.innerHTML = '<div class="db-empty">Error loading bucket.</div>'; return; }
+    const data = await responses[0].json();
+
+    // Build id→name map from the search cache if available.
+    let idToName = {};
+    if (responses[1]?.ok) {
+      const searchData = await responses[1].json();
+      for (const e of (searchData.entries || [])) {
+        try {
+          const results = JSON.parse(e.value); // []Series
+          if (Array.isArray(results) && results[0]?.tvdb_id && results[0]?.name) {
+            idToName[String(results[0].tvdb_id)] = results[0].name;
+          }
+        } catch(_) {}
+      }
+    }
+    renderDBMain(name, data, idToName);
   } catch(e) {
     main.innerHTML = '<div class="db-empty">Error loading bucket.</div>';
   }
 }
 
-function renderDBMain(name, data) {
+function renderDBMain(name, data, idToName = {}) {
   const bucket = dbBuckets.find(b => b.name === name) || {name, display: name, count: data.entries?.length || 0};
   const main = document.getElementById('db-main');
 
@@ -932,7 +957,7 @@ function renderDBMain(name, data) {
   if (name === 'series' && data.grouped) {
     main.innerHTML = toolbar + renderSeriesTable(data.grouped, name);
   } else {
-    main.innerHTML = toolbar + renderGenericTable(data.entries || [], name);
+    main.innerHTML = toolbar + renderGenericTable(data.entries || [], name, idToName);
   }
 }
 
@@ -966,13 +991,16 @@ function renderSeriesTable(shows, bucketName) {
   return html;
 }
 
-function renderGenericTable(entries, bucketName) {
+function renderGenericTable(entries, bucketName, idToName = {}) {
   if (!entries.length) return '<div class="db-empty">Empty bucket.</div>';
+  const hasNames = Object.keys(idToName).length > 0;
   let html = `<table class="db-table" id="db-content-table">
-    <thead><tr><th>Key</th><th></th></tr></thead><tbody>`;
+    <thead><tr><th>Key</th>${hasNames ? '<th>Series</th>' : ''}<th></th></tr></thead><tbody>`;
   for (const e of entries) {
+    const seriesName = idToName[e.key];
     html += `<tr>
       <td style="word-break:break-all;font-family:monospace;font-size:12px">${esc(e.key)}</td>
+      ${hasNames ? `<td style="color:var(--text)">${seriesName ? esc(seriesName) : '<span style="color:var(--muted)">unknown</span>'}</td>` : ''}
       <td style="text-align:right;white-space:nowrap"><button class="btn-sm" onclick="deleteEntry(${esc(JSON.stringify(bucketName))},${esc(JSON.stringify(e.key))})">×</button></td>
     </tr>`;
   }
@@ -1053,10 +1081,26 @@ async function deleteEntry(bucket, key) {
 
 async function reloadBucket(name) {
   if (dbActiveBucket !== name) return;
-  const r = await fetch('/api/db/buckets/' + encodeURIComponent(name));
-  if (!r.ok) return;
-  const data = await r.json();
-  renderDBMain(name, data);
+  const requests = [fetch('/api/db/buckets/' + encodeURIComponent(name))];
+  if (TVDB_ID_KEYED_BUCKETS.has(name)) {
+    requests.push(fetch('/api/db/buckets/cache_metainfo_tvdb'));
+  }
+  const responses = await Promise.all(requests);
+  if (!responses[0].ok) return;
+  const data = await responses[0].json();
+  let idToName = {};
+  if (responses[1]?.ok) {
+    const searchData = await responses[1].json();
+    for (const e of (searchData.entries || [])) {
+      try {
+        const results = JSON.parse(e.value);
+        if (Array.isArray(results) && results[0]?.tvdb_id && results[0]?.name) {
+          idToName[String(results[0].tvdb_id)] = results[0].name;
+        }
+      } catch(_) {}
+    }
+  }
+  renderDBMain(name, data, idToName);
   if (dbSearch) dbFilter(dbSearch);
 }
 
