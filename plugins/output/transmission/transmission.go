@@ -113,6 +113,7 @@ func (p *transmissionPlugin) Output(ctx context.Context, tc *plugin.TaskContext,
 	for _, e := range entries {
 		if err := p.addTorrent(ctx, e); err != nil {
 			tc.Logger.Warn("transmission: failed to add torrent", "entry", e.Title, "err", err)
+			e.Fail("transmission: " + err.Error())
 		}
 	}
 	return nil

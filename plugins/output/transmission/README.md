@@ -14,6 +14,10 @@ Adds accepted torrents to a Transmission BitTorrent client via its JSON-RPC API.
 | `path` | string | no | `{{.download_path}}` | Download directory template |
 | `paused` | bool | no | false | Add torrent in paused state |
 
+## Error handling
+
+If a torrent cannot be added, the affected entry is marked failed and will **not** be recorded by the learn phase. It will be retried on the next run.
+
 ## Example
 
 ```yaml

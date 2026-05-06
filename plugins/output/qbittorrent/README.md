@@ -15,6 +15,10 @@ Adds accepted torrents to a qBittorrent client via its Web API v2.
 | `category` | string | no | — | Torrent category |
 | `tags` | string | no | — | Comma-separated tags |
 
+## Error handling
+
+If login fails or a torrent cannot be added, the affected entry is marked failed and will **not** be recorded by the learn phase. It will be retried on the next run.
+
 ## Example
 
 ```yaml

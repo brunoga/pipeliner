@@ -17,6 +17,10 @@ In addition to all entry fields, the `filename` template has access to `url_base
 
 `download_path` — absolute path of the downloaded file.
 
+## Error handling
+
+If the download fails (network error, non-200 response, disk error), the entry is marked failed and will **not** be recorded by the learn phase. It will be retried on the next run.
+
 ## Example
 
 ```yaml
