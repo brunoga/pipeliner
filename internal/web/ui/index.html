@@ -928,7 +928,8 @@ async function selectBucket(name) {
     if (responses[1]?.ok) {
       const searchData = await responses[1].json();
       for (const e of (searchData.entries || [])) {
-        const results = e.value; // already a JS array (json.RawMessage decoded by JSON.parse)
+        // Cache entries are stored as {v: <data>, e: <expiry>} (storedEntry struct).
+        const results = e.value?.v;
         if (Array.isArray(results) && results[0]?.tvdb_id && results[0]?.name) {
           idToName[String(results[0].tvdb_id)] = results[0].name;
         }
