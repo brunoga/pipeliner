@@ -60,11 +60,16 @@ func TestParseAltNumPattern(t *testing.T) {
 
 func TestParseDatePattern(t *testing.T) {
 	cases := []struct {
-		title string
+		title   string
 		y, m, d int
+		name    string
 	}{
-		{"Show.2023.11.15.HDTV", 2023, 11, 15},
-		{"Show.Name.2020-03-25.720p", 2020, 3, 25},
+		{"Show.2023.11.15.HDTV", 2023, 11, 15, "Show"},
+		{"Show.Name.2020-03-25.720p", 2020, 3, 25, "Show Name"},
+		// Space-separated dates (talk shows, daily episodes)
+		{"Seth Meyers 2026 05 05 Chris Hayes 720p WEB H264-JFF", 2026, 5, 5, "Seth Meyers"},
+		{"The Kelly Clarkson Show 2026 05 04 Tara Lipinski 1080p WEB h264-DiRT", 2026, 5, 4, "The Kelly Clarkson Show"},
+		{"Jimmy Fallon 2026 05 05 Justin Hartley 1080p HEVC x265-MeGusta", 2026, 5, 5, "Jimmy Fallon"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.title, func(t *testing.T) {
@@ -78,6 +83,9 @@ func TestParseDatePattern(t *testing.T) {
 			if ep.Year != tc.y || ep.Month != tc.m || ep.Day != tc.d {
 				t.Errorf("date: got %d-%d-%d, want %d-%d-%d",
 					ep.Year, ep.Month, ep.Day, tc.y, tc.m, tc.d)
+			}
+			if tc.name != "" && ep.SeriesName != tc.name {
+				t.Errorf("series name: got %q, want %q", ep.SeriesName, tc.name)
 			}
 		})
 	}
