@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/brunoga/pipeliner/internal/store"
 )
 
 //go:embed ui/index.html
@@ -48,6 +50,7 @@ type Server struct {
 
 	configPath      string                 // path to config file on disk
 	validateConfig  func([]byte) []string  // returns validation error strings; nil if not set
+	db              *store.SQLiteStore     // nil if not set
 }
 
 // TaskStarted records that a task has begun executing.
@@ -120,6 +123,10 @@ func (s *Server) SetConfigPath(path string) { s.configPath = path }
 // It returns a slice of human-readable error strings (empty = valid).
 func (s *Server) SetConfigValidator(fn func([]byte) []string) { s.validateConfig = fn }
 
+// SetStore wires the SQLite store so the database API endpoints can read and
+// modify tracker data and caches.
+func (s *Server) SetStore(db *store.SQLiteStore) { s.db = db }
+
 // SetTasks atomically replaces the task list shown in the UI.
 func (s *Server) SetTasks(tasks []TaskInfo) {
 	s.tasksMu.Lock()
@@ -150,6 +157,10 @@ func (s *Server) Start(ctx context.Context, addr string, tlsCfg *tls.Config) err
 	protected.HandleFunc("GET /api/logs", s.apiLogs)
 	protected.HandleFunc("GET /api/config", s.apiGetConfig)
 	protected.HandleFunc("POST /api/config", s.apiSaveConfig)
+	protected.HandleFunc("GET /api/db/buckets", s.apiDBBuckets)
+	protected.HandleFunc("GET /api/db/buckets/{name}", s.apiDBGetBucket)
+	protected.HandleFunc("DELETE /api/db/buckets/{name}", s.apiDBClearBucket)
+	protected.HandleFunc("DELETE /api/db/entries/{name}", s.apiDBDeleteEntry)
 
 	// Top-level mux: open routes take priority; everything else goes through auth.
 	top := http.NewServeMux()

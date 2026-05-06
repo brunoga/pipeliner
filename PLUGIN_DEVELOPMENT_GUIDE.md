@@ -637,16 +637,30 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 ```go
 func (p *myPlugin) loadTitles(ctx context.Context, tc *plugin.TaskContext) []string {
     return plugin.ResolveDynamicList(ctx, tc, p.sources, p.staticTitles,
-        func() ([]string, bool) { return p.listCache.Get("list") },
-        func(v []string) { p.listCache.Set("list", v) },
+        func(src string) ([]string, bool) { return p.listCache.Get(src) },
+        func(src string, v []string) { p.listCache.Set(src, v) },
         match.Normalize,
     )
 }
 ```
 
-`ResolveDynamicList` checks the cache first (logging a debug-level cache-hit message), then calls each from-plugin's `Run()` (which the `loggedFromPlugin` wrapper logs at info level), normalizes the titles with the provided function, caches the result, and returns the merged static+dynamic list.
+`ResolveDynamicList` caches each from-plugin's results **independently** under a per-source key (see below), so sources with different configurations are never mixed. Cache hits are logged at debug; live fetches are logged at info via the logging wrapper.
 
 If you need custom per-entry logic beyond title extraction, call `inp.Run()` directly — the logging wrapper in each from-plugin still fires automatically.
+
+#### Per-source cache keys and `CacheKeyer`
+
+By default the cache key for a from-plugin is its registered name (e.g. `"tvdb_favorites"`). When the same plugin can be configured with different parameters that produce different data — for example `trakt_list` with `list: watchlist` vs `list: ratings` — implement the `plugin.CacheKeyer` interface to return a more specific key:
+
+```go
+// CacheKey returns a key that includes the parameters that affect the data
+// returned, so two instances with different config are cached independently.
+func (p *myFromPlugin) CacheKey() string {
+    return "my_plugin:" + p.itemType + ":" + p.listName
+}
+```
+
+`ResolveDynamicList` automatically calls `CacheKey()` when available. If not implemented, it falls back to `Name()`. The `loggedFromPlugin` wrapper forwards `CacheKey()` transparently, so no special handling is needed at the call site.
 
 ### Loading a SearchPlugin from config (`via:` pattern)
 

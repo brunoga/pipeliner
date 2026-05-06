@@ -439,6 +439,7 @@ func cmdDaemon(args []string) int {
 		ws = web.New(taskInfos, d, hist, bcast, resolveVersion(), *webUser, *webPass)
 		ws.SetReload(reload)
 		ws.SetConfigPath(*cfgPath)
+		ws.SetStore(db)
 		ws.SetConfigValidator(func(data []byte) []string {
 			c, err := config.ParseBytes(data)
 			if err != nil {
