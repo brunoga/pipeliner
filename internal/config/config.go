@@ -172,21 +172,7 @@ func parse(data []byte) (*Config, error) {
 // and returns a list of validation errors (never nil, may be empty).
 func Validate(c *Config) []error {
 	var errs []error
-	for taskName, def := range c.Tasks {
-		for _, e := range def {
-			if e.name == "template" || e.name == "priority" || e.name == "schedule" {
-				continue // meta keys, not plugin names
-			}
-			d, ok := plugin.Lookup(e.name)
-			if !ok {
-				errs = append(errs, fmt.Errorf("task %q: unknown plugin %q", taskName, e.name))
-				continue
-			}
-			if d.PluginPhase == plugin.PhaseFrom {
-				errs = append(errs, fmt.Errorf("task %q: plugin %q is a from plugin; use it via 'series.from', 'movies.from', or 'discover.from' instead", taskName, e.name))
-			}
-		}
-	}
+
 	for tmplName, def := range c.Templates {
 		for _, e := range def {
 			if e.name == "template" {
@@ -198,14 +184,28 @@ func Validate(c *Config) []error {
 		}
 	}
 
-	// Decode each plugin's raw config and run its Validate function.
 	for taskName, def := range c.Tasks {
-		for _, e := range def {
+		// Merge template(s) before validating so that plugin configs inherited
+		// from a template are visible when per-plugin validators run.
+		merged, err := mergeTemplate(taskName, def, c.Templates)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("task %q: %w", taskName, err))
+			continue
+		}
+		for _, e := range merged {
 			if e.name == "template" || e.name == "priority" || e.name == "schedule" {
 				continue
 			}
 			d, ok := plugin.Lookup(e.name)
-			if !ok || d.Validate == nil {
+			if !ok {
+				errs = append(errs, fmt.Errorf("task %q: unknown plugin %q", taskName, e.name))
+				continue
+			}
+			if d.PluginPhase == plugin.PhaseFrom {
+				errs = append(errs, fmt.Errorf("task %q: plugin %q is a from plugin; use it via 'series.from', 'movies.from', or 'discover.from' instead", taskName, e.name))
+				continue
+			}
+			if d.Validate == nil {
 				continue
 			}
 			var cfg map[string]any
