@@ -1,0 +1,1400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pipeliner User Guide</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0d1117;--surface:#161b22;--border:#30363d;--text:#e6edf3;
+  --muted:#8b949e;--accent:#58a6ff;--green:#3fb950;--amber:#d29922;
+  --red:#f85149;--purple:#bc8cff;--sidebar-w:260px;
+}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;font-size:15px;line-height:1.65;display:flex;min-height:100vh}
+
+/* Sidebar */
+#sidebar{width:var(--sidebar-w);flex-shrink:0;background:var(--surface);border-right:1px solid var(--border);position:fixed;top:0;left:0;height:100vh;overflow-y:auto;padding:20px 0 40px}
+#sidebar .logo{padding:16px 20px 12px;font-size:16px;font-weight:700;border-bottom:1px solid var(--border);margin-bottom:8px}
+#sidebar .logo span{color:var(--accent)}
+#sidebar nav a{display:block;padding:4px 20px;font-size:13px;color:var(--muted);text-decoration:none;line-height:1.5;border-left:2px solid transparent}
+#sidebar nav a:hover{color:var(--text)}
+#sidebar nav a.active{color:var(--accent);border-left-color:var(--accent)}
+#sidebar nav .section{padding:10px 20px 2px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-top:6px}
+#sidebar nav .sub{padding-left:32px}
+
+/* Main */
+#main{margin-left:var(--sidebar-w);flex:1;padding:48px 64px 80px;max-width:900px}
+@media(max-width:768px){#sidebar{display:none}#main{margin-left:0;padding:24px 20px}}
+
+/* Typography */
+h1{font-size:2rem;font-weight:700;margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid var(--border)}
+h2{font-size:1.4rem;font-weight:600;margin:48px 0 16px;padding-bottom:8px;border-bottom:1px solid var(--border);color:var(--text)}
+h3{font-size:1.1rem;font-weight:600;margin:32px 0 10px;color:var(--accent)}
+h4{font-size:.95rem;font-weight:600;margin:24px 0 8px;color:var(--text)}
+p{margin-bottom:14px}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+ul,ol{margin:0 0 14px 24px}
+li{margin-bottom:4px}
+strong{font-weight:600}
+code{font-family:'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace;font-size:.875em;background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:1px 5px}
+hr{border:none;border-top:1px solid var(--border);margin:32px 0}
+
+/* Code blocks */
+pre{background:#010409;border:1px solid var(--border);border-radius:8px;padding:16px 18px;overflow-x:auto;margin:0 0 18px;font-size:13px;line-height:1.6}
+pre code{background:none;border:none;padding:0;font-size:inherit}
+
+/* Syntax highlighting */
+.y-key{color:#79c0ff}.y-str{color:#a5d6ff}.y-num{color:#f2cc60}
+.y-bool{color:#ff7b72}.y-comment{color:#8b949e;font-style:italic}
+.y-anchor{color:#e3b341}
+
+/* Tables */
+table{width:100%;border-collapse:collapse;margin-bottom:18px;font-size:14px}
+th{background:var(--surface);color:var(--muted);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;padding:8px 12px;text-align:left;border-bottom:2px solid var(--border)}
+td{padding:8px 12px;border-bottom:1px solid var(--border);vertical-align:top}
+tr:last-child td{border-bottom:none}
+td code{font-size:12px}
+
+/* Callouts */
+.note{background:rgba(88,166,255,.08);border:1px solid rgba(88,166,255,.25);border-radius:6px;padding:12px 16px;margin-bottom:16px;font-size:14px}
+.note::before{content:"ℹ ";font-weight:700;color:var(--accent)}
+.warn{background:rgba(210,153,34,.08);border:1px solid rgba(210,153,34,.25);border-radius:6px;padding:12px 16px;margin-bottom:16px;font-size:14px}
+.warn::before{content:"⚠ ";font-weight:700;color:var(--amber)}
+
+/* Phase diagram */
+.phases{display:flex;align-items:center;gap:0;margin:20px 0;flex-wrap:wrap;gap:4px}
+.phase{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:8px 14px;font-size:13px;font-weight:600;text-align:center}
+.phase.input{color:var(--accent)}.phase.metainfo{color:var(--purple)}.phase.filter{color:var(--amber)}
+.phase.modify{color:var(--green)}.phase.output{color:#ff7b72}.phase.learn{color:var(--muted)}
+.arrow{color:var(--muted);font-size:18px;line-height:1;padding:0 2px}
+</style>
+</head>
+<body>
+
+<nav id="sidebar">
+  <div class="logo"><span>▶</span> Pipeliner</div>
+  <nav>
+    <div class="section">Getting Started</div>
+    <a href="#introduction">Introduction</a>
+    <a href="#installation">Installation</a>
+    <a href="#quickstart">Quick Start</a>
+
+    <div class="section">Configuration</div>
+    <a href="#config-file">Config File</a>
+    <a href="#variables">Variables</a>
+    <a href="#templates">Templates</a>
+    <a href="#schedules">Schedules</a>
+
+    <div class="section">Core Concepts</div>
+    <a href="#phases">Pipeline Phases</a>
+    <a href="#entries">Entries &amp; Fields</a>
+    <a href="#expressions">Expressions</a>
+    <a href="#quality-spec">Quality Specs</a>
+    <a href="#template-funcs">Template Functions</a>
+
+    <div class="section">Input Plugins</div>
+    <a href="#rss" class="sub">rss</a>
+    <a href="#html" class="sub">html</a>
+    <a href="#filesystem" class="sub">filesystem</a>
+    <a href="#discover" class="sub">discover</a>
+    <a href="#jackett_input" class="sub">jackett_input</a>
+
+    <div class="section">From Plugins</div>
+    <a href="#tvdb_favorites" class="sub">tvdb_favorites</a>
+    <a href="#trakt_list" class="sub">trakt_list</a>
+    <a href="#jackett" class="sub">jackett</a>
+    <a href="#rss_search" class="sub">rss_search</a>
+
+    <div class="section">Metainfo Plugins</div>
+    <a href="#metainfo_tvdb" class="sub">metainfo_tvdb</a>
+    <a href="#metainfo_tmdb" class="sub">metainfo_tmdb</a>
+    <a href="#metainfo_trakt" class="sub">metainfo_trakt</a>
+    <a href="#metainfo_quality" class="sub">metainfo_quality</a>
+    <a href="#metainfo_series" class="sub">metainfo_series</a>
+    <a href="#metainfo_torrent" class="sub">metainfo_torrent</a>
+    <a href="#metainfo_magnet" class="sub">metainfo_magnet</a>
+
+    <div class="section">Filter Plugins</div>
+    <a href="#series" class="sub">series</a>
+    <a href="#movies" class="sub">movies</a>
+    <a href="#premiere" class="sub">premiere</a>
+    <a href="#condition" class="sub">condition</a>
+    <a href="#torrent_alive" class="sub">torrent_alive</a>
+    <a href="#require" class="sub">require</a>
+    <a href="#seen" class="sub">seen</a>
+    <a href="#tvdb-filter" class="sub">tvdb</a>
+    <a href="#trakt-filter" class="sub">trakt</a>
+    <a href="#exists" class="sub">exists</a>
+    <a href="#list_match" class="sub">list_match</a>
+    <a href="#regexp" class="sub">regexp</a>
+    <a href="#quality-filter" class="sub">quality</a>
+    <a href="#upgrade" class="sub">upgrade</a>
+    <a href="#content" class="sub">content</a>
+    <a href="#accept_all" class="sub">accept_all</a>
+
+    <div class="section">Modify Plugins</div>
+    <a href="#pathfmt" class="sub">pathfmt</a>
+    <a href="#pathscrub" class="sub">pathscrub</a>
+    <a href="#set" class="sub">set</a>
+
+    <div class="section">Output Plugins</div>
+    <a href="#deluge" class="sub">deluge</a>
+    <a href="#qbittorrent" class="sub">qbittorrent</a>
+    <a href="#transmission" class="sub">transmission</a>
+    <a href="#download" class="sub">download</a>
+    <a href="#email-output" class="sub">email</a>
+    <a href="#exec" class="sub">exec</a>
+    <a href="#print" class="sub">print</a>
+    <a href="#notify-output" class="sub">notify</a>
+    <a href="#decompress" class="sub">decompress</a>
+    <a href="#list_add" class="sub">list_add</a>
+
+    <div class="section">Notify Plugins</div>
+    <a href="#notify-email" class="sub">email</a>
+    <a href="#pushover" class="sub">pushover</a>
+    <a href="#webhook" class="sub">webhook</a>
+
+    <div class="section">Operations</div>
+    <a href="#cli">CLI Reference</a>
+    <a href="#webui">Web UI</a>
+    <a href="#docker">Docker</a>
+    <a href="#dry-run">Dry-Run Mode</a>
+    <a href="#troubleshooting">Troubleshooting</a>
+  </nav>
+</nav>
+
+<main id="main">
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<h1 id="introduction">Pipeliner User Guide</h1>
+
+<p>Pipeliner is a media-automation daemon that pulls entries from RSS feeds, torrent indexers, or local filesystems, enriches them with metadata, applies configurable filters, and hands accepted entries off to download clients, notification services, or shell commands.</p>
+
+<p>It is heavily inspired by <a href="https://flexget.com" target="_blank">FlexGet</a>. Pipelines are described in YAML. Each task chains a sequence of plugins that execute in a fixed phase order. The scheduler runs tasks on cron or interval schedules, persisting state in a SQLite database so each entry is processed only once.</p>
+
+<h3>Key concepts</h3>
+<ul>
+  <li><strong>Entry</strong> — a title, URL, state (undecided/accepted/rejected/failed), and a key-value field map</li>
+  <li><strong>Plugin</strong> — a self-contained unit that produces, annotates, filters, modifies, or acts on entries</li>
+  <li><strong>Task</strong> — an ordered chain of plugins run in phase order</li>
+  <li><strong>Phase</strong> — the fixed execution stage a plugin belongs to (input → metainfo → filter → modify → output → learn)</li>
+</ul>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<h2 id="installation">Installation</h2>
+
+<h3>Docker (recommended)</h3>
+<pre><code>docker run -d \
+  -p 8080:8080 \
+  -v pipeliner-data:/config \
+  -e PIPELINER_WEB_USER=admin \
+  -e PIPELINER_WEB_PASSWORD=secret \
+  ghcr.io/brunoga/pipeliner:latest</code></pre>
+
+<p>Or with docker compose — see the <a href="#docker">Docker section</a> for a full example.</p>
+
+<h3>Binary release</h3>
+<p>Download the archive for your platform from <a href="https://github.com/brunoga/pipeliner/releases" target="_blank">GitHub Releases</a>, extract, and run the <code>pipeliner</code> binary. Each archive includes this user guide (<code>user-guide.html</code>).</p>
+
+<table>
+  <tr><th>OS</th><th>Architectures</th></tr>
+  <tr><td>Linux</td><td>amd64, arm64, arm/v7</td></tr>
+  <tr><td>Windows</td><td>amd64, arm64</td></tr>
+  <tr><td>macOS</td><td>amd64 (Intel), arm64 (Apple Silicon)</td></tr>
+</table>
+
+<h3>Build from source</h3>
+<pre><code>git clone https://github.com/brunoga/pipeliner
+cd pipeliner
+make build        # or: go build -o pipeliner ./cmd/pipeliner</code></pre>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<h2 id="quickstart">Quick Start</h2>
+
+<p>Create <code>config.yml</code>:</p>
+<pre><code><span class="y-key">tasks</span>:
+  <span class="y-key">breaking-bad</span>:
+    <span class="y-key">rss</span>:
+      <span class="y-key">url</span>: <span class="y-str">"https://example.com/rss"</span>
+    <span class="y-key">seen</span>:
+    <span class="y-key">series</span>:
+      <span class="y-key">shows</span>:
+        - <span class="y-str">"Breaking Bad"</span>
+    <span class="y-key">transmission</span>:
+      <span class="y-key">host</span>: <span class="y-str">localhost</span>
+      <span class="y-key">port</span>: <span class="y-num">9091</span>
+
+<span class="y-key">schedules</span>:
+  <span class="y-key">breaking-bad</span>: <span class="y-str">1h</span></code></pre>
+
+<p>Run once to test:</p>
+<pre><code>pipeliner run --config config.yml</code></pre>
+
+<p>Run as a daemon (with web UI):</p>
+<pre><code>pipeliner daemon --config config.yml --web :8080 \
+  --web-user admin --web-password secret</code></pre>
+
+<p>Validate config without running:</p>
+<pre><code>pipeliner check --config config.yml</code></pre>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<h2 id="config-file">Configuration File</h2>
+
+<p>Pipeliner uses a single YAML file (default: <code>config.yml</code>). Pass a custom path with <code>--config</code>.</p>
+
+<h3>Top-level structure</h3>
+<pre><code><span class="y-key">variables</span>:          <span class="y-comment"># substitution values applied before parsing</span>
+  <span class="y-key">tv_root</span>: <span class="y-str">/media/tv</span>
+
+<span class="y-key">templates</span>:          <span class="y-comment"># named partial configs that tasks can inherit</span>
+  <span class="y-key">base</span>:
+    <span class="y-key">seen</span>:
+
+<span class="y-key">tasks</span>:              <span class="y-comment"># one or more named pipelines</span>
+  <span class="y-key">my-task</span>:
+    <span class="y-key">template</span>: <span class="y-str">base</span>
+    <span class="y-key">rss</span>:
+      <span class="y-key">url</span>: <span class="y-str">"https://example.com/rss"</span>
+
+<span class="y-key">schedules</span>:          <span class="y-comment"># when to run each task in daemon mode</span>
+  <span class="y-key">my-task</span>: <span class="y-str">1h</span></code></pre>
+
+<h3>Database</h3>
+<p>Pipeliner automatically maintains <code>pipeliner.db</code> (SQLite) in the same directory as the config file. All stateful plugins (<code>seen</code>, <code>series</code>, <code>movies</code>, <code>premiere</code>, <code>upgrade</code>, the TVDB/Trakt caches, and persistent lists) share this file. No configuration needed.</p>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<h2 id="variables">Variables</h2>
+
+<p>Two substitution syntaxes are applied to the raw YAML bytes before parsing:</p>
+
+<table>
+  <tr><th>Syntax</th><th>Source</th><th>Example</th></tr>
+  <tr><td><code>{$ key $}</code></td><td><code>variables:</code> block in config</td><td><code>{$ tv_root $}</code></td></tr>
+  <tr><td><code>${ENV_VAR}</code></td><td>Process environment</td><td><code>${TVDB_API_KEY}</code></td></tr>
+</table>
+
+<pre><code><span class="y-key">variables</span>:
+  <span class="y-key">tv_root</span>: <span class="y-str">/media/tv</span>
+  <span class="y-key">tvdb_key</span>: <span class="y-str">YOUR_KEY</span>
+
+<span class="y-key">tasks</span>:
+  <span class="y-key">tv</span>:
+    <span class="y-key">metainfo_tvdb</span>:
+      <span class="y-key">api_key</span>: <span class="y-str">"{$ tvdb_key $}"</span>
+    <span class="y-key">pathfmt</span>:
+      <span class="y-key">path</span>: <span class="y-str">"{$ tv_root $}/{series_name}"</span></code></pre>
+
+<div class="warn">Substituted values are injected into raw YAML before parsing. Values containing YAML metacharacters (colons, newlines) can alter config structure. Only substitute values from trusted sources.</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<h2 id="templates">Templates</h2>
+
+<p>Templates let you define shared plugin config once and merge it into multiple tasks. A task references a template with <code>template: name</code>. Per-task plugin config is shallowly merged on top (task wins on key conflicts).</p>
+
+<pre><code><span class="y-key">templates</span>:
+  <span class="y-key">tv-base</span>:
+    <span class="y-key">jackett_input</span>:
+      <span class="y-key">url</span>: <span class="y-str">"https://jackett.example.com"</span>
+      <span class="y-key">api_key</span>: <span class="y-str">"${JACKETT_KEY}"</span>
+    <span class="y-key">torrent_alive</span>:
+      <span class="y-key">min_seeds</span>: <span class="y-num">1</span>
+    <span class="y-key">deluge</span>:
+      <span class="y-key">host</span>: <span class="y-str">localhost</span>
+      <span class="y-key">password</span>: <span class="y-str">changeme</span>
+    <span class="y-key">email</span>:                   <span class="y-comment"># smtp settings shared; task adds subject/body</span>
+      <span class="y-key">smtp_host</span>: <span class="y-str">smtp.gmail.com</span>
+      <span class="y-key">smtp_port</span>: <span class="y-num">587</span>
+      <span class="y-key">from</span>: <span class="y-str">me@example.com</span>
+      <span class="y-key">to</span>: <span class="y-str">me@example.com</span>
+
+<span class="y-key">tasks</span>:
+  <span class="y-key">tv-premiere</span>:
+    <span class="y-key">template</span>: <span class="y-str">tv-base</span>
+    <span class="y-key">premiere</span>:
+      <span class="y-key">quality</span>: <span class="y-str">720p+ webrip+</span>
+    <span class="y-key">email</span>:                   <span class="y-comment"># merged with template's smtp fields</span>
+      <span class="y-key">subject</span>: <span class="y-str">"New premiere: {{len .Entries}} show(s)"</span></code></pre>
+
+<h4>Merge rules</h4>
+<ul>
+  <li>Template plugins come first in the merged order; task-only plugins are appended.</li>
+  <li>When both template and task define the same plugin, their configs are <strong>shallowly merged</strong> (task fields win on conflict). This lets a task supply just <code>subject</code> and <code>body_template</code> while inheriting smtp settings from a template.</li>
+  <li>Append <code>!</code> to a plugin key in the task (e.g. <code>email!</code>) to completely replace the template value instead of merging.</li>
+  <li>Multiple templates: <code>template: [base, extras]</code> — merged left to right, then task on top.</li>
+</ul>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<h2 id="schedules">Schedules</h2>
+
+<p>In <code>daemon</code> mode, tasks run automatically according to their schedule. Both interval strings and 5-field cron expressions are supported.</p>
+
+<pre><code><span class="y-key">schedules</span>:
+  <span class="y-key">hourly-task</span>:  <span class="y-str">1h</span>
+  <span class="y-key">daily-task</span>:   <span class="y-str">24h</span>
+  <span class="y-key">morning-task</span>: <span class="y-str">"0 7 * * *"</span>   <span class="y-comment"># every day at 07:00</span></code></pre>
+
+<p>Tasks without a schedule entry are not run automatically; trigger them manually via the web UI or <code>pipeliner run</code>.</p>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<h2 id="phases">Pipeline Phases</h2>
+
+<p>Every task executes plugins in a fixed phase order regardless of the order they appear in the YAML. Config order only affects ordering <em>within</em> a phase.</p>
+
+<div class="phases">
+  <div class="phase input">Input</div><div class="arrow">→</div>
+  <div class="phase metainfo">Metainfo</div><div class="arrow">→</div>
+  <div class="phase filter">Filter</div><div class="arrow">→</div>
+  <div class="phase modify">Modify</div><div class="arrow">→</div>
+  <div class="phase output">Output</div><div class="arrow">→</div>
+  <div class="phase learn">Learn</div>
+</div>
+
+<table>
+  <tr><th>Phase</th><th>What happens</th><th>Entry state after</th></tr>
+  <tr><td><strong>Input</strong></td><td>Plugins produce entries from sources (RSS, files, searches). All inputs run concurrently; results are merged and deduplicated by URL.</td><td>undecided</td></tr>
+  <tr><td><strong>Metainfo</strong></td><td>Plugins annotate entries with additional fields (quality tags, TVDB data, torrent info). Always runs before any filter.</td><td>undecided</td></tr>
+  <tr><td><strong>Filter</strong></td><td>Plugins accept, reject, or leave entries undecided. Runs serially to preserve ordering guarantees (series tracking).</td><td>accepted / rejected / undecided</td></tr>
+  <tr><td><strong>Modify</strong></td><td>Plugins mutate accepted entry fields (path formatting, field setting).</td><td>accepted (unchanged)</td></tr>
+  <tr><td><strong>Output</strong></td><td>Plugins act on all accepted entries (add to torrent client, send email). All outputs run concurrently.</td><td>accepted / failed (if downloader errors)</td></tr>
+  <tr><td><strong>Learn</strong></td><td>Plugins persist state for future runs (mark as seen, record series tracker). Skipped in dry-run mode.</td><td>—</td></tr>
+</table>
+
+<div class="note">Metainfo always runs before filter, regardless of where <code>metainfo_tvdb</code> appears in the YAML. Use cheap name-only filters (like <code>premiere</code> or <code>torrent_alive</code>) early in the filter phase to reduce the number of entries that reach expensive metainfo fetches — even though metainfo precedes filter in phase order, the phase runs <em>per entry</em> only for entries not already rejected by earlier filter calls within the same run batch.</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<h2 id="entries">Entries &amp; Fields</h2>
+
+<p>Each entry carries: <strong>title</strong>, <strong>URL</strong>, <strong>state</strong> (undecided / accepted / rejected / failed), and a string-keyed field map that plugins read and write.</p>
+
+<h3>Common fields</h3>
+<table>
+  <tr><th>Field</th><th>Set by</th><th>Description</th></tr>
+  <tr><td><code>series_name</code></td><td>series, metainfo_series</td><td>Canonical show name</td></tr>
+  <tr><td><code>series_season</code></td><td>series, metainfo_series</td><td>Season number</td></tr>
+  <tr><td><code>series_episode</code></td><td>series, metainfo_series</td><td>Episode number</td></tr>
+  <tr><td><code>series_episode_id</code></td><td>series, metainfo_series</td><td>Episode ID string (e.g. <code>S02E05</code>)</td></tr>
+  <tr><td><code>movie_title</code></td><td>movies</td><td>Canonical movie title</td></tr>
+  <tr><td><code>movie_year</code></td><td>movies</td><td>Movie release year</td></tr>
+  <tr><td><code>movie_3d</code></td><td>movies</td><td><code>true</code> when a 3D format marker is detected</td></tr>
+  <tr><td><code>quality</code></td><td>metainfo_quality</td><td>Full quality string (e.g. <code>1080p.BluRay.x265</code>)</td></tr>
+  <tr><td><code>resolution</code></td><td>metainfo_quality</td><td>Resolution tag (e.g. <code>1080p</code>)</td></tr>
+  <tr><td><code>source</code></td><td>metainfo_quality</td><td>Source tag (e.g. <code>BluRay</code>, <code>WEB-DL</code>)</td></tr>
+  <tr><td><code>codec</code></td><td>metainfo_quality</td><td>Codec tag (e.g. <code>x265</code>, <code>HEVC</code>)</td></tr>
+  <tr><td><code>download_path</code></td><td>pathfmt</td><td>Rendered destination directory path</td></tr>
+  <tr><td><code>location</code></td><td>filesystem</td><td>Absolute file path on disk</td></tr>
+  <tr><td><code>torrent_seeders</code></td><td>rss, jackett, jackett_input</td><td>Seeder count</td></tr>
+  <tr><td><code>torrent_info_hash</code></td><td>metainfo_torrent, metainfo_magnet, jackett</td><td>SHA-1 info hash (hex)</td></tr>
+  <tr><td><code>torrent_size</code></td><td>metainfo_torrent, metainfo_magnet, jackett</td><td>Total size in bytes</td></tr>
+  <tr><td><code>torrent_files</code></td><td>metainfo_torrent, metainfo_magnet</td><td>List of file paths</td></tr>
+  <tr><td><code>tvdb_id</code></td><td>metainfo_tvdb</td><td>TheTVDB series ID</td></tr>
+  <tr><td><code>tvdb_series_name</code></td><td>metainfo_tvdb</td><td>Series name from TheTVDB</td></tr>
+  <tr><td><code>tvdb_language</code></td><td>metainfo_tvdb</td><td>Original language display name (e.g. <code>English</code>)</td></tr>
+  <tr><td><code>tvdb_genres</code></td><td>metainfo_tvdb</td><td>Genre names (string slice)</td></tr>
+  <tr><td><code>tvdb_country</code></td><td>metainfo_tvdb</td><td>Country of origin display name</td></tr>
+  <tr><td><code>tvdb_overview</code></td><td>metainfo_tvdb</td><td>Series overview text</td></tr>
+  <tr><td><code>tvdb_poster</code></td><td>metainfo_tvdb</td><td>Poster image URL</td></tr>
+  <tr><td><code>tvdb_slug</code></td><td>metainfo_tvdb</td><td>URL slug for <code>thetvdb.com/series/{slug}</code></td></tr>
+  <tr><td><code>tvdb_network</code></td><td>metainfo_tvdb</td><td>Originating network</td></tr>
+  <tr><td><code>tvdb_status</code></td><td>metainfo_tvdb</td><td>Series status (e.g. <code>Ended</code>, <code>Continuing</code>)</td></tr>
+  <tr><td><code>tvdb_first_air_date</code></td><td>metainfo_tvdb</td><td>Date of first broadcast</td></tr>
+  <tr><td><code>tvdb_last_air_date</code></td><td>metainfo_tvdb</td><td>Date of most recent episode</td></tr>
+  <tr><td><code>tvdb_next_air_date</code></td><td>metainfo_tvdb</td><td>Next scheduled air date</td></tr>
+  <tr><td><code>tvdb_content_rating</code></td><td>metainfo_tvdb</td><td>Content rating (e.g. <code>TV-MA</code>)</td></tr>
+  <tr><td><code>tvdb_cast</code></td><td>metainfo_tvdb</td><td>Actor names (string slice)</td></tr>
+  <tr><td><code>tvdb_trailers</code></td><td>metainfo_tvdb</td><td>Trailer URLs (string slice)</td></tr>
+  <tr><td><code>tvdb_score</code></td><td>metainfo_tvdb</td><td>Popularity score</td></tr>
+  <tr><td><code>tvdb_aliases</code></td><td>metainfo_tvdb</td><td>Alternative titles (string slice)</td></tr>
+  <tr><td><code>tvdb_episode_name</code></td><td>metainfo_tvdb</td><td>Episode title</td></tr>
+  <tr><td><code>tvdb_air_date</code></td><td>metainfo_tvdb</td><td>Episode air date (YYYY-MM-DD)</td></tr>
+  <tr><td><code>tvdb_episode_overview</code></td><td>metainfo_tvdb</td><td>Episode overview text</td></tr>
+  <tr><td><code>tvdb_episode_image</code></td><td>metainfo_tvdb</td><td>Episode still/thumbnail URL</td></tr>
+  <tr><td><code>tvdb_episode_runtime</code></td><td>metainfo_tvdb</td><td>Episode runtime in minutes</td></tr>
+  <tr><td><code>tmdb_id</code></td><td>metainfo_tmdb</td><td>TMDb movie ID</td></tr>
+  <tr><td><code>tmdb_title</code></td><td>metainfo_tmdb</td><td>Movie title from TMDb</td></tr>
+  <tr><td><code>tmdb_vote_average</code></td><td>metainfo_tmdb</td><td>Average user rating (0–10)</td></tr>
+  <tr><td><code>tmdb_genres</code></td><td>metainfo_tmdb</td><td>Genre names (comma-separated string)</td></tr>
+  <tr><td><code>tmdb_release_date</code></td><td>metainfo_tmdb</td><td>Release date (YYYY-MM-DD)</td></tr>
+  <tr><td><code>trakt_id</code></td><td>metainfo_trakt, trakt_list</td><td>Trakt internal ID</td></tr>
+  <tr><td><code>trakt_rating</code></td><td>metainfo_trakt</td><td>Community rating (0–10)</td></tr>
+  <tr><td><code>trakt_genres</code></td><td>metainfo_trakt</td><td>Genre names (comma-separated string)</td></tr>
+</table>
+
+<h3>Pattern syntax for path/field templates</h3>
+<p>String values in <code>pathfmt</code>, <code>exec</code>, <code>print</code>, <code>set</code>, and download-client path configs support two syntaxes:</p>
+<table>
+  <tr><th>Syntax</th><th>Meaning</th><th>Example</th></tr>
+  <tr><td><code>{field}</code></td><td>Insert field value</td><td><code>{series_name}</code></td></tr>
+  <tr><td><code>{field:format}</code></td><td>Printf-formatted</td><td><code>{series_season:02d}</code></td></tr>
+  <tr><td><code>{{.field}}</code></td><td>Go template</td><td><code>{{.series_name}}</code></td></tr>
+</table>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<h2 id="expressions">Expression Language</h2>
+
+<p>Used by the <code>condition</code> filter. Identifiers resolve to entry fields; unknown fields return <code>""</code>.</p>
+
+<h3>Operators</h3>
+<table>
+  <tr><th>Operator</th><th>Meaning</th><th>Example</th></tr>
+  <tr><td><code>==</code> <code>!=</code></td><td>Equality</td><td><code>source == "CAM"</code></td></tr>
+  <tr><td><code>&lt;</code> <code>&lt;=</code> <code>&gt;</code> <code>&gt;=</code></td><td>Numeric comparison</td><td><code>tmdb_vote_average &gt;= 7.0</code></td></tr>
+  <tr><td><code>contains</code></td><td>Substring or slice contains</td><td><code>tvdb_genres contains "Drama"</code></td></tr>
+  <tr><td><code>matches</code></td><td>Regex match</td><td><code>title matches "S\d{2}E\d{2}"</code></td></tr>
+  <tr><td><code>and</code> <code>&amp;&amp;</code></td><td>Logical AND</td><td><code>score &gt; 7 and source != "CAM"</code></td></tr>
+  <tr><td><code>or</code> <code>||</code></td><td>Logical OR</td><td><code>source == "CAM" or source == "TS"</code></td></tr>
+  <tr><td><code>not</code> <code>!</code></td><td>Logical NOT</td><td><code>not tvdb_genres contains "Reality"</code></td></tr>
+</table>
+
+<h3>Functions</h3>
+<table>
+  <tr><th>Function</th><th>Description</th><th>Example</th></tr>
+  <tr><td><code>now()</code></td><td>Current time</td><td><code>tvdb_first_air_date &lt; now()</code></td></tr>
+  <tr><td><code>daysago(n)</code></td><td>Time N days in the past</td><td><code>tvdb_first_air_date &lt; daysago(365)</code></td></tr>
+  <tr><td><code>weeksago(n)</code></td><td>Time N weeks in the past</td><td><code>tvdb_first_air_date &lt; weeksago(52)</code></td></tr>
+  <tr><td><code>monthsago(n)</code></td><td>Time N months in the past</td><td><code>tvdb_first_air_date &lt; monthsago(12)</code></td></tr>
+  <tr><td><code>date("YYYY-MM-DD")</code></td><td>Specific date literal</td><td><code>tvdb_first_air_date &gt; date("2020-01-01")</code></td></tr>
+</table>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<h2 id="quality-spec">Quality Specs</h2>
+
+<p>Used in <code>series</code>, <code>movies</code>, <code>premiere</code>, and the <code>quality</code> filter. A spec is one or more space-separated tokens, each constraining one quality dimension.</p>
+
+<table>
+  <tr><th>Form</th><th>Meaning</th><th>Example</th></tr>
+  <tr><td><code>value</code></td><td>Exact value</td><td><code>1080p</code>, <code>bluray</code></td></tr>
+  <tr><td><code>value+</code></td><td>This value or better</td><td><code>720p+</code>, <code>webrip+</code></td></tr>
+  <tr><td><code>min-max</code></td><td>Inclusive range</td><td><code>720p-1080p</code></td></tr>
+</table>
+
+<h4>Recognized dimension values (low → high)</h4>
+<table>
+  <tr><th>Dimension</th><th>Values</th></tr>
+  <tr><td>Resolution</td><td>sd, 480p, 576p, 720p, 1080p, 2160p/4k</td></tr>
+  <tr><td>Source</td><td>dvdrip, tvrip, hdtv, webrip, webdl/web-dl, bluray, remux</td></tr>
+  <tr><td>Codec</td><td>xvid, divx, h264/x264, h265/x265/hevc, av1</td></tr>
+  <tr><td>Audio</td><td>mp3, aac, dd/dolbydigital, dts, truehd, atmos</td></tr>
+  <tr><td>Color range</td><td>sdr, hdr, hdr10, dv/dolbyvision</td></tr>
+</table>
+
+<p>Example: <code>720p+ webrip+</code> requires at least 720p resolution AND at least WEBRip source quality.</p>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<h2 id="template-funcs">Template Functions</h2>
+
+<p>Available in <code>email</code> body templates, <code>print</code> format, <code>exec</code> command, and <code>set</code> values:</p>
+
+<table>
+  <tr><th>Function</th><th>Usage</th><th>Description</th></tr>
+  <tr><td><code>len</code></td><td><code>{{len .Entries}}</code></td><td>Length of a slice or string</td></tr>
+  <tr><td><code>range</code></td><td><code>{{range .Entries}}...{{end}}</code></td><td>Iterate over a slice</td></tr>
+  <tr><td><code>with</code></td><td><code>{{with .Field}}...{{end}}</code></td><td>Conditional block when value is non-zero</td></tr>
+  <tr><td><code>index</code></td><td><code>{{index .Fields "tvdb_genres"}}</code></td><td>Access map by key</td></tr>
+  <tr><td><code>join</code></td><td><code>{{join ", " (index .Fields "tvdb_cast")}}</code></td><td>Join string slice with separator</td></tr>
+  <tr><td><code>formatdate</code></td><td><code>{{formatdate "Jan 2, 2006" .tvdb_first_air_date}}</code></td><td>Format a time.Time value</td></tr>
+  <tr><td><code>printf</code></td><td><code>{{printf "%02d" .series_season}}</code></td><td>Formatted print</td></tr>
+  <tr><td><code>slice</code></td><td><code>{{slice "2024-01-15" 0 4}}</code></td><td>Substring/sub-slice</td></tr>
+</table>
+
+<p>In email templates, the context is a struct with <code>.Entries</code> (slice of accepted entries). Each entry has <code>.Title</code>, <code>.URL</code>, <code>.Task</code>, and <code>.Fields</code> (map of all entry fields).</p>
+
+<hr>
+<!-- ═══════════════════════════════════════════════════════════ -->
+<h1>Input Plugins</h1>
+<p>Input plugins produce entries. All inputs in a task run concurrently; their results are merged and deduplicated by URL before other phases begin.</p>
+
+<!-- ─────────── rss ─────────── -->
+<h2 id="rss">rss</h2>
+<p>Fetches entries from an RSS 2.0 or Atom 1.0 feed. Prefers enclosure URLs (torrent feeds) and falls back to item links.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>url</code></td><td>yes</td><td>—</td><td>Feed URL</td></tr>
+  <tr><td><code>all_entries</code></td><td>no</td><td>false</td><td>Skip filter phase; accept all entries</td></tr>
+</table>
+
+<h4>Fields set</h4>
+<p><code>rss_feed</code>, <code>rss_link</code>, <code>rss_description</code>, <code>rss_pubdate</code>, <code>rss_guid</code>, <code>rss_enclosure_url</code>, <code>rss_enclosure_type</code>, <code>torrent_seeders</code> (when present in feed)</p>
+
+<pre><code><span class="y-key">rss</span>:
+  <span class="y-key">url</span>: <span class="y-str">"https://example.com/torrents/rss"</span></code></pre>
+
+<!-- ─────────── html ─────────── -->
+<h2 id="html">html</h2>
+<p>Scrapes all <code>&lt;a href&gt;</code> links from an HTML page. Optionally filters by glob pattern.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>url</code></td><td>yes</td><td>—</td><td>Page URL to fetch</td></tr>
+  <tr><td><code>mask</code></td><td>no</td><td>—</td><td>Glob filter on link filenames (e.g. <code>*.torrent</code>)</td></tr>
+</table>
+
+<pre><code><span class="y-key">html</span>:
+  <span class="y-key">url</span>: <span class="y-str">"https://example.com/downloads"</span>
+  <span class="y-key">mask</span>: <span class="y-str">"*.torrent"</span></code></pre>
+
+<!-- ─────────── filesystem ─────────── -->
+<h2 id="filesystem">filesystem</h2>
+<p>Walks a local directory and emits one entry per file with a <code>file://</code> URL.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>path</code></td><td>yes</td><td>—</td><td>Directory to scan</td></tr>
+  <tr><td><code>recursive</code></td><td>no</td><td>false</td><td>Recurse into subdirectories</td></tr>
+  <tr><td><code>mask</code></td><td>no</td><td>—</td><td>Glob filter (e.g. <code>*.torrent</code>)</td></tr>
+</table>
+
+<h4>Fields set</h4>
+<p><code>location</code> (absolute path), <code>filename</code>, <code>extension</code>, <code>size</code>, <code>modified_time</code></p>
+
+<pre><code><span class="y-key">filesystem</span>:
+  <span class="y-key">path</span>: <span class="y-str">/downloads/watch</span>
+  <span class="y-key">mask</span>: <span class="y-str">"*.torrent"</span></code></pre>
+
+<!-- ─────────── discover ─────────── -->
+<h2 id="discover">discover</h2>
+<p>Actively searches multiple sources for entries matching a title list. Unlike RSS (which passively receives all items), <code>discover</code> iterates titles, dispatches one search query per title to each configured search plugin (<code>via</code>), and returns the merged results. A per-title cooldown prevents redundant searches.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>titles</code></td><td>conditional</td><td>—</td><td>Static list of title strings</td></tr>
+  <tr><td><code>from</code></td><td>conditional</td><td>—</td><td>From-plugin configs whose entry titles supplement the list</td></tr>
+  <tr><td><code>via</code></td><td>yes</td><td>—</td><td>Search plugin configs to query</td></tr>
+  <tr><td><code>interval</code></td><td>no</td><td><code>24h</code></td><td>Minimum time between searches per title</td></tr>
+</table>
+
+<p>At least one of <code>titles</code> or <code>from</code> is required.</p>
+
+<pre><code><span class="y-key">discover</span>:
+  <span class="y-key">from</span>:
+    - <span class="y-key">name</span>: <span class="y-str">trakt_list</span>
+      <span class="y-key">client_id</span>: <span class="y-str">YOUR_CLIENT_ID</span>
+      <span class="y-key">access_token</span>: <span class="y-str">YOUR_TOKEN</span>
+      <span class="y-key">type</span>: <span class="y-str">movies</span>
+      <span class="y-key">list</span>: <span class="y-str">watchlist</span>
+  <span class="y-key">via</span>:
+    - <span class="y-key">name</span>: <span class="y-str">jackett</span>
+      <span class="y-key">url</span>: <span class="y-str">"http://localhost:9117"</span>
+      <span class="y-key">api_key</span>: <span class="y-str">YOUR_JACKETT_KEY</span>
+      <span class="y-key">categories</span>: [<span class="y-str">"2000"</span>]
+  <span class="y-key">interval</span>: <span class="y-str">12h</span></code></pre>
+
+<!-- ─────────── jackett_input ─────────── -->
+<h2 id="jackett_input">jackett_input</h2>
+<p>Returns recent results from Jackett indexers without a search query — behaves like an RSS feed. Queries the configured categories and returns whatever the indexers consider recent.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>url</code></td><td>yes</td><td>—</td><td>Jackett base URL</td></tr>
+  <tr><td><code>api_key</code></td><td>yes</td><td>—</td><td>Jackett API key</td></tr>
+  <tr><td><code>indexers</code></td><td>no</td><td><code>["all"]</code></td><td>Indexer IDs to query</td></tr>
+  <tr><td><code>categories</code></td><td>no</td><td>—</td><td>Torznab category codes (e.g. <code>["5040","5045"]</code>)</td></tr>
+  <tr><td><code>limit</code></td><td>no</td><td>—</td><td>Max results across all indexers</td></tr>
+  <tr><td><code>timeout</code></td><td>no</td><td><code>60s</code></td><td>HTTP request timeout</td></tr>
+</table>
+
+<h4>Fields set</h4>
+<p><code>torrent_seeders</code>, <code>torrent_leechers</code>, <code>torrent_size</code>, <code>torrent_info_hash</code>, <code>jackett_category</code>, <code>jackett_indexer</code></p>
+
+<h4>Common Torznab categories</h4>
+<table>
+  <tr><th>Code</th><th>Category</th></tr>
+  <tr><td>2000</td><td>Movies</td></tr>
+  <tr><td>2010</td><td>Movies / HD</td></tr>
+  <tr><td>5000</td><td>TV</td></tr>
+  <tr><td>5030</td><td>TV / HD</td></tr>
+  <tr><td>5040</td><td>TV / SD</td></tr>
+  <tr><td>5045</td><td>TV / UHD</td></tr>
+</table>
+
+<hr>
+<!-- ═══════════════════════════════════════════════════════════ -->
+<h1>From Plugins</h1>
+<p>From plugins are <strong>sub-plugins</strong> — they cannot be used as top-level task plugins and will cause a validation error if you try. They are referenced inside <code>series.from</code>, <code>movies.from</code>, <code>discover.from</code>, or <code>discover.via</code>.</p>
+<pre><code><span class="y-key">series</span>:
+  <span class="y-key">from</span>:
+    - <span class="y-key">name</span>: <span class="y-str">tvdb_favorites</span>   <span class="y-comment"># from plugin with inline config</span>
+      <span class="y-key">api_key</span>: <span class="y-str">YOUR_KEY</span>
+      <span class="y-key">user_pin</span>: <span class="y-str">YOUR_PIN</span>
+    - <span class="y-str">trakt_list</span>            <span class="y-comment"># from plugin by name alone (uses defaults)</span></code></pre>
+
+<!-- ─────────── tvdb_favorites ─────────── -->
+<h2 id="tvdb_favorites">tvdb_favorites</h2>
+<p>Fetches a user's TheTVDB favorites list and emits one entry per show. Use inside <code>series.from</code> or <code>discover.from</code> to build a dynamic show list from your TVDB account.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Description</th></tr>
+  <tr><td><code>api_key</code></td><td>yes</td><td>TheTVDB v4 API key</td></tr>
+  <tr><td><code>user_pin</code></td><td>yes</td><td>User PIN from thetvdb.com account settings</td></tr>
+</table>
+
+<p>Get your API key and user PIN at <a href="https://thetvdb.com/api-information" target="_blank">thetvdb.com/api-information</a>.</p>
+
+<pre><code><span class="y-key">series</span>:
+  <span class="y-key">tracking</span>: <span class="y-str">backfill</span>
+  <span class="y-key">quality</span>: <span class="y-str">720p+ webrip+</span>
+  <span class="y-key">from</span>:
+    - <span class="y-key">name</span>: <span class="y-str">tvdb_favorites</span>
+      <span class="y-key">api_key</span>: <span class="y-str">YOUR_TVDB_API_KEY</span>
+      <span class="y-key">user_pin</span>: <span class="y-str">YOUR_TVDB_USER_PIN</span></code></pre>
+
+<!-- ─────────── trakt_list ─────────── -->
+<h2 id="trakt_list">trakt_list</h2>
+<p>Fetches movies or shows from a Trakt.tv list. Use inside <code>series.from</code>, <code>movies.from</code>, or <code>discover.from</code>.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>client_id</code></td><td>yes</td><td>—</td><td>Trakt API Client ID</td></tr>
+  <tr><td><code>type</code></td><td>yes</td><td>—</td><td><code>movies</code> or <code>shows</code></td></tr>
+  <tr><td><code>list</code></td><td>no</td><td><code>watchlist</code></td><td><code>watchlist</code>, <code>trending</code>, <code>popular</code>, <code>watched</code>, <code>ratings</code>, <code>collection</code></td></tr>
+  <tr><td><code>access_token</code></td><td>conditional</td><td>—</td><td>Required for <code>watchlist</code>, <code>ratings</code>, <code>collection</code></td></tr>
+  <tr><td><code>limit</code></td><td>no</td><td><code>100</code></td><td>Max results for public lists</td></tr>
+</table>
+
+<p>Get a free API key at <a href="https://trakt.tv/oauth/applications" target="_blank">trakt.tv/oauth/applications</a>.</p>
+
+<!-- ─────────── jackett (from) ─────────── -->
+<h2 id="jackett">jackett</h2>
+<p>Searches a Jackett indexer proxy via Torznab. Used inside <code>discover.via</code> as a search backend. Seeder counts, info hashes, and sizes come directly in the search response — no separate metainfo fetch needed.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>url</code></td><td>yes</td><td>—</td><td>Jackett base URL</td></tr>
+  <tr><td><code>api_key</code></td><td>yes</td><td>—</td><td>Jackett API key</td></tr>
+  <tr><td><code>indexers</code></td><td>no</td><td><code>["all"]</code></td><td>Indexer IDs</td></tr>
+  <tr><td><code>categories</code></td><td>no</td><td>—</td><td>Torznab category codes</td></tr>
+  <tr><td><code>limit</code></td><td>no</td><td>—</td><td>Max results</td></tr>
+  <tr><td><code>timeout</code></td><td>no</td><td><code>60s</code></td><td>HTTP timeout</td></tr>
+</table>
+
+<!-- ─────────── rss_search ─────────── -->
+<h2 id="rss_search">rss_search</h2>
+<p>Fetches entries from a parameterized RSS URL. Used inside <code>discover.via</code>. The URL template receives the search query.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Description</th></tr>
+  <tr><td><code>url_template</code></td><td>yes</td><td>Go template for the search URL</td></tr>
+</table>
+
+<p>Template variables: <code>{{.Query}}</code> (raw) and <code>{{.QueryEscaped}}</code> (URL-encoded). Brace syntax <code>{QueryEscaped}</code> also works.</p>
+
+<pre><code><span class="y-key">discover</span>:
+  <span class="y-key">titles</span>: [<span class="y-str">"Breaking Bad"</span>]
+  <span class="y-key">via</span>:
+    - <span class="y-key">name</span>: <span class="y-str">rss_search</span>
+      <span class="y-key">url_template</span>: <span class="y-str">"https://jackett.example.com/api?q={{.QueryEscaped}}&amp;apikey=KEY"</span>
+  <span class="y-key">interval</span>: <span class="y-str">6h</span></code></pre>
+
+<hr>
+<!-- ═══════════════════════════════════════════════════════════ -->
+<h1>Metainfo Plugins</h1>
+<p>Metainfo plugins run after input and before filter. They annotate entries with additional fields. Metainfo always runs before any filter plugin regardless of config order.</p>
+
+<!-- ─────────── metainfo_tvdb ─────────── -->
+<h2 id="metainfo_tvdb">metainfo_tvdb</h2>
+<p>Enriches series entries with TheTVDB metadata. Only processes entries whose title parses as a series episode. Results are cached in <code>pipeliner.db</code>.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>api_key</code></td><td>yes</td><td>—</td><td>TheTVDB v4 API key</td></tr>
+  <tr><td><code>cache_ttl</code></td><td>no</td><td><code>24h</code></td><td>How long to cache results</td></tr>
+</table>
+
+<p>Series-level fields set: <code>tvdb_id</code>, <code>tvdb_series_name</code>, <code>tvdb_series_year</code>, <code>tvdb_overview</code>, <code>tvdb_slug</code>, <code>tvdb_network</code>, <code>tvdb_language</code>, <code>tvdb_country</code>, <code>tvdb_genres</code>, <code>tvdb_poster</code>, <code>tvdb_first_air_date</code>, <code>tvdb_last_air_date</code>, <code>tvdb_next_air_date</code>, <code>tvdb_status</code>, <code>tvdb_content_rating</code>, <code>tvdb_trailers</code>, <code>tvdb_score</code>, <code>tvdb_aliases</code>, <code>tvdb_cast</code></p>
+<p>Episode-level fields (when S/E is parsed): <code>tvdb_episode_id</code>, <code>tvdb_episode_name</code>, <code>tvdb_air_date</code>, <code>tvdb_episode_overview</code>, <code>tvdb_episode_runtime</code>, <code>tvdb_episode_image</code></p>
+
+<!-- ─────────── metainfo_tmdb ─────────── -->
+<h2 id="metainfo_tmdb">metainfo_tmdb</h2>
+<p>Enriches movie entries with TMDb metadata. Only processes entries whose title parses as a movie (title + year). Results cached in <code>pipeliner.db</code>.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>api_key</code></td><td>yes</td><td>—</td><td>TMDb API v3 key</td></tr>
+  <tr><td><code>cache_ttl</code></td><td>no</td><td><code>24h</code></td><td>How long to cache results</td></tr>
+</table>
+
+<p>Fields set: <code>tmdb_id</code>, <code>tmdb_title</code>, <code>tmdb_original_title</code>, <code>tmdb_release_date</code>, <code>tmdb_overview</code>, <code>tmdb_popularity</code>, <code>tmdb_vote_average</code>, <code>tmdb_runtime</code>, <code>tmdb_tagline</code>, <code>tmdb_imdb_id</code>, <code>tmdb_genres</code></p>
+<p>Get a free key at <a href="https://www.themoviedb.org/settings/api" target="_blank">themoviedb.org/settings/api</a>.</p>
+
+<!-- ─────────── metainfo_trakt ─────────── -->
+<h2 id="metainfo_trakt">metainfo_trakt</h2>
+<p>Annotates entries with Trakt.tv metadata. Results cached in <code>pipeliner.db</code>.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>client_id</code></td><td>yes</td><td>—</td><td>Trakt API Client ID</td></tr>
+  <tr><td><code>type</code></td><td>yes</td><td>—</td><td><code>shows</code> or <code>movies</code></td></tr>
+  <tr><td><code>cache_ttl</code></td><td>no</td><td><code>24h</code></td><td>How long to cache results</td></tr>
+</table>
+
+<p>Fields set: <code>trakt_id</code>, <code>trakt_slug</code>, <code>trakt_imdb_id</code>, <code>trakt_tmdb_id</code>, <code>trakt_tvdb_id</code>, <code>trakt_title</code>, <code>trakt_year</code>, <code>trakt_overview</code>, <code>trakt_rating</code>, <code>trakt_votes</code>, <code>trakt_genres</code></p>
+
+<!-- ─────────── metainfo_quality ─────────── -->
+<h2 id="metainfo_quality">metainfo_quality</h2>
+<p>Parses video quality tags from the entry title. Takes no config.</p>
+<p>Fields set: <code>quality</code>, <code>resolution</code>, <code>source</code>, <code>codec</code>, <code>audio</code>, <code>color_range</code></p>
+<pre><code><span class="y-key">metainfo_quality</span>:    <span class="y-comment"># no config needed</span></code></pre>
+
+<!-- ─────────── metainfo_series ─────────── -->
+<h2 id="metainfo_series">metainfo_series</h2>
+<p>Parses series and episode information from the entry title. Takes no config. (The <code>series</code> filter also does this internally — use this standalone plugin when you need the fields without the series filter's show-list matching.)</p>
+<p>Fields set: <code>series_name</code>, <code>series_season</code>, <code>series_episode</code>, <code>series_episode_id</code>, <code>series_proper</code>, <code>series_repack</code>, <code>series_service</code></p>
+
+<!-- ─────────── metainfo_torrent ─────────── -->
+<h2 id="metainfo_torrent">metainfo_torrent</h2>
+<p>Reads metadata from a <code>.torrent</code> file. Reads from <code>location</code> field (filesystem plugin) or downloads the URL if it ends in <code>.torrent</code>. Takes no config.</p>
+<p>Fields set: <code>torrent_name</code>, <code>torrent_info_hash</code>, <code>torrent_size</code>, <code>torrent_file_count</code>, <code>torrent_announce</code>, <code>torrent_comment</code>, <code>torrent_private</code></p>
+
+<!-- ─────────── metainfo_magnet ─────────── -->
+<h2 id="metainfo_magnet">metainfo_magnet</h2>
+<p>Annotates magnet-link entries. URI-derived fields are set immediately; full metadata (name, size, file list) is resolved via DHT. All DHT lookups in a batch run in parallel sharing a single timeout window. Non-magnet entries are skipped.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>resolve_timeout</code></td><td>no</td><td><code>30s</code></td><td>Total DHT resolution timeout for the entire batch</td></tr>
+</table>
+
+<p>From URI: <code>torrent_info_hash</code>, <code>torrent_announce</code>, <code>torrent_announce_list</code>, <code>torrent_display_name</code><br>
+After DHT: <code>torrent_name</code>, <code>torrent_size</code>, <code>torrent_file_count</code>, <code>torrent_files</code></p>
+
+<hr>
+<!-- ═══════════════════════════════════════════════════════════ -->
+<h1>Filter Plugins</h1>
+<p>Filter plugins run serially within the filter phase (in YAML config order). Each entry is passed to every filter in sequence; the first filter that accepts or rejects it determines its state.</p>
+
+<!-- ─────────── series ─────────── -->
+<h2 id="series">series</h2>
+<p>Accepts episodes of configured TV shows. Parses the episode identifier from the title, matches series names with fuzzy matching, and enforces optional quality and ordering constraints. Multiple quality variants of the same episode are all accepted — the task engine's automatic deduplication picks the best copy. Download history is recorded in the Learn phase.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>shows</code></td><td>conditional</td><td>—</td><td>Static list of show names</td></tr>
+  <tr><td><code>from</code></td><td>conditional</td><td>—</td><td>From-plugin configs providing show names dynamically</td></tr>
+  <tr><td><code>ttl</code></td><td>no</td><td><code>1h</code></td><td>Cache TTL for dynamic show list</td></tr>
+  <tr><td><code>tracking</code></td><td>no</td><td><code>strict</code></td><td>Episode ordering mode: <code>strict</code>, <code>backfill</code>, or <code>all</code></td></tr>
+  <tr><td><code>quality</code></td><td>no</td><td>—</td><td>Minimum quality spec (e.g. <code>720p+ webrip+</code>)</td></tr>
+</table>
+
+<h4>Tracking modes</h4>
+<table>
+  <tr><th>Mode</th><th>Behaviour</th></tr>
+  <tr><td><code>strict</code></td><td>Accept only the next expected episode; reject gaps &gt;1 ahead of latest downloaded</td></tr>
+  <tr><td><code>backfill</code></td><td>Accept any episode not yet downloaded, including older ones</td></tr>
+  <tr><td><code>all</code></td><td>Accept every episode regardless of download history</td></tr>
+</table>
+
+<p>Fields set: <code>series_name</code>, <code>series_season</code>, <code>series_episode</code>, <code>series_episode_id</code></p>
+
+<pre><code><span class="y-key">series</span>:
+  <span class="y-key">tracking</span>: <span class="y-str">strict</span>
+  <span class="y-key">quality</span>: <span class="y-str">720p+ webrip+</span>
+  <span class="y-key">shows</span>:
+    - <span class="y-str">"Breaking Bad"</span>
+    - <span class="y-str">"Better Call Saul"</span></code></pre>
+
+<pre><code><span class="y-comment"># Dynamic list from TVDB favorites — backfill all episodes not yet downloaded</span>
+<span class="y-key">series</span>:
+  <span class="y-key">tracking</span>: <span class="y-str">backfill</span>
+  <span class="y-key">quality</span>: <span class="y-str">720p+ webrip+</span>
+  <span class="y-key">from</span>:
+    - <span class="y-key">name</span>: <span class="y-str">tvdb_favorites</span>
+      <span class="y-key">api_key</span>: <span class="y-str">YOUR_KEY</span>
+      <span class="y-key">user_pin</span>: <span class="y-str">YOUR_PIN</span></code></pre>
+
+<!-- ─────────── movies ─────────── -->
+<h2 id="movies">movies</h2>
+<p>Accepts movies from a configured title list. Same quality and deduplication behavior as <code>series</code>. Download history recorded in Learn phase.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>movies</code></td><td>conditional</td><td>—</td><td>Static list of movie titles</td></tr>
+  <tr><td><code>from</code></td><td>conditional</td><td>—</td><td>From-plugin configs providing titles dynamically</td></tr>
+  <tr><td><code>ttl</code></td><td>no</td><td><code>1h</code></td><td>Cache TTL for dynamic list</td></tr>
+  <tr><td><code>quality</code></td><td>no</td><td>—</td><td>Minimum quality floor</td></tr>
+</table>
+
+<p>Fields set: <code>movie_title</code>, <code>movie_year</code>, <code>movie_quality</code>, <code>movie_3d</code></p>
+
+<div class="note">Use <code>condition: reject: 'movie_3d == true'</code> to exclude 3D releases. Detected markers include: 3D, SBS, HSBS, HOU, BD3D, and variants.</div>
+
+<!-- ─────────── premiere ─────────── -->
+<h2 id="premiere">premiere</h2>
+<p>Accepts premiere episodes of previously unseen series. Once a premiere is downloaded, subsequent runs reject that series. Useful for discovering new shows; let <code>series</code> take over episode tracking after the first download.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>episode</code></td><td>no</td><td><code>1</code></td><td>Episode number to treat as premiere</td></tr>
+  <tr><td><code>season</code></td><td>no</td><td><code>1</code></td><td>Season number to match; <code>0</code> means any</td></tr>
+  <tr><td><code>quality</code></td><td>no</td><td>—</td><td>Quality spec the entry must satisfy</td></tr>
+</table>
+
+<pre><code><span class="y-key">premiere</span>:
+  <span class="y-key">quality</span>: <span class="y-str">720p+ webrip+</span></code></pre>
+
+<!-- ─────────── condition ─────────── -->
+<h2 id="condition">condition</h2>
+<p>Accepts or rejects entries using boolean expressions. See the <a href="#expressions">Expression Language</a> section for full syntax.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Description</th></tr>
+  <tr><td><code>accept</code></td><td>conditional</td><td>Accept when expression is true</td></tr>
+  <tr><td><code>reject</code></td><td>conditional</td><td>Reject when expression is true</td></tr>
+  <tr><td><code>rules</code></td><td>conditional</td><td>Ordered list of <code>{accept, reject}</code> objects (use when you need multiple conditions)</td></tr>
+</table>
+
+<pre><code><span class="y-key">condition</span>:
+  <span class="y-key">rules</span>:
+    - <span class="y-key">reject</span>: <span class="y-str">'tvdb_language != "" and tvdb_language != "English"'</span>
+    - <span class="y-key">reject</span>: <span class="y-str">'tvdb_genres contains "Documentary"'</span>
+    - <span class="y-key">reject</span>: <span class="y-str">'tvdb_genres contains "Reality"'</span>
+    - <span class="y-key">reject</span>: <span class="y-str">'tvdb_first_air_date != "" and tvdb_first_air_date &lt; daysago(365)'</span>
+    - <span class="y-key">accept</span>: <span class="y-str">'tmdb_vote_average &gt;= 7.0'</span></code></pre>
+
+<!-- ─────────── torrent_alive ─────────── -->
+<h2 id="torrent_alive">torrent_alive</h2>
+<p>Rejects torrents with fewer than a minimum number of seeds. The <code>torrent_seeders</code> field is set by the RSS input, Jackett, and <code>jackett_input</code>. Entries without seed data are left undecided.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>min_seeds</code></td><td>no</td><td><code>1</code></td><td>Minimum seed count required</td></tr>
+</table>
+
+<pre><code><span class="y-key">torrent_alive</span>:
+  <span class="y-key">min_seeds</span>: <span class="y-num">3</span></code></pre>
+
+<!-- ─────────── require ─────────── -->
+<h2 id="require">require</h2>
+<p>Rejects entries missing one or more required fields. A field is "missing" if its value is nil, empty string, zero, false, or empty slice.</p>
+
+<pre><code><span class="y-key">require</span>:
+  <span class="y-key">fields</span>:
+    - <span class="y-str">tvdb_id</span>
+    - <span class="y-str">series_name</span></code></pre>
+
+<!-- ─────────── seen ─────────── -->
+<h2 id="seen">seen</h2>
+<p>Rejects entries already processed in a previous run, using a fingerprint of configured fields stored in <code>pipeliner.db</code>. Fingerprints are written in the Learn phase.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>fields</code></td><td>no</td><td><code>["url"]</code></td><td>Fields to include in the fingerprint</td></tr>
+  <tr><td><code>local</code></td><td>no</td><td>false</td><td>Scope seen store to this task name only</td></tr>
+</table>
+
+<pre><code><span class="y-key">seen</span>:             <span class="y-comment"># default: fingerprint by URL</span></code></pre>
+
+<!-- ─────────── tvdb filter ─────────── -->
+<h2 id="tvdb-filter">tvdb</h2>
+<p>Accepts series entries whose parsed show name fuzzy-matches a show in the user's TheTVDB favorites. Fetches and caches the favorites list.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>api_key</code></td><td>yes</td><td>—</td><td>TheTVDB API key</td></tr>
+  <tr><td><code>user_pin</code></td><td>yes</td><td>—</td><td>User PIN from thetvdb.com</td></tr>
+  <tr><td><code>ttl</code></td><td>no</td><td><code>1h</code></td><td>Favorites list cache TTL</td></tr>
+</table>
+
+<!-- ─────────── trakt filter ─────────── -->
+<h2 id="trakt-filter">trakt</h2>
+<p>Accepts entries whose parsed title matches something on a Trakt.tv list.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>client_id</code></td><td>yes</td><td>—</td><td>Trakt API Client ID</td></tr>
+  <tr><td><code>type</code></td><td>yes</td><td>—</td><td><code>shows</code> or <code>movies</code></td></tr>
+  <tr><td><code>list</code></td><td>no</td><td><code>watchlist</code></td><td>List name</td></tr>
+  <tr><td><code>access_token</code></td><td>conditional</td><td>—</td><td>Required for private lists</td></tr>
+  <tr><td><code>limit</code></td><td>no</td><td>100</td><td>Max results for public lists</td></tr>
+  <tr><td><code>min_rating</code></td><td>no</td><td>—</td><td>Minimum rating (1–10, <code>ratings</code> list only)</td></tr>
+  <tr><td><code>ttl</code></td><td>no</td><td><code>1h</code></td><td>List cache TTL</td></tr>
+</table>
+
+<!-- ─────────── exists ─────────── -->
+<h2 id="exists">exists</h2>
+<p>Rejects entries whose target file already exists on disk. Compares normalized filenames (case-insensitive).</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>path</code></td><td>yes</td><td>—</td><td>Directory to check</td></tr>
+  <tr><td><code>recursive</code></td><td>no</td><td>false</td><td>Check subdirectories recursively</td></tr>
+</table>
+
+<!-- ─────────── list_match ─────────── -->
+<h2 id="list_match">list_match</h2>
+<p>Accepts entries whose title is in a named persistent list. The list is populated by the <code>list_add</code> output plugin. Pairs with <code>list_add</code> for cross-task coordination.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>list</code></td><td>yes</td><td>—</td><td>Name of the list</td></tr>
+  <tr><td><code>remove_on_match</code></td><td>no</td><td>false</td><td>Remove entry from list after matching (one-shot queues)</td></tr>
+</table>
+
+<!-- ─────────── regexp ─────────── -->
+<h2 id="regexp">regexp</h2>
+<p>Accepts or rejects entries by regular expression. Rejection patterns are checked first.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>accept</code></td><td>conditional</td><td>—</td><td>Pattern(s); entry accepted if any matches</td></tr>
+  <tr><td><code>reject</code></td><td>conditional</td><td>—</td><td>Pattern(s); entry rejected if any matches</td></tr>
+  <tr><td><code>from</code></td><td>no</td><td><code>["title"]</code></td><td>Fields to match against</td></tr>
+</table>
+
+<pre><code><span class="y-key">regexp</span>:
+  <span class="y-key">accept</span>:
+    - <span class="y-str">"(?i)golang"</span>
+    - <span class="y-str">"(?i)kubernetes"</span>
+  <span class="y-key">reject</span>: <span class="y-str">"(?i)sponsored"</span></code></pre>
+
+<!-- ─────────── quality filter ─────────── -->
+<h2 id="quality-filter">quality</h2>
+<p>Rejects entries whose parsed quality falls outside a configured range. See <a href="#quality-spec">Quality Specs</a>.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Description</th></tr>
+  <tr><td><code>min</code></td><td>conditional</td><td>Minimum quality spec</td></tr>
+  <tr><td><code>max</code></td><td>conditional</td><td>Maximum quality spec</td></tr>
+</table>
+
+<pre><code><span class="y-key">quality</span>:
+  <span class="y-key">min</span>: <span class="y-str">720p webrip</span>
+  <span class="y-key">max</span>: <span class="y-str">1080p</span></code></pre>
+
+<!-- ─────────── upgrade ─────────── -->
+<h2 id="upgrade">upgrade</h2>
+<p>Accepts entries only when they offer a quality improvement over the previously downloaded version. Stops accepting once the target quality is reached.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>target</code></td><td>yes</td><td>—</td><td>Quality ceiling (e.g. <code>1080p</code>)</td></tr>
+  <tr><td><code>on_lower</code></td><td>no</td><td><code>reject</code></td><td>Action when quality is not better: <code>reject</code> or <code>accept</code></td></tr>
+</table>
+
+<!-- ─────────── content ─────────── -->
+<h2 id="content">content</h2>
+<p>Rejects or requires entries based on torrent file contents. Requires <code>metainfo_torrent</code> or <code>metainfo_magnet</code> to populate <code>torrent_files</code> first. Entries without <code>torrent_files</code> are left undecided.</p>
+
+<pre><code><span class="y-key">content</span>:
+  <span class="y-key">reject</span>:
+    - <span class="y-str">"*.exe"</span>
+    - <span class="y-str">"*.bat"</span>
+  <span class="y-key">require</span>:
+    - <span class="y-str">"*.mkv"</span></code></pre>
+
+<!-- ─────────── accept_all ─────────── -->
+<h2 id="accept_all">accept_all</h2>
+<p>Accepts every entry that is not already accepted or rejected. Useful before <code>list_add</code> when the task's only purpose is list population.</p>
+
+<pre><code><span class="y-key">accept_all</span>:    <span class="y-comment"># no config needed</span></code></pre>
+
+<hr>
+<!-- ═══════════════════════════════════════════════════════════ -->
+<h1>Modify Plugins</h1>
+
+<!-- ─────────── pathfmt ─────────── -->
+<h2 id="pathfmt">pathfmt</h2>
+<p>Renders a template string into the <code>download_path</code> entry field. Output plugins that accept a <code>path</code> config use this field by default.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Description</th></tr>
+  <tr><td><code>path</code></td><td>yes</td><td>Template string (supports <code>{field}</code>, <code>{field:format}</code>, and <code>{{.field}}</code>)</td></tr>
+</table>
+
+<pre><code><span class="y-key">pathfmt</span>:
+  <span class="y-key">path</span>: <span class="y-str">"/media/tv/{series_name}/Season {series_season:02d}"</span></code></pre>
+
+<!-- ─────────── pathscrub ─────────── -->
+<h2 id="pathscrub">pathscrub</h2>
+<p>Sanitizes path fields to remove characters invalid on the target filesystem.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>target</code></td><td>no</td><td><code>generic</code></td><td><code>windows</code>, <code>linux</code>, or <code>generic</code></td></tr>
+  <tr><td><code>fields</code></td><td>no</td><td><code>["download_path"]</code></td><td>Fields to sanitize</td></tr>
+</table>
+
+<pre><code><span class="y-key">pathscrub</span>:
+  <span class="y-key">fields</span>: [<span class="y-str">"series_name"</span>]</code></pre>
+
+<!-- ─────────── set ─────────── -->
+<h2 id="set">set</h2>
+<p>Unconditionally sets one or more entry fields. Each config key becomes a field name; its value is a Go template rendered against the entry.</p>
+
+<pre><code><span class="y-key">set</span>:
+  <span class="y-key">category</span>: <span class="y-str">tv</span>
+  <span class="y-key">label</span>: <span class="y-str">"{{.series_name}}"</span></code></pre>
+
+<hr>
+<!-- ═══════════════════════════════════════════════════════════ -->
+<h1>Output Plugins</h1>
+<p>Output plugins act on accepted entries after modify. All outputs in a task run concurrently.</p>
+
+<div class="note"><strong>Error handling:</strong> Downloader plugins (<code>deluge</code>, <code>qbittorrent</code>, <code>transmission</code>, <code>download</code>) mark an entry as <strong>failed</strong> when they cannot queue or fetch it. Failed entries are skipped by the Learn phase and will be retried on the next run. Notification plugins (<code>email</code>, <code>exec</code>, <code>print</code>, <code>notify</code>) do not mark entries failed — a notification failure does not cause a retry.</div>
+
+<!-- ─────────── deluge ─────────── -->
+<h2 id="deluge">deluge</h2>
+<p>Adds accepted torrents to a Deluge client via the Web UI JSON-RPC API.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>host</code></td><td>no</td><td><code>localhost</code></td><td>Deluge Web UI host</td></tr>
+  <tr><td><code>port</code></td><td>no</td><td><code>8112</code></td><td>Web UI port</td></tr>
+  <tr><td><code>password</code></td><td>yes</td><td>—</td><td>Web UI password</td></tr>
+  <tr><td><code>tls</code></td><td>no</td><td>false</td><td>Use HTTPS</td></tr>
+  <tr><td><code>path</code></td><td>no</td><td><code>{{.download_path}}</code></td><td>Download directory template</td></tr>
+  <tr><td><code>move_completed_path</code></td><td>no</td><td>—</td><td>Move completed downloads here</td></tr>
+</table>
+
+<pre><code><span class="y-key">deluge</span>:
+  <span class="y-key">host</span>: <span class="y-str">localhost</span>
+  <span class="y-key">password</span>: <span class="y-str">changeme</span>
+  <span class="y-key">path</span>: <span class="y-str">""</span>                    <span class="y-comment"># empty = Deluge's default download dir</span>
+  <span class="y-key">move_completed_path</span>: <span class="y-str">"{download_path}"</span></code></pre>
+
+<!-- ─────────── qbittorrent ─────────── -->
+<h2 id="qbittorrent">qbittorrent</h2>
+<p>Adds accepted torrents to a qBittorrent client via Web API v2.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>host</code></td><td>no</td><td><code>localhost</code></td><td>qBittorrent host</td></tr>
+  <tr><td><code>port</code></td><td>no</td><td><code>8080</code></td><td>Web UI port</td></tr>
+  <tr><td><code>tls</code></td><td>no</td><td>false</td><td>Use HTTPS</td></tr>
+  <tr><td><code>username</code></td><td>no</td><td>—</td><td>Web UI username</td></tr>
+  <tr><td><code>password</code></td><td>no</td><td>—</td><td>Web UI password</td></tr>
+  <tr><td><code>savepath</code></td><td>no</td><td><code>{{.download_path}}</code></td><td>Download directory template</td></tr>
+  <tr><td><code>category</code></td><td>no</td><td>—</td><td>Torrent category</td></tr>
+  <tr><td><code>tags</code></td><td>no</td><td>—</td><td>Comma-separated tags</td></tr>
+</table>
+
+<!-- ─────────── transmission ─────────── -->
+<h2 id="transmission">transmission</h2>
+<p>Adds accepted torrents to a Transmission client via JSON-RPC. Session-ID handshake is handled automatically.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>host</code></td><td>no</td><td><code>localhost</code></td><td>Transmission host</td></tr>
+  <tr><td><code>port</code></td><td>no</td><td><code>9091</code></td><td>RPC port</td></tr>
+  <tr><td><code>rpc_path</code></td><td>no</td><td><code>/transmission/rpc</code></td><td>RPC endpoint path</td></tr>
+  <tr><td><code>username</code></td><td>no</td><td>—</td><td>HTTP basic auth username</td></tr>
+  <tr><td><code>password</code></td><td>no</td><td>—</td><td>HTTP basic auth password</td></tr>
+  <tr><td><code>path</code></td><td>no</td><td><code>{{.download_path}}</code></td><td>Download directory template</td></tr>
+  <tr><td><code>paused</code></td><td>no</td><td>false</td><td>Add torrent in paused state</td></tr>
+</table>
+
+<!-- ─────────── download ─────────── -->
+<h2 id="download">download</h2>
+<p>Downloads each accepted entry's URL to a local file. Uses an atomic write (temp file + rename) to avoid partial files. Sets <code>download_path</code> on the entry.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>path</code></td><td>yes</td><td>—</td><td>Destination directory</td></tr>
+  <tr><td><code>filename</code></td><td>no</td><td><code>{{.url_basename}}</code></td><td>Filename template (also has <code>url_basename</code> and <code>timestamp</code>)</td></tr>
+</table>
+
+<!-- ─────────── email output ─────────── -->
+<h2 id="email-output">email</h2>
+<p>Sends a single email for each batch of accepted entries via SMTP. Subject and body are Go templates rendered against the entry batch.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>smtp_host</code></td><td>yes</td><td>—</td><td>SMTP server hostname</td></tr>
+  <tr><td><code>smtp_port</code></td><td>no</td><td><code>25</code></td><td>SMTP port</td></tr>
+  <tr><td><code>from</code></td><td>yes</td><td>—</td><td>Sender address</td></tr>
+  <tr><td><code>to</code></td><td>yes</td><td>—</td><td>Recipient address(es)</td></tr>
+  <tr><td><code>username</code></td><td>no</td><td>—</td><td>SMTP auth username</td></tr>
+  <tr><td><code>password</code></td><td>no</td><td>—</td><td>SMTP auth password</td></tr>
+  <tr><td><code>html</code></td><td>no</td><td>false</td><td>Send as HTML email</td></tr>
+  <tr><td><code>subject</code></td><td>no</td><td><code>pipeliner: {{len .Entries}} new item(s)</code></td><td>Subject template</td></tr>
+  <tr><td><code>body_template</code></td><td>no</td><td>plain list</td><td>Body template; context has <code>.Entries</code></td></tr>
+</table>
+
+<pre><code><span class="y-key">email</span>:
+  <span class="y-key">smtp_host</span>: <span class="y-str">smtp.gmail.com</span>
+  <span class="y-key">smtp_port</span>: <span class="y-num">587</span>
+  <span class="y-key">username</span>: <span class="y-str">me@gmail.com</span>
+  <span class="y-key">password</span>: <span class="y-str">app-password</span>
+  <span class="y-key">from</span>: <span class="y-str">me@gmail.com</span>
+  <span class="y-key">to</span>: <span class="y-str">me@gmail.com</span>
+  <span class="y-key">html</span>: <span class="y-bool">true</span>
+  <span class="y-key">subject</span>: <span class="y-str">"New premieres: {{len .Entries}} show(s)"</span>
+  <span class="y-key">body_template</span>: |
+    {{range .Entries}}
+    &lt;h2&gt;{{index .Fields "tvdb_series_name"}}&lt;/h2&gt;
+    &lt;p&gt;{{index .Fields "tvdb_overview"}}&lt;/p&gt;
+    {{end}}</code></pre>
+
+<!-- ─────────── exec ─────────── -->
+<h2 id="exec">exec</h2>
+<p>Runs a shell command for each accepted entry. Command is a Go template rendered against the entry.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Description</th></tr>
+  <tr><td><code>command</code></td><td>yes</td><td>Shell command template (run via <code>/bin/sh -c</code>)</td></tr>
+</table>
+
+<pre><code><span class="y-key">exec</span>:
+  <span class="y-key">command</span>: <span class="y-str">'notify-send "New download" "{{.Title}}"'</span></code></pre>
+
+<!-- ─────────── print ─────────── -->
+<h2 id="print">print</h2>
+<p>Prints each accepted entry to stdout. Useful for debugging or pipeline inspection.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>format</code></td><td>no</td><td><code>{{.Title}}\t{{.URL}}</code></td><td>Output template</td></tr>
+</table>
+
+<!-- ─────────── notify output ─────────── -->
+<h2 id="notify-output">notify</h2>
+<p>Sends a batch-level notification via a configured notifier. One notification per run (not per entry), unlike the <code>email</code> output plugin.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>via</code></td><td>yes</td><td>—</td><td>Notifier type: <code>webhook</code> or <code>email</code></td></tr>
+  <tr><td><code>title</code></td><td>no</td><td>auto</td><td>Notification title template</td></tr>
+  <tr><td><code>body</code></td><td>no</td><td>auto</td><td>Notification body template</td></tr>
+  <tr><td><code>on</code></td><td>no</td><td>—</td><td>Set to <code>all</code> to notify even when no entries accepted</td></tr>
+</table>
+
+<p>Additional keys are forwarded to the chosen notifier (see <a href="#notify-email">email notifier</a> and <a href="#webhook">webhook</a>).</p>
+
+<!-- ─────────── decompress ─────────── -->
+<h2 id="decompress">decompress</h2>
+<p>Extracts RAR, ZIP, and 7z archives. Requires <code>unrar</code>, <code>7z</code>, or <code>unar</code> on <code>$PATH</code>.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>to</code></td><td>yes</td><td>—</td><td>Destination directory</td></tr>
+  <tr><td><code>keep_dirs</code></td><td>no</td><td>true</td><td>Preserve internal directory structure</td></tr>
+  <tr><td><code>delete_archive</code></td><td>no</td><td>false</td><td>Remove archive after extraction</td></tr>
+  <tr><td><code>tool</code></td><td>no</td><td>auto</td><td>Force tool: <code>unrar</code>, <code>7z</code>, or <code>unar</code></td></tr>
+</table>
+
+<!-- ─────────── list_add ─────────── -->
+<h2 id="list_add">list_add</h2>
+<p>Stores accepted entries in a named persistent list for use by <code>list_match</code> in the same or another task.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Description</th></tr>
+  <tr><td><code>list</code></td><td>yes</td><td>List name</td></tr>
+</table>
+
+<hr>
+<!-- ═══════════════════════════════════════════════════════════ -->
+<h1>Notify Plugins</h1>
+<p>Notify plugins are used by the <code>notify</code> output plugin via the <code>via:</code> key.</p>
+
+<!-- ─────────── notify email ─────────── -->
+<h2 id="notify-email">email (notifier)</h2>
+<p>Sends a single summary email via SMTP.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>smtp_host</code></td><td>yes</td><td>—</td><td>SMTP server hostname</td></tr>
+  <tr><td><code>port</code></td><td>no</td><td><code>25</code></td><td>SMTP port</td></tr>
+  <tr><td><code>from</code></td><td>yes</td><td>—</td><td>Sender address</td></tr>
+  <tr><td><code>to</code></td><td>yes</td><td>—</td><td>Recipient address(es)</td></tr>
+  <tr><td><code>username</code></td><td>no</td><td>—</td><td>SMTP auth username</td></tr>
+  <tr><td><code>password</code></td><td>no</td><td>—</td><td>SMTP auth password</td></tr>
+</table>
+
+<!-- ─────────── pushover ─────────── -->
+<h2 id="pushover">pushover</h2>
+<p>Sends a notification via the <a href="https://pushover.net/" target="_blank">Pushover</a> API.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Description</th></tr>
+  <tr><td><code>user</code></td><td>yes</td><td>Pushover User Key</td></tr>
+  <tr><td><code>token</code></td><td>yes</td><td>Pushover API Token</td></tr>
+  <tr><td><code>device</code></td><td>no</td><td>Target device name</td></tr>
+</table>
+
+<!-- ─────────── webhook ─────────── -->
+<h2 id="webhook">webhook</h2>
+<p>POSTs a JSON payload to an HTTP endpoint.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Description</th></tr>
+  <tr><td><code>url</code></td><td>yes</td><td>Webhook endpoint URL</td></tr>
+  <tr><td><code>headers</code></td><td>no</td><td>Additional HTTP headers (map)</td></tr>
+</table>
+
+<p>Payload: <code>{"title": "...", "body": "...", "entries": [{"title": "...", "url": "..."}]}</code></p>
+
+<hr>
+<!-- ═══════════════════════════════════════════════════════════ -->
+<h1>Operations</h1>
+
+<!-- ─────────── CLI ─────────── -->
+<h2 id="cli">CLI Reference</h2>
+
+<h3>pipeliner run</h3>
+<p>Executes tasks once and exits.</p>
+<pre><code>pipeliner run [--config path] [--log-level level] [--log-plugin name] [--dry-run] [task ...]</code></pre>
+<table>
+  <tr><th>Flag</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>--config</code></td><td><code>config.yml</code></td><td>Path to config file</td></tr>
+  <tr><td><code>--log-level</code></td><td><code>info</code></td><td><code>debug</code>, <code>info</code>, <code>warn</code>, <code>error</code></td></tr>
+  <tr><td><code>--log-plugin</code></td><td>—</td><td>Show log output from only this plugin (task-level logs always shown)</td></tr>
+  <tr><td><code>--dry-run</code></td><td>false</td><td>Skip output and learn phases (idempotent)</td></tr>
+  <tr><td><code>task ...</code></td><td>all</td><td>Optional list of task names to run</td></tr>
+</table>
+
+<h3>pipeliner daemon</h3>
+<p>Runs tasks on their configured schedules. Starts the web UI if <code>--web</code> is specified.</p>
+<pre><code>pipeliner daemon [--config path] [--web addr] [--web-user u] [--web-password p]
+                 [--log-level level] [--log-plugin name]
+                 [--tls-cert path] [--tls-key path] [--tls-self-signed]</code></pre>
+<table>
+  <tr><th>Flag</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>--config</code></td><td><code>config.yml</code></td><td>Path to config file</td></tr>
+  <tr><td><code>--web</code></td><td>—</td><td>Web UI listen address (e.g. <code>:8080</code>); empty disables</td></tr>
+  <tr><td><code>--web-user</code></td><td>—</td><td>Web UI username (required with <code>--web</code>)</td></tr>
+  <tr><td><code>--web-password</code></td><td>—</td><td>Web UI password (required with <code>--web</code>)</td></tr>
+  <tr><td><code>--tls-cert</code></td><td>—</td><td>Path to TLS certificate file</td></tr>
+  <tr><td><code>--tls-key</code></td><td>—</td><td>Path to TLS private key file</td></tr>
+  <tr><td><code>--tls-self-signed</code></td><td>false</td><td>Generate a self-signed certificate at startup</td></tr>
+  <tr><td><code>--log-level</code></td><td><code>info</code></td><td>Log verbosity</td></tr>
+  <tr><td><code>--log-plugin</code></td><td>—</td><td>Filter log output to one plugin</td></tr>
+</table>
+
+<h3>pipeliner check</h3>
+<p>Validates the config file without running any tasks. Reports unknown plugins, PhaseFrom plugins used at top level, and per-plugin config errors.</p>
+<pre><code>pipeliner check [--config path]</code></pre>
+
+<h3>pipeliner version</h3>
+<p>Prints the version string and exits.</p>
+
+<!-- ─────────── web ui ─────────── -->
+<h2 id="webui">Web UI</h2>
+
+<p>Start the web UI with <code>pipeliner daemon --web :8080 --web-user admin --web-password secret</code>. Navigate to <code>http://localhost:8080</code>.</p>
+
+<h3>Dashboard tab</h3>
+<ul>
+  <li><strong>Task cards</strong> — each card shows the next scheduled run datetime (hover for the raw cron/interval), the last run time, accepted/rejected/failed counts, and a <em>Run now</em> button.</li>
+  <li><strong>Run all</strong> — triggers all tasks immediately.</li>
+  <li><strong>Reload config</strong> — reloads <code>config.yml</code> from disk without restarting the process. Queued for after running tasks finish if any are active.</li>
+  <li><strong>Live Log</strong> — SSE-streamed log with a filter box. Reconnects automatically; replays the last 10,000 lines for new connections.</li>
+</ul>
+
+<h3>Edit Config tab</h3>
+<p>A live YAML editor with syntax highlighting. Use <strong>Validate</strong> to check config without saving, or <strong>Save &amp; Reload</strong> to write and apply immediately (or queue a reload if tasks are running). Tab key inserts two spaces.</p>
+
+<h3>HTTPS</h3>
+<p>Pass <code>--tls-cert</code> and <code>--tls-key</code> for a real certificate, or <code>--tls-self-signed</code> to generate one automatically. With TLS the <code>Secure</code> cookie flag is set automatically.</p>
+
+<!-- ─────────── docker ─────────── -->
+<h2 id="docker">Docker</h2>
+
+<p>Multi-platform images are published to the GitHub Container Registry on every release tag.</p>
+
+<pre><code>docker pull ghcr.io/brunoga/pipeliner:latest</code></pre>
+
+<h3>docker-compose.yml</h3>
+<pre><code><span class="y-key">services</span>:
+  <span class="y-key">pipeliner</span>:
+    <span class="y-key">image</span>: <span class="y-str">ghcr.io/brunoga/pipeliner:latest</span>
+    <span class="y-key">ports</span>:
+      - <span class="y-str">"8080:8080"</span>
+    <span class="y-key">volumes</span>:
+      - <span class="y-str">pipeliner-data:/config</span>
+    <span class="y-key">environment</span>:
+      <span class="y-key">PIPELINER_WEB_USER</span>: <span class="y-str">admin</span>
+      <span class="y-key">PIPELINER_WEB_PASSWORD</span>: <span class="y-str">changeme</span>
+      <span class="y-key">PIPELINER_LOG_LEVEL</span>: <span class="y-str">info</span>
+    <span class="y-key">restart</span>: <span class="y-str">unless-stopped</span>
+
+<span class="y-key">volumes</span>:
+  <span class="y-key">pipeliner-data</span>:</code></pre>
+
+<h3>Environment variables</h3>
+<table>
+  <tr><th>Variable</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>PIPELINER_WEB_USER</code></td><td>—</td><td>Web UI username <strong>(required)</strong></td></tr>
+  <tr><td><code>PIPELINER_WEB_PASSWORD</code></td><td>—</td><td>Web UI password <strong>(required)</strong></td></tr>
+  <tr><td><code>PIPELINER_WEB_ADDR</code></td><td><code>:8080</code></td><td>Listen address</td></tr>
+  <tr><td><code>PIPELINER_LOG_LEVEL</code></td><td><code>info</code></td><td>Log verbosity</td></tr>
+  <tr><td><code>PIPELINER_CONFIG</code></td><td><code>/config/config.yml</code></td><td>Config file path</td></tr>
+</table>
+
+<p>The <code>/config</code> volume holds <code>config.yml</code> and <code>pipeliner.db</code>. An empty <code>config.yml</code> is created automatically on first run if the file does not exist.</p>
+
+<h3>Updating to a new version</h3>
+<pre><code>docker compose pull pipeliner
+docker compose up -d --no-build pipeliner</code></pre>
+
+<p>Or with make: <code>make docker-up</code> (uses the same git-derived version as <code>make build</code>).</p>
+
+<!-- ─────────── dry-run ─────────── -->
+<h2 id="dry-run">Dry-Run Mode</h2>
+
+<p>Pass <code>--dry-run</code> to <code>pipeliner run</code> to execute the full pipeline (input → metainfo → filter → modify) but skip the output and learn phases. The run is <strong>fully idempotent</strong> — no torrents are queued, no emails sent, no state written to <code>pipeliner.db</code>. You can run it repeatedly to inspect what would be accepted without side effects.</p>
+
+<pre><code>pipeliner run --config config.yml --dry-run --log-level debug</code></pre>
+
+<!-- ─────────── troubleshooting ─────────── -->
+<h2 id="troubleshooting">Troubleshooting</h2>
+
+<h3>No entries accepted</h3>
+<ul>
+  <li>Run with <code>--log-level debug</code> to see why each entry is rejected. The reject reason is logged for every rejected entry.</li>
+  <li>Add <code>print:</code> before output plugins to confirm entries reach the output phase.</li>
+  <li>Check <code>--dry-run</code> output — if entries are accepted in dry-run but not live, the output plugin may be failing.</li>
+</ul>
+
+<h3>TVDB not finding a series</h3>
+<ul>
+  <li>The series name parser is strict. Add <code>--log-level debug --log-plugin metainfo_tvdb</code> to see what name it searches for.</li>
+  <li>The TVDB search uses the parsed series name — if the release title uses an unusual name variant, TVDB may return the wrong result or nothing.</li>
+  <li>Check that your API key and user PIN are correct at <a href="https://thetvdb.com/api-information" target="_blank">thetvdb.com/api-information</a>.</li>
+</ul>
+
+<h3>Deluge "Not authenticated" errors</h3>
+<p>This was a bug where the Deluge session cookie from login was not preserved. It is fixed in v0.1.3+. Ensure you are running a current version.</p>
+
+<h3>torrent_alive is slow</h3>
+<p>When entries lack a <code>torrent_seeders</code> field, <code>torrent_alive</code> must resolve the info hash and scrape trackers. Use inputs that provide seed counts (Jackett, <code>jackett_input</code>, nyaa RSS) to avoid scraping. Set <code>scrape: false</code> to disable tracker scraping entirely (entries without seed data will be left undecided).</p>
+
+<h3>Config validation errors from templates</h3>
+<p><code>pipeliner check</code> validates each plugin against the fully merged config (template + task), so required fields supplied by a template are correctly recognized. If you see "required field missing" errors for fields you expect to come from a template, ensure the template name is spelled correctly and the plugin key matches.</p>
+
+<h3>Schedule not running</h3>
+<p>Tasks without a <code>schedules:</code> entry are not run automatically by the daemon. Add a schedule or trigger manually with <code>pipeliner run task-name</code> or the web UI's <em>Run now</em> button.</p>
+
+<h3>PhaseFrom plugin used as top-level input</h3>
+<p>If you see <em>"plugin X is a from plugin; use it via series.from, movies.from, or discover.from instead"</em>, move the plugin inside a <code>from:</code> list with inline config:</p>
+<pre><code><span class="y-comment"># Wrong — top-level task plugin:</span>
+<span class="y-key">tvdb_favorites</span>:
+  <span class="y-key">api_key</span>: <span class="y-str">YOUR_KEY</span>
+
+<span class="y-comment"># Correct — inside series.from:</span>
+<span class="y-key">series</span>:
+  <span class="y-key">from</span>:
+    - <span class="y-key">name</span>: <span class="y-str">tvdb_favorites</span>
+      <span class="y-key">api_key</span>: <span class="y-str">YOUR_KEY</span>
+      <span class="y-key">user_pin</span>: <span class="y-str">YOUR_PIN</span></code></pre>
+
+</main>
+
+<script>
+// Highlight active TOC link on scroll
+const headings = document.querySelectorAll('h1[id], h2[id]');
+const links = document.querySelectorAll('#sidebar nav a');
+const observer = new IntersectionObserver(entries => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      links.forEach(l => l.classList.remove('active'));
+      const active = document.querySelector('#sidebar nav a[href="#' + e.target.id + '"]');
+      if (active) active.classList.add('active');
+    }
+  });
+}, {rootMargin: '-10% 0px -80% 0px'});
+headings.forEach(h => observer.observe(h));
+</script>
+</body>
+</html>
