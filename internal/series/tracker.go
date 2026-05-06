@@ -50,6 +50,37 @@ func (t *Tracker) Mark(r Record) error {
 	return t.bucket.Put(recordKey(r.SeriesName, r.EpisodeID), r)
 }
 
+// Earliest returns the episode with the lexicographically smallest EpisodeID
+// for the given series. Because episode IDs are zero-padded (S01E01, 2023-11-15,
+// EP001), lexicographic order matches episode order. This is used by the
+// "follow" tracking mode to establish a tracking-start anchor: episodes older
+// than the earliest downloaded are rejected in future runs.
+func (t *Tracker) Earliest(seriesName string) (*Record, bool) {
+	all, err := t.bucket.All()
+	if err != nil {
+		return nil, false
+	}
+	prefix := seriesName + "|"
+	var earliest *Record
+	for k, raw := range all {
+		if !hasPrefix(k, prefix) {
+			continue
+		}
+		var rec Record
+		if err := json.Unmarshal(raw, &rec); err != nil {
+			continue
+		}
+		if rec.SeriesName != seriesName {
+			continue
+		}
+		if earliest == nil || rec.EpisodeID < earliest.EpisodeID {
+			r := rec
+			earliest = &r
+		}
+	}
+	return earliest, earliest != nil
+}
+
 // Latest returns the most recently downloaded episode for the given series,
 // determined by DownloadedAt timestamp. Uses All() to fetch all records in
 // a single query rather than Keys() + N×Get().

@@ -774,16 +774,16 @@ After DHT: <code>torrent_name</code>, <code>torrent_size</code>, <code>torrent_f
   <tr><td><code>shows</code></td><td>conditional</td><td>—</td><td>Static list of show names</td></tr>
   <tr><td><code>from</code></td><td>conditional</td><td>—</td><td>From-plugin configs providing show names dynamically</td></tr>
   <tr><td><code>ttl</code></td><td>no</td><td><code>1h</code></td><td>Cache TTL for dynamic show list</td></tr>
-  <tr><td><code>tracking</code></td><td>no</td><td><code>strict</code></td><td>Episode ordering mode: <code>strict</code>, <code>backfill</code>, or <code>all</code></td></tr>
+  <tr><td><code>tracking</code></td><td>no</td><td><code>strict</code></td><td>Episode ordering mode: <code>strict</code>, <code>backfill</code>, or <code>follow</code></td></tr>
   <tr><td><code>quality</code></td><td>no</td><td>—</td><td>Minimum quality spec (e.g. <code>720p+ webrip+</code>)</td></tr>
 </table>
 
 <h4>Tracking modes</h4>
 <table>
   <tr><th>Mode</th><th>Behaviour</th></tr>
-  <tr><td><code>strict</code></td><td>Accept only the next expected episode; reject gaps &gt;1 ahead of latest downloaded</td></tr>
-  <tr><td><code>backfill</code></td><td>Accept any episode not yet downloaded, including older ones</td></tr>
-  <tr><td><code>all</code></td><td>Accept every episode regardless of download history</td></tr>
+  <tr><td><code>strict</code></td><td>Accept only the next expected episode; reject gaps &gt;1 ahead of latest downloaded. Does not handle full-season binge drops well.</td></tr>
+  <tr><td><code>backfill</code></td><td>Accept any episode not yet downloaded, including older ones. Downloads full back-catalogue.</td></tr>
+  <tr><td><code>follow</code></td><td>Recommended for new and continuing series. On first encounter accept everything (full season drops in one pass). Afterwards the earliest tracked <strong>season</strong> acts as an anchor — episodes from older seasons are rejected, all episodes in the anchor season or newer are accepted (including gap-fills within the current season).</td></tr>
 </table>
 
 <p>Fields set: <code>series_name</code>, <code>series_season</code>, <code>series_episode</code>, <code>series_episode_id</code></p>

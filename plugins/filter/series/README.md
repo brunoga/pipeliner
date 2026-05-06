@@ -13,7 +13,7 @@ The show list can be provided statically via `shows`, dynamically via `from` (a 
 | `shows` | string or list | conditional | — | Static show names to accept |
 | `from` | list | conditional | — | Input plugin configs whose entry titles supplement the show list |
 | `ttl` | string | no | `1h` | How long to cache the dynamic list fetched via `from` |
-| `tracking` | string | no | `strict` | Episode ordering mode: `strict`, `backfill`, or `all` |
+| `tracking` | string | no | `strict` | Episode ordering mode: `strict`, `backfill`, or `follow` |
 | `quality` | string | no | — | Minimum quality spec (e.g. `720p`, `1080p bluray`) |
 
 At least one of `shows` or `from` is required.
@@ -24,7 +24,13 @@ At least one of `shows` or `from` is required.
 |------|-----------|
 | `strict` | Accept only the next expected episode; reject gaps greater than one ahead of the latest downloaded |
 | `backfill` | Accept any episode not yet downloaded, including older ones |
-| `all` | Accept every episode regardless of prior download history |
+| `follow` | On first encounter accept everything (handles full-season binge dumps in one pass); afterwards use the earliest tracked **season** as an anchor — episodes from older seasons are rejected, all episodes in the anchor season or newer are accepted |
+
+#### Choosing a tracking mode
+
+- **`strict`** — weekly airing shows where gaps indicate a missing episode. Does not handle full-season drops well (requires one run per episode).
+- **`backfill`** — catching up on a show's entire back-catalogue. Will download all historical episodes that appear in the feed.
+- **`follow`** — recommended for new shows and continuing series. Start tracking whenever you first see the show; get entire season drops in one pass; never download episodes from seasons before you started watching. The season is the anchor, so adding the show mid-season still picks up the whole current season.
 
 ### `from` entries
 
