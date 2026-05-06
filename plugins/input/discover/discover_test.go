@@ -18,19 +18,19 @@ type mockInputPlugin struct {
 }
 
 func (m *mockInputPlugin) Name() string        { return m.pluginName }
-func (m *mockInputPlugin) Phase() plugin.Phase { return plugin.PhaseInput }
+func (m *mockInputPlugin) Phase() plugin.Phase { return plugin.PhaseFrom }
 func (m *mockInputPlugin) Run(_ context.Context, _ *plugin.TaskContext) ([]*entry.Entry, error) {
 	return m.entries, nil
 }
 
-// registerMockInput registers a mock InputPlugin factory so MakeInputPlugin can find it.
+// registerMockInput registers a mock from-plugin factory so MakeFromPlugin can find it.
 func registerMockInput(mock *mockInputPlugin) string {
 	name := "mock-input-" + mock.pluginName
 	func() {
 		defer func() { recover() }()
 		plugin.Register(&plugin.Descriptor{
 			PluginName:  name,
-			PluginPhase: plugin.PhaseInput,
+			PluginPhase: plugin.PhaseFrom,
 			Factory: func(_ map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
 				return mock, nil
 			},
