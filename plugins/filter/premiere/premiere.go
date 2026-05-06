@@ -19,13 +19,10 @@ package premiere
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/brunoga/pipeliner/internal/entry"
-	"github.com/brunoga/pipeliner/internal/match"
 	"github.com/brunoga/pipeliner/internal/plugin"
 	"github.com/brunoga/pipeliner/internal/quality"
 	"github.com/brunoga/pipeliner/internal/series"
@@ -67,7 +64,7 @@ type premierePlugin struct {
 	episode int
 	season  int // 0 = any season
 	spec    quality.Spec
-	db      *store.SQLiteStore
+	tracker *series.Tracker
 }
 
 func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
@@ -83,7 +80,12 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 		spec = s
 	}
 
-	return &premierePlugin{episode: episode, season: season, spec: spec, db: db}, nil
+	return &premierePlugin{
+		episode: episode,
+		season:  season,
+		spec:    spec,
+		tracker: series.NewTracker(db.Bucket("series")),
+	}, nil
 }
 
 func (p *premierePlugin) Name() string        { return "premiere" }
@@ -121,16 +123,9 @@ func (p *premierePlugin) Filter(ctx context.Context, tc *plugin.TaskContext, e *
 
 	seriesName := ep.SeriesName
 
-	// Check if this series has already had its premiere accepted.
-	key := normalize(seriesName)
-	bucket := p.db.Bucket("premiere:" + tc.Name)
-	var rec premiereRecord
-	found, err := bucket.Get(key, &rec)
-	if err != nil {
-		tc.Logger.Warn("premiere: store lookup failed", "series", seriesName, "err", err)
-	}
-	if found {
-		e.Reject(fmt.Sprintf("premiere: series %q premiere already accepted on %s", seriesName, rec.AcceptedAt.Format("2006-01-02")))
+	// Reject if this episode is already in the shared series tracker.
+	if p.tracker.IsSeen(seriesName, epID) {
+		e.Reject(fmt.Sprintf("premiere: %s %s already downloaded", seriesName, epID))
 		return nil
 	}
 
@@ -139,51 +134,31 @@ func (p *premierePlugin) Filter(ctx context.Context, tc *plugin.TaskContext, e *
 	return nil
 }
 
-// Learn persists the accepted premiere. Multiple entries for the same series
-// may be accepted by Filter in the same run (different qualities/sources);
-// the task engine deduplicates them before output and Learn only records the
-// survivor.
-func (p *premierePlugin) Learn(_ context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
-	bucket := p.db.Bucket("premiere:" + tc.Name)
+// Learn persists the accepted premiere into the shared series tracker.
+// Multiple entries for the same series may be accepted by Filter in the same
+// run (different qualities/sources); the task engine deduplicates them before
+// output and Learn only records the survivor.
+func (p *premierePlugin) Learn(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) error {
 	for _, e := range entries {
 		if !e.IsAccepted() {
 			continue
 		}
-		seriesName := e.GetString("series_name")
-		if seriesName == "" {
+		ep, ok := series.Parse(e.Title)
+		if !ok {
 			continue
 		}
-		key := normalize(seriesName)
-		var existing premiereRecord
-		if found, _ := bucket.Get(key, &existing); found {
-			continue // already recorded
+		epID := series.EpisodeID(ep)
+		if p.tracker.IsSeen(ep.SeriesName, epID) {
+			continue
 		}
-		rec := premiereRecord{
-			SeriesName: seriesName,
-			AcceptedAt: time.Now().UTC(),
-			EntryURL:   e.URL,
-		}
-		_ = bucket.Put(key, rec)
+		_ = p.tracker.Mark(series.Record{
+			SeriesName:   ep.SeriesName,
+			EpisodeID:    epID,
+			DownloadedAt: time.Now().UTC(),
+			Quality:      ep.Quality,
+		})
 	}
 	return nil
-}
-
-type premiereRecord struct {
-	SeriesName string    `json:"series_name"`
-	AcceptedAt time.Time `json:"accepted_at"`
-	EntryURL   string    `json:"entry_url"`
-}
-
-// Ensure premiereRecord round-trips through json (used by bucket store).
-var _ json.Marshaler = (*premiereRecord)(nil)
-
-func (r premiereRecord) MarshalJSON() ([]byte, error) {
-	type alias premiereRecord
-	return json.Marshal(alias(r))
-}
-
-func normalize(s string) string {
-	return strings.ToLower(match.Normalize(s))
 }
 
 func intVal(v any, def int) int {
