@@ -42,7 +42,7 @@ func newTestServer(t *testing.T, configPath string, validateFn func([]byte) []st
 
 func writeConfig(t *testing.T, dir, content string) string {
 	t.Helper()
-	path := filepath.Join(dir, "config.yaml")
+	path := filepath.Join(dir, "config.yml")
 	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}

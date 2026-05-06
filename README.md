@@ -21,7 +21,7 @@ go build -o pipeliner ./cmd/pipeliner
 ## Quick start
 
 ```yaml
-# config.yaml
+# config.yml
 tasks:
   breaking-bad:
     rss:
@@ -182,9 +182,9 @@ docker run -d \
 | `PIPELINER_WEB_PASSWORD` | — | Web UI password **(required)** |
 | `PIPELINER_WEB_ADDR` | `:8080` | Listen address |
 | `PIPELINER_LOG_LEVEL` | `info` | Log level (`debug`, `info`, `warn`, `error`) |
-| `PIPELINER_CONFIG` | `/config/config.yaml` | Config file path |
+| `PIPELINER_CONFIG` | `/config/config.yml` | Config file path |
 
-The `/config` volume holds both `config.yaml` and `pipeliner.db` (state database). Mount a named volume or bind-mount to persist across restarts. The config can be edited live through the web UI's **Edit Config** tab.
+The `/config` volume holds both `config.yml` and `pipeliner.db` (state database). Mount a named volume or bind-mount to persist across restarts. The config can be edited live through the web UI's **Edit Config** tab.
 
 ## Security
 
@@ -200,11 +200,11 @@ Config files support `${ENV_VAR}` and `{$ variable $}` substitution, which is ap
 
 | File | Description |
 |------|-------------|
-| [`configs/tv-series-deluge.yaml`](configs/tv-series-deluge.yaml) | TV shows by explicit list → Deluge |
-| [`configs/movie-downloads.yaml`](configs/movie-downloads.yaml) | Movies by explicit list + TMDb rating gate → qBittorrent |
-| [`configs/trakt-shows-transmission.yaml`](configs/trakt-shows-transmission.yaml) | TV shows via Trakt watchlist (`series.from`) → Transmission |
-| [`configs/trakt-movies-qbittorrent.yaml`](configs/trakt-movies-qbittorrent.yaml) | Movies via Trakt watchlist (`movies.from`) → qBittorrent |
-| [`configs/tvdb-favorites-deluge.yaml`](configs/tvdb-favorites-deluge.yaml) | TV shows via TheTVDB favorites (`series.from`) → Deluge |
-| [`configs/discover-trakt-qbittorrent.yaml`](configs/discover-trakt-qbittorrent.yaml) | Active search driven by Trakt watchlist (`discover.from`) → qBittorrent |
-| [`configs/ars-technica-email.yaml`](configs/ars-technica-email.yaml) | RSS articles filtered by keyword → email |
-| [`configs/filesystem-cleanup.yaml`](configs/filesystem-cleanup.yaml) | File system entries → conditional exec |
+| [`configs/tv-series-deluge.yml`](configs/tv-series-deluge.yml) | TV shows by explicit list → Deluge |
+| [`configs/movie-downloads.yml`](configs/movie-downloads.yml) | Movies by explicit list + TMDb rating gate → qBittorrent |
+| [`configs/trakt-shows-transmission.yml`](configs/trakt-shows-transmission.yml) | TV shows via Trakt watchlist (`series.from`) → Transmission |
+| [`configs/trakt-movies-qbittorrent.yml`](configs/trakt-movies-qbittorrent.yml) | Movies via Trakt watchlist (`movies.from`) → qBittorrent |
+| [`configs/tvdb-favorites-deluge.yml`](configs/tvdb-favorites-deluge.yml) | TV shows via TheTVDB favorites (`series.from`) → Deluge |
+| [`configs/discover-trakt-qbittorrent.yml`](configs/discover-trakt-qbittorrent.yml) | Active search driven by Trakt watchlist (`discover.from`) → qBittorrent |
+| [`configs/ars-technica-email.yml`](configs/ars-technica-email.yml) | RSS articles filtered by keyword → email |
+| [`configs/filesystem-cleanup.yml`](configs/filesystem-cleanup.yml) | File system entries → conditional exec |

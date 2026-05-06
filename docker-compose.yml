@@ -7,7 +7,7 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      # Persists config.yaml and pipeliner.db (state/history) across restarts.
+      # Persists config.yml and pipeliner.db (state/history) across restarts.
       - pipeliner-data:/config
     environment:
       PIPELINER_WEB_USER: admin

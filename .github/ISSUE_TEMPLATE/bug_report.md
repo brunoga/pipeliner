@@ -11,7 +11,7 @@ labels: bug
 ## Config (redact secrets)
 
 ```yaml
-# paste the relevant parts of your config.yaml here
+# paste the relevant parts of your config.yml here
 ```
 
 ## Steps to reproduce
