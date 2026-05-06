@@ -3,6 +3,8 @@ package tmdb
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,7 +14,12 @@ import (
 	itmdb "github.com/brunoga/pipeliner/internal/tmdb"
 )
 
-func makeCtx() *plugin.TaskContext { return &plugin.TaskContext{Name: "test"} }
+func makeCtx() *plugin.TaskContext {
+	return &plugin.TaskContext{
+		Name:   "test",
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+}
 
 func makeServer() *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -81,6 +81,7 @@ func (p *tvdbPlugin) Phase() plugin.Phase { return plugin.PhaseMetainfo }
 func (p *tvdbPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
 	ep, ok := series.Parse(e.Title)
 	if !ok {
+		tc.Logger.Warn("metainfo_tvdb: title did not parse as series episode", "entry", e.Title)
 		return nil
 	}
 
