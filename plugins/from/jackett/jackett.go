@@ -1,4 +1,4 @@
-// Package jackett provides a search plugin that queries a Jackett indexer
+// Package jackett provides a from plugin that queries a Jackett indexer
 // proxy via the Torznab API. Unlike rss_search, it speaks Torznab natively:
 // seeder/leecher counts, info hashes, and file sizes come back in the search
 // response itself, so no separate metadata fetch is needed.
@@ -35,6 +35,16 @@ import (
 	"github.com/brunoga/pipeliner/internal/plugin"
 	"github.com/brunoga/pipeliner/internal/store"
 )
+
+func init() {
+	plugin.Register(&plugin.Descriptor{
+		PluginName:  "jackett",
+		Description: "search Jackett indexers via the Torznab API",
+		PluginPhase: plugin.PhaseFrom,
+		Factory:     newPlugin,
+		Validate:    validate,
+	})
+}
 
 func validate(cfg map[string]any) []error {
 	var errs []error

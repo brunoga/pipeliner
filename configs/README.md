@@ -132,16 +132,16 @@ Entries carry a title, a URL, a state (undecided/accepted/rejected), and an arbi
 | `tmdb_vote_average` | `metainfo_tmdb` | TMDb vote average (0–10) |
 | `tmdb_genres` | `metainfo_tmdb` | List of genre names |
 | `tmdb_release_date` | `metainfo_tmdb` | Release date string (ISO 8601) |
-| `tvdb_id` | `metainfo_tvdb`, `input_tvdb` | TheTVDB series ID |
+| `tvdb_id` | `metainfo_tvdb`, `tvdb_favorites` | TheTVDB series ID |
 | `tvdb_series_name` | `metainfo_tvdb` | TheTVDB canonical series name |
 | `tvdb_first_aired` | `metainfo_tvdb` | First air date string |
 | `tvdb_genres` | `metainfo_tvdb` | List of genre names |
-| `trakt_id` | `metainfo_trakt`, `input_trakt` | Trakt internal ID |
+| `trakt_id` | `metainfo_trakt`, `trakt_list` | Trakt internal ID |
 | `trakt_rating` | `metainfo_trakt` | Trakt community rating |
 | `trakt_genres` | `metainfo_trakt` | List of genre names |
-| `trakt_year` | `input_trakt` | Release or premiere year |
-| `trakt_imdb_id` | `input_trakt` | IMDb ID (e.g. `tt1375666`) |
-| `trakt_tmdb_id` | `input_trakt` | TMDb ID |
+| `trakt_year` | `trakt_list` | Release or premiere year |
+| `trakt_imdb_id` | `trakt_list` | IMDb ID (e.g. `tt1375666`) |
+| `trakt_tmdb_id` | `trakt_list` | TMDb ID |
 | `torrent_info_hash` | `metainfo_torrent`, `metainfo_magnet` | SHA-1 info hash (hex) |
 | `torrent_name` | `metainfo_torrent`, `metainfo_magnet` | Torrent name |
 | `torrent_size` | `metainfo_torrent`, `metainfo_magnet` | Total size in bytes |

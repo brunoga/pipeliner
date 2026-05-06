@@ -1,6 +1,8 @@
-# input_trakt
+# trakt_list
 
 Fetches movies or shows from a Trakt.tv list and emits one entry per item. Entries carry the item title and a canonical Trakt URL, making them suitable as title sources for `discover.from`, `series.from`, and `movies.from`.
+
+**This plugin is a PhaseFrom sub-plugin.** It cannot be used directly as a task-level input. Use it inside `series.from`, `movies.from`, or `discover.from`.
 
 ## Config
 
@@ -21,19 +23,6 @@ Fetches movies or shows from a Trakt.tv list and emits one entry per item. Entri
 | `trakt_imdb_id` | string | IMDb ID (e.g. `tt1375666`) |
 | `trakt_tmdb_id` | int | TMDb ID |
 
-## Example — standalone input
-
-```yaml
-tasks:
-  print-watchlist:
-    input_trakt:
-      client_id: YOUR_CLIENT_ID
-      access_token: YOUR_ACCESS_TOKEN
-      type: movies
-      list: watchlist
-    print:
-```
-
 ## Example — dynamic title source for series and movies filters
 
 ```yaml
@@ -46,7 +35,7 @@ tasks:
       tracking: strict
       quality: 720p
       from:
-        - name: input_trakt
+        - name: trakt_list
           client_id: YOUR_CLIENT_ID
           access_token: YOUR_ACCESS_TOKEN
           type: shows
