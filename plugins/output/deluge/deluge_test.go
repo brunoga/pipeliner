@@ -41,7 +41,7 @@ func (m *mockDeluge) handler() http.HandlerFunc {
 		switch call.Method {
 		case "auth.login":
 			json.NewEncoder(w).Encode(map[string]any{"result": m.loginOK, "error": nil, "id": 1}) //nolint:errcheck
-		case "core.add_torrent_url":
+		case "core.add_torrent_url", "core.add_torrent_magnet":
 			if m.addError != "" {
 				json.NewEncoder(w).Encode(map[string]any{"result": nil, "error": map[string]any{"message": m.addError}, "id": 1}) //nolint:errcheck
 			} else {
@@ -153,6 +153,53 @@ func TestSavePathTemplate(t *testing.T) {
 			if loc, _ := opts["download_location"].(string); !strings.Contains(loc, "My Show") {
 				t.Errorf("download_location: got %q, want path containing 'My Show'", loc)
 			}
+		}
+	}
+}
+
+func TestMagnetLinkUsesMagnetRPC(t *testing.T) {
+	mock := &mockDeluge{loginOK: true}
+	srv := httptest.NewServer(mock.handler())
+	defer srv.Close()
+
+	dp := newTestPlugin(t, srv, nil)
+	magnet := "magnet:?xt=urn:btih:abc123&dn=My+Show+S01E01"
+	e := entry.New("My Show S01E01", magnet)
+	err := dp.Output(context.Background(), makeCtx(), []*entry.Entry{e})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var addCall *rpcCall
+	for i := range mock.calls {
+		if mock.calls[i].Method == "core.add_torrent_magnet" || mock.calls[i].Method == "core.add_torrent_url" {
+			addCall = &mock.calls[i]
+			break
+		}
+	}
+	if addCall == nil {
+		t.Fatal("no add_torrent RPC call recorded")
+	}
+	if addCall.Method != "core.add_torrent_magnet" {
+		t.Errorf("magnet link should use core.add_torrent_magnet, got %q", addCall.Method)
+	}
+	if len(addCall.Params) < 1 || addCall.Params[0] != magnet {
+		t.Errorf("magnet URI not passed correctly: %v", addCall.Params)
+	}
+}
+
+func TestHTTPTorrentUsesURLRPC(t *testing.T) {
+	mock := &mockDeluge{loginOK: true}
+	srv := httptest.NewServer(mock.handler())
+	defer srv.Close()
+
+	dp := newTestPlugin(t, srv, nil)
+	e := entry.New("My Show S01E01", "http://example.com/show.torrent")
+	dp.Output(context.Background(), makeCtx(), []*entry.Entry{e}) //nolint:errcheck
+
+	for _, c := range mock.calls {
+		if c.Method == "core.add_torrent_magnet" {
+			t.Errorf("HTTP URL should not use core.add_torrent_magnet")
 		}
 	}
 }
