@@ -74,6 +74,7 @@ func (p *tmdbPlugin) Phase() plugin.Phase { return plugin.PhaseMetainfo }
 func (p *tmdbPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
 	m, ok := imovies.Parse(e.Title)
 	if !ok {
+		tc.Logger.Warn("metainfo_tmdb: title did not parse as movie", "entry", e.Title)
 		return nil
 	}
 

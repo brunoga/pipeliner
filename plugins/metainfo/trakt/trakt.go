@@ -93,6 +93,7 @@ func (p *traktMetaPlugin) Phase() plugin.Phase { return plugin.PhaseMetainfo }
 func (p *traktMetaPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
 	title, ok := p.parseTitle(e.Title)
 	if !ok {
+		tc.Logger.Warn("metainfo_trakt: title did not parse as "+p.itemType[:len(p.itemType)-1], "entry", e.Title)
 		return nil
 	}
 
