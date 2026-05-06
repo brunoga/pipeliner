@@ -280,7 +280,7 @@ func openWithFrom(t *testing.T, mock *mockInput) *seriesPlugin {
 	return &seriesPlugin{
 		from:      []plugin.InputPlugin{mock},
 		listCache: cache.NewPersistent[[]string](time.Hour, db.Bucket("test")),
-		tracking:  trackingAll,
+		tracking:  trackingBackfill,
 		tracker:   series.NewTracker(db.Bucket("series")),
 	}
 }
@@ -320,7 +320,7 @@ func TestFromCachesResults(t *testing.T) {
 	p := &seriesPlugin{
 		from:      []plugin.InputPlugin{counted},
 		listCache: cache.NewPersistent[[]string](time.Hour, db.Bucket("test")),
-		tracking:  trackingAll,
+		tracking:  trackingBackfill,
 		tracker:   series.NewTracker(db.Bucket("series")),
 	}
 	tc := makeCtx()
@@ -386,5 +386,80 @@ func TestMissingShowsAndFrom(t *testing.T) {
 	_, err := newPlugin(map[string]any{}, db)
 	if err == nil {
 		t.Error("expected error when neither shows nor from is configured")
+	}
+}
+
+// --- follow tracking mode ---
+
+func TestFollowAcceptsAllOnFirstEncounter(t *testing.T) {
+	// No tracker entries yet — all episodes should be accepted (binge dump).
+	p := openPlugin(t, map[string]any{"tracking": "follow"})
+	tc := makeCtx()
+	for _, title := range []string{
+		"My.Show.S01E01.720p", "My.Show.S01E05.720p", "My.Show.S01E10.720p",
+	} {
+		e := entry.New(title, "http://x.com/"+title)
+		p.Filter(context.Background(), tc, e) //nolint:errcheck
+		if !e.IsAccepted() {
+			t.Errorf("first encounter: %s should be accepted, got: %s", title, e.RejectReason)
+		}
+	}
+}
+
+func TestFollowAcceptsNewSeasonInOnePass(t *testing.T) {
+	// S01 is tracked. S02 drops all at once — all S02 episodes should be accepted.
+	p := openPlugin(t, map[string]any{"tracking": "follow"})
+	tc := makeCtx()
+
+	// Establish S01 anchor.
+	e1 := entry.New("My.Show.S01E01.720p", "http://x.com/1")
+	p.Filter(context.Background(), tc, e1)         //nolint:errcheck
+	p.Learn(context.Background(), tc, []*entry.Entry{e1}) //nolint:errcheck
+
+	// Full S02 binge dump — all should be accepted in one pass.
+	for _, title := range []string{
+		"My.Show.S02E01.720p", "My.Show.S02E05.720p", "My.Show.S02E10.720p",
+	} {
+		e := entry.New(title, "http://x.com/"+title)
+		p.Filter(context.Background(), tc, e) //nolint:errcheck
+		if !e.IsAccepted() {
+			t.Errorf("S02 binge dump: %s should be accepted, got: %s", title, e.RejectReason)
+		}
+	}
+}
+
+func TestFollowRejectsEpisodesBeforeAnchorSeason(t *testing.T) {
+	// S02 is the anchor. Old S01 episodes surfacing in a future feed run should be rejected.
+	p := openPlugin(t, map[string]any{"tracking": "follow"})
+	tc := makeCtx()
+
+	// Establish S02 as anchor (started tracking mid-series).
+	e1 := entry.New("My.Show.S02E01.720p", "http://x.com/1")
+	p.Filter(context.Background(), tc, e1)         //nolint:errcheck
+	p.Learn(context.Background(), tc, []*entry.Entry{e1}) //nolint:errcheck
+
+	// S01 episode surfaces — should be rejected as it predates our tracking start.
+	e2 := entry.New("My.Show.S01E05.720p", "http://x.com/2")
+	p.Filter(context.Background(), tc, e2) //nolint:errcheck
+	if !e2.IsRejected() {
+		t.Error("S01 episode should be rejected when tracking started at S02")
+	}
+}
+
+func TestFollowAcceptsGapFillWithinAnchorSeason(t *testing.T) {
+	// S01E01 downloaded. S01E03 then S01E02 arrive in subsequent runs — both accepted.
+	p := openPlugin(t, map[string]any{"tracking": "follow"})
+	tc := makeCtx()
+
+	e1 := entry.New("My.Show.S01E01.720p", "http://x.com/1")
+	p.Filter(context.Background(), tc, e1)         //nolint:errcheck
+	p.Learn(context.Background(), tc, []*entry.Entry{e1}) //nolint:errcheck
+
+	for _, title := range []string{"My.Show.S01E03.720p", "My.Show.S01E02.720p"} {
+		e := entry.New(title, "http://x.com/"+title)
+		p.Filter(context.Background(), tc, e) //nolint:errcheck
+		if !e.IsAccepted() {
+			t.Errorf("gap fill %s should be accepted in follow mode, got: %s", title, e.RejectReason)
+		}
 	}
 }

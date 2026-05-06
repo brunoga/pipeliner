@@ -44,7 +44,7 @@ func validate(cfg map[string]any) []error {
 	if err := plugin.OptDuration(cfg, "ttl", "series"); err != nil {
 		errs = append(errs, err)
 	}
-	if err := plugin.OptEnum(cfg, "tracking", "series", "strict", "backfill", "all"); err != nil {
+	if err := plugin.OptEnum(cfg, "tracking", "series", "strict", "backfill", "follow"); err != nil {
 		errs = append(errs, err)
 	}
 	if q, _ := cfg["quality"].(string); q != "" {
@@ -62,7 +62,7 @@ type tracking string
 const (
 	trackingStrict   tracking = "strict"   // reject if episode number skips > 1 ahead of latest
 	trackingBackfill tracking = "backfill" // accept any episode not yet downloaded
-	trackingAll      tracking = "all"      // accept every episode regardless of tracking
+	trackingFollow   tracking = "follow"   // accept all on first encounter; thereafter reject episodes older than the earliest ever downloaded
 )
 
 type seriesPlugin struct {
@@ -109,10 +109,10 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 	tr := trackingStrict
 	if t, _ := cfg["tracking"].(string); t != "" {
 		switch tracking(t) {
-		case trackingStrict, trackingBackfill, trackingAll:
+		case trackingStrict, trackingBackfill, trackingFollow:
 			tr = tracking(t)
 		default:
-			return nil, fmt.Errorf("series: unknown tracking mode %q (strict|backfill|all)", t)
+			return nil, fmt.Errorf("series: unknown tracking mode %q (strict|backfill|follow)", t)
 		}
 	}
 
@@ -190,6 +190,31 @@ func (p *seriesPlugin) Filter(ctx context.Context, tc *plugin.TaskContext, e *en
 		}
 	}
 
+	if p.tracking == trackingFollow {
+		// On first encounter (no episodes tracked yet) accept everything —
+		// handles binge dumps where a full season lands in a single run.
+		// Once tracking is established, use the earliest tracked season as
+		// the anchor: reject episodes from older seasons, accept everything
+		// from the anchor season onwards (including unseen episodes of the
+		// anchor season itself, e.g. mid-season gaps filled on a later run).
+		// For date-based shows (no season number) fall back to comparing
+		// the full episode ID string lexicographically.
+		if earliest, ok := p.tracker.Earliest(matchedShow); ok {
+			anchorSeason := seasonFromEpisodeID(earliest.EpisodeID)
+			if ep.Season > 0 && anchorSeason > 0 {
+				if ep.Season < anchorSeason {
+					e.Reject(fmt.Sprintf("series: %s S%02d predates tracking start (S%02d)",
+						matchedShow, ep.Season, anchorSeason))
+					return nil
+				}
+			} else if epID < earliest.EpisodeID {
+				e.Reject(fmt.Sprintf("series: %s %s predates tracking start (%s)",
+					matchedShow, epID, earliest.EpisodeID))
+				return nil
+			}
+		}
+	}
+
 	e.Accept()
 	return nil
 }
@@ -258,6 +283,18 @@ func enforceStrict(ep *series.Episode, epID string, latest *series.Record) error
 			epID, gap-1, latest.EpisodeID)
 	}
 	return nil
+}
+
+// seasonFromEpisodeID extracts the season number from a zero-padded episode ID
+// such as "S02E05" → 2. Returns 0 for date-based ("2023-11-15") or absolute
+// ("EP123") IDs that carry no season number.
+func seasonFromEpisodeID(epID string) int {
+	if len(epID) >= 3 && (epID[0] == 'S' || epID[0] == 's') {
+		var s int
+		fmt.Sscanf(epID[1:], "%d", &s)
+		return s
+	}
+	return 0
 }
 
 func toStringSlice(v any) []string {
