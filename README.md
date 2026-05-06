@@ -51,7 +51,7 @@ See [`configs/`](configs/README.md) for the full config format reference and ann
 
 ## Plugins
 
-Pipeliner is built entirely from plugins. Each task is a chain of plugins executed in phase order:
+Pipeliner is built entirely from plugins. Each task is a chain of plugins executed in order:
 
 | Phase | Purpose |
 |-------|---------|
@@ -61,6 +61,8 @@ Pipeliner is built entirely from plugins. Each task is a chain of plugins execut
 | **modify** | Mutate entry fields (path formatting, field setting) |
 | **output** | Act on accepted entries (download, client RPC, notify) |
 | **learn** | Persist decisions and state for future runs (seen, series tracking) |
+
+Metainfo, filter, and modify plugins run in config-file order and can be freely interleaved — a filter can be placed immediately after the metainfo plugin that sets the field it inspects.
 
 See [`plugins/`](plugins/README.md) for the plugin model and links to every plugin.
 

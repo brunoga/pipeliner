@@ -30,7 +30,7 @@ This guide covers everything you need to write a new pipeliner plugin: interface
 
 ## Concepts
 
-A pipeline **task** is a directed sequence of plugins executed in phase order. Each plugin participates in exactly one phase. The task engine collects entries from all input plugins, passes them through metainfo, filter, modify, and output phases in order, and finally runs learn plugins to persist decisions.
+A pipeline **task** is an ordered sequence of plugins. Each plugin participates in exactly one phase. The task engine collects entries from all input plugins concurrently, then runs metainfo, filter, and modify plugins **in config-file order** (interleaved with each other), then passes accepted entries to all output plugins concurrently, and finally runs learn plugins to persist decisions.
 
 A plugin is a Go struct that:
 - implements the `plugin.Plugin` base interface (`Name() string`, `Phase() Phase`)
@@ -47,21 +47,21 @@ A plugin is a Go struct that:
 | `input` | `InputPlugin` | Concurrent — all inputs run in parallel | — |
 | `metainfo` | `MetainfoPlugin` / `BatchMetainfoPlugin` | Serial per entry (batch if implemented) | All entries from input |
 | `filter` | `FilterPlugin` / `BatchFilterPlugin` | Serial per entry (batch if implemented) | All entries |
-| *(dedup)* | *(automatic)* | Built-in, post-filter | Accepted entries with series/movie fields |
 | `modify` | `ModifyPlugin` | Serial per entry | Undecided + Accepted entries |
+| *(dedup)* | *(automatic)* | Built-in, after all processing plugins | Accepted entries with series/movie fields |
 | `output` | `OutputPlugin` | Concurrent — all outputs run in parallel | Accepted entries only |
 | `learn` | `LearnPlugin` | Serial | All entries (all states) |
 | `from` | `SearchPlugin` / `InputPlugin` | Sub-plugins called by `series`, `movies`, `discover` | — |
 
-**Concurrency notes:**
-- Input and output phases are fully concurrent. Do not share mutable state between calls unless protected by a mutex.
-- Metainfo, filter, modify, and learn phases are serial. Ordering matters — a filter plugin can read fields set by a metainfo plugin earlier in the same run.
-- Input results are deduplicated by URL before the metainfo phase begins.
+**Execution order:**
+- Input and output phases are fully concurrent bookends. Do not share mutable state between calls unless protected by a mutex.
+- Metainfo, filter, and modify plugins run **in config-file order**, interleaved with each other. A filter placed immediately after a metainfo plugin in the config will see the fields that metainfo plugin set.
+- Input results are deduplicated by URL before the processing pipeline begins.
 - Output plugins each receive the same read-only slice of accepted entries; do not mutate entries in an output plugin.
 
 **Automatic episode/movie deduplication:**
 
-After all filter plugins complete, the task engine automatically deduplicates accepted entries so that at most one copy of each episode or movie reaches the output phase. This means filter plugins (`series`, `premiere`, `movies`) should accept **all** qualifying entries — including multiple quality variants of the same item from different sources — and let the engine pick the best one.
+After all processing plugins complete, the task engine automatically deduplicates accepted entries so that at most one copy of each episode or movie reaches the output phase. This means filter plugins (`series`, `premiere`, `movies`) should accept **all** qualifying entries — including multiple quality variants of the same item from different sources — and let the engine pick the best one.
 
 The winning entry is chosen by:
 1. **Seed tier** — entries with 2+ seeds always beat entries with exactly 1 seed
@@ -201,7 +201,7 @@ type InputPlugin interface {
 }
 ```
 
-`Run` is called once per task execution. Return a slice of new `entry.Entry` values. The engine deduplicates by URL across all inputs before the metainfo phase, so overlapping results from multiple inputs are harmless.
+`Run` is called once per task execution. Return a slice of new `entry.Entry` values. The engine deduplicates by URL across all inputs before the processing pipeline begins, so overlapping results from multiple inputs are harmless.
 
 **Pattern:**
 
@@ -283,7 +283,7 @@ type FilterPlugin interface {
 }
 ```
 
-`Filter` is called once per entry, serially, in config order. A plugin should call `e.Accept()`, `e.Reject(reason)`, or leave the entry `Undecided`. The engine skips already-decided entries for subsequent filter plugins in the same phase — once `Rejected` or `Failed`, an entry is not passed to remaining filters.
+`Filter` is called once per entry, serially, in config order. A plugin should call `e.Accept()`, `e.Reject(reason)`, or leave the entry `Undecided`. The engine skips already-rejected or failed entries for subsequent filter plugins — once `Rejected` or `Failed`, an entry is not passed to remaining filters.
 
 **Pattern:**
 
@@ -305,7 +305,7 @@ func (p *myFilter) Filter(_ context.Context, _ *plugin.TaskContext, e *entry.Ent
 
 Return a non-nil error only for unexpected internal failures (e.g. a corrupted store read). Use `e.Reject` for expected negative decisions.
 
-**Important — do not write state in Filter:** If your plugin tracks downloads (like `series`, `premiere`, `movies`), write to SQLite in `Learn`, not `Filter`. Multiple quality variants of the same item may all be accepted by Filter; the engine deduplicates them after the filter phase and only the winner reaches `Learn`. Writing in Filter would prevent those variants from being considered.
+**Important — do not write state in Filter:** If your plugin tracks downloads (like `series`, `premiere`, `movies`), write to SQLite in `Learn`, not `Filter`. Multiple quality variants of the same item may all be accepted by Filter; the engine deduplicates them after all processing plugins have run and only the winner reaches `Learn`. Writing in Filter would prevent those variants from being considered.
 
 ### BatchFilterPlugin
 
@@ -349,7 +349,7 @@ type ModifyPlugin interface {
 }
 ```
 
-`Modify` runs after the filter phase on Undecided and Accepted entries (Rejected/Failed entries are skipped). It transforms field values without changing acceptance state. Common uses: computing a `download_path`, normalising a title, setting metadata for downstream output plugins.
+`Modify` runs in config order alongside metainfo and filter plugins. It receives Undecided and Accepted entries (Rejected/Failed entries are skipped). It transforms field values without changing acceptance state. Common uses: computing a `download_path`, normalising a title, setting metadata for downstream output plugins.
 
 ---
 

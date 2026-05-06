@@ -173,14 +173,14 @@ td code{font-size:12px}
 
 <p>Pipeliner is a media-automation daemon that pulls entries from RSS feeds, torrent indexers, or local filesystems, enriches them with metadata, applies configurable filters, and hands accepted entries off to download clients, notification services, or shell commands.</p>
 
-<p>It is heavily inspired by <a href="https://flexget.com" target="_blank">FlexGet</a>. Pipelines are described in YAML. Each task chains a sequence of plugins that execute in a fixed phase order. The scheduler runs tasks on cron or interval schedules, persisting state in a SQLite database so each entry is processed only once.</p>
+<p>It is heavily inspired by <a href="https://flexget.com" target="_blank">FlexGet</a>. Pipelines are described in YAML. Each task chains a sequence of plugins. The scheduler runs tasks on cron or interval schedules, persisting state in a SQLite database so each entry is processed only once.</p>
 
 <h3>Key concepts</h3>
 <ul>
   <li><strong>Entry</strong> — a title, URL, state (undecided/accepted/rejected/failed), and a key-value field map</li>
   <li><strong>Plugin</strong> — a self-contained unit that produces, annotates, filters, modifies, or acts on entries</li>
-  <li><strong>Task</strong> — an ordered chain of plugins run in phase order</li>
-  <li><strong>Phase</strong> — the fixed execution stage a plugin belongs to (input → metainfo → filter → modify → output → learn)</li>
+  <li><strong>Task</strong> — an ordered chain of plugins; metainfo, filter, and modify plugins run in config-file order</li>
+  <li><strong>Phase</strong> — the execution category a plugin belongs to (input, metainfo, filter, modify, output, learn)</li>
 </ul>
 
 <!-- ═══════════════════════════════════════════════════════════ -->
@@ -341,12 +341,12 @@ make build        # or: go build -o pipeliner ./cmd/pipeliner</code></pre>
 <!-- ═══════════════════════════════════════════════════════════ -->
 <h2 id="phases">Pipeline Phases</h2>
 
-<p>Every task executes plugins in a fixed phase order regardless of the order they appear in the YAML. Config order only affects ordering <em>within</em> a phase.</p>
+<p>All input plugins run first (concurrently), then metainfo, filter, and modify plugins run in the order they appear in the YAML, and finally all output plugins run (concurrently). The learn phase follows output.</p>
 
 <div class="phases">
   <div class="phase input">Input</div><div class="arrow">→</div>
-  <div class="phase metainfo">Metainfo</div><div class="arrow">→</div>
-  <div class="phase filter">Filter</div><div class="arrow">→</div>
+  <div class="phase metainfo">Metainfo</div><div class="arrow">↕</div>
+  <div class="phase filter">Filter</div><div class="arrow">↕</div>
   <div class="phase modify">Modify</div><div class="arrow">→</div>
   <div class="phase output">Output</div><div class="arrow">→</div>
   <div class="phase learn">Learn</div>
@@ -355,14 +355,14 @@ make build        # or: go build -o pipeliner ./cmd/pipeliner</code></pre>
 <table>
   <tr><th>Phase</th><th>What happens</th><th>Entry state after</th></tr>
   <tr><td><strong>Input</strong></td><td>Plugins produce entries from sources (RSS, files, searches). All inputs run concurrently; results are merged and deduplicated by URL.</td><td>undecided</td></tr>
-  <tr><td><strong>Metainfo</strong></td><td>Plugins annotate entries with additional fields (quality tags, TVDB data, torrent info). Always runs before any filter.</td><td>undecided</td></tr>
-  <tr><td><strong>Filter</strong></td><td>Plugins accept, reject, or leave entries undecided. Runs serially to preserve ordering guarantees (series tracking).</td><td>accepted / rejected / undecided</td></tr>
-  <tr><td><strong>Modify</strong></td><td>Plugins mutate accepted entry fields (path formatting, field setting).</td><td>accepted (unchanged)</td></tr>
+  <tr><td><strong>Metainfo</strong></td><td>Plugins annotate entries with additional fields (quality tags, TVDB data, torrent info). Runs in config order, interleaved with filter and modify.</td><td>undecided</td></tr>
+  <tr><td><strong>Filter</strong></td><td>Plugins accept, reject, or leave entries undecided. Runs in config order, interleaved with metainfo and modify.</td><td>accepted / rejected / undecided</td></tr>
+  <tr><td><strong>Modify</strong></td><td>Plugins mutate accepted entry fields (path formatting, field setting). Runs in config order, interleaved with metainfo and filter.</td><td>accepted (unchanged)</td></tr>
   <tr><td><strong>Output</strong></td><td>Plugins act on all accepted entries (add to torrent client, send email). All outputs run concurrently.</td><td>accepted / failed (if downloader errors)</td></tr>
   <tr><td><strong>Learn</strong></td><td>Plugins persist state for future runs (mark as seen, record series tracker). Skipped in dry-run mode.</td><td>—</td></tr>
 </table>
 
-<div class="note">Metainfo always runs before filter, regardless of where <code>metainfo_tvdb</code> appears in the YAML. Use cheap name-only filters (like <code>premiere</code> or <code>torrent_alive</code>) early in the filter phase to reduce the number of entries that reach expensive metainfo fetches — even though metainfo precedes filter in phase order, the phase runs <em>per entry</em> only for entries not already rejected by earlier filter calls within the same run batch.</div>
+<div class="note">Metainfo, filter, and modify plugins run in config-file order. Place a filter immediately after the metainfo plugin that sets the field it inspects to reject cheap early and avoid unnecessary annotation work for entries that will be rejected anyway.</div>
 
 <!-- ═══════════════════════════════════════════════════════════ -->
 <h2 id="entries">Entries &amp; Fields</h2>
@@ -691,7 +691,7 @@ make build        # or: go build -o pipeliner ./cmd/pipeliner</code></pre>
 <hr>
 <!-- ═══════════════════════════════════════════════════════════ -->
 <h1>Metainfo Plugins</h1>
-<p>Metainfo plugins run after input and before filter. They annotate entries with additional fields. Metainfo always runs before any filter plugin regardless of config order.</p>
+<p>Metainfo plugins annotate entries with additional fields. They run in config-file order, interleaved with filter and modify plugins — place a metainfo plugin immediately before the filter that depends on its output.</p>
 
 <!-- ─────────── metainfo_tvdb ─────────── -->
 <h2 id="metainfo_tvdb">metainfo_tvdb</h2>
@@ -763,7 +763,7 @@ After DHT: <code>torrent_name</code>, <code>torrent_size</code>, <code>torrent_f
 <hr>
 <!-- ═══════════════════════════════════════════════════════════ -->
 <h1>Filter Plugins</h1>
-<p>Filter plugins run serially within the filter phase (in YAML config order). Each entry is passed to every filter in sequence; the first filter that accepts or rejects it determines its state.</p>
+<p>Filter plugins run in YAML config order, interleaved with metainfo and modify plugins. Each entry is passed to every filter in sequence; once an entry is rejected or failed it is skipped by subsequent filter plugins.</p>
 
 <!-- ─────────── series ─────────── -->
 <h2 id="series">series</h2>
@@ -1359,7 +1359,7 @@ docker compose up -d --no-build pipeliner</code></pre>
 <!-- ─────────── dry-run ─────────── -->
 <h2 id="dry-run">Dry-Run Mode</h2>
 
-<p>Pass <code>--dry-run</code> to <code>pipeliner run</code> to execute the full pipeline (input → metainfo → filter → modify) but skip the output and learn phases. The run is <strong>fully idempotent</strong> — no torrents are queued, no emails sent, no state written to <code>pipeliner.db</code>. You can run it repeatedly to inspect what would be accepted without side effects.</p>
+<p>Pass <code>--dry-run</code> to <code>pipeliner run</code> to execute the full pipeline (input → processing → output skipped) but skip the output and learn phases. The run is <strong>fully idempotent</strong> — no torrents are queued, no emails sent, no state written to <code>pipeliner.db</code>. You can run it repeatedly to inspect what would be accepted without side effects.</p>
 
 <pre><code>pipeliner run --config config.yml --dry-run --log-level debug</code></pre>
 
