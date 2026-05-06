@@ -49,15 +49,15 @@ A plugin is a Go struct that:
 | `filter` | `FilterPlugin` / `BatchFilterPlugin` | Serial per entry (batch if implemented) | All entries |
 | `modify` | `ModifyPlugin` | Serial per entry | Undecided + Accepted entries |
 | *(dedup)* | *(automatic)* | Built-in, after all processing plugins | Accepted entries with series/movie fields |
-| `output` | `OutputPlugin` | Concurrent — all outputs run in parallel | Accepted entries only |
+| `output` | `OutputPlugin` | Serial — plugins run in config order; each receives only entries still accepted at that point | Accepted entries only |
 | `learn` | `LearnPlugin` | Serial | All entries (all states) |
 | `from` | `SearchPlugin` / `InputPlugin` | Sub-plugins called by `series`, `movies`, `discover` | — |
 
 **Execution order:**
-- Input and output phases are fully concurrent bookends. Do not share mutable state between calls unless protected by a mutex.
+- The input phase is fully concurrent. Do not share mutable state between input plugin calls unless protected by a mutex.
 - Metainfo, filter, and modify plugins run **in config-file order**, interleaved with each other. A filter placed immediately after a metainfo plugin in the config will see the fields that metainfo plugin set.
 - Input results are deduplicated by URL before the processing pipeline begins.
-- Output plugins each receive the same read-only slice of accepted entries; do not mutate entries in an output plugin.
+- Output plugins run in config order. Each receives only entries still accepted at the time it runs. An output plugin may call `e.Fail("reason")` to prevent that entry from reaching subsequent output plugins and the learn phase — useful for required outputs where failure means the download should be retried.
 
 **Automatic episode/movie deduplication:**
 
@@ -362,9 +362,9 @@ type OutputPlugin interface {
 }
 ```
 
-`Output` is called once per task run with all accepted entries as a single slice. All output plugins run concurrently, each receiving the same read-only slice.
+`Output` is called once per task run with all entries still accepted at the time this plugin runs. Output plugins run serially in config order, so a plugin that calls `e.Fail("reason")` removes that entry from the slice passed to subsequent output plugins and from the learn phase.
 
-**Do not mutate entries inside Output.** If you need per-entry data, read from `e.Fields`.
+Call `e.Fail("reason")` when an entry could not be delivered and should be retried on the next run. Do not call `e.Reject` in output — rejection implies the entry was undesirable, whereas failure implies a transient delivery problem.
 
 ---
 

@@ -14,7 +14,7 @@ input → [metainfo / filter / modify — in config order] → output → learn
 | **metainfo** | `Annotate(ctx, tc, e) error` | Annotate entries with extra fields |
 | **filter** | `Filter(ctx, tc, e) error` | Accept, reject, or leave an entry undecided |
 | **modify** | `Modify(ctx, tc, e) error` | Mutate entry fields in-place |
-| **output** | `Output(ctx, tc, entries) error` | Act on all accepted entries |
+| **output** | `Output(ctx, tc, entries) error` | Act on accepted entries; may fail entries to prevent them reaching subsequent outputs and learn |
 | **learn** | `Learn(ctx, tc, entries) error` | Persist state for future runs |
 
 Input and output run as bookend phases (all inputs concurrently, then the processing pipeline, then all outputs concurrently). Metainfo, filter, and modify plugins run **in the order they appear in the config file**, interleaved with each other — a filter can immediately follow the metainfo plugin that sets the field it inspects.
