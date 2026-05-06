@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/cookiejar"
 
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/interp"
@@ -74,12 +75,13 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 		scheme = "https"
 	}
 
+	jar, _ := cookiejar.New(nil)
 	return &delugePlugin{
 		endpoint:        fmt.Sprintf("%s://%s:%d/json", scheme, host, port),
 		password:        password,
 		pathIP:          pathIP,
 		moveCompletedIP: moveCompletedIP,
-		client:          &http.Client{},
+		client:          &http.Client{Jar: jar},
 	}, nil
 }
 
@@ -88,12 +90,16 @@ func (p *delugePlugin) Phase() plugin.Phase { return plugin.PhaseOutput }
 
 func (p *delugePlugin) Output(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
 	if err := p.login(ctx); err != nil {
+		for _, e := range entries {
+			e.Fail("deluge: login failed")
+		}
 		return fmt.Errorf("deluge: login: %w", err)
 	}
 	for _, e := range entries {
 		savePath, err := p.renderPath(e)
 		if err != nil {
 			tc.Logger.Error("deluge: render path", "title", e.Title, "err", err)
+			e.Fail("deluge: render path: " + err.Error())
 			continue
 		}
 		var moveCompleted string
@@ -101,11 +107,13 @@ func (p *delugePlugin) Output(ctx context.Context, tc *plugin.TaskContext, entri
 			moveCompleted, err = p.moveCompletedIP.Render(interp.EntryData(e))
 			if err != nil {
 				tc.Logger.Error("deluge: render move_completed_path", "title", e.Title, "err", err)
+				e.Fail("deluge: render move_completed_path: " + err.Error())
 				continue
 			}
 		}
 		if err := p.addTorrent(ctx, e.URL, savePath, moveCompleted); err != nil {
 			tc.Logger.Error("deluge: add torrent", "title", e.Title, "err", err)
+			e.Fail("deluge: " + err.Error())
 		}
 	}
 	return nil

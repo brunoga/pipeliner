@@ -12,6 +12,10 @@ Adds accepted torrents to a Deluge client via its Web UI JSON-RPC API.
 | `tls` | bool | no | false | Use HTTPS |
 | `path` | string | no | `{{.download_path}}` | Download directory template |
 
+## Error handling
+
+If login fails or a torrent cannot be added, the affected entry is marked failed and will **not** be recorded by the learn phase. It will be retried on the next run.
+
 ## Example
 
 ```yaml
