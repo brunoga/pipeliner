@@ -91,6 +91,64 @@ func TestParseDatePattern(t *testing.T) {
 	}
 }
 
+func TestParseEpisodeWordPattern(t *testing.T) {
+	cases := []struct {
+		title string
+		ep    int
+		name  string
+	}{
+		{"UFC 328 Embedded Vlog Series Episode 2 1080p WEBRip", 2, "UFC 328 Embedded Vlog Series"},
+		{"UFC 328 Embedded-Vlog Series-Episode 2 1080p WEBRip", 2, "UFC 328 Embedded Vlog Series"},
+		{"Some Show Episode 10 720p HDTV", 10, "Some Show"},
+		{"Some.Show.Episode.5.720p", 5, "Some Show"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.title, func(t *testing.T) {
+			ep, ok := Parse(tc.title)
+			if !ok {
+				t.Fatalf("Parse(%q) = false", tc.title)
+			}
+			if ep.Episode != tc.ep {
+				t.Errorf("episode: got %d, want %d", ep.Episode, tc.ep)
+			}
+			if ep.SeriesName != tc.name {
+				t.Errorf("series name: got %q, want %q", ep.SeriesName, tc.name)
+			}
+		})
+	}
+}
+
+func TestParseOrdinalDatePattern(t *testing.T) {
+	cases := []struct {
+		title   string
+		y, m, d int
+		name    string
+	}{
+		{"Eastenders 6th May 2026 1080 Deep71", 2026, 5, 6, "Eastenders"},
+		{"TNA Xplosion 1st May 2026 YT 720p WEBRip", 2026, 5, 1, "TNA Xplosion"},
+		{"Some Show 23rd December 2025 720p HDTV", 2025, 12, 23, "Some Show"},
+		{"Late Night 2nd January 2026 1080p WEB", 2026, 1, 2, "Late Night"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.title, func(t *testing.T) {
+			ep, ok := Parse(tc.title)
+			if !ok {
+				t.Fatalf("Parse(%q) = false", tc.title)
+			}
+			if !ep.IsDate {
+				t.Error("expected IsDate=true")
+			}
+			if ep.Year != tc.y || ep.Month != tc.m || ep.Day != tc.d {
+				t.Errorf("date: got %d-%d-%d, want %d-%d-%d",
+					ep.Year, ep.Month, ep.Day, tc.y, tc.m, tc.d)
+			}
+			if ep.SeriesName != tc.name {
+				t.Errorf("series name: got %q, want %q", ep.SeriesName, tc.name)
+			}
+		})
+	}
+}
+
 func TestParseAbsolutePattern(t *testing.T) {
 	ep, ok := Parse("Anime.Title.E123.720p")
 	if !ok {
