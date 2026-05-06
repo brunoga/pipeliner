@@ -53,7 +53,7 @@ func New(name string, logger *slog.Logger) *Task {
 func (t *Task) Name() string { return t.name }
 
 // SetDryRun enables or disables dry-run mode. In dry-run mode, the output
-// phase is skipped.
+// and learn phases are skipped, making the run fully idempotent.
 func (t *Task) SetDryRun(v bool) { t.dryRun = v }
 
 func (t *Task) addPlugin(pi pluginInstance) {
@@ -223,6 +223,11 @@ func (t *Task) Run(ctx context.Context) (*Result, error) {
 	// --- Learn phase (serial — writes to shared store) ---
 	t.logger.Info("phase started", "phase", "learn")
 	phaseStart = time.Now()
+	if t.dryRun {
+		t.logger.Info("skipping learn phase (dry run)")
+		t.logger.Info("phase done", "phase", "learn", "duration", time.Since(phaseStart).Round(time.Millisecond))
+		return buildResult(entries, time.Since(start)), nil
+	}
 	// All plugins that implement LearnPlugin receive the entries here.
 	for _, pi := range t.plugins {
 		lrn, ok := pi.impl.(plugin.LearnPlugin)
