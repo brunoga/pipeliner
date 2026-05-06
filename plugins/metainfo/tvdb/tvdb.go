@@ -99,6 +99,7 @@ func (p *tvdbPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 		tc.Logger.Debug("metainfo_tvdb: search cache hit", "series", ep.SeriesName)
 	}
 	if len(results) == 0 {
+		tc.Logger.Warn("metainfo_tvdb: no results", "series", ep.SeriesName, "entry", e.Title)
 		return nil
 	}
 
