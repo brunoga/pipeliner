@@ -15,16 +15,18 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"sync"
 	"time"
 )
 
 const defaultBaseURL = "https://api4.thetvdb.com/v4"
 
-// Client is a TheTVDB v4 REST API client.
+// Client is a TheTVDB v4 REST API client. Safe for concurrent use.
 type Client struct {
 	apiKey  string
 	userPin string // optional; enables user-specific endpoints (favorites)
 	BaseURL string // overridable for testing; defaults to defaultBaseURL
+	mu      sync.Mutex
 	token   string
 	expires time.Time
 	http    *http.Client
@@ -322,6 +324,8 @@ func (c *Client) GetSeriesByID(ctx context.Context, id int) (*Series, error) {
 
 // ensureToken acquires a JWT if the current one is absent or expiring within 5 minutes.
 func (c *Client) ensureToken(ctx context.Context) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if c.token != "" && time.Until(c.expires) > 5*time.Minute {
 		return nil
 	}
