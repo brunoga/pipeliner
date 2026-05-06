@@ -309,18 +309,22 @@ section { margin-bottom: 32px; }
 
 /* database tab */
 .db-layout { display: flex; gap: 20px; align-items: flex-start; }
-.db-sidebar { width: 220px; flex-shrink: 0; }
+.db-sidebar { width: 200px; flex-shrink: 0; }
 .db-sidebar-section { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); padding: 10px 0 4px; }
-.db-bucket-btn {
+.db-nav-btn {
   display: flex; align-items: center; justify-content: space-between;
   width: 100%; padding: 6px 10px; margin-bottom: 2px;
   background: transparent; border: 1px solid transparent; border-radius: 6px;
   color: var(--muted); font-size: 12px; text-align: left; cursor: pointer;
 }
-.db-bucket-btn:hover { background: var(--surface); border-color: var(--border); color: var(--text); }
-.db-bucket-btn.active { background: var(--surface); border-color: var(--accent); color: var(--accent); }
-.db-bucket-count { font-size: 11px; background: var(--bg); border-radius: 10px; padding: 1px 7px; }
+.db-nav-btn:hover { background: var(--surface); border-color: var(--border); color: var(--text); }
+.db-nav-btn.active { background: var(--surface); border-color: var(--accent); color: var(--accent); }
+.db-nav-count { font-size: 11px; background: var(--bg); border-radius: 10px; padding: 1px 7px; }
 .db-main { flex: 1; min-width: 0; }
+.db-scroll { max-height: 500px; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; }
+.db-chevron { font-size: 11px; color: var(--muted); user-select: none; }
+.db-show-row { cursor: pointer; }
+.db-show-row:hover td { background: rgba(255,255,255,.02); }
 .db-toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; gap: 10px; }
 .db-title { font-size: 14px; font-weight: 600; }
 .db-search { padding: 4px 10px; background: var(--surface); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-size: 12px; outline: none; width: 200px; }
@@ -359,7 +363,7 @@ section { margin-bottom: 32px; }
 
 <div class="tab-bar">
   <button class="tab-btn active" id="tab-btn-dashboard" onclick="showTab('dashboard')">Dashboard</button>
-  <button class="tab-btn" id="tab-btn-config" onclick="showTab('config')">Edit Config</button>
+  <button class="tab-btn" id="tab-btn-config" onclick="showTab('config')">Config</button>
   <button class="tab-btn" id="tab-btn-db" onclick="showTab('db')">Database</button>
 </div>
 
@@ -403,11 +407,9 @@ section { margin-bottom: 32px; }
 
 <div id="tab-db" style="display:none">
   <div class="db-layout">
-    <div class="db-sidebar" id="db-sidebar">
-      <div class="db-loading">Loading…</div>
-    </div>
-    <div class="db-main" id="db-main">
-      <div class="db-empty">Select a bucket from the left.</div>
+    <div class="db-sidebar" id="db-sidebar"><div class="db-loading">Loading…</div></div>
+    <div class="db-main">
+      <div id="db-main-content"><div class="db-empty">Select a tracker from the left.</div></div>
     </div>
   </div>
 </div>
@@ -708,7 +710,7 @@ function showTab(name) {
   document.getElementById('tab-btn-config').classList.toggle('active', name === 'config');
   document.getElementById('tab-btn-db').classList.toggle('active', name === 'db');
   if (name === 'config' && !configLoaded) loadConfig();
-  if (name === 'db' && !dbLoaded) loadDBSidebar();
+  if (name === 'db' && !dbLoaded) loadDBTab();
 }
 
 // ── YAML syntax highlighting ──────────────────────────────────────────────────
@@ -860,247 +862,214 @@ function showConfigErrors(errors) {
 // ── database tab ─────────────────────────────────────────────────────────────
 
 let dbLoaded = false;
-let dbBuckets = [];
 let dbActiveBucket = null;
-let dbSearch = '';
+let dbNavItems = []; // [{bucket, label, count}]
 
-const CATEGORY_ORDER = ['tracker', 'cache', 'discover', 'other'];
-const CATEGORY_LABELS = {tracker: 'Trackers', cache: 'Caches', discover: 'Discover', other: 'Lists & Other'};
+// Fixed buckets always shown in the sidebar (even if empty).
+const DB_FIXED_BUCKETS = [
+  {bucket: 'series', label: 'Series'},
+  {bucket: 'movies', label: 'Movies'},
+  {bucket: 'seen',   label: 'Seen'},
+];
 
-async function loadDBSidebar() {
-  try {
-    const r = await fetch('/api/db/buckets');
-    if (!r.ok) return;
-    const { buckets } = await r.json();
-    dbBuckets = buckets || [];
-    dbLoaded = true;
-    renderDBSidebar();
-  } catch(e) {
-    document.getElementById('db-sidebar').innerHTML = '<div class="db-empty">Error loading database.</div>';
+async function loadDBTab() {
+  const r = await fetch('/api/db/buckets');
+  if (!r.ok) { document.getElementById('db-sidebar').innerHTML = '<div class="db-empty">Error.</div>'; return; }
+  const { buckets } = await r.json();
+  dbNavItems = [];
+  // Fixed trackers first — always present, count from bucket list.
+  for (const {bucket, label} of DB_FIXED_BUCKETS) {
+    const b = buckets.find(b => b.name === bucket);
+    dbNavItems.push({bucket, label, count: b?.count ?? 0});
   }
+  // Any per-task local seen buckets (seen:task-name).
+  for (const b of buckets) {
+    if (b.name.startsWith('seen:')) {
+      dbNavItems.push({bucket: b.name, label: 'Seen: ' + b.name.slice(5), count: b.count});
+    }
+  }
+  dbLoaded = true;
+  renderDBSidebar();
+  if (dbNavItems.length && !dbActiveBucket) selectDBBucket(dbNavItems[0].bucket);
 }
 
 function renderDBSidebar() {
-  const groups = {};
-  for (const b of dbBuckets) {
-    if (!groups[b.category]) groups[b.category] = [];
-    groups[b.category].push(b);
+  let html = '<div class="db-sidebar-section">Trackers</div>';
+  for (const item of dbNavItems) {
+    const active = dbActiveBucket === item.bucket ? ' active' : '';
+    html += `<button class="db-nav-btn${active}" onclick="selectDBBucket(${esc(JSON.stringify(item.bucket))})">
+      <span>${esc(item.label)}</span>
+      <span class="db-nav-count">${item.count}</span>
+    </button>`;
   }
-  let html = '';
-  for (const cat of CATEGORY_ORDER) {
-    if (!groups[cat]) continue;
-    html += `<div class="db-sidebar-section">${CATEGORY_LABELS[cat]}</div>`;
-    for (const b of groups[cat]) {
-      const active = dbActiveBucket === b.name ? ' active' : '';
-      html += `<button class="db-bucket-btn${active}" onclick="selectBucket(${esc(JSON.stringify(b.name))})">
-        <span>${esc(b.display)}</span>
-        <span class="db-bucket-count">${b.count}</span>
-      </button>`;
-    }
-  }
-  document.getElementById('db-sidebar').innerHTML = html || '<div class="db-empty">No data.</div>';
+  document.getElementById('db-sidebar').innerHTML = html;
 }
 
-// Buckets whose keys are TVDB series IDs — we resolve them to names using
-// the search cache (cache_metainfo_tvdb) as a companion lookup.
-const TVDB_ID_KEYED_BUCKETS = new Set([
-  'cache_metainfo_tvdb_ext',
-  'cache_metainfo_tvdb_eps',
-]);
-
-async function selectBucket(name) {
+async function selectDBBucket(name) {
   dbActiveBucket = name;
-  dbSearch = '';
   renderDBSidebar();
-  const main = document.getElementById('db-main');
+  const main = document.getElementById('db-main-content');
   main.innerHTML = '<div class="db-loading">Loading…</div>';
-  try {
-    const requests = [fetch('/api/db/buckets/' + encodeURIComponent(name))];
-    if (TVDB_ID_KEYED_BUCKETS.has(name)) {
-      requests.push(fetch('/api/db/buckets/cache_metainfo_tvdb'));
-    }
-    const responses = await Promise.all(requests);
-    if (!responses[0].ok) { main.innerHTML = '<div class="db-empty">Error loading bucket.</div>'; return; }
-    const data = await responses[0].json();
-
-    // Build id→name map from the search cache if available.
-    let idToName = {};
-    if (responses[1]?.ok) {
-      const searchData = await responses[1].json();
-      for (const e of (searchData.entries || [])) {
-        // Cache entries are stored as {v: <data>, e: <expiry>} (storedEntry struct).
-        const results = e.value?.v;
-        if (Array.isArray(results) && results[0]?.tvdb_id && results[0]?.name) {
-          idToName[String(results[0].tvdb_id)] = results[0].name;
-        }
-      }
-    }
-    renderDBMain(name, data, idToName);
-  } catch(e) {
-    main.innerHTML = '<div class="db-empty">Error loading bucket.</div>';
-  }
+  const r = await fetch('/api/db/buckets/' + encodeURIComponent(name));
+  if (!r.ok) { main.innerHTML = '<div class="db-empty">Error loading data.</div>'; return; }
+  const data = await r.json();
+  renderDBContent(name, data);
 }
 
-function renderDBMain(name, data, idToName = {}) {
-  const bucket = dbBuckets.find(b => b.name === name) || {name, display: name, count: data.entries?.length || 0};
-  const main = document.getElementById('db-main');
-
-  const toolbar = `<div class="db-toolbar">
-    <span class="db-title">${esc(bucket.display)}</span>
+function renderDBContent(name, data) {
+  const item = dbNavItems.find(i => i.bucket === name) || {label: name};
+  const filterFn = name === 'series' ? 'dbFilter()' : `dbFilter()`;
+  const main = document.getElementById('db-main-content');
+  const toolbar = `<div class="db-toolbar" style="margin-bottom:12px">
+    <span class="db-title">${esc(item.label)}</span>
     <div style="display:flex;gap:8px;align-items:center">
-      <input type="text" class="db-search" placeholder="filter…" oninput="dbFilter(this.value)" value="">
-      <button class="btn-danger" onclick="clearBucket(${esc(JSON.stringify(name))})">Clear bucket</button>
+      <input type="text" class="db-search" id="db-filter-input" placeholder="filter…" oninput="dbFilter(this.value,'${name}')">
+      <button class="btn-danger" onclick="dbClearBucket(${esc(JSON.stringify(name))},${esc(JSON.stringify(item.label))})">Clear all</button>
     </div>
   </div>`;
-
-  if (name === 'series' && data.grouped) {
-    main.innerHTML = toolbar + renderSeriesTable(data.grouped, name);
-  } else {
-    main.innerHTML = toolbar + renderGenericTable(data.entries || [], name, idToName);
-  }
+  let content = '';
+  if (name === 'series') content = renderSeriesTable(data.grouped || [], name);
+  else if (name === 'movies') content = renderMoviesTable(data.entries || [], name);
+  else content = renderSeenTable(data.entries || [], name);
+  main.innerHTML = toolbar + `<div class="db-scroll">${content}</div>`;
 }
 
-function renderSeriesTable(shows, bucketName) {
+// ── series ─────────────────────────────────────────────────────────────────────
+
+function renderSeriesTable(shows, bucket) {
   if (!shows.length) return '<div class="db-empty">No tracked series.</div>';
   let html = `<table class="db-table" id="db-content-table">
-    <thead><tr><th>Show</th><th>Episodes</th><th></th></tr></thead>`;
+    <thead><tr><th colspan="2">Show / Episode</th><th>Quality</th><th>Downloaded</th><th></th></tr></thead>`;
   for (const show of shows) {
     const sid = 'eps-' + btoa(encodeURIComponent(show.name)).replace(/=/g,'');
     html += `<tbody>
-      <tr class="db-show-row" onclick="toggleEps('${sid}')">
-        <td>${esc(show.name)}</td>
-        <td style="color:var(--muted)">${show.episodes.length} episode${show.episodes.length !== 1 ? 's' : ''}</td>
-        <td style="text-align:right"><button class="btn-sm" onclick="event.stopPropagation();deleteShow(${esc(JSON.stringify(bucketName))},${esc(JSON.stringify(show.name))})">Delete show</button></td>
+      <tr class="db-show-row" onclick="toggleEps('${sid}',this)">
+        <td colspan="2"><span class="db-chevron" id="chv-${sid}">▾</span> <strong>${esc(show.name)}</strong> <span style="color:var(--muted);font-size:12px">${show.episodes.length} ep${show.episodes.length !== 1 ? 's' : ''}</span></td>
+        <td></td><td></td>
+        <td style="text-align:right"><button class="btn-sm" onclick="event.stopPropagation();dbDeleteShow(${esc(JSON.stringify(show.name))})">Delete all</button></td>
       </tr>
     </tbody>
-    <tbody class="db-eps" id="${sid}">`;
+    <tbody class="db-eps open" id="${sid}">`;
     for (const ep of show.episodes) {
       const key = show.name + '|' + ep.episode_id;
       const date = ep.downloaded_at ? new Date(ep.downloaded_at).toLocaleDateString() : '—';
       html += `<tr>
-        <td>${esc(ep.episode_id)}</td>
+        <td style="width:16px"></td>
+        <td style="color:var(--accent);font-family:monospace;font-size:12px">${esc(ep.episode_id)}</td>
         <td class="ep-quality">${esc(ep.quality || '—')}</td>
         <td style="color:var(--muted)">${date}</td>
-        <td style="text-align:right"><button class="btn-sm" onclick="deleteEntry(${esc(JSON.stringify(bucketName))},${esc(JSON.stringify(key))})">×</button></td>
+        <td style="text-align:right"><button class="btn-sm" onclick="dbDeleteEntry(${esc(JSON.stringify(bucket))},${esc(JSON.stringify(key))})">×</button></td>
       </tr>`;
     }
     html += '</tbody>';
   }
-  html += '</table>';
-  return html;
+  return html + '</table>';
 }
 
-function renderGenericTable(entries, bucketName, idToName = {}) {
-  if (!entries.length) return '<div class="db-empty">Empty bucket.</div>';
-  const hasNames = Object.keys(idToName).length > 0;
+// ── movies ─────────────────────────────────────────────────────────────────────
+
+function renderMoviesTable(entries, bucket) {
+  if (!entries.length) return '<div class="db-empty">No tracked movies.</div>';
   let html = `<table class="db-table" id="db-content-table">
-    <thead><tr><th>Key</th>${hasNames ? '<th>Series</th>' : ''}<th></th></tr></thead><tbody>`;
+    <thead><tr><th>Title</th><th>Year</th><th>Quality</th><th>Downloaded</th><th></th></tr></thead><tbody>`;
   for (const e of entries) {
-    const seriesName = idToName[e.key];
+    const rec = e.value || {};
+    const date = rec.downloaded_at ? new Date(rec.downloaded_at).toLocaleDateString() : '—';
     html += `<tr>
-      <td style="word-break:break-all;font-family:monospace;font-size:12px">${esc(e.key)}</td>
-      ${hasNames ? `<td style="color:var(--text)">${seriesName ? esc(seriesName) : '<span style="color:var(--muted)">unknown</span>'}</td>` : ''}
-      <td style="text-align:right;white-space:nowrap"><button class="btn-sm" onclick="deleteEntry(${esc(JSON.stringify(bucketName))},${esc(JSON.stringify(e.key))})">×</button></td>
+      <td>${esc(rec.title || e.key)}</td>
+      <td style="color:var(--muted)">${rec.year || '—'}</td>
+      <td class="ep-quality">${esc(rec.quality?.string || '—')}</td>
+      <td style="color:var(--muted)">${date}</td>
+      <td style="text-align:right"><button class="btn-sm" onclick="dbDeleteEntry(${esc(JSON.stringify(bucket))},${esc(JSON.stringify(e.key))})">×</button></td>
     </tr>`;
   }
-  html += '</tbody></table>';
-  return html;
+  return html + '</tbody></table>';
 }
 
-function toggleEps(id) {
+// ── seen filter ────────────────────────────────────────────────────────────────
+
+function renderSeenTable(entries, bucket) {
+  if (!entries.length) return '<div class="db-empty">No seen entries.</div>';
+  let html = `<table class="db-table" id="db-content-table">
+    <thead><tr><th>Title</th><th>Task</th><th>Seen</th><th></th></tr></thead><tbody>`;
+  for (const e of entries) {
+    const rec = e.value || {};
+    const date = rec.seen_at ? new Date(rec.seen_at).toLocaleDateString() : '—';
+    html += `<tr>
+      <td style="word-break:break-word">${esc(rec.title || e.key)}</td>
+      <td style="color:var(--muted);white-space:nowrap">${esc(rec.task || '—')}</td>
+      <td style="color:var(--muted);white-space:nowrap">${date}</td>
+      <td style="text-align:right"><button class="btn-sm" onclick="dbDeleteEntry(${esc(JSON.stringify(bucket))},${esc(JSON.stringify(e.key))})">×</button></td>
+    </tr>`;
+  }
+  return html + '</tbody></table>';
+}
+
+// ── shared helpers ─────────────────────────────────────────────────────────────
+
+function toggleEps(id, row) {
   const el = document.getElementById(id);
-  if (el) el.classList.toggle('open');
+  if (!el) return;
+  el.classList.toggle('open');
+  const chv = document.getElementById('chv-' + id);
+  if (chv) chv.textContent = el.classList.contains('open') ? '▾' : '▸';
 }
 
-function dbFilter(val) {
-  dbSearch = val.toLowerCase();
+function dbFilter(val, bucket) {
+  const q = (val || '').toLowerCase();
   const table = document.getElementById('db-content-table');
   if (!table) return;
-  // For series table: hide show rows + their episode groups when name doesn't match.
-  const showRows = table.querySelectorAll('.db-show-row');
-  showRows.forEach(row => {
-    const name = row.cells[0]?.textContent?.toLowerCase() || '';
-    const match = !dbSearch || name.includes(dbSearch);
-    row.style.display = match ? '' : 'none';
-    const epsId = row.getAttribute('onclick')?.match(/'([^']+)'/)?.[1];
-    if (epsId) {
-      const epsEl = document.getElementById(epsId);
+  if (bucket === 'series') {
+    table.querySelectorAll('.db-show-row').forEach(row => {
+      const match = !q || row.cells[0]?.textContent?.toLowerCase().includes(q);
+      row.style.display = match ? '' : 'none';
+      const sid = row.getAttribute('onclick')?.match(/'([^']+)'/)?.[1];
+      const epsEl = sid ? document.getElementById(sid) : null;
       if (epsEl) epsEl.style.display = match ? '' : 'none';
-    }
-  });
-  // For generic table.
-  const rows = table.querySelectorAll('tbody tr:not(.db-show-row)');
-  rows.forEach(row => {
-    if (row.closest('.db-eps')) return;
-    const text = row.textContent.toLowerCase();
-    row.style.display = (!dbSearch || text.includes(dbSearch)) ? '' : 'none';
-  });
-}
-
-async function clearBucket(name) {
-  if (!confirm(`Clear all entries in "${name}"? This cannot be undone.`)) return;
-  try {
-    const r = await fetch('/api/db/buckets/' + encodeURIComponent(name), {method: 'DELETE'});
-    if (r.ok) { await reloadBucket(name); await loadDBSidebar(); }
-    else alert('Error: ' + await r.text());
-  } catch(e) { alert(String(e)); }
-}
-
-async function deleteShow(bucket, showName) {
-  if (!confirm(`Delete all episodes of "${showName}"?`)) return;
-  // Delete all keys that start with showName|
-  try {
-    const r = await fetch('/api/db/buckets/' + encodeURIComponent(bucket));
-    const data = await r.json();
-    const prefix = showName + '|';
-    const keys = (data.entries || []).filter(e => e.key.startsWith(prefix)).map(e => e.key);
-    await Promise.all(keys.map(key =>
-      fetch('/api/db/entries/' + encodeURIComponent(bucket), {
-        method: 'DELETE',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({key}),
-      })
-    ));
-    await reloadBucket(bucket);
-    await loadDBSidebar();
-  } catch(e) { alert(String(e)); }
-}
-
-async function deleteEntry(bucket, key) {
-  try {
-    const r = await fetch('/api/db/entries/' + encodeURIComponent(bucket), {
-      method: 'DELETE',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({key}),
     });
-    if (r.ok) { await reloadBucket(bucket); await loadDBSidebar(); }
-    else alert('Error: ' + await r.text());
-  } catch(e) { alert(String(e)); }
+  } else {
+    table.querySelectorAll('tbody tr').forEach(row => {
+      row.style.display = (!q || row.textContent.toLowerCase().includes(q)) ? '' : 'none';
+    });
+  }
 }
 
-async function reloadBucket(name) {
-  if (dbActiveBucket !== name) return;
-  const requests = [fetch('/api/db/buckets/' + encodeURIComponent(name))];
-  if (TVDB_ID_KEYED_BUCKETS.has(name)) {
-    requests.push(fetch('/api/db/buckets/cache_metainfo_tvdb'));
+async function dbClearBucket(bucket, label) {
+  if (!confirm(`Clear all entries in "${label}"? They will be re-processed next run.`)) return;
+  const r = await fetch('/api/db/buckets/' + encodeURIComponent(bucket), {method: 'DELETE'});
+  if (r.ok) { await selectDBBucket(bucket); await loadDBSidebar(); }
+  else alert('Error: ' + await r.text());
+}
+
+async function loadDBSidebar() {
+  const r = await fetch('/api/db/buckets');
+  if (!r.ok) return;
+  const { buckets } = await r.json();
+  for (const item of dbNavItems) {
+    const b = buckets.find(b => b.name === item.bucket);
+    item.count = b?.count ?? 0;
   }
-  const responses = await Promise.all(requests);
-  if (!responses[0].ok) return;
-  const data = await responses[0].json();
-  let idToName = {};
-  if (responses[1]?.ok) {
-    const searchData = await responses[1].json();
-    for (const e of (searchData.entries || [])) {
-      try {
-        const results = JSON.parse(e.value);
-        if (Array.isArray(results) && results[0]?.tvdb_id && results[0]?.name) {
-          idToName[String(results[0].tvdb_id)] = results[0].name;
-        }
-      } catch(_) {}
-    }
-  }
-  renderDBMain(name, data, idToName);
-  if (dbSearch) dbFilter(dbSearch);
+  renderDBSidebar();
+}
+
+async function dbDeleteShow(showName) {
+  if (!confirm(`Delete all episodes of "${showName}"? They will be re-downloaded next run.`)) return;
+  const r = await fetch('/api/db/buckets/series');
+  const data = await r.json();
+  const keys = (data.entries || []).filter(e => e.key.startsWith(showName + '|')).map(e => e.key);
+  await Promise.all(keys.map(key => fetch('/api/db/entries/series', {
+    method: 'DELETE', headers: {'Content-Type':'application/json'}, body: JSON.stringify({key}),
+  })));
+  await selectDBBucket('series');
+  await loadDBSidebar();
+}
+
+async function dbDeleteEntry(bucket, key) {
+  const r = await fetch('/api/db/entries/' + encodeURIComponent(bucket), {
+    method: 'DELETE', headers: {'Content-Type':'application/json'}, body: JSON.stringify({key}),
+  });
+  if (r.ok) { await selectDBBucket(bucket); await loadDBSidebar(); }
+  else alert('Error: ' + await r.text());
 }
 
 // ── boot ──────────────────────────────────────────────────────────────────────
