@@ -14,13 +14,11 @@ This pairs with `list_match` to replicate FlexGet's `movie_list` / `list_add` / 
 
 ```yaml
 tasks:
-  sync-watchlist:
+  # Populate a list from an RSS feed (trakt_list is a from plugin, not a standalone input)
+  sync-list:
     priority: 1
-    input_trakt:
-      client_id: YOUR_CLIENT_ID
-      access_token: YOUR_ACCESS_TOKEN
-      type: movies
-      list: watchlist
+    rss:
+      url: "https://example.com/rss/movies"
     seen:
       local: true   # don't mark as globally seen
     accept_all:
@@ -28,7 +26,7 @@ tasks:
       list: movie_watchlist
 
 schedules:
-  sync-watchlist: 1h
+  sync-list: 1h
 ```
 
 ## Notes

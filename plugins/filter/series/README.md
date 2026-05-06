@@ -32,8 +32,8 @@ Each entry is a plugin name string or an object with a `name` key plus plugin-sp
 
 ```yaml
 from:
-  - input_trakt                  # name only, uses defaults
-  - name: input_tvdb
+  - trakt_list                 # name only, uses defaults
+  - name: tvdb_favorites
     api_key: YOUR_KEY
     user_pin: YOUR_PIN
 ```
@@ -77,7 +77,7 @@ tasks:
       quality: 720p
       ttl: 2h
       from:
-        - name: input_trakt
+        - name: trakt_list
           client_id: YOUR_TRAKT_CLIENT_ID
           access_token: YOUR_TRAKT_ACCESS_TOKEN
           type: shows
@@ -96,7 +96,7 @@ tasks:
       tracking: strict
       quality: 720p
       from:
-        - name: input_tvdb
+        - name: tvdb_favorites
           api_key: YOUR_TVDB_API_KEY
           user_pin: YOUR_TVDB_USER_PIN
 ```
@@ -112,7 +112,7 @@ tasks:
       shows:
         - "Severance"      # always included regardless of watchlist
       from:
-        - name: input_trakt
+        - name: trakt_list
           client_id: YOUR_CLIENT_ID
           access_token: YOUR_ACCESS_TOKEN
           type: shows

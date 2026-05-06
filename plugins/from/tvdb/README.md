@@ -1,6 +1,8 @@
-# input_tvdb
+# tvdb_favorites
 
 Fetches shows from a TheTVDB user's favorites list and emits one entry per show. Entries carry the show name and a canonical TheTVDB URL, making them suitable as title sources for `discover.from` and `series.from`.
+
+**This plugin is a PhaseFrom sub-plugin.** It cannot be used directly as a task-level input. Use it inside `series.from`, `movies.from`, or `discover.from`.
 
 ## Config
 
@@ -27,7 +29,7 @@ tasks:
       tracking: strict
       quality: 720p+
       from:
-        - name: input_tvdb
+        - name: tvdb_favorites
           api_key: YOUR_TVDB_API_KEY
           user_pin: YOUR_TVDB_USER_PIN
     deluge:

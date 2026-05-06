@@ -38,6 +38,9 @@ func Build(name string, plugins []PluginConfig, db *store.SQLiteStore, logger *s
 		if !ok {
 			return nil, fmt.Errorf("task %q: unknown plugin %q", name, pc.Name)
 		}
+		if !plugin.IsDispatchable(desc.PluginPhase) {
+			return nil, fmt.Errorf("task %q: plugin %q (phase %q) cannot be used as a top-level task plugin; it is only valid inside 'from' or similar sub-plugin lists", name, pc.Name, desc.PluginPhase)
+		}
 		cfg := pc.Config
 		if cfg == nil {
 			cfg = map[string]any{}

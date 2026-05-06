@@ -23,7 +23,7 @@ tasks:
       quality: 720p
       ttl: 4h
       from:
-        - name: input_trakt
+        - name: trakt_list
           client_id: "{$ trakt_client_id $}"
           access_token: "{$ trakt_access_token $}"
           type: movies
@@ -51,7 +51,7 @@ tasks:
       quality: 1080p
       ttl: 4h
       from:
-        - name: input_trakt
+        - name: trakt_list
           client_id: "{$ trakt_client_id $}"
           access_token: "{$ trakt_access_token $}"
           type: movies

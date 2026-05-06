@@ -5,6 +5,7 @@ package plugin
 import (
 	"context"
 	"log/slog"
+	"slices"
 
 	"github.com/brunoga/pipeliner/internal/entry"
 )
@@ -13,7 +14,7 @@ import (
 type Phase string
 
 const (
-	PhaseSearch   Phase = "search"   // sub-plugins used by discover; not dispatched by the task engine
+	PhaseFrom     Phase = "from"     // sub-plugins used by series/movies/discover; not dispatched by the task engine
 	PhaseInput    Phase = "input"
 	PhaseMetainfo Phase = "metainfo"
 	PhaseFilter   Phase = "filter"
@@ -30,6 +31,12 @@ var Phases = []Phase{
 	PhaseModify,
 	PhaseOutput,
 	PhaseLearn,
+}
+
+// IsDispatchable reports whether a phase is dispatched by the task engine.
+// PhaseFrom and any future sub-plugin phases are not dispatchable.
+func IsDispatchable(p Phase) bool {
+	return slices.Contains(Phases, p)
 }
 
 // Plugin is the base interface every plugin must satisfy.
@@ -108,7 +115,7 @@ type BatchMetainfoPlugin interface {
 
 // SearchPlugin actively searches a source for entries matching a query string.
 // SearchPlugins are used as sub-plugins by the discover input plugin and are
-// not dispatched directly by the task engine. Register them with PhaseSearch.
+// not dispatched directly by the task engine. Register them with PhaseFrom.
 type SearchPlugin interface {
 	Plugin
 	Search(ctx context.Context, task *TaskContext, query string) ([]*entry.Entry, error)

@@ -22,7 +22,7 @@ tasks:
       quality: 720p
       ttl: 2h
       from:
-        - name: input_tvdb
+        - name: tvdb_favorites
           api_key: "{$ tvdb_api_key $}"
           user_pin: "{$ tvdb_user_pin $}"
     metainfo_tvdb:

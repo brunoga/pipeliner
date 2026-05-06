@@ -1,52 +1,6 @@
-# jackett / jackett_input
+# jackett_input
 
-This package provides two plugins for interacting with a [Jackett](https://github.com/Jackett/Jackett) indexer proxy via the Torznab API.
-
----
-
-## `jackett` — search backend for `discover`
-
-Search plugin that queries Jackett indexers on demand. Unlike `search_rss` pointed at Jackett's RSS endpoint, this plugin speaks Torznab natively: seeder/leecher counts, info hashes, and file sizes come back in the search response, so no separate `metainfo_torrent` or `metainfo_magnet` fetch is needed.
-
-Used as a backend for the [`discover`](../../discover/README.md) input plugin.
-
-### Config
-
-| Key | Type | Required | Default | Description |
-|-----|------|----------|---------|-------------|
-| `url` | string | yes | — | Jackett base URL, e.g. `http://localhost:9117` |
-| `api_key` | string | yes | — | Jackett API key (found in the Jackett web UI) |
-| `indexers` | list | no | `["all"]` | Indexer IDs to query. All are passed to Jackett in a single API call (comma-separated); Jackett aggregates results server-side. `"all"` queries every configured indexer. |
-| `categories` | list | no | (none) | Torznab category codes to filter results. |
-| `limit` | int | no | (none) | Maximum number of results to return across all indexers. |
-| `timeout` | string | no | `60s` | HTTP request timeout, e.g. `60s`, `2m`. Increase when querying many indexers. |
-
-### Example
-
-```yaml
-tasks:
-  tv-shows:
-    discover:
-      from:
-        - name: input_tvdb
-          api_key: YOUR_TVDB_KEY
-          user_pin: YOUR_TVDB_PIN
-      via:
-        - name: jackett
-          url: "http://localhost:9117"
-          api_key: YOUR_JACKETT_KEY
-          indexers: ["all"]
-          categories: ["5000", "5030"]
-      interval: 12h
-    series:
-      from:
-        - name: input_tvdb
-          api_key: YOUR_TVDB_KEY
-          user_pin: YOUR_TVDB_PIN
-      quality: 720p+
-    deluge:
-      host: localhost
-```
+The `jackett` from-plugin has moved to [`plugins/from/jackett/`](../../../../from/jackett/README.md). This file now documents only `jackett_input`.
 
 ---
 

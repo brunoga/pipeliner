@@ -23,7 +23,7 @@ Each entry is a plugin name string or an object with a `name` key plus plugin-sp
 
 ```yaml
 from:
-  - name: input_trakt
+  - name: trakt_list
     client_id: YOUR_CLIENT_ID
     access_token: YOUR_ACCESS_TOKEN
     type: movies
@@ -86,7 +86,7 @@ tasks:
       quality: 1080p+
       ttl: 4h
       from:
-        - name: input_trakt
+        - name: trakt_list
           client_id: YOUR_TRAKT_CLIENT_ID
           access_token: YOUR_TRAKT_ACCESS_TOKEN
           type: movies
