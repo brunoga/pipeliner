@@ -620,7 +620,7 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
     fromRaw, _ := cfg["from"].([]any)
     var sources []plugin.InputPlugin
     for _, item := range fromRaw {
-        inp, err := plugin.MakeInputPlugin(item, db)
+        inp, err := plugin.MakeFromPlugin(item, db)
         if err != nil {
             return nil, fmt.Errorf("my_plugin: from: %w", err)
         }
@@ -630,46 +630,23 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 }
 ```
 
-`plugin.MakeInputPlugin` handles both the string form (`"tvdb_favorites"`) and the map form (`{name: tvdb_favorites, api_key: "..."}`) transparently. The resolved plugin receives its own `Factory` call and shares the same `db`.
+`plugin.MakeFromPlugin` handles both the string form (`"tvdb_favorites"`) and the map form (`{name: tvdb_favorites, api_key: "..."}`) transparently. It validates that the plugin is registered under `PhaseFrom` and wraps it in a logging decorator that automatically emits `info`-level start/done/duration lines on every `Run()` call — no manual logging needed. The resolved plugin receives its own `Factory` call and shares the same `db`.
 
-**At runtime**, call each source with a local `TaskContext`:
+**At runtime**, use `plugin.ResolveDynamicList` to handle caching, invocation, and normalization in one call:
 
 ```go
 func (p *myPlugin) loadTitles(ctx context.Context, tc *plugin.TaskContext) []string {
-    innerTC := &plugin.TaskContext{Name: tc.Name, Logger: tc.Logger}
-    var titles []string
-    for _, inp := range p.sources {
-        entries, err := inp.Run(ctx, innerTC)
-        if err != nil {
-            tc.Logger.Warn("my_plugin: from source failed", "plugin", inp.Name(), "err", err)
-            continue
-        }
-        for _, e := range entries {
-            if e.Title != "" {
-                titles = append(titles, e.Title)
-            }
-        }
-    }
-    return titles
+    return plugin.ResolveDynamicList(ctx, tc, p.sources, p.staticTitles,
+        func() ([]string, bool) { return p.listCache.Get("list") },
+        func(v []string) { p.listCache.Set("list", v) },
+        match.Normalize,
+    )
 }
 ```
 
-Cache this result if the source is expensive (e.g. API calls to TVDB or Trakt):
+`ResolveDynamicList` checks the cache first (logging a debug-level cache-hit message), then calls each from-plugin's `Run()` (which the `loggedFromPlugin` wrapper logs at info level), normalizes the titles with the provided function, caches the result, and returns the merged static+dynamic list.
 
-```go
-listCache *cache.Cache[[]string]
-
-// In newPlugin:
-listCache: cache.NewPersistent[[]string](ttl, db.Bucket("cache_mylist:"+name)),
-
-// In loadTitles:
-if titles, ok := p.listCache.Get("list"); ok {
-    return titles
-}
-titles := fetchFromSources(...)
-p.listCache.Set("list", titles)
-return titles
-```
+If you need custom per-entry logic beyond title extraction, call `inp.Run()` directly — the logging wrapper in each from-plugin still fires automatically.
 
 ### Loading a SearchPlugin from config (`via:` pattern)
 
@@ -715,7 +692,7 @@ from:
     user_pin: "..."
 ```
 
-Both forms are handled by `MakeInputPlugin` and `ResolveNameAndConfig`.
+Both forms are handled by `MakeFromPlugin` and `ResolveNameAndConfig`.
 
 ---
 
@@ -921,6 +898,6 @@ func apply(e *entry.Entry, data *MyData) {
 - [ ] Bucket names include `tc.Name` to scope data per task
 - [ ] Persistent caches call `Preload()` in the constructor
 - [ ] Errors from external calls are logged and do not fail the whole pipeline (return nil, log warn)
-- [ ] Sub-plugin configs use `MakeInputPlugin` or `ResolveNameAndConfig`
+- [ ] Sub-plugin configs use `MakeFromPlugin` (for `from:` sources) or `ResolveNameAndConfig` (for search plugins)
 - [ ] A `README.md` is created in the plugin directory
 - [ ] The plugin is added to `cmd/pipeliner/main.go` via a side-effect import
