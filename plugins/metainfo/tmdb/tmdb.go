@@ -89,6 +89,7 @@ func (p *tmdbPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 		p.cache.Set(key, results)
 	}
 	if len(results) == 0 {
+		tc.Logger.Warn("metainfo_tmdb: no results", "title", m.Title, "year", m.Year, "entry", e.Title)
 		return nil
 	}
 
