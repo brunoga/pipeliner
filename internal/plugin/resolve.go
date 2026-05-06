@@ -6,9 +6,10 @@ import (
 	"github.com/brunoga/pipeliner/internal/store"
 )
 
-// MakeInputPlugin creates an InputPlugin from a config item. item may be a
-// plugin name string or a map[string]any with a "name" key plus config keys.
-func MakeInputPlugin(item any, db *store.SQLiteStore) (InputPlugin, error) {
+// MakeFromPlugin creates a logging-wrapped InputPlugin from a config item.
+// item may be a plugin name string or a map[string]any with a "name" key plus
+// config keys. Returns an error if the plugin is not registered under PhaseFrom.
+func MakeFromPlugin(item any, db *store.SQLiteStore) (InputPlugin, error) {
 	name, cfg, err := ResolveNameAndConfig(item)
 	if err != nil {
 		return nil, err
@@ -16,6 +17,9 @@ func MakeInputPlugin(item any, db *store.SQLiteStore) (InputPlugin, error) {
 	d, ok := Lookup(name)
 	if !ok {
 		return nil, fmt.Errorf("unknown plugin %q", name)
+	}
+	if d.PluginPhase != PhaseFrom {
+		return nil, fmt.Errorf("plugin %q (phase %q) is not a from plugin; only PhaseFrom plugins may be used in from: lists", name, d.PluginPhase)
 	}
 	p, err := d.Factory(cfg, db)
 	if err != nil {
@@ -25,7 +29,7 @@ func MakeInputPlugin(item any, db *store.SQLiteStore) (InputPlugin, error) {
 	if !ok {
 		return nil, fmt.Errorf("plugin %q does not implement InputPlugin", name)
 	}
-	return inp, nil
+	return &loggedFromPlugin{inner: inp}, nil
 }
 
 // ResolveNameAndConfig extracts a plugin name and config map from either a
