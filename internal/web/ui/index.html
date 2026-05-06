@@ -122,23 +122,8 @@ section { margin-bottom: 32px; }
 }
 .btn-run:disabled { opacity: 0.4; cursor: not-allowed; }
 .btn-run.triggered { border-color: var(--amber); color: var(--amber); }
-.btn-run.running   { border-color: var(--accent); color: var(--accent); }
-
-.running-badge {
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--accent);
-  background: rgba(88,166,255,0.12);
-  border: 1px solid rgba(88,166,255,0.3);
-  border-radius: 4px;
-  padding: 1px 6px;
-  white-space: nowrap;
-  flex-shrink: 0;
-  animation: pulse 1.5s ease-in-out infinite;
-}
-@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+.btn-run.running   { border-color: var(--accent); color: var(--accent); background: rgba(88,166,255,0.06); animation: pulse 1.5s ease-in-out infinite; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.55; } }
 
 /* log console */
 .log-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
@@ -467,8 +452,6 @@ function card(t, last) {
   const schedOpacity = (!nextDate && !t.schedule) ? ' style="opacity:.5"' : '';
   const schedBadge = `<span class="task-schedule"${schedOpacity} title="${esc(t.schedule || '')}">${esc(schedLabel)}</span>`;
 
-  const runningBadge = t.running ? `<span class="running-badge">running</span>` : '';
-
   const nextStr = nextDate ? 'in ' + relTime(nextDate) : '—';
   const lastStr = last ? relTime(new Date(last.at)) + ' ago' : 'never';
   const durStr  = last ? ' · ' + last.duration : '';
@@ -492,7 +475,7 @@ function card(t, last) {
     <div class="task-card">
       <div class="task-card-header">
         <div class="task-name">${esc(t.name)}</div>
-        <div style="display:flex;gap:6px;align-items:center">${runningBadge}${schedBadge}</div>
+        <div style="display:flex;gap:6px;align-items:center">${schedBadge}</div>
       </div>
       <div class="task-timing">
         <span><span>Next run</span><b>${nextStr}</b></span>
