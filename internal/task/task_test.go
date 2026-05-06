@@ -457,3 +457,114 @@ func TestOutputsRunConcurrentlyNotSerially(t *testing.T) {
 	}
 	_ = start
 }
+
+// --- processing pipeline order test doubles ---
+
+// fieldAnnotator is a MetainfoPlugin that sets a named field and appends its name to a log.
+type fieldAnnotator struct {
+	name  string
+	field string
+	log   *[]string
+}
+
+func (a *fieldAnnotator) Name() string        { return a.name }
+func (a *fieldAnnotator) Phase() plugin.Phase { return plugin.PhaseMetainfo }
+func (a *fieldAnnotator) Annotate(_ context.Context, _ *plugin.TaskContext, e *entry.Entry) error {
+	*a.log = append(*a.log, a.name)
+	e.Set(a.field, true)
+	return nil
+}
+
+// fieldRequiredFilter accepts if a named field is set, rejects otherwise, and appends its name to a log.
+type fieldRequiredFilter struct {
+	name  string
+	field string
+	log   *[]string
+}
+
+func (f *fieldRequiredFilter) Name() string        { return f.name }
+func (f *fieldRequiredFilter) Phase() plugin.Phase { return plugin.PhaseFilter }
+func (f *fieldRequiredFilter) Filter(_ context.Context, _ *plugin.TaskContext, e *entry.Entry) error {
+	*f.log = append(*f.log, f.name)
+	if _, ok := e.Get(f.field); ok {
+		e.Accept()
+	} else {
+		e.Reject(f.name + ": field " + f.field + " not set")
+	}
+	return nil
+}
+
+// TestProcessingPipelineConfigOrder verifies that a filter placed before a metainfo
+// plugin in config runs before it (and therefore cannot see the field it sets),
+// while a filter placed after can.
+func TestProcessingPipelineConfigOrder(t *testing.T) {
+	t.Run("filter_before_meta_rejects", func(t *testing.T) {
+		var log []string
+		inp := &stubInput{entries: []*entry.Entry{entry.New("e", "http://x.com")}}
+		meta := &fieldAnnotator{name: "meta", field: "flag", log: &log}
+		flt := &fieldRequiredFilter{name: "flt", field: "flag", log: &log}
+
+		// config order: filter first, then meta — filter cannot see the field yet
+		task := makeTask("t", inp, flt, meta)
+		res, err := task.Run(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.Accepted != 0 || res.Rejected != 1 {
+			t.Errorf("want 0 accepted / 1 rejected, got %d / %d", res.Accepted, res.Rejected)
+		}
+		if len(log) != 2 || log[0] != "flt" || log[1] != "meta" {
+			t.Errorf("execution order: got %v, want [flt meta]", log)
+		}
+	})
+
+	t.Run("meta_before_filter_accepts", func(t *testing.T) {
+		var log []string
+		inp := &stubInput{entries: []*entry.Entry{entry.New("e", "http://x.com")}}
+		meta := &fieldAnnotator{name: "meta", field: "flag", log: &log}
+		flt := &fieldRequiredFilter{name: "flt", field: "flag", log: &log}
+
+		// config order: meta first, then filter — filter sees the field
+		task := makeTask("t", inp, meta, flt)
+		res, err := task.Run(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.Accepted != 1 || res.Rejected != 0 {
+			t.Errorf("want 1 accepted / 0 rejected, got %d / %d", res.Accepted, res.Rejected)
+		}
+		if len(log) != 2 || log[0] != "meta" || log[1] != "flt" {
+			t.Errorf("execution order: got %v, want [meta flt]", log)
+		}
+	})
+}
+
+// TestProcessingPipelineInterleaved verifies the full interleaved case:
+// meta1 → filter1 → meta2 → filter2 runs in that exact config order.
+// filter1 sees only meta1's field; filter2 sees both.
+func TestProcessingPipelineInterleaved(t *testing.T) {
+	var log []string
+	inp := &stubInput{entries: []*entry.Entry{entry.New("e", "http://x.com")}}
+	meta1 := &fieldAnnotator{name: "meta1", field: "flag1", log: &log}
+	flt1 := &fieldRequiredFilter{name: "flt1", field: "flag1", log: &log}
+	meta2 := &fieldAnnotator{name: "meta2", field: "flag2", log: &log}
+	flt2 := &fieldRequiredFilter{name: "flt2", field: "flag2", log: &log}
+
+	task := makeTask("t", inp, meta1, flt1, meta2, flt2)
+	res, err := task.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Accepted != 1 {
+		t.Errorf("want 1 accepted, got %d", res.Accepted)
+	}
+	want := []string{"meta1", "flt1", "meta2", "flt2"}
+	if len(log) != len(want) {
+		t.Fatalf("execution log: got %v, want %v", log, want)
+	}
+	for i := range want {
+		if log[i] != want[i] {
+			t.Errorf("step %d: got %q, want %q (full log: %v)", i, log[i], want[i], log)
+		}
+	}
+}
