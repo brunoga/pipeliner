@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/cookiejar"
 
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/interp"
@@ -74,12 +75,13 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 		scheme = "https"
 	}
 
+	jar, _ := cookiejar.New(nil)
 	return &delugePlugin{
 		endpoint:        fmt.Sprintf("%s://%s:%d/json", scheme, host, port),
 		password:        password,
 		pathIP:          pathIP,
 		moveCompletedIP: moveCompletedIP,
-		client:          &http.Client{},
+		client:          &http.Client{Jar: jar},
 	}, nil
 }
 
