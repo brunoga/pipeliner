@@ -81,16 +81,21 @@ func (p *qbtPlugin) Phase() plugin.Phase { return plugin.PhaseOutput }
 
 func (p *qbtPlugin) Output(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
 	if err := p.login(ctx); err != nil {
+		for _, e := range entries {
+			e.Fail("qbittorrent: login failed")
+		}
 		return fmt.Errorf("qbittorrent: login: %w", err)
 	}
 	for _, e := range entries {
 		savePath, err := p.renderSave(e)
 		if err != nil {
 			tc.Logger.Error("qbittorrent: render savepath", "title", e.Title, "err", err)
+			e.Fail("qbittorrent: render savepath: " + err.Error())
 			continue
 		}
 		if err := p.addTorrent(ctx, e.URL, savePath); err != nil {
 			tc.Logger.Error("qbittorrent: add torrent", "title", e.Title, "err", err)
+			e.Fail("qbittorrent: " + err.Error())
 		}
 	}
 	return nil
