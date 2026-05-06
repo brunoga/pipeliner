@@ -358,7 +358,7 @@ make build        # or: go build -o pipeliner ./cmd/pipeliner</code></pre>
   <tr><td><strong>Metainfo</strong></td><td>Plugins annotate entries with additional fields (quality tags, TVDB data, torrent info). Runs in config order, interleaved with filter and modify.</td><td>undecided</td></tr>
   <tr><td><strong>Filter</strong></td><td>Plugins accept, reject, or leave entries undecided. Runs in config order, interleaved with metainfo and modify.</td><td>accepted / rejected / undecided</td></tr>
   <tr><td><strong>Modify</strong></td><td>Plugins mutate accepted entry fields (path formatting, field setting). Runs in config order, interleaved with metainfo and filter.</td><td>accepted (unchanged)</td></tr>
-  <tr><td><strong>Output</strong></td><td>Plugins act on all accepted entries (add to torrent client, send email). All outputs run concurrently.</td><td>accepted / failed (if downloader errors)</td></tr>
+  <tr><td><strong>Output</strong></td><td>Plugins act on accepted entries in config order. Each plugin receives only entries still accepted at that point — a plugin that fails an entry removes it from subsequent output plugins and from the learn phase.</td><td>accepted / failed (if downloader errors)</td></tr>
   <tr><td><strong>Learn</strong></td><td>Plugins persist state for future runs (mark as seen, record series tracker). Skipped in dry-run mode.</td><td>—</td></tr>
 </table>
 
@@ -1045,7 +1045,7 @@ After DHT: <code>torrent_name</code>, <code>torrent_size</code>, <code>torrent_f
 <hr>
 <!-- ═══════════════════════════════════════════════════════════ -->
 <h1>Output Plugins</h1>
-<p>Output plugins act on accepted entries after modify. All outputs in a task run concurrently.</p>
+<p>Output plugins act on accepted entries after modify. Outputs run serially in config order. Each plugin receives only the entries still accepted at the time it runs — a plugin that calls <code>e.Fail()</code> removes that entry from subsequent output plugins and from the learn phase, so it will be retried on the next run.</p>
 
 <div class="note"><strong>Error handling:</strong> Downloader plugins (<code>deluge</code>, <code>qbittorrent</code>, <code>transmission</code>, <code>download</code>) mark an entry as <strong>failed</strong> when they cannot queue or fetch it. Failed entries are skipped by the Learn phase and will be retried on the next run. Notification plugins (<code>email</code>, <code>exec</code>, <code>print</code>, <code>notify</code>) do not mark entries failed — a notification failure does not cause a retry.</div>
 
