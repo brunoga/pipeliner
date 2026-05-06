@@ -58,11 +58,11 @@ func TestDefaultList(t *testing.T) {
 }
 
 func TestRegistration(t *testing.T) {
-	d, ok := plugin.Lookup("input_trakt")
+	d, ok := plugin.Lookup("trakt_list")
 	if !ok {
-		t.Fatal("input_trakt not registered")
+		t.Fatal("trakt_list not registered")
 	}
-	if d.PluginPhase != plugin.PhaseInput {
+	if d.PluginPhase != plugin.PhaseFrom {
 		t.Errorf("phase: got %v", d.PluginPhase)
 	}
 }

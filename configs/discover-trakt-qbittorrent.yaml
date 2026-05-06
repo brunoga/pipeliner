@@ -18,13 +18,13 @@ tasks:
     discover:
       ttl: 4h
       from:
-        - name: input_trakt
+        - name: trakt_list
           client_id: "{$ trakt_client_id $}"
           access_token: "{$ trakt_access_token $}"
           type: movies
           list: watchlist
       via:
-        - name: search_rss
+        - name: rss_search
           url_template: "{$ jackett_url $}/api/v2.0/indexers/all/results/torznab?q={QueryEscaped}&apikey={$ jackett_key $}"
       interval: 6h
     seen:
@@ -35,7 +35,7 @@ tasks:
       quality: 1080p
       ttl: 4h
       from:
-        - name: input_trakt
+        - name: trakt_list
           client_id: "{$ trakt_client_id $}"
           access_token: "{$ trakt_access_token $}"
           type: movies
@@ -61,13 +61,13 @@ tasks:
     discover:
       ttl: 2h
       from:
-        - name: input_trakt
+        - name: trakt_list
           client_id: "{$ trakt_client_id $}"
           access_token: "{$ trakt_access_token $}"
           type: shows
           list: watchlist
       via:
-        - name: search_rss
+        - name: rss_search
           url_template: "{$ jackett_url $}/api/v2.0/indexers/all/results/torznab?q={QueryEscaped}&apikey={$ jackett_key $}"
       interval: 3h
     seen:
@@ -77,7 +77,7 @@ tasks:
       quality: 720p
       ttl: 2h
       from:
-        - name: input_trakt
+        - name: trakt_list
           client_id: "{$ trakt_client_id $}"
           access_token: "{$ trakt_access_token $}"
           type: shows
