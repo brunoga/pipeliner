@@ -15,16 +15,18 @@ This pair of plugins replaces FlexGet's `list_add` / `list_match` / `movie_list`
 
 ```yaml
 tasks:
-  # Task 1 (priority 1): sync Trakt watchlist into a local list
+  # Task 1 (priority 1): use movies.from to sync Trakt watchlist into a local list
   sync-watchlist:
     priority: 1
-    input_trakt:
-      client_id: YOUR_CLIENT_ID
-      access_token: YOUR_ACCESS_TOKEN
-      type: movies
-      list: watchlist
-    seen:
-      local: true
+    rss:
+      url: "https://example.com/rss/movies"
+    movies:
+      from:
+        - name: trakt_list
+          client_id: YOUR_CLIENT_ID
+          access_token: YOUR_ACCESS_TOKEN
+          type: movies
+          list: watchlist
     accept_all:
     list_add:
       list: movie_watchlist
@@ -34,12 +36,12 @@ tasks:
     priority: 10
     discover:
       from:
-        - name: input_trakt
+        - name: trakt_list
           client_id: YOUR_CLIENT_ID
           type: movies
           list: watchlist
       via:
-        - name: search_rss
+        - name: rss_search
           url_template: "https://example.com/search?q={QueryEscaped}"
       interval: 24h
     seen:

@@ -33,14 +33,15 @@ import (
 	_ "github.com/brunoga/pipeliner/plugins/filter/trakt"
 	_ "github.com/brunoga/pipeliner/plugins/filter/tvdb"
 	_ "github.com/brunoga/pipeliner/plugins/filter/upgrade"
+	_ "github.com/brunoga/pipeliner/plugins/from/jackett"
+	_ "github.com/brunoga/pipeliner/plugins/from/rss"
+	_ "github.com/brunoga/pipeliner/plugins/from/trakt"
+	_ "github.com/brunoga/pipeliner/plugins/from/tvdb"
 	_ "github.com/brunoga/pipeliner/plugins/input/discover"
 	_ "github.com/brunoga/pipeliner/plugins/input/filesystem"
 	_ "github.com/brunoga/pipeliner/plugins/input/html"
 	_ "github.com/brunoga/pipeliner/plugins/input/rss"
 	_ "github.com/brunoga/pipeliner/plugins/input/search/jackett"
-	_ "github.com/brunoga/pipeliner/plugins/input/search/rss"
-	_ "github.com/brunoga/pipeliner/plugins/input/trakt"
-	_ "github.com/brunoga/pipeliner/plugins/input/tvdb"
 	_ "github.com/brunoga/pipeliner/plugins/metainfo/magnet"
 	_ "github.com/brunoga/pipeliner/plugins/metainfo/quality"
 	_ "github.com/brunoga/pipeliner/plugins/metainfo/series"
@@ -501,14 +502,14 @@ tasks:
 
 func TestAllPluginsRegistered(t *testing.T) {
 	want := []string{
-		"rss", "html", "filesystem", "discover", "input_trakt", "input_tvdb",
+		"rss", "html", "filesystem", "discover", "trakt_list", "tvdb_favorites",
 		"seen", "regexp", "quality", "exists", "series", "movies", "condition",
 		"require", "content", "premiere", "torrent_alive", "upgrade",
 		"trakt", "tvdb", "accept_all", "list_match",
 		"set", "pathfmt", "pathscrub",
 		"print", "exec", "list_add",
 		"metainfo_quality", "metainfo_series", "metainfo_trakt", "metainfo_magnet",
-		"search_rss", "jackett",
+		"rss_search", "jackett",
 	}
 	for _, name := range want {
 		if _, ok := plugin.Lookup(name); !ok {

@@ -55,7 +55,7 @@ func newMockSearch(name string) *mockSearch {
 }
 
 func (m *mockSearch) Name() string        { return m.pluginName }
-func (m *mockSearch) Phase() plugin.Phase { return plugin.PhaseSearch }
+func (m *mockSearch) Phase() plugin.Phase { return plugin.PhaseFrom }
 func (m *mockSearch) Search(_ context.Context, _ *plugin.TaskContext, query string) ([]*entry.Entry, error) {
 	m.calls[query]++
 	return m.results[query], nil
@@ -68,7 +68,7 @@ func registerMock(mock *mockSearch) string {
 		defer func() { recover() }() // tolerate duplicate registration across test runs
 		plugin.Register(&plugin.Descriptor{
 			PluginName:  name,
-			PluginPhase: plugin.PhaseSearch,
+			PluginPhase: plugin.PhaseFrom,
 			Factory: func(_ map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
 				return mock, nil
 			},

@@ -51,7 +51,7 @@ A plugin is a Go struct that:
 | `modify` | `ModifyPlugin` | Serial per entry | Undecided + Accepted entries |
 | `output` | `OutputPlugin` | Concurrent — all outputs run in parallel | Accepted entries only |
 | `learn` | `LearnPlugin` | Serial | All entries (all states) |
-| `search` | `SearchPlugin` | Called by `discover` input | — |
+| `from` | `SearchPlugin` / `InputPlugin` | Sub-plugins called by `series`, `movies`, `discover` | — |
 
 **Concurrency notes:**
 - Input and output phases are fully concurrent. Do not share mutable state between calls unless protected by a mutex.
@@ -415,7 +415,7 @@ type SearchPlugin interface {
 }
 ```
 
-Search plugins are **not** dispatched directly by the task engine. They are sub-plugins used exclusively by the `discover` input plugin. Register them with `PhaseSearch`.
+Search plugins are **not** dispatched directly by the task engine. They are sub-plugins used exclusively by the `discover` input plugin. Register them with `PhaseFrom`.
 
 `Search` receives a query string (a title to search for) and returns matching entries. An empty query string conventionally returns recent/all results from the source.
 
@@ -630,7 +630,7 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 }
 ```
 
-`plugin.MakeInputPlugin` handles both the string form (`"input_tvdb"`) and the map form (`{name: input_tvdb, api_key: "..."}`) transparently. The resolved plugin receives its own `Factory` call and shares the same `db`.
+`plugin.MakeInputPlugin` handles both the string form (`"tvdb_favorites"`) and the map form (`{name: tvdb_favorites, api_key: "..."}`) transparently. The resolved plugin receives its own `Factory` call and shares the same `db`.
 
 **At runtime**, call each source with a local `TaskContext`:
 
@@ -706,11 +706,11 @@ In the user's YAML, sub-plugins are expressed as either:
 ```yaml
 # String form (no extra config needed)
 from:
-  - input_tvdb
+  - tvdb_favorites   # use the plugin name registered in PluginName
 
 # Map form (plugin name plus its own config)
 from:
-  - name: input_tvdb
+  - name: tvdb_favorites
     api_key: "..."
     user_pin: "..."
 ```

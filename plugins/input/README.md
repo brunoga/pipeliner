@@ -8,10 +8,7 @@ Input plugins produce entries. A task can have one or more input plugins; all of
 | [html](html/README.md) | Scrape link entries from an HTML page using CSS selectors |
 | [filesystem](filesystem/README.md) | Walk a directory tree and emit one entry per file |
 | [discover](discover/README.md) | Actively search multiple sources for a configured title list |
-| [input_trakt](trakt/README.md) | Fetch movies or shows from a Trakt.tv list |
-| [input_tvdb](tvdb/README.md) | Fetch shows from a TheTVDB user's favorites list |
-| [jackett](search/jackett/README.md) | Torznab search backend for `discover` — queries Jackett indexers |
-| [search_rss](search/rss/README.md) | RSS search backend driven by query terms from `discover` |
+| [jackett_input](search/jackett/README.md) | Fetch recent results from Jackett indexers as a passive feed |
 
 ## Active vs passive
 
@@ -19,4 +16,4 @@ Input plugins produce entries. A task can have one or more input plugins; all of
 
 `discover` is **active** — it drives outbound searches for specific titles, useful when you want a particular movie or show and don't want to wait for it to appear in a feed.
 
-`input_trakt` and `input_tvdb` are **list sources** — they emit title entries suitable for use as dynamic title feeds for `discover.from`, `series.from`, and `movies.from`. They can also be used as standalone inputs to inspect or print list contents.
+`trakt_list`, `tvdb_favorites`, `jackett`, and `rss_search` are **from plugins** — they are not standalone task inputs but are used as sub-plugins inside `series.from`, `movies.from`, `discover.from`, and `discover.via`. See [`plugins/from/`](../from/README.md) for details.

@@ -66,11 +66,11 @@ func TestMissingUserPin(t *testing.T) {
 }
 
 func TestRegistration(t *testing.T) {
-	d, ok := plugin.Lookup("input_tvdb")
+	d, ok := plugin.Lookup("tvdb_favorites")
 	if !ok {
-		t.Fatal("input_tvdb not registered")
+		t.Fatal("tvdb_favorites not registered")
 	}
-	if d.PluginPhase != plugin.PhaseInput {
+	if d.PluginPhase != plugin.PhaseFrom {
 		t.Errorf("phase: got %v", d.PluginPhase)
 	}
 }

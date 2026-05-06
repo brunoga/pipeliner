@@ -21,7 +21,7 @@ Each entry is a plugin name string or an object with a `name` key plus plugin-sp
 
 ```yaml
 from:
-  - name: input_trakt
+  - name: trakt_list
     client_id: YOUR_CLIENT_ID
     access_token: YOUR_ACCESS_TOKEN
     type: movies
@@ -34,8 +34,8 @@ Each entry references a registered [search plugin](../search/). Either a plugin 
 
 ```yaml
 via:
-  - search_rss    # name only, uses defaults
-  - name: search_rss
+  - rss_search    # name only, uses defaults
+  - name: rss_search
     url_template: "https://jackett.example.com/api?q={{.QueryEscaped}}&apikey=abc"
 ```
 
@@ -49,7 +49,7 @@ tasks:
         - "Dune Part Two"
         - "Oppenheimer"
       via:
-        - name: search_rss
+        - name: rss_search
           url_template: "https://jackett.example.com/api?q={{.QueryEscaped}}&apikey=abc"
       interval: 12h
     metainfo_quality:
@@ -67,13 +67,13 @@ tasks:
   discover-watchlist:
     discover:
       from:
-        - name: input_trakt
+        - name: trakt_list
           client_id: YOUR_CLIENT_ID
           access_token: YOUR_ACCESS_TOKEN
           type: movies
           list: watchlist
       via:
-        - name: search_rss
+        - name: rss_search
           url_template: "https://jackett.example.com/api?q={{.QueryEscaped}}&apikey=abc"
       interval: 6h
     metainfo_quality:
@@ -93,13 +93,13 @@ tasks:
       titles:
         - "Severance"       # always searched regardless of watchlist
       from:
-        - name: input_trakt
+        - name: trakt_list
           client_id: YOUR_CLIENT_ID
           access_token: YOUR_ACCESS_TOKEN
           type: shows
           list: watchlist
       via:
-        - name: search_rss
+        - name: rss_search
           url_template: "https://jackett.example.com/api?q={{.QueryEscaped}}&apikey=abc"
       interval: 12h
     series:

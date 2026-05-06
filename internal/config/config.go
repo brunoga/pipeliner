@@ -182,8 +182,8 @@ func Validate(c *Config) []error {
 				errs = append(errs, fmt.Errorf("task %q: unknown plugin %q", taskName, e.name))
 				continue
 			}
-			if d.PluginPhase == plugin.PhaseSearch {
-				errs = append(errs, fmt.Errorf("task %q: plugin %q is a search plugin; use it via 'discover.via' instead", taskName, e.name))
+			if d.PluginPhase == plugin.PhaseFrom {
+				errs = append(errs, fmt.Errorf("task %q: plugin %q is a from plugin; use it via 'series.from', 'movies.from', or 'discover.from' instead", taskName, e.name))
 			}
 		}
 	}

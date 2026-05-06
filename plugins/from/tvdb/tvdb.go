@@ -1,8 +1,9 @@
-// Package tvdb provides an input plugin that fetches shows from a TheTVDB
+// Package tvdb provides a from plugin that fetches shows from a TheTVDB
 // user's favorites list and emits one entry per show.
 //
-// Entries carry the show name and a canonical TheTVDB URL. They are suitable
-// as title sources for discover.from and series.from.
+// This plugin is intended to be used as a source inside series.from or
+// discover.from — not as a standalone task input. It is registered under
+// PhaseFrom so the task engine never dispatches it directly.
 //
 // Config keys:
 //
@@ -22,9 +23,9 @@ import (
 
 func init() {
 	plugin.Register(&plugin.Descriptor{
-		PluginName:  "input_tvdb",
-		Description: "fetch shows from a TheTVDB user's favorites list as pipeline entries",
-		PluginPhase: plugin.PhaseInput,
+		PluginName:  "tvdb_favorites",
+		Description: "fetch TheTVDB favorites as show-name entries; use inside series.from or discover.from",
+		PluginPhase: plugin.PhaseFrom,
 		Factory:     newPlugin,
 		Validate:    validate,
 	})
@@ -32,13 +33,13 @@ func init() {
 
 func validate(cfg map[string]any) []error {
 	var errs []error
-	if err := plugin.RequireString(cfg, "api_key", "input_tvdb"); err != nil {
+	if err := plugin.RequireString(cfg, "api_key", "tvdb_favorites"); err != nil {
 		errs = append(errs, err)
 	}
-	if err := plugin.RequireString(cfg, "user_pin", "input_tvdb"); err != nil {
+	if err := plugin.RequireString(cfg, "user_pin", "tvdb_favorites"); err != nil {
 		errs = append(errs, err)
 	}
-	errs = append(errs, plugin.OptUnknownKeys(cfg, "input_tvdb", "api_key", "user_pin")...)
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "tvdb_favorites", "api_key", "user_pin")...)
 	return errs
 }
 
@@ -49,31 +50,31 @@ type tvdbInputPlugin struct {
 func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
 	apiKey, _ := cfg["api_key"].(string)
 	if apiKey == "" {
-		return nil, fmt.Errorf("input_tvdb: api_key is required")
+		return nil, fmt.Errorf("tvdb_favorites: api_key is required")
 	}
 	userPin, _ := cfg["user_pin"].(string)
 	if userPin == "" {
-		return nil, fmt.Errorf("input_tvdb: user_pin is required")
+		return nil, fmt.Errorf("tvdb_favorites: user_pin is required")
 	}
 	return &tvdbInputPlugin{
 		client: itvdb.NewWithPin(apiKey, userPin),
 	}, nil
 }
 
-func (p *tvdbInputPlugin) Name() string        { return "input_tvdb" }
-func (p *tvdbInputPlugin) Phase() plugin.Phase { return plugin.PhaseInput }
+func (p *tvdbInputPlugin) Name() string        { return "tvdb_favorites" }
+func (p *tvdbInputPlugin) Phase() plugin.Phase { return plugin.PhaseFrom }
 
 func (p *tvdbInputPlugin) Run(ctx context.Context, tc *plugin.TaskContext) ([]*entry.Entry, error) {
 	ids, err := p.client.GetFavorites(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("input_tvdb: get favorites: %w", err)
+		return nil, fmt.Errorf("tvdb_favorites: get favorites: %w", err)
 	}
 
 	entries := make([]*entry.Entry, 0, len(ids))
 	for _, id := range ids {
 		s, err := p.client.GetSeriesByID(ctx, id)
 		if err != nil {
-			tc.Logger.Warn("input_tvdb: GetSeriesByID failed", "id", id, "err", err)
+			tc.Logger.Warn("tvdb_favorites: GetSeriesByID failed", "id", id, "err", err)
 			continue
 		}
 		if s == nil || s.Name == "" {
