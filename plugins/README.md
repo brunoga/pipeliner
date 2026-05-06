@@ -1,11 +1,11 @@
 # Plugins
 
-Pipeliner is built entirely from plugins. Each task is a chain of plugins executed in a fixed phase order. Within each phase, plugins run in the order they appear in the config file.
+Pipeliner is built entirely from plugins. Each task is a chain of plugins executed in order.
 
 ## Phase model
 
 ```
-input → metainfo → filter → modify → output → learn
+input → [metainfo / filter / modify — in config order] → output → learn
 ```
 
 | Phase | Interface | Purpose |
@@ -17,11 +17,11 @@ input → metainfo → filter → modify → output → learn
 | **output** | `Output(ctx, tc, entries) error` | Act on all accepted entries |
 | **learn** | `Learn(ctx, tc, entries) error` | Persist state for future runs |
 
+Input and output run as bookend phases (all inputs concurrently, then the processing pipeline, then all outputs concurrently). Metainfo, filter, and modify plugins run **in the order they appear in the config file**, interleaved with each other — a filter can immediately follow the metainfo plugin that sets the field it inspects.
+
 ## Filter semantics
 
 Each entry starts **undecided**. Filters can move it to **accepted** or **rejected**. Once rejected, an entry stays rejected (no plugin can un-reject). If an entry is still undecided after all filters run, it is dropped — not passed to output.
-
-Multiple plugins within the same phase run in the order they appear in the config file.
 
 ## Metainfo and the entry field map
 
