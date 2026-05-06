@@ -84,7 +84,7 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 	fromRaw, _ := cfg["from"].([]any)
 	var froms []plugin.InputPlugin
 	for _, item := range fromRaw {
-		inp, err := plugin.MakeInputPlugin(item, db)
+		inp, err := plugin.MakeFromPlugin(item, db)
 		if err != nil {
 			return nil, fmt.Errorf("series: from: %w", err)
 		}
@@ -220,33 +220,12 @@ func (p *seriesPlugin) Learn(ctx context.Context, tc *plugin.TaskContext, entrie
 	return nil
 }
 
-// resolveShows returns the full shows list: static + dynamically fetched.
-// Dynamic results are cached for the configured TTL.
 func (p *seriesPlugin) resolveShows(ctx context.Context, tc *plugin.TaskContext) []string {
-	if len(p.from) == 0 {
-		return p.staticShows
-	}
-	if dynamic, ok := p.listCache.Get("shows"); ok {
-		tc.Logger.Debug("series: loaded shows from cache", "count", len(dynamic))
-		return append(p.staticShows, dynamic...)
-	}
-	var dynamic []string
-	innerTC := &plugin.TaskContext{Name: tc.Name, Logger: tc.Logger}
-	for _, inp := range p.from {
-		fromEntries, err := inp.Run(ctx, innerTC)
-		if err != nil {
-			tc.Logger.Warn("series: from source failed", "plugin", inp.Name(), "err", err)
-			continue
-		}
-		tc.Logger.Debug("series: loaded shows from source", "plugin", inp.Name(), "count", len(fromEntries))
-		for _, e := range fromEntries {
-			if e.Title != "" {
-				dynamic = append(dynamic, match.Normalize(e.Title))
-			}
-		}
-	}
-	p.listCache.Set("shows", dynamic)
-	return append(p.staticShows, dynamic...)
+	return plugin.ResolveDynamicList(ctx, tc, p.from, p.staticShows,
+		func() ([]string, bool) { return p.listCache.Get("shows") },
+		func(v []string) { p.listCache.Set("shows", v) },
+		match.Normalize,
+	)
 }
 
 // matchShow returns the canonical show name if parsed matches any configured show.

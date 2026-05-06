@@ -71,7 +71,7 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 	fromRaw, _ := cfg["from"].([]any)
 	var froms []plugin.InputPlugin
 	for _, item := range fromRaw {
-		inp, err := plugin.MakeInputPlugin(item, db)
+		inp, err := plugin.MakeFromPlugin(item, db)
 		if err != nil {
 			return nil, fmt.Errorf("discover: from: %w", err)
 		}
@@ -140,8 +140,7 @@ func (p *discoverPlugin) Run(ctx context.Context, tc *plugin.TaskContext) ([]*en
 		for _, inp := range p.from {
 			fromEntries, err := inp.Run(ctx, innerTC)
 			if err != nil {
-				tc.Logger.Warn("discover: from source failed", "plugin", inp.Name(), "err", err)
-				continue
+				continue // error already logged by loggedFromPlugin wrapper
 			}
 			for _, e := range fromEntries {
 				if e.Title != "" {

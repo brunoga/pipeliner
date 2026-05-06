@@ -73,7 +73,7 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 	fromRaw, _ := cfg["from"].([]any)
 	var froms []plugin.InputPlugin
 	for _, item := range fromRaw {
-		inp, err := plugin.MakeInputPlugin(item, db)
+		inp, err := plugin.MakeFromPlugin(item, db)
 		if err != nil {
 			return nil, fmt.Errorf("movies: from: %w", err)
 		}
@@ -185,33 +185,12 @@ func (p *moviesPlugin) Learn(ctx context.Context, tc *plugin.TaskContext, entrie
 	return nil
 }
 
-// resolveTitles returns the full titles list: static + dynamically fetched.
-// Dynamic results are cached for the configured TTL.
 func (p *moviesPlugin) resolveTitles(ctx context.Context, tc *plugin.TaskContext) []string {
-	if len(p.from) == 0 {
-		return p.staticTitles
-	}
-	if dynamic, ok := p.listCache.Get("titles"); ok {
-		tc.Logger.Debug("movies: loaded titles from cache", "count", len(dynamic))
-		return append(p.staticTitles, dynamic...)
-	}
-	var dynamic []string
-	innerTC := &plugin.TaskContext{Name: tc.Name, Logger: tc.Logger}
-	for _, inp := range p.from {
-		fromEntries, err := inp.Run(ctx, innerTC)
-		if err != nil {
-			tc.Logger.Warn("movies: from source failed", "plugin", inp.Name(), "err", err)
-			continue
-		}
-		tc.Logger.Debug("movies: loaded titles from source", "plugin", inp.Name(), "count", len(fromEntries))
-		for _, e := range fromEntries {
-			if e.Title != "" {
-				dynamic = append(dynamic, match.Normalize(e.Title))
-			}
-		}
-	}
-	p.listCache.Set("titles", dynamic)
-	return append(p.staticTitles, dynamic...)
+	return plugin.ResolveDynamicList(ctx, tc, p.from, p.staticTitles,
+		func() ([]string, bool) { return p.listCache.Get("titles") },
+		func(v []string) { p.listCache.Set("titles", v) },
+		match.Normalize,
+	)
 }
 
 func matchTitle(parsed string, titles []string) (string, bool) {
