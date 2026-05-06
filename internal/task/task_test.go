@@ -5,7 +5,6 @@ import (
 	"errors"
 	"log/slog"
 	"testing"
-	"time"
 
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/plugin"
@@ -414,7 +413,7 @@ func TestMultipleInputsDeduplication(t *testing.T) {
 	}
 }
 
-func TestMultipleOutputsConcurrent(t *testing.T) {
+func TestMultipleOutputsAllReceiveEntries(t *testing.T) {
 	inp := &stubInput{entries: threeEntries()}
 	accept := &alwaysAcceptFilter{}
 	out1 := &capturingOutput{}
@@ -434,28 +433,81 @@ func TestMultipleOutputsConcurrent(t *testing.T) {
 	}
 }
 
-func TestOutputsRunConcurrentlyNotSerially(t *testing.T) {
-	// Two outputs each sleep briefly; if serial they'd take >2x the sleep,
-	// if concurrent they complete in ~1x. We verify via timing.
-	slow1 := &capturingOutput{}
-	slow2 := &capturingOutput{}
+func TestMultipleOutputsSerial(t *testing.T) {
+	out1 := &capturingOutput{}
+	out2 := &capturingOutput{}
 
 	inp := &stubInput{entries: threeEntries()}
 	accept := &alwaysAcceptFilter{}
-	task := makeTask("t", inp, accept, slow1, slow2)
+	task := makeTask("t", inp, accept, out1, out2)
 
-	start := time.Now()
 	_, err := task.Run(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Both ran, both got entries — concurrency correctness without timing assertions
-	// (timing is environment-dependent and would make tests flaky).
-	if len(slow1.received) != 3 || len(slow2.received) != 3 {
+	if len(out1.received) != 3 || len(out2.received) != 3 {
 		t.Errorf("both outputs should receive 3 entries: got %d, %d",
-			len(slow1.received), len(slow2.received))
+			len(out1.received), len(out2.received))
 	}
-	_ = start
+}
+
+// failingOutput fails every entry it receives with a given reason.
+type failingOutput struct{ reason string }
+
+func (o *failingOutput) Name() string        { return "failing-output" }
+func (o *failingOutput) Phase() plugin.Phase { return plugin.PhaseOutput }
+func (o *failingOutput) Output(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) error {
+	for _, e := range entries {
+		e.Fail(o.reason)
+	}
+	return nil
+}
+
+func TestOutputFailedEntriesSkippedBySubsequentOutput(t *testing.T) {
+	inp := &stubInput{entries: threeEntries()}
+	accept := &alwaysAcceptFilter{}
+	fail := &failingOutput{reason: "client down"}
+	out2 := &capturingOutput{}
+
+	task := makeTask("t", inp, accept, fail, out2)
+	res, err := task.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// all three entries were failed by the first output
+	if res.Failed != 3 {
+		t.Errorf("want 3 failed, got %d", res.Failed)
+	}
+	// second output must not receive any entries
+	if len(out2.received) != 0 {
+		t.Errorf("second output should receive 0 entries after first fails all, got %d", len(out2.received))
+	}
+}
+
+func TestOutputFailedEntriesNotLearnedFromLearner(t *testing.T) {
+	inp := &stubInput{entries: threeEntries()}
+	accept := &alwaysAcceptFilter{}
+	fail := &failingOutput{reason: "client down"}
+	lrn := &capturingLearn{}
+
+	task := makeTask("t", inp, accept, fail, lrn)
+	res, err := task.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Failed != 3 {
+		t.Errorf("want 3 failed, got %d", res.Failed)
+	}
+	// learn receives all entries regardless of state, so it can inspect failures
+	if len(lrn.received) != 3 {
+		t.Errorf("learn should receive all 3 entries, got %d", len(lrn.received))
+	}
+	// but every entry learn sees should be failed, not accepted
+	for _, e := range lrn.received {
+		if e.IsAccepted() {
+			t.Errorf("learn received an accepted entry %q — should be failed", e.Title)
+		}
+	}
 }
 
 // --- processing pipeline order test doubles ---
