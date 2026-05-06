@@ -2,7 +2,9 @@
 //
 // Concurrency model:
 //   - Input phase:  all input plugins run concurrently; results are merged (dedup by URL) before proceeding.
-//   - Output phase: all output plugins run concurrently; they receive the same read-only slice of accepted entries.
+//   - Output phase: plugins run serially in config order; each receives only the entries still accepted at
+//     that point. An output plugin may call e.Fail() to remove an entry from subsequent output plugins and
+//     from the learn phase (so it is not recorded as downloaded and will be retried next run).
 //   - Processing pipeline (metainfo / filter / modify): plugins run serially in config-file order, so a
 //     filter can immediately follow the metainfo plugin that populates the field it inspects.
 package task
@@ -61,10 +63,12 @@ func (t *Task) addPlugin(pi pluginInstance) {
 	t.plugins = append(t.plugins, pi)
 }
 
-// Run executes the task and returns a Result. Input and output plugins run
-// concurrently within their phase. Metainfo, filter, and modify plugins run
-// serially in config-file order. Panics inside any plugin call are caught and
-// converted to logged errors; the task continues unless the context is cancelled.
+// Run executes the task and returns a Result. Input plugins run concurrently.
+// Metainfo, filter, and modify plugins run serially in config-file order.
+// Output plugins run serially in config order; each receives only entries still
+// accepted at that point, so an output that fails an entry prevents subsequent
+// outputs from seeing it. Panics inside any plugin call are caught and converted
+// to logged errors; the task continues unless the context is cancelled.
 func (t *Task) Run(ctx context.Context) (*Result, error) {
 	start := time.Now()
 	if t.dryRun {
@@ -182,17 +186,16 @@ func (t *Task) Run(ctx context.Context) (*Result, error) {
 	}
 	deduplicate(entries, t.logger)
 
-	// --- Output phase (concurrent — independent external systems, entries are read-only) ---
+	// --- Output phase (serial — each plugin receives only entries still accepted at that point) ---
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	acceptedEntries := filterByState(entries, entry.Accepted)
-	t.logger.Info("phase started", "phase", "output", "accepted", len(acceptedEntries))
+	t.logger.Info("phase started", "phase", "output", "accepted", len(filterByState(entries, entry.Accepted)))
 	phaseStart = time.Now()
 	if t.dryRun {
-		t.logger.Info("skipping output phase (dry run)", "accepted", len(acceptedEntries))
+		t.logger.Info("skipping output phase (dry run)")
 	} else {
-		t.runOutputPhase(ctx, t.logger, tc, acceptedEntries)
+		t.runOutputPhase(ctx, t.logger, tc, entries)
 	}
 	t.logger.Info("phase done", "phase", "output", "duration", time.Since(phaseStart).Round(time.Millisecond))
 
@@ -284,33 +287,41 @@ func (t *Task) runInputPhase(ctx context.Context, log *slog.Logger, tc func(plug
 	return entries
 }
 
-// runOutputPhase runs all output plugins concurrently, each receiving the same
-// slice of accepted entries. Errors are logged; the task continues regardless.
-func (t *Task) runOutputPhase(ctx context.Context, log *slog.Logger, tc func(pluginInstance) *plugin.TaskContext, accepted []*entry.Entry) {
-	outputs := t.pluginsForPhase(plugin.PhaseOutput)
-	if len(outputs) == 0 {
-		return
-	}
-
-	var wg sync.WaitGroup
-	for _, pi := range outputs {
+// runOutputPhase runs output plugins serially in config order. Each plugin
+// receives only the entries still accepted at the time it runs. A plugin that
+// calls e.Fail() removes that entry from subsequent output plugins and from the
+// learn phase, so it will not be recorded as downloaded and will be retried.
+func (t *Task) runOutputPhase(ctx context.Context, log *slog.Logger, tc func(pluginInstance) *plugin.TaskContext, entries []*entry.Entry) {
+	for _, pi := range t.pluginsForPhase(plugin.PhaseOutput) {
 		out, ok := pi.impl.(plugin.OutputPlugin)
 		if !ok {
 			continue
 		}
-		wg.Add(1)
-		go func(out plugin.OutputPlugin, tctx *plugin.TaskContext) {
-			defer wg.Done()
-			plog := log.With("phase", plugin.PhaseOutput, "plugin", out.Name())
-			plog.Info("plugin started", "in", len(accepted))
-			pluginStart := time.Now()
-			if err := safeRunOutput(ctx, out, tctx, accepted); err != nil {
-				plog.Warn("output plugin error", "err", err)
+		if ctx.Err() != nil {
+			return
+		}
+		accepted := filterByState(entries, entry.Accepted)
+		plog := log.With("phase", plugin.PhaseOutput, "plugin", out.Name())
+		plog.Info("plugin started", "in", len(accepted))
+		pluginStart := time.Now()
+		snap := snapshotStates(accepted)
+		if err := safeRunOutput(ctx, out, tc(pi), accepted); err != nil {
+			plog.Warn("output plugin error", "err", err)
+		}
+		failed := 0
+		for _, e := range accepted {
+			if prev := snap[e]; e.State != prev && e.IsFailed() {
+				plog.Warn("entry failed", "entry", e.Title, "reason", e.FailReason)
+				failed++
 			}
-			plog.Info("plugin done", "out", len(accepted), "duration", time.Since(pluginStart).Round(time.Millisecond))
-		}(out, tc(pi))
+		}
+		args := []any{"in", len(accepted), "out", len(accepted) - failed}
+		if failed > 0 {
+			args = append(args, "failed", failed)
+		}
+		args = append(args, "duration", time.Since(pluginStart).Round(time.Millisecond))
+		plog.Info("plugin done", args...)
 	}
-	wg.Wait()
 }
 
 func (t *Task) pluginsForPhase(p plugin.Phase) []pluginInstance {
