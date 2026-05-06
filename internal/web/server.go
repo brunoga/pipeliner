@@ -191,6 +191,7 @@ func (s *Server) serveUI(w http.ResponseWriter, r *http.Request) {
 	}
 	data, _ := uiFS.ReadFile("ui/index.html")
 	html := strings.ReplaceAll(string(data), "__VERSION__", s.version)
+	html = strings.ReplaceAll(html, "__DOC_REF__", docRef(s.version))
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = fmt.Fprint(w, html)
 }
@@ -407,6 +408,15 @@ func (s *Server) apiSaveConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]string{"status": "pending"})
+}
+
+// docRef returns the Git ref to use in documentation URLs.
+// Release versions (e.g. "v0.1.3") use the tag; anything else falls back to main.
+func docRef(version string) string {
+	if strings.HasPrefix(version, "v") {
+		return version
+	}
+	return "main"
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
