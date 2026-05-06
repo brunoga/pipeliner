@@ -34,6 +34,9 @@ var (
 	reAltNum = regexp.MustCompile(`(?i)\b(\d{1,2})x(\d{2,3})\b`)
 	// 2023.11.15 or 2023-11-15
 	reDate = regexp.MustCompile(`\b((?:19|20)\d{2})[.\-](\d{2})[.\-](\d{2})\b`)
+	// 2026 05 05 — space-separated date (talk shows, daily episodes)
+	// Month and day are validated in Parse to avoid false positives.
+	reDateSpace = regexp.MustCompile(`\b((?:19|20)\d{2}) (\d{2}) (\d{2})\b`)
 	// EP123 or E123 (absolute, anime-style)
 	reAbsolute = regexp.MustCompile(`(?i)\bE(?:P)?(\d{2,4})\b`)
 
@@ -83,6 +86,7 @@ var (
 	reNoiseSuffix = regexp.MustCompile(`(?i)\b(S\d{1,2}E\d{1,3}|` +
 		`\d{1,2}x\d{2,3}|` +
 		`(?:19|20)\d{2}[.\-]\d{2}[.\-]\d{2}|` +
+		`(?:19|20)\d{2} \d{2} \d{2}|` +
 		`E(?:P)?\d{2,4}|` +
 		`4k|2160p|1080p|720p|576p|480p|` +
 		`blu[\-\s]?ray|bdrip|bdremux|web[\-\s]?dl|webrip|hdtv|dvdrip|tvrip|` +
@@ -152,6 +156,20 @@ func Parse(title string) (*Episode, bool) {
 		ep.Day, _ = strconv.Atoi(sub[3])
 		ep.SeriesName = extractName(title, m[0])
 		return ep, true
+	}
+
+	if m := reDateSpace.FindStringSubmatchIndex(title); m != nil {
+		sub := reDateSpace.FindStringSubmatch(title)
+		mo, _ := strconv.Atoi(sub[2])
+		day, _ := strconv.Atoi(sub[3])
+		if mo >= 1 && mo <= 12 && day >= 1 && day <= 31 {
+			ep.IsDate = true
+			ep.Year, _ = strconv.Atoi(sub[1])
+			ep.Month = mo
+			ep.Day = day
+			ep.SeriesName = extractName(title, m[0])
+			return ep, true
+		}
 	}
 
 	if m := reAbsolute.FindStringSubmatchIndex(title); m != nil {

@@ -256,6 +256,76 @@ func TestAnnotateNonSeries(t *testing.T) {
 	}
 }
 
+// makeServerYearStrip serves empty results for the full name (with year) and
+// real results for the stripped name, simulating a series whose release title
+// includes a production year that TVDB doesn't include in the show name.
+func makeServerYearStrip() *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v4/login":
+			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+				"data": map[string]string{"token": "jwt"}, "status": "success",
+			})
+		case "/v4/search":
+			q := r.URL.Query().Get("query")
+			if q == "Dark 2017" {
+				// Full name with year — return empty.
+				json.NewEncoder(w).Encode(map[string]any{"data": []any{}, "status": "success"}) //nolint:errcheck
+			} else {
+				// Stripped name — return a result.
+				json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+					"data": []map[string]any{
+						{"tvdb_id": "322190", "name": "Dark", "year": "2017", "slug": "dark"},
+					},
+					"status": "success",
+				})
+			}
+		case "/v4/series/322190/extended":
+			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+				"data": map[string]any{"originalLanguage": "deu", "originalCountry": "deu"},
+				"status": "success",
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+}
+
+func TestAnnotateTrailingYearParallelSearch(t *testing.T) {
+	srv := makeServerYearStrip()
+	defer srv.Close()
+
+	p := makePlugin(t, srv)
+
+	// Title contains "2017" as a production year right before the episode ID.
+	e := entry.New("Dark.2017.S01E01.1080p.WEBRip", "http://x.com/a")
+	if err := p.Annotate(context.Background(), makeCtx(), e); err != nil {
+		t.Fatal(err)
+	}
+	if v := e.GetString("tvdb_series_name"); v != "Dark" {
+		t.Errorf("tvdb_series_name: got %q, want %q", v, "Dark")
+	}
+	if v := e.GetString("tvdb_id"); v != "322190" {
+		t.Errorf("tvdb_id: got %q, want %q", v, "322190")
+	}
+}
+
+func TestAnnotateParenthesizedYearParallelSearch(t *testing.T) {
+	srv := makeServerYearStrip()
+	defer srv.Close()
+
+	p := makePlugin(t, srv)
+
+	// Year is inside parentheses with no space: Show(2019)s01e12
+	e := entry.New("Dark(2017)S01E01.1080p.WEBRip", "http://x.com/a")
+	if err := p.Annotate(context.Background(), makeCtx(), e); err != nil {
+		t.Fatal(err)
+	}
+	if v := e.GetString("tvdb_series_name"); v != "Dark" {
+		t.Errorf("tvdb_series_name: got %q, want %q", v, "Dark")
+	}
+}
+
 func TestRegistration(t *testing.T) {
 	d, ok := plugin.Lookup("metainfo_tvdb")
 	if !ok {
