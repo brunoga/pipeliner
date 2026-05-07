@@ -15,7 +15,7 @@ tasks:
       api_key: "{$ tmdb_key $}"
     movies:
       quality: 1080p
-      movies:
+      static:
         - Inception
         - Interstellar
         - "The Dark Knight"
