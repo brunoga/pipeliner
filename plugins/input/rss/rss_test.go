@@ -50,7 +50,7 @@ func TestRSS2Parse(t *testing.T) {
 	if v := entries[0].GetString("published_date"); v == "" {
 		t.Error("published_date should be set")
 	}
-	if v := entries[0].GetString("feed"); v != srv.URL {
+	if v := entries[0].GetString("rss_feed"); v != srv.URL {
 		t.Errorf("feed: got %q, want %q", v, srv.URL)
 	}
 }
@@ -68,7 +68,7 @@ func TestRSS2EnclosureURL(t *testing.T) {
 		t.Errorf("enclosure URL: got %q, want torrent URL", torrentEntry.URL)
 	}
 	// Original page link preserved in link.
-	if v := torrentEntry.GetString("link"); v != "http://example.com/torrent-page" {
+	if v := torrentEntry.GetString("rss_link"); v != "http://example.com/torrent-page" {
 		t.Errorf("link: got %q", v)
 	}
 }

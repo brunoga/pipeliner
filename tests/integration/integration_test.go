@@ -327,10 +327,10 @@ tasks:
 		t.Fatalf("expected 1 entry, got %d", len(res.entries))
 	}
 	e := res.entries[0]
-	if v := e.GetString("resolution"); v != "1080p" {
+	if v := e.GetString("video_resolution"); v != "1080p" {
 		t.Errorf("resolution: got %q, want 1080p", v)
 	}
-	if v := e.GetString("source"); v != "BluRay" {
+	if v := e.GetString("video_source"); v != "BluRay" {
 		t.Errorf("source: got %q, want BluRay", v)
 	}
 	if v := e.GetString("codec"); v != "H264" {
@@ -360,10 +360,10 @@ tasks:
 	if v := e.GetString("title"); v != "Breaking Bad" {
 		t.Errorf("title: got %q", v)
 	}
-	if v := e.GetInt("season"); v != 2 {
+	if v := e.GetInt("series_season"); v != 2 {
 		t.Errorf("season: got %d", v)
 	}
-	if v := e.GetString("episode_id"); v != "S02E05" {
+	if v := e.GetString("series_episode_id"); v != "S02E05" {
 		t.Errorf("episode_id: got %q", v)
 	}
 }
@@ -383,8 +383,8 @@ tasks:
       url: %q
     metainfo_quality:
     condition:
-      accept: '{{ne .resolution ""}}'
-      reject: '{{eq .resolution "480p"}}'
+      accept: '{{ne .video_resolution ""}}'
+      reject: '{{eq .video_resolution "480p"}}'
     print:
 `, srv.URL))
 
@@ -455,7 +455,7 @@ tasks:
       url: %q
     metainfo_series:
     pathfmt:
-      path: '/tv/{{.title}}/S{{printf "%%02d" .season}}'
+      path: '/tv/{{.title}}/S{{printf "%%02d" .series_season}}'
     print:
 `, srv.URL))
 
@@ -625,8 +625,8 @@ tasks:
       url: %q
     metainfo_quality:
     condition:
-      accept: 'resolution != ""'
-      reject: 'resolution == "480p"'
+      accept: 'video_resolution != ""'
+      reject: 'video_resolution == "480p"'
     print:
 `, srv.URL))
 
@@ -648,7 +648,7 @@ tasks:
       url: %q
     metainfo_quality:
     condition:
-      accept: 'source contains "BluRay"'
+      accept: 'video_source contains "BluRay"'
     print:
 `, srv.URL))
 
@@ -669,7 +669,7 @@ tasks:
       url: %q
     metainfo_series:
     pathfmt:
-      path: '/tv/{title}/Season {season:02d}'
+      path: '/tv/{title}/Season {series_season:02d}'
     print:
 `, srv.URL))
 
@@ -791,7 +791,7 @@ tasks:
     regexp:
       reject:
         - pattern: 'BluRay'
-          from: source
+          from: video_source
       accept:
         - '.+'
     print:

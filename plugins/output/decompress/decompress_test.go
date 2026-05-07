@@ -26,7 +26,7 @@ func TestResolveToolForcedInvalidName(t *testing.T) {
 
 func TestArchiveLocationFromField(t *testing.T) {
 	e := entry.New("Archive", "http://example.com/foo")
-	e.Set("location", "/downloads/archive.rar")
+	e.Set("file_location", "/downloads/archive.rar")
 	got := archiveLocation(e)
 	if got != "/downloads/archive.rar" {
 		t.Errorf("got %q, want /downloads/archive.rar", got)
@@ -67,7 +67,7 @@ func TestArchiveLocationNoMatch(t *testing.T) {
 
 func TestArchiveLocationFieldWinsOverURL(t *testing.T) {
 	e := entry.New("Archive", "http://example.com/file.rar")
-	e.Set("location", "/local/path.rar")
+	e.Set("file_location", "/local/path.rar")
 	got := archiveLocation(e)
 	if got != "/local/path.rar" {
 		t.Errorf("location field should win; got %q", got)

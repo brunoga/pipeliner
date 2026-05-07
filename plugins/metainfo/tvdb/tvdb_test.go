@@ -59,7 +59,7 @@ func makeServer() *httptest.Server {
 					"status":           map[string]any{"name": "Ended"},
 					"genres":           []map[string]any{{"name": "Drama"}, {"name": "Crime"}},
 					"trailers":         []map[string]any{{"url": "https://youtube.com/watch?v=xyz", "language": "eng"}},
-					"contentRatings":   []map[string]any{{"name": "TV-MA", "country": "usa"}},
+					"contentRatings":   []map[string]any{{"name": "TV-MA", "video_country": "usa"}},
 					"characters":       []map[string]any{{"personName": "Bryan Cranston", "type": 3, "sort": 1}},
 				},
 				"status": "success",
@@ -114,7 +114,7 @@ func makeServerSparseSearch() *httptest.Server {
 						{"url": "https://youtube.com/watch?v=abc123", "language": "eng"},
 					},
 					"contentRatings": []map[string]any{
-						{"name": "TV-MA", "country": "usa"},
+						{"name": "TV-MA", "video_country": "usa"},
 					},
 					"aliases": []map[string]any{
 						{"language": "spa", "name": "Breaking Bad (Spanish)"},
@@ -173,48 +173,48 @@ func TestAnnotateSeries(t *testing.T) {
 	if v := e.GetString("title"); v != "Breaking Bad" {
 		t.Errorf("title: got %q, want Breaking Bad", v)
 	}
-	if v := e.GetString("language"); v != "English" {
+	if v := e.GetString("video_language"); v != "English" {
 		t.Errorf("language: got %q, want English", v)
 	}
-	if v := e.GetString("country"); v != "United States" {
+	if v := e.GetString("video_country"); v != "United States" {
 		t.Errorf("country: got %q, want United States", v)
 	}
-	if v := e.GetString("network"); v != "AMC" {
+	if v := e.GetString("series_network"); v != "AMC" {
 		t.Errorf("network: got %q, want AMC", v)
 	}
-	if v := e.GetString("poster"); v == "" {
+	if v := e.GetString("video_poster"); v == "" {
 		t.Error("poster should be set")
 	}
-	if v := e.GetString("status"); v != "Ended" {
+	if v := e.GetString("series_status"); v != "Ended" {
 		t.Errorf("status: got %q, want Ended", v)
 	}
-	if v := e.GetString("content_rating"); v != "TV-MA" {
+	if v := e.GetString("video_content_rating"); v != "TV-MA" {
 		t.Errorf("content_rating: got %q, want TV-MA", v)
 	}
-	trailers, _ := e.Get("trailers")
+	trailers, _ := e.Get("video_trailers")
 	if urls, _ := trailers.([]string); len(urls) == 0 {
 		t.Error("trailers should be set")
 	}
 	// Episode standard fields.
-	if v := e.GetString("episode_title"); v != "Pilot" {
+	if v := e.GetString("series_episode_title"); v != "Pilot" {
 		t.Errorf("episode_title: got %q, want Pilot", v)
 	}
-	if v := e.GetString("episode_air_date"); v != "2008-01-20" {
+	if v := e.GetString("series_episode_air_date"); v != "2008-01-20" {
 		t.Errorf("episode_air_date: got %q", v)
 	}
-	if v := e.GetInt("season"); v != 1 {
+	if v := e.GetInt("series_season"); v != 1 {
 		t.Errorf("season: got %d, want 1", v)
 	}
-	if v := e.GetInt("episode"); v != 1 {
+	if v := e.GetInt("series_episode"); v != 1 {
 		t.Errorf("episode: got %d, want 1", v)
 	}
-	if v := e.GetString("episode_id"); v != "S01E01" {
+	if v := e.GetString("series_episode_id"); v != "S01E01" {
 		t.Errorf("episode_id: got %q, want S01E01", v)
 	}
-	if v := e.GetInt("runtime"); v != 47 {
+	if v := e.GetInt("video_runtime"); v != 47 {
 		t.Errorf("runtime: got %d, want 47", v)
 	}
-	if v := e.GetString("episode_image"); v == "" {
+	if v := e.GetString("series_episode_image"); v == "" {
 		t.Error("episode_image should be set")
 	}
 }
@@ -230,37 +230,37 @@ func TestAnnotateExtendedFallback(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Standard fields populated from extended data.
-	if v := e.GetString("language"); v != "English" {
+	if v := e.GetString("video_language"); v != "English" {
 		t.Errorf("language: got %q, want English", v)
 	}
-	if v := e.GetString("country"); v != "United States" {
+	if v := e.GetString("video_country"); v != "United States" {
 		t.Errorf("country: got %q, want United States", v)
 	}
-	genres, _ := e.Get("genres")
+	genres, _ := e.Get("video_genres")
 	names, _ := genres.([]string)
 	if len(names) != 2 || names[0] != "Drama" || names[1] != "Crime" {
 		t.Errorf("genres: got %v", genres)
 	}
-	if v := e.GetString("status"); v != "Ended" {
+	if v := e.GetString("series_status"); v != "Ended" {
 		t.Errorf("status: got %q, want Ended", v)
 	}
-	trailers, _ := e.Get("trailers")
+	trailers, _ := e.Get("video_trailers")
 	trailerURLs, _ := trailers.([]string)
 	if len(trailerURLs) != 1 || trailerURLs[0] != "https://youtube.com/watch?v=abc123" {
 		t.Errorf("trailers: got %v", trailers)
 	}
-	if v := e.GetString("content_rating"); v != "TV-MA" {
+	if v := e.GetString("video_content_rating"); v != "TV-MA" {
 		t.Errorf("content_rating: got %q, want TV-MA", v)
 	}
-	aliases, _ := e.Get("aliases")
+	aliases, _ := e.Get("video_aliases")
 	aliasNames, _ := aliases.([]string)
 	if len(aliasNames) != 1 {
 		t.Errorf("aliases: got %v", aliases)
 	}
-	if score, _ := e.Get("rating"); score == nil {
+	if score, _ := e.Get("video_rating"); score == nil {
 		t.Error("rating should be set")
 	}
-	cast, _ := e.Get("cast")
+	cast, _ := e.Get("video_cast")
 	castNames, _ := cast.([]string)
 	if len(castNames) != 2 || castNames[0] != "Bryan Cranston" {
 		t.Errorf("cast: got %v", cast)
@@ -403,7 +403,7 @@ func TestOriginalTitleForeignShow(t *testing.T) {
 	if err := p.Annotate(context.Background(), makeCtx(), e); err != nil {
 		t.Fatal(err)
 	}
-	if v := e.GetString("original_title"); v != "La Casa de Papel" {
+	if v := e.GetString("video_original_title"); v != "La Casa de Papel" {
 		t.Errorf("original_title: got %q, want %q", v, "La Casa de Papel")
 	}
 }
@@ -419,7 +419,7 @@ func TestOriginalTitleNotSetForEnglishShow(t *testing.T) {
 	if err := p.Annotate(context.Background(), makeCtx(), e); err != nil {
 		t.Fatal(err)
 	}
-	if v := e.GetString("original_title"); v != "" {
+	if v := e.GetString("video_original_title"); v != "" {
 		t.Errorf("original_title should not be set for English shows, got %q", v)
 	}
 }
