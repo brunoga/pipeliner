@@ -14,6 +14,7 @@ const (
 	FieldTitle         = "title"
 	FieldDescription   = "description"
 	FieldPublishedDate = "published_date"
+	FieldEnriched      = "enriched" // true when an external metainfo provider successfully enriched this entry
 
 	// VideoInfo — video_ prefix, shared by movies and series.
 	FieldVideoYear          = "video_year"
@@ -92,6 +93,7 @@ type GenericInfo struct {
 	Title         string
 	Description   string
 	PublishedDate string
+	Enriched      bool // set to true by external metainfo providers (TVDB, TMDb, Trakt, etc.)
 }
 
 // --- Tier 2: Video ---
@@ -205,6 +207,9 @@ func (e *Entry) SetGenericInfo(info GenericInfo) {
 	}
 	if info.PublishedDate != "" {
 		e.Fields[FieldPublishedDate] = info.PublishedDate
+	}
+	if info.Enriched {
+		e.Fields[FieldEnriched] = true
 	}
 }
 

@@ -123,7 +123,7 @@ func (p *traktMetaPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, 
 	}
 
 	vi := entry.VideoInfo{
-		GenericInfo:   entry.GenericInfo{Title: r.Title, Description: r.Overview},
+		GenericInfo:   entry.GenericInfo{Title: r.Title, Description: r.Overview, Enriched: true},
 		Year:          r.Year,
 		Rating:        r.Rating,
 		ImdbID:        r.IDs.IMDB,

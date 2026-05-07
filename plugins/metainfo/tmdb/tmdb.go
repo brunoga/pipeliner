@@ -99,6 +99,7 @@ func (p *tmdbPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 	e.Set("tmdb_id", r.ID)
 
 	mi := entry.MovieInfo{}
+	mi.Enriched = true
 	mi.Title = r.Title
 	mi.Description = r.Overview
 	mi.PublishedDate = r.ReleaseDate
