@@ -16,7 +16,7 @@ tasks:
     rss:
       url: "https://example.com/feed"
     series:
-      shows: ["Breaking Bad"]
+      static: ["Breaking Bad"]
     print:
       format: "[{{.Task}}] {{.Title}}"
 ```

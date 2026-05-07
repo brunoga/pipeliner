@@ -9,7 +9,7 @@
 // Fields set on each matched entry: movie_title, movie_year, movie_quality,
 // movie_3d.
 //
-// The movie list may be provided statically via 'movies', dynamically via 'from'
+// The movie list may be provided statically via 'static', dynamically via 'from'
 // (a list of input plugins whose entry titles are used as movie names), or both.
 // Dynamic lists are cached for the configured ttl (default: 1h).
 package movies
@@ -40,7 +40,7 @@ func init() {
 
 func validate(cfg map[string]any) []error {
 	var errs []error
-	if err := plugin.RequireOneOf(cfg, "movies", "movies", "from"); err != nil {
+	if err := plugin.RequireOneOf(cfg, "movies", "static", "from"); err != nil {
 		errs = append(errs, err)
 	}
 	if err := plugin.OptDuration(cfg, "ttl", "movies"); err != nil {
@@ -51,7 +51,7 @@ func validate(cfg map[string]any) []error {
 			errs = append(errs, fmt.Errorf("movies: invalid quality spec: %w", err))
 		}
 	}
-	errs = append(errs, plugin.OptUnknownKeys(cfg, "movies", "movies", "from", "ttl", "quality")...)
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "movies", "static", "from", "ttl", "quality")...)
 	return errs
 }
 
@@ -64,7 +64,7 @@ type moviesPlugin struct {
 }
 
 func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
-	raw := toStringSlice(cfg["movies"])
+	raw := toStringSlice(cfg["static"])
 	staticTitles := make([]string, len(raw))
 	for i, s := range raw {
 		staticTitles[i] = match.Normalize(s)
@@ -81,7 +81,7 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 	}
 
 	if len(staticTitles) == 0 && len(froms) == 0 {
-		return nil, fmt.Errorf("movies: at least one of 'movies' or 'from' is required")
+		return nil, fmt.Errorf("movies: at least one of 'static' or 'from' is required")
 	}
 
 	ttl := time.Hour
@@ -146,7 +146,10 @@ func (p *moviesPlugin) Filter(ctx context.Context, tc *plugin.TaskContext, e *en
 
 	if p.tracker.IsSeen(matchedTitle, m.Year) {
 		if rec, ok := p.tracker.Latest(matchedTitle); ok && rec.Year == m.Year {
-			if m.Quality.Better(rec.Quality) {
+			betterQuality := m.Quality.Better(rec.Quality)
+			properOrRepack := m.Proper || m.Repack
+			notDowngrade := !rec.Quality.Better(m.Quality)
+			if betterQuality || (properOrRepack && notDowngrade) {
 				e.Accept()
 				return nil
 			}

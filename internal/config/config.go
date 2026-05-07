@@ -208,10 +208,7 @@ func Validate(c *Config) []error {
 			if d.Validate == nil {
 				continue
 			}
-			var cfg map[string]any
-			if len(e.raw) > 0 {
-				_ = json.Unmarshal(e.raw, &cfg)
-			}
+			cfg := normalizePluginCfg(e.raw)
 			for _, err := range d.Validate(cfg) {
 				errs = append(errs, fmt.Errorf("task %q plugin %q: %w", taskName, e.name, err))
 			}
@@ -422,30 +419,35 @@ func mergeJSON(a, b json.RawMessage) json.RawMessage {
 	return out
 }
 
+// normalizePluginCfg converts raw plugin JSON into a map[string]any.
+// If the raw value is not a JSON object (e.g. an array or scalar), it is
+// wrapped as {"value": <scalar>} — the same convention used by plugin
+// factories that support non-map config syntax (e.g. the movies inline list).
+func normalizePluginCfg(raw json.RawMessage) map[string]any {
+	if len(raw) == 0 || string(raw) == "null" {
+		return map[string]any{}
+	}
+	var cfg map[string]any
+	if json.Unmarshal(raw, &cfg) == nil {
+		return cfg
+	}
+	var scalar any
+	if json.Unmarshal(raw, &scalar) == nil {
+		return map[string]any{"value": scalar}
+	}
+	return map[string]any{}
+}
+
 // taskDefToPluginConfigs converts a TaskDef into the ordered PluginConfig slice
 // expected by task.Build. Plugins are returned in config-file order; within each
 // phase, that order is preserved during execution.
-func taskDefToPluginConfigs(taskName string, def TaskDef) ([]task.PluginConfig, error) {
+func taskDefToPluginConfigs(_ string, def TaskDef) ([]task.PluginConfig, error) {
 	var pcs []task.PluginConfig
 	for _, e := range def {
 		if e.name == "template" || e.name == "priority" || e.name == "schedule" {
 			continue
 		}
-		var cfg map[string]any
-		if len(e.raw) > 0 && string(e.raw) != "null" {
-			if err := json.Unmarshal(e.raw, &cfg); err != nil {
-				// scalar config (e.g. boolean true for a flag plugin)
-				var scalar any
-				if err2 := json.Unmarshal(e.raw, &scalar); err2 != nil {
-					return nil, fmt.Errorf("task %q plugin %q: %w", taskName, e.name, err)
-				}
-				cfg = map[string]any{"value": scalar}
-			}
-		}
-		if cfg == nil {
-			cfg = map[string]any{}
-		}
-		pcs = append(pcs, task.PluginConfig{Name: e.name, Config: cfg})
+		pcs = append(pcs, task.PluginConfig{Name: e.name, Config: normalizePluginCfg(e.raw)})
 	}
 	return pcs, nil
 }

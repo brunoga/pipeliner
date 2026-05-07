@@ -41,7 +41,3 @@ func (s *SeenStore) Mark(fingerprint string, rec SeenRecord) error {
 	return s.bucket.Put(fingerprint, rec)
 }
 
-// Forget removes a fingerprint from the store so it will be processed again.
-func (s *SeenStore) Forget(fingerprint string) error {
-	return s.bucket.Delete(fingerprint)
-}

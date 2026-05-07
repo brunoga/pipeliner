@@ -11,8 +11,10 @@ import (
 
 // Register a mock notifier for testing.
 func init() {
-	inotify.Register("mock", func(_ map[string]any) (inotify.Notifier, error) {
-		return &mockNotifier{}, nil
+	inotify.Register("mock", inotify.Descriptor{
+		Factory: func(_ map[string]any) (inotify.Notifier, error) {
+			return &mockNotifier{}, nil
+		},
 	})
 }
 

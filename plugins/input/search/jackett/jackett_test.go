@@ -268,28 +268,28 @@ func TestLimitDefaultIsZero(t *testing.T) {
 }
 
 func TestValidateLimitRejectsZero(t *testing.T) {
-	errs := validate(map[string]any{"url": "http://localhost", "api_key": "key", "limit": int64(0)})
+	errs := validateInput(map[string]any{"url": "http://localhost", "api_key": "key", "limit": int64(0)})
 	if len(errs) == 0 {
 		t.Error("expected error for limit=0")
 	}
 }
 
 func TestValidateLimitRejectsNegative(t *testing.T) {
-	errs := validate(map[string]any{"url": "http://localhost", "api_key": "key", "limit": int64(-5)})
+	errs := validateInput(map[string]any{"url": "http://localhost", "api_key": "key", "limit": int64(-5)})
 	if len(errs) == 0 {
 		t.Error("expected error for limit=-5")
 	}
 }
 
 func TestValidateLimitAcceptsPositive(t *testing.T) {
-	errs := validate(map[string]any{"url": "http://localhost", "api_key": "key", "limit": int64(100)})
+	errs := validateInput(map[string]any{"url": "http://localhost", "api_key": "key", "limit": int64(100)})
 	if len(errs) != 0 {
 		t.Errorf("unexpected errors for valid limit: %v", errs)
 	}
 }
 
 func TestValidateLimitAbsentIsOk(t *testing.T) {
-	errs := validate(map[string]any{"url": "http://localhost", "api_key": "key"})
+	errs := validateInput(map[string]any{"url": "http://localhost", "api_key": "key"})
 	if len(errs) != 0 {
 		t.Errorf("unexpected errors when limit absent: %v", errs)
 	}
@@ -310,7 +310,7 @@ func TestTimeoutDefault(t *testing.T) {
 }
 
 func TestValidateTimeoutRejectsInvalid(t *testing.T) {
-	errs := validate(map[string]any{"url": "http://localhost", "api_key": "key", "timeout": "notaduration"})
+	errs := validateInput(map[string]any{"url": "http://localhost", "api_key": "key", "timeout": "notaduration"})
 	if len(errs) == 0 {
 		t.Error("expected error for invalid timeout")
 	}

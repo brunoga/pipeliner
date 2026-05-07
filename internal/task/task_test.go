@@ -338,27 +338,6 @@ func TestPanicRecoveryLearn(t *testing.T) {
 	}
 }
 
-func TestWithLogger(t *testing.T) {
-	inp := &stubInput{entries: threeEntries()}
-	task, err := Build("t",
-		[]PluginConfig{},
-		nil,
-		slog.Default(),
-		WithLogger(slog.Default()),
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// add plugin directly since Build won't know about stub
-	task.addPlugin(pluginInstance{impl: inp, config: map[string]any{}})
-	res, err := task.Run(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if res.Total != 3 {
-		t.Errorf("want 3, got %d", res.Total)
-	}
-}
 
 func TestTaskName(t *testing.T) {
 	task := New("my-task", slog.Default())

@@ -26,7 +26,7 @@ tasks:
     rss:
       url: "https://example.com/feed"
     series:
-      shows: ["Breaking Bad"]
+      static: ["Breaking Bad"]
     pathfmt:
       path: "/media/tv/{{.series_name}}/Season {{printf \"%02d\" .series_season}}"
     transmission:

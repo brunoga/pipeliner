@@ -58,14 +58,14 @@ tasks:
   task-a:
     template: base
     series:
-      shows: ["Breaking Bad"]
+      static: ["Breaking Bad"]
     transmission:
       host: localhost
 
   task-b:
     template: base       # same rss + seen config
     movies:
-      movies: ["Inception"]
+      static: ["Inception"]
     deluge:
       host: localhost
 ```
@@ -89,7 +89,7 @@ tasks:
       url: "https://feeds.example.com/torrents"
     seen:
     series:
-      shows:
+      static:
         - "My Show"
     metainfo_quality:    # no config needed
     pathfmt:

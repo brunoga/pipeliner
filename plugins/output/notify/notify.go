@@ -31,6 +31,20 @@ func validate(cfg map[string]any) []error {
 		errs = append(errs, err)
 	}
 	errs = append(errs, plugin.OptUnknownKeys(cfg, "notify", "via", "config", "title", "body", "on")...)
+
+	via, _ := cfg["via"].(string)
+	if via != "" {
+		desc, ok := notify.Lookup(via)
+		if !ok {
+			errs = append(errs, fmt.Errorf("notify: unknown notifier %q", via))
+		} else if desc.Validate != nil {
+			notifierCfg, _ := cfg["config"].(map[string]any)
+			if notifierCfg == nil {
+				notifierCfg = map[string]any{}
+			}
+			errs = append(errs, desc.Validate(notifierCfg)...)
+		}
+	}
 	return errs
 }
 
@@ -47,7 +61,7 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 		return nil, fmt.Errorf("notify: 'via' is required (e.g. \"webhook\", \"email\")")
 	}
 
-	factory, ok := notify.Lookup(via)
+	desc, ok := notify.Lookup(via)
 	if !ok {
 		return nil, fmt.Errorf("notify: unknown notifier %q", via)
 	}
@@ -57,7 +71,7 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 	if notifierCfg == nil {
 		notifierCfg = map[string]any{}
 	}
-	n, err := factory(notifierCfg)
+	n, err := desc.Factory(notifierCfg)
 	if err != nil {
 		return nil, fmt.Errorf("notify: create %q notifier: %w", via, err)
 	}

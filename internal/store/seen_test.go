@@ -25,14 +25,6 @@ func TestSeenStoreLifecycle(t *testing.T) {
 	if !seen.IsSeen(fp) {
 		t.Fatal("fingerprint should be seen after Mark")
 	}
-
-	if err := seen.Forget(fp); err != nil {
-		t.Fatalf("Forget: %v", err)
-	}
-
-	if seen.IsSeen(fp) {
-		t.Fatal("fingerprint should not be seen after Forget")
-	}
 }
 
 func TestSeenStoreRecordContents(t *testing.T) {

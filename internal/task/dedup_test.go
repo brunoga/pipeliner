@@ -15,8 +15,8 @@ func nopLogger() *slog.Logger {
 func ep(title, series, epID string, seeds int) *entry.Entry {
 	e := entry.New(title, "http://example.com/"+title)
 	e.Accept()
-	e.Set("series_name", series)
-	e.Set("series_episode_id", epID)
+	e.Set(entry.FieldTitle, series)
+	e.Set(entry.FieldSeriesEpisodeID, epID)
 	if seeds > 0 {
 		e.Set("torrent_seeds", seeds)
 	}
@@ -26,9 +26,11 @@ func ep(title, series, epID string, seeds int) *entry.Entry {
 func movie(title, movieTitle string, seeds int) *entry.Entry {
 	e := entry.New(title, "http://example.com/"+title)
 	e.Accept()
-	e.Set("movie_title", movieTitle)
+	e.SetMovieInfo(entry.MovieInfo{
+		VideoInfo: entry.VideoInfo{GenericInfo: entry.GenericInfo{Title: movieTitle}},
+	})
 	if seeds > 0 {
-		e.Set("torrent_seeds", seeds)
+		e.Set(entry.FieldTorrentSeeds, seeds)
 	}
 	return e
 }

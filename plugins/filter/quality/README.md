@@ -57,6 +57,6 @@ tasks:
     rss:
       url: "https://example.com/feed"
     series:
-      shows: ["Breaking Bad"]
+      static: ["Breaking Bad"]
       quality: 720p+ webrip+
 ```

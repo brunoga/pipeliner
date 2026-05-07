@@ -45,14 +45,6 @@ type storedEntry struct {
 	ExpiresAt time.Time       `json:"e"`
 }
 
-// New returns an in-memory Cache with the given TTL.
-func New[V any](ttl time.Duration) *Cache[V] {
-	return &Cache[V]{
-		entries: make(map[string]cacheEntry[V]),
-		ttl:     ttl,
-	}
-}
-
 // NewPersistent returns a Cache backed by bucket for cross-run persistence.
 // Hits are served from the in-memory map; misses check the bucket before
 // returning empty. Writes go to both the map and the bucket.

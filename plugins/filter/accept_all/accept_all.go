@@ -17,6 +17,9 @@ func init() {
 		Factory: func(_ map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
 			return &acceptAllPlugin{}, nil
 		},
+		Validate: func(cfg map[string]any) []error {
+			return plugin.OptUnknownKeys(cfg, "accept_all")
+		},
 	})
 }
 

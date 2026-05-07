@@ -38,6 +38,7 @@ const (
 	FieldVideoVotes         = "video_votes"
 
 	// MovieInfo — movie_ prefix.
+	FieldMovieTitle   = "movie_title"
 	FieldMovieTagline = "movie_tagline"
 
 	// SeriesInfo — series_ prefix.
@@ -278,6 +279,9 @@ func (e *Entry) SetVideoInfo(info VideoInfo) {
 // SetMovieInfo writes non-zero MovieInfo fields into the entry's Fields map.
 func (e *Entry) SetMovieInfo(info MovieInfo) {
 	e.SetVideoInfo(info.VideoInfo)
+	if info.Title != "" {
+		e.Fields[FieldMovieTitle] = info.Title
+	}
 	if info.Tagline != "" {
 		e.Fields[FieldMovieTagline] = info.Tagline
 	}

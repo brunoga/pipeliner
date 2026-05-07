@@ -62,17 +62,4 @@ func All() []*Descriptor {
 	return out
 }
 
-// AllByPhase returns all descriptors for the given phase, sorted by name.
-func AllByPhase(p Phase) []*Descriptor {
-	mu.RLock()
-	defer mu.RUnlock()
-	var out []*Descriptor
-	for _, d := range registry {
-		if d.PluginPhase == p {
-			out = append(out, d)
-		}
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].PluginName < out[j].PluginName })
-	return out
-}
 

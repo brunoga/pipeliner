@@ -3,8 +3,8 @@
 // better quality, up to a configurable ceiling.
 //
 // Requires metainfo/quality to have run so that the "quality" field is set.
-// Series entries also need metainfo/series for the series_name + series_episode
-// fields (used as the stable key instead of the raw title).
+// Series entries also need a metainfo plugin (e.g. metainfo/series, metainfo/tvdb)
+// to set the title and series_episode_id fields used as the stable key.
 //
 // Config keys:
 //
@@ -146,12 +146,13 @@ func (p *upgradePlugin) Learn(_ context.Context, tc *plugin.TaskContext, entries
 }
 
 // entryKey returns a stable identifier for a title. For series entries it
-// combines series_name + episode ID; for everything else it uses the title.
+// combines the canonical title + episode ID; for everything else it uses the raw title.
 func entryKey(e *entry.Entry) string {
-	name := e.GetString("series_name")
-	ep := e.GetString("series_id") // set by metainfo/series as "S01E01"
-	if name != "" && ep != "" {
-		return name + ":" + ep
+	ep := e.GetString(entry.FieldSeriesEpisodeID)
+	if ep != "" {
+		if name := e.GetString(entry.FieldTitle); name != "" {
+			return name + ":" + ep
+		}
 	}
 	return e.Title
 }
