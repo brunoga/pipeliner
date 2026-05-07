@@ -123,6 +123,26 @@ var colorRangeNames = map[ColorRange]string{
 	ColorRangeDolbyVision: "Dolby Vision",
 }
 
+// Format3D represents the 3D encoding format of a video release.
+// A zero value (Format3DNone) means the release is not 3D.
+// When two 3D releases are compared, Format3D takes precedence over all
+// other quality dimensions; the remaining dims act as tie-breakers.
+type Format3D int
+
+const (
+	Format3DNone Format3D = iota // not 3D
+	Format3DHalf                 // half-resolution: HSBS, HOU, HALF-SBS, HALF-OU, plain 3D
+	Format3DFull                 // full-resolution: SBS, FSBS, OU, FOU, FULL-SBS, FULL-OU
+	Format3DBD                   // BD3D — Blu-ray 3D rip, highest quality
+)
+
+var format3DNames = map[Format3D]string{
+	Format3DNone: "",
+	Format3DHalf: "3D-Half",
+	Format3DFull: "3D-Full",
+	Format3DBD:   "BD3D",
+}
+
 // Quality holds one value per dimension parsed from a release title.
 // A zero value for any dimension means "not detected / any".
 type Quality struct {
@@ -131,6 +151,7 @@ type Quality struct {
 	Codec      Codec
 	Audio      Audio
 	ColorRange ColorRange
+	Format3D   Format3D
 }
 
 // ResolutionName returns the human-readable resolution name (e.g. "1080p"), or "" if unknown.
@@ -143,6 +164,7 @@ func (q Quality) SourceName() string { return sourceNames[q.Source] }
 func (q Quality) String() string {
 	var parts []string
 	for _, s := range []string{
+		format3DNames[q.Format3D],
 		resolutionNames[q.Resolution],
 		sourceNames[q.Source],
 		codecNames[q.Codec],
@@ -160,9 +182,17 @@ func (q Quality) String() string {
 }
 
 // Better reports whether q is strictly better than other.
-// Dimensions are compared left-to-right (Resolution > Source > Codec > Audio > ColorRange);
-// the first differing dimension determines the result. Unknown (0) is treated as lowest.
+//
+// When both qualities are 3D (Format3D != Format3DNone), Format3D is the
+// primary discriminator and the remaining dimensions act as tie-breakers.
+// When either quality is non-3D the Format3D dimension is skipped and the
+// existing order applies: Resolution > Source > Codec > Audio > ColorRange.
 func (q Quality) Better(other Quality) bool {
+	if q.Format3D != Format3DNone && other.Format3D != Format3DNone {
+		if q.Format3D != other.Format3D {
+			return q.Format3D > other.Format3D
+		}
+	}
 	if q.Resolution != other.Resolution {
 		return q.Resolution > other.Resolution
 	}
@@ -185,6 +215,8 @@ var (
 	reSource     = regexp.MustCompile(`(?i)\b(remux|blu[\-\s]?ray|bdrip|bdremux|web[\-\s]?dl|webrip|hdtv|dvdrip|tvrip)\b`)
 	reCodec      = regexp.MustCompile(`(?i)\b(av1|x265|h\.?265|hevc|x264|h\.?264|xvid|divx)\b`)
 	reColorRange = regexp.MustCompile(`(?i)\b(dolby[\s\.]?vision|dv\b|hdr10[\+]?|hdr|sdr)\b`)
+	// re3D matches 3D format markers; longer/more-specific alternatives are listed first.
+	re3D = regexp.MustCompile(`(?i)\b(BD3D|FULL-SBS|FULL-OU|FSBS|F-SBS|FOU|F-OU|HALF-SBS|HALF-OU|HSBS|H-SBS|HOU|H-OU|SBS|OU|3D)\b`)
 
 	// Audio regexes checked in priority order (highest first).
 	reAudioPatterns = []struct {
@@ -276,6 +308,18 @@ func Parse(title string) Quality {
 			q.ColorRange = ColorRangeHDR
 		case ml == "sdr":
 			q.ColorRange = ColorRangeSDR
+		}
+	}
+
+	if m := re3D.FindString(title); m != "" {
+		ml := strings.ToUpper(strings.ReplaceAll(m, "-", ""))
+		switch ml {
+		case "BD3D":
+			q.Format3D = Format3DBD
+		case "SBS", "FSBS", "FOU", "OU", "FULLSBS", "FULLOU":
+			q.Format3D = Format3DFull
+		default: // HSBS, HOU, HALFSBS, HALFOU, 3D
+			q.Format3D = Format3DHalf
 		}
 	}
 

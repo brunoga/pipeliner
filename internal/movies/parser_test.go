@@ -2,6 +2,8 @@ package movies
 
 import (
 	"testing"
+
+	"github.com/brunoga/pipeliner/internal/quality"
 )
 
 func TestParse(t *testing.T) {
@@ -42,18 +44,19 @@ func TestParse(t *testing.T) {
 
 func TestParse3D(t *testing.T) {
 	cases := []struct {
-		title  string
-		want3D bool
+		title      string
+		wantFormat quality.Format3D
 	}{
-		{"Avatar.2009.3D.1080p.BluRay.x264", true},
-		{"Gravity.2013.HSBS.1080p.BluRay", true},
-		{"Interstellar.2014.H-SBS.1080p", true},
-		{"Pacific.Rim.2013.HALF-SBS.1080p.BluRay", true},
-		{"Prometheus.2012.SBS.1080p.BluRay", true},
-		{"Gravity.2013.HOU.1080p.BluRay", true},
-		{"Avatar.2009.BD3D.1080p.BluRay", true},
-		{"The.Dark.Knight.2008.1080p.BluRay.x264", false},
-		{"Inception.2010.720p.HDTV", false},
+		{"Avatar.2009.3D.1080p.BluRay.x264", quality.Format3DHalf},
+		{"Gravity.2013.HSBS.1080p.BluRay", quality.Format3DHalf},
+		{"Interstellar.2014.H-SBS.1080p", quality.Format3DHalf},
+		{"Pacific.Rim.2013.HALF-SBS.1080p.BluRay", quality.Format3DHalf},
+		{"Prometheus.2012.SBS.1080p.BluRay", quality.Format3DFull},
+		{"Gravity.2013.HOU.1080p.BluRay", quality.Format3DHalf},
+		{"Avatar.2009.FSBS.1080p.BluRay", quality.Format3DFull},
+		{"Avatar.2009.BD3D.1080p.BluRay", quality.Format3DBD},
+		{"The.Dark.Knight.2008.1080p.BluRay.x264", quality.Format3DNone},
+		{"Inception.2010.720p.HDTV", quality.Format3DNone},
 	}
 	for _, c := range cases {
 		m, ok := Parse(c.title)
@@ -61,8 +64,8 @@ func TestParse3D(t *testing.T) {
 			t.Errorf("Parse(%q): expected ok", c.title)
 			continue
 		}
-		if m.Is3D != c.want3D {
-			t.Errorf("Parse(%q).Is3D = %v, want %v", c.title, m.Is3D, c.want3D)
+		if m.Quality.Format3D != c.wantFormat {
+			t.Errorf("Parse(%q).Quality.Format3D = %v, want %v", c.title, m.Quality.Format3D, c.wantFormat)
 		}
 	}
 }

@@ -1,0 +1,64 @@
+variables:
+  qbt_host: localhost
+  qbt_user: admin
+  qbt_pass: changeme
+  movies_path: /media/movies
+
+# Downloads both the best non-3D and best 3D copy of each movie independently.
+# 3D and non-3D versions are tracked separately so having one does not block
+# the other. Among competing 3D copies, BD3D > Full SBS/OU > Half SBS/OU takes
+# precedence over resolution and source.
+
+tasks:
+  # Non-3D: 1080p+ BluRay/WEB-DL only, exclude all 3D releases.
+  movies-flat:
+    rss:
+      url: "https://example.com/rss/movies"
+    seen:
+    movies:
+      quality: 1080p+ webrip+
+      static:
+        - Inception
+        - Interstellar
+        - "The Dark Knight"
+        - Avatar
+    condition:
+      reject: 'video_is_3d == true'
+    pathfmt:
+      path: '{$ movies_path $}/{title} ({video_year})'
+      field: download_path
+    qbittorrent:
+      host: "{$ qbt_host $}"
+      username: "{$ qbt_user $}"
+      password: "{$ qbt_pass $}"
+      savepath: "{download_path}"
+      category: movies
+
+  # 3D: accept any 3D release at 1080p+ (the engine prefers BD3D > Full > Half
+  # automatically). Non-3D copies of the same movies are handled by movies-flat.
+  movies-3d:
+    rss:
+      url: "https://example.com/rss/movies"
+    seen:
+    movies:
+      quality: 1080p+
+      static:
+        - Inception
+        - Interstellar
+        - "The Dark Knight"
+        - Avatar
+    condition:
+      reject: 'video_is_3d == false'
+    pathfmt:
+      path: '{$ movies_path $}/{title} ({video_year}) 3D'
+      field: download_path
+    qbittorrent:
+      host: "{$ qbt_host $}"
+      username: "{$ qbt_user $}"
+      password: "{$ qbt_pass $}"
+      savepath: "{download_path}"
+      category: movies-3d
+
+schedules:
+  movies-flat: 6h
+  movies-3d: 6h
