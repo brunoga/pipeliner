@@ -506,10 +506,16 @@ make build        # or: go build -o pipeliner ./cmd/pipeliner</code></pre>
   <tr><td><code>video_year</code></td><td>movies, metainfo_tvdb, metainfo_tmdb</td><td>Release or first-air year</td></tr>
   <tr><td><code>video_is_3d</code></td><td>movies</td><td><code>true</code> when any 3D format marker is detected (3D, SBS, HOU, BD3D, etc.)</td></tr>
   <tr><td><code>video_quality</code></td><td>movies</td><td>Parsed quality string from movie title, including 3D format when present (e.g. <code>BD3D 1080p BluRay</code>)</td></tr>
-  <tr><td><code>video_language</code></td><td>metainfo_tvdb</td><td>Original language display name (e.g. <code>English</code>)</td></tr>
+  <tr><td><code>video_language</code></td><td>metainfo_tvdb, metainfo_tmdb</td><td>Original language display name (e.g. <code>English</code>)</td></tr>
+  <tr><td><code>video_country</code></td><td>metainfo_tvdb, metainfo_tmdb</td><td>Country of origin display name</td></tr>
   <tr><td><code>video_genres</code></td><td>metainfo_tvdb, metainfo_tmdb, metainfo_trakt</td><td>Genre names (string slice)</td></tr>
   <tr><td><code>video_rating</code></td><td>metainfo_tvdb, metainfo_tmdb, metainfo_trakt</td><td>Community rating (0–10)</td></tr>
+  <tr><td><code>video_votes</code></td><td>metainfo_tvdb, metainfo_tmdb, metainfo_trakt</td><td>Vote count</td></tr>
   <tr><td><code>video_poster</code></td><td>metainfo_tvdb, metainfo_tmdb</td><td>Poster image URL</td></tr>
+  <tr><td><code>video_cast</code></td><td>metainfo_tvdb, metainfo_tmdb</td><td>Actor names in billing order (string slice)</td></tr>
+  <tr><td><code>video_trailers</code></td><td>metainfo_tvdb, metainfo_tmdb</td><td>Trailer URLs (string slice)</td></tr>
+  <tr><td><code>video_content_rating</code></td><td>metainfo_tvdb, metainfo_tmdb</td><td>Content rating (e.g. <code>TV-MA</code>, <code>PG-13</code>)</td></tr>
+  <tr><td><code>video_aliases</code></td><td>metainfo_tvdb, metainfo_tmdb</td><td>Alternative titles (string slice)</td></tr>
   <tr><td><code>series_first_air_date</code></td><td>metainfo_tvdb</td><td>Date of first broadcast</td></tr>
   <tr><td><code>series_next_air_date</code></td><td>metainfo_tvdb</td><td>Next scheduled air date</td></tr>
   <tr><td><code>series_episode_title</code></td><td>metainfo_tvdb</td><td>Episode title</td></tr>
@@ -831,7 +837,7 @@ make build        # or: go build -o pipeliner ./cmd/pipeliner</code></pre>
   <tr><td><code>cache_ttl</code></td><td>no</td><td><code>24h</code></td><td>How long to cache results</td></tr>
 </table>
 
-<p>Standard fields set: <code>title</code> (movie title), <code>description</code> (overview), <code>published_date</code> (release date), <code>enriched</code>, <code>video_year</code>, <code>video_original_title</code>, <code>video_genres</code>, <code>video_rating</code>, <code>video_votes</code>, <code>video_runtime</code>, <code>video_poster</code>, <code>video_popularity</code>, <code>video_imdb_id</code>, <code>movie_tagline</code></p>
+<p>Standard fields set: <code>title</code> (movie title), <code>description</code> (overview), <code>published_date</code> (release date), <code>enriched</code>, <code>video_year</code>, <code>video_original_title</code>, <code>video_language</code>, <code>video_country</code>, <code>video_genres</code>, <code>video_rating</code>, <code>video_votes</code>, <code>video_popularity</code>, <code>video_runtime</code>, <code>video_poster</code>, <code>video_cast</code>, <code>video_trailers</code>, <code>video_content_rating</code>, <code>video_aliases</code>, <code>video_imdb_id</code>, <code>movie_tagline</code></p>
 <p>Provider-specific fields kept: <code>tmdb_id</code></p>
 <p>Get a free key at <a href="https://www.themoviedb.org/settings/api" target="_blank">themoviedb.org/settings/api</a>.</p>
 

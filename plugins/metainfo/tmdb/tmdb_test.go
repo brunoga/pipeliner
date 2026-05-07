@@ -31,6 +31,8 @@ func makeServer() *httptest.Server {
 						"id": 27205, "title": "Inception",
 						"release_date": "2010-07-16", "popularity": 99.5,
 						"vote_average": 8.8, "overview": "A thief...",
+						"vote_count": 35000, "poster_path": "/inception.jpg",
+						"original_language": "en",
 					},
 				},
 				"page": 1, "total_results": 1,
@@ -39,8 +41,35 @@ func makeServer() *httptest.Server {
 			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
 				"id": 27205, "title": "Inception", "release_date": "2010-07-16",
 				"runtime": 148, "tagline": "Your mind is the scene.",
-				"imdb_id": "tt1375666",
-				"genres": []map[string]any{{"id": 28, "name": "Action"}, {"id": 878, "name": "Science Fiction"}},
+				"imdb_id": "tt1375666", "original_language": "en",
+				"genres":               []map[string]any{{"id": 28, "name": "Action"}, {"id": 878, "name": "Science Fiction"}},
+				"production_countries": []map[string]any{{"iso_3166_1": "US", "name": "United States of America"}},
+				"credits": map[string]any{
+					"cast": []map[string]any{
+						{"name": "Leonardo DiCaprio", "order": 0},
+						{"name": "Joseph Gordon-Levitt", "order": 1},
+					},
+				},
+				"videos": map[string]any{
+					"results": []map[string]any{
+						{"key": "YoHD9XEInc0", "site": "YouTube", "type": "Trailer"},
+					},
+				},
+				"release_dates": map[string]any{
+					"results": []map[string]any{
+						{
+							"iso_3166_1": "US",
+							"release_dates": []map[string]any{
+								{"certification": "PG-13", "type": 3},
+							},
+						},
+					},
+				},
+				"alternative_titles": map[string]any{
+					"titles": []map[string]any{
+						{"title": "Inception: The IMAX Experience"},
+					},
+				},
 			})
 		default:
 			http.NotFound(w, r)
@@ -78,6 +107,36 @@ func TestAnnotateMovie(t *testing.T) {
 	genreSlice, _ := genresRaw.([]string)
 	if len(genreSlice) != 2 || genreSlice[0] != "Action" || genreSlice[1] != "Science Fiction" {
 		t.Errorf("genres: got %v", genresRaw)
+	}
+	if v := e.GetString("video_poster"); v != "https://image.tmdb.org/t/p/w500/inception.jpg" {
+		t.Errorf("video_poster: got %q", v)
+	}
+	if v := e.GetString("video_language"); v != "English" {
+		t.Errorf("video_language: got %q", v)
+	}
+	if v := e.GetString("video_country"); v != "United States of America" {
+		t.Errorf("video_country: got %q", v)
+	}
+	if v := e.GetString("video_content_rating"); v != "PG-13" {
+		t.Errorf("video_content_rating: got %q", v)
+	}
+	castRaw, _ := e.Get("video_cast")
+	castSlice, _ := castRaw.([]string)
+	if len(castSlice) != 2 || castSlice[0] != "Leonardo DiCaprio" {
+		t.Errorf("video_cast: got %v", castRaw)
+	}
+	trailersRaw, _ := e.Get("video_trailers")
+	trailerSlice, _ := trailersRaw.([]string)
+	if len(trailerSlice) != 1 || trailerSlice[0] != "https://www.youtube.com/watch?v=YoHD9XEInc0" {
+		t.Errorf("video_trailers: got %v", trailersRaw)
+	}
+	if v := e.GetInt("video_votes"); v != 35000 {
+		t.Errorf("video_votes: got %d", v)
+	}
+	aliasesRaw, _ := e.Get("video_aliases")
+	aliasSlice, _ := aliasesRaw.([]string)
+	if len(aliasSlice) != 1 || aliasSlice[0] != "Inception: The IMAX Experience" {
+		t.Errorf("video_aliases: got %v", aliasesRaw)
 	}
 }
 
@@ -135,6 +194,22 @@ func TestAnnotateNonMovie(t *testing.T) {
 	}
 	if v := e.GetString("title"); v != "" {
 		t.Errorf("series title should not set tmdb_title, got %q", v)
+	}
+}
+
+func TestIso639_1Name(t *testing.T) {
+	cases := []struct{ code, want string }{
+		{"en", "English"},
+		{"fr", "French"},
+		{"ja", "Japanese"},
+		{"zh", "Chinese"},
+		{"xx", "xx"}, // unknown code falls back to the raw code
+		{"", ""},
+	}
+	for _, c := range cases {
+		if got := iso639_1Name(c.code); got != c.want {
+			t.Errorf("iso639_1Name(%q) = %q, want %q", c.code, got, c.want)
+		}
 	}
 }
 

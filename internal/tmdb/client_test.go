@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -47,19 +48,50 @@ func TestSearchMovie(t *testing.T) {
 }
 
 func TestGetMovie(t *testing.T) {
+	var gotQuery string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/3/movie/27205" {
 			http.NotFound(w, r)
 			return
 		}
+		gotQuery = r.URL.RawQuery
 		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
-			"id":           27205,
-			"title":        "Inception",
-			"release_date": "2010-07-16",
-			"runtime":      148,
-			"tagline":      "Your mind is the scene of the crime.",
-			"imdb_id":      "tt1375666",
-			"genres":       []map[string]any{{"id": 28, "name": "Action"}},
+			"id":                27205,
+			"title":             "Inception",
+			"release_date":      "2010-07-16",
+			"runtime":           148,
+			"tagline":           "Your mind is the scene of the crime.",
+			"imdb_id":           "tt1375666",
+			"original_language": "en",
+			"genres":            []map[string]any{{"id": 28, "name": "Action"}},
+			"production_countries": []map[string]any{
+				{"iso_3166_1": "US", "name": "United States of America"},
+			},
+			"credits": map[string]any{
+				"cast": []map[string]any{
+					{"name": "Leonardo DiCaprio", "order": 0},
+				},
+			},
+			"videos": map[string]any{
+				"results": []map[string]any{
+					{"key": "abc123", "site": "YouTube", "type": "Trailer"},
+				},
+			},
+			"release_dates": map[string]any{
+				"results": []map[string]any{
+					{
+						"iso_3166_1": "US",
+						"release_dates": []map[string]any{
+							{"certification": "PG-13", "type": 3},
+						},
+					},
+				},
+			},
+			"alternative_titles": map[string]any{
+				"titles": []map[string]any{
+					{"title": "Inception: The IMAX Experience"},
+				},
+			},
 		})
 	}))
 	defer srv.Close()
@@ -79,6 +111,29 @@ func TestGetMovie(t *testing.T) {
 	}
 	if m.ImdbID != "tt1375666" {
 		t.Errorf("imdb_id: got %q", m.ImdbID)
+	}
+	if m.OriginalLanguage != "en" {
+		t.Errorf("original_language: got %q", m.OriginalLanguage)
+	}
+	if len(m.ProductionCountries) == 0 || m.ProductionCountries[0].Name != "United States of America" {
+		t.Errorf("production_countries: got %v", m.ProductionCountries)
+	}
+	if len(m.Credits.Cast) == 0 || m.Credits.Cast[0].Name != "Leonardo DiCaprio" {
+		t.Errorf("credits.cast: got %v", m.Credits.Cast)
+	}
+	if len(m.Videos.Results) == 0 || m.Videos.Results[0].Key != "abc123" {
+		t.Errorf("videos: got %v", m.Videos.Results)
+	}
+	if len(m.ReleaseDates.Results) == 0 || m.ReleaseDates.Results[0].ISO != "US" {
+		t.Errorf("release_dates: got %v", m.ReleaseDates.Results)
+	}
+	if len(m.AlternativeTitles.Titles) == 0 || m.AlternativeTitles.Titles[0].Title != "Inception: The IMAX Experience" {
+		t.Errorf("alternative_titles: got %v", m.AlternativeTitles.Titles)
+	}
+	for _, param := range []string{"credits", "videos", "release_dates", "alternative_titles"} {
+		if !strings.Contains(gotQuery, param) {
+			t.Errorf("expected %q in query string, got %q", param, gotQuery)
+		}
 	}
 }
 
