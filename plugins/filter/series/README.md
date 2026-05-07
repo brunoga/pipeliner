@@ -4,19 +4,21 @@ Accepts episodes of configured TV shows. Parses the episode identifier from the 
 
 **Multiple quality variants** of the same episode (from different sources or input feeds) are all accepted so the task engine's automatic deduplication can pick the best copy. The download history is updated in the Learn phase — only the winning copy is recorded.
 
-The show list can be provided statically via `shows`, dynamically via `from` (a list of input plugins whose entry titles are used as show names), or both. Dynamic results are cached for the configured `ttl` so external APIs are not called on every pipeline run.
+A re-download of an already-seen episode is accepted when the new copy is strictly better quality, or when it is a PROPER/REPACK that is not a quality downgrade.
+
+The show list can be provided statically via `static`, dynamically via `from` (a list of input plugins whose entry titles are used as show names), or both. Dynamic results are cached for the configured `ttl` so external APIs are not called on every pipeline run.
 
 ## Config
 
 | Key | Type | Required | Default | Description |
 |-----|------|----------|---------|-------------|
-| `shows` | string or list | conditional | — | Static show names to accept |
+| `static` | string or list | conditional | — | Static show names to accept |
 | `from` | list | conditional | — | Input plugin configs whose entry titles supplement the show list |
 | `ttl` | string | no | `1h` | How long to cache the dynamic list fetched via `from` |
 | `tracking` | string | no | `strict` | Episode ordering mode: `strict`, `backfill`, or `follow` |
 | `quality` | string | no | — | Minimum quality spec (e.g. `720p`, `1080p bluray`) |
 
-At least one of `shows` or `from` is required.
+At least one of `static` or `from` is required.
 
 ### Tracking modes
 
@@ -63,7 +65,7 @@ tasks:
     series:
       tracking: strict
       quality: 720p
-      shows:
+      static:
         - "Breaking Bad"
         - "Better Call Saul"
         - "The Wire"
@@ -114,7 +116,7 @@ tasks:
     rss:
       url: "https://example.com/feed"
     series:
-      shows:
+      static:
         - "Severance"      # always included regardless of watchlist
       from:
         - name: trakt_list

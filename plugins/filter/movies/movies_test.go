@@ -42,7 +42,7 @@ func openPlugin(t *testing.T, extra map[string]any) *moviesPlugin {
 	}
 	t.Cleanup(func() { db.Close() })
 	cfg := map[string]any{
-		"movies": []any{"Inception"},
+		"static": []any{"Inception"},
 	}
 	maps.Copy(cfg, extra)
 	p, err := newPlugin(cfg, db)
@@ -64,7 +64,7 @@ func TestFilterAcceptsListedMovie(t *testing.T) {
 }
 
 func TestFilterRejectsUnlistedMovie(t *testing.T) {
-	p := openPlugin(t, map[string]any{"movies": []any{"The Matrix"}})
+	p := openPlugin(t, map[string]any{"static": []any{"The Matrix"}})
 	e := entry.New("Inception.2010.1080p.BluRay.x264", "http://x.com/a")
 	if err := p.Filter(context.Background(), makeCtx(), e); err != nil {
 		t.Fatal(err)
@@ -120,6 +120,55 @@ func TestDuplicateRejected(t *testing.T) {
 	p.Filter(context.Background(), tc, e2) //nolint:errcheck
 	if !e2.IsRejected() {
 		t.Error("already-downloaded movie should be rejected")
+	}
+}
+
+func TestQualityUpgradesExisting(t *testing.T) {
+	p := openPlugin(t, nil)
+	tc := makeCtx()
+
+	e1 := entry.New("Inception.2010.720p.HDTV", "http://x.com/a")
+	p.Filter(context.Background(), tc, e1)  //nolint:errcheck
+	e1.Accept()
+	p.Learn(context.Background(), tc, []*entry.Entry{e1}) //nolint:errcheck
+
+	e2 := entry.New("Inception.2010.1080p.BluRay.x264", "http://x.com/b")
+	p.Filter(context.Background(), tc, e2) //nolint:errcheck
+	if !e2.IsAccepted() {
+		t.Errorf("higher-quality copy should be accepted: %s", e2.RejectReason)
+	}
+}
+
+func TestProperSameQualityUpgradesExisting(t *testing.T) {
+	p := openPlugin(t, nil)
+	tc := makeCtx()
+
+	e1 := entry.New("Inception.2010.720p.HDTV", "http://x.com/a")
+	p.Filter(context.Background(), tc, e1)  //nolint:errcheck
+	e1.Accept()
+	p.Learn(context.Background(), tc, []*entry.Entry{e1}) //nolint:errcheck
+
+	e2 := entry.New("Inception.2010.PROPER.720p.HDTV", "http://x.com/b")
+	p.Filter(context.Background(), tc, e2) //nolint:errcheck
+	if !e2.IsAccepted() {
+		t.Errorf("proper at same quality should be accepted: %s", e2.RejectReason)
+	}
+}
+
+func TestNoUpgradeWhenQualityNotBetter(t *testing.T) {
+	p := openPlugin(t, nil)
+	tc := makeCtx()
+
+	e1 := entry.New("Inception.2010.720p.BluRay.x264", "http://x.com/a")
+	p.Filter(context.Background(), tc, e1)  //nolint:errcheck
+	e1.Accept()
+	p.Learn(context.Background(), tc, []*entry.Entry{e1}) //nolint:errcheck
+
+	// Lower source quality (HDTV < BluRay) — rejected even with PROPER tag.
+	e2 := entry.New("Inception.2010.PROPER.720p.HDTV", "http://x.com/b")
+	p.Filter(context.Background(), tc, e2) //nolint:errcheck
+	if !e2.IsRejected() {
+		t.Error("copy with lower quality should not replace existing")
 	}
 }
 

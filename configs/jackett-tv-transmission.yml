@@ -30,7 +30,7 @@ tasks:
 
     # Accept episodes of the configured shows; track what has been downloaded.
     series:
-      shows:
+      static:
         - "Breaking Bad"
         - "Better Call Saul"
         - "The Wire"

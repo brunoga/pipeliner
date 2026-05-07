@@ -35,7 +35,17 @@ func init() {
 		Description: "search a parameterized RSS URL for entries matching a query string",
 		PluginPhase: plugin.PhaseFrom,
 		Factory:     newPlugin,
+		Validate:    validate,
 	})
+}
+
+func validate(cfg map[string]any) []error {
+	var errs []error
+	if err := plugin.RequireString(cfg, "url_template", "rss_search"); err != nil {
+		errs = append(errs, err)
+	}
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "rss_search", "url_template")...)
+	return errs
 }
 
 type searchRSSPlugin struct {

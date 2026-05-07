@@ -74,11 +74,11 @@ func TestMissingURL(t *testing.T) {
 }
 
 func TestRegistration(t *testing.T) {
-	f, ok := notify.Lookup("webhook")
+	d, ok := notify.Lookup("webhook")
 	if !ok {
 		t.Fatal("webhook notifier not registered")
 	}
-	_, err := f(map[string]any{"url": "http://example.com"})
+	_, err := d.Factory(map[string]any{"url": "http://example.com"})
 	if err != nil {
 		t.Fatal(err)
 	}

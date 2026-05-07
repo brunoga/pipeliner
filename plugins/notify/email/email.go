@@ -12,13 +12,13 @@ import (
 )
 
 func init() {
-	notify.Register("email", func(cfg map[string]any) (notify.Notifier, error) {
-		return newNotifier(cfg)
+	notify.Register("email", notify.Descriptor{
+		Factory:  func(cfg map[string]any) (notify.Notifier, error) { return newNotifier(cfg) },
+		Validate: validate,
 	})
 }
 
-// Validate checks the email notifier configuration.
-func Validate(cfg map[string]any) []error {
+func validate(cfg map[string]any) []error {
 	var errs []error
 	if err := plugin.RequireString(cfg, "smtp_host", "email"); err != nil {
 		errs = append(errs, err)
@@ -58,7 +58,7 @@ func newNotifier(cfg map[string]any) (*emailNotifier, error) {
 		return nil, fmt.Errorf("email notifier: 'to' is required")
 	}
 
-	port := intVal(cfg["port"], 25)
+	port := intVal(cfg["smtp_port"], 25)
 	username, _ := cfg["username"].(string)
 	password, _ := cfg["password"].(string)
 	html, _ := cfg["html"].(bool)

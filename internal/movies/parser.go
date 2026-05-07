@@ -17,6 +17,8 @@ type Movie struct {
 	Year    int
 	Quality quality.Quality
 	Is3D    bool
+	Proper  bool
+	Repack  bool
 }
 
 var (
@@ -44,6 +46,8 @@ var (
 			`\[\w+\]|-\w+$)\b.*`)
 
 	reContainer = regexp.MustCompile(`(?i)\.(mkv|mp4|avi|mov|ts|m2ts|wmv|webm|flv|ogm|divx|asf)$`)
+
+	reProper = regexp.MustCompile(`(?i)\b(PROPER|REPACK|RERIP)\b`)
 )
 
 // Parse extracts movie metadata from a release title.
@@ -52,6 +56,13 @@ func Parse(title string) (*Movie, bool) {
 	m := &Movie{}
 	m.Quality = quality.Parse(title)
 	m.Is3D = re3D.MatchString(title)
+	if tok := reProper.FindString(title); tok != "" {
+		if strings.EqualFold(tok, "repack") {
+			m.Repack = true
+		} else {
+			m.Proper = true
+		}
+	}
 
 	// Strip file container extension.
 	if ext := reContainer.FindString(title); ext != "" {
