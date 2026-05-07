@@ -41,22 +41,68 @@ type Movie struct {
 	ReleaseDate string  `json:"release_date"` // "YYYY-MM-DD"
 	Popularity  float64 `json:"popularity"`
 	VoteAverage float64 `json:"vote_average"`
+	VoteCount   int     `json:"vote_count"`
+	PosterPath  string  `json:"poster_path"` // e.g. "/abc123.jpg"; prepend ImageBaseURL
 }
 
-// MovieDetail contains extended information from the movie detail endpoint.
+// ImageBaseURL is the TMDb image CDN prefix for standard poster size.
+const ImageBaseURL = "https://image.tmdb.org/t/p/w500"
+
+// MovieDetail contains extended information from the movie detail endpoint,
+// including credits, videos, and release dates fetched via append_to_response.
 type MovieDetail struct {
 	Movie
-	Genres   []Genre  `json:"genres"`
-	Runtime  int      `json:"runtime"`
-	Tagline  string   `json:"tagline"`
-	Homepage string   `json:"homepage"`
-	ImdbID   string   `json:"imdb_id"`
+	Genres             []Genre `json:"genres"`
+	Runtime            int     `json:"runtime"`
+	Tagline            string  `json:"tagline"`
+	Homepage           string  `json:"homepage"`
+	ImdbID             string  `json:"imdb_id"`
+	OriginalLanguage   string  `json:"original_language"` // ISO 639-1, e.g. "en"
+	ProductionCountries []struct {
+		Name string `json:"name"`
+	} `json:"production_countries"`
+	Credits struct {
+		Cast []CastMember `json:"cast"`
+	} `json:"credits"`
+	Videos struct {
+		Results []Video `json:"results"`
+	} `json:"videos"`
+	ReleaseDates struct {
+		Results []CountryRelease `json:"results"`
+	} `json:"release_dates"`
+	AlternativeTitles struct {
+		Titles []struct {
+			Title string `json:"title"`
+		} `json:"titles"`
+	} `json:"alternative_titles"`
 }
 
 // Genre is a TMDb genre entry.
 type Genre struct {
 	ID   int    `json:"id"`
 	Name string `json:"name"`
+}
+
+// CastMember is a single cast entry from the credits endpoint.
+type CastMember struct {
+	Name  string `json:"name"`
+	Order int    `json:"order"`
+}
+
+// Video is a single video entry (trailer, teaser, etc.).
+type Video struct {
+	Key  string `json:"key"`  // YouTube video ID
+	Site string `json:"site"` // "YouTube"
+	Type string `json:"type"` // "Trailer", "Teaser", etc.
+}
+
+// CountryRelease groups release dates and certifications by country.
+type CountryRelease struct {
+	ISO   string `json:"iso_3166_1"`
+	Dates []struct {
+		Certification string `json:"certification"`
+		Type          int    `json:"type"` // 3 = theatrical
+	} `json:"release_dates"`
 }
 
 // SearchMovie searches for movies by title and optional year.
@@ -87,9 +133,10 @@ func (c *Client) SearchMovie(ctx context.Context, title string, year int) ([]Mov
 	return resp.Results, nil
 }
 
-// GetMovie retrieves detailed movie information by TMDb movie ID.
+// GetMovie retrieves detailed movie information by TMDb movie ID, including
+// credits, videos, release dates, and alternative titles via append_to_response.
 func (c *Client) GetMovie(ctx context.Context, id int) (*MovieDetail, error) {
-	u := fmt.Sprintf("%s/movie/%d?api_key=%s", c.BaseURL, id, c.apiKey)
+	u := fmt.Sprintf("%s/movie/%d?api_key=%s&append_to_response=credits,videos,release_dates,alternative_titles", c.BaseURL, id, c.apiKey)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return nil, err

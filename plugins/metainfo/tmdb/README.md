@@ -27,10 +27,18 @@ Enriches movie entries with metadata from The Movie Database (TMDb). Searches by
 | `enriched` | bool | `true` — TMDb successfully enriched this entry |
 | `video_year` | int | Release year |
 | `video_original_title` | string | Original language title when different from `title` |
-| `video_rating` | float64 | Average user rating |
+| `video_language` | string | Original language display name (e.g. `English`) |
+| `video_country` | string | First production country name (e.g. `United States of America`) |
+| `video_rating` | float64 | Average user rating (0–10) |
+| `video_votes` | int | Number of votes |
 | `video_popularity` | float64 | TMDb popularity score |
 | `video_runtime` | int | Runtime in minutes |
+| `video_poster` | string | Poster image URL (`w500` size) |
+| `video_cast` | []string | Top 10 actor names in billing order |
+| `video_trailers` | []string | YouTube trailer URLs |
+| `video_content_rating` | string | US content rating (e.g. `PG-13`, `R`) |
 | `video_imdb_id` | string | IMDb ID (e.g. `tt1375666`) |
+| `video_aliases` | []string | Alternative titles |
 | `video_genres` | []string | Genre names |
 | `movie_tagline` | string | Tagline |
 
