@@ -132,11 +132,11 @@ func TestMissingTo(t *testing.T) {
 }
 
 func TestRegistration(t *testing.T) {
-	f, ok := notify.Lookup("email")
+	d, ok := notify.Lookup("email")
 	if !ok {
 		t.Fatal("email notifier not registered")
 	}
-	_, err := f(map[string]any{
+	_, err := d.Factory(map[string]any{
 		"smtp_host": "localhost",
 		"from":      "a@b.com",
 		"to":        "x@y.com",
