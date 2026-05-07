@@ -106,145 +106,71 @@ func (p *tvdbPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 	s := results[0]
 	tc.Logger.Debug("metainfo_tvdb: search result", "series", ep.SeriesName, "id", s.ID, "name", s.Name)
 
-	// Set baseline from search — these are always present.
-	// Provider fields store raw API values (ISO codes, etc.) unchanged.
 	e.Set("tvdb_id", s.ID)
-	e.Set("tvdb_series_name", s.Name)
-	if s.Year != "" {
-		e.Set("tvdb_series_year", s.Year)
-	}
-	if s.Overview != "" {
-		e.Set("tvdb_overview", s.Overview)
-	}
 	if s.Slug != "" {
 		e.Set("tvdb_slug", s.Slug)
 	}
-	if s.ImageURL != "" {
-		e.Set("tvdb_poster", s.ImageURL)
-	}
-	if len(s.Genres) > 0 {
-		e.Set("tvdb_genres", s.Genres)
-	}
-	if s.Network != "" {
-		e.Set("tvdb_network", s.Network)
-	}
-	if s.Language != "" {
-		e.Set("tvdb_language", s.Language) // raw ISO 639-2 code, e.g. "eng"
-	}
-	if s.Country != "" {
-		e.Set("tvdb_country", s.Country) // raw ISO 3166-1 alpha-3 code, e.g. "usa"
-	}
-	if t := parseFirstAired(s.FirstAired); !t.IsZero() {
-		e.Set("tvdb_first_air_date", t)
-	}
-	if s.Score > 0 {
-		e.Set("tvdb_score", s.Score)
-	}
 
-	// Extended is authoritative — unconditionally overrides search data when
-	// present, and adds fields the search endpoint never returns.
-	// Provider fields remain raw; standard fields are set via SetSeriesInfo below.
+	// Build the standard SeriesInfo. Extended data is authoritative; search is
+	// the fallback for fields the extended endpoint may not return.
 	si := entry.SeriesInfo{}
 	if s.ID != "" {
 		if ext, err := p.fetchExtended(ctx, tc, s.ID); err == nil {
-			if ext.Name != "" {
-				e.Set("tvdb_series_name", ext.Name)
-				si.Title = ext.Name
-			} else {
-				si.Title = s.Name
-			}
-			if ext.Year != "" {
-				e.Set("tvdb_series_year", ext.Year)
-			}
-			if ext.Overview != "" {
-				e.Set("tvdb_overview", ext.Overview)
-				si.Description = ext.Overview
-			} else {
-				si.Description = s.Overview
-			}
 			if ext.Slug != "" {
 				e.Set("tvdb_slug", ext.Slug)
 			}
-			if ext.Image != "" {
-				e.Set("tvdb_poster", ext.Image)
-				si.Poster = ext.Image
-			} else if s.ImageURL != "" {
+			si.Title = ext.Name
+			if si.Title == "" {
+				si.Title = s.Name
+			}
+			si.Description = ext.Overview
+			if si.Description == "" {
+				si.Description = s.Overview
+			}
+			si.Poster = ext.Image
+			if si.Poster == "" {
 				si.Poster = s.ImageURL
 			}
 			if names := ext.GenreNames(); len(names) > 0 {
-				e.Set("tvdb_genres", names)
 				si.Genres = names
 			}
-			if ext.OriginalNetwork.Name != "" {
-				e.Set("tvdb_network", ext.OriginalNetwork.Name)
-				si.Network = ext.OriginalNetwork.Name
-			} else if s.Network != "" {
+			si.Network = ext.OriginalNetwork.Name
+			if si.Network == "" {
 				si.Network = s.Network
 			}
 			lang := ext.Language
 			if lang == "" {
 				lang = s.Language
 			}
-			if lang != "" {
-				e.Set("tvdb_language", lang) // raw code
-				si.Language = languageName(lang)
-			}
+			si.Language = languageName(lang)
 			country := ext.OriginalCountry
 			if country == "" {
 				country = s.Country
 			}
-			if country != "" {
-				e.Set("tvdb_country", country) // raw code
-				si.Country = countryName(country)
-			}
+			si.Country = countryName(country)
 			if t := parseFirstAired(ext.FirstAired); !t.IsZero() {
-				e.Set("tvdb_first_air_date", t)
 				si.FirstAirDate = ext.FirstAired
 				si.PublishedDate = ext.FirstAired
 			} else if s.FirstAired != "" {
 				si.FirstAirDate = s.FirstAired
 				si.PublishedDate = s.FirstAired
 			}
-			if ext.Score > 0 {
-				e.Set("tvdb_score", ext.Score)
-				si.Rating = ext.Score
-			} else if s.Score > 0 {
+			si.Rating = ext.Score
+			if si.Rating == 0 {
 				si.Rating = s.Score
 			}
-			if ext.Status.Name != "" {
-				e.Set("tvdb_status", ext.Status.Name)
-				si.Status = ext.Status.Name
-			}
-			if urls := ext.TrailerURLs(); len(urls) > 0 {
-				e.Set("tvdb_trailers", urls)
-				si.Trailers = urls
-			}
-			if rating := ext.ContentRatingName(); rating != "" {
-				e.Set("tvdb_content_rating", rating)
-				si.ContentRating = rating
-			}
-			if t := parseFirstAired(ext.LastAired); !t.IsZero() {
-				e.Set("tvdb_last_air_date", t)
-				si.LastAirDate = ext.LastAired
-			}
-			if t := parseFirstAired(ext.NextAired); !t.IsZero() {
-				e.Set("tvdb_next_air_date", t)
-				si.NextAirDate = ext.NextAired
-			}
-			if aliases := ext.AliasNames(); len(aliases) > 0 {
-				e.Set("tvdb_aliases", aliases)
-				si.Aliases = aliases
-			}
-			if cast := ext.ActorNames(); len(cast) > 0 {
-				e.Set("tvdb_cast", cast)
-				si.Cast = cast
-			}
+			si.Status = ext.Status.Name
+			si.Trailers = ext.TrailerURLs()
+			si.ContentRating = ext.ContentRatingName()
+			si.LastAirDate = ext.LastAired
+			si.NextAirDate = ext.NextAired
+			si.Aliases = ext.AliasNames()
+			si.Cast = ext.ActorNames()
 			if name := ext.OriginalName(lang); name != "" && name != ext.Name && name != s.Name {
-				e.Set("tvdb_original_title", name)
 				si.OriginalTitle = name
 			}
 		} else {
-			// Extended fetch failed — populate standard fields from search only.
+			// Extended fetch failed — fall back to search data only.
 			si.Title = s.Name
 			si.Description = s.Overview
 			si.Poster = s.ImageURL
@@ -260,9 +186,8 @@ func (p *tvdbPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 		}
 	}
 
-	// Set standard series fields from what we have so far (series-level metadata).
-	// This must happen before the episode fetch so a fetch failure doesn't prevent
-	// series-level standard fields from being written.
+	// Write series-level standard fields before the episode fetch so a fetch
+	// failure doesn't prevent them from being set.
 	e.SetSeriesInfo(si)
 
 	// Fetch episode-level detail if we have a specific episode.
@@ -276,25 +201,15 @@ func (p *tvdbPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 		si.EpisodeID = series.EpisodeID(ep)
 		for _, ep2 := range eps {
 			if ep2.SeasonNumber == ep.Season && ep2.EpisodeNumber == ep.Episode {
-				e.Set("tvdb_episode_id", ep2.ID)
-				e.Set("tvdb_episode_name", ep2.Name)
-				e.Set("tvdb_air_date", ep2.AirDate)
-				e.Set("tvdb_episode_overview", ep2.Overview)
+				e.Set("tvdb_episode_id", ep2.ID) // TVDB internal numeric episode ID
 				si.EpisodeTitle = ep2.Name
 				si.EpisodeDescription = ep2.Overview
 				si.EpisodeAirDate = ep2.AirDate
-				if ep2.Runtime > 0 {
-					e.Set("tvdb_episode_runtime", ep2.Runtime)
-					si.Runtime = ep2.Runtime
-				}
-				if ep2.Image != "" {
-					e.Set("tvdb_episode_image", ep2.Image)
-					si.EpisodeImage = ep2.Image
-				}
+				si.Runtime = ep2.Runtime
+				si.EpisodeImage = ep2.Image
 				break
 			}
 		}
-		// Re-apply with episode-level fields now populated.
 		e.SetSeriesInfo(si)
 	}
 

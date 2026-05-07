@@ -132,13 +132,7 @@ func (p *moviesPlugin) Filter(ctx context.Context, tc *plugin.TaskContext, e *en
 		return nil
 	}
 
-	e.Set("movie_title", matchedTitle)
-	e.Set("movie_year", m.Year)
-	e.Set("movie_3d", m.Is3D)
 	qualStr := m.Quality.String()
-	if qualStr != "unknown" {
-		e.Set("movie_quality", qualStr)
-	}
 	mi := entry.MovieInfo{}
 	mi.Title = matchedTitle
 	mi.Year = m.Year

@@ -99,22 +99,22 @@ func TestAnnotateShow(t *testing.T) {
 	if v := e.GetInt("trakt_id"); v != 1 {
 		t.Errorf("trakt_id: got %d, want 1", v)
 	}
-	if v := e.GetString("trakt_title"); v != "Breaking Bad" {
+	if v := e.GetString("title"); v != "Breaking Bad" {
 		t.Errorf("trakt_title: got %q, want %q", v, "Breaking Bad")
 	}
-	if v := e.GetInt("trakt_year"); v != 2008 {
+	if v := e.GetInt("year"); v != 2008 {
 		t.Errorf("trakt_year: got %d, want 2008", v)
 	}
-	if v := e.GetString("trakt_imdb_id"); v != "tt0903747" {
+	if v := e.GetString("imdb_id"); v != "tt0903747" {
 		t.Errorf("trakt_imdb_id: got %q", v)
 	}
 	if v := e.GetInt("trakt_tvdb_id"); v != 81189 {
 		t.Errorf("trakt_tvdb_id: got %d, want 81189", v)
 	}
-	if v := e.GetString("trakt_genres"); v == "" {
-		t.Error("trakt_genres should be set")
+	if g, _ := e.Get("genres"); g == nil {
+		t.Error("genres should be set")
 	}
-	if v := e.GetString("trakt_overview"); v == "" {
+	if v := e.GetString("description"); v == "" {
 		t.Error("trakt_overview should be set")
 	}
 }
@@ -130,7 +130,7 @@ func TestAnnotateNonParseableTitle(t *testing.T) {
 	if err := p.Annotate(context.Background(), tc(), e); err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
-	if e.GetString("trakt_title") != "" {
+	if e.GetString("title") != "" {
 		t.Error("non-parseable title should not set any fields")
 	}
 }
@@ -191,7 +191,7 @@ func TestAnnotateMovie(t *testing.T) {
 	if v := e.GetInt("trakt_id"); v != 42 {
 		t.Errorf("trakt_id: got %d, want 42", v)
 	}
-	if v := e.GetString("trakt_imdb_id"); v != "tt1375666" {
+	if v := e.GetString("imdb_id"); v != "tt1375666" {
 		t.Errorf("trakt_imdb_id: got %q", v)
 	}
 	// Movies don't have tvdb_id.

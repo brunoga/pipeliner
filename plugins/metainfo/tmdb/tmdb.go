@@ -10,7 +10,6 @@ import (
 	"context"
 	"fmt"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/brunoga/pipeliner/internal/cache"
@@ -98,12 +97,6 @@ func (p *tmdbPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 	// Use the first (most popular) result.
 	r := results[0]
 	e.Set("tmdb_id", r.ID)
-	e.Set("tmdb_title", r.Title)
-	e.Set("tmdb_original_title", r.OrigTitle)
-	e.Set("tmdb_release_date", r.ReleaseDate)
-	e.Set("tmdb_overview", r.Overview)
-	e.Set("tmdb_popularity", r.Popularity)
-	e.Set("tmdb_vote_average", r.VoteAverage)
 
 	mi := entry.MovieInfo{}
 	mi.Title = r.Title
@@ -127,16 +120,11 @@ func (p *tmdbPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 		e.SetMovieInfo(mi)
 		return nil
 	}
-	e.Set("tmdb_runtime", detail.Runtime)
-	e.Set("tmdb_tagline", detail.Tagline)
-	e.Set("tmdb_imdb_id", detail.ImdbID)
 
 	genres := make([]string, len(detail.Genres))
 	for i, g := range detail.Genres {
 		genres[i] = g.Name
 	}
-	e.Set("tmdb_genres", strings.Join(genres, ", "))
-
 	mi.Runtime = detail.Runtime
 	mi.Tagline = detail.Tagline
 	mi.ImdbID = detail.ImdbID

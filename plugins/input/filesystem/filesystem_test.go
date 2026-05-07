@@ -107,8 +107,8 @@ func TestEntryFields(t *testing.T) {
 	if e.GetString("extension") != ".torrent" {
 		t.Errorf("extension: want .torrent, got %q", e.GetString("extension"))
 	}
-	if e.GetInt("size") != 5 {
-		t.Errorf("size: want 5, got %d", e.GetInt("size"))
+	if e.GetInt("file_size") != 5 {
+		t.Errorf("file_size: want 5, got %d", e.GetInt("file_size"))
 	}
 	if e.GetString("filename") != "file.torrent" {
 		t.Errorf("filename: want %q, got %q", "file.torrent", e.GetString("filename"))

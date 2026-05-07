@@ -153,17 +153,17 @@ func TestSearchParsesEntries(t *testing.T) {
 	if e.URL != "http://tracker.example.com/1.torrent" {
 		t.Errorf("url: got %q", e.URL)
 	}
-	if v := e.GetInt("torrent_seeders"); v != 42 {
-		t.Errorf("torrent_seeders: got %d, want 42", v)
+	if v := e.GetInt("seeds"); v != 42 {
+		t.Errorf("seeds: got %d, want 42", v)
 	}
-	if v := e.GetInt("torrent_leechers"); v != 3 {
-		t.Errorf("torrent_leechers: got %d, want 3", v)
+	if v := e.GetInt("leechers"); v != 3 {
+		t.Errorf("leechers: got %d, want 3", v)
 	}
-	if v := e.GetString("torrent_info_hash"); v != "aabbcc" {
-		t.Errorf("torrent_info_hash: got %q, want aabbcc", v)
+	if v := e.GetString("info_hash"); v != "aabbcc" {
+		t.Errorf("info_hash: got %q, want aabbcc", v)
 	}
-	if v := e.GetInt("torrent_size"); v != 1_500_000_000 {
-		t.Errorf("torrent_size: got %d", v)
+	if v := e.GetInt("file_size"); v != 1_500_000_000 {
+		t.Errorf("file_size: got %d", v)
 	}
 	if v := e.GetString("jackett_category"); v != "5030" {
 		t.Errorf("jackett_category: got %q", v)
