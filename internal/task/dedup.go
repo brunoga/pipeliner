@@ -9,7 +9,7 @@ import (
 )
 
 // deduplicate ensures at most one accepted entry exists per unique media item.
-// Episodes are keyed by series_name + series_episode_id; movies are keyed by
+// Episodes are keyed by title + series_episode_id; movies are keyed by
 // movie_title. Entries with neither are not affected.
 //
 // Selection priority (lexicographic):
@@ -51,12 +51,12 @@ func deduplicate(entries []*entry.Entry, logger *slog.Logger) {
 
 // deduKey returns the deduplication key for an entry, or "" if not applicable.
 func deduKey(e *entry.Entry) string {
-	if series := e.GetString("series_name"); series != "" {
-		if epID := e.GetString("series_episode_id"); epID != "" {
-			return "episode:" + series + "/" + epID
+	if epID := e.GetString(entry.FieldSeriesEpisodeID); epID != "" {
+		if title := e.GetString(entry.FieldTitle); title != "" {
+			return "episode:" + title + "/" + epID
 		}
 	}
-	if movie := e.GetString("movie_title"); movie != "" {
+	if movie := e.GetString(entry.FieldMovieTitle); movie != "" {
 		return "movie:" + movie
 	}
 	return ""
@@ -92,10 +92,7 @@ func seedTier(seeds int) int {
 }
 
 func entrySeeds(e *entry.Entry) int {
-	if v, ok := e.Get("torrent_seeds"); ok {
-		return anyToInt(v)
-	}
-	if v, ok := e.Get("torrent_seeders"); ok {
+	if v, ok := e.Get(entry.FieldTorrentSeeds); ok {
 		return anyToInt(v)
 	}
 	return 0
