@@ -111,7 +111,7 @@ func (p *upgradePlugin) Filter(_ context.Context, tc *plugin.TaskContext, e *ent
 		// Current is not better.
 		if p.onLower == "reject" {
 			e.Reject(fmt.Sprintf("upgrade: quality %q is not better than stored %q for %q",
-				e.GetString("quality"), stored.Quality, key))
+				e.GetString(entry.FieldVideoQuality), stored.Quality, key))
 		} else {
 			e.Accept()
 		}
@@ -133,7 +133,7 @@ func (p *upgradePlugin) Learn(_ context.Context, tc *plugin.TaskContext, entries
 		q := quality.Parse(e.Title)
 		rec := upgradeRecord{
 			Key:         key,
-			Quality:     e.GetString("quality"),
+			Quality:     e.GetString(entry.FieldVideoQuality),
 			QualityStr:  q.String(),
 			LastUpdated: time.Now().UTC(),
 		}

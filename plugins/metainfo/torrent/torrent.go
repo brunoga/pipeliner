@@ -93,7 +93,7 @@ func (p *torrentPlugin) Annotate(ctx context.Context, _ *plugin.TaskContext, e *
 // URL. Returns (nil, nil) if this entry does not appear to be a .torrent.
 func (p *torrentPlugin) readTorrent(ctx context.Context, e *entry.Entry) ([]byte, error) {
 	// Prefer local file (set by filesystem input plugin).
-	if loc := e.GetString("location"); loc != "" && strings.HasSuffix(strings.ToLower(loc), ".torrent") {
+	if loc := e.GetString(entry.FieldFileLocation); loc != "" && strings.HasSuffix(strings.ToLower(loc), ".torrent") {
 		return os.ReadFile(loc)
 	}
 	// Fall back to URL.

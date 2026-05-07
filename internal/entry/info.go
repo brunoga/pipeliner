@@ -5,79 +5,84 @@ import "time"
 // Standard field name constants. Provider-specific fields (tvdb_*, tmdb_*, etc.)
 // retain raw API values; these standard fields hold normalised, human-readable
 // equivalents usable in conditions, pathfmt patterns, and templates.
+//
+// Naming convention: fields are prefixed by their info type (video_, series_,
+// movie_, torrent_, file_, rss_) except for the three GenericInfo fields
+// (title, description, published_date) which apply to every entry type.
 const (
-	// Tier 1 — Generic (any entry type).
+	// GenericInfo — no prefix, universal.
 	FieldTitle         = "title"
 	FieldDescription   = "description"
 	FieldPublishedDate = "published_date"
 
-	// Tier 2 — Video (shared by movies and series).
-	FieldYear          = "year"
-	FieldLanguage      = "language"
-	FieldOriginalTitle = "original_title"
-	FieldCountry       = "country"
-	FieldGenres        = "genres"
-	FieldRating        = "rating"
-	FieldPoster        = "poster"
-	FieldCast          = "cast"
-	FieldContentRating = "content_rating"
-	FieldRuntime       = "runtime"
-	FieldTrailers      = "trailers"
-	FieldAliases       = "aliases"
-	FieldImdbID        = "imdb_id"
-	FieldQuality       = "quality"
-	FieldResolution    = "resolution"
-	FieldSource        = "source"
-	FieldIs3D          = "is_3d"
-	FieldPopularity    = "popularity"
-	FieldVotes         = "votes"
+	// VideoInfo — video_ prefix, shared by movies and series.
+	FieldVideoYear          = "video_year"
+	FieldVideoLanguage      = "video_language"
+	FieldVideoOriginalTitle = "video_original_title"
+	FieldVideoCountry       = "video_country"
+	FieldVideoGenres        = "video_genres"
+	FieldVideoRating        = "video_rating"
+	FieldVideoPoster        = "video_poster"
+	FieldVideoCast          = "video_cast"
+	FieldVideoContentRating = "video_content_rating"
+	FieldVideoRuntime       = "video_runtime"
+	FieldVideoTrailers      = "video_trailers"
+	FieldVideoAliases       = "video_aliases"
+	FieldVideoImdbID        = "video_imdb_id"
+	FieldVideoQuality       = "video_quality"
+	FieldVideoResolution    = "video_resolution"
+	FieldVideoSource        = "video_source"
+	FieldVideoIs3D          = "video_is_3d"
+	FieldVideoPopularity    = "video_popularity"
+	FieldVideoVotes         = "video_votes"
 
-	// Tier 3a — Movie only.
-	FieldTagline = "tagline"
+	// MovieInfo — movie_ prefix.
+	FieldMovieTagline = "movie_tagline"
 
-	// Tier 3b — Series only.
-	FieldSeason             = "season"
-	FieldEpisode            = "episode"
-	FieldEpisodeID          = "episode_id"
-	FieldNetwork            = "network"
-	FieldStatus             = "status"
-	FieldFirstAirDate       = "first_air_date"
-	FieldLastAirDate        = "last_air_date"
-	FieldNextAirDate        = "next_air_date"
-	FieldEpisodeTitle       = "episode_title"
-	FieldEpisodeDescription = "episode_description"
-	FieldEpisodeAirDate     = "episode_air_date"
-	FieldEpisodeImage       = "episode_image"
-	FieldService            = "service"
-	FieldProper             = "proper"
-	FieldRepack             = "repack"
-	FieldDoubleEpisode      = "double_episode"
+	// SeriesInfo — series_ prefix.
+	FieldSeriesSeason             = "series_season"
+	FieldSeriesEpisode            = "series_episode"
+	FieldSeriesEpisodeID          = "series_episode_id"
+	FieldSeriesNetwork            = "series_network"
+	FieldSeriesStatus             = "series_status"
+	FieldSeriesFirstAirDate       = "series_first_air_date"
+	FieldSeriesLastAirDate        = "series_last_air_date"
+	FieldSeriesNextAirDate        = "series_next_air_date"
+	FieldSeriesEpisodeTitle       = "series_episode_title"
+	FieldSeriesEpisodeDescription = "series_episode_description"
+	FieldSeriesEpisodeAirDate     = "series_episode_air_date"
+	FieldSeriesEpisodeImage       = "series_episode_image"
+	FieldSeriesService            = "series_service"
+	FieldSeriesProper             = "series_proper"
+	FieldSeriesRepack             = "series_repack"
+	FieldSeriesDoubleEpisode      = "series_double_episode"
 
-	// Torrent fields.
-	FieldInfoHash      = "info_hash"
-	FieldFileSize      = "file_size"
-	FieldFileCount     = "file_count"
-	FieldFiles         = "files"
-	FieldSeeds         = "seeds"
-	FieldLeechers      = "leechers"
-	FieldAnnounce      = "announce"
-	FieldAnnounceList  = "announce_list"
-	FieldCreatedBy     = "created_by"
-	FieldCreationDate  = "creation_date"
-	FieldPrivate       = "private"
+	// TorrentInfo — torrent_ prefix.
+	FieldTorrentInfoHash     = "torrent_info_hash"
+	FieldTorrentFileSize     = "torrent_file_size"
+	FieldTorrentFileCount    = "torrent_file_count"
+	FieldTorrentFiles        = "torrent_files"
+	FieldTorrentSeeds        = "torrent_seeds"
+	FieldTorrentLeechers     = "torrent_leechers"
+	FieldTorrentAnnounce     = "torrent_announce"
+	FieldTorrentAnnounceList = "torrent_announce_list"
+	FieldTorrentCreatedBy    = "torrent_created_by"
+	FieldTorrentCreationDate = "torrent_creation_date"
+	FieldTorrentPrivate      = "torrent_private"
 
-	// File fields.
-	FieldFilename     = "filename"
-	FieldExtension    = "extension"
-	FieldLocation     = "location"
-	FieldModifiedTime = "modified_time"
+	// FileInfo — file_ prefix.
+	FieldFileName         = "file_name"
+	FieldFileExtension    = "file_extension"
+	FieldFileLocation     = "file_location"
+	FieldFileSize         = "file_size"
+	FieldFileModifiedTime = "file_modified_time"
 
-	// RSS fields.
-	FieldFeed           = "feed"
-	FieldGUID           = "guid"
-	FieldLink           = "link"
-	FieldEnclosureURL   = "enclosure_url"
-	FieldEnclosureType  = "enclosure_type"
+	// RSSInfo — rss_ prefix.
+	FieldRSSFeed          = "rss_feed"
+	FieldRSSGUID          = "rss_guid"
+	FieldRSSLink          = "rss_link"
+	FieldRSSEnclosureURL  = "rss_enclosure_url"
+	FieldRSSEnclosureType = "rss_enclosure_type"
 )
 
 // --- Tier 1: Generic ---
@@ -203,203 +208,203 @@ func (e *Entry) SetGenericInfo(info GenericInfo) {
 	}
 }
 
-// SetVideoInfo writes non-zero Tier-1 and Tier-2 fields into the entry's Fields map.
+// SetVideoInfo writes non-zero VideoInfo fields into the entry's Fields map.
 func (e *Entry) SetVideoInfo(info VideoInfo) {
 	e.SetGenericInfo(info.GenericInfo)
 	if info.Year > 0 {
-		e.Fields[FieldYear] = info.Year
+		e.Fields[FieldVideoYear] = info.Year
 	}
 	if info.Language != "" {
-		e.Fields[FieldLanguage] = info.Language
+		e.Fields[FieldVideoLanguage] = info.Language
 	}
 	if info.OriginalTitle != "" {
-		e.Fields[FieldOriginalTitle] = info.OriginalTitle
+		e.Fields[FieldVideoOriginalTitle] = info.OriginalTitle
 	}
 	if info.Country != "" {
-		e.Fields[FieldCountry] = info.Country
+		e.Fields[FieldVideoCountry] = info.Country
 	}
 	if len(info.Genres) > 0 {
-		e.Fields[FieldGenres] = info.Genres
+		e.Fields[FieldVideoGenres] = info.Genres
 	}
 	if info.Rating > 0 {
-		e.Fields[FieldRating] = info.Rating
+		e.Fields[FieldVideoRating] = info.Rating
 	}
 	if info.Poster != "" {
-		e.Fields[FieldPoster] = info.Poster
+		e.Fields[FieldVideoPoster] = info.Poster
 	}
 	if len(info.Cast) > 0 {
-		e.Fields[FieldCast] = info.Cast
+		e.Fields[FieldVideoCast] = info.Cast
 	}
 	if info.ContentRating != "" {
-		e.Fields[FieldContentRating] = info.ContentRating
+		e.Fields[FieldVideoContentRating] = info.ContentRating
 	}
 	if info.Runtime > 0 {
-		e.Fields[FieldRuntime] = info.Runtime
+		e.Fields[FieldVideoRuntime] = info.Runtime
 	}
 	if len(info.Trailers) > 0 {
-		e.Fields[FieldTrailers] = info.Trailers
+		e.Fields[FieldVideoTrailers] = info.Trailers
 	}
 	if len(info.Aliases) > 0 {
-		e.Fields[FieldAliases] = info.Aliases
+		e.Fields[FieldVideoAliases] = info.Aliases
 	}
 	if info.ImdbID != "" {
-		e.Fields[FieldImdbID] = info.ImdbID
+		e.Fields[FieldVideoImdbID] = info.ImdbID
 	}
 	if info.Quality != "" {
-		e.Fields[FieldQuality] = info.Quality
+		e.Fields[FieldVideoQuality] = info.Quality
 	}
 	if info.Resolution != "" {
-		e.Fields[FieldResolution] = info.Resolution
+		e.Fields[FieldVideoResolution] = info.Resolution
 	}
 	if info.Source != "" {
-		e.Fields[FieldSource] = info.Source
+		e.Fields[FieldVideoSource] = info.Source
 	}
 	if info.Is3D {
-		e.Fields[FieldIs3D] = true
+		e.Fields[FieldVideoIs3D] = true
 	}
 	if info.Popularity > 0 {
-		e.Fields[FieldPopularity] = info.Popularity
+		e.Fields[FieldVideoPopularity] = info.Popularity
 	}
 	if info.Votes > 0 {
-		e.Fields[FieldVotes] = info.Votes
+		e.Fields[FieldVideoVotes] = info.Votes
 	}
 }
 
-// SetMovieInfo writes non-zero Tier-1, Tier-2, and movie fields into the entry's Fields map.
+// SetMovieInfo writes non-zero MovieInfo fields into the entry's Fields map.
 func (e *Entry) SetMovieInfo(info MovieInfo) {
 	e.SetVideoInfo(info.VideoInfo)
 	if info.Tagline != "" {
-		e.Fields[FieldTagline] = info.Tagline
+		e.Fields[FieldMovieTagline] = info.Tagline
 	}
 }
 
-// SetSeriesInfo writes non-zero Tier-1, Tier-2, and series fields into the entry's Fields map.
+// SetSeriesInfo writes non-zero SeriesInfo fields into the entry's Fields map.
 func (e *Entry) SetSeriesInfo(info SeriesInfo) {
 	e.SetVideoInfo(info.VideoInfo)
 	if info.Season > 0 {
-		e.Fields[FieldSeason] = info.Season
+		e.Fields[FieldSeriesSeason] = info.Season
 	}
 	if info.Episode > 0 {
-		e.Fields[FieldEpisode] = info.Episode
+		e.Fields[FieldSeriesEpisode] = info.Episode
 	}
 	if info.EpisodeID != "" {
-		e.Fields[FieldEpisodeID] = info.EpisodeID
+		e.Fields[FieldSeriesEpisodeID] = info.EpisodeID
 	}
 	if info.Network != "" {
-		e.Fields[FieldNetwork] = info.Network
+		e.Fields[FieldSeriesNetwork] = info.Network
 	}
 	if info.Status != "" {
-		e.Fields[FieldStatus] = info.Status
+		e.Fields[FieldSeriesStatus] = info.Status
 	}
 	if info.FirstAirDate != "" {
-		e.Fields[FieldFirstAirDate] = info.FirstAirDate
+		e.Fields[FieldSeriesFirstAirDate] = info.FirstAirDate
 	}
 	if info.LastAirDate != "" {
-		e.Fields[FieldLastAirDate] = info.LastAirDate
+		e.Fields[FieldSeriesLastAirDate] = info.LastAirDate
 	}
 	if info.NextAirDate != "" {
-		e.Fields[FieldNextAirDate] = info.NextAirDate
+		e.Fields[FieldSeriesNextAirDate] = info.NextAirDate
 	}
 	if info.EpisodeTitle != "" {
-		e.Fields[FieldEpisodeTitle] = info.EpisodeTitle
+		e.Fields[FieldSeriesEpisodeTitle] = info.EpisodeTitle
 	}
 	if info.EpisodeDescription != "" {
-		e.Fields[FieldEpisodeDescription] = info.EpisodeDescription
+		e.Fields[FieldSeriesEpisodeDescription] = info.EpisodeDescription
 	}
 	if info.EpisodeAirDate != "" {
-		e.Fields[FieldEpisodeAirDate] = info.EpisodeAirDate
+		e.Fields[FieldSeriesEpisodeAirDate] = info.EpisodeAirDate
 	}
 	if info.EpisodeImage != "" {
-		e.Fields[FieldEpisodeImage] = info.EpisodeImage
+		e.Fields[FieldSeriesEpisodeImage] = info.EpisodeImage
 	}
 	if info.Service != "" {
-		e.Fields[FieldService] = info.Service
+		e.Fields[FieldSeriesService] = info.Service
 	}
 	if info.Proper {
-		e.Fields[FieldProper] = true
+		e.Fields[FieldSeriesProper] = true
 	}
 	if info.Repack {
-		e.Fields[FieldRepack] = true
+		e.Fields[FieldSeriesRepack] = true
 	}
 	if info.DoubleEpisode > 0 {
-		e.Fields[FieldDoubleEpisode] = info.DoubleEpisode
+		e.Fields[FieldSeriesDoubleEpisode] = info.DoubleEpisode
 	}
 }
 
-// SetTorrentInfo writes non-zero torrent fields into the entry's Fields map.
+// SetTorrentInfo writes non-zero TorrentInfo fields into the entry's Fields map.
 func (e *Entry) SetTorrentInfo(info TorrentInfo) {
 	e.SetGenericInfo(info.GenericInfo)
 	if info.FileSize > 0 {
-		e.Fields[FieldFileSize] = info.FileSize
+		e.Fields[FieldTorrentFileSize] = info.FileSize
 	}
 	if info.FileCount > 0 {
-		e.Fields[FieldFileCount] = info.FileCount
+		e.Fields[FieldTorrentFileCount] = info.FileCount
 	}
 	if len(info.Files) > 0 {
-		e.Fields[FieldFiles] = info.Files
+		e.Fields[FieldTorrentFiles] = info.Files
 	}
 	if info.Seeds > 0 {
-		e.Fields[FieldSeeds] = info.Seeds
+		e.Fields[FieldTorrentSeeds] = info.Seeds
 	}
 	if info.Leechers > 0 {
-		e.Fields[FieldLeechers] = info.Leechers
+		e.Fields[FieldTorrentLeechers] = info.Leechers
 	}
 	if info.InfoHash != "" {
-		e.Fields[FieldInfoHash] = info.InfoHash
+		e.Fields[FieldTorrentInfoHash] = info.InfoHash
 	}
 	if info.Announce != "" {
-		e.Fields[FieldAnnounce] = info.Announce
+		e.Fields[FieldTorrentAnnounce] = info.Announce
 	}
 	if len(info.AnnounceList) > 0 {
-		e.Fields[FieldAnnounceList] = info.AnnounceList
+		e.Fields[FieldTorrentAnnounceList] = info.AnnounceList
 	}
 	if info.CreatedBy != "" {
-		e.Fields[FieldCreatedBy] = info.CreatedBy
+		e.Fields[FieldTorrentCreatedBy] = info.CreatedBy
 	}
 	if !info.CreationDate.IsZero() {
-		e.Fields[FieldCreationDate] = info.CreationDate
+		e.Fields[FieldTorrentCreationDate] = info.CreationDate
 	}
 	if info.Private {
-		e.Fields[FieldPrivate] = true
+		e.Fields[FieldTorrentPrivate] = true
 	}
 }
 
-// SetFileInfo writes non-zero filesystem fields into the entry's Fields map.
+// SetFileInfo writes non-zero FileInfo fields into the entry's Fields map.
 func (e *Entry) SetFileInfo(info FileInfo) {
 	e.SetGenericInfo(info.GenericInfo)
 	if info.Filename != "" {
-		e.Fields[FieldFilename] = info.Filename
+		e.Fields[FieldFileName] = info.Filename
 	}
 	if info.Extension != "" {
-		e.Fields[FieldExtension] = info.Extension
+		e.Fields[FieldFileExtension] = info.Extension
 	}
 	if info.Location != "" {
-		e.Fields[FieldLocation] = info.Location
+		e.Fields[FieldFileLocation] = info.Location
 	}
 	if info.FileSize > 0 {
 		e.Fields[FieldFileSize] = info.FileSize
 	}
 	if !info.ModifiedTime.IsZero() {
-		e.Fields[FieldModifiedTime] = info.ModifiedTime
+		e.Fields[FieldFileModifiedTime] = info.ModifiedTime
 	}
 }
 
-// SetRSSInfo writes non-zero RSS fields into the entry's Fields map.
+// SetRSSInfo writes non-zero RSSInfo fields into the entry's Fields map.
 func (e *Entry) SetRSSInfo(info RSSInfo) {
 	e.SetGenericInfo(info.GenericInfo)
 	if info.Feed != "" {
-		e.Fields[FieldFeed] = info.Feed
+		e.Fields[FieldRSSFeed] = info.Feed
 	}
 	if info.GUID != "" {
-		e.Fields[FieldGUID] = info.GUID
+		e.Fields[FieldRSSGUID] = info.GUID
 	}
 	if info.Link != "" {
-		e.Fields[FieldLink] = info.Link
+		e.Fields[FieldRSSLink] = info.Link
 	}
 	if info.EnclosureURL != "" {
-		e.Fields[FieldEnclosureURL] = info.EnclosureURL
+		e.Fields[FieldRSSEnclosureURL] = info.EnclosureURL
 	}
 	if info.EnclosureType != "" {
-		e.Fields[FieldEnclosureType] = info.EnclosureType
+		e.Fields[FieldRSSEnclosureType] = info.EnclosureType
 	}
 }

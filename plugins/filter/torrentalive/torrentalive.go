@@ -101,7 +101,7 @@ func (p *torrentAlivePlugin) Phase() plugin.Phase { return plugin.PhaseFilter }
 
 func (p *torrentAlivePlugin) Filter(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
 	// 1. Use feed-provided seed count if available (fast path — no scrape needed).
-	if v, ok := e.Get("seeds"); ok {
+	if v, ok := e.Get(entry.FieldTorrentSeeds); ok {
 		n := toInt(v)
 		tc.Logger.Debug("torrent_alive: fast path (seeds)", "entry", e.Title, "seeds", n)
 		return p.applyMinSeeds(e, n)
@@ -113,14 +113,14 @@ func (p *torrentAlivePlugin) Filter(ctx context.Context, tc *plugin.TaskContext,
 	}
 
 	// 2. Populate info hash and announce list from the URL if not already set.
-	if e.GetString("info_hash") == "" {
+	if e.GetString(entry.FieldTorrentInfoHash) == "" {
 		if err := p.populate(ctx, e); err != nil {
 			tc.Logger.Debug("torrent_alive: could not resolve torrent metadata",
 				"entry", e.Title, "err", err)
 		}
 	}
 
-	infoHash := e.GetString("info_hash")
+	infoHash := e.GetString(entry.FieldTorrentInfoHash)
 	announces := announceList(e)
 	if infoHash == "" || len(announces) == 0 {
 		tc.Logger.Debug("torrent_alive: no info hash or announces — leaving undecided",
@@ -183,7 +183,7 @@ func (p *torrentAlivePlugin) applyMinSeeds(e *entry.Entry, seeds int) error {
 
 // announceList returns the deduplicated list of announce URLs for an entry.
 func announceList(e *entry.Entry) []string {
-	if v, ok := e.Get("announce_list"); ok {
+	if v, ok := e.Get(entry.FieldTorrentAnnounceList); ok {
 		switch t := v.(type) {
 		case []string:
 			if len(t) > 0 {
@@ -201,7 +201,7 @@ func announceList(e *entry.Entry) []string {
 			}
 		}
 	}
-	if u := e.GetString("announce"); u != "" {
+	if u := e.GetString(entry.FieldTorrentAnnounce); u != "" {
 		return []string{u}
 	}
 	return nil

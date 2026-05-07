@@ -40,7 +40,7 @@ func makeServer() *httptest.Server {
 				"id": 27205, "title": "Inception", "release_date": "2010-07-16",
 				"runtime": 148, "tagline": "Your mind is the scene.",
 				"imdb_id": "tt1375666",
-				"genres":  []map[string]any{{"id": 28, "name": "Action"}, {"id": 878, "name": "Science Fiction"}},
+				"genres": []map[string]any{{"id": 28, "name": "Action"}, {"id": 878, "name": "Science Fiction"}},
 			})
 		default:
 			http.NotFound(w, r)
@@ -68,13 +68,13 @@ func TestAnnotateMovie(t *testing.T) {
 	if v := e.GetInt("tmdb_id"); v != 27205 {
 		t.Errorf("tmdb_id: got %d", v)
 	}
-	if v := e.GetInt("runtime"); v != 148 {
+	if v := e.GetInt("video_runtime"); v != 148 {
 		t.Errorf("tmdb_runtime: got %d", v)
 	}
-	if v := e.GetString("imdb_id"); v != "tt1375666" {
+	if v := e.GetString("video_imdb_id"); v != "tt1375666" {
 		t.Errorf("tmdb_imdb_id: got %q", v)
 	}
-	genresRaw, _ := e.Get("genres")
+	genresRaw, _ := e.Get("video_genres")
 	genreSlice, _ := genresRaw.([]string)
 	if len(genreSlice) != 2 || genreSlice[0] != "Action" || genreSlice[1] != "Science Fiction" {
 		t.Errorf("genres: got %v", genresRaw)

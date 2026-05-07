@@ -57,8 +57,8 @@ func TestGlobMask(t *testing.T) {
 		t.Errorf("want 2 .torrent entries, got %d", len(entries))
 	}
 	for _, e := range entries {
-		if e.GetString("extension") != ".torrent" {
-			t.Errorf("unexpected extension: %q", e.GetString("extension"))
+		if e.GetString("file_extension") != ".torrent" {
+			t.Errorf("unexpected extension: %q", e.GetString("file_extension"))
 		}
 	}
 }
@@ -104,14 +104,14 @@ func TestEntryFields(t *testing.T) {
 	if e.Title != "file.torrent" {
 		t.Errorf("title: want %q, got %q", "file.torrent", e.Title)
 	}
-	if e.GetString("extension") != ".torrent" {
-		t.Errorf("extension: want .torrent, got %q", e.GetString("extension"))
+	if e.GetString("file_extension") != ".torrent" {
+		t.Errorf("extension: want .torrent, got %q", e.GetString("file_extension"))
 	}
 	if e.GetInt("file_size") != 5 {
 		t.Errorf("file_size: want 5, got %d", e.GetInt("file_size"))
 	}
-	if e.GetString("filename") != "file.torrent" {
-		t.Errorf("filename: want %q, got %q", "file.torrent", e.GetString("filename"))
+	if e.GetString("file_name") != "file.torrent" {
+		t.Errorf("filename: want %q, got %q", "file.torrent", e.GetString("file_name"))
 	}
 }
 

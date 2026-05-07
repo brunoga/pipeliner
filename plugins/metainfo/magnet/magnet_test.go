@@ -31,10 +31,10 @@ func TestAnnotatesMagnetURL(t *testing.T) {
 	e := entry.New("some title", uri)
 	annotate(t, e)
 
-	if v := e.GetString("info_hash"); v != hexHash {
+	if v := e.GetString("torrent_info_hash"); v != hexHash {
 		t.Errorf("info_hash: got %q, want %q", v, hexHash)
 	}
-	if v := e.GetString("announce"); v != tracker {
+	if v := e.GetString("torrent_announce"); v != tracker {
 		t.Errorf("announce: got %q, want %q", v, tracker)
 	}
 }
@@ -46,7 +46,7 @@ func TestAnnotatesAnnounceList(t *testing.T) {
 	e := entry.New("title", uri)
 	annotate(t, e)
 
-	v, ok := e.Get("announce_list")
+	v, ok := e.Get("torrent_announce_list")
 	if !ok {
 		t.Fatal("announce_list not set")
 	}
@@ -73,7 +73,7 @@ func TestSkipsNonMagnetURL(t *testing.T) {
 	e := entry.New("title", "http://example.com/file.torrent")
 	annotate(t, e)
 
-	if _, ok := e.Get("info_hash"); ok {
+	if _, ok := e.Get("torrent_info_hash"); ok {
 		t.Error("info_hash should not be set for non-magnet URL")
 	}
 }
@@ -81,7 +81,7 @@ func TestSkipsNonMagnetURL(t *testing.T) {
 func TestSkipsMalformedMagnet(t *testing.T) {
 	e := entry.New("title", "magnet:?xt=urn:btih:BADSHORTEST")
 	annotate(t, e)
-	if _, ok := e.Get("info_hash"); ok {
+	if _, ok := e.Get("torrent_info_hash"); ok {
 		t.Error("info_hash should not be set for malformed magnet")
 	}
 }
@@ -91,7 +91,7 @@ func TestNoTrackersNoAnnounceField(t *testing.T) {
 	e := entry.New("title", uri)
 	annotate(t, e)
 
-	if _, ok := e.Get("announce"); ok {
+	if _, ok := e.Get("torrent_announce"); ok {
 		t.Error("announce should not be set when no trackers")
 	}
 }
@@ -108,7 +108,7 @@ func TestAnnotateBatchSkipsNonMagnet(t *testing.T) {
 		t.Fatalf("AnnotateBatch: %v", err)
 	}
 	for _, e := range entries {
-		if _, ok := e.Get("info_hash"); ok {
+		if _, ok := e.Get("torrent_info_hash"); ok {
 			t.Errorf("%s: info_hash should not be set", e.URL)
 		}
 	}
@@ -130,10 +130,10 @@ func TestAnnotateBatchSetsURIFields(t *testing.T) {
 		t.Fatalf("AnnotateBatch: %v", err)
 	}
 
-	if v := e.GetString("info_hash"); v != hexHash {
+	if v := e.GetString("torrent_info_hash"); v != hexHash {
 		t.Errorf("info_hash: got %q, want %q", v, hexHash)
 	}
-	if v := e.GetString("announce"); v != tracker {
+	if v := e.GetString("torrent_announce"); v != tracker {
 		t.Errorf("announce: got %q, want %q", v, tracker)
 	}
 	if v := e.GetString("title"); v == "" {
@@ -154,7 +154,7 @@ func TestAnnotateBatchMalformedMagnetSkipped(t *testing.T) {
 	if err := mp.AnnotateBatch(context.Background(), taskCtx(), []*entry.Entry{e}); err != nil {
 		t.Fatalf("AnnotateBatch: %v", err)
 	}
-	if _, ok := e.Get("info_hash"); ok {
+	if _, ok := e.Get("torrent_info_hash"); ok {
 		t.Error("info_hash should not be set for malformed magnet")
 	}
 }

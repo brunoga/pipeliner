@@ -22,14 +22,14 @@ func annotate(t *testing.T, title string) *entry.Entry {
 
 func TestResolutionField(t *testing.T) {
 	e := annotate(t, "Show.S01E01.1080p.BluRay.x264")
-	if v := e.GetString("resolution"); v != "1080p" {
+	if v := e.GetString("video_resolution"); v != "1080p" {
 		t.Errorf("resolution: got %q", v)
 	}
 }
 
 func TestSourceField(t *testing.T) {
 	e := annotate(t, "Show.S01E01.720p.HDTV")
-	if v := e.GetString("source"); v != "HDTV" {
+	if v := e.GetString("video_source"); v != "HDTV" {
 		t.Errorf("source: got %q", v)
 	}
 }
@@ -43,7 +43,7 @@ func TestCodecField(t *testing.T) {
 
 func TestQualityString(t *testing.T) {
 	e := annotate(t, "Show.S01E01.1080p.BluRay.x264")
-	if v := e.GetString("quality"); v == "" {
+	if v := e.GetString("video_quality"); v == "" {
 		t.Error("quality field should be set")
 	}
 }
@@ -51,7 +51,7 @@ func TestQualityString(t *testing.T) {
 func TestUnknownQualityNoFields(t *testing.T) {
 	e := annotate(t, "Some.Random.Title")
 	// resolution should not be set when unknown.
-	if v := e.GetString("resolution"); v != "" {
+	if v := e.GetString("video_resolution"); v != "" {
 		t.Errorf("resolution should be empty for no-quality title, got %q", v)
 	}
 	// quality string is still set (may be empty/unknown).

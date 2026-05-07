@@ -59,7 +59,7 @@ func TestAnnotateLocalFile(t *testing.T) {
 	}
 
 	e := entry.New("my.show.s01e01", "file://"+path)
-	e.Set("location", path)
+	e.Set("file_location", path)
 
 	p := makePlugin(t)
 	if err := p.Annotate(context.Background(), tc(), e); err != nil {
@@ -69,25 +69,25 @@ func TestAnnotateLocalFile(t *testing.T) {
 	if v := e.GetString("title"); v != "my.show.s01e01.mkv" {
 		t.Errorf("torrent_name: got %q", v)
 	}
-	if v := e.GetInt("file_size"); v != 2_000_000_000 {
+	if v := e.GetInt("torrent_file_size"); v != 2_000_000_000 {
 		t.Errorf("torrent_size: got %d", v)
 	}
-	if v := e.GetString("info_hash"); len(v) != 40 {
+	if v := e.GetString("torrent_info_hash"); len(v) != 40 {
 		t.Errorf("torrent_info_hash: got %q (want 40 hex chars)", v)
 	}
-	if v := e.GetString("announce"); v != "http://tracker.example/announce" {
+	if v := e.GetString("torrent_announce"); v != "http://tracker.example/announce" {
 		t.Errorf("torrent_announce: got %q", v)
 	}
 	if v := e.GetString("description"); v != "unit test torrent" {
 		t.Errorf("torrent_comment: got %q", v)
 	}
-	if v := e.GetString("created_by"); v != "pipeliner-test" {
+	if v := e.GetString("torrent_created_by"); v != "pipeliner-test" {
 		t.Errorf("torrent_created_by: got %q", v)
 	}
-	if v := e.GetTime("creation_date"); v.Unix() != 1700000000 {
+	if v := e.GetTime("torrent_creation_date"); v.Unix() != 1700000000 {
 		t.Errorf("creation_date: got %v (unix %d)", v, v.Unix())
 	}
-	if v := e.GetInt("file_count"); v != 1 {
+	if v := e.GetInt("torrent_file_count"); v != 1 {
 		t.Errorf("torrent_file_count: got %d", v)
 	}
 }
@@ -110,7 +110,7 @@ func TestAnnotateRemoteURL(t *testing.T) {
 	if v := e.GetString("title"); v != "remote.mkv" {
 		t.Errorf("torrent_name: got %q", v)
 	}
-	if v := e.GetInt("file_size"); v != 500_000_000 {
+	if v := e.GetInt("torrent_file_size"); v != 500_000_000 {
 		t.Errorf("torrent_size: got %d", v)
 	}
 }
