@@ -121,17 +121,26 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 func (p *jackettPlugin) Name() string        { return "jackett" }
 func (p *jackettPlugin) Phase() plugin.Phase { return plugin.PhaseFrom }
 
-// Search queries all configured indexers in a single Jackett API call by
-// passing them as a comma-separated list. Jackett aggregates the results
-// server-side, so limit (if set) applies to the combined result set.
+// Search queries each configured indexer and returns the merged, deduplicated
+// results. Indexer errors are logged and skipped rather than aborting the
+// search, so a single broken indexer doesn't prevent results from others.
 func (p *jackettPlugin) Search(ctx context.Context, tc *plugin.TaskContext, query string) ([]*entry.Entry, error) {
-	indexer := strings.Join(p.indexers, ",")
-	results, err := p.searchIndexer(ctx, indexer, query)
-	if err != nil {
-		tc.Logger.Warn("jackett: search failed", "indexers", indexer, "err", err)
-		return nil, nil
+	seen := map[string]bool{}
+	var all []*entry.Entry
+	for _, indexer := range p.indexers {
+		results, err := p.searchIndexer(ctx, indexer, query)
+		if err != nil {
+			tc.Logger.Warn("jackett: indexer search failed", "indexer", indexer, "err", err)
+			continue
+		}
+		for _, e := range results {
+			if !seen[e.URL] {
+				seen[e.URL] = true
+				all = append(all, e)
+			}
+		}
 	}
-	return results, nil
+	return all, nil
 }
 
 func (p *jackettPlugin) searchIndexer(ctx context.Context, indexer, query string) ([]*entry.Entry, error) {
