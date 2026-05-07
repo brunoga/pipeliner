@@ -223,7 +223,7 @@ tasks:
     rss:
       url: %q
     series:
-      shows:
+      static:
         - "Breaking Bad"
     print:
 `, srv.URL))
@@ -244,7 +244,7 @@ tasks:
     rss:
       url: %q
     series:
-      shows:
+      static:
         - "Breaking Bad"
     print:
 `, srv.URL))
@@ -783,7 +783,7 @@ templates:
       min: 720p
   bb-only:
     series:
-      shows:
+      static:
         - "Breaking Bad"
 
 tasks:

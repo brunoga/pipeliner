@@ -16,7 +16,7 @@ tasks:
     series:
       tracking: strict
       quality: 720p
-      shows:
+      static:
         - "Breaking Bad"
         - "Better Call Saul"
         - "The Wire"
