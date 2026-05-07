@@ -20,5 +20,5 @@ tasks:
       path: /media/movies
       recursive: true
     movies:
-      movies: ["Inception"]
+      static: ["Inception"]
 ```

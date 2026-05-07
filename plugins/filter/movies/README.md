@@ -1,21 +1,21 @@
 # movies
 
-Accepts movies from a configured title list. Parses the movie title, year, quality, and 3D format from the entry title, matches with fuzzy matching, and enforces an optional quality floor. Accepts a re-download when a proper or repack with strictly better quality is available.
+Accepts movies from a configured title list. Parses the movie title, year, quality, and 3D format from the entry title, matches with fuzzy matching, and enforces an optional quality floor. A re-download of an already-seen movie is accepted when the new copy is strictly better quality, or when it is a PROPER/REPACK that is not a quality downgrade.
 
 **Multiple quality variants** of the same movie (from different sources or input feeds) are all accepted so the task engine's automatic deduplication can pick the best copy. The download history is updated in the Learn phase — only the winning copy is recorded.
 
-The movie list can be provided statically via `movies`, dynamically via `from` (a list of input plugins whose entry titles are used as movie titles), or both. Dynamic results are cached for the configured `ttl` so external APIs are not called on every pipeline run.
+The movie list can be provided statically via `static`, dynamically via `from` (a list of input plugins whose entry titles are used as movie titles), or both. Dynamic results are cached for the configured `ttl` so external APIs are not called on every pipeline run.
 
 ## Config
 
 | Key | Type | Required | Default | Description |
 |-----|------|----------|---------|-------------|
-| `movies` | string or list | conditional | — | Static movie titles to accept |
+| `static` | string or list | conditional | — | Static movie titles to accept |
 | `from` | list | conditional | — | Input plugin configs whose entry titles supplement the movie list |
 | `ttl` | string | no | `1h` | How long to cache the dynamic list fetched via `from` |
 | `quality` | string | no | — | Minimum quality floor (e.g. `720p+`, `1080p webrip+`). See [`quality`](../quality/README.md) for syntax. |
 
-At least one of `movies` or `from` is required.
+At least one of `static` or `from` is required.
 
 ### `from` entries
 
@@ -69,7 +69,7 @@ tasks:
       url: "https://example.com/rss/movies"
     movies:
       quality: 1080p+
-      movies:
+      static:
         - Inception
         - Interstellar
         - "The Dark Knight"

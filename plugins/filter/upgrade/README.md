@@ -13,9 +13,9 @@ State is persisted in `pipeliner.db` in the same directory as the config file.
 | `target` | string | yes | — | Quality ceiling — stop accepting once reached (e.g. `1080p`, `2160p bluray`) |
 | `on_lower` | string | no | `reject` | What to do when the incoming quality is not better: `reject` or `accept` |
 
-The entry key is `series_name:series_id` when series metadata is present
+The entry key is `title:series_episode_id` when series metadata is present
 (set by `metainfo_series` or the `series` filter); otherwise the raw title is
-used. Run series metainfo before this filter to ensure stable keys.
+used. Run a series metainfo plugin before this filter to ensure stable keys.
 
 ## Example
 

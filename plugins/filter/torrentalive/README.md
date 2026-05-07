@@ -38,6 +38,6 @@ tasks:
     torrent_alive:
       min_seeds: 3
     series:
-      shows:
+      static:
         - "My Hero Academia"
 ```

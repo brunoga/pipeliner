@@ -42,7 +42,7 @@ tasks:
     rss:
       url: "https://example.com/feed"
     movies:
-      movies: ["Inception"]
+      static: ["Inception"]
     metainfo_tmdb:
       api_key: YOUR_API_KEY
     pathfmt:
