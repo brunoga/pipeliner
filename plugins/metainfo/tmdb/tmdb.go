@@ -110,6 +110,7 @@ func (p *tmdbPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 	mi.Description = r.Overview
 	mi.PublishedDate = r.ReleaseDate
 	mi.Rating = r.VoteAverage
+	mi.Popularity = r.Popularity
 	if r.OrigTitle != r.Title {
 		mi.OriginalTitle = r.OrigTitle
 	}
@@ -119,7 +120,7 @@ func (p *tmdbPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 		}
 	}
 
-	// Fetch extended detail for genres, runtime, imdb_id.
+	// Fetch extended detail for genres, runtime, tagline, imdb_id.
 	detail, err := p.client.GetMovie(ctx, r.ID)
 	if err != nil {
 		tc.Logger.Warn("metainfo_tmdb: detail fetch failed", "id", r.ID, "err", err)
@@ -137,6 +138,7 @@ func (p *tmdbPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 	e.Set("tmdb_genres", strings.Join(genres, ", "))
 
 	mi.Runtime = detail.Runtime
+	mi.Tagline = detail.Tagline
 	mi.ImdbID = detail.ImdbID
 	mi.Genres = genres
 

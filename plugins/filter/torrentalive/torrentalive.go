@@ -157,6 +157,7 @@ func (p *torrentAlivePlugin) Filter(ctx context.Context, tc *plugin.TaskContext,
 	tc.Logger.Debug("torrent_alive: scrape ok",
 		"entry", e.Title, "seeds", seeds, "duration", time.Since(t0).Round(time.Millisecond))
 	e.Set("torrent_seeds", seeds)
+	e.SetTorrentInfo(entry.TorrentInfo{Seeds: seeds})
 	return p.applyMinSeeds(e, seeds)
 }
 
@@ -173,10 +174,14 @@ func (p *torrentAlivePlugin) populate(_ context.Context, e *entry.Entry) error {
 		return err
 	}
 	e.Set("torrent_info_hash", m.InfoHash)
+	ti := entry.TorrentInfo{InfoHash: m.InfoHash}
 	if len(m.Trackers) > 0 {
 		e.Set("torrent_announce_list", m.Trackers)
 		e.Set("torrent_announce", m.Trackers[0])
+		ti.AnnounceList = m.Trackers
+		ti.Announce = m.Trackers[0]
 	}
+	e.SetTorrentInfo(ti)
 	return nil
 }
 

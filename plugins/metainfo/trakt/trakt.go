@@ -138,6 +138,7 @@ func (p *traktMetaPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, 
 		Rating:        r.Rating,
 		ImdbID:        r.IDs.IMDB,
 		Genres:        r.Genres,
+		Votes:         r.Votes,
 	}
 	if p.itemType == "shows" {
 		e.SetSeriesInfo(entry.SeriesInfo{VideoInfo: vi})
