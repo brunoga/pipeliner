@@ -185,8 +185,7 @@ type Character struct {
 	Image      string `json:"image"`      // headshot URL
 	Sort       int    `json:"sort"`       // display order
 }
-
-// Translation holds a localised name for a series.
+// Translation holds a localised name for a series, returned via meta=translations.
 type Translation struct {
 	Language string `json:"language"` // ISO 639-1 or 639-2 code, e.g. "spa"
 	Name     string `json:"name"`
@@ -216,11 +215,17 @@ type SeriesExtended struct {
 	Genres []struct {
 		Name string `json:"name"`
 	} `json:"genres"`
-	Trailers         []Trailer       `json:"trailers"`
-	ContentRatings   []ContentRating `json:"contentRatings"`
-	Aliases          []Alias         `json:"aliases"`
-	Characters       []Character     `json:"characters"`
-	NameTranslations []Translation   `json:"nameTranslations"`
+	Trailers       []Trailer       `json:"trailers"`
+	ContentRatings []ContentRating `json:"contentRatings"`
+	Aliases        []Alias         `json:"aliases"`
+	Characters     []Character     `json:"characters"`
+	// NameTranslations lists language codes that have translations (e.g. ["eng","spa"]).
+	NameTranslations []string `json:"nameTranslations"`
+	// Translations is populated when meta=translations is requested and contains
+	// the actual translated names indexed by language.
+	Translations struct {
+		NameTranslations []Translation `json:"nameTranslations"`
+	} `json:"translations"`
 }
 
 // GenreNames returns the genre names as a plain string slice.
@@ -255,11 +260,11 @@ func (s *SeriesExtended) TrailerURLs() []string {
 	}
 	return urls
 }
-
-// OriginalName returns the series name in the given language code (e.g. "spa"),
-// or "" if no matching translation is present.
+// OriginalName returns the series name in the given language code from the
+// translations sub-object (populated when meta=translations is requested).
+// Returns "" if no matching translation is found.
 func (s *SeriesExtended) OriginalName(lang string) string {
-	for _, t := range s.NameTranslations {
+	for _, t := range s.Translations.NameTranslations {
 		if t.Language == lang && t.Name != "" {
 			return t.Name
 		}

@@ -123,8 +123,11 @@ func makeServerSparseSearch() *httptest.Server {
 						{"personName": "Bryan Cranston", "type": 3, "sort": 1},
 						{"personName": "Aaron Paul", "type": 3, "sort": 2},
 					},
-					"nameTranslations": []map[string]any{
-						{"language": "eng", "name": "Breaking Bad"},
+					"nameTranslations": []string{"eng", "spa"},
+					"translations": map[string]any{
+						"nameTranslations": []map[string]any{
+							{"language": "eng", "name": "Breaking Bad"},
+						},
 					},
 				},
 				"status": "success",
@@ -425,9 +428,12 @@ func makeServerForeignShow() *httptest.Server {
 					"originalLanguage": "spa",
 					"originalCountry":  "esp",
 					"status":           map[string]any{"name": "Ended"},
-					"nameTranslations": []map[string]any{
-						{"language": "spa", "name": "La Casa de Papel"},
-						{"language": "eng", "name": "Money Heist"},
+					"nameTranslations": []string{"spa", "eng"},
+					"translations": map[string]any{
+						"nameTranslations": []map[string]any{
+							{"language": "spa", "name": "La Casa de Papel"},
+							{"language": "eng", "name": "Money Heist"},
+						},
 					},
 				},
 				"status": "success",
