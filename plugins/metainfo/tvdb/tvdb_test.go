@@ -174,15 +174,40 @@ func TestAnnotateSeries(t *testing.T) {
 	if v := e.GetString("tvdb_air_date"); v != "2008-01-20" {
 		t.Errorf("tvdb_air_date: got %q", v)
 	}
-	if v := e.GetString("tvdb_language"); v != "English" {
-		t.Errorf("tvdb_language: got %q", v)
+	if v := e.GetString("tvdb_language"); v != "eng" {
+		t.Errorf("tvdb_language: got %q, want raw code %q", v, "eng")
 	}
 	if v := e.GetString("tvdb_poster"); v != "https://artworks.thetvdb.com/banners/posters/81189-1.jpg" {
 		t.Errorf("tvdb_poster: got %q", v)
 	}
 	// Extended fields always fetched.
-	if v := e.GetString("tvdb_country"); v != "United States" {
-		t.Errorf("tvdb_country: got %q, want United States", v)
+	if v := e.GetString("tvdb_country"); v != "usa" {
+		t.Errorf("tvdb_country: got %q, want raw code %q", v, "usa")
+	}
+	// Standard fields — human-readable, provider-agnostic.
+	if v := e.GetString("title"); v != "Breaking Bad" {
+		t.Errorf("title: got %q, want %q", v, "Breaking Bad")
+	}
+	if v := e.GetString("language"); v != "English" {
+		t.Errorf("language: got %q, want English", v)
+	}
+	if v := e.GetString("country"); v != "United States" {
+		t.Errorf("country: got %q, want United States", v)
+	}
+	if v := e.GetString("network"); v != "AMC" {
+		t.Errorf("network: got %q, want AMC", v)
+	}
+	if v := e.GetString("episode_title"); v != "Pilot" {
+		t.Errorf("episode_title: got %q, want Pilot", v)
+	}
+	if v := e.GetInt("season"); v != 1 {
+		t.Errorf("season: got %d, want 1", v)
+	}
+	if v := e.GetInt("episode"); v != 1 {
+		t.Errorf("episode: got %d, want 1", v)
+	}
+	if v := e.GetString("episode_id"); v != "S01E01" {
+		t.Errorf("episode_id: got %q, want S01E01", v)
 	}
 	if v := e.GetString("tvdb_status"); v != "Ended" {
 		t.Errorf("tvdb_status: got %q, want Ended", v)
@@ -216,16 +241,23 @@ func TestAnnotateExtendedFallback(t *testing.T) {
 	if err := p.Annotate(context.Background(), makeCtx(), e); err != nil {
 		t.Fatal(err)
 	}
-	if v := e.GetString("tvdb_language"); v != "English" {
-		t.Errorf("tvdb_language: got %q, want English", v)
+	if v := e.GetString("tvdb_language"); v != "eng" {
+		t.Errorf("tvdb_language: got %q, want raw code %q", v, "eng")
+	}
+	if v := e.GetString("tvdb_country"); v != "usa" {
+		t.Errorf("tvdb_country: got %q, want raw code %q", v, "usa")
+	}
+	// Standard fields.
+	if v := e.GetString("language"); v != "English" {
+		t.Errorf("language: got %q, want English", v)
+	}
+	if v := e.GetString("country"); v != "United States" {
+		t.Errorf("country: got %q, want United States", v)
 	}
 	genres, _ := e.Get("tvdb_genres")
 	names, _ := genres.([]string)
 	if len(names) != 2 || names[0] != "Drama" || names[1] != "Crime" {
 		t.Errorf("tvdb_genres: got %v", genres)
-	}
-	if v := e.GetString("tvdb_country"); v != "United States" {
-		t.Errorf("tvdb_country: got %q, want United States", v)
 	}
 	if v := e.GetString("tvdb_status"); v != "Ended" {
 		t.Errorf("tvdb_status: got %q, want Ended", v)

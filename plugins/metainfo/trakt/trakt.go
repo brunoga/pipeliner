@@ -132,6 +132,19 @@ func (p *traktMetaPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, 
 		e.Set("trakt_genres", strings.Join(r.Genres, ", "))
 	}
 
+	vi := entry.VideoInfo{
+		GenericInfo:   entry.GenericInfo{Title: r.Title, Description: r.Overview},
+		Year:          r.Year,
+		Rating:        r.Rating,
+		ImdbID:        r.IDs.IMDB,
+		Genres:        r.Genres,
+	}
+	if p.itemType == "shows" {
+		e.SetSeriesInfo(entry.SeriesInfo{VideoInfo: vi})
+	} else {
+		e.SetMovieInfo(entry.MovieInfo{VideoInfo: vi})
+	}
+
 	return nil
 }
 

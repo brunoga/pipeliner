@@ -34,10 +34,11 @@ func (p *seriesMetaPlugin) Annotate(_ context.Context, _ *plugin.TaskContext, e 
 	if !ok {
 		return nil
 	}
+	epID := series.EpisodeID(ep)
 	e.Set("series_name", ep.SeriesName)
 	e.Set("series_season", ep.Season)
 	e.Set("series_episode", ep.Episode)
-	e.Set("series_id", series.EpisodeID(ep))
+	e.Set("series_id", epID)
 	e.Set("series_proper", ep.Proper)
 	e.Set("series_repack", ep.Repack)
 	if ep.Service != "" {
@@ -52,5 +53,10 @@ func (p *seriesMetaPlugin) Annotate(_ context.Context, _ *plugin.TaskContext, e 
 	if ep.DoubleEpisode > 0 {
 		e.Set("series_double_episode", ep.DoubleEpisode)
 	}
+	e.SetSeriesInfo(entry.SeriesInfo{
+		Season:    ep.Season,
+		Episode:   ep.Episode,
+		EpisodeID: epID,
+	})
 	return nil
 }

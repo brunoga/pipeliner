@@ -9,6 +9,7 @@ package tmdb
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -104,10 +105,25 @@ func (p *tmdbPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 	e.Set("tmdb_popularity", r.Popularity)
 	e.Set("tmdb_vote_average", r.VoteAverage)
 
+	mi := entry.MovieInfo{}
+	mi.Title = r.Title
+	mi.Description = r.Overview
+	mi.PublishedDate = r.ReleaseDate
+	mi.Rating = r.VoteAverage
+	if r.OrigTitle != r.Title {
+		mi.OriginalTitle = r.OrigTitle
+	}
+	if len(r.ReleaseDate) >= 4 {
+		if y, err := strconv.Atoi(r.ReleaseDate[:4]); err == nil {
+			mi.Year = y
+		}
+	}
+
 	// Fetch extended detail for genres, runtime, imdb_id.
 	detail, err := p.client.GetMovie(ctx, r.ID)
 	if err != nil {
 		tc.Logger.Warn("metainfo_tmdb: detail fetch failed", "id", r.ID, "err", err)
+		e.SetMovieInfo(mi)
 		return nil
 	}
 	e.Set("tmdb_runtime", detail.Runtime)
@@ -120,5 +136,10 @@ func (p *tmdbPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 	}
 	e.Set("tmdb_genres", strings.Join(genres, ", "))
 
+	mi.Runtime = detail.Runtime
+	mi.ImdbID = detail.ImdbID
+	mi.Genres = genres
+
+	e.SetMovieInfo(mi)
 	return nil
 }
