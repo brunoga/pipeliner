@@ -8,8 +8,9 @@ This guide covers everything you need to write a new pipeliner plugin: interface
 2. [Plugin phases and execution model](#plugin-phases-and-execution-model)
 3. [Registering a plugin](#registering-a-plugin)
 4. [The Entry data model](#the-entry-data-model)
-5. [TaskContext](#taskcontext)
-6. [Plugin interfaces by phase](#plugin-interfaces-by-phase)
+5. [Standard field system](#standard-field-system)
+6. [TaskContext](#taskcontext)
+7. [Plugin interfaces by phase](#plugin-interfaces-by-phase)
    - [InputPlugin](#inputplugin)
    - [MetainfoPlugin and BatchMetainfoPlugin](#metainfoplugin-and-batchmetainfoplugin)
    - [FilterPlugin](#filterplugin)
@@ -17,14 +18,14 @@ This guide covers everything you need to write a new pipeliner plugin: interface
    - [OutputPlugin](#outputplugin)
    - [LearnPlugin](#learnplugin)
    - [SearchPlugin](#searchplugin)
-7. [Config validation](#config-validation)
-8. [Persistence: the store and bucket API](#persistence-the-store-and-bucket-api)
-9. [Caching](#caching)
-10. [String interpolation](#string-interpolation)
-11. [Plugins that use other plugins](#plugins-that-use-other-plugins)
-12. [Combining multiple interfaces](#combining-multiple-interfaces)
-13. [Registering in main.go](#registering-in-maingo)
-14. [Complete examples](#complete-examples)
+8. [Config validation](#config-validation)
+9. [Persistence: the store and bucket API](#persistence-the-store-and-bucket-api)
+10. [Caching](#caching)
+11. [String interpolation](#string-interpolation)
+12. [Plugins that use other plugins](#plugins-that-use-other-plugins)
+13. [Combining multiple interfaces](#combining-multiple-interfaces)
+14. [Registering in main.go](#registering-in-maingo)
+15. [Complete examples](#complete-examples)
 
 ---
 
@@ -68,7 +69,7 @@ The winning entry is chosen by:
 2. **Resolution** — higher resolution wins within the same seed tier
 3. **Seeds** — more seeds wins when tier and resolution are equal
 
-Entries are keyed by `series_name` + `series_episode_id` for episodes, and `movie_title` for movies. Entries without these fields are unaffected.
+Entries are keyed by `title` + `series_episode_id` for episodes, and `title` + `video_year` for movies. Entries without these fields are unaffected.
 
 **Implication for stateful plugins:** Do not write tracking state (SQLite) in `Filter` — do it in `Learn`. `Learn` runs after output and receives only the entries that survived dedup, so only the winning copy is recorded as downloaded.
 
@@ -156,17 +157,228 @@ e.IsFailed()
 Use the typed accessors to read fields set by other plugins:
 
 ```go
-e.Set("my_field", someValue)    // store any value
+e.Set("my_field", someValue)       // store any value
 
-e.GetString("tvdb_series_name") // "" if absent or wrong type
-e.GetInt("series_season")       // 0 if absent or wrong type; handles int/int64/float64
-e.GetBool("is_proper")          // false if absent or wrong type
-e.GetTime("tvdb_first_air_date") // zero time if absent or wrong type
+e.GetString("title")               // "" if absent or wrong type
+e.GetInt("series_season")          // 0 if absent or wrong type; handles int/int64/float64
+e.GetBool("series_proper")         // false if absent or wrong type
+e.GetTime("torrent_creation_date") // zero time if absent or wrong type
 
-v, ok := e.Get("raw_field")     // retrieve as any with presence check
+v, ok := e.Get("torrent_seeds")    // retrieve as any with presence check
 ```
 
-Field names are lowercase with underscores by convention. If your plugin enriches entries, document every field it sets.
+Field names are lowercase with underscores by convention. If your plugin enriches entries, document every field it sets. Prefer standard field names and setter methods over raw `e.Set` calls — see [Standard field system](#standard-field-system).
+
+---
+
+## Standard field system
+
+Pipeliner uses a **tiered standard metadata field system**. Instead of setting arbitrary provider-specific keys, plugins set fields via typed setter methods that write well-known field names. This ensures that conditions, path patterns, and templates work the same way regardless of which provider enriched an entry.
+
+### Info type hierarchy
+
+```
+GenericInfo          (title, description, published_date, enriched)
+└── VideoInfo        (video_year, video_language, video_genres, …)
+    ├── MovieInfo    (movie_tagline)
+    └── SeriesInfo   (series_season, series_episode, series_network, …)
+
+TorrentInfo          (torrent_info_hash, torrent_seeds, …)   — embeds GenericInfo
+FileInfo             (file_name, file_location, …)            — embeds GenericInfo
+RSSInfo              (rss_feed, rss_guid, rss_link, …)        — embeds GenericInfo
+```
+
+### Setter methods
+
+Use the typed setters on `*entry.Entry` to write standard fields. Only non-zero values are written, so partial updates are safe.
+
+```go
+// Tier 1 — universal
+e.SetGenericInfo(entry.GenericInfo{Title: "Breaking Bad", Enriched: true})
+
+// Tier 2 — video (movies and series)
+e.SetVideoInfo(entry.VideoInfo{
+    GenericInfo: entry.GenericInfo{Title: "Breaking Bad", Enriched: true},
+    Year:        2008,
+    Language:    "English",
+    Genres:      []string{"Drama", "Crime"},
+    Rating:      9.5,
+})
+
+// Tier 3a — movie-specific
+e.SetMovieInfo(entry.MovieInfo{
+    VideoInfo: entry.VideoInfo{...},
+    Tagline:   "Change the equation",
+})
+
+// Tier 3b — series-specific
+e.SetSeriesInfo(entry.SeriesInfo{
+    VideoInfo:  entry.VideoInfo{...},
+    Season:     2,
+    Episode:    5,
+    EpisodeID:  "S02E05",
+    Network:    "AMC",
+    Status:     "Ended",
+})
+
+// Torrent leaf
+e.SetTorrentInfo(entry.TorrentInfo{
+    InfoHash:  "abc123...",
+    FileSize:  1073741824,
+    Seeds:     42,
+    Private:   false,
+})
+
+// File leaf
+e.SetFileInfo(entry.FileInfo{
+    Filename: "movie.mkv",
+    Location: "/downloads/movie.mkv",
+    FileSize: 2147483648,
+})
+
+// RSS leaf
+e.SetRSSInfo(entry.RSSInfo{
+    Feed: "https://example.com/feed",
+    GUID: "item-guid-123",
+    Link: "https://example.com/item/1",
+})
+```
+
+### Standard field names
+
+All field name constants are defined in `internal/entry/info.go`.
+
+**GenericInfo (no prefix):**
+
+| Constant | Field name | Type |
+|----------|-----------|------|
+| `FieldTitle` | `title` | string |
+| `FieldDescription` | `description` | string |
+| `FieldPublishedDate` | `published_date` | string |
+| `FieldEnriched` | `enriched` | bool |
+
+**VideoInfo (`video_` prefix):**
+
+| Constant | Field name | Type |
+|----------|-----------|------|
+| `FieldVideoYear` | `video_year` | int |
+| `FieldVideoLanguage` | `video_language` | string |
+| `FieldVideoOriginalTitle` | `video_original_title` | string |
+| `FieldVideoCountry` | `video_country` | string |
+| `FieldVideoGenres` | `video_genres` | []string |
+| `FieldVideoRating` | `video_rating` | float64 |
+| `FieldVideoPoster` | `video_poster` | string |
+| `FieldVideoCast` | `video_cast` | []string |
+| `FieldVideoContentRating` | `video_content_rating` | string |
+| `FieldVideoRuntime` | `video_runtime` | int |
+| `FieldVideoTrailers` | `video_trailers` | []string |
+| `FieldVideoAliases` | `video_aliases` | []string |
+| `FieldVideoImdbID` | `video_imdb_id` | string |
+| `FieldVideoQuality` | `video_quality` | string |
+| `FieldVideoResolution` | `video_resolution` | string |
+| `FieldVideoSource` | `video_source` | string |
+| `FieldVideoIs3D` | `video_is_3d` | bool |
+| `FieldVideoPopularity` | `video_popularity` | float64 |
+| `FieldVideoVotes` | `video_votes` | int |
+
+**MovieInfo (`movie_` prefix):**
+
+| Constant | Field name | Type |
+|----------|-----------|------|
+| `FieldMovieTagline` | `movie_tagline` | string |
+
+**SeriesInfo (`series_` prefix):**
+
+| Constant | Field name | Type |
+|----------|-----------|------|
+| `FieldSeriesSeason` | `series_season` | int |
+| `FieldSeriesEpisode` | `series_episode` | int |
+| `FieldSeriesEpisodeID` | `series_episode_id` | string |
+| `FieldSeriesNetwork` | `series_network` | string |
+| `FieldSeriesStatus` | `series_status` | string |
+| `FieldSeriesFirstAirDate` | `series_first_air_date` | string |
+| `FieldSeriesLastAirDate` | `series_last_air_date` | string |
+| `FieldSeriesNextAirDate` | `series_next_air_date` | string |
+| `FieldSeriesEpisodeTitle` | `series_episode_title` | string |
+| `FieldSeriesEpisodeDescription` | `series_episode_description` | string |
+| `FieldSeriesEpisodeAirDate` | `series_episode_air_date` | string |
+| `FieldSeriesEpisodeImage` | `series_episode_image` | string |
+| `FieldSeriesService` | `series_service` | string |
+| `FieldSeriesProper` | `series_proper` | bool |
+| `FieldSeriesRepack` | `series_repack` | bool |
+| `FieldSeriesDoubleEpisode` | `series_double_episode` | int |
+
+**TorrentInfo (`torrent_` prefix):**
+
+| Constant | Field name | Type |
+|----------|-----------|------|
+| `FieldTorrentInfoHash` | `torrent_info_hash` | string |
+| `FieldTorrentFileSize` | `torrent_file_size` | int64 |
+| `FieldTorrentFileCount` | `torrent_file_count` | int |
+| `FieldTorrentFiles` | `torrent_files` | []string |
+| `FieldTorrentSeeds` | `torrent_seeds` | int |
+| `FieldTorrentLeechers` | `torrent_leechers` | int |
+| `FieldTorrentAnnounce` | `torrent_announce` | string |
+| `FieldTorrentAnnounceList` | `torrent_announce_list` | []string |
+| `FieldTorrentCreatedBy` | `torrent_created_by` | string |
+| `FieldTorrentCreationDate` | `torrent_creation_date` | time.Time |
+| `FieldTorrentPrivate` | `torrent_private` | bool |
+
+**FileInfo (`file_` prefix):**
+
+| Constant | Field name | Type |
+|----------|-----------|------|
+| `FieldFileName` | `file_name` | string |
+| `FieldFileExtension` | `file_extension` | string |
+| `FieldFileLocation` | `file_location` | string |
+| `FieldFileSize` | `file_size` | int64 |
+| `FieldFileModifiedTime` | `file_modified_time` | time.Time |
+
+**RSSInfo (`rss_` prefix):**
+
+| Constant | Field name | Type |
+|----------|-----------|------|
+| `FieldRSSFeed` | `rss_feed` | string |
+| `FieldRSSGUID` | `rss_guid` | string |
+| `FieldRSSLink` | `rss_link` | string |
+| `FieldRSSEnclosureURL` | `rss_enclosure_url` | string |
+| `FieldRSSEnclosureType` | `rss_enclosure_type` | string |
+
+### Provider-specific fields
+
+Provider-specific fields that have no standard equivalent are still set directly with `e.Set`. These include: `tvdb_id`, `tvdb_slug`, `tvdb_episode_id`, `tmdb_id`, `trakt_id`, `trakt_slug`, `trakt_tmdb_id`, `trakt_tvdb_id`, `jackett_category`, `jackett_indexer`, `series_container`, and quality sub-fields (`codec`, `audio`, `color_range`, `quality_resolution`, `quality_source`).
+
+### The `enriched` field
+
+External metainfo providers (TVDB, TMDb, Trakt) set `enriched = true` on success. Use it in `require` blocks to check whether metadata was found, regardless of which provider ran:
+
+```yaml
+require:
+  fields: ["enriched"]   # works with any provider — TVDB, TMDb, or Trakt
+```
+
+Do not key on provider-specific IDs (e.g. `tvdb_id`) for this purpose — `enriched` is provider-neutral.
+
+### Reading standard fields in plugin code
+
+Use the field name constants when reading fields, and the typed accessors where available:
+
+```go
+// Using the entry method with the constant:
+title := e.GetString(entry.FieldTitle)
+season := e.GetInt(entry.FieldSeriesSeason)
+enriched := e.GetBool(entry.FieldEnriched)
+
+// Using the constant directly in e.Get for presence check:
+if _, ok := e.Get(entry.FieldTorrentSeeds); ok {
+    seeds := e.GetInt(entry.FieldTorrentSeeds)
+    // ...
+}
+```
+
+### Partial updates
+
+The setter methods only write non-zero values, so multiple plugins can call the same setter without overwriting each other's data. For example, `metainfo_series` sets `title` and episode fields; a subsequent `metainfo_tvdb` call sets `title`, `description`, `video_genres`, etc. without clearing the episode fields already set.
 
 ---
 
@@ -248,8 +460,12 @@ func (p *myMeta) Annotate(_ context.Context, _ *plugin.TaskContext, e *entry.Ent
     if !ok {
         return nil  // not applicable — leave entry untouched
     }
-    e.Set("series_name", ep.SeriesName)
-    e.Set("series_season", ep.Season)
+    e.SetSeriesInfo(entry.SeriesInfo{
+        VideoInfo:  entry.VideoInfo{GenericInfo: entry.GenericInfo{Title: ep.SeriesName}},
+        Season:     ep.Season,
+        Episode:    ep.Episode,
+        EpisodeID:  series.EpisodeID(ep),
+    })
     return nil
 }
 ```
@@ -290,12 +506,12 @@ type FilterPlugin interface {
 ```go
 func (p *myFilter) Filter(_ context.Context, _ *plugin.TaskContext, e *entry.Entry) error {
     // check something about the entry
-    name := e.GetString("series_name")
-    if name == "" {
+    title := e.GetString(entry.FieldTitle)
+    if title == "" {
         return nil  // not applicable — leave Undecided
     }
-    if !p.isWanted(name) {
-        e.Reject(fmt.Sprintf("my_filter: %q not in wanted list", name))
+    if !p.isWanted(title) {
+        e.Reject(fmt.Sprintf("my_filter: %q not in wanted list", title))
         return nil
     }
     e.Accept()
@@ -587,7 +803,7 @@ Users write patterns in config files using `{field}` syntax:
 
 ```yaml
 pathfmt:
-  path: "/downloads/{tvdb_series_name}/Season {series_season:02d}"
+  path: "/downloads/{title}/Season {series_season:02d}"
 ```
 
 | Syntax | Meaning |
@@ -896,8 +1112,14 @@ func (p *myMetaPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e *
 }
 
 func apply(e *entry.Entry, data *MyData) {
-    e.Set("myapi_rating", data.Rating)
-    e.Set("myapi_genre", data.Genre)
+    // Use standard fields where possible; provider-specific fields for the rest.
+    e.SetVideoInfo(entry.VideoInfo{
+        GenericInfo: entry.GenericInfo{Title: data.Title, Enriched: true},
+        Rating:      data.Rating,
+        Genres:      data.Genres,
+    })
+    // Provider-specific fields with no standard equivalent.
+    e.Set("myapi_id", data.ID)
 }
 ```
 

@@ -68,7 +68,7 @@ func TestNoSeedFieldSkipped(t *testing.T) {
 	e := entry.New("show", "http://x.com/page")
 	filter(t, p, e)
 	if e.IsRejected() {
-		t.Error("entry without torrent_seeds should not be rejected")
+		t.Error("entry without seeds should not be rejected")
 	}
 }
 
@@ -141,7 +141,7 @@ func TestScrapeFromHTTPTracker(t *testing.T) {
 		t.Errorf("8 scraped seeds should pass min_seeds=5; reason: %q", e.RejectReason)
 	}
 	if v := e.GetInt("torrent_seeds"); v != 8 {
-		t.Errorf("torrent_seeds written back: got %d, want 8", v)
+		t.Errorf("seeds written back: got %d, want 8", v)
 	}
 }
 
@@ -183,7 +183,7 @@ func TestScrapeTrackerUnreachablePassesThrough(t *testing.T) {
 func TestScrapeSkippedWhenNoInfoHash(t *testing.T) {
 	p := makePlugin(t, map[string]any{"min_seeds": 5})
 	e := entry.New("show", "http://x.com/page")
-	e.Set("torrent_announce", "http://tracker.example.com/announce")
+	e.Set("announce", "http://tracker.example.com/announce")
 
 	filter(t, p, e)
 	if e.IsRejected() {

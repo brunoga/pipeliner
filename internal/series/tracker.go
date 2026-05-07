@@ -11,6 +11,7 @@ import (
 // Record is persisted for each downloaded episode.
 type Record struct {
 	SeriesName   string          `json:"series_name"`
+	DisplayName  string          `json:"display_name,omitempty"` // canonical title from the standard "title" field
 	EpisodeID    string          `json:"episode_id"`
 	DownloadedAt time.Time       `json:"downloaded_at"`
 	Quality      quality.Quality `json:"quality"`

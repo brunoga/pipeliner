@@ -81,12 +81,16 @@ func (f *filesystemPlugin) Run(ctx context.Context, _ *plugin.TaskContext) ([]*e
 			return nil
 		}
 
+		ext := filepath.Ext(name)
 		e := entry.New(name, "file://"+path)
-		e.Set("location", path)
-		e.Set("filename", name)
-		e.Set("extension", filepath.Ext(name))
-		e.Set("size", info.Size())
-		e.Set("modified_time", info.ModTime())
+		e.SetFileInfo(entry.FileInfo{
+			GenericInfo:  entry.GenericInfo{Title: name},
+			Filename:     name,
+			Extension:    ext,
+			Location:     path,
+			FileSize:     info.Size(),
+			ModifiedTime: info.ModTime(),
+		})
 		entries = append(entries, e)
 		return nil
 	}

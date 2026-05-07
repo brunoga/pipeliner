@@ -22,11 +22,11 @@ func annotate(t *testing.T, title string) *entry.Entry {
 
 func TestStandardEpisode(t *testing.T) {
 	e := annotate(t, "My.Show.S02E05.720p.HDTV")
-	if v := e.GetString("series_name"); v != "My Show" {
-		t.Errorf("series_name: got %q", v)
+	if v := e.GetString("title"); v != "My Show" {
+		t.Errorf("title: got %q", v)
 	}
-	if v := e.GetString("series_id"); v != "S02E05" {
-		t.Errorf("series_id: got %q", v)
+	if v := e.GetString("series_episode_id"); v != "S02E05" {
+		t.Errorf("episode_id: got %q", v)
 	}
 	if v := e.GetInt("series_season"); v != 2 {
 		t.Errorf("series_season: got %d", v)
@@ -66,8 +66,8 @@ func TestContainerField(t *testing.T) {
 
 func TestNoMatchLeavesSilent(t *testing.T) {
 	e := annotate(t, "Just A Random Movie 2023 1080p")
-	if v := e.GetString("series_name"); v != "" {
-		t.Errorf("non-episode title should not set series_name, got %q", v)
+	if v := e.GetString("title"); v != "" {
+		t.Errorf("non-episode title should not set title, got %q", v)
 	}
 }
 

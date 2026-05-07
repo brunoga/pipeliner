@@ -35,8 +35,8 @@ func searchResponse(title string, year, traktID, tvdbID int, rating float64, gen
 		Year     int      `json:"year"`
 		IDs      ids      `json:"ids"`
 		Overview string   `json:"overview"`
-		Rating   float64  `json:"rating"`
-		Votes    int      `json:"votes"`
+		Rating   float64  `json:"video_rating"`
+		Votes    int      `json:"video_votes"`
 		Genres   []string `json:"genres"`
 	}
 	type item struct {
@@ -99,23 +99,53 @@ func TestAnnotateShow(t *testing.T) {
 	if v := e.GetInt("trakt_id"); v != 1 {
 		t.Errorf("trakt_id: got %d, want 1", v)
 	}
-	if v := e.GetString("trakt_title"); v != "Breaking Bad" {
+	if v := e.GetString("title"); v != "Breaking Bad" {
 		t.Errorf("trakt_title: got %q, want %q", v, "Breaking Bad")
 	}
-	if v := e.GetInt("trakt_year"); v != 2008 {
+	if v := e.GetInt("video_year"); v != 2008 {
 		t.Errorf("trakt_year: got %d, want 2008", v)
 	}
-	if v := e.GetString("trakt_imdb_id"); v != "tt0903747" {
+	if v := e.GetString("video_imdb_id"); v != "tt0903747" {
 		t.Errorf("trakt_imdb_id: got %q", v)
 	}
 	if v := e.GetInt("trakt_tvdb_id"); v != 81189 {
 		t.Errorf("trakt_tvdb_id: got %d, want 81189", v)
 	}
-	if v := e.GetString("trakt_genres"); v == "" {
-		t.Error("trakt_genres should be set")
+	if g, _ := e.Get("video_genres"); g == nil {
+		t.Error("genres should be set")
 	}
-	if v := e.GetString("trakt_overview"); v == "" {
+	if v := e.GetString("description"); v == "" {
 		t.Error("trakt_overview should be set")
+	}
+}
+
+func TestEnrichedSetOnSuccess(t *testing.T) {
+	srv := mockServer(t, searchResponse("Breaking Bad", 2008, 1, 81189, 9.4, []string{"Drama"}))
+	defer srv.Close()
+	itrakt.BaseURL = srv.URL
+
+	p := makePlugin(t, map[string]any{"client_id": "key", "type": "shows"})
+	e := entry.New("Breaking.Bad.S01E01.720p.HDTV", "http://x.com/a")
+	if err := p.Annotate(context.Background(), tc(), e); err != nil {
+		t.Fatal(err)
+	}
+	if !e.GetBool("enriched") {
+		t.Error("enriched should be true when Trakt finds the show")
+	}
+}
+
+func TestEnrichedNotSetOnNoResults(t *testing.T) {
+	srv := mockServer(t, []byte("[]"))
+	defer srv.Close()
+	itrakt.BaseURL = srv.URL
+
+	p := makePlugin(t, map[string]any{"client_id": "key", "type": "shows"})
+	e := entry.New("Breaking.Bad.S01E01.720p.HDTV", "http://x.com/a")
+	if err := p.Annotate(context.Background(), tc(), e); err != nil {
+		t.Fatal(err)
+	}
+	if e.GetBool("enriched") {
+		t.Error("enriched should not be set when Trakt returns no results")
 	}
 }
 
@@ -130,7 +160,7 @@ func TestAnnotateNonParseableTitle(t *testing.T) {
 	if err := p.Annotate(context.Background(), tc(), e); err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
-	if e.GetString("trakt_title") != "" {
+	if e.GetString("title") != "" {
 		t.Error("non-parseable title should not set any fields")
 	}
 }
@@ -163,8 +193,8 @@ func TestAnnotateMovie(t *testing.T) {
 		Year     int      `json:"year"`
 		IDs      ids      `json:"ids"`
 		Overview string   `json:"overview"`
-		Rating   float64  `json:"rating"`
-		Votes    int      `json:"votes"`
+		Rating   float64  `json:"video_rating"`
+		Votes    int      `json:"video_votes"`
 		Genres   []string `json:"genres"`
 	}
 	type item struct {
@@ -191,7 +221,7 @@ func TestAnnotateMovie(t *testing.T) {
 	if v := e.GetInt("trakt_id"); v != 42 {
 		t.Errorf("trakt_id: got %d, want 42", v)
 	}
-	if v := e.GetString("trakt_imdb_id"); v != "tt1375666" {
+	if v := e.GetString("video_imdb_id"); v != "tt1375666" {
 		t.Errorf("trakt_imdb_id: got %q", v)
 	}
 	// Movies don't have tvdb_id.

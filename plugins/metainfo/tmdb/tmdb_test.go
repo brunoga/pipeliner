@@ -40,7 +40,7 @@ func makeServer() *httptest.Server {
 				"id": 27205, "title": "Inception", "release_date": "2010-07-16",
 				"runtime": 148, "tagline": "Your mind is the scene.",
 				"imdb_id": "tt1375666",
-				"genres":  []map[string]any{{"id": 28, "name": "Action"}, {"id": 878, "name": "Science Fiction"}},
+				"genres": []map[string]any{{"id": 28, "name": "Action"}, {"id": 878, "name": "Science Fiction"}},
 			})
 		default:
 			http.NotFound(w, r)
@@ -62,20 +62,61 @@ func TestAnnotateMovie(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if v := e.GetString("tmdb_title"); v != "Inception" {
+	if v := e.GetString("title"); v != "Inception" {
 		t.Errorf("tmdb_title: got %q", v)
 	}
 	if v := e.GetInt("tmdb_id"); v != 27205 {
 		t.Errorf("tmdb_id: got %d", v)
 	}
-	if v := e.GetInt("tmdb_runtime"); v != 148 {
+	if v := e.GetInt("video_runtime"); v != 148 {
 		t.Errorf("tmdb_runtime: got %d", v)
 	}
-	if v := e.GetString("tmdb_imdb_id"); v != "tt1375666" {
+	if v := e.GetString("video_imdb_id"); v != "tt1375666" {
 		t.Errorf("tmdb_imdb_id: got %q", v)
 	}
-	if v := e.GetString("tmdb_genres"); v != "Action, Science Fiction" {
-		t.Errorf("tmdb_genres: got %q", v)
+	genresRaw, _ := e.Get("video_genres")
+	genreSlice, _ := genresRaw.([]string)
+	if len(genreSlice) != 2 || genreSlice[0] != "Action" || genreSlice[1] != "Science Fiction" {
+		t.Errorf("genres: got %v", genresRaw)
+	}
+}
+
+func TestEnrichedSetOnSuccess(t *testing.T) {
+	srv := makeServer()
+	defer srv.Close()
+
+	c := itmdb.New("test-key")
+	c.BaseURL = srv.URL + "/3"
+	p := &tmdbPlugin{client: c}
+
+	e := entry.New("Inception.2010.1080p.BluRay", "http://x.com/a")
+	if err := p.Annotate(context.Background(), makeCtx(), e); err != nil {
+		t.Fatal(err)
+	}
+	if !e.GetBool("enriched") {
+		t.Error("enriched should be true when TMDb finds the movie")
+	}
+}
+
+func TestEnrichedNotSetOnNoResults(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/3/search/movie":
+			json.NewEncoder(w).Encode(map[string]any{"results": []any{}, "total_results": 0}) //nolint:errcheck
+		}
+	}))
+	defer srv.Close()
+
+	c := itmdb.New("test-key")
+	c.BaseURL = srv.URL + "/3"
+	p := &tmdbPlugin{client: c}
+
+	e := entry.New("Inception.2010.1080p.BluRay", "http://x.com/a")
+	if err := p.Annotate(context.Background(), makeCtx(), e); err != nil {
+		t.Fatal(err)
+	}
+	if e.GetBool("enriched") {
+		t.Error("enriched should not be set when TMDb returns no results")
 	}
 }
 
@@ -92,7 +133,7 @@ func TestAnnotateNonMovie(t *testing.T) {
 	if err := p.Annotate(context.Background(), makeCtx(), e); err != nil {
 		t.Fatal(err)
 	}
-	if v := e.GetString("tmdb_title"); v != "" {
+	if v := e.GetString("title"); v != "" {
 		t.Errorf("series title should not set tmdb_title, got %q", v)
 	}
 }

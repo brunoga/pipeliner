@@ -3,7 +3,6 @@ package series
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/plugin"
@@ -34,23 +33,19 @@ func (p *seriesMetaPlugin) Annotate(_ context.Context, _ *plugin.TaskContext, e 
 	if !ok {
 		return nil
 	}
-	e.Set("series_name", ep.SeriesName)
-	e.Set("series_season", ep.Season)
-	e.Set("series_episode", ep.Episode)
-	e.Set("series_id", series.EpisodeID(ep))
-	e.Set("series_proper", ep.Proper)
-	e.Set("series_repack", ep.Repack)
-	if ep.Service != "" {
-		e.Set("series_service", ep.Service)
-	}
+	epID := series.EpisodeID(ep)
 	if ep.Container != "" {
 		e.Set("series_container", ep.Container)
 	}
-	if ep.IsDate {
-		e.Set("series_date", fmt.Sprintf("%04d-%02d-%02d", ep.Year, ep.Month, ep.Day))
-	}
-	if ep.DoubleEpisode > 0 {
-		e.Set("series_double_episode", ep.DoubleEpisode)
-	}
+	e.SetSeriesInfo(entry.SeriesInfo{
+		VideoInfo:     entry.VideoInfo{GenericInfo: entry.GenericInfo{Title: ep.SeriesName}},
+		Season:        ep.Season,
+		Episode:       ep.Episode,
+		EpisodeID:     epID,
+		Proper:        ep.Proper,
+		Repack:        ep.Repack,
+		Service:       ep.Service,
+		DoubleEpisode: ep.DoubleEpisode,
+	})
 	return nil
 }

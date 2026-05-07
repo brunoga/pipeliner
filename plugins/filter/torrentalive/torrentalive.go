@@ -100,17 +100,10 @@ func (p *torrentAlivePlugin) Name() string        { return "torrent_alive" }
 func (p *torrentAlivePlugin) Phase() plugin.Phase { return plugin.PhaseFilter }
 
 func (p *torrentAlivePlugin) Filter(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
-	// 1. Use feed-provided seed count if available.
-	// Check both torrent_seeds (RSS namespace extensions) and torrent_seeders
-	// (Jackett/Torznab) so Jackett entries always take the fast path.
-	if v, ok := e.Get("torrent_seeds"); ok {
+	// 1. Use feed-provided seed count if available (fast path — no scrape needed).
+	if v, ok := e.Get(entry.FieldTorrentSeeds); ok {
 		n := toInt(v)
-		tc.Logger.Debug("torrent_alive: fast path (torrent_seeds)", "entry", e.Title, "seeds", n)
-		return p.applyMinSeeds(e, n)
-	}
-	if v, ok := e.Get("torrent_seeders"); ok {
-		n := toInt(v)
-		tc.Logger.Debug("torrent_alive: fast path (torrent_seeders)", "entry", e.Title, "seeds", n)
+		tc.Logger.Debug("torrent_alive: fast path (seeds)", "entry", e.Title, "seeds", n)
 		return p.applyMinSeeds(e, n)
 	}
 
@@ -120,14 +113,14 @@ func (p *torrentAlivePlugin) Filter(ctx context.Context, tc *plugin.TaskContext,
 	}
 
 	// 2. Populate info hash and announce list from the URL if not already set.
-	if e.GetString("torrent_info_hash") == "" {
+	if e.GetString(entry.FieldTorrentInfoHash) == "" {
 		if err := p.populate(ctx, e); err != nil {
 			tc.Logger.Debug("torrent_alive: could not resolve torrent metadata",
 				"entry", e.Title, "err", err)
 		}
 	}
 
-	infoHash := e.GetString("torrent_info_hash")
+	infoHash := e.GetString(entry.FieldTorrentInfoHash)
 	announces := announceList(e)
 	if infoHash == "" || len(announces) == 0 {
 		tc.Logger.Debug("torrent_alive: no info hash or announces — leaving undecided",
@@ -156,7 +149,7 @@ func (p *torrentAlivePlugin) Filter(ctx context.Context, tc *plugin.TaskContext,
 
 	tc.Logger.Debug("torrent_alive: scrape ok",
 		"entry", e.Title, "seeds", seeds, "duration", time.Since(t0).Round(time.Millisecond))
-	e.Set("torrent_seeds", seeds)
+	e.SetTorrentInfo(entry.TorrentInfo{Seeds: seeds})
 	return p.applyMinSeeds(e, seeds)
 }
 
@@ -172,11 +165,12 @@ func (p *torrentAlivePlugin) populate(_ context.Context, e *entry.Entry) error {
 	if err != nil {
 		return err
 	}
-	e.Set("torrent_info_hash", m.InfoHash)
+	ti := entry.TorrentInfo{InfoHash: m.InfoHash}
 	if len(m.Trackers) > 0 {
-		e.Set("torrent_announce_list", m.Trackers)
-		e.Set("torrent_announce", m.Trackers[0])
+		ti.AnnounceList = m.Trackers
+		ti.Announce = m.Trackers[0]
 	}
+	e.SetTorrentInfo(ti)
 	return nil
 }
 
@@ -189,7 +183,7 @@ func (p *torrentAlivePlugin) applyMinSeeds(e *entry.Entry, seeds int) error {
 
 // announceList returns the deduplicated list of announce URLs for an entry.
 func announceList(e *entry.Entry) []string {
-	if v, ok := e.Get("torrent_announce_list"); ok {
+	if v, ok := e.Get(entry.FieldTorrentAnnounceList); ok {
 		switch t := v.(type) {
 		case []string:
 			if len(t) > 0 {
@@ -207,7 +201,7 @@ func announceList(e *entry.Entry) []string {
 			}
 		}
 	}
-	if u := e.GetString("torrent_announce"); u != "" {
+	if u := e.GetString(entry.FieldTorrentAnnounce); u != "" {
 		return []string{u}
 	}
 	return nil

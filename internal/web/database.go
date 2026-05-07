@@ -159,9 +159,11 @@ type seriesShow struct {
 
 func groupSeries(entries []dbEntry) []seriesShow {
 	groups := map[string][]seriesEpisode{}
+	displayNames := map[string]string{} // seriesName → DisplayName
 	for _, e := range entries {
 		var rec struct {
 			SeriesName   string `json:"series_name"`
+			DisplayName  string `json:"display_name"`
 			EpisodeID    string `json:"episode_id"`
 			DownloadedAt string `json:"downloaded_at"`
 			Quality      struct {
@@ -176,11 +178,18 @@ func groupSeries(entries []dbEntry) []seriesShow {
 			Quality:      rec.Quality.Str,
 			DownloadedAt: rec.DownloadedAt,
 		})
+		if rec.DisplayName != "" {
+			displayNames[rec.SeriesName] = rec.DisplayName
+		}
 	}
 	shows := make([]seriesShow, 0, len(groups))
 	for name, eps := range groups {
 		sort.Slice(eps, func(i, j int) bool { return eps[i].EpisodeID < eps[j].EpisodeID })
-		shows = append(shows, seriesShow{Name: name, Episodes: eps})
+		display := displayNames[name]
+		if display == "" {
+			display = name
+		}
+		shows = append(shows, seriesShow{Name: display, Episodes: eps})
 	}
 	sort.Slice(shows, func(i, j int) bool { return shows[i].Name < shows[j].Name })
 	return shows

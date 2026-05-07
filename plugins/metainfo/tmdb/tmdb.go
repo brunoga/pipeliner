@@ -9,7 +9,7 @@ package tmdb
 import (
 	"context"
 	"fmt"
-	"strings"
+	"strconv"
 	"time"
 
 	"github.com/brunoga/pipeliner/internal/cache"
@@ -97,28 +97,40 @@ func (p *tmdbPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 	// Use the first (most popular) result.
 	r := results[0]
 	e.Set("tmdb_id", r.ID)
-	e.Set("tmdb_title", r.Title)
-	e.Set("tmdb_original_title", r.OrigTitle)
-	e.Set("tmdb_release_date", r.ReleaseDate)
-	e.Set("tmdb_overview", r.Overview)
-	e.Set("tmdb_popularity", r.Popularity)
-	e.Set("tmdb_vote_average", r.VoteAverage)
 
-	// Fetch extended detail for genres, runtime, imdb_id.
+	mi := entry.MovieInfo{}
+	mi.Enriched = true
+	mi.Title = r.Title
+	mi.Description = r.Overview
+	mi.PublishedDate = r.ReleaseDate
+	mi.Rating = r.VoteAverage
+	mi.Popularity = r.Popularity
+	if r.OrigTitle != r.Title {
+		mi.OriginalTitle = r.OrigTitle
+	}
+	if len(r.ReleaseDate) >= 4 {
+		if y, err := strconv.Atoi(r.ReleaseDate[:4]); err == nil {
+			mi.Year = y
+		}
+	}
+
+	// Fetch extended detail for genres, runtime, tagline, imdb_id.
 	detail, err := p.client.GetMovie(ctx, r.ID)
 	if err != nil {
 		tc.Logger.Warn("metainfo_tmdb: detail fetch failed", "id", r.ID, "err", err)
+		e.SetMovieInfo(mi)
 		return nil
 	}
-	e.Set("tmdb_runtime", detail.Runtime)
-	e.Set("tmdb_tagline", detail.Tagline)
-	e.Set("tmdb_imdb_id", detail.ImdbID)
 
 	genres := make([]string, len(detail.Genres))
 	for i, g := range detail.Genres {
 		genres[i] = g.Name
 	}
-	e.Set("tmdb_genres", strings.Join(genres, ", "))
+	mi.Runtime = detail.Runtime
+	mi.Tagline = detail.Tagline
+	mi.ImdbID = detail.ImdbID
+	mi.Genres = genres
 
+	e.SetMovieInfo(mi)
 	return nil
 }

@@ -327,10 +327,10 @@ tasks:
 		t.Fatalf("expected 1 entry, got %d", len(res.entries))
 	}
 	e := res.entries[0]
-	if v := e.GetString("resolution"); v != "1080p" {
+	if v := e.GetString("video_resolution"); v != "1080p" {
 		t.Errorf("resolution: got %q, want 1080p", v)
 	}
-	if v := e.GetString("source"); v != "BluRay" {
+	if v := e.GetString("video_source"); v != "BluRay" {
 		t.Errorf("source: got %q, want BluRay", v)
 	}
 	if v := e.GetString("codec"); v != "H264" {
@@ -357,15 +357,41 @@ tasks:
 		t.Fatalf("expected 1 entry, got %d", len(res.entries))
 	}
 	e := res.entries[0]
-	if v := e.GetString("series_name"); v != "Breaking Bad" {
-		t.Errorf("series_name: got %q", v)
+	if v := e.GetString("title"); v != "Breaking Bad" {
+		t.Errorf("title: got %q", v)
 	}
 	if v := e.GetInt("series_season"); v != 2 {
-		t.Errorf("series_season: got %d", v)
+		t.Errorf("season: got %d", v)
 	}
-	if v := e.GetString("series_id"); v != "S02E05" {
-		t.Errorf("series_id: got %q", v)
+	if v := e.GetString("series_episode_id"); v != "S02E05" {
+		t.Errorf("episode_id: got %q", v)
 	}
+}
+
+func TestEnrichedFieldUsedAsRequire(t *testing.T) {
+	// metainfo_series parses episode info from the filename but does not set
+	// enriched — only external providers (TVDB, TMDb, Trakt) do. The require
+	// plugin should therefore reject entries that weren't enriched externally.
+	srv := rssServer(t, []rssItem{
+		{"Breaking.Bad.S01E01.720p.HDTV", "http://example.com/1"},
+		{"Some.Show.S01E02.720p.HDTV", "http://example.com/2"},
+	})
+	defer srv.Close()
+
+	res := buildAndRun(t, fmt.Sprintf(`
+tasks:
+  t:
+    rss:
+      url: %q
+    metainfo_series:
+    require:
+      fields: ["enriched"]
+    print:
+`, srv.URL))
+
+	// metainfo_series does not set enriched, so all entries are rejected by require.
+	res.assertAccepted(t, 0)
+	res.assertRejected(t, 2)
 }
 
 func TestConditionFilter(t *testing.T) {
@@ -383,8 +409,8 @@ tasks:
       url: %q
     metainfo_quality:
     condition:
-      accept: '{{ne .resolution ""}}'
-      reject: '{{eq .resolution "480p"}}'
+      accept: '{{ne .video_resolution ""}}'
+      reject: '{{eq .video_resolution "480p"}}'
     print:
 `, srv.URL))
 
@@ -455,7 +481,7 @@ tasks:
       url: %q
     metainfo_series:
     pathfmt:
-      path: '/tv/{{.series_name}}/S{{printf "%%02d" .series_season}}'
+      path: '/tv/{{.title}}/S{{printf "%%02d" .series_season}}'
     print:
 `, srv.URL))
 
@@ -625,8 +651,8 @@ tasks:
       url: %q
     metainfo_quality:
     condition:
-      accept: 'resolution != ""'
-      reject: 'resolution == "480p"'
+      accept: 'video_resolution != ""'
+      reject: 'video_resolution == "480p"'
     print:
 `, srv.URL))
 
@@ -648,7 +674,7 @@ tasks:
       url: %q
     metainfo_quality:
     condition:
-      accept: 'source contains "BluRay"'
+      accept: 'video_source contains "BluRay"'
     print:
 `, srv.URL))
 
@@ -669,7 +695,7 @@ tasks:
       url: %q
     metainfo_series:
     pathfmt:
-      path: '/tv/{series_name}/Season {series_season:02d}'
+      path: '/tv/{title}/Season {series_season:02d}'
     print:
 `, srv.URL))
 
@@ -694,7 +720,7 @@ tasks:
       url: %q
     set:
       category: tv
-      label: '{title}'
+      label: '{raw_title}'
     print:
 `, srv.URL))
 
@@ -791,7 +817,7 @@ tasks:
     regexp:
       reject:
         - pattern: 'BluRay'
-          from: source
+          from: video_source
       accept:
         - '.+'
     print:
