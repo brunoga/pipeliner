@@ -149,6 +149,31 @@ See [`plugins/`](plugins/README.md) for the plugin model and links to every plug
 | [`pushover`](plugins/notify/pushover/README.md) | Send a notification via the Pushover API |
 | [`webhook`](plugins/notify/webhook/README.md) | POST a run summary to an HTTP endpoint |
 
+## Standard fields
+
+Every entry carries a `Fields` map that plugins read and write. Pipeliner defines a hierarchy of **standard fields** so conditions, pathfmt patterns, and templates work the same regardless of which metainfo provider is configured.
+
+| Tier | Prefix | Example fields |
+|------|--------|----------------|
+| Generic — any entry | *(none)* | `title`, `description`, `published_date`, `enriched` |
+| Video — movies and series | `video_` | `video_year`, `video_genres`, `video_rating`, `video_quality`, `video_language`, … |
+| Movie-specific | `movie_` | `movie_tagline` |
+| Series-specific | `series_` | `series_season`, `series_episode`, `series_episode_id`, `series_network`, `series_episode_title`, … |
+| Torrent | `torrent_` | `torrent_seeds`, `torrent_info_hash`, `torrent_file_size`, … |
+| File | `file_` | `file_name`, `file_location`, `file_size`, … |
+| RSS | `rss_` | `rss_feed`, `rss_guid`, `rss_link`, … |
+
+`title` is the canonical display name set by external metainfo providers (TVDB, TMDb, Trakt). The raw entry title as parsed from the filename or feed is available as `raw_title`.
+
+`enriched` is set to `true` by any external metainfo provider on a successful lookup. Use it with [`require`](plugins/filter/require/README.md) to discard entries that couldn't be identified:
+
+```yaml
+require:
+  fields: ["enriched"]   # works with TVDB, TMDb, or Trakt
+```
+
+Provider-specific fields (e.g. `tvdb_id`, `tmdb_id`, `trakt_slug`) are still set alongside the standard fields for cases that need them.
+
 ## Platforms
 
 Pre-built binaries are available for every [release](https://github.com/brunoga/pipeliner/releases):
