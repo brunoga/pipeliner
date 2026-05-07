@@ -99,7 +99,6 @@ func (p *premierePlugin) Filter(ctx context.Context, tc *plugin.TaskContext, e *
 	}
 
 	epID := series.EpisodeID(ep)
-	e.Set("series_name", ep.SeriesName)
 	e.Set("series_episode_id", epID)
 	e.Set("series_season", ep.Season)
 	e.Set("series_episode", ep.Episode)

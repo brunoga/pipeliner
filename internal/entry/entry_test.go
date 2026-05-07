@@ -169,3 +169,40 @@ func TestString(t *testing.T) {
 		t.Error("String() returned empty")
 	}
 }
+
+func TestSetMovieInfoWritesMovieTitle(t *testing.T) {
+	e := New("Dune.2021.1080p", "http://example.com")
+	e.SetMovieInfo(MovieInfo{
+		VideoInfo: VideoInfo{GenericInfo: GenericInfo{Title: "Dune"}},
+	})
+	if got := e.GetString(FieldMovieTitle); got != "Dune" {
+		t.Errorf("FieldMovieTitle: want %q, got %q", "Dune", got)
+	}
+	if got := e.GetString(FieldTitle); got != "Dune" {
+		t.Errorf("FieldTitle: want %q, got %q", "Dune", got)
+	}
+}
+
+func TestSetMovieInfoEmptyTitleSkipsMovieTitle(t *testing.T) {
+	e := New("Some.Movie.1080p", "http://example.com")
+	e.SetMovieInfo(MovieInfo{})
+	if _, ok := e.Fields[FieldMovieTitle]; ok {
+		t.Error("FieldMovieTitle should not be set when title is empty")
+	}
+}
+
+func TestSetSeriesInfoWritesEpisodeID(t *testing.T) {
+	e := New("Show.S01E01.720p", "http://example.com")
+	e.SetSeriesInfo(SeriesInfo{
+		VideoInfo: VideoInfo{GenericInfo: GenericInfo{Title: "Show"}},
+		EpisodeID: "S01E01",
+		Season:    1,
+		Episode:   1,
+	})
+	if got := e.GetString(FieldSeriesEpisodeID); got != "S01E01" {
+		t.Errorf("FieldSeriesEpisodeID: want %q, got %q", "S01E01", got)
+	}
+	if got := e.GetString(FieldTitle); got != "Show" {
+		t.Errorf("FieldTitle: want %q, got %q", "Show", got)
+	}
+}

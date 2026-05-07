@@ -42,8 +42,8 @@ func filterLearn(t *testing.T, p *upgradePlugin, e *entry.Entry) {
 func entryWithQuality(title string) *entry.Entry {
 	e := entry.New(title, "http://example.com/"+title)
 	// Set series metadata so entryKey produces a stable key regardless of quality in title.
-	e.Set("series_name", "Show")
-	e.Set("series_id", "S01E01")
+	e.Set(entry.FieldTitle, "Show")
+	e.Set(entry.FieldSeriesEpisodeID, "S01E01")
 	return e
 }
 
