@@ -399,10 +399,10 @@ make build        # or: go build -o pipeliner ./cmd/pipeliner</code></pre>
   <tr><td><code>video_trailers</code></td><td>Trailer URLs (string slice)</td></tr>
   <tr><td><code>video_aliases</code></td><td>Alternative titles (string slice)</td></tr>
   <tr><td><code>video_imdb_id</code></td><td>IMDb ID</td></tr>
-  <tr><td><code>video_quality</code></td><td>Parsed quality string (e.g. <code>1080p.BluRay.x265</code>)</td></tr>
+  <tr><td><code>video_quality</code></td><td>Parsed quality string, including 3D format when present (e.g. <code>BD3D 1080p BluRay H.265</code>)</td></tr>
   <tr><td><code>video_resolution</code></td><td>Resolution tag (e.g. <code>1080p</code>)</td></tr>
   <tr><td><code>video_source</code></td><td>Source tag (e.g. <code>BluRay</code>, <code>WEB-DL</code>)</td></tr>
-  <tr><td><code>video_is_3d</code></td><td><code>true</code> when a 3D format marker is detected</td></tr>
+  <tr><td><code>video_is_3d</code></td><td><code>true</code> when any 3D format marker is detected (3D, SBS, HOU, BD3D, etc.)</td></tr>
   <tr><td><code>video_popularity</code></td><td>Popularity score</td></tr>
   <tr><td><code>video_votes</code></td><td>Vote count</td></tr>
 </table>
@@ -504,8 +504,8 @@ make build        # or: go build -o pipeliner ./cmd/pipeliner</code></pre>
   <tr><td><code>series_episode</code></td><td>series, metainfo_series</td><td>Episode number</td></tr>
   <tr><td><code>series_episode_id</code></td><td>series, metainfo_series</td><td>Episode ID string (e.g. <code>S02E05</code>)</td></tr>
   <tr><td><code>video_year</code></td><td>movies, metainfo_tvdb, metainfo_tmdb</td><td>Release or first-air year</td></tr>
-  <tr><td><code>video_is_3d</code></td><td>movies</td><td><code>true</code> when a 3D format marker is detected</td></tr>
-  <tr><td><code>video_quality</code></td><td>movies</td><td>Parsed quality string from movie title</td></tr>
+  <tr><td><code>video_is_3d</code></td><td>movies</td><td><code>true</code> when any 3D format marker is detected (3D, SBS, HOU, BD3D, etc.)</td></tr>
+  <tr><td><code>video_quality</code></td><td>movies</td><td>Parsed quality string from movie title, including 3D format when present (e.g. <code>BD3D 1080p BluRay</code>)</td></tr>
   <tr><td><code>video_language</code></td><td>metainfo_tvdb</td><td>Original language display name (e.g. <code>English</code>)</td></tr>
   <tr><td><code>video_genres</code></td><td>metainfo_tvdb, metainfo_tmdb, metainfo_trakt</td><td>Genre names (string slice)</td></tr>
   <tr><td><code>video_rating</code></td><td>metainfo_tvdb, metainfo_tmdb, metainfo_trakt</td><td>Community rating (0–10)</td></tr>
@@ -585,6 +585,16 @@ make build        # or: go build -o pipeliner ./cmd/pipeliner</code></pre>
 </table>
 
 <p>Example: <code>720p+ webrip+</code> requires at least 720p resolution AND at least WEBRip source quality.</p>
+
+<h4>3D quality</h4>
+<p>3D format is a ranked dimension used only for movie comparisons. When two 3D copies of the same movie are compared, 3D format takes precedence over all other dimensions (resolution, source, etc.), which then act as tie-breakers. 3D and non-3D versions of the same movie are tracked independently — both are downloaded if both match.</p>
+<table>
+  <tr><th>Rank</th><th>Format</th><th>Detected markers</th></tr>
+  <tr><td>Lowest</td><td>Half</td><td><code>3D</code>, <code>HSBS</code>, <code>H-SBS</code>, <code>HALF-SBS</code>, <code>HOU</code>, <code>H-OU</code>, <code>HALF-OU</code></td></tr>
+  <tr><td>Middle</td><td>Full</td><td><code>SBS</code>, <code>FSBS</code>, <code>F-SBS</code>, <code>FULL-SBS</code>, <code>OU</code>, <code>FOU</code>, <code>F-OU</code>, <code>FULL-OU</code></td></tr>
+  <tr><td>Highest</td><td>BD3D</td><td><code>BD3D</code></td></tr>
+</table>
+<p>Use <code>video_is_3d</code> to test for any 3D release. The 3D format appears in <code>video_quality</code> (e.g. <code>BD3D 1080p BluRay H.265</code>).</p>
 
 <!-- ═══════════════════════════════════════════════════════════ -->
 <h2 id="template-funcs">Template Functions</h2>
@@ -923,9 +933,9 @@ After DHT: <code>torrent_file_size</code>, <code>torrent_file_count</code>, <cod
   <tr><td><code>quality</code></td><td>no</td><td>—</td><td>Minimum quality floor</td></tr>
 </table>
 
-<p>Fields set: <code>title</code> (movie title), <code>video_year</code>, <code>video_quality</code>, <code>video_is_3d</code></p>
+<p>Fields set: <code>title</code> (movie title), <code>video_year</code>, <code>video_quality</code>, <code>video_resolution</code>, <code>video_source</code>, <code>video_is_3d</code></p>
 
-<div class="note">Use <code>condition: reject: 'video_is_3d == true'</code> to exclude 3D releases. Detected markers include: 3D, SBS, HSBS, HOU, BD3D, and variants.</div>
+<div class="note"><strong>3D handling:</strong> 3D and non-3D versions of the same movie are tracked independently — both are downloaded if both match. Among competing 3D copies, 3D format quality (BD3D &gt; Full SBS/OU &gt; Half SBS/OU) takes precedence over resolution and source. Use <code>condition: reject: 'video_is_3d == true'</code> to exclude all 3D releases.</div>
 
 <!-- ─────────── premiere ─────────── -->
 <h2 id="premiere">premiere</h2>

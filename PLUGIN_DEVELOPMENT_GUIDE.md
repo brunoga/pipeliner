@@ -71,6 +71,8 @@ The winning entry is chosen by:
 
 Entries are keyed by `title` + `series_episode_id` for episodes, and `title` + `video_year` for movies. Entries without these fields are unaffected.
 
+For movies, 3D and non-3D versions are keyed separately (`title|year` vs `title|year|3d`) so both are downloaded independently rather than competing. Within a group of 3D candidates, the `Quality.Better()` comparison uses `Format3D` as the primary discriminator (BD3D > Full > Half), with resolution and other dimensions as tie-breakers.
+
 **Implication for stateful plugins:** Do not write tracking state (SQLite) in `Filter` — do it in `Learn`. `Learn` runs after output and receives only the entries that survived dedup, so only the winning copy is recorded as downloaded.
 
 ---
@@ -277,7 +279,7 @@ All field name constants are defined in `internal/entry/info.go`.
 | `FieldVideoQuality` | `video_quality` | string |
 | `FieldVideoResolution` | `video_resolution` | string |
 | `FieldVideoSource` | `video_source` | string |
-| `FieldVideoIs3D` | `video_is_3d` | bool |
+| `FieldVideoIs3D` | `video_is_3d` | bool | `true` when any 3D format marker is detected; derived from `Quality.Format3D` |
 | `FieldVideoPopularity` | `video_popularity` | float64 |
 | `FieldVideoVotes` | `video_votes` | int |
 

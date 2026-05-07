@@ -132,11 +132,12 @@ func (p *moviesPlugin) Filter(ctx context.Context, tc *plugin.TaskContext, e *en
 		return nil
 	}
 
+	is3D := m.Quality.Format3D != quality.Format3DNone
 	qualStr := m.Quality.String()
 	mi := entry.MovieInfo{}
 	mi.Title = matchedTitle
 	mi.Year = m.Year
-	mi.Is3D = m.Is3D
+	mi.Is3D = is3D
 	if qualStr != "unknown" {
 		mi.Quality = qualStr
 		mi.Resolution = m.Quality.ResolutionName()
@@ -144,8 +145,8 @@ func (p *moviesPlugin) Filter(ctx context.Context, tc *plugin.TaskContext, e *en
 	}
 	e.SetMovieInfo(mi)
 
-	if p.tracker.IsSeen(matchedTitle, m.Year) {
-		if rec, ok := p.tracker.Latest(matchedTitle); ok && rec.Year == m.Year {
+	if p.tracker.IsSeen(matchedTitle, m.Year, is3D) {
+		if rec, ok := p.tracker.Latest(matchedTitle, is3D); ok && rec.Year == m.Year {
 			betterQuality := m.Quality.Better(rec.Quality)
 			properOrRepack := m.Proper || m.Repack
 			notDowngrade := !rec.Quality.Better(m.Quality)
@@ -182,9 +183,11 @@ func (p *moviesPlugin) Learn(ctx context.Context, tc *plugin.TaskContext, entrie
 		if !ok {
 			continue
 		}
+		is3D := m.Quality.Format3D != quality.Format3DNone
 		if err := p.tracker.Mark(imovies.Record{
 			Title:   matchedTitle,
 			Year:    m.Year,
+			Is3D:    is3D,
 			Quality: m.Quality,
 		}); err != nil {
 			return fmt.Errorf("movies: mark %s (%d): %w", matchedTitle, m.Year, err)
