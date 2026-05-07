@@ -27,7 +27,7 @@ tasks:
     rss:
       url: "https://example.com/feed"
     movies:
-      movies: ["Inception"]
+      static: ["Inception"]
     pathfmt:
       path: "/media/movies/{{.movie_title}}"
     qbittorrent:

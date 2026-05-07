@@ -874,11 +874,11 @@ After DHT: <code>torrent_file_size</code>, <code>torrent_file_count</code>, <cod
 
 <!-- ─────────── series ─────────── -->
 <h2 id="series">series</h2>
-<p>Accepts episodes of configured TV shows. Parses the episode identifier from the title, matches series names with fuzzy matching, and enforces optional quality and ordering constraints. Multiple quality variants of the same episode are all accepted — the task engine's automatic deduplication picks the best copy. Download history is recorded in the Learn phase.</p>
+<p>Accepts episodes of configured TV shows. Parses the episode identifier from the title, matches series names with fuzzy matching, and enforces optional quality and ordering constraints. Multiple quality variants of the same episode are all accepted — the task engine's automatic deduplication picks the best copy. Download history is recorded in the Learn phase. A re-download of an already-seen episode is accepted when the new copy is strictly better quality, or when it is a PROPER/REPACK that is not a quality downgrade.</p>
 
 <table>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
-  <tr><td><code>shows</code></td><td>conditional</td><td>—</td><td>Static list of show names</td></tr>
+  <tr><td><code>static</code></td><td>conditional</td><td>—</td><td>Static list of show names</td></tr>
   <tr><td><code>from</code></td><td>conditional</td><td>—</td><td>From-plugin configs providing show names dynamically</td></tr>
   <tr><td><code>ttl</code></td><td>no</td><td><code>1h</code></td><td>Cache TTL for dynamic show list</td></tr>
   <tr><td><code>tracking</code></td><td>no</td><td><code>strict</code></td><td>Episode ordering mode: <code>strict</code>, <code>backfill</code>, or <code>follow</code></td></tr>
@@ -898,7 +898,7 @@ After DHT: <code>torrent_file_size</code>, <code>torrent_file_count</code>, <cod
 <pre><code><span class="y-key">series</span>:
   <span class="y-key">tracking</span>: <span class="y-str">strict</span>
   <span class="y-key">quality</span>: <span class="y-str">720p+ webrip+</span>
-  <span class="y-key">shows</span>:
+  <span class="y-key">static</span>:
     - <span class="y-str">"Breaking Bad"</span>
     - <span class="y-str">"Better Call Saul"</span></code></pre>
 
@@ -913,11 +913,11 @@ After DHT: <code>torrent_file_size</code>, <code>torrent_file_count</code>, <cod
 
 <!-- ─────────── movies ─────────── -->
 <h2 id="movies">movies</h2>
-<p>Accepts movies from a configured title list. Same quality and deduplication behavior as <code>series</code>. Download history recorded in Learn phase.</p>
+<p>Accepts movies from a configured title list. Same quality and deduplication behavior as <code>series</code>. Download history recorded in Learn phase. A re-download is accepted when the new copy is strictly better quality, or when it is a PROPER/REPACK that is not a quality downgrade.</p>
 
 <table>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
-  <tr><td><code>movies</code></td><td>conditional</td><td>—</td><td>Static list of movie titles</td></tr>
+  <tr><td><code>static</code></td><td>conditional</td><td>—</td><td>Static list of movie titles</td></tr>
   <tr><td><code>from</code></td><td>conditional</td><td>—</td><td>From-plugin configs providing titles dynamically</td></tr>
   <tr><td><code>ttl</code></td><td>no</td><td><code>1h</code></td><td>Cache TTL for dynamic list</td></tr>
   <tr><td><code>quality</code></td><td>no</td><td>—</td><td>Minimum quality floor</td></tr>

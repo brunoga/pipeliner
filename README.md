@@ -28,7 +28,7 @@ tasks:
       url: "https://example.com/rss"
     seen:
     series:
-      shows:
+      static:
         - "Breaking Bad"
     transmission:
       host: localhost

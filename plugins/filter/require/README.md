@@ -31,6 +31,6 @@ tasks:
         - series_name
         - quality
     series:
-      shows:
+      static:
         - "Breaking Bad"
 ```
