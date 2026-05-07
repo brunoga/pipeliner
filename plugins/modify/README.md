@@ -4,17 +4,16 @@ Modify plugins mutate entry fields in-place after metainfo annotation. They run 
 
 | Plugin | Description |
 |--------|-------------|
-| [pathfmt](pathfmt/README.md) | Render a pattern into the `download_path` field |
-| [pathscrub](pathscrub/README.md) | Sanitize path components for safe filesystem use |
+| [pathfmt](pathfmt/README.md) | Render a path pattern into a named field, with automatic scrubbing |
 | [set](set/README.md) | Unconditionally set one or more entry fields |
 
 ## Pattern syntax
 
-Both `pathfmt` and `set` render patterns against the entry's full field map using `{field}` syntax:
+Both `pathfmt` and `set` render patterns against the entry's full field map:
 
 | Syntax | Meaning | Example |
 |--------|---------|---------|
-| `{field}` | Insert field value | `{series_name}` |
+| `{field}` | Insert field value | `{title}` |
 | `{field:format}` | Printf-formatted field | `{series_season:02d}` |
 
 Go template syntax (`{{.field}}`) is also accepted for backward compatibility and is required for pipe expressions (`{{.date | slice 0 4}}`).
@@ -23,11 +22,11 @@ Go template syntax (`{{.field}}`) is also accepted for backward compatibility an
 
 | Key | Value |
 |-----|-------|
-| `title` | Entry title |
+| `title` | Canonical enriched title (from TVDB/TMDb/Trakt) |
+| `raw_title` | Original entry title (torrent filename or feed item) |
 | `url` | Entry URL |
 | `task` | Task name |
 | `download_path` | Previously rendered path (if `pathfmt` ran earlier) |
-| `series_name`, `series_season`, … | Fields from `metainfo_series` |
-| `tmdb_title`, `tmdb_genres`, … | Fields from `metainfo_tmdb` |
-| `trakt_rating`, `trakt_genres`, … | Fields from `metainfo_trakt` |
-| `tvdb_series_name`, `tvdb_air_date`, … | Fields from `metainfo_tvdb` |
+| `series_season`, `series_episode_id`, … | Standard series fields |
+| `video_year`, `video_genres`, … | Standard video fields |
+| `tvdb_id`, `tmdb_id`, … | Provider-specific IDs |

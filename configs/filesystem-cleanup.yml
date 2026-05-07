@@ -8,6 +8,6 @@ tasks:
       accept:
         - '.+'
     exec:
-      command: 'rm -f {location}'
+      command: 'rm -f {file_location}'
     print:
       format: 'removed: {title}'

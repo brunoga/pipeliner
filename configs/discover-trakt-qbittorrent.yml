@@ -44,10 +44,11 @@ tasks:
       api_key: YOUR_TMDB_API_KEY
     condition:
       rules:
-        - reject: 'source == "CAM"'
-        - reject: 'tmdb_vote_average < 6.5'
+        - reject: 'video_source == "CAM"'
+        - reject: 'video_rating < 6.5'
     pathfmt:
-      path: '{$ movies_path $}/{movie_title} ({movie_year})'
+      path: '{$ movies_path $}/{title} ({video_year})'
+      field: download_path
     qbittorrent:
       host: "{$ qbit_host $}"
       port: "{$ qbit_port $}"
@@ -83,7 +84,8 @@ tasks:
           type: shows
           list: watchlist
     pathfmt:
-      path: '{$ tv_path $}/{series_name}/Season {series_season:02d}'
+      path: '{$ tv_path $}/{title}/Season {series_season:02d}'
+      field: download_path
     qbittorrent:
       host: "{$ qbit_host $}"
       port: "{$ qbit_port $}"

@@ -41,12 +41,13 @@ tasks:
 
     # Require seeders (jackett provides this without an extra fetch).
     condition:
-      accept: 'torrent_seeders >= 3'
+      accept: 'torrent_seeds >= 3'
 
     # Build a structured download path.
     metainfo_series:
     pathfmt:
-      path: "/media/tv/{series_name}/Season {series_season:02d}"
+      path: "/media/tv/{title}/Season {series_season:02d}"
+      field: download_path
 
     # Send to Transmission.
     transmission:
