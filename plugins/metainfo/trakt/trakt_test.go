@@ -119,6 +119,36 @@ func TestAnnotateShow(t *testing.T) {
 	}
 }
 
+func TestEnrichedSetOnSuccess(t *testing.T) {
+	srv := mockServer(t, searchResponse("Breaking Bad", 2008, 1, 81189, 9.4, []string{"Drama"}))
+	defer srv.Close()
+	itrakt.BaseURL = srv.URL
+
+	p := makePlugin(t, map[string]any{"client_id": "key", "type": "shows"})
+	e := entry.New("Breaking.Bad.S01E01.720p.HDTV", "http://x.com/a")
+	if err := p.Annotate(context.Background(), tc(), e); err != nil {
+		t.Fatal(err)
+	}
+	if !e.GetBool("enriched") {
+		t.Error("enriched should be true when Trakt finds the show")
+	}
+}
+
+func TestEnrichedNotSetOnNoResults(t *testing.T) {
+	srv := mockServer(t, []byte("[]"))
+	defer srv.Close()
+	itrakt.BaseURL = srv.URL
+
+	p := makePlugin(t, map[string]any{"client_id": "key", "type": "shows"})
+	e := entry.New("Breaking.Bad.S01E01.720p.HDTV", "http://x.com/a")
+	if err := p.Annotate(context.Background(), tc(), e); err != nil {
+		t.Fatal(err)
+	}
+	if e.GetBool("enriched") {
+		t.Error("enriched should not be set when Trakt returns no results")
+	}
+}
+
 func TestAnnotateNonParseableTitle(t *testing.T) {
 	srv := mockServer(t, []byte("[]"))
 	defer srv.Close()

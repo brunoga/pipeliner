@@ -368,6 +368,32 @@ tasks:
 	}
 }
 
+func TestEnrichedFieldUsedAsRequire(t *testing.T) {
+	// metainfo_series parses episode info from the filename but does not set
+	// enriched — only external providers (TVDB, TMDb, Trakt) do. The require
+	// plugin should therefore reject entries that weren't enriched externally.
+	srv := rssServer(t, []rssItem{
+		{"Breaking.Bad.S01E01.720p.HDTV", "http://example.com/1"},
+		{"Some.Show.S01E02.720p.HDTV", "http://example.com/2"},
+	})
+	defer srv.Close()
+
+	res := buildAndRun(t, fmt.Sprintf(`
+tasks:
+  t:
+    rss:
+      url: %q
+    metainfo_series:
+    require:
+      fields: ["enriched"]
+    print:
+`, srv.URL))
+
+	// metainfo_series does not set enriched, so all entries are rejected by require.
+	res.assertAccepted(t, 0)
+	res.assertRejected(t, 2)
+}
+
 func TestConditionFilter(t *testing.T) {
 	srv := rssServer(t, []rssItem{
 		{"Show.S01E01.1080p.BluRay", "http://example.com/1"},
