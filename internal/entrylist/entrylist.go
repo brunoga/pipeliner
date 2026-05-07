@@ -35,7 +35,3 @@ func (l *List) Remove(title string) error {
 	return l.bucket.Delete(title)
 }
 
-// Titles returns all entry titles in the list (order unspecified).
-func (l *List) Titles() ([]string, error) {
-	return l.bucket.Keys()
-}

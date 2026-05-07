@@ -1,7 +1,6 @@
 package entrylist
 
 import (
-	"sort"
 	"testing"
 
 	"github.com/brunoga/pipeliner/internal/store"
@@ -59,26 +58,3 @@ func TestRemove(t *testing.T) {
 	}
 }
 
-func TestTitles(t *testing.T) {
-	l := openTestList(t, "test")
-	entries := []string{"Alpha", "Beta", "Gamma"}
-	for _, title := range entries {
-		if err := l.Add(title, "http://example.com/"+title); err != nil {
-			t.Fatalf("Add %q: %v", title, err)
-		}
-	}
-	titles, err := l.Titles()
-	if err != nil {
-		t.Fatalf("Titles: %v", err)
-	}
-	sort.Strings(titles)
-	sort.Strings(entries)
-	if len(titles) != len(entries) {
-		t.Fatalf("expected %d titles, got %d: %v", len(entries), len(titles), titles)
-	}
-	for i, want := range entries {
-		if titles[i] != want {
-			t.Errorf("titles[%d] = %q, want %q", i, titles[i], want)
-		}
-	}
-}
