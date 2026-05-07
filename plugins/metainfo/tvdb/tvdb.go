@@ -191,6 +191,15 @@ func (p *tvdbPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 			if cast := ext.ActorNames(); len(cast) > 0 {
 				e.Set("tvdb_cast", cast)
 			}
+			// Original-language title — only meaningful when the original language
+			// differs from the display name returned by the search endpoint.
+			lang := s.Language
+			if lang == "" {
+				lang = ext.Language
+			}
+			if name := ext.OriginalName(lang); name != "" && name != s.Name {
+				e.Set("tvdb_original_title", name)
+			}
 		}
 	}
 
