@@ -135,8 +135,12 @@ func (p *jackettPlugin) Search(ctx context.Context, tc *plugin.TaskContext, quer
 }
 
 func (p *jackettPlugin) searchIndexer(ctx context.Context, indexer, query string) ([]*entry.Entry, error) {
+	escaped := make([]string, len(p.indexers))
+	for i, idx := range p.indexers {
+		escaped[i] = url.PathEscape(idx)
+	}
 	endpoint := fmt.Sprintf("%s/api/v2.0/indexers/%s/results/torznab/api",
-		p.baseURL, url.PathEscape(indexer))
+		p.baseURL, strings.Join(escaped, ","))
 
 	params := url.Values{
 		"apikey": {p.apiKey},
