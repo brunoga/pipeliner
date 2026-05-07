@@ -981,6 +981,13 @@ After DHT: <code>torrent_file_size</code>, <code>torrent_file_count</code>, <cod
     - <span class="y-str">enriched</span>
     - <span class="y-str">series_episode_id</span></code></pre>
 
+<div class="note"><strong>Using <code>enriched</code> as a metainfo gate.</strong> External metainfo plugins (TVDB, TMDb, Trakt) set <code>enriched = true</code> only when they successfully identify the entry in the database. Adding <code>enriched</code> to <code>require</code> rejects anything the provider did not recognise — for example, a foreign-language title, a very new release not yet in the database, or a torrent that doesn't match any known show or movie. This is the provider-agnostic replacement for the old pattern of requiring <code>tvdb_id</code>:
+<pre style="margin-top:0.5em"><code><span class="y-key">metainfo_tvdb</span>:
+  <span class="y-key">api_key</span>: <span class="y-str">"…"</span>
+<span class="y-key">require</span>:
+  <span class="y-key">fields</span>: [<span class="y-str">"enriched"</span>]   <span class="y-com"># drop anything TVDB didn't find</span></code></pre>
+Because <code>enriched</code> is set by any external provider, the same config works unchanged if you later swap TVDB for TMDb or Trakt.</div>
+
 <!-- ─────────── seen ─────────── -->
 <h2 id="seen">seen</h2>
 <p>Rejects entries already processed in a previous run, using a SHA-256 fingerprint of configured fields stored in <code>pipeliner.db</code>. Fingerprints are written in the Learn phase — if an output plugin fails, the entry is <em>not</em> marked seen and will be retried.</p>
