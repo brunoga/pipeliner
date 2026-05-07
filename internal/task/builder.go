@@ -17,11 +17,6 @@ type PluginConfig struct {
 // BuildOption is a functional option for Build.
 type BuildOption func(*Task)
 
-// WithLogger sets a custom logger on the task.
-func WithLogger(l *slog.Logger) BuildOption {
-	return func(t *Task) { t.logger = l }
-}
-
 // Build constructs a Task from a name, an ordered list of plugin configs, and a logger.
 // db is the shared store for this config; it is forwarded to every plugin factory.
 // Plugins are instantiated via the global registry.

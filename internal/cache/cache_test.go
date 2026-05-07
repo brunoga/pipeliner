@@ -10,7 +10,7 @@ import (
 // --- in-memory cache ---
 
 func TestHitAndMiss(t *testing.T) {
-	c := New[string](time.Hour)
+	c := NewPersistent[string](time.Hour, nil)
 	if _, ok := c.Get("k"); ok {
 		t.Error("empty cache should miss")
 	}
@@ -21,7 +21,7 @@ func TestHitAndMiss(t *testing.T) {
 }
 
 func TestExpiry(t *testing.T) {
-	c := New[int](5 * time.Millisecond)
+	c := NewPersistent[int](5*time.Millisecond, nil)
 	c.Set("x", 42)
 	if _, ok := c.Get("x"); !ok {
 		t.Fatal("should hit before expiry")
@@ -33,7 +33,7 @@ func TestExpiry(t *testing.T) {
 }
 
 func TestZeroTTLDisablesCache(t *testing.T) {
-	c := New[string](0)
+	c := NewPersistent[string](0, nil)
 	c.Set("k", "v")
 	if _, ok := c.Get("k"); ok {
 		t.Error("zero TTL should never cache")
@@ -50,7 +50,7 @@ func TestNilReceiverSafe(t *testing.T) {
 }
 
 func TestOverwrite(t *testing.T) {
-	c := New[string](time.Hour)
+	c := NewPersistent[string](time.Hour, nil)
 	c.Set("k", "first")
 	c.Set("k", "second")
 	if v, _ := c.Get("k"); v != "second" {
@@ -59,7 +59,7 @@ func TestOverwrite(t *testing.T) {
 }
 
 func TestConcurrentAccess(t *testing.T) {
-	c := New[int](time.Hour)
+	c := NewPersistent[int](time.Hour, nil)
 	var wg sync.WaitGroup
 	for i := range 50 {
 		wg.Add(2)

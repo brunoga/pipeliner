@@ -29,7 +29,6 @@ type bucket interface {
 
 // Tracker tracks which episodes of which series have been downloaded.
 // It is backed by a bucket so state persists across runs.
-// For large libraries consider SQLiteStore which uses a dedicated indexed table.
 type Tracker struct {
 	bucket bucket
 }

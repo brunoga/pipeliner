@@ -36,24 +36,6 @@ import (
 	"github.com/brunoga/pipeliner/internal/store"
 )
 
-func validate(cfg map[string]any) []error {
-	var errs []error
-	if err := plugin.RequireString(cfg, "url", "jackett"); err != nil {
-		errs = append(errs, err)
-	}
-	if err := plugin.RequireString(cfg, "api_key", "jackett"); err != nil {
-		errs = append(errs, err)
-	}
-	if err := validateLimit(cfg, "jackett"); err != nil {
-		errs = append(errs, err)
-	}
-	if err := plugin.OptDuration(cfg, "timeout", "jackett"); err != nil {
-		errs = append(errs, err)
-	}
-	errs = append(errs, plugin.OptUnknownKeys(cfg, "jackett", "url", "api_key", "indexers", "categories", "limit", "timeout")...)
-	return errs
-}
-
 // validateLimit checks that the optional limit key, if set, is a positive integer.
 func validateLimit(cfg map[string]any, pluginName string) error {
 	v, ok := cfg["limit"]

@@ -82,23 +82,3 @@ func TestAll(t *testing.T) {
 	}
 }
 
-func TestAllByPhase(t *testing.T) {
-	resetForTest()
-	Register(&Descriptor{PluginName: "in1", PluginPhase: PhaseInput, Factory: newStubFactory("in1")})
-	Register(&Descriptor{PluginName: "in2", PluginPhase: PhaseInput, Factory: newStubFactory("in2")})
-	Register(&Descriptor{PluginName: "f1", PluginPhase: PhaseFilter, Factory: newStubFactory("f1")})
-
-	inputs := AllByPhase(PhaseInput)
-	if len(inputs) != 2 {
-		t.Fatalf("want 2 inputs, got %d", len(inputs))
-	}
-	// sorted by name
-	if inputs[0].PluginName != "in1" || inputs[1].PluginName != "in2" {
-		t.Errorf("want [in1, in2], got [%q, %q]", inputs[0].PluginName, inputs[1].PluginName)
-	}
-
-	filters := AllByPhase(PhaseFilter)
-	if len(filters) != 1 || filters[0].PluginName != "f1" {
-		t.Errorf("AllByPhase filter: unexpected result %v", filters)
-	}
-}
