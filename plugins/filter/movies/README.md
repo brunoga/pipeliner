@@ -34,14 +34,16 @@ from:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `movie_title` | string | Matched canonical movie title |
-| `movie_year` | int | Parsed release year |
-| `movie_quality` | string | Human-readable quality string, e.g. `1080p BluRay H.265` (absent if unparseable) |
-| `movie_3d` | bool | `true` when a 3D format marker is detected in the title (`3D`, `SBS`, `HOU`, `BD3D`, etc.) |
+| `title` | string | Matched canonical movie title |
+| `video_year` | int | Parsed release year |
+| `video_quality` | string | Human-readable quality string, e.g. `1080p BluRay H.265` (absent if unparseable) |
+| `video_resolution` | string | Resolution tag, e.g. `1080p` (absent if unparseable) |
+| `video_source` | string | Source tag, e.g. `BluRay` (absent if unparseable) |
+| `video_is_3d` | bool | `true` when a 3D format marker is detected in the title (`3D`, `SBS`, `HOU`, `BD3D`, etc.) |
 
 ## 3D detection
 
-The following markers in the release title set `movie_3d=true`:
+The following markers in the release title set `video_is_3d=true`:
 
 `3D`, `SBS`, `HSBS`, `H-SBS`, `HALF-SBS`, `FSBS`, `F-SBS`, `FULL-SBS`, `OU`, `HOU`, `H-OU`, `HALF-OU`, `FOU`, `F-OU`, `FULL-OU`, `BD3D`
 
@@ -49,7 +51,7 @@ Filtering out 3D releases via `condition`:
 
 ```yaml
 condition:
-  reject: 'movie_3d == true'
+  reject: 'video_is_3d == true'
 ```
 
 ## Debug logging
@@ -92,7 +94,7 @@ tasks:
           type: movies
           list: watchlist
     condition:
-      reject: 'movie_3d == true'
+      reject: 'video_is_3d == true'
     deluge:
       host: localhost
 ```

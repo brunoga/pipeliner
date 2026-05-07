@@ -11,15 +11,29 @@ Fetches entries from an RSS 2.0 or Atom 1.0 feed. Prefers enclosure URLs (torren
 
 ## Fields set on entry
 
-| Field | Description |
-|-------|-------------|
-| `rss_feed` | Feed title |
-| `rss_link` | Item link |
-| `rss_description` | Item description |
-| `rss_pubdate` | Publication date string |
-| `rss_guid` | Item GUID |
-| `rss_enclosure_url` | Enclosure URL (if present) |
-| `rss_enclosure_type` | Enclosure MIME type (if present) |
+### Generic fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `title` | string | Item title |
+| `description` | string | Item description or summary |
+| `published_date` | string | Publication date string |
+
+### RSS fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `rss_feed` | string | Feed URL (the configured `url`) |
+| `rss_guid` | string | Item GUID |
+| `rss_link` | string | Item link |
+| `rss_enclosure_url` | string | Enclosure URL (if present) |
+| `rss_enclosure_type` | string | Enclosure MIME type (if present) |
+
+### Torrent fields (when torrent namespace extensions are present)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `torrent_seeds` | int | Seeder count from torrent namespace extensions (nyaa, Jackett, ezrss, etc.) |
 
 ## Example
 
