@@ -113,7 +113,9 @@ func (p *tvdbPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 
 	// Build the standard SeriesInfo. Extended data is authoritative; search is
 	// the fallback for fields the extended endpoint may not return.
+	// Enriched is always true — TVDB found the show.
 	si := entry.SeriesInfo{}
+	si.Enriched = true
 	if s.ID != "" {
 		if ext, err := p.fetchExtended(ctx, tc, s.ID); err == nil {
 			if ext.Slug != "" {
