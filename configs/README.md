@@ -141,10 +141,10 @@ Fields follow a tiered naming convention. Three universal fields have no prefix;
 | `video_poster` | `metainfo_tvdb` | Poster image URL |
 | `video_cast` | `metainfo_tvdb` | Cast list |
 | `video_runtime` | `metainfo_tvdb`, `metainfo_tmdb` | Runtime in minutes |
-| `video_quality` | `metainfo_quality`, `movies` | Full quality string (e.g. `1080p BluRay H.265`) |
+| `video_quality` | `metainfo_quality`, `movies` | Full quality string including 3D format when present (e.g. `BD3D 1080p BluRay H.265`) |
 | `video_resolution` | `metainfo_quality` | Resolution (e.g. `1080p`, `720p`) |
 | `video_source` | `metainfo_quality` | Source (e.g. `BluRay`, `WEB-DL`, `HDTV`) |
-| `video_is_3d` | `movies` | `true` when a 3D format marker is detected |
+| `video_is_3d` | `movies` | `true` when any 3D format marker is detected (3D, SBS, HOU, BD3D, etc.) |
 | `video_imdb_id` | `metainfo_tmdb`, `metainfo_trakt` | IMDb ID (e.g. `tt1375666`) |
 
 ### Series (SeriesInfo)
