@@ -135,6 +135,22 @@ func makeServerSparseSearch() *httptest.Server {
 	}))
 }
 
+// makeServerNoResults returns a server that always returns empty search results.
+func makeServerNoResults() *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v4/login":
+			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+				"data": map[string]string{"token": "jwt"}, "status": "success",
+			})
+		case "/v4/search":
+			json.NewEncoder(w).Encode(map[string]any{"data": []any{}, "status": "success"}) //nolint:errcheck
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+}
+
 func makePlugin(t *testing.T, srv *httptest.Server) *tvdbPlugin {
 	t.Helper()
 	db, err := store.OpenSQLite(":memory:")
@@ -279,6 +295,34 @@ func TestAnnotateNonSeries(t *testing.T) {
 	}
 	if v := e.GetString("title"); v != "" {
 		t.Errorf("non-series should not set title, got %q", v)
+	}
+}
+
+func TestEnrichedSetOnSuccess(t *testing.T) {
+	srv := makeServer()
+	defer srv.Close()
+
+	p := makePlugin(t, srv)
+	e := entry.New("Breaking.Bad.S01E01.720p.HDTV", "http://x.com/a")
+	if err := p.Annotate(context.Background(), makeCtx(), e); err != nil {
+		t.Fatal(err)
+	}
+	if !e.GetBool("enriched") {
+		t.Error("enriched should be true when TVDB finds the show")
+	}
+}
+
+func TestEnrichedNotSetOnNoResults(t *testing.T) {
+	srv := makeServerNoResults()
+	defer srv.Close()
+
+	p := makePlugin(t, srv)
+	e := entry.New("Breaking.Bad.S01E01.720p.HDTV", "http://x.com/a")
+	if err := p.Annotate(context.Background(), makeCtx(), e); err != nil {
+		t.Fatal(err)
+	}
+	if e.GetBool("enriched") {
+		t.Error("enriched should not be set when TVDB returns no results")
 	}
 }
 
