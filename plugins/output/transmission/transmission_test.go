@@ -75,10 +75,10 @@ func TestAddTorrentBasic(t *testing.T) {
 	})
 	defer srv.Close()
 
-	p := pluginWithEndpoint(t, srv, map[string]any{})
+	p := pluginWithEndpoint(t, srv, map[string]any{"path": "/media/tv/{title}"})
 
 	e := entry.New("My.Show.S01E01", "http://tracker.example/file.torrent")
-	e.Set("download_path", "/media/tv/My Show")
+	e.Set("title", "My Show")
 
 	if err := p.Output(context.Background(), tc(), []*entry.Entry{e}); err != nil {
 		t.Fatal(err)

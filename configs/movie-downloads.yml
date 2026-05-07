@@ -22,9 +22,10 @@ tasks:
         - Oppenheimer
         - Dune
     condition:
-      reject: 'tmdb_vote_average < 7.0'
+      reject: 'video_rating < 7.0'
     pathfmt:
-      path: '{$ movies_path $}/{movie_title} ({movie_year})'
+      path: '{$ movies_path $}/{title} ({video_year})'
+      field: download_path
     qbittorrent:
       host: "{$ qbt_host $}"
       username: "{$ qbt_user $}"
