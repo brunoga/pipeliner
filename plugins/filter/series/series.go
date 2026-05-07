@@ -7,7 +7,7 @@
 // tracker is updated in the Learn phase so only the dedup survivor is
 // recorded as downloaded.
 //
-// The show list may be provided statically via 'shows', dynamically via 'from'
+// The show list may be provided statically via 'static', dynamically via 'from'
 // (a list of input plugins whose entry titles are used as show names), or both.
 // Dynamic lists are cached for the configured ttl (default: 1h).
 package series
@@ -38,7 +38,7 @@ func init() {
 
 func validate(cfg map[string]any) []error {
 	var errs []error
-	if err := plugin.RequireOneOf(cfg, "series", "series", "shows", "from"); err != nil {
+	if err := plugin.RequireOneOf(cfg, "series", "static", "from"); err != nil {
 		errs = append(errs, err)
 	}
 	if err := plugin.OptDuration(cfg, "ttl", "series"); err != nil {
@@ -52,7 +52,7 @@ func validate(cfg map[string]any) []error {
 			errs = append(errs, fmt.Errorf("series: invalid quality spec: %w", err))
 		}
 	}
-	errs = append(errs, plugin.OptUnknownKeys(cfg, "series", "shows", "from", "ttl", "tracking", "quality")...)
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "series", "static", "from", "ttl", "tracking", "quality")...)
 	return errs
 }
 
@@ -75,7 +75,7 @@ type seriesPlugin struct {
 }
 
 func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
-	raw := toStringSlice(cfg["shows"])
+	raw := toStringSlice(cfg["static"])
 	staticShows := make([]string, len(raw))
 	for i, s := range raw {
 		staticShows[i] = match.Normalize(s)
@@ -92,7 +92,7 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 	}
 
 	if len(staticShows) == 0 && len(froms) == 0 {
-		return nil, fmt.Errorf("series: at least one of 'shows' or 'from' is required")
+		return nil, fmt.Errorf("series: at least one of 'static' or 'from' is required")
 	}
 
 	ttl := time.Hour
@@ -164,12 +164,13 @@ func (p *seriesPlugin) Filter(ctx context.Context, tc *plugin.TaskContext, e *en
 	})
 
 	if p.tracker.IsSeen(matchedShow, epID) {
-		if ep.Proper || ep.Repack {
-			if latest, ok := p.tracker.Latest(matchedShow); ok && latest.EpisodeID == epID {
-				if ep.Quality.Better(latest.Quality) {
-					e.Accept()
-					return nil
-				}
+		if latest, ok := p.tracker.Latest(matchedShow); ok && latest.EpisodeID == epID {
+			betterQuality := ep.Quality.Better(latest.Quality)
+			properOrRepack := ep.Proper || ep.Repack
+			notDowngrade := !latest.Quality.Better(ep.Quality)
+			if betterQuality || (properOrRepack && notDowngrade) {
+				e.Accept()
+				return nil
 			}
 		}
 		e.Reject(fmt.Sprintf("series: %s %s already downloaded", matchedShow, epID))

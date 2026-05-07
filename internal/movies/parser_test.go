@@ -67,6 +67,32 @@ func TestParse3D(t *testing.T) {
 	}
 }
 
+func TestParseProperRepack(t *testing.T) {
+	cases := []struct {
+		title      string
+		wantProper bool
+		wantRepack bool
+	}{
+		{"Inception.2010.PROPER.1080p.BluRay.x264", true, false},
+		{"Inception.2010.RERIP.1080p.BluRay.x264", true, false},
+		{"Inception.2010.REPACK.1080p.BluRay.x264", false, true},
+		{"Inception.2010.1080p.BluRay.x264", false, false},
+	}
+	for _, c := range cases {
+		m, ok := Parse(c.title)
+		if !ok {
+			t.Errorf("Parse(%q): expected ok", c.title)
+			continue
+		}
+		if m.Proper != c.wantProper {
+			t.Errorf("Parse(%q).Proper = %v, want %v", c.title, m.Proper, c.wantProper)
+		}
+		if m.Repack != c.wantRepack {
+			t.Errorf("Parse(%q).Repack = %v, want %v", c.title, m.Repack, c.wantRepack)
+		}
+	}
+}
+
 func TestParseQuality(t *testing.T) {
 	m, ok := Parse("Inception.2010.1080p.BluRay.x264")
 	if !ok {
