@@ -47,11 +47,11 @@ func TestRSS2Parse(t *testing.T) {
 	if entries[0].URL != "http://example.com/ep1" {
 		t.Errorf("entry 0 URL: got %q", entries[0].URL)
 	}
-	if v := entries[0].GetString("rss_pubdate"); v == "" {
-		t.Error("rss_pubdate should be set")
+	if v := entries[0].GetString("published_date"); v == "" {
+		t.Error("published_date should be set")
 	}
 	if v := entries[0].GetString("rss_feed"); v != srv.URL {
-		t.Errorf("rss_feed: got %q, want %q", v, srv.URL)
+		t.Errorf("feed: got %q, want %q", v, srv.URL)
 	}
 }
 
@@ -67,9 +67,9 @@ func TestRSS2EnclosureURL(t *testing.T) {
 	if torrentEntry.URL != "http://example.com/file.torrent" {
 		t.Errorf("enclosure URL: got %q, want torrent URL", torrentEntry.URL)
 	}
-	// Original page link preserved in rss_link.
+	// Original page link preserved in link.
 	if v := torrentEntry.GetString("rss_link"); v != "http://example.com/torrent-page" {
-		t.Errorf("rss_link: got %q", v)
+		t.Errorf("link: got %q", v)
 	}
 }
 

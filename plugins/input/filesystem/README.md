@@ -12,13 +12,14 @@ Walks a local directory and emits one entry per file. Entry URLs use the `file:/
 
 ## Fields set on entry
 
-| Field | Description |
-|-------|-------------|
-| `location` | Absolute file path |
-| `filename` | File name without directory |
-| `extension` | File extension (without dot) |
-| `size` | File size in bytes |
-| `modified_time` | Last modified time (RFC3339) |
+| Field | Type | Description |
+|-------|------|-------------|
+| `title` | string | File name (same as `file_name`) |
+| `file_name` | string | File name including extension |
+| `file_extension` | string | File extension including the leading dot (e.g. `.torrent`) |
+| `file_location` | string | Absolute file path |
+| `file_size` | int64 | File size in bytes |
+| `file_modified_time` | time.Time | Last modified time |
 
 ## Example
 

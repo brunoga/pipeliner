@@ -74,7 +74,7 @@ func (p *rssPlugin) Run(ctx context.Context, _ *plugin.TaskContext) ([]*entry.En
 	}
 
 	for _, e := range entries {
-		e.Set("rss_feed", p.url)
+		e.SetRSSInfo(entry.RSSInfo{Feed: p.url})
 	}
 	return entries, nil
 }
@@ -218,17 +218,23 @@ func parseRSS(data []byte) ([]*entry.Entry, error) {
 		if url == "" {
 			continue
 		}
-		e := entry.New(strings.TrimSpace(item.Title), url)
-		e.Set("rss_link", item.Link)
-		e.Set("rss_description", strings.TrimSpace(item.Description))
-		e.Set("rss_pubdate", strings.TrimSpace(item.PubDate))
-		e.Set("rss_guid", item.GUID)
-		if item.Enclosure.URL != "" {
-			e.Set("rss_enclosure_url", item.Enclosure.URL)
-			e.Set("rss_enclosure_type", item.Enclosure.Type)
-		}
+		title := strings.TrimSpace(item.Title)
+		desc := strings.TrimSpace(item.Description)
+		pubdate := strings.TrimSpace(item.PubDate)
+		e := entry.New(title, url)
+		e.SetGenericInfo(entry.GenericInfo{
+			Title:         title,
+			Description:   desc,
+			PublishedDate: pubdate,
+		})
+		e.SetRSSInfo(entry.RSSInfo{
+			GUID:          item.GUID,
+			Link:          item.Link,
+			EnclosureURL:  item.Enclosure.URL,
+			EnclosureType: item.Enclosure.Type,
+		})
 		if seeds := item.seedCount(); seeds > 0 {
-			e.Set("torrent_seeds", seeds)
+			e.SetTorrentInfo(entry.TorrentInfo{Seeds: seeds})
 		}
 		entries = append(entries, e)
 	}
@@ -247,11 +253,18 @@ func parseAtom(data []byte) ([]*entry.Entry, error) {
 			continue
 		}
 		title := strings.TrimSpace(item.Title.Value)
+		desc := strings.TrimSpace(item.Summary.Value)
+		pubdate := strings.TrimSpace(item.Updated)
 		e := entry.New(title, url)
-		e.Set("rss_link", url)
-		e.Set("rss_description", strings.TrimSpace(item.Summary.Value))
-		e.Set("rss_pubdate", strings.TrimSpace(item.Updated))
-		e.Set("rss_guid", item.ID)
+		e.SetGenericInfo(entry.GenericInfo{
+			Title:         title,
+			Description:   desc,
+			PublishedDate: pubdate,
+		})
+		e.SetRSSInfo(entry.RSSInfo{
+			GUID: item.ID,
+			Link: url,
+		})
 		entries = append(entries, e)
 	}
 	return entries, nil

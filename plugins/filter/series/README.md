@@ -46,12 +46,11 @@ from:
 
 ## Fields set on each entry
 
-| Field | Description |
-|-------|-------------|
-| `series_name` | Matched canonical show name |
-| `series_season` | Season number |
-| `series_episode` | Episode number |
-| `series_episode_id` | Episode identifier string (e.g. `S02E05`) |
+| Field | Type | Description |
+|-------|------|-------------|
+| `series_season` | int | Season number |
+| `series_episode` | int | Episode number |
+| `series_episode_id` | string | Episode identifier string (e.g. `S02E05`) |
 
 ## Example — static list
 

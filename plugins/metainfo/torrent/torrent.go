@@ -70,17 +70,22 @@ func (p *torrentPlugin) Annotate(ctx context.Context, _ *plugin.TaskContext, e *
 		return fmt.Errorf("metainfo_torrent: decode: %w", err)
 	}
 
-	e.Set("torrent_name", ti.Name)
-	e.Set("torrent_info_hash", ti.InfoHash)
-	e.Set("torrent_size", ti.TotalSize)
-	e.Set("torrent_file_count", ti.FileCount)
-	e.Set("torrent_files", ti.Files)
-	e.Set("torrent_announce", ti.Announce)
-	e.Set("torrent_announce_list", ti.AnnounceList)
-	e.Set("torrent_comment", ti.Comment)
-	e.Set("torrent_created_by", ti.CreatedBy)
-	e.Set("torrent_creation_date", ti.CreationDate)
-	e.Set("torrent_private", ti.IsPrivate)
+	var creationTime time.Time
+	if ti.CreationDate != 0 {
+		creationTime = time.Unix(ti.CreationDate, 0)
+	}
+	e.SetTorrentInfo(entry.TorrentInfo{
+		GenericInfo:  entry.GenericInfo{Title: ti.Name, Description: ti.Comment},
+		FileSize:     ti.TotalSize,
+		FileCount:    ti.FileCount,
+		Files:        ti.Files,
+		InfoHash:     ti.InfoHash,
+		Announce:     ti.Announce,
+		AnnounceList: ti.AnnounceList,
+		CreatedBy:    ti.CreatedBy,
+		CreationDate: creationTime,
+		Private:      ti.IsPrivate,
+	})
 	return nil
 }
 
@@ -88,7 +93,7 @@ func (p *torrentPlugin) Annotate(ctx context.Context, _ *plugin.TaskContext, e *
 // URL. Returns (nil, nil) if this entry does not appear to be a .torrent.
 func (p *torrentPlugin) readTorrent(ctx context.Context, e *entry.Entry) ([]byte, error) {
 	// Prefer local file (set by filesystem input plugin).
-	if loc := e.GetString("location"); loc != "" && strings.HasSuffix(strings.ToLower(loc), ".torrent") {
+	if loc := e.GetString(entry.FieldFileLocation); loc != "" && strings.HasSuffix(strings.ToLower(loc), ".torrent") {
 		return os.ReadFile(loc)
 	}
 	// Fall back to URL.

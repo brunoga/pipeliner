@@ -13,40 +13,51 @@ All results are cached in `pipeliner.db` to avoid redundant API calls across run
 
 ## Fields set on entry
 
-### Series-level (always)
+### Provider-specific (always)
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `tvdb_id` | string | TheTVDB series ID |
-| `tvdb_series_name` | string | Series name from TheTVDB |
-| `tvdb_series_year` | string | Premiere year |
-| `tvdb_overview` | string | Series overview |
 | `tvdb_slug` | string | URL slug (use to build `https://thetvdb.com/series/{slug}`) |
-| `tvdb_network` | string | Originating network (e.g. `AMC`) |
-| `tvdb_language` | string | Original language (e.g. `English`) |
-| `tvdb_country` | string | Country of origin (e.g. `usa`) |
-| `tvdb_genres` | []string | Genre names (e.g. `["Drama", "Crime"]`) |
-| `tvdb_poster` | string | Poster image URL |
-| `tvdb_first_air_date` | time.Time | Date of first broadcast |
-| `tvdb_last_air_date` | time.Time | Date of most recent episode |
-| `tvdb_next_air_date` | time.Time | Next scheduled air date (if known) |
-| `tvdb_status` | string | Series status (e.g. `Ended`, `Continuing`) |
-| `tvdb_content_rating` | string | Content rating (e.g. `TV-MA`, `TV-14`) |
-| `tvdb_trailers` | []string | Trailer URLs |
-| `tvdb_score` | float64 | Popularity score |
-| `tvdb_aliases` | []string | Alternative titles |
-| `tvdb_cast` | []string | Actor names in display order |
+
+### Series-level standard fields (always)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `title` | string | Series name from TheTVDB |
+| `description` | string | Series overview |
+| `published_date` | string | Date of first broadcast (`YYYY-MM-DD`) |
+| `enriched` | bool | `true` — TVDB successfully enriched this entry |
+| `video_year` | int | Premiere year |
+| `video_language` | string | Original language (e.g. `English`) |
+| `video_original_title` | string | Original-language title when different from `title` |
+| `video_country` | string | Country of origin (e.g. `usa`) |
+| `video_genres` | []string | Genre names (e.g. `["Drama", "Crime"]`) |
+| `video_rating` | float64 | Popularity score |
+| `video_poster` | string | Poster image URL |
+| `video_cast` | []string | Actor names in display order |
+| `video_content_rating` | string | Content rating (e.g. `TV-MA`, `TV-14`) |
+| `video_trailers` | []string | Trailer URLs |
+| `video_aliases` | []string | Alternative titles |
+| `series_network` | string | Originating network (e.g. `AMC`) |
+| `series_status` | string | Series status (e.g. `Ended`, `Continuing`) |
+| `series_first_air_date` | string | Date of first broadcast (`YYYY-MM-DD`) |
+| `series_last_air_date` | string | Date of most recent episode (`YYYY-MM-DD`) |
+| `series_next_air_date` | string | Next scheduled air date (`YYYY-MM-DD`), if known |
 
 ### Episode-level (when season and episode are parsed)
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `tvdb_episode_id` | int | TheTVDB episode ID |
-| `tvdb_episode_name` | string | Episode title |
-| `tvdb_air_date` | string | Episode air date (`YYYY-MM-DD`) |
-| `tvdb_episode_overview` | string | Episode overview |
-| `tvdb_episode_runtime` | int | Episode runtime in minutes |
-| `tvdb_episode_image` | string | Episode still/thumbnail URL |
+| `tvdb_episode_id` | int | TheTVDB internal numeric episode ID |
+| `series_season` | int | Season number |
+| `series_episode` | int | Episode number |
+| `series_episode_id` | string | Episode identifier string (e.g. `S02E05`) |
+| `series_episode_title` | string | Episode title |
+| `series_episode_description` | string | Episode overview |
+| `series_episode_air_date` | string | Episode air date (`YYYY-MM-DD`) |
+| `series_episode_image` | string | Episode still/thumbnail URL |
+| `video_runtime` | int | Episode runtime in minutes |
 
 ## Example
 
@@ -59,9 +70,9 @@ tasks:
       api_key: YOUR_TVDB_API_KEY
     condition:
       rules:
-        - reject: 'tvdb_language != "" and tvdb_language != "English"'
-        - reject: 'tvdb_genres contains "Documentary"'
-        - reject: 'tvdb_first_air_date != "" and tvdb_first_air_date < daysago(365)'
+        - reject: 'video_language != "" and video_language != "English"'
+        - reject: 'video_genres contains "Documentary"'
+        - reject: 'series_first_air_date != "" and series_first_air_date < daysago(365)'
     premiere:
       quality: 720p+
 ```
@@ -71,4 +82,5 @@ tasks:
 - API keys are available at [thetvdb.com/api-information](https://thetvdb.com/api-information).
 - Only annotates entries whose title parses as a series episode. Non-episode titles are skipped.
 - Language codes (e.g. `eng`) are automatically mapped to display names (e.g. `English`).
-- The `tvdb_genres` field is a string slice; use `{{join ", " (index .Fields "tvdb_genres")}}` in templates.
+- The `video_genres` field is a string slice; use `{{join ", " (index .Fields "video_genres")}}` in templates.
+- Use `enriched` (not `tvdb_id`) to check whether TVDB successfully found metadata: `require: fields: ["enriched"]`.

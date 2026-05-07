@@ -228,11 +228,8 @@ func TestEpisodeFieldsSet(t *testing.T) {
 	e := entry.New("My.Show.S02E05.720p.HDTV", "http://x.com/a")
 	p.Filter(context.Background(), makeCtx(), e) //nolint:errcheck
 
-	if v := e.GetString("series_name"); v == "" {
-		t.Error("series_name should be set")
-	}
 	if v := e.GetString("series_episode_id"); v != "S02E05" {
-		t.Errorf("series_episode_id: got %q, want S02E05", v)
+		t.Errorf("episode_id: got %q, want S02E05", v)
 	}
 }
 

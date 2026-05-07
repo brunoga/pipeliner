@@ -253,26 +253,28 @@ func parseTorznab(data []byte, indexer string) ([]*entry.Entry, error) {
 			attrs[a.Name] = a.Value
 		}
 
+		ti := entry.TorrentInfo{}
 		if item.Size > 0 {
-			e.Set("torrent_size", item.Size)
+			ti.FileSize = item.Size
 		}
 		if v := attrs["seeders"]; v != "" {
 			if n, err := strconv.ParseInt(v, 10, 64); err == nil {
-				e.Set("torrent_seeders", int(n))
+				ti.Seeds = int(n)
 			}
 		}
 		if v := attrs["leechers"]; v != "" {
 			if n, err := strconv.ParseInt(v, 10, 64); err == nil {
-				e.Set("torrent_leechers", int(n))
+				ti.Leechers = int(n)
 			}
 		}
 		if v := attrs["infohash"]; v != "" {
-			e.Set("torrent_info_hash", strings.ToLower(v))
+			ti.InfoHash = strings.ToLower(v)
 		}
 		if v := attrs["category"]; v != "" {
 			e.Set("jackett_category", v)
 		}
 		e.Set("jackett_indexer", indexer)
+		e.SetTorrentInfo(ti)
 
 		entries = append(entries, e)
 	}

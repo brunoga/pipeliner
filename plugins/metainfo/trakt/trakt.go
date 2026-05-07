@@ -10,7 +10,6 @@ package trakt
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/brunoga/pipeliner/internal/cache"
@@ -118,18 +117,23 @@ func (p *traktMetaPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, 
 	r := results[0]
 	e.Set("trakt_id", r.IDs.Trakt)
 	e.Set("trakt_slug", r.IDs.Slug)
-	e.Set("trakt_imdb_id", r.IDs.IMDB)
 	e.Set("trakt_tmdb_id", r.IDs.TMDB)
 	if p.itemType == "shows" && r.IDs.TVDB != 0 {
 		e.Set("trakt_tvdb_id", r.IDs.TVDB)
 	}
-	e.Set("trakt_title", r.Title)
-	e.Set("trakt_year", r.Year)
-	e.Set("trakt_overview", r.Overview)
-	e.Set("trakt_rating", r.Rating)
-	e.Set("trakt_votes", r.Votes)
-	if len(r.Genres) > 0 {
-		e.Set("trakt_genres", strings.Join(r.Genres, ", "))
+
+	vi := entry.VideoInfo{
+		GenericInfo:   entry.GenericInfo{Title: r.Title, Description: r.Overview, Enriched: true},
+		Year:          r.Year,
+		Rating:        r.Rating,
+		ImdbID:        r.IDs.IMDB,
+		Genres:        r.Genres,
+		Votes:         r.Votes,
+	}
+	if p.itemType == "shows" {
+		e.SetSeriesInfo(entry.SeriesInfo{VideoInfo: vi})
+	} else {
+		e.SetMovieInfo(entry.MovieInfo{VideoInfo: vi})
 	}
 
 	return nil

@@ -12,19 +12,27 @@ Annotates entries with metadata from Trakt.tv via the search API. Searches by pa
 
 ## Fields set on entry
 
-| Field | Description |
-|-------|-------------|
-| `trakt_id` | Trakt ID |
-| `trakt_slug` | Trakt URL slug |
-| `trakt_imdb_id` | IMDb ID |
-| `trakt_tmdb_id` | TMDb ID |
-| `trakt_tvdb_id` | TheTVDB ID (shows only) |
-| `trakt_title` | Title from Trakt |
-| `trakt_year` | Year |
-| `trakt_overview` | Plot summary |
-| `trakt_rating` | Community rating (0–10) |
-| `trakt_votes` | Number of votes |
-| `trakt_genres` | Comma-separated genre names |
+### Provider-specific (always)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `trakt_id` | int | Trakt ID |
+| `trakt_slug` | string | Trakt URL slug |
+| `trakt_tmdb_id` | int | TMDb ID |
+| `trakt_tvdb_id` | int | TheTVDB ID (shows only) |
+
+### Standard fields (always)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `title` | string | Title from Trakt |
+| `description` | string | Plot summary |
+| `enriched` | bool | `true` — Trakt successfully enriched this entry |
+| `video_year` | int | Year |
+| `video_rating` | float64 | Community rating (0–10) |
+| `video_votes` | int | Number of votes |
+| `video_imdb_id` | string | IMDb ID |
+| `video_genres` | []string | Genre names |
 
 ## Example
 
@@ -46,3 +54,4 @@ tasks:
 ## Notes
 
 - Results are cached in `pipeliner.db` in the same directory as the config file.
+- Use `enriched` (not `trakt_id`) to check whether Trakt successfully found metadata: `require: fields: ["enriched"]`.

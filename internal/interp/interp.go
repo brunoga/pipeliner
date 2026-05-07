@@ -53,18 +53,29 @@ func (ip *Interpolator) Render(data map[string]any) (string, error) {
 	return buf.String(), nil
 }
 
-// EntryData builds the template data map for a single entry. It includes both
-// the capitalized names used by the old {{.Title}} syntax and lowercase names
-// for the new {title} syntax.
+// EntryData builds the template data map for a single entry.
+//
+// Key naming:
+//   - Capitalised names (Title, URL, …) are kept for backward compatibility
+//     with the old {{.Title}} template syntax and always refer to the raw
+//     entry values set at input time.
+//   - "raw_title" is the canonical lowercase name for the raw entry title
+//     (the torrent filename or feed item title before any metainfo enrichment).
+//   - "title" and other standard field names are populated from e.Fields,
+//     which metainfo plugins fill via SetGenericInfo / SetVideoInfo / etc.
+//     If no metainfo plugin has run, these keys are absent.
+//
+// e.Fields is merged last so standard fields always win over the built-in
+// aliases above.
 func EntryData(e *entry.Entry) map[string]any {
 	m := map[string]any{
-		// Capitalized — backward compat.
+		// Capitalized — backward compat with {{.Title}} syntax.
 		"Title":       e.Title,
 		"URL":         e.URL,
 		"OriginalURL": e.OriginalURL,
 		"Task":        e.Task,
-		// Lowercase — new syntax.
-		"title":        e.Title,
+		// Lowercase built-ins.
+		"raw_title":    e.Title,
 		"url":          e.URL,
 		"original_url": e.OriginalURL,
 		"task":         e.Task,

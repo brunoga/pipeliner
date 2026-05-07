@@ -157,10 +157,11 @@ func (p *seriesPlugin) Filter(ctx context.Context, tc *plugin.TaskContext, e *en
 	}
 
 	epID := series.EpisodeID(ep)
-	e.Set("series_name", matchedShow)
-	e.Set("series_episode_id", epID)
-	e.Set("series_season", ep.Season)
-	e.Set("series_episode", ep.Episode)
+	e.SetSeriesInfo(entry.SeriesInfo{
+		Season:    ep.Season,
+		Episode:   ep.Episode,
+		EpisodeID: epID,
+	})
 
 	if p.tracker.IsSeen(matchedShow, epID) {
 		if ep.Proper || ep.Repack {
@@ -235,9 +236,10 @@ func (p *seriesPlugin) Learn(ctx context.Context, tc *plugin.TaskContext, entrie
 		}
 		epID := series.EpisodeID(ep)
 		if err := p.tracker.Mark(series.Record{
-			SeriesName: matchedShow,
-			EpisodeID:  epID,
-			Quality:    ep.Quality,
+			SeriesName:  matchedShow,
+			DisplayName: e.GetString(entry.FieldTitle),
+			EpisodeID:   epID,
+			Quality:     ep.Quality,
 		}); err != nil {
 			return fmt.Errorf("series: mark %s %s: %w", matchedShow, epID, err)
 		}

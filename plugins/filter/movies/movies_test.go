@@ -253,10 +253,10 @@ func TestFilterSetsQualityAndNot3D(t *testing.T) {
 	if !e.IsAccepted() {
 		t.Fatalf("expected accepted: %s", e.RejectReason)
 	}
-	if e.GetString("movie_quality") == "" {
+	if e.GetString("video_quality") == "" {
 		t.Error("movie_quality should be set")
 	}
-	if e.GetBool("movie_3d") {
+	if e.GetBool("video_is_3d") {
 		t.Error("movie_3d should be false for non-3D title")
 	}
 }
@@ -270,7 +270,7 @@ func TestFilterSets3D(t *testing.T) {
 	if !e.IsAccepted() {
 		t.Fatalf("expected accepted: %s", e.RejectReason)
 	}
-	if !e.GetBool("movie_3d") {
+	if !e.GetBool("video_is_3d") {
 		t.Error("movie_3d should be true for 3D title")
 	}
 }

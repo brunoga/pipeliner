@@ -151,27 +151,31 @@ func annotateFromURI(e *entry.Entry) error {
 		return nil // silently skip malformed magnet URIs
 	}
 
-	e.Set("torrent_info_hash", m.InfoHash)
-	e.Set("torrent_announce_list", m.Trackers)
+	ti := entry.TorrentInfo{
+		InfoHash:     m.InfoHash,
+		AnnounceList: m.Trackers,
+	}
 	if len(m.Trackers) > 0 {
-		e.Set("torrent_announce", m.Trackers[0])
+		ti.Announce = m.Trackers[0]
 	}
 	if m.DisplayName != "" {
-		e.Set("torrent_display_name", m.DisplayName)
+		ti.GenericInfo.Title = m.DisplayName
 	}
+	e.SetTorrentInfo(ti)
 	return nil
 }
 
 // applyInfo copies metadata from the resolved torrent info into the entry.
 func applyInfo(t *torrent.Torrent, e *entry.Entry) {
-	e.Set("torrent_name", t.Name())
-	e.Set("torrent_size", t.Length())
-
 	files := t.Files()
-	e.Set("torrent_file_count", len(files))
 	paths := make([]string, len(files))
 	for i, f := range files {
 		paths[i] = f.Path()
 	}
-	e.Set("torrent_files", paths)
+	e.SetTorrentInfo(entry.TorrentInfo{
+		GenericInfo: entry.GenericInfo{Title: t.Name()},
+		FileSize:    t.Length(),
+		FileCount:   len(files),
+		Files:       paths,
+	})
 }

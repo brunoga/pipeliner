@@ -170,7 +170,7 @@ func (p *decompressPlugin) removeArchive(archivePath string) {
 
 // archiveLocation returns the local filesystem path of the archive to extract.
 func archiveLocation(e *entry.Entry) string {
-	if loc := e.GetString("location"); loc != "" {
+	if loc := e.GetString(entry.FieldFileLocation); loc != "" {
 		return loc
 	}
 	u := e.URL

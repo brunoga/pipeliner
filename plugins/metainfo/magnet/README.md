@@ -21,14 +21,14 @@ Entries with a non-magnet URL are silently skipped.
 | `torrent_info_hash` | string | Hex SHA-1 info hash (40 chars) |
 | `torrent_announce` | string | First tracker announce URL |
 | `torrent_announce_list` | []string | All tracker announce URLs |
-| `torrent_display_name` | string | Human-readable name from the `dn=` parameter |
+| `title` | string | Human-readable name from the `dn=` parameter |
 
 ### After DHT resolution (when peers respond within the timeout)
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `torrent_name` | string | Name from the info dict |
-| `torrent_size` | int64 | Total size in bytes |
+| `title` | string | Name from the info dict (overrides `dn=` value if resolved) |
+| `torrent_file_size` | int64 | Total size in bytes |
 | `torrent_file_count` | int | Number of files |
 | `torrent_files` | []string | File paths relative to the torrent root |
 
