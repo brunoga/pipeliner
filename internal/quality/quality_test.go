@@ -13,43 +13,59 @@ func TestParseKnownTitles(t *testing.T) {
 	}{
 		{
 			"Movie.2023.1080p.BluRay.x264-GROUP",
-			Quality{Resolutionp1080, SourceBluRay, CodecH264, AudioUnknown, ColorRangeUnknown},
+			Quality{Resolution: Resolutionp1080, Source: SourceBluRay, Codec: CodecH264},
 		},
 		{
 			"Show.S01E01.720p.HDTV.AAC",
-			Quality{Resolutionp720, SourceHDTV, CodecUnknown, AudioAAC, ColorRangeUnknown},
+			Quality{Resolution: Resolutionp720, Source: SourceHDTV, Audio: AudioAAC},
 		},
 		{
 			"Film.2160p.UHD.BluRay.HDR.DTS-HD",
-			Quality{Resolutionp2160, SourceBluRay, CodecUnknown, AudioDTS, ColorRangeHDR},
+			Quality{Resolution: Resolutionp2160, Source: SourceBluRay, Audio: AudioDTS, ColorRange: ColorRangeHDR},
 		},
 		{
 			"Show.S02E05.720p.WEB-DL.DD5.1.H.264",
-			Quality{Resolutionp720, SourceWebDL, CodecH264, AudioDolbyDigital, ColorRangeUnknown},
+			Quality{Resolution: Resolutionp720, Source: SourceWebDL, Codec: CodecH264, Audio: AudioDolbyDigital},
 		},
 		{
 			"Movie.2022.4K.REMUX.HEVC.TrueHD.Atmos",
-			Quality{Resolutionp2160, SourceRemux, CodecH265, AudioAtmos, ColorRangeUnknown},
+			Quality{Resolution: Resolutionp2160, Source: SourceRemux, Codec: CodecH265, Audio: AudioAtmos},
 		},
 		{
 			"Show.S01E01.576p.HDTV.XviD",
-			Quality{Resolutionp576, SourceHDTV, CodecXviD, AudioUnknown, ColorRangeUnknown},
+			Quality{Resolution: Resolutionp576, Source: SourceHDTV, Codec: CodecXviD},
 		},
 		{
 			"Movie.DVDRip.DivX.MP3",
-			Quality{ResolutionUnknown, SourceDVDRip, CodecDivX, AudioMP3, ColorRangeUnknown},
+			Quality{Source: SourceDVDRip, Codec: CodecDivX, Audio: AudioMP3},
 		},
 		{
 			"Show.S03E01.1080p.WEBRip.x265.HDR10",
-			Quality{Resolutionp1080, SourceWEBRip, CodecH265, AudioUnknown, ColorRangeHDR10},
+			Quality{Resolution: Resolutionp1080, Source: SourceWEBRip, Codec: CodecH265, ColorRange: ColorRangeHDR10},
 		},
 		{
 			"Movie.2023.2160p.BluRay.DV.TrueHD",
-			Quality{Resolutionp2160, SourceBluRay, CodecUnknown, AudioTrueHD, ColorRangeDolbyVision},
+			Quality{Resolution: Resolutionp2160, Source: SourceBluRay, Audio: AudioTrueHD, ColorRange: ColorRangeDolbyVision},
 		},
 		{
 			"No.Quality.Markers.At.All",
 			Quality{},
+		},
+		{
+			"Avatar.2009.3D.1080p.BluRay.x264",
+			Quality{Resolution: Resolutionp1080, Source: SourceBluRay, Codec: CodecH264, Format3D: Format3DHalf},
+		},
+		{
+			"Avatar.2009.HSBS.1080p.BluRay",
+			Quality{Resolution: Resolutionp1080, Source: SourceBluRay, Format3D: Format3DHalf},
+		},
+		{
+			"Avatar.2009.SBS.1080p.BluRay",
+			Quality{Resolution: Resolutionp1080, Source: SourceBluRay, Format3D: Format3DFull},
+		},
+		{
+			"Avatar.2009.BD3D.1080p.BluRay",
+			Quality{Resolution: Resolutionp1080, Source: SourceBluRay, Format3D: Format3DBD},
 		},
 	}
 
@@ -131,7 +147,7 @@ func TestParseAudioVariants(t *testing.T) {
 // --- String ---
 
 func TestQualityString(t *testing.T) {
-	q := Quality{Resolutionp1080, SourceBluRay, CodecH264, AudioDTS, ColorRangeHDR}
+	q := Quality{Resolution: Resolutionp1080, Source: SourceBluRay, Codec: CodecH264, Audio: AudioDTS, ColorRange: ColorRangeHDR}
 	s := q.String()
 	if s == "" || s == "unknown" {
 		t.Errorf("unexpected String(): %q", s)
@@ -174,9 +190,43 @@ func TestBetterCodecBreaksTie(t *testing.T) {
 }
 
 func TestBetterEqualReturnsFalse(t *testing.T) {
-	q := Quality{Resolutionp720, SourceHDTV, CodecH264, AudioAAC, ColorRangeSDR}
+	q := Quality{Resolution: Resolutionp720, Source: SourceHDTV, Codec: CodecH264, Audio: AudioAAC, ColorRange: ColorRangeSDR}
 	if q.Better(q) {
 		t.Error("quality should not be better than itself")
+	}
+}
+
+func TestBetter3DFormatTakesPrecedence(t *testing.T) {
+	bd := Quality{Resolution: Resolutionp1080, Source: SourceBluRay, Format3D: Format3DBD}
+	half := Quality{Resolution: Resolutionp1080, Source: SourceBluRay, Format3D: Format3DHalf}
+	full := Quality{Resolution: Resolutionp1080, Source: SourceBluRay, Format3D: Format3DFull}
+	if !bd.Better(full) {
+		t.Error("BD3D should beat 3D-Full at same resolution/source")
+	}
+	if !full.Better(half) {
+		t.Error("3D-Full should beat 3D-Half at same resolution/source")
+	}
+	// 3D format beats resolution: BD3D 720p > Half-SBS 1080p
+	bdLowRes := Quality{Resolution: Resolutionp720, Source: SourceBluRay, Format3D: Format3DBD}
+	halfHighRes := Quality{Resolution: Resolutionp1080, Source: SourceBluRay, Format3D: Format3DHalf}
+	if !bdLowRes.Better(halfHighRes) {
+		t.Error("BD3D 720p should beat Half-SBS 1080p (3D format is primary)")
+	}
+}
+
+func TestBetter3DResolutionAsTieBreaker(t *testing.T) {
+	hi := Quality{Resolution: Resolutionp1080, Source: SourceBluRay, Format3D: Format3DFull}
+	lo := Quality{Resolution: Resolutionp720, Source: SourceBluRay, Format3D: Format3DFull}
+	if !hi.Better(lo) {
+		t.Error("same 3D format: 1080p should beat 720p")
+	}
+}
+
+func TestBetterNon3DUnaffected(t *testing.T) {
+	hi := Quality{Resolution: Resolutionp2160, Source: SourceBluRay}
+	lo := Quality{Resolution: Resolutionp1080, Source: SourceBluRay}
+	if !hi.Better(lo) {
+		t.Error("non-3D: 2160p should beat 1080p as before")
 	}
 }
 

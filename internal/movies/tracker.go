@@ -13,6 +13,7 @@ import (
 type Record struct {
 	Title        string          `json:"title"`
 	Year         int             `json:"year"`
+	Is3D         bool            `json:"is_3d,omitempty"`
 	DownloadedAt time.Time       `json:"downloaded_at"`
 	Quality      quality.Quality `json:"quality"`
 }
@@ -36,9 +37,10 @@ func NewTracker(b bucket) *Tracker {
 }
 
 // IsSeen returns true if the given movie has already been downloaded.
-func (t *Tracker) IsSeen(title string, year int) bool {
+// 3D and non-3D versions are tracked independently.
+func (t *Tracker) IsSeen(title string, year int, is3D bool) bool {
 	var rec Record
-	found, _ := t.bucket.Get(recordKey(title, year), &rec)
+	found, _ := t.bucket.Get(recordKey(title, year, is3D), &rec)
 	return found
 }
 
@@ -47,16 +49,18 @@ func (t *Tracker) Mark(r Record) error {
 	if r.DownloadedAt.IsZero() {
 		r.DownloadedAt = time.Now()
 	}
-	return t.bucket.Put(recordKey(r.Title, r.Year), r)
+	return t.bucket.Put(recordKey(r.Title, r.Year, r.Is3D), r)
 }
 
 // Forget removes the record for a given movie.
-func (t *Tracker) Forget(title string, year int) error {
-	return t.bucket.Delete(recordKey(title, year))
+// 3D and non-3D versions are tracked independently.
+func (t *Tracker) Forget(title string, year int, is3D bool) error {
+	return t.bucket.Delete(recordKey(title, year, is3D))
 }
 
-// Latest returns the most recently downloaded record for a movie by title (any year).
-func (t *Tracker) Latest(title string) (*Record, bool) {
+// Latest returns the most recently downloaded record for a movie by title,
+// matching the given 3D status. 3D and non-3D versions are tracked independently.
+func (t *Tracker) Latest(title string, is3D bool) (*Record, bool) {
 	keys, err := t.bucket.Keys()
 	if err != nil {
 		return nil, false
@@ -71,6 +75,9 @@ func (t *Tracker) Latest(title string) (*Record, bool) {
 		if strings.ToLower(rec.Title) != norm {
 			continue
 		}
+		if rec.Is3D != is3D {
+			continue
+		}
 		if latest == nil || rec.DownloadedAt.After(latest.DownloadedAt) {
 			r := rec
 			latest = &r
@@ -79,6 +86,9 @@ func (t *Tracker) Latest(title string) (*Record, bool) {
 	return latest, latest != nil
 }
 
-func recordKey(title string, year int) string {
+func recordKey(title string, year int, is3D bool) string {
+	if is3D {
+		return fmt.Sprintf("%s|%d|3d", strings.ToLower(title), year)
+	}
 	return fmt.Sprintf("%s|%d", strings.ToLower(title), year)
 }

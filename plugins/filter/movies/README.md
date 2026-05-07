@@ -4,6 +4,8 @@ Accepts movies from a configured title list. Parses the movie title, year, quali
 
 **Multiple quality variants** of the same movie (from different sources or input feeds) are all accepted so the task engine's automatic deduplication can pick the best copy. The download history is updated in the Learn phase — only the winning copy is recorded.
 
+**3D and non-3D versions are tracked independently.** If both a 3D and a non-3D copy of the same movie match, both are downloaded — they do not compete with each other.
+
 The movie list can be provided statically via `static`, dynamically via `from` (a list of input plugins whose entry titles are used as movie titles), or both. Dynamic results are cached for the configured `ttl` so external APIs are not called on every pipeline run.
 
 ## Config
@@ -39,15 +41,25 @@ from:
 | `video_quality` | string | Human-readable quality string, e.g. `1080p BluRay H.265` (absent if unparseable) |
 | `video_resolution` | string | Resolution tag, e.g. `1080p` (absent if unparseable) |
 | `video_source` | string | Source tag, e.g. `BluRay` (absent if unparseable) |
-| `video_is_3d` | bool | `true` when a 3D format marker is detected in the title (`3D`, `SBS`, `HOU`, `BD3D`, etc.) |
+| `video_is_3d` | bool | `true` when any 3D format marker is detected |
 
-## 3D detection
+## 3D quality
 
-The following markers in the release title set `video_is_3d=true`:
+3D format is a ranked quality dimension. When two 3D copies of the same movie are compared, the 3D format rank takes precedence over resolution, source, and all other dimensions; those become tie-breakers.
 
-`3D`, `SBS`, `HSBS`, `H-SBS`, `HALF-SBS`, `FSBS`, `F-SBS`, `FULL-SBS`, `OU`, `HOU`, `H-OU`, `HALF-OU`, `FOU`, `F-OU`, `FULL-OU`, `BD3D`
+| Rank | Format | Detected markers |
+|------|--------|-----------------|
+| Lowest | Half | `3D`, `HSBS`, `H-SBS`, `HALF-SBS`, `HOU`, `H-OU`, `HALF-OU` |
+| Middle | Full | `SBS`, `FSBS`, `F-SBS`, `FULL-SBS`, `OU`, `FOU`, `F-OU`, `FULL-OU` |
+| Highest | BD | `BD3D` |
 
-Filtering out 3D releases via `condition`:
+Plain `3D` without a subtype is treated as Half (most common encoding for generic 3D releases).
+
+The 3D format is included in the `video_quality` string (e.g. `BD3D 1080p BluRay H.265`).
+
+3D and non-3D versions of the same movie are tracked independently — both are downloaded if both match.
+
+Filtering out 3D releases entirely:
 
 ```yaml
 condition:
@@ -94,9 +106,18 @@ tasks:
           type: movies
           list: watchlist
     condition:
-      reject: 'video_is_3d == true'
+      reject: 'video_is_3d == true'    # exclude all 3D releases
     deluge:
       host: localhost
+```
+
+To accept only BD3D quality or better among 3D releases (and still download non-3D copies independently), use the `video_quality` field which includes the 3D format string:
+
+```yaml
+condition:
+  rules:
+    # reject 3D releases that are not BD3D
+    - reject: 'video_is_3d == true and not contains(video_quality, "BD3D")'
 ```
 
 ## Notes
