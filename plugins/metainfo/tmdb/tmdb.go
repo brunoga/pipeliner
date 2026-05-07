@@ -114,7 +114,13 @@ func (p *tmdbPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 		}
 	}
 
-	// Fetch extended detail for genres, runtime, tagline, imdb_id.
+	if r.PosterPath != "" {
+		mi.Poster = itmdb.ImageBaseURL + r.PosterPath
+	}
+	mi.Votes = r.VoteCount
+
+	// Fetch extended detail for genres, runtime, tagline, imdb_id, cast,
+	// trailers, content rating, language, and country.
 	detail, err := p.client.GetMovie(ctx, r.ID)
 	if err != nil {
 		tc.Logger.Warn("metainfo_tmdb: detail fetch failed", "id", r.ID, "err", err)
@@ -130,7 +136,71 @@ func (p *tmdbPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 	mi.Tagline = detail.Tagline
 	mi.ImdbID = detail.ImdbID
 	mi.Genres = genres
+	mi.Language = iso639_1Name(detail.OriginalLanguage)
+	if len(detail.ProductionCountries) > 0 {
+		mi.Country = detail.ProductionCountries[0].Name
+	}
+
+	// Cast: top 10 actors in billing order.
+	for i, c := range detail.Credits.Cast {
+		if i >= 10 {
+			break
+		}
+		if c.Name != "" {
+			mi.Cast = append(mi.Cast, c.Name)
+		}
+	}
+
+	// Trailers: YouTube only.
+	for _, v := range detail.Videos.Results {
+		if v.Site == "YouTube" && v.Type == "Trailer" && v.Key != "" {
+			mi.Trailers = append(mi.Trailers, "https://www.youtube.com/watch?v="+v.Key)
+		}
+	}
+
+	// Alternative titles.
+	for _, t := range detail.AlternativeTitles.Titles {
+		if t.Title != "" {
+			mi.Aliases = append(mi.Aliases, t.Title)
+		}
+	}
+
+	// Content rating: first certification found for the US.
+	for _, cr := range detail.ReleaseDates.Results {
+		if cr.ISO == "US" {
+			for _, rd := range cr.Dates {
+				if rd.Certification != "" {
+					mi.ContentRating = rd.Certification
+					break
+				}
+			}
+			break
+		}
+	}
 
 	e.SetMovieInfo(mi)
 	return nil
+}
+
+// iso639_1Name maps ISO 639-1 two-letter language codes to English display names.
+func iso639_1Name(code string) string {
+	names := map[string]string{
+		"af": "Afrikaans", "ar": "Arabic", "bg": "Bulgarian", "bn": "Bengali",
+		"cs": "Czech", "da": "Danish", "de": "German", "el": "Greek",
+		"en": "English", "es": "Spanish", "et": "Estonian", "fa": "Persian",
+		"fi": "Finnish", "fr": "French", "gu": "Gujarati", "he": "Hebrew",
+		"hi": "Hindi", "hr": "Croatian", "hu": "Hungarian", "id": "Indonesian",
+		"it": "Italian", "ja": "Japanese", "ko": "Korean", "lt": "Lithuanian",
+		"lv": "Latvian", "mk": "Macedonian", "ml": "Malayalam", "mr": "Marathi",
+		"ms": "Malay", "nl": "Dutch", "no": "Norwegian", "pa": "Punjabi",
+		"pl": "Polish", "pt": "Portuguese", "ro": "Romanian", "ru": "Russian",
+		"sk": "Slovak", "sl": "Slovenian", "sq": "Albanian", "sr": "Serbian",
+		"sv": "Swedish", "sw": "Swahili", "ta": "Tamil", "te": "Telugu",
+		"th": "Thai", "tl": "Filipino", "tr": "Turkish", "uk": "Ukrainian",
+		"ur": "Urdu", "vi": "Vietnamese", "zh": "Chinese",
+	}
+	if n, ok := names[code]; ok {
+		return n
+	}
+	return code
 }
