@@ -42,7 +42,7 @@ func openPlugin(t *testing.T, extra map[string]any) *seriesPlugin {
 	}
 	t.Cleanup(func() { db.Close() })
 	cfg := map[string]any{
-		"shows": []any{"My Show"},
+		"static": []any{"My Show"},
 	}
 	maps.Copy(cfg, extra)
 	p, err := newPlugin(cfg, db)
@@ -97,7 +97,24 @@ func TestDuplicateRejected(t *testing.T) {
 	}
 }
 
-// --- Proper/repack upgrade ---
+// --- Quality upgrade ---
+
+func TestQualityUpgradesExisting(t *testing.T) {
+	p := openPlugin(t, nil)
+	tc := makeCtx()
+
+	// Download a 720p copy.
+	e1 := entry.New("My.Show.S01E01.720p.HDTV", "http://x.com/a")
+	p.Filter(context.Background(), tc, e1) //nolint:errcheck
+	p.Learn(context.Background(), tc, []*entry.Entry{e1}) //nolint:errcheck
+
+	// A plain 1080p copy (no PROPER/REPACK) should be accepted as an upgrade.
+	e2 := entry.New("My.Show.S01E01.1080p.BluRay", "http://x.com/b")
+	p.Filter(context.Background(), tc, e2) //nolint:errcheck
+	if !e2.IsAccepted() {
+		t.Errorf("higher-quality copy should be accepted: %s", e2.RejectReason)
+	}
+}
 
 func TestProperUpgradesExisting(t *testing.T) {
 	p := openPlugin(t, nil)
@@ -108,7 +125,7 @@ func TestProperUpgradesExisting(t *testing.T) {
 	p.Filter(context.Background(), tc, e1) //nolint:errcheck
 	p.Learn(context.Background(), tc, []*entry.Entry{e1}) //nolint:errcheck
 
-	// A PROPER 1080p copy should be accepted as an upgrade.
+	// A PROPER 1080p copy should also be accepted as an upgrade.
 	e2 := entry.New("My.Show.S01E01.PROPER.1080p.BluRay", "http://x.com/b")
 	p.Filter(context.Background(), tc, e2) //nolint:errcheck
 	if !e2.IsAccepted() {
@@ -116,7 +133,23 @@ func TestProperUpgradesExisting(t *testing.T) {
 	}
 }
 
-func TestProperSameQualityNotUpgraded(t *testing.T) {
+func TestProperSameQualityUpgradesExisting(t *testing.T) {
+	p := openPlugin(t, nil)
+	tc := makeCtx()
+
+	e1 := entry.New("My.Show.S01E01.720p.HDTV", "http://x.com/a")
+	p.Filter(context.Background(), tc, e1) //nolint:errcheck
+	p.Learn(context.Background(), tc, []*entry.Entry{e1}) //nolint:errcheck
+
+	// PROPER at identical quality specs should still be accepted (fixes content issues).
+	e2 := entry.New("My.Show.S01E01.PROPER.720p.HDTV", "http://x.com/b")
+	p.Filter(context.Background(), tc, e2) //nolint:errcheck
+	if !e2.IsAccepted() {
+		t.Errorf("proper at same quality should be accepted: %s", e2.RejectReason)
+	}
+}
+
+func TestNoUpgradeWhenQualityNotBetter(t *testing.T) {
 	p := openPlugin(t, nil)
 	tc := makeCtx()
 
@@ -124,11 +157,11 @@ func TestProperSameQualityNotUpgraded(t *testing.T) {
 	p.Filter(context.Background(), tc, e1) //nolint:errcheck
 	p.Learn(context.Background(), tc, []*entry.Entry{e1}) //nolint:errcheck
 
-	// Same quality proper — should still be rejected (not a real upgrade).
+	// Lower source quality (HDTV < BluRay) — should be rejected even with PROPER tag.
 	e2 := entry.New("My.Show.S01E01.PROPER.720p.HDTV", "http://x.com/b")
 	p.Filter(context.Background(), tc, e2) //nolint:errcheck
 	if !e2.IsRejected() {
-		t.Error("proper with lower/equal quality should not replace existing")
+		t.Error("copy with lower quality should not replace existing")
 	}
 }
 
