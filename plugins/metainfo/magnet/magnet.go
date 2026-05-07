@@ -159,6 +159,17 @@ func annotateFromURI(e *entry.Entry) error {
 	if m.DisplayName != "" {
 		e.Set("torrent_display_name", m.DisplayName)
 	}
+	ti := entry.TorrentInfo{
+		InfoHash:     m.InfoHash,
+		AnnounceList: m.Trackers,
+	}
+	if len(m.Trackers) > 0 {
+		ti.Announce = m.Trackers[0]
+	}
+	if m.DisplayName != "" {
+		ti.GenericInfo.Title = m.DisplayName
+	}
+	e.SetTorrentInfo(ti)
 	return nil
 }
 
@@ -174,4 +185,11 @@ func applyInfo(t *torrent.Torrent, e *entry.Entry) {
 		paths[i] = f.Path()
 	}
 	e.Set("torrent_files", paths)
+
+	e.SetTorrentInfo(entry.TorrentInfo{
+		GenericInfo: entry.GenericInfo{Title: t.Name()},
+		FileSize:    t.Length(),
+		FileCount:   len(files),
+		Files:       paths,
+	})
 }

@@ -53,10 +53,17 @@ func (p *seriesMetaPlugin) Annotate(_ context.Context, _ *plugin.TaskContext, e 
 	if ep.DoubleEpisode > 0 {
 		e.Set("series_double_episode", ep.DoubleEpisode)
 	}
-	e.SetSeriesInfo(entry.SeriesInfo{
+	si := entry.SeriesInfo{
 		Season:    ep.Season,
 		Episode:   ep.Episode,
 		EpisodeID: epID,
-	})
+		Proper:    ep.Proper,
+		Repack:    ep.Repack,
+		Service:   ep.Service,
+	}
+	if ep.DoubleEpisode > 0 {
+		si.DoubleEpisode = ep.DoubleEpisode
+	}
+	e.SetSeriesInfo(si)
 	return nil
 }

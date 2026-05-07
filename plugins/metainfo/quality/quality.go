@@ -20,18 +20,6 @@ func init() {
 	})
 }
 
-var resolutionNames = map[q.Resolution]string{
-	q.ResolutionUnknown: "", q.ResolutionSD: "SD",
-	q.Resolutionp480: "480p", q.Resolutionp576: "576p",
-	q.Resolutionp720: "720p", q.Resolutionp1080: "1080p", q.Resolutionp2160: "2160p",
-}
-
-var sourceNames = map[q.Source]string{
-	q.SourceUnknown: "", q.SourceDVDRip: "DVDRip", q.SourceTVRip: "TVRip",
-	q.SourceHDTV: "HDTV", q.SourceWEBRip: "WEBRip", q.SourceWebDL: "WEB-DL",
-	q.SourceBluRay: "BluRay", q.SourceRemux: "Remux",
-}
-
 var codecNames = map[q.Codec]string{
 	q.CodecUnknown: "", q.CodecXviD: "XviD", q.CodecDivX: "DivX",
 	q.CodecH264: "H264", q.CodecH265: "H265", q.CodecAV1: "AV1",
@@ -59,13 +47,17 @@ func (p *qualityMetaPlugin) Phase() plugin.Phase { return plugin.PhaseMetainfo }
 
 func (p *qualityMetaPlugin) Annotate(_ context.Context, _ *plugin.TaskContext, e *entry.Entry) error {
 	qual := q.Parse(e.Title)
-	e.Set("quality", qual.String())
-	setIfKnown(e, "resolution", resolutionNames[qual.Resolution])
-	setIfKnown(e, "source", sourceNames[qual.Source])
+	// Standard fields via SetVideoInfo.
+	e.SetVideoInfo(entry.VideoInfo{
+		Quality:    qual.String(),
+		Resolution: qual.ResolutionName(),
+		Source:     qual.SourceName(),
+	})
+	// Extended quality fields not in VideoInfo.
 	setIfKnown(e, "codec", codecNames[qual.Codec])
 	setIfKnown(e, "audio", audioNames[qual.Audio])
 	setIfKnown(e, "color_range", colorRangeNames[qual.ColorRange])
-	// Store raw int values for comparisons in templates.
+	// Raw int values for numeric comparisons.
 	e.Set("quality_resolution", fmt.Sprintf("%d", int(qual.Resolution)))
 	e.Set("quality_source", fmt.Sprintf("%d", int(qual.Source)))
 	return nil

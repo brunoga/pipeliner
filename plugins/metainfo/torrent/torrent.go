@@ -81,6 +81,23 @@ func (p *torrentPlugin) Annotate(ctx context.Context, _ *plugin.TaskContext, e *
 	e.Set("torrent_created_by", ti.CreatedBy)
 	e.Set("torrent_creation_date", ti.CreationDate)
 	e.Set("torrent_private", ti.IsPrivate)
+
+	var creationTime time.Time
+	if ti.CreationDate != 0 {
+		creationTime = time.Unix(ti.CreationDate, 0)
+	}
+	e.SetTorrentInfo(entry.TorrentInfo{
+		GenericInfo:  entry.GenericInfo{Title: ti.Name, Description: ti.Comment},
+		FileSize:     ti.TotalSize,
+		FileCount:    ti.FileCount,
+		Files:        ti.Files,
+		InfoHash:     ti.InfoHash,
+		Announce:     ti.Announce,
+		AnnounceList: ti.AnnounceList,
+		CreatedBy:    ti.CreatedBy,
+		CreationDate: creationTime,
+		Private:      ti.IsPrivate,
+	})
 	return nil
 }
 

@@ -135,9 +135,20 @@ func (p *moviesPlugin) Filter(ctx context.Context, tc *plugin.TaskContext, e *en
 	e.Set("movie_title", matchedTitle)
 	e.Set("movie_year", m.Year)
 	e.Set("movie_3d", m.Is3D)
-	if q := m.Quality.String(); q != "unknown" {
-		e.Set("movie_quality", q)
+	qualStr := m.Quality.String()
+	if qualStr != "unknown" {
+		e.Set("movie_quality", qualStr)
 	}
+	mi := entry.MovieInfo{}
+	mi.Title = matchedTitle
+	mi.Year = m.Year
+	mi.Is3D = m.Is3D
+	if qualStr != "unknown" {
+		mi.Quality = qualStr
+		mi.Resolution = m.Quality.ResolutionName()
+		mi.Source = m.Quality.SourceName()
+	}
+	e.SetMovieInfo(mi)
 
 	if p.tracker.IsSeen(matchedTitle, m.Year) {
 		if rec, ok := p.tracker.Latest(matchedTitle); ok && rec.Year == m.Year {

@@ -133,6 +133,12 @@ type Quality struct {
 	ColorRange ColorRange
 }
 
+// ResolutionName returns the human-readable resolution name (e.g. "1080p"), or "" if unknown.
+func (q Quality) ResolutionName() string { return resolutionNames[q.Resolution] }
+
+// SourceName returns the human-readable source name (e.g. "BluRay"), or "" if unknown.
+func (q Quality) SourceName() string { return sourceNames[q.Source] }
+
 // String returns a human-readable summary, omitting unknown dimensions.
 func (q Quality) String() string {
 	var parts []string
