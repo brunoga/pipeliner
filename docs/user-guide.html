@@ -285,7 +285,7 @@ make build        # or: go build -o pipeliner ./cmd/pipeliner</code></pre>
     <span class="y-key">metainfo_tvdb</span>:
       <span class="y-key">api_key</span>: <span class="y-str">"{$ tvdb_key $}"</span>
     <span class="y-key">pathfmt</span>:
-      <span class="y-key">path</span>: <span class="y-str">"{$ tv_root $}/{series_name}"</span></code></pre>
+      <span class="y-key">path</span>: <span class="y-str">"{$ tv_root $}/{title}"</span></code></pre>
 
 <div class="warn">Substituted values are injected into raw YAML before parsing. Values containing YAML metacharacters (colons, newlines) can alter config structure. Only substitute values from trusted sources.</div>
 
@@ -369,66 +369,170 @@ make build        # or: go build -o pipeliner ./cmd/pipeliner</code></pre>
 
 <p>Each entry carries: <strong>title</strong>, <strong>URL</strong>, <strong>state</strong> (undecided / accepted / rejected / failed), and a string-keyed field map that plugins read and write.</p>
 
-<h3>Common fields</h3>
+<h3>Standard fields</h3>
+<p>Fields follow a tiered naming convention. Three universal fields have no prefix; all others are prefixed by their info type. Every entry enriched by an external provider (TVDB, TMDb, Trakt) has <code>enriched</code> set to <code>true</code>.</p>
+
+<h4>GenericInfo (no prefix) — set by any enriching provider</h4>
+<table>
+  <tr><th>Field</th><th>Description</th></tr>
+  <tr><td><code>title</code></td><td>Canonical display name from provider (e.g. "Breaking Bad" from TVDB). Use <code>{title}</code> in path templates for the enriched name. See also <code>{raw_title}</code> below.</td></tr>
+  <tr><td><code>description</code></td><td>Synopsis or overview text</td></tr>
+  <tr><td><code>published_date</code></td><td>Release or premiere date</td></tr>
+  <tr><td><code>enriched</code></td><td><code>true</code> when an external provider has enriched this entry</td></tr>
+</table>
+
+<div class="note"><strong><code>{title}</code> vs <code>{raw_title}</code>:</strong> <code>{title}</code> resolves to the canonical enriched title (e.g. "Breaking Bad" from TVDB). <code>{raw_title}</code> is the original entry title as received from the input (torrent filename or feed item title). Before enrichment, both refer to the same raw value.</div>
+
+<h4>VideoInfo (video_ prefix) — set by metainfo_tvdb, metainfo_tmdb, metainfo_trakt, movies</h4>
+<table>
+  <tr><th>Field</th><th>Description</th></tr>
+  <tr><td><code>video_year</code></td><td>Release or first-air year</td></tr>
+  <tr><td><code>video_language</code></td><td>Original language display name (e.g. <code>English</code>)</td></tr>
+  <tr><td><code>video_original_title</code></td><td>Original title in native language</td></tr>
+  <tr><td><code>video_country</code></td><td>Country of origin display name</td></tr>
+  <tr><td><code>video_genres</code></td><td>Genre names (string slice)</td></tr>
+  <tr><td><code>video_rating</code></td><td>Community rating (0–10)</td></tr>
+  <tr><td><code>video_poster</code></td><td>Poster image URL</td></tr>
+  <tr><td><code>video_cast</code></td><td>Actor names (string slice)</td></tr>
+  <tr><td><code>video_content_rating</code></td><td>Content rating (e.g. <code>TV-MA</code>)</td></tr>
+  <tr><td><code>video_runtime</code></td><td>Runtime in minutes</td></tr>
+  <tr><td><code>video_trailers</code></td><td>Trailer URLs (string slice)</td></tr>
+  <tr><td><code>video_aliases</code></td><td>Alternative titles (string slice)</td></tr>
+  <tr><td><code>video_imdb_id</code></td><td>IMDb ID</td></tr>
+  <tr><td><code>video_quality</code></td><td>Parsed quality string (e.g. <code>1080p.BluRay.x265</code>)</td></tr>
+  <tr><td><code>video_resolution</code></td><td>Resolution tag (e.g. <code>1080p</code>)</td></tr>
+  <tr><td><code>video_source</code></td><td>Source tag (e.g. <code>BluRay</code>, <code>WEB-DL</code>)</td></tr>
+  <tr><td><code>video_is_3d</code></td><td><code>true</code> when a 3D format marker is detected</td></tr>
+  <tr><td><code>video_popularity</code></td><td>Popularity score</td></tr>
+  <tr><td><code>video_votes</code></td><td>Vote count</td></tr>
+</table>
+
+<h4>SeriesInfo (series_ prefix) — set by series, metainfo_series, metainfo_tvdb</h4>
+<table>
+  <tr><th>Field</th><th>Description</th></tr>
+  <tr><td><code>series_season</code></td><td>Season number</td></tr>
+  <tr><td><code>series_episode</code></td><td>Episode number</td></tr>
+  <tr><td><code>series_episode_id</code></td><td>Episode ID string (e.g. <code>S02E05</code>)</td></tr>
+  <tr><td><code>series_network</code></td><td>Originating broadcast network</td></tr>
+  <tr><td><code>series_status</code></td><td>Series status (e.g. <code>Ended</code>, <code>Continuing</code>)</td></tr>
+  <tr><td><code>series_first_air_date</code></td><td>Date of first broadcast</td></tr>
+  <tr><td><code>series_last_air_date</code></td><td>Date of most recent episode</td></tr>
+  <tr><td><code>series_next_air_date</code></td><td>Next scheduled air date</td></tr>
+  <tr><td><code>series_episode_title</code></td><td>Episode title</td></tr>
+  <tr><td><code>series_episode_description</code></td><td>Episode overview text</td></tr>
+  <tr><td><code>series_episode_air_date</code></td><td>Episode air date (YYYY-MM-DD)</td></tr>
+  <tr><td><code>series_episode_image</code></td><td>Episode still/thumbnail URL</td></tr>
+  <tr><td><code>series_service</code></td><td>Streaming service tag parsed from title</td></tr>
+  <tr><td><code>series_proper</code></td><td><code>true</code> when PROPER marker is detected</td></tr>
+  <tr><td><code>series_repack</code></td><td><code>true</code> when REPACK marker is detected</td></tr>
+  <tr><td><code>series_double_episode</code></td><td><code>true</code> when a double episode is detected</td></tr>
+</table>
+
+<h4>MovieInfo (movie_ prefix) — set by movies</h4>
+<table>
+  <tr><th>Field</th><th>Description</th></tr>
+  <tr><td><code>movie_tagline</code></td><td>Movie tagline</td></tr>
+</table>
+
+<h4>TorrentInfo (torrent_ prefix) — set by rss, jackett, jackett_input, metainfo_torrent, metainfo_magnet</h4>
+<table>
+  <tr><th>Field</th><th>Description</th></tr>
+  <tr><td><code>torrent_info_hash</code></td><td>SHA-1 info hash (hex)</td></tr>
+  <tr><td><code>torrent_file_size</code></td><td>Total torrent size in bytes</td></tr>
+  <tr><td><code>torrent_file_count</code></td><td>Number of files in torrent</td></tr>
+  <tr><td><code>torrent_files</code></td><td>List of file paths inside the torrent</td></tr>
+  <tr><td><code>torrent_seeds</code></td><td>Seeder count</td></tr>
+  <tr><td><code>torrent_leechers</code></td><td>Leecher count</td></tr>
+  <tr><td><code>torrent_announce</code></td><td>Primary tracker announce URL</td></tr>
+  <tr><td><code>torrent_announce_list</code></td><td>All tracker announce URLs (string slice)</td></tr>
+  <tr><td><code>torrent_created_by</code></td><td>Torrent creator string</td></tr>
+  <tr><td><code>torrent_creation_date</code></td><td>Torrent creation timestamp</td></tr>
+  <tr><td><code>torrent_private</code></td><td><code>true</code> for private torrents</td></tr>
+</table>
+
+<h4>FileInfo (file_ prefix) — set by filesystem</h4>
+<table>
+  <tr><th>Field</th><th>Description</th></tr>
+  <tr><td><code>file_name</code></td><td>Filename (basename)</td></tr>
+  <tr><td><code>file_extension</code></td><td>File extension (e.g. <code>.torrent</code>)</td></tr>
+  <tr><td><code>file_location</code></td><td>Absolute file path on disk</td></tr>
+  <tr><td><code>file_size</code></td><td>File size in bytes</td></tr>
+  <tr><td><code>file_modified_time</code></td><td>Last-modified timestamp</td></tr>
+</table>
+
+<h4>RSSInfo (rss_ prefix) — set by rss</h4>
+<table>
+  <tr><th>Field</th><th>Description</th></tr>
+  <tr><td><code>rss_feed</code></td><td>Feed URL the entry came from</td></tr>
+  <tr><td><code>rss_guid</code></td><td>Feed item GUID</td></tr>
+  <tr><td><code>rss_link</code></td><td>Item link URL</td></tr>
+  <tr><td><code>rss_enclosure_url</code></td><td>Enclosure URL (e.g. torrent link)</td></tr>
+  <tr><td><code>rss_enclosure_type</code></td><td>Enclosure MIME type</td></tr>
+</table>
+
+<h4>Provider-specific fields (kept, no standard equivalent)</h4>
 <table>
   <tr><th>Field</th><th>Set by</th><th>Description</th></tr>
-  <tr><td><code>series_name</code></td><td>series, metainfo_series</td><td>Canonical show name</td></tr>
+  <tr><td><code>tvdb_id</code></td><td>metainfo_tvdb</td><td>TheTVDB series ID</td></tr>
+  <tr><td><code>tvdb_slug</code></td><td>metainfo_tvdb</td><td>URL slug for <code>thetvdb.com/series/{slug}</code></td></tr>
+  <tr><td><code>tvdb_episode_id</code></td><td>metainfo_tvdb</td><td>TheTVDB episode ID</td></tr>
+  <tr><td><code>tmdb_id</code></td><td>metainfo_tmdb</td><td>TMDb movie/series ID</td></tr>
+  <tr><td><code>trakt_id</code></td><td>metainfo_trakt, trakt_list</td><td>Trakt internal ID</td></tr>
+  <tr><td><code>trakt_slug</code></td><td>metainfo_trakt</td><td>Trakt URL slug</td></tr>
+  <tr><td><code>trakt_tmdb_id</code></td><td>metainfo_trakt</td><td>TMDb ID from Trakt</td></tr>
+  <tr><td><code>trakt_tvdb_id</code></td><td>metainfo_trakt</td><td>TVDB ID from Trakt</td></tr>
+  <tr><td><code>jackett_category</code></td><td>jackett, jackett_input</td><td>Torznab category code</td></tr>
+  <tr><td><code>jackett_indexer</code></td><td>jackett, jackett_input</td><td>Source indexer name</td></tr>
+  <tr><td><code>series_container</code></td><td>series</td><td>Internal series container reference</td></tr>
+  <tr><td><code>codec</code></td><td>metainfo_quality</td><td>Codec tag (e.g. <code>x265</code>, <code>HEVC</code>)</td></tr>
+  <tr><td><code>audio</code></td><td>metainfo_quality</td><td>Audio tag (e.g. <code>DTS</code>, <code>Atmos</code>)</td></tr>
+  <tr><td><code>color_range</code></td><td>metainfo_quality</td><td>Color range tag (e.g. <code>HDR</code>, <code>SDR</code>)</td></tr>
+  <tr><td><code>quality_resolution</code></td><td>metainfo_quality</td><td>Parsed resolution sub-field</td></tr>
+  <tr><td><code>quality_source</code></td><td>metainfo_quality</td><td>Parsed source sub-field</td></tr>
+  <tr><td><code>download_path</code></td><td>pathfmt</td><td>Rendered destination directory path</td></tr>
+</table>
+
+<h3>Common fields (quick reference)</h3>
+<table>
+  <tr><th>Field</th><th>Set by</th><th>Description</th></tr>
+  <tr><td><code>title</code></td><td>metainfo_tvdb, metainfo_tmdb, metainfo_trakt, series, movies</td><td>Canonical enriched display name</td></tr>
+  <tr><td><code>raw_title</code></td><td>(built-in)</td><td>Original entry title from the input source</td></tr>
+  <tr><td><code>description</code></td><td>rss, metainfo_tvdb, metainfo_tmdb, metainfo_trakt</td><td>Synopsis or overview text</td></tr>
+  <tr><td><code>published_date</code></td><td>rss, metainfo providers</td><td>Release/premiere date</td></tr>
+  <tr><td><code>enriched</code></td><td>metainfo_tvdb, metainfo_tmdb, metainfo_trakt</td><td><code>true</code> when enriched by an external provider</td></tr>
   <tr><td><code>series_season</code></td><td>series, metainfo_series</td><td>Season number</td></tr>
   <tr><td><code>series_episode</code></td><td>series, metainfo_series</td><td>Episode number</td></tr>
   <tr><td><code>series_episode_id</code></td><td>series, metainfo_series</td><td>Episode ID string (e.g. <code>S02E05</code>)</td></tr>
-  <tr><td><code>movie_title</code></td><td>movies</td><td>Canonical movie title</td></tr>
-  <tr><td><code>movie_year</code></td><td>movies</td><td>Movie release year</td></tr>
-  <tr><td><code>movie_3d</code></td><td>movies</td><td><code>true</code> when a 3D format marker is detected</td></tr>
-  <tr><td><code>quality</code></td><td>metainfo_quality</td><td>Full quality string (e.g. <code>1080p.BluRay.x265</code>)</td></tr>
-  <tr><td><code>resolution</code></td><td>metainfo_quality</td><td>Resolution tag (e.g. <code>1080p</code>)</td></tr>
-  <tr><td><code>source</code></td><td>metainfo_quality</td><td>Source tag (e.g. <code>BluRay</code>, <code>WEB-DL</code>)</td></tr>
-  <tr><td><code>codec</code></td><td>metainfo_quality</td><td>Codec tag (e.g. <code>x265</code>, <code>HEVC</code>)</td></tr>
-  <tr><td><code>download_path</code></td><td>pathfmt</td><td>Rendered destination directory path</td></tr>
-  <tr><td><code>location</code></td><td>filesystem</td><td>Absolute file path on disk</td></tr>
-  <tr><td><code>torrent_seeders</code></td><td>rss, jackett, jackett_input</td><td>Seeder count</td></tr>
+  <tr><td><code>video_year</code></td><td>movies, metainfo_tvdb, metainfo_tmdb</td><td>Release or first-air year</td></tr>
+  <tr><td><code>video_is_3d</code></td><td>movies</td><td><code>true</code> when a 3D format marker is detected</td></tr>
+  <tr><td><code>video_quality</code></td><td>movies</td><td>Parsed quality string from movie title</td></tr>
+  <tr><td><code>video_language</code></td><td>metainfo_tvdb</td><td>Original language display name (e.g. <code>English</code>)</td></tr>
+  <tr><td><code>video_genres</code></td><td>metainfo_tvdb, metainfo_tmdb, metainfo_trakt</td><td>Genre names (string slice)</td></tr>
+  <tr><td><code>video_rating</code></td><td>metainfo_tvdb, metainfo_tmdb, metainfo_trakt</td><td>Community rating (0–10)</td></tr>
+  <tr><td><code>video_poster</code></td><td>metainfo_tvdb, metainfo_tmdb</td><td>Poster image URL</td></tr>
+  <tr><td><code>series_first_air_date</code></td><td>metainfo_tvdb</td><td>Date of first broadcast</td></tr>
+  <tr><td><code>series_next_air_date</code></td><td>metainfo_tvdb</td><td>Next scheduled air date</td></tr>
+  <tr><td><code>series_episode_title</code></td><td>metainfo_tvdb</td><td>Episode title</td></tr>
+  <tr><td><code>series_episode_air_date</code></td><td>metainfo_tvdb</td><td>Episode air date (YYYY-MM-DD)</td></tr>
+  <tr><td><code>file_location</code></td><td>filesystem</td><td>Absolute file path on disk</td></tr>
+  <tr><td><code>file_name</code></td><td>filesystem</td><td>Filename (basename)</td></tr>
+  <tr><td><code>file_size</code></td><td>filesystem</td><td>File size in bytes</td></tr>
+  <tr><td><code>torrent_seeds</code></td><td>rss, jackett, jackett_input</td><td>Seeder count</td></tr>
   <tr><td><code>torrent_info_hash</code></td><td>metainfo_torrent, metainfo_magnet, jackett</td><td>SHA-1 info hash (hex)</td></tr>
-  <tr><td><code>torrent_size</code></td><td>metainfo_torrent, metainfo_magnet, jackett</td><td>Total size in bytes</td></tr>
-  <tr><td><code>torrent_files</code></td><td>metainfo_torrent, metainfo_magnet</td><td>List of file paths</td></tr>
+  <tr><td><code>torrent_file_size</code></td><td>metainfo_torrent, metainfo_magnet, jackett</td><td>Total torrent size in bytes</td></tr>
+  <tr><td><code>torrent_files</code></td><td>metainfo_torrent, metainfo_magnet</td><td>List of file paths inside torrent</td></tr>
   <tr><td><code>tvdb_id</code></td><td>metainfo_tvdb</td><td>TheTVDB series ID</td></tr>
-  <tr><td><code>tvdb_series_name</code></td><td>metainfo_tvdb</td><td>Series name from TheTVDB</td></tr>
-  <tr><td><code>tvdb_language</code></td><td>metainfo_tvdb</td><td>Original language display name (e.g. <code>English</code>)</td></tr>
-  <tr><td><code>tvdb_genres</code></td><td>metainfo_tvdb</td><td>Genre names (string slice)</td></tr>
-  <tr><td><code>tvdb_country</code></td><td>metainfo_tvdb</td><td>Country of origin display name</td></tr>
-  <tr><td><code>tvdb_overview</code></td><td>metainfo_tvdb</td><td>Series overview text</td></tr>
-  <tr><td><code>tvdb_poster</code></td><td>metainfo_tvdb</td><td>Poster image URL</td></tr>
-  <tr><td><code>tvdb_slug</code></td><td>metainfo_tvdb</td><td>URL slug for <code>thetvdb.com/series/{slug}</code></td></tr>
-  <tr><td><code>tvdb_network</code></td><td>metainfo_tvdb</td><td>Originating network</td></tr>
-  <tr><td><code>tvdb_status</code></td><td>metainfo_tvdb</td><td>Series status (e.g. <code>Ended</code>, <code>Continuing</code>)</td></tr>
-  <tr><td><code>tvdb_first_air_date</code></td><td>metainfo_tvdb</td><td>Date of first broadcast</td></tr>
-  <tr><td><code>tvdb_last_air_date</code></td><td>metainfo_tvdb</td><td>Date of most recent episode</td></tr>
-  <tr><td><code>tvdb_next_air_date</code></td><td>metainfo_tvdb</td><td>Next scheduled air date</td></tr>
-  <tr><td><code>tvdb_content_rating</code></td><td>metainfo_tvdb</td><td>Content rating (e.g. <code>TV-MA</code>)</td></tr>
-  <tr><td><code>tvdb_cast</code></td><td>metainfo_tvdb</td><td>Actor names (string slice)</td></tr>
-  <tr><td><code>tvdb_trailers</code></td><td>metainfo_tvdb</td><td>Trailer URLs (string slice)</td></tr>
-  <tr><td><code>tvdb_score</code></td><td>metainfo_tvdb</td><td>Popularity score</td></tr>
-  <tr><td><code>tvdb_aliases</code></td><td>metainfo_tvdb</td><td>Alternative titles (string slice)</td></tr>
-  <tr><td><code>tvdb_episode_name</code></td><td>metainfo_tvdb</td><td>Episode title</td></tr>
-  <tr><td><code>tvdb_air_date</code></td><td>metainfo_tvdb</td><td>Episode air date (YYYY-MM-DD)</td></tr>
-  <tr><td><code>tvdb_episode_overview</code></td><td>metainfo_tvdb</td><td>Episode overview text</td></tr>
-  <tr><td><code>tvdb_episode_image</code></td><td>metainfo_tvdb</td><td>Episode still/thumbnail URL</td></tr>
-  <tr><td><code>tvdb_episode_runtime</code></td><td>metainfo_tvdb</td><td>Episode runtime in minutes</td></tr>
-  <tr><td><code>tmdb_id</code></td><td>metainfo_tmdb</td><td>TMDb movie ID</td></tr>
-  <tr><td><code>tmdb_title</code></td><td>metainfo_tmdb</td><td>Movie title from TMDb</td></tr>
-  <tr><td><code>tmdb_vote_average</code></td><td>metainfo_tmdb</td><td>Average user rating (0–10)</td></tr>
-  <tr><td><code>tmdb_genres</code></td><td>metainfo_tmdb</td><td>Genre names (comma-separated string)</td></tr>
-  <tr><td><code>tmdb_release_date</code></td><td>metainfo_tmdb</td><td>Release date (YYYY-MM-DD)</td></tr>
+  <tr><td><code>tmdb_id</code></td><td>metainfo_tmdb</td><td>TMDb movie/series ID</td></tr>
   <tr><td><code>trakt_id</code></td><td>metainfo_trakt, trakt_list</td><td>Trakt internal ID</td></tr>
-  <tr><td><code>trakt_rating</code></td><td>metainfo_trakt</td><td>Community rating (0–10)</td></tr>
-  <tr><td><code>trakt_genres</code></td><td>metainfo_trakt</td><td>Genre names (comma-separated string)</td></tr>
 </table>
 
 <h3>Pattern syntax for path/field templates</h3>
 <p>String values in <code>pathfmt</code>, <code>exec</code>, <code>print</code>, <code>set</code>, and download-client path configs support two syntaxes:</p>
 <table>
   <tr><th>Syntax</th><th>Meaning</th><th>Example</th></tr>
-  <tr><td><code>{field}</code></td><td>Insert field value</td><td><code>{series_name}</code></td></tr>
+  <tr><td><code>{field}</code></td><td>Insert field value</td><td><code>{title}</code></td></tr>
   <tr><td><code>{field:format}</code></td><td>Printf-formatted</td><td><code>{series_season:02d}</code></td></tr>
-  <tr><td><code>{{.field}}</code></td><td>Go template</td><td><code>{{.series_name}}</code></td></tr>
+  <tr><td><code>{{.field}}</code></td><td>Go template</td><td><code>{{.title}}</code></td></tr>
 </table>
 
 <!-- ═══════════════════════════════════════════════════════════ -->
@@ -440,22 +544,22 @@ make build        # or: go build -o pipeliner ./cmd/pipeliner</code></pre>
 <table>
   <tr><th>Operator</th><th>Meaning</th><th>Example</th></tr>
   <tr><td><code>==</code> <code>!=</code></td><td>Equality</td><td><code>source == "CAM"</code></td></tr>
-  <tr><td><code>&lt;</code> <code>&lt;=</code> <code>&gt;</code> <code>&gt;=</code></td><td>Numeric comparison</td><td><code>tmdb_vote_average &gt;= 7.0</code></td></tr>
-  <tr><td><code>contains</code></td><td>Substring or slice contains</td><td><code>tvdb_genres contains "Drama"</code></td></tr>
+  <tr><td><code>&lt;</code> <code>&lt;=</code> <code>&gt;</code> <code>&gt;=</code></td><td>Numeric comparison</td><td><code>video_rating &gt;= 7.0</code></td></tr>
+  <tr><td><code>contains</code></td><td>Substring or slice contains</td><td><code>video_genres contains "Drama"</code></td></tr>
   <tr><td><code>matches</code></td><td>Regex match</td><td><code>title matches "S\d{2}E\d{2}"</code></td></tr>
-  <tr><td><code>and</code> <code>&amp;&amp;</code></td><td>Logical AND</td><td><code>score &gt; 7 and source != "CAM"</code></td></tr>
+  <tr><td><code>and</code> <code>&amp;&amp;</code></td><td>Logical AND</td><td><code>video_rating &gt; 7 and source != "CAM"</code></td></tr>
   <tr><td><code>or</code> <code>||</code></td><td>Logical OR</td><td><code>source == "CAM" or source == "TS"</code></td></tr>
-  <tr><td><code>not</code> <code>!</code></td><td>Logical NOT</td><td><code>not tvdb_genres contains "Reality"</code></td></tr>
+  <tr><td><code>not</code> <code>!</code></td><td>Logical NOT</td><td><code>not video_genres contains "Reality"</code></td></tr>
 </table>
 
 <h3>Functions</h3>
 <table>
   <tr><th>Function</th><th>Description</th><th>Example</th></tr>
-  <tr><td><code>now()</code></td><td>Current time</td><td><code>tvdb_first_air_date &lt; now()</code></td></tr>
-  <tr><td><code>daysago(n)</code></td><td>Time N days in the past</td><td><code>tvdb_first_air_date &lt; daysago(365)</code></td></tr>
-  <tr><td><code>weeksago(n)</code></td><td>Time N weeks in the past</td><td><code>tvdb_first_air_date &lt; weeksago(52)</code></td></tr>
-  <tr><td><code>monthsago(n)</code></td><td>Time N months in the past</td><td><code>tvdb_first_air_date &lt; monthsago(12)</code></td></tr>
-  <tr><td><code>date("YYYY-MM-DD")</code></td><td>Specific date literal</td><td><code>tvdb_first_air_date &gt; date("2020-01-01")</code></td></tr>
+  <tr><td><code>now()</code></td><td>Current time</td><td><code>series_first_air_date &lt; now()</code></td></tr>
+  <tr><td><code>daysago(n)</code></td><td>Time N days in the past</td><td><code>series_first_air_date &lt; daysago(365)</code></td></tr>
+  <tr><td><code>weeksago(n)</code></td><td>Time N weeks in the past</td><td><code>series_first_air_date &lt; weeksago(52)</code></td></tr>
+  <tr><td><code>monthsago(n)</code></td><td>Time N months in the past</td><td><code>series_first_air_date &lt; monthsago(12)</code></td></tr>
+  <tr><td><code>date("YYYY-MM-DD")</code></td><td>Specific date literal</td><td><code>series_first_air_date &gt; date("2020-01-01")</code></td></tr>
 </table>
 
 <!-- ═══════════════════════════════════════════════════════════ -->
@@ -492,9 +596,9 @@ make build        # or: go build -o pipeliner ./cmd/pipeliner</code></pre>
   <tr><td><code>len</code></td><td><code>{{len .Entries}}</code></td><td>Length of a slice or string</td></tr>
   <tr><td><code>range</code></td><td><code>{{range .Entries}}...{{end}}</code></td><td>Iterate over a slice</td></tr>
   <tr><td><code>with</code></td><td><code>{{with .Field}}...{{end}}</code></td><td>Conditional block when value is non-zero</td></tr>
-  <tr><td><code>index</code></td><td><code>{{index .Fields "tvdb_genres"}}</code></td><td>Access map by key</td></tr>
-  <tr><td><code>join</code></td><td><code>{{join ", " (index .Fields "tvdb_cast")}}</code></td><td>Join string slice with separator</td></tr>
-  <tr><td><code>formatdate</code></td><td><code>{{formatdate "Jan 2, 2006" .tvdb_first_air_date}}</code></td><td>Format a time.Time value</td></tr>
+  <tr><td><code>index</code></td><td><code>{{index .Fields "video_genres"}}</code></td><td>Access map by key</td></tr>
+  <tr><td><code>join</code></td><td><code>{{join ", " (index .Fields "video_cast")}}</code></td><td>Join string slice with separator</td></tr>
+  <tr><td><code>formatdate</code></td><td><code>{{formatdate "Jan 2, 2006" .series_first_air_date}}</code></td><td>Format a time.Time value</td></tr>
   <tr><td><code>printf</code></td><td><code>{{printf "%02d" .series_season}}</code></td><td>Formatted print</td></tr>
   <tr><td><code>slice</code></td><td><code>{{slice "2024-01-15" 0 4}}</code></td><td>Substring/sub-slice</td></tr>
 </table>
@@ -517,7 +621,7 @@ make build        # or: go build -o pipeliner ./cmd/pipeliner</code></pre>
 </table>
 
 <h4>Fields set</h4>
-<p><code>rss_feed</code>, <code>rss_link</code>, <code>rss_description</code>, <code>rss_pubdate</code>, <code>rss_guid</code>, <code>rss_enclosure_url</code>, <code>rss_enclosure_type</code>, <code>torrent_seeders</code> (when present in feed)</p>
+<p><code>rss_feed</code>, <code>rss_link</code>, <code>rss_guid</code>, <code>rss_enclosure_url</code>, <code>rss_enclosure_type</code>, <code>description</code> (item description), <code>published_date</code> (item pubdate), <code>torrent_seeds</code> (when present in feed)</p>
 
 <pre><code><span class="y-key">rss</span>:
   <span class="y-key">url</span>: <span class="y-str">"https://example.com/torrents/rss"</span></code></pre>
@@ -548,7 +652,7 @@ make build        # or: go build -o pipeliner ./cmd/pipeliner</code></pre>
 </table>
 
 <h4>Fields set</h4>
-<p><code>location</code> (absolute path), <code>filename</code>, <code>extension</code>, <code>size</code>, <code>modified_time</code></p>
+<p><code>file_location</code> (absolute path), <code>file_name</code>, <code>file_extension</code>, <code>file_size</code>, <code>file_modified_time</code></p>
 
 <pre><code><span class="y-key">filesystem</span>:
   <span class="y-key">path</span>: <span class="y-str">/downloads/watch</span>
@@ -597,7 +701,7 @@ make build        # or: go build -o pipeliner ./cmd/pipeliner</code></pre>
 </table>
 
 <h4>Fields set</h4>
-<p><code>torrent_seeders</code>, <code>torrent_leechers</code>, <code>torrent_size</code>, <code>torrent_info_hash</code>, <code>jackett_category</code>, <code>jackett_indexer</code></p>
+<p><code>torrent_seeds</code>, <code>torrent_leechers</code>, <code>torrent_file_size</code>, <code>torrent_info_hash</code>, <code>jackett_category</code>, <code>jackett_indexer</code></p>
 
 <h4>Common Torznab categories</h4>
 <table>
@@ -703,8 +807,9 @@ make build        # or: go build -o pipeliner ./cmd/pipeliner</code></pre>
   <tr><td><code>cache_ttl</code></td><td>no</td><td><code>24h</code></td><td>How long to cache results</td></tr>
 </table>
 
-<p>Series-level fields set: <code>tvdb_id</code>, <code>tvdb_series_name</code>, <code>tvdb_series_year</code>, <code>tvdb_overview</code>, <code>tvdb_slug</code>, <code>tvdb_network</code>, <code>tvdb_language</code>, <code>tvdb_country</code>, <code>tvdb_genres</code>, <code>tvdb_poster</code>, <code>tvdb_first_air_date</code>, <code>tvdb_last_air_date</code>, <code>tvdb_next_air_date</code>, <code>tvdb_status</code>, <code>tvdb_content_rating</code>, <code>tvdb_trailers</code>, <code>tvdb_score</code>, <code>tvdb_aliases</code>, <code>tvdb_cast</code></p>
-<p>Episode-level fields (when S/E is parsed): <code>tvdb_episode_id</code>, <code>tvdb_episode_name</code>, <code>tvdb_air_date</code>, <code>tvdb_episode_overview</code>, <code>tvdb_episode_runtime</code>, <code>tvdb_episode_image</code></p>
+<p>Standard fields set: <code>title</code> (series name), <code>description</code> (overview), <code>enriched</code>, <code>video_year</code>, <code>video_language</code>, <code>video_country</code>, <code>video_genres</code>, <code>video_poster</code>, <code>video_content_rating</code>, <code>video_trailers</code>, <code>video_popularity</code>, <code>video_cast</code>, <code>video_aliases</code>, <code>series_network</code>, <code>series_status</code>, <code>series_first_air_date</code>, <code>series_last_air_date</code>, <code>series_next_air_date</code></p>
+<p>Episode-level fields (when S/E is parsed): <code>series_episode_title</code>, <code>series_episode_description</code>, <code>series_episode_air_date</code>, <code>series_episode_image</code>, <code>video_runtime</code></p>
+<p>Provider-specific fields kept: <code>tvdb_id</code>, <code>tvdb_slug</code>, <code>tvdb_episode_id</code></p>
 
 <!-- ─────────── metainfo_tmdb ─────────── -->
 <h2 id="metainfo_tmdb">metainfo_tmdb</h2>
@@ -716,7 +821,8 @@ make build        # or: go build -o pipeliner ./cmd/pipeliner</code></pre>
   <tr><td><code>cache_ttl</code></td><td>no</td><td><code>24h</code></td><td>How long to cache results</td></tr>
 </table>
 
-<p>Fields set: <code>tmdb_id</code>, <code>tmdb_title</code>, <code>tmdb_original_title</code>, <code>tmdb_release_date</code>, <code>tmdb_overview</code>, <code>tmdb_popularity</code>, <code>tmdb_vote_average</code>, <code>tmdb_runtime</code>, <code>tmdb_tagline</code>, <code>tmdb_imdb_id</code>, <code>tmdb_genres</code></p>
+<p>Standard fields set: <code>title</code> (movie title), <code>description</code> (overview), <code>published_date</code> (release date), <code>enriched</code>, <code>video_year</code>, <code>video_original_title</code>, <code>video_genres</code>, <code>video_rating</code>, <code>video_votes</code>, <code>video_runtime</code>, <code>video_poster</code>, <code>video_popularity</code>, <code>video_imdb_id</code>, <code>movie_tagline</code></p>
+<p>Provider-specific fields kept: <code>tmdb_id</code></p>
 <p>Get a free key at <a href="https://www.themoviedb.org/settings/api" target="_blank">themoviedb.org/settings/api</a>.</p>
 
 <!-- ─────────── metainfo_trakt ─────────── -->
@@ -730,23 +836,24 @@ make build        # or: go build -o pipeliner ./cmd/pipeliner</code></pre>
   <tr><td><code>cache_ttl</code></td><td>no</td><td><code>24h</code></td><td>How long to cache results</td></tr>
 </table>
 
-<p>Fields set: <code>trakt_id</code>, <code>trakt_slug</code>, <code>trakt_imdb_id</code>, <code>trakt_tmdb_id</code>, <code>trakt_tvdb_id</code>, <code>trakt_title</code>, <code>trakt_year</code>, <code>trakt_overview</code>, <code>trakt_rating</code>, <code>trakt_votes</code>, <code>trakt_genres</code></p>
+<p>Standard fields set: <code>title</code>, <code>description</code> (overview), <code>published_date</code>, <code>enriched</code>, <code>video_year</code>, <code>video_genres</code>, <code>video_rating</code>, <code>video_votes</code></p>
+<p>Provider-specific fields kept: <code>trakt_id</code>, <code>trakt_slug</code>, <code>trakt_tmdb_id</code>, <code>trakt_tvdb_id</code></p>
 
 <!-- ─────────── metainfo_quality ─────────── -->
 <h2 id="metainfo_quality">metainfo_quality</h2>
 <p>Parses video quality tags from the entry title. Takes no config.</p>
-<p>Fields set: <code>quality</code>, <code>resolution</code>, <code>source</code>, <code>codec</code>, <code>audio</code>, <code>color_range</code></p>
+<p>Fields set: <code>codec</code>, <code>audio</code>, <code>color_range</code>, <code>quality_resolution</code>, <code>quality_source</code> (quality sub-fields kept without standard prefix)</p>
 <pre><code><span class="y-key">metainfo_quality</span>:    <span class="y-comment"># no config needed</span></code></pre>
 
 <!-- ─────────── metainfo_series ─────────── -->
 <h2 id="metainfo_series">metainfo_series</h2>
 <p>Parses series and episode information from the entry title. Takes no config. (The <code>series</code> filter also does this internally — use this standalone plugin when you need the fields without the series filter's show-list matching.)</p>
-<p>Fields set: <code>series_name</code>, <code>series_season</code>, <code>series_episode</code>, <code>series_episode_id</code>, <code>series_proper</code>, <code>series_repack</code>, <code>series_service</code></p>
+<p>Fields set: <code>series_season</code>, <code>series_episode</code>, <code>series_episode_id</code>, <code>series_proper</code>, <code>series_repack</code>, <code>series_service</code>, <code>series_double_episode</code></p>
 
 <!-- ─────────── metainfo_torrent ─────────── -->
 <h2 id="metainfo_torrent">metainfo_torrent</h2>
-<p>Reads metadata from a <code>.torrent</code> file. Reads from <code>location</code> field (filesystem plugin) or downloads the URL if it ends in <code>.torrent</code>. Takes no config.</p>
-<p>Fields set: <code>torrent_name</code>, <code>torrent_info_hash</code>, <code>torrent_size</code>, <code>torrent_file_count</code>, <code>torrent_announce</code>, <code>torrent_comment</code>, <code>torrent_private</code></p>
+<p>Reads metadata from a <code>.torrent</code> file. Reads from <code>file_location</code> field (filesystem plugin) or downloads the URL if it ends in <code>.torrent</code>. Takes no config.</p>
+<p>Fields set: <code>torrent_info_hash</code>, <code>torrent_file_size</code>, <code>torrent_file_count</code>, <code>torrent_files</code>, <code>torrent_announce</code>, <code>torrent_announce_list</code>, <code>torrent_created_by</code>, <code>torrent_creation_date</code>, <code>torrent_private</code></p>
 
 <!-- ─────────── metainfo_magnet ─────────── -->
 <h2 id="metainfo_magnet">metainfo_magnet</h2>
@@ -758,7 +865,7 @@ make build        # or: go build -o pipeliner ./cmd/pipeliner</code></pre>
 </table>
 
 <p>From URI: <code>torrent_info_hash</code>, <code>torrent_announce</code>, <code>torrent_announce_list</code>, <code>torrent_display_name</code><br>
-After DHT: <code>torrent_name</code>, <code>torrent_size</code>, <code>torrent_file_count</code>, <code>torrent_files</code></p>
+After DHT: <code>torrent_file_size</code>, <code>torrent_file_count</code>, <code>torrent_files</code></p>
 
 <hr>
 <!-- ═══════════════════════════════════════════════════════════ -->
@@ -786,7 +893,7 @@ After DHT: <code>torrent_name</code>, <code>torrent_size</code>, <code>torrent_f
   <tr><td><code>follow</code></td><td>Recommended for new and continuing series. On first encounter accept everything (full season drops in one pass). Afterwards the earliest tracked <strong>season</strong> acts as an anchor — episodes from older seasons are rejected, all episodes in the anchor season or newer are accepted (including gap-fills within the current season).</td></tr>
 </table>
 
-<p>Fields set: <code>series_name</code>, <code>series_season</code>, <code>series_episode</code>, <code>series_episode_id</code></p>
+<p>Fields set: <code>series_season</code>, <code>series_episode</code>, <code>series_episode_id</code>. The matched show name is written to <code>title</code> (canonical) and <code>raw_title</code> (original parsed name).</p>
 
 <pre><code><span class="y-key">series</span>:
   <span class="y-key">tracking</span>: <span class="y-str">strict</span>
@@ -816,9 +923,9 @@ After DHT: <code>torrent_name</code>, <code>torrent_size</code>, <code>torrent_f
   <tr><td><code>quality</code></td><td>no</td><td>—</td><td>Minimum quality floor</td></tr>
 </table>
 
-<p>Fields set: <code>movie_title</code>, <code>movie_year</code>, <code>movie_quality</code>, <code>movie_3d</code></p>
+<p>Fields set: <code>title</code> (movie title), <code>video_year</code>, <code>video_quality</code>, <code>video_is_3d</code></p>
 
-<div class="note">Use <code>condition: reject: 'movie_3d == true'</code> to exclude 3D releases. Detected markers include: 3D, SBS, HSBS, HOU, BD3D, and variants.</div>
+<div class="note">Use <code>condition: reject: 'video_is_3d == true'</code> to exclude 3D releases. Detected markers include: 3D, SBS, HSBS, HOU, BD3D, and variants.</div>
 
 <!-- ─────────── premiere ─────────── -->
 <h2 id="premiere">premiere</h2>
@@ -847,15 +954,15 @@ After DHT: <code>torrent_name</code>, <code>torrent_size</code>, <code>torrent_f
 
 <pre><code><span class="y-key">condition</span>:
   <span class="y-key">rules</span>:
-    - <span class="y-key">reject</span>: <span class="y-str">'tvdb_language != "" and tvdb_language != "English"'</span>
-    - <span class="y-key">reject</span>: <span class="y-str">'tvdb_genres contains "Documentary"'</span>
-    - <span class="y-key">reject</span>: <span class="y-str">'tvdb_genres contains "Reality"'</span>
-    - <span class="y-key">reject</span>: <span class="y-str">'tvdb_first_air_date != "" and tvdb_first_air_date &lt; daysago(365)'</span>
-    - <span class="y-key">accept</span>: <span class="y-str">'tmdb_vote_average &gt;= 7.0'</span></code></pre>
+    - <span class="y-key">reject</span>: <span class="y-str">'video_language != "" and video_language != "English"'</span>
+    - <span class="y-key">reject</span>: <span class="y-str">'video_genres contains "Documentary"'</span>
+    - <span class="y-key">reject</span>: <span class="y-str">'video_genres contains "Reality"'</span>
+    - <span class="y-key">reject</span>: <span class="y-str">'series_first_air_date != "" and series_first_air_date &lt; daysago(365)'</span>
+    - <span class="y-key">accept</span>: <span class="y-str">'video_rating &gt;= 7.0'</span></code></pre>
 
 <!-- ─────────── torrent_alive ─────────── -->
 <h2 id="torrent_alive">torrent_alive</h2>
-<p>Rejects torrents with fewer than a minimum number of seeds. The <code>torrent_seeders</code> field is set by the RSS input, Jackett, and <code>jackett_input</code>. Entries without seed data are left undecided.</p>
+<p>Rejects torrents with fewer than a minimum number of seeds. The <code>torrent_seeds</code> field is set by the RSS input, Jackett, and <code>jackett_input</code>. Entries without seed data are left undecided.</p>
 
 <table>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
@@ -871,8 +978,8 @@ After DHT: <code>torrent_name</code>, <code>torrent_size</code>, <code>torrent_f
 
 <pre><code><span class="y-key">require</span>:
   <span class="y-key">fields</span>:
-    - <span class="y-str">tvdb_id</span>
-    - <span class="y-str">series_name</span></code></pre>
+    - <span class="y-str">enriched</span>
+    - <span class="y-str">series_episode_id</span></code></pre>
 
 <!-- ─────────── seen ─────────── -->
 <h2 id="seen">seen</h2>
@@ -1019,7 +1126,7 @@ After DHT: <code>torrent_name</code>, <code>torrent_size</code>, <code>torrent_f
 </table>
 
 <pre><code><span class="y-key">pathfmt</span>:
-  <span class="y-key">path</span>: <span class="y-str">"/media/tv/{series_name}/Season {series_season:02d}"</span></code></pre>
+  <span class="y-key">path</span>: <span class="y-str">"/media/tv/{title}/Season {series_season:02d}"</span></code></pre>
 
 <!-- ─────────── pathscrub ─────────── -->
 <h2 id="pathscrub">pathscrub</h2>
@@ -1032,7 +1139,7 @@ After DHT: <code>torrent_name</code>, <code>torrent_size</code>, <code>torrent_f
 </table>
 
 <pre><code><span class="y-key">pathscrub</span>:
-  <span class="y-key">fields</span>: [<span class="y-str">"series_name"</span>]</code></pre>
+  <span class="y-key">fields</span>: [<span class="y-str">"title"</span>]</code></pre>
 
 <!-- ─────────── set ─────────── -->
 <h2 id="set">set</h2>
@@ -1040,7 +1147,7 @@ After DHT: <code>torrent_name</code>, <code>torrent_size</code>, <code>torrent_f
 
 <pre><code><span class="y-key">set</span>:
   <span class="y-key">category</span>: <span class="y-str">tv</span>
-  <span class="y-key">label</span>: <span class="y-str">"{{.series_name}}"</span></code></pre>
+  <span class="y-key">label</span>: <span class="y-str">"{{.title}}"</span></code></pre>
 
 <hr>
 <!-- ═══════════════════════════════════════════════════════════ -->
@@ -1138,8 +1245,8 @@ After DHT: <code>torrent_name</code>, <code>torrent_size</code>, <code>torrent_f
   <span class="y-key">subject</span>: <span class="y-str">"New premieres: {{len .Entries}} show(s)"</span>
   <span class="y-key">body_template</span>: |
     {{range .Entries}}
-    &lt;h2&gt;{{index .Fields "tvdb_series_name"}}&lt;/h2&gt;
-    &lt;p&gt;{{index .Fields "tvdb_overview"}}&lt;/p&gt;
+    &lt;h2&gt;{{index .Fields "title"}}&lt;/h2&gt;
+    &lt;p&gt;{{index .Fields "description"}}&lt;/p&gt;
     {{end}}</code></pre>
 
 <!-- ─────────── exec ─────────── -->
@@ -1384,7 +1491,7 @@ docker compose up -d --no-build pipeliner</code></pre>
 <p>This was a bug where the Deluge session cookie from login was not preserved. It is fixed in v0.1.3+. Ensure you are running a current version.</p>
 
 <h3>torrent_alive is slow</h3>
-<p>When entries lack a <code>torrent_seeders</code> field, <code>torrent_alive</code> must resolve the info hash and scrape trackers. Use inputs that provide seed counts (Jackett, <code>jackett_input</code>, nyaa RSS) to avoid scraping. Set <code>scrape: false</code> to disable tracker scraping entirely (entries without seed data will be left undecided).</p>
+<p>When entries lack a <code>torrent_seeds</code> field, <code>torrent_alive</code> must resolve the info hash and scrape trackers. Use inputs that provide seed counts (Jackett, <code>jackett_input</code>, nyaa RSS) to avoid scraping. Set <code>scrape: false</code> to disable tracker scraping entirely (entries without seed data will be left undecided).</p>
 
 <h3>Config validation errors from templates</h3>
 <p><code>pipeliner check</code> validates each plugin against the fully merged config (template + task), so required fields supplied by a template are correctly recognized. If you see "required field missing" errors for fields you expect to come from a template, ensure the template name is spelled correctly and the plugin key matches.</p>
