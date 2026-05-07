@@ -116,16 +116,35 @@ func TestLoginFailure(t *testing.T) {
 }
 
 func TestAddTorrentError(t *testing.T) {
-	mock := &mockDeluge{loginOK: true, addError: "torrent already exists"}
+	mock := &mockDeluge{loginOK: true, addError: "some unexpected rpc error"}
 	srv := httptest.NewServer(mock.handler())
 	defer srv.Close()
 
 	dp := newTestPlugin(t, srv, nil)
 	e := entry.New("T", "http://x.com/a.torrent")
-	// Per-entry errors are logged, not returned.
 	err := dp.Output(context.Background(), makeCtx(), []*entry.Entry{e})
 	if err != nil {
 		t.Errorf("Output should not return error for per-entry add failure: %v", err)
+	}
+	if !e.IsFailed() {
+		t.Error("entry should be Failed on unexpected Deluge error")
+	}
+}
+
+func TestAlreadyInSessionNotFailed(t *testing.T) {
+	mock := &mockDeluge{loginOK: true, addError: "Torrent already in session (abc123)"}
+	srv := httptest.NewServer(mock.handler())
+	defer srv.Close()
+
+	dp := newTestPlugin(t, srv, nil)
+	e := entry.New("T", "http://x.com/a.torrent")
+	e.Accept()
+	err := dp.Output(context.Background(), makeCtx(), []*entry.Entry{e})
+	if err != nil {
+		t.Fatalf("Output returned unexpected error: %v", err)
+	}
+	if e.IsFailed() {
+		t.Error("entry should not be Failed when torrent is already in session — it must stay Accepted so Learn can mark it")
 	}
 }
 
