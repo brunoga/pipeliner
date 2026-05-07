@@ -58,7 +58,7 @@ func newNotifier(cfg map[string]any) (*emailNotifier, error) {
 		return nil, fmt.Errorf("email notifier: 'to' is required")
 	}
 
-	port := intVal(cfg["port"], 25)
+	port := intVal(cfg["smtp_port"], 25)
 	username, _ := cfg["username"].(string)
 	password, _ := cfg["password"].(string)
 	html, _ := cfg["html"].(bool)

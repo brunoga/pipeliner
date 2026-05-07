@@ -40,6 +40,9 @@ func init() {
 		PluginPhase: plugin.PhaseMetainfo,
 		Description: "Annotates entries from .torrent files with name, info hash, size, and tracker metadata",
 		Factory:     newPlugin,
+		Validate: func(cfg map[string]any) []error {
+			return plugin.OptUnknownKeys(cfg, "metainfo_torrent")
+		},
 	})
 }
 
