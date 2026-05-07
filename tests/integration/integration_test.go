@@ -694,7 +694,7 @@ tasks:
       url: %q
     set:
       category: tv
-      label: '{title}'
+      label: '{raw_title}'
     print:
 `, srv.URL))
 

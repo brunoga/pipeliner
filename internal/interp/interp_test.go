@@ -85,7 +85,7 @@ func TestEntryData(t *testing.T) {
 
 	checks := map[string]string{
 		"Title":        "My Title",
-		"title":        "My Title",
+		"raw_title":    "My Title", // raw entry title; "title" is the enriched canonical title from metainfo
 		"URL":          "http://example.com",
 		"url":          "http://example.com",
 		"OriginalURL":  "http://original.com",
