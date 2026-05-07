@@ -173,11 +173,12 @@ func TestSearchParsesEntries(t *testing.T) {
 	}
 }
 
-func TestSearchMultipleIndexersSentAsOneCall(t *testing.T) {
-	// Multiple indexers should be joined and sent in a single API call.
-	var gotPath string
+func TestSearchMultipleIndexersCalledSeparately(t *testing.T) {
+	// Each indexer must be queried with its own request — Jackett does not
+	// support comma-separated indexer names in the URL path.
+	var gotPaths []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotPath = r.URL.Path
+		gotPaths = append(gotPaths, r.URL.Path)
 		fmt.Fprint(w, torznabResponse(nil)) //nolint:errcheck
 	}))
 	defer srv.Close()
@@ -189,8 +190,13 @@ func TestSearchMultipleIndexersSentAsOneCall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
-	if !strings.Contains(gotPath, "idx1,idx2,idx3") {
-		t.Errorf("expected comma-joined indexers in path, got %q", gotPath)
+	if len(gotPaths) != 3 {
+		t.Fatalf("expected 3 requests, got %d: %v", len(gotPaths), gotPaths)
+	}
+	for i, want := range []string{"idx1", "idx2", "idx3"} {
+		if !strings.Contains(gotPaths[i], want) {
+			t.Errorf("request %d: expected %q in path, got %q", i, want, gotPaths[i])
+		}
 	}
 }
 
