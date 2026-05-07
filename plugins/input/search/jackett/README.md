@@ -46,9 +46,9 @@ tasks:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `torrent_seeders` | int | Seeder count from the indexer |
+| `torrent_seeds` | int | Seeder count from the indexer |
 | `torrent_leechers` | int | Leecher count from the indexer |
-| `torrent_size` | int | Total size in bytes |
+| `torrent_file_size` | int64 | Total size in bytes |
 | `torrent_info_hash` | string | SHA-1 info hash (lowercase hex), if provided |
 | `jackett_category` | string | Torznab category code of the result |
 | `jackett_indexer` | string | Indexer ID that returned the result |

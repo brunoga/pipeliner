@@ -11,19 +11,28 @@ Enriches movie entries with metadata from The Movie Database (TMDb). Searches by
 
 ## Fields set on entry
 
-| Field | Description |
-|-------|-------------|
-| `tmdb_id` | TMDb movie ID |
-| `tmdb_title` | Movie title from TMDb |
-| `tmdb_original_title` | Original language title |
-| `tmdb_release_date` | Release date (`YYYY-MM-DD`) |
-| `tmdb_overview` | Plot summary |
-| `tmdb_popularity` | TMDb popularity score |
-| `tmdb_vote_average` | Average user rating |
-| `tmdb_runtime` | Runtime in minutes |
-| `tmdb_tagline` | Tagline |
-| `tmdb_imdb_id` | IMDb ID (e.g. `tt1375666`) |
-| `tmdb_genres` | Comma-separated genre names |
+### Provider-specific (always)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `tmdb_id` | int | TMDb movie ID |
+
+### Standard fields (always)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `title` | string | Movie title from TMDb |
+| `description` | string | Plot summary |
+| `published_date` | string | Release date (`YYYY-MM-DD`) |
+| `enriched` | bool | `true` — TMDb successfully enriched this entry |
+| `video_year` | int | Release year |
+| `video_original_title` | string | Original language title when different from `title` |
+| `video_rating` | float64 | Average user rating |
+| `video_popularity` | float64 | TMDb popularity score |
+| `video_runtime` | int | Runtime in minutes |
+| `video_imdb_id` | string | IMDb ID (e.g. `tt1375666`) |
+| `video_genres` | []string | Genre names |
+| `movie_tagline` | string | Tagline |
 
 ## Example
 
@@ -37,7 +46,7 @@ tasks:
     metainfo_tmdb:
       api_key: YOUR_API_KEY
     pathfmt:
-      path: "/media/movies/{{.tmdb_title}} ({{.tmdb_release_date | slice 0 4}})"
+      path: "/media/movies/{title} ({video_year})"
 ```
 
 ## Notes
@@ -45,3 +54,4 @@ tasks:
 - Free API keys at [themoviedb.org/settings/api](https://www.themoviedb.org/settings/api).
 - Only annotates entries whose title can be parsed as a movie (title + year). Entries without a parseable year are skipped.
 - Results are cached in `pipeliner.db` in the same directory as the config file.
+- Use `enriched` (not `tmdb_id`) to check whether TMDb successfully found metadata: `require: fields: ["enriched"]`.
