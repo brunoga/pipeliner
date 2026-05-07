@@ -15,13 +15,13 @@ import (
 )
 
 func init() {
-	notify.Register("webhook", func(cfg map[string]any) (notify.Notifier, error) {
-		return newNotifier(cfg)
+	notify.Register("webhook", notify.Descriptor{
+		Factory:  func(cfg map[string]any) (notify.Notifier, error) { return newNotifier(cfg) },
+		Validate: validate,
 	})
 }
 
-// Validate checks the webhook notifier configuration.
-func Validate(cfg map[string]any) []error {
+func validate(cfg map[string]any) []error {
 	var errs []error
 	if err := plugin.RequireString(cfg, "url", "webhook"); err != nil {
 		errs = append(errs, err)

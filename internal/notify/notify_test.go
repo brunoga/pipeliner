@@ -7,15 +7,17 @@ import (
 
 func TestRegisterAndLookup(t *testing.T) {
 	called := false
-	Register("test-notifier", func(_ map[string]any) (Notifier, error) {
-		return &mockNotifier{&called}, nil
+	Register("test-notifier", Descriptor{
+		Factory: func(_ map[string]any) (Notifier, error) {
+			return &mockNotifier{&called}, nil
+		},
 	})
 
-	f, ok := Lookup("test-notifier")
+	d, ok := Lookup("test-notifier")
 	if !ok {
 		t.Fatal("expected registered notifier to be found")
 	}
-	n, err := f(nil)
+	n, err := d.Factory(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,8 +42,8 @@ func TestDuplicatePanics(t *testing.T) {
 			t.Error("expected panic on duplicate registration")
 		}
 	}()
-	Register("dup-notifier", func(_ map[string]any) (Notifier, error) { return nil, nil })
-	Register("dup-notifier", func(_ map[string]any) (Notifier, error) { return nil, nil })
+	Register("dup-notifier", Descriptor{Factory: func(_ map[string]any) (Notifier, error) { return nil, nil }})
+	Register("dup-notifier", Descriptor{Factory: func(_ map[string]any) (Notifier, error) { return nil, nil }})
 }
 
 type mockNotifier struct{ called *bool }

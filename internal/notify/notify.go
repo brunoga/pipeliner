@@ -26,25 +26,31 @@ type Notifier interface {
 // Factory creates a Notifier from a config map.
 type Factory func(cfg map[string]any) (Notifier, error)
 
+// Descriptor holds the factory and optional config validator for a notifier.
+type Descriptor struct {
+	Factory  Factory
+	Validate func(cfg map[string]any) []error // nil means no validation
+}
+
 var (
 	mu       sync.RWMutex
-	registry = map[string]Factory{}
+	registry = map[string]Descriptor{}
 )
 
-// Register adds a named notifier factory. Panics on duplicate name.
-func Register(name string, f Factory) {
+// Register adds a named notifier descriptor. Panics on duplicate name.
+func Register(name string, d Descriptor) {
 	mu.Lock()
 	defer mu.Unlock()
 	if _, ok := registry[name]; ok {
 		panic(fmt.Sprintf("notify: duplicate notifier %q", name))
 	}
-	registry[name] = f
+	registry[name] = d
 }
 
-// Lookup returns the factory for name, or (nil, false) if not registered.
-func Lookup(name string) (Factory, bool) {
+// Lookup returns the descriptor for name, or (zero, false) if not registered.
+func Lookup(name string) (Descriptor, bool) {
 	mu.RLock()
 	defer mu.RUnlock()
-	f, ok := registry[name]
-	return f, ok
+	d, ok := registry[name]
+	return d, ok
 }

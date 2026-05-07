@@ -70,6 +70,7 @@ import (
 	_ "github.com/brunoga/pipeliner/plugins/output/notify"
 	_ "github.com/brunoga/pipeliner/plugins/output/print"
 	_ "github.com/brunoga/pipeliner/plugins/output/qbittorrent"
+	_ "github.com/brunoga/pipeliner/plugins/output/transmission"
 )
 
 // version is overridden at build time via:
