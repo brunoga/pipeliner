@@ -31,7 +31,8 @@ tasks:
     metainfo_tvdb:
       api_key: YOUR_TVDB_API_KEY
     pathfmt:
-      path: '{$ tv_path $}/{series_name}/Season {series_season:02d}'
+      path: '{$ tv_path $}/{title}/Season {series_season:02d}'
+      field: download_path
     transmission:
       host: localhost
       port: 9091
@@ -53,7 +54,8 @@ tasks:
           list: trending
           limit: 50
     pathfmt:
-      path: '{$ tv_path $}/{series_name}/Season {series_season:02d}'
+      path: '{$ tv_path $}/{title}/Season {series_season:02d}'
+      field: download_path
     transmission:
       host: localhost
       port: 9091

@@ -122,8 +122,7 @@ See [`plugins/`](plugins/README.md) for the plugin model and links to every plug
 
 | Plugin | Description |
 |--------|-------------|
-| [`pathfmt`](plugins/modify/pathfmt/README.md) | Render a pattern into the `download_path` field |
-| [`pathscrub`](plugins/modify/pathscrub/README.md) | Sanitize path components for safe filesystem use |
+| [`pathfmt`](plugins/modify/pathfmt/README.md) | Render a path pattern into a named field, with automatic scrubbing |
 | [`set`](plugins/modify/set/README.md) | Unconditionally set one or more entry fields |
 
 ### Output

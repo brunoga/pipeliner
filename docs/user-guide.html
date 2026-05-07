@@ -137,7 +137,6 @@ td code{font-size:12px}
 
     <div class="section">Modify Plugins</div>
     <a href="#pathfmt" class="sub">pathfmt</a>
-    <a href="#pathscrub" class="sub">pathscrub</a>
     <a href="#set" class="sub">set</a>
 
     <div class="section">Output Plugins</div>
@@ -285,7 +284,8 @@ make build        # or: go build -o pipeliner ./cmd/pipeliner</code></pre>
     <span class="y-key">metainfo_tvdb</span>:
       <span class="y-key">api_key</span>: <span class="y-str">"{$ tvdb_key $}"</span>
     <span class="y-key">pathfmt</span>:
-      <span class="y-key">path</span>: <span class="y-str">"{$ tv_root $}/{title}"</span></code></pre>
+      <span class="y-key">path</span>: <span class="y-str">"{$ tv_root $}/{title}"</span>
+      <span class="y-key">field</span>: <span class="y-str">download_path</span></code></pre>
 
 <div class="warn">Substituted values are injected into raw YAML before parsing. Values containing YAML metacharacters (colons, newlines) can alter config structure. Only substitute values from trusted sources.</div>
 
@@ -489,7 +489,7 @@ make build        # or: go build -o pipeliner ./cmd/pipeliner</code></pre>
   <tr><td><code>color_range</code></td><td>metainfo_quality</td><td>Color range tag (e.g. <code>HDR</code>, <code>SDR</code>)</td></tr>
   <tr><td><code>quality_resolution</code></td><td>metainfo_quality</td><td>Parsed resolution sub-field</td></tr>
   <tr><td><code>quality_source</code></td><td>metainfo_quality</td><td>Parsed source sub-field</td></tr>
-  <tr><td><code>download_path</code></td><td>pathfmt</td><td>Rendered destination directory path</td></tr>
+  <tr><td><code>download_path</code></td><td>pathfmt (<code>field: download_path</code>)</td><td>Rendered, scrubbed destination path — read by output plugins</td></tr>
 </table>
 
 <h3>Common fields (quick reference)</h3>
@@ -1125,28 +1125,19 @@ Because <code>enriched</code> is set by any external provider, the same config w
 
 <!-- ─────────── pathfmt ─────────── -->
 <h2 id="pathfmt">pathfmt</h2>
-<p>Renders a template string into the <code>download_path</code> entry field. Output plugins that accept a <code>path</code> config use this field by default.</p>
+<p>Renders a path template into a named entry field, automatically scrubbing each path component so the result is safe to use as a filesystem path. Characters invalid on common filesystems (<code>&lt;&gt;:"/\|?*</code> and control characters) are replaced with underscores.</p>
 
 <table>
   <tr><th>Key</th><th>Required</th><th>Description</th></tr>
   <tr><td><code>path</code></td><td>yes</td><td>Template string (supports <code>{field}</code>, <code>{field:format}</code>, and <code>{{.field}}</code>)</td></tr>
+  <tr><td><code>field</code></td><td>yes</td><td>Entry field to write the rendered path into (e.g. <code>download_path</code>)</td></tr>
 </table>
 
 <pre><code><span class="y-key">pathfmt</span>:
-  <span class="y-key">path</span>: <span class="y-str">"/media/tv/{title}/Season {series_season:02d}"</span></code></pre>
+  <span class="y-key">path</span>: <span class="y-str">"/media/tv/{title}/Season {series_season:02d}"</span>
+  <span class="y-key">field</span>: <span class="y-str">download_path</span></code></pre>
 
-<!-- ─────────── pathscrub ─────────── -->
-<h2 id="pathscrub">pathscrub</h2>
-<p>Sanitizes path fields to remove characters invalid on the target filesystem.</p>
-
-<table>
-  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
-  <tr><td><code>target</code></td><td>no</td><td><code>generic</code></td><td><code>windows</code>, <code>linux</code>, or <code>generic</code></td></tr>
-  <tr><td><code>fields</code></td><td>no</td><td><code>["download_path"]</code></td><td>Fields to sanitize</td></tr>
-</table>
-
-<pre><code><span class="y-key">pathscrub</span>:
-  <span class="y-key">fields</span>: [<span class="y-str">"title"</span>]</code></pre>
+<p>A colon in a show title like <code>"Breaking Bad: Season 1"</code> becomes an underscore, yielding <code>Breaking Bad_ Season 1</code>. No separate <code>pathscrub</code> step is needed.</p>
 
 <!-- ─────────── set ─────────── -->
 <h2 id="set">set</h2>
