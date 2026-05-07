@@ -357,14 +357,14 @@ tasks:
 		t.Fatalf("expected 1 entry, got %d", len(res.entries))
 	}
 	e := res.entries[0]
-	if v := e.GetString("series_name"); v != "Breaking Bad" {
-		t.Errorf("series_name: got %q", v)
+	if v := e.GetString("title"); v != "Breaking Bad" {
+		t.Errorf("title: got %q", v)
 	}
-	if v := e.GetInt("series_season"); v != 2 {
-		t.Errorf("series_season: got %d", v)
+	if v := e.GetInt("season"); v != 2 {
+		t.Errorf("season: got %d", v)
 	}
-	if v := e.GetString("series_id"); v != "S02E05" {
-		t.Errorf("series_id: got %q", v)
+	if v := e.GetString("episode_id"); v != "S02E05" {
+		t.Errorf("episode_id: got %q", v)
 	}
 }
 
@@ -455,7 +455,7 @@ tasks:
       url: %q
     metainfo_series:
     pathfmt:
-      path: '/tv/{{.series_name}}/S{{printf "%%02d" .series_season}}'
+      path: '/tv/{{.title}}/S{{printf "%%02d" .season}}'
     print:
 `, srv.URL))
 
@@ -669,7 +669,7 @@ tasks:
       url: %q
     metainfo_series:
     pathfmt:
-      path: '/tv/{series_name}/Season {series_season:02d}'
+      path: '/tv/{title}/Season {season:02d}'
     print:
 `, srv.URL))
 

@@ -74,9 +74,6 @@ func (p *rssPlugin) Run(ctx context.Context, _ *plugin.TaskContext) ([]*entry.En
 	}
 
 	for _, e := range entries {
-		e.Set("rss_feed", p.url)
-		// Promote rss_feed to standard field and seed SetRSSInfo with feed URL.
-		// Individual entries add their own fields in parseRSS/parseAtom.
 		e.SetRSSInfo(entry.RSSInfo{Feed: p.url})
 	}
 	return entries, nil
@@ -221,23 +218,12 @@ func parseRSS(data []byte) ([]*entry.Entry, error) {
 		if url == "" {
 			continue
 		}
+		title := strings.TrimSpace(item.Title)
 		desc := strings.TrimSpace(item.Description)
 		pubdate := strings.TrimSpace(item.PubDate)
-		e := entry.New(strings.TrimSpace(item.Title), url)
-		e.Set("rss_link", item.Link)
-		e.Set("rss_description", desc)
-		e.Set("rss_pubdate", pubdate)
-		e.Set("rss_guid", item.GUID)
-		if item.Enclosure.URL != "" {
-			e.Set("rss_enclosure_url", item.Enclosure.URL)
-			e.Set("rss_enclosure_type", item.Enclosure.Type)
-		}
-		seeds := item.seedCount()
-		if seeds > 0 {
-			e.Set("torrent_seeds", seeds)
-		}
+		e := entry.New(title, url)
 		e.SetGenericInfo(entry.GenericInfo{
-			Title:         strings.TrimSpace(item.Title),
+			Title:         title,
 			Description:   desc,
 			PublishedDate: pubdate,
 		})
@@ -247,7 +233,7 @@ func parseRSS(data []byte) ([]*entry.Entry, error) {
 			EnclosureURL:  item.Enclosure.URL,
 			EnclosureType: item.Enclosure.Type,
 		})
-		if seeds > 0 {
+		if seeds := item.seedCount(); seeds > 0 {
 			e.SetTorrentInfo(entry.TorrentInfo{Seeds: seeds})
 		}
 		entries = append(entries, e)
@@ -270,10 +256,6 @@ func parseAtom(data []byte) ([]*entry.Entry, error) {
 		desc := strings.TrimSpace(item.Summary.Value)
 		pubdate := strings.TrimSpace(item.Updated)
 		e := entry.New(title, url)
-		e.Set("rss_link", url)
-		e.Set("rss_description", desc)
-		e.Set("rss_pubdate", pubdate)
-		e.Set("rss_guid", item.ID)
 		e.SetGenericInfo(entry.GenericInfo{
 			Title:         title,
 			Description:   desc,

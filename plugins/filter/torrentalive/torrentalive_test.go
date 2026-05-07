@@ -36,7 +36,7 @@ func filter(t *testing.T, p *torrentAlivePlugin, e *entry.Entry) {
 func TestAcceptAboveThreshold(t *testing.T) {
 	p := makePlugin(t, map[string]any{"min_seeds": 10})
 	e := entry.New("show.torrent", "http://x.com/t.torrent")
-	e.Set("torrent_seeds", 15)
+	e.Set("seeds", 15)
 	filter(t, p, e)
 	if e.IsRejected() {
 		t.Error("15 seeds should pass min_seeds=10")
@@ -46,7 +46,7 @@ func TestAcceptAboveThreshold(t *testing.T) {
 func TestRejectBelowThreshold(t *testing.T) {
 	p := makePlugin(t, map[string]any{"min_seeds": 10})
 	e := entry.New("show.torrent", "http://x.com/t.torrent")
-	e.Set("torrent_seeds", 8)
+	e.Set("seeds", 8)
 	filter(t, p, e)
 	if !e.IsRejected() {
 		t.Error("8 seeds should fail min_seeds=10")
@@ -56,7 +56,7 @@ func TestRejectBelowThreshold(t *testing.T) {
 func TestExactlyAtThreshold(t *testing.T) {
 	p := makePlugin(t, map[string]any{"min_seeds": 10})
 	e := entry.New("show.torrent", "http://x.com/t.torrent")
-	e.Set("torrent_seeds", 10)
+	e.Set("seeds", 10)
 	filter(t, p, e)
 	if e.IsRejected() {
 		t.Error("exactly 10 seeds should pass min_seeds=10")
@@ -68,7 +68,7 @@ func TestNoSeedFieldSkipped(t *testing.T) {
 	e := entry.New("show", "http://x.com/page")
 	filter(t, p, e)
 	if e.IsRejected() {
-		t.Error("entry without torrent_seeds should not be rejected")
+		t.Error("entry without seeds should not be rejected")
 	}
 }
 
@@ -132,16 +132,16 @@ func TestScrapeFromHTTPTracker(t *testing.T) {
 
 	p := makePlugin(t, map[string]any{"min_seeds": 5, "scrape_timeout": "5s"})
 	e := entry.New("show.torrent", "http://x.com/t.torrent")
-	e.Set("torrent_info_hash", infoHash)
-	e.Set("torrent_announce_list", []string{srv.URL + "/announce"})
+	e.Set("info_hash", infoHash)
+	e.Set("announce_list", []string{srv.URL + "/announce"})
 
 	filter(t, p, e)
 
 	if e.IsRejected() {
 		t.Errorf("8 scraped seeds should pass min_seeds=5; reason: %q", e.RejectReason)
 	}
-	if v := e.GetInt("torrent_seeds"); v != 8 {
-		t.Errorf("torrent_seeds written back: got %d, want 8", v)
+	if v := e.GetInt("seeds"); v != 8 {
+		t.Errorf("seeds written back: got %d, want 8", v)
 	}
 }
 
@@ -157,8 +157,8 @@ func TestScrapeRejectsLowSeedCount(t *testing.T) {
 
 	p := makePlugin(t, map[string]any{"min_seeds": 5, "scrape_timeout": "5s"})
 	e := entry.New("show.torrent", "http://x.com/t.torrent")
-	e.Set("torrent_info_hash", infoHash)
-	e.Set("torrent_announce_list", []string{srv.URL + "/announce"})
+	e.Set("info_hash", infoHash)
+	e.Set("announce_list", []string{srv.URL + "/announce"})
 
 	filter(t, p, e)
 
@@ -170,8 +170,8 @@ func TestScrapeRejectsLowSeedCount(t *testing.T) {
 func TestScrapeTrackerUnreachablePassesThrough(t *testing.T) {
 	p := makePlugin(t, map[string]any{"min_seeds": 5, "scrape_timeout": "1s"})
 	e := entry.New("show.torrent", "http://x.com/t.torrent")
-	e.Set("torrent_info_hash", "aabbccddeeff00112233445566778899aabbccdd")
-	e.Set("torrent_announce_list", []string{"http://127.0.0.1:1/announce"})
+	e.Set("info_hash", "aabbccddeeff00112233445566778899aabbccdd")
+	e.Set("announce_list", []string{"http://127.0.0.1:1/announce"})
 
 	filter(t, p, e)
 
@@ -183,7 +183,7 @@ func TestScrapeTrackerUnreachablePassesThrough(t *testing.T) {
 func TestScrapeSkippedWhenNoInfoHash(t *testing.T) {
 	p := makePlugin(t, map[string]any{"min_seeds": 5})
 	e := entry.New("show", "http://x.com/page")
-	e.Set("torrent_announce", "http://tracker.example.com/announce")
+	e.Set("announce", "http://tracker.example.com/announce")
 
 	filter(t, p, e)
 	if e.IsRejected() {
@@ -200,8 +200,8 @@ func TestScrapeDisabledNoHTTPCall(t *testing.T) {
 
 	p := makePlugin(t, map[string]any{"min_seeds": 5, "scrape": false})
 	e := entry.New("show.torrent", "http://x.com/t.torrent")
-	e.Set("torrent_info_hash", "aabbccddeeff00112233445566778899aabbccdd")
-	e.Set("torrent_announce_list", []string{srv.URL + "/announce"})
+	e.Set("info_hash", "aabbccddeeff00112233445566778899aabbccdd")
+	e.Set("announce_list", []string{srv.URL + "/announce"})
 
 	filter(t, p, e)
 
@@ -246,8 +246,8 @@ func TestScrapeFromUDPTracker(t *testing.T) {
 
 	p := makePlugin(t, map[string]any{"min_seeds": 5, "scrape_timeout": "5s"})
 	e := entry.New("show.torrent", "http://x.com/t.torrent")
-	e.Set("torrent_info_hash", "aabbccddeeff00112233445566778899aabbccdd")
-	e.Set("torrent_announce_list", []string{"udp://" + pc.LocalAddr().String()})
+	e.Set("info_hash", "aabbccddeeff00112233445566778899aabbccdd")
+	e.Set("announce_list", []string{"udp://" + pc.LocalAddr().String()})
 
 	filter(t, p, e)
 

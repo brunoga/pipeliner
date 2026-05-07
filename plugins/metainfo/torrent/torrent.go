@@ -70,18 +70,6 @@ func (p *torrentPlugin) Annotate(ctx context.Context, _ *plugin.TaskContext, e *
 		return fmt.Errorf("metainfo_torrent: decode: %w", err)
 	}
 
-	e.Set("torrent_name", ti.Name)
-	e.Set("torrent_info_hash", ti.InfoHash)
-	e.Set("torrent_size", ti.TotalSize)
-	e.Set("torrent_file_count", ti.FileCount)
-	e.Set("torrent_files", ti.Files)
-	e.Set("torrent_announce", ti.Announce)
-	e.Set("torrent_announce_list", ti.AnnounceList)
-	e.Set("torrent_comment", ti.Comment)
-	e.Set("torrent_created_by", ti.CreatedBy)
-	e.Set("torrent_creation_date", ti.CreationDate)
-	e.Set("torrent_private", ti.IsPrivate)
-
 	var creationTime time.Time
 	if ti.CreationDate != 0 {
 		creationTime = time.Unix(ti.CreationDate, 0)
