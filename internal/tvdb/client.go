@@ -193,23 +193,34 @@ type Translation struct {
 }
 
 type SeriesExtended struct {
-	Language        string          `json:"originalLanguage"` // e.g. "eng"
-	OriginalCountry string          `json:"originalCountry"`  // e.g. "usa"
-	FirstAired      string          `json:"firstAired"`       // YYYY-MM-DD
-	LastAired       string          `json:"lastAired"`        // YYYY-MM-DD
-	NextAired       string          `json:"nextAired"`        // YYYY-MM-DD
-	Score           float64         `json:"score"`
+	// Base fields — also present in search results but more reliable here.
+	Name     string  `json:"name"`
+	Overview string  `json:"overview"`
+	Slug     string  `json:"slug"`
+	Image    string  `json:"image"`    // poster URL (search uses "image_url")
+	Year     string  `json:"year"`
+	Score    float64 `json:"score"`
+
+	// Extended-only fields.
+	Language        string `json:"originalLanguage"` // e.g. "eng"
+	OriginalCountry string `json:"originalCountry"`  // e.g. "usa"
+	FirstAired      string `json:"firstAired"`       // YYYY-MM-DD
+	LastAired       string `json:"lastAired"`        // YYYY-MM-DD
+	NextAired       string `json:"nextAired"`        // YYYY-MM-DD
 	Status          struct {
 		Name string `json:"name"`
 	} `json:"status"`
+	OriginalNetwork struct {
+		Name string `json:"name"`
+	} `json:"originalNetwork"`
 	Genres []struct {
 		Name string `json:"name"`
 	} `json:"genres"`
-	Trailers        []Trailer       `json:"trailers"`
-	ContentRatings  []ContentRating `json:"contentRatings"`
-	Aliases         []Alias         `json:"aliases"`
-	Characters      []Character     `json:"characters"`
-	NameTranslations []Translation  `json:"nameTranslations"`
+	Trailers         []Trailer       `json:"trailers"`
+	ContentRatings   []ContentRating `json:"contentRatings"`
+	Aliases          []Alias         `json:"aliases"`
+	Characters       []Character     `json:"characters"`
+	NameTranslations []Translation   `json:"nameTranslations"`
 }
 
 // GenreNames returns the genre names as a plain string slice.

@@ -104,19 +104,23 @@ func (p *tvdbPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 
 	// Use the first result (highest relevance from TVDB).
 	s := results[0]
-	tc.Logger.Debug("metainfo_tvdb: search result",
-		"series", ep.SeriesName,
-		"id", s.ID,
-		"network", s.Network,
-		"language", s.Language,
-		"genres", s.Genres,
-		"image_url", s.ImageURL,
-	)
+	tc.Logger.Debug("metainfo_tvdb: search result", "series", ep.SeriesName, "id", s.ID, "name", s.Name)
+
+	// Set baseline from search — these are always present.
 	e.Set("tvdb_id", s.ID)
 	e.Set("tvdb_series_name", s.Name)
-	e.Set("tvdb_series_year", s.Year)
-	e.Set("tvdb_overview", s.Overview)
-	e.Set("tvdb_slug", s.Slug)
+	if s.Year != "" {
+		e.Set("tvdb_series_year", s.Year)
+	}
+	if s.Overview != "" {
+		e.Set("tvdb_overview", s.Overview)
+	}
+	if s.Slug != "" {
+		e.Set("tvdb_slug", s.Slug)
+	}
+	if s.ImageURL != "" {
+		e.Set("tvdb_poster", s.ImageURL)
+	}
 	if len(s.Genres) > 0 {
 		e.Set("tvdb_genres", s.Genres)
 	}
@@ -129,9 +133,6 @@ func (p *tvdbPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 	if s.Country != "" {
 		e.Set("tvdb_country", countryName(s.Country))
 	}
-	if s.ImageURL != "" {
-		e.Set("tvdb_poster", s.ImageURL)
-	}
 	if t := parseFirstAired(s.FirstAired); !t.IsZero() {
 		e.Set("tvdb_first_air_date", t)
 	}
@@ -139,33 +140,42 @@ func (p *tvdbPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 		e.Set("tvdb_score", s.Score)
 	}
 
-	// Always fetch extended data — it provides richer and more reliable
-	// metadata (country, status, trailers, content ratings, aliases, etc.)
-	// that the search endpoint returns inconsistently or not at all.
+	// Extended is authoritative — unconditionally overrides search data when
+	// present, and adds fields the search endpoint never returns.
 	if s.ID != "" {
 		if ext, err := p.fetchExtended(ctx, tc, s.ID); err == nil {
-			// Fill in search gaps with extended data.
-			if len(s.Genres) == 0 {
-				if names := ext.GenreNames(); len(names) > 0 {
-					e.Set("tvdb_genres", names)
-				}
+			if ext.Name != "" {
+				e.Set("tvdb_series_name", ext.Name)
 			}
-			if s.Language == "" && ext.Language != "" {
+			if ext.Year != "" {
+				e.Set("tvdb_series_year", ext.Year)
+			}
+			if ext.Overview != "" {
+				e.Set("tvdb_overview", ext.Overview)
+			}
+			if ext.Slug != "" {
+				e.Set("tvdb_slug", ext.Slug)
+			}
+			if ext.Image != "" {
+				e.Set("tvdb_poster", ext.Image)
+			}
+			if names := ext.GenreNames(); len(names) > 0 {
+				e.Set("tvdb_genres", names)
+			}
+			if ext.OriginalNetwork.Name != "" {
+				e.Set("tvdb_network", ext.OriginalNetwork.Name)
+			}
+			if ext.Language != "" {
 				e.Set("tvdb_language", languageName(ext.Language))
 			}
-			if s.FirstAired == "" {
-				if t := parseFirstAired(ext.FirstAired); !t.IsZero() {
-					e.Set("tvdb_first_air_date", t)
-				}
+			if ext.OriginalCountry != "" {
+				e.Set("tvdb_country", countryName(ext.OriginalCountry))
 			}
-
-			// Extended-only fields.
-			country := s.Country
-			if country == "" {
-				country = ext.OriginalCountry
+			if t := parseFirstAired(ext.FirstAired); !t.IsZero() {
+				e.Set("tvdb_first_air_date", t)
 			}
-			if country != "" {
-				e.Set("tvdb_country", countryName(country))
+			if ext.Score > 0 {
+				e.Set("tvdb_score", ext.Score)
 			}
 			if ext.Status.Name != "" {
 				e.Set("tvdb_status", ext.Status.Name)
@@ -182,22 +192,17 @@ func (p *tvdbPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 			if t := parseFirstAired(ext.NextAired); !t.IsZero() {
 				e.Set("tvdb_next_air_date", t)
 			}
-			if ext.Score > 0 && s.Score == 0 {
-				e.Set("tvdb_score", ext.Score)
-			}
 			if aliases := ext.AliasNames(); len(aliases) > 0 {
 				e.Set("tvdb_aliases", aliases)
 			}
 			if cast := ext.ActorNames(); len(cast) > 0 {
 				e.Set("tvdb_cast", cast)
 			}
-			// Original-language title — only meaningful when the original language
-			// differs from the display name returned by the search endpoint.
-			lang := s.Language
+			lang := ext.Language
 			if lang == "" {
-				lang = ext.Language
+				lang = s.Language
 			}
-			if name := ext.OriginalName(lang); name != "" && name != s.Name {
+			if name := ext.OriginalName(lang); name != "" && name != ext.Name && name != s.Name {
 				e.Set("tvdb_original_title", name)
 			}
 		}

@@ -46,8 +46,13 @@ func makeServer() *httptest.Server {
 		case "/v4/series/81189/extended":
 			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
 				"data": map[string]any{
+					"name":             "Breaking Bad",
+					"slug":             "breaking-bad",
+					"year":             "2008",
+					"image":            "https://artworks.thetvdb.com/banners/posters/81189-1.jpg",
 					"originalLanguage": "eng",
 					"originalCountry":  "usa",
+					"originalNetwork":  map[string]any{"name": "AMC"},
 					"firstAired":       "2008-01-20",
 					"lastAired":        "2013-09-29",
 					"score":            99869.0,
@@ -94,6 +99,7 @@ func makeServerSparseSearch() *httptest.Server {
 		case "/v4/series/81189/extended":
 			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
 				"data": map[string]any{
+					"name":             "Breaking Bad",
 					"originalLanguage": "eng",
 					"originalCountry":  "usa",
 					"firstAired":       "2008-01-20",
@@ -183,6 +189,9 @@ func TestAnnotateSeries(t *testing.T) {
 	}
 	if v := e.GetString("tvdb_content_rating"); v != "TV-MA" {
 		t.Errorf("tvdb_content_rating: got %q, want TV-MA", v)
+	}
+	if v := e.GetString("tvdb_network"); v != "AMC" {
+		t.Errorf("tvdb_network: got %q, want AMC", v)
 	}
 	trailers, _ := e.Get("tvdb_trailers")
 	if urls, _ := trailers.([]string); len(urls) == 0 {
