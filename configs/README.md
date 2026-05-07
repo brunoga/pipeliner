@@ -39,7 +39,8 @@ tasks:
   my-task:
     seen:
     pathfmt:
-      path: "{$ tv_root $}/{series_name}"
+      path: "{$ tv_root $}/{title}"
+      field: download_path
 ```
 
 ## Templates
@@ -92,7 +93,8 @@ tasks:
         - "My Show"
     metainfo_quality:    # no config needed
     pathfmt:
-      path: "/media/tv/{series_name}/Season {series_season:02d}"
+      path: "/media/tv/{title}/Season {series_season:02d}"
+      field: download_path
     transmission:
       host: localhost
       port: 9091
@@ -113,45 +115,103 @@ Tasks without a schedule entry are not run automatically by the daemon.
 
 ## Entry fields
 
-Entries carry a title, a URL, a state (undecided/accepted/rejected), and an arbitrary string→any field map. Plugins read and write fields using the `{field}` pattern syntax (see [Pattern syntax](#pattern-syntax) below).
+Entries carry a title, a URL, a state (undecided/accepted/rejected), and an arbitrary field map. Plugins read and write fields using the `{field}` pattern syntax (see [Pattern syntax](#pattern-syntax) below).
+
+Fields follow a tiered naming convention. Three universal fields have no prefix; all others are prefixed by their info type.
+
+### Universal (GenericInfo)
 
 | Field | Set by | Description |
 |-------|--------|-------------|
-| `series_name` | `series`, `metainfo_series` | Canonical show name |
+| `title` | `metainfo_tvdb`, `metainfo_tmdb`, `metainfo_trakt`, `metainfo_series`, `movies` | Canonical enriched display name |
+| `description` | `metainfo_tvdb`, `metainfo_tmdb`, `metainfo_trakt` | Synopsis / overview |
+| `published_date` | `metainfo_tvdb`, `metainfo_tmdb`, `input/rss` | Release or premiere date |
+| `enriched` | `metainfo_tvdb`, `metainfo_tmdb`, `metainfo_trakt` | `true` when an external provider enriched this entry |
+| `raw_title` | all inputs | Original entry title (torrent filename or feed item title) |
+
+### Video (VideoInfo) — movies and series
+
+| Field | Set by | Description |
+|-------|--------|-------------|
+| `video_year` | `metainfo_tvdb`, `metainfo_tmdb`, `metainfo_trakt`, `movies` | Release or premiere year |
+| `video_language` | `metainfo_tvdb` | Original language (e.g. `English`) |
+| `video_country` | `metainfo_tvdb` | Country of origin (e.g. `United States`) |
+| `video_genres` | `metainfo_tvdb`, `metainfo_tmdb`, `metainfo_trakt` | Genre list |
+| `video_rating` | `metainfo_tvdb`, `metainfo_tmdb`, `metainfo_trakt` | Audience rating (0–10) |
+| `video_poster` | `metainfo_tvdb` | Poster image URL |
+| `video_cast` | `metainfo_tvdb` | Cast list |
+| `video_runtime` | `metainfo_tvdb`, `metainfo_tmdb` | Runtime in minutes |
+| `video_quality` | `metainfo_quality`, `movies` | Full quality string (e.g. `1080p BluRay H.265`) |
+| `video_resolution` | `metainfo_quality` | Resolution (e.g. `1080p`, `720p`) |
+| `video_source` | `metainfo_quality` | Source (e.g. `BluRay`, `WEB-DL`, `HDTV`) |
+| `video_is_3d` | `movies` | `true` when a 3D format marker is detected |
+| `video_imdb_id` | `metainfo_tmdb`, `metainfo_trakt` | IMDb ID (e.g. `tt1375666`) |
+
+### Series (SeriesInfo)
+
+| Field | Set by | Description |
+|-------|--------|-------------|
 | `series_season` | `series`, `metainfo_series` | Season number |
 | `series_episode` | `series`, `metainfo_series` | Episode number |
-| `series_episode_id` | `series`, `metainfo_series` | Episode ID string, e.g. `S02E05` |
-| `movie_title` | `movies` | Canonical movie title |
-| `movie_year` | `movies` | Movie release year |
-| `resolution` | `metainfo_quality` | Resolution tag (e.g. `1080p`) |
-| `source` | `metainfo_quality` | Source tag (e.g. `BluRay`, `HDTV`) |
-| `codec` | `metainfo_quality` | Codec tag (e.g. `x264`, `HEVC`) |
-| `download_path` | `pathfmt` | Rendered download directory path |
-| `tmdb_id` | `metainfo_tmdb` | TMDb movie/series ID |
-| `tmdb_title` | `metainfo_tmdb` | TMDb canonical title |
-| `tmdb_vote_average` | `metainfo_tmdb` | TMDb vote average (0–10) |
-| `tmdb_genres` | `metainfo_tmdb` | List of genre names |
-| `tmdb_release_date` | `metainfo_tmdb` | Release date string (ISO 8601) |
-| `tvdb_id` | `metainfo_tvdb`, `tvdb_favorites` | TheTVDB series ID |
-| `tvdb_series_name` | `metainfo_tvdb` | TheTVDB canonical series name |
-| `tvdb_first_aired` | `metainfo_tvdb` | First air date string |
-| `tvdb_genres` | `metainfo_tvdb` | List of genre names |
-| `trakt_id` | `metainfo_trakt`, `trakt_list` | Trakt internal ID |
-| `trakt_rating` | `metainfo_trakt` | Trakt community rating |
-| `trakt_genres` | `metainfo_trakt` | List of genre names |
-| `trakt_year` | `trakt_list` | Release or premiere year |
-| `trakt_imdb_id` | `trakt_list` | IMDb ID (e.g. `tt1375666`) |
-| `trakt_tmdb_id` | `trakt_list` | TMDb ID |
-| `torrent_info_hash` | `metainfo_torrent`, `metainfo_magnet` | SHA-1 info hash (hex) |
-| `torrent_name` | `metainfo_torrent`, `metainfo_magnet` | Torrent name |
-| `torrent_size` | `metainfo_torrent`, `metainfo_magnet` | Total size in bytes |
+| `series_episode_id` | `series`, `metainfo_series` | Episode ID string (e.g. `S02E05`) |
+| `series_network` | `metainfo_tvdb` | Broadcasting network |
+| `series_status` | `metainfo_tvdb` | Series status (e.g. `Ended`, `Continuing`) |
+| `series_first_air_date` | `metainfo_tvdb` | Series premiere date |
+| `series_episode_title` | `metainfo_tvdb` | Episode title |
+| `series_episode_air_date` | `metainfo_tvdb` | Episode air date |
+| `series_service` | `metainfo_series` | Streaming service tag from filename (e.g. `AMZN`, `NF`) |
+| `series_proper` | `metainfo_series` | `true` for PROPER releases |
+| `series_repack` | `metainfo_series` | `true` for REPACK releases |
+
+### Movie (MovieInfo)
+
+| Field | Set by | Description |
+|-------|--------|-------------|
+| `movie_tagline` | `metainfo_tmdb` | Movie tagline |
+
+### Torrent (TorrentInfo)
+
+| Field | Set by | Description |
+|-------|--------|-------------|
+| `torrent_info_hash` | `metainfo_torrent`, `metainfo_magnet`, `torrent_alive` | SHA-1 info hash (hex) |
+| `torrent_file_size` | `metainfo_torrent`, `metainfo_magnet`, `jackett_input` | Total size in bytes |
 | `torrent_file_count` | `metainfo_torrent`, `metainfo_magnet` | Number of files |
 | `torrent_files` | `metainfo_torrent`, `metainfo_magnet` | List of file paths |
+| `torrent_seeds` | `torrent_alive`, `input/rss`, `jackett_input` | Seed count |
+| `torrent_leechers` | `jackett_input` | Leecher count |
 | `torrent_announce` | `metainfo_torrent`, `metainfo_magnet` | Primary tracker URL |
-| `torrent_announce_list` | `metainfo_magnet` | All tracker announce URLs |
-| `torrent_display_name` | `metainfo_magnet` | Display name from magnet URI `dn=` param |
-| `torrent_private` | `metainfo_torrent` | Whether the torrent is private |
-| `location` | `filesystem` | Absolute file path on disk |
+
+### File (FileInfo)
+
+| Field | Set by | Description |
+|-------|--------|-------------|
+| `file_name` | `filesystem` | Filename (without directory) |
+| `file_extension` | `filesystem` | File extension including dot (e.g. `.torrent`) |
+| `file_location` | `filesystem` | Absolute path on disk |
+| `file_size` | `filesystem` | File size in bytes |
+| `file_modified_time` | `filesystem` | Last-modified time |
+
+### RSS (RSSInfo)
+
+| Field | Set by | Description |
+|-------|--------|-------------|
+| `rss_feed` | `input/rss` | Feed URL |
+| `rss_guid` | `input/rss` | Feed item GUID |
+| `rss_link` | `input/rss` | Article/item link URL |
+
+### Provider-specific (kept alongside standard fields)
+
+| Field | Set by | Description |
+|-------|--------|-------------|
+| `tvdb_id` | `metainfo_tvdb` | TheTVDB series ID |
+| `tvdb_slug` | `metainfo_tvdb` | TheTVDB URL slug |
+| `tvdb_episode_id` | `metainfo_tvdb` | TheTVDB internal episode ID |
+| `tmdb_id` | `metainfo_tmdb` | TMDb movie/series ID |
+| `trakt_id` | `metainfo_trakt` | Trakt internal ID |
+| `trakt_slug` | `metainfo_trakt` | Trakt URL slug |
+| `trakt_tmdb_id` | `metainfo_trakt` | TMDb cross-reference ID |
+| `trakt_tvdb_id` | `metainfo_trakt` | TheTVDB cross-reference ID |
+| `download_path` | `pathfmt` (with `field: download_path`) | Rendered, scrubbed download path |
 
 Custom fields can be set with the [`set`](../plugins/modify/set/README.md) plugin and read in any pattern expression.
 
@@ -161,7 +221,7 @@ String values in `pathfmt`, `exec`, `print`, `set`, and download-client path con
 
 | Syntax | Meaning | Example |
 |--------|---------|---------|
-| `{field}` | Insert field value | `{series_name}` |
+| `{field}` | Insert field value | `{title}` |
 | `{field:format}` | Printf-formatted field | `{series_season:02d}` |
 
 Go template syntax (`{{.field}}`) is still accepted for backward compatibility and is required for complex expressions like pipe chains (`{{.date \| slice 0 4}}`).
@@ -172,13 +232,13 @@ The `condition` plugin's `accept` and `reject` values use infix boolean syntax:
 
 | Syntax | Meaning | Example |
 |--------|---------|---------|
-| `field > value` | Numeric comparison | `tmdb_vote_average > 7.0` |
-| `field == "str"` | String equality | `source == "CAM"` |
-| `field contains "str"` | Substring match | `genre contains "documentary"` |
+| `field > value` | Numeric comparison | `video_rating > 7.0` |
+| `field == "str"` | String equality | `video_source == "CAM"` |
+| `field contains "str"` | Substring or slice contains | `video_genres contains "Documentary"` |
 | `field matches "regex"` | Regexp match | `title matches "\\d{4}"` |
-| `expr and expr` | Logical AND (`&&` also works) | `score > 7.0 and source != "CAM"` |
-| `expr or expr` | Logical OR (`\|\|` also works) | `source == "CAM" or source == "TS"` |
-| `not expr` | Logical NOT (`!` also works) | `not source == "CAM"` |
+| `expr and expr` | Logical AND (`&&` also works) | `video_rating > 7.0 and video_source != "CAM"` |
+| `expr or expr` | Logical OR (`\|\|` also works) | `video_source == "CAM" or video_source == "TS"` |
+| `not expr` | Logical NOT (`!` also works) | `not video_source == "CAM"` |
 
 Go template syntax (`{{gt .field value}}`) is still accepted for backward compatibility.
 
@@ -187,7 +247,7 @@ Go template syntax (`{{gt .field value}}`) is still accepted for backward compat
 See the other files in this directory for complete working examples:
 
 - [`tv-series-deluge.yml`](tv-series-deluge.yml) — explicit show list → Deluge
-- [`movie-downloads.yml`](movie-downloads.yml) — explicit movie list + TMDb rating gate → qBittorrent
+- [`movie-downloads.yml`](movie-downloads.yml) — explicit movie list + rating gate → qBittorrent
 - [`trakt-shows-transmission.yml`](trakt-shows-transmission.yml) — Trakt watchlist via `series.from` → Transmission
 - [`trakt-movies-qbittorrent.yml`](trakt-movies-qbittorrent.yml) — Trakt watchlist via `movies.from` → qBittorrent
 - [`tvdb-favorites-deluge.yml`](tvdb-favorites-deluge.yml) — TheTVDB favorites via `series.from` → Deluge

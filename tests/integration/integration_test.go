@@ -47,7 +47,6 @@ import (
 	_ "github.com/brunoga/pipeliner/plugins/metainfo/series"
 	_ "github.com/brunoga/pipeliner/plugins/metainfo/trakt"
 	_ "github.com/brunoga/pipeliner/plugins/modify/pathfmt"
-	_ "github.com/brunoga/pipeliner/plugins/modify/pathscrub"
 	_ "github.com/brunoga/pipeliner/plugins/modify/set"
 	_ "github.com/brunoga/pipeliner/plugins/output/exec"
 	_ "github.com/brunoga/pipeliner/plugins/output/list_add"
@@ -482,6 +481,7 @@ tasks:
     metainfo_series:
     pathfmt:
       path: '/tv/{{.title}}/S{{printf "%%02d" .series_season}}'
+      field: download_path
     print:
 `, srv.URL))
 
@@ -532,7 +532,7 @@ func TestAllPluginsRegistered(t *testing.T) {
 		"seen", "regexp", "quality", "exists", "series", "movies", "condition",
 		"require", "content", "premiere", "torrent_alive", "upgrade",
 		"trakt", "tvdb", "accept_all", "list_match",
-		"set", "pathfmt", "pathscrub",
+		"set", "pathfmt",
 		"print", "exec", "list_add",
 		"metainfo_quality", "metainfo_series", "metainfo_trakt", "metainfo_magnet",
 		"rss_search", "jackett",
@@ -696,6 +696,7 @@ tasks:
     metainfo_series:
     pathfmt:
       path: '/tv/{title}/Season {series_season:02d}'
+      field: download_path
     print:
 `, srv.URL))
 

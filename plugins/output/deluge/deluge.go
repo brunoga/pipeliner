@@ -53,13 +53,13 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 	port := intVal(cfg["port"], 8112)
 	password, _ := cfg["password"].(string)
 
-	pathPat, _ := cfg["path"].(string)
-	if pathPat == "" {
-		pathPat = "{download_path}"
-	}
-	pathIP, err := interp.Compile(pathPat)
-	if err != nil {
-		return nil, fmt.Errorf("deluge: invalid path pattern: %w", err)
+	var pathIP *interp.Interpolator
+	if pathPat, _ := cfg["path"].(string); pathPat != "" {
+		ip, err := interp.Compile(pathPat)
+		if err != nil {
+			return nil, fmt.Errorf("deluge: invalid path pattern: %w", err)
+		}
+		pathIP = ip
 	}
 
 	var moveCompletedIP *interp.Interpolator
@@ -192,6 +192,9 @@ func (p *delugePlugin) rpc(ctx context.Context, method string, params []any) (an
 }
 
 func (p *delugePlugin) renderPath(e *entry.Entry) (string, error) {
+	if p.pathIP == nil {
+		return "", nil
+	}
 	return p.pathIP.Render(interp.EntryData(e))
 }
 

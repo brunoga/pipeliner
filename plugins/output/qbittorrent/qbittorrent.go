@@ -55,13 +55,13 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 	}
 	baseURL := fmt.Sprintf("%s://%s:%d", scheme, host, port)
 
-	savePat, _ := cfg["savepath"].(string)
-	if savePat == "" {
-		savePat = "{download_path}"
-	}
-	saveIP, err := interp.Compile(savePat)
-	if err != nil {
-		return nil, fmt.Errorf("qbittorrent: invalid savepath pattern: %w", err)
+	var saveIP *interp.Interpolator
+	if savePat, _ := cfg["savepath"].(string); savePat != "" {
+		ip, err := interp.Compile(savePat)
+		if err != nil {
+			return nil, fmt.Errorf("qbittorrent: invalid savepath pattern: %w", err)
+		}
+		saveIP = ip
 	}
 
 	jar, _ := cookiejar.New(nil)
@@ -163,6 +163,9 @@ func (p *qbtPlugin) addTorrent(ctx context.Context, torrentURL, savePath string)
 }
 
 func (p *qbtPlugin) renderSave(e *entry.Entry) (string, error) {
+	if p.saveIP == nil {
+		return "", nil
+	}
 	return p.saveIP.Render(interp.EntryData(e))
 }
 

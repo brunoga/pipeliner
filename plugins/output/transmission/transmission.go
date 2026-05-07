@@ -11,7 +11,7 @@
 //	port     - RPC port (default: 9091)
 //	username - HTTP basic auth username (optional)
 //	password - HTTP basic auth password (optional)
-//	path     - download directory pattern (default: "{download_path}")
+//	path     - download directory pattern; if omitted the client's default is used
 //	paused   - add torrent in paused state (default: false)
 //	rpc_path - RPC endpoint path (default: "/transmission/rpc")
 package transmission
@@ -77,13 +77,13 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 		rpcPath = v
 	}
 
-	pathExpr := "{download_path}"
+	var pathIP *interp.Interpolator
 	if v, ok := cfg["path"].(string); ok && v != "" {
-		pathExpr = v
-	}
-	pathIP, err := interp.Compile(pathExpr)
-	if err != nil {
-		return nil, fmt.Errorf("transmission: invalid path pattern: %w", err)
+		ip, err := interp.Compile(v)
+		if err != nil {
+			return nil, fmt.Errorf("transmission: invalid path pattern: %w", err)
+		}
+		pathIP = ip
 	}
 
 	paused := false
@@ -120,17 +120,18 @@ func (p *transmissionPlugin) Output(ctx context.Context, tc *plugin.TaskContext,
 }
 
 func (p *transmissionPlugin) addTorrent(ctx context.Context, e *entry.Entry) error {
-	downloadDir, err := p.pathIP.Render(interp.EntryData(e))
-	if err != nil {
-		return fmt.Errorf("render path: %w", err)
-	}
-
 	args := map[string]any{
-		"filename":     e.URL,
-		"paused":       p.paused,
+		"filename": e.URL,
+		"paused":   p.paused,
 	}
-	if downloadDir != "" {
-		args["download-dir"] = downloadDir
+	if p.pathIP != nil {
+		downloadDir, err := p.pathIP.Render(interp.EntryData(e))
+		if err != nil {
+			return fmt.Errorf("render path: %w", err)
+		}
+		if downloadDir != "" {
+			args["download-dir"] = downloadDir
+		}
 	}
 
 	return p.rpc(ctx, "torrent-add", args, nil)

@@ -28,7 +28,8 @@ tasks:
     metainfo_tvdb:
       api_key: "{$ tvdb_api_key $}"
     pathfmt:
-      path: '{$ tv_path $}/{tvdb_series_name}/Season {series_season:02d}'
+      path: '{$ tv_path $}/{title}/Season {series_season:02d}'
+      field: download_path
     deluge:
       host: "{$ deluge_host $}"
       password: "{$ deluge_pass $}"

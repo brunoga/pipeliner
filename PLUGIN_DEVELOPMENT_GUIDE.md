@@ -804,6 +804,7 @@ Users write patterns in config files using `{field}` syntax:
 ```yaml
 pathfmt:
   path: "/downloads/{title}/Season {series_season:02d}"
+  field: download_path
 ```
 
 | Syntax | Meaning |

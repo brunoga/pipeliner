@@ -34,7 +34,8 @@ tasks:
       client_id: "{$ trakt_client_id $}"
       type: movies
     pathfmt:
-      path: '{$ movies_path $}/{{.tmdb_title}} ({{.tmdb_release_date | slice 0 4}})'
+      path: '{$ movies_path $}/{{.title}} ({{.video_year}})'
+      field: download_path
     qbittorrent:
       host: "{$ qbit_host $}"
       port: "{$ qbit_port $}"
@@ -60,10 +61,11 @@ tasks:
       api_key: YOUR_TMDB_API_KEY
     condition:
       rules:
-        - reject: 'source == "CAM"'
-        - reject: 'tmdb_vote_average < 7.5'
+        - reject: 'video_source == "CAM"'
+        - reject: 'video_rating < 7.5'
     pathfmt:
-      path: '{$ movies_path $}/{{.tmdb_title}} ({{.tmdb_release_date | slice 0 4}})'
+      path: '{$ movies_path $}/{{.title}} ({{.video_year}})'
+      field: download_path
     qbittorrent:
       host: "{$ qbit_host $}"
       port: "{$ qbit_port $}"

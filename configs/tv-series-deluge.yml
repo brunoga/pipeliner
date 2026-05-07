@@ -22,7 +22,8 @@ tasks:
         - "The Wire"
         - "Severance"
     pathfmt:
-      path: '{$ tv_path $}/{series_name}/Season {series_season:02d}'
+      path: '{$ tv_path $}/{title}/Season {series_season:02d}'
+      field: download_path
     deluge:
       host: "{$ deluge_host $}"
       password: "{$ deluge_pass $}"

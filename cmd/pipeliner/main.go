@@ -57,7 +57,6 @@ import (
 	_ "github.com/brunoga/pipeliner/plugins/metainfo/trakt"
 	_ "github.com/brunoga/pipeliner/plugins/metainfo/tvdb"
 	_ "github.com/brunoga/pipeliner/plugins/modify/pathfmt"
-	_ "github.com/brunoga/pipeliner/plugins/modify/pathscrub"
 	_ "github.com/brunoga/pipeliner/plugins/modify/set"
 	_ "github.com/brunoga/pipeliner/plugins/notify/email"
 	_ "github.com/brunoga/pipeliner/plugins/notify/pushover"
