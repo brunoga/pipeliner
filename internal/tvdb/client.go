@@ -186,6 +186,12 @@ type Character struct {
 	Sort       int    `json:"sort"`       // display order
 }
 
+// Translation holds a localised name for a series.
+type Translation struct {
+	Language string `json:"language"` // ISO 639-1 or 639-2 code, e.g. "spa"
+	Name     string `json:"name"`
+}
+
 type SeriesExtended struct {
 	Language        string          `json:"originalLanguage"` // e.g. "eng"
 	OriginalCountry string          `json:"originalCountry"`  // e.g. "usa"
@@ -199,10 +205,11 @@ type SeriesExtended struct {
 	Genres []struct {
 		Name string `json:"name"`
 	} `json:"genres"`
-	Trailers       []Trailer       `json:"trailers"`
-	ContentRatings []ContentRating `json:"contentRatings"`
-	Aliases        []Alias         `json:"aliases"`
-	Characters     []Character     `json:"characters"`
+	Trailers        []Trailer       `json:"trailers"`
+	ContentRatings  []ContentRating `json:"contentRatings"`
+	Aliases         []Alias         `json:"aliases"`
+	Characters      []Character     `json:"characters"`
+	NameTranslations []Translation  `json:"nameTranslations"`
 }
 
 // GenreNames returns the genre names as a plain string slice.
@@ -236,6 +243,17 @@ func (s *SeriesExtended) TrailerURLs() []string {
 		}
 	}
 	return urls
+}
+
+// OriginalName returns the series name in the given language code (e.g. "spa"),
+// or "" if no matching translation is present.
+func (s *SeriesExtended) OriginalName(lang string) string {
+	for _, t := range s.NameTranslations {
+		if t.Language == lang && t.Name != "" {
+			return t.Name
+		}
+	}
+	return ""
 }
 
 // ContentRatingName returns the first content rating name (e.g. "TV-MA"), or "".
@@ -282,7 +300,7 @@ func (c *Client) GetSeriesExtended(ctx context.Context, id string) (*SeriesExten
 		return nil, err
 	}
 
-	u := fmt.Sprintf("%s/series/%s/extended?meta=actors", c.BaseURL, id)
+	u := fmt.Sprintf("%s/series/%s/extended?meta=actors,translations", c.BaseURL, id)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return nil, err

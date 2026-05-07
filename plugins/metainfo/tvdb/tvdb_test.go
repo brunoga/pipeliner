@@ -117,6 +117,9 @@ func makeServerSparseSearch() *httptest.Server {
 						{"personName": "Bryan Cranston", "type": 3, "sort": 1},
 						{"personName": "Aaron Paul", "type": 3, "sort": 2},
 					},
+					"nameTranslations": []map[string]any{
+						{"language": "eng", "name": "Breaking Bad"},
+					},
 				},
 				"status": "success",
 			})
@@ -323,6 +326,78 @@ func TestAnnotateParenthesizedYearParallelSearch(t *testing.T) {
 	}
 	if v := e.GetString("tvdb_series_name"); v != "Dark" {
 		t.Errorf("tvdb_series_name: got %q, want %q", v, "Dark")
+	}
+}
+
+// makeServerForeignShow serves a show whose TVDB display name is the
+// international title and whose original-language title differs — simulating
+// e.g. "Money Heist" (display) vs "La Casa de Papel" (Spanish original).
+func makeServerForeignShow() *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v4/login":
+			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+				"data": map[string]string{"token": "jwt"}, "status": "success",
+			})
+		case "/v4/search":
+			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+				"data": []map[string]any{
+					{
+						"tvdb_id":          "355774",
+						"name":             "Money Heist",
+						"year":             "2017",
+						"slug":             "money-heist",
+						"originalLanguage": "spa",
+					},
+				},
+				"status": "success",
+			})
+		case "/v4/series/355774/extended":
+			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+				"data": map[string]any{
+					"originalLanguage": "spa",
+					"originalCountry":  "esp",
+					"status":           map[string]any{"name": "Ended"},
+					"nameTranslations": []map[string]any{
+						{"language": "spa", "name": "La Casa de Papel"},
+						{"language": "eng", "name": "Money Heist"},
+					},
+				},
+				"status": "success",
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+}
+
+func TestOriginalTitleForeignShow(t *testing.T) {
+	srv := makeServerForeignShow()
+	defer srv.Close()
+
+	p := makePlugin(t, srv)
+	e := entry.New("Money.Heist.S01E01.1080p.WEBRip", "http://x.com/a")
+	if err := p.Annotate(context.Background(), makeCtx(), e); err != nil {
+		t.Fatal(err)
+	}
+	if v := e.GetString("tvdb_original_title"); v != "La Casa de Papel" {
+		t.Errorf("tvdb_original_title: got %q, want %q", v, "La Casa de Papel")
+	}
+}
+
+func TestOriginalTitleNotSetForEnglishShow(t *testing.T) {
+	// Breaking Bad is English — tvdb_original_title should not be set since
+	// the original name matches the display name.
+	srv := makeServerSparseSearch()
+	defer srv.Close()
+
+	p := makePlugin(t, srv)
+	e := entry.New("Breaking.Bad.S01E01.1080p.WEBRip", "http://x.com/a")
+	if err := p.Annotate(context.Background(), makeCtx(), e); err != nil {
+		t.Fatal(err)
+	}
+	if v := e.GetString("tvdb_original_title"); v != "" {
+		t.Errorf("tvdb_original_title should not be set for English shows, got %q", v)
 	}
 }
 
