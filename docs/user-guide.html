@@ -105,6 +105,7 @@ td code{font-size:12px}
     <div class="section">From Plugins</div>
     <a href="#tvdb_favorites" class="sub">tvdb_favorites</a>
     <a href="#trakt_list" class="sub">trakt_list</a>
+    <a href="#trakt-auth" class="sub">Trakt auth setup</a>
     <a href="#jackett" class="sub">jackett</a>
     <a href="#rss_search" class="sub">rss_search</a>
 
@@ -694,7 +695,7 @@ make build        # or: go build -o pipeliner ./cmd/pipeliner</code></pre>
   <span class="y-key">from</span>:
     - <span class="y-key">name</span>: <span class="y-str">trakt_list</span>
       <span class="y-key">client_id</span>: <span class="y-str">YOUR_CLIENT_ID</span>
-      <span class="y-key">access_token</span>: <span class="y-str">YOUR_TOKEN</span>
+      <span class="y-key">client_secret</span>: <span class="y-str">YOUR_CLIENT_SECRET</span>
       <span class="y-key">type</span>: <span class="y-str">movies</span>
       <span class="y-key">list</span>: <span class="y-str">watchlist</span>
   <span class="y-key">via</span>:
@@ -772,11 +773,43 @@ make build        # or: go build -o pipeliner ./cmd/pipeliner</code></pre>
   <tr><td><code>client_id</code></td><td>yes</td><td>—</td><td>Trakt API Client ID</td></tr>
   <tr><td><code>type</code></td><td>yes</td><td>—</td><td><code>movies</code> or <code>shows</code></td></tr>
   <tr><td><code>list</code></td><td>no</td><td><code>watchlist</code></td><td><code>watchlist</code>, <code>trending</code>, <code>popular</code>, <code>watched</code>, <code>ratings</code>, <code>collection</code></td></tr>
-  <tr><td><code>access_token</code></td><td>conditional</td><td>—</td><td>Required for <code>watchlist</code>, <code>ratings</code>, <code>collection</code></td></tr>
+  <tr><td><code>client_secret</code></td><td>conditional</td><td>—</td><td>OAuth client secret — enables automatic token management (see <a href="#trakt-auth">Trakt Authentication</a>)</td></tr>
+  <tr><td><code>access_token</code></td><td>conditional</td><td>—</td><td>Static OAuth bearer token (alternative to <code>client_secret</code>)</td></tr>
   <tr><td><code>limit</code></td><td>no</td><td><code>100</code></td><td>Max results for public lists</td></tr>
 </table>
 
-<p>Get a free API key at <a href="https://trakt.tv/oauth/applications" target="_blank">trakt.tv/oauth/applications</a>.</p>
+<p>One of <code>client_secret</code> or <code>access_token</code> is required for <code>watchlist</code>, <code>ratings</code>, and <code>collection</code>. Public lists (<code>trending</code>, <code>popular</code>, <code>watched</code>) need neither. See <a href="#trakt-auth">Trakt Authentication</a> for setup instructions.</p>
+
+<!-- ─────────── trakt auth ─────────── -->
+<h2 id="trakt-auth">Trakt Authentication</h2>
+<p>Private Trakt lists (watchlist, ratings, collection) require an OAuth token. Pipeliner supports two approaches:</p>
+
+<h4>Recommended: managed tokens via <code>client_secret</code></h4>
+<p>Run the device auth flow once to obtain and store a token in <code>pipeliner.db</code>. Pipeliner then refreshes it automatically before expiry (tokens last 90 days).</p>
+<ol>
+  <li>Create a Trakt application at <a href="https://trakt.tv/oauth/applications" target="_blank">trakt.tv/oauth/applications</a> to get a <code>client_id</code> and <code>client_secret</code>.</li>
+  <li>Run the auth command (use the same <code>--config</code> path as your pipeliner config so the token is stored in the right <code>pipeliner.db</code>):<br>
+    <code>pipeliner auth trakt --client-id=YOUR_ID --client-secret=YOUR_SECRET --config=config.yml</code>
+  </li>
+  <li>Visit the URL shown and enter the displayed code on Trakt's website.</li>
+  <li>Use <code>client_secret</code> in your config — no <code>access_token</code> needed:<br>
+<pre><code><span class="y-key">from</span>:
+  - <span class="y-key">name</span>: <span class="y-str">trakt_list</span>
+    <span class="y-key">client_id</span>: <span class="y-str">YOUR_CLIENT_ID</span>
+    <span class="y-key">client_secret</span>: <span class="y-str">YOUR_CLIENT_SECRET</span>
+    <span class="y-key">type</span>: <span class="y-str">movies</span>
+    <span class="y-key">list</span>: <span class="y-str">watchlist</span></code></pre>
+  </li>
+</ol>
+
+<h4>Alternative: static <code>access_token</code></h4>
+<p>Obtain a token manually from Trakt and place it directly in the config. Tokens expire after 90 days and must be updated manually.</p>
+<pre><code><span class="y-key">from</span>:
+  - <span class="y-key">name</span>: <span class="y-str">trakt_list</span>
+    <span class="y-key">client_id</span>: <span class="y-str">YOUR_CLIENT_ID</span>
+    <span class="y-key">access_token</span>: <span class="y-str">YOUR_TOKEN</span>
+    <span class="y-key">type</span>: <span class="y-str">movies</span>
+    <span class="y-key">list</span>: <span class="y-str">watchlist</span></code></pre>
 
 <!-- ─────────── jackett (from) ─────────── -->
 <h2 id="jackett">jackett</h2>
