@@ -52,7 +52,7 @@ func validate(cfg map[string]any) []error {
 			errs = append(errs, fmt.Errorf("series: invalid quality spec: %w", err))
 		}
 	}
-	errs = append(errs, plugin.OptUnknownKeys(cfg, "series", "static", "from", "ttl", "tracking", "quality")...)
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "series", "static", "from", "ttl", "tracking", "quality", "reject_unmatched")...)
 	return errs
 }
 
@@ -66,12 +66,13 @@ const (
 )
 
 type seriesPlugin struct {
-	staticShows []string          // normalised show names from config
-	from        []plugin.InputPlugin
-	listCache   *cache.Cache[[]string]
-	spec        quality.Spec
-	tracking    tracking
-	tracker     *series.Tracker
+	staticShows     []string // normalised show names from config
+	from            []plugin.InputPlugin
+	listCache       *cache.Cache[[]string]
+	spec            quality.Spec
+	tracking        tracking
+	tracker         *series.Tracker
+	rejectUnmatched bool
 }
 
 func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
@@ -129,13 +130,19 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 		spec.MinColorRange = s.MinColorRange
 	}
 
+	rejectUnmatched := true
+	if v, ok := cfg["reject_unmatched"]; ok {
+		rejectUnmatched, _ = v.(bool)
+	}
+
 	return &seriesPlugin{
-		staticShows: staticShows,
-		from:        froms,
-		listCache:   cache.NewPersistent[[]string](ttl, db.Bucket("cache_series_from")),
-		spec:        spec,
-		tracking:    tr,
-		tracker:     tracker,
+		staticShows:     staticShows,
+		from:            froms,
+		listCache:       cache.NewPersistent[[]string](ttl, db.Bucket("cache_series_from")),
+		spec:            spec,
+		tracking:        tr,
+		tracker:         tracker,
+		rejectUnmatched: rejectUnmatched,
 	}, nil
 }
 
@@ -145,14 +152,18 @@ func (p *seriesPlugin) Phase() plugin.Phase { return plugin.PhaseFilter }
 func (p *seriesPlugin) Filter(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
 	ep, ok := series.Parse(e.Title)
 	if !ok {
-		tc.Logger.Debug("series: title did not parse as episode", "entry", e.Title)
+		if p.rejectUnmatched {
+			e.Reject("series: title did not parse as episode")
+		}
 		return nil
 	}
 
 	shows := p.resolveShows(ctx, tc)
 	matchedShow, ok := matchShow(ep.SeriesName, shows)
 	if !ok {
-		tc.Logger.Debug("series: no show match", "series", ep.SeriesName, "shows_loaded", len(shows))
+		if p.rejectUnmatched {
+			e.Reject("series: show not in list")
+		}
 		return nil
 	}
 

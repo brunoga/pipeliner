@@ -315,7 +315,9 @@ func (p *tvdbPlugin) fetchSearch(ctx context.Context, tc *plugin.TaskContext, na
 		tc.Logger.Warn("metainfo_tvdb: search failed", "series", name, "err", err)
 		return nil
 	}
-	p.cache.Set(name, results)
+	if len(results) > 0 {
+		p.cache.Set(name, results)
+	}
 	tc.Logger.Debug("metainfo_tvdb: search", "series", name, "duration", time.Since(t0).Round(time.Millisecond))
 	return results
 }

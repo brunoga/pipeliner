@@ -51,16 +51,17 @@ func validate(cfg map[string]any) []error {
 			errs = append(errs, fmt.Errorf("movies: invalid quality spec: %w", err))
 		}
 	}
-	errs = append(errs, plugin.OptUnknownKeys(cfg, "movies", "static", "from", "ttl", "quality")...)
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "movies", "static", "from", "ttl", "quality", "reject_unmatched")...)
 	return errs
 }
 
 type moviesPlugin struct {
-	staticTitles []string          // normalised movie titles from config
-	from         []plugin.InputPlugin
-	listCache    *cache.Cache[[]string]
-	spec         quality.Spec
-	tracker      *imovies.Tracker
+	staticTitles    []string // normalised movie titles from config
+	from            []plugin.InputPlugin
+	listCache       *cache.Cache[[]string]
+	spec            quality.Spec
+	tracker         *imovies.Tracker
+	rejectUnmatched bool
 }
 
 func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
@@ -104,13 +105,21 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 		spec.MinCodec = s.MinCodec
 		spec.MinAudio = s.MinAudio
 		spec.MinColorRange = s.MinColorRange
+		spec.MinFormat3D = s.MinFormat3D
+		spec.MaxFormat3D = s.MaxFormat3D
+	}
+
+	rejectUnmatched := true
+	if v, ok := cfg["reject_unmatched"]; ok {
+		rejectUnmatched, _ = v.(bool)
 	}
 
 	return &moviesPlugin{
-		staticTitles: staticTitles,
-		from:         froms,
-		listCache:    cache.NewPersistent[[]string](ttl, db.Bucket("cache_movies_from")),
-		spec:         spec,
+		staticTitles:    staticTitles,
+		from:            froms,
+		listCache:       cache.NewPersistent[[]string](ttl, db.Bucket("cache_movies_from")),
+		spec:            spec,
+		rejectUnmatched: rejectUnmatched,
 		tracker:      imovies.NewTracker(db.Bucket("movies")),
 	}, nil
 }
@@ -121,14 +130,18 @@ func (p *moviesPlugin) Phase() plugin.Phase { return plugin.PhaseFilter }
 func (p *moviesPlugin) Filter(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
 	m, ok := imovies.Parse(e.Title)
 	if !ok {
-		tc.Logger.Debug("movies: title did not parse as movie", "entry", e.Title)
+		if p.rejectUnmatched {
+			e.Reject("movies: title did not parse as movie")
+		}
 		return nil
 	}
 
 	titles := p.resolveTitles(ctx, tc)
 	matchedTitle, ok := matchTitle(m.Title, titles)
 	if !ok {
-		tc.Logger.Debug("movies: no title match", "title", m.Title, "titles_loaded", len(titles))
+		if p.rejectUnmatched {
+			e.Reject("movies: title not in list")
+		}
 		return nil
 	}
 

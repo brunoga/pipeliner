@@ -56,15 +56,16 @@ func validate(cfg map[string]any) []error {
 			errs = append(errs, fmt.Errorf("premiere: \"season\" must be a non-negative integer"))
 		}
 	}
-	errs = append(errs, plugin.OptUnknownKeys(cfg, "premiere", "episode", "season", "quality")...)
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "premiere", "episode", "season", "quality", "reject_unmatched")...)
 	return errs
 }
 
 type premierePlugin struct {
-	episode int
-	season  int // 0 = any season
-	spec    quality.Spec
-	tracker *series.Tracker
+	episode         int
+	season          int // 0 = any season
+	spec            quality.Spec
+	tracker         *series.Tracker
+	rejectUnmatched bool
 }
 
 func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
@@ -80,11 +81,17 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 		spec = s
 	}
 
+	rejectUnmatched := true
+	if v, ok := cfg["reject_unmatched"]; ok {
+		rejectUnmatched, _ = v.(bool)
+	}
+
 	return &premierePlugin{
-		episode: episode,
-		season:  season,
-		spec:    spec,
-		tracker: series.NewTracker(db.Bucket("series")),
+		episode:         episode,
+		season:          season,
+		spec:            spec,
+		tracker:         series.NewTracker(db.Bucket("series")),
+		rejectUnmatched: rejectUnmatched,
 	}, nil
 }
 
@@ -94,7 +101,9 @@ func (p *premierePlugin) Phase() plugin.Phase { return plugin.PhaseFilter }
 func (p *premierePlugin) Filter(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
 	ep, ok := series.Parse(e.Title)
 	if !ok {
-		tc.Logger.Debug("premiere: title did not parse as episode", "entry", e.Title)
+		if p.rejectUnmatched {
+			e.Reject("premiere: title did not parse as episode")
+		}
 		return nil
 	}
 

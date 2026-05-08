@@ -89,7 +89,9 @@ func ResolveDynamicList(
 				titles = append(titles, normalise(e.Title))
 			}
 		}
-		cacheSet(key, titles)
+		if len(titles) > 0 {
+			cacheSet(key, titles)
+		}
 		dynamic = append(dynamic, titles...)
 	}
 	return append(static, dynamic...)

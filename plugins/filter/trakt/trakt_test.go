@@ -262,6 +262,33 @@ func TestInvalidTTL(t *testing.T) {
 	}
 }
 
+func TestEmptyListNotCached(t *testing.T) {
+	callCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte("[]")) //nolint:errcheck
+	}))
+	defer srv.Close()
+	itrakt.BaseURL = srv.URL
+
+	p := makeFilter(t, map[string]any{
+		"client_id": "key",
+		"type":      "shows",
+		"list":      "trending",
+		"ttl":       "1h",
+	})
+
+	e1 := entry.New("Breaking.Bad.S01E01.720p", "http://x.com/1")
+	e2 := entry.New("Breaking.Bad.S01E02.720p", "http://x.com/2")
+	p.Filter(context.Background(), tc(), e1) //nolint:errcheck
+	p.Filter(context.Background(), tc(), e2) //nolint:errcheck
+
+	if callCount < 2 {
+		t.Errorf("empty list should not be cached; API called %d times, want ≥2", callCount)
+	}
+}
+
 func TestPluginRegistered(t *testing.T) {
 	if _, ok := plugin.Lookup("trakt"); !ok {
 		t.Error("trakt plugin not registered")

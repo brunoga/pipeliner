@@ -131,6 +131,7 @@ type Format3D int
 
 const (
 	Format3DNone Format3D = iota // not 3D
+	Format3DConv                 // 3D-CONV — artificially converted from a 2D source
 	Format3DHalf                 // half-resolution: HSBS, HOU, HALF-SBS, HALF-OU, plain 3D
 	Format3DFull                 // full-resolution: SBS, FSBS, OU, FOU, FULL-SBS, FULL-OU
 	Format3DBD                   // BD3D — Blu-ray 3D rip, highest quality
@@ -138,6 +139,7 @@ const (
 
 var format3DNames = map[Format3D]string{
 	Format3DNone: "",
+	Format3DConv: "3D-Conv",
 	Format3DHalf: "3D-Half",
 	Format3DFull: "3D-Full",
 	Format3DBD:   "BD3D",
@@ -215,9 +217,14 @@ var (
 	reSource     = regexp.MustCompile(`(?i)\b(remux|blu[\-\s]?ray|bdrip|bdremux|bd(?:25|50|100)|web[\-\s]?dl|webrip|hdtv|dvdrip|tvrip)\b`)
 	reCodec      = regexp.MustCompile(`(?i)\b(av1|x265|h\.?265|hevc|x264|h\.?264|xvid|divx)\b`)
 	reColorRange = regexp.MustCompile(`(?i)\b(dolby[\s\.]?vision|dv\b|hdr10[\+]?|hdr|sdr)\b`)
-	// re3D matches 3D format markers; longer/more-specific alternatives are listed first.
+	// re3DConv matches 3D-conversion tags; checked before re3D so it always wins.
+	re3DConv = regexp.MustCompile(`(?i)\b3D[\-]?CONV\b`)
+	// re3D matches native 3D format markers; longer alternatives are listed first.
 	// MVC (Multiview Video Coding) is the Blu-ray 3D codec — always BD quality.
-	re3D = regexp.MustCompile(`(?i)\b(BD3D|MVC|FULL-SBS|FULL-OU|FSBS|F-SBS|FOU|F-OU|HALF-SBS|HALF-OU|HSBS|H-SBS|HOU|H-OU|SBS|OU|3D)\b`)
+	re3D = regexp.MustCompile(`(?i)\b(BD3D|MVC|FULL[\-]?SBS|FULL[\-]?OU|FSBS|F-SBS|FOU|F-OU|HALF[\-]?SBS|HALF[\-]?OU|HSBS|H-SBS|HOU|H-OU|SBS|OU|3D)\b`)
+	// reComplete matches "COMPLETE" disc-rip labels; combined with a BluRay source
+	// and any non-conv 3D marker this implies a full BD3D disc rip.
+	reComplete = regexp.MustCompile(`(?i)\bCOMPLETE\b`)
 
 	// Audio regexes checked in priority order (highest first).
 	reAudioPatterns = []struct {
@@ -313,21 +320,39 @@ func Parse(title string) Quality {
 		}
 	}
 
-	if m := re3D.FindString(title); m != "" {
-		ml := strings.ToUpper(strings.ReplaceAll(m, "-", ""))
-		switch ml {
-		case "BD3D", "MVC":
-			q.Format3D = Format3DBD
-		case "SBS", "FSBS", "FOU", "OU", "FULLSBS", "FULLOU":
-			q.Format3D = Format3DFull
-		default: // HSBS, HOU, HALFSBS, HALFOU, 3D
-			q.Format3D = Format3DHalf
+	// 3DCONV overrides any other 3D format marker — a converted release stays
+	// at the lowest 3D tier regardless of the packaging format (SBS, OU, etc.).
+	if re3DConv.MatchString(title) {
+		q.Format3D = Format3DConv
+	} else {
+		// Scan all native 3D markers and keep the highest-quality one.
+		// A title like "IMAX 3D FSBS" has both "3D" (Half) and "FSBS" (Full);
+		// the explicit format tag should win over the generic "3D" label.
+		for _, m := range re3D.FindAllString(title, -1) {
+			ml := strings.ToUpper(strings.ReplaceAll(m, "-", ""))
+			var f Format3D
+			switch ml {
+			case "BD3D", "MVC":
+				f = Format3DBD
+			case "SBS", "FSBS", "FOU", "OU", "FULLSBS", "FULLOU":
+				f = Format3DFull
+			default: // HSBS, HOU, HALFSBS, HALFOU, 3D
+				f = Format3DHalf
+			}
+			if f > q.Format3D {
+				q.Format3D = f
+			}
 		}
-		// 3D releases without an explicit resolution tag are assumed to be
-		// at least 1080p — sub-HD 3D releases are effectively non-existent.
-		if q.Resolution == ResolutionUnknown {
-			q.Resolution = Resolutionp1080
-		}
+	}
+	// "COMPLETE BluRay" with a non-conv 3D marker means the full Blu-ray 3D disc
+	// was ripped, which is always BD3D quality regardless of the 3D tag used.
+	if q.Format3D > Format3DConv && q.Source == SourceBluRay && reComplete.MatchString(title) {
+		q.Format3D = Format3DBD
+	}
+	// 3D releases without an explicit resolution tag are assumed to be
+	// at least 1080p — sub-HD 3D releases are effectively non-existent.
+	if q.Format3D != Format3DNone && q.Resolution == ResolutionUnknown {
+		q.Resolution = Resolutionp1080
 	}
 
 	return q
@@ -614,6 +639,8 @@ func parseAudio(s string) (Audio, bool) {
 
 func parseFormat3D(s string) (Format3D, bool) {
 	switch strings.ToLower(strings.ReplaceAll(s, "-", "")) {
+	case "3dconv", "conv":
+		return Format3DConv, true
 	case "3d", "3dhalf", "half":
 		return Format3DHalf, true
 	case "3dfull", "full", "sbs", "ou":
