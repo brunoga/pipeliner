@@ -34,7 +34,7 @@ func (s *Server) apiTraktAuthStart(w http.ResponseWriter, r *http.Request) {
 		ClientSecret string `json:"client_secret"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.ClientID == "" || req.ClientSecret == "" {
-		slog.Debug("trakt auth: bad request", "err", err)
+		slog.Error("trakt auth: bad request", "err", err)
 		http.Error(w, "client_id and client_secret are required", http.StatusBadRequest)
 		return
 	}
@@ -46,7 +46,7 @@ func (s *Server) apiTraktAuthStart(w http.ResponseWriter, r *http.Request) {
 	defer dcCancel()
 	dc, err := trakt.RequestDeviceCode(dcCtx, req.ClientID)
 	if err != nil {
-		slog.Debug("trakt auth: device code request failed", "err", err)
+		slog.Error("trakt auth: device code request failed", "err", err)
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
@@ -78,7 +78,7 @@ func (s *Server) apiTraktAuthStart(w http.ResponseWriter, r *http.Request) {
 		sess.mu.Lock()
 		defer sess.mu.Unlock()
 		if err != nil {
-			slog.Debug("trakt auth: exchange failed", "err", err, "ctx_err", ctx.Err())
+			slog.Error("trakt auth: exchange failed", "err", err, "ctx_err", ctx.Err())
 			if ctx.Err() != nil {
 				sess.status = "error"
 				sess.message = "authorization cancelled or timed out"
@@ -91,7 +91,7 @@ func (s *Server) apiTraktAuthStart(w http.ResponseWriter, r *http.Request) {
 		slog.Debug("trakt auth: token received, saving")
 		bucket := s.db.Bucket(trakt.AuthBucket)
 		if saveErr := trakt.SaveToken(bucket, req.ClientID, tok); saveErr != nil {
-			slog.Debug("trakt auth: save failed", "err", saveErr)
+			slog.Error("trakt auth: save failed", "err", saveErr)
 			sess.status = "error"
 			sess.message = "token received but could not be saved: " + saveErr.Error()
 			return
