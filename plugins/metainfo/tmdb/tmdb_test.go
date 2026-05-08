@@ -8,9 +8,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
+	"github.com/brunoga/pipeliner/internal/cache"
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/plugin"
+	"github.com/brunoga/pipeliner/internal/store"
 	itmdb "github.com/brunoga/pipeliner/internal/tmdb"
 )
 
@@ -154,6 +157,40 @@ func TestEnrichedSetOnSuccess(t *testing.T) {
 	}
 	if !e.GetBool("enriched") {
 		t.Error("enriched should be true when TMDb finds the movie")
+	}
+}
+
+func TestEmptyResultNotCached(t *testing.T) {
+	callCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/3/search/movie" {
+			callCount++
+			json.NewEncoder(w).Encode(map[string]any{"results": []any{}, "total_results": 0}) //nolint:errcheck
+		}
+	}))
+	defer srv.Close()
+
+	db, err := store.OpenSQLite(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	c := itmdb.New("test-key")
+	c.BaseURL = srv.URL + "/3"
+	p := &tmdbPlugin{
+		client: c,
+		cache:  cache.NewPersistent[[]itmdb.Movie](time.Hour, db.Bucket("test")),
+	}
+
+	e := entry.New("Inception.2010.1080p.BluRay", "http://x.com/a")
+	p.Annotate(context.Background(), makeCtx(), e) //nolint:errcheck
+	p.Annotate(context.Background(), makeCtx(), e) //nolint:errcheck
+
+	// Each Annotate makes 2 API calls (year search + year-less retry).
+	// If empty results were cached, the second Annotate would skip the API entirely.
+	if callCount < 3 {
+		t.Errorf("empty result should not be cached; API called %d times, want ≥3", callCount)
 	}
 }
 
