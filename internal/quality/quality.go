@@ -212,11 +212,12 @@ func (q Quality) Better(other Quality) bool {
 
 var (
 	reResolution = regexp.MustCompile(`(?i)\b(4k|2160p|1080p|720p|576p|480p)\b`)
-	reSource     = regexp.MustCompile(`(?i)\b(remux|blu[\-\s]?ray|bdrip|bdremux|web[\-\s]?dl|webrip|hdtv|dvdrip|tvrip)\b`)
+	reSource     = regexp.MustCompile(`(?i)\b(remux|blu[\-\s]?ray|bdrip|bdremux|bd(?:25|50|100)|web[\-\s]?dl|webrip|hdtv|dvdrip|tvrip)\b`)
 	reCodec      = regexp.MustCompile(`(?i)\b(av1|x265|h\.?265|hevc|x264|h\.?264|xvid|divx)\b`)
 	reColorRange = regexp.MustCompile(`(?i)\b(dolby[\s\.]?vision|dv\b|hdr10[\+]?|hdr|sdr)\b`)
 	// re3D matches 3D format markers; longer/more-specific alternatives are listed first.
-	re3D = regexp.MustCompile(`(?i)\b(BD3D|FULL-SBS|FULL-OU|FSBS|F-SBS|FOU|F-OU|HALF-SBS|HALF-OU|HSBS|H-SBS|HOU|H-OU|SBS|OU|3D)\b`)
+	// MVC (Multiview Video Coding) is the Blu-ray 3D codec — always BD quality.
+	re3D = regexp.MustCompile(`(?i)\b(BD3D|MVC|FULL-SBS|FULL-OU|FSBS|F-SBS|FOU|F-OU|HALF-SBS|HALF-OU|HSBS|H-SBS|HOU|H-OU|SBS|OU|3D)\b`)
 
 	// Audio regexes checked in priority order (highest first).
 	reAudioPatterns = []struct {
@@ -259,7 +260,8 @@ func Parse(title string) Quality {
 		switch {
 		case strings.Contains(ml, "remux") || strings.Contains(ml, "bdremux"):
 			q.Source = SourceRemux
-		case strings.Contains(ml, "bluray") || strings.Contains(ml, "bdrip"):
+		case strings.Contains(ml, "bluray") || strings.Contains(ml, "bdrip") ||
+			ml == "bd25" || ml == "bd50" || ml == "bd100":
 			q.Source = SourceBluRay
 		case strings.Contains(ml, "webdl"):
 			q.Source = SourceWebDL
@@ -314,7 +316,7 @@ func Parse(title string) Quality {
 	if m := re3D.FindString(title); m != "" {
 		ml := strings.ToUpper(strings.ReplaceAll(m, "-", ""))
 		switch ml {
-		case "BD3D":
+		case "BD3D", "MVC":
 			q.Format3D = Format3DBD
 		case "SBS", "FSBS", "FOU", "OU", "FULLSBS", "FULLOU":
 			q.Format3D = Format3DFull
