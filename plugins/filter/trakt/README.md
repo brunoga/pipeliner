@@ -14,6 +14,7 @@ Accepts entries whose parsed title fuzzy-matches something on a Trakt.tv list. F
 | `limit` | int | no | 100 | Max results for public lists |
 | `min_rating` | int | no | — | Minimum user rating to include (1–10, `ratings` list only) |
 | `ttl` | string | no | `1h` | How long to cache the list |
+| `reject_unmatched` | bool | no | `true` | Reject entries that do not match the list; set `false` to leave them undecided when chaining filters |
 
 One of `client_secret` or `access_token` is required for `watchlist`, `ratings`, and `collection`.
 

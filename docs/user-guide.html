@@ -907,7 +907,12 @@ make build        # or: go build -o pipeliner ./cmd/pipeliner</code></pre>
 
 <!-- ─────────── metainfo_torrent ─────────── -->
 <h2 id="metainfo_torrent">metainfo_torrent</h2>
-<p>Reads metadata from a <code>.torrent</code> file. Reads from <code>file_location</code> field (filesystem plugin) or downloads the URL if it ends in <code>.torrent</code>. Takes no config.</p>
+<p>Reads metadata from a <code>.torrent</code> file. Reads from <code>file_location</code> field (filesystem plugin) or downloads the URL if it ends in <code>.torrent</code>.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>fetch_timeout</code></td><td>no</td><td><code>30s</code></td><td>HTTP timeout for downloading <code>.torrent</code> files</td></tr>
+</table>
 <p>Fields set: <code>torrent_info_hash</code>, <code>torrent_file_size</code>, <code>torrent_file_count</code>, <code>torrent_files</code>, <code>torrent_announce</code>, <code>torrent_announce_list</code>, <code>torrent_created_by</code>, <code>torrent_creation_date</code>, <code>torrent_private</code></p>
 
 <!-- ─────────── metainfo_magnet ─────────── -->
@@ -1082,6 +1087,7 @@ Because <code>enriched</code> is set by any external provider, the same config w
   <tr><td><code>api_key</code></td><td>yes</td><td>—</td><td>TheTVDB API key</td></tr>
   <tr><td><code>user_pin</code></td><td>yes</td><td>—</td><td>User PIN from thetvdb.com</td></tr>
   <tr><td><code>ttl</code></td><td>no</td><td><code>1h</code></td><td>Favorites list cache TTL. An empty list result is not cached — the API will be retried on the next run rather than serving a stale empty list.</td></tr>
+  <tr><td><code>reject_unmatched</code></td><td>no</td><td><code>true</code></td><td>Reject entries that do not match the favorites list. Set to <code>false</code> to leave them undecided when chaining filters.</td></tr>
 </table>
 
 <!-- ─────────── trakt filter ─────────── -->
@@ -1097,6 +1103,7 @@ Because <code>enriched</code> is set by any external provider, the same config w
   <tr><td><code>limit</code></td><td>no</td><td>100</td><td>Max results for public lists</td></tr>
   <tr><td><code>min_rating</code></td><td>no</td><td>—</td><td>Minimum rating (1–10, <code>ratings</code> list only)</td></tr>
   <tr><td><code>ttl</code></td><td>no</td><td><code>1h</code></td><td>List cache TTL. An empty list result is not cached — the API will be retried on the next run rather than serving a stale empty list.</td></tr>
+  <tr><td><code>reject_unmatched</code></td><td>no</td><td><code>true</code></td><td>Reject entries that do not match the list. Set to <code>false</code> to leave them undecided when chaining filters.</td></tr>
 </table>
 
 <!-- ─────────── exists ─────────── -->
@@ -1117,6 +1124,7 @@ Because <code>enriched</code> is set by any external provider, the same config w
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
   <tr><td><code>list</code></td><td>yes</td><td>—</td><td>Name of the list</td></tr>
   <tr><td><code>remove_on_match</code></td><td>no</td><td>false</td><td>Remove entry from list after matching (one-shot queues)</td></tr>
+  <tr><td><code>reject_unmatched</code></td><td>no</td><td><code>true</code></td><td>Reject entries that do not match the list. Set to <code>false</code> to leave them undecided when chaining filters.</td></tr>
 </table>
 
 <!-- ─────────── regexp ─────────── -->
