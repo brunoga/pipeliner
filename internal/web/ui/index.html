@@ -334,6 +334,10 @@ section { margin-bottom: 32px; }
 .ep-quality { color: var(--muted); }
 .db-empty { color: var(--muted); padding: 30px; text-align: center; font-size: 13px; }
 .db-loading { color: var(--muted); padding: 20px; text-align: center; font-size: 13px; }
+.db-pager { display: flex; align-items: center; gap: 8px; padding: 8px 0 10px; }
+.db-pager-info { color: var(--muted); font-size: 12px; flex: 1; text-align: center; }
+.db-pager-size { display: flex; align-items: center; gap: 4px; color: var(--muted); font-size: 12px; margin-left: auto; }
+.db-pager-size select { background: var(--surface); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-size: 12px; padding: 2px 4px; }
 </style>
 </head>
 <body>
@@ -415,6 +419,7 @@ async function refresh() {
     const history = await hr.json();
     const tasks   = status.tasks || [];
     render(tasks, history);
+    if (dbLoaded) loadDBSidebar();
     document.getElementById('header-meta').textContent =
       'up ' + fmtUptime(Math.round((Date.now() - startedAt) / 1000)) +
       ' · ' + tasks.length + ' task' + (tasks.length !== 1 ? 's' : '');
@@ -650,7 +655,13 @@ function showTab(name) {
   document.getElementById('tab-btn-config').classList.toggle('active', name === 'config');
   document.getElementById('tab-btn-db').classList.toggle('active', name === 'db');
   if (name === 'config' && !configLoaded) loadConfig();
-  if (name === 'db' && !dbLoaded) loadDBTab();
+  if (name === 'db') {
+    if (!dbLoaded) loadDBTab();
+    else {
+      loadDBSidebar(); // refresh counts whenever the tab is revisited
+      if (dbActiveBucket) selectDBBucket(dbActiveBucket); // refresh content too
+    }
+  }
 }
 
 // ── YAML syntax highlighting ──────────────────────────────────────────────────
@@ -807,6 +818,10 @@ function toTitleCase(s) {
 let dbLoaded = false;
 let dbActiveBucket = null;
 let dbNavItems = []; // [{bucket, label, count}]
+let dbPageSize = 20;
+let dbFilterQuery = '';
+let dbCursorStack = []; // stack of 'after' values; empty entry = first page
+let dbCurrentCursor = ''; // 'after' param for the current page
 
 // Fixed buckets always shown in the sidebar (even if empty).
 const DB_FIXED_BUCKETS = [
@@ -848,33 +863,95 @@ function renderDBSidebar() {
   document.getElementById('db-sidebar').innerHTML = html;
 }
 
+function dbPageURL(name) {
+  const p = new URLSearchParams({limit: dbPageSize});
+  if (dbCurrentCursor) p.set('after', dbCurrentCursor);
+  if (dbFilterQuery)   p.set('q', dbFilterQuery);
+  return '/api/db/buckets/' + encodeURIComponent(name) + '?' + p;
+}
+
 async function selectDBBucket(name) {
   dbActiveBucket = name;
+  dbCurrentCursor = '';
+  dbCursorStack = [];
+  dbFilterQuery = '';
   renderDBSidebar();
+  await fetchDBPage(name);
+}
+
+async function fetchDBPage(name) {
   const main = document.getElementById('db-main-content');
   main.innerHTML = '<div class="db-loading">Loading…</div>';
-  const r = await fetch('/api/db/buckets/' + encodeURIComponent(name));
+  const r = await fetch(dbPageURL(name));
   if (!r.ok) { main.innerHTML = '<div class="db-empty">Error loading data.</div>'; return; }
   const data = await r.json();
   renderDBContent(name, data);
 }
 
+async function dbNextPage() {
+  if (!dbActiveBucket) return;
+  // Save current cursor so Prev can come back here.
+  dbCursorStack.push(dbCurrentCursor);
+  // Advance cursor to the last key on the current page (returned as next_cursor).
+  dbCurrentCursor = document.getElementById('db-next-cursor')?.value || '';
+  await fetchDBPage(dbActiveBucket);
+}
+
+async function dbPrevPage() {
+  if (!dbActiveBucket || !dbCursorStack.length) return;
+  dbCurrentCursor = dbCursorStack.pop();
+  await fetchDBPage(dbActiveBucket);
+}
+
+async function dbSetPageSize(n) {
+  dbPageSize = n;
+  dbCurrentCursor = '';
+  dbCursorStack = [];
+  if (dbActiveBucket) await fetchDBPage(dbActiveBucket);
+}
+
+async function dbFilter(val) {
+  dbFilterQuery = (val || '').toLowerCase().trim();
+  dbCurrentCursor = '';
+  dbCursorStack = [];
+  if (dbActiveBucket) await fetchDBPage(dbActiveBucket);
+}
+
 function renderDBContent(name, data) {
   const item = dbNavItems.find(i => i.bucket === name) || {label: name};
-  const filterFn = name === 'series' ? 'dbFilter()' : `dbFilter()`;
   const main = document.getElementById('db-main-content');
+
   const toolbar = `<div class="db-toolbar" style="margin-bottom:12px">
     <span class="db-title">${esc(item.label)}</span>
     <div style="display:flex;gap:8px;align-items:center">
-      <input type="text" class="db-search" id="db-filter-input" placeholder="filter…" oninput="dbFilter(this.value,'${name}')">
+      <input type="text" class="db-search" id="db-filter-input" placeholder="filter…"
+        value="${esc(dbFilterQuery)}" oninput="dbFilter(this.value)">
       <button class="btn-danger" onclick="dbClearBucket(${esc(JSON.stringify(name))},${esc(JSON.stringify(item.label))})">Clear all</button>
     </div>
   </div>`;
+
+  const hasPrev = dbCursorStack.length > 0;
+  const hasNext = data.has_more;
+  const total   = data.total ?? 0;
+  const sizes   = [10, 20, 50, 100];
+  const pager = `<div class="db-pager">
+    <button class="btn-sm" onclick="dbPrevPage()" ${hasPrev ? '' : 'disabled'}>← Prev</button>
+    <span class="db-pager-info">${total} total</span>
+    <button class="btn-sm" onclick="dbNextPage()" ${hasNext ? '' : 'disabled'}>Next →</button>
+    <label class="db-pager-size">Per page
+      <select onchange="dbSetPageSize(+this.value)">${
+        sizes.map(n => `<option value="${n}"${n === dbPageSize ? ' selected' : ''}>${n}</option>`).join('')
+      }</select>
+    </label>
+    <input type="hidden" id="db-next-cursor" value="${esc(data.next_cursor || '')}">
+  </div>`;
+
   let content = '';
   if (name === 'series') content = renderSeriesTable(data.grouped || [], name);
   else if (name === 'movies') content = renderMoviesTable(data.entries || [], name);
   else content = renderSeenTable(data.entries || [], name);
-  main.innerHTML = toolbar + `<div class="db-scroll">${content}</div>`;
+
+  main.innerHTML = toolbar + pager + `<div class="db-scroll">${content}</div>`;
 }
 
 // ── series ─────────────────────────────────────────────────────────────────────
@@ -887,12 +964,12 @@ function renderSeriesTable(shows, bucket) {
     const sid = 'eps-' + btoa(encodeURIComponent(show.name)).replace(/=/g,'');
     html += `<tbody>
       <tr class="db-show-row" onclick="toggleEps('${sid}',this)">
-        <td colspan="2"><span class="db-chevron" id="chv-${sid}">▾</span> <strong>${esc(toTitleCase(show.name))}</strong> <span style="color:var(--muted);font-size:12px">${show.episodes.length} ep${show.episodes.length !== 1 ? 's' : ''}</span></td>
+        <td colspan="2"><span class="db-chevron" id="chv-${sid}">▸</span> <strong>${esc(toTitleCase(show.name))}</strong> <span style="color:var(--muted);font-size:12px">${show.episodes.length} ep${show.episodes.length !== 1 ? 's' : ''}</span></td>
         <td></td><td></td>
         <td style="text-align:right"><button class="btn-sm" onclick="event.stopPropagation();dbDeleteShow(${esc(JSON.stringify(show.name))})">Delete all</button></td>
       </tr>
     </tbody>
-    <tbody class="db-eps open" id="${sid}">`;
+    <tbody class="db-eps" id="${sid}">`;
     for (const ep of show.episodes) {
       const key = show.name + '|' + ep.episode_id;
       const date = ep.downloaded_at ? new Date(ep.downloaded_at).toLocaleDateString() : '—';
@@ -958,24 +1035,7 @@ function toggleEps(id, row) {
   if (chv) chv.textContent = el.classList.contains('open') ? '▾' : '▸';
 }
 
-function dbFilter(val, bucket) {
-  const q = (val || '').toLowerCase();
-  const table = document.getElementById('db-content-table');
-  if (!table) return;
-  if (bucket === 'series') {
-    table.querySelectorAll('.db-show-row').forEach(row => {
-      const match = !q || row.cells[0]?.textContent?.toLowerCase().includes(q);
-      row.style.display = match ? '' : 'none';
-      const sid = row.getAttribute('onclick')?.match(/'([^']+)'/)?.[1];
-      const epsEl = sid ? document.getElementById(sid) : null;
-      if (epsEl) epsEl.style.display = match ? '' : 'none';
-    });
-  } else {
-    table.querySelectorAll('tbody tr').forEach(row => {
-      row.style.display = (!q || row.textContent.toLowerCase().includes(q)) ? '' : 'none';
-    });
-  }
-}
+// dbFilter is defined above alongside the other pagination helpers.
 
 async function dbClearBucket(bucket, label) {
   if (!confirm(`Clear all entries in "${label}"? They will be re-processed next run.`)) return;
