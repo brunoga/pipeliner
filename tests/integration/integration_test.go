@@ -229,7 +229,7 @@ tasks:
 `, srv.URL))
 
 	res.assertAccepted(t, 2) // both BB episodes accepted
-	res.assertRejected(t, 0) // unknown show left undecided, not rejected
+	res.assertRejected(t, 1) // unknown show rejected by default (reject_unmatched: true)
 }
 
 func TestSeriesSeenAcrossCycles(t *testing.T) {
@@ -797,8 +797,7 @@ tasks:
 `, srv.URL))
 
 	res.assertAccepted(t, 1) // only BB 1080p: passes quality AND series filter
-	res.assertRejected(t, 1) // BB 480p rejected by quality
-	// Other.Show.S01E01 left undecided (not in series list, not rejected by quality)
+	res.assertRejected(t, 2) // BB 480p rejected by quality; Other.Show rejected by series (reject_unmatched: true)
 }
 
 func TestRegexpPerPatternFrom(t *testing.T) {

@@ -221,6 +221,21 @@ func TestResolveDynamicListTwoInstancesSamePlugin(t *testing.T) {
 	}
 }
 
+func TestResolveDynamicListEmptyResultNotCached(t *testing.T) {
+	p := &staticFromPlugin{name: "src", titles: []string{}}
+	cache := simpleCache{}
+
+	ResolveDynamicList(context.Background(), makeTC(), []InputPlugin{p}, nil, cache.get, cache.set, strings.ToLower)
+	ResolveDynamicList(context.Background(), makeTC(), []InputPlugin{p}, nil, cache.get, cache.set, strings.ToLower)
+
+	if p.runCount != 2 {
+		t.Errorf("empty result should not be cached; plugin called %d times, want 2", p.runCount)
+	}
+	if _, ok := cache["src"]; ok {
+		t.Error("empty result should not be stored in the cache")
+	}
+}
+
 func TestResolveDynamicListMergesStaticAndDynamic(t *testing.T) {
 	p := &staticFromPlugin{name: "src", titles: []string{"Dynamic Show"}}
 	cache := simpleCache{}

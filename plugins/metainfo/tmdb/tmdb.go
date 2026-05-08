@@ -87,7 +87,21 @@ func (p *tmdbPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 			tc.Logger.Warn("metainfo_tmdb: search failed", "title", m.Title, "err", err)
 			return nil
 		}
-		p.cache.Set(key, results)
+		// Year in the release name may be wrong (off-by-one, regional difference,
+		// etc.). Retry without the year filter before giving up.
+		if len(results) == 0 && m.Year > 0 {
+			results, err = p.client.SearchMovie(ctx, m.Title, 0)
+			if err != nil {
+				tc.Logger.Warn("metainfo_tmdb: search failed", "title", m.Title, "err", err)
+				return nil
+			}
+		}
+		// Only cache hits — an empty result must not be stored so the next
+		// run retries the API (handles stale caches from wrong-year misses,
+		// transient API failures, and movies not yet indexed on TMDb).
+		if len(results) > 0 {
+			p.cache.Set(key, results)
+		}
 	}
 	if len(results) == 0 {
 		tc.Logger.Warn("metainfo_tmdb: no results", "title", m.Title, "year", m.Year, "entry", e.Title)
