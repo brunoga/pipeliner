@@ -67,6 +67,16 @@ func TestParseKnownTitles(t *testing.T) {
 			"Avatar.2009.BD3D.1080p.BluRay",
 			Quality{Resolution: Resolutionp1080, Source: SourceBluRay, Format3D: Format3DBD},
 		},
+		{
+			// MVC = Multiview Video Coding, the Blu-ray 3D codec
+			"Everything.Everywhere.All.At.Once.BD50.MVC",
+			Quality{Source: SourceBluRay, Format3D: Format3DBD},
+		},
+		{
+			// BD50 = full Blu-ray disc rip, treated as BluRay source
+			"Despicable.Me.3.BD50.Bluray",
+			Quality{Source: SourceBluRay},
+		},
 	}
 
 	for _, tc := range cases {
