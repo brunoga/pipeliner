@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"sync"
 	"time"
@@ -33,9 +34,11 @@ func (s *Server) apiTraktAuthStart(w http.ResponseWriter, r *http.Request) {
 		ClientSecret string `json:"client_secret"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.ClientID == "" || req.ClientSecret == "" {
+		slog.Debug("trakt auth: bad request", "err", err)
 		http.Error(w, "client_id and client_secret are required", http.StatusBadRequest)
 		return
 	}
+	slog.Debug("trakt auth: requesting device code", "client_id", req.ClientID)
 
 	// Request device code before touching shared state; use a short timeout
 	// so a slow or unreachable Trakt API doesn't hang the browser indefinitely.
@@ -43,9 +46,11 @@ func (s *Server) apiTraktAuthStart(w http.ResponseWriter, r *http.Request) {
 	defer dcCancel()
 	dc, err := trakt.RequestDeviceCode(dcCtx, req.ClientID)
 	if err != nil {
+		slog.Debug("trakt auth: device code request failed", "err", err)
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
+	slog.Debug("trakt auth: got device code", "user_code", dc.UserCode, "expires_in", dc.ExpiresIn)
 
 	// Cancel any in-flight session, then install the new one.
 	s.traktAuthMu.Lock()
@@ -64,13 +69,16 @@ func (s *Server) apiTraktAuthStart(w http.ResponseWriter, r *http.Request) {
 	}
 	s.traktAuth = sess
 	s.traktAuthMu.Unlock()
+	slog.Debug("trakt auth: session installed, starting polling goroutine")
 
 	go func() {
 		defer cancel()
+		slog.Debug("trakt auth: polling for token")
 		tok, err := trakt.ExchangeDeviceCode(ctx, req.ClientID, req.ClientSecret, dc.DeviceCode, dc.Interval, dc.ExpiresIn)
 		sess.mu.Lock()
 		defer sess.mu.Unlock()
 		if err != nil {
+			slog.Debug("trakt auth: exchange failed", "err", err, "ctx_err", ctx.Err())
 			if ctx.Err() != nil {
 				sess.status = "error"
 				sess.message = "authorization cancelled or timed out"
@@ -80,12 +88,15 @@ func (s *Server) apiTraktAuthStart(w http.ResponseWriter, r *http.Request) {
 			}
 			return
 		}
+		slog.Debug("trakt auth: token received, saving")
 		bucket := s.db.Bucket(trakt.AuthBucket)
 		if saveErr := trakt.SaveToken(bucket, req.ClientID, tok); saveErr != nil {
+			slog.Debug("trakt auth: save failed", "err", saveErr)
 			sess.status = "error"
 			sess.message = "token received but could not be saved: " + saveErr.Error()
 			return
 		}
+		slog.Debug("trakt auth: authorized and saved")
 		sess.status = "authorized"
 	}()
 

@@ -424,7 +424,7 @@ section { margin-bottom: 32px; }
     </div>
     <div class="field-row">
       <label for="trakt-client-secret">Client Secret</label>
-      <input type="password" id="trakt-client-secret" placeholder="your Trakt client secret" autocomplete="off">
+      <input type="password" id="trakt-client-secret" placeholder="your Trakt client secret" autocomplete="new-password">
     </div>
     <button class="btn-auth" id="trakt-auth-btn" onclick="traktStartAuth()">Authorize</button>
     <div class="auth-status" id="trakt-auth-status">
@@ -1204,7 +1204,7 @@ function traktSetStatus(type, html) {
   const el = document.getElementById('trakt-auth-status');
   const body = document.getElementById('trakt-auth-body');
   el.className = 'auth-status' + (type ? ' ' + type : '');
-  el.style.display = type ? '' : 'none';
+  el.style.display = type ? 'block' : 'none';
   body.innerHTML = html;
 }
 
