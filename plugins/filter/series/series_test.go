@@ -63,21 +63,30 @@ func TestAcceptsKnownShow(t *testing.T) {
 	}
 }
 
-func TestIgnoresUnknownShow(t *testing.T) {
+func TestRejectsUnknownShowByDefault(t *testing.T) {
 	p := openPlugin(t, nil)
 	e := entry.New("Other.Show.S01E01.720p.HDTV", "http://x.com/a")
 	p.Filter(context.Background(), makeCtx(), e) //nolint:errcheck
-	if e.IsAccepted() || e.IsRejected() {
-		t.Error("unknown show should be left Undecided")
+	if !e.IsRejected() {
+		t.Error("unknown show should be rejected by default")
 	}
 }
 
-func TestIgnoresNonEpisode(t *testing.T) {
+func TestRejectsNonEpisodeByDefault(t *testing.T) {
 	p := openPlugin(t, nil)
 	e := entry.New("Just A Movie 2023 1080p BluRay", "http://x.com/a")
 	p.Filter(context.Background(), makeCtx(), e) //nolint:errcheck
+	if !e.IsRejected() {
+		t.Error("non-episode title should be rejected by default")
+	}
+}
+
+func TestUnmatchedOptOut(t *testing.T) {
+	p := openPlugin(t, map[string]any{"reject_unmatched": false})
+	e := entry.New("Other.Show.S01E01.720p.HDTV", "http://x.com/a")
+	p.Filter(context.Background(), makeCtx(), e) //nolint:errcheck
 	if e.IsAccepted() || e.IsRejected() {
-		t.Error("non-episode title should be left Undecided")
+		t.Error("unknown show should be left undecided when reject_unmatched is false")
 	}
 }
 
@@ -343,7 +352,7 @@ func TestFromIgnoresUnlistedShow(t *testing.T) {
 
 func TestFromCachesResults(t *testing.T) {
 	callCount := 0
-	mock := &mockInput{}
+	mock := &mockInput{entries: []*entry.Entry{entry.New("Breaking Bad", "")}}
 	// Use a wrapper so we can count calls.
 	counted := &countingInput{wrapped: mock, count: &callCount}
 	db, _ := store.OpenSQLite(":memory:")
@@ -358,6 +367,25 @@ func TestFromCachesResults(t *testing.T) {
 	p.resolveShows(context.Background(), tc)
 	if callCount != 1 {
 		t.Errorf("from input should be called once due to caching; got %d calls", callCount)
+	}
+}
+
+func TestFromEmptyResultNotCached(t *testing.T) {
+	callCount := 0
+	mock := &mockInput{} // returns no entries
+	counted := &countingInput{wrapped: mock, count: &callCount}
+	db, _ := store.OpenSQLite(":memory:")
+	p := &seriesPlugin{
+		from:      []plugin.InputPlugin{counted},
+		listCache: cache.NewPersistent[[]string](time.Hour, db.Bucket("test")),
+		tracking:  trackingBackfill,
+		tracker:   series.NewTracker(db.Bucket("series")),
+	}
+	tc := makeCtx()
+	p.resolveShows(context.Background(), tc)
+	p.resolveShows(context.Background(), tc)
+	if callCount != 2 {
+		t.Errorf("empty from result should not be cached; plugin called %d times, want 2", callCount)
 	}
 }
 

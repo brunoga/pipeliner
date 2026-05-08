@@ -63,14 +63,28 @@ func TestFilterAcceptsListedMovie(t *testing.T) {
 	}
 }
 
-func TestFilterRejectsUnlistedMovie(t *testing.T) {
+func TestFilterRejectsUnlistedMovieByDefault(t *testing.T) {
 	p := openPlugin(t, map[string]any{"static": []any{"The Matrix"}})
 	e := entry.New("Inception.2010.1080p.BluRay.x264", "http://x.com/a")
 	if err := p.Filter(context.Background(), makeCtx(), e); err != nil {
 		t.Fatal(err)
 	}
+	if !e.IsRejected() {
+		t.Error("unlisted movie should be rejected by default")
+	}
+}
+
+func TestFilterUnmatchedOptOut(t *testing.T) {
+	p := openPlugin(t, map[string]any{
+		"static":           []any{"The Matrix"},
+		"reject_unmatched": false,
+	})
+	e := entry.New("Inception.2010.1080p.BluRay.x264", "http://x.com/a")
+	if err := p.Filter(context.Background(), makeCtx(), e); err != nil {
+		t.Fatal(err)
+	}
 	if e.IsRejected() {
-		t.Errorf("unlisted movie should be left undecided, not rejected")
+		t.Error("unlisted movie should be left undecided when reject_unmatched is false")
 	}
 }
 
@@ -87,14 +101,25 @@ func TestFilterNoYear(t *testing.T) {
 }
 
 func TestFilterNoQualityMarker(t *testing.T) {
-	// A title with no year and no quality marker cannot be parsed — left undecided.
+	// A title with no year and no quality marker cannot be parsed — rejected by default.
 	p := openPlugin(t, nil)
 	e := entry.New("Inception something with no quality markers at all", "http://x.com/a")
 	if err := p.Filter(context.Background(), makeCtx(), e); err != nil {
 		t.Fatal(err)
 	}
+	if !e.IsRejected() {
+		t.Errorf("unparseable title should be rejected by default")
+	}
+}
+
+func TestFilterNoQualityMarkerOptOut(t *testing.T) {
+	p := openPlugin(t, map[string]any{"reject_unmatched": false})
+	e := entry.New("Inception something with no quality markers at all", "http://x.com/a")
+	if err := p.Filter(context.Background(), makeCtx(), e); err != nil {
+		t.Fatal(err)
+	}
 	if e.IsAccepted() || e.IsRejected() {
-		t.Errorf("unparseable title should be left undecided")
+		t.Errorf("unparseable title should be left undecided when reject_unmatched is false")
 	}
 }
 
@@ -117,6 +142,34 @@ func TestFilterQualityGatePass(t *testing.T) {
 	}
 	if !e.IsAccepted() {
 		t.Errorf("1080p should pass a 720p quality floor: %s", e.RejectReason)
+	}
+}
+
+func TestFilterQualityGate3DRejectsNon3D(t *testing.T) {
+	p := openPlugin(t, map[string]any{
+		"static":  []any{"Despicable Me 3"},
+		"quality": "3dfull",
+	})
+	e := entry.New("Despicable Me 3 Bluray Complete d666", "http://x.com/a")
+	if err := p.Filter(context.Background(), makeCtx(), e); err != nil {
+		t.Fatal(err)
+	}
+	if !e.IsRejected() {
+		t.Errorf("non-3D entry should be rejected by 3dfull quality gate, got state=%v", e.State)
+	}
+}
+
+func TestFilterQualityGate3DAccepts3DFull(t *testing.T) {
+	p := openPlugin(t, map[string]any{
+		"static":  []any{"Inception"},
+		"quality": "3dfull",
+	})
+	e := entry.New("Inception.2010.SBS.1080p.BluRay", "http://x.com/a")
+	if err := p.Filter(context.Background(), makeCtx(), e); err != nil {
+		t.Fatal(err)
+	}
+	if !e.IsAccepted() {
+		t.Errorf("3D-Full entry should be accepted by 3dfull quality gate: %s", e.RejectReason)
 	}
 }
 
@@ -278,7 +331,7 @@ func TestFromIgnoresUnlistedMovie(t *testing.T) {
 
 func TestFromCachesResults(t *testing.T) {
 	callCount := 0
-	mock := &mockInput{}
+	mock := &mockInput{entries: []*entry.Entry{entry.New("Inception", "")}}
 	counted := &countingInput{wrapped: mock, count: &callCount}
 	db, _ := store.OpenSQLite(":memory:")
 	p := &moviesPlugin{
@@ -291,6 +344,24 @@ func TestFromCachesResults(t *testing.T) {
 	p.resolveTitles(context.Background(), tc)
 	if callCount != 1 {
 		t.Errorf("from input should be called once due to caching; got %d calls", callCount)
+	}
+}
+
+func TestFromEmptyResultNotCached(t *testing.T) {
+	callCount := 0
+	mock := &mockInput{} // returns no entries
+	counted := &countingInput{wrapped: mock, count: &callCount}
+	db, _ := store.OpenSQLite(":memory:")
+	p := &moviesPlugin{
+		from:      []plugin.InputPlugin{counted},
+		listCache: cache.NewPersistent[[]string](time.Hour, db.Bucket("test")),
+		tracker:   imovies.NewTracker(db.Bucket("movies")),
+	}
+	tc := makeCtx()
+	p.resolveTitles(context.Background(), tc)
+	p.resolveTitles(context.Background(), tc)
+	if callCount != 2 {
+		t.Errorf("empty from result should not be cached; plugin called %d times, want 2", callCount)
 	}
 }
 
