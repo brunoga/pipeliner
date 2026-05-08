@@ -123,12 +123,21 @@ func TestMultipleEntriesSameSeriesAllAccepted(t *testing.T) {
 	}
 }
 
-func TestNonEpisodeLeftUndecided(t *testing.T) {
+func TestNonEpisodeRejectedByDefault(t *testing.T) {
 	p := makePlugin(t, map[string]any{})
 	e := entry.New("random.file.mkv", "http://example.com/file.mkv")
 	filter(t, p, e)
+	if !e.IsRejected() {
+		t.Errorf("entry that does not parse as an episode should be rejected by default, got: %s", e.State)
+	}
+}
+
+func TestNonEpisodeUndecidedOptOut(t *testing.T) {
+	p := makePlugin(t, map[string]any{"reject_unmatched": false})
+	e := entry.New("random.file.mkv", "http://example.com/file.mkv")
+	filter(t, p, e)
 	if !e.IsUndecided() {
-		t.Errorf("entry that does not parse as an episode should be left undecided, got: %s", e.State)
+		t.Errorf("entry that does not parse as an episode should be undecided when reject_unmatched is false, got: %s", e.State)
 	}
 }
 
