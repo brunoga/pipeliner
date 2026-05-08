@@ -789,7 +789,11 @@ make build        # or: go build -o pipeliner ./cmd/pipeliner</code></pre>
 <p>Private Trakt lists (watchlist, ratings, collection) require an OAuth token. Pipeliner supports two approaches:</p>
 
 <h4>Recommended: managed tokens via <code>client_secret</code></h4>
-<p>Run the device auth flow once to obtain and store a token in <code>pipeliner.db</code>. Pipeliner then refreshes it automatically before expiry (tokens last 90 days).</p>
+<p>Complete the device auth flow once to obtain and store a token in <code>pipeliner.db</code>. Pipeliner then refreshes it automatically before expiry (tokens last 90 days). There are two ways to do this:</p>
+
+<p><strong>Via the web UI (recommended for Docker)</strong> — open the <strong>Settings</strong> tab, enter your <code>client_id</code> and <code>client_secret</code>, click <strong>Authorize</strong>, then visit the displayed URL and enter the code on Trakt's website. The token is saved automatically.</p>
+
+<p><strong>Via the CLI</strong> — run the auth command, then visit the displayed URL and enter the code:</p>
 <ol>
   <li>Create a Trakt application at <a href="https://trakt.tv/oauth/applications" target="_blank">trakt.tv/oauth/applications</a> to get a <code>client_id</code> and <code>client_secret</code>.</li>
   <li>Run the auth command (use the same <code>--config</code> path as your pipeliner config so the token is stored in the right <code>pipeliner.db</code>):<br>
@@ -1460,7 +1464,7 @@ Because <code>enriched</code> is set by any external provider, the same config w
 
 <p>Start the web UI with <code>pipeliner daemon --web :8080 --web-user admin --web-password secret</code>. Navigate to <code>http://localhost:8080</code>.</p>
 
-<p>The interface has three tabs: <strong>Dashboard</strong>, <strong>Config</strong>, and <strong>Database</strong>. A <strong>User Guide</strong> link in the header opens this document.</p>
+<p>The interface has four tabs: <strong>Dashboard</strong>, <strong>Config</strong>, <strong>Database</strong>, and <strong>Settings</strong>. A <strong>User Guide</strong> link in the header opens this document.</p>
 
 <h3>Dashboard tab</h3>
 <ul>
@@ -1481,6 +1485,9 @@ Because <code>enriched</code> is set by any external provider, the same config w
   <li><strong>Movies</strong> — all movies recorded as downloaded. Delete a movie to force a re-download.</li>
   <li><strong>Seen</strong> — entries recorded by the <code>seen</code> filter, showing title, task name, and date. Delete an entry to allow it to be processed again. Per-task local seen stores (<code>local: true</code>) appear as separate sidebar entries named <em>Seen: task-name</em>.</li>
 </ul>
+
+<h3>Settings tab</h3>
+<p>The Settings tab provides a <strong>Trakt Authorization</strong> form for completing the Trakt device auth flow directly in the browser — useful when running in Docker or any environment where interactive console access is not available. Enter your <code>client_id</code> and <code>client_secret</code>, click <strong>Authorize</strong>, then visit the displayed URL and enter the code on Trakt's website. The token is saved to <code>pipeliner.db</code> automatically on success and refreshed before expiry, exactly as if you had run <code>pipeliner auth trakt</code> from the CLI.</p>
 
 <h3>HTTPS</h3>
 <p>Pass <code>--tls-cert</code> and <code>--tls-key</code> for a real certificate, or <code>--tls-self-signed</code> to generate one automatically. With TLS the <code>Secure</code> cookie flag is set automatically.</p>
