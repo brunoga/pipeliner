@@ -6,9 +6,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	itrakt "github.com/brunoga/pipeliner/internal/trakt"
 	"github.com/brunoga/pipeliner/internal/plugin"
+	"github.com/brunoga/pipeliner/internal/store"
 )
 
 func makeServer(t *testing.T, movies []map[string]any) *httptest.Server {
@@ -83,6 +85,51 @@ func TestRegistration(t *testing.T) {
 	}
 	if d.PluginPhase != plugin.PhaseFrom {
 		t.Errorf("phase: got %v", d.PluginPhase)
+	}
+}
+
+func TestClientSecretUsesStoredToken(t *testing.T) {
+	// When client_secret is set, the plugin should read the token from the DB.
+	srv := makeServer(t, []map[string]any{
+		{"title": "Avatar", "year": 2009, "ids": map[string]any{"trakt": 1, "slug": "avatar-2009"}},
+	})
+	orig := itrakt.BaseURL
+	itrakt.BaseURL = srv.URL
+	t.Cleanup(func() { itrakt.BaseURL = orig })
+
+	db, err := store.OpenSQLite(":memory:")
+	if err != nil {
+		t.Fatalf("OpenSQLite: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	// Pre-store a token.
+	tok := &itrakt.Token{
+		AccessToken:  "stored-token",
+		RefreshToken: "stored-ref",
+		ExpiresIn:    7776000,
+		CreatedAt:    time.Now().Unix(),
+	}
+	if err := itrakt.SaveToken(db.Bucket(itrakt.AuthBucket), "my-client-id", tok); err != nil {
+		t.Fatalf("SaveToken: %v", err)
+	}
+
+	p, err := newPlugin(map[string]any{
+		"client_id":     "my-client-id",
+		"client_secret": "my-secret",
+		"type":          "movies",
+		"list":          "trending",
+	}, db)
+	if err != nil {
+		t.Fatalf("newPlugin: %v", err)
+	}
+
+	entries, err := p.(*traktInputPlugin).Run(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(entries) != 1 || entries[0].Title != "Avatar" {
+		t.Errorf("unexpected entries: %v", entries)
 	}
 }
 

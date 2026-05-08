@@ -21,6 +21,7 @@ import (
 	"github.com/brunoga/pipeliner/internal/scheduler"
 	"github.com/brunoga/pipeliner/internal/store"
 	"github.com/brunoga/pipeliner/internal/task"
+	itrakt "github.com/brunoga/pipeliner/internal/trakt"
 	"github.com/brunoga/pipeliner/internal/web"
 
 	// Register all built-in plugins via side-effect imports.
@@ -110,6 +111,8 @@ func run(args []string) int {
 		return cmdDaemon(args[1:])
 	case "check":
 		return cmdCheck(args[1:])
+	case "auth":
+		return cmdAuth(args[1:])
 	case "list-plugins":
 		return cmdListPlugins(args[1:])
 	case "version":
@@ -133,6 +136,9 @@ Usage:
   pipeliner daemon  [--config path] [--log-level level] [--log-plugin name]
                     [--web :8080 --web-user USER --web-password PASS]
                     [--tls-self-signed | --tls-cert cert.pem --tls-key key.pem]
+
+  pipeliner auth trakt   --client-id ID --client-secret SECRET [--config path]
+                         authorise Trakt via device flow and store token in pipeliner.db
 
   pipeliner check        [--config path]   validate config
   pipeliner list-plugins                   list registered plugins
@@ -552,6 +558,78 @@ func logHandlerOptions(level string) *slog.HandlerOptions {
 		l = slog.LevelInfo
 	}
 	return &slog.HandlerOptions{Level: l}
+}
+
+// --- auth command ---
+
+func cmdAuth(args []string) int {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "usage: pipeliner auth <provider>")
+		fmt.Fprintln(os.Stderr, "  providers: trakt")
+		return 1
+	}
+	switch args[0] {
+	case "trakt":
+		return cmdAuthTrakt(args[1:])
+	default:
+		fmt.Fprintf(os.Stderr, "unknown auth provider %q\n", args[0])
+		return 1
+	}
+}
+
+func cmdAuthTrakt(args []string) int {
+	fs := flag.NewFlagSet("auth trakt", flag.ContinueOnError)
+	clientID     := fs.String("client-id",     "", "Trakt API client ID (from trakt.tv/oauth/applications)")
+	clientSecret := fs.String("client-secret", "", "Trakt API client secret")
+	cfgPath      := fs.String("config",        "config.yml", "path to config file (determines pipeliner.db location)")
+	if err := fs.Parse(args); err != nil {
+		return 1
+	}
+	if *clientID == "" || *clientSecret == "" {
+		fmt.Fprintln(os.Stderr, "error: --client-id and --client-secret are required")
+		fmt.Fprintln(os.Stderr, "usage: pipeliner auth trakt --client-id ID --client-secret SECRET [--config path]")
+		return 1
+	}
+
+	db, err := store.OpenSQLite(dbPath(*cfgPath))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: open database: %v\n", err)
+		return 1
+	}
+	defer db.Close()
+
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
+	fmt.Println("Requesting device code from Trakt...")
+	dc, err := itrakt.RequestDeviceCode(ctx, *clientID)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+
+	fmt.Printf("\n  Visit:  %s\n", dc.VerificationURL)
+	fmt.Printf("  Enter:  %s\n\n", dc.UserCode)
+	fmt.Printf("Waiting for authorisation (expires in %ds)...\n", dc.ExpiresIn)
+
+	tok, err := itrakt.ExchangeDeviceCode(ctx, *clientID, *clientSecret, dc.DeviceCode, dc.Interval, dc.ExpiresIn)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+
+	bucket := db.Bucket(itrakt.AuthBucket)
+	if err := itrakt.SaveToken(bucket, *clientID, tok); err != nil {
+		fmt.Fprintf(os.Stderr, "error: save token: %v\n", err)
+		return 1
+	}
+
+	fmt.Printf("\nAuthorised! Token stored in %s\n", dbPath(*cfgPath))
+	fmt.Printf("Token expires: %s\n", tok.ExpiresAt().Format("2006-01-02"))
+	fmt.Println("\nYou can now use client_secret in your config instead of access_token:")
+	fmt.Printf("  client_id: %q\n", *clientID)
+	fmt.Printf("  client_secret: %q\n", *clientSecret)
+	return 0
 }
 
 func makeLogger(level, pluginFilter string) *slog.Logger {
