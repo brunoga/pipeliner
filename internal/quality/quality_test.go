@@ -346,6 +346,56 @@ func TestParseSpecAllDimensions(t *testing.T) {
 	}
 }
 
+func TestSpecFormat3DMinOnly(t *testing.T) {
+	spec, err := ParseSpec("1080p+ 3d+")
+	if err != nil {
+		t.Fatalf("ParseSpec: %v", err)
+	}
+	if spec.MinFormat3D != Format3DHalf {
+		t.Errorf("MinFormat3D: got %v, want Format3DHalf", spec.MinFormat3D)
+	}
+	// non-3D entry rejected
+	if spec.Matches(Quality{Resolution: Resolutionp1080}) {
+		t.Error("non-3D entry should not match 3d+ spec")
+	}
+	// half-SBS passes
+	if !spec.Matches(Quality{Resolution: Resolutionp1080, Format3D: Format3DHalf}) {
+		t.Error("half-SBS should match 3d+ spec")
+	}
+	// BD3D passes
+	if !spec.Matches(Quality{Resolution: Resolutionp1080, Format3D: Format3DBD}) {
+		t.Error("BD3D should match 3d+ spec")
+	}
+}
+
+func TestSpecFormat3DExact(t *testing.T) {
+	spec, err := ParseSpec("1080p+ bd3d")
+	if err != nil {
+		t.Fatalf("ParseSpec: %v", err)
+	}
+	// half-SBS rejected
+	if spec.Matches(Quality{Resolution: Resolutionp1080, Format3D: Format3DHalf}) {
+		t.Error("half-SBS should not match bd3d spec")
+	}
+	// BD3D passes
+	if !spec.Matches(Quality{Resolution: Resolutionp1080, Format3D: Format3DBD}) {
+		t.Error("BD3D should match bd3d spec")
+	}
+}
+
+func TestSpecNoFormat3DAcceptsBoth(t *testing.T) {
+	spec, err := ParseSpec("1080p+")
+	if err != nil {
+		t.Fatalf("ParseSpec: %v", err)
+	}
+	if !spec.Matches(Quality{Resolution: Resolutionp1080}) {
+		t.Error("non-3D should match spec with no 3D constraint")
+	}
+	if !spec.Matches(Quality{Resolution: Resolutionp1080, Format3D: Format3DBD}) {
+		t.Error("3D should match spec with no 3D constraint")
+	}
+}
+
 // --- parseResolution full coverage ---
 
 func TestParseResolutionValues(t *testing.T) {
