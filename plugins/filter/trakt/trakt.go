@@ -149,7 +149,7 @@ func (p *traktFilter) Name() string        { return "trakt" }
 func (p *traktFilter) Phase() plugin.Phase { return plugin.PhaseFilter }
 
 func (p *traktFilter) Filter(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
-	titles, err := p.ensureTitles(ctx)
+	titles, err := p.ensureTitles(ctx, tc)
 	if err != nil {
 		tc.Logger.Warn("trakt: could not fetch list, skipping filter", "err", err)
 		return nil
@@ -185,7 +185,7 @@ func (p *traktFilter) buildClient(ctx context.Context) (*itrakt.Client, error) {
 }
 
 // ensureTitles returns the cached title list, fetching from Trakt if stale.
-func (p *traktFilter) ensureTitles(ctx context.Context) ([]string, error) {
+func (p *traktFilter) ensureTitles(ctx context.Context, tc *plugin.TaskContext) ([]string, error) {
 	// Cache key includes min_rating so different rating floors don't collide.
 	key := fmt.Sprintf("%s:%s:%d", p.itemType, p.list, p.minRating)
 
@@ -199,7 +199,10 @@ func (p *traktFilter) ensureTitles(ctx context.Context) ([]string, error) {
 	}
 	items, err := client.GetList(ctx, p.itemType, p.list, p.limit)
 	if err != nil {
-		return nil, err
+		if len(items) == 0 {
+			return nil, err
+		}
+		tc.Logger.Warn("trakt: partial results due to pagination error", "count", len(items), "err", err)
 	}
 
 	var titles []string
