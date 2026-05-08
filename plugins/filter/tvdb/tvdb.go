@@ -46,15 +46,16 @@ func validate(cfg map[string]any) []error {
 	if err := plugin.OptDuration(cfg, "ttl", "tvdb"); err != nil {
 		errs = append(errs, err)
 	}
-	errs = append(errs, plugin.OptUnknownKeys(cfg, "tvdb", "api_key", "user_pin", "ttl")...)
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "tvdb", "api_key", "user_pin", "ttl", "reject_unmatched")...)
 	return errs
 }
 
 const cacheKey = "favorites"
 
 type tvdbFilter struct {
-	client *itvdb.Client
-	cache  *cache.Cache[[]string]
+	client          *itvdb.Client
+	cache           *cache.Cache[[]string]
+	rejectUnmatched bool
 }
 
 func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
@@ -77,9 +78,14 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 		ttl = d
 	}
 
+	rejectUnmatched := true
+	if v, ok := cfg["reject_unmatched"]; ok {
+		rejectUnmatched, _ = v.(bool)
+	}
 	return &tvdbFilter{
-		client: itvdb.NewWithPin(apiKey, userPin),
-		cache:  cache.NewPersistent[[]string](ttl, db.Bucket("cache_filter_tvdb")),
+		client:          itvdb.NewWithPin(apiKey, userPin),
+		cache:           cache.NewPersistent[[]string](ttl, db.Bucket("cache_filter_tvdb")),
+		rejectUnmatched: rejectUnmatched,
 	}, nil
 }
 
@@ -95,6 +101,9 @@ func (p *tvdbFilter) Filter(ctx context.Context, tc *plugin.TaskContext, e *entr
 
 	ep, ok := iseries.Parse(e.Title)
 	if !ok {
+		if p.rejectUnmatched {
+			e.Reject("tvdb: title did not parse as episode")
+		}
 		return nil
 	}
 
@@ -104,6 +113,9 @@ func (p *tvdbFilter) Filter(ctx context.Context, tc *plugin.TaskContext, e *entr
 			e.Accept()
 			return nil
 		}
+	}
+	if p.rejectUnmatched {
+		e.Reject("tvdb: show not in favorites")
 	}
 	return nil
 }

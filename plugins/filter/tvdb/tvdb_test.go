@@ -103,7 +103,7 @@ func TestFilterAcceptsFavoriteShow(t *testing.T) {
 	}
 }
 
-func TestFilterLeavesNonFavoriteUndecided(t *testing.T) {
+func TestFilterRejectsNonFavoriteByDefault(t *testing.T) {
 	srv, _ := newMockServer(t, []int{1}, map[int]string{1: "Breaking Bad"})
 	defer srv.Close()
 
@@ -111,12 +111,12 @@ func TestFilterLeavesNonFavoriteUndecided(t *testing.T) {
 	e := entry.New("The.Wire.S01E01.720p.HDTV", "http://example.com/1")
 
 	p.Filter(context.Background(), tc(), e) //nolint:errcheck
-	if e.IsAccepted() || e.IsRejected() {
-		t.Errorf("non-favorited show should be undecided, got accepted=%v rejected=%v", e.IsAccepted(), e.IsRejected())
+	if !e.IsRejected() {
+		t.Error("non-favorited show should be rejected by default")
 	}
 }
 
-func TestFilterIgnoresNonEpisodeTitle(t *testing.T) {
+func TestFilterRejectsNonEpisodeTitleByDefault(t *testing.T) {
 	srv, _ := newMockServer(t, []int{1}, map[int]string{1: "Breaking Bad"})
 	defer srv.Close()
 
@@ -126,8 +126,21 @@ func TestFilterIgnoresNonEpisodeTitle(t *testing.T) {
 	if err := p.Filter(context.Background(), tc(), e); err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
+	if !e.IsRejected() {
+		t.Error("non-episode title should be rejected by default")
+	}
+}
+
+func TestFilterUnmatchedOptOut(t *testing.T) {
+	srv, _ := newMockServer(t, []int{1}, map[int]string{1: "Breaking Bad"})
+	defer srv.Close()
+
+	p := makeFilter(t, srv, map[string]any{"reject_unmatched": false})
+	e := entry.New("The.Wire.S01E01.720p.HDTV", "http://example.com/1")
+
+	p.Filter(context.Background(), tc(), e) //nolint:errcheck
 	if e.IsAccepted() || e.IsRejected() {
-		t.Error("non-episode title should be left undecided")
+		t.Errorf("non-favorited show should be undecided when reject_unmatched=false")
 	}
 }
 
