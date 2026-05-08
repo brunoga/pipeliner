@@ -57,6 +57,25 @@ func TestUnknownQualityNoFields(t *testing.T) {
 	// quality string is still set (may be empty/unknown).
 }
 
+func TestIs3DField(t *testing.T) {
+	cases := []struct {
+		title  string
+		want3D bool
+	}{
+		{"Movie.2009.HSBS.1080p.BluRay", true},
+		{"Movie.2009.SBS.1080p.BluRay", true},
+		{"Movie.2009.BD3D.1080p.BluRay", true},
+		{"Movie.2009.3D.1080p.BluRay", true},
+		{"Movie.2009.1080p.BluRay.x264", false},
+	}
+	for _, c := range cases {
+		e := annotate(t, c.title)
+		if got := e.GetBool("video_is_3d"); got != c.want3D {
+			t.Errorf("video_is_3d(%q) = %v, want %v", c.title, got, c.want3D)
+		}
+	}
+}
+
 func TestRegistration(t *testing.T) {
 	d, ok := plugin.Lookup("metainfo_quality")
 	if !ok {
