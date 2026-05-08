@@ -197,13 +197,17 @@ func (p *moviesPlugin) Learn(ctx context.Context, tc *plugin.TaskContext, entrie
 			continue
 		}
 		is3D := m.Quality.Format3D != quality.Format3DNone
+		year := m.Year
+		if year == 0 {
+			year = e.GetInt(entry.FieldVideoYear)
+		}
 		if err := p.tracker.Mark(imovies.Record{
 			Title:   matchedTitle,
-			Year:    m.Year,
+			Year:    year,
 			Is3D:    is3D,
 			Quality: m.Quality,
 		}); err != nil {
-			return fmt.Errorf("movies: mark %s (%d): %w", matchedTitle, m.Year, err)
+			return fmt.Errorf("movies: mark %s (%d): %w", matchedTitle, year, err)
 		}
 	}
 	return nil
