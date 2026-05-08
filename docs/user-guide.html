@@ -249,15 +249,18 @@ make build        # or: go build -o pipeliner ./cmd/pipeliner</code></pre>
 <pre><code><span class="y-key">variables</span>:          <span class="y-comment"># substitution values applied before parsing</span>
   <span class="y-key">tv_root</span>: <span class="y-str">/media/tv</span>
 
-<span class="y-key">templates</span>:          <span class="y-comment"># named partial configs that tasks can inherit</span>
+<span class="y-key">templates</span>:          <span class="y-comment"># reusable plugin blocks expanded inline with use:</span>
   <span class="y-key">base</span>:
+    <span class="y-key">params</span>: [<span class="y-str">feed_url</span>]
+    <span class="y-key">rss</span>:
+      <span class="y-key">url</span>: <span class="y-str">"{$ feed_url $}"</span>
     <span class="y-key">seen</span>:
 
-<span class="y-key">tasks</span>:              <span class="y-comment"># one or more named pipelines</span>
+<span class="y-key">tasks</span>:              <span class="y-comment"># one or more named pipelines (YAML sequence)</span>
   <span class="y-key">my-task</span>:
-    <span class="y-key">template</span>: <span class="y-str">base</span>
-    <span class="y-key">rss</span>:
-      <span class="y-key">url</span>: <span class="y-str">"https://example.com/rss"</span>
+    - <span class="y-key">use</span>: [<span class="y-str">base</span>, <span class="y-str">"https://example.com/rss"</span>]
+    - <span class="y-key">series</span>:
+        <span class="y-key">static</span>: [<span class="y-str">"My Show"</span>]
 
 <span class="y-key">schedules</span>:          <span class="y-comment"># when to run each task in daemon mode</span>
   <span class="y-key">my-task</span>: <span class="y-str">1h</span></code></pre>
@@ -282,49 +285,55 @@ make build        # or: go build -o pipeliner ./cmd/pipeliner</code></pre>
 
 <span class="y-key">tasks</span>:
   <span class="y-key">tv</span>:
-    <span class="y-key">metainfo_tvdb</span>:
-      <span class="y-key">api_key</span>: <span class="y-str">"{$ tvdb_key $}"</span>
-    <span class="y-key">pathfmt</span>:
-      <span class="y-key">path</span>: <span class="y-str">"{$ tv_root $}/{title}"</span>
-      <span class="y-key">field</span>: <span class="y-str">download_path</span></code></pre>
+    - <span class="y-key">metainfo_tvdb</span>:
+        <span class="y-key">api_key</span>: <span class="y-str">"{$ tvdb_key $}"</span>
+    - <span class="y-key">pathfmt</span>:
+        <span class="y-key">path</span>: <span class="y-str">"{$ tv_root $}/{title}"</span>
+        <span class="y-key">field</span>: <span class="y-str">download_path</span></code></pre>
 
 <div class="warn">Substituted values are injected into raw YAML before parsing. Values containing YAML metacharacters (colons, newlines) can alter config structure. Only substitute values from trusted sources.</div>
 
 <!-- ═══════════════════════════════════════════════════════════ -->
 <h2 id="templates">Templates</h2>
 
-<p>Templates let you define shared plugin config once and merge it into multiple tasks. A task references a template with <code>template: name</code>. Per-task plugin config is shallowly merged on top (task wins on key conflicts).</p>
+<p>Templates define reusable plugin blocks that are expanded <em>inline</em> at any position in a task using <code>use:</code>. This is the YAML equivalent of a function call: declare positional parameters with <code>params:</code>, reference them with <code>{$ name $}</code> inside the template, and pass arguments as a flow sequence.</p>
 
 <pre><code><span class="y-key">templates</span>:
-  <span class="y-key">tv-base</span>:
-    <span class="y-key">jackett_input</span>:
-      <span class="y-key">url</span>: <span class="y-str">"https://jackett.example.com"</span>
-      <span class="y-key">api_key</span>: <span class="y-str">"${JACKETT_KEY}"</span>
-    <span class="y-key">torrent_alive</span>:
-      <span class="y-key">min_seeds</span>: <span class="y-num">1</span>
-    <span class="y-key">deluge</span>:
-      <span class="y-key">host</span>: <span class="y-str">localhost</span>
-      <span class="y-key">password</span>: <span class="y-str">changeme</span>
-    <span class="y-key">email</span>:                   <span class="y-comment"># smtp settings shared; task adds subject/body</span>
-      <span class="y-key">smtp_host</span>: <span class="y-str">smtp.gmail.com</span>
-      <span class="y-key">smtp_port</span>: <span class="y-num">587</span>
-      <span class="y-key">from</span>: <span class="y-str">me@example.com</span>
-      <span class="y-key">to</span>: <span class="y-str">me@example.com</span>
+  <span class="y-key">common-input</span>:
+    <span class="y-key">params</span>: [<span class="y-str">feed_url</span>]
+    <span class="y-key">rss</span>:
+      <span class="y-key">url</span>: <span class="y-str">"{$ feed_url $}"</span>
+    <span class="y-key">seen</span>:
+
+  <span class="y-key">common-output</span>:
+    <span class="y-key">params</span>: [<span class="y-str">dest</span>, <span class="y-str">host</span>]
+    <span class="y-key">pathfmt</span>:
+      <span class="y-key">path</span>: <span class="y-str">"{$ dest $}/{title}"</span>
+      <span class="y-key">field</span>: <span class="y-str">download_path</span>
+    <span class="y-key">transmission</span>:
+      <span class="y-key">host</span>: <span class="y-str">"{$ host $}"</span>
+      <span class="y-key">path</span>: <span class="y-str">"{download_path}"</span>
 
 <span class="y-key">tasks</span>:
-  <span class="y-key">tv-premiere</span>:
-    <span class="y-key">template</span>: <span class="y-str">tv-base</span>
-    <span class="y-key">premiere</span>:
-      <span class="y-key">quality</span>: <span class="y-str">720p+ webrip+</span>
-    <span class="y-key">email</span>:                   <span class="y-comment"># merged with template's smtp fields</span>
-      <span class="y-key">subject</span>: <span class="y-str">"New premiere: {{len .Entries}} show(s)"</span></code></pre>
+  <span class="y-key">tv-shows</span>:
+    - <span class="y-key">use</span>: [<span class="y-str">common-input</span>, <span class="y-str">"https://example.com/rss/tv"</span>]
+    - <span class="y-key">series</span>:
+        <span class="y-key">static</span>: [<span class="y-str">"Breaking Bad"</span>]
+    - <span class="y-key">use</span>: [<span class="y-str">common-output</span>, <span class="y-str">/media/tv</span>, <span class="y-str">localhost</span>]
 
-<h4>Merge rules</h4>
+  <span class="y-key">movies</span>:
+    - <span class="y-key">use</span>: [<span class="y-str">common-input</span>, <span class="y-str">"https://example.com/rss/movies"</span>]
+    - <span class="y-key">movies</span>:
+        <span class="y-key">static</span>: [<span class="y-str">"Inception"</span>]
+    - <span class="y-key">use</span>: [<span class="y-str">common-output</span>, <span class="y-str">/media/movies</span>, <span class="y-str">localhost</span>]</code></pre>
+
+<h4>Rules</h4>
 <ul>
-  <li>Template plugins come first in the merged order; task-only plugins are appended.</li>
-  <li>When both template and task define the same plugin, their configs are <strong>shallowly merged</strong> (task fields win on conflict). This lets a task supply just <code>subject</code> and <code>body_template</code> while inheriting smtp settings from a template.</li>
-  <li>Append <code>!</code> to a plugin key in the task (e.g. <code>email!</code>) to completely replace the template value instead of merging.</li>
-  <li>Multiple templates: <code>template: [base, extras]</code> — merged left to right, then task on top.</li>
+  <li>Template plugins are inserted at the exact position of <code>use:</code> — full positional control.</li>
+  <li><code>params:</code> declares parameter names in order. Arguments are passed positionally: <code>use: [template, arg1, arg2]</code>.</li>
+  <li>Parameters use <code>{$ name $}</code> syntax, scoped to the expansion (they do not affect other tasks or global variables).</li>
+  <li>Zero-parameter templates omit <code>params:</code> and are expanded with <code>use: template-name</code> (no list needed).</li>
+  <li>Config validation fails with a clear error if the wrong number of arguments is passed.</li>
 </ul>
 
 <!-- ═══════════════════════════════════════════════════════════ -->
