@@ -37,19 +37,21 @@ func (s *Server) apiTraktAuthStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Cancel any in-flight session.
+	// Request device code before touching shared state; use a short timeout
+	// so a slow or unreachable Trakt API doesn't hang the browser indefinitely.
+	dcCtx, dcCancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer dcCancel()
+	dc, err := trakt.RequestDeviceCode(dcCtx, req.ClientID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+
+	// Cancel any in-flight session, then install the new one.
 	s.traktAuthMu.Lock()
 	if s.traktAuth != nil && s.traktAuth.cancel != nil {
 		s.traktAuth.cancel()
 	}
-
-	dc, err := trakt.RequestDeviceCode(r.Context(), req.ClientID)
-	if err != nil {
-		s.traktAuthMu.Unlock()
-		http.Error(w, "trakt: "+err.Error(), http.StatusBadGateway)
-		return
-	}
-
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(dc.ExpiresIn)*time.Second)
 	sess := &traktAuthSession{
 		clientID:     req.ClientID,
