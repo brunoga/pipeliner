@@ -293,6 +293,69 @@ func TestSearch(t *testing.T) {
 	}
 }
 
+func TestGetListWatchlistPaginates(t *testing.T) {
+	// Simulate two pages of watchlist results.
+	page1 := watchlistResponse([]string{"Show A", "Show B"})
+	page2 := watchlistResponse([]string{"Show C"})
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Pagination-Page-Count", "2")
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Query().Get("page") == "2" {
+			w.Write(page2) //nolint:errcheck
+		} else {
+			w.Write(page1) //nolint:errcheck
+		}
+	}))
+	defer srv.Close()
+	BaseURL = srv.URL
+
+	c := NewWithToken("key", "token123")
+	items, err := c.GetList(context.Background(), "shows", "watchlist", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 3 {
+		t.Fatalf("want 3 items across 2 pages, got %d", len(items))
+	}
+	titles := []string{items[0].Title, items[1].Title, items[2].Title}
+	for i, want := range []string{"Show A", "Show B", "Show C"} {
+		if titles[i] != want {
+			t.Errorf("item[%d]: got %q, want %q", i, titles[i], want)
+		}
+	}
+}
+
+func TestGetListWatchlistPartialPaginationError(t *testing.T) {
+	// Page 1 succeeds; page 2 returns a server error.
+	// Expect partial results and a non-nil error.
+	page1 := watchlistResponse([]string{"Show A", "Show B"})
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("page") == "2" {
+			http.Error(w, "server error", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("X-Pagination-Page-Count", "2")
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(page1) //nolint:errcheck
+	}))
+	defer srv.Close()
+	BaseURL = srv.URL
+
+	c := NewWithToken("key", "token123")
+	items, err := c.GetList(context.Background(), "shows", "watchlist", 0)
+	if err == nil {
+		t.Fatal("expected non-nil error on page 2 failure")
+	}
+	if len(items) != 2 {
+		t.Fatalf("expected 2 partial items from page 1, got %d", len(items))
+	}
+	if items[0].Title != "Show A" || items[1].Title != "Show B" {
+		t.Errorf("unexpected titles: %v", []string{items[0].Title, items[1].Title})
+	}
+}
+
 func TestHTTPError(t *testing.T) {
 	srv := mockServer(t, "", nil, 503)
 	defer srv.Close()

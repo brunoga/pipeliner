@@ -113,7 +113,7 @@ func (p *traktInputPlugin) Phase() plugin.Phase { return plugin.PhaseFrom }
 // instances with different parameters are cached independently.
 func (p *traktInputPlugin) CacheKey() string { return "trakt_list:" + p.itemType + ":" + p.list }
 
-func (p *traktInputPlugin) Run(ctx context.Context, _ *plugin.TaskContext) ([]*entry.Entry, error) {
+func (p *traktInputPlugin) Run(ctx context.Context, tc *plugin.TaskContext) ([]*entry.Entry, error) {
 	client, err := p.buildClient(ctx)
 	if err != nil {
 		return nil, err
@@ -121,7 +121,10 @@ func (p *traktInputPlugin) Run(ctx context.Context, _ *plugin.TaskContext) ([]*e
 
 	items, err := client.GetList(ctx, p.itemType, p.list, p.limit)
 	if err != nil {
-		return nil, fmt.Errorf("trakt_list: fetch %s %s: %w", p.itemType, p.list, err)
+		if len(items) == 0 {
+			return nil, fmt.Errorf("trakt_list: fetch %s %s: %w", p.itemType, p.list, err)
+		}
+		tc.Logger.Warn("trakt_list: partial results due to pagination error", "count", len(items), "err", err)
 	}
 
 	entries := make([]*entry.Entry, 0, len(items))
