@@ -474,6 +474,33 @@ func TestOriginalTitleNotSetForEnglishShow(t *testing.T) {
 	}
 }
 
+func TestEmptySearchNotCached(t *testing.T) {
+	callCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v4/login":
+			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+				"data": map[string]string{"token": "jwt"}, "status": "success",
+			})
+		case "/v4/search":
+			callCount++
+			json.NewEncoder(w).Encode(map[string]any{"data": []any{}, "status": "success"}) //nolint:errcheck
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	p := makePlugin(t, srv)
+	e := entry.New("Breaking.Bad.S01E01.720p.HDTV", "http://x.com/a")
+	p.Annotate(context.Background(), makeCtx(), e) //nolint:errcheck
+	p.Annotate(context.Background(), makeCtx(), e) //nolint:errcheck
+
+	if callCount < 2 {
+		t.Errorf("empty search result should not be cached; API called %d times, want ≥2", callCount)
+	}
+}
+
 func TestRegistration(t *testing.T) {
 	d, ok := plugin.Lookup("metainfo_tvdb")
 	if !ok {

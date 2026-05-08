@@ -107,7 +107,9 @@ func (p *traktMetaPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, 
 			tc.Logger.Warn("metainfo_trakt: search failed", "title", title, "err", err)
 			return nil
 		}
-		p.cache.Set(cacheKey, results)
+		if len(results) > 0 {
+			p.cache.Set(cacheKey, results)
+		}
 	}
 	if len(results) == 0 {
 		tc.Logger.Warn("metainfo_trakt: no results", "title", title, "type", singular, "entry", e.Title)

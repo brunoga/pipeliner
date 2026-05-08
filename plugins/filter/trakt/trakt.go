@@ -212,7 +212,9 @@ func (p *traktFilter) ensureTitles(ctx context.Context, tc *plugin.TaskContext) 
 		}
 		titles = append(titles, match.Normalize(it.Title))
 	}
-	p.cache.Set(key, titles)
+	if len(titles) > 0 {
+		p.cache.Set(key, titles)
+	}
 	return titles, nil
 }
 
