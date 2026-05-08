@@ -9,6 +9,7 @@ Accepts series entries whose parsed show name fuzzy-matches a show in the user's
 | `api_key` | string | yes | — | TheTVDB API key |
 | `user_pin` | string | yes | — | User PIN from thetvdb.com account settings |
 | `ttl` | string | no | `1h` | How long to cache the favorites list |
+| `reject_unmatched` | bool | no | `true` | Reject entries that do not match the favorites list; set `false` to leave them undecided when chaining filters |
 
 ## Example
 
