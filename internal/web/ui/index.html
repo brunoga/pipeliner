@@ -294,6 +294,25 @@ section { margin-bottom: 32px; }
   display: none;
 }
 
+/* settings tab */
+.settings-section { max-width: 480px; }
+.settings-section h3 { font-size: 13px; font-weight: 600; margin-bottom: 14px; color: var(--text); }
+.field-row { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
+.field-row label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.field-row input { padding: 7px 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-family: 'SFMono-Regular', Consolas, monospace; font-size: 13px; outline: none; }
+.field-row input:focus { border-color: var(--accent); }
+.btn-auth { padding: 7px 18px; background: transparent; border: 1px solid var(--accent); color: var(--accent); border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500; transition: background 0.15s; }
+.btn-auth:hover:not(:disabled) { background: rgba(88,166,255,0.08); }
+.btn-auth:disabled { opacity: 0.4; cursor: not-allowed; }
+.auth-status { margin-top: 16px; padding: 14px 16px; border-radius: 8px; font-size: 13px; display: none; }
+.auth-status.pending { background: rgba(88,166,255,0.07); border: 1px solid rgba(88,166,255,0.25); }
+.auth-status.authorized { background: rgba(63,185,80,0.07); border: 1px solid rgba(63,185,80,0.3); color: var(--green); }
+.auth-status.error { background: rgba(248,81,73,0.07); border: 1px solid rgba(248,81,73,0.3); color: var(--red); }
+.auth-code { font-family: 'SFMono-Regular', Consolas, monospace; font-size: 22px; font-weight: 700; letter-spacing: .12em; color: var(--accent); margin: 8px 0 6px; }
+.auth-url { font-size: 12px; color: var(--muted); }
+.auth-url a { color: var(--accent); }
+.auth-countdown { font-size: 11px; color: var(--muted); margin-top: 6px; }
+
 /* database tab */
 .db-layout { display: flex; gap: 20px; align-items: flex-start; }
 .db-sidebar { width: 200px; flex-shrink: 0; }
@@ -354,6 +373,7 @@ section { margin-bottom: 32px; }
   <button class="tab-btn active" id="tab-btn-dashboard" onclick="showTab('dashboard')">Dashboard</button>
   <button class="tab-btn" id="tab-btn-config" onclick="showTab('config')">Config</button>
   <button class="tab-btn" id="tab-btn-db" onclick="showTab('db')">Database</button>
+  <button class="tab-btn" id="tab-btn-settings" onclick="showTab('settings')">Settings</button>
 </div>
 
 <div id="tab-dashboard">
@@ -391,6 +411,25 @@ section { margin-bottom: 32px; }
       <span class="config-status" id="config-status"></span>
     </div>
     <div class="config-errors" id="config-errors"></div>
+  </section>
+</div>
+
+<div id="tab-settings" style="display:none">
+  <section class="settings-section">
+    <h3>Trakt Authorization</h3>
+    <p style="font-size:12px;color:var(--muted);margin-bottom:16px">Authorize pipeliner to access your Trakt account. The token is stored in <code>pipeliner.db</code> and refreshed automatically.</p>
+    <div class="field-row">
+      <label for="trakt-client-id">Client ID</label>
+      <input type="text" id="trakt-client-id" placeholder="your Trakt client ID" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="field-row">
+      <label for="trakt-client-secret">Client Secret</label>
+      <input type="password" id="trakt-client-secret" placeholder="your Trakt client secret" autocomplete="new-password">
+    </div>
+    <button class="btn-auth" id="trakt-auth-btn" onclick="traktStartAuth()">Authorize</button>
+    <div class="auth-status" id="trakt-auth-status">
+      <div id="trakt-auth-body"></div>
+    </div>
   </section>
 </div>
 
@@ -648,12 +687,14 @@ async function runAll(btn) {
 let configLoaded = false;
 
 function showTab(name) {
-  document.getElementById('tab-dashboard').style.display = name === 'dashboard' ? '' : 'none';
-  document.getElementById('tab-config').style.display    = name === 'config'    ? '' : 'none';
-  document.getElementById('tab-db').style.display        = name === 'db'        ? '' : 'none';
+  document.getElementById('tab-dashboard').style.display  = name === 'dashboard' ? '' : 'none';
+  document.getElementById('tab-config').style.display     = name === 'config'    ? '' : 'none';
+  document.getElementById('tab-db').style.display         = name === 'db'        ? '' : 'none';
+  document.getElementById('tab-settings').style.display   = name === 'settings'  ? '' : 'none';
   document.getElementById('tab-btn-dashboard').classList.toggle('active', name === 'dashboard');
   document.getElementById('tab-btn-config').classList.toggle('active', name === 'config');
   document.getElementById('tab-btn-db').classList.toggle('active', name === 'db');
+  document.getElementById('tab-btn-settings').classList.toggle('active', name === 'settings');
   if (name === 'config' && !configLoaded) loadConfig();
   if (name === 'db') {
     if (!dbLoaded) loadDBTab();
@@ -1073,6 +1114,98 @@ async function dbDeleteEntry(bucket, key) {
   });
   if (r.ok) { await selectDBBucket(bucket); await loadDBSidebar(); }
   else alert('Error: ' + await r.text());
+}
+
+// ── trakt auth ────────────────────────────────────────────────────────────────
+
+let traktPollTimer = null;
+let traktCountdownTimer = null;
+let traktExpiresAt = null;
+
+async function traktStartAuth() {
+  const clientID     = document.getElementById('trakt-client-id').value.trim();
+  const clientSecret = document.getElementById('trakt-client-secret').value.trim();
+  if (!clientID || !clientSecret) {
+    traktSetStatus('error', '<strong>Client ID and Client Secret are required.</strong>');
+    return;
+  }
+
+  clearInterval(traktPollTimer);
+  clearInterval(traktCountdownTimer);
+
+  const btn = document.getElementById('trakt-auth-btn');
+  btn.disabled = true;
+  btn.textContent = 'Starting…';
+  traktSetStatus('', '');
+
+  try {
+    const r = await fetch('/api/trakt/auth/start', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({client_id: clientID, client_secret: clientSecret}),
+    });
+    if (!r.ok) {
+      const msg = await r.text();
+      traktSetStatus('error', '<strong>Error:</strong> ' + esc(msg));
+      btn.disabled = false;
+      btn.textContent = 'Authorize';
+      return;
+    }
+    const { user_code, verification_url, expires_in } = await r.json();
+    traktExpiresAt = Date.now() + expires_in * 1000;
+
+    traktSetStatus('pending', `
+      <div>Visit the link below and enter your code:</div>
+      <div class="auth-url"><a href="${esc(verification_url)}" target="_blank" rel="noopener">${esc(verification_url)}</a></div>
+      <div class="auth-code">${esc(user_code)}</div>
+      <div class="auth-countdown" id="trakt-countdown"></div>
+    `);
+
+    traktCountdownTimer = setInterval(() => {
+      const secs = Math.max(0, Math.round((traktExpiresAt - Date.now()) / 1000));
+      const el = document.getElementById('trakt-countdown');
+      if (el) el.textContent = 'Expires in ' + secs + 's';
+      if (secs <= 0) clearInterval(traktCountdownTimer);
+    }, 1000);
+
+    traktPollTimer = setInterval(traktPoll, 3000);
+  } catch (e) {
+    traktSetStatus('error', '<strong>Error:</strong> ' + esc(String(e)));
+    btn.disabled = false;
+    btn.textContent = 'Authorize';
+  }
+}
+
+async function traktPoll() {
+  try {
+    const r = await fetch('/api/trakt/auth/poll');
+    if (!r.ok) return;
+    const { status, message } = await r.json();
+
+    if (status === 'authorized') {
+      clearInterval(traktPollTimer);
+      clearInterval(traktCountdownTimer);
+      traktSetStatus('authorized', '✓ Authorization successful — token saved to database.');
+      const btn = document.getElementById('trakt-auth-btn');
+      btn.disabled = false;
+      btn.textContent = 'Authorize';
+    } else if (status === 'error') {
+      clearInterval(traktPollTimer);
+      clearInterval(traktCountdownTimer);
+      traktSetStatus('error', '<strong>Error:</strong> ' + esc(message || 'unknown error'));
+      const btn = document.getElementById('trakt-auth-btn');
+      btn.disabled = false;
+      btn.textContent = 'Authorize';
+    }
+  } catch (_) {}
+}
+
+function traktSetStatus(type, html) {
+  const el = document.getElementById('trakt-auth-status');
+  const body = document.getElementById('trakt-auth-body');
+  el.className = 'auth-status' + (type ? ' ' + type : '');
+  el.style.display = type ? 'block' : 'none';
+  body.innerHTML = html;
 }
 
 // ── boot ──────────────────────────────────────────────────────────────────────
