@@ -24,16 +24,16 @@ Sends an email for each batch of accepted entries via SMTP. Subject and body are
 ```yaml
 tasks:
   news:
-    rss:
-      url: "https://feeds.example.com/tech"
-    regexp:
-      accept: "(?i)golang"
-    email:
-      smtp_host: smtp.gmail.com
-      smtp_port: 587
-      from: alerts@example.com
-      to: me@example.com
-      username: alerts@example.com
-      password: app-password
-      subject: "{{len .Entries}} new Go articles"
+    - rss:
+        url: "https://feeds.example.com/tech"
+    - regexp:
+        accept: "(?i)golang"
+    - email:
+        smtp_host: smtp.gmail.com
+        smtp_port: 587
+        from: alerts@example.com
+        to: me@example.com
+        username: alerts@example.com
+        password: app-password
+        subject: "{{len .Entries}} new Go articles"
 ```

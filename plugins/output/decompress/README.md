@@ -30,12 +30,12 @@ The plugin fails at startup if none is found.
 ```yaml
 tasks:
   scene:
-    rss:
-      url: "https://example.com/rss"
-    output:
-      download:
-        to: /downloads/staging
-      decompress:
-        to: /downloads/completed
-        delete_archive: true
+    - rss:
+        url: "https://example.com/rss"
+    - output:
+        download:
+          to: /downloads/staging
+        decompress:
+          to: /downloads/completed
+          delete_archive: true
 ```

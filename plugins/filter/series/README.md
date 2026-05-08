@@ -59,16 +59,16 @@ from:
 ```yaml
 tasks:
   tv:
-    rss:
-      url: "https://example.com/feed"
-    seen:
-    series:
-      tracking: strict
-      quality: 720p
-      static:
-        - "Breaking Bad"
-        - "Better Call Saul"
-        - "The Wire"
+    - rss:
+        url: "https://example.com/feed"
+    - seen:
+    - series:
+        tracking: strict
+        quality: 720p
+        static:
+          - "Breaking Bad"
+          - "Better Call Saul"
+          - "The Wire"
 ```
 
 ## Example — dynamic list from Trakt watchlist
@@ -76,19 +76,19 @@ tasks:
 ```yaml
 tasks:
   tv-watchlist:
-    rss:
-      url: "https://example.com/feed"
-    seen:
-    series:
-      tracking: strict
-      quality: 720p
-      ttl: 2h
-      from:
-        - name: trakt_list
-          client_id: YOUR_TRAKT_CLIENT_ID
-          access_token: YOUR_TRAKT_ACCESS_TOKEN
-          type: shows
-          list: watchlist
+    - rss:
+        url: "https://example.com/feed"
+    - seen:
+    - series:
+        tracking: strict
+        quality: 720p
+        ttl: 2h
+        from:
+          - name: trakt_list
+            client_id: YOUR_TRAKT_CLIENT_ID
+            access_token: YOUR_TRAKT_ACCESS_TOKEN
+            type: shows
+            list: watchlist
 ```
 
 ## Example — dynamic list from TheTVDB favorites
@@ -96,16 +96,16 @@ tasks:
 ```yaml
 tasks:
   tv-favorites:
-    rss:
-      url: "https://example.com/feed"
-    seen:
-    series:
-      tracking: strict
-      quality: 720p
-      from:
-        - name: tvdb_favorites
-          api_key: YOUR_TVDB_API_KEY
-          user_pin: YOUR_TVDB_USER_PIN
+    - rss:
+        url: "https://example.com/feed"
+    - seen:
+    - series:
+        tracking: strict
+        quality: 720p
+        from:
+          - name: tvdb_favorites
+            api_key: YOUR_TVDB_API_KEY
+            user_pin: YOUR_TVDB_USER_PIN
 ```
 
 ## Example — combined static and dynamic
@@ -113,17 +113,17 @@ tasks:
 ```yaml
 tasks:
   tv-combined:
-    rss:
-      url: "https://example.com/feed"
-    series:
-      static:
-        - "Severance"      # always included regardless of watchlist
-      from:
-        - name: trakt_list
-          client_id: YOUR_CLIENT_ID
-          access_token: YOUR_ACCESS_TOKEN
-          type: shows
-          list: watchlist
+    - rss:
+        url: "https://example.com/feed"
+    - series:
+        static:
+          - "Severance"      # always included regardless of watchlist
+        from:
+          - name: trakt_list
+            client_id: YOUR_CLIENT_ID
+            access_token: YOUR_ACCESS_TOKEN
+            type: shows
+            list: watchlist
 ```
 
 ## Notes

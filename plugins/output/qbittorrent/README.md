@@ -24,16 +24,16 @@ If login fails or a torrent cannot be added, the affected entry is marked failed
 ```yaml
 tasks:
   movies:
-    rss:
-      url: "https://example.com/feed"
-    movies:
-      static: ["Inception"]
-    pathfmt:
-      path: "/media/movies/{{.movie_title}}"
-    qbittorrent:
-      host: localhost
-      username: admin
-      password: secret
-      savepath: "{{.download_path}}"
-      category: movies
+    - rss:
+        url: "https://example.com/feed"
+    - movies:
+        static: ["Inception"]
+    - pathfmt:
+        path: "/media/movies/{{.movie_title}}"
+    - qbittorrent:
+        host: localhost
+        username: admin
+        password: secret
+        savepath: "{{.download_path}}"
+        category: movies
 ```

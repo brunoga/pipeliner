@@ -11,13 +11,13 @@ Any key-value pairs. Values are Go template strings.
 ```yaml
 tasks:
   my-task:
-    rss:
-      url: "https://example.com/feed"
-    set:
-      category: tv
-      label: "{{.series_name}}"
-      custom_path: "/mnt/nas/{{.series_name}}"
-    qbittorrent:
-      host: localhost
-      category: "{{.category}}"
+    - rss:
+        url: "https://example.com/feed"
+    - set:
+        category: tv
+        label: "{{.series_name}}"
+        custom_path: "/mnt/nas/{{.series_name}}"
+    - qbittorrent:
+        host: localhost
+        category: "{{.category}}"
 ```

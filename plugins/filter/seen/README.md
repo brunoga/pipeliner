@@ -17,17 +17,17 @@ Rejects entries already processed in a previous run. Computes a SHA-256 fingerpr
 ```yaml
 tasks:
   tech-news:
-    rss:
-      url: "https://feeds.arstechnica.com/arstechnica/technology-lab"
-    seen:
-    regexp:
-      accept: "(?i)linux|open.?source|golang"
-    email:
-      smtp_host: smtp.gmail.com
-      smtp_port: 587
-      from: me@example.com
-      to: me@example.com
-      subject: "{{len .Entries}} new article(s)"
+    - rss:
+        url: "https://feeds.arstechnica.com/arstechnica/technology-lab"
+    - seen:
+    - regexp:
+        accept: "(?i)linux|open.?source|golang"
+    - email:
+        smtp_host: smtp.gmail.com
+        smtp_port: 587
+        from: me@example.com
+        to: me@example.com
+        subject: "{{len .Entries}} new article(s)"
 
 schedules:
   tech-news: 1h

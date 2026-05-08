@@ -27,11 +27,11 @@ POSTs a JSON payload to an HTTP endpoint. Used via the [`notify` output plugin](
 tasks:
   tv:
     # ... filters and output ...
-    notify:
-      via: webhook
-      url: "https://hooks.slack.com/services/T.../B.../..."
-      headers:
-        Authorization: "Bearer token"
-      title: "{{len .Entries}} new episodes queued"
-      body: "{{range .Entries}}- {{.Title}}\n{{end}}"
+    - notify:
+        via: webhook
+        url: "https://hooks.slack.com/services/T.../B.../..."
+        headers:
+          Authorization: "Bearer token"
+        title: "{{len .Entries}} new episodes queued"
+        body: "{{range .Entries}}- {{.Title}}\n{{end}}"
 ```

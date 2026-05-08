@@ -21,14 +21,14 @@ If login fails or a torrent cannot be added, the affected entry is marked failed
 ```yaml
 tasks:
   tv:
-    rss:
-      url: "https://example.com/feed"
-    series:
-      static: ["Breaking Bad"]
-    pathfmt:
-      path: "/media/tv/{{.series_name}}/Season {{printf \"%02d\" .series_season}}"
-    deluge:
-      host: localhost
-      password: changeme
-      path: "{{.download_path}}"
+    - rss:
+        url: "https://example.com/feed"
+    - series:
+        static: ["Breaking Bad"]
+    - pathfmt:
+        path: "/media/tv/{{.series_name}}/Season {{printf \"%02d\" .series_season}}"
+    - deluge:
+        host: localhost
+        password: changeme
+        path: "{{.download_path}}"
 ```

@@ -44,20 +44,20 @@ via:
 ```yaml
 tasks:
   movies-discover:
-    discover:
-      titles:
-        - "Dune Part Two"
-        - "Oppenheimer"
-      via:
-        - name: rss_search
-          url_template: "https://jackett.example.com/api?q={{.QueryEscaped}}&apikey=abc"
-      interval: 12h
-    metainfo_quality:
-    quality:
-      min: 1080p
-    seen:
-    qbittorrent:
-      host: localhost
+    - discover:
+        titles:
+          - "Dune Part Two"
+          - "Oppenheimer"
+        via:
+          - name: rss_search
+            url_template: "https://jackett.example.com/api?q={{.QueryEscaped}}&apikey=abc"
+        interval: 12h
+    - metainfo_quality:
+    - quality:
+        min: 1080p
+    - seen:
+    - qbittorrent:
+        host: localhost
 ```
 
 ## Example — dynamic title list from Trakt watchlist
@@ -65,23 +65,23 @@ tasks:
 ```yaml
 tasks:
   discover-watchlist:
-    discover:
-      from:
-        - name: trakt_list
-          client_id: YOUR_CLIENT_ID
-          access_token: YOUR_ACCESS_TOKEN
-          type: movies
-          list: watchlist
-      via:
-        - name: rss_search
-          url_template: "https://jackett.example.com/api?q={{.QueryEscaped}}&apikey=abc"
-      interval: 6h
-    metainfo_quality:
-    quality:
-      min: 1080p
-    seen:
-    qbittorrent:
-      host: localhost
+    - discover:
+        from:
+          - name: trakt_list
+            client_id: YOUR_CLIENT_ID
+            access_token: YOUR_ACCESS_TOKEN
+            type: movies
+            list: watchlist
+        via:
+          - name: rss_search
+            url_template: "https://jackett.example.com/api?q={{.QueryEscaped}}&apikey=abc"
+        interval: 6h
+    - metainfo_quality:
+    - quality:
+        min: 1080p
+    - seen:
+    - qbittorrent:
+        host: localhost
 ```
 
 ## Example — combined static and dynamic
@@ -89,21 +89,21 @@ tasks:
 ```yaml
 tasks:
   discover-combined:
-    discover:
-      titles:
-        - "Severance"       # always searched regardless of watchlist
-      from:
-        - name: trakt_list
-          client_id: YOUR_CLIENT_ID
-          access_token: YOUR_ACCESS_TOKEN
-          type: shows
-          list: watchlist
-      via:
-        - name: rss_search
-          url_template: "https://jackett.example.com/api?q={{.QueryEscaped}}&apikey=abc"
-      interval: 12h
-    series:
-      tracking: strict
-    qbittorrent:
-      host: localhost
+    - discover:
+        titles:
+          - "Severance"       # always searched regardless of watchlist
+        from:
+          - name: trakt_list
+            client_id: YOUR_CLIENT_ID
+            access_token: YOUR_ACCESS_TOKEN
+            type: shows
+            list: watchlist
+        via:
+          - name: rss_search
+            url_template: "https://jackett.example.com/api?q={{.QueryEscaped}}&apikey=abc"
+        interval: 12h
+    - series:
+        tracking: strict
+    - qbittorrent:
+        host: localhost
 ```
