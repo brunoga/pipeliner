@@ -1,6 +1,6 @@
 variables:
   trakt_client_id: YOUR_TRAKT_CLIENT_ID
-  trakt_access_token: YOUR_TRAKT_ACCESS_TOKEN
+  trakt_client_secret: YOUR_TRAKT_CLIENT_SECRET
   jackett_url: https://jackett.example.com
   jackett_key: YOUR_JACKETT_API_KEY
   qbit_host: localhost
@@ -20,7 +20,7 @@ tasks:
       from:
         - name: trakt_list
           client_id: "{$ trakt_client_id $}"
-          access_token: "{$ trakt_access_token $}"
+          client_secret: "{$ trakt_client_secret $}"
           type: movies
           list: watchlist
       via:
@@ -37,7 +37,7 @@ tasks:
       from:
         - name: trakt_list
           client_id: "{$ trakt_client_id $}"
-          access_token: "{$ trakt_access_token $}"
+          client_secret: "{$ trakt_client_secret $}"
           type: movies
           list: watchlist
     metainfo_tmdb:
@@ -64,7 +64,7 @@ tasks:
       from:
         - name: trakt_list
           client_id: "{$ trakt_client_id $}"
-          access_token: "{$ trakt_access_token $}"
+          client_secret: "{$ trakt_client_secret $}"
           type: shows
           list: watchlist
       via:
@@ -80,7 +80,7 @@ tasks:
       from:
         - name: trakt_list
           client_id: "{$ trakt_client_id $}"
-          access_token: "{$ trakt_access_token $}"
+          client_secret: "{$ trakt_client_secret $}"
           type: shows
           list: watchlist
     pathfmt:
