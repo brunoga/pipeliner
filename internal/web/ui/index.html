@@ -241,12 +241,11 @@ section { margin-bottom: 32px; }
   color: var(--text);
   pointer-events: none;
   position: absolute;
-  top: 0; left: 0; right: 0; bottom: 0;
-  overflow-y: scroll;       /* match textarea gutter so widths are identical */
-  scrollbar-width: none;    /* hide the duplicate scrollbar — Firefox */
-  height: auto; /* overridden by bottom:0 constraint */
+  top: 0; left: 0; bottom: 0;
+  /* width is set by JS to match the textarea's clientWidth exactly */
+  overflow: hidden;
+  height: auto;
 }
-.editor-hl::-webkit-scrollbar { display: none; } /* Chrome/Safari */
 .editor-ta {
   background: transparent;
   color: transparent;
@@ -254,7 +253,7 @@ section { margin-bottom: 32px; }
   position: relative;
   resize: vertical;
   z-index: 1;
-  overflow-y: scroll;       /* always-visible scrollbar = consistent content width */
+  overflow-y: auto;
 }
 /* YAML token colours */
 .y-key     { color: #79c0ff; }
@@ -700,9 +699,8 @@ function syncHighlight() {
 function syncScroll() {
   const ta = document.getElementById('config-editor');
   const hl = document.getElementById('editor-hl');
-  // Keep the pre constrained to the textarea's visible height so its
-  // content can overflow and be scrolled in sync.
   hl.style.height = ta.clientHeight + 'px';
+  hl.style.width  = ta.clientWidth  + 'px';  // match exactly, incl. scrollbar gutter
   hl.scrollTop  = ta.scrollTop;
   hl.scrollLeft = ta.scrollLeft;
 }
