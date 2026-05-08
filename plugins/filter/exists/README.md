@@ -14,11 +14,11 @@ Rejects entries whose target file already exists on disk. Compares normalized fi
 ```yaml
 tasks:
   movies:
-    rss:
-      url: "https://example.com/feed"
-    exists:
-      path: /media/movies
-      recursive: true
-    movies:
-      static: ["Inception"]
+    - rss:
+        url: "https://example.com/feed"
+    - exists:
+        path: /media/movies
+        recursive: true
+    - movies:
+        static: ["Inception"]
 ```

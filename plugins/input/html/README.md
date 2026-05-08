@@ -20,7 +20,7 @@ Scrapes all `<a href>` links from an HTML page and emits one entry per link. Opt
 ```yaml
 tasks:
   my-task:
-    html:
-      url: "https://example.com/downloads"
-      mask: "*.torrent"
+    - html:
+        url: "https://example.com/downloads"
+        mask: "*.torrent"
 ```

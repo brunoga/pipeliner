@@ -22,13 +22,13 @@ used. Run a series metainfo plugin before this filter to ensure stable keys.
 ```yaml
 tasks:
   tv-upgrade:
-    rss:
-      url: "https://example.com/rss"
-    metainfo_series:
-    metainfo_quality:
-    upgrade:
-      target: 1080p
-      on_lower: reject
-    deluge:
-      path: /downloads/tv
+    - rss:
+        url: "https://example.com/rss"
+    - metainfo_series:
+    - metainfo_quality:
+    - upgrade:
+        target: 1080p
+        on_lower: reject
+    - deluge:
+        path: /downloads/tv
 ```

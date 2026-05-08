@@ -18,43 +18,43 @@ This pair of plugins replaces FlexGet's `list_add` / `list_match` / `movie_list`
 tasks:
   # Task 1 (priority 1): use movies.from to sync Trakt watchlist into a local list
   sync-watchlist:
-    priority: 1
-    rss:
-      url: "https://example.com/rss/movies"
-    movies:
-      from:
-        - name: trakt_list
-          client_id: YOUR_CLIENT_ID
-          access_token: YOUR_ACCESS_TOKEN
-          type: movies
-          list: watchlist
-    accept_all:
-    list_add:
-      list: movie_watchlist
+    - priority: 1
+    - rss:
+        url: "https://example.com/rss/movies"
+    - movies:
+        from:
+          - name: trakt_list
+            client_id: YOUR_CLIENT_ID
+            access_token: YOUR_ACCESS_TOKEN
+            type: movies
+            list: watchlist
+    - accept_all:
+    - list_add:
+        list: movie_watchlist
 
   # Task 2 (priority 10): search and download, matching against the local list
   movies-search:
-    priority: 10
-    discover:
-      from:
-        - name: trakt_list
-          client_id: YOUR_CLIENT_ID
-          type: movies
-          list: watchlist
-      via:
-        - name: rss_search
-          url_template: "https://example.com/search?q={QueryEscaped}"
-      interval: 24h
-    seen:
-    metainfo_quality:
-    list_match:
-      list: movie_watchlist
-      remove_on_match: true   # remove from list once downloaded
-    pathfmt:
-      path: /media/movies
-    transmission:
-      host: localhost
-      path: "{download_path}"
+    - priority: 10
+    - discover:
+        from:
+          - name: trakt_list
+            client_id: YOUR_CLIENT_ID
+            type: movies
+            list: watchlist
+        via:
+          - name: rss_search
+            url_template: "https://example.com/search?q={QueryEscaped}"
+        interval: 24h
+    - seen:
+    - metainfo_quality:
+    - list_match:
+        list: movie_watchlist
+        remove_on_match: true   # remove from list once downloaded
+    - pathfmt:
+        path: /media/movies
+    - transmission:
+        host: localhost
+        path: "{download_path}"
 
 schedules:
   sync-watchlist: 1h

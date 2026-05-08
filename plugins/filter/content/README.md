@@ -28,13 +28,13 @@ nor rejected).
 ```yaml
 tasks:
   tv:
-    rss:
-      url: "https://example.com/rss"
-    metainfo_torrent:
-    content:
-      reject:
-        - "*.exe"
-        - "*.bat"
-      require:
-        - "*.mkv"
+    - rss:
+        url: "https://example.com/rss"
+    - metainfo_torrent:
+    - content:
+        reject:
+          - "*.exe"
+          - "*.bat"
+        require:
+          - "*.mkv"
 ```

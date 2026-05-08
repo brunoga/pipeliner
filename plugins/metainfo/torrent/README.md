@@ -29,12 +29,12 @@ Reads metadata from a `.torrent` file. If the entry came from the `filesystem` p
 ```yaml
 tasks:
   watch-folder:
-    filesystem:
-      path: /downloads/watch
-      mask: "*.torrent"
-    metainfo_torrent:
-    condition:
-      reject: '{{.torrent_private}}'   # skip private torrents
-    transmission:
-      host: localhost
+    - filesystem:
+        path: /downloads/watch
+        mask: "*.torrent"
+    - metainfo_torrent:
+    - condition:
+        reject: '{{.torrent_private}}'   # skip private torrents
+    - transmission:
+        host: localhost
 ```

@@ -22,26 +22,26 @@ Unlike `rss_search` pointed at Jackett's RSS endpoint, this plugin speaks Torzna
 ```yaml
 tasks:
   tv-shows:
-    discover:
-      from:
-        - name: tvdb_favorites
-          api_key: YOUR_TVDB_KEY
-          user_pin: YOUR_TVDB_PIN
-      via:
-        - name: jackett
-          url: "http://localhost:9117"
-          api_key: YOUR_JACKETT_KEY
-          indexers: ["all"]
-          categories: ["5000", "5030"]
-      interval: 12h
-    series:
-      from:
-        - name: tvdb_favorites
-          api_key: YOUR_TVDB_KEY
-          user_pin: YOUR_TVDB_PIN
-      quality: 720p+
-    deluge:
-      host: localhost
+    - discover:
+        from:
+          - name: tvdb_favorites
+            api_key: YOUR_TVDB_KEY
+            user_pin: YOUR_TVDB_PIN
+        via:
+          - name: jackett
+            url: "http://localhost:9117"
+            api_key: YOUR_JACKETT_KEY
+            indexers: ["all"]
+            categories: ["5000", "5030"]
+        interval: 12h
+    - series:
+        from:
+          - name: tvdb_favorites
+            api_key: YOUR_TVDB_KEY
+            user_pin: YOUR_TVDB_PIN
+        quality: 720p+
+    - deluge:
+        host: localhost
 ```
 
 ## Entry fields set

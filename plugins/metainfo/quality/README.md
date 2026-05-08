@@ -33,9 +33,9 @@ Parses video quality tags from the entry title and annotates the entry with stru
 ```yaml
 tasks:
   my-task:
-    rss:
-      url: "https://example.com/feed"
-    metainfo_quality:
-    condition:
-      accept: '{{eq .video_resolution "1080p"}}'
+    - rss:
+        url: "https://example.com/feed"
+    - metainfo_quality:
+    - condition:
+        accept: '{{eq .video_resolution "1080p"}}'
 ```
