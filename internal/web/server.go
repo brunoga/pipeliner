@@ -52,6 +52,9 @@ type Server struct {
 	configPath      string                 // path to config file on disk
 	validateConfig  func([]byte) []string  // returns validation error strings; nil if not set
 	db              *store.SQLiteStore     // nil if not set
+
+	traktAuthMu sync.Mutex
+	traktAuth   *traktAuthSession
 }
 
 // TaskStarted records that a task has begun executing.
@@ -163,6 +166,8 @@ func (s *Server) Start(ctx context.Context, addr string, tlsCfg *tls.Config) err
 	protected.HandleFunc("GET /api/db/buckets/{name}", s.apiDBGetBucket)
 	protected.HandleFunc("DELETE /api/db/buckets/{name}", s.apiDBClearBucket)
 	protected.HandleFunc("DELETE /api/db/entries/{name}", s.apiDBDeleteEntry)
+	protected.HandleFunc("POST /api/trakt/auth/start", s.apiTraktAuthStart)
+	protected.HandleFunc("GET /api/trakt/auth/poll", s.apiTraktAuthPoll)
 
 	// Top-level mux: open routes take priority; everything else goes through auth.
 	top := http.NewServeMux()
