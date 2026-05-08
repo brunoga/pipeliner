@@ -7,31 +7,31 @@ variables:
 
 tasks:
   movies:
-    rss:
-      url: "https://example.com/rss/movies"
-    seen:
-    metainfo_quality:
-    metainfo_tmdb:
-      api_key: "{$ tmdb_key $}"
-    movies:
-      quality: 1080p
-      static:
-        - Inception
-        - Interstellar
-        - "The Dark Knight"
-        - Oppenheimer
-        - Dune
-    condition:
-      reject: 'video_rating < 7.0'
-    pathfmt:
-      path: '{$ movies_path $}/{title} ({video_year})'
-      field: download_path
-    qbittorrent:
-      host: "{$ qbt_host $}"
-      username: "{$ qbt_user $}"
-      password: "{$ qbt_pass $}"
-      savepath: "{download_path}"
-      category: movies
+    - rss:
+        url: "https://example.com/rss/movies"
+    - seen:
+    - metainfo_quality:
+    - metainfo_tmdb:
+        api_key: "{$ tmdb_key $}"
+    - movies:
+        quality: 1080p
+        static:
+          - Inception
+          - Interstellar
+          - "The Dark Knight"
+          - Oppenheimer
+          - Dune
+    - condition:
+        reject: 'video_rating < 7.0'
+    - pathfmt:
+        path: '{$ movies_path $}/{title} ({video_year})'
+        field: download_path
+    - qbittorrent:
+        host: "{$ qbt_host $}"
+        username: "{$ qbt_user $}"
+        password: "{$ qbt_pass $}"
+        savepath: "{download_path}"
+        category: movies
 
 schedules:
   movies: 6h

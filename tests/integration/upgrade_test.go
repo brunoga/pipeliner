@@ -47,13 +47,13 @@ func TestSeriesInRunDedup(t *testing.T) {
 	res := buildAndRun(t, fmt.Sprintf(`
 tasks:
   t:
-    rss:
-      url: %q
-    metainfo_series:
-    series:
-      static:
-        - "Breaking Bad"
-    print:
+    - rss:
+        url: %q
+    - metainfo_series:
+    - series:
+        static:
+          - "Breaking Bad"
+    - print:
 `, srv.URL))
 
 	res.assertAccepted(t, 1)
@@ -75,12 +75,12 @@ func TestMoviesInRunDedup(t *testing.T) {
 	res := buildAndRun(t, fmt.Sprintf(`
 tasks:
   t:
-    rss:
-      url: %q
-    movies:
-      static:
-        - "Inception"
-    print:
+    - rss:
+        url: %q
+    - movies:
+        static:
+          - "Inception"
+    - print:
 `, srv.URL))
 
 	res.assertAccepted(t, 1)
@@ -98,12 +98,12 @@ func TestSeriesUpgradeAcrossRuns(t *testing.T) {
 	cfg := fmt.Sprintf(`
 tasks:
   t:
-    rss:
-      url: %q
-    series:
-      static:
-        - "Breaking Bad"
-    print:
+    - rss:
+        url: %q
+    - series:
+        static:
+          - "Breaking Bad"
+    - print:
 `, srv.URL)
 	tk := buildTask(t, cfg)
 
@@ -125,12 +125,12 @@ func TestMoviesUpgradeAcrossRuns(t *testing.T) {
 	cfg := fmt.Sprintf(`
 tasks:
   t:
-    rss:
-      url: %q
-    movies:
-      static:
-        - "Inception"
-    print:
+    - rss:
+        url: %q
+    - movies:
+        static:
+          - "Inception"
+    - print:
 `, srv.URL)
 	tk := buildTask(t, cfg)
 
@@ -154,12 +154,12 @@ func TestSeriesProperUpgradeAcrossRuns(t *testing.T) {
 	cfg := fmt.Sprintf(`
 tasks:
   t:
-    rss:
-      url: %q
-    series:
-      static:
-        - "Breaking Bad"
-    print:
+    - rss:
+        url: %q
+    - series:
+        static:
+          - "Breaking Bad"
+    - print:
 `, srv.URL)
 	tk := buildTask(t, cfg)
 
@@ -178,12 +178,12 @@ func TestMoviesProperUpgradeAcrossRuns(t *testing.T) {
 	cfg := fmt.Sprintf(`
 tasks:
   t:
-    rss:
-      url: %q
-    movies:
-      static:
-        - "Inception"
-    print:
+    - rss:
+        url: %q
+    - movies:
+        static:
+          - "Inception"
+    - print:
 `, srv.URL)
 	tk := buildTask(t, cfg)
 
@@ -204,12 +204,12 @@ func TestSeriesDowngradeRejected(t *testing.T) {
 	cfg := fmt.Sprintf(`
 tasks:
   t:
-    rss:
-      url: %q
-    series:
-      static:
-        - "Breaking Bad"
-    print:
+    - rss:
+        url: %q
+    - series:
+        static:
+          - "Breaking Bad"
+    - print:
 `, srv.URL)
 	tk := buildTask(t, cfg)
 
@@ -228,12 +228,12 @@ func TestMoviesDowngradeRejected(t *testing.T) {
 	cfg := fmt.Sprintf(`
 tasks:
   t:
-    rss:
-      url: %q
-    movies:
-      static:
-        - "Inception"
-    print:
+    - rss:
+        url: %q
+    - movies:
+        static:
+          - "Inception"
+    - print:
 `, srv.URL)
 	tk := buildTask(t, cfg)
 

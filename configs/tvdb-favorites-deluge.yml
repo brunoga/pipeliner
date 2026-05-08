@@ -7,33 +7,34 @@ variables:
 
 templates:
   common:
+    params: [feed_url]
     rss:
-      url: "https://example.com/rss/shows"
+      url: "{$ feed_url $}"
     seen:
 
 tasks:
   # Downloads episodes for every show in the TheTVDB favorites list.
   # series.from fetches the favorites list and caches it for 2h between runs.
   tv-favorites:
-    template: common
-    metainfo_quality:
-    series:
-      tracking: strict
-      quality: 720p
-      ttl: 2h
-      from:
-        - name: tvdb_favorites
-          api_key: "{$ tvdb_api_key $}"
-          user_pin: "{$ tvdb_user_pin $}"
-    metainfo_tvdb:
-      api_key: "{$ tvdb_api_key $}"
-    pathfmt:
-      path: '{$ tv_path $}/{title}/Season {series_season:02d}'
-      field: download_path
-    deluge:
-      host: "{$ deluge_host $}"
-      password: "{$ deluge_pass $}"
-      path: "{download_path}"
+    - use: [common, "https://example.com/rss/shows"]
+    - metainfo_quality:
+    - series:
+        tracking: strict
+        quality: 720p
+        ttl: 2h
+        from:
+          - name: tvdb_favorites
+            api_key: "{$ tvdb_api_key $}"
+            user_pin: "{$ tvdb_user_pin $}"
+    - metainfo_tvdb:
+        api_key: "{$ tvdb_api_key $}"
+    - pathfmt:
+        path: '{$ tv_path $}/{title}/Season {series_season:02d}'
+        field: download_path
+    - deluge:
+        host: "{$ deluge_host $}"
+        password: "{$ deluge_pass $}"
+        path: "{download_path}"
 
 schedules:
   tv-favorites: 1h
