@@ -535,7 +535,8 @@ func TestProcessingPipelineConfigOrder(t *testing.T) {
 		meta := &fieldAnnotator{name: "meta", field: "flag", log: &log}
 		flt := &fieldRequiredFilter{name: "flt", field: "flag", log: &log}
 
-		// config order: filter first, then meta — filter cannot see the field yet
+		// config order: filter first, then meta — filter rejects because the field
+		// isn't set yet; metainfo is skipped entirely since the entry is rejected.
 		task := makeTask("t", inp, flt, meta)
 		res, err := task.Run(context.Background())
 		if err != nil {
@@ -544,8 +545,8 @@ func TestProcessingPipelineConfigOrder(t *testing.T) {
 		if res.Accepted != 0 || res.Rejected != 1 {
 			t.Errorf("want 0 accepted / 1 rejected, got %d / %d", res.Accepted, res.Rejected)
 		}
-		if len(log) != 2 || log[0] != "flt" || log[1] != "meta" {
-			t.Errorf("execution order: got %v, want [flt meta]", log)
+		if len(log) != 1 || log[0] != "flt" {
+			t.Errorf("execution order: got %v, want [flt] (meta skipped — entry already rejected)", log)
 		}
 	})
 

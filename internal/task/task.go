@@ -103,19 +103,29 @@ func (t *Task) Run(ctx context.Context) (*Result, error) {
 		pluginStart := time.Now()
 		switch pi.impl.Phase() {
 		case plugin.PhaseMetainfo:
-			plog.Info("plugin started", "in", len(entries))
+			n := len(entries) - countRejected(entries)
+			plog.Info("plugin started", "in", n)
 			if batch, ok := pi.impl.(plugin.BatchMetainfoPlugin); ok {
-				if err := safeRunAnnotateBatch(ctx, batch, tc(pi), entries); err != nil {
+				live := make([]*entry.Entry, 0, n)
+				for _, e := range entries {
+					if !e.IsRejected() && !e.IsFailed() {
+						live = append(live, e)
+					}
+				}
+				if err := safeRunAnnotateBatch(ctx, batch, tc(pi), live); err != nil {
 					plog.Warn("metainfo plugin error", "err", err)
 				}
 			} else if meta, ok := pi.impl.(plugin.MetainfoPlugin); ok {
 				for _, e := range entries {
+					if e.IsRejected() || e.IsFailed() {
+						continue
+					}
 					if err := safeRunAnnotate(ctx, meta, tc(pi), e); err != nil {
 						plog.Warn("metainfo plugin error", "entry", e.Title, "err", err)
 					}
 				}
 			}
-			plog.Info("plugin done", "out", len(entries), "duration", time.Since(pluginStart).Round(time.Millisecond))
+			plog.Info("plugin done", "out", n, "duration", time.Since(pluginStart).Round(time.Millisecond))
 
 		case plugin.PhaseFilter:
 			snap := snapshotStates(entries)
