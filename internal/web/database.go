@@ -141,14 +141,15 @@ func (s *Server) apiDBGetBucket(w http.ResponseWriter, r *http.Request) {
 	// ── key-level cursor pagination for all non-series buckets ─────────────────
 	likeQ := "%" + strings.ToLower(q) + "%"
 
-	// Total count (with optional filter).
+	// Total count (with optional filter). Scan error is intentionally ignored —
+	// total defaults to 0 which is safe (pager shows 0 total, navigation disabled).
 	var total int
 	if q != "" {
-		s.db.DB().QueryRowContext(r.Context(), //nolint:errcheck
+		_ = s.db.DB().QueryRowContext(r.Context(),
 			`SELECT COUNT(*) FROM store WHERE bucket = ? AND (lower(key) LIKE ? OR lower(value) LIKE ?)`,
 			name, likeQ, likeQ).Scan(&total)
 	} else {
-		s.db.DB().QueryRowContext(r.Context(), //nolint:errcheck
+		_ = s.db.DB().QueryRowContext(r.Context(),
 			`SELECT COUNT(*) FROM store WHERE bucket = ?`, name).Scan(&total)
 	}
 
@@ -213,15 +214,15 @@ func (s *Server) apiDBGetSeriesBucket(w http.ResponseWriter, r *http.Request, af
 	ctx := r.Context()
 	likeQ := "%" + strings.ToLower(q) + "%"
 
-	// Total distinct shows (with optional filter).
+	// Total distinct shows (with optional filter). Scan error intentionally ignored.
 	var total int
 	if q != "" {
-		s.db.DB().QueryRowContext(ctx, //nolint:errcheck
+		_ = s.db.DB().QueryRowContext(ctx,
 			`SELECT COUNT(DISTINCT substr(key,1,instr(key,'|')-1))
 			 FROM store WHERE bucket='series'
 			 AND lower(substr(key,1,instr(key,'|')-1)) LIKE ?`, likeQ).Scan(&total)
 	} else {
-		s.db.DB().QueryRowContext(ctx, //nolint:errcheck
+		_ = s.db.DB().QueryRowContext(ctx,
 			`SELECT COUNT(DISTINCT substr(key,1,instr(key,'|')-1)) FROM store WHERE bucket='series'`).Scan(&total)
 	}
 
