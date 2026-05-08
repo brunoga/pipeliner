@@ -23,6 +23,8 @@ func TestParse(t *testing.T) {
 		{"No.Year.Here.720p.BluRay", "No Year Here", 0, true},
 		{"Despicable.Me.3.Bluray.Complete.d666", "Despicable Me 3", 0, true},
 		{"Everything.Everywhere.All.At.Once.BD50.MVC", "Everything Everywhere All At Once", 0, true},
+		{"The Secret Life of Pets (2015) BD3D 1080p Bluray Complete ISO by devil666", "The Secret Life Of Pets", 2015, true},
+		{"The.Lion.King.2019.3DCONV.1080p.BluRay", "The Lion King", 2019, true},
 	}
 
 	for _, tt := range tests {
@@ -59,6 +61,8 @@ func TestParse3D(t *testing.T) {
 		{"Avatar.2009.BD3D.1080p.BluRay", quality.Format3DBD},
 		{"The.Dark.Knight.2008.1080p.BluRay.x264", quality.Format3DNone},
 		{"Inception.2010.720p.HDTV", quality.Format3DNone},
+		{"The.Lion.King.2019.3DCONV.1080p.BluRay", quality.Format3DConv},
+		{"The.Lion.King.2019.3D-CONV.1080p.BluRay", quality.Format3DConv},
 	}
 	for _, c := range cases {
 		m, ok := Parse(c.title)
