@@ -323,6 +323,11 @@ func Parse(title string) Quality {
 		default: // HSBS, HOU, HALFSBS, HALFOU, 3D
 			q.Format3D = Format3DHalf
 		}
+		// 3D releases without an explicit resolution tag are assumed to be
+		// at least 1080p — sub-HD 3D releases are effectively non-existent.
+		if q.Resolution == ResolutionUnknown {
+			q.Resolution = Resolutionp1080
+		}
 	}
 
 	return q
