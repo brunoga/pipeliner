@@ -55,6 +55,7 @@ func (p *qualityMetaPlugin) Annotate(_ context.Context, _ *plugin.TaskContext, e
 		Quality:    qual.String(),
 		Resolution: qual.ResolutionName(),
 		Source:     qual.SourceName(),
+		Is3D:       qual.Format3D != q.Format3DNone,
 	})
 	// Extended quality fields not in VideoInfo.
 	setIfKnown(e, "codec", codecNames[qual.Codec])
