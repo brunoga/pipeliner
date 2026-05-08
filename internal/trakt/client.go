@@ -194,8 +194,7 @@ func (c *Client) fetchPage(ctx context.Context, endpoint string, private bool, s
 func pageCount(resp *http.Response) int {
 	if v := resp.Header.Get("X-Pagination-Page-Count"); v != "" {
 		var n int
-		fmt.Sscanf(v, "%d", &n)
-		if n > 0 {
+		if _, err := fmt.Sscanf(v, "%d", &n); err == nil && n > 0 {
 			return n
 		}
 	}
