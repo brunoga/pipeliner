@@ -589,21 +589,25 @@ make build        # or: go build -o pipeliner ./cmd/pipeliner</code></pre>
   <tr><td>Codec</td><td>xvid, divx, h264/x264, h265/x265/hevc, av1</td></tr>
   <tr><td>Audio</td><td>mp3, aac, dd/dolbydigital, dts, truehd, atmos</td></tr>
   <tr><td>Color range</td><td>sdr, hdr, hdr10, dv/dolbyvision</td></tr>
-  <tr><td>3D format</td><td>3d/3d-half/half, 3d-full/full/sbs/ou, bd3d/bd</td></tr>
+  <tr><td>3D format</td><td>3dconv/conv, 3d/3d-half/half, 3d-full/full/sbs/ou, bd3d/bd</td></tr>
 </table>
 
 <p>Example: <code>720p+ webrip+</code> requires at least 720p resolution AND at least WEBRip source quality.</p>
-<p>When a 3D token is included, non-3D entries are rejected automatically. Omitting a 3D token leaves the dimension unconstrained — both 3D and non-3D entries pass. Examples: <code>1080p+ 3d+</code> (any 3D), <code>1080p+ bd3d</code> (BD3D only).</p>
+<p>When a 3D token is included, non-3D entries are rejected automatically. Omitting a 3D token leaves the dimension unconstrained — both 3D and non-3D entries pass. Examples: <code>1080p+ 3d+</code> (any 3D), <code>1080p+ bd3d</code> (BD3D only), <code>1080p+ 3dconv+</code> (converted 3D or better).</p>
 
 <h4>3D quality</h4>
 <p>3D format is a ranked dimension used only for movie comparisons. When two 3D copies of the same movie are compared, 3D format takes precedence over all other dimensions (resolution, source, etc.), which then act as tie-breakers. 3D and non-3D versions of the same movie are tracked independently — both are downloaded if both match.</p>
 <table>
-  <tr><th>Rank</th><th>Format</th><th>Detected markers</th></tr>
-  <tr><td>Lowest</td><td>Half</td><td><code>3D</code>, <code>HSBS</code>, <code>H-SBS</code>, <code>HALF-SBS</code>, <code>HOU</code>, <code>H-OU</code>, <code>HALF-OU</code></td></tr>
-  <tr><td>Middle</td><td>Full</td><td><code>SBS</code>, <code>FSBS</code>, <code>F-SBS</code>, <code>FULL-SBS</code>, <code>OU</code>, <code>FOU</code>, <code>F-OU</code>, <code>FULL-OU</code></td></tr>
-  <tr><td>Highest</td><td>BD3D</td><td><code>BD3D</code></td></tr>
+  <tr><th>Rank</th><th>Format</th><th>Spec tokens</th><th>Detected markers</th></tr>
+  <tr><td>Lowest</td><td>3D-Conv</td><td><code>3dconv</code>, <code>conv</code></td><td><code>3DCONV</code>, <code>3D-CONV</code> — artificially converted from a 2D source; always wins over any other format marker in the same title</td></tr>
+  <tr><td>Low</td><td>Half</td><td><code>3d</code>, <code>3d-half</code>, <code>half</code></td><td><code>3D</code>, <code>HSBS</code>, <code>H-SBS</code>, <code>HALF-SBS</code>, <code>HalfSBS</code>, <code>HOU</code>, <code>H-OU</code>, <code>HALF-OU</code>, <code>HalfOU</code></td></tr>
+  <tr><td>High</td><td>Full</td><td><code>3d-full</code>, <code>full</code>, <code>sbs</code>, <code>ou</code></td><td><code>SBS</code>, <code>FSBS</code>, <code>F-SBS</code>, <code>FULL-SBS</code>, <code>FullSBS</code>, <code>OU</code>, <code>FOU</code>, <code>F-OU</code>, <code>FULL-OU</code>, <code>FullOU</code></td></tr>
+  <tr><td>Highest</td><td>BD3D</td><td><code>bd3d</code>, <code>bd</code></td><td><code>BD3D</code>, <code>MVC</code> codec, or any native 3D marker combined with <code>COMPLETE BluRay</code> (full disc rip)</td></tr>
 </table>
+<p>When a title contains multiple 3D markers (e.g. <code>IMAX 3D FSBS</code>), the highest-ranked one wins — the explicit format tag beats the generic <code>3D</code> label. If <code>3DCONV</code> is present anywhere in the title, the result is always <code>3D-Conv</code> regardless of other markers.</p>
 <p>Use <code>video_is_3d</code> to test for any 3D release. The 3D format appears in <code>video_quality</code> (e.g. <code>BD3D 1080p BluRay H.265</code>).</p>
+
+<div class="warn"><strong>Data migration note:</strong> The <code>3D-Conv</code> tier was inserted at integer value 1, shifting the stored values of all existing tiers upward (Half: 1→2, Full: 2→3, BD: 3→4). If your tracker database contains 3D movie entries from before this change, their stored format integers will be misread. Clear or re-track any affected 3D movies via the <strong>Database → Movies</strong> tab in the web UI, or by deleting the relevant rows from <code>pipeliner.db</code>.</div>
 
 <!-- ═══════════════════════════════════════════════════════════ -->
 <h2 id="template-funcs">Template Functions</h2>
@@ -850,12 +854,12 @@ make build        # or: go build -o pipeliner ./cmd/pipeliner</code></pre>
 
 <!-- ─────────── metainfo_tvdb ─────────── -->
 <h2 id="metainfo_tvdb">metainfo_tvdb</h2>
-<p>Enriches series entries with TheTVDB metadata. Only processes entries whose title parses as a series episode. Results are cached in <code>pipeliner.db</code>.</p>
+<p>Enriches series entries with TheTVDB metadata. Only processes entries whose title parses as a series episode. Results are cached in <code>pipeliner.db</code>. Empty (no-match) results are never cached — the lookup will be retried on every run until a match is found.</p>
 
 <table>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
   <tr><td><code>api_key</code></td><td>yes</td><td>—</td><td>TheTVDB v4 API key</td></tr>
-  <tr><td><code>cache_ttl</code></td><td>no</td><td><code>24h</code></td><td>How long to cache results</td></tr>
+  <tr><td><code>cache_ttl</code></td><td>no</td><td><code>24h</code></td><td>How long to cache successful (non-empty) results</td></tr>
 </table>
 
 <p>Standard fields set: <code>title</code> (series name), <code>description</code> (overview), <code>enriched</code>, <code>video_year</code>, <code>video_language</code>, <code>video_country</code>, <code>video_genres</code>, <code>video_poster</code>, <code>video_content_rating</code>, <code>video_trailers</code>, <code>video_popularity</code>, <code>video_cast</code>, <code>video_aliases</code>, <code>series_network</code>, <code>series_status</code>, <code>series_first_air_date</code>, <code>series_last_air_date</code>, <code>series_next_air_date</code></p>
@@ -864,12 +868,12 @@ make build        # or: go build -o pipeliner ./cmd/pipeliner</code></pre>
 
 <!-- ─────────── metainfo_tmdb ─────────── -->
 <h2 id="metainfo_tmdb">metainfo_tmdb</h2>
-<p>Enriches movie entries with TMDb metadata. Only processes entries whose title parses as a movie (title + year). Results cached in <code>pipeliner.db</code>.</p>
+<p>Enriches movie entries with TMDb metadata. Only processes entries whose title parses as a movie (title + year). Results cached in <code>pipeliner.db</code>. When a year-filtered search returns no results, the plugin automatically retries without the year filter — this handles releases where the year in the filename is wrong (off-by-one error, regional release difference, etc.). Empty results are never cached — the lookup will be retried on every run until a match is found.</p>
 
 <table>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
   <tr><td><code>api_key</code></td><td>yes</td><td>—</td><td>TMDb API v3 key</td></tr>
-  <tr><td><code>cache_ttl</code></td><td>no</td><td><code>24h</code></td><td>How long to cache results</td></tr>
+  <tr><td><code>cache_ttl</code></td><td>no</td><td><code>24h</code></td><td>How long to cache successful (non-empty) results</td></tr>
 </table>
 
 <p>Standard fields set: <code>title</code> (movie title), <code>description</code> (overview), <code>published_date</code> (release date), <code>enriched</code>, <code>video_year</code>, <code>video_original_title</code>, <code>video_language</code>, <code>video_country</code>, <code>video_genres</code>, <code>video_rating</code>, <code>video_votes</code>, <code>video_popularity</code>, <code>video_runtime</code>, <code>video_poster</code>, <code>video_cast</code>, <code>video_trailers</code>, <code>video_content_rating</code>, <code>video_aliases</code>, <code>video_imdb_id</code>, <code>movie_tagline</code></p>
@@ -878,13 +882,13 @@ make build        # or: go build -o pipeliner ./cmd/pipeliner</code></pre>
 
 <!-- ─────────── metainfo_trakt ─────────── -->
 <h2 id="metainfo_trakt">metainfo_trakt</h2>
-<p>Annotates entries with Trakt.tv metadata. Results cached in <code>pipeliner.db</code>.</p>
+<p>Annotates entries with Trakt.tv metadata. Results cached in <code>pipeliner.db</code>. Empty (no-match) lookups are never cached and will be retried on each run.</p>
 
 <table>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
   <tr><td><code>client_id</code></td><td>yes</td><td>—</td><td>Trakt API Client ID</td></tr>
   <tr><td><code>type</code></td><td>yes</td><td>—</td><td><code>shows</code> or <code>movies</code></td></tr>
-  <tr><td><code>cache_ttl</code></td><td>no</td><td><code>24h</code></td><td>How long to cache results</td></tr>
+  <tr><td><code>cache_ttl</code></td><td>no</td><td><code>24h</code></td><td>How long to cache successful (non-empty) results</td></tr>
 </table>
 
 <p>Standard fields set: <code>title</code>, <code>description</code> (overview), <code>published_date</code>, <code>enriched</code>, <code>video_year</code>, <code>video_genres</code>, <code>video_rating</code>, <code>video_votes</code></p>
@@ -931,9 +935,10 @@ After DHT: <code>torrent_file_size</code>, <code>torrent_file_count</code>, <cod
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
   <tr><td><code>static</code></td><td>conditional</td><td>—</td><td>Static list of show names</td></tr>
   <tr><td><code>from</code></td><td>conditional</td><td>—</td><td>From-plugin configs providing show names dynamically</td></tr>
-  <tr><td><code>ttl</code></td><td>no</td><td><code>1h</code></td><td>Cache TTL for dynamic show list</td></tr>
+  <tr><td><code>ttl</code></td><td>no</td><td><code>1h</code></td><td>Cache TTL for dynamic show list. An empty list from a <code>from:</code> source is not cached — the source will be queried again on the next run.</td></tr>
   <tr><td><code>tracking</code></td><td>no</td><td><code>strict</code></td><td>Episode ordering mode: <code>strict</code>, <code>backfill</code>, or <code>follow</code></td></tr>
   <tr><td><code>quality</code></td><td>no</td><td>—</td><td>Minimum quality spec (e.g. <code>720p+ webrip+</code>)</td></tr>
+  <tr><td><code>reject_unmatched</code></td><td>no</td><td><code>true</code></td><td>When <code>true</code> (default), entries that do not parse as a series episode or whose show name is not in the configured list are explicitly rejected. Set to <code>false</code> to leave such entries undecided — useful when chaining multiple series filters in one pipeline.</td></tr>
 </table>
 
 <h4>Tracking modes</h4>
@@ -970,8 +975,9 @@ After DHT: <code>torrent_file_size</code>, <code>torrent_file_count</code>, <cod
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
   <tr><td><code>static</code></td><td>conditional</td><td>—</td><td>Static list of movie titles</td></tr>
   <tr><td><code>from</code></td><td>conditional</td><td>—</td><td>From-plugin configs providing titles dynamically</td></tr>
-  <tr><td><code>ttl</code></td><td>no</td><td><code>1h</code></td><td>Cache TTL for dynamic list</td></tr>
+  <tr><td><code>ttl</code></td><td>no</td><td><code>1h</code></td><td>Cache TTL for dynamic list. An empty list from a <code>from:</code> source is not cached — the source will be queried again on the next run.</td></tr>
   <tr><td><code>quality</code></td><td>no</td><td>—</td><td>Minimum quality floor</td></tr>
+  <tr><td><code>reject_unmatched</code></td><td>no</td><td><code>true</code></td><td>When <code>true</code> (default), entries whose title does not match any title in the configured list are explicitly rejected. Set to <code>false</code> to leave such entries undecided — useful when chaining multiple movies filters in one pipeline.</td></tr>
 </table>
 
 <p>Fields set: <code>title</code> (movie title), <code>video_year</code>, <code>video_quality</code>, <code>video_resolution</code>, <code>video_source</code>, <code>video_is_3d</code></p>
@@ -987,6 +993,7 @@ After DHT: <code>torrent_file_size</code>, <code>torrent_file_count</code>, <cod
   <tr><td><code>episode</code></td><td>no</td><td><code>1</code></td><td>Episode number to treat as premiere</td></tr>
   <tr><td><code>season</code></td><td>no</td><td><code>1</code></td><td>Season number to match; <code>0</code> means any</td></tr>
   <tr><td><code>quality</code></td><td>no</td><td>—</td><td>Quality spec the entry must satisfy</td></tr>
+  <tr><td><code>reject_unmatched</code></td><td>no</td><td><code>true</code></td><td>When <code>true</code> (default), entries whose title does not parse as a series episode are explicitly rejected. Set to <code>false</code> to leave such entries undecided — useful when chaining <code>premiere</code> alongside other filters in one pipeline.</td></tr>
 </table>
 
 <pre><code><span class="y-key">premiere</span>:
@@ -1074,7 +1081,7 @@ Because <code>enriched</code> is set by any external provider, the same config w
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
   <tr><td><code>api_key</code></td><td>yes</td><td>—</td><td>TheTVDB API key</td></tr>
   <tr><td><code>user_pin</code></td><td>yes</td><td>—</td><td>User PIN from thetvdb.com</td></tr>
-  <tr><td><code>ttl</code></td><td>no</td><td><code>1h</code></td><td>Favorites list cache TTL</td></tr>
+  <tr><td><code>ttl</code></td><td>no</td><td><code>1h</code></td><td>Favorites list cache TTL. An empty list result is not cached — the API will be retried on the next run rather than serving a stale empty list.</td></tr>
 </table>
 
 <!-- ─────────── trakt filter ─────────── -->
@@ -1089,7 +1096,7 @@ Because <code>enriched</code> is set by any external provider, the same config w
   <tr><td><code>access_token</code></td><td>conditional</td><td>—</td><td>Required for private lists</td></tr>
   <tr><td><code>limit</code></td><td>no</td><td>100</td><td>Max results for public lists</td></tr>
   <tr><td><code>min_rating</code></td><td>no</td><td>—</td><td>Minimum rating (1–10, <code>ratings</code> list only)</td></tr>
-  <tr><td><code>ttl</code></td><td>no</td><td><code>1h</code></td><td>List cache TTL</td></tr>
+  <tr><td><code>ttl</code></td><td>no</td><td><code>1h</code></td><td>List cache TTL. An empty list result is not cached — the API will be retried on the next run rather than serving a stale empty list.</td></tr>
 </table>
 
 <!-- ─────────── exists ─────────── -->
