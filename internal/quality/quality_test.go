@@ -68,9 +68,9 @@ func TestParseKnownTitles(t *testing.T) {
 			Quality{Resolution: Resolutionp1080, Source: SourceBluRay, Format3D: Format3DBD},
 		},
 		{
-			// MVC = Multiview Video Coding, the Blu-ray 3D codec
+			// MVC = Multiview Video Coding, the Blu-ray 3D codec; no resolution tag → default 1080p
 			"Everything.Everywhere.All.At.Once.BD50.MVC",
-			Quality{Source: SourceBluRay, Format3D: Format3DBD},
+			Quality{Resolution: Resolutionp1080, Source: SourceBluRay, Format3D: Format3DBD},
 		},
 		{
 			// BD50 = full Blu-ray disc rip, treated as BluRay source
@@ -203,6 +203,33 @@ func TestBetterEqualReturnsFalse(t *testing.T) {
 	q := Quality{Resolution: Resolutionp720, Source: SourceHDTV, Codec: CodecH264, Audio: AudioAAC, ColorRange: ColorRangeSDR}
 	if q.Better(q) {
 		t.Error("quality should not be better than itself")
+	}
+}
+
+func TestParse3DDefaultsResolutionTo1080p(t *testing.T) {
+	cases := []struct{ title string }{
+		{"Avatar.2009.HSBS.BluRay"},
+		{"Fight.or.Flight.BD50.MVC"},
+		{"Blade.Runner.2049.2017.3D.COMPLETE.BluRay"},
+		{"The.Mummy.3D.HSBS.(1932)"},
+	}
+	for _, c := range cases {
+		q := Parse(c.title)
+		if q.Format3D == Format3DNone {
+			t.Errorf("Parse(%q): expected 3D format", c.title)
+			continue
+		}
+		if q.Resolution != Resolutionp1080 {
+			t.Errorf("Parse(%q): resolution = %v, want 1080p (default for 3D)", c.title, q.Resolution)
+		}
+	}
+}
+
+func TestParse3DExplicitResolutionNotOverridden(t *testing.T) {
+	// An explicit resolution tag must not be overridden by the 3D default.
+	q := Parse("Avatar.2009.3D.2160p.BluRay")
+	if q.Resolution != Resolutionp2160 {
+		t.Errorf("resolution: got %v, want 2160p", q.Resolution)
 	}
 }
 
