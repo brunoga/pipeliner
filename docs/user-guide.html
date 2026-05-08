@@ -588,9 +588,11 @@ make build        # or: go build -o pipeliner ./cmd/pipeliner</code></pre>
   <tr><td>Codec</td><td>xvid, divx, h264/x264, h265/x265/hevc, av1</td></tr>
   <tr><td>Audio</td><td>mp3, aac, dd/dolbydigital, dts, truehd, atmos</td></tr>
   <tr><td>Color range</td><td>sdr, hdr, hdr10, dv/dolbyvision</td></tr>
+  <tr><td>3D format</td><td>3d/3d-half/half, 3d-full/full/sbs/ou, bd3d/bd</td></tr>
 </table>
 
 <p>Example: <code>720p+ webrip+</code> requires at least 720p resolution AND at least WEBRip source quality.</p>
+<p>When a 3D token is included, non-3D entries are rejected automatically. Omitting a 3D token leaves the dimension unconstrained — both 3D and non-3D entries pass. Examples: <code>1080p+ 3d+</code> (any 3D), <code>1080p+ bd3d</code> (BD3D only).</p>
 
 <h4>3D quality</h4>
 <p>3D format is a ranked dimension used only for movie comparisons. When two 3D copies of the same movie are compared, 3D format takes precedence over all other dimensions (resolution, source, etc.), which then act as tie-breakers. 3D and non-3D versions of the same movie are tracked independently — both are downloaded if both match.</p>

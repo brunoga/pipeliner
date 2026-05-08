@@ -6,15 +6,20 @@ variables:
 
 # Downloads both the best non-3D and best 3D copy of each movie independently.
 # 3D and non-3D versions are tracked separately so having one does not block
-# the other. Among competing 3D copies, BD3D > Full SBS/OU > Half SBS/OU takes
-# precedence over resolution and source.
+# the other. The 3D format quality (BD3D > Full SBS/OU > Half SBS/OU) takes
+# precedence over resolution and source when ranking competing 3D copies.
 
 tasks:
-  # Non-3D: 1080p+ BluRay/WEB-DL only, exclude all 3D releases.
+  # Non-3D: 1080p+ BluRay/WEB-DL only. The absence of a 3D token in the
+  # quality spec leaves the 3D dimension unconstrained — both 3D and non-3D
+  # would normally pass, so we add a condition to exclude 3D explicitly.
   movies-flat:
     rss:
       url: "https://example.com/rss/movies"
     seen:
+    metainfo_quality:
+    condition:
+      reject: 'video_is_3d == true'
     movies:
       quality: 1080p+ webrip+
       static:
@@ -22,8 +27,6 @@ tasks:
         - Interstellar
         - "The Dark Knight"
         - Avatar
-    condition:
-      reject: 'video_is_3d == true'
     pathfmt:
       path: '{$ movies_path $}/{title} ({video_year})'
       field: download_path
@@ -34,21 +37,19 @@ tasks:
       savepath: "{download_path}"
       category: movies
 
-  # 3D: accept any 3D release at 1080p+ (the engine prefers BD3D > Full > Half
-  # automatically). Non-3D copies of the same movies are handled by movies-flat.
+  # 3D: accept any 3D release at 1080p+ — the quality spec "1080p+ 3d+"
+  # rejects non-3D entries automatically. The engine prefers BD3D > Full > Half.
   movies-3d:
     rss:
       url: "https://example.com/rss/movies"
     seen:
     movies:
-      quality: 1080p+
+      quality: 1080p+ 3d+
       static:
         - Inception
         - Interstellar
         - "The Dark Knight"
         - Avatar
-    condition:
-      reject: 'video_is_3d == false'
     pathfmt:
       path: '{$ movies_path $}/{title} ({video_year}) 3D'
       field: download_path

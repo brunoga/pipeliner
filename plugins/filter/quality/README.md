@@ -9,7 +9,7 @@ Rejects entries whose parsed video quality falls outside a configured range. At 
 | `min` | string | conditional | — | Minimum quality spec (e.g. `720p`, `webrip`) |
 | `max` | string | conditional | — | Maximum quality spec |
 
-Quality specs are compared across five dimensions: resolution, source, codec, audio, and color range. A release must meet or exceed every configured dimension to pass.
+Quality specs are compared across six dimensions: resolution, source, codec, audio, color range, and 3D format. A release must meet or exceed every configured dimension to pass.
 
 ## Spec syntax
 
@@ -30,6 +30,18 @@ A spec token names a single value or a range for one quality dimension. Tokens a
 | Codec | `xvid`, `divx`, `h264` / `x264`, `h265` / `x265` / `hevc`, `av1` |
 | Audio | `mp3`, `aac`, `dd` / `dolbydigital`, `dts`, `truehd`, `atmos` |
 | Color range | `sdr`, `hdr`, `hdr10`, `dv` / `dolbyvision` |
+| 3D format | `3d` / `3d-half` / `half`, `3d-full` / `full` / `sbs` / `ou`, `bd3d` / `bd` |
+
+## 3D format dimension
+
+When a 3D token is included in the spec, non-3D entries are rejected automatically — the zero value of Format3D (not 3D) is below any 3D tier. Omitting a 3D token leaves the dimension unconstrained, accepting both 3D and non-3D entries.
+
+```yaml
+movies:
+  quality: 1080p+ 3d+      # any 3D at 1080p or better
+  quality: 1080p+ bd3d     # exactly BD3D
+  quality: 1080p+          # unchanged — accepts both 3D and non-3D
+```
 
 ## Implicit CAM/TS rejection
 
@@ -47,9 +59,9 @@ tasks:
       max: 1080p
 ```
 
-## Example — inline quality spec in series / premiere
+## Example — inline quality spec in series / movies / premiere
 
-The `series` and `premiere` filters accept a `quality:` key directly, eliminating the need for a separate `quality` plugin:
+The `series`, `movies`, and `premiere` filters accept a `quality:` key directly, eliminating the need for a separate `quality` plugin:
 
 ```yaml
 tasks:
@@ -59,4 +71,11 @@ tasks:
     series:
       static: ["Breaking Bad"]
       quality: 720p+ webrip+
+
+  movies-3d:
+    rss:
+      url: "https://example.com/feed"
+    movies:
+      static: ["Avatar", "Inception"]
+      quality: 1080p+ bd3d    # BD3D only; non-3D copies rejected automatically
 ```

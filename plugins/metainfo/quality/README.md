@@ -8,9 +8,10 @@ Parses video quality tags from the entry title and annotates the entry with stru
 
 | Field | Example | Description |
 |-------|---------|-------------|
-| `video_quality` | `1080p BluRay x265` | Full human-readable quality string |
+| `video_quality` | `BD3D 1080p BluRay x265` | Full human-readable quality string, including 3D format when present |
 | `video_resolution` | `1080p` | Resolution tag |
 | `video_source` | `BluRay` | Source tag |
+| `video_is_3d` | `true` | `true` when any 3D format marker is detected in the title |
 
 ### Extended quality fields (set only when present in the title)
 
