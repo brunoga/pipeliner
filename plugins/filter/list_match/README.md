@@ -10,6 +10,7 @@ This pair of plugins replaces FlexGet's `list_add` / `list_match` / `movie_list`
 |-----|------|----------|---------|-------------|
 | `list` | string | yes | — | Name of the list to match against |
 | `remove_on_match` | bool | no | `false` | Remove the entry from the list after a successful match |
+| `reject_unmatched` | bool | no | `true` | Reject entries that do not match the list; set `false` to leave them undecided when chaining filters |
 
 ## Example — download movies from a persistent watchlist
 

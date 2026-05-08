@@ -5,6 +5,10 @@
 // path set by the filesystem input plugin) when present, or by downloading the
 // URL if it ends in ".torrent".
 //
+// Config keys:
+//
+//	fetch_timeout - HTTP timeout for downloading .torrent files (default: 30s)
+//
 // Fields set on the entry:
 //
 //	torrent_name          - torrent display name
@@ -40,19 +44,35 @@ func init() {
 		PluginPhase: plugin.PhaseMetainfo,
 		Description: "Annotates entries from .torrent files with name, info hash, size, and tracker metadata",
 		Factory:     newPlugin,
-		Validate: func(cfg map[string]any) []error {
-			return plugin.OptUnknownKeys(cfg, "metainfo_torrent")
-		},
+		Validate:    validate,
 	})
+}
+
+func validate(cfg map[string]any) []error {
+	var errs []error
+	if err := plugin.OptDuration(cfg, "fetch_timeout", "metainfo_torrent"); err != nil {
+		errs = append(errs, err)
+	}
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "metainfo_torrent", "fetch_timeout")...)
+	return errs
 }
 
 type torrentPlugin struct {
 	client *http.Client
 }
 
-func newPlugin(_ map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
+func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
+	fetchTimeout := 30 * time.Second
+	if v, ok := cfg["fetch_timeout"]; ok {
+		s, _ := v.(string)
+		d, err := time.ParseDuration(s)
+		if err != nil {
+			return nil, err
+		}
+		fetchTimeout = d
+	}
 	return &torrentPlugin{
-		client: &http.Client{Timeout: 30 * time.Second},
+		client: &http.Client{Timeout: fetchTimeout},
 	}, nil
 }
 
