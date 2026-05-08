@@ -341,8 +341,6 @@ section { margin-bottom: 32px; }
   <div style="display:flex;align-items:center;gap:12px">
     <span class="header-meta" id="header-meta">connecting…</span>
     <a class="btn-reload" href="/guide" target="_blank" rel="noopener" style="text-decoration:none">User Guide</a>
-    <button class="btn-reload" id="btn-run-all" onclick="runAll(this)">Run all</button>
-    <button class="btn-reload" id="btn-reload" onclick="reloadConfig(this)">Reload config</button>
   </div>
 </header>
 
@@ -354,7 +352,7 @@ section { margin-bottom: 32px; }
 
 <div id="tab-dashboard">
   <section>
-    <h2>Tasks</h2>
+    <h2 style="display:flex;align-items:center;gap:12px">Tasks <button class="btn-reload" id="btn-run-all" onclick="runAll(this)" style="font-size:0.75rem">Run all</button></h2>
     <div class="task-grid" id="task-grid"><div class="no-tasks">Loading…</div></div>
   </section>
 
@@ -408,8 +406,6 @@ let startedAt = Date.now();
 
 // ── polling ───────────────────────────────────────────────────────────────────
 
-let reloading = false;
-
 async function refresh() {
   try {
     const [sr, hr] = await Promise.all([fetch('/api/status'), fetch('/api/history')]);
@@ -420,18 +416,10 @@ async function refresh() {
     document.getElementById('header-meta').textContent =
       'up ' + fmtUptime(Math.round((Date.now() - startedAt) / 1000)) +
       ' · ' + tasks.length + ' task' + (tasks.length !== 1 ? 's' : '');
-    if (!reloading) {
-      const anyRunning = tasks.some(t => t.running);
-      const allRunning = tasks.length > 0 && tasks.every(t => t.running);
-      
-      const reloadBtn = document.getElementById('btn-reload');
-      reloadBtn.disabled = anyRunning;
-      reloadBtn.title = anyRunning ? 'Cannot reload while a task is running' : '';
-
-      const runAllBtn = document.getElementById('btn-run-all');
-      runAllBtn.disabled = allRunning;
-      runAllBtn.title = allRunning ? 'All tasks are already running' : '';
-    }
+    const allRunning = tasks.length > 0 && tasks.every(t => t.running);
+    const runAllBtn = document.getElementById('btn-run-all');
+    runAllBtn.disabled = allRunning;
+    runAllBtn.title = allRunning ? 'All tasks are already running' : '';
   } catch (e) {
     document.getElementById('header-meta').textContent = 'error — retrying';
   }
@@ -647,39 +635,6 @@ async function runAll(btn) {
   }, 3000);
 }
 
-// ── reload config ─────────────────────────────────────────────────────────────
-
-async function reloadConfig(btn) {
-  reloading = true;
-  btn.disabled = true;
-  btn.textContent = 'Reloading…';
-  btn.className = 'btn-reload';
-  btn.title = '';
-  try {
-    const r = await fetch('/api/reload', { method: 'POST' });
-    if (r.ok) {
-      btn.textContent = 'Reloaded ✓';
-      btn.classList.add('ok');
-      await refresh();
-    } else {
-      const msg = await r.text();
-      btn.textContent = 'Error';
-      btn.classList.add('err');
-      btn.title = msg.trim();
-    }
-  } catch (e) {
-    btn.textContent = 'Error';
-    btn.classList.add('err');
-    btn.title = String(e);
-  }
-  setTimeout(() => {
-    reloading = false;
-    btn.textContent = 'Reload config';
-    btn.className = 'btn-reload';
-    btn.title = '';
-    refresh(); // re-evaluate disabled state
-  }, 3000);
-}
 
 // ── tabs ──────────────────────────────────────────────────────────────────────
 
