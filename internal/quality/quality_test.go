@@ -206,6 +206,111 @@ func TestBetterEqualReturnsFalse(t *testing.T) {
 	}
 }
 
+func TestParse3DConv(t *testing.T) {
+	cases := []struct {
+		title string
+	}{
+		{"Avatar.2009.3DCONV.1080p.BluRay"},
+		{"The.Lion.King.2019.3D-CONV.1080p.BluRay"},
+		// 3DCONV must win even when a higher-tier format marker is also present.
+		{"Avatar.2009.FULL-SBS.3DCONV.1080p.BluRay"},
+		{"Avatar.2009.3DCONV.FULL-SBS.1080p.BluRay"},
+	}
+	for _, c := range cases {
+		q := Parse(c.title)
+		if q.Format3D != Format3DConv {
+			t.Errorf("Parse(%q).Format3D = %v, want Format3DConv", c.title, q.Format3D)
+		}
+	}
+}
+
+func TestSpecFormat3DConvExact(t *testing.T) {
+	spec, err := ParseSpec("3dconv")
+	if err != nil {
+		t.Fatalf("ParseSpec: %v", err)
+	}
+	if !spec.Matches(Quality{Format3D: Format3DConv}) {
+		t.Error("3D-Conv should match 3dconv spec")
+	}
+	if spec.Matches(Quality{Format3D: Format3DHalf}) {
+		t.Error("3D-Half should not match exact 3dconv spec")
+	}
+	if spec.Matches(Quality{Format3D: Format3DNone}) {
+		t.Error("non-3D should not match 3dconv spec")
+	}
+}
+
+func TestSpecFormat3DConvPlusIncludesHigher(t *testing.T) {
+	spec, err := ParseSpec("3dconv+")
+	if err != nil {
+		t.Fatalf("ParseSpec: %v", err)
+	}
+	for _, f := range []Format3D{Format3DConv, Format3DHalf, Format3DFull, Format3DBD} {
+		if !spec.Matches(Quality{Format3D: f}) {
+			t.Errorf("3dconv+ should match Format3D=%v", f)
+		}
+	}
+	if spec.Matches(Quality{Format3D: Format3DNone}) {
+		t.Error("non-3D should not match 3dconv+")
+	}
+}
+
+func TestSpecFormat3DHalfPlusExcludesConv(t *testing.T) {
+	spec, err := ParseSpec("3d+")
+	if err != nil {
+		t.Fatalf("ParseSpec: %v", err)
+	}
+	if spec.Matches(Quality{Format3D: Format3DConv}) {
+		t.Error("3D-Conv should not match 3d+ (converted is below native half-SBS)")
+	}
+}
+
+func TestParse3DCompleteBluRayIsBD3D(t *testing.T) {
+	cases := []struct {
+		title   string
+		want    Format3D
+	}{
+		// 3D + COMPLETE BluRay → BD3D (full disc rip).
+		{"Spider.Man.Into.the.Spider.Verse.2018.3D.COMPLETE.BluRay", Format3DBD},
+		{"Avatar.2009.3D.BluRay.COMPLETE", Format3DBD},
+		// 3DCONV + COMPLETE BluRay → still Conv (conversion stays lowest tier).
+		{"Movie.2020.3DCONV.COMPLETE.BluRay", Format3DConv},
+		// 3D + COMPLETE but not BluRay → no elevation.
+		{"Movie.2020.3D.COMPLETE.WEBRip", Format3DHalf},
+		// Non-3D COMPLETE BluRay → not elevated (no 3D marker).
+		{"Movie.2020.COMPLETE.BluRay", Format3DNone},
+	}
+	for _, c := range cases {
+		q := Parse(c.title)
+		if q.Format3D != c.want {
+			t.Errorf("Parse(%q).Format3D = %v, want %v", c.title, q.Format3D, c.want)
+		}
+	}
+}
+
+func TestParse3DHighestMarkerWins(t *testing.T) {
+	cases := []struct {
+		title string
+		want  Format3D
+	}{
+		// Generic "3D" before an explicit format tag — explicit tag must win.
+		{"Project.Hail.Mary.2026.IMAX.3D.FSBS.1080p.WEBRip", Format3DFull},
+		{"Avatar.2009.3D.SBS.1080p.BluRay", Format3DFull},
+		{"Avatar.2009.3D.HSBS.1080p.BluRay", Format3DHalf},
+		// BD3D beats a preceding plain 3D.
+		{"Movie.2020.3D.BD3D.1080p.BluRay", Format3DBD},
+		// Unhyphenated FULL/HALF variants.
+		{"Annihilation.2018.3D.1080p.FullSBS.DTS", Format3DFull},
+		{"Movie.2020.3D.1080p.HalfSBS", Format3DHalf},
+	}
+	for _, c := range cases {
+		q := Parse(c.title)
+		if q.Format3D != c.want {
+			t.Errorf("Parse(%q).Format3D = %v, want %v", c.title, q.Format3D, c.want)
+		}
+	}
+}
+
 func TestParse3DDefaultsResolutionTo1080p(t *testing.T) {
 	cases := []struct{ title string }{
 		{"Avatar.2009.HSBS.BluRay"},
@@ -237,11 +342,15 @@ func TestBetter3DFormatTakesPrecedence(t *testing.T) {
 	bd := Quality{Resolution: Resolutionp1080, Source: SourceBluRay, Format3D: Format3DBD}
 	half := Quality{Resolution: Resolutionp1080, Source: SourceBluRay, Format3D: Format3DHalf}
 	full := Quality{Resolution: Resolutionp1080, Source: SourceBluRay, Format3D: Format3DFull}
+	conv := Quality{Resolution: Resolutionp1080, Source: SourceBluRay, Format3D: Format3DConv}
 	if !bd.Better(full) {
 		t.Error("BD3D should beat 3D-Full at same resolution/source")
 	}
 	if !full.Better(half) {
 		t.Error("3D-Full should beat 3D-Half at same resolution/source")
+	}
+	if !half.Better(conv) {
+		t.Error("3D-Half should beat 3D-Conv at same resolution/source")
 	}
 	// 3D format beats resolution: BD3D 720p > Half-SBS 1080p
 	bdLowRes := Quality{Resolution: Resolutionp720, Source: SourceBluRay, Format3D: Format3DBD}
