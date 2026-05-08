@@ -62,29 +62,32 @@ func NewWithToken(clientID, accessToken string) *Client {
 	return c
 }
 
+const pageSize = 1000 // items per page for paginated requests
+
 // GetList fetches a named list from Trakt and returns the items.
 //
 // itemType is "shows" or "movies".
 // list is one of: "trending", "popular", "watched", "watchlist", "ratings", "collection".
-// limit is the maximum number of results (ignored for user-private lists which return all).
+// limit caps results for public lists; private lists (watchlist, ratings, collection)
+// always fetch all pages regardless of limit.
 func (c *Client) GetList(ctx context.Context, itemType, list string, limit int) ([]Item, error) {
-	var endpoint string
+	var base string
 	private := false
 	switch list {
 	case "trending":
-		endpoint = fmt.Sprintf("%s/%s/trending?extended=full&limit=%d", BaseURL, itemType, limit)
+		base = fmt.Sprintf("%s/%s/trending?extended=full", BaseURL, itemType)
 	case "popular":
-		endpoint = fmt.Sprintf("%s/%s/popular?extended=full&limit=%d", BaseURL, itemType, limit)
+		base = fmt.Sprintf("%s/%s/popular?extended=full", BaseURL, itemType)
 	case "watched":
-		endpoint = fmt.Sprintf("%s/%s/watched/weekly?extended=full&limit=%d", BaseURL, itemType, limit)
+		base = fmt.Sprintf("%s/%s/watched/weekly?extended=full", BaseURL, itemType)
 	case "watchlist":
-		endpoint = fmt.Sprintf("%s/users/me/watchlist/%s?extended=full", BaseURL, itemType)
+		base = fmt.Sprintf("%s/users/me/watchlist/%s?extended=full", BaseURL, itemType)
 		private = true
 	case "ratings":
-		endpoint = fmt.Sprintf("%s/users/me/ratings/%s?extended=full", BaseURL, itemType)
+		base = fmt.Sprintf("%s/users/me/ratings/%s?extended=full", BaseURL, itemType)
 		private = true
 	case "collection":
-		endpoint = fmt.Sprintf("%s/users/me/collection/%s?extended=full", BaseURL, itemType)
+		base = fmt.Sprintf("%s/users/me/collection/%s?extended=full", BaseURL, itemType)
 		private = true
 	default:
 		return nil, fmt.Errorf("trakt: unknown list %q", list)
@@ -94,6 +97,77 @@ func (c *Client) GetList(ctx context.Context, itemType, list string, limit int) 
 		return nil, fmt.Errorf("trakt: list %q requires an access_token", list)
 	}
 
+	singular := itemType[:len(itemType)-1] // "shows" → "show", "movies" → "movie"
+
+	// Private lists are paginated; fetch all pages.
+	// Public lists use limit directly in a single request.
+	if !private {
+		if limit <= 0 {
+			limit = 100
+		}
+		endpoint := fmt.Sprintf("%s&limit=%d", base, limit)
+		return c.fetchPage(ctx, endpoint, private, singular, list)
+	}
+
+	var all []Item
+	for page := 1; ; page++ {
+		endpoint := fmt.Sprintf("%s&limit=%d&page=%d", base, pageSize, page)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+		if err != nil {
+			if len(all) > 0 {
+				return all, fmt.Errorf("trakt: build request for %s/%s page %d: %w", itemType, list, page, err)
+			}
+			return nil, err
+		}
+		c.setHeaders(req, true)
+
+		resp, err := c.http.Do(req)
+		if err != nil {
+			if len(all) > 0 {
+				return all, fmt.Errorf("trakt: get %s/%s page %d: %w", itemType, list, page, err)
+			}
+			return nil, fmt.Errorf("trakt: get %s/%s page %d: %w", itemType, list, page, err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			err := fmt.Errorf("trakt: HTTP %d for %s/%s page %d", resp.StatusCode, itemType, list, page)
+			if len(all) > 0 {
+				return all, err
+			}
+			return nil, err
+		}
+
+		var raw []json.RawMessage
+		decodeErr := json.NewDecoder(resp.Body).Decode(&raw)
+		totalPages := pageCount(resp)
+		resp.Body.Close()
+
+		if decodeErr != nil {
+			err := fmt.Errorf("trakt: decode %s/%s page %d: %w", itemType, list, page, decodeErr)
+			if len(all) > 0 {
+				return all, err
+			}
+			return nil, err
+		}
+
+		items, err := parseListItems(raw, singular, list)
+		if err != nil {
+			if len(all) > 0 {
+				return all, err
+			}
+			return nil, err
+		}
+		all = append(all, items...)
+
+		if page >= totalPages {
+			break
+		}
+	}
+	return all, nil
+}
+
+// fetchPage makes a single request and returns the parsed items.
+func (c *Client) fetchPage(ctx context.Context, endpoint string, private bool, singular, list string) ([]Item, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, err
@@ -102,20 +176,29 @@ func (c *Client) GetList(ctx context.Context, itemType, list string, limit int) 
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("trakt: get %s/%s: %w", itemType, list, err)
+		return nil, fmt.Errorf("trakt: get %s: %w", list, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("trakt: HTTP %d for %s/%s", resp.StatusCode, itemType, list)
+		return nil, fmt.Errorf("trakt: HTTP %d for %s", resp.StatusCode, list)
 	}
 
 	var raw []json.RawMessage
 	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
-		return nil, fmt.Errorf("trakt: decode %s/%s: %w", itemType, list, err)
+		return nil, fmt.Errorf("trakt: decode %s: %w", list, err)
 	}
-
-	singular := itemType[:len(itemType)-1] // "shows" → "show", "movies" → "movie"
 	return parseListItems(raw, singular, list)
+}
+
+// pageCount reads the X-Pagination-Page-Count header, defaulting to 1.
+func pageCount(resp *http.Response) int {
+	if v := resp.Header.Get("X-Pagination-Page-Count"); v != "" {
+		var n int
+		if _, err := fmt.Sscanf(v, "%d", &n); err == nil && n > 0 {
+			return n
+		}
+	}
+	return 1
 }
 
 // Search searches Trakt for movies or shows matching query.
