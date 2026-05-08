@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/brunoga/pipeliner/docs"
 	"github.com/brunoga/pipeliner/internal/store"
 )
 
@@ -149,6 +150,7 @@ func (s *Server) Start(ctx context.Context, addr string, tlsCfg *tls.Config) err
 	// Authenticated routes wrapped in session middleware.
 	protected := http.NewServeMux()
 	protected.HandleFunc("GET /", s.serveUI)
+	protected.HandleFunc("GET /guide", s.serveGuide)
 	protected.HandleFunc("GET /api/status", s.apiStatus)
 	protected.HandleFunc("GET /api/history", s.apiHistory)
 	protected.HandleFunc("POST /api/tasks/{name}/run", s.apiTrigger)
@@ -202,9 +204,15 @@ func (s *Server) serveUI(w http.ResponseWriter, r *http.Request) {
 	}
 	data, _ := uiFS.ReadFile("ui/index.html")
 	html := strings.ReplaceAll(string(data), "__VERSION__", s.version)
-	html = strings.ReplaceAll(html, "__DOC_REF__", docRef(s.version))
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = fmt.Fprint(w, html)
+
+}
+
+func (s *Server) serveGuide(w http.ResponseWriter, r *http.Request) {
+	data, _ := docs.FS.ReadFile("user-guide.html")
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write(data)
 }
 
 func (s *Server) apiStatus(w http.ResponseWriter, _ *http.Request) {
@@ -421,14 +429,6 @@ func (s *Server) apiSaveConfig(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]string{"status": "pending"})
 }
 
-// docRef returns the Git ref to use in documentation URLs.
-// Release versions (e.g. "v0.1.3") use the tag; anything else falls back to main.
-func docRef(version string) string {
-	if strings.HasPrefix(version, "v") {
-		return version
-	}
-	return "main"
-}
 
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
