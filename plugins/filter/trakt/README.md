@@ -20,13 +20,13 @@ One of `client_secret` or `access_token` is required for `watchlist`, `ratings`,
 
 ## Authentication
 
-The recommended approach is `client_secret` with managed tokens:
+The recommended approach is `client_secret` with managed tokens. Complete the device auth flow once — either via the **Settings tab** in the web UI (recommended when running in Docker), or via the CLI:
 
 ```
 pipeliner auth trakt --client-id=YOUR_ID --client-secret=YOUR_SECRET
 ```
 
-This runs the Trakt device auth flow interactively and stores the token in `pipeliner.db`. The token is refreshed automatically before expiry. Then in your config:
+Either method stores the token in `pipeliner.db` and refreshes it automatically before expiry. Then in your config:
 
 ```yaml
 trakt:
