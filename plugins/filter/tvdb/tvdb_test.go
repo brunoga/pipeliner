@@ -190,6 +190,24 @@ func TestInvalidTTL(t *testing.T) {
 	}
 }
 
+func TestEmptyFavoritesNotCached(t *testing.T) {
+	// A server with no favorites should not poison the cache — both calls must
+	// hit the API rather than the second getting a cached empty slice.
+	srv, mock := newMockServer(t, []int{}, map[int]string{})
+	defer srv.Close()
+
+	p := makeFilter(t, srv, map[string]any{"ttl": "1h"})
+
+	e1 := entry.New("Breaking.Bad.S01E01.720p", "http://x.com/1")
+	e2 := entry.New("Breaking.Bad.S01E02.720p", "http://x.com/2")
+	p.Filter(context.Background(), tc(), e1) //nolint:errcheck
+	p.Filter(context.Background(), tc(), e2) //nolint:errcheck
+
+	if n := mock.favCalls.Load(); n < 2 {
+		t.Errorf("empty favorites should not be cached; API called %d times, want ≥2", n)
+	}
+}
+
 func TestPluginRegistered(t *testing.T) {
 	if _, ok := plugin.Lookup("tvdb"); !ok {
 		t.Error("tvdb plugin not registered")

@@ -230,6 +230,26 @@ func TestAnnotateMovie(t *testing.T) {
 	}
 }
 
+func TestEmptyResultNotCached(t *testing.T) {
+	callCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte("[]")) //nolint:errcheck
+	}))
+	defer srv.Close()
+	itrakt.BaseURL = srv.URL
+
+	p := makePlugin(t, map[string]any{"client_id": "key", "type": "shows"})
+	e := entry.New("Breaking.Bad.S01E01.720p.HDTV", "http://x.com/a")
+	p.Annotate(context.Background(), tc(), e) //nolint:errcheck
+	p.Annotate(context.Background(), tc(), e) //nolint:errcheck
+
+	if callCount < 2 {
+		t.Errorf("empty result should not be cached; API called %d times, want ≥2", callCount)
+	}
+}
+
 func TestMissingClientID(t *testing.T) {
 	_, err := newPlugin(map[string]any{"type": "shows"}, nil)
 	if err == nil {

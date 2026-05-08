@@ -131,6 +131,8 @@ func (p *tvdbFilter) ensureTitles(ctx context.Context, tc *plugin.TaskContext) (
 		}
 	}
 
-	p.cache.Set(cacheKey, titles)
+	if len(titles) > 0 {
+		p.cache.Set(cacheKey, titles)
+	}
 	return titles, nil
 }
