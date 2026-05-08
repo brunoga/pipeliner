@@ -20,7 +20,9 @@ func TestParse(t *testing.T) {
 		{"The.Dark.Knight.2008.BluRay.1080p.x264-GROUP", "The Dark Knight", 2008, true},
 		{"Parasite.2019.KOREAN.1080p.BluRay.x264", "Parasite", 2019, true},
 		{"Some.Random.File.Without.Year.mkv", "", 0, false},
-		{"No.Year.Here.720p.BluRay", "", 0, false},
+		{"No.Year.Here.720p.BluRay", "No Year Here", 0, true},
+		{"Despicable.Me.3.Bluray.Complete.d666", "Despicable Me 3", 0, true},
+		{"Everything.Everywhere.All.At.Once.BD50.MVC", "Everything Everywhere All At Once", 0, true},
 	}
 
 	for _, tt := range tests {
