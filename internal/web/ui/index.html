@@ -242,9 +242,11 @@ section { margin-bottom: 32px; }
   pointer-events: none;
   position: absolute;
   top: 0; left: 0; right: 0; bottom: 0;
-  overflow: hidden;
+  overflow-y: scroll;       /* match textarea gutter so widths are identical */
+  scrollbar-width: none;    /* hide the duplicate scrollbar — Firefox */
   height: auto; /* overridden by bottom:0 constraint */
 }
+.editor-hl::-webkit-scrollbar { display: none; } /* Chrome/Safari */
 .editor-ta {
   background: transparent;
   color: transparent;
@@ -252,7 +254,7 @@ section { margin-bottom: 32px; }
   position: relative;
   resize: vertical;
   z-index: 1;
-  overflow-y: auto;
+  overflow-y: scroll;       /* always-visible scrollbar = consistent content width */
 }
 /* YAML token colours */
 .y-key     { color: #79c0ff; }
