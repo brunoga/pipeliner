@@ -7,6 +7,7 @@
 package quality
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -161,6 +162,21 @@ func (q Quality) ResolutionName() string { return resolutionNames[q.Resolution] 
 
 // SourceName returns the human-readable source name (e.g. "BluRay"), or "" if unknown.
 func (q Quality) SourceName() string { return sourceNames[q.Source] }
+
+// MarshalJSON serialises Quality including a precomputed "string" field so
+// the UI can display it without reconstructing the string from numeric codes.
+// The field is omitted when no quality dimensions were detected ("unknown").
+func (q Quality) MarshalJSON() ([]byte, error) {
+	type plain Quality
+	s := q.String()
+	if s == "unknown" {
+		s = ""
+	}
+	return json.Marshal(struct {
+		plain
+		String string `json:"string,omitempty"`
+	}{plain: plain(q), String: s})
+}
 
 // String returns a human-readable summary, omitting unknown dimensions.
 func (q Quality) String() string {

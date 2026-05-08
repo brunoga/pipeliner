@@ -1,6 +1,8 @@
 package quality
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -708,5 +710,27 @@ func TestBetterColorRangeBreaksTie(t *testing.T) {
 	b := Quality{Resolution: Resolutionp2160, Source: SourceBluRay, Codec: CodecH265, Audio: AudioAtmos, ColorRange: ColorRangeHDR}
 	if !a.Better(b) {
 		t.Error("Dolby Vision should beat HDR at same res+source+codec+audio")
+	}
+}
+
+func TestMarshalJSONIncludesStringField(t *testing.T) {
+	q := Quality{Resolution: Resolutionp1080, Source: SourceBluRay, Format3D: Format3DFull}
+	b, err := json.Marshal(q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `"string":"3D-Full 1080p BluRay"`) {
+		t.Errorf("MarshalJSON missing string field, got: %s", b)
+	}
+}
+
+func TestMarshalJSONUnknownQualityOmitsStringField(t *testing.T) {
+	q := Quality{}
+	b, err := json.Marshal(q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), `"string"`) {
+		t.Errorf("empty quality should not emit string field, got: %s", b)
 	}
 }
