@@ -248,3 +248,172 @@ func TestDBNotAvailableWithoutStore(t *testing.T) {
 		t.Errorf("expected 501 when store not set, got %d", resp.StatusCode)
 	}
 }
+
+// ── cursor pagination ─────────────────────────────────────────────────────────
+
+func TestDBPaginationFirstPage(t *testing.T) {
+	_, ts, db := newDBTestServer(t)
+	defer ts.Close()
+	for _, k := range []string{"a", "b", "c", "d", "e"} {
+		db.Bucket("movies").Put(k, `{"title":"`+k+`"}`) //nolint:errcheck
+	}
+
+	resp := get(t, ts.URL+"/api/db/buckets/movies?limit=2")
+	defer resp.Body.Close()
+	var out struct {
+		Entries    []struct{ Key string `json:"key"` } `json:"entries"`
+		NextCursor string                               `json:"next_cursor"`
+		HasMore    bool                                 `json:"has_more"`
+		Total      int                                  `json:"total"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Entries) != 2 {
+		t.Fatalf("want 2 entries, got %d", len(out.Entries))
+	}
+	if out.Entries[0].Key != "a" || out.Entries[1].Key != "b" {
+		t.Errorf("unexpected keys: %v", out.Entries)
+	}
+	if !out.HasMore {
+		t.Error("want has_more=true")
+	}
+	if out.NextCursor != "b" {
+		t.Errorf("next_cursor: got %q, want b", out.NextCursor)
+	}
+	if out.Total != 5 {
+		t.Errorf("total: got %d, want 5", out.Total)
+	}
+}
+
+func TestDBPaginationNextPage(t *testing.T) {
+	_, ts, db := newDBTestServer(t)
+	defer ts.Close()
+	for _, k := range []string{"a", "b", "c", "d", "e"} {
+		db.Bucket("movies").Put(k, `{"title":"`+k+`"}`) //nolint:errcheck
+	}
+
+	resp := get(t, ts.URL+"/api/db/buckets/movies?limit=2&after=b")
+	defer resp.Body.Close()
+	var out struct {
+		Entries    []struct{ Key string `json:"key"` } `json:"entries"`
+		NextCursor string                               `json:"next_cursor"`
+		HasMore    bool                                 `json:"has_more"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Entries) != 2 {
+		t.Fatalf("want 2 entries, got %d", len(out.Entries))
+	}
+	if out.Entries[0].Key != "c" || out.Entries[1].Key != "d" {
+		t.Errorf("unexpected keys: %v", out.Entries)
+	}
+	if !out.HasMore {
+		t.Error("want has_more=true for page 2 of 5")
+	}
+}
+
+func TestDBPaginationLastPage(t *testing.T) {
+	_, ts, db := newDBTestServer(t)
+	defer ts.Close()
+	for _, k := range []string{"a", "b", "c"} {
+		db.Bucket("movies").Put(k, `{"title":"`+k+`"}`) //nolint:errcheck
+	}
+
+	resp := get(t, ts.URL+"/api/db/buckets/movies?limit=2&after=b")
+	defer resp.Body.Close()
+	var out struct {
+		HasMore bool `json:"has_more"`
+		Entries []struct{ Key string `json:"key"` } `json:"entries"`
+	}
+	json.NewDecoder(resp.Body).Decode(&out) //nolint:errcheck
+	if out.HasMore {
+		t.Error("want has_more=false on last page")
+	}
+	if len(out.Entries) != 1 || out.Entries[0].Key != "c" {
+		t.Errorf("unexpected entries: %v", out.Entries)
+	}
+}
+
+func TestDBPaginationFilter(t *testing.T) {
+	_, ts, db := newDBTestServer(t)
+	defer ts.Close()
+	db.Bucket("movies").Put("avatar|2009", `{"title":"avatar"}`)   //nolint:errcheck
+	db.Bucket("movies").Put("batman|2022", `{"title":"batman"}`)   //nolint:errcheck
+	db.Bucket("movies").Put("avatar|2022", `{"title":"avatar 2"}`) //nolint:errcheck
+
+	resp := get(t, ts.URL+"/api/db/buckets/movies?q=avatar")
+	defer resp.Body.Close()
+	var out struct {
+		Entries []struct{ Key string `json:"key"` } `json:"entries"`
+		Total   int                                  `json:"total"`
+	}
+	json.NewDecoder(resp.Body).Decode(&out) //nolint:errcheck
+	if out.Total != 2 {
+		t.Errorf("total: got %d, want 2", out.Total)
+	}
+	if len(out.Entries) != 2 {
+		t.Errorf("entries: got %d, want 2", len(out.Entries))
+	}
+}
+
+func TestDBSeriesPaginationByShow(t *testing.T) {
+	_, ts, db := newDBTestServer(t)
+	defer ts.Close()
+
+	type rec struct {
+		SeriesName string `json:"series_name"`
+		EpisodeID  string `json:"episode_id"`
+	}
+	for _, ep := range []struct{ show, ep string }{
+		{"Breaking Bad", "S01E01"}, {"Breaking Bad", "S01E02"},
+		{"Dark", "S01E01"},
+		{"Mindhunter", "S01E01"}, {"Mindhunter", "S01E02"},
+	} {
+		db.Bucket("series").Put(ep.show+"|"+ep.ep, rec{SeriesName: ep.show, EpisodeID: ep.ep}) //nolint:errcheck
+	}
+
+	// Page 1: limit=2 shows
+	resp := get(t, ts.URL+"/api/db/buckets/series?limit=2")
+	defer resp.Body.Close()
+	var out struct {
+		Grouped    []struct{ Name string `json:"name"` } `json:"grouped"`
+		NextCursor string                                 `json:"next_cursor"`
+		HasMore    bool                                   `json:"has_more"`
+		Total      int                                    `json:"total"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Grouped) != 2 {
+		t.Fatalf("want 2 shows on page 1, got %d", len(out.Grouped))
+	}
+	if out.Grouped[0].Name != "Breaking Bad" || out.Grouped[1].Name != "Dark" {
+		t.Errorf("unexpected shows: %v", out.Grouped)
+	}
+	if !out.HasMore {
+		t.Error("want has_more=true")
+	}
+	if out.NextCursor != "Dark" {
+		t.Errorf("next_cursor: got %q, want Dark", out.NextCursor)
+	}
+	if out.Total != 3 {
+		t.Errorf("total shows: got %d, want 3", out.Total)
+	}
+
+	// Page 2: after Dark
+	resp2 := get(t, ts.URL+"/api/db/buckets/series?limit=2&after=Dark")
+	defer resp2.Body.Close()
+	var out2 struct {
+		Grouped []struct{ Name string `json:"name"` } `json:"grouped"`
+		HasMore bool                                   `json:"has_more"`
+	}
+	json.NewDecoder(resp2.Body).Decode(&out2) //nolint:errcheck
+	if len(out2.Grouped) != 1 || out2.Grouped[0].Name != "Mindhunter" {
+		t.Errorf("page 2 shows: %v", out2.Grouped)
+	}
+	if out2.HasMore {
+		t.Error("want has_more=false on last page")
+	}
+}
