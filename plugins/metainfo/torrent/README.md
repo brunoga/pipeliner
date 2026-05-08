@@ -1,6 +1,12 @@
 # metainfo_torrent
 
-Reads metadata from a `.torrent` file. If the entry came from the `filesystem` plugin, reads the file at the `file_location` field. Otherwise, downloads the URL if it ends in `.torrent`. Takes no config.
+Reads metadata from a `.torrent` file. If the entry came from the `filesystem` plugin, reads the file at the `file_location` field. Otherwise, downloads the URL if it ends in `.torrent`.
+
+## Config
+
+| Key | Type | Required | Default | Description |
+|-----|------|----------|---------|-------------|
+| `fetch_timeout` | string | no | `30s` | HTTP timeout for downloading `.torrent` files |
 
 ## Fields set on entry
 
