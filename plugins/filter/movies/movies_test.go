@@ -75,13 +75,26 @@ func TestFilterRejectsUnlistedMovie(t *testing.T) {
 }
 
 func TestFilterNoYear(t *testing.T) {
+	// A title with no year but a quality marker now parses and can match.
 	p := openPlugin(t, nil)
 	e := entry.New("Inception.BluRay.1080p", "http://x.com/a")
 	if err := p.Filter(context.Background(), makeCtx(), e); err != nil {
 		t.Fatal(err)
 	}
+	if !e.IsAccepted() {
+		t.Errorf("year-less title with quality marker should be accepted when it matches the list")
+	}
+}
+
+func TestFilterNoQualityMarker(t *testing.T) {
+	// A title with no year and no quality marker cannot be parsed — left undecided.
+	p := openPlugin(t, nil)
+	e := entry.New("Inception something with no quality markers at all", "http://x.com/a")
+	if err := p.Filter(context.Background(), makeCtx(), e); err != nil {
+		t.Fatal(err)
+	}
 	if e.IsAccepted() || e.IsRejected() {
-		t.Errorf("no-year title should be left undecided")
+		t.Errorf("unparseable title should be left undecided")
 	}
 }
 
