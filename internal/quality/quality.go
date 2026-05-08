@@ -330,12 +330,15 @@ func Parse(title string) Quality {
 
 // Spec defines an accepted quality range per dimension.
 // A zero min means "any"; a zero max means "no upper bound".
+// When MinFormat3D is non-zero, non-3D entries (Format3D == Format3DNone) are
+// rejected — specifying any 3D token implicitly requires 3D content.
 type Spec struct {
 	MinResolution, MaxResolution Resolution
 	MinSource, MaxSource         Source
 	MinCodec, MaxCodec           Codec
 	MinAudio, MaxAudio           Audio
 	MinColorRange, MaxColorRange ColorRange
+	MinFormat3D, MaxFormat3D     Format3D
 }
 
 // Matches reports whether q falls within every constrained dimension of s.
@@ -369,6 +372,12 @@ func (s Spec) Matches(q Quality) bool {
 		return false
 	}
 	if s.MaxColorRange > 0 && q.ColorRange > s.MaxColorRange {
+		return false
+	}
+	if s.MinFormat3D > 0 && q.Format3D < s.MinFormat3D {
+		return false
+	}
+	if s.MaxFormat3D > 0 && q.Format3D > s.MaxFormat3D {
 		return false
 	}
 	return true
@@ -451,6 +460,10 @@ func applyMinOnly(spec *Spec, v string) bool {
 		spec.MinColorRange = cr
 		return true
 	}
+	if f, ok := parseFormat3D(v); ok {
+		spec.MinFormat3D = f
+		return true
+	}
 	return false
 }
 
@@ -475,6 +488,10 @@ func applySingle(spec *Spec, v string) bool {
 	}
 	if cr, ok := parseColorRange(v); ok {
 		spec.MinColorRange, spec.MaxColorRange = cr, cr
+		return true
+	}
+	if f, ok := parseFormat3D(v); ok {
+		spec.MinFormat3D, spec.MaxFormat3D = f, f
 		return true
 	}
 	return false
@@ -506,6 +523,11 @@ func applyRange(spec *Spec, lo, hi string) bool {
 	if crLo, ok := parseColorRange(lo); ok {
 		crHi, _ := parseColorRange(hi)
 		spec.MinColorRange, spec.MaxColorRange = crLo, crHi
+		return true
+	}
+	if fLo, ok := parseFormat3D(lo); ok {
+		fHi, _ := parseFormat3D(hi)
+		spec.MinFormat3D, spec.MaxFormat3D = fLo, fHi
 		return true
 	}
 	return false
@@ -581,6 +603,18 @@ func parseAudio(s string) (Audio, bool) {
 		return AudioAtmos, true
 	}
 	return AudioUnknown, false
+}
+
+func parseFormat3D(s string) (Format3D, bool) {
+	switch strings.ToLower(strings.ReplaceAll(s, "-", "")) {
+	case "3d", "3dhalf", "half":
+		return Format3DHalf, true
+	case "3dfull", "full", "sbs", "ou":
+		return Format3DFull, true
+	case "bd3d", "bd":
+		return Format3DBD, true
+	}
+	return Format3DNone, false
 }
 
 func parseColorRange(s string) (ColorRange, bool) {
