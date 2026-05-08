@@ -14,7 +14,6 @@ tests/
 
 # Documentation
 *.md
-docs/
 PLUGIN_DEVELOPMENT_GUIDE.md
 
 # IDE
