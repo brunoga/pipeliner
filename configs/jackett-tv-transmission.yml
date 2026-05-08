@@ -15,45 +15,45 @@ variables:
 tasks:
   tv-jackett:
     # Actively search Jackett for each show in the series tracker.
-    discover:
-      from: series
-      via:
-        - jackett:
-            url:        "{$ jackett_url $}"
-            api_key:    "{$ jackett_key $}"
-            indexers:   [all]
-            categories: [5000, 5030, 5040]   # TV, TV/HD, TV/SD
-      interval: 6h
+    - discover:
+        from: series
+        via:
+          - jackett:
+              url:        "{$ jackett_url $}"
+              api_key:    "{$ jackett_key $}"
+              indexers:   [all]
+              categories: [5000, 5030, 5040]   # TV, TV/HD, TV/SD
+        interval: 6h
 
     # Skip anything already downloaded.
-    seen:
+    - seen:
 
     # Accept episodes of the configured shows; track what has been downloaded.
-    series:
-      static:
-        - "Breaking Bad"
-        - "Better Call Saul"
-        - "The Wire"
+    - series:
+        static:
+          - "Breaking Bad"
+          - "Better Call Saul"
+          - "The Wire"
 
     # Require at least HD quality.
-    quality:
-      min: 720p
+    - quality:
+        min: 720p
 
     # Require seeders (jackett provides this without an extra fetch).
-    condition:
-      accept: 'torrent_seeds >= 3'
+    - condition:
+        accept: 'torrent_seeds >= 3'
 
     # Build a structured download path.
-    metainfo_series:
-    pathfmt:
-      path: "/media/tv/{title}/Season {series_season:02d}"
-      field: download_path
+    - metainfo_series:
+    - pathfmt:
+        path: "/media/tv/{title}/Season {series_season:02d}"
+        field: download_path
 
     # Send to Transmission.
-    transmission:
-      host: localhost
-      port: 9091
-      path: "{download_path}"
+    - transmission:
+        host: localhost
+        port: 9091
+        path: "{download_path}"
 
 schedules:
   tv-jackett: 6h

@@ -6,9 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"maps"
 	"os"
-	"slices"
 	"sort"
 	"strings"
 
@@ -20,38 +18,99 @@ import (
 
 // Config is the top-level structure of a pipeliner configuration file.
 type Config struct {
-	// Tasks maps task names to their plugin configurations.
+	// Tasks maps task names to their ordered plugin configurations.
 	Tasks map[string]TaskDef `json:"tasks"`
 	// Schedules maps task names to schedule expressions ("1h", "0 * * * *").
 	Schedules map[string]string `json:"schedules,omitempty"`
-	// Templates defines reusable plugin config blocks merged into tasks.
-	Templates map[string]TaskDef `json:"templates,omitempty"`
+	// Templates defines reusable named plugin config blocks for use: expansion.
+	Templates map[string]TemplateDef `json:"templates,omitempty"`
 	// Variables defines string substitution values used in config values.
 	Variables map[string]string `json:"variables,omitempty"`
 }
 
-// taskEntry is a single plugin-name / raw-JSON-config pair within a TaskDef.
+// taskEntry is a single plugin-name / raw-JSON-config pair.
 type taskEntry struct {
 	name string
 	raw  json.RawMessage
 }
 
-// TaskDef is an ordered sequence of plugin name → raw JSON config pairs.
-// Order matches the config file and determines plugin execution order within
-// each phase.
+// TaskDef is an ordered list of plugin entries (YAML sequence).
+// Each item is a single-key mapping: { plugin_name: config }.
+// Special items: { use: [...] } or { use: "template_name" } expand a template inline.
+// Special items: { priority: N } and { schedule: "..." } are handled as metadata.
 type TaskDef []taskEntry
 
-// UnmarshalJSON reads a JSON object into d, preserving key order.
+// UnmarshalJSON reads a JSON array of single-key objects into d.
+// Each element must be a JSON object with exactly one key.
 func (d *TaskDef) UnmarshalJSON(data []byte) error {
 	dec := json.NewDecoder(bytes.NewReader(data))
 	tok, err := dec.Token()
 	if err != nil {
 		return err
 	}
-	if delim, ok := tok.(json.Delim); !ok || delim != '{' {
-		return fmt.Errorf("taskdef: expected object, got %T", tok)
+	if delim, ok := tok.(json.Delim); !ok || delim != '[' {
+		return fmt.Errorf("taskdef: expected array, got %T(%v)", tok, tok)
 	}
 	*d = nil
+	for dec.More() {
+		// Each element must be a single-key object.
+		var elem map[string]json.RawMessage
+		if err := dec.Decode(&elem); err != nil {
+			return fmt.Errorf("taskdef: element must be an object: %w", err)
+		}
+		if len(elem) != 1 {
+			return fmt.Errorf("taskdef: each list item must have exactly one key, got %d", len(elem))
+		}
+		for k, v := range elem {
+			*d = append(*d, taskEntry{k, v})
+		}
+	}
+	_, err = dec.Token() // consume ']'
+	return err
+}
+
+// MarshalJSON writes d as a JSON array of single-key objects.
+func (d TaskDef) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	buf.WriteByte('[')
+	for i, e := range d {
+		if i > 0 {
+			buf.WriteByte(',')
+		}
+		buf.WriteByte('{')
+		key, err := json.Marshal(e.name)
+		if err != nil {
+			return nil, err
+		}
+		buf.Write(key)
+		buf.WriteByte(':')
+		if e.raw == nil {
+			buf.WriteString("null")
+		} else {
+			buf.Write(e.raw)
+		}
+		buf.WriteByte('}')
+	}
+	buf.WriteByte(']')
+	return buf.Bytes(), nil
+}
+
+// TemplateDef is an ordered collection of plugin entries stored as a JSON object.
+// Unlike TaskDef, templates are YAML mappings, not sequences.
+// The reserved key "params" holds the parameter name list and is not a plugin.
+type TemplateDef []taskEntry
+
+// UnmarshalJSON reads a JSON object into t, preserving key order.
+func (t *TemplateDef) UnmarshalJSON(data []byte) error {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	tok, err := dec.Token()
+	if err != nil {
+		return err
+	}
+	if delim, ok := tok.(json.Delim); !ok || delim != '{' {
+		return fmt.Errorf("templatedef: expected object, got %T", tok)
+	}
+	*t = nil
 	for dec.More() {
 		tok, err = dec.Token()
 		if err != nil {
@@ -59,23 +118,23 @@ func (d *TaskDef) UnmarshalJSON(data []byte) error {
 		}
 		key, ok := tok.(string)
 		if !ok {
-			return fmt.Errorf("taskdef: expected string key, got %T", tok)
+			return fmt.Errorf("templatedef: expected string key, got %T", tok)
 		}
 		var raw json.RawMessage
 		if err := dec.Decode(&raw); err != nil {
 			return err
 		}
-		*d = append(*d, taskEntry{key, raw})
+		*t = append(*t, taskEntry{key, raw})
 	}
 	_, err = dec.Token() // consume '}'
 	return err
 }
 
-// MarshalJSON writes d as a JSON object with keys in insertion order.
-func (d TaskDef) MarshalJSON() ([]byte, error) {
+// MarshalJSON writes t as a JSON object with keys in insertion order.
+func (t TemplateDef) MarshalJSON() ([]byte, error) {
 	var buf bytes.Buffer
 	buf.WriteByte('{')
-	for i, e := range d {
+	for i, e := range t {
 		if i > 0 {
 			buf.WriteByte(',')
 		}
@@ -95,9 +154,9 @@ func (d TaskDef) MarshalJSON() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// get returns the raw JSON for the given name, or (nil, false) if absent.
-func (d TaskDef) get(name string) (json.RawMessage, bool) {
-	for _, e := range d {
+// get returns the raw JSON for the given name in t, or (nil, false) if absent.
+func (t TemplateDef) get(name string) (json.RawMessage, bool) {
+	for _, e := range t {
 		if e.name == name {
 			return e.raw, true
 		}
@@ -105,26 +164,18 @@ func (d TaskDef) get(name string) (json.RawMessage, bool) {
 	return nil, false
 }
 
-// set adds or updates the entry for name. If name already exists, its value
-// is updated in place; otherwise a new entry is appended.
-func (d *TaskDef) set(name string, raw json.RawMessage) {
-	for i, e := range *d {
-		if e.name == name {
-			(*d)[i].raw = raw
-			return
-		}
+// params returns the declared parameter names for this template, or nil if
+// the template has no "params" key.
+func (t TemplateDef) params() ([]string, error) {
+	raw, ok := t.get("params")
+	if !ok {
+		return nil, nil
 	}
-	*d = append(*d, taskEntry{name, raw})
-}
-
-// delete removes the entry for name. It is a no-op if name is absent.
-func (d *TaskDef) delete(name string) {
-	for i, e := range *d {
-		if e.name == name {
-			*d = append((*d)[:i], (*d)[i+1:]...)
-			return
-		}
+	var names []string
+	if err := json.Unmarshal(raw, &names); err != nil {
+		return nil, fmt.Errorf("template params must be a list of strings: %w", err)
 	}
+	return names, nil
 }
 
 // Load reads and parses a YAML configuration file.
@@ -173,10 +224,11 @@ func parse(data []byte) (*Config, error) {
 func Validate(c *Config) []error {
 	var errs []error
 
+	// Validate template plugin names (skip "params" which is reserved metadata).
 	for tmplName, def := range c.Templates {
 		for _, e := range def {
-			if e.name == "template" {
-				continue // meta key, not a plugin name
+			if e.name == "params" {
+				continue // reserved key, not a plugin
 			}
 			if _, ok := plugin.Lookup(e.name); !ok {
 				errs = append(errs, fmt.Errorf("template %q: unknown plugin %q", tmplName, e.name))
@@ -185,15 +237,13 @@ func Validate(c *Config) []error {
 	}
 
 	for taskName, def := range c.Tasks {
-		// Merge template(s) before validating so that plugin configs inherited
-		// from a template are visible when per-plugin validators run.
-		merged, err := mergeTemplate(taskName, def, c.Templates)
+		expanded, err := expandTaskDef(taskName, def, c.Templates)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("task %q: %w", taskName, err))
 			continue
 		}
-		for _, e := range merged {
-			if e.name == "template" || e.name == "priority" || e.name == "schedule" {
+		for _, e := range expanded {
+			if e.name == "priority" || e.name == "schedule" {
 				continue
 			}
 			d, ok := plugin.Lookup(e.name)
@@ -218,7 +268,7 @@ func Validate(c *Config) []error {
 	return errs
 }
 
-// BuildTasks instantiates all tasks defined in the config. Template merging is
+// BuildTasks instantiates all tasks defined in the config. Template expansion is
 // applied before plugin instantiation. Tasks are returned sorted by priority
 // (ascending); tasks with equal priority are sorted alphabetically by name.
 // db is the shared store for this config and is forwarded to every plugin factory.
@@ -232,12 +282,12 @@ func BuildTasks(c *Config, db *store.SQLiteStore, logger *slog.Logger, opts ...t
 	var items []built
 
 	for name, def := range c.Tasks {
-		merged, err := mergeTemplate(name, def, c.Templates)
+		expanded, err := expandTaskDef(name, def, c.Templates)
 		if err != nil {
 			return nil, err
 		}
-		priority := extractPriority(&merged)
-		pcs, err := taskDefToPluginConfigs(name, merged)
+		priority := extractPriority(&expanded)
+		pcs, err := taskDefToPluginConfigs(name, expanded)
 		if err != nil {
 			return nil, err
 		}
@@ -262,161 +312,130 @@ func BuildTasks(c *Config, db *store.SQLiteStore, logger *slog.Logger, opts ...t
 	return tasks, nil
 }
 
-// extractPriority reads the optional top-level "priority" key from a TaskDef
-// and removes it so it is not treated as a plugin name. Returns 0 if absent.
-func extractPriority(def *TaskDef) int {
-	raw, ok := def.get("priority")
+// expandTaskDef iterates over the task's entries and expands any "use:" entries
+// inline, replacing them with the plugin entries from the named template.
+// Non-use entries are passed through unchanged.
+func expandTaskDef(taskName string, def TaskDef, templates map[string]TemplateDef) ([]taskEntry, error) {
+	var result []taskEntry
+	for _, e := range def {
+		if e.name != "use" {
+			result = append(result, e)
+			continue
+		}
+		expanded, err := expandUse(taskName, e.raw, templates)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, expanded...)
+	}
+	return result, nil
+}
+
+// expandUse parses a "use:" value, looks up the named template, validates the
+// argument count matches the template's params, applies param substitution to
+// each plugin entry in the template, and returns the expanded entries.
+//
+// Accepted forms:
+//
+//	use: "template_name"          — zero-param template
+//	use: [template_name, arg1, …] — positional args mapped to params
+func expandUse(taskName string, raw json.RawMessage, templates map[string]TemplateDef) ([]taskEntry, error) {
+	// Try scalar string first (zero-param shorthand).
+	var name string
+	if err := json.Unmarshal(raw, &name); err == nil {
+		// String form — no args.
+		return expandUseWithArgs(taskName, name, nil, templates)
+	}
+
+	// Array form: [name, arg1, arg2, ...]
+	var items []json.RawMessage
+	if err := json.Unmarshal(raw, &items); err != nil || len(items) == 0 {
+		return nil, fmt.Errorf("task %q: 'use' must be a string or non-empty array", taskName)
+	}
+	if err := json.Unmarshal(items[0], &name); err != nil {
+		return nil, fmt.Errorf("task %q: first element of 'use' array must be a string template name", taskName)
+	}
+	return expandUseWithArgs(taskName, name, items[1:], templates)
+}
+
+// expandUseWithArgs looks up the template, validates arg count, and applies
+// param substitution to each plugin entry, returning the expanded entries.
+func expandUseWithArgs(taskName, tmplName string, args []json.RawMessage, templates map[string]TemplateDef) ([]taskEntry, error) {
+	tmpl, ok := templates[tmplName]
 	if !ok {
-		return 0
+		return nil, fmt.Errorf("task %q: unknown template %q", taskName, tmplName)
 	}
-	def.delete("priority")
-	var p int
-	if json.Unmarshal(raw, &p) == nil {
-		return p
+
+	paramNames, err := tmpl.params()
+	if err != nil {
+		return nil, fmt.Errorf("task %q: template %q: %w", taskName, tmplName, err)
 	}
-	var pf float64
-	if json.Unmarshal(raw, &pf) == nil {
-		return int(pf)
+
+	if len(args) != len(paramNames) {
+		return nil, fmt.Errorf("task %q: template %q expects %d arg(s) (%s), got %d",
+			taskName, tmplName, len(paramNames), strings.Join(paramNames, ", "), len(args))
+	}
+
+	// Build substitution map: param_name → string to substitute.
+	params := make(map[string]string, len(paramNames))
+	for i, pname := range paramNames {
+		params[pname] = argToSubstitution(args[i])
+	}
+
+	// Emit template entries (skip "params") with substitutions applied.
+	var result []taskEntry
+	for _, e := range tmpl {
+		if e.name == "params" {
+			continue
+		}
+		substituted := applyParams(e.raw, params)
+		result = append(result, taskEntry{e.name, substituted})
+	}
+	return result, nil
+}
+
+// argToSubstitution converts a JSON-encoded argument value into the string that
+// will be substituted for {$ param $} placeholders in the template.
+//
+//   - JSON string ("hello"): the unquoted string value is used directly.
+//   - Anything else (number, bool, object, array): the raw JSON is used as-is.
+func argToSubstitution(raw json.RawMessage) string {
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return s
+	}
+	return string(raw)
+}
+
+// applyParams replaces all {$ key $} placeholders in raw with the corresponding
+// values from params. The values are assumed to be safe for direct substitution
+// within a JSON string context (see argToSubstitution).
+func applyParams(raw json.RawMessage, params map[string]string) json.RawMessage {
+	s := string(raw)
+	for k, v := range params {
+		s = strings.ReplaceAll(s, "{$ "+k+" $}", v)
+	}
+	return json.RawMessage(s)
+}
+
+// extractPriority reads the optional "priority" entry from an expanded entry
+// slice, removes it, and returns its integer value. Returns 0 if absent.
+func extractPriority(entries *[]taskEntry) int {
+	for i, e := range *entries {
+		if e.name == "priority" {
+			*entries = append((*entries)[:i], (*entries)[i+1:]...)
+			var p int
+			if json.Unmarshal(e.raw, &p) == nil {
+				return p
+			}
+			var pf float64
+			if json.Unmarshal(e.raw, &pf) == nil {
+				return int(pf)
+			}
+			return 0
+		}
 	}
 	return 0
-}
-
-// resolveTemplate recursively resolves a template by name, handling template
-// inheritance. The stack parameter tracks the current resolution chain to detect
-// circular references.
-func resolveTemplate(name string, templates map[string]TaskDef, stack []string) (TaskDef, error) {
-	// Check for circular references.
-	if slices.Contains(stack, name) {
-		return nil, fmt.Errorf("template %q: circular reference detected: %s -> %s", stack[0], strings.Join(stack, " -> "), name)
-	}
-
-	tmpl, ok := templates[name]
-	if !ok {
-		return nil, fmt.Errorf("unknown template %q", name)
-	}
-
-	// Check if this template itself references parent templates.
-	parentRaw, hasParent := tmpl.get("template")
-	if !hasParent {
-		return tmpl, nil
-	}
-
-	// Parse parent template names.
-	var parentNames []string
-	var single string
-	if json.Unmarshal(parentRaw, &single) == nil {
-		parentNames = []string{single}
-	} else if json.Unmarshal(parentRaw, &parentNames) != nil {
-		return nil, fmt.Errorf("template %q: 'template' must be a string or array of strings", name)
-	}
-
-	// Resolve and merge parent templates left-to-right.
-	newStack := append(stack, name)
-	merged := make(TaskDef, 0)
-	for _, parentName := range parentNames {
-		resolved, err := resolveTemplate(parentName, templates, newStack)
-		if err != nil {
-			return nil, fmt.Errorf("template %q: %w", name, err)
-		}
-		for _, e := range resolved {
-			merged.set(e.name, e.raw)
-		}
-	}
-
-	// Apply this template's own keys on top (same merge rules as task→template).
-	for _, e := range tmpl {
-		if e.name == "template" {
-			continue
-		}
-		if strings.HasSuffix(e.name, "!") {
-			base := e.name[:len(e.name)-1]
-			merged.delete(base)
-			merged.set(base, e.raw)
-			continue
-		}
-		existing, hasExisting := merged.get(e.name)
-		if !hasExisting {
-			merged.set(e.name, e.raw)
-			continue
-		}
-		merged.set(e.name, mergeJSON(existing, e.raw))
-	}
-	return merged, nil
-}
-
-// mergeTemplate returns a new TaskDef that is the template's def merged with
-// the task's def.
-//
-// Merge rules:
-//   - Meta keys ("template", "priority", "schedule") are handled separately.
-//   - A task key ending in "!" (e.g. "regexp!") explicitly replaces the
-//     template value for the base key ("regexp"), ignoring any template default.
-//   - When both template and task define the same plugin key and both values
-//     are JSON objects, the objects are shallowly merged (task fields win on
-//     conflict). This lets a task extend a template's plugin config.
-//   - For all other cases, the task value replaces the template value.
-func mergeTemplate(taskName string, def TaskDef, templates map[string]TaskDef) (TaskDef, error) {
-	raw, ok := def.get("template")
-	if !ok {
-		return def, nil
-	}
-
-	// "template" may be a string or []string
-	var names []string
-	var single string
-	if json.Unmarshal(raw, &single) == nil {
-		names = []string{single}
-	} else if json.Unmarshal(raw, &names) != nil {
-		return nil, fmt.Errorf("task %q: 'template' must be a string or array of strings", taskName)
-	}
-
-	merged := make(TaskDef, 0)
-	for _, tmplName := range names {
-		resolved, err := resolveTemplate(tmplName, templates, nil)
-		if err != nil {
-			return nil, fmt.Errorf("task %q: %w", taskName, err)
-		}
-		for _, e := range resolved {
-			merged.set(e.name, e.raw)
-		}
-	}
-
-	// Apply task keys. Keys ending in "!" override the corresponding base key
-	// (stripping the "!"). For other keys, merge JSON objects shallowly.
-	for _, e := range def {
-		if e.name == "template" {
-			continue
-		}
-		if strings.HasSuffix(e.name, "!") {
-			base := e.name[:len(e.name)-1]
-			merged.delete(base)
-			merged.set(base, e.raw)
-			continue
-		}
-		existing, hasExisting := merged.get(e.name)
-		if !hasExisting {
-			merged.set(e.name, e.raw)
-			continue
-		}
-		// Both template and task define this key. Shallow-merge if both are objects.
-		merged.set(e.name, mergeJSON(existing, e.raw))
-	}
-	return merged, nil
-}
-
-// mergeJSON shallow-merges two JSON values. If both are objects, task fields
-// win on conflict. Otherwise the task value (b) replaces the template value (a).
-func mergeJSON(a, b json.RawMessage) json.RawMessage {
-	var aMap, bMap map[string]json.RawMessage
-	if json.Unmarshal(a, &aMap) != nil || json.Unmarshal(b, &bMap) != nil {
-		return b // not both objects; task wins
-	}
-	maps.Copy(aMap, bMap) // bMap fields overwrite aMap fields
-	out, err := json.Marshal(aMap)
-	if err != nil {
-		return b
-	}
-	return out
 }
 
 // normalizePluginCfg converts raw plugin JSON into a map[string]any.
@@ -438,13 +457,13 @@ func normalizePluginCfg(raw json.RawMessage) map[string]any {
 	return map[string]any{}
 }
 
-// taskDefToPluginConfigs converts a TaskDef into the ordered PluginConfig slice
-// expected by task.Build. Plugins are returned in config-file order; within each
-// phase, that order is preserved during execution.
-func taskDefToPluginConfigs(_ string, def TaskDef) ([]task.PluginConfig, error) {
+// taskDefToPluginConfigs converts an expanded []taskEntry into the ordered
+// PluginConfig slice expected by task.Build. Plugins are returned in config-file
+// order; "priority" and "schedule" entries are skipped (they are metadata).
+func taskDefToPluginConfigs(_ string, entries []taskEntry) ([]task.PluginConfig, error) {
 	var pcs []task.PluginConfig
-	for _, e := range def {
-		if e.name == "template" || e.name == "priority" || e.name == "schedule" {
+	for _, e := range entries {
+		if e.name == "priority" || e.name == "schedule" {
 			continue
 		}
 		pcs = append(pcs, task.PluginConfig{Name: e.name, Config: normalizePluginCfg(e.raw)})
