@@ -29,7 +29,7 @@ var (
 		`(?i)^[.\s_\-]*(4k|2160p|1080p|720p|576p|480p|` +
 			`blu[\-\s]?ray|bdrip|bdremux|bd(?:25|50|100)|web[\-\s]?dl|webrip|hdtv|dvdrip|tvrip|remux|` +
 			`x265|h\.?265|hevc|x264|h\.?264|xvid|divx|av1|mvc|` +
-			`bd3d|full[\-]?sbs|full[\-]?ou|fsbs|f[\-]sbs|fou|f[\-]ou|half[\-]?sbs|half[\-]?ou|hsbs|h[\-]sbs|hou|h[\-]ou|sbs|ou|3d|` +
+			`bd3d|full[\-]?sbs|full[\-]?ou|fsbs|f[\-]sbs|fou|f[\-]ou|half[\-]?sbs|half[\-]?ou|hsbs|h[\-]sbs|hou|h[\-]ou|sbs|ou|3d[\-]?conv|3d|` +
 			`extended|theatrical|remaster|proper|repack|` +
 			`hdr10[\+]?|hdr|sdr|dolby|` +
 			`\[|\()`,
@@ -42,7 +42,7 @@ var (
 		`(?i)\b(4k|2160p|1080p|720p|576p|480p|` +
 			`blu[\-\s]?ray|bdrip|bdremux|bd(?:25|50|100)|web[\-\s]?dl|webrip|hdtv|dvdrip|tvrip|remux|` +
 			`x265|h\.?265|hevc|x264|h\.?264|xvid|divx|av1|mvc|` +
-			`bd3d|full[\-]?sbs|full[\-]?ou|fsbs|f[\-]sbs|fou|f[\-]ou|half[\-]?sbs|half[\-]?ou|hsbs|h[\-]sbs|hou|h[\-]ou|sbs|ou|3d|` +
+			`bd3d|full[\-]?sbs|full[\-]?ou|fsbs|f[\-]sbs|fou|f[\-]ou|half[\-]?sbs|half[\-]?ou|hsbs|h[\-]sbs|hou|h[\-]ou|sbs|ou|3d[\-]?conv|3d|` +
 			`extended|theatrical|remaster|proper|repack|` +
 			`hdr10[\+]?|hdr|sdr|dolby|` +
 			`\[\w+\]|-\w+$)\b.*`)
@@ -140,7 +140,7 @@ func NormalizeTitle(raw string) string {
 	s = reNoise.ReplaceAllString(s, "")
 
 	fields := strings.FieldsFunc(s, func(r rune) bool {
-		return unicode.IsSpace(r) || r == '-'
+		return unicode.IsSpace(r) || r == '-' || r == '(' || r == ')' || r == '[' || r == ']'
 	})
 
 	for i, f := range fields {
