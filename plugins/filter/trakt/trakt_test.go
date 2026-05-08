@@ -85,7 +85,7 @@ func TestFilterAcceptsMatchingShow(t *testing.T) {
 	}
 }
 
-func TestFilterLeavesNonMatchUndecided(t *testing.T) {
+func TestFilterRejectsNonMatchByDefault(t *testing.T) {
 	srv := mockServer(t, trendingShows([]string{"Breaking Bad"}))
 	defer srv.Close()
 	itrakt.BaseURL = srv.URL
@@ -98,8 +98,27 @@ func TestFilterLeavesNonMatchUndecided(t *testing.T) {
 
 	e := entry.New("Some.Other.Show.S01E01.720p", "http://example.com/1")
 	p.Filter(context.Background(), tc(), e) //nolint:errcheck
+	if !e.IsRejected() {
+		t.Errorf("non-matching show should be rejected by default")
+	}
+}
+
+func TestFilterUnmatchedOptOut(t *testing.T) {
+	srv := mockServer(t, trendingShows([]string{"Breaking Bad"}))
+	defer srv.Close()
+	itrakt.BaseURL = srv.URL
+
+	p := makeFilter(t, map[string]any{
+		"client_id":        "key",
+		"type":             "shows",
+		"list":             "trending",
+		"reject_unmatched": false,
+	})
+
+	e := entry.New("Some.Other.Show.S01E01.720p", "http://example.com/1")
+	p.Filter(context.Background(), tc(), e) //nolint:errcheck
 	if e.IsAccepted() || e.IsRejected() {
-		t.Errorf("want undecided, got accepted=%v rejected=%v", e.IsAccepted(), e.IsRejected())
+		t.Errorf("want undecided when reject_unmatched=false, got accepted=%v rejected=%v", e.IsAccepted(), e.IsRejected())
 	}
 }
 

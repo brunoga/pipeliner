@@ -53,13 +53,27 @@ func TestListMatchNotFound(t *testing.T) {
 	db, _ := store.OpenSQLite(":memory:")
 	defer db.Close()
 
-	p := &listMatchPlugin{db: db, listName: "mylist"}
+	p := &listMatchPlugin{db: db, listName: "mylist", rejectUnmatched: true}
 	e := entry.New("Not In List", "http://example.com/x")
 	if err := p.Filter(context.Background(), makeTC(), e); err != nil {
 		t.Fatalf("Filter: %v", err)
 	}
 	if !e.IsRejected() {
 		t.Errorf("expected entry to be rejected, got %s", e.State)
+	}
+}
+
+func TestListMatchNotFoundOptOut(t *testing.T) {
+	db, _ := store.OpenSQLite(":memory:")
+	defer db.Close()
+
+	p := &listMatchPlugin{db: db, listName: "mylist", rejectUnmatched: false}
+	e := entry.New("Not In List", "http://example.com/x")
+	if err := p.Filter(context.Background(), makeTC(), e); err != nil {
+		t.Fatalf("Filter: %v", err)
+	}
+	if e.IsRejected() {
+		t.Error("expected undecided when reject_unmatched=false, got rejected")
 	}
 }
 

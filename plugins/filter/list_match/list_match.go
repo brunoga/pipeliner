@@ -37,14 +37,15 @@ func validate(cfg map[string]any) []error {
 	if err := plugin.RequireString(cfg, "list", "list_match"); err != nil {
 		errs = append(errs, err)
 	}
-	errs = append(errs, plugin.OptUnknownKeys(cfg, "list_match", "list", "remove_on_match")...)
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "list_match", "list", "remove_on_match", "reject_unmatched")...)
 	return errs
 }
 
 type listMatchPlugin struct {
-	db            *store.SQLiteStore
-	listName      string
-	removeOnMatch bool
+	db              *store.SQLiteStore
+	listName        string
+	removeOnMatch   bool
+	rejectUnmatched bool
 }
 
 func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
@@ -53,7 +54,11 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 		return nil, fmt.Errorf("list_match: 'list' is required")
 	}
 	remove, _ := cfg["remove_on_match"].(bool)
-	return &listMatchPlugin{db: db, listName: listName, removeOnMatch: remove}, nil
+	rejectUnmatched := true
+	if v, ok := cfg["reject_unmatched"]; ok {
+		rejectUnmatched, _ = v.(bool)
+	}
+	return &listMatchPlugin{db: db, listName: listName, removeOnMatch: remove, rejectUnmatched: rejectUnmatched}, nil
 }
 
 func (p *listMatchPlugin) Name() string        { return "list_match" }
@@ -72,7 +77,7 @@ func (p *listMatchPlugin) Filter(_ context.Context, tc *plugin.TaskContext, e *e
 				tc.Logger.Error("list_match: remove entry", "title", e.Title, "err", err)
 			}
 		}
-	} else {
+	} else if p.rejectUnmatched {
 		e.Reject("list_match: not in list")
 	}
 	return nil
