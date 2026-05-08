@@ -1,6 +1,6 @@
 variables:
   trakt_client_id: YOUR_TRAKT_CLIENT_ID
-  trakt_access_token: YOUR_TRAKT_ACCESS_TOKEN
+  trakt_client_secret: YOUR_TRAKT_CLIENT_SECRET
   tv_path: /media/tv
 
 templates:
@@ -22,7 +22,7 @@ tasks:
       from:
         - name: trakt_list
           client_id: "{$ trakt_client_id $}"
-          access_token: "{$ trakt_access_token $}"
+          client_secret: "{$ trakt_client_secret $}"
           type: shows
           list: watchlist
     metainfo_trakt:

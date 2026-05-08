@@ -8,14 +8,16 @@
 //
 // Config keys:
 //
-//	client_id    - Trakt API Client ID (required)
-//	access_token - OAuth2 bearer token (required for watchlist/ratings/collection)
-//	type         - "shows" or "movies" (required)
-//	list         - "trending", "popular", "watched", "watchlist", "ratings",
-//	               "collection" (default: "watchlist")
-//	limit        - max results for public lists (default: 100)
-//	min_rating   - minimum user rating to include (ratings list only; 1–10)
-//	ttl          - cache lifetime, e.g. "1h", "30m" (default: "1h")
+//	client_id     - Trakt API Client ID (required)
+//	client_secret - OAuth client secret; when set, tokens are managed automatically
+//	                via pipeliner.db (run `pipeliner auth trakt` to authorise).
+//	access_token  - OAuth2 bearer token (alternative to client_secret; static)
+//	type          - "shows" or "movies" (required)
+//	list          - "trending", "popular", "watched", "watchlist", "ratings",
+//	                "collection" (default: "watchlist")
+//	limit         - max results for public lists (default: 100)
+//	min_rating    - minimum user rating to include (ratings list only; 1–10)
+//	ttl           - cache lifetime, e.g. "1h", "30m" (default: "1h")
 package trakt
 
 import (
@@ -57,17 +59,20 @@ func validate(cfg map[string]any) []error {
 	if err := plugin.OptDuration(cfg, "ttl", "trakt"); err != nil {
 		errs = append(errs, err)
 	}
-	errs = append(errs, plugin.OptUnknownKeys(cfg, "trakt", "client_id", "type", "list", "limit", "min_rating", "ttl", "access_token")...)
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "trakt", "client_id", "client_secret", "type", "list", "limit", "min_rating", "ttl", "access_token")...)
 	return errs
 }
 
 type traktFilter struct {
-	client    *itrakt.Client
-	itemType  string // "shows" or "movies"
-	list      string
-	limit     int
-	minRating int
-	cache     *cache.Cache[[]string]
+	clientID     string
+	clientSecret string
+	staticToken  string
+	authBucket   store.Bucket
+	itemType     string // "shows" or "movies"
+	list         string
+	limit        int
+	minRating    int
+	cache        *cache.Cache[[]string]
 }
 
 func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
@@ -123,16 +128,21 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 		ttl = d
 	}
 
-	accessToken, _ := cfg["access_token"].(string)
-
-	return &traktFilter{
-		client:    itrakt.NewWithToken(clientID, accessToken),
+	p := &traktFilter{
+		clientID:  clientID,
 		itemType:  itemType,
 		list:      list,
 		limit:     limit,
 		minRating: minRating,
 		cache:     cache.NewPersistent[[]string](ttl, db.Bucket("cache_filter_trakt")),
-	}, nil
+	}
+	if secret, _ := cfg["client_secret"].(string); secret != "" {
+		p.clientSecret = secret
+		p.authBucket = db.Bucket(itrakt.AuthBucket)
+	} else if token, _ := cfg["access_token"].(string); token != "" {
+		p.staticToken = token
+	}
+	return p, nil
 }
 
 func (p *traktFilter) Name() string        { return "trakt" }
@@ -160,6 +170,20 @@ func (p *traktFilter) Filter(ctx context.Context, tc *plugin.TaskContext, e *ent
 	return nil
 }
 
+func (p *traktFilter) buildClient(ctx context.Context) (*itrakt.Client, error) {
+	if p.authBucket != nil {
+		token, err := itrakt.GetValidAccessToken(ctx, p.authBucket, p.clientID, p.clientSecret)
+		if err != nil {
+			return nil, fmt.Errorf("trakt: %w", err)
+		}
+		return itrakt.NewWithToken(p.clientID, token), nil
+	}
+	if p.staticToken != "" {
+		return itrakt.NewWithToken(p.clientID, p.staticToken), nil
+	}
+	return itrakt.New(p.clientID), nil
+}
+
 // ensureTitles returns the cached title list, fetching from Trakt if stale.
 func (p *traktFilter) ensureTitles(ctx context.Context) ([]string, error) {
 	// Cache key includes min_rating so different rating floors don't collide.
@@ -169,7 +193,11 @@ func (p *traktFilter) ensureTitles(ctx context.Context) ([]string, error) {
 		return titles, nil
 	}
 
-	items, err := p.client.GetList(ctx, p.itemType, p.list, p.limit)
+	client, err := p.buildClient(ctx)
+	if err != nil {
+		return nil, err
+	}
+	items, err := client.GetList(ctx, p.itemType, p.list, p.limit)
 	if err != nil {
 		return nil, err
 	}
