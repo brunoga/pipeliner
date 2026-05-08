@@ -59,20 +59,21 @@ func validate(cfg map[string]any) []error {
 	if err := plugin.OptDuration(cfg, "ttl", "trakt"); err != nil {
 		errs = append(errs, err)
 	}
-	errs = append(errs, plugin.OptUnknownKeys(cfg, "trakt", "client_id", "client_secret", "type", "list", "limit", "min_rating", "ttl", "access_token")...)
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "trakt", "client_id", "client_secret", "type", "list", "limit", "min_rating", "ttl", "access_token", "reject_unmatched")...)
 	return errs
 }
 
 type traktFilter struct {
-	clientID     string
-	clientSecret string
-	staticToken  string
-	authBucket   store.Bucket
-	itemType     string // "shows" or "movies"
-	list         string
-	limit        int
-	minRating    int
-	cache        *cache.Cache[[]string]
+	clientID        string
+	clientSecret    string
+	staticToken     string
+	authBucket      store.Bucket
+	itemType        string // "shows" or "movies"
+	list            string
+	limit           int
+	minRating       int
+	cache           *cache.Cache[[]string]
+	rejectUnmatched bool
 }
 
 func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
@@ -142,6 +143,10 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 	} else if token, _ := cfg["access_token"].(string); token != "" {
 		p.staticToken = token
 	}
+	p.rejectUnmatched = true
+	if v, ok := cfg["reject_unmatched"]; ok {
+		p.rejectUnmatched, _ = v.(bool)
+	}
 	return p, nil
 }
 
@@ -157,6 +162,9 @@ func (p *traktFilter) Filter(ctx context.Context, tc *plugin.TaskContext, e *ent
 
 	parsed, ok := p.parseTitle(e.Title)
 	if !ok {
+		if p.rejectUnmatched {
+			e.Reject("trakt: title did not parse")
+		}
 		return nil
 	}
 
@@ -166,6 +174,9 @@ func (p *traktFilter) Filter(ctx context.Context, tc *plugin.TaskContext, e *ent
 			e.Accept()
 			return nil
 		}
+	}
+	if p.rejectUnmatched {
+		e.Reject("trakt: title not in list")
 	}
 	return nil
 }
