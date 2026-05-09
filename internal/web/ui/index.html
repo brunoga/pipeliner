@@ -800,7 +800,7 @@ async function validateConfig() {
       setConfigStatus('err', 'Server error: ' + r.status);
     }
   } catch (e) {
-    setConfigStatus('err', String(e));
+    setConfigStatus('err', networkErrMsg(e));
   }
 }
 
@@ -829,8 +829,18 @@ async function saveConfig() {
       setConfigStatus('pending', '⏳ Saved — will reload when tasks finish');
     }
   } catch (e) {
-    setConfigStatus('err', String(e));
+    setConfigStatus('err', networkErrMsg(e));
   }
+}
+
+// networkErrMsg converts a fetch() exception into a human-readable message.
+// "TypeError: Failed to fetch" means the server closed the connection without
+// responding — usually a panic or crash in the request handler.
+function networkErrMsg(e) {
+  if (e instanceof TypeError && e.message.toLowerCase().includes('fetch')) {
+    return 'No response from server — pipeliner is not running, or the server crashed while parsing the config. Check the live log for details.';
+  }
+  return String(e);
 }
 
 function setConfigStatus(cls, msg) {
