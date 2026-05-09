@@ -23,6 +23,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/anacrolix/torrent"
@@ -96,10 +97,22 @@ func (p *magnetPlugin) Shutdown() { p.client.Close() }
 // Annotate handles the single-entry path (used by tests and external callers).
 // It sets URI-derived fields only; DHT resolution requires AnnotateBatch.
 func (p *magnetPlugin) Annotate(_ context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
+	log := tc.Logger
+	if !strings.HasPrefix(e.URL, "magnet:") {
+		log.Debug("metainfo_magnet: skipping entry — not a magnet URI", "entry", e.URL)
+		return nil
+	}
+	log.Debug("metainfo_magnet: parsing magnet URI", "entry", e.URL)
 	if err := annotateFromURI(e); err != nil {
-		tc.Logger.Error("failed to parse magnet URI", "entry", e.URL, "err", err)
+		log.Error("metainfo_magnet: failed to parse magnet URI", "entry", e.URL, "err", err)
 		return err
 	}
+	log.Debug("metainfo_magnet: URI annotated",
+		"entry", e.URL,
+		"info_hash", e.GetString(entry.FieldTorrentInfoHash),
+		"announce", e.GetString(entry.FieldTorrentAnnounce),
+		"display_name", e.GetString(entry.FieldTitle),
+	)
 	return nil
 }
 
@@ -108,6 +121,8 @@ func (p *magnetPlugin) Annotate(_ context.Context, tc *plugin.TaskContext, e *en
 // parallel, waiting up to resolveTimeout for each.
 func (p *magnetPlugin) AnnotateBatch(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
 	log := tc.Logger
+	log.Debug("metainfo_magnet: batch received", "entries", len(entries), "resolve_timeout", p.resolveTimeout)
+
 	type work struct {
 		t *torrent.Torrent
 		e *entry.Entry
@@ -116,22 +131,29 @@ func (p *magnetPlugin) AnnotateBatch(ctx context.Context, tc *plugin.TaskContext
 	var jobs []work
 	for _, e := range entries {
 		if !strings.HasPrefix(e.URL, "magnet:") {
-			log.Debug("skipping entry: not a magnet URI", "entry", e.URL)
+			log.Debug("metainfo_magnet: skipping entry — not a magnet URI", "entry", e.URL)
 			continue
 		}
 		if err := annotateFromURI(e); err != nil {
-			log.Error("failed to parse magnet URI", "entry", e.URL, "err", err)
+			log.Error("metainfo_magnet: failed to parse magnet URI", "entry", e.URL, "err", err)
 			continue
 		}
+		log.Debug("metainfo_magnet: URI parsed",
+			"entry", e.URL,
+			"info_hash", e.GetString(entry.FieldTorrentInfoHash),
+			"trackers", announceCount(e),
+			"announce", e.GetString(entry.FieldTorrentAnnounce),
+			"display_name", e.GetString(entry.FieldTitle),
+		)
 		t, err := p.client.AddMagnet(e.URL)
 		if err != nil {
-			log.Error("failed to add magnet to DHT client", "entry", e.URL, "err", err)
+			log.Error("metainfo_magnet: failed to add magnet to DHT client", "entry", e.URL, "err", err)
 			continue
 		}
 		jobs = append(jobs, work{t: t, e: e})
 	}
 
-	log.Debug("DHT resolution queued", "count", len(jobs), "timeout", p.resolveTimeout)
+	log.Debug("metainfo_magnet: DHT resolution queued", "count", len(jobs), "timeout", p.resolveTimeout)
 
 	if len(jobs) == 0 {
 		return nil
@@ -140,7 +162,11 @@ func (p *magnetPlugin) AnnotateBatch(ctx context.Context, tc *plugin.TaskContext
 	resolveCtx, cancel := context.WithTimeout(ctx, p.resolveTimeout)
 	defer cancel()
 
-	var wg sync.WaitGroup
+	var (
+		wg       sync.WaitGroup
+		resolved atomic.Int32
+		timedOut atomic.Int32
+	)
 	for _, j := range jobs {
 		wg.Add(1)
 		go func(t *torrent.Torrent, e *entry.Entry) {
@@ -148,14 +174,31 @@ func (p *magnetPlugin) AnnotateBatch(ctx context.Context, tc *plugin.TaskContext
 			defer t.Drop()
 			select {
 			case <-t.GotInfo():
-				log.Debug("DHT resolution succeeded", "entry", e.URL)
 				applyInfo(t, e)
+				resolved.Add(1)
+				size, _ := e.Get(entry.FieldTorrentFileSize)
+				log.Debug("metainfo_magnet: DHT resolved",
+					"entry", e.URL,
+					"name", e.GetString(entry.FieldTitle),
+					"size", size,
+					"files", e.GetInt(entry.FieldTorrentFileCount),
+				)
 			case <-resolveCtx.Done():
-				log.Debug("DHT resolution timed out", "entry", e.URL, "timeout", p.resolveTimeout)
+				timedOut.Add(1)
+				log.Debug("metainfo_magnet: DHT timed out",
+					"entry", e.URL,
+					"timeout", p.resolveTimeout,
+				)
 			}
 		}(j.t, j.e)
 	}
 	wg.Wait()
+
+	log.Debug("metainfo_magnet: batch complete",
+		"queued", len(jobs),
+		"resolved", resolved.Load(),
+		"timed_out", timedOut.Load(),
+	)
 	return nil
 }
 
@@ -182,6 +225,19 @@ func annotateFromURI(e *entry.Entry) error {
 	}
 	e.SetTorrentInfo(ti)
 	return nil
+}
+
+// announceCount returns the number of tracker URLs stored in the entry's
+// torrent_announce_list field, or 0 if unset.
+func announceCount(e *entry.Entry) int {
+	v, ok := e.Get(entry.FieldTorrentAnnounceList)
+	if !ok {
+		return 0
+	}
+	if list, ok := v.([]string); ok {
+		return len(list)
+	}
+	return 0
 }
 
 // applyInfo copies metadata from the resolved torrent info into the entry.
