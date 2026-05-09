@@ -88,6 +88,11 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 func (p *magnetPlugin) Name() string        { return "metainfo_magnet" }
 func (p *magnetPlugin) Phase() plugin.Phase { return plugin.PhaseMetainfo }
 
+// Shutdown closes the underlying DHT client, releasing its goroutines and
+// sockets. Called by the task engine at process exit (daemon) or after the
+// run completes (one-shot).
+func (p *magnetPlugin) Shutdown() { p.client.Close() }
+
 // Annotate handles the single-entry path (used by tests and external callers).
 // It sets URI-derived fields only; DHT resolution requires AnnotateBatch.
 func (p *magnetPlugin) Annotate(_ context.Context, tc *plugin.TaskContext, e *entry.Entry) error {

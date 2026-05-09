@@ -14,6 +14,7 @@ package cache
 
 import (
 	"encoding/json"
+	"log/slog"
 	"sync"
 	"time"
 )
@@ -158,7 +159,9 @@ func (c *Cache[V]) Set(key string, value V) {
 	if c.bucket != nil {
 		raw, err := json.Marshal(value)
 		if err == nil {
-			c.bucket.Put(key, storedEntry{Value: raw, ExpiresAt: expiresAt}) //nolint:errcheck
+			if putErr := c.bucket.Put(key, storedEntry{Value: raw, ExpiresAt: expiresAt}); putErr != nil {
+				slog.Warn("cache: failed to persist entry", "key", key, "err", putErr)
+			}
 		}
 	}
 }
