@@ -216,6 +216,12 @@ func cmdRun(args []string) int {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	defer func() {
+		for _, t := range tasks {
+			t.Shutdown()
+		}
+	}()
+
 	exitCode := 0
 	for _, t := range tasks {
 		if len(wanted) > 0 && !wanted[t.Name()] {
@@ -407,8 +413,13 @@ func cmdDaemon(args []string) int {
 		}
 
 		taskMu.Lock()
+		oldTasks := taskByName
 		taskByName = newMap
 		taskMu.Unlock()
+
+		for _, t := range oldTasks {
+			t.Shutdown()
+		}
 
 		d.Reset(scheduled)
 		logger.Info("config reloaded", "tasks", len(newTasks))
@@ -469,6 +480,14 @@ func cmdDaemon(args []string) int {
 	logger.Info("daemon started")
 	d.Run(ctx, runner)
 	logger.Info("daemon stopped")
+
+	taskMu.RLock()
+	currentTasks := taskByName
+	taskMu.RUnlock()
+	for _, t := range currentTasks {
+		t.Shutdown()
+	}
+
 	return 0
 }
 

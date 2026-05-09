@@ -55,6 +55,16 @@ func New(name string, logger *slog.Logger) *Task {
 // Name returns the task's name.
 func (t *Task) Name() string { return t.name }
 
+// Shutdown releases resources held by any plugin in the task that implements
+// plugin.ShutdownPlugin. Call once when the task will no longer be run.
+func (t *Task) Shutdown() {
+	for _, pi := range t.plugins {
+		if s, ok := pi.impl.(plugin.ShutdownPlugin); ok {
+			s.Shutdown()
+		}
+	}
+}
+
 // SetDryRun enables or disables dry-run mode. In dry-run mode, the output
 // and learn phases are skipped, making the run fully idempotent.
 func (t *Task) SetDryRun(v bool) { t.dryRun = v }

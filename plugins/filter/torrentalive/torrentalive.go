@@ -82,7 +82,7 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 
 	timeoutStr, _ := cfg["scrape_timeout"].(string)
 	if timeoutStr == "" {
-		timeoutStr = "5s"
+		timeoutStr = "15s"
 	}
 	scrapeTimeout, err := time.ParseDuration(timeoutStr)
 	if err != nil {

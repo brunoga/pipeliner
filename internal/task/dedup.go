@@ -3,6 +3,7 @@ package task
 import (
 	"fmt"
 	"log/slog"
+	"math"
 
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/quality"
@@ -105,6 +106,9 @@ func anyToInt(v any) int {
 	case int64:
 		return int(n)
 	case float64:
+		if n < 0 || n > math.MaxInt32 {
+			return 0
+		}
 		return int(n)
 	}
 	return 0
