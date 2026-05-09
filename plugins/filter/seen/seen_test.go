@@ -122,19 +122,20 @@ func TestCustomFields(t *testing.T) {
 	}
 }
 
-func TestLearnOnlyAccepted(t *testing.T) {
+func TestLearnMarksEntryAsSeen(t *testing.T) {
 	p := openPlugin(t, nil)
 	tc := makeCtx("task")
 
-	rejected := entry.New("Test", "http://example.com/rej")
-	rejected.Reject("test reason")
-	p.Learn(context.Background(), tc, []*entry.Entry{rejected}) //nolint:errcheck
+	// The engine pre-filters to accepted before calling Learn; simulate that.
+	accepted := entry.New("Test", "http://example.com/url")
+	accepted.Accept()
+	p.Learn(context.Background(), tc, []*entry.Entry{accepted}) //nolint:errcheck
 
-	// The rejected entry's URL should NOT be marked seen.
-	e := entry.New("Test", "http://example.com/rej")
+	// The accepted entry's URL should now be marked seen.
+	e := entry.New("Test", "http://example.com/url")
 	p.Filter(context.Background(), tc, e) //nolint:errcheck
-	if e.IsRejected() {
-		t.Error("rejected entries should not be marked seen")
+	if !e.IsRejected() {
+		t.Error("entry should be rejected after being marked seen via Learn")
 	}
 }
 

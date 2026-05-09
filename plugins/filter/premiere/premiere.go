@@ -148,9 +148,6 @@ func (p *premierePlugin) Filter(ctx context.Context, tc *plugin.TaskContext, e *
 // output and Learn only records the survivor.
 func (p *premierePlugin) Learn(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) error {
 	for _, e := range entries {
-		if !e.IsAccepted() {
-			continue
-		}
 		ep, ok := series.Parse(e.Title)
 		if !ok {
 			continue

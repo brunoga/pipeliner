@@ -227,19 +227,21 @@ func (t *Task) Run(ctx context.Context) (*Result, error) {
 		t.logger.Info("phase done", "phase", "learn", "duration", time.Since(phaseStart).Round(time.Millisecond))
 		return buildResult(entries, time.Since(start)), nil
 	}
-	// All plugins that implement LearnPlugin receive the entries here.
+	// Only accepted entries are passed to learn plugins — the engine enforces
+	// this so individual plugins don't need to guard against other states.
+	accepted := filterByState(entries, entry.Accepted)
 	for _, pi := range t.plugins {
 		lrn, ok := pi.impl.(plugin.LearnPlugin)
 		if !ok {
 			continue
 		}
 		plog := t.logger.With("phase", "learn", "plugin", pi.impl.Name())
-		plog.Info("plugin started", "in", len(entries))
+		plog.Info("plugin started", "in", len(accepted))
 		pluginStart := time.Now()
-		if err := safeRunLearn(ctx, lrn, tc(pi), entries); err != nil {
+		if err := safeRunLearn(ctx, lrn, tc(pi), accepted); err != nil {
 			plog.Warn("learn plugin error", "err", err)
 		}
-		plog.Info("plugin done", "out", len(entries), "duration", time.Since(pluginStart).Round(time.Millisecond))
+		plog.Info("plugin done", "out", len(accepted), "duration", time.Since(pluginStart).Round(time.Millisecond))
 	}
 	t.logger.Info("phase done", "phase", "learn", "duration", time.Since(phaseStart).Round(time.Millisecond))
 
