@@ -26,10 +26,10 @@ Walks a local directory and emits one entry per file. Entry URLs use the `file:/
 ```yaml
 tasks:
   watch-folder:
-    filesystem:
-      path: /downloads/watch
-      mask: "*.torrent"
-    metainfo_torrent:
-    transmission:
-      host: localhost
+    - filesystem:
+        path: /downloads/watch
+        mask: "*.torrent"
+    - metainfo_torrent:
+    - transmission:
+        host: localhost
 ```

@@ -127,10 +127,16 @@ func TestLearnConsistency(t *testing.T) {
 	cfgYAML := `
 tasks:
   learn-test:
-    learn_input: {}
+    - learn_input: {}
 `
-	cfg, _ := config.ParseBytes([]byte(cfgYAML))
-	tasks, _ := config.BuildTasks(cfg, nil, nil)
+	cfg, err := config.ParseBytes([]byte(cfgYAML))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	tasks, err := config.BuildTasks(cfg, nil, nil)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
 	_, _ = tasks[0].Run(context.Background())
 
 	if !learnCalled {
@@ -143,12 +149,18 @@ func TestDryRun(t *testing.T) {
 	cfgYAML := `
 tasks:
   dry-run-test:
-    mock_input: {}
-    mock_filter: {}
-    mock_output: {}
+    - mock_input: {}
+    - mock_filter: {}
+    - mock_output: {}
 `
-	cfg, _ := config.ParseBytes([]byte(cfgYAML))
-	tasks, _ := config.BuildTasks(cfg, nil, nil)
+	cfg, err := config.ParseBytes([]byte(cfgYAML))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	tasks, err := config.BuildTasks(cfg, nil, nil)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
 	tk := tasks[0]
 
 	// Test without dry-run
@@ -170,10 +182,10 @@ func TestPluginOrder(t *testing.T) {
 	cfgYAML := `
 tasks:
   order-test:
-    mock_input: {}
-    order1: {}
-    order2: {}
-    order3: {}
+    - mock_input: {}
+    - order1: {}
+    - order2: {}
+    - order3: {}
 `
 
 	for i := 0; i < 10; i++ {

@@ -166,12 +166,12 @@ func TestRSSToRegexpFilter(t *testing.T) {
 	res := buildAndRun(t, fmt.Sprintf(`
 tasks:
   t:
-    rss:
-      url: %q
-    regexp:
-      accept:
-        - '(?i)linux|open.?source'
-    print:
+    - rss:
+        url: %q
+    - regexp:
+        accept:
+          - '(?i)linux|open.?source'
+    - print:
 `, srv.URL))
 
 	res.assertAccepted(t, 2)
@@ -191,13 +191,13 @@ func TestSeenDeduplication(t *testing.T) {
 	tk := buildTask(t, fmt.Sprintf(`
 tasks:
   t:
-    rss:
-      url: %q
-    seen:
-    regexp:
-      accept:
-        - '.+'
-    print:
+    - rss:
+        url: %q
+    - seen:
+    - regexp:
+        accept:
+          - '.+'
+    - print:
 `, srv.URL))
 
 	// First cycle: both entries accepted and learned.
@@ -220,12 +220,12 @@ func TestSeriesFilterAcceptsKnownShow(t *testing.T) {
 	res := buildAndRun(t, fmt.Sprintf(`
 tasks:
   t:
-    rss:
-      url: %q
-    series:
-      static:
-        - "Breaking Bad"
-    print:
+    - rss:
+        url: %q
+    - series:
+        static:
+          - "Breaking Bad"
+    - print:
 `, srv.URL))
 
 	res.assertAccepted(t, 2) // both BB episodes accepted
@@ -241,12 +241,12 @@ func TestSeriesSeenAcrossCycles(t *testing.T) {
 	tk := buildTask(t, fmt.Sprintf(`
 tasks:
   t:
-    rss:
-      url: %q
-    series:
-      static:
-        - "Breaking Bad"
-    print:
+    - rss:
+        url: %q
+    - series:
+        static:
+          - "Breaking Bad"
+    - print:
 `, srv.URL))
 
 	run(t, tk).assertAccepted(t, 1) // first cycle: accepted
@@ -266,11 +266,11 @@ func TestQualityFilterRejectsBelow(t *testing.T) {
 	res := buildAndRun(t, fmt.Sprintf(`
 tasks:
   t:
-    rss:
-      url: %q
-    quality:
-      min: 720p
-    print:
+    - rss:
+        url: %q
+    - quality:
+        min: 720p
+    - print:
 `, srv.URL))
 
 	res.assertRejected(t, 1) // only 480p rejected
@@ -293,14 +293,14 @@ func TestQualityFilterWithAccept(t *testing.T) {
 	res := buildAndRun(t, fmt.Sprintf(`
 tasks:
   t:
-    rss:
-      url: %q
-    quality:
-      min: 720p
-    regexp:
-      accept:
-        - '.+'
-    print:
+    - rss:
+        url: %q
+    - quality:
+        min: 720p
+    - regexp:
+        accept:
+          - '.+'
+    - print:
 `, srv.URL))
 
 	res.assertAccepted(t, 2)
@@ -316,10 +316,10 @@ func TestMetainfoQualityAnnotates(t *testing.T) {
 	res := buildAndRun(t, fmt.Sprintf(`
 tasks:
   t:
-    rss:
-      url: %q
-    metainfo_quality:
-    print:
+    - rss:
+        url: %q
+    - metainfo_quality:
+    - print:
 `, srv.URL))
 
 	if len(res.entries) != 1 {
@@ -346,10 +346,10 @@ func TestMetainfoSeriesAnnotates(t *testing.T) {
 	res := buildAndRun(t, fmt.Sprintf(`
 tasks:
   t:
-    rss:
-      url: %q
-    metainfo_series:
-    print:
+    - rss:
+        url: %q
+    - metainfo_series:
+    - print:
 `, srv.URL))
 
 	if len(res.entries) != 1 {
@@ -380,12 +380,12 @@ func TestEnrichedFieldUsedAsRequire(t *testing.T) {
 	res := buildAndRun(t, fmt.Sprintf(`
 tasks:
   t:
-    rss:
-      url: %q
-    metainfo_series:
-    require:
-      fields: ["enriched"]
-    print:
+    - rss:
+        url: %q
+    - metainfo_series:
+    - require:
+        fields: ["enriched"]
+    - print:
 `, srv.URL))
 
 	// metainfo_series does not set enriched, so all entries are rejected by require.
@@ -404,13 +404,13 @@ func TestConditionFilter(t *testing.T) {
 	res := buildAndRun(t, fmt.Sprintf(`
 tasks:
   t:
-    rss:
-      url: %q
-    metainfo_quality:
-    condition:
-      accept: '{{ne .video_resolution ""}}'
-      reject: '{{eq .video_resolution "480p"}}'
-    print:
+    - rss:
+        url: %q
+    - metainfo_quality:
+    - condition:
+        accept: '{{ne .video_resolution ""}}'
+        reject: '{{eq .video_resolution "480p"}}'
+    - print:
 `, srv.URL))
 
 	res.assertAccepted(t, 2) // 1080p and 720p accepted
@@ -428,9 +428,9 @@ variables:
   feed: %q
 tasks:
   t:
-    rss:
-      url: "{$ feed $}"
-    print:
+    - rss:
+        url: "{$ feed $}"
+    - print:
 `, srv.URL))
 
 	if len(res.entries) != 1 {
@@ -447,12 +447,12 @@ func TestSetModify(t *testing.T) {
 	res := buildAndRun(t, fmt.Sprintf(`
 tasks:
   t:
-    rss:
-      url: %q
-    set:
-      category: tv
-      label: '{{.Title}}'
-    print:
+    - rss:
+        url: %q
+    - set:
+        category: tv
+        label: '{{.Title}}'
+    - print:
 `, srv.URL))
 
 	if len(res.entries) != 1 {
@@ -476,13 +476,13 @@ func TestPathfmtModify(t *testing.T) {
 	res := buildAndRun(t, fmt.Sprintf(`
 tasks:
   t:
-    rss:
-      url: %q
-    metainfo_series:
-    pathfmt:
-      path: '/tv/{{.title}}/S{{printf "%%02d" .series_season}}'
-      field: download_path
-    print:
+    - rss:
+        url: %q
+    - metainfo_series:
+    - pathfmt:
+        path: '/tv/{{.title}}/S{{printf "%%02d" .series_season}}'
+        field: download_path
+    - print:
 `, srv.URL))
 
 	if len(res.entries) != 1 {
@@ -498,9 +498,9 @@ func TestConfigCheck(t *testing.T) {
 	cfg, err := config.ParseBytes([]byte(`
 tasks:
   t:
-    rss:
-      url: "http://example.com/rss"
-    print:
+    - rss:
+        url: "http://example.com/rss"
+    - print:
 `))
 	if err != nil {
 		t.Fatalf("parse: %v", err)
@@ -515,7 +515,7 @@ func TestConfigCheckUnknownPlugin(t *testing.T) {
 	cfg, err := config.ParseBytes([]byte(`
 tasks:
   t:
-    no-such-plugin:
+    - no-such-plugin:
 `))
 	if err != nil {
 		t.Fatalf("parse: %v", err)
@@ -555,10 +555,10 @@ func TestAcceptAll(t *testing.T) {
 	res := buildAndRun(t, fmt.Sprintf(`
 tasks:
   t:
-    rss:
-      url: %q
-    accept_all:
-    print:
+    - rss:
+        url: %q
+    - accept_all:
+    - print:
 `, srv.URL))
 
 	res.assertAccepted(t, 3)
@@ -576,13 +576,13 @@ func TestAcceptAllLeavesRejectedAlone(t *testing.T) {
 	res := buildAndRun(t, fmt.Sprintf(`
 tasks:
   t:
-    rss:
-      url: %q
-    regexp:
-      reject:
-        - '(?i)windows'
-    accept_all:
-    print:
+    - rss:
+        url: %q
+    - regexp:
+        reject:
+          - '(?i)windows'
+    - accept_all:
+    - print:
 `, srv.URL))
 
 	res.assertAccepted(t, 1)
@@ -607,11 +607,11 @@ func TestListAddAndMatch(t *testing.T) {
 	buildAndRunWithDB(t, fmt.Sprintf(`
 tasks:
   add-task:
-    rss:
-      url: %q
-    accept_all:
-    list_add:
-      list: watchlist
+    - rss:
+        url: %q
+    - accept_all:
+    - list_add:
+        list: watchlist
 `, srvAdd.URL), db)
 
 	// Task B: feed with three entries; only the two in the list should be accepted.
@@ -625,11 +625,11 @@ tasks:
 	res := buildAndRunWithDB(t, fmt.Sprintf(`
 tasks:
   match-task:
-    rss:
-      url: %q
-    list_match:
-      list: watchlist
-    print:
+    - rss:
+        url: %q
+    - list_match:
+        list: watchlist
+    - print:
 `, srvMatch.URL), db)
 
 	res.assertAccepted(t, 2)
@@ -647,13 +647,13 @@ func TestConditionInfixSyntax(t *testing.T) {
 	res := buildAndRun(t, fmt.Sprintf(`
 tasks:
   t:
-    rss:
-      url: %q
-    metainfo_quality:
-    condition:
-      accept: 'video_resolution != ""'
-      reject: 'video_resolution == "480p"'
-    print:
+    - rss:
+        url: %q
+    - metainfo_quality:
+    - condition:
+        accept: 'video_resolution != ""'
+        reject: 'video_resolution == "480p"'
+    - print:
 `, srv.URL))
 
 	res.assertAccepted(t, 2) // 1080p and 720p accepted
@@ -670,12 +670,12 @@ func TestConditionContainsOperator(t *testing.T) {
 	res := buildAndRun(t, fmt.Sprintf(`
 tasks:
   t:
-    rss:
-      url: %q
-    metainfo_quality:
-    condition:
-      accept: 'video_source contains "BluRay"'
-    print:
+    - rss:
+        url: %q
+    - metainfo_quality:
+    - condition:
+        accept: 'video_source contains "BluRay"'
+    - print:
 `, srv.URL))
 
 	res.assertAccepted(t, 1) // only BluRay entry
@@ -691,13 +691,13 @@ func TestPathfmtNewSyntax(t *testing.T) {
 	res := buildAndRun(t, fmt.Sprintf(`
 tasks:
   t:
-    rss:
-      url: %q
-    metainfo_series:
-    pathfmt:
-      path: '/tv/{title}/Season {series_season:02d}'
-      field: download_path
-    print:
+    - rss:
+        url: %q
+    - metainfo_series:
+    - pathfmt:
+        path: '/tv/{title}/Season {series_season:02d}'
+        field: download_path
+    - print:
 `, srv.URL))
 
 	if len(res.entries) != 1 {
@@ -717,12 +717,12 @@ func TestSetNewSyntax(t *testing.T) {
 	res := buildAndRun(t, fmt.Sprintf(`
 tasks:
   t:
-    rss:
-      url: %q
-    set:
-      category: tv
-      label: '{raw_title}'
-    print:
+    - rss:
+        url: %q
+    - set:
+        category: tv
+        label: '{raw_title}'
+    - print:
 `, srv.URL))
 
 	if len(res.entries) != 1 {
@@ -744,7 +744,7 @@ func TestTemplateInheritance(t *testing.T) {
 	})
 	defer srv.Close()
 
-	// The task inherits quality: min: 720p from the base template.
+	// The task uses a template that provides quality and regexp filters.
 	res := buildAndRun(t, fmt.Sprintf(`
 templates:
   hd-only:
@@ -756,10 +756,10 @@ templates:
 
 tasks:
   t:
-    template: hd-only
-    rss:
-      url: %q
-    print:
+    - use: hd-only
+    - rss:
+        url: %q
+    - print:
 `, srv.URL))
 
 	res.assertAccepted(t, 1) // only 720p entry passes quality gate
@@ -775,7 +775,7 @@ func TestMultipleTemplates(t *testing.T) {
 	defer srv.Close()
 
 	// Template hd-base provides the quality floor; template bb-only provides
-	// the series acceptance. Both are merged into the task.
+	// the series acceptance. Both are expanded into the task via separate use: entries.
 	res := buildAndRun(t, fmt.Sprintf(`
 templates:
   hd-base:
@@ -788,12 +788,11 @@ templates:
 
 tasks:
   t:
-    template:
-      - hd-base
-      - bb-only
-    rss:
-      url: %q
-    print:
+    - use: hd-base
+    - use: bb-only
+    - rss:
+        url: %q
+    - print:
 `, srv.URL))
 
 	res.assertAccepted(t, 1) // only BB 1080p: passes quality AND series filter
@@ -811,16 +810,16 @@ func TestRegexpPerPatternFrom(t *testing.T) {
 	res := buildAndRun(t, fmt.Sprintf(`
 tasks:
   t:
-    rss:
-      url: %q
-    metainfo_quality:
-    regexp:
-      reject:
-        - pattern: 'BluRay'
-          from: video_source
-      accept:
-        - '.+'
-    print:
+    - rss:
+        url: %q
+    - metainfo_quality:
+    - regexp:
+        reject:
+          - pattern: 'BluRay'
+            from: video_source
+        accept:
+          - '.+'
+    - print:
 `, srv.URL))
 
 	res.assertAccepted(t, 1) // HDTV accepted

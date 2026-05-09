@@ -1,13 +1,13 @@
 tasks:
   scan-torrents:
-    filesystem:
-      path: /tmp
-      mask: "*.torrent"
-    regexp:
-      reject:
-        - '(?i)spam'
-    set:
-      category: torrent
-      label: '{filename}'
-    print:
-      format: '[{state}] {title}  ({category})'
+    - filesystem:
+        path: /tmp
+        mask: "*.torrent"
+    - regexp:
+        reject:
+          - '(?i)spam'
+    - set:
+        category: torrent
+        label: '{filename}'
+    - print:
+        format: '[{state}] {title}  ({category})'

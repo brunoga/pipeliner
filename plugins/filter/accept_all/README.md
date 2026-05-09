@@ -17,15 +17,15 @@ Note: `trakt_list` is a PhaseFrom sub-plugin and cannot be used directly as a ta
 ```yaml
 tasks:
   sync-watchlist:
-    priority: 1
+    - priority: 1
     # Use rss or another input plugin here, and filter with movies.from for Trakt list
-    rss:
-      url: "https://example.com/rss/movies"
-    seen:
-      local: true   # don't mark these as globally seen
-    accept_all:
-    list_add:
-      list: movie_watchlist
+    - rss:
+        url: "https://example.com/rss/movies"
+    - seen:
+        local: true   # don't mark these as globally seen
+    - accept_all:
+    - list_add:
+        list: movie_watchlist
 
 schedules:
   sync-watchlist: 1h

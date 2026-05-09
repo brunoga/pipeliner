@@ -33,11 +33,11 @@ torrent_alive:
 ```yaml
 tasks:
   anime:
-    rss:
-      url: "https://nyaa.si/?page=rss&cats=1_2&filter=2"
-    torrent_alive:
-      min_seeds: 3
-    series:
-      static:
-        - "My Hero Academia"
+    - rss:
+        url: "https://nyaa.si/?page=rss&cats=1_2&filter=2"
+    - torrent_alive:
+        min_seeds: 3
+    - series:
+        static:
+          - "My Hero Academia"
 ```

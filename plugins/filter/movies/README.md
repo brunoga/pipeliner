@@ -77,16 +77,16 @@ Run with `--log-level debug --log-plugin movies` to see:
 ```yaml
 tasks:
   movies:
-    rss:
-      url: "https://example.com/rss/movies"
-    movies:
-      quality: 1080p+
-      static:
-        - Inception
-        - Interstellar
-        - "The Dark Knight"
-    deluge:
-      host: localhost
+    - rss:
+        url: "https://example.com/rss/movies"
+    - movies:
+        quality: 1080p+
+        static:
+          - Inception
+          - Interstellar
+          - "The Dark Knight"
+    - deluge:
+        host: localhost
 ```
 
 ## Example — dynamic list from Trakt watchlist
@@ -94,21 +94,21 @@ tasks:
 ```yaml
 tasks:
   movies-watchlist:
-    rss:
-      url: "https://example.com/rss/movies"
-    movies:
-      quality: 1080p+
-      ttl: 4h
-      from:
-        - name: trakt_list
-          client_id: YOUR_TRAKT_CLIENT_ID
-          access_token: YOUR_TRAKT_ACCESS_TOKEN
-          type: movies
-          list: watchlist
-    condition:
-      reject: 'video_is_3d == true'    # exclude all 3D releases
-    deluge:
-      host: localhost
+    - rss:
+        url: "https://example.com/rss/movies"
+    - movies:
+        quality: 1080p+
+        ttl: 4h
+        from:
+          - name: trakt_list
+            client_id: YOUR_TRAKT_CLIENT_ID
+            access_token: YOUR_TRAKT_ACCESS_TOKEN
+            type: movies
+            list: watchlist
+    - condition:
+        reject: 'video_is_3d == true'    # exclude all 3D releases
+    - deluge:
+        host: localhost
 ```
 
 To accept only BD3D quality or better among 3D releases (and still download non-3D copies independently), use the `video_quality` field which includes the 3D format string:

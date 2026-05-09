@@ -18,14 +18,14 @@ Additional keys are passed through to the chosen notifier. See [`notify/email`](
 ```yaml
 tasks:
   tv:
-    rss:
-      url: "https://example.com/feed"
-    series:
-      static: ["Breaking Bad"]
-    transmission:
-      host: localhost
-    notify:
-      via: webhook
-      url: "https://hooks.example.com/pipeliner"
-      title: "{{len .Entries}} new episodes queued"
+    - rss:
+        url: "https://example.com/feed"
+    - series:
+        static: ["Breaking Bad"]
+    - transmission:
+        host: localhost
+    - notify:
+        via: webhook
+        url: "https://hooks.example.com/pipeliner"
+        title: "{{len .Entries}} new episodes queued"
 ```

@@ -52,11 +52,11 @@ Releases with no recognized source (CAM, TS, etc.) have source `Unknown = 0`. An
 ```yaml
 tasks:
   hd-only:
-    rss:
-      url: "https://example.com/feed"
-    quality:
-      min: 720p
-      max: 1080p
+    - rss:
+        url: "https://example.com/feed"
+    - quality:
+        min: 720p
+        max: 1080p
 ```
 
 ## Example — inline quality spec in series / movies / premiere
@@ -66,16 +66,16 @@ The `series`, `movies`, and `premiere` filters accept a `quality:` key directly,
 ```yaml
 tasks:
   tv:
-    rss:
-      url: "https://example.com/feed"
-    series:
-      static: ["Breaking Bad"]
-      quality: 720p+ webrip+
+    - rss:
+        url: "https://example.com/feed"
+    - series:
+        static: ["Breaking Bad"]
+        quality: 720p+ webrip+
 
   movies-3d:
-    rss:
-      url: "https://example.com/feed"
-    movies:
-      static: ["Avatar", "Inception"]
-      quality: 1080p+ bd3d    # BD3D only; non-3D copies rejected automatically
+    - rss:
+        url: "https://example.com/feed"
+    - movies:
+        static: ["Avatar", "Inception"]
+        quality: 1080p+ bd3d    # BD3D only; non-3D copies rejected automatically
 ```

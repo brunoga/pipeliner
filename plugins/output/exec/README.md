@@ -13,21 +13,21 @@ Runs a shell command for each accepted entry. The command is a Go template rende
 ```yaml
 tasks:
   files:
-    filesystem:
-      path: /downloads/watch
-    exec:
-      command: 'notify-send "New download" "{{.Title}}"'
+    - filesystem:
+        path: /downloads/watch
+    - exec:
+        command: 'notify-send "New download" "{{.Title}}"'
 ```
 
 ```yaml
 tasks:
   cleanup:
-    filesystem:
-      path: /media/tv
-      recursive: true
-      mask: "*.nfo"
-    exec:
-      command: 'rm "{{.location}}"'
+    - filesystem:
+        path: /media/tv
+        recursive: true
+        mask: "*.nfo"
+    - exec:
+        command: 'rm "{{.location}}"'
 ```
 
 ## Notes

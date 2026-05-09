@@ -61,19 +61,19 @@ from:
 ```yaml
 tasks:
   tv-watchlist:
-    rss:
-      url: "https://example.com/rss/shows"
-    series:
-      tracking: strict
-      quality: 720p+
-      from:
-        - name: trakt_list
-          client_id: YOUR_CLIENT_ID
-          client_secret: YOUR_CLIENT_SECRET
-          type: shows
-          list: watchlist
-    transmission:
-      host: localhost
+    - rss:
+        url: "https://example.com/rss/shows"
+    - series:
+        tracking: strict
+        quality: 720p+
+        from:
+          - name: trakt_list
+            client_id: YOUR_CLIENT_ID
+            client_secret: YOUR_CLIENT_SECRET
+            type: shows
+            list: watchlist
+    - transmission:
+        host: localhost
 ```
 
 ## Notes

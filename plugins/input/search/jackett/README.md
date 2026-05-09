@@ -27,17 +27,17 @@ Accepts all the same keys as `jackett`, plus:
 ```yaml
 tasks:
   tv-discover:
-    jackett_input:
-      url: "http://localhost:9117"
-      api_key: YOUR_JACKETT_KEY
-      indexers: ["all"]
-      categories: ["5040", "5045"]
-    premiere:
-      quality: 720p+ webrip+
-    email:
-      smtp_host: smtp.example.com
-      from: me@example.com
-      to: me@example.com
+    - jackett_input:
+        url: "http://localhost:9117"
+        api_key: YOUR_JACKETT_KEY
+        indexers: ["all"]
+        categories: ["5040", "5045"]
+    - premiere:
+        quality: 720p+ webrip+
+    - email:
+        smtp_host: smtp.example.com
+        from: me@example.com
+        to: me@example.com
 ```
 
 ---

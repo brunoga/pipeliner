@@ -30,11 +30,11 @@ the `via` config key. It cannot be used directly as a task-level plugin.
 ```yaml
 tasks:
   discover-tv:
-    discover:
-      titles:
-        - "Breaking Bad"
-      via:
-        - name: rss_search
-          url_template: "https://jackett.example.com/api/v2.0/indexers/all/results/torznab/api?t=search&q={{.QueryEscaped}}&apikey=${JACKETT_API_KEY}"
-      interval: 6h
+    - discover:
+        titles:
+          - "Breaking Bad"
+        via:
+          - name: rss_search
+            url_template: "https://jackett.example.com/api/v2.0/indexers/all/results/torznab/api?t=search&q={{.QueryEscaped}}&apikey=${JACKETT_API_KEY}"
+        interval: 6h
 ```

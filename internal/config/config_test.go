@@ -82,10 +82,11 @@ func writeTempConfig(t *testing.T, content string) string {
 }
 
 // td builds a TaskDef from alternating name/raw-JSON string pairs.
+// Each pair becomes one list item.
 func td(pairs ...string) TaskDef {
 	var d TaskDef
 	for i := 0; i+1 < len(pairs); i += 2 {
-		d.set(pairs[i], json.RawMessage(pairs[i+1]))
+		d = append(d, taskEntry{pairs[i], json.RawMessage(pairs[i+1])})
 	}
 	return d
 }
@@ -96,8 +97,8 @@ func TestLoadValidConfig(t *testing.T) {
 	path := writeTempConfig(t, `
 tasks:
   my-task:
-    nop-input: {}
-    nop-output: {}
+    - nop-input: {}
+    - nop-output: {}
 `)
 	c, err := Load(path)
 	if err != nil {
@@ -180,29 +181,6 @@ func TestBuildTasksUnknownPlugin(t *testing.T) {
 	}
 }
 
-func TestTemplatesMerge(t *testing.T) {
-	path := writeTempConfig(t, `
-templates:
-  base:
-    nop-output: {}
-tasks:
-  t:
-    template: base
-    nop-input: {}
-`)
-	c, err := Load(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	tasks, err := BuildTasks(c, nil, nil)
-	if err != nil {
-		t.Fatalf("BuildTasks error: %v", err)
-	}
-	if len(tasks) != 1 {
-		t.Errorf("want 1 task, got %d", len(tasks))
-	}
-}
-
 func TestVariablesSubstitution(t *testing.T) {
 	path := writeTempConfig(t, `
 variables:
@@ -210,10 +188,10 @@ variables:
   db_path: ":memory:"
 tasks:
   t:
-    nop-input:
-      url: "{$ feed_url $}"
-    nop-output:
-      db: "{$ db_path $}"
+    - nop-input:
+        url: "{$ feed_url $}"
+    - nop-output:
+        db: "{$ db_path $}"
 `)
 	c, err := Load(path)
 	if err != nil {
@@ -223,7 +201,7 @@ tasks:
 		t.Errorf("variable feed_url: got %q", c.Variables["feed_url"])
 	}
 	// Verify substitution happened in task plugin config.
-	raw, _ := c.Tasks["t"].get("nop-input")
+	raw := c.Tasks["t"][0].raw
 	if !strings.Contains(string(raw), "http://example.com/rss") {
 		t.Errorf("substitution not applied in task config: %s", raw)
 	}
@@ -235,29 +213,16 @@ variables:
   known: value
 tasks:
   t:
-    nop-input:
-      x: "{$ unknown $}"
+    - nop-input:
+        x: "{$ unknown $}"
 `)
 	c, err := Load(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	raw, _ := c.Tasks["t"].get("nop-input")
+	raw := c.Tasks["t"][0].raw
 	if !strings.Contains(string(raw), "{$ unknown $}") {
 		t.Errorf("unknown variable should be left unchanged, got: %s", raw)
-	}
-}
-
-func TestTemplatesMergeUnknown(t *testing.T) {
-	c := &Config{
-		Tasks: map[string]TaskDef{
-			"t": td("template", `"nonexistent"`),
-		},
-		Templates: map[string]TaskDef{},
-	}
-	_, err := BuildTasks(c, nil, nil)
-	if err == nil {
-		t.Error("expected error for missing template reference")
 	}
 }
 
@@ -292,14 +257,14 @@ func TestEnvVarSubstitution(t *testing.T) {
 	path := writeTempConfig(t, `
 tasks:
   t:
-    nop-input:
-      url: "${PIPELINER_TEST_URL}"
+    - nop-input:
+        url: "${PIPELINER_TEST_URL}"
 `)
 	c, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	raw, _ := c.Tasks["t"].get("nop-input")
+	raw := c.Tasks["t"][0].raw
 	if !strings.Contains(string(raw), "http://example.com/rss") {
 		t.Errorf("env var not substituted: %s", raw)
 	}
@@ -309,8 +274,8 @@ func TestEnvVarMissingReturnsError(t *testing.T) {
 	path := writeTempConfig(t, `
 tasks:
   t:
-    nop-input:
-      x: "${PIPELINER_TEST_DEFINITELY_NOT_SET_XYZ}"
+    - nop-input:
+        x: "${PIPELINER_TEST_DEFINITELY_NOT_SET_XYZ}"
 `)
 	_, err := Load(path)
 	if err == nil {
@@ -318,76 +283,6 @@ tasks:
 	}
 }
 
-func TestTemplateBangOverride(t *testing.T) {
-	c := &Config{
-		Templates: map[string]TaskDef{
-			"base": td("nop-input", `{"url":"http://template.com"}`, "nop-output", `{}`),
-		},
-		Tasks: map[string]TaskDef{
-			"t": td("template", `"base"`, "nop-input!", `{"url":"http://override.com"}`),
-		},
-	}
-	merged, err := mergeTemplate("t", c.Tasks["t"], c.Templates)
-	if err != nil {
-		t.Fatalf("mergeTemplate: %v", err)
-	}
-	raw, _ := merged.get("nop-input")
-	if !strings.Contains(string(raw), "override.com") {
-		t.Errorf("bang override didn't win; got %s", raw)
-	}
-	if strings.Contains(string(raw), "template.com") {
-		t.Errorf("template value leaked through; got %s", raw)
-	}
-}
-
-func TestTemplateJSONObjectMerge(t *testing.T) {
-	c := &Config{
-		Templates: map[string]TaskDef{
-			"base": td("nop-input", `{"url":"http://example.com","timeout":30}`, "nop-output", `{}`),
-		},
-		Tasks: map[string]TaskDef{
-			"t": td("template", `"base"`, "nop-input", `{"timeout":60}`),
-		},
-	}
-	merged, err := mergeTemplate("t", c.Tasks["t"], c.Templates)
-	if err != nil {
-		t.Fatalf("mergeTemplate: %v", err)
-	}
-	raw, _ := merged.get("nop-input")
-	// Both url (from template) and timeout=60 (from task) should be present.
-	if !strings.Contains(string(raw), "http://example.com") {
-		t.Errorf("template field 'url' missing from merge: %s", raw)
-	}
-	if !strings.Contains(string(raw), "60") {
-		t.Errorf("task field 'timeout' missing from merge: %s", raw)
-	}
-	if strings.Contains(string(raw), `"timeout":30`) {
-		t.Errorf("template timeout should be overridden by task: %s", raw)
-	}
-}
-
-// TestValidateRunsOnMergedConfig ensures that per-plugin validators see the
-// fully merged config (template fields + task fields) rather than just the
-// task-level fragment. Regression test for the bug where a plugin split across
-// a template (smtp settings) and a task (subject/body) failed validation
-// because the validator only saw the task fragment.
-func TestValidateRunsOnMergedConfig(t *testing.T) {
-	// Template provides the required "host" field; task provides an extra field.
-	c := &Config{
-		Templates: map[string]TaskDef{
-			"base": td("nop-input", `{}`, "nop-output-validated", `{"host":"localhost"}`),
-		},
-		Tasks: map[string]TaskDef{
-			"t": td("template", `"base"`, "nop-output-validated", `{"port":8080}`),
-		},
-	}
-	if errs := Validate(c); len(errs) != 0 {
-		t.Errorf("expected no errors when required field comes from template, got: %v", errs)
-	}
-}
-
-// TestValidateReportsErrorWhenRequiredFieldMissing confirms that validation
-// still catches a genuinely missing required field after merging.
 func TestValidateReportsErrorWhenRequiredFieldMissing(t *testing.T) {
 	c := &Config{
 		Tasks: map[string]TaskDef{
@@ -397,5 +292,322 @@ func TestValidateReportsErrorWhenRequiredFieldMissing(t *testing.T) {
 	errs := Validate(c)
 	if len(errs) == 0 {
 		t.Error("expected validation error for missing required field, got none")
+	}
+}
+
+// --- use: expansion tests ---
+
+// TestUseNoParams tests the scalar use: "template_name" shorthand with a
+// zero-parameter template.
+func TestUseNoParams(t *testing.T) {
+	path := writeTempConfig(t, `
+templates:
+  common:
+    nop-input: {}
+    nop-output: {}
+tasks:
+  t:
+    - use: common
+`)
+	c, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	tasks, err := BuildTasks(c, nil, nil)
+	if err != nil {
+		t.Fatalf("BuildTasks: %v", err)
+	}
+	if len(tasks) != 1 {
+		t.Errorf("want 1 task, got %d", len(tasks))
+	}
+}
+
+// TestUsePositionalParams tests that [template, arg1, arg2] correctly maps
+// args to params and performs {$ param $} substitution.
+func TestUsePositionalParams(t *testing.T) {
+	path := writeTempConfig(t, `
+templates:
+  common-output:
+    params: [dest, host]
+    nop-input:
+      url: "{$ dest $}"
+    nop-output-validated:
+      host: "{$ host $}"
+tasks:
+  t:
+    - use: [common-output, "/media/tv", "localhost"]
+`)
+	c, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	// Validate that the expanded config passes validation (host is provided).
+	if errs := Validate(c); len(errs) != 0 {
+		t.Fatalf("Validate: %v", errs)
+	}
+
+	// Check substitution in the expanded task.
+	expanded, err := expandTaskDef("t", c.Tasks["t"], c.Templates)
+	if err != nil {
+		t.Fatalf("expandTaskDef: %v", err)
+	}
+	var nopInputRaw, nopOutputRaw json.RawMessage
+	for _, e := range expanded {
+		switch e.name {
+		case "nop-input":
+			nopInputRaw = e.raw
+		case "nop-output-validated":
+			nopOutputRaw = e.raw
+		}
+	}
+	if !strings.Contains(string(nopInputRaw), "/media/tv") {
+		t.Errorf("dest not substituted in nop-input: %s", nopInputRaw)
+	}
+	if !strings.Contains(string(nopOutputRaw), "localhost") {
+		t.Errorf("host not substituted in nop-output-validated: %s", nopOutputRaw)
+	}
+}
+
+// TestUseMissingParams tests that passing too few args is a validation error.
+func TestUseMissingParams(t *testing.T) {
+	c := &Config{
+		Templates: map[string]TemplateDef{
+			"tmpl": {
+				taskEntry{"params", json.RawMessage(`["dest","host"]`)},
+				taskEntry{"nop-input", json.RawMessage(`{"url":"{$ dest $}"}`)},
+			},
+		},
+		Tasks: map[string]TaskDef{
+			"t": {taskEntry{"use", json.RawMessage(`["tmpl","/media/tv"]`)}},
+		},
+	}
+	_, err := expandTaskDef("t", c.Tasks["t"], c.Templates)
+	if err == nil {
+		t.Error("expected error for too few args")
+	}
+}
+
+// TestUseTooManyParams tests that passing too many args is a validation error.
+func TestUseTooManyParams(t *testing.T) {
+	c := &Config{
+		Templates: map[string]TemplateDef{
+			"tmpl": {
+				taskEntry{"params", json.RawMessage(`["dest"]`)},
+				taskEntry{"nop-input", json.RawMessage(`{"url":"{$ dest $}"}`)},
+			},
+		},
+		Tasks: map[string]TaskDef{
+			"t": {taskEntry{"use", json.RawMessage(`["tmpl","/media/tv","extra"]`)}},
+		},
+	}
+	_, err := expandTaskDef("t", c.Tasks["t"], c.Templates)
+	if err == nil {
+		t.Error("expected error for too many args")
+	}
+}
+
+// TestUseMultipleExpansions tests that two use: entries at different positions
+// both expand correctly.
+func TestUseMultipleExpansions(t *testing.T) {
+	path := writeTempConfig(t, `
+templates:
+  input-tmpl:
+    params: [url]
+    nop-input:
+      url: "{$ url $}"
+  output-tmpl:
+    nop-output: {}
+tasks:
+  t:
+    - use: [input-tmpl, "https://example.com/rss"]
+    - use: output-tmpl
+`)
+	c, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	expanded, err := expandTaskDef("t", c.Tasks["t"], c.Templates)
+	if err != nil {
+		t.Fatalf("expandTaskDef: %v", err)
+	}
+	if len(expanded) != 2 {
+		t.Fatalf("want 2 entries after expansion, got %d", len(expanded))
+	}
+	if expanded[0].name != "nop-input" {
+		t.Errorf("entry[0]: got %q, want nop-input", expanded[0].name)
+	}
+	if expanded[1].name != "nop-output" {
+		t.Errorf("entry[1]: got %q, want nop-output", expanded[1].name)
+	}
+}
+
+// TestUsePreservesOrder verifies that plugins appear in the correct order:
+// pre-use entries, then template expansion, then post-use entries.
+func TestUsePreservesOrder(t *testing.T) {
+	path := writeTempConfig(t, `
+templates:
+  middle:
+    nop-output: {}
+tasks:
+  t:
+    - nop-input: {}
+    - use: middle
+    - priority: 3
+`)
+	c, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	expanded, err := expandTaskDef("t", c.Tasks["t"], c.Templates)
+	if err != nil {
+		t.Fatalf("expandTaskDef: %v", err)
+	}
+	// Expect: nop-input, nop-output, priority
+	want := []string{"nop-input", "nop-output", "priority"}
+	if len(expanded) != len(want) {
+		t.Fatalf("want %d entries, got %d: %v", len(want), len(expanded), expanded)
+	}
+	for i, name := range want {
+		if expanded[i].name != name {
+			t.Errorf("entry[%d]: got %q, want %q", i, expanded[i].name, name)
+		}
+	}
+}
+
+// TestUseUnknownTemplate tests that referencing a non-existent template is an error.
+func TestUseUnknownTemplate(t *testing.T) {
+	c := &Config{
+		Templates: map[string]TemplateDef{},
+		Tasks: map[string]TaskDef{
+			"t": {taskEntry{"use", json.RawMessage(`"no-such-template"`)}},
+		},
+	}
+	_, err := expandTaskDef("t", c.Tasks["t"], c.Templates)
+	if err == nil {
+		t.Error("expected error for unknown template")
+	}
+}
+
+// TestUseValidateRunsOnExpanded ensures that per-plugin validators see the
+// fully expanded config after template substitution.
+func TestUseValidateRunsOnExpanded(t *testing.T) {
+	// Template provides the required "host" field via param substitution.
+	path := writeTempConfig(t, `
+templates:
+  with-host:
+    params: [host]
+    nop-input: {}
+    nop-output-validated:
+      host: "{$ host $}"
+tasks:
+  t:
+    - use: [with-host, "myhost"]
+`)
+	c, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if errs := Validate(c); len(errs) != 0 {
+		t.Errorf("expected no errors when required field comes from template param, got: %v", errs)
+	}
+}
+
+// TestUseNamedParams tests the object form: use: {template: name, param: val}.
+func TestUseNamedParams(t *testing.T) {
+	path := writeTempConfig(t, `
+templates:
+  with-host:
+    params: [host]
+    nop-input: {}
+    nop-output-validated:
+      host: "{$ host $}"
+tasks:
+  t:
+    - use:
+        template: with-host
+        host: "myhost"
+`)
+	c, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if errs := Validate(c); len(errs) != 0 {
+		t.Errorf("expected no errors with named params, got: %v", errs)
+	}
+}
+
+// TestUseNamedParamsMissing tests that omitting a declared param is an error.
+func TestUseNamedParamsMissing(t *testing.T) {
+	c := &Config{
+		Templates: map[string]TemplateDef{
+			"tmpl": {
+				taskEntry{"params", json.RawMessage(`["host"]`)},
+				taskEntry{"nop-output-validated", json.RawMessage(`{"host":"{$ host $}"}`)},
+			},
+		},
+		Tasks: map[string]TaskDef{
+			"t": {taskEntry{"use", json.RawMessage(`{"template":"tmpl"}`)}},
+		},
+	}
+	_, err := expandTaskDef("t", c.Tasks["t"], c.Templates)
+	if err == nil {
+		t.Error("expected error for missing named param")
+	}
+}
+
+// TestUseNamedParamsUnexpected tests that passing an undeclared key is an error.
+func TestUseNamedParamsUnexpected(t *testing.T) {
+	c := &Config{
+		Templates: map[string]TemplateDef{
+			"tmpl": {
+				taskEntry{"params", json.RawMessage(`["host"]`)},
+				taskEntry{"nop-output-validated", json.RawMessage(`{"host":"{$ host $}"}`)},
+			},
+		},
+		Tasks: map[string]TaskDef{
+			"t": {taskEntry{"use", json.RawMessage(`{"template":"tmpl","host":"x","extra":"y"}`)}},
+		},
+	}
+	_, err := expandTaskDef("t", c.Tasks["t"], c.Templates)
+	if err == nil {
+		t.Error("expected error for unexpected param key")
+	}
+}
+
+// TestUseNamedParamsMultiline tests that multiline string params (e.g. email
+// body templates) survive JSON round-trip correctly after substitution.
+func TestUseNamedParamsMultiline(t *testing.T) {
+	path := writeTempConfig(t, `
+templates:
+  msg:
+    params: [subject, body]
+    nop-input:
+      subject: "{$ subject $}"
+      body: "{$ body $}"
+tasks:
+  t:
+    - use:
+        template: msg
+        subject: "Hello world"
+        body: |
+          line one
+          line "two"
+`)
+	c, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	expanded, err := expandTaskDef("t", c.Tasks["t"], c.Templates)
+	if err != nil {
+		t.Fatalf("expandTaskDef: %v", err)
+	}
+	var cfg map[string]any
+	if err := json.Unmarshal(expanded[0].raw, &cfg); err != nil {
+		t.Fatalf("expanded JSON invalid: %v — raw: %s", err, expanded[0].raw)
+	}
+	body, _ := cfg["body"].(string)
+	if !strings.Contains(body, "line one") || !strings.Contains(body, `line "two"`) {
+		t.Errorf("multiline body not preserved correctly: %q", body)
 	}
 }

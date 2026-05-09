@@ -17,16 +17,16 @@ At least one of `accept` or `reject` is required.
 ```yaml
 tasks:
   articles:
-    rss:
-      url: "https://feeds.example.com/tech"
-    regexp:
-      accept:
-        - "(?i)golang"
-        - "(?i)kubernetes"
-      reject:
-        - "(?i)sponsored"
-    email:
-      smtp_host: smtp.example.com
-      from: me@example.com
-      to: me@example.com
+    - rss:
+        url: "https://feeds.example.com/tech"
+    - regexp:
+        accept:
+          - "(?i)golang"
+          - "(?i)kubernetes"
+        reject:
+          - "(?i)sponsored"
+    - email:
+        smtp_host: smtp.example.com
+        from: me@example.com
+        to: me@example.com
 ```

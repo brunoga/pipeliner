@@ -39,16 +39,16 @@ Annotates entries with metadata from Trakt.tv via the search API. Searches by pa
 ```yaml
 tasks:
   tv:
-    rss:
-      url: "https://example.com/feed"
-    trakt:                          # filter: accept watchlist shows
-      client_id: YOUR_CLIENT_ID
-      access_token: YOUR_TOKEN
-      type: shows
-      list: watchlist
-    metainfo_trakt:                 # annotate with Trakt metadata
-      client_id: YOUR_CLIENT_ID
-      type: shows
+    - rss:
+        url: "https://example.com/feed"
+    - trakt:                          # filter: accept watchlist shows
+        client_id: YOUR_CLIENT_ID
+        access_token: YOUR_TOKEN
+        type: shows
+        list: watchlist
+    - metainfo_trakt:                 # annotate with Trakt metadata
+        client_id: YOUR_CLIENT_ID
+        type: shows
 ```
 
 ## Notes

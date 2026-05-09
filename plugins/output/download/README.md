@@ -26,11 +26,11 @@ If the download fails (network error, non-200 response, disk error), the entry i
 ```yaml
 tasks:
   articles:
-    rss:
-      url: "https://example.com/feed"
-    regexp:
-      accept: "(?i)golang"
-    download:
-      path: /home/user/articles
-      filename: "{{.timestamp}}-{{.url_basename}}"
+    - rss:
+        url: "https://example.com/feed"
+    - regexp:
+        accept: "(?i)golang"
+    - download:
+        path: /home/user/articles
+        filename: "{{.timestamp}}-{{.url_basename}}"
 ```

@@ -7,24 +7,24 @@ variables:
 
 tasks:
   ars-technica:
-    rss:
-      url: "https://feeds.arstechnica.com/arstechnica/index"
-    seen:
-      local: true
-    regexp:
-      accept:
-        - '(?i)(linux|open.?source|security|AI|machine.learning)'
-    notify:
-      via: email
-      title: 'Ars Technica: {{len .Entries}} new article(s)'
-      body: "{{range .Entries}}- {{.Title}}\n  {{.URL}}\n\n{{end}}"
-      config:
-        smtp_host: "{$ smtp_host $}"
-        port: "{$ smtp_port $}"
-        username: "{$ smtp_user $}"
-        password: "{$ smtp_pass $}"
-        from: "{$ smtp_user $}"
-        to: "{$ mail_to $}"
+    - rss:
+        url: "https://feeds.arstechnica.com/arstechnica/index"
+    - seen:
+        local: true
+    - regexp:
+        accept:
+          - '(?i)(linux|open.?source|security|AI|machine.learning)'
+    - notify:
+        via: email
+        title: 'Ars Technica: {{len .Entries}} new article(s)'
+        body: "{{range .Entries}}- {{.Title}}\n  {{.URL}}\n\n{{end}}"
+        config:
+          smtp_host: "{$ smtp_host $}"
+          port: "{$ smtp_port $}"
+          username: "{$ smtp_user $}"
+          password: "{$ smtp_pass $}"
+          from: "{$ smtp_user $}"
+          to: "{$ mail_to $}"
 
 schedules:
   ars-technica: 30m

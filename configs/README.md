@@ -8,15 +8,17 @@ Pipeliner uses a single YAML file (default `config.yml`). Pass a custom path wit
 variables:    # key-value substitutions applied before parsing
   key: value
 
-templates:    # named partial task configs that tasks can inherit
+templates:    # reusable plugin blocks expanded inline with use:
   name:
+    params: [arg1, arg2]   # optional positional parameter names
     plugin_name:
-      option: value
+      option: "{$ arg1 $}"
 
-tasks:        # one or more named pipelines
+tasks:        # one or more named pipelines (YAML sequence)
   task-name:
-    plugin_name:
-      option: value
+    - plugin_name:
+        option: value
+    - use: [name, val1, val2]  # inline template expansion
 
 schedules:    # when to run each task in daemon mode
   task-name: 1h          # interval
@@ -37,37 +39,81 @@ variables:
 
 tasks:
   my-task:
-    seen:
-    pathfmt:
-      path: "{$ tv_root $}/{title}"
-      field: download_path
+    - seen:
+    - pathfmt:
+        path: "{$ tv_root $}/{title}"
+        field: download_path
 ```
 
 ## Templates
 
-Templates let you define common plugin config once and inherit it in multiple tasks. A task's `template:` key names the template to merge from; per-task plugin config is merged on top and wins.
+Templates define reusable plugin blocks expanded inline at the point of `use:`. Declare parameter names with `params:` and reference them with `{$ name $}` inside the template.
+
+Three `use:` forms are supported:
+
+```yaml
+# Zero params — just the template name
+- use: template-name
+
+# Positional params — concise for short scalar values
+- use: [template-name, val1, val2]
+
+# Named params — required for multiline values (e.g. email body) or list values
+- use:
+    template: template-name
+    param1: value1
+    param2: ["list", "value"]
+    param3: |
+      multiline
+      value
+```
+
+Parameters can be any YAML type: strings, numbers, lists, or block scalars. Config validation fails if the wrong number of arguments is passed (positional) or a declared param is missing/unknown (named).
 
 ```yaml
 templates:
-  base:
+  common-input:
+    params: [feed_url]
     rss:
-      url: "https://example.com/rss"
+      url: "{$ feed_url $}"
     seen:
 
-tasks:
-  task-a:
-    template: base
-    series:
-      static: ["Breaking Bad"]
+  common-output:
+    params: [dest, host]
+    pathfmt:
+      path: "{$ dest $}/{title}"
+      field: download_path
     transmission:
-      host: localhost
+      host: "{$ host $}"
+      path: "{download_path}"
 
-  task-b:
-    template: base       # same rss + seen config
-    movies:
-      static: ["Inception"]
-    deluge:
-      host: localhost
+  jackett-search:
+    params: [indexers, categories]   # list params — use named form at call site
+    jackett_input:
+      indexers: "{$ indexers $}"
+      categories: "{$ categories $}"
+
+  email-notify:
+    params: [subject, body_template]  # body_template is multiline — use named form
+    email:
+      subject: "{$ subject $}"
+      body_template: "{$ body_template $}"
+
+tasks:
+  tv-shows:
+    - use: [common-input, "https://example.com/rss/tv"]   # positional: one scalar arg
+    - series:
+        static: ["Breaking Bad"]
+    - use: [common-output, /media/tv, localhost]           # positional: two scalar args
+    - use:
+        template: jackett-search
+        indexers: ["torrenting", "showrss"]               # named: list arg
+        categories: ["5000"]
+    - use:
+        template: email-notify
+        subject: "New episodes: {{len .Entries}}"
+        body_template: |                                  # named: multiline arg
+          {{range .Entries}}<p>{{index .Fields "title"}}</p>{{end}}
 ```
 
 ## Tasks
@@ -80,24 +126,24 @@ A task is an ordered chain of plugins. Phases always execute in this fixed order
 4. **modify** — mutates entry fields
 5. **output / notify** — acts on accepted entries
 
-Each plugin key maps to that plugin's config map. If a plugin takes no config, the value can be `null` or an empty map.
+Each list item is a single-key mapping: the key is the plugin name and the value is its config. If a plugin takes no config, the value can be omitted (bare `- plugin_name:`) or set to `{}`.
 
 ```yaml
 tasks:
   example:
-    rss:
-      url: "https://feeds.example.com/torrents"
-    seen:
-    series:
-      static:
-        - "My Show"
-    metainfo_quality:    # no config needed
-    pathfmt:
-      path: "/media/tv/{title}/Season {series_season:02d}"
-      field: download_path
-    transmission:
-      host: localhost
-      port: 9091
+    - rss:
+        url: "https://feeds.example.com/torrents"
+    - seen:
+    - series:
+        static:
+          - "My Show"
+    - metainfo_quality:
+    - pathfmt:
+        path: "/media/tv/{title}/Season {series_season:02d}"
+        field: download_path
+    - transmission:
+        host: localhost
+        port: 9091
 ```
 
 ## Schedules
