@@ -219,6 +219,7 @@ Fields follow a tiered naming convention. Three universal fields have no prefix;
 
 | Field | Set by | Description |
 |-------|--------|-------------|
+| `torrent_link_type` | `jackett`, `jackett_input` | `"torrent"` or `"magnet"` — used by `metainfo_torrent`, `metainfo_magnet`, and `deluge` to route handling without a URL fetch |
 | `torrent_info_hash` | `metainfo_torrent`, `metainfo_magnet`, `torrent_alive` | SHA-1 info hash (hex) |
 | `torrent_file_size` | `metainfo_torrent`, `metainfo_magnet`, `jackett_input` | Total size in bytes |
 | `torrent_file_count` | `metainfo_torrent`, `metainfo_magnet` | Number of files |

@@ -207,6 +207,53 @@ func TestMagnetLinkUsesMagnetRPC(t *testing.T) {
 	}
 }
 
+func TestTorrentLinkTypeMagnetUsesMagnetRPC(t *testing.T) {
+	// torrent_link_type="magnet" must trigger core.add_torrent_magnet even
+	// when the URL is not a magnet: URI (e.g. a Jackett proxy URL that was
+	// resolved to a magnet by the Jackett parser but the URL was already set
+	// to the actual magnet URI — this verifies the field is checked first).
+	mock := &mockDeluge{loginOK: true}
+	srv := httptest.NewServer(mock.handler())
+	defer srv.Close()
+
+	dp := newTestPlugin(t, srv, nil)
+	magnet := "magnet:?xt=urn:btih:aabbccddeeff00112233445566778899aabbccdd"
+	e := entry.New("movie", magnet)
+	e.Set(entry.FieldTorrentLinkType, "magnet")
+	dp.Output(context.Background(), makeCtx(), []*entry.Entry{e}) //nolint:errcheck
+
+	var addCall *rpcCall
+	for i := range mock.calls {
+		if mock.calls[i].Method == "core.add_torrent_magnet" || mock.calls[i].Method == "core.add_torrent_url" {
+			addCall = &mock.calls[i]
+			break
+		}
+	}
+	if addCall == nil {
+		t.Fatal("no add_torrent RPC call recorded")
+	}
+	if addCall.Method != "core.add_torrent_magnet" {
+		t.Errorf("torrent_link_type=magnet should use core.add_torrent_magnet, got %q", addCall.Method)
+	}
+}
+
+func TestTorrentLinkTypeTorrentUsesURLRPC(t *testing.T) {
+	mock := &mockDeluge{loginOK: true}
+	srv := httptest.NewServer(mock.handler())
+	defer srv.Close()
+
+	dp := newTestPlugin(t, srv, nil)
+	e := entry.New("movie", "https://jackett.host/dl/idx/?key=abc&file=movie")
+	e.Set(entry.FieldTorrentLinkType, "torrent")
+	dp.Output(context.Background(), makeCtx(), []*entry.Entry{e}) //nolint:errcheck
+
+	for _, c := range mock.calls {
+		if c.Method == "core.add_torrent_magnet" {
+			t.Errorf("torrent_link_type=torrent should not use core.add_torrent_magnet")
+		}
+	}
+}
+
 func TestHTTPTorrentUsesURLRPC(t *testing.T) {
 	mock := &mockDeluge{loginOK: true}
 	srv := httptest.NewServer(mock.handler())

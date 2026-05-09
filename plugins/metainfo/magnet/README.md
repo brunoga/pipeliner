@@ -4,7 +4,7 @@ Annotates entries whose URL is a magnet link with torrent metadata. URI-derived 
 
 All DHT lookups for a batch of entries are dispatched in parallel, sharing a single timeout window, so a batch of 20 magnet links costs the same wall-clock time as a single one.
 
-Entries with a non-magnet URL are silently skipped.
+An entry is treated as a magnet when `torrent_link_type = "magnet"` (set by `jackett` / `jackett_input`) or when the URL starts with `magnet:`. Entries with `torrent_link_type = "torrent"` or a non-magnet URL are silently skipped.
 
 ## Config
 

@@ -468,6 +468,7 @@ make build        # or: go build -o pipeliner ./cmd/pipeliner</code></pre>
 <h4>TorrentInfo (torrent_ prefix) — set by rss, jackett, jackett_input, metainfo_torrent, metainfo_magnet</h4>
 <table>
   <tr><th>Field</th><th>Description</th></tr>
+  <tr><td><code>torrent_link_type</code></td><td><code>"torrent"</code> or <code>"magnet"</code> — set by Jackett plugins to indicate the link type without an HTTP fetch</td></tr>
   <tr><td><code>torrent_info_hash</code></td><td>SHA-1 info hash (hex)</td></tr>
   <tr><td><code>torrent_file_size</code></td><td>Total torrent size in bytes</td></tr>
   <tr><td><code>torrent_file_count</code></td><td>Number of files in torrent</td></tr>
@@ -754,7 +755,7 @@ make build        # or: go build -o pipeliner ./cmd/pipeliner</code></pre>
 </table>
 
 <h4>Fields set</h4>
-<p><code>torrent_seeds</code>, <code>torrent_leechers</code>, <code>torrent_file_size</code>, <code>torrent_info_hash</code>, <code>jackett_category</code>, <code>jackett_indexer</code></p>
+<p><code>torrent_link_type</code> (<code>"torrent"</code> or <code>"magnet"</code>), <code>torrent_seeds</code>, <code>torrent_leechers</code>, <code>torrent_file_size</code>, <code>torrent_info_hash</code>, <code>jackett_category</code>, <code>jackett_indexer</code></p>
 
 <h4>Common Torznab categories</h4>
 <table>
@@ -851,7 +852,7 @@ make build        # or: go build -o pipeliner ./cmd/pipeliner</code></pre>
 
 <!-- ─────────── jackett (from) ─────────── -->
 <h2 id="jackett">jackett</h2>
-<p>Searches a Jackett indexer proxy via Torznab. Used inside <code>discover.via</code> as a search backend. Seeder counts, info hashes, and sizes come directly in the search response — no separate metainfo fetch needed.</p>
+<p>Searches a Jackett indexer proxy via Torznab. Used inside <code>discover.via</code> as a search backend. Seeder counts, info hashes, and sizes come directly in the search response — no separate metainfo fetch needed. Sets <code>torrent_link_type</code> on each result so downstream plugins (<code>metainfo_torrent</code>, <code>metainfo_magnet</code>, <code>deluge</code>, etc.) handle the URL correctly without probing it.</p>
 
 <table>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>

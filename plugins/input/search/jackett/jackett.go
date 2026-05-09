@@ -22,15 +22,16 @@ package jackett
 
 import (
 	"context"
-	"encoding/xml"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 
+	"strconv"
+
+	ijackett "github.com/brunoga/pipeliner/internal/jackett"
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/plugin"
 	"github.com/brunoga/pipeliner/internal/store"
@@ -182,94 +183,7 @@ func (p *jackettPlugin) searchIndexer(ctx context.Context, indexer, query string
 		return nil, fmt.Errorf("HTTP %d from %s: %s", resp.StatusCode, indexer, snippet)
 	}
 
-	return parseTorznab(body, indexer)
-}
-
-// --- Torznab XML types ---
-
-type torznabFeed struct {
-	Channel struct {
-		Items []torznabItem `xml:"item"`
-	} `xml:"channel"`
-}
-
-type torznabItem struct {
-	Title     string `xml:"title"`
-	Link      string `xml:"link"`
-	GUID      string `xml:"guid"`
-	Size      int64  `xml:"size"`
-	Enclosure struct {
-		URL string `xml:"url,attr"`
-	} `xml:"enclosure"`
-	Attrs []torznabAttr `xml:"http://torznab.com/schemas/2015/feed attr"`
-}
-
-type torznabAttr struct {
-	XMLName xml.Name `xml:"http://torznab.com/schemas/2015/feed attr"`
-	Name    string   `xml:"name,attr"`
-	Value   string   `xml:"value,attr"`
-}
-
-func parseTorznab(data []byte, indexer string) ([]*entry.Entry, error) {
-	var feed torznabFeed
-	if err := xml.Unmarshal(data, &feed); err != nil {
-		return nil, fmt.Errorf("parse Torznab response: %w", err)
-	}
-
-	var entries []*entry.Entry
-	for _, item := range feed.Channel.Items {
-		// Prefer the enclosure (the actual .torrent / magnet link) over the
-		// info page link.
-		link := item.Enclosure.URL
-		if link == "" {
-			link = item.Link
-		}
-		if link == "" {
-			link = item.GUID
-		}
-		if link == "" {
-			continue
-		}
-
-		title := strings.TrimSpace(item.Title)
-		if title == "" {
-			title = link
-		}
-
-		e := entry.New(title, link)
-
-		// Index the torznab attrs by name for easy lookup.
-		attrs := make(map[string]string, len(item.Attrs))
-		for _, a := range item.Attrs {
-			attrs[a.Name] = a.Value
-		}
-
-		ti := entry.TorrentInfo{}
-		if item.Size > 0 {
-			ti.FileSize = item.Size
-		}
-		if v := attrs["seeders"]; v != "" {
-			if n, err := strconv.ParseInt(v, 10, 64); err == nil {
-				ti.Seeds = int(n)
-			}
-		}
-		if v := attrs["leechers"]; v != "" {
-			if n, err := strconv.ParseInt(v, 10, 64); err == nil {
-				ti.Leechers = int(n)
-			}
-		}
-		if v := attrs["infohash"]; v != "" {
-			ti.InfoHash = strings.ToLower(v)
-		}
-		if v := attrs["category"]; v != "" {
-			e.Set("jackett_category", v)
-		}
-		e.Set("jackett_indexer", indexer)
-		e.SetTorrentInfo(ti)
-
-		entries = append(entries, e)
-	}
-	return entries, nil
+	return ijackett.ParseTorznab(body, indexer)
 }
 
 // --- config helpers ---
@@ -287,10 +201,6 @@ func toStringSlice(v any) []string {
 			switch s := item.(type) {
 			case string:
 				out = append(out, s)
-			case int64:
-				out = append(out, strconv.FormatInt(s, 10))
-			case float64:
-				out = append(out, strconv.Itoa(int(s)))
 			}
 		}
 		return out

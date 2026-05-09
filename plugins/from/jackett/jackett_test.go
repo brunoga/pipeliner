@@ -11,11 +11,12 @@ import (
 	"strings"
 	"testing"
 
+	ijackett "github.com/brunoga/pipeliner/internal/jackett"
 	"github.com/brunoga/pipeliner/internal/plugin"
 )
 
 // torznabResponse builds a minimal Torznab RSS document from the given items.
-func torznabResponse(items []torznabItem) string {
+func torznabResponse(items []ijackett.Item) string {
 	var sb strings.Builder
 	sb.WriteString(`<?xml version="1.0" encoding="UTF-8"?>`)
 	sb.WriteString(`<rss version="2.0" xmlns:torznab="http://torznab.com/schemas/2015/feed">`)
@@ -118,14 +119,14 @@ func TestSearchSendsCorrectQueryParams(t *testing.T) {
 }
 
 func TestSearchParsesEntries(t *testing.T) {
-	items := []torznabItem{
+	items := []ijackett.Item{
 		{
 			Title: "Breaking.Bad.S01E01.720p.HDTV",
 			Enclosure: struct{ URL string `xml:"url,attr"` }{
 				URL: "http://tracker.example.com/1.torrent",
 			},
 			Size: 1_500_000_000,
-			Attrs: []torznabAttr{
+			Attrs: []ijackett.Attr{
 				{Name: "seeders", Value: "42"},
 				{Name: "leechers", Value: "3"},
 				{Name: "infohash", Value: "AABBCC"},
@@ -343,5 +344,57 @@ func TestNoCategoriesOmitsParam(t *testing.T) {
 	_, _ = p.Search(context.Background(), tc(), "test")
 	if strings.Contains(gotRaw, "cat=") {
 		t.Errorf("cat param should be absent when no categories configured; got %q", gotRaw)
+	}
+}
+
+func TestSearchMagnetURLUsedWhenMagneturlAttrPresent(t *testing.T) {
+	magnet := "magnet:?xt=urn:btih:aabbccddeeff00112233445566778899aabbccdd"
+	items := []ijackett.Item{{
+		Title:     "My.Show.S01E01.720p",
+		Enclosure: struct{ URL string `xml:"url,attr"` }{URL: "https://jackett.host/dl/idx/?key=abc"},
+		Attrs:     []ijackett.Attr{{Name: "magneturl", Value: magnet}},
+	}}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, torznabResponse(items)) //nolint:errcheck
+	}))
+	defer srv.Close()
+
+	p := makePlugin(t, srv.URL, "key", nil)
+	entries, err := p.Search(context.Background(), tc(), "My Show")
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("got %d entries, want 1", len(entries))
+	}
+	e := entries[0]
+	if e.URL != magnet {
+		t.Errorf("URL: got %q, want magnet URI", e.URL)
+	}
+	if v := e.GetString("torrent_link_type"); v != "magnet" {
+		t.Errorf("torrent_link_type: got %q, want magnet", v)
+	}
+}
+
+func TestSearchTorrentLinkTypeSetForNonMagnet(t *testing.T) {
+	items := []ijackett.Item{{
+		Title:     "My.Show.S01E01.720p",
+		Enclosure: struct{ URL string `xml:"url,attr"` }{URL: "https://jackett.host/dl/idx/?key=abc"},
+	}}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, torznabResponse(items)) //nolint:errcheck
+	}))
+	defer srv.Close()
+
+	p := makePlugin(t, srv.URL, "key", nil)
+	entries, err := p.Search(context.Background(), tc(), "My Show")
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("got %d entries, want 1", len(entries))
+	}
+	if v := entries[0].GetString("torrent_link_type"); v != "torrent" {
+		t.Errorf("torrent_link_type: got %q, want torrent", v)
 	}
 }

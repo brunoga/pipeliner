@@ -71,6 +71,11 @@ const (
 	FieldTorrentCreatedBy    = "torrent_created_by"
 	FieldTorrentCreationDate = "torrent_creation_date"
 	FieldTorrentPrivate      = "torrent_private"
+	// FieldTorrentLinkType is set by sources that can determine the link type
+	// without an HTTP fetch (e.g. Jackett via the Torznab magneturl attribute).
+	// Values: "torrent" (URL serves a .torrent file) or "magnet" (URL is a
+	// magnet URI). When absent, metainfo plugins fall back to URL inspection.
+	FieldTorrentLinkType     = "torrent_link_type"
 
 	// FileInfo — file_ prefix.
 	FieldFileName         = "file_name"

@@ -2,8 +2,12 @@
 // annotates entries with their metadata (name, info hash, size, tracker, etc.).
 //
 // The plugin reads the torrent from the entry's "location" field (a local file
-// path set by the filesystem input plugin) when present, or by downloading the
-// URL if it ends in ".torrent".
+// path set by the filesystem input plugin) when present, or by fetching the URL
+// when any of the following is true:
+//   - the URL ends in ".torrent"
+//   - rss_enclosure_type is "application/x-bittorrent" (RSS torrent feeds)
+//   - torrent_info_hash is already set (e.g. by jackett_input / jackett) —
+//     these entries have a Jackett proxy URL that serves the .torrent bytes
 //
 // Config keys:
 //
@@ -93,7 +97,7 @@ func (p *torrentPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e 
 		return fmt.Errorf("metainfo_torrent: %w", err)
 	}
 	if data == nil {
-		log.Debug("metainfo_torrent: skipping entry — not a .torrent URL and no .torrent location",
+		log.Debug("metainfo_torrent: skipping entry — not recognised as a torrent",
 			"entry", e.URL,
 			"location", loc,
 		)
@@ -138,6 +142,27 @@ func (p *torrentPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e 
 	return nil
 }
 
+// torrentURLReason returns a short reason string if the entry's URL should be
+// fetched as a torrent, or "" if the entry should be skipped.
+// It checks torrent_link_type first (set by sources such as Jackett that know
+// the link type without an HTTP fetch), then falls back to URL inspection.
+func torrentURLReason(e *entry.Entry) string {
+	switch e.GetString(entry.FieldTorrentLinkType) {
+	case "torrent":
+		return "torrent_link_type=torrent"
+	case "magnet":
+		return "" // magnet — handled by metainfo_magnet
+	}
+	// Fallback: inspect the URL directly.
+	if strings.HasSuffix(strings.ToLower(e.URL), ".torrent") {
+		return ".torrent URL"
+	}
+	if et := e.GetString(entry.FieldRSSEnclosureType); et == "application/x-bittorrent" || et == "application/x-torrent" {
+		return "rss_enclosure_type=" + et
+	}
+	return ""
+}
+
 // readTorrent returns raw torrent bytes from a local file or by downloading the
 // URL. Returns (nil, nil) if this entry does not appear to be a .torrent.
 func (p *torrentPlugin) readTorrent(ctx context.Context, log interface {
@@ -154,11 +179,17 @@ func (p *torrentPlugin) readTorrent(ctx context.Context, log interface {
 		log.Debug("metainfo_torrent: local file read", "path", loc, "bytes", len(data))
 		return data, nil
 	}
-	// Fall back to URL.
-	if !strings.HasSuffix(strings.ToLower(e.URL), ".torrent") {
+	// Fall back to URL — recognise the entry as a torrent download when:
+	//   (a) URL ends in ".torrent"
+	//   (b) rss_enclosure_type signals a torrent file (RSS feeds)
+	//   (c) torrent_info_hash is already set by an upstream plugin such as
+	//       jackett_input, which returns Jackett proxy URLs that serve the
+	//       .torrent bytes even though the URL has no ".torrent" suffix
+	reason := torrentURLReason(e)
+	if reason == "" {
 		return nil, nil
 	}
-	log.Debug("metainfo_torrent: fetching from URL", "url", e.URL)
+	log.Debug("metainfo_torrent: fetching from URL", "url", e.URL, "reason", reason)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, e.URL, nil)
 	if err != nil {
 		return nil, err

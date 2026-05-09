@@ -112,7 +112,7 @@ func (p *delugePlugin) Output(ctx context.Context, tc *plugin.TaskContext, entri
 				continue
 			}
 		}
-		if err := p.addTorrent(ctx, e.URL, savePath, moveCompleted); err != nil {
+		if err := p.addTorrent(ctx, e.URL, e.GetString(entry.FieldTorrentLinkType), savePath, moveCompleted); err != nil {
 			if strings.Contains(err.Error(), "already in session") {
 				tc.Logger.Info("deluge: torrent already in session, treating as success", "title", e.Title)
 			} else {
@@ -135,7 +135,7 @@ func (p *delugePlugin) login(ctx context.Context) error {
 	return nil
 }
 
-func (p *delugePlugin) addTorrent(ctx context.Context, url, savePath, moveCompletedPath string) error {
+func (p *delugePlugin) addTorrent(ctx context.Context, url, linkType, savePath, moveCompletedPath string) error {
 	opts := map[string]any{}
 	if savePath != "" {
 		opts["download_location"] = savePath
@@ -144,8 +144,10 @@ func (p *delugePlugin) addTorrent(ctx context.Context, url, savePath, moveComple
 		opts["move_completed"] = true
 		opts["move_completed_path"] = moveCompletedPath
 	}
+	// Check torrent_link_type first (set by sources such as Jackett that know
+	// the type without an HTTP fetch), then fall back to URL prefix inspection.
 	method := "core.add_torrent_url"
-	if strings.HasPrefix(url, "magnet:") {
+	if linkType == "magnet" || (linkType == "" && strings.HasPrefix(url, "magnet:")) {
 		method = "core.add_torrent_magnet"
 	}
 	_, err := p.rpc(ctx, method, []any{url, opts})
