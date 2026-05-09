@@ -81,18 +81,29 @@ func (p *torrentPlugin) Phase() plugin.Phase { return plugin.PhaseMetainfo }
 
 func (p *torrentPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
 	log := tc.Logger
+	loc := e.GetString(entry.FieldFileLocation)
+	log.Debug("metainfo_torrent: received entry",
+		"entry", e.URL,
+		"has_location", loc != "",
+	)
+
 	data, err := p.readTorrent(ctx, log, e)
 	if err != nil {
-		log.Error("failed to read torrent", "entry", e.URL, "err", err)
+		log.Error("metainfo_torrent: failed to read torrent", "entry", e.URL, "err", err)
 		return fmt.Errorf("metainfo_torrent: %w", err)
 	}
 	if data == nil {
-		log.Debug("skipping entry: not a .torrent", "entry", e.URL)
+		log.Debug("metainfo_torrent: skipping entry — not a .torrent URL and no .torrent location",
+			"entry", e.URL,
+			"location", loc,
+		)
 		return nil
 	}
 
+	log.Debug("metainfo_torrent: decoding torrent", "entry", e.URL, "bytes", len(data))
 	ti, err := bencode.DecodeTorrent(data)
 	if err != nil {
+		log.Error("metainfo_torrent: failed to decode torrent", "entry", e.URL, "err", err)
 		return fmt.Errorf("metainfo_torrent: decode: %w", err)
 	}
 
@@ -112,22 +123,42 @@ func (p *torrentPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e 
 		CreationDate: creationTime,
 		Private:      ti.IsPrivate,
 	})
+
+	log.Debug("metainfo_torrent: annotated",
+		"entry", e.URL,
+		"name", ti.Name,
+		"info_hash", ti.InfoHash,
+		"size", ti.TotalSize,
+		"files", ti.FileCount,
+		"announce", ti.Announce,
+		"trackers", len(ti.AnnounceList),
+		"private", ti.IsPrivate,
+		"created_by", ti.CreatedBy,
+	)
 	return nil
 }
 
 // readTorrent returns raw torrent bytes from a local file or by downloading the
 // URL. Returns (nil, nil) if this entry does not appear to be a .torrent.
-func (p *torrentPlugin) readTorrent(ctx context.Context, log interface{ Debug(string, ...any) }, e *entry.Entry) ([]byte, error) {
+func (p *torrentPlugin) readTorrent(ctx context.Context, log interface {
+	Debug(string, ...any)
+	Error(string, ...any)
+}, e *entry.Entry) ([]byte, error) {
 	// Prefer local file (set by filesystem input plugin).
 	if loc := e.GetString(entry.FieldFileLocation); loc != "" && strings.HasSuffix(strings.ToLower(loc), ".torrent") {
-		log.Debug("reading torrent from local file", "path", loc)
-		return os.ReadFile(loc)
+		log.Debug("metainfo_torrent: reading from local file", "path", loc)
+		data, err := os.ReadFile(loc)
+		if err != nil {
+			return nil, err
+		}
+		log.Debug("metainfo_torrent: local file read", "path", loc, "bytes", len(data))
+		return data, nil
 	}
 	// Fall back to URL.
 	if !strings.HasSuffix(strings.ToLower(e.URL), ".torrent") {
 		return nil, nil
 	}
-	log.Debug("fetching torrent from URL", "url", e.URL)
+	log.Debug("metainfo_torrent: fetching from URL", "url", e.URL)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, e.URL, nil)
 	if err != nil {
 		return nil, err
@@ -138,7 +169,18 @@ func (p *torrentPlugin) readTorrent(ctx context.Context, log interface{ Debug(st
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
+		log.Error("metainfo_torrent: unexpected HTTP status", "url", e.URL, "status", resp.StatusCode)
 		return nil, fmt.Errorf("HTTP %d fetching %s", resp.StatusCode, e.URL)
 	}
-	return io.ReadAll(resp.Body)
+	log.Debug("metainfo_torrent: HTTP response received",
+		"url", e.URL,
+		"status", resp.StatusCode,
+		"content_length", resp.ContentLength,
+	)
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	log.Debug("metainfo_torrent: download complete", "url", e.URL, "bytes", len(data))
+	return data, nil
 }
