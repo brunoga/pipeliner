@@ -178,7 +178,7 @@ func TestOutputReceivesOnlyAccepted(t *testing.T) {
 	}
 }
 
-func TestLearnReceivesAllEntries(t *testing.T) {
+func TestLearnReceivesOnlyAcceptedEntries(t *testing.T) {
 	entries := threeEntries()
 	inp := &stubInput{entries: entries}
 	accept := &alwaysAcceptFilter{}
@@ -190,8 +190,13 @@ func TestLearnReceivesAllEntries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(lrn.received) != res.Total {
-		t.Errorf("learn got %d entries, want %d", len(lrn.received), res.Total)
+	if len(lrn.received) != res.Accepted {
+		t.Errorf("learn got %d entries, want %d (accepted only)", len(lrn.received), res.Accepted)
+	}
+	for _, e := range lrn.received {
+		if !e.IsAccepted() {
+			t.Errorf("learn received non-accepted entry %q (state=%v)", e.Title, e.State)
+		}
 	}
 }
 
@@ -477,15 +482,9 @@ func TestOutputFailedEntriesNotLearnedFromLearner(t *testing.T) {
 	if res.Failed != 3 {
 		t.Errorf("want 3 failed, got %d", res.Failed)
 	}
-	// learn receives all entries regardless of state, so it can inspect failures
-	if len(lrn.received) != 3 {
-		t.Errorf("learn should receive all 3 entries, got %d", len(lrn.received))
-	}
-	// but every entry learn sees should be failed, not accepted
-	for _, e := range lrn.received {
-		if e.IsAccepted() {
-			t.Errorf("learn received an accepted entry %q — should be failed", e.Title)
-		}
+	// Output-failed entries are never accepted, so learn should receive nothing.
+	if len(lrn.received) != 0 {
+		t.Errorf("learn should receive 0 entries when all failed in output, got %d", len(lrn.received))
 	}
 }
 

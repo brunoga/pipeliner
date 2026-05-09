@@ -51,7 +51,7 @@ A plugin is a Go struct that:
 | `modify` | `ModifyPlugin` | Serial per entry | Undecided + Accepted entries |
 | *(dedup)* | *(automatic)* | Built-in, after all processing plugins | Accepted entries with series/movie fields |
 | `output` | `OutputPlugin` | Serial — plugins run in config order; each receives only entries still accepted at that point | Accepted entries only |
-| `learn` | `LearnPlugin` | Serial | All entries (all states) |
+| `learn` | `LearnPlugin` | Serial | Accepted entries only |
 | `from` | `SearchPlugin` / `InputPlugin` | Sub-plugins called by `series`, `movies`, `discover` | — |
 
 **Execution order:**
@@ -595,7 +595,7 @@ type LearnPlugin interface {
 }
 ```
 
-`Learn` receives **all** entries regardless of state, after the output phase. Use it to persist decisions so they affect future runs — marking entries as seen, recording series progress, updating quality trackers.
+`Learn` receives only **accepted** entries after the output phase — the task engine pre-filters so plugins don't need to guard against other states. Use it to persist decisions so they affect future runs — marking entries as seen, recording series progress, updating quality trackers.
 
 A plugin can implement **both** `FilterPlugin` and `LearnPlugin` on the same struct (the `seen` and `series` plugins do this). The task engine calls each interface at the appropriate phase.
 

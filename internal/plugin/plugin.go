@@ -97,8 +97,10 @@ type OutputPlugin interface {
 	Output(ctx context.Context, task *TaskContext, entries []*entry.Entry) error
 }
 
-// LearnPlugin receives all entries (all states) after the output phase so it
-// can persist decisions (e.g. mark entries as seen).
+// LearnPlugin receives only accepted entries after the output phase so it can
+// persist decisions (e.g. mark entries as seen or downloaded). The task engine
+// pre-filters to accepted before calling Learn; plugins do not need to guard
+// against other states.
 type LearnPlugin interface {
 	Plugin
 	Learn(ctx context.Context, task *TaskContext, entries []*entry.Entry) error

@@ -390,7 +390,7 @@ make build        # or: go build -o pipeliner ./cmd/pipeliner</code></pre>
   <tr><td><strong>Filter</strong></td><td>Plugins accept, reject, or leave entries undecided. Runs in config order, interleaved with metainfo and modify.</td><td>accepted / rejected / undecided</td></tr>
   <tr><td><strong>Modify</strong></td><td>Plugins mutate accepted entry fields (path formatting, field setting). Runs in config order, interleaved with metainfo and filter.</td><td>accepted (unchanged)</td></tr>
   <tr><td><strong>Output</strong></td><td>Plugins act on accepted entries in config order. Each plugin receives only entries still accepted at that point — a plugin that fails an entry removes it from subsequent output plugins and from the learn phase.</td><td>accepted / failed (if downloader errors)</td></tr>
-  <tr><td><strong>Learn</strong></td><td>Plugins persist state for future runs (mark as seen, record series tracker). Skipped in dry-run mode.</td><td>—</td></tr>
+  <tr><td><strong>Learn</strong></td><td>Plugins persist state for future runs (mark as seen, record series tracker). Receives only accepted entries — output-failed entries are excluded and will be retried. Skipped in dry-run mode.</td><td>accepted only</td></tr>
 </table>
 
 <div class="note">Metainfo, filter, and modify plugins run in config-file order. Place a filter immediately after the metainfo plugin that sets the field it inspects to reject cheap early and avoid unnecessary annotation work for entries that will be rejected anyway.</div>

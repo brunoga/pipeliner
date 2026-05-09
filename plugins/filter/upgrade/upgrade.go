@@ -126,9 +126,6 @@ func (p *upgradePlugin) Filter(_ context.Context, tc *plugin.TaskContext, e *ent
 func (p *upgradePlugin) Learn(_ context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
 	bucket := p.db.Bucket("upgrade:" + tc.Name)
 	for _, e := range entries {
-		if !e.IsAccepted() {
-			continue
-		}
 		key := entryKey(e)
 		q := quality.Parse(e.Title)
 		rec := upgradeRecord{
