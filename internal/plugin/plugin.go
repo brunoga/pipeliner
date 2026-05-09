@@ -113,6 +113,17 @@ type BatchMetainfoPlugin interface {
 	AnnotateBatch(ctx context.Context, task *TaskContext, entries []*entry.Entry) error
 }
 
+// ShutdownPlugin is an optional interface for plugins that hold resources
+// (connections, goroutines, open file handles) that must be released when the
+// pipeline is torn down. The task engine calls Shutdown once after all runs
+// that use the plugin are complete — at process exit for daemon mode, or after
+// the run completes for one-shot mode. It is also called when a config reload
+// replaces a task with a new instance.
+type ShutdownPlugin interface {
+	Plugin
+	Shutdown()
+}
+
 // SearchPlugin actively searches a source for entries matching a query string.
 // SearchPlugins are used as sub-plugins by the discover input plugin and are
 // not dispatched directly by the task engine. Register them with PhaseFrom.

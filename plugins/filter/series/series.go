@@ -15,6 +15,7 @@ package series
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/brunoga/pipeliner/internal/cache"
@@ -196,7 +197,7 @@ func (p *seriesPlugin) Filter(ctx context.Context, tc *plugin.TaskContext, e *en
 
 	if p.tracking == trackingStrict {
 		if latest, ok := p.tracker.Latest(matchedShow); ok {
-			if err := enforceStrict(ep, epID, latest); err != nil {
+			if err := enforceStrict(tc.Logger, ep, epID, latest); err != nil {
 				e.Reject(err.Error())
 				return nil
 			}
@@ -280,12 +281,14 @@ func matchShow(parsed string, shows []string) (string, bool) {
 
 // enforceStrict rejects episodes that skip more than one ahead of the latest
 // downloaded episode (standard episode numbering only; date episodes skip this check).
-func enforceStrict(ep *series.Episode, epID string, latest *series.Record) error {
+func enforceStrict(log *slog.Logger, ep *series.Episode, epID string, latest *series.Record) error {
 	if ep.IsDate {
 		return nil
 	}
 	latestEp, ok := series.Parse(latest.SeriesName + " " + latest.EpisodeID)
 	if !ok {
+		log.Warn("series: strict tracking: stored episode ID did not parse, skipping strict check",
+			"series", latest.SeriesName, "episode_id", latest.EpisodeID)
 		return nil
 	}
 	if ep.Season != latestEp.Season {

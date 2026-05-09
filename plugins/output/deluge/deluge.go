@@ -176,6 +176,9 @@ func (p *delugePlugin) rpc(ctx context.Context, method string, params []any) (an
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
 	var rpcResp struct {
 		Result any    `json:"result"`
 		Error  *struct {

@@ -119,7 +119,7 @@ func (p *qbtPlugin) login(ctx context.Context) error {
 		return err
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if strings.TrimSpace(string(body)) == "Fails." {
 		return fmt.Errorf("authentication failed")
 	}
@@ -155,7 +155,7 @@ func (p *qbtPlugin) addTorrent(ctx context.Context, torrentURL, savePath string)
 		return err
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
