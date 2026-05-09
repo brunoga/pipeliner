@@ -38,9 +38,20 @@ func NewTracker(b bucket) *Tracker {
 
 // IsSeen returns true if the given movie has already been downloaded.
 // 3D and non-3D versions are tracked independently.
+// When year is 0 (not present in the release filename), the exact-key lookup
+// will miss records that were stored with the real year from TMDb/TMDb enrichment
+// (which runs after the filter phase). In that case we fall back to a full
+// title+is3D scan so yearless filenames are still gated correctly.
 func (t *Tracker) IsSeen(title string, year int, is3D bool) bool {
 	var rec Record
-	found, _ := t.bucket.Get(recordKey(title, year, is3D), &rec)
+	if found, _ := t.bucket.Get(recordKey(title, year, is3D), &rec); found {
+		return true
+	}
+	if year != 0 {
+		return false
+	}
+	// year unknown — scan for any record with matching title and 3D flag
+	_, found := t.Latest(title, is3D)
 	return found
 }
 
