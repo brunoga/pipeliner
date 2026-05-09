@@ -91,6 +91,32 @@ func TestTrackerLatestMissing(t *testing.T) {
 	}
 }
 
+// TestTrackerIsSeenYearlessFilename covers the case where the release filename
+// has no year (parsed year=0) but the record was stored with a real year sourced
+// from TMDb enrichment. IsSeen must still return true so the movie is not
+// repeatedly re-accepted on every pipeline run.
+func TestTrackerIsSeenYearlessFilename(t *testing.T) {
+	tr := NewTracker(newMemBucket())
+
+	// Learn stored the record with the real year (from TMDb).
+	if err := tr.Mark(Record{Title: "Peaky Blinders The Immortal Man", Year: 2025, Is3D: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Filter sees year=0 (not in filename) — must still be gated.
+	if !tr.IsSeen("Peaky Blinders The Immortal Man", 0, true) {
+		t.Error("IsSeen(year=0) should return true when record exists with real year")
+	}
+	// Non-3D must remain independent.
+	if tr.IsSeen("Peaky Blinders The Immortal Man", 0, false) {
+		t.Error("IsSeen(year=0, non-3D) should return false when only 3D was marked")
+	}
+	// Exact year match must still work.
+	if !tr.IsSeen("Peaky Blinders The Immortal Man", 2025, true) {
+		t.Error("IsSeen(year=2025) should return true")
+	}
+}
+
 func TestTrackerSeparates3DAndNon3D(t *testing.T) {
 	tr := NewTracker(newMemBucket())
 
