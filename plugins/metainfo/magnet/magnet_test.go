@@ -79,8 +79,12 @@ func TestSkipsNonMagnetURL(t *testing.T) {
 }
 
 func TestSkipsMalformedMagnet(t *testing.T) {
+	p := &magnetPlugin{}
 	e := entry.New("title", "magnet:?xt=urn:btih:BADSHORTEST")
-	annotate(t, e)
+	err := p.Annotate(context.Background(), taskCtx(), e)
+	if err == nil {
+		t.Error("expected error for malformed magnet URI")
+	}
 	if _, ok := e.Get("torrent_info_hash"); ok {
 		t.Error("info_hash should not be set for malformed magnet")
 	}

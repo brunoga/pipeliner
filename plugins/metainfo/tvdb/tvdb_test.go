@@ -218,8 +218,8 @@ func TestAnnotateSeries(t *testing.T) {
 	if v := e.GetString("series_episode_title"); v != "Pilot" {
 		t.Errorf("episode_title: got %q, want Pilot", v)
 	}
-	if v := e.GetString("series_episode_air_date"); v != "2008-01-20" {
-		t.Errorf("episode_air_date: got %q", v)
+	if v := e.GetTime("series_episode_air_date"); v.Format("2006-01-02") != "2008-01-20" {
+		t.Errorf("episode_air_date: got %v", v)
 	}
 	if v := e.GetInt("series_season"); v != 1 {
 		t.Errorf("season: got %d, want 1", v)

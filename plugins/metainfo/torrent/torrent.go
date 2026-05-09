@@ -79,13 +79,16 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 func (p *torrentPlugin) Name() string        { return "metainfo_torrent" }
 func (p *torrentPlugin) Phase() plugin.Phase { return plugin.PhaseMetainfo }
 
-func (p *torrentPlugin) Annotate(ctx context.Context, _ *plugin.TaskContext, e *entry.Entry) error {
-	data, err := p.readTorrent(ctx, e)
+func (p *torrentPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
+	log := tc.Logger
+	data, err := p.readTorrent(ctx, log, e)
 	if err != nil {
+		log.Error("failed to read torrent", "entry", e.URL, "err", err)
 		return fmt.Errorf("metainfo_torrent: %w", err)
 	}
 	if data == nil {
-		return nil // not a torrent entry
+		log.Debug("skipping entry: not a .torrent", "entry", e.URL)
+		return nil
 	}
 
 	ti, err := bencode.DecodeTorrent(data)
@@ -114,15 +117,17 @@ func (p *torrentPlugin) Annotate(ctx context.Context, _ *plugin.TaskContext, e *
 
 // readTorrent returns raw torrent bytes from a local file or by downloading the
 // URL. Returns (nil, nil) if this entry does not appear to be a .torrent.
-func (p *torrentPlugin) readTorrent(ctx context.Context, e *entry.Entry) ([]byte, error) {
+func (p *torrentPlugin) readTorrent(ctx context.Context, log interface{ Debug(string, ...any) }, e *entry.Entry) ([]byte, error) {
 	// Prefer local file (set by filesystem input plugin).
 	if loc := e.GetString(entry.FieldFileLocation); loc != "" && strings.HasSuffix(strings.ToLower(loc), ".torrent") {
+		log.Debug("reading torrent from local file", "path", loc)
 		return os.ReadFile(loc)
 	}
 	// Fall back to URL.
 	if !strings.HasSuffix(strings.ToLower(e.URL), ".torrent") {
 		return nil, nil
 	}
+	log.Debug("fetching torrent from URL", "url", e.URL)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, e.URL, nil)
 	if err != nil {
 		return nil, err
