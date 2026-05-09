@@ -141,12 +141,12 @@ type SeriesInfo struct {
 	EpisodeID          string
 	Network            string
 	Status             string
-	FirstAirDate       string
-	LastAirDate        string
-	NextAirDate        string
+	FirstAirDate       time.Time
+	LastAirDate        time.Time
+	NextAirDate        time.Time
 	EpisodeTitle       string
 	EpisodeDescription string
-	EpisodeAirDate     string
+	EpisodeAirDate     time.Time
 	EpisodeImage       string
 	Service            string
 	Proper             bool
@@ -305,13 +305,13 @@ func (e *Entry) SetSeriesInfo(info SeriesInfo) {
 	if info.Status != "" {
 		e.Fields[FieldSeriesStatus] = info.Status
 	}
-	if info.FirstAirDate != "" {
+	if !info.FirstAirDate.IsZero() {
 		e.Fields[FieldSeriesFirstAirDate] = info.FirstAirDate
 	}
-	if info.LastAirDate != "" {
+	if !info.LastAirDate.IsZero() {
 		e.Fields[FieldSeriesLastAirDate] = info.LastAirDate
 	}
-	if info.NextAirDate != "" {
+	if !info.NextAirDate.IsZero() {
 		e.Fields[FieldSeriesNextAirDate] = info.NextAirDate
 	}
 	if info.EpisodeTitle != "" {
@@ -320,7 +320,7 @@ func (e *Entry) SetSeriesInfo(info SeriesInfo) {
 	if info.EpisodeDescription != "" {
 		e.Fields[FieldSeriesEpisodeDescription] = info.EpisodeDescription
 	}
-	if info.EpisodeAirDate != "" {
+	if !info.EpisodeAirDate.IsZero() {
 		e.Fields[FieldSeriesEpisodeAirDate] = info.EpisodeAirDate
 	}
 	if info.EpisodeImage != "" {
