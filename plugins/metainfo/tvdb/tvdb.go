@@ -150,11 +150,11 @@ func (p *tvdbPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 				country = s.Country
 			}
 			si.Country = countryName(country)
-			if t := parseFirstAired(ext.FirstAired); !t.IsZero() {
-				si.FirstAirDate = ext.FirstAired
+			if t := parseDate(ext.FirstAired); !t.IsZero() {
+				si.FirstAirDate = t
 				si.PublishedDate = ext.FirstAired
-			} else if s.FirstAired != "" {
-				si.FirstAirDate = s.FirstAired
+			} else if t := parseDate(s.FirstAired); !t.IsZero() {
+				si.FirstAirDate = t
 				si.PublishedDate = s.FirstAired
 			}
 			si.Rating = ext.Score
@@ -164,8 +164,8 @@ func (p *tvdbPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 			si.Status = ext.Status.Name
 			si.Trailers = ext.TrailerURLs()
 			si.ContentRating = ext.ContentRatingName()
-			si.LastAirDate = ext.LastAired
-			si.NextAirDate = ext.NextAired
+			si.LastAirDate = parseDate(ext.LastAired)
+			si.NextAirDate = parseDate(ext.NextAired)
 			si.Aliases = ext.AliasNames()
 			si.Cast = ext.ActorNames()
 			if name := ext.OriginalName(lang); name != "" && name != ext.Name && name != s.Name {
@@ -181,8 +181,8 @@ func (p *tvdbPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 			si.Language = languageName(s.Language)
 			si.Country = countryName(s.Country)
 			si.Rating = s.Score
-			if s.FirstAired != "" {
-				si.FirstAirDate = s.FirstAired
+			if t := parseDate(s.FirstAired); !t.IsZero() {
+				si.FirstAirDate = t
 				si.PublishedDate = s.FirstAired
 			}
 		}
@@ -206,7 +206,7 @@ func (p *tvdbPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 				e.Set("tvdb_episode_id", ep2.ID) // TVDB internal numeric episode ID
 				si.EpisodeTitle = ep2.Name
 				si.EpisodeDescription = ep2.Overview
-				si.EpisodeAirDate = ep2.AirDate
+				si.EpisodeAirDate = parseDate(ep2.AirDate)
 				si.Runtime = ep2.Runtime
 				si.EpisodeImage = ep2.Image
 				break
@@ -473,10 +473,10 @@ var iso3166 = map[string]string{
 	"usa": "United States",
 }
 
-// parseFirstAired parses the first-air-time string returned by the TVDB search
-// API. The format varies: ISO-8601 with time ("2008-01-20T05:00:00.000Z") or
-// plain date ("2008-01-20"). Returns zero time on failure.
-func parseFirstAired(s string) time.Time {
+// parseDate parses a date string returned by the TVDB API.
+// The format varies: ISO-8601 with time ("2008-01-20T05:00:00.000Z") or
+// plain date ("2008-01-20"). Returns zero time on failure or empty input.
+func parseDate(s string) time.Time {
 	if s == "" {
 		return time.Time{}
 	}
