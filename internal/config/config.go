@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"maps"
 	"os"
 	"sort"
 	"strings"
@@ -337,25 +338,47 @@ func expandTaskDef(taskName string, def TaskDef, templates map[string]TemplateDe
 //
 // Accepted forms:
 //
-//	use: "template_name"          — zero-param template
-//	use: [template_name, arg1, …] — positional args mapped to params
+//	use: "template_name"                        — zero-param template
+//	use: [template_name, arg1, …]               — positional args mapped to params in order
+//	use:                                        — named args (required for multiline values)
+//	  template: template_name
+//	  param1: value1
+//	  param2: |
+//	    multiline value
 func expandUse(taskName string, raw json.RawMessage, templates map[string]TemplateDef) ([]taskEntry, error) {
-	// Try scalar string first (zero-param shorthand).
+	// String form: zero-param shorthand.
 	var name string
 	if err := json.Unmarshal(raw, &name); err == nil {
-		// String form — no args.
 		return expandUseWithArgs(taskName, name, nil, templates)
 	}
 
-	// Array form: [name, arg1, arg2, ...]
+	// Array form: [name, arg1, arg2, ...] — positional params.
 	var items []json.RawMessage
-	if err := json.Unmarshal(raw, &items); err != nil || len(items) == 0 {
-		return nil, fmt.Errorf("task %q: 'use' must be a string or non-empty array", taskName)
+	if err := json.Unmarshal(raw, &items); err == nil {
+		if len(items) == 0 {
+			return nil, fmt.Errorf("task %q: 'use' array must not be empty", taskName)
+		}
+		if err := json.Unmarshal(items[0], &name); err != nil {
+			return nil, fmt.Errorf("task %q: first element of 'use' array must be a string template name", taskName)
+		}
+		return expandUseWithArgs(taskName, name, items[1:], templates)
 	}
-	if err := json.Unmarshal(items[0], &name); err != nil {
-		return nil, fmt.Errorf("task %q: first element of 'use' array must be a string template name", taskName)
+
+	// Object form: {template: name, param1: val1, ...} — named params.
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &obj); err == nil {
+		nameRaw, ok := obj["template"]
+		if !ok {
+			return nil, fmt.Errorf("task %q: 'use' object must have a 'template' key", taskName)
+		}
+		if err := json.Unmarshal(nameRaw, &name); err != nil {
+			return nil, fmt.Errorf("task %q: 'use.template' must be a string", taskName)
+		}
+		delete(obj, "template")
+		return expandUseWithNamedArgs(taskName, name, obj, templates)
 	}
-	return expandUseWithArgs(taskName, name, items[1:], templates)
+
+	return nil, fmt.Errorf("task %q: 'use' must be a string, array, or object", taskName)
 }
 
 // expandUseWithArgs looks up the template, validates arg count, and applies
@@ -376,44 +399,91 @@ func expandUseWithArgs(taskName, tmplName string, args []json.RawMessage, templa
 			taskName, tmplName, len(paramNames), strings.Join(paramNames, ", "), len(args))
 	}
 
-	// Build substitution map: param_name → string to substitute.
-	params := make(map[string]string, len(paramNames))
+	params := make(map[string]json.RawMessage, len(paramNames))
 	for i, pname := range paramNames {
-		params[pname] = argToSubstitution(args[i])
+		params[pname] = args[i]
+	}
+	return applyTemplateParams(tmpl, params)
+}
+
+// expandUseWithNamedArgs looks up the template, validates that all declared
+// params are provided (and no unknown keys are present), and returns the
+// expanded entries with param substitution applied.
+func expandUseWithNamedArgs(taskName, tmplName string, args map[string]json.RawMessage, templates map[string]TemplateDef) ([]taskEntry, error) {
+	tmpl, ok := templates[tmplName]
+	if !ok {
+		return nil, fmt.Errorf("task %q: unknown template %q", taskName, tmplName)
 	}
 
-	// Emit template entries (skip "params") with substitutions applied.
+	paramNames, err := tmpl.params()
+	if err != nil {
+		return nil, fmt.Errorf("task %q: template %q: %w", taskName, tmplName, err)
+	}
+
+	// All declared params must be provided.
+	for _, p := range paramNames {
+		if _, ok := args[p]; !ok {
+			return nil, fmt.Errorf("task %q: use %q: missing parameter %q", taskName, tmplName, p)
+		}
+	}
+	// No undeclared params allowed.
+	declared := make(map[string]bool, len(paramNames))
+	for _, p := range paramNames {
+		declared[p] = true
+	}
+	for k := range args {
+		if !declared[k] {
+			return nil, fmt.Errorf("task %q: use %q: unexpected parameter %q", taskName, tmplName, k)
+		}
+	}
+
+	params := make(map[string]json.RawMessage, len(args))
+	maps.Copy(params, args)
+	return applyTemplateParams(tmpl, params)
+}
+
+// applyTemplateParams expands a template's entries using the given params map.
+func applyTemplateParams(tmpl TemplateDef, params map[string]json.RawMessage) ([]taskEntry, error) {
 	var result []taskEntry
 	for _, e := range tmpl {
 		if e.name == "params" {
 			continue
 		}
-		substituted := applyParams(e.raw, params)
-		result = append(result, taskEntry{e.name, substituted})
+		result = append(result, taskEntry{e.name, applyParams(e.raw, params)})
 	}
 	return result, nil
 }
 
-// argToSubstitution converts a JSON-encoded argument value into the string that
-// will be substituted for {$ param $} placeholders in the template.
+// applyParams replaces {$ key $} placeholders in raw using the raw JSON values
+// from params. Two substitution modes are used depending on context:
 //
-//   - JSON string ("hello"): the unquoted string value is used directly.
-//   - Anything else (number, bool, object, array): the raw JSON is used as-is.
-func argToSubstitution(raw json.RawMessage) string {
-	var s string
-	if err := json.Unmarshal(raw, &s); err == nil {
-		return s
-	}
-	return string(raw)
-}
-
-// applyParams replaces all {$ key $} placeholders in raw with the corresponding
-// values from params. The values are assumed to be safe for direct substitution
-// within a JSON string context (see argToSubstitution).
-func applyParams(raw json.RawMessage, params map[string]string) json.RawMessage {
+//   - Whole-string: when "{$ key $}" is the entire JSON string value, the
+//     quoted string is replaced by the raw arg. This allows list and object
+//     args (e.g. indexers: ["a","b"]).
+//
+//   - Embedded: when the placeholder appears within a longer string, the arg
+//     is JSON-escaped and inserted in-place (safe for multiline/special chars).
+func applyParams(raw json.RawMessage, params map[string]json.RawMessage) json.RawMessage {
 	s := string(raw)
-	for k, v := range params {
-		s = strings.ReplaceAll(s, "{$ "+k+" $}", v)
+	for k, argRaw := range params {
+		placeholder := "{$ " + k + " $}"
+
+		// Whole-string replacement: replace the entire "..." JSON string with
+		// the raw arg value — allows lists, objects, and any JSON type.
+		wholeStr := `"` + placeholder + `"`
+		s = strings.ReplaceAll(s, wholeStr, string(argRaw))
+
+		// Embedded replacement: placeholder appears inside a larger string.
+		// JSON-encode the arg's string value so the result stays valid JSON.
+		if strings.Contains(s, placeholder) {
+			var str string
+			if json.Unmarshal(argRaw, &str) == nil {
+				encoded, _ := json.Marshal(str)
+				s = strings.ReplaceAll(s, placeholder, string(encoded[1:len(encoded)-1]))
+			} else {
+				s = strings.ReplaceAll(s, placeholder, string(argRaw))
+			}
+		}
 	}
 	return json.RawMessage(s)
 }

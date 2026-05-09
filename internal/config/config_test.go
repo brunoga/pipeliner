@@ -512,3 +512,102 @@ tasks:
 		t.Errorf("expected no errors when required field comes from template param, got: %v", errs)
 	}
 }
+
+// TestUseNamedParams tests the object form: use: {template: name, param: val}.
+func TestUseNamedParams(t *testing.T) {
+	path := writeTempConfig(t, `
+templates:
+  with-host:
+    params: [host]
+    nop-input: {}
+    nop-output-validated:
+      host: "{$ host $}"
+tasks:
+  t:
+    - use:
+        template: with-host
+        host: "myhost"
+`)
+	c, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if errs := Validate(c); len(errs) != 0 {
+		t.Errorf("expected no errors with named params, got: %v", errs)
+	}
+}
+
+// TestUseNamedParamsMissing tests that omitting a declared param is an error.
+func TestUseNamedParamsMissing(t *testing.T) {
+	c := &Config{
+		Templates: map[string]TemplateDef{
+			"tmpl": {
+				taskEntry{"params", json.RawMessage(`["host"]`)},
+				taskEntry{"nop-output-validated", json.RawMessage(`{"host":"{$ host $}"}`)},
+			},
+		},
+		Tasks: map[string]TaskDef{
+			"t": {taskEntry{"use", json.RawMessage(`{"template":"tmpl"}`)}},
+		},
+	}
+	_, err := expandTaskDef("t", c.Tasks["t"], c.Templates)
+	if err == nil {
+		t.Error("expected error for missing named param")
+	}
+}
+
+// TestUseNamedParamsUnexpected tests that passing an undeclared key is an error.
+func TestUseNamedParamsUnexpected(t *testing.T) {
+	c := &Config{
+		Templates: map[string]TemplateDef{
+			"tmpl": {
+				taskEntry{"params", json.RawMessage(`["host"]`)},
+				taskEntry{"nop-output-validated", json.RawMessage(`{"host":"{$ host $}"}`)},
+			},
+		},
+		Tasks: map[string]TaskDef{
+			"t": {taskEntry{"use", json.RawMessage(`{"template":"tmpl","host":"x","extra":"y"}`)}},
+		},
+	}
+	_, err := expandTaskDef("t", c.Tasks["t"], c.Templates)
+	if err == nil {
+		t.Error("expected error for unexpected param key")
+	}
+}
+
+// TestUseNamedParamsMultiline tests that multiline string params (e.g. email
+// body templates) survive JSON round-trip correctly after substitution.
+func TestUseNamedParamsMultiline(t *testing.T) {
+	path := writeTempConfig(t, `
+templates:
+  msg:
+    params: [subject, body]
+    nop-input:
+      subject: "{$ subject $}"
+      body: "{$ body $}"
+tasks:
+  t:
+    - use:
+        template: msg
+        subject: "Hello world"
+        body: |
+          line one
+          line "two"
+`)
+	c, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	expanded, err := expandTaskDef("t", c.Tasks["t"], c.Templates)
+	if err != nil {
+		t.Fatalf("expandTaskDef: %v", err)
+	}
+	var cfg map[string]any
+	if err := json.Unmarshal(expanded[0].raw, &cfg); err != nil {
+		t.Fatalf("expanded JSON invalid: %v — raw: %s", err, expanded[0].raw)
+	}
+	body, _ := cfg["body"].(string)
+	if !strings.Contains(body, "line one") || !strings.Contains(body, `line "two"`) {
+		t.Errorf("multiline body not preserved correctly: %q", body)
+	}
+}
