@@ -68,7 +68,7 @@ condition:
 
 ## Debug logging
 
-Run with `--log-level debug --log-plugin movies` to see:
+Run with `--log-level debug --log-plugin movies` to see (combine plugins with a comma, e.g. `--log-plugin movies,metainfo_tmdb`):
 - Which titles are loaded from `from` sources (cache hit or live fetch)
 - Why individual entries are skipped (title not parseable, no match in list)
 

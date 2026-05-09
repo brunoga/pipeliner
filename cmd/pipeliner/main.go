@@ -132,8 +132,8 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, `Pipeliner — media automation tool
 
 Usage:
-  pipeliner run     [--config path] [--log-level level] [--log-plugin name] [--dry-run] [task ...]
-  pipeliner daemon  [--config path] [--log-level level] [--log-plugin name]
+  pipeliner run     [--config path] [--log-level level] [--log-plugin name[,name...]] [--dry-run] [task ...]
+  pipeliner daemon  [--config path] [--log-level level] [--log-plugin name[,name...]]
                     [--web :8080 --web-user USER --web-password PASS]
                     [--tls-self-signed | --tls-cert cert.pem --tls-key key.pem]
 
@@ -161,7 +161,7 @@ func cmdRun(args []string) int {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	cfgPath   := fs.String("config",     "config.yml", "path to config file")
 	logLevel  := fs.String("log-level",  "info",        "log level (debug, info, warn, error)")
-	logPlugin := fs.String("log-plugin", "",            "only show log output from this plugin (task-level logs always shown)")
+	logPlugin := fs.String("log-plugin", "",            "only show log output from these plugins, comma-separated (task-level logs always shown)")
 	dryRun    := fs.Bool("dry-run",      false,         "execute pipeline but skip output and learn phases (idempotent)")
 	if err := fs.Parse(args); err != nil {
 		return 1
@@ -254,7 +254,7 @@ func cmdDaemon(args []string) int {
 	fs := flag.NewFlagSet("daemon", flag.ContinueOnError)
 	cfgPath       := fs.String("config",          "config.yml", "path to config file")
 	logLevel      := fs.String("log-level",       "info",        "log level (debug, info, warn, error)")
-	logPlugin     := fs.String("log-plugin",      "",            "only show log output from this plugin (task-level logs always shown)")
+	logPlugin     := fs.String("log-plugin",      "",            "only show log output from these plugins, comma-separated (task-level logs always shown)")
 	webAddr       := fs.String("web",             "",            "web interface listen address (e.g. :8080); empty disables it")
 	webUser       := fs.String("web-user",        "",            "username for the web interface (required with --web)")
 	webPass       := fs.String("web-password",    "",            "password for the web interface (required with --web)")
@@ -293,14 +293,14 @@ func cmdDaemon(args []string) int {
 			clog.NewColored(bcast, opts),
 		)
 		if *logPlugin != "" {
-			logger = slog.New(clog.NewPluginFilter(h, *logPlugin))
+			logger = slog.New(clog.NewPluginFilter(h, splitPluginFilter(*logPlugin)))
 		} else {
 			logger = slog.New(h)
 		}
 	} else {
 		h := clog.New(os.Stderr, opts)
 		if *logPlugin != "" {
-			logger = slog.New(clog.NewPluginFilter(h, *logPlugin))
+			logger = slog.New(clog.NewPluginFilter(h, splitPluginFilter(*logPlugin)))
 		} else {
 			logger = slog.New(h)
 		}
@@ -654,9 +654,22 @@ func cmdAuthTrakt(args []string) int {
 func makeLogger(level, pluginFilter string) *slog.Logger {
 	h := clog.New(os.Stderr, logHandlerOptions(level))
 	if pluginFilter != "" {
-		return slog.New(clog.NewPluginFilter(h, pluginFilter))
+		return slog.New(clog.NewPluginFilter(h, splitPluginFilter(pluginFilter)))
 	}
 	return slog.New(h)
+}
+
+// splitPluginFilter splits a comma-separated --log-plugin value into a trimmed
+// slice of plugin names, dropping any empty tokens.
+func splitPluginFilter(s string) []string {
+	parts := strings.Split(s, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if name := strings.TrimSpace(p); name != "" {
+			out = append(out, name)
+		}
+	}
+	return out
 }
 
 // dbPath returns the SQLite store path for the given config file:
