@@ -7,9 +7,9 @@ import (
 	"testing"
 )
 
-func makeFilteredLogger(buf *bytes.Buffer, pluginName string) *slog.Logger {
+func makeFilteredLogger(buf *bytes.Buffer, pluginNames ...string) *slog.Logger {
 	inner := slog.NewTextHandler(buf, &slog.HandlerOptions{Level: slog.LevelDebug})
-	return slog.New(NewPluginFilter(inner, pluginName))
+	return slog.New(NewPluginFilter(inner, pluginNames))
 }
 
 // TestPluginFilterPassesMatchingPlugin verifies that records whose "plugin"
@@ -72,12 +72,47 @@ func TestPluginFilterWithAttrsInheritance(t *testing.T) {
 	}
 }
 
+// TestPluginFilterMultiplePlugins verifies that records for any of the named
+// plugins are passed through, and records for unlisted plugins are suppressed.
+func TestPluginFilterMultiplePlugins(t *testing.T) {
+	var buf bytes.Buffer
+	log := makeFilteredLogger(&buf, "metainfo_tvdb", "metainfo_tmdb")
+
+	log.With("plugin", "metainfo_tvdb").Info("tvdb hit")
+	if !strings.Contains(buf.String(), "tvdb hit") {
+		t.Error("metainfo_tvdb should pass through")
+	}
+
+	buf.Reset()
+	log.With("plugin", "metainfo_tmdb").Info("tmdb hit")
+	if !strings.Contains(buf.String(), "tmdb hit") {
+		t.Error("metainfo_tmdb should pass through")
+	}
+
+	buf.Reset()
+	log.With("plugin", "series").Info("series record")
+	if buf.Len() != 0 {
+		t.Errorf("unlisted plugin should be suppressed, got: %s", buf.String())
+	}
+}
+
+// TestPluginFilterTaskLevelAlwaysPassesWithMultiple verifies that task-level
+// logs pass through regardless of how many plugins are in the filter set.
+func TestPluginFilterTaskLevelAlwaysPassesWithMultiple(t *testing.T) {
+	var buf bytes.Buffer
+	log := makeFilteredLogger(&buf, "metainfo_tvdb", "metainfo_tmdb")
+	log.With("task", "tv").Info("task started")
+	if buf.Len() == 0 {
+		t.Error("task-level log should pass through with multi-plugin filter")
+	}
+}
+
 // TestPluginFilterDebugLevel verifies that the underlying level filtering
 // still applies — DEBUG records require --log-level debug.
 func TestPluginFilterDebugLevel(t *testing.T) {
 	var buf bytes.Buffer
 	inner := slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})
-	log := slog.New(NewPluginFilter(inner, "metainfo_tvdb"))
+	log := slog.New(NewPluginFilter(inner, []string{"metainfo_tvdb"}))
 
 	log.With("plugin", "metainfo_tvdb").Debug("should be suppressed by level")
 	if buf.Len() != 0 {

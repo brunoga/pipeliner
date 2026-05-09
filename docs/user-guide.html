@@ -1454,12 +1454,12 @@ Because <code>enriched</code> is set by any external provider, the same config w
 
 <h3>pipeliner run</h3>
 <p>Executes tasks once and exits.</p>
-<pre><code>pipeliner run [--config path] [--log-level level] [--log-plugin name] [--dry-run] [task ...]</code></pre>
+<pre><code>pipeliner run [--config path] [--log-level level] [--log-plugin name[,name...]] [--dry-run] [task ...]</code></pre>
 <table>
   <tr><th>Flag</th><th>Default</th><th>Description</th></tr>
   <tr><td><code>--config</code></td><td><code>config.yml</code></td><td>Path to config file</td></tr>
   <tr><td><code>--log-level</code></td><td><code>info</code></td><td><code>debug</code>, <code>info</code>, <code>warn</code>, <code>error</code></td></tr>
-  <tr><td><code>--log-plugin</code></td><td>—</td><td>Show log output from only this plugin (task-level logs always shown)</td></tr>
+  <tr><td><code>--log-plugin</code></td><td>—</td><td>Show log output from only these plugins, comma-separated (e.g. <code>metainfo_tvdb,series</code>); task-level logs always shown</td></tr>
   <tr><td><code>--dry-run</code></td><td>false</td><td>Skip output and learn phases (idempotent)</td></tr>
   <tr><td><code>task ...</code></td><td>all</td><td>Optional list of task names to run</td></tr>
 </table>
@@ -1467,7 +1467,7 @@ Because <code>enriched</code> is set by any external provider, the same config w
 <h3>pipeliner daemon</h3>
 <p>Runs tasks on their configured schedules. Starts the web UI if <code>--web</code> is specified.</p>
 <pre><code>pipeliner daemon [--config path] [--web addr] [--web-user u] [--web-password p]
-                 [--log-level level] [--log-plugin name]
+                 [--log-level level] [--log-plugin name[,name...]]
                  [--tls-cert path] [--tls-key path] [--tls-self-signed]</code></pre>
 <table>
   <tr><th>Flag</th><th>Default</th><th>Description</th></tr>
@@ -1479,7 +1479,7 @@ Because <code>enriched</code> is set by any external provider, the same config w
   <tr><td><code>--tls-key</code></td><td>—</td><td>Path to TLS private key file</td></tr>
   <tr><td><code>--tls-self-signed</code></td><td>false</td><td>Generate a self-signed certificate at startup</td></tr>
   <tr><td><code>--log-level</code></td><td><code>info</code></td><td>Log verbosity</td></tr>
-  <tr><td><code>--log-plugin</code></td><td>—</td><td>Filter log output to one plugin</td></tr>
+  <tr><td><code>--log-plugin</code></td><td>—</td><td>Filter log output to one or more plugins, comma-separated</td></tr>
 </table>
 
 <h3>pipeliner check</h3>
@@ -1583,7 +1583,7 @@ docker compose up -d --no-build pipeliner</code></pre>
 
 <h3>TVDB not finding a series</h3>
 <ul>
-  <li>The series name parser is strict. Add <code>--log-level debug --log-plugin metainfo_tvdb</code> to see what name it searches for.</li>
+  <li>The series name parser is strict. Add <code>--log-level debug --log-plugin metainfo_tvdb</code> to see what name it searches for. Combine plugins with a comma: <code>--log-plugin metainfo_tvdb,series</code>.</li>
   <li>The TVDB search uses the parsed series name — if the release title uses an unusual name variant, TVDB may return the wrong result or nothing.</li>
   <li>Check that your API key and user PIN are correct at <a href="https://thetvdb.com/api-information" target="_blank">thetvdb.com/api-information</a>.</li>
 </ul>
