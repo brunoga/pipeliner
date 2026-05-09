@@ -47,7 +47,28 @@ tasks:
 
 ## Templates
 
-Templates define reusable plugin blocks that are expanded inline at the point of `use:`. Declare positional parameters with `params:` and reference them with `{$ name $}` inside the template. Pass arguments as a YAML flow sequence — the equivalent of a function call.
+Templates define reusable plugin blocks expanded inline at the point of `use:`. Declare parameter names with `params:` and reference them with `{$ name $}` inside the template.
+
+Three `use:` forms are supported:
+
+```yaml
+# Zero params — just the template name
+- use: template-name
+
+# Positional params — concise for short scalar values
+- use: [template-name, val1, val2]
+
+# Named params — required for multiline values (e.g. email body) or list values
+- use:
+    template: template-name
+    param1: value1
+    param2: ["list", "value"]
+    param3: |
+      multiline
+      value
+```
+
+Parameters can be any YAML type: strings, numbers, lists, or block scalars. Config validation fails if the wrong number of arguments is passed (positional) or a declared param is missing/unknown (named).
 
 ```yaml
 templates:
@@ -66,23 +87,34 @@ templates:
       host: "{$ host $}"
       path: "{download_path}"
 
+  jackett-search:
+    params: [indexers, categories]   # list params — use named form at call site
+    jackett_input:
+      indexers: "{$ indexers $}"
+      categories: "{$ categories $}"
+
+  email-notify:
+    params: [subject, body_template]  # body_template is multiline — use named form
+    email:
+      subject: "{$ subject $}"
+      body_template: "{$ body_template $}"
+
 tasks:
   tv-shows:
-    - use: [common-input, "https://example.com/rss/tv"]
+    - use: [common-input, "https://example.com/rss/tv"]   # positional: one scalar arg
     - series:
         static: ["Breaking Bad"]
-    - use: [common-output, /media/tv, localhost]
-
-  movies:
-    - use: [common-input, "https://example.com/rss/movies"]
-    - movies:
-        static: ["Inception"]
-    - use: [common-output, /media/movies, localhost]
+    - use: [common-output, /media/tv, localhost]           # positional: two scalar args
+    - use:
+        template: jackett-search
+        indexers: ["torrenting", "showrss"]               # named: list arg
+        categories: ["5000"]
+    - use:
+        template: email-notify
+        subject: "New episodes: {{len .Entries}}"
+        body_template: |                                  # named: multiline arg
+          {{range .Entries}}<p>{{index .Fields "title"}}</p>{{end}}
 ```
-
-Zero-parameter templates omit `params:` and are expanded with `use: template-name` (no list needed).
-
-Config validation fails if the wrong number of arguments is passed to `use:`.
 
 ## Tasks
 
