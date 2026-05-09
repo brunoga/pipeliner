@@ -40,6 +40,6 @@ Fetches entries from an RSS 2.0 or Atom 1.0 feed. Prefers enclosure URLs (torren
 ```yaml
 tasks:
   my-task:
-    rss:
-      url: "https://example.com/torrents/rss"
+    - rss:
+        url: "https://example.com/torrents/rss"
 ```

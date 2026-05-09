@@ -23,16 +23,16 @@ If a torrent cannot be added, the affected entry is marked failed and will **not
 ```yaml
 tasks:
   tv:
-    rss:
-      url: "https://example.com/feed"
-    series:
-      static: ["Breaking Bad"]
-    pathfmt:
-      path: "/media/tv/{{.series_name}}/Season {{printf \"%02d\" .series_season}}"
-    transmission:
-      host: nas.local
-      port: 9091
-      username: admin
-      password: secret
-      path: "{{.download_path}}"
+    - rss:
+        url: "https://example.com/feed"
+    - series:
+        static: ["Breaking Bad"]
+    - pathfmt:
+        path: "/media/tv/{{.series_name}}/Season {{printf \"%02d\" .series_season}}"
+    - transmission:
+        host: nas.local
+        port: 9091
+        username: admin
+        password: secret
+        path: "{{.download_path}}"
 ```

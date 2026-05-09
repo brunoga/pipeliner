@@ -31,10 +31,10 @@ See [`quality`](../quality/README.md) for the spec syntax.
 ```yaml
 tasks:
   discover-shows:
-    rss:
-      url: "https://example.com/rss"
-    premiere:
-      quality: 720p+ webrip+
-    deluge:
-      path: /downloads/tv
+    - rss:
+        url: "https://example.com/rss"
+    - premiere:
+        quality: 720p+ webrip+
+    - deluge:
+        path: /downloads/tv
 ```

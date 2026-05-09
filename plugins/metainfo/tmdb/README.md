@@ -47,14 +47,14 @@ Enriches movie entries with metadata from The Movie Database (TMDb). Searches by
 ```yaml
 tasks:
   movies:
-    rss:
-      url: "https://example.com/feed"
-    movies:
-      static: ["Inception"]
-    metainfo_tmdb:
-      api_key: YOUR_API_KEY
-    pathfmt:
-      path: "/media/movies/{title} ({video_year})"
+    - rss:
+        url: "https://example.com/feed"
+    - movies:
+        static: ["Inception"]
+    - metainfo_tmdb:
+        api_key: YOUR_API_KEY
+    - pathfmt:
+        path: "/media/movies/{title} ({video_year})"
 ```
 
 ## Notes

@@ -73,19 +73,19 @@ reason="condition: tvdb_genres contains \"Documentary\""
 ```yaml
 tasks:
   discover:
-    rss:
-      url: "https://example.com/feed"
-    metainfo_tvdb:
-      api_key: YOUR_KEY
-    condition:
-      rules:
-        - reject: 'tvdb_language != "" and tvdb_language != "English"'
-        - reject: 'tvdb_genres contains "Documentary"'
-        - reject: 'tvdb_genres contains "Reality"'
-        - reject: 'tvdb_genres contains "Game Show"'
-        - reject: 'tvdb_first_air_date != "" and tvdb_first_air_date < daysago(365)'
-    premiere:
-      quality: 720p+ webrip+
+    - rss:
+        url: "https://example.com/feed"
+    - metainfo_tvdb:
+        api_key: YOUR_KEY
+    - condition:
+        rules:
+          - reject: 'tvdb_language != "" and tvdb_language != "English"'
+          - reject: 'tvdb_genres contains "Documentary"'
+          - reject: 'tvdb_genres contains "Reality"'
+          - reject: 'tvdb_genres contains "Game Show"'
+          - reject: 'tvdb_first_air_date != "" and tvdb_first_air_date < daysago(365)'
+    - premiere:
+        quality: 720p+ webrip+
 ```
 
 ## Example — rating gate

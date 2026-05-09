@@ -13,10 +13,10 @@ Notify plugins are typically used via the [`notify` output plugin](../output/not
 ```yaml
 tasks:
   my-task:
-    rss:
-      url: "https://example.com/feed"
+    - rss:
+        url: "https://example.com/feed"
     # ... filters ...
-    notify:
-      via: webhook
-      url: "https://hooks.example.com/pipeliner"
+    - notify:
+        via: webhook
+        url: "https://hooks.example.com/pipeliner"
 ```

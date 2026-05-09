@@ -22,15 +22,15 @@ require:
 ```yaml
 tasks:
   tv:
-    rss:
-      url: "https://example.com/rss"
-    metainfo_series:
-    metainfo_quality:
-    require:
-      fields:
-        - series_name
-        - quality
-    series:
-      static:
-        - "Breaking Bad"
+    - rss:
+        url: "https://example.com/rss"
+    - metainfo_series:
+    - metainfo_quality:
+    - require:
+        fields:
+          - series_name
+          - quality
+    - series:
+        static:
+          - "Breaking Bad"
 ```

@@ -229,7 +229,11 @@ func (p *parser) parseInlineMapping(firstKey, firstValText string, indent int) (
 			}
 		}
 	default:
-		firstVal = parseScalar(firstValText)
+		if items, ok := parseFlowSeq(firstValText); ok {
+			firstVal = items
+		} else {
+			firstVal = parseScalar(firstValText)
+		}
 	}
 	m = append(m, pair{firstKey, firstVal})
 	for {
@@ -254,7 +258,11 @@ func (p *parser) parseInlineMapping(firstKey, firstValText string, indent int) (
 				}
 			}
 		default:
-			val = parseScalar(valText)
+			if items, ok := parseFlowSeq(valText); ok {
+				val = items
+			} else {
+				val = parseScalar(valText)
+			}
 		}
 		m = append(m, pair{key, val})
 	}

@@ -13,10 +13,10 @@ Prints each accepted entry to stdout. Useful for debugging pipelines or as a dry
 ```yaml
 tasks:
   debug:
-    rss:
-      url: "https://example.com/feed"
-    series:
-      static: ["Breaking Bad"]
-    print:
-      format: "[{{.Task}}] {{.Title}}"
+    - rss:
+        url: "https://example.com/feed"
+    - series:
+        static: ["Breaking Bad"]
+    - print:
+        format: "[{{.Task}}] {{.Title}}"
 ```

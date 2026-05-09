@@ -39,18 +39,18 @@ DHT resolution fields are absent when the timeout expires before peers respond. 
 ```yaml
 tasks:
   magnets:
-    rss:
-      url: "https://example.com/rss/magnets"
-    seen:
-    metainfo_magnet:
-      resolve_timeout: 45s
-    content:
-      require:
-        - "*.mkv"
-    quality:
-      min: 720p
-    qbittorrent:
-      host: localhost
+    - rss:
+        url: "https://example.com/rss/magnets"
+    - seen:
+    - metainfo_magnet:
+        resolve_timeout: 45s
+    - content:
+        require:
+          - "*.mkv"
+    - quality:
+        min: 720p
+    - qbittorrent:
+        host: localhost
 ```
 
 ## Notes

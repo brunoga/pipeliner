@@ -21,9 +21,9 @@ Parses series and episode information from the entry title. Takes no config.
 ```yaml
 tasks:
   my-task:
-    rss:
-      url: "https://example.com/feed"
-    metainfo_series:
-    pathfmt:
-      path: "/media/tv/{title}/Season {series_season:02d}"
+    - rss:
+        url: "https://example.com/feed"
+    - metainfo_series:
+    - pathfmt:
+        path: "/media/tv/{title}/Season {series_season:02d}"
 ```

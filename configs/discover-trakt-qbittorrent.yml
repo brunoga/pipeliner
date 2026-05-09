@@ -15,84 +15,84 @@ tasks:
   # discover.from pulls the watchlist and uses each title as a search query.
   # Searches are rate-limited to once per 6h per title via the interval setting.
   discover-movies:
-    discover:
-      ttl: 4h
-      from:
-        - name: trakt_list
-          client_id: "{$ trakt_client_id $}"
-          client_secret: "{$ trakt_client_secret $}"
-          type: movies
-          list: watchlist
-      via:
-        - name: rss_search
-          url_template: "{$ jackett_url $}/api/v2.0/indexers/all/results/torznab?q={QueryEscaped}&apikey={$ jackett_key $}"
-      interval: 6h
-    seen:
-    metainfo_quality:
-    metainfo_magnet:
-      resolve_timeout: 30s
-    movies:
-      quality: 1080p
-      ttl: 4h
-      from:
-        - name: trakt_list
-          client_id: "{$ trakt_client_id $}"
-          client_secret: "{$ trakt_client_secret $}"
-          type: movies
-          list: watchlist
-    metainfo_tmdb:
-      api_key: YOUR_TMDB_API_KEY
-    condition:
-      rules:
-        - reject: 'video_source == "CAM"'
-        - reject: 'video_rating < 6.5'
-    pathfmt:
-      path: '{$ movies_path $}/{title} ({video_year})'
-      field: download_path
-    qbittorrent:
-      host: "{$ qbit_host $}"
-      port: "{$ qbit_port $}"
-      username: "{$ qbit_user $}"
-      password: "{$ qbit_pass $}"
-      savepath: "{download_path}"
-      category: movies
+    - discover:
+        ttl: 4h
+        from:
+          - name: trakt_list
+            client_id: "{$ trakt_client_id $}"
+            client_secret: "{$ trakt_client_secret $}"
+            type: movies
+            list: watchlist
+        via:
+          - name: rss_search
+            url_template: "{$ jackett_url $}/api/v2.0/indexers/all/results/torznab?q={QueryEscaped}&apikey={$ jackett_key $}"
+        interval: 6h
+    - seen:
+    - metainfo_quality:
+    - metainfo_magnet:
+        resolve_timeout: 30s
+    - movies:
+        quality: 1080p
+        ttl: 4h
+        from:
+          - name: trakt_list
+            client_id: "{$ trakt_client_id $}"
+            client_secret: "{$ trakt_client_secret $}"
+            type: movies
+            list: watchlist
+    - metainfo_tmdb:
+        api_key: YOUR_TMDB_API_KEY
+    - condition:
+        rules:
+          - reject: 'video_source == "CAM"'
+          - reject: 'video_rating < 6.5'
+    - pathfmt:
+        path: '{$ movies_path $}/{title} ({video_year})'
+        field: download_path
+    - qbittorrent:
+        host: "{$ qbit_host $}"
+        port: "{$ qbit_port $}"
+        username: "{$ qbit_user $}"
+        password: "{$ qbit_pass $}"
+        savepath: "{download_path}"
+        category: movies
 
   # Actively searches for TV episodes from the Trakt watchlist.
   discover-shows:
-    discover:
-      ttl: 2h
-      from:
-        - name: trakt_list
-          client_id: "{$ trakt_client_id $}"
-          client_secret: "{$ trakt_client_secret $}"
-          type: shows
-          list: watchlist
-      via:
-        - name: rss_search
-          url_template: "{$ jackett_url $}/api/v2.0/indexers/all/results/torznab?q={QueryEscaped}&apikey={$ jackett_key $}"
-      interval: 3h
-    seen:
-    metainfo_quality:
-    series:
-      tracking: strict
-      quality: 720p
-      ttl: 2h
-      from:
-        - name: trakt_list
-          client_id: "{$ trakt_client_id $}"
-          client_secret: "{$ trakt_client_secret $}"
-          type: shows
-          list: watchlist
-    pathfmt:
-      path: '{$ tv_path $}/{title}/Season {series_season:02d}'
-      field: download_path
-    qbittorrent:
-      host: "{$ qbit_host $}"
-      port: "{$ qbit_port $}"
-      username: "{$ qbit_user $}"
-      password: "{$ qbit_pass $}"
-      savepath: "{download_path}"
-      category: tv
+    - discover:
+        ttl: 2h
+        from:
+          - name: trakt_list
+            client_id: "{$ trakt_client_id $}"
+            client_secret: "{$ trakt_client_secret $}"
+            type: shows
+            list: watchlist
+        via:
+          - name: rss_search
+            url_template: "{$ jackett_url $}/api/v2.0/indexers/all/results/torznab?q={QueryEscaped}&apikey={$ jackett_key $}"
+        interval: 3h
+    - seen:
+    - metainfo_quality:
+    - series:
+        tracking: strict
+        quality: 720p
+        ttl: 2h
+        from:
+          - name: trakt_list
+            client_id: "{$ trakt_client_id $}"
+            client_secret: "{$ trakt_client_secret $}"
+            type: shows
+            list: watchlist
+    - pathfmt:
+        path: '{$ tv_path $}/{title}/Season {series_season:02d}'
+        field: download_path
+    - qbittorrent:
+        host: "{$ qbit_host $}"
+        port: "{$ qbit_port $}"
+        username: "{$ qbit_user $}"
+        password: "{$ qbit_pass $}"
+        savepath: "{download_path}"
+        category: tv
 
 schedules:
   discover-movies: 6h

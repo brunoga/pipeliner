@@ -1,13 +1,13 @@
 tasks:
   cleanup-old-downloads:
-    filesystem:
-      path: /tmp/downloads
-      recursive: true
-      mask: "*.part"
-    regexp:
-      accept:
-        - '.+'
-    exec:
-      command: 'rm -f {file_location}'
-    print:
-      format: 'removed: {title}'
+    - filesystem:
+        path: /tmp/downloads
+        recursive: true
+        mask: "*.part"
+    - regexp:
+        accept:
+          - '.+'
+    - exec:
+        command: 'rm -f {file_location}'
+    - print:
+        format: 'removed: {title}'
