@@ -1205,7 +1205,14 @@ Because <code>enriched</code> is set by any external provider, the same config w
 
 <!-- ─────────── content ─────────── -->
 <h2 id="content">content</h2>
-<p>Rejects or requires entries based on torrent file contents. Requires <code>metainfo_torrent</code> or <code>metainfo_magnet</code> to populate <code>torrent_files</code> first. Entries without <code>torrent_files</code> are left undecided.</p>
+<p>Rejects or requires entries based on filenames. The file list is resolved in order:</p>
+<ol>
+  <li><strong><code>torrent_files</code></strong> — set by <code>metainfo_torrent</code> or <code>metainfo_magnet</code> (DHT). Full file list from the torrent.</li>
+  <li><strong><code>file_location</code> basename</strong> — set by the <code>filesystem</code> plugin for local files.</li>
+  <li><strong>URL path component</strong> — last segment of the entry URL, for direct-download entries where the URL reveals the file type (e.g. <code>http://tracker.com/file.rar</code>).</li>
+</ol>
+<p>When none of the above is available the check is skipped and a <code>Warn</code> is logged. Run with <code>--log-level debug</code> to see which source was used.</p>
+<p>Patterns use <a href="https://pkg.go.dev/path#Match"><code>path.Match</code></a> semantics, tested against both the filename component and the full path.</p>
 
 <pre><code><span class="y-key">content</span>:
   <span class="y-key">reject</span>:
