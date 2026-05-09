@@ -19,6 +19,7 @@ package magnet
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strings"
 	"sync"
@@ -89,14 +90,19 @@ func (p *magnetPlugin) Phase() plugin.Phase { return plugin.PhaseMetainfo }
 
 // Annotate handles the single-entry path (used by tests and external callers).
 // It sets URI-derived fields only; DHT resolution requires AnnotateBatch.
-func (p *magnetPlugin) Annotate(_ context.Context, _ *plugin.TaskContext, e *entry.Entry) error {
-	return annotateFromURI(e)
+func (p *magnetPlugin) Annotate(_ context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
+	if err := annotateFromURI(e); err != nil {
+		tc.Logger.Error("failed to parse magnet URI", "entry", e.URL, "err", err)
+		return err
+	}
+	return nil
 }
 
 // AnnotateBatch implements BatchMetainfoPlugin. It first annotates all entries
 // from their magnet URIs, then fires DHT resolution for all of them in
 // parallel, waiting up to resolveTimeout for each.
-func (p *magnetPlugin) AnnotateBatch(ctx context.Context, _ *plugin.TaskContext, entries []*entry.Entry) error {
+func (p *magnetPlugin) AnnotateBatch(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
+	log := tc.Logger
 	type work struct {
 		t *torrent.Torrent
 		e *entry.Entry
@@ -105,15 +111,22 @@ func (p *magnetPlugin) AnnotateBatch(ctx context.Context, _ *plugin.TaskContext,
 	var jobs []work
 	for _, e := range entries {
 		if !strings.HasPrefix(e.URL, "magnet:") {
+			log.Debug("skipping entry: not a magnet URI", "entry", e.URL)
 			continue
 		}
-		annotateFromURI(e) //nolint:errcheck
+		if err := annotateFromURI(e); err != nil {
+			log.Error("failed to parse magnet URI", "entry", e.URL, "err", err)
+			continue
+		}
 		t, err := p.client.AddMagnet(e.URL)
 		if err != nil {
+			log.Error("failed to add magnet to DHT client", "entry", e.URL, "err", err)
 			continue
 		}
 		jobs = append(jobs, work{t: t, e: e})
 	}
+
+	log.Debug("DHT resolution queued", "count", len(jobs), "timeout", p.resolveTimeout)
 
 	if len(jobs) == 0 {
 		return nil
@@ -130,9 +143,10 @@ func (p *magnetPlugin) AnnotateBatch(ctx context.Context, _ *plugin.TaskContext,
 			defer t.Drop()
 			select {
 			case <-t.GotInfo():
+				log.Debug("DHT resolution succeeded", "entry", e.URL)
 				applyInfo(t, e)
 			case <-resolveCtx.Done():
-				// timeout or parent cancelled — entry keeps URI-derived fields only
+				log.Debug("DHT resolution timed out", "entry", e.URL, "timeout", p.resolveTimeout)
 			}
 		}(j.t, j.e)
 	}
@@ -148,7 +162,7 @@ func annotateFromURI(e *entry.Entry) error {
 	}
 	m, err := imagnet.Parse(e.URL)
 	if err != nil {
-		return nil // silently skip malformed magnet URIs
+		return fmt.Errorf("malformed magnet URI: %w", err)
 	}
 
 	ti := entry.TorrentInfo{
