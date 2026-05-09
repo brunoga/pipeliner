@@ -202,9 +202,9 @@ Fields follow a tiered naming convention. Three universal fields have no prefix;
 | `series_episode_id` | `series`, `metainfo_series` | Episode ID string (e.g. `S02E05`) |
 | `series_network` | `metainfo_tvdb` | Broadcasting network |
 | `series_status` | `metainfo_tvdb` | Series status (e.g. `Ended`, `Continuing`) |
-| `series_first_air_date` | `metainfo_tvdb` | Series premiere date |
+| `series_first_air_date` | `metainfo_tvdb` | Series premiere date (`time.Time`) |
 | `series_episode_title` | `metainfo_tvdb` | Episode title |
-| `series_episode_air_date` | `metainfo_tvdb` | Episode air date |
+| `series_episode_air_date` | `metainfo_tvdb` | Episode air date (`time.Time`) |
 | `series_service` | `metainfo_series` | Streaming service tag from filename (e.g. `AMZN`, `NF`) |
 | `series_proper` | `metainfo_series` | `true` for PROPER releases |
 | `series_repack` | `metainfo_series` | `true` for REPACK releases |

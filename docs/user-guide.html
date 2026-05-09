@@ -451,7 +451,7 @@ make build        # or: go build -o pipeliner ./cmd/pipeliner</code></pre>
   <tr><td><code>series_next_air_date</code></td><td>Next scheduled air date</td></tr>
   <tr><td><code>series_episode_title</code></td><td>Episode title</td></tr>
   <tr><td><code>series_episode_description</code></td><td>Episode overview text</td></tr>
-  <tr><td><code>series_episode_air_date</code></td><td>Episode air date (YYYY-MM-DD)</td></tr>
+  <tr><td><code>series_episode_air_date</code></td><td>Episode air date (<code>time.Time</code>)</td></tr>
   <tr><td><code>series_episode_image</code></td><td>Episode still/thumbnail URL</td></tr>
   <tr><td><code>series_service</code></td><td>Streaming service tag parsed from title</td></tr>
   <tr><td><code>series_proper</code></td><td><code>true</code> when PROPER marker is detected</td></tr>
@@ -547,10 +547,10 @@ make build        # or: go build -o pipeliner ./cmd/pipeliner</code></pre>
   <tr><td><code>video_trailers</code></td><td>metainfo_tvdb, metainfo_tmdb</td><td>Trailer URLs (string slice)</td></tr>
   <tr><td><code>video_content_rating</code></td><td>metainfo_tvdb, metainfo_tmdb</td><td>Content rating (e.g. <code>TV-MA</code>, <code>PG-13</code>)</td></tr>
   <tr><td><code>video_aliases</code></td><td>metainfo_tvdb, metainfo_tmdb</td><td>Alternative titles (string slice)</td></tr>
-  <tr><td><code>series_first_air_date</code></td><td>metainfo_tvdb</td><td>Date of first broadcast</td></tr>
-  <tr><td><code>series_next_air_date</code></td><td>metainfo_tvdb</td><td>Next scheduled air date</td></tr>
+  <tr><td><code>series_first_air_date</code></td><td>metainfo_tvdb</td><td>Date of first broadcast (<code>time.Time</code>)</td></tr>
+  <tr><td><code>series_next_air_date</code></td><td>metainfo_tvdb</td><td>Next scheduled air date (<code>time.Time</code>)</td></tr>
   <tr><td><code>series_episode_title</code></td><td>metainfo_tvdb</td><td>Episode title</td></tr>
-  <tr><td><code>series_episode_air_date</code></td><td>metainfo_tvdb</td><td>Episode air date (YYYY-MM-DD)</td></tr>
+  <tr><td><code>series_episode_air_date</code></td><td>metainfo_tvdb</td><td>Episode air date (<code>time.Time</code>)</td></tr>
   <tr><td><code>file_location</code></td><td>filesystem</td><td>Absolute file path on disk</td></tr>
   <tr><td><code>file_name</code></td><td>filesystem</td><td>Filename (basename)</td></tr>
   <tr><td><code>file_size</code></td><td>filesystem</td><td>File size in bytes</td></tr>

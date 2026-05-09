@@ -298,12 +298,12 @@ All field name constants are defined in `internal/entry/info.go`.
 | `FieldSeriesEpisodeID` | `series_episode_id` | string |
 | `FieldSeriesNetwork` | `series_network` | string |
 | `FieldSeriesStatus` | `series_status` | string |
-| `FieldSeriesFirstAirDate` | `series_first_air_date` | string |
-| `FieldSeriesLastAirDate` | `series_last_air_date` | string |
-| `FieldSeriesNextAirDate` | `series_next_air_date` | string |
+| `FieldSeriesFirstAirDate` | `series_first_air_date` | time.Time |
+| `FieldSeriesLastAirDate` | `series_last_air_date` | time.Time |
+| `FieldSeriesNextAirDate` | `series_next_air_date` | time.Time |
 | `FieldSeriesEpisodeTitle` | `series_episode_title` | string |
 | `FieldSeriesEpisodeDescription` | `series_episode_description` | string |
-| `FieldSeriesEpisodeAirDate` | `series_episode_air_date` | string |
+| `FieldSeriesEpisodeAirDate` | `series_episode_air_date` | time.Time |
 | `FieldSeriesEpisodeImage` | `series_episode_image` | string |
 | `FieldSeriesService` | `series_service` | string |
 | `FieldSeriesProper` | `series_proper` | bool |
