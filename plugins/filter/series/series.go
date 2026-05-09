@@ -236,9 +236,6 @@ func (p *seriesPlugin) Filter(ctx context.Context, tc *plugin.TaskContext, e *en
 func (p *seriesPlugin) Learn(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
 	shows := p.resolveShows(ctx, tc)
 	for _, e := range entries {
-		if !e.IsAccepted() {
-			continue
-		}
 		ep, ok := series.Parse(e.Title)
 		if !ok {
 			continue

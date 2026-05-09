@@ -63,9 +63,6 @@ func (p *seenPlugin) Filter(ctx context.Context, tc *plugin.TaskContext, e *entr
 func (p *seenPlugin) Learn(_ context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
 	ss := p.seenStore(tc)
 	for _, e := range entries {
-		if !e.IsAccepted() {
-			continue
-		}
 		fp := fingerprint(e, p.fields)
 		if err := ss.Mark(fp, store.SeenRecord{
 			Title:  e.Title,
