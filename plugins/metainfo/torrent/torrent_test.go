@@ -3,6 +3,7 @@ package torrent
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -45,7 +46,7 @@ func makePlugin(t *testing.T) *torrentPlugin {
 }
 
 func tc() *plugin.TaskContext {
-	return &plugin.TaskContext{Name: "test"}
+	return &plugin.TaskContext{Name: "test", Logger: slog.Default()}
 }
 
 // --- tests ---
