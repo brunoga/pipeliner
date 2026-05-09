@@ -314,6 +314,7 @@ All field name constants are defined in `internal/entry/info.go`.
 
 | Constant | Field name | Type |
 |----------|-----------|------|
+| `FieldTorrentLinkType` | `torrent_link_type` | string (`"torrent"` or `"magnet"`) |
 | `FieldTorrentInfoHash` | `torrent_info_hash` | string |
 | `FieldTorrentFileSize` | `torrent_file_size` | int64 |
 | `FieldTorrentFileCount` | `torrent_file_count` | int |
