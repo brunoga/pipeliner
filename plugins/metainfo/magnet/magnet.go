@@ -94,12 +94,25 @@ func (p *magnetPlugin) Phase() plugin.Phase { return plugin.PhaseMetainfo }
 // run completes (one-shot).
 func (p *magnetPlugin) Shutdown() { p.client.Close() }
 
+// isMagnetEntry reports whether this entry should be handled as a magnet link.
+// It checks torrent_link_type first (set by upstream sources such as Jackett),
+// then falls back to inspecting the URL prefix.
+func isMagnetEntry(e *entry.Entry) bool {
+	switch e.GetString(entry.FieldTorrentLinkType) {
+	case "magnet":
+		return true
+	case "torrent":
+		return false
+	}
+	return strings.HasPrefix(e.URL, "magnet:")
+}
+
 // Annotate handles the single-entry path (used by tests and external callers).
 // It sets URI-derived fields only; DHT resolution requires AnnotateBatch.
 func (p *magnetPlugin) Annotate(_ context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
 	log := tc.Logger
-	if !strings.HasPrefix(e.URL, "magnet:") {
-		log.Debug("metainfo_magnet: skipping entry — not a magnet URI", "entry", e.URL)
+	if !isMagnetEntry(e) {
+		log.Debug("metainfo_magnet: skipping entry — not a magnet", "entry", e.URL)
 		return nil
 	}
 	log.Debug("metainfo_magnet: parsing magnet URI", "entry", e.URL)
@@ -130,8 +143,8 @@ func (p *magnetPlugin) AnnotateBatch(ctx context.Context, tc *plugin.TaskContext
 
 	var jobs []work
 	for _, e := range entries {
-		if !strings.HasPrefix(e.URL, "magnet:") {
-			log.Debug("metainfo_magnet: skipping entry — not a magnet URI", "entry", e.URL)
+		if !isMagnetEntry(e) {
+			log.Debug("metainfo_magnet: skipping entry — not a magnet", "entry", e.URL)
 			continue
 		}
 		if err := annotateFromURI(e); err != nil {

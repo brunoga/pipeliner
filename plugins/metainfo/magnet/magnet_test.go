@@ -100,6 +100,44 @@ func TestNoTrackersNoAnnounceField(t *testing.T) {
 	}
 }
 
+// TestAnnotateBatchTorrentLinkTypeMagnet verifies that AnnotateBatch processes
+// an entry with torrent_link_type="magnet" even without the magnet: URL prefix
+// (the Jackett parser sets the URL to the actual magnet URI, but this tests
+// the field check directly).
+func TestAnnotateBatchTorrentLinkTypeMagnet(t *testing.T) {
+	uri := "magnet:?xt=urn:btih:" + hexHash + "&tr=" + tracker
+	e := entry.New("title", uri)
+	e.Set(entry.FieldTorrentLinkType, "magnet")
+
+	p, err := newPlugin(map[string]any{"resolve_timeout": "1ms"}, nil)
+	if err != nil {
+		t.Fatalf("newPlugin: %v", err)
+	}
+	mp := p.(*magnetPlugin)
+	if err := mp.AnnotateBatch(context.Background(), taskCtx(), []*entry.Entry{e}); err != nil {
+		t.Fatalf("AnnotateBatch: %v", err)
+	}
+	if v := e.GetString("torrent_info_hash"); v != hexHash {
+		t.Errorf("info_hash: got %q, want %q", v, hexHash)
+	}
+}
+
+// TestAnnotateBatchTorrentLinkTypeTorrentSkipped verifies that AnnotateBatch
+// skips entries with torrent_link_type="torrent" even if the URL happens to
+// look like a magnet URI (should not happen in practice, but tests field priority).
+func TestAnnotateBatchTorrentLinkTypeTorrentSkipped(t *testing.T) {
+	e := entry.New("title", "magnet:?xt=urn:btih:"+hexHash)
+	e.Set(entry.FieldTorrentLinkType, "torrent") // override: engine says it's a torrent
+
+	p := &magnetPlugin{}
+	if err := p.AnnotateBatch(context.Background(), taskCtx(), []*entry.Entry{e}); err != nil {
+		t.Fatalf("AnnotateBatch: %v", err)
+	}
+	if _, ok := e.Get("torrent_info_hash"); ok {
+		t.Error("torrent entry should not be processed by metainfo_magnet")
+	}
+}
+
 // TestAnnotateBatchSkipsNonMagnet verifies that AnnotateBatch ignores entries
 // whose URL is not a magnet URI and does not block.
 func TestAnnotateBatchSkipsNonMagnet(t *testing.T) {

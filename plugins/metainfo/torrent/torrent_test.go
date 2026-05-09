@@ -144,6 +144,93 @@ func TestAnnotateHTTPError(t *testing.T) {
 	}
 }
 
+// TestAnnotateEnclosureType verifies that an entry whose URL has no .torrent
+// suffix is still fetched when rss_enclosure_type signals a torrent file.
+func TestAnnotateEnclosureType(t *testing.T) {
+	torrentData := makeTorrent("show.s01e01.mkv", 1_000_000_000)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/x-bittorrent")
+		w.Write(torrentData) //nolint:errcheck
+	}))
+	defer srv.Close()
+
+	e := entry.New("show", srv.URL+"/download?id=12345") // no .torrent suffix
+	e.Set(entry.FieldRSSEnclosureType, "application/x-bittorrent")
+
+	p := makePlugin(t)
+	if err := p.Annotate(context.Background(), tc(), e); err != nil {
+		t.Fatal(err)
+	}
+	if v := e.GetString("title"); v != "show.s01e01.mkv" {
+		t.Errorf("expected torrent name, got %q", v)
+	}
+}
+
+// TestAnnotateTorrentLinkType verifies that an entry with torrent_link_type="torrent"
+// is fetched even when the URL has no .torrent suffix (e.g. a Jackett proxy URL).
+func TestAnnotateTorrentLinkType(t *testing.T) {
+	torrentData := makeTorrent("movie.2025.mkv", 5_000_000_000)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/x-bittorrent")
+		w.Write(torrentData) //nolint:errcheck
+	}))
+	defer srv.Close()
+
+	e := entry.New("movie", srv.URL+"/dl/indexer/?jackett_apikey=abc&path=xyz&file=movie")
+	e.Set(entry.FieldTorrentLinkType, "torrent")
+
+	p := makePlugin(t)
+	if err := p.Annotate(context.Background(), tc(), e); err != nil {
+		t.Fatal(err)
+	}
+	if v := e.GetString("title"); v != "movie.2025.mkv" {
+		t.Errorf("expected torrent name from .torrent bytes, got %q", v)
+	}
+}
+
+// TestAnnotateMagnetLinkTypeSkipped verifies that entries with
+// torrent_link_type="magnet" are skipped by metainfo_torrent.
+func TestAnnotateMagnetLinkTypeSkipped(t *testing.T) {
+	fetched := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fetched = true
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	e := entry.New("movie", srv.URL+"/dl/indexer/?jackett_apikey=abc&path=xyz&file=movie")
+	e.Set(entry.FieldTorrentLinkType, "magnet")
+
+	p := makePlugin(t)
+	if err := p.Annotate(context.Background(), tc(), e); err != nil {
+		t.Fatal(err)
+	}
+	if fetched {
+		t.Error("should not fetch a URL when torrent_link_type=magnet")
+	}
+}
+
+// TestAnnotateNoFetchWithoutSignal verifies that a plain HTTP URL with no
+// torrent signals is not fetched.
+func TestAnnotateNoFetchWithoutSignal(t *testing.T) {
+	fetched := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fetched = true
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	e := entry.New("page", srv.URL+"/some/page")
+
+	p := makePlugin(t)
+	if err := p.Annotate(context.Background(), tc(), e); err != nil {
+		t.Fatal(err)
+	}
+	if fetched {
+		t.Error("should not fetch a plain HTTP URL with no torrent signals")
+	}
+}
+
 func TestPluginRegistered(t *testing.T) {
 	if _, ok := plugin.Lookup("metainfo_torrent"); !ok {
 		t.Error("metainfo_torrent not registered")

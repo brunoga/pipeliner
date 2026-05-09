@@ -50,6 +50,7 @@ tasks:
 | `torrent_leechers` | int | Leecher count from the indexer |
 | `torrent_file_size` | int64 | Total size in bytes |
 | `torrent_info_hash` | string | SHA-1 info hash (lowercase hex), if provided |
+| `torrent_link_type` | string | `"torrent"` if the entry URL serves a `.torrent` file; `"magnet"` if the Torznab `magneturl` attribute was present and `e.URL` was set to the magnet URI |
 | `jackett_category` | string | Torznab category code of the result |
 | `jackett_indexer` | string | Indexer ID that returned the result |
 
