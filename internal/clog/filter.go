@@ -6,18 +6,23 @@ import (
 )
 
 // pluginFilter is a slog.Handler that drops records whose accumulated "plugin"
-// attribute does not match the configured name. Records with no "plugin"
-// attribute (task-level logs) always pass through.
+// attribute is not in the configured set. Records with no "plugin" attribute
+// (task-level logs) always pass through.
 type pluginFilter struct {
 	inner     slog.Handler
-	target    string // plugin name to keep
-	pluginVal string // "plugin" attr value accumulated via WithAttrs ("" = not set)
+	targets   map[string]bool // plugin names to keep
+	pluginVal string          // "plugin" attr value accumulated via WithAttrs ("" = not set)
 }
 
-// NewPluginFilter wraps inner so that only log records for the named plugin
+// NewPluginFilter wraps inner so that only log records for the named plugins
 // (and task-level records with no plugin attribute) are passed through.
-func NewPluginFilter(inner slog.Handler, pluginName string) slog.Handler {
-	return &pluginFilter{inner: inner, target: pluginName}
+// Pass multiple names to show output from several plugins simultaneously.
+func NewPluginFilter(inner slog.Handler, pluginNames []string) slog.Handler {
+	targets := make(map[string]bool, len(pluginNames))
+	for _, name := range pluginNames {
+		targets[name] = true
+	}
+	return &pluginFilter{inner: inner, targets: targets}
 }
 
 func (f *pluginFilter) Enabled(ctx context.Context, l slog.Level) bool {
@@ -27,7 +32,7 @@ func (f *pluginFilter) Enabled(ctx context.Context, l slog.Level) bool {
 func (f *pluginFilter) Handle(ctx context.Context, r slog.Record) error {
 	// If WithAttrs set a plugin attr, use it for filtering.
 	if f.pluginVal != "" {
-		if f.pluginVal != f.target {
+		if !f.targets[f.pluginVal] {
 			return nil
 		}
 		return f.inner.Handle(ctx, r)
@@ -42,7 +47,7 @@ func (f *pluginFilter) Handle(ctx context.Context, r slog.Record) error {
 		return true
 	})
 	// Records with no plugin attr (task-level) always pass through.
-	if recordPlugin != "" && recordPlugin != f.target {
+	if recordPlugin != "" && !f.targets[recordPlugin] {
 		return nil
 	}
 	return f.inner.Handle(ctx, r)
@@ -51,7 +56,7 @@ func (f *pluginFilter) Handle(ctx context.Context, r slog.Record) error {
 func (f *pluginFilter) WithAttrs(attrs []slog.Attr) slog.Handler {
 	next := &pluginFilter{
 		inner:     f.inner.WithAttrs(attrs),
-		target:    f.target,
+		targets:   f.targets,
 		pluginVal: f.pluginVal,
 	}
 	for _, a := range attrs {
@@ -65,7 +70,7 @@ func (f *pluginFilter) WithAttrs(attrs []slog.Attr) slog.Handler {
 func (f *pluginFilter) WithGroup(name string) slog.Handler {
 	return &pluginFilter{
 		inner:     f.inner.WithGroup(name),
-		target:    f.target,
+		targets:   f.targets,
 		pluginVal: f.pluginVal,
 	}
 }
