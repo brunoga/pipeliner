@@ -249,16 +249,16 @@ make build        # or: go build -o pipeliner ./cmd/pipeliner</code></pre>
 <pre><code><span class="y-key">variables</span>:          <span class="y-comment"># substitution values applied before parsing</span>
   <span class="y-key">tv_root</span>: <span class="y-str">/media/tv</span>
 
-<span class="y-key">templates</span>:          <span class="y-comment"># reusable plugin blocks expanded inline with use:</span>
+<span class="y-key">templates</span>:          <span class="y-comment"># reusable plugin blocks, expanded with use:</span>
   <span class="y-key">base</span>:
-    <span class="y-key">params</span>: [<span class="y-str">feed_url</span>]
+    <span class="y-key">params</span>: [<span class="y-str">feed_url</span>]   <span class="y-comment"># positional or named args</span>
     <span class="y-key">rss</span>:
       <span class="y-key">url</span>: <span class="y-str">"{$ feed_url $}"</span>
     <span class="y-key">seen</span>:
 
 <span class="y-key">tasks</span>:              <span class="y-comment"># one or more named pipelines (YAML sequence)</span>
   <span class="y-key">my-task</span>:
-    - <span class="y-key">use</span>: [<span class="y-str">base</span>, <span class="y-str">"https://example.com/rss"</span>]
+    - <span class="y-key">use</span>: [<span class="y-str">base</span>, <span class="y-str">"https://example.com/rss"</span>]   <span class="y-comment"># positional</span>
     - <span class="y-key">series</span>:
         <span class="y-key">static</span>: [<span class="y-str">"My Show"</span>]
 
@@ -296,15 +296,23 @@ make build        # or: go build -o pipeliner ./cmd/pipeliner</code></pre>
 <!-- ═══════════════════════════════════════════════════════════ -->
 <h2 id="templates">Templates</h2>
 
-<p>Templates define reusable plugin blocks that are expanded <em>inline</em> at any position in a task using <code>use:</code>. This is the YAML equivalent of a function call: declare positional parameters with <code>params:</code>, reference them with <code>{$ name $}</code> inside the template, and pass arguments as a flow sequence.</p>
+<p>Templates define reusable plugin blocks expanded <em>inline</em> at any position in a task using <code>use:</code>. Declare parameter names with <code>params:</code> and reference them with <code>{$ name $}</code> inside the template. Three <code>use:</code> forms are supported:</p>
+
+<pre><code><span class="y-comment"># Zero params — just the template name</span>
+- <span class="y-key">use</span>: <span class="y-str">template-name</span>
+
+<span class="y-comment"># Positional — concise for short scalar values</span>
+- <span class="y-key">use</span>: [<span class="y-str">template-name</span>, <span class="y-str">val1</span>, <span class="y-str">val2</span>]
+
+<span class="y-comment"># Named — required for list values or multiline block scalars</span>
+- <span class="y-key">use</span>:
+    <span class="y-key">template</span>: <span class="y-str">template-name</span>
+    <span class="y-key">param1</span>: [<span class="y-str">"list"</span>, <span class="y-str">"value"</span>]
+    <span class="y-key">param2</span>: |
+      multiline
+      value</code></pre>
 
 <pre><code><span class="y-key">templates</span>:
-  <span class="y-key">common-input</span>:
-    <span class="y-key">params</span>: [<span class="y-str">feed_url</span>]
-    <span class="y-key">rss</span>:
-      <span class="y-key">url</span>: <span class="y-str">"{$ feed_url $}"</span>
-    <span class="y-key">seen</span>:
-
   <span class="y-key">common-output</span>:
     <span class="y-key">params</span>: [<span class="y-str">dest</span>, <span class="y-str">host</span>]
     <span class="y-key">pathfmt</span>:
@@ -314,26 +322,39 @@ make build        # or: go build -o pipeliner ./cmd/pipeliner</code></pre>
       <span class="y-key">host</span>: <span class="y-str">"{$ host $}"</span>
       <span class="y-key">path</span>: <span class="y-str">"{download_path}"</span>
 
+  <span class="y-key">jackett-search</span>:
+    <span class="y-key">params</span>: [<span class="y-str">indexers</span>, <span class="y-str">categories</span>]   <span class="y-comment"># list params — use named form</span>
+    <span class="y-key">jackett_input</span>:
+      <span class="y-key">indexers</span>: <span class="y-str">"{$ indexers $}"</span>
+      <span class="y-key">categories</span>: <span class="y-str">"{$ categories $}"</span>
+
+  <span class="y-key">email-notify</span>:
+    <span class="y-key">params</span>: [<span class="y-str">subject</span>, <span class="y-str">body_template</span>]   <span class="y-comment"># multiline — use named form</span>
+    <span class="y-key">email</span>:
+      <span class="y-key">subject</span>: <span class="y-str">"{$ subject $}"</span>
+      <span class="y-key">body_template</span>: <span class="y-str">"{$ body_template $}"</span>
+
 <span class="y-key">tasks</span>:
   <span class="y-key">tv-shows</span>:
-    - <span class="y-key">use</span>: [<span class="y-str">common-input</span>, <span class="y-str">"https://example.com/rss/tv"</span>]
-    - <span class="y-key">series</span>:
-        <span class="y-key">static</span>: [<span class="y-str">"Breaking Bad"</span>]
-    - <span class="y-key">use</span>: [<span class="y-str">common-output</span>, <span class="y-str">/media/tv</span>, <span class="y-str">localhost</span>]
-
-  <span class="y-key">movies</span>:
-    - <span class="y-key">use</span>: [<span class="y-str">common-input</span>, <span class="y-str">"https://example.com/rss/movies"</span>]
-    - <span class="y-key">movies</span>:
-        <span class="y-key">static</span>: [<span class="y-str">"Inception"</span>]
-    - <span class="y-key">use</span>: [<span class="y-str">common-output</span>, <span class="y-str">/media/movies</span>, <span class="y-str">localhost</span>]</code></pre>
+    - <span class="y-key">use</span>: [<span class="y-str">common-output</span>, <span class="y-str">/media/tv</span>, <span class="y-str">localhost</span>]   <span class="y-comment"># positional scalars</span>
+    - <span class="y-key">use</span>:
+        <span class="y-key">template</span>: <span class="y-str">jackett-search</span>
+        <span class="y-key">indexers</span>: [<span class="y-str">"torrenting"</span>, <span class="y-str">"showrss"</span>]          <span class="y-comment"># named: list arg</span>
+        <span class="y-key">categories</span>: [<span class="y-str">"5000"</span>]
+    - <span class="y-key">use</span>:
+        <span class="y-key">template</span>: <span class="y-str">email-notify</span>
+        <span class="y-key">subject</span>: <span class="y-str">"New episodes: {{len .Entries}}"</span>
+        <span class="y-key">body_template</span>: |                              <span class="y-comment"># named: multiline arg</span>
+          {{range .Entries}}&lt;p&gt;{{index .Fields "title"}}&lt;/p&gt;{{end}}</code></pre>
 
 <h4>Rules</h4>
 <ul>
   <li>Template plugins are inserted at the exact position of <code>use:</code> — full positional control.</li>
-  <li><code>params:</code> declares parameter names in order. Arguments are passed positionally: <code>use: [template, arg1, arg2]</code>.</li>
-  <li>Parameters use <code>{$ name $}</code> syntax, scoped to the expansion (they do not affect other tasks or global variables).</li>
-  <li>Zero-parameter templates omit <code>params:</code> and are expanded with <code>use: template-name</code> (no list needed).</li>
-  <li>Config validation fails with a clear error if the wrong number of arguments is passed.</li>
+  <li><code>params:</code> declares parameter names. Positional form maps args by position; named form maps by key.</li>
+  <li>Parameters accept any YAML type: strings, numbers, lists, objects, or block scalars.</li>
+  <li>Parameters use <code>{$ name $}</code> syntax, scoped to the expansion — they do not affect global variables or other tasks.</li>
+  <li>Zero-parameter templates omit <code>params:</code> and expand with <code>use: template-name</code>.</li>
+  <li>Validation fails with a clear error if arg count is wrong (positional) or a declared param is missing or unexpected (named).</li>
 </ul>
 
 <!-- ═══════════════════════════════════════════════════════════ -->
