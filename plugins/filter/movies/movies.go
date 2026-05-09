@@ -185,9 +185,6 @@ func (p *moviesPlugin) Filter(ctx context.Context, tc *plugin.TaskContext, e *en
 func (p *moviesPlugin) Learn(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
 	titles := p.resolveTitles(ctx, tc)
 	for _, e := range entries {
-		if !e.IsAccepted() {
-			continue
-		}
 		m, ok := imovies.Parse(e.Title)
 		if !ok {
 			continue
