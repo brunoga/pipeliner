@@ -255,12 +255,13 @@ section { margin-bottom: 32px; }
   z-index: 1;
   overflow-y: auto;
 }
-/* YAML token colours */
-.y-key     { color: #79c0ff; }
-.y-str     { color: #a5d6ff; }
-.y-num     { color: #f2cc60; }
-.y-bool    { color: #ff7b72; }
-.y-null    { color: #ff7b72; }
+/* Starlark token colours */
+.y-key     { color: #79c0ff; }   /* keywords: def, if, for, return … */
+.y-str     { color: #a5d6ff; }   /* string literals */
+.y-num     { color: #f2cc60; }   /* numbers */
+.y-bool    { color: #ff7b72; }   /* True, False, None */
+.y-builtin { color: #d2a8ff; }   /* plugin(), task(), env() */
+.y-func    { color: #79c0ff; }   /* function names after def */
 .y-comment { color: var(--muted); font-style: italic; }
 .config-toolbar { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
 .config-status { font-size: 12px; }
@@ -705,46 +706,120 @@ function showTab(name) {
   }
 }
 
-// ── YAML syntax highlighting ──────────────────────────────────────────────────
+// ── Starlark syntax highlighting ──────────────────────────────────────────────
+// Line-by-line tokeniser for Starlark (.star) config files.
+// Handles: comments, string literals (single + triple-quoted), keywords,
+// built-in helpers (plugin/task/env), True/False/None, numbers, and def names.
+// Multi-line triple-quoted strings are tracked with a state flag so subsequent
+// lines inside them are rendered as string spans.
 
-function highlightYAML(text) {
-  return text.split('\n').map(line => {
-    const e = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-    // Comment line
-    if (/^\s*#/.test(line)) return `<span class="y-comment">${e(line)}</span>`;
-    // Key: value
-    const kv = line.match(/^(\s*)([\w\-\.]+)(\s*:)([ \t]*.*)$/);
-    if (kv) {
-      const [,ind,key,colon,rest] = kv;
-      return e(ind) + `<span class="y-key">${e(key)}</span>` + e(colon) + hlVal(rest, e);
-    }
-    // List item
-    const li = line.match(/^(\s*-[ \t]*)(.*)$/);
-    if (li) return e(li[1]) + hlVal(li[2], e);
-    return e(line);
-  }).join('\n') + '\n'; // trailing newline keeps caret on last line visible
+const STARLARK_KEYWORDS = new Set(
+  ['def','if','elif','else','for','in','return','not','and','or',
+   'load','pass','break','continue','lambda','import']);
+const STARLARK_BUILTINS  = new Set(['plugin','task','env']);
+const STARLARK_BOOLEANS  = new Set(['True','False','None']);
+
+// Persistent state across lines for multi-line triple-quoted strings.
+let _inTriple = false;
+let _tripleQ  = '';
+
+function highlightStarlark(text) {
+  _inTriple = false; _tripleQ = '';
+  return text.split('\n').map(hlStarlarkLine).join('\n') + '\n';
 }
 
-function hlVal(s, e) {
-  const t = s.trim();
-  if (!t) return e(s);
-  // Inline comment
-  const cm = s.match(/^([^#"']*)(#.*)$/);
-  if (cm && !/^["']/.test(t)) return e(cm[1]) + `<span class="y-comment">${e(cm[2])}</span>`;
-  // Quoted string
-  if (/^["']/.test(t)) return `<span class="y-str">${e(s)}</span>`;
-  // Bool
-  if (/^(true|false|yes|no|on|off)$/i.test(t)) return `<span class="y-bool">${e(s)}</span>`;
-  // Null
-  if (/^(null|~)$/.test(t)) return `<span class="y-null">${e(s)}</span>`;
-  // Number
-  if (/^-?\d+(\.\d+)?$/.test(t)) return `<span class="y-num">${e(s)}</span>`;
-  return e(s);
+function hlStarlarkLine(line) {
+  const e = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  let out = '';
+  let i   = 0;
+
+  // If we're inside a triple-quoted string from a previous line, scan for end.
+  if (_inTriple) {
+    const end = line.indexOf(_tripleQ);
+    if (end === -1) {
+      return `<span class="y-str">${e(line)}</span>`;
+    }
+    _inTriple = false;
+    out += `<span class="y-str">${e(line.slice(0, end + 3))}</span>`;
+    i = end + 3;
+  }
+
+  while (i < line.length) {
+    // Comment
+    if (line[i] === '#') {
+      out += `<span class="y-comment">${e(line.slice(i))}</span>`;
+      break;
+    }
+    // Triple-quoted string
+    const tq = line.slice(i, i+3);
+    if (tq === '"""' || tq === "'''") {
+      const close = line.indexOf(tq, i+3);
+      if (close !== -1) {
+        out += `<span class="y-str">${e(line.slice(i, close+3))}</span>`;
+        i = close + 3;
+      } else {
+        _inTriple = true; _tripleQ = tq;
+        out += `<span class="y-str">${e(line.slice(i))}</span>`;
+        break;
+      }
+      continue;
+    }
+    // Single-quoted string (simple: no escape handling needed for highlighting)
+    if (line[i] === '"' || line[i] === "'") {
+      const q = line[i];
+      let j = i + 1;
+      while (j < line.length && line[j] !== q) {
+        if (line[j] === '\\') j++; // skip escaped char
+        j++;
+      }
+      out += `<span class="y-str">${e(line.slice(i, j+1))}</span>`;
+      i = j + 1;
+      continue;
+    }
+    // Identifier or keyword
+    const idM = line.slice(i).match(/^[A-Za-z_]\w*/);
+    if (idM) {
+      const word = idM[0];
+      const rest = line.slice(i + word.length);
+      // def <funcname>
+      if (word === 'def') {
+        const nm = rest.match(/^\s+([A-Za-z_]\w*)/);
+        if (nm) {
+          out += `<span class="y-key">def</span>`;
+          out += e(rest.slice(0, rest.indexOf(nm[1])));
+          out += `<span class="y-func">${e(nm[1])}</span>`;
+          i += word.length + rest.indexOf(nm[1]) + nm[1].length;
+          continue;
+        }
+      }
+      if (STARLARK_KEYWORDS.has(word)) {
+        out += `<span class="y-key">${e(word)}</span>`;
+      } else if (STARLARK_BUILTINS.has(word)) {
+        out += `<span class="y-builtin">${e(word)}</span>`;
+      } else if (STARLARK_BOOLEANS.has(word)) {
+        out += `<span class="y-bool">${e(word)}</span>`;
+      } else {
+        out += e(word);
+      }
+      i += word.length;
+      continue;
+    }
+    // Number
+    const numM = line.slice(i).match(/^-?\d+(\.\d+)?/);
+    if (numM) {
+      out += `<span class="y-num">${e(numM[0])}</span>`;
+      i += numM[0].length;
+      continue;
+    }
+    // Everything else: emit verbatim
+    out += e(line[i++]);
+  }
+  return out;
 }
 
 function syncHighlight() {
   const ta = document.getElementById('config-editor');
-  document.getElementById('editor-hl').innerHTML = highlightYAML(ta.value);
+  document.getElementById('editor-hl').innerHTML = highlightStarlark(ta.value);
   syncScroll(); // re-sync height and scroll position after content changes
 }
 
