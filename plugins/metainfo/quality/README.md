@@ -30,12 +30,10 @@ Parses video quality tags from the entry title and annotates the entry with stru
 
 ## Example
 
-```yaml
-tasks:
-  my-task:
-    - rss:
-        url: "https://example.com/feed"
-    - metainfo_quality:
-    - condition:
-        accept: '{{eq .video_resolution "1080p"}}'
+```python
+task("my-task", [
+    plugin("rss", url="https://example.com/feed"),
+    plugin("metainfo_quality"),
+    plugin("condition", accept='{{eq .video_resolution "1080p"}}'),
+])
 ```

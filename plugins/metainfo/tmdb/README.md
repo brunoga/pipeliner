@@ -44,17 +44,13 @@ Enriches movie entries with metadata from The Movie Database (TMDb). Searches by
 
 ## Example
 
-```yaml
-tasks:
-  movies:
-    - rss:
-        url: "https://example.com/feed"
-    - movies:
-        static: ["Inception"]
-    - metainfo_tmdb:
-        api_key: YOUR_API_KEY
-    - pathfmt:
-        path: "/media/movies/{title} ({video_year})"
+```python
+task("movies", [
+    plugin("rss", url="https://example.com/feed"),
+    plugin("movies", static=["Inception"]),
+    plugin("metainfo_tmdb", api_key="YOUR_API_KEY"),
+    plugin("pathfmt", path="/media/movies/{title} ({video_year})", field="download_path"),
+])
 ```
 
 ## Notes
@@ -62,4 +58,4 @@ tasks:
 - Free API keys at [themoviedb.org/settings/api](https://www.themoviedb.org/settings/api).
 - Only annotates entries whose title can be parsed as a movie (title + year). Entries without a parseable year are skipped.
 - Results are cached in `pipeliner.db` in the same directory as the config file.
-- Use `enriched` (not `tmdb_id`) to check whether TMDb successfully found metadata: `require: fields: ["enriched"]`.
+- Use `enriched` (not `tmdb_id`) to check whether TMDb successfully found metadata: `plugin("require", fields=["enriched"])`.

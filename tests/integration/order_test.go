@@ -124,12 +124,8 @@ func (p *orderPlugin) Modify(ctx context.Context, tc *plugin.TaskContext, e *ent
 
 func TestLearnConsistency(t *testing.T) {
 	learnCalled = false
-	cfgYAML := `
-tasks:
-  learn-test:
-    - learn_input: {}
-`
-	cfg, err := config.ParseBytes([]byte(cfgYAML))
+	cfg, err := config.ParseBytes([]byte(`task("learn-test", [plugin("learn_input")])`))
+
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
@@ -146,14 +142,14 @@ tasks:
 
 func TestDryRun(t *testing.T) {
 	outputCalled = false
-	cfgYAML := `
-tasks:
-  dry-run-test:
-    - mock_input: {}
-    - mock_filter: {}
-    - mock_output: {}
-`
-	cfg, err := config.ParseBytes([]byte(cfgYAML))
+	cfg, err := config.ParseBytes([]byte(`
+task("dry-run-test", [
+    plugin("mock_input"),
+    plugin("mock_filter"),
+    plugin("mock_output"),
+])
+`))
+
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
@@ -179,18 +175,17 @@ tasks:
 }
 
 func TestPluginOrder(t *testing.T) {
-	cfgYAML := `
-tasks:
-  order-test:
-    - mock_input: {}
-    - order1: {}
-    - order2: {}
-    - order3: {}
+	const cfgStar = `
+task("order-test", [
+    plugin("mock_input"),
+    plugin("order1"),
+    plugin("order2"),
+    plugin("order3"),
+])
 `
-
 	for i := 0; i < 10; i++ {
 		orderList = []string{}
-		cfg, err := config.ParseBytes([]byte(cfgYAML))
+		cfg, err := config.ParseBytes([]byte(cfgStar))
 		if err != nil {
 			t.Fatalf("parse: %v", err)
 		}
