@@ -39,9 +39,13 @@ type pluginInstance struct {
 }
 
 // Task is a named, configured pipeline that can be Run.
+// It operates in one of two modes:
+//   - Linear (legacy): plugins []pluginInstance drives the phase-ordered engine.
+//   - DAG: exec drives the graph executor (set by NewFromExecutor).
 type Task struct {
 	name    string
-	plugins []pluginInstance
+	plugins []pluginInstance  // linear engine
+	exec    executorRunner    // DAG engine (nil for linear tasks)
 	logger  *slog.Logger
 	dryRun  bool
 }
@@ -55,9 +59,12 @@ func New(name string, logger *slog.Logger) *Task {
 // Name returns the task's name.
 func (t *Task) Name() string { return t.name }
 
-// Shutdown releases resources held by any plugin in the task that implements
-// plugin.ShutdownPlugin. Call once when the task will no longer be run.
+// Shutdown releases resources held by any plugin in the task.
 func (t *Task) Shutdown() {
+	if t.exec != nil {
+		t.exec.Shutdown()
+		return
+	}
 	for _, pi := range t.plugins {
 		if s, ok := pi.impl.(plugin.ShutdownPlugin); ok {
 			s.Shutdown()
@@ -65,21 +72,31 @@ func (t *Task) Shutdown() {
 	}
 }
 
-// SetDryRun enables or disables dry-run mode. In dry-run mode, the output
-// and learn phases are skipped, making the run fully idempotent.
-func (t *Task) SetDryRun(v bool) { t.dryRun = v }
+// SetDryRun enables or disables dry-run mode. In dry-run mode, output and
+// learn phases are skipped, making the run fully idempotent.
+func (t *Task) SetDryRun(v bool) {
+	t.dryRun = v
+	if t.exec != nil {
+		t.exec.SetDryRun(v)
+	}
+}
 
 func (t *Task) addPlugin(pi pluginInstance) {
 	t.plugins = append(t.plugins, pi)
 }
 
-// Run executes the task and returns a Result. Input plugins run concurrently.
-// Metainfo, filter, and modify plugins run serially in config-file order.
-// Output plugins run serially in config order; each receives only entries still
-// accepted at that point, so an output that fails an entry prevents subsequent
-// outputs from seeing it. Panics inside any plugin call are caught and converted
-// to logged errors; the task continues unless the context is cancelled.
+// Run executes the task and returns a Result.
+//
+// For DAG tasks (created via NewFromExecutor) the call is delegated to the
+// underlying executor.Executor.Run and the result is adapted.
+//
+// For linear tasks, input plugins run concurrently; metainfo, filter, and
+// modify plugins run serially in config-file order; output plugins run serially
+// in config order.
 func (t *Task) Run(ctx context.Context) (*Result, error) {
+	if t.exec != nil {
+		return t.runFromExecutor(ctx)
+	}
 	start := time.Now()
 	if t.dryRun {
 		t.logger.Info("task started (DRY RUN)")

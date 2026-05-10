@@ -8,6 +8,7 @@ import (
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
 
+	"github.com/brunoga/pipeliner/internal/dag"
 	"github.com/brunoga/pipeliner/internal/task"
 )
 
@@ -16,10 +17,12 @@ import (
 // src is the script source; pass nil to read from filename.
 func execute(filename string, src []byte) (*Config, error) {
 	ctx := &execContext{
-		tasks:     make(map[string][]task.PluginConfig),
-		schedules: make(map[string]string),
-		dir:       filepath.Dir(filename),
-		loaded:    make(map[string]starlark.StringDict),
+		tasks:          make(map[string][]task.PluginConfig),
+		schedules:      make(map[string]string),
+		graphs:         make(map[string]*dagGraph),
+		graphSchedules: make(map[string]string),
+		dir:            filepath.Dir(filename),
+		loaded:         make(map[string]starlark.StringDict),
 	}
 
 	thread := &starlark.Thread{
@@ -28,14 +31,9 @@ func execute(filename string, src []byte) (*Config, error) {
 		Print: func(_ *starlark.Thread, msg string) { fmt.Println(msg) },
 	}
 
-	predeclared := starlark.StringDict{
-		"plugin": starlark.NewBuiltin("plugin", pluginBuiltin),
-		"task":   starlark.NewBuiltin("task", ctx.taskBuiltin),
-		"env":    starlark.NewBuiltin("env", envBuiltin),
-	}
-
+	predeclared := ctx.predeclared()
 	opts := &syntax.FileOptions{}
-	var srcArg interface{} = src
+	var srcArg any = src
 	if src == nil {
 		srcArg = nil
 	}
@@ -43,15 +41,49 @@ func execute(filename string, src []byte) (*Config, error) {
 		return nil, formatStarlarkError(err)
 	}
 
-	return &Config{Tasks: ctx.tasks, Schedules: ctx.schedules}, nil
+	// Extract dag.Graph from dagGraph wrappers.
+	graphs := make(map[string]*dag.Graph, len(ctx.graphs))
+	for name, dg := range ctx.graphs {
+		graphs[name] = dg.graph
+	}
+	return &Config{
+		Tasks:          ctx.tasks,
+		Schedules:      ctx.schedules,
+		Graphs:         graphs,
+		GraphSchedules: ctx.graphSchedules,
+	}, nil
 }
 
-// execContext accumulates tasks registered via task() calls during execution.
+// execContext accumulates tasks and graphs registered during Starlark execution.
 type execContext struct {
+	// linear task engine
 	tasks     map[string][]task.PluginConfig
 	schedules map[string]string
-	dir       string
-	loaded    map[string]starlark.StringDict
+	// DAG pipeline engine
+	graphs         map[string]*dagGraph
+	graphSchedules map[string]string
+	pendingNodes   []*dagNodeRecord // nodes accumulated before the next pipeline() call
+	nodeCounter    int
+	// module loading
+	dir    string
+	loaded map[string]starlark.StringDict
+}
+
+// predeclared returns the set of built-in functions available to config scripts.
+func (ctx *execContext) predeclared() starlark.StringDict {
+	return starlark.StringDict{
+		// linear task engine built-ins (backward compatible)
+		"plugin": starlark.NewBuiltin("plugin", pluginBuiltin),
+		"task":   starlark.NewBuiltin("task", ctx.taskBuiltin),
+		// DAG pipeline built-ins
+		"input":    starlark.NewBuiltin("input", ctx.inputBuiltin),
+		"process":  starlark.NewBuiltin("process", ctx.processBuiltin),
+		"merge":    starlark.NewBuiltin("merge", ctx.mergeBuiltin),
+		"output":   starlark.NewBuiltin("output", ctx.outputBuiltin),
+		"pipeline": starlark.NewBuiltin("pipeline", ctx.pipelineBuiltin),
+		// shared
+		"env": starlark.NewBuiltin("env", envBuiltin),
+	}
 }
 
 // loadModule implements load() for the Starlark thread, allowing config files
@@ -76,12 +108,7 @@ func (ctx *execContext) loadModule(thread *starlark.Thread, module string) (star
 		Load:  ctx.loadModule,
 		Print: thread.Print,
 	}
-	predeclared := starlark.StringDict{
-		"plugin": starlark.NewBuiltin("plugin", pluginBuiltin),
-		"task":   starlark.NewBuiltin("task", ctx.taskBuiltin),
-		"env":    starlark.NewBuiltin("env", envBuiltin),
-	}
-	globals, err := starlark.ExecFileOptions(&syntax.FileOptions{}, childThread, abs, data, predeclared)
+	globals, err := starlark.ExecFileOptions(&syntax.FileOptions{}, childThread, abs, data, ctx.predeclared())
 	if err != nil {
 		return nil, formatStarlarkError(err)
 	}
