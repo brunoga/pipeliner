@@ -18,12 +18,10 @@ Parses series and episode information from the entry title. Takes no config.
 
 ## Example
 
-```yaml
-tasks:
-  my-task:
-    - rss:
-        url: "https://example.com/feed"
-    - metainfo_series:
-    - pathfmt:
-        path: "/media/tv/{title}/Season {series_season:02d}"
+```python
+task("my-task", [
+    plugin("rss", url="https://example.com/feed"),
+    plugin("metainfo_series"),
+    plugin("pathfmt", path="/media/tv/{title}/Season {series_season:02d}", field="download_path"),
+])
 ```

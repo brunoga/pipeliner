@@ -36,22 +36,23 @@ Annotates entries with metadata from Trakt.tv via the search API. Searches by pa
 
 ## Example
 
-```yaml
-tasks:
-  tv:
-    - rss:
-        url: "https://example.com/feed"
-    - trakt:                          # filter: accept watchlist shows
-        client_id: YOUR_CLIENT_ID
-        access_token: YOUR_TOKEN
-        type: shows
-        list: watchlist
-    - metainfo_trakt:                 # annotate with Trakt metadata
-        client_id: YOUR_CLIENT_ID
-        type: shows
+```python
+task("tv", [
+    plugin("rss", url="https://example.com/feed"),
+    plugin("trakt",                          # filter: accept watchlist shows
+        client_id="YOUR_CLIENT_ID",
+        access_token="YOUR_TOKEN",
+        type="shows",
+        list="watchlist",
+    ),
+    plugin("metainfo_trakt",                 # annotate with Trakt metadata
+        client_id="YOUR_CLIENT_ID",
+        type="shows",
+    ),
+])
 ```
 
 ## Notes
 
 - Results are cached in `pipeliner.db` in the same directory as the config file.
-- Use `enriched` (not `trakt_id`) to check whether Trakt successfully found metadata: `require: fields: ["enriched"]`.
+- Use `enriched` (not `trakt_id`) to check whether Trakt successfully found metadata: `plugin("require", fields=["enriched"])`.

@@ -11,14 +11,10 @@ Rejects entries whose target file already exists on disk. Compares normalized fi
 
 ## Example
 
-```yaml
-tasks:
-  movies:
-    - rss:
-        url: "https://example.com/feed"
-    - exists:
-        path: /media/movies
-        recursive: true
-    - movies:
-        static: ["Inception"]
+```python
+task("movies", [
+    plugin("rss", url="https://example.com/feed"),
+    plugin("exists", path="/media/movies", recursive=True),
+    plugin("movies", static=["Inception"]),
+])
 ```

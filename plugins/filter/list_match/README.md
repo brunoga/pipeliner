@@ -14,55 +14,37 @@ This pair of plugins replaces FlexGet's `list_add` / `list_match` / `movie_list`
 
 ## Example — download movies from a persistent watchlist
 
-```yaml
-tasks:
-  # Task 1 (priority 1): use movies.from to sync Trakt watchlist into a local list
-  sync-watchlist:
-    - priority: 1
-    - rss:
-        url: "https://example.com/rss/movies"
-    - movies:
-        from:
-          - name: trakt_list
-            client_id: YOUR_CLIENT_ID
-            access_token: YOUR_ACCESS_TOKEN
-            type: movies
-            list: watchlist
-    - accept_all:
-    - list_add:
-        list: movie_watchlist
+```python
+# Task 1 (priority 1): use movies.from to sync Trakt watchlist into a local list
+task("sync-watchlist", [
+    plugin("rss", url="https://example.com/rss/movies"),
+    plugin("movies", **{"from": [
+        {"name": "trakt_list", "client_id": "YOUR_CLIENT_ID",
+         "access_token": "YOUR_ACCESS_TOKEN", "type": "movies", "list": "watchlist"},
+    ]}),
+    plugin("accept_all"),
+    plugin("list_add", list="movie_watchlist"),
+], schedule="1h")
 
-  # Task 2 (priority 10): search and download, matching against the local list
-  movies-search:
-    - priority: 10
-    - discover:
-        from:
-          - name: trakt_list
-            client_id: YOUR_CLIENT_ID
-            type: movies
-            list: watchlist
-        via:
-          - name: rss_search
-            url_template: "https://example.com/search?q={QueryEscaped}"
-        interval: 24h
-    - seen:
-    - metainfo_quality:
-    - list_match:
-        list: movie_watchlist
-        remove_on_match: true   # remove from list once downloaded
-    - pathfmt:
-        path: /media/movies
-    - transmission:
-        host: localhost
-        path: "{download_path}"
-
-schedules:
-  sync-watchlist: 1h
-  movies-search: 6h
+# Task 2 (priority 10): search and download, matching against the local list
+task("movies-search", [
+    plugin("discover", **{"from": [
+        {"name": "trakt_list", "client_id": "YOUR_CLIENT_ID",
+         "type": "movies", "list": "watchlist"},
+    ], "via": [
+        {"name": "rss_search",
+         "url_template": "https://example.com/search?q={QueryEscaped}"},
+    ], "interval": "24h"}),
+    plugin("seen"),
+    plugin("metainfo_quality"),
+    plugin("list_match", list="movie_watchlist", remove_on_match=True),
+    plugin("pathfmt", path="/media/movies", field="download_path"),
+    plugin("transmission", host="localhost", path="{download_path}"),
+], schedule="6h")
 ```
 
 ## Notes
 
 - Matching is by exact entry title. The `movies` filter (with `from`) is often the better choice when the source is a single Trakt or TVDB list — `list_match` is most useful when combining multiple sources or when you want manual list management.
-- `remove_on_match: true` is appropriate for one-shot download queues (download once, then stop). Leave it `false` (the default) if multiple tasks should be able to match the same list entry.
+- `remove_on_match=True` is appropriate for one-shot download queues (download once, then stop). Leave it `False` (the default) if multiple tasks should be able to match the same list entry.
 - The list is stored in `pipeliner.db` in the same directory as the config file, shared with all other stateful plugins.

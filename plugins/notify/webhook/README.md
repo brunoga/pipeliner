@@ -23,15 +23,15 @@ POSTs a JSON payload to an HTTP endpoint. Used via the [`notify` output plugin](
 
 ## Example
 
-```yaml
-tasks:
-  tv:
+```python
+task("tv", [
     # ... filters and output ...
-    - notify:
-        via: webhook
-        url: "https://hooks.slack.com/services/T.../B.../..."
-        headers:
-          Authorization: "Bearer token"
-        title: "{{len .Entries}} new episodes queued"
-        body: "{{range .Entries}}- {{.Title}}\n{{end}}"
+    plugin("notify",
+        via="webhook",
+        url="https://hooks.slack.com/services/T.../B.../...",
+        headers={"Authorization": "Bearer token"},
+        title="{{len .Entries}} new episodes queued",
+        body="{{range .Entries}}- {{.Title}}\n{{end}}",
+    ),
+])
 ```

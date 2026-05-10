@@ -27,24 +27,20 @@ pipeliner auth trakt --client-id=YOUR_ID --client-secret=YOUR_SECRET
 
 This runs the Trakt device auth flow interactively and stores the token in `pipeliner.db`. The token is refreshed automatically before expiry on subsequent runs. Then in your config:
 
-```yaml
-from:
-  - name: trakt_list
-    client_id: YOUR_CLIENT_ID
-    client_secret: YOUR_CLIENT_SECRET
-    type: movies
-    list: watchlist
+```python
+plugin("movies", **{"from": [
+    {"name": "trakt_list", "client_id": "YOUR_CLIENT_ID",
+     "client_secret": "YOUR_CLIENT_SECRET", "type": "movies", "list": "watchlist"},
+]})
 ```
 
 Alternatively, provide a static `access_token` obtained manually from Trakt:
 
-```yaml
-from:
-  - name: trakt_list
-    client_id: YOUR_CLIENT_ID
-    access_token: YOUR_ACCESS_TOKEN
-    type: movies
-    list: watchlist
+```python
+plugin("movies", **{"from": [
+    {"name": "trakt_list", "client_id": "YOUR_CLIENT_ID",
+     "access_token": "YOUR_ACCESS_TOKEN", "type": "movies", "list": "watchlist"},
+]})
 ```
 
 ## Fields set on each entry
@@ -58,22 +54,19 @@ from:
 
 ## Example — dynamic title source for series and movies filters
 
-```yaml
-tasks:
-  tv-watchlist:
-    - rss:
-        url: "https://example.com/rss/shows"
-    - series:
-        tracking: strict
-        quality: 720p+
-        from:
-          - name: trakt_list
-            client_id: YOUR_CLIENT_ID
-            client_secret: YOUR_CLIENT_SECRET
-            type: shows
-            list: watchlist
-    - transmission:
-        host: localhost
+```python
+task("tv-watchlist", [
+    plugin("rss", url="https://example.com/rss/shows"),
+    plugin("series",
+        tracking="strict",
+        quality="720p+",
+        **{"from": [
+            {"name": "trakt_list", "client_id": "YOUR_CLIENT_ID",
+             "client_secret": "YOUR_CLIENT_SECRET", "type": "shows", "list": "watchlist"},
+        ]},
+    ),
+    plugin("transmission", host="localhost"),
+])
 ```
 
 ## Notes
