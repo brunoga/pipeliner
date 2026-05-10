@@ -34,7 +34,7 @@ COPY --from=builder /build/pipeliner .
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-# /config holds config.yaml and the pipeliner.db state database.
+# /config holds config.star and the pipeliner.db state database.
 # Mount a volume here to persist configuration and state across restarts.
 VOLUME ["/config"]
 

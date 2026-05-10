@@ -355,9 +355,8 @@ Provider-specific fields that have no standard equivalent are still set directly
 
 External metainfo providers (TVDB, TMDb, Trakt) set `enriched = true` on success. Use it in `require` blocks to check whether metadata was found, regardless of which provider ran:
 
-```yaml
-require:
-  fields: ["enriched"]   # works with any provider — TVDB, TMDb, or Trakt
+```python
+plugin("require", fields=["enriched"])   # works with any provider — TVDB, TMDb, or Trakt
 ```
 
 Do not key on provider-specific IDs (e.g. `tvdb_id`) for this purpose — `enriched` is provider-neutral.
@@ -804,10 +803,11 @@ func (p *myPlugin) Modify(_ context.Context, _ *plugin.TaskContext, e *entry.Ent
 
 Users write patterns in config files using `{field}` syntax:
 
-```yaml
-pathfmt:
-  path: "/downloads/{title}/Season {series_season:02d}"
-  field: download_path
+```python
+plugin("pathfmt",
+    path="/downloads/{title}/Season {series_season:02d}",
+    field="download_path",
+)
 ```
 
 | Syntax | Meaning |
@@ -912,18 +912,18 @@ func resolveSearchPlugin(item any, db *store.SQLiteStore) (plugin.SearchPlugin, 
 
 ### Config shape for sub-plugins
 
-In the user's YAML, sub-plugins are expressed as either:
+In Starlark configs, sub-plugins are expressed as either a string or a dict inside the parent's `from` or `via` list:
 
-```yaml
+```python
 # String form (no extra config needed)
-from:
-  - tvdb_favorites   # use the plugin name registered in PluginName
+plugin("series", **{"from": [
+    "tvdb_favorites",   # use the plugin name registered in PluginName
+]})
 
-# Map form (plugin name plus its own config)
-from:
-  - name: tvdb_favorites
-    api_key: "..."
-    user_pin: "..."
+# Dict form (plugin name plus its own config)
+plugin("series", **{"from": [
+    {"name": "tvdb_favorites", "api_key": "...", "user_pin": "..."},
+]})
 ```
 
 Both forms are handled by `MakeFromPlugin` and `ResolveNameAndConfig`.

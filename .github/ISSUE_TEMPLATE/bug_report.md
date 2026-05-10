@@ -10,8 +10,8 @@ labels: bug
 
 ## Config (redact secrets)
 
-```yaml
-# paste the relevant parts of your config.yml here
+```python
+# paste the relevant parts of your config.star here
 ```
 
 ## Steps to reproduce

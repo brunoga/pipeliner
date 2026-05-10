@@ -20,21 +20,18 @@ Fetches shows from a TheTVDB user's favorites list and emits one entry per show.
 
 ## Example — dynamic title source for the series filter
 
-```yaml
-tasks:
-  tv-favorites:
-    - rss:
-        url: "https://example.com/rss/shows"
-    - series:
-        tracking: strict
-        quality: 720p+
-        from:
-          - name: tvdb_favorites
-            api_key: YOUR_TVDB_API_KEY
-            user_pin: YOUR_TVDB_USER_PIN
-    - deluge:
-        host: localhost
-        password: changeme
+```python
+task("tv-favorites", [
+    plugin("rss", url="https://example.com/rss/shows"),
+    plugin("series",
+        tracking="strict",
+        quality="720p+",
+        **{"from": [
+            {"name": "tvdb_favorites", "api_key": "YOUR_TVDB_API_KEY", "user_pin": "YOUR_TVDB_USER_PIN"},
+        ]},
+    ),
+    plugin("deluge", host="localhost", password="changeme"),
+])
 ```
 
 ## Notes

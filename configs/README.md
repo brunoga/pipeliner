@@ -1,28 +1,25 @@
 # Configuration
 
-Pipeliner uses a single YAML file (default `config.yml`). Pass a custom path with `--config`.
+Pipeliner uses a single Starlark file (default `config.star`). Pass a custom path with `--config`.
 
 ## Top-level structure
 
-```yaml
-variables:    # key-value substitutions applied before parsing
-  key: value
+```python
+# variables — assign values at the top of the file
+tv_root = "/media/tv"
 
-templates:    # reusable plugin blocks expanded inline with use:
-  name:
-    params: [arg1, arg2]   # optional positional parameter names
-    plugin_name:
-      option: "{$ arg1 $}"
+# templates — define reusable functions
+def common_input(feed_url):
+    return [plugin("rss", url=feed_url), plugin("seen")]
 
-tasks:        # one or more named pipelines (YAML sequence)
-  task-name:
-    - plugin_name:
-        option: value
-    - use: [name, val1, val2]  # inline template expansion
+# tasks — one or more named pipelines
+task("task-name", [
+    plugin("plugin_name", option="value"),
+] + common_input("https://example.com/rss"))
 
-schedules:    # when to run each task in daemon mode
-  task-name: 1h          # interval
-  task-name: "0 * * * *" # cron expression
+# schedules are set via the schedule= argument on task()
+task("task-name", [...], schedule="1h")          # interval
+task("task-name", [...], schedule="0 * * * *")   # cron expression
 ```
 
 ## Database
@@ -31,94 +28,74 @@ Pipeliner automatically maintains a single SQLite database named `pipeliner.db` 
 
 ## Variables
 
-Variables are substituted using `{$ key $}` anywhere in the file before YAML is parsed. They are useful for secrets and paths shared across multiple tasks.
+Variables are ordinary Starlark assignments at the top of the file. They are useful for secrets and paths shared across multiple tasks.
 
-```yaml
-variables:
-  tv_root: /media/tv
+```python
+tv_root = "/media/tv"
 
-tasks:
-  my-task:
-    - seen:
-    - pathfmt:
-        path: "{$ tv_root $}/{title}"
-        field: download_path
+task("my-task", [
+    plugin("seen"),
+    plugin("pathfmt", path=tv_root + "/{title}", field="download_path"),
+])
 ```
 
 ## Templates
 
-Templates define reusable plugin blocks expanded inline at the point of `use:`. Declare parameter names with `params:` and reference them with `{$ name $}` inside the template.
+Templates are Starlark functions that return a list of plugin calls. Declare parameters normally and use them inside the function body.
 
-Three `use:` forms are supported:
+Three call forms are supported (all just normal Starlark function calls):
 
-```yaml
-# Zero params — just the template name
-- use: template-name
+```python
+# Zero params — just call the function
+common_input()
 
 # Positional params — concise for short scalar values
-- use: [template-name, val1, val2]
+common_input("https://example.com/rss", "localhost")
 
-# Named params — required for multiline values (e.g. email body) or list values
-- use:
-    template: template-name
-    param1: value1
-    param2: ["list", "value"]
-    param3: |
-      multiline
-      value
+# Named params — clear for multiline values, list values, or many arguments
+common_input(feed_url="https://example.com/rss", host="localhost")
 ```
 
-Parameters can be any YAML type: strings, numbers, lists, or block scalars. Config validation fails if the wrong number of arguments is passed (positional) or a declared param is missing/unknown (named).
+Parameters can be any Starlark type: strings, numbers, lists, or multiline strings.
 
-```yaml
-templates:
-  common-input:
-    params: [feed_url]
-    rss:
-      url: "{$ feed_url $}"
-    seen:
+```python
+def common_input(feed_url):
+    return [
+        plugin("rss", url=feed_url),
+        plugin("seen"),
+    ]
 
-  common-output:
-    params: [dest, host]
-    pathfmt:
-      path: "{$ dest $}/{title}"
-      field: download_path
-    transmission:
-      host: "{$ host $}"
-      path: "{download_path}"
+def common_output(dest, host):
+    return [
+        plugin("pathfmt", path=dest + "/{title}", field="download_path"),
+        plugin("transmission", host=host, path="{download_path}"),
+    ]
 
-  jackett-search:
-    params: [indexers, categories]   # list params — use named form at call site
-    jackett_input:
-      indexers: "{$ indexers $}"
-      categories: "{$ categories $}"
+def jackett_search(indexers, categories):
+    return [
+        plugin("jackett_input", indexers=indexers, categories=categories),
+    ]
 
-  email-notify:
-    params: [subject, body_template]  # body_template is multiline — use named form
-    email:
-      subject: "{$ subject $}"
-      body_template: "{$ body_template $}"
+def email_notify(subject, body_template):
+    return [
+        plugin("email", subject=subject, body_template=body_template),
+    ]
 
-tasks:
-  tv-shows:
-    - use: [common-input, "https://example.com/rss/tv"]   # positional: one scalar arg
-    - series:
-        static: ["Breaking Bad"]
-    - use: [common-output, /media/tv, localhost]           # positional: two scalar args
-    - use:
-        template: jackett-search
-        indexers: ["torrenting", "showrss"]               # named: list arg
-        categories: ["5000"]
-    - use:
-        template: email-notify
-        subject: "New episodes: {{len .Entries}}"
-        body_template: |                                  # named: multiline arg
-          {{range .Entries}}<p>{{index .Fields "title"}}</p>{{end}}
+task("tv-shows",
+    common_input("https://example.com/rss/tv") +
+    [plugin("series", static=["Breaking Bad"])] +
+    common_output("/media/tv", "localhost") +
+    jackett_search(["torrenting", "showrss"], ["5000"]) +
+    email_notify(
+        subject="New episodes: {{len .Entries}}",
+        body_template="""{{range .Entries}}<p>{{index .Fields "title"}}</p>{{end}}""",
+    )
+)
 ```
 
 ## Tasks
 
-A task is an ordered chain of plugins. Phases always execute in this fixed order; within each phase, plugins run in the order they appear in the YAML:
+A task is an ordered chain of plugins. Phases always execute in this fixed order; within each phase, plugins run in the order they appear in the list:
 
 1. **input** — produces entries
 2. **filter** — accepts, rejects, or leaves entries undecided
@@ -126,38 +103,30 @@ A task is an ordered chain of plugins. Phases always execute in this fixed order
 4. **modify** — mutates entry fields
 5. **output / notify** — acts on accepted entries
 
-Each list item is a single-key mapping: the key is the plugin name and the value is its config. If a plugin takes no config, the value can be omitted (bare `- plugin_name:`) or set to `{}`.
+Each list item is a `plugin(name, ...)` call. If a plugin takes no config, call it with just the name.
 
-```yaml
-tasks:
-  example:
-    - rss:
-        url: "https://feeds.example.com/torrents"
-    - seen:
-    - series:
-        static:
-          - "My Show"
-    - metainfo_quality:
-    - pathfmt:
-        path: "/media/tv/{title}/Season {series_season:02d}"
-        field: download_path
-    - transmission:
-        host: localhost
-        port: 9091
+```python
+task("example", [
+    plugin("rss", url="https://feeds.example.com/torrents"),
+    plugin("seen"),
+    plugin("series", static=["My Show"]),
+    plugin("metainfo_quality"),
+    plugin("pathfmt", path="/media/tv/{title}/Season {series_season:02d}", field="download_path"),
+    plugin("transmission", host="localhost", port=9091),
+])
 ```
 
 ## Schedules
 
-In `daemon` mode, tasks run on the schedule defined here. Intervals (`1h`, `30m`, `24h`) and standard 5-field cron expressions are both supported.
+In `daemon` mode, tasks run on the schedule defined in the `schedule=` argument of `task()`. Intervals (`1h`, `30m`, `24h`) and standard 5-field cron expressions are both supported.
 
-```yaml
-schedules:
-  daily-task: 24h
-  hourly-task: 1h
-  cron-task: "0 6 * * *"   # daily at 06:00
+```python
+task("daily-task", [...], schedule="24h")
+task("hourly-task", [...], schedule="1h")
+task("cron-task", [...], schedule="0 6 * * *")   # daily at 06:00
 ```
 
-Tasks without a schedule entry are not run automatically by the daemon.
+Tasks without a `schedule=` argument are not run automatically by the daemon.
 
 ## Entry fields
 
@@ -258,7 +227,7 @@ Fields follow a tiered naming convention. Three universal fields have no prefix;
 | `trakt_slug` | `metainfo_trakt` | Trakt URL slug |
 | `trakt_tmdb_id` | `metainfo_trakt` | TMDb cross-reference ID |
 | `trakt_tvdb_id` | `metainfo_trakt` | TheTVDB cross-reference ID |
-| `download_path` | `pathfmt` (with `field: download_path`) | Rendered, scrubbed download path |
+| `download_path` | `pathfmt` (with `field="download_path"`) | Rendered, scrubbed download path |
 
 Custom fields can be set with the [`set`](../plugins/modify/set/README.md) plugin and read in any pattern expression.
 
@@ -293,11 +262,11 @@ Go template syntax (`{{gt .field value}}`) is still accepted for backward compat
 
 See the other files in this directory for complete working examples:
 
-- [`tv-series-deluge.yml`](tv-series-deluge.yml) — explicit show list → Deluge
-- [`movie-downloads.yml`](movie-downloads.yml) — explicit movie list + rating gate → qBittorrent
-- [`trakt-shows-transmission.yml`](trakt-shows-transmission.yml) — Trakt watchlist via `series.from` → Transmission
-- [`trakt-movies-qbittorrent.yml`](trakt-movies-qbittorrent.yml) — Trakt watchlist via `movies.from` → qBittorrent
-- [`tvdb-favorites-deluge.yml`](tvdb-favorites-deluge.yml) — TheTVDB favorites via `series.from` → Deluge
-- [`discover-trakt-qbittorrent.yml`](discover-trakt-qbittorrent.yml) — active search driven by Trakt via `discover.from` → qBittorrent
-- [`ars-technica-email.yml`](ars-technica-email.yml) — RSS → keyword filter → email
-- [`filesystem-cleanup.yml`](filesystem-cleanup.yml) — filesystem entries → exec
+- [`tv-series-deluge.star`](tv-series-deluge.star) — explicit show list → Deluge
+- [`movie-downloads.star`](movie-downloads.star) — explicit movie list + rating gate → qBittorrent
+- [`trakt-shows-transmission.star`](trakt-shows-transmission.star) — Trakt watchlist via `series.from` → Transmission
+- [`trakt-movies-qbittorrent.star`](trakt-movies-qbittorrent.star) — Trakt watchlist via `movies.from` → qBittorrent
+- [`tvdb-favorites-deluge.star`](tvdb-favorites-deluge.star) — TheTVDB favorites via `series.from` → Deluge
+- [`discover-trakt-qbittorrent.star`](discover-trakt-qbittorrent.star) — active search driven by Trakt via `discover.from` → qBittorrent
+- [`ars-technica-email.star`](ars-technica-email.star) — RSS → keyword filter → email
+- [`filesystem-cleanup.star`](filesystem-cleanup.star) — filesystem entries → exec

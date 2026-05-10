@@ -10,13 +10,10 @@ Prints each accepted entry to stdout. Useful for debugging pipelines or as a dry
 
 ## Example
 
-```yaml
-tasks:
-  debug:
-    - rss:
-        url: "https://example.com/feed"
-    - series:
-        static: ["Breaking Bad"]
-    - print:
-        format: "[{{.Task}}] {{.Title}}"
+```python
+task("debug", [
+    plugin("rss", url="https://example.com/feed"),
+    plugin("series", static=["Breaking Bad"]),
+    plugin("print", format="[{{.Task}}] {{.Title}}"),
+])
 ```

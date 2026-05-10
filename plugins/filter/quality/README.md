@@ -36,11 +36,10 @@ A spec token names a single value or a range for one quality dimension. Tokens a
 
 When a 3D token is included in the spec, non-3D entries are rejected automatically — the zero value of Format3D (not 3D) is below any 3D tier. Omitting a 3D token leaves the dimension unconstrained, accepting both 3D and non-3D entries.
 
-```yaml
-movies:
-  quality: 1080p+ 3d+      # any 3D at 1080p or better
-  quality: 1080p+ bd3d     # exactly BD3D
-  quality: 1080p+          # unchanged — accepts both 3D and non-3D
+```python
+plugin("movies", quality="1080p+ 3d+")   # any 3D at 1080p or better
+plugin("movies", quality="1080p+ bd3d")  # exactly BD3D
+plugin("movies", quality="1080p+")       # unchanged — accepts both 3D and non-3D
 ```
 
 ## Implicit CAM/TS rejection
@@ -49,33 +48,28 @@ Releases with no recognized source (CAM, TS, etc.) have source `Unknown = 0`. An
 
 ## Example — standalone filter plugin
 
-```yaml
-tasks:
-  hd-only:
-    - rss:
-        url: "https://example.com/feed"
-    - quality:
-        min: 720p
-        max: 1080p
+```python
+task("hd-only", [
+    plugin("rss", url="https://example.com/feed"),
+    plugin("quality", min="720p", max="1080p"),
+])
 ```
 
 ## Example — inline quality spec in series / movies / premiere
 
-The `series`, `movies`, and `premiere` filters accept a `quality:` key directly, eliminating the need for a separate `quality` plugin:
+The `series`, `movies`, and `premiere` filters accept a `quality` key directly, eliminating the need for a separate `quality` plugin:
 
-```yaml
-tasks:
-  tv:
-    - rss:
-        url: "https://example.com/feed"
-    - series:
-        static: ["Breaking Bad"]
-        quality: 720p+ webrip+
+```python
+task("tv", [
+    plugin("rss", url="https://example.com/feed"),
+    plugin("series", static=["Breaking Bad"], quality="720p+ webrip+"),
+])
 
-  movies-3d:
-    - rss:
-        url: "https://example.com/feed"
-    - movies:
-        static: ["Avatar", "Inception"]
-        quality: 1080p+ bd3d    # BD3D only; non-3D copies rejected automatically
+task("movies-3d", [
+    plugin("rss", url="https://example.com/feed"),
+    plugin("movies",
+        static=["Avatar", "Inception"],
+        quality="1080p+ bd3d",  # BD3D only; non-3D copies rejected automatically
+    ),
+])
 ```
