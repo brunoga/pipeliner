@@ -26,7 +26,7 @@ A spec token names a single value or a range for one quality dimension. Tokens a
 | Dimension | Values (low → high) |
 |-----------|---------------------|
 | Resolution | `sd`, `480p`, `576p`, `720p`, `1080p`, `2160p` / `4k` |
-| Source | `dvdrip`, `tvrip`, `hdtv`, `webrip`, `webdl` / `web-dl`, `bluray`, `remux` |
+| Source | `cam`, `ts` / `tc`, `scr`, `dvdrip`, `tvrip`, `hdtv`, `webrip`, `webdl` / `web-dl`, `bluray`, `remux` |
 | Codec | `xvid`, `divx`, `h264` / `x264`, `h265` / `x265` / `hevc`, `av1` |
 | Audio | `mp3`, `aac`, `dd` / `dolbydigital`, `dts`, `truehd`, `atmos` |
 | Color range | `sdr`, `hdr`, `hdr10`, `dv` / `dolbyvision` |
@@ -42,9 +42,22 @@ plugin("movies", quality="1080p+ bd3d")  # exactly BD3D
 plugin("movies", quality="1080p+")       # unchanged — accepts both 3D and non-3D
 ```
 
-## Implicit CAM/TS rejection
+## CAM/TS/SCR rejection
 
-Releases with no recognized source (CAM, TS, etc.) have source `Unknown = 0`. Any `MinSource` constraint rejects them automatically — no extra rule needed.
+Theater-recorded and pre-release sources are explicitly detected and ranked at the bottom of the source hierarchy (`CAM < TS < SCR < DVDRip`). Any source constraint rejects them automatically — no extra condition needed:
+
+```python
+plugin("movies", quality="1080p+ webrip+")  # rejects CAM, TS, SCR, DVDRip, TVRip, HDTV
+plugin("movies", quality="1080p+ dvdrip+")  # rejects CAM, TS, SCR only
+```
+
+Detected tokens:
+
+| Source | Detected markers |
+|--------|-----------------|
+| `CAM` | `CAM`, `CAMRIP`, `HDCAM` |
+| `TS` | `TS`, `HDTS`, `TC`, `HDTC`, `TELESYNC`, `TELECINE` |
+| `SCR` | `SCR`, `SCREENER`, `DVDScr`, `DVDScreener`, `BDScr` |
 
 ## Example — standalone filter plugin
 
