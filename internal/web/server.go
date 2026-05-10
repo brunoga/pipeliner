@@ -394,10 +394,6 @@ func (s *Server) apiGetConfig(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) apiSaveConfig(w http.ResponseWriter, r *http.Request) {
-	if s.configPath == "" {
-		http.Error(w, "config path not set", http.StatusNotImplemented)
-		return
-	}
 	var req struct {
 		Content string `json:"content"`
 		DryRun  bool   `json:"dry_run"`
@@ -408,7 +404,7 @@ func (s *Server) apiSaveConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	data := []byte(req.Content)
 
-	// Always validate first.
+	// Always validate first (works even without a config path on disk).
 	if s.validateConfig != nil {
 		if errs := s.validateConfig(data); len(errs) > 0 {
 			w.Header().Set("Content-Type", "application/json")
@@ -419,11 +415,16 @@ func (s *Server) apiSaveConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Dry-run: validation passed, don't write.
+	// configPath is only required for actual saves, not for validation.
 	if req.DryRun {
 		writeJSON(w, map[string]string{"status": "valid"})
 		return
 	}
 
+	if s.configPath == "" {
+		http.Error(w, "config path not set", http.StatusNotImplemented)
+		return
+	}
 	if err := os.WriteFile(s.configPath, data, 0600); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
