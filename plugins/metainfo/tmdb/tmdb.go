@@ -27,6 +27,10 @@ func init() {
 		PluginPhase: plugin.PhaseMetainfo,
 		Factory:     newPlugin,
 		Validate:    validate,
+		Schema: []plugin.FieldSchema{
+			{Key: "api_key", Type: plugin.FieldTypeString, Required: true, Hint: "TMDb API key"},
+			{Key: "cache_ttl", Type: plugin.FieldTypeDuration, Default: "24h", Hint: "How long to cache results"},
+		},
 	})
 }
 

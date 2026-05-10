@@ -36,6 +36,12 @@ func init() {
 		PluginPhase: plugin.PhaseFilter,
 		Factory:     newPlugin,
 		Validate:    validate,
+		Schema: []plugin.FieldSchema{
+			{Key: "quality", Type: plugin.FieldTypeString, Hint: "Quality spec the entry must satisfy"},
+			{Key: "episode", Type: plugin.FieldTypeInt, Default: 1, Hint: "Episode number to treat as premiere"},
+			{Key: "season", Type: plugin.FieldTypeInt, Default: 1, Hint: "Season number to match (0 = any season)"},
+			{Key: "reject_unmatched", Type: plugin.FieldTypeBool, Default: true, Hint: "Reject entries that do not parse as episodes"},
+		},
 	})
 }
 

@@ -18,6 +18,10 @@ func init() {
 		PluginPhase: plugin.PhaseFilter,
 		Factory:     newPlugin,
 		Validate:    validate,
+		Schema: []plugin.FieldSchema{
+			{Key: "min", Type: plugin.FieldTypeString, Hint: "Minimum quality, e.g. 720p"},
+			{Key: "max", Type: plugin.FieldTypeString, Hint: "Maximum quality, e.g. 1080p"},
+		},
 	})
 }
 

@@ -20,6 +20,11 @@ func init() {
 		PluginPhase: plugin.PhaseFilter,
 		Factory:     newRegexpPlugin,
 		Validate:    validate,
+		Schema: []plugin.FieldSchema{
+			{Key: "accept", Type: plugin.FieldTypeList, Hint: "Regexp patterns; entry accepted if any match"},
+			{Key: "reject", Type: plugin.FieldTypeList, Hint: "Regexp patterns; entry rejected if any match"},
+			{Key: "from", Type: plugin.FieldTypeList, Hint: "Entry fields to match against (default: [title])"},
+		},
 	})
 }
 

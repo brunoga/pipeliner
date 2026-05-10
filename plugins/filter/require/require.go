@@ -20,6 +20,9 @@ func init() {
 		PluginPhase: plugin.PhaseFilter,
 		Factory:     newPlugin,
 		Validate:    validate,
+		Schema: []plugin.FieldSchema{
+			{Key: "fields", Type: plugin.FieldTypeList, Required: true, Hint: "Entry field names that must be non-empty"},
+		},
 	})
 }
 
