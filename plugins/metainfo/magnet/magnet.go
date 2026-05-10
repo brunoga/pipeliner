@@ -41,6 +41,9 @@ func init() {
 		PluginPhase: plugin.PhaseMetainfo,
 		Factory:     newPlugin,
 		Validate:    validate,
+		Schema: []plugin.FieldSchema{
+			{Key: "resolve_timeout", Type: plugin.FieldTypeDuration, Default: "30s", Hint: "Max time to wait for DHT metadata"},
+		},
 	})
 }
 

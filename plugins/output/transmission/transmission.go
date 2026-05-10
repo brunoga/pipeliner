@@ -38,6 +38,15 @@ func init() {
 		Description: "Adds accepted torrents to a Transmission client via JSON-RPC",
 		Factory:     newPlugin,
 		Validate:    validate,
+		Schema: []plugin.FieldSchema{
+			{Key: "host", Type: plugin.FieldTypeString, Default: "localhost", Hint: "Transmission host"},
+			{Key: "port", Type: plugin.FieldTypeInt, Default: 9091, Hint: "Transmission RPC port"},
+			{Key: "username", Type: plugin.FieldTypeString, Hint: "HTTP basic auth username"},
+			{Key: "password", Type: plugin.FieldTypeString, Hint: "HTTP basic auth password"},
+			{Key: "path", Type: plugin.FieldTypePattern, Hint: "Download directory template, e.g. /data/{title}"},
+			{Key: "paused", Type: plugin.FieldTypeBool, Hint: "Add torrent in paused state"},
+			{Key: "rpc_path", Type: plugin.FieldTypeString, Default: "/transmission/rpc", Hint: "RPC endpoint path"},
+		},
 	})
 }
 

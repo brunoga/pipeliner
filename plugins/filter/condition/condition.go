@@ -41,6 +41,11 @@ func init() {
 		PluginPhase: plugin.PhaseFilter,
 		Factory:     newPlugin,
 		Validate:    validate,
+		Schema: []plugin.FieldSchema{
+			{Key: "accept", Type: plugin.FieldTypeString, Hint: "Expression; entry accepted when true"},
+			{Key: "reject", Type: plugin.FieldTypeString, Hint: "Expression; entry rejected when true"},
+			{Key: "rules", Type: plugin.FieldTypeList, Hint: "Ordered list of {accept, reject} rule objects"},
+		},
 	})
 }
 

@@ -46,6 +46,11 @@ func init() {
 		PluginPhase: plugin.PhaseFilter,
 		Factory:  newPlugin,
 		Validate: validate,
+		Schema: []plugin.FieldSchema{
+			{Key: "min_seeds", Type: plugin.FieldTypeInt, Default: 1, Hint: "Minimum seed count"},
+			{Key: "scrape", Type: plugin.FieldTypeBool, Default: true, Hint: "Scrape tracker when seed count unknown"},
+			{Key: "scrape_timeout", Type: plugin.FieldTypeDuration, Default: "15s", Hint: "Per-scrape deadline"},
+		},
 	})
 }
 

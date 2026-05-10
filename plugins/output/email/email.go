@@ -24,6 +24,17 @@ func init() {
 		PluginPhase: plugin.PhaseOutput,
 		Factory:     newPlugin,
 		Validate:    validate,
+		Schema: []plugin.FieldSchema{
+			{Key: "smtp_host", Type: plugin.FieldTypeString, Required: true, Hint: "SMTP server hostname"},
+			{Key: "smtp_port", Type: plugin.FieldTypeInt, Default: 25, Hint: "SMTP server port"},
+			{Key: "from", Type: plugin.FieldTypeString, Required: true, Hint: "Sender address"},
+			{Key: "to", Type: plugin.FieldTypeList, Required: true, Hint: "Recipient address(es)"},
+			{Key: "username", Type: plugin.FieldTypeString, Hint: "SMTP auth username"},
+			{Key: "password", Type: plugin.FieldTypeString, Hint: "SMTP auth password"},
+			{Key: "subject", Type: plugin.FieldTypeString, Hint: "Email subject Go template (default: pipeliner: N new item(s))"},
+			{Key: "body_template", Type: plugin.FieldTypeString, Hint: "Email body Go template"},
+			{Key: "html", Type: plugin.FieldTypeBool, Hint: "Send HTML email instead of plain text"},
+		},
 	})
 }
 
