@@ -7,6 +7,7 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"os"
 	"strings"
@@ -19,7 +20,7 @@ import (
 	"github.com/brunoga/pipeliner/internal/store"
 )
 
-//go:embed ui/index.html
+//go:embed ui
 var uiFS embed.FS
 
 // DaemonControl is the scheduler interface the Server uses.
@@ -152,10 +153,16 @@ func (s *Server) Start(ctx context.Context, addr string, tlsCfg *tls.Config) err
 	open.HandleFunc("POST /login", s.handleLoginPost)
 	open.HandleFunc("POST /logout", s.handleLogout)
 
+	// Static file server for CSS/JS assets embedded in the ui/ directory.
+	// All exact API and page routes registered below take priority over this.
+	subFS, _ := fs.Sub(uiFS, "ui")
+	staticFiles := http.FileServer(http.FS(subFS))
+
 	// Authenticated routes wrapped in session middleware.
 	protected := http.NewServeMux()
 	protected.HandleFunc("GET /", s.serveUI)
 	protected.HandleFunc("GET /guide", s.serveGuide)
+	protected.Handle("/", staticFiles) // catch-all for CSS/JS assets
 	protected.HandleFunc("GET /api/status", s.apiStatus)
 	protected.HandleFunc("GET /api/history", s.apiHistory)
 	protected.HandleFunc("POST /api/tasks/{name}/run", s.apiTrigger)
