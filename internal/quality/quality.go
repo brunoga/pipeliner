@@ -41,6 +41,9 @@ type Source int
 
 const (
 	SourceUnknown Source = iota
+	SourceCAM    // CAM, HDCAM — recorded inside a cinema
+	SourceTS     // TS, HDTS, TC, HDTC — telesync / telecine
+	SourceSCR    // SCR, Screener, DVDScr — pre-release copy
 	SourceDVDRip
 	SourceTVRip
 	SourceHDTV
@@ -52,6 +55,9 @@ const (
 
 var sourceNames = map[Source]string{
 	SourceUnknown: "",
+	SourceCAM:     "CAM",
+	SourceTS:      "TS",
+	SourceSCR:     "SCR",
 	SourceDVDRip:  "DVDRip",
 	SourceTVRip:   "TVRip",
 	SourceHDTV:    "HDTV",
@@ -230,7 +236,7 @@ func (q Quality) Better(other Quality) bool {
 
 var (
 	reResolution = regexp.MustCompile(`(?i)\b(4k|2160p|1080p|720p|576p|480p)\b`)
-	reSource     = regexp.MustCompile(`(?i)\b(remux|blu[\-\s]?ray|bdrip|bdremux|bd(?:25|50|100)|web[\-\s]?dl|webrip|hdtv|dvdrip|tvrip)\b`)
+	reSource     = regexp.MustCompile(`(?i)\b(remux|blu[\-\s]?ray|bdrip|bdremux|bd(?:25|50|100)|web[\-\s]?dl|webrip|hdtv|dvdrip|tvrip|hd[\-]?cam|camrip|cam\b|hd[\-]?ts|telesync|hd[\-]?tc|telecine|\bts\b|\btc\b|dvd[\-]?scr(?:eener)?|bd[\-]?scr|screener|\bscr\b)\b`)
 	reCodec      = regexp.MustCompile(`(?i)\b(av1|x265|h\.?265|hevc|x264|h\.?264|xvid|divx)\b`)
 	reColorRange = regexp.MustCompile(`(?i)\b(dolby[\s\.]?vision|dv\b|hdr10[\+]?|hdr|sdr)\b`)
 	// re3DConv matches 3D-conversion tags; checked before re3D so it always wins.
@@ -296,6 +302,15 @@ func Parse(title string) Quality {
 			q.Source = SourceDVDRip
 		case strings.Contains(ml, "tvrip"):
 			q.Source = SourceTVRip
+		// Theater-recorded and pre-release sources — lowest quality tier.
+		case strings.Contains(ml, "hdcam") || ml == "camrip" || ml == "cam":
+			q.Source = SourceCAM
+		case strings.Contains(ml, "hdts") || strings.Contains(ml, "telesync") ||
+			strings.Contains(ml, "hdtc") || strings.Contains(ml, "telecine") || ml == "ts" || ml == "tc":
+			q.Source = SourceTS
+		case strings.Contains(ml, "screener") || strings.Contains(ml, "dvdscr") ||
+			strings.Contains(ml, "bdscr") || ml == "scr":
+			q.Source = SourceSCR
 		}
 	}
 
@@ -601,6 +616,12 @@ func parseResolution(s string) (Resolution, bool) {
 
 func parseSource(s string) (Source, bool) {
 	switch strings.ToLower(strings.ReplaceAll(s, "-", "")) {
+	case "cam", "camrip", "hdcam":
+		return SourceCAM, true
+	case "ts", "hdts", "tc", "hdtc", "telesync", "telecine":
+		return SourceTS, true
+	case "scr", "screener", "dvdscr", "dvdscreener", "bdscr":
+		return SourceSCR, true
 	case "dvdrip":
 		return SourceDVDRip, true
 	case "tvrip":
