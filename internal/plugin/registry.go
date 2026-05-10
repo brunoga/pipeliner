@@ -17,8 +17,19 @@ type Factory func(cfg map[string]any, db *store.SQLiteStore) (Plugin, error)
 type Descriptor struct {
 	PluginName  string
 	Description string
+	// PluginPhase is the legacy phase identifier used by the linear task engine.
+	// New plugins should set Role instead; existing plugins may set both.
 	PluginPhase Phase
-	Factory     Factory
+	// Role is the DAG role for this plugin. If empty, EffectiveRole() derives
+	// it from PluginPhase for backward compatibility.
+	Role Role
+	// Produces lists entry field names this plugin writes to Fields.
+	// Used by the DAG validator to check that downstream nodes' Requires are met.
+	Produces []string
+	// Requires lists entry field names this plugin reads from Fields.
+	// The DAG validator ensures at least one upstream node Produces each field.
+	Requires []string
+	Factory  Factory
 	// Validate checks the plugin's configuration map and returns any errors.
 	// It is called by config.Validate before plugin construction so all
 	// config errors are surfaced at once by pipeliner check.
@@ -28,6 +39,27 @@ type Descriptor struct {
 	// but enables typed form fields in the visual pipeline editor. Plugins
 	// without a Schema get a generic key-value editor instead.
 	Schema []FieldSchema
+}
+
+// EffectiveRole returns the plugin's Role, deriving it from PluginPhase when
+// Role is not explicitly set. This allows legacy plugins registered with only
+// PluginPhase to participate in DAG-based pipelines without modification.
+func (d *Descriptor) EffectiveRole() Role {
+	if d.Role != "" {
+		return d.Role
+	}
+	switch d.PluginPhase {
+	case PhaseInput:
+		return RoleSource
+	case PhaseMetainfo, PhaseFilter, PhaseModify:
+		return RoleProcessor
+	case PhaseOutput, PhaseLearn:
+		return RoleSink
+	case PhaseFrom:
+		return RoleSource
+	default:
+		return RoleProcessor
+	}
 }
 
 var (
