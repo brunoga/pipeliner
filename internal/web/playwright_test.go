@@ -215,6 +215,7 @@ func TestE2EConfigTabLoadsStarlark(t *testing.T) {
 }
 
 func TestE2EVisualToggleShowsPalette(t *testing.T) {
+	t.Skip("visual editor hidden pending redesign")
 	ts := startTestServer(t, minimalConfig)
 	browser, stop := pwSetup(t)
 	defer stop()
@@ -248,6 +249,7 @@ func TestE2EVisualToggleShowsPalette(t *testing.T) {
 }
 
 func TestE2EVisualAddPluginFromPalette(t *testing.T) {
+	t.Skip("visual editor hidden pending redesign")
 	ts := startTestServer(t, minimalConfig)
 	browser, stop := pwSetup(t)
 	defer stop()
@@ -287,8 +289,7 @@ func TestE2EVisualAddPluginFromPalette(t *testing.T) {
 }
 
 func TestE2EVisualToTextSync(t *testing.T) {
-	// Visual changes automatically sync back to the text editor — no manual
-	// "Sync to Text" button needed.
+	t.Skip("visual editor hidden pending redesign")
 	ts := startTestServer(t, minimalConfig)
 	browser, stop := pwSetup(t)
 	defer stop()
@@ -322,6 +323,7 @@ func TestE2EVisualToTextSync(t *testing.T) {
 }
 
 func TestE2ETextToVisualSync(t *testing.T) {
+	t.Skip("visual editor hidden pending redesign")
 	ts := startTestServer(t, minimalConfig)
 	browser, stop := pwSetup(t)
 	defer stop()
