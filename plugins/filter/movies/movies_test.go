@@ -462,3 +462,58 @@ func TestMissingMoviesAndFrom(t *testing.T) {
 		t.Fatal("expected error when neither movies nor from is configured")
 	}
 }
+
+func TestSpecCheckedBeforeIsSeen_3DTaskDoesNotAcceptNon3DRepack(t *testing.T) {
+	// Regression: a non-3D film recorded by the 'movies' task (is3D=false) was
+	// being accepted by the 'movies-3d' task as a REPACK upgrade because the
+	// IsSeen lookup (using is3D=false) found the tracker record before the
+	// quality spec check ran. The spec check must come first.
+
+	db, err := store.OpenSQLite(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	tc := makeCtx()
+
+	// Shared tracker bucket — both tasks use the same "movies" bucket.
+	flatPlugin := openPluginWithDB(t, db, map[string]any{
+		"static":  []any{"Ferrari"},
+		"quality": "1080p+",
+	})
+	threeDPlugin := openPluginWithDB(t, db, map[string]any{
+		"static":  []any{"Ferrari"},
+		"quality": "3dfull",
+	})
+
+	// Step 1: flat movies task downloads Ferrari at 1080p WEB-DL (non-3D).
+	e1 := entry.New("Ferrari.2023.1080p.AMZN.WEB-DL.DDP5.1.Atmos.H.264-FLUX", "http://x.com/1")
+	if err := flatPlugin.Filter(context.Background(), tc, e1); err != nil {
+		t.Fatal(err)
+	}
+	if !e1.IsAccepted() {
+		t.Fatalf("flat movies should accept Ferrari 1080p: %s", e1.RejectReason)
+	}
+	if err := flatPlugin.Learn(context.Background(), tc, []*entry.Entry{e1}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Step 2: movies-3d task sees the REPACK version — must reject it because
+	// it is NOT 3D, even though it's a REPACK of a previously downloaded title.
+	e2 := entry.New("Ferrari.2023.REPACK.1080p.AMZN.WEB-DL.DDP5.1.Atmos.H.264-FLUX", "http://x.com/2")
+	if err := threeDPlugin.Filter(context.Background(), tc, e2); err != nil {
+		t.Fatal(err)
+	}
+	if e2.IsAccepted() {
+		t.Error("movies-3d should reject non-3D Ferrari REPACK — quality spec must be checked before IsSeen upgrade path")
+	}
+}
+
+func openPluginWithDB(t *testing.T, db *store.SQLiteStore, cfg map[string]any) *moviesPlugin {
+	t.Helper()
+	p, err := newPlugin(cfg, db)
+	if err != nil {
+		t.Fatalf("newPlugin: %v", err)
+	}
+	return p.(*moviesPlugin)
+}
