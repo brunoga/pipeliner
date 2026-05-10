@@ -165,6 +165,17 @@ func (p *moviesPlugin) Filter(ctx context.Context, tc *plugin.TaskContext, e *en
 	}
 	e.SetMovieInfo(mi)
 
+	// Check the quality spec first — the spec is an absolute gate for this
+	// task and must never be bypassed, even for REPACK/PROPER upgrades.
+	// Without this ordering, a non-3D film already recorded by the flat
+	// `movies` task (is3D=false) would be found by the `movies-3d` task's
+	// IsSeen lookup and accepted as a REPACK upgrade, skipping the 3D check.
+	if (p.spec != quality.Spec{}) && !p.spec.Matches(m.Quality) {
+		e.Reject(fmt.Sprintf("movies: %s (%d) quality %s does not match spec",
+			matchedTitle, m.Year, m.Quality.String()))
+		return nil
+	}
+
 	if p.tracker.IsSeen(matchedTitle, m.Year, is3D) {
 		if rec, ok := p.tracker.Latest(matchedTitle, is3D); ok && rec.Year == m.Year {
 			betterQuality := m.Quality.Better(rec.Quality)
@@ -176,12 +187,6 @@ func (p *moviesPlugin) Filter(ctx context.Context, tc *plugin.TaskContext, e *en
 			}
 		}
 		e.Reject(fmt.Sprintf("movies: %s (%d) already downloaded", matchedTitle, m.Year))
-		return nil
-	}
-
-	if (p.spec != quality.Spec{}) && !p.spec.Matches(m.Quality) {
-		e.Reject(fmt.Sprintf("movies: %s (%d) quality %s does not match spec",
-			matchedTitle, m.Year, m.Quality.String()))
 		return nil
 	}
 
