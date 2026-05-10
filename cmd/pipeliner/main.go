@@ -35,6 +35,7 @@ import (
 	_ "github.com/brunoga/pipeliner/plugins/filter/quality"
 	_ "github.com/brunoga/pipeliner/plugins/filter/regexp"
 	_ "github.com/brunoga/pipeliner/plugins/filter/require"
+	_ "github.com/brunoga/pipeliner/plugins/filter/dedup"
 	_ "github.com/brunoga/pipeliner/plugins/filter/seen"
 	_ "github.com/brunoga/pipeliner/plugins/filter/series"
 	_ "github.com/brunoga/pipeliner/plugins/filter/torrentalive"
