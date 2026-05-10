@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/brunoga/pipeliner/docs"
+	"github.com/brunoga/pipeliner/internal/config"
+	"github.com/brunoga/pipeliner/internal/plugin"
 	"github.com/brunoga/pipeliner/internal/store"
 )
 
@@ -162,6 +164,8 @@ func (s *Server) Start(ctx context.Context, addr string, tlsCfg *tls.Config) err
 	protected.HandleFunc("GET /api/logs", s.apiLogs)
 	protected.HandleFunc("GET /api/config", s.apiGetConfig)
 	protected.HandleFunc("POST /api/config", s.apiSaveConfig)
+	protected.HandleFunc("GET /api/plugins", s.apiPlugins)
+	protected.HandleFunc("POST /api/config/parse", s.apiConfigParse)
 	protected.HandleFunc("GET /api/db/buckets", s.apiDBBuckets)
 	protected.HandleFunc("GET /api/db/buckets/{name}", s.apiDBGetBucket)
 	protected.HandleFunc("DELETE /api/db/buckets/{name}", s.apiDBClearBucket)
@@ -434,6 +438,91 @@ func (s *Server) apiSaveConfig(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]string{"status": "pending"})
 }
 
+
+// apiPlugins returns all registered plugins with their metadata and optional
+// field schema, for use by the visual pipeline editor's plugin palette.
+func (s *Server) apiPlugins(w http.ResponseWriter, _ *http.Request) {
+	type fieldResp struct {
+		Key      string   `json:"key"`
+		Type     string   `json:"type"`
+		Required bool     `json:"required"`
+		Default  any      `json:"default,omitempty"`
+		Enum     []string `json:"enum,omitempty"`
+		Hint     string   `json:"hint,omitempty"`
+	}
+	type pluginResp struct {
+		Name        string      `json:"name"`
+		Phase       string      `json:"phase"`
+		Description string      `json:"description"`
+		Schema      []fieldResp `json:"schema"` // empty slice, never null
+	}
+
+	descs := plugin.All()
+	out := make([]pluginResp, 0, len(descs))
+	for _, d := range descs {
+		fields := make([]fieldResp, 0, len(d.Schema))
+		for _, f := range d.Schema {
+			fields = append(fields, fieldResp{
+				Key:      f.Key,
+				Type:     string(f.Type),
+				Required: f.Required,
+				Default:  f.Default,
+				Enum:     f.Enum,
+				Hint:     f.Hint,
+			})
+		}
+		out = append(out, pluginResp{
+			Name:        d.PluginName,
+			Phase:       string(d.PluginPhase),
+			Description: d.Description,
+			Schema:      fields,
+		})
+	}
+	writeJSON(w, out)
+}
+
+// apiConfigParse executes a Starlark config string server-side and returns
+// the resolved Config as JSON. Used by the visual editor's Text→Visual sync.
+func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Content string `json:"content"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	c, err := config.ParseBytes([]byte(req.Content))
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	// Build JSON-friendly response.
+	type pluginResp struct {
+		Name   string         `json:"name"`
+		Config map[string]any `json:"config"`
+	}
+	type taskResp struct {
+		Plugins  []pluginResp `json:"plugins"`
+		Schedule string       `json:"schedule,omitempty"`
+	}
+	tasks := make(map[string]taskResp, len(c.Tasks))
+	for name, pcs := range c.Tasks {
+		plugins := make([]pluginResp, len(pcs))
+		for i, pc := range pcs {
+			cfg := pc.Config
+			if cfg == nil {
+				cfg = map[string]any{}
+			}
+			plugins[i] = pluginResp{Name: pc.Name, Config: cfg}
+		}
+		tasks[name] = taskResp{Plugins: plugins, Schedule: c.Schedules[name]}
+	}
+	writeJSON(w, map[string]any{"tasks": tasks})
+}
 
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
