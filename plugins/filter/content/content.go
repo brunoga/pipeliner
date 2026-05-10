@@ -37,6 +37,10 @@ func init() {
 		PluginPhase: plugin.PhaseFilter,
 		Factory:     newPlugin,
 		Validate:    validate,
+		Schema: []plugin.FieldSchema{
+			{Key: "reject", Type: plugin.FieldTypeList, Hint: "Glob patterns; entry rejected if any file matches, e.g. *.rar"},
+			{Key: "require", Type: plugin.FieldTypeList, Hint: "Glob patterns; entry rejected if no file matches, e.g. *.mkv"},
+		},
 	})
 }
 

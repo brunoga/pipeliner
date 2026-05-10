@@ -22,6 +22,10 @@ func init() {
 		PluginPhase: plugin.PhaseInput,
 		Factory:     newPlugin,
 		Validate:    validate,
+		Schema: []plugin.FieldSchema{
+			{Key: "url", Type: plugin.FieldTypeString, Required: true, Hint: "Feed URL"},
+			{Key: "all_entries", Type: plugin.FieldTypeBool, Hint: "Accept all entries including already-seen ones"},
+		},
 	})
 }
 

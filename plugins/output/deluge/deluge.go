@@ -23,6 +23,14 @@ func init() {
 		PluginPhase: plugin.PhaseOutput,
 		Factory:     newPlugin,
 		Validate:    validate,
+		Schema: []plugin.FieldSchema{
+			{Key: "host", Type: plugin.FieldTypeString, Default: "localhost", Hint: "Deluge daemon host"},
+			{Key: "port", Type: plugin.FieldTypeInt, Default: 8112, Hint: "Deluge JSON-RPC port"},
+			{Key: "password", Type: plugin.FieldTypeString, Hint: "Deluge Web UI password"},
+			{Key: "path", Type: plugin.FieldTypePattern, Hint: "Download location template, e.g. /data/{title}"},
+			{Key: "move_completed_path", Type: plugin.FieldTypePattern, Hint: "Move-completed path template"},
+			{Key: "tls", Type: plugin.FieldTypeBool, Hint: "Use HTTPS to connect"},
+		},
 	})
 }
 

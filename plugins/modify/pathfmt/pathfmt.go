@@ -25,6 +25,10 @@ func init() {
 		PluginPhase: plugin.PhaseModify,
 		Factory:     newPlugin,
 		Validate:    validate,
+		Schema: []plugin.FieldSchema{
+			{Key: "path", Type: plugin.FieldTypePattern, Required: true, Hint: "Path template with {field} interpolation, e.g. /data/{title}/Season {series_season:02d}"},
+			{Key: "field", Type: plugin.FieldTypeString, Required: true, Hint: "Entry field to write the rendered path into"},
+		},
 	})
 }
 

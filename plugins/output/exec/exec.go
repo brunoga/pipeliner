@@ -23,6 +23,9 @@ func init() {
 		PluginPhase: plugin.PhaseOutput,
 		Factory:     newPlugin,
 		Validate:    validate,
+		Schema: []plugin.FieldSchema{
+			{Key: "command", Type: plugin.FieldTypePattern, Required: true, Hint: "Shell command with {field} interpolation, e.g. notify-send {title}"},
+		},
 	})
 }
 

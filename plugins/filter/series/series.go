@@ -34,6 +34,14 @@ func init() {
 		PluginPhase: plugin.PhaseFilter,
 		Factory:     newPlugin,
 		Validate:    validate,
+		Schema: []plugin.FieldSchema{
+			{Key: "static", Type: plugin.FieldTypeList, Hint: "Static list of show names to accept"},
+			{Key: "from", Type: plugin.FieldTypeDict, Hint: "Dynamic show list from a source plugin (e.g. tvdb_favorites, trakt_list)"},
+			{Key: "tracking", Type: plugin.FieldTypeEnum, Enum: []string{"strict", "backfill", "follow"}, Default: "strict", Hint: "Episode ordering mode"},
+			{Key: "quality", Type: plugin.FieldTypeString, Hint: "Minimum quality spec, e.g. 720p+ webrip+"},
+			{Key: "ttl", Type: plugin.FieldTypeDuration, Default: "1h", Hint: "Cache TTL for dynamic lists"},
+			{Key: "reject_unmatched", Type: plugin.FieldTypeBool, Default: true, Hint: "Reject episodes not in the show list"},
+		},
 	})
 }
 
