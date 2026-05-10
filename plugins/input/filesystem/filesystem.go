@@ -20,6 +20,11 @@ func init() {
 		PluginPhase: plugin.PhaseInput,
 		Factory:     newFilesystemPlugin,
 		Validate:    validate,
+		Schema: []plugin.FieldSchema{
+			{Key: "path", Type: plugin.FieldTypeString, Required: true, Hint: "Directory to scan"},
+			{Key: "mask", Type: plugin.FieldTypeString, Hint: "Glob pattern, e.g. *.torrent"},
+			{Key: "recursive", Type: plugin.FieldTypeBool, Hint: "Scan subdirectories"},
+		},
 	})
 }
 

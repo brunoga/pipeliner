@@ -20,6 +20,10 @@ func init() {
 		PluginPhase: plugin.PhaseFilter,
 		Factory:     newPlugin,
 		Validate:    validate,
+		Schema: []plugin.FieldSchema{
+			{Key: "fields", Type: plugin.FieldTypeList, Default: []string{"url"}, Hint: "Entry fields used to build the seen fingerprint"},
+			{Key: "local", Type: plugin.FieldTypeBool, Hint: "Isolate seen store per task instead of sharing globally"},
+		},
 	})
 }
 

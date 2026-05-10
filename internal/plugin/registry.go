@@ -24,6 +24,10 @@ type Descriptor struct {
 	// config errors are surfaced at once by pipeliner check.
 	// nil means no validation beyond what the factory enforces.
 	Validate func(cfg map[string]any) []error
+	// Schema declares the config keys accepted by this plugin. It is optional
+	// but enables typed form fields in the visual pipeline editor. Plugins
+	// without a Schema get a generic key-value editor instead.
+	Schema []FieldSchema
 }
 
 var (

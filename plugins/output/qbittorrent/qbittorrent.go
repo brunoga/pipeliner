@@ -25,6 +25,16 @@ func init() {
 		PluginPhase: plugin.PhaseOutput,
 		Factory:     newPlugin,
 		Validate:    validate,
+		Schema: []plugin.FieldSchema{
+			{Key: "host", Type: plugin.FieldTypeString, Default: "localhost", Hint: "qBittorrent host"},
+			{Key: "port", Type: plugin.FieldTypeInt, Default: 8080, Hint: "qBittorrent Web UI port"},
+			{Key: "username", Type: plugin.FieldTypeString, Hint: "Web UI username"},
+			{Key: "password", Type: plugin.FieldTypeString, Hint: "Web UI password"},
+			{Key: "savepath", Type: plugin.FieldTypePattern, Hint: "Save path template, e.g. /data/{title}"},
+			{Key: "category", Type: plugin.FieldTypeString, Hint: "qBittorrent category"},
+			{Key: "tags", Type: plugin.FieldTypeString, Hint: "Comma-separated tags"},
+			{Key: "tls", Type: plugin.FieldTypeBool, Hint: "Use HTTPS"},
+		},
 	})
 }
 
