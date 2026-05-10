@@ -11,6 +11,11 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	// Register a handful of plugins so plugin.All() is non-empty in tests.
+	_ "github.com/brunoga/pipeliner/plugins/filter/seen"
+	_ "github.com/brunoga/pipeliner/plugins/input/rss"
+	_ "github.com/brunoga/pipeliner/plugins/modify/pathfmt"
 )
 
 // stubDaemon satisfies DaemonControl with no-op implementations.
@@ -370,5 +375,212 @@ func TestSSELastEventIDHeaderParsed(t *testing.T) {
 	}
 	if !strings.Contains(body, "line two") {
 		t.Errorf("line two should be replayed, got: %s", body)
+	}
+}
+
+// ── GET /api/plugins ─────────────────────────────────────────────────────────
+
+func TestAPIPluginsReturnsArray(t *testing.T) {
+	srv := New(nil, stubDaemon{}, NewHistory(), NewBroadcaster(), "test", "u", "p")
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/plugins", srv.apiPlugins)
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	resp := get(t, ts.URL+"/api/plugins")
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status: got %d, want 200", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+		t.Errorf("content-type: got %q", ct)
+	}
+	var plugins []map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&plugins); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(plugins) == 0 {
+		t.Error("expected at least one plugin, got none")
+	}
+	// Every entry must have name, phase, description, schema.
+	for _, p := range plugins {
+		for _, field := range []string{"name", "phase", "description", "schema"} {
+			if _, ok := p[field]; !ok {
+				t.Errorf("plugin %v missing field %q", p["name"], field)
+			}
+		}
+	}
+}
+
+func TestAPIPluginsSchemaIsArrayNotNull(t *testing.T) {
+	// schema must be [] not null even for plugins without a declared schema.
+	srv := New(nil, stubDaemon{}, NewHistory(), NewBroadcaster(), "test", "u", "p")
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/plugins", srv.apiPlugins)
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	resp := get(t, ts.URL+"/api/plugins")
+	defer resp.Body.Close()
+
+	var plugins []struct {
+		Schema []any `json:"schema"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&plugins); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	for i, p := range plugins {
+		if p.Schema == nil {
+			t.Errorf("plugins[%d].schema is null, want []", i)
+		}
+	}
+}
+
+// ── POST /api/config/parse ───────────────────────────────────────────────────
+
+func newParseServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	srv := New(nil, stubDaemon{}, NewHistory(), NewBroadcaster(), "test", "u", "p")
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/config/parse", srv.apiConfigParse)
+	return httptest.NewServer(mux)
+}
+
+func TestAPIConfigParseValidStarlark(t *testing.T) {
+	ts := newParseServer(t)
+	defer ts.Close()
+
+	body, _ := json.Marshal(map[string]string{
+		"content": `task("tv", [plugin("rss", url="https://example.com")], schedule="1h")`,
+	})
+	resp := post(t, ts.URL+"/api/config/parse", "application/json", body)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status: got %d, want 200", resp.StatusCode)
+	}
+	var result map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	tasks, ok := result["tasks"].(map[string]any)
+	if !ok {
+		t.Fatalf("tasks missing or wrong type: %v", result["tasks"])
+	}
+	tv, ok := tasks["tv"].(map[string]any)
+	if !ok {
+		t.Fatalf("task 'tv' missing: %v", tasks)
+	}
+	if tv["schedule"] != "1h" {
+		t.Errorf("schedule: got %v, want 1h", tv["schedule"])
+	}
+	plugins, _ := tv["plugins"].([]any)
+	if len(plugins) != 1 {
+		t.Fatalf("plugins: got %d, want 1", len(plugins))
+	}
+	p := plugins[0].(map[string]any)
+	if p["name"] != "rss" {
+		t.Errorf("plugin name: got %v", p["name"])
+	}
+}
+
+func TestAPIConfigParseInvalidStarlark(t *testing.T) {
+	ts := newParseServer(t)
+	defer ts.Close()
+
+	body, _ := json.Marshal(map[string]string{"content": `def broken(`})
+	resp := post(t, ts.URL+"/api/config/parse", "application/json", body)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusUnprocessableEntity {
+		t.Fatalf("status: got %d, want 422", resp.StatusCode)
+	}
+	var result map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if result["error"] == "" {
+		t.Error("expected error field in response")
+	}
+}
+
+func TestAPIConfigParseFlattensFunctions(t *testing.T) {
+	// Starlark functions are resolved server-side — the parsed result is flat.
+	ts := newParseServer(t)
+	defer ts.Close()
+
+	body, _ := json.Marshal(map[string]string{"content": `
+feed = "https://example.com/rss"
+def common():
+    return [plugin("rss", url=feed), plugin("seen")]
+task("t", common())
+`})
+	resp := post(t, ts.URL+"/api/config/parse", "application/json", body)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status: got %d, want 200", resp.StatusCode)
+	}
+	var result struct {
+		Tasks map[string]struct {
+			Plugins []struct{ Name string } `json:"plugins"`
+		} `json:"tasks"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(result.Tasks["t"].Plugins) != 2 {
+		t.Errorf("want 2 plugins after function expansion, got %d", len(result.Tasks["t"].Plugins))
+	}
+}
+
+func TestAPIConfigParseBadJSON(t *testing.T) {
+	ts := newParseServer(t)
+	defer ts.Close()
+
+	resp := post(t, ts.URL+"/api/config/parse", "application/json", []byte("not json"))
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("status: got %d, want 400", resp.StatusCode)
+	}
+}
+
+// ── static asset serving ─────────────────────────────────────────────────────
+
+func TestStaticCSSServed(t *testing.T) {
+	srv := New(nil, stubDaemon{}, NewHistory(), NewBroadcaster(), "test", "u", "p")
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /{$}", srv.serveUI) // exact root only
+	mux.Handle("/", srv.staticHandler())    // catch-all for assets
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	resp := get(t, ts.URL+"/style.css")
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("style.css: got %d, want 200", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); !strings.Contains(ct, "css") {
+		t.Errorf("content-type: got %q, want css", ct)
+	}
+}
+
+func TestStaticJSServed(t *testing.T) {
+	srv := New(nil, stubDaemon{}, NewHistory(), NewBroadcaster(), "test", "u", "p")
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /{$}", srv.serveUI)
+	mux.Handle("/", srv.staticHandler())
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	for _, file := range []string{"dashboard.js", "visual-editor.js", "highlight.js"} {
+		resp := get(t, ts.URL+"/"+file)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("%s: got %d, want 200", file, resp.StatusCode)
+		}
 	}
 }
