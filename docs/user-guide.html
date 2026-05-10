@@ -415,7 +415,7 @@ task("morning-task", [...], schedule="0 7 * * *")   # every day at 07:00</code><
   <tr><td><code>video_imdb_id</code></td><td>IMDb ID</td></tr>
   <tr><td><code>video_quality</code></td><td>Parsed quality string, including 3D format when present (e.g. <code>BD3D 1080p BluRay H.265</code>)</td></tr>
   <tr><td><code>video_resolution</code></td><td>Resolution tag (e.g. <code>1080p</code>)</td></tr>
-  <tr><td><code>video_source</code></td><td>Source tag (e.g. <code>BluRay</code>, <code>WEB-DL</code>)</td></tr>
+  <tr><td><code>video_source</code></td><td>Source tag — includes theater sources: <code>CAM</code>, <code>TS</code>, <code>SCR</code>, <code>DVDRip</code>, <code>HDTV</code>, <code>WEBRip</code>, <code>WEB-DL</code>, <code>BluRay</code>, <code>Remux</code></td></tr>
   <tr><td><code>video_is_3d</code></td><td><code>true</code> when any 3D format marker is detected (3D, SBS, HOU, BD3D, etc.)</td></tr>
   <tr><td><code>video_popularity</code></td><td>Popularity score</td></tr>
   <tr><td><code>video_votes</code></td><td>Vote count</td></tr>
@@ -599,7 +599,7 @@ task("morning-task", [...], schedule="0 7 * * *")   # every day at 07:00</code><
 <table>
   <tr><th>Dimension</th><th>Values</th></tr>
   <tr><td>Resolution</td><td>sd, 480p, 576p, 720p, 1080p, 2160p/4k</td></tr>
-  <tr><td>Source</td><td>dvdrip, tvrip, hdtv, webrip, webdl/web-dl, bluray, remux</td></tr>
+  <tr><td>Source</td><td><strong>cam</strong>, <strong>ts</strong>/tc, <strong>scr</strong>, dvdrip, tvrip, hdtv, webrip, webdl/web-dl, bluray, remux (low → high)</td></tr>
   <tr><td>Codec</td><td>xvid, divx, h264/x264, h265/x265/hevc, av1</td></tr>
   <tr><td>Audio</td><td>mp3, aac, dd/dolbydigital, dts, truehd, atmos</td></tr>
   <tr><td>Color range</td><td>sdr, hdr, hdr10, dv/dolbyvision</td></tr>
