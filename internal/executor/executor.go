@@ -71,6 +71,9 @@ func New(
 // Name returns the pipeline name.
 func (ex *Executor) Name() string { return ex.name }
 
+// SetDryRun enables or disables dry-run mode on a running executor.
+func (ex *Executor) SetDryRun(v bool) { ex.dryRun = v }
+
 // Shutdown calls Shutdown() on any plugin that implements plugin.ShutdownPlugin.
 func (ex *Executor) Shutdown() {
 	for _, pi := range ex.plugins {
