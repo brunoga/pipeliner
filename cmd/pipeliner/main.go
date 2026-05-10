@@ -339,12 +339,13 @@ func cmdDaemon(args []string) int {
 		taskByName[t.Name()] = t
 	}
 
+	allSched := mergeSchedules(cfg.Schedules, cfg.GraphSchedules)
 	d := &scheduler.Daemon{}
-	if scheduled, ok := addSchedules(d, cfg.Schedules, taskByName, logger); !ok {
+	if scheduled, ok := addSchedules(d, allSched, taskByName, logger); !ok {
 		return 1
 	} else {
 		for _, s := range scheduled {
-			logger.Info("scheduled", "task", s.Name, "schedule", cfg.Schedules[s.Name])
+			logger.Info("scheduled", "task", s.Name, "schedule", allSched[s.Name])
 		}
 	}
 
@@ -407,7 +408,8 @@ func cmdDaemon(args []string) int {
 		for _, t := range newTasks {
 			newMap[t.Name()] = t
 		}
-		scheduled, ok := addSchedules(nil, newCfg.Schedules, newMap, logger)
+		newAllSched := mergeSchedules(newCfg.Schedules, newCfg.GraphSchedules)
+		scheduled, ok := addSchedules(nil, newAllSched, newMap, logger)
 		if !ok {
 			return fmt.Errorf("invalid schedules in new config")
 		}
@@ -427,7 +429,7 @@ func cmdDaemon(args []string) int {
 		if ws != nil {
 			infos := make([]web.TaskInfo, len(newTasks))
 			for i, t := range newTasks {
-				infos[i] = web.TaskInfo{Name: t.Name(), Schedule: newCfg.Schedules[t.Name()]}
+				infos[i] = web.TaskInfo{Name: t.Name(), Schedule: newAllSched[t.Name()]}
 			}
 			ws.SetTasks(infos)
 		}
@@ -451,7 +453,7 @@ func cmdDaemon(args []string) int {
 
 		taskInfos := make([]web.TaskInfo, len(tasks))
 		for i, t := range tasks {
-			taskInfos[i] = web.TaskInfo{Name: t.Name(), Schedule: cfg.Schedules[t.Name()]}
+			taskInfos[i] = web.TaskInfo{Name: t.Name(), Schedule: allSched[t.Name()]}
 		}
 		ws = web.New(taskInfos, d, hist, bcast, resolveVersion(), *webUser, *webPass)
 		ws.SetReload(reload)
@@ -489,6 +491,19 @@ func cmdDaemon(args []string) int {
 	}
 
 	return 0
+}
+
+// mergeSchedules returns a single schedule map combining linear task schedules
+// and DAG pipeline schedules. DAG schedules are preferred on name collision.
+func mergeSchedules(linear, graphs map[string]string) map[string]string {
+	out := make(map[string]string, len(linear)+len(graphs))
+	for k, v := range linear {
+		out[k] = v
+	}
+	for k, v := range graphs {
+		out[k] = v
+	}
+	return out
 }
 
 // addSchedules parses schedule expressions from cfg and registers them on d
@@ -554,10 +569,10 @@ func cmdListPlugins(_ []string) int {
 		fmt.Println("no plugins registered")
 		return 0
 	}
-	fmt.Printf("%-24s %-10s %s\n", "NAME", "PHASE", "DESCRIPTION")
-	fmt.Println(strings.Repeat("-", 60))
+	fmt.Printf("%-24s %-12s %-10s %s\n", "NAME", "ROLE", "PHASE", "DESCRIPTION")
+	fmt.Println(strings.Repeat("-", 70))
 	for _, d := range descs {
-		fmt.Printf("%-24s %-10s %s\n", d.PluginName, d.PluginPhase, d.Description)
+		fmt.Printf("%-24s %-12s %-10s %s\n", d.PluginName, d.EffectiveRole(), d.PluginPhase, d.Description)
 	}
 	return 0
 }
