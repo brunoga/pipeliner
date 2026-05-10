@@ -134,13 +134,10 @@
 
       </div><!-- ve-layout -->
 
-      <!-- sync controls -->
+      <!-- sync status -->
       <div class="ve-sync-bar" style="margin-top:8px">
-        <button class="btn-config" onclick="visualToTextSync()" title="Generate Starlark from the visual model and update the text editor">⇒ Sync to Text</button>
-        <button class="btn-config" onclick="textToVisualSync()" title="Parse the text editor's Starlark and update the visual editor">⇐ Sync from Text</button>
-        <label style="font-size:11px;color:var(--muted);display:flex;align-items:center;gap:4px;cursor:pointer">
-          <input type="checkbox" id="ve-autosync" onchange="setAutosync(this.checked)"> Auto-sync to text
-        </label>
+        <span style="font-size:11px;color:var(--muted)">Changes sync automatically to the text editor.</span>
+        <button class="btn-config" onclick="textToVisualSync()" title="Re-parse the text editor if you edited it while on this tab">↺ Re-parse</button>
         <span class="ve-sync-note" id="ve-sync-note"></span>
       </div>
     </div><!-- view-visual -->

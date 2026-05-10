@@ -287,6 +287,8 @@ func TestE2EVisualAddPluginFromPalette(t *testing.T) {
 }
 
 func TestE2EVisualToTextSync(t *testing.T) {
+	// Visual changes automatically sync back to the text editor — no manual
+	// "Sync to Text" button needed.
 	ts := startTestServer(t, minimalConfig)
 	browser, stop := pwSetup(t)
 	defer stop()
@@ -297,30 +299,25 @@ func TestE2EVisualToTextSync(t *testing.T) {
 	login(t, page, ts.url)
 	openConfigTab(t, page)
 
-	// Switch to visual mode and add a task with a plugin.
+	// Switch to visual mode — this auto-parses the current text config.
 	page.Click("#view-btn-visual")                    //nolint:errcheck
 	page.WaitForSelector("#ve-palette-body .ve-chip") //nolint:errcheck
-	page.Click(".ve-add-task")                        //nolint:errcheck
-	page.Click("#ve-palette-body .ve-chip")           //nolint:errcheck
-	page.WaitForSelector(".ve-node")                  //nolint:errcheck
 
-	// Click "Sync to Text".
-	if err := page.Click(`button:has-text("Sync to Text")`); err != nil {
-		t.Fatalf("click sync to text: %v", err)
-	}
+	// Add a new task and a plugin — each change writes back to the text editor.
+	page.Click(".ve-add-task")               //nolint:errcheck
+	page.Click("#ve-palette-body .ve-chip")  //nolint:errcheck
+	page.WaitForSelector(".ve-node")         //nolint:errcheck
 
-	// Switch back to text view.
+	// Switch back to text view and verify the editor reflects the visual state.
 	if err := page.Click("#view-btn-text"); err != nil {
 		t.Fatalf("click text toggle: %v", err)
 	}
-
-	// The text editor should now contain a task() call.
 	editorContent, err := page.InputValue("#config-editor")
 	if err != nil {
 		t.Fatalf("get editor content: %v", err)
 	}
 	if editorContent == "" {
-		t.Error("text editor is empty after Visual→Text sync")
+		t.Error("text editor is empty — visual changes should auto-sync to text")
 	}
 }
 
@@ -341,13 +338,9 @@ func TestE2ETextToVisualSync(t *testing.T) {
 		t.Fatalf("fill editor: %v", err)
 	}
 
-	// Switch to visual mode and click "Sync from Text".
-	page.Click("#view-btn-visual")         //nolint:errcheck
-	page.WaitForSelector("#ve-task-bar")   //nolint:errcheck
-
-	if err := page.Click(`button:has-text("Sync from Text")`); err != nil {
-		t.Fatalf("click sync from text: %v", err)
-	}
+	// Switching to visual automatically parses the text config — no button needed.
+	page.Click("#view-btn-visual")       //nolint:errcheck
+	page.WaitForSelector("#ve-task-bar") //nolint:errcheck
 
 	// The task tab should show the task name.
 	if _, err := page.WaitForSelector(`.ve-task-tab:has-text("my-tv-task")`, playwright.PageWaitForSelectorOptions{
