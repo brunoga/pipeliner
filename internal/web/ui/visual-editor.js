@@ -9,9 +9,9 @@ const ve = {
     activeTask: 0,
     selectedPlugin: -1,
   },
-  autosync: false,
   dragSrcType: null,    // 'palette' | 'card'
   dragSrcIdx: -1,
+  syncing: false,       // prevents re-entrant sync loops
 };
 
 const PHASE_ORDER = ['input','metainfo','filter','modify','output','learn','from'];
@@ -22,10 +22,16 @@ let currentView = 'text';
 
 function switchView(view) {
   if (view === currentView) return;
-  if (view === 'visual' && !ve.plugins.length) {
-    loadPalette().then(() => doSwitchView(view));
+  if (view === 'visual') {
+    // Always parse the current text config when switching to visual so the
+    // two views are always in sync.
+    const load = ve.plugins.length ? Promise.resolve() : loadPalette();
+    load.then(() => {
+      doSwitchView('visual');
+      textToVisualSync();
+    });
   } else {
-    doSwitchView(view);
+    doSwitchView('text');
   }
 }
 
@@ -469,29 +475,16 @@ function wireGenericKV(body, plugin) {
   });
 }
 
-// ── auto-sync ──
-
-function setAutosync(on) {
-  ve.autosync = on;
-  if (on) visualToTextSync();
-}
+// ── model change → always write back to text editor ──
 
 function onModelChange() {
-  if (ve.autosync) {
-    const star = visualToStarlark();
-    document.getElementById('config-editor').value = star;
-    syncHighlight();
-  }
-}
-
-// ── sync: visual → text ──
-
-function visualToTextSync() {
+  if (ve.syncing) return;
   const star = visualToStarlark();
   document.getElementById('config-editor').value = star;
   syncHighlight();
-  setSyncNote('✓ Text updated');
 }
+
+// ── sync: visual → text (called by onModelChange automatically) ──
 
 function visualToStarlark() {
   const m = ve.model;
@@ -567,7 +560,9 @@ async function textToVisualSync() {
       return;
     }
     const { tasks } = await r.json();
-    // Rebuild model from parsed config
+    // Populate model inside the syncing guard so onModelChange doesn't
+    // immediately write the flattened Starlark back over the text editor.
+    ve.syncing = true;
     ve.model.tasks = Object.entries(tasks || {}).map(([name, t]) => ({
       name,
       schedule: t.schedule || '',
@@ -575,13 +570,15 @@ async function textToVisualSync() {
     }));
     ve.model.activeTask = 0;
     ve.model.selectedPlugin = -1;
-    ve.model.variables = []; // can't recover variables from flat parse
+    ve.model.variables = [];
     renderVars();
     renderTaskTabs();
     renderCanvas();
     renderParamPanel();
-    setSyncNote('✓ Visual updated' + (ve.model.tasks.length ? '' : ' (no tasks found)'));
+    ve.syncing = false;
+    setSyncNote(ve.model.tasks.length ? '' : '(no tasks found)');
   } catch(e) {
+    ve.syncing = false;
     setSyncNote('✗ ' + String(e));
   }
 }
