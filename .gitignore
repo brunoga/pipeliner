@@ -9,3 +9,4 @@ cmd/pipeliner/pipeliner
 
 # editor and tool metadata
 .claude/
+CLAUDE.md
