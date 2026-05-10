@@ -11,10 +11,9 @@ the `via` config key. It cannot be used directly as a task-level plugin.
 
 ## Config
 
-```yaml
-# inline in discover.via:
-- name: rss_search
-  url_template: "https://example.com/search?q={{.QueryEscaped}}"
+```python
+# inline in discover via list:
+{"name": "rss_search", "url_template": "https://example.com/search?q={{.QueryEscaped}}"}
 ```
 
 | Key            | Description                                           |
@@ -27,14 +26,15 @@ the `via` config key. It cannot be used directly as a task-level plugin.
 
 ## Example
 
-```yaml
-tasks:
-  discover-tv:
-    - discover:
-        titles:
-          - "Breaking Bad"
-        via:
-          - name: rss_search
-            url_template: "https://jackett.example.com/api/v2.0/indexers/all/results/torznab/api?t=search&q={{.QueryEscaped}}&apikey=${JACKETT_API_KEY}"
-        interval: 6h
+```python
+task("discover-tv", [
+    plugin("discover", **{
+        "titles": ["Breaking Bad"],
+        "via": [
+            {"name": "rss_search",
+             "url_template": "https://jackett.example.com/api/v2.0/indexers/all/results/torznab/api?t=search&q={{.QueryEscaped}}&apikey=" + env("JACKETT_API_KEY")},
+        ],
+        "interval": "6h",
+    }),
+])
 ```

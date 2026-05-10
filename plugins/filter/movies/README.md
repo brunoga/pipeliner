@@ -23,13 +23,11 @@ At least one of `static` or `from` is required.
 
 Each entry is a plugin name string or an object with a `name` key plus plugin-specific config:
 
-```yaml
-from:
-  - name: trakt_list
-    client_id: YOUR_CLIENT_ID
-    access_token: YOUR_ACCESS_TOKEN
-    type: movies
-    list: watchlist
+```python
+plugin("movies", **{"from": [
+    {"name": "trakt_list", "client_id": "YOUR_CLIENT_ID",
+     "access_token": "YOUR_ACCESS_TOKEN", "type": "movies", "list": "watchlist"},
+]})
 ```
 
 ## Fields set on each entry
@@ -61,9 +59,8 @@ The 3D format is included in the `video_quality` string (e.g. `BD3D 1080p BluRay
 
 Filtering out 3D releases entirely:
 
-```yaml
-condition:
-  reject: 'video_is_3d == true'
+```python
+plugin("condition", reject="video_is_3d == true")
 ```
 
 ## Debug logging
@@ -74,50 +71,42 @@ Run with `--log-level debug --log-plugin movies` to see (combine plugins with a 
 
 ## Example — static list
 
-```yaml
-tasks:
-  movies:
-    - rss:
-        url: "https://example.com/rss/movies"
-    - movies:
-        quality: 1080p+
-        static:
-          - Inception
-          - Interstellar
-          - "The Dark Knight"
-    - deluge:
-        host: localhost
+```python
+task("movies", [
+    plugin("rss", url="https://example.com/rss/movies"),
+    plugin("movies",
+        quality="1080p+",
+        static=["Inception", "Interstellar", "The Dark Knight"],
+    ),
+    plugin("deluge", host="localhost"),
+])
 ```
 
 ## Example — dynamic list from Trakt watchlist
 
-```yaml
-tasks:
-  movies-watchlist:
-    - rss:
-        url: "https://example.com/rss/movies"
-    - movies:
-        quality: 1080p+
-        ttl: 4h
-        from:
-          - name: trakt_list
-            client_id: YOUR_TRAKT_CLIENT_ID
-            access_token: YOUR_TRAKT_ACCESS_TOKEN
-            type: movies
-            list: watchlist
-    - condition:
-        reject: 'video_is_3d == true'    # exclude all 3D releases
-    - deluge:
-        host: localhost
+```python
+task("movies-watchlist", [
+    plugin("rss", url="https://example.com/rss/movies"),
+    plugin("movies",
+        quality="1080p+",
+        ttl="4h",
+        **{"from": [
+            {"name": "trakt_list", "client_id": "YOUR_TRAKT_CLIENT_ID",
+             "access_token": "YOUR_TRAKT_ACCESS_TOKEN", "type": "movies", "list": "watchlist"},
+        ]},
+    ),
+    plugin("condition", reject="video_is_3d == true"),  # exclude all 3D releases
+    plugin("deluge", host="localhost"),
+])
 ```
 
 To accept only BD3D quality or better among 3D releases (and still download non-3D copies independently), use the `video_quality` field which includes the 3D format string:
 
-```yaml
-condition:
-  rules:
+```python
+plugin("condition", rules=[
     # reject 3D releases that are not BD3D
-    - reject: 'video_is_3d == true and not contains(video_quality, "BD3D")'
+    {"reject": 'video_is_3d == true and not contains(video_quality, "BD3D")'},
+])
 ```
 
 ## Notes

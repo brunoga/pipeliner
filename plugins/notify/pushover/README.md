@@ -12,9 +12,10 @@ Sends notifications via the [Pushover](https://pushover.net/) API.
 
 ## Example
 
-```yaml
-notify:
-  pushover:
-    user: "${PUSHOVER_USER}"
-    token: "${PUSHOVER_TOKEN}"
+```python
+plugin("notify",
+    via="pushover",
+    user=env("PUSHOVER_USER"),
+    token=env("PUSHOVER_TOKEN"),
+)
 ```

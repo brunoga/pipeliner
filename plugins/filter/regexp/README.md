@@ -14,19 +14,17 @@ At least one of `accept` or `reject` is required.
 
 ## Example
 
-```yaml
-tasks:
-  articles:
-    - rss:
-        url: "https://feeds.example.com/tech"
-    - regexp:
-        accept:
-          - "(?i)golang"
-          - "(?i)kubernetes"
-        reject:
-          - "(?i)sponsored"
-    - email:
-        smtp_host: smtp.example.com
-        from: me@example.com
-        to: me@example.com
+```python
+task("articles", [
+    plugin("rss", url="https://feeds.example.com/tech"),
+    plugin("regexp",
+        accept=["(?i)golang", "(?i)kubernetes"],
+        reject=["(?i)sponsored"],
+    ),
+    plugin("email",
+        smtp_host="smtp.example.com",
+        **{"from": "me@example.com"},
+        to="me@example.com",
+    ),
+])
 ```
