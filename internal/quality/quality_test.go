@@ -734,3 +734,74 @@ func TestMarshalJSONUnknownQualityOmitsStringField(t *testing.T) {
 		t.Errorf("empty quality should not emit string field, got: %s", b)
 	}
 }
+
+// ── CAM / TS / SCR source detection ──────────────────────────────────────────
+
+func TestParseDetectsCAM(t *testing.T) {
+	cases := []struct {
+		title  string
+		source Source
+	}{
+		{"Ferrari.2023.CAM.x264-GROUP", SourceCAM},
+		{"Ferrari.2023.HDCAM.1080p.x264", SourceCAM},
+		{"Ferrari.2023.CAMRip.x264", SourceCAM},
+		{"Ferrari.2023.TS.x264-GROUP", SourceTS},
+		{"Ferrari.2023.HDTS.1080p.x264", SourceTS},
+		{"Ferrari.2023.HDTC.x264", SourceTS},
+		{"Ferrari.2023.TC.x264-GROUP", SourceTS},
+		{"Ferrari.2023.TELESYNC.x264", SourceTS},
+		{"Ferrari.2023.DVDScr.x264", SourceSCR},
+		{"Ferrari.2023.SCR.x264-GROUP", SourceSCR},
+		{"Ferrari.2023.Screener.x264", SourceSCR},
+	}
+	for _, tc := range cases {
+		q := Parse(tc.title)
+		if q.Source != tc.source {
+			t.Errorf("Parse(%q): source got %v (%d), want %v (%d)",
+				tc.title, sourceNames[q.Source], q.Source, sourceNames[tc.source], tc.source)
+		}
+	}
+}
+
+func TestCAMIsLowerThanDVDRip(t *testing.T) {
+	if SourceCAM >= SourceDVDRip {
+		t.Errorf("SourceCAM (%d) must be < SourceDVDRip (%d)", SourceCAM, SourceDVDRip)
+	}
+	if SourceTS >= SourceDVDRip {
+		t.Errorf("SourceTS (%d) must be < SourceDVDRip (%d)", SourceTS, SourceDVDRip)
+	}
+	if SourceSCR >= SourceDVDRip {
+		t.Errorf("SourceSCR (%d) must be < SourceDVDRip (%d)", SourceSCR, SourceDVDRip)
+	}
+	if SourceCAM >= SourceTS {
+		t.Errorf("SourceCAM (%d) must be < SourceTS (%d)", SourceCAM, SourceTS)
+	}
+	if SourceTS >= SourceSCR {
+		t.Errorf("SourceTS (%d) must be < SourceSCR (%d)", SourceTS, SourceSCR)
+	}
+}
+
+func TestSpecRejectsCAMWhenMinSourceDVDRip(t *testing.T) {
+	spec, err := ParseSpec("1080p+ dvdrip+")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cam := Parse("Ferrari.2023.CAM.1080p.x264")
+	if spec.Matches(cam) {
+		t.Error("1080p+ dvdrip+ spec should reject a CAM 1080p release")
+	}
+	webdl := Parse("Ferrari.2023.1080p.AMZN.WEB-DL.H264")
+	if !spec.Matches(webdl) {
+		t.Error("1080p+ dvdrip+ spec should accept a WEB-DL 1080p release")
+	}
+}
+
+func TestVideoSourceFieldSetForCAM(t *testing.T) {
+	q := Parse("Oppenheimer.2023.CAM.x264")
+	if q.Source != SourceCAM {
+		t.Errorf("source: got %v, want CAM", sourceNames[q.Source])
+	}
+	if sourceNames[SourceCAM] != "CAM" {
+		t.Errorf("sourceNames[SourceCAM]: got %q, want CAM", sourceNames[SourceCAM])
+	}
+}
