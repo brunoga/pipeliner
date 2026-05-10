@@ -260,11 +260,3 @@ function showTab(name) {
     }
   }
 }
-
-
-// ── boot ──────────────────────────────────────────────────────────────────────
-
-refresh();
-setInterval(refresh, 10000);
-connectLogs();
-</script>

@@ -51,7 +51,9 @@
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
       <div class="view-toggle">
         <button class="view-btn active" id="view-btn-text"   onclick="switchView('text')">✏ Text</button>
+        <!-- Visual editor hidden pending redesign
         <button class="view-btn"        id="view-btn-visual" onclick="switchView('visual')">⬡ Visual</button>
+        -->
       </div>
       <div class="config-toolbar" style="margin:0">
         <button class="btn-config" onclick="validateConfig()">Validate</button>
@@ -134,13 +136,10 @@
 
       </div><!-- ve-layout -->
 
-      <!-- sync controls -->
+      <!-- sync status -->
       <div class="ve-sync-bar" style="margin-top:8px">
-        <button class="btn-config" onclick="visualToTextSync()" title="Generate Starlark from the visual model and update the text editor">⇒ Sync to Text</button>
-        <button class="btn-config" onclick="textToVisualSync()" title="Parse the text editor's Starlark and update the visual editor">⇐ Sync from Text</button>
-        <label style="font-size:11px;color:var(--muted);display:flex;align-items:center;gap:4px;cursor:pointer">
-          <input type="checkbox" id="ve-autosync" onchange="setAutosync(this.checked)"> Auto-sync to text
-        </label>
+        <span style="font-size:11px;color:var(--muted)">Changes sync automatically to the text editor.</span>
+        <button class="btn-config" onclick="textToVisualSync()" title="Re-parse the text editor if you edited it while on this tab">↺ Re-parse</button>
         <span class="ve-sync-note" id="ve-sync-note"></span>
       </div>
     </div><!-- view-visual -->
@@ -182,5 +181,12 @@
 <script src="visual-editor.js"></script>
 <script src="database.js"></script>
 <script src="trakt.js"></script>
+<script>
+// Boot — runs after all scripts are loaded so shared globals (dbLoaded, etc.)
+// are guaranteed to be declared before the first refresh() call.
+refresh();
+setInterval(refresh, 10000);
+connectLogs();
+</script>
 </body>
 </html>
