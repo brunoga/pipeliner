@@ -24,26 +24,27 @@ Go template syntax (`{{gt .field value}}`) is also accepted for backward compati
 
 ### Single rule
 
-```yaml
-condition:
-  reject: 'tvdb_language != "" and tvdb_language != "English"'
-  accept: 'tmdb_vote_average >= 7.0'
+```python
+plugin("condition",
+    reject='tvdb_language != "" and tvdb_language != "English"',
+    accept="tmdb_vote_average >= 7.0",
+)
 ```
 
 Both `accept` and `reject` are optional; at least one must be present. Within a rule, `reject` is evaluated before `accept`.
 
 ### Multiple rules (`rules` list)
 
-YAML does not allow duplicate keys — use `rules` when you need more than one condition:
+Use `rules` when you need more than one condition:
 
-```yaml
-condition:
-  rules:
-    - reject: 'tvdb_language != "" and tvdb_language != "English"'
-    - reject: 'tvdb_genres contains "Documentary"'
-    - reject: 'tvdb_genres contains "Reality"'
-    - reject: 'tvdb_first_air_date != "" and tvdb_first_air_date < daysago(365)'
-    - accept: 'tmdb_vote_average >= 7.0'
+```python
+plugin("condition", rules=[
+    {"reject": 'tvdb_language != "" and tvdb_language != "English"'},
+    {"reject": 'tvdb_genres contains "Documentary"'},
+    {"reject": 'tvdb_genres contains "Reality"'},
+    {"reject": 'tvdb_first_air_date != "" and tvdb_first_air_date < daysago(365)'},
+    {"accept": "tmdb_vote_average >= 7.0"},
+])
 ```
 
 Rules are evaluated in order; the first one that fires terminates processing. `reject` takes precedence over `accept` within the same rule.
@@ -70,28 +71,26 @@ reason="condition: tvdb_genres contains \"Documentary\""
 
 ## Example — TV series discovery filter
 
-```yaml
-tasks:
-  discover:
-    - rss:
-        url: "https://example.com/feed"
-    - metainfo_tvdb:
-        api_key: YOUR_KEY
-    - condition:
-        rules:
-          - reject: 'tvdb_language != "" and tvdb_language != "English"'
-          - reject: 'tvdb_genres contains "Documentary"'
-          - reject: 'tvdb_genres contains "Reality"'
-          - reject: 'tvdb_genres contains "Game Show"'
-          - reject: 'tvdb_first_air_date != "" and tvdb_first_air_date < daysago(365)'
-    - premiere:
-        quality: 720p+ webrip+
+```python
+task("discover", [
+    plugin("rss", url="https://example.com/feed"),
+    plugin("metainfo_tvdb", api_key="YOUR_KEY"),
+    plugin("condition", rules=[
+        {"reject": 'tvdb_language != "" and tvdb_language != "English"'},
+        {"reject": 'tvdb_genres contains "Documentary"'},
+        {"reject": 'tvdb_genres contains "Reality"'},
+        {"reject": 'tvdb_genres contains "Game Show"'},
+        {"reject": 'tvdb_first_air_date != "" and tvdb_first_air_date < daysago(365)'},
+    ]),
+    plugin("premiere", quality="720p+ webrip+"),
+])
 ```
 
 ## Example — rating gate
 
-```yaml
-condition:
-  reject: 'tmdb_vote_average < 6.5'
-  accept: 'tmdb_vote_average >= 7.0'
+```python
+plugin("condition",
+    reject="tmdb_vote_average < 6.5",
+    accept="tmdb_vote_average >= 7.0",
+)
 ```

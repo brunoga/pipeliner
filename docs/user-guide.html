@@ -173,7 +173,7 @@ td code{font-size:12px}
 
 <p>Pipeliner is a media-automation daemon that pulls entries from RSS feeds, torrent indexers, or local filesystems, enriches them with metadata, applies configurable filters, and hands accepted entries off to download clients, notification services, or shell commands.</p>
 
-<p>It is heavily inspired by <a href="https://flexget.com" target="_blank">FlexGet</a>. Pipelines are described in YAML. Each task chains a sequence of plugins. The scheduler runs tasks on cron or interval schedules, persisting state in a SQLite database so each entry is processed only once.</p>
+<p>It is heavily inspired by <a href="https://flexget.com" target="_blank">FlexGet</a>. Pipelines are described in <a href="https://github.com/bazelbuild/starlark/blob/master/spec.md" target="_blank">Starlark</a> — a deterministic, side-effect-free dialect of Python used by Bazel and Buck. Each task chains a sequence of plugins. The scheduler runs tasks on cron or interval schedules, persisting state in a SQLite database so each entry is processed only once.</p>
 
 <h3>Key concepts</h3>
 <ul>
@@ -214,56 +214,57 @@ make build        # or: go build -o pipeliner ./cmd/pipeliner</code></pre>
 <!-- ═══════════════════════════════════════════════════════════ -->
 <h2 id="quickstart">Quick Start</h2>
 
-<p>Create <code>config.yml</code>:</p>
-<pre><code><span class="y-key">tasks</span>:
-  <span class="y-key">breaking-bad</span>:
-    <span class="y-key">rss</span>:
-      <span class="y-key">url</span>: <span class="y-str">"https://example.com/rss"</span>
-    <span class="y-key">seen</span>:
-    <span class="y-key">series</span>:
-      <span class="y-key">shows</span>:
-        - <span class="y-str">"Breaking Bad"</span>
-    <span class="y-key">transmission</span>:
-      <span class="y-key">host</span>: <span class="y-str">localhost</span>
-      <span class="y-key">port</span>: <span class="y-num">9091</span>
-
-<span class="y-key">schedules</span>:
-  <span class="y-key">breaking-bad</span>: <span class="y-str">1h</span></code></pre>
+<p>Create <code>config.star</code>:</p>
+<pre><code>task("breaking-bad",
+    [
+        plugin("rss", url="https://example.com/rss"),
+        plugin("seen"),
+        plugin("series", static=["Breaking Bad"]),
+        plugin("transmission", host="localhost", port=9091),
+    ],
+    schedule="1h")</code></pre>
 
 <p>Run once to test:</p>
-<pre><code>pipeliner run --config config.yml</code></pre>
+<pre><code>pipeliner run --config config.star</code></pre>
 
 <p>Run as a daemon (with web UI):</p>
-<pre><code>pipeliner daemon --config config.yml --web :8080 \
+<pre><code>pipeliner daemon --config config.star --web :8080 \
   --web-user admin --web-password secret</code></pre>
 
 <p>Validate config without running:</p>
-<pre><code>pipeliner check --config config.yml</code></pre>
+<pre><code>pipeliner check --config config.star</code></pre>
 
 <!-- ═══════════════════════════════════════════════════════════ -->
 <h2 id="config-file">Configuration File</h2>
 
-<p>Pipeliner uses a single YAML file (default: <code>config.yml</code>). Pass a custom path with <code>--config</code>.</p>
+<p>Pipeliner uses a single <a href="https://github.com/bazelbuild/starlark/blob/master/spec.md" target="_blank">Starlark</a> script (default: <code>config.star</code>). Pass a custom path with <code>--config</code>. Starlark is a deterministic, side-effect-free Python dialect — if you know Python, you already know Starlark.</p>
 
-<h3>Top-level structure</h3>
-<pre><code><span class="y-key">variables</span>:          <span class="y-comment"># substitution values applied before parsing</span>
-  <span class="y-key">tv_root</span>: <span class="y-str">/media/tv</span>
+<h3>Built-in functions</h3>
+<p>Three functions are available globally in every config script:</p>
+<table>
+  <tr><th>Function</th><th>Description</th></tr>
+  <tr><td><code>plugin(name, key=val, …)</code></td><td>Create a plugin config using keyword arguments</td></tr>
+  <tr><td><code>plugin(name, {…})</code></td><td>Create a plugin config using a dict (required when config keys conflict with Starlark identifiers)</td></tr>
+  <tr><td><code>task(name, plugins, schedule="", priority=0)</code></td><td>Register a named task; <code>plugins</code> is a flat list of <code>plugin()</code> calls</td></tr>
+  <tr><td><code>env(name, default=None)</code></td><td>Read an environment variable; errors if unset and no default given</td></tr>
+  <tr><td><code>load("./other.star", "sym")</code></td><td>Import a symbol from another <code>.star</code> file (Starlark built-in)</td></tr>
+</table>
 
-<span class="y-key">templates</span>:          <span class="y-comment"># reusable plugin blocks, expanded with use:</span>
-  <span class="y-key">base</span>:
-    <span class="y-key">params</span>: [<span class="y-str">feed_url</span>]   <span class="y-comment"># positional or named args</span>
-    <span class="y-key">rss</span>:
-      <span class="y-key">url</span>: <span class="y-str">"{$ feed_url $}"</span>
-    <span class="y-key">seen</span>:
+<h3>Structure overview</h3>
+<pre><code># Variables — ordinary Starlark assignments
+tv_root  = "/media/tv"
+tvdb_key = env("TVDB_API_KEY")   # from environment
 
-<span class="y-key">tasks</span>:              <span class="y-comment"># one or more named pipelines (YAML sequence)</span>
-  <span class="y-key">my-task</span>:
-    - <span class="y-key">use</span>: [<span class="y-str">base</span>, <span class="y-str">"https://example.com/rss"</span>]   <span class="y-comment"># positional</span>
-    - <span class="y-key">series</span>:
-        <span class="y-key">static</span>: [<span class="y-str">"My Show"</span>]
+# Templates — Starlark functions returning lists of plugin() calls
+def common_input(url):
+    return [plugin("rss", url=url), plugin("seen")]
 
-<span class="y-key">schedules</span>:          <span class="y-comment"># when to run each task in daemon mode</span>
-  <span class="y-key">my-task</span>: <span class="y-str">1h</span></code></pre>
+# Tasks — call task() once per pipeline
+task("my-task",
+    common_input("https://example.com/rss") + [
+        plugin("series", static=["My Show"]),
+    ],
+    schedule="1h")</code></pre>
 
 <h3>Database</h3>
 <p>Pipeliner automatically maintains <code>pipeliner.db</code> (SQLite) in the same directory as the config file. All stateful plugins (<code>seen</code>, <code>series</code>, <code>movies</code>, <code>premiere</code>, <code>upgrade</code>, the TVDB/Trakt caches, and persistent lists) share this file. No configuration needed.</p>
@@ -271,108 +272,90 @@ make build        # or: go build -o pipeliner ./cmd/pipeliner</code></pre>
 <!-- ═══════════════════════════════════════════════════════════ -->
 <h2 id="variables">Variables</h2>
 
-<p>Two substitution syntaxes are applied to the raw YAML bytes before parsing:</p>
+<p>Variables are ordinary Starlark assignments at the top of the script. Use <code>env(name)</code> to read from the process environment. Both produce regular Starlark strings usable anywhere.</p>
 
 <table>
-  <tr><th>Syntax</th><th>Source</th><th>Example</th></tr>
-  <tr><td><code>{$ key $}</code></td><td><code>variables:</code> block in config</td><td><code>{$ tv_root $}</code></td></tr>
-  <tr><td><code>${ENV_VAR}</code></td><td>Process environment</td><td><code>${TVDB_API_KEY}</code></td></tr>
+  <tr><th>Pattern</th><th>Description</th><th>Example</th></tr>
+  <tr><td><code>name = "value"</code></td><td>Inline literal</td><td><code>tv_root = "/media/tv"</code></td></tr>
+  <tr><td><code>name = env("VAR")</code></td><td>Required env var — errors if unset</td><td><code>api_key = env("TVDB_API_KEY")</code></td></tr>
+  <tr><td><code>name = env("VAR", default="x")</code></td><td>Optional env var with fallback</td><td><code>host = env("DELUGE_HOST", default="localhost")</code></td></tr>
 </table>
 
-<pre><code><span class="y-key">variables</span>:
-  <span class="y-key">tv_root</span>: <span class="y-str">/media/tv</span>
-  <span class="y-key">tvdb_key</span>: <span class="y-str">YOUR_KEY</span>
+<pre><code>tv_root  = "/media/tv"
+tvdb_key = env("TVDB_API_KEY")   # must be set in the process environment
 
-<span class="y-key">tasks</span>:
-  <span class="y-key">tv</span>:
-    - <span class="y-key">metainfo_tvdb</span>:
-        <span class="y-key">api_key</span>: <span class="y-str">"{$ tvdb_key $}"</span>
-    - <span class="y-key">pathfmt</span>:
-        <span class="y-key">path</span>: <span class="y-str">"{$ tv_root $}/{title}"</span>
-        <span class="y-key">field</span>: <span class="y-str">download_path</span></code></pre>
+task("tv", [
+    plugin("metainfo_tvdb", api_key=tvdb_key),
+    plugin("pathfmt", path=tv_root + "/{title}", field="download_path"),
+])</code></pre>
 
-<div class="warn">Substituted values are injected into raw YAML before parsing. Values containing YAML metacharacters (colons, newlines) can alter config structure. Only substitute values from trusted sources.</div>
+<p>Because variables are plain Starlark values you can also compute them at config load time using string concatenation, conditionals, or any other Starlark expression. There is no special substitution syntax — the language itself handles composition.</p>
 
 <!-- ═══════════════════════════════════════════════════════════ -->
 <h2 id="templates">Templates</h2>
 
-<p>Templates define reusable plugin blocks expanded <em>inline</em> at any position in a task using <code>use:</code>. Declare parameter names with <code>params:</code> and reference them with <code>{$ name $}</code> inside the template. Three <code>use:</code> forms are supported:</p>
+<p>Templates are ordinary <a href="https://github.com/bazelbuild/starlark/blob/master/spec.md#function-definitions" target="_blank">Starlark functions</a> that return a list of <code>plugin()</code> calls. Because they are real functions, they support any parameter type (strings, numbers, lists, dicts), default values, conditional logic, and loops — without any special syntax.</p>
 
-<pre><code><span class="y-comment"># Zero params — just the template name</span>
-- <span class="y-key">use</span>: <span class="y-str">template-name</span>
+<pre><code># Template with typed parameters and a default
+def common_input(url, local_seen=False):
+    return [
+        plugin("rss", url=url),
+        plugin("seen", local=local_seen),
+    ]
 
-<span class="y-comment"># Positional — concise for short scalar values</span>
-- <span class="y-key">use</span>: [<span class="y-str">template-name</span>, <span class="y-str">val1</span>, <span class="y-str">val2</span>]
+def common_output(dest, host="localhost", port=9091):
+    return [
+        plugin("pathfmt", path=dest + "/{title}", field="download_path"),
+        plugin("transmission", host=host, port=port, path="{download_path}"),
+    ]
 
-<span class="y-comment"># Named — required for list values or multiline block scalars</span>
-- <span class="y-key">use</span>:
-    <span class="y-key">template</span>: <span class="y-str">template-name</span>
-    <span class="y-key">param1</span>: [<span class="y-str">"list"</span>, <span class="y-str">"value"</span>]
-    <span class="y-key">param2</span>: |
-      multiline
-      value</code></pre>
+def jackett_search(indexers, categories):
+    return [plugin("jackett_input",
+                   indexers=indexers, categories=categories)]
 
-<pre><code><span class="y-key">templates</span>:
-  <span class="y-key">common-output</span>:
-    <span class="y-key">params</span>: [<span class="y-str">dest</span>, <span class="y-str">host</span>]
-    <span class="y-key">pathfmt</span>:
-      <span class="y-key">path</span>: <span class="y-str">"{$ dest $}/{title}"</span>
-      <span class="y-key">field</span>: <span class="y-str">download_path</span>
-    <span class="y-key">transmission</span>:
-      <span class="y-key">host</span>: <span class="y-str">"{$ host $}"</span>
-      <span class="y-key">path</span>: <span class="y-str">"{download_path}"</span>
+def email_notify(subject, body_template):
+    return [plugin("email",
+                   subject=subject, body_template=body_template,
+                   smtp_host=smtp_host, smtp_port=smtp_port,
+                   from_=smtp_user, to=smtp_to)]
 
-  <span class="y-key">jackett-search</span>:
-    <span class="y-key">params</span>: [<span class="y-str">indexers</span>, <span class="y-str">categories</span>]   <span class="y-comment"># list params — use named form</span>
-    <span class="y-key">jackett_input</span>:
-      <span class="y-key">indexers</span>: <span class="y-str">"{$ indexers $}"</span>
-      <span class="y-key">categories</span>: <span class="y-str">"{$ categories $}"</span>
+# Using templates — just call them like functions
+task("tv-shows",
+    common_input("https://example.com/rss") +
+    jackett_search(["torrenting", "showrss"], ["5000"]) +
+    [plugin("series", static=["My Show"])] +
+    common_output("/media/tv") +
+    email_notify(
+        subject="New episodes: {{len .Entries}}",
+        body_template="{{range .Entries}}&lt;p&gt;{{index .Fields \"title\"}}&lt;/p&gt;{{end}}",
+    ))</code></pre>
 
-  <span class="y-key">email-notify</span>:
-    <span class="y-key">params</span>: [<span class="y-str">subject</span>, <span class="y-str">body_template</span>]   <span class="y-comment"># multiline — use named form</span>
-    <span class="y-key">email</span>:
-      <span class="y-key">subject</span>: <span class="y-str">"{$ subject $}"</span>
-      <span class="y-key">body_template</span>: <span class="y-str">"{$ body_template $}"</span>
-
-<span class="y-key">tasks</span>:
-  <span class="y-key">tv-shows</span>:
-    - <span class="y-key">use</span>: [<span class="y-str">common-output</span>, <span class="y-str">/media/tv</span>, <span class="y-str">localhost</span>]   <span class="y-comment"># positional scalars</span>
-    - <span class="y-key">use</span>:
-        <span class="y-key">template</span>: <span class="y-str">jackett-search</span>
-        <span class="y-key">indexers</span>: [<span class="y-str">"torrenting"</span>, <span class="y-str">"showrss"</span>]          <span class="y-comment"># named: list arg</span>
-        <span class="y-key">categories</span>: [<span class="y-str">"5000"</span>]
-    - <span class="y-key">use</span>:
-        <span class="y-key">template</span>: <span class="y-str">email-notify</span>
-        <span class="y-key">subject</span>: <span class="y-str">"New episodes: {{len .Entries}}"</span>
-        <span class="y-key">body_template</span>: |                              <span class="y-comment"># named: multiline arg</span>
-          {{range .Entries}}&lt;p&gt;{{index .Fields "title"}}&lt;/p&gt;{{end}}</code></pre>
-
-<h4>Rules</h4>
+<h4>Key points</h4>
 <ul>
-  <li>Template plugins are inserted at the exact position of <code>use:</code> — full positional control.</li>
-  <li><code>params:</code> declares parameter names. Positional form maps args by position; named form maps by key.</li>
-  <li>Parameters accept any YAML type: strings, numbers, lists, objects, or block scalars.</li>
-  <li>Parameters use <code>{$ name $}</code> syntax, scoped to the expansion — they do not affect global variables or other tasks.</li>
-  <li>Zero-parameter templates omit <code>params:</code> and expand with <code>use: template-name</code>.</li>
-  <li>Validation fails with a clear error if arg count is wrong (positional) or a declared param is missing or unexpected (named).</li>
+  <li>Templates return a list of <code>plugin()</code> values. Concatenate lists with <code>+</code> to compose them into a task.</li>
+  <li>Parameters accept any Starlark type: strings, numbers, lists, dicts, or other functions. No special wrapping needed.</li>
+  <li>Default parameter values work as in Python: <code>def f(x, y="default"):</code></li>
+  <li>Use <code>load("./common.star", "my_template")</code> to share templates across config files.</li>
+  <li>Starlark is deterministic — no side effects, no imports from the network, no file I/O — so configs are safe to evaluate repeatedly.</li>
 </ul>
+
+<p>For the full Starlark language reference see the <a href="https://github.com/bazelbuild/starlark/blob/master/spec.md" target="_blank">Starlark specification</a> and the <a href="https://github.com/google/starlark-go" target="_blank">starlark-go implementation</a> used by pipeliner.</p>
 
 <!-- ═══════════════════════════════════════════════════════════ -->
 <h2 id="schedules">Schedules</h2>
 
-<p>In <code>daemon</code> mode, tasks run automatically according to their schedule. Both interval strings and 5-field cron expressions are supported.</p>
+<p>In <code>daemon</code> mode, tasks run automatically according to their schedule. Pass the schedule as the <code>schedule=</code> keyword argument to <code>task()</code>. Both interval strings and 5-field cron expressions are supported.</p>
 
-<pre><code><span class="y-key">schedules</span>:
-  <span class="y-key">hourly-task</span>:  <span class="y-str">1h</span>
-  <span class="y-key">daily-task</span>:   <span class="y-str">24h</span>
-  <span class="y-key">morning-task</span>: <span class="y-str">"0 7 * * *"</span>   <span class="y-comment"># every day at 07:00</span></code></pre>
+<pre><code>task("hourly-task",  [...], schedule="1h")
+task("daily-task",   [...], schedule="24h")
+task("morning-task", [...], schedule="0 7 * * *")   # every day at 07:00</code></pre>
 
-<p>Tasks without a schedule entry are not run automatically; trigger them manually via the web UI or <code>pipeliner run</code>.</p>
+<p>Tasks without a <code>schedule=</code> argument are not run automatically; trigger them manually via the web UI or <code>pipeliner run task-name</code>.</p>
 
 <!-- ═══════════════════════════════════════════════════════════ -->
 <h2 id="phases">Pipeline Phases</h2>
 
-<p>All input plugins run first (concurrently), then metainfo, filter, and modify plugins run in the order they appear in the YAML, and finally all output plugins run (concurrently). The learn phase follows output.</p>
+<p>All input plugins run first (concurrently), then metainfo, filter, and modify plugins run in the order they appear in the config, and finally all output plugins run (concurrently). The learn phase follows output.</p>
 
 <div class="phases">
   <div class="phase input">Input</div><div class="arrow">→</div>
@@ -828,7 +811,7 @@ make build        # or: go build -o pipeliner ./cmd/pipeliner</code></pre>
 <ol>
   <li>Create a Trakt application at <a href="https://trakt.tv/oauth/applications" target="_blank">trakt.tv/oauth/applications</a> to get a <code>client_id</code> and <code>client_secret</code>.</li>
   <li>Run the auth command (use the same <code>--config</code> path as your pipeliner config so the token is stored in the right <code>pipeliner.db</code>):<br>
-    <code>pipeliner auth trakt --client-id=YOUR_ID --client-secret=YOUR_SECRET --config=config.yml</code>
+    <code>pipeliner auth trakt --client-id=YOUR_ID --client-secret=YOUR_SECRET --config=config.star</code>
   </li>
   <li>Visit the URL shown and enter the displayed code on Trakt's website.</li>
   <li>Use <code>client_secret</code> in your config — no <code>access_token</code> needed:<br>
@@ -965,7 +948,7 @@ After DHT: <code>torrent_file_size</code>, <code>torrent_file_count</code>, <cod
 <hr>
 <!-- ═══════════════════════════════════════════════════════════ -->
 <h1>Filter Plugins</h1>
-<p>Filter plugins run in YAML config order, interleaved with metainfo and modify plugins. Each entry is passed to every filter in sequence; once an entry is rejected or failed it is skipped by subsequent filter plugins.</p>
+<p>Filter plugins run in config order, interleaved with metainfo and modify plugins. Each entry is passed to every filter in sequence; once an entry is rejected or failed it is skipped by subsequent filter plugins.</p>
 
 <!-- ─────────── series ─────────── -->
 <h2 id="series">series</h2>
@@ -1465,7 +1448,7 @@ Because <code>enriched</code> is set by any external provider, the same config w
 <pre><code>pipeliner run [--config path] [--log-level level] [--log-plugin name[,name...]] [--dry-run] [task ...]</code></pre>
 <table>
   <tr><th>Flag</th><th>Default</th><th>Description</th></tr>
-  <tr><td><code>--config</code></td><td><code>config.yml</code></td><td>Path to config file</td></tr>
+  <tr><td><code>--config</code></td><td><code>config.star</code></td><td>Path to config file</td></tr>
   <tr><td><code>--log-level</code></td><td><code>info</code></td><td><code>debug</code>, <code>info</code>, <code>warn</code>, <code>error</code></td></tr>
   <tr><td><code>--log-plugin</code></td><td>—</td><td>Show log output from only these plugins, comma-separated (e.g. <code>metainfo_tvdb,series</code>); task-level logs always shown</td></tr>
   <tr><td><code>--dry-run</code></td><td>false</td><td>Skip output and learn phases (idempotent)</td></tr>
@@ -1479,7 +1462,7 @@ Because <code>enriched</code> is set by any external provider, the same config w
                  [--tls-cert path] [--tls-key path] [--tls-self-signed]</code></pre>
 <table>
   <tr><th>Flag</th><th>Default</th><th>Description</th></tr>
-  <tr><td><code>--config</code></td><td><code>config.yml</code></td><td>Path to config file</td></tr>
+  <tr><td><code>--config</code></td><td><code>config.star</code></td><td>Path to config file</td></tr>
   <tr><td><code>--web</code></td><td>—</td><td>Web UI listen address (e.g. <code>:8080</code>); empty disables</td></tr>
   <tr><td><code>--web-user</code></td><td>—</td><td>Web UI username (required with <code>--web</code>)</td></tr>
   <tr><td><code>--web-password</code></td><td>—</td><td>Web UI password (required with <code>--web</code>)</td></tr>
@@ -1508,12 +1491,12 @@ Because <code>enriched</code> is set by any external provider, the same config w
 <ul>
   <li><strong>Task cards</strong> — each card shows the next scheduled run datetime (hover for the raw cron/interval), the last run time, accepted/rejected/failed counts, and a <em>Run now</em> button.</li>
   <li><strong>Run all</strong> — triggers all tasks immediately.</li>
-  <li><strong>Reload config</strong> — reloads <code>config.yml</code> from disk without restarting the process. Queued for after running tasks finish if any are active.</li>
+  <li><strong>Reload config</strong> — reloads <code>config.star</code> from disk without restarting the process. Queued for after running tasks finish if any are active.</li>
   <li><strong>Live Log</strong> — SSE-streamed log with a filter box. Reconnects automatically; replays the last 10,000 lines for new connections.</li>
 </ul>
 
 <h3>Config tab</h3>
-<p>A live YAML editor with syntax highlighting. Use <strong>Validate</strong> to check config without saving, or <strong>Save &amp; Reload</strong> to write and apply immediately (or queue a reload if tasks are running). Tab key inserts two spaces.</p>
+<p>A live Starlark editor with syntax highlighting. Use <strong>Validate</strong> to check config without saving, or <strong>Save &amp; Reload</strong> to write and apply immediately (or queue a reload if tasks are running). Tab key inserts two spaces.</p>
 
 <h3>Database tab</h3>
 <p>Inspect and manage the two download trackers stored in <code>pipeliner.db</code>.</p>
@@ -1561,10 +1544,10 @@ Because <code>enriched</code> is set by any external provider, the same config w
   <tr><td><code>PIPELINER_WEB_PASSWORD</code></td><td>—</td><td>Web UI password <strong>(required)</strong></td></tr>
   <tr><td><code>PIPELINER_WEB_ADDR</code></td><td><code>:8080</code></td><td>Listen address</td></tr>
   <tr><td><code>PIPELINER_LOG_LEVEL</code></td><td><code>info</code></td><td>Log verbosity</td></tr>
-  <tr><td><code>PIPELINER_CONFIG</code></td><td><code>/config/config.yml</code></td><td>Config file path</td></tr>
+  <tr><td><code>PIPELINER_CONFIG</code></td><td><code>/config/config.star</code></td><td>Config file path</td></tr>
 </table>
 
-<p>The <code>/config</code> volume holds <code>config.yml</code> and <code>pipeliner.db</code>. An empty <code>config.yml</code> is created automatically on first run if the file does not exist.</p>
+<p>The <code>/config</code> volume holds <code>config.star</code> and <code>pipeliner.db</code>.</p>
 
 <h3>Updating to a new version</h3>
 <pre><code>docker compose pull pipeliner
@@ -1577,7 +1560,7 @@ docker compose up -d --no-build pipeliner</code></pre>
 
 <p>Pass <code>--dry-run</code> to <code>pipeliner run</code> to execute the full pipeline (input → processing → output skipped) but skip the output and learn phases. The run is <strong>fully idempotent</strong> — no torrents are queued, no emails sent, no state written to <code>pipeliner.db</code>. You can run it repeatedly to inspect what would be accepted without side effects.</p>
 
-<pre><code>pipeliner run --config config.yml --dry-run --log-level debug</code></pre>
+<pre><code>pipeliner run --config config.star --dry-run --log-level debug</code></pre>
 
 <!-- ─────────── troubleshooting ─────────── -->
 <h2 id="troubleshooting">Troubleshooting</h2>
@@ -1602,24 +1585,24 @@ docker compose up -d --no-build pipeliner</code></pre>
 <h3>torrent_alive is slow</h3>
 <p>When entries lack a <code>torrent_seeds</code> field, <code>torrent_alive</code> must resolve the info hash and scrape trackers. Use inputs that provide seed counts (Jackett, <code>jackett_input</code>, nyaa RSS) to avoid scraping. Set <code>scrape: false</code> to disable tracker scraping entirely (entries without seed data will be left undecided).</p>
 
-<h3>Config validation errors from templates</h3>
-<p><code>pipeliner check</code> validates each plugin against the fully merged config (template + task), so required fields supplied by a template are correctly recognized. If you see "required field missing" errors for fields you expect to come from a template, ensure the template name is spelled correctly and the plugin key matches.</p>
+<h3>Config validation errors</h3>
+<p><code>pipeliner check</code> validates each plugin against its fully expanded config, so required fields supplied inside Starlark functions are correctly recognized. If you see "required field missing" for a field your function provides, check that the function is actually called and its return value is included in the task's plugin list.</p>
 
 <h3>Schedule not running</h3>
-<p>Tasks without a <code>schedules:</code> entry are not run automatically by the daemon. Add a schedule or trigger manually with <code>pipeliner run task-name</code> or the web UI's <em>Run now</em> button.</p>
+<p>Tasks without a <code>schedule=</code> argument in their <code>task()</code> call are not run automatically by the daemon. Add a schedule or trigger manually with <code>pipeliner run task-name</code> or the web UI's <em>Run now</em> button.</p>
 
 <h3>PhaseFrom plugin used as top-level input</h3>
-<p>If you see <em>"plugin X is a from plugin; use it via series.from, movies.from, or discover.from instead"</em>, move the plugin inside a <code>from:</code> list with inline config:</p>
-<pre><code><span class="y-comment"># Wrong — top-level task plugin:</span>
-<span class="y-key">tvdb_favorites</span>:
-  <span class="y-key">api_key</span>: <span class="y-str">YOUR_KEY</span>
+<p>If you see <em>"plugin X is a from plugin; use it via series.from, movies.from, or discover.from instead"</em>, move the plugin inside a <code>"from"</code> list in the parent plugin's config dict:</p>
+<pre><code># Wrong — top-level task plugin:
+task("t", [plugin("tvdb_favorites", api_key="YOUR_KEY")])
 
-<span class="y-comment"># Correct — inside series.from:</span>
-<span class="y-key">series</span>:
-  <span class="y-key">from</span>:
-    - <span class="y-key">name</span>: <span class="y-str">tvdb_favorites</span>
-      <span class="y-key">api_key</span>: <span class="y-str">YOUR_KEY</span>
-      <span class="y-key">user_pin</span>: <span class="y-str">YOUR_PIN</span></code></pre>
+# Correct — inside series "from" list:
+task("t", [
+    plugin("series", {
+        "from": [{"name": "tvdb_favorites",
+                  "api_key": "YOUR_KEY", "user_pin": "YOUR_PIN"}],
+    }),
+])</code></pre>
 
 </main>
 

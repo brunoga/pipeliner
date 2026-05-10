@@ -28,28 +28,28 @@ pipeliner auth trakt --client-id=YOUR_ID --client-secret=YOUR_SECRET
 
 Either method stores the token in `pipeliner.db` and refreshes it automatically before expiry. Then in your config:
 
-```yaml
-trakt:
-  client_id: YOUR_CLIENT_ID
-  client_secret: YOUR_CLIENT_SECRET
-  type: shows
-  list: watchlist
+```python
+plugin("trakt",
+    client_id="YOUR_CLIENT_ID",
+    client_secret="YOUR_CLIENT_SECRET",
+    type="shows",
+    list="watchlist",
+)
 ```
 
 ## Example
 
-```yaml
-tasks:
-  tv-watchlist:
-    - rss:
-        url: "https://example.com/feed"
-    - trakt:
-        client_id: YOUR_CLIENT_ID
-        client_secret: YOUR_CLIENT_SECRET
-        type: shows
-        list: watchlist
-    - transmission:
-        host: localhost
+```python
+task("tv-watchlist", [
+    plugin("rss", url="https://example.com/feed"),
+    plugin("trakt",
+        client_id="YOUR_CLIENT_ID",
+        client_secret="YOUR_CLIENT_SECRET",
+        type="shows",
+        list="watchlist",
+    ),
+    plugin("transmission", host="localhost"),
+])
 ```
 
 ## Notes

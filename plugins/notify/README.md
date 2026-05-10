@@ -10,13 +10,10 @@ Notify plugins send side-channel notifications about a completed run — indepen
 
 Notify plugins are typically used via the [`notify` output plugin](../output/notify/README.md), which selects the notifier type at runtime:
 
-```yaml
-tasks:
-  my-task:
-    - rss:
-        url: "https://example.com/feed"
+```python
+task("my-task", [
+    plugin("rss", url="https://example.com/feed"),
     # ... filters ...
-    - notify:
-        via: webhook
-        url: "https://hooks.example.com/pipeliner"
+    plugin("notify", via="webhook", url="https://hooks.example.com/pipeliner"),
+])
 ```

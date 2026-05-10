@@ -14,23 +14,19 @@ Rejects entries already processed in a previous run. Computes a SHA-256 fingerpr
 
 **Typical example — tech news to email:**
 
-```yaml
-tasks:
-  tech-news:
-    - rss:
-        url: "https://feeds.arstechnica.com/arstechnica/technology-lab"
-    - seen:
-    - regexp:
-        accept: "(?i)linux|open.?source|golang"
-    - email:
-        smtp_host: smtp.gmail.com
-        smtp_port: 587
-        from: me@example.com
-        to: me@example.com
-        subject: "{{len .Entries}} new article(s)"
-
-schedules:
-  tech-news: 1h
+```python
+task("tech-news", [
+    plugin("rss", url="https://feeds.arstechnica.com/arstechnica/technology-lab"),
+    plugin("seen"),
+    plugin("regexp", accept="(?i)linux|open.?source|golang"),
+    plugin("email",
+        smtp_host="smtp.gmail.com",
+        smtp_port=587,
+        **{"from": "me@example.com"},
+        to="me@example.com",
+        subject="{{len .Entries}} new article(s)",
+    ),
+], schedule="1h")
 ```
 
 Without `seen`, every hourly run would re-send articles that were already emailed. With `seen`, each article URL is fingerprinted and stored after the first successful delivery, so it is silently rejected on all subsequent runs.
@@ -45,5 +41,5 @@ Without `seen`, every hourly run would re-send articles that were already emaile
 ## Notes
 
 - Fingerprints are written to the store during the **learn** phase, which runs after all output plugins complete successfully. If an output plugin fails (e.g. email not delivered), the entry is not marked seen and will be retried next run.
-- Use `local: true` when multiple tasks consume the same feed but should track seen entries independently.
+- Use `local=True` when multiple tasks consume the same feed but should track seen entries independently.
 - State is stored in `pipeliner.db` in the same directory as the config file.

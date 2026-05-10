@@ -61,20 +61,17 @@ All results are cached in `pipeliner.db` to avoid redundant API calls across run
 
 ## Example
 
-```yaml
-tasks:
-  tv:
-    - rss:
-        url: "https://example.com/feed"
-    - metainfo_tvdb:
-        api_key: YOUR_TVDB_API_KEY
-    - condition:
-        rules:
-          - reject: 'video_language != "" and video_language != "English"'
-          - reject: 'video_genres contains "Documentary"'
-          - reject: 'series_first_air_date != "" and series_first_air_date < daysago(365)'
-    - premiere:
-        quality: 720p+
+```python
+task("tv", [
+    plugin("rss", url="https://example.com/feed"),
+    plugin("metainfo_tvdb", api_key="YOUR_TVDB_API_KEY"),
+    plugin("condition", rules=[
+        {"reject": 'video_language != "" and video_language != "English"'},
+        {"reject": 'video_genres contains "Documentary"'},
+        {"reject": 'series_first_air_date != "" and series_first_air_date < daysago(365)'},
+    ]),
+    plugin("premiere", quality="720p+"),
+])
 ```
 
 ## Notes
@@ -84,4 +81,4 @@ tasks:
 - Language codes (e.g. `eng`) are automatically mapped to display names (e.g. `English`).
 - The `video_genres` field is a string slice; use `{{join ", " (index .Fields "video_genres")}}` in templates.
 - Date fields (`series_first_air_date`, `series_last_air_date`, `series_next_air_date`, `series_episode_air_date`) are `time.Time` values. Use `{{formatdate "January 2, 2006" .}}` in templates and `< daysago(n)` / `> daysago(n)` in conditions.
-- Use `enriched` (not `tvdb_id`) to check whether TVDB successfully found metadata: `require: fields: ["enriched"]`.
+- Use `enriched` (not `tvdb_id`) to check whether TVDB successfully found metadata: `plugin("require", fields=["enriched"])`.

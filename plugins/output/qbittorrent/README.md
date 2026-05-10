@@ -21,19 +21,17 @@ If login fails or a torrent cannot be added, the affected entry is marked failed
 
 ## Example
 
-```yaml
-tasks:
-  movies:
-    - rss:
-        url: "https://example.com/feed"
-    - movies:
-        static: ["Inception"]
-    - pathfmt:
-        path: "/media/movies/{{.movie_title}}"
-    - qbittorrent:
-        host: localhost
-        username: admin
-        password: secret
-        savepath: "{{.download_path}}"
-        category: movies
+```python
+task("movies", [
+    plugin("rss", url="https://example.com/feed"),
+    plugin("movies", static=["Inception"]),
+    plugin("pathfmt", path="/media/movies/{{.movie_title}}", field="download_path"),
+    plugin("qbittorrent",
+        host="localhost",
+        username="admin",
+        password="secret",
+        savepath="{{.download_path}}",
+        category="movies",
+    ),
+])
 ```
