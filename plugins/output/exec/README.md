@@ -10,24 +10,18 @@ Runs a shell command for each accepted entry. The command is a Go template rende
 
 ## Example
 
-```yaml
-tasks:
-  files:
-    - filesystem:
-        path: /downloads/watch
-    - exec:
-        command: 'notify-send "New download" "{{.Title}}"'
+```python
+task("files", [
+    plugin("filesystem", path="/downloads/watch"),
+    plugin("exec", command='notify-send "New download" "{{.Title}}"'),
+])
 ```
 
-```yaml
-tasks:
-  cleanup:
-    - filesystem:
-        path: /media/tv
-        recursive: true
-        mask: "*.nfo"
-    - exec:
-        command: 'rm "{{.location}}"'
+```python
+task("cleanup", [
+    plugin("filesystem", path="/media/tv", recursive=True, mask="*.nfo"),
+    plugin("exec", command='rm "{{.location}}"'),
+])
 ```
 
 ## Notes

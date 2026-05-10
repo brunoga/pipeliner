@@ -19,91 +19,83 @@ At least one of `titles` or `from` must produce titles. The combined title list 
 
 Each entry is a plugin name string or an object with a `name` key plus plugin-specific config. The entry titles returned by those plugins are added to the search queue:
 
-```yaml
-from:
-  - name: trakt_list
-    client_id: YOUR_CLIENT_ID
-    access_token: YOUR_ACCESS_TOKEN
-    type: movies
-    list: watchlist
+```python
+plugin("discover", **{"from": [
+    {"name": "trakt_list", "client_id": "YOUR_CLIENT_ID",
+     "access_token": "YOUR_ACCESS_TOKEN", "type": "movies", "list": "watchlist"},
+], "via": [...]})
 ```
 
 ### `via` entries
 
 Each entry references a registered [search plugin](../search/). Either a plugin name string or an object:
 
-```yaml
-via:
-  - rss_search    # name only, uses defaults
-  - name: rss_search
-    url_template: "https://jackett.example.com/api?q={{.QueryEscaped}}&apikey=abc"
+```python
+plugin("discover", **{"via": [
+    "rss_search",    # name only, uses defaults
+    {"name": "rss_search",
+     "url_template": "https://jackett.example.com/api?q={{.QueryEscaped}}&apikey=abc"},
+]})
 ```
 
 ## Example — static title list
 
-```yaml
-tasks:
-  movies-discover:
-    - discover:
-        titles:
-          - "Dune Part Two"
-          - "Oppenheimer"
-        via:
-          - name: rss_search
-            url_template: "https://jackett.example.com/api?q={{.QueryEscaped}}&apikey=abc"
-        interval: 12h
-    - metainfo_quality:
-    - quality:
-        min: 1080p
-    - seen:
-    - qbittorrent:
-        host: localhost
+```python
+task("movies-discover", [
+    plugin("discover", **{
+        "titles": ["Dune Part Two", "Oppenheimer"],
+        "via": [
+            {"name": "rss_search",
+             "url_template": "https://jackett.example.com/api?q={{.QueryEscaped}}&apikey=abc"},
+        ],
+        "interval": "12h",
+    }),
+    plugin("metainfo_quality"),
+    plugin("quality", min="1080p"),
+    plugin("seen"),
+    plugin("qbittorrent", host="localhost"),
+])
 ```
 
 ## Example — dynamic title list from Trakt watchlist
 
-```yaml
-tasks:
-  discover-watchlist:
-    - discover:
-        from:
-          - name: trakt_list
-            client_id: YOUR_CLIENT_ID
-            access_token: YOUR_ACCESS_TOKEN
-            type: movies
-            list: watchlist
-        via:
-          - name: rss_search
-            url_template: "https://jackett.example.com/api?q={{.QueryEscaped}}&apikey=abc"
-        interval: 6h
-    - metainfo_quality:
-    - quality:
-        min: 1080p
-    - seen:
-    - qbittorrent:
-        host: localhost
+```python
+task("discover-watchlist", [
+    plugin("discover", **{
+        "from": [
+            {"name": "trakt_list", "client_id": "YOUR_CLIENT_ID",
+             "access_token": "YOUR_ACCESS_TOKEN", "type": "movies", "list": "watchlist"},
+        ],
+        "via": [
+            {"name": "rss_search",
+             "url_template": "https://jackett.example.com/api?q={{.QueryEscaped}}&apikey=abc"},
+        ],
+        "interval": "6h",
+    }),
+    plugin("metainfo_quality"),
+    plugin("quality", min="1080p"),
+    plugin("seen"),
+    plugin("qbittorrent", host="localhost"),
+])
 ```
 
 ## Example — combined static and dynamic
 
-```yaml
-tasks:
-  discover-combined:
-    - discover:
-        titles:
-          - "Severance"       # always searched regardless of watchlist
-        from:
-          - name: trakt_list
-            client_id: YOUR_CLIENT_ID
-            access_token: YOUR_ACCESS_TOKEN
-            type: shows
-            list: watchlist
-        via:
-          - name: rss_search
-            url_template: "https://jackett.example.com/api?q={{.QueryEscaped}}&apikey=abc"
-        interval: 12h
-    - series:
-        tracking: strict
-    - qbittorrent:
-        host: localhost
+```python
+task("discover-combined", [
+    plugin("discover", **{
+        "titles": ["Severance"],       # always searched regardless of watchlist
+        "from": [
+            {"name": "trakt_list", "client_id": "YOUR_CLIENT_ID",
+             "access_token": "YOUR_ACCESS_TOKEN", "type": "shows", "list": "watchlist"},
+        ],
+        "via": [
+            {"name": "rss_search",
+             "url_template": "https://jackett.example.com/api?q={{.QueryEscaped}}&apikey=abc"},
+        ],
+        "interval": "12h",
+    }),
+    plugin("series", tracking="strict"),
+    plugin("qbittorrent", host="localhost"),
+])
 ```

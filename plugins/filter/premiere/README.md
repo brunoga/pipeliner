@@ -28,13 +28,10 @@ See [`quality`](../quality/README.md) for the spec syntax.
 
 ## Example
 
-```yaml
-tasks:
-  discover-shows:
-    - rss:
-        url: "https://example.com/rss"
-    - premiere:
-        quality: 720p+ webrip+
-    - deluge:
-        path: /downloads/tv
+```python
+task("discover-shows", [
+    plugin("rss", url="https://example.com/rss"),
+    plugin("premiere", quality="720p+ webrip+"),
+    plugin("deluge", path="/downloads/tv"),
+])
 ```

@@ -21,10 +21,11 @@ All entry fields are available, plus `.Title` (raw entry title), `.URL`, `.Task`
 
 ## Example
 
-```yaml
-pathfmt:
-  path: "/media/tv/{title}/Season {series_season:02d}"
-  field: download_path
+```python
+plugin("pathfmt",
+    path="/media/tv/{title}/Season {series_season:02d}",
+    field="download_path",
+)
 ```
 
 A title like `"Breaking Bad: Season 1"` is scrubbed to `"Breaking Bad_ Season 1"` — the colon is invalid on Windows and replaced with an underscore.

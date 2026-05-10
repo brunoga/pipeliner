@@ -10,13 +10,11 @@ When none of the above is available the check is skipped and a `Warn` is logged.
 
 ## Config
 
-```yaml
-content:
-  reject:            # glob patterns — reject if ANY file matches
-    - "*.exe"
-    - "*.nfo"
-  require:           # glob patterns — reject if NO file matches
-    - "*.mkv"
+```python
+plugin("content",
+    reject=["*.exe", "*.nfo"],   # glob patterns — reject if ANY file matches
+    require=["*.mkv"],           # glob patterns — reject if NO file matches
+)
 ```
 
 At least one of `reject` or `require` must be specified. Patterns use
@@ -25,16 +23,13 @@ both the full path and the filename component (`path.Base`).
 
 ## Example
 
-```yaml
-tasks:
-  tv:
-    - rss:
-        url: "https://example.com/rss"
-    - metainfo_torrent:
-    - content:
-        reject:
-          - "*.exe"
-          - "*.bat"
-        require:
-          - "*.mkv"
+```python
+task("tv", [
+    plugin("rss", url="https://example.com/rss"),
+    plugin("metainfo_torrent"),
+    plugin("content",
+        reject=["*.exe", "*.bat"],
+        require=["*.mkv"],
+    ),
+])
 ```

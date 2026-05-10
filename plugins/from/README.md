@@ -15,28 +15,25 @@ From plugins implement either `InputPlugin` (have a `Run` method, used in `from:
 
 ## Usage pattern
 
-From plugins are specified by name (string form) or as a config map:
+From plugins are specified by name (string form) or as a config dict inside the parent plugin's `from` or `via` list:
 
-```yaml
-series:
-  from:
-    - tvdb_favorites                  # name only, uses defaults
-    - name: trakt_list
-      client_id: YOUR_CLIENT_ID
-      access_token: YOUR_TOKEN
-      type: shows
-      list: watchlist
+```python
+plugin("series", **{"from": [
+    "tvdb_favorites",                  # name only, uses defaults
+    {"name": "trakt_list", "client_id": "YOUR_CLIENT_ID",
+     "access_token": "YOUR_TOKEN", "type": "shows", "list": "watchlist"},
+]})
 
-discover:
-  from:
-    - name: trakt_list
-      client_id: YOUR_CLIENT_ID
-      type: movies
-      list: watchlist
-  via:
-    - name: rss_search
-      url_template: "https://example.com/search?q={{.QueryEscaped}}"
-    - name: jackett
-      url: "http://localhost:9117"
-      api_key: YOUR_JACKETT_KEY
+plugin("discover", **{
+    "from": [
+        {"name": "trakt_list", "client_id": "YOUR_CLIENT_ID",
+         "type": "movies", "list": "watchlist"},
+    ],
+    "via": [
+        {"name": "rss_search",
+         "url_template": "https://example.com/search?q={{.QueryEscaped}}"},
+        {"name": "jackett", "url": "http://localhost:9117",
+         "api_key": "YOUR_JACKETT_KEY"},
+    ],
+})
 ```

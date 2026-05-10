@@ -123,7 +123,7 @@ func (s *Server) SetReload(fn func() error) { s.reload = fn }
 // SetConfigPath sets the path to the config file for the editor endpoints.
 func (s *Server) SetConfigPath(path string) { s.configPath = path }
 
-// SetConfigValidator sets the function used to validate raw YAML before saving.
+// SetConfigValidator sets the function used to validate raw Starlark config before saving.
 // It returns a slice of human-readable error strings (empty = valid).
 func (s *Server) SetConfigValidator(fn func([]byte) []string) { s.validateConfig = fn }
 
