@@ -153,16 +153,11 @@ func (s *Server) Start(ctx context.Context, addr string, tlsCfg *tls.Config) err
 	open.HandleFunc("POST /login", s.handleLoginPost)
 	open.HandleFunc("POST /logout", s.handleLogout)
 
-	// Static file server for CSS/JS assets embedded in the ui/ directory.
-	// All exact API and page routes registered below take priority over this.
-	subFS, _ := fs.Sub(uiFS, "ui")
-	staticFiles := http.FileServer(http.FS(subFS))
-
 	// Authenticated routes wrapped in session middleware.
 	protected := http.NewServeMux()
-	protected.HandleFunc("GET /", s.serveUI)
+	protected.HandleFunc("GET /{$}", s.serveUI) // exact root only; {$} prevents subtree match
 	protected.HandleFunc("GET /guide", s.serveGuide)
-	protected.Handle("/", staticFiles) // catch-all for CSS/JS assets
+	protected.Handle("/", s.staticHandler()) // catch-all for CSS/JS assets (style.css, *.js)
 	protected.HandleFunc("GET /api/status", s.apiStatus)
 	protected.HandleFunc("GET /api/history", s.apiHistory)
 	protected.HandleFunc("POST /api/tasks/{name}/run", s.apiTrigger)
@@ -223,6 +218,14 @@ func (s *Server) serveUI(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = fmt.Fprint(w, html)
 
+}
+
+// staticHandler returns an http.Handler that serves CSS/JS files from the
+// embedded ui/ directory. Exposed so tests can wire it without starting a
+// full authenticated server.
+func (s *Server) staticHandler() http.Handler {
+	subFS, _ := fs.Sub(uiFS, "ui")
+	return http.FileServer(http.FS(subFS))
 }
 
 func (s *Server) serveGuide(w http.ResponseWriter, r *http.Request) {
@@ -391,10 +394,6 @@ func (s *Server) apiGetConfig(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) apiSaveConfig(w http.ResponseWriter, r *http.Request) {
-	if s.configPath == "" {
-		http.Error(w, "config path not set", http.StatusNotImplemented)
-		return
-	}
 	var req struct {
 		Content string `json:"content"`
 		DryRun  bool   `json:"dry_run"`
@@ -405,7 +404,7 @@ func (s *Server) apiSaveConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	data := []byte(req.Content)
 
-	// Always validate first.
+	// Always validate first (works even without a config path on disk).
 	if s.validateConfig != nil {
 		if errs := s.validateConfig(data); len(errs) > 0 {
 			w.Header().Set("Content-Type", "application/json")
@@ -416,11 +415,16 @@ func (s *Server) apiSaveConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Dry-run: validation passed, don't write.
+	// configPath is only required for actual saves, not for validation.
 	if req.DryRun {
 		writeJSON(w, map[string]string{"status": "valid"})
 		return
 	}
 
+	if s.configPath == "" {
+		http.Error(w, "config path not set", http.StatusNotImplemented)
+		return
+	}
 	if err := os.WriteFile(s.configPath, data, 0600); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
