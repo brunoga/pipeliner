@@ -19,16 +19,12 @@ used. Run a series metainfo plugin before this filter to ensure stable keys.
 
 ## Example
 
-```yaml
-tasks:
-  tv-upgrade:
-    - rss:
-        url: "https://example.com/rss"
-    - metainfo_series:
-    - metainfo_quality:
-    - upgrade:
-        target: 1080p
-        on_lower: reject
-    - deluge:
-        path: /downloads/tv
+```python
+task("tv-upgrade", [
+    plugin("rss", url="https://example.com/rss"),
+    plugin("metainfo_series"),
+    plugin("metainfo_quality"),
+    plugin("upgrade", target="1080p", on_lower="reject"),
+    plugin("deluge", path="/downloads/tv"),
+])
 ```

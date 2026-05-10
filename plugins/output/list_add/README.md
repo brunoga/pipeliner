@@ -12,21 +12,14 @@ This pairs with `list_match` to replicate FlexGet's `movie_list` / `list_add` / 
 
 ## Example
 
-```yaml
-tasks:
-  # Populate a list from an RSS feed (trakt_list is a from plugin, not a standalone input)
-  sync-list:
-    - priority: 1
-    - rss:
-        url: "https://example.com/rss/movies"
-    - seen:
-        local: true   # don't mark as globally seen
-    - accept_all:
-    - list_add:
-        list: movie_watchlist
-
-schedules:
-  sync-list: 1h
+```python
+# Populate a list from an RSS feed (trakt_list is a from plugin, not a standalone input)
+task("sync-list", [
+    plugin("rss", url="https://example.com/rss/movies"),
+    plugin("seen", local=True),   # don't mark as globally seen
+    plugin("accept_all"),
+    plugin("list_add", list="movie_watchlist"),
+], schedule="1h")
 ```
 
 ## Notes

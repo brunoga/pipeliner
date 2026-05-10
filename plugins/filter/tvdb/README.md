@@ -13,18 +13,13 @@ Accepts series entries whose parsed show name fuzzy-matches a show in the user's
 
 ## Example
 
-```yaml
-tasks:
-  tv-favorites:
-    - rss:
-        url: "https://example.com/feed"
-    - seen:
-    - tvdb:
-        api_key: YOUR_API_KEY
-        user_pin: YOUR_USER_PIN
-    - deluge:
-        host: localhost
-        password: changeme
+```python
+task("tv-favorites", [
+    plugin("rss", url="https://example.com/feed"),
+    plugin("seen"),
+    plugin("tvdb", api_key="YOUR_API_KEY", user_pin="YOUR_USER_PIN"),
+    plugin("deluge", host="localhost", password="changeme"),
+])
 ```
 
 ## Notes

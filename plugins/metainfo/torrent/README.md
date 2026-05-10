@@ -32,15 +32,11 @@ Entries with `torrent_link_type = "magnet"` are always skipped (handled by `meta
 
 ## Example
 
-```yaml
-tasks:
-  watch-folder:
-    - filesystem:
-        path: /downloads/watch
-        mask: "*.torrent"
-    - metainfo_torrent:
-    - condition:
-        reject: '{{.torrent_private}}'   # skip private torrents
-    - transmission:
-        host: localhost
+```python
+task("watch-folder", [
+    plugin("filesystem", path="/downloads/watch", mask="*.torrent"),
+    plugin("metainfo_torrent"),
+    plugin("condition", reject="{{.torrent_private}}"),  # skip private torrents
+    plugin("transmission", host="localhost"),
+])
 ```
