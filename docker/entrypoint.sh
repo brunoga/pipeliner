@@ -8,14 +8,14 @@ if [ -z "$PIPELINER_WEB_USER" ] || [ -z "$PIPELINER_WEB_PASSWORD" ]; then
 fi
 
 # Create an empty config on first run if the file does not exist yet.
-CONFIG_FILE="${PIPELINER_CONFIG:-/config/config.yml}"
+CONFIG_FILE="${PIPELINER_CONFIG:-/config/config.star}"
 if [ ! -f "$CONFIG_FILE" ]; then
   mkdir -p "$(dirname "$CONFIG_FILE")"
   touch "$CONFIG_FILE"
 fi
 
 exec /app/pipeliner daemon \
-  --config  "${PIPELINER_CONFIG:-/config/config.yml}" \
+  --config  "${PIPELINER_CONFIG:-/config/config.star}" \
   --web     "${PIPELINER_WEB_ADDR:-:8080}" \
   --web-user     "$PIPELINER_WEB_USER" \
   --web-password "$PIPELINER_WEB_PASSWORD" \

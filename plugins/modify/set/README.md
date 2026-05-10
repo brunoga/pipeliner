@@ -8,16 +8,14 @@ Any key-value pairs. Values are Go template strings.
 
 ## Example
 
-```yaml
-tasks:
-  my-task:
-    - rss:
-        url: "https://example.com/feed"
-    - set:
-        category: tv
-        label: "{{.series_name}}"
-        custom_path: "/mnt/nas/{{.series_name}}"
-    - qbittorrent:
-        host: localhost
-        category: "{{.category}}"
+```python
+task("my-task", [
+    plugin("rss", url="https://example.com/feed"),
+    plugin("set",
+        category="tv",
+        label="{{.series_name}}",
+        custom_path="/mnt/nas/{{.series_name}}",
+    ),
+    plugin("qbittorrent", host="localhost", category="{{.category}}"),
+])
 ```

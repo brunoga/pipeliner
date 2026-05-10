@@ -23,13 +23,10 @@ Walks a local directory and emits one entry per file. Entry URLs use the `file:/
 
 ## Example
 
-```yaml
-tasks:
-  watch-folder:
-    - filesystem:
-        path: /downloads/watch
-        mask: "*.torrent"
-    - metainfo_torrent:
-    - transmission:
-        host: localhost
+```python
+task("watch-folder", [
+    plugin("filesystem", path="/downloads/watch", mask="*.torrent"),
+    plugin("metainfo_torrent"),
+    plugin("transmission", host="localhost"),
+])
 ```

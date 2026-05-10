@@ -11,11 +11,12 @@ Entries where no seed count can be determined are left undecided (no-op).
 
 ## Config
 
-```yaml
-torrent_alive:
-  min_seeds: 5        # minimum seeds required (default: 1)
-  scrape: true        # enable live tracker scraping when torrent_seeds absent (default: true)
-  scrape_timeout: 15s # per-scrape deadline (default: 15s)
+```python
+plugin("torrent_alive",
+    min_seeds=5,         # minimum seeds required (default: 1)
+    scrape=True,         # enable live tracker scraping when torrent_seeds absent (default: true)
+    scrape_timeout="15s",  # per-scrape deadline (default: 15s)
+)
 ```
 
 ## Fields read and written
@@ -30,14 +31,10 @@ torrent_alive:
 
 ## Example
 
-```yaml
-tasks:
-  anime:
-    - rss:
-        url: "https://nyaa.si/?page=rss&cats=1_2&filter=2"
-    - torrent_alive:
-        min_seeds: 3
-    - series:
-        static:
-          - "My Hero Academia"
+```python
+task("anime", [
+    plugin("rss", url="https://nyaa.si/?page=rss&cats=1_2&filter=2"),
+    plugin("torrent_alive", min_seeds=3),
+    plugin("series", static=["My Hero Academia"]),
+])
 ```

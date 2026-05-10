@@ -21,19 +21,18 @@ Sends an email for each batch of accepted entries via SMTP. Subject and body are
 
 ## Example
 
-```yaml
-tasks:
-  news:
-    - rss:
-        url: "https://feeds.example.com/tech"
-    - regexp:
-        accept: "(?i)golang"
-    - email:
-        smtp_host: smtp.gmail.com
-        smtp_port: 587
-        from: alerts@example.com
-        to: me@example.com
-        username: alerts@example.com
-        password: app-password
-        subject: "{{len .Entries}} new Go articles"
+```python
+task("news", [
+    plugin("rss", url="https://feeds.example.com/tech"),
+    plugin("regexp", accept="(?i)golang"),
+    plugin("email",
+        smtp_host="smtp.gmail.com",
+        smtp_port=587,
+        **{"from": "alerts@example.com"},
+        to="me@example.com",
+        username="alerts@example.com",
+        password="app-password",
+        subject="{{len .Entries}} new Go articles",
+    ),
+])
 ```

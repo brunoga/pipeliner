@@ -38,12 +38,11 @@ At least one of `static` or `from` is required.
 
 Each entry is a plugin name string or an object with a `name` key plus plugin-specific config:
 
-```yaml
-from:
-  - trakt_list                 # name only, uses defaults
-  - name: tvdb_favorites
-    api_key: YOUR_KEY
-    user_pin: YOUR_PIN
+```python
+plugin("series", **{"from": [
+    "trakt_list",                  # name only, uses defaults
+    {"name": "tvdb_favorites", "api_key": "YOUR_KEY", "user_pin": "YOUR_PIN"},
+]})
 ```
 
 ## Fields set on each entry
@@ -56,74 +55,65 @@ from:
 
 ## Example — static list
 
-```yaml
-tasks:
-  tv:
-    - rss:
-        url: "https://example.com/feed"
-    - seen:
-    - series:
-        tracking: strict
-        quality: 720p
-        static:
-          - "Breaking Bad"
-          - "Better Call Saul"
-          - "The Wire"
+```python
+task("tv", [
+    plugin("rss", url="https://example.com/feed"),
+    plugin("seen"),
+    plugin("series",
+        tracking="strict",
+        quality="720p",
+        static=["Breaking Bad", "Better Call Saul", "The Wire"],
+    ),
+])
 ```
 
 ## Example — dynamic list from Trakt watchlist
 
-```yaml
-tasks:
-  tv-watchlist:
-    - rss:
-        url: "https://example.com/feed"
-    - seen:
-    - series:
-        tracking: strict
-        quality: 720p
-        ttl: 2h
-        from:
-          - name: trakt_list
-            client_id: YOUR_TRAKT_CLIENT_ID
-            access_token: YOUR_TRAKT_ACCESS_TOKEN
-            type: shows
-            list: watchlist
+```python
+task("tv-watchlist", [
+    plugin("rss", url="https://example.com/feed"),
+    plugin("seen"),
+    plugin("series",
+        tracking="strict",
+        quality="720p",
+        ttl="2h",
+        **{"from": [
+            {"name": "trakt_list", "client_id": "YOUR_TRAKT_CLIENT_ID",
+             "access_token": "YOUR_TRAKT_ACCESS_TOKEN", "type": "shows", "list": "watchlist"},
+        ]},
+    ),
+])
 ```
 
 ## Example — dynamic list from TheTVDB favorites
 
-```yaml
-tasks:
-  tv-favorites:
-    - rss:
-        url: "https://example.com/feed"
-    - seen:
-    - series:
-        tracking: strict
-        quality: 720p
-        from:
-          - name: tvdb_favorites
-            api_key: YOUR_TVDB_API_KEY
-            user_pin: YOUR_TVDB_USER_PIN
+```python
+task("tv-favorites", [
+    plugin("rss", url="https://example.com/feed"),
+    plugin("seen"),
+    plugin("series",
+        tracking="strict",
+        quality="720p",
+        **{"from": [
+            {"name": "tvdb_favorites", "api_key": "YOUR_TVDB_API_KEY", "user_pin": "YOUR_TVDB_USER_PIN"},
+        ]},
+    ),
+])
 ```
 
 ## Example — combined static and dynamic
 
-```yaml
-tasks:
-  tv-combined:
-    - rss:
-        url: "https://example.com/feed"
-    - series:
-        static:
-          - "Severance"      # always included regardless of watchlist
-        from:
-          - name: trakt_list
-            client_id: YOUR_CLIENT_ID
-            access_token: YOUR_ACCESS_TOKEN
-            type: shows
-            list: watchlist
+```python
+task("tv-combined", [
+    plugin("rss", url="https://example.com/feed"),
+    plugin("series",
+        static=["Severance"],      # always included regardless of watchlist
+        **{"from": [
+            {"name": "trakt_list", "client_id": "YOUR_CLIENT_ID",
+             "access_token": "YOUR_ACCESS_TOKEN", "type": "shows", "list": "watchlist"},
+        ]},
+    ),
+])
 ```
 
 ## Notes

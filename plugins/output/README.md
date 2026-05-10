@@ -27,12 +27,9 @@ Output plugins fall into two categories with different failure semantics:
 
 Torrent client plugins (`transmission`, `deluge`, `qbittorrent`) accept a `path` / `savepath` config key rendered against the entry field map. Combine with the `pathfmt` modify plugin to build structured media library paths:
 
-```yaml
-pathfmt:
-  path: "/media/tv/{series_name}/Season {series_season:02d}"
-transmission:
-  host: localhost
-  path: "{download_path}"
+```python
+plugin("pathfmt", path="/media/tv/{series_name}/Season {series_season:02d}", field="download_path"),
+plugin("transmission", host="localhost", path="{download_path}"),
 ```
 
 Go template syntax (`{{.field}}`) is also accepted for backward compatibility.

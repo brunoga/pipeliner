@@ -7,30 +7,20 @@ integer, zero `time.Time`, `false`, or an empty slice.
 
 ## Config
 
-```yaml
-require:
-  fields: series_name          # single field
-  # or
-  fields:
-    - series_name
-    - series_season
-    - quality
+```python
+plugin("require", fields="series_name")          # single field
+# or
+plugin("require", fields=["series_name", "series_season", "quality"])
 ```
 
 ## Example
 
-```yaml
-tasks:
-  tv:
-    - rss:
-        url: "https://example.com/rss"
-    - metainfo_series:
-    - metainfo_quality:
-    - require:
-        fields:
-          - series_name
-          - quality
-    - series:
-        static:
-          - "Breaking Bad"
+```python
+task("tv", [
+    plugin("rss", url="https://example.com/rss"),
+    plugin("metainfo_series"),
+    plugin("metainfo_quality"),
+    plugin("require", fields=["series_name", "quality"]),
+    plugin("series", static=["Breaking Bad"]),
+])
 ```
