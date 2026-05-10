@@ -182,5 +182,12 @@
 <script src="visual-editor.js"></script>
 <script src="database.js"></script>
 <script src="trakt.js"></script>
+<script>
+// Boot — runs after all scripts are loaded so shared globals (dbLoaded, etc.)
+// are guaranteed to be declared before the first refresh() call.
+refresh();
+setInterval(refresh, 10000);
+connectLogs();
+</script>
 </body>
 </html>

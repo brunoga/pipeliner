@@ -66,6 +66,23 @@ jobs:
           go mod tidy
           git diff --exit-code go.mod go.sum
 
+  e2e-test:
+    name: E2E Tests (Playwright/Go)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install Playwright browsers
+        run: go run github.com/playwright-community/playwright-go/cmd/playwright install --with-deps chromium
+
+      - name: Run E2E tests
+        run: go test -tags e2e -timeout 120s ./internal/web/...
+
   ui-test:
     name: UI Tests (JS)
     runs-on: ubuntu-latest
