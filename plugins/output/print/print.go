@@ -21,6 +21,7 @@ func init() {
 		PluginName:  "print",
 		Description: "print accepted entries to stdout",
 		PluginPhase: plugin.PhaseOutput,
+		Role:        plugin.RoleSink,
 		Factory:     newPrintPlugin,
 		Validate:    validate,
 	})
