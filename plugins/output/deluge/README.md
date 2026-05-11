@@ -29,3 +29,11 @@ task("tv", [
     plugin("deluge", host="localhost", password="changeme", path="{{.download_path}}"),
 ])
 ```
+
+## DAG role
+
+| Property | Value |
+|----------|-------|
+| Role | `sink` |
+| Produces | — |
+| Requires | — |
