@@ -4,7 +4,7 @@ A from plugin that fetches entries from a parameterized RSS URL. The URL is
 constructed by rendering a Go template with the search query substituted for
 `{{.Query}}` or `{{.QueryEscaped}}`.
 
-This plugin is used as a sub-plugin of [`discover`](../../input/discover/) via
+This plugin is used as a sub-plugin of [`discover`](../../processor/discover/) via
 the `via` config key. It cannot be used directly as a task-level plugin.
 
 **This plugin is a PhaseFrom sub-plugin.** Use it inside `discover.via`.

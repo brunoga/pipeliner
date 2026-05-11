@@ -1,6 +1,6 @@
 # email (notifier)
 
-Sends a single email with the run title as subject and body via SMTP. Used via the [`notify` output plugin](../../output/notify/README.md).
+Sends a single email with the run title as subject and body via SMTP. Used via the [`notify` output plugin](../README.md).
 
 ## Config
 

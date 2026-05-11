@@ -11,7 +11,7 @@ Sends a notification about the accepted entries via a configured notifier (webho
 | `body` | string | no | `{{range .Entries}}- {{.Title}}\n{{end}}` | Notification body template |
 | `on` | string | no | — | Set to `all` to notify even when no entries were accepted |
 
-Additional keys are passed through to the chosen notifier. See [`notify/email`](../../notify/email/README.md) and [`notify/webhook`](../../notify/webhook/README.md) for their specific config keys.
+Additional keys are passed through to the chosen notifier. See [`notify/email`](email/README.md) and [`notify/webhook`](webhook/README.md) for their specific config keys.
 
 ## Example
 
