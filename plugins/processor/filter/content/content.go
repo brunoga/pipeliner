@@ -34,7 +34,6 @@ func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "content",
 		Description: "reject entries whose torrent file listing matches unwanted glob patterns",
-		PluginPhase: plugin.PhaseFilter,
 		Role:        plugin.RoleProcessor,
 		Requires:    []string{entry.FieldTorrentFiles},
 		Factory:     newPlugin,
@@ -82,7 +81,6 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 }
 
 func (p *contentPlugin) Name() string        { return "content" }
-func (p *contentPlugin) Phase() plugin.Phase { return plugin.PhaseFilter }
 
 func (p *contentPlugin) filter(_ context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
 	files, source := resolveFiles(e)

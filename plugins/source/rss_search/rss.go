@@ -33,7 +33,6 @@ func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "rss_search",
 		Description: "search a parameterized RSS URL for entries matching a query string; usable as a standalone DAG source or inside discover.via",
-		PluginPhase: plugin.PhaseFrom,
 		Role:        plugin.RoleSource,
 		Produces: []string{
 			entry.FieldTitle,
@@ -80,7 +79,6 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 }
 
 func (p *searchRSSPlugin) Name() string        { return "rss_search" }
-func (p *searchRSSPlugin) Phase() plugin.Phase { return plugin.PhaseFrom }
 
 // Generate implements SourcePlugin for DAG pipelines. It calls Search with an
 // empty query, which fetches recent results from the parameterised RSS URL.

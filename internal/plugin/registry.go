@@ -17,10 +17,7 @@ type Factory func(cfg map[string]any, db *store.SQLiteStore) (Plugin, error)
 type Descriptor struct {
 	PluginName  string
 	Description string
-	// PluginPhase is retained as an informational field; it is no longer used
-	// for dispatch. Use Role to declare the plugin's place in a DAG pipeline.
-	PluginPhase Phase
-	// Role is the plugin's DAG role (source / processor / sink).
+	// Role declares the plugin's place in a DAG pipeline.
 	Role Role
 	// Produces lists entry field names this plugin writes to Fields.
 	// Used by the DAG validator to check that downstream nodes' Requires are met.
@@ -38,25 +35,12 @@ type Descriptor struct {
 	Schema []FieldSchema
 }
 
-// EffectiveRole returns the plugin's Role. It falls back to deriving the role
-// from PluginPhase for plugins that have not yet set Role explicitly.
+// EffectiveRole returns the plugin's Role.
 func (d *Descriptor) EffectiveRole() Role {
 	if d.Role != "" {
 		return d.Role
 	}
-	// Fallback for plugins that only declared PluginPhase.
-	switch d.PluginPhase {
-	case PhaseInput:
-		return RoleSource
-	case PhaseMetainfo, PhaseFilter, PhaseModify:
-		return RoleProcessor
-	case PhaseOutput, PhaseLearn:
-		return RoleSink
-	case PhaseFrom:
-		return RoleSource
-	default:
-		return RoleProcessor
-	}
+	return RoleProcessor // safe default
 }
 
 var (

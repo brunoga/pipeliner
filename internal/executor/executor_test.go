@@ -48,13 +48,13 @@ func (p *sinkPlugin) Consume(_ context.Context, _ *plugin.TaskContext, entries [
 // --- test descriptor helpers ---
 
 func sourceDesc() *plugin.Descriptor {
-	return &plugin.Descriptor{PluginName: "test_source", PluginPhase: plugin.PhaseInput}
+	return &plugin.Descriptor{PluginName: "test_source", Role: plugin.RoleSource}
 }
 func processorDesc() *plugin.Descriptor {
-	return &plugin.Descriptor{PluginName: "test_proc", PluginPhase: plugin.PhaseFilter}
+	return &plugin.Descriptor{PluginName: "test_proc", Role: plugin.RoleProcessor}
 }
 func sinkDesc() *plugin.Descriptor {
-	return &plugin.Descriptor{PluginName: "test_sink", PluginPhase: plugin.PhaseOutput}
+	return &plugin.Descriptor{PluginName: "test_sink", Role: plugin.RoleSink}
 }
 
 func buildExec(t *testing.T, nodes []*dag.Node, instances map[dag.NodeID]*executor.PluginInstance) *executor.Executor {

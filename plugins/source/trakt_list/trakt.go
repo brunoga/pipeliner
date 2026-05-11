@@ -33,7 +33,6 @@ func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "trakt_list",
 		Description: "fetch movies or shows from a Trakt.tv list as pipeline entries; usable as a standalone DAG source or inside series.from/movies.from/discover.from",
-		PluginPhase: plugin.PhaseFrom,
 		Role:        plugin.RoleSource,
 		Produces: []string{
 			entry.FieldTitle,
@@ -116,7 +115,6 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 }
 
 func (p *traktInputPlugin) Name() string        { return "trakt_list" }
-func (p *traktInputPlugin) Phase() plugin.Phase { return plugin.PhaseFrom }
 
 // CacheKey returns a key that includes type and list so that two trakt_list
 // instances with different parameters are cached independently.

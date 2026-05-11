@@ -18,7 +18,6 @@ func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "set",
 		Description: "set entry fields; values are patterns interpolated against entry fields",
-		PluginPhase: plugin.PhaseModify,
 		Role:        plugin.RoleProcessor,
 		Factory:     newSetPlugin,
 		Validate:    validate,
@@ -50,7 +49,6 @@ func newSetPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, erro
 }
 
 func (s *setPlugin) Name() string        { return "set" }
-func (s *setPlugin) Phase() plugin.Phase { return plugin.PhaseModify }
 
 func (s *setPlugin) Process(_ context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
 	for _, e := range entries {

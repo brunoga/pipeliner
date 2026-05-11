@@ -235,20 +235,37 @@ Key differences from the linear style:
 
 ## Example configs
 
-### Linear (legacy) style
+All examples use the pipeline syntax (`input/process/output/pipeline`).
 
-- [`tv-series-deluge.star`](tv-series-deluge.star) — explicit show list → Deluge
-- [`movie-downloads.star`](movie-downloads.star) — explicit movie list + rating gate → qBittorrent
-- [`trakt-shows-transmission.star`](trakt-shows-transmission.star) — Trakt watchlist via `series.from` → Transmission
-- [`trakt-movies-qbittorrent.star`](trakt-movies-qbittorrent.star) — Trakt watchlist via `movies.from` → qBittorrent
-- [`tvdb-favorites-deluge.star`](tvdb-favorites-deluge.star) — TheTVDB favorites via `series.from` → Deluge
-- [`discover-trakt-qbittorrent.star`](discover-trakt-qbittorrent.star) — active search driven by Trakt via `discover.from` → qBittorrent
+### TV / series
+
+- [`tv-series-deluge.star`](tv-series-deluge.star) — static show list → series filter → Deluge
+- [`trakt-shows-transmission.star`](trakt-shows-transmission.star) — Trakt watchlist + trending → two pipelines → Transmission
+- [`tvdb-favorites-deluge.star`](tvdb-favorites-deluge.star) — TheTVDB favorites → series filter → TVDB enrichment → Deluge
+- [`jackett-tv-transmission.star`](jackett-tv-transmission.star) — active Jackett search driven by Trakt watchlist → Transmission
+- [`dag-tv-two-feeds.star`](dag-tv-two-feeds.star) — **merge** two RSS feeds → dedup → series → Transmission
+
+### Movies
+
+- [`movie-downloads.star`](movie-downloads.star) — static list + TMDb rating gate → qBittorrent
+- [`trakt-movies-qbittorrent.star`](trakt-movies-qbittorrent.star) — Trakt watchlist + ratings → two pipelines → qBittorrent
+- [`movies-3d-qbittorrent.star`](movies-3d-qbittorrent.star) — 3D and flat pipelines side-by-side → qBittorrent
+- [`dag-movies-trakt-source.star`](dag-movies-trakt-source.star) — `trakt_list` as standalone source → movies filter → qBittorrent
+
+### Active search
+
+- [`discover-trakt-qbittorrent.star`](discover-trakt-qbittorrent.star) — Trakt sources feed `discover` → Jackett search → qBittorrent
+
+### News / articles
+
 - [`ars-technica-email.star`](ars-technica-email.star) — RSS → keyword filter → email
-- [`filesystem-cleanup.star`](filesystem-cleanup.star) — filesystem entries → exec
+- [`dag-news-fanout.star`](dag-news-fanout.star) — two RSS feeds merged → **fan-out** to email + persistent list
 
-### DAG style
+### Filesystem
 
-- [`dag-tv-two-feeds.star`](dag-tv-two-feeds.star) — **merge** two RSS feeds → dedup → series filter → Transmission
-- [`dag-news-fanout.star`](dag-news-fanout.star) — RSS news → **fan-out** to email + persistent list
-- [`dag-movies-trakt-source.star`](dag-movies-trakt-source.star) — `trakt_list` as a standalone source node → movies filter → qBittorrent
+- [`filesystem-cleanup.star`](filesystem-cleanup.star) — scan for *.part files → delete via exec
+- [`filesystem-example.star`](filesystem-example.star) — scan .torrent files → reject spam → tag → print
+
+### Multi-sink patterns
+
 - [`dag-multi-client.star`](dag-multi-client.star) — single feed → **branch**: TV → Transmission, movies → qBittorrent

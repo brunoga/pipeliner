@@ -20,7 +20,6 @@ func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "print",
 		Description: "print accepted entries to stdout",
-		PluginPhase: plugin.PhaseOutput,
 		Role:        plugin.RoleSink,
 		Factory:     newPrintPlugin,
 		Validate:    validate,
@@ -48,7 +47,6 @@ func newPrintPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, er
 }
 
 func (p *printPlugin) Name() string        { return "print" }
-func (p *printPlugin) Phase() plugin.Phase { return plugin.PhaseOutput }
 
 func (p *printPlugin) Consume(_ context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
 	if tc.DryRun {

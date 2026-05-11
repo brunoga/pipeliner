@@ -43,7 +43,6 @@ func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "torrent_alive",
 		Description: "reject torrent entries with fewer seeds than min_seeds; auto-resolves info hash from magnet URIs and .torrent URLs",
-		PluginPhase: plugin.PhaseFilter,
 		Role: plugin.RoleProcessor,
 		Produces: []string{
 			entry.FieldTorrentSeeds,
@@ -107,7 +106,6 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 }
 
 func (p *torrentAlivePlugin) Name() string        { return "torrent_alive" }
-func (p *torrentAlivePlugin) Phase() plugin.Phase { return plugin.PhaseFilter }
 
 func (p *torrentAlivePlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
 	// 1. Use feed-provided seed count if available (fast path — no scrape needed).

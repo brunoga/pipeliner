@@ -2,9 +2,9 @@
 #
 # Deletes all *.part files under /tmp/downloads and logs each removal.
 
-task("cleanup-old-downloads", [
-    plugin("filesystem", path="/tmp/downloads", recursive=True, mask="*.part"),
-    plugin("regexp", accept=[".+"]),
-    plugin("exec", command="rm -f {file_location}"),
-    plugin("print", format="removed: {title}"),
-])
+src     = input("filesystem", path="/tmp/downloads", recursive=True, mask="*.part")
+accepted = process("accept_all", from_=src)
+output("exec",  from_=accepted, command="rm -f {file_location}")
+output("print", from_=accepted, format="removed: {title}")
+
+pipeline("cleanup-old-downloads")

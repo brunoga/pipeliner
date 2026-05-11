@@ -17,7 +17,6 @@ func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "seen",
 		Description: "reject already-processed entries; marks accepted entries as seen in learn phase",
-		PluginPhase: plugin.PhaseFilter,
 		Role:        plugin.RoleProcessor,
 		Factory:     newPlugin,
 		Validate:    validate,
@@ -54,7 +53,6 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 }
 
 func (p *seenPlugin) Name() string        { return "seen" }
-func (p *seenPlugin) Phase() plugin.Phase { return plugin.PhaseFilter }
 
 func (p *seenPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
 	ss := p.seenStore(tc)

@@ -14,7 +14,6 @@ func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "metainfo_series",
 		Description: "parse series/episode info from entry title and annotate fields",
-		PluginPhase: plugin.PhaseMetainfo,
 		Role:        plugin.RoleProcessor,
 		Produces: []string{
 			entry.FieldTitle,
@@ -41,7 +40,6 @@ func newPlugin(_ map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
 }
 
 func (p *seriesMetaPlugin) Name() string        { return "metainfo_series" }
-func (p *seriesMetaPlugin) Phase() plugin.Phase { return plugin.PhaseMetainfo }
 
 func (p *seriesMetaPlugin) Process(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
 	for _, e := range entries {

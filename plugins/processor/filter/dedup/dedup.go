@@ -29,7 +29,6 @@ func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "dedup",
 		Description: "keep the best-quality copy when multiple entries refer to the same episode or movie",
-		PluginPhase: plugin.PhaseFilter,
 		Role:        plugin.RoleProcessor,
 		Requires: []string{},
 		Factory:     func(_ map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) { return &dedupPlugin{}, nil },
@@ -42,7 +41,6 @@ func init() {
 type dedupPlugin struct{}
 
 func (p *dedupPlugin) Name() string        { return "dedup" }
-func (p *dedupPlugin) Phase() plugin.Phase { return plugin.PhaseFilter }
 
 func (p *dedupPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
 	best := map[string]*entry.Entry{}

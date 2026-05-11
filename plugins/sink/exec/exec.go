@@ -20,7 +20,6 @@ func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "exec",
 		Description: "run a shell command for each accepted entry",
-		PluginPhase: plugin.PhaseOutput,
 		Role:        plugin.RoleSink,
 		Factory:     newPlugin,
 		Validate:    validate,
@@ -56,7 +55,6 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 }
 
 func (p *execPlugin) Name() string        { return "exec" }
-func (p *execPlugin) Phase() plugin.Phase { return plugin.PhaseOutput }
 
 func (p *execPlugin) deliver(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
 	for _, e := range entries {

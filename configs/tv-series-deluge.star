@@ -1,29 +1,25 @@
 # tv-series-deluge.star
 #
 # Downloads HD episodes for a static show list via Deluge.
+#
+# Replace feed URL, show list, Deluge host/password, and tv_path.
 
 deluge_host = "localhost"
 deluge_pass = "changeme"
 tv_path     = "/media/tv"
 
-def common_input():
-    return [
-        plugin("rss", url="https://example.com/rss/torrents"),
-        plugin("seen"),
-    ]
+src    = input("rss", url="https://example.com/rss/torrents")
+seen   = process("seen",             from_=src)
+q      = process("metainfo_quality", from_=seen)
+series = process("series",           from_=q,
+                  tracking="strict", quality="720p",
+                  static=["Breaking Bad", "Better Call Saul",
+                           "The Wire", "Severance"])
+fmt    = process("pathfmt", from_=series,
+                  path=tv_path + "/{title}/Season {series_season:02d}",
+                  field="download_path")
+output("deluge", from_=fmt,
+       host=deluge_host, password=deluge_pass,
+       move_completed_path="{download_path}")
 
-task("tv-series",
-    common_input() + [
-        plugin("metainfo_quality"),
-        plugin("series",
-            tracking="strict",
-            quality="720p",
-            static=["Breaking Bad", "Better Call Saul", "The Wire", "Severance"]),
-        plugin("pathfmt",
-            path=tv_path + "/{title}/Season {series_season:02d}",
-            field="download_path"),
-        plugin("deluge",
-            host=deluge_host, password=deluge_pass,
-            path="{download_path}"),
-    ],
-    schedule="1h")
+pipeline("tv-series", schedule="1h")

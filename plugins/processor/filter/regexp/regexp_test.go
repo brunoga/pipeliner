@@ -113,13 +113,10 @@ func TestRegistered(t *testing.T) {
 	}
 }
 
-func TestNameAndPhase(t *testing.T) {
+func TestName(t *testing.T) {
 	p, _ := newRegexpPlugin(map[string]any{}, nil)
 	if p.(*regexpPlugin).Name() != "regexp" {
 		t.Error("Name() wrong")
-	}
-	if p.(*regexpPlugin).Phase() != plugin.PhaseFilter {
-		t.Error("Phase() wrong")
 	}
 }
 

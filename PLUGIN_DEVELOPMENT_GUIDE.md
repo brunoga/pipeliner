@@ -34,7 +34,7 @@ are wired together via `from_=` in the config and execute in topological order.
 Entries flow from source nodes through processor nodes to sink nodes.
 
 A plugin is a Go struct that:
-- implements `plugin.Plugin` (`Name() string`, `Phase() Phase`)
+- implements `plugin.Plugin` (`Name() string`)
 - implements one of the three role interfaces (`SourcePlugin`, `ProcessorPlugin`, or `SinkPlugin`)
 - is constructed by a **factory function** in `plugin.Descriptor`
 - registers itself via `plugin.Register` in an `init()` function
@@ -49,8 +49,7 @@ A plugin is a Go struct that:
 | **processor** | `ProcessorPlugin` | `process("name", from_=…, …)` | Filter, enrich, or transform entries |
 | **sink** | `SinkPlugin` | `output("name", from_=…, …)` | Act on accepted entries (download, notify, etc.) |
 
-The executor determines a plugin's role from `Descriptor.Role` (or derives it
-from `Descriptor.PluginPhase` via `EffectiveRole()` for backward compatibility).
+The executor determines a plugin's role from `Descriptor.Role`.
 
 ---
 
@@ -241,8 +240,7 @@ type SourcePlugin interface {
 ```go
 type mySource struct { url string }
 
-func (p *mySource) Name() string        { return "my_source" }
-func (p *mySource) Phase() plugin.Phase { return plugin.PhaseInput }
+func (p *mySource) Name() string { return "my_source" }
 
 func (p *mySource) Generate(ctx context.Context, tc *plugin.TaskContext) ([]*entry.Entry, error) {
     items, err := fetchItems(ctx, p.url)
@@ -290,8 +288,7 @@ type ProcessorPlugin interface {
 ```go
 type myFilter struct { minRating float64 }
 
-func (p *myFilter) Name() string        { return "my_filter" }
-func (p *myFilter) Phase() plugin.Phase { return plugin.PhaseFilter }
+func (p *myFilter) Name() string { return "my_filter" }
 
 func (p *myFilter) Process(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
     out := make([]*entry.Entry, 0, len(entries))
@@ -636,8 +633,7 @@ func validate(cfg map[string]any) []error {
     return errs
 }
 
-func (p *mysitePlugin) Name() string        { return "mysite" }
-func (p *mysitePlugin) Phase() plugin.Phase { return plugin.PhaseInput }
+func (p *mysitePlugin) Name() string { return "mysite" }
 
 func (p *mysitePlugin) Generate(ctx context.Context, _ *plugin.TaskContext) ([]*entry.Entry, error) {
     req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.url, nil)
@@ -702,8 +698,7 @@ func validate(cfg map[string]any) []error {
     return plugin.OptUnknownKeys(cfg, "myfilter", "threshold")
 }
 
-func (p *myFilter) Name() string        { return "myfilter" }
-func (p *myFilter) Phase() plugin.Phase { return plugin.PhaseFilter }
+func (p *myFilter) Name() string { return "myfilter" }
 
 func (p *myFilter) Process(_ context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
     out := make([]*entry.Entry, 0, len(entries))
@@ -774,8 +769,7 @@ func validate(cfg map[string]any) []error {
     return errs
 }
 
-func (p *myNotify) Name() string        { return "mynotify" }
-func (p *myNotify) Phase() plugin.Phase { return plugin.PhaseOutput }
+func (p *myNotify) Name() string { return "mynotify" }
 
 func (p *myNotify) Consume(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
     if tc.DryRun {

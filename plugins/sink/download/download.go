@@ -24,7 +24,6 @@ func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "download",
 		Description: "download entry URLs to a local directory",
-		PluginPhase: plugin.PhaseOutput,
 		Role:        plugin.RoleSink,
 		Factory:     newPlugin,
 		Validate:    validate,
@@ -69,7 +68,6 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 }
 
 func (p *downloadPlugin) Name() string        { return "download" }
-func (p *downloadPlugin) Phase() plugin.Phase { return plugin.PhaseOutput }
 
 func (p *downloadPlugin) deliver(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
 	if err := os.MkdirAll(p.dir, 0o755); err != nil {

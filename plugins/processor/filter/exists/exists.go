@@ -19,7 +19,6 @@ func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "exists",
 		Description: "reject entries whose title matches a file already present on disk",
-		PluginPhase: plugin.PhaseFilter,
 		Role:        plugin.RoleProcessor,
 		Factory:     newPlugin,
 		Validate:    validate,
@@ -53,7 +52,6 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 }
 
 func (p *existsPlugin) Name() string        { return "exists" }
-func (p *existsPlugin) Phase() plugin.Phase { return plugin.PhaseFilter }
 
 func (p *existsPlugin) filter(_ context.Context, _ *plugin.TaskContext, e *entry.Entry) error {
 	index, err := p.getIndex()

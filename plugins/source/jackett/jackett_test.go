@@ -81,13 +81,6 @@ func TestDefaultIndexer(t *testing.T) {
 	}
 }
 
-func TestPhase(t *testing.T) {
-	p := makePlugin(t, "http://localhost:9117", "key", nil)
-	if p.Phase() != plugin.PhaseFrom {
-		t.Errorf("phase: got %q, want %q", p.Phase(), plugin.PhaseFrom)
-	}
-}
-
 // --- search tests ---
 
 func TestSearchSendsCorrectQueryParams(t *testing.T) {

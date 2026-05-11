@@ -45,7 +45,6 @@ import (
 func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "metainfo_torrent",
-		PluginPhase: plugin.PhaseMetainfo,
 		Role:        plugin.RoleProcessor,
 		Description: "Annotates entries from .torrent files with name, info hash, size, and tracker metadata",
 		Produces: []string{
@@ -94,7 +93,6 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 }
 
 func (p *torrentPlugin) Name() string        { return "metainfo_torrent" }
-func (p *torrentPlugin) Phase() plugin.Phase { return plugin.PhaseMetainfo }
 
 func (p *torrentPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
 	log := tc.Logger

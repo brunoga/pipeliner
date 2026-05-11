@@ -41,7 +41,6 @@ func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "jackett",
 		Description: "search Jackett indexers via the Torznab API; usable as a standalone DAG source or inside discover.via",
-		PluginPhase: plugin.PhaseFrom,
 		Role:        plugin.RoleSource,
 		Produces: []string{
 			entry.FieldTorrentSeeds,
@@ -156,7 +155,6 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 }
 
 func (p *jackettPlugin) Name() string        { return "jackett" }
-func (p *jackettPlugin) Phase() plugin.Phase { return plugin.PhaseFrom }
 
 // Generate implements SourcePlugin for DAG pipelines. It calls Search with an
 // empty query, which returns recent results across configured indexers.

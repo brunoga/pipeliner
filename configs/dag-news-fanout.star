@@ -10,8 +10,8 @@
 
 smtp_host = "smtp.example.com"
 smtp_port = 587
-smtp_user = env("SMTP_USER")
-smtp_pass = env("SMTP_PASS")
+smtp_user = env("SMTP_USER", default="user@example.com")
+smtp_pass = env("SMTP_PASS", default="changeme")
 mail_to   = "you@example.com"
 
 feed1 = input("rss", url="https://feeds.arstechnica.com/arstechnica/index")
@@ -31,9 +31,9 @@ output("email", from_=accepted,
     smtp_port=smtp_port,
     username=smtp_user,
     password=smtp_pass,
-    **{"from": smtp_user},
     to=mail_to,
-    subject="Tech digest: {{len .Entries}} article(s)")
+    subject="Tech digest: {{len .Entries}} article(s)",
+    **{"from": smtp_user})
 
 output("list_add", from_=accepted, list="tech_articles")
 

@@ -24,7 +24,6 @@ func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "metainfo_tmdb",
 		Description: "enrich movie entries with TMDb metadata (title, overview, genres, runtime)",
-		PluginPhase: plugin.PhaseMetainfo,
 		Role:        plugin.RoleProcessor,
 		Produces: []string{
 			entry.FieldEnriched,
@@ -93,7 +92,6 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 }
 
 func (p *tmdbPlugin) Name() string        { return "metainfo_tmdb" }
-func (p *tmdbPlugin) Phase() plugin.Phase { return plugin.PhaseMetainfo }
 
 func (p *tmdbPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
 	m, ok := imovies.Parse(e.Title)

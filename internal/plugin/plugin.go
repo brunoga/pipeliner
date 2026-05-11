@@ -37,7 +37,6 @@ const (
 // Plugin is the base interface every plugin must satisfy.
 type Plugin interface {
 	Name() string
-	Phase() Phase
 }
 
 // TaskContext carries per-execution context to each plugin call.

@@ -32,7 +32,6 @@ func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "decompress",
 		Description: "extract archive files (RAR, ZIP, 7z) to a destination directory",
-		PluginPhase: plugin.PhaseOutput,
 		Role:        plugin.RoleSink,
 		Requires:    []string{entry.FieldFileLocation},
 		Factory:     newPlugin,
@@ -92,7 +91,6 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 }
 
 func (p *decompressPlugin) Name() string        { return "decompress" }
-func (p *decompressPlugin) Phase() plugin.Phase { return plugin.PhaseOutput }
 
 func (p *decompressPlugin) deliver(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
 	for _, e := range entries {

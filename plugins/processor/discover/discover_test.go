@@ -67,8 +67,8 @@ func registerMock(mock *mockSearch) string {
 	func() {
 		defer func() { recover() }() // tolerate duplicate registration across test runs
 		plugin.Register(&plugin.Descriptor{
-			PluginName:  name,
-			PluginPhase: plugin.PhaseFrom,
+			PluginName: name,
+			Role:       plugin.RoleSource,
 			Factory: func(_ map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
 				return mock, nil
 			},

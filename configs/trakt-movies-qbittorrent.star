@@ -1,72 +1,60 @@
 # trakt-movies-qbittorrent.star
 #
-# Downloads movies from the Trakt watchlist and ratings list via qBittorrent.
-# movies.from fetches the list from Trakt (cached for ttl) and uses it as the
-# title filter so only watchlisted movies are accepted.
+# Downloads movies from the Trakt watchlist and high-rated list via qBittorrent.
+# Two pipelines with different quality floors and filters.
+#
+# Run `pipeliner auth trakt` once to store your OAuth token.
 
-trakt_client_id     = "YOUR_TRAKT_CLIENT_ID"
-trakt_client_secret = "YOUR_TRAKT_CLIENT_SECRET"
+trakt_client_id     = env("TRAKT_CLIENT_ID", default="YOUR_TRAKT_ID")
+trakt_client_secret = env("TRAKT_CLIENT_SECRET", default="YOUR_TRAKT_SECRET")
+tmdb_key            = env("TMDB_API_KEY", default="YOUR_TMDB_KEY")
 qbit_host           = "localhost"
 qbit_port           = 8080
 qbit_user           = "admin"
 qbit_pass           = "changeme"
 movies_path         = "/media/movies"
 
-def common_input():
-    return [
-        plugin("rss", url="https://example.com/rss/movies"),
-        plugin("seen"),
-    ]
+def qbit_output(upstream, category):
+    fmt = process("pathfmt", from_=upstream,
+                  path=movies_path + "/{title} ({video_year})",
+                  field="download_path")
+    output("qbittorrent", from_=fmt,
+           host=qbit_host, port=qbit_port,
+           username=qbit_user, password=qbit_pass,
+           savepath="{download_path}", category=category)
 
-def qbit():
-    return plugin("qbittorrent",
-        host=qbit_host, port=qbit_port,
-        username=qbit_user, password=qbit_pass,
-        savepath="{download_path}")
+# ── Pipeline 1: watchlist (720p+) ────────────────────────────────────────────
 
-# Movies on the Trakt watchlist — 720p minimum quality.
-task("movies-watchlist",
-    common_input() + [
-        plugin("metainfo_quality"),
-        plugin("movies", {
-            "quality": "720p",
-            "ttl":     "4h",
-            "from": [{"name": "trakt_list",
-                      "client_id":     trakt_client_id,
-                      "client_secret": trakt_client_secret,
-                      "type": "movies",
-                      "list": "watchlist"}],
-        }),
-        plugin("metainfo_tmdb", api_key="YOUR_TMDB_API_KEY"),
-        plugin("metainfo_trakt", client_id=trakt_client_id, type="movies"),
-        plugin("pathfmt",
-            path=movies_path + "/{title} ({video_year})",
-            field="download_path"),
-        qbit(),
-    ],
-    schedule="2h")
+src1    = input("rss", url="https://example.com/rss/movies")
+seen1   = process("seen",             from_=src1)
+q1      = process("metainfo_quality", from_=seen1)
+tmdb1   = process("metainfo_tmdb",   from_=q1, api_key=tmdb_key)
+movies1 = process("movies",           from_=tmdb1,
+                   quality="720p+", ttl="4h",
+                   **{"from": [{"name": "trakt_list",
+                                "client_id":     trakt_client_id,
+                                "client_secret": trakt_client_secret,
+                                "type": "movies", "list": "watchlist"}]})
+qbit_output(movies1, category="movies")
 
-# High-quality picks: movies from the Trakt ratings list, filtered by score.
-task("movies-top-rated",
-    common_input() + [
-        plugin("metainfo_quality"),
-        plugin("movies", {
-            "quality": "1080p",
-            "ttl":     "4h",
-            "from": [{"name": "trakt_list",
-                      "client_id":     trakt_client_id,
-                      "client_secret": trakt_client_secret,
-                      "type": "movies",
-                      "list": "ratings"}],
-        }),
-        plugin("metainfo_tmdb", api_key="YOUR_TMDB_API_KEY"),
-        plugin("condition", rules=[
-            {"reject": 'video_source == "CAM"'},
-            {"reject": 'video_rating < 7.5'},
-        ]),
-        plugin("pathfmt",
-            path=movies_path + "/{title} ({video_year})",
-            field="download_path"),
-        qbit(),
-    ],
-    schedule="6h")
+pipeline("movies-watchlist", schedule="2h")
+
+# ── Pipeline 2: top-rated (1080p+, rating filter) ────────────────────────────
+
+src2    = input("rss", url="https://example.com/rss/movies")
+seen2   = process("seen",             from_=src2)
+q2      = process("metainfo_quality", from_=seen2)
+tmdb2   = process("metainfo_tmdb",   from_=q2, api_key=tmdb_key)
+movies2 = process("movies",           from_=tmdb2,
+                   quality="1080p+", ttl="4h",
+                   **{"from": [{"name": "trakt_list",
+                                "client_id":     trakt_client_id,
+                                "client_secret": trakt_client_secret,
+                                "type": "movies", "list": "ratings"}]})
+cond2   = process("condition", from_=movies2, rules=[
+    {"reject": 'video_source == "CAM"'},
+    {"reject": 'video_rating < 7.5'},
+])
+qbit_output(cond2, category="movies")
+
+pipeline("movies-top-rated", schedule="6h")

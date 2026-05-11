@@ -24,7 +24,6 @@ func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "tvdb_favorites",
 		Description: "fetch TheTVDB favorites as show-name entries; usable as a standalone DAG source or inside series.from/discover.from",
-		PluginPhase: plugin.PhaseFrom,
 		Role:        plugin.RoleSource,
 		Produces:    []string{entry.FieldTitle, "tvdb_id", "tvdb_year"},
 		Factory:     newPlugin,
@@ -63,7 +62,6 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 }
 
 func (p *tvdbInputPlugin) Name() string        { return "tvdb_favorites" }
-func (p *tvdbInputPlugin) Phase() plugin.Phase { return plugin.PhaseFrom }
 
 func (p *tvdbInputPlugin) Generate(ctx context.Context, tc *plugin.TaskContext) ([]*entry.Entry, error) {
 	ids, err := p.client.GetFavorites(ctx)

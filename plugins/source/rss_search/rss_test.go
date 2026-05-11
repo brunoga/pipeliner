@@ -119,9 +119,3 @@ func TestSearchRSSMissingURLTemplate(t *testing.T) {
 	}
 }
 
-func TestSearchRSSPhase(t *testing.T) {
-	p := makePlugin(t, "http://example.com?q={{.Query}}")
-	if p.Phase() != plugin.PhaseFrom {
-		t.Errorf("phase: got %q, want %q", p.Phase(), plugin.PhaseFrom)
-	}
-}

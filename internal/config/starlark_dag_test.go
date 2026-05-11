@@ -206,7 +206,7 @@ func TestDAG_Validate_FieldRequirements(t *testing.T) {
 		plugin.Register(&plugin.Descriptor{
 			PluginName:  pluginName,
 			Description: "test plugin that requires an unprovided field",
-			PluginPhase: plugin.PhaseFilter,
+			Role: plugin.RoleProcessor,
 			Requires:    []string{"some_nonexistent_field"},
 			Factory: func(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
 				return nil, nil // never constructed in this test

@@ -25,7 +25,6 @@ func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "metainfo_trakt",
 		Description: "annotate entries with Trakt.tv metadata (rating, votes, genres, overview, external IDs)",
-		PluginPhase: plugin.PhaseMetainfo,
 		Role:        plugin.RoleProcessor,
 		Produces: []string{
 			entry.FieldEnriched,
@@ -104,7 +103,6 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 }
 
 func (p *traktMetaPlugin) Name() string        { return "metainfo_trakt" }
-func (p *traktMetaPlugin) Phase() plugin.Phase { return plugin.PhaseMetainfo }
 
 func (p *traktMetaPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
 	title, ok := p.parseTitle(e.Title)

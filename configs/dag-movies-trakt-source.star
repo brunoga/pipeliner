@@ -9,8 +9,8 @@
 #
 # Replace client_id, access_token, feed URL, and qBittorrent host.
 
-trakt_id     = env("TRAKT_CLIENT_ID")
-trakt_secret = env("TRAKT_CLIENT_SECRET")  # enables automatic OAuth management
+trakt_id     = env("TRAKT_CLIENT_ID", default="YOUR_TRAKT_ID")
+trakt_secret = env("TRAKT_CLIENT_SECRET", default="YOUR_TRAKT_SECRET")  # enables automatic OAuth management
 
 # Source 1: Trakt watchlist as a title list (emits entries with movie titles).
 watchlist = input("trakt_list",
@@ -29,14 +29,14 @@ all_src = merge(rss_src, watchlist)
 
 seen   = process("seen",            from_=all_src)
 meta   = process("metainfo_quality", from_=seen)
-tmdb   = process("metainfo_tmdb",   from_=meta, api_key=env("TMDB_KEY"))
+tmdb   = process("metainfo_tmdb",   from_=meta, api_key=env("TMDB_KEY", default="YOUR_TMDB_KEY"))
 movies = process("movies",          from_=tmdb,
+    quality="1080p+",
     **{"from": [{"name": "trakt_list",
                  "client_id": trakt_id,
                  "client_secret": trakt_secret,
                  "type": "movies",
-                 "list": "watchlist"}]},
-    quality="1080p+")
+                 "list": "watchlist"}]})
 enrich_ok = process("require", from_=movies, fields=["enriched"])
 pathfmt   = process("pathfmt", from_=enrich_ok,
     path="/media/movies/{title} ({video_year})",

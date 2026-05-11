@@ -20,8 +20,7 @@ func taskCtx() *plugin.TaskContext {
 
 func annotate(t *testing.T, e *entry.Entry) {
 	t.Helper()
-	p := &magnetPlugin{}
-	if err := p.annotate(context.Background(), taskCtx(), e); err != nil {
+	if err := annotateFromURI(e); err != nil {
 		t.Fatalf("Annotate: %v", err)
 	}
 }
@@ -79,9 +78,8 @@ func TestSkipsNonMagnetURL(t *testing.T) {
 }
 
 func TestSkipsMalformedMagnet(t *testing.T) {
-	p := &magnetPlugin{}
 	e := entry.New("title", "magnet:?xt=urn:btih:BADSHORTEST")
-	err := p.annotate(context.Background(), taskCtx(), e)
+	err := annotateFromURI(e)
 	if err == nil {
 		t.Error("expected error for malformed magnet URI")
 	}

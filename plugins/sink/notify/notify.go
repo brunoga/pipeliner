@@ -19,7 +19,6 @@ func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "notify",
 		Description: "send notifications via a configured notifier (webhook, email, …)",
-		PluginPhase: plugin.PhaseOutput,
 		Role:        plugin.RoleSink,
 		Factory:     newPlugin,
 		Validate:    validate,
@@ -106,7 +105,6 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 }
 
 func (p *notifyPlugin) Name() string        { return "notify" }
-func (p *notifyPlugin) Phase() plugin.Phase { return plugin.PhaseOutput }
 
 func (p *notifyPlugin) deliver(ctx context.Context, _ *plugin.TaskContext, entries []*entry.Entry) error {
 	if len(entries) == 0 && !p.onAll {
