@@ -15,18 +15,11 @@ Rejects entries already processed in a previous run. Computes a SHA-256 fingerpr
 **Typical example — tech news to email:**
 
 ```python
-task("tech-news", [
-    plugin("rss", url="https://feeds.arstechnica.com/arstechnica/technology-lab"),
-    plugin("seen"),
-    plugin("regexp", accept="(?i)linux|open.?source|golang"),
-    plugin("email",
-        smtp_host="smtp.gmail.com",
-        smtp_port=587,
-        **{"from": "me@example.com"},
-        to="me@example.com",
-        subject="{{len .Entries}} new article(s)",
-    ),
-], schedule="1h")
+src  = input("rss", url="https://example.com/rss")
+seen = process("seen", from_=src)
+acc  = process("regexp", from_=seen, accept=[".+"])
+output("transmission", from_=acc, host="localhost")
+pipeline("news", schedule="1h")
 ```
 
 Without `seen`, every hourly run would re-send articles that were already emailed. With `seen`, each article URL is fingerprinted and stored after the first successful delivery, so it is silently rejected on all subsequent runs.

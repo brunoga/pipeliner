@@ -20,13 +20,11 @@ used. Run a series metainfo plugin before this filter to ensure stable keys.
 ## Example
 
 ```python
-task("tv-upgrade", [
-    plugin("rss", url="https://example.com/rss"),
-    plugin("metainfo_series"),
-    plugin("metainfo_quality"),
-    plugin("upgrade", target="1080p", on_lower="reject"),
-    plugin("deluge", path="/downloads/tv"),
-])
+src  = input("rss", url="https://example.com/rss")
+q    = process("metainfo_quality", from_=src)
+up   = process("upgrade", from_=q, target="1080p")
+output("transmission", from_=up, host="localhost")
+pipeline("upgrade-quality")
 ```
 
 ## DAG role

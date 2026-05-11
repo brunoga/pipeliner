@@ -24,14 +24,5 @@ POSTs a JSON payload to an HTTP endpoint. Used via the [`notify` output plugin](
 ## Example
 
 ```python
-task("tv", [
-    # ... filters and output ...
-    plugin("notify",
-        via="webhook",
-        url="https://hooks.slack.com/services/T.../B.../...",
-        headers={"Authorization": "Bearer token"},
-        title="{{len .Entries}} new episodes queued",
-        body="{{range .Entries}}- {{.Title}}\n{{end}}",
-    ),
-])
+output("notify", from_=ready, via="webhook", url=env("WEBHOOK_URL"))
 ```

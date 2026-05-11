@@ -22,18 +22,8 @@ If login fails or a torrent cannot be added, the affected entry is marked failed
 ## Example
 
 ```python
-task("movies", [
-    plugin("rss", url="https://example.com/feed"),
-    plugin("movies", static=["Inception"]),
-    plugin("pathfmt", path="/media/movies/{{.movie_title}}", field="download_path"),
-    plugin("qbittorrent",
-        host="localhost",
-        username="admin",
-        password="secret",
-        savepath="{{.download_path}}",
-        category="movies",
-    ),
-])
+output("qbittorrent", from_=ready,
+       host="localhost", savepath="{download_path}")
 ```
 
 ## DAG role

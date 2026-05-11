@@ -2,7 +2,7 @@
 
 Accepts movies from a configured title list. Parses the movie title, year, quality, and 3D format from the entry title, matches with fuzzy matching, and enforces an optional quality floor. A re-download of an already-seen movie is accepted when the new copy is strictly better quality, or when it is a PROPER/REPACK that is not a quality downgrade.
 
-**Multiple quality variants** of the same movie (from different sources or input feeds) are all accepted so the task engine's automatic deduplication can pick the best copy. The download history is updated in the Learn phase — only the winning copy is recorded.
+**Multiple quality variants** of the same movie (from different sources or input feeds) are all accepted; add a `dedup` node after `movies` to keep only the best copy.
 
 **3D and non-3D versions are tracked independently.** If both a 3D and a non-3D copy of the same movie match, both are downloaded — they do not compete with each other.
 
@@ -24,10 +24,10 @@ At least one of `static` or `from` is required.
 Each entry is a plugin name string or an object with a `name` key plus plugin-specific config:
 
 ```python
-plugin("movies", **{"from": [
-    {"name": "trakt_list", "client_id": "YOUR_CLIENT_ID",
-     "access_token": "YOUR_ACCESS_TOKEN", "type": "movies", "list": "watchlist"},
-]})
+movies = process("movies", from_=seen, **{"from": [
+    {"name": "trakt_list", "client_id": env("TRAKT_ID"),
+     "client_secret": env("TRAKT_SECRET"), "type": "movies", "list": "watchlist"},
+]}, quality="1080p+")
 ```
 
 ## Fields set on each entry
@@ -60,7 +60,7 @@ The 3D format is included in the `video_quality` string (e.g. `BD3D 1080p BluRay
 Filtering out 3D releases entirely:
 
 ```python
-plugin("condition", reject="video_is_3d == true")
+cond = process("condition", from_=movies, reject="video_is_3d == true")
 ```
 
 ## Debug logging
@@ -72,39 +72,27 @@ Run with `--log-level debug --log-plugin movies` to see (combine plugins with a 
 ## Example — static list
 
 ```python
-task("movies", [
-    plugin("rss", url="https://example.com/rss/movies"),
-    plugin("movies",
-        quality="1080p+",
-        static=["Inception", "Interstellar", "The Dark Knight"],
-    ),
-    plugin("deluge", host="localhost"),
-])
+src    = input("rss", url="https://example.com/rss")
+seen   = process("seen",   from_=src)
+movies = process("movies", from_=seen, static=["Inception"], quality="1080p+")
+output("qbittorrent", from_=movies, host="localhost")
+pipeline("movies", schedule="1h")
 ```
 
 ## Example — dynamic list from Trakt watchlist
 
 ```python
-task("movies-watchlist", [
-    plugin("rss", url="https://example.com/rss/movies"),
-    plugin("movies",
-        quality="1080p+",
-        ttl="4h",
-        **{"from": [
-            {"name": "trakt_list", "client_id": "YOUR_TRAKT_CLIENT_ID",
-             "access_token": "YOUR_TRAKT_ACCESS_TOKEN", "type": "movies", "list": "watchlist"},
-        ]},
-    ),
-    plugin("condition", reject="video_is_3d == true"),  # exclude all 3D releases
-    plugin("deluge", host="localhost"),
-])
+src    = input("rss", url="https://example.com/rss")
+seen   = process("seen",   from_=src)
+movies = process("movies", from_=seen, static=["Inception"], quality="1080p+")
+output("qbittorrent", from_=movies, host="localhost")
+pipeline("movies", schedule="1h")
 ```
 
 To accept only BD3D quality or better among 3D releases (and still download non-3D copies independently), use the `video_quality` field which includes the 3D format string:
 
 ```python
-plugin("condition", rules=[
-    # reject 3D releases that are not BD3D
+cond = process("condition", from_=movies, rules=[
     {"reject": 'video_is_3d == true and not contains(video_quality, "BD3D")'},
 ])
 ```

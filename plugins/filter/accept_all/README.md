@@ -20,14 +20,9 @@ plugin("accept_all")
 
 ## Example — sync a Trakt watchlist into a persistent list
 
-Note: `trakt_list` is a PhaseFrom sub-plugin and cannot be used directly as a task-level input. Use it inside `movies.from`, `series.from`, or `discover.from`.
-
 ```python
-task("sync-watchlist", [
-    # Use rss or another input plugin here, and filter with movies.from for Trakt list
-    plugin("rss", url="https://example.com/rss/movies"),
-    plugin("seen", local=True),
-    plugin("accept_all"),
-    plugin("list_add", list="movie_watchlist"),
-], schedule="1h")
+src = input("rss", url="https://example.com/rss")
+acc = process("accept_all", from_=src)
+output("list_add", from_=acc, list="watchlist")
+pipeline("sync-list", schedule="1h")
 ```

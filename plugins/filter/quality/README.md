@@ -62,10 +62,12 @@ Detected tokens:
 ## Example — standalone filter plugin
 
 ```python
-task("hd-only", [
-    plugin("rss", url="https://example.com/feed"),
-    plugin("quality", min="720p", max="1080p"),
-])
+src = input("rss", url="https://example.com/rss")
+q   = process("metainfo_quality", from_=src)
+flt = process("quality", from_=q, min="720p")
+acc = process("accept_all", from_=flt)
+output("transmission", from_=acc, host="localhost")
+pipeline("hd-only")
 ```
 
 ## Example — inline quality spec in series / movies / premiere

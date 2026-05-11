@@ -38,16 +38,6 @@ Parses video quality tags from the entry title and annotates the entry with stru
 
 ## Example
 
-Linear:
-```python
-task("my-task", [
-    plugin("rss", url="https://example.com/feed"),
-    plugin("metainfo_quality"),
-    plugin("condition", accept='{{eq .video_resolution "1080p"}}'),
-])
-```
-
-DAG:
 ```python
 src     = input("rss", url="https://example.com/feed")
 quality = process("metainfo_quality", from_=src)

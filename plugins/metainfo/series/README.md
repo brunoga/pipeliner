@@ -26,16 +26,6 @@ Parses series and episode information from the entry title. Takes no config.
 
 ## Example
 
-Linear:
-```python
-task("my-task", [
-    plugin("rss", url="https://example.com/feed"),
-    plugin("metainfo_series"),
-    plugin("pathfmt", path="/media/tv/{title}/Season {series_season:02d}", field="download_path"),
-])
-```
-
-DAG:
 ```python
 src    = input("rss", url="https://example.com/feed")
 meta   = process("metainfo_series", from_=src)

@@ -2,7 +2,7 @@
 
 Accepts episodes of configured TV shows. Parses the episode identifier from the entry title, matches the series name with fuzzy matching, and enforces optional quality and ordering constraints.
 
-**Multiple quality variants** of the same episode (from different sources or input feeds) are all accepted so the task engine's automatic deduplication can pick the best copy. The download history is updated in the Learn phase — only the winning copy is recorded.
+**Multiple quality variants** of the same episode (from different sources or input feeds) are all accepted; add a `dedup` node after `series` to keep only the best copy.
 
 A re-download of an already-seen episode is accepted when the new copy is strictly better quality, or when it is a PROPER/REPACK that is not a quality downgrade.
 
@@ -39,9 +39,10 @@ At least one of `static` or `from` is required.
 Each entry is a plugin name string or an object with a `name` key plus plugin-specific config:
 
 ```python
-plugin("series", **{"from": [
-    "trakt_list",                  # name only, uses defaults
-    {"name": "tvdb_favorites", "api_key": "YOUR_KEY", "user_pin": "YOUR_PIN"},
+series = process("series", from_=seen, **{"from": [
+    {"name": "trakt_list", "client_id": env("TRAKT_ID"),
+     "client_secret": env("TRAKT_SECRET"), "type": "shows"},
+    {"name": "tvdb_favorites", "api_key": env("TVDB_KEY"), "user_pin": env("TVDB_PIN")},
 ]})
 ```
 
@@ -56,64 +57,53 @@ plugin("series", **{"from": [
 ## Example — static list
 
 ```python
-task("tv", [
-    plugin("rss", url="https://example.com/feed"),
-    plugin("seen"),
-    plugin("series",
-        tracking="strict",
-        quality="720p",
-        static=["Breaking Bad", "Better Call Saul", "The Wire"],
-    ),
-])
+src    = input("rss", url="https://example.com/rss")
+seen   = process("seen",   from_=src)
+series = process("series", from_=seen, static=["Breaking Bad"],
+                 tracking="strict", quality="720p+")
+output("transmission", from_=series, host="localhost")
+pipeline("tv", schedule="30m")
 ```
 
 ## Example — dynamic list from Trakt watchlist
 
 ```python
-task("tv-watchlist", [
-    plugin("rss", url="https://example.com/feed"),
-    plugin("seen"),
-    plugin("series",
-        tracking="strict",
-        quality="720p",
-        ttl="2h",
-        **{"from": [
-            {"name": "trakt_list", "client_id": "YOUR_TRAKT_CLIENT_ID",
-             "access_token": "YOUR_TRAKT_ACCESS_TOKEN", "type": "shows", "list": "watchlist"},
-        ]},
-    ),
-])
+src    = input("rss", url="https://example.com/rss")
+seen   = process("seen",   from_=src)
+series = process("series", from_=seen, **{"from": [
+    {"name": "trakt_list", "client_id": env("TRAKT_ID"),
+     "client_secret": env("TRAKT_SECRET"), "type": "shows"},
+]}, tracking="follow")
+output("transmission", from_=series, host="localhost")
+pipeline("tv-trakt", schedule="30m")
 ```
 
 ## Example — dynamic list from TheTVDB favorites
 
 ```python
-task("tv-favorites", [
-    plugin("rss", url="https://example.com/feed"),
-    plugin("seen"),
-    plugin("series",
-        tracking="strict",
-        quality="720p",
-        **{"from": [
-            {"name": "tvdb_favorites", "api_key": "YOUR_TVDB_API_KEY", "user_pin": "YOUR_TVDB_USER_PIN"},
-        ]},
-    ),
-])
+src    = input("rss", url="https://example.com/rss")
+seen   = process("seen",   from_=src)
+series = process("series", from_=seen, **{"from": [
+    {"name": "tvdb_favorites", "api_key": env("TVDB_KEY"), "user_pin": env("TVDB_PIN")},
+]}, tracking="backfill", quality="720p+")
+output("transmission", from_=series, host="localhost")
+pipeline("tv-tvdb", schedule="30m")
 ```
 
 ## Example — combined static and dynamic
 
 ```python
-task("tv-combined", [
-    plugin("rss", url="https://example.com/feed"),
-    plugin("series",
-        static=["Severance"],      # always included regardless of watchlist
-        **{"from": [
-            {"name": "trakt_list", "client_id": "YOUR_CLIENT_ID",
-             "access_token": "YOUR_ACCESS_TOKEN", "type": "shows", "list": "watchlist"},
-        ]},
-    ),
-])
+src    = input("rss", url="https://example.com/rss")
+seen   = process("seen",   from_=src)
+series = process("series", from_=seen,
+    static=["Severance"],     # always included
+    **{"from": [
+        {"name": "trakt_list", "client_id": env("TRAKT_ID"),
+         "client_secret": env("TRAKT_SECRET"), "type": "shows"},
+    ]},
+    tracking="follow")
+output("transmission", from_=series, host="localhost")
+pipeline("tv-combined", schedule="30m")
 ```
 
 ## DAG role

@@ -44,19 +44,6 @@ DHT resolution fields are absent when the timeout expires before peers respond. 
 
 ## Example
 
-Linear:
-```python
-task("magnets", [
-    plugin("rss", url="https://example.com/rss/magnets"),
-    plugin("seen"),
-    plugin("metainfo_magnet", resolve_timeout="45s"),
-    plugin("content", require=["*.mkv"]),
-    plugin("quality", min="720p"),
-    plugin("qbittorrent", host="localhost"),
-])
-```
-
-DAG:
 ```python
 src     = input("rss", url="https://example.com/rss/magnets")
 seen    = process("seen", from_=src)

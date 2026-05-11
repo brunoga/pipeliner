@@ -25,14 +25,6 @@ Scrapes all `<a href>` links from an HTML page and emits one entry per link. Opt
 
 ## Example
 
-Linear:
-```python
-task("my-task", [
-    plugin("html", url="https://example.com/downloads", mask="*.torrent"),
-])
-```
-
-DAG:
 ```python
 src = input("html", url="https://example.com/downloads", mask="*.torrent")
 output("print", from_=src)

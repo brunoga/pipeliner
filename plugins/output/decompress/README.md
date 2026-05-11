@@ -29,11 +29,7 @@ The plugin fails at startup if none is found.
 ## Example
 
 ```python
-task("scene", [
-    plugin("rss", url="https://example.com/rss"),
-    plugin("download", to="/downloads/staging"),
-    plugin("decompress", to="/downloads/completed", delete_archive=True),
-])
+output("decompress", from_=ready, to="/media/extracted")
 ```
 
 ## DAG role

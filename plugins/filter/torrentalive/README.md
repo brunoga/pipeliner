@@ -32,11 +32,11 @@ plugin("torrent_alive",
 ## Example
 
 ```python
-task("anime", [
-    plugin("rss", url="https://nyaa.si/?page=rss&cats=1_2&filter=2"),
-    plugin("torrent_alive", min_seeds=3),
-    plugin("series", static=["My Hero Academia"]),
-])
+src   = input("rss", url="https://example.com/rss")
+alive = process("torrent_alive", from_=src, min_seeds=3)
+acc   = process("accept_all", from_=alive)
+output("transmission", from_=acc, host="localhost")
+pipeline("seeded-only")
 ```
 
 ## DAG role

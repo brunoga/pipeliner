@@ -2,7 +2,7 @@
 
 Fetches movies or shows from a Trakt.tv list and emits one entry per item. Entries carry the item title and a canonical Trakt URL, making them suitable as title sources for `discover.from`, `series.from`, and `movies.from`.
 
-**This plugin is a PhaseFrom sub-plugin.** It cannot be used directly as a task-level input. Use it inside `series.from`, `movies.from`, or `discover.from`.
+Use as a standalone `input()` source node, or inside `series.from`, `movies.from`, `discover.from`, or `discover.via` config keys.
 
 ## Config
 

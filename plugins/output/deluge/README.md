@@ -19,15 +19,9 @@ If login fails or a torrent cannot be added, the affected entry is marked failed
 ## Example
 
 ```python
-task("tv", [
-    plugin("rss", url="https://example.com/feed"),
-    plugin("series", static=["Breaking Bad"]),
-    plugin("pathfmt",
-        path="/media/tv/{{.series_name}}/Season {{printf \"%02d\" .series_season}}",
-        field="download_path",
-    ),
-    plugin("deluge", host="localhost", password="changeme", path="{{.download_path}}"),
-])
+output("deluge", from_=ready,
+       host="localhost", password=env("DELUGE_PASS"),
+       move_completed_path="{download_path}")
 ```
 
 ## DAG role

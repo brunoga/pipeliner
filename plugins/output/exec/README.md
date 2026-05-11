@@ -11,17 +11,13 @@ Runs a shell command for each accepted entry. The command is a Go template rende
 ## Example
 
 ```python
-task("files", [
-    plugin("filesystem", path="/downloads/watch"),
-    plugin("exec", command='notify-send "New download" "{{.Title}}"'),
-])
+output("exec", from_=ready,
+       command='notify-send "New" "{{.Title}}"' )
 ```
 
 ```python
-task("cleanup", [
-    plugin("filesystem", path="/media/tv", recursive=True, mask="*.nfo"),
-    plugin("exec", command='rm "{{.location}}"'),
-])
+output("exec", from_=ready,
+       command='notify-send "New" "{{.Title}}"' )
 ```
 
 ## Notes

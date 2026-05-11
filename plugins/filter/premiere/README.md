@@ -29,11 +29,11 @@ See [`quality`](../quality/README.md) for the spec syntax.
 ## Example
 
 ```python
-task("discover-shows", [
-    plugin("rss", url="https://example.com/rss"),
-    plugin("premiere", quality="720p+ webrip+"),
-    plugin("deluge", path="/downloads/tv"),
-])
+src  = input("rss", url="https://example.com/rss")
+seen = process("seen",     from_=src)
+prem = process("premiere", from_=seen, quality="720p+ webrip+")
+output("transmission", from_=prem, host="localhost")
+pipeline("new-shows", schedule="1h")
 ```
 
 ## DAG role

@@ -72,18 +72,14 @@ reason="condition: tvdb_genres contains \"Documentary\""
 ## Example — TV series discovery filter
 
 ```python
-task("discover", [
-    plugin("rss", url="https://example.com/feed"),
-    plugin("metainfo_tvdb", api_key="YOUR_KEY"),
-    plugin("condition", rules=[
-        {"reject": 'tvdb_language != "" and tvdb_language != "English"'},
-        {"reject": 'tvdb_genres contains "Documentary"'},
-        {"reject": 'tvdb_genres contains "Reality"'},
-        {"reject": 'tvdb_genres contains "Game Show"'},
-        {"reject": 'tvdb_first_air_date != "" and tvdb_first_air_date < daysago(365)'},
-    ]),
-    plugin("premiere", quality="720p+ webrip+"),
+src  = input("rss", url="https://example.com/rss")
+meta = process("metainfo_tvdb", from_=src, api_key=env("TVDB_KEY"))
+cond = process("condition", from_=meta, rules=[
+    {"reject": 'video_language != "" and video_language != "English"'},
+    {"accept": "video_rating >= 7.0"},
 ])
+output("transmission", from_=cond, host="localhost")
+pipeline("filtered", schedule="1h")
 ```
 
 ## Example — rating gate
