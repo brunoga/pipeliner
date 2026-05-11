@@ -69,6 +69,6 @@ func newInputPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, e
 func (p *jackettInputPlugin) Name() string        { return "jackett_input" }
 func (p *jackettInputPlugin) Phase() plugin.Phase { return plugin.PhaseInput }
 
-func (p *jackettInputPlugin) Run(ctx context.Context, tc *plugin.TaskContext) ([]*entry.Entry, error) {
+func (p *jackettInputPlugin) Generate(ctx context.Context, tc *plugin.TaskContext) ([]*entry.Entry, error) {
 	return p.searcher.Search(ctx, tc, p.query)
 }

@@ -64,7 +64,7 @@ func newFilesystemPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugi
 func (f *filesystemPlugin) Name() string        { return "filesystem" }
 func (f *filesystemPlugin) Phase() plugin.Phase { return plugin.PhaseInput }
 
-func (f *filesystemPlugin) Run(ctx context.Context, _ *plugin.TaskContext) ([]*entry.Entry, error) {
+func (f *filesystemPlugin) Generate(ctx context.Context, _ *plugin.TaskContext) ([]*entry.Entry, error) {
 	var entries []*entry.Entry
 
 	walkFn := func(path string, d fs.DirEntry, err error) error {

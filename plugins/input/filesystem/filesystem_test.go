@@ -33,7 +33,7 @@ func TestScansDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	entries, err := p.(*filesystemPlugin).Run(context.Background(), makeCtx(t))
+	entries, err := p.(*filesystemPlugin).Generate(context.Background(), makeCtx(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +49,7 @@ func TestGlobMask(t *testing.T) {
 	}
 
 	p, _ := newFilesystemPlugin(map[string]any{"path": dir, "mask": "*.torrent"}, nil)
-	entries, err := p.(*filesystemPlugin).Run(context.Background(), makeCtx(t))
+	entries, err := p.(*filesystemPlugin).Generate(context.Background(), makeCtx(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func TestNonRecursiveSkipsSubdirs(t *testing.T) {
 	os.WriteFile(filepath.Join(sub, "nested.txt"), []byte("x"), 0o600)
 
 	p, _ := newFilesystemPlugin(map[string]any{"path": dir, "recursive": false}, nil)
-	entries, _ := p.(*filesystemPlugin).Run(context.Background(), makeCtx(t))
+	entries, _ := p.(*filesystemPlugin).Generate(context.Background(), makeCtx(t))
 	if len(entries) != 1 {
 		t.Errorf("want 1 entry (non-recursive), got %d", len(entries))
 	}
@@ -85,7 +85,7 @@ func TestRecursiveIncludesSubdirs(t *testing.T) {
 	os.WriteFile(filepath.Join(sub, "nested.txt"), []byte("x"), 0o600)
 
 	p, _ := newFilesystemPlugin(map[string]any{"path": dir, "recursive": true}, nil)
-	entries, _ := p.(*filesystemPlugin).Run(context.Background(), makeCtx(t))
+	entries, _ := p.(*filesystemPlugin).Generate(context.Background(), makeCtx(t))
 	if len(entries) != 2 {
 		t.Errorf("want 2 entries (recursive), got %d", len(entries))
 	}
@@ -96,7 +96,7 @@ func TestEntryFields(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "file.torrent"), []byte("hello"), 0o600)
 
 	p, _ := newFilesystemPlugin(map[string]any{"path": dir}, nil)
-	entries, _ := p.(*filesystemPlugin).Run(context.Background(), makeCtx(t))
+	entries, _ := p.(*filesystemPlugin).Generate(context.Background(), makeCtx(t))
 	if len(entries) != 1 {
 		t.Fatalf("want 1 entry, got %d", len(entries))
 	}

@@ -39,7 +39,7 @@ func TestExtractLinks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	entries, err := p.(*htmlPlugin).Run(context.Background(), makeCtx())
+	entries, err := p.(*htmlPlugin).Generate(context.Background(), makeCtx())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func TestMaskFilter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	entries, err := p.(*htmlPlugin).Run(context.Background(), makeCtx())
+	entries, err := p.(*htmlPlugin).Generate(context.Background(), makeCtx())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +100,7 @@ func TestRelativeURLResolution(t *testing.T) {
 	defer srv.Close()
 
 	p, _ := newPlugin(map[string]any{"url": srv.URL}, nil)
-	entries, err := p.(*htmlPlugin).Run(context.Background(), makeCtx())
+	entries, err := p.(*htmlPlugin).Generate(context.Background(), makeCtx())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +120,7 @@ func TestHTTPError(t *testing.T) {
 	defer srv.Close()
 
 	p, _ := newPlugin(map[string]any{"url": srv.URL}, nil)
-	_, err := p.(*htmlPlugin).Run(context.Background(), makeCtx())
+	_, err := p.(*htmlPlugin).Generate(context.Background(), makeCtx())
 	if err == nil {
 		t.Error("expected error on 403")
 	}
@@ -137,7 +137,7 @@ func TestHtmlPageField(t *testing.T) {
 	defer srv.Close()
 
 	p, _ := newPlugin(map[string]any{"url": srv.URL}, nil)
-	entries, _ := p.(*htmlPlugin).Run(context.Background(), makeCtx())
+	entries, _ := p.(*htmlPlugin).Generate(context.Background(), makeCtx())
 	if len(entries) == 0 {
 		t.Fatal("no entries")
 	}

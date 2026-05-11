@@ -59,7 +59,7 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 func (p *htmlPlugin) Name() string        { return "html" }
 func (p *htmlPlugin) Phase() plugin.Phase { return plugin.PhaseInput }
 
-func (p *htmlPlugin) Run(ctx context.Context, _ *plugin.TaskContext) ([]*entry.Entry, error) {
+func (p *htmlPlugin) Generate(ctx context.Context, _ *plugin.TaskContext) ([]*entry.Entry, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.pageURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("html: build request: %w", err)
