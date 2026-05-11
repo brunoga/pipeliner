@@ -20,7 +20,7 @@ import (
 	"github.com/brunoga/pipeliner/internal/store"
 )
 
-//go:embed ui
+//go:embed ui/index.html ui/style.css ui/dashboard.js ui/highlight.js ui/config-editor.js ui/visual-editor.js ui/database.js ui/trakt.js
 var uiFS embed.FS
 
 // DaemonControl is the scheduler interface the Server uses.
