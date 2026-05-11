@@ -165,7 +165,11 @@ func openConfigTab(t *testing.T, page playwright.Page) {
 
 // ── tests ────────────────────────────────────────────────────────────────────
 
-const minimalConfig = `task("tv", [plugin("rss", url="https://example.com/rss"), plugin("seen")])`
+const minimalConfig = `
+src = input("rss", url="https://example.com/rss")
+flt = process("seen", from_=src)
+pipeline("tv")
+`
 
 func TestE2ELoginAndDashboard(t *testing.T) {
 	ts := startTestServer(t, minimalConfig)
