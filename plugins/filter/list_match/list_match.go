@@ -27,6 +27,7 @@ func init() {
 		PluginName:  "list_match",
 		Description: "accept entries whose title is in a named persistent list; reject others",
 		PluginPhase: plugin.PhaseFilter,
+		Role:        plugin.RoleProcessor,
 		Factory:     newPlugin,
 		Validate:    validate,
 	})
