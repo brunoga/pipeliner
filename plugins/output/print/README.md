@@ -17,3 +17,11 @@ task("debug", [
     plugin("print", format="[{{.Task}}] {{.Title}}"),
 ])
 ```
+
+## DAG role
+
+| Property | Value |
+|----------|-------|
+| Role | `sink` |
+| Produces | — |
+| Requires | — |
