@@ -113,7 +113,7 @@ func TestSendsEmail(t *testing.T) {
 	}
 
 	e := entry.New("My Show S01E01", "http://x.com/a")
-	if err := p.(*emailPlugin).Output(context.Background(), makeCtx(), []*entry.Entry{e}); err != nil {
+	if err := p.(*emailPlugin).deliver(context.Background(), makeCtx(), []*entry.Entry{e}); err != nil {
 		t.Fatalf("Output: %v", err)
 	}
 
@@ -135,7 +135,7 @@ func TestSubjectTemplate(t *testing.T) {
 	p, _ := newPlugin(cfg, nil)
 
 	e := entry.New("Cool Episode", "http://x.com/a")
-	p.(*emailPlugin).Output(context.Background(), makeCtx(), []*entry.Entry{e}) //nolint:errcheck
+	p.(*emailPlugin).deliver(context.Background(), makeCtx(), []*entry.Entry{e}) //nolint:errcheck
 
 	msg := <-srv.msgCh
 	if !strings.Contains(msg, "Subject: New: Cool Episode") {
@@ -151,7 +151,7 @@ func TestNoEntriesSkipsSend(t *testing.T) {
 		"from":      "a@b.com",
 		"to":        "b@c.com",
 	}, nil)
-	err := p.(*emailPlugin).Output(context.Background(), makeCtx(), nil)
+	err := p.(*emailPlugin).deliver(context.Background(), makeCtx(), nil)
 	if err != nil {
 		t.Errorf("no entries: unexpected error: %v", err)
 	}

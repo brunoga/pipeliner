@@ -54,19 +54,15 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 func (p *listAddPlugin) Name() string        { return "list_add" }
 func (p *listAddPlugin) Phase() plugin.Phase { return plugin.PhaseOutput }
 
-func (p *listAddPlugin) Output(_ context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
+func (p *listAddPlugin) Consume(_ context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
+	if tc.DryRun {
+		return nil
+	}
 	list := entrylist.Open(p.db, p.listName)
-	for _, e := range entries {
+	for _, e := range entry.FilterAccepted(entries) {
 		if err := list.Add(e.Title, e.URL); err != nil {
 			tc.Logger.Error("list_add: store entry", "title", e.Title, "err", err)
 		}
 	}
 	return nil
-}
-
-func (p *listAddPlugin) Consume(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
-	if tc.DryRun {
-		return nil
-	}
-	return p.Output(ctx, tc, entry.FilterAccepted(entries))
 }

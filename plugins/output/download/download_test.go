@@ -35,7 +35,7 @@ func TestDownloadsFile(t *testing.T) {
 	}
 
 	e := entry.New("Test File", srv.URL+"/file.torrent")
-	err = p.(*downloadPlugin).Output(context.Background(), makeCtx(), []*entry.Entry{e})
+	err = p.(*downloadPlugin).deliver(context.Background(), makeCtx(), []*entry.Entry{e})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +57,7 @@ func TestDownloadPathFieldSet(t *testing.T) {
 	dir := t.TempDir()
 	p, _ := newPlugin(map[string]any{"path": dir}, nil)
 	e := entry.New("Test", srv.URL+"/ep.mkv")
-	p.(*downloadPlugin).Output(context.Background(), makeCtx(), []*entry.Entry{e}) //nolint:errcheck
+	p.(*downloadPlugin).deliver(context.Background(), makeCtx(), []*entry.Entry{e}) //nolint:errcheck
 
 	if v := e.GetString("download_path"); v == "" {
 		t.Error("download_path should be set after download")
@@ -79,7 +79,7 @@ func TestCustomFilenameTemplate(t *testing.T) {
 	e := entry.New("Test", srv.URL+"/anything")
 	e.Set("series_name", "My Show")
 	e.Set("series_season", 2)
-	p.(*downloadPlugin).Output(context.Background(), makeCtx(), []*entry.Entry{e}) //nolint:errcheck
+	p.(*downloadPlugin).deliver(context.Background(), makeCtx(), []*entry.Entry{e}) //nolint:errcheck
 
 	dest := filepath.Join(dir, "My Show.S2E01.mkv")
 	if _, err := os.Stat(dest); err != nil {
@@ -94,7 +94,7 @@ func TestAtomicWrite(t *testing.T) {
 	dir := t.TempDir()
 	p, _ := newPlugin(map[string]any{"path": dir}, nil)
 	e := entry.New("T", srv.URL+"/f.bin")
-	p.(*downloadPlugin).Output(context.Background(), makeCtx(), []*entry.Entry{e}) //nolint:errcheck
+	p.(*downloadPlugin).deliver(context.Background(), makeCtx(), []*entry.Entry{e}) //nolint:errcheck
 
 	// .part file must not remain after success.
 	entries, _ := os.ReadDir(dir)
@@ -115,7 +115,7 @@ func TestHTTPError(t *testing.T) {
 	p, _ := newPlugin(map[string]any{"path": dir}, nil)
 	e := entry.New("T", srv.URL+"/f.bin")
 	// Error is logged per-entry; Output itself succeeds.
-	err := p.(*downloadPlugin).Output(context.Background(), makeCtx(), []*entry.Entry{e})
+	err := p.(*downloadPlugin).deliver(context.Background(), makeCtx(), []*entry.Entry{e})
 	if err != nil {
 		t.Errorf("Output should not return error for per-entry failures: %v", err)
 	}
@@ -136,7 +136,7 @@ func TestContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // cancel immediately
 
-	p.(*downloadPlugin).Output(ctx, makeCtx(), []*entry.Entry{e}) //nolint:errcheck
+	p.(*downloadPlugin).deliver(ctx, makeCtx(), []*entry.Entry{e}) //nolint:errcheck
 	// No .part file should linger.
 	entries, _ := os.ReadDir(dir)
 	for _, de := range entries {

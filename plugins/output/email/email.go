@@ -129,7 +129,7 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 func (p *emailPlugin) Name() string        { return "email" }
 func (p *emailPlugin) Phase() plugin.Phase { return plugin.PhaseOutput }
 
-func (p *emailPlugin) Output(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) error {
+func (p *emailPlugin) deliver(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) error {
 	if len(entries) == 0 {
 		return nil
 	}
@@ -224,5 +224,5 @@ func (p *emailPlugin) Consume(ctx context.Context, tc *plugin.TaskContext, entri
 	if tc.DryRun {
 		return nil
 	}
-	return p.Output(ctx, tc, entry.FilterAccepted(entries))
+	return p.deliver(ctx, tc, entry.FilterAccepted(entries))
 }

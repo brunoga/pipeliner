@@ -50,8 +50,11 @@ func newPrintPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, er
 func (p *printPlugin) Name() string        { return "print" }
 func (p *printPlugin) Phase() plugin.Phase { return plugin.PhaseOutput }
 
-func (p *printPlugin) Output(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) error {
-	for _, e := range entries {
+func (p *printPlugin) Consume(_ context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
+	if tc.DryRun {
+		return nil
+	}
+	for _, e := range entry.FilterAccepted(entries) {
 		result, err := p.ip.Render(interp.EntryDataWithState(e))
 		if err != nil {
 			fmt.Printf("[print error: %v]\n", err)
@@ -60,11 +63,4 @@ func (p *printPlugin) Output(_ context.Context, _ *plugin.TaskContext, entries [
 		fmt.Println(result)
 	}
 	return nil
-}
-
-func (p *printPlugin) Consume(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
-	if tc.DryRun {
-		return nil
-	}
-	return p.Output(ctx, tc, entry.FilterAccepted(entries))
 }

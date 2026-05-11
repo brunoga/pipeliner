@@ -58,7 +58,7 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 func (p *execPlugin) Name() string        { return "exec" }
 func (p *execPlugin) Phase() plugin.Phase { return plugin.PhaseOutput }
 
-func (p *execPlugin) Output(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
+func (p *execPlugin) deliver(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
 	for _, e := range entries {
 		cmdStr, err := p.ip.Render(interp.EntryData(e))
 		if err != nil {
@@ -92,5 +92,5 @@ func (p *execPlugin) Consume(ctx context.Context, tc *plugin.TaskContext, entrie
 	if tc.DryRun {
 		return nil
 	}
-	return p.Output(ctx, tc, entry.FilterAccepted(entries))
+	return p.deliver(ctx, tc, entry.FilterAccepted(entries))
 }

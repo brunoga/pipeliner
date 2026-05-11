@@ -46,7 +46,7 @@ func TestOutputSendsNotification(t *testing.T) {
 	})
 
 	e := entry.New("Test Entry", "http://example.com")
-	if err := p.Output(context.Background(), makeCtx(), []*entry.Entry{e}); err != nil {
+	if err := p.deliver(context.Background(), makeCtx(), []*entry.Entry{e}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -62,7 +62,7 @@ func TestOutputSendsNotification(t *testing.T) {
 func TestOutputSkipsWhenEmpty(t *testing.T) {
 	p := openPlugin(t, map[string]any{"via": "mock", "config": map[string]any{}})
 	// No error, no notification sent.
-	if err := p.Output(context.Background(), makeCtx(), nil); err != nil {
+	if err := p.deliver(context.Background(), makeCtx(), nil); err != nil {
 		t.Fatal(err)
 	}
 	mn := p.notifier.(*mockNotifier)
@@ -78,7 +78,7 @@ func TestOutputOnAllSendsWhenEmpty(t *testing.T) {
 		"on":     "all",
 		"title":  "heartbeat",
 	})
-	if err := p.Output(context.Background(), makeCtx(), nil); err != nil {
+	if err := p.deliver(context.Background(), makeCtx(), nil); err != nil {
 		t.Fatal(err)
 	}
 	mn := p.notifier.(*mockNotifier)

@@ -77,7 +77,7 @@ func TestLoginAndAddTorrent(t *testing.T) {
 
 	dp := newTestPlugin(t, srv, nil)
 	e := entry.New("My Show S01E01", "http://example.com/ep.torrent")
-	err := dp.Output(context.Background(), makeCtx(), []*entry.Entry{e})
+	err := dp.deliver(context.Background(), makeCtx(), []*entry.Entry{e})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +109,7 @@ func TestLoginFailure(t *testing.T) {
 
 	dp := newTestPlugin(t, srv, nil)
 	e := entry.New("T", "http://x.com/a.torrent")
-	err := dp.Output(context.Background(), makeCtx(), []*entry.Entry{e})
+	err := dp.deliver(context.Background(), makeCtx(), []*entry.Entry{e})
 	if err == nil {
 		t.Error("expected error on login failure")
 	}
@@ -122,7 +122,7 @@ func TestAddTorrentError(t *testing.T) {
 
 	dp := newTestPlugin(t, srv, nil)
 	e := entry.New("T", "http://x.com/a.torrent")
-	err := dp.Output(context.Background(), makeCtx(), []*entry.Entry{e})
+	err := dp.deliver(context.Background(), makeCtx(), []*entry.Entry{e})
 	if err != nil {
 		t.Errorf("Output should not return error for per-entry add failure: %v", err)
 	}
@@ -139,7 +139,7 @@ func TestAlreadyInSessionNotFailed(t *testing.T) {
 	dp := newTestPlugin(t, srv, nil)
 	e := entry.New("T", "http://x.com/a.torrent")
 	e.Accept()
-	err := dp.Output(context.Background(), makeCtx(), []*entry.Entry{e})
+	err := dp.deliver(context.Background(), makeCtx(), []*entry.Entry{e})
 	if err != nil {
 		t.Fatalf("Output returned unexpected error: %v", err)
 	}
@@ -163,7 +163,7 @@ func TestSavePathTemplate(t *testing.T) {
 
 	e := entry.New("My Show S01E01", "http://x.com/a.torrent")
 	e.Set("series_name", "My Show")
-	dp.Output(context.Background(), makeCtx(), []*entry.Entry{e}) //nolint:errcheck
+	dp.deliver(context.Background(), makeCtx(), []*entry.Entry{e}) //nolint:errcheck
 
 	// Find the add_torrent_url call and check options.
 	for _, c := range mock.calls {
@@ -184,7 +184,7 @@ func TestMagnetLinkUsesMagnetRPC(t *testing.T) {
 	dp := newTestPlugin(t, srv, nil)
 	magnet := "magnet:?xt=urn:btih:abc123&dn=My+Show+S01E01"
 	e := entry.New("My Show S01E01", magnet)
-	err := dp.Output(context.Background(), makeCtx(), []*entry.Entry{e})
+	err := dp.deliver(context.Background(), makeCtx(), []*entry.Entry{e})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,7 +220,7 @@ func TestTorrentLinkTypeMagnetUsesMagnetRPC(t *testing.T) {
 	magnet := "magnet:?xt=urn:btih:aabbccddeeff00112233445566778899aabbccdd"
 	e := entry.New("movie", magnet)
 	e.Set(entry.FieldTorrentLinkType, "magnet")
-	dp.Output(context.Background(), makeCtx(), []*entry.Entry{e}) //nolint:errcheck
+	dp.deliver(context.Background(), makeCtx(), []*entry.Entry{e}) //nolint:errcheck
 
 	var addCall *rpcCall
 	for i := range mock.calls {
@@ -245,7 +245,7 @@ func TestTorrentLinkTypeTorrentUsesURLRPC(t *testing.T) {
 	dp := newTestPlugin(t, srv, nil)
 	e := entry.New("movie", "https://jackett.host/dl/idx/?key=abc&file=movie")
 	e.Set(entry.FieldTorrentLinkType, "torrent")
-	dp.Output(context.Background(), makeCtx(), []*entry.Entry{e}) //nolint:errcheck
+	dp.deliver(context.Background(), makeCtx(), []*entry.Entry{e}) //nolint:errcheck
 
 	for _, c := range mock.calls {
 		if c.Method == "core.add_torrent_magnet" {
@@ -261,7 +261,7 @@ func TestHTTPTorrentUsesURLRPC(t *testing.T) {
 
 	dp := newTestPlugin(t, srv, nil)
 	e := entry.New("My Show S01E01", "http://example.com/show.torrent")
-	dp.Output(context.Background(), makeCtx(), []*entry.Entry{e}) //nolint:errcheck
+	dp.deliver(context.Background(), makeCtx(), []*entry.Entry{e}) //nolint:errcheck
 
 	for _, c := range mock.calls {
 		if c.Method == "core.add_torrent_magnet" {
