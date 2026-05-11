@@ -105,7 +105,7 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 func (p *traktMetaPlugin) Name() string        { return "metainfo_trakt" }
 func (p *traktMetaPlugin) Phase() plugin.Phase { return plugin.PhaseMetainfo }
 
-func (p *traktMetaPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
+func (p *traktMetaPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
 	title, ok := p.parseTitle(e.Title)
 	if !ok {
 		tc.Logger.Warn("metainfo_trakt: title did not parse as "+p.itemType[:len(p.itemType)-1], "entry", e.Title)
@@ -162,7 +162,7 @@ func (p *traktMetaPlugin) Process(ctx context.Context, tc *plugin.TaskContext, e
 		if e.IsRejected() || e.IsFailed() {
 			continue
 		}
-		if err := p.Annotate(ctx, tc, e); err != nil {
+		if err := p.annotate(ctx, tc, e); err != nil {
 			tc.Logger.Warn("metainfo_trakt error", "entry", e.Title, "err", err)
 		}
 	}

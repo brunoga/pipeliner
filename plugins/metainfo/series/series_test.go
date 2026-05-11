@@ -14,7 +14,7 @@ func annotate(t *testing.T, title string) *entry.Entry {
 	t.Helper()
 	p, _ := newPlugin(nil, nil)
 	e := entry.New(title, "http://x.com/a")
-	if err := p.(*seriesMetaPlugin).Annotate(context.Background(), makeCtx(), e); err != nil {
+	if _, err := p.(plugin.ProcessorPlugin).Process(context.Background(), makeCtx(), []*entry.Entry{e}); err != nil {
 		t.Fatal(err)
 	}
 	return e

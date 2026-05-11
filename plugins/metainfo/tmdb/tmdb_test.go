@@ -90,7 +90,7 @@ func TestAnnotateMovie(t *testing.T) {
 	p := &tmdbPlugin{client: c}
 
 	e := entry.New("Inception.2010.1080p.BluRay.x264", "http://x.com/a")
-	if err := p.Annotate(context.Background(), makeCtx(), e); err != nil {
+	if err := p.annotate(context.Background(), makeCtx(), e); err != nil {
 		t.Fatal(err)
 	}
 
@@ -152,7 +152,7 @@ func TestEnrichedSetOnSuccess(t *testing.T) {
 	p := &tmdbPlugin{client: c}
 
 	e := entry.New("Inception.2010.1080p.BluRay", "http://x.com/a")
-	if err := p.Annotate(context.Background(), makeCtx(), e); err != nil {
+	if err := p.annotate(context.Background(), makeCtx(), e); err != nil {
 		t.Fatal(err)
 	}
 	if !e.GetBool("enriched") {
@@ -184,8 +184,8 @@ func TestEmptyResultNotCached(t *testing.T) {
 	}
 
 	e := entry.New("Inception.2010.1080p.BluRay", "http://x.com/a")
-	p.Annotate(context.Background(), makeCtx(), e) //nolint:errcheck
-	p.Annotate(context.Background(), makeCtx(), e) //nolint:errcheck
+	p.annotate(context.Background(), makeCtx(), e) //nolint:errcheck
+	p.annotate(context.Background(), makeCtx(), e) //nolint:errcheck
 
 	// Each Annotate makes 2 API calls (year search + year-less retry).
 	// If empty results were cached, the second Annotate would skip the API entirely.
@@ -208,7 +208,7 @@ func TestEnrichedNotSetOnNoResults(t *testing.T) {
 	p := &tmdbPlugin{client: c}
 
 	e := entry.New("Inception.2010.1080p.BluRay", "http://x.com/a")
-	if err := p.Annotate(context.Background(), makeCtx(), e); err != nil {
+	if err := p.annotate(context.Background(), makeCtx(), e); err != nil {
 		t.Fatal(err)
 	}
 	if e.GetBool("enriched") {
@@ -226,7 +226,7 @@ func TestAnnotateNonMovie(t *testing.T) {
 	p := &tmdbPlugin{client: c}
 
 	e := entry.New("Show.S01E01.720p.HDTV", "http://x.com/a")
-	if err := p.Annotate(context.Background(), makeCtx(), e); err != nil {
+	if err := p.annotate(context.Background(), makeCtx(), e); err != nil {
 		t.Fatal(err)
 	}
 	if v := e.GetString("title"); v != "" {

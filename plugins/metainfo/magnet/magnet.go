@@ -121,7 +121,7 @@ func isMagnetEntry(e *entry.Entry) bool {
 
 // Annotate handles the single-entry path (used by tests and external callers).
 // It sets URI-derived fields only; DHT resolution requires AnnotateBatch.
-func (p *magnetPlugin) Annotate(_ context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
+func (p *magnetPlugin) annotate(_ context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
 	log := tc.Logger
 	if !isMagnetEntry(e) {
 		log.Debug("metainfo_magnet: skipping entry — not a magnet", "entry", e.URL)
@@ -144,7 +144,7 @@ func (p *magnetPlugin) Annotate(_ context.Context, tc *plugin.TaskContext, e *en
 // AnnotateBatch implements BatchMetainfoPlugin. It first annotates all entries
 // from their magnet URIs, then fires DHT resolution for all of them in
 // parallel, waiting up to resolveTimeout for each.
-func (p *magnetPlugin) AnnotateBatch(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
+func (p *magnetPlugin) annotateBatch(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
 	log := tc.Logger
 	log.Debug("metainfo_magnet: batch received", "entries", len(entries), "resolve_timeout", p.resolveTimeout)
 
@@ -236,7 +236,7 @@ func (p *magnetPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entr
 			live = append(live, e)
 		}
 	}
-	if err := p.AnnotateBatch(ctx, tc, live); err != nil {
+	if err := p.annotateBatch(ctx, tc, live); err != nil {
 		tc.Logger.Warn("metainfo_magnet error", "err", err)
 	}
 	return entries, nil

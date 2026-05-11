@@ -92,7 +92,7 @@ func TestAnnotateShow(t *testing.T) {
 	p := makePlugin(t, map[string]any{"client_id": "key", "type": "shows"})
 	e := entry.New("Breaking.Bad.S01E01.720p.HDTV", "http://example.com/1")
 
-	if err := p.Annotate(context.Background(), tc(), e); err != nil {
+	if err := p.annotate(context.Background(), tc(), e); err != nil {
 		t.Fatal(err)
 	}
 
@@ -126,7 +126,7 @@ func TestEnrichedSetOnSuccess(t *testing.T) {
 
 	p := makePlugin(t, map[string]any{"client_id": "key", "type": "shows"})
 	e := entry.New("Breaking.Bad.S01E01.720p.HDTV", "http://x.com/a")
-	if err := p.Annotate(context.Background(), tc(), e); err != nil {
+	if err := p.annotate(context.Background(), tc(), e); err != nil {
 		t.Fatal(err)
 	}
 	if !e.GetBool("enriched") {
@@ -141,7 +141,7 @@ func TestEnrichedNotSetOnNoResults(t *testing.T) {
 
 	p := makePlugin(t, map[string]any{"client_id": "key", "type": "shows"})
 	e := entry.New("Breaking.Bad.S01E01.720p.HDTV", "http://x.com/a")
-	if err := p.Annotate(context.Background(), tc(), e); err != nil {
+	if err := p.annotate(context.Background(), tc(), e); err != nil {
 		t.Fatal(err)
 	}
 	if e.GetBool("enriched") {
@@ -157,7 +157,7 @@ func TestAnnotateNonParseableTitle(t *testing.T) {
 	p := makePlugin(t, map[string]any{"client_id": "key", "type": "shows"})
 	e := entry.New("Just A Random Article", "http://example.com/1")
 
-	if err := p.Annotate(context.Background(), tc(), e); err != nil {
+	if err := p.annotate(context.Background(), tc(), e); err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
 	if e.GetString("title") != "" {
@@ -173,7 +173,7 @@ func TestAnnotateNoResults(t *testing.T) {
 	p := makePlugin(t, map[string]any{"client_id": "key", "type": "shows"})
 	e := entry.New("Unknown.Show.S01E01.720p", "http://example.com/1")
 
-	if err := p.Annotate(context.Background(), tc(), e); err != nil {
+	if err := p.annotate(context.Background(), tc(), e); err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
 	if e.GetInt("trakt_id") != 0 {
@@ -215,7 +215,7 @@ func TestAnnotateMovie(t *testing.T) {
 	p := makePlugin(t, map[string]any{"client_id": "key", "type": "movies"})
 	e := entry.New("Inception.2010.1080p.BluRay", "http://example.com/1")
 
-	if err := p.Annotate(context.Background(), tc(), e); err != nil {
+	if err := p.annotate(context.Background(), tc(), e); err != nil {
 		t.Fatal(err)
 	}
 	if v := e.GetInt("trakt_id"); v != 42 {
@@ -242,8 +242,8 @@ func TestEmptyResultNotCached(t *testing.T) {
 
 	p := makePlugin(t, map[string]any{"client_id": "key", "type": "shows"})
 	e := entry.New("Breaking.Bad.S01E01.720p.HDTV", "http://x.com/a")
-	p.Annotate(context.Background(), tc(), e) //nolint:errcheck
-	p.Annotate(context.Background(), tc(), e) //nolint:errcheck
+	p.annotate(context.Background(), tc(), e) //nolint:errcheck
+	p.annotate(context.Background(), tc(), e) //nolint:errcheck
 
 	if callCount < 2 {
 		t.Errorf("empty result should not be cached; API called %d times, want ≥2", callCount)

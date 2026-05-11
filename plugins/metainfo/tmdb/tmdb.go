@@ -95,7 +95,7 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 func (p *tmdbPlugin) Name() string        { return "metainfo_tmdb" }
 func (p *tmdbPlugin) Phase() plugin.Phase { return plugin.PhaseMetainfo }
 
-func (p *tmdbPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
+func (p *tmdbPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
 	m, ok := imovies.Parse(e.Title)
 	if !ok {
 		tc.Logger.Warn("metainfo_tmdb: title did not parse as movie", "entry", e.Title)
@@ -225,7 +225,7 @@ func (p *tmdbPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entrie
 		if e.IsRejected() || e.IsFailed() {
 			continue
 		}
-		if err := p.Annotate(ctx, tc, e); err != nil {
+		if err := p.annotate(ctx, tc, e); err != nil {
 			tc.Logger.Warn("metainfo_tmdb error", "entry", e.Title, "err", err)
 		}
 	}

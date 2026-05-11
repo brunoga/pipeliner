@@ -115,7 +115,7 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 func (p *tvdbPlugin) Name() string        { return "metainfo_tvdb" }
 func (p *tvdbPlugin) Phase() plugin.Phase { return plugin.PhaseMetainfo }
 
-func (p *tvdbPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
+func (p *tvdbPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
 	ep, ok := series.Parse(e.Title)
 	if !ok {
 		tc.Logger.Warn("metainfo_tvdb: title did not parse as series episode", "entry", e.Title)
@@ -249,7 +249,7 @@ func (p *tvdbPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entrie
 		if e.IsRejected() || e.IsFailed() {
 			continue
 		}
-		if err := p.Annotate(ctx, tc, e); err != nil {
+		if err := p.annotate(ctx, tc, e); err != nil {
 			tc.Logger.Warn("metainfo_tvdb error", "entry", e.Title, "err", err)
 		}
 	}
