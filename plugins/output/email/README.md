@@ -36,3 +36,11 @@ task("news", [
     ),
 ])
 ```
+
+## DAG role
+
+| Property | Value |
+|----------|-------|
+| Role | `sink` |
+| Produces | — |
+| Requires | — |

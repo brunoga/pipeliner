@@ -22,6 +22,7 @@ func init() {
 		PluginName:  "email",
 		Description: "send a batch email for all accepted entries via SMTP",
 		PluginPhase: plugin.PhaseOutput,
+		Role:        plugin.RoleSink,
 		Factory:     newPlugin,
 		Validate:    validate,
 		Schema: []plugin.FieldSchema{
