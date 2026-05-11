@@ -32,10 +32,20 @@ import (
 func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "rss_search",
-		Description: "search a parameterized RSS URL for entries matching a query string",
+		Description: "search a parameterized RSS URL for entries matching a query string; usable as a standalone DAG source or inside discover.via",
 		PluginPhase: plugin.PhaseFrom,
-		Factory:     newPlugin,
-		Validate:    validate,
+		Role:        plugin.RoleSource,
+		Produces: []string{
+			entry.FieldRSSFeed,
+			entry.FieldRSSGUID,
+			entry.FieldRSSLink,
+			entry.FieldRSSEnclosureURL,
+			entry.FieldRSSEnclosureType,
+			entry.FieldPublishedDate,
+			entry.FieldTorrentSeeds,
+		},
+		Factory:  newPlugin,
+		Validate: validate,
 	})
 }
 

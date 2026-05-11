@@ -38,3 +38,13 @@ task("discover-tv", [
     }),
 ])
 ```
+
+## DAG role
+
+`rss_search` keeps `PhaseFrom` so it continues to work inside `discover.via`. Its `Role` is `source`, which means it can also be used as a standalone `input()` node in DAG pipelines (it will call the URL template with an empty query, returning all recent results):
+
+| Property | Value |
+|----------|-------|
+| Role | `source` |
+| Produces | `rss_feed`, `rss_guid`, `rss_link`, `rss_enclosure_url`, `rss_enclosure_type`, `published_date`, `torrent_seeds` |
+| Requires | — |
