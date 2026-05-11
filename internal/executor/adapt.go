@@ -130,18 +130,34 @@ func (a *filterAdapter) Process(ctx context.Context, tc *plugin.TaskContext, ent
 			tc.Logger.Warn("filter plugin error", "entry", e.Title, "err", err)
 		}
 	}
-	return passThrough(entries), nil
+	out := passThrough(entries)
+	// If the plugin also persists decisions (e.g. seen, series, movies), call
+	// Learn on the entries passing downstream so state is recorded in the same
+	// Process call. There is no separate learn phase in DAG pipelines; entries
+	// are recorded when they clear the filter, not when they reach a sink.
+	if lrn, ok := a.inner.(plugin.LearnPlugin); ok && len(out) > 0 {
+		if err := lrn.Learn(ctx, tc, out); err != nil {
+			tc.Logger.Warn("learn error in processor", "err", err)
+		}
+	}
+	return out, nil
 }
 
 type batchFilterAdapter struct{ inner plugin.BatchFilterPlugin }
 
-func (a *batchFilterAdapter) Name() string  { return a.inner.Name() }
+func (a *batchFilterAdapter) Name() string        { return a.inner.Name() }
 func (a *batchFilterAdapter) Phase() plugin.Phase { return a.inner.Phase() }
 func (a *batchFilterAdapter) Process(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
 	if err := a.inner.FilterBatch(ctx, tc, entries); err != nil {
 		tc.Logger.Warn("filter plugin error", "err", err)
 	}
-	return passThrough(entries), nil
+	out := passThrough(entries)
+	if lrn, ok := a.inner.(plugin.LearnPlugin); ok && len(out) > 0 {
+		if err := lrn.Learn(ctx, tc, out); err != nil {
+			tc.Logger.Warn("learn error in processor", "err", err)
+		}
+	}
+	return out, nil
 }
 
 type modifyAdapter struct{ inner plugin.ModifyPlugin }
