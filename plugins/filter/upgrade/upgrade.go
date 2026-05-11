@@ -29,6 +29,8 @@ func init() {
 		PluginName:  "upgrade",
 		Description: "accept entries only when they offer a quality improvement over what was previously downloaded",
 		PluginPhase: plugin.PhaseFilter,
+		Role:        plugin.RoleProcessor,
+		Requires:    []string{entry.FieldVideoQuality},
 		Factory:     newPlugin,
 		Validate:    validate,
 	})
