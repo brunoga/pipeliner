@@ -9,12 +9,8 @@
 // Episodes are keyed by series title + episode ID; movies by movie title.
 // Entries without either key pass through unchanged.
 //
-// In DAG pipelines, place dedup after any metainfo processors that set
-// series_episode_id or movie_title and after filters that accept entries,
-// before output sinks.
-//
-// In linear (legacy) tasks the task engine applies deduplication automatically
-// after the processing phase. This plugin is only needed in DAG pipelines.
+// Place dedup after metainfo processors that set series_episode_id or
+// movie_title and after filters that accept entries, before output sinks.
 package dedup
 
 import (

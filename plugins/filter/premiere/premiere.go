@@ -2,9 +2,9 @@
 // previously unseen series, enabling automatic "try new shows" pipelines.
 //
 // All qualifying entries for an unseen series are accepted — multiple
-// quality variants from different sources pass through so the task engine's
-// automatic deduplication can keep the best copy. A series is marked "seen"
-// in the Learn phase (not Filter) so only the dedup survivor is recorded.
+// quality variants from different sources pass through so the dedup processor
+// can keep the best copy. A series is marked "seen" when entries pass through
+// Process() so only the dedup survivor is ultimately tracked.
 //
 // Episode metadata is parsed directly from the entry title, so metainfo/series
 // is not required. The parsed series_name, series_season, series_episode, and
@@ -154,10 +154,10 @@ func (p *premierePlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *
 	return nil
 }
 
-// Learn persists the accepted premiere into the shared series tracker.
-// Multiple entries for the same series may be accepted by Filter in the same
-// run (different qualities/sources); the task engine deduplicates them before
-// output and Learn only records the survivor.
+// persist records accepted premiere entries in the series tracker.
+// Multiple entries for the same series may be accepted in the same run
+// (different qualities/sources); place dedup after premiere so only the
+// best-quality copy is persisted.
 func (p *premierePlugin) persist(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) error {
 	for _, e := range entries {
 		ep, ok := series.Parse(e.Title)

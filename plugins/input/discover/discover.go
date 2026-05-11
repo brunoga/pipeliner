@@ -1,28 +1,18 @@
 // Package discover actively searches multiple backends for entries matching a
 // title list, with a per-title cooldown to avoid redundant searches.
 //
-// It operates in two modes depending on whether it is used in a linear task
-// or a DAG pipeline:
+// As a DAG processor, upstream source nodes supply the title list via their
+// .Title fields. Static 'titles' from config and 'from' source plugins are
+// also merged in. The plugin returns search results, not the upstream entries.
 //
-// Linear (InputPlugin): titles come from the 'titles' config key and/or from
-// the 'from' list of sub-plugins. The plugin generates entries from scratch.
-//
-// DAG (ProcessorPlugin): upstream source nodes supply entries whose .Title
-// fields form the search query list. Static 'titles' from config are also
-// included. The plugin returns entries found by the search backends — not the
-// upstream entries themselves.
-//
-// Config keys (both modes):
+// Config keys:
 //
 //	titles   - static list of title strings to search for (optional)
+//	from     - list of source plugin configs whose entry titles supplement the
+//	           title list (alternative to DAG upstream connections)
 //	via      - list of search plugin configs (required); each entry is a name
 //	           string or a map with "name" + plugin options
 //	interval - minimum time between searches for the same title (default: "24h")
-//
-// Additional config key (linear mode only):
-//
-//	from     - list of input plugin configs whose entry titles supplement the
-//	           title list (replaced by DAG upstream connections in DAG mode)
 package discover
 
 import (
@@ -40,8 +30,8 @@ import (
 func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "discover",
-		Description: "actively search multiple backends for items from a title list; works as a source in linear tasks and as a processor in DAG pipelines",
-		PluginPhase: plugin.PhaseInput, // retained for linear task engine backward compat
+		Description: "actively search multiple backends for items from a title list; receives a title list from upstream source nodes and returns search results",
+		PluginPhase: plugin.PhaseInput,
 		Role:        plugin.RoleProcessor,
 		Produces: []string{
 			entry.FieldTorrentSeeds,

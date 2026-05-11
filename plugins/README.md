@@ -1,46 +1,58 @@
 # Plugins
 
-Pipeliner is built entirely from plugins. Each task is a chain of plugins executed in order.
+Pipeliner is built from plugins connected into DAG pipelines. Every plugin
+implements one of three interfaces:
 
-## Phase model
+## Plugin roles
 
-```
-input → [metainfo / filter / modify — in config order] → output → learn
-```
+| Role | Interface | Method | Purpose |
+|------|-----------|--------|---------|
+| **source** | `SourcePlugin` | `Generate(ctx, tc) ([]*Entry, error)` | Produce entries from an external source |
+| **processor** | `ProcessorPlugin` | `Process(ctx, tc, entries) ([]*Entry, error)` | Transform entries: filter, enrich, or modify |
+| **sink** | `SinkPlugin` | `Consume(ctx, tc, entries) error` | Act on accepted entries (download, notify, persist) |
 
-| Phase | Interface | Purpose |
-|-------|-----------|---------|
-| **input** | `Input(ctx, tc) ([]*Entry, error)` | Produce entries from a source |
-| **metainfo** | `Annotate(ctx, tc, e) error` | Annotate entries with extra fields |
-| **filter** | `Filter(ctx, tc, e) error` | Accept, reject, or leave an entry undecided |
-| **modify** | `Modify(ctx, tc, e) error` | Mutate entry fields in-place |
-| **output** | `Output(ctx, tc, entries) error` | Act on accepted entries; may fail entries to prevent them reaching subsequent outputs and learn |
-| **learn** | `Learn(ctx, tc, entries) error` | Persist state for future runs |
+## Entry state
 
-Input and output run as bookend phases (all inputs concurrently, then the processing pipeline, then all outputs concurrently). Metainfo, filter, and modify plugins run **in the order they appear in the config file**, interleaved with each other — a filter can immediately follow the metainfo plugin that sets the field it inspects.
+Each entry starts **undecided**. Processors can move it to **accepted** or **rejected**
+via `e.Accept()` and `e.Reject(reason)`. Sinks receive only `Accepted` entries
+(enforced by `entry.FilterAccepted`). Rejected entries are counted and reported
+but do not reach sinks.
 
-## Filter semantics
+Processors that drop entries from their output slice should call `e.Reject(reason)`
+first so the rejection is counted correctly in the result.
 
-Each entry starts **undecided**. Filters can move it to **accepted** or **rejected**. Once rejected, an entry stays rejected (no plugin can un-reject). If an entry is still undecided after all filters run, it is dropped — not passed to output.
+## Field map
 
-## Metainfo and the entry field map
-
-Metainfo plugins annotate accepted entries with extra fields stored in the entry's field map. These fields are then available in Go template expressions in `pathfmt`, `set`, `condition`, `exec`, and output plugins.
-
-Fields are typed (string, int, float64). Template access uses dot notation:
-
-```
-{{.series_name}}   {{.trakt_rating}}   {{.tmdb_genres}}
-```
+Entries carry an arbitrary `Fields map[string]any` that processors read and write.
+Standard field prefixes: `video_`, `series_`, `movie_`, `torrent_`, `file_`, `rss_`.
+See `internal/entry/info.go` for the full list of constants.
 
 ## Plugin directories
 
-| Phase | Directory |
-|-------|-----------|
-| [Input](input/README.md) | `plugins/input/` |
-| [Filter](filter/README.md) | `plugins/filter/` |
-| [Metainfo](metainfo/README.md) | `plugins/metainfo/` |
-| [Modify](modify/README.md) | `plugins/modify/` |
-| [Output](output/README.md) | `plugins/output/` |
-| [Learn](filter/seen/README.md) | `plugins/filter/` |
-| [Notify Notifiers](notify/README.md) | `plugins/notify/` |
+| Role | Directory |
+|------|-----------|
+| Sources | `plugins/input/`, `plugins/from/` |
+| Processors — enrichment | `plugins/metainfo/` |
+| Processors — filtering | `plugins/filter/` |
+| Processors — field mutation | `plugins/modify/` |
+| Sinks | `plugins/output/` |
+| Sink notifiers (used by `notify`) | `plugins/notify/` |
+
+## Registering a plugin
+
+```go
+func init() {
+    plugin.Register(&plugin.Descriptor{
+        PluginName:  "my_plugin",
+        Description: "one-line description",
+        Role:        plugin.RoleProcessor,
+        Produces:    []string{"my_field"},
+        Requires:    []string{"series_episode_id"},
+        Factory:     newPlugin,
+        Validate:    validate, // optional
+        Schema:      []plugin.FieldSchema{...}, // optional, enables visual editor
+    })
+}
+```
+
+Blank-import the package in `cmd/pipeliner/main.go` to register it.
