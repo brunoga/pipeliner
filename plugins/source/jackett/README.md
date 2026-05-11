@@ -1,6 +1,6 @@
 # jackett
 
-A from plugin that queries a [Jackett](https://github.com/Jackett/Jackett) indexer proxy via the Torznab API. Used as a search backend for the [`discover`](../../input/discover/README.md) input plugin via its `via` config key.
+A from plugin that queries a [Jackett](https://github.com/Jackett/Jackett) indexer proxy via the Torznab API. Used as a search backend for the [`discover`](../../processor/discover/README.md) input plugin via its `via` config key.
 
 Unlike `rss_search` pointed at Jackett's RSS endpoint, this plugin speaks Torznab natively: seeder/leecher counts, info hashes, and file sizes come back in the search response, so no separate `metainfo_torrent` or `metainfo_magnet` fetch is needed.
 

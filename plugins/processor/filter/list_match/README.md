@@ -1,6 +1,6 @@
 # list_match
 
-Accepts entries whose title is present in a named persistent list; rejects everything else. The list is populated by the [`list_add`](../../output/list_add/README.md) output plugin, which can run in a separate task.
+Accepts entries whose title is present in a named persistent list; rejects everything else. The list is populated by the [`list_add`](../../../sink/list_add/README.md) output plugin, which can run in a separate task.
 
 This pair of plugins replaces FlexGet's `list_add` / `list_match` / `movie_list` mechanism.
 

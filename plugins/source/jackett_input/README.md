@@ -1,6 +1,6 @@
 # jackett_input
 
-The `jackett` from-plugin has moved to [`plugins/from/jackett/`](../../../../from/jackett/README.md). This file now documents only `jackett_input`.
+See also [`jackett`](../jackett/README.md) — the Torznab search backend (also usable as a source node).
 
 ---
 

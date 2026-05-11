@@ -182,7 +182,7 @@ Fields follow a tiered naming convention. Three universal fields have no prefix;
 | `trakt_tvdb_id` | `metainfo_trakt` | TheTVDB cross-reference ID |
 | `download_path` | `pathfmt` (with `field="download_path"`) | Rendered, scrubbed download path |
 
-Custom fields can be set with the [`set`](../plugins/modify/set/README.md) plugin and read in any pattern expression.
+Custom fields can be set with the [`set`](../plugins/processor/modify/set/README.md) plugin and read in any pattern expression.
 
 ## Pattern syntax
 

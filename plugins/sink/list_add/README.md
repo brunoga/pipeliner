@@ -1,6 +1,6 @@
 # list_add
 
-Stores accepted entries in a named persistent list. The list can then be read by the [`list_match`](../../filter/list_match/README.md) filter plugin in the same or a different task.
+Stores accepted entries in a named persistent list. The list can then be read by the [`list_match`](../../processor/filter/list_match/README.md) filter plugin in the same or a different task.
 
 This pairs with `list_match` to replicate FlexGet's `movie_list` / `list_add` / `list_match` cross-task coordination pattern.
 

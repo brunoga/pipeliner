@@ -1,6 +1,6 @@
 # webhook (notifier)
 
-POSTs a JSON payload to an HTTP endpoint. Used via the [`notify` output plugin](../../output/notify/README.md).
+POSTs a JSON payload to an HTTP endpoint. Used via the [`notify` output plugin](../README.md).
 
 ## Config
 
