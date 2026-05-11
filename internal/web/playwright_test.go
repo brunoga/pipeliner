@@ -20,9 +20,9 @@ import (
 	"github.com/brunoga/pipeliner/internal/web"
 
 	// Register plugins needed by test configs.
-	_ "github.com/brunoga/pipeliner/plugins/filter/seen"
-	_ "github.com/brunoga/pipeliner/plugins/input/rss"
-	_ "github.com/brunoga/pipeliner/plugins/modify/pathfmt"
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/seen"
+	_ "github.com/brunoga/pipeliner/plugins/source/rss"
+	_ "github.com/brunoga/pipeliner/plugins/processor/modify/pathfmt"
 )
 
 // ── test server setup ────────────────────────────────────────────────────────

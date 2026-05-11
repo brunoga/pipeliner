@@ -13,9 +13,9 @@ import (
 	"time"
 
 	// Register a handful of plugins so plugin.All() is non-empty in tests.
-	_ "github.com/brunoga/pipeliner/plugins/filter/seen"
-	_ "github.com/brunoga/pipeliner/plugins/input/rss"
-	_ "github.com/brunoga/pipeliner/plugins/modify/pathfmt"
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/seen"
+	_ "github.com/brunoga/pipeliner/plugins/source/rss"
+	_ "github.com/brunoga/pipeliner/plugins/processor/modify/pathfmt"
 )
 
 // stubDaemon satisfies DaemonControl with no-op implementations.
