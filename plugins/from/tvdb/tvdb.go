@@ -24,8 +24,10 @@ import (
 func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "tvdb_favorites",
-		Description: "fetch TheTVDB favorites as show-name entries; use inside series.from or discover.from",
+		Description: "fetch TheTVDB favorites as show-name entries; usable as a standalone DAG source or inside series.from/discover.from",
 		PluginPhase: plugin.PhaseFrom,
+		Role:        plugin.RoleSource,
+		Produces:    []string{entry.FieldTitle, "tvdb_id"},
 		Factory:     newPlugin,
 		Validate:    validate,
 	})
