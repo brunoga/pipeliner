@@ -30,8 +30,17 @@ Entries with `torrent_link_type = "magnet"` are always skipped (handled by `meta
 | `torrent_creation_date` | time.Time | Creation timestamp (if set) |
 | `torrent_private` | bool | Whether the torrent is private |
 
+## DAG role
+
+| Property | Value |
+|----------|-------|
+| Role | `processor` |
+| Produces | `torrent_info_hash`, `torrent_file_size`, `torrent_file_count`, `torrent_files`, `torrent_announce`, `torrent_announce_list`, `torrent_created_by`, `torrent_creation_date`, `torrent_private` |
+| Requires | — |
+
 ## Example
 
+Linear:
 ```python
 task("watch-folder", [
     plugin("filesystem", path="/downloads/watch", mask="*.torrent"),
@@ -39,4 +48,12 @@ task("watch-folder", [
     plugin("condition", reject="{{.torrent_private}}"),  # skip private torrents
     plugin("transmission", host="localhost"),
 ])
+```
+
+DAG:
+```python
+src  = input("filesystem", path="/downloads/watch", mask="*.torrent")
+meta = process("metainfo_torrent", from_=src)
+output("transmission", from_=meta, host="localhost")
+pipeline("watch-folder", schedule="5m")
 ```
