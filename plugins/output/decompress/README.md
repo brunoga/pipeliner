@@ -35,3 +35,11 @@ task("scene", [
     plugin("decompress", to="/downloads/completed", delete_archive=True),
 ])
 ```
+
+## DAG role
+
+| Property | Value |
+|----------|-------|
+| Role | `sink` |
+| Produces | — |
+| Requires | `file_location` (set by `download` or `filesystem`) |
