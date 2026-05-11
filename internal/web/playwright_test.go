@@ -1,7 +1,6 @@
-//go:build e2e
-
-// E2E browser tests using playwright-go. Build with -tags e2e.
-// Requires Chromium: go run github.com/playwright-community/playwright-go/cmd/playwright install chromium
+// Playwright e2e browser tests for the web UI.
+// Tests are skipped automatically when Chromium is not installed.
+// Install Chromium once with: go run github.com/playwright-community/playwright-go/cmd/playwright install chromium
 package web_test
 
 import (
@@ -16,7 +15,6 @@ import (
 
 	"github.com/brunoga/pipeliner/internal/config"
 	"github.com/brunoga/pipeliner/internal/store"
-	"github.com/brunoga/pipeliner/internal/task"
 	"github.com/brunoga/pipeliner/internal/web"
 
 	// Register plugins needed by test configs.
@@ -117,14 +115,14 @@ func pwSetup(t *testing.T) (playwright.Browser, func()) {
 	t.Helper()
 	pw, err := playwright.Run()
 	if err != nil {
-		t.Fatalf("playwright.Run: %v", err)
+		t.Skipf("playwright not available: %v", err)
 	}
 	browser, err := pw.Chromium.Launch(playwright.BrowserTypeLaunchOptions{
 		Headless: playwright.Bool(true),
 	})
 	if err != nil {
 		pw.Stop() //nolint:errcheck
-		t.Fatalf("launch chromium: %v", err)
+		t.Skipf("chromium not available: %v", err)
 	}
 	return browser, func() {
 		browser.Close() //nolint:errcheck
@@ -364,8 +362,8 @@ func TestE2EValidateConfig(t *testing.T) {
 	login(t, page, ts.url)
 	openConfigTab(t, page)
 
-	// Put valid Starlark in the editor.
-	page.Fill("#config-editor", `task("t", [plugin("seen")])`) //nolint:errcheck
+	// Put valid DAG Starlark in the editor.
+	page.Fill("#config-editor", "src = input(\"rss\", url=\"https://example.com\")\npipeline(\"p\")") //nolint:errcheck
 
 	// Click Validate.
 	if err := page.Click(`button:has-text("Validate")`); err != nil {
@@ -380,5 +378,3 @@ func TestE2EValidateConfig(t *testing.T) {
 	}
 }
 
-// Ensure this file is not empty when build tag excludes it.
-var _ task.Task
