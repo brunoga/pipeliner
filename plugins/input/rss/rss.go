@@ -71,7 +71,7 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 func (p *rssPlugin) Name() string         { return "rss" }
 func (p *rssPlugin) Phase() plugin.Phase  { return plugin.PhaseInput }
 
-func (p *rssPlugin) Run(ctx context.Context, _ *plugin.TaskContext) ([]*entry.Entry, error) {
+func (p *rssPlugin) Generate(ctx context.Context, _ *plugin.TaskContext) ([]*entry.Entry, error) {
 	body, err := p.fetch(ctx)
 	if err != nil {
 		return nil, err

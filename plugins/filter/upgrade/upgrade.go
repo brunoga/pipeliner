@@ -169,3 +169,21 @@ func (r upgradeRecord) MarshalJSON() ([]byte, error) {
 	type alias upgradeRecord
 	return json.Marshal(alias(r))
 }
+
+func (p *upgradePlugin) Process(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
+	for _, e := range entries {
+		if e.IsRejected() || e.IsFailed() {
+			continue
+		}
+		if err := p.Filter(ctx, tc, e); err != nil {
+			tc.Logger.Warn("upgrade filter error", "entry", e.Title, "err", err)
+		}
+	}
+	out := entry.PassThrough(entries)
+	if len(out) > 0 {
+		if err := p.Learn(ctx, tc, out); err != nil {
+			tc.Logger.Warn("upgrade learn error", "err", err)
+		}
+	}
+	return out, nil
+}

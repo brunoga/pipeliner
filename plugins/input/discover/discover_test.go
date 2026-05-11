@@ -11,26 +11,26 @@ import (
 	"github.com/brunoga/pipeliner/internal/store"
 )
 
-// mockInputPlugin is an InputPlugin that returns pre-configured entries.
-type mockInputPlugin struct {
+// mockSourcePlugin is a SourcePlugin that returns pre-configured entries.
+type mockSourcePlugin struct {
 	pluginName string
 	entries    []*entry.Entry
 }
 
-func (m *mockInputPlugin) Name() string        { return m.pluginName }
-func (m *mockInputPlugin) Phase() plugin.Phase { return plugin.PhaseFrom }
-func (m *mockInputPlugin) Run(_ context.Context, _ *plugin.TaskContext) ([]*entry.Entry, error) {
+func (m *mockSourcePlugin) Name() string        { return m.pluginName }
+func (m *mockSourcePlugin) Phase() plugin.Phase { return plugin.PhaseFrom }
+func (m *mockSourcePlugin) Generate(_ context.Context, _ *plugin.TaskContext) ([]*entry.Entry, error) {
 	return m.entries, nil
 }
 
-// registerMockInput registers a mock from-plugin factory so MakeFromPlugin can find it.
-func registerMockInput(mock *mockInputPlugin) string {
-	name := "mock-input-" + mock.pluginName
+// registerMockSource registers a mock source-plugin factory so MakeFromPlugin can find it.
+func registerMockSource(mock *mockSourcePlugin) string {
+	name := "mock-src-" + mock.pluginName
 	func() {
 		defer func() { recover() }()
 		plugin.Register(&plugin.Descriptor{
-			PluginName:  name,
-			PluginPhase: plugin.PhaseFrom,
+			PluginName: name,
+			Role:       plugin.RoleSource,
 			Factory: func(_ map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
 				return mock, nil
 			},
@@ -110,6 +110,11 @@ func taskCtx(name string) *plugin.TaskContext {
 	return &plugin.TaskContext{Name: name, Logger: slog.Default()}
 }
 
+// run is a test helper that calls Process with no upstream entries (title-only mode).
+func run(ctx context.Context, p *discoverPlugin, tc *plugin.TaskContext) ([]*entry.Entry, error) {
+	return p.Process(ctx, tc, nil)
+}
+
 // --- tests ---
 
 func TestDiscoverCollectsResults(t *testing.T) {
@@ -120,9 +125,9 @@ func TestDiscoverCollectsResults(t *testing.T) {
 	}
 
 	p := buildPlugin(t, mock, []string{"Breaking Bad"}, nil)
-	got, err := p.Run(context.Background(), taskCtx("t"))
+	got, err := run(context.Background(), p, taskCtx("t"))
 	if err != nil {
-		t.Fatalf("Run: %v", err)
+		t.Fatalf("Process: %v", err)
 	}
 	if len(got) != 2 {
 		t.Errorf("got %d entries, want 2", len(got))
@@ -135,9 +140,9 @@ func TestDiscoverDeduplicatesByURL(t *testing.T) {
 	mock.results["Show"] = []*entry.Entry{e, e}
 
 	p := buildPlugin(t, mock, []string{"Show"}, nil)
-	got, err := p.Run(context.Background(), taskCtx("t"))
+	got, err := run(context.Background(), p, taskCtx("t"))
 	if err != nil {
-		t.Fatalf("Run: %v", err)
+		t.Fatalf("Process: %v", err)
 	}
 	if len(got) != 1 {
 		t.Errorf("got %d entries, want 1 (deduped)", len(got))
@@ -152,16 +157,14 @@ func TestDiscoverIntervalPreventsResearch(t *testing.T) {
 
 	p := buildPlugin(t, mock, []string{"Show"}, nil)
 
-	// First run — searches and records timestamp.
-	if _, err := p.Run(context.Background(), taskCtx("interval-task")); err != nil {
+	if _, err := run(context.Background(), p, taskCtx("interval-task")); err != nil {
 		t.Fatalf("first run: %v", err)
 	}
 	if mock.calls["Show"] != 1 {
 		t.Errorf("after first run: want 1 search call, got %d", mock.calls["Show"])
 	}
 
-	// Second run within 1h interval — should be skipped.
-	if _, err := p.Run(context.Background(), taskCtx("interval-task")); err != nil {
+	if _, err := run(context.Background(), p, taskCtx("interval-task")); err != nil {
 		t.Fatalf("second run: %v", err)
 	}
 	if mock.calls["Show"] != 1 {
@@ -175,9 +178,9 @@ func TestDiscoverMultipleTitles(t *testing.T) {
 	mock.results["Show B"] = []*entry.Entry{entry.New("B.S01E01", "http://example.com/b1")}
 
 	p := buildPlugin(t, mock, []string{"Show A", "Show B"}, nil)
-	got, err := p.Run(context.Background(), taskCtx("t"))
+	got, err := run(context.Background(), p, taskCtx("t"))
 	if err != nil {
-		t.Fatalf("Run: %v", err)
+		t.Fatalf("Process: %v", err)
 	}
 	if len(got) != 2 {
 		t.Errorf("got %d entries, want 2", len(got))
@@ -187,7 +190,7 @@ func TestDiscoverMultipleTitles(t *testing.T) {
 func TestDiscoverMissingVia(t *testing.T) {
 	_, err := newPlugin(map[string]any{
 		"titles": []any{"Show"},
-			}, nil)
+	}, nil)
 	if err == nil {
 		t.Error("expected error when via is missing")
 	}
@@ -198,7 +201,7 @@ func TestDiscoverInvalidInterval(t *testing.T) {
 		"titles":   []any{"Show"},
 		"via":      []any{"x"},
 		"interval": "not-a-duration",
-			}, nil)
+	}, nil)
 	if err == nil {
 		t.Error("expected error for invalid interval")
 	}
@@ -208,7 +211,7 @@ func TestDiscoverUnknownSearchPlugin(t *testing.T) {
 	_, err := newPlugin(map[string]any{
 		"titles": []any{"Show"},
 		"via":    []any{"no-such-search-plugin"},
-			}, nil)
+	}, nil)
 	if err == nil {
 		t.Error("expected error for unknown search plugin")
 	}
@@ -217,13 +220,13 @@ func TestDiscoverUnknownSearchPlugin(t *testing.T) {
 // --- from ---
 
 func TestDiscoverFromSuppliesTitles(t *testing.T) {
-	inp := &mockInputPlugin{
+	src := &mockSourcePlugin{
 		pluginName: "from-supplier",
 		entries: []*entry.Entry{
 			entry.New("Dynamic Show", ""),
 		},
 	}
-	inpName := registerMockInput(inp)
+	srcName := registerMockSource(src)
 
 	mock := newMockSearch("from-search")
 	mock.results["Dynamic Show"] = []*entry.Entry{
@@ -234,7 +237,7 @@ func TestDiscoverFromSuppliesTitles(t *testing.T) {
 	db, _ := store.OpenSQLite(":memory:")
 	defer db.Close()
 	cfg := map[string]any{
-		"from":     []any{inpName},
+		"from":     []any{srcName},
 		"via":      []any{searchName},
 		"interval": "1h",
 	}
@@ -242,9 +245,9 @@ func TestDiscoverFromSuppliesTitles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newPlugin: %v", err)
 	}
-	got, err := p.(*discoverPlugin).Run(context.Background(), taskCtx("t"))
+	got, err := p.(*discoverPlugin).Process(context.Background(), taskCtx("t"), nil)
 	if err != nil {
-		t.Fatalf("Run: %v", err)
+		t.Fatalf("Process: %v", err)
 	}
 	if len(got) != 1 {
 		t.Errorf("want 1 entry from dynamic title, got %d", len(got))
@@ -252,15 +255,14 @@ func TestDiscoverFromSuppliesTitles(t *testing.T) {
 }
 
 func TestDiscoverFromDeduplicatesTitles(t *testing.T) {
-	// Static titles and from both supply the same title — should search only once.
-	inp := &mockInputPlugin{
+	src := &mockSourcePlugin{
 		pluginName: "from-dedup",
 		entries: []*entry.Entry{
 			entry.New("My Show", ""),
 			entry.New("my show", ""), // case variant
 		},
 	}
-	inpName := registerMockInput(inp)
+	srcName := registerMockSource(src)
 
 	mock := newMockSearch("from-dedup-search")
 	mock.results["My Show"] = []*entry.Entry{
@@ -272,7 +274,7 @@ func TestDiscoverFromDeduplicatesTitles(t *testing.T) {
 	defer db2.Close()
 	cfg := map[string]any{
 		"titles":   []any{"My Show"},
-		"from":     []any{inpName},
+		"from":     []any{srcName},
 		"via":      []any{searchName},
 		"interval": "1h",
 	}
@@ -280,7 +282,7 @@ func TestDiscoverFromDeduplicatesTitles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newPlugin: %v", err)
 	}
-	p.(*discoverPlugin).Run(context.Background(), taskCtx("dedup-task")) //nolint:errcheck
+	p.(*discoverPlugin).Process(context.Background(), taskCtx("dedup-task"), nil) //nolint:errcheck
 	if mock.calls["My Show"] != 1 {
 		t.Errorf("want exactly 1 search for deduplicated title, got %d", mock.calls["My Show"])
 	}

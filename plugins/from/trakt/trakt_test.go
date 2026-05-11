@@ -124,7 +124,7 @@ func TestClientSecretUsesStoredToken(t *testing.T) {
 		t.Fatalf("newPlugin: %v", err)
 	}
 
-	entries, err := p.(*traktInputPlugin).Run(context.Background(), nil)
+	entries, err := p.(*traktInputPlugin).Generate(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -152,7 +152,7 @@ func TestRunReturnsEntries(t *testing.T) {
 		t.Fatalf("newPlugin: %v", err)
 	}
 
-	entries, err := p.(*traktInputPlugin).Run(context.Background(), nil)
+	entries, err := p.(*traktInputPlugin).Generate(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}

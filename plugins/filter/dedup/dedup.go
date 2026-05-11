@@ -25,6 +25,7 @@ import (
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/plugin"
 	"github.com/brunoga/pipeliner/internal/quality"
+	"github.com/brunoga/pipeliner/internal/series"
 	"github.com/brunoga/pipeliner/internal/store"
 )
 
@@ -87,8 +88,18 @@ func (p *dedupPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entri
 
 func deduKey(e *entry.Entry) string {
 	if epID := e.GetString(entry.FieldSeriesEpisodeID); epID != "" {
-		if title := e.GetString(entry.FieldTitle); title != "" {
-			return "episode:" + title + "/" + epID
+		// Derive a normalised series name. Prefer parsing e.Title (the raw entry
+		// title / torrent filename), which always gives a clean series name like
+		// "Breaking Bad" regardless of whether metainfo_series has run.
+		// Fall back to e.Fields["title"] when e.Title does not parse as an episode.
+		var name string
+		if ep, ok := series.Parse(e.Title); ok {
+			name = ep.SeriesName
+		} else {
+			name = e.GetString(entry.FieldTitle)
+		}
+		if name != "" {
+			return "episode:" + name + "/" + epID
 		}
 	}
 	if movie := e.GetString(entry.FieldMovieTitle); movie != "" {

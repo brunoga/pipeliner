@@ -244,6 +244,18 @@ func (p *tvdbPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 	return nil
 }
 
+func (p *tvdbPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
+	for _, e := range entries {
+		if e.IsRejected() || e.IsFailed() {
+			continue
+		}
+		if err := p.Annotate(ctx, tc, e); err != nil {
+			tc.Logger.Warn("metainfo_tvdb error", "entry", e.Title, "err", err)
+		}
+	}
+	return entries, nil
+}
+
 // searchSeries resolves TVDB search results for name, using the cache where
 // possible. If the name ends with a trailing 4-digit year (e.g. "Dark 2017"),
 // two queries are dispatched in parallel — one with the year, one without.

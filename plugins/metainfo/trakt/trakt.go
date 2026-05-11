@@ -157,6 +157,18 @@ func (p *traktMetaPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, 
 	return nil
 }
 
+func (p *traktMetaPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
+	for _, e := range entries {
+		if e.IsRejected() || e.IsFailed() {
+			continue
+		}
+		if err := p.Annotate(ctx, tc, e); err != nil {
+			tc.Logger.Warn("metainfo_trakt error", "entry", e.Title, "err", err)
+		}
+	}
+	return entries, nil
+}
+
 func (p *traktMetaPlugin) parseTitle(title string) (string, bool) {
 	if p.itemType == "shows" {
 		ep, ok := iseries.Parse(title)

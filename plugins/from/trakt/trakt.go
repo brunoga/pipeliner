@@ -115,7 +115,7 @@ func (p *traktInputPlugin) Phase() plugin.Phase { return plugin.PhaseFrom }
 // instances with different parameters are cached independently.
 func (p *traktInputPlugin) CacheKey() string { return "trakt_list:" + p.itemType + ":" + p.list }
 
-func (p *traktInputPlugin) Run(ctx context.Context, tc *plugin.TaskContext) ([]*entry.Entry, error) {
+func (p *traktInputPlugin) Generate(ctx context.Context, tc *plugin.TaskContext) ([]*entry.Entry, error) {
 	client, err := p.buildClient(ctx)
 	if err != nil {
 		return nil, err

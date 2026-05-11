@@ -227,6 +227,21 @@ func (p *magnetPlugin) AnnotateBatch(ctx context.Context, tc *plugin.TaskContext
 	return nil
 }
 
+// Process implements ProcessorPlugin. It delegates to AnnotateBatch so all
+// DHT resolutions in the batch run in parallel under a shared timeout.
+func (p *magnetPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
+	live := make([]*entry.Entry, 0, len(entries))
+	for _, e := range entries {
+		if !e.IsRejected() && !e.IsFailed() {
+			live = append(live, e)
+		}
+	}
+	if err := p.AnnotateBatch(ctx, tc, live); err != nil {
+		tc.Logger.Warn("metainfo_magnet error", "err", err)
+	}
+	return entries, nil
+}
+
 // annotateFromURI parses the magnet URI and sets torrent_info_hash,
 // torrent_announce, torrent_announce_list, and torrent_display_name.
 func annotateFromURI(e *entry.Entry) error {

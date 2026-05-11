@@ -204,3 +204,10 @@ func resolveTool(force string) (name, path string, err error) {
 	return "", "", fmt.Errorf("no extraction tool found; install one of: %s",
 		strings.Join(candidates, ", "))
 }
+
+func (p *decompressPlugin) Consume(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
+	if tc.DryRun {
+		return nil
+	}
+	return p.Output(ctx, tc, entry.FilterAccepted(entries))
+}

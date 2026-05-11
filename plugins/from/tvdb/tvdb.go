@@ -66,7 +66,7 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 func (p *tvdbInputPlugin) Name() string        { return "tvdb_favorites" }
 func (p *tvdbInputPlugin) Phase() plugin.Phase { return plugin.PhaseFrom }
 
-func (p *tvdbInputPlugin) Run(ctx context.Context, tc *plugin.TaskContext) ([]*entry.Entry, error) {
+func (p *tvdbInputPlugin) Generate(ctx context.Context, tc *plugin.TaskContext) ([]*entry.Entry, error) {
 	ids, err := p.client.GetFavorites(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("tvdb_favorites: get favorites: %w", err)

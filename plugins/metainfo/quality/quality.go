@@ -73,6 +73,18 @@ func (p *qualityMetaPlugin) Annotate(_ context.Context, _ *plugin.TaskContext, e
 	return nil
 }
 
+func (p *qualityMetaPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
+	for _, e := range entries {
+		if e.IsRejected() || e.IsFailed() {
+			continue
+		}
+		if err := p.Annotate(ctx, tc, e); err != nil {
+			tc.Logger.Warn("metainfo_quality error", "entry", e.Title, "err", err)
+		}
+	}
+	return entries, nil
+}
+
 func setIfKnown(e *entry.Entry, key, val string) {
 	if val != "" {
 		e.Set(key, val)

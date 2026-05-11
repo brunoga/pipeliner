@@ -6,10 +6,11 @@ import (
 	"github.com/brunoga/pipeliner/internal/store"
 )
 
-// MakeFromPlugin creates a logging-wrapped InputPlugin from a config item.
+// MakeFromPlugin creates a logging-wrapped SourcePlugin from a config item.
 // item may be a plugin name string or a map[string]any with a "name" key plus
-// config keys. Returns an error if the plugin is not registered under PhaseFrom.
-func MakeFromPlugin(item any, db *store.SQLiteStore) (InputPlugin, error) {
+// config keys. The plugin must have Role=RoleSource (PhaseFrom or PhaseInput
+// with EffectiveRole()=RoleSource).
+func MakeFromPlugin(item any, db *store.SQLiteStore) (SourcePlugin, error) {
 	name, cfg, err := ResolveNameAndConfig(item)
 	if err != nil {
 		return nil, err
@@ -18,18 +19,18 @@ func MakeFromPlugin(item any, db *store.SQLiteStore) (InputPlugin, error) {
 	if !ok {
 		return nil, fmt.Errorf("unknown plugin %q", name)
 	}
-	if d.PluginPhase != PhaseFrom {
-		return nil, fmt.Errorf("plugin %q (phase %q) is not a from plugin; only PhaseFrom plugins may be used in from: lists", name, d.PluginPhase)
+	if d.EffectiveRole() != RoleSource {
+		return nil, fmt.Errorf("plugin %q (role %q) is not a source plugin; only source plugins may be used in from: lists", name, d.EffectiveRole())
 	}
 	p, err := d.Factory(cfg, db)
 	if err != nil {
 		return nil, fmt.Errorf("instantiate plugin %q: %w", name, err)
 	}
-	inp, ok := p.(InputPlugin)
+	src, ok := p.(SourcePlugin)
 	if !ok {
-		return nil, fmt.Errorf("plugin %q does not implement InputPlugin", name)
+		return nil, fmt.Errorf("plugin %q does not implement SourcePlugin", name)
 	}
-	return &loggedFromPlugin{inner: inp}, nil
+	return &loggedSourcePlugin{inner: src}, nil
 }
 
 // ResolveNameAndConfig extracts a plugin name and config map from either a

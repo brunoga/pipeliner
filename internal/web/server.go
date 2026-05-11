@@ -525,28 +525,6 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Build JSON-friendly response.
-	type pluginResp struct {
-		Name   string         `json:"name"`
-		Config map[string]any `json:"config"`
-	}
-	type taskResp struct {
-		Plugins  []pluginResp `json:"plugins"`
-		Schedule string       `json:"schedule,omitempty"`
-	}
-	tasks := make(map[string]taskResp, len(c.Tasks))
-	for name, pcs := range c.Tasks {
-		plugins := make([]pluginResp, len(pcs))
-		for i, pc := range pcs {
-			cfg := pc.Config
-			if cfg == nil {
-				cfg = map[string]any{}
-			}
-			plugins[i] = pluginResp{Name: pc.Name, Config: cfg}
-		}
-		tasks[name] = taskResp{Plugins: plugins, Schedule: c.Schedules[name]}
-	}
-
 	// DAG graphs.
 	type nodeResp struct {
 		ID         string         `json:"id"`
@@ -580,7 +558,7 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 		graphs[name] = graphResp{Nodes: nodes, Schedule: c.GraphSchedules[name]}
 	}
 
-	writeJSON(w, map[string]any{"tasks": tasks, "graphs": graphs})
+	writeJSON(w, map[string]any{"graphs": graphs})
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

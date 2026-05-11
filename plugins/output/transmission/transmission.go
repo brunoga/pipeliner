@@ -203,3 +203,10 @@ func (p *transmissionPlugin) doRequest(ctx context.Context, body []byte) (*http.
 	return p.client.Do(req)
 }
 
+
+func (p *transmissionPlugin) Consume(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
+	if tc.DryRun {
+		return nil
+	}
+	return p.Output(ctx, tc, entry.FilterAccepted(entries))
+}

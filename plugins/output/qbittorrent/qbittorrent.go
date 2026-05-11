@@ -194,3 +194,10 @@ func stringVal(v any) string {
 	s, _ := v.(string)
 	return s
 }
+
+func (p *qbtPlugin) Consume(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
+	if tc.DryRun {
+		return nil
+	}
+	return p.Output(ctx, tc, entry.FilterAccepted(entries))
+}
