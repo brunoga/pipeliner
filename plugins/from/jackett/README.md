@@ -4,7 +4,7 @@ A from plugin that queries a [Jackett](https://github.com/Jackett/Jackett) index
 
 Unlike `rss_search` pointed at Jackett's RSS endpoint, this plugin speaks Torznab natively: seeder/leecher counts, info hashes, and file sizes come back in the search response, so no separate `metainfo_torrent` or `metainfo_magnet` fetch is needed.
 
-**This plugin is a PhaseFrom sub-plugin.** It cannot be used directly as a task-level input. Use it inside `discover.via`.
+Use as a standalone `input()` source node, or inside `series.from`, `movies.from`, `discover.from`, or `discover.via` config keys.
 
 ## Config
 

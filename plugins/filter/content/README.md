@@ -24,14 +24,9 @@ both the full path and the filename component (`path.Base`).
 ## Example
 
 ```python
-task("tv", [
-    plugin("rss", url="https://example.com/rss"),
-    plugin("metainfo_torrent"),
-    plugin("content",
-        reject=["*.exe", "*.bat"],
-        require=["*.mkv"],
-    ),
-])
+meta = process("metainfo_torrent", from_=upstream)
+flt  = process("content", from_=meta,
+               reject=["*.exe", "*.rar"], require=["*.mkv"])
 ```
 
 ## DAG role

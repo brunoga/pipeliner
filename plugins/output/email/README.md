@@ -22,19 +22,10 @@ Sends an email for each batch of accepted entries via SMTP. Subject and body are
 ## Example
 
 ```python
-task("news", [
-    plugin("rss", url="https://feeds.example.com/tech"),
-    plugin("regexp", accept="(?i)golang"),
-    plugin("email",
-        smtp_host="smtp.gmail.com",
-        smtp_port=587,
-        **{"from": "alerts@example.com"},
-        to="me@example.com",
-        username="alerts@example.com",
-        password="app-password",
-        subject="{{len .Entries}} new Go articles",
-    ),
-])
+output("email", from_=ready,
+       smtp_host="smtp.gmail.com", smtp_port=587,
+       **{"from": "me@gmail.com"}, to="me@gmail.com",
+       subject="{{len .Entries}} new item(s)")
 ```
 
 ## DAG role

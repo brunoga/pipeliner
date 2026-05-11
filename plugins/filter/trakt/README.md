@@ -40,16 +40,11 @@ plugin("trakt",
 ## Example
 
 ```python
-task("tv-watchlist", [
-    plugin("rss", url="https://example.com/feed"),
-    plugin("trakt",
-        client_id="YOUR_CLIENT_ID",
-        client_secret="YOUR_CLIENT_SECRET",
-        type="shows",
-        list="watchlist",
-    ),
-    plugin("transmission", host="localhost"),
-])
+src = input("rss", url="https://example.com/rss")
+flt = process("trakt", from_=src,
+              client_id=env("TRAKT_ID"), type="shows")
+output("transmission", from_=flt, host="localhost")
+pipeline("trakt-filtered")
 ```
 
 ## DAG role

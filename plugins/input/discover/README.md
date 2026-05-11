@@ -20,7 +20,7 @@ At least one of `titles` or `from` must produce titles. The combined title list 
 Each entry is a plugin name string or an object with a `name` key plus plugin-specific config. The entry titles returned by those plugins are added to the search queue:
 
 ```python
-plugin("discover", **{"from": [
+results = process("discover", from_=rss_src, **{"from": [
     {"name": "trakt_list", "client_id": "YOUR_CLIENT_ID",
      "access_token": "YOUR_ACCESS_TOKEN", "type": "movies", "list": "watchlist"},
 ], "via": [...]})
@@ -31,7 +31,7 @@ plugin("discover", **{"from": [
 Each entry references a registered [search plugin](../search/). Either a plugin name string or an object:
 
 ```python
-plugin("discover", **{"via": [
+results = process("discover", from_=rss_src, **{"via": [
     "rss_search",    # name only, uses defaults
     {"name": "rss_search",
      "url_template": "https://jackett.example.com/api?q={{.QueryEscaped}}&apikey=abc"},
@@ -41,43 +41,21 @@ plugin("discover", **{"via": [
 ## Example — static title list
 
 ```python
-task("movies-discover", [
-    plugin("discover", **{
-        "titles": ["Dune Part Two", "Oppenheimer"],
-        "via": [
-            {"name": "rss_search",
-             "url_template": "https://jackett.example.com/api?q={{.QueryEscaped}}&apikey=abc"},
-        ],
-        "interval": "12h",
-    }),
-    plugin("metainfo_quality"),
-    plugin("quality", min="1080p"),
-    plugin("seen"),
-    plugin("qbittorrent", host="localhost"),
-])
+watchlist = input("trakt_list", client_id=env("TRAKT_ID"),
+                  client_secret=env("TRAKT_SECRET"),
+                  type="movies", list="watchlist")
+results   = process("discover", from_=watchlist,
+    via=[{"name": "jackett", "url": "http://localhost:9117",
+          "api_key": env("JACKETT_KEY"), "categories": ["2000"]}],
+    interval="12h")
+seen      = process("seen",            from_=results)
+q         = process("metainfo_quality", from_=seen)
+flt       = process("quality",          from_=q, min="1080p")
+output("qbittorrent", from_=flt, host="localhost")
+pipeline("movie-discover", schedule="2h")
 ```
 
 ## Example — dynamic title list from Trakt watchlist
-
-```python
-task("discover-watchlist", [
-    plugin("discover", **{
-        "from": [
-            {"name": "trakt_list", "client_id": "YOUR_CLIENT_ID",
-             "access_token": "YOUR_ACCESS_TOKEN", "type": "movies", "list": "watchlist"},
-        ],
-        "via": [
-            {"name": "rss_search",
-             "url_template": "https://jackett.example.com/api?q={{.QueryEscaped}}&apikey=abc"},
-        ],
-        "interval": "6h",
-    }),
-    plugin("metainfo_quality"),
-    plugin("quality", min="1080p"),
-    plugin("seen"),
-    plugin("qbittorrent", host="localhost"),
-])
-```
 
 ## DAG role
 
@@ -117,21 +95,3 @@ pipeline("tv-discover", schedule="1h")
 
 ## Example — combined static and dynamic
 
-```python
-task("discover-combined", [
-    plugin("discover", **{
-        "titles": ["Severance"],       # always searched regardless of watchlist
-        "from": [
-            {"name": "trakt_list", "client_id": "YOUR_CLIENT_ID",
-             "access_token": "YOUR_ACCESS_TOKEN", "type": "shows", "list": "watchlist"},
-        ],
-        "via": [
-            {"name": "rss_search",
-             "url_template": "https://jackett.example.com/api?q={{.QueryEscaped}}&apikey=abc"},
-        ],
-        "interval": "12h",
-    }),
-    plugin("series", tracking="strict"),
-    plugin("qbittorrent", host="localhost"),
-])
-```

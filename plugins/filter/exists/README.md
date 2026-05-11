@@ -12,11 +12,8 @@ Rejects entries whose target file already exists on disk. Compares normalized fi
 ## Example
 
 ```python
-task("movies", [
-    plugin("rss", url="https://example.com/feed"),
-    plugin("exists", path="/media/movies", recursive=True),
-    plugin("movies", static=["Inception"]),
-])
+flt = process("exists", from_=upstream,
+              path="/media/tv", recursive=True)
 ```
 
 ## DAG role

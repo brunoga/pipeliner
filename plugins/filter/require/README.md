@@ -16,13 +16,8 @@ plugin("require", fields=["series_name", "series_season", "quality"])
 ## Example
 
 ```python
-task("tv", [
-    plugin("rss", url="https://example.com/rss"),
-    plugin("metainfo_series"),
-    plugin("metainfo_quality"),
-    plugin("require", fields=["series_name", "quality"]),
-    plugin("series", static=["Breaking Bad"]),
-])
+meta = process("metainfo_tvdb", from_=upstream, api_key=env("TVDB_KEY"))
+req  = process("require", from_=meta, fields=["enriched"])
 ```
 
 ## DAG role

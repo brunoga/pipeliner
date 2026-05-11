@@ -14,12 +14,11 @@ Accepts series entries whose parsed show name fuzzy-matches a show in the user's
 ## Example
 
 ```python
-task("tv-favorites", [
-    plugin("rss", url="https://example.com/feed"),
-    plugin("seen"),
-    plugin("tvdb", api_key="YOUR_API_KEY", user_pin="YOUR_USER_PIN"),
-    plugin("deluge", host="localhost", password="changeme"),
-])
+src = input("rss", url="https://example.com/rss")
+flt = process("tvdb", from_=src,
+              api_key=env("TVDB_KEY"), user_pin=env("TVDB_PIN"))
+output("transmission", from_=flt, host="localhost")
+pipeline("tvdb-filtered")
 ```
 
 ## DAG role

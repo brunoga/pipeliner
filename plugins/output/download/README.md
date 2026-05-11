@@ -24,14 +24,7 @@ If the download fails (network error, non-200 response, disk error), the entry i
 ## Example
 
 ```python
-task("articles", [
-    plugin("rss", url="https://example.com/feed"),
-    plugin("regexp", accept="(?i)golang"),
-    plugin("download",
-        path="/home/user/articles",
-        filename="{{.timestamp}}-{{.url_basename}}",
-    ),
-])
+output("download", from_=ready, path="/downloads")
 ```
 
 ## DAG role

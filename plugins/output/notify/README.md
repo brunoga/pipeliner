@@ -16,16 +16,8 @@ Additional keys are passed through to the chosen notifier. See [`notify/email`](
 ## Example
 
 ```python
-task("tv", [
-    plugin("rss", url="https://example.com/feed"),
-    plugin("series", static=["Breaking Bad"]),
-    plugin("transmission", host="localhost"),
-    plugin("notify",
-        via="webhook",
-        url="https://hooks.example.com/pipeliner",
-        title="{{len .Entries}} new episodes queued",
-    ),
-])
+output("notify", from_=ready,
+       via="webhook", url=env("DISCORD_WEBHOOK"))
 ```
 
 ## DAG role

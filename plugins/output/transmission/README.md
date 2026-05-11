@@ -21,21 +21,12 @@ If a torrent cannot be added, the affected entry is marked failed and will **not
 ## Example
 
 ```python
-task("tv", [
-    plugin("rss", url="https://example.com/feed"),
-    plugin("series", static=["Breaking Bad"]),
-    plugin("pathfmt",
-        path="/media/tv/{{.series_name}}/Season {{printf \"%02d\" .series_season}}",
-        field="download_path",
-    ),
-    plugin("transmission",
-        host="nas.local",
-        port=9091,
-        username="admin",
-        password="secret",
-        path="{{.download_path}}",
-    ),
-])
+src    = input("rss", url="https://example.com/rss")
+seen   = process("seen", from_=src)
+series = process("series", from_=seen, static=["Breaking Bad"])
+output("transmission", from_=series,
+       host="localhost", port=9091)
+pipeline("tv", schedule="30m")
 ```
 
 ## DAG role

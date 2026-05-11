@@ -9,15 +9,10 @@ Any key-value pairs. Values are Go template strings.
 ## Example
 
 ```python
-task("my-task", [
-    plugin("rss", url="https://example.com/feed"),
-    plugin("set",
-        category="tv",
-        label="{{.series_name}}",
-        custom_path="/mnt/nas/{{.series_name}}",
-    ),
-    plugin("qbittorrent", host="localhost", category="{{.category}}"),
-])
+src    = input("rss", url="https://example.com/rss")
+tagged = process("set", from_=src, category="tv")
+output("print", from_=tagged)
+pipeline("tagged-feed")
 ```
 
 ## DAG role

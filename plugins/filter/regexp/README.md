@@ -15,18 +15,14 @@ At least one of `accept` or `reject` is required.
 ## Example
 
 ```python
-task("articles", [
-    plugin("rss", url="https://feeds.example.com/tech"),
-    plugin("regexp",
-        accept=["(?i)golang", "(?i)kubernetes"],
-        reject=["(?i)sponsored"],
-    ),
-    plugin("email",
-        smtp_host="smtp.example.com",
-        **{"from": "me@example.com"},
-        to="me@example.com",
-    ),
-])
+src = input("rss", url="https://example.com/rss")
+flt = process("regexp", from_=src,
+              accept=["(?i)golang", "(?i)kubernetes"],
+              reject=["(?i)sponsored"])
+acc = process("accept_all", from_=flt)
+output("email", from_=acc, smtp_host="smtp.example.com",
+       **{"from": "me@example.com"}, to="me@example.com")
+pipeline("tech-news", schedule="1h")
 ```
 
 ## DAG role

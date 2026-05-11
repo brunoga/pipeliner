@@ -44,23 +44,6 @@ Annotates entries with metadata from Trakt.tv via the search API. Searches by pa
 
 ## Example
 
-Linear:
-```python
-task("tv", [
-    plugin("rss", url="https://example.com/feed"),
-    plugin("trakt",                          # filter: accept watchlist shows
-        client_id="YOUR_CLIENT_ID",
-        access_token="YOUR_TOKEN",
-        type="shows",
-        list="watchlist",
-    ),
-    plugin("metainfo_trakt",                 # annotate with Trakt metadata
-        client_id="YOUR_CLIENT_ID",
-        type="shows",
-    ),
-])
-```
-
 ## Notes
 
 - Results are cached in `pipeliner.db` in the same directory as the config file.

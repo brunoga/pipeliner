@@ -69,20 +69,6 @@ All results are cached in `pipeliner.db` to avoid redundant API calls across run
 
 ## Example
 
-Linear:
-```python
-task("tv", [
-    plugin("rss", url="https://example.com/feed"),
-    plugin("metainfo_tvdb", api_key="YOUR_TVDB_API_KEY"),
-    plugin("condition", rules=[
-        {"reject": 'video_language != "" and video_language != "English"'},
-        {"reject": 'video_genres contains "Documentary"'},
-        {"reject": 'series_first_air_date != "" and series_first_air_date < daysago(365)'},
-    ]),
-    plugin("premiere", quality="720p+"),
-])
-```
-
 ## Notes
 
 - API keys are available at [thetvdb.com/api-information](https://thetvdb.com/api-information).

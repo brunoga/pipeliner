@@ -45,14 +45,6 @@ Fetches entries from an RSS 2.0 or Atom 1.0 feed. Prefers enclosure URLs (torren
 
 ## Example
 
-Linear:
-```python
-task("my-task", [
-    plugin("rss", url="https://example.com/torrents/rss"),
-])
-```
-
-DAG:
 ```python
 src = input("rss", url="https://example.com/torrents/rss")
 output("print", from_=src)

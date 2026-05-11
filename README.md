@@ -2,7 +2,7 @@
 
 A media-automation tool that pulls entries from RSS feeds, active searches, or local filesystems, filters them against configurable rules, enriches them with metadata, and hands them off to download clients, notification services, or arbitrary shell commands.
 
-Heavily inspired by [FlexGet](https://flexget.com). Pipelines are described in [Starlark](https://github.com/bazelbuild/starlark) — a deterministic Python dialect used by Bazel and Buck. Each pipeline task chains a sequence of plugins — one input, any number of filters and metainfo annotators, optional modifiers, and one or more outputs. The scheduler runs tasks on cron or interval schedules.
+Heavily inspired by [FlexGet](https://flexget.com). Pipelines are described in [Starlark](https://github.com/bazelbuild/starlark) — a deterministic Python dialect used by Bazel and Buck. Plugins are connected into pipelines: sources produce entries, processors filter and enrich them, sinks act on the accepted ones. The scheduler runs pipelines on cron or interval schedules.
 
 ## Installation
 
@@ -21,20 +21,21 @@ go build -o pipeliner ./cmd/pipeliner
 ## Quick start
 
 ```python
-# config.star
-task("breaking-bad",
-    [
-        plugin("rss", url="https://example.com/rss"),
-        plugin("seen"),
-        plugin("series", static=["Breaking Bad"]),
-        plugin("transmission", host="localhost", port=9091),
-    ],
-    schedule="1h")
+# config.star — connect nodes with from_= to build a pipeline
+src    = input("rss", url="https://example.com/rss")
+seen   = process("seen",       from_=src)
+series = process("series",     from_=seen, static=["Breaking Bad"])
+fmt    = process("pathfmt",    from_=series,
+                 path="/media/tv/{title}/Season {series_season:02d}",
+                 field="download_path")
+output("transmission", from_=fmt, host="localhost", port=9091,
+                        path="{download_path}")
+pipeline("breaking-bad", schedule="1h")
 ```
 
 ```sh
-pipeliner run               # run all tasks once
-pipeliner daemon            # run tasks on their schedules
+pipeliner run               # run all pipelines once
+pipeliner daemon            # run pipelines on their schedules
 pipeliner check             # validate config without running
 pipeliner list-plugins      # print all registered plugins
 ```
@@ -45,39 +46,30 @@ See [`configs/`](configs/README.md) for the full config format reference and ann
 
 ## Plugins
 
-Pipeliner is built entirely from plugins. Each task is a chain of plugins executed in order:
+Pipeliner is built entirely from plugins. Each plugin has one of three roles:
 
-| Phase | Purpose |
-|-------|---------|
-| **input** | Produce entries from sources (RSS, files, searches) |
-| **metainfo** | Annotate entries with metadata (quality, series info, TMDb) |
-| **filter** | Accept, reject, or leave entries undecided based on rules |
-| **modify** | Mutate entry fields (path formatting, field setting) |
-| **output** | Act on accepted entries (download, client RPC, notify) |
-| **learn** | Persist decisions and state for future runs (seen, series tracking) |
+| Role | Used as | Purpose |
+|------|---------|---------|
+| **source** | `input(…)` | Produce entries from RSS, files, indexers |
+| **processor** | `process(…, from_=…)` | Filter, enrich, or transform entries |
+| **sink** | `output(…, from_=…)` | Act on accepted entries (download, notify, exec) |
 
-Metainfo, filter, and modify plugins run in config-file order and can be freely interleaved — a filter can be placed immediately after the metainfo plugin that sets the field it inspects.
+Connect multiple sources with `merge(src1, src2)` for deduplication. Fan out to multiple sinks by calling `output()` more than once from the same upstream node. See [`plugins/`](plugins/README.md) for the full plugin model.
 
-See [`plugins/`](plugins/README.md) for the plugin model and links to every plugin.
+The visual pipeline editor in the web UI lets you build pipelines by clicking and connecting nodes without writing config by hand.
 
-### Input
+### Sources (`input(…)`)
 
 | Plugin | Description |
 |--------|-------------|
 | [`rss`](plugins/input/rss/README.md) | Fetch entries from an RSS/Atom feed |
-| [`html`](plugins/input/html/README.md) | Scrape entries from an HTML page with CSS selectors |
+| [`html`](plugins/input/html/README.md) | Scrape entries from an HTML page |
 | [`filesystem`](plugins/input/filesystem/README.md) | Walk a directory tree and emit file entries |
-| [`discover`](plugins/input/discover/README.md) | Actively search multiple sources for a configured title list |
-| [`jackett_input`](plugins/input/search/jackett/README.md) | Fetch recent results from Jackett indexers as a passive feed |
-
-#### From plugins (used by `series.from`, `movies.from`, `discover.from`, and `discover.via`)
-
-| Plugin | Description |
-|--------|-------------|
-| [`jackett`](plugins/from/jackett/README.md) | Query Jackett indexers via Torznab |
-| [`rss_search`](plugins/from/rss/README.md) | Search an RSS feed by querying its URL with a `q=` parameter |
+| [`jackett_input`](plugins/input/search/jackett/README.md) | Fetch recent results from Jackett indexers |
 | [`trakt_list`](plugins/from/trakt/README.md) | Fetch movies or shows from a Trakt.tv list |
-| [`tvdb_favorites`](plugins/from/tvdb/README.md) | Fetch shows from a TheTVDB user's favorites list |
+| [`tvdb_favorites`](plugins/from/tvdb/README.md) | Fetch shows from a TheTVDB user's favorites |
+| [`jackett`](plugins/from/jackett/README.md) | Search Jackett via Torznab (also a search backend for `discover.via`) |
+| [`rss_search`](plugins/from/rss/README.md) | Search a parameterized RSS URL (also a backend for `discover.via`) |
 
 ### Filter
 
@@ -160,9 +152,9 @@ Every entry carries a `Fields` map that plugins read and write. Pipeliner define
 
 `enriched` is set to `true` by any external metainfo provider on a successful lookup. Use it with [`require`](plugins/filter/require/README.md) to discard entries that couldn't be identified:
 
-```yaml
-require:
-  fields: ["enriched"]   # works with TVDB, TMDb, or Trakt
+```python
+req = process("require", from_=meta_node, fields=["enriched"])
+# works with TVDB, TMDb, or Trakt — no change needed if you swap providers
 ```
 
 Provider-specific fields (e.g. `tvdb_id`, `tmdb_id`, `trakt_slug`) are still set alongside the standard fields for cases that need them.

@@ -52,17 +52,6 @@ Enriches movie entries with metadata from The Movie Database (TMDb). Searches by
 
 ## Example
 
-Linear:
-```python
-task("movies", [
-    plugin("rss", url="https://example.com/feed"),
-    plugin("movies", static=["Inception"]),
-    plugin("metainfo_tmdb", api_key="YOUR_API_KEY"),
-    plugin("pathfmt", path="/media/movies/{title} ({video_year})", field="download_path"),
-])
-```
-
-DAG:
 ```python
 src  = input("rss", url="https://example.com/feed")
 flt  = process("movies", from_=src, static=["Inception"])
