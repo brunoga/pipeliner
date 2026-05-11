@@ -35,8 +35,14 @@ func init() {
 		PluginName:  "discover",
 		Description: "actively search multiple sources for items from a title list",
 		PluginPhase: plugin.PhaseInput,
-		Factory:     newPlugin,
-		Validate:    validate,
+		Role:        plugin.RoleSource,
+		Produces: []string{
+			entry.FieldTorrentSeeds,
+			entry.FieldTorrentInfoHash,
+			entry.FieldTorrentLinkType,
+		},
+		Factory:  newPlugin,
+		Validate: validate,
 	})
 }
 

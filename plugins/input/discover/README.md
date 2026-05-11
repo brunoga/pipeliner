@@ -79,6 +79,14 @@ task("discover-watchlist", [
 ])
 ```
 
+## DAG role
+
+| Property | Value |
+|----------|-------|
+| Role | `source` |
+| Produces | `torrent_seeds`, `torrent_info_hash`, `torrent_link_type` (and whatever the `via` search plugins return) |
+| Requires | — |
+
 ## Example — combined static and dynamic
 
 ```python
