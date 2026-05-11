@@ -89,23 +89,15 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 func (p *qualityPlugin) Name() string        { return "quality" }
 func (p *qualityPlugin) Phase() plugin.Phase { return plugin.PhaseFilter }
 
-func (p *qualityPlugin) Filter(_ context.Context, _ *plugin.TaskContext, e *entry.Entry) error {
-	q := internalquality.Parse(e.Title)
-	e.Set("quality", q.String())
-
-	if !p.spec.Matches(q) {
-		e.Reject(fmt.Sprintf("quality %s does not match spec", q.String()))
-	}
-	return nil
-}
-
-func (p *qualityPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
+func (p *qualityPlugin) Process(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
 	for _, e := range entries {
 		if e.IsRejected() || e.IsFailed() {
 			continue
 		}
-		if err := p.Filter(ctx, tc, e); err != nil {
-			tc.Logger.Warn("filter error", "entry", e.Title, "err", err)
+		q := internalquality.Parse(e.Title)
+		e.Set("quality", q.String())
+		if !p.spec.Matches(q) {
+			e.Reject(fmt.Sprintf("quality %s does not match spec", q.String()))
 		}
 	}
 	return entry.PassThrough(entries), nil

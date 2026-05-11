@@ -109,7 +109,7 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 func (p *torrentAlivePlugin) Name() string        { return "torrent_alive" }
 func (p *torrentAlivePlugin) Phase() plugin.Phase { return plugin.PhaseFilter }
 
-func (p *torrentAlivePlugin) Filter(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
+func (p *torrentAlivePlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
 	// 1. Use feed-provided seed count if available (fast path — no scrape needed).
 	if v, ok := e.Get(entry.FieldTorrentSeeds); ok {
 		n := toInt(v)
@@ -238,7 +238,7 @@ func (p *torrentAlivePlugin) Process(ctx context.Context, tc *plugin.TaskContext
 		if e.IsRejected() || e.IsFailed() {
 			continue
 		}
-		if err := p.Filter(ctx, tc, e); err != nil {
+		if err := p.filter(ctx, tc, e); err != nil {
 			tc.Logger.Warn("torrent_alive filter error", "entry", e.Title, "err", err)
 		}
 	}

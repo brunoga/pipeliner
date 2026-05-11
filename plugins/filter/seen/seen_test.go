@@ -33,7 +33,7 @@ func openPlugin(t *testing.T, extra map[string]any) *seenPlugin {
 func TestNewEntry(t *testing.T) {
 	p := openPlugin(t, nil)
 	e := entry.New("Test", "http://example.com/a")
-	if err := p.Filter(context.Background(), makeCtx("task"), e); err != nil {
+	if err := p.filter(context.Background(), makeCtx("task"), e); err != nil {
 		t.Fatal(err)
 	}
 	if e.IsRejected() {
@@ -48,13 +48,13 @@ func TestSeenEntryRejected(t *testing.T) {
 	e.Accept()
 
 	// Mark it seen via Learn.
-	if err := p.Learn(context.Background(), tc, []*entry.Entry{e}); err != nil {
+	if err := p.persist(context.Background(), tc, []*entry.Entry{e}); err != nil {
 		t.Fatal(err)
 	}
 
 	// On next run the same URL should be rejected.
 	e2 := entry.New("Test", "http://example.com/a")
-	if err := p.Filter(context.Background(), tc, e2); err != nil {
+	if err := p.filter(context.Background(), tc, e2); err != nil {
 		t.Fatal(err)
 	}
 	if !e2.IsRejected() {
@@ -68,10 +68,10 @@ func TestDifferentURLsNotRejected(t *testing.T) {
 
 	e1 := entry.New("A", "http://example.com/a")
 	e1.Accept()
-	p.Learn(context.Background(), tc, []*entry.Entry{e1}) //nolint:errcheck
+	p.persist(context.Background(), tc, []*entry.Entry{e1}) //nolint:errcheck
 
 	e2 := entry.New("B", "http://example.com/b")
-	p.Filter(context.Background(), tc, e2) //nolint:errcheck
+	p.filter(context.Background(), tc, e2) //nolint:errcheck
 	if e2.IsRejected() {
 		t.Error("different URL should not be rejected")
 	}
@@ -82,18 +82,18 @@ func TestLocalIsolatedByTask(t *testing.T) {
 
 	e := entry.New("Test", "http://example.com/a")
 	e.Accept()
-	p.Learn(context.Background(), makeCtx("task-1"), []*entry.Entry{e}) //nolint:errcheck
+	p.persist(context.Background(), makeCtx("task-1"), []*entry.Entry{e}) //nolint:errcheck
 
 	// Same URL in a different task should NOT be seen.
 	e2 := entry.New("Test", "http://example.com/a")
-	p.Filter(context.Background(), makeCtx("task-2"), e2) //nolint:errcheck
+	p.filter(context.Background(), makeCtx("task-2"), e2) //nolint:errcheck
 	if e2.IsRejected() {
 		t.Error("local seen store should not cross task boundaries")
 	}
 
 	// Same task should still reject it.
 	e3 := entry.New("Test", "http://example.com/a")
-	p.Filter(context.Background(), makeCtx("task-1"), e3) //nolint:errcheck
+	p.filter(context.Background(), makeCtx("task-1"), e3) //nolint:errcheck
 	if !e3.IsRejected() {
 		t.Error("local seen store should reject within same task")
 	}
@@ -105,18 +105,18 @@ func TestCustomFields(t *testing.T) {
 
 	e := entry.New("My Show S01E01", "http://x.com/a")
 	e.Accept()
-	p.Learn(context.Background(), tc, []*entry.Entry{e}) //nolint:errcheck
+	p.persist(context.Background(), tc, []*entry.Entry{e}) //nolint:errcheck
 
 	// Same title, different URL → should be seen.
 	e2 := entry.New("My Show S01E01", "http://x.com/b")
-	p.Filter(context.Background(), tc, e2) //nolint:errcheck
+	p.filter(context.Background(), tc, e2) //nolint:errcheck
 	if !e2.IsRejected() {
 		t.Error("same title with different URL should be rejected when fields=[title]")
 	}
 
 	// Different title → should pass.
 	e3 := entry.New("My Show S01E02", "http://x.com/a")
-	p.Filter(context.Background(), tc, e3) //nolint:errcheck
+	p.filter(context.Background(), tc, e3) //nolint:errcheck
 	if e3.IsRejected() {
 		t.Error("different title should not be rejected")
 	}
@@ -129,11 +129,11 @@ func TestLearnMarksEntryAsSeen(t *testing.T) {
 	// The engine pre-filters to accepted before calling Learn; simulate that.
 	accepted := entry.New("Test", "http://example.com/url")
 	accepted.Accept()
-	p.Learn(context.Background(), tc, []*entry.Entry{accepted}) //nolint:errcheck
+	p.persist(context.Background(), tc, []*entry.Entry{accepted}) //nolint:errcheck
 
 	// The accepted entry's URL should now be marked seen.
 	e := entry.New("Test", "http://example.com/url")
-	p.Filter(context.Background(), tc, e) //nolint:errcheck
+	p.filter(context.Background(), tc, e) //nolint:errcheck
 	if !e.IsRejected() {
 		t.Error("entry should be rejected after being marked seen via Learn")
 	}

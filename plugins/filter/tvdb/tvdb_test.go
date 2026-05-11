@@ -95,7 +95,7 @@ func TestFilterAcceptsFavoriteShow(t *testing.T) {
 	p := makeFilter(t, srv, nil)
 	e := entry.New("Breaking.Bad.S01E01.720p.HDTV", "http://example.com/1")
 
-	if err := p.Filter(context.Background(), tc(), e); err != nil {
+	if err := p.filter(context.Background(), tc(), e); err != nil {
 		t.Fatal(err)
 	}
 	if !e.IsAccepted() {
@@ -110,7 +110,7 @@ func TestFilterRejectsNonFavoriteByDefault(t *testing.T) {
 	p := makeFilter(t, srv, nil)
 	e := entry.New("The.Wire.S01E01.720p.HDTV", "http://example.com/1")
 
-	p.Filter(context.Background(), tc(), e) //nolint:errcheck
+	p.filter(context.Background(), tc(), e) //nolint:errcheck
 	if !e.IsRejected() {
 		t.Error("non-favorited show should be rejected by default")
 	}
@@ -123,7 +123,7 @@ func TestFilterRejectsNonEpisodeTitleByDefault(t *testing.T) {
 	p := makeFilter(t, srv, nil)
 	e := entry.New("Some Movie 2023 1080p BluRay", "http://example.com/1")
 
-	if err := p.Filter(context.Background(), tc(), e); err != nil {
+	if err := p.filter(context.Background(), tc(), e); err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
 	if !e.IsRejected() {
@@ -138,7 +138,7 @@ func TestFilterUnmatchedOptOut(t *testing.T) {
 	p := makeFilter(t, srv, map[string]any{"reject_unmatched": false})
 	e := entry.New("The.Wire.S01E01.720p.HDTV", "http://example.com/1")
 
-	p.Filter(context.Background(), tc(), e) //nolint:errcheck
+	p.filter(context.Background(), tc(), e) //nolint:errcheck
 	if e.IsAccepted() || e.IsRejected() {
 		t.Errorf("non-favorited show should be undecided when reject_unmatched=false")
 	}
@@ -152,8 +152,8 @@ func TestFilterCachesWithinTTL(t *testing.T) {
 
 	e1 := entry.New("Breaking.Bad.S01E01.720p", "http://example.com/1")
 	e2 := entry.New("Breaking.Bad.S01E02.720p", "http://example.com/2")
-	p.Filter(context.Background(), tc(), e1) //nolint:errcheck
-	p.Filter(context.Background(), tc(), e2) //nolint:errcheck
+	p.filter(context.Background(), tc(), e1) //nolint:errcheck
+	p.filter(context.Background(), tc(), e2) //nolint:errcheck
 
 	if n := mock.favCalls.Load(); n != 1 {
 		t.Errorf("favorites fetched %d times within TTL, want 1", n)
@@ -167,11 +167,11 @@ func TestFilterRefreshesAfterTTL(t *testing.T) {
 	p := makeFilter(t, srv, map[string]any{"ttl": "1ms"})
 
 	e1 := entry.New("Breaking.Bad.S01E01.720p", "http://example.com/1")
-	p.Filter(context.Background(), tc(), e1) //nolint:errcheck
+	p.filter(context.Background(), tc(), e1) //nolint:errcheck
 	time.Sleep(5 * time.Millisecond)
 
 	e2 := entry.New("Breaking.Bad.S01E02.720p", "http://example.com/2")
-	p.Filter(context.Background(), tc(), e2) //nolint:errcheck
+	p.filter(context.Background(), tc(), e2) //nolint:errcheck
 
 	if n := mock.favCalls.Load(); n < 2 {
 		t.Errorf("favorites fetched %d times, want ≥2 after TTL expiry", n)
@@ -213,8 +213,8 @@ func TestEmptyFavoritesNotCached(t *testing.T) {
 
 	e1 := entry.New("Breaking.Bad.S01E01.720p", "http://x.com/1")
 	e2 := entry.New("Breaking.Bad.S01E02.720p", "http://x.com/2")
-	p.Filter(context.Background(), tc(), e1) //nolint:errcheck
-	p.Filter(context.Background(), tc(), e2) //nolint:errcheck
+	p.filter(context.Background(), tc(), e1) //nolint:errcheck
+	p.filter(context.Background(), tc(), e2) //nolint:errcheck
 
 	if n := mock.favCalls.Load(); n < 2 {
 		t.Errorf("empty favorites should not be cached; API called %d times, want ≥2", n)

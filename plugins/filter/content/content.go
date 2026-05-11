@@ -84,7 +84,7 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 func (p *contentPlugin) Name() string        { return "content" }
 func (p *contentPlugin) Phase() plugin.Phase { return plugin.PhaseFilter }
 
-func (p *contentPlugin) Filter(_ context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
+func (p *contentPlugin) filter(_ context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
 	files, source := resolveFiles(e)
 	if len(files) == 0 {
 		tc.Logger.Warn("content: file list unavailable — check skipped",
@@ -201,7 +201,7 @@ func (p *contentPlugin) Process(ctx context.Context, tc *plugin.TaskContext, ent
 		if e.IsRejected() || e.IsFailed() {
 			continue
 		}
-		if err := p.Filter(ctx, tc, e); err != nil {
+		if err := p.filter(ctx, tc, e); err != nil {
 			tc.Logger.Warn("filter error", "entry", e.Title, "err", err)
 		}
 	}

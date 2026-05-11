@@ -56,7 +56,7 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 func (p *seenPlugin) Name() string        { return "seen" }
 func (p *seenPlugin) Phase() plugin.Phase { return plugin.PhaseFilter }
 
-func (p *seenPlugin) Filter(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
+func (p *seenPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
 	ss := p.seenStore(tc)
 	fp := fingerprint(e, p.fields)
 	if ss.IsSeen(fp) {
@@ -65,7 +65,7 @@ func (p *seenPlugin) Filter(ctx context.Context, tc *plugin.TaskContext, e *entr
 	return nil
 }
 
-func (p *seenPlugin) Learn(_ context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
+func (p *seenPlugin) persist(_ context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
 	ss := p.seenStore(tc)
 	for _, e := range entries {
 		fp := fingerprint(e, p.fields)
@@ -134,13 +134,13 @@ func (p *seenPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entrie
 		if e.IsRejected() || e.IsFailed() {
 			continue
 		}
-		if err := p.Filter(ctx, tc, e); err != nil {
+		if err := p.filter(ctx, tc, e); err != nil {
 			tc.Logger.Warn("seen filter error", "entry", e.Title, "err", err)
 		}
 	}
 	out := entry.PassThrough(entries)
 	if len(out) > 0 {
-		if err := p.Learn(ctx, tc, out); err != nil {
+		if err := p.persist(ctx, tc, out); err != nil {
 			tc.Logger.Warn("seen learn error", "err", err)
 		}
 	}

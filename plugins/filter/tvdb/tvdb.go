@@ -93,7 +93,7 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 func (p *tvdbFilter) Name() string        { return "tvdb" }
 func (p *tvdbFilter) Phase() plugin.Phase { return plugin.PhaseFilter }
 
-func (p *tvdbFilter) Filter(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
+func (p *tvdbFilter) filter(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
 	titles, err := p.ensureTitles(ctx, tc)
 	if err != nil {
 		tc.Logger.Warn("tvdb: could not fetch favorites, skipping filter", "err", err)
@@ -155,7 +155,7 @@ func (p *tvdbFilter) Process(ctx context.Context, tc *plugin.TaskContext, entrie
 		if e.IsRejected() || e.IsFailed() {
 			continue
 		}
-		if err := p.Filter(ctx, tc, e); err != nil {
+		if err := p.filter(ctx, tc, e); err != nil {
 			tc.Logger.Warn("filter error", "entry", e.Title, "err", err)
 		}
 	}

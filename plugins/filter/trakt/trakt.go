@@ -154,7 +154,7 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 func (p *traktFilter) Name() string        { return "trakt" }
 func (p *traktFilter) Phase() plugin.Phase { return plugin.PhaseFilter }
 
-func (p *traktFilter) Filter(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
+func (p *traktFilter) filter(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
 	titles, err := p.ensureTitles(ctx, tc)
 	if err != nil {
 		tc.Logger.Warn("trakt: could not fetch list, skipping filter", "err", err)
@@ -251,7 +251,7 @@ func (p *traktFilter) Process(ctx context.Context, tc *plugin.TaskContext, entri
 		if e.IsRejected() || e.IsFailed() {
 			continue
 		}
-		if err := p.Filter(ctx, tc, e); err != nil {
+		if err := p.filter(ctx, tc, e); err != nil {
 			tc.Logger.Warn("filter error", "entry", e.Title, "err", err)
 		}
 	}

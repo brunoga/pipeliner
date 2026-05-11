@@ -78,7 +78,7 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 func (p *upgradePlugin) Name() string        { return "upgrade" }
 func (p *upgradePlugin) Phase() plugin.Phase { return plugin.PhaseFilter }
 
-func (p *upgradePlugin) Filter(_ context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
+func (p *upgradePlugin) filter(_ context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
 	current := quality.Parse(e.Title)
 
 	bucket := p.db.Bucket("upgrade:" + tc.Name)
@@ -125,7 +125,7 @@ func (p *upgradePlugin) Filter(_ context.Context, tc *plugin.TaskContext, e *ent
 	return nil
 }
 
-func (p *upgradePlugin) Learn(_ context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
+func (p *upgradePlugin) persist(_ context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
 	bucket := p.db.Bucket("upgrade:" + tc.Name)
 	for _, e := range entries {
 		key := entryKey(e)
@@ -175,13 +175,13 @@ func (p *upgradePlugin) Process(ctx context.Context, tc *plugin.TaskContext, ent
 		if e.IsRejected() || e.IsFailed() {
 			continue
 		}
-		if err := p.Filter(ctx, tc, e); err != nil {
+		if err := p.filter(ctx, tc, e); err != nil {
 			tc.Logger.Warn("upgrade filter error", "entry", e.Title, "err", err)
 		}
 	}
 	out := entry.PassThrough(entries)
 	if len(out) > 0 {
-		if err := p.Learn(ctx, tc, out); err != nil {
+		if err := p.persist(ctx, tc, out); err != nil {
 			tc.Logger.Warn("upgrade learn error", "err", err)
 		}
 	}

@@ -77,7 +77,7 @@ func TestFilterAcceptsMatchingShow(t *testing.T) {
 	})
 
 	e := entry.New("Breaking.Bad.S01E01.720p.HDTV", "http://example.com/1")
-	if err := p.Filter(context.Background(), tc(), e); err != nil {
+	if err := p.filter(context.Background(), tc(), e); err != nil {
 		t.Fatal(err)
 	}
 	if !e.IsAccepted() {
@@ -97,7 +97,7 @@ func TestFilterRejectsNonMatchByDefault(t *testing.T) {
 	})
 
 	e := entry.New("Some.Other.Show.S01E01.720p", "http://example.com/1")
-	p.Filter(context.Background(), tc(), e) //nolint:errcheck
+	p.filter(context.Background(), tc(), e) //nolint:errcheck
 	if !e.IsRejected() {
 		t.Errorf("non-matching show should be rejected by default")
 	}
@@ -116,7 +116,7 @@ func TestFilterUnmatchedOptOut(t *testing.T) {
 	})
 
 	e := entry.New("Some.Other.Show.S01E01.720p", "http://example.com/1")
-	p.Filter(context.Background(), tc(), e) //nolint:errcheck
+	p.filter(context.Background(), tc(), e) //nolint:errcheck
 	if e.IsAccepted() || e.IsRejected() {
 		t.Errorf("want undecided when reject_unmatched=false, got accepted=%v rejected=%v", e.IsAccepted(), e.IsRejected())
 	}
@@ -141,8 +141,8 @@ func TestFilterTitleCachedWithinTTL(t *testing.T) {
 
 	e1 := entry.New("Breaking.Bad.S01E01.720p", "http://example.com/1")
 	e2 := entry.New("Breaking.Bad.S01E02.720p", "http://example.com/2")
-	p.Filter(context.Background(), tc(), e1) //nolint:errcheck
-	p.Filter(context.Background(), tc(), e2) //nolint:errcheck
+	p.filter(context.Background(), tc(), e1) //nolint:errcheck
+	p.filter(context.Background(), tc(), e2) //nolint:errcheck
 
 	if callCount != 1 {
 		t.Errorf("API called %d times within TTL, want 1", callCount)
@@ -167,11 +167,11 @@ func TestFilterRefreshesAfterTTL(t *testing.T) {
 	})
 
 	e1 := entry.New("Breaking.Bad.S01E01.720p", "http://example.com/1")
-	p.Filter(context.Background(), tc(), e1) //nolint:errcheck
+	p.filter(context.Background(), tc(), e1) //nolint:errcheck
 	time.Sleep(5 * time.Millisecond)
 
 	e2 := entry.New("Breaking.Bad.S01E02.720p", "http://example.com/2")
-	p.Filter(context.Background(), tc(), e2) //nolint:errcheck
+	p.filter(context.Background(), tc(), e2) //nolint:errcheck
 
 	if callCount < 2 {
 		t.Errorf("API called %d times, want ≥2 (once per TTL expiry)", callCount)
@@ -224,8 +224,8 @@ func TestFilterMinRating(t *testing.T) {
 	highRated := entry.New("High.Rated.Show.S01E01.720p", "http://example.com/1")
 	lowRated := entry.New("Low.Rated.Show.S01E01.720p", "http://example.com/2")
 
-	p.Filter(context.Background(), tc(), highRated) //nolint:errcheck
-	p.Filter(context.Background(), tc(), lowRated)  //nolint:errcheck
+	p.filter(context.Background(), tc(), highRated) //nolint:errcheck
+	p.filter(context.Background(), tc(), lowRated)  //nolint:errcheck
 
 	if !highRated.IsAccepted() {
 		t.Error("high-rated show should be accepted")
@@ -248,7 +248,7 @@ func TestFilterNonParseableTitle(t *testing.T) {
 
 	// A plain article URL with no series pattern — should not error or panic
 	e := entry.New("Some Article Title", "http://example.com/article")
-	if err := p.Filter(context.Background(), tc(), e); err != nil {
+	if err := p.filter(context.Background(), tc(), e); err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
 	if e.IsAccepted() {
@@ -300,8 +300,8 @@ func TestEmptyListNotCached(t *testing.T) {
 
 	e1 := entry.New("Breaking.Bad.S01E01.720p", "http://x.com/1")
 	e2 := entry.New("Breaking.Bad.S01E02.720p", "http://x.com/2")
-	p.Filter(context.Background(), tc(), e1) //nolint:errcheck
-	p.Filter(context.Background(), tc(), e2) //nolint:errcheck
+	p.filter(context.Background(), tc(), e1) //nolint:errcheck
+	p.filter(context.Background(), tc(), e2) //nolint:errcheck
 
 	if callCount < 2 {
 		t.Errorf("empty list should not be cached; API called %d times, want ≥2", callCount)

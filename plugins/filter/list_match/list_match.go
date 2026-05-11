@@ -65,7 +65,7 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 func (p *listMatchPlugin) Name() string        { return "list_match" }
 func (p *listMatchPlugin) Phase() plugin.Phase { return plugin.PhaseFilter }
 
-func (p *listMatchPlugin) Filter(_ context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
+func (p *listMatchPlugin) filter(_ context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
 	list := entrylist.Open(p.db, p.listName)
 	found, err := list.Contains(e.Title)
 	if err != nil {
@@ -89,7 +89,7 @@ func (p *listMatchPlugin) Process(ctx context.Context, tc *plugin.TaskContext, e
 		if e.IsRejected() || e.IsFailed() {
 			continue
 		}
-		if err := p.Filter(ctx, tc, e); err != nil {
+		if err := p.filter(ctx, tc, e); err != nil {
 			tc.Logger.Warn("filter error", "entry", e.Title, "err", err)
 		}
 	}
