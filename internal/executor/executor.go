@@ -5,13 +5,12 @@
 //  1. Compute topological layers via dag.Graph.Layers().
 //  2. Execute layers in order; within a layer all nodes run serially.
 //  3. For each node, collect entries from all upstream nodes (merge + dedup
-//     by URL), adapt the plugin to its role interface, then invoke it.
+//     by URL), dispatch to the plugin's role interface, then invoke it.
 //  4. When a node's output fans out to more than one downstream consumer,
 //     entries are cloned per consumer so each branch has independent copies.
 //
-// Legacy plugins (PhaseInput, PhaseMetainfo, PhaseFilter, PhaseModify,
-// PhaseOutput, PhaseLearn) are wrapped by adapt.go so they participate in
-// DAG pipelines without modification.
+// All plugins must implement one of the three role interfaces:
+// SourcePlugin.Generate, ProcessorPlugin.Process, or SinkPlugin.Consume.
 package executor
 
 import (
@@ -217,23 +216,23 @@ func (ex *Executor) runNode(
 
 	switch role {
 	case plugin.RoleSource:
-		src, adapterErr := asSource(pi.Impl)
-		if adapterErr != nil {
-			return nil, adapterErr
+		src, ok := pi.Impl.(plugin.SourcePlugin)
+		if !ok {
+			return nil, fmt.Errorf("plugin %q does not implement SourcePlugin", pi.Impl.Name())
 		}
 		produced, err = src.Generate(ctx, tc)
 
 	case plugin.RoleProcessor:
-		proc, adapterErr := asProcessor(pi.Impl)
-		if adapterErr != nil {
-			return nil, adapterErr
+		proc, ok := pi.Impl.(plugin.ProcessorPlugin)
+		if !ok {
+			return nil, fmt.Errorf("plugin %q does not implement ProcessorPlugin", pi.Impl.Name())
 		}
 		produced, err = proc.Process(ctx, tc, upstream)
 
 	case plugin.RoleSink:
-		sink, adapterErr := asSink(pi.Impl)
-		if adapterErr != nil {
-			return nil, adapterErr
+		sink, ok := pi.Impl.(plugin.SinkPlugin)
+		if !ok {
+			return nil, fmt.Errorf("plugin %q does not implement SinkPlugin", pi.Impl.Name())
 		}
 		err = sink.Consume(ctx, tc, upstream)
 		produced = nil

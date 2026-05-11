@@ -36,18 +36,6 @@ func (p *acceptAllPlugin) Process(_ context.Context, _ *plugin.TaskContext, entr
 	return entries, nil
 }
 
-type rejectAllPlugin struct{}
-
-func (p *rejectAllPlugin) Name() string        { return "test_reject" }
-func (p *rejectAllPlugin) Phase() plugin.Phase { return plugin.PhaseFilter }
-func (p *rejectAllPlugin) Process(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
-	out := entries[:0]
-	for _, e := range entries {
-		e.Reject("test")
-	}
-	return out, nil
-}
-
 type sinkPlugin struct{ received []*entry.Entry }
 
 func (p *sinkPlugin) Name() string        { return "test_sink" }

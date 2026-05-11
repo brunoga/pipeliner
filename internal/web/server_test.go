@@ -403,9 +403,9 @@ func TestAPIPluginsReturnsArray(t *testing.T) {
 	if len(plugins) == 0 {
 		t.Error("expected at least one plugin, got none")
 	}
-	// Every entry must have name, phase, description, schema.
+	// Every entry must have name, role, description, schema.
 	for _, p := range plugins {
-		for _, field := range []string{"name", "phase", "description", "schema"} {
+		for _, field := range []string{"name", "role", "description", "schema"} {
 			if _, ok := p[field]; !ok {
 				t.Errorf("plugin %v missing field %q", p["name"], field)
 			}

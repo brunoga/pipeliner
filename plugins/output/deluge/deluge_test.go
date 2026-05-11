@@ -275,7 +275,7 @@ func TestRegistration(t *testing.T) {
 	if !ok {
 		t.Fatal("deluge plugin not registered")
 	}
-	if d.PluginPhase != plugin.PhaseOutput {
-		t.Errorf("phase: got %v", d.PluginPhase)
+	if d.Role != plugin.RoleSink {
+		t.Errorf("phase: got %v", d.Role)
 	}
 }

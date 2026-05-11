@@ -463,7 +463,6 @@ func (s *Server) apiPlugins(w http.ResponseWriter, _ *http.Request) {
 	}
 	type pluginResp struct {
 		Name        string      `json:"name"`
-		Phase       string      `json:"phase"`
 		Role        string      `json:"role"`
 		Description string      `json:"description"`
 		Produces    []string    `json:"produces"` // entry field names this plugin writes
@@ -495,7 +494,6 @@ func (s *Server) apiPlugins(w http.ResponseWriter, _ *http.Request) {
 		}
 		out = append(out, pluginResp{
 			Name:        d.PluginName,
-			Phase:       string(d.PluginPhase),
 			Role:        string(d.EffectiveRole()),
 			Description: d.Description,
 			Produces:    produces,

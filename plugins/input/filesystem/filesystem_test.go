@@ -120,7 +120,7 @@ func TestRegistered(t *testing.T) {
 	if !ok {
 		t.Fatal("filesystem plugin not registered")
 	}
-	if d.PluginPhase != plugin.PhaseInput {
-		t.Errorf("want phase input, got %s", d.PluginPhase)
+	if d.Role != plugin.RoleSource {
+		t.Errorf("want phase input, got %s", d.Role)
 	}
 }

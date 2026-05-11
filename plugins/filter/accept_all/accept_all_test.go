@@ -51,7 +51,7 @@ func TestIsRegistered(t *testing.T) {
 	if !ok {
 		t.Fatal("accept_all plugin is not registered")
 	}
-	if d.PluginPhase != plugin.PhaseFilter {
-		t.Errorf("expected phase %v, got %v", plugin.PhaseFilter, d.PluginPhase)
+	if d.Role != plugin.RoleProcessor {
+		t.Errorf("expected phase %v, got %v", plugin.RoleProcessor, d.Role)
 	}
 }

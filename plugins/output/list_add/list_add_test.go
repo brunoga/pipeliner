@@ -59,7 +59,7 @@ func TestListAddIsRegistered(t *testing.T) {
 	if !ok {
 		t.Fatal("list_add plugin is not registered")
 	}
-	if d.PluginPhase != plugin.PhaseOutput {
-		t.Errorf("expected phase %v, got %v", plugin.PhaseOutput, d.PluginPhase)
+	if d.Role != plugin.RoleSink {
+		t.Errorf("expected phase %v, got %v", plugin.RoleSink, d.Role)
 	}
 }

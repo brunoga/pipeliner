@@ -83,8 +83,8 @@ func TestRegistration(t *testing.T) {
 	if !ok {
 		t.Fatal("trakt_list not registered")
 	}
-	if d.PluginPhase != plugin.PhaseFrom {
-		t.Errorf("phase: got %v", d.PluginPhase)
+	if d.Role != plugin.RoleSource {
+		t.Errorf("phase: got %v", d.Role)
 	}
 }
 
