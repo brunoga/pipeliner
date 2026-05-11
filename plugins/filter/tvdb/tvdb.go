@@ -29,6 +29,7 @@ func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "tvdb",
 		PluginPhase: plugin.PhaseFilter,
+		Role:        plugin.RoleProcessor,
 		Description: "Accept entries whose series name appears in the user's TheTVDB favorites",
 		Factory:     newPlugin,
 		Validate:    validate,

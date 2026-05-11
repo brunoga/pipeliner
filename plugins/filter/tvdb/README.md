@@ -22,6 +22,14 @@ task("tv-favorites", [
 ])
 ```
 
+## DAG role
+
+| Property | Value |
+|----------|-------|
+| Role | `processor` |
+| Produces | — |
+| Requires | — |
+
 ## Notes
 
 - API keys and user PINs are available at [thetvdb.com/api-information](https://thetvdb.com/api-information).
