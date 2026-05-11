@@ -95,7 +95,7 @@ function addNodeFromPalette(pluginName) {
   const id = genId(pluginName);
   ve.model.nodes.push({id, plugin: pluginName, config: {}, upstreams: []});
   ve.model.selected = id;
-  render();
+  veRender();
   onModelChange();
 }
 
@@ -103,7 +103,7 @@ function removeNode(id) {
   ve.model.nodes = ve.model.nodes.filter(n => n.id !== id);
   for (const n of ve.model.nodes) n.upstreams = n.upstreams.filter(u => u !== id);
   if (ve.model.selected === id) ve.model.selected = null;
-  render();
+  veRender();
   onModelChange();
 }
 
@@ -120,7 +120,7 @@ function onScheduleChange(val) { ve.model.schedule = val; onModelChange(); }
 
 // ── canvas ────────────────────────────────────────────────────────────────────
 
-function render() { renderCanvas(); renderParamPanel(); }
+function veRender() { renderCanvas(); renderParamPanel(); }
 
 function renderCanvas() {
   const m = ve.model;
@@ -434,7 +434,7 @@ function dropOnZone(e, targetIdx) {
     if (src !== dst) { const [item] = ve.model.nodes.splice(src, 1); ve.model.nodes.splice(dst, 0, item); }
   }
   ve.dragSrc = null;
-  render(); onModelChange();
+  veRender(); onModelChange();
 }
 
 function cardDrop(e) { e.preventDefault(); }
@@ -527,7 +527,7 @@ async function textToVisualSync() {
       ve.model.nodes    = [];
       ve.model.selected = null;
       ve.syncing = false;
-      render();
+  veRender();
       setSyncNote('No DAG pipeline found — add nodes from the palette or write pipeline() in the text editor');
       return;
     }
@@ -544,7 +544,7 @@ async function textToVisualSync() {
     }, 0);
     ve.model.selected = null;
     ve.syncing = false;
-    render();
+  veRender();
     setSyncNote(entries.length > 1 ? `Showing first pipeline (${entries.length} total in config)` : '');
   } catch (e) {
     ve.syncing = false;
