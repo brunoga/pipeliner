@@ -14,15 +14,20 @@ func cfg(path, field string) map[string]any {
 	return map[string]any{"path": path, "field": field}
 }
 
+func apply(t *testing.T, p plugin.Plugin, e *entry.Entry) {
+	t.Helper()
+	if _, err := p.(plugin.ProcessorPlugin).Process(context.Background(), makeCtx(), []*entry.Entry{e}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestLiteralPath(t *testing.T) {
 	p, err := newPlugin(cfg("/downloads/tv", "download_path"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	e := entry.New("My Show S01E01", "http://x.com/a")
-	if err := p.(*pathfmtPlugin).Modify(context.Background(), makeCtx(), e); err != nil {
-		t.Fatal(err)
-	}
+	apply(t, p, e)
 	if v := e.GetString("download_path"); v != "/downloads/tv" {
 		t.Errorf("download_path: got %q", v)
 	}
@@ -33,7 +38,7 @@ func TestTemplateInterpolation(t *testing.T) {
 	e := entry.New("My Show S02E03", "http://x.com/a")
 	e.Set("title", "My Show")
 	e.Set("series_season", 2)
-	p.(*pathfmtPlugin).Modify(context.Background(), makeCtx(), e) //nolint:errcheck
+	apply(t, p, e)
 	if v := e.GetString("download_path"); v != "/downloads/My Show/Season 2" {
 		t.Errorf("download_path: got %q", v)
 	}
@@ -42,7 +47,7 @@ func TestTemplateInterpolation(t *testing.T) {
 func TestTemplateTitleURL(t *testing.T) {
 	p, _ := newPlugin(cfg("/dl/{{.Title}}", "download_path"), nil)
 	e := entry.New("Episode One", "http://x.com/a")
-	p.(*pathfmtPlugin).Modify(context.Background(), makeCtx(), e) //nolint:errcheck
+	apply(t, p, e)
 	if v := e.GetString("download_path"); v != "/dl/Episode One" {
 		t.Errorf("download_path: got %q", v)
 	}
@@ -52,7 +57,7 @@ func TestScrubsInvalidChars(t *testing.T) {
 	p, _ := newPlugin(cfg("/media/{title}", "download_path"), nil)
 	e := entry.New("x", "http://x.com/a")
 	e.Set("title", "Show: The Movie")
-	p.(*pathfmtPlugin).Modify(context.Background(), makeCtx(), e) //nolint:errcheck
+	apply(t, p, e)
 	if v := e.GetString("download_path"); v != "/media/Show_ The Movie" {
 		t.Errorf("download_path: got %q, want /media/Show_ The Movie", v)
 	}
@@ -64,7 +69,7 @@ func TestCustomOutputField(t *testing.T) {
 		t.Fatal(err)
 	}
 	e := entry.New("x", "http://x.com/a")
-	p.(*pathfmtPlugin).Modify(context.Background(), makeCtx(), e) //nolint:errcheck
+	apply(t, p, e)
 	if v := e.GetString("my_path"); v != "/mnt/downloads" {
 		t.Errorf("my_path: got %q", v)
 	}
@@ -97,6 +102,6 @@ func TestRegistration(t *testing.T) {
 		t.Fatal("pathfmt plugin not registered")
 	}
 	if d.Role != plugin.RoleProcessor {
-		t.Errorf("phase: got %v", d.Role)
+		t.Errorf("role: got %v", d.Role)
 	}
 }
