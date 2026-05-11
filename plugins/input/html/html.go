@@ -21,6 +21,8 @@ func init() {
 		PluginName:  "html",
 		Description: "extract links from an HTML page",
 		PluginPhase: plugin.PhaseInput,
+		Role:        plugin.RoleSource,
+		Produces:    []string{"html_page"},
 		Factory:     newPlugin,
 		Validate:    validate,
 	})
