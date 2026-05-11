@@ -38,3 +38,13 @@ task("tv-favorites", [
 
 - API keys and user PINs are available at [thetvdb.com/api-information](https://thetvdb.com/api-information).
 - On the first run this plugin makes N+1 API calls: one for the favorites ID list and one per show to resolve its name and slug. Results are cached by the calling plugin (`series`, `discover`) according to its TTL setting.
+
+## DAG role
+
+`tvdb_favorites` keeps `PhaseFrom` so it continues to work inside `series.from` and `discover.from`. Its `Role` is `source`, which means it can also be used as a standalone `input()` node in DAG pipelines:
+
+| Property | Value |
+|----------|-------|
+| Role | `source` |
+| Produces | `title`, `tvdb_id` |
+| Requires | — |
