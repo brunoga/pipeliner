@@ -27,3 +27,11 @@ task("sync-list", [
 - Only accepted entries are stored. Pair with `accept_all` when the task's purpose is purely list population with no other filtering.
 - If an entry title already exists in the list its URL is updated silently.
 - The list is stored in `pipeliner.db` in the same directory as the config file, shared with `seen`, `series`, `movies`, and other stateful plugins.
+
+## DAG role
+
+| Property | Value |
+|----------|-------|
+| Role | `sink` |
+| Produces | — |
+| Requires | — |
