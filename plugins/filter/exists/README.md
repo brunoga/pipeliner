@@ -18,3 +18,11 @@ task("movies", [
     plugin("movies", static=["Inception"]),
 ])
 ```
+
+## DAG role
+
+| Property | Value |
+|----------|-------|
+| Role | `processor` |
+| Produces | — |
+| Requires | — |

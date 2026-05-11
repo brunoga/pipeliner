@@ -20,6 +20,7 @@ func init() {
 		PluginName:  "exists",
 		Description: "reject entries whose title matches a file already present on disk",
 		PluginPhase: plugin.PhaseFilter,
+		Role:        plugin.RoleProcessor,
 		Factory:     newPlugin,
 		Validate:    validate,
 	})
