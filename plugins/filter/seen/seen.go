@@ -18,6 +18,7 @@ func init() {
 		PluginName:  "seen",
 		Description: "reject already-processed entries; marks accepted entries as seen in learn phase",
 		PluginPhase: plugin.PhaseFilter,
+		Role:        plugin.RoleProcessor,
 		Factory:     newPlugin,
 		Validate:    validate,
 		Schema: []plugin.FieldSchema{
