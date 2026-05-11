@@ -13,15 +13,15 @@ import (
 // --- test helpers ---
 
 type staticFromPlugin struct {
-	name    string
-	titles  []string
-	runCount int
+	name        string
+	titles      []string
+	generateCount int
 }
 
-func (p *staticFromPlugin) Name() string        { return p.name }
-func (p *staticFromPlugin) Phase() Phase        { return PhaseFrom }
-func (p *staticFromPlugin) Run(_ context.Context, _ *TaskContext) ([]*entry.Entry, error) {
-	p.runCount++
+func (p *staticFromPlugin) Name() string  { return p.name }
+func (p *staticFromPlugin) Phase() Phase  { return PhaseFrom }
+func (p *staticFromPlugin) Generate(_ context.Context, _ *TaskContext) ([]*entry.Entry, error) {
+	p.generateCount++
 	out := make([]*entry.Entry, len(p.titles))
 	for i, t := range p.titles {
 		out[i] = entry.New(t, "")
@@ -69,19 +69,19 @@ func TestSourceKeyUsesCacheKeyer(t *testing.T) {
 	}
 }
 
-func TestLoggedFromPluginForwardsCacheKey(t *testing.T) {
+func TestLoggedSourcePluginForwardsCacheKey(t *testing.T) {
 	inner := &cacheKeyPlugin{staticFromPlugin: staticFromPlugin{name: "trakt_list"}, key: "trakt_list:movies:ratings"}
-	wrapped := &loggedFromPlugin{inner: inner}
+	wrapped := &loggedSourcePlugin{inner: inner}
 	if got := wrapped.CacheKey(); got != "trakt_list:movies:ratings" {
-		t.Errorf("loggedFromPlugin.CacheKey: got %q, want %q", got, "trakt_list:movies:ratings")
+		t.Errorf("loggedSourcePlugin.CacheKey: got %q, want %q", got, "trakt_list:movies:ratings")
 	}
 }
 
-func TestLoggedFromPluginCacheKeyFallsBackToName(t *testing.T) {
+func TestLoggedSourcePluginCacheKeyFallsBackToName(t *testing.T) {
 	inner := &staticFromPlugin{name: "tvdb_favorites"}
-	wrapped := &loggedFromPlugin{inner: inner}
+	wrapped := &loggedSourcePlugin{inner: inner}
 	if got := wrapped.CacheKey(); got != "tvdb_favorites" {
-		t.Errorf("loggedFromPlugin.CacheKey fallback: got %q, want %q", got, "tvdb_favorites")
+		t.Errorf("loggedSourcePlugin.CacheKey fallback: got %q, want %q", got, "tvdb_favorites")
 	}
 }
 
@@ -105,7 +105,7 @@ func TestResolveDynamicListFetchesAndCachesPerSource(t *testing.T) {
 	cache := simpleCache{}
 
 	result := ResolveDynamicList(context.Background(), makeTC(),
-		[]InputPlugin{p1, p2},
+		[]SourcePlugin{p1, p2},
 		nil,
 		cache.get, cache.set,
 		strings.ToLower,
@@ -114,10 +114,9 @@ func TestResolveDynamicListFetchesAndCachesPerSource(t *testing.T) {
 	if len(result) != 3 {
 		t.Fatalf("want 3 titles, got %d: %v", len(result), result)
 	}
-	if p1.runCount != 1 || p2.runCount != 1 {
-		t.Errorf("each source should be called once: p1=%d p2=%d", p1.runCount, p2.runCount)
+	if p1.generateCount != 1 || p2.generateCount != 1 {
+		t.Errorf("each source should be called once: p1=%d p2=%d", p1.generateCount, p2.generateCount)
 	}
-	// Each source cached under its own key.
 	if _, ok := cache["source_a"]; !ok {
 		t.Error("source_a should be cached")
 	}
@@ -126,19 +125,19 @@ func TestResolveDynamicListFetchesAndCachesPerSource(t *testing.T) {
 	}
 }
 
-func TestResolveDynamicListCacheHitSkipsRun(t *testing.T) {
+func TestResolveDynamicListCacheHitSkipsGenerate(t *testing.T) {
 	p := &staticFromPlugin{name: "source_a", titles: []string{"Show A"}}
 	cache := simpleCache{"source_a": []string{"cached show"}}
 
 	result := ResolveDynamicList(context.Background(), makeTC(),
-		[]InputPlugin{p},
+		[]SourcePlugin{p},
 		nil,
 		cache.get, cache.set,
 		strings.ToLower,
 	)
 
-	if p.runCount != 0 {
-		t.Errorf("cached source should not be run, got runCount=%d", p.runCount)
+	if p.generateCount != 0 {
+		t.Errorf("cached source should not be run, got generateCount=%d", p.generateCount)
 	}
 	if len(result) != 1 || result[0] != "cached show" {
 		t.Errorf("should return cached value, got %v", result)
@@ -146,23 +145,22 @@ func TestResolveDynamicListCacheHitSkipsRun(t *testing.T) {
 }
 
 func TestResolveDynamicListPartialCacheHit(t *testing.T) {
-	// source_a is cached; source_b is not — only source_b should be fetched.
 	p1 := &staticFromPlugin{name: "source_a", titles: []string{"Show A"}}
 	p2 := &staticFromPlugin{name: "source_b", titles: []string{"Show B"}}
 	cache := simpleCache{"source_a": []string{"cached a"}}
 
 	result := ResolveDynamicList(context.Background(), makeTC(),
-		[]InputPlugin{p1, p2},
+		[]SourcePlugin{p1, p2},
 		nil,
 		cache.get, cache.set,
 		strings.ToLower,
 	)
 
-	if p1.runCount != 0 {
-		t.Errorf("source_a should not be run (cached), got %d", p1.runCount)
+	if p1.generateCount != 0 {
+		t.Errorf("source_a should not be run (cached), got %d", p1.generateCount)
 	}
-	if p2.runCount != 1 {
-		t.Errorf("source_b should be run once, got %d", p2.runCount)
+	if p2.generateCount != 1 {
+		t.Errorf("source_b should be run once, got %d", p2.generateCount)
 	}
 	if len(result) != 2 {
 		t.Errorf("want 2 results, got %d: %v", len(result), result)
@@ -177,7 +175,7 @@ func TestResolveDynamicListCacheKeyerUsedAsKey(t *testing.T) {
 	cache := simpleCache{}
 
 	ResolveDynamicList(context.Background(), makeTC(),
-		[]InputPlugin{p},
+		[]SourcePlugin{p},
 		nil,
 		cache.get, cache.set,
 		strings.ToLower,
@@ -192,7 +190,6 @@ func TestResolveDynamicListCacheKeyerUsedAsKey(t *testing.T) {
 }
 
 func TestResolveDynamicListTwoInstancesSamePlugin(t *testing.T) {
-	// Two trakt_list instances with different lists — must be cached separately.
 	watchlist := &cacheKeyPlugin{
 		staticFromPlugin: staticFromPlugin{name: "trakt_list", titles: []string{"Drama Show"}},
 		key:              "trakt_list:shows:watchlist",
@@ -204,7 +201,7 @@ func TestResolveDynamicListTwoInstancesSamePlugin(t *testing.T) {
 	cache := simpleCache{}
 
 	result := ResolveDynamicList(context.Background(), makeTC(),
-		[]InputPlugin{watchlist, ratings},
+		[]SourcePlugin{watchlist, ratings},
 		nil,
 		cache.get, cache.set,
 		strings.ToLower,
@@ -225,11 +222,11 @@ func TestResolveDynamicListEmptyResultNotCached(t *testing.T) {
 	p := &staticFromPlugin{name: "src", titles: []string{}}
 	cache := simpleCache{}
 
-	ResolveDynamicList(context.Background(), makeTC(), []InputPlugin{p}, nil, cache.get, cache.set, strings.ToLower)
-	ResolveDynamicList(context.Background(), makeTC(), []InputPlugin{p}, nil, cache.get, cache.set, strings.ToLower)
+	ResolveDynamicList(context.Background(), makeTC(), []SourcePlugin{p}, nil, cache.get, cache.set, strings.ToLower)
+	ResolveDynamicList(context.Background(), makeTC(), []SourcePlugin{p}, nil, cache.get, cache.set, strings.ToLower)
 
-	if p.runCount != 2 {
-		t.Errorf("empty result should not be cached; plugin called %d times, want 2", p.runCount)
+	if p.generateCount != 2 {
+		t.Errorf("empty result should not be cached; plugin called %d times, want 2", p.generateCount)
 	}
 	if _, ok := cache["src"]; ok {
 		t.Error("empty result should not be stored in the cache")
@@ -241,7 +238,7 @@ func TestResolveDynamicListMergesStaticAndDynamic(t *testing.T) {
 	cache := simpleCache{}
 
 	result := ResolveDynamicList(context.Background(), makeTC(),
-		[]InputPlugin{p},
+		[]SourcePlugin{p},
 		[]string{"static show"},
 		cache.get, cache.set,
 		strings.ToLower,

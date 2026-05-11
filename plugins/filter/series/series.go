@@ -82,7 +82,7 @@ const (
 
 type seriesPlugin struct {
 	staticShows     []string // normalised show names from config
-	from            []plugin.InputPlugin
+	from            []plugin.SourcePlugin
 	listCache       *cache.Cache[[]string]
 	spec            quality.Spec
 	tracking        tracking
@@ -98,13 +98,13 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 	}
 
 	fromRaw, _ := cfg["from"].([]any)
-	var froms []plugin.InputPlugin
+	var froms []plugin.SourcePlugin
 	for _, item := range fromRaw {
-		inp, err := plugin.MakeFromPlugin(item, db)
+		src, err := plugin.MakeFromPlugin(item, db)
 		if err != nil {
 			return nil, fmt.Errorf("series: from: %w", err)
 		}
-		froms = append(froms, inp)
+		froms = append(froms, src)
 	}
 
 	if len(staticShows) == 0 && len(froms) == 0 {
@@ -341,4 +341,22 @@ func toStringSlice(v any) []string {
 		return out
 	}
 	return nil
+}
+
+func (p *seriesPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
+	for _, e := range entries {
+		if e.IsRejected() || e.IsFailed() {
+			continue
+		}
+		if err := p.Filter(ctx, tc, e); err != nil {
+			tc.Logger.Warn("series filter error", "entry", e.Title, "err", err)
+		}
+	}
+	out := entry.PassThrough(entries)
+	if len(out) > 0 {
+		if err := p.Learn(ctx, tc, out); err != nil {
+			tc.Logger.Warn("series learn error", "err", err)
+		}
+	}
+	return out, nil
 }

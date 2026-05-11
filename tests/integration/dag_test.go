@@ -222,35 +222,28 @@ pipeline("p")
 	res.assertRejected(t, 1)
 }
 
-// TestDAG_MixedConfig verifies that a file with both task() and pipeline()
-// builds both and they are independent.
-func TestDAG_MixedConfig(t *testing.T) {
-	srv := rssServer(t, []rssItem{
-		{"Article One", "http://example.com/1"},
-	})
+// TestDAG_TwoPipelines verifies that two pipeline() blocks in the same file
+// build two independent graphs.
+func TestDAG_TwoPipelines(t *testing.T) {
+	srv := rssServer(t, []rssItem{{"Article One", "http://example.com/1"}})
 	defer srv.Close()
 
-	// buildTask asserts exactly 1 task — use BuildTasks directly here.
 	cfgStar := fmt.Sprintf(`
-# Legacy linear task
-task("linear", [plugin("rss", url=%q), plugin("print")])
+src1 = input("rss", url=%q)
+output("print", from_=src1)
+pipeline("p1")
 
-# DAG pipeline
-src = input("rss", url=%q)
-output("print", from_=src)
-pipeline("dag-p")
+src2 = input("rss", url=%q)
+output("print", from_=src2)
+pipeline("p2")
 `, srv.URL, srv.URL)
 
 	cfg, err := parseConfig(t, cfgStar)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-
-	if len(cfg.Tasks) != 1 {
-		t.Errorf("want 1 linear task, got %d", len(cfg.Tasks))
-	}
-	if len(cfg.Graphs) != 1 {
-		t.Errorf("want 1 DAG graph, got %d", len(cfg.Graphs))
+	if len(cfg.Graphs) != 2 {
+		t.Errorf("want 2 DAG graphs, got %d", len(cfg.Graphs))
 	}
 }
 

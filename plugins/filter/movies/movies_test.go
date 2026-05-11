@@ -23,7 +23,7 @@ type mockInput struct {
 
 func (m *mockInput) Name() string        { return "mock_input" }
 func (m *mockInput) Phase() plugin.Phase { return plugin.PhaseInput }
-func (m *mockInput) Run(_ context.Context, _ *plugin.TaskContext) ([]*entry.Entry, error) {
+func (m *mockInput) Generate(_ context.Context, _ *plugin.TaskContext) ([]*entry.Entry, error) {
 	return m.entries, nil
 }
 
@@ -297,7 +297,7 @@ func openWithFrom(t *testing.T, mock *mockInput) *moviesPlugin {
 		t.Fatalf("open store: %v", err)
 	}
 	return &moviesPlugin{
-		from:      []plugin.InputPlugin{mock},
+		from:      []plugin.SourcePlugin{mock},
 		listCache: cache.NewPersistent[[]string](time.Hour, db.Bucket("test")),
 		tracker:   imovies.NewTracker(db.Bucket("movies")),
 	}
@@ -335,7 +335,7 @@ func TestFromCachesResults(t *testing.T) {
 	counted := &countingInput{wrapped: mock, count: &callCount}
 	db, _ := store.OpenSQLite(":memory:")
 	p := &moviesPlugin{
-		from:      []plugin.InputPlugin{counted},
+		from:      []plugin.SourcePlugin{counted},
 		listCache: cache.NewPersistent[[]string](time.Hour, db.Bucket("test")),
 		tracker:   imovies.NewTracker(db.Bucket("movies")),
 	}
@@ -353,7 +353,7 @@ func TestFromEmptyResultNotCached(t *testing.T) {
 	counted := &countingInput{wrapped: mock, count: &callCount}
 	db, _ := store.OpenSQLite(":memory:")
 	p := &moviesPlugin{
-		from:      []plugin.InputPlugin{counted},
+		from:      []plugin.SourcePlugin{counted},
 		listCache: cache.NewPersistent[[]string](time.Hour, db.Bucket("test")),
 		tracker:   imovies.NewTracker(db.Bucket("movies")),
 	}
@@ -372,9 +372,9 @@ type countingInput struct {
 
 func (c *countingInput) Name() string        { return "counting_input" }
 func (c *countingInput) Phase() plugin.Phase { return plugin.PhaseInput }
-func (c *countingInput) Run(ctx context.Context, tc *plugin.TaskContext) ([]*entry.Entry, error) {
+func (c *countingInput) Generate(ctx context.Context, tc *plugin.TaskContext) ([]*entry.Entry, error) {
 	*c.count++
-	return c.wrapped.Run(ctx, tc)
+	return c.wrapped.Generate(ctx, tc)
 }
 
 func TestFilterSetsQualityAndNot3D(t *testing.T) {

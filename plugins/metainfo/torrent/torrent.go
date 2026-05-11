@@ -155,6 +155,19 @@ func (p *torrentPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e 
 }
 
 // torrentURLReason returns a short reason string if the entry's URL should be
+func (p *torrentPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
+	for _, e := range entries {
+		if e.IsRejected() || e.IsFailed() {
+			continue
+		}
+		if err := p.Annotate(ctx, tc, e); err != nil {
+			tc.Logger.Warn("metainfo_torrent error", "entry", e.Title, "err", err)
+		}
+	}
+	return entries, nil
+}
+
+// torrentURLReason returns the reason a URL should be
 // fetched as a torrent, or "" if the entry should be skipped.
 // It checks torrent_link_type first (set by sources such as Jackett that know
 // the link type without an HTTP fetch), then falls back to URL inspection.

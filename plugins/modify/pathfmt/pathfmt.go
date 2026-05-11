@@ -131,3 +131,15 @@ var windowsReserved = map[string]bool{
 	"LPT1": true, "LPT2": true, "LPT3": true, "LPT4": true,
 	"LPT5": true, "LPT6": true, "LPT7": true, "LPT8": true, "LPT9": true,
 }
+
+func (p *pathfmtPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
+	for _, e := range entries {
+		if e.IsRejected() || e.IsFailed() {
+			continue
+		}
+		if err := p.Modify(ctx, tc, e); err != nil {
+			tc.Logger.Warn("pathfmt error", "entry", e.Title, "err", err)
+		}
+	}
+	return entries, nil
+}

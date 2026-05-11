@@ -220,6 +220,18 @@ func (p *tmdbPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 	return nil
 }
 
+func (p *tmdbPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
+	for _, e := range entries {
+		if e.IsRejected() || e.IsFailed() {
+			continue
+		}
+		if err := p.Annotate(ctx, tc, e); err != nil {
+			tc.Logger.Warn("metainfo_tmdb error", "entry", e.Title, "err", err)
+		}
+	}
+	return entries, nil
+}
+
 // iso639_1Name maps ISO 639-1 two-letter language codes to English display names.
 func iso639_1Name(code string) string {
 	names := map[string]string{

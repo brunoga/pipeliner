@@ -189,3 +189,21 @@ func intVal(v any, def int) int {
 	}
 	return def
 }
+
+func (p *premierePlugin) Process(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
+	for _, e := range entries {
+		if e.IsRejected() || e.IsFailed() {
+			continue
+		}
+		if err := p.Filter(ctx, tc, e); err != nil {
+			tc.Logger.Warn("premiere filter error", "entry", e.Title, "err", err)
+		}
+	}
+	out := entry.PassThrough(entries)
+	if len(out) > 0 {
+		if err := p.Learn(ctx, tc, out); err != nil {
+			tc.Logger.Warn("premiere learn error", "err", err)
+		}
+	}
+	return out, nil
+}

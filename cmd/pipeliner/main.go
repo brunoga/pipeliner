@@ -340,7 +340,7 @@ func cmdDaemon(args []string) int {
 		taskByName[t.Name()] = t
 	}
 
-	allSched := mergeSchedules(cfg.Schedules, cfg.GraphSchedules)
+	allSched := cfg.GraphSchedules
 	d := &scheduler.Daemon{}
 	if scheduled, ok := addSchedules(d, allSched, taskByName, logger); !ok {
 		return 1
@@ -409,7 +409,7 @@ func cmdDaemon(args []string) int {
 		for _, t := range newTasks {
 			newMap[t.Name()] = t
 		}
-		newAllSched := mergeSchedules(newCfg.Schedules, newCfg.GraphSchedules)
+		newAllSched := newCfg.GraphSchedules
 		scheduled, ok := addSchedules(nil, newAllSched, newMap, logger)
 		if !ok {
 			return fmt.Errorf("invalid schedules in new config")
@@ -492,19 +492,6 @@ func cmdDaemon(args []string) int {
 	}
 
 	return 0
-}
-
-// mergeSchedules returns a single schedule map combining linear task schedules
-// and DAG pipeline schedules. DAG schedules are preferred on name collision.
-func mergeSchedules(linear, graphs map[string]string) map[string]string {
-	out := make(map[string]string, len(linear)+len(graphs))
-	for k, v := range linear {
-		out[k] = v
-	}
-	for k, v := range graphs {
-		out[k] = v
-	}
-	return out
 }
 
 // addSchedules parses schedule expressions from cfg and registers them on d

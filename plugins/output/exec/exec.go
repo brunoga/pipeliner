@@ -87,3 +87,10 @@ func (p *execPlugin) run(ctx context.Context, cmdStr string) error {
 	}
 	return nil
 }
+
+func (p *execPlugin) Consume(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
+	if tc.DryRun {
+		return nil
+	}
+	return p.Output(ctx, tc, entry.FilterAccepted(entries))
+}

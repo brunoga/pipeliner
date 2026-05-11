@@ -68,7 +68,7 @@ func validate(cfg map[string]any) []error {
 
 type discoverPlugin struct {
 	titles    []string
-	from      []plugin.InputPlugin
+	from      []plugin.SourcePlugin
 	searchers []plugin.SearchPlugin
 	interval  time.Duration
 	db        *store.SQLiteStore
@@ -82,13 +82,13 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 	titles := toStringSlice(cfg["titles"])
 
 	fromRaw, _ := cfg["from"].([]any)
-	var froms []plugin.InputPlugin
+	var froms []plugin.SourcePlugin
 	for _, item := range fromRaw {
-		inp, err := plugin.MakeFromPlugin(item, db)
+		src, err := plugin.MakeFromPlugin(item, db)
 		if err != nil {
 			return nil, fmt.Errorf("discover: from: %w", err)
 		}
-		froms = append(froms, inp)
+		froms = append(froms, src)
 	}
 
 	intervalStr, _ := cfg["interval"].(string)
@@ -145,14 +145,22 @@ func resolveSearchPlugin(item any, db *store.SQLiteStore) (plugin.SearchPlugin, 
 func (p *discoverPlugin) Name() string        { return "discover" }
 func (p *discoverPlugin) Phase() plugin.Phase { return plugin.PhaseInput }
 
-// Run implements InputPlugin for the linear task engine. Titles come from the
-// static list and from the 'from' sub-plugins configured in the plugin block.
-func (p *discoverPlugin) Run(ctx context.Context, tc *plugin.TaskContext) ([]*entry.Entry, error) {
+// Process implements ProcessorPlugin for DAG pipelines. Upstream entries supply
+// the title list (via their .Title field); static titles from config and any
+// 'from' source plugins are also included.
+func (p *discoverPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
 	titles := append([]string{}, p.titles...)
+	// Titles from upstream DAG entries.
+	for _, e := range entries {
+		if e.Title != "" {
+			titles = append(titles, e.Title)
+		}
+	}
+	// Titles from 'from' source plugins (config-based, for non-DAG callers).
 	if len(p.from) > 0 {
 		innerTC := &plugin.TaskContext{Name: tc.Name, Logger: tc.Logger}
-		for _, inp := range p.from {
-			fromEntries, err := inp.Run(ctx, innerTC)
+		for _, src := range p.from {
+			fromEntries, err := src.Generate(ctx, innerTC)
 			if err != nil {
 				continue
 			}
@@ -161,19 +169,6 @@ func (p *discoverPlugin) Run(ctx context.Context, tc *plugin.TaskContext) ([]*en
 					titles = append(titles, e.Title)
 				}
 			}
-		}
-	}
-	return p.searchTitles(ctx, tc, titles)
-}
-
-// Process implements ProcessorPlugin for DAG pipelines. Upstream entries supply
-// the title list (via their .Title field); static titles from config are also
-// included. Returns entries found by the search backends, not the input entries.
-func (p *discoverPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
-	titles := append([]string{}, p.titles...)
-	for _, e := range entries {
-		if e.Title != "" {
-			titles = append(titles, e.Title)
 		}
 	}
 	return p.searchTitles(ctx, tc, titles)

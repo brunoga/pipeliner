@@ -62,3 +62,15 @@ func (p *seriesMetaPlugin) Annotate(_ context.Context, _ *plugin.TaskContext, e 
 	})
 	return nil
 }
+
+func (p *seriesMetaPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
+	for _, e := range entries {
+		if e.IsRejected() || e.IsFailed() {
+			continue
+		}
+		if err := p.Annotate(ctx, tc, e); err != nil {
+			tc.Logger.Warn("metainfo_series error", "entry", e.Title, "err", err)
+		}
+	}
+	return entries, nil
+}

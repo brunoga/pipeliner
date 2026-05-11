@@ -34,7 +34,7 @@ func TestRSS2Parse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	entries, err := p.(*rssPlugin).Run(context.Background(), makeCtx())
+	entries, err := p.(*rssPlugin).Generate(context.Background(), makeCtx())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +60,7 @@ func TestRSS2EnclosureURL(t *testing.T) {
 	defer srv.Close()
 
 	p, _ := newPlugin(map[string]any{"url": srv.URL}, nil)
-	entries, _ := p.(*rssPlugin).Run(context.Background(), makeCtx())
+	entries, _ := p.(*rssPlugin).Generate(context.Background(), makeCtx())
 
 	// Third item has an enclosure — URL should be the enclosure URL.
 	torrentEntry := entries[2]
@@ -81,7 +81,7 @@ func TestAtomParse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	entries, err := p.(*rssPlugin).Run(context.Background(), makeCtx())
+	entries, err := p.(*rssPlugin).Generate(context.Background(), makeCtx())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +101,7 @@ func TestAtomEnclosurePreferred(t *testing.T) {
 	defer srv.Close()
 
 	p, _ := newPlugin(map[string]any{"url": srv.URL}, nil)
-	entries, _ := p.(*rssPlugin).Run(context.Background(), makeCtx())
+	entries, _ := p.(*rssPlugin).Generate(context.Background(), makeCtx())
 
 	enc := entries[2]
 	if enc.URL != "http://example.com/atom.torrent" {
@@ -116,7 +116,7 @@ func TestHTTPErrorNonRetriable(t *testing.T) {
 	defer srv.Close()
 
 	p, _ := newPlugin(map[string]any{"url": srv.URL}, nil)
-	_, err := p.(*rssPlugin).Run(context.Background(), makeCtx())
+	_, err := p.(*rssPlugin).Generate(context.Background(), makeCtx())
 	if err == nil {
 		t.Error("expected error on 404")
 	}
@@ -133,7 +133,7 @@ func TestHTTPError5xx(t *testing.T) {
 	p, _ := newPlugin(map[string]any{"url": srv.URL}, nil)
 	rp := p.(*rssPlugin)
 	// Speed up retries for the test.
-	_, err := rp.Run(context.Background(), makeCtx())
+	_, err := rp.Generate(context.Background(), makeCtx())
 	if err == nil {
 		t.Error("expected error after retries")
 	}

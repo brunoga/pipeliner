@@ -5,82 +5,99 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/brunoga/pipeliner/internal/task"
+	"github.com/brunoga/pipeliner/internal/dag"
+	"github.com/brunoga/pipeliner/internal/plugin"
 )
 
-// ConfigToStarlark serializes a Config to canonical flat Starlark source.
-// The output uses only task() and plugin() built-in calls — no functions,
-// variables, or load() statements. This is the format produced by the visual
-// pipeline editor when generating config text.
+// ConfigToStarlark serializes a Config to canonical DAG Starlark source using
+// input() / process() / output() / pipeline() built-in calls. Sink nodes
+// (role=sink) are not assigned to variables; source and processor nodes are
+// assigned using their node ID as the variable name.
 func ConfigToStarlark(c *Config) string {
 	var b strings.Builder
-
-	// Sort task names for deterministic output.
-	names := make([]string, 0, len(c.Tasks))
-	for name := range c.Tasks {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-
+	names := sortedStringKeys(c.Graphs)
 	for i, name := range names {
 		if i > 0 {
 			b.WriteString("\n\n")
 		}
-		writeTask(&b, name, c.Tasks[name], c.Schedules[name])
+		writeGraph(&b, name, c.Graphs[name], c.GraphSchedules[name])
 	}
 	b.WriteByte('\n')
 	return b.String()
 }
 
-func writeTask(b *strings.Builder, name string, plugins []task.PluginConfig, schedule string) {
-	fmt.Fprintf(b, "task(%s,\n    [\n", starStr(name))
-	for _, pc := range plugins {
-		b.WriteString("        ")
-		writePlugin(b, pc)
-		b.WriteString(",\n")
+func writeGraph(b *strings.Builder, name string, g *dag.Graph, schedule string) {
+	for _, n := range g.Nodes() {
+		d, _ := plugin.Lookup(n.PluginName)
+		role := plugin.RoleProcessor
+		if d != nil {
+			role = d.EffectiveRole()
+		}
+		fromStr := upstreamsToStar(n.Upstreams)
+		cfgStr := configToKwargsStr(n.Config)
+
+		switch role {
+		case plugin.RoleSource:
+			args := []string{starStr(n.PluginName)}
+			if cfgStr != "" {
+				args = append(args, cfgStr)
+			}
+			fmt.Fprintf(b, "%s = input(%s)\n", n.ID, strings.Join(args, ", "))
+		case plugin.RoleProcessor:
+			parts := []string{starStr(n.PluginName)}
+			if fromStr != "" {
+				parts = append(parts, "from_="+fromStr)
+			}
+			if cfgStr != "" {
+				parts = append(parts, cfgStr)
+			}
+			fmt.Fprintf(b, "%s = process(%s)\n", n.ID, strings.Join(parts, ", "))
+		default: // sink
+			parts := []string{starStr(n.PluginName)}
+			if fromStr != "" {
+				parts = append(parts, "from_="+fromStr)
+			}
+			if cfgStr != "" {
+				parts = append(parts, cfgStr)
+			}
+			fmt.Fprintf(b, "output(%s)\n", strings.Join(parts, ", "))
+		}
 	}
-	b.WriteString("    ]")
 	if schedule != "" {
-		fmt.Fprintf(b, ",\n    schedule=%s", starStr(schedule))
+		fmt.Fprintf(b, "pipeline(%s, schedule=%s)", starStr(name), starStr(schedule))
+	} else {
+		fmt.Fprintf(b, "pipeline(%s)", starStr(name))
 	}
-	b.WriteByte(')')
 }
 
-func writePlugin(b *strings.Builder, pc task.PluginConfig) {
-	if len(pc.Config) == 0 {
-		fmt.Fprintf(b, "plugin(%s)", starStr(pc.Name))
-		return
+func upstreamsToStar(ups []dag.NodeID) string {
+	if len(ups) == 0 {
+		return ""
 	}
+	if len(ups) == 1 {
+		return string(ups[0])
+	}
+	ids := make([]string, len(ups))
+	for i, u := range ups {
+		ids[i] = string(u)
+	}
+	return "merge(" + strings.Join(ids, ", ") + ")"
+}
 
-	// Use dict form when config has a "from" key (avoids any reserved-word
-	// concerns and keeps the nested structure readable).
-	if _, hasFrom := pc.Config["from"]; hasFrom {
-		fmt.Fprintf(b, "plugin(%s, %s)", starStr(pc.Name), starDict(pc.Config, 0))
-		return
+func configToKwargsStr(cfg map[string]any) string {
+	if len(cfg) == 0 {
+		return ""
 	}
-
-	// Kwargs form for simple configs.
-	keys := sortedKeys(pc.Config)
-	if len(keys) == 1 {
-		k := keys[0]
-		fmt.Fprintf(b, "plugin(%s, %s=%s)", starStr(pc.Name), k, starVal(pc.Config[k], 0))
-		return
-	}
-	// Multi-key: one kwarg per line, aligned.
-	fmt.Fprintf(b, "plugin(%s,\n", starStr(pc.Name))
-	indent := "               " // aligns with the opening paren
-	for j, k := range keys {
-		if j > 0 {
-			b.WriteString(indent)
-		} else {
-			b.WriteString(indent)
+	keys := sortedKeys(cfg)
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		v := cfg[k]
+		if v == nil || v == "" {
+			continue
 		}
-		fmt.Fprintf(b, "%s=%s", k, starVal(pc.Config[k], 3))
-		if j < len(keys)-1 {
-			b.WriteString(",\n")
-		}
+		parts = append(parts, k+"="+starVal(v, 0))
 	}
-	b.WriteByte(')')
+	return strings.Join(parts, ", ")
 }
 
 // starVal converts a Go value to its Starlark literal representation.
@@ -115,9 +132,7 @@ func starVal(v any, depth int) string {
 	}
 }
 
-// starStr returns a double-quoted Starlark string literal.
 func starStr(s string) string {
-	// Use triple-quotes for multiline strings.
 	if strings.Contains(s, "\n") {
 		return `"""` + s + `"""`
 	}
@@ -140,7 +155,6 @@ func starList(items []any, depth int) string {
 	for i, item := range items {
 		parts[i] = starVal(item, depth+1)
 	}
-	// Short lists on one line; longer/nested lists indented.
 	oneLiner := "[" + strings.Join(parts, ", ") + "]"
 	if len(oneLiner) <= 60 && !strings.Contains(oneLiner, "\n") {
 		return oneLiner

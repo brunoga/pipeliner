@@ -63,3 +63,15 @@ func (s *setPlugin) Modify(_ context.Context, _ *plugin.TaskContext, e *entry.En
 	}
 	return nil
 }
+
+func (s *setPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
+	for _, e := range entries {
+		if e.IsRejected() || e.IsFailed() {
+			continue
+		}
+		if err := s.Modify(ctx, tc, e); err != nil {
+			tc.Logger.Warn("set error", "entry", e.Title, "err", err)
+		}
+	}
+	return entries, nil
+}

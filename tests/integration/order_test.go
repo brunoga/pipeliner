@@ -12,58 +12,50 @@ import (
 
 func init() {
 	plugin.Register(&plugin.Descriptor{
-		PluginName:  "mock_input",
-		PluginPhase: plugin.PhaseInput,
-		Factory: func(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
+		PluginName: "mock_input",
+		Role:       plugin.RoleSource,
+		Factory: func(_ map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
 			return &mockInput{}, nil
 		},
 	})
 	plugin.Register(&plugin.Descriptor{
-		PluginName:  "mock_filter",
-		PluginPhase: plugin.PhaseFilter,
-		Factory: func(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
+		PluginName: "mock_filter",
+		Role:       plugin.RoleProcessor,
+		Factory: func(_ map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
 			return &mockFilter{}, nil
 		},
 	})
 	plugin.Register(&plugin.Descriptor{
-		PluginName:  "mock_output",
-		PluginPhase: plugin.PhaseOutput,
-		Factory: func(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
+		PluginName: "mock_output",
+		Role:       plugin.RoleSink,
+		Factory: func(_ map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
 			return &mockOutput{called: &outputCalled}, nil
 		},
 	})
 	plugin.Register(&plugin.Descriptor{
-		PluginName:  "learn_input",
-		PluginPhase: plugin.PhaseInput,
-		Factory: func(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
-			return &learnInput{called: &learnCalled}, nil
-		},
-	})
-	plugin.Register(&plugin.Descriptor{
-		PluginName:  "order1",
-		PluginPhase: plugin.PhaseModify,
-		Factory: func(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
+		PluginName: "order1",
+		Role:       plugin.RoleProcessor,
+		Factory: func(_ map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
 			return &orderPlugin{name: "order1", order: &orderList}, nil
 		},
 	})
 	plugin.Register(&plugin.Descriptor{
-		PluginName:  "order2",
-		PluginPhase: plugin.PhaseModify,
-		Factory: func(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
+		PluginName: "order2",
+		Role:       plugin.RoleProcessor,
+		Factory: func(_ map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
 			return &orderPlugin{name: "order2", order: &orderList}, nil
 		},
 	})
 	plugin.Register(&plugin.Descriptor{
-		PluginName:  "order3",
-		PluginPhase: plugin.PhaseModify,
-		Factory: func(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
+		PluginName: "order3",
+		Role:       plugin.RoleProcessor,
+		Factory: func(_ map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
 			return &orderPlugin{name: "order3", order: &orderList}, nil
 		},
 	})
 }
 
 var (
-	learnCalled  bool
 	outputCalled bool
 	orderList    []string
 )
@@ -72,17 +64,20 @@ type mockInput struct{}
 
 func (p *mockInput) Name() string        { return "mock_input" }
 func (p *mockInput) Phase() plugin.Phase { return plugin.PhaseInput }
-func (p *mockInput) Run(ctx context.Context, tc *plugin.TaskContext) ([]*entry.Entry, error) {
-	return []*entry.Entry{{Title: "test", URL: "http://test"}}, nil
+func (p *mockInput) Generate(_ context.Context, _ *plugin.TaskContext) ([]*entry.Entry, error) {
+	e := entry.New("test", "http://test")
+	return []*entry.Entry{e}, nil
 }
 
 type mockFilter struct{}
 
 func (p *mockFilter) Name() string        { return "mock_filter" }
 func (p *mockFilter) Phase() plugin.Phase { return plugin.PhaseFilter }
-func (p *mockFilter) Filter(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
-	e.Accept()
-	return nil
+func (p *mockFilter) Process(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
+	for _, e := range entries {
+		e.Accept()
+	}
+	return entries, nil
 }
 
 type mockOutput struct {
@@ -91,22 +86,13 @@ type mockOutput struct {
 
 func (p *mockOutput) Name() string        { return "mock_output" }
 func (p *mockOutput) Phase() plugin.Phase { return plugin.PhaseOutput }
-func (p *mockOutput) Output(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
-	*p.called = true
-	return nil
-}
-
-type learnInput struct {
-	called *bool
-}
-
-func (p *learnInput) Name() string        { return "learn_input" }
-func (p *learnInput) Phase() plugin.Phase { return plugin.PhaseInput }
-func (p *learnInput) Run(ctx context.Context, tc *plugin.TaskContext) ([]*entry.Entry, error) {
-	return []*entry.Entry{{Title: "test", URL: "http://test"}}, nil
-}
-func (p *learnInput) Learn(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
-	*p.called = true
+func (p *mockOutput) Consume(_ context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
+	if tc.DryRun {
+		return nil
+	}
+	if len(entry.FilterAccepted(entries)) > 0 {
+		*p.called = true
+	}
 	return nil
 }
 
@@ -117,39 +103,19 @@ type orderPlugin struct {
 
 func (p *orderPlugin) Name() string        { return p.name }
 func (p *orderPlugin) Phase() plugin.Phase { return plugin.PhaseModify }
-func (p *orderPlugin) Modify(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
+func (p *orderPlugin) Process(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
 	*p.order = append(*p.order, p.name)
-	return nil
-}
-
-func TestLearnConsistency(t *testing.T) {
-	learnCalled = false
-	cfg, err := config.ParseBytes([]byte(`task("learn-test", [plugin("learn_input")])`))
-
-	if err != nil {
-		t.Fatalf("parse: %v", err)
-	}
-	tasks, err := config.BuildTasks(cfg, nil, nil)
-	if err != nil {
-		t.Fatalf("build: %v", err)
-	}
-	_, _ = tasks[0].Run(context.Background())
-
-	if !learnCalled {
-		t.Error("Learn() was not called on input plugin")
-	}
+	return entries, nil
 }
 
 func TestDryRun(t *testing.T) {
 	outputCalled = false
 	cfg, err := config.ParseBytes([]byte(`
-task("dry-run-test", [
-    plugin("mock_input"),
-    plugin("mock_filter"),
-    plugin("mock_output"),
-])
+src = input("mock_input")
+flt = process("mock_filter", from_=src)
+output("mock_output", from_=flt)
+pipeline("dry-run-test")
 `))
-
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
@@ -159,29 +125,29 @@ task("dry-run-test", [
 	}
 	tk := tasks[0]
 
-	// Test without dry-run
+	// Without dry-run — output should be called.
 	_, _ = tk.Run(context.Background())
 	if !outputCalled {
-		t.Error("Output() was not called")
+		t.Error("Consume() was not called")
 	}
 
-	// Reset and test with dry-run
+	// Reset and test with dry-run — output should be skipped.
 	outputCalled = false
 	tk.SetDryRun(true)
 	_, _ = tk.Run(context.Background())
 	if outputCalled {
-		t.Error("Output() was called in dry-run mode")
+		t.Error("Consume() was called in dry-run mode")
 	}
 }
 
 func TestPluginOrder(t *testing.T) {
 	const cfgStar = `
-task("order-test", [
-    plugin("mock_input"),
-    plugin("order1"),
-    plugin("order2"),
-    plugin("order3"),
-])
+src = input("mock_input")
+o1  = process("order1", from_=src)
+o2  = process("order2", from_=o1)
+o3  = process("order3", from_=o2)
+output("print", from_=o3)
+pipeline("order-test")
 `
 	for i := 0; i < 10; i++ {
 		orderList = []string{}
@@ -193,7 +159,6 @@ task("order-test", [
 		if err != nil {
 			t.Fatalf("build: %v", err)
 		}
-
 		_, _ = tasks[0].Run(context.Background())
 
 		if len(orderList) == 3 {

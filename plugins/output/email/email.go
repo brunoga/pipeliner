@@ -219,3 +219,10 @@ func toStringSlice(v any) []string {
 	}
 	return nil
 }
+
+func (p *emailPlugin) Consume(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
+	if tc.DryRun {
+		return nil
+	}
+	return p.Output(ctx, tc, entry.FilterAccepted(entries))
+}

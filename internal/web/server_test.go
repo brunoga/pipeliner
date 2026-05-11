@@ -452,7 +452,11 @@ func TestAPIConfigParseValidStarlark(t *testing.T) {
 	defer ts.Close()
 
 	body, _ := json.Marshal(map[string]string{
-		"content": `task("tv", [plugin("rss", url="https://example.com")], schedule="1h")`,
+		"content": `
+src = input("rss", url="https://example.com")
+output("print", from_=src)
+pipeline("tv", schedule="1h")
+`,
 	})
 	resp := post(t, ts.URL+"/api/config/parse", "application/json", body)
 	defer resp.Body.Close()
@@ -464,24 +468,20 @@ func TestAPIConfigParseValidStarlark(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	tasks, ok := result["tasks"].(map[string]any)
+	graphs, ok := result["graphs"].(map[string]any)
 	if !ok {
-		t.Fatalf("tasks missing or wrong type: %v", result["tasks"])
+		t.Fatalf("graphs missing or wrong type: %v", result["graphs"])
 	}
-	tv, ok := tasks["tv"].(map[string]any)
+	tv, ok := graphs["tv"].(map[string]any)
 	if !ok {
-		t.Fatalf("task 'tv' missing: %v", tasks)
+		t.Fatalf("pipeline 'tv' missing: %v", graphs)
 	}
 	if tv["schedule"] != "1h" {
 		t.Errorf("schedule: got %v, want 1h", tv["schedule"])
 	}
-	plugins, _ := tv["plugins"].([]any)
-	if len(plugins) != 1 {
-		t.Fatalf("plugins: got %d, want 1", len(plugins))
-	}
-	p := plugins[0].(map[string]any)
-	if p["name"] != "rss" {
-		t.Errorf("plugin name: got %v", p["name"])
+	nodes, _ := tv["nodes"].([]any)
+	if len(nodes) != 2 {
+		t.Fatalf("nodes: got %d, want 2 (rss + print)", len(nodes))
 	}
 }
 
@@ -506,15 +506,18 @@ func TestAPIConfigParseInvalidStarlark(t *testing.T) {
 }
 
 func TestAPIConfigParseFlattensFunctions(t *testing.T) {
-	// Starlark functions are resolved server-side — the parsed result is flat.
+	// Starlark functions compose DAG chains — the parsed result shows all nodes.
 	ts := newParseServer(t)
 	defer ts.Close()
 
 	body, _ := json.Marshal(map[string]string{"content": `
 feed = "https://example.com/rss"
-def common():
-    return [plugin("rss", url=feed), plugin("seen")]
-task("t", common())
+def common(upstream):
+    return process("seen", from_=upstream)
+src = input("rss", url=feed)
+flt = common(src)
+output("print", from_=flt)
+pipeline("t")
 `})
 	resp := post(t, ts.URL+"/api/config/parse", "application/json", body)
 	defer resp.Body.Close()
@@ -523,15 +526,15 @@ task("t", common())
 		t.Fatalf("status: got %d, want 200", resp.StatusCode)
 	}
 	var result struct {
-		Tasks map[string]struct {
-			Plugins []struct{ Name string } `json:"plugins"`
-		} `json:"tasks"`
+		Graphs map[string]struct {
+			Nodes []struct{ Plugin string `json:"plugin"` } `json:"nodes"`
+		} `json:"graphs"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if len(result.Tasks["t"].Plugins) != 2 {
-		t.Errorf("want 2 plugins after function expansion, got %d", len(result.Tasks["t"].Plugins))
+	if len(result.Graphs["t"].Nodes) != 3 {
+		t.Errorf("want 3 nodes (rss, seen, print) after function expansion, got %d", len(result.Graphs["t"].Nodes))
 	}
 }
 

@@ -63,3 +63,10 @@ func (p *listAddPlugin) Output(_ context.Context, tc *plugin.TaskContext, entrie
 	}
 	return nil
 }
+
+func (p *listAddPlugin) Consume(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
+	if tc.DryRun {
+		return nil
+	}
+	return p.Output(ctx, tc, entry.FilterAccepted(entries))
+}

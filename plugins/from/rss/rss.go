@@ -81,6 +81,12 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 func (p *searchRSSPlugin) Name() string        { return "rss_search" }
 func (p *searchRSSPlugin) Phase() plugin.Phase { return plugin.PhaseFrom }
 
+// Generate implements SourcePlugin for DAG pipelines. It calls Search with an
+// empty query, which fetches recent results from the parameterised RSS URL.
+func (p *searchRSSPlugin) Generate(ctx context.Context, tc *plugin.TaskContext) ([]*entry.Entry, error) {
+	return p.Search(ctx, tc, "")
+}
+
 func (p *searchRSSPlugin) Search(ctx context.Context, _ *plugin.TaskContext, query string) ([]*entry.Entry, error) {
 	data := map[string]any{
 		"Query":        query,

@@ -139,3 +139,10 @@ func renderTmpl(tmpl *template.Template, data map[string]any) (string, error) {
 	return buf.String(), nil
 }
 
+
+func (p *notifyPlugin) Consume(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
+	if tc.DryRun {
+		return nil
+	}
+	return p.Output(ctx, tc, entry.FilterAccepted(entries))
+}

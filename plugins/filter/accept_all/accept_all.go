@@ -34,3 +34,15 @@ func (p *acceptAllPlugin) Filter(_ context.Context, _ *plugin.TaskContext, e *en
 	}
 	return nil
 }
+
+func (p *acceptAllPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
+	for _, e := range entries {
+		if e.IsRejected() || e.IsFailed() {
+			continue
+		}
+		if err := p.Filter(ctx, tc, e); err != nil {
+			tc.Logger.Warn("filter error", "entry", e.Title, "err", err)
+		}
+	}
+	return entry.PassThrough(entries), nil
+}

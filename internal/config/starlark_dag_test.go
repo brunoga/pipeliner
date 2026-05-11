@@ -128,21 +128,18 @@ pipeline("p2", schedule="2h")
 	}
 }
 
-func TestDAG_MixedWithLegacyTask(t *testing.T) {
+func TestDAG_TwoPipelines(t *testing.T) {
 	c := parseDAGOK(t, `
-# Legacy linear task
-task("linear", [plugin("rss", url="https://example.com/rss"), plugin("accept_all"), plugin("print")], schedule="1h")
+src1 = input("rss", url="https://example.com/rss1")
+output("print", from_=src1)
+pipeline("pipeline-a")
 
-# DAG pipeline
-src = input("rss", url="https://example.com/rss")
-output("print", from_=src)
-pipeline("dag-pipe")
+src2 = input("rss", url="https://example.com/rss2")
+output("print", from_=src2)
+pipeline("pipeline-b")
 `)
-	if len(c.Tasks) != 1 {
-		t.Errorf("want 1 linear task, got %d", len(c.Tasks))
-	}
-	if len(c.Graphs) != 1 {
-		t.Errorf("want 1 DAG graph, got %d", len(c.Graphs))
+	if len(c.Graphs) != 2 {
+		t.Errorf("want 2 DAG graphs, got %d", len(c.Graphs))
 	}
 }
 

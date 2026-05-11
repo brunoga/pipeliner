@@ -61,3 +61,10 @@ func (p *printPlugin) Output(_ context.Context, _ *plugin.TaskContext, entries [
 	}
 	return nil
 }
+
+func (p *printPlugin) Consume(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
+	if tc.DryRun {
+		return nil
+	}
+	return p.Output(ctx, tc, entry.FilterAccepted(entries))
+}

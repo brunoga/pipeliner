@@ -83,3 +83,15 @@ func (p *listMatchPlugin) Filter(_ context.Context, tc *plugin.TaskContext, e *e
 	}
 	return nil
 }
+
+func (p *listMatchPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
+	for _, e := range entries {
+		if e.IsRejected() || e.IsFailed() {
+			continue
+		}
+		if err := p.Filter(ctx, tc, e); err != nil {
+			tc.Logger.Warn("filter error", "entry", e.Title, "err", err)
+		}
+	}
+	return entry.PassThrough(entries), nil
+}

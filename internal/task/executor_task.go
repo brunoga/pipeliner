@@ -23,9 +23,6 @@ func NewFromExecutor(name string, ex executorRunner) *Task {
 	return &Task{name: name, exec: ex}
 }
 
-// IsDryRun reports whether dry-run mode is enabled.
-func (t *Task) IsDryRun() bool { return t.dryRun }
-
 // runFromExecutor delegates Run to the underlying DAG executor and adapts the
 // executor.Result into a task.Result.
 func (t *Task) runFromExecutor(ctx context.Context) (*Result, error) {

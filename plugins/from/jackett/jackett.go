@@ -158,6 +158,12 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 func (p *jackettPlugin) Name() string        { return "jackett" }
 func (p *jackettPlugin) Phase() plugin.Phase { return plugin.PhaseFrom }
 
+// Generate implements SourcePlugin for DAG pipelines. It calls Search with an
+// empty query, which returns recent results across configured indexers.
+func (p *jackettPlugin) Generate(ctx context.Context, tc *plugin.TaskContext) ([]*entry.Entry, error) {
+	return p.Search(ctx, tc, "")
+}
+
 // Search queries each configured indexer and returns the merged, deduplicated
 // results. Indexer errors are logged and skipped rather than aborting the
 // search, so a single broken indexer doesn't prevent results from others.

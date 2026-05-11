@@ -114,3 +114,15 @@ func toStringSlice(v any) ([]string, error) {
 	}
 	return nil, fmt.Errorf("unsupported type %T", v)
 }
+
+func (p *requirePlugin) Process(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
+	for _, e := range entries {
+		if e.IsRejected() || e.IsFailed() {
+			continue
+		}
+		if err := p.Filter(ctx, tc, e); err != nil {
+			tc.Logger.Warn("filter error", "entry", e.Title, "err", err)
+		}
+	}
+	return entry.PassThrough(entries), nil
+}

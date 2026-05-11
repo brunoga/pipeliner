@@ -7,6 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	_ "github.com/brunoga/pipeliner/plugins/filter/dedup"
+	_ "github.com/brunoga/pipeliner/plugins/metainfo/quality"
+
 	"github.com/brunoga/pipeliner/internal/entry"
 )
 
@@ -39,12 +42,12 @@ func TestSeriesInRunDedup(t *testing.T) {
 	defer srv.Close()
 
 	res := buildAndRun(t, fmt.Sprintf(`
-task("t", [
-    plugin("rss", url=%q),
-    plugin("metainfo_series"),
-    plugin("series", static=["Breaking Bad"]),
-    plugin("print"),
-])
+src    = input("rss", url=%q)
+series = process("series", from_=src, static=["Breaking Bad"])
+q      = process("metainfo_quality", from_=series)
+dd     = process("dedup", from_=q)
+output("print", from_=dd)
+pipeline("t")
 `, srv.URL))
 
 	res.assertAccepted(t, 1)
@@ -62,11 +65,12 @@ func TestMoviesInRunDedup(t *testing.T) {
 	defer srv.Close()
 
 	res := buildAndRun(t, fmt.Sprintf(`
-task("t", [
-    plugin("rss", url=%q),
-    plugin("movies", static=["Inception"]),
-    plugin("print"),
-])
+src    = input("rss", url=%q)
+movies = process("movies", from_=src, static=["Inception"])
+q      = process("metainfo_quality", from_=movies)
+dd     = process("dedup", from_=q)
+output("print", from_=dd)
+pipeline("t")
 `, srv.URL))
 
 	res.assertAccepted(t, 1)
@@ -80,11 +84,10 @@ func TestSeriesUpgradeAcrossRuns(t *testing.T) {
 	srv, set := switchableRSSServer(t)
 
 	tk := buildTask(t, fmt.Sprintf(`
-task("t", [
-    plugin("rss", url=%q),
-    plugin("series", static=["Breaking Bad"]),
-    plugin("print"),
-])
+src    = input("rss", url=%q)
+series = process("series", from_=src, static=["Breaking Bad"])
+output("print", from_=series)
+pipeline("t")
 `, srv.URL))
 
 	set([]rssItem{{"Breaking.Bad.S01E01.720p.HDTV", "http://example.com/bb-720p"}})
@@ -100,11 +103,10 @@ func TestMoviesUpgradeAcrossRuns(t *testing.T) {
 	srv, set := switchableRSSServer(t)
 
 	tk := buildTask(t, fmt.Sprintf(`
-task("t", [
-    plugin("rss", url=%q),
-    plugin("movies", static=["Inception"]),
-    plugin("print"),
-])
+src    = input("rss", url=%q)
+movies = process("movies", from_=src, static=["Inception"])
+output("print", from_=movies)
+pipeline("t")
 `, srv.URL))
 
 	set([]rssItem{{"Inception.2010.720p.HDTV", "http://example.com/inception-720p"}})
@@ -120,11 +122,10 @@ func TestSeriesProperUpgradeAcrossRuns(t *testing.T) {
 	srv, set := switchableRSSServer(t)
 
 	tk := buildTask(t, fmt.Sprintf(`
-task("t", [
-    plugin("rss", url=%q),
-    plugin("series", static=["Breaking Bad"]),
-    plugin("print"),
-])
+src    = input("rss", url=%q)
+series = process("series", from_=src, static=["Breaking Bad"])
+output("print", from_=series)
+pipeline("t")
 `, srv.URL))
 
 	set([]rssItem{{"Breaking.Bad.S01E01.720p.HDTV", "http://example.com/bb-720p"}})
@@ -138,11 +139,10 @@ func TestMoviesProperUpgradeAcrossRuns(t *testing.T) {
 	srv, set := switchableRSSServer(t)
 
 	tk := buildTask(t, fmt.Sprintf(`
-task("t", [
-    plugin("rss", url=%q),
-    plugin("movies", static=["Inception"]),
-    plugin("print"),
-])
+src    = input("rss", url=%q)
+movies = process("movies", from_=src, static=["Inception"])
+output("print", from_=movies)
+pipeline("t")
 `, srv.URL))
 
 	set([]rssItem{{"Inception.2010.720p.HDTV", "http://example.com/inception-720p"}})
@@ -156,11 +156,10 @@ func TestSeriesDowngradeRejected(t *testing.T) {
 	srv, set := switchableRSSServer(t)
 
 	tk := buildTask(t, fmt.Sprintf(`
-task("t", [
-    plugin("rss", url=%q),
-    plugin("series", static=["Breaking Bad"]),
-    plugin("print"),
-])
+src    = input("rss", url=%q)
+series = process("series", from_=src, static=["Breaking Bad"])
+output("print", from_=series)
+pipeline("t")
 `, srv.URL))
 
 	set([]rssItem{{"Breaking.Bad.S01E01.1080p.BluRay", "http://example.com/bb-1080p"}})
@@ -174,11 +173,10 @@ func TestMoviesDowngradeRejected(t *testing.T) {
 	srv, set := switchableRSSServer(t)
 
 	tk := buildTask(t, fmt.Sprintf(`
-task("t", [
-    plugin("rss", url=%q),
-    plugin("movies", static=["Inception"]),
-    plugin("print"),
-])
+src    = input("rss", url=%q)
+movies = process("movies", from_=src, static=["Inception"])
+output("print", from_=movies)
+pipeline("t")
 `, srv.URL))
 
 	set([]rssItem{{"Inception.2010.1080p.BluRay", "http://example.com/inception-1080p"}})

@@ -87,7 +87,7 @@ func TestRunReturnsEntries(t *testing.T) {
 	}
 	p.(*tvdbInputPlugin).client.BaseURL = srv.URL
 
-	entries, err := p.(*tvdbInputPlugin).Run(context.Background(), makeCtx())
+	entries, err := p.(*tvdbInputPlugin).Generate(context.Background(), makeCtx())
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -120,7 +120,7 @@ func TestRunSkipsMissingShows(t *testing.T) {
 	}
 	p.(*tvdbInputPlugin).client.BaseURL = srv.URL
 
-	entries, err := p.(*tvdbInputPlugin).Run(context.Background(), makeCtx())
+	entries, err := p.(*tvdbInputPlugin).Generate(context.Background(), makeCtx())
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}

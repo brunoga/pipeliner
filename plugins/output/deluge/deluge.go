@@ -221,3 +221,10 @@ func intVal(v any, def int) int {
 	}
 	return def
 }
+
+func (p *delugePlugin) Consume(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
+	if tc.DryRun {
+		return nil
+	}
+	return p.Output(ctx, tc, entry.FilterAccepted(entries))
+}
