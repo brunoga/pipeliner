@@ -1,39 +1,49 @@
-# From plugins
+# Source plugins (from/)
 
-From plugins are sub-plugins used as data sources inside `series.from`, `movies.from`, and `discover.from` (and as search backends inside `discover.via`). They are registered with `PhaseFrom` and **cannot** be used as top-level task plugins — the task engine will report an error if a PhaseFrom plugin is referenced directly in a task.
+From-plugins are source plugins that can be used in two ways:
 
-From plugins implement either `InputPlugin` (have a `Run` method, used in `from:` lists) or `SearchPlugin` (have a `Search` method, used in `via:` lists).
+1. **Standalone DAG source** — as an `input()` node in a pipeline
+2. **Config-driven title source** — inside `series.from`, `movies.from`, and
+   `discover.from` config keys to supply dynamic title lists
+3. **Search backend** — inside `discover.via` (those implementing `SearchPlugin`)
 
 ## Available from plugins
 
-| Plugin | Config name | Used in | Description |
-|--------|-------------|---------|-------------|
-| [tvdb](tvdb/README.md) | `tvdb_favorites` | `series.from`, `discover.from` | Fetch TheTVDB favorites as show-name entries |
-| [trakt](trakt/README.md) | `trakt_list` | `series.from`, `movies.from`, `discover.from` | Fetch movies or shows from a Trakt.tv list |
-| [jackett](jackett/README.md) | `jackett` | `discover.via` | Query Jackett indexers via the Torznab API |
-| [rss](rss/README.md) | `rss_search` | `discover.via` | Search a parameterized RSS URL |
+| Plugin | Config name | Role | Description |
+|--------|-------------|------|-------------|
+| [tvdb](tvdb/README.md) | `tvdb_favorites` | source | Fetch TheTVDB favorites as show-name entries |
+| [trakt](trakt/README.md) | `trakt_list` | source | Fetch movies or shows from a Trakt.tv list |
+| [jackett](jackett/README.md) | `jackett` | source | Query Jackett indexers via Torznab (also a search backend for discover.via) |
+| [rss](rss/README.md) | `rss_search` | source | Search a parameterized RSS URL (also a search backend for discover.via) |
 
-## Usage pattern
-
-From plugins are specified by name (string form) or as a config dict inside the parent plugin's `from` or `via` list:
+## Usage as a standalone DAG source
 
 ```python
-plugin("series", **{"from": [
-    "tvdb_favorites",                  # name only, uses defaults
-    {"name": "trakt_list", "client_id": "YOUR_CLIENT_ID",
-     "access_token": "YOUR_TOKEN", "type": "shows", "list": "watchlist"},
-]})
+shows = input("tvdb_favorites", api_key=env("TVDB_KEY"), user_pin=env("TVDB_PIN"))
+series_flt = process("series", from_=shows, tracking="strict")
+output("transmission", from_=series_flt, host="localhost")
+pipeline("tv-tvdb", schedule="1h")
+```
 
-plugin("discover", **{
-    "from": [
-        {"name": "trakt_list", "client_id": "YOUR_CLIENT_ID",
-         "type": "movies", "list": "watchlist"},
-    ],
-    "via": [
-        {"name": "rss_search",
-         "url_template": "https://example.com/search?q={{.QueryEscaped}}"},
-        {"name": "jackett", "url": "http://localhost:9117",
-         "api_key": "YOUR_JACKETT_KEY"},
-    ],
-})
+## Usage inside parent plugin config
+
+```python
+# In a DAG config, prefer connecting source nodes directly (above).
+# The 'from' config key is an alternative for simpler cases:
+series_proc = process("series", from_=rss_src, **{"from": [
+    {"name": "trakt_list", "client_id": env("TRAKT_ID"),
+     "client_secret": env("TRAKT_SECRET"), "type": "shows"},
+]})
+```
+
+## Search backends (discover.via)
+
+`jackett` and `rss_search` also implement `SearchPlugin`, allowing them to be
+used as search backends inside `discover.via`:
+
+```python
+results = process("discover", from_=watchlist,
+    via=[{"name": "jackett", "url": "http://localhost:9117",
+          "api_key": env("JACKETT_KEY"), "categories": ["5040"]}],
+    interval="6h")
 ```

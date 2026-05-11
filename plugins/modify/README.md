@@ -1,6 +1,6 @@
 # Modify plugins
 
-Modify plugins mutate entry fields in-place after metainfo annotation. They run on accepted entries only.
+Modify plugins implement `ProcessorPlugin` and mutate entry fields. Place them downstream of the metainfo processors that set the fields they read.
 
 | Plugin | Description |
 |--------|-------------|

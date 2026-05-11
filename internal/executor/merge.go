@@ -3,7 +3,7 @@ package executor
 import "github.com/brunoga/pipeliner/internal/entry"
 
 // mergeAndDedup concatenates entry slices from multiple upstream nodes and
-// deduplicates by URL (first-seen wins, matching the linear engine behaviour).
+// deduplicates by URL (first-seen wins).
 func mergeAndDedup(slices ...[]*entry.Entry) []*entry.Entry {
 	seen := make(map[string]bool)
 	var out []*entry.Entry

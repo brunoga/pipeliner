@@ -1,8 +1,8 @@
 # Metainfo plugins
 
-Metainfo plugins annotate accepted entries with extra fields. They run after all filters, so they only process entries that will actually be acted on — no wasted API calls for rejected content.
+Metainfo plugins implement `ProcessorPlugin` and enrich entries with extra fields (quality tags, series info, TMDb/TVDB data, torrent metadata, etc.). Place them upstream of any processors that consume the fields they produce.
 
-Fields written by metainfo plugins are available in Go template expressions used by `pathfmt`, `set`, `condition`, `exec`, and output plugins.
+Fields set by metainfo plugins are available in `condition` expressions, `pathfmt` / `set` patterns, and sink configs.
 
 | Plugin | Description |
 |--------|-------------|

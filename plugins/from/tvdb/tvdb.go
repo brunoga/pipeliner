@@ -1,9 +1,8 @@
 // Package tvdb provides a from plugin that fetches shows from a TheTVDB
 // user's favorites list and emits one entry per show.
 //
-// This plugin is intended to be used as a source inside series.from or
-// discover.from — not as a standalone task input. It is registered under
-// PhaseFrom so the task engine never dispatches it directly.
+// Usable as a standalone DAG source node (input()) or inside series.from /
+// discover.from config keys to supply a dynamic show list.
 //
 // Config keys:
 //

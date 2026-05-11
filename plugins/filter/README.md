@@ -1,8 +1,13 @@
-# Filter plugins
+# Filter/processor plugins
 
-Filter plugins decide the fate of each entry. An entry starts **undecided** and a filter can move it to **accepted** or **rejected**. Once rejected an entry cannot be un-rejected. Entries still undecided after all filters are dropped and never passed to output plugins.
+Filter plugins implement `ProcessorPlugin`. They decide the fate of each entry:
+an entry starts **undecided** and a processor can move it to **accepted** or
+**rejected** via `e.Accept()` / `e.Reject(reason)`. Once rejected an entry
+cannot be un-rejected.
 
-Filters run in the order they appear in the config file.
+Processors return only entries that should continue downstream; entries dropped
+from the returned slice should have `e.Reject(reason)` set first so the
+executor can count them in the pipeline result.
 
 | Plugin | Description |
 |--------|-------------|

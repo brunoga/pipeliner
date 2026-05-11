@@ -1,6 +1,6 @@
 # Input plugins
 
-Input plugins produce entries. A task can have one or more input plugins; all of them run concurrently and their results are merged, with duplicate URLs deduplicated. An entry carries a title, a URL, and an extensible field map. All entries start in the **undecided** state.
+Input plugins implement `SourcePlugin` and produce entries. Use them as `input()` nodes in a DAG pipeline. Multiple source nodes can be merged with `merge(src1, src2, ...)` to combine feeds; duplicate URLs are deduplicated at the merge point. All entries start **undecided**.
 
 | Plugin | Description |
 |--------|-------------|

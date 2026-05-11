@@ -1,14 +1,14 @@
-// Package series provides a TV series filter and learn plugin.
+// Package series provides a TV series processor that accepts episodes from a
+// configured show list and tracks downloads across runs.
 //
-// It parses episode information from entry titles, matches them against a
-// configured show list, and enforces quality and tracking constraints.
-// Multiple quality variants of the same episode are all accepted so the
-// task engine's automatic deduplication can choose the best copy. The
-// tracker is updated in the Learn phase so only the dedup survivor is
-// recorded as downloaded.
+// It parses episode information from entry titles, matches against the show
+// list, and enforces quality and tracking constraints. Multiple quality
+// variants of the same episode are accepted so the dedup processor can choose
+// the best copy. State is persisted within Process() so the best-quality
+// episode is recorded after dedup selects it.
 //
 // The show list may be provided statically via 'static', dynamically via 'from'
-// (a list of input plugins whose entry titles are used as show names), or both.
+// (source plugins whose entry titles are used as show names), or both.
 // Dynamic lists are cached for the configured ttl (default: 1h).
 package series
 

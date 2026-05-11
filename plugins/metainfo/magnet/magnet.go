@@ -102,8 +102,7 @@ func (p *magnetPlugin) Name() string        { return "metainfo_magnet" }
 func (p *magnetPlugin) Phase() plugin.Phase { return plugin.PhaseMetainfo }
 
 // Shutdown closes the underlying DHT client, releasing its goroutines and
-// sockets. Called by the task engine at process exit (daemon) or after the
-// run completes (one-shot).
+// sockets. Called at process exit (daemon) or after the run completes.
 func (p *magnetPlugin) Shutdown() { p.client.Close() }
 
 // isMagnetEntry reports whether this entry should be handled as a magnet link.

@@ -1,6 +1,6 @@
 # Output plugins
 
-Output plugins act on all accepted entries after filters, metainfo, and modify phases complete. A task can have multiple output plugins; all run for every accepted entry.
+Output plugins implement `SinkPlugin` and act on accepted entries (download, notify, persist). A pipeline can fan-out to multiple sinks — connect them all from the same upstream processor node. Sinks must check `tc.DryRun` and skip external side effects when it is true.
 
 | Plugin | Description |
 |--------|-------------|
