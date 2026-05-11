@@ -38,8 +38,18 @@ Without `seen`, every hourly run would re-send articles that were already emaile
 | `fields` | string or list | no | `["url"]` | Entry fields to include in the fingerprint |
 | `local` | bool | no | false | Scope the seen store to this task name only |
 
+## DAG role
+
+| Property | Value |
+|----------|-------|
+| Role | `processor` |
+| Produces | — |
+| Requires | — |
+
+In DAG pipelines, `seen` records new entries in its `Process()` call immediately rather than waiting for a separate learn phase. Entries that fail downstream sinks will already be marked seen; use `seen` at the beginning of the pipeline to skip duplicates on the next run.
+
 ## Notes
 
-- Fingerprints are written to the store during the **learn** phase, which runs after all output plugins complete successfully. If an output plugin fails (e.g. email not delivered), the entry is not marked seen and will be retried next run.
+- Fingerprints are written to the store during the **learn** phase (linear tasks) or immediately in `Process()` (DAG pipelines).
 - Use `local=True` when multiple tasks consume the same feed but should track seen entries independently.
 - State is stored in `pipeliner.db` in the same directory as the config file.
