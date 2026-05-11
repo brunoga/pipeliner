@@ -19,3 +19,11 @@ task("my-task", [
     plugin("qbittorrent", host="localhost", category="{{.category}}"),
 ])
 ```
+
+## DAG role
+
+| Property | Value |
+|----------|-------|
+| Role | `processor` |
+| Produces | all field names listed in the config |
+| Requires | any fields referenced in the value patterns |

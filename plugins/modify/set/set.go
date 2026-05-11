@@ -19,6 +19,7 @@ func init() {
 		PluginName:  "set",
 		Description: "set entry fields; values are patterns interpolated against entry fields",
 		PluginPhase: plugin.PhaseModify,
+		Role:        plugin.RoleProcessor,
 		Factory:     newSetPlugin,
 		Validate:    validate,
 	})
