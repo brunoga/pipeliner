@@ -35,3 +35,11 @@ task("discover-shows", [
     plugin("deluge", path="/downloads/tv"),
 ])
 ```
+
+## DAG role
+
+| Property | Value |
+|----------|-------|
+| Role | `processor` |
+| Produces | `series_season`, `series_episode`, `series_episode_id` |
+| Requires | — |
