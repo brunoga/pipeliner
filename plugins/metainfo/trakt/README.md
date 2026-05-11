@@ -34,8 +34,17 @@ Annotates entries with metadata from Trakt.tv via the search API. Searches by pa
 | `video_imdb_id` | string | IMDb ID |
 | `video_genres` | []string | Genre names |
 
+## DAG role
+
+| Property | Value |
+|----------|-------|
+| Role | `processor` |
+| Produces | `enriched`, `title`, `video_year`, `video_genres`, `video_rating`, `video_votes`, `video_language`, `video_imdb_id`, `video_poster`, `trakt_id`, `trakt_slug`, `trakt_tmdb_id`, `trakt_tvdb_id` |
+| Requires | — |
+
 ## Example
 
+Linear:
 ```python
 task("tv", [
     plugin("rss", url="https://example.com/feed"),

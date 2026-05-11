@@ -26,8 +26,24 @@ func init() {
 		PluginName:  "metainfo_trakt",
 		Description: "annotate entries with Trakt.tv metadata (rating, votes, genres, overview, external IDs)",
 		PluginPhase: plugin.PhaseMetainfo,
-		Factory:     newPlugin,
-		Validate:    validate,
+		Role:        plugin.RoleProcessor,
+		Produces: []string{
+			entry.FieldEnriched,
+			entry.FieldTitle,
+			entry.FieldVideoYear,
+			entry.FieldVideoGenres,
+			entry.FieldVideoRating,
+			entry.FieldVideoVotes,
+			entry.FieldVideoLanguage,
+			entry.FieldVideoImdbID,
+			entry.FieldVideoPoster,
+			"trakt_id",
+			"trakt_slug",
+			"trakt_tmdb_id",
+			"trakt_tvdb_id",
+		},
+		Factory:  newPlugin,
+		Validate: validate,
 	})
 }
 
