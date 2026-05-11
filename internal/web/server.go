@@ -464,8 +464,11 @@ func (s *Server) apiPlugins(w http.ResponseWriter, _ *http.Request) {
 	type pluginResp struct {
 		Name        string      `json:"name"`
 		Phase       string      `json:"phase"`
+		Role        string      `json:"role"`
 		Description string      `json:"description"`
-		Schema      []fieldResp `json:"schema"` // empty slice, never null
+		Produces    []string    `json:"produces"` // entry field names this plugin writes
+		Requires    []string    `json:"requires"` // entry field names this plugin reads
+		Schema      []fieldResp `json:"schema"`   // empty slice, never null
 	}
 
 	descs := plugin.All()
@@ -482,10 +485,21 @@ func (s *Server) apiPlugins(w http.ResponseWriter, _ *http.Request) {
 				Hint:     f.Hint,
 			})
 		}
+		produces := d.Produces
+		if produces == nil {
+			produces = []string{}
+		}
+		requires := d.Requires
+		if requires == nil {
+			requires = []string{}
+		}
 		out = append(out, pluginResp{
 			Name:        d.PluginName,
 			Phase:       string(d.PluginPhase),
+			Role:        string(d.EffectiveRole()),
 			Description: d.Description,
+			Produces:    produces,
+			Requires:    requires,
 			Schema:      fields,
 		})
 	}
@@ -532,7 +546,41 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 		}
 		tasks[name] = taskResp{Plugins: plugins, Schedule: c.Schedules[name]}
 	}
-	writeJSON(w, map[string]any{"tasks": tasks})
+
+	// DAG graphs.
+	type nodeResp struct {
+		ID         string         `json:"id"`
+		PluginName string         `json:"plugin"`
+		Config     map[string]any `json:"config"`
+		Upstreams  []string       `json:"upstreams"`
+	}
+	type graphResp struct {
+		Nodes    []nodeResp `json:"nodes"`
+		Schedule string     `json:"schedule,omitempty"`
+	}
+	graphs := make(map[string]graphResp, len(c.Graphs))
+	for name, g := range c.Graphs {
+		nodes := make([]nodeResp, 0, g.Len())
+		for _, n := range g.Nodes() {
+			ups := make([]string, len(n.Upstreams))
+			for i, u := range n.Upstreams {
+				ups[i] = string(u)
+			}
+			cfg := n.Config
+			if cfg == nil {
+				cfg = map[string]any{}
+			}
+			nodes = append(nodes, nodeResp{
+				ID:         string(n.ID),
+				PluginName: n.PluginName,
+				Config:     cfg,
+				Upstreams:  ups,
+			})
+		}
+		graphs[name] = graphResp{Nodes: nodes, Schedule: c.GraphSchedules[name]}
+	}
+
+	writeJSON(w, map[string]any{"tasks": tasks, "graphs": graphs})
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

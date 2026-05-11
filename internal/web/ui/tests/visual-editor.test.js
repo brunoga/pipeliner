@@ -1,6 +1,6 @@
 /**
- * Tests for the visual pipeline editor logic (visual-editor.js).
- * Focuses on the pure serializer and model functions, which have no DOM dependency.
+ * Tests for the DAG visual pipeline editor (visual-editor.js).
+ * Covers the pure serialiser functions: starLit, valToStar, dagToStarlark.
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
@@ -11,30 +11,27 @@ import { dirname, join } from 'path';
 const __dir = dirname(fileURLToPath(import.meta.url));
 const src = readFileSync(join(__dir, '..', 'visual-editor.js'), 'utf8');
 
-// Extract pure functions by wrapping the module source.
-let starLit, valToStar, pluginToStar, visualToStarlark, ve;
+let starLit, valToStar, configToKwargs, upstreamsStr, dagToStarlark, ve;
+
 beforeAll(() => {
-  // The visual-editor.js file defines globals including `ve` and the serializer
-  // functions. We wrap it and export what we need.
   const mod = new Function(
     'exports', 'document', 'fetch',
     src + `
-exports.starLit       = starLit;
-exports.valToStar     = valToStar;
-exports.pluginToStar  = pluginToStar;
-exports.ve            = ve;
-// visualToStarlark reads ve.model, so expose it too
-exports.visualToStarlark = visualToStarlark;
+exports.starLit        = starLit;
+exports.valToStar      = valToStar;
+exports.configToKwargs = configToKwargs;
+exports.upstreamsStr   = upstreamsStr;
+exports.dagToStarlark  = dagToStarlark;
+exports.ve             = ve;
 `
   );
   const exports = {};
-  // Provide minimal stubs for DOM globals the module references at definition time.
   const noopDoc = new Proxy({}, { get: () => () => null });
   mod(exports, noopDoc, () => Promise.resolve());
-  ({ starLit, valToStar, pluginToStar, ve, visualToStarlark } = exports);
+  ({ starLit, valToStar, configToKwargs, upstreamsStr, dagToStarlark, ve } = exports);
 });
 
-// ── starLit ──────────────────────────────────────────────────────────────────
+// ── starLit ───────────────────────────────────────────────────────────────────
 
 describe('starLit', () => {
   it('wraps plain string in double quotes', () => {
@@ -53,6 +50,10 @@ describe('starLit', () => {
 
   it('escapes backslashes', () => {
     expect(starLit('a\\b')).toBe('"a\\\\b"');
+  });
+
+  it('converts non-string values to string', () => {
+    expect(starLit(42)).toBe('42');
   });
 });
 
@@ -100,87 +101,149 @@ describe('valToStar', () => {
   });
 });
 
-// ── pluginToStar ──────────────────────────────────────────────────────────────
+// ── configToKwargs ────────────────────────────────────────────────────────────
 
-describe('pluginToStar', () => {
-  it('renders plugin with no config', () => {
-    expect(pluginToStar({ name: 'seen', config: {} })).toBe('plugin("seen")');
+describe('configToKwargs', () => {
+  it('returns empty string for empty config', () => {
+    expect(configToKwargs({})).toBe('');
   });
 
   it('renders single kwarg', () => {
-    const result = pluginToStar({ name: 'rss', config: { url: 'https://example.com' } });
-    expect(result).toBe('plugin("rss", url="https://example.com")');
+    expect(configToKwargs({ url: 'https://example.com' })).toBe('url="https://example.com"');
   });
 
-  it('renders bool kwarg', () => {
-    const result = pluginToStar({ name: 'seen', config: { local: true } });
-    expect(result).toContain('local=True');
+  it('renders bool kwarg as True/False', () => {
+    expect(configToKwargs({ local: true })).toContain('local=True');
   });
 
-  it('uses dict form when "from" key present', () => {
-    const result = pluginToStar({ name: 'series', config: { from: [], tracking: 'follow' } });
-    expect(result).toContain('"from"');
-    expect(result).toContain('"tracking"');
-  });
-
-  it('skips empty-string values', () => {
-    const result = pluginToStar({ name: 'rss', config: { url: '', other: 'x' } });
-    // url is empty so should not appear
+  it('skips null/empty-string values', () => {
+    const result = configToKwargs({ url: '', host: 'localhost' });
     expect(result).not.toContain('url=');
-    expect(result).toContain('other=');
+    expect(result).toContain('host=');
+  });
+
+  it('renders multiple kwargs comma-separated', () => {
+    const result = configToKwargs({ host: 'localhost', port: 9091 });
+    expect(result).toContain('host=');
+    expect(result).toContain('port=');
+    expect(result).toContain(',');
   });
 });
 
-// ── visualToStarlark ──────────────────────────────────────────────────────────
+// ── upstreamsStr ──────────────────────────────────────────────────────────────
 
-describe('visualToStarlark', () => {
-  it('produces empty string for no tasks', () => {
-    ve.model.variables = [];
-    ve.model.tasks = [];
-    const out = visualToStarlark();
-    expect(out.trim()).toBe('');
+describe('upstreamsStr', () => {
+  it('returns empty string for no upstreams', () => {
+    expect(upstreamsStr([])).toBe('');
+    expect(upstreamsStr(null)).toBe('');
   });
 
-  it('generates task() call for a simple task', () => {
-    ve.model.variables = [];
-    ve.model.tasks = [{
-      name: 'tv',
-      schedule: '1h',
-      plugins: [
-        { name: 'rss', config: { url: 'https://example.com' } },
-        { name: 'seen', config: {} },
-      ],
-    }];
-    const out = visualToStarlark();
-    expect(out).toContain('task("tv"');
+  it('returns bare id for single upstream', () => {
+    expect(upstreamsStr(['rss_0'])).toBe('rss_0');
+  });
+
+  it('wraps multiple upstreams in merge()', () => {
+    expect(upstreamsStr(['rss_0', 'html_1'])).toBe('merge(rss_0, html_1)');
+  });
+});
+
+// ── dagToStarlark ─────────────────────────────────────────────────────────────
+
+describe('dagToStarlark', () => {
+  function setup(nodes, name = 'my-pipeline', schedule = '') {
+    ve.model.name     = name;
+    ve.model.schedule = schedule;
+    ve.model.nodes    = nodes;
+    ve.plugins = [
+      { name: 'rss',          role: 'source'    },
+      { name: 'seen',         role: 'processor' },
+      { name: 'metainfo_quality', role: 'processor' },
+      { name: 'transmission', role: 'sink'      },
+      { name: 'print',        role: 'sink'      },
+    ];
+  }
+
+  it('generates pipeline() call', () => {
+    setup([], 'test-pipe', '1h');
+    const out = dagToStarlark();
+    expect(out).toContain('pipeline("test-pipe"');
     expect(out).toContain('schedule="1h"');
-    expect(out).toContain('plugin("rss"');
-    expect(out).toContain('plugin("seen")');
-  });
-
-  it('emits variables block at the top', () => {
-    ve.model.variables = [{ name: 'api_key', value: 'abc123' }];
-    ve.model.tasks = [];
-    const out = visualToStarlark();
-    expect(out).toContain('api_key = "abc123"');
   });
 
   it('omits schedule when empty', () => {
-    ve.model.variables = [];
-    ve.model.tasks = [{ name: 't', schedule: '', plugins: [{ name: 'seen', config: {} }] }];
-    const out = visualToStarlark();
-    expect(out).not.toContain('schedule=');
+    setup([], 'p', '');
+    expect(dagToStarlark()).not.toContain('schedule=');
   });
 
-  it('generates multiple tasks', () => {
-    ve.model.variables = [];
-    ve.model.tasks = [
-      { name: 'a', schedule: '', plugins: [{ name: 'seen', config: {} }] },
-      { name: 'b', schedule: '6h', plugins: [{ name: 'rss', config: { url: 'x' } }] },
-    ];
-    const out = visualToStarlark();
-    expect(out).toContain('task("a"');
-    expect(out).toContain('task("b"');
-    expect(out).toContain('schedule="6h"');
+  it('generates input() for source nodes', () => {
+    setup([
+      { id: 'rss_0', plugin: 'rss', config: { url: 'https://example.com' }, upstreams: [] },
+    ]);
+    const out = dagToStarlark();
+    expect(out).toContain('rss_0 = input("rss"');
+    expect(out).toContain('url="https://example.com"');
+  });
+
+  it('generates process() for processor nodes', () => {
+    setup([
+      { id: 'rss_0',  plugin: 'rss',  config: {}, upstreams: [] },
+      { id: 'seen_1', plugin: 'seen', config: {}, upstreams: ['rss_0'] },
+    ]);
+    const out = dagToStarlark();
+    expect(out).toContain('seen_1 = process("seen", from_=rss_0)');
+  });
+
+  it('generates output() for sink nodes (no variable)', () => {
+    setup([
+      { id: 'rss_0',           plugin: 'rss',          config: {}, upstreams: [] },
+      { id: 'transmission_1',  plugin: 'transmission', config: {}, upstreams: ['rss_0'] },
+    ]);
+    const out = dagToStarlark();
+    expect(out).toContain('output("transmission", from_=rss_0)');
+    expect(out).not.toContain('transmission_1 =');
+  });
+
+  it('uses merge() for multiple upstreams', () => {
+    setup([
+      { id: 'rss_0',  plugin: 'rss',  config: {}, upstreams: [] },
+      { id: 'rss_1',  plugin: 'rss',  config: {}, upstreams: [] },
+      { id: 'seen_2', plugin: 'seen', config: {}, upstreams: ['rss_0', 'rss_1'] },
+    ]);
+    const out = dagToStarlark();
+    expect(out).toContain('from_=merge(rss_0, rss_1)');
+  });
+
+  it('handles fan-out: same upstream in two sinks', () => {
+    setup([
+      { id: 'rss_0',  plugin: 'rss',   config: {}, upstreams: [] },
+      { id: 'print_1', plugin: 'print', config: {}, upstreams: ['rss_0'] },
+      { id: 'print_2', plugin: 'print', config: {}, upstreams: ['rss_0'] },
+    ]);
+    const out = dagToStarlark();
+    expect(out.match(/output\("print"/g)).toHaveLength(2);
+  });
+
+  it('preserves node order from model', () => {
+    setup([
+      { id: 'rss_0',  plugin: 'rss',              config: {}, upstreams: [] },
+      { id: 'meta_1', plugin: 'metainfo_quality', config: {}, upstreams: ['rss_0'] },
+      { id: 'sink_2', plugin: 'transmission',     config: {}, upstreams: ['meta_1'] },
+    ]);
+    const out = dagToStarlark();
+    const posRss  = out.indexOf('rss_0 = input');
+    const posMeta = out.indexOf('meta_1 = process');
+    const posSink = out.indexOf('output("transmission"');
+    expect(posRss).toBeLessThan(posMeta);
+    expect(posMeta).toBeLessThan(posSink);
+  });
+
+  it('includes config kwargs in output node', () => {
+    setup([
+      { id: 'rss_0',  plugin: 'rss',          config: {}, upstreams: [] },
+      { id: 'sink_1', plugin: 'transmission', config: { host: 'myhost', port: 9091 }, upstreams: ['rss_0'] },
+    ]);
+    const out = dagToStarlark();
+    expect(out).toContain('host="myhost"');
+    expect(out).toContain('port=9091');
   });
 });
