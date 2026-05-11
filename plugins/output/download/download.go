@@ -25,6 +25,7 @@ func init() {
 		PluginName:  "download",
 		Description: "download entry URLs to a local directory",
 		PluginPhase: plugin.PhaseOutput,
+		Role:        plugin.RoleSink,
 		Factory:     newPlugin,
 		Validate:    validate,
 	})
