@@ -90,7 +90,7 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 func (p *qbtPlugin) Name() string        { return "qbittorrent" }
 func (p *qbtPlugin) Phase() plugin.Phase { return plugin.PhaseOutput }
 
-func (p *qbtPlugin) Output(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
+func (p *qbtPlugin) deliver(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
 	if err := p.login(ctx); err != nil {
 		for _, e := range entries {
 			e.Fail("qbittorrent: login failed")
@@ -199,5 +199,5 @@ func (p *qbtPlugin) Consume(ctx context.Context, tc *plugin.TaskContext, entries
 	if tc.DryRun {
 		return nil
 	}
-	return p.Output(ctx, tc, entry.FilterAccepted(entries))
+	return p.deliver(ctx, tc, entry.FilterAccepted(entries))
 }

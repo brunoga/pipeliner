@@ -94,7 +94,7 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 func (p *decompressPlugin) Name() string        { return "decompress" }
 func (p *decompressPlugin) Phase() plugin.Phase { return plugin.PhaseOutput }
 
-func (p *decompressPlugin) Output(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
+func (p *decompressPlugin) deliver(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
 	for _, e := range entries {
 		if err := p.extract(ctx, tc, e); err != nil {
 			tc.Logger.Error("decompress: extraction failed", "entry", e.Title, "err", err)
@@ -209,5 +209,5 @@ func (p *decompressPlugin) Consume(ctx context.Context, tc *plugin.TaskContext, 
 	if tc.DryRun {
 		return nil
 	}
-	return p.Output(ctx, tc, entry.FilterAccepted(entries))
+	return p.deliver(ctx, tc, entry.FilterAccepted(entries))
 }

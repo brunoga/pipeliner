@@ -37,9 +37,12 @@ func TestListAddOutput(t *testing.T) {
 		entry.New("Show S01E01", "http://example.com/1"),
 		entry.New("Show S01E02", "http://example.com/2"),
 	}
+	for _, e := range entries {
+		e.Accept()
+	}
 
-	if err := p.Output(context.Background(), tc, entries); err != nil {
-		t.Fatalf("Output: %v", err)
+	if err := p.Consume(context.Background(), tc, entries); err != nil {
+		t.Fatalf("Consume: %v", err)
 	}
 
 	l := entrylist.Open(db, "mylist")

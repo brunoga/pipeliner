@@ -66,7 +66,7 @@ func TestLoginAndAdd(t *testing.T) {
 
 	qp := newTestPlugin(t, srv)
 	e := entry.New("My Show S01E01", "http://example.com/ep.torrent")
-	err := qp.Output(context.Background(), makeCtx(), []*entry.Entry{e})
+	err := qp.deliver(context.Background(), makeCtx(), []*entry.Entry{e})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +92,7 @@ func TestLoginFailure(t *testing.T) {
 
 	qp := newTestPlugin(t, srv)
 	e := entry.New("T", "http://x.com/a.torrent")
-	err := qp.Output(context.Background(), makeCtx(), []*entry.Entry{e})
+	err := qp.deliver(context.Background(), makeCtx(), []*entry.Entry{e})
 	if err == nil {
 		t.Error("expected error on login failure")
 	}
@@ -112,7 +112,7 @@ func TestCategoryAndTags(t *testing.T) {
 	qp.baseURL = srv.URL
 
 	e := entry.New("T", "http://x.com/a.torrent")
-	qp.Output(context.Background(), makeCtx(), []*entry.Entry{e}) //nolint:errcheck
+	qp.deliver(context.Background(), makeCtx(), []*entry.Entry{e}) //nolint:errcheck
 
 	var addBody string
 	for i, path := range mock.requests {
@@ -142,7 +142,7 @@ func TestSavepathTemplate(t *testing.T) {
 
 	e := entry.New("My Show S01E01", "http://x.com/a.torrent")
 	e.Set("series_name", "My Show")
-	qp.Output(context.Background(), makeCtx(), []*entry.Entry{e}) //nolint:errcheck
+	qp.deliver(context.Background(), makeCtx(), []*entry.Entry{e}) //nolint:errcheck
 
 	var addBody string
 	for i, path := range mock.requests {

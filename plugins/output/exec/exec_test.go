@@ -24,7 +24,7 @@ func TestRunsCommand(t *testing.T) {
 		t.Fatal(err)
 	}
 	e := entry.New("Test", "http://x.com/a")
-	if err := p.(*execPlugin).Output(context.Background(), makeCtx(), []*entry.Entry{e}); err != nil {
+	if err := p.(*execPlugin).deliver(context.Background(), makeCtx(), []*entry.Entry{e}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(marker); err != nil {
@@ -39,7 +39,7 @@ func TestTemplateInterpolation(t *testing.T) {
 	p, _ := newPlugin(map[string]any{"command": "touch " + marker + "_{{.series_season}}"}, nil)
 	e := entry.New("Test", "http://x.com/a")
 	e.Set("series_season", 3)
-	p.(*execPlugin).Output(context.Background(), makeCtx(), []*entry.Entry{e}) //nolint:errcheck
+	p.(*execPlugin).deliver(context.Background(), makeCtx(), []*entry.Entry{e}) //nolint:errcheck
 
 	if _, err := os.Stat(marker + "_3"); err != nil {
 		t.Errorf("expected %s_3: %v", marker, err)
@@ -50,7 +50,7 @@ func TestFailedCommandLogged(t *testing.T) {
 	p, _ := newPlugin(map[string]any{"command": "false"}, nil)
 	e := entry.New("Test", "http://x.com/a")
 	// Output should not propagate individual command errors.
-	err := p.(*execPlugin).Output(context.Background(), makeCtx(), []*entry.Entry{e})
+	err := p.(*execPlugin).deliver(context.Background(), makeCtx(), []*entry.Entry{e})
 	if err != nil {
 		t.Errorf("Output should not return error on per-entry command failure: %v", err)
 	}
@@ -62,7 +62,7 @@ func TestContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	// Should return quickly due to cancelled context.
-	p.(*execPlugin).Output(ctx, makeCtx(), []*entry.Entry{e}) //nolint:errcheck
+	p.(*execPlugin).deliver(ctx, makeCtx(), []*entry.Entry{e}) //nolint:errcheck
 }
 
 func TestMultipleEntries(t *testing.T) {
@@ -72,7 +72,7 @@ func TestMultipleEntries(t *testing.T) {
 		func() *entry.Entry { e := entry.New("A", "http://x.com/a"); e.Set("series_episode", 1); return e }(),
 		func() *entry.Entry { e := entry.New("B", "http://x.com/b"); e.Set("series_episode", 2); return e }(),
 	}
-	p.(*execPlugin).Output(context.Background(), makeCtx(), entries) //nolint:errcheck
+	p.(*execPlugin).deliver(context.Background(), makeCtx(), entries) //nolint:errcheck
 
 	for _, ep := range []string{"1", "2"} {
 		if _, err := os.Stat(filepath.Join(dir, ep)); err != nil {

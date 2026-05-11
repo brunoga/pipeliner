@@ -80,7 +80,7 @@ func TestAddTorrentBasic(t *testing.T) {
 	e := entry.New("My.Show.S01E01", "http://tracker.example/file.torrent")
 	e.Set("title", "My Show")
 
-	if err := p.Output(context.Background(), tc(), []*entry.Entry{e}); err != nil {
+	if err := p.deliver(context.Background(), tc(), []*entry.Entry{e}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -106,7 +106,7 @@ func TestSessionIDHandshake(t *testing.T) {
 	p := pluginWithEndpoint(t, srv, map[string]any{})
 
 	e := entry.New("test", "http://example.com/test.torrent")
-	if err := p.Output(context.Background(), tc(), []*entry.Entry{e}); err != nil {
+	if err := p.deliver(context.Background(), tc(), []*entry.Entry{e}); err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
 	if callCount != 1 {
@@ -125,7 +125,7 @@ func TestPausedConfig(t *testing.T) {
 	p := pluginWithEndpoint(t, srv, map[string]any{"paused": true})
 
 	e := entry.New("x", "http://example.com/x.torrent")
-	p.Output(context.Background(), tc(), []*entry.Entry{e}) //nolint:errcheck
+	p.deliver(context.Background(), tc(), []*entry.Entry{e}) //nolint:errcheck
 
 	if captured.Arguments["paused"] != true {
 		t.Errorf("paused: got %v, want true", captured.Arguments["paused"])
@@ -147,7 +147,7 @@ func TestPathTemplate(t *testing.T) {
 	e := entry.New("My.Show.S01E01", "http://example.com/show.torrent")
 	e.Set("category", "tv")
 
-	p.Output(context.Background(), tc(), []*entry.Entry{e}) //nolint:errcheck
+	p.deliver(context.Background(), tc(), []*entry.Entry{e}) //nolint:errcheck
 
 	if captured.Arguments["download-dir"] != "/media/tv/My.Show.S01E01" {
 		t.Errorf("download-dir: got %v", captured.Arguments["download-dir"])
@@ -196,7 +196,7 @@ func TestMultipleEntries(t *testing.T) {
 		entry.New("e2", "http://example.com/b.torrent"),
 		entry.New("e3", "http://example.com/c.torrent"),
 	}
-	if err := p.Output(context.Background(), tc(), entries); err != nil {
+	if err := p.deliver(context.Background(), tc(), entries); err != nil {
 		t.Fatal(err)
 	}
 	if len(calls) != 3 {

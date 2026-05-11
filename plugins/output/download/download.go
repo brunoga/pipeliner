@@ -71,7 +71,7 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 func (p *downloadPlugin) Name() string        { return "download" }
 func (p *downloadPlugin) Phase() plugin.Phase { return plugin.PhaseOutput }
 
-func (p *downloadPlugin) Output(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
+func (p *downloadPlugin) deliver(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
 	if err := os.MkdirAll(p.dir, 0o755); err != nil {
 		for _, e := range entries {
 			e.Fail("download: create dir: " + err.Error())
@@ -179,5 +179,5 @@ func (p *downloadPlugin) Consume(ctx context.Context, tc *plugin.TaskContext, en
 	if tc.DryRun {
 		return nil
 	}
-	return p.Output(ctx, tc, entry.FilterAccepted(entries))
+	return p.deliver(ctx, tc, entry.FilterAccepted(entries))
 }

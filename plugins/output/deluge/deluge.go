@@ -98,7 +98,7 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 func (p *delugePlugin) Name() string        { return "deluge" }
 func (p *delugePlugin) Phase() plugin.Phase { return plugin.PhaseOutput }
 
-func (p *delugePlugin) Output(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
+func (p *delugePlugin) deliver(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
 	if err := p.login(ctx); err != nil {
 		for _, e := range entries {
 			e.Fail("deluge: login failed")
@@ -226,5 +226,5 @@ func (p *delugePlugin) Consume(ctx context.Context, tc *plugin.TaskContext, entr
 	if tc.DryRun {
 		return nil
 	}
-	return p.Output(ctx, tc, entry.FilterAccepted(entries))
+	return p.deliver(ctx, tc, entry.FilterAccepted(entries))
 }
