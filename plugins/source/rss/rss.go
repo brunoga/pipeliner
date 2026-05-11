@@ -22,6 +22,7 @@ func init() {
 		PluginPhase: plugin.PhaseInput,
 		Role:        plugin.RoleSource,
 		Produces: []string{
+			entry.FieldTitle,
 			entry.FieldDescription,
 			entry.FieldPublishedDate,
 			entry.FieldRSSFeed,

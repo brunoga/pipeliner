@@ -20,6 +20,7 @@ func init() {
 		PluginPhase: plugin.PhaseInput,
 		Role:        plugin.RoleSource,
 		Produces: []string{
+			entry.FieldTitle,
 			entry.FieldFileName,
 			entry.FieldFileExtension,
 			entry.FieldFileLocation,

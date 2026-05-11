@@ -26,7 +26,7 @@ Walks a local directory and emits one entry per file. Entry URLs use the `file:/
 | Property | Value |
 |----------|-------|
 | Role | `source` |
-| Produces | `file_name`, `file_extension`, `file_location`, `file_size`, `file_modified_time` |
+| Produces | `title`, `file_name`, `file_extension`, `file_location`, `file_size`, `file_modified_time` |
 | Requires | — |
 
 ## Example

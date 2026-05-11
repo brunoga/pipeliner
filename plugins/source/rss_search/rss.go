@@ -36,6 +36,7 @@ func init() {
 		PluginPhase: plugin.PhaseFrom,
 		Role:        plugin.RoleSource,
 		Produces: []string{
+			entry.FieldTitle,
 			entry.FieldRSSFeed,
 			entry.FieldRSSGUID,
 			entry.FieldRSSLink,

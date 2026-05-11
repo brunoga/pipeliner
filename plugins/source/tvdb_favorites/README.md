@@ -46,5 +46,5 @@ task("tv-favorites", [
 | Property | Value |
 |----------|-------|
 | Role | `source` |
-| Produces | `title`, `tvdb_id` |
+| Produces | `title`, `tvdb_id`, `tvdb_year` |
 | Requires | — |

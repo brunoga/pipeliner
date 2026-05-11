@@ -30,6 +30,7 @@ func init() {
 		Produces: []string{
 			entry.FieldEnriched,
 			entry.FieldTitle,
+			entry.FieldDescription,
 			entry.FieldVideoYear,
 			entry.FieldVideoGenres,
 			entry.FieldVideoRating,

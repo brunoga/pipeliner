@@ -35,7 +35,7 @@ Entries with `torrent_link_type = "magnet"` are always skipped (handled by `meta
 | Property | Value |
 |----------|-------|
 | Role | `processor` |
-| Produces | `torrent_info_hash`, `torrent_file_size`, `torrent_file_count`, `torrent_files`, `torrent_announce`, `torrent_announce_list`, `torrent_created_by`, `torrent_creation_date`, `torrent_private` |
+| Produces | `title`, `torrent_info_hash`, `torrent_file_size`, `torrent_file_count`, `torrent_files`, `torrent_announce`, `torrent_announce_list`, `torrent_created_by`, `torrent_creation_date`, `torrent_private` |
 | Requires | — |
 
 ## Example

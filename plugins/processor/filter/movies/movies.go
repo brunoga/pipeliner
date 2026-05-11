@@ -34,7 +34,14 @@ func init() {
 		Description: "accept movies from a configured list; track downloads across runs",
 		PluginPhase: plugin.PhaseFilter,
 		Role:        plugin.RoleProcessor,
-		Produces:    []string{entry.FieldMovieTitle},
+		Produces: []string{
+			entry.FieldMovieTitle,
+			entry.FieldVideoYear,
+			entry.FieldVideoQuality,
+			entry.FieldVideoResolution,
+			entry.FieldVideoSource,
+			entry.FieldVideoIs3D,
+		},
 		Factory:     newPlugin,
 		Validate:    validate,
 		Schema: []plugin.FieldSchema{

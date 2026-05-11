@@ -97,5 +97,5 @@ pipeline("trakt-tv", schedule="1h")
 | Property | Value |
 |----------|-------|
 | Role | `source` |
-| Produces | `title`, `trakt_id`, `trakt_slug` |
+| Produces | `title`, `trakt_id`, `trakt_slug`, `trakt_year`, `trakt_imdb_id`, `trakt_tmdb_id` |
 | Requires | — |

@@ -46,5 +46,5 @@ task("discover-tv", [
 | Property | Value |
 |----------|-------|
 | Role | `source` |
-| Produces | `rss_feed`, `rss_guid`, `rss_link`, `rss_enclosure_url`, `rss_enclosure_type`, `published_date`, `torrent_seeds` |
+| Produces | `title`, `rss_feed`, `rss_guid`, `rss_link`, `rss_enclosure_url`, `rss_enclosure_type`, `published_date`, `torrent_seeds` |
 | Requires | — |

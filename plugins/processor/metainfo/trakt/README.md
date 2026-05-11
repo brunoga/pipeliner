@@ -39,7 +39,7 @@ Annotates entries with metadata from Trakt.tv via the search API. Searches by pa
 | Property | Value |
 |----------|-------|
 | Role | `processor` |
-| Produces | `enriched`, `title`, `video_year`, `video_genres`, `video_rating`, `video_votes`, `video_language`, `video_imdb_id`, `video_poster`, `trakt_id`, `trakt_slug`, `trakt_tmdb_id`, `trakt_tvdb_id` |
+| Produces | `enriched`, `title`, `description`, `video_year`, `video_genres`, `video_rating`, `video_votes`, `video_language`, `video_imdb_id`, `video_poster`, `trakt_id`, `trakt_slug`, `trakt_tmdb_id`, `trakt_tvdb_id` |
 | Requires | — |
 
 ## Example

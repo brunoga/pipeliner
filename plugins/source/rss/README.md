@@ -40,7 +40,7 @@ Fetches entries from an RSS 2.0 or Atom 1.0 feed. Prefers enclosure URLs (torren
 | Property | Value |
 |----------|-------|
 | Role | `source` |
-| Produces | `description`, `published_date`, `rss_feed`, `rss_guid`, `rss_link`, `rss_enclosure_url`, `rss_enclosure_type`, `torrent_seeds` |
+| Produces | `title`, `description`, `published_date`, `rss_feed`, `rss_guid`, `rss_link`, `rss_enclosure_url`, `rss_enclosure_type`, `torrent_seeds` |
 | Requires | — |
 
 ## Example

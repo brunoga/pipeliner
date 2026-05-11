@@ -85,8 +85,8 @@ task("tv", [
 | Property | Value |
 |----------|-------|
 | Role | `processor` |
-| Produces | — |
-| Requires | `video_quality` (set by `metainfo_quality`) |
+| Produces | `quality` (internal parsed quality string) |
+| Requires | — |
 
 Place `metainfo_quality` upstream of `quality` in DAG pipelines.
 
