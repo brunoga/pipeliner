@@ -177,7 +177,7 @@ func TestAnnotateSeries(t *testing.T) {
 	p := makePlugin(t, srv)
 
 	e := entry.New("Breaking.Bad.S01E01.720p.HDTV", "http://x.com/a")
-	if err := p.Annotate(context.Background(), makeCtx(), e); err != nil {
+	if err := p.annotate(context.Background(), makeCtx(), e); err != nil {
 		t.Fatal(err)
 	}
 
@@ -245,7 +245,7 @@ func TestAnnotateExtendedFallback(t *testing.T) {
 	p := makePlugin(t, srv)
 
 	e := entry.New("Breaking.Bad.S01E01.720p.HDTV", "http://x.com/a")
-	if err := p.Annotate(context.Background(), makeCtx(), e); err != nil {
+	if err := p.annotate(context.Background(), makeCtx(), e); err != nil {
 		t.Fatal(err)
 	}
 	// Standard fields populated from extended data.
@@ -293,7 +293,7 @@ func TestAnnotateNonSeries(t *testing.T) {
 	p := makePlugin(t, srv)
 
 	e := entry.New("Some Random Movie 2023", "http://x.com/a")
-	if err := p.Annotate(context.Background(), makeCtx(), e); err != nil {
+	if err := p.annotate(context.Background(), makeCtx(), e); err != nil {
 		t.Fatal(err)
 	}
 	if v := e.GetString("title"); v != "" {
@@ -307,7 +307,7 @@ func TestEnrichedSetOnSuccess(t *testing.T) {
 
 	p := makePlugin(t, srv)
 	e := entry.New("Breaking.Bad.S01E01.720p.HDTV", "http://x.com/a")
-	if err := p.Annotate(context.Background(), makeCtx(), e); err != nil {
+	if err := p.annotate(context.Background(), makeCtx(), e); err != nil {
 		t.Fatal(err)
 	}
 	if !e.GetBool("enriched") {
@@ -321,7 +321,7 @@ func TestEnrichedNotSetOnNoResults(t *testing.T) {
 
 	p := makePlugin(t, srv)
 	e := entry.New("Breaking.Bad.S01E01.720p.HDTV", "http://x.com/a")
-	if err := p.Annotate(context.Background(), makeCtx(), e); err != nil {
+	if err := p.annotate(context.Background(), makeCtx(), e); err != nil {
 		t.Fatal(err)
 	}
 	if e.GetBool("enriched") {
@@ -372,7 +372,7 @@ func TestAnnotateTrailingYearParallelSearch(t *testing.T) {
 
 	// Title contains "2017" as a production year right before the episode ID.
 	e := entry.New("Dark.2017.S01E01.1080p.WEBRip", "http://x.com/a")
-	if err := p.Annotate(context.Background(), makeCtx(), e); err != nil {
+	if err := p.annotate(context.Background(), makeCtx(), e); err != nil {
 		t.Fatal(err)
 	}
 	if v := e.GetString("title"); v != "Dark" {
@@ -391,7 +391,7 @@ func TestAnnotateParenthesizedYearParallelSearch(t *testing.T) {
 
 	// Year is inside parentheses with no space: Show(2019)s01e12
 	e := entry.New("Dark(2017)S01E01.1080p.WEBRip", "http://x.com/a")
-	if err := p.Annotate(context.Background(), makeCtx(), e); err != nil {
+	if err := p.annotate(context.Background(), makeCtx(), e); err != nil {
 		t.Fatal(err)
 	}
 	if v := e.GetString("title"); v != "Dark" {
@@ -450,7 +450,7 @@ func TestOriginalTitleForeignShow(t *testing.T) {
 
 	p := makePlugin(t, srv)
 	e := entry.New("Money.Heist.S01E01.1080p.WEBRip", "http://x.com/a")
-	if err := p.Annotate(context.Background(), makeCtx(), e); err != nil {
+	if err := p.annotate(context.Background(), makeCtx(), e); err != nil {
 		t.Fatal(err)
 	}
 	if v := e.GetString("video_original_title"); v != "La Casa de Papel" {
@@ -466,7 +466,7 @@ func TestOriginalTitleNotSetForEnglishShow(t *testing.T) {
 
 	p := makePlugin(t, srv)
 	e := entry.New("Breaking.Bad.S01E01.1080p.WEBRip", "http://x.com/a")
-	if err := p.Annotate(context.Background(), makeCtx(), e); err != nil {
+	if err := p.annotate(context.Background(), makeCtx(), e); err != nil {
 		t.Fatal(err)
 	}
 	if v := e.GetString("video_original_title"); v != "" {
@@ -493,8 +493,8 @@ func TestEmptySearchNotCached(t *testing.T) {
 
 	p := makePlugin(t, srv)
 	e := entry.New("Breaking.Bad.S01E01.720p.HDTV", "http://x.com/a")
-	p.Annotate(context.Background(), makeCtx(), e) //nolint:errcheck
-	p.Annotate(context.Background(), makeCtx(), e) //nolint:errcheck
+	p.annotate(context.Background(), makeCtx(), e) //nolint:errcheck
+	p.annotate(context.Background(), makeCtx(), e) //nolint:errcheck
 
 	if callCount < 2 {
 		t.Errorf("empty search result should not be cached; API called %d times, want ≥2", callCount)

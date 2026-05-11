@@ -95,7 +95,7 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 func (p *torrentPlugin) Name() string        { return "metainfo_torrent" }
 func (p *torrentPlugin) Phase() plugin.Phase { return plugin.PhaseMetainfo }
 
-func (p *torrentPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
+func (p *torrentPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
 	log := tc.Logger
 	loc := e.GetString(entry.FieldFileLocation)
 	log.Debug("metainfo_torrent: received entry",
@@ -160,7 +160,7 @@ func (p *torrentPlugin) Process(ctx context.Context, tc *plugin.TaskContext, ent
 		if e.IsRejected() || e.IsFailed() {
 			continue
 		}
-		if err := p.Annotate(ctx, tc, e); err != nil {
+		if err := p.annotate(ctx, tc, e); err != nil {
 			tc.Logger.Warn("metainfo_torrent error", "entry", e.Title, "err", err)
 		}
 	}

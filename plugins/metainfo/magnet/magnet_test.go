@@ -21,7 +21,7 @@ func taskCtx() *plugin.TaskContext {
 func annotate(t *testing.T, e *entry.Entry) {
 	t.Helper()
 	p := &magnetPlugin{}
-	if err := p.Annotate(context.Background(), taskCtx(), e); err != nil {
+	if err := p.annotate(context.Background(), taskCtx(), e); err != nil {
 		t.Fatalf("Annotate: %v", err)
 	}
 }
@@ -81,7 +81,7 @@ func TestSkipsNonMagnetURL(t *testing.T) {
 func TestSkipsMalformedMagnet(t *testing.T) {
 	p := &magnetPlugin{}
 	e := entry.New("title", "magnet:?xt=urn:btih:BADSHORTEST")
-	err := p.Annotate(context.Background(), taskCtx(), e)
+	err := p.annotate(context.Background(), taskCtx(), e)
 	if err == nil {
 		t.Error("expected error for malformed magnet URI")
 	}
@@ -114,7 +114,7 @@ func TestAnnotateBatchTorrentLinkTypeMagnet(t *testing.T) {
 		t.Fatalf("newPlugin: %v", err)
 	}
 	mp := p.(*magnetPlugin)
-	if err := mp.AnnotateBatch(context.Background(), taskCtx(), []*entry.Entry{e}); err != nil {
+	if err := mp.annotateBatch(context.Background(), taskCtx(), []*entry.Entry{e}); err != nil {
 		t.Fatalf("AnnotateBatch: %v", err)
 	}
 	if v := e.GetString("torrent_info_hash"); v != hexHash {
@@ -130,7 +130,7 @@ func TestAnnotateBatchTorrentLinkTypeTorrentSkipped(t *testing.T) {
 	e.Set(entry.FieldTorrentLinkType, "torrent") // override: engine says it's a torrent
 
 	p := &magnetPlugin{}
-	if err := p.AnnotateBatch(context.Background(), taskCtx(), []*entry.Entry{e}); err != nil {
+	if err := p.annotateBatch(context.Background(), taskCtx(), []*entry.Entry{e}); err != nil {
 		t.Fatalf("AnnotateBatch: %v", err)
 	}
 	if _, ok := e.Get("torrent_info_hash"); ok {
@@ -146,7 +146,7 @@ func TestAnnotateBatchSkipsNonMagnet(t *testing.T) {
 		entry.New("torrent", "http://example.com/file.torrent"),
 		entry.New("page", "https://example.com/"),
 	}
-	if err := p.AnnotateBatch(context.Background(), taskCtx(), entries); err != nil {
+	if err := p.annotateBatch(context.Background(), taskCtx(), entries); err != nil {
 		t.Fatalf("AnnotateBatch: %v", err)
 	}
 	for _, e := range entries {
@@ -168,7 +168,7 @@ func TestAnnotateBatchSetsURIFields(t *testing.T) {
 	mp := p.(*magnetPlugin)
 
 	e := entry.New("title", uri)
-	if err := mp.AnnotateBatch(context.Background(), taskCtx(), []*entry.Entry{e}); err != nil {
+	if err := mp.annotateBatch(context.Background(), taskCtx(), []*entry.Entry{e}); err != nil {
 		t.Fatalf("AnnotateBatch: %v", err)
 	}
 
@@ -193,7 +193,7 @@ func TestAnnotateBatchMalformedMagnetSkipped(t *testing.T) {
 	mp := p.(*magnetPlugin)
 
 	e := entry.New("title", "magnet:?xt=urn:btih:TOOSHORT")
-	if err := mp.AnnotateBatch(context.Background(), taskCtx(), []*entry.Entry{e}); err != nil {
+	if err := mp.annotateBatch(context.Background(), taskCtx(), []*entry.Entry{e}); err != nil {
 		t.Fatalf("AnnotateBatch: %v", err)
 	}
 	if _, ok := e.Get("torrent_info_hash"); ok {

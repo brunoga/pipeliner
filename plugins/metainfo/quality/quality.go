@@ -54,33 +54,23 @@ func newPlugin(_ map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
 func (p *qualityMetaPlugin) Name() string        { return "metainfo_quality" }
 func (p *qualityMetaPlugin) Phase() plugin.Phase { return plugin.PhaseMetainfo }
 
-func (p *qualityMetaPlugin) Annotate(_ context.Context, _ *plugin.TaskContext, e *entry.Entry) error {
-	qual := q.Parse(e.Title)
-	// Standard fields via SetVideoInfo.
-	e.SetVideoInfo(entry.VideoInfo{
-		Quality:    qual.String(),
-		Resolution: qual.ResolutionName(),
-		Source:     qual.SourceName(),
-		Is3D:       qual.Format3D != q.Format3DNone,
-	})
-	// Extended quality fields not in VideoInfo.
-	setIfKnown(e, "codec", codecNames[qual.Codec])
-	setIfKnown(e, "audio", audioNames[qual.Audio])
-	setIfKnown(e, "color_range", colorRangeNames[qual.ColorRange])
-	// Raw int values for numeric comparisons.
-	e.Set("quality_resolution", fmt.Sprintf("%d", int(qual.Resolution)))
-	e.Set("quality_source", fmt.Sprintf("%d", int(qual.Source)))
-	return nil
-}
-
-func (p *qualityMetaPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
+func (p *qualityMetaPlugin) Process(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
 	for _, e := range entries {
 		if e.IsRejected() || e.IsFailed() {
 			continue
 		}
-		if err := p.Annotate(ctx, tc, e); err != nil {
-			tc.Logger.Warn("metainfo_quality error", "entry", e.Title, "err", err)
-		}
+		qual := q.Parse(e.Title)
+		e.SetVideoInfo(entry.VideoInfo{
+			Quality:    qual.String(),
+			Resolution: qual.ResolutionName(),
+			Source:     qual.SourceName(),
+			Is3D:       qual.Format3D != q.Format3DNone,
+		})
+		setIfKnown(e, "codec", codecNames[qual.Codec])
+		setIfKnown(e, "audio", audioNames[qual.Audio])
+		setIfKnown(e, "color_range", colorRangeNames[qual.ColorRange])
+		e.Set("quality_resolution", fmt.Sprintf("%d", int(qual.Resolution)))
+		e.Set("quality_source", fmt.Sprintf("%d", int(qual.Source)))
 	}
 	return entries, nil
 }

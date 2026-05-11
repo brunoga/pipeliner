@@ -63,7 +63,7 @@ func TestAnnotateLocalFile(t *testing.T) {
 	e.Set("file_location", path)
 
 	p := makePlugin(t)
-	if err := p.Annotate(context.Background(), tc(), e); err != nil {
+	if err := p.annotate(context.Background(), tc(), e); err != nil {
 		t.Fatal(err)
 	}
 
@@ -104,7 +104,7 @@ func TestAnnotateRemoteURL(t *testing.T) {
 	e := entry.New("remote", srv.URL+"/remote.torrent")
 
 	p := makePlugin(t)
-	if err := p.Annotate(context.Background(), tc(), e); err != nil {
+	if err := p.annotate(context.Background(), tc(), e); err != nil {
 		t.Fatal(err)
 	}
 
@@ -120,7 +120,7 @@ func TestAnnotateNonTorrentEntry(t *testing.T) {
 	e := entry.New("article", "http://example.com/news/article.html")
 
 	p := makePlugin(t)
-	if err := p.Annotate(context.Background(), tc(), e); err != nil {
+	if err := p.annotate(context.Background(), tc(), e); err != nil {
 		t.Fatal(err)
 	}
 	// No torrent fields should be set
@@ -138,7 +138,7 @@ func TestAnnotateHTTPError(t *testing.T) {
 	e := entry.New("bad", srv.URL+"/missing.torrent")
 
 	p := makePlugin(t)
-	err := p.Annotate(context.Background(), tc(), e)
+	err := p.annotate(context.Background(), tc(), e)
 	if err == nil {
 		t.Error("expected error for HTTP 404")
 	}
@@ -158,7 +158,7 @@ func TestAnnotateEnclosureType(t *testing.T) {
 	e.Set(entry.FieldRSSEnclosureType, "application/x-bittorrent")
 
 	p := makePlugin(t)
-	if err := p.Annotate(context.Background(), tc(), e); err != nil {
+	if err := p.annotate(context.Background(), tc(), e); err != nil {
 		t.Fatal(err)
 	}
 	if v := e.GetString("title"); v != "show.s01e01.mkv" {
@@ -180,7 +180,7 @@ func TestAnnotateTorrentLinkType(t *testing.T) {
 	e.Set(entry.FieldTorrentLinkType, "torrent")
 
 	p := makePlugin(t)
-	if err := p.Annotate(context.Background(), tc(), e); err != nil {
+	if err := p.annotate(context.Background(), tc(), e); err != nil {
 		t.Fatal(err)
 	}
 	if v := e.GetString("title"); v != "movie.2025.mkv" {
@@ -202,7 +202,7 @@ func TestAnnotateMagnetLinkTypeSkipped(t *testing.T) {
 	e.Set(entry.FieldTorrentLinkType, "magnet")
 
 	p := makePlugin(t)
-	if err := p.Annotate(context.Background(), tc(), e); err != nil {
+	if err := p.annotate(context.Background(), tc(), e); err != nil {
 		t.Fatal(err)
 	}
 	if fetched {
@@ -223,7 +223,7 @@ func TestAnnotateNoFetchWithoutSignal(t *testing.T) {
 	e := entry.New("page", srv.URL+"/some/page")
 
 	p := makePlugin(t)
-	if err := p.Annotate(context.Background(), tc(), e); err != nil {
+	if err := p.annotate(context.Background(), tc(), e); err != nil {
 		t.Fatal(err)
 	}
 	if fetched {
