@@ -109,6 +109,14 @@ plugin("condition", rules=[
 ])
 ```
 
+## DAG role
+
+| Property | Value |
+|----------|-------|
+| Role | `processor` |
+| Produces | `movie_title` |
+| Requires | — |
+
 ## Notes
 
 - Download history and dynamic list cache are stored in `pipeliner.db` in the same directory as the config file.
