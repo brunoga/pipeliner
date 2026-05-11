@@ -21,6 +21,7 @@ func init() {
 		PluginName:  "exec",
 		Description: "run a shell command for each accepted entry",
 		PluginPhase: plugin.PhaseOutput,
+		Role:        plugin.RoleSink,
 		Factory:     newPlugin,
 		Validate:    validate,
 		Schema: []plugin.FieldSchema{
