@@ -28,3 +28,11 @@ task("tv-upgrade", [
     plugin("deluge", path="/downloads/tv"),
 ])
 ```
+
+## DAG role
+
+| Property | Value |
+|----------|-------|
+| Role | `processor` |
+| Produces | — |
+| Requires | `video_quality` (set by `metainfo_quality`) |
