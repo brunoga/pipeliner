@@ -28,12 +28,29 @@ Parses video quality tags from the entry title and annotates the entry with stru
 | `quality_resolution` | `1080` | Numeric resolution value for comparisons |
 | `quality_source` | `3` | Numeric source rank for comparisons |
 
+## DAG role
+
+| Property | Value |
+|----------|-------|
+| Role | `processor` |
+| Produces | `video_quality`, `video_resolution`, `video_source` |
+| Requires | — |
+
 ## Example
 
+Linear:
 ```python
 task("my-task", [
     plugin("rss", url="https://example.com/feed"),
     plugin("metainfo_quality"),
     plugin("condition", accept='{{eq .video_resolution "1080p"}}'),
 ])
+```
+
+DAG:
+```python
+src     = input("rss", url="https://example.com/feed")
+quality = process("metainfo_quality", from_=src)
+output("print", from_=quality)
+pipeline("my-pipeline", schedule="1h")
 ```
