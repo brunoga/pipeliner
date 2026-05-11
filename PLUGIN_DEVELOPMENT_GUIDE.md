@@ -973,7 +973,7 @@ After creating your plugin package, add a side-effect import to `cmd/pipeliner/m
 ```go
 import (
     // ...existing imports...
-    _ "github.com/brunoga/pipeliner/plugins/filter/my_plugin"
+    _ "github.com/brunoga/pipeliner/plugins/processor/filter/my_plugin"
 )
 ```
 

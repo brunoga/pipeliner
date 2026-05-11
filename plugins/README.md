@@ -1,7 +1,6 @@
 # Plugins
 
-Pipeliner is built from plugins connected into DAG pipelines. Every plugin
-implements one of three interfaces:
+Pipeliner is built from plugins connected into pipelines. Every plugin implements one of three roles:
 
 ## Plugin roles
 
@@ -11,32 +10,40 @@ implements one of three interfaces:
 | **processor** | `ProcessorPlugin` | `Process(ctx, tc, entries) ([]*Entry, error)` | Transform entries: filter, enrich, or modify |
 | **sink** | `SinkPlugin` | `Consume(ctx, tc, entries) error` | Act on accepted entries (download, notify, persist) |
 
+## Directory layout
+
+```
+plugins/
+  source/          sources (RSS, files, indexers, Trakt, TVDB)
+  processor/
+    metainfo/      enrichment processors (quality, series, TMDb, TVDB, Trakt, torrent)
+    filter/        accept/reject processors (series, movies, seen, quality, condition…)
+    modify/        field-mutation processors (pathfmt, set)
+    discover/      active-search processor
+  sink/
+    notify/        notify sub-plugins (email, pushover, webhook)
+    transmission/  torrent client sinks
+    deluge/
+    qbittorrent/
+    download/
+    email/
+    exec/
+    decompress/
+    list_add/
+    print/
+```
+
 ## Entry state
 
-Each entry starts **undecided**. Processors can move it to **accepted** or **rejected**
-via `e.Accept()` and `e.Reject(reason)`. Sinks receive only `Accepted` entries
-(enforced by `entry.FilterAccepted`). Rejected entries are counted and reported
-but do not reach sinks.
-
-Processors that drop entries from their output slice should call `e.Reject(reason)`
-first so the rejection is counted correctly in the result.
+Each entry starts **undecided**. Processors move it to **accepted** or **rejected** via
+`e.Accept()` and `e.Reject(reason)`. Sinks receive only `Accepted` entries
+(enforced by `entry.FilterAccepted`).
 
 ## Field map
 
 Entries carry an arbitrary `Fields map[string]any` that processors read and write.
 Standard field prefixes: `video_`, `series_`, `movie_`, `torrent_`, `file_`, `rss_`.
 See `internal/entry/info.go` for the full list of constants.
-
-## Plugin directories
-
-| Role | Directory |
-|------|-----------|
-| Sources | `plugins/input/`, `plugins/from/` |
-| Processors — enrichment | `plugins/metainfo/` |
-| Processors — filtering | `plugins/filter/` |
-| Processors — field mutation | `plugins/modify/` |
-| Sinks | `plugins/output/` |
-| Sink notifiers (used by `notify`) | `plugins/notify/` |
 
 ## Registering a plugin
 

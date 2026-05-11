@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	_ "github.com/brunoga/pipeliner/plugins/filter/dedup"
-	_ "github.com/brunoga/pipeliner/plugins/metainfo/quality"
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/dedup"
+	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/quality"
 
 	"github.com/brunoga/pipeliner/internal/entry"
 )

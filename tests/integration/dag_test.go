@@ -11,8 +11,8 @@ import (
 	"testing"
 
 	"github.com/brunoga/pipeliner/internal/config"
-	_ "github.com/brunoga/pipeliner/plugins/filter/dedup"
-	_ "github.com/brunoga/pipeliner/plugins/metainfo/quality"
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/dedup"
+	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/quality"
 )
 
 func parseConfig(t *testing.T, src string) (*config.Config, error) {
