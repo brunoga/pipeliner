@@ -33,3 +33,11 @@ task("tv", [
     ),
 ])
 ```
+
+## DAG role
+
+| Property | Value |
+|----------|-------|
+| Role | `processor` |
+| Produces | — |
+| Requires | `torrent_files` (set by `metainfo_torrent` or `metainfo_magnet`; falls back to URL/file_location when absent) |
