@@ -4,10 +4,8 @@
 # RSS feed, using two independent processor branches after a shared seen/dedup
 # stage.
 #
-# This pattern is impossible in the linear engine (a single task can only
-# have one pipeline path). In the DAG model, after the shared head, the
-# graph branches: the series branch and the movies branch are independent
-# processor chains that both feed their own sink.
+# After the shared head the graph branches: the series branch and the movies
+# branch are independent processor chains that each feed their own sink.
 
 rss_url    = "https://feeds.example.com/all"
 trans_host = "localhost"

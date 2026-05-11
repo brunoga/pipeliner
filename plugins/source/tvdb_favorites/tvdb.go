@@ -43,7 +43,7 @@ func validate(cfg map[string]any) []error {
 	return errs
 }
 
-type tvdbInputPlugin struct {
+type tvdbSourcePlugin struct {
 	client *itvdb.Client
 }
 
@@ -56,14 +56,14 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 	if userPin == "" {
 		return nil, fmt.Errorf("tvdb_favorites: user_pin is required")
 	}
-	return &tvdbInputPlugin{
+	return &tvdbSourcePlugin{
 		client: itvdb.NewWithPin(apiKey, userPin),
 	}, nil
 }
 
-func (p *tvdbInputPlugin) Name() string        { return "tvdb_favorites" }
+func (p *tvdbSourcePlugin) Name() string        { return "tvdb_favorites" }
 
-func (p *tvdbInputPlugin) Generate(ctx context.Context, tc *plugin.TaskContext) ([]*entry.Entry, error) {
+func (p *tvdbSourcePlugin) Generate(ctx context.Context, tc *plugin.TaskContext) ([]*entry.Entry, error) {
 	ids, err := p.client.GetFavorites(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("tvdb_favorites: get favorites: %w", err)

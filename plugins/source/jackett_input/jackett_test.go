@@ -90,9 +90,9 @@ func TestJackettName(t *testing.T) {
 
 func TestInputName(t *testing.T) {
 	cfg := map[string]any{"url": "http://localhost:9117", "api_key": "key"}
-	p, err := newInputPlugin(cfg, nil)
+	p, err := newSourcePlugin(cfg, nil)
 	if err != nil {
-		t.Fatalf("newInputPlugin: %v", err)
+		t.Fatalf("newSourcePlugin: %v", err)
 	}
 	if p.Name() != "jackett_input" {
 		t.Errorf("name: got %q, want jackett_input", p.Name())
@@ -345,18 +345,18 @@ func TestCategoriesJoined(t *testing.T) {
 
 // --- jackett_input tests ---
 
-func TestInputPluginPhaseAndName(t *testing.T) {
+func TestSourcePluginName(t *testing.T) {
 	cfg := map[string]any{"url": "http://localhost:9117", "api_key": "key"}
-	p, err := newInputPlugin(cfg, nil)
+	p, err := newSourcePlugin(cfg, nil)
 	if err != nil {
-		t.Fatalf("newInputPlugin: %v", err)
+		t.Fatalf("newSourcePlugin: %v", err)
 	}
 	if p.Name() != "jackett_input" {
 		t.Errorf("name: got %q, want jackett_input", p.Name())
 	}
 }
 
-func TestInputPluginRunUsesEmptyQueryByDefault(t *testing.T) {
+func TestSourcePluginGenerateUsesEmptyQuery(t *testing.T) {
 	var gotQuery string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotQuery = r.URL.Query().Get("q")
@@ -364,11 +364,11 @@ func TestInputPluginRunUsesEmptyQueryByDefault(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p, err := newInputPlugin(map[string]any{"url": srv.URL, "api_key": "key"}, nil)
+	p, err := newSourcePlugin(map[string]any{"url": srv.URL, "api_key": "key"}, nil)
 	if err != nil {
-		t.Fatalf("newInputPlugin: %v", err)
+		t.Fatalf("newSourcePlugin: %v", err)
 	}
-	if _, err := p.(*jackettInputPlugin).Generate(context.Background(), tc()); err != nil {
+	if _, err := p.(*jackettSourcePlugin).Generate(context.Background(), tc()); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	if gotQuery != "" {
@@ -376,7 +376,7 @@ func TestInputPluginRunUsesEmptyQueryByDefault(t *testing.T) {
 	}
 }
 
-func TestInputPluginRunUsesConfiguredQuery(t *testing.T) {
+func TestSourcePluginGenerateUsesConfiguredQuery(t *testing.T) {
 	var gotQuery string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotQuery = r.URL.Query().Get("q")
@@ -384,11 +384,11 @@ func TestInputPluginRunUsesConfiguredQuery(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p, err := newInputPlugin(map[string]any{"url": srv.URL, "api_key": "key", "query": "breaking bad"}, nil)
+	p, err := newSourcePlugin(map[string]any{"url": srv.URL, "api_key": "key", "query": "breaking bad"}, nil)
 	if err != nil {
-		t.Fatalf("newInputPlugin: %v", err)
+		t.Fatalf("newSourcePlugin: %v", err)
 	}
-	if _, err := p.(*jackettInputPlugin).Generate(context.Background(), tc()); err != nil {
+	if _, err := p.(*jackettSourcePlugin).Generate(context.Background(), tc()); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	if gotQuery != "breaking bad" {
@@ -396,7 +396,7 @@ func TestInputPluginRunUsesConfiguredQuery(t *testing.T) {
 	}
 }
 
-func TestInputPluginRunReturnsEntries(t *testing.T) {
+func TestSourcePluginGenerateReturnsEntries(t *testing.T) {
 	items := []ijackett.Item{
 		{Title: "Breaking.Bad.S01E01.720p", Link: "http://example.com/1.torrent"},
 		{Title: "The.Wire.S01E01.720p", Link: "http://example.com/2.torrent"},
@@ -406,11 +406,11 @@ func TestInputPluginRunReturnsEntries(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p, err := newInputPlugin(map[string]any{"url": srv.URL, "api_key": "key"}, nil)
+	p, err := newSourcePlugin(map[string]any{"url": srv.URL, "api_key": "key"}, nil)
 	if err != nil {
-		t.Fatalf("newInputPlugin: %v", err)
+		t.Fatalf("newSourcePlugin: %v", err)
 	}
-	entries, err := p.(*jackettInputPlugin).Generate(context.Background(), tc())
+	entries, err := p.(*jackettSourcePlugin).Generate(context.Background(), tc())
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
