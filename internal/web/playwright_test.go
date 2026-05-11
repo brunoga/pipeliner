@@ -215,7 +215,6 @@ func TestE2EConfigTabLoadsStarlark(t *testing.T) {
 }
 
 func TestE2EVisualToggleShowsPalette(t *testing.T) {
-	t.Skip("visual editor hidden pending redesign")
 	ts := startTestServer(t, minimalConfig)
 	browser, stop := pwSetup(t)
 	defer stop()
@@ -226,12 +225,11 @@ func TestE2EVisualToggleShowsPalette(t *testing.T) {
 	login(t, page, ts.url)
 	openConfigTab(t, page)
 
-	// Click the Visual toggle.
 	if err := page.Click("#view-btn-visual"); err != nil {
 		t.Fatalf("click visual toggle: %v", err)
 	}
 
-	// The plugin palette should become visible.
+	// Plugin palette should be visible.
 	if _, err := page.WaitForSelector("#ve-palette-body", playwright.PageWaitForSelectorOptions{
 		State: playwright.WaitForSelectorStateVisible,
 	}); err != nil {
@@ -249,7 +247,40 @@ func TestE2EVisualToggleShowsPalette(t *testing.T) {
 }
 
 func TestE2EVisualAddPluginFromPalette(t *testing.T) {
-	t.Skip("visual editor hidden pending redesign")
+	ts := startTestServer(t, minimalConfig)
+	browser, stop := pwSetup(t)
+	defer stop()
+
+	page, _ := browser.NewPage()
+	defer page.Close() //nolint:errcheck
+
+	login(t, page, ts.url)
+	openConfigTab(t, page)
+
+	if err := page.Click("#view-btn-visual"); err != nil {
+		t.Fatalf("click visual toggle: %v", err)
+	}
+	// Wait for the palette to populate with plugin chips.
+	if _, err := page.WaitForSelector("#ve-palette-body .ve-chip", playwright.PageWaitForSelectorOptions{
+		State: playwright.WaitForSelectorStateVisible,
+	}); err != nil {
+		t.Fatalf("no palette chips loaded: %v", err)
+	}
+
+	// Click the first chip — no task creation step needed in the DAG editor.
+	if err := page.Click("#ve-palette-body .ve-chip"); err != nil {
+		t.Fatalf("click palette chip: %v", err)
+	}
+
+	// A node card should appear in the canvas.
+	if _, err := page.WaitForSelector(".ve-node", playwright.PageWaitForSelectorOptions{
+		State: playwright.WaitForSelectorStateVisible,
+	}); err != nil {
+		t.Errorf("no node card appeared in canvas: %v", err)
+	}
+}
+
+func TestE2EVisualToTextSync(t *testing.T) {
 	ts := startTestServer(t, minimalConfig)
 	browser, stop := pwSetup(t)
 	defer stop()
@@ -261,55 +292,14 @@ func TestE2EVisualAddPluginFromPalette(t *testing.T) {
 	openConfigTab(t, page)
 
 	// Switch to visual mode.
-	if err := page.Click("#view-btn-visual"); err != nil {
-		t.Fatalf("click visual toggle: %v", err)
-	}
-	if _, err := page.WaitForSelector("#ve-palette-body .ve-chip", playwright.PageWaitForSelectorOptions{
-		State: playwright.WaitForSelectorStateVisible,
-	}); err != nil {
-		t.Fatalf("no palette chips loaded: %v", err)
-	}
-
-	// Add a new task first.
-	if err := page.Click(".ve-add-task"); err != nil {
-		t.Fatalf("click add task: %v", err)
-	}
-
-	// Click the first palette chip to append a plugin.
-	if err := page.Click("#ve-palette-body .ve-chip"); err != nil {
-		t.Fatalf("click palette chip: %v", err)
-	}
-
-	// A plugin card should appear in the canvas.
-	if _, err := page.WaitForSelector(".ve-node", playwright.PageWaitForSelectorOptions{
-		State: playwright.WaitForSelectorStateVisible,
-	}); err != nil {
-		t.Errorf("no plugin card appeared in canvas: %v", err)
-	}
-}
-
-func TestE2EVisualToTextSync(t *testing.T) {
-	t.Skip("visual editor hidden pending redesign")
-	ts := startTestServer(t, minimalConfig)
-	browser, stop := pwSetup(t)
-	defer stop()
-
-	page, _ := browser.NewPage()
-	defer page.Close() //nolint:errcheck
-
-	login(t, page, ts.url)
-	openConfigTab(t, page)
-
-	// Switch to visual mode — this auto-parses the current text config.
 	page.Click("#view-btn-visual")                    //nolint:errcheck
 	page.WaitForSelector("#ve-palette-body .ve-chip") //nolint:errcheck
 
-	// Add a new task and a plugin — each change writes back to the text editor.
-	page.Click(".ve-add-task")               //nolint:errcheck
-	page.Click("#ve-palette-body .ve-chip")  //nolint:errcheck
-	page.WaitForSelector(".ve-node")         //nolint:errcheck
+	// Add a node from the palette — each change auto-syncs to the text editor.
+	page.Click("#ve-palette-body .ve-chip") //nolint:errcheck
+	page.WaitForSelector(".ve-node")        //nolint:errcheck
 
-	// Switch back to text view and verify the editor reflects the visual state.
+	// Switch back to text view and verify the editor has content.
 	if err := page.Click("#view-btn-text"); err != nil {
 		t.Fatalf("click text toggle: %v", err)
 	}
@@ -323,7 +313,6 @@ func TestE2EVisualToTextSync(t *testing.T) {
 }
 
 func TestE2ETextToVisualSync(t *testing.T) {
-	t.Skip("visual editor hidden pending redesign")
 	ts := startTestServer(t, minimalConfig)
 	browser, stop := pwSetup(t)
 	defer stop()
@@ -334,28 +323,29 @@ func TestE2ETextToVisualSync(t *testing.T) {
 	login(t, page, ts.url)
 	openConfigTab(t, page)
 
-	// Put Starlark into the text editor.
-	starlark := fmt.Sprintf(`task("my-tv-task", [plugin("rss", url=%q)])`, "https://example.com")
+	// Write DAG-syntax Starlark into the text editor.
+	starlark := fmt.Sprintf("src = input(\"rss\", url=%q)\npipeline(\"my-pipeline\")", "https://example.com")
 	if err := page.Fill("#config-editor", starlark); err != nil {
 		t.Fatalf("fill editor: %v", err)
 	}
 
-	// Switching to visual automatically parses the text config — no button needed.
-	page.Click("#view-btn-visual")       //nolint:errcheck
-	page.WaitForSelector("#ve-task-bar") //nolint:errcheck
+	// Switching to visual auto-parses the text config.
+	page.Click("#view-btn-visual") //nolint:errcheck
 
-	// The task tab should show the task name.
-	if _, err := page.WaitForSelector(`.ve-task-tab:has-text("my-tv-task")`, playwright.PageWaitForSelectorOptions{
-		State: playwright.WaitForSelectorStateVisible,
-	}); err != nil {
-		t.Errorf("task tab 'my-tv-task' not found after Text→Visual sync: %v", err)
-	}
-
-	// An rss plugin card should appear.
+	// An rss node card should appear in the canvas.
 	if _, err := page.WaitForSelector(`.ve-node-name:has-text("rss")`, playwright.PageWaitForSelectorOptions{
 		State: playwright.WaitForSelectorStateVisible,
 	}); err != nil {
-		t.Errorf("rss plugin card not found after sync: %v", err)
+		t.Errorf("rss node not found after Text→Visual sync: %v", err)
+	}
+
+	// The pipeline name input should reflect the name from the config.
+	nameVal, err := page.InputValue("#ve-pipeline-name")
+	if err != nil {
+		t.Fatalf("get pipeline name: %v", err)
+	}
+	if nameVal != "my-pipeline" {
+		t.Errorf("pipeline name: got %q, want %q", nameVal, "my-pipeline")
 	}
 }
 
