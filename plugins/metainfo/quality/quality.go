@@ -16,7 +16,13 @@ func init() {
 		PluginName:  "metainfo_quality",
 		Description: "parse video quality from entry title and annotate fields",
 		PluginPhase: plugin.PhaseMetainfo,
-		Factory:     newPlugin,
+		Role:        plugin.RoleProcessor,
+		Produces: []string{
+			entry.FieldVideoQuality,
+			entry.FieldVideoResolution,
+			entry.FieldVideoSource,
+		},
+		Factory: newPlugin,
 		Validate: func(cfg map[string]any) []error {
 			return plugin.OptUnknownKeys(cfg, "metainfo_quality")
 		},
