@@ -29,3 +29,11 @@ task("cleanup", [
 - Commands are executed via the system shell (`/bin/sh -c`).
 - Errors are logged as warnings; processing continues for remaining entries.
 - Quote paths carefully — filenames with spaces require quoting inside the template.
+
+## DAG role
+
+| Property | Value |
+|----------|-------|
+| Role | `sink` |
+| Produces | — |
+| Requires | — |
