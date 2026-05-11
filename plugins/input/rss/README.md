@@ -35,10 +35,26 @@ Fetches entries from an RSS 2.0 or Atom 1.0 feed. Prefers enclosure URLs (torren
 |-------|------|-------------|
 | `torrent_seeds` | int | Seeder count from torrent namespace extensions (nyaa, Jackett, ezrss, etc.) |
 
+## DAG role
+
+| Property | Value |
+|----------|-------|
+| Role | `source` |
+| Produces | `description`, `published_date`, `rss_feed`, `rss_guid`, `rss_link`, `rss_enclosure_url`, `rss_enclosure_type`, `torrent_seeds` |
+| Requires | — |
+
 ## Example
 
+Linear:
 ```python
 task("my-task", [
     plugin("rss", url="https://example.com/torrents/rss"),
 ])
+```
+
+DAG:
+```python
+src = input("rss", url="https://example.com/torrents/rss")
+output("print", from_=src)
+pipeline("my-pipeline", schedule="1h")
 ```
