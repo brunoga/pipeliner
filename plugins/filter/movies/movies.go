@@ -33,6 +33,8 @@ func init() {
 		PluginName:  "movies",
 		Description: "accept movies from a configured list; track downloads across runs",
 		PluginPhase: plugin.PhaseFilter,
+		Role:        plugin.RoleProcessor,
+		Produces:    []string{entry.FieldMovieTitle},
 		Factory:     newPlugin,
 		Validate:    validate,
 		Schema: []plugin.FieldSchema{
