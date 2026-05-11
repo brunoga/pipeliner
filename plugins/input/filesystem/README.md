@@ -21,12 +21,29 @@ Walks a local directory and emits one entry per file. Entry URLs use the `file:/
 | `file_size` | int64 | File size in bytes |
 | `file_modified_time` | time.Time | Last modified time |
 
+## DAG role
+
+| Property | Value |
+|----------|-------|
+| Role | `source` |
+| Produces | `file_name`, `file_extension`, `file_location`, `file_size`, `file_modified_time` |
+| Requires | — |
+
 ## Example
 
+Linear:
 ```python
 task("watch-folder", [
     plugin("filesystem", path="/downloads/watch", mask="*.torrent"),
     plugin("metainfo_torrent"),
     plugin("transmission", host="localhost"),
 ])
+```
+
+DAG:
+```python
+src   = input("filesystem", path="/downloads/watch", mask="*.torrent")
+meta  = process("metainfo_torrent", from_=src)
+output("transmission", from_=meta, host="localhost")
+pipeline("watch-folder", schedule="5m")
 ```
