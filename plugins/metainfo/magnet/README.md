@@ -34,8 +34,17 @@ An entry is treated as a magnet when `torrent_link_type = "magnet"` (set by `jac
 
 DHT resolution fields are absent when the timeout expires before peers respond. The entry is still passed to output plugins with only the URI-derived fields.
 
+## DAG role
+
+| Property | Value |
+|----------|-------|
+| Role | `processor` |
+| Produces | `torrent_info_hash`, `torrent_announce`, `torrent_announce_list`, `torrent_file_size`, `torrent_file_count`, `torrent_files` |
+| Requires | — |
+
 ## Example
 
+Linear:
 ```python
 task("magnets", [
     plugin("rss", url="https://example.com/rss/magnets"),
@@ -45,6 +54,17 @@ task("magnets", [
     plugin("quality", min="720p"),
     plugin("qbittorrent", host="localhost"),
 ])
+```
+
+DAG:
+```python
+src     = input("rss", url="https://example.com/rss/magnets")
+seen    = process("seen", from_=src)
+magnet  = process("metainfo_magnet", from_=seen, resolve_timeout="45s")
+quality = process("metainfo_quality", from_=magnet)
+flt     = process("quality", from_=quality, min="720p")
+output("qbittorrent", from_=flt, host="localhost")
+pipeline("magnets", schedule="1h")
 ```
 
 ## Notes
