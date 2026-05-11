@@ -15,7 +15,17 @@ func init() {
 		PluginName:  "metainfo_series",
 		Description: "parse series/episode info from entry title and annotate fields",
 		PluginPhase: plugin.PhaseMetainfo,
-		Factory:     newPlugin,
+		Role:        plugin.RoleProcessor,
+		Produces: []string{
+			entry.FieldSeriesSeason,
+			entry.FieldSeriesEpisode,
+			entry.FieldSeriesEpisodeID,
+			entry.FieldSeriesProper,
+			entry.FieldSeriesRepack,
+			entry.FieldSeriesDoubleEpisode,
+			entry.FieldSeriesService,
+		},
+		Factory: newPlugin,
 		Validate: func(cfg map[string]any) []error {
 			return plugin.OptUnknownKeys(cfg, "metainfo_series")
 		},
