@@ -1,21 +1,28 @@
-// Package discover provides an input plugin that actively searches multiple
-// sources for entries matching a list of titles.
+// Package discover actively searches multiple backends for entries matching a
+// title list, with a per-title cooldown to avoid redundant searches.
 //
-// Unlike RSS-based inputs that passively receive entries, discover iterates a
-// configured title list, dispatches a query to each configured search plugin,
-// and returns the merged, deduplicated results. A per-title cooldown (interval)
-// prevents redundant searches on successive runs.
+// It operates in two modes depending on whether it is used in a linear task
+// or a DAG pipeline:
 //
-// Config keys:
+// Linear (InputPlugin): titles come from the 'titles' config key and/or from
+// the 'from' list of sub-plugins. The plugin generates entries from scratch.
 //
-//	titles    - static list of title strings to search for
-//	from      - list of input plugin configs whose entry titles supplement or
-//	            replace the static list; same format as 'via' entries
-//	via       - list of search plugin configs (required); each entry is either a
-//	            plugin name string or a map with a "name" key plus plugin options
-//	interval  - minimum time between searches for the same title (default: "24h")
+// DAG (ProcessorPlugin): upstream source nodes supply entries whose .Title
+// fields form the search query list. Static 'titles' from config are also
+// included. The plugin returns entries found by the search backends — not the
+// upstream entries themselves.
 //
-// At least one of 'titles' or 'from' must produce titles.
+// Config keys (both modes):
+//
+//	titles   - static list of title strings to search for (optional)
+//	via      - list of search plugin configs (required); each entry is a name
+//	           string or a map with "name" + plugin options
+//	interval - minimum time between searches for the same title (default: "24h")
+//
+// Additional config key (linear mode only):
+//
+//	from     - list of input plugin configs whose entry titles supplement the
+//	           title list (replaced by DAG upstream connections in DAG mode)
 package discover
 
 import (
@@ -33,9 +40,9 @@ import (
 func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "discover",
-		Description: "actively search multiple sources for items from a title list",
-		PluginPhase: plugin.PhaseInput,
-		Role:        plugin.RoleSource,
+		Description: "actively search multiple backends for items from a title list; works as a source in linear tasks and as a processor in DAG pipelines",
+		PluginPhase: plugin.PhaseInput, // retained for linear task engine backward compat
+		Role:        plugin.RoleProcessor,
 		Produces: []string{
 			entry.FieldTorrentSeeds,
 			entry.FieldTorrentInfoHash,
@@ -138,15 +145,16 @@ func resolveSearchPlugin(item any, db *store.SQLiteStore) (plugin.SearchPlugin, 
 func (p *discoverPlugin) Name() string        { return "discover" }
 func (p *discoverPlugin) Phase() plugin.Phase { return plugin.PhaseInput }
 
+// Run implements InputPlugin for the linear task engine. Titles come from the
+// static list and from the 'from' sub-plugins configured in the plugin block.
 func (p *discoverPlugin) Run(ctx context.Context, tc *plugin.TaskContext) ([]*entry.Entry, error) {
-	// Collect titles: static list + titles from 'from' input plugins.
 	titles := append([]string{}, p.titles...)
 	if len(p.from) > 0 {
 		innerTC := &plugin.TaskContext{Name: tc.Name, Logger: tc.Logger}
 		for _, inp := range p.from {
 			fromEntries, err := inp.Run(ctx, innerTC)
 			if err != nil {
-				continue // error already logged by loggedFromPlugin wrapper
+				continue
 			}
 			for _, e := range fromEntries {
 				if e.Title != "" {
@@ -155,8 +163,26 @@ func (p *discoverPlugin) Run(ctx context.Context, tc *plugin.TaskContext) ([]*en
 			}
 		}
 	}
+	return p.searchTitles(ctx, tc, titles)
+}
 
-	// Deduplicate titles (case-insensitive) while preserving order.
+// Process implements ProcessorPlugin for DAG pipelines. Upstream entries supply
+// the title list (via their .Title field); static titles from config are also
+// included. Returns entries found by the search backends, not the input entries.
+func (p *discoverPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
+	titles := append([]string{}, p.titles...)
+	for _, e := range entries {
+		if e.Title != "" {
+			titles = append(titles, e.Title)
+		}
+	}
+	return p.searchTitles(ctx, tc, titles)
+}
+
+// searchTitles deduplicates the title list and dispatches searches via the
+// configured search plugins, respecting the per-title interval cooldown.
+func (p *discoverPlugin) searchTitles(ctx context.Context, tc *plugin.TaskContext, titles []string) ([]*entry.Entry, error) {
+	// Deduplicate case-insensitively, preserve order.
 	seenTitle := map[string]bool{}
 	unique := titles[:0:0]
 	for _, t := range titles {
@@ -168,7 +194,6 @@ func (p *discoverPlugin) Run(ctx context.Context, tc *plugin.TaskContext) ([]*en
 	titles = unique
 
 	bucket := p.db.Bucket("discover:" + tc.Name)
-
 	seen := map[string]bool{}
 	var all []*entry.Entry
 
@@ -207,7 +232,6 @@ func (p *discoverPlugin) Run(ctx context.Context, tc *plugin.TaskContext) ([]*en
 			tc.Logger.Warn("discover: update search timestamp failed", "title", title, "err", putErr)
 		}
 	}
-
 	return all, nil
 }
 
