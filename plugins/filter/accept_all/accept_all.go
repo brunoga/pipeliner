@@ -14,6 +14,7 @@ func init() {
 		PluginName:  "accept_all",
 		Description: "accept every undecided entry unconditionally",
 		PluginPhase: plugin.PhaseFilter,
+		Role:        plugin.RoleProcessor,
 		Factory: func(_ map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
 			return &acceptAllPlugin{}, nil
 		},

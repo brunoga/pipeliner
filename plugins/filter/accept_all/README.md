@@ -10,6 +10,14 @@ No configuration options. Call with just the plugin name:
 plugin("accept_all")
 ```
 
+## DAG role
+
+| Property | Value |
+|----------|-------|
+| Role | `processor` |
+| Produces | — |
+| Requires | — |
+
 ## Example — sync a Trakt watchlist into a persistent list
 
 Note: `trakt_list` is a PhaseFrom sub-plugin and cannot be used directly as a task-level input. Use it inside `movies.from`, `series.from`, or `discover.from`.
