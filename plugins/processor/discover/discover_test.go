@@ -18,7 +18,6 @@ type mockSourcePlugin struct {
 }
 
 func (m *mockSourcePlugin) Name() string        { return m.pluginName }
-func (m *mockSourcePlugin) Phase() plugin.Phase { return plugin.PhaseFrom }
 func (m *mockSourcePlugin) Generate(_ context.Context, _ *plugin.TaskContext) ([]*entry.Entry, error) {
 	return m.entries, nil
 }
@@ -55,7 +54,6 @@ func newMockSearch(name string) *mockSearch {
 }
 
 func (m *mockSearch) Name() string        { return m.pluginName }
-func (m *mockSearch) Phase() plugin.Phase { return plugin.PhaseFrom }
 func (m *mockSearch) Search(_ context.Context, _ *plugin.TaskContext, query string) ([]*entry.Entry, error) {
 	m.calls[query]++
 	return m.results[query], nil

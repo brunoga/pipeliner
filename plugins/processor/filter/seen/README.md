@@ -43,6 +43,6 @@ In DAG pipelines, `seen` records new entries in its `Process()` call immediately
 
 ## Notes
 
-- Fingerprints are written to the store during the **learn** phase (linear tasks) or immediately in `Process()` (DAG pipelines).
+- Fingerprints are written to the store immediately in `Process()` so they are persisted even if downstream sinks fail.
 - Use `local=True` when multiple tasks consume the same feed but should track seen entries independently.
 - State is stored in `pipeliner.db` in the same directory as the config file.

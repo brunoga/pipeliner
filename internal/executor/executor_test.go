@@ -15,7 +15,6 @@ import (
 type sourcePlugin struct{ urls []string }
 
 func (p *sourcePlugin) Name() string        { return "test_source" }
-func (p *sourcePlugin) Phase() plugin.Phase { return plugin.PhaseInput }
 func (p *sourcePlugin) Generate(_ context.Context, _ *plugin.TaskContext) ([]*entry.Entry, error) {
 	var out []*entry.Entry
 	for _, u := range p.urls {
@@ -28,7 +27,6 @@ func (p *sourcePlugin) Generate(_ context.Context, _ *plugin.TaskContext) ([]*en
 type acceptAllPlugin struct{}
 
 func (p *acceptAllPlugin) Name() string        { return "test_accept" }
-func (p *acceptAllPlugin) Phase() plugin.Phase { return plugin.PhaseFilter }
 func (p *acceptAllPlugin) Process(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
 	for _, e := range entries {
 		e.Accept()
@@ -39,7 +37,6 @@ func (p *acceptAllPlugin) Process(_ context.Context, _ *plugin.TaskContext, entr
 type sinkPlugin struct{ received []*entry.Entry }
 
 func (p *sinkPlugin) Name() string        { return "test_sink" }
-func (p *sinkPlugin) Phase() plugin.Phase { return plugin.PhaseOutput }
 func (p *sinkPlugin) Consume(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) error {
 	p.received = append(p.received, entries...)
 	return nil

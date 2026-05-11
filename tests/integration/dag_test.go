@@ -1,10 +1,7 @@
 package integration
 
-// dag_test.go exercises DAG-style pipelines (input/process/output/pipeline)
+// dag_test.go exercises pipelines (input/process/output/pipeline)
 // end-to-end using real plugins, mock HTTP servers, and in-memory SQLite.
-//
-// The existing buildAndRun / buildTask / run helpers work unchanged because
-// config.BuildTasks returns both linear tasks and DAG pipelines as *task.Task.
 
 import (
 	"fmt"

@@ -78,7 +78,7 @@ task("tv-watchlist", [
 
 ## DAG role
 
-`trakt_list` keeps `PhaseFrom` so it continues to work inside `series.from`, `movies.from`, and `discover.from`. Its `Role` is `source`, which means it can also be used as a standalone `input()` node in DAG pipelines:
+`trakt_list` has `Role=source`. It is used inside `series.from`, `movies.from`, and `discover.from`, and can also be used as a standalone `input()` node in DAG pipelines:
 
 ```python
 # DAG: trakt_list as a standalone source feeding a series filter

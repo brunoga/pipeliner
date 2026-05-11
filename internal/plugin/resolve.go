@@ -8,8 +8,7 @@ import (
 
 // MakeFromPlugin creates a logging-wrapped SourcePlugin from a config item.
 // item may be a plugin name string or a map[string]any with a "name" key plus
-// config keys. The plugin must have Role=RoleSource (PhaseFrom or PhaseInput
-// with EffectiveRole()=RoleSource).
+// config keys. The plugin must have Role=RoleSource.
 func MakeFromPlugin(item any, db *store.SQLiteStore) (SourcePlugin, error) {
 	name, cfg, err := ResolveNameAndConfig(item)
 	if err != nil {
