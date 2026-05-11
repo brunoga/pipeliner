@@ -78,6 +78,16 @@ task("tv", [
     plugin("series", static=["Breaking Bad"], quality="720p+ webrip+"),
 ])
 
+## DAG role
+
+| Property | Value |
+|----------|-------|
+| Role | `processor` |
+| Produces | — |
+| Requires | `video_quality` (set by `metainfo_quality`) |
+
+Place `metainfo_quality` upstream of `quality` in DAG pipelines.
+
 task("movies-3d", [
     plugin("rss", url="https://example.com/feed"),
     plugin("movies",
