@@ -22,7 +22,6 @@ func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "qbittorrent",
 		Description: "add torrents to a qBittorrent daemon via Web API v2",
-		PluginPhase: plugin.PhaseOutput,
 		Role:        plugin.RoleSink,
 		Factory:     newPlugin,
 		Validate:    validate,
@@ -88,7 +87,6 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 }
 
 func (p *qbtPlugin) Name() string        { return "qbittorrent" }
-func (p *qbtPlugin) Phase() plugin.Phase { return plugin.PhaseOutput }
 
 func (p *qbtPlugin) deliver(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
 	if err := p.login(ctx); err != nil {

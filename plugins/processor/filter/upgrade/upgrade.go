@@ -28,7 +28,6 @@ func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "upgrade",
 		Description: "accept entries only when they offer a quality improvement over what was previously downloaded",
-		PluginPhase: plugin.PhaseFilter,
 		Role:        plugin.RoleProcessor,
 		Requires:    []string{entry.FieldVideoQuality},
 		Factory:     newPlugin,
@@ -76,7 +75,6 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 }
 
 func (p *upgradePlugin) Name() string        { return "upgrade" }
-func (p *upgradePlugin) Phase() plugin.Phase { return plugin.PhaseFilter }
 
 func (p *upgradePlugin) filter(_ context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
 	current := quality.Parse(e.Title)

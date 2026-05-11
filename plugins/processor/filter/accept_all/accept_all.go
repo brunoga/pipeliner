@@ -13,7 +13,6 @@ func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "accept_all",
 		Description: "accept every undecided entry unconditionally",
-		PluginPhase: plugin.PhaseFilter,
 		Role:        plugin.RoleProcessor,
 		Factory: func(_ map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
 			return &acceptAllPlugin{}, nil
@@ -27,7 +26,6 @@ func init() {
 type acceptAllPlugin struct{}
 
 func (p *acceptAllPlugin) Name() string        { return "accept_all" }
-func (p *acceptAllPlugin) Phase() plugin.Phase { return plugin.PhaseFilter }
 func (p *acceptAllPlugin) Process(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
 	for _, e := range entries {
 		if !e.IsAccepted() && !e.IsRejected() && !e.IsFailed() {

@@ -22,7 +22,6 @@ func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "list_add",
 		Description: "add accepted entries to a named persistent list",
-		PluginPhase: plugin.PhaseOutput,
 		Role:        plugin.RoleSink,
 		Factory:     newPlugin,
 		Validate:    validate,
@@ -52,7 +51,6 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 }
 
 func (p *listAddPlugin) Name() string        { return "list_add" }
-func (p *listAddPlugin) Phase() plugin.Phase { return plugin.PhaseOutput }
 
 func (p *listAddPlugin) Consume(_ context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
 	if tc.DryRun {

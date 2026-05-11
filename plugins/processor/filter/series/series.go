@@ -31,7 +31,6 @@ func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "series",
 		Description: "accept episodes for configured shows; track downloads across runs",
-		PluginPhase: plugin.PhaseFilter,
 		Role:        plugin.RoleProcessor,
 		Produces: []string{
 			entry.FieldSeriesSeason,
@@ -162,7 +161,6 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 }
 
 func (p *seriesPlugin) Name() string        { return "series" }
-func (p *seriesPlugin) Phase() plugin.Phase { return plugin.PhaseFilter }
 
 func (p *seriesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
 	ep, ok := series.Parse(e.Title)

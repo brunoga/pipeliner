@@ -21,9 +21,6 @@ func TestNewPrintPlugin(t *testing.T) {
 	if p.Name() != "print" {
 		t.Errorf("want name %q, got %q", "print", p.Name())
 	}
-	if p.Phase() != plugin.PhaseOutput {
-		t.Errorf("want phase output, got %s", p.Phase())
-	}
 }
 
 func TestNewPrintPluginCustomFormat(t *testing.T) {

@@ -34,7 +34,6 @@ func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "metainfo_tvdb",
 		Description: "enrich series entries with TheTVDB metadata (title, air date, overview)",
-		PluginPhase: plugin.PhaseMetainfo,
 		Role:        plugin.RoleProcessor,
 		Produces: []string{
 			entry.FieldEnriched,
@@ -123,7 +122,6 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 }
 
 func (p *tvdbPlugin) Name() string        { return "metainfo_tvdb" }
-func (p *tvdbPlugin) Phase() plugin.Phase { return plugin.PhaseMetainfo }
 
 func (p *tvdbPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
 	ep, ok := series.Parse(e.Title)

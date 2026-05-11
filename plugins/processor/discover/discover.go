@@ -31,7 +31,6 @@ func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "discover",
 		Description: "actively search multiple backends for items from a title list; receives a title list from upstream source nodes and returns search results",
-		PluginPhase: plugin.PhaseInput,
 		Role:        plugin.RoleProcessor,
 		Produces: []string{
 			entry.FieldTorrentSeeds,
@@ -133,7 +132,6 @@ func resolveSearchPlugin(item any, db *store.SQLiteStore) (plugin.SearchPlugin, 
 }
 
 func (p *discoverPlugin) Name() string        { return "discover" }
-func (p *discoverPlugin) Phase() plugin.Phase { return plugin.PhaseInput }
 
 // Process implements ProcessorPlugin for DAG pipelines. Upstream entries supply
 // the title list (via their .Title field); static titles from config and any

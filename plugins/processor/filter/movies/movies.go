@@ -32,7 +32,6 @@ func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "movies",
 		Description: "accept movies from a configured list; track downloads across runs",
-		PluginPhase: plugin.PhaseFilter,
 		Role:        plugin.RoleProcessor,
 		Produces: []string{
 			entry.FieldMovieTitle,
@@ -141,7 +140,6 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 }
 
 func (p *moviesPlugin) Name() string        { return "movies" }
-func (p *moviesPlugin) Phase() plugin.Phase { return plugin.PhaseFilter }
 
 func (p *moviesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
 	m, ok := imovies.Parse(e.Title)

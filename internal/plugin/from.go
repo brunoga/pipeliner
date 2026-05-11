@@ -27,8 +27,7 @@ type loggedSourcePlugin struct {
 	inner SourcePlugin
 }
 
-func (p *loggedSourcePlugin) Name() string  { return p.inner.Name() }
-func (p *loggedSourcePlugin) Phase() Phase  { return p.inner.Phase() }
+func (p *loggedSourcePlugin) Name() string     { return p.inner.Name() }
 func (p *loggedSourcePlugin) CacheKey() string { return sourceKey(p.inner) }
 
 func (p *loggedSourcePlugin) Generate(ctx context.Context, tc *TaskContext) ([]*entry.Entry, error) {

@@ -15,7 +15,6 @@ func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "quality",
 		Description: "reject entries whose video quality falls outside the configured range",
-		PluginPhase: plugin.PhaseFilter,
 		Role:    plugin.RoleProcessor,
 		Produces: []string{"quality"},
 		Factory:  newPlugin,
@@ -87,7 +86,6 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 }
 
 func (p *qualityPlugin) Name() string        { return "quality" }
-func (p *qualityPlugin) Phase() plugin.Phase { return plugin.PhaseFilter }
 
 func (p *qualityPlugin) Process(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
 	for _, e := range entries {

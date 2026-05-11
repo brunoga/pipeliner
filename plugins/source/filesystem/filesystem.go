@@ -17,7 +17,6 @@ func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "filesystem",
 		Description: "scan a local directory and emit one entry per file",
-		PluginPhase: plugin.PhaseInput,
 		Role:        plugin.RoleSource,
 		Produces: []string{
 			entry.FieldTitle,
@@ -63,7 +62,6 @@ func newFilesystemPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugi
 }
 
 func (f *filesystemPlugin) Name() string        { return "filesystem" }
-func (f *filesystemPlugin) Phase() plugin.Phase { return plugin.PhaseInput }
 
 func (f *filesystemPlugin) Generate(ctx context.Context, _ *plugin.TaskContext) ([]*entry.Entry, error) {
 	var entries []*entry.Entry

@@ -12,7 +12,6 @@ func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "jackett_input",
 		Description: "return recent results from Jackett indexers as pipeline entries (no query required)",
-		PluginPhase: plugin.PhaseInput,
 		Role:        plugin.RoleSource,
 		Produces: []string{
 			entry.FieldPublishedDate,
@@ -67,7 +66,6 @@ func newInputPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, e
 }
 
 func (p *jackettInputPlugin) Name() string        { return "jackett_input" }
-func (p *jackettInputPlugin) Phase() plugin.Phase { return plugin.PhaseInput }
 
 func (p *jackettInputPlugin) Generate(ctx context.Context, tc *plugin.TaskContext) ([]*entry.Entry, error) {
 	return p.searcher.Search(ctx, tc, p.query)

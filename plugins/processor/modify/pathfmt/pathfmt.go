@@ -22,7 +22,6 @@ func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "pathfmt",
 		Description: "render a path pattern into an entry field, scrubbing invalid characters",
-		PluginPhase: plugin.PhaseModify,
 		Role:        plugin.RoleProcessor,
 		Factory:     newPlugin,
 		Validate:    validate,
@@ -69,7 +68,6 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 }
 
 func (p *pathfmtPlugin) Name() string        { return "pathfmt" }
-func (p *pathfmtPlugin) Phase() plugin.Phase { return plugin.PhaseModify }
 
 // scrubPath sanitizes each component of a path using generic (cross-platform)
 // rules, preserving the path separator.

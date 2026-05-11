@@ -120,7 +120,6 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 }
 
 func (p *jackettPlugin) Name() string        { return "jackett" }
-func (p *jackettPlugin) Phase() plugin.Phase { return plugin.PhaseFrom }
 
 // Search queries each configured indexer and returns the merged, deduplicated
 // results. Indexer errors are logged and skipped rather than aborting the

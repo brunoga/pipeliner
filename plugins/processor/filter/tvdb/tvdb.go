@@ -28,7 +28,6 @@ import (
 func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "tvdb",
-		PluginPhase: plugin.PhaseFilter,
 		Role:        plugin.RoleProcessor,
 		Description: "Accept entries whose series name appears in the user's TheTVDB favorites",
 		Factory:     newPlugin,
@@ -91,7 +90,6 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 }
 
 func (p *tvdbFilter) Name() string        { return "tvdb" }
-func (p *tvdbFilter) Phase() plugin.Phase { return plugin.PhaseFilter }
 
 func (p *tvdbFilter) filter(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
 	titles, err := p.ensureTitles(ctx, tc)

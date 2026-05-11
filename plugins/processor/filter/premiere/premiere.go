@@ -33,7 +33,6 @@ func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "premiere",
 		Description: "accept only the first episode of series not previously seen (series premiere detection)",
-		PluginPhase: plugin.PhaseFilter,
 		Role:        plugin.RoleProcessor,
 		Produces: []string{
 			entry.FieldSeriesSeason,
@@ -108,7 +107,6 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 }
 
 func (p *premierePlugin) Name() string        { return "premiere" }
-func (p *premierePlugin) Phase() plugin.Phase { return plugin.PhaseFilter }
 
 func (p *premierePlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
 	ep, ok := series.Parse(e.Title)

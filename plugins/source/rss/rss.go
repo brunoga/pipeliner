@@ -19,7 +19,6 @@ func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "rss",
 		Description: "fetch entries from an RSS 2.0 or Atom 1.0 feed",
-		PluginPhase: plugin.PhaseInput,
 		Role:        plugin.RoleSource,
 		Produces: []string{
 			entry.FieldTitle,

@@ -21,7 +21,6 @@ func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "email",
 		Description: "send a batch email for all accepted entries via SMTP",
-		PluginPhase: plugin.PhaseOutput,
 		Role:        plugin.RoleSink,
 		Factory:     newPlugin,
 		Validate:    validate,
@@ -127,7 +126,6 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 }
 
 func (p *emailPlugin) Name() string        { return "email" }
-func (p *emailPlugin) Phase() plugin.Phase { return plugin.PhaseOutput }
 
 func (p *emailPlugin) deliver(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) error {
 	if len(entries) == 0 {

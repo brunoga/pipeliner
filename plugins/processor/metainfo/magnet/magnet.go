@@ -38,7 +38,6 @@ func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "metainfo_magnet",
 		Description: "annotate entries whose URL is a magnet link with info hash, tracker and DHT metadata",
-		PluginPhase: plugin.PhaseMetainfo,
 		Role:        plugin.RoleProcessor,
 		Produces: []string{
 			entry.FieldTitle,
@@ -100,7 +99,6 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 }
 
 func (p *magnetPlugin) Name() string        { return "metainfo_magnet" }
-func (p *magnetPlugin) Phase() plugin.Phase { return plugin.PhaseMetainfo }
 
 // Shutdown closes the underlying DHT client, releasing its goroutines and
 // sockets. Called at process exit (daemon) or after the run completes.
@@ -119,29 +117,7 @@ func isMagnetEntry(e *entry.Entry) bool {
 	return strings.HasPrefix(e.URL, "magnet:")
 }
 
-// Annotate handles the single-entry path (used by tests and external callers).
-// It sets URI-derived fields only; DHT resolution requires AnnotateBatch.
-func (p *magnetPlugin) annotate(_ context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
-	log := tc.Logger
-	if !isMagnetEntry(e) {
-		log.Debug("metainfo_magnet: skipping entry — not a magnet", "entry", e.URL)
-		return nil
-	}
-	log.Debug("metainfo_magnet: parsing magnet URI", "entry", e.URL)
-	if err := annotateFromURI(e); err != nil {
-		log.Error("metainfo_magnet: failed to parse magnet URI", "entry", e.URL, "err", err)
-		return err
-	}
-	log.Debug("metainfo_magnet: URI annotated",
-		"entry", e.URL,
-		"info_hash", e.GetString(entry.FieldTorrentInfoHash),
-		"announce", e.GetString(entry.FieldTorrentAnnounce),
-		"display_name", e.GetString(entry.FieldTitle),
-	)
-	return nil
-}
-
-// AnnotateBatch implements BatchMetainfoPlugin. It first annotates all entries
+// annotateBatch first annotates all entries
 // from their magnet URIs, then fires DHT resolution for all of them in
 // parallel, waiting up to resolveTimeout for each.
 func (p *magnetPlugin) annotateBatch(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {

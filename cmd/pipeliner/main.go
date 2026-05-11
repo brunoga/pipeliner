@@ -133,7 +133,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, `Pipeliner — media automation tool
 
 Usage:
-  pipeliner run     [--config path] [--log-level level] [--log-plugin name[,name...]] [--dry-run] [task ...]
+  pipeliner run     [--config path] [--log-level level] [--log-plugin name[,name...]] [--dry-run] [pipeline ...]
   pipeliner daemon  [--config path] [--log-level level] [--log-plugin name[,name...]]
                     [--web :8080 --web-user USER --web-password PASS]
                     [--tls-self-signed | --tls-cert cert.pem --tls-key key.pem]
@@ -162,8 +162,8 @@ func cmdRun(args []string) int {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	cfgPath   := fs.String("config",     "config.star", "path to config file")
 	logLevel  := fs.String("log-level",  "info",        "log level (debug, info, warn, error)")
-	logPlugin := fs.String("log-plugin", "",            "only show log output from these plugins, comma-separated (task-level logs always shown)")
-	dryRun    := fs.Bool("dry-run",      false,         "execute pipeline but skip output and learn phases (idempotent)")
+	logPlugin := fs.String("log-plugin", "",            "only show log output from these plugins, comma-separated (pipeline-level logs always shown)")
+	dryRun    := fs.Bool("dry-run",      false,         "run all source and processor nodes but skip sinks (idempotent)")
 	if err := fs.Parse(args); err != nil {
 		return 1
 	}
@@ -208,7 +208,7 @@ func cmdRun(args []string) int {
 		}
 		for name := range wanted {
 			if !knownTasks[name] {
-				logger.Error("unknown task specified", "task", name)
+				logger.Error("unknown pipeline specified", "pipeline", name)
 				return 1
 			}
 		}
@@ -234,12 +234,12 @@ func cmdRun(args []string) int {
 		result, err := t.Run(ctx)
 
 		if err != nil {
-			logger.Error("task failed", "task", t.Name(), "err", err)
+			logger.Error("pipeline failed", "pipeline", t.Name(), "err", err)
 			exitCode = 2
 			continue
 		}
-		logger.Info("task done",
-			"task", t.Name(),
+		logger.Info("pipeline done",
+			"pipeline", t.Name(),
 			"accepted", result.Accepted,
 			"rejected", result.Rejected,
 			"failed", result.Failed,
@@ -255,7 +255,7 @@ func cmdDaemon(args []string) int {
 	fs := flag.NewFlagSet("daemon", flag.ContinueOnError)
 	cfgPath       := fs.String("config",          "config.star", "path to config file")
 	logLevel      := fs.String("log-level",       "info",        "log level (debug, info, warn, error)")
-	logPlugin     := fs.String("log-plugin",      "",            "only show log output from these plugins, comma-separated (task-level logs always shown)")
+	logPlugin     := fs.String("log-plugin",      "",            "only show log output from these plugins, comma-separated (pipeline-level logs always shown)")
 	webAddr       := fs.String("web",             "",            "web interface listen address (e.g. :8080); empty disables it")
 	webUser       := fs.String("web-user",        "",            "username for the web interface (required with --web)")
 	webPass       := fs.String("web-password",    "",            "password for the web interface (required with --web)")
@@ -346,7 +346,7 @@ func cmdDaemon(args []string) int {
 		return 1
 	} else {
 		for _, s := range scheduled {
-			logger.Info("scheduled", "task", s.Name, "schedule", allSched[s.Name])
+			logger.Info("scheduled", "pipeline", s.Name, "schedule", allSched[s.Name])
 		}
 	}
 
@@ -372,15 +372,15 @@ func cmdDaemon(args []string) int {
 		rec := web.RunRecord{Task: name, At: at}
 		if runErr != nil {
 			rec.Err = runErr.Error()
-			logger.Error("task failed", "task", name, "err", runErr)
+			logger.Error("pipeline failed", "pipeline", name, "err", runErr)
 		} else {
 			rec.Accepted = result.Accepted
 			rec.Rejected = result.Rejected
 			rec.Failed = result.Failed
 			rec.Total = result.Total
 			rec.Duration = result.Duration
-			logger.Info("task done",
-				"task", name,
+			logger.Info("pipeline done",
+				"pipeline", name,
 				"accepted", result.Accepted,
 				"rejected", result.Rejected,
 				"failed", result.Failed,
@@ -425,7 +425,7 @@ func cmdDaemon(args []string) int {
 		}
 
 		d.Reset(scheduled)
-		logger.Info("config reloaded", "tasks", len(newTasks))
+		logger.Info("config reloaded", "pipelines", len(newTasks))
 
 		if ws != nil {
 			infos := make([]web.TaskInfo, len(newTasks))
@@ -500,7 +500,7 @@ func addSchedules(d *scheduler.Daemon, schedules map[string]string, tasks map[st
 	var out []scheduler.ScheduledTask
 	for name, expr := range schedules {
 		if _, ok := tasks[name]; !ok {
-			logger.Error("schedule references unknown task", "task", name)
+			logger.Error("schedule references unknown pipeline", "pipeline", name)
 			return nil, false
 		}
 		sched, err := scheduler.ParseInterval(expr)
@@ -509,7 +509,7 @@ func addSchedules(d *scheduler.Daemon, schedules map[string]string, tasks map[st
 			sched, err = scheduler.ParseCron(expr)
 		}
 		if err != nil {
-			logger.Error("invalid schedule", "task", name, "expr", expr, "err", err)
+			logger.Error("invalid schedule", "pipeline", name, "expr", expr, "err", err)
 			return nil, false
 		}
 		out = append(out, scheduler.ScheduledTask{Name: name, Schedule: sched, RunAtStart: runAtStart})

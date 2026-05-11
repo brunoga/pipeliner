@@ -81,10 +81,21 @@ func TestDefaultIndexer(t *testing.T) {
 	}
 }
 
-func TestPhase(t *testing.T) {
+func TestJackettName(t *testing.T) {
 	p := makePlugin(t, "http://localhost:9117", "key", nil)
-	if p.Phase() != plugin.PhaseFrom {
-		t.Errorf("phase: got %q, want %q", p.Phase(), plugin.PhaseFrom)
+	if p.Name() != "jackett" {
+		t.Errorf("name: got %q, want jackett", p.Name())
+	}
+}
+
+func TestInputName(t *testing.T) {
+	cfg := map[string]any{"url": "http://localhost:9117", "api_key": "key"}
+	p, err := newInputPlugin(cfg, nil)
+	if err != nil {
+		t.Fatalf("newInputPlugin: %v", err)
+	}
+	if p.Name() != "jackett_input" {
+		t.Errorf("name: got %q, want jackett_input", p.Name())
 	}
 }
 
@@ -339,9 +350,6 @@ func TestInputPluginPhaseAndName(t *testing.T) {
 	p, err := newInputPlugin(cfg, nil)
 	if err != nil {
 		t.Fatalf("newInputPlugin: %v", err)
-	}
-	if p.Phase() != plugin.PhaseInput {
-		t.Errorf("phase: got %q, want %q", p.Phase(), plugin.RoleSource)
 	}
 	if p.Name() != "jackett_input" {
 		t.Errorf("name: got %q, want jackett_input", p.Name())

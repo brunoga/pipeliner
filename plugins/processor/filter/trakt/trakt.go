@@ -38,7 +38,6 @@ import (
 func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "trakt",
-		PluginPhase: plugin.PhaseFilter,
 		Role:        plugin.RoleProcessor,
 		Description: "Accept entries matching titles from a Trakt.tv list (watchlist, trending, popular, etc.)",
 		Factory:     newPlugin,
@@ -152,7 +151,6 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 }
 
 func (p *traktFilter) Name() string        { return "trakt" }
-func (p *traktFilter) Phase() plugin.Phase { return plugin.PhaseFilter }
 
 func (p *traktFilter) filter(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
 	titles, err := p.ensureTitles(ctx, tc)

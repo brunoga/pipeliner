@@ -17,7 +17,6 @@ func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "require",
 		Description: "reject entries that are missing any of the specified fields",
-		PluginPhase: plugin.PhaseFilter,
 		Role:        plugin.RoleProcessor,
 		Factory:     newPlugin,
 		Validate:    validate,
@@ -55,7 +54,6 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 }
 
 func (p *requirePlugin) Name() string        { return "require" }
-func (p *requirePlugin) Phase() plugin.Phase { return plugin.PhaseFilter }
 
 // isMissing reports whether a value is absent or the zero value of its type.
 func isMissing(v any) bool {

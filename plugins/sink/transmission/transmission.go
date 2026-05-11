@@ -34,7 +34,6 @@ import (
 func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "transmission",
-		PluginPhase: plugin.PhaseOutput,
 		Role:        plugin.RoleSink,
 		Description: "Adds accepted torrents to a Transmission client via JSON-RPC",
 		Factory:     newPlugin,
@@ -117,7 +116,6 @@ func stringVal(cfg map[string]any, key string) string {
 }
 
 func (p *transmissionPlugin) Name() string        { return "transmission" }
-func (p *transmissionPlugin) Phase() plugin.Phase { return plugin.PhaseOutput }
 
 func (p *transmissionPlugin) deliver(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
 	for _, e := range entries {

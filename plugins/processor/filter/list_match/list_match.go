@@ -26,7 +26,6 @@ func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "list_match",
 		Description: "accept entries whose title is in a named persistent list; reject others",
-		PluginPhase: plugin.PhaseFilter,
 		Role:        plugin.RoleProcessor,
 		Factory:     newPlugin,
 		Validate:    validate,
@@ -63,7 +62,6 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 }
 
 func (p *listMatchPlugin) Name() string        { return "list_match" }
-func (p *listMatchPlugin) Phase() plugin.Phase { return plugin.PhaseFilter }
 
 func (p *listMatchPlugin) filter(_ context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
 	list := entrylist.Open(p.db, p.listName)

@@ -35,7 +35,7 @@ func TestRegisterAndLookup(t *testing.T) {
 
 	Register(&Descriptor{
 		PluginName:  "myplugin",
-		PluginPhase: PhaseInput,
+		Role: RoleSource,
 		Factory:     newStubFactory("myplugin"),
 	})
 
@@ -58,20 +58,20 @@ func TestLookupMiss(t *testing.T) {
 
 func TestRegisterPanicOnDuplicate(t *testing.T) {
 	resetForTest()
-	Register(&Descriptor{PluginName: "dup", PluginPhase: PhaseInput, Factory: newStubFactory("dup")})
+	Register(&Descriptor{PluginName: "dup", Role: RoleSource, Factory: newStubFactory("dup")})
 
 	defer func() {
 		if r := recover(); r == nil {
 			t.Error("expected panic on duplicate registration")
 		}
 	}()
-	Register(&Descriptor{PluginName: "dup", PluginPhase: PhaseInput, Factory: newStubFactory("dup")})
+	Register(&Descriptor{PluginName: "dup", Role: RoleSource, Factory: newStubFactory("dup")})
 }
 
 func TestAll(t *testing.T) {
 	resetForTest()
-	Register(&Descriptor{PluginName: "b", PluginPhase: PhaseInput, Factory: newStubFactory("b")})
-	Register(&Descriptor{PluginName: "a", PluginPhase: PhaseFilter, Factory: newStubFactory("a")})
+	Register(&Descriptor{PluginName: "b", Role: RoleSource, Factory: newStubFactory("b")})
+	Register(&Descriptor{PluginName: "a", Role: RoleProcessor, Factory: newStubFactory("a")})
 
 	all := All()
 	if len(all) != 2 {

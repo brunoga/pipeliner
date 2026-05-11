@@ -20,7 +20,6 @@ func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "deluge",
 		Description: "add torrents to a Deluge daemon via JSON-RPC",
-		PluginPhase: plugin.PhaseOutput,
 		Role:        plugin.RoleSink,
 		Factory:     newPlugin,
 		Validate:    validate,
@@ -96,7 +95,6 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 }
 
 func (p *delugePlugin) Name() string        { return "deluge" }
-func (p *delugePlugin) Phase() plugin.Phase { return plugin.PhaseOutput }
 
 func (p *delugePlugin) deliver(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
 	if err := p.login(ctx); err != nil {

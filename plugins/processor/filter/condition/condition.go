@@ -38,7 +38,6 @@ func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "condition",
 		Description: "accept or reject entries via boolean expressions",
-		PluginPhase: plugin.PhaseFilter,
 		Role:        plugin.RoleProcessor,
 		Factory:     newPlugin,
 		Validate:    validate,
@@ -135,7 +134,6 @@ func parseRule(m map[string]any, prefix string) (rule, error) {
 }
 
 func (p *conditionPlugin) Name() string        { return "condition" }
-func (p *conditionPlugin) Phase() plugin.Phase { return plugin.PhaseFilter }
 
 func (p *conditionPlugin) filter(_ context.Context, _ *plugin.TaskContext, e *entry.Entry) error {
 	data := interp.EntryData(e)

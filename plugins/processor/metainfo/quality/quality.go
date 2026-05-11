@@ -15,7 +15,6 @@ func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "metainfo_quality",
 		Description: "parse video quality from entry title and annotate fields",
-		PluginPhase: plugin.PhaseMetainfo,
 		Role:        plugin.RoleProcessor,
 		Produces: []string{
 			entry.FieldVideoQuality,
@@ -58,7 +57,6 @@ func newPlugin(_ map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
 }
 
 func (p *qualityMetaPlugin) Name() string        { return "metainfo_quality" }
-func (p *qualityMetaPlugin) Phase() plugin.Phase { return plugin.PhaseMetainfo }
 
 func (p *qualityMetaPlugin) Process(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
 	for _, e := range entries {

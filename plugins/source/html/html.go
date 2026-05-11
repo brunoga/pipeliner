@@ -20,7 +20,6 @@ func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "html",
 		Description: "extract links from an HTML page",
-		PluginPhase: plugin.PhaseInput,
 		Role:        plugin.RoleSource,
 		Produces:    []string{"html_page"},
 		Factory:     newPlugin,
@@ -57,7 +56,6 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 }
 
 func (p *htmlPlugin) Name() string        { return "html" }
-func (p *htmlPlugin) Phase() plugin.Phase { return plugin.PhaseInput }
 
 func (p *htmlPlugin) Generate(ctx context.Context, _ *plugin.TaskContext) ([]*entry.Entry, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.pageURL, nil)
