@@ -23,6 +23,7 @@ func init() {
 		PluginName:  "qbittorrent",
 		Description: "add torrents to a qBittorrent daemon via Web API v2",
 		PluginPhase: plugin.PhaseOutput,
+		Role:        plugin.RoleSink,
 		Factory:     newPlugin,
 		Validate:    validate,
 		Schema: []plugin.FieldSchema{
