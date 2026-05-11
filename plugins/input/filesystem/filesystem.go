@@ -18,8 +18,16 @@ func init() {
 		PluginName:  "filesystem",
 		Description: "scan a local directory and emit one entry per file",
 		PluginPhase: plugin.PhaseInput,
-		Factory:     newFilesystemPlugin,
-		Validate:    validate,
+		Role:        plugin.RoleSource,
+		Produces: []string{
+			entry.FieldFileName,
+			entry.FieldFileExtension,
+			entry.FieldFileLocation,
+			entry.FieldFileSize,
+			entry.FieldFileModifiedTime,
+		},
+		Factory:  newFilesystemPlugin,
+		Validate: validate,
 		Schema: []plugin.FieldSchema{
 			{Key: "path", Type: plugin.FieldTypeString, Required: true, Hint: "Directory to scan"},
 			{Key: "mask", Type: plugin.FieldTypeString, Hint: "Glob pattern, e.g. *.torrent"},
