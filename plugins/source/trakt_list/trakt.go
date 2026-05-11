@@ -62,7 +62,7 @@ func validate(cfg map[string]any) []error {
 	return errs
 }
 
-type traktInputPlugin struct {
+type traktSourcePlugin struct {
 	clientID     string
 	clientSecret string          // set when using stored token auth
 	staticToken  string          // set when using access_token from config
@@ -97,7 +97,7 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 		limit = int(v)
 	}
 
-	p := &traktInputPlugin{
+	p := &traktSourcePlugin{
 		clientID: clientID,
 		itemType: itemType,
 		list:     list,
@@ -114,13 +114,13 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 	return p, nil
 }
 
-func (p *traktInputPlugin) Name() string        { return "trakt_list" }
+func (p *traktSourcePlugin) Name() string        { return "trakt_list" }
 
 // CacheKey returns a key that includes type and list so that two trakt_list
 // instances with different parameters are cached independently.
-func (p *traktInputPlugin) CacheKey() string { return "trakt_list:" + p.itemType + ":" + p.list }
+func (p *traktSourcePlugin) CacheKey() string { return "trakt_list:" + p.itemType + ":" + p.list }
 
-func (p *traktInputPlugin) Generate(ctx context.Context, tc *plugin.TaskContext) ([]*entry.Entry, error) {
+func (p *traktSourcePlugin) Generate(ctx context.Context, tc *plugin.TaskContext) ([]*entry.Entry, error) {
 	client, err := p.buildClient(ctx)
 	if err != nil {
 		return nil, err
@@ -155,7 +155,7 @@ func (p *traktInputPlugin) Generate(ctx context.Context, tc *plugin.TaskContext)
 	return entries, nil
 }
 
-func (p *traktInputPlugin) buildClient(ctx context.Context) (*itrakt.Client, error) {
+func (p *traktSourcePlugin) buildClient(ctx context.Context) (*itrakt.Client, error) {
 	if p.authBucket != nil {
 		token, err := itrakt.GetValidAccessToken(ctx, p.authBucket, p.clientID, p.clientSecret)
 		if err != nil {

@@ -21,7 +21,7 @@ func init() {
 			entry.FieldTorrentLinkType,
 			entry.FieldTorrentFileSize,
 		},
-		Factory:  newInputPlugin,
+		Factory:  newSourcePlugin,
 		Validate: validateInput,
 	})
 }
@@ -44,14 +44,14 @@ func validateInput(cfg map[string]any) []error {
 	return errs
 }
 
-type jackettInputPlugin struct {
+type jackettSourcePlugin struct {
 	searcher *jackettPlugin
 	query    string
 }
 
-// newInputPlugin accepts the same config as jackett plus an optional 'query'
+// newSourcePlugin accepts the same config as jackett plus an optional 'query'
 // key (default: "", which returns recent/all results from the indexer).
-func newInputPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
+func newSourcePlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
 	query, _ := cfg["query"].(string)
 
 	p, err := newPlugin(cfg, db)
@@ -59,14 +59,14 @@ func newInputPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, e
 		return nil, err
 	}
 
-	return &jackettInputPlugin{
+	return &jackettSourcePlugin{
 		searcher: p.(*jackettPlugin),
 		query:    query,
 	}, nil
 }
 
-func (p *jackettInputPlugin) Name() string        { return "jackett_input" }
+func (p *jackettSourcePlugin) Name() string        { return "jackett_input" }
 
-func (p *jackettInputPlugin) Generate(ctx context.Context, tc *plugin.TaskContext) ([]*entry.Entry, error) {
+func (p *jackettSourcePlugin) Generate(ctx context.Context, tc *plugin.TaskContext) ([]*entry.Entry, error) {
 	return p.searcher.Search(ctx, tc, p.query)
 }

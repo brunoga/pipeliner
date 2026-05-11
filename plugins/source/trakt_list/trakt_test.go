@@ -54,7 +54,7 @@ func TestDefaultList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newPlugin: %v", err)
 	}
-	if p.(*traktInputPlugin).list != "watchlist" {
+	if p.(*traktSourcePlugin).list != "watchlist" {
 		t.Error("default list should be watchlist")
 	}
 }
@@ -71,7 +71,7 @@ func TestCacheKeyIncludesTypeAndList(t *testing.T) {
 		{"movies", "collection", "trakt_list:movies:collection"},
 	}
 	for _, tc := range cases {
-		p := &traktInputPlugin{itemType: tc.itemType, list: tc.list}
+		p := &traktSourcePlugin{itemType: tc.itemType, list: tc.list}
 		if got := p.CacheKey(); got != tc.want {
 			t.Errorf("CacheKey(%s,%s): got %q, want %q", tc.itemType, tc.list, got, tc.want)
 		}
@@ -124,7 +124,7 @@ func TestClientSecretUsesStoredToken(t *testing.T) {
 		t.Fatalf("newPlugin: %v", err)
 	}
 
-	entries, err := p.(*traktInputPlugin).Generate(context.Background(), nil)
+	entries, err := p.(*traktSourcePlugin).Generate(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -152,7 +152,7 @@ func TestRunReturnsEntries(t *testing.T) {
 		t.Fatalf("newPlugin: %v", err)
 	}
 
-	entries, err := p.(*traktInputPlugin).Generate(context.Background(), nil)
+	entries, err := p.(*traktSourcePlugin).Generate(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
