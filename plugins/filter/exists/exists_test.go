@@ -30,7 +30,7 @@ func TestMatchingTitleRejected(t *testing.T) {
 		t.Fatal(err)
 	}
 	e := entry.New("My Show S01E01", "http://x.com/a")
-	p.(*existsPlugin).Filter(context.Background(), makeCtx(), e) //nolint:errcheck
+	p.(*existsPlugin).filter(context.Background(), makeCtx(), e) //nolint:errcheck
 	if !e.IsRejected() {
 		t.Error("entry matching existing file should be rejected")
 	}
@@ -40,7 +40,7 @@ func TestNonMatchingTitleAccepted(t *testing.T) {
 	dir := setup(t, "My.Show.S01E01.mkv")
 	p, _ := newPlugin(map[string]any{"path": dir}, nil)
 	e := entry.New("My Show S01E02", "http://x.com/a")
-	p.(*existsPlugin).Filter(context.Background(), makeCtx(), e) //nolint:errcheck
+	p.(*existsPlugin).filter(context.Background(), makeCtx(), e) //nolint:errcheck
 	if e.IsRejected() {
 		t.Error("entry not matching any file should not be rejected")
 	}
@@ -51,7 +51,7 @@ func TestFilenameFieldChecked(t *testing.T) {
 	p, _ := newPlugin(map[string]any{"path": dir}, nil)
 	e := entry.New("Something Else", "http://x.com/a")
 	e.Set("filename", "downloaded_file.mkv")
-	p.(*existsPlugin).Filter(context.Background(), makeCtx(), e) //nolint:errcheck
+	p.(*existsPlugin).filter(context.Background(), makeCtx(), e) //nolint:errcheck
 	if !e.IsRejected() {
 		t.Error("entry with matching filename field should be rejected")
 	}
@@ -69,7 +69,7 @@ func TestNonRecursiveSkipsSubdirs(t *testing.T) {
 
 	p, _ := newPlugin(map[string]any{"path": dir, "recursive": false}, nil)
 	e := entry.New("Hidden Show S01E01", "http://x.com/a")
-	p.(*existsPlugin).Filter(context.Background(), makeCtx(), e) //nolint:errcheck
+	p.(*existsPlugin).filter(context.Background(), makeCtx(), e) //nolint:errcheck
 	if e.IsRejected() {
 		t.Error("non-recursive should not look in subdirectories")
 	}
@@ -87,7 +87,7 @@ func TestRecursiveFindsSubdirFiles(t *testing.T) {
 
 	p, _ := newPlugin(map[string]any{"path": dir, "recursive": true}, nil)
 	e := entry.New("Hidden Show S01E01", "http://x.com/a")
-	p.(*existsPlugin).Filter(context.Background(), makeCtx(), e) //nolint:errcheck
+	p.(*existsPlugin).filter(context.Background(), makeCtx(), e) //nolint:errcheck
 	if !e.IsRejected() {
 		t.Error("recursive should find files in subdirectories")
 	}

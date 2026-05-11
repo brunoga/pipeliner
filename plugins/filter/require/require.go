@@ -57,17 +57,6 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 func (p *requirePlugin) Name() string        { return "require" }
 func (p *requirePlugin) Phase() plugin.Phase { return plugin.PhaseFilter }
 
-func (p *requirePlugin) Filter(_ context.Context, _ *plugin.TaskContext, e *entry.Entry) error {
-	for _, field := range p.fields {
-		v, _ := e.Get(field)
-		if isMissing(v) {
-			e.Reject(fmt.Sprintf("missing required field: %s", field))
-			return nil
-		}
-	}
-	return nil
-}
-
 // isMissing reports whether a value is absent or the zero value of its type.
 func isMissing(v any) bool {
 	if v == nil {
@@ -115,13 +104,17 @@ func toStringSlice(v any) ([]string, error) {
 	return nil, fmt.Errorf("unsupported type %T", v)
 }
 
-func (p *requirePlugin) Process(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
+func (p *requirePlugin) Process(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
 	for _, e := range entries {
 		if e.IsRejected() || e.IsFailed() {
 			continue
 		}
-		if err := p.Filter(ctx, tc, e); err != nil {
-			tc.Logger.Warn("filter error", "entry", e.Title, "err", err)
+		for _, field := range p.fields {
+			v, _ := e.Get(field)
+			if isMissing(v) {
+				e.Reject(fmt.Sprintf("missing required field: %s", field))
+				break
+			}
 		}
 	}
 	return entry.PassThrough(entries), nil

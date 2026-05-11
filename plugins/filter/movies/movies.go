@@ -136,7 +136,7 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 func (p *moviesPlugin) Name() string        { return "movies" }
 func (p *moviesPlugin) Phase() plugin.Phase { return plugin.PhaseFilter }
 
-func (p *moviesPlugin) Filter(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
+func (p *moviesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
 	m, ok := imovies.Parse(e.Title)
 	if !ok {
 		if p.rejectUnmatched {
@@ -196,7 +196,7 @@ func (p *moviesPlugin) Filter(ctx context.Context, tc *plugin.TaskContext, e *en
 	return nil
 }
 
-func (p *moviesPlugin) Learn(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
+func (p *moviesPlugin) persist(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
 	titles := p.resolveTitles(ctx, tc)
 	for _, e := range entries {
 		m, ok := imovies.Parse(e.Title)
@@ -265,13 +265,13 @@ func (p *moviesPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entr
 		if e.IsRejected() || e.IsFailed() {
 			continue
 		}
-		if err := p.Filter(ctx, tc, e); err != nil {
+		if err := p.filter(ctx, tc, e); err != nil {
 			tc.Logger.Warn("movies filter error", "entry", e.Title, "err", err)
 		}
 	}
 	out := entry.PassThrough(entries)
 	if len(out) > 0 {
-		if err := p.Learn(ctx, tc, out); err != nil {
+		if err := p.persist(ctx, tc, out); err != nil {
 			tc.Logger.Warn("movies learn error", "err", err)
 		}
 	}

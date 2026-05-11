@@ -20,8 +20,8 @@ func makePlugin(t *testing.T, cfg map[string]any) *requirePlugin {
 
 func filter(t *testing.T, p *requirePlugin, e *entry.Entry) {
 	t.Helper()
-	if err := p.Filter(context.Background(), &plugin.TaskContext{}, e); err != nil {
-		t.Fatalf("Filter: %v", err)
+	if _, err := p.Process(context.Background(), &plugin.TaskContext{}, []*entry.Entry{e}); err != nil {
+		t.Fatalf("Process: %v", err)
 	}
 }
 

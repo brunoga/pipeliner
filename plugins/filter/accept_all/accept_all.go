@@ -28,20 +28,10 @@ type acceptAllPlugin struct{}
 
 func (p *acceptAllPlugin) Name() string        { return "accept_all" }
 func (p *acceptAllPlugin) Phase() plugin.Phase { return plugin.PhaseFilter }
-func (p *acceptAllPlugin) Filter(_ context.Context, _ *plugin.TaskContext, e *entry.Entry) error {
-	if !e.IsAccepted() && !e.IsRejected() {
-		e.Accept()
-	}
-	return nil
-}
-
-func (p *acceptAllPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
+func (p *acceptAllPlugin) Process(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
 	for _, e := range entries {
-		if e.IsRejected() || e.IsFailed() {
-			continue
-		}
-		if err := p.Filter(ctx, tc, e); err != nil {
-			tc.Logger.Warn("filter error", "entry", e.Title, "err", err)
+		if !e.IsAccepted() && !e.IsRejected() && !e.IsFailed() {
+			e.Accept()
 		}
 	}
 	return entry.PassThrough(entries), nil

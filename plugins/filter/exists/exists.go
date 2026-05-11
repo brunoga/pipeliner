@@ -55,7 +55,7 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 func (p *existsPlugin) Name() string        { return "exists" }
 func (p *existsPlugin) Phase() plugin.Phase { return plugin.PhaseFilter }
 
-func (p *existsPlugin) Filter(_ context.Context, _ *plugin.TaskContext, e *entry.Entry) error {
+func (p *existsPlugin) filter(_ context.Context, _ *plugin.TaskContext, e *entry.Entry) error {
 	index, err := p.getIndex()
 	if err != nil {
 		return fmt.Errorf("exists: build index: %w", err)
@@ -133,7 +133,7 @@ func (p *existsPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entr
 		if e.IsRejected() || e.IsFailed() {
 			continue
 		}
-		if err := p.Filter(ctx, tc, e); err != nil {
+		if err := p.filter(ctx, tc, e); err != nil {
 			tc.Logger.Warn("filter error", "entry", e.Title, "err", err)
 		}
 	}

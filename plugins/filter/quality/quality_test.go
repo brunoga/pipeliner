@@ -16,7 +16,7 @@ func TestAcceptsMatchingQuality(t *testing.T) {
 		t.Fatal(err)
 	}
 	e := entry.New("Show.S01E01.1080p.BluRay.x264", "http://x.com/a")
-	p.(*qualityPlugin).Filter(context.Background(), makeCtx(), e) //nolint:errcheck
+	p.(plugin.ProcessorPlugin).Process(context.Background(), makeCtx(), []*entry.Entry{e}) //nolint:errcheck
 	if e.IsRejected() {
 		t.Errorf("1080p should be accepted within 720p-1080p: %s", e.RejectReason)
 	}
@@ -25,7 +25,7 @@ func TestAcceptsMatchingQuality(t *testing.T) {
 func TestRejectsBelowMin(t *testing.T) {
 	p, _ := newPlugin(map[string]any{"min": "720p", "max": "1080p"}, nil)
 	e := entry.New("Show.S01E01.480p.HDTV", "http://x.com/a")
-	p.(*qualityPlugin).Filter(context.Background(), makeCtx(), e) //nolint:errcheck
+	p.(plugin.ProcessorPlugin).Process(context.Background(), makeCtx(), []*entry.Entry{e}) //nolint:errcheck
 	if !e.IsRejected() {
 		t.Error("480p should be rejected when min is 720p")
 	}
@@ -34,7 +34,7 @@ func TestRejectsBelowMin(t *testing.T) {
 func TestRejectsAboveMax(t *testing.T) {
 	p, _ := newPlugin(map[string]any{"min": "720p", "max": "1080p"}, nil)
 	e := entry.New("Show.S01E01.2160p.BluRay.x265", "http://x.com/a")
-	p.(*qualityPlugin).Filter(context.Background(), makeCtx(), e) //nolint:errcheck
+	p.(plugin.ProcessorPlugin).Process(context.Background(), makeCtx(), []*entry.Entry{e}) //nolint:errcheck
 	if !e.IsRejected() {
 		t.Error("2160p should be rejected when max is 1080p")
 	}
@@ -46,13 +46,11 @@ func TestMinOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	hi := entry.New("Show.S01E01.2160p.BluRay", "http://x.com/a")
-	p.(*qualityPlugin).Filter(context.Background(), makeCtx(), hi) //nolint:errcheck
+	lo := entry.New("Show.S01E01.480p.HDTV", "http://x.com/b")
+	p.(plugin.ProcessorPlugin).Process(context.Background(), makeCtx(), []*entry.Entry{hi, lo}) //nolint:errcheck
 	if hi.IsRejected() {
 		t.Error("2160p should pass when only min=720p is set")
 	}
-
-	lo := entry.New("Show.S01E01.480p.HDTV", "http://x.com/b")
-	p.(*qualityPlugin).Filter(context.Background(), makeCtx(), lo) //nolint:errcheck
 	if !lo.IsRejected() {
 		t.Error("480p should be rejected when min=720p")
 	}
@@ -64,7 +62,7 @@ func TestMaxOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	e := entry.New("Show.S01E01.2160p.BluRay", "http://x.com/a")
-	p.(*qualityPlugin).Filter(context.Background(), makeCtx(), e) //nolint:errcheck
+	p.(plugin.ProcessorPlugin).Process(context.Background(), makeCtx(), []*entry.Entry{e}) //nolint:errcheck
 	if !e.IsRejected() {
 		t.Error("2160p should be rejected when max=1080p")
 	}
@@ -73,7 +71,7 @@ func TestMaxOnly(t *testing.T) {
 func TestQualityFieldSet(t *testing.T) {
 	p, _ := newPlugin(map[string]any{"min": "720p"}, nil)
 	e := entry.New("Show.S01E01.1080p.BluRay.x264", "http://x.com/a")
-	p.(*qualityPlugin).Filter(context.Background(), makeCtx(), e) //nolint:errcheck
+	p.(plugin.ProcessorPlugin).Process(context.Background(), makeCtx(), []*entry.Entry{e}) //nolint:errcheck
 	if v := e.GetString("quality"); v == "" {
 		t.Error("quality field should be set after filtering")
 	}

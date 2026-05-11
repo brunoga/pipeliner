@@ -41,7 +41,7 @@ func TestListMatchFound(t *testing.T) {
 
 	p := &listMatchPlugin{db: db, listName: "mylist"}
 	e := entry.New("Show S01E01", "http://example.com/1")
-	if err := p.Filter(context.Background(), makeTC(), e); err != nil {
+	if err := p.filter(context.Background(), makeTC(), e); err != nil {
 		t.Fatalf("Filter: %v", err)
 	}
 	if !e.IsAccepted() {
@@ -55,7 +55,7 @@ func TestListMatchNotFound(t *testing.T) {
 
 	p := &listMatchPlugin{db: db, listName: "mylist", rejectUnmatched: true}
 	e := entry.New("Not In List", "http://example.com/x")
-	if err := p.Filter(context.Background(), makeTC(), e); err != nil {
+	if err := p.filter(context.Background(), makeTC(), e); err != nil {
 		t.Fatalf("Filter: %v", err)
 	}
 	if !e.IsRejected() {
@@ -69,7 +69,7 @@ func TestListMatchNotFoundOptOut(t *testing.T) {
 
 	p := &listMatchPlugin{db: db, listName: "mylist", rejectUnmatched: false}
 	e := entry.New("Not In List", "http://example.com/x")
-	if err := p.Filter(context.Background(), makeTC(), e); err != nil {
+	if err := p.filter(context.Background(), makeTC(), e); err != nil {
 		t.Fatalf("Filter: %v", err)
 	}
 	if e.IsRejected() {
@@ -91,7 +91,7 @@ func TestListMatchRemoveOnMatch(t *testing.T) {
 
 	p := &listMatchPlugin{db: db, listName: "mylist", removeOnMatch: true}
 	e := entry.New("Episode One", "http://example.com/1")
-	if err := p.Filter(context.Background(), makeTC(), e); err != nil {
+	if err := p.filter(context.Background(), makeTC(), e); err != nil {
 		t.Fatalf("Filter: %v", err)
 	}
 	if !e.IsAccepted() {

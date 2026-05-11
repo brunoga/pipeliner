@@ -29,11 +29,11 @@ func makePlugin(t *testing.T, cfg map[string]any) *upgradePlugin {
 func filterLearn(t *testing.T, p *upgradePlugin, e *entry.Entry) {
 	t.Helper()
 	tc := &plugin.TaskContext{Name: "test-task"}
-	if err := p.Filter(context.Background(), tc, e); err != nil {
+	if err := p.filter(context.Background(), tc, e); err != nil {
 		t.Fatalf("Filter: %v", err)
 	}
 	if e.IsAccepted() {
-		if err := p.Learn(context.Background(), tc, []*entry.Entry{e}); err != nil {
+		if err := p.persist(context.Background(), tc, []*entry.Entry{e}); err != nil {
 			t.Fatalf("Learn: %v", err)
 		}
 	}

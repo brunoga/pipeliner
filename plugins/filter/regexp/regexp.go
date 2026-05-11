@@ -136,7 +136,7 @@ func parseRule(item any) (regexpRule, error) {
 func (p *regexpPlugin) Name() string        { return "regexp" }
 func (p *regexpPlugin) Phase() plugin.Phase { return plugin.PhaseFilter }
 
-func (p *regexpPlugin) Filter(_ context.Context, _ *plugin.TaskContext, e *entry.Entry) error {
+func (p *regexpPlugin) filter(_ context.Context, _ *plugin.TaskContext, e *entry.Entry) error {
 	// Reject takes priority: check reject patterns first.
 	for _, rule := range p.reject {
 		from := rule.from
@@ -253,7 +253,7 @@ func (p *regexpPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entr
 		if e.IsRejected() || e.IsFailed() {
 			continue
 		}
-		if err := p.Filter(ctx, tc, e); err != nil {
+		if err := p.filter(ctx, tc, e); err != nil {
 			tc.Logger.Warn("filter error", "entry", e.Title, "err", err)
 		}
 	}

@@ -26,7 +26,7 @@ func makePlugin(t *testing.T, cfg map[string]any) *torrentAlivePlugin {
 func filter(t *testing.T, p *torrentAlivePlugin, e *entry.Entry) {
 	t.Helper()
 	tc := &plugin.TaskContext{Logger: slog.Default()}
-	if err := p.Filter(context.Background(), tc, e); err != nil {
+	if err := p.filter(context.Background(), tc, e); err != nil {
 		t.Fatalf("Filter: %v", err)
 	}
 }

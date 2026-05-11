@@ -110,7 +110,7 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 func (p *premierePlugin) Name() string        { return "premiere" }
 func (p *premierePlugin) Phase() plugin.Phase { return plugin.PhaseFilter }
 
-func (p *premierePlugin) Filter(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
+func (p *premierePlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
 	ep, ok := series.Parse(e.Title)
 	if !ok {
 		if p.rejectUnmatched {
@@ -158,7 +158,7 @@ func (p *premierePlugin) Filter(ctx context.Context, tc *plugin.TaskContext, e *
 // Multiple entries for the same series may be accepted by Filter in the same
 // run (different qualities/sources); the task engine deduplicates them before
 // output and Learn only records the survivor.
-func (p *premierePlugin) Learn(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) error {
+func (p *premierePlugin) persist(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) error {
 	for _, e := range entries {
 		ep, ok := series.Parse(e.Title)
 		if !ok {
@@ -195,13 +195,13 @@ func (p *premierePlugin) Process(ctx context.Context, tc *plugin.TaskContext, en
 		if e.IsRejected() || e.IsFailed() {
 			continue
 		}
-		if err := p.Filter(ctx, tc, e); err != nil {
+		if err := p.filter(ctx, tc, e); err != nil {
 			tc.Logger.Warn("premiere filter error", "entry", e.Title, "err", err)
 		}
 	}
 	out := entry.PassThrough(entries)
 	if len(out) > 0 {
-		if err := p.Learn(ctx, tc, out); err != nil {
+		if err := p.persist(ctx, tc, out); err != nil {
 			tc.Logger.Warn("premiere learn error", "err", err)
 		}
 	}

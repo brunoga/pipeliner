@@ -42,7 +42,7 @@ func makeCtx() *plugin.TaskContext {
 
 func filter(t *testing.T, p *premierePlugin, e *entry.Entry) {
 	t.Helper()
-	if err := p.Filter(context.Background(), makeCtx(), e); err != nil {
+	if err := p.filter(context.Background(), makeCtx(), e); err != nil {
 		t.Fatalf("Filter: %v", err)
 	}
 }
@@ -89,19 +89,19 @@ func TestAlreadySeenRejected(t *testing.T) {
 
 	// First run — accept then persist via Learn.
 	e1 := makeEntry("Breaking Bad", 1, 1)
-	if err := p.Filter(context.Background(), tc, e1); err != nil {
+	if err := p.filter(context.Background(), tc, e1); err != nil {
 		t.Fatal(err)
 	}
 	if !e1.IsAccepted() {
 		t.Fatal("first run should accept")
 	}
-	if err := p.Learn(context.Background(), tc, []*entry.Entry{e1}); err != nil {
+	if err := p.persist(context.Background(), tc, []*entry.Entry{e1}); err != nil {
 		t.Fatal(err)
 	}
 
 	// Second run — same series should now be rejected.
 	e2 := makeEntry("Breaking Bad", 1, 1)
-	if err := p.Filter(context.Background(), tc, e2); err != nil {
+	if err := p.filter(context.Background(), tc, e2); err != nil {
 		t.Fatal(err)
 	}
 	if !e2.IsRejected() {
@@ -146,11 +146,11 @@ func TestDifferentSeriesIndependent(t *testing.T) {
 	tc := makeCtx()
 
 	e1 := makeEntry("Breaking Bad", 1, 1)
-	_ = p.Filter(context.Background(), tc, e1)
+	_ = p.filter(context.Background(), tc, e1)
 
 	// Different series — should also be accepted.
 	e2 := makeEntry("The Wire", 1, 1)
-	_ = p.Filter(context.Background(), tc, e2)
+	_ = p.filter(context.Background(), tc, e2)
 	if !e2.IsAccepted() {
 		t.Errorf("premiere of different series should be accepted; reason: %q", e2.RejectReason)
 	}

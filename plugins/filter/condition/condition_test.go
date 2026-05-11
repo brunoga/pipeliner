@@ -30,7 +30,7 @@ func open(t *testing.T, cfg map[string]any) *conditionPlugin {
 func TestAcceptConditionTrue(t *testing.T) {
 	p := open(t, map[string]any{"accept": `{{gt .score 7.0}}`})
 	e := makeEntry("Movie", map[string]any{"score": 8.5})
-	p.Filter(context.Background(), makeCtx(), e) //nolint:errcheck
+	p.filter(context.Background(), makeCtx(), e) //nolint:errcheck
 	if !e.IsAccepted() {
 		t.Errorf("expected accepted, got %v", e.State)
 	}
@@ -39,7 +39,7 @@ func TestAcceptConditionTrue(t *testing.T) {
 func TestAcceptConditionFalse(t *testing.T) {
 	p := open(t, map[string]any{"accept": `{{gt .score 7.0}}`})
 	e := makeEntry("Movie", map[string]any{"score": 5.0})
-	p.Filter(context.Background(), makeCtx(), e) //nolint:errcheck
+	p.filter(context.Background(), makeCtx(), e) //nolint:errcheck
 	if e.IsAccepted() || e.IsRejected() {
 		t.Errorf("expected undecided when accept condition is false, got %v", e.State)
 	}
@@ -48,7 +48,7 @@ func TestAcceptConditionFalse(t *testing.T) {
 func TestRejectConditionTrue(t *testing.T) {
 	p := open(t, map[string]any{"reject": `{{lt .score 5.0}}`})
 	e := makeEntry("Movie", map[string]any{"score": 3.0})
-	p.Filter(context.Background(), makeCtx(), e) //nolint:errcheck
+	p.filter(context.Background(), makeCtx(), e) //nolint:errcheck
 	if !e.IsRejected() {
 		t.Errorf("expected rejected, got %v", e.State)
 	}
@@ -60,7 +60,7 @@ func TestRejectWinsOverAccept(t *testing.T) {
 		"reject": `{{lt .score 5.0}}`,
 	})
 	e := makeEntry("Movie", map[string]any{"score": 3.0})
-	p.Filter(context.Background(), makeCtx(), e) //nolint:errcheck
+	p.filter(context.Background(), makeCtx(), e) //nolint:errcheck
 	if !e.IsRejected() {
 		t.Errorf("reject should win over accept, got %v", e.State)
 	}
@@ -69,7 +69,7 @@ func TestRejectWinsOverAccept(t *testing.T) {
 func TestTitleFieldAccessible(t *testing.T) {
 	p := open(t, map[string]any{"accept": `{{eq .Title "Good Movie"}}`})
 	e := makeEntry("Good Movie", nil)
-	p.Filter(context.Background(), makeCtx(), e) //nolint:errcheck
+	p.filter(context.Background(), makeCtx(), e) //nolint:errcheck
 	if !e.IsAccepted() {
 		t.Errorf("expected accepted by title match, got %v", e.State)
 	}
@@ -78,7 +78,7 @@ func TestTitleFieldAccessible(t *testing.T) {
 func TestStringFieldEquality(t *testing.T) {
 	p := open(t, map[string]any{"accept": `{{eq .genre "Action"}}`})
 	e := makeEntry("Movie", map[string]any{"genre": "Action"})
-	p.Filter(context.Background(), makeCtx(), e) //nolint:errcheck
+	p.filter(context.Background(), makeCtx(), e) //nolint:errcheck
 	if !e.IsAccepted() {
 		t.Errorf("expected accepted, got %v: %s", e.State, e.RejectReason)
 	}
@@ -88,7 +88,7 @@ func TestTmdbIntegration(t *testing.T) {
 	// Simulate fields set by metainfo_tmdb.
 	p := open(t, map[string]any{"accept": `{{gt .tmdb_vote_average 7.5}}`})
 	e := makeEntry("Inception.2010.1080p", map[string]any{"tmdb_vote_average": 8.8})
-	p.Filter(context.Background(), makeCtx(), e) //nolint:errcheck
+	p.filter(context.Background(), makeCtx(), e) //nolint:errcheck
 	if !e.IsAccepted() {
 		t.Errorf("expected accepted for high vote average, got %v", e.State)
 	}
@@ -136,7 +136,7 @@ func TestRulesFirstRejectFires(t *testing.T) {
 		},
 	})
 	e := makeEntry("Movie", map[string]any{"score": 4.0})
-	p.Filter(context.Background(), makeCtx(), e) //nolint:errcheck
+	p.filter(context.Background(), makeCtx(), e) //nolint:errcheck
 	if !e.IsRejected() {
 		t.Errorf("first rule should reject; got %v", e.State)
 	}
@@ -150,7 +150,7 @@ func TestRulesSecondAcceptFires(t *testing.T) {
 		},
 	})
 	e := makeEntry("Movie", map[string]any{"score": 8.0})
-	p.Filter(context.Background(), makeCtx(), e) //nolint:errcheck
+	p.filter(context.Background(), makeCtx(), e) //nolint:errcheck
 	if !e.IsAccepted() {
 		t.Errorf("second rule should accept; got %v", e.State)
 	}
@@ -164,7 +164,7 @@ func TestRulesNoMatchLeavesUndecided(t *testing.T) {
 		},
 	})
 	e := makeEntry("Movie", map[string]any{"score": 5.0})
-	p.Filter(context.Background(), makeCtx(), e) //nolint:errcheck
+	p.filter(context.Background(), makeCtx(), e) //nolint:errcheck
 	if e.IsAccepted() || e.IsRejected() {
 		t.Errorf("no rule matched — should be undecided; got %v", e.State)
 	}

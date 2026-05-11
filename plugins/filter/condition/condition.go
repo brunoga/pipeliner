@@ -137,7 +137,7 @@ func parseRule(m map[string]any, prefix string) (rule, error) {
 func (p *conditionPlugin) Name() string        { return "condition" }
 func (p *conditionPlugin) Phase() plugin.Phase { return plugin.PhaseFilter }
 
-func (p *conditionPlugin) Filter(_ context.Context, _ *plugin.TaskContext, e *entry.Entry) error {
+func (p *conditionPlugin) filter(_ context.Context, _ *plugin.TaskContext, e *entry.Entry) error {
 	data := interp.EntryData(e)
 	for _, r := range p.rules {
 		// Within a rule, reject wins over accept.
@@ -170,7 +170,7 @@ func (p *conditionPlugin) Process(ctx context.Context, tc *plugin.TaskContext, e
 		if e.IsRejected() || e.IsFailed() {
 			continue
 		}
-		if err := p.Filter(ctx, tc, e); err != nil {
+		if err := p.filter(ctx, tc, e); err != nil {
 			tc.Logger.Warn("filter error", "entry", e.Title, "err", err)
 		}
 	}

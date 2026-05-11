@@ -28,7 +28,7 @@ func tc() *plugin.TaskContext {
 
 func filter(t *testing.T, p *contentPlugin, e *entry.Entry) {
 	t.Helper()
-	if err := p.Filter(context.Background(), tc(), e); err != nil {
+	if err := p.filter(context.Background(), tc(), e); err != nil {
 		t.Fatalf("Filter: %v", err)
 	}
 }
