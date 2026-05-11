@@ -34,6 +34,12 @@ func init() {
 		PluginName:  "premiere",
 		Description: "accept only the first episode of series not previously seen (series premiere detection)",
 		PluginPhase: plugin.PhaseFilter,
+		Role:        plugin.RoleProcessor,
+		Produces: []string{
+			entry.FieldSeriesSeason,
+			entry.FieldSeriesEpisode,
+			entry.FieldSeriesEpisodeID,
+		},
 		Factory:     newPlugin,
 		Validate:    validate,
 		Schema: []plugin.FieldSchema{
