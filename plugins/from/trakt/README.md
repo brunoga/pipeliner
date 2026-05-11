@@ -75,3 +75,27 @@ task("tv-watchlist", [
 - `trending`, `popular`, and `watched` are public and require only a `client_id`.
 - `watchlist`, `ratings`, and `collection` are private and require either `client_secret` (recommended) or `access_token`.
 - The list is re-fetched on every `Run` call. Use inside `series.from` or `movies.from` to benefit from their built-in TTL caching.
+
+## DAG role
+
+`trakt_list` keeps `PhaseFrom` so it continues to work inside `series.from`, `movies.from`, and `discover.from`. Its `Role` is `source`, which means it can also be used as a standalone `input()` node in DAG pipelines:
+
+```python
+# DAG: trakt_list as a standalone source feeding a series filter
+shows    = input("trakt_list",
+    client_id=env("TRAKT_ID"),
+    client_secret=env("TRAKT_SECRET"),
+    type="shows",
+    list="watchlist",
+)
+src      = input("rss", url="https://example.com/feed")
+combined = process("seen", from_=merge(src, shows))
+output("transmission", from_=combined, host="localhost")
+pipeline("trakt-tv", schedule="1h")
+```
+
+| Property | Value |
+|----------|-------|
+| Role | `source` |
+| Produces | `title`, `trakt_id`, `trakt_slug` |
+| Requires | — |
