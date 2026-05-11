@@ -258,9 +258,31 @@ The `condition` plugin's `accept` and `reject` values use infix boolean syntax:
 
 Go template syntax (`{{gt .field value}}`) is still accepted for backward compatibility.
 
+## DAG pipelines
+
+DAG-style pipelines use `input()`, `process()`, `merge()`, `output()`, and `pipeline()` instead of `task()` + `plugin()`. Both styles can coexist in the same config file.
+
+```python
+# DAG syntax
+src     = input("rss", url="https://example.com/rss")
+quality = process("metainfo_quality", from_=src)
+flt     = process("quality", from_=quality, min="720p")
+output("transmission", from_=flt, host="localhost")
+pipeline("my-pipeline", schedule="1h")
+```
+
+Key differences from the linear style:
+
+| Feature | Linear | DAG |
+|---------|--------|-----|
+| Multiple RSS sources | Not supported at config level | `merge(src1, src2)` |
+| Fan-out to N sinks | Not supported | Reference the same node in multiple `output()` calls |
+| Routing (TV→client A, movies→client B) | Requires two separate tasks | Two branches from one shared head |
+| Topology | Implicit (fixed phase order) | Explicit (visible in config) |
+
 ## Example configs
 
-See the other files in this directory for complete working examples:
+### Linear (legacy) style
 
 - [`tv-series-deluge.star`](tv-series-deluge.star) — explicit show list → Deluge
 - [`movie-downloads.star`](movie-downloads.star) — explicit movie list + rating gate → qBittorrent
@@ -270,3 +292,10 @@ See the other files in this directory for complete working examples:
 - [`discover-trakt-qbittorrent.star`](discover-trakt-qbittorrent.star) — active search driven by Trakt via `discover.from` → qBittorrent
 - [`ars-technica-email.star`](ars-technica-email.star) — RSS → keyword filter → email
 - [`filesystem-cleanup.star`](filesystem-cleanup.star) — filesystem entries → exec
+
+### DAG style
+
+- [`dag-tv-two-feeds.star`](dag-tv-two-feeds.star) — **merge** two RSS feeds → dedup → series filter → Transmission
+- [`dag-news-fanout.star`](dag-news-fanout.star) — RSS news → **fan-out** to email + persistent list
+- [`dag-movies-trakt-source.star`](dag-movies-trakt-source.star) — `trakt_list` as a standalone source node → movies filter → qBittorrent
+- [`dag-multi-client.star`](dag-multi-client.star) — single feed → **branch**: TV → Transmission, movies → qBittorrent
