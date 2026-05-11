@@ -102,7 +102,7 @@ cond = process("condition", from_=movies, rules=[
 | Property | Value |
 |----------|-------|
 | Role | `processor` |
-| Produces | `movie_title` |
+| Produces | `movie_title`, `video_year`, `video_quality`, `video_resolution`, `video_source`, `video_is_3d` |
 | Requires | — |
 
 ## Notes

@@ -267,10 +267,13 @@ pipeline("p")
 
 // TestDAG_Validate_FieldRequirement verifies that the validator catches a
 // filter that requires video_quality when no upstream produces it.
+// TestDAG_Validate_FieldRequirement verifies that the validator catches a
+// processor that requires video_quality when no upstream produces it.
+// The upgrade filter genuinely requires video_quality (used for quality storage).
 func TestDAG_Validate_FieldRequirement(t *testing.T) {
 	cfg, err := parseConfig(t, `
 src = input("rss", url="http://example.com/rss")
-flt = process("quality", from_=src, min="720p")
+flt = process("upgrade", from_=src, target="1080p")
 output("print", from_=flt)
 pipeline("p")
 `)
@@ -285,12 +288,12 @@ pipeline("p")
 }
 
 // TestDAG_Validate_FieldRequirement_SatisfiedByUpstream verifies no errors
-// when metainfo_quality is correctly placed before the quality filter.
+// when metainfo_quality is correctly placed before upgrade.
 func TestDAG_Validate_FieldRequirement_SatisfiedByUpstream(t *testing.T) {
 	cfg, err := parseConfig(t, `
 src     = input("rss", url="http://example.com/rss")
 quality = process("metainfo_quality", from_=src)
-flt     = process("quality", from_=quality, min="720p")
+flt     = process("upgrade", from_=quality, target="1080p")
 output("print", from_=flt)
 pipeline("p")
 `)

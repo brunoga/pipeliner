@@ -26,7 +26,7 @@ func init() {
 		Description: "fetch TheTVDB favorites as show-name entries; usable as a standalone DAG source or inside series.from/discover.from",
 		PluginPhase: plugin.PhaseFrom,
 		Role:        plugin.RoleSource,
-		Produces:    []string{entry.FieldTitle, "tvdb_id"},
+		Produces:    []string{entry.FieldTitle, "tvdb_id", "tvdb_year"},
 		Factory:     newPlugin,
 		Validate:    validate,
 	})

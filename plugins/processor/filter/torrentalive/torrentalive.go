@@ -44,7 +44,7 @@ func init() {
 		PluginName:  "torrent_alive",
 		Description: "reject torrent entries with fewer seeds than min_seeds; auto-resolves info hash from magnet URIs and .torrent URLs",
 		PluginPhase: plugin.PhaseFilter,
-		Role:        plugin.RoleProcessor,
+		Role: plugin.RoleProcessor,
 		Produces: []string{
 			entry.FieldTorrentSeeds,
 			entry.FieldTorrentLeechers,

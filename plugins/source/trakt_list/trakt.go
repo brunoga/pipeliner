@@ -35,7 +35,14 @@ func init() {
 		Description: "fetch movies or shows from a Trakt.tv list as pipeline entries; usable as a standalone DAG source or inside series.from/movies.from/discover.from",
 		PluginPhase: plugin.PhaseFrom,
 		Role:        plugin.RoleSource,
-		Produces:    []string{entry.FieldTitle, "trakt_id", "trakt_slug"},
+		Produces: []string{
+			entry.FieldTitle,
+			"trakt_id",
+			"trakt_slug",
+			"trakt_year",
+			"trakt_imdb_id",
+			"trakt_tmdb_id",
+		},
 		Factory:     newPlugin,
 		Validate:    validate,
 	})

@@ -16,9 +16,9 @@ func init() {
 		PluginName:  "quality",
 		Description: "reject entries whose video quality falls outside the configured range",
 		PluginPhase: plugin.PhaseFilter,
-		Role:        plugin.RoleProcessor,
-		Requires:    []string{entry.FieldVideoQuality},
-		Factory:     newPlugin,
+		Role:    plugin.RoleProcessor,
+		Produces: []string{"quality"},
+		Factory:  newPlugin,
 		Validate:    validate,
 		Schema: []plugin.FieldSchema{
 			{Key: "min", Type: plugin.FieldTypeString, Hint: "Minimum quality, e.g. 720p"},

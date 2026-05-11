@@ -17,6 +17,7 @@ func init() {
 		PluginPhase: plugin.PhaseMetainfo,
 		Role:        plugin.RoleProcessor,
 		Produces: []string{
+			entry.FieldTitle,
 			entry.FieldSeriesSeason,
 			entry.FieldSeriesEpisode,
 			entry.FieldSeriesEpisodeID,
@@ -24,6 +25,7 @@ func init() {
 			entry.FieldSeriesRepack,
 			entry.FieldSeriesDoubleEpisode,
 			entry.FieldSeriesService,
+			"series_container",
 		},
 		Factory: newPlugin,
 		Validate: func(cfg map[string]any) []error {

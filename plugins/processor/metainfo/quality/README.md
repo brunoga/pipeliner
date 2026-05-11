@@ -33,7 +33,7 @@ Parses video quality tags from the entry title and annotates the entry with stru
 | Property | Value |
 |----------|-------|
 | Role | `processor` |
-| Produces | `video_quality`, `video_resolution`, `video_source` |
+| Produces | `video_quality`, `video_resolution`, `video_source`, `video_is_3d`, `codec`, `audio`, `color_range`, `quality_resolution`, `quality_source` |
 | Requires | — |
 
 ## Example

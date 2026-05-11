@@ -41,6 +41,7 @@ func init() {
 		PluginPhase: plugin.PhaseMetainfo,
 		Role:        plugin.RoleProcessor,
 		Produces: []string{
+			entry.FieldTitle,
 			entry.FieldTorrentInfoHash,
 			entry.FieldTorrentAnnounce,
 			entry.FieldTorrentAnnounceList,

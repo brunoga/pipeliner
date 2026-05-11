@@ -39,7 +39,7 @@ DHT resolution fields are absent when the timeout expires before peers respond. 
 | Property | Value |
 |----------|-------|
 | Role | `processor` |
-| Produces | `torrent_info_hash`, `torrent_announce`, `torrent_announce_list`, `torrent_file_size`, `torrent_file_count`, `torrent_files` |
+| Produces | `title`, `torrent_info_hash`, `torrent_announce`, `torrent_announce_list`, `torrent_file_size`, `torrent_file_count`, `torrent_files` |
 | Requires | — |
 
 ## Example

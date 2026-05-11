@@ -64,7 +64,7 @@ All results are cached in `pipeliner.db` to avoid redundant API calls across run
 | Property | Value |
 |----------|-------|
 | Role | `processor` |
-| Produces | `enriched`, `title`, `video_year`, `video_genres`, `video_rating`, `video_votes`, `video_poster`, `video_language`, `series_network`, `series_status`, `series_first_air_date`, `series_last_air_date`, `series_next_air_date`, `series_episode_title`, `series_episode_description`, `series_episode_air_date`, `series_episode_image`, `tvdb_id`, `tvdb_slug` |
+| Produces | `enriched`, `title`, `description`, `video_year`, `video_language`, `video_original_title`, `video_country`, `video_genres`, `video_rating`, `video_votes`, `video_poster`, `video_cast`, `video_content_rating`, `video_runtime`, `video_trailers`, `video_aliases`, `series_network`, `series_status`, `series_first_air_date`, `series_last_air_date`, `series_next_air_date`, `series_episode_id`, `series_episode_title`, `series_episode_description`, `series_episode_air_date`, `series_episode_image`, `tvdb_id`, `tvdb_slug`, `tvdb_episode_id` |
 | Requires | — |
 
 ## Example

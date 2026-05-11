@@ -21,7 +21,7 @@ Parses series and episode information from the entry title. Takes no config.
 | Property | Value |
 |----------|-------|
 | Role | `processor` |
-| Produces | `series_season`, `series_episode`, `series_episode_id`, `series_proper`, `series_repack`, `series_double_episode`, `series_service` |
+| Produces | `title`, `series_season`, `series_episode`, `series_episode_id`, `series_proper`, `series_repack`, `series_double_episode`, `series_service`, `series_container` |
 | Requires | — |
 
 ## Example
