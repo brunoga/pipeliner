@@ -81,11 +81,39 @@ task("discover-watchlist", [
 
 ## DAG role
 
+`discover` acts as a **processor** in DAG pipelines. Upstream source nodes supply
+the title list; `discover` searches for each title via the `via` backends and
+returns the found entries (not the upstream entries themselves).
+
 | Property | Value |
 |----------|-------|
-| Role | `source` |
+| Role | `processor` |
 | Produces | `torrent_seeds`, `torrent_info_hash`, `torrent_link_type` (and whatever the `via` search plugins return) |
 | Requires | — |
+
+### DAG example
+
+```python
+# Upstream source: Trakt watchlist provides titles.
+watchlist = input("trakt_list",
+    client_id=env("TRAKT_CLIENT_ID"),
+    client_secret=env("TRAKT_SECRET"),
+    type="shows", list="watchlist")
+
+# discover receives those entries, searches Jackett for each title,
+# and returns torrent results (not the Trakt entries).
+results = process("discover", from_=watchlist,
+    via=[{"name": "jackett",
+          "url":     "http://localhost:9117",
+          "api_key": env("JACKETT_KEY"),
+          "categories": ["5040", "5045"]}],
+    interval="6h")
+
+seen  = process("seen",   from_=results)
+seen2 = process("series", from_=seen, static=["Breaking Bad"])
+output("transmission", from_=seen2, host="localhost")
+pipeline("tv-discover", schedule="1h")
+```
 
 ## Example — combined static and dynamic
 
