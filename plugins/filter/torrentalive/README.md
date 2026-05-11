@@ -38,3 +38,11 @@ task("anime", [
     plugin("series", static=["My Hero Academia"]),
 ])
 ```
+
+## DAG role
+
+| Property | Value |
+|----------|-------|
+| Role | `processor` |
+| Produces | `torrent_seeds`, `torrent_leechers` |
+| Requires | — |
