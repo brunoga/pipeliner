@@ -52,25 +52,19 @@ func newSetPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, erro
 func (s *setPlugin) Name() string        { return "set" }
 func (s *setPlugin) Phase() plugin.Phase { return plugin.PhaseModify }
 
-func (s *setPlugin) Modify(_ context.Context, _ *plugin.TaskContext, e *entry.Entry) error {
-	data := interp.EntryData(e)
-	for key, ip := range s.fields {
-		val, err := ip.Render(data)
-		if err != nil {
-			return fmt.Errorf("set: field %q: render: %w", key, err)
-		}
-		e.Set(key, val)
-	}
-	return nil
-}
-
-func (s *setPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
+func (s *setPlugin) Process(_ context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
 	for _, e := range entries {
 		if e.IsRejected() || e.IsFailed() {
 			continue
 		}
-		if err := s.Modify(ctx, tc, e); err != nil {
-			tc.Logger.Warn("set error", "entry", e.Title, "err", err)
+		data := interp.EntryData(e)
+		for key, ip := range s.fields {
+			val, err := ip.Render(data)
+			if err != nil {
+				tc.Logger.Warn("set: render error", "field", key, "entry", e.Title, "err", err)
+				continue
+			}
+			e.Set(key, val)
 		}
 	}
 	return entries, nil

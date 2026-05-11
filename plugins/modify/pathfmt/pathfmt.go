@@ -71,15 +71,6 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 func (p *pathfmtPlugin) Name() string        { return "pathfmt" }
 func (p *pathfmtPlugin) Phase() plugin.Phase { return plugin.PhaseModify }
 
-func (p *pathfmtPlugin) Modify(_ context.Context, _ *plugin.TaskContext, e *entry.Entry) error {
-	result, err := p.ip.Render(interp.EntryData(e))
-	if err != nil {
-		return fmt.Errorf("pathfmt: render: %w", err)
-	}
-	e.Set(p.field, scrubPath(result))
-	return nil
-}
-
 // scrubPath sanitizes each component of a path using generic (cross-platform)
 // rules, preserving the path separator.
 func scrubPath(path string) string {
@@ -132,14 +123,17 @@ var windowsReserved = map[string]bool{
 	"LPT5": true, "LPT6": true, "LPT7": true, "LPT8": true, "LPT9": true,
 }
 
-func (p *pathfmtPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
+func (p *pathfmtPlugin) Process(_ context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
 	for _, e := range entries {
 		if e.IsRejected() || e.IsFailed() {
 			continue
 		}
-		if err := p.Modify(ctx, tc, e); err != nil {
-			tc.Logger.Warn("pathfmt error", "entry", e.Title, "err", err)
+		result, err := p.ip.Render(interp.EntryData(e))
+		if err != nil {
+			tc.Logger.Warn("pathfmt: render error", "entry", e.Title, "err", err)
+			continue
 		}
+		e.Set(p.field, scrubPath(result))
 	}
 	return entries, nil
 }
