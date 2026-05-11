@@ -39,6 +39,7 @@ func init() {
 		PluginName:  "condition",
 		Description: "accept or reject entries via boolean expressions",
 		PluginPhase: plugin.PhaseFilter,
+		Role:        plugin.RoleProcessor,
 		Factory:     newPlugin,
 		Validate:    validate,
 		Schema: []plugin.FieldSchema{

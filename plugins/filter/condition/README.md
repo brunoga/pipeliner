@@ -94,3 +94,11 @@ plugin("condition",
     accept="tmdb_vote_average >= 7.0",
 )
 ```
+
+## DAG role
+
+| Property | Value |
+|----------|-------|
+| Role | `processor` |
+| Produces | — |
+| Requires | — |
