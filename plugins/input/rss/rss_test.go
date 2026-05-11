@@ -154,7 +154,7 @@ func TestRegistration(t *testing.T) {
 	if !ok {
 		t.Fatal("rss plugin not registered")
 	}
-	if d.PluginPhase != plugin.PhaseInput {
-		t.Errorf("phase: got %v", d.PluginPhase)
+	if d.Role != plugin.RoleSource {
+		t.Errorf("phase: got %v", d.Role)
 	}
 }

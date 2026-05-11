@@ -54,7 +54,7 @@ func TestOutputRunsWithoutError(t *testing.T) {
 		entry.New("title1", "http://a.com"),
 		entry.New("title2", "http://b.com"),
 	}
-	if err := p.(plugin.OutputPlugin).Output(context.Background(), makeCtx(), entries); err != nil {
+	if err := p.(plugin.SinkPlugin).Consume(context.Background(), makeCtx(), entries); err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
@@ -76,8 +76,8 @@ func TestRegistered(t *testing.T) {
 	if !ok {
 		t.Fatal("print plugin not registered")
 	}
-	if d.PluginPhase != plugin.PhaseOutput {
-		t.Errorf("want phase output, got %s", d.PluginPhase)
+	if d.Role != plugin.RoleSink {
+		t.Errorf("want role sink, got %s", d.Role)
 	}
 }
 

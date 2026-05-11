@@ -255,7 +255,7 @@ func TestRegistration(t *testing.T) {
 	if !ok {
 		t.Fatal("metainfo_tmdb not registered")
 	}
-	if d.PluginPhase != plugin.PhaseMetainfo {
-		t.Errorf("phase: got %v", d.PluginPhase)
+	if d.Role != plugin.RoleProcessor {
+		t.Errorf("phase: got %v", d.Role)
 	}
 }

@@ -70,8 +70,8 @@ func TestRegistration(t *testing.T) {
 	if !ok {
 		t.Fatal("tvdb_favorites not registered")
 	}
-	if d.PluginPhase != plugin.PhaseFrom {
-		t.Errorf("phase: got %v", d.PluginPhase)
+	if d.Role != plugin.RoleSource {
+		t.Errorf("phase: got %v", d.Role)
 	}
 }
 

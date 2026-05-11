@@ -17,11 +17,10 @@ type Factory func(cfg map[string]any, db *store.SQLiteStore) (Plugin, error)
 type Descriptor struct {
 	PluginName  string
 	Description string
-	// PluginPhase is the legacy phase identifier used by the linear task engine.
-	// New plugins should set Role instead; existing plugins may set both.
+	// PluginPhase is retained as an informational field; it is no longer used
+	// for dispatch. Use Role to declare the plugin's place in a DAG pipeline.
 	PluginPhase Phase
-	// Role is the DAG role for this plugin. If empty, EffectiveRole() derives
-	// it from PluginPhase for backward compatibility.
+	// Role is the plugin's DAG role (source / processor / sink).
 	Role Role
 	// Produces lists entry field names this plugin writes to Fields.
 	// Used by the DAG validator to check that downstream nodes' Requires are met.
@@ -31,23 +30,21 @@ type Descriptor struct {
 	Requires []string
 	Factory  Factory
 	// Validate checks the plugin's configuration map and returns any errors.
-	// It is called by config.Validate before plugin construction so all
-	// config errors are surfaced at once by pipeliner check.
+	// Called by config.Validate before plugin construction.
 	// nil means no validation beyond what the factory enforces.
 	Validate func(cfg map[string]any) []error
-	// Schema declares the config keys accepted by this plugin. It is optional
-	// but enables typed form fields in the visual pipeline editor. Plugins
-	// without a Schema get a generic key-value editor instead.
+	// Schema declares the config keys accepted by this plugin. Enables typed
+	// form fields in the visual pipeline editor.
 	Schema []FieldSchema
 }
 
-// EffectiveRole returns the plugin's Role, deriving it from PluginPhase when
-// Role is not explicitly set. This allows legacy plugins registered with only
-// PluginPhase to participate in DAG-based pipelines without modification.
+// EffectiveRole returns the plugin's Role. It falls back to deriving the role
+// from PluginPhase for plugins that have not yet set Role explicitly.
 func (d *Descriptor) EffectiveRole() Role {
 	if d.Role != "" {
 		return d.Role
 	}
+	// Fallback for plugins that only declared PluginPhase.
 	switch d.PluginPhase {
 	case PhaseInput:
 		return RoleSource

@@ -341,7 +341,7 @@ func TestInputPluginPhaseAndName(t *testing.T) {
 		t.Fatalf("newInputPlugin: %v", err)
 	}
 	if p.Phase() != plugin.PhaseInput {
-		t.Errorf("phase: got %q, want %q", p.Phase(), plugin.PhaseInput)
+		t.Errorf("phase: got %q, want %q", p.Phase(), plugin.RoleSource)
 	}
 	if p.Name() != "jackett_input" {
 		t.Errorf("name: got %q, want jackett_input", p.Name())

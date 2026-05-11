@@ -49,9 +49,6 @@ func (t *Task) SetDryRun(v bool) {
 	}
 }
 
-// IsDryRun reports whether dry-run mode is enabled.
-func (t *Task) IsDryRun() bool { return t.dryRun }
-
 // Run executes the DAG pipeline and returns a Result.
 func (t *Task) Run(ctx context.Context) (*Result, error) {
 	return t.runFromExecutor(ctx)

@@ -90,7 +90,7 @@ func TestRegistration(t *testing.T) {
 	if !ok {
 		t.Fatal("quality plugin not registered")
 	}
-	if d.PluginPhase != plugin.PhaseFilter {
-		t.Errorf("phase: got %v", d.PluginPhase)
+	if d.Role != plugin.RoleProcessor {
+		t.Errorf("phase: got %v", d.Role)
 	}
 }

@@ -10,15 +10,20 @@ import (
 
 func makeCtx() *plugin.TaskContext { return &plugin.TaskContext{Name: "test"} }
 
+func process(t *testing.T, p plugin.Plugin, e *entry.Entry) {
+	t.Helper()
+	if _, err := p.(plugin.ProcessorPlugin).Process(context.Background(), makeCtx(), []*entry.Entry{e}); err != nil {
+		t.Fatalf("Process error: %v", err)
+	}
+}
+
 func TestSetLiteralField(t *testing.T) {
 	p, err := newSetPlugin(map[string]any{"category": "tv"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	e := entry.New("Show S01E01", "http://x.com")
-	if err := p.(plugin.ModifyPlugin).Modify(context.Background(), makeCtx(), e); err != nil {
-		t.Fatal(err)
-	}
+	process(t, p, e)
 	if got := e.GetString("category"); got != "tv" {
 		t.Errorf("want %q, got %q", "tv", got)
 	}
@@ -30,7 +35,7 @@ func TestSetTemplateField(t *testing.T) {
 		t.Fatal(err)
 	}
 	e := entry.New("MyShow", "http://x.com")
-	p.(plugin.ModifyPlugin).Modify(context.Background(), makeCtx(), e)
+	process(t, p, e)
 	if got := e.GetString("label"); got != "MyShow-tagged" {
 		t.Errorf("want %q, got %q", "MyShow-tagged", got)
 	}
@@ -43,7 +48,7 @@ func TestSetFromExistingField(t *testing.T) {
 	}
 	e := entry.New("t", "u")
 	e.Set("src", "original-value")
-	p.(plugin.ModifyPlugin).Modify(context.Background(), makeCtx(), e)
+	process(t, p, e)
 	if got := e.GetString("copy"); got != "original-value" {
 		t.Errorf("want %q, got %q", "original-value", got)
 	}
@@ -58,7 +63,7 @@ func TestSetMultipleFields(t *testing.T) {
 		t.Fatal(err)
 	}
 	e := entry.New("t", "u")
-	p.(plugin.ModifyPlugin).Modify(context.Background(), makeCtx(), e)
+	process(t, p, e)
 	if e.GetString("a") != "alpha" || e.GetString("b") != "beta" {
 		t.Errorf("multi-field set failed: a=%q b=%q", e.GetString("a"), e.GetString("b"))
 	}
@@ -76,7 +81,7 @@ func TestRegistered(t *testing.T) {
 	if !ok {
 		t.Fatal("set plugin not registered")
 	}
-	if d.PluginPhase != plugin.PhaseModify {
-		t.Errorf("want phase modify, got %s", d.PluginPhase)
+	if d.Role != plugin.RoleProcessor {
+		t.Errorf("want role processor, got %s", d.Role)
 	}
 }

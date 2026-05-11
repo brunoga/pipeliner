@@ -16,13 +16,13 @@ import (
 	"github.com/brunoga/pipeliner/internal/store"
 )
 
-// mockInput is a trivial InputPlugin returning a fixed list of entries.
+// mockInput is a SourcePlugin returning a fixed list of entries.
 type mockInput struct {
 	entries []*entry.Entry
 }
 
 func (m *mockInput) Name() string        { return "mock_input" }
-func (m *mockInput) Phase() plugin.Phase { return plugin.PhaseInput }
+func (m *mockInput) Phase() plugin.Phase { return plugin.PhaseFrom }
 func (m *mockInput) Generate(_ context.Context, _ *plugin.TaskContext) ([]*entry.Entry, error) {
 	return m.entries, nil
 }
@@ -252,8 +252,8 @@ func TestRegistration(t *testing.T) {
 	if !ok {
 		t.Fatal("movies not registered")
 	}
-	if d.PluginPhase != plugin.PhaseFilter {
-		t.Errorf("phase: got %v", d.PluginPhase)
+	if d.Role != plugin.RoleProcessor {
+		t.Errorf("phase: got %v", d.Role)
 	}
 }
 
@@ -371,7 +371,7 @@ type countingInput struct {
 }
 
 func (c *countingInput) Name() string        { return "counting_input" }
-func (c *countingInput) Phase() plugin.Phase { return plugin.PhaseInput }
+func (c *countingInput) Phase() plugin.Phase { return plugin.PhaseFrom }
 func (c *countingInput) Generate(ctx context.Context, tc *plugin.TaskContext) ([]*entry.Entry, error) {
 	*c.count++
 	return c.wrapped.Generate(ctx, tc)

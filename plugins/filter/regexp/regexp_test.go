@@ -16,8 +16,8 @@ func run(t *testing.T, cfg map[string]any, e *entry.Entry) *entry.Entry {
 	if err != nil {
 		t.Fatalf("newRegexpPlugin error: %v", err)
 	}
-	if err := p.(plugin.FilterPlugin).Filter(context.Background(), makeCtx(), e); err != nil {
-		t.Fatalf("Filter error: %v", err)
+	if _, err := p.(plugin.ProcessorPlugin).Process(context.Background(), makeCtx(), []*entry.Entry{e}); err != nil {
+		t.Fatalf("Process error: %v", err)
 	}
 	return e
 }
@@ -108,8 +108,8 @@ func TestRegistered(t *testing.T) {
 	if !ok {
 		t.Fatal("regexp plugin not registered")
 	}
-	if d.PluginPhase != plugin.PhaseFilter {
-		t.Errorf("want phase filter, got %s", d.PluginPhase)
+	if d.Role != plugin.RoleProcessor {
+		t.Errorf("want phase filter, got %s", d.Role)
 	}
 }
 

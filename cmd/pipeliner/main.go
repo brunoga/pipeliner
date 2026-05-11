@@ -557,10 +557,10 @@ func cmdListPlugins(_ []string) int {
 		fmt.Println("no plugins registered")
 		return 0
 	}
-	fmt.Printf("%-24s %-12s %-10s %s\n", "NAME", "ROLE", "PHASE", "DESCRIPTION")
-	fmt.Println(strings.Repeat("-", 70))
+	fmt.Printf("%-24s %-12s %s\n", "NAME", "ROLE", "DESCRIPTION")
+	fmt.Println(strings.Repeat("-", 60))
 	for _, d := range descs {
-		fmt.Printf("%-24s %-12s %-10s %s\n", d.PluginName, d.EffectiveRole(), d.PluginPhase, d.Description)
+		fmt.Printf("%-24s %-12s %s\n", d.PluginName, d.EffectiveRole(), d.Description)
 	}
 	return 0
 }
