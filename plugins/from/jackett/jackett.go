@@ -40,10 +40,18 @@ import (
 func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "jackett",
-		Description: "search Jackett indexers via the Torznab API",
+		Description: "search Jackett indexers via the Torznab API; usable as a standalone DAG source or inside discover.via",
 		PluginPhase: plugin.PhaseFrom,
-		Factory:     newPlugin,
-		Validate:    validate,
+		Role:        plugin.RoleSource,
+		Produces: []string{
+			entry.FieldTorrentSeeds,
+			entry.FieldTorrentLeechers,
+			entry.FieldTorrentInfoHash,
+			entry.FieldTorrentLinkType,
+			entry.FieldTorrentFileSize,
+		},
+		Factory:  newPlugin,
+		Validate: validate,
 	})
 }
 

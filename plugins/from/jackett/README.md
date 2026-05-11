@@ -66,6 +66,29 @@ task("tv-shows", [
 | 5040 | TV / SD |
 | 5045 | TV / HD |
 
+## DAG role
+
+`jackett` keeps `PhaseFrom` so it continues to work inside `discover.via`. Its `Role` is `source`, which means it can also be used as a standalone `input()` node in DAG pipelines:
+
+```python
+# DAG: jackett as a standalone source (no query — returns recent results)
+src     = input("jackett",
+    url="http://localhost:9117",
+    api_key=env("JACKETT_KEY"),
+    categories=["5040", "5045"],
+)
+quality = process("metainfo_quality", from_=src)
+filtered = process("quality", from_=quality, min="720p")
+output("transmission", from_=filtered, host="localhost")
+pipeline("jackett-tv", schedule="1h")
+```
+
+| Property | Value |
+|----------|-------|
+| Role | `source` |
+| Produces | `torrent_seeds`, `torrent_leechers`, `torrent_info_hash`, `torrent_link_type`, `torrent_file_size` |
+| Requires | — |
+
 ## Notes
 
 - All configured indexers are queried in a single Jackett API call by passing them as a comma-separated list; Jackett aggregates results server-side.
