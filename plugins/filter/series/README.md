@@ -116,6 +116,14 @@ task("tv-combined", [
 ])
 ```
 
+## DAG role
+
+| Property | Value |
+|----------|-------|
+| Role | `processor` |
+| Produces | `series_season`, `series_episode`, `series_episode_id` |
+| Requires | — |
+
 ## Notes
 
 - Episode history and dynamic list cache are stored in `pipeliner.db` in the same directory as the config file.
