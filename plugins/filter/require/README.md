@@ -24,3 +24,11 @@ task("tv", [
     plugin("series", static=["Breaking Bad"]),
 ])
 ```
+
+## DAG role
+
+| Property | Value |
+|----------|-------|
+| Role | `processor` |
+| Produces | — |
+| Requires | — (dynamic: whatever fields are listed in `fields` config) |
