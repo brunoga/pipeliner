@@ -403,7 +403,7 @@ func (c *countingInput) Generate(ctx context.Context, tc *plugin.TaskContext) ([
 
 func TestMultipleEntriesSameEpisodeAllAccepted(t *testing.T) {
 	// Multiple entries for the same episode (different quality/source) should all
-	// be accepted by series.Filter so the dedup step can pick the best one.
+	// be accepted by series.Process so the dedup processor can pick the best one.
 	p := openPlugin(t, nil)
 	tc := makeCtx()
 

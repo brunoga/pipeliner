@@ -360,7 +360,7 @@ func TestInputPluginRunUsesEmptyQueryByDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newInputPlugin: %v", err)
 	}
-	if _, err := p.(*jackettInputPlugin).Run(context.Background(), tc()); err != nil {
+	if _, err := p.(*jackettInputPlugin).Generate(context.Background(), tc()); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	if gotQuery != "" {
@@ -380,7 +380,7 @@ func TestInputPluginRunUsesConfiguredQuery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newInputPlugin: %v", err)
 	}
-	if _, err := p.(*jackettInputPlugin).Run(context.Background(), tc()); err != nil {
+	if _, err := p.(*jackettInputPlugin).Generate(context.Background(), tc()); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	if gotQuery != "breaking bad" {
@@ -402,7 +402,7 @@ func TestInputPluginRunReturnsEntries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newInputPlugin: %v", err)
 	}
-	entries, err := p.(*jackettInputPlugin).Run(context.Background(), tc())
+	entries, err := p.(*jackettInputPlugin).Generate(context.Background(), tc())
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
