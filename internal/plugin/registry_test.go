@@ -1,10 +1,8 @@
 package plugin
 
 import (
-	"context"
 	"testing"
 
-	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/store"
 )
 
@@ -15,18 +13,13 @@ func resetForTest() {
 	registry = map[string]*Descriptor{}
 }
 
-// stubInput is a minimal InputPlugin used for registry tests.
-type stubInput struct{ name string }
+type stubPlugin struct{ name string }
 
-func (s *stubInput) Name() string  { return s.name }
-func (s *stubInput) Phase() Phase  { return PhaseInput }
-func (s *stubInput) Run(_ context.Context, _ *TaskContext) ([]*entry.Entry, error) {
-	return nil, nil
-}
+func (s *stubPlugin) Name() string { return s.name }
 
 func newStubFactory(name string) Factory {
 	return func(_ map[string]any, _ *store.SQLiteStore) (Plugin, error) {
-		return &stubInput{name: name}, nil
+		return &stubPlugin{name: name}, nil
 	}
 }
 

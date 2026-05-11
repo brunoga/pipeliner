@@ -63,7 +63,6 @@ var (
 type mockInput struct{}
 
 func (p *mockInput) Name() string        { return "mock_input" }
-func (p *mockInput) Phase() plugin.Phase { return plugin.PhaseInput }
 func (p *mockInput) Generate(_ context.Context, _ *plugin.TaskContext) ([]*entry.Entry, error) {
 	e := entry.New("test", "http://test")
 	return []*entry.Entry{e}, nil
@@ -72,7 +71,6 @@ func (p *mockInput) Generate(_ context.Context, _ *plugin.TaskContext) ([]*entry
 type mockFilter struct{}
 
 func (p *mockFilter) Name() string        { return "mock_filter" }
-func (p *mockFilter) Phase() plugin.Phase { return plugin.PhaseFilter }
 func (p *mockFilter) Process(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
 	for _, e := range entries {
 		e.Accept()
@@ -85,7 +83,6 @@ type mockOutput struct {
 }
 
 func (p *mockOutput) Name() string        { return "mock_output" }
-func (p *mockOutput) Phase() plugin.Phase { return plugin.PhaseOutput }
 func (p *mockOutput) Consume(_ context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
 	if tc.DryRun {
 		return nil
@@ -102,7 +99,6 @@ type orderPlugin struct {
 }
 
 func (p *orderPlugin) Name() string        { return p.name }
-func (p *orderPlugin) Phase() plugin.Phase { return plugin.PhaseModify }
 func (p *orderPlugin) Process(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
 	*p.order = append(*p.order, p.name)
 	return entries, nil

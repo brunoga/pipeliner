@@ -68,7 +68,7 @@ task("tv-shows", [
 
 ## DAG role
 
-`jackett` keeps `PhaseFrom` so it continues to work inside `discover.via`. Its `Role` is `source`, which means it can also be used as a standalone `input()` node in DAG pipelines:
+`jackett` has `Role=source`. It is used inside `discover.via` for targeted searches, and can also be used as a standalone `input()` node in DAG pipelines:
 
 ```python
 # DAG: jackett as a standalone source (no query — returns recent results)

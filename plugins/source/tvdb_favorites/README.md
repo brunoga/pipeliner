@@ -41,7 +41,7 @@ task("tv-favorites", [
 
 ## DAG role
 
-`tvdb_favorites` keeps `PhaseFrom` so it continues to work inside `series.from` and `discover.from`. Its `Role` is `source`, which means it can also be used as a standalone `input()` node in DAG pipelines:
+`tvdb_favorites` has `Role=source`. It is used inside `series.from` and `discover.from`, and can also be used as a standalone `input()` node in DAG pipelines:
 
 | Property | Value |
 |----------|-------|

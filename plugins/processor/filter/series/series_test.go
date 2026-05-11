@@ -22,7 +22,6 @@ type mockInput struct {
 }
 
 func (m *mockInput) Name() string        { return "mock_input" }
-func (m *mockInput) Phase() plugin.Phase { return plugin.PhaseFrom }
 func (m *mockInput) Generate(_ context.Context, _ *plugin.TaskContext) ([]*entry.Entry, error) {
 	return m.entries, nil
 }
@@ -395,7 +394,6 @@ type countingInput struct {
 }
 
 func (c *countingInput) Name() string        { return "counting_input" }
-func (c *countingInput) Phase() plugin.Phase { return plugin.PhaseFrom }
 func (c *countingInput) Generate(ctx context.Context, tc *plugin.TaskContext) ([]*entry.Entry, error) {
 	*c.count++
 	return c.wrapped.Generate(ctx, tc)

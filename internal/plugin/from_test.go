@@ -19,7 +19,6 @@ type staticFromPlugin struct {
 }
 
 func (p *staticFromPlugin) Name() string  { return p.name }
-func (p *staticFromPlugin) Phase() Phase  { return PhaseFrom }
 func (p *staticFromPlugin) Generate(_ context.Context, _ *TaskContext) ([]*entry.Entry, error) {
 	p.generateCount++
 	out := make([]*entry.Entry, len(p.titles))

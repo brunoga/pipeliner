@@ -211,12 +211,11 @@ The `condition` plugin's `accept` and `reject` values use infix boolean syntax:
 
 Go template syntax (`{{gt .field value}}`) is still accepted for backward compatibility.
 
-## DAG pipelines
+## Pipelines
 
-DAG-style pipelines use `input()`, `process()`, `merge()`, `output()`, and `pipeline()` instead of `task()` + `plugin()`. Both styles can coexist in the same config file.
+Pipelines use `input()`, `process()`, `merge()`, `output()`, and `pipeline()` to wire plugins into a directed graph.
 
 ```python
-# DAG syntax
 src     = input("rss", url="https://example.com/rss")
 quality = process("metainfo_quality", from_=src)
 flt     = process("quality", from_=quality, min="720p")
@@ -224,18 +223,14 @@ output("transmission", from_=flt, host="localhost")
 pipeline("my-pipeline", schedule="1h")
 ```
 
-Key differences from the linear style:
-
-| Feature | Linear | DAG |
-|---------|--------|-----|
-| Multiple RSS sources | Not supported at config level | `merge(src1, src2)` |
-| Fan-out to N sinks | Not supported | Reference the same node in multiple `output()` calls |
-| Routing (TV→client A, movies→client B) | Requires two separate tasks | Two branches from one shared head |
-| Topology | Implicit (fixed phase order) | Explicit (visible in config) |
+| Feature | How |
+|---------|-----|
+| Multiple RSS sources | `merge(src1, src2)` |
+| Fan-out to N sinks | Reference the same node in multiple `output()` calls |
+| Routing (TV→client A, movies→client B) | Two branches from one shared upstream node |
+| Topology | Explicit — visible directly in the config |
 
 ## Example configs
-
-All examples use the pipeline syntax (`input/process/output/pipeline`).
 
 ### TV / series
 
