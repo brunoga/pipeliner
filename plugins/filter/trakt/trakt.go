@@ -39,6 +39,7 @@ func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "trakt",
 		PluginPhase: plugin.PhaseFilter,
+		Role:        plugin.RoleProcessor,
 		Description: "Accept entries matching titles from a Trakt.tv list (watchlist, trending, popular, etc.)",
 		Factory:     newPlugin,
 		Validate:    validate,
