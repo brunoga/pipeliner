@@ -35,6 +35,7 @@ func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "transmission",
 		PluginPhase: plugin.PhaseOutput,
+		Role:        plugin.RoleSink,
 		Description: "Adds accepted torrents to a Transmission client via JSON-RPC",
 		Factory:     newPlugin,
 		Validate:    validate,
