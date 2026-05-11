@@ -13,8 +13,17 @@ func init() {
 		PluginName:  "jackett_input",
 		Description: "return recent results from Jackett indexers as pipeline entries (no query required)",
 		PluginPhase: plugin.PhaseInput,
-		Factory:     newInputPlugin,
-		Validate:    validateInput,
+		Role:        plugin.RoleSource,
+		Produces: []string{
+			entry.FieldPublishedDate,
+			entry.FieldTorrentSeeds,
+			entry.FieldTorrentLeechers,
+			entry.FieldTorrentInfoHash,
+			entry.FieldTorrentLinkType,
+			entry.FieldTorrentFileSize,
+		},
+		Factory:  newInputPlugin,
+		Validate: validateInput,
 	})
 }
 

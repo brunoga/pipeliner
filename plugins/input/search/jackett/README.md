@@ -41,6 +41,25 @@ task("tv-discover", [
 ])
 ```
 
+## DAG role (`jackett_input`)
+
+| Property | Value |
+|----------|-------|
+| Role | `source` |
+| Produces | `published_date`, `torrent_seeds`, `torrent_leechers`, `torrent_info_hash`, `torrent_link_type`, `torrent_file_size` |
+| Requires | — |
+
+DAG example:
+```python
+src = input("jackett_input",
+    url="http://localhost:9117",
+    api_key=env("JACKETT_KEY"),
+    categories=["5040", "5045"],
+)
+output("print", from_=src)
+pipeline("jackett-feed", schedule="1h")
+```
+
 ---
 
 ## Entry fields set (both plugins)
