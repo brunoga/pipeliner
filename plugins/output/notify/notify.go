@@ -20,6 +20,7 @@ func init() {
 		PluginName:  "notify",
 		Description: "send notifications via a configured notifier (webhook, email, …)",
 		PluginPhase: plugin.PhaseOutput,
+		Role:        plugin.RoleSink,
 		Factory:     newPlugin,
 		Validate:    validate,
 	})
