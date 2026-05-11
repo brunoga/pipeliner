@@ -23,6 +23,7 @@ func init() {
 		PluginName:  "list_add",
 		Description: "add accepted entries to a named persistent list",
 		PluginPhase: plugin.PhaseOutput,
+		Role:        plugin.RoleSink,
 		Factory:     newPlugin,
 		Validate:    validate,
 	})
