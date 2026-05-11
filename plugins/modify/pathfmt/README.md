@@ -31,3 +31,11 @@ plugin("pathfmt",
 A title like `"Breaking Bad: Season 1"` is scrubbed to `"Breaking Bad_ Season 1"` — the colon is invalid on Windows and replaced with an underscore.
 
 Output plugins (`deluge`, `qbittorrent`, `transmission`, `download`) read the `download_path` field set here. To write to a different field, specify `field` accordingly.
+
+## DAG role
+
+| Property | Value |
+|----------|-------|
+| Role | `processor` |
+| Produces | the field named by `field` config (e.g. `download_path`) |
+| Requires | any fields referenced in the `path` pattern |

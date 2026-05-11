@@ -23,6 +23,7 @@ func init() {
 		PluginName:  "pathfmt",
 		Description: "render a path pattern into an entry field, scrubbing invalid characters",
 		PluginPhase: plugin.PhaseModify,
+		Role:        plugin.RoleProcessor,
 		Factory:     newPlugin,
 		Validate:    validate,
 		Schema: []plugin.FieldSchema{
