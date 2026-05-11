@@ -533,6 +533,98 @@ section { margin-bottom: 32px; }
 }
 .ve-remove-btn:hover { background:rgba(248,81,73,.08); }
 
+/* DAG visual editor — role-based colours and new components */
+
+/* Role colour palette */
+.ve-role-source    { color:#3fb950; border-color:#3fb950; }
+.ve-role-processor { color:#58a6ff; border-color:#58a6ff; }
+.ve-role-sink      { color:#ffa657; border-color:#ffa657; }
+
+/* Palette role group headers */
+.ve-role-header {
+  font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.06em;
+  color:var(--muted); padding:8px 4px 4px; user-select:none;
+  display:flex; align-items:center; gap:6px; cursor:pointer;
+}
+.ve-role-header[data-role="source"]::before    { content:''; display:inline-block; width:8px; height:8px; border-radius:50%; flex-shrink:0; background:#3fb950; }
+.ve-role-header[data-role="processor"]::before { content:''; display:inline-block; width:8px; height:8px; border-radius:50%; flex-shrink:0; background:#58a6ff; }
+.ve-role-header[data-role="sink"]::before      { content:''; display:inline-block; width:8px; height:8px; border-radius:50%; flex-shrink:0; background:#ffa657; }
+
+/* Chip role colouring */
+.ve-chip[data-role="source"]:hover    { border-color:#3fb950; color:#3fb950; }
+.ve-chip[data-role="processor"]:hover { border-color:#58a6ff; color:#58a6ff; }
+.ve-chip[data-role="sink"]:hover      { border-color:#ffa657; color:#ffa657; }
+
+/* Pipeline name bar */
+.ve-pipeline-bar {
+  display:flex; align-items:center; gap:8px;
+  padding:8px 14px; border-bottom:1px solid var(--border); flex-shrink:0;
+}
+.ve-pipeline-name-input {
+  flex:1; padding:4px 8px; border:1px solid var(--border); border-radius:5px;
+  background:var(--bg); color:var(--text); font-size:13px; font-weight:600;
+  font-family:inherit; outline:none;
+}
+.ve-pipeline-name-input:focus { border-color:var(--accent); }
+
+/* Node role stripe */
+.ve-node-role-bar {
+  width:4px; border-radius:7px 0 0 7px; flex-shrink:0; background:var(--border);
+}
+.ve-node[data-role="source"]    .ve-node-role-bar { background:#3fb950; }
+.ve-node[data-role="processor"] .ve-node-role-bar { background:#58a6ff; }
+.ve-node[data-role="sink"]      .ve-node-role-bar { background:#ffa657; }
+
+/* Node header (name + role badge inline) */
+.ve-node-header { display:flex; align-items:center; gap:6px; }
+
+/* Role badge pill */
+.ve-node-role-badge {
+  font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:.05em;
+  padding:1px 5px; border-radius:3px; border:1px solid; flex-shrink:0;
+  background:transparent;
+}
+
+/* Upstream connection label on canvas node */
+.ve-node-from {
+  font-size:10px; color:var(--muted); margin-top:3px;
+  font-family:'SFMono-Regular',Consolas,monospace;
+}
+.ve-node-from code { color:var(--accent); background:rgba(88,166,255,.1); padding:0 3px; border-radius:2px; }
+
+/* Inline warning on canvas node */
+.ve-node-warn { font-size:10px; color:var(--amber); margin-top:3px; }
+
+/* Upstream checkbox rows in param panel */
+.ve-upstream-row {
+  display:flex; align-items:center; gap:6px; padding:3px 0;
+  font-size:12px; cursor:pointer;
+}
+.ve-upstream-row input { cursor:pointer; }
+.ve-upstream-id {
+  font-family:'SFMono-Regular',Consolas,monospace; font-size:11px;
+  background:rgba(88,166,255,.1); color:var(--accent); padding:0 4px; border-radius:2px;
+}
+
+/* Separator line between param panel sections */
+.ve-field-sep { height:1px; background:var(--border); margin:10px 0; }
+
+/* Connection warning in param panel */
+.ve-conn-warn {
+  font-size:11px; color:var(--amber); padding:6px 8px;
+  border:1px solid rgba(210,153,34,.35); border-radius:5px; margin-bottom:10px;
+  background:rgba(210,153,34,.06);
+}
+
+/* Produces/Requires info block in param panel */
+.ve-field-hint-block {
+  font-size:11px; color:var(--muted); margin-bottom:6px; line-height:1.6;
+}
+.ve-field-hint-block code {
+  font-family:'SFMono-Regular',Consolas,monospace; font-size:10px;
+  background:var(--surface); padding:0 4px; border-radius:2px;
+}
+
 /* settings tab */
 .settings-section { max-width: 480px; }
 .settings-section h3 { font-size: 13px; font-weight: 600; margin-bottom: 14px; color: var(--text); }
