@@ -21,6 +21,7 @@ func init() {
 		PluginName:  "deluge",
 		Description: "add torrents to a Deluge daemon via JSON-RPC",
 		PluginPhase: plugin.PhaseOutput,
+		Role:        plugin.RoleSink,
 		Factory:     newPlugin,
 		Validate:    validate,
 		Schema: []plugin.FieldSchema{
