@@ -59,8 +59,17 @@ All results are cached in `pipeliner.db` to avoid redundant API calls across run
 | `series_episode_image` | string | Episode still/thumbnail URL |
 | `video_runtime` | int | Episode runtime in minutes |
 
+## DAG role
+
+| Property | Value |
+|----------|-------|
+| Role | `processor` |
+| Produces | `enriched`, `title`, `video_year`, `video_genres`, `video_rating`, `video_votes`, `video_poster`, `video_language`, `series_network`, `series_status`, `series_first_air_date`, `series_last_air_date`, `series_next_air_date`, `series_episode_title`, `series_episode_description`, `series_episode_air_date`, `series_episode_image`, `tvdb_id`, `tvdb_slug` |
+| Requires | — |
+
 ## Example
 
+Linear:
 ```python
 task("tv", [
     plugin("rss", url="https://example.com/feed"),
