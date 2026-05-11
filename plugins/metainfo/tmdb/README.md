@@ -42,8 +42,17 @@ Enriches movie entries with metadata from The Movie Database (TMDb). Searches by
 | `video_genres` | []string | Genre names |
 | `movie_tagline` | string | Tagline |
 
+## DAG role
+
+| Property | Value |
+|----------|-------|
+| Role | `processor` |
+| Produces | `enriched`, `title`, `movie_title`, `movie_tagline`, `video_year`, `video_language`, `video_original_title`, `video_country`, `video_genres`, `video_rating`, `video_poster`, `video_runtime`, `video_aliases`, `video_imdb_id`, `video_popularity`, `video_votes`, `tmdb_id` |
+| Requires | — |
+
 ## Example
 
+Linear:
 ```python
 task("movies", [
     plugin("rss", url="https://example.com/feed"),
@@ -51,6 +60,16 @@ task("movies", [
     plugin("metainfo_tmdb", api_key="YOUR_API_KEY"),
     plugin("pathfmt", path="/media/movies/{title} ({video_year})", field="download_path"),
 ])
+```
+
+DAG:
+```python
+src  = input("rss", url="https://example.com/feed")
+flt  = process("movies", from_=src, static=["Inception"])
+meta = process("metainfo_tmdb", from_=flt, api_key=env("TMDB_KEY"))
+fmt  = process("pathfmt", from_=meta, path="/media/movies/{title} ({video_year})", field="download_path")
+output("qbittorrent", from_=fmt, host="localhost")
+pipeline("movies", schedule="1h")
 ```
 
 ## Notes
