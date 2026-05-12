@@ -22,8 +22,12 @@ func init() {
 		Description: "extract links from an HTML page",
 		Role:        plugin.RoleSource,
 		Produces:    []string{"html_page"},
-		Factory:     newPlugin,
-		Validate:    validate,
+		Factory:  newPlugin,
+		Validate: validate,
+		Schema: []plugin.FieldSchema{
+			{Key: "url",  Type: plugin.FieldTypeString, Required: true, Hint: "Page URL to fetch and extract links from"},
+			{Key: "mask", Type: plugin.FieldTypeString,                 Hint: "Glob pattern to filter hrefs (e.g. *.torrent)"},
+		},
 	})
 }
 

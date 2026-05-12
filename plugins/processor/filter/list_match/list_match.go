@@ -27,8 +27,13 @@ func init() {
 		PluginName:  "list_match",
 		Description: "accept entries whose title is in a named persistent list; reject others",
 		Role:        plugin.RoleProcessor,
-		Factory:     newPlugin,
-		Validate:    validate,
+		Factory:  newPlugin,
+		Validate: validate,
+		Schema: []plugin.FieldSchema{
+			{Key: "list",             Type: plugin.FieldTypeString, Required: true, Hint: "Persistent list name to match against"},
+			{Key: "remove_on_match",  Type: plugin.FieldTypeBool,                   Hint: "Remove matched entry from the list (default false)"},
+			{Key: "reject_unmatched", Type: plugin.FieldTypeBool,                   Hint: "Reject entries not in the list (default true)"},
+		},
 	})
 }
 

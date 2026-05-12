@@ -25,8 +25,12 @@ func init() {
 		PluginName:  "download",
 		Description: "download entry URLs to a local directory",
 		Role:        plugin.RoleSink,
-		Factory:     newPlugin,
-		Validate:    validate,
+		Factory:  newPlugin,
+		Validate: validate,
+		Schema: []plugin.FieldSchema{
+			{Key: "path",     Type: plugin.FieldTypeString, Required: true, Hint: "Download directory"},
+			{Key: "filename", Type: plugin.FieldTypePattern,                Hint: "Output filename template (default: URL basename)"},
+		},
 	})
 }
 

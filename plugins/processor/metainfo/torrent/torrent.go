@@ -61,6 +61,9 @@ func init() {
 		},
 		Factory:  newPlugin,
 		Validate: validate,
+		Schema: []plugin.FieldSchema{
+			{Key: "fetch_timeout", Type: plugin.FieldTypeDuration, Hint: "HTTP timeout when downloading .torrent files (default 30s)"},
+		},
 	})
 }
 

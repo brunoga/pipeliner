@@ -40,8 +40,19 @@ func init() {
 		PluginName:  "trakt",
 		Role:        plugin.RoleProcessor,
 		Description: "Accept entries matching titles from a Trakt.tv list (watchlist, trending, popular, etc.)",
-		Factory:     newPlugin,
-		Validate:    validate,
+		Factory:  newPlugin,
+		Validate: validate,
+		Schema: []plugin.FieldSchema{
+			{Key: "client_id",        Type: plugin.FieldTypeString, Required: true, Hint: "Trakt API client ID"},
+			{Key: "type",             Type: plugin.FieldTypeEnum,   Required: true, Enum: []string{"shows", "movies"}, Hint: "Content type to match"},
+			{Key: "list",             Type: plugin.FieldTypeEnum,                   Enum: []string{"watchlist", "trending", "popular", "watched", "ratings", "collection"}, Hint: "List to fetch (default watchlist)"},
+			{Key: "client_secret",    Type: plugin.FieldTypeString,                 Hint: "OAuth client secret (for private lists)"},
+			{Key: "access_token",     Type: plugin.FieldTypeString,                 Hint: "OAuth bearer token (for private lists)"},
+			{Key: "limit",            Type: plugin.FieldTypeInt,                    Hint: "Maximum results for public lists (default 100)"},
+			{Key: "min_rating",       Type: plugin.FieldTypeInt,                    Hint: "Minimum user rating 1–10 (ratings list only)"},
+			{Key: "ttl",              Type: plugin.FieldTypeDuration,               Hint: "Cache lifetime (default 1h)"},
+			{Key: "reject_unmatched", Type: plugin.FieldTypeBool,                   Hint: "Reject entries not on the list (default true)"},
+		},
 	})
 }
 

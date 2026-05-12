@@ -20,8 +20,14 @@ func init() {
 		PluginName:  "notify",
 		Description: "send notifications via a configured notifier (webhook, email, …)",
 		Role:        plugin.RoleSink,
-		Factory:     newPlugin,
-		Validate:    validate,
+		Factory:  newPlugin,
+		Validate: validate,
+		Schema: []plugin.FieldSchema{
+			{Key: "via",   Type: plugin.FieldTypeString, Required: true, Hint: "Notifier type (e.g. webhook, email)"},
+			{Key: "title", Type: plugin.FieldTypePattern,                Hint: "Notification title template"},
+			{Key: "body",  Type: plugin.FieldTypePattern,                Hint: "Notification body template"},
+			{Key: "on",    Type: plugin.FieldTypeEnum,                   Enum: []string{"only-accepted", "all"}, Hint: "When to send (default only-accepted)"},
+		},
 	})
 }
 

@@ -23,8 +23,11 @@ func init() {
 		PluginName:  "list_add",
 		Description: "add accepted entries to a named persistent list",
 		Role:        plugin.RoleSink,
-		Factory:     newPlugin,
-		Validate:    validate,
+		Factory:  newPlugin,
+		Validate: validate,
+		Schema: []plugin.FieldSchema{
+			{Key: "list", Type: plugin.FieldTypeString, Required: true, Hint: "Persistent list name to add entries to"},
+		},
 	})
 }
 

@@ -49,8 +49,17 @@ func init() {
 			entry.FieldTorrentLinkType,
 			entry.FieldTorrentFileSize,
 		},
-		Factory:  newPlugin,
-		Validate: validate,
+		Factory:        newPlugin,
+		Validate:       validate,
+		IsSearchPlugin: true,
+		Schema: []plugin.FieldSchema{
+			{Key: "url",        Type: plugin.FieldTypeString,   Required: true,  Hint: "Jackett base URL (e.g. http://localhost:9117)"},
+			{Key: "api_key",    Type: plugin.FieldTypeString,   Required: true,  Hint: "Jackett API key"},
+			{Key: "indexers",   Type: plugin.FieldTypeList,                      Hint: `Indexer IDs to query; omit or use ["all"] for all`},
+			{Key: "categories", Type: plugin.FieldTypeList,                      Hint: "Torznab category codes (e.g. 2000, 5000)"},
+			{Key: "limit",      Type: plugin.FieldTypeInt,                       Hint: "Maximum results per indexer"},
+			{Key: "timeout",    Type: plugin.FieldTypeDuration,                  Hint: "HTTP request timeout (default 60s)"},
+		},
 	})
 }
 

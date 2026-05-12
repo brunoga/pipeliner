@@ -37,8 +37,13 @@ func init() {
 			entry.FieldTorrentInfoHash,
 			entry.FieldTorrentLinkType,
 		},
-		Factory:  newPlugin,
-		Validate: validate,
+		Factory:    newPlugin,
+		Validate:   validate,
+		AcceptsVia: true,
+		Schema: []plugin.FieldSchema{
+			{Key: "titles",   Type: plugin.FieldTypeList,     Hint: "Static title strings to search for (supplements upstream source nodes)"},
+			{Key: "interval", Type: plugin.FieldTypeDuration, Hint: "Minimum time between re-searches per title (default 24h)"},
+		},
 	})
 }
 

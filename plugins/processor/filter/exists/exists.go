@@ -20,8 +20,12 @@ func init() {
 		PluginName:  "exists",
 		Description: "reject entries whose title matches a file already present on disk",
 		Role:        plugin.RoleProcessor,
-		Factory:     newPlugin,
-		Validate:    validate,
+		Factory:  newPlugin,
+		Validate: validate,
+		Schema: []plugin.FieldSchema{
+			{Key: "path",      Type: plugin.FieldTypeString, Required: true, Hint: "Directory to scan for existing files"},
+			{Key: "recursive", Type: plugin.FieldTypeBool,                   Hint: "Scan subdirectories (default true)"},
+		},
 	})
 }
 
