@@ -2060,19 +2060,19 @@ function dagToStarlark() {
       const cfgKw   = configToKwargs(n.config);
       const fromStr = upstreamsStr(n.upstreams);
 
-      // Emit per-node position and/or user comment before the definition.
+      // Emit user comment then pipeliner:pos before the definition.
       // A blank line separates this node's header block from the previous line.
       const hasPos     = !n.isViaNode && !n.isFromNode && n.x != null && n.y != null;
       const hasComment = !!n.comment?.trim();
       if (hasPos || hasComment) {
         if (lines.length > 0) lines.push('');
       }
+      if (hasComment) {
+        for (const cl of n.comment.trim().split('\n')) lines.push(`# ${cl}`);
+      }
       if (hasPos) {
         const regionY = g._regionY ?? 0;
         lines.push(`# pipeliner:pos ${Math.round(n.x)} ${Math.round(n.y - regionY)}`);
-      }
-      if (hasComment) {
-        for (const cl of n.comment.trim().split('\n')) lines.push(`# ${cl}`);
       }
 
       if (role === 'source') {
