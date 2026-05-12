@@ -52,16 +52,41 @@ async function saveConfig() {
     }
     if (!r.ok) { setConfigStatus('err', 'Save failed: ' + r.status); return; }
     showConfigErrors([]);
-    const { status } = await r.json();
-    if (status === 'reloaded') {
+    const body = await r.json();
+    if (body.status === 'reloaded') {
       setConfigStatus('ok', '✓ Saved and reloaded');
       refresh();
+    } else if (body.status === 'saved') {
+      // Config was saved but the reload step failed.
+      setConfigStatus('err', '⚠ Saved — reload failed: ' + (body.warning || 'unknown error'));
     } else {
+      // Tasks were running; reload is queued for when they finish.
       setConfigStatus('pending', '⏳ Saved — will reload when tasks finish');
+      pollUntilIdle();
     }
   } catch (e) {
     setConfigStatus('err', networkErrMsg(e));
   }
+}
+
+// pollUntilIdle polls /api/status until no tasks are running, then refreshes
+// the dashboard and clears the pending config status. Called after a save
+// that returned "pending" because tasks were running at the time.
+function pollUntilIdle() {
+  const check = async () => {
+    try {
+      const r = await fetch('/api/status');
+      if (!r.ok) return;
+      const { tasks } = await r.json();
+      if (!(tasks || []).some(t => t.running)) {
+        setConfigStatus('ok', '✓ Saved and reloaded');
+        refresh();
+        return;
+      }
+    } catch (_) { /* keep polling */ }
+    setTimeout(check, 2000);
+  };
+  setTimeout(check, 1000);
 }
 
 // networkErrMsg converts a fetch() exception into a human-readable message.
