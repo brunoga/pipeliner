@@ -24,7 +24,7 @@ output("notify", upstream=accepted,
            "smtp_port": smtp_port,
            "username":  smtp_user,
            "password":  smtp_pass,
-           "from":      smtp_user,
+           "sender":    smtp_user,
            "to":        mail_to,
        })
 

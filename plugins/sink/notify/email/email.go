@@ -23,14 +23,14 @@ func validate(cfg map[string]any) []error {
 	if err := plugin.RequireString(cfg, "smtp_host", "email"); err != nil {
 		errs = append(errs, err)
 	}
-	if err := plugin.RequireString(cfg, "from", "email"); err != nil {
+	if err := plugin.RequireString(cfg, "sender", "email"); err != nil {
 		errs = append(errs, err)
 	}
 	to := toStringSlice(cfg["to"])
 	if len(to) == 0 {
 		errs = append(errs, fmt.Errorf("email: \"to\" list must be non-empty"))
 	}
-	errs = append(errs, plugin.OptUnknownKeys(cfg, "email", "smtp_host", "smtp_port", "from", "to", "username", "password", "html")...)
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "email", "smtp_host", "smtp_port", "sender", "to", "username", "password", "html")...)
 	return errs
 }
 
@@ -49,9 +49,9 @@ func newNotifier(cfg map[string]any) (*emailNotifier, error) {
 	if host == "" {
 		return nil, fmt.Errorf("email notifier: 'smtp_host' is required")
 	}
-	from, _ := cfg["from"].(string)
+	from, _ := cfg["sender"].(string)
 	if from == "" {
-		return nil, fmt.Errorf("email notifier: 'from' is required")
+		return nil, fmt.Errorf("email notifier: 'sender' is required")
 	}
 	to := toStringSlice(cfg["to"])
 	if len(to) == 0 {

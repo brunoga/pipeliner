@@ -27,7 +27,7 @@ func init() {
 		Schema: []plugin.FieldSchema{
 			{Key: "smtp_host", Type: plugin.FieldTypeString, Required: true, Hint: "SMTP server hostname"},
 			{Key: "smtp_port", Type: plugin.FieldTypeInt, Default: 25, Hint: "SMTP server port"},
-			{Key: "from", Type: plugin.FieldTypeString, Required: true, Hint: "Sender address"},
+			{Key: "sender", Type: plugin.FieldTypeString, Required: true, Hint: "Sender address"},
 			{Key: "to", Type: plugin.FieldTypeList, Required: true, Hint: "Recipient address(es)"},
 			{Key: "username", Type: plugin.FieldTypeString, Hint: "SMTP auth username"},
 			{Key: "password", Type: plugin.FieldTypeString, Hint: "SMTP auth password"},
@@ -43,14 +43,14 @@ func validate(cfg map[string]any) []error {
 	if err := plugin.RequireString(cfg, "smtp_host", "email"); err != nil {
 		errs = append(errs, err)
 	}
-	if err := plugin.RequireString(cfg, "from", "email"); err != nil {
+	if err := plugin.RequireString(cfg, "sender", "email"); err != nil {
 		errs = append(errs, err)
 	}
 	to := toStringSlice(cfg["to"])
 	if len(to) == 0 {
 		errs = append(errs, fmt.Errorf("email: \"to\" list must be non-empty"))
 	}
-	errs = append(errs, plugin.OptUnknownKeys(cfg, "email", "smtp_host", "smtp_port", "from", "to", "username", "password", "subject", "body_template", "html")...)
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "email", "smtp_host", "smtp_port", "sender", "to", "username", "password", "subject", "body_template", "html")...)
 	return errs
 }
 
@@ -78,9 +78,9 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 		port = int(p)
 	}
 
-	from, _ := cfg["from"].(string)
+	from, _ := cfg["sender"].(string)
 	if from == "" {
-		return nil, fmt.Errorf("email: 'from' is required")
+		return nil, fmt.Errorf("email: 'sender' is required")
 	}
 
 	to := toStringSlice(cfg["to"])

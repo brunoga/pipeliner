@@ -111,7 +111,7 @@ func TestEmailSend(t *testing.T) {
 }
 
 func TestMissingHost(t *testing.T) {
-	_, err := newNotifier(map[string]any{"from": "a@b.com", "to": "x@y.com"})
+	_, err := newNotifier(map[string]any{"sender": "a@b.com", "to": "x@y.com"})
 	if err == nil {
 		t.Fatal("expected error when smtp_host is missing")
 	}
@@ -125,7 +125,7 @@ func TestMissingFrom(t *testing.T) {
 }
 
 func TestMissingTo(t *testing.T) {
-	_, err := newNotifier(map[string]any{"smtp_host": "localhost", "from": "a@b.com"})
+	_, err := newNotifier(map[string]any{"smtp_host": "localhost", "sender": "a@b.com"})
 	if err == nil {
 		t.Fatal("expected error when to is missing")
 	}
@@ -138,7 +138,7 @@ func TestRegistration(t *testing.T) {
 	}
 	_, err := d.Factory(map[string]any{
 		"smtp_host": "localhost",
-		"from":      "a@b.com",
+		"sender":      "a@b.com",
 		"to":        "x@y.com",
 	})
 	if err != nil {
