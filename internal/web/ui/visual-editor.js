@@ -2085,8 +2085,9 @@ function dagToStarlark() {
           parts.push(`via=[${viaItems}]`);
         }
         if (n.fromNodeIds?.length) {
+          // "from" is a Starlark reserved word; must use **{} expansion syntax.
           const fromItems = n.fromNodeIds.map(id => g.nodes.find(x => x.id === id)).filter(Boolean).map(viaNodeToStar).join(', ');
-          parts.push(`from=[${fromItems}]`);
+          parts.push(`**{"from": [${fromItems}]}`);
         }
         if (cfgKw) parts.push(cfgKw);
         lines.push(`${n.id} = process(${parts.join(', ')})`);

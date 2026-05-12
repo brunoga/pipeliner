@@ -97,7 +97,7 @@ func pluginCfg(addr string) map[string]any {
 	return map[string]any{
 		"smtp_host": host,
 		"smtp_port": portInt,
-		"from":      "test@example.com",
+		"sender":      "test@example.com",
 		"to":        "dest@example.com",
 	}
 }
@@ -148,7 +148,7 @@ func TestNoEntriesSkipsSend(t *testing.T) {
 	p, _ := newPlugin(map[string]any{
 		"smtp_host": "127.0.0.1",
 		"smtp_port": 1, // would fail if called
-		"from":      "a@b.com",
+		"sender":      "a@b.com",
 		"to":        "b@c.com",
 	}, nil)
 	err := p.(*emailPlugin).deliver(context.Background(), makeCtx(), nil)
@@ -158,7 +158,7 @@ func TestNoEntriesSkipsSend(t *testing.T) {
 }
 
 func TestMissingHost(t *testing.T) {
-	_, err := newPlugin(map[string]any{"from": "a@b.com", "to": "b@c.com"}, nil)
+	_, err := newPlugin(map[string]any{"sender": "a@b.com", "to": "b@c.com"}, nil)
 	if err == nil {
 		t.Error("expected error when smtp_host missing")
 	}
@@ -172,7 +172,7 @@ func TestMissingFrom(t *testing.T) {
 }
 
 func TestMissingTo(t *testing.T) {
-	_, err := newPlugin(map[string]any{"smtp_host": "localhost", "from": "a@b.com"}, nil)
+	_, err := newPlugin(map[string]any{"smtp_host": "localhost", "sender": "a@b.com"}, nil)
 	if err == nil {
 		t.Error("expected error when to missing")
 	}
