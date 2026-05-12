@@ -85,27 +85,29 @@
         <!-- center: pipeline canvas -->
         <div class="ve-canvas-area">
 
-          <!-- pipeline name bar -->
+          <!-- toolbar -->
           <div class="ve-pipeline-bar">
-            <label for="ve-pipeline-name" style="font-size:11px;color:var(--muted);white-space:nowrap">Pipeline</label>
-            <input id="ve-pipeline-name" class="ve-pipeline-name-input" placeholder="my-pipeline"
-              oninput="onPipelineName(this.value)">
+            <button id="ve-add-pipeline" class="ve-add-pipeline-header" onclick="addPipeline()" title="Add a new pipeline">+ Add pipeline</button>
+            <span class="ve-sync-note" id="ve-sync-note"></span>
+            <div class="ve-zoom-bar">
+              <button class="ve-zoom-btn" onclick="zoomOut()" title="Zoom out">−</button>
+              <span id="ve-zoom-pct" class="ve-zoom-pct">100%</span>
+              <button class="ve-zoom-btn" onclick="zoomIn()" title="Zoom in">+</button>
+              <button class="ve-zoom-btn" onclick="zoomReset()" title="Reset zoom" style="font-size:14px;padding:0 6px">⊙</button>
+            </div>
           </div>
 
           <!-- node canvas -->
           <div class="ve-canvas-body" id="ve-canvas-body">
-            <div class="ve-empty-canvas" id="ve-empty-hint">
+            <div class="ve-empty-canvas" id="ve-empty-hint" style="pointer-events:none">
               <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M9 12h6M12 9v6"/></svg>
-              <span>Click a plugin in the palette to add it, or drag it here</span>
+              <span>No pipelines yet — click <b>+ Add pipeline</b> to get started.</span>
             </div>
-            <div class="ve-pipeline" id="ve-pipeline"></div>
+            <div class="ve-graph-canvas" id="ve-graph-canvas">
+              <svg class="ve-graph-svg" id="ve-graph-svg" xmlns="http://www.w3.org/2000/svg"></svg>
+            </div>
           </div>
 
-          <!-- schedule -->
-          <div class="ve-meta">
-            <label for="ve-schedule">Schedule</label>
-            <input id="ve-schedule" placeholder="e.g. 1h  or  0 * * * *" oninput="onScheduleChange(this.value)">
-          </div>
         </div>
 
         <!-- right: param panel -->
@@ -118,20 +120,11 @@
             </div>
           </div>
           <div class="ve-param-body" id="ve-param-body"></div>
-          <div class="ve-param-footer" id="ve-param-footer" style="display:none">
-            <button class="ve-remove-btn"
-              onclick="ve.model.selected && removeNode(ve.model.selected)">Remove node</button>
-          </div>
+          <div class="ve-param-footer" id="ve-param-footer" style="display:none"></div>
         </div>
 
       </div><!-- ve-layout -->
 
-      <!-- sync status -->
-      <div class="ve-sync-bar" style="margin-top:8px">
-        <span style="font-size:11px;color:var(--muted)">Changes sync automatically to the text editor.</span>
-        <button class="btn-config" onclick="textToVisualSync()" title="Re-parse the text editor if you edited it while on this tab">↺ Re-parse</button>
-        <span class="ve-sync-note" id="ve-sync-note"></span>
-      </div>
     </div><!-- view-visual -->
   </section>
 </div>

@@ -3,9 +3,9 @@ package config
 // starlark_dag.go implements the DAG pipeline built-ins for Starlark config scripts:
 //
 //	input("plugin-name", key=val, ...)             → nodeHandle (source node)
-//	process("plugin-name", from_=node, key=val, …) → nodeHandle (processor node)
+//	process("plugin-name", upstream=node, key=val, …) → nodeHandle (processor node)
 //	merge(node_a, node_b, ...)                      → list of nodeHandles (convenience alias)
-//	output("plugin-name", from_=node, key=val, …)  (sink node; no return value used)
+//	output("plugin-name", upstream=node, key=val, …)  (sink node; no return value used)
 //	pipeline("name", schedule="1h")                 registers accumulated nodes as a named pipeline
 
 import (
@@ -33,7 +33,7 @@ type dagGraph struct {
 }
 
 // nodeHandle is the Starlark value returned by input(), process(), and output().
-// It records the NodeID so it can be passed as from_= to downstream nodes.
+// It records the NodeID so it can be passed as upstream= to downstream nodes.
 type nodeHandle struct {
 	id dag.NodeID
 }
@@ -51,7 +51,7 @@ func (ctx *execContext) nextNodeID(pluginName string) dag.NodeID {
 	return id
 }
 
-// resolveFrom converts a from_ argument (nodeHandle or list of nodeHandles)
+// resolveFrom converts a upstream= argument (nodeHandle or list of nodeHandles)
 // into a slice of NodeIDs.
 func resolveFrom(v starlark.Value) ([]dag.NodeID, error) {
 	switch v := v.(type) {
@@ -62,7 +62,7 @@ func resolveFrom(v starlark.Value) ([]dag.NodeID, error) {
 		for i := 0; i < v.Len(); i++ {
 			h, ok := v.Index(i).(*nodeHandle)
 			if !ok {
-				return nil, fmt.Errorf("from_ list element %d must be a node handle, got %s", i, v.Index(i).Type())
+				return nil, fmt.Errorf("upstream= list element %d must be a node handle, got %s", i, v.Index(i).Type())
 			}
 			ids[i] = h.id
 		}
@@ -70,7 +70,7 @@ func resolveFrom(v starlark.Value) ([]dag.NodeID, error) {
 	case starlark.NoneType:
 		return nil, nil
 	default:
-		return nil, fmt.Errorf("from_ must be a node handle or list of node handles, got %s", v.Type())
+		return nil, fmt.Errorf("upstream= must be a node handle or list of node handles, got %s", v.Type())
 	}
 }
 
@@ -96,7 +96,7 @@ func (ctx *execContext) inputBuiltin(_ *starlark.Thread, fn *starlark.Builtin, a
 	return &nodeHandle{id: id}, nil
 }
 
-// processBuiltin implements process("plugin-name", from_=node, key=val, ...) → nodeHandle.
+// processBuiltin implements process("plugin-name", upstream=node, key=val, ...) → nodeHandle.
 func (ctx *execContext) processBuiltin(_ *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	if len(args) < 1 {
 		return nil, fmt.Errorf("%s: missing plugin name", fn.Name())
@@ -125,7 +125,7 @@ func (ctx *execContext) processBuiltin(_ *starlark.Thread, fn *starlark.Builtin,
 
 // mergeBuiltin implements merge(node_a, node_b, ...) → starlark.List of nodeHandles.
 // It is a convenience alias: merging two nodes is equivalent to passing a list
-// as from_= to the next process() call. No graph node is created.
+// as upstream= to the next process() call. No graph node is created.
 func (ctx *execContext) mergeBuiltin(_ *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	if len(kwargs) > 0 {
 		return nil, fmt.Errorf("%s: does not accept keyword arguments", fn.Name())
@@ -143,7 +143,7 @@ func (ctx *execContext) mergeBuiltin(_ *starlark.Thread, fn *starlark.Builtin, a
 	return starlark.NewList(elems), nil
 }
 
-// outputBuiltin implements output("plugin-name", from_=node, key=val, ...).
+// outputBuiltin implements output("plugin-name", upstream=node, key=val, ...).
 // Returns None (sinks have no downstream).
 func (ctx *execContext) outputBuiltin(_ *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	if len(args) < 1 {
@@ -212,14 +212,14 @@ func (ctx *execContext) pipelineBuiltin(_ *starlark.Thread, fn *starlark.Builtin
 	return starlark.None, nil
 }
 
-// extractFromAndConfig splits kwargs into the from_ value and the remaining
-// plugin config. The from_ kwarg is consumed; all others are passed to
+// extractFromAndConfig splits kwargs into the upstream= value and the remaining
+// plugin config. The upstream= kwarg is consumed; all others are passed to
 // kwargsToConfig.
 func extractFromAndConfig(pluginName string, _ string, kwargs []starlark.Tuple) (fromVal starlark.Value, cfg map[string]any, err error) {
 	fromVal = starlark.None
 	var remaining []starlark.Tuple
 	for _, kv := range kwargs {
-		if string(kv[0].(starlark.String)) == "from_" {
+		if string(kv[0].(starlark.String)) == "upstream" {
 			fromVal = kv[1]
 		} else {
 			remaining = append(remaining, kv)

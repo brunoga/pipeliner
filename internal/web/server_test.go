@@ -454,7 +454,7 @@ func TestAPIConfigParseValidStarlark(t *testing.T) {
 	body, _ := json.Marshal(map[string]string{
 		"content": `
 src = input("rss", url="https://example.com")
-output("print", from_=src)
+output("print", upstream=src)
 pipeline("tv", schedule="1h")
 `,
 	})
@@ -513,10 +513,10 @@ func TestAPIConfigParseFlattensFunctions(t *testing.T) {
 	body, _ := json.Marshal(map[string]string{"content": `
 feed = "https://example.com/rss"
 def common(upstream):
-    return process("seen", from_=upstream)
+    return process("seen", upstream=upstream)
 src = input("rss", url=feed)
 flt = common(src)
-output("print", from_=flt)
+output("print", upstream=flt)
 pipeline("t")
 `})
 	resp := post(t, ts.URL+"/api/config/parse", "application/json", body)
@@ -585,5 +585,125 @@ func TestStaticJSServed(t *testing.T) {
 		if resp.StatusCode != http.StatusOK {
 			t.Errorf("%s: got %d, want 200", file, resp.StatusCode)
 		}
+	}
+}
+
+// ── scanComments unit tests ───────────────────────────────────────────────────
+
+func TestScanCommentsNodeComment(t *testing.T) {
+	nc, _, _ := scanComments("# Main source\nsrc_0 = input(\"rss\", url=\"https://example.com\")\npipeline(\"tv\")\n")
+	if nc["src_0"] != "Main source" {
+		t.Errorf("node comment: got %q, want %q", nc["src_0"], "Main source")
+	}
+}
+
+func TestScanCommentsMultilineNodeComment(t *testing.T) {
+	nc, _, _ := scanComments("# Line one\n# Line two\nsrc_0 = input(\"rss\")\npipeline(\"tv\")\n")
+	want := "Line one\nLine two"
+	if nc["src_0"] != want {
+		t.Errorf("multiline comment: got %q, want %q", nc["src_0"], want)
+	}
+}
+
+func TestScanCommentsProcessorNodeComment(t *testing.T) {
+	nc, _, _ := scanComments("src = input(\"rss\")\n# Deduplicate\nseen_1 = process(\"seen\", upstream=src)\npipeline(\"p\")\n")
+	if nc["seen_1"] != "Deduplicate" {
+		t.Errorf("processor comment: got %q, want %q", nc["seen_1"], "Deduplicate")
+	}
+}
+
+func TestScanCommentsPipelineComment(t *testing.T) {
+	_, pc, _ := scanComments("src = input(\"rss\")\n# TV shows pipeline\npipeline(\"tv\")\n")
+	if pc["tv"] != "TV shows pipeline" {
+		t.Errorf("pipeline comment: got %q, want %q", pc["tv"], "TV shows pipeline")
+	}
+}
+
+func TestScanCommentsLayout(t *testing.T) {
+	_, _, layouts := scanComments("src_0 = input(\"rss\")\n# pipeliner:layout {\"src_0\":[50,76]}\npipeline(\"tv\")\n")
+	pos, ok := layouts["tv"]["src_0"]
+	if !ok {
+		t.Fatal("layout missing for src_0")
+	}
+	if pos[0] != 50 || pos[1] != 76 {
+		t.Errorf("layout position: got [%v %v], want [50 76]", pos[0], pos[1])
+	}
+}
+
+func TestScanCommentsLayoutAndPipelineComment(t *testing.T) {
+	_, pc, layouts := scanComments("src = input(\"rss\")\n# My pipeline\n# pipeliner:layout {\"src\":[100,200]}\npipeline(\"p\")\n")
+	if pc["p"] != "My pipeline" {
+		t.Errorf("pipeline comment: got %q", pc["p"])
+	}
+	if _, ok := layouts["p"]["src"]; !ok {
+		t.Error("layout missing after pipeline comment")
+	}
+}
+
+func TestScanCommentsBlankLineResetsComment(t *testing.T) {
+	nc, _, _ := scanComments("# Lost comment\n\nsrc_0 = input(\"rss\")\npipeline(\"tv\")\n")
+	if nc["src_0"] != "" {
+		t.Errorf("blank line should reset comment, got %q", nc["src_0"])
+	}
+}
+
+func TestScanCommentsNoAnnotations(t *testing.T) {
+	nc, pc, layouts := scanComments("src = input(\"rss\")\npipeline(\"tv\")\n")
+	if len(nc) != 0 || len(pc) != 0 || len(layouts) != 0 {
+		t.Errorf("expected empty maps, got nc=%v pc=%v layouts=%v", nc, pc, layouts)
+	}
+}
+
+func TestScanCommentsMultiplePipelines(t *testing.T) {
+	content := "# Source A\na_0 = input(\"rss\")\n# Pipeline A\npipeline(\"a\")\n\n# Source B\nb_0 = input(\"rss\")\n# Pipeline B\npipeline(\"b\")\n"
+	nc, pc, _ := scanComments(content)
+	if nc["a_0"] != "Source A" {
+		t.Errorf("a_0: got %q", nc["a_0"])
+	}
+	if nc["b_0"] != "Source B" {
+		t.Errorf("b_0: got %q", nc["b_0"])
+	}
+	if pc["a"] != "Pipeline A" {
+		t.Errorf("pipeline a: got %q", pc["a"])
+	}
+	if pc["b"] != "Pipeline B" {
+		t.Errorf("pipeline b: got %q", pc["b"])
+	}
+}
+
+func TestAPIConfigParseReturnsCommentAndLayout(t *testing.T) {
+	ts := newParseServer(t)
+	defer ts.Close()
+
+	// Variable name must match generated node ID (plugin_N format) for the
+	// scanner to associate the comment correctly.
+	body, _ := json.Marshal(map[string]string{
+		"content": "# RSS source\nrss_0 = input(\"rss\", url=\"https://example.com\")\n# My pipeline\n# pipeliner:layout {\"rss_0\":[50,76]}\npipeline(\"tv\")\n",
+	})
+	resp := post(t, ts.URL+"/api/config/parse", "application/json", body)
+	defer resp.Body.Close()
+
+	var result map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	graphs := result["graphs"].(map[string]any)
+	tv := graphs["tv"].(map[string]any)
+
+	if tv["comment"] != "My pipeline" {
+		t.Errorf("pipeline comment: got %v", tv["comment"])
+	}
+	nodes := tv["nodes"].([]any)
+	if len(nodes) == 0 {
+		t.Fatal("no nodes")
+	}
+	node := nodes[0].(map[string]any)
+	if node["comment"] != "RSS source" {
+		t.Errorf("node comment: got %v", node["comment"])
+	}
+	layout := tv["layout"].(map[string]any)
+	pos := layout["rss_0"].([]any)
+	if pos[0].(float64) != 50 || pos[1].(float64) != 76 {
+		t.Errorf("layout pos: got %v", pos)
 	}
 }
