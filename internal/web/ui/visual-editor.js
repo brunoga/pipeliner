@@ -1212,6 +1212,7 @@ function startNodeDrag(e, n) {
   function onUp() {
     ve_dragging = null;
     document.removeEventListener('pointermove', onMove);
+    onModelChange();
   }
   document.addEventListener('pointermove', onMove);
   document.addEventListener('pointerup',     onUp, {once: true});
