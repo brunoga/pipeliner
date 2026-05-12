@@ -619,24 +619,50 @@ func TestScanCommentsPipelineComment(t *testing.T) {
 	}
 }
 
-func TestScanCommentsLayout(t *testing.T) {
-	_, _, layouts := scanComments("src_0 = input(\"rss\")\n# pipeliner:layout {\"src_0\":[50,76]}\npipeline(\"tv\")\n")
-	pos, ok := layouts["tv"]["src_0"]
+func TestScanCommentsPerNodePos(t *testing.T) {
+	_, _, pos := scanComments("# pipeliner:pos 50 32\nsrc_0 = input(\"rss\")\npipeline(\"tv\")\n")
+	p, ok := pos["src_0"]
 	if !ok {
-		t.Fatal("layout missing for src_0")
+		t.Fatal("position missing for src_0")
 	}
-	if pos[0] != 50 || pos[1] != 76 {
-		t.Errorf("layout position: got [%v %v], want [50 76]", pos[0], pos[1])
+	if p[0] != 50 || p[1] != 32 {
+		t.Errorf("position: got [%v %v], want [50 32]", p[0], p[1])
 	}
 }
 
-func TestScanCommentsLayoutAndPipelineComment(t *testing.T) {
-	_, pc, layouts := scanComments("src = input(\"rss\")\n# My pipeline\n# pipeliner:layout {\"src\":[100,200]}\npipeline(\"p\")\n")
-	if pc["p"] != "My pipeline" {
-		t.Errorf("pipeline comment: got %q", pc["p"])
+func TestScanCommentsPosWithUserComment(t *testing.T) {
+	nc, _, pos := scanComments("# My source\n# pipeliner:pos 50 32\nsrc_0 = input(\"rss\")\npipeline(\"tv\")\n")
+	if nc["src_0"] != "My source" {
+		t.Errorf("node comment: got %q", nc["src_0"])
 	}
-	if _, ok := layouts["p"]["src"]; !ok {
-		t.Error("layout missing after pipeline comment")
+	p, ok := pos["src_0"]
+	if !ok {
+		t.Fatal("position missing for src_0")
+	}
+	if p[0] != 50 || p[1] != 32 {
+		t.Errorf("position: got [%v %v], want [50 32]", p[0], p[1])
+	}
+}
+
+func TestScanCommentsLegacyLayoutBackwardCompat(t *testing.T) {
+	// Old pipeliner:layout format must still be parsed for backward compatibility.
+	_, _, pos := scanComments("src_0 = input(\"rss\")\n# pipeliner:layout {\"src_0\":[50,76]}\npipeline(\"tv\")\n")
+	p, ok := pos["src_0"]
+	if !ok {
+		t.Fatal("legacy layout position missing for src_0")
+	}
+	if p[0] != 50 || p[1] != 76 {
+		t.Errorf("legacy layout position: got [%v %v], want [50 76]", p[0], p[1])
+	}
+}
+
+func TestScanCommentsPosDoesNotCrossPipelineBoundary(t *testing.T) {
+	// A pipeliner:pos comment at the end of pipeline A must not be attributed
+	// to the first node of pipeline B.
+	content := "src_a = input(\"rss\")\n# pipeliner:pos 10 20\npipeline(\"a\")\n\nsrc_b = input(\"rss\")\npipeline(\"b\")\n"
+	_, _, pos := scanComments(content)
+	if _, ok := pos["src_b"]; ok {
+		t.Error("pos from pipeline A must not leak into pipeline B")
 	}
 }
 
@@ -648,9 +674,9 @@ func TestScanCommentsBlankLineResetsComment(t *testing.T) {
 }
 
 func TestScanCommentsNoAnnotations(t *testing.T) {
-	nc, pc, layouts := scanComments("src = input(\"rss\")\npipeline(\"tv\")\n")
-	if len(nc) != 0 || len(pc) != 0 || len(layouts) != 0 {
-		t.Errorf("expected empty maps, got nc=%v pc=%v layouts=%v", nc, pc, layouts)
+	nc, pc, pos := scanComments("src = input(\"rss\")\npipeline(\"tv\")\n")
+	if len(nc) != 0 || len(pc) != 0 || len(pos) != 0 {
+		t.Errorf("expected empty maps, got nc=%v pc=%v pos=%v", nc, pc, pos)
 	}
 }
 
@@ -671,14 +697,14 @@ func TestScanCommentsMultiplePipelines(t *testing.T) {
 	}
 }
 
-func TestAPIConfigParseReturnsCommentAndLayout(t *testing.T) {
+func TestAPIConfigParseReturnsCommentAndPos(t *testing.T) {
 	ts := newParseServer(t)
 	defer ts.Close()
 
 	// Variable name must match generated node ID (plugin_N format) for the
 	// scanner to associate the comment correctly.
 	body, _ := json.Marshal(map[string]string{
-		"content": "# RSS source\nrss_0 = input(\"rss\", url=\"https://example.com\")\n# My pipeline\n# pipeliner:layout {\"rss_0\":[50,76]}\npipeline(\"tv\")\n",
+		"content": "# RSS source\n# pipeliner:pos 50 76\nrss_0 = input(\"rss\", url=\"https://example.com\")\n# My pipeline\npipeline(\"tv\")\n",
 	})
 	resp := post(t, ts.URL+"/api/config/parse", "application/json", body)
 	defer resp.Body.Close()
@@ -693,6 +719,9 @@ func TestAPIConfigParseReturnsCommentAndLayout(t *testing.T) {
 	if tv["comment"] != "My pipeline" {
 		t.Errorf("pipeline comment: got %v", tv["comment"])
 	}
+	if _, ok := tv["layout"]; ok {
+		t.Error("layout field must not appear in graph response — positions are per-node")
+	}
 	nodes := tv["nodes"].([]any)
 	if len(nodes) == 0 {
 		t.Fatal("no nodes")
@@ -701,9 +730,7 @@ func TestAPIConfigParseReturnsCommentAndLayout(t *testing.T) {
 	if node["comment"] != "RSS source" {
 		t.Errorf("node comment: got %v", node["comment"])
 	}
-	layout := tv["layout"].(map[string]any)
-	pos := layout["rss_0"].([]any)
-	if pos[0].(float64) != 50 || pos[1].(float64) != 76 {
-		t.Errorf("layout pos: got %v", pos)
+	if node["x"].(float64) != 50 || node["y"].(float64) != 76 {
+		t.Errorf("node pos: got x=%v y=%v, want 50 76", node["x"], node["y"])
 	}
 }

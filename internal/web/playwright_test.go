@@ -593,10 +593,10 @@ func TestE2ELayoutCommentAppearsInTextEditor(t *testing.T) {
 	openConfigTab(t, page)
 	switchToVisual(t, page, dagConfig)
 
-	// After visual sync, switching back to text should include a layout comment.
+	// After visual sync, switching back to text should include per-node pos comments.
 	content := editorContent(t, page)
-	if !contains(content, "# pipeliner:layout") {
-		t.Errorf("layout comment missing from text editor output:\n%s", content)
+	if !contains(content, "# pipeliner:pos") {
+		t.Errorf("pipeliner:pos comment missing from text editor output:\n%s", content)
 	}
 }
 
@@ -611,10 +611,13 @@ func TestE2ELayoutRoundTripPreservesNodes(t *testing.T) {
 	login(t, page, ts.url)
 	openConfigTab(t, page)
 
-	// Load a config that already has a layout comment.
-	configWithLayout := `src_0 = input("rss", url="https://example.com/rss")
+	// Load a config that already has per-node pos comments (new format).
+	configWithLayout := `# pipeliner:pos 50 76
+src_0 = input("rss", url="https://example.com/rss")
+
+# pipeliner:pos 310 76
 flt_1 = process("seen", upstream=src_0)
-# pipeliner:layout {"src_0":[50,76],"flt_1":[310,76]}
+
 pipeline("tv")`
 
 	if err := page.Fill("#config-editor", configWithLayout); err != nil {

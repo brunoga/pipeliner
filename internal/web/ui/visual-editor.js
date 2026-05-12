@@ -915,31 +915,85 @@ function layoutGraph(g, globalY) {
 }
 
 // initLayout places all pipelines in order.
-// Pipelines with stored layout use relative Y positions (relative to _regionY).
-// Pipelines without stored layout are auto-laid out via layoutGraph.
-// This is the only entry point for post-parse positioning; it replaces both
-// autoLayout() and computePipelineBoundsFromNodes() in the load path.
+//
+// Per-node positions (x, relative-y) come from # pipeliner:pos comments parsed
+// by the server and stored directly on each node. initLayout converts relative-y
+// to absolute-y once the pipeline's _regionY is known.
+//
+// A pipeline with at least one positioned main node is "has layout". Unpositioned
+// nodes in such a pipeline are placed to the right of the existing bounding box.
+// Pipelines with no positioned nodes are fully auto-laid out via layoutGraph.
 function initLayout() {
+  const PIPELINE_GAP = 60;
   let globalY = 40;
+
   for (const g of ve.graphs) {
-    if (g._hasLayout) {
-      const relLayout = g.layout || {};
-      g._labelY  = globalY;
-      g._regionY = globalY - 8;
+    const mainNodes = g.nodes.filter(n => !n.isViaNode && !n.isFromNode);
+    const withPos   = mainNodes.filter(n => n.x != null && n.y != null);
 
-      // Place nodes at absolute Y = regionY + stored-relative-Y.
-      for (const n of g.nodes) {
-        const pos = relLayout[n.id];
-        if (pos) { n.x = pos[0]; n.y = g._regionY + pos[1]; }
-      }
-
-      // Derive region height from max stored relative-Y value.
-      const relYs = Object.values(relLayout).map(p => p[1]).filter(v => typeof v === 'number');
-      const maxRelY = relYs.length ? Math.max(...relYs) : 0;
-      g._regionH = maxRelY + NODE_H + 96;
-      globalY = g._regionY + g._regionH + 60;
-    } else {
+    if (!withPos.length) {
+      // No stored positions — full auto-layout.
       globalY = layoutGraph(g, globalY);
+      continue;
+    }
+
+    // At least one node has a stored position.
+    g._labelY  = globalY;
+    g._regionY = globalY - 8;
+
+    // Convert relative-y to absolute-y for positioned nodes.
+    let maxAbsY = g._regionY;
+    let maxAbsX = 0;
+    for (const n of withPos) {
+      n.y = g._regionY + n.y;          // relative → absolute
+      maxAbsY = Math.max(maxAbsY, n.y);
+      maxAbsX = Math.max(maxAbsX, (n.x ?? 0) + NODE_W + 60);
+    }
+
+    // Place unpositioned main nodes to the right of the bounding box.
+    const noPos = mainNodes.filter(n => n.x == null || n.y == null);
+    noPos.forEach((n, i) => {
+      n.x = maxAbsX;
+      n.y = g._regionY + 40 + i * 120;
+      maxAbsY = Math.max(maxAbsY, n.y);
+    });
+
+    // Re-derive via/from sub-node positions from their parent.
+    placeSubNodes(g, g._regionY + 36);
+
+    g._regionH = maxAbsY - g._regionY + NODE_H + 60;
+    globalY = g._regionY + g._regionH + PIPELINE_GAP;
+  }
+}
+
+// placeSubNodes positions via/from sub-nodes relative to their parent.
+// Mirrors the sub-node placement in layoutGraph; called after main node
+// positions are finalised so parents have absolute coordinates.
+function placeSubNodes(g, startY) {
+  for (const n of g.nodes) {
+    if (n.viaNodeIds?.length) {
+      const VIA_GAP = 18;
+      const totalW  = n.viaNodeIds.length * NODE_W + (n.viaNodeIds.length - 1) * VIA_GAP;
+      const startVX = (n.x ?? 0) + NODE_W / 2 - totalW / 2;
+      n.viaNodeIds.forEach((id, i) => {
+        const vn = g.nodes.find(x => x.id === id);
+        if (vn) {
+          vn.x = Math.max(0, startVX + i * (NODE_W + VIA_GAP));
+          vn.y = (n.y ?? 0) + NODE_H + 70;
+        }
+      });
+    }
+    if (n.fromNodeIds?.length) {
+      const FROM_GAP = 18;
+      const totalW   = n.fromNodeIds.length * NODE_W + (n.fromNodeIds.length - 1) * FROM_GAP;
+      const startFX  = (n.x ?? 0) + NODE_W / 2 - totalW / 2;
+      n.fromNodeIds.forEach((id, i) => {
+        const fn = g.nodes.find(x => x.id === id);
+        if (fn) {
+          fn.x = Math.max(0, startFX + i * (NODE_W + FROM_GAP));
+          fn.y = Math.max(startY + 4, (n.y ?? 0) - NODE_H - 65);
+        }
+      });
     }
   }
 }
@@ -2006,10 +2060,18 @@ function dagToStarlark() {
       const cfgKw   = configToKwargs(n.config);
       const fromStr = upstreamsStr(n.upstreams);
 
-      // Emit user comment lines (# prefix) before the node definition.
-      // Insert a blank line before the comment unless it is the very first output.
-      if (n.comment?.trim()) {
+      // Emit per-node position and/or user comment before the definition.
+      // A blank line separates this node's header block from the previous line.
+      const hasPos     = !n.isViaNode && !n.isFromNode && n.x != null && n.y != null;
+      const hasComment = !!n.comment?.trim();
+      if (hasPos || hasComment) {
         if (lines.length > 0) lines.push('');
+      }
+      if (hasPos) {
+        const regionY = g._regionY ?? 0;
+        lines.push(`# pipeliner:pos ${Math.round(n.x)} ${Math.round(n.y - regionY)}`);
+      }
+      if (hasComment) {
         for (const cl of n.comment.trim().split('\n')) lines.push(`# ${cl}`);
       }
 
@@ -2047,21 +2109,12 @@ function dagToStarlark() {
       }
     }
 
-    // Emit pipeline comment, then layout metadata, then pipeline() call.
-    // Insert a blank line before this block when node definitions precede it.
+    // Pipeline footer: optional user comment then pipeline() call.
+    // Always insert a blank line before the footer when node lines precede it.
+    if (lines.length > 0) lines.push('');
     if (g.comment?.trim()) {
-      if (lines.length > 0) lines.push('');
       for (const cl of g.comment.trim().split('\n')) lines.push(`# ${cl}`);
     }
-    // Collect node positions relative to this pipeline's region top (_regionY).
-    // Storing relative Y means positions survive pipeline reordering in the
-    // text editor and a new pipeline above won't shift existing layouts.
-    const layout = {};
-    const regionY = g._regionY ?? 0;
-    for (const n of g.nodes) {
-      if (n.x != null && n.y != null) layout[n.id] = [Math.round(n.x), Math.round(n.y - regionY)];
-    }
-    if (Object.keys(layout).length) lines.push(`# pipeliner:layout ${JSON.stringify(layout)}`);
 
     const schedArg = g.schedule ? `, schedule=${starLit(g.schedule)}` : '';
     lines.push(`pipeline(${starLit(g.name)}${schedArg})`);
@@ -2146,9 +2199,14 @@ async function textToVisualSync() {
     ve.graphs = entries.map(([name, graph]) => {
       const rawNodes = graph.nodes || [];
       // First pass: build regular nodes, loading comments.
+      // Positions (x, y) come from per-node # pipeliner:pos comments on the
+      // server; y is relative to the pipeline's region top and is converted to
+      // absolute by initLayout() after stacking order is determined.
       const nodes = rawNodes.map(n => ({
         id: n.id, plugin: n.plugin, config: n.config || {}, upstreams: n.upstreams || [],
         viaNodeIds: [], comment: n.comment || '',
+        x: n.x ?? null,
+        y: n.y ?? null,
       }));
       // Second pass: convert via/from items to regular nodes with flags.
       for (let ni = 0; ni < rawNodes.length; ni++) {
@@ -2174,11 +2232,9 @@ async function textToVisualSync() {
           });
         }
       }
-      // Store the layout map on the graph; initLayout() applies positions later
-      // so it can stack pipelines in order and interpret Y as relative to _regionY.
-      const layout = graph.layout || {};
-      return {name, schedule: graph.schedule || '', comment: graph.comment || '', nodes,
-              layout, _hasLayout: Object.keys(layout).length > 0};
+      // A pipeline "has layout" when any main node carries a stored position.
+      const _hasLayout = nodes.some(n => !n.isViaNode && !n.isFromNode && n.x != null && n.y != null);
+      return {name, schedule: graph.schedule || '', comment: graph.comment || '', nodes, _hasLayout};
     });
     ve.nextId = ve.graphs.flatMap(g => g.nodes).reduce((max, n) => {
       const m = n.id.match(/_(\d+)$/);

@@ -364,9 +364,9 @@ describe('dagToStarlark with comments', () => {
     setup([
       { id: 'rss_0', plugin: 'rss', config: {}, upstreams: [], comment: '' },
     ]);
-    // Only allow # pipeliner:layout (if positions present) — no user comment lines
+    // No user-visible comment lines should appear (pipeliner:* lines are machine-managed).
     const lines = dagToStarlark().split('\n').filter(l => l.startsWith('#'));
-    const userComments = lines.filter(l => !l.includes('pipeliner:layout'));
+    const userComments = lines.filter(l => !l.includes('pipeliner:'));
     expect(userComments).toHaveLength(0);
   });
 
@@ -386,7 +386,7 @@ describe('dagToStarlark with comments', () => {
     setup([], 'p', '', '');
     const out = dagToStarlark();
     const commentLines = out.split('\n')
-      .filter(l => l.startsWith('#') && !l.includes('pipeliner:layout'));
+      .filter(l => l.startsWith('#') && !l.includes('pipeliner:'));
     expect(commentLines).toHaveLength(0);
   });
 
@@ -437,13 +437,12 @@ describe('dagToStarlark with comments', () => {
 // ── dagToStarlark — layout ────────────────────────────────────────────────────
 
 describe('dagToStarlark with layout', () => {
-  it('emits pipeliner:layout comment when nodes have positions', () => {
+  it('emits pipeliner:pos comment before a positioned node', () => {
     setup([
       { id: 'rss_0', plugin: 'rss', config: {}, upstreams: [], x: 50, y: 76 },
     ]);
     const out = dagToStarlark();
-    expect(out).toContain('# pipeliner:layout');
-    expect(out).toContain('"rss_0":[50,76]');
+    expect(out).toContain('# pipeliner:pos 50 76\nrss_0 = input("rss")');
   });
 
   it('rounds float positions to integers', () => {
@@ -451,39 +450,55 @@ describe('dagToStarlark with layout', () => {
       { id: 'rss_0', plugin: 'rss', config: {}, upstreams: [], x: 50.7, y: 76.3 },
     ]);
     const out = dagToStarlark();
-    expect(out).toContain('"rss_0":[51,76]');
+    expect(out).toContain('# pipeliner:pos 51 76');
   });
 
-  it('layout comment appears just before pipeline()', () => {
+  it('pipeliner:pos appears before the node definition', () => {
     setup([
       { id: 'rss_0', plugin: 'rss', config: {}, upstreams: [], x: 50, y: 76 },
     ]);
     const out = dagToStarlark();
-    const layoutPos   = out.indexOf('# pipeliner:layout');
-    const pipelinePos = out.indexOf('pipeline(');
-    expect(layoutPos).toBeGreaterThan(-1);
-    expect(layoutPos).toBeLessThan(pipelinePos);
-    // No blank line between layout comment and pipeline()
-    const between = out.slice(layoutPos, pipelinePos);
-    expect(between).not.toMatch(/\n\n/);
+    const posIdx  = out.indexOf('# pipeliner:pos');
+    const nodeIdx = out.indexOf('rss_0 = input');
+    expect(posIdx).toBeGreaterThan(-1);
+    expect(posIdx).toBeLessThan(nodeIdx);
   });
 
-  it('omits layout comment when no nodes have positions', () => {
+  it('omits pipeliner:pos when node has no position', () => {
     setup([
       { id: 'rss_0', plugin: 'rss', config: {}, upstreams: [] },
     ]);
     const out = dagToStarlark();
+    expect(out).not.toContain('pipeliner:pos');
     expect(out).not.toContain('pipeliner:layout');
   });
 
-  it('includes multiple nodes in layout', () => {
+  it('emits pipeliner:pos for each positioned node', () => {
     setup([
       { id: 'rss_0',  plugin: 'rss',  config: {}, upstreams: [], x: 50,  y: 76  },
       { id: 'seen_1', plugin: 'seen', config: {}, upstreams: ['rss_0'], x: 310, y: 76  },
     ]);
     const out = dagToStarlark();
-    expect(out).toContain('"rss_0":[50,76]');
-    expect(out).toContain('"seen_1":[310,76]');
+    expect(out).toContain('# pipeliner:pos 50 76\nrss_0 = input');
+    expect(out).toContain('# pipeliner:pos 310 76\nseen_1 = process');
+  });
+
+  it('blank line appears before pipeliner:pos comment', () => {
+    setup([
+      { id: 'rss_0',  plugin: 'rss',  config: {}, upstreams: [], x: 50,  y: 40  },
+      { id: 'seen_1', plugin: 'seen', config: {}, upstreams: ['rss_0'], x: 310, y: 40  },
+    ]);
+    const out = dagToStarlark();
+    // The second node's pos comment must be preceded by a blank line.
+    expect(out).toContain('rss_0 = input("rss")\n\n# pipeliner:pos');
+  });
+
+  it('blank line appears before pipeline() even without user comment or layout', () => {
+    setup([
+      { id: 'rss_0', plugin: 'rss', config: {}, upstreams: [] },
+    ]);
+    const out = dagToStarlark();
+    expect(out).toContain('rss_0 = input("rss")\n\npipeline(');
   });
 });
 
@@ -561,7 +576,7 @@ describe('dagToStarlark with multiple pipelines', () => {
     expect(out).toContain('\n\n');
   });
 
-  it('each pipeline has its own comment and layout', () => {
+  it('each pipeline has its own comment; positioned nodes get pipeliner:pos', () => {
     ve.graphs = [
       { name: 'a', schedule: '', comment: 'Pipeline A', nodes: [
           { id: 'r_0', plugin: 'rss', config: {}, upstreams: [], x: 50, y: 76 },
@@ -573,11 +588,10 @@ describe('dagToStarlark with multiple pipelines', () => {
     const out = dagToStarlark();
     expect(out).toContain('# Pipeline A');
     expect(out).toContain('# Pipeline B');
-    expect(out).toContain('"r_0":[50,76]');
-    // Pipeline B has no nodes so no layout comment.
-    const sections = out.split('\n\n');
-    const sectionB = sections.find(s => s.includes('pipeline("b")'));
-    expect(sectionB).not.toContain('pipeliner:layout');
+    expect(out).toContain('# pipeliner:pos 50 76\nr_0 = input');
+    // Pipeline B has no nodes so no pipeliner:pos comments.
+    const sectionB = out.split('\n\n').find(s => s.includes('pipeline("b")'));
+    expect(sectionB).not.toContain('pipeliner:pos');
   });
 
   it('returns empty string for empty graphs list', () => {

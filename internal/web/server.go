@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -532,8 +533,8 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Scan raw text for user comments and layout positions.
-	nodeComments, pipelineComments, layouts := scanComments(req.Content)
+	// Scan raw text for user comments and per-node layout positions.
+	nodeComments, pipelineComments, nodePositions := scanComments(req.Content)
 
 	// DAG graphs.
 	type subPluginResp struct {
@@ -548,12 +549,13 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 		Via        []subPluginResp `json:"via,omitempty"`
 		From       []subPluginResp `json:"from,omitempty"`
 		Comment    string          `json:"comment,omitempty"`
+		X          *float64        `json:"x,omitempty"`
+		Y          *float64        `json:"y,omitempty"`
 	}
 	type graphResp struct {
-		Nodes    []nodeResp            `json:"nodes"`
-		Schedule string                `json:"schedule,omitempty"`
-		Comment  string                `json:"comment,omitempty"`
-		Layout   map[string][2]float64 `json:"layout,omitempty"`
+		Nodes    []nodeResp `json:"nodes"`
+		Schedule string     `json:"schedule,omitempty"`
+		Comment  string     `json:"comment,omitempty"`
 	}
 	graphs := make(map[string]graphResp, len(c.Graphs))
 	for name, g := range c.Graphs {
@@ -602,7 +604,7 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 				if desc.AcceptsFrom { from = extractSubPlugins("from") }
 			}
 
-			nodes = append(nodes, nodeResp{
+			nr := nodeResp{
 				ID:         string(n.ID),
 				PluginName: n.PluginName,
 				Config:     cfg,
@@ -610,40 +612,50 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 				Via:        via,
 				From:       from,
 				Comment:    nodeComments[string(n.ID)],
-			})
+			}
+			if pos, ok := nodePositions[string(n.ID)]; ok {
+				x, y := pos[0], pos[1]
+				nr.X = &x
+				nr.Y = &y
+			}
+			nodes = append(nodes, nr)
 		}
 		graphs[name] = graphResp{
 			Nodes:    nodes,
 			Schedule: c.GraphSchedules[name],
 			Comment:  pipelineComments[name],
-			Layout:   layouts[name],
 		}
 	}
 
 	writeJSON(w, map[string]any{"graphs": graphs})
 }
 
-// scanComments extracts user-visible comments and layout positions from raw
-// Starlark text. It looks for contiguous # comment blocks immediately preceding:
-//   - node assignments: id = input(...) / id = process(...)
-//   - pipeline() calls
+// scanComments extracts user-visible comments and per-node layout positions from
+// raw Starlark text. It looks for contiguous # comment blocks immediately
+// preceding node assignments (id = input/process) and pipeline() calls.
 //
-// Lines of the form "# pipeliner:layout {...}" are treated as machine-managed
-// metadata: they contribute to the layout map but not to the user comment.
+// "# pipeliner:pos X Y" lines store the canvas position (relative to the
+// pipeline region) for the immediately following node assignment. They are
+// consumed as metadata and not included in the user-visible comment.
+//
+// "# pipeliner:layout {...}" (legacy aggregate format) is also accepted for
+// backward compatibility: positions are distributed to the named node IDs.
+//
+// All other "# pipeliner:*" lines are silently skipped (future metadata).
 func scanComments(content string) (
 	nodeComments     map[string]string,
 	pipelineComments map[string]string,
-	layouts          map[string]map[string][2]float64,
+	nodePositions    map[string][2]float64,
 ) {
-	nodeComments     = make(map[string]string)
+	nodeComments  = make(map[string]string)
 	pipelineComments = make(map[string]string)
-	layouts          = make(map[string]map[string][2]float64)
+	nodePositions = make(map[string][2]float64)
 
 	nodeRe     := regexp.MustCompile(`^([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(input|process)\s*\(`)
 	pipelineRe := regexp.MustCompile(`^pipeline\s*\(\s*"([^"]+)"`)
 
 	var commentLines []string
-	var pendingLayout string
+	var pendingPos   *[2]float64
 
 	for _, line := range strings.Split(content, "\n") {
 		trimmed := strings.TrimSpace(line)
@@ -653,31 +665,49 @@ func scanComments(content string) (
 
 		case strings.HasPrefix(trimmed, "#"):
 			rest := strings.TrimSpace(strings.TrimPrefix(trimmed, "#"))
-			if strings.HasPrefix(rest, "pipeliner:layout ") {
-				pendingLayout = strings.TrimPrefix(rest, "pipeliner:layout ")
-			} else {
+			switch {
+			case strings.HasPrefix(rest, "pipeliner:pos "):
+				parts := strings.Fields(strings.TrimPrefix(rest, "pipeliner:pos "))
+				if len(parts) == 2 {
+					x, errX := strconv.ParseFloat(parts[0], 64)
+					y, errY := strconv.ParseFloat(parts[1], 64)
+					if errX == nil && errY == nil {
+						pos := [2]float64{x, y}
+						pendingPos = &pos
+					}
+				}
+			case strings.HasPrefix(rest, "pipeliner:layout "):
+				// Legacy aggregate format — distribute to per-node positions.
+				var legacy map[string][2]float64
+				if err := json.Unmarshal([]byte(strings.TrimPrefix(rest, "pipeliner:layout ")), &legacy); err == nil {
+					for id, pos := range legacy {
+						if _, exists := nodePositions[id]; !exists {
+							nodePositions[id] = pos
+						}
+					}
+				}
+			case strings.HasPrefix(rest, "pipeliner:"):
+				// Other machine-managed metadata — skip silently.
+			default:
 				commentLines = append(commentLines, rest)
 			}
 
 		default:
 			if m := nodeRe.FindStringSubmatch(trimmed); m != nil {
+				nodeID := m[1]
 				if len(commentLines) > 0 {
-					nodeComments[m[1]] = strings.Join(commentLines, "\n")
+					nodeComments[nodeID] = strings.Join(commentLines, "\n")
+				}
+				if pendingPos != nil {
+					nodePositions[nodeID] = *pendingPos
+					pendingPos = nil
 				}
 			} else if m := pipelineRe.FindStringSubmatch(trimmed); m != nil {
-				pname := m[1]
 				if len(commentLines) > 0 {
-					pipelineComments[pname] = strings.Join(commentLines, "\n")
+					pipelineComments[m[1]] = strings.Join(commentLines, "\n")
 				}
-				if pendingLayout != "" {
-					var pos map[string][2]float64
-					if err := json.Unmarshal([]byte(pendingLayout), &pos); err == nil {
-						layouts[pname] = pos
-					}
-					pendingLayout = ""
-				}
+				pendingPos = nil // pos must not cross pipeline boundaries
 			}
-			// Any non-comment line resets the accumulator.
 			commentLines = nil
 		}
 	}
