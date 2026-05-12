@@ -32,7 +32,7 @@ func TestDAG_BasicPipeline(t *testing.T) {
 
 	res := buildAndRun(t, fmt.Sprintf(`
 src = input("rss", url=%q)
-output("print", from_=src)
+output("print", upstream=src)
 pipeline("p")
 `, srv.URL))
 
@@ -55,11 +55,11 @@ func TestDAG_FilterChain(t *testing.T) {
 
 	res := buildAndRun(t, fmt.Sprintf(`
 src      = input("rss", url=%q)
-filtered = process("regexp", from_=src,
+filtered = process("regexp", upstream=src,
                    accept=["(?i)linux|open.?source"],
                    reject=["(?i)windows"])
-accepted = process("accept_all", from_=filtered)
-output("print", from_=accepted)
+accepted = process("accept_all", upstream=filtered)
+output("print", upstream=accepted)
 pipeline("p")
 `, srv.URL))
 
@@ -79,10 +79,10 @@ func TestDAG_MetainfoThenFilter(t *testing.T) {
 
 	res := buildAndRun(t, fmt.Sprintf(`
 src     = input("rss", url=%q)
-quality = process("metainfo_quality", from_=src)
-flt     = process("quality", from_=quality, min="720p")
-acc     = process("accept_all", from_=flt)
-output("print", from_=acc)
+quality = process("metainfo_quality", upstream=src)
+flt     = process("quality", upstream=quality, min="720p")
+acc     = process("accept_all", upstream=flt)
+output("print", upstream=acc)
 pipeline("p")
 `, srv.URL))
 
@@ -100,9 +100,9 @@ func TestDAG_MetainfoAnnotatesFields(t *testing.T) {
 
 	res := buildAndRun(t, fmt.Sprintf(`
 src    = input("rss", url=%q)
-series = process("metainfo_series", from_=src)
-qual   = process("metainfo_quality", from_=series)
-output("print", from_=qual)
+series = process("metainfo_series", upstream=src)
+qual   = process("metainfo_quality", upstream=series)
+output("print", upstream=qual)
 pipeline("p")
 `, srv.URL))
 
@@ -138,8 +138,8 @@ func TestDAG_Merge(t *testing.T) {
 	res := buildAndRun(t, fmt.Sprintf(`
 src1 = input("rss", url=%q)
 src2 = input("rss", url=%q)
-acc  = process("accept_all", from_=merge(src1, src2))
-output("print", from_=acc)
+acc  = process("accept_all", upstream=merge(src1, src2))
+output("print", upstream=acc)
 pipeline("p")
 `, srv1.URL, srv2.URL))
 
@@ -162,9 +162,9 @@ func TestDAG_FanOut(t *testing.T) {
 	// We verify neither errors and entries flow through.
 	res := buildAndRun(t, fmt.Sprintf(`
 src = input("rss", url=%q)
-acc = process("accept_all", from_=src)
-output("print", from_=acc)
-output("print", from_=acc)
+acc = process("accept_all", upstream=src)
+output("print", upstream=acc)
+output("print", upstream=acc)
 pipeline("p")
 `, srv.URL))
 
@@ -181,9 +181,9 @@ func TestDAG_SeenAcrossRuns(t *testing.T) {
 
 	cfgStar := fmt.Sprintf(`
 src  = input("rss", url=%q)
-seen = process("seen", from_=src)
-acc  = process("accept_all", from_=seen)
-output("print", from_=acc)
+seen = process("seen", upstream=src)
+acc  = process("accept_all", upstream=seen)
+output("print", upstream=acc)
 pipeline("p")
 `, srv.URL)
 
@@ -207,11 +207,11 @@ func TestDAG_DedupPlugin(t *testing.T) {
 
 	res := buildAndRun(t, fmt.Sprintf(`
 src    = input("rss", url=%q)
-series = process("metainfo_series", from_=src)
-qual   = process("metainfo_quality", from_=series)
-acc    = process("accept_all", from_=qual)
-dd     = process("dedup", from_=acc)
-output("print", from_=dd)
+series = process("metainfo_series", upstream=src)
+qual   = process("metainfo_quality", upstream=series)
+acc    = process("accept_all", upstream=qual)
+dd     = process("dedup", upstream=acc)
+output("print", upstream=dd)
 pipeline("p")
 `, srv.URL))
 
@@ -227,11 +227,11 @@ func TestDAG_TwoPipelines(t *testing.T) {
 
 	cfgStar := fmt.Sprintf(`
 src1 = input("rss", url=%q)
-output("print", from_=src1)
+output("print", upstream=src1)
 pipeline("p1")
 
 src2 = input("rss", url=%q)
-output("print", from_=src2)
+output("print", upstream=src2)
 pipeline("p2")
 `, srv.URL, srv.URL)
 
@@ -249,7 +249,7 @@ pipeline("p2")
 func TestDAG_Validate_UnknownPlugin(t *testing.T) {
 	cfg, err := parseConfig(t, `
 src = input("rss", url="http://example.com/rss")
-output("no_such_plugin", from_=src)
+output("no_such_plugin", upstream=src)
 pipeline("p")
 `)
 	if err != nil {
@@ -270,8 +270,8 @@ pipeline("p")
 func TestDAG_Validate_FieldRequirement(t *testing.T) {
 	cfg, err := parseConfig(t, `
 src = input("rss", url="http://example.com/rss")
-flt = process("upgrade", from_=src, target="1080p")
-output("print", from_=flt)
+flt = process("upgrade", upstream=src, target="1080p")
+output("print", upstream=flt)
 pipeline("p")
 `)
 	if err != nil {
@@ -289,9 +289,9 @@ pipeline("p")
 func TestDAG_Validate_FieldRequirement_SatisfiedByUpstream(t *testing.T) {
 	cfg, err := parseConfig(t, `
 src     = input("rss", url="http://example.com/rss")
-quality = process("metainfo_quality", from_=src)
-flt     = process("upgrade", from_=quality, target="1080p")
-output("print", from_=flt)
+quality = process("metainfo_quality", upstream=src)
+flt     = process("upgrade", upstream=quality, target="1080p")
+output("print", upstream=flt)
 pipeline("p")
 `)
 	if err != nil {
@@ -313,11 +313,11 @@ func TestDAG_PathfmtInChain(t *testing.T) {
 
 	res := buildAndRun(t, fmt.Sprintf(`
 src    = input("rss", url=%q)
-series = process("metainfo_series", from_=src)
-fmt    = process("pathfmt", from_=series,
+series = process("metainfo_series", upstream=src)
+fmt    = process("pathfmt", upstream=series,
                  path="/tv/{title}/Season {series_season:02d}",
                  field="download_path")
-output("print", from_=fmt)
+output("print", upstream=fmt)
 pipeline("p")
 `, srv.URL))
 
@@ -336,7 +336,7 @@ func TestDAG_Validate_Cycle(t *testing.T) {
 	// are impossible since handles are returned by value). Instead, verify
 	// that referencing an unknown upstream node ID is caught.
 	_, err := parseConfig(t, `
-process("seen", from_="nonexistent_handle")
+process("seen", upstream="nonexistent_handle")
 pipeline("p")
 `)
 	if err == nil {

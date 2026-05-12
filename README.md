@@ -21,14 +21,14 @@ go build -o pipeliner ./cmd/pipeliner
 ## Quick start
 
 ```python
-# config.star — connect nodes with from_= to build a pipeline
+# config.star — connect nodes with upstream= to build a pipeline
 src    = input("rss", url="https://example.com/rss")
-seen   = process("seen",       from_=src)
-series = process("series",     from_=seen, static=["Breaking Bad"])
-fmt    = process("pathfmt",    from_=series,
+seen   = process("seen",       upstream=src)
+series = process("series",     upstream=seen, static=["Breaking Bad"])
+fmt    = process("pathfmt",    upstream=series,
                  path="/media/tv/{title}/Season {series_season:02d}",
                  field="download_path")
-output("transmission", from_=fmt, host="localhost", port=9091,
+output("transmission", upstream=fmt, host="localhost", port=9091,
                         path="{download_path}")
 pipeline("breaking-bad", schedule="1h")
 ```
@@ -51,8 +51,8 @@ Pipeliner is built entirely from plugins. Each plugin has one of three roles:
 | Role | Used as | Purpose |
 |------|---------|---------|
 | **source** | `input(…)` | Produce entries from RSS, files, indexers |
-| **processor** | `process(…, from_=…)` | Filter, enrich, or transform entries |
-| **sink** | `output(…, from_=…)` | Act on accepted entries (download, notify, exec) |
+| **processor** | `process(…, upstream=…)` | Filter, enrich, or transform entries |
+| **sink** | `output(…, upstream=…)` | Act on accepted entries (download, notify, exec) |
 
 Connect multiple sources with `merge(src1, src2)` for deduplication. Fan out to multiple sinks by calling `output()` more than once from the same upstream node. See [`plugins/`](plugins/README.md) for the full plugin model.
 
@@ -153,7 +153,7 @@ Every entry carries a `Fields` map that plugins read and write. Pipeliner define
 `enriched` is set to `true` by any external metainfo provider on a successful lookup. Use it with [`require`](plugins/processor/filter/require/README.md) to discard entries that couldn't be identified:
 
 ```python
-req = process("require", from_=meta_node, fields=["enriched"])
+req = process("require", upstream=meta_node, fields=["enriched"])
 # works with TVDB, TMDb, or Trakt — no change needed if you swap providers
 ```
 

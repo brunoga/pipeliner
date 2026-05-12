@@ -27,8 +27,8 @@ def jackett_via():
              "indexers": ["all"]}]
 
 def qbit_output(upstream, savepath, category):
-    fmt = process("pathfmt", from_=upstream, path=savepath, field="download_path")
-    output("qbittorrent", from_=fmt,
+    fmt = process("pathfmt", upstream=upstream, path=savepath, field="download_path")
+    output("qbittorrent", upstream=fmt,
            host=qbit_host, port=qbit_port,
            username=qbit_user, password=qbit_pass,
            savepath="{download_path}", category=category)
@@ -38,18 +38,18 @@ def qbit_output(upstream, savepath, category):
 movie_watchlist = input("trakt_list",
     client_id=trakt_client_id, client_secret=trakt_client_secret,
     type="movies", list="watchlist")
-disc_movies  = process("discover", from_=movie_watchlist,
+disc_movies  = process("discover", upstream=movie_watchlist,
                         via=jackett_via(), interval="6h")
-seen_movies  = process("seen",            from_=disc_movies)
-q_movies     = process("metainfo_quality", from_=seen_movies)
-tmdb_movies  = process("metainfo_tmdb",   from_=q_movies, api_key=tmdb_key)
-flt_movies   = process("movies",           from_=tmdb_movies,
+seen_movies  = process("seen",            upstream=disc_movies)
+q_movies     = process("metainfo_quality", upstream=seen_movies)
+tmdb_movies  = process("metainfo_tmdb",   upstream=q_movies, api_key=tmdb_key)
+flt_movies   = process("movies",           upstream=tmdb_movies,
                         quality="1080p+",
                         **{"from": [{"name": "trakt_list",
                                      "client_id":     trakt_client_id,
                                      "client_secret": trakt_client_secret,
                                      "type": "movies", "list": "watchlist"}]})
-cond_movies  = process("condition", from_=flt_movies, rules=[
+cond_movies  = process("condition", upstream=flt_movies, rules=[
     {"reject": 'video_source == "CAM"'},
     {"reject": 'video_rating < 6.5'},
 ])
@@ -64,11 +64,11 @@ pipeline("discover-movies", schedule="6h")
 show_watchlist = input("trakt_list",
     client_id=trakt_client_id, client_secret=trakt_client_secret,
     type="shows", list="watchlist")
-disc_shows  = process("discover", from_=show_watchlist,
+disc_shows  = process("discover", upstream=show_watchlist,
                        via=jackett_via(), interval="3h")
-seen_shows  = process("seen",            from_=disc_shows)
-q_shows     = process("metainfo_quality", from_=seen_shows)
-flt_shows   = process("series",           from_=q_shows,
+seen_shows  = process("seen",            upstream=disc_shows)
+q_shows     = process("metainfo_quality", upstream=seen_shows)
+flt_shows   = process("series",           upstream=q_shows,
                         tracking="strict", quality="720p+",
                         **{"from": [{"name": "trakt_list",
                                      "client_id":     trakt_client_id,

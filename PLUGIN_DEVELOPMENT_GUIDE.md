@@ -30,7 +30,7 @@ validation, and source-plugin patterns.
 ## Concepts
 
 A pipeline connects **nodes** — each node is a configured plugin instance. Nodes
-are wired together via `from_=` in the config and execute in topological order.
+are wired together via `upstream=` in the config and execute in topological order.
 Entries flow from source nodes through processor nodes to sink nodes.
 
 A plugin is a Go struct that:
@@ -46,8 +46,8 @@ A plugin is a Go struct that:
 | Role | Interface | `input()` / `process()` / `output()` | Purpose |
 |------|-----------|--------------------------------------|---------|
 | **source** | `SourcePlugin` | `input("name", …)` | Produce entries from an external source |
-| **processor** | `ProcessorPlugin` | `process("name", from_=…, …)` | Filter, enrich, or transform entries |
-| **sink** | `SinkPlugin` | `output("name", from_=…, …)` | Act on accepted entries (download, notify, etc.) |
+| **processor** | `ProcessorPlugin` | `process("name", upstream=…, …)` | Filter, enrich, or transform entries |
+| **sink** | `SinkPlugin` | `output("name", upstream=…, …)` | Act on accepted entries (download, notify, etc.) |
 
 The executor determines a plugin's role from `Descriptor.Role`.
 

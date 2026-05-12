@@ -43,10 +43,10 @@ func TestSeriesInRunDedup(t *testing.T) {
 
 	res := buildAndRun(t, fmt.Sprintf(`
 src    = input("rss", url=%q)
-series = process("series", from_=src, static=["Breaking Bad"])
-q      = process("metainfo_quality", from_=series)
-dd     = process("dedup", from_=q)
-output("print", from_=dd)
+series = process("series", upstream=src, static=["Breaking Bad"])
+q      = process("metainfo_quality", upstream=series)
+dd     = process("dedup", upstream=q)
+output("print", upstream=dd)
 pipeline("t")
 `, srv.URL))
 
@@ -66,10 +66,10 @@ func TestMoviesInRunDedup(t *testing.T) {
 
 	res := buildAndRun(t, fmt.Sprintf(`
 src    = input("rss", url=%q)
-movies = process("movies", from_=src, static=["Inception"])
-q      = process("metainfo_quality", from_=movies)
-dd     = process("dedup", from_=q)
-output("print", from_=dd)
+movies = process("movies", upstream=src, static=["Inception"])
+q      = process("metainfo_quality", upstream=movies)
+dd     = process("dedup", upstream=q)
+output("print", upstream=dd)
 pipeline("t")
 `, srv.URL))
 
@@ -85,8 +85,8 @@ func TestSeriesUpgradeAcrossRuns(t *testing.T) {
 
 	tk := buildTask(t, fmt.Sprintf(`
 src    = input("rss", url=%q)
-series = process("series", from_=src, static=["Breaking Bad"])
-output("print", from_=series)
+series = process("series", upstream=src, static=["Breaking Bad"])
+output("print", upstream=series)
 pipeline("t")
 `, srv.URL))
 
@@ -104,8 +104,8 @@ func TestMoviesUpgradeAcrossRuns(t *testing.T) {
 
 	tk := buildTask(t, fmt.Sprintf(`
 src    = input("rss", url=%q)
-movies = process("movies", from_=src, static=["Inception"])
-output("print", from_=movies)
+movies = process("movies", upstream=src, static=["Inception"])
+output("print", upstream=movies)
 pipeline("t")
 `, srv.URL))
 
@@ -123,8 +123,8 @@ func TestSeriesProperUpgradeAcrossRuns(t *testing.T) {
 
 	tk := buildTask(t, fmt.Sprintf(`
 src    = input("rss", url=%q)
-series = process("series", from_=src, static=["Breaking Bad"])
-output("print", from_=series)
+series = process("series", upstream=src, static=["Breaking Bad"])
+output("print", upstream=series)
 pipeline("t")
 `, srv.URL))
 
@@ -140,8 +140,8 @@ func TestMoviesProperUpgradeAcrossRuns(t *testing.T) {
 
 	tk := buildTask(t, fmt.Sprintf(`
 src    = input("rss", url=%q)
-movies = process("movies", from_=src, static=["Inception"])
-output("print", from_=movies)
+movies = process("movies", upstream=src, static=["Inception"])
+output("print", upstream=movies)
 pipeline("t")
 `, srv.URL))
 
@@ -157,8 +157,8 @@ func TestSeriesDowngradeRejected(t *testing.T) {
 
 	tk := buildTask(t, fmt.Sprintf(`
 src    = input("rss", url=%q)
-series = process("series", from_=src, static=["Breaking Bad"])
-output("print", from_=series)
+series = process("series", upstream=src, static=["Breaking Bad"])
+output("print", upstream=series)
 pipeline("t")
 `, srv.URL))
 
@@ -174,8 +174,8 @@ func TestMoviesDowngradeRejected(t *testing.T) {
 
 	tk := buildTask(t, fmt.Sprintf(`
 src    = input("rss", url=%q)
-movies = process("movies", from_=src, static=["Inception"])
-output("print", from_=movies)
+movies = process("movies", upstream=src, static=["Inception"])
+output("print", upstream=movies)
 pipeline("t")
 `, srv.URL))
 

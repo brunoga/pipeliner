@@ -27,22 +27,22 @@ rss_src = input("rss", url="https://feeds.example.com/movies/1080p")
 # entries as the accepted title set and the rss entries as candidates.
 all_src = merge(rss_src, watchlist)
 
-seen   = process("seen",            from_=all_src)
-meta   = process("metainfo_quality", from_=seen)
-tmdb   = process("metainfo_tmdb",   from_=meta, api_key=env("TMDB_KEY", default="YOUR_TMDB_KEY"))
-movies = process("movies",          from_=tmdb,
+seen   = process("seen",            upstream=all_src)
+meta   = process("metainfo_quality", upstream=seen)
+tmdb   = process("metainfo_tmdb",   upstream=meta, api_key=env("TMDB_KEY", default="YOUR_TMDB_KEY"))
+movies = process("movies",          upstream=tmdb,
     quality="1080p+",
     **{"from": [{"name": "trakt_list",
                  "client_id": trakt_id,
                  "client_secret": trakt_secret,
                  "type": "movies",
                  "list": "watchlist"}]})
-enrich_ok = process("require", from_=movies, fields=["enriched"])
-pathfmt   = process("pathfmt", from_=enrich_ok,
+enrich_ok = process("require", upstream=movies, fields=["enriched"])
+pathfmt   = process("pathfmt", upstream=enrich_ok,
     path="/media/movies/{title} ({video_year})",
     field="download_path")
 
-output("qbittorrent", from_=pathfmt,
+output("qbittorrent", upstream=pathfmt,
     host="localhost",
     port=8080,
     savepath="{download_path}")
