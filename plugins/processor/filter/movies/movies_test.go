@@ -452,6 +452,46 @@ func TestMultipleEntriesSameMovieLearnRejectsOldOnNextRun(t *testing.T) {
 	}
 }
 
+func TestProcess_DoesNotPersist(t *testing.T) {
+	p := openPlugin(t, nil)
+	tc := makeCtx()
+
+	e := entry.New("Inception.2010.1080p.BluRay.x264", "http://x.com/a")
+	if _, err := p.Process(context.Background(), tc, []*entry.Entry{e}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Process must not write to the tracker — a second entry for the same
+	// movie must still be accepted (no duplicate rejection).
+	e2 := entry.New("Inception.2010.1080p.BluRay.x264", "http://x.com/b")
+	if err := p.filter(context.Background(), tc, e2); err != nil {
+		t.Fatal(err)
+	}
+	if e2.IsRejected() {
+		t.Error("Process() must not persist; movie should not be seen after Process alone")
+	}
+}
+
+func TestCommit_Persists(t *testing.T) {
+	p := openPlugin(t, nil)
+	tc := makeCtx()
+
+	e := entry.New("Inception.2010.1080p.BluRay.x264", "http://x.com/a")
+	e.Accept()
+	if err := p.Commit(context.Background(), tc, []*entry.Entry{e}); err != nil {
+		t.Fatal(err)
+	}
+
+	// After Commit, the movie should be marked as seen.
+	e2 := entry.New("Inception.2010.1080p.BluRay.x264", "http://x.com/b")
+	if err := p.filter(context.Background(), tc, e2); err != nil {
+		t.Fatal(err)
+	}
+	if !e2.IsRejected() {
+		t.Error("movie should be rejected after Commit marks it seen")
+	}
+}
+
 func TestMissingMoviesAndFrom(t *testing.T) {
 	db, _ := store.OpenSQLite(":memory:")
 	defer db.Close()

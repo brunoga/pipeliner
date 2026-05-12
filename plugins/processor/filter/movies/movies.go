@@ -2,9 +2,9 @@
 //
 // It parses movie title, year, quality, and 3D format from entry titles,
 // matches against a configured title list, and enforces quality constraints.
-// Multiple quality variants of the same movie are all accepted so the task
-// engine's automatic deduplication can choose the best copy. The tracker is
-// updated in the Learn phase so only the dedup survivor is recorded.
+// Multiple quality variants of the same movie are all accepted so the dedup
+// processor can choose the best copy. The tracker is updated via CommitPlugin
+// after all sinks confirm, so only successfully downloaded movies are recorded.
 //
 // Fields set on each matched entry: movie_title, movie_year, movie_quality,
 // movie_3d.
@@ -275,11 +275,11 @@ func (p *moviesPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entr
 			tc.Logger.Warn("movies filter error", "entry", e.Title, "err", err)
 		}
 	}
-	out := entry.PassThrough(entries)
-	if len(out) > 0 {
-		if err := p.persist(ctx, tc, out); err != nil {
-			tc.Logger.Warn("movies learn error", "err", err)
-		}
-	}
-	return out, nil
+	return entry.PassThrough(entries), nil
+}
+
+// Commit implements plugin.CommitPlugin. It persists movie tracking records
+// for entries that were not failed by any downstream sink.
+func (p *moviesPlugin) Commit(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
+	return p.persist(ctx, tc, entries)
 }
