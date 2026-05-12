@@ -198,6 +198,36 @@ pipeline("x")
 `)
 }
 
+// TestDAG_ChainedOutputs verifies that output() returns a nodeHandle usable as
+// upstream= for another output() (sink chaining).
+func TestDAG_ChainedOutputs(t *testing.T) {
+	c := parseDAGOK(t, `
+src = input("rss", url="https://example.com/rss")
+seen = process("seen", upstream=src)
+out1 = output("print", upstream=seen)
+output("print", upstream=out1)
+pipeline("chained")
+`)
+	g := c.Graphs["chained"]
+	if g == nil {
+		t.Fatal("graph 'chained' not found")
+	}
+	// src, seen, print_0 (out1), print_1 = 4 nodes
+	if g.Len() != 4 {
+		t.Errorf("want 4 nodes, got %d", g.Len())
+	}
+	// The graph should have only one terminal sink (the last output).
+	sinks := g.Sinks()
+	if len(sinks) != 1 {
+		t.Errorf("want 1 terminal sink, got %d: %v", len(sinks), sinks)
+	}
+	// Validate should pass with no errors (sink→sink is allowed).
+	errs := Validate(c)
+	if len(errs) != 0 {
+		t.Errorf("chained outputs should be valid, got errors: %v", errs)
+	}
+}
+
 // TestDAG_Validate_FieldRequirements checks that Validate catches missing field requirements.
 func TestDAG_Validate_FieldRequirements(t *testing.T) {
 	// Register a test plugin that requires a field no upstream produces.

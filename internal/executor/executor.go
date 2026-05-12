@@ -8,9 +8,16 @@
 //     by URL), dispatch to the plugin's role interface, then invoke it.
 //  4. When a node's output fans out to more than one downstream consumer,
 //     entries are cloned per consumer so each branch has independent copies.
+//  5. After the main loop, a commit phase calls CommitPlugin.Commit for each
+//     processor node that implements CommitPlugin, passing only entries whose
+//     URL was not failed by any downstream sink across all fan-out branches.
 //
 // All plugins must implement one of the three role interfaces:
 // SourcePlugin.Generate, ProcessorPlugin.Process, or SinkPlugin.Consume.
+//
+// Sink chaining: a sink node may have downstream sink nodes. After Consume runs,
+// the executor passes FilterAccepted(upstream) to the next sink so entries failed
+// by the upstream sink are not forwarded to chained sinks.
 package executor
 
 import (
@@ -105,6 +112,14 @@ func (ex *Executor) Run(ctx context.Context) (*Result, error) {
 	// Track all source entries for total/state accounting.
 	var sourceEntries []*entry.Entry
 
+	// failedURLs tracks URLs of entries that were failed by any sink node.
+	// Used during the commit phase to exclude them from CommitPlugin.Commit calls.
+	failedURLs := map[string]bool{}
+
+	// producedByNode tracks entries produced by each processor node.
+	// Used during the commit phase to find entries eligible for committing.
+	producedByNode := map[dag.NodeID][]*entry.Entry{}
+
 	for _, layer := range layers {
 		for _, n := range layer {
 			if err := ctx.Err(); err != nil {
@@ -125,11 +140,64 @@ func (ex *Executor) Run(ctx context.Context) (*Result, error) {
 			}
 			res.NodeResults[n.ID] = nr
 
-			if pi.Desc.EffectiveRole() == plugin.RoleSource {
+			role := pi.Desc.EffectiveRole()
+			if role == plugin.RoleSource {
 				sourceEntries = append(sourceEntries, produced...)
 			}
 
+			// Track entries produced by processor nodes for the commit phase.
+			if role == plugin.RoleProcessor {
+				producedByNode[n.ID] = produced
+			}
+
+			// After a sink runs, collect any entries it failed (by URL).
+			// runNode for sinks calls Consume which may mutate entry state via e.Fail().
+			if role == plugin.RoleSink {
+				for _, e := range upstream {
+					if e.IsFailed() {
+						failedURLs[e.URL] = true
+					}
+				}
+			}
+
 			ex.storeOutputs(n, produced, edge)
+		}
+	}
+
+	// Commit phase: call CommitPlugin.Commit for all processor nodes that
+	// implement CommitPlugin, passing only entries not failed by any sink.
+	for _, layer := range layers {
+		for _, n := range layer {
+			if ctx.Err() != nil {
+				break
+			}
+			pi, ok := ex.plugins[n.ID]
+			if !ok {
+				continue
+			}
+			if pi.Desc.EffectiveRole() != plugin.RoleProcessor {
+				continue
+			}
+			cp, ok := pi.Impl.(plugin.CommitPlugin)
+			if !ok {
+				continue
+			}
+			produced := producedByNode[n.ID]
+			toCommit := make([]*entry.Entry, 0, len(produced))
+			for _, e := range produced {
+				if !failedURLs[e.URL] {
+					toCommit = append(toCommit, e)
+				}
+			}
+			tc := &plugin.TaskContext{
+				Name:   ex.name,
+				Config: pi.Config,
+				Logger: ex.logger.With("node", n.ID, "plugin", pi.Impl.Name()),
+				DryRun: ex.dryRun,
+			}
+			if err := cp.Commit(ctx, tc, toCommit); err != nil {
+				tc.Logger.Warn("commit error", "err", err)
+			}
 		}
 	}
 
@@ -235,7 +303,7 @@ func (ex *Executor) runNode(
 			return nil, fmt.Errorf("plugin %q does not implement SinkPlugin", pi.Impl.Name())
 		}
 		err = sink.Consume(ctx, tc, upstream)
-		produced = nil
+		produced = entry.FilterAccepted(upstream) // pass non-failed accepted entries to chained sinks
 
 	default:
 		return nil, fmt.Errorf("unknown role %q for plugin %q", role, pi.Impl.Name())

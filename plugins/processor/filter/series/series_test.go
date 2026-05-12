@@ -519,3 +519,50 @@ func TestFollowAcceptsGapFillWithinAnchorSeason(t *testing.T) {
 		}
 	}
 }
+
+// TestProcess_DoesNotPersist verifies that Process() does NOT write to the tracker.
+// Only Commit() should persist.
+func TestProcess_DoesNotPersist(t *testing.T) {
+	p := openPlugin(t, nil)
+	tc := makeCtx()
+
+	e := entry.New("My.Show.S01E01.720p.HDTV", "http://x.com/a")
+	out, err := p.Process(context.Background(), tc, []*entry.Entry{e})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 1 || !out[0].IsAccepted() {
+		t.Fatalf("expected 1 accepted entry, got %v", out)
+	}
+
+	// Process must NOT have written to the tracker.
+	// A second episode should still be accepted because S01E01 is not tracked.
+	e2 := entry.New("My.Show.S01E01.720p.HDTV", "http://x.com/b")
+	p.filter(context.Background(), tc, e2) //nolint:errcheck
+	if e2.IsRejected() {
+		t.Error("Process() must not persist to the tracker; S01E01 should not be tracked yet")
+	}
+}
+
+// TestCommit_Persists verifies that Commit() writes to the episode tracker.
+func TestCommit_Persists(t *testing.T) {
+	p := openPlugin(t, nil)
+	tc := makeCtx()
+
+	e := entry.New("My.Show.S01E01.720p.HDTV", "http://x.com/a")
+	// Process to accept and populate episode info.
+	if _, err := p.Process(context.Background(), tc, []*entry.Entry{e}); err != nil {
+		t.Fatal(err)
+	}
+	// Now commit.
+	if err := p.Commit(context.Background(), tc, []*entry.Entry{e}); err != nil {
+		t.Fatal(err)
+	}
+
+	// After Commit, the same episode should be rejected (already tracked).
+	e2 := entry.New("My.Show.S01E01.720p.HDTV", "http://x.com/b")
+	p.filter(context.Background(), tc, e2) //nolint:errcheck
+	if !e2.IsRejected() {
+		t.Error("Commit() should persist to the tracker; S01E01 should now be tracked")
+	}
+}

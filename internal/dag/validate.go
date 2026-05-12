@@ -10,7 +10,7 @@ import (
 //  1. All upstream references exist (enforced by AddNode, but re-checked here).
 //  2. No cycles (via topological sort).
 //  3. Source plugins (RoleSource) have no upstreams.
-//  4. Sink plugins (RoleSink) have no downstream consumers.
+//  4. Sink plugins (RoleSink) may only have downstream sink nodes (sink chaining).
 //  5. Processor/sink plugins have at least one upstream.
 //  6. Every field in Descriptor.Requires is produced by at least one
 //     transitive upstream node (field reachability check).
@@ -47,8 +47,16 @@ func Validate(g *Graph, reg func(name string) (*plugin.Descriptor, bool)) []erro
 			if role != plugin.RoleSource && len(n.Upstreams) == 0 {
 				errs = append(errs, fmt.Errorf("node %q (plugin %q, role %s): non-source nodes must have at least one upstream", n.ID, n.PluginName, role))
 			}
-			if role == plugin.RoleSink && len(g.Downstreams(n.ID)) > 0 {
-				errs = append(errs, fmt.Errorf("node %q (plugin %q, role sink): sink nodes must not have downstream consumers", n.ID, n.PluginName))
+			if role == plugin.RoleSink {
+				for _, d := range g.Downstreams(n.ID) {
+					dd, ok := reg(d.PluginName)
+					if !ok {
+						continue // already reported as unknown plugin
+					}
+					if dd.EffectiveRole() != plugin.RoleSink {
+						errs = append(errs, fmt.Errorf("node %q (plugin %q, role sink): downstream node %q must also be a sink", n.ID, n.PluginName, d.ID))
+					}
+				}
 			}
 
 			// Accumulate fields reachable at this node from all upstreams.

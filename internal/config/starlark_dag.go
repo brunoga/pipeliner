@@ -2,11 +2,15 @@ package config
 
 // starlark_dag.go implements the DAG pipeline built-ins for Starlark config scripts:
 //
-//	input("plugin-name", key=val, ...)             → nodeHandle (source node)
+//	input("plugin-name", key=val, ...)                → nodeHandle (source node)
 //	process("plugin-name", upstream=node, key=val, …) → nodeHandle (processor node)
-//	merge(node_a, node_b, ...)                      → list of nodeHandles (convenience alias)
-//	output("plugin-name", upstream=node, key=val, …)  (sink node; no return value used)
-//	pipeline("name", schedule="1h")                 registers accumulated nodes as a named pipeline
+//	merge(node_a, node_b, ...)                         → list of nodeHandles (convenience alias)
+//	output("plugin-name", upstream=node, key=val, …)  → nodeHandle (sink node)
+//	pipeline("name", schedule="1h")                    registers accumulated nodes as a named pipeline
+//
+// output() returns a nodeHandle that can be passed as upstream= to another output()
+// call, enabling sink chaining (output → output). Only sink → sink connections are
+// valid; connecting an output's handle to a process() call is rejected by Validate.
 
 import (
 	"fmt"
@@ -143,8 +147,9 @@ func (ctx *execContext) mergeBuiltin(_ *starlark.Thread, fn *starlark.Builtin, a
 	return starlark.NewList(elems), nil
 }
 
-// outputBuiltin implements output("plugin-name", upstream=node, key=val, ...).
-// Returns None (sinks have no downstream).
+// outputBuiltin implements output("plugin-name", upstream=node, key=val, ...) → nodeHandle.
+// Returns a nodeHandle that can be passed as upstream= to another output() call,
+// enabling sink chaining. Only sink → sink connections are valid in the DAG validator.
 func (ctx *execContext) outputBuiltin(_ *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	if len(args) < 1 {
 		return nil, fmt.Errorf("%s: missing plugin name", fn.Name())
@@ -168,7 +173,7 @@ func (ctx *execContext) outputBuiltin(_ *starlark.Thread, fn *starlark.Builtin, 
 		config:     cfg,
 		upstreams:  upstreams,
 	})
-	return starlark.None, nil
+	return &nodeHandle{id: id}, nil
 }
 
 // pipelineBuiltin implements pipeline("name", schedule="...").

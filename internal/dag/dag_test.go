@@ -4,7 +4,34 @@ import (
 	"testing"
 
 	"github.com/brunoga/pipeliner/internal/dag"
+	"github.com/brunoga/pipeliner/internal/plugin"
 )
+
+// --- helpers for validate tests ---
+
+func sinkDescFor(name string) *plugin.Descriptor {
+	return &plugin.Descriptor{PluginName: name, Role: plugin.RoleSink}
+}
+
+func sourceDescFor(name string) *plugin.Descriptor {
+	return &plugin.Descriptor{PluginName: name, Role: plugin.RoleSource}
+}
+
+func processorDescFor(name string) *plugin.Descriptor {
+	return &plugin.Descriptor{PluginName: name, Role: plugin.RoleProcessor}
+}
+
+// makeRegistry returns a simple reg function that maps plugin names to descriptors.
+func makeRegistry(descs ...*plugin.Descriptor) func(string) (*plugin.Descriptor, bool) {
+	m := make(map[string]*plugin.Descriptor, len(descs))
+	for _, d := range descs {
+		m[d.PluginName] = d
+	}
+	return func(name string) (*plugin.Descriptor, bool) {
+		d, ok := m[name]
+		return d, ok
+	}
+}
 
 func makeGraph(t *testing.T, nodes ...*dag.Node) *dag.Graph {
 	t.Helper()
@@ -115,5 +142,58 @@ func TestAddNode_DuplicateID(t *testing.T) {
 	}
 	if err := g.AddNode(node("a", "html")); err == nil {
 		t.Error("expected error for duplicate node ID, got nil")
+	}
+}
+
+// --- Validate tests ---
+
+func TestValidate_SinkToSink_Valid(t *testing.T) {
+	// src → proc → sink1 → sink2 should be valid (sink chaining).
+	g := makeGraph(t,
+		node("src", "rssp"),
+		node("proc", "seenp", "src"),
+		node("sink1", "txp", "proc"),
+		node("sink2", "emailp", "sink1"),
+	)
+	reg := makeRegistry(
+		sourceDescFor("rssp"),
+		processorDescFor("seenp"),
+		sinkDescFor("txp"),
+		sinkDescFor("emailp"),
+	)
+	errs := dag.Validate(g, reg)
+	if len(errs) != 0 {
+		t.Errorf("sink→sink chain should be valid, got errors: %v", errs)
+	}
+}
+
+func TestValidate_SinkToSink_TerminalSink_HasNoDownstream(t *testing.T) {
+	// In a chain src → sink1 → sink2, Sinks() should return only sink2.
+	g := makeGraph(t,
+		node("src", "rssp"),
+		node("sink1", "txp", "src"),
+		node("sink2", "emailp", "sink1"),
+	)
+	sinks := g.Sinks()
+	if len(sinks) != 1 || sinks[0].ID != "sink2" {
+		t.Errorf("want [sink2] from Sinks(), got %v", sinks)
+	}
+}
+
+func TestValidate_SinkToProcessor_Invalid(t *testing.T) {
+	// src → sink → proc is invalid (a sink's downstream must be a sink too).
+	g := makeGraph(t,
+		node("src", "rssp"),
+		node("sink", "txp", "src"),
+		node("proc", "seenp", "sink"),
+	)
+	reg := makeRegistry(
+		sourceDescFor("rssp"),
+		sinkDescFor("txp"),
+		processorDescFor("seenp"),
+	)
+	errs := dag.Validate(g, reg)
+	if len(errs) == 0 {
+		t.Error("sink→processor should be invalid, got no errors")
 	}
 }

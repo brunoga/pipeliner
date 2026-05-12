@@ -330,8 +330,9 @@ function renderGraphNodes() {
         '</div>',
         `<button class="ve-node-remove" tabindex="-1" title="Remove">×</button>`,
         `<button class="ve-node-comment-btn${commentBtnCls}" tabindex="-1" title="Edit comment">#</button>`,
-        // Output port: not shown on sinks or sub-nodes.
-        (role !== 'sink' && !isVia && !isFrom) ? '<div class="ve-node-out-port" title="Drag to connect"></div>' : '',
+        // Output port: not shown on sub-nodes. Sinks show a chain port so they
+        // can connect to downstream sinks (sink chaining).
+        (!isVia && !isFrom) ? `<div class="ve-node-out-port${role === 'sink' ? ' ve-node-chain-port' : ''}" title="${role === 'sink' ? 'Drag to chain to another output node' : 'Drag to connect'}"></div>` : '',
         // Input port indicator: shown on valid drop-targets while dragging an output port.
         (role !== 'source' && !isVia && !isFrom) ? '<div class="ve-node-in-port"></div>' : '',
       ].join('');
@@ -634,7 +635,16 @@ function renderEdges() {
         const dx  = Math.max(60, Math.abs(x2 - x1) * 0.5);
         const sel = n.id === ve.selectedNodeId || up.id === ve.selectedNodeId;
         const d   = `M${x1},${y1} C${x1+dx},${y1} ${x2-dx},${y2} ${x2},${y2}`;
-        vis += `<path d="${d}" class="ve-edge${sel ? ' selected' : ''}" marker-end="url(${sel ? '#arrow-sel' : '#arrow'})"/>`;
+        // Use a distinct style for sink→sink chain edges.
+        const upRole  = pluginMeta(up.plugin)?.role;
+        const nRole   = pluginMeta(n.plugin)?.role;
+        const isChain = upRole === 'sink' && nRole === 'sink';
+        if (isChain) {
+          const mId = sel ? '#arrow-chain-sel' : '#arrow-chain';
+          vis += `<path d="${d}" class="ve-chain-edge${sel ? ' selected' : ''}" marker-end="url(${mId})"/>`;
+        } else {
+          vis += `<path d="${d}" class="ve-edge${sel ? ' selected' : ''}" marker-end="url(${sel ? '#arrow-sel' : '#arrow'})"/>`;
+        }
         // Invisible fat stroke for easy click-to-delete; data attrs carry the link info.
         hit += `<path d="${d}" class="ve-edge-hit" data-src="${upId}" data-dst="${n.id}"><title>Click to disconnect</title></path>`;
       }
@@ -731,6 +741,12 @@ function renderEdges() {
       `</marker>` +
       `<marker id="arrow-sel" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">` +
         `<path d="M0,1 L0,7 L7,4 z" fill="#58a6ff"/>` +
+      `</marker>` +
+      `<marker id="arrow-chain" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">` +
+        `<path d="M0,1 L0,7 L7,4 z" fill="#e3b341"/>` +
+      `</marker>` +
+      `<marker id="arrow-chain-sel" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">` +
+        `<path d="M0,1 L0,7 L7,4 z" fill="#f0d070"/>` +
       `</marker>` +
       `<marker id="arrow-from" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">` +
         `<path d="M0,1 L0,7 L7,4 z" fill="#0d9373"/>` +
@@ -1263,12 +1279,20 @@ function finishConnect(targetId) {
   const tgt     = findNode(targetId);
   const src     = findNode(ve_connecting?.srcId);
   const tgtRole = pluginMeta(tgt?.plugin)?.role;
+  const srcRole = pluginMeta(src?.plugin)?.role;
   const srcGi   = findNodeGraph(ve_connecting?.srcId);
   const tgtGi   = findNodeGraph(targetId);
   // Sources never accept incoming edges; from-list nodes can't also be regular
   // upstreams; and adding the edge must not create a cycle in the DAG.
+  // Additionally, sink nodes may only connect to other sink nodes (chaining).
   if (src && tgt && tgtRole !== 'source' && !src.isFromNode &&
       srcGi === tgtGi && !tgt.upstreams.includes(src.id)) {
+    // If source is a sink, the target must also be a sink (sink chaining rule).
+    if (srcRole === 'sink' && tgtRole !== 'sink') {
+      ve_connecting = null;
+      veRender();
+      return;
+    }
     const g = srcGi >= 0 ? ve.graphs[srcGi] : null;
     if (g && !wouldCreateCycle(g.nodes, src.id, tgt.id)) {
       tgt.upstreams.push(src.id);
@@ -1883,7 +1907,18 @@ function dagToStarlark() {
         const parts = [starLit(n.plugin)];
         if (fromStr) parts.push(`upstream=${fromStr}`);
         if (cfgKw)   parts.push(cfgKw);
-        lines.push(`output(${parts.join(', ')})`);
+        // If this sink has downstream sinks (chaining), assign the return value
+        // so it can be referenced as upstream= by the chained output.
+        const hasChainedDownstream = g.nodes.some(
+          dn => !dn.isViaNode && !dn.isFromNode &&
+                (dn.upstreams || []).includes(n.id) &&
+                (pluginMeta(dn.plugin)?.role === 'sink')
+        );
+        if (hasChainedDownstream) {
+          lines.push(`${n.id} = output(${parts.join(', ')})`);
+        } else {
+          lines.push(`output(${parts.join(', ')})`);
+        }
       }
     }
 

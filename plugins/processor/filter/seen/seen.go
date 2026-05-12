@@ -54,7 +54,7 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 
 func (p *seenPlugin) Name() string        { return "seen" }
 
-func (p *seenPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
+func (p *seenPlugin) filter(_ context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
 	ss := p.seenStore(tc)
 	fp := fingerprint(e, p.fields)
 	if ss.IsSeen(fp) {
@@ -136,11 +136,13 @@ func (p *seenPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entrie
 			tc.Logger.Warn("seen filter error", "entry", e.Title, "err", err)
 		}
 	}
-	out := entry.PassThrough(entries)
-	if len(out) > 0 {
-		if err := p.persist(ctx, tc, out); err != nil {
-			tc.Logger.Warn("seen learn error", "err", err)
-		}
-	}
-	return out, nil
+	return entry.PassThrough(entries), nil
+}
+
+// Commit implements plugin.CommitPlugin. It persists the seen state for all
+// entries that were accepted by Process and not subsequently failed by any
+// downstream sink. This ensures we only mark entries as seen when the full
+// pipeline (including download/output) succeeded.
+func (p *seenPlugin) Commit(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
+	return p.persist(ctx, tc, entries)
 }
