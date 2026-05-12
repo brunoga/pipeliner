@@ -82,6 +82,16 @@ type ShutdownPlugin interface {
 	Shutdown()
 }
 
+// CommitPlugin is an optional interface for processors that must persist
+// state only after all downstream sinks have confirmed success.
+// The executor calls Commit once after all sink nodes have run, passing
+// only the entries this processor accepted that were not failed by any
+// downstream sink (across all fan-out branches, matched by URL).
+type CommitPlugin interface {
+	Plugin
+	Commit(ctx context.Context, tc *TaskContext, entries []*entry.Entry) error
+}
+
 // SearchPlugin actively searches a source for entries matching a query string.
 // SearchPlugins are used as via-plugins by the discover processor.
 type SearchPlugin interface {

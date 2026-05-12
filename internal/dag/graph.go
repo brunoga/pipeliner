@@ -94,7 +94,9 @@ func (g *Graph) Sources() []*Node {
 	return out
 }
 
-// Sinks returns nodes with no downstream consumers (exit points of the graph).
+// Sinks returns nodes with no downstream consumers (terminal exit points of the
+// graph). In a sink chain (sink → sink), only the last sink in the chain is
+// returned. Intermediate sinks have downstream consumers and are not included.
 func (g *Graph) Sinks() []*Node {
 	var out []*Node
 	for _, id := range g.order {

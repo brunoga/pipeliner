@@ -711,6 +711,12 @@ section { margin-bottom: 32px; }
 .ve-node[data-role="source"]    .ve-node-out-port { border-color:#3fb950; }
 .ve-node[data-role="processor"] .ve-node-out-port { border-color:#58a6ff; }
 .ve-node-out-port:hover { background:rgba(88,166,255,.15); }
+/* sink chain port: amber colour, shown on hover like regular ports */
+.ve-node[data-role="sink"] .ve-node-out-port.ve-node-chain-port { border-color:#e3b341; }
+.ve-node[data-role="sink"] .ve-node-out-port.ve-node-chain-port:hover { background:rgba(227,179,65,.15); }
+/* sink→sink chain edge: amber dashed stroke */
+.ve-chain-edge { fill:none; stroke:#e3b341; stroke-width:1.5; stroke-dasharray:6,3; pointer-events:none; }
+.ve-chain-edge.selected { stroke:#f0d070; stroke-width:2; }
 
 .ve-empty-canvas {
   position:absolute; inset:0;

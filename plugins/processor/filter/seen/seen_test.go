@@ -139,6 +139,60 @@ func TestLearnMarksEntryAsSeen(t *testing.T) {
 	}
 }
 
+// TestProcess_DoesNotPersist verifies that Process() does NOT write to the seen
+// store. Only Commit() should persist.
+func TestProcess_DoesNotPersist(t *testing.T) {
+	p := openPlugin(t, nil)
+	tc := makeCtx("task")
+
+	e := entry.New("Test", "http://example.com/a")
+	e.Accept()
+	out, err := p.Process(context.Background(), tc, []*entry.Entry{e})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 1 {
+		t.Fatalf("want 1 output entry, got %d", len(out))
+	}
+
+	// Process must NOT have written to the seen store.
+	// We verify by calling filter on the same URL — it should NOT be rejected.
+	e2 := entry.New("Test", "http://example.com/a")
+	if err := p.filter(context.Background(), tc, e2); err != nil {
+		t.Fatal(err)
+	}
+	if e2.IsRejected() {
+		t.Error("Process() must not persist to the seen store; entry should not be seen yet")
+	}
+}
+
+// TestCommit_Persists verifies that Commit() writes to the seen store.
+func TestCommit_Persists(t *testing.T) {
+	p := openPlugin(t, nil)
+	tc := makeCtx("task")
+
+	e := entry.New("Test", "http://example.com/commit")
+	e.Accept()
+
+	// Process without Commit — should not be persisted.
+	if _, err := p.Process(context.Background(), tc, []*entry.Entry{e}); err != nil {
+		t.Fatal(err)
+	}
+	// Now commit.
+	if err := p.Commit(context.Background(), tc, []*entry.Entry{e}); err != nil {
+		t.Fatal(err)
+	}
+
+	// After Commit, the URL should be seen.
+	e2 := entry.New("Test", "http://example.com/commit")
+	if err := p.filter(context.Background(), tc, e2); err != nil {
+		t.Fatal(err)
+	}
+	if !e2.IsRejected() {
+		t.Error("Commit() should persist to the seen store; entry should now be seen")
+	}
+}
+
 func TestFingerprintStability(t *testing.T) {
 	e := entry.New("My Title", "http://example.com/path")
 	f1 := fingerprint(e, []string{"url", "title"})

@@ -136,3 +136,57 @@ func TestInvalidOnLower(t *testing.T) {
 		t.Error("expected error for invalid on_lower value")
 	}
 }
+
+// TestProcess_DoesNotPersist verifies that Process() does NOT write to the store.
+// Only Commit() should persist.
+func TestProcess_DoesNotPersist(t *testing.T) {
+	p := makePlugin(t, map[string]any{})
+	tc := &plugin.TaskContext{Name: "test-task"}
+
+	e := entryWithQuality("Show.S01E01.720p.HDTV")
+	out, err := p.Process(context.Background(), tc, []*entry.Entry{e})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 1 || !out[0].IsAccepted() {
+		t.Fatalf("expected 1 accepted entry from Process, got %v", out)
+	}
+
+	// Process must NOT have written to the store.
+	// A second call with a lower-quality entry should still be accepted as
+	// "first time seeing this title" because the first was never committed.
+	e2 := entryWithQuality("Show.S01E01.480p.HDTV")
+	if err := p.filter(context.Background(), tc, e2); err != nil {
+		t.Fatal(err)
+	}
+	if e2.IsRejected() {
+		t.Error("Process() must not persist to the store; quality record should not be written yet")
+	}
+}
+
+// TestCommit_Persists verifies that Commit() writes quality records to the store.
+func TestCommit_Persists(t *testing.T) {
+	p := makePlugin(t, map[string]any{})
+	tc := &plugin.TaskContext{Name: "test-task"}
+
+	e := entryWithQuality("Show.S01E01.1080p.BluRay")
+	e.Set("quality", "1080p")
+
+	// Process to accept.
+	if _, err := p.Process(context.Background(), tc, []*entry.Entry{e}); err != nil {
+		t.Fatal(err)
+	}
+	// Now commit.
+	if err := p.Commit(context.Background(), tc, []*entry.Entry{e}); err != nil {
+		t.Fatal(err)
+	}
+
+	// After Commit, a lower-quality entry should be rejected (quality record exists).
+	e2 := entryWithQuality("Show.S01E01.720p.HDTV")
+	if err := p.filter(context.Background(), tc, e2); err != nil {
+		t.Fatal(err)
+	}
+	if !e2.IsRejected() {
+		t.Error("Commit() should persist quality record; lower quality should now be rejected")
+	}
+}

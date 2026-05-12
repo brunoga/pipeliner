@@ -181,11 +181,13 @@ func (p *upgradePlugin) Process(ctx context.Context, tc *plugin.TaskContext, ent
 			tc.Logger.Warn("upgrade filter error", "entry", e.Title, "err", err)
 		}
 	}
-	out := entry.PassThrough(entries)
-	if len(out) > 0 {
-		if err := p.persist(ctx, tc, out); err != nil {
-			tc.Logger.Warn("upgrade learn error", "err", err)
-		}
-	}
-	return out, nil
+	return entry.PassThrough(entries), nil
+}
+
+// Commit implements plugin.CommitPlugin. It persists quality records for all
+// entries that were accepted by Process and not subsequently failed by any
+// downstream sink. This ensures we only record quality upgrades when the full
+// pipeline (including download/output) succeeded.
+func (p *upgradePlugin) Commit(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
+	return p.persist(ctx, tc, entries)
 }
