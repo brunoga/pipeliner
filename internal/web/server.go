@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -468,6 +469,10 @@ func (s *Server) apiPlugins(w http.ResponseWriter, _ *http.Request) {
 		Produces    []string    `json:"produces"` // entry field names this plugin writes
 		Requires    []string    `json:"requires"` // entry field names this plugin reads
 		Schema      []fieldResp `json:"schema"`   // empty slice, never null
+		AcceptsVia     bool        `json:"accepts_via,omitempty"`
+		IsSearchPlugin bool        `json:"is_search_plugin,omitempty"`
+		AcceptsFrom    bool        `json:"accepts_from,omitempty"`
+		IsFromPlugin   bool        `json:"is_from_plugin,omitempty"`
 	}
 
 	descs := plugin.All()
@@ -493,12 +498,16 @@ func (s *Server) apiPlugins(w http.ResponseWriter, _ *http.Request) {
 			requires = []string{}
 		}
 		out = append(out, pluginResp{
-			Name:        d.PluginName,
-			Role:        string(d.EffectiveRole()),
-			Description: d.Description,
-			Produces:    produces,
-			Requires:    requires,
-			Schema:      fields,
+			Name:           d.PluginName,
+			Role:           string(d.EffectiveRole()),
+			Description:    d.Description,
+			Produces:       produces,
+			Requires:       requires,
+			Schema:         fields,
+			AcceptsVia:     d.AcceptsVia,
+			IsSearchPlugin: d.IsSearchPlugin,
+			AcceptsFrom:    d.AcceptsFrom,
+			IsFromPlugin:   d.IsFromPlugin,
 		})
 	}
 	writeJSON(w, out)
@@ -523,16 +532,28 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Scan raw text for user comments and layout positions.
+	nodeComments, pipelineComments, layouts := scanComments(req.Content)
+
 	// DAG graphs.
-	type nodeResp struct {
-		ID         string         `json:"id"`
+	type subPluginResp struct {
 		PluginName string         `json:"plugin"`
 		Config     map[string]any `json:"config"`
-		Upstreams  []string       `json:"upstreams"`
+	}
+	type nodeResp struct {
+		ID         string          `json:"id"`
+		PluginName string          `json:"plugin"`
+		Config     map[string]any  `json:"config"`
+		Upstreams  []string        `json:"upstreams"`
+		Via        []subPluginResp `json:"via,omitempty"`
+		From       []subPluginResp `json:"from,omitempty"`
+		Comment    string          `json:"comment,omitempty"`
 	}
 	type graphResp struct {
-		Nodes    []nodeResp `json:"nodes"`
-		Schedule string     `json:"schedule,omitempty"`
+		Nodes    []nodeResp            `json:"nodes"`
+		Schedule string                `json:"schedule,omitempty"`
+		Comment  string                `json:"comment,omitempty"`
+		Layout   map[string][2]float64 `json:"layout,omitempty"`
 	}
 	graphs := make(map[string]graphResp, len(c.Graphs))
 	for name, g := range c.Graphs {
@@ -545,18 +566,122 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 			cfg := n.Config
 			if cfg == nil {
 				cfg = map[string]any{}
+			} else {
+				// Clone so we can remove "via" without mutating the graph.
+				clone := make(map[string]any, len(cfg))
+				for k, v := range cfg {
+					clone[k] = v
+				}
+				cfg = clone
 			}
+
+			// extractSubPlugins pulls a named list key from cfg into a typed
+			// slice and removes it from the map so the editor models it separately.
+			extractSubPlugins := func(key string) []subPluginResp {
+				raw, ok := cfg[key].([]any)
+				if !ok {
+					return nil
+				}
+				var out []subPluginResp
+				for _, item := range raw {
+					pName, pCfg, err := plugin.ResolveNameAndConfig(item)
+					if err == nil {
+						if pCfg == nil {
+							pCfg = map[string]any{}
+						}
+						out = append(out, subPluginResp{PluginName: pName, Config: pCfg})
+					}
+				}
+				delete(cfg, key)
+				return out
+			}
+
+			var via, from []subPluginResp
+			if desc, ok := plugin.Lookup(n.PluginName); ok {
+				if desc.AcceptsVia  { via  = extractSubPlugins("via")  }
+				if desc.AcceptsFrom { from = extractSubPlugins("from") }
+			}
+
 			nodes = append(nodes, nodeResp{
 				ID:         string(n.ID),
 				PluginName: n.PluginName,
 				Config:     cfg,
 				Upstreams:  ups,
+				Via:        via,
+				From:       from,
+				Comment:    nodeComments[string(n.ID)],
 			})
 		}
-		graphs[name] = graphResp{Nodes: nodes, Schedule: c.GraphSchedules[name]}
+		graphs[name] = graphResp{
+			Nodes:    nodes,
+			Schedule: c.GraphSchedules[name],
+			Comment:  pipelineComments[name],
+			Layout:   layouts[name],
+		}
 	}
 
 	writeJSON(w, map[string]any{"graphs": graphs})
+}
+
+// scanComments extracts user-visible comments and layout positions from raw
+// Starlark text. It looks for contiguous # comment blocks immediately preceding:
+//   - node assignments: id = input(...) / id = process(...)
+//   - pipeline() calls
+//
+// Lines of the form "# pipeliner:layout {...}" are treated as machine-managed
+// metadata: they contribute to the layout map but not to the user comment.
+func scanComments(content string) (
+	nodeComments     map[string]string,
+	pipelineComments map[string]string,
+	layouts          map[string]map[string][2]float64,
+) {
+	nodeComments     = make(map[string]string)
+	pipelineComments = make(map[string]string)
+	layouts          = make(map[string]map[string][2]float64)
+
+	nodeRe     := regexp.MustCompile(`^([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(input|process)\s*\(`)
+	pipelineRe := regexp.MustCompile(`^pipeline\s*\(\s*"([^"]+)"`)
+
+	var commentLines []string
+	var pendingLayout string
+
+	for _, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		switch {
+		case trimmed == "":
+			commentLines = nil // blank line breaks comment association
+
+		case strings.HasPrefix(trimmed, "#"):
+			rest := strings.TrimSpace(strings.TrimPrefix(trimmed, "#"))
+			if strings.HasPrefix(rest, "pipeliner:layout ") {
+				pendingLayout = strings.TrimPrefix(rest, "pipeliner:layout ")
+			} else {
+				commentLines = append(commentLines, rest)
+			}
+
+		default:
+			if m := nodeRe.FindStringSubmatch(trimmed); m != nil {
+				if len(commentLines) > 0 {
+					nodeComments[m[1]] = strings.Join(commentLines, "\n")
+				}
+			} else if m := pipelineRe.FindStringSubmatch(trimmed); m != nil {
+				pname := m[1]
+				if len(commentLines) > 0 {
+					pipelineComments[pname] = strings.Join(commentLines, "\n")
+				}
+				if pendingLayout != "" {
+					var pos map[string][2]float64
+					if err := json.Unmarshal([]byte(pendingLayout), &pos); err == nil {
+						layouts[pname] = pos
+					}
+					pendingLayout = ""
+				}
+			}
+			// Any non-comment line resets the accumulator.
+			commentLines = nil
+		}
+	}
+	return
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

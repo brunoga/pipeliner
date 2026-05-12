@@ -7,8 +7,8 @@
 // Example:
 //
 //	src    = input("rss", url="https://example.com/rss")
-//	seen   = process("seen", from_=src)
-//	output("transmission", from_=seen, host="localhost")
+//	seen   = process("seen", upstream=src)
+//	output("transmission", upstream=seen, host="localhost")
 //	pipeline("my-pipeline", schedule="1h")
 package config
 

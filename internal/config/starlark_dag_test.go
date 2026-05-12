@@ -32,8 +32,8 @@ func parseDAGFail(t *testing.T, src string) {
 func TestDAG_SimplePipeline(t *testing.T) {
 	c := parseDAGOK(t, `
 src = input("rss", url="https://example.com/rss")
-seen = process("seen", from_=src)
-output("print", from_=seen)
+seen = process("seen", upstream=src)
+output("print", upstream=seen)
 pipeline("simple", schedule="1h")
 `)
 	if len(c.Graphs) != 1 {
@@ -55,8 +55,8 @@ func TestDAG_Merge(t *testing.T) {
 	c := parseDAGOK(t, `
 src1 = input("rss", url="https://feed1.com/rss")
 src2 = input("rss", url="https://feed2.com/rss")
-seen = process("seen", from_=merge(src1, src2))
-output("print", from_=seen)
+seen = process("seen", upstream=merge(src1, src2))
+output("print", upstream=seen)
 pipeline("merged")
 `)
 	g := c.Graphs["merged"]
@@ -86,9 +86,9 @@ pipeline("merged")
 func TestDAG_FanOut(t *testing.T) {
 	c := parseDAGOK(t, `
 src = input("rss", url="https://example.com/rss")
-seen = process("seen", from_=src)
-output("print", from_=seen)
-output("print", from_=seen)
+seen = process("seen", upstream=src)
+output("print", upstream=seen)
+output("print", upstream=seen)
 pipeline("fanout")
 `)
 	g := c.Graphs["fanout"]
@@ -109,12 +109,12 @@ func TestDAG_MultiplePipelines(t *testing.T) {
 	c := parseDAGOK(t, `
 # Pipeline 1
 src1 = input("rss", url="https://a.com/rss")
-output("print", from_=src1)
+output("print", upstream=src1)
 pipeline("p1", schedule="30m")
 
 # Pipeline 2
 src2 = input("rss", url="https://b.com/rss")
-output("print", from_=src2)
+output("print", upstream=src2)
 pipeline("p2", schedule="2h")
 `)
 	if len(c.Graphs) != 2 {
@@ -131,11 +131,11 @@ pipeline("p2", schedule="2h")
 func TestDAG_TwoPipelines(t *testing.T) {
 	c := parseDAGOK(t, `
 src1 = input("rss", url="https://example.com/rss1")
-output("print", from_=src1)
+output("print", upstream=src1)
 pipeline("pipeline-a")
 
 src2 = input("rss", url="https://example.com/rss2")
-output("print", from_=src2)
+output("print", upstream=src2)
 pipeline("pipeline-b")
 `)
 	if len(c.Graphs) != 2 {
@@ -150,7 +150,7 @@ func TestDAG_EmptyPipelineError(t *testing.T) {
 func TestDAG_Validate_UnknownPlugin(t *testing.T) {
 	c := parseDAGOK(t, `
 src = input("rss", url="https://example.com/rss")
-output("nonexistent_plugin", from_=src)
+output("nonexistent_plugin", upstream=src)
 pipeline("bad")
 `)
 	errs := Validate(c)
@@ -168,7 +168,7 @@ func TestDAG_BuildTasks(t *testing.T) {
 
 	c := parseDAGOK(t, `
 src = input("rss", url="https://example.com/rss")
-output("print", from_=src)
+output("print", upstream=src)
 pipeline("built", schedule="1h")
 `)
 	tasks, err := BuildTasks(c, db, nil)
@@ -193,7 +193,7 @@ pipeline("x")
 
 func TestDAG_NodeHandleFromWrongType(t *testing.T) {
 	parseDAGFail(t, `
-process("seen", from_="not-a-handle")
+process("seen", upstream="not-a-handle")
 pipeline("x")
 `)
 }
@@ -216,8 +216,8 @@ func TestDAG_Validate_FieldRequirements(t *testing.T) {
 
 	c := parseDAGOK(t, `
 src = input("rss", url="https://example.com/rss")
-proc = process("test_requires_missing_field", from_=src)
-output("print", from_=proc)
+proc = process("test_requires_missing_field", upstream=src)
+output("print", upstream=proc)
 pipeline("field-check")
 `)
 	errs := Validate(c)
