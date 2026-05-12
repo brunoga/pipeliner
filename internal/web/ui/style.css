@@ -874,6 +874,31 @@ section { margin-bottom: 32px; }
 /* Separator line between param panel sections */
 .ve-field-sep { height:1px; background:var(--border); margin:10px 0; }
 
+/* ── condition plugin rules editor ─────────────────────── */
+.ve-cond-rules { display:flex; flex-direction:column; gap:4px; }
+.ve-cond-empty { font-size:12px; color:var(--muted); padding:4px 0; }
+.ve-cond-row   { display:flex; align-items:center; gap:4px; }
+.ve-cond-type  {
+  flex-shrink:0; font-size:10px; font-weight:700; text-transform:uppercase;
+  letter-spacing:.04em; padding:2px 7px; border-radius:3px; border:none;
+  cursor:pointer; min-width:54px; text-align:center; transition:background .1s;
+}
+.ve-cond-type.reject { background:rgba(248,81,73,.15); color:var(--red); }
+.ve-cond-type.reject:hover { background:rgba(248,81,73,.28); }
+.ve-cond-type.accept { background:rgba(63,185,80,.15);  color:var(--green); }
+.ve-cond-type.accept:hover { background:rgba(63,185,80,.28); }
+.ve-cond-expr {
+  flex:1; font-family:'SFMono-Regular',Consolas,monospace; font-size:11px;
+  padding:3px 6px; border:1px solid var(--border); border-radius:3px;
+  background:var(--bg); color:var(--text); min-width:0;
+}
+.ve-cond-expr:focus { border-color:var(--accent); outline:none; }
+.ve-cond-del {
+  flex-shrink:0; background:none; border:none; color:var(--muted);
+  cursor:pointer; font-size:14px; padding:0 2px; line-height:1;
+}
+.ve-cond-del:hover { color:var(--red); }
+
 /* Connection warning in param panel */
 .ve-conn-warn {
   font-size:11px; color:var(--amber); padding:6px 8px;
