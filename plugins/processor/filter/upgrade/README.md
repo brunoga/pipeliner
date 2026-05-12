@@ -4,7 +4,7 @@ Accepts entries only when they offer a quality improvement over the previously
 downloaded version of the same title. Once the configured target quality is
 reached, further downloads are rejected.
 
-State is persisted in `pipeliner.db` in the same directory as the config file.
+State is persisted in `pipeliner.db` in the same directory as the config file, and only after all downstream sinks confirm (via `CommitPlugin`). If a sink fails an entry, the quality record is not updated and the entry will be retried on the next run.
 
 ## Config
 
