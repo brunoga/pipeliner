@@ -159,8 +159,8 @@ func TestRSSToRegexpFilter(t *testing.T) {
 
 	res := buildAndRun(t, fmt.Sprintf(`
 src = input("rss", url=%q)
-flt = process("regexp", from_=src, accept=["(?i)linux|open.?source"])
-output("print", from_=flt)
+flt = process("regexp", upstream=src, accept=["(?i)linux|open.?source"])
+output("print", upstream=flt)
 pipeline("t")
 `, srv.URL))
 
@@ -177,9 +177,9 @@ func TestSeenDeduplication(t *testing.T) {
 
 	tk := buildTask(t, fmt.Sprintf(`
 src  = input("rss", url=%q)
-seen = process("seen", from_=src)
-acc  = process("regexp", from_=seen, accept=[".+"])
-output("print", from_=acc)
+seen = process("seen", upstream=src)
+acc  = process("regexp", upstream=seen, accept=[".+"])
+output("print", upstream=acc)
 pipeline("t")
 `, srv.URL))
 
@@ -199,8 +199,8 @@ func TestSeriesFilterAcceptsKnownShow(t *testing.T) {
 
 	res := buildAndRun(t, fmt.Sprintf(`
 src    = input("rss", url=%q)
-series = process("series", from_=src, static=["Breaking Bad"])
-output("print", from_=series)
+series = process("series", upstream=src, static=["Breaking Bad"])
+output("print", upstream=series)
 pipeline("t")
 `, srv.URL))
 
@@ -216,8 +216,8 @@ func TestSeriesSeenAcrossCycles(t *testing.T) {
 
 	tk := buildTask(t, fmt.Sprintf(`
 src    = input("rss", url=%q)
-series = process("series", from_=src, static=["Breaking Bad"])
-output("print", from_=series)
+series = process("series", upstream=src, static=["Breaking Bad"])
+output("print", upstream=series)
 pipeline("t")
 `, srv.URL))
 
@@ -235,9 +235,9 @@ func TestQualityFilterRejectsBelow(t *testing.T) {
 
 	res := buildAndRun(t, fmt.Sprintf(`
 src = input("rss", url=%q)
-q   = process("metainfo_quality", from_=src)
-flt = process("quality", from_=q, min="720p")
-output("print", from_=flt)
+q   = process("metainfo_quality", upstream=src)
+flt = process("quality", upstream=q, min="720p")
+output("print", upstream=flt)
 pipeline("t")
 `, srv.URL))
 
@@ -257,10 +257,10 @@ func TestQualityFilterWithAccept(t *testing.T) {
 
 	res := buildAndRun(t, fmt.Sprintf(`
 src = input("rss", url=%q)
-q   = process("metainfo_quality", from_=src)
-flt = process("quality", from_=q, min="720p")
-acc = process("regexp", from_=flt, accept=[".+"])
-output("print", from_=acc)
+q   = process("metainfo_quality", upstream=src)
+flt = process("quality", upstream=q, min="720p")
+acc = process("regexp", upstream=flt, accept=[".+"])
+output("print", upstream=acc)
 pipeline("t")
 `, srv.URL))
 
@@ -276,8 +276,8 @@ func TestMetainfoQualityAnnotates(t *testing.T) {
 
 	res := buildAndRun(t, fmt.Sprintf(`
 src = input("rss", url=%q)
-q   = process("metainfo_quality", from_=src)
-output("print", from_=q)
+q   = process("metainfo_quality", upstream=src)
+output("print", upstream=q)
 pipeline("t")
 `, srv.URL))
 
@@ -304,8 +304,8 @@ func TestMetainfoSeriesAnnotates(t *testing.T) {
 
 	res := buildAndRun(t, fmt.Sprintf(`
 src    = input("rss", url=%q)
-series = process("metainfo_series", from_=src)
-output("print", from_=series)
+series = process("metainfo_series", upstream=src)
+output("print", upstream=series)
 pipeline("t")
 `, srv.URL))
 
@@ -333,9 +333,9 @@ func TestEnrichedFieldUsedAsRequire(t *testing.T) {
 
 	res := buildAndRun(t, fmt.Sprintf(`
 src    = input("rss", url=%q)
-series = process("metainfo_series", from_=src)
-req    = process("require", from_=series, fields=["enriched"])
-output("print", from_=req)
+series = process("metainfo_series", upstream=src)
+req    = process("require", upstream=series, fields=["enriched"])
+output("print", upstream=req)
 pipeline("t")
 `, srv.URL))
 
@@ -353,11 +353,11 @@ func TestConditionFilter(t *testing.T) {
 
 	res := buildAndRun(t, fmt.Sprintf(`
 src  = input("rss", url=%q)
-q    = process("metainfo_quality", from_=src)
-cond = process("condition", from_=q,
+q    = process("metainfo_quality", upstream=src)
+cond = process("condition", upstream=q,
     accept='{{ne .video_resolution ""}}',
     reject='{{eq .video_resolution "480p"}}')
-output("print", from_=cond)
+output("print", upstream=cond)
 pipeline("t")
 `, srv.URL))
 
@@ -374,7 +374,7 @@ func TestVariableSubstitutionInConfig(t *testing.T) {
 	res := buildAndRun(t, fmt.Sprintf(`
 feed = %q
 src = input("rss", url=feed)
-output("print", from_=src)
+output("print", upstream=src)
 pipeline("t")
 `, srv.URL))
 
@@ -391,8 +391,8 @@ func TestSetModify(t *testing.T) {
 
 	res := buildAndRun(t, fmt.Sprintf(`
 src  = input("rss", url=%q)
-setf = process("set", from_=src, category="tv", label="{{.Title}}")
-output("print", from_=setf)
+setf = process("set", upstream=src, category="tv", label="{{.Title}}")
+output("print", upstream=setf)
 pipeline("t")
 `, srv.URL))
 
@@ -416,11 +416,11 @@ func TestPathfmtModify(t *testing.T) {
 
 	res := buildAndRun(t, fmt.Sprintf(`
 src    = input("rss", url=%q)
-series = process("metainfo_series", from_=src)
-fmt    = process("pathfmt", from_=series,
+series = process("metainfo_series", upstream=src)
+fmt    = process("pathfmt", upstream=series,
     path='/tv/{{.title}}/S{{printf "%%02d" .series_season}}',
     field="download_path")
-output("print", from_=fmt)
+output("print", upstream=fmt)
 pipeline("t")
 `, srv.URL))
 
@@ -436,7 +436,7 @@ pipeline("t")
 func TestConfigCheck(t *testing.T) {
 	cfg, err := config.ParseBytes([]byte(`
 src = input("rss", url="http://example.com/rss")
-output("print", from_=src)
+output("print", upstream=src)
 pipeline("t")
 `))
 	if err != nil {
@@ -450,7 +450,7 @@ pipeline("t")
 func TestConfigCheckUnknownPlugin(t *testing.T) {
 	cfg, err := config.ParseBytes([]byte(`
 src = input("rss", url="http://example.com/rss")
-output("no-such-plugin", from_=src)
+output("no-such-plugin", upstream=src)
 pipeline("t")
 `))
 	if err != nil {
@@ -489,8 +489,8 @@ func TestAcceptAll(t *testing.T) {
 
 	res := buildAndRun(t, fmt.Sprintf(`
 src = input("rss", url=%q)
-acc = process("accept_all", from_=src)
-output("print", from_=acc)
+acc = process("accept_all", upstream=src)
+output("print", upstream=acc)
 pipeline("t")
 `, srv.URL))
 
@@ -507,9 +507,9 @@ func TestAcceptAllLeavesRejectedAlone(t *testing.T) {
 
 	res := buildAndRun(t, fmt.Sprintf(`
 src = input("rss", url=%q)
-rej = process("regexp", from_=src, reject=["(?i)windows"])
-acc = process("accept_all", from_=rej)
-output("print", from_=acc)
+rej = process("regexp", upstream=src, reject=["(?i)windows"])
+acc = process("accept_all", upstream=rej)
+output("print", upstream=acc)
 pipeline("t")
 `, srv.URL))
 
@@ -532,8 +532,8 @@ func TestListAddAndMatch(t *testing.T) {
 
 	buildAndRunWithDB(t, fmt.Sprintf(`
 src = input("rss", url=%q)
-acc = process("accept_all", from_=src)
-output("list_add", from_=acc, list="watchlist")
+acc = process("accept_all", upstream=src)
+output("list_add", upstream=acc, list="watchlist")
 pipeline("add-task")
 `, srvAdd.URL), db)
 
@@ -546,8 +546,8 @@ pipeline("add-task")
 
 	res := buildAndRunWithDB(t, fmt.Sprintf(`
 src   = input("rss", url=%q)
-match = process("list_match", from_=src, list="watchlist")
-output("print", from_=match)
+match = process("list_match", upstream=src, list="watchlist")
+output("print", upstream=match)
 pipeline("match-task")
 `, srvMatch.URL), db)
 
@@ -565,11 +565,11 @@ func TestConditionInfixSyntax(t *testing.T) {
 
 	res := buildAndRun(t, fmt.Sprintf(`
 src  = input("rss", url=%q)
-q    = process("metainfo_quality", from_=src)
-cond = process("condition", from_=q,
+q    = process("metainfo_quality", upstream=src)
+cond = process("condition", upstream=q,
     accept='video_resolution != ""',
     reject='video_resolution == "480p"')
-output("print", from_=cond)
+output("print", upstream=cond)
 pipeline("t")
 `, srv.URL))
 
@@ -586,9 +586,9 @@ func TestConditionContainsOperator(t *testing.T) {
 
 	res := buildAndRun(t, fmt.Sprintf(`
 src  = input("rss", url=%q)
-q    = process("metainfo_quality", from_=src)
-cond = process("condition", from_=q, accept='video_source contains "BluRay"')
-output("print", from_=cond)
+q    = process("metainfo_quality", upstream=src)
+cond = process("condition", upstream=q, accept='video_source contains "BluRay"')
+output("print", upstream=cond)
 pipeline("t")
 `, srv.URL))
 
@@ -604,11 +604,11 @@ func TestPathfmtNewSyntax(t *testing.T) {
 
 	res := buildAndRun(t, fmt.Sprintf(`
 src    = input("rss", url=%q)
-series = process("metainfo_series", from_=src)
-fmt    = process("pathfmt", from_=series,
+series = process("metainfo_series", upstream=src)
+fmt    = process("pathfmt", upstream=series,
     path="/tv/{title}/Season {series_season:02d}",
     field="download_path")
-output("print", from_=fmt)
+output("print", upstream=fmt)
 pipeline("t")
 `, srv.URL))
 
@@ -628,8 +628,8 @@ func TestSetNewSyntax(t *testing.T) {
 
 	res := buildAndRun(t, fmt.Sprintf(`
 src  = input("rss", url=%q)
-setf = process("set", from_=src, category="tv", label="{raw_title}")
-output("print", from_=setf)
+setf = process("set", upstream=src, category="tv", label="{raw_title}")
+output("print", upstream=setf)
 pipeline("t")
 `, srv.URL))
 
@@ -655,16 +655,16 @@ func TestTemplateInheritance(t *testing.T) {
 	// Starlark functions compose DAG chains cleanly.
 	res := buildAndRun(t, fmt.Sprintf(`
 def hd_only(upstream):
-    q = process("metainfo_quality", from_=upstream)
-    return process("quality", from_=q, min="720p")
+    q = process("metainfo_quality", upstream=upstream)
+    return process("quality", upstream=q, min="720p")
 
 def accept_matching(upstream):
-    return process("regexp", from_=upstream, accept=[".+"])
+    return process("regexp", upstream=upstream, accept=[".+"])
 
 src      = input("rss", url=%q)
 filtered = hd_only(src)
 accepted = accept_matching(filtered)
-output("print", from_=accepted)
+output("print", upstream=accepted)
 pipeline("t")
 `, srv.URL))
 
@@ -682,14 +682,14 @@ func TestMultipleTemplates(t *testing.T) {
 
 	res := buildAndRun(t, fmt.Sprintf(`
 def hd_base(upstream):
-    return process("metainfo_quality", from_=upstream)
+    return process("metainfo_quality", upstream=upstream)
 
 def bb_only(upstream):
-    q = process("quality", from_=upstream, min="720p")
-    return process("series", from_=q, static=["Breaking Bad"])
+    q = process("quality", upstream=upstream, min="720p")
+    return process("series", upstream=q, static=["Breaking Bad"])
 
 src = input("rss", url=%q)
-output("print", from_=bb_only(hd_base(src)))
+output("print", upstream=bb_only(hd_base(src)))
 pipeline("t")
 `, srv.URL))
 
@@ -706,11 +706,11 @@ func TestRegexpPerPatternFrom(t *testing.T) {
 
 	res := buildAndRun(t, fmt.Sprintf(`
 src = input("rss", url=%q)
-q   = process("metainfo_quality", from_=src)
-flt = process("regexp", from_=q,
+q   = process("metainfo_quality", upstream=src)
+flt = process("regexp", upstream=q,
     reject=[{"pattern": "BluRay", "from": "video_source"}],
     accept=[".+"])
-output("print", from_=flt)
+output("print", upstream=flt)
 pipeline("t")
 `, srv.URL))
 

@@ -108,8 +108,8 @@ func TestDryRun(t *testing.T) {
 	outputCalled = false
 	cfg, err := config.ParseBytes([]byte(`
 src = input("mock_input")
-flt = process("mock_filter", from_=src)
-output("mock_output", from_=flt)
+flt = process("mock_filter", upstream=src)
+output("mock_output", upstream=flt)
 pipeline("dry-run-test")
 `))
 	if err != nil {
@@ -139,10 +139,10 @@ pipeline("dry-run-test")
 func TestPluginOrder(t *testing.T) {
 	const cfgStar = `
 src = input("mock_input")
-o1  = process("order1", from_=src)
-o2  = process("order2", from_=o1)
-o3  = process("order3", from_=o2)
-output("print", from_=o3)
+o1  = process("order1", upstream=src)
+o2  = process("order2", upstream=o1)
+o3  = process("order3", upstream=o2)
+output("print", upstream=o3)
 pipeline("order-test")
 `
 	for i := 0; i < 10; i++ {

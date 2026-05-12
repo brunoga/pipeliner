@@ -11,18 +11,18 @@ tvdb_key = env("TVDB_API_KEY")   # read from environment
 
 # templates — Starlark functions that build pipeline chains
 def enrich_and_format(upstream, dest):
-    meta = process("metainfo_tvdb", from_=upstream, api_key=tvdb_key)
-    req  = process("require",       from_=meta, fields=["enriched"])
-    fmt  = process("pathfmt",       from_=req,
+    meta = process("metainfo_tvdb", upstream=upstream, api_key=tvdb_key)
+    req  = process("require",       upstream=meta, fields=["enriched"])
+    fmt  = process("pathfmt",       upstream=req,
                    path=dest + "/{title}/Season {series_season:02d}",
                    field="download_path")
     return fmt
 
 # pipelines — connect nodes, call pipeline() to register
 src    = input("rss", url="https://example.com/rss")
-seen   = process("seen",   from_=src)
-series = process("series", from_=seen, static=["My Show"])
-output("transmission", from_=enrich_and_format(series, tv_root),
+seen   = process("seen",   upstream=src)
+series = process("series", upstream=seen, static=["My Show"])
+output("transmission", upstream=enrich_and_format(series, tv_root),
        host="localhost", path="{download_path}")
 pipeline("my-pipeline", schedule="1h")          # interval
 # pipeline("cron-task",  schedule="0 6 * * *")  # cron expression
@@ -40,8 +40,8 @@ Variables are ordinary Starlark assignments at the top of the file. They are use
 tv_root = "/media/tv"
 
 src = input("rss", url="https://example.com/rss")
-fmt = process("pathfmt", from_=src, path=tv_root + "/{title}", field="download_path")
-output("transmission", from_=fmt, host="localhost")
+fmt = process("pathfmt", upstream=src, path=tv_root + "/{title}", field="download_path")
+output("transmission", upstream=fmt, host="localhost")
 pipeline("my-pipeline")
 ```
 
@@ -52,17 +52,17 @@ Templates are Starlark functions that accept an upstream node handle and return 
 ```python
 def common_source(feed_url, local_seen=False):
     src  = input("rss", url=feed_url)
-    seen = process("seen", from_=src, local=local_seen)
+    seen = process("seen", upstream=src, local=local_seen)
     return seen
 
 def common_sink(upstream, dest, host="localhost"):
-    fmt = process("pathfmt", from_=upstream,
+    fmt = process("pathfmt", upstream=upstream,
                   path=dest + "/{title}", field="download_path")
-    output("transmission", from_=fmt, host=host, path="{download_path}")
+    output("transmission", upstream=fmt, host=host, path="{download_path}")
 
 # Compose templates
 common_sink(
-    process("series", from_=common_source("https://example.com/rss/tv"),
+    process("series", upstream=common_source("https://example.com/rss/tv"),
             static=["Breaking Bad"]),
     "/media/tv",
 )
@@ -217,9 +217,9 @@ Pipelines use `input()`, `process()`, `merge()`, `output()`, and `pipeline()` to
 
 ```python
 src     = input("rss", url="https://example.com/rss")
-quality = process("metainfo_quality", from_=src)
-flt     = process("quality", from_=quality, min="720p")
-output("transmission", from_=flt, host="localhost")
+quality = process("metainfo_quality", upstream=src)
+flt     = process("quality", upstream=quality, min="720p")
+output("transmission", upstream=flt, host="localhost")
 pipeline("my-pipeline", schedule="1h")
 ```
 

@@ -11,11 +11,11 @@ smtp_pass = env("SMTP_PASS", default="changeme")
 mail_to   = "you@example.com"
 
 src      = input("rss", url="https://feeds.arstechnica.com/arstechnica/index")
-seen     = process("seen",   from_=src, local=True)
-filtered = process("regexp", from_=seen,
+seen     = process("seen",   upstream=src, local=True)
+filtered = process("regexp", upstream=seen,
                    accept=["(?i)(linux|open.?source|security|AI|machine.learning)"])
-accepted = process("accept_all", from_=filtered)
-output("notify", from_=accepted,
+accepted = process("accept_all", upstream=filtered)
+output("notify", upstream=accepted,
        via="email",
        title="Ars Technica: {{len .Entries}} new article(s)",
        body="{{range .Entries}}- {{.Title}}\n  {{.URL}}\n\n{{end}}",

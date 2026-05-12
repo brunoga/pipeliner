@@ -15,10 +15,10 @@ qbit_pass           = "changeme"
 movies_path         = "/media/movies"
 
 def qbit_output(upstream, category):
-    fmt = process("pathfmt", from_=upstream,
+    fmt = process("pathfmt", upstream=upstream,
                   path=movies_path + "/{title} ({video_year})",
                   field="download_path")
-    output("qbittorrent", from_=fmt,
+    output("qbittorrent", upstream=fmt,
            host=qbit_host, port=qbit_port,
            username=qbit_user, password=qbit_pass,
            savepath="{download_path}", category=category)
@@ -26,10 +26,10 @@ def qbit_output(upstream, category):
 # ── Pipeline 1: watchlist (720p+) ────────────────────────────────────────────
 
 src1    = input("rss", url="https://example.com/rss/movies")
-seen1   = process("seen",             from_=src1)
-q1      = process("metainfo_quality", from_=seen1)
-tmdb1   = process("metainfo_tmdb",   from_=q1, api_key=tmdb_key)
-movies1 = process("movies",           from_=tmdb1,
+seen1   = process("seen",             upstream=src1)
+q1      = process("metainfo_quality", upstream=seen1)
+tmdb1   = process("metainfo_tmdb",   upstream=q1, api_key=tmdb_key)
+movies1 = process("movies",           upstream=tmdb1,
                    quality="720p+", ttl="4h",
                    **{"from": [{"name": "trakt_list",
                                 "client_id":     trakt_client_id,
@@ -42,16 +42,16 @@ pipeline("movies-watchlist", schedule="2h")
 # ── Pipeline 2: top-rated (1080p+, rating filter) ────────────────────────────
 
 src2    = input("rss", url="https://example.com/rss/movies")
-seen2   = process("seen",             from_=src2)
-q2      = process("metainfo_quality", from_=seen2)
-tmdb2   = process("metainfo_tmdb",   from_=q2, api_key=tmdb_key)
-movies2 = process("movies",           from_=tmdb2,
+seen2   = process("seen",             upstream=src2)
+q2      = process("metainfo_quality", upstream=seen2)
+tmdb2   = process("metainfo_tmdb",   upstream=q2, api_key=tmdb_key)
+movies2 = process("movies",           upstream=tmdb2,
                    quality="1080p+", ttl="4h",
                    **{"from": [{"name": "trakt_list",
                                 "client_id":     trakt_client_id,
                                 "client_secret": trakt_client_secret,
                                 "type": "movies", "list": "ratings"}]})
-cond2   = process("condition", from_=movies2, rules=[
+cond2   = process("condition", upstream=movies2, rules=[
     {"reject": 'video_source == "CAM"'},
     {"reject": 'video_rating < 7.5'},
 ])

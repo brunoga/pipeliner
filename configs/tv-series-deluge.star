@@ -9,16 +9,16 @@ deluge_pass = "changeme"
 tv_path     = "/media/tv"
 
 src    = input("rss", url="https://example.com/rss/torrents")
-seen   = process("seen",             from_=src)
-q      = process("metainfo_quality", from_=seen)
-series = process("series",           from_=q,
+seen   = process("seen",             upstream=src)
+q      = process("metainfo_quality", upstream=seen)
+series = process("series",           upstream=q,
                   tracking="strict", quality="720p",
                   static=["Breaking Bad", "Better Call Saul",
                            "The Wire", "Severance"])
-fmt    = process("pathfmt", from_=series,
+fmt    = process("pathfmt", upstream=series,
                   path=tv_path + "/{title}/Season {series_season:02d}",
                   field="download_path")
-output("deluge", from_=fmt,
+output("deluge", upstream=fmt,
        host=deluge_host, password=deluge_pass,
        move_completed_path="{download_path}")
 

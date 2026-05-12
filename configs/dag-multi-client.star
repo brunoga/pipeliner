@@ -12,29 +12,29 @@ trans_host = "localhost"
 qbit_host  = "localhost"
 
 src  = input("rss",             url=rss_url)
-seen = process("seen",          from_=src)
-meta = process("metainfo_quality", from_=seen)
+seen = process("seen",          upstream=src)
+meta = process("metainfo_quality", upstream=seen)
 
 # --- TV branch ---
-series  = process("series",  from_=meta,
+series  = process("series",  upstream=meta,
     static=["Breaking Bad", "Severance"],
     tracking="strict", quality="720p+")
-tv_dedup = process("dedup",  from_=series)
-tv_path  = process("pathfmt", from_=tv_dedup,
+tv_dedup = process("dedup",  upstream=series)
+tv_path  = process("pathfmt", upstream=tv_dedup,
     path="/media/tv/{title}/Season {series_season:02d}",
     field="download_path")
-output("transmission", from_=tv_path,
+output("transmission", upstream=tv_path,
     host=trans_host, port=9091,
     path="{download_path}")
 
 # --- Movie branch ---
-movies    = process("movies",  from_=meta,
+movies    = process("movies",  upstream=meta,
     static=["Dune Part Two", "Oppenheimer"],
     quality="1080p+")
-movie_path = process("pathfmt", from_=movies,
+movie_path = process("pathfmt", upstream=movies,
     path="/media/movies/{title}",
     field="download_path")
-output("qbittorrent", from_=movie_path,
+output("qbittorrent", upstream=movie_path,
     host=qbit_host, port=8080,
     savepath="{download_path}")
 
