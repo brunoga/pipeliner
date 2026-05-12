@@ -180,7 +180,7 @@ td code{font-size:12px}
 <h3>Key concepts</h3>
 <ul>
   <li><strong>Entry</strong> — a title, URL, state (undecided/accepted/rejected/failed), and a key-value field map</li>
-  <li><strong>Node</strong> — a configured plugin instance connected to other nodes via <code>from_=</code></li>
+  <li><strong>Node</strong> — a configured plugin instance connected to other nodes via <code>upstream=</code></li>
   <li><strong>Source</strong> — produces entries from an external source (RSS, files, indexers)</li>
   <li><strong>Processor</strong> — filters, enriches, or transforms entries (filters, metainfo, modify)</li>
   <li><strong>Sink</strong> — acts on accepted entries (torrent clients, email, shell commands)</li>
@@ -219,14 +219,14 @@ make build        # or: go build -o pipeliner ./cmd/pipeliner</code></pre>
 <h2 id="quickstart">Quick Start</h2>
 
 <p>Create <code>config.star</code>:</p>
-<pre><code><span class="y-comment"># Each line creates a node; from_= connects it to the previous one.</span>
+<pre><code><span class="y-comment"># Each line creates a node; upstream= connects it to the previous one.</span>
 src    = input("rss", url="https://example.com/rss")
-seen   = process("seen", from_=src)
-series = process("series", from_=seen, static=["Breaking Bad"])
-fmt    = process("pathfmt", from_=series,
+seen   = process("seen", upstream=src)
+series = process("series", upstream=seen, static=["Breaking Bad"])
+fmt    = process("pathfmt", upstream=series,
                  path="/media/tv/{title}/Season {series_season:02d}",
                  field="download_path")
-output("transmission", from_=fmt, host="localhost", port=9091,
+output("transmission", upstream=fmt, host="localhost", port=9091,
                         path="{download_path}")
 
 pipeline("breaking-bad", schedule="1h")</code></pre>
@@ -250,9 +250,9 @@ pipeline("breaking-bad", schedule="1h")</code></pre>
 <table>
   <tr><th>Function</th><th>Description</th></tr>
   <tr><td><code>input("plugin", key=val, …)</code></td><td>Create a <strong>source</strong> node that produces entries</td></tr>
-  <tr><td><code>process("plugin", from_=node, key=val, …)</code></td><td>Create a <strong>processor</strong> node connected to an upstream node</td></tr>
+  <tr><td><code>process("plugin", upstream=node, key=val, …)</code></td><td>Create a <strong>processor</strong> node connected to an upstream node</td></tr>
   <tr><td><code>merge(a, b, …)</code></td><td>Combine multiple source/processor nodes into one (deduplicated by URL)</td></tr>
-  <tr><td><code>output("plugin", from_=node, key=val, …)</code></td><td>Create a <strong>sink</strong> node (no return value; use multiple for fan-out)</td></tr>
+  <tr><td><code>output("plugin", upstream=node, key=val, …)</code></td><td>Create a <strong>sink</strong> node; returns a handle so another <code>output()</code> can chain from it</td></tr>
   <tr><td><code>pipeline(name, schedule="")</code></td><td>Register all nodes defined above as a named, scheduled pipeline</td></tr>
   <tr><td><code>env(name, default=None)</code></td><td>Read an environment variable; errors if unset and no default given</td></tr>
   <tr><td><code>load("./other.star", "sym")</code></td><td>Import a symbol from another <code>.star</code> file (Starlark built-in)</td></tr>
@@ -265,18 +265,18 @@ tvdb_key = env("TVDB_API_KEY")   <span class="y-comment"># from environment</spa
 
 <span class="y-comment"># Templates — Starlark functions that build pipeline chains</span>
 def enrich_series(upstream):
-    meta = process("metainfo_tvdb", from_=upstream, api_key=tvdb_key)
-    req  = process("require",       from_=meta,     fields=["enriched"])
-    fmt  = process("pathfmt",       from_=req,
+    meta = process("metainfo_tvdb", upstream=upstream, api_key=tvdb_key)
+    req  = process("require",       upstream=meta,     fields=["enriched"])
+    fmt  = process("pathfmt",       upstream=req,
                    path=tv_root + "/{title}/Season {series_season:02d}",
                    field="download_path")
     return fmt
 
 <span class="y-comment"># Build the pipeline</span>
 src    = input("rss", url="https://example.com/rss")
-seen   = process("seen",   from_=src)
-series = process("series", from_=seen, static=["My Show"])
-output("transmission", from_=enrich_series(series),
+seen   = process("seen",   upstream=src)
+series = process("series", upstream=seen, static=["My Show"])
+output("transmission", upstream=enrich_series(series),
        host="localhost", path="{download_path}")
 
 pipeline("my-pipeline", schedule="1h")</code></pre>
@@ -300,9 +300,9 @@ pipeline("my-pipeline", schedule="1h")</code></pre>
 tvdb_key = env("TVDB_API_KEY")   <span class="y-comment"># must be set in the process environment</span>
 
 src  = input("rss", url="https://example.com/rss")
-meta = process("metainfo_tvdb", from_=src, api_key=tvdb_key)
-fmt  = process("pathfmt", from_=meta, path=tv_root + "/{title}", field="download_path")
-output("transmission", from_=fmt, host="localhost")
+meta = process("metainfo_tvdb", upstream=src, api_key=tvdb_key)
+fmt  = process("pathfmt", upstream=meta, path=tv_root + "/{title}", field="download_path")
+output("transmission", upstream=fmt, host="localhost")
 pipeline("tv")</code></pre>
 
 <p>Because variables are plain Starlark values you can also compute them at config load time using string concatenation, conditionals, or any other Starlark expression. There is no special substitution syntax — the language itself handles composition.</p>
@@ -314,25 +314,25 @@ pipeline("tv")</code></pre>
 
 <pre><code><span class="y-comment"># A template takes an upstream node and returns the last node in the chain</span>
 def standard_tv(upstream, dest="/media/tv"):
-    seen   = process("seen",            from_=upstream)
-    quality = process("metainfo_quality", from_=seen)
-    flt    = process("quality",          from_=quality, min="720p webrip+")
-    fmt    = process("pathfmt",          from_=flt,
+    seen   = process("seen",            upstream=upstream)
+    quality = process("metainfo_quality", upstream=seen)
+    flt    = process("quality",          upstream=quality, min="720p webrip+")
+    fmt    = process("pathfmt",          upstream=flt,
                      path=dest + "/{title}/Season {series_season:02d}",
                      field="download_path")
     return fmt
 
 def notify_email(upstream, subject):
-    output("email", from_=upstream,
+    output("email", upstream=upstream,
            smtp_host="smtp.example.com", smtp_port=587,
            **{"from": "me@example.com"}, to="me@example.com",
            subject=subject)
 
 <span class="y-comment"># Compose templates into a complete pipeline</span>
 src    = input("rss", url="https://example.com/rss")
-series = process("series", from_=src, static=["Breaking Bad", "Severance"])
+series = process("series", upstream=src, static=["Breaking Bad", "Severance"])
 ready  = standard_tv(series)
-output("transmission", from_=ready, host="localhost")
+output("transmission", upstream=ready, host="localhost")
 notify_email(ready, subject="New: {{len .Entries}} episode(s)")
 pipeline("tv-shows", schedule="30m")</code></pre>
 
@@ -373,43 +373,55 @@ pipeline("morning", schedule="0 7 * * *")   <span class="y-comment"># every day 
 
 <h2 id="connecting">Connecting Nodes</h2>
 
-<p>The <code>from_=</code> argument connects a node to its upstream. The node receives the entries that upstream passed through. A node with multiple upstreams receives all of their combined output (deduplicated by URL).</p>
+<p>The <code>upstream=</code> argument connects a node to its upstream. The node receives the entries that upstream passed through. A node with multiple upstreams receives all of their combined output (deduplicated by URL).</p>
 
 <pre><code><span class="y-comment"># Linear chain — each node connects to the one before it</span>
 src     = input("rss", url="https://feed.example.com/rss")
-seen    = process("seen",             from_=src)
-quality = process("metainfo_quality", from_=seen)
-flt     = process("quality",          from_=quality, min="720p")
-output("transmission",                from_=flt, host="localhost")
+seen    = process("seen",             upstream=src)
+quality = process("metainfo_quality", upstream=seen)
+flt     = process("quality",          upstream=quality, min="720p")
+output("transmission",                upstream=flt, host="localhost")
 pipeline("tv")</code></pre>
 
 <pre><code><span class="y-comment"># Two sources merged into one chain</span>
 feed1 = input("rss", url="https://feed1.example.com/rss")
 feed2 = input("rss", url="https://feed2.example.com/rss")
-seen  = process("seen",   from_=merge(feed1, feed2))
-flt   = process("series", from_=seen, static=["Breaking Bad"])
-output("transmission", from_=flt, host="localhost")
+seen  = process("seen",   upstream=merge(feed1, feed2))
+flt   = process("series", upstream=seen, static=["Breaking Bad"])
+output("transmission", upstream=flt, host="localhost")
 pipeline("tv-merged")</code></pre>
 
-<pre><code><span class="y-comment"># Fan-out: one chain to two sinks</span>
+<pre><code><span class="y-comment"># Fan-out: one chain to two independent sinks</span>
 src  = input("rss", url="https://feed.example.com/rss")
-seen = process("seen",   from_=src)
-flt  = process("series", from_=seen, static=["My Show"])
+seen = process("seen",   upstream=src)
+flt  = process("series", upstream=seen, static=["My Show"])
 
-output("transmission", from_=flt, host="localhost")
-output("email",        from_=flt, smtp_host="smtp.example.com",
+output("transmission", upstream=flt, host="localhost")
+output("email",        upstream=flt, smtp_host="smtp.example.com",
        **{"from": "me@example.com"}, to="me@example.com")
 pipeline("tv-fanout")</code></pre>
 
+<pre><code><span class="y-comment"># Sink chaining: email fires only for entries Transmission confirmed</span>
+src  = input("rss", url="https://feed.example.com/rss")
+seen = process("seen",   upstream=src)
+flt  = process("series", upstream=seen, static=["My Show"])
+
+dl = output("transmission", upstream=flt, host="localhost")
+output("email", upstream=dl, smtp_host="smtp.example.com",
+       **{"from": "me@example.com"}, to="me@example.com")
+pipeline("tv-chained")</code></pre>
+
+<div class="note"><strong>Fan-out vs chaining:</strong> When two <code>output()</code> calls share the same <code>upstream=</code> they run independently — each receives all accepted entries regardless of what the other does. When one <code>output()</code> uses another as its <code>upstream=</code>, the chained sink only receives entries the first sink did not fail. Use chaining when a downstream action (notification, post-processing) should only happen after the primary sink confirms success.</div>
+
 <pre><code><span class="y-comment"># Branching: TV to Transmission, movies to qBittorrent</span>
 src = input("rss", url="https://feed.example.com/rss")
-q   = process("metainfo_quality", from_=src)
+q   = process("metainfo_quality", upstream=src)
 
-tv_branch     = process("series", from_=q, static=["My Show"])
-movies_branch = process("movies", from_=q, static=["Inception"])
+tv_branch     = process("series", upstream=q, static=["My Show"])
+movies_branch = process("movies", upstream=q, static=["Inception"])
 
-output("transmission", from_=tv_branch,     host="localhost")
-output("qbittorrent",  from_=movies_branch, host="localhost")
+output("transmission", upstream=tv_branch,     host="localhost")
+output("qbittorrent",  upstream=movies_branch, host="localhost")
 pipeline("split-pipeline")</code></pre>
 
 <!-- ═══════════════════════════════════════════════════════════ -->
@@ -695,7 +707,7 @@ pipeline("split-pipeline")</code></pre>
 <p><code>rss_feed</code>, <code>rss_link</code>, <code>rss_guid</code>, <code>rss_enclosure_url</code>, <code>rss_enclosure_type</code>, <code>description</code> (item description), <code>published_date</code> (item pubdate), <code>torrent_seeds</code> (when present in feed)</p>
 
 <pre><code>src = input("rss", url="https://example.com/torrents/rss")
-output("print", from_=src)
+output("print", upstream=src)
 pipeline("my-pipeline")</code></pre>
 
 <!-- ─────────── html ─────────── -->
@@ -709,7 +721,7 @@ pipeline("my-pipeline")</code></pre>
 </table>
 
 <pre><code>src = input("html", url="https://example.com/downloads", mask="*.torrent")
-output("print", from_=src)
+output("print", upstream=src)
 pipeline("html-feed")</code></pre>
 
 <!-- ─────────── filesystem ─────────── -->
@@ -727,8 +739,8 @@ pipeline("html-feed")</code></pre>
 <p><code>file_location</code> (absolute path), <code>file_name</code>, <code>file_extension</code>, <code>file_size</code>, <code>file_modified_time</code></p>
 
 <pre><code>src  = input("filesystem", path="/downloads/watch", mask="*.torrent")
-meta = process("metainfo_torrent", from_=src)
-output("transmission", from_=meta, host="localhost")
+meta = process("metainfo_torrent", upstream=src)
+output("transmission", upstream=meta, host="localhost")
 pipeline("watch-folder", schedule="5m")</code></pre>
 
 <!-- ─────────── discover ─────────── -->
@@ -749,14 +761,14 @@ pipeline("watch-folder", schedule="5m")</code></pre>
 watchlist = input("trakt_list", client_id=env("TRAKT_ID"),
                   client_secret=env("TRAKT_SECRET"),
                   type="movies", list="watchlist")
-results   = process("discover", from_=watchlist,
+results   = process("discover", upstream=watchlist,
     via=[{"name": "jackett", "url": "http://localhost:9117",
           "api_key": env("JACKETT_KEY"), "categories": ["2000"]}],
     interval="12h")
-seen      = process("seen",   from_=results)
-quality   = process("metainfo_quality", from_=seen)
-flt       = process("quality",from_=quality, min="1080p")
-output("qbittorrent", from_=flt, host="localhost")
+seen      = process("seen",   upstream=results)
+quality   = process("metainfo_quality", upstream=seen)
+flt       = process("quality",upstream=quality, min="1080p")
+output("qbittorrent", upstream=flt, host="localhost")
 pipeline("movie-discover", schedule="2h")</code></pre>
 
 <!-- ─────────── jackett_input ─────────── -->
@@ -798,10 +810,10 @@ pipeline("movie-discover", schedule="2h")</code></pre>
 <pre><code><span class="y-comment"># Option A: standalone source node (explicit DAG connection)</span>
 watchlist = input("trakt_list", client_id=env("TRAKT_ID"),
                   client_secret=env("TRAKT_SECRET"), type="shows")
-series = process("series", from_=watchlist, tracking="follow")
+series = process("series", upstream=watchlist, tracking="follow")
 
 <span class="y-comment"># Option B: inside series.from config key</span>
-series = process("series", from_=rss_src, **{"from": [
+series = process("series", upstream=rss_src, **{"from": [
     {"name": "trakt_list", "client_id": env("TRAKT_ID"),
      "client_secret": env("TRAKT_SECRET"), "type": "shows"},
 ]})</code></pre>
@@ -960,9 +972,9 @@ series = process("series", from_=rss_src, **{"from": [
 <h2 id="metainfo_quality">metainfo_quality</h2>
 <p>Parses video quality tags from the entry title. Takes no config. Sets <code>video_quality</code>, <code>video_resolution</code>, <code>video_source</code>, <code>codec</code>, <code>audio</code>, <code>color_range</code>.</p>
 <pre><code>src = input("rss", url="https://feed.example.com/rss")
-q   = process("metainfo_quality", from_=src)
-flt = process("quality", from_=q, min="720p")   <span class="y-comment"># uses video_quality set above</span>
-output("transmission", from_=flt, host="localhost")
+q   = process("metainfo_quality", upstream=src)
+flt = process("quality", upstream=q, min="720p")   <span class="y-comment"># uses video_quality set above</span>
+output("transmission", upstream=flt, host="localhost")
 pipeline("hd-only")</code></pre>
 
 <!-- ─────────── metainfo_series ─────────── -->
@@ -1022,21 +1034,21 @@ After DHT: <code>torrent_file_size</code>, <code>torrent_file_count</code>, <cod
 <p>Fields set: <code>series_season</code>, <code>series_episode</code>, <code>series_episode_id</code>. The matched show name is written to <code>title</code> (canonical) and <code>raw_title</code> (original parsed name).</p>
 
 <pre><code>src    = input("rss", url="https://feed.example.com/rss")
-seen   = process("seen",   from_=src)
-series = process("series", from_=seen,
+seen   = process("seen",   upstream=src)
+series = process("series", upstream=seen,
                  static=["Breaking Bad", "Better Call Saul"],
                  tracking="strict", quality="720p+ webrip+")
-output("transmission", from_=series, host="localhost")
+output("transmission", upstream=series, host="localhost")
 pipeline("tv", schedule="30m")</code></pre>
 
 <pre><code><span class="y-comment"># Dynamic show list from TVDB favorites</span>
 favs   = input("tvdb_favorites", api_key=env("TVDB_KEY"), user_pin=env("TVDB_PIN"))
 src    = input("rss", url="https://feed.example.com/rss")
-seen   = process("seen",   from_=merge(src, favs))
-series = process("series", from_=seen, **{"from": [
+seen   = process("seen",   upstream=merge(src, favs))
+series = process("series", upstream=seen, **{"from": [
     {"name": "tvdb_favorites", "api_key": env("TVDB_KEY"), "user_pin": env("TVDB_PIN")},
 ]}, tracking="backfill", quality="720p+ webrip+")
-output("transmission", from_=series, host="localhost")
+output("transmission", upstream=series, host="localhost")
 pipeline("tv-dynamic", schedule="1h")</code></pre>
 
 <!-- ─────────── movies ─────────── -->
@@ -1068,7 +1080,7 @@ pipeline("tv-dynamic", schedule="1h")</code></pre>
   <tr><td><code>reject_unmatched</code></td><td>no</td><td><code>true</code></td><td>When <code>true</code> (default), entries whose title does not parse as a series episode are explicitly rejected. Set to <code>false</code> to leave such entries undecided — useful when chaining <code>premiere</code> alongside other filters in one pipeline.</td></tr>
 </table>
 
-<pre><code>prem = process("premiere", from_=upstream, quality="720p+ webrip+")</code></pre>
+<pre><code>prem = process("premiere", upstream=upstream, quality="720p+ webrip+")</code></pre>
 
 <!-- ─────────── condition ─────────── -->
 <h2 id="condition">condition</h2>
@@ -1081,7 +1093,7 @@ pipeline("tv-dynamic", schedule="1h")</code></pre>
   <tr><td><code>rules</code></td><td>conditional</td><td>Ordered list of <code>{accept, reject}</code> objects (use when you need multiple conditions)</td></tr>
 </table>
 
-<pre><code>cond = process("condition", from_=meta_node, rules=[
+<pre><code>cond = process("condition", upstream=meta_node, rules=[
     {"reject": 'video_language != "" and video_language != "English"'},
     {"reject": 'video_genres contains "Documentary"'},
     {"reject": 'series_first_air_date != "" and series_first_air_date &lt; daysago(365)'},
@@ -1097,22 +1109,22 @@ pipeline("tv-dynamic", schedule="1h")</code></pre>
   <tr><td><code>min_seeds</code></td><td>no</td><td><code>1</code></td><td>Minimum seed count required</td></tr>
 </table>
 
-<pre><code>alive = process("torrent_alive", from_=upstream, min_seeds=3)</code></pre>
+<pre><code>alive = process("torrent_alive", upstream=upstream, min_seeds=3)</code></pre>
 
 <!-- ─────────── require ─────────── -->
 <h2 id="require">require</h2>
 <p>Rejects entries missing one or more required fields. A field is "missing" if its value is nil, empty string, zero, false, or empty slice.</p>
 
-<pre><code>req = process("require", from_=upstream, fields=["enriched", "series_episode_id"])</code></pre>
+<pre><code>req = process("require", upstream=upstream, fields=["enriched", "series_episode_id"])</code></pre>
 
 <div class="note"><strong>Using <code>enriched</code> as a metainfo gate.</strong> External metainfo plugins (TVDB, TMDb, Trakt) set <code>enriched = true</code> only when they successfully identify the entry. Adding <code>enriched</code> to <code>require</code> rejects anything the provider did not recognise — new releases not yet in the database, foreign titles, or unrecognized content.
-<pre style="margin-top:0.5em"><code>meta = process("metainfo_tvdb", from_=upstream, api_key=env("TVDB_KEY"))
-req  = process("require",       from_=meta, fields=["enriched"])</code></pre>
+<pre style="margin-top:0.5em"><code>meta = process("metainfo_tvdb", upstream=upstream, api_key=env("TVDB_KEY"))
+req  = process("require",       upstream=meta, fields=["enriched"])</code></pre>
 Because <code>enriched</code> is set by any external provider, the same config works unchanged if you later swap TVDB for TMDb or Trakt.</div>
 
 <!-- ─────────── seen ─────────── -->
 <h2 id="seen">seen</h2>
-<p>Rejects entries already processed in a previous run, using a SHA-256 fingerprint of configured fields stored in <code>pipeliner.db</code>. Fingerprints are written in the Learn phase — if an output plugin fails, the entry is <em>not</em> marked seen and will be retried.</p>
+<p>Rejects entries already processed in a previous run, using a SHA-256 fingerprint of configured fields stored in <code>pipeliner.db</code>. Fingerprints are written only after all downstream sinks confirm — if a sink fails an entry, it is <em>not</em> marked seen and will be retried on the next run.</p>
 
 <div class="note"><strong>Not needed for TV series, movies, or premieres.</strong> Those filters maintain their own download trackers and handle deduplication automatically. Use <code>seen</code> for pipelines without a domain-specific tracker — the most common case is RSS news or article feeds, where the same article would otherwise be re-processed every run.</div>
 
@@ -1124,10 +1136,10 @@ Because <code>enriched</code> is set by any external provider, the same config w
 
 <p>Typical use — tech news to email, preventing re-delivery of already-sent articles:</p>
 <pre><code>src  = input("rss", url="https://feeds.arstechnica.com/arstechnica/index")
-seen = process("seen", from_=src)
-flt  = process("regexp", from_=seen, accept=["(?i)linux|golang|open.?source"])
-acc  = process("accept_all", from_=flt)
-output("email", from_=acc,
+seen = process("seen", upstream=src)
+flt  = process("regexp", upstream=seen, accept=["(?i)linux|golang|open.?source"])
+acc  = process("accept_all", upstream=flt)
+output("email", upstream=acc,
        smtp_host="smtp.gmail.com", smtp_port=587,
        username=env("SMTP_USER"), password=env("SMTP_PASS"),
        **{"from": env("SMTP_USER")}, to=env("SMTP_TO"),
@@ -1194,7 +1206,7 @@ pipeline("tech-news", schedule="1h")</code></pre>
   <tr><td><code>from</code></td><td>no</td><td><code>["title"]</code></td><td>Fields to match against</td></tr>
 </table>
 
-<pre><code>flt = process("regexp", from_=upstream,
+<pre><code>flt = process("regexp", upstream=upstream,
               accept=["(?i)golang", "(?i)kubernetes"],
               reject=["(?i)sponsored"])</code></pre>
 
@@ -1208,7 +1220,7 @@ pipeline("tech-news", schedule="1h")</code></pre>
   <tr><td><code>max</code></td><td>conditional</td><td>Maximum quality spec</td></tr>
 </table>
 
-<pre><code>flt = process("quality", from_=upstream, min="720p webrip", max="1080p")</code></pre>
+<pre><code>flt = process("quality", upstream=upstream, min="720p webrip", max="1080p")</code></pre>
 
 <!-- ─────────── upgrade ─────────── -->
 <h2 id="upgrade">upgrade</h2>
@@ -1258,7 +1270,7 @@ pipeline("tech-news", schedule="1h")</code></pre>
   <tr><td><code>field</code></td><td>yes</td><td>Entry field to write the rendered path into (e.g. <code>download_path</code>)</td></tr>
 </table>
 
-<pre><code>fmt = process("pathfmt", from_=upstream,
+<pre><code>fmt = process("pathfmt", upstream=upstream,
               path="/media/tv/{title}/Season {series_season:02d}",
               field="download_path")</code></pre>
 
@@ -1268,7 +1280,7 @@ pipeline("tech-news", schedule="1h")</code></pre>
 <h2 id="set">set</h2>
 <p>Unconditionally sets one or more entry fields. Each config key becomes a field name; its value is a Go template rendered against the entry.</p>
 
-<pre><code>tagged = process("set", from_=upstream, category="tv", label="{{.title}}")</code></pre>
+<pre><code>tagged = process("set", upstream=upstream, category="tv", label="{{.title}}")</code></pre>
 
 <hr>
 <!-- ═══════════════════════════════════════════════════════════ -->
@@ -1291,7 +1303,7 @@ pipeline("tech-news", schedule="1h")</code></pre>
   <tr><td><code>move_completed_path</code></td><td>no</td><td>—</td><td>Move completed downloads here</td></tr>
 </table>
 
-<pre><code>output("deluge", from_=ready,
+<pre><code>output("deluge", upstream=ready,
        host="localhost", password=env("DELUGE_PASS"),
        move_completed_path="{download_path}")</code></pre>
 
@@ -1353,7 +1365,7 @@ pipeline("tech-news", schedule="1h")</code></pre>
   <tr><td><code>body_template</code></td><td>no</td><td>plain list</td><td>Body template; context has <code>.Entries</code></td></tr>
 </table>
 
-<pre><code>output("email", from_=ready,
+<pre><code>output("email", upstream=ready,
        smtp_host="smtp.gmail.com", smtp_port=587,
        username=env("SMTP_USER"), password=env("SMTP_PASS"),
        **{"from": "me@gmail.com"}, to="me@gmail.com", html=True,
@@ -1372,7 +1384,7 @@ pipeline("tech-news", schedule="1h")</code></pre>
   <tr><td><code>command</code></td><td>yes</td><td>Shell command template (run via <code>/bin/sh -c</code>)</td></tr>
 </table>
 
-<pre><code>output("exec", from_=ready, command='notify-send "New download" "{{.Title}}"')</code></pre>
+<pre><code>output("exec", upstream=ready, command='notify-send "New download" "{{.Title}}"')</code></pre>
 
 <!-- ─────────── print ─────────── -->
 <h2 id="print">print</h2>
@@ -1532,7 +1544,7 @@ pipeline("tech-news", schedule="1h")</code></pre>
 <p>Each node on the canvas shows its plugin name, role badge, upstream connections, and a preview of its most important config values. Click a node to select it and edit its configuration in the right panel. Drag nodes to reorder them. The pipeline name and schedule are shown at the top; edit them inline.</p>
 
 <h4>Param panel</h4>
-<p>The right panel shows the selected node's configuration. At the top, checkboxes let you connect the node to any existing upstream node (sets the <code>from_=</code> relationship). Below, all config keys are editable with appropriate input widgets. If a required field is missing from any upstream, a warning appears so you can fix it before saving.</p>
+<p>The right panel shows the selected node's configuration. At the top, checkboxes let you connect the node to any existing upstream node (sets the <code>upstream=</code> relationship). Below, all config keys are editable with appropriate input widgets. If a required field is missing from any upstream, a warning appears so you can fix it before saving.</p>
 
 <h4>Connection validation</h4>
 <p>When a processor requires a field that no upstream node produces (for example, placing <code>quality</code> before <code>metainfo_quality</code>), the visual editor highlights the warning inline. This catches ordering mistakes before the pipeline runs.</p>
@@ -1610,7 +1622,7 @@ docker compose up -d --no-build pipeliner</code></pre>
 <h3>No entries accepted</h3>
 <ul>
   <li>Run with <code>--log-level debug</code> to see why each entry is rejected. The reject reason is logged for every rejected entry.</li>
-  <li>Add an <code>output("print", from_=node)</code> before your sink to confirm entries are reaching the right point.</li>
+  <li>Add an <code>output("print", upstream=node)</code> before your sink to confirm entries are reaching the right point.</li>
   <li>Check <code>--dry-run</code> output — if entries are accepted in dry-run but not live, the sink may be failing.</li>
 </ul>
 
@@ -1637,10 +1649,10 @@ docker compose up -d --no-build pipeliner</code></pre>
 <p>These plugins can be used as standalone source nodes or inside a parent plugin's <code>from</code> config key. Use whichever is clearer for your use case:</p>
 <pre><code><span class="y-comment"># Option A — standalone source node</span>
 favs   = input("tvdb_favorites", api_key=env("TVDB_KEY"), user_pin=env("TVDB_PIN"))
-series = process("series", from_=merge(rss_src, favs), tracking="backfill")
+series = process("series", upstream=merge(rss_src, favs), tracking="backfill")
 
 <span class="y-comment"># Option B — inside series.from config</span>
-series = process("series", from_=rss_src, **{"from": [
+series = process("series", upstream=rss_src, **{"from": [
     {"name": "tvdb_favorites", "api_key": env("TVDB_KEY"), "user_pin": env("TVDB_PIN")},
 ]})</code></pre>
 
