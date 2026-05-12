@@ -1617,7 +1617,9 @@ function renderParamPanel() {
     html.push(`<div class="ve-conn-warn">${warns.map(w => `⚠ ${esc(w)}`).join('<br>')}</div>`);
 
   html.push('<div class="ve-field-sep"></div>');
-  if (meta.schema?.length) {
+  if (node.plugin === 'condition') {
+    html.push(renderCondRulesWidget(node));
+  } else if (meta.schema?.length) {
     for (const f of meta.schema) {
       // Skip 'via' and 'from' fields — managed visually by the sections above.
       if ((f.key === 'via' && meta.accepts_via) || (f.key === 'from' && meta.accepts_from)) continue;
@@ -1629,12 +1631,12 @@ function renderParamPanel() {
 
   body.innerHTML = html.join('');
 
-  if (meta.schema?.length) {
+  if (node.plugin !== 'condition' && meta.schema?.length) {
     body.querySelectorAll('[data-field]').forEach(el => {
       el.addEventListener('change', () => collectParams(node, meta.schema, body));
       el.addEventListener('input',  () => collectParams(node, meta.schema, body));
     });
-  } else {
+  } else if (node.plugin !== 'condition') {
     wireGenericKV(body, node);
   }
 }
@@ -1701,6 +1703,106 @@ function toggleFrom(nodeId, fromId, checked) {
 }
 
 // ── field widgets ─────────────────────────────────────────────────────────────
+
+// ── condition plugin — rules editor ──────────────────────────────────────────
+
+// Convert any stored condition config format → [{type:'accept'|'reject', expr}].
+function condRulesFromConfig(cfg) {
+  if (!cfg) return [];
+  if (Array.isArray(cfg.rules)) {
+    const rows = [];
+    for (const item of cfg.rules) {
+      if (item && typeof item === 'object') {
+        if (item.reject != null) rows.push({type: 'reject', expr: String(item.reject)});
+        if (item.accept != null) rows.push({type: 'accept', expr: String(item.accept)});
+      }
+    }
+    return rows;
+  }
+  const rows = [];
+  if (cfg.reject != null) rows.push({type: 'reject', expr: String(cfg.reject)});
+  if (cfg.accept != null) rows.push({type: 'accept', expr: String(cfg.accept)});
+  return rows;
+}
+
+// Convert [{type, expr}] → the config object the condition plugin expects.
+// Single accept/reject stays as a top-level key; multiple rules use the rules list.
+function buildCondConfig(rules) {
+  const valid = rules.filter(r => r.expr.trim());
+  if (valid.length === 0) return {};
+  if (valid.length === 1) return {[valid[0].type]: valid[0].expr.trim()};
+  return {rules: valid.map(r => ({[r.type]: r.expr.trim()}))};
+}
+
+function renderCondRulesWidget(node) {
+  const rules = condRulesFromConfig(node.config);
+  const rowsHtml = rules.map(r => `
+    <div class="ve-cond-row">
+      <button class="ve-cond-type ${r.type}" onclick="toggleCondType(this)"
+              title="Click to toggle accept / reject">${r.type}</button>
+      <input type="text" class="ve-cond-expr" value="${esc(r.expr)}"
+             placeholder="expression…"
+             oninput="updateCondRules()" onchange="updateCondRules()">
+      <button class="ve-cond-del" onclick="deleteCondRule(this)" title="Remove rule">×</button>
+    </div>`).join('');
+  const body = rowsHtml || '<div class="ve-cond-empty">No rules yet</div>';
+  return `<div class="ve-field">
+    <div class="ve-field-label">Rules
+      <span class="ve-field-hint">— evaluated top to bottom; first match wins; within a rule, reject beats accept</span>
+    </div>
+    <div class="ve-cond-rules" id="ve-cond-rules">${body}</div>
+    <div style="display:flex;gap:6px;margin-top:6px">
+      <button class="ve-add-kv" onclick="addCondRule('reject')">+ Reject</button>
+      <button class="ve-add-kv" onclick="addCondRule('accept')">+ Accept</button>
+    </div>
+  </div>`;
+}
+
+function addCondRule(type) {
+  const container = document.getElementById('ve-cond-rules');
+  if (!container) return;
+  container.querySelector('.ve-cond-empty')?.remove();
+  const row = document.createElement('div');
+  row.className = 've-cond-row';
+  row.innerHTML = `
+    <button class="ve-cond-type ${type}" onclick="toggleCondType(this)"
+            title="Click to toggle accept / reject">${type}</button>
+    <input type="text" class="ve-cond-expr" placeholder="expression…"
+           oninput="updateCondRules()" onchange="updateCondRules()">
+    <button class="ve-cond-del" onclick="deleteCondRule(this)" title="Remove rule">×</button>`;
+  container.appendChild(row);
+  row.querySelector('.ve-cond-expr').focus();
+}
+
+function deleteCondRule(btn) {
+  const row = btn.closest('.ve-cond-row');
+  const container = row?.closest('.ve-cond-rules');
+  if (!row || !container) return;
+  row.remove();
+  if (!container.querySelector('.ve-cond-row')) {
+    container.innerHTML = '<div class="ve-cond-empty">No rules yet</div>';
+  }
+  updateCondRules();
+}
+
+function toggleCondType(btn) {
+  const newType = btn.classList.contains('reject') ? 'accept' : 'reject';
+  btn.className = `ve-cond-type ${newType}`;
+  btn.textContent = newType;
+  updateCondRules();
+}
+
+function updateCondRules() {
+  const node = findNode(ve.selectedNodeId);
+  if (!node) return;
+  const rows = document.querySelectorAll('#ve-cond-rules .ve-cond-row');
+  const rules = [...rows].map(row => ({
+    type: row.querySelector('.ve-cond-type').classList.contains('reject') ? 'reject' : 'accept',
+    expr: row.querySelector('.ve-cond-expr').value,
+  }));
+  node.config = buildCondConfig(rules);
+  renderGraphNodes(); renderEdges(); onModelChange();
+}
 
 function renderField(f, config) {
   const val = config[f.key];
