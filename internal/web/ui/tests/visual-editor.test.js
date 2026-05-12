@@ -425,6 +425,14 @@ describe('dagToStarlark with comments', () => {
     expect(out).toContain('rss_0 = input("rss")\n\n# My pipeline\npipeline("p")');
   });
 
+  it('emits user comment before pipeliner:pos when both are present', () => {
+    setup([
+      { id: 'rss_0', plugin: 'rss', config: {}, upstreams: [], comment: 'Main feed', x: 50, y: 40 },
+    ]);
+    const out = dagToStarlark();
+    expect(out).toContain('# Main feed\n# pipeliner:pos 50 40\nrss_0 = input("rss")');
+  });
+
   it('trims leading/trailing whitespace from comment', () => {
     setup([
       { id: 'rss_0', plugin: 'rss', config: {}, upstreams: [], comment: '  padded  ' },
