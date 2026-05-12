@@ -44,6 +44,11 @@ func init() {
 		},
 		Factory:  newPlugin,
 		Validate: validate,
+		Schema: []plugin.FieldSchema{
+			{Key: "client_id", Type: plugin.FieldTypeString,   Required: true, Hint: "Trakt API client ID"},
+			{Key: "type",      Type: plugin.FieldTypeEnum,     Required: true, Enum: []string{"shows", "movies"}, Hint: "Content type"},
+			{Key: "cache_ttl", Type: plugin.FieldTypeDuration,                 Hint: "Search result cache lifetime (default 24h)"},
+		},
 	})
 }
 

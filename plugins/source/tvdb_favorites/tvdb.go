@@ -26,8 +26,13 @@ func init() {
 		Description: "fetch TheTVDB favorites as show-name entries; usable as a standalone DAG source or inside series.from/discover.from",
 		Role:        plugin.RoleSource,
 		Produces:    []string{entry.FieldTitle, "tvdb_id", "tvdb_year"},
-		Factory:     newPlugin,
-		Validate:    validate,
+		Factory:      newPlugin,
+		Validate:     validate,
+		IsFromPlugin: true,
+		Schema: []plugin.FieldSchema{
+			{Key: "api_key",  Type: plugin.FieldTypeString, Required: true, Hint: "TheTVDB v4 API key"},
+			{Key: "user_pin", Type: plugin.FieldTypeString, Required: true, Hint: "TheTVDB user PIN"},
+		},
 	})
 }
 

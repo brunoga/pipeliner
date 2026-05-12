@@ -34,8 +34,14 @@ func init() {
 		Description: "extract archive files (RAR, ZIP, 7z) to a destination directory",
 		Role:        plugin.RoleSink,
 		Requires:    []string{entry.FieldFileLocation},
-		Factory:     newPlugin,
-		Validate:    validate,
+		Factory:  newPlugin,
+		Validate: validate,
+		Schema: []plugin.FieldSchema{
+			{Key: "to",             Type: plugin.FieldTypeString, Required: true, Hint: "Destination directory for extracted files"},
+			{Key: "keep_dirs",      Type: plugin.FieldTypeBool,                   Hint: "Preserve internal directory structure (default true)"},
+			{Key: "delete_archive", Type: plugin.FieldTypeBool,                   Hint: "Delete archive file after extraction (default false)"},
+			{Key: "tool",           Type: plugin.FieldTypeEnum,                   Enum: []string{"unrar", "7z", "unar"}, Hint: "Force a specific extraction tool"},
+		},
 	})
 }
 

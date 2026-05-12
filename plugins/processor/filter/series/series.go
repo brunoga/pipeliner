@@ -37,8 +37,9 @@ func init() {
 			entry.FieldSeriesEpisode,
 			entry.FieldSeriesEpisodeID,
 		},
-		Factory:  newPlugin,
-		Validate: validate,
+		Factory:     newPlugin,
+		Validate:    validate,
+		AcceptsFrom: true,
 		Schema: []plugin.FieldSchema{
 			{Key: "static", Type: plugin.FieldTypeList, Hint: "Static list of show names to accept"},
 			{Key: "from", Type: plugin.FieldTypeDict, Hint: "Dynamic show list from a source plugin (e.g. tvdb_favorites, trakt_list)"},

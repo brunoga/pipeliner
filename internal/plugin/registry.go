@@ -33,6 +33,21 @@ type Descriptor struct {
 	// Schema declares the config keys accepted by this plugin. Enables typed
 	// form fields in the visual pipeline editor.
 	Schema []FieldSchema
+	// AcceptsVia indicates this plugin takes a "via" list of search sub-plugin
+	// configs (e.g. discover). The visual editor shows a dedicated bottom port
+	// for these connections and serialises them inline as via=[{...}, ...].
+	AcceptsVia bool
+	// IsSearchPlugin marks plugins that implement the SearchPlugin interface
+	// and can therefore be used in a discover via=[...] list. Only these
+	// plugins may be dropped onto a via-port in the visual editor.
+	IsSearchPlugin bool
+	// AcceptsFrom indicates the plugin takes a "from" list of source-plugin
+	// configs that supply a dynamic title/name list (e.g. series, movies).
+	// The visual editor shows a dedicated teal port for these connections.
+	AcceptsFrom bool
+	// IsFromPlugin marks source plugins whose entry titles can be used as a
+	// name list by AcceptsFrom plugins (e.g. tvdb_favorites, trakt_list).
+	IsFromPlugin bool
 }
 
 // EffectiveRole returns the plugin's Role.

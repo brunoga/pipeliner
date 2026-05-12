@@ -44,8 +44,12 @@ func init() {
 			entry.FieldPublishedDate,
 			entry.FieldTorrentSeeds,
 		},
-		Factory:  newPlugin,
-		Validate: validate,
+		Factory:        newPlugin,
+		Validate:       validate,
+		IsSearchPlugin: true,
+		Schema: []plugin.FieldSchema{
+			{Key: "url_template", Type: plugin.FieldTypeString, Required: true, Hint: "RSS URL with {Query} or {QueryEscaped} placeholder"},
+		},
 	})
 }
 

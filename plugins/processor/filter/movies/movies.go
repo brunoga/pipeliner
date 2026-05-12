@@ -43,6 +43,7 @@ func init() {
 		},
 		Factory:     newPlugin,
 		Validate:    validate,
+		AcceptsFrom: true,
 		Schema: []plugin.FieldSchema{
 			{Key: "static", Type: plugin.FieldTypeList, Hint: "Static list of movie titles"},
 			{Key: "from", Type: plugin.FieldTypeDict, Hint: "Dynamic list from a source plugin (e.g. trakt_list)"},

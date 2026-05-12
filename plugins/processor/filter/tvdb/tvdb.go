@@ -30,8 +30,14 @@ func init() {
 		PluginName:  "tvdb",
 		Role:        plugin.RoleProcessor,
 		Description: "Accept entries whose series name appears in the user's TheTVDB favorites",
-		Factory:     newPlugin,
-		Validate:    validate,
+		Factory:  newPlugin,
+		Validate: validate,
+		Schema: []plugin.FieldSchema{
+			{Key: "api_key",          Type: plugin.FieldTypeString,   Required: true, Hint: "TheTVDB v4 API key"},
+			{Key: "user_pin",         Type: plugin.FieldTypeString,   Required: true, Hint: "TheTVDB user PIN"},
+			{Key: "ttl",              Type: plugin.FieldTypeDuration,                 Hint: "Favorites cache lifetime (default 1h)"},
+			{Key: "reject_unmatched", Type: plugin.FieldTypeBool,                     Hint: "Reject entries not in favorites (default true)"},
+		},
 	})
 }
 

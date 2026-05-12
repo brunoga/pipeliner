@@ -30,8 +30,12 @@ func init() {
 		Description: "accept entries only when they offer a quality improvement over what was previously downloaded",
 		Role:        plugin.RoleProcessor,
 		Requires:    []string{entry.FieldVideoQuality},
-		Factory:     newPlugin,
-		Validate:    validate,
+		Factory:  newPlugin,
+		Validate: validate,
+		Schema: []plugin.FieldSchema{
+			{Key: "target",   Type: plugin.FieldTypeString, Required: true, Hint: `Quality ceiling spec, e.g. "2160p bluray"`},
+			{Key: "on_lower", Type: plugin.FieldTypeEnum,                   Enum: []string{"reject", "accept"}, Hint: "Action when quality ≤ stored (default reject)"},
+		},
 	})
 }
 

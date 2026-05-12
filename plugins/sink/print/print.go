@@ -21,8 +21,11 @@ func init() {
 		PluginName:  "print",
 		Description: "print accepted entries to stdout",
 		Role:        plugin.RoleSink,
-		Factory:     newPrintPlugin,
-		Validate:    validate,
+		Factory:  newPrintPlugin,
+		Validate: validate,
+		Schema: []plugin.FieldSchema{
+			{Key: "format", Type: plugin.FieldTypePattern, Hint: `Output pattern, e.g. "{title}\t{url}" (default)`},
+		},
 	})
 }
 
