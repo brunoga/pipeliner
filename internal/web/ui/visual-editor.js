@@ -797,137 +797,157 @@ function setZoom(z) {
   applyZoom();
 }
 
-// ── auto layout ────────────────────────────────────────────────────────────────
+// ── layout ─────────────────────────────────────────────────────────────────────
 
-function autoLayout() {
-  const COL_W = 260, ROW_H = 120, PAD_X = 50;
+// layoutGraph auto-lays out a single pipeline starting at globalY.
+// Returns the new globalY (bottom of this pipeline + gap).
+function layoutGraph(g, globalY) {
+  const COL_W = 260, ROW_H = 120, PAD_X = 50, PIPELINE_GAP = 60;
+
+  if (!g.nodes.length) {
+    g._labelY  = globalY;
+    g._regionY = globalY - 8;
+    g._regionH = 80;
+    return globalY + 80 + PIPELINE_GAP;
+  }
+
+  g._labelY = globalY;
+  const startY = globalY + 36; // space for pipeline label
+  const isSub = n => n.isViaNode || n.isFromNode;
+
+  // ── 1. Topological depth (via/from sub-nodes are laid out separately) ───
+  const depth = {};
+  for (const n of g.nodes) if (!isSub(n) && !n.upstreams.length) depth[n.id] = 0;
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const n of g.nodes) {
+      if (isSub(n) || !n.upstreams.length) continue;
+      const maxUp = Math.max(...n.upstreams.map(u => depth[u] ?? -1));
+      if (maxUp >= 0 && depth[n.id] !== maxUp + 1) { depth[n.id] = maxUp + 1; changed = true; }
+    }
+  }
+  for (const n of g.nodes) if (!isSub(n) && depth[n.id] == null) depth[n.id] = 0;
+
+  const byDepth = {};
+  for (const n of g.nodes) {
+    if (isSub(n)) continue;
+    (byDepth[depth[n.id]] = byDepth[depth[n.id]] || []).push(n.id);
+  }
+  const depths = Object.keys(byDepth).map(Number).sort((a, b) => a - b);
+
+  // ── 2. Initial column X; Y evenly-spaced within each column ─────────────
+  for (const d of depths) {
+    byDepth[d].forEach((id, i) => {
+      const n = g.nodes.find(n => n.id === id);
+      if (n) { n.x = PAD_X + d * COL_W; n.y = startY + i * ROW_H; }
+    });
+  }
+
+  // ── 3. Barycenter pass: pull each non-root node toward avg Y of upstreams.
+  for (const d of depths) {
+    if (d === 0) continue;
+    const ids = byDepth[d];
+    const target = {};
+    for (const id of ids) {
+      const n = g.nodes.find(n => n.id === id);
+      if (!n?.upstreams.length) { target[id] = null; continue; }
+      const upYs = n.upstreams.map(uid => (g.nodes.find(x => x.id === uid)?.y ?? startY));
+      target[id] = upYs.reduce((a, b) => a + b, 0) / upYs.length;
+    }
+    const sorted = [...ids].sort((a, b) => (target[a] ?? startY) - (target[b] ?? startY));
+    let minY = -Infinity;
+    for (const id of sorted) {
+      const n = g.nodes.find(n => n.id === id);
+      if (!n) continue;
+      n.y = Math.max(minY, target[id] ?? startY, startY);
+      minY = n.y + ROW_H;
+    }
+  }
+
+  // ── 4. Shift everything so the topmost node starts at startY ─────────────
+  let topY = Infinity;
+  for (const n of g.nodes) topY = Math.min(topY, n.y);
+  if (topY > startY) {
+    const shift = topY - startY;
+    for (const n of g.nodes) n.y -= shift;
+  }
+
+  let maxY = startY + ROW_H;
+  for (const n of g.nodes) {
+    if (!isSub(n)) maxY = Math.max(maxY, (n.y ?? 0) + ROW_H);
+  }
+
+  // Position via-connected nodes in a row below their parent.
+  for (const n of g.nodes) {
+    if (!n.viaNodeIds?.length) continue;
+    const VIA_GAP = 18;
+    const totalW  = n.viaNodeIds.length * NODE_W + (n.viaNodeIds.length - 1) * VIA_GAP;
+    const startVX = (n.x ?? 0) + NODE_W / 2 - totalW / 2;
+    n.viaNodeIds.forEach((id, i) => {
+      const vn = g.nodes.find(x => x.id === id);
+      if (vn) {
+        vn.x = Math.max(0, startVX + i * (NODE_W + VIA_GAP));
+        vn.y = (n.y ?? 0) + NODE_H + 70;
+        maxY = Math.max(maxY, vn.y + NODE_H + 20);
+      }
+    });
+  }
+
+  // Position from-connected nodes in a row above their parent.
+  for (const n of g.nodes) {
+    if (!n.fromNodeIds?.length) continue;
+    const FROM_GAP = 18;
+    const totalW   = n.fromNodeIds.length * NODE_W + (n.fromNodeIds.length - 1) * FROM_GAP;
+    const startFX  = (n.x ?? 0) + NODE_W / 2 - totalW / 2;
+    n.fromNodeIds.forEach((id, i) => {
+      const fn = g.nodes.find(x => x.id === id);
+      if (fn) {
+        fn.x = Math.max(0, startFX + i * (NODE_W + FROM_GAP));
+        fn.y = Math.max(startY + 4, (n.y ?? 0) - NODE_H - 65);
+      }
+    });
+  }
+
+  g._regionY = g._labelY - 8;
+  g._regionH = maxY - g._regionY + 16;
+  return maxY + PIPELINE_GAP;
+}
+
+// initLayout places all pipelines in order.
+// Pipelines with stored layout use relative Y positions (relative to _regionY).
+// Pipelines without stored layout are auto-laid out via layoutGraph.
+// This is the only entry point for post-parse positioning; it replaces both
+// autoLayout() and computePipelineBoundsFromNodes() in the load path.
+function initLayout() {
   let globalY = 40;
-
   for (const g of ve.graphs) {
-    if (!g.nodes.length) {
+    if (g._hasLayout) {
+      const relLayout = g.layout || {};
       g._labelY  = globalY;
       g._regionY = globalY - 8;
-      g._regionH = 80;
-      globalY += 80;
-      continue;
-    }
 
-    g._labelY = globalY;
-    const startY = globalY + 36; // space for pipeline label
-
-    // ── 1. Topological depth (via/from sub-nodes are laid out separately) ───
-    const isSub = n => n.isViaNode || n.isFromNode;
-    const depth = {};
-    for (const n of g.nodes) if (!isSub(n) && !n.upstreams.length) depth[n.id] = 0;
-    let changed = true;
-    while (changed) {
-      changed = false;
+      // Place nodes at absolute Y = regionY + stored-relative-Y.
       for (const n of g.nodes) {
-        if (isSub(n) || !n.upstreams.length) continue;
-        const maxUp = Math.max(...n.upstreams.map(u => depth[u] ?? -1));
-        if (maxUp >= 0 && depth[n.id] !== maxUp + 1) { depth[n.id] = maxUp + 1; changed = true; }
-      }
-    }
-    for (const n of g.nodes) if (!isSub(n) && depth[n.id] == null) depth[n.id] = 0;
-
-    const byDepth = {};
-    for (const n of g.nodes) {
-      if (isSub(n)) continue; // positioned after, below their parent
-      (byDepth[depth[n.id]] = byDepth[depth[n.id]] || []).push(n.id);
-    }
-    const depths = Object.keys(byDepth).map(Number).sort((a, b) => a - b);
-
-    // ── 2. Initial column X; Y evenly-spaced within each column ─────────────
-    for (const d of depths) {
-      byDepth[d].forEach((id, i) => {
-        const n = g.nodes.find(n => n.id === id);
-        if (n) { n.x = PAD_X + d * COL_W; n.y = startY + i * ROW_H; }
-      });
-    }
-
-    // ── 3. Barycenter pass (forward): pull each non-root node to the avg Y
-    //       of its upstream nodes, then re-space the column to avoid overlap.
-    for (const d of depths) {
-      if (d === 0) continue;
-      const ids = byDepth[d];
-
-      // Compute target Y (barycenter of upstreams) for each node in column d.
-      const target = {};
-      for (const id of ids) {
-        const n = g.nodes.find(n => n.id === id);
-        if (!n?.upstreams.length) { target[id] = null; continue; }
-        const upYs = n.upstreams.map(uid => {
-          const up = g.nodes.find(x => x.id === uid);
-          return up?.y ?? startY;
-        });
-        target[id] = upYs.reduce((a, b) => a + b, 0) / upYs.length;
+        const pos = relLayout[n.id];
+        if (pos) { n.x = pos[0]; n.y = g._regionY + pos[1]; }
       }
 
-      // Sort by target Y so we assign positions in top-to-bottom order.
-      const sorted = [...ids].sort((a, b) => (target[a] ?? startY) - (target[b] ?? startY));
-
-      // Place each node: use its target Y but push down to avoid overlap.
-      let minY = -Infinity;
-      for (const id of sorted) {
-        const n = g.nodes.find(n => n.id === id);
-        if (!n) continue;
-        n.y = Math.max(minY, target[id] ?? startY, startY);
-        minY = n.y + ROW_H;
-      }
+      // Derive region height from max stored relative-Y value.
+      const relYs = Object.values(relLayout).map(p => p[1]).filter(v => typeof v === 'number');
+      const maxRelY = relYs.length ? Math.max(...relYs) : 0;
+      g._regionH = maxRelY + NODE_H + 96;
+      globalY = g._regionY + g._regionH + 60;
+    } else {
+      globalY = layoutGraph(g, globalY);
     }
-
-    // ── 4. Shift everything so the topmost node starts at startY ─────────────
-    let topY = Infinity;
-    for (const n of g.nodes) topY = Math.min(topY, n.y);
-    if (topY > startY) {
-      const shift = topY - startY;
-      for (const n of g.nodes) n.y -= shift;
-    }
-
-    let maxY = startY + ROW_H;
-    for (const n of g.nodes) {
-      if (!isSub(n)) maxY = Math.max(maxY, (n.y ?? 0) + ROW_H);
-    }
-
-    // Position via-connected nodes in a row below their parent discover node.
-    for (const n of g.nodes) {
-      if (!n.viaNodeIds?.length) continue;
-      const VIA_GAP = 18;
-      const totalW  = n.viaNodeIds.length * NODE_W + (n.viaNodeIds.length - 1) * VIA_GAP;
-      const startVX = (n.x ?? 0) + NODE_W / 2 - totalW / 2;
-      n.viaNodeIds.forEach((id, i) => {
-        const vn = g.nodes.find(x => x.id === id);
-        if (vn) {
-          vn.x = Math.max(0, startVX + i * (NODE_W + VIA_GAP));
-          vn.y = (n.y ?? 0) + NODE_H + 70;
-          maxY = Math.max(maxY, vn.y + NODE_H + 20);
-        }
-      });
-    }
-
-    // Position from-connected nodes in a row ABOVE their parent (they are inputs).
-    // Clamp so they don't go above the pipeline's node area (startY).
-    for (const n of g.nodes) {
-      if (!n.fromNodeIds?.length) continue;
-      const FROM_GAP = 18;
-      const totalW   = n.fromNodeIds.length * NODE_W + (n.fromNodeIds.length - 1) * FROM_GAP;
-      const startFX  = (n.x ?? 0) + NODE_W / 2 - totalW / 2;
-      n.fromNodeIds.forEach((id, i) => {
-        const fn = g.nodes.find(x => x.id === id);
-        if (fn) {
-          fn.x = Math.max(0, startFX + i * (NODE_W + FROM_GAP));
-          fn.y = Math.max(startY + 4, (n.y ?? 0) - NODE_H - 65);
-          // from-nodes sit within the existing Y band, so maxY is unaffected.
-        }
-      });
-    }
-
-    // Store region bounds for background rendering and separator dragging.
-    g._regionY = g._labelY - 8;
-    g._regionH = maxY - g._regionY + 16;
-
-    globalY = maxY + 60; // gap between pipelines
   }
+}
+
+// autoLayout re-lays out every pipeline (used by the "auto-layout" button).
+function autoLayout() {
+  let globalY = 40;
+  for (const g of ve.graphs) globalY = layoutGraph(g, globalY);
 }
 
 // ── cycle detection ───────────────────────────────────────────────────────────
@@ -1931,10 +1951,13 @@ function dagToStarlark() {
       if (lines.length > 0) lines.push('');
       for (const cl of g.comment.trim().split('\n')) lines.push(`# ${cl}`);
     }
-    // Collect all node positions for the layout comment.
+    // Collect node positions relative to this pipeline's region top (_regionY).
+    // Storing relative Y means positions survive pipeline reordering in the
+    // text editor and a new pipeline above won't shift existing layouts.
     const layout = {};
+    const regionY = g._regionY ?? 0;
     for (const n of g.nodes) {
-      if (n.x != null && n.y != null) layout[n.id] = [Math.round(n.x), Math.round(n.y)];
+      if (n.x != null && n.y != null) layout[n.id] = [Math.round(n.x), Math.round(n.y - regionY)];
     }
     if (Object.keys(layout).length) lines.push(`# pipeliner:layout ${JSON.stringify(layout)}`);
 
@@ -2049,14 +2072,11 @@ async function textToVisualSync() {
           });
         }
       }
-      // Apply stored layout positions (if present) to all nodes.
+      // Store the layout map on the graph; initLayout() applies positions later
+      // so it can stack pipelines in order and interpret Y as relative to _regionY.
       const layout = graph.layout || {};
-      for (const n of nodes) {
-        const pos = layout[n.id];
-        if (pos) { n.x = pos[0]; n.y = pos[1]; }
-      }
       return {name, schedule: graph.schedule || '', comment: graph.comment || '', nodes,
-              _hasLayout: Object.keys(layout).length > 0};
+              layout, _hasLayout: Object.keys(layout).length > 0};
     });
     ve.nextId = ve.graphs.flatMap(g => g.nodes).reduce((max, n) => {
       const m = n.id.match(/_(\d+)$/);
@@ -2066,10 +2086,9 @@ async function textToVisualSync() {
     ve.selectedNodeId = null;
     ve_panX = 0; ve_panY = 0; // reset pan so freshly laid-out nodes are visible
     ve.syncing = false;
-    // Use stored positions if available; fall back to auto-layout for new nodes.
-    const needsLayout = ve.graphs.some(g => !g._hasLayout);
-    if (needsLayout) autoLayout();
-    else computePipelineBoundsFromNodes();
+    // Place all pipelines in order: stored relative positions for those that
+    // have a layout comment, auto-layout for those that don't.
+    initLayout();
     veRender();
     setSyncNote(entries.length > 1 ? `Showing ${entries.length} pipelines` : '');
     // Write computed positions back so they survive the next round-trip.
