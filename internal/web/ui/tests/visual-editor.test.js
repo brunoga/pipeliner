@@ -399,6 +399,32 @@ describe('dagToStarlark with comments', () => {
     expect(commentPos).toBeLessThan(pipelinePos);
   });
 
+  it('inserts blank line before a comment when preceded by other definitions', () => {
+    setup([
+      { id: 'rss_0',  plugin: 'rss',  config: {}, upstreams: [], comment: '' },
+      { id: 'seen_1', plugin: 'seen', config: {}, upstreams: ['rss_0'], comment: 'Dedup step' },
+    ]);
+    const out = dagToStarlark();
+    expect(out).toContain('rss_0 = input("rss")\n\n# Dedup step\nseen_1 = process("seen"');
+  });
+
+  it('does not insert blank line before a comment that is the first output', () => {
+    setup([
+      { id: 'rss_0', plugin: 'rss', config: {}, upstreams: [], comment: 'First node' },
+    ]);
+    const out = dagToStarlark();
+    expect(out.startsWith('# First node\n')).toBe(true);
+  });
+
+  it('inserts blank line before pipeline comment when nodes precede it', () => {
+    setup(
+      [{ id: 'rss_0', plugin: 'rss', config: {}, upstreams: [], comment: '' }],
+      'p', '', 'My pipeline'
+    );
+    const out = dagToStarlark();
+    expect(out).toContain('rss_0 = input("rss")\n\n# My pipeline\npipeline("p")');
+  });
+
   it('trims leading/trailing whitespace from comment', () => {
     setup([
       { id: 'rss_0', plugin: 'rss', config: {}, upstreams: [], comment: '  padded  ' },

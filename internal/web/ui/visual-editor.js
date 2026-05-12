@@ -1884,7 +1884,9 @@ function dagToStarlark() {
       const fromStr = upstreamsStr(n.upstreams);
 
       // Emit user comment lines (# prefix) before the node definition.
+      // Insert a blank line before the comment unless it is the very first output.
       if (n.comment?.trim()) {
+        if (lines.length > 0) lines.push('');
         for (const cl of n.comment.trim().split('\n')) lines.push(`# ${cl}`);
       }
 
@@ -1923,7 +1925,9 @@ function dagToStarlark() {
     }
 
     // Emit pipeline comment, then layout metadata, then pipeline() call.
+    // Insert a blank line before this block when node definitions precede it.
     if (g.comment?.trim()) {
+      if (lines.length > 0) lines.push('');
       for (const cl of g.comment.trim().split('\n')) lines.push(`# ${cl}`);
     }
     // Collect all node positions for the layout comment.
