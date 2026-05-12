@@ -117,3 +117,4 @@ pipeline("tv-combined", schedule="30m")
 ## Notes
 
 - Episode history and dynamic list cache are stored in `pipeliner.db` in the same directory as the config file.
+- The episode tracker is updated only after all downstream sinks confirm (via `CommitPlugin`). If a sink fails an entry, the episode is not recorded as downloaded and will be retried on the next run.

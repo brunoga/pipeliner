@@ -109,3 +109,4 @@ cond = process("condition", from_=movies, rules=[
 
 - Download history and dynamic list cache are stored in `pipeliner.db` in the same directory as the config file.
 - `quality:` specifies a **minimum floor** — use `720p+` or `1080p+` syntax. A bare `720p` means exactly 720p.
+- The tracker is updated only after all downstream sinks confirm (via `CommitPlugin`). If a sink fails an entry, the movie is not recorded as downloaded and will be retried on the next run.

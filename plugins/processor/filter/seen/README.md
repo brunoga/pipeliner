@@ -39,10 +39,8 @@ Without `seen`, every hourly run would re-send articles that were already emaile
 | Produces | — |
 | Requires | — |
 
-In DAG pipelines, `seen` records new entries in its `Process()` call immediately rather than waiting for a separate learn phase. Entries that fail downstream sinks will already be marked seen; use `seen` at the beginning of the pipeline to skip duplicates on the next run.
-
 ## Notes
 
-- Fingerprints are written to the store immediately in `Process()` so they are persisted even if downstream sinks fail.
+- Fingerprints are written to the store only after all downstream sinks confirm (via `CommitPlugin`). If a sink fails an entry, that entry's fingerprint is not recorded and the entry will be retried on the next run.
 - Use `local=True` when multiple tasks consume the same feed but should track seen entries independently.
 - State is stored in `pipeliner.db` in the same directory as the config file.
