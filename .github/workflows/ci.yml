@@ -22,6 +22,8 @@ jobs:
           cache: true
 
       - name: Test
+        # Playwright tests are in ./internal/web/... and auto-skip when
+        # Chromium is not installed — the dedicated e2e-test job installs it.
         run: go test -race -timeout 120s ./...
 
   build:
@@ -81,7 +83,7 @@ jobs:
         run: go run github.com/playwright-community/playwright-go/cmd/playwright install --with-deps chromium
 
       - name: Run E2E tests
-        run: go test -tags e2e -timeout 120s ./internal/web/...
+        run: go test -race -timeout 120s ./internal/web/...
 
   ui-test:
     name: UI Tests (JS)
