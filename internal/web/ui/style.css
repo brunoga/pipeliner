@@ -784,6 +784,14 @@ section { margin-bottom: 32px; }
 .ve-kv-del:hover { color:var(--red); }
 .ve-add-kv { font-size:11px; color:var(--muted); background:none; border:none; cursor:pointer; padding:0; margin-top:2px; }
 .ve-add-kv:hover { color:var(--accent); }
+.ve-multiline-btn {
+  width:100%; text-align:left; background:var(--input-bg,#1e1e1e); border:1px solid var(--border);
+  border-radius:4px; padding:5px 8px; cursor:pointer; color:var(--text); font-size:12px;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.ve-multiline-btn:hover { border-color:var(--accent); }
+.ve-multiline-preview { opacity:.8; }
+.ve-multiline-empty { color:var(--muted); font-style:italic; }
 .ve-param-footer {
   padding:10px 14px; border-top:1px solid var(--border); flex-shrink:0;
 }

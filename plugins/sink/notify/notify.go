@@ -25,7 +25,7 @@ func init() {
 		Schema: []plugin.FieldSchema{
 			{Key: "via",   Type: plugin.FieldTypeString, Required: true, Hint: "Notifier type (e.g. webhook, email)"},
 			{Key: "title", Type: plugin.FieldTypePattern,                Hint: "Notification title template"},
-			{Key: "body",  Type: plugin.FieldTypePattern,                Hint: "Notification body template"},
+			{Key: "body",  Type: plugin.FieldTypePattern,                Hint: "Notification body template", Multiline: true},
 			{Key: "on",    Type: plugin.FieldTypeEnum,                   Enum: []string{"only-accepted", "all"}, Hint: "When to send (default only-accepted)"},
 		},
 	})
