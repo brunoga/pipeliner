@@ -25,53 +25,54 @@ import (
 	"github.com/brunoga/pipeliner/internal/web"
 
 	// Register all built-in plugins via side-effect imports.
-	_ "github.com/brunoga/pipeliner/plugins/filter/accept_all"
-	_ "github.com/brunoga/pipeliner/plugins/filter/condition"
-	_ "github.com/brunoga/pipeliner/plugins/filter/content"
-	_ "github.com/brunoga/pipeliner/plugins/filter/exists"
-	_ "github.com/brunoga/pipeliner/plugins/filter/list_match"
-	_ "github.com/brunoga/pipeliner/plugins/filter/movies"
-	_ "github.com/brunoga/pipeliner/plugins/filter/premiere"
-	_ "github.com/brunoga/pipeliner/plugins/filter/quality"
-	_ "github.com/brunoga/pipeliner/plugins/filter/regexp"
-	_ "github.com/brunoga/pipeliner/plugins/filter/require"
-	_ "github.com/brunoga/pipeliner/plugins/filter/seen"
-	_ "github.com/brunoga/pipeliner/plugins/filter/series"
-	_ "github.com/brunoga/pipeliner/plugins/filter/torrentalive"
-	_ "github.com/brunoga/pipeliner/plugins/filter/trakt"
-	_ "github.com/brunoga/pipeliner/plugins/filter/tvdb"
-	_ "github.com/brunoga/pipeliner/plugins/filter/upgrade"
-	_ "github.com/brunoga/pipeliner/plugins/from/jackett"
-	_ "github.com/brunoga/pipeliner/plugins/from/rss"
-	_ "github.com/brunoga/pipeliner/plugins/from/trakt"
-	_ "github.com/brunoga/pipeliner/plugins/from/tvdb"
-	_ "github.com/brunoga/pipeliner/plugins/input/discover"
-	_ "github.com/brunoga/pipeliner/plugins/input/filesystem"
-	_ "github.com/brunoga/pipeliner/plugins/input/html"
-	_ "github.com/brunoga/pipeliner/plugins/input/rss"
-	_ "github.com/brunoga/pipeliner/plugins/input/search/jackett"
-	_ "github.com/brunoga/pipeliner/plugins/metainfo/magnet"
-	_ "github.com/brunoga/pipeliner/plugins/metainfo/quality"
-	_ "github.com/brunoga/pipeliner/plugins/metainfo/series"
-	_ "github.com/brunoga/pipeliner/plugins/metainfo/tmdb"
-	_ "github.com/brunoga/pipeliner/plugins/metainfo/torrent"
-	_ "github.com/brunoga/pipeliner/plugins/metainfo/trakt"
-	_ "github.com/brunoga/pipeliner/plugins/metainfo/tvdb"
-	_ "github.com/brunoga/pipeliner/plugins/modify/pathfmt"
-	_ "github.com/brunoga/pipeliner/plugins/modify/set"
-	_ "github.com/brunoga/pipeliner/plugins/notify/email"
-	_ "github.com/brunoga/pipeliner/plugins/notify/pushover"
-	_ "github.com/brunoga/pipeliner/plugins/notify/webhook"
-	_ "github.com/brunoga/pipeliner/plugins/output/decompress"
-	_ "github.com/brunoga/pipeliner/plugins/output/deluge"
-	_ "github.com/brunoga/pipeliner/plugins/output/download"
-	_ "github.com/brunoga/pipeliner/plugins/output/email"
-	_ "github.com/brunoga/pipeliner/plugins/output/exec"
-	_ "github.com/brunoga/pipeliner/plugins/output/list_add"
-	_ "github.com/brunoga/pipeliner/plugins/output/notify"
-	_ "github.com/brunoga/pipeliner/plugins/output/print"
-	_ "github.com/brunoga/pipeliner/plugins/output/qbittorrent"
-	_ "github.com/brunoga/pipeliner/plugins/output/transmission"
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/accept_all"
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/condition"
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/content"
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/exists"
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/list_match"
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/movies"
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/premiere"
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/quality"
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/regexp"
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/require"
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/dedup"
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/seen"
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/series"
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/torrentalive"
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/trakt"
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/tvdb"
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/upgrade"
+	_ "github.com/brunoga/pipeliner/plugins/source/jackett"
+	_ "github.com/brunoga/pipeliner/plugins/source/rss_search"
+	_ "github.com/brunoga/pipeliner/plugins/source/trakt_list"
+	_ "github.com/brunoga/pipeliner/plugins/source/tvdb_favorites"
+	_ "github.com/brunoga/pipeliner/plugins/processor/discover"
+	_ "github.com/brunoga/pipeliner/plugins/source/filesystem"
+	_ "github.com/brunoga/pipeliner/plugins/source/html"
+	_ "github.com/brunoga/pipeliner/plugins/source/rss"
+	_ "github.com/brunoga/pipeliner/plugins/source/jackett_input"
+	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/magnet"
+	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/quality"
+	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/series"
+	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/tmdb"
+	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/torrent"
+	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/trakt"
+	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/tvdb"
+	_ "github.com/brunoga/pipeliner/plugins/processor/modify/pathfmt"
+	_ "github.com/brunoga/pipeliner/plugins/processor/modify/set"
+	_ "github.com/brunoga/pipeliner/plugins/sink/notify/email"
+	_ "github.com/brunoga/pipeliner/plugins/sink/notify/pushover"
+	_ "github.com/brunoga/pipeliner/plugins/sink/notify/webhook"
+	_ "github.com/brunoga/pipeliner/plugins/sink/decompress"
+	_ "github.com/brunoga/pipeliner/plugins/sink/deluge"
+	_ "github.com/brunoga/pipeliner/plugins/sink/download"
+	_ "github.com/brunoga/pipeliner/plugins/sink/email"
+	_ "github.com/brunoga/pipeliner/plugins/sink/exec"
+	_ "github.com/brunoga/pipeliner/plugins/sink/list_add"
+	_ "github.com/brunoga/pipeliner/plugins/sink/notify"
+	_ "github.com/brunoga/pipeliner/plugins/sink/print"
+	_ "github.com/brunoga/pipeliner/plugins/sink/qbittorrent"
+	_ "github.com/brunoga/pipeliner/plugins/sink/transmission"
 )
 
 // version is overridden at build time via:
@@ -132,7 +133,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, `Pipeliner — media automation tool
 
 Usage:
-  pipeliner run     [--config path] [--log-level level] [--log-plugin name[,name...]] [--dry-run] [task ...]
+  pipeliner run     [--config path] [--log-level level] [--log-plugin name[,name...]] [--dry-run] [pipeline ...]
   pipeliner daemon  [--config path] [--log-level level] [--log-plugin name[,name...]]
                     [--web :8080 --web-user USER --web-password PASS]
                     [--tls-self-signed | --tls-cert cert.pem --tls-key key.pem]
@@ -161,8 +162,8 @@ func cmdRun(args []string) int {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	cfgPath   := fs.String("config",     "config.star", "path to config file")
 	logLevel  := fs.String("log-level",  "info",        "log level (debug, info, warn, error)")
-	logPlugin := fs.String("log-plugin", "",            "only show log output from these plugins, comma-separated (task-level logs always shown)")
-	dryRun    := fs.Bool("dry-run",      false,         "execute pipeline but skip output and learn phases (idempotent)")
+	logPlugin := fs.String("log-plugin", "",            "only show log output from these plugins, comma-separated (pipeline-level logs always shown)")
+	dryRun    := fs.Bool("dry-run",      false,         "run all source and processor nodes but skip sinks (idempotent)")
 	if err := fs.Parse(args); err != nil {
 		return 1
 	}
@@ -207,7 +208,7 @@ func cmdRun(args []string) int {
 		}
 		for name := range wanted {
 			if !knownTasks[name] {
-				logger.Error("unknown task specified", "task", name)
+				logger.Error("unknown pipeline specified", "pipeline", name)
 				return 1
 			}
 		}
@@ -233,12 +234,12 @@ func cmdRun(args []string) int {
 		result, err := t.Run(ctx)
 
 		if err != nil {
-			logger.Error("task failed", "task", t.Name(), "err", err)
+			logger.Error("pipeline failed", "pipeline", t.Name(), "err", err)
 			exitCode = 2
 			continue
 		}
-		logger.Info("task done",
-			"task", t.Name(),
+		logger.Info("pipeline done",
+			"pipeline", t.Name(),
 			"accepted", result.Accepted,
 			"rejected", result.Rejected,
 			"failed", result.Failed,
@@ -254,7 +255,7 @@ func cmdDaemon(args []string) int {
 	fs := flag.NewFlagSet("daemon", flag.ContinueOnError)
 	cfgPath       := fs.String("config",          "config.star", "path to config file")
 	logLevel      := fs.String("log-level",       "info",        "log level (debug, info, warn, error)")
-	logPlugin     := fs.String("log-plugin",      "",            "only show log output from these plugins, comma-separated (task-level logs always shown)")
+	logPlugin     := fs.String("log-plugin",      "",            "only show log output from these plugins, comma-separated (pipeline-level logs always shown)")
 	webAddr       := fs.String("web",             "",            "web interface listen address (e.g. :8080); empty disables it")
 	webUser       := fs.String("web-user",        "",            "username for the web interface (required with --web)")
 	webPass       := fs.String("web-password",    "",            "password for the web interface (required with --web)")
@@ -339,12 +340,13 @@ func cmdDaemon(args []string) int {
 		taskByName[t.Name()] = t
 	}
 
+	allSched := cfg.GraphSchedules
 	d := &scheduler.Daemon{}
-	if scheduled, ok := addSchedules(d, cfg.Schedules, taskByName, logger); !ok {
+	if scheduled, ok := addSchedules(d, allSched, taskByName, logger); !ok {
 		return 1
 	} else {
 		for _, s := range scheduled {
-			logger.Info("scheduled", "task", s.Name, "schedule", cfg.Schedules[s.Name])
+			logger.Info("scheduled", "pipeline", s.Name, "schedule", allSched[s.Name])
 		}
 	}
 
@@ -370,15 +372,15 @@ func cmdDaemon(args []string) int {
 		rec := web.RunRecord{Task: name, At: at}
 		if runErr != nil {
 			rec.Err = runErr.Error()
-			logger.Error("task failed", "task", name, "err", runErr)
+			logger.Error("pipeline failed", "pipeline", name, "err", runErr)
 		} else {
 			rec.Accepted = result.Accepted
 			rec.Rejected = result.Rejected
 			rec.Failed = result.Failed
 			rec.Total = result.Total
 			rec.Duration = result.Duration
-			logger.Info("task done",
-				"task", name,
+			logger.Info("pipeline done",
+				"pipeline", name,
 				"accepted", result.Accepted,
 				"rejected", result.Rejected,
 				"failed", result.Failed,
@@ -407,7 +409,8 @@ func cmdDaemon(args []string) int {
 		for _, t := range newTasks {
 			newMap[t.Name()] = t
 		}
-		scheduled, ok := addSchedules(nil, newCfg.Schedules, newMap, logger)
+		newAllSched := newCfg.GraphSchedules
+		scheduled, ok := addSchedules(nil, newAllSched, newMap, logger)
 		if !ok {
 			return fmt.Errorf("invalid schedules in new config")
 		}
@@ -422,12 +425,12 @@ func cmdDaemon(args []string) int {
 		}
 
 		d.Reset(scheduled)
-		logger.Info("config reloaded", "tasks", len(newTasks))
+		logger.Info("config reloaded", "pipelines", len(newTasks))
 
 		if ws != nil {
 			infos := make([]web.TaskInfo, len(newTasks))
 			for i, t := range newTasks {
-				infos[i] = web.TaskInfo{Name: t.Name(), Schedule: newCfg.Schedules[t.Name()]}
+				infos[i] = web.TaskInfo{Name: t.Name(), Schedule: newAllSched[t.Name()]}
 			}
 			ws.SetTasks(infos)
 		}
@@ -451,7 +454,7 @@ func cmdDaemon(args []string) int {
 
 		taskInfos := make([]web.TaskInfo, len(tasks))
 		for i, t := range tasks {
-			taskInfos[i] = web.TaskInfo{Name: t.Name(), Schedule: cfg.Schedules[t.Name()]}
+			taskInfos[i] = web.TaskInfo{Name: t.Name(), Schedule: allSched[t.Name()]}
 		}
 		ws = web.New(taskInfos, d, hist, bcast, resolveVersion(), *webUser, *webPass)
 		ws.SetReload(reload)
@@ -497,7 +500,7 @@ func addSchedules(d *scheduler.Daemon, schedules map[string]string, tasks map[st
 	var out []scheduler.ScheduledTask
 	for name, expr := range schedules {
 		if _, ok := tasks[name]; !ok {
-			logger.Error("schedule references unknown task", "task", name)
+			logger.Error("schedule references unknown pipeline", "pipeline", name)
 			return nil, false
 		}
 		sched, err := scheduler.ParseInterval(expr)
@@ -506,7 +509,7 @@ func addSchedules(d *scheduler.Daemon, schedules map[string]string, tasks map[st
 			sched, err = scheduler.ParseCron(expr)
 		}
 		if err != nil {
-			logger.Error("invalid schedule", "task", name, "expr", expr, "err", err)
+			logger.Error("invalid schedule", "pipeline", name, "expr", expr, "err", err)
 			return nil, false
 		}
 		out = append(out, scheduler.ScheduledTask{Name: name, Schedule: sched, RunAtStart: runAtStart})
@@ -554,10 +557,10 @@ func cmdListPlugins(_ []string) int {
 		fmt.Println("no plugins registered")
 		return 0
 	}
-	fmt.Printf("%-24s %-10s %s\n", "NAME", "PHASE", "DESCRIPTION")
+	fmt.Printf("%-24s %-12s %s\n", "NAME", "ROLE", "DESCRIPTION")
 	fmt.Println(strings.Repeat("-", 60))
 	for _, d := range descs {
-		fmt.Printf("%-24s %-10s %s\n", d.PluginName, d.PluginPhase, d.Description)
+		fmt.Printf("%-24s %-12s %s\n", d.PluginName, d.EffectiveRole(), d.Description)
 	}
 	return 0
 }

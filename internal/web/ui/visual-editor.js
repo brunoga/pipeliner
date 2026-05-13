@@ -1,33 +1,90 @@
-// ── visual pipeline editor ────────────────────────────────────────────────────
+// ── DAG visual pipeline editor ────────────────────────────────────────────────
+//
+// Supports only DAG-style pipelines (input / process / merge / output / pipeline).
+// Serialises to and from Starlark DAG syntax and keeps the text editor in sync.
 
-// Internal state
+const NODE_W = 200;  // node card width (px)
+const NODE_H = 80;   // fallback node height for edge midpoints
+
 const ve = {
-  plugins: [],          // [{name, phase, description, schema}] from /api/plugins
-  model: {              // the current visual model
-    variables: [],      // [{name, value}]
-    tasks: [],          // [{name, schedule, plugins:[{name, config:{}}]}]
-    activeTask: 0,
-    selectedPlugin: -1,
-  },
-  dragSrcType: null,    // 'palette' | 'card'
-  dragSrcIdx: -1,
-  syncing: false,       // prevents re-entrant sync loops
+  plugins:  [],       // [{name, role, description, schema, produces, requires}]
+  syncing:  false,
+  // All loaded pipelines. ve.model is a live alias for ve.graphs[ve.activeGraph].
+  graphs:   [{name: 'my-pipeline', schedule: '', nodes: []}],
+  nextId:   0,
+  activeGraph:    0,
+  selectedNodeId: null,
+  dragSrc: null,      // {type:'palette', plugin:''}
+  get model() { return this.graphs[this.activeGraph] || this.graphs[0]; },
 };
 
-const PHASE_ORDER = ['input','metainfo','filter','modify','output','learn','from'];
+let ve_canvasInited  = false;
+let ve_zoom          = 1.0;
+let ve_dragging      = null;   // truthy while a node is being moved
+let ve_connecting    = null;   // {srcId, curX, curY} while drawing a live edge
+let ve_searchConnecting  = null;   // {discoverNodeId, curX, curY} while drawing a search edge
+let ve_listConnecting    = null;   // {parentNodeId, curX, curY} while drawing a list edge
+let ve_panX          = 0;      // canvas pan offset (screen pixels)
+let ve_panY          = 0;
 
-// ── view switching ──
+// ── helpers ───────────────────────────────────────────────────────────────────
+
+function activeG() { return ve.graphs[ve.activeGraph] || ve.graphs[0]; }
+
+function findNode(nodeId) {
+  for (const g of ve.graphs) {
+    const n = g.nodes.find(n => n.id === nodeId);
+    if (n) return n;
+  }
+  return null;
+}
+
+function findNodeGraph(nodeId) {
+  return ve.graphs.findIndex(g => g.nodes.some(n => n.id === nodeId));
+}
+
+// Return the vertical midpoint of a rendered node (falls back to NODE_H/2).
+function nodeMidY(nodeId, nodeY) {
+  const el = document.querySelector(`.ve-node[data-id="${nodeId}"]`);
+  return (nodeY ?? 0) + (el ? el.offsetHeight / 2 : NODE_H / 2);
+}
+
+// Return the bottom Y of a rendered node.
+function nodeBottomY(nodeId, nodeY) {
+  const el = document.querySelector(`.ve-node[data-id="${nodeId}"]`);
+  return (nodeY ?? 0) + (el ? el.offsetHeight : NODE_H);
+}
+
+// Disconnect a search-connected node from its parent discover node.
+function disconnectSearch(discoverNodeId, searchNodeId) {
+  const disc = findNode(discoverNodeId);
+  const sn   = findNode(searchNodeId);
+  if (disc) disc.searchNodeIds = (disc.searchNodeIds || []).filter(id => id !== searchNodeId);
+  if (sn)  { sn.isSearchNode = false; delete sn.searchParentId; }
+  veRender();
+  onModelChange();
+}
+
+function disconnectList(parentNodeId, listNodeId) {
+  const parent = findNode(parentNodeId);
+  const ln     = findNode(listNodeId);
+  if (parent) parent.listNodeIds = (parent.listNodeIds || []).filter(id => id !== listNodeId);
+  if (ln)  { ln.isListNode = false; delete ln.listParentId; }
+  veRender();
+  onModelChange();
+}
+
+// ── view switching ─────────────────────────────────────────────────────────────
 
 let currentView = 'text';
 
 function switchView(view) {
   if (view === currentView) return;
   if (view === 'visual') {
-    // Always parse the current text config when switching to visual so the
-    // two views are always in sync.
     const load = ve.plugins.length ? Promise.resolve() : loadPalette();
     load.then(() => {
       doSwitchView('visual');
+      if (!ve_canvasInited) { initCanvasEvents(); ve_canvasInited = true; }
       textToVisualSync();
     });
   } else {
@@ -41,9 +98,27 @@ function doSwitchView(view) {
   document.getElementById('view-visual').style.display = view === 'visual' ? '' : 'none';
   document.getElementById('view-btn-text').classList.toggle('active',   view === 'text');
   document.getElementById('view-btn-visual').classList.toggle('active', view === 'visual');
+  // Re-measure the textarea now that it is visible so the highlight overlay
+  // gets the correct width (it would be 0 if syncHighlight ran while hidden).
+  if (view === 'text' && typeof syncHighlight === 'function') syncHighlight();
+  if (view === 'visual') fitVisualEditor();
 }
 
-// ── palette ──
+// ── palette ───────────────────────────────────────────────────────────────────
+
+// Track the last disabled state so we only re-render the palette when it changes.
+let ve_paletteWasDisabled = null;
+
+function syncPaletteState() {
+  if (!ve.plugins.length) return; // palette not loaded yet
+  const disabled = ve.graphs.length === 0;
+  if (disabled === ve_paletteWasDisabled) return; // no change
+  ve_paletteWasDisabled = disabled;
+  renderPalette(document.getElementById('ve-search')?.value ?? '');
+}
+
+const ROLE_ORDER = ['source', 'processor', 'sink'];
+const ROLE_LABEL = {source: 'Sources', processor: 'Processors', sink: 'Sinks'};
 
 async function loadPalette() {
   try {
@@ -51,499 +126,2078 @@ async function loadPalette() {
     if (!r.ok) return;
     ve.plugins = await r.json();
     renderPalette('');
-  } catch (e) { /* ignore */ }
+  } catch (_) {}
 }
 
 function renderPalette(filter) {
   const body = document.getElementById('ve-palette-body');
+  if (!body) return;
+
+  // When no pipelines exist, show a hint and grey out the chip list.
+  if (ve.graphs.length === 0) {
+    const q = filter.toLowerCase();
+    const byRole = {};
+    for (const p of ve.plugins) {
+      if (q && !p.name.includes(q) && !p.description.toLowerCase().includes(q)) continue;
+      (byRole[p.role] = byRole[p.role] || []).push(p);
+    }
+    const chipHtml = [];
+    for (const role of ROLE_ORDER) {
+      const group = byRole[role];
+      if (!group) continue;
+      chipHtml.push(`<div class="ve-role-header" data-role="${role}">${ROLE_LABEL[role]}</div>`);
+      chipHtml.push(`<div class="ve-role-chips" id="ve-role-${role}">`);
+      for (const p of group) {
+        chipHtml.push(`<button class="ve-chip" data-role="${role}" disabled title="${esc(p.description)}">${esc(p.name)}</button>`);
+      }
+      chipHtml.push('</div>');
+    }
+    body.innerHTML = chipHtml.join(''); // chips visible but disabled; toolbar has the add button
+    return;
+  }
+
   const q = filter.toLowerCase();
-  const byPhase = {};
+  const byRole = {};
   for (const p of ve.plugins) {
-    if (p.phase === 'from') continue; // from-plugins are sub-plugins, hide from palette
     if (q && !p.name.includes(q) && !p.description.toLowerCase().includes(q)) continue;
-    (byPhase[p.phase] = byPhase[p.phase] || []).push(p);
+    (byRole[p.role] = byRole[p.role] || []).push(p);
   }
   const html = [];
-  for (const phase of PHASE_ORDER) {
-    const group = byPhase[phase];
+  for (const role of ROLE_ORDER) {
+    const group = byRole[role];
     if (!group) continue;
-    html.push(`<div class="ve-phase-header" data-phase="${phase}" onclick="togglePhaseGroup(this)">${phase}</div>`);
-    html.push(`<div class="ve-phase-chips" id="ve-phase-${phase}">`);
+    html.push(`<div class="ve-role-header" data-role="${role}" onclick="toggleRoleGroup(this)">${ROLE_LABEL[role]}</div>`);
+    html.push(`<div class="ve-role-chips" id="ve-role-${role}">`);
     for (const p of group) {
-      html.push(`<button class="ve-chip" draggable="true" title="${esc(p.description)}"
-        data-plugin="${esc(p.name)}" data-phase="${esc(p.phase)}"
+      const searchBadge = p.is_search_plugin ? ' <span class="ve-chip-search-badge">search</span>'
+                        : p.is_list_plugin  ? ' <span class="ve-chip-list-badge">list</span>' : '';
+      const extraCls = p.is_search_plugin ? ' ve-chip-search' : p.is_list_plugin ? ' ve-chip-list' : '';
+      const extraTip = p.is_search_plugin ? '\n(drag onto a discover node\'s search port to use as a search backend)'
+                     : p.is_list_plugin   ? '\n(drag onto a series/movies node\'s list port as a list source)' : '';
+      html.push(`<button class="ve-chip${extraCls}" data-role="${role}" draggable="true"
+        title="${esc(p.description)}${extraTip}"
         ondragstart="paletteDragStart(event,${esc(JSON.stringify(p.name))})"
-        onclick="appendPlugin(${esc(JSON.stringify(p.name))})">${esc(p.name)}</button>`);
+        onclick="addNodeFromPalette(${esc(JSON.stringify(p.name))})">${esc(p.name)}${searchBadge}</button>`);
     }
     html.push('</div>');
   }
-  body.innerHTML = html.join('') || '<div style="color:var(--muted);font-size:12px;padding:8px 4px">No plugins match</div>';
+  body.innerHTML =
+    html.join('') || '<div style="color:var(--muted);font-size:12px;padding:8px 4px">No plugins match</div>';
 }
 
 function filterPalette(q) { renderPalette(q); }
 
-function togglePhaseGroup(el) {
-  const id = 've-phase-' + el.dataset.phase;
-  const g = document.getElementById(id);
+function toggleRoleGroup(el) {
+  const g = document.getElementById('ve-role-' + el.dataset.role);
   if (g) g.style.display = g.style.display === 'none' ? '' : 'none';
 }
 
-// ── variables panel ──
+// ── node management ───────────────────────────────────────────────────────────
 
-function toggleVarsPanel() {
-  const body = document.getElementById('ve-vars-body');
-  const arrow = document.getElementById('ve-vars-arrow');
-  const open = body.classList.toggle('open');
-  arrow.textContent = open ? '▾' : '▸';
+function genId(pluginName) {
+  const base = pluginName.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+  return base + '_' + (ve.nextId++);
 }
 
-function addVariable() {
-  ve.model.variables.push({name: '', value: ''});
-  renderVars();
-  if (!document.getElementById('ve-vars-body').classList.contains('open')) toggleVarsPanel();
-}
-
-function removeVariable(i) {
-  ve.model.variables.splice(i, 1);
-  renderVars();
+function addNodeFromPalette(pluginName) {
+  const g = activeG();
+  if (!g) return; // palette is disabled when no pipelines exist
+  const id   = genId(pluginName);
+  const {x, y} = newNodePos(g);
+  g.nodes.push({id, plugin: pluginName, config: {}, upstreams: [], x, y, comment: '', searchNodeIds: [], listNodeIds: []});
+  ve.selectedNodeId = id;
+  veRender();
   onModelChange();
 }
 
-function renderVars() {
-  const rows = document.getElementById('ve-vars-rows');
-  const count = ve.model.variables.length;
-  document.getElementById('ve-vars-count').textContent = count ? `(${count})` : '';
-  if (!count) { rows.innerHTML = ''; return; }
-  rows.innerHTML = ve.model.variables.map((v, i) => `
-    <div class="ve-var-row">
-      <input class="ve-var-name" placeholder="name" value="${esc(v.name)}"
-        oninput="ve.model.variables[${i}].name=this.value;onModelChange()">
-      <span style="color:var(--muted);font-size:13px">=</span>
-      <input class="ve-var-val" placeholder="value" value="${esc(v.value)}"
-        oninput="ve.model.variables[${i}].value=this.value;onModelChange()">
-      <button class="ve-var-del" onclick="removeVariable(${i})">×</button>
-    </div>`).join('');
+function newNodePos(g) {
+  const body = document.getElementById('ve-canvas-body');
+  const nodes = g?.nodes || [];
+  if (!body || !body.clientWidth) {
+    const s = nodes.length * 20;
+    return {x: 60 + s, y: 60 + s};
+  }
+  const s = (nodes.length * 24) % 120;
+  return {
+    x: Math.max(20, body.scrollLeft / ve_zoom + body.clientWidth  / ve_zoom / 2 - NODE_W / 2 + s),
+    y: Math.max(20, body.scrollTop  / ve_zoom + body.clientHeight / ve_zoom / 2 - NODE_H / 2 + s),
+  };
 }
 
-// ── task management ──
-
-function addTask() {
-  const idx = ve.model.tasks.length + 1;
-  ve.model.tasks.push({name: 'task-' + idx, schedule: '', plugins: []});
-  ve.model.activeTask = ve.model.tasks.length - 1;
-  ve.model.selectedPlugin = -1;
-  renderTaskTabs();
-  renderCanvas();
-  renderParamPanel();
-}
-
-function removeTask(i, e) {
-  e.stopPropagation();
-  if (ve.model.tasks.length <= 1 && !confirm('Remove the last task?')) return;
-  ve.model.tasks.splice(i, 1);
-  ve.model.activeTask = Math.min(ve.model.activeTask, ve.model.tasks.length - 1);
-  ve.model.selectedPlugin = -1;
-  renderTaskTabs();
-  renderCanvas();
-  renderParamPanel();
+function removeNode(id) {
+  for (const g of ve.graphs) {
+    const idx = g.nodes.findIndex(n => n.id === id);
+    if (idx < 0) continue;
+    const [removed] = g.nodes.splice(idx, 1);
+    // Clean up upstreams and search/list references.
+    for (const n of g.nodes) {
+      n.upstreams      = (n.upstreams     || []).filter(u => u !== id);
+      n.searchNodeIds  = (n.searchNodeIds || []).filter(u => u !== id);
+      n.listNodeIds    = (n.listNodeIds   || []).filter(u => u !== id);
+    }
+    // If this was a search/list node, remove its parent connection.
+    if (removed.searchParentId) {
+      const parent = g.nodes.find(n => n.id === removed.searchParentId);
+      if (parent) parent.searchNodeIds = (parent.searchNodeIds || []).filter(u => u !== id);
+    }
+    if (removed.listParentId) {
+      const parent = g.nodes.find(n => n.id === removed.listParentId);
+      if (parent) parent.listNodeIds = (parent.listNodeIds || []).filter(u => u !== id);
+    }
+    break;
+  }
+  if (ve.selectedNodeId === id) ve.selectedNodeId = null;
+  veRender();
   onModelChange();
 }
 
-function switchTask(i) {
-  ve.model.activeTask = i;
-  ve.model.selectedPlugin = -1;
-  renderTaskTabs();
-  renderCanvas();
+// selectNode: toggle selection WITHOUT rebuilding DOM (keeps drag div ref valid).
+function selectNode(id) {
+  const prev = ve.selectedNodeId;
+  ve.selectedNodeId = (ve.selectedNodeId === id) ? null : id;
+
+  if (ve.selectedNodeId) {
+    const gi = findNodeGraph(ve.selectedNodeId);
+    if (gi >= 0) ve.activeGraph = gi;
+  }
+
+  // Just toggle CSS class — no full DOM rebuild.
+  if (prev) document.querySelector(`.ve-node[data-id="${prev}"]`)?.classList.remove('selected');
+  if (ve.selectedNodeId) document.querySelector(`.ve-node[data-id="${ve.selectedNodeId}"]`)?.classList.add('selected');
+
+  renderEdges();
   renderParamPanel();
 }
 
-function renderTaskTabs() {
-  const bar = document.getElementById('ve-task-bar');
-  const tabs = ve.model.tasks.map((t, i) => `
-    <button class="ve-task-tab${i === ve.model.activeTask ? ' active' : ''}" onclick="switchTask(${i})">
-      ${esc(t.name)}
-      <span class="ve-task-tab-close" onclick="removeTask(${i},event)">×</span>
-    </button>`).join('');
-  bar.innerHTML = tabs + '<button class="ve-add-task" onclick="addTask()">+ New task</button>';
-  const t = ve.model.tasks[ve.model.activeTask];
-  document.getElementById('ve-schedule').value = t ? t.schedule : '';
-}
+// ── canvas ─────────────────────────────────────────────────────────────────────
 
-function onScheduleChange(val) {
-  const t = ve.model.tasks[ve.model.activeTask];
-  if (t) { t.schedule = val; onModelChange(); }
-}
-
-// ── canvas rendering ──
+function veRender() { renderCanvas(); renderParamPanel(); syncPaletteState(); }
 
 function renderCanvas() {
-  const canvas = document.getElementById('ve-pipeline');
-  const empty  = document.getElementById('ve-empty-hint');
-  const t = ve.model.tasks[ve.model.activeTask];
-  if (!t || !t.plugins.length) {
-    canvas.innerHTML = '';
-    empty.style.display = '';
-    return;
+  // Empty-hint only shows when there are zero pipelines.
+  const hint = document.getElementById('ve-empty-hint');
+  if (hint) hint.style.display = ve.graphs.length === 0 ? '' : 'none';
+
+  renderPipelineRegions(); // drawn first so they sit behind nodes
+  renderGraphNodes();
+  renderPipelineLabels();
+  renderEdges();
+  updateCanvasSize();
+}
+
+// ── graph node rendering ───────────────────────────────────────────────────────
+
+function renderGraphNodes() {
+  const canvas = document.getElementById('ve-graph-canvas');
+  if (!canvas) return;
+  canvas.querySelectorAll('.ve-node').forEach(el => el.remove());
+
+  for (const g of ve.graphs) {
+    for (const n of g.nodes) {
+      const meta    = pluginMeta(n.plugin) || {role: 'processor'};
+      const role    = meta.role;
+      const sel     = n.id === ve.selectedNodeId;
+      const warns   = fieldWarnings(n);
+      const preview = configPreview(n.config);
+      const isSearch = !!n.isSearchNode;
+      const isList   = !!n.isListNode;
+      // Sub-connected nodes show a badge in place of the role badge.
+      const badgeHtml = isSearch ? '<span class="ve-node-search-badge">search</span>'
+                      : isList   ? '<span class="ve-node-list-badge">list</span>'
+                      : `<span class="ve-node-role-badge ve-role-${role}">${role}</span>`;
+
+      const div = document.createElement('div');
+      div.className = `ve-node${sel ? ' selected' : ''}${isSearch ? ' ve-node-search' : ''}${isList ? ' ve-node-list' : ''}`;
+      div.dataset.role       = role;
+      div.dataset.id         = n.id;
+      div.dataset.isSearch   = meta.is_search_plugin ? 'true' : 'false';
+      div.dataset.isList     = meta.is_list_plugin   ? 'true' : 'false';
+      div.dataset.isSearchNd = isSearch ? 'true' : 'false';
+      div.dataset.isListNd   = isList   ? 'true' : 'false';
+      div.style.left = (n.x ?? 60) + 'px';
+      div.style.top  = (n.y ?? 60) + 'px';
+      const commentPreview = n.comment?.trim()
+        ? `<div class="ve-node-comment-preview">${esc(n.comment.trim().split('\n')[0])}</div>` : '';
+      const commentBtnCls = n.comment?.trim() ? ' has-comment' : '';
+      div.innerHTML = [
+        '<div class="ve-node-role-bar"></div>',
+        '<div class="ve-node-body">',
+          `<div class="ve-node-name">${esc(n.plugin)}</div>`,
+          badgeHtml,
+          preview        ? `<div class="ve-node-preview">${esc(preview)}</div>` : '',
+          commentPreview,
+          warns.length   ? `<div class="ve-node-warn">⚠ ${esc(warns[0])}</div>` : '',
+        '</div>',
+        `<button class="ve-node-remove" tabindex="-1" title="Remove">×</button>`,
+        `<button class="ve-node-comment-btn${commentBtnCls}" tabindex="-1" title="Edit comment">#</button>`,
+        // Output port: not shown on sub-nodes. Sinks show a chain port so they
+        // can connect to downstream sinks (sink chaining).
+        (!isSearch && !isList) ? `<div class="ve-node-out-port${role === 'sink' ? ' ve-node-chain-port' : ''}" title="${role === 'sink' ? 'Drag to chain to another output node' : 'Drag to connect'}"></div>` : '',
+        // Input port indicator: shown on valid drop-targets while dragging an output port.
+        (role !== 'source' && !isSearch && !isList) ? '<div class="ve-node-in-port"></div>' : '',
+      ].join('');
+
+      div.querySelector('.ve-node-remove').addEventListener('click', e => {
+        e.stopPropagation();
+        removeNode(n.id);
+      });
+
+      div.querySelector('.ve-node-comment-btn').addEventListener('click', e => {
+        e.stopPropagation();
+        openTextPopup(
+          `Comment — ${n.plugin} (${n.id})`,
+          'Enter a comment (shown above this node in the config file)…',
+          n.comment || '',
+          text => { n.comment = text; renderGraphNodes(); renderEdges(); onModelChange(); }
+        );
+      });
+
+      div.addEventListener('pointerdown', e => {
+        if (e.button !== 0) return; // left button only; let middle button pan
+        if (e.target.closest('.ve-node-remove') || e.target.closest('.ve-node-out-port')      ||
+            e.target.closest('.ve-node-search-port') || e.target.closest('.ve-node-list-port') ||
+            e.target.closest('.ve-node-comment-btn')) return;
+        e.preventDefault();
+        e.stopPropagation();
+        selectNode(n.id);
+        startNodeDrag(e, n);
+      });
+
+      // Receive regular upstream= drop (not allowed on source / sub-nodes).
+      div.addEventListener('pointerup', () => {
+        if (ve_connecting && ve_connecting.srcId !== n.id && role !== 'source' && !isSearch && !isList) finishConnect(n.id);
+        // Receive search-port drop.
+        if (ve_searchConnecting && ve_searchConnecting.discoverNodeId !== n.id && meta.is_search_plugin && !isSearch && !isList) finishSearchConnect(n.id);
+        // Receive list-port drop.
+        if (ve_listConnecting && ve_listConnecting.parentNodeId !== n.id && meta.is_list_plugin && !isSearch && !isList) finishListConnect(n.id);
+      });
+
+      const outPort = div.querySelector('.ve-node-out-port');
+      if (outPort) {
+        outPort.addEventListener('pointerdown', e => {
+          e.stopPropagation();
+          e.preventDefault();
+          startConnect(e, n.id);
+        });
+      }
+
+      // Search-port (bottom circle): drag FROM here to a search-plugin node.
+      if (meta.accepts_search) {
+        const searchPort = document.createElement('div');
+        searchPort.className = 've-node-search-port';
+        searchPort.title = 'Drag to a search-plugin node to add it as a search backend';
+        searchPort.textContent = 'search';
+        searchPort.addEventListener('pointerdown', e => {
+          e.stopPropagation(); e.preventDefault();
+          startSearchConnect(e, n.id);
+        });
+        div.appendChild(searchPort);
+      }
+
+      if (meta.accepts_list) {
+        const listPort = document.createElement('div');
+        listPort.className = 've-node-list-port';
+        listPort.title = 'Drag from here to a list-source node — or drop a list-source node\'s output arrow here';
+        listPort.textContent = 'list';
+
+        // Initiate a list-connect drag (series → list-source).
+        listPort.addEventListener('pointerdown', e => {
+          e.stopPropagation(); e.preventDefault();
+          startListConnect(e, n.id);
+        });
+
+        div.appendChild(listPort);
+      }
+
+      canvas.appendChild(div);
+    }
   }
-  empty.style.display = 'none';
-  let html = dropZoneHTML(0);
-  for (let i = 0; i < t.plugins.length; i++) {
-    const p = t.plugins[i];
-    const meta = ve.plugins.find(x => x.name === p.name) || {phase: '?'};
-    const preview = configPreview(p.config);
-    const sel = i === ve.model.selectedPlugin;
-    html += `
-      <div class="ve-node${sel ? ' selected' : ''}" data-idx="${i}" data-phase="${meta.phase}"
-           onclick="selectPlugin(${i})"
-           draggable="true"
-           ondragstart="cardDragStart(event,${i})"
-           ondragover="event.preventDefault()"
-           ondrop="cardDrop(event,${i})">
-        <div class="ve-node-phase"></div>
-        <div class="ve-node-drag" title="Drag to reorder">⠿</div>
-        <div class="ve-node-body">
-          <div class="ve-node-name">${esc(p.name)}</div>
-          <div class="ve-node-phase-label">${meta.phase}</div>
-          ${preview ? `<div class="ve-node-preview">${esc(preview)}</div>` : ''}
-        </div>
-        <button class="ve-node-remove" title="Remove" onclick="event.stopPropagation();removePluginAt(${i})">×</button>
-      </div>` + dropZoneHTML(i + 1);
+}
+
+// ── pipeline labels / separators ───────────────────────────────────────────────
+
+function renderPipelineLabels() {
+  const canvas = document.getElementById('ve-graph-canvas');
+  if (!canvas) return;
+  canvas.querySelectorAll('.ve-pipeline-label').forEach(el => el.remove());
+
+  for (let i = 0; i < ve.graphs.length; i++) {
+    const g = ve.graphs[i];
+    if (g._labelY == null) continue;
+
+    // ── Pipeline header label (name + schedule input) ────────────────────────
+    const label = document.createElement('div');
+    label.className = `ve-pipeline-label${i === ve.activeGraph ? ' active' : ''}`;
+    label.dataset.graphIdx = i;   // needed so startNodeDrag can move it in-place
+    label.style.top = (g._labelY - 4) + 'px';
+    const commentBtnCls = g.comment?.trim() ? ' has-comment' : '';
+    label.innerHTML = [
+      `<span class="ve-pl-name" title="Click to activate · Double-click to rename">${esc(g.name)}</span>`,
+      `<button class="ve-pl-comment-btn${commentBtnCls}" title="Edit pipeline comment">#</button>`,
+      `<span class="ve-pl-sep">schedule:</span>`,
+      `<input class="ve-pl-sched" placeholder="e.g. 1h" value="${esc(g.schedule || '')}" title="Cron or interval schedule">`,
+      `<button class="ve-pl-delete" tabindex="-1" title="Delete pipeline and all its nodes">×</button>`,
+    ].join('');
+
+    label.addEventListener('pointerdown', e => e.stopPropagation());
+
+    const gi = i;
+    label.querySelector('.ve-pl-sched').addEventListener('input',  e => { ve.graphs[gi].schedule = e.target.value; onModelChange(); });
+    label.querySelector('.ve-pl-sched').addEventListener('change', e => { ve.graphs[gi].schedule = e.target.value; onModelChange(); });
+    const nameSpan = label.querySelector('.ve-pl-name');
+    nameSpan.addEventListener('click', () => {
+      ve.activeGraph = gi;
+      // Toggle .active on existing labels in-place so we don't recreate them
+      // (recreating would destroy the dblclick handler on nameSpan).
+      document.querySelectorAll('.ve-pipeline-label[data-graph-idx]').forEach(el => {
+        el.classList.toggle('active', parseInt(el.dataset.graphIdx) === gi);
+      });
+      renderPipelineRegions();
+      renderParamPanel();
+    });
+
+    // ── Double-click: edit pipeline name in-place ─────────────────────────
+    nameSpan.addEventListener('dblclick', e => {
+      e.stopPropagation();
+      const original = ve.graphs[gi].name;
+
+      const input = document.createElement('input');
+      input.className = 've-pl-name-edit';
+      input.value     = original;
+      input.style.width = Math.max(60, original.length * 8 + 20) + 'px';
+      nameSpan.replaceWith(input);
+      input.focus();
+      input.select();
+
+      let done = false;
+      function commit() {
+        if (done) return; done = true;
+        const next = input.value.trim();
+        // Reject empty or duplicate names (preserve original silently).
+        const duplicate = ve.graphs.some((gr, idx) => idx !== gi && gr.name === next);
+        if (next && next !== original && !duplicate) {
+          ve.graphs[gi].name = next;
+          onModelChange();
+        }
+        renderPipelineLabels();
+      }
+      function cancel() {
+        if (done) return; done = true;
+        renderPipelineLabels();
+      }
+
+      input.addEventListener('blur', commit);
+      input.addEventListener('input', () => {
+        input.style.width = Math.max(60, input.value.length * 8 + 20) + 'px';
+      });
+      input.addEventListener('keydown', ev => {
+        if (ev.key === 'Enter')  { ev.preventDefault(); input.blur(); }
+        if (ev.key === 'Escape') { ev.preventDefault(); input.removeEventListener('blur', commit); cancel(); }
+      });
+    });
+    label.querySelector('.ve-pl-comment-btn').addEventListener('click', e => {
+      e.stopPropagation();
+      openTextPopup(
+        `Comment — pipeline "${g.name}"`,
+        'Enter a comment (shown above pipeline() in the config file)…',
+        ve.graphs[gi].comment || '',
+        text => { ve.graphs[gi].comment = text; renderPipelineLabels(); onModelChange(); }
+      );
+    });
+    label.querySelector('.ve-pl-delete').addEventListener('click', e => {
+      e.stopPropagation();
+      deletePipeline(gi);
+    });
+
+    canvas.appendChild(label);
   }
-  canvas.innerHTML = html;
-  // Attach drop-zone listeners
-  canvas.querySelectorAll('.ve-drop-zone').forEach(el => {
-    el.addEventListener('dragover', e => { e.preventDefault(); el.classList.add('drag-over'); });
-    el.addEventListener('dragleave', () => el.classList.remove('drag-over'));
-    el.addEventListener('drop', e => dropOnZone(e, +el.dataset.idx));
+
+}
+
+// ── pipeline regions (background panels) ──────────────────────────────────────
+
+function renderPipelineRegions() {
+  const canvas = document.getElementById('ve-graph-canvas');
+  if (!canvas) return;
+
+  // Remove regions for graphs that no longer exist.
+  canvas.querySelectorAll('.ve-pipeline-region').forEach(el => {
+    if (parseInt(el.dataset.graphIdx) >= ve.graphs.length) el.remove();
+  });
+
+  for (let i = 0; i < ve.graphs.length; i++) {
+    const g = ve.graphs[i];
+    if (g._regionY == null) continue;
+
+    // Recompute height from current node positions every time so the region
+    // can both grow AND shrink as nodes are moved around.
+    let regionH = 80;
+    for (const n of g.nodes) {
+      const nodeBot = (n.y ?? 0) + NODE_H + (n.searchNodeIds?.length ? 100 : 24);
+      regionH = Math.max(regionH, nodeBot - (g._regionY ?? 0) + 24);
+    }
+    g._regionH = regionH;
+
+    // Update an existing element in-place (smooth during drag — no DOM churn).
+    let region = canvas.querySelector(`.ve-pipeline-region[data-graph-idx="${i}"]`);
+    if (region) {
+      region.className    = `ve-pipeline-region${i === ve.activeGraph ? ' active' : ''}`;
+      region.style.top    = g._regionY + 'px';
+      region.style.height = regionH + 'px';
+      // Sync empty-pipeline hint.
+      const hint = region.querySelector('.ve-region-hint');
+      if (!g.nodes.length && !hint) {
+        region.innerHTML = '<div class="ve-region-hint">Drop plugins from the palette to build this pipeline</div>';
+      } else if (g.nodes.length && hint) {
+        hint.remove();
+      }
+      continue;
+    }
+
+    // First render — create the element.
+    region = document.createElement('div');
+    region.className = `ve-pipeline-region${i === ve.activeGraph ? ' active' : ''}`;
+    region.dataset.graphIdx = i;
+    region.style.top    = g._regionY + 'px';
+    region.style.height = regionH + 'px';
+    region.addEventListener('pointerdown', e => {
+      if (e.target === region) { ve.activeGraph = i; renderPipelineRegions(); }
+    });
+    if (!g.nodes.length) {
+      region.innerHTML = '<div class="ve-region-hint">Drop plugins from the palette to build this pipeline</div>';
+    }
+    canvas.insertBefore(region, canvas.firstChild);
+  }
+}
+
+// ── add / manage pipelines ────────────────────────────────────────────────────
+
+function addPipeline() {
+  const lastG = ve.graphs[ve.graphs.length - 1];
+  const newLabelY = lastG
+    ? (lastG._regionY ?? 40) + Math.max(80, lastG._regionH ?? 80) + 60
+    : 40;
+  ve.graphs.push({
+    name:     `pipeline-${ve.graphs.length + 1}`,
+    schedule: '',
+    nodes:    [],
+    _labelY:  newLabelY,
+    _regionY: newLabelY - 8,
+    _regionH: 80,
+  });
+  ve.activeGraph = ve.graphs.length - 1;
+  veRender();
+  onModelChange();
+}
+
+function deletePipeline(graphIdx) {
+  const removed = ve.graphs[graphIdx];
+  // How much vertical space the deleted pipeline occupied (region height + the
+  // 60 px inter-pipeline gap used by autoLayout).
+  const vacated = (removed._regionH ?? 80) + 60;
+
+  ve.graphs.splice(graphIdx, 1);
+  ve.activeGraph    = Math.max(0, Math.min(ve.activeGraph, ve.graphs.length - 1));
+  ve.selectedNodeId = null;
+
+  // Shift every pipeline that was below the deleted one upward to fill the gap.
+  for (let j = graphIdx; j < ve.graphs.length; j++) {
+    const g = ve.graphs[j];
+    if (g._labelY  != null) g._labelY  -= vacated;
+    if (g._regionY != null) g._regionY -= vacated;
+    for (const n of g.nodes) {
+      if (n.y != null) n.y = Math.max(0, n.y - vacated);
+    }
+  }
+
+  veRender();
+  onModelChange();
+}
+
+// ── SVG edges ─────────────────────────────────────────────────────────────────
+
+function renderEdges() {
+  const svg = document.getElementById('ve-graph-svg');
+  if (!svg) return;
+
+  let vis = '';   // visible styled paths
+  let hit = '';   // invisible wide paths for click-to-delete
+
+  for (const g of ve.graphs) {
+    for (const n of g.nodes) {
+      for (const upId of (n.upstreams || [])) {
+        const up = g.nodes.find(x => x.id === upId);
+        if (!up) continue;
+        const x1 = (up.x ?? 0) + NODE_W;
+        const y1 = nodeMidY(up.id, up.y);
+        const x2 = (n.x ?? 0);
+        const y2 = nodeMidY(n.id, n.y);
+        const dx  = Math.max(60, Math.abs(x2 - x1) * 0.5);
+        const sel = n.id === ve.selectedNodeId || up.id === ve.selectedNodeId;
+        const d   = `M${x1},${y1} C${x1+dx},${y1} ${x2-dx},${y2} ${x2},${y2}`;
+        // Use a distinct style for sink→sink chain edges.
+        const upRole  = pluginMeta(up.plugin)?.role;
+        const nRole   = pluginMeta(n.plugin)?.role;
+        const isChain = upRole === 'sink' && nRole === 'sink';
+        if (isChain) {
+          const mId = sel ? '#arrow-chain-sel' : '#arrow-chain';
+          vis += `<path d="${d}" class="ve-chain-edge${sel ? ' selected' : ''}" marker-end="url(${mId})"/>`;
+        } else {
+          vis += `<path d="${d}" class="ve-edge${sel ? ' selected' : ''}" marker-end="url(${sel ? '#arrow-sel' : '#arrow'})"/>`;
+        }
+        // Invisible fat stroke for easy click-to-delete; data attrs carry the link info.
+        hit += `<path d="${d}" class="ve-edge-hit" data-src="${upId}" data-dst="${n.id}"><title>Click to disconnect</title></path>`;
+      }
+    }
+  }
+
+  if (ve_connecting) {
+    const src = findNode(ve_connecting.srcId);
+    if (src) {
+      const x1 = (src.x ?? 0) + NODE_W, y1 = nodeMidY(src.id, src.y);
+      const x2 = ve_connecting.curX,     y2 = ve_connecting.curY;
+      const dx  = Math.max(60, Math.abs(x2 - x1) * 0.5);
+      vis += `<path d="M${x1},${y1} C${x1+dx},${y1} ${x2-dx},${y2} ${x2},${y2}" class="ve-edge connecting"/>`;
+    }
+  }
+
+  // Search-edges: dashed lines from discover's search-port (bottom centre) to each search-connected node.
+  for (const g of ve.graphs) {
+    for (const n of g.nodes) {
+      for (const searchId of (n.searchNodeIds || [])) {
+        const sn = g.nodes.find(x => x.id === searchId);
+        if (!sn) continue;
+        const x1 = (n.x ?? 0) + NODE_W / 2;
+        const y1 = nodeBottomY(n.id, n.y);         // bottom of discover (search-port)
+        const x2 = (sn.x ?? 0) + NODE_W / 2;
+        const y2 = (sn.y ?? 0);                    // TOP border of search node (not mid)
+        const sel = ve.selectedNodeId === n.id || ve.selectedNodeId === searchId;
+        const mId = sel ? '#arrow-search-sel' : '#arrow-search';
+        const d   = `M${x1},${y1} C${x1},${y1+40} ${x2},${y2-40} ${x2},${y2}`;
+        vis += `<path d="${d}" class="ve-search-edge${sel ? ' selected' : ''}"` +
+               ` marker-end="url(${mId})" data-src="${n.id}" data-dst="${searchId}" data-search="true"/>`;
+        hit += `<path d="${d}" class="ve-edge-hit"` +
+               ` data-src="${n.id}" data-dst="${searchId}" data-search="true"><title>Click to disconnect</title></path>`;
+      }
+    }
+  }
+
+  // Live cursor line while dragging from a search-port.
+  if (ve_searchConnecting) {
+    const disc = findNode(ve_searchConnecting.discoverNodeId);
+    if (disc) {
+      const x1 = (disc.x ?? 0) + NODE_W / 2;
+      const y1 = nodeBottomY(disc.id, disc.y);
+      const x2 = ve_searchConnecting.curX, y2 = ve_searchConnecting.curY;
+      vis += `<path d="M${x1},${y1} C${x1},${y1+40} ${x2},${y2-40} ${x2},${y2}" class="ve-search-edge connecting"/>`;
+    }
+  }
+
+  // List-edges: teal dashed lines flowing downward FROM the list-node's bottom
+  // TO the series/movies node's top (list-port).  list-nodes sit above the parent.
+  for (const g of ve.graphs) {
+    for (const n of g.nodes) {
+      for (const lnId of (n.listNodeIds || [])) {
+        const ln = g.nodes.find(x => x.id === lnId);
+        if (!ln) continue;
+        // List-node is above; its bottom connects to the parent's top (list-port).
+        // The curve always approaches the list-port from directly above so the
+        // arrowhead visually lands on the teal port, not the left-side input.
+        const x1 = (ln.x ?? 0) + NODE_W / 2;
+        const y1 = nodeBottomY(lnId, ln.y);
+        const x2 = (n.x  ?? 0) + NODE_W / 2;
+        const y2 = (n.y  ?? 0);                // top of parent = list-port
+        const dy  = Math.max(50, Math.abs(y2 - y1) * 0.5);
+        // cp2 uses x2 so the final approach is straight down into the list port.
+        const sel  = ve.selectedNodeId === n.id || ve.selectedNodeId === lnId;
+        const mEnd = sel ? '#arrow-list-sel' : '#arrow-list';
+        vis += `<path d="M${x1},${y1} C${x1},${y1+dy} ${x2},${y2-dy} ${x2},${y2}"` +
+               ` class="ve-list-edge${sel ? ' selected' : ''}" marker-end="url(${mEnd})"` +
+               ` data-src="${n.id}" data-dst="${lnId}" data-list="true"/>`;
+        hit += `<path d="M${x1},${y1} C${x1},${y1+dy} ${x2},${y2-dy} ${x2},${y2}"` +
+               ` class="ve-edge-hit" data-src="${n.id}" data-dst="${lnId}" data-list="true"><title>Click to disconnect</title></path>`;
+      }
+    }
+  }
+
+  // Live cursor line while dragging from a list-port.
+  // Drawn FROM the list-port (top of parent) UPWARD TO the cursor — same
+  // convention as startConnect/startSearchConnect so the fixed anchor is obvious.
+  if (ve_listConnecting) {
+    const par = findNode(ve_listConnecting.parentNodeId);
+    if (par) {
+      const x1 = (par.x ?? 0) + NODE_W / 2;
+      const y1 = (par.y ?? 0);  // top of parent = list-port
+      const x2 = ve_listConnecting.curX, y2 = ve_listConnecting.curY;
+      const dy  = Math.max(40, Math.abs(y1 - y2) * 0.4);
+      vis += `<path d="M${x1},${y1} C${x1},${y1-dy} ${x2},${y2+dy} ${x2},${y2}" class="ve-list-edge connecting"/>`;
+    }
+  }
+
+  svg.innerHTML =
+    `<defs>` +
+      `<marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">` +
+        `<path d="M0,1 L0,7 L7,4 z" fill="#555e6a"/>` +
+      `</marker>` +
+      `<marker id="arrow-sel" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">` +
+        `<path d="M0,1 L0,7 L7,4 z" fill="#58a6ff"/>` +
+      `</marker>` +
+      `<marker id="arrow-chain" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">` +
+        `<path d="M0,1 L0,7 L7,4 z" fill="#e3b341"/>` +
+      `</marker>` +
+      `<marker id="arrow-chain-sel" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">` +
+        `<path d="M0,1 L0,7 L7,4 z" fill="#f0d070"/>` +
+      `</marker>` +
+      `<marker id="arrow-list" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">` +
+        `<path d="M0,1 L0,7 L7,4 z" fill="#0d9373"/>` +
+      `</marker>` +
+      `<marker id="arrow-list-sel" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">` +
+        `<path d="M0,1 L0,7 L7,4 z" fill="#2dd4b8"/>` +
+      `</marker>` +
+      `<marker id="arrow-search" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">` +
+        `<path d="M0,1 L0,7 L7,4 z" fill="#9a6ad8"/>` +
+      `</marker>` +
+      `<marker id="arrow-search-sel" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">` +
+        `<path d="M0,1 L0,7 L7,4 z" fill="#d2a8ff"/>` +
+      `</marker>` +
+    `</defs>${vis}${hit}`;
+}
+
+// ── canvas sizing + zoom ───────────────────────────────────────────────────────
+
+function updateCanvasSize() {
+  const canvas = document.getElementById('ve-graph-canvas');
+  const svg    = document.getElementById('ve-graph-svg');
+  if (!canvas) return;
+  let w = 500, h = 300;
+  for (const g of ve.graphs) {
+    for (const n of g.nodes) {
+      w = Math.max(w, (n.x ?? 0) + NODE_W + 120);
+      h = Math.max(h, (n.y ?? 0) + NODE_H + 120);
+    }
+  }
+  canvas.style.width  = w + 'px';
+  canvas.style.height = h + 'px';
+  if (svg) { svg.setAttribute('width', w); svg.setAttribute('height', h); }
+  applyZoom();
+}
+
+// Combines pan and zoom into a single CSS transform on the canvas element.
+// No outer sizer div needed — the canvas body uses overflow:hidden.
+function applyZoom() {
+  const canvas = document.getElementById('ve-graph-canvas');
+  const label  = document.getElementById('ve-zoom-pct');
+  if (!canvas) return;
+  canvas.style.transform = `translate(${ve_panX}px,${ve_panY}px) scale(${ve_zoom})`;
+  if (label) label.textContent = Math.round(ve_zoom * 100) + '%';
+}
+
+function setZoom(z) {
+  ve_zoom = Math.max(0.2, Math.min(3.0, z));
+  applyZoom();
+}
+
+// ── layout ─────────────────────────────────────────────────────────────────────
+
+// layoutGraph auto-lays out a single pipeline starting at globalY.
+// Returns the new globalY (bottom of this pipeline + gap).
+function layoutGraph(g, globalY) {
+  const COL_W = 260, ROW_H = 120, PAD_X = 50, PIPELINE_GAP = 60;
+
+  if (!g.nodes.length) {
+    g._labelY  = globalY;
+    g._regionY = globalY - 8;
+    g._regionH = 80;
+    return globalY + 80 + PIPELINE_GAP;
+  }
+
+  g._labelY = globalY;
+  const isSub = n => n.isSearchNode || n.isListNode;
+  // Extra padding above main nodes so list-connected sub-nodes have room to sit
+  // above their parent without overlapping the pipeline label area.
+  const listPad = g.nodes.some(n => !isSub(n) && n.listNodeIds?.length)
+    ? NODE_H + 65 + 16
+    : 0;
+  const startY = globalY + 36 + listPad; // space for pipeline label (+ list nodes)
+
+  // ── 1. Topological depth (search/list sub-nodes are laid out separately) ───
+  const depth = {};
+  for (const n of g.nodes) if (!isSub(n) && !n.upstreams.length) depth[n.id] = 0;
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const n of g.nodes) {
+      if (isSub(n) || !n.upstreams.length) continue;
+      const maxUp = Math.max(...n.upstreams.map(u => depth[u] ?? -1));
+      if (maxUp >= 0 && depth[n.id] !== maxUp + 1) { depth[n.id] = maxUp + 1; changed = true; }
+    }
+  }
+  for (const n of g.nodes) if (!isSub(n) && depth[n.id] == null) depth[n.id] = 0;
+
+  const byDepth = {};
+  for (const n of g.nodes) {
+    if (isSub(n)) continue;
+    (byDepth[depth[n.id]] = byDepth[depth[n.id]] || []).push(n.id);
+  }
+  const depths = Object.keys(byDepth).map(Number).sort((a, b) => a - b);
+
+  // ── 2. Initial column X; Y evenly-spaced within each column ─────────────
+  for (const d of depths) {
+    byDepth[d].forEach((id, i) => {
+      const n = g.nodes.find(n => n.id === id);
+      if (n) { n.x = PAD_X + d * COL_W; n.y = startY + i * ROW_H; }
+    });
+  }
+
+  // ── 3. Barycenter pass: pull each non-root node toward avg Y of upstreams.
+  for (const d of depths) {
+    if (d === 0) continue;
+    const ids = byDepth[d];
+    const target = {};
+    for (const id of ids) {
+      const n = g.nodes.find(n => n.id === id);
+      if (!n?.upstreams.length) { target[id] = null; continue; }
+      const upYs = n.upstreams.map(uid => (g.nodes.find(x => x.id === uid)?.y ?? startY));
+      target[id] = upYs.reduce((a, b) => a + b, 0) / upYs.length;
+    }
+    const sorted = [...ids].sort((a, b) => (target[a] ?? startY) - (target[b] ?? startY));
+    let minY = -Infinity;
+    for (const id of sorted) {
+      const n = g.nodes.find(n => n.id === id);
+      if (!n) continue;
+      n.y = Math.max(minY, target[id] ?? startY, startY);
+      minY = n.y + ROW_H;
+    }
+  }
+
+  // ── 4. Shift everything so the topmost node starts at startY ─────────────
+  let topY = Infinity;
+  for (const n of g.nodes) topY = Math.min(topY, n.y ?? Infinity);
+  if (topY > startY) {
+    const shift = topY - startY;
+    for (const n of g.nodes) n.y -= shift;
+  }
+
+  let maxY = startY + ROW_H;
+  for (const n of g.nodes) {
+    if (!isSub(n)) maxY = Math.max(maxY, (n.y ?? 0) + ROW_H);
+  }
+
+  // Position search-connected nodes in a row below their parent.
+  for (const n of g.nodes) {
+    if (!n.searchNodeIds?.length) continue;
+    const SEARCH_GAP = 18;
+    const totalW  = n.searchNodeIds.length * NODE_W + (n.searchNodeIds.length - 1) * SEARCH_GAP;
+    const startSX = (n.x ?? 0) + NODE_W / 2 - totalW / 2;
+    n.searchNodeIds.forEach((id, i) => {
+      const sn = g.nodes.find(x => x.id === id);
+      if (sn) {
+        sn.x = Math.max(0, startSX + i * (NODE_W + SEARCH_GAP));
+        sn.y = (n.y ?? 0) + NODE_H + 70;
+        maxY = Math.max(maxY, sn.y + NODE_H + 20);
+      }
+    });
+  }
+
+  // Position list-connected nodes in a row above their parent.
+  for (const n of g.nodes) {
+    if (!n.listNodeIds?.length) continue;
+    const LIST_GAP = 18;
+    const totalW   = n.listNodeIds.length * NODE_W + (n.listNodeIds.length - 1) * LIST_GAP;
+    const startLX  = (n.x ?? 0) + NODE_W / 2 - totalW / 2;
+    n.listNodeIds.forEach((id, i) => {
+      const ln = g.nodes.find(x => x.id === id);
+      if (ln) {
+        ln.x = Math.max(0, startLX + i * (NODE_W + LIST_GAP));
+        ln.y = Math.max(startY + 4, (n.y ?? 0) - NODE_H - 65);
+      }
+    });
+  }
+
+  g._regionY = g._labelY - 8;
+  g._regionH = maxY - g._regionY + 16;
+  return maxY + PIPELINE_GAP;
+}
+
+// initLayout places all pipelines in order.
+//
+// Per-node positions (x, relative-y) come from # pipeliner:pos comments parsed
+// by the server and stored directly on each node. initLayout converts relative-y
+// to absolute-y once the pipeline's _regionY is known.
+//
+// A pipeline with at least one positioned main node is "has layout". Unpositioned
+// nodes in such a pipeline are placed to the right of the existing bounding box.
+// Pipelines with no positioned nodes are fully auto-laid out via layoutGraph.
+function initLayout() {
+  const PIPELINE_GAP = 60;
+  let globalY = 40;
+
+  for (const g of ve.graphs) {
+    const mainNodes = g.nodes.filter(n => !n.isSearchNode && !n.isListNode);
+    const withPos   = mainNodes.filter(n => n.x != null && n.y != null);
+
+    if (!withPos.length) {
+      // No stored positions — full auto-layout.
+      globalY = layoutGraph(g, globalY);
+      continue;
+    }
+
+    // At least one node has a stored position.
+    g._labelY  = globalY;
+    g._regionY = globalY - 8;
+
+    // Convert relative-y to absolute-y for positioned nodes.
+    let maxAbsY = g._regionY;
+    let maxAbsX = 0;
+    for (const n of withPos) {
+      n.y = g._regionY + n.y;          // relative → absolute
+      maxAbsY = Math.max(maxAbsY, n.y);
+      maxAbsX = Math.max(maxAbsX, (n.x ?? 0) + NODE_W + 60);
+    }
+
+    // Convert relative-y to absolute-y for sub-nodes with stored positions.
+    for (const n of g.nodes) {
+      if ((n.isSearchNode || n.isListNode) && n.x != null && n.y != null) {
+        n.y = g._regionY + n.y;
+      }
+    }
+
+    // Place unpositioned main nodes to the right of the bounding box.
+    const noPos = mainNodes.filter(n => n.x == null || n.y == null);
+    noPos.forEach((n, i) => {
+      n.x = maxAbsX;
+      n.y = g._regionY + 40 + i * 120;
+      maxAbsY = Math.max(maxAbsY, n.y);
+    });
+
+    // Derive positions for sub-nodes that don't yet have stored positions.
+    placeSubNodes(g, g._regionY + 36);
+
+    g._regionH = maxAbsY - g._regionY + NODE_H + 60;
+    globalY = g._regionY + g._regionH + PIPELINE_GAP;
+  }
+}
+
+// placeSubNodes positions search/list sub-nodes relative to their parent.
+// Mirrors the sub-node placement in layoutGraph; called after main node
+// positions are finalised so parents have absolute coordinates.
+// Sub-nodes that already have stored positions (x != null && y != null) are skipped.
+function placeSubNodes(g, startY) {
+  for (const n of g.nodes) {
+    if (n.searchNodeIds?.length) {
+      const SEARCH_GAP = 18;
+      const totalW  = n.searchNodeIds.length * NODE_W + (n.searchNodeIds.length - 1) * SEARCH_GAP;
+      const startSX = (n.x ?? 0) + NODE_W / 2 - totalW / 2;
+      n.searchNodeIds.forEach((id, i) => {
+        const sn = g.nodes.find(x => x.id === id);
+        if (sn && (sn.x == null || sn.y == null)) {
+          sn.x = Math.max(0, startSX + i * (NODE_W + SEARCH_GAP));
+          sn.y = (n.y ?? 0) + NODE_H + 70;
+        }
+      });
+    }
+    if (n.listNodeIds?.length) {
+      const LIST_GAP = 18;
+      const totalW   = n.listNodeIds.length * NODE_W + (n.listNodeIds.length - 1) * LIST_GAP;
+      const startLX  = (n.x ?? 0) + NODE_W / 2 - totalW / 2;
+      n.listNodeIds.forEach((id, i) => {
+        const ln = g.nodes.find(x => x.id === id);
+        if (ln && (ln.x == null || ln.y == null)) {
+          ln.x = Math.max(0, startLX + i * (NODE_W + LIST_GAP));
+          ln.y = Math.max(startY + 4, (n.y ?? 0) - NODE_H - 65);
+        }
+      });
+    }
+  }
+}
+
+// autoLayout re-lays out every pipeline (used by the "auto-layout" button).
+function autoLayout() {
+  let globalY = 40;
+  for (const g of ve.graphs) globalY = layoutGraph(g, globalY);
+}
+
+// ── cycle detection ───────────────────────────────────────────────────────────
+
+// Returns true if adding the directed edge src → target would create a cycle.
+// Uses BFS from `target` following existing downstream edges; if we reach `src`
+// a path target →* src already exists so the new edge would close a loop.
+function wouldCreateCycle(graphNodes, srcId, targetId) {
+  if (srcId === targetId) return true; // self-loop
+  const visited = new Set();
+  const queue   = [targetId];
+  while (queue.length) {
+    const cur = queue.shift();
+    if (visited.has(cur)) continue;
+    visited.add(cur);
+    for (const n of graphNodes) {
+      if ((n.upstreams || []).includes(cur)) {
+        if (n.id === srcId) return true;
+        if (!visited.has(n.id)) queue.push(n.id);
+      }
+    }
+  }
+  return false;
+}
+
+// Returns the set of all ancestor IDs of nodeId (nodes from which nodeId is
+// reachable following downstream edges). Used to dim cycle-causing targets.
+function ancestorIds(graphNodes, nodeId) {
+  const result  = new Set();
+  const visited = new Set();
+  const queue   = [nodeId];
+  while (queue.length) {
+    const cur = queue.shift();
+    if (visited.has(cur)) continue;
+    visited.add(cur);
+    const n = graphNodes.find(x => x.id === cur);
+    for (const upId of (n?.upstreams ?? [])) {
+      if (!result.has(upId)) { result.add(upId); queue.push(upId); }
+    }
+  }
+  return result;
+}
+
+// ── drop helpers ──────────────────────────────────────────────────────────────
+
+// Return the index of the pipeline whose region contains canvas point (cx, cy),
+// or -1 if the point is outside every region.
+function findGraphAtPosition(cx, cy) {
+  for (let i = 0; i < ve.graphs.length; i++) {
+    const g = ve.graphs[i];
+    if (g._regionY == null) continue;
+    const top    = g._regionY;
+    const bottom = g._regionY + Math.max(80, g._regionH ?? 80);
+    if (cy >= top && cy <= bottom) return i;
+  }
+  return -1;
+}
+
+// Enlarge a pipeline's region so a node placed at (nodeX, nodeY) is fully
+// contained. Both vertical growth (down and up into the label area) are handled.
+function expandRegionForNode(graphIdx, nodeX, nodeY) {
+  const g = ve.graphs[graphIdx];
+  if (g._regionY == null) return;
+  const PAD     = 28;
+  const nodeB   = nodeY + NODE_H + PAD;
+  const regionB = (g._regionY ?? 0) + (g._regionH ?? 80);
+  if (nodeB <= regionB) return; // no expansion needed
+
+  const growth = nodeB - regionB;
+  g._regionH   = (g._regionH ?? 80) + growth;
+
+  // Push every pipeline that sits below this one down by the same amount so
+  // they never overlap. Never expand upward — Y is clamped at the drop site.
+  for (let j = graphIdx + 1; j < ve.graphs.length; j++) {
+    const next = ve.graphs[j];
+    for (const n of next.nodes) {
+      if (n.y != null) n.y += growth;
+    }
+    if (next._labelY  != null) next._labelY  += growth;
+    if (next._regionY != null) next._regionY += growth;
+  }
+}
+
+// ── viewport fit ──────────────────────────────────────────────────────────────
+// Set .ve-layout height so the visual editor fills the available viewport
+// height exactly, avoiding a page-level scrollbar.
+
+function fitVisualEditor() {
+  const layout = document.querySelector('.ve-layout');
+  if (!layout) return;
+  // Page-absolute top of the layout (stable across scroll positions).
+  const layoutPageTop = layout.getBoundingClientRect().top + window.scrollY;
+  // Body bottom padding so the layout ends flush with the content area.
+  const padBottom = parseFloat(getComputedStyle(document.body).paddingBottom) || 0;
+  // Layout should reach exactly: window.innerHeight - padBottom (page coords).
+  const h = Math.floor(window.innerHeight - padBottom - layoutPageTop);
+  layout.style.height = Math.max(400, h) + 'px';
+}
+
+// ── canvas event wiring (once) ─────────────────────────────────────────────────
+
+function initCanvasEvents() {
+  const canvas = document.getElementById('ve-graph-canvas');
+  if (!canvas) return;
+
+  // Re-fit the layout on every window resize so the page never scrolls.
+  window.addEventListener('resize', fitVisualEditor);
+
+  // Deselect on empty-canvas click.
+  canvas.addEventListener('pointerdown', e => {
+    if (!e.target.closest('.ve-node') && !e.target.closest('.ve-pipeline-label')) {
+      const prev = ve.selectedNodeId;
+      ve.selectedNodeId = null;
+      if (prev) document.querySelector(`.ve-node[data-id="${prev}"]`)?.classList.remove('selected');
+      renderEdges();
+      renderParamPanel();
+    }
+  });
+
+  // Click on an edge hit-path → remove that connection.
+  const svg = document.getElementById('ve-graph-svg');
+  if (svg) {
+    // Use pointerdown (not click) so we can stopPropagation before the canvas
+    // pointerdown handler fires renderEdges() — which would remove the hit-path
+    // element from the DOM before the click event's target could be resolved.
+    svg.addEventListener('pointerdown', e => {
+      if (e.button !== 0) return; // left button only; let middle button pan
+      const hit = e.target.closest?.('[data-src][data-dst]');
+      if (!hit) return;
+      e.stopPropagation(); // prevent canvas handler from deselecting / rebuilding SVG
+      e.preventDefault();
+      if (hit.dataset.search === 'true') {
+        disconnectSearch(hit.dataset.src, hit.dataset.dst);
+      } else if (hit.dataset.list === 'true') {
+        disconnectList(hit.dataset.src, hit.dataset.dst);
+      } else {
+        // Regular edge: remove the upstream.
+        const tgt = findNode(hit.dataset.dst);
+        if (tgt) {
+          tgt.upstreams = tgt.upstreams.filter(u => u !== hit.dataset.src);
+          veRender();
+          onModelChange();
+        }
+      }
+    });
+  }
+
+  // Ctrl-wheel to zoom.
+  canvas.addEventListener('wheel', e => {
+    if (!e.ctrlKey) return;
+    e.preventDefault();
+    setZoom(ve_zoom * (e.deltaY < 0 ? 1.1 : 1 / 1.1));
+  }, {passive: false});
+
+  // Middle-mouse drag to pan (unlimited, no scrollbars).
+  const body = document.getElementById('ve-canvas-body');
+  if (body) {
+    body.addEventListener('pointerdown', e => {
+      if (e.button !== 1) return; // middle button only
+      e.preventDefault();
+      body.setPointerCapture(e.pointerId);
+      body.style.cursor = 'grabbing';
+      function onMove(ev) {
+        ve_panX += ev.movementX;
+        ve_panY += ev.movementY;
+        applyZoom();
+      }
+      function onUp() {
+        body.style.cursor = '';
+        body.removeEventListener('pointermove', onMove);
+      }
+      body.addEventListener('pointermove', onMove);
+      body.addEventListener('pointerup',     onUp, {once: true});
+      body.addEventListener('pointercancel', onUp, {once: true});
+    });
+  }
+
+  // Palette HTML5 drop — pipeline-aware.
+  // getBoundingClientRect() already accounts for scroll+transform; dividing by
+  // zoom gives the canvas coordinate directly.
+  function clearDragOver() {
+    canvas.querySelectorAll('.ve-pipeline-region.drag-over').forEach(el => el.classList.remove('drag-over'));
+  }
+
+  canvas.addEventListener('dragover', e => {
+    if (ve.dragSrc?.type !== 'palette') return;
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const cx = (e.clientX - rect.left) / ve_zoom;
+    const cy = (e.clientY - rect.top)  / ve_zoom;
+    const gi = findGraphAtPosition(cx, cy);
+    e.dataTransfer.dropEffect = gi >= 0 ? 'copy' : 'none';
+    // Highlight the target pipeline region.
+    canvas.querySelectorAll('.ve-pipeline-region').forEach(el => {
+      el.classList.toggle('drag-over', parseInt(el.dataset.graphIdx) === gi);
+    });
+  });
+
+  canvas.addEventListener('dragleave', e => {
+    // Only clear when the cursor truly leaves the canvas (not just a child element).
+    if (!canvas.contains(e.relatedTarget)) clearDragOver();
+  });
+
+  canvas.addEventListener('drop', e => {
+    e.preventDefault();
+    clearDragOver();
+    if (!ve.dragSrc || ve.dragSrc.type !== 'palette') return;
+    const rect = canvas.getBoundingClientRect();
+    // Top-left corner of the new node card (centred on cursor).
+    const x = Math.max(0, (e.clientX - rect.left) / ve_zoom - NODE_W / 2);
+    let   y = Math.max(0, (e.clientY - rect.top)  / ve_zoom - NODE_H / 2);
+    // Only accept drops that land inside a pipeline region.
+    const gi = findGraphAtPosition(x + NODE_W / 2, y + NODE_H / 2);
+    if (gi < 0) { ve.dragSrc = null; return; }
+    const g = ve.graphs[gi];
+    // Clamp Y downward so the node never lands above the pipeline's label row.
+    // Regions only expand down-and-right; they never expand upward.
+    const labelBottom = (g._labelY ?? (g._regionY ?? 0) + 8) + 30;
+    y = Math.max(y, labelBottom + 4);
+    const id = genId(ve.dragSrc.plugin);
+    g.nodes.push({id, plugin: ve.dragSrc.plugin, config: {}, upstreams: [], x, y, comment: '', searchNodeIds: [], listNodeIds: []});
+    ve.selectedNodeId = id;
+    ve.activeGraph    = gi;
+    // Expand the region (downward only) so the new node is fully visible.
+    expandRegionForNode(gi, x, y);
+    ve.dragSrc = null;
+    veRender(); onModelChange();
   });
 }
 
-function dropZoneHTML(idx) {
-  return `<div class="ve-drop-zone" data-idx="${idx}"></div>`;
+// ── node drag ─────────────────────────────────────────────────────────────────
+// selectNode no longer rebuilds the DOM, so div (found by data-id) stays valid.
+
+function startNodeDrag(e, n) {
+  const origX = n.x ?? 0, origY = n.y ?? 0;
+  const startX = e.clientX, startY = e.clientY;
+  ve_dragging = true;
+
+  function onMove(ev) {
+    n.x = Math.max(0, origX + (ev.clientX - startX) / ve_zoom);
+    n.y = Math.max(0, origY + (ev.clientY - startY) / ve_zoom);
+    const div = document.querySelector(`.ve-node[data-id="${n.id}"]`);
+    if (div) { div.style.left = n.x + 'px'; div.style.top = n.y + 'px'; }
+
+    // Recompute this pipeline's region height, then cascade any change in
+    // height (up or down) to all subsequent pipelines so they never overlap.
+    const gi = findNodeGraph(n.id);
+    if (gi >= 0) {
+      const g = ve.graphs[gi];
+      const prevH = g._regionH ?? 80;
+      let regionH = 80;
+      for (const nd of g.nodes) {
+        const nodeBot = (nd.y ?? 0) + NODE_H + (nd.searchNodeIds?.length ? 100 : 24);
+        regionH = Math.max(regionH, nodeBot - (g._regionY ?? 0) + 24);
+      }
+      g._regionH = regionH;
+      const delta = regionH - prevH;
+      if (delta !== 0) {
+        const canvas = document.getElementById('ve-graph-canvas');
+        for (let j = gi + 1; j < ve.graphs.length; j++) {
+          const next = ve.graphs[j];
+          if (next._labelY  != null) next._labelY  += delta;
+          if (next._regionY != null) next._regionY += delta;
+          // Move the label element directly (same fast path as node divs).
+          const labelEl = canvas?.querySelector(`.ve-pipeline-label[data-graph-idx="${j}"]`);
+          if (labelEl) labelEl.style.top = (next._labelY - 4) + 'px';
+          for (const nd of next.nodes) {
+            if (nd.y != null) {
+              nd.y += delta;
+              const ndDiv = document.querySelector(`.ve-node[data-id="${nd.id}"]`);
+              if (ndDiv) ndDiv.style.top = nd.y + 'px';
+            }
+          }
+        }
+      }
+    }
+
+    renderEdges();
+    renderPipelineRegions();
+    updateCanvasSize();
+  }
+  function onUp() {
+    ve_dragging = null;
+    document.removeEventListener('pointermove', onMove);
+    onModelChange();
+  }
+  document.addEventListener('pointermove', onMove);
+  document.addEventListener('pointerup',     onUp, {once: true});
+  document.addEventListener('pointercancel', onUp, {once: true});
 }
 
-function configPreview(cfg) {
-  if (!cfg) return '';
-  const entries = Object.entries(cfg).slice(0, 2);
-  return entries.map(([k, v]) => {
-    const vs = Array.isArray(v) ? `[${v.slice(0,2).join(', ')}${v.length > 2 ? '…' : ''}]`
-             : typeof v === 'string' ? (v.length > 30 ? v.slice(0,30) + '…' : v)
-             : String(v);
-    return `${k}: ${vs}`;
-  }).join('  ');
+// ── via-node drag ─────────────────────────────────────────────────────────────
+
+
+
+// ── connect interaction ────────────────────────────────────────────────────────
+
+function startConnect(e, srcId) {
+  const canvas = document.getElementById('ve-graph-canvas');
+  // getBoundingClientRect() accounts for scroll and CSS transform,
+  // so (clientX - rect.left) / zoom gives the canvas coordinate directly.
+  const rect = canvas?.getBoundingClientRect() ?? {left: 0, top: 0};
+  ve_connecting = {
+    srcId,
+    curX: (e.clientX - rect.left) / ve_zoom,
+    curY: (e.clientY - rect.top)  / ve_zoom,
+  };
+  canvas?.classList.add('is-connecting');
+  // Mark the source node so CSS can exclude its own input indicator.
+  const srcDiv = document.querySelector(`.ve-node[data-id="${srcId}"]`);
+  srcDiv?.classList.add('is-connect-source');
+  // Mark all ancestor nodes (which would form a cycle if connected to src).
+  const gi = findNodeGraph(srcId);
+  const g  = gi >= 0 ? ve.graphs[gi] : null;
+  if (g) {
+    ancestorIds(g.nodes, srcId).forEach(id => {
+      document.querySelector(`.ve-node[data-id="${id}"]`)?.classList.add('would-create-cycle');
+    });
+  }
+
+  function onMove(ev) {
+    const r = canvas?.getBoundingClientRect() ?? {left: 0, top: 0};
+    ve_connecting.curX = (ev.clientX - r.left) / ve_zoom;
+    ve_connecting.curY = (ev.clientY - r.top)  / ve_zoom;
+    renderEdges();
+  }
+  function cleanup() {
+    document.removeEventListener('pointermove', onMove);
+    canvas?.classList.remove('is-connecting');
+    document.querySelectorAll('.ve-node.is-connect-source').forEach(el => el.classList.remove('is-connect-source'));
+    document.querySelectorAll('.ve-node.would-create-cycle').forEach(el => el.classList.remove('would-create-cycle'));
+  }
+  function onUp(ev) {
+    cleanup();
+    if (!ve_connecting) return;
+    const el  = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('.ve-node[data-id]');
+    const tid = el?.dataset?.id;
+    const tgtMeta = tid ? pluginMeta(findNode(tid)?.plugin) : null;
+    if (tid && tid !== srcId && tgtMeta?.role !== 'source') finishConnect(tid);
+    else { ve_connecting = null; renderEdges(); }
+  }
+  function onCancel() { cleanup(); ve_connecting = null; renderEdges(); }
+
+  document.addEventListener('pointermove', onMove);
+  document.addEventListener('pointerup',     onUp,    {once: true});
+  document.addEventListener('pointercancel', onCancel, {once: true});
 }
 
-// ── drag-and-drop ──
-
-function paletteDragStart(e, name) {
-  ve.dragSrcType = 'palette';
-  e.dataTransfer.setData('text/plain', name);
-  e.dataTransfer.effectAllowed = 'copy';
-}
-
-function cardDragStart(e, idx) {
-  ve.dragSrcType = 'card';
-  ve.dragSrcIdx = idx;
-  e.dataTransfer.setData('text/plain', String(idx));
-  e.dataTransfer.effectAllowed = 'move';
-}
-
-function dropOnZone(e, targetIdx) {
-  e.preventDefault();
-  document.querySelectorAll('.ve-drop-zone').forEach(el => el.classList.remove('drag-over'));
-  const t = ve.model.tasks[ve.model.activeTask];
-  if (!t) return;
-  if (ve.dragSrcType === 'palette') {
-    const name = e.dataTransfer.getData('text/plain');
-    t.plugins.splice(targetIdx, 0, {name, config: {}});
-    ve.model.selectedPlugin = targetIdx;
-  } else if (ve.dragSrcType === 'card') {
-    const src = ve.dragSrcIdx;
-    const dst = targetIdx > src ? targetIdx - 1 : targetIdx;
-    if (src !== dst) {
-      const [item] = t.plugins.splice(src, 1);
-      t.plugins.splice(dst, 0, item);
-      ve.model.selectedPlugin = dst;
+function finishConnect(targetId) {
+  const tgt     = findNode(targetId);
+  const src     = findNode(ve_connecting?.srcId);
+  const tgtRole = pluginMeta(tgt?.plugin)?.role;
+  const srcRole = pluginMeta(src?.plugin)?.role;
+  const srcGi   = findNodeGraph(ve_connecting?.srcId);
+  const tgtGi   = findNodeGraph(targetId);
+  // Sources never accept incoming edges; list-source nodes can't also be regular
+  // upstreams; and adding the edge must not create a cycle in the DAG.
+  // Additionally, sink nodes may only connect to other sink nodes (chaining).
+  if (src && tgt && tgtRole !== 'source' && !src.isListNode &&
+      srcGi === tgtGi && !tgt.upstreams.includes(src.id)) {
+    // If source is a sink, the target must also be a sink (sink chaining rule).
+    if (srcRole === 'sink' && tgtRole !== 'sink') {
+      ve_connecting = null;
+      veRender();
+      return;
+    }
+    const g = srcGi >= 0 ? ve.graphs[srcGi] : null;
+    if (g && !wouldCreateCycle(g.nodes, src.id, tgt.id)) {
+      tgt.upstreams.push(src.id);
+      onModelChange();
     }
   }
-  renderCanvas();
-  renderParamPanel();
-  onModelChange();
+  ve_connecting = null;
+  veRender();
 }
 
-function cardDrop(e, _idx) {
-  // Handled by drop zones; suppress default browser behaviour.
-  e.preventDefault();
+// ── search-port connect interaction ───────────────────────────────────────────
+// Drag from a discover node's search-port to a search-plugin node on the canvas.
+
+function startSearchConnect(e, discoverNodeId) {
+  const canvas = document.getElementById('ve-graph-canvas');
+  const rect   = canvas?.getBoundingClientRect() ?? {left: 0, top: 0};
+  ve_searchConnecting = {
+    discoverNodeId,
+    curX: (e.clientX - rect.left) / ve_zoom,
+    curY: (e.clientY - rect.top)  / ve_zoom,
+  };
+  canvas?.classList.add('is-searchconnecting');
+
+  function onMove(ev) {
+    const r = canvas?.getBoundingClientRect() ?? {left: 0, top: 0};
+    ve_searchConnecting.curX = (ev.clientX - r.left) / ve_zoom;
+    ve_searchConnecting.curY = (ev.clientY - r.top)  / ve_zoom;
+    renderEdges();
+  }
+  function cleanup() {
+    document.removeEventListener('pointermove', onMove);
+    canvas?.classList.remove('is-searchconnecting');
+  }
+  function onUp(ev) {
+    cleanup();
+    if (!ve_searchConnecting) return;
+    const el  = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('.ve-node[data-id]');
+    const tid = el?.dataset?.id;
+    if (tid && tid !== discoverNodeId && el.dataset.isSearch === 'true' && el.dataset.isSearchNd !== 'true') {
+      finishSearchConnect(tid);
+    } else { ve_searchConnecting = null; renderEdges(); }
+  }
+  function onCancel() { cleanup(); ve_searchConnecting = null; renderEdges(); }
+
+  document.addEventListener('pointermove', onMove);
+  document.addEventListener('pointerup',     onUp,    {once: true});
+  document.addEventListener('pointercancel', onCancel, {once: true});
 }
 
-// ── plugin operations ──
-
-function appendPlugin(name) {
-  const t = ve.model.tasks[ve.model.activeTask];
-  if (!t) { addTask(); return appendPlugin(name); }
-  t.plugins.push({name, config: {}});
-  ve.model.selectedPlugin = t.plugins.length - 1;
-  renderCanvas();
-  renderParamPanel();
-  onModelChange();
+function finishSearchConnect(targetNodeId) {
+  const disc   = findNode(ve_searchConnecting?.discoverNodeId);
+  const target = findNode(targetNodeId);
+  if (disc && target && pluginMeta(target.plugin)?.is_search_plugin && !target.isSearchNode) {
+    if (!disc.searchNodeIds) disc.searchNodeIds = [];
+    if (!disc.searchNodeIds.includes(targetNodeId)) {
+      disc.searchNodeIds.push(targetNodeId);
+      target.isSearchNode   = true;
+      target.searchParentId = disc.id;
+      onModelChange();
+    }
+  }
+  ve_searchConnecting = null;
+  veRender();
 }
 
-function selectPlugin(i) {
-  ve.model.selectedPlugin = i;
-  renderCanvas();
-  renderParamPanel();
+// ── list-port connect interaction ─────────────────────────────────────────────
+// Drag from a series/movies node's "list" port to a list-source plugin node.
+
+function startListConnect(e, parentNodeId) {
+  const canvas = document.getElementById('ve-graph-canvas');
+  const rect   = canvas?.getBoundingClientRect() ?? {left: 0, top: 0};
+  ve_listConnecting = {
+    parentNodeId,
+    curX: (e.clientX - rect.left) / ve_zoom,
+    curY: (e.clientY - rect.top)  / ve_zoom,
+  };
+  canvas?.classList.add('is-listconnecting');
+
+  function onMove(ev) {
+    const r = canvas?.getBoundingClientRect() ?? {left: 0, top: 0};
+    ve_listConnecting.curX = (ev.clientX - r.left) / ve_zoom;
+    ve_listConnecting.curY = (ev.clientY - r.top)  / ve_zoom;
+    renderEdges();
+  }
+  function cleanup() {
+    document.removeEventListener('pointermove', onMove);
+    canvas?.classList.remove('is-listconnecting');
+  }
+  function onUp(ev) {
+    cleanup();
+    if (!ve_listConnecting) return;
+    const el  = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('.ve-node[data-id]');
+    const tid = el?.dataset?.id;
+    if (tid && tid !== parentNodeId && el.dataset.isList === 'true' && el.dataset.isListNd !== 'true') finishListConnect(tid);
+    else { ve_listConnecting = null; renderEdges(); }
+  }
+  function onCancel() { cleanup(); ve_listConnecting = null; renderEdges(); }
+
+  document.addEventListener('pointermove', onMove);
+  document.addEventListener('pointerup',     onUp,    {once: true});
+  document.addEventListener('pointercancel', onCancel, {once: true});
 }
 
-function removeSelectedPlugin() {
-  removePluginAt(ve.model.selectedPlugin);
+function finishListConnect(targetNodeId) {
+  const parent = findNode(ve_listConnecting?.parentNodeId);
+  const target = findNode(targetNodeId);
+  // Also block if the target is already a regular upstream of the parent
+  // (one connection type per node).
+  if (parent && target && pluginMeta(target.plugin)?.is_list_plugin &&
+      !target.isListNode && !(parent.upstreams || []).includes(targetNodeId)) {
+    if (!parent.listNodeIds) parent.listNodeIds = [];
+    if (!parent.listNodeIds.includes(targetNodeId)) {
+      parent.listNodeIds.push(targetNodeId);
+      target.isListNode   = true;
+      target.listParentId = parent.id;
+      onModelChange();
+    }
+  }
+  ve_listConnecting = null;
+  veRender();
 }
 
-function removePluginAt(i) {
-  const t = ve.model.tasks[ve.model.activeTask];
-  if (!t) return;
-  t.plugins.splice(i, 1);
-  ve.model.selectedPlugin = Math.min(ve.model.selectedPlugin, t.plugins.length - 1);
-  renderCanvas();
-  renderParamPanel();
-  onModelChange();
+// ── palette drag ───────────────────────────────────────────────────────────────
+
+function paletteDragStart(e, name) {
+  ve.dragSrc = {type: 'palette', plugin: name};
+  e.dataTransfer.setData('text/plain', name);
+  e.dataTransfer.effectAllowed = 'copy';
+
+  // ── Suppress the browser's own drag ghost ──────────────────────────────────
+  // setDragImage with a rendered-but-off-screen element is unreliable in
+  // Chromium when the element is outside the viewport. Use a 1×1 blank canvas
+  // to suppress the default ghost entirely, then track the cursor manually.
+  const blank = document.createElement('canvas');
+  blank.width = blank.height = 1;
+  e.dataTransfer.setDragImage(blank, 0, 0);
+
+  // ── Floating node-card preview ─────────────────────────────────────────────
+  // position:fixed + pointer-events:none so it never blocks drag events.
+  // All values are concrete hex/px — no CSS-variable or width-inheritance issues.
+  const meta = pluginMeta(name);
+  const role = meta?.role || 'processor';
+  const RC   = {source: '#3fb950', processor: '#58a6ff', sink: '#ffa657'};
+  const rc   = RC[role] || '#58a6ff';
+
+  const preview = document.createElement('div');
+  preview.style.cssText =
+    `position:fixed;top:-200px;left:-200px;` +
+    `width:${NODE_W}px;display:flex;align-items:stretch;` +
+    `border:1px solid rgba(88,166,255,.55);border-radius:8px;background:#161b22;` +
+    `box-shadow:0 6px 28px rgba(0,0,0,.75);opacity:0.92;` +
+    `pointer-events:none;z-index:9999;` +
+    `font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;` +
+    `font-size:13px;`;
+  preview.innerHTML =
+    `<div style="width:4px;flex-shrink:0;border-radius:7px 0 0 7px;background:${rc}"></div>` +
+    `<div style="flex:1;padding:8px 10px;min-width:0;text-align:center">` +
+      `<div style="font-size:13px;font-weight:600;color:#e6edf3;` +
+               `overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:4px">${name}</div>` +
+      `<span style="font-size:9px;font-weight:700;text-transform:uppercase;` +
+             `letter-spacing:.05em;padding:1px 5px;border-radius:3px;` +
+             `border:1px solid ${rc};color:${rc}">${role}</span>` +
+    `</div>`;
+  document.body.appendChild(preview);
+
+  // dragover fires continuously while the user moves the mouse during a drag
+  // (unlike pointermove, which is suppressed by the browser during DnD).
+  function onOver(ev) {
+    preview.style.left = (ev.clientX - NODE_W / 2) + 'px';
+    preview.style.top  = (ev.clientY - 44) + 'px';
+  }
+  function onEnd() {
+    preview.remove();
+    document.removeEventListener('dragover', onOver);
+  }
+  document.addEventListener('dragover', onOver);
+  document.addEventListener('dragend',   onEnd, {once: true});
 }
 
-// ── param panel ──
+// ── zoom buttons (called from HTML) ───────────────────────────────────────────
+
+function zoomIn()    { setZoom(ve_zoom * 1.25); }
+function zoomOut()   { setZoom(ve_zoom / 1.25); }
+function zoomReset() { setZoom(1.0); }
+
+// ── param panel ───────────────────────────────────────────────────────────────
 
 function renderParamPanel() {
-  const t = ve.model.tasks[ve.model.activeTask];
-  const i = ve.model.selectedPlugin;
-  const empty   = document.getElementById('ve-param-empty');
-  const title   = document.getElementById('ve-param-title');
-  const nameEl  = document.getElementById('ve-param-name');
-  const phaseEl = document.getElementById('ve-param-phase');
-  const body    = document.getElementById('ve-param-body');
-  const footer  = document.getElementById('ve-param-footer');
+  const empty  = document.getElementById('ve-param-empty');
+  const title  = document.getElementById('ve-param-title');
+  const nameEl = document.getElementById('ve-param-name');
+  const roleEl = document.getElementById('ve-param-phase');
+  const body   = document.getElementById('ve-param-body');
+  const footer = document.getElementById('ve-param-footer');
 
-  if (!t || i < 0 || i >= t.plugins.length) {
+  const node = ve.selectedNodeId ? findNode(ve.selectedNodeId) : null;
+  const gi   = node ? findNodeGraph(ve.selectedNodeId) : -1;
+  const g    = gi >= 0 ? ve.graphs[gi] : null;
+
+  if (!node || !g) {
     empty.style.display = ''; title.style.display = 'none';
     body.innerHTML = ''; footer.style.display = 'none';
     return;
   }
-  const p    = t.plugins[i];
-  const meta = ve.plugins.find(x => x.name === p.name) || {phase: '?', schema: []};
+
+  const meta = pluginMeta(node.plugin) || {role: 'processor', schema: [], produces: [], requires: []};
   empty.style.display = 'none'; title.style.display = '';
-  nameEl.textContent  = p.name;
-  phaseEl.textContent = meta.phase;
+  nameEl.textContent = node.plugin;
+  roleEl.textContent = node.isSearchNode ? 'search' : node.isListNode ? 'list' : meta.role;
+
+  if (node.isSearchNode && node.searchParentId) {
+    const parentName = findNode(node.searchParentId)?.plugin ?? node.searchParentId;
+    footer.innerHTML = [
+      `<div style="font-size:11px;color:var(--muted);margin-bottom:6px">Search backend for <b>${esc(parentName)}</b></div>`,
+      `<button class="ve-remove-btn" onclick="disconnectSearch(${esc(JSON.stringify(node.searchParentId))},${esc(JSON.stringify(node.id))})">Disconnect from search</button>`,
+    ].join('');
+  } else if (node.isListNode && node.listParentId) {
+    const parentName = findNode(node.listParentId)?.plugin ?? node.listParentId;
+    footer.innerHTML = [
+      `<div style="font-size:11px;color:var(--muted);margin-bottom:6px">List source for <b>${esc(parentName)}</b></div>`,
+      `<button class="ve-remove-btn" onclick="disconnectList(${esc(JSON.stringify(node.listParentId))},${esc(JSON.stringify(node.id))})">Disconnect from list</button>`,
+    ].join('');
+  } else {
+    footer.innerHTML = `<button class="ve-remove-btn" onclick="ve.selectedNodeId && removeNode(ve.selectedNodeId)">Remove node</button>`;
+  }
   footer.style.display = '';
 
-  if (meta.schema && meta.schema.length) {
-    body.innerHTML = meta.schema.map(f => renderField(f, p.config)).join('');
-    // Wire change listeners
-    body.querySelectorAll('[data-field]').forEach(el => {
-      el.addEventListener('change', () => collectParams(t.plugins[i], meta.schema, body));
-      el.addEventListener('input',  () => collectParams(t.plugins[i], meta.schema, body));
-    });
-  } else {
-    // Generic key-value editor
-    body.innerHTML = renderGenericKV(p.config);
-    wireGenericKV(body, p);
+  const html = [];
+
+  // Search-connected nodes have no pipeline upstreams (they're search backends, not DAG nodes).
+  if (meta.role !== 'source' && !node.isSearchNode) {
+    const others = g.nodes.filter(n => n.id !== node.id && !n.isSearchNode && !n.isListNode);
+    html.push(`<div class="ve-field"><div class="ve-field-label">Upstreams (upstream=)</div>`);
+    if (!others.length) {
+      html.push('<div style="color:var(--muted);font-size:12px;margin-top:4px">Add source nodes first</div>');
+    } else {
+      for (const other of others) {
+        const checked   = node.upstreams.includes(other.id);
+        const otherMeta = pluginMeta(other.plugin);
+        html.push(`<label class="ve-upstream-row">
+          <input type="checkbox" ${checked ? 'checked' : ''}
+            onchange="toggleUpstream(${esc(JSON.stringify(node.id))},${esc(JSON.stringify(other.id))},this.checked)">
+          <code class="ve-upstream-id">${esc(other.id)}</code>
+          <span class="ve-node-role-badge ve-role-${otherMeta?.role||''}" style="font-size:9px">${otherMeta?.role||''}</span>
+        </label>`);
+      }
+    }
+    html.push('</div>');
   }
+
+  // ── Search section (discover and similar AcceptsSearch nodes) ─────────────
+  if (meta.accepts_search) {
+    const searchNodes = g.nodes.filter(nd => pluginMeta(nd.plugin)?.is_search_plugin);
+    html.push(`<div class="ve-field"><div class="ve-field-label">Search (search backends)</div>`);
+    if (!searchNodes.length) {
+      html.push(`<div style="color:var(--muted);font-size:12px;margin-top:4px">Add search-plugin nodes (jackett, rss_search…) to the canvas, then drag the <b>search</b> port to connect them</div>`);
+    } else {
+      for (const sn of searchNodes) {
+        const checked = (node.searchNodeIds || []).includes(sn.id);
+        html.push(`<label class="ve-upstream-row">
+          <input type="checkbox" ${checked ? 'checked' : ''}
+            onchange="toggleSearch(${esc(JSON.stringify(node.id))},${esc(JSON.stringify(sn.id))},this.checked)">
+          <code class="ve-upstream-id">${esc(sn.id)}</code>
+          <span class="ve-node-search-badge" style="font-size:9px">search</span>
+        </label>`);
+      }
+    }
+    html.push('</div>');
+  }
+
+  // ── List section (series, movies and similar AcceptsList nodes) ─────────────
+  if (meta.accepts_list) {
+    const listNodes = g.nodes.filter(nd => pluginMeta(nd.plugin)?.is_list_plugin);
+    html.push(`<div class="ve-field"><div class="ve-field-label">List (list sources)</div>`);
+    if (!listNodes.length) {
+      html.push(`<div style="color:var(--muted);font-size:12px;margin-top:4px">Add list-source nodes (tvdb_favorites, trakt_list…) to the canvas, then drag the <b>list</b> port to connect them</div>`);
+    } else {
+      for (const ln of listNodes) {
+        const checked = (node.listNodeIds || []).includes(ln.id);
+        html.push(`<label class="ve-upstream-row">
+          <input type="checkbox" ${checked ? 'checked' : ''}
+            onchange="toggleList(${esc(JSON.stringify(node.id))},${esc(JSON.stringify(ln.id))},this.checked)">
+          <code class="ve-upstream-id">${esc(ln.id)}</code>
+          <span class="ve-node-list-badge" style="font-size:9px">list</span>
+        </label>`);
+      }
+    }
+    html.push('</div>');
+  }
+
+  if (meta.produces?.length || meta.requires?.length) {
+    html.push('<div class="ve-field-sep"></div>');
+    if (meta.produces?.length)
+      html.push(`<div class="ve-field-hint-block"><b>Produces:</b> ${meta.produces.map(f=>`<code>${esc(f)}</code>`).join(' ')}</div>`);
+    if (meta.requires?.length)
+      html.push(`<div class="ve-field-hint-block"><b>Requires:</b> ${meta.requires.map(f=>`<code>${esc(f)}</code>`).join(' ')}</div>`);
+  }
+
+  const warns = fieldWarnings(node);
+  if (warns.length)
+    html.push(`<div class="ve-conn-warn">${warns.map(w => `⚠ ${esc(w)}`).join('<br>')}</div>`);
+
+  html.push('<div class="ve-field-sep"></div>');
+  if (node.plugin === 'condition') {
+    html.push(renderCondRulesWidget(node));
+  } else if (meta.schema?.length) {
+    for (const f of meta.schema) {
+      // Skip 'search' and 'list' fields — managed visually by the sections above.
+      if ((f.key === 'search' && meta.accepts_search) || (f.key === 'list' && meta.accepts_list)) continue;
+      html.push(renderField(f, node.config));
+    }
+  } else {
+    html.push(renderGenericKV(node.config));
+  }
+
+  body.innerHTML = html.join('');
+
+  if (node.plugin !== 'condition' && meta.schema?.length) {
+    body.querySelectorAll('[data-field]').forEach(el => {
+      el.addEventListener('change', () => collectParams(node, meta.schema, body));
+      el.addEventListener('input',  () => collectParams(node, meta.schema, body));
+    });
+  } else if (node.plugin !== 'condition') {
+    wireGenericKV(body, node);
+  }
+}
+
+function toggleUpstream(nodeId, upId, checked) {
+  const node = findNode(nodeId);
+  if (!node) return;
+  if (checked && !node.upstreams.includes(upId)) {
+    // Reject if adding this upstream would create a cycle.
+    const gi = findNodeGraph(nodeId);
+    const g  = gi >= 0 ? ve.graphs[gi] : null;
+    if (g && wouldCreateCycle(g.nodes, upId, nodeId)) {
+      renderParamPanel(); // re-render to uncheck the checkbox
+      return;
+    }
+    node.upstreams.push(upId);
+  } else if (!checked) {
+    node.upstreams = node.upstreams.filter(u => u !== upId);
+  }
+  renderEdges();
+  renderGraphNodes();
+  onModelChange();
+}
+
+function toggleSearch(nodeId, searchId, checked) {
+  const node   = findNode(nodeId);
+  const target = findNode(searchId);
+  if (!node || !target) return;
+  if (checked) {
+    if (!pluginMeta(target.plugin)?.is_search_plugin || target.isSearchNode) { renderParamPanel(); return; }
+    if (!node.searchNodeIds) node.searchNodeIds = [];
+    if (!node.searchNodeIds.includes(searchId)) {
+      node.searchNodeIds.push(searchId);
+      target.isSearchNode   = true;
+      target.searchParentId = nodeId;
+    }
+  } else {
+    node.searchNodeIds    = (node.searchNodeIds || []).filter(id => id !== searchId);
+    target.isSearchNode   = false;
+    delete target.searchParentId;
+  }
+  renderEdges(); renderGraphNodes(); onModelChange();
+}
+
+function toggleList(nodeId, listId, checked) {
+  const node   = findNode(nodeId);
+  const target = findNode(listId);
+  if (!node || !target) return;
+  if (checked) {
+    if (!pluginMeta(target.plugin)?.is_list_plugin || target.isListNode) { renderParamPanel(); return; }
+    if ((node.upstreams || []).includes(listId)) { renderParamPanel(); return; } // already regular upstream
+    if (!node.listNodeIds) node.listNodeIds = [];
+    if (!node.listNodeIds.includes(listId)) {
+      node.listNodeIds.push(listId);
+      target.isListNode   = true;
+      target.listParentId = nodeId;
+    }
+  } else {
+    node.listNodeIds    = (node.listNodeIds || []).filter(id => id !== listId);
+    target.isListNode   = false;
+    delete target.listParentId;
+  }
+  renderEdges(); renderGraphNodes(); onModelChange();
+}
+
+// ── field widgets ─────────────────────────────────────────────────────────────
+
+// ── condition plugin — rules editor ──────────────────────────────────────────
+
+// Convert any stored condition config format → [{type:'accept'|'reject', expr}].
+function condRulesFromConfig(cfg) {
+  if (!cfg) return [];
+  if (Array.isArray(cfg.rules)) {
+    const rows = [];
+    for (const item of cfg.rules) {
+      if (item && typeof item === 'object') {
+        if (item.reject != null) rows.push({type: 'reject', expr: String(item.reject)});
+        if (item.accept != null) rows.push({type: 'accept', expr: String(item.accept)});
+      }
+    }
+    return rows;
+  }
+  const rows = [];
+  if (cfg.reject != null) rows.push({type: 'reject', expr: String(cfg.reject)});
+  if (cfg.accept != null) rows.push({type: 'accept', expr: String(cfg.accept)});
+  return rows;
+}
+
+// Convert [{type, expr}] → the config object the condition plugin expects.
+// Single accept/reject stays as a top-level key; multiple rules use the rules list.
+function buildCondConfig(rules) {
+  const valid = rules.filter(r => r.expr.trim());
+  if (valid.length === 0) return {};
+  if (valid.length === 1) return {[valid[0].type]: valid[0].expr.trim()};
+  return {rules: valid.map(r => ({[r.type]: r.expr.trim()}))};
+}
+
+function renderCondRulesWidget(node) {
+  const rules = condRulesFromConfig(node.config);
+  const rowsHtml = rules.map(r => `
+    <div class="ve-cond-row">
+      <button class="ve-cond-type ${r.type}" onclick="toggleCondType(this)"
+              title="Click to toggle accept / reject">${r.type}</button>
+      <input type="text" class="ve-cond-expr" value="${esc(r.expr)}"
+             placeholder="expression…"
+             oninput="updateCondRules()" onchange="updateCondRules()">
+      <button class="ve-cond-del" onclick="deleteCondRule(this)" title="Remove rule">×</button>
+    </div>`).join('');
+  const body = rowsHtml || '<div class="ve-cond-empty">No rules yet</div>';
+  return `<div class="ve-field">
+    <div class="ve-field-label">Rules
+      <span class="ve-field-hint">— evaluated top to bottom; first match wins; within a rule, reject beats accept</span>
+    </div>
+    <div class="ve-cond-rules" id="ve-cond-rules">${body}</div>
+    <div style="display:flex;gap:6px;margin-top:6px">
+      <button class="ve-add-kv" onclick="addCondRule('reject')">+ Reject</button>
+      <button class="ve-add-kv" onclick="addCondRule('accept')">+ Accept</button>
+    </div>
+  </div>`;
+}
+
+function addCondRule(type) {
+  const container = document.getElementById('ve-cond-rules');
+  if (!container) return;
+  container.querySelector('.ve-cond-empty')?.remove();
+  const row = document.createElement('div');
+  row.className = 've-cond-row';
+  row.innerHTML = `
+    <button class="ve-cond-type ${type}" onclick="toggleCondType(this)"
+            title="Click to toggle accept / reject">${type}</button>
+    <input type="text" class="ve-cond-expr" placeholder="expression…"
+           oninput="updateCondRules()" onchange="updateCondRules()">
+    <button class="ve-cond-del" onclick="deleteCondRule(this)" title="Remove rule">×</button>`;
+  container.appendChild(row);
+  row.querySelector('.ve-cond-expr').focus();
+}
+
+function deleteCondRule(btn) {
+  const row = btn.closest('.ve-cond-row');
+  const container = row?.closest('.ve-cond-rules');
+  if (!row || !container) return;
+  row.remove();
+  if (!container.querySelector('.ve-cond-row')) {
+    container.innerHTML = '<div class="ve-cond-empty">No rules yet</div>';
+  }
+  updateCondRules();
+}
+
+function toggleCondType(btn) {
+  const newType = btn.classList.contains('reject') ? 'accept' : 'reject';
+  btn.className = `ve-cond-type ${newType}`;
+  btn.textContent = newType;
+  updateCondRules();
+}
+
+function updateCondRules() {
+  const node = findNode(ve.selectedNodeId);
+  if (!node) return;
+  const rows = document.querySelectorAll('#ve-cond-rules .ve-cond-row');
+  const rules = [...rows].map(row => ({
+    type: row.querySelector('.ve-cond-type').classList.contains('reject') ? 'reject' : 'accept',
+    expr: row.querySelector('.ve-cond-expr').value,
+  }));
+  node.config = buildCondConfig(rules);
+  renderGraphNodes(); renderEdges(); onModelChange();
 }
 
 function renderField(f, config) {
   const val = config[f.key];
-  const id  = 've-f-' + f.key;
   let widget = '';
-  switch (f.type) {
-    case 'bool':
-      widget = `<label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-        <input type="checkbox" data-field="${f.key}" ${val ? 'checked' : ''}> ${val ? 'true' : 'false'}</label>`;
-      break;
-    case 'int':
-      widget = `<input type="number" data-field="${f.key}" value="${val ?? (f.default ?? '')}" placeholder="${f.default ?? ''}">`;
-      break;
-    case 'enum':
-      widget = `<select data-field="${f.key}">${f.enum.map(v =>
-        `<option${v === (val ?? f.default) ? ' selected' : ''}>${v}</option>`).join('')}</select>`;
-      break;
-    case 'list': {
-      const items = Array.isArray(val) ? val : (val ? [String(val)] : []);
-      widget = `<div class="ve-tag-list" data-field="${f.key}" data-type="list">${
-        items.map((s, j) => `<span class="ve-tag">${esc(s)}<button class="ve-tag-del" onclick="removeTag(this,'${f.key}')">×</button></span>`).join('')
-      }</div>
-      <div style="display:flex;gap:4px">
-        <input class="ve-tag-input" id="${id}-new" placeholder="add item…" onkeydown="tagKeydown(event,this,'${f.key}')">
-        <button class="ve-add-kv" onclick="addTag('${id}-new','${f.key}')">Add</button>
-      </div>`;
-      break;
-    }
-    case 'pattern':
-    case 'string':
-    default:
-      if (typeof (val ?? '') === 'object') {
-        widget = `<textarea data-field="${f.key}" rows="3">${esc(JSON.stringify(val, null, 2))}</textarea>`;
-      } else {
-        widget = `<input type="text" data-field="${f.key}" value="${esc(String(val ?? ''))}" placeholder="${esc(String(f.default ?? f.hint ?? ''))}">`;
+  if (f.multiline) {
+    const preview = val ? String(val).split('\n')[0].slice(0, 50) : '';
+    widget = `<button class="ve-multiline-btn" onclick="openFieldPopup('${esc(f.key)}','${esc(f.hint||'')}')">` +
+      (preview ? `<span class="ve-multiline-preview">${esc(preview)}</span>` : '<span class="ve-multiline-empty">click to edit…</span>') +
+      '</button>';
+  } else {
+    switch (f.type) {
+      case 'bool': {
+        const checked = val != null ? val : (f.default ?? false);
+        widget = `<input type="checkbox" data-field="${f.key}" ${checked ? 'checked' : ''}>`;
+        break;
       }
+      case 'int':
+        widget = `<input type="number" data-field="${f.key}" value="${val ?? (f.default ?? '')}" placeholder="${f.default ?? ''}">`;
+        break;
+      case 'enum':
+        widget = `<select data-field="${f.key}">${(f.enum||[]).map(v =>
+          `<option${v===(val??f.default)?' selected':''}>${v}</option>`).join('')}</select>`;
+        break;
+      case 'list': {
+        const items = Array.isArray(val) ? val : (val ? [String(val)] : []);
+        const fid   = 'vef-' + f.key;
+        widget = `<div class="ve-tag-list" data-field="${f.key}" data-type="list">${
+          items.map(s => `<span class="ve-tag">${esc(s)}<button class="ve-tag-del" onclick="removeTag(this,'${f.key}')">×</button></span>`).join('')
+        }</div><div style="display:flex;gap:4px">
+          <input class="ve-tag-input" id="${fid}" placeholder="add item…" onkeydown="if(event.key==='Enter'){event.preventDefault();addTag('${fid}','${f.key}')}">
+          <button class="ve-add-kv" onclick="addTag('${fid}','${f.key}')">Add</button></div>`;
+        break;
+      }
+      default:
+        widget = `<input type="text" data-field="${f.key}" value="${esc(String(val ?? ''))}" placeholder="${esc(String(f.default ?? f.hint ?? ''))}">`;
+    }
   }
   return `<div class="ve-field">
     <div class="ve-field-label">${esc(f.key)}${f.required ? ' <span class="ve-field-required">*</span>' : ''}
-      ${f.hint ? `<span class="ve-field-hint">— ${esc(f.hint)}</span>` : ''}
-    </div>
-    ${widget}
-  </div>`;
+      ${f.hint ? `<span class="ve-field-hint">— ${esc(f.hint)}</span>` : ''}</div>${widget}</div>`;
 }
 
-function collectParams(plugin, schema, body) {
+// Opens the text popup to edit a multiline schema field on the selected node.
+function openFieldPopup(fieldKey, hint) {
+  const node = findNode(ve.selectedNodeId);
+  if (!node) return;
+  openTextPopup(fieldKey, hint, String(node.config[fieldKey] ?? ''), text => {
+    if (text !== '') node.config[fieldKey] = text;
+    else delete node.config[fieldKey];
+    renderGraphNodes(); renderEdges(); onModelChange();
+    renderParamPanel();
+  });
+}
+
+function collectParams(node, schema, body) {
   for (const f of schema) {
+    if (f.multiline) continue; // saved directly via openFieldPopup
     const el = body.querySelector(`[data-field="${f.key}"]`);
     if (!el) continue;
-    if (f.type === 'bool') {
-      plugin.config[f.key] = el.querySelector('input[type=checkbox]')?.checked ?? el.checked;
-    } else if (f.type === 'int') {
-      const v = parseInt(el.value, 10);
-      if (!isNaN(v)) plugin.config[f.key] = v; else delete plugin.config[f.key];
-    } else if (f.type === 'list') {
-      // handled by addTag / removeTag
-    } else {
-      if (el.value !== '') plugin.config[f.key] = el.value;
-      else delete plugin.config[f.key];
-    }
+    if (f.type === 'bool')     node.config[f.key] = el.checked;
+    else if (f.type === 'int') { const v=parseInt(el.value,10); if(!isNaN(v)) node.config[f.key]=v; else delete node.config[f.key]; }
+    else if (f.type !== 'list') { if(el.value!=='') node.config[f.key]=el.value; else delete node.config[f.key]; }
   }
-  renderCanvas();
-  onModelChange();
+  renderGraphNodes(); renderEdges(); onModelChange();
 }
 
-function tagKeydown(e, input, field) {
-  if (e.key === 'Enter') { e.preventDefault(); addTag(input.id, field); }
-}
+// Like collectParams but for a via-node (re-renders via nodes + edges).
+
 function addTag(inputId, field) {
   const input = document.getElementById(inputId);
   if (!input || !input.value.trim()) return;
-  const t = ve.model.tasks[ve.model.activeTask];
-  const p = t?.plugins[ve.model.selectedPlugin];
-  if (!p) return;
-  if (!Array.isArray(p.config[field])) p.config[field] = [];
-  p.config[field].push(input.value.trim());
+  const node = findNode(ve.selectedNodeId);
+  if (!node) return;
+  if (!Array.isArray(node.config[field])) node.config[field] = [];
+  node.config[field].push(input.value.trim());
   input.value = '';
   renderParamPanel(); onModelChange();
 }
+
 function removeTag(btn, field) {
-  const tag = btn.closest('.ve-tag');
+  const tag  = btn.closest('.ve-tag');
   const list = tag?.closest('[data-type="list"]');
-  const idx = [...list.querySelectorAll('.ve-tag')].indexOf(tag);
-  const t = ve.model.tasks[ve.model.activeTask];
-  const p = t?.plugins[ve.model.selectedPlugin];
-  if (!p || !Array.isArray(p.config[field])) return;
-  p.config[field].splice(idx, 1);
+  const idx  = [...list.querySelectorAll('.ve-tag')].indexOf(tag);
+  const node = findNode(ve.selectedNodeId);
+  if (!node || !Array.isArray(node.config[field])) return;
+  node.config[field].splice(idx, 1);
   tag.remove(); onModelChange();
 }
 
 function renderGenericKV(cfg) {
   const entries = Object.entries(cfg || {});
-  let html = entries.map(([k, v], i) => `<div class="ve-kv-row">
+  return entries.map(([k, v], i) => `<div class="ve-kv-row">
     <input class="ve-kv-key" placeholder="key" value="${esc(k)}" data-kv-key="${i}">
-    <input class="ve-kv-val" placeholder="value" value="${esc(typeof v === 'object' ? JSON.stringify(v) : String(v))}" data-kv-val="${i}">
-    <button class="ve-kv-del" data-kv-del="${i}">×</button>
-  </div>`).join('');
-  html += '<button class="ve-add-kv" id="ve-kv-add">+ Add key</button>';
-  return html;
+    <input class="ve-kv-val" placeholder="value" value="${esc(typeof v==='object'?JSON.stringify(v):String(v))}" data-kv-val="${i}">
+    <button class="ve-kv-del" data-kv-del="${i}">×</button></div>`).join('')
+    + '<button class="ve-add-kv" id="ve-kv-add">+ Add key</button>';
 }
 
-function wireGenericKV(body, plugin) {
+function wireGenericKV(body, node) {
   const sync = () => {
     const cfg = {};
     body.querySelectorAll('.ve-kv-row').forEach(row => {
       const k = row.querySelector('[data-kv-key]')?.value.trim();
       const v = row.querySelector('[data-kv-val]')?.value;
-      if (k) {
-        try { cfg[k] = JSON.parse(v); } catch { cfg[k] = v; }
-      }
+      if (k) { try { cfg[k] = JSON.parse(v); } catch { cfg[k] = v; } }
     });
-    plugin.config = cfg;
-    renderCanvas();
-    onModelChange();
+    node.config = cfg; renderGraphNodes(); renderEdges(); onModelChange();
   };
   body.addEventListener('input', sync);
-  body.querySelectorAll('[data-kv-del]').forEach(btn => {
-    btn.addEventListener('click', () => { btn.closest('.ve-kv-row').remove(); sync(); });
-  });
+  body.querySelectorAll('[data-kv-del]').forEach(btn =>
+    btn.addEventListener('click', () => { btn.closest('.ve-kv-row').remove(); sync(); }));
   body.querySelector('#ve-kv-add')?.addEventListener('click', () => {
     const row = document.createElement('div');
     row.className = 've-kv-row';
     row.innerHTML = `<input class="ve-kv-key" placeholder="key">
-      <input class="ve-kv-val" placeholder="value">
-      <button class="ve-kv-del">×</button>`;
+      <input class="ve-kv-val" placeholder="value"><button class="ve-kv-del">×</button>`;
     row.querySelector('.ve-kv-del').addEventListener('click', () => { row.remove(); sync(); });
     body.querySelector('#ve-kv-add').before(row);
   });
 }
 
-// ── model change → always write back to text editor ──
+// ── helpers ───────────────────────────────────────────────────────────────────
 
-function onModelChange() {
-  if (ve.syncing) return;
-  const star = visualToStarlark();
-  document.getElementById('config-editor').value = star;
-  syncHighlight();
+function configPreview(cfg) {
+  const entries = Object.entries(cfg || {}).slice(0, 2);
+  return entries.map(([k, v]) => {
+    const vs = Array.isArray(v) ? `[${v.slice(0,2).join(', ')}${v.length>2?'…':''}]`
+             : typeof v === 'string' ? (v.length > 28 ? v.slice(0,28)+'…' : v) : String(v);
+    return `${k}: ${vs}`;
+  }).join('  ');
 }
 
-// ── sync: visual → text (called by onModelChange automatically) ──
-
-function visualToStarlark() {
-  const m = ve.model;
-  const lines = [];
-  if (m.variables.length) {
-    for (const v of m.variables) {
-      if (v.name) lines.push(`${v.name} = ${starLit(v.value)}`);
-    }
-    lines.push('');
-  }
-  for (let ti = 0; ti < m.tasks.length; ti++) {
-    const t = m.tasks[ti];
-    if (ti > 0) lines.push('');
-    lines.push(`task(${starLit(t.name)},`);
-    lines.push('    [');
-    for (const p of t.plugins) {
-      lines.push('        ' + pluginToStar(p) + ',');
-    }
-    lines.push('    ]' + (t.schedule ? `,\n    schedule=${starLit(t.schedule)}` : '') + ')');
-  }
-  return lines.join('\n') + (lines.length ? '\n' : '');
+function fieldWarnings(node) {
+  const meta = pluginMeta(node.plugin);
+  if (!meta?.requires?.length) return [];
+  const produced = allProducedUpstream(node.id);
+  return meta.requires.filter(f => !produced.has(f))
+    .map(f => `requires "${f}" — add ${f}-producing node upstream`);
 }
 
-function pluginToStar(p) {
-  const cfg = p.config || {};
-  const keys = Object.keys(cfg).filter(k => cfg[k] !== '' && cfg[k] !== null && cfg[k] !== undefined);
-  if (!keys.length) return `plugin(${starLit(p.name)})`;
-  if (keys.includes('from') || keys.length > 3) {
-    // Dict form for complex configs
-    return `plugin(${starLit(p.name)}, {${keys.map(k => `${starLit(k)}: ${valToStar(cfg[k])}`).join(', ')}})`;
+function allProducedUpstream(nodeId) {
+  const gi = findNodeGraph(nodeId);
+  const g  = gi >= 0 ? ve.graphs[gi] : null;
+  if (!g) return new Set();
+
+  const produced = new Set();
+  const visited  = new Set();
+  const startNode = g.nodes.find(n => n.id === nodeId);
+  const queue = [...(startNode?.upstreams || [])];
+  while (queue.length) {
+    const id = queue.shift();
+    if (visited.has(id)) continue;
+    visited.add(id);
+    const n    = g.nodes.find(x => x.id === id);
+    const meta = n ? pluginMeta(n.plugin) : null;
+    if (meta?.produces) meta.produces.forEach(f => produced.add(f));
+    if (n) n.upstreams.forEach(u => queue.push(u));
   }
-  if (keys.length === 1) {
-    return `plugin(${starLit(p.name)}, ${keys[0]}=${valToStar(cfg[keys[0]])})`;
+  return produced;
+}
+
+function pluginMeta(name) {
+  return ve.plugins.find(p => p.name === name) || null;
+}
+
+// ── Starlark serialisation ────────────────────────────────────────────────────
+
+// Topologically sort nodes (Kahn's BFS) so every upstream is emitted before
+// the nodes that reference it. Any cycles (invalid DAGs) are appended last.
+function topoSortNodes(nodes) {
+  const byId = new Map(nodes.map(n => [n.id, n]));
+  const deg  = new Map(nodes.map(n => [n.id, 0]));
+  const succ = new Map(nodes.map(n => [n.id, []]));
+
+  for (const n of nodes) {
+    for (const upId of (n.upstreams ?? [])) {
+      if (byId.has(upId)) {
+        deg.set(n.id, (deg.get(n.id) ?? 0) + 1);
+        succ.get(upId)?.push(n.id);
+      }
+    }
   }
-  return `plugin(${starLit(p.name)},\n               ${keys.map(k => `${k}=${valToStar(cfg[k])}`).join(',\n               ')})`;
+
+  const queue  = nodes.filter(n => !deg.get(n.id)).map(n => n.id);
+  const result = [];
+  const seen   = new Set();
+
+  while (queue.length) {
+    const id = queue.shift();
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const n = byId.get(id);
+    if (n) result.push(n);
+    for (const sid of (succ.get(id) ?? [])) {
+      const d = (deg.get(sid) ?? 1) - 1;
+      deg.set(sid, d);
+      if (d <= 0 && !seen.has(sid)) queue.push(sid);
+    }
+  }
+
+  // Append any remaining nodes (cycles — shouldn't occur in a valid DAG).
+  for (const n of nodes) {
+    if (!seen.has(n.id)) result.push(n);
+  }
+
+  return result;
+}
+
+function dagToStarlark() {
+  const graphs = ve.graphs.filter(g => g.name || g.nodes.length);
+  if (!graphs.length) return '';
+
+  const sections = [];
+  for (const g of graphs) {
+    const lines = [];
+    // Sort so every upstream variable is assigned before it is referenced.
+    const ordered = topoSortNodes(g.nodes.filter(n => !n.isSearchNode && !n.isListNode));
+    for (const n of ordered) {
+      // (search nodes already excluded from ordered)
+
+      const role    = pluginMeta(n.plugin)?.role || 'processor';
+      const cfgKw   = configToKwargs(n.config);
+      const fromStr = upstreamsStr(n.upstreams);
+
+      // Emit user comment then pipeliner:pos before the definition.
+      // A blank line separates this node's header block from the previous line.
+      const hasPos     = !n.isSearchNode && !n.isListNode && n.x != null && n.y != null;
+      const hasComment = !!n.comment?.trim();
+      if (hasPos || hasComment) {
+        if (lines.length > 0) lines.push('');
+      }
+      if (hasComment) {
+        for (const cl of n.comment.trim().split('\n')) lines.push(`# ${cl}`);
+      }
+      if (hasPos) {
+        const regionY = g._regionY ?? 0;
+        let posLine = `# pipeliner:pos ${Math.round(n.x)} ${Math.round(n.y - regionY)}`;
+        const subCoords = (ids) => ids
+          .map(id => g.nodes.find(x => x.id === id))
+          .filter(Boolean)
+          .map(sn => `${Math.round(sn.x ?? 0)} ${Math.round((sn.y ?? 0) - regionY)}`)
+          .join(' ');
+        if (n.listNodeIds?.length)   posLine += ` list ${subCoords(n.listNodeIds)}`;
+        if (n.searchNodeIds?.length) posLine += ` search ${subCoords(n.searchNodeIds)}`;
+        lines.push(posLine);
+      }
+
+      if (role === 'source') {
+        lines.push(`${n.id} = input(${[starLit(n.plugin), cfgKw].filter(Boolean).join(', ')})`);
+      } else if (role === 'processor') {
+        const parts = [starLit(n.plugin)];
+        if (fromStr) parts.push(`upstream=${fromStr}`);
+        if (n.searchNodeIds?.length) {
+          const searchItems = n.searchNodeIds.map(id => g.nodes.find(x => x.id === id)).filter(Boolean).map(viaNodeToStar).join(', ');
+          parts.push(`search=[${searchItems}]`);
+        }
+        if (n.listNodeIds?.length) {
+          const listItems = n.listNodeIds.map(id => g.nodes.find(x => x.id === id)).filter(Boolean).map(viaNodeToStar).join(', ');
+          parts.push(`list=[${listItems}]`);
+        }
+        if (cfgKw) parts.push(cfgKw);
+        lines.push(`${n.id} = process(${parts.join(', ')})`);
+      } else {
+        const parts = [starLit(n.plugin)];
+        if (fromStr) parts.push(`upstream=${fromStr}`);
+        if (cfgKw)   parts.push(cfgKw);
+        lines.push(`${n.id} = output(${parts.join(', ')})`);
+      }
+    }
+
+    // Pipeline footer: optional user comment then pipeline() call.
+    // Always insert a blank line before the footer when node lines precede it.
+    if (lines.length > 0) lines.push('');
+    if (g.comment?.trim()) {
+      for (const cl of g.comment.trim().split('\n')) lines.push(`# ${cl}`);
+    }
+
+    const schedArg = g.schedule ? `, schedule=${starLit(g.schedule)}` : '';
+    lines.push(`pipeline(${starLit(g.name)}${schedArg})`);
+    sections.push(lines.join('\n'));
+  }
+  return sections.join('\n\n') + '\n';
+}
+
+// Serialise a via-connected node as a Starlark dict: {"name": "jackett", "url": "..."}.
+function viaNodeToStar(node) {
+  const entries = [`${starLit('name')}: ${starLit(node.plugin)}`];
+  for (const [k, val] of Object.entries(node.config || {})) {
+    if (val !== '' && val != null) entries.push(`${starLit(k)}: ${valToStar(val)}`);
+  }
+  return `{${entries.join(', ')}}`;
+}
+
+function upstreamsStr(ups) {
+  if (!ups?.length) return '';
+  return ups.length === 1 ? ups[0] : `merge(${ups.join(', ')})`;
+}
+
+function configToKwargs(cfg) {
+  const keys = Object.keys(cfg || {}).filter(k => cfg[k] !== '' && cfg[k] != null);
+  return keys.map(k => `${k}=${valToStar(cfg[k])}`).join(', ');
 }
 
 function starLit(v) {
   if (typeof v !== 'string') return String(v);
   if (v.includes('\n')) return '"""' + v + '"""';
-  return '"' + v.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
+  return '"' + v.replace(/\\/g,'\\\\').replace(/"/g,'\\"') + '"';
 }
 
 function valToStar(v) {
   if (v === null || v === undefined) return 'None';
   if (typeof v === 'boolean') return v ? 'True' : 'False';
-  if (typeof v === 'number') return String(v);
-  if (typeof v === 'string') return starLit(v);
-  if (Array.isArray(v)) {
-    if (v.every(x => typeof x === 'string')) return '[' + v.map(starLit).join(', ') + ']';
-    return '[' + v.map(valToStar).join(', ') + ']';
-  }
-  if (typeof v === 'object') {
-    return '{' + Object.entries(v).map(([k, val]) => `${starLit(k)}: ${valToStar(val)}`).join(', ') + '}';
-  }
+  if (typeof v === 'number')  return String(v);
+  if (typeof v === 'string')  return starLit(v);
+  if (Array.isArray(v))       return '[' + v.map(valToStar).join(', ') + ']';
+  if (typeof v === 'object')  return '{' + Object.entries(v).map(([k,val])=>`${starLit(k)}: ${valToStar(val)}`).join(', ') + '}';
   return starLit(String(v));
 }
 
-// ── sync: text → visual ──
+// ── model change → sync to text editor ───────────────────────────────────────
+
+function onModelChange() {
+  if (ve.syncing) return;
+  document.getElementById('config-editor').value = dagToStarlark();
+  syncHighlight();
+}
+
+// ── text → visual sync ────────────────────────────────────────────────────────
 
 async function textToVisualSync() {
   const content = document.getElementById('config-editor').value;
@@ -555,29 +2209,84 @@ async function textToVisualSync() {
       body: JSON.stringify({content}),
     });
     if (r.status === 422) {
-      const { error } = await r.json();
+      const {error} = await r.json();
       setSyncNote('✗ ' + error.split('\n')[0]);
       return;
     }
-    const { tasks } = await r.json();
-    // Populate model inside the syncing guard so onModelChange doesn't
-    // immediately write the flattened Starlark back over the text editor.
+    const data    = await r.json();
+    const entries = Object.entries(data.graphs || {});
+
     ve.syncing = true;
-    ve.model.tasks = Object.entries(tasks || {}).map(([name, t]) => ({
-      name,
-      schedule: t.schedule || '',
-      plugins:  (t.plugins || []).map(p => ({name: p.name, config: p.config || {}})),
-    }));
-    ve.model.activeTask = 0;
-    ve.model.selectedPlugin = -1;
-    ve.model.variables = [];
-    renderVars();
-    renderTaskTabs();
-    renderCanvas();
-    renderParamPanel();
+    if (!entries.length) {
+      ve.graphs         = [];       // no stub — user must click "+ Add pipeline"
+      ve.selectedNodeId = null;
+      ve.activeGraph    = 0;
+      ve.syncing = false;
+      veRender();
+      setSyncNote('No DAG pipelines found — click "+ Add pipeline" to create one');
+      return;
+    }
+
+    ve.graphs = entries.map(([name, graph]) => {
+      const rawNodes = graph.nodes || [];
+      // First pass: build regular nodes, loading comments.
+      // Positions (x, y) come from per-node # pipeliner:pos comments on the
+      // server; y is relative to the pipeline's region top and is converted to
+      // absolute by initLayout() after stacking order is determined.
+      const nodes = rawNodes.map(n => ({
+        id: n.id, plugin: n.plugin, config: n.config || {}, upstreams: n.upstreams || [],
+        searchNodeIds: [], comment: n.comment || '',
+        x: n.x ?? null,
+        y: n.y ?? null,
+      }));
+      // Second pass: convert search/list items to regular nodes with flags.
+      for (let ni = 0; ni < rawNodes.length; ni++) {
+        const raw = rawNodes[ni];
+        for (let si = 0; si < (raw.search || []).length; si++) {
+          const s  = raw.search[si];
+          const id = `${raw.id}__search__${si}`;
+          nodes[ni].searchNodeIds.push(id);
+          nodes.push({
+            id, plugin: s.plugin, config: s.config || {},
+            upstreams: [], searchNodeIds: [], listNodeIds: [], comment: '',
+            isSearchNode: true, searchParentId: raw.id,
+            x: s.x ?? null, y: s.y ?? null,
+          });
+        }
+        for (let li = 0; li < (raw.list || []).length; li++) {
+          const l  = raw.list[li];
+          const id = `${raw.id}__list__${li}`;
+          if (!nodes[ni].listNodeIds) nodes[ni].listNodeIds = [];
+          nodes[ni].listNodeIds.push(id);
+          nodes.push({
+            id, plugin: l.plugin, config: l.config || {},
+            upstreams: [], searchNodeIds: [], listNodeIds: [], comment: '',
+            isListNode: true, listParentId: raw.id,
+            x: l.x ?? null, y: l.y ?? null,
+          });
+        }
+      }
+      // A pipeline "has layout" when any main node carries a stored position.
+      const _hasLayout = nodes.some(n => !n.isSearchNode && !n.isListNode && n.x != null && n.y != null);
+      return {name, schedule: graph.schedule || '', comment: graph.comment || '', nodes, _hasLayout};
+    });
+    ve.nextId = ve.graphs.flatMap(g => g.nodes).reduce((max, n) => {
+      const m = n.id.match(/_(\d+)$/);
+      return m ? Math.max(max, parseInt(m[1]) + 1) : max;
+    }, 0);
+    ve.activeGraph    = 0;
+    ve.selectedNodeId = null;
+    ve_panX = 0; ve_panY = 0; // reset pan so freshly laid-out nodes are visible
     ve.syncing = false;
-    setSyncNote(ve.model.tasks.length ? '' : '(no tasks found)');
-  } catch(e) {
+    // Place all pipelines in order: stored relative positions for those that
+    // have a layout comment, auto-layout for those that don't.
+    initLayout();
+    veRender();
+    setSyncNote(entries.length > 1 ? `Showing ${entries.length} pipelines` : '');
+    // Write computed positions back so they survive the next round-trip.
+    // Skip when there are no pipelines (would overwrite a non-DAG config).
+    if (ve.graphs.length > 0) onModelChange();
+  } catch (e) {
     ve.syncing = false;
     setSyncNote('✗ ' + String(e));
   }
@@ -588,9 +2297,74 @@ function setSyncNote(msg) {
   if (el) el.textContent = msg;
 }
 
-// ── utility ──
+// ── text pop-up editor ────────────────────────────────────────────────────────
+// Generic multi-line text popup reusable for comments, email body, etc.
+
+function openTextPopup(title, placeholder, initialValue, onSave) {
+  let modal = document.getElementById('ve-text-popup');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 've-text-popup';
+    modal.className = 've-text-popup';
+    modal.innerHTML =
+      '<div class="ve-text-popup-inner">' +
+        '<div class="ve-text-popup-header">' +
+          '<span class="ve-text-popup-title"></span>' +
+          '<button class="ve-text-popup-close" title="Close">×</button>' +
+        '</div>' +
+        '<textarea class="ve-text-popup-ta"></textarea>' +
+        '<div class="ve-text-popup-footer">' +
+          '<button class="ve-text-popup-cancel">Cancel</button>' +
+          '<button class="ve-text-popup-save">Save</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(modal);
+  }
+
+  modal.querySelector('.ve-text-popup-title').textContent = title;
+  const ta = modal.querySelector('.ve-text-popup-ta');
+  ta.placeholder = placeholder ?? '';
+  ta.value       = initialValue ?? '';
+
+  const close = () => { modal.style.display = 'none'; };
+  modal.querySelector('.ve-text-popup-close').onclick  = close;
+  modal.querySelector('.ve-text-popup-cancel').onclick = close;
+  modal.querySelector('.ve-text-popup-save').onclick   = () => { onSave(ta.value); close(); };
+  modal.onclick = e => { if (e.target === modal) close(); };
+  modal.onkeydown = e => { if (e.key === 'Escape') close(); };
+
+  modal.style.display = 'flex';
+  ta.focus();
+  ta.setSelectionRange(ta.value.length, ta.value.length);
+}
+
+// ── pipeline bounds from stored positions ─────────────────────────────────────
+// Used when node positions are loaded from a pipeliner:layout comment so we
+// can compute label/region bounds without running autoLayout.
+
+function computePipelineBoundsFromNodes() {
+  // Sort graphs by their topmost node Y so labels stack top-to-bottom.
+  let prevBottom = 40;
+  for (const g of ve.graphs) {
+    const nonVia = g.nodes.filter(n => !n.isSearchNode && !n.isListNode);
+    if (!nonVia.length) {
+      g._labelY  = prevBottom + 10;
+      g._regionY = g._labelY - 8;
+      g._regionH = 80;
+      prevBottom = g._regionY + g._regionH + 60;
+      continue;
+    }
+    const minY = Math.min(...nonVia.map(n => n.y ?? 0));
+    const maxY = Math.max(...g.nodes.map(n => (n.y ?? 0) + NODE_H + 80));
+    g._labelY  = Math.max(prevBottom + 10, minY - 30);
+    g._regionY = g._labelY - 8;
+    g._regionH = maxY - g._regionY + 20;
+    prevBottom = g._regionY + g._regionH + 60;
+  }
+}
+
+// ── utility ───────────────────────────────────────────────────────────────────
 
 function esc(s) {
   return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
-

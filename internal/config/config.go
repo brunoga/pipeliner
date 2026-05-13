@@ -1,30 +1,15 @@
-// Package config loads and validates pipeliner Starlark configuration files.
+// Package config loads and validates pipeliner DAG pipeline configuration files.
 //
-// A config file is a Starlark script that calls the task() built-in to register
-// one or more pipeline tasks. The built-in functions available to scripts are:
+// Config files are Starlark scripts that call input(), process(), output(),
+// and pipeline() to define pipelines. env(name, default=None) reads
+// environment variables. load() splits configs across files.
 //
-//	plugin(name, config_dict)        — create a plugin config
-//	plugin(name, key=val, ...)       — same, using keyword arguments
-//	task(name, plugins, schedule="") — register a task (and optional schedule)
-//	env(name, default=None)          — read an environment variable
+// Example:
 //
-// Example config.star:
-//
-//	smtp_host = "smtp.example.com"
-//	smtp_pass = env("SMTP_PASS")
-//
-//	def tvdb_enrich():
-//	    return [
-//	        plugin("metainfo_tvdb", api_key=env("TVDB_KEY"), cache_ttl="12h"),
-//	        plugin("require", fields=["enriched"]),
-//	    ]
-//
-//	task("tv-shows",
-//	    [plugin("rss", url="https://feeds.example.com/tv")] + tvdb_enrich() + [
-//	        plugin("series", static=["Breaking Bad"], tracking="follow", quality="720p+"),
-//	        plugin("deluge", host="localhost", password="secret"),
-//	    ],
-//	    schedule="1h")
+//	src    = input("rss", url="https://example.com/rss")
+//	seen   = process("seen", upstream=src)
+//	output("transmission", upstream=seen, host="localhost")
+//	pipeline("my-pipeline", schedule="1h")
 package config
 
 import (
@@ -33,6 +18,8 @@ import (
 	"os"
 	"sort"
 
+	"github.com/brunoga/pipeliner/internal/dag"
+	"github.com/brunoga/pipeliner/internal/executor"
 	"github.com/brunoga/pipeliner/internal/plugin"
 	"github.com/brunoga/pipeliner/internal/store"
 	"github.com/brunoga/pipeliner/internal/task"
@@ -40,10 +27,10 @@ import (
 
 // Config is the result of evaluating a Starlark config file.
 type Config struct {
-	// Tasks maps task names to their ordered plugin configurations.
-	Tasks map[string][]task.PluginConfig
-	// Schedules maps task names to schedule expressions ("1h", "0 * * * *").
-	Schedules map[string]string
+	// Graphs maps pipeline names to their DAG graph.
+	Graphs map[string]*dag.Graph
+	// GraphSchedules maps pipeline names to schedule expressions ("1h", "0 * * * *").
+	GraphSchedules map[string]string
 }
 
 // Load reads and executes a Starlark configuration file.
@@ -69,53 +56,73 @@ func ParseBytes(data []byte) (*Config, error) {
 	return c, nil
 }
 
-// Validate checks that all plugins referenced in the config are registered,
-// dispatchable, and have valid config. Returns a list of errors (never nil).
+// Validate checks that all plugins referenced in the config are registered and
+// have valid configs. Returns a list of errors (never nil).
 func Validate(c *Config) []error {
 	var errs []error
-	for taskName, plugins := range c.Tasks {
-		for _, pc := range plugins {
-			d, ok := plugin.Lookup(pc.Name)
-			if !ok {
-				errs = append(errs, fmt.Errorf("task %q: unknown plugin %q", taskName, pc.Name))
+	for name, g := range c.Graphs {
+		dagErrs := dag.Validate(g, func(pluginName string) (*plugin.Descriptor, bool) {
+			return plugin.Lookup(pluginName)
+		})
+		for _, err := range dagErrs {
+			errs = append(errs, fmt.Errorf("pipeline %q: %w", name, err))
+		}
+		for _, n := range g.Nodes() {
+			d, ok := plugin.Lookup(n.PluginName)
+			if !ok || d.Validate == nil {
 				continue
 			}
-			if !plugin.IsDispatchable(d.PluginPhase) {
-				errs = append(errs, fmt.Errorf("task %q: plugin %q (phase %q) cannot be used as a top-level task plugin; use it inside a 'from' list instead", taskName, pc.Name, d.PluginPhase))
-				continue
-			}
-			if d.Validate == nil {
-				continue
-			}
-			cfg := pc.Config
+			cfg := n.Config
 			if cfg == nil {
 				cfg = map[string]any{}
 			}
 			for _, err := range d.Validate(cfg) {
-				errs = append(errs, fmt.Errorf("task %q plugin %q: %w", taskName, pc.Name, err))
+				errs = append(errs, fmt.Errorf("pipeline %q node %q plugin %q: %w", name, n.ID, n.PluginName, err))
 			}
 		}
 	}
 	return errs
 }
 
-// BuildTasks instantiates all tasks defined in the config and returns them
+// BuildTasks instantiates all DAG pipelines and returns them as []*task.Task
 // sorted alphabetically by name. db is the shared store forwarded to every
 // plugin factory. If logger is nil, slog.Default() is used.
 func BuildTasks(c *Config, db *store.SQLiteStore, logger *slog.Logger, opts ...task.BuildOption) ([]*task.Task, error) {
-	names := make([]string, 0, len(c.Tasks))
-	for name := range c.Tasks {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-
+	names := sortedStringKeys(c.Graphs)
 	tasks := make([]*task.Task, 0, len(names))
 	for _, name := range names {
-		t, err := task.Build(name, c.Tasks[name], db, logger, opts...)
-		if err != nil {
-			return nil, err
+		g := c.Graphs[name]
+		plugins := make(map[dag.NodeID]*executor.PluginInstance, g.Len())
+		for _, n := range g.Nodes() {
+			d, ok := plugin.Lookup(n.PluginName)
+			if !ok {
+				return nil, fmt.Errorf("pipeline %q: unknown plugin %q", name, n.PluginName)
+			}
+			cfg := n.Config
+			if cfg == nil {
+				cfg = map[string]any{}
+			}
+			impl, err := d.Factory(cfg, db)
+			if err != nil {
+				return nil, fmt.Errorf("pipeline %q: node %q: %w", name, n.ID, err)
+			}
+			plugins[n.ID] = &executor.PluginInstance{Desc: d, Impl: impl, Config: cfg}
+		}
+		ex := executor.New(name, g, plugins, db, logger, false)
+		t := task.NewFromExecutor(name, ex)
+		for _, opt := range opts {
+			opt(t)
 		}
 		tasks = append(tasks, t)
 	}
 	return tasks, nil
+}
+
+func sortedStringKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }

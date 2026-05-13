@@ -17,40 +17,40 @@ import (
 	"github.com/brunoga/pipeliner/internal/task"
 
 	// Register all plugins under test.
-	_ "github.com/brunoga/pipeliner/plugins/filter/accept_all"
-	_ "github.com/brunoga/pipeliner/plugins/filter/condition"
-	_ "github.com/brunoga/pipeliner/plugins/filter/content"
-	_ "github.com/brunoga/pipeliner/plugins/filter/exists"
-	_ "github.com/brunoga/pipeliner/plugins/filter/list_match"
-	_ "github.com/brunoga/pipeliner/plugins/filter/movies"
-	_ "github.com/brunoga/pipeliner/plugins/filter/premiere"
-	_ "github.com/brunoga/pipeliner/plugins/filter/quality"
-	_ "github.com/brunoga/pipeliner/plugins/filter/regexp"
-	_ "github.com/brunoga/pipeliner/plugins/filter/require"
-	_ "github.com/brunoga/pipeliner/plugins/filter/seen"
-	_ "github.com/brunoga/pipeliner/plugins/filter/series"
-	_ "github.com/brunoga/pipeliner/plugins/filter/torrentalive"
-	_ "github.com/brunoga/pipeliner/plugins/filter/trakt"
-	_ "github.com/brunoga/pipeliner/plugins/filter/tvdb"
-	_ "github.com/brunoga/pipeliner/plugins/filter/upgrade"
-	_ "github.com/brunoga/pipeliner/plugins/from/jackett"
-	_ "github.com/brunoga/pipeliner/plugins/from/rss"
-	_ "github.com/brunoga/pipeliner/plugins/from/trakt"
-	_ "github.com/brunoga/pipeliner/plugins/from/tvdb"
-	_ "github.com/brunoga/pipeliner/plugins/input/discover"
-	_ "github.com/brunoga/pipeliner/plugins/input/filesystem"
-	_ "github.com/brunoga/pipeliner/plugins/input/html"
-	_ "github.com/brunoga/pipeliner/plugins/input/rss"
-	_ "github.com/brunoga/pipeliner/plugins/input/search/jackett"
-	_ "github.com/brunoga/pipeliner/plugins/metainfo/magnet"
-	_ "github.com/brunoga/pipeliner/plugins/metainfo/quality"
-	_ "github.com/brunoga/pipeliner/plugins/metainfo/series"
-	_ "github.com/brunoga/pipeliner/plugins/metainfo/trakt"
-	_ "github.com/brunoga/pipeliner/plugins/modify/pathfmt"
-	_ "github.com/brunoga/pipeliner/plugins/modify/set"
-	_ "github.com/brunoga/pipeliner/plugins/output/exec"
-	_ "github.com/brunoga/pipeliner/plugins/output/list_add"
-	_ "github.com/brunoga/pipeliner/plugins/output/print"
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/accept_all"
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/condition"
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/content"
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/exists"
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/list_match"
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/movies"
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/premiere"
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/quality"
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/regexp"
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/require"
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/seen"
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/series"
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/torrentalive"
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/trakt"
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/tvdb"
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/upgrade"
+	_ "github.com/brunoga/pipeliner/plugins/source/jackett"
+	_ "github.com/brunoga/pipeliner/plugins/source/rss_search"
+	_ "github.com/brunoga/pipeliner/plugins/source/trakt_list"
+	_ "github.com/brunoga/pipeliner/plugins/source/tvdb_favorites"
+	_ "github.com/brunoga/pipeliner/plugins/processor/discover"
+	_ "github.com/brunoga/pipeliner/plugins/source/filesystem"
+	_ "github.com/brunoga/pipeliner/plugins/source/html"
+	_ "github.com/brunoga/pipeliner/plugins/source/rss"
+	_ "github.com/brunoga/pipeliner/plugins/source/jackett_input"
+	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/magnet"
+	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/quality"
+	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/series"
+	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/trakt"
+	_ "github.com/brunoga/pipeliner/plugins/processor/modify/pathfmt"
+	_ "github.com/brunoga/pipeliner/plugins/processor/modify/set"
+	_ "github.com/brunoga/pipeliner/plugins/sink/exec"
+	_ "github.com/brunoga/pipeliner/plugins/sink/list_add"
+	_ "github.com/brunoga/pipeliner/plugins/sink/print"
 )
 
 // ---------- helpers ----------
@@ -158,11 +158,10 @@ func TestRSSToRegexpFilter(t *testing.T) {
 	defer srv.Close()
 
 	res := buildAndRun(t, fmt.Sprintf(`
-task("t", [
-    plugin("rss", url=%q),
-    plugin("regexp", accept=["(?i)linux|open.?source"]),
-    plugin("print"),
-])
+src = input("rss", url=%q)
+flt = process("regexp", upstream=src, accept=["(?i)linux|open.?source"])
+output("print", upstream=flt)
+pipeline("t")
 `, srv.URL))
 
 	res.assertAccepted(t, 2)
@@ -177,12 +176,11 @@ func TestSeenDeduplication(t *testing.T) {
 	defer srv.Close()
 
 	tk := buildTask(t, fmt.Sprintf(`
-task("t", [
-    plugin("rss", url=%q),
-    plugin("seen"),
-    plugin("regexp", accept=[".+"]),
-    plugin("print"),
-])
+src  = input("rss", url=%q)
+seen = process("seen", upstream=src)
+acc  = process("regexp", upstream=seen, accept=[".+"])
+output("print", upstream=acc)
+pipeline("t")
 `, srv.URL))
 
 	run(t, tk).assertAccepted(t, 2)
@@ -200,11 +198,10 @@ func TestSeriesFilterAcceptsKnownShow(t *testing.T) {
 	defer srv.Close()
 
 	res := buildAndRun(t, fmt.Sprintf(`
-task("t", [
-    plugin("rss", url=%q),
-    plugin("series", static=["Breaking Bad"]),
-    plugin("print"),
-])
+src    = input("rss", url=%q)
+series = process("series", upstream=src, static=["Breaking Bad"])
+output("print", upstream=series)
+pipeline("t")
 `, srv.URL))
 
 	res.assertAccepted(t, 2)
@@ -218,11 +215,10 @@ func TestSeriesSeenAcrossCycles(t *testing.T) {
 	defer srv.Close()
 
 	tk := buildTask(t, fmt.Sprintf(`
-task("t", [
-    plugin("rss", url=%q),
-    plugin("series", static=["Breaking Bad"]),
-    plugin("print"),
-])
+src    = input("rss", url=%q)
+series = process("series", upstream=src, static=["Breaking Bad"])
+output("print", upstream=series)
+pipeline("t")
 `, srv.URL))
 
 	run(t, tk).assertAccepted(t, 1)
@@ -238,11 +234,11 @@ func TestQualityFilterRejectsBelow(t *testing.T) {
 	defer srv.Close()
 
 	res := buildAndRun(t, fmt.Sprintf(`
-task("t", [
-    plugin("rss", url=%q),
-    plugin("quality", min="720p"),
-    plugin("print"),
-])
+src = input("rss", url=%q)
+q   = process("metainfo_quality", upstream=src)
+flt = process("quality", upstream=q, min="720p")
+output("print", upstream=flt)
+pipeline("t")
 `, srv.URL))
 
 	res.assertRejected(t, 1)
@@ -260,12 +256,12 @@ func TestQualityFilterWithAccept(t *testing.T) {
 	defer srv.Close()
 
 	res := buildAndRun(t, fmt.Sprintf(`
-task("t", [
-    plugin("rss", url=%q),
-    plugin("quality", min="720p"),
-    plugin("regexp", accept=[".+"]),
-    plugin("print"),
-])
+src = input("rss", url=%q)
+q   = process("metainfo_quality", upstream=src)
+flt = process("quality", upstream=q, min="720p")
+acc = process("regexp", upstream=flt, accept=[".+"])
+output("print", upstream=acc)
+pipeline("t")
 `, srv.URL))
 
 	res.assertAccepted(t, 2)
@@ -279,11 +275,10 @@ func TestMetainfoQualityAnnotates(t *testing.T) {
 	defer srv.Close()
 
 	res := buildAndRun(t, fmt.Sprintf(`
-task("t", [
-    plugin("rss", url=%q),
-    plugin("metainfo_quality"),
-    plugin("print"),
-])
+src = input("rss", url=%q)
+q   = process("metainfo_quality", upstream=src)
+output("print", upstream=q)
+pipeline("t")
 `, srv.URL))
 
 	if len(res.entries) != 1 {
@@ -308,11 +303,10 @@ func TestMetainfoSeriesAnnotates(t *testing.T) {
 	defer srv.Close()
 
 	res := buildAndRun(t, fmt.Sprintf(`
-task("t", [
-    plugin("rss", url=%q),
-    plugin("metainfo_series"),
-    plugin("print"),
-])
+src    = input("rss", url=%q)
+series = process("metainfo_series", upstream=src)
+output("print", upstream=series)
+pipeline("t")
 `, srv.URL))
 
 	if len(res.entries) != 1 {
@@ -338,12 +332,11 @@ func TestEnrichedFieldUsedAsRequire(t *testing.T) {
 	defer srv.Close()
 
 	res := buildAndRun(t, fmt.Sprintf(`
-task("t", [
-    plugin("rss", url=%q),
-    plugin("metainfo_series"),
-    plugin("require", fields=["enriched"]),
-    plugin("print"),
-])
+src    = input("rss", url=%q)
+series = process("metainfo_series", upstream=src)
+req    = process("require", upstream=series, fields=["enriched"])
+output("print", upstream=req)
+pipeline("t")
 `, srv.URL))
 
 	res.assertAccepted(t, 0)
@@ -359,14 +352,13 @@ func TestConditionFilter(t *testing.T) {
 	defer srv.Close()
 
 	res := buildAndRun(t, fmt.Sprintf(`
-task("t", [
-    plugin("rss", url=%q),
-    plugin("metainfo_quality"),
-    plugin("condition",
-        accept='{{ne .video_resolution ""}}',
-        reject='{{eq .video_resolution "480p"}}'),
-    plugin("print"),
-])
+src  = input("rss", url=%q)
+q    = process("metainfo_quality", upstream=src)
+cond = process("condition", upstream=q,
+    accept='{{ne .video_resolution ""}}',
+    reject='{{eq .video_resolution "480p"}}')
+output("print", upstream=cond)
+pipeline("t")
 `, srv.URL))
 
 	res.assertAccepted(t, 2)
@@ -379,13 +371,11 @@ func TestVariableSubstitutionInConfig(t *testing.T) {
 	})
 	defer srv.Close()
 
-	// Variables are just Starlark variables — no special syntax needed.
 	res := buildAndRun(t, fmt.Sprintf(`
 feed = %q
-task("t", [
-    plugin("rss", url=feed),
-    plugin("print"),
-])
+src = input("rss", url=feed)
+output("print", upstream=src)
+pipeline("t")
 `, srv.URL))
 
 	if len(res.entries) != 1 {
@@ -400,11 +390,10 @@ func TestSetModify(t *testing.T) {
 	defer srv.Close()
 
 	res := buildAndRun(t, fmt.Sprintf(`
-task("t", [
-    plugin("rss", url=%q),
-    plugin("set", category="tv", label="{{.Title}}"),
-    plugin("print"),
-])
+src  = input("rss", url=%q)
+setf = process("set", upstream=src, category="tv", label="{{.Title}}")
+output("print", upstream=setf)
+pipeline("t")
 `, srv.URL))
 
 	if len(res.entries) != 1 {
@@ -426,14 +415,13 @@ func TestPathfmtModify(t *testing.T) {
 	defer srv.Close()
 
 	res := buildAndRun(t, fmt.Sprintf(`
-task("t", [
-    plugin("rss", url=%q),
-    plugin("metainfo_series"),
-    plugin("pathfmt",
-        path='/tv/{{.title}}/S{{printf "%%02d" .series_season}}',
-        field="download_path"),
-    plugin("print"),
-])
+src    = input("rss", url=%q)
+series = process("metainfo_series", upstream=src)
+fmt    = process("pathfmt", upstream=series,
+    path='/tv/{{.title}}/S{{printf "%%02d" .series_season}}',
+    field="download_path")
+output("print", upstream=fmt)
+pipeline("t")
 `, srv.URL))
 
 	if len(res.entries) != 1 {
@@ -447,10 +435,9 @@ task("t", [
 
 func TestConfigCheck(t *testing.T) {
 	cfg, err := config.ParseBytes([]byte(`
-task("t", [
-    plugin("rss", url="http://example.com/rss"),
-    plugin("print"),
-])
+src = input("rss", url="http://example.com/rss")
+output("print", upstream=src)
+pipeline("t")
 `))
 	if err != nil {
 		t.Fatalf("parse: %v", err)
@@ -462,7 +449,9 @@ task("t", [
 
 func TestConfigCheckUnknownPlugin(t *testing.T) {
 	cfg, err := config.ParseBytes([]byte(`
-task("t", [plugin("no-such-plugin")])
+src = input("rss", url="http://example.com/rss")
+output("no-such-plugin", upstream=src)
+pipeline("t")
 `))
 	if err != nil {
 		t.Fatalf("parse: %v", err)
@@ -499,11 +488,10 @@ func TestAcceptAll(t *testing.T) {
 	defer srv.Close()
 
 	res := buildAndRun(t, fmt.Sprintf(`
-task("t", [
-    plugin("rss", url=%q),
-    plugin("accept_all"),
-    plugin("print"),
-])
+src = input("rss", url=%q)
+acc = process("accept_all", upstream=src)
+output("print", upstream=acc)
+pipeline("t")
 `, srv.URL))
 
 	res.assertAccepted(t, 3)
@@ -518,12 +506,11 @@ func TestAcceptAllLeavesRejectedAlone(t *testing.T) {
 	defer srv.Close()
 
 	res := buildAndRun(t, fmt.Sprintf(`
-task("t", [
-    plugin("rss", url=%q),
-    plugin("regexp", reject=["(?i)windows"]),
-    plugin("accept_all"),
-    plugin("print"),
-])
+src = input("rss", url=%q)
+rej = process("regexp", upstream=src, reject=["(?i)windows"])
+acc = process("accept_all", upstream=rej)
+output("print", upstream=acc)
+pipeline("t")
 `, srv.URL))
 
 	res.assertAccepted(t, 1)
@@ -544,11 +531,10 @@ func TestListAddAndMatch(t *testing.T) {
 	defer srvAdd.Close()
 
 	buildAndRunWithDB(t, fmt.Sprintf(`
-task("add-task", [
-    plugin("rss", url=%q),
-    plugin("accept_all"),
-    plugin("list_add", list="watchlist"),
-])
+src = input("rss", url=%q)
+acc = process("accept_all", upstream=src)
+output("list_add", upstream=acc, list="watchlist")
+pipeline("add-task")
 `, srvAdd.URL), db)
 
 	srvMatch := rssServer(t, []rssItem{
@@ -559,11 +545,10 @@ task("add-task", [
 	defer srvMatch.Close()
 
 	res := buildAndRunWithDB(t, fmt.Sprintf(`
-task("match-task", [
-    plugin("rss", url=%q),
-    plugin("list_match", list="watchlist"),
-    plugin("print"),
-])
+src   = input("rss", url=%q)
+match = process("list_match", upstream=src, list="watchlist")
+output("print", upstream=match)
+pipeline("match-task")
 `, srvMatch.URL), db)
 
 	res.assertAccepted(t, 2)
@@ -579,14 +564,13 @@ func TestConditionInfixSyntax(t *testing.T) {
 	defer srv.Close()
 
 	res := buildAndRun(t, fmt.Sprintf(`
-task("t", [
-    plugin("rss", url=%q),
-    plugin("metainfo_quality"),
-    plugin("condition",
-        accept='video_resolution != ""',
-        reject='video_resolution == "480p"'),
-    plugin("print"),
-])
+src  = input("rss", url=%q)
+q    = process("metainfo_quality", upstream=src)
+cond = process("condition", upstream=q,
+    accept='video_resolution != ""',
+    reject='video_resolution == "480p"')
+output("print", upstream=cond)
+pipeline("t")
 `, srv.URL))
 
 	res.assertAccepted(t, 2)
@@ -601,12 +585,11 @@ func TestConditionContainsOperator(t *testing.T) {
 	defer srv.Close()
 
 	res := buildAndRun(t, fmt.Sprintf(`
-task("t", [
-    plugin("rss", url=%q),
-    plugin("metainfo_quality"),
-    plugin("condition", accept='video_source contains "BluRay"'),
-    plugin("print"),
-])
+src  = input("rss", url=%q)
+q    = process("metainfo_quality", upstream=src)
+cond = process("condition", upstream=q, accept='video_source contains "BluRay"')
+output("print", upstream=cond)
+pipeline("t")
 `, srv.URL))
 
 	res.assertAccepted(t, 1)
@@ -620,12 +603,13 @@ func TestPathfmtNewSyntax(t *testing.T) {
 	defer srv.Close()
 
 	res := buildAndRun(t, fmt.Sprintf(`
-task("t", [
-    plugin("rss", url=%q),
-    plugin("metainfo_series"),
-    plugin("pathfmt", path="/tv/{title}/Season {series_season:02d}", field="download_path"),
-    plugin("print"),
-])
+src    = input("rss", url=%q)
+series = process("metainfo_series", upstream=src)
+fmt    = process("pathfmt", upstream=series,
+    path="/tv/{title}/Season {series_season:02d}",
+    field="download_path")
+output("print", upstream=fmt)
+pipeline("t")
 `, srv.URL))
 
 	if len(res.entries) != 1 {
@@ -643,11 +627,10 @@ func TestSetNewSyntax(t *testing.T) {
 	defer srv.Close()
 
 	res := buildAndRun(t, fmt.Sprintf(`
-task("t", [
-    plugin("rss", url=%q),
-    plugin("set", category="tv", label="{raw_title}"),
-    plugin("print"),
-])
+src  = input("rss", url=%q)
+setf = process("set", upstream=src, category="tv", label="{raw_title}")
+output("print", upstream=setf)
+pipeline("t")
 `, srv.URL))
 
 	if len(res.entries) != 1 {
@@ -669,15 +652,20 @@ func TestTemplateInheritance(t *testing.T) {
 	})
 	defer srv.Close()
 
-	// Templates are Starlark functions.
+	// Starlark functions compose DAG chains cleanly.
 	res := buildAndRun(t, fmt.Sprintf(`
-def hd_only():
-    return [
-        plugin("quality", min="720p"),
-        plugin("regexp", accept=[".+"]),
-    ]
+def hd_only(upstream):
+    q = process("metainfo_quality", upstream=upstream)
+    return process("quality", upstream=q, min="720p")
 
-task("t", [plugin("rss", url=%q)] + hd_only() + [plugin("print")])
+def accept_matching(upstream):
+    return process("regexp", upstream=upstream, accept=[".+"])
+
+src      = input("rss", url=%q)
+filtered = hd_only(src)
+accepted = accept_matching(filtered)
+output("print", upstream=accepted)
+pipeline("t")
 `, srv.URL))
 
 	res.assertAccepted(t, 1)
@@ -693,13 +681,16 @@ func TestMultipleTemplates(t *testing.T) {
 	defer srv.Close()
 
 	res := buildAndRun(t, fmt.Sprintf(`
-def hd_base():
-    return [plugin("quality", min="720p")]
+def hd_base(upstream):
+    return process("metainfo_quality", upstream=upstream)
 
-def bb_only():
-    return [plugin("series", static=["Breaking Bad"])]
+def bb_only(upstream):
+    q = process("quality", upstream=upstream, min="720p")
+    return process("series", upstream=q, static=["Breaking Bad"])
 
-task("t", [plugin("rss", url=%q)] + hd_base() + bb_only() + [plugin("print")])
+src = input("rss", url=%q)
+output("print", upstream=bb_only(hd_base(src)))
+pipeline("t")
 `, srv.URL))
 
 	res.assertAccepted(t, 1)
@@ -714,14 +705,13 @@ func TestRegexpPerPatternFrom(t *testing.T) {
 	defer srv.Close()
 
 	res := buildAndRun(t, fmt.Sprintf(`
-task("t", [
-    plugin("rss", url=%q),
-    plugin("metainfo_quality"),
-    plugin("regexp",
-        reject=[{"pattern": "BluRay", "from": "video_source"}],
-        accept=[".+"]),
-    plugin("print"),
-])
+src = input("rss", url=%q)
+q   = process("metainfo_quality", upstream=src)
+flt = process("regexp", upstream=q,
+    reject=[{"pattern": "BluRay", "from": "video_source"}],
+    accept=[".+"])
+output("print", upstream=flt)
+pipeline("t")
 `, srv.URL))
 
 	res.assertAccepted(t, 1)

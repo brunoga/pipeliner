@@ -9,3 +9,5 @@ cmd/pipeliner/pipeliner
 
 # editor and tool metadata
 .claude/
+CLAUDE.md
+internal/web/ui/node_modules/

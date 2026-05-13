@@ -302,7 +302,8 @@ section { margin-bottom: 32px; }
   display:grid;
   grid-template-columns:200px 1fr 260px;
   gap:12px;
-  height:calc(100vh - 180px);
+  /* height is set dynamically by fitVisualEditor() — no CSS fallback needed
+     because #view-visual starts display:none, so it can't overflow before JS runs. */
   min-height:400px;
 }
 
@@ -373,7 +374,7 @@ section { margin-bottom: 32px; }
   flex-shrink:0;
 }
 .ve-add-task:hover { border-color:var(--accent); color:var(--accent); }
-.ve-canvas-body { flex:1; overflow-y:auto; padding:12px 16px; }
+.ve-canvas-body { flex:1; overflow:hidden; position:relative; cursor:default; }
 .ve-meta { padding:8px 16px; border-top:1px solid var(--border); display:flex; align-items:center; gap:8px; flex-shrink:0; }
 .ve-meta label { font-size:11px; color:var(--muted); }
 .ve-meta input {
@@ -408,40 +409,139 @@ section { margin-bottom: 32px; }
 }
 .ve-add-var:hover { color:var(--accent); }
 
-/* pipeline nodes */
-.ve-pipeline { display:flex; flex-direction:column; gap:0; min-height:100%; }
-.ve-drop-zone {
-  height:8px; border-radius:4px; margin:2px 0; transition:all 0.15s;
+/* graph canvas */
+.ve-graph-canvas {
+  position:absolute; top:0; left:0;
+  transform-origin:0 0; /* pan + zoom applied by JS: translate(panX,panY) scale(zoom) */
 }
-.ve-drop-zone.drag-over {
-  height:32px; background:rgba(88,166,255,.15); border:1px dashed var(--accent);
+.ve-graph-svg {
+  position:absolute; top:0; left:0; overflow:visible;
+  /* pointer-events left at default so hit paths can receive clicks */
 }
+/* Visible edge paths never capture pointer events. */
+.ve-edge { pointer-events:none; }
+/* Invisible fat hit-path for click-to-delete. */
+.ve-edge-hit {
+  fill:none; stroke:transparent; stroke-width:14;
+  pointer-events:stroke; cursor:pointer;
+}
+
+/* pipeline region background panels */
+.ve-pipeline-region {
+  position:absolute; left:0; right:0;
+  border-radius:8px;
+  border:1px solid rgba(255,255,255,.05);
+  background:rgba(255,255,255,.018);
+  pointer-events:none; z-index:0;
+  transition:border-color .12s, background .12s;
+}
+.ve-pipeline-region.active {
+  border-color:rgba(88,166,255,.18);
+  background:rgba(88,166,255,.03);
+}
+/* Highlighted when a palette chip is dragged over this region */
+.ve-pipeline-region.drag-over {
+  border-color:rgba(88,166,255,.55);
+  background:rgba(88,166,255,.08);
+  pointer-events:none; /* keep non-interactive even when highlighted */
+}
+.ve-region-hint {
+  position:absolute; inset:0;
+  display:flex; align-items:center; justify-content:center;
+  font-size:12px; color:var(--muted); pointer-events:none;
+}
+
+/* pipeline group labels and separators */
+.ve-pipeline-label {
+  position:absolute; left:8px; right:0;
+  display:flex; align-items:center; gap:8px;
+  font-size:11px; color:var(--muted);
+  padding:0 4px; user-select:none; z-index:2;
+}
+.ve-pipeline-label.active .ve-pl-name { color:var(--accent); }
+.ve-pl-name {
+  font-weight:700; letter-spacing:.04em;  /* no text-transform: case matches Starlark */
+  cursor:pointer; white-space:nowrap;
+}
+.ve-pl-name:hover { color:var(--accent); }
+/* In-place name editor (shown on double-click) */
+.ve-pl-name-edit {
+  font-weight:700; letter-spacing:.04em; font-size:11px; font-family:inherit;
+  color:var(--text); background:transparent; border:none;
+  border-bottom:1px solid var(--accent); outline:none;
+  padding:0; margin:0; min-width:60px;
+}
+.ve-pl-comment-btn {
+  background:none; border:none; color:var(--muted); cursor:pointer;
+  font-size:11px; padding:0 3px; border-radius:3px; flex-shrink:0; line-height:1;
+}
+.ve-pl-comment-btn:hover { color:var(--accent); }
+.ve-pl-comment-btn.has-comment { color:var(--accent); }
+
+/* Delete pipeline button */
+.ve-pl-delete {
+  margin-left:auto; background:none; border:none; color:var(--muted);
+  cursor:pointer; font-size:15px; padding:0 4px; flex-shrink:0; line-height:1;
+}
+.ve-pl-delete:hover { color:var(--red); }
+
+/* Greyed-out chips when no pipeline exists */
+.ve-palette-body .ve-chip[disabled] {
+  opacity:0.25; cursor:not-allowed; pointer-events:none;
+}
+.ve-pl-sep { color:var(--border); font-size:10px; }
+.ve-pl-sched {
+  padding:2px 6px; border:1px solid var(--border); border-radius:4px;
+  background:var(--bg); color:var(--text); font-size:11px;
+  font-family:inherit; outline:none; width:130px;
+}
+.ve-pl-sched:focus { border-color:var(--accent); }
+
+
+/* add-pipeline button in the toolbar */
+.ve-add-pipeline-header {
+  padding:3px 12px; border:1px solid var(--border); border-radius:5px;
+  background:transparent; color:var(--muted); font-size:12px; cursor:pointer;
+  font-weight:500; transition:border-color .15s, color .15s; flex-shrink:0;
+}
+.ve-add-pipeline-header:hover { border-color:var(--accent); color:var(--accent); }
+
+/* zoom controls in the pipeline bar */
+.ve-zoom-bar {
+  display:flex; align-items:center; gap:2px; margin-left:auto; flex-shrink:0;
+}
+.ve-zoom-btn {
+  padding:2px 8px; border:1px solid var(--border); border-radius:4px;
+  background:transparent; color:var(--muted); font-size:13px; cursor:pointer;
+  line-height:1.4;
+}
+.ve-zoom-btn:hover { border-color:var(--accent); color:var(--accent); }
+.ve-zoom-pct {
+  font-size:11px; color:var(--muted); min-width:36px; text-align:center;
+}
+
+/* edges */
+.ve-edge { fill:none; stroke:#444c56; stroke-width:2; }
+.ve-edge.selected { stroke:#58a6ff; stroke-width:2.5; }
+.ve-edge.connecting { stroke:#58a6ff; stroke-width:1.5; stroke-dasharray:6,4; }
+
+/* graph nodes */
 .ve-node {
-  display:flex; align-items:stretch; gap:0;
+  position:absolute; width:200px;
+  display:flex; align-items:stretch;
   border:1px solid var(--border); border-radius:8px;
-  background:var(--surface); cursor:pointer;
+  background:var(--surface); cursor:default; user-select:none;
   transition:border-color 0.15s, box-shadow 0.15s;
-  position:relative;
+  z-index:1;
 }
 .ve-node.selected { border-color:var(--accent); box-shadow:0 0 0 2px rgba(88,166,255,.2); }
-.ve-node:hover:not(.selected) { border-color: #444c56; }
-.ve-node-phase {
-  width:4px; border-radius:7px 0 0 7px; flex-shrink:0;
+.ve-node:hover:not(.selected) { border-color:#444c56; }
+.ve-node-body { flex:1; padding:8px 10px; min-width:0; text-align:center; }
+.ve-node-name {
+  font-size:13px; font-weight:600; color:var(--text);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  display:block; margin-bottom:3px;
 }
-.ve-node[data-phase="input"]    .ve-node-phase { background:#3fb950; }
-.ve-node[data-phase="metainfo"] .ve-node-phase { background:#d2a8ff; }
-.ve-node[data-phase="filter"]   .ve-node-phase { background:#58a6ff; }
-.ve-node[data-phase="modify"]   .ve-node-phase { background:#56d364; }
-.ve-node[data-phase="output"]   .ve-node-phase { background:#ffa657; }
-.ve-node[data-phase="learn"]    .ve-node-phase { background:#e8b186; }
-.ve-node-drag {
-  display:flex; align-items:center; padding:0 8px; color:var(--muted);
-  font-size:14px; cursor:grab; user-select:none;
-}
-.ve-node-drag:active { cursor:grabbing; }
-.ve-node-body { flex:1; padding:8px 6px; min-width:0; }
-.ve-node-name { font-size:13px; font-weight:600; color:var(--text); }
-.ve-node-phase-label { font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; }
 .ve-node-preview {
   font-size:11px; color:var(--muted); margin-top:3px;
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
@@ -452,19 +552,180 @@ section { margin-bottom: 32px; }
   color:var(--muted); background:none; border:none; cursor:pointer; font-size:16px;
 }
 .ve-node-remove:hover { color:var(--red); }
-.ve-pipe-cap {
-  font-size:11px; color:var(--muted); text-align:center;
-  padding:6px 0; user-select:none;
+
+/* Node comment button — appears on hover; stays visible when comment is set */
+.ve-node-comment-btn {
+  position:absolute; top:4px; right:34px;
+  background:none; border:none; color:var(--muted); cursor:pointer;
+  font-size:11px; font-weight:700; padding:2px 4px; border-radius:3px;
+  opacity:0; transition:opacity .15s;
 }
+.ve-node:hover .ve-node-comment-btn { opacity:.7; }
+.ve-node-comment-btn:hover { opacity:1 !important; background:rgba(255,255,255,.06); }
+.ve-node-comment-btn.has-comment { opacity:1; color:var(--accent); }
+
+/* Comment preview inside node card */
+.ve-node-comment-preview {
+  font-size:10px; color:var(--muted); margin-top:3px;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  font-style:italic;
+}
+
+/* While drawing a connection, source nodes are invalid drop targets. */
+.ve-graph-canvas.is-connecting .ve-node[data-role="source"] {
+  opacity:0.45; cursor:not-allowed;
+}
+.ve-graph-canvas.is-connecting .ve-node[data-role="source"] * {
+  pointer-events:none;
+}
+/* List-source nodes are already spoken for — can't also be regular upstreams. */
+.ve-graph-canvas.is-connecting .ve-node[data-is-list-node="true"] {
+  opacity:0.25; cursor:not-allowed;
+}
+.ve-graph-canvas.is-connecting .ve-node[data-is-list-node="true"] * { pointer-events:none; }
+/* While drawing a search connection, non-search nodes are invalid drop targets. */
+.ve-graph-canvas.is-searchconnecting .ve-node:not([data-is-search="true"]) {
+  opacity:0.4; cursor:not-allowed;
+}
+.ve-graph-canvas.is-searchconnecting .ve-node:not([data-is-search="true"]) * { pointer-events:none; }
+.ve-graph-canvas.is-searchconnecting .ve-node[data-is-search="true"]:not([data-is-search-nd="true"]) {
+  border-color:#d2a8ff; box-shadow:0 0 0 3px rgba(210,168,255,.2);
+}
+
+/* While drawing a list connection, non-list-plugin nodes are invalid targets. */
+.ve-graph-canvas.is-listconnecting .ve-node:not([data-is-list="true"]) {
+  opacity:0.4; cursor:not-allowed;
+}
+.ve-graph-canvas.is-listconnecting .ve-node:not([data-is-list="true"]) * { pointer-events:none; }
+.ve-graph-canvas.is-listconnecting .ve-node[data-is-list="true"]:not([data-is-list-nd="true"]) {
+  border-color:#0d9373; box-shadow:0 0 0 3px rgba(13,147,115,.2);
+}
+
+/* Search-connected nodes: dashed purple border */
+.ve-node.ve-node-search {
+  border-style:dashed; border-color:#9a6ad8;
+  background:rgba(154,106,216,.06);
+}
+.ve-node.ve-node-search.selected { border-color:#d2a8ff; box-shadow:0 0 0 2px rgba(210,168,255,.25); }
+.ve-node-search-badge {
+  display:inline-block; padding:1px 5px; border-radius:3px;
+  font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:.05em;
+  border:1px solid #9a6ad8; color:#d2a8ff; background:transparent; flex-shrink:0;
+}
+
+/* List-connected nodes: dashed teal border */
+.ve-node.ve-node-list {
+  border-style:dashed; border-color:#0d9373;
+  background:rgba(13,147,115,.06);
+}
+.ve-node.ve-node-list.selected { border-color:#2dd4b8; box-shadow:0 0 0 2px rgba(13,147,115,.25); }
+.ve-node-list-badge {
+  display:inline-block; padding:1px 5px; border-radius:3px;
+  font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:.05em;
+  border:1px solid #0d9373; color:#2dd4b8; background:transparent; flex-shrink:0;
+}
+
+/* list-port circle at the TOP of AcceptsList nodes (it is an input) */
+.ve-node-list-port {
+  position:absolute; top:-11px; left:50%; transform:translateX(-50%);
+  width:22px; height:22px; border-radius:50%;
+  background:#0d9373; border:2px solid var(--bg);
+  display:flex; align-items:center; justify-content:center;
+  font-size:7px; font-weight:700; color:#fff; letter-spacing:.02em;
+  cursor:default; z-index:3; user-select:none;
+  transition:transform .15s, box-shadow .15s;
+}
+.ve-node-list-port.dragover {
+  transform:translateX(-50%) scale(1.25);
+  box-shadow:0 0 0 4px rgba(13,147,115,.35);
+}
+
+/* list-edges: teal dashed */
+.ve-list-edge { fill:none; stroke:#0d9373; stroke-width:1.5; stroke-dasharray:5,3; pointer-events:none; }
+.ve-list-edge.selected { stroke:#2dd4b8; stroke-width:2; }
+.ve-list-edge.connecting { stroke:#2dd4b8; stroke-width:1.5; stroke-dasharray:5,3; }
+
+/* Palette list-plugin chip badge */
+.ve-chip-list-badge {
+  display:inline-block; margin-left:5px; padding:1px 4px;
+  font-size:8px; font-weight:700; text-transform:uppercase; letter-spacing:.04em;
+  border-radius:3px; border:1px solid rgba(13,147,115,.5);
+  background:rgba(13,147,115,.15); color:#2dd4b8;
+  vertical-align:middle; line-height:1.4; pointer-events:none;
+}
+.ve-chip.ve-chip-list:hover { border-color:#2dd4b8; color:#2dd4b8; }
+
+/* search-port circle at the bottom of AcceptsSearch nodes */
+.ve-node-search-port {
+  position:absolute; bottom:-11px; left:50%; transform:translateX(-50%);
+  width:22px; height:22px; border-radius:50%;
+  background:#9a6ad8; border:2px solid var(--bg);
+  display:flex; align-items:center; justify-content:center;
+  font-size:7px; font-weight:700; color:#fff; letter-spacing:.02em;
+  cursor:default; z-index:3; user-select:none;
+  transition:transform .15s, box-shadow .15s;
+}
+.ve-node-search-port.dragover {
+  transform:translateX(-50%) scale(1.25);
+  box-shadow:0 0 0 4px rgba(154,106,216,.35);
+}
+
+/* search-edges: dashed purple lines */
+.ve-search-edge { fill:none; stroke:#9a6ad8; stroke-width:1.5; stroke-dasharray:5,3; pointer-events:none; }
+.ve-search-edge.selected { stroke:#d2a8ff; stroke-width:2; }
+.ve-search-edge.connecting { stroke:#d2a8ff; stroke-width:1.5; stroke-dasharray:5,3; }
+
+/* input port indicator — hidden by default, revealed during output-port drag */
+.ve-node-in-port {
+  position:absolute; left:-7px; top:50%; transform:translateY(-50%);
+  width:14px; height:14px; border-radius:50%;
+  background:var(--surface); border:2px solid var(--border);
+  z-index:2; opacity:0; pointer-events:none;
+  transition:opacity .12s, border-color .12s, background .12s;
+}
+/* Show on valid drop targets (excludes source, would-create-cycle, sub-nodes) */
+.ve-graph-canvas.is-connecting .ve-node:not(.is-connect-source):not(.would-create-cycle):not([data-role="source"]):not([data-is-search-nd="true"]):not([data-is-list-nd="true"]) .ve-node-in-port {
+  opacity:1;
+  border-color:var(--accent);
+  background:rgba(88,166,255,.2);
+}
+/* Brighter highlight when hovering over a valid target */
+.ve-graph-canvas.is-connecting .ve-node:not(.is-connect-source):not(.would-create-cycle):not([data-role="source"]):not([data-is-search-nd="true"]):not([data-is-list-nd="true"]):hover .ve-node-in-port {
+  border-color:#a5cfff;
+  background:rgba(88,166,255,.4);
+}
+/* Dim ancestor nodes that would close a cycle — no input indicator */
+.ve-graph-canvas.is-connecting .ve-node.would-create-cycle {
+  opacity:0.3; cursor:not-allowed;
+}
+.ve-graph-canvas.is-connecting .ve-node.would-create-cycle * { pointer-events:none; }
+
+/* output port (drag-to-connect handle) */
+.ve-node-out-port {
+  position:absolute; right:-7px; top:50%; transform:translateY(-50%);
+  width:14px; height:14px; border-radius:50%; background:var(--surface);
+  border:2px solid var(--border); cursor:crosshair; z-index:2;
+  opacity:0; transition:opacity 0.15s, border-color 0.15s;
+}
+.ve-node:hover .ve-node-out-port { opacity:1; }
+.ve-node[data-role="source"]    .ve-node-out-port { border-color:#3fb950; }
+.ve-node[data-role="processor"] .ve-node-out-port { border-color:#58a6ff; }
+.ve-node-out-port:hover { background:rgba(88,166,255,.15); }
+/* sink chain port: amber colour, shown on hover like regular ports */
+.ve-node[data-role="sink"] .ve-node-out-port.ve-node-chain-port { border-color:#e3b341; }
+.ve-node[data-role="sink"] .ve-node-out-port.ve-node-chain-port:hover { background:rgba(227,179,65,.15); }
+/* sink→sink chain edge: amber dashed stroke */
+.ve-chain-edge { fill:none; stroke:#e3b341; stroke-width:1.5; stroke-dasharray:6,3; pointer-events:none; }
+.ve-chain-edge.selected { stroke:#f0d070; stroke-width:2; }
+
 .ve-empty-canvas {
+  position:absolute; inset:0;
   display:flex; flex-direction:column; align-items:center; justify-content:center;
-  height:100%; gap:8px; color:var(--muted); font-size:13px;
+  gap:8px; color:var(--muted); font-size:13px;
 }
 .ve-empty-canvas svg { opacity:.3; }
-.ve-sync-bar {
-  display:flex; gap:6px; align-items:center; margin-top:6px; flex-wrap:wrap;
-}
-.ve-sync-note { font-size:11px; color:var(--muted); margin-left:auto; }
+/* sync note now lives in the toolbar bar */
+.ve-sync-note { font-size:11px; color:var(--muted); flex:1; text-align:center; }
 
 /* param panel */
 .ve-param-panel {
@@ -523,6 +784,14 @@ section { margin-bottom: 32px; }
 .ve-kv-del:hover { color:var(--red); }
 .ve-add-kv { font-size:11px; color:var(--muted); background:none; border:none; cursor:pointer; padding:0; margin-top:2px; }
 .ve-add-kv:hover { color:var(--accent); }
+.ve-multiline-btn {
+  width:100%; text-align:left; background:var(--input-bg,#1e1e1e); border:1px solid var(--border);
+  border-radius:4px; padding:5px 8px; cursor:pointer; color:var(--text); font-size:12px;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.ve-multiline-btn:hover { border-color:var(--accent); }
+.ve-multiline-preview { opacity:.8; }
+.ve-multiline-empty { color:var(--muted); font-style:italic; }
 .ve-param-footer {
   padding:10px 14px; border-top:1px solid var(--border); flex-shrink:0;
 }
@@ -532,6 +801,127 @@ section { margin-bottom: 32px; }
   border-radius:5px; cursor:pointer; font-size:12px;
 }
 .ve-remove-btn:hover { background:rgba(248,81,73,.08); }
+
+/* DAG visual editor — role-based colours and new components */
+
+/* Role colour palette */
+.ve-role-source    { color:#3fb950; border-color:#3fb950; }
+.ve-role-processor { color:#58a6ff; border-color:#58a6ff; }
+.ve-role-sink      { color:#ffa657; border-color:#ffa657; }
+
+/* Palette role group headers */
+.ve-role-header {
+  font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.06em;
+  color:var(--muted); padding:8px 4px 4px; user-select:none;
+  display:flex; align-items:center; gap:6px; cursor:pointer;
+}
+.ve-role-header[data-role="source"]::before    { content:''; display:inline-block; width:8px; height:8px; border-radius:50%; flex-shrink:0; background:#3fb950; }
+.ve-role-header[data-role="processor"]::before { content:''; display:inline-block; width:8px; height:8px; border-radius:50%; flex-shrink:0; background:#58a6ff; }
+.ve-role-header[data-role="sink"]::before      { content:''; display:inline-block; width:8px; height:8px; border-radius:50%; flex-shrink:0; background:#ffa657; }
+
+/* Chip role colouring */
+.ve-chip[data-role="source"]:hover    { border-color:#3fb950; color:#3fb950; }
+.ve-chip[data-role="processor"]:hover { border-color:#58a6ff; color:#58a6ff; }
+.ve-chip[data-role="sink"]:hover      { border-color:#ffa657; color:#ffa657; }
+
+/* Ghost chip rendered during palette drag (styles applied inline to avoid
+   width:100% inheritance and CSS-variable context issues). */
+/* Search-plugin chips */
+.ve-chip.ve-chip-search:hover { border-color:#d2a8ff; color:#d2a8ff; }
+.ve-chip-search-badge {
+  display:inline-block; margin-left:5px; padding:1px 4px;
+  font-size:8px; font-weight:700; text-transform:uppercase; letter-spacing:.04em;
+  border-radius:3px; border:1px solid rgba(154,106,216,.5);
+  background:rgba(154,106,216,.15); color:#d2a8ff;
+  vertical-align:middle; line-height:1.4; pointer-events:none;
+}
+
+/* Pipeline name bar */
+.ve-pipeline-bar {
+  display:flex; align-items:center; gap:8px;
+  padding:8px 14px; border-bottom:1px solid var(--border); flex-shrink:0;
+}
+.ve-pipeline-name-input {
+  flex:1; padding:4px 8px; border:1px solid var(--border); border-radius:5px;
+  background:var(--bg); color:var(--text); font-size:13px; font-weight:600;
+  font-family:inherit; outline:none;
+}
+.ve-pipeline-name-input:focus { border-color:var(--accent); }
+
+/* Node role stripe */
+.ve-node-role-bar {
+  width:4px; border-radius:7px 0 0 7px; flex-shrink:0; background:var(--border);
+}
+.ve-node[data-role="source"]    .ve-node-role-bar { background:#3fb950; }
+.ve-node[data-role="processor"] .ve-node-role-bar { background:#58a6ff; }
+.ve-node[data-role="sink"]      .ve-node-role-bar { background:#ffa657; }
+
+/* Node name and badge are stacked (no header wrapper) */
+
+/* Role badge pill */
+.ve-node-role-badge {
+  font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:.05em;
+  padding:1px 5px; border-radius:3px; border:1px solid; flex-shrink:0;
+  background:transparent;
+}
+
+/* Inline warning on canvas node */
+.ve-node-warn { font-size:10px; color:var(--amber); margin-top:3px; }
+
+/* Upstream checkbox rows in param panel */
+.ve-upstream-row {
+  display:flex; align-items:center; gap:6px; padding:3px 0;
+  font-size:12px; cursor:pointer;
+}
+.ve-upstream-row input { cursor:pointer; }
+.ve-upstream-id {
+  font-family:'SFMono-Regular',Consolas,monospace; font-size:11px;
+  background:rgba(88,166,255,.1); color:var(--accent); padding:0 4px; border-radius:2px;
+}
+
+/* Separator line between param panel sections */
+.ve-field-sep { height:1px; background:var(--border); margin:10px 0; }
+
+/* ── condition plugin rules editor ─────────────────────── */
+.ve-cond-rules { display:flex; flex-direction:column; gap:4px; }
+.ve-cond-empty { font-size:12px; color:var(--muted); padding:4px 0; }
+.ve-cond-row   { display:flex; align-items:center; gap:4px; }
+.ve-cond-type  {
+  flex-shrink:0; font-size:10px; font-weight:700; text-transform:uppercase;
+  letter-spacing:.04em; padding:2px 7px; border-radius:3px; border:none;
+  cursor:pointer; min-width:54px; text-align:center; transition:background .1s;
+}
+.ve-cond-type.reject { background:rgba(248,81,73,.15); color:var(--red); }
+.ve-cond-type.reject:hover { background:rgba(248,81,73,.28); }
+.ve-cond-type.accept { background:rgba(63,185,80,.15);  color:var(--green); }
+.ve-cond-type.accept:hover { background:rgba(63,185,80,.28); }
+.ve-cond-expr {
+  flex:1; font-family:'SFMono-Regular',Consolas,monospace; font-size:11px;
+  padding:3px 6px; border:1px solid var(--border); border-radius:3px;
+  background:var(--bg); color:var(--text); min-width:0;
+}
+.ve-cond-expr:focus { border-color:var(--accent); outline:none; }
+.ve-cond-del {
+  flex-shrink:0; background:none; border:none; color:var(--muted);
+  cursor:pointer; font-size:14px; padding:0 2px; line-height:1;
+}
+.ve-cond-del:hover { color:var(--red); }
+
+/* Connection warning in param panel */
+.ve-conn-warn {
+  font-size:11px; color:var(--amber); padding:6px 8px;
+  border:1px solid rgba(210,153,34,.35); border-radius:5px; margin-bottom:10px;
+  background:rgba(210,153,34,.06);
+}
+
+/* Produces/Requires info block in param panel */
+.ve-field-hint-block {
+  font-size:11px; color:var(--muted); margin-bottom:6px; line-height:1.6;
+}
+.ve-field-hint-block code {
+  font-family:'SFMono-Regular',Consolas,monospace; font-size:10px;
+  background:var(--surface); padding:0 4px; border-radius:2px;
+}
 
 /* settings tab */
 .settings-section { max-width: 480px; }
@@ -596,3 +986,49 @@ section { margin-bottom: 32px; }
 .db-pager-info { color: var(--muted); font-size: 12px; flex: 1; text-align: center; }
 .db-pager-size { display: flex; align-items: center; gap: 4px; color: var(--muted); font-size: 12px; margin-left: auto; }
 .db-pager-size select { background: var(--surface); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-size: 12px; padding: 2px 4px; }
+
+
+/* ── multiline text pop-up editor ──────────────────────────────────────────── */
+.ve-text-popup {
+  display:none; position:fixed; inset:0;
+  background:rgba(0,0,0,.55); z-index:2000;
+  align-items:center; justify-content:center;
+}
+.ve-text-popup-inner {
+  background:var(--surface); border:1px solid var(--border);
+  border-radius:10px; width:500px; max-width:92vw;
+  display:flex; flex-direction:column;
+  box-shadow:0 8px 40px rgba(0,0,0,.5);
+}
+.ve-text-popup-header {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:12px 16px; border-bottom:1px solid var(--border);
+}
+.ve-text-popup-title { font-size:13px; font-weight:600; color:var(--text); }
+.ve-text-popup-close {
+  background:none; border:none; color:var(--muted);
+  font-size:18px; cursor:pointer; padding:0 4px; line-height:1;
+}
+.ve-text-popup-close:hover { color:var(--text); }
+.ve-text-popup-ta {
+  resize:vertical; min-height:130px;
+  margin:12px 16px; padding:8px 10px;
+  background:var(--bg); border:1px solid var(--border); border-radius:6px;
+  color:var(--text); font-family:inherit; font-size:13px;
+  outline:none; line-height:1.65;
+}
+.ve-text-popup-ta:focus { border-color:var(--accent); }
+.ve-text-popup-footer {
+  display:flex; justify-content:flex-end; gap:8px;
+  padding:10px 16px; border-top:1px solid var(--border);
+}
+.ve-text-popup-save {
+  padding:5px 18px; background:var(--accent); color:#fff;
+  border:none; border-radius:5px; cursor:pointer; font-size:13px; font-weight:500;
+}
+.ve-text-popup-save:hover { opacity:.85; }
+.ve-text-popup-cancel {
+  padding:5px 14px; background:transparent; color:var(--muted);
+  border:1px solid var(--border); border-radius:5px; cursor:pointer; font-size:13px;
+}
+.ve-text-popup-cancel:hover { color:var(--text); }

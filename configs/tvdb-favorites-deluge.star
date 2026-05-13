@@ -1,36 +1,29 @@
 # tvdb-favorites-deluge.star
 #
 # Downloads HD episodes for every show in the TheTVDB favorites list via Deluge.
+# tvdb_favorites is used both as a standalone source (for the show list) and
+# to drive metainfo enrichment.
 
-tvdb_api_key  = "YOUR_TVDB_API_KEY"
-tvdb_user_pin = "YOUR_TVDB_USER_PIN"
+tvdb_api_key  = env("TVDB_API_KEY", default="YOUR_TVDB_KEY")
+tvdb_user_pin = env("TVDB_USER_PIN", default="YOUR_TVDB_PIN")
 deluge_host   = "localhost"
 deluge_pass   = "changeme"
 tv_path       = "/media/tv"
 
-def common_input():
-    return [
-        plugin("rss", url="https://example.com/rss/shows"),
-        plugin("seen"),
-    ]
+src     = input("rss", url="https://example.com/rss/shows")
+seen    = process("seen",             upstream=src)
+q       = process("metainfo_quality", upstream=seen)
+series  = process("series",           upstream=q,
+                   tracking="strict", quality="720p+", ttl="2h",
+                   list=[{"name":     "tvdb_favorites",
+                          "api_key":  tvdb_api_key,
+                          "user_pin": tvdb_user_pin}])
+tvdb    = process("metainfo_tvdb",    upstream=series, api_key=tvdb_api_key)
+fmt     = process("pathfmt",          upstream=tvdb,
+                   path=tv_path + "/{title}/Season {series_season:02d}",
+                   field="download_path")
+output("deluge", upstream=fmt,
+       host=deluge_host, password=deluge_pass,
+       move_completed_path="{download_path}")
 
-task("tv-favorites",
-    common_input() + [
-        plugin("metainfo_quality"),
-        plugin("series", {
-            "tracking": "strict",
-            "quality":  "720p",
-            "ttl":      "2h",
-            "from": [{"name":     "tvdb_favorites",
-                      "api_key":  tvdb_api_key,
-                      "user_pin": tvdb_user_pin}],
-        }),
-        plugin("metainfo_tvdb", api_key=tvdb_api_key),
-        plugin("pathfmt",
-            path=tv_path + "/{title}/Season {series_season:02d}",
-            field="download_path"),
-        plugin("deluge",
-            host=deluge_host, password=deluge_pass,
-            path="{download_path}"),
-    ],
-    schedule="1h")
+pipeline("tv-favorites", schedule="1h")

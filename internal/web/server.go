@@ -10,6 +10,8 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -20,7 +22,7 @@ import (
 	"github.com/brunoga/pipeliner/internal/store"
 )
 
-//go:embed ui
+//go:embed ui/index.html ui/style.css ui/dashboard.js ui/highlight.js ui/config-editor.js ui/visual-editor.js ui/database.js ui/trakt.js
 var uiFS embed.FS
 
 // DaemonControl is the scheduler interface the Server uses.
@@ -454,18 +456,25 @@ func (s *Server) apiSaveConfig(w http.ResponseWriter, r *http.Request) {
 // field schema, for use by the visual pipeline editor's plugin palette.
 func (s *Server) apiPlugins(w http.ResponseWriter, _ *http.Request) {
 	type fieldResp struct {
-		Key      string   `json:"key"`
-		Type     string   `json:"type"`
-		Required bool     `json:"required"`
-		Default  any      `json:"default,omitempty"`
-		Enum     []string `json:"enum,omitempty"`
-		Hint     string   `json:"hint,omitempty"`
+		Key       string   `json:"key"`
+		Type      string   `json:"type"`
+		Required  bool     `json:"required"`
+		Default   any      `json:"default,omitempty"`
+		Enum      []string `json:"enum,omitempty"`
+		Hint      string   `json:"hint,omitempty"`
+		Multiline bool     `json:"multiline,omitempty"`
 	}
 	type pluginResp struct {
 		Name        string      `json:"name"`
-		Phase       string      `json:"phase"`
+		Role        string      `json:"role"`
 		Description string      `json:"description"`
-		Schema      []fieldResp `json:"schema"` // empty slice, never null
+		Produces    []string    `json:"produces"` // entry field names this plugin writes
+		Requires    []string    `json:"requires"` // entry field names this plugin reads
+		Schema      []fieldResp `json:"schema"`   // empty slice, never null
+		AcceptsSearch  bool        `json:"accepts_search,omitempty"`
+		IsSearchPlugin bool        `json:"is_search_plugin,omitempty"`
+		AcceptsList    bool        `json:"accepts_list,omitempty"`
+		IsListPlugin   bool        `json:"is_list_plugin,omitempty"`
 	}
 
 	descs := plugin.All()
@@ -474,19 +483,34 @@ func (s *Server) apiPlugins(w http.ResponseWriter, _ *http.Request) {
 		fields := make([]fieldResp, 0, len(d.Schema))
 		for _, f := range d.Schema {
 			fields = append(fields, fieldResp{
-				Key:      f.Key,
-				Type:     string(f.Type),
-				Required: f.Required,
-				Default:  f.Default,
-				Enum:     f.Enum,
-				Hint:     f.Hint,
+				Key:       f.Key,
+				Type:      string(f.Type),
+				Required:  f.Required,
+				Default:   f.Default,
+				Enum:      f.Enum,
+				Hint:      f.Hint,
+				Multiline: f.Multiline,
 			})
 		}
+		produces := d.Produces
+		if produces == nil {
+			produces = []string{}
+		}
+		requires := d.Requires
+		if requires == nil {
+			requires = []string{}
+		}
 		out = append(out, pluginResp{
-			Name:        d.PluginName,
-			Phase:       string(d.PluginPhase),
-			Description: d.Description,
-			Schema:      fields,
+			Name:           d.PluginName,
+			Role:           string(d.EffectiveRole()),
+			Description:    d.Description,
+			Produces:       produces,
+			Requires:       requires,
+			Schema:         fields,
+			AcceptsSearch:  d.AcceptsSearch,
+			IsSearchPlugin: d.IsSearchPlugin,
+			AcceptsList:    d.AcceptsList,
+			IsListPlugin:   d.IsListPlugin,
 		})
 	}
 	writeJSON(w, out)
@@ -511,28 +535,242 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Build JSON-friendly response.
-	type pluginResp struct {
-		Name   string         `json:"name"`
-		Config map[string]any `json:"config"`
+	// Scan raw text for user comments and per-node layout positions.
+	nodeComments, pipelineComments, nodePositions := scanComments(req.Content)
+
+	// DAG graphs.
+	type subPluginResp struct {
+		PluginName string         `json:"plugin"`
+		Config     map[string]any `json:"config"`
+		X          *float64       `json:"x,omitempty"`
+		Y          *float64       `json:"y,omitempty"`
 	}
-	type taskResp struct {
-		Plugins  []pluginResp `json:"plugins"`
-		Schedule string       `json:"schedule,omitempty"`
+	type nodeResp struct {
+		ID         string          `json:"id"`
+		PluginName string          `json:"plugin"`
+		Config     map[string]any  `json:"config"`
+		Upstreams  []string        `json:"upstreams"`
+		Search     []subPluginResp `json:"search,omitempty"`
+		List       []subPluginResp `json:"list,omitempty"`
+		Comment    string          `json:"comment,omitempty"`
+		X          *float64        `json:"x,omitempty"`
+		Y          *float64        `json:"y,omitempty"`
 	}
-	tasks := make(map[string]taskResp, len(c.Tasks))
-	for name, pcs := range c.Tasks {
-		plugins := make([]pluginResp, len(pcs))
-		for i, pc := range pcs {
-			cfg := pc.Config
+	type graphResp struct {
+		Nodes    []nodeResp `json:"nodes"`
+		Schedule string     `json:"schedule,omitempty"`
+		Comment  string     `json:"comment,omitempty"`
+	}
+	graphs := make(map[string]graphResp, len(c.Graphs))
+	for name, g := range c.Graphs {
+		nodes := make([]nodeResp, 0, g.Len())
+		for _, n := range g.Nodes() {
+			ups := make([]string, len(n.Upstreams))
+			for i, u := range n.Upstreams {
+				ups[i] = string(u)
+			}
+			cfg := n.Config
 			if cfg == nil {
 				cfg = map[string]any{}
+			} else {
+				// Clone so we can remove "search" without mutating the graph.
+				clone := make(map[string]any, len(cfg))
+				for k, v := range cfg {
+					clone[k] = v
+				}
+				cfg = clone
 			}
-			plugins[i] = pluginResp{Name: pc.Name, Config: cfg}
+
+			// extractSubPlugins pulls a named list key from cfg into a typed
+			// slice and removes it from the map so the editor models it separately.
+			extractSubPlugins := func(key string) []subPluginResp {
+				raw, ok := cfg[key].([]any)
+				if !ok {
+					return nil
+				}
+				var out []subPluginResp
+				for _, item := range raw {
+					pName, pCfg, err := plugin.ResolveNameAndConfig(item)
+					if err == nil {
+						if pCfg == nil {
+							pCfg = map[string]any{}
+						}
+						out = append(out, subPluginResp{PluginName: pName, Config: pCfg})
+					}
+				}
+				delete(cfg, key)
+				return out
+			}
+
+			var search, list []subPluginResp
+			if desc, ok := plugin.Lookup(n.PluginName); ok {
+				if desc.AcceptsSearch { search = extractSubPlugins("search") }
+				if desc.AcceptsList   { list   = extractSubPlugins("list")   }
+			}
+
+			if pos, ok := nodePositions[string(n.ID)]; ok {
+				for i := range list {
+					if i < len(pos.List) {
+						lx, ly := pos.List[i][0], pos.List[i][1]
+						list[i].X = &lx
+						list[i].Y = &ly
+					}
+				}
+				for i := range search {
+					if i < len(pos.Search) {
+						sx, sy := pos.Search[i][0], pos.Search[i][1]
+						search[i].X = &sx
+						search[i].Y = &sy
+					}
+				}
+			}
+			nr := nodeResp{
+				ID:         string(n.ID),
+				PluginName: n.PluginName,
+				Config:     cfg,
+				Upstreams:  ups,
+				Search:     search,
+				List:       list,
+				Comment:    nodeComments[string(n.ID)],
+			}
+			if pos, ok := nodePositions[string(n.ID)]; ok {
+				x, y := pos.Main[0], pos.Main[1]
+				nr.X = &x
+				nr.Y = &y
+			}
+			nodes = append(nodes, nr)
 		}
-		tasks[name] = taskResp{Plugins: plugins, Schedule: c.Schedules[name]}
+		graphs[name] = graphResp{
+			Nodes:    nodes,
+			Schedule: c.GraphSchedules[name],
+			Comment:  pipelineComments[name],
+		}
 	}
-	writeJSON(w, map[string]any{"tasks": tasks})
+
+	writeJSON(w, map[string]any{"graphs": graphs})
+}
+
+// nodePosData stores canvas positions for a node and its ordered list/search sub-nodes.
+// Y values are relative to the pipeline region top (same convention as the comment format).
+type nodePosData struct {
+	Main   [2]float64
+	List   [][2]float64 // one entry per list= item, in order
+	Search [][2]float64 // one entry per search= item, in order
+}
+
+// scanComments extracts user-visible comments and per-node layout positions from
+// raw Starlark text. It looks for contiguous # comment blocks immediately
+// preceding node assignments (id = input/process/output) and pipeline() calls.
+//
+// "# pipeliner:pos X Y [list X Y ...] [search X Y ...]" stores the main node
+// position followed by optional ordered positions for list and search sub-nodes.
+// Y values are relative to the pipeline region top. Consumed as metadata and
+// not included in the user-visible comment.
+//
+// "# pipeliner:layout {...}" (legacy aggregate format) is also accepted for
+// backward compatibility: positions are distributed to the named node IDs.
+//
+// All other "# pipeliner:*" lines are silently skipped (future metadata).
+func scanComments(content string) (
+	nodeComments     map[string]string,
+	pipelineComments map[string]string,
+	nodePositions    map[string]nodePosData,
+) {
+	nodeComments     = make(map[string]string)
+	pipelineComments = make(map[string]string)
+	nodePositions    = make(map[string]nodePosData)
+
+	nodeRe     := regexp.MustCompile(`^([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(input|process|output)\s*\(`)
+	pipelineRe := regexp.MustCompile(`^pipeline\s*\(\s*"([^"]+)"`)
+
+	var commentLines []string
+	var pendingPos   *nodePosData
+
+	parsePairs := func(parts []string, start int, stop func(string) bool) ([][2]float64, int) {
+		var out [][2]float64
+		i := start
+		for i+1 < len(parts) {
+			if stop(parts[i]) {
+				break
+			}
+			x, ex := strconv.ParseFloat(parts[i], 64)
+			y, ey := strconv.ParseFloat(parts[i+1], 64)
+			if ex != nil || ey != nil {
+				break
+			}
+			out = append(out, [2]float64{x, y})
+			i += 2
+		}
+		return out, i
+	}
+
+	for _, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		switch {
+		case trimmed == "":
+			commentLines = nil // blank line breaks comment association
+
+		case strings.HasPrefix(trimmed, "#"):
+			rest := strings.TrimSpace(strings.TrimPrefix(trimmed, "#"))
+			switch {
+			case strings.HasPrefix(rest, "pipeliner:pos "):
+				parts := strings.Fields(strings.TrimPrefix(rest, "pipeliner:pos "))
+				if len(parts) >= 2 {
+					x, errX := strconv.ParseFloat(parts[0], 64)
+					y, errY := strconv.ParseFloat(parts[1], 64)
+					if errX == nil && errY == nil {
+						pd := nodePosData{Main: [2]float64{x, y}}
+						isKeyword := func(s string) bool { return s == "list" || s == "search" }
+						i := 2
+						for i < len(parts) {
+							switch parts[i] {
+							case "list":
+								pd.List, i = parsePairs(parts, i+1, isKeyword)
+							case "search":
+								pd.Search, i = parsePairs(parts, i+1, isKeyword)
+							default:
+								i++
+							}
+						}
+						pendingPos = &pd
+					}
+				}
+			case strings.HasPrefix(rest, "pipeliner:layout "):
+				// Legacy aggregate format — distribute to per-node positions.
+				var legacy map[string][2]float64
+				if err := json.Unmarshal([]byte(strings.TrimPrefix(rest, "pipeliner:layout ")), &legacy); err == nil {
+					for id, pos := range legacy {
+						if _, exists := nodePositions[id]; !exists {
+							nodePositions[id] = nodePosData{Main: pos}
+						}
+					}
+				}
+			case strings.HasPrefix(rest, "pipeliner:"):
+				// Other machine-managed metadata — skip silently.
+			default:
+				commentLines = append(commentLines, rest)
+			}
+
+		default:
+			if m := nodeRe.FindStringSubmatch(trimmed); m != nil {
+				nodeID := m[1]
+				if len(commentLines) > 0 {
+					nodeComments[nodeID] = strings.Join(commentLines, "\n")
+				}
+				if pendingPos != nil {
+					nodePositions[nodeID] = *pendingPos
+					pendingPos = nil
+				}
+			} else if m := pipelineRe.FindStringSubmatch(trimmed); m != nil {
+				if len(commentLines) > 0 {
+					pipelineComments[m[1]] = strings.Join(commentLines, "\n")
+				}
+				pendingPos = nil // pos must not cross pipeline boundaries
+			}
+			commentLines = nil
+		}
+	}
+	return
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

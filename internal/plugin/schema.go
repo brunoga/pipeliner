@@ -19,10 +19,11 @@ const (
 // without a schema still work but get a generic key-value editor in the
 // visual pipeline editor.
 type FieldSchema struct {
-	Key      string    // config map key, e.g. "url", "tracking"
-	Type     FieldType // expected value type
-	Required bool      // whether the key must be present
-	Default  any       // optional default shown as placeholder (nil = no default)
-	Enum     []string  // valid values for FieldTypeEnum
-	Hint     string    // one-line description shown in the visual editor
+	Key       string    // config map key, e.g. "url", "tracking"
+	Type      FieldType // expected value type
+	Required  bool      // whether the key must be present
+	Default   any       // optional default shown as placeholder (nil = no default)
+	Enum      []string  // valid values for FieldTypeEnum
+	Hint      string    // one-line description shown in the visual editor
+	Multiline bool      // opens a full text-editor modal instead of an inline input
 }

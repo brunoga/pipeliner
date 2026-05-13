@@ -1,124 +1,114 @@
 # Plugin Development Guide
 
-This guide covers everything you need to write a new pipeliner plugin: interfaces, registration, the entry model, persistence, caching, config validation, and the patterns for plugins that use other plugins as sub-components.
+This guide covers everything you need to write a new pipeliner plugin: the
+role interfaces, registration, the entry model, persistence, caching, config
+validation, and source-plugin patterns.
 
 ## Table of Contents
 
 1. [Concepts](#concepts)
-2. [Plugin phases and execution model](#plugin-phases-and-execution-model)
+2. [Plugin roles](#plugin-roles)
 3. [Registering a plugin](#registering-a-plugin)
 4. [The Entry data model](#the-entry-data-model)
 5. [Standard field system](#standard-field-system)
 6. [TaskContext](#taskcontext)
-7. [Plugin interfaces by phase](#plugin-interfaces-by-phase)
-   - [InputPlugin](#inputplugin)
-   - [MetainfoPlugin and BatchMetainfoPlugin](#metainfoplugin-and-batchmetainfoplugin)
-   - [FilterPlugin](#filterplugin)
-   - [ModifyPlugin](#modifyplugin)
-   - [OutputPlugin](#outputplugin)
-   - [LearnPlugin](#learnplugin)
+7. [Role interfaces](#role-interfaces)
+   - [SourcePlugin](#sourceplugin)
+   - [ProcessorPlugin](#processorplugin)
+   - [SinkPlugin](#sinkplugin)
+   - [ShutdownPlugin](#shutdownplugin)
    - [SearchPlugin](#searchplugin)
 8. [Config validation](#config-validation)
 9. [Persistence: the store and bucket API](#persistence-the-store-and-bucket-api)
 10. [Caching](#caching)
 11. [String interpolation](#string-interpolation)
-12. [Plugins that use other plugins](#plugins-that-use-other-plugins)
-13. [Combining multiple interfaces](#combining-multiple-interfaces)
-14. [Registering in main.go](#registering-in-maingo)
-15. [Complete examples](#complete-examples)
+12. [Registering in main.go](#registering-in-maingo)
+13. [Complete examples](#complete-examples)
 
 ---
 
 ## Concepts
 
-A pipeline **task** is an ordered sequence of plugins. Each plugin participates in exactly one phase. The task engine collects entries from all input plugins concurrently, then runs metainfo, filter, and modify plugins **in config-file order** (interleaved with each other), then passes accepted entries to all output plugins concurrently, and finally runs learn plugins to persist decisions.
+A pipeline connects **nodes** — each node is a configured plugin instance. Nodes
+are wired together via `upstream=` in the config and execute in topological order.
+Entries flow from source nodes through processor nodes to sink nodes.
 
 A plugin is a Go struct that:
-- implements the `plugin.Plugin` base interface (`Name() string`, `Phase() Phase`)
-- implements one additional phase-specific interface (e.g. `InputPlugin`, `FilterPlugin`)
-- is constructed by a **factory function** registered in a `plugin.Descriptor`
-- is registered via an `init()` function so it can be referenced by name in config files
+- implements `plugin.Plugin` (`Name() string`)
+- implements one of the three role interfaces (`SourcePlugin`, `ProcessorPlugin`, or `SinkPlugin`)
+- is constructed by a **factory function** in `plugin.Descriptor`
+- registers itself via `plugin.Register` in an `init()` function
 
 ---
 
-## Plugin phases and execution model
+## Plugin roles
 
-| Phase | Interface | Execution | Receives |
-|-------|-----------|-----------|----------|
-| `input` | `InputPlugin` | Concurrent — all inputs run in parallel | — |
-| `metainfo` | `MetainfoPlugin` / `BatchMetainfoPlugin` | Serial per entry (batch if implemented) | All entries from input |
-| `filter` | `FilterPlugin` / `BatchFilterPlugin` | Serial per entry (batch if implemented) | All entries |
-| `modify` | `ModifyPlugin` | Serial per entry | Undecided + Accepted entries |
-| *(dedup)* | *(automatic)* | Built-in, after all processing plugins | Accepted entries with series/movie fields |
-| `output` | `OutputPlugin` | Serial — plugins run in config order; each receives only entries still accepted at that point | Accepted entries only |
-| `learn` | `LearnPlugin` | Serial | Accepted entries only |
-| `from` | `SearchPlugin` / `InputPlugin` | Sub-plugins called by `series`, `movies`, `discover` | — |
+| Role | Interface | `input()` / `process()` / `output()` | Purpose |
+|------|-----------|--------------------------------------|---------|
+| **source** | `SourcePlugin` | `input("name", …)` | Produce entries from an external source |
+| **processor** | `ProcessorPlugin` | `process("name", upstream=…, …)` | Filter, enrich, or transform entries |
+| **sink** | `SinkPlugin` | `output("name", upstream=…, …)` | Act on accepted entries (download, notify, etc.) |
 
-**Execution order:**
-- The input phase is fully concurrent. Do not share mutable state between input plugin calls unless protected by a mutex.
-- Metainfo, filter, and modify plugins run **in config-file order**, interleaved with each other. A filter placed immediately after a metainfo plugin in the config will see the fields that metainfo plugin set.
-- Input results are deduplicated by URL before the processing pipeline begins.
-- Output plugins run in config order. Each receives only entries still accepted at the time it runs. An output plugin may call `e.Fail("reason")` to prevent that entry from reaching subsequent output plugins and the learn phase — useful for required outputs where failure means the download should be retried.
-
-**Automatic episode/movie deduplication:**
-
-After all processing plugins complete, the task engine automatically deduplicates accepted entries so that at most one copy of each episode or movie reaches the output phase. This means filter plugins (`series`, `premiere`, `movies`) should accept **all** qualifying entries — including multiple quality variants of the same item from different sources — and let the engine pick the best one.
-
-The winning entry is chosen by:
-1. **Seed tier** — entries with 2+ seeds always beat entries with exactly 1 seed
-2. **Resolution** — higher resolution wins within the same seed tier
-3. **Seeds** — more seeds wins when tier and resolution are equal
-
-Entries are keyed by `title` + `series_episode_id` for episodes, and `title` + `video_year` for movies. Entries without these fields are unaffected.
-
-For movies, 3D and non-3D versions are keyed separately (`title|year` vs `title|year|3d`) so both are downloaded independently rather than competing. Within a group of 3D candidates, the `Quality.Better()` comparison uses `Format3D` as the primary discriminator (BD3D > Full > Half), with resolution and other dimensions as tie-breakers.
-
-**Implication for stateful plugins:** Do not write tracking state (SQLite) in `Filter` — do it in `Learn`. `Learn` runs after output and receives only the entries that survived dedup, so only the winning copy is recorded as downloaded.
+The executor determines a plugin's role from `Descriptor.Role`.
 
 ---
 
 ## Registering a plugin
 
-Every plugin is registered by calling `plugin.Register` inside an `init()` function.
+Every plugin registers itself via `plugin.Register` inside an `init()` function.
 
 ```go
-package myplugin
+package myfilter
 
 import (
+    "context"
+
+    "github.com/brunoga/pipeliner/internal/entry"
     "github.com/brunoga/pipeliner/internal/plugin"
     "github.com/brunoga/pipeliner/internal/store"
 )
 
 func init() {
     plugin.Register(&plugin.Descriptor{
-        PluginName:  "my_plugin",          // referenced in config files
+        PluginName:  "my_filter",          // referenced in config: process("my_filter", …)
         Description: "one-line description shown by list-plugins",
-        PluginPhase: plugin.PhaseFilter,
+        Role:        plugin.RoleProcessor,
+        Produces:    []string{"my_field"}, // fields this plugin writes to entry.Fields
+        Requires:    []string{},           // fields required from upstream
         Factory:     newPlugin,
         Validate:    validate,             // optional but recommended
+        Schema: []plugin.FieldSchema{      // optional, enables visual editor form fields
+            {Key: "threshold", Type: plugin.FieldTypeInt, Default: 5,
+             Hint: "Minimum value to accept"},
+        },
     })
 }
 
 func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
-    // construct and return your plugin
+    threshold := 5
+    if v, ok := cfg["threshold"].(int); ok {
+        threshold = v
+    }
+    return &myFilterPlugin{threshold: threshold}, nil
 }
 
 func validate(cfg map[string]any) []error {
-    // validate config fields; see Config validation section
+    return plugin.OptUnknownKeys(cfg, "my_filter", "threshold")
 }
 ```
-
-`Register` panics if the same `PluginName` is registered twice. The name must be unique across the entire binary.
 
 ### Descriptor fields
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `PluginName` | `string` | Name used in config files and logs |
+| `PluginName` | `string` | Name used in config and logs |
 | `Description` | `string` | Short description for `pipeliner list-plugins` |
-| `PluginPhase` | `Phase` | Which pipeline phase this plugin participates in |
-| `Factory` | `func(map[string]any, *store.SQLiteStore) (Plugin, error)` | Constructor called at task build time |
-| `Validate` | `func(map[string]any) []error` | Optional config validator called by `pipeliner check` |
+| `Role` | `Role` | `RoleSource`, `RoleProcessor`, or `RoleSink` |
+| `Produces` | `[]string` | Entry field names this plugin writes |
+| `Requires` | `[]string` | Entry field names required from upstream |
+| `Factory` | `func(map[string]any, *store.SQLiteStore) (Plugin, error)` | Constructor |
+| `Validate` | `func(map[string]any) []error` | Optional config validator |
+| `Schema` | `[]FieldSchema` | Optional — enables typed form fields in the visual editor |
 
 ---
 
@@ -128,13 +118,13 @@ func validate(cfg map[string]any) []error {
 
 ```go
 type Entry struct {
-    Title        string         // human-readable name
-    URL          string         // canonical download URL (may be updated by modify plugins)
-    OriginalURL  string         // URL as received from input; never mutated
+    Title        string         // human-readable name (may be updated by metainfo)
+    URL          string         // canonical download URL
+    OriginalURL  string         // URL as received from the source; never mutated
     State        State          // Undecided | Accepted | Rejected | Failed
     RejectReason string
     FailReason   string
-    Task         string         // owning task name, set by the engine
+    Task         string         // owning pipeline name, set by the executor
     Fields       map[string]any // arbitrary metadata bag
 }
 ```
@@ -142,855 +132,604 @@ type Entry struct {
 ### State transitions
 
 ```go
-e.Accept()              // Undecided → Accepted (no-op if already Rejected)
-e.Reject("reason")      // any → Rejected (always wins)
+e.Accept()              // Undecided → Accepted  (no-op if already Rejected)
+e.Reject("reason")      // any → Rejected        (always wins over Accept)
 e.Fail("reason")        // any → Failed
 
-e.IsUndecided()
-e.IsAccepted()
-e.IsRejected()
-e.IsFailed()
+e.IsUndecided() bool
+e.IsAccepted()  bool
+e.IsRejected()  bool
+e.IsFailed()    bool
 ```
 
-`Reject` always wins. Once an entry is rejected it cannot be accepted. `Accept` is a no-op if the entry is already rejected.
-
-### Metadata fields
-
-Use the typed accessors to read fields set by other plugins:
+### Field accessors
 
 ```go
-e.Set("my_field", someValue)       // store any value
-
-e.GetString("title")               // "" if absent or wrong type
-e.GetInt("series_season")          // 0 if absent or wrong type; handles int/int64/float64
-e.GetBool("series_proper")         // false if absent or wrong type
-e.GetTime("torrent_creation_date") // zero time if absent or wrong type
-
-v, ok := e.Get("torrent_seeds")    // retrieve as any with presence check
+e.Set("my_field", value)         // write any value
+v, ok := e.Get("my_field")       // read; ok=false if absent
+s := e.GetString("series_name")  // returns "" if absent or wrong type
+n := e.GetInt("torrent_seeds")   // returns 0 if absent or wrong type
+b := e.GetBool("enriched")       // returns false if absent
 ```
 
-Field names are lowercase with underscores by convention. If your plugin enriches entries, document every field it sets. Prefer standard field names and setter methods over raw `e.Set` calls — see [Standard field system](#standard-field-system).
+### Helper setters
+
+`entry.SetVideoInfo`, `entry.SetSeriesInfo`, `entry.SetMovieInfo`,
+`entry.SetTorrentInfo`, `entry.SetFileInfo`, `entry.SetRSSInfo`,
+`entry.SetGenericInfo` write standard fields in bulk. Use these instead of
+individual `Set` calls when writing multiple related fields.
 
 ---
 
 ## Standard field system
 
-Pipeliner uses a **tiered standard metadata field system**. Instead of setting arbitrary provider-specific keys, plugins set fields via typed setter methods that write well-known field names. This ensures that conditions, path patterns, and templates work the same way regardless of which provider enriched an entry.
+Fields follow a tiered naming convention with prefixes:
 
-### Info type hierarchy
+| Prefix | Tier | Set by |
+|--------|------|--------|
+| *(none)* | GenericInfo | all metainfo providers |
+| `video_` | VideoInfo | metainfo_tvdb, metainfo_tmdb, metainfo_trakt, movies |
+| `series_` | SeriesInfo | series, metainfo_series, metainfo_tvdb |
+| `movie_` | MovieInfo | movies |
+| `torrent_` | TorrentInfo | rss, jackett, jackett_input, metainfo_torrent, metainfo_magnet |
+| `file_` | FileInfo | filesystem |
+| `rss_` | RSSInfo | rss |
 
-```
-GenericInfo          (title, description, published_date, enriched)
-└── VideoInfo        (video_year, video_language, video_genres, …)
-    ├── MovieInfo    (movie_tagline)
-    └── SeriesInfo   (series_season, series_episode, series_network, …)
+The full list of constants is in `internal/entry/info.go`.
 
-TorrentInfo          (torrent_info_hash, torrent_seeds, …)   — embeds GenericInfo
-FileInfo             (file_name, file_location, …)            — embeds GenericInfo
-RSSInfo              (rss_feed, rss_guid, rss_link, …)        — embeds GenericInfo
-```
+**Key fields:**
 
-### Setter methods
-
-Use the typed setters on `*entry.Entry` to write standard fields. Only non-zero values are written, so partial updates are safe.
-
-```go
-// Tier 1 — universal
-e.SetGenericInfo(entry.GenericInfo{Title: "Breaking Bad", Enriched: true})
-
-// Tier 2 — video (movies and series)
-e.SetVideoInfo(entry.VideoInfo{
-    GenericInfo: entry.GenericInfo{Title: "Breaking Bad", Enriched: true},
-    Year:        2008,
-    Language:    "English",
-    Genres:      []string{"Drama", "Crime"},
-    Rating:      9.5,
-})
-
-// Tier 3a — movie-specific
-e.SetMovieInfo(entry.MovieInfo{
-    VideoInfo: entry.VideoInfo{...},
-    Tagline:   "Change the equation",
-})
-
-// Tier 3b — series-specific
-e.SetSeriesInfo(entry.SeriesInfo{
-    VideoInfo:  entry.VideoInfo{...},
-    Season:     2,
-    Episode:    5,
-    EpisodeID:  "S02E05",
-    Network:    "AMC",
-    Status:     "Ended",
-})
-
-// Torrent leaf
-e.SetTorrentInfo(entry.TorrentInfo{
-    InfoHash:  "abc123...",
-    FileSize:  1073741824,
-    Seeds:     42,
-    Private:   false,
-})
-
-// File leaf
-e.SetFileInfo(entry.FileInfo{
-    Filename: "movie.mkv",
-    Location: "/downloads/movie.mkv",
-    FileSize: 2147483648,
-})
-
-// RSS leaf
-e.SetRSSInfo(entry.RSSInfo{
-    Feed: "https://example.com/feed",
-    GUID: "item-guid-123",
-    Link: "https://example.com/item/1",
-})
-```
-
-### Standard field names
-
-All field name constants are defined in `internal/entry/info.go`.
-
-**GenericInfo (no prefix):**
-
-| Constant | Field name | Type |
-|----------|-----------|------|
-| `FieldTitle` | `title` | string |
-| `FieldDescription` | `description` | string |
-| `FieldPublishedDate` | `published_date` | string |
-| `FieldEnriched` | `enriched` | bool |
-
-**VideoInfo (`video_` prefix):**
-
-| Constant | Field name | Type |
-|----------|-----------|------|
-| `FieldVideoYear` | `video_year` | int |
-| `FieldVideoLanguage` | `video_language` | string |
-| `FieldVideoOriginalTitle` | `video_original_title` | string |
-| `FieldVideoCountry` | `video_country` | string |
-| `FieldVideoGenres` | `video_genres` | []string |
-| `FieldVideoRating` | `video_rating` | float64 |
-| `FieldVideoPoster` | `video_poster` | string |
-| `FieldVideoCast` | `video_cast` | []string |
-| `FieldVideoContentRating` | `video_content_rating` | string |
-| `FieldVideoRuntime` | `video_runtime` | int |
-| `FieldVideoTrailers` | `video_trailers` | []string |
-| `FieldVideoAliases` | `video_aliases` | []string |
-| `FieldVideoImdbID` | `video_imdb_id` | string |
-| `FieldVideoQuality` | `video_quality` | string |
-| `FieldVideoResolution` | `video_resolution` | string |
-| `FieldVideoSource` | `video_source` | string |
-| `FieldVideoIs3D` | `video_is_3d` | bool | `true` when any 3D format marker is detected; derived from `Quality.Format3D` |
-| `FieldVideoPopularity` | `video_popularity` | float64 |
-| `FieldVideoVotes` | `video_votes` | int |
-
-**MovieInfo (`movie_` prefix):**
-
-| Constant | Field name | Type |
-|----------|-----------|------|
-| `FieldMovieTagline` | `movie_tagline` | string |
-
-**SeriesInfo (`series_` prefix):**
-
-| Constant | Field name | Type |
-|----------|-----------|------|
-| `FieldSeriesSeason` | `series_season` | int |
-| `FieldSeriesEpisode` | `series_episode` | int |
-| `FieldSeriesEpisodeID` | `series_episode_id` | string |
-| `FieldSeriesNetwork` | `series_network` | string |
-| `FieldSeriesStatus` | `series_status` | string |
-| `FieldSeriesFirstAirDate` | `series_first_air_date` | time.Time |
-| `FieldSeriesLastAirDate` | `series_last_air_date` | time.Time |
-| `FieldSeriesNextAirDate` | `series_next_air_date` | time.Time |
-| `FieldSeriesEpisodeTitle` | `series_episode_title` | string |
-| `FieldSeriesEpisodeDescription` | `series_episode_description` | string |
-| `FieldSeriesEpisodeAirDate` | `series_episode_air_date` | time.Time |
-| `FieldSeriesEpisodeImage` | `series_episode_image` | string |
-| `FieldSeriesService` | `series_service` | string |
-| `FieldSeriesProper` | `series_proper` | bool |
-| `FieldSeriesRepack` | `series_repack` | bool |
-| `FieldSeriesDoubleEpisode` | `series_double_episode` | int |
-
-**TorrentInfo (`torrent_` prefix):**
-
-| Constant | Field name | Type |
-|----------|-----------|------|
-| `FieldTorrentLinkType` | `torrent_link_type` | string (`"torrent"` or `"magnet"`) |
-| `FieldTorrentInfoHash` | `torrent_info_hash` | string |
-| `FieldTorrentFileSize` | `torrent_file_size` | int64 |
-| `FieldTorrentFileCount` | `torrent_file_count` | int |
-| `FieldTorrentFiles` | `torrent_files` | []string |
-| `FieldTorrentSeeds` | `torrent_seeds` | int |
-| `FieldTorrentLeechers` | `torrent_leechers` | int |
-| `FieldTorrentAnnounce` | `torrent_announce` | string |
-| `FieldTorrentAnnounceList` | `torrent_announce_list` | []string |
-| `FieldTorrentCreatedBy` | `torrent_created_by` | string |
-| `FieldTorrentCreationDate` | `torrent_creation_date` | time.Time |
-| `FieldTorrentPrivate` | `torrent_private` | bool |
-
-**FileInfo (`file_` prefix):**
-
-| Constant | Field name | Type |
-|----------|-----------|------|
-| `FieldFileName` | `file_name` | string |
-| `FieldFileExtension` | `file_extension` | string |
-| `FieldFileLocation` | `file_location` | string |
-| `FieldFileSize` | `file_size` | int64 |
-| `FieldFileModifiedTime` | `file_modified_time` | time.Time |
-
-**RSSInfo (`rss_` prefix):**
-
-| Constant | Field name | Type |
-|----------|-----------|------|
-| `FieldRSSFeed` | `rss_feed` | string |
-| `FieldRSSGUID` | `rss_guid` | string |
-| `FieldRSSLink` | `rss_link` | string |
-| `FieldRSSEnclosureURL` | `rss_enclosure_url` | string |
-| `FieldRSSEnclosureType` | `rss_enclosure_type` | string |
-
-### Provider-specific fields
-
-Provider-specific fields that have no standard equivalent are still set directly with `e.Set`. These include: `tvdb_id`, `tvdb_slug`, `tvdb_episode_id`, `tmdb_id`, `trakt_id`, `trakt_slug`, `trakt_tmdb_id`, `trakt_tvdb_id`, `jackett_category`, `jackett_indexer`, `series_container`, and quality sub-fields (`codec`, `audio`, `color_range`, `quality_resolution`, `quality_source`).
-
-### The `enriched` field
-
-External metainfo providers (TVDB, TMDb, Trakt) set `enriched = true` on success. Use it in `require` blocks to check whether metadata was found, regardless of which provider ran:
-
-```python
-plugin("require", fields=["enriched"])   # works with any provider — TVDB, TMDb, or Trakt
-```
-
-Do not key on provider-specific IDs (e.g. `tvdb_id`) for this purpose — `enriched` is provider-neutral.
-
-### Reading standard fields in plugin code
-
-Use the field name constants when reading fields, and the typed accessors where available:
-
-```go
-// Using the entry method with the constant:
-title := e.GetString(entry.FieldTitle)
-season := e.GetInt(entry.FieldSeriesSeason)
-enriched := e.GetBool(entry.FieldEnriched)
-
-// Using the constant directly in e.Get for presence check:
-if _, ok := e.Get(entry.FieldTorrentSeeds); ok {
-    seeds := e.GetInt(entry.FieldTorrentSeeds)
-    // ...
-}
-```
-
-### Partial updates
-
-The setter methods only write non-zero values, so multiple plugins can call the same setter without overwriting each other's data. For example, `metainfo_series` sets `title` and episode fields; a subsequent `metainfo_tvdb` call sets `title`, `description`, `video_genres`, etc. without clearing the episode fields already set.
+| Field | Type | Description |
+|-------|------|-------------|
+| `title` | string | Canonical enriched display name (set by external providers) |
+| `raw_title` | string | Original entry title from the source |
+| `enriched` | bool | `true` when any external metainfo provider enriched this entry |
+| `series_episode_id` | string | Episode ID (e.g. `S02E05`) — used as dedup key |
+| `video_quality` | string | Parsed quality string |
+| `video_resolution` | string | Resolution tag (e.g. `1080p`) |
+| `torrent_seeds` | int | Seeder count |
+| `file_location` | string | Absolute local file path |
 
 ---
 
 ## TaskContext
 
-Every plugin method receives a `*plugin.TaskContext`:
+`plugin.TaskContext` is passed to every plugin call.
 
 ```go
 type TaskContext struct {
-    Name   string         // task being executed — use for bucket names
+    Name   string         // pipeline name
     Config map[string]any // this plugin's config block
-    Logger *slog.Logger   // pre-scoped with task=, phase=, plugin= attributes
+    Logger *slog.Logger   // pipeline-scoped structured logger
+    DryRun bool           // sinks must skip side effects when true
 }
 ```
 
-Use `tc.Logger` for all log output — it is automatically tagged with the task, phase, and plugin name. Use `tc.Name` to namespace your SQLite bucket keys so data does not bleed between tasks:
+Log at the appropriate level:
 
 ```go
-bucket := db.Bucket("seen:" + tc.Name)
+tc.Logger.Info("processing", "entry", e.Title)
+tc.Logger.Warn("metainfo lookup failed", "entry", e.Title, "err", err)
+tc.Logger.Debug("cache hit", "key", cacheKey)
 ```
 
 ---
 
-## Plugin interfaces by phase
+## Role interfaces
 
-### InputPlugin
+### SourcePlugin
+
+Sources produce entries from external sources (RSS, files, APIs).
 
 ```go
-type InputPlugin interface {
+type SourcePlugin interface {
     Plugin
-    Run(ctx context.Context, tc *plugin.TaskContext) ([]*entry.Entry, error)
+    Generate(ctx context.Context, tc *TaskContext) ([]*entry.Entry, error)
 }
 ```
 
-`Run` is called once per task execution. Return a slice of new `entry.Entry` values. The engine deduplicates by URL across all inputs before the processing pipeline begins, so overlapping results from multiple inputs are harmless.
+**Rules:**
+- Return fresh entries from scratch; do not receive any input entries.
+- Deduplicate by URL within a single call when possible.
+- Errors from individual items should be logged and skipped; only fatal
+  errors (network unreachable, auth failure) should be returned.
+- Returned entries start in `Undecided` state.
 
-**Pattern:**
+**Example skeleton:**
 
 ```go
-func (p *myInput) Run(ctx context.Context, tc *plugin.TaskContext) ([]*entry.Entry, error) {
-    // fetch data from external source
-    var entries []*entry.Entry
+type mySource struct { url string }
+
+func (p *mySource) Name() string { return "my_source" }
+
+func (p *mySource) Generate(ctx context.Context, tc *plugin.TaskContext) ([]*entry.Entry, error) {
+    items, err := fetchItems(ctx, p.url)
+    if err != nil {
+        return nil, fmt.Errorf("my_source: fetch: %w", err)
+    }
+    out := make([]*entry.Entry, 0, len(items))
     for _, item := range items {
         e := entry.New(item.Title, item.URL)
-        e.Set("my_source_field", item.SomeData)
-        entries = append(entries, e)
+        e.SetGenericInfo(entry.GenericInfo{
+            Description:   item.Description,
+            PublishedDate: item.Date,
+        })
+        out = append(out, e)
+    }
+    return out, nil
+}
+```
+
+### ProcessorPlugin
+
+Processors transform entries. The returned slice is what passes downstream —
+entries absent from the output are considered filtered out.
+
+```go
+type ProcessorPlugin interface {
+    Plugin
+    Process(ctx context.Context, tc *TaskContext, entries []*entry.Entry) ([]*entry.Entry, error)
+}
+```
+
+**Rules:**
+- Call `e.Reject(reason)` on entries you drop from the output, so the
+  executor can count and report them correctly.
+- Entries with `e.IsRejected() || e.IsFailed()` arriving in your input
+  should normally be skipped (or passed through unchanged).
+- Return the same slice when nothing was filtered (avoid allocating):
+  `return entries, nil`
+- For stateful processors (e.g. `seen`): read state first, apply the
+  filter, then persist state within the same `Process()` call. There is no
+  separate learn phase.
+
+**Filter example (accept/reject):**
+
+```go
+type myFilter struct { minRating float64 }
+
+func (p *myFilter) Name() string { return "my_filter" }
+
+func (p *myFilter) Process(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
+    out := make([]*entry.Entry, 0, len(entries))
+    for _, e := range entries {
+        if e.IsRejected() || e.IsFailed() {
+            // pass failed/rejected entries through without counting them
+            out = append(out, e)
+            continue
+        }
+        rating, _ := e.Get("video_rating")
+        if r, ok := rating.(float64); ok && r >= p.minRating {
+            out = append(out, e)
+        } else {
+            e.Reject(fmt.Sprintf("rating %.1f below minimum %.1f", r, p.minRating))
+        }
+    }
+    return out, nil
+}
+```
+
+**Enrichment example (annotate all, return all):**
+
+```go
+func (p *myMetaPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
+    for _, e := range entries {
+        if e.IsRejected() || e.IsFailed() {
+            continue
+        }
+        if err := p.annotate(ctx, tc, e); err != nil {
+            tc.Logger.Warn("annotation failed", "entry", e.Title, "err", err)
+        }
     }
     return entries, nil
 }
 ```
 
-Return a non-nil error only for unrecoverable failures (the task logs the error and skips this input). For best-effort partial results, log the per-item failure and continue.
-
----
-
-### MetainfoPlugin and BatchMetainfoPlugin
+Use `entry.PassThrough(entries)` as a helper when you need to return only
+the non-rejected entries from a filter:
 
 ```go
-type MetainfoPlugin interface {
+// After calling e.Reject() on unwanted entries:
+return entry.PassThrough(entries), nil
+```
+
+### SinkPlugin
+
+Sinks consume entries and perform side effects.
+
+```go
+type SinkPlugin interface {
     Plugin
-    Annotate(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error
-}
-
-type BatchMetainfoPlugin interface {
-    Plugin
-    AnnotateBatch(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error
+    Consume(ctx context.Context, tc *TaskContext, entries []*entry.Entry) error
 }
 ```
 
-Metainfo plugins **annotate** entries with additional data. They must not change entry state (`Accept`/`Reject` are filter concerns).
-
-`Annotate` is called once per entry, serially. If your plugin can benefit from batching — for example, making parallel HTTP requests for all entries at once — implement `BatchMetainfoPlugin` instead. The task engine calls `AnnotateBatch` when it is present.
-
-**Pattern — simple annotation:**
-
-```go
-func (p *myMeta) Annotate(_ context.Context, _ *plugin.TaskContext, e *entry.Entry) error {
-    ep, ok := series.Parse(e.Title)
-    if !ok {
-        return nil  // not applicable — leave entry untouched
-    }
-    e.SetSeriesInfo(entry.SeriesInfo{
-        VideoInfo:  entry.VideoInfo{GenericInfo: entry.GenericInfo{Title: ep.SeriesName}},
-        Season:     ep.Season,
-        Episode:    ep.Episode,
-        EpisodeID:  series.EpisodeID(ep),
-    })
-    return nil
-}
-```
-
-**Pattern — batch annotation with parallelism:**
+**Rules:**
+- Call `entry.FilterAccepted(entries)` to get only accepted entries.
+- Check `tc.DryRun` and skip all external side effects when it is `true`.
+- Use `e.Fail("reason")` on entries that could not be processed so they
+  will be retried on the next run.
 
 ```go
-func (p *myMeta) AnnotateBatch(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
-    var wg sync.WaitGroup
-    for _, e := range entries {
-        wg.Add(1)
-        go func(e *entry.Entry) {
-            defer wg.Done()
-            // annotate e; all entry fields are safe to write from goroutines
-            // because the engine does not read them during AnnotateBatch
-        }(e)
-    }
-    wg.Wait()
-    return nil
-}
-```
-
----
-
-### FilterPlugin
-
-```go
-type FilterPlugin interface {
-    Plugin
-    Filter(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error
-}
-```
-
-`Filter` is called once per entry, serially, in config order. A plugin should call `e.Accept()`, `e.Reject(reason)`, or leave the entry `Undecided`. The engine skips already-rejected or failed entries for subsequent filter plugins — once `Rejected` or `Failed`, an entry is not passed to remaining filters.
-
-**Pattern:**
-
-```go
-func (p *myFilter) Filter(_ context.Context, _ *plugin.TaskContext, e *entry.Entry) error {
-    // check something about the entry
-    title := e.GetString(entry.FieldTitle)
-    if title == "" {
-        return nil  // not applicable — leave Undecided
-    }
-    if !p.isWanted(title) {
-        e.Reject(fmt.Sprintf("my_filter: %q not in wanted list", title))
+func (p *mySink) Consume(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
+    if tc.DryRun {
         return nil
     }
-    e.Accept()
-    return nil
-}
-```
-
-Return a non-nil error only for unexpected internal failures (e.g. a corrupted store read). Use `e.Reject` for expected negative decisions.
-
-**Important — do not write state in Filter:** If your plugin tracks downloads (like `series`, `premiere`, `movies`), write to SQLite in `Learn`, not `Filter`. Multiple quality variants of the same item may all be accepted by Filter; the engine deduplicates them after all processing plugins have run and only the winner reaches `Learn`. Writing in Filter would prevent those variants from being considered.
-
-### BatchFilterPlugin
-
-```go
-type BatchFilterPlugin interface {
-    Plugin
-    FilterBatch(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error
-}
-```
-
-An optional extension for filter plugins that can process all entries more efficiently at once — for example, by firing network requests in parallel. The task engine calls `FilterBatch` instead of `Filter` for any plugin that implements this interface.
-
-`FilterBatch` must respect already-decided entries (`IsRejected`/`IsFailed`) and must honour context cancellation. A common pattern is to fan out per-entry work into goroutines:
-
-```go
-func (p *myPlugin) FilterBatch(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
-    var wg sync.WaitGroup
-    for _, e := range entries {
-        if e.IsRejected() || e.IsFailed() {
-            continue
+    for _, e := range entry.FilterAccepted(entries) {
+        if err := p.send(ctx, e); err != nil {
+            tc.Logger.Error("send failed", "entry", e.Title, "err", err)
+            e.Fail("my_sink: " + err.Error())
         }
-        wg.Add(1)
-        go func(e *entry.Entry) {
-            defer wg.Done()
-            p.Filter(ctx, tc, e) //nolint:errcheck
-        }(e)
-    }
-    wg.Wait()
-    return nil
-}
-```
-
----
-
-### ModifyPlugin
-
-```go
-type ModifyPlugin interface {
-    Plugin
-    Modify(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error
-}
-```
-
-`Modify` runs in config order alongside metainfo and filter plugins. It receives Undecided and Accepted entries (Rejected/Failed entries are skipped). It transforms field values without changing acceptance state. Common uses: computing a `download_path`, normalising a title, setting metadata for downstream output plugins.
-
----
-
-### OutputPlugin
-
-```go
-type OutputPlugin interface {
-    Plugin
-    Output(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error
-}
-```
-
-`Output` is called once per task run with all entries still accepted at the time this plugin runs. Output plugins run serially in config order, so a plugin that calls `e.Fail("reason")` removes that entry from the slice passed to subsequent output plugins and from the learn phase.
-
-Call `e.Fail("reason")` when an entry could not be delivered and should be retried on the next run. Do not call `e.Reject` in output — rejection implies the entry was undesirable, whereas failure implies a transient delivery problem.
-
----
-
-### LearnPlugin
-
-```go
-type LearnPlugin interface {
-    Plugin
-    Learn(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error
-}
-```
-
-`Learn` receives only **accepted** entries after the output phase — the task engine pre-filters so plugins don't need to guard against other states. Use it to persist decisions so they affect future runs — marking entries as seen, recording series progress, updating quality trackers.
-
-A plugin can implement **both** `FilterPlugin` and `LearnPlugin` on the same struct (the `seen` and `series` plugins do this). The task engine calls each interface at the appropriate phase.
-
-**Pattern:**
-
-```go
-func (p *myPlugin) Filter(_ context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
-    key := e.GetString("my_key")
-    if found, _ := p.db.Bucket("data:"+tc.Name).Get(key, nil); found {
-        e.Reject("my_plugin: already processed")
-    }
-    return nil
-}
-
-func (p *myPlugin) Learn(_ context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
-    b := p.db.Bucket("data:" + tc.Name)
-    for _, e := range entries {
-        if !e.IsAccepted() {
-            continue
-        }
-        _ = b.Put(e.GetString("my_key"), struct{}{})
     }
     return nil
 }
 ```
 
----
+### ShutdownPlugin
+
+Implement this optional interface when your plugin holds long-lived resources
+(HTTP connections, goroutines, file handles) that must be released.
+
+```go
+type ShutdownPlugin interface {
+    Plugin
+    Shutdown()
+}
+```
+
+`Shutdown()` is called once after all runs using this plugin are complete —
+at process exit for daemon mode, or after the run for one-shot mode. It is
+also called when a config reload replaces this plugin with a new instance.
 
 ### SearchPlugin
+
+Implement this when your plugin can search by query string. Used by the
+`discover` processor as a search backend via the `via` config key.
 
 ```go
 type SearchPlugin interface {
     Plugin
-    Search(ctx context.Context, tc *plugin.TaskContext, query string) ([]*entry.Entry, error)
+    Search(ctx context.Context, tc *TaskContext, query string) ([]*entry.Entry, error)
 }
 ```
 
-Search plugins are **not** dispatched directly by the task engine. They are sub-plugins used exclusively by the `discover` input plugin. Register them with `PhaseFrom`.
-
-`Search` receives a query string (a title to search for) and returns matching entries. An empty query string conventionally returns recent/all results from the source.
+A plugin implementing `SearchPlugin` should typically also implement
+`SourcePlugin.Generate()` (calling `Search` with an empty query) so it can
+be used as a standalone source node.
 
 ---
 
 ## Config validation
 
-Register a `Validate` function alongside your factory. It is called by `pipeliner check` before any plugin is constructed, allowing all config errors to be reported at once.
+Implement `Validate` in the `Descriptor` for early error reporting via
+`pipeliner check`. The validate function receives the raw config map and
+returns a slice of errors (never return nil for the slice itself; return
+`nil` if there are no errors).
+
+Helper functions in `internal/plugin/validate.go`:
+
+```go
+plugin.RequireString(cfg, "url", "my_plugin")       // error if absent or empty
+plugin.RequireOneOf(cfg, "my_plugin", "a", "b")     // error if none are set
+plugin.OptDuration(cfg, "timeout", "my_plugin")      // error if set but invalid duration
+plugin.OptEnum(cfg, "mode", "my_plugin", "a", "b")  // error if set but not one of the values
+plugin.OptUnknownKeys(cfg, "my_plugin", "url", "timeout") // error for unrecognized keys
+```
+
+Full validation example:
 
 ```go
 func validate(cfg map[string]any) []error {
     var errs []error
-    if err := plugin.RequireString(cfg, "api_key", "my_plugin"); err != nil {
+    if err := plugin.RequireString(cfg, "url", "my_source"); err != nil {
         errs = append(errs, err)
     }
-    if err := plugin.OptDuration(cfg, "cache_ttl", "my_plugin"); err != nil {
+    if err := plugin.OptDuration(cfg, "timeout", "my_source"); err != nil {
         errs = append(errs, err)
     }
-    if err := plugin.OptEnum(cfg, "mode", "my_plugin", "fast", "slow"); err != nil {
-        errs = append(errs, err)
-    }
-    if err := plugin.RequireOneOf(cfg, "my_plugin", "shows", "from"); err != nil {
-        errs = append(errs, err)
-    }
+    errs = append(errs, plugin.OptUnknownKeys(cfg, "my_source", "url", "timeout")...)
     return errs
 }
 ```
-
-### Available helpers (`internal/plugin/validate.go`)
-
-| Helper | Description |
-|--------|-------------|
-| `RequireString(cfg, key, plugin)` | Returns error if `cfg[key]` is absent or empty |
-| `RequireOneOf(cfg, plugin, keys...)` | Returns error if none of the keys are non-empty |
-| `OptDuration(cfg, key, plugin)` | Returns error if set but not a valid `time.Duration` string |
-| `OptEnum(cfg, key, plugin, values...)` | Returns error if set but not one of the allowed values |
-
-The `Validate` function runs independently of the `Factory` — it must not assume any state beyond what is in `cfg`. Validation errors are presented as `task "name" plugin "name": <message>` to the user.
 
 ---
 
 ## Persistence: the store and bucket API
 
-Every plugin factory receives a `*store.SQLiteStore`. Use it to persist state across runs.
+The shared SQLite store (`internal/store`) provides a simple key-value bucket
+API. Each plugin gets its own bucket, namespaced automatically by plugin name
+and pipeline name.
 
 ```go
-// In your factory:
 func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
-    return &myPlugin{db: db}, nil
-}
-
-// In your plugin method:
-func (p *myPlugin) Learn(_ context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
-    bucket := p.db.Bucket("my_plugin:" + tc.Name)  // namespace by task
-    for _, e := range entries {
-        if e.IsAccepted() {
-            _ = bucket.Put(e.URL, myRecord{Title: e.Title, SeenAt: time.Now()})
-        }
-    }
-    return nil
+    return &myPlugin{
+        bucket: db.Bucket("my_plugin"),
+    }, nil
 }
 ```
-
-### Bucket API
 
 ```go
 type Bucket interface {
-    Put(key string, value any) error            // JSON-encode and upsert
-    Get(key string, dest any) (bool, error)     // decode into dest; (false, nil) if absent
-    Delete(key string) error                    // remove; no-op if absent
-    Keys() ([]string, error)                    // all keys (unordered)
-    All() (map[string][]byte, error)            // all key→raw-JSON pairs (single query)
+    Put(key string, value any) error         // JSON-encodes and stores
+    Get(key string, dest any) (bool, error)  // JSON-decodes; ok=false if missing
+    Delete(key string) error
+    Keys() ([]string, error)
+    All() (map[string][]byte, error)
 }
 ```
 
-Values are JSON-encoded. Any JSON-serialisable Go value can be stored. The `dest` argument to `Get` follows the same rules as `json.Unmarshal`.
-
-**Namespace your buckets** using the task name (`tc.Name`) to prevent data from one task bleeding into another:
+Use the bucket to persist state across runs:
 
 ```go
-bucket := db.Bucket("seen:" + tc.Name)
+type record struct {
+    Downloaded time.Time `json:"downloaded"`
+    Quality    string    `json:"quality"`
+}
+
+// In Process():
+var rec record
+found, err := p.bucket.Get(key, &rec)
+if err != nil {
+    return nil, fmt.Errorf("my_plugin: read state: %w", err)
+}
+if found {
+    // entry already seen — check for upgrade
+}
+// After deciding to accept:
+if err := p.bucket.Put(key, record{Downloaded: time.Now(), Quality: quality}); err != nil {
+    tc.Logger.Warn("failed to persist state", "key", key, "err", err)
+}
 ```
+
+**Bucket scope:** Calling `db.Bucket("my_plugin")` creates a bucket shared
+across all pipeline runs. To scope state per-pipeline, use
+`db.Bucket("my_plugin:" + tc.Name)`.
 
 ---
 
 ## Caching
 
-For data fetched from external APIs that should be reused across entries and across runs, use `internal/cache`:
+For plugins that make external API calls, use `internal/cache` to avoid
+repeated requests within the same run or across recent runs.
 
 ```go
 import "github.com/brunoga/pipeliner/internal/cache"
 
 type myPlugin struct {
-    db    *store.SQLiteStore
-    cache *cache.Cache[[]MyData]  // generic; V can be any JSON-serialisable type
+    cache *cache.Cache[[]Item]
 }
 
 func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
     ttl := 24 * time.Hour
-    // parse cfg["cache_ttl"] if present...
-
-    c := cache.NewPersistent[[]MyData](ttl, db.Bucket("cache_my_plugin"))
-    c.Preload() // bulk-load all cached entries into memory at startup
-
-    return &myPlugin{db: db, cache: c}, nil
+    if v, _ := cfg["cache_ttl"].(string); v != "" {
+        d, err := time.ParseDuration(v)
+        if err != nil {
+            return nil, fmt.Errorf("invalid cache_ttl: %w", err)
+        }
+        ttl = d
+    }
+    return &myPlugin{
+        cache: cache.NewPersistent[[]Item](ttl, db.Bucket("cache_my_plugin")),
+    }, nil
 }
 
-func (p *myPlugin) fetchData(ctx context.Context, key string) ([]MyData, error) {
-    if data, ok := p.cache.Get(key); ok {
-        return data, nil  // served from memory after Preload
-    }
-    data, err := callExternalAPI(ctx, key)
-    if err != nil {
-        return nil, err
-    }
-    p.cache.Set(key, data)
-    return data, nil
+// In Generate() or Process():
+cacheKey := "my-key"
+if items, ok := p.cache.Get(cacheKey); ok {
+    // cache hit
+    return buildEntries(items), nil
 }
+items, err := fetchFromAPI(ctx)
+if err != nil {
+    return nil, err
+}
+if len(items) > 0 {
+    p.cache.Set(cacheKey, items) // only cache non-empty results
+}
+return buildEntries(items), nil
 ```
 
-### Choosing between `New` and `NewPersistent`
-
-| Constructor | Survives restart | Use when |
-|-------------|-----------------|----------|
-| `cache.New[V](ttl)` | No | Data is cheap to re-fetch; only need per-run deduplication |
-| `cache.NewPersistent[V](ttl, bucket)` | Yes | External API calls with rate limits or latency |
-
-**Always call `Preload()` on persistent caches** in the constructor. Without it, the first access to each key in a run goes to SQLite individually (~10–30 ms each). `Preload()` loads the entire bucket in a single query so all subsequent `Get` calls are in-memory.
+`cache.NewPersistent` persists the cache in the SQLite store across process
+restarts. `cache.New` keeps the cache in-memory only (lost on restart).
 
 ---
 
 ## String interpolation
 
-Plugins that compute paths or messages from entry data should use the interpolation system:
+`internal/interp` provides `{field}` and `{{.field}}` interpolation for use
+in path templates and command strings.
 
 ```go
 import "github.com/brunoga/pipeliner/internal/interp"
 
-type myPlugin struct {
-    pathIP *interp.Interpolator
+ip, err := interp.Compile("/media/tv/{title}/Season {series_season:02d}")
+if err != nil {
+    return nil, fmt.Errorf("invalid path pattern: %w", err)
 }
 
-func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
-    pattern, _ := cfg["path"].(string)
-    if pattern == "" {
-        return nil, fmt.Errorf("my_plugin: 'path' is required")
-    }
-    ip, err := interp.Compile(pattern)
-    if err != nil {
-        return nil, fmt.Errorf("my_plugin: invalid path pattern: %w", err)
-    }
-    return &myPlugin{pathIP: ip}, nil
+// In Process() or Consume():
+result, err := ip.Render(interp.EntryData(e))
+if err != nil {
+    tc.Logger.Warn("render failed", "err", err)
+    continue
 }
-
-func (p *myPlugin) Modify(_ context.Context, _ *plugin.TaskContext, e *entry.Entry) error {
-    data := interp.EntryData(e)
-    path, err := p.pathIP.Render(data)
-    if err != nil {
-        return fmt.Errorf("my_plugin: render path: %w", err)
-    }
-    e.Set("download_path", path)
-    return nil
-}
+e.Set("download_path", result)
 ```
 
-### Interpolation syntax
-
-Users write patterns in config files using `{field}` syntax:
-
-```python
-plugin("pathfmt",
-    path="/downloads/{title}/Season {series_season:02d}",
-    field="download_path",
-)
-```
-
-| Syntax | Meaning |
-|--------|---------|
-| `{field}` | Value of `field` from entry |
-| `{field:fmt}` | Value formatted with Go fmt verb, e.g. `{season:02d}` |
-| `{{.Field}}` | Go template syntax (backward compat) |
-
-`interp.EntryData(e)` returns a map with both capitalised names (`Title`, `URL`) and lowercase field names (`title`, `url`) plus everything in `e.Fields`.
-
----
-
-## Plugins that use other plugins
-
-Several patterns exist for a plugin that needs to use another plugin as a sub-component.
-
-### Loading an InputPlugin from config (`from:` pattern)
-
-The `series` and `discover` plugins load a list of `InputPlugin` instances from a `from:` config key. Each `from` item is either a plugin name string or a map with a `name` key plus plugin-specific options.
-
-```go
-import "github.com/brunoga/pipeliner/internal/plugin"
-
-type myPlugin struct {
-    sources []plugin.InputPlugin
-    db      *store.SQLiteStore
-}
-
-func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
-    fromRaw, _ := cfg["from"].([]any)
-    var sources []plugin.InputPlugin
-    for _, item := range fromRaw {
-        inp, err := plugin.MakeFromPlugin(item, db)
-        if err != nil {
-            return nil, fmt.Errorf("my_plugin: from: %w", err)
-        }
-        sources = append(sources, inp)
-    }
-    return &myPlugin{sources: sources, db: db}, nil
-}
-```
-
-`plugin.MakeFromPlugin` handles both the string form (`"tvdb_favorites"`) and the map form (`{name: tvdb_favorites, api_key: "..."}`) transparently. It validates that the plugin is registered under `PhaseFrom` and wraps it in a logging decorator that automatically emits `info`-level start/done/duration lines on every `Run()` call — no manual logging needed. The resolved plugin receives its own `Factory` call and shares the same `db`.
-
-**At runtime**, use `plugin.ResolveDynamicList` to handle caching, invocation, and normalization in one call:
-
-```go
-func (p *myPlugin) loadTitles(ctx context.Context, tc *plugin.TaskContext) []string {
-    return plugin.ResolveDynamicList(ctx, tc, p.sources, p.staticTitles,
-        func(src string) ([]string, bool) { return p.listCache.Get(src) },
-        func(src string, v []string) { p.listCache.Set(src, v) },
-        match.Normalize,
-    )
-}
-```
-
-`ResolveDynamicList` caches each from-plugin's results **independently** under a per-source key (see below), so sources with different configurations are never mixed. Cache hits are logged at debug; live fetches are logged at info via the logging wrapper.
-
-If you need custom per-entry logic beyond title extraction, call `inp.Run()` directly — the logging wrapper in each from-plugin still fires automatically.
-
-#### Per-source cache keys and `CacheKeyer`
-
-By default the cache key for a from-plugin is its registered name (e.g. `"tvdb_favorites"`). When the same plugin can be configured with different parameters that produce different data — for example `trakt_list` with `list: watchlist` vs `list: ratings` — implement the `plugin.CacheKeyer` interface to return a more specific key:
-
-```go
-// CacheKey returns a key that includes the parameters that affect the data
-// returned, so two instances with different config are cached independently.
-func (p *myFromPlugin) CacheKey() string {
-    return "my_plugin:" + p.itemType + ":" + p.listName
-}
-```
-
-`ResolveDynamicList` automatically calls `CacheKey()` when available. If not implemented, it falls back to `Name()`. The `loggedFromPlugin` wrapper forwards `CacheKey()` transparently, so no special handling is needed at the call site.
-
-### Loading a SearchPlugin from config (`via:` pattern)
-
-The `discover` input plugin loads SearchPlugins from a `via:` key using `plugin.ResolveNameAndConfig`:
-
-```go
-func resolveSearchPlugin(item any, db *store.SQLiteStore) (plugin.SearchPlugin, error) {
-    name, pluginCfg, err := plugin.ResolveNameAndConfig(item)
-    if err != nil {
-        return nil, err
-    }
-    desc, ok := plugin.Lookup(name)
-    if !ok {
-        return nil, fmt.Errorf("unknown search plugin %q", name)
-    }
-    p, err := desc.Factory(pluginCfg, db)
-    if err != nil {
-        return nil, fmt.Errorf("instantiate %q: %w", name, err)
-    }
-    sp, ok := p.(plugin.SearchPlugin)
-    if !ok {
-        return nil, fmt.Errorf("%q does not implement SearchPlugin", name)
-    }
-    return sp, nil
-}
-```
-
-`ResolveNameAndConfig` handles both the string form and the map form, returning the name and config map.
-
-### Config shape for sub-plugins
-
-In Starlark configs, sub-plugins are expressed as either a string or a dict inside the parent's `from` or `via` list:
-
-```python
-# String form (no extra config needed)
-plugin("series", **{"from": [
-    "tvdb_favorites",   # use the plugin name registered in PluginName
-]})
-
-# Dict form (plugin name plus its own config)
-plugin("series", **{"from": [
-    {"name": "tvdb_favorites", "api_key": "...", "user_pin": "..."},
-]})
-```
-
-Both forms are handled by `MakeFromPlugin` and `ResolveNameAndConfig`.
-
----
-
-## Combining multiple interfaces
-
-A single struct can implement multiple plugin interfaces. The task engine checks for each interface independently at each phase.
-
-**FilterPlugin + LearnPlugin** is the most common combination — filter to reject previously seen entries, learn to record newly accepted ones:
-
-```go
-type seenPlugin struct{ db *store.SQLiteStore }
-
-func (p *seenPlugin) Name() string         { return "seen" }
-func (p *seenPlugin) Phase() plugin.Phase  { return plugin.PhaseFilter }
-
-func (p *seenPlugin) Filter(_ context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
-    if found, _ := p.db.Bucket("seen:"+tc.Name).Get(e.URL, nil); found {
-        e.Reject("seen: already downloaded")
-    }
-    return nil
-}
-
-func (p *seenPlugin) Learn(_ context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
-    b := p.db.Bucket("seen:" + tc.Name)
-    for _, e := range entries {
-        if e.IsAccepted() {
-            _ = b.Put(e.URL, struct{}{})
-        }
-    }
-    return nil
-}
-```
-
-`Phase()` must return the **filter** phase even though the plugin also implements `LearnPlugin` — the engine dispatches by interface, not by phase value, for the learn pass.
-
-Note that `seen` keys on URL, so each URL is a unique entry — there is no multi-variant dedup concern. For plugins that track by series/movie title (like `series`, `premiere`, `movies`), writing in `Learn` rather than `Filter` is essential: multiple quality variants of the same item are all accepted by Filter and deduplicated by the engine before Learn runs, ensuring only the winner is persisted.
+`interp.EntryData(e)` builds a `map[string]any` with both the entry's Fields
+and convenience keys (`Title`, `URL`, `Task`, `url_basename`, `timestamp`).
 
 ---
 
 ## Registering in main.go
 
-After creating your plugin package, add a side-effect import to `cmd/pipeliner/main.go`:
+Add a blank import of your plugin package to `cmd/pipeliner/main.go`:
 
 ```go
-import (
-    // ...existing imports...
-    _ "github.com/brunoga/pipeliner/plugins/filter/my_plugin"
-)
+// Source plugins
+_ "github.com/brunoga/pipeliner/plugins/source/my_source"
+
+// Processor plugins
+_ "github.com/brunoga/pipeliner/plugins/processor/filter/my_filter"
+_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/my_metainfo"
+
+// Sink plugins
+_ "github.com/brunoga/pipeliner/plugins/sink/my_sink"
 ```
 
-The `_` import triggers the `init()` function which calls `plugin.Register`. The plugin is then available by name in all config files.
+The blank import causes the `init()` function to run, which calls
+`plugin.Register`. The order of imports does not matter.
 
 ---
 
 ## Complete examples
 
-### Minimal filter plugin
+### Source plugin
 
 ```go
-// Package minword rejects entries whose title is shorter than min_words words.
-package minword
+// plugins/source/mysite/mysite.go
+package mysite
 
 import (
+    "context"
     "fmt"
+    "net/http"
+
+    "github.com/brunoga/pipeliner/internal/entry"
+    "github.com/brunoga/pipeliner/internal/plugin"
+    "github.com/brunoga/pipeliner/internal/store"
+)
+
+func init() {
+    plugin.Register(&plugin.Descriptor{
+        PluginName:  "mysite",
+        Description: "fetch entries from mysite.example.com",
+        Role:        plugin.RoleSource,
+        Produces:    []string{entry.FieldDescription, entry.FieldPublishedDate},
+        Factory:     newPlugin,
+        Validate:    validate,
+        Schema: []plugin.FieldSchema{
+            {Key: "url", Type: plugin.FieldTypeString, Required: true, Hint: "Feed URL"},
+        },
+    })
+}
+
+type mysitePlugin struct{ url string }
+
+func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
+    url, _ := cfg["url"].(string)
+    if url == "" {
+        return nil, fmt.Errorf("mysite: url is required")
+    }
+    return &mysitePlugin{url: url}, nil
+}
+
+func validate(cfg map[string]any) []error {
+    var errs []error
+    if err := plugin.RequireString(cfg, "url", "mysite"); err != nil {
+        errs = append(errs, err)
+    }
+    errs = append(errs, plugin.OptUnknownKeys(cfg, "mysite", "url")...)
+    return errs
+}
+
+func (p *mysitePlugin) Name() string { return "mysite" }
+
+func (p *mysitePlugin) Generate(ctx context.Context, _ *plugin.TaskContext) ([]*entry.Entry, error) {
+    req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.url, nil)
+    if err != nil {
+        return nil, fmt.Errorf("mysite: build request: %w", err)
+    }
+    resp, err := http.DefaultClient.Do(req)
+    if err != nil {
+        return nil, fmt.Errorf("mysite: fetch: %w", err)
+    }
+    defer resp.Body.Close()
+    // parse resp.Body, build entries...
+    var out []*entry.Entry
+    // out = append(out, entry.New(title, url))
+    return out, nil
+}
+```
+
+### Processor plugin (filter with persistence)
+
+```go
+// plugins/processor/filter/myfilter/myfilter.go
+package myfilter
+
+import (
+    "context"
+    "fmt"
+
+    "github.com/brunoga/pipeliner/internal/entry"
+    "github.com/brunoga/pipeliner/internal/plugin"
+    "github.com/brunoga/pipeliner/internal/store"
+)
+
+func init() {
+    plugin.Register(&plugin.Descriptor{
+        PluginName:  "myfilter",
+        Description: "accept entries whose score exceeds a threshold",
+        Role:        plugin.RoleProcessor,
+        Requires:    []string{"my_score"},
+        Factory:     newPlugin,
+        Validate:    validate,
+    })
+}
+
+type myFilter struct {
+    threshold float64
+    bucket    store.Bucket
+}
+
+func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
+    threshold := 5.0
+    if v, ok := cfg["threshold"].(float64); ok {
+        threshold = v
+    }
+    return &myFilter{
+        threshold: threshold,
+        bucket:    db.Bucket("myfilter"),
+    }, nil
+}
+
+func validate(cfg map[string]any) []error {
+    return plugin.OptUnknownKeys(cfg, "myfilter", "threshold")
+}
+
+func (p *myFilter) Name() string { return "myfilter" }
+
+func (p *myFilter) Process(_ context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
+    out := make([]*entry.Entry, 0, len(entries))
+    for _, e := range entries {
+        if e.IsRejected() || e.IsFailed() {
+            out = append(out, e)
+            continue
+        }
+        score, _ := e.Get("my_score")
+        s, _ := score.(float64)
+        if s >= p.threshold {
+            e.Accept()
+            out = append(out, e)
+        } else {
+            e.Reject(fmt.Sprintf("myfilter: score %.1f below threshold %.1f", s, p.threshold))
+        }
+    }
+    return out, nil
+}
+```
+
+### Sink plugin
+
+```go
+// plugins/sink/mynotify/mynotify.go
+package mynotify
+
+import (
+    "context"
+    "fmt"
+    "net/http"
     "strings"
 
     "github.com/brunoga/pipeliner/internal/entry"
@@ -1000,144 +739,68 @@ import (
 
 func init() {
     plugin.Register(&plugin.Descriptor{
-        PluginName:  "min_words",
-        Description: "reject entries whose title has fewer than min_words words",
-        PluginPhase: plugin.PhaseFilter,
+        PluginName:  "mynotify",
+        Description: "POST accepted entries to a webhook URL",
+        Role:        plugin.RoleSink,
         Factory:     newPlugin,
         Validate:    validate,
+        Schema: []plugin.FieldSchema{
+            {Key: "url", Type: plugin.FieldTypeString, Required: true, Hint: "Webhook URL"},
+        },
     })
 }
 
-func validate(cfg map[string]any) []error {
-    return nil // min_words is optional with a default
-}
-
-type minWordPlugin struct{ min int }
+type myNotify struct{ url string }
 
 func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
-    min := 2
-    if v, ok := cfg["min_words"].(float64); ok {
-        min = int(v)
+    url, _ := cfg["url"].(string)
+    if url == "" {
+        return nil, fmt.Errorf("mynotify: url is required")
     }
-    if min < 1 {
-        return nil, fmt.Errorf("min_words: must be at least 1")
-    }
-    return &minWordPlugin{min: min}, nil
-}
-
-func (p *minWordPlugin) Name() string        { return "min_words" }
-func (p *minWordPlugin) Phase() plugin.Phase { return plugin.PhaseFilter }
-
-func (p *minWordPlugin) Filter(_ context.Context, _ *plugin.TaskContext, e *entry.Entry) error {
-    if len(strings.Fields(e.Title)) < p.min {
-        e.Reject(fmt.Sprintf("min_words: title has fewer than %d words", p.min))
-    }
-    return nil
-}
-```
-
-### Metainfo plugin with persistent cache
-
-```go
-package mymeta
-
-import (
-    "context"
-    "fmt"
-    "time"
-
-    "github.com/brunoga/pipeliner/internal/cache"
-    "github.com/brunoga/pipeliner/internal/entry"
-    "github.com/brunoga/pipeliner/internal/plugin"
-    "github.com/brunoga/pipeliner/internal/store"
-)
-
-func init() {
-    plugin.Register(&plugin.Descriptor{
-        PluginName:  "metainfo_myapi",
-        Description: "enrich entries with data from MyAPI",
-        PluginPhase: plugin.PhaseMetainfo,
-        Factory:     newPlugin,
-        Validate:    validate,
-    })
+    return &myNotify{url: url}, nil
 }
 
 func validate(cfg map[string]any) []error {
     var errs []error
-    if err := plugin.RequireString(cfg, "api_key", "metainfo_myapi"); err != nil {
+    if err := plugin.RequireString(cfg, "url", "mynotify"); err != nil {
         errs = append(errs, err)
     }
-    if err := plugin.OptDuration(cfg, "cache_ttl", "metainfo_myapi"); err != nil {
-        errs = append(errs, err)
-    }
+    errs = append(errs, plugin.OptUnknownKeys(cfg, "mynotify", "url")...)
     return errs
 }
 
-type myMetaPlugin struct {
-    apiKey string
-    cache  *cache.Cache[*MyData]
-}
+func (p *myNotify) Name() string { return "mynotify" }
 
-func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
-    apiKey, _ := cfg["api_key"].(string)
-    if apiKey == "" {
-        return nil, fmt.Errorf("metainfo_myapi: 'api_key' is required")
-    }
-    ttl := 24 * time.Hour
-    if v, _ := cfg["cache_ttl"].(string); v != "" {
-        d, err := time.ParseDuration(v)
-        if err != nil {
-            return nil, fmt.Errorf("metainfo_myapi: invalid cache_ttl: %w", err)
-        }
-        ttl = d
-    }
-    c := cache.NewPersistent[*MyData](ttl, db.Bucket("cache_metainfo_myapi"))
-    c.Preload() // warm the in-memory map at startup
-    return &myMetaPlugin{apiKey: apiKey, cache: c}, nil
-}
-
-func (p *myMetaPlugin) Name() string        { return "metainfo_myapi" }
-func (p *myMetaPlugin) Phase() plugin.Phase { return plugin.PhaseMetainfo }
-
-func (p *myMetaPlugin) Annotate(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
-    title := e.Title
-    if data, ok := p.cache.Get(title); ok {
-        apply(e, data)
+func (p *myNotify) Consume(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
+    if tc.DryRun {
         return nil
     }
-    data, err := fetchFromAPI(ctx, p.apiKey, title)
-    if err != nil {
-        tc.Logger.Warn("metainfo_myapi: fetch failed", "title", title, "err", err)
-        return nil // don't fail the whole pipeline on a metadata miss
+    for _, e := range entry.FilterAccepted(entries) {
+        body := fmt.Sprintf(`{"title":%q,"url":%q}`, e.Title, e.URL)
+        req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.url, strings.NewReader(body))
+        if err != nil {
+            tc.Logger.Error("build request failed", "err", err)
+            continue
+        }
+        req.Header.Set("Content-Type", "application/json")
+        resp, err := http.DefaultClient.Do(req)
+        if err != nil {
+            tc.Logger.Error("webhook failed", "entry", e.Title, "err", err)
+            e.Fail("mynotify: " + err.Error())
+            continue
+        }
+        resp.Body.Close()
+        if resp.StatusCode >= 400 {
+            tc.Logger.Error("webhook error", "entry", e.Title, "status", resp.StatusCode)
+            e.Fail(fmt.Sprintf("mynotify: HTTP %d", resp.StatusCode))
+        }
     }
-    p.cache.Set(title, data)
-    apply(e, data)
     return nil
-}
-
-func apply(e *entry.Entry, data *MyData) {
-    // Use standard fields where possible; provider-specific fields for the rest.
-    e.SetVideoInfo(entry.VideoInfo{
-        GenericInfo: entry.GenericInfo{Title: data.Title, Enriched: true},
-        Rating:      data.Rating,
-        Genres:      data.Genres,
-    })
-    // Provider-specific fields with no standard equivalent.
-    e.Set("myapi_id", data.ID)
 }
 ```
 
 ---
 
-## Checklist for new plugins
-
-- [ ] `init()` calls `plugin.Register` with a unique `PluginName`
-- [ ] `Factory` validates required fields and returns a descriptive error if missing
-- [ ] `Validate` function registered and mirrors factory requirements
-- [ ] `Phase()` returns the correct phase constant
-- [ ] Bucket names include `tc.Name` to scope data per task
-- [ ] Persistent caches call `Preload()` in the constructor
-- [ ] Errors from external calls are logged and do not fail the whole pipeline (return nil, log warn)
-- [ ] Sub-plugin configs use `MakeFromPlugin` (for `from:` sources) or `ResolveNameAndConfig` (for search plugins)
-- [ ] A `README.md` is created in the plugin directory
-- [ ] The plugin is added to `cmd/pipeliner/main.go` via a side-effect import
+*See `plugins/processor/filter/regexp/` for a well-documented real-world processor,
+`plugins/source/rss/` for a real-world source, and `plugins/sink/transmission/`
+for a real-world sink.*

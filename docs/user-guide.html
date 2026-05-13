@@ -89,13 +89,14 @@ td code{font-size:12px}
     <a href="#schedules">Schedules</a>
 
     <div class="section">Core Concepts</div>
-    <a href="#phases">Pipeline Phases</a>
+    <a href="#phases">Building Blocks</a>
+    <a href="#connecting">Connecting Nodes</a>
     <a href="#entries">Entries &amp; Fields</a>
     <a href="#expressions">Expressions</a>
     <a href="#quality-spec">Quality Specs</a>
     <a href="#template-funcs">Template Functions</a>
 
-    <div class="section">Input Plugins</div>
+    <div class="section">Source Plugins</div>
     <a href="#rss" class="sub">rss</a>
     <a href="#html" class="sub">html</a>
     <a href="#filesystem" class="sub">filesystem</a>
@@ -160,6 +161,7 @@ td code{font-size:12px}
     <div class="section">Operations</div>
     <a href="#cli">CLI Reference</a>
     <a href="#webui">Web UI</a>
+    <a href="#visual-editor" class="sub">Visual editor</a>
     <a href="#docker">Docker</a>
     <a href="#dry-run">Dry-Run Mode</a>
     <a href="#troubleshooting">Troubleshooting</a>
@@ -173,14 +175,16 @@ td code{font-size:12px}
 
 <p>Pipeliner is a media-automation daemon that pulls entries from RSS feeds, torrent indexers, or local filesystems, enriches them with metadata, applies configurable filters, and hands accepted entries off to download clients, notification services, or shell commands.</p>
 
-<p>It is heavily inspired by <a href="https://flexget.com" target="_blank">FlexGet</a>. Pipelines are described in <a href="https://github.com/bazelbuild/starlark/blob/master/spec.md" target="_blank">Starlark</a> — a deterministic, side-effect-free dialect of Python used by Bazel and Buck. Each task chains a sequence of plugins. The scheduler runs tasks on cron or interval schedules, persisting state in a SQLite database so each entry is processed only once.</p>
+<p>It is heavily inspired by <a href="https://flexget.com" target="_blank">FlexGet</a>. Pipelines are described in <a href="https://github.com/bazelbuild/starlark/blob/master/spec.md" target="_blank">Starlark</a> — a deterministic, side-effect-free dialect of Python used by Bazel and Buck. Pipelines connect nodes that produce, transform, and consume entries. The scheduler runs pipelines on cron or interval schedules, persisting state in a SQLite database.</p>
 
 <h3>Key concepts</h3>
 <ul>
   <li><strong>Entry</strong> — a title, URL, state (undecided/accepted/rejected/failed), and a key-value field map</li>
-  <li><strong>Plugin</strong> — a self-contained unit that produces, annotates, filters, modifies, or acts on entries</li>
-  <li><strong>Task</strong> — an ordered chain of plugins; metainfo, filter, and modify plugins run in config-file order</li>
-  <li><strong>Phase</strong> — the execution category a plugin belongs to (input, metainfo, filter, modify, output, learn)</li>
+  <li><strong>Node</strong> — a configured plugin instance connected to other nodes via <code>upstream=</code></li>
+  <li><strong>Source</strong> — produces entries from an external source (RSS, files, indexers)</li>
+  <li><strong>Processor</strong> — filters, enriches, or transforms entries (filters, metainfo, modify)</li>
+  <li><strong>Sink</strong> — acts on accepted entries (torrent clients, email, shell commands)</li>
+  <li><strong>Pipeline</strong> — a named set of connected nodes with an optional schedule</li>
 </ul>
 
 <!-- ═══════════════════════════════════════════════════════════ -->
@@ -215,14 +219,17 @@ make build        # or: go build -o pipeliner ./cmd/pipeliner</code></pre>
 <h2 id="quickstart">Quick Start</h2>
 
 <p>Create <code>config.star</code>:</p>
-<pre><code>task("breaking-bad",
-    [
-        plugin("rss", url="https://example.com/rss"),
-        plugin("seen"),
-        plugin("series", static=["Breaking Bad"]),
-        plugin("transmission", host="localhost", port=9091),
-    ],
-    schedule="1h")</code></pre>
+<pre><code><span class="y-comment"># Each line creates a node; upstream= connects it to the previous one.</span>
+src    = input("rss", url="https://example.com/rss")
+seen   = process("seen", upstream=src)
+series = process("series", upstream=seen, static=["Breaking Bad"])
+fmt    = process("pathfmt", upstream=series,
+                 path="/media/tv/{title}/Season {series_season:02d}",
+                 field="download_path")
+output("transmission", upstream=fmt, host="localhost", port=9091,
+                        path="{download_path}")
+
+pipeline("breaking-bad", schedule="1h")</code></pre>
 
 <p>Run once to test:</p>
 <pre><code>pipeliner run --config config.star</code></pre>
@@ -240,31 +247,39 @@ make build        # or: go build -o pipeliner ./cmd/pipeliner</code></pre>
 <p>Pipeliner uses a single <a href="https://github.com/bazelbuild/starlark/blob/master/spec.md" target="_blank">Starlark</a> script (default: <code>config.star</code>). Pass a custom path with <code>--config</code>. Starlark is a deterministic, side-effect-free Python dialect — if you know Python, you already know Starlark.</p>
 
 <h3>Built-in functions</h3>
-<p>Three functions are available globally in every config script:</p>
 <table>
   <tr><th>Function</th><th>Description</th></tr>
-  <tr><td><code>plugin(name, key=val, …)</code></td><td>Create a plugin config using keyword arguments</td></tr>
-  <tr><td><code>plugin(name, {…})</code></td><td>Create a plugin config using a dict (required when config keys conflict with Starlark identifiers)</td></tr>
-  <tr><td><code>task(name, plugins, schedule="", priority=0)</code></td><td>Register a named task; <code>plugins</code> is a flat list of <code>plugin()</code> calls</td></tr>
+  <tr><td><code>input("plugin", key=val, …)</code></td><td>Create a <strong>source</strong> node that produces entries</td></tr>
+  <tr><td><code>process("plugin", upstream=node, key=val, …)</code></td><td>Create a <strong>processor</strong> node connected to an upstream node</td></tr>
+  <tr><td><code>merge(a, b, …)</code></td><td>Combine multiple source/processor nodes into one (deduplicated by URL)</td></tr>
+  <tr><td><code>output("plugin", upstream=node, key=val, …)</code></td><td>Create a <strong>sink</strong> node; returns a handle so another <code>output()</code> can chain from it</td></tr>
+  <tr><td><code>pipeline(name, schedule="")</code></td><td>Register all nodes defined above as a named, scheduled pipeline</td></tr>
   <tr><td><code>env(name, default=None)</code></td><td>Read an environment variable; errors if unset and no default given</td></tr>
   <tr><td><code>load("./other.star", "sym")</code></td><td>Import a symbol from another <code>.star</code> file (Starlark built-in)</td></tr>
 </table>
 
 <h3>Structure overview</h3>
-<pre><code># Variables — ordinary Starlark assignments
+<pre><code><span class="y-comment"># Variables — ordinary Starlark assignments</span>
 tv_root  = "/media/tv"
-tvdb_key = env("TVDB_API_KEY")   # from environment
+tvdb_key = env("TVDB_API_KEY")   <span class="y-comment"># from environment</span>
 
-# Templates — Starlark functions returning lists of plugin() calls
-def common_input(url):
-    return [plugin("rss", url=url), plugin("seen")]
+<span class="y-comment"># Templates — Starlark functions that build pipeline chains</span>
+def enrich_series(upstream):
+    meta = process("metainfo_tvdb", upstream=upstream, api_key=tvdb_key)
+    req  = process("require",       upstream=meta,     fields=["enriched"])
+    fmt  = process("pathfmt",       upstream=req,
+                   path=tv_root + "/{title}/Season {series_season:02d}",
+                   field="download_path")
+    return fmt
 
-# Tasks — call task() once per pipeline
-task("my-task",
-    common_input("https://example.com/rss") + [
-        plugin("series", static=["My Show"]),
-    ],
-    schedule="1h")</code></pre>
+<span class="y-comment"># Build the pipeline</span>
+src    = input("rss", url="https://example.com/rss")
+seen   = process("seen",   upstream=src)
+series = process("series", upstream=seen, static=["My Show"])
+output("transmission", upstream=enrich_series(series),
+       host="localhost", path="{download_path}")
+
+pipeline("my-pipeline", schedule="1h")</code></pre>
 
 <h3>Database</h3>
 <p>Pipeliner automatically maintains <code>pipeliner.db</code> (SQLite) in the same directory as the config file. All stateful plugins (<code>seen</code>, <code>series</code>, <code>movies</code>, <code>premiere</code>, <code>upgrade</code>, the TVDB/Trakt caches, and persistent lists) share this file. No configuration needed.</p>
@@ -282,61 +297,51 @@ task("my-task",
 </table>
 
 <pre><code>tv_root  = "/media/tv"
-tvdb_key = env("TVDB_API_KEY")   # must be set in the process environment
+tvdb_key = env("TVDB_API_KEY")   <span class="y-comment"># must be set in the process environment</span>
 
-task("tv", [
-    plugin("metainfo_tvdb", api_key=tvdb_key),
-    plugin("pathfmt", path=tv_root + "/{title}", field="download_path"),
-])</code></pre>
+src  = input("rss", url="https://example.com/rss")
+meta = process("metainfo_tvdb", upstream=src, api_key=tvdb_key)
+fmt  = process("pathfmt", upstream=meta, path=tv_root + "/{title}", field="download_path")
+output("transmission", upstream=fmt, host="localhost")
+pipeline("tv")</code></pre>
 
 <p>Because variables are plain Starlark values you can also compute them at config load time using string concatenation, conditionals, or any other Starlark expression. There is no special substitution syntax — the language itself handles composition.</p>
 
 <!-- ═══════════════════════════════════════════════════════════ -->
 <h2 id="templates">Templates</h2>
 
-<p>Templates are ordinary <a href="https://github.com/bazelbuild/starlark/blob/master/spec.md#function-definitions" target="_blank">Starlark functions</a> that return a list of <code>plugin()</code> calls. Because they are real functions, they support any parameter type (strings, numbers, lists, dicts), default values, conditional logic, and loops — without any special syntax.</p>
+<p>Templates are ordinary <a href="https://github.com/bazelbuild/starlark/blob/master/spec.md#function-definitions" target="_blank">Starlark functions</a> that build pipeline chains and return a node handle. Because they are real functions, they support any parameter type, default values, conditional logic, and loops.</p>
 
-<pre><code># Template with typed parameters and a default
-def common_input(url, local_seen=False):
-    return [
-        plugin("rss", url=url),
-        plugin("seen", local=local_seen),
-    ]
+<pre><code><span class="y-comment"># A template takes an upstream node and returns the last node in the chain</span>
+def standard_tv(upstream, dest="/media/tv"):
+    seen   = process("seen",            upstream=upstream)
+    quality = process("metainfo_quality", upstream=seen)
+    flt    = process("quality",          upstream=quality, min="720p webrip+")
+    fmt    = process("pathfmt",          upstream=flt,
+                     path=dest + "/{title}/Season {series_season:02d}",
+                     field="download_path")
+    return fmt
 
-def common_output(dest, host="localhost", port=9091):
-    return [
-        plugin("pathfmt", path=dest + "/{title}", field="download_path"),
-        plugin("transmission", host=host, port=port, path="{download_path}"),
-    ]
+def notify_email(upstream, subject):
+    output("email", upstream=upstream,
+           smtp_host="smtp.example.com", smtp_port=587,
+           sender="me@example.com", to="me@example.com",
+           subject=subject)
 
-def jackett_search(indexers, categories):
-    return [plugin("jackett_input",
-                   indexers=indexers, categories=categories)]
-
-def email_notify(subject, body_template):
-    return [plugin("email",
-                   subject=subject, body_template=body_template,
-                   smtp_host=smtp_host, smtp_port=smtp_port,
-                   from_=smtp_user, to=smtp_to)]
-
-# Using templates — just call them like functions
-task("tv-shows",
-    common_input("https://example.com/rss") +
-    jackett_search(["torrenting", "showrss"], ["5000"]) +
-    [plugin("series", static=["My Show"])] +
-    common_output("/media/tv") +
-    email_notify(
-        subject="New episodes: {{len .Entries}}",
-        body_template="{{range .Entries}}&lt;p&gt;{{index .Fields \"title\"}}&lt;/p&gt;{{end}}",
-    ))</code></pre>
+<span class="y-comment"># Compose templates into a complete pipeline</span>
+src    = input("rss", url="https://example.com/rss")
+series = process("series", upstream=src, static=["Breaking Bad", "Severance"])
+ready  = standard_tv(series)
+output("transmission", upstream=ready, host="localhost")
+notify_email(ready, subject="New: {{len .Entries}} episode(s)")
+pipeline("tv-shows", schedule="30m")</code></pre>
 
 <h4>Key points</h4>
 <ul>
-  <li>Templates return a list of <code>plugin()</code> values. Concatenate lists with <code>+</code> to compose them into a task.</li>
-  <li>Parameters accept any Starlark type: strings, numbers, lists, dicts, or other functions. No special wrapping needed.</li>
-  <li>Default parameter values work as in Python: <code>def f(x, y="default"):</code></li>
-  <li>Use <code>load("./common.star", "my_template")</code> to share templates across config files.</li>
-  <li>Starlark is deterministic — no side effects, no imports from the network, no file I/O — so configs are safe to evaluate repeatedly.</li>
+  <li>Templates accept upstream node handles and return downstream node handles — compose them by passing one function's return value into another.</li>
+  <li>Parameters accept any Starlark type: strings, numbers, lists, dicts. Default parameter values work as in Python: <code>def f(x, y="default"):</code></li>
+  <li>Use <code>load("./common.star", "standard_tv")</code> to share templates across config files.</li>
+  <li>Starlark is deterministic — no side effects, no network calls, no file I/O — so configs are safe to evaluate repeatedly without running the pipeline.</li>
 </ul>
 
 <p>For the full Starlark language reference see the <a href="https://github.com/bazelbuild/starlark/blob/master/spec.md" target="_blank">Starlark specification</a> and the <a href="https://github.com/google/starlark-go" target="_blank">starlark-go implementation</a> used by pipeliner.</p>
@@ -344,39 +349,80 @@ task("tv-shows",
 <!-- ═══════════════════════════════════════════════════════════ -->
 <h2 id="schedules">Schedules</h2>
 
-<p>In <code>daemon</code> mode, tasks run automatically according to their schedule. Pass the schedule as the <code>schedule=</code> keyword argument to <code>task()</code>. Both interval strings and 5-field cron expressions are supported.</p>
+<p>In <code>daemon</code> mode, pipelines run automatically according to their schedule. Pass the schedule as the <code>schedule=</code> argument to <code>pipeline()</code>. Both interval strings and 5-field cron expressions are supported.</p>
 
-<pre><code>task("hourly-task",  [...], schedule="1h")
-task("daily-task",   [...], schedule="24h")
-task("morning-task", [...], schedule="0 7 * * *")   # every day at 07:00</code></pre>
+<pre><code>pipeline("hourly",  schedule="1h")
+pipeline("daily",   schedule="24h")
+pipeline("morning", schedule="0 7 * * *")   <span class="y-comment"># every day at 07:00</span></code></pre>
 
-<p>Tasks without a <code>schedule=</code> argument are not run automatically; trigger them manually via the web UI or <code>pipeliner run task-name</code>.</p>
+<p>Pipelines without a <code>schedule=</code> argument are not run automatically; trigger them manually via the web UI or <code>pipeliner run pipeline-name</code>.</p>
 
 <!-- ═══════════════════════════════════════════════════════════ -->
-<h2 id="phases">Pipeline Phases</h2>
+<h2 id="phases">Pipeline Building Blocks</h2>
 
-<p>All input plugins run first (concurrently), then metainfo, filter, and modify plugins run in the order they appear in the config, and finally all output plugins run (concurrently). The learn phase follows output.</p>
-
-<div class="phases">
-  <div class="phase input">Input</div><div class="arrow">→</div>
-  <div class="phase metainfo">Metainfo</div><div class="arrow">↕</div>
-  <div class="phase filter">Filter</div><div class="arrow">↕</div>
-  <div class="phase modify">Modify</div><div class="arrow">→</div>
-  <div class="phase output">Output</div><div class="arrow">→</div>
-  <div class="phase learn">Learn</div>
-</div>
+<p>Every node in a pipeline has one of three roles:</p>
 
 <table>
-  <tr><th>Phase</th><th>What happens</th><th>Entry state after</th></tr>
-  <tr><td><strong>Input</strong></td><td>Plugins produce entries from sources (RSS, files, searches). All inputs run concurrently; results are merged and deduplicated by URL.</td><td>undecided</td></tr>
-  <tr><td><strong>Metainfo</strong></td><td>Plugins annotate entries with additional fields (quality tags, TVDB data, torrent info). Runs in config order, interleaved with filter and modify.</td><td>undecided</td></tr>
-  <tr><td><strong>Filter</strong></td><td>Plugins accept, reject, or leave entries undecided. Runs in config order, interleaved with metainfo and modify.</td><td>accepted / rejected / undecided</td></tr>
-  <tr><td><strong>Modify</strong></td><td>Plugins mutate accepted entry fields (path formatting, field setting). Runs in config order, interleaved with metainfo and filter.</td><td>accepted (unchanged)</td></tr>
-  <tr><td><strong>Output</strong></td><td>Plugins act on accepted entries in config order. Each plugin receives only entries still accepted at that point — a plugin that fails an entry removes it from subsequent output plugins and from the learn phase.</td><td>accepted / failed (if downloader errors)</td></tr>
-  <tr><td><strong>Learn</strong></td><td>Plugins persist state for future runs (mark as seen, record series tracker). Receives only accepted entries — output-failed entries are excluded and will be retried. Skipped in dry-run mode.</td><td>accepted only</td></tr>
+  <tr><th>Role</th><th>What it does</th><th>Entry state after</th></tr>
+  <tr><td><strong>Source</strong> (<code>input()</code>)</td><td>Produces entries from an external source (RSS feed, directory, Jackett, HTML page). Multiple sources can be combined with <code>merge()</code>; duplicate URLs are dropped.</td><td>undecided</td></tr>
+  <tr><td><strong>Processor</strong> (<code>process()</code>)</td><td>Transforms the entries it receives. Can accept, reject, enrich, or mutate them. Returns only the entries that should continue downstream — dropped entries are counted as rejected.</td><td>accepted / rejected / undecided</td></tr>
+  <tr><td><strong>Sink</strong> (<code>output()</code>)</td><td>Acts on accepted entries: queues torrents, sends notifications, runs commands. Skips side effects when <code>--dry-run</code> is set.</td><td>accepted / failed (on error)</td></tr>
 </table>
 
-<div class="note">Metainfo, filter, and modify plugins run in config-file order. Place a filter immediately after the metainfo plugin that sets the field it inspects to reject cheap early and avoid unnecessary annotation work for entries that will be rejected anyway.</div>
+<div class="note">Processors run in the order they are connected. Place metainfo processors before the filters that use their output — for example, put <code>metainfo_quality</code> before <code>quality</code>.</div>
+
+<h2 id="connecting">Connecting Nodes</h2>
+
+<p>The <code>upstream=</code> argument connects a node to its upstream. The node receives the entries that upstream passed through. A node with multiple upstreams receives all of their combined output (deduplicated by URL).</p>
+
+<pre><code><span class="y-comment"># Linear chain — each node connects to the one before it</span>
+src     = input("rss", url="https://feed.example.com/rss")
+seen    = process("seen",             upstream=src)
+quality = process("metainfo_quality", upstream=seen)
+flt     = process("quality",          upstream=quality, min="720p")
+output("transmission",                upstream=flt, host="localhost")
+pipeline("tv")</code></pre>
+
+<pre><code><span class="y-comment"># Two sources merged into one chain</span>
+feed1 = input("rss", url="https://feed1.example.com/rss")
+feed2 = input("rss", url="https://feed2.example.com/rss")
+seen  = process("seen",   upstream=merge(feed1, feed2))
+flt   = process("series", upstream=seen, static=["Breaking Bad"])
+output("transmission", upstream=flt, host="localhost")
+pipeline("tv-merged")</code></pre>
+
+<pre><code><span class="y-comment"># Fan-out: one chain to two independent sinks</span>
+src  = input("rss", url="https://feed.example.com/rss")
+seen = process("seen",   upstream=src)
+flt  = process("series", upstream=seen, static=["My Show"])
+
+output("transmission", upstream=flt, host="localhost")
+output("email",        upstream=flt, smtp_host="smtp.example.com",
+       sender="me@example.com", to="me@example.com")
+pipeline("tv-fanout")</code></pre>
+
+<pre><code><span class="y-comment"># Sink chaining: email fires only for entries Transmission confirmed</span>
+src  = input("rss", url="https://feed.example.com/rss")
+seen = process("seen",   upstream=src)
+flt  = process("series", upstream=seen, static=["My Show"])
+
+dl = output("transmission", upstream=flt, host="localhost")
+output("email", upstream=dl, smtp_host="smtp.example.com",
+       sender="me@example.com", to="me@example.com")
+pipeline("tv-chained")</code></pre>
+
+<div class="note"><strong>Fan-out vs chaining:</strong> When two <code>output()</code> calls share the same <code>upstream=</code> they run independently — each receives all accepted entries regardless of what the other does. When one <code>output()</code> uses another as its <code>upstream=</code>, the chained sink only receives entries the first sink did not fail. Use chaining when a downstream action (notification, post-processing) should only happen after the primary sink confirms success.</div>
+
+<pre><code><span class="y-comment"># Branching: TV to Transmission, movies to qBittorrent</span>
+src = input("rss", url="https://feed.example.com/rss")
+q   = process("metainfo_quality", upstream=src)
+
+tv_branch     = process("series", upstream=q, static=["My Show"])
+movies_branch = process("movies", upstream=q, static=["Inception"])
+
+output("transmission", upstream=tv_branch,     host="localhost")
+output("qbittorrent",  upstream=movies_branch, host="localhost")
+pipeline("split-pipeline")</code></pre>
 
 <!-- ═══════════════════════════════════════════════════════════ -->
 <h2 id="entries">Entries &amp; Fields</h2>
@@ -644,8 +690,8 @@ task("morning-task", [...], schedule="0 7 * * *")   # every day at 07:00</code><
 
 <hr>
 <!-- ═══════════════════════════════════════════════════════════ -->
-<h1>Input Plugins</h1>
-<p>Input plugins produce entries. All inputs in a task run concurrently; their results are merged and deduplicated by URL before other phases begin.</p>
+<h1>Source Plugins</h1>
+<p>Source plugins produce entries. Use them with <code>input("plugin-name", …)</code>. Combine multiple sources with <code>merge(src1, src2)</code> — duplicate URLs are dropped.</p>
 
 <!-- ─────────── rss ─────────── -->
 <h2 id="rss">rss</h2>
@@ -660,8 +706,9 @@ task("morning-task", [...], schedule="0 7 * * *")   # every day at 07:00</code><
 <h4>Fields set</h4>
 <p><code>rss_feed</code>, <code>rss_link</code>, <code>rss_guid</code>, <code>rss_enclosure_url</code>, <code>rss_enclosure_type</code>, <code>description</code> (item description), <code>published_date</code> (item pubdate), <code>torrent_seeds</code> (when present in feed)</p>
 
-<pre><code><span class="y-key">rss</span>:
-  <span class="y-key">url</span>: <span class="y-str">"https://example.com/torrents/rss"</span></code></pre>
+<pre><code>src = input("rss", url="https://example.com/torrents/rss")
+output("print", upstream=src)
+pipeline("my-pipeline")</code></pre>
 
 <!-- ─────────── html ─────────── -->
 <h2 id="html">html</h2>
@@ -673,9 +720,9 @@ task("morning-task", [...], schedule="0 7 * * *")   # every day at 07:00</code><
   <tr><td><code>mask</code></td><td>no</td><td>—</td><td>Glob filter on link filenames (e.g. <code>*.torrent</code>)</td></tr>
 </table>
 
-<pre><code><span class="y-key">html</span>:
-  <span class="y-key">url</span>: <span class="y-str">"https://example.com/downloads"</span>
-  <span class="y-key">mask</span>: <span class="y-str">"*.torrent"</span></code></pre>
+<pre><code>src = input("html", url="https://example.com/downloads", mask="*.torrent")
+output("print", upstream=src)
+pipeline("html-feed")</code></pre>
 
 <!-- ─────────── filesystem ─────────── -->
 <h2 id="filesystem">filesystem</h2>
@@ -691,37 +738,38 @@ task("morning-task", [...], schedule="0 7 * * *")   # every day at 07:00</code><
 <h4>Fields set</h4>
 <p><code>file_location</code> (absolute path), <code>file_name</code>, <code>file_extension</code>, <code>file_size</code>, <code>file_modified_time</code></p>
 
-<pre><code><span class="y-key">filesystem</span>:
-  <span class="y-key">path</span>: <span class="y-str">/downloads/watch</span>
-  <span class="y-key">mask</span>: <span class="y-str">"*.torrent"</span></code></pre>
+<pre><code>src  = input("filesystem", path="/downloads/watch", mask="*.torrent")
+meta = process("metainfo_torrent", upstream=src)
+output("transmission", upstream=meta, host="localhost")
+pipeline("watch-folder", schedule="5m")</code></pre>
 
 <!-- ─────────── discover ─────────── -->
 <h2 id="discover">discover</h2>
-<p>Actively searches multiple sources for entries matching a title list. Unlike RSS (which passively receives all items), <code>discover</code> iterates titles, dispatches one search query per title to each configured search plugin (<code>via</code>), and returns the merged results. A per-title cooldown prevents redundant searches.</p>
+<p>Actively searches multiple sources for entries matching a title list. Unlike RSS (which passively receives all items), <code>discover</code> iterates titles, dispatches one search query per title to each configured search plugin (<code>search</code>), and returns the merged results. A per-title cooldown prevents redundant searches.</p>
 
 <table>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
   <tr><td><code>titles</code></td><td>conditional</td><td>—</td><td>Static list of title strings</td></tr>
-  <tr><td><code>from</code></td><td>conditional</td><td>—</td><td>From-plugin configs whose entry titles supplement the list</td></tr>
-  <tr><td><code>via</code></td><td>yes</td><td>—</td><td>Search plugin configs to query</td></tr>
+  <tr><td><code>list</code></td><td>conditional</td><td>—</td><td>List-plugin configs whose entry titles supplement the list</td></tr>
+  <tr><td><code>search</code></td><td>yes</td><td>—</td><td>Search plugin configs to query</td></tr>
   <tr><td><code>interval</code></td><td>no</td><td><code>24h</code></td><td>Minimum time between searches per title</td></tr>
 </table>
 
-<p>At least one of <code>titles</code> or <code>from</code> is required.</p>
+<p>At least one of <code>titles</code> or <code>list</code> is required.</p>
 
-<pre><code><span class="y-key">discover</span>:
-  <span class="y-key">from</span>:
-    - <span class="y-key">name</span>: <span class="y-str">trakt_list</span>
-      <span class="y-key">client_id</span>: <span class="y-str">YOUR_CLIENT_ID</span>
-      <span class="y-key">client_secret</span>: <span class="y-str">YOUR_CLIENT_SECRET</span>
-      <span class="y-key">type</span>: <span class="y-str">movies</span>
-      <span class="y-key">list</span>: <span class="y-str">watchlist</span>
-  <span class="y-key">via</span>:
-    - <span class="y-key">name</span>: <span class="y-str">jackett</span>
-      <span class="y-key">url</span>: <span class="y-str">"http://localhost:9117"</span>
-      <span class="y-key">api_key</span>: <span class="y-str">YOUR_JACKETT_KEY</span>
-      <span class="y-key">categories</span>: [<span class="y-str">"2000"</span>]
-  <span class="y-key">interval</span>: <span class="y-str">12h</span></code></pre>
+<pre><code><span class="y-comment"># Discover as a processor — upstream source provides titles</span>
+watchlist = input("trakt_list", client_id=env("TRAKT_ID"),
+                  client_secret=env("TRAKT_SECRET"),
+                  type="movies", list="watchlist")
+results   = process("discover", upstream=watchlist,
+    search=[{"name": "jackett", "url": "http://localhost:9117",
+             "api_key": env("JACKETT_KEY"), "categories": ["2000"]}],
+    interval="12h")
+seen      = process("seen",   upstream=results)
+quality   = process("metainfo_quality", upstream=seen)
+flt       = process("quality",upstream=quality, min="1080p")
+output("qbittorrent", upstream=flt, host="localhost")
+pipeline("movie-discover", schedule="2h")</code></pre>
 
 <!-- ─────────── jackett_input ─────────── -->
 <h2 id="jackett_input">jackett_input</h2>
@@ -753,18 +801,26 @@ task("morning-task", [...], schedule="0 7 * * *")   # every day at 07:00</code><
 
 <hr>
 <!-- ═══════════════════════════════════════════════════════════ -->
-<h1>From Plugins</h1>
-<p>From plugins are <strong>sub-plugins</strong> — they cannot be used as top-level task plugins and will cause a validation error if you try. They are referenced inside <code>series.from</code>, <code>movies.from</code>, <code>discover.from</code>, or <code>discover.via</code>.</p>
-<pre><code><span class="y-key">series</span>:
-  <span class="y-key">from</span>:
-    - <span class="y-key">name</span>: <span class="y-str">tvdb_favorites</span>   <span class="y-comment"># from plugin with inline config</span>
-      <span class="y-key">api_key</span>: <span class="y-str">YOUR_KEY</span>
-      <span class="y-key">user_pin</span>: <span class="y-str">YOUR_PIN</span>
-    - <span class="y-str">trakt_list</span>            <span class="y-comment"># from plugin by name alone (uses defaults)</span></code></pre>
+<h1>Dynamic Source Plugins</h1>
+<p>These plugins produce title lists or search results. They have two uses:</p>
+<ul>
+  <li><strong>As standalone sources</strong> — use <code>input("tvdb_favorites", …)</code> to create a source node whose entries drive downstream processors.</li>
+  <li><strong>As config-driven title sources</strong> — pass them inside a parent plugin's <code>list</code> config key (e.g. inside <code>series</code>) when you prefer the implicit connection style.</li>
+</ul>
+<pre><code><span class="y-comment"># Option A: standalone source node (explicit DAG connection)</span>
+watchlist = input("trakt_list", client_id=env("TRAKT_ID"),
+                  client_secret=env("TRAKT_SECRET"), type="shows")
+series = process("series", upstream=watchlist, tracking="follow")
+
+<span class="y-comment"># Option B: inside series.list config key</span>
+series = process("series", upstream=rss_src, list=[
+    {"name": "trakt_list", "client_id": env("TRAKT_ID"),
+     "client_secret": env("TRAKT_SECRET"), "type": "shows"},
+])</code></pre>
 
 <!-- ─────────── tvdb_favorites ─────────── -->
 <h2 id="tvdb_favorites">tvdb_favorites</h2>
-<p>Fetches a user's TheTVDB favorites list and emits one entry per show. Use inside <code>series.from</code> or <code>discover.from</code> to build a dynamic show list from your TVDB account.</p>
+<p>Fetches a user's TheTVDB favorites list and emits one entry per show. Use inside <code>series.list</code> or <code>discover.list</code> to build a dynamic show list from your TVDB account.</p>
 
 <table>
   <tr><th>Key</th><th>Required</th><th>Description</th></tr>
@@ -784,7 +840,7 @@ task("morning-task", [...], schedule="0 7 * * *")   # every day at 07:00</code><
 
 <!-- ─────────── trakt_list ─────────── -->
 <h2 id="trakt_list">trakt_list</h2>
-<p>Fetches movies or shows from a Trakt.tv list. Use inside <code>series.from</code>, <code>movies.from</code>, or <code>discover.from</code>.</p>
+<p>Fetches movies or shows from a Trakt.tv list. Use inside <code>series.list</code>, <code>movies.list</code>, or <code>discover.list</code>.</p>
 
 <table>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
@@ -849,7 +905,7 @@ task("morning-task", [...], schedule="0 7 * * *")   # every day at 07:00</code><
 
 <!-- ─────────── rss_search ─────────── -->
 <h2 id="rss_search">rss_search</h2>
-<p>Fetches entries from a parameterized RSS URL. Used inside <code>discover.via</code>. The URL template receives the search query.</p>
+<p>Fetches entries from a parameterized RSS URL. Used inside <code>discover.search</code>. The URL template receives the search query.</p>
 
 <table>
   <tr><th>Key</th><th>Required</th><th>Description</th></tr>
@@ -867,8 +923,8 @@ task("morning-task", [...], schedule="0 7 * * *")   # every day at 07:00</code><
 
 <hr>
 <!-- ═══════════════════════════════════════════════════════════ -->
-<h1>Metainfo Plugins</h1>
-<p>Metainfo plugins annotate entries with additional fields. They run in config-file order, interleaved with filter and modify plugins — place a metainfo plugin immediately before the filter that depends on its output.</p>
+<h1>Metainfo Processors</h1>
+<p>Metainfo processors annotate entries with extra fields. Use them with <code>process()</code>, placing each before any filter that uses its output.</p>
 
 <!-- ─────────── metainfo_tvdb ─────────── -->
 <h2 id="metainfo_tvdb">metainfo_tvdb</h2>
@@ -914,9 +970,12 @@ task("morning-task", [...], schedule="0 7 * * *")   # every day at 07:00</code><
 
 <!-- ─────────── metainfo_quality ─────────── -->
 <h2 id="metainfo_quality">metainfo_quality</h2>
-<p>Parses video quality tags from the entry title. Takes no config.</p>
-<p>Fields set: <code>codec</code>, <code>audio</code>, <code>color_range</code>, <code>quality_resolution</code>, <code>quality_source</code> (quality sub-fields kept without standard prefix)</p>
-<pre><code><span class="y-key">metainfo_quality</span>:    <span class="y-comment"># no config needed</span></code></pre>
+<p>Parses video quality tags from the entry title. Takes no config. Sets <code>video_quality</code>, <code>video_resolution</code>, <code>video_source</code>, <code>codec</code>, <code>audio</code>, <code>color_range</code>.</p>
+<pre><code>src = input("rss", url="https://feed.example.com/rss")
+q   = process("metainfo_quality", upstream=src)
+flt = process("quality", upstream=q, min="720p")   <span class="y-comment"># uses video_quality set above</span>
+output("transmission", upstream=flt, host="localhost")
+pipeline("hd-only")</code></pre>
 
 <!-- ─────────── metainfo_series ─────────── -->
 <h2 id="metainfo_series">metainfo_series</h2>
@@ -947,8 +1006,8 @@ After DHT: <code>torrent_file_size</code>, <code>torrent_file_count</code>, <cod
 
 <hr>
 <!-- ═══════════════════════════════════════════════════════════ -->
-<h1>Filter Plugins</h1>
-<p>Filter plugins run in config order, interleaved with metainfo and modify plugins. Each entry is passed to every filter in sequence; once an entry is rejected or failed it is skipped by subsequent filter plugins.</p>
+<h1>Filter Processors</h1>
+<p>Filter processors accept or reject entries. Use them with <code>process()</code>. Each entry starts undecided; filters move it to accepted or rejected. Rejected entries don't reach downstream nodes or sinks.</p>
 
 <!-- ─────────── series ─────────── -->
 <h2 id="series">series</h2>
@@ -957,8 +1016,8 @@ After DHT: <code>torrent_file_size</code>, <code>torrent_file_count</code>, <cod
 <table>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
   <tr><td><code>static</code></td><td>conditional</td><td>—</td><td>Static list of show names</td></tr>
-  <tr><td><code>from</code></td><td>conditional</td><td>—</td><td>From-plugin configs providing show names dynamically</td></tr>
-  <tr><td><code>ttl</code></td><td>no</td><td><code>1h</code></td><td>Cache TTL for dynamic show list. An empty list from a <code>from:</code> source is not cached — the source will be queried again on the next run.</td></tr>
+  <tr><td><code>list</code></td><td>conditional</td><td>—</td><td>List-plugin configs providing show names dynamically</td></tr>
+  <tr><td><code>ttl</code></td><td>no</td><td><code>1h</code></td><td>Cache TTL for dynamic show list. An empty list from a <code>list:</code> source is not cached — the source will be queried again on the next run.</td></tr>
   <tr><td><code>tracking</code></td><td>no</td><td><code>strict</code></td><td>Episode ordering mode: <code>strict</code>, <code>backfill</code>, or <code>follow</code></td></tr>
   <tr><td><code>quality</code></td><td>no</td><td>—</td><td>Minimum quality spec (e.g. <code>720p+ webrip+</code>)</td></tr>
   <tr><td><code>reject_unmatched</code></td><td>no</td><td><code>true</code></td><td>When <code>true</code> (default), entries that do not parse as a series episode or whose show name is not in the configured list are explicitly rejected. Set to <code>false</code> to leave such entries undecided — useful when chaining multiple series filters in one pipeline.</td></tr>
@@ -974,21 +1033,23 @@ After DHT: <code>torrent_file_size</code>, <code>torrent_file_count</code>, <cod
 
 <p>Fields set: <code>series_season</code>, <code>series_episode</code>, <code>series_episode_id</code>. The matched show name is written to <code>title</code> (canonical) and <code>raw_title</code> (original parsed name).</p>
 
-<pre><code><span class="y-key">series</span>:
-  <span class="y-key">tracking</span>: <span class="y-str">strict</span>
-  <span class="y-key">quality</span>: <span class="y-str">720p+ webrip+</span>
-  <span class="y-key">static</span>:
-    - <span class="y-str">"Breaking Bad"</span>
-    - <span class="y-str">"Better Call Saul"</span></code></pre>
+<pre><code>src    = input("rss", url="https://feed.example.com/rss")
+seen   = process("seen",   upstream=src)
+series = process("series", upstream=seen,
+                 static=["Breaking Bad", "Better Call Saul"],
+                 tracking="strict", quality="720p+ webrip+")
+output("transmission", upstream=series, host="localhost")
+pipeline("tv", schedule="30m")</code></pre>
 
-<pre><code><span class="y-comment"># Dynamic list from TVDB favorites — backfill all episodes not yet downloaded</span>
-<span class="y-key">series</span>:
-  <span class="y-key">tracking</span>: <span class="y-str">backfill</span>
-  <span class="y-key">quality</span>: <span class="y-str">720p+ webrip+</span>
-  <span class="y-key">from</span>:
-    - <span class="y-key">name</span>: <span class="y-str">tvdb_favorites</span>
-      <span class="y-key">api_key</span>: <span class="y-str">YOUR_KEY</span>
-      <span class="y-key">user_pin</span>: <span class="y-str">YOUR_PIN</span></code></pre>
+<pre><code><span class="y-comment"># Dynamic show list from TVDB favorites</span>
+favs   = input("tvdb_favorites", api_key=env("TVDB_KEY"), user_pin=env("TVDB_PIN"))
+src    = input("rss", url="https://feed.example.com/rss")
+seen   = process("seen",   upstream=merge(src, favs))
+series = process("series", upstream=seen, list=[
+    {"name": "tvdb_favorites", "api_key": env("TVDB_KEY"), "user_pin": env("TVDB_PIN")},
+], tracking="backfill", quality="720p+ webrip+")
+output("transmission", upstream=series, host="localhost")
+pipeline("tv-dynamic", schedule="1h")</code></pre>
 
 <!-- ─────────── movies ─────────── -->
 <h2 id="movies">movies</h2>
@@ -997,8 +1058,8 @@ After DHT: <code>torrent_file_size</code>, <code>torrent_file_count</code>, <cod
 <table>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
   <tr><td><code>static</code></td><td>conditional</td><td>—</td><td>Static list of movie titles</td></tr>
-  <tr><td><code>from</code></td><td>conditional</td><td>—</td><td>From-plugin configs providing titles dynamically</td></tr>
-  <tr><td><code>ttl</code></td><td>no</td><td><code>1h</code></td><td>Cache TTL for dynamic list. An empty list from a <code>from:</code> source is not cached — the source will be queried again on the next run.</td></tr>
+  <tr><td><code>list</code></td><td>conditional</td><td>—</td><td>List-plugin configs providing titles dynamically</td></tr>
+  <tr><td><code>ttl</code></td><td>no</td><td><code>1h</code></td><td>Cache TTL for dynamic list. An empty list from a <code>list:</code> source is not cached — the source will be queried again on the next run.</td></tr>
   <tr><td><code>quality</code></td><td>no</td><td>—</td><td>Minimum quality floor</td></tr>
   <tr><td><code>reject_unmatched</code></td><td>no</td><td><code>true</code></td><td>When <code>true</code> (default), entries whose title does not match any title in the configured list are explicitly rejected. Set to <code>false</code> to leave such entries undecided — useful when chaining multiple movies filters in one pipeline.</td></tr>
 </table>
@@ -1019,8 +1080,7 @@ After DHT: <code>torrent_file_size</code>, <code>torrent_file_count</code>, <cod
   <tr><td><code>reject_unmatched</code></td><td>no</td><td><code>true</code></td><td>When <code>true</code> (default), entries whose title does not parse as a series episode are explicitly rejected. Set to <code>false</code> to leave such entries undecided — useful when chaining <code>premiere</code> alongside other filters in one pipeline.</td></tr>
 </table>
 
-<pre><code><span class="y-key">premiere</span>:
-  <span class="y-key">quality</span>: <span class="y-str">720p+ webrip+</span></code></pre>
+<pre><code>prem = process("premiere", upstream=upstream, quality="720p+ webrip+")</code></pre>
 
 <!-- ─────────── condition ─────────── -->
 <h2 id="condition">condition</h2>
@@ -1033,13 +1093,12 @@ After DHT: <code>torrent_file_size</code>, <code>torrent_file_count</code>, <cod
   <tr><td><code>rules</code></td><td>conditional</td><td>Ordered list of <code>{accept, reject}</code> objects (use when you need multiple conditions)</td></tr>
 </table>
 
-<pre><code><span class="y-key">condition</span>:
-  <span class="y-key">rules</span>:
-    - <span class="y-key">reject</span>: <span class="y-str">'video_language != "" and video_language != "English"'</span>
-    - <span class="y-key">reject</span>: <span class="y-str">'video_genres contains "Documentary"'</span>
-    - <span class="y-key">reject</span>: <span class="y-str">'video_genres contains "Reality"'</span>
-    - <span class="y-key">reject</span>: <span class="y-str">'series_first_air_date != "" and series_first_air_date &lt; daysago(365)'</span>
-    - <span class="y-key">accept</span>: <span class="y-str">'video_rating &gt;= 7.0'</span></code></pre>
+<pre><code>cond = process("condition", upstream=meta_node, rules=[
+    {"reject": 'video_language != "" and video_language != "English"'},
+    {"reject": 'video_genres contains "Documentary"'},
+    {"reject": 'series_first_air_date != "" and series_first_air_date &lt; daysago(365)'},
+    {"accept": 'video_rating >= 7.0'},
+])</code></pre>
 
 <!-- ─────────── torrent_alive ─────────── -->
 <h2 id="torrent_alive">torrent_alive</h2>
@@ -1050,28 +1109,22 @@ After DHT: <code>torrent_file_size</code>, <code>torrent_file_count</code>, <cod
   <tr><td><code>min_seeds</code></td><td>no</td><td><code>1</code></td><td>Minimum seed count required</td></tr>
 </table>
 
-<pre><code><span class="y-key">torrent_alive</span>:
-  <span class="y-key">min_seeds</span>: <span class="y-num">3</span></code></pre>
+<pre><code>alive = process("torrent_alive", upstream=upstream, min_seeds=3)</code></pre>
 
 <!-- ─────────── require ─────────── -->
 <h2 id="require">require</h2>
 <p>Rejects entries missing one or more required fields. A field is "missing" if its value is nil, empty string, zero, false, or empty slice.</p>
 
-<pre><code><span class="y-key">require</span>:
-  <span class="y-key">fields</span>:
-    - <span class="y-str">enriched</span>
-    - <span class="y-str">series_episode_id</span></code></pre>
+<pre><code>req = process("require", upstream=upstream, fields=["enriched", "series_episode_id"])</code></pre>
 
-<div class="note"><strong>Using <code>enriched</code> as a metainfo gate.</strong> External metainfo plugins (TVDB, TMDb, Trakt) set <code>enriched = true</code> only when they successfully identify the entry in the database. Adding <code>enriched</code> to <code>require</code> rejects anything the provider did not recognise — for example, a foreign-language title, a very new release not yet in the database, or a torrent that doesn't match any known show or movie. This is the provider-agnostic replacement for the old pattern of requiring <code>tvdb_id</code>:
-<pre style="margin-top:0.5em"><code><span class="y-key">metainfo_tvdb</span>:
-  <span class="y-key">api_key</span>: <span class="y-str">"…"</span>
-<span class="y-key">require</span>:
-  <span class="y-key">fields</span>: [<span class="y-str">"enriched"</span>]   <span class="y-com"># drop anything TVDB didn't find</span></code></pre>
+<div class="note"><strong>Using <code>enriched</code> as a metainfo gate.</strong> External metainfo plugins (TVDB, TMDb, Trakt) set <code>enriched = true</code> only when they successfully identify the entry. Adding <code>enriched</code> to <code>require</code> rejects anything the provider did not recognise — new releases not yet in the database, foreign titles, or unrecognized content.
+<pre style="margin-top:0.5em"><code>meta = process("metainfo_tvdb", upstream=upstream, api_key=env("TVDB_KEY"))
+req  = process("require",       upstream=meta, fields=["enriched"])</code></pre>
 Because <code>enriched</code> is set by any external provider, the same config works unchanged if you later swap TVDB for TMDb or Trakt.</div>
 
 <!-- ─────────── seen ─────────── -->
 <h2 id="seen">seen</h2>
-<p>Rejects entries already processed in a previous run, using a SHA-256 fingerprint of configured fields stored in <code>pipeliner.db</code>. Fingerprints are written in the Learn phase — if an output plugin fails, the entry is <em>not</em> marked seen and will be retried.</p>
+<p>Rejects entries already processed in a previous run, using a SHA-256 fingerprint of configured fields stored in <code>pipeliner.db</code>. Fingerprints are written only after all downstream sinks confirm — if a sink fails an entry, it is <em>not</em> marked seen and will be retried on the next run.</p>
 
 <div class="note"><strong>Not needed for TV series, movies, or premieres.</strong> Those filters maintain their own download trackers and handle deduplication automatically. Use <code>seen</code> for pipelines without a domain-specific tracker — the most common case is RSS news or article feeds, where the same article would otherwise be re-processed every run.</div>
 
@@ -1082,19 +1135,16 @@ Because <code>enriched</code> is set by any external provider, the same config w
 </table>
 
 <p>Typical use — tech news to email, preventing re-delivery of already-sent articles:</p>
-<pre><code><span class="y-key">tasks</span>:
-  <span class="y-key">tech-news</span>:
-    <span class="y-key">rss</span>:
-      <span class="y-key">url</span>: <span class="y-str">"https://feeds.arstechnica.com/arstechnica/technology-lab"</span>
-    <span class="y-key">seen</span>:                  <span class="y-comment"># reject already-sent articles by URL</span>
-    <span class="y-key">regexp</span>:
-      <span class="y-key">accept</span>: <span class="y-str">"(?i)linux|golang|open.?source"</span>
-    <span class="y-key">email</span>:
-      <span class="y-key">smtp_host</span>: <span class="y-str">smtp.gmail.com</span>
-      <span class="y-key">subject</span>: <span class="y-str">"{{len .Entries}} new article(s)"</span>
-
-<span class="y-key">schedules</span>:
-  <span class="y-key">tech-news</span>: <span class="y-str">1h</span></code></pre>
+<pre><code>src  = input("rss", url="https://feeds.arstechnica.com/arstechnica/index")
+seen = process("seen", upstream=src)
+flt  = process("regexp", upstream=seen, accept=["(?i)linux|golang|open.?source"])
+acc  = process("accept_all", upstream=flt)
+output("email", upstream=acc,
+       smtp_host="smtp.gmail.com", smtp_port=587,
+       username=env("SMTP_USER"), password=env("SMTP_PASS"),
+       sender=env("SMTP_USER"), to=env("SMTP_TO"),
+       subject="{{len .Entries}} new article(s)")
+pipeline("tech-news", schedule="1h")</code></pre>
 
 <!-- ─────────── tvdb filter ─────────── -->
 <h2 id="tvdb-filter">tvdb</h2>
@@ -1156,11 +1206,9 @@ Because <code>enriched</code> is set by any external provider, the same config w
   <tr><td><code>from</code></td><td>no</td><td><code>["title"]</code></td><td>Fields to match against</td></tr>
 </table>
 
-<pre><code><span class="y-key">regexp</span>:
-  <span class="y-key">accept</span>:
-    - <span class="y-str">"(?i)golang"</span>
-    - <span class="y-str">"(?i)kubernetes"</span>
-  <span class="y-key">reject</span>: <span class="y-str">"(?i)sponsored"</span></code></pre>
+<pre><code>flt = process("regexp", upstream=upstream,
+              accept=["(?i)golang", "(?i)kubernetes"],
+              reject=["(?i)sponsored"])</code></pre>
 
 <!-- ─────────── quality filter ─────────── -->
 <h2 id="quality-filter">quality</h2>
@@ -1172,9 +1220,7 @@ Because <code>enriched</code> is set by any external provider, the same config w
   <tr><td><code>max</code></td><td>conditional</td><td>Maximum quality spec</td></tr>
 </table>
 
-<pre><code><span class="y-key">quality</span>:
-  <span class="y-key">min</span>: <span class="y-str">720p webrip</span>
-  <span class="y-key">max</span>: <span class="y-str">1080p</span></code></pre>
+<pre><code>flt = process("quality", upstream=upstream, min="720p webrip", max="1080p")</code></pre>
 
 <!-- ─────────── upgrade ─────────── -->
 <h2 id="upgrade">upgrade</h2>
@@ -1212,7 +1258,7 @@ Because <code>enriched</code> is set by any external provider, the same config w
 
 <hr>
 <!-- ═══════════════════════════════════════════════════════════ -->
-<h1>Modify Plugins</h1>
+<h1>Modify Processors</h1>
 
 <!-- ─────────── pathfmt ─────────── -->
 <h2 id="pathfmt">pathfmt</h2>
@@ -1224,9 +1270,9 @@ Because <code>enriched</code> is set by any external provider, the same config w
   <tr><td><code>field</code></td><td>yes</td><td>Entry field to write the rendered path into (e.g. <code>download_path</code>)</td></tr>
 </table>
 
-<pre><code><span class="y-key">pathfmt</span>:
-  <span class="y-key">path</span>: <span class="y-str">"/media/tv/{title}/Season {series_season:02d}"</span>
-  <span class="y-key">field</span>: <span class="y-str">download_path</span></code></pre>
+<pre><code>fmt = process("pathfmt", upstream=upstream,
+              path="/media/tv/{title}/Season {series_season:02d}",
+              field="download_path")</code></pre>
 
 <p>A colon in a show title like <code>"Breaking Bad: Season 1"</code> becomes an underscore, yielding <code>Breaking Bad_ Season 1</code>. No separate <code>pathscrub</code> step is needed.</p>
 
@@ -1234,16 +1280,14 @@ Because <code>enriched</code> is set by any external provider, the same config w
 <h2 id="set">set</h2>
 <p>Unconditionally sets one or more entry fields. Each config key becomes a field name; its value is a Go template rendered against the entry.</p>
 
-<pre><code><span class="y-key">set</span>:
-  <span class="y-key">category</span>: <span class="y-str">tv</span>
-  <span class="y-key">label</span>: <span class="y-str">"{{.title}}"</span></code></pre>
+<pre><code>tagged = process("set", upstream=upstream, category="tv", label="{{.title}}")</code></pre>
 
 <hr>
 <!-- ═══════════════════════════════════════════════════════════ -->
-<h1>Output Plugins</h1>
-<p>Output plugins act on accepted entries after modify. Outputs run serially in config order. Each plugin receives only the entries still accepted at the time it runs — a plugin that calls <code>e.Fail()</code> removes that entry from subsequent output plugins and from the learn phase, so it will be retried on the next run.</p>
+<h1>Sink Plugins</h1>
+<p>Sink plugins act on accepted entries. Use them with <code>output()</code>. Call <code>output()</code> multiple times from the same upstream node for fan-out (each sink gets independent entry copies).</p>
 
-<div class="note"><strong>Error handling:</strong> Downloader plugins (<code>deluge</code>, <code>qbittorrent</code>, <code>transmission</code>, <code>download</code>) mark an entry as <strong>failed</strong> when they cannot queue or fetch it. Failed entries are skipped by the Learn phase and will be retried on the next run. Notification plugins (<code>email</code>, <code>exec</code>, <code>print</code>, <code>notify</code>) do not mark entries failed — a notification failure does not cause a retry.</div>
+<div class="note"><strong>Error handling:</strong> Downloader plugins (<code>deluge</code>, <code>qbittorrent</code>, <code>transmission</code>, <code>download</code>) mark an entry as <strong>failed</strong> when they cannot queue or fetch it. Failed entries will be retried on the next run. Notification plugins (<code>email</code>, <code>exec</code>, <code>print</code>, <code>notify</code>) do not mark entries failed — a notification failure does not cause a retry.</div>
 
 <!-- ─────────── deluge ─────────── -->
 <h2 id="deluge">deluge</h2>
@@ -1259,11 +1303,9 @@ Because <code>enriched</code> is set by any external provider, the same config w
   <tr><td><code>move_completed_path</code></td><td>no</td><td>—</td><td>Move completed downloads here</td></tr>
 </table>
 
-<pre><code><span class="y-key">deluge</span>:
-  <span class="y-key">host</span>: <span class="y-str">localhost</span>
-  <span class="y-key">password</span>: <span class="y-str">changeme</span>
-  <span class="y-key">path</span>: <span class="y-str">""</span>                    <span class="y-comment"># empty = Deluge's default download dir</span>
-  <span class="y-key">move_completed_path</span>: <span class="y-str">"{download_path}"</span></code></pre>
+<pre><code>output("deluge", upstream=ready,
+       host="localhost", password=env("DELUGE_PASS"),
+       move_completed_path="{download_path}")</code></pre>
 
 <!-- ─────────── qbittorrent ─────────── -->
 <h2 id="qbittorrent">qbittorrent</h2>
@@ -1323,20 +1365,15 @@ Because <code>enriched</code> is set by any external provider, the same config w
   <tr><td><code>body_template</code></td><td>no</td><td>plain list</td><td>Body template; context has <code>.Entries</code></td></tr>
 </table>
 
-<pre><code><span class="y-key">email</span>:
-  <span class="y-key">smtp_host</span>: <span class="y-str">smtp.gmail.com</span>
-  <span class="y-key">smtp_port</span>: <span class="y-num">587</span>
-  <span class="y-key">username</span>: <span class="y-str">me@gmail.com</span>
-  <span class="y-key">password</span>: <span class="y-str">app-password</span>
-  <span class="y-key">from</span>: <span class="y-str">me@gmail.com</span>
-  <span class="y-key">to</span>: <span class="y-str">me@gmail.com</span>
-  <span class="y-key">html</span>: <span class="y-bool">true</span>
-  <span class="y-key">subject</span>: <span class="y-str">"New premieres: {{len .Entries}} show(s)"</span>
-  <span class="y-key">body_template</span>: |
-    {{range .Entries}}
-    &lt;h2&gt;{{index .Fields "title"}}&lt;/h2&gt;
-    &lt;p&gt;{{index .Fields "description"}}&lt;/p&gt;
-    {{end}}</code></pre>
+<pre><code>output("email", upstream=ready,
+       smtp_host="smtp.gmail.com", smtp_port=587,
+       username=env("SMTP_USER"), password=env("SMTP_PASS"),
+       sender="me@gmail.com", to="me@gmail.com", html=True,
+       subject="New premieres: {{len .Entries}} show(s)",
+       body_template="""{{range .Entries}}
+&lt;h2&gt;{{index .Fields "title"}}&lt;/h2&gt;
+&lt;p&gt;{{index .Fields "description"}}&lt;/p&gt;
+{{end}}""")</code></pre>
 
 <!-- ─────────── exec ─────────── -->
 <h2 id="exec">exec</h2>
@@ -1347,8 +1384,7 @@ Because <code>enriched</code> is set by any external provider, the same config w
   <tr><td><code>command</code></td><td>yes</td><td>Shell command template (run via <code>/bin/sh -c</code>)</td></tr>
 </table>
 
-<pre><code><span class="y-key">exec</span>:
-  <span class="y-key">command</span>: <span class="y-str">'notify-send "New download" "{{.Title}}"'</span></code></pre>
+<pre><code>output("exec", upstream=ready, command='notify-send "New download" "{{.Title}}"')</code></pre>
 
 <!-- ─────────── print ─────────── -->
 <h2 id="print">print</h2>
@@ -1474,7 +1510,7 @@ Because <code>enriched</code> is set by any external provider, the same config w
 </table>
 
 <h3>pipeliner check</h3>
-<p>Validates the config file without running any tasks. Reports unknown plugins, PhaseFrom plugins used at top level, and per-plugin config errors.</p>
+<p>Validates the config file without running any pipelines. Reports unknown plugins, graph structure errors (cycles, disconnected nodes), field requirement violations, and per-plugin config errors.</p>
 <pre><code>pipeliner check [--config path]</code></pre>
 
 <h3>pipeliner version</h3>
@@ -1485,7 +1521,7 @@ Because <code>enriched</code> is set by any external provider, the same config w
 
 <p>Start the web UI with <code>pipeliner daemon --web :8080 --web-user admin --web-password secret</code>. Navigate to <code>http://localhost:8080</code>.</p>
 
-<p>The interface has four tabs: <strong>Dashboard</strong>, <strong>Config</strong>, <strong>Database</strong>, and <strong>Settings</strong>. A <strong>User Guide</strong> link in the header opens this document.</p>
+<p>The interface has four tabs: <strong>Dashboard</strong>, <strong>Config</strong>, <strong>Database</strong>, and <strong>Settings</strong>. Within the Config tab, toggle between the <strong>✏ Text</strong> editor and the <strong>⬡ Visual</strong> pipeline editor. A <strong>User Guide</strong> link in the header opens this document.</p>
 
 <h3>Dashboard tab</h3>
 <ul>
@@ -1495,8 +1531,26 @@ Because <code>enriched</code> is set by any external provider, the same config w
   <li><strong>Live Log</strong> — SSE-streamed log with a filter box. Reconnects automatically; replays the last 10,000 lines for new connections.</li>
 </ul>
 
-<h3>Config tab</h3>
+<h3>Config tab — Text editor</h3>
 <p>A live Starlark editor with syntax highlighting. Use <strong>Validate</strong> to check config without saving, or <strong>Save &amp; Reload</strong> to write and apply immediately (or queue a reload if tasks are running). Tab key inserts two spaces.</p>
+
+<h3 id="visual-editor">Config tab — Visual editor</h3>
+<p>Click <strong>⬡ Visual</strong> to switch to the visual pipeline editor. The editor lets you build pipelines by clicking or dragging nodes from the palette onto the canvas without writing any Starlark.</p>
+
+<h4>Palette</h4>
+<p>The left panel lists all registered plugins grouped by role: <strong>Sources</strong> (green), <strong>Processors</strong> (blue), and <strong>Sinks</strong> (orange). Click a plugin to add it to the canvas, or drag it to a specific position. Use the search box to filter by name or description.</p>
+
+<h4>Canvas</h4>
+<p>Each node on the canvas shows its plugin name, role badge, upstream connections, and a preview of its most important config values. Click a node to select it and edit its configuration in the right panel. Drag nodes to reorder them. The pipeline name and schedule are shown at the top; edit them inline.</p>
+
+<h4>Param panel</h4>
+<p>The right panel shows the selected node's configuration. At the top, checkboxes let you connect the node to any existing upstream node (sets the <code>upstream=</code> relationship). Below, all config keys are editable with appropriate input widgets. If a required field is missing from any upstream, a warning appears so you can fix it before saving.</p>
+
+<h4>Connection validation</h4>
+<p>When a processor requires a field that no upstream node produces (for example, placing <code>quality</code> before <code>metainfo_quality</code>), the visual editor highlights the warning inline. This catches ordering mistakes before the pipeline runs.</p>
+
+<h4>Saving</h4>
+<p>Changes in the visual editor sync automatically to the text editor. Use <strong>Save &amp; Reload</strong> in the toolbar to apply. Switching back to the text editor shows the generated Starlark — you can continue editing there at any time. Click <strong>↺ Re-parse</strong> to reload the visual editor from the text editor if you edit both.</p>
 
 <h3>Database tab</h3>
 <p>Inspect and manage the two download trackers stored in <code>pipeliner.db</code>.</p>
@@ -1558,7 +1612,7 @@ docker compose up -d --no-build pipeliner</code></pre>
 <!-- ─────────── dry-run ─────────── -->
 <h2 id="dry-run">Dry-Run Mode</h2>
 
-<p>Pass <code>--dry-run</code> to <code>pipeliner run</code> to execute the full pipeline (input → processing → output skipped) but skip the output and learn phases. The run is <strong>fully idempotent</strong> — no torrents are queued, no emails sent, no state written to <code>pipeliner.db</code>. You can run it repeatedly to inspect what would be accepted without side effects.</p>
+<p>Pass <code>--dry-run</code> to <code>pipeliner run</code> to execute source and processor nodes normally but skip all sinks. The run is <strong>fully idempotent</strong> — no torrents are queued, no emails sent, no state written to <code>pipeliner.db</code>. You can run it repeatedly to inspect what would be accepted without any side effects.</p>
 
 <pre><code>pipeliner run --config config.star --dry-run --log-level debug</code></pre>
 
@@ -1568,8 +1622,8 @@ docker compose up -d --no-build pipeliner</code></pre>
 <h3>No entries accepted</h3>
 <ul>
   <li>Run with <code>--log-level debug</code> to see why each entry is rejected. The reject reason is logged for every rejected entry.</li>
-  <li>Add <code>print:</code> before output plugins to confirm entries reach the output phase.</li>
-  <li>Check <code>--dry-run</code> output — if entries are accepted in dry-run but not live, the output plugin may be failing.</li>
+  <li>Add an <code>output("print", upstream=node)</code> before your sink to confirm entries are reaching the right point.</li>
+  <li>Check <code>--dry-run</code> output — if entries are accepted in dry-run but not live, the sink may be failing.</li>
 </ul>
 
 <h3>TVDB not finding a series</h3>
@@ -1586,22 +1640,20 @@ docker compose up -d --no-build pipeliner</code></pre>
 <p>When entries lack a <code>torrent_seeds</code> field, <code>torrent_alive</code> must resolve the info hash and scrape trackers. Use inputs that provide seed counts (Jackett, <code>jackett_input</code>, nyaa RSS) to avoid scraping. Set <code>scrape: false</code> to disable tracker scraping entirely (entries without seed data will be left undecided).</p>
 
 <h3>Config validation errors</h3>
-<p><code>pipeliner check</code> validates each plugin against its fully expanded config, so required fields supplied inside Starlark functions are correctly recognized. If you see "required field missing" for a field your function provides, check that the function is actually called and its return value is included in the task's plugin list.</p>
+<p><code>pipeliner check</code> validates each plugin's config and verifies that all required fields are produced by upstream nodes. If you see a field requirement error, check that the metainfo processor producing that field is connected upstream of the filter or sink that needs it.</p>
 
 <h3>Schedule not running</h3>
-<p>Tasks without a <code>schedule=</code> argument in their <code>task()</code> call are not run automatically by the daemon. Add a schedule or trigger manually with <code>pipeliner run task-name</code> or the web UI's <em>Run now</em> button.</p>
+<p>Pipelines without a <code>schedule=</code> argument in their <code>pipeline()</code> call are not run automatically by the daemon. Add a schedule or trigger manually with <code>pipeliner run pipeline-name</code> or the web UI's <em>Run now</em> button.</p>
 
-<h3>PhaseFrom plugin used as top-level input</h3>
-<p>If you see <em>"plugin X is a from plugin; use it via series.from, movies.from, or discover.from instead"</em>, move the plugin inside a <code>"from"</code> list in the parent plugin's config dict:</p>
-<pre><code># Wrong — top-level task plugin:
-task("t", [plugin("tvdb_favorites", api_key="YOUR_KEY")])
+<h3>Using dynamic source plugins (tvdb_favorites, trakt_list)</h3>
+<p>These plugins can be used as standalone source nodes or inside a parent plugin's <code>list</code> config key. Use whichever is clearer for your use case:</p>
+<pre><code><span class="y-comment"># Option A — standalone source node</span>
+favs   = input("tvdb_favorites", api_key=env("TVDB_KEY"), user_pin=env("TVDB_PIN"))
+series = process("series", upstream=merge(rss_src, favs), tracking="backfill")
 
-# Correct — inside series "from" list:
-task("t", [
-    plugin("series", {
-        "from": [{"name": "tvdb_favorites",
-                  "api_key": "YOUR_KEY", "user_pin": "YOUR_PIN"}],
-    }),
+<span class="y-comment"># Option B — inside series.list config</span>
+series = process("series", upstream=rss_src, list=[
+    {"name": "tvdb_favorites", "api_key": env("TVDB_KEY"), "user_pin": env("TVDB_PIN")},
 ])</code></pre>
 
 </main>
