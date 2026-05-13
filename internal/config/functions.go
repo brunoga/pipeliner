@@ -94,19 +94,15 @@ func scanUserFunctions(src string) map[string]*UserFunctionDef {
 			if m := defRe.FindStringSubmatch(trimmed); m != nil {
 				funcName := m[1]
 				// Only expose functions that had at least one # pipeliner: comment.
-				hasPipelinerComment := false
-				for _, ph := range paramHints {
-					_ = ph
-					hasPipelinerComment = true
-				}
-				// Also check if any commentLine was added by a pipeliner: prefix.
+				hasPipelinerComment := len(paramHints) > 0
 				for _, cl := range commentLines {
 					if cl == "" { // sentinel from pipeliner: lines
 						hasPipelinerComment = true
+						break
 					}
 				}
 
-				if hasPipelinerComment || len(paramHints) > 0 {
+				if hasPipelinerComment {
 					// Collect the function body (indented lines after the def).
 					body := collectFunctionBody(lines, i)
 
@@ -142,7 +138,7 @@ func collectFunctionBody(lines []string, defLine int) string {
 	var body strings.Builder
 	for i := defLine + 1; i < len(lines); i++ {
 		line := lines[i]
-		if line == "" || len(line) == 0 {
+		if line == "" {
 			body.WriteByte('\n')
 			continue
 		}
