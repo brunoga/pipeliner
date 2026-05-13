@@ -255,3 +255,93 @@ pipeline("field-check")
 		t.Error("want validation error for missing required field, got none")
 	}
 }
+
+// ── user function tests ───────────────────────────────────────────────────────
+
+const userFuncConfig = `
+# A reusable dedup+quality filter.
+# pipeliner:param quality  Minimum quality spec
+def quality_filter(upstream, quality="1080p"):
+    s = process("seen",    upstream=upstream)
+    p = process("print",   upstream=s)
+    return p
+
+src      = input("rss", url="https://example.com/rss")
+filtered = quality_filter(upstream=src, quality="720p")
+pipeline("tv")
+`
+
+func TestUserFunctionDiscovery(t *testing.T) {
+	defs := scanUserFunctions(userFuncConfig)
+	fd, ok := defs["quality_filter"]
+	if !ok {
+		t.Fatal("quality_filter not discovered")
+	}
+	if fd.Role != "processor" {
+		t.Errorf("role: got %q, want processor", fd.Role)
+	}
+	if fd.Description == "" {
+		t.Error("description should be non-empty")
+	}
+	if len(fd.Params) != 1 {
+		t.Fatalf("params: got %d, want 1", len(fd.Params))
+	}
+	if fd.Params[0].Name != "quality" {
+		t.Errorf("param name: got %q, want quality", fd.Params[0].Name)
+	}
+	if fd.Params[0].Hint == "" {
+		t.Error("param hint should be non-empty")
+	}
+}
+
+func TestUserFunctionRuntimeTracking(t *testing.T) {
+	c := parseDAGOK(t, userFuncConfig)
+
+	calls, ok := c.FunctionCalls["tv"]
+	if !ok || len(calls) == 0 {
+		t.Fatal("no function calls recorded for pipeline tv")
+	}
+	fcr := calls[0]
+	if fcr.FuncName != "quality_filter" {
+		t.Errorf("func name: got %q, want quality_filter", fcr.FuncName)
+	}
+	if len(fcr.InternalNodeIDs) != 2 {
+		t.Errorf("internal nodes: got %d, want 2", len(fcr.InternalNodeIDs))
+	}
+	if fcr.ReturnNodeID == "" {
+		t.Error("return node ID should be set")
+	}
+	// The return node should be the last internal node (print_1).
+	last := fcr.InternalNodeIDs[len(fcr.InternalNodeIDs)-1]
+	if fcr.ReturnNodeID != last {
+		t.Errorf("return node: got %q, want %q", fcr.ReturnNodeID, last)
+	}
+}
+
+func TestUserFunctionNodesStillInGraph(t *testing.T) {
+	// Internal nodes are still part of the DAG graph (the visual editor hides
+	// them in collapsed mode, but the executor sees all of them).
+	c := parseDAGOK(t, userFuncConfig)
+	g, ok := c.Graphs["tv"]
+	if !ok {
+		t.Fatal("graph tv not found")
+	}
+	// 3 nodes total: rss_0 (outer), seen_1 and print_2 (inside quality_filter).
+	if g.Len() != 3 {
+		t.Errorf("graph len: got %d, want 3", g.Len())
+	}
+}
+
+func TestUserFunctionNotDiscoveredWithoutPipelinerComment(t *testing.T) {
+	src := `
+def helper(x):
+    return x
+
+src = input("rss", url="https://example.com")
+pipeline("p")
+`
+	defs := scanUserFunctions(src)
+	if _, ok := defs["helper"]; ok {
+		t.Error("helper should not be discovered without a # pipeliner: comment")
+	}
+}

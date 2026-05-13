@@ -13,11 +13,14 @@ import (
 
 // execute runs a Starlark config script and returns a populated Config.
 func execute(filename string, src []byte) (*Config, error) {
+	userFuncs := scanUserFunctions(string(src))
 	ctx := &execContext{
 		graphs:         make(map[string]*dagGraph),
 		graphSchedules: make(map[string]string),
 		dir:            filepath.Dir(filename),
 		loaded:         make(map[string]starlark.StringDict),
+		userFunctions:  userFuncs,
+		functionCalls:  make(map[string][]*FunctionCallRecord),
 	}
 
 	thread := &starlark.Thread{
@@ -43,6 +46,8 @@ func execute(filename string, src []byte) (*Config, error) {
 	return &Config{
 		Graphs:         graphs,
 		GraphSchedules: ctx.graphSchedules,
+		UserFunctions:  ctx.userFunctions,
+		FunctionCalls:  ctx.functionCalls,
 	}, nil
 }
 
@@ -54,6 +59,9 @@ type execContext struct {
 	nodeCounter    int
 	dir            string
 	loaded         map[string]starlark.StringDict
+	// User function support.
+	userFunctions map[string]*UserFunctionDef       // discovered before execution
+	functionCalls map[string][]*FunctionCallRecord  // populated by pipelineBuiltin
 }
 
 // predeclared returns the built-in functions available to config scripts.
