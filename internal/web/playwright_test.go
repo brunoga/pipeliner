@@ -28,9 +28,8 @@ import (
 // ── test server setup ────────────────────────────────────────────────────────
 
 type testServer struct {
-	url    string
-	server *http.Server
-	done   chan struct{}
+	url  string
+	done chan struct{}
 }
 
 func startTestServer(t *testing.T, starConfig string) *testServer {
@@ -137,13 +136,13 @@ func login(t *testing.T, page playwright.Page, baseURL string) {
 	if _, err := page.Goto(baseURL + "/login"); err != nil {
 		t.Fatalf("goto login: %v", err)
 	}
-	if err := page.Fill("#username", "admin"); err != nil {
+	if err := page.Locator("#username").Fill("admin"); err != nil {
 		t.Fatalf("fill username: %v", err)
 	}
-	if err := page.Fill("#password", "password"); err != nil {
+	if err := page.Locator("#password").Fill("password"); err != nil {
 		t.Fatalf("fill password: %v", err)
 	}
-	if err := page.Click(`button[type="submit"]`); err != nil {
+	if err := page.Locator(`button[type="submit"]`).Click(); err != nil {
 		t.Fatalf("submit login: %v", err)
 	}
 	if err := page.WaitForURL(baseURL + "/"); err != nil {
@@ -153,10 +152,10 @@ func login(t *testing.T, page playwright.Page, baseURL string) {
 
 func openConfigTab(t *testing.T, page playwright.Page) {
 	t.Helper()
-	if err := page.Click("#tab-btn-config"); err != nil {
+	if err := page.Locator("#tab-btn-config").Click(); err != nil {
 		t.Fatalf("click config tab: %v", err)
 	}
-	if _, err := page.WaitForSelector("#view-text", playwright.PageWaitForSelectorOptions{
+	if err := page.Locator("#view-text").WaitFor(playwright.LocatorWaitForOptions{
 		State: playwright.WaitForSelectorStateVisible,
 	}); err != nil {
 		t.Fatalf("wait for text view: %v", err)
@@ -185,12 +184,12 @@ func TestE2ELoginAndDashboard(t *testing.T) {
 	login(t, page, ts.url)
 
 	// Dashboard should show the task card (rendered after /api/status poll).
-	if _, err := page.WaitForSelector(".task-name", playwright.PageWaitForSelectorOptions{
+	if err := page.Locator(".task-name").WaitFor(playwright.LocatorWaitForOptions{
 		State: playwright.WaitForSelectorStateVisible,
 	}); err != nil {
 		t.Fatalf("wait for .task-name: %v", err)
 	}
-	taskName, err := page.TextContent(".task-name")
+	taskName, err := page.Locator(".task-name").TextContent()
 	if err != nil {
 		t.Fatalf("task-name: %v", err)
 	}
@@ -213,7 +212,7 @@ func TestE2EConfigTabLoadsStarlark(t *testing.T) {
 	// The text editor should contain the config (served by GET /api/config,
 	// which reads from disk — here it's not set so editor may be empty;
 	// the important thing is the editor is present and the tab works).
-	if _, err := page.WaitForSelector("#config-editor"); err != nil {
+	if err := page.Locator("#config-editor").WaitFor(); err != nil {
 		t.Errorf("config editor not found: %v", err)
 	}
 }
@@ -229,19 +228,19 @@ func TestE2EVisualToggleShowsPalette(t *testing.T) {
 	login(t, page, ts.url)
 	openConfigTab(t, page)
 
-	if err := page.Click("#view-btn-visual"); err != nil {
+	if err := page.Locator("#view-btn-visual").Click(); err != nil {
 		t.Fatalf("click visual toggle: %v", err)
 	}
 
 	// Plugin palette should be visible.
-	if _, err := page.WaitForSelector("#ve-palette-body", playwright.PageWaitForSelectorOptions{
+	if err := page.Locator("#ve-palette-body").WaitFor(playwright.LocatorWaitForOptions{
 		State: playwright.WaitForSelectorStateVisible,
 	}); err != nil {
 		t.Errorf("plugin palette not visible after toggle: %v", err)
 	}
 
 	// Text view should be hidden.
-	textVisible, err := page.IsVisible("#view-text")
+	textVisible, err := page.Locator("#view-text").IsVisible()
 	if err != nil {
 		t.Fatalf("IsVisible: %v", err)
 	}
@@ -254,25 +253,25 @@ func TestE2EVisualToggleShowsPalette(t *testing.T) {
 // toolbar "+ Add pipeline" button, then clicks the first enabled chip.
 func addFirstPipelineThenChip(t *testing.T, page playwright.Page) {
 	t.Helper()
-	if err := page.Click("#view-btn-visual"); err != nil {
+	if err := page.Locator("#view-btn-visual").Click(); err != nil {
 		t.Fatalf("click visual toggle: %v", err)
 	}
 	// Wait for the toolbar button.
-	if _, err := page.WaitForSelector("#ve-add-pipeline", playwright.PageWaitForSelectorOptions{
+	if err := page.Locator("#ve-add-pipeline").WaitFor(playwright.LocatorWaitForOptions{
 		State: playwright.WaitForSelectorStateVisible,
 	}); err != nil {
 		t.Fatalf("add-pipeline toolbar button not visible: %v", err)
 	}
-	if err := page.Click("#ve-add-pipeline"); err != nil {
+	if err := page.Locator("#ve-add-pipeline").Click(); err != nil {
 		t.Fatalf("click add-pipeline: %v", err)
 	}
 	// Palette chips should now be enabled.
-	if _, err := page.WaitForSelector("#ve-palette-body .ve-chip:not([disabled])", playwright.PageWaitForSelectorOptions{
+	if err := page.Locator("#ve-palette-body .ve-chip:not([disabled])").First().WaitFor(playwright.LocatorWaitForOptions{
 		State: playwright.WaitForSelectorStateVisible,
 	}); err != nil {
 		t.Fatalf("palette chips still disabled after adding pipeline: %v", err)
 	}
-	if err := page.Click("#ve-palette-body .ve-chip:not([disabled])"); err != nil {
+	if err := page.Locator("#ve-palette-body .ve-chip:not([disabled])").First().Click(); err != nil {
 		t.Fatalf("click palette chip: %v", err)
 	}
 }
@@ -291,7 +290,7 @@ func TestE2EVisualAddPluginFromPalette(t *testing.T) {
 	addFirstPipelineThenChip(t, page)
 
 	// A node card should appear in the canvas.
-	if _, err := page.WaitForSelector(".ve-node", playwright.PageWaitForSelectorOptions{
+	if err := page.Locator(".ve-node").First().WaitFor(playwright.LocatorWaitForOptions{
 		State: playwright.WaitForSelectorStateVisible,
 	}); err != nil {
 		t.Errorf("no node card appeared in canvas: %v", err)
@@ -310,13 +309,13 @@ func TestE2EVisualToTextSync(t *testing.T) {
 	openConfigTab(t, page)
 
 	addFirstPipelineThenChip(t, page)
-	page.WaitForSelector(".ve-node") //nolint:errcheck
+	page.Locator(".ve-node").First().WaitFor() //nolint:errcheck
 
 	// Switch back to text view and verify the editor has content.
-	if err := page.Click("#view-btn-text"); err != nil {
+	if err := page.Locator("#view-btn-text").Click(); err != nil {
 		t.Fatalf("click text toggle: %v", err)
 	}
-	editorContent, err := page.InputValue("#config-editor")
+	editorContent, err := page.Locator("#config-editor").InputValue()
 	if err != nil {
 		t.Fatalf("get editor content: %v", err)
 	}
@@ -338,22 +337,22 @@ func TestE2ETextToVisualSync(t *testing.T) {
 
 	// Write DAG-syntax Starlark into the text editor.
 	starlark := fmt.Sprintf("src = input(\"rss\", url=%q)\npipeline(\"my-pipeline\")", "https://example.com")
-	if err := page.Fill("#config-editor", starlark); err != nil {
+	if err := page.Locator("#config-editor").Fill(starlark); err != nil {
 		t.Fatalf("fill editor: %v", err)
 	}
 
 	// Switching to visual auto-parses the text config.
-	page.Click("#view-btn-visual") //nolint:errcheck
+	page.Locator("#view-btn-visual").Click() //nolint:errcheck
 
 	// An rss node card should appear in the canvas.
-	if _, err := page.WaitForSelector(`.ve-node-name:has-text("rss")`, playwright.PageWaitForSelectorOptions{
+	if err := page.Locator(`.ve-node-name:has-text("rss")`).WaitFor(playwright.LocatorWaitForOptions{
 		State: playwright.WaitForSelectorStateVisible,
 	}); err != nil {
 		t.Errorf("rss node not found after Text→Visual sync: %v", err)
 	}
 
 	// The pipeline name label in the canvas should reflect the name from the config.
-	if _, err := page.WaitForSelector(`.ve-pl-name:has-text("my-pipeline")`, playwright.PageWaitForSelectorOptions{
+	if err := page.Locator(`.ve-pl-name:has-text("my-pipeline")`).WaitFor(playwright.LocatorWaitForOptions{
 		State: playwright.WaitForSelectorStateVisible,
 	}); err != nil {
 		t.Errorf("pipeline name label not found after Text→Visual sync: %v", err)
@@ -372,15 +371,15 @@ func TestE2EValidateConfig(t *testing.T) {
 	openConfigTab(t, page)
 
 	// Put valid DAG Starlark in the editor.
-	page.Fill("#config-editor", "src = input(\"rss\", url=\"https://example.com\")\npipeline(\"p\")") //nolint:errcheck
+	page.Locator("#config-editor").Fill("src = input(\"rss\", url=\"https://example.com\")\npipeline(\"p\")") //nolint:errcheck
 
 	// Click Validate.
-	if err := page.Click(`button:has-text("Validate")`); err != nil {
+	if err := page.Locator(`button:has-text("Validate")`).Click(); err != nil {
 		t.Fatalf("click validate: %v", err)
 	}
 
 	// Status should show success.
-	if _, err := page.WaitForSelector(".config-status.ok", playwright.PageWaitForSelectorOptions{
+	if err := page.Locator(".config-status.ok").WaitFor(playwright.LocatorWaitForOptions{
 		State: playwright.WaitForSelectorStateVisible,
 	}); err != nil {
 		t.Errorf("expected ok status after validating correct config: %v", err)
@@ -392,11 +391,11 @@ func TestE2EValidateConfig(t *testing.T) {
 // switchToVisual loads a DAG config into the text editor and switches to visual mode.
 func switchToVisual(t *testing.T, page playwright.Page, starlark string) {
 	t.Helper()
-	if err := page.Fill("#config-editor", starlark); err != nil {
+	if err := page.Locator("#config-editor").Fill(starlark); err != nil {
 		t.Fatalf("fill editor: %v", err)
 	}
-	page.Click("#view-btn-visual") //nolint:errcheck
-	if _, err := page.WaitForSelector(".ve-node", playwright.PageWaitForSelectorOptions{
+	page.Locator("#view-btn-visual").Click() //nolint:errcheck
+	if err := page.Locator(".ve-node").First().WaitFor(playwright.LocatorWaitForOptions{
 		State: playwright.WaitForSelectorStateVisible,
 	}); err != nil {
 		t.Fatalf("wait for node card: %v", err)
@@ -406,8 +405,8 @@ func switchToVisual(t *testing.T, page playwright.Page, starlark string) {
 // editorContent returns the current text in the config editor textarea.
 func editorContent(t *testing.T, page playwright.Page) string {
 	t.Helper()
-	page.Click("#view-btn-text") //nolint:errcheck
-	v, err := page.InputValue("#config-editor")
+	page.Locator("#view-btn-text").Click() //nolint:errcheck
+	v, err := page.Locator("#config-editor").InputValue()
 	if err != nil {
 		t.Fatalf("get editor content: %v", err)
 	}
@@ -433,10 +432,10 @@ func TestE2ENodeCommentButtonExists(t *testing.T) {
 	switchToVisual(t, page, dagConfig)
 
 	// Hover over a node card to reveal the comment button.
-	if err := page.Hover(".ve-node"); err != nil {
+	if err := page.Locator(".ve-node").First().Hover(); err != nil {
 		t.Fatalf("hover over node: %v", err)
 	}
-	if _, err := page.WaitForSelector(".ve-node-comment-btn", playwright.PageWaitForSelectorOptions{
+	if err := page.Locator(".ve-node-comment-btn").First().WaitFor(playwright.LocatorWaitForOptions{
 		State: playwright.WaitForSelectorStateVisible,
 	}); err != nil {
 		t.Errorf("comment button not visible on node hover: %v", err)
@@ -456,17 +455,17 @@ func TestE2ENodeCommentOpenModal(t *testing.T) {
 	switchToVisual(t, page, dagConfig)
 
 	// Hover then click the comment button.
-	page.Hover(".ve-node")              //nolint:errcheck
-	page.Click(".ve-node-comment-btn") //nolint:errcheck
+	page.Locator(".ve-node").First().Hover()             //nolint:errcheck
+	page.Locator(".ve-node-comment-btn").First().Click() //nolint:errcheck
 
 	// Modal should appear.
-	if _, err := page.WaitForSelector(".ve-text-popup", playwright.PageWaitForSelectorOptions{
+	if err := page.Locator(".ve-text-popup").WaitFor(playwright.LocatorWaitForOptions{
 		State: playwright.WaitForSelectorStateVisible,
 	}); err != nil {
 		t.Errorf("comment modal did not open: %v", err)
 	}
 	// Modal textarea should be focused.
-	if _, err := page.WaitForSelector(".ve-text-popup-ta"); err != nil {
+	if err := page.Locator(".ve-text-popup-ta").WaitFor(); err != nil {
 		t.Errorf("modal textarea not found: %v", err)
 	}
 }
@@ -484,15 +483,15 @@ func TestE2ENodeCommentSavesToTextEditor(t *testing.T) {
 	switchToVisual(t, page, dagConfig)
 
 	// Open comment modal on the first node.
-	page.Hover(".ve-node")             //nolint:errcheck
-	page.Click(".ve-node-comment-btn") //nolint:errcheck
-	page.WaitForSelector(".ve-text-popup-ta") //nolint:errcheck
+	page.Locator(".ve-node").First().Hover()              //nolint:errcheck
+	page.Locator(".ve-node-comment-btn").First().Click()  //nolint:errcheck
+	page.Locator(".ve-text-popup-ta").WaitFor()   //nolint:errcheck
 
 	// Type a comment and save.
-	if err := page.Fill(".ve-text-popup-ta", "My test comment"); err != nil {
+	if err := page.Locator(".ve-text-popup-ta").Fill("My test comment"); err != nil {
 		t.Fatalf("fill comment: %v", err)
 	}
-	if err := page.Click(".ve-text-popup-save"); err != nil {
+	if err := page.Locator(".ve-text-popup-save").Click(); err != nil {
 		t.Fatalf("click save: %v", err)
 	}
 
@@ -516,7 +515,7 @@ func TestE2EPipelineCommentButtonExists(t *testing.T) {
 	switchToVisual(t, page, dagConfig)
 
 	// Pipeline label should have a comment button.
-	if _, err := page.WaitForSelector(".ve-pl-comment-btn", playwright.PageWaitForSelectorOptions{
+	if err := page.Locator(".ve-pl-comment-btn").WaitFor(playwright.LocatorWaitForOptions{
 		State: playwright.WaitForSelectorStateAttached,
 	}); err != nil {
 		t.Errorf("pipeline comment button not found: %v", err)
@@ -536,13 +535,13 @@ func TestE2EPipelineCommentSavesToTextEditor(t *testing.T) {
 	switchToVisual(t, page, dagConfig)
 
 	// Open the pipeline comment modal.
-	page.Click(".ve-pl-comment-btn")          //nolint:errcheck
-	page.WaitForSelector(".ve-text-popup-ta") //nolint:errcheck
+	page.Locator(".ve-pl-comment-btn").Click()   //nolint:errcheck
+	page.Locator(".ve-text-popup-ta").WaitFor()  //nolint:errcheck
 
-	if err := page.Fill(".ve-text-popup-ta", "Pipeline description"); err != nil {
+	if err := page.Locator(".ve-text-popup-ta").Fill("Pipeline description"); err != nil {
 		t.Fatalf("fill pipeline comment: %v", err)
 	}
-	page.Click(".ve-text-popup-save") //nolint:errcheck
+	page.Locator(".ve-text-popup-save").Click() //nolint:errcheck
 
 	content := editorContent(t, page)
 	if !contains(content, "# Pipeline description") {
@@ -562,14 +561,14 @@ func TestE2ECommentModalCancelDoesNotSave(t *testing.T) {
 	openConfigTab(t, page)
 	switchToVisual(t, page, dagConfig)
 
-	page.Hover(".ve-node")             //nolint:errcheck
-	page.Click(".ve-node-comment-btn") //nolint:errcheck
-	page.WaitForSelector(".ve-text-popup-ta") //nolint:errcheck
-	page.Fill(".ve-text-popup-ta", "Should not appear") //nolint:errcheck
-	page.Click(".ve-text-popup-cancel")                 //nolint:errcheck
+	page.Locator(".ve-node").First().Hover()                              //nolint:errcheck
+	page.Locator(".ve-node-comment-btn").First().Click()                  //nolint:errcheck
+	page.Locator(".ve-text-popup-ta").WaitFor()                   //nolint:errcheck
+	page.Locator(".ve-text-popup-ta").Fill("Should not appear")   //nolint:errcheck
+	page.Locator(".ve-text-popup-cancel").Click()                 //nolint:errcheck
 
 	// Modal should close.
-	if visible, _ := page.IsVisible(".ve-text-popup"); visible {
+	if visible, _ := page.Locator(".ve-text-popup").IsVisible(); visible {
 		t.Error("modal still visible after cancel")
 	}
 	// Text editor should not contain the comment.
@@ -620,18 +619,18 @@ flt_1 = process("seen", upstream=src_0)
 
 pipeline("tv")`
 
-	if err := page.Fill("#config-editor", configWithLayout); err != nil {
+	if err := page.Locator("#config-editor").Fill(configWithLayout); err != nil {
 		t.Fatalf("fill editor: %v", err)
 	}
-	page.Click("#view-btn-visual") //nolint:errcheck
+	page.Locator("#view-btn-visual").Click() //nolint:errcheck
 
 	// Both nodes should appear.
-	if _, err := page.WaitForSelector(`.ve-node-name:has-text("rss")`, playwright.PageWaitForSelectorOptions{
+	if err := page.Locator(`.ve-node-name:has-text("rss")`).WaitFor(playwright.LocatorWaitForOptions{
 		State: playwright.WaitForSelectorStateVisible,
 	}); err != nil {
 		t.Errorf("rss node not visible: %v", err)
 	}
-	if _, err := page.WaitForSelector(`.ve-node-name:has-text("seen")`, playwright.PageWaitForSelectorOptions{
+	if err := page.Locator(`.ve-node-name:has-text("seen")`).WaitFor(playwright.LocatorWaitForOptions{
 		State: playwright.WaitForSelectorStateVisible,
 	}); err != nil {
 		t.Errorf("seen node not visible: %v", err)
@@ -653,7 +652,7 @@ func TestE2EPipelineRegionVisible(t *testing.T) {
 	switchToVisual(t, page, dagConfig)
 
 	// At least one pipeline region background should be rendered.
-	if _, err := page.WaitForSelector(".ve-pipeline-region", playwright.PageWaitForSelectorOptions{
+	if err := page.Locator(".ve-pipeline-region").WaitFor(playwright.LocatorWaitForOptions{
 		State: playwright.WaitForSelectorStateAttached,
 	}); err != nil {
 		t.Errorf("pipeline region not rendered: %v", err)
@@ -673,22 +672,22 @@ func TestE2EAddPipelineCreatesNewRegion(t *testing.T) {
 	switchToVisual(t, page, dagConfig)
 
 	// Count existing regions.
-	regionsBefore, err := page.QuerySelectorAll(".ve-pipeline-region")
+	regionsBefore, err := page.Locator(".ve-pipeline-region").All()
 	if err != nil {
 		t.Fatalf("count regions: %v", err)
 	}
 
 	// Click the toolbar add-pipeline button.
-	if err := page.Click("#ve-add-pipeline"); err != nil {
+	if err := page.Locator("#ve-add-pipeline").Click(); err != nil {
 		t.Fatalf("click add pipeline: %v", err)
 	}
 
 	// A new region should appear.
-	if _, err := page.WaitForSelector(fmt.Sprintf(".ve-pipeline-region:nth-child(%d)", len(regionsBefore)+1),
-		playwright.PageWaitForSelectorOptions{State: playwright.WaitForSelectorStateAttached},
+	if err := page.Locator(fmt.Sprintf(".ve-pipeline-region:nth-child(%d)", len(regionsBefore)+1)).WaitFor(
+		playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateAttached},
 	); err != nil {
 		t.Logf("note: nth-child selector may differ; checking count instead")
-		regionsAfter, _ := page.QuerySelectorAll(".ve-pipeline-region")
+		regionsAfter, _ := page.Locator(".ve-pipeline-region").All()
 		if len(regionsAfter) <= len(regionsBefore) {
 			t.Errorf("region count: got %d, want >%d", len(regionsAfter), len(regionsBefore))
 		}
@@ -715,7 +714,7 @@ pipeline("pipe-b")`
 
 	switchToVisual(t, page, twoPipelines)
 
-	regions, err := page.QuerySelectorAll(".ve-pipeline-region")
+	regions, err := page.Locator(".ve-pipeline-region").All()
 	if err != nil {
 		t.Fatalf("query regions: %v", err)
 	}
@@ -746,7 +745,7 @@ pipeline("pipe-b")`
 	switchToVisual(t, page, twoPipelines)
 
 	// Each pipeline should have its own region container.
-	regions, err := page.QuerySelectorAll(".ve-pipeline-region")
+	regions, err := page.Locator(".ve-pipeline-region").All()
 	if err != nil {
 		t.Fatalf("query regions: %v", err)
 	}
@@ -777,7 +776,7 @@ pipeline("tv")`
 	switchToVisual(t, page, discoverConfig)
 
 	// The discover node should have a search port.
-	if _, err := page.WaitForSelector(".ve-node-search-port", playwright.PageWaitForSelectorOptions{
+	if err := page.Locator(".ve-node-search-port").WaitFor(playwright.LocatorWaitForOptions{
 		State: playwright.WaitForSelectorStateAttached,
 	}); err != nil {
 		t.Errorf("search port not rendered on discover node: %v", err)
@@ -804,7 +803,7 @@ pipeline("tv")`
 	switchToVisual(t, page, discoverConfig)
 
 	// A node with the "rss_search" plugin should appear (search-connected).
-	if _, err := page.WaitForSelector(`.ve-node-name:has-text("rss_search")`, playwright.PageWaitForSelectorOptions{
+	if err := page.Locator(`.ve-node-name:has-text("rss_search")`).WaitFor(playwright.LocatorWaitForOptions{
 		State: playwright.WaitForSelectorStateVisible,
 	}); err != nil {
 		t.Errorf("search-connected rss_search node not visible: %v", err)
@@ -825,12 +824,12 @@ func TestE2ESearchPluginHasViaBadge(t *testing.T) {
 	openConfigTab(t, page)
 
 	// Need a pipeline so the palette is enabled (shows full chips with badges).
-	page.Click("#view-btn-visual")   //nolint:errcheck
-	page.WaitForSelector("#ve-add-pipeline") //nolint:errcheck
-	page.Click("#ve-add-pipeline")           //nolint:errcheck
+	page.Locator("#view-btn-visual").Click()   //nolint:errcheck
+	page.Locator("#ve-add-pipeline").WaitFor() //nolint:errcheck
+	page.Locator("#ve-add-pipeline").Click()   //nolint:errcheck
 
 	// At least one palette chip should carry a "search" badge.
-	if _, err := page.WaitForSelector(".ve-chip-search-badge", playwright.PageWaitForSelectorOptions{
+	if err := page.Locator(".ve-chip-search-badge").WaitFor(playwright.LocatorWaitForOptions{
 		State: playwright.WaitForSelectorStateVisible,
 	}); err != nil {
 		t.Errorf("no search badge found in palette — search plugins should show one: %v", err)
@@ -839,7 +838,9 @@ func TestE2ESearchPluginHasViaBadge(t *testing.T) {
 
 // ── utility ───────────────────────────────────────────────────────────────────
 
-func contains(s, sub string) bool { return len(s) >= len(sub) && (s == sub || len(sub) == 0 || stringContains(s, sub)) }
+func contains(s, sub string) bool {
+	return len(s) >= len(sub) && (s == sub || len(sub) == 0 || stringContains(s, sub))
+}
 func stringContains(s, sub string) bool {
 	for i := 0; i <= len(s)-len(sub); i++ {
 		if s[i:i+len(sub)] == sub {
@@ -848,4 +849,3 @@ func stringContains(s, sub string) bool {
 	}
 	return false
 }
-

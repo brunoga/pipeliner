@@ -75,7 +75,7 @@ func (p *execPlugin) run(ctx context.Context, cmdStr string) error {
 	if len(parts) == 0 {
 		return fmt.Errorf("empty command")
 	}
-	cmd := exec.CommandContext(ctx, parts[0], parts[1:]...)
+	cmd := exec.CommandContext(ctx, parts[0], parts[1:]...) //nolint:gosec // intentional: user-configured command
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		if len(out) > 0 {
