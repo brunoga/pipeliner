@@ -121,14 +121,17 @@ func (p *delugePlugin) deliver(ctx context.Context, tc *plugin.TaskContext, entr
 		}
 		if err := p.addTorrent(ctx, e.URL, e.GetString(entry.FieldTorrentLinkType), savePath, moveCompleted); err != nil {
 			if strings.Contains(err.Error(), "already in session") {
-				tc.Logger.Warn("deluge: torrent already in session", "title", e.Title)
+				// Torrent is already in Deluge (e.g. manually added). Mark the
+				// entry consumed so chained notification sinks (email, etc.) are
+				// silenced, but leave State = Accepted so CommitPlugin.Commit still
+				// runs — this ensures the URL is learned by the seen plugin and
+				// won't be retried on the next run.
+				tc.Logger.Info("deluge: torrent already in session, skipping notifications", "title", e.Title)
+				e.Consume()
 			} else {
 				tc.Logger.Error("deluge: add torrent", "title", e.Title, "err", err)
+				e.Fail("deluge: " + err.Error())
 			}
-			// Fail the entry in all error cases so chained sink outputs (e.g. email
-			// notifications) do not fire for torrents that were not successfully
-			// enqueued, including those already present in Deluge.
-			e.Fail("deluge: " + err.Error())
 		}
 	}
 	return nil
