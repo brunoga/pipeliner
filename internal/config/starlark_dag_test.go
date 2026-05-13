@@ -354,3 +354,50 @@ pipeline("p")
 		t.Error("helper should not be discovered without a # pipeliner: comment")
 	}
 }
+
+// TestUserFunctionReturnNodeIDNonLinear verifies that ReturnNodeID is set to
+// the node the function actually returns, even when that node is NOT the last
+// node created inside the function body.
+func TestUserFunctionReturnNodeIDNonLinear(t *testing.T) {
+	// quality_filter creates 'accepted' first, then 'filtered', but returns
+	// 'accepted'. The old heuristic (last created = return) would set
+	// ReturnNodeID to 'filtered', which is wrong.
+	src := `
+# pipeliner:param quality Quality threshold
+def quality_filter(upstream, quality="1080p"):
+    accepted = process("accept_all", upstream=upstream)
+    filtered  = process("seen",     upstream=upstream)
+    return accepted
+
+src    = input("rss", url="https://example.com/rss")
+result = quality_filter(upstream=src)
+pipeline("nonlinear")
+`
+	c := parseDAGOK(t, src)
+	calls, ok := c.FunctionCalls["nonlinear"]
+	if !ok || len(calls) == 0 {
+		t.Fatal("no function calls recorded")
+	}
+	fcr := calls[0]
+	if fcr.ReturnNodeID == "" {
+		t.Fatal("ReturnNodeID is empty")
+	}
+	// ReturnNodeID must be the accept_all node (first created), not seen (last created).
+	var acceptID string
+	for _, nid := range fcr.InternalNodeIDs {
+		if strings.Contains(nid, "accept_all") {
+			acceptID = nid
+			break
+		}
+	}
+	if acceptID == "" {
+		t.Fatalf("accept_all node not found in InternalNodeIDs: %v", fcr.InternalNodeIDs)
+	}
+	if fcr.ReturnNodeID != acceptID {
+		t.Errorf("ReturnNodeID = %q, want %q (the returned node, not the last created)", fcr.ReturnNodeID, acceptID)
+	}
+	// CallKey must also be "result" (the variable name), not "quality_filter@...".
+	if fcr.CallKey != "result" {
+		t.Errorf("CallKey = %q, want %q", fcr.CallKey, "result")
+	}
+}

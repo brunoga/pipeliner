@@ -40,20 +40,30 @@ func execute(filename string, src []byte) (*Config, error) {
 		return nil, formatStarlarkError(err)
 	}
 
-	// Replace runtime call keys ("funcname@line:col") with the valid Starlark
-	// identifier the call result was assigned to in the module globals. This
-	// ensures function call nodes round-trip with proper identifiers rather
-	// than the position-derived key which contains "@" (invalid in Starlark).
-	returnNodeToVar := make(map[dag.NodeID]string)
-	for varName, val := range globals {
-		if h, ok := val.(*nodeHandle); ok {
-			returnNodeToVar[h.id] = varName
-		}
-	}
+	// Fix function call records: replace the runtime call key ("funcname@line:col")
+	// with the variable name the call result was assigned to in the module globals,
+	// and correct ReturnNodeID by matching globals against each call's internal nodes.
+	//
+	// pipelineBuiltin sets ReturnNodeID to the last node created inside the
+	// function body, which is correct for linear chains but wrong for any body
+	// where the returned node is not the last one created (e.g. fork-then-merge
+	// where the merge is returned before a sibling branch finishes). Walking
+	// globals is the authoritative source: if globals["q1"] is a *nodeHandle
+	// that belongs to a function call's internal nodes, then q1 IS the returned
+	// node and "q1" IS the call key.
+	nodeToCall := make(map[dag.NodeID]*FunctionCallRecord)
 	for _, calls := range ctx.functionCalls {
 		for _, fcr := range calls {
-			if varName, ok := returnNodeToVar[dag.NodeID(fcr.ReturnNodeID)]; ok {
+			for _, nid := range fcr.InternalNodeIDs {
+				nodeToCall[dag.NodeID(nid)] = fcr
+			}
+		}
+	}
+	for varName, val := range globals {
+		if h, ok := val.(*nodeHandle); ok {
+			if fcr, ok := nodeToCall[h.id]; ok {
 				fcr.CallKey = varName
+				fcr.ReturnNodeID = string(h.id)
 			}
 		}
 	}
