@@ -131,7 +131,10 @@ func TestAddTorrentError(t *testing.T) {
 	}
 }
 
-func TestAlreadyInSessionNotFailed(t *testing.T) {
+func TestAlreadyInSessionFails(t *testing.T) {
+	// When Deluge reports the torrent is already in session the entry must be
+	// marked Failed so that chained sink outputs (e.g. email notifications) do
+	// not fire for it.
 	mock := &mockDeluge{loginOK: true, addError: "Torrent already in session (abc123)"}
 	srv := httptest.NewServer(mock.handler())
 	defer srv.Close()
@@ -143,8 +146,8 @@ func TestAlreadyInSessionNotFailed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Output returned unexpected error: %v", err)
 	}
-	if e.IsFailed() {
-		t.Error("entry should not be Failed when torrent is already in session — it must stay Accepted so Learn can mark it")
+	if !e.IsFailed() {
+		t.Error("entry should be Failed when torrent is already in session, so chained outputs are skipped")
 	}
 }
 

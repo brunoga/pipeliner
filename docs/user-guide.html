@@ -539,8 +539,10 @@ pipeline("split-pipeline")</code></pre>
   <tr><td><code>tvdb_episode_id</code></td><td>metainfo_tvdb</td><td>TheTVDB episode ID</td></tr>
   <tr><td><code>tmdb_id</code></td><td>metainfo_tmdb</td><td>TMDb movie/series ID</td></tr>
   <tr><td><code>trakt_id</code></td><td>metainfo_trakt, trakt_list</td><td>Trakt internal ID</td></tr>
-  <tr><td><code>trakt_slug</code></td><td>metainfo_trakt</td><td>Trakt URL slug</td></tr>
-  <tr><td><code>trakt_tmdb_id</code></td><td>metainfo_trakt</td><td>TMDb ID from Trakt</td></tr>
+  <tr><td><code>trakt_slug</code></td><td>metainfo_trakt, trakt_list</td><td>Trakt URL slug</td></tr>
+  <tr><td><code>trakt_year</code></td><td>trakt_list</td><td>Release year from Trakt (used by metainfo_tmdb to resolve the correct film when the title is ambiguous)</td></tr>
+  <tr><td><code>trakt_imdb_id</code></td><td>trakt_list</td><td>IMDb ID from Trakt</td></tr>
+  <tr><td><code>trakt_tmdb_id</code></td><td>metainfo_trakt, trakt_list</td><td>TMDb ID from Trakt — when present, metainfo_tmdb fetches by ID directly instead of searching</td></tr>
   <tr><td><code>trakt_tvdb_id</code></td><td>metainfo_trakt</td><td>TVDB ID from Trakt</td></tr>
   <tr><td><code>jackett_category</code></td><td>jackett, jackett_input</td><td>Torznab category code</td></tr>
   <tr><td><code>jackett_indexer</code></td><td>jackett, jackett_input</td><td>Source indexer name</td></tr>
