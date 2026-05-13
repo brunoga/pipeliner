@@ -2404,7 +2404,9 @@ function nodesToFunctionSource(funcName, params, selectedIds, validation, graph)
     if (p.include) lines.push(`# pipeliner:param ${p.paramName}${p.hint ? '  ' + p.hint : ''}`);
   }
 
-  const sigParams = params.filter(p => p.include).map(p => `${p.paramName}=${valToStar(p.defaultValue)}`);
+  // Parameters are required (no default in the def signature); the actual
+  // values live at the call site so every use is explicit.
+  const sigParams = params.filter(p => p.include).map(p => p.paramName);
   // Only include 'upstream' when there are entry upstreams (processors/sinks).
   const hasEntryUpstreams = entryUpstreams.length > 0;
   const sig = hasEntryUpstreams ? ['upstream', ...sigParams].join(', ') : sigParams.join(', ');
@@ -2495,7 +2497,7 @@ function openExtractDialog() {
         <div class="ve-extract-field">
           <label>Parameters <span style="font-weight:400;text-transform:none;letter-spacing:0">(uncheck to hardcode the value)</span></label>
           <table class="ve-extract-param-table">
-            <thead><tr><th></th><th>Param name</th><th>Description</th><th>Type</th><th>Default</th></tr></thead>
+            <thead><tr><th></th><th>Param name</th><th>Description</th><th>Type</th><th>Call value</th></tr></thead>
             <tbody id="ve-extract-params">${paramRows}</tbody>
           </table>
         </div>` : '<p style="color:var(--muted);font-size:12px">No configurable values — the function will have only an upstream parameter.</p>'}
@@ -2606,7 +2608,7 @@ function performExtraction(funcName, params, validation, graphIdx) {
     role,
     description: '',
     params:      params.filter(p => p.include).map(p => ({
-      key: p.paramName, type: p.type, required: false, default: p.defaultValue, hint: '',
+      key: p.paramName, type: p.type, required: true, default: null, hint: p.hint || '',
     })),
     _sourceText: sourceText,
   };
