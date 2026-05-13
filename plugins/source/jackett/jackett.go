@@ -1,4 +1,4 @@
-// Package jackett provides a from plugin that queries a Jackett indexer
+// Package jackett provides a search sub-plugin that queries a Jackett indexer
 // proxy via the Torznab API. Unlike rss_search, it speaks Torznab natively:
 // seeder/leecher counts, info hashes, and file sizes come back in the search
 // response itself, so no separate metadata fetch is needed.
@@ -40,7 +40,7 @@ import (
 func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "jackett",
-		Description: "search Jackett indexers via the Torznab API; usable as a standalone DAG source or inside discover.via",
+		Description: "search Jackett indexers via the Torznab API; usable as a standalone DAG source or inside discover.search",
 		Role:        plugin.RoleSource,
 		Produces: []string{
 			entry.FieldTorrentSeeds,

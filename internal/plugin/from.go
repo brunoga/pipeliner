@@ -7,7 +7,7 @@ import (
 	"github.com/brunoga/pipeliner/internal/entry"
 )
 
-// CacheKeyer may be implemented by source plugins used as from-plugin title
+// CacheKeyer may be implemented by source plugins used as list sub-plugin title
 // sources. ResolveDynamicList uses CacheKey() as the per-source cache key when
 // the interface is present, falling back to Name() otherwise.
 type CacheKeyer interface {
@@ -31,15 +31,15 @@ func (p *loggedSourcePlugin) Name() string     { return p.inner.Name() }
 func (p *loggedSourcePlugin) CacheKey() string { return sourceKey(p.inner) }
 
 func (p *loggedSourcePlugin) Generate(ctx context.Context, tc *TaskContext) ([]*entry.Entry, error) {
-	tc.Logger.Info("from plugin started", "plugin", p.inner.Name())
+	tc.Logger.Info("list plugin started", "plugin", p.inner.Name())
 	start := time.Now()
 	entries, err := p.inner.Generate(ctx, tc)
 	dur := time.Since(start).Round(time.Millisecond)
 	if err != nil {
-		tc.Logger.Warn("from plugin failed", "plugin", p.inner.Name(), "err", err, "duration", dur)
+		tc.Logger.Warn("list plugin failed", "plugin", p.inner.Name(), "err", err, "duration", dur)
 		return nil, err
 	}
-	tc.Logger.Info("from plugin done", "plugin", p.inner.Name(), "count", len(entries), "duration", dur)
+	tc.Logger.Info("list plugin done", "plugin", p.inner.Name(), "count", len(entries), "duration", dur)
 	return entries, nil
 }
 
@@ -65,7 +65,7 @@ func ResolveDynamicList(
 	for _, src := range froms {
 		key := sourceKey(src)
 		if cached, ok := cacheGet(key); ok {
-			tc.Logger.Debug("from: loaded list from cache", "plugin", src.Name(), "key", key, "count", len(cached))
+			tc.Logger.Debug("list: loaded from cache", "plugin", src.Name(), "key", key, "count", len(cached))
 			dynamic = append(dynamic, cached...)
 			continue
 		}

@@ -1,9 +1,9 @@
-// Package rss provides a from plugin that fetches entries from a
+// Package rss provides a search sub-plugin that fetches entries from a
 // parameterized RSS URL. The URL is constructed by rendering a pattern
 // with the search query substituted for {Query} or {QueryEscaped}.
 //
-// This plugin is used as a sub-plugin of the discover input plugin via the
-// "via" config key. It cannot be used directly as a task-level plugin.
+// This plugin is used as a search sub-plugin of the discover processor via the
+// "search" config key. It cannot be used directly as a task-level plugin.
 //
 // Config keys:
 //
@@ -32,7 +32,7 @@ import (
 func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "rss_search",
-		Description: "search a parameterized RSS URL for entries matching a query string; usable as a standalone DAG source or inside discover.via",
+		Description: "search a parameterized RSS URL for entries matching a query string; usable as a standalone DAG source or inside discover.search",
 		Role:        plugin.RoleSource,
 		Produces: []string{
 			entry.FieldTitle,

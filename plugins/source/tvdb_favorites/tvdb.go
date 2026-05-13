@@ -1,8 +1,8 @@
-// Package tvdb provides a from plugin that fetches shows from a TheTVDB
+// Package tvdb provides a list sub-plugin that fetches shows from a TheTVDB
 // user's favorites list and emits one entry per show.
 //
-// Usable as a standalone DAG source node (input()) or inside series.from /
-// discover.from config keys to supply a dynamic show list.
+// Usable as a standalone DAG source node (input()) or as a list= entry for
+// series or discover to supply a dynamic show list.
 //
 // Config keys:
 //
