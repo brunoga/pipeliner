@@ -532,7 +532,7 @@ section { margin-bottom: 32px; }
 }
 .ve-extract-inner {
   background:var(--surface); border:1px solid var(--border); border-radius:8px;
-  width:480px; max-width:95vw; max-height:85vh; display:flex; flex-direction:column;
+  width:600px; max-width:95vw; max-height:85vh; display:flex; flex-direction:column;
   box-shadow:0 8px 40px rgba(0,0,0,.6);
 }
 .ve-extract-header {
