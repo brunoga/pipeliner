@@ -546,21 +546,56 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 		Y          *float64       `json:"y,omitempty"`
 	}
 	type nodeResp struct {
-		ID         string          `json:"id"`
-		PluginName string          `json:"plugin"`
-		Config     map[string]any  `json:"config"`
-		Upstreams  []string        `json:"upstreams"`
-		Search     []subPluginResp `json:"search,omitempty"`
-		List       []subPluginResp `json:"list,omitempty"`
-		Comment    string          `json:"comment,omitempty"`
-		X          *float64        `json:"x,omitempty"`
-		Y          *float64        `json:"y,omitempty"`
+		ID              string          `json:"id"`
+		PluginName      string          `json:"plugin"`
+		Config          map[string]any  `json:"config"`
+		Upstreams       []string        `json:"upstreams"`
+		Search          []subPluginResp `json:"search,omitempty"`
+		List            []subPluginResp `json:"list,omitempty"`
+		Comment         string          `json:"comment,omitempty"`
+		X               *float64        `json:"x,omitempty"`
+		Y               *float64        `json:"y,omitempty"`
+		FunctionCallKey string          `json:"function_call_key,omitempty"`
+	}
+	type funcCallResp struct {
+		CallKey         string         `json:"call_key"`
+		FuncName        string         `json:"func"`
+		Args            map[string]any `json:"args"`
+		InternalNodeIDs []string       `json:"internal_node_ids"`
+		ReturnNodeID    string         `json:"return_node_id"`
+		X               *float64       `json:"x,omitempty"`
+		Y               *float64       `json:"y,omitempty"`
 	}
 	type graphResp struct {
-		Nodes    []nodeResp `json:"nodes"`
-		Schedule string     `json:"schedule,omitempty"`
-		Comment  string     `json:"comment,omitempty"`
+		Nodes         []nodeResp     `json:"nodes"`
+		FunctionCalls []funcCallResp `json:"function_calls,omitempty"`
+		Schedule      string         `json:"schedule,omitempty"`
+		Comment       string         `json:"comment,omitempty"`
 	}
+	type funcParamResp struct {
+		Key       string `json:"key"`
+		Type      string `json:"type"`
+		Required  bool   `json:"required,omitempty"`
+		Default   any    `json:"default,omitempty"`
+		Hint      string `json:"hint,omitempty"`
+		Multiline bool   `json:"multiline,omitempty"`
+	}
+	type userFuncResp struct {
+		Name        string          `json:"name"`
+		Role        string          `json:"role"`
+		Description string          `json:"description,omitempty"`
+		Params      []funcParamResp `json:"params"`
+	}
+	// Build a node-ID → call-key lookup from all function call records.
+	nodeCallKey := make(map[string]string)
+	for _, calls := range c.FunctionCalls {
+		for _, fcr := range calls {
+			for _, nid := range fcr.InternalNodeIDs {
+				nodeCallKey[nid] = fcr.CallKey
+			}
+		}
+	}
+
 	graphs := make(map[string]graphResp, len(c.Graphs))
 	for name, g := range c.Graphs {
 		nodes := make([]nodeResp, 0, g.Len())
@@ -625,13 +660,14 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			nr := nodeResp{
-				ID:         string(n.ID),
-				PluginName: n.PluginName,
-				Config:     cfg,
-				Upstreams:  ups,
-				Search:     search,
-				List:       list,
-				Comment:    nodeComments[string(n.ID)],
+				ID:              string(n.ID),
+				PluginName:      n.PluginName,
+				Config:          cfg,
+				Upstreams:       ups,
+				Search:          search,
+				List:            list,
+				Comment:         nodeComments[string(n.ID)],
+				FunctionCallKey: nodeCallKey[string(n.ID)],
 			}
 			if pos, ok := nodePositions[string(n.ID)]; ok {
 				x, y := pos.Main[0], pos.Main[1]
@@ -640,14 +676,55 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 			}
 			nodes = append(nodes, nr)
 		}
+		// Build funcCallResp entries for this pipeline.
+		var funcCalls []funcCallResp
+		for _, fcr := range c.FunctionCalls[name] {
+			fr := funcCallResp{
+				CallKey:         fcr.CallKey,
+				FuncName:        fcr.FuncName,
+				Args:            fcr.Args,
+				InternalNodeIDs: fcr.InternalNodeIDs,
+				ReturnNodeID:    fcr.ReturnNodeID,
+			}
+			if pos, ok := nodePositions[fcr.CallKey]; ok {
+				x, y := pos.Main[0], pos.Main[1]
+				fr.X = &x
+				fr.Y = &y
+			}
+			funcCalls = append(funcCalls, fr)
+		}
+
 		graphs[name] = graphResp{
-			Nodes:    nodes,
-			Schedule: c.GraphSchedules[name],
-			Comment:  pipelineComments[name],
+			Nodes:         nodes,
+			FunctionCalls: funcCalls,
+			Schedule:      c.GraphSchedules[name],
+			Comment:       pipelineComments[name],
 		}
 	}
 
-	writeJSON(w, map[string]any{"graphs": graphs})
+	// Build user function schema response.
+	funcs := make([]userFuncResp, 0, len(c.UserFunctions))
+	for _, fd := range c.UserFunctions {
+		params := make([]funcParamResp, len(fd.Params))
+		for i, p := range fd.Params {
+			params[i] = funcParamResp{
+				Key:       p.Name,
+				Type:      string(p.Type),
+				Required:  p.Required,
+				Default:   p.Default,
+				Hint:      p.Hint,
+				Multiline: p.Multiline,
+			}
+		}
+		funcs = append(funcs, userFuncResp{
+			Name:        fd.Name,
+			Role:        fd.Role,
+			Description: fd.Description,
+			Params:      params,
+		})
+	}
+
+	writeJSON(w, map[string]any{"graphs": graphs, "functions": funcs})
 }
 
 // nodePosData stores canvas positions for a node and its ordered list/search sub-nodes.
@@ -680,7 +757,7 @@ func scanComments(content string) (
 	pipelineComments = make(map[string]string)
 	nodePositions    = make(map[string]nodePosData)
 
-	nodeRe     := regexp.MustCompile(`^([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(input|process|output)\s*\(`)
+	nodeRe     := regexp.MustCompile(`^([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*[a-zA-Z_][a-zA-Z0-9_]*\s*\(`)
 	pipelineRe := regexp.MustCompile(`^pipeline\s*\(\s*"([^"]+)"`)
 
 	var commentLines []string

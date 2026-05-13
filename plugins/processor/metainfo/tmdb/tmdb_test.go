@@ -45,6 +45,7 @@ func makeServer() *httptest.Server {
 				"id": 27205, "title": "Inception", "release_date": "2010-07-16",
 				"runtime": 148, "tagline": "Your mind is the scene.",
 				"imdb_id": "tt1375666", "original_language": "en",
+				"vote_count": 35000, "poster_path": "/inception.jpg",
 				"genres":               []map[string]any{{"id": 28, "name": "Action"}, {"id": 878, "name": "Science Fiction"}},
 				"production_countries": []map[string]any{{"iso_3166_1": "US", "name": "United States of America"}},
 				"credits": map[string]any{
@@ -361,6 +362,61 @@ func TestIso639_1Name(t *testing.T) {
 		if got := iso639_1Name(c.code); got != c.want {
 			t.Errorf("iso639_1Name(%q) = %q, want %q", c.code, got, c.want)
 		}
+	}
+}
+
+// TestAnnotateByIDDetailCached verifies that when two entries carry the same
+// trakt_tmdb_id, the second annotate call uses the cached detail and does not
+// make a second GetMovie network request.
+func TestAnnotateByIDDetailCached(t *testing.T) {
+	callCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/3/movie/27205":
+			callCount++
+			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+				"id": 27205, "title": "Inception", "release_date": "2010-07-16",
+				"overview": "A thief...", "popularity": 99.5,
+				"vote_average": 8.8, "vote_count": 35000, "poster_path": "/inception.jpg",
+				"original_language": "en", "original_title": "Inception",
+				"runtime": 148, "tagline": "Your mind is the scene.",
+				"imdb_id": "tt1375666",
+				"genres":               []map[string]any{{"id": 28, "name": "Action"}},
+				"production_countries": []map[string]any{},
+				"credits":              map[string]any{"cast": []any{}},
+				"videos":               map[string]any{"results": []any{}},
+				"release_dates":        map[string]any{"results": []any{}},
+				"alternative_titles":   map[string]any{"titles": []any{}},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	db, err := store.OpenSQLite(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	c := itmdb.New("test-key")
+	c.BaseURL = srv.URL + "/3"
+	p := &tmdbPlugin{
+		client:      c,
+		cache:       cache.NewPersistent[[]itmdb.Movie](time.Hour, db.Bucket("search")),
+		detailCache: cache.NewPersistent[*itmdb.MovieDetail](time.Hour, db.Bucket("detail")),
+	}
+
+	for i := range 2 {
+		e := entry.New("Michael", "https://trakt.tv/movies/michael-2026")
+		e.Set("trakt_tmdb_id", 27205)
+		if err := p.annotate(context.Background(), makeCtx(), e); err != nil {
+			t.Fatalf("annotate %d: %v", i, err)
+		}
+	}
+	if callCount != 1 {
+		t.Errorf("GetMovie called %d times, want 1 (second should use detail cache)", callCount)
 	}
 }
 

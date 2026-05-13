@@ -131,10 +131,11 @@ func TestAddTorrentError(t *testing.T) {
 	}
 }
 
-func TestAlreadyInSessionFails(t *testing.T) {
+func TestAlreadyInSessionConsumed(t *testing.T) {
 	// When Deluge reports the torrent is already in session the entry must be
-	// marked Failed so that chained sink outputs (e.g. email notifications) do
-	// not fire for it.
+	// marked Consumed (not Failed) so that:
+	//   - chained notification sinks (email, etc.) are skipped, and
+	//   - CommitPlugin.Commit still runs so the seen plugin learns the URL.
 	mock := &mockDeluge{loginOK: true, addError: "Torrent already in session (abc123)"}
 	srv := httptest.NewServer(mock.handler())
 	defer srv.Close()
@@ -144,10 +145,17 @@ func TestAlreadyInSessionFails(t *testing.T) {
 	e.Accept()
 	err := dp.deliver(context.Background(), makeCtx(), []*entry.Entry{e})
 	if err != nil {
-		t.Fatalf("Output returned unexpected error: %v", err)
+		t.Fatalf("deliver returned unexpected error: %v", err)
 	}
-	if !e.IsFailed() {
-		t.Error("entry should be Failed when torrent is already in session, so chained outputs are skipped")
+	if !e.IsConsumed() {
+		t.Error("entry should be Consumed when torrent is already in session")
+	}
+	if e.IsFailed() {
+		t.Error("entry must not be Failed (Fail prevents CommitPlugin.Commit, causing the URL to never be learned)")
+	}
+	// Consumed entries must not appear in FilterAccepted so chained sinks are silenced.
+	if len(entry.FilterAccepted([]*entry.Entry{e})) != 0 {
+		t.Error("consumed entry should be excluded from FilterAccepted")
 	}
 }
 

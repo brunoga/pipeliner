@@ -506,6 +506,78 @@ section { margin-bottom: 32px; }
 }
 .ve-add-pipeline-header:hover { border-color:var(--accent); color:var(--accent); }
 
+/* Extract-to-function toolbar button */
+.ve-extract-fn-btn {
+  padding:3px 12px; border:1px solid rgba(251,191,36,.5); border-radius:5px;
+  background:transparent; color:#fbbf24; font-size:12px; cursor:pointer;
+  font-weight:500; transition:border-color .15s, background .15s; flex-shrink:0;
+}
+.ve-extract-fn-btn:hover { border-color:#fbbf24; background:rgba(251,191,36,.08); }
+
+/* Paste toolbar button */
+.ve-paste-btn {
+  padding:3px 12px; border:1px solid var(--border); border-radius:5px;
+  background:transparent; color:var(--muted); font-size:12px; cursor:pointer;
+  font-weight:500; transition:border-color .15s, color .15s; flex-shrink:0;
+}
+.ve-paste-btn:hover { border-color:var(--accent); color:var(--accent); }
+
+/* Multi-selected node highlight */
+.ve-node.multi-selected { outline:2px solid #fbbf24; outline-offset:2px; }
+
+/* Extract-to-function modal */
+.ve-extract-modal {
+  position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:2000;
+  display:flex; align-items:center; justify-content:center;
+}
+.ve-extract-inner {
+  background:var(--surface); border:1px solid var(--border); border-radius:8px;
+  width:600px; max-width:95vw; max-height:85vh; display:flex; flex-direction:column;
+  box-shadow:0 8px 40px rgba(0,0,0,.6);
+}
+.ve-extract-header {
+  padding:14px 16px 10px; border-bottom:1px solid var(--border);
+  display:flex; align-items:center; justify-content:space-between;
+}
+.ve-extract-title { font-size:14px; font-weight:600; color:var(--text); }
+.ve-extract-close { background:none; border:none; color:var(--muted); font-size:18px; cursor:pointer; padding:0 2px; line-height:1; }
+.ve-extract-close:hover { color:var(--text); }
+.ve-extract-body { padding:14px 16px; overflow-y:auto; flex:1; display:flex; flex-direction:column; gap:12px; }
+.ve-extract-field { display:flex; flex-direction:column; gap:4px; }
+.ve-extract-field label { font-size:11px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; }
+.ve-extract-field input[type=text] {
+  background:var(--input-bg,#1e1e1e); border:1px solid var(--border); border-radius:4px;
+  padding:5px 8px; color:var(--text); font-size:13px; outline:none;
+}
+.ve-extract-field input[type=text]:focus { border-color:var(--accent); }
+.ve-extract-error { color:var(--red); font-size:12px; padding:4px 0; }
+.ve-extract-param-table { width:100%; border-collapse:collapse; font-size:12px; }
+.ve-extract-param-table th {
+  text-align:left; padding:4px 6px; color:var(--muted); font-weight:600;
+  font-size:10px; text-transform:uppercase; letter-spacing:.05em;
+  border-bottom:1px solid var(--border);
+}
+.ve-extract-param-table td { padding:5px 6px; border-bottom:1px solid rgba(255,255,255,.04); vertical-align:middle; }
+.ve-extract-param-table input[type=text] {
+  background:var(--input-bg,#1e1e1e); border:1px solid var(--border); border-radius:3px;
+  padding:3px 6px; color:var(--text); font-size:12px; outline:none; width:100%;
+}
+.ve-extract-param-table input[type=text]:focus { border-color:var(--accent); }
+.ve-extract-param-node { color:var(--muted); font-size:10px; }
+.ve-extract-footer {
+  padding:10px 16px; border-top:1px solid var(--border); display:flex; gap:8px; justify-content:flex-end;
+}
+.ve-extract-create {
+  padding:5px 16px; background:var(--accent); border:none; border-radius:5px;
+  color:#000; font-size:12px; font-weight:600; cursor:pointer;
+}
+.ve-extract-create:hover { opacity:.85; }
+.ve-extract-cancel {
+  padding:5px 12px; background:none; border:1px solid var(--border); border-radius:5px;
+  color:var(--muted); font-size:12px; cursor:pointer;
+}
+.ve-extract-cancel:hover { color:var(--text); }
+
 /* zoom controls in the pipeline bar */
 .ve-zoom-bar {
   display:flex; align-items:center; gap:2px; margin-left:auto; flex-shrink:0;
@@ -644,6 +716,25 @@ section { margin-bottom: 32px; }
 .ve-list-edge { fill:none; stroke:#0d9373; stroke-width:1.5; stroke-dasharray:5,3; pointer-events:none; }
 .ve-list-edge.selected { stroke:#2dd4b8; stroke-width:2; }
 .ve-list-edge.connecting { stroke:#2dd4b8; stroke-width:1.5; stroke-dasharray:5,3; }
+
+/* Palette user-function chip and badge */
+.ve-chip.ve-chip-fn { border-color:rgba(251,191,36,.4); color:#fbbf24; }
+.ve-chip.ve-chip-fn:hover { border-color:#fbbf24; }
+.ve-chip-fn-badge {
+  display:inline-block; margin-left:5px; padding:1px 4px;
+  font-size:8px; font-weight:700; text-transform:uppercase; letter-spacing:.04em;
+  border-radius:3px; border:1px solid rgba(251,191,36,.5);
+  background:rgba(251,191,36,.15); color:#fbbf24;
+  vertical-align:middle; line-height:1.4; pointer-events:none;
+}
+/* Function-call node card uses an amber left border */
+.ve-node.ve-node-fn { border-left-color:#fbbf24; }
+.ve-node-fn-badge {
+  display:inline-block; margin-left:4px; padding:1px 4px;
+  font-size:8px; font-weight:700; text-transform:uppercase; letter-spacing:.04em;
+  border-radius:3px; background:rgba(251,191,36,.2); color:#fbbf24;
+  vertical-align:middle; line-height:1.4;
+}
 
 /* Palette list-plugin chip badge */
 .ve-chip-list-badge {
