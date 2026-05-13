@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/brunoga/pipeliner/internal/dag"
@@ -315,6 +316,14 @@ func TestUserFunctionRuntimeTracking(t *testing.T) {
 	last := fcr.InternalNodeIDs[len(fcr.InternalNodeIDs)-1]
 	if fcr.ReturnNodeID != last {
 		t.Errorf("return node: got %q, want %q", fcr.ReturnNodeID, last)
+	}
+	// Call key must be the Starlark variable name ("filtered"), not the
+	// position-derived "quality_filter@line:col" which is invalid as an identifier.
+	if fcr.CallKey == "" || fcr.CallKey != "filtered" {
+		t.Errorf("call key: got %q, want the variable name %q", fcr.CallKey, "filtered")
+	}
+	if strings.Contains(fcr.CallKey, "@") {
+		t.Errorf("call key %q contains '@' — not a valid Starlark identifier", fcr.CallKey)
 	}
 }
 

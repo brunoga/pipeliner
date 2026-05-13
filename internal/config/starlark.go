@@ -35,8 +35,27 @@ func execute(filename string, src []byte) (*Config, error) {
 	if src == nil {
 		srcArg = nil
 	}
-	if _, err := starlark.ExecFileOptions(opts, thread, filename, srcArg, predeclared); err != nil {
+	globals, err := starlark.ExecFileOptions(opts, thread, filename, srcArg, predeclared)
+	if err != nil {
 		return nil, formatStarlarkError(err)
+	}
+
+	// Replace runtime call keys ("funcname@line:col") with the valid Starlark
+	// identifier the call result was assigned to in the module globals. This
+	// ensures function call nodes round-trip with proper identifiers rather
+	// than the position-derived key which contains "@" (invalid in Starlark).
+	returnNodeToVar := make(map[dag.NodeID]string)
+	for varName, val := range globals {
+		if h, ok := val.(*nodeHandle); ok {
+			returnNodeToVar[h.id] = varName
+		}
+	}
+	for _, calls := range ctx.functionCalls {
+		for _, fcr := range calls {
+			if varName, ok := returnNodeToVar[dag.NodeID(fcr.ReturnNodeID)]; ok {
+				fcr.CallKey = varName
+			}
+		}
 	}
 
 	graphs := make(map[string]*dag.Graph, len(ctx.graphs))
