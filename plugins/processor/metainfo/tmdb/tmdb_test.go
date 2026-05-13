@@ -234,6 +234,120 @@ func TestAnnotateNonMovie(t *testing.T) {
 	}
 }
 
+// TestAnnotateByTraktTMDBID verifies that when an entry carries trakt_tmdb_id
+// the plugin fetches the movie by ID directly and never calls the search endpoint.
+func TestAnnotateByTraktTMDBID(t *testing.T) {
+	searchCalled := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/3/search/movie":
+			searchCalled = true
+			json.NewEncoder(w).Encode(map[string]any{"results": []any{}, "total_results": 0}) //nolint:errcheck
+		case "/3/movie/27205":
+			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+				"id": 27205, "title": "Michael", "release_date": "2026-03-14",
+				"overview": "A film about Michael Jackson.", "popularity": 50.0,
+				"vote_average": 7.5, "vote_count": 1000, "poster_path": "",
+				"original_language": "en", "original_title": "Michael",
+				"runtime": 132, "tagline": "", "imdb_id": "tt12345678",
+				"genres": []map[string]any{{"id": 18, "name": "Drama"}},
+				"production_countries": []map[string]any{},
+				"credits":              map[string]any{"cast": []any{}},
+				"videos":               map[string]any{"results": []any{}},
+				"release_dates":        map[string]any{"results": []any{}},
+				"alternative_titles":   map[string]any{"titles": []any{}},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	c := itmdb.New("test-key")
+	c.BaseURL = srv.URL + "/3"
+	p := &tmdbPlugin{client: c}
+
+	// Entry from trakt_list: plain title, year stored in trakt_tmdb_id.
+	e := entry.New("Michael", "https://trakt.tv/movies/michael-2026")
+	e.Set("trakt_tmdb_id", 27205)
+	e.Set("trakt_year", 2026)
+
+	if err := p.annotate(context.Background(), makeCtx(), e); err != nil {
+		t.Fatal(err)
+	}
+
+	if searchCalled {
+		t.Error("search endpoint should not be called when trakt_tmdb_id is present")
+	}
+	if v := e.GetInt("tmdb_id"); v != 27205 {
+		t.Errorf("tmdb_id: got %d, want 27205", v)
+	}
+	if v := e.GetInt("video_year"); v != 2026 {
+		t.Errorf("video_year: got %d, want 2026", v)
+	}
+	if v := e.GetString("video_imdb_id"); v != "tt12345678" {
+		t.Errorf("video_imdb_id: got %q", v)
+	}
+	if !e.GetBool("enriched") {
+		t.Error("enriched should be true")
+	}
+}
+
+// TestTraktYearUsedAsSearchHint verifies that when an entry has no year in its
+// title but carries trakt_year, that year is passed to the TMDb search so that
+// a same-name film from a different decade is not returned instead.
+func TestTraktYearUsedAsSearchHint(t *testing.T) {
+	var searchedYear string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/3/search/movie":
+			searchedYear = r.URL.Query().Get("year")
+			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+				"results": []map[string]any{
+					{
+						"id": 27205, "title": "Michael", "release_date": "2026-03-14",
+						"popularity": 50.0, "vote_average": 7.5, "vote_count": 1000,
+						"poster_path": "", "original_title": "Michael",
+					},
+				},
+				"total_results": 1,
+			})
+		case "/3/movie/27205":
+			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+				"id": 27205, "title": "Michael", "release_date": "2026-03-14",
+				"runtime": 132, "tagline": "", "imdb_id": "tt12345678",
+				"original_language": "en", "genres": []any{},
+				"production_countries": []any{}, "credits": map[string]any{"cast": []any{}},
+				"videos": map[string]any{"results": []any{}},
+				"release_dates": map[string]any{"results": []any{}},
+				"alternative_titles": map[string]any{"titles": []any{}},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	c := itmdb.New("test-key")
+	c.BaseURL = srv.URL + "/3"
+	p := &tmdbPlugin{client: c}
+
+	// Plain title with no year, year provided via trakt_year only.
+	e := entry.New("Michael", "https://trakt.tv/movies/michael-2026")
+	e.Set("trakt_year", 2026)
+
+	if err := p.annotate(context.Background(), makeCtx(), e); err != nil {
+		t.Fatal(err)
+	}
+
+	if searchedYear != "2026" {
+		t.Errorf("TMDb search year: got %q, want %q", searchedYear, "2026")
+	}
+	if v := e.GetInt("tmdb_id"); v != 27205 {
+		t.Errorf("tmdb_id: got %d, want 27205", v)
+	}
+}
+
 func TestIso639_1Name(t *testing.T) {
 	cases := []struct{ code, want string }{
 		{"en", "English"},
