@@ -9,7 +9,7 @@
 // Fields set on each matched entry: movie_title, movie_year, movie_quality,
 // movie_3d.
 //
-// The movie list may be provided statically via 'static', dynamically via 'from'
+// The movie list may be provided statically via 'static', dynamically via 'list'
 // (a list of input plugins whose entry titles are used as movie names), or both.
 // Dynamic lists are cached for the configured ttl (default: 1h).
 package movies
@@ -43,10 +43,10 @@ func init() {
 		},
 		Factory:     newPlugin,
 		Validate:    validate,
-		AcceptsFrom: true,
+		AcceptsList: true,
 		Schema: []plugin.FieldSchema{
 			{Key: "static", Type: plugin.FieldTypeList, Hint: "Static list of movie titles"},
-			{Key: "from", Type: plugin.FieldTypeDict, Hint: "Dynamic list from a source plugin (e.g. trakt_list)"},
+			{Key: "list", Type: plugin.FieldTypeDict, Hint: "Dynamic list from a source plugin (e.g. trakt_list)"},
 			{Key: "quality", Type: plugin.FieldTypeString, Hint: "Quality spec, e.g. 1080p+ webrip+"},
 			{Key: "ttl", Type: plugin.FieldTypeDuration, Default: "1h", Hint: "Cache TTL for dynamic lists"},
 			{Key: "reject_unmatched", Type: plugin.FieldTypeBool, Default: true, Hint: "Reject movies not in the list"},
@@ -56,7 +56,7 @@ func init() {
 
 func validate(cfg map[string]any) []error {
 	var errs []error
-	if err := plugin.RequireOneOf(cfg, "movies", "static", "from"); err != nil {
+	if err := plugin.RequireOneOf(cfg, "movies", "static", "list"); err != nil {
 		errs = append(errs, err)
 	}
 	if err := plugin.OptDuration(cfg, "ttl", "movies"); err != nil {
@@ -67,7 +67,7 @@ func validate(cfg map[string]any) []error {
 			errs = append(errs, fmt.Errorf("movies: invalid quality spec: %w", err))
 		}
 	}
-	errs = append(errs, plugin.OptUnknownKeys(cfg, "movies", "static", "from", "ttl", "quality", "reject_unmatched")...)
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "movies", "static", "list", "ttl", "quality", "reject_unmatched")...)
 	return errs
 }
 
@@ -87,18 +87,18 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 		staticTitles[i] = match.Normalize(s)
 	}
 
-	fromRaw, _ := cfg["from"].([]any)
+	listRaw, _ := cfg["list"].([]any)
 	var froms []plugin.SourcePlugin
-	for _, item := range fromRaw {
+	for _, item := range listRaw {
 		src, err := plugin.MakeFromPlugin(item, db)
 		if err != nil {
-			return nil, fmt.Errorf("movies: from: %w", err)
+			return nil, fmt.Errorf("movies: list: %w", err)
 		}
 		froms = append(froms, src)
 	}
 
 	if len(staticTitles) == 0 && len(froms) == 0 {
-		return nil, fmt.Errorf("movies: at least one of 'static' or 'from' is required")
+		return nil, fmt.Errorf("movies: at least one of 'static' or 'list' is required")
 	}
 
 	ttl := time.Hour

@@ -31,10 +31,10 @@ q1      = process("metainfo_quality", upstream=seen1)
 tmdb1   = process("metainfo_tmdb",   upstream=q1, api_key=tmdb_key)
 movies1 = process("movies",           upstream=tmdb1,
                    quality="720p+", ttl="4h",
-                   **{"from": [{"name": "trakt_list",
-                                "client_id":     trakt_client_id,
-                                "client_secret": trakt_client_secret,
-                                "type": "movies", "list": "watchlist"}]})
+                   list=[{"name": "trakt_list",
+                          "client_id":     trakt_client_id,
+                          "client_secret": trakt_client_secret,
+                          "type": "movies", "list": "watchlist"}])
 qbit_output(movies1, category="movies")
 
 pipeline("movies-watchlist", schedule="2h")
@@ -47,10 +47,10 @@ q2      = process("metainfo_quality", upstream=seen2)
 tmdb2   = process("metainfo_tmdb",   upstream=q2, api_key=tmdb_key)
 movies2 = process("movies",           upstream=tmdb2,
                    quality="1080p+", ttl="4h",
-                   **{"from": [{"name": "trakt_list",
-                                "client_id":     trakt_client_id,
-                                "client_secret": trakt_client_secret,
-                                "type": "movies", "list": "ratings"}]})
+                   list=[{"name": "trakt_list",
+                          "client_id":     trakt_client_id,
+                          "client_secret": trakt_client_secret,
+                          "type": "movies", "list": "ratings"}])
 cond2   = process("condition", upstream=movies2, rules=[
     {"reject": 'video_source == "CAM"'},
     {"reject": 'video_rating < 7.5'},

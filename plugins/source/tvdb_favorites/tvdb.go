@@ -28,7 +28,7 @@ func init() {
 		Produces:    []string{entry.FieldTitle, "tvdb_id", "tvdb_year"},
 		Factory:      newPlugin,
 		Validate:     validate,
-		IsFromPlugin: true,
+		IsListPlugin: true,
 		Schema: []plugin.FieldSchema{
 			{Key: "api_key",  Type: plugin.FieldTypeString, Required: true, Hint: "TheTVDB v4 API key"},
 			{Key: "user_pin", Type: plugin.FieldTypeString, Required: true, Hint: "TheTVDB user PIN"},

@@ -188,9 +188,9 @@ pipeline("tvshows-discover")
 fav_src    = jackett_source(indexers=["torrenting", "showrss"], categories=["5000"])
 fav_srs    = process("series", upstream=fav_src,
                       tracking="follow", quality="720p+ webrip+",
-                      **{"from": [{"name":     "tvdb_favorites",
-                                   "api_key":  tvdb_key,
-                                   "user_pin": "J51VXRNPNUKY5J4U"}]})
+                      list=[{"name":     "tvdb_favorites",
+                             "api_key":  tvdb_key,
+                             "user_pin": "J51VXRNPNUKY5J4U"}])
 fav_dd     = process("dedup", upstream=fav_srs)    # best copy per episode when ties
 fav_enrich = tvdb_enrich(fav_dd)
 fav_genres = tv_genre_filter(fav_enrich)
@@ -217,7 +217,7 @@ m3d_src     = jackett_source(indexers=["torrenting", "3dtorrents", "therarbg", "
                               categories=["2000"])
 m3d_movs    = process("movies", upstream=m3d_src,
                         quality="3dfull",
-                        **{"from": trakt_watchlist("movies", "1h")})
+                        list=trakt_watchlist("movies", "1h"))
 m3d_dd      = process("dedup",   upstream=m3d_movs) # best 3D format (BD3D > Full > Half)
 m3d_enrich  = tmdb_enrich(m3d_dd, cache_ttl="24h")
 m3d_content = content_check(m3d_enrich)
@@ -246,7 +246,7 @@ mov_qual    = process("metainfo_quality", upstream=mov_src)
 mov_no3d    = process("condition",        upstream=mov_qual, reject="video_is_3d == true")
 mov_movs    = process("movies", upstream=mov_no3d,
                         quality="1080p+",
-                        **{"from": trakt_watchlist("movies", "1h")})
+                        list=trakt_watchlist("movies", "1h"))
 mov_dd      = process("dedup",   upstream=mov_movs) # best 1080p source (Blu-ray > WEB > etc.)
 mov_enrich  = tmdb_enrich(mov_dd, cache_ttl="48h")
 mov_content = content_check(mov_enrich)

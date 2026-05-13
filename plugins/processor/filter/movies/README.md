@@ -6,28 +6,28 @@ Accepts movies from a configured title list. Parses the movie title, year, quali
 
 **3D and non-3D versions are tracked independently.** If both a 3D and a non-3D copy of the same movie match, both are downloaded — they do not compete with each other.
 
-The movie list can be provided statically via `static`, dynamically via `from` (a list of input plugins whose entry titles are used as movie titles), or both. Dynamic results are cached for the configured `ttl` so external APIs are not called on every pipeline run.
+The movie list can be provided statically via `static`, dynamically via `list` (a list of input plugins whose entry titles are used as movie titles), or both. Dynamic results are cached for the configured `ttl` so external APIs are not called on every pipeline run.
 
 ## Config
 
 | Key | Type | Required | Default | Description |
 |-----|------|----------|---------|-------------|
 | `static` | string or list | conditional | — | Static movie titles to accept |
-| `from` | list | conditional | — | Input plugin configs whose entry titles supplement the movie list |
-| `ttl` | string | no | `1h` | How long to cache the dynamic list fetched via `from` |
+| `list` | list | conditional | — | List-plugin configs whose entry titles supplement the movie list |
+| `ttl` | string | no | `1h` | How long to cache the dynamic list fetched via `list` |
 | `quality` | string | no | — | Minimum quality floor (e.g. `720p+`, `1080p webrip+`). See [`quality`](../quality/README.md) for syntax. |
 
-At least one of `static` or `from` is required.
+At least one of `static` or `list` is required.
 
-### `from` entries
+### `list` entries
 
 Each entry is a plugin name string or an object with a `name` key plus plugin-specific config:
 
 ```python
-movies = process("movies", from_=seen, **{"from": [
-    {"name": "trakt_list", "client_id": env("TRAKT_ID"),
-     "client_secret": env("TRAKT_SECRET"), "type": "movies", "list": "watchlist"},
-]}, quality="1080p+")
+movies = process("movies", upstream=seen,
+    list=[{"name": "trakt_list", "client_id": env("TRAKT_ID"),
+           "client_secret": env("TRAKT_SECRET"), "type": "movies", "list": "watchlist"}],
+    quality="1080p+")
 ```
 
 ## Fields set on each entry
@@ -60,22 +60,22 @@ The 3D format is included in the `video_quality` string (e.g. `BD3D 1080p BluRay
 Filtering out 3D releases entirely:
 
 ```python
-cond = process("condition", from_=movies, reject="video_is_3d == true")
+cond = process("condition", upstream=movies, reject="video_is_3d == true")
 ```
 
 ## Debug logging
 
 Run with `--log-level debug --log-plugin movies` to see (combine plugins with a comma, e.g. `--log-plugin movies,metainfo_tmdb`):
-- Which titles are loaded from `from` sources (cache hit or live fetch)
+- Which titles are loaded from `list` sources (cache hit or live fetch)
 - Why individual entries are skipped (title not parseable, no match in list)
 
 ## Example — static list
 
 ```python
 src    = input("rss", url="https://example.com/rss")
-seen   = process("seen",   from_=src)
-movies = process("movies", from_=seen, static=["Inception"], quality="1080p+")
-output("qbittorrent", from_=movies, host="localhost")
+seen   = process("seen",   upstream=src)
+movies = process("movies", upstream=seen, static=["Inception"], quality="1080p+")
+output("qbittorrent", upstream=movies, host="localhost")
 pipeline("movies", schedule="1h")
 ```
 
@@ -83,16 +83,16 @@ pipeline("movies", schedule="1h")
 
 ```python
 src    = input("rss", url="https://example.com/rss")
-seen   = process("seen",   from_=src)
-movies = process("movies", from_=seen, static=["Inception"], quality="1080p+")
-output("qbittorrent", from_=movies, host="localhost")
+seen   = process("seen",   upstream=src)
+movies = process("movies", upstream=seen, static=["Inception"], quality="1080p+")
+output("qbittorrent", upstream=movies, host="localhost")
 pipeline("movies", schedule="1h")
 ```
 
 To accept only BD3D quality or better among 3D releases (and still download non-3D copies independently), use the `video_quality` field which includes the 3D format string:
 
 ```python
-cond = process("condition", from_=movies, rules=[
+cond = process("condition", upstream=movies, rules=[
     {"reject": 'video_is_3d == true and not contains(video_quality, "BD3D")'},
 ])
 ```

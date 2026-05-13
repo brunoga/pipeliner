@@ -22,8 +22,8 @@ let ve_canvasInited  = false;
 let ve_zoom          = 1.0;
 let ve_dragging      = null;   // truthy while a node is being moved
 let ve_connecting    = null;   // {srcId, curX, curY} while drawing a live edge
-let ve_viaConnecting  = null;   // {discoverNodeId, curX, curY} while drawing a via edge
-let ve_fromConnecting = null;   // {parentNodeId, curX, curY} while drawing a from edge
+let ve_searchConnecting  = null;   // {discoverNodeId, curX, curY} while drawing a search edge
+let ve_listConnecting    = null;   // {parentNodeId, curX, curY} while drawing a list edge
 let ve_panX          = 0;      // canvas pan offset (screen pixels)
 let ve_panY          = 0;
 
@@ -55,21 +55,21 @@ function nodeBottomY(nodeId, nodeY) {
   return (nodeY ?? 0) + (el ? el.offsetHeight : NODE_H);
 }
 
-// Disconnect a via-connected node from its parent discover node.
-function disconnectVia(discoverNodeId, viaNodeId) {
+// Disconnect a search-connected node from its parent discover node.
+function disconnectSearch(discoverNodeId, searchNodeId) {
   const disc = findNode(discoverNodeId);
-  const vn   = findNode(viaNodeId);
-  if (disc) disc.viaNodeIds = (disc.viaNodeIds || []).filter(id => id !== viaNodeId);
-  if (vn)  { vn.isViaNode = false; delete vn.viaParentId; }
+  const sn   = findNode(searchNodeId);
+  if (disc) disc.searchNodeIds = (disc.searchNodeIds || []).filter(id => id !== searchNodeId);
+  if (sn)  { sn.isSearchNode = false; delete sn.searchParentId; }
   veRender();
   onModelChange();
 }
 
-function disconnectFrom(parentNodeId, fromNodeId) {
+function disconnectList(parentNodeId, listNodeId) {
   const parent = findNode(parentNodeId);
-  const fn     = findNode(fromNodeId);
-  if (parent) parent.fromNodeIds = (parent.fromNodeIds || []).filter(id => id !== fromNodeId);
-  if (fn)  { fn.isFromNode = false; delete fn.fromParentId; }
+  const ln     = findNode(listNodeId);
+  if (parent) parent.listNodeIds = (parent.listNodeIds || []).filter(id => id !== listNodeId);
+  if (ln)  { ln.isListNode = false; delete ln.listParentId; }
   veRender();
   onModelChange();
 }
@@ -169,11 +169,11 @@ function renderPalette(filter) {
     html.push(`<div class="ve-role-header" data-role="${role}" onclick="toggleRoleGroup(this)">${ROLE_LABEL[role]}</div>`);
     html.push(`<div class="ve-role-chips" id="ve-role-${role}">`);
     for (const p of group) {
-      const searchBadge = p.is_search_plugin ? ' <span class="ve-chip-via-badge">via</span>'
-                        : p.is_from_plugin  ? ' <span class="ve-chip-from-badge">from</span>' : '';
-      const extraCls = p.is_search_plugin ? ' ve-chip-search' : p.is_from_plugin ? ' ve-chip-from' : '';
-      const extraTip = p.is_search_plugin ? '\n(drag onto a discover node\'s via port to use as a search backend)'
-                     : p.is_from_plugin   ? '\n(drag onto a series/movies node\'s from port as a list source)' : '';
+      const searchBadge = p.is_search_plugin ? ' <span class="ve-chip-search-badge">search</span>'
+                        : p.is_list_plugin  ? ' <span class="ve-chip-list-badge">list</span>' : '';
+      const extraCls = p.is_search_plugin ? ' ve-chip-search' : p.is_list_plugin ? ' ve-chip-list' : '';
+      const extraTip = p.is_search_plugin ? '\n(drag onto a discover node\'s search port to use as a search backend)'
+                     : p.is_list_plugin   ? '\n(drag onto a series/movies node\'s list port as a list source)' : '';
       html.push(`<button class="ve-chip${extraCls}" data-role="${role}" draggable="true"
         title="${esc(p.description)}${extraTip}"
         ondragstart="paletteDragStart(event,${esc(JSON.stringify(p.name))})"
@@ -204,7 +204,7 @@ function addNodeFromPalette(pluginName) {
   if (!g) return; // palette is disabled when no pipelines exist
   const id   = genId(pluginName);
   const {x, y} = newNodePos(g);
-  g.nodes.push({id, plugin: pluginName, config: {}, upstreams: [], x, y, comment: '', viaNodeIds: [], fromNodeIds: []});
+  g.nodes.push({id, plugin: pluginName, config: {}, upstreams: [], x, y, comment: '', searchNodeIds: [], listNodeIds: []});
   ve.selectedNodeId = id;
   veRender();
   onModelChange();
@@ -229,20 +229,20 @@ function removeNode(id) {
     const idx = g.nodes.findIndex(n => n.id === id);
     if (idx < 0) continue;
     const [removed] = g.nodes.splice(idx, 1);
-    // Clean up upstreams and via references.
+    // Clean up upstreams and search/list references.
     for (const n of g.nodes) {
-      n.upstreams     = (n.upstreams   || []).filter(u => u !== id);
-      n.viaNodeIds    = (n.viaNodeIds  || []).filter(u => u !== id);
-      n.fromNodeIds   = (n.fromNodeIds || []).filter(u => u !== id);
+      n.upstreams      = (n.upstreams     || []).filter(u => u !== id);
+      n.searchNodeIds  = (n.searchNodeIds || []).filter(u => u !== id);
+      n.listNodeIds    = (n.listNodeIds   || []).filter(u => u !== id);
     }
-    // If this was a via/from node, remove its parent connection.
-    if (removed.viaParentId) {
-      const parent = g.nodes.find(n => n.id === removed.viaParentId);
-      if (parent) parent.viaNodeIds = (parent.viaNodeIds || []).filter(u => u !== id);
+    // If this was a search/list node, remove its parent connection.
+    if (removed.searchParentId) {
+      const parent = g.nodes.find(n => n.id === removed.searchParentId);
+      if (parent) parent.searchNodeIds = (parent.searchNodeIds || []).filter(u => u !== id);
     }
-    if (removed.fromParentId) {
-      const parent = g.nodes.find(n => n.id === removed.fromParentId);
-      if (parent) parent.fromNodeIds = (parent.fromNodeIds || []).filter(u => u !== id);
+    if (removed.listParentId) {
+      const parent = g.nodes.find(n => n.id === removed.listParentId);
+      if (parent) parent.listNodeIds = (parent.listNodeIds || []).filter(u => u !== id);
     }
     break;
   }
@@ -299,21 +299,21 @@ function renderGraphNodes() {
       const sel     = n.id === ve.selectedNodeId;
       const warns   = fieldWarnings(n);
       const preview = configPreview(n.config);
-      const isVia   = !!n.isViaNode;
-      const isFrom  = !!n.isFromNode;
+      const isSearch = !!n.isSearchNode;
+      const isList   = !!n.isListNode;
       // Sub-connected nodes show a badge in place of the role badge.
-      const badgeHtml = isVia  ? '<span class="ve-node-via-badge">via</span>'
-                      : isFrom ? '<span class="ve-node-from-badge">from</span>'
+      const badgeHtml = isSearch ? '<span class="ve-node-search-badge">search</span>'
+                      : isList   ? '<span class="ve-node-list-badge">list</span>'
                       : `<span class="ve-node-role-badge ve-role-${role}">${role}</span>`;
 
       const div = document.createElement('div');
-      div.className = `ve-node${sel ? ' selected' : ''}${isVia ? ' ve-node-via' : ''}${isFrom ? ' ve-node-from' : ''}`;
-      div.dataset.role     = role;
-      div.dataset.id       = n.id;
-      div.dataset.isSearch = meta.is_search_plugin  ? 'true' : 'false';
-      div.dataset.isFrom   = meta.is_from_plugin    ? 'true' : 'false';
-      div.dataset.isVia    = isVia  ? 'true' : 'false';
-      div.dataset.isFNode  = isFrom ? 'true' : 'false';
+      div.className = `ve-node${sel ? ' selected' : ''}${isSearch ? ' ve-node-search' : ''}${isList ? ' ve-node-list' : ''}`;
+      div.dataset.role       = role;
+      div.dataset.id         = n.id;
+      div.dataset.isSearch   = meta.is_search_plugin ? 'true' : 'false';
+      div.dataset.isList     = meta.is_list_plugin   ? 'true' : 'false';
+      div.dataset.isSearchNd = isSearch ? 'true' : 'false';
+      div.dataset.isListNd   = isList   ? 'true' : 'false';
       div.style.left = (n.x ?? 60) + 'px';
       div.style.top  = (n.y ?? 60) + 'px';
       const commentPreview = n.comment?.trim()
@@ -332,9 +332,9 @@ function renderGraphNodes() {
         `<button class="ve-node-comment-btn${commentBtnCls}" tabindex="-1" title="Edit comment">#</button>`,
         // Output port: not shown on sub-nodes. Sinks show a chain port so they
         // can connect to downstream sinks (sink chaining).
-        (!isVia && !isFrom) ? `<div class="ve-node-out-port${role === 'sink' ? ' ve-node-chain-port' : ''}" title="${role === 'sink' ? 'Drag to chain to another output node' : 'Drag to connect'}"></div>` : '',
+        (!isSearch && !isList) ? `<div class="ve-node-out-port${role === 'sink' ? ' ve-node-chain-port' : ''}" title="${role === 'sink' ? 'Drag to chain to another output node' : 'Drag to connect'}"></div>` : '',
         // Input port indicator: shown on valid drop-targets while dragging an output port.
-        (role !== 'source' && !isVia && !isFrom) ? '<div class="ve-node-in-port"></div>' : '',
+        (role !== 'source' && !isSearch && !isList) ? '<div class="ve-node-in-port"></div>' : '',
       ].join('');
 
       div.querySelector('.ve-node-remove').addEventListener('click', e => {
@@ -354,8 +354,8 @@ function renderGraphNodes() {
 
       div.addEventListener('pointerdown', e => {
         if (e.button !== 0) return; // left button only; let middle button pan
-        if (e.target.closest('.ve-node-remove') || e.target.closest('.ve-node-out-port')   ||
-            e.target.closest('.ve-node-via-port') || e.target.closest('.ve-node-from-port') ||
+        if (e.target.closest('.ve-node-remove') || e.target.closest('.ve-node-out-port')      ||
+            e.target.closest('.ve-node-search-port') || e.target.closest('.ve-node-list-port') ||
             e.target.closest('.ve-node-comment-btn')) return;
         e.preventDefault();
         e.stopPropagation();
@@ -365,11 +365,11 @@ function renderGraphNodes() {
 
       // Receive regular upstream= drop (not allowed on source / sub-nodes).
       div.addEventListener('pointerup', () => {
-        if (ve_connecting && ve_connecting.srcId !== n.id && role !== 'source' && !isVia && !isFrom) finishConnect(n.id);
-        // Receive via-port drop.
-        if (ve_viaConnecting && ve_viaConnecting.discoverNodeId !== n.id && meta.is_search_plugin && !isVia && !isFrom) finishViaConnect(n.id);
-        // Receive from-port drop.
-        if (ve_fromConnecting && ve_fromConnecting.parentNodeId !== n.id && meta.is_from_plugin && !isVia && !isFrom) finishFromConnect(n.id);
+        if (ve_connecting && ve_connecting.srcId !== n.id && role !== 'source' && !isSearch && !isList) finishConnect(n.id);
+        // Receive search-port drop.
+        if (ve_searchConnecting && ve_searchConnecting.discoverNodeId !== n.id && meta.is_search_plugin && !isSearch && !isList) finishSearchConnect(n.id);
+        // Receive list-port drop.
+        if (ve_listConnecting && ve_listConnecting.parentNodeId !== n.id && meta.is_list_plugin && !isSearch && !isList) finishListConnect(n.id);
       });
 
       const outPort = div.querySelector('.ve-node-out-port');
@@ -381,32 +381,32 @@ function renderGraphNodes() {
         });
       }
 
-      // Via-port (bottom circle): drag FROM here to a search-plugin node.
-      if (meta.accepts_via) {
-        const viaPort = document.createElement('div');
-        viaPort.className = 've-node-via-port';
-        viaPort.title = 'Drag to a search-plugin node to add it as a via backend';
-        viaPort.textContent = 'via';
-        viaPort.addEventListener('pointerdown', e => {
+      // Search-port (bottom circle): drag FROM here to a search-plugin node.
+      if (meta.accepts_search) {
+        const searchPort = document.createElement('div');
+        searchPort.className = 've-node-search-port';
+        searchPort.title = 'Drag to a search-plugin node to add it as a search backend';
+        searchPort.textContent = 'search';
+        searchPort.addEventListener('pointerdown', e => {
           e.stopPropagation(); e.preventDefault();
-          startViaConnect(e, n.id);
+          startSearchConnect(e, n.id);
         });
-        div.appendChild(viaPort);
+        div.appendChild(searchPort);
       }
 
-      if (meta.accepts_from) {
-        const fromPort = document.createElement('div');
-        fromPort.className = 've-node-from-port';
-        fromPort.title = 'Drag from here to a list-source node — or drop a list-source node\'s output arrow here';
-        fromPort.textContent = 'from';
+      if (meta.accepts_list) {
+        const listPort = document.createElement('div');
+        listPort.className = 've-node-list-port';
+        listPort.title = 'Drag from here to a list-source node — or drop a list-source node\'s output arrow here';
+        listPort.textContent = 'list';
 
-        // Initiate a from-connect drag (series → list-source).
-        fromPort.addEventListener('pointerdown', e => {
+        // Initiate a list-connect drag (series → list-source).
+        listPort.addEventListener('pointerdown', e => {
           e.stopPropagation(); e.preventDefault();
-          startFromConnect(e, n.id);
+          startListConnect(e, n.id);
         });
 
-        div.appendChild(fromPort);
+        div.appendChild(listPort);
       }
 
       canvas.appendChild(div);
@@ -533,7 +533,7 @@ function renderPipelineRegions() {
     // can both grow AND shrink as nodes are moved around.
     let regionH = 80;
     for (const n of g.nodes) {
-      const nodeBot = (n.y ?? 0) + NODE_H + (n.viaNodeIds?.length ? 100 : 24);
+      const nodeBot = (n.y ?? 0) + NODE_H + (n.searchNodeIds?.length ? 100 : 24);
       regionH = Math.max(regionH, nodeBot - (g._regionY ?? 0) + 24);
     }
     g._regionH = regionH;
@@ -661,76 +661,76 @@ function renderEdges() {
     }
   }
 
-  // Via-edges: dashed lines from discover's via-port (bottom centre) to each via-connected node.
+  // Search-edges: dashed lines from discover's search-port (bottom centre) to each search-connected node.
   for (const g of ve.graphs) {
     for (const n of g.nodes) {
-      for (const viaId of (n.viaNodeIds || [])) {
-        const vn = g.nodes.find(x => x.id === viaId);
-        if (!vn) continue;
+      for (const searchId of (n.searchNodeIds || [])) {
+        const sn = g.nodes.find(x => x.id === searchId);
+        if (!sn) continue;
         const x1 = (n.x ?? 0) + NODE_W / 2;
-        const y1 = nodeBottomY(n.id, n.y);       // bottom of discover (via-port)
-        const x2 = (vn.x ?? 0) + NODE_W / 2;
-        const y2 = (vn.y ?? 0);                  // TOP border of via node (not mid)
-        const sel = ve.selectedNodeId === n.id || ve.selectedNodeId === viaId;
-        const mId = sel ? '#arrow-via-sel' : '#arrow-via';
+        const y1 = nodeBottomY(n.id, n.y);         // bottom of discover (search-port)
+        const x2 = (sn.x ?? 0) + NODE_W / 2;
+        const y2 = (sn.y ?? 0);                    // TOP border of search node (not mid)
+        const sel = ve.selectedNodeId === n.id || ve.selectedNodeId === searchId;
+        const mId = sel ? '#arrow-search-sel' : '#arrow-search';
         const d   = `M${x1},${y1} C${x1},${y1+40} ${x2},${y2-40} ${x2},${y2}`;
-        vis += `<path d="${d}" class="ve-via-edge${sel ? ' selected' : ''}"` +
-               ` marker-end="url(${mId})" data-src="${n.id}" data-dst="${viaId}" data-via="true"/>`;
+        vis += `<path d="${d}" class="ve-search-edge${sel ? ' selected' : ''}"` +
+               ` marker-end="url(${mId})" data-src="${n.id}" data-dst="${searchId}" data-search="true"/>`;
         hit += `<path d="${d}" class="ve-edge-hit"` +
-               ` data-src="${n.id}" data-dst="${viaId}" data-via="true"><title>Click to disconnect</title></path>`;
+               ` data-src="${n.id}" data-dst="${searchId}" data-search="true"><title>Click to disconnect</title></path>`;
       }
     }
   }
 
-  // Live cursor line while dragging from a via-port.
-  if (ve_viaConnecting) {
-    const disc = findNode(ve_viaConnecting.discoverNodeId);
+  // Live cursor line while dragging from a search-port.
+  if (ve_searchConnecting) {
+    const disc = findNode(ve_searchConnecting.discoverNodeId);
     if (disc) {
       const x1 = (disc.x ?? 0) + NODE_W / 2;
       const y1 = nodeBottomY(disc.id, disc.y);
-      const x2 = ve_viaConnecting.curX, y2 = ve_viaConnecting.curY;
-      vis += `<path d="M${x1},${y1} C${x1},${y1+40} ${x2},${y2-40} ${x2},${y2}" class="ve-via-edge connecting"/>`;
+      const x2 = ve_searchConnecting.curX, y2 = ve_searchConnecting.curY;
+      vis += `<path d="M${x1},${y1} C${x1},${y1+40} ${x2},${y2-40} ${x2},${y2}" class="ve-search-edge connecting"/>`;
     }
   }
 
-  // From-edges: teal dashed lines flowing downward FROM the from-node's bottom
-  // TO the series/movies node's top (from-port).  from-nodes sit above the parent.
+  // List-edges: teal dashed lines flowing downward FROM the list-node's bottom
+  // TO the series/movies node's top (list-port).  list-nodes sit above the parent.
   for (const g of ve.graphs) {
     for (const n of g.nodes) {
-      for (const fnId of (n.fromNodeIds || [])) {
-        const fn = g.nodes.find(x => x.id === fnId);
-        if (!fn) continue;
-        // From-node is above; its bottom connects to the parent's top (from-port).
-        // The curve always approaches the from-port from directly above so the
+      for (const lnId of (n.listNodeIds || [])) {
+        const ln = g.nodes.find(x => x.id === lnId);
+        if (!ln) continue;
+        // List-node is above; its bottom connects to the parent's top (list-port).
+        // The curve always approaches the list-port from directly above so the
         // arrowhead visually lands on the teal port, not the left-side input.
-        const x1 = (fn.x ?? 0) + NODE_W / 2;
-        const y1 = nodeBottomY(fnId, fn.y);
+        const x1 = (ln.x ?? 0) + NODE_W / 2;
+        const y1 = nodeBottomY(lnId, ln.y);
         const x2 = (n.x  ?? 0) + NODE_W / 2;
-        const y2 = (n.y  ?? 0);                // top of parent = from-port
+        const y2 = (n.y  ?? 0);                // top of parent = list-port
         const dy  = Math.max(50, Math.abs(y2 - y1) * 0.5);
-        // cp2 uses x2 so the final approach is straight down into the from port.
-        const sel  = ve.selectedNodeId === n.id || ve.selectedNodeId === fnId;
-        const mEnd = sel ? '#arrow-from-sel' : '#arrow-from';
+        // cp2 uses x2 so the final approach is straight down into the list port.
+        const sel  = ve.selectedNodeId === n.id || ve.selectedNodeId === lnId;
+        const mEnd = sel ? '#arrow-list-sel' : '#arrow-list';
         vis += `<path d="M${x1},${y1} C${x1},${y1+dy} ${x2},${y2-dy} ${x2},${y2}"` +
-               ` class="ve-from-edge${sel ? ' selected' : ''}" marker-end="url(${mEnd})"` +
-               ` data-src="${n.id}" data-dst="${fnId}" data-from="true"/>`;
+               ` class="ve-list-edge${sel ? ' selected' : ''}" marker-end="url(${mEnd})"` +
+               ` data-src="${n.id}" data-dst="${lnId}" data-list="true"/>`;
         hit += `<path d="M${x1},${y1} C${x1},${y1+dy} ${x2},${y2-dy} ${x2},${y2}"` +
-               ` class="ve-edge-hit" data-src="${n.id}" data-dst="${fnId}" data-from="true"><title>Click to disconnect</title></path>`;
+               ` class="ve-edge-hit" data-src="${n.id}" data-dst="${lnId}" data-list="true"><title>Click to disconnect</title></path>`;
       }
     }
   }
 
-  // Live cursor line while dragging from a from-port.
-  // Drawn FROM the from-port (top of parent) UPWARD TO the cursor — same
-  // convention as startConnect/startViaConnect so the fixed anchor is obvious.
-  if (ve_fromConnecting) {
-    const par = findNode(ve_fromConnecting.parentNodeId);
+  // Live cursor line while dragging from a list-port.
+  // Drawn FROM the list-port (top of parent) UPWARD TO the cursor — same
+  // convention as startConnect/startSearchConnect so the fixed anchor is obvious.
+  if (ve_listConnecting) {
+    const par = findNode(ve_listConnecting.parentNodeId);
     if (par) {
       const x1 = (par.x ?? 0) + NODE_W / 2;
-      const y1 = (par.y ?? 0);  // top of parent = from-port
-      const x2 = ve_fromConnecting.curX, y2 = ve_fromConnecting.curY;
+      const y1 = (par.y ?? 0);  // top of parent = list-port
+      const x2 = ve_listConnecting.curX, y2 = ve_listConnecting.curY;
       const dy  = Math.max(40, Math.abs(y1 - y2) * 0.4);
-      vis += `<path d="M${x1},${y1} C${x1},${y1-dy} ${x2},${y2+dy} ${x2},${y2}" class="ve-from-edge connecting"/>`;
+      vis += `<path d="M${x1},${y1} C${x1},${y1-dy} ${x2},${y2+dy} ${x2},${y2}" class="ve-list-edge connecting"/>`;
     }
   }
 
@@ -748,16 +748,16 @@ function renderEdges() {
       `<marker id="arrow-chain-sel" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">` +
         `<path d="M0,1 L0,7 L7,4 z" fill="#f0d070"/>` +
       `</marker>` +
-      `<marker id="arrow-from" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">` +
+      `<marker id="arrow-list" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">` +
         `<path d="M0,1 L0,7 L7,4 z" fill="#0d9373"/>` +
       `</marker>` +
-      `<marker id="arrow-from-sel" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">` +
+      `<marker id="arrow-list-sel" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">` +
         `<path d="M0,1 L0,7 L7,4 z" fill="#2dd4b8"/>` +
       `</marker>` +
-      `<marker id="arrow-via" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">` +
+      `<marker id="arrow-search" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">` +
         `<path d="M0,1 L0,7 L7,4 z" fill="#9a6ad8"/>` +
       `</marker>` +
-      `<marker id="arrow-via-sel" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">` +
+      `<marker id="arrow-search-sel" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">` +
         `<path d="M0,1 L0,7 L7,4 z" fill="#d2a8ff"/>` +
       `</marker>` +
     `</defs>${vis}${hit}`;
@@ -813,9 +813,9 @@ function layoutGraph(g, globalY) {
 
   g._labelY = globalY;
   const startY = globalY + 36; // space for pipeline label
-  const isSub = n => n.isViaNode || n.isFromNode;
+  const isSub = n => n.isSearchNode || n.isListNode;
 
-  // ── 1. Topological depth (via/from sub-nodes are laid out separately) ───
+  // ── 1. Topological depth (search/list sub-nodes are laid out separately) ───
   const depth = {};
   for (const n of g.nodes) if (!isSub(n) && !n.upstreams.length) depth[n.id] = 0;
   let changed = true;
@@ -878,33 +878,33 @@ function layoutGraph(g, globalY) {
     if (!isSub(n)) maxY = Math.max(maxY, (n.y ?? 0) + ROW_H);
   }
 
-  // Position via-connected nodes in a row below their parent.
+  // Position search-connected nodes in a row below their parent.
   for (const n of g.nodes) {
-    if (!n.viaNodeIds?.length) continue;
-    const VIA_GAP = 18;
-    const totalW  = n.viaNodeIds.length * NODE_W + (n.viaNodeIds.length - 1) * VIA_GAP;
-    const startVX = (n.x ?? 0) + NODE_W / 2 - totalW / 2;
-    n.viaNodeIds.forEach((id, i) => {
-      const vn = g.nodes.find(x => x.id === id);
-      if (vn) {
-        vn.x = Math.max(0, startVX + i * (NODE_W + VIA_GAP));
-        vn.y = (n.y ?? 0) + NODE_H + 70;
-        maxY = Math.max(maxY, vn.y + NODE_H + 20);
+    if (!n.searchNodeIds?.length) continue;
+    const SEARCH_GAP = 18;
+    const totalW  = n.searchNodeIds.length * NODE_W + (n.searchNodeIds.length - 1) * SEARCH_GAP;
+    const startSX = (n.x ?? 0) + NODE_W / 2 - totalW / 2;
+    n.searchNodeIds.forEach((id, i) => {
+      const sn = g.nodes.find(x => x.id === id);
+      if (sn) {
+        sn.x = Math.max(0, startSX + i * (NODE_W + SEARCH_GAP));
+        sn.y = (n.y ?? 0) + NODE_H + 70;
+        maxY = Math.max(maxY, sn.y + NODE_H + 20);
       }
     });
   }
 
-  // Position from-connected nodes in a row above their parent.
+  // Position list-connected nodes in a row above their parent.
   for (const n of g.nodes) {
-    if (!n.fromNodeIds?.length) continue;
-    const FROM_GAP = 18;
-    const totalW   = n.fromNodeIds.length * NODE_W + (n.fromNodeIds.length - 1) * FROM_GAP;
-    const startFX  = (n.x ?? 0) + NODE_W / 2 - totalW / 2;
-    n.fromNodeIds.forEach((id, i) => {
-      const fn = g.nodes.find(x => x.id === id);
-      if (fn) {
-        fn.x = Math.max(0, startFX + i * (NODE_W + FROM_GAP));
-        fn.y = Math.max(startY + 4, (n.y ?? 0) - NODE_H - 65);
+    if (!n.listNodeIds?.length) continue;
+    const LIST_GAP = 18;
+    const totalW   = n.listNodeIds.length * NODE_W + (n.listNodeIds.length - 1) * LIST_GAP;
+    const startLX  = (n.x ?? 0) + NODE_W / 2 - totalW / 2;
+    n.listNodeIds.forEach((id, i) => {
+      const ln = g.nodes.find(x => x.id === id);
+      if (ln) {
+        ln.x = Math.max(0, startLX + i * (NODE_W + LIST_GAP));
+        ln.y = Math.max(startY + 4, (n.y ?? 0) - NODE_H - 65);
       }
     });
   }
@@ -928,7 +928,7 @@ function initLayout() {
   let globalY = 40;
 
   for (const g of ve.graphs) {
-    const mainNodes = g.nodes.filter(n => !n.isViaNode && !n.isFromNode);
+    const mainNodes = g.nodes.filter(n => !n.isSearchNode && !n.isListNode);
     const withPos   = mainNodes.filter(n => n.x != null && n.y != null);
 
     if (!withPos.length) {
@@ -958,7 +958,7 @@ function initLayout() {
       maxAbsY = Math.max(maxAbsY, n.y);
     });
 
-    // Re-derive via/from sub-node positions from their parent.
+    // Re-derive search/list sub-node positions from their parent.
     placeSubNodes(g, g._regionY + 36);
 
     g._regionH = maxAbsY - g._regionY + NODE_H + 60;
@@ -966,32 +966,32 @@ function initLayout() {
   }
 }
 
-// placeSubNodes positions via/from sub-nodes relative to their parent.
+// placeSubNodes positions search/list sub-nodes relative to their parent.
 // Mirrors the sub-node placement in layoutGraph; called after main node
 // positions are finalised so parents have absolute coordinates.
 function placeSubNodes(g, startY) {
   for (const n of g.nodes) {
-    if (n.viaNodeIds?.length) {
-      const VIA_GAP = 18;
-      const totalW  = n.viaNodeIds.length * NODE_W + (n.viaNodeIds.length - 1) * VIA_GAP;
-      const startVX = (n.x ?? 0) + NODE_W / 2 - totalW / 2;
-      n.viaNodeIds.forEach((id, i) => {
-        const vn = g.nodes.find(x => x.id === id);
-        if (vn) {
-          vn.x = Math.max(0, startVX + i * (NODE_W + VIA_GAP));
-          vn.y = (n.y ?? 0) + NODE_H + 70;
+    if (n.searchNodeIds?.length) {
+      const SEARCH_GAP = 18;
+      const totalW  = n.searchNodeIds.length * NODE_W + (n.searchNodeIds.length - 1) * SEARCH_GAP;
+      const startSX = (n.x ?? 0) + NODE_W / 2 - totalW / 2;
+      n.searchNodeIds.forEach((id, i) => {
+        const sn = g.nodes.find(x => x.id === id);
+        if (sn) {
+          sn.x = Math.max(0, startSX + i * (NODE_W + SEARCH_GAP));
+          sn.y = (n.y ?? 0) + NODE_H + 70;
         }
       });
     }
-    if (n.fromNodeIds?.length) {
-      const FROM_GAP = 18;
-      const totalW   = n.fromNodeIds.length * NODE_W + (n.fromNodeIds.length - 1) * FROM_GAP;
-      const startFX  = (n.x ?? 0) + NODE_W / 2 - totalW / 2;
-      n.fromNodeIds.forEach((id, i) => {
-        const fn = g.nodes.find(x => x.id === id);
-        if (fn) {
-          fn.x = Math.max(0, startFX + i * (NODE_W + FROM_GAP));
-          fn.y = Math.max(startY + 4, (n.y ?? 0) - NODE_H - 65);
+    if (n.listNodeIds?.length) {
+      const LIST_GAP = 18;
+      const totalW   = n.listNodeIds.length * NODE_W + (n.listNodeIds.length - 1) * LIST_GAP;
+      const startLX  = (n.x ?? 0) + NODE_W / 2 - totalW / 2;
+      n.listNodeIds.forEach((id, i) => {
+        const ln = g.nodes.find(x => x.id === id);
+        if (ln) {
+          ln.x = Math.max(0, startLX + i * (NODE_W + LIST_GAP));
+          ln.y = Math.max(startY + 4, (n.y ?? 0) - NODE_H - 65);
         }
       });
     }
@@ -1133,10 +1133,10 @@ function initCanvasEvents() {
       if (!hit) return;
       e.stopPropagation(); // prevent canvas handler from deselecting / rebuilding SVG
       e.preventDefault();
-      if (hit.dataset.via === 'true') {
-        disconnectVia(hit.dataset.src, hit.dataset.dst);
-      } else if (hit.dataset.from === 'true') {
-        disconnectFrom(hit.dataset.src, hit.dataset.dst);
+      if (hit.dataset.search === 'true') {
+        disconnectSearch(hit.dataset.src, hit.dataset.dst);
+      } else if (hit.dataset.list === 'true') {
+        disconnectList(hit.dataset.src, hit.dataset.dst);
       } else {
         // Regular edge: remove the upstream.
         const tgt = findNode(hit.dataset.dst);
@@ -1222,7 +1222,7 @@ function initCanvasEvents() {
     const labelBottom = (g._labelY ?? (g._regionY ?? 0) + 8) + 30;
     y = Math.max(y, labelBottom + 4);
     const id = genId(ve.dragSrc.plugin);
-    g.nodes.push({id, plugin: ve.dragSrc.plugin, config: {}, upstreams: [], x, y, comment: '', viaNodeIds: [], fromNodeIds: []});
+    g.nodes.push({id, plugin: ve.dragSrc.plugin, config: {}, upstreams: [], x, y, comment: '', searchNodeIds: [], listNodeIds: []});
     ve.selectedNodeId = id;
     ve.activeGraph    = gi;
     // Expand the region (downward only) so the new node is fully visible.
@@ -1254,7 +1254,7 @@ function startNodeDrag(e, n) {
       const prevH = g._regionH ?? 80;
       let regionH = 80;
       for (const nd of g.nodes) {
-        const nodeBot = (nd.y ?? 0) + NODE_H + (nd.viaNodeIds?.length ? 100 : 24);
+        const nodeBot = (nd.y ?? 0) + NODE_H + (nd.searchNodeIds?.length ? 100 : 24);
         regionH = Math.max(regionH, nodeBot - (g._regionY ?? 0) + 24);
       }
       g._regionH = regionH;
@@ -1357,10 +1357,10 @@ function finishConnect(targetId) {
   const srcRole = pluginMeta(src?.plugin)?.role;
   const srcGi   = findNodeGraph(ve_connecting?.srcId);
   const tgtGi   = findNodeGraph(targetId);
-  // Sources never accept incoming edges; from-list nodes can't also be regular
+  // Sources never accept incoming edges; list-source nodes can't also be regular
   // upstreams; and adding the edge must not create a cycle in the DAG.
   // Additionally, sink nodes may only connect to other sink nodes (chaining).
-  if (src && tgt && tgtRole !== 'source' && !src.isFromNode &&
+  if (src && tgt && tgtRole !== 'source' && !src.isListNode &&
       srcGi === tgtGi && !tgt.upstreams.includes(src.id)) {
     // If source is a sink, the target must also be a sink (sink chaining rule).
     if (srcRole === 'sink' && tgtRole !== 'sink') {
@@ -1378,115 +1378,115 @@ function finishConnect(targetId) {
   veRender();
 }
 
-// ── via-port connect interaction ──────────────────────────────────────────────
-// Drag from a discover node's via-port to a search-plugin node on the canvas.
+// ── search-port connect interaction ───────────────────────────────────────────
+// Drag from a discover node's search-port to a search-plugin node on the canvas.
 
-function startViaConnect(e, discoverNodeId) {
+function startSearchConnect(e, discoverNodeId) {
   const canvas = document.getElementById('ve-graph-canvas');
   const rect   = canvas?.getBoundingClientRect() ?? {left: 0, top: 0};
-  ve_viaConnecting = {
+  ve_searchConnecting = {
     discoverNodeId,
     curX: (e.clientX - rect.left) / ve_zoom,
     curY: (e.clientY - rect.top)  / ve_zoom,
   };
-  canvas?.classList.add('is-viaconnecting');
+  canvas?.classList.add('is-searchconnecting');
 
   function onMove(ev) {
     const r = canvas?.getBoundingClientRect() ?? {left: 0, top: 0};
-    ve_viaConnecting.curX = (ev.clientX - r.left) / ve_zoom;
-    ve_viaConnecting.curY = (ev.clientY - r.top)  / ve_zoom;
+    ve_searchConnecting.curX = (ev.clientX - r.left) / ve_zoom;
+    ve_searchConnecting.curY = (ev.clientY - r.top)  / ve_zoom;
     renderEdges();
   }
   function cleanup() {
     document.removeEventListener('pointermove', onMove);
-    canvas?.classList.remove('is-viaconnecting');
+    canvas?.classList.remove('is-searchconnecting');
   }
   function onUp(ev) {
     cleanup();
-    if (!ve_viaConnecting) return;
+    if (!ve_searchConnecting) return;
     const el  = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('.ve-node[data-id]');
     const tid = el?.dataset?.id;
-    if (tid && tid !== discoverNodeId && el.dataset.isSearch === 'true' && el.dataset.isVia !== 'true') {
-      finishViaConnect(tid);
-    } else { ve_viaConnecting = null; renderEdges(); }
+    if (tid && tid !== discoverNodeId && el.dataset.isSearch === 'true' && el.dataset.isSearchNd !== 'true') {
+      finishSearchConnect(tid);
+    } else { ve_searchConnecting = null; renderEdges(); }
   }
-  function onCancel() { cleanup(); ve_viaConnecting = null; renderEdges(); }
+  function onCancel() { cleanup(); ve_searchConnecting = null; renderEdges(); }
 
   document.addEventListener('pointermove', onMove);
   document.addEventListener('pointerup',     onUp,    {once: true});
   document.addEventListener('pointercancel', onCancel, {once: true});
 }
 
-function finishViaConnect(targetNodeId) {
-  const disc   = findNode(ve_viaConnecting?.discoverNodeId);
+function finishSearchConnect(targetNodeId) {
+  const disc   = findNode(ve_searchConnecting?.discoverNodeId);
   const target = findNode(targetNodeId);
-  if (disc && target && pluginMeta(target.plugin)?.is_search_plugin && !target.isViaNode) {
-    if (!disc.viaNodeIds) disc.viaNodeIds = [];
-    if (!disc.viaNodeIds.includes(targetNodeId)) {
-      disc.viaNodeIds.push(targetNodeId);
-      target.isViaNode    = true;
-      target.viaParentId  = disc.id;
+  if (disc && target && pluginMeta(target.plugin)?.is_search_plugin && !target.isSearchNode) {
+    if (!disc.searchNodeIds) disc.searchNodeIds = [];
+    if (!disc.searchNodeIds.includes(targetNodeId)) {
+      disc.searchNodeIds.push(targetNodeId);
+      target.isSearchNode   = true;
+      target.searchParentId = disc.id;
       onModelChange();
     }
   }
-  ve_viaConnecting = null;
+  ve_searchConnecting = null;
   veRender();
 }
 
-// ── from-port connect interaction ─────────────────────────────────────────────
-// Drag from a series/movies node's "from" port to a list-source plugin node.
+// ── list-port connect interaction ─────────────────────────────────────────────
+// Drag from a series/movies node's "list" port to a list-source plugin node.
 
-function startFromConnect(e, parentNodeId) {
+function startListConnect(e, parentNodeId) {
   const canvas = document.getElementById('ve-graph-canvas');
   const rect   = canvas?.getBoundingClientRect() ?? {left: 0, top: 0};
-  ve_fromConnecting = {
+  ve_listConnecting = {
     parentNodeId,
     curX: (e.clientX - rect.left) / ve_zoom,
     curY: (e.clientY - rect.top)  / ve_zoom,
   };
-  canvas?.classList.add('is-fromconnecting');
+  canvas?.classList.add('is-listconnecting');
 
   function onMove(ev) {
     const r = canvas?.getBoundingClientRect() ?? {left: 0, top: 0};
-    ve_fromConnecting.curX = (ev.clientX - r.left) / ve_zoom;
-    ve_fromConnecting.curY = (ev.clientY - r.top)  / ve_zoom;
+    ve_listConnecting.curX = (ev.clientX - r.left) / ve_zoom;
+    ve_listConnecting.curY = (ev.clientY - r.top)  / ve_zoom;
     renderEdges();
   }
   function cleanup() {
     document.removeEventListener('pointermove', onMove);
-    canvas?.classList.remove('is-fromconnecting');
+    canvas?.classList.remove('is-listconnecting');
   }
   function onUp(ev) {
     cleanup();
-    if (!ve_fromConnecting) return;
+    if (!ve_listConnecting) return;
     const el  = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('.ve-node[data-id]');
     const tid = el?.dataset?.id;
-    if (tid && tid !== parentNodeId && el.dataset.isFrom === 'true' && el.dataset.isFNode !== 'true') finishFromConnect(tid);
-    else { ve_fromConnecting = null; renderEdges(); }
+    if (tid && tid !== parentNodeId && el.dataset.isList === 'true' && el.dataset.isListNd !== 'true') finishListConnect(tid);
+    else { ve_listConnecting = null; renderEdges(); }
   }
-  function onCancel() { cleanup(); ve_fromConnecting = null; renderEdges(); }
+  function onCancel() { cleanup(); ve_listConnecting = null; renderEdges(); }
 
   document.addEventListener('pointermove', onMove);
   document.addEventListener('pointerup',     onUp,    {once: true});
   document.addEventListener('pointercancel', onCancel, {once: true});
 }
 
-function finishFromConnect(targetNodeId) {
-  const parent = findNode(ve_fromConnecting?.parentNodeId);
+function finishListConnect(targetNodeId) {
+  const parent = findNode(ve_listConnecting?.parentNodeId);
   const target = findNode(targetNodeId);
   // Also block if the target is already a regular upstream of the parent
   // (one connection type per node).
-  if (parent && target && pluginMeta(target.plugin)?.is_from_plugin &&
-      !target.isFromNode && !(parent.upstreams || []).includes(targetNodeId)) {
-    if (!parent.fromNodeIds) parent.fromNodeIds = [];
-    if (!parent.fromNodeIds.includes(targetNodeId)) {
-      parent.fromNodeIds.push(targetNodeId);
-      target.isFromNode   = true;
-      target.fromParentId = parent.id;
+  if (parent && target && pluginMeta(target.plugin)?.is_list_plugin &&
+      !target.isListNode && !(parent.upstreams || []).includes(targetNodeId)) {
+    if (!parent.listNodeIds) parent.listNodeIds = [];
+    if (!parent.listNodeIds.includes(targetNodeId)) {
+      parent.listNodeIds.push(targetNodeId);
+      target.isListNode   = true;
+      target.listParentId = parent.id;
       onModelChange();
     }
   }
-  ve_fromConnecting = null;
+  ve_listConnecting = null;
   veRender();
 }
 
@@ -1576,19 +1576,19 @@ function renderParamPanel() {
   const meta = pluginMeta(node.plugin) || {role: 'processor', schema: [], produces: [], requires: []};
   empty.style.display = 'none'; title.style.display = '';
   nameEl.textContent = node.plugin;
-  roleEl.textContent = node.isViaNode ? 'via / search' : node.isFromNode ? 'from / list' : meta.role;
+  roleEl.textContent = node.isSearchNode ? 'search' : node.isListNode ? 'list' : meta.role;
 
-  if (node.isViaNode && node.viaParentId) {
-    const parentName = findNode(node.viaParentId)?.plugin ?? node.viaParentId;
+  if (node.isSearchNode && node.searchParentId) {
+    const parentName = findNode(node.searchParentId)?.plugin ?? node.searchParentId;
     footer.innerHTML = [
-      `<div style="font-size:11px;color:var(--muted);margin-bottom:6px">Via backend for <b>${esc(parentName)}</b></div>`,
-      `<button class="ve-remove-btn" onclick="disconnectVia(${esc(JSON.stringify(node.viaParentId))},${esc(JSON.stringify(node.id))})">Disconnect from via</button>`,
+      `<div style="font-size:11px;color:var(--muted);margin-bottom:6px">Search backend for <b>${esc(parentName)}</b></div>`,
+      `<button class="ve-remove-btn" onclick="disconnectSearch(${esc(JSON.stringify(node.searchParentId))},${esc(JSON.stringify(node.id))})">Disconnect from search</button>`,
     ].join('');
-  } else if (node.isFromNode && node.fromParentId) {
-    const parentName = findNode(node.fromParentId)?.plugin ?? node.fromParentId;
+  } else if (node.isListNode && node.listParentId) {
+    const parentName = findNode(node.listParentId)?.plugin ?? node.listParentId;
     footer.innerHTML = [
       `<div style="font-size:11px;color:var(--muted);margin-bottom:6px">List source for <b>${esc(parentName)}</b></div>`,
-      `<button class="ve-remove-btn" onclick="disconnectFrom(${esc(JSON.stringify(node.fromParentId))},${esc(JSON.stringify(node.id))})">Disconnect from list</button>`,
+      `<button class="ve-remove-btn" onclick="disconnectList(${esc(JSON.stringify(node.listParentId))},${esc(JSON.stringify(node.id))})">Disconnect from list</button>`,
     ].join('');
   } else {
     footer.innerHTML = `<button class="ve-remove-btn" onclick="ve.selectedNodeId && removeNode(ve.selectedNodeId)">Remove node</button>`;
@@ -1597,9 +1597,9 @@ function renderParamPanel() {
 
   const html = [];
 
-  // Via-connected nodes have no pipeline upstreams (they're search backends, not DAG nodes).
-  if (meta.role !== 'source' && !node.isViaNode) {
-    const others = g.nodes.filter(n => n.id !== node.id && !n.isViaNode && !n.isFromNode);
+  // Search-connected nodes have no pipeline upstreams (they're search backends, not DAG nodes).
+  if (meta.role !== 'source' && !node.isSearchNode) {
+    const others = g.nodes.filter(n => n.id !== node.id && !n.isSearchNode && !n.isListNode);
     html.push(`<div class="ve-field"><div class="ve-field-label">Upstreams (upstream=)</div>`);
     if (!others.length) {
       html.push('<div style="color:var(--muted);font-size:12px;margin-top:4px">Add source nodes first</div>');
@@ -1618,40 +1618,40 @@ function renderParamPanel() {
     html.push('</div>');
   }
 
-  // ── Via section (discover and similar AcceptsVia nodes) ────────────────────
-  if (meta.accepts_via) {
+  // ── Search section (discover and similar AcceptsSearch nodes) ─────────────
+  if (meta.accepts_search) {
     const searchNodes = g.nodes.filter(nd => pluginMeta(nd.plugin)?.is_search_plugin);
-    html.push(`<div class="ve-field"><div class="ve-field-label">Via (search backends)</div>`);
+    html.push(`<div class="ve-field"><div class="ve-field-label">Search (search backends)</div>`);
     if (!searchNodes.length) {
-      html.push(`<div style="color:var(--muted);font-size:12px;margin-top:4px">Add search-plugin nodes (jackett, rss_search…) to the canvas, then drag the <b>via</b> port to connect them</div>`);
+      html.push(`<div style="color:var(--muted);font-size:12px;margin-top:4px">Add search-plugin nodes (jackett, rss_search…) to the canvas, then drag the <b>search</b> port to connect them</div>`);
     } else {
       for (const sn of searchNodes) {
-        const checked = (node.viaNodeIds || []).includes(sn.id);
+        const checked = (node.searchNodeIds || []).includes(sn.id);
         html.push(`<label class="ve-upstream-row">
           <input type="checkbox" ${checked ? 'checked' : ''}
-            onchange="toggleVia(${esc(JSON.stringify(node.id))},${esc(JSON.stringify(sn.id))},this.checked)">
+            onchange="toggleSearch(${esc(JSON.stringify(node.id))},${esc(JSON.stringify(sn.id))},this.checked)">
           <code class="ve-upstream-id">${esc(sn.id)}</code>
-          <span class="ve-node-via-badge" style="font-size:9px">via</span>
+          <span class="ve-node-search-badge" style="font-size:9px">search</span>
         </label>`);
       }
     }
     html.push('</div>');
   }
 
-  // ── From section (series, movies and similar AcceptsFrom nodes) ─────────────
-  if (meta.accepts_from) {
-    const fromNodes = g.nodes.filter(nd => pluginMeta(nd.plugin)?.is_from_plugin);
-    html.push(`<div class="ve-field"><div class="ve-field-label">From (list sources)</div>`);
-    if (!fromNodes.length) {
-      html.push(`<div style="color:var(--muted);font-size:12px;margin-top:4px">Add list-source nodes (tvdb_favorites, trakt_list…) to the canvas, then drag the <b>from</b> port to connect them</div>`);
+  // ── List section (series, movies and similar AcceptsList nodes) ─────────────
+  if (meta.accepts_list) {
+    const listNodes = g.nodes.filter(nd => pluginMeta(nd.plugin)?.is_list_plugin);
+    html.push(`<div class="ve-field"><div class="ve-field-label">List (list sources)</div>`);
+    if (!listNodes.length) {
+      html.push(`<div style="color:var(--muted);font-size:12px;margin-top:4px">Add list-source nodes (tvdb_favorites, trakt_list…) to the canvas, then drag the <b>list</b> port to connect them</div>`);
     } else {
-      for (const fn of fromNodes) {
-        const checked = (node.fromNodeIds || []).includes(fn.id);
+      for (const ln of listNodes) {
+        const checked = (node.listNodeIds || []).includes(ln.id);
         html.push(`<label class="ve-upstream-row">
           <input type="checkbox" ${checked ? 'checked' : ''}
-            onchange="toggleFrom(${esc(JSON.stringify(node.id))},${esc(JSON.stringify(fn.id))},this.checked)">
-          <code class="ve-upstream-id">${esc(fn.id)}</code>
-          <span class="ve-node-from-badge" style="font-size:9px">from</span>
+            onchange="toggleList(${esc(JSON.stringify(node.id))},${esc(JSON.stringify(ln.id))},this.checked)">
+          <code class="ve-upstream-id">${esc(ln.id)}</code>
+          <span class="ve-node-list-badge" style="font-size:9px">list</span>
         </label>`);
       }
     }
@@ -1675,8 +1675,8 @@ function renderParamPanel() {
     html.push(renderCondRulesWidget(node));
   } else if (meta.schema?.length) {
     for (const f of meta.schema) {
-      // Skip 'via' and 'from' fields — managed visually by the sections above.
-      if ((f.key === 'via' && meta.accepts_via) || (f.key === 'from' && meta.accepts_from)) continue;
+      // Skip 'search' and 'list' fields — managed visually by the sections above.
+      if ((f.key === 'search' && meta.accepts_search) || (f.key === 'list' && meta.accepts_list)) continue;
       html.push(renderField(f, node.config));
     }
   } else {
@@ -1715,43 +1715,43 @@ function toggleUpstream(nodeId, upId, checked) {
   onModelChange();
 }
 
-function toggleVia(nodeId, viaId, checked) {
+function toggleSearch(nodeId, searchId, checked) {
   const node   = findNode(nodeId);
-  const target = findNode(viaId);
+  const target = findNode(searchId);
   if (!node || !target) return;
   if (checked) {
-    if (!pluginMeta(target.plugin)?.is_search_plugin || target.isViaNode) { renderParamPanel(); return; }
-    if (!node.viaNodeIds) node.viaNodeIds = [];
-    if (!node.viaNodeIds.includes(viaId)) {
-      node.viaNodeIds.push(viaId);
-      target.isViaNode   = true;
-      target.viaParentId = nodeId;
+    if (!pluginMeta(target.plugin)?.is_search_plugin || target.isSearchNode) { renderParamPanel(); return; }
+    if (!node.searchNodeIds) node.searchNodeIds = [];
+    if (!node.searchNodeIds.includes(searchId)) {
+      node.searchNodeIds.push(searchId);
+      target.isSearchNode   = true;
+      target.searchParentId = nodeId;
     }
   } else {
-    node.viaNodeIds   = (node.viaNodeIds || []).filter(id => id !== viaId);
-    target.isViaNode  = false;
-    delete target.viaParentId;
+    node.searchNodeIds    = (node.searchNodeIds || []).filter(id => id !== searchId);
+    target.isSearchNode   = false;
+    delete target.searchParentId;
   }
   renderEdges(); renderGraphNodes(); onModelChange();
 }
 
-function toggleFrom(nodeId, fromId, checked) {
+function toggleList(nodeId, listId, checked) {
   const node   = findNode(nodeId);
-  const target = findNode(fromId);
+  const target = findNode(listId);
   if (!node || !target) return;
   if (checked) {
-    if (!pluginMeta(target.plugin)?.is_from_plugin || target.isFromNode) { renderParamPanel(); return; }
-    if ((node.upstreams || []).includes(fromId)) { renderParamPanel(); return; } // already regular upstream
-    if (!node.fromNodeIds) node.fromNodeIds = [];
-    if (!node.fromNodeIds.includes(fromId)) {
-      node.fromNodeIds.push(fromId);
-      target.isFromNode   = true;
-      target.fromParentId = nodeId;
+    if (!pluginMeta(target.plugin)?.is_list_plugin || target.isListNode) { renderParamPanel(); return; }
+    if ((node.upstreams || []).includes(listId)) { renderParamPanel(); return; } // already regular upstream
+    if (!node.listNodeIds) node.listNodeIds = [];
+    if (!node.listNodeIds.includes(listId)) {
+      node.listNodeIds.push(listId);
+      target.isListNode   = true;
+      target.listParentId = nodeId;
     }
   } else {
-    node.fromNodeIds    = (node.fromNodeIds || []).filter(id => id !== fromId);
-    target.isFromNode   = false;
-    delete target.fromParentId;
+    node.listNodeIds    = (node.listNodeIds || []).filter(id => id !== listId);
+    target.isListNode   = false;
+    delete target.listParentId;
   }
   renderEdges(); renderGraphNodes(); onModelChange();
 }
@@ -2052,9 +2052,9 @@ function dagToStarlark() {
   for (const g of graphs) {
     const lines = [];
     // Sort so every upstream variable is assigned before it is referenced.
-    const ordered = topoSortNodes(g.nodes.filter(n => !n.isViaNode && !n.isFromNode));
+    const ordered = topoSortNodes(g.nodes.filter(n => !n.isSearchNode && !n.isListNode));
     for (const n of ordered) {
-      // (via nodes already excluded from ordered)
+      // (search nodes already excluded from ordered)
 
       const role    = pluginMeta(n.plugin)?.role || 'processor';
       const cfgKw   = configToKwargs(n.config);
@@ -2062,7 +2062,7 @@ function dagToStarlark() {
 
       // Emit user comment then pipeliner:pos before the definition.
       // A blank line separates this node's header block from the previous line.
-      const hasPos     = !n.isViaNode && !n.isFromNode && n.x != null && n.y != null;
+      const hasPos     = !n.isSearchNode && !n.isListNode && n.x != null && n.y != null;
       const hasComment = !!n.comment?.trim();
       if (hasPos || hasComment) {
         if (lines.length > 0) lines.push('');
@@ -2080,14 +2080,13 @@ function dagToStarlark() {
       } else if (role === 'processor') {
         const parts = [starLit(n.plugin)];
         if (fromStr) parts.push(`upstream=${fromStr}`);
-        if (n.viaNodeIds?.length) {
-          const viaItems = n.viaNodeIds.map(id => g.nodes.find(x => x.id === id)).filter(Boolean).map(viaNodeToStar).join(', ');
-          parts.push(`via=[${viaItems}]`);
+        if (n.searchNodeIds?.length) {
+          const searchItems = n.searchNodeIds.map(id => g.nodes.find(x => x.id === id)).filter(Boolean).map(viaNodeToStar).join(', ');
+          parts.push(`search=[${searchItems}]`);
         }
-        if (n.fromNodeIds?.length) {
-          // "from" is a Starlark reserved word; must use **{} expansion syntax.
-          const fromItems = n.fromNodeIds.map(id => g.nodes.find(x => x.id === id)).filter(Boolean).map(viaNodeToStar).join(', ');
-          parts.push(`**{"from": [${fromItems}]}`);
+        if (n.listNodeIds?.length) {
+          const listItems = n.listNodeIds.map(id => g.nodes.find(x => x.id === id)).filter(Boolean).map(viaNodeToStar).join(', ');
+          parts.push(`list=[${listItems}]`);
         }
         if (cfgKw) parts.push(cfgKw);
         lines.push(`${n.id} = process(${parts.join(', ')})`);
@@ -2098,7 +2097,7 @@ function dagToStarlark() {
         // If this sink has downstream sinks (chaining), assign the return value
         // so it can be referenced as upstream= by the chained output.
         const hasChainedDownstream = g.nodes.some(
-          dn => !dn.isViaNode && !dn.isFromNode &&
+          dn => !dn.isSearchNode && !dn.isListNode &&
                 (dn.upstreams || []).includes(n.id) &&
                 (pluginMeta(dn.plugin)?.role === 'sink')
         );
@@ -2205,36 +2204,37 @@ async function textToVisualSync() {
       // absolute by initLayout() after stacking order is determined.
       const nodes = rawNodes.map(n => ({
         id: n.id, plugin: n.plugin, config: n.config || {}, upstreams: n.upstreams || [],
-        viaNodeIds: [], comment: n.comment || '',
+        searchNodeIds: [], comment: n.comment || '',
         x: n.x ?? null,
         y: n.y ?? null,
       }));
-      // Second pass: convert via/from items to regular nodes with flags.
+      // Second pass: convert search/list items to regular nodes with flags.
       for (let ni = 0; ni < rawNodes.length; ni++) {
         const raw = rawNodes[ni];
-        for (let vi = 0; vi < (raw.via || []).length; vi++) {
-          const v  = raw.via[vi];
-          const id = `${raw.id}__via__${vi}`;
-          nodes[ni].viaNodeIds.push(id);
+        for (let si = 0; si < (raw.search || []).length; si++) {
+          const s  = raw.search[si];
+          const id = `${raw.id}__search__${si}`;
+          nodes[ni].searchNodeIds.push(id);
           nodes.push({
-            id, plugin: v.plugin, config: v.config || {},
-            upstreams: [], viaNodeIds: [], fromNodeIds: [], comment: '',
-            isViaNode: true, viaParentId: raw.id,
+            id, plugin: s.plugin, config: s.config || {},
+            upstreams: [], searchNodeIds: [], listNodeIds: [], comment: '',
+            isSearchNode: true, searchParentId: raw.id,
           });
         }
-        for (let fi = 0; fi < (raw.from || []).length; fi++) {
-          const f  = raw.from[fi];
-          const id = `${raw.id}__from__${fi}`;
-          nodes[ni].fromNodeIds.push(id);
+        for (let li = 0; li < (raw.list || []).length; li++) {
+          const l  = raw.list[li];
+          const id = `${raw.id}__list__${li}`;
+          if (!nodes[ni].listNodeIds) nodes[ni].listNodeIds = [];
+          nodes[ni].listNodeIds.push(id);
           nodes.push({
-            id, plugin: f.plugin, config: f.config || {},
-            upstreams: [], viaNodeIds: [], fromNodeIds: [], comment: '',
-            isFromNode: true, fromParentId: raw.id,
+            id, plugin: l.plugin, config: l.config || {},
+            upstreams: [], searchNodeIds: [], listNodeIds: [], comment: '',
+            isListNode: true, listParentId: raw.id,
           });
         }
       }
       // A pipeline "has layout" when any main node carries a stored position.
-      const _hasLayout = nodes.some(n => !n.isViaNode && !n.isFromNode && n.x != null && n.y != null);
+      const _hasLayout = nodes.some(n => !n.isSearchNode && !n.isListNode && n.x != null && n.y != null);
       return {name, schedule: graph.schedule || '', comment: graph.comment || '', nodes, _hasLayout};
     });
     ve.nextId = ve.graphs.flatMap(g => g.nodes).reduce((max, n) => {
@@ -2313,7 +2313,7 @@ function computePipelineBoundsFromNodes() {
   // Sort graphs by their topmost node Y so labels stack top-to-bottom.
   let prevBottom = 40;
   for (const g of ve.graphs) {
-    const nonVia = g.nodes.filter(n => !n.isViaNode && !n.isFromNode);
+    const nonVia = g.nodes.filter(n => !n.isSearchNode && !n.isListNode);
     if (!nonVia.length) {
       g._labelY  = prevBottom + 10;
       g._regionY = g._labelY - 8;

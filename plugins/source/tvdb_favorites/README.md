@@ -1,8 +1,8 @@
 # tvdb_favorites
 
-Fetches shows from a TheTVDB user's favorites list and emits one entry per show. Entries carry the show name and a canonical TheTVDB URL, making them suitable as title sources for `discover.from` and `series.from`.
+Fetches shows from a TheTVDB user's favorites list and emits one entry per show. Entries carry the show name and a canonical TheTVDB URL, making them suitable as title sources for `discover.list` and `series.list`.
 
-Use as a standalone `input()` source node, or inside `series.from`, `movies.from`, `discover.from`, or `discover.via` config keys.
+Use as a standalone `input()` source node, or inside `series.list`, `movies.list`, `discover.list`, or `discover.search` config keys.
 
 ## Config
 
@@ -21,17 +21,13 @@ Use as a standalone `input()` source node, or inside `series.from`, `movies.from
 ## Example — dynamic title source for the series filter
 
 ```python
-task("tv-favorites", [
-    plugin("rss", url="https://example.com/rss/shows"),
-    plugin("series",
-        tracking="strict",
-        quality="720p+",
-        **{"from": [
-            {"name": "tvdb_favorites", "api_key": "YOUR_TVDB_API_KEY", "user_pin": "YOUR_TVDB_USER_PIN"},
-        ]},
-    ),
-    plugin("deluge", host="localhost", password="changeme"),
-])
+src    = input("rss", url="https://example.com/rss/shows")
+seen   = process("seen", upstream=src)
+series = process("series", upstream=seen,
+    tracking="strict", quality="720p+",
+    list=[{"name": "tvdb_favorites", "api_key": "YOUR_TVDB_API_KEY", "user_pin": "YOUR_TVDB_USER_PIN"}])
+output("deluge", upstream=series, host="localhost", password="changeme")
+pipeline("tv-favorites", schedule="1h")
 ```
 
 ## Notes
@@ -41,7 +37,7 @@ task("tv-favorites", [
 
 ## DAG role
 
-`tvdb_favorites` has `Role=source`. It is used inside `series.from` and `discover.from`, and can also be used as a standalone `input()` node in DAG pipelines:
+`tvdb_favorites` has `Role=source`. It is used inside `series.list` and `discover.list`, and can also be used as a standalone `input()` node in DAG pipelines:
 
 | Property | Value |
 |----------|-------|

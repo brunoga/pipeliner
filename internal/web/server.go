@@ -470,10 +470,10 @@ func (s *Server) apiPlugins(w http.ResponseWriter, _ *http.Request) {
 		Produces    []string    `json:"produces"` // entry field names this plugin writes
 		Requires    []string    `json:"requires"` // entry field names this plugin reads
 		Schema      []fieldResp `json:"schema"`   // empty slice, never null
-		AcceptsVia     bool        `json:"accepts_via,omitempty"`
+		AcceptsSearch  bool        `json:"accepts_search,omitempty"`
 		IsSearchPlugin bool        `json:"is_search_plugin,omitempty"`
-		AcceptsFrom    bool        `json:"accepts_from,omitempty"`
-		IsFromPlugin   bool        `json:"is_from_plugin,omitempty"`
+		AcceptsList    bool        `json:"accepts_list,omitempty"`
+		IsListPlugin   bool        `json:"is_list_plugin,omitempty"`
 	}
 
 	descs := plugin.All()
@@ -505,10 +505,10 @@ func (s *Server) apiPlugins(w http.ResponseWriter, _ *http.Request) {
 			Produces:       produces,
 			Requires:       requires,
 			Schema:         fields,
-			AcceptsVia:     d.AcceptsVia,
+			AcceptsSearch:  d.AcceptsSearch,
 			IsSearchPlugin: d.IsSearchPlugin,
-			AcceptsFrom:    d.AcceptsFrom,
-			IsFromPlugin:   d.IsFromPlugin,
+			AcceptsList:    d.AcceptsList,
+			IsListPlugin:   d.IsListPlugin,
 		})
 	}
 	writeJSON(w, out)
@@ -546,8 +546,8 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 		PluginName string          `json:"plugin"`
 		Config     map[string]any  `json:"config"`
 		Upstreams  []string        `json:"upstreams"`
-		Via        []subPluginResp `json:"via,omitempty"`
-		From       []subPluginResp `json:"from,omitempty"`
+		Search     []subPluginResp `json:"search,omitempty"`
+		List       []subPluginResp `json:"list,omitempty"`
 		Comment    string          `json:"comment,omitempty"`
 		X          *float64        `json:"x,omitempty"`
 		Y          *float64        `json:"y,omitempty"`
@@ -569,7 +569,7 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 			if cfg == nil {
 				cfg = map[string]any{}
 			} else {
-				// Clone so we can remove "via" without mutating the graph.
+				// Clone so we can remove "search" without mutating the graph.
 				clone := make(map[string]any, len(cfg))
 				for k, v := range cfg {
 					clone[k] = v
@@ -598,10 +598,10 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 				return out
 			}
 
-			var via, from []subPluginResp
+			var search, list []subPluginResp
 			if desc, ok := plugin.Lookup(n.PluginName); ok {
-				if desc.AcceptsVia  { via  = extractSubPlugins("via")  }
-				if desc.AcceptsFrom { from = extractSubPlugins("from") }
+				if desc.AcceptsSearch { search = extractSubPlugins("search") }
+				if desc.AcceptsList   { list   = extractSubPlugins("list")   }
 			}
 
 			nr := nodeResp{
@@ -609,8 +609,8 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 				PluginName: n.PluginName,
 				Config:     cfg,
 				Upstreams:  ups,
-				Via:        via,
-				From:       from,
+				Search:     search,
+				List:       list,
 				Comment:    nodeComments[string(n.ID)],
 			}
 			if pos, ok := nodePositions[string(n.ID)]; ok {

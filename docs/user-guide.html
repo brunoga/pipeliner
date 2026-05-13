@@ -745,25 +745,25 @@ pipeline("watch-folder", schedule="5m")</code></pre>
 
 <!-- ─────────── discover ─────────── -->
 <h2 id="discover">discover</h2>
-<p>Actively searches multiple sources for entries matching a title list. Unlike RSS (which passively receives all items), <code>discover</code> iterates titles, dispatches one search query per title to each configured search plugin (<code>via</code>), and returns the merged results. A per-title cooldown prevents redundant searches.</p>
+<p>Actively searches multiple sources for entries matching a title list. Unlike RSS (which passively receives all items), <code>discover</code> iterates titles, dispatches one search query per title to each configured search plugin (<code>search</code>), and returns the merged results. A per-title cooldown prevents redundant searches.</p>
 
 <table>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
   <tr><td><code>titles</code></td><td>conditional</td><td>—</td><td>Static list of title strings</td></tr>
-  <tr><td><code>from</code></td><td>conditional</td><td>—</td><td>From-plugin configs whose entry titles supplement the list</td></tr>
-  <tr><td><code>via</code></td><td>yes</td><td>—</td><td>Search plugin configs to query</td></tr>
+  <tr><td><code>list</code></td><td>conditional</td><td>—</td><td>List-plugin configs whose entry titles supplement the list</td></tr>
+  <tr><td><code>search</code></td><td>yes</td><td>—</td><td>Search plugin configs to query</td></tr>
   <tr><td><code>interval</code></td><td>no</td><td><code>24h</code></td><td>Minimum time between searches per title</td></tr>
 </table>
 
-<p>At least one of <code>titles</code> or <code>from</code> is required.</p>
+<p>At least one of <code>titles</code> or <code>list</code> is required.</p>
 
 <pre><code><span class="y-comment"># Discover as a processor — upstream source provides titles</span>
 watchlist = input("trakt_list", client_id=env("TRAKT_ID"),
                   client_secret=env("TRAKT_SECRET"),
                   type="movies", list="watchlist")
 results   = process("discover", upstream=watchlist,
-    via=[{"name": "jackett", "url": "http://localhost:9117",
-          "api_key": env("JACKETT_KEY"), "categories": ["2000"]}],
+    search=[{"name": "jackett", "url": "http://localhost:9117",
+             "api_key": env("JACKETT_KEY"), "categories": ["2000"]}],
     interval="12h")
 seen      = process("seen",   upstream=results)
 quality   = process("metainfo_quality", upstream=seen)
@@ -805,22 +805,22 @@ pipeline("movie-discover", schedule="2h")</code></pre>
 <p>These plugins produce title lists or search results. They have two uses:</p>
 <ul>
   <li><strong>As standalone sources</strong> — use <code>input("tvdb_favorites", …)</code> to create a source node whose entries drive downstream processors.</li>
-  <li><strong>As config-driven title sources</strong> — pass them inside a parent plugin's <code>from</code> config key (e.g. inside <code>series</code>) when you prefer the implicit connection style.</li>
+  <li><strong>As config-driven title sources</strong> — pass them inside a parent plugin's <code>list</code> config key (e.g. inside <code>series</code>) when you prefer the implicit connection style.</li>
 </ul>
 <pre><code><span class="y-comment"># Option A: standalone source node (explicit DAG connection)</span>
 watchlist = input("trakt_list", client_id=env("TRAKT_ID"),
                   client_secret=env("TRAKT_SECRET"), type="shows")
 series = process("series", upstream=watchlist, tracking="follow")
 
-<span class="y-comment"># Option B: inside series.from config key</span>
-series = process("series", upstream=rss_src, **{"from": [
+<span class="y-comment"># Option B: inside series.list config key</span>
+series = process("series", upstream=rss_src, list=[
     {"name": "trakt_list", "client_id": env("TRAKT_ID"),
      "client_secret": env("TRAKT_SECRET"), "type": "shows"},
-]})</code></pre>
+])</code></pre>
 
 <!-- ─────────── tvdb_favorites ─────────── -->
 <h2 id="tvdb_favorites">tvdb_favorites</h2>
-<p>Fetches a user's TheTVDB favorites list and emits one entry per show. Use inside <code>series.from</code> or <code>discover.from</code> to build a dynamic show list from your TVDB account.</p>
+<p>Fetches a user's TheTVDB favorites list and emits one entry per show. Use inside <code>series.list</code> or <code>discover.list</code> to build a dynamic show list from your TVDB account.</p>
 
 <table>
   <tr><th>Key</th><th>Required</th><th>Description</th></tr>
@@ -840,7 +840,7 @@ series = process("series", upstream=rss_src, **{"from": [
 
 <!-- ─────────── trakt_list ─────────── -->
 <h2 id="trakt_list">trakt_list</h2>
-<p>Fetches movies or shows from a Trakt.tv list. Use inside <code>series.from</code>, <code>movies.from</code>, or <code>discover.from</code>.</p>
+<p>Fetches movies or shows from a Trakt.tv list. Use inside <code>series.list</code>, <code>movies.list</code>, or <code>discover.list</code>.</p>
 
 <table>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
@@ -905,7 +905,7 @@ series = process("series", upstream=rss_src, **{"from": [
 
 <!-- ─────────── rss_search ─────────── -->
 <h2 id="rss_search">rss_search</h2>
-<p>Fetches entries from a parameterized RSS URL. Used inside <code>discover.via</code>. The URL template receives the search query.</p>
+<p>Fetches entries from a parameterized RSS URL. Used inside <code>discover.search</code>. The URL template receives the search query.</p>
 
 <table>
   <tr><th>Key</th><th>Required</th><th>Description</th></tr>
@@ -1016,8 +1016,8 @@ After DHT: <code>torrent_file_size</code>, <code>torrent_file_count</code>, <cod
 <table>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
   <tr><td><code>static</code></td><td>conditional</td><td>—</td><td>Static list of show names</td></tr>
-  <tr><td><code>from</code></td><td>conditional</td><td>—</td><td>From-plugin configs providing show names dynamically</td></tr>
-  <tr><td><code>ttl</code></td><td>no</td><td><code>1h</code></td><td>Cache TTL for dynamic show list. An empty list from a <code>from:</code> source is not cached — the source will be queried again on the next run.</td></tr>
+  <tr><td><code>list</code></td><td>conditional</td><td>—</td><td>List-plugin configs providing show names dynamically</td></tr>
+  <tr><td><code>ttl</code></td><td>no</td><td><code>1h</code></td><td>Cache TTL for dynamic show list. An empty list from a <code>list:</code> source is not cached — the source will be queried again on the next run.</td></tr>
   <tr><td><code>tracking</code></td><td>no</td><td><code>strict</code></td><td>Episode ordering mode: <code>strict</code>, <code>backfill</code>, or <code>follow</code></td></tr>
   <tr><td><code>quality</code></td><td>no</td><td>—</td><td>Minimum quality spec (e.g. <code>720p+ webrip+</code>)</td></tr>
   <tr><td><code>reject_unmatched</code></td><td>no</td><td><code>true</code></td><td>When <code>true</code> (default), entries that do not parse as a series episode or whose show name is not in the configured list are explicitly rejected. Set to <code>false</code> to leave such entries undecided — useful when chaining multiple series filters in one pipeline.</td></tr>
@@ -1045,9 +1045,9 @@ pipeline("tv", schedule="30m")</code></pre>
 favs   = input("tvdb_favorites", api_key=env("TVDB_KEY"), user_pin=env("TVDB_PIN"))
 src    = input("rss", url="https://feed.example.com/rss")
 seen   = process("seen",   upstream=merge(src, favs))
-series = process("series", upstream=seen, **{"from": [
+series = process("series", upstream=seen, list=[
     {"name": "tvdb_favorites", "api_key": env("TVDB_KEY"), "user_pin": env("TVDB_PIN")},
-]}, tracking="backfill", quality="720p+ webrip+")
+], tracking="backfill", quality="720p+ webrip+")
 output("transmission", upstream=series, host="localhost")
 pipeline("tv-dynamic", schedule="1h")</code></pre>
 
@@ -1058,8 +1058,8 @@ pipeline("tv-dynamic", schedule="1h")</code></pre>
 <table>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
   <tr><td><code>static</code></td><td>conditional</td><td>—</td><td>Static list of movie titles</td></tr>
-  <tr><td><code>from</code></td><td>conditional</td><td>—</td><td>From-plugin configs providing titles dynamically</td></tr>
-  <tr><td><code>ttl</code></td><td>no</td><td><code>1h</code></td><td>Cache TTL for dynamic list. An empty list from a <code>from:</code> source is not cached — the source will be queried again on the next run.</td></tr>
+  <tr><td><code>list</code></td><td>conditional</td><td>—</td><td>List-plugin configs providing titles dynamically</td></tr>
+  <tr><td><code>ttl</code></td><td>no</td><td><code>1h</code></td><td>Cache TTL for dynamic list. An empty list from a <code>list:</code> source is not cached — the source will be queried again on the next run.</td></tr>
   <tr><td><code>quality</code></td><td>no</td><td>—</td><td>Minimum quality floor</td></tr>
   <tr><td><code>reject_unmatched</code></td><td>no</td><td><code>true</code></td><td>When <code>true</code> (default), entries whose title does not match any title in the configured list are explicitly rejected. Set to <code>false</code> to leave such entries undecided — useful when chaining multiple movies filters in one pipeline.</td></tr>
 </table>
@@ -1646,15 +1646,15 @@ docker compose up -d --no-build pipeliner</code></pre>
 <p>Pipelines without a <code>schedule=</code> argument in their <code>pipeline()</code> call are not run automatically by the daemon. Add a schedule or trigger manually with <code>pipeliner run pipeline-name</code> or the web UI's <em>Run now</em> button.</p>
 
 <h3>Using dynamic source plugins (tvdb_favorites, trakt_list)</h3>
-<p>These plugins can be used as standalone source nodes or inside a parent plugin's <code>from</code> config key. Use whichever is clearer for your use case:</p>
+<p>These plugins can be used as standalone source nodes or inside a parent plugin's <code>list</code> config key. Use whichever is clearer for your use case:</p>
 <pre><code><span class="y-comment"># Option A — standalone source node</span>
 favs   = input("tvdb_favorites", api_key=env("TVDB_KEY"), user_pin=env("TVDB_PIN"))
 series = process("series", upstream=merge(rss_src, favs), tracking="backfill")
 
-<span class="y-comment"># Option B — inside series.from config</span>
-series = process("series", upstream=rss_src, **{"from": [
+<span class="y-comment"># Option B — inside series.list config</span>
+series = process("series", upstream=rss_src, list=[
     {"name": "tvdb_favorites", "api_key": env("TVDB_KEY"), "user_pin": env("TVDB_PIN")},
-]})</code></pre>
+])</code></pre>
 
 </main>
 

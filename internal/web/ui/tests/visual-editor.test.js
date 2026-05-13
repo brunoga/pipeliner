@@ -11,7 +11,7 @@ import { dirname, join } from 'path';
 const __dir = dirname(fileURLToPath(import.meta.url));
 const src = readFileSync(join(__dir, '..', 'visual-editor.js'), 'utf8');
 
-let starLit, valToStar, configToKwargs, upstreamsStr, dagToStarlark, viaNodeToStar, ve;
+let starLit, valToStar, configToKwargs, upstreamsStr, dagToStarlark, viaNodeToStar, ve; // viaNodeToStar renamed but kept for compat
 
 beforeAll(() => {
   const mod = new Function(
@@ -37,7 +37,7 @@ exports.ve             = ve;
 const PLUGINS = [
   { name: 'rss',          role: 'source'    },
   { name: 'seen',         role: 'processor' },
-  { name: 'discover',     role: 'processor', accepts_via: true },
+  { name: 'discover',     role: 'processor', accepts_search: true },
   { name: 'jackett',      role: 'source',    is_search_plugin: true },
   { name: 'rss_search',   role: 'source',    is_search_plugin: true },
   { name: 'metainfo_quality', role: 'processor' },
@@ -510,56 +510,56 @@ describe('dagToStarlark with layout', () => {
   });
 });
 
-// ── dagToStarlark — via nodes ─────────────────────────────────────────────────
+// ── dagToStarlark — search nodes ──────────────────────────────────────────────
 
-describe('dagToStarlark with via-connected nodes', () => {
-  function setupVia() {
+describe('dagToStarlark with search-connected nodes', () => {
+  function setupSearch() {
     ve.graphs = [{
       name: 'test', schedule: '', comment: '',
       nodes: [
-        { id: 'titles_0', plugin: 'rss',     config: {}, upstreams: [], viaNodeIds: [] },
+        { id: 'titles_0', plugin: 'rss',     config: {}, upstreams: [], searchNodeIds: [] },
         { id: 'disc_1',   plugin: 'discover', config: { interval: '24h' }, upstreams: ['titles_0'],
-          viaNodeIds: ['jk_2', 'rs_3'] },
+          searchNodeIds: ['jk_2', 'rs_3'] },
         { id: 'jk_2',  plugin: 'jackett',    config: { url: 'http://localhost', api_key: 'k' },
-          upstreams: [], viaNodeIds: [], isViaNode: true, viaParentId: 'disc_1' },
+          upstreams: [], searchNodeIds: [], isSearchNode: true, searchParentId: 'disc_1' },
         { id: 'rs_3',  plugin: 'rss_search', config: { url_template: 'https://...' },
-          upstreams: [], viaNodeIds: [], isViaNode: true, viaParentId: 'disc_1' },
+          upstreams: [], searchNodeIds: [], isSearchNode: true, searchParentId: 'disc_1' },
       ],
     }];
     ve.activeGraph = 0;
     ve.plugins = PLUGINS;
   }
 
-  it('does not emit input() for via-connected nodes', () => {
-    setupVia();
+  it('does not emit input() for search-connected nodes', () => {
+    setupSearch();
     const out = dagToStarlark();
     expect(out).not.toContain('jk_2 = input');
     expect(out).not.toContain('rs_3 = input');
   });
 
-  it('inlines via nodes as via=[{...}] in the processor', () => {
-    setupVia();
+  it('inlines search nodes as search=[{...}] in the processor', () => {
+    setupSearch();
     const out = dagToStarlark();
-    expect(out).toContain('via=[');
+    expect(out).toContain('search=[');
     expect(out).toContain('"name": "jackett"');
     expect(out).toContain('"name": "rss_search"');
   });
 
-  it('includes via config keys in the dict', () => {
-    setupVia();
+  it('includes search config keys in the dict', () => {
+    setupSearch();
     const out = dagToStarlark();
     expect(out).toContain('"url": "http://localhost"');
     expect(out).toContain('"api_key": "k"');
   });
 
-  it('still emits input() for regular (non-via) source nodes', () => {
-    setupVia();
+  it('still emits input() for regular (non-search) source nodes', () => {
+    setupSearch();
     const out = dagToStarlark();
     expect(out).toContain('titles_0 = input("rss")');
   });
 
-  it('still emits process() for discover with upstream= and via=', () => {
-    setupVia();
+  it('still emits process() for discover with upstream= and search=', () => {
+    setupSearch();
     const out = dagToStarlark();
     expect(out).toContain('disc_1 = process("discover"');
     expect(out).toContain('upstream=titles_0');

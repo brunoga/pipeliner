@@ -15,9 +15,9 @@ seen    = process("seen",             upstream=src)
 q       = process("metainfo_quality", upstream=seen)
 series  = process("series",           upstream=q,
                    tracking="strict", quality="720p+", ttl="2h",
-                   **{"from": [{"name":     "tvdb_favorites",
-                                "api_key":  tvdb_api_key,
-                                "user_pin": tvdb_user_pin}]})
+                   list=[{"name":     "tvdb_favorites",
+                          "api_key":  tvdb_api_key,
+                          "user_pin": tvdb_user_pin}])
 tvdb    = process("metainfo_tvdb",    upstream=series, api_key=tvdb_api_key)
 fmt     = process("pathfmt",          upstream=tvdb,
                    path=tv_path + "/{title}/Season {series_season:02d}",

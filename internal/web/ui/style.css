@@ -578,55 +578,55 @@ section { margin-bottom: 32px; }
 .ve-graph-canvas.is-connecting .ve-node[data-role="source"] * {
   pointer-events:none;
 }
-/* From-list nodes are already spoken for — can't also be regular upstreams. */
-.ve-graph-canvas.is-connecting .ve-node[data-is-f-node="true"] {
+/* List-source nodes are already spoken for — can't also be regular upstreams. */
+.ve-graph-canvas.is-connecting .ve-node[data-is-list-node="true"] {
   opacity:0.25; cursor:not-allowed;
 }
-.ve-graph-canvas.is-connecting .ve-node[data-is-f-node="true"] * { pointer-events:none; }
-/* While drawing a via connection, non-search nodes are invalid drop targets. */
-.ve-graph-canvas.is-viaconnecting .ve-node:not([data-is-search="true"]) {
+.ve-graph-canvas.is-connecting .ve-node[data-is-list-node="true"] * { pointer-events:none; }
+/* While drawing a search connection, non-search nodes are invalid drop targets. */
+.ve-graph-canvas.is-searchconnecting .ve-node:not([data-is-search="true"]) {
   opacity:0.4; cursor:not-allowed;
 }
-.ve-graph-canvas.is-viaconnecting .ve-node:not([data-is-search="true"]) * { pointer-events:none; }
-.ve-graph-canvas.is-viaconnecting .ve-node[data-is-search="true"]:not([data-is-via="true"]) {
+.ve-graph-canvas.is-searchconnecting .ve-node:not([data-is-search="true"]) * { pointer-events:none; }
+.ve-graph-canvas.is-searchconnecting .ve-node[data-is-search="true"]:not([data-is-search-nd="true"]) {
   border-color:#d2a8ff; box-shadow:0 0 0 3px rgba(210,168,255,.2);
 }
 
-/* While drawing a from connection, non-from-plugin nodes are invalid targets. */
-.ve-graph-canvas.is-fromconnecting .ve-node:not([data-is-from="true"]) {
+/* While drawing a list connection, non-list-plugin nodes are invalid targets. */
+.ve-graph-canvas.is-listconnecting .ve-node:not([data-is-list="true"]) {
   opacity:0.4; cursor:not-allowed;
 }
-.ve-graph-canvas.is-fromconnecting .ve-node:not([data-is-from="true"]) * { pointer-events:none; }
-.ve-graph-canvas.is-fromconnecting .ve-node[data-is-from="true"]:not([data-is-f-node="true"]) {
+.ve-graph-canvas.is-listconnecting .ve-node:not([data-is-list="true"]) * { pointer-events:none; }
+.ve-graph-canvas.is-listconnecting .ve-node[data-is-list="true"]:not([data-is-list-nd="true"]) {
   border-color:#0d9373; box-shadow:0 0 0 3px rgba(13,147,115,.2);
 }
 
-/* Via-connected nodes: dashed purple border */
-.ve-node.ve-node-via {
+/* Search-connected nodes: dashed purple border */
+.ve-node.ve-node-search {
   border-style:dashed; border-color:#9a6ad8;
   background:rgba(154,106,216,.06);
 }
-.ve-node.ve-node-via.selected { border-color:#d2a8ff; box-shadow:0 0 0 2px rgba(210,168,255,.25); }
-.ve-node-via-badge {
+.ve-node.ve-node-search.selected { border-color:#d2a8ff; box-shadow:0 0 0 2px rgba(210,168,255,.25); }
+.ve-node-search-badge {
   display:inline-block; padding:1px 5px; border-radius:3px;
   font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:.05em;
   border:1px solid #9a6ad8; color:#d2a8ff; background:transparent; flex-shrink:0;
 }
 
-/* From-connected nodes: dashed teal border */
-.ve-node.ve-node-from {
+/* List-connected nodes: dashed teal border */
+.ve-node.ve-node-list {
   border-style:dashed; border-color:#0d9373;
   background:rgba(13,147,115,.06);
 }
-.ve-node.ve-node-from.selected { border-color:#2dd4b8; box-shadow:0 0 0 2px rgba(13,147,115,.25); }
-.ve-node-from-badge {
+.ve-node.ve-node-list.selected { border-color:#2dd4b8; box-shadow:0 0 0 2px rgba(13,147,115,.25); }
+.ve-node-list-badge {
   display:inline-block; padding:1px 5px; border-radius:3px;
   font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:.05em;
   border:1px solid #0d9373; color:#2dd4b8; background:transparent; flex-shrink:0;
 }
 
-/* from-port circle at the TOP of AcceptsFrom nodes (it is an input) */
-.ve-node-from-port {
+/* list-port circle at the TOP of AcceptsList nodes (it is an input) */
+.ve-node-list-port {
   position:absolute; top:-11px; left:50%; transform:translateX(-50%);
   width:22px; height:22px; border-radius:50%;
   background:#0d9373; border:2px solid var(--bg);
@@ -635,28 +635,28 @@ section { margin-bottom: 32px; }
   cursor:default; z-index:3; user-select:none;
   transition:transform .15s, box-shadow .15s;
 }
-.ve-node-from-port.dragover {
+.ve-node-list-port.dragover {
   transform:translateX(-50%) scale(1.25);
   box-shadow:0 0 0 4px rgba(13,147,115,.35);
 }
 
-/* from-edges: teal dashed */
-.ve-from-edge { fill:none; stroke:#0d9373; stroke-width:1.5; stroke-dasharray:5,3; pointer-events:none; }
-.ve-from-edge.selected { stroke:#2dd4b8; stroke-width:2; }
-.ve-from-edge.connecting { stroke:#2dd4b8; stroke-width:1.5; stroke-dasharray:5,3; }
+/* list-edges: teal dashed */
+.ve-list-edge { fill:none; stroke:#0d9373; stroke-width:1.5; stroke-dasharray:5,3; pointer-events:none; }
+.ve-list-edge.selected { stroke:#2dd4b8; stroke-width:2; }
+.ve-list-edge.connecting { stroke:#2dd4b8; stroke-width:1.5; stroke-dasharray:5,3; }
 
-/* Palette from-plugin chip badge */
-.ve-chip-from-badge {
+/* Palette list-plugin chip badge */
+.ve-chip-list-badge {
   display:inline-block; margin-left:5px; padding:1px 4px;
   font-size:8px; font-weight:700; text-transform:uppercase; letter-spacing:.04em;
   border-radius:3px; border:1px solid rgba(13,147,115,.5);
   background:rgba(13,147,115,.15); color:#2dd4b8;
   vertical-align:middle; line-height:1.4; pointer-events:none;
 }
-.ve-chip.ve-chip-from:hover { border-color:#2dd4b8; color:#2dd4b8; }
+.ve-chip.ve-chip-list:hover { border-color:#2dd4b8; color:#2dd4b8; }
 
-/* via-port circle at the bottom of AcceptsVia nodes */
-.ve-node-via-port {
+/* search-port circle at the bottom of AcceptsSearch nodes */
+.ve-node-search-port {
   position:absolute; bottom:-11px; left:50%; transform:translateX(-50%);
   width:22px; height:22px; border-radius:50%;
   background:#9a6ad8; border:2px solid var(--bg);
@@ -665,15 +665,15 @@ section { margin-bottom: 32px; }
   cursor:default; z-index:3; user-select:none;
   transition:transform .15s, box-shadow .15s;
 }
-.ve-node-via-port.dragover {
+.ve-node-search-port.dragover {
   transform:translateX(-50%) scale(1.25);
   box-shadow:0 0 0 4px rgba(154,106,216,.35);
 }
 
-/* via-edges: dashed purple lines */
-.ve-via-edge { fill:none; stroke:#9a6ad8; stroke-width:1.5; stroke-dasharray:5,3; pointer-events:none; }
-.ve-via-edge.selected { stroke:#d2a8ff; stroke-width:2; }
-.ve-via-edge.connecting { stroke:#d2a8ff; stroke-width:1.5; stroke-dasharray:5,3; }
+/* search-edges: dashed purple lines */
+.ve-search-edge { fill:none; stroke:#9a6ad8; stroke-width:1.5; stroke-dasharray:5,3; pointer-events:none; }
+.ve-search-edge.selected { stroke:#d2a8ff; stroke-width:2; }
+.ve-search-edge.connecting { stroke:#d2a8ff; stroke-width:1.5; stroke-dasharray:5,3; }
 
 /* input port indicator — hidden by default, revealed during output-port drag */
 .ve-node-in-port {
@@ -684,13 +684,13 @@ section { margin-bottom: 32px; }
   transition:opacity .12s, border-color .12s, background .12s;
 }
 /* Show on valid drop targets (excludes source, would-create-cycle, sub-nodes) */
-.ve-graph-canvas.is-connecting .ve-node:not(.is-connect-source):not(.would-create-cycle):not([data-role="source"]):not([data-is-via="true"]):not([data-is-f-node="true"]) .ve-node-in-port {
+.ve-graph-canvas.is-connecting .ve-node:not(.is-connect-source):not(.would-create-cycle):not([data-role="source"]):not([data-is-search-nd="true"]):not([data-is-list-nd="true"]) .ve-node-in-port {
   opacity:1;
   border-color:var(--accent);
   background:rgba(88,166,255,.2);
 }
 /* Brighter highlight when hovering over a valid target */
-.ve-graph-canvas.is-connecting .ve-node:not(.is-connect-source):not(.would-create-cycle):not([data-role="source"]):not([data-is-via="true"]):not([data-is-f-node="true"]):hover .ve-node-in-port {
+.ve-graph-canvas.is-connecting .ve-node:not(.is-connect-source):not(.would-create-cycle):not([data-role="source"]):not([data-is-search-nd="true"]):not([data-is-list-nd="true"]):hover .ve-node-in-port {
   border-color:#a5cfff;
   background:rgba(88,166,255,.4);
 }
@@ -820,7 +820,7 @@ section { margin-bottom: 32px; }
    width:100% inheritance and CSS-variable context issues). */
 /* Search-plugin chips */
 .ve-chip.ve-chip-search:hover { border-color:#d2a8ff; color:#d2a8ff; }
-.ve-chip-via-badge {
+.ve-chip-search-badge {
   display:inline-block; margin-left:5px; padding:1px 4px;
   font-size:8px; font-weight:700; text-transform:uppercase; letter-spacing:.04em;
   border-radius:3px; border:1px solid rgba(154,106,216,.5);

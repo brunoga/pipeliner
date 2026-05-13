@@ -85,7 +85,7 @@ func buildPlugin(t *testing.T, mock *mockSearch, titles []string, extraCfg map[s
 	pluginName := registerMock(mock)
 	cfg := map[string]any{
 		"titles":   titlesToAny(titles),
-		"via":      []any{pluginName},
+		"search":   []any{pluginName},
 		"interval": "1h",
 	}
 	maps.Copy(cfg, extraCfg)
@@ -185,19 +185,19 @@ func TestDiscoverMultipleTitles(t *testing.T) {
 	}
 }
 
-func TestDiscoverMissingVia(t *testing.T) {
+func TestDiscoverMissingSearch(t *testing.T) {
 	_, err := newPlugin(map[string]any{
 		"titles": []any{"Show"},
 	}, nil)
 	if err == nil {
-		t.Error("expected error when via is missing")
+		t.Error("expected error when search is missing")
 	}
 }
 
 func TestDiscoverInvalidInterval(t *testing.T) {
 	_, err := newPlugin(map[string]any{
 		"titles":   []any{"Show"},
-		"via":      []any{"x"},
+		"search":   []any{"x"},
 		"interval": "not-a-duration",
 	}, nil)
 	if err == nil {
@@ -208,7 +208,7 @@ func TestDiscoverInvalidInterval(t *testing.T) {
 func TestDiscoverUnknownSearchPlugin(t *testing.T) {
 	_, err := newPlugin(map[string]any{
 		"titles": []any{"Show"},
-		"via":    []any{"no-such-search-plugin"},
+		"search": []any{"no-such-search-plugin"},
 	}, nil)
 	if err == nil {
 		t.Error("expected error for unknown search plugin")
@@ -235,8 +235,8 @@ func TestDiscoverFromSuppliesTitles(t *testing.T) {
 	db, _ := store.OpenSQLite(":memory:")
 	defer db.Close()
 	cfg := map[string]any{
-		"from":     []any{srcName},
-		"via":      []any{searchName},
+		"list":     []any{srcName},
+		"search":   []any{searchName},
 		"interval": "1h",
 	}
 	p, err := newPlugin(cfg, db)
@@ -272,8 +272,8 @@ func TestDiscoverFromDeduplicatesTitles(t *testing.T) {
 	defer db2.Close()
 	cfg := map[string]any{
 		"titles":   []any{"My Show"},
-		"from":     []any{srcName},
-		"via":      []any{searchName},
+		"list":     []any{srcName},
+		"search":   []any{searchName},
 		"interval": "1h",
 	}
 	p, err := newPlugin(cfg, db2)
