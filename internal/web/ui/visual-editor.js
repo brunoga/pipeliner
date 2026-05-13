@@ -1045,13 +1045,34 @@ function initLayout() {
       }
     }
 
-    // Place unpositioned main nodes to the right of the bounding box.
+    // Place unpositioned main nodes using DAG structure so that each node lands
+    // to the right of its rightmost positioned upstream, preserving the pipeline's
+    // left-to-right flow instead of stacking everything in a single column.
     const noPos = mainNodes.filter(n => n.x == null || n.y == null);
-    noPos.forEach((n, i) => {
-      n.x = maxAbsX;
-      n.y = g._regionY + 40 + i * 120;
-      maxAbsY = Math.max(maxAbsY, n.y);
-    });
+    if (noPos.length) {
+      const COL_W   = 260; // mirrors layoutGraph constant
+      const posById = {};
+      for (const n of withPos) posById[n.id] = n;
+
+      // Topological order ensures each node's upstreams are placed first.
+      const noPosOrdered = topoSortNodes(mainNodes).filter(n => n.x == null || n.y == null);
+      let stackIdx = 0;
+      for (const n of noPosOrdered) {
+        const posUps = (n.upstreams || []).map(u => posById[u]).filter(Boolean);
+        if (posUps.length) {
+          const rightmost = posUps.reduce((a, b) => (a.x > b.x ? a : b));
+          n.x = rightmost.x + COL_W;
+          n.y = rightmost.y;
+        } else {
+          n.x = maxAbsX;
+          n.y = g._regionY + 40 + stackIdx * 120;
+          stackIdx++;
+        }
+        posById[n.id] = n;
+        maxAbsX = Math.max(maxAbsX, (n.x ?? 0) + NODE_W + 60);
+        maxAbsY = Math.max(maxAbsY, n.y);
+      }
+    }
 
     // Derive positions for sub-nodes that don't yet have stored positions.
     placeSubNodes(g, g._regionY + 36);
@@ -1073,7 +1094,8 @@ function placeSubNodes(g, startY) {
       const startSX = (n.x ?? 0) + NODE_W / 2 - totalW / 2;
       n.searchNodeIds.forEach((id, i) => {
         const sn = g.nodes.find(x => x.id === id);
-        if (sn && (sn.x == null || sn.y == null)) {
+        // Recompute if missing OR if the stored position overlaps the parent.
+        if (sn && (sn.x == null || sn.y == null || sn.y < (n.y ?? 0) + NODE_H)) {
           sn.x = Math.max(0, startSX + i * (NODE_W + SEARCH_GAP));
           sn.y = (n.y ?? 0) + NODE_H + 70;
         }
@@ -1085,7 +1107,10 @@ function placeSubNodes(g, startY) {
       const startLX  = (n.x ?? 0) + NODE_W / 2 - totalW / 2;
       n.listNodeIds.forEach((id, i) => {
         const ln = g.nodes.find(x => x.id === id);
-        if (ln && (ln.x == null || ln.y == null)) {
+        // Recompute if missing OR if the stored position places the list at or
+        // below the parent (overlap — can happen with positions saved before
+        // the listPad fix that ensured enough vertical clearance).
+        if (ln && (ln.x == null || ln.y == null || ln.y >= (n.y ?? 0))) {
           ln.x = Math.max(0, startLX + i * (NODE_W + LIST_GAP));
           ln.y = Math.max(startY + 4, (n.y ?? 0) - NODE_H - 65);
         }
