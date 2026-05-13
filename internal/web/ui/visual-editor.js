@@ -2396,7 +2396,7 @@ function nodesToFunctionSource(funcName, params, selectedIds, validation, graph)
 
   const lines = [];
   for (const p of params) {
-    if (p.include) lines.push(`# pipeliner:param ${p.paramName}`);
+    if (p.include) lines.push(`# pipeliner:param ${p.paramName}${p.hint ? '  ' + p.hint : ''}`);
   }
 
   const sigParams = params.filter(p => p.include).map(p => `${p.paramName}=${valToStar(p.defaultValue)}`);
@@ -2469,10 +2469,10 @@ function openExtractDialog() {
     <tr>
       <td><input type="checkbox" data-pi="${i}" ${p.include ? 'checked' : ''}></td>
       <td><input type="text" class="ep-name" data-pi="${i}" value="${esc(p.paramName)}"></td>
+      <td><input type="text" class="ep-hint" data-pi="${i}" value="${esc(p.hint || '')}" placeholder="optional description…"></td>
       <td style="color:var(--muted);font-size:11px">${esc(p.type)}</td>
-      <td style="color:var(--muted);font-size:11px;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+      <td style="color:var(--muted);font-size:11px;max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
           title="${esc(String(p.defaultValue))}">${esc(String(p.defaultValue))}</td>
-      <td class="ve-extract-param-node">${esc(findNode(p.nodeId)?.plugin || '')}</td>
     </tr>`).join('');
 
   modal.innerHTML = `
@@ -2490,7 +2490,7 @@ function openExtractDialog() {
         <div class="ve-extract-field">
           <label>Parameters <span style="font-weight:400;text-transform:none;letter-spacing:0">(uncheck to hardcode the value)</span></label>
           <table class="ve-extract-param-table">
-            <thead><tr><th></th><th>Param name</th><th>Type</th><th>Default</th><th>From node</th></tr></thead>
+            <thead><tr><th></th><th>Param name</th><th>Description</th><th>Type</th><th>Default</th></tr></thead>
             <tbody id="ve-extract-params">${paramRows}</tbody>
           </table>
         </div>` : '<p style="color:var(--muted);font-size:12px">No configurable values — the function will have only an upstream parameter.</p>'}
@@ -2525,6 +2525,7 @@ function openExtractDialog() {
         if (pi < 0 || pi >= params.length) return;
         params[pi].include   = row.querySelector('input[type=checkbox]').checked;
         params[pi].paramName = row.querySelector('.ep-name').value.trim() || params[pi].paramName;
+        params[pi].hint      = row.querySelector('.ep-hint').value.trim();
       });
     }
     // Check for duplicate param names.
