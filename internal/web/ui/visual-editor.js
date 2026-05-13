@@ -16,6 +16,7 @@ const ve = {
   activeGraph:      0,
   selectedNodeId:   null,
   selectedNodeIds:  new Set(), // multi-select for Extract to Function
+  clipboard:        null,      // {nodes:[{plugin,config,comment,origId,relX,relY}], edges:[{from,to}]}
   dragSrc:          null,      // {type:'palette', plugin:''}
   get model() { return this.graphs[this.activeGraph] || this.graphs[0]; },
 };
@@ -1205,11 +1206,22 @@ function initCanvasEvents() {
   // Re-fit the layout on every window resize so the page never scrolls.
   window.addEventListener('resize', fitVisualEditor);
 
-  // Escape clears multi-selection.
+  // Keyboard shortcuts: Escape clears multi-selection; Cmd/Ctrl+C copies;
+  // Cmd/Ctrl+V pastes. Shortcuts are suppressed when focus is in a text field.
   window.addEventListener('keydown', e => {
-    if (e.key === 'Escape' && ve.selectedNodeIds.size > 0) {
+    const inInput = ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName) ||
+                    e.target.isContentEditable;
+    if (e.key === 'Escape' && ve.selectedNodeIds.size > 0 && !inInput) {
       clearMultiSelect();
       renderParamPanel();
+    }
+    if ((e.metaKey || e.ctrlKey) && e.key === 'c' && !inInput) {
+      e.preventDefault();
+      copySelected();
+    }
+    if ((e.metaKey || e.ctrlKey) && e.key === 'v' && !inInput) {
+      e.preventDefault();
+      pasteClipboard();
     }
   });
 
@@ -2172,6 +2184,128 @@ function topoSortNodes(nodes) {
   }
 
   return result;
+}
+
+// ── Copy / Paste ───────────────────────────────────────────────────────────────
+
+// copySelected copies the current single-selection or multi-selection to
+// ve.clipboard. Sub-nodes (search/list) are excluded; internal edges between
+// copied nodes are preserved so pasting a group reconnects them automatically.
+function copySelected() {
+  const ids = ve.selectedNodeIds.size > 0
+    ? [...ve.selectedNodeIds]
+    : ve.selectedNodeId ? [ve.selectedNodeId] : [];
+  if (!ids.length) return;
+
+  const nodes = ids.map(findNode).filter(n => n && !n.isSearchNode && !n.isListNode);
+  if (!nodes.length) return;
+
+  // Store positions relative to the group centroid so paste can reconstruct layout.
+  const cx = nodes.reduce((s, n) => s + (n.x ?? 0), 0) / nodes.length;
+  const cy = nodes.reduce((s, n) => s + (n.y ?? 0), 0) / nodes.length;
+
+  const idSet = new Set(ids);
+  const edges = [];
+  for (const n of nodes) {
+    for (const up of (n.upstreams || [])) {
+      if (idSet.has(up)) edges.push({from: up, to: n.id});
+    }
+  }
+
+  ve.clipboard = {
+    nodes: nodes.map(n => ({
+      plugin:         n.plugin,
+      config:         JSON.parse(JSON.stringify(n.config || {})),
+      comment:        n.comment || '',
+      isFunctionCall: !!n.isFunctionCall,
+      origId:         n.id,
+      relX:           (n.x ?? 0) - cx,
+      relY:           (n.y ?? 0) - cy,
+    })),
+    edges,
+  };
+
+  updatePasteButton();
+  const count = ve.clipboard.nodes.length;
+  setSyncNote(`Copied ${count} node${count !== 1 ? 's' : ''}`);
+  setTimeout(() => setSyncNote(ve.graphs.length > 1 ? `Showing ${ve.graphs.length} pipelines` : ''), 1500);
+}
+
+// pasteClipboard inserts copies of the clipboard nodes into the active pipeline.
+// Each node gets a fresh ID; internal connections are re-wired; external
+// upstreams are left empty for the user to connect. Works across pipelines.
+function pasteClipboard() {
+  if (!ve.clipboard?.nodes?.length) return;
+  const g = activeG();
+  if (!g) return;
+
+  // Place pasted nodes centred on the visible viewport, offset slightly so
+  // repeated pastes don't stack exactly on top of each other.
+  const body  = document.getElementById('ve-canvas-body');
+  const PASTE_OFFSET = 40;
+  const baseX = body ? Math.max(20, body.scrollLeft / ve_zoom + body.clientWidth  / ve_zoom / 2) + PASTE_OFFSET : 200;
+  const baseY = body ? Math.max(20, body.scrollTop  / ve_zoom + body.clientHeight / ve_zoom / 2) + PASTE_OFFSET : 200;
+
+  const idMap  = {};  // origId → newId
+  const newIds = [];
+
+  for (const entry of ve.clipboard.nodes) {
+    const newId = genId(entry.plugin);
+    idMap[entry.origId] = newId;
+    newIds.push(newId);
+
+    const node = {
+      id:            newId,
+      plugin:        entry.plugin,
+      config:        JSON.parse(JSON.stringify(entry.config)),
+      comment:       entry.comment,
+      upstreams:     [],
+      searchNodeIds: [],
+      listNodeIds:   [],
+      x: baseX + entry.relX,
+      y: baseY + entry.relY,
+    };
+    if (entry.isFunctionCall) {
+      node.isFunctionCall  = true;
+      node.funcCallKey     = newId;
+      node.internalNodeIds = [];
+      node.returnNodeId    = '';
+    }
+    g.nodes.push(node);
+  }
+
+  // Reconnect internal edges using the new IDs.
+  for (const {from, to} of (ve.clipboard.edges || [])) {
+    const newTo   = idMap[to];
+    const newFrom = idMap[from];
+    if (!newTo || !newFrom) continue;
+    const node = g.nodes.find(n => n.id === newTo);
+    if (node) node.upstreams.push(newFrom);
+  }
+
+  // Select the newly pasted nodes.
+  clearMultiSelect();
+  if (newIds.length === 1) {
+    ve.selectedNodeId = newIds[0];
+  } else {
+    for (const id of newIds) ve.selectedNodeIds.add(id);
+    updateExtractButton();
+  }
+
+  veRender();
+  onModelChange();
+}
+
+function updatePasteButton() {
+  const btn = document.getElementById('ve-paste-btn');
+  if (!btn) return;
+  if (!ve.clipboard?.nodes?.length) {
+    btn.style.display = 'none';
+    return;
+  }
+  const n = ve.clipboard.nodes.length;
+  btn.textContent  = `Paste (${n} node${n !== 1 ? 's' : ''})`;
+  btn.style.display = '';
 }
 
 // ── Extract to function ────────────────────────────────────────────────────────
