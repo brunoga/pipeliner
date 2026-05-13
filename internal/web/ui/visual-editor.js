@@ -1706,6 +1706,11 @@ function renderParamPanel() {
       `<div style="font-size:11px;color:var(--muted);margin-bottom:6px">List source for <b>${esc(parentName)}</b></div>`,
       `<button class="ve-remove-btn" onclick="disconnectList(${esc(JSON.stringify(node.listParentId))},${esc(JSON.stringify(node.id))})">Disconnect from list</button>`,
     ].join('');
+  } else if (node.isFunctionCall) {
+    footer.innerHTML = [
+      `<button class="ve-remove-btn" onclick="ve.selectedNodeId && removeNode(ve.selectedNodeId)">Remove call</button>`,
+      `<button class="ve-remove-btn" style="margin-left:6px" onclick="removeFunctionDef(${esc(JSON.stringify(node.plugin))})">Remove function…</button>`,
+    ].join('');
   } else {
     footer.innerHTML = `<button class="ve-remove-btn" onclick="ve.selectedNodeId && removeNode(ve.selectedNodeId)">Remove node</button>`;
   }
@@ -2608,6 +2613,40 @@ function performExtraction(funcName, params, validation, graphIdx) {
 
   clearMultiSelect();
   ve.selectedNodeId = callNodeId;
+  // Force a full palette re-render so the new function appears immediately in
+  // the Functions section (syncPaletteState only re-renders on disabled state
+  // change, so veRender() alone won't update the palette for a new function).
+  renderPalette(document.getElementById('ve-search')?.value ?? '');
+  veRender();
+  onModelChange();
+}
+
+// removeFunctionDef removes a user function definition and all nodes that call
+// it from every pipeline, after asking for confirmation.
+function removeFunctionDef(funcName) {
+  const usedIn = [];
+  for (const g of ve.graphs) {
+    const count = g.nodes.filter(n => n.isFunctionCall && n.plugin === funcName).length;
+    if (count) usedIn.push(`"${g.name}" (${count} use${count !== 1 ? 's' : ''})`);
+  }
+  const usageNote = usedIn.length
+    ? `\n\nIt is used in: ${usedIn.join(', ')}. Those call nodes will also be removed.`
+    : '';
+  if (!confirm(`Remove function "${funcName}"?${usageNote}`)) return;
+
+  delete ve.userFunctions[funcName];
+  for (const g of ve.graphs) {
+    const removedIds = new Set(
+      g.nodes.filter(n => n.isFunctionCall && n.plugin === funcName).map(n => n.id)
+    );
+    // Remove dangling upstreams pointing to the removed call nodes.
+    for (const n of g.nodes) {
+      n.upstreams = (n.upstreams || []).filter(u => !removedIds.has(u));
+    }
+    g.nodes = g.nodes.filter(n => !removedIds.has(n.id));
+  }
+  if (ve.selectedNodeId && !findNode(ve.selectedNodeId)) ve.selectedNodeId = null;
+  renderPalette(document.getElementById('ve-search')?.value ?? '');
   veRender();
   onModelChange();
 }
