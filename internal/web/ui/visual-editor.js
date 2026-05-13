@@ -1862,10 +1862,11 @@ function renderField(f, config) {
   const val = config[f.key];
   let widget = '';
   switch (f.type) {
-    case 'bool':
-      widget = `<label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-        <input type="checkbox" data-field="${f.key}" ${val ? 'checked' : ''}> ${val ? 'true' : 'false'}</label>`;
+    case 'bool': {
+      const checked = val != null ? val : (f.default ?? false);
+      widget = `<input type="checkbox" data-field="${f.key}" ${checked ? 'checked' : ''}>`;
       break;
+    }
     case 'int':
       widget = `<input type="number" data-field="${f.key}" value="${val ?? (f.default ?? '')}" placeholder="${f.default ?? ''}">`;
       break;
@@ -1895,7 +1896,7 @@ function collectParams(node, schema, body) {
   for (const f of schema) {
     const el = body.querySelector(`[data-field="${f.key}"]`);
     if (!el) continue;
-    if (f.type === 'bool')     node.config[f.key] = el.querySelector('input[type=checkbox]')?.checked ?? el.checked;
+    if (f.type === 'bool')     node.config[f.key] = el.checked;
     else if (f.type === 'int') { const v=parseInt(el.value,10); if(!isNaN(v)) node.config[f.key]=v; else delete node.config[f.key]; }
     else if (f.type !== 'list') { if(el.value!=='') node.config[f.key]=el.value; else delete node.config[f.key]; }
   }
