@@ -1,6 +1,6 @@
 # Processor plugins (`plugins/processor/`)
 
-Processor plugins transform entries. Use them with `process("plugin-name", from_=…)`.
+Processor plugins transform entries. Use them with `process("plugin-name", upstream=…)`.
 They filter, enrich, or mutate entries and return what should continue downstream.
 
 ## Sub-directories

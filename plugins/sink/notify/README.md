@@ -16,7 +16,7 @@ Additional keys are passed through to the chosen notifier. See [`notify/email`](
 ## Example
 
 ```python
-output("notify", from_=ready,
+output("notify", upstream=ready,
        via="webhook", url=env("DISCORD_WEBHOOK"))
 ```
 

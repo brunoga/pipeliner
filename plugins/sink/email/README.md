@@ -22,7 +22,7 @@ Sends an email for each batch of accepted entries via SMTP. Subject and body are
 ## Example
 
 ```python
-output("email", from_=ready,
+output("email", upstream=ready,
        smtp_host="smtp.gmail.com", smtp_port=587,
        **{"from": "me@gmail.com"}, to="me@gmail.com",
        subject="{{len .Entries}} new item(s)")

@@ -12,8 +12,8 @@ Prints each accepted entry to stdout. Useful for debugging pipelines or as a dry
 
 ```python
 src = input("rss", url="https://example.com/rss")
-acc = process("accept_all", from_=src)
-output("print", from_=acc)
+acc = process("accept_all", upstream=src)
+output("print", upstream=acc)
 pipeline("debug")
 ```
 

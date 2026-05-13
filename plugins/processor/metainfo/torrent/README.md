@@ -42,7 +42,7 @@ Entries with `torrent_link_type = "magnet"` are always skipped (handled by `meta
 
 ```python
 src  = input("filesystem", path="/downloads/watch", mask="*.torrent")
-meta = process("metainfo_torrent", from_=src)
-output("transmission", from_=meta, host="localhost")
+meta = process("metainfo_torrent", upstream=src)
+output("transmission", upstream=meta, host="localhost")
 pipeline("watch-folder", schedule="5m")
 ```

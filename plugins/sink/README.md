@@ -1,6 +1,6 @@
 # Sink plugins (`plugins/sink/`)
 
-Sink plugins act on accepted entries. Use them with `output("plugin-name", from_=…)`.
+Sink plugins act on accepted entries. Use them with `output("plugin-name", upstream=…)`.
 Call `output()` multiple times from the same upstream node for fan-out.
 
 | Plugin | Description |

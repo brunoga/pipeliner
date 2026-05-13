@@ -56,7 +56,7 @@ src = input("jackett_input",
     api_key=env("JACKETT_KEY"),
     categories=["5040", "5045"],
 )
-output("print", from_=src)
+output("print", upstream=src)
 pipeline("jackett-feed", schedule="1h")
 ```
 

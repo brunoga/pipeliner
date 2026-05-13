@@ -29,7 +29,7 @@ The plugin fails at startup if none is found.
 ## Example
 
 ```python
-output("decompress", from_=ready, to="/media/extracted")
+output("decompress", upstream=ready, to="/media/extracted")
 ```
 
 ## DAG role

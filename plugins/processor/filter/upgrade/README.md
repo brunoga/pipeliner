@@ -21,9 +21,9 @@ used. Run a series metainfo plugin before this filter to ensure stable keys.
 
 ```python
 src  = input("rss", url="https://example.com/rss")
-q    = process("metainfo_quality", from_=src)
-up   = process("upgrade", from_=q, target="1080p")
-output("transmission", from_=up, host="localhost")
+q    = process("metainfo_quality", upstream=src)
+up   = process("upgrade", upstream=q, target="1080p")
+output("transmission", upstream=up, host="localhost")
 pipeline("upgrade-quality")
 ```
 

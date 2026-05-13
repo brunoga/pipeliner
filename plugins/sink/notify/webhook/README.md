@@ -24,5 +24,5 @@ POSTs a JSON payload to an HTTP endpoint. Used via the [`notify` output plugin](
 ## Example
 
 ```python
-output("notify", from_=ready, via="webhook", url=env("WEBHOOK_URL"))
+output("notify", upstream=ready, via="webhook", url=env("WEBHOOK_URL"))
 ```

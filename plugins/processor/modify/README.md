@@ -1,6 +1,6 @@
 # Modify processors (`plugins/processor/modify/`)
 
-Modify processors mutate entry fields. Use them with `process("plugin-name", from_=…)`.
+Modify processors mutate entry fields. Use them with `process("plugin-name", upstream=…)`.
 
 | Plugin | Description |
 |--------|-------------|

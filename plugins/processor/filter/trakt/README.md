@@ -41,9 +41,9 @@ plugin("trakt",
 
 ```python
 src = input("rss", url="https://example.com/rss")
-flt = process("trakt", from_=src,
+flt = process("trakt", upstream=src,
               client_id=env("TRAKT_ID"), type="shows")
-output("transmission", from_=flt, host="localhost")
+output("transmission", upstream=flt, host="localhost")
 pipeline("trakt-filtered")
 ```
 

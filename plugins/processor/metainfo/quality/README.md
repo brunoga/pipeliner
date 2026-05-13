@@ -40,7 +40,7 @@ Parses video quality tags from the entry title and annotates the entry with stru
 
 ```python
 src     = input("rss", url="https://example.com/feed")
-quality = process("metainfo_quality", from_=src)
-output("print", from_=quality)
+quality = process("metainfo_quality", upstream=src)
+output("print", upstream=quality)
 pipeline("my-pipeline", schedule="1h")
 ```

@@ -22,7 +22,7 @@ If login fails or a torrent cannot be added, the affected entry is marked failed
 ## Example
 
 ```python
-output("qbittorrent", from_=ready,
+output("qbittorrent", upstream=ready,
        host="localhost", savepath="{download_path}")
 ```
 

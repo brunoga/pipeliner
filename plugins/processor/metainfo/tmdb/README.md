@@ -54,10 +54,10 @@ Enriches movie entries with metadata from The Movie Database (TMDb). Searches by
 
 ```python
 src  = input("rss", url="https://example.com/feed")
-flt  = process("movies", from_=src, static=["Inception"])
-meta = process("metainfo_tmdb", from_=flt, api_key=env("TMDB_KEY"))
-fmt  = process("pathfmt", from_=meta, path="/media/movies/{title} ({video_year})", field="download_path")
-output("qbittorrent", from_=fmt, host="localhost")
+flt  = process("movies", upstream=src, static=["Inception"])
+meta = process("metainfo_tmdb", upstream=flt, api_key=env("TMDB_KEY"))
+fmt  = process("pathfmt", upstream=meta, path="/media/movies/{title} ({video_year})", field="download_path")
+output("qbittorrent", upstream=fmt, host="localhost")
 pipeline("movies", schedule="1h")
 ```
 

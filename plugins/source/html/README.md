@@ -27,6 +27,6 @@ Scrapes all `<a href>` links from an HTML page and emits one entry per link. Opt
 
 ```python
 src = input("html", url="https://example.com/downloads", mask="*.torrent")
-output("print", from_=src)
+output("print", upstream=src)
 pipeline("my-pipeline", schedule="1h")
 ```

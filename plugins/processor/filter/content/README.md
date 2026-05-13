@@ -24,8 +24,8 @@ both the full path and the filename component (`path.Base`).
 ## Example
 
 ```python
-meta = process("metainfo_torrent", from_=upstream)
-flt  = process("content", from_=meta,
+meta = process("metainfo_torrent", upstream=upstream)
+flt  = process("content", upstream=meta,
                reject=["*.exe", "*.rar"], require=["*.mkv"])
 ```
 

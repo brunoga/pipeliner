@@ -16,9 +16,9 @@ Rejects entries already processed in a previous run. Computes a SHA-256 fingerpr
 
 ```python
 src  = input("rss", url="https://example.com/rss")
-seen = process("seen", from_=src)
-acc  = process("regexp", from_=seen, accept=[".+"])
-output("transmission", from_=acc, host="localhost")
+seen = process("seen", upstream=src)
+acc  = process("regexp", upstream=seen, accept=[".+"])
+output("transmission", upstream=acc, host="localhost")
 pipeline("news", schedule="1h")
 ```
 

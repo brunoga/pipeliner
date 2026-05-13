@@ -46,11 +46,11 @@ DHT resolution fields are absent when the timeout expires before peers respond. 
 
 ```python
 src     = input("rss", url="https://example.com/rss/magnets")
-seen    = process("seen", from_=src)
-magnet  = process("metainfo_magnet", from_=seen, resolve_timeout="45s")
-quality = process("metainfo_quality", from_=magnet)
-flt     = process("quality", from_=quality, min="720p")
-output("qbittorrent", from_=flt, host="localhost")
+seen    = process("seen", upstream=src)
+magnet  = process("metainfo_magnet", upstream=seen, resolve_timeout="45s")
+quality = process("metainfo_quality", upstream=magnet)
+flt     = process("quality", upstream=quality, min="720p")
+output("qbittorrent", upstream=flt, host="localhost")
 pipeline("magnets", schedule="1h")
 ```
 

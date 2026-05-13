@@ -33,10 +33,10 @@ process("dedup")
 
 ```python
 src    = input("rss", url="https://example.com/rss")
-seen   = process("seen",   from_=src)
-series = process("series", from_=seen, static=["Breaking Bad"])
-q      = process("metainfo_quality", from_=series)
-dd     = process("dedup",  from_=q)
-output("transmission", from_=dd, host="localhost")
+seen   = process("seen",   upstream=src)
+series = process("series", upstream=seen, static=["Breaking Bad"])
+q      = process("metainfo_quality", upstream=series)
+dd     = process("dedup",  upstream=q)
+output("transmission", upstream=dd, host="localhost")
 pipeline("tv", schedule="30m")
 ```

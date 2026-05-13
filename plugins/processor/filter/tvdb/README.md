@@ -15,9 +15,9 @@ Accepts series entries whose parsed show name fuzzy-matches a show in the user's
 
 ```python
 src = input("rss", url="https://example.com/rss")
-flt = process("tvdb", from_=src,
+flt = process("tvdb", upstream=src,
               api_key=env("TVDB_KEY"), user_pin=env("TVDB_PIN"))
-output("transmission", from_=flt, host="localhost")
+output("transmission", upstream=flt, host="localhost")
 pipeline("tvdb-filtered")
 ```
 

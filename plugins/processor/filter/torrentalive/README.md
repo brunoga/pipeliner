@@ -33,9 +33,9 @@ plugin("torrent_alive",
 
 ```python
 src   = input("rss", url="https://example.com/rss")
-alive = process("torrent_alive", from_=src, min_seeds=3)
-acc   = process("accept_all", from_=alive)
-output("transmission", from_=acc, host="localhost")
+alive = process("torrent_alive", upstream=src, min_seeds=3)
+acc   = process("accept_all", upstream=alive)
+output("transmission", upstream=acc, host="localhost")
 pipeline("seeded-only")
 ```
 
