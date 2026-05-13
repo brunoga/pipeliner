@@ -44,6 +44,9 @@ func init() {
 			entry.FieldVideoVotes,
 			"tmdb_id",
 		},
+		// trakt_tmdb_id and trakt_year are consumed when present but are not
+		// required — omitting Requires so DAG validation doesn't reject configs
+		// that don't have a trakt_list upstream.
 		Factory:  newPlugin,
 		Validate: validate,
 		Schema: []plugin.FieldSchema{
@@ -66,8 +69,9 @@ func validate(cfg map[string]any) []error {
 }
 
 type tmdbPlugin struct {
-	client *itmdb.Client
-	cache  *cache.Cache[[]itmdb.Movie]
+	client      *itmdb.Client
+	cache       *cache.Cache[[]itmdb.Movie]        // search results by "title:year"
+	detailCache *cache.Cache[*itmdb.MovieDetail]   // full detail by "detail:<id>"
 }
 
 func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
@@ -86,12 +90,13 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 	}
 
 	return &tmdbPlugin{
-		client: itmdb.New(apiKey),
-		cache:  cache.NewPersistent[[]itmdb.Movie](ttl, db.Bucket("cache_metainfo_tmdb")),
+		client:      itmdb.New(apiKey),
+		cache:       cache.NewPersistent[[]itmdb.Movie](ttl, db.Bucket("cache_metainfo_tmdb")),
+		detailCache: cache.NewPersistent[*itmdb.MovieDetail](ttl, db.Bucket("cache_metainfo_tmdb_detail")),
 	}, nil
 }
 
-func (p *tmdbPlugin) Name() string        { return "metainfo_tmdb" }
+func (p *tmdbPlugin) Name() string { return "metainfo_tmdb" }
 
 func (p *tmdbPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
 	// Fast path: if a Trakt (or other) TMDB ID is already on the entry, fetch
@@ -164,91 +169,36 @@ func (p *tmdbPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 		return nil
 	}
 
-	// Use the first (most popular) result.
 	r := results[0]
 	e.Set("tmdb_id", r.ID)
 
-	mi := entry.MovieInfo{}
-	mi.Enriched = true
-	mi.Title = r.Title
-	mi.Description = r.Overview
-	mi.PublishedDate = r.ReleaseDate
-	mi.Rating = r.VoteAverage
-	mi.Popularity = r.Popularity
-	if r.OrigTitle != r.Title {
-		mi.OriginalTitle = r.OrigTitle
-	}
-	if len(r.ReleaseDate) >= 4 {
-		if y, err := strconv.Atoi(r.ReleaseDate[:4]); err == nil {
-			mi.Year = y
-		}
-	}
-
-	if r.PosterPath != "" {
-		mi.Poster = itmdb.ImageBaseURL + r.PosterPath
-	}
-	mi.Votes = r.VoteCount
-
-	// Fetch extended detail for genres, runtime, tagline, imdb_id, cast,
-	// trailers, content rating, language, and country.
-	detail, err := p.client.GetMovie(ctx, r.ID)
+	detail, err := p.fetchDetail(ctx, r.ID)
 	if err != nil {
 		tc.Logger.Warn("metainfo_tmdb: detail fetch failed", "id", r.ID, "err", err)
+		// Populate with the partial info we already have from the search result.
+		var mi entry.MovieInfo
+		mi.Enriched = true
+		mi.Title = r.Title
+		mi.Description = r.Overview
+		mi.PublishedDate = r.ReleaseDate
+		mi.Rating = r.VoteAverage
+		mi.Popularity = r.Popularity
+		mi.Votes = r.VoteCount
+		if r.OrigTitle != r.Title {
+			mi.OriginalTitle = r.OrigTitle
+		}
+		if len(r.ReleaseDate) >= 4 {
+			if y, err2 := strconv.Atoi(r.ReleaseDate[:4]); err2 == nil {
+				mi.Year = y
+			}
+		}
+		if r.PosterPath != "" {
+			mi.Poster = itmdb.ImageBaseURL + r.PosterPath
+		}
 		e.SetMovieInfo(mi)
 		return nil
 	}
-
-	genres := make([]string, len(detail.Genres))
-	for i, g := range detail.Genres {
-		genres[i] = g.Name
-	}
-	mi.Runtime = detail.Runtime
-	mi.Tagline = detail.Tagline
-	mi.ImdbID = detail.ImdbID
-	mi.Genres = genres
-	mi.Language = iso639_1Name(detail.OriginalLanguage)
-	if len(detail.ProductionCountries) > 0 {
-		mi.Country = detail.ProductionCountries[0].Name
-	}
-
-	// Cast: top 10 actors in billing order.
-	for i, c := range detail.Credits.Cast {
-		if i >= 10 {
-			break
-		}
-		if c.Name != "" {
-			mi.Cast = append(mi.Cast, c.Name)
-		}
-	}
-
-	// Trailers: YouTube only.
-	for _, v := range detail.Videos.Results {
-		if v.Site == "YouTube" && v.Type == "Trailer" && v.Key != "" {
-			mi.Trailers = append(mi.Trailers, "https://www.youtube.com/watch?v="+v.Key)
-		}
-	}
-
-	// Alternative titles.
-	for _, t := range detail.AlternativeTitles.Titles {
-		if t.Title != "" {
-			mi.Aliases = append(mi.Aliases, t.Title)
-		}
-	}
-
-	// Content rating: first certification found for the US.
-	for _, cr := range detail.ReleaseDates.Results {
-		if cr.ISO == "US" {
-			for _, rd := range cr.Dates {
-				if rd.Certification != "" {
-					mi.ContentRating = rd.Certification
-					break
-				}
-			}
-			break
-		}
-	}
-
-	e.SetMovieInfo(mi)
+	populateFromDetail(e, detail)
 	return nil
 }
 
@@ -256,15 +206,34 @@ func (p *tmdbPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 // step. Used when the entry already carries a trakt_tmdb_id so we never risk
 // picking the wrong film due to title ambiguity or popularity ranking.
 func (p *tmdbPlugin) annotateByID(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry, id int) error {
-	detail, err := p.client.GetMovie(ctx, id)
+	detail, err := p.fetchDetail(ctx, id)
 	if err != nil {
 		tc.Logger.Warn("metainfo_tmdb: fetch by id failed", "id", id, "err", err)
 		return nil
 	}
-
 	e.Set("tmdb_id", detail.ID)
+	populateFromDetail(e, detail)
+	return nil
+}
 
-	mi := entry.MovieInfo{}
+// fetchDetail returns the full TMDb movie detail, using the detail cache to
+// avoid a network round-trip when the same ID was already fetched this cycle.
+func (p *tmdbPlugin) fetchDetail(ctx context.Context, id int) (*itmdb.MovieDetail, error) {
+	key := fmt.Sprintf("detail:%d", id)
+	if detail, ok := p.detailCache.Get(key); ok {
+		return detail, nil
+	}
+	detail, err := p.client.GetMovie(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	p.detailCache.Set(key, detail)
+	return detail, nil
+}
+
+// populateFromDetail fills MovieInfo on e from a fully-fetched TMDb detail response.
+func populateFromDetail(e *entry.Entry, detail *itmdb.MovieDetail) {
+	var mi entry.MovieInfo
 	mi.Enriched = true
 	mi.Title = detail.Title
 	mi.Description = detail.Overview
@@ -325,9 +294,7 @@ func (p *tmdbPlugin) annotateByID(ctx context.Context, tc *plugin.TaskContext, e
 			break
 		}
 	}
-
 	e.SetMovieInfo(mi)
-	return nil
 }
 
 func (p *tmdbPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
