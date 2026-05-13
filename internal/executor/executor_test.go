@@ -2,6 +2,7 @@ package executor_test
 
 import (
 	"context"
+	"log/slog"
 	"testing"
 
 	"github.com/brunoga/pipeliner/internal/dag"
@@ -392,5 +393,111 @@ func TestExecutor_CommitPlugin_ContextCancelled(t *testing.T) {
 	// Commit should not have been called (context cancelled before commit phase).
 	if len(proc.committed) != 0 {
 		t.Errorf("want 0 committed entries when context is cancelled, got %d", len(proc.committed))
+	}
+}
+
+// --- logging tests ---
+
+// logSink captures slog records for inspection.
+type logSink struct {
+	records []slog.Record
+}
+
+func (s *logSink) Enabled(_ context.Context, _ slog.Level) bool { return true }
+func (s *logSink) Handle(_ context.Context, r slog.Record) error {
+	s.records = append(s.records, r)
+	return nil
+}
+func (s *logSink) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return s // simplified: don't need attribute inheritance for these tests
+}
+func (s *logSink) WithGroup(name string) slog.Handler { return s }
+
+func (s *logSink) has(level slog.Level, msg string) bool {
+	for _, r := range s.records {
+		if r.Level == level && r.Message == msg {
+			return true
+		}
+	}
+	return false
+}
+
+// rejectPlugin rejects every entry.
+type rejectPlugin struct{}
+
+func (p *rejectPlugin) Name() string { return "test_reject" }
+func (p *rejectPlugin) Process(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
+	for _, e := range entries {
+		e.Reject("test rejection reason")
+	}
+	return nil, nil
+}
+
+func rejectDesc() *plugin.Descriptor {
+	return &plugin.Descriptor{PluginName: "test_reject", Role: plugin.RoleProcessor}
+}
+
+func TestExecutor_LogsRejectedEntry(t *testing.T) {
+	sink := &logSink{}
+	logger := slog.New(sink)
+
+	src := &sourcePlugin{urls: []string{"http://a.com"}}
+	rej := &rejectPlugin{}
+
+	g := dag.New()
+	nodes := []*dag.Node{
+		{ID: "src", PluginName: "test_source"},
+		{ID: "rej", PluginName: "test_reject", Upstreams: []dag.NodeID{"src"}},
+	}
+	for _, n := range nodes {
+		if err := g.AddNode(n); err != nil {
+			t.Fatal(err)
+		}
+	}
+	plugins := map[dag.NodeID]*executor.PluginInstance{
+		"src": {Desc: sourceDesc(), Impl: src, Config: map[string]any{}},
+		"rej": {Desc: rejectDesc(), Impl: rej, Config: map[string]any{}},
+	}
+	ex := executor.New("test", g, plugins, nil, logger, false)
+	if _, err := ex.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	if !sink.has(slog.LevelDebug, "entry rejected") {
+		t.Error("expected Debug 'entry rejected' log line for rejected entry")
+	}
+}
+
+func TestExecutor_LogsAcceptedEntryAtSink(t *testing.T) {
+	sink := &logSink{}
+	logger := slog.New(sink)
+
+	src := &sourcePlugin{urls: []string{"http://a.com"}}
+	acc := &acceptAllPlugin{}
+	sk := &sinkPlugin{}
+
+	g := dag.New()
+	nodes := []*dag.Node{
+		{ID: "src", PluginName: "test_source"},
+		{ID: "acc", PluginName: "test_accept", Upstreams: []dag.NodeID{"src"}},
+		{ID: "sk", PluginName: "test_sink", Upstreams: []dag.NodeID{"acc"}},
+	}
+	for _, n := range nodes {
+		if err := g.AddNode(n); err != nil {
+			t.Fatal(err)
+		}
+	}
+	plugins := map[dag.NodeID]*executor.PluginInstance{
+		"src": {Desc: sourceDesc(), Impl: src, Config: map[string]any{}},
+		"acc": {Desc: processorDesc(), Impl: acc, Config: map[string]any{}},
+		"sk":  {Desc: sinkDesc(), Impl: sk, Config: map[string]any{}},
+	}
+	ex := executor.New("test", g, plugins, nil, logger, false)
+	if _, err := ex.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	if !sink.has(slog.LevelInfo, "entry accepted") {
+		t.Error("expected Info 'entry accepted' log line for entry reaching sink")
 	}
 }
