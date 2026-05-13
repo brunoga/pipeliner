@@ -47,6 +47,6 @@ Fetches entries from an RSS 2.0 or Atom 1.0 feed. Prefers enclosure URLs (torren
 
 ```python
 src = input("rss", url="https://example.com/torrents/rss")
-output("print", from_=src)
+output("print", upstream=src)
 pipeline("my-pipeline", schedule="1h")
 ```

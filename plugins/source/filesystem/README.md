@@ -33,7 +33,7 @@ Walks a local directory and emits one entry per file. Entry URLs use the `file:/
 
 ```python
 src   = input("filesystem", path="/downloads/watch", mask="*.torrent")
-meta  = process("metainfo_torrent", from_=src)
-output("transmission", from_=meta, host="localhost")
+meta  = process("metainfo_torrent", upstream=src)
+output("transmission", upstream=meta, host="localhost")
 pipeline("watch-folder", schedule="5m")
 ```

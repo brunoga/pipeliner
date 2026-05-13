@@ -19,7 +19,7 @@ If login fails or a torrent cannot be added, the affected entry is marked failed
 ## Example
 
 ```python
-output("deluge", from_=ready,
+output("deluge", upstream=ready,
        host="localhost", password=env("DELUGE_PASS"),
        move_completed_path="{download_path}")
 ```

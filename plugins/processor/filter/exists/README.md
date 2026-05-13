@@ -12,7 +12,7 @@ Rejects entries whose target file already exists on disk. Compares normalized fi
 ## Example
 
 ```python
-flt = process("exists", from_=upstream,
+flt = process("exists", upstream=upstream,
               path="/media/tv", recursive=True)
 ```
 

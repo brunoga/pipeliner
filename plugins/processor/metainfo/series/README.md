@@ -28,7 +28,7 @@ Parses series and episode information from the entry title. Takes no config.
 
 ```python
 src    = input("rss", url="https://example.com/feed")
-meta   = process("metainfo_series", from_=src)
-output("print", from_=meta)
+meta   = process("metainfo_series", upstream=src)
+output("print", upstream=meta)
 pipeline("my-pipeline", schedule="1h")
 ```

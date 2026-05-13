@@ -63,10 +63,10 @@ Detected tokens:
 
 ```python
 src = input("rss", url="https://example.com/rss")
-q   = process("metainfo_quality", from_=src)
-flt = process("quality", from_=q, min="720p")
-acc = process("accept_all", from_=flt)
-output("transmission", from_=acc, host="localhost")
+q   = process("metainfo_quality", upstream=src)
+flt = process("quality", upstream=q, min="720p")
+acc = process("accept_all", upstream=flt)
+output("transmission", upstream=acc, host="localhost")
 pipeline("hd-only")
 ```
 

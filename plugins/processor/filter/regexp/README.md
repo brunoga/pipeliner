@@ -16,11 +16,11 @@ At least one of `accept` or `reject` is required.
 
 ```python
 src = input("rss", url="https://example.com/rss")
-flt = process("regexp", from_=src,
+flt = process("regexp", upstream=src,
               accept=["(?i)golang", "(?i)kubernetes"],
               reject=["(?i)sponsored"])
-acc = process("accept_all", from_=flt)
-output("email", from_=acc, smtp_host="smtp.example.com",
+acc = process("accept_all", upstream=flt)
+output("email", upstream=acc, smtp_host="smtp.example.com",
        **{"from": "me@example.com"}, to="me@example.com")
 pipeline("tech-news", schedule="1h")
 ```

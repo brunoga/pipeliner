@@ -22,7 +22,7 @@ plugin("accept_all")
 
 ```python
 src = input("rss", url="https://example.com/rss")
-acc = process("accept_all", from_=src)
-output("list_add", from_=acc, list="watchlist")
+acc = process("accept_all", upstream=src)
+output("list_add", upstream=acc, list="watchlist")
 pipeline("sync-list", schedule="1h")
 ```

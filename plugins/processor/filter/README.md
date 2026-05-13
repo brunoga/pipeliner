@@ -1,6 +1,6 @@
 # Filter processors (`plugins/processor/filter/`)
 
-Filter processors accept or reject entries. Use them with `process("plugin-name", from_=…)`.
+Filter processors accept or reject entries. Use them with `process("plugin-name", upstream=…)`.
 
 | Plugin | Description |
 |--------|-------------|

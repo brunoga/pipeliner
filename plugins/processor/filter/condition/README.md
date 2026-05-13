@@ -73,12 +73,12 @@ reason="condition: tvdb_genres contains \"Documentary\""
 
 ```python
 src  = input("rss", url="https://example.com/rss")
-meta = process("metainfo_tvdb", from_=src, api_key=env("TVDB_KEY"))
-cond = process("condition", from_=meta, rules=[
+meta = process("metainfo_tvdb", upstream=src, api_key=env("TVDB_KEY"))
+cond = process("condition", upstream=meta, rules=[
     {"reject": 'video_language != "" and video_language != "English"'},
     {"accept": "video_rating >= 7.0"},
 ])
-output("transmission", from_=cond, host="localhost")
+output("transmission", upstream=cond, host="localhost")
 pipeline("filtered", schedule="1h")
 ```
 

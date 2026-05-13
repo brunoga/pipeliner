@@ -1,6 +1,6 @@
 # Metainfo processors (`plugins/processor/metainfo/`)
 
-Metainfo processors enrich entries with extra fields. Use them with `process("plugin-name", from_=…)`.
+Metainfo processors enrich entries with extra fields. Use them with `process("plugin-name", upstream=…)`.
 Place each before any filter that reads the fields it produces.
 
 | Plugin | Description |

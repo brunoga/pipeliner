@@ -10,8 +10,8 @@ Any key-value pairs. Values are Go template strings.
 
 ```python
 src    = input("rss", url="https://example.com/rss")
-tagged = process("set", from_=src, category="tv")
-output("print", from_=tagged)
+tagged = process("set", upstream=src, category="tv")
+output("print", upstream=tagged)
 pipeline("tagged-feed")
 ```
 

@@ -24,7 +24,7 @@ If the download fails (network error, non-200 response, disk error), the entry i
 ## Example
 
 ```python
-output("download", from_=ready, path="/downloads")
+output("download", upstream=ready, path="/downloads")
 ```
 
 ## DAG role

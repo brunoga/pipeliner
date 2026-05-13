@@ -11,12 +11,12 @@ Runs a shell command for each accepted entry. The command is a Go template rende
 ## Example
 
 ```python
-output("exec", from_=ready,
+output("exec", upstream=ready,
        command='notify-send "New" "{{.Title}}"' )
 ```
 
 ```python
-output("exec", from_=ready,
+output("exec", upstream=ready,
        command='notify-send "New" "{{.Title}}"' )
 ```
 

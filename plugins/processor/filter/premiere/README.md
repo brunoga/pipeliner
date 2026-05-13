@@ -30,9 +30,9 @@ See [`quality`](../quality/README.md) for the spec syntax.
 
 ```python
 src  = input("rss", url="https://example.com/rss")
-seen = process("seen",     from_=src)
-prem = process("premiere", from_=seen, quality="720p+ webrip+")
-output("transmission", from_=prem, host="localhost")
+seen = process("seen",     upstream=src)
+prem = process("premiere", upstream=seen, quality="720p+ webrip+")
+output("transmission", upstream=prem, host="localhost")
 pipeline("new-shows", schedule="1h")
 ```
 

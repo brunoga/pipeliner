@@ -77,9 +77,9 @@ src     = input("jackett",
     api_key=env("JACKETT_KEY"),
     categories=["5040", "5045"],
 )
-quality = process("metainfo_quality", from_=src)
-filtered = process("quality", from_=quality, min="720p")
-output("transmission", from_=filtered, host="localhost")
+quality = process("metainfo_quality", upstream=src)
+filtered = process("quality", upstream=quality, min="720p")
+output("transmission", upstream=filtered, host="localhost")
 pipeline("jackett-tv", schedule="1h")
 ```
 
