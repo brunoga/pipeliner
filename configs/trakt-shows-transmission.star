@@ -26,10 +26,10 @@ seen1   = process("seen",             upstream=src1)
 q1      = process("metainfo_quality", upstream=seen1)
 series1 = process("series",           upstream=q1,
                    tracking="strict", quality="720p+", ttl="2h",
-                   **{"from": [{"name": "trakt_list",
-                                "client_id":     trakt_client_id,
-                                "client_secret": trakt_client_secret,
-                                "type": "shows", "list": "watchlist"}]})
+                   list=[{"name": "trakt_list",
+                          "client_id":     trakt_client_id,
+                          "client_secret": trakt_client_secret,
+                          "type": "shows", "list": "watchlist"}])
 enriched_output(series1)
 
 pipeline("tv-watchlist", schedule="1h")
@@ -41,11 +41,11 @@ seen2   = process("seen",             upstream=src2)
 q2      = process("metainfo_quality", upstream=seen2)
 series2 = process("series",           upstream=q2,
                    tracking="backfill", quality="1080p+", ttl="6h",
-                   **{"from": [{"name": "trakt_list",
-                                "client_id": trakt_client_id,
-                                "type":      "shows",
-                                "list":      "trending",
-                                "limit":     50}]})
+                   list=[{"name": "trakt_list",
+                          "client_id": trakt_client_id,
+                          "type":      "shows",
+                          "list":      "trending",
+                          "limit":     50}])
 enriched_output(series2)
 
 pipeline("tv-trending", schedule="6h")

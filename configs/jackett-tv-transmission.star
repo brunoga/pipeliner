@@ -16,11 +16,11 @@ shows = input("trakt_list",
     type="shows", list="watchlist")
 
 results = process("discover", upstream=shows,
-    via=[{"name":     "jackett",
-          "url":      jackett_url,
-          "api_key":  jackett_key,
-          "indexers": ["all"],
-          "categories": [5000, 5030, 5040]}],
+    search=[{"name":     "jackett",
+             "url":      jackett_url,
+             "api_key":  jackett_key,
+             "indexers": ["all"],
+             "categories": [5000, 5030, 5040]}],
     interval="6h")
 
 seen   = process("seen",             upstream=results)

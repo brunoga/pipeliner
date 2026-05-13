@@ -32,11 +32,11 @@ meta   = process("metainfo_quality", upstream=seen)
 tmdb   = process("metainfo_tmdb",   upstream=meta, api_key=env("TMDB_KEY", default="YOUR_TMDB_KEY"))
 movies = process("movies",          upstream=tmdb,
     quality="1080p+",
-    **{"from": [{"name": "trakt_list",
-                 "client_id": trakt_id,
-                 "client_secret": trakt_secret,
-                 "type": "movies",
-                 "list": "watchlist"}]})
+    list=[{"name": "trakt_list",
+           "client_id": trakt_id,
+           "client_secret": trakt_secret,
+           "type": "movies",
+           "list": "watchlist"}])
 enrich_ok = process("require", upstream=movies, fields=["enriched"])
 pathfmt   = process("pathfmt", upstream=enrich_ok,
     path="/media/movies/{title} ({video_year})",

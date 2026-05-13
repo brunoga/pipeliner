@@ -44,7 +44,7 @@ func init() {
 		},
 		Factory:      newPlugin,
 		Validate:     validate,
-		IsFromPlugin: true,
+		IsListPlugin: true,
 		Schema: []plugin.FieldSchema{
 			{Key: "client_id",     Type: plugin.FieldTypeString, Required: true, Hint: "Trakt API client ID"},
 			{Key: "type",          Type: plugin.FieldTypeEnum,   Required: true, Enum: []string{"movies", "shows"}, Hint: "Content type"},

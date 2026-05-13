@@ -39,10 +39,10 @@ func init() {
 		},
 		Factory:     newPlugin,
 		Validate:    validate,
-		AcceptsFrom: true,
+		AcceptsList: true,
 		Schema: []plugin.FieldSchema{
 			{Key: "static", Type: plugin.FieldTypeList, Hint: "Static list of show names to accept"},
-			{Key: "from", Type: plugin.FieldTypeDict, Hint: "Dynamic show list from a source plugin (e.g. tvdb_favorites, trakt_list)"},
+			{Key: "list", Type: plugin.FieldTypeDict, Hint: "Dynamic show list from a source plugin (e.g. tvdb_favorites, trakt_list)"},
 			{Key: "tracking", Type: plugin.FieldTypeEnum, Enum: []string{"strict", "backfill", "follow"}, Default: "strict", Hint: "Episode ordering mode"},
 			{Key: "quality", Type: plugin.FieldTypeString, Hint: "Minimum quality spec, e.g. 720p+ webrip+"},
 			{Key: "ttl", Type: plugin.FieldTypeDuration, Default: "1h", Hint: "Cache TTL for dynamic lists"},
@@ -53,7 +53,7 @@ func init() {
 
 func validate(cfg map[string]any) []error {
 	var errs []error
-	if err := plugin.RequireOneOf(cfg, "series", "static", "from"); err != nil {
+	if err := plugin.RequireOneOf(cfg, "series", "static", "list"); err != nil {
 		errs = append(errs, err)
 	}
 	if err := plugin.OptDuration(cfg, "ttl", "series"); err != nil {
@@ -67,7 +67,7 @@ func validate(cfg map[string]any) []error {
 			errs = append(errs, fmt.Errorf("series: invalid quality spec: %w", err))
 		}
 	}
-	errs = append(errs, plugin.OptUnknownKeys(cfg, "series", "static", "from", "ttl", "tracking", "quality", "reject_unmatched")...)
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "series", "static", "list", "ttl", "tracking", "quality", "reject_unmatched")...)
 	return errs
 }
 
@@ -97,18 +97,18 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 		staticShows[i] = match.Normalize(s)
 	}
 
-	fromRaw, _ := cfg["from"].([]any)
+	listRaw, _ := cfg["list"].([]any)
 	var froms []plugin.SourcePlugin
-	for _, item := range fromRaw {
+	for _, item := range listRaw {
 		src, err := plugin.MakeFromPlugin(item, db)
 		if err != nil {
-			return nil, fmt.Errorf("series: from: %w", err)
+			return nil, fmt.Errorf("series: list: %w", err)
 		}
 		froms = append(froms, src)
 	}
 
 	if len(staticShows) == 0 && len(froms) == 0 {
-		return nil, fmt.Errorf("series: at least one of 'static' or 'from' is required")
+		return nil, fmt.Errorf("series: at least one of 'static' or 'list' is required")
 	}
 
 	ttl := time.Hour

@@ -6,19 +6,19 @@ Accepts episodes of configured TV shows. Parses the episode identifier from the 
 
 A re-download of an already-seen episode is accepted when the new copy is strictly better quality, or when it is a PROPER/REPACK that is not a quality downgrade.
 
-The show list can be provided statically via `static`, dynamically via `from` (a list of input plugins whose entry titles are used as show names), or both. Dynamic results are cached for the configured `ttl` so external APIs are not called on every pipeline run.
+The show list can be provided statically via `static`, dynamically via `list` (a list of input plugins whose entry titles are used as show names), or both. Dynamic results are cached for the configured `ttl` so external APIs are not called on every pipeline run.
 
 ## Config
 
 | Key | Type | Required | Default | Description |
 |-----|------|----------|---------|-------------|
 | `static` | string or list | conditional | — | Static show names to accept |
-| `from` | list | conditional | — | Input plugin configs whose entry titles supplement the show list |
-| `ttl` | string | no | `1h` | How long to cache the dynamic list fetched via `from` |
+| `list` | list | conditional | — | List-plugin configs whose entry titles supplement the show list |
+| `ttl` | string | no | `1h` | How long to cache the dynamic list fetched via `list` |
 | `tracking` | string | no | `strict` | Episode ordering mode: `strict`, `backfill`, or `follow` |
 | `quality` | string | no | — | Minimum quality spec (e.g. `720p`, `1080p bluray`) |
 
-At least one of `static` or `from` is required.
+At least one of `static` or `list` is required.
 
 ### Tracking modes
 
@@ -34,16 +34,17 @@ At least one of `static` or `from` is required.
 - **`backfill`** — catching up on a show's entire back-catalogue. Will download all historical episodes that appear in the feed.
 - **`follow`** — recommended for new shows and continuing series. Start tracking whenever you first see the show; get entire season drops in one pass; never download episodes from seasons before you started watching. The season is the anchor, so adding the show mid-season still picks up the whole current season.
 
-### `from` entries
+### `list` entries
 
 Each entry is a plugin name string or an object with a `name` key plus plugin-specific config:
 
 ```python
-series = process("series", from_=seen, **{"from": [
-    {"name": "trakt_list", "client_id": env("TRAKT_ID"),
-     "client_secret": env("TRAKT_SECRET"), "type": "shows"},
-    {"name": "tvdb_favorites", "api_key": env("TVDB_KEY"), "user_pin": env("TVDB_PIN")},
-]})
+series = process("series", upstream=seen,
+    list=[
+        {"name": "trakt_list", "client_id": env("TRAKT_ID"),
+         "client_secret": env("TRAKT_SECRET"), "type": "shows"},
+        {"name": "tvdb_favorites", "api_key": env("TVDB_KEY"), "user_pin": env("TVDB_PIN")},
+    ])
 ```
 
 ## Fields set on each entry
@@ -58,10 +59,10 @@ series = process("series", from_=seen, **{"from": [
 
 ```python
 src    = input("rss", url="https://example.com/rss")
-seen   = process("seen",   from_=src)
-series = process("series", from_=seen, static=["Breaking Bad"],
+seen   = process("seen",   upstream=src)
+series = process("series", upstream=seen, static=["Breaking Bad"],
                  tracking="strict", quality="720p+")
-output("transmission", from_=series, host="localhost")
+output("transmission", upstream=series, host="localhost")
 pipeline("tv", schedule="30m")
 ```
 
@@ -69,12 +70,12 @@ pipeline("tv", schedule="30m")
 
 ```python
 src    = input("rss", url="https://example.com/rss")
-seen   = process("seen",   from_=src)
-series = process("series", from_=seen, **{"from": [
-    {"name": "trakt_list", "client_id": env("TRAKT_ID"),
-     "client_secret": env("TRAKT_SECRET"), "type": "shows"},
-]}, tracking="follow")
-output("transmission", from_=series, host="localhost")
+seen   = process("seen",   upstream=src)
+series = process("series", upstream=seen,
+    list=[{"name": "trakt_list", "client_id": env("TRAKT_ID"),
+           "client_secret": env("TRAKT_SECRET"), "type": "shows"}],
+    tracking="follow")
+output("transmission", upstream=series, host="localhost")
 pipeline("tv-trakt", schedule="30m")
 ```
 
@@ -82,11 +83,11 @@ pipeline("tv-trakt", schedule="30m")
 
 ```python
 src    = input("rss", url="https://example.com/rss")
-seen   = process("seen",   from_=src)
-series = process("series", from_=seen, **{"from": [
-    {"name": "tvdb_favorites", "api_key": env("TVDB_KEY"), "user_pin": env("TVDB_PIN")},
-]}, tracking="backfill", quality="720p+")
-output("transmission", from_=series, host="localhost")
+seen   = process("seen",   upstream=src)
+series = process("series", upstream=seen,
+    list=[{"name": "tvdb_favorites", "api_key": env("TVDB_KEY"), "user_pin": env("TVDB_PIN")}],
+    tracking="backfill", quality="720p+")
+output("transmission", upstream=series, host="localhost")
 pipeline("tv-tvdb", schedule="30m")
 ```
 
@@ -94,15 +95,13 @@ pipeline("tv-tvdb", schedule="30m")
 
 ```python
 src    = input("rss", url="https://example.com/rss")
-seen   = process("seen",   from_=src)
-series = process("series", from_=seen,
+seen   = process("seen",   upstream=src)
+series = process("series", upstream=seen,
     static=["Severance"],     # always included
-    **{"from": [
-        {"name": "trakt_list", "client_id": env("TRAKT_ID"),
-         "client_secret": env("TRAKT_SECRET"), "type": "shows"},
-    ]},
+    list=[{"name": "trakt_list", "client_id": env("TRAKT_ID"),
+           "client_secret": env("TRAKT_SECRET"), "type": "shows"}],
     tracking="follow")
-output("transmission", from_=series, host="localhost")
+output("transmission", upstream=series, host="localhost")
 pipeline("tv-combined", schedule="30m")
 ```
 

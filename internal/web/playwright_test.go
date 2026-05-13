@@ -755,7 +755,7 @@ pipeline("pipe-b")`
 	}
 }
 
-// ── via port ─────────────────────────────────────────────────────────────────
+// ── search port ───────────────────────────────────────────────────────────────
 
 func TestE2EViaPortVisibleOnDiscoverNode(t *testing.T) {
 	ts := startTestServer(t, minimalConfig)
@@ -771,16 +771,16 @@ func TestE2EViaPortVisibleOnDiscoverNode(t *testing.T) {
 	// A config with a discover node.
 	discoverConfig := `titles = input("rss", url="https://example.com/rss")
 disc = process("discover", upstream=titles, interval="24h",
-  via=[{"name": "rss_search", "url_template": "https://nyaa.si/?page=rss&q={QueryEscaped}"}])
+  search=[{"name": "rss_search", "url_template": "https://nyaa.si/?page=rss&q={QueryEscaped}"}])
 pipeline("tv")`
 
 	switchToVisual(t, page, discoverConfig)
 
-	// The discover node should have a via port.
-	if _, err := page.WaitForSelector(".ve-node-via-port", playwright.PageWaitForSelectorOptions{
+	// The discover node should have a search port.
+	if _, err := page.WaitForSelector(".ve-node-search-port", playwright.PageWaitForSelectorOptions{
 		State: playwright.WaitForSelectorStateAttached,
 	}); err != nil {
-		t.Errorf("via port not rendered on discover node: %v", err)
+		t.Errorf("search port not rendered on discover node: %v", err)
 	}
 }
 
@@ -795,19 +795,19 @@ func TestE2EViaNodeAppearsAfterParseWithVia(t *testing.T) {
 	login(t, page, ts.url)
 	openConfigTab(t, page)
 
-	// Config with a discover node that has a via backend.
+	// Config with a discover node that has a search backend.
 	discoverConfig := `titles = input("rss", url="https://example.com/rss")
 disc = process("discover", upstream=titles, interval="24h",
-  via=[{"name": "rss_search", "url_template": "https://nyaa.si/?page=rss&q={QueryEscaped}"}])
+  search=[{"name": "rss_search", "url_template": "https://nyaa.si/?page=rss&q={QueryEscaped}"}])
 pipeline("tv")`
 
 	switchToVisual(t, page, discoverConfig)
 
-	// A node with the "rss_search" plugin should appear (via-connected).
+	// A node with the "rss_search" plugin should appear (search-connected).
 	if _, err := page.WaitForSelector(`.ve-node-name:has-text("rss_search")`, playwright.PageWaitForSelectorOptions{
 		State: playwright.WaitForSelectorStateVisible,
 	}); err != nil {
-		t.Errorf("via-connected rss_search node not visible: %v", err)
+		t.Errorf("search-connected rss_search node not visible: %v", err)
 	}
 }
 
@@ -829,11 +829,11 @@ func TestE2ESearchPluginHasViaBadge(t *testing.T) {
 	page.WaitForSelector("#ve-add-pipeline") //nolint:errcheck
 	page.Click("#ve-add-pipeline")           //nolint:errcheck
 
-	// At least one palette chip should carry a "via" badge.
-	if _, err := page.WaitForSelector(".ve-chip-via-badge", playwright.PageWaitForSelectorOptions{
+	// At least one palette chip should carry a "search" badge.
+	if _, err := page.WaitForSelector(".ve-chip-search-badge", playwright.PageWaitForSelectorOptions{
 		State: playwright.WaitForSelectorStateVisible,
 	}); err != nil {
-		t.Errorf("no via badge found in palette — search plugins should show one: %v", err)
+		t.Errorf("no search badge found in palette — search plugins should show one: %v", err)
 	}
 }
 

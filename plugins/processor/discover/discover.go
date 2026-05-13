@@ -2,15 +2,15 @@
 // title list, with a per-title cooldown to avoid redundant searches.
 //
 // As a DAG processor, upstream source nodes supply the title list via their
-// .Title fields. Static 'titles' from config and 'from' source plugins are
+// .Title fields. Static 'titles' from config and 'list' source plugins are
 // also merged in. The plugin returns search results, not the upstream entries.
 //
 // Config keys:
 //
 //	titles   - static list of title strings to search for (optional)
-//	from     - list of source plugin configs whose entry titles supplement the
+//	list     - list of source plugin configs whose entry titles supplement the
 //	           title list (alternative to DAG upstream connections)
-//	via      - list of search plugin configs (required); each entry is a name
+//	search   - list of search plugin configs (required); each entry is a name
 //	           string or a map with "name" + plugin options
 //	interval - minimum time between searches for the same title (default: "24h")
 package discover
@@ -37,9 +37,10 @@ func init() {
 			entry.FieldTorrentInfoHash,
 			entry.FieldTorrentLinkType,
 		},
-		Factory:    newPlugin,
-		Validate:   validate,
-		AcceptsVia: true,
+		Factory:       newPlugin,
+		Validate:      validate,
+		AcceptsSearch: true,
+		AcceptsList:   true,
 		Schema: []plugin.FieldSchema{
 			{Key: "titles",   Type: plugin.FieldTypeList,     Hint: "Static title strings to search for (supplements upstream source nodes)"},
 			{Key: "interval", Type: plugin.FieldTypeDuration, Hint: "Minimum time between re-searches per title (default 24h)"},
@@ -49,14 +50,14 @@ func init() {
 
 func validate(cfg map[string]any) []error {
 	var errs []error
-	viaRaw, _ := cfg["via"].([]any)
-	if len(viaRaw) == 0 {
-		errs = append(errs, fmt.Errorf("discover: \"via\" must list at least one search plugin"))
+	searchRaw, _ := cfg["search"].([]any)
+	if len(searchRaw) == 0 {
+		errs = append(errs, fmt.Errorf("discover: \"search\" must list at least one search plugin"))
 	}
 	if err := plugin.OptDuration(cfg, "interval", "discover"); err != nil {
 		errs = append(errs, err)
 	}
-	errs = append(errs, plugin.OptUnknownKeys(cfg, "discover", "titles", "from", "via", "interval")...)
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "discover", "titles", "list", "search", "interval")...)
 	return errs
 }
 
@@ -75,12 +76,12 @@ type searchRecord struct {
 func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
 	titles := toStringSlice(cfg["titles"])
 
-	fromRaw, _ := cfg["from"].([]any)
+	listRaw, _ := cfg["list"].([]any)
 	var froms []plugin.SourcePlugin
-	for _, item := range fromRaw {
+	for _, item := range listRaw {
 		src, err := plugin.MakeFromPlugin(item, db)
 		if err != nil {
-			return nil, fmt.Errorf("discover: from: %w", err)
+			return nil, fmt.Errorf("discover: list: %w", err)
 		}
 		froms = append(froms, src)
 	}
@@ -94,12 +95,12 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 		return nil, fmt.Errorf("discover: invalid interval %q: %w", intervalStr, err)
 	}
 
-	viaRaw, _ := cfg["via"].([]any)
-	if len(viaRaw) == 0 {
-		return nil, fmt.Errorf("discover: 'via' must list at least one search plugin")
+	searchRaw, _ := cfg["search"].([]any)
+	if len(searchRaw) == 0 {
+		return nil, fmt.Errorf("discover: 'search' must list at least one search plugin")
 	}
 	var searchers []plugin.SearchPlugin
-	for _, item := range viaRaw {
+	for _, item := range searchRaw {
 		sp, err := resolveSearchPlugin(item, db)
 		if err != nil {
 			return nil, fmt.Errorf("discover: %w", err)
