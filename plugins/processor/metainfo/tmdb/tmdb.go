@@ -107,37 +107,51 @@ func (p *tmdbPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 		}
 	}
 
-	m, ok := imovies.Parse(e.Title)
-	if !ok {
+	// Parse the release title to extract the canonical movie title and year.
+	// If parsing fails (entry has no quality markers or year suffix — e.g. a
+	// clean Trakt title like "Michael") fall back to the raw title + trakt_year
+	// so that list-sourced entries can still be enriched.
+	var searchTitle string
+	var searchYear int
+
+	if m, ok := imovies.Parse(e.Title); ok {
+		searchTitle = m.Title
+		searchYear = m.Year
+	} else if y, ok := e.Fields["trakt_year"].(int); ok && y > 0 {
+		// Clean Trakt title with known year — search directly.
+		searchTitle = imovies.NormalizeTitle(e.Title)
+		if searchTitle == "" {
+			searchTitle = e.Title
+		}
+		searchYear = y
+	} else {
 		tc.Logger.Warn("metainfo_tmdb: title did not parse as movie", "entry", e.Title)
 		return nil
 	}
 
-	// Use trakt_year (or any pre-set video_year) as the search year when the
-	// title itself carries no year — prevents popularity-ranked mismatches for
-	// same-name films from different decades.
-	year := m.Year
-	if year == 0 {
+	// When the parsed year is 0 (title has no year suffix), use trakt_year as a
+	// hint to avoid popularity-ranked mismatches for same-name films.
+	if searchYear == 0 {
 		if y, ok := e.Fields["trakt_year"].(int); ok && y > 0 {
-			year = y
+			searchYear = y
 		}
 	}
 
-	key := fmt.Sprintf("%s:%d", m.Title, year)
+	key := fmt.Sprintf("%s:%d", searchTitle, searchYear)
 	results, cached := p.cache.Get(key)
 	if !cached {
 		var err error
-		results, err = p.client.SearchMovie(ctx, m.Title, year)
+		results, err = p.client.SearchMovie(ctx, searchTitle, searchYear)
 		if err != nil {
-			tc.Logger.Warn("metainfo_tmdb: search failed", "title", m.Title, "err", err)
+			tc.Logger.Warn("metainfo_tmdb: search failed", "title", searchTitle, "err", err)
 			return nil
 		}
 		// Year in the release name may be wrong (off-by-one, regional difference,
 		// etc.). Retry without the year filter before giving up.
-		if len(results) == 0 && year > 0 {
-			results, err = p.client.SearchMovie(ctx, m.Title, 0)
+		if len(results) == 0 && searchYear > 0 {
+			results, err = p.client.SearchMovie(ctx, searchTitle, 0)
 			if err != nil {
-				tc.Logger.Warn("metainfo_tmdb: search failed", "title", m.Title, "err", err)
+				tc.Logger.Warn("metainfo_tmdb: search failed", "title", searchTitle, "err", err)
 				return nil
 			}
 		}
@@ -149,7 +163,7 @@ func (p *tmdbPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 		}
 	}
 	if len(results) == 0 {
-		tc.Logger.Warn("metainfo_tmdb: no results", "title", m.Title, "year", year, "entry", e.Title)
+		tc.Logger.Warn("metainfo_tmdb: no results", "title", searchTitle, "year", searchYear, "entry", e.Title)
 		return nil
 	}
 
