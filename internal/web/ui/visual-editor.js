@@ -2392,6 +2392,7 @@ function validateExtraction() {
 function inferExtractionParams() {
   const params = [];
   const usedNames = new Set(['upstream']); // reserved
+  let dedupCounter = 0;
   for (const id of ve.selectedNodeIds) {
     const n = findNode(id);
     if (!n) continue;
@@ -2399,7 +2400,7 @@ function inferExtractionParams() {
       if (val === null || val === undefined || val === '') continue;
       let pName = key;
       if (usedNames.has(pName)) pName = `${n.plugin.replace(/[^a-zA-Z0-9]/g, '_')}_${key}`;
-      if (usedNames.has(pName)) pName = `${pName}_${params.length}`;
+      if (usedNames.has(pName)) pName = `${pName}_${dedupCounter++}`;
       usedNames.add(pName);
       const type = Array.isArray(val) ? 'list'
                  : typeof val === 'boolean' ? 'bool'
@@ -2698,7 +2699,7 @@ function extractFunctionSource(src, funcName) {
   const result = [];
   for (let i = start; i < lines.length; i++) {
     result.push(lines[i]);
-    if (i > start && lines[i] !== '' && !/^\s/.test(lines[i]) && !/^def\s/.test(lines[i])) {
+    if (i > start && lines[i] !== '' && !/^\s/.test(lines[i])) {
       result.pop(); // stop before the next top-level statement
       break;
     }
