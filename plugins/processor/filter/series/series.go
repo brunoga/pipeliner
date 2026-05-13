@@ -82,7 +82,7 @@ const (
 
 type seriesPlugin struct {
 	staticShows     []string // normalised show names from config
-	from            []plugin.SourcePlugin
+	listSources     []plugin.SourcePlugin
 	listCache       *cache.Cache[[]string]
 	spec            quality.Spec
 	tracking        tracking
@@ -98,16 +98,16 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 	}
 
 	listRaw, _ := cfg["list"].([]any)
-	var froms []plugin.SourcePlugin
+	var listSources []plugin.SourcePlugin
 	for _, item := range listRaw {
 		src, err := plugin.MakeFromPlugin(item, db)
 		if err != nil {
 			return nil, fmt.Errorf("series: list: %w", err)
 		}
-		froms = append(froms, src)
+		listSources = append(listSources, src)
 	}
 
-	if len(staticShows) == 0 && len(froms) == 0 {
+	if len(staticShows) == 0 && len(listSources) == 0 {
 		return nil, fmt.Errorf("series: at least one of 'static' or 'list' is required")
 	}
 
@@ -152,8 +152,8 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 
 	return &seriesPlugin{
 		staticShows:     staticShows,
-		from:            froms,
-		listCache:       cache.NewPersistent[[]string](ttl, db.Bucket("cache_series_from")),
+		listSources:     listSources,
+		listCache:       cache.NewPersistent[[]string](ttl, db.Bucket("cache_series_list")),
 		spec:            spec,
 		tracking:        tr,
 		tracker:         tracker,
@@ -271,7 +271,7 @@ func (p *seriesPlugin) persist(ctx context.Context, tc *plugin.TaskContext, entr
 }
 
 func (p *seriesPlugin) resolveShows(ctx context.Context, tc *plugin.TaskContext) []string {
-	return plugin.ResolveDynamicList(ctx, tc, p.from, p.staticShows,
+	return plugin.ResolveDynamicList(ctx, tc, p.listSources, p.staticShows,
 		func(src string) ([]string, bool) { return p.listCache.Get(src) },
 		func(src string, v []string) { p.listCache.Set(src, v) },
 		match.Normalize,

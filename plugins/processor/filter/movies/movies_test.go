@@ -296,7 +296,7 @@ func openWithFrom(t *testing.T, mock *mockInput) *moviesPlugin {
 		t.Fatalf("open store: %v", err)
 	}
 	return &moviesPlugin{
-		from:      []plugin.SourcePlugin{mock},
+		listSources: []plugin.SourcePlugin{mock},
 		listCache: cache.NewPersistent[[]string](time.Hour, db.Bucket("test")),
 		tracker:   imovies.NewTracker(db.Bucket("movies")),
 	}
@@ -334,7 +334,7 @@ func TestFromCachesResults(t *testing.T) {
 	counted := &countingInput{wrapped: mock, count: &callCount}
 	db, _ := store.OpenSQLite(":memory:")
 	p := &moviesPlugin{
-		from:      []plugin.SourcePlugin{counted},
+		listSources: []plugin.SourcePlugin{counted},
 		listCache: cache.NewPersistent[[]string](time.Hour, db.Bucket("test")),
 		tracker:   imovies.NewTracker(db.Bucket("movies")),
 	}
@@ -352,7 +352,7 @@ func TestFromEmptyResultNotCached(t *testing.T) {
 	counted := &countingInput{wrapped: mock, count: &callCount}
 	db, _ := store.OpenSQLite(":memory:")
 	p := &moviesPlugin{
-		from:      []plugin.SourcePlugin{counted},
+		listSources: []plugin.SourcePlugin{counted},
 		listCache: cache.NewPersistent[[]string](time.Hour, db.Bucket("test")),
 		tracker:   imovies.NewTracker(db.Bucket("movies")),
 	}
