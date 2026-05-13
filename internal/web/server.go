@@ -456,12 +456,13 @@ func (s *Server) apiSaveConfig(w http.ResponseWriter, r *http.Request) {
 // field schema, for use by the visual pipeline editor's plugin palette.
 func (s *Server) apiPlugins(w http.ResponseWriter, _ *http.Request) {
 	type fieldResp struct {
-		Key      string   `json:"key"`
-		Type     string   `json:"type"`
-		Required bool     `json:"required"`
-		Default  any      `json:"default,omitempty"`
-		Enum     []string `json:"enum,omitempty"`
-		Hint     string   `json:"hint,omitempty"`
+		Key       string   `json:"key"`
+		Type      string   `json:"type"`
+		Required  bool     `json:"required"`
+		Default   any      `json:"default,omitempty"`
+		Enum      []string `json:"enum,omitempty"`
+		Hint      string   `json:"hint,omitempty"`
+		Multiline bool     `json:"multiline,omitempty"`
 	}
 	type pluginResp struct {
 		Name        string      `json:"name"`
@@ -482,12 +483,13 @@ func (s *Server) apiPlugins(w http.ResponseWriter, _ *http.Request) {
 		fields := make([]fieldResp, 0, len(d.Schema))
 		for _, f := range d.Schema {
 			fields = append(fields, fieldResp{
-				Key:      f.Key,
-				Type:     string(f.Type),
-				Required: f.Required,
-				Default:  f.Default,
-				Enum:     f.Enum,
-				Hint:     f.Hint,
+				Key:       f.Key,
+				Type:      string(f.Type),
+				Required:  f.Required,
+				Default:   f.Default,
+				Enum:      f.Enum,
+				Hint:      f.Hint,
+				Multiline: f.Multiline,
 			})
 		}
 		produces := d.Produces

@@ -32,7 +32,7 @@ func init() {
 			{Key: "username", Type: plugin.FieldTypeString, Hint: "SMTP auth username"},
 			{Key: "password", Type: plugin.FieldTypeString, Hint: "SMTP auth password"},
 			{Key: "subject", Type: plugin.FieldTypeString, Hint: "Email subject Go template (default: pipeliner: N new item(s))"},
-			{Key: "body_template", Type: plugin.FieldTypeString, Hint: "Email body Go template"},
+			{Key: "body_template", Type: plugin.FieldTypeString, Hint: "Email body Go template", Multiline: true},
 			{Key: "html", Type: plugin.FieldTypeBool, Hint: "Send HTML email instead of plain text"},
 		},
 	})

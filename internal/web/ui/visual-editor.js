@@ -1874,39 +1874,59 @@ function updateCondRules() {
 function renderField(f, config) {
   const val = config[f.key];
   let widget = '';
-  switch (f.type) {
-    case 'bool': {
-      const checked = val != null ? val : (f.default ?? false);
-      widget = `<input type="checkbox" data-field="${f.key}" ${checked ? 'checked' : ''}>`;
-      break;
+  if (f.multiline) {
+    const preview = val ? String(val).split('\n')[0].slice(0, 50) : '';
+    widget = `<button class="ve-multiline-btn" onclick="openFieldPopup('${esc(f.key)}','${esc(f.hint||'')}')">` +
+      (preview ? `<span class="ve-multiline-preview">${esc(preview)}</span>` : '<span class="ve-multiline-empty">click to edit…</span>') +
+      '</button>';
+  } else {
+    switch (f.type) {
+      case 'bool': {
+        const checked = val != null ? val : (f.default ?? false);
+        widget = `<input type="checkbox" data-field="${f.key}" ${checked ? 'checked' : ''}>`;
+        break;
+      }
+      case 'int':
+        widget = `<input type="number" data-field="${f.key}" value="${val ?? (f.default ?? '')}" placeholder="${f.default ?? ''}">`;
+        break;
+      case 'enum':
+        widget = `<select data-field="${f.key}">${(f.enum||[]).map(v =>
+          `<option${v===(val??f.default)?' selected':''}>${v}</option>`).join('')}</select>`;
+        break;
+      case 'list': {
+        const items = Array.isArray(val) ? val : (val ? [String(val)] : []);
+        const fid   = 'vef-' + f.key;
+        widget = `<div class="ve-tag-list" data-field="${f.key}" data-type="list">${
+          items.map(s => `<span class="ve-tag">${esc(s)}<button class="ve-tag-del" onclick="removeTag(this,'${f.key}')">×</button></span>`).join('')
+        }</div><div style="display:flex;gap:4px">
+          <input class="ve-tag-input" id="${fid}" placeholder="add item…" onkeydown="if(event.key==='Enter'){event.preventDefault();addTag('${fid}','${f.key}')}">
+          <button class="ve-add-kv" onclick="addTag('${fid}','${f.key}')">Add</button></div>`;
+        break;
+      }
+      default:
+        widget = `<input type="text" data-field="${f.key}" value="${esc(String(val ?? ''))}" placeholder="${esc(String(f.default ?? f.hint ?? ''))}">`;
     }
-    case 'int':
-      widget = `<input type="number" data-field="${f.key}" value="${val ?? (f.default ?? '')}" placeholder="${f.default ?? ''}">`;
-      break;
-    case 'enum':
-      widget = `<select data-field="${f.key}">${(f.enum||[]).map(v =>
-        `<option${v===(val??f.default)?' selected':''}>${v}</option>`).join('')}</select>`;
-      break;
-    case 'list': {
-      const items = Array.isArray(val) ? val : (val ? [String(val)] : []);
-      const fid   = 'vef-' + f.key;
-      widget = `<div class="ve-tag-list" data-field="${f.key}" data-type="list">${
-        items.map(s => `<span class="ve-tag">${esc(s)}<button class="ve-tag-del" onclick="removeTag(this,'${f.key}')">×</button></span>`).join('')
-      }</div><div style="display:flex;gap:4px">
-        <input class="ve-tag-input" id="${fid}" placeholder="add item…" onkeydown="if(event.key==='Enter'){event.preventDefault();addTag('${fid}','${f.key}')}">
-        <button class="ve-add-kv" onclick="addTag('${fid}','${f.key}')">Add</button></div>`;
-      break;
-    }
-    default:
-      widget = `<input type="text" data-field="${f.key}" value="${esc(String(val ?? ''))}" placeholder="${esc(String(f.default ?? f.hint ?? ''))}">`;
   }
   return `<div class="ve-field">
     <div class="ve-field-label">${esc(f.key)}${f.required ? ' <span class="ve-field-required">*</span>' : ''}
       ${f.hint ? `<span class="ve-field-hint">— ${esc(f.hint)}</span>` : ''}</div>${widget}</div>`;
 }
 
+// Opens the text popup to edit a multiline schema field on the selected node.
+function openFieldPopup(fieldKey, hint) {
+  const node = findNode(ve.selectedNodeId);
+  if (!node) return;
+  openTextPopup(fieldKey, hint, String(node.config[fieldKey] ?? ''), text => {
+    if (text !== '') node.config[fieldKey] = text;
+    else delete node.config[fieldKey];
+    renderGraphNodes(); renderEdges(); onModelChange();
+    renderParamPanel();
+  });
+}
+
 function collectParams(node, schema, body) {
   for (const f of schema) {
+    if (f.multiline) continue; // saved directly via openFieldPopup
     const el = body.querySelector(`[data-field="${f.key}"]`);
     if (!el) continue;
     if (f.type === 'bool')     node.config[f.key] = el.checked;
