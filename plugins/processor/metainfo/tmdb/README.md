@@ -48,7 +48,7 @@ Enriches movie entries with metadata from The Movie Database (TMDb). Searches by
 |----------|-------|
 | Role | `processor` |
 | Produces | `enriched`, `title`, `movie_title`, `movie_tagline`, `video_year`, `video_language`, `video_original_title`, `video_country`, `video_genres`, `video_rating`, `video_poster`, `video_runtime`, `video_aliases`, `video_imdb_id`, `video_popularity`, `video_votes`, `tmdb_id` |
-| Requires | `trakt_tmdb_id` (optional), `trakt_year` (optional) |
+| Requires | — |
 
 ## Lookup strategy
 
