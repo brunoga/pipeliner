@@ -2200,9 +2200,13 @@ function validateExtraction() {
   const exitNodes = [...ids].filter(id =>
     allMain.some(n => !ids.has(n.id) && (n.upstreams || []).includes(id))
   );
-  // Terminal nodes: selected nodes with no downstream anywhere in the pipeline.
+  // Terminal within the selection: selected nodes that no *other selected node*
+  // consumes. This correctly handles sink chains like deluge→email where both
+  // are selected — deluge is consumed by email (also selected), so only email
+  // is terminal. The old check used non-selected nodes only, which made both
+  // appear terminal when neither had an external consumer.
   const terminalSelected = [...ids].filter(id =>
-    !allMain.some(n => !ids.has(n.id) && (n.upstreams || []).includes(id))
+    ![...ids].some(other => other !== id && (findNode(other)?.upstreams || []).includes(id))
   );
 
   let returnNodeId;
