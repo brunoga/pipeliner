@@ -7,14 +7,17 @@ const NODE_W = 200;  // node card width (px)
 const NODE_H = 80;   // fallback node height for edge midpoints
 
 const ve = {
-  plugins:  [],       // [{name, role, description, schema, produces, requires}]
-  syncing:  false,
+  plugins:          [],   // [{name, role, description, schema, produces, requires}]
+  userFunctions:    {},   // {funcName: {name, role, description, params, _sourceText}}
+  syncing:          false,
   // All loaded pipelines. ve.model is a live alias for ve.graphs[ve.activeGraph].
-  graphs:   [{name: 'my-pipeline', schedule: '', nodes: []}],
-  nextId:   0,
-  activeGraph:    0,
-  selectedNodeId: null,
-  dragSrc: null,      // {type:'palette', plugin:''}
+  graphs:           [{name: 'my-pipeline', schedule: '', nodes: []}],
+  nextId:           0,
+  activeGraph:      0,
+  selectedNodeId:   null,
+  selectedNodeIds:  new Set(), // multi-select for Extract to Function
+  clipboard:        null,      // {nodes:[{plugin,config,comment,origId,relX,relY}], edges:[{from,to}]}
+  dragSrc:          null,      // {type:'palette', plugin:''}
   get model() { return this.graphs[this.activeGraph] || this.graphs[0]; },
 };
 
@@ -157,12 +160,29 @@ function renderPalette(filter) {
   }
 
   const q = filter.toLowerCase();
+  const html = [];
+
+  // User functions section (shown first when any are defined).
+  const userFuncList = Object.values(ve.userFunctions)
+    .filter(fd => !q || fd.name.includes(q) || (fd.description||'').toLowerCase().includes(q));
+  if (userFuncList.length) {
+    html.push(`<div class="ve-role-header" onclick="toggleRoleGroup(this)">Functions</div>`);
+    html.push(`<div class="ve-role-chips">`);
+    for (const fd of userFuncList) {
+      html.push(`<button class="ve-chip ve-chip-fn" data-role="${fd.role}" draggable="true"
+        title="${esc(fd.description || fd.name)}"
+        ondragstart="paletteDragStart(event,${esc(JSON.stringify(fd.name))})"
+        onclick="addNodeFromPalette(${esc(JSON.stringify(fd.name))})">
+        ${esc(fd.name)}<span class="ve-chip-fn-badge">fn</span></button>`);
+    }
+    html.push('</div>');
+  }
+
   const byRole = {};
   for (const p of ve.plugins) {
     if (q && !p.name.includes(q) && !p.description.toLowerCase().includes(q)) continue;
     (byRole[p.role] = byRole[p.role] || []).push(p);
   }
-  const html = [];
   for (const role of ROLE_ORDER) {
     const group = byRole[role];
     if (!group) continue;
@@ -206,6 +226,7 @@ function addNodeFromPalette(pluginName) {
   const {x, y} = newNodePos(g);
   g.nodes.push({id, plugin: pluginName, config: {}, upstreams: [], x, y, comment: '', searchNodeIds: [], listNodeIds: []});
   ve.selectedNodeId = id;
+  clearMultiSelect();
   veRender();
   onModelChange();
 }
@@ -252,7 +273,9 @@ function removeNode(id) {
 }
 
 // selectNode: toggle selection WITHOUT rebuilding DOM (keeps drag div ref valid).
+// Clears any multi-selection when called (single-click behaviour).
 function selectNode(id) {
+  clearMultiSelect();
   const prev = ve.selectedNodeId;
   ve.selectedNodeId = (ve.selectedNodeId === id) ? null : id;
 
@@ -267,6 +290,59 @@ function selectNode(id) {
 
   renderEdges();
   renderParamPanel();
+}
+
+// toggleMultiSelect: Cmd/Ctrl+click adds/removes a node from the multi-selection
+// used for "Extract to function". The param panel and extract button are updated.
+function toggleMultiSelect(id) {
+  const n = findNode(id);
+  if (!n || n.isSearchNode || n.isListNode) return;
+  if (ve.selectedNodeIds.has(id)) {
+    ve.selectedNodeIds.delete(id);
+  } else {
+    ve.selectedNodeIds.add(id);
+  }
+  // Keep single-selection in sync: show the last toggled node in the param panel
+  // only when the multi-selection is empty; otherwise clear it.
+  if (ve.selectedNodeIds.size === 0) {
+    ve.selectedNodeId = null;
+  } else {
+    const prev = ve.selectedNodeId;
+    ve.selectedNodeId = id;
+    if (prev) document.querySelector(`.ve-node[data-id="${prev}"]`)?.classList.remove('selected');
+    if (ve.selectedNodeId) document.querySelector(`.ve-node[data-id="${ve.selectedNodeId}"]`)?.classList.add('selected');
+  }
+  document.querySelector(`.ve-node[data-id="${id}"]`)?.classList.toggle('multi-selected', ve.selectedNodeIds.has(id));
+  updateExtractButton();
+  renderParamPanel();
+}
+
+function clearMultiSelect() {
+  for (const id of ve.selectedNodeIds) {
+    document.querySelector(`.ve-node[data-id="${id}"]`)?.classList.remove('multi-selected');
+  }
+  ve.selectedNodeIds.clear();
+  updateExtractButton();
+}
+
+function updateExtractButton() {
+  const btn = document.getElementById('ve-extract-fn-btn');
+  if (!btn) return;
+  btn.style.display = ve.selectedNodeIds.size >= 1 && multiSelectIsValid() ? '' : 'none';
+}
+
+// Quick check: all selected nodes are non-sub, non-function main nodes in the same pipeline.
+function multiSelectIsValid() {
+  if (ve.selectedNodeIds.size === 0) return false;
+  let graphIdx = -1;
+  for (const id of ve.selectedNodeIds) {
+    const n = findNode(id);
+    if (!n || n.isSearchNode || n.isListNode || n.isFunctionCall) return false;
+    const gi = findNodeGraph(id);
+    if (graphIdx < 0) graphIdx = gi;
+    else if (gi !== graphIdx) return false;
+  }
+  return true;
 }
 
 // ── canvas ─────────────────────────────────────────────────────────────────────
@@ -301,13 +377,16 @@ function renderGraphNodes() {
       const preview = configPreview(n.config);
       const isSearch = !!n.isSearchNode;
       const isList   = !!n.isListNode;
+      const isFn     = !!n.isFunctionCall;
       // Sub-connected nodes show a badge in place of the role badge.
       const badgeHtml = isSearch ? '<span class="ve-node-search-badge">search</span>'
                       : isList   ? '<span class="ve-node-list-badge">list</span>'
+                      : isFn     ? `<span class="ve-node-role-badge ve-role-${role}">${role}</span><span class="ve-node-fn-badge">fn</span>`
                       : `<span class="ve-node-role-badge ve-role-${role}">${role}</span>`;
 
+      const multiSel = ve.selectedNodeIds.has(n.id);
       const div = document.createElement('div');
-      div.className = `ve-node${sel ? ' selected' : ''}${isSearch ? ' ve-node-search' : ''}${isList ? ' ve-node-list' : ''}`;
+      div.className = `ve-node${sel ? ' selected' : ''}${multiSel ? ' multi-selected' : ''}${isSearch ? ' ve-node-search' : ''}${isList ? ' ve-node-list' : ''}${isFn ? ' ve-node-fn' : ''}`;
       div.dataset.role       = role;
       div.dataset.id         = n.id;
       div.dataset.isSearch   = meta.is_search_plugin ? 'true' : 'false';
@@ -359,8 +438,12 @@ function renderGraphNodes() {
             e.target.closest('.ve-node-comment-btn')) return;
         e.preventDefault();
         e.stopPropagation();
-        selectNode(n.id);
-        startNodeDrag(e, n);
+        if (e.metaKey || e.ctrlKey) {
+          toggleMultiSelect(n.id);
+        } else {
+          selectNode(n.id);
+          startNodeDrag(e, n);
+        }
       });
 
       // Receive regular upstream= drop (not allowed on source / sub-nodes).
@@ -962,13 +1045,34 @@ function initLayout() {
       }
     }
 
-    // Place unpositioned main nodes to the right of the bounding box.
+    // Place unpositioned main nodes using DAG structure so that each node lands
+    // to the right of its rightmost positioned upstream, preserving the pipeline's
+    // left-to-right flow instead of stacking everything in a single column.
     const noPos = mainNodes.filter(n => n.x == null || n.y == null);
-    noPos.forEach((n, i) => {
-      n.x = maxAbsX;
-      n.y = g._regionY + 40 + i * 120;
-      maxAbsY = Math.max(maxAbsY, n.y);
-    });
+    if (noPos.length) {
+      const COL_W   = 260; // mirrors layoutGraph constant
+      const posById = {};
+      for (const n of withPos) posById[n.id] = n;
+
+      // Topological order ensures each node's upstreams are placed first.
+      const noPosOrdered = topoSortNodes(mainNodes).filter(n => n.x == null || n.y == null);
+      let stackIdx = 0;
+      for (const n of noPosOrdered) {
+        const posUps = (n.upstreams || []).map(u => posById[u]).filter(Boolean);
+        if (posUps.length) {
+          const rightmost = posUps.reduce((a, b) => (a.x > b.x ? a : b));
+          n.x = rightmost.x + COL_W;
+          n.y = rightmost.y;
+        } else {
+          n.x = maxAbsX;
+          n.y = g._regionY + 40 + stackIdx * 120;
+          stackIdx++;
+        }
+        posById[n.id] = n;
+        maxAbsX = Math.max(maxAbsX, (n.x ?? 0) + NODE_W + 60);
+        maxAbsY = Math.max(maxAbsY, n.y);
+      }
+    }
 
     // Derive positions for sub-nodes that don't yet have stored positions.
     placeSubNodes(g, g._regionY + 36);
@@ -990,7 +1094,8 @@ function placeSubNodes(g, startY) {
       const startSX = (n.x ?? 0) + NODE_W / 2 - totalW / 2;
       n.searchNodeIds.forEach((id, i) => {
         const sn = g.nodes.find(x => x.id === id);
-        if (sn && (sn.x == null || sn.y == null)) {
+        // Recompute if missing OR if the stored position overlaps the parent.
+        if (sn && (sn.x == null || sn.y == null || sn.y < (n.y ?? 0) + NODE_H)) {
           sn.x = Math.max(0, startSX + i * (NODE_W + SEARCH_GAP));
           sn.y = (n.y ?? 0) + NODE_H + 70;
         }
@@ -1002,7 +1107,10 @@ function placeSubNodes(g, startY) {
       const startLX  = (n.x ?? 0) + NODE_W / 2 - totalW / 2;
       n.listNodeIds.forEach((id, i) => {
         const ln = g.nodes.find(x => x.id === id);
-        if (ln && (ln.x == null || ln.y == null)) {
+        // Recompute if missing OR if the stored position places the list at or
+        // below the parent (overlap — can happen with positions saved before
+        // the listPad fix that ensured enough vertical clearance).
+        if (ln && (ln.x == null || ln.y == null || ln.y >= (n.y ?? 0))) {
           ln.x = Math.max(0, startLX + i * (NODE_W + LIST_GAP));
           ln.y = Math.max(startY + 4, (n.y ?? 0) - NODE_H - 65);
         }
@@ -1123,12 +1231,32 @@ function initCanvasEvents() {
   // Re-fit the layout on every window resize so the page never scrolls.
   window.addEventListener('resize', fitVisualEditor);
 
+  // Keyboard shortcuts: Escape clears multi-selection; Cmd/Ctrl+C copies;
+  // Cmd/Ctrl+V pastes. Shortcuts are suppressed when focus is in a text field.
+  window.addEventListener('keydown', e => {
+    const inInput = ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName) ||
+                    e.target.isContentEditable;
+    if (e.key === 'Escape' && ve.selectedNodeIds.size > 0 && !inInput) {
+      clearMultiSelect();
+      renderParamPanel();
+    }
+    if ((e.metaKey || e.ctrlKey) && e.key === 'c' && !inInput) {
+      e.preventDefault();
+      copySelected();
+    }
+    if ((e.metaKey || e.ctrlKey) && e.key === 'v' && !inInput) {
+      e.preventDefault();
+      pasteClipboard();
+    }
+  });
+
   // Deselect on empty-canvas click.
   canvas.addEventListener('pointerdown', e => {
     if (!e.target.closest('.ve-node') && !e.target.closest('.ve-pipeline-label')) {
       const prev = ve.selectedNodeId;
       ve.selectedNodeId = null;
       if (prev) document.querySelector(`.ve-node[data-id="${prev}"]`)?.classList.remove('selected');
+      clearMultiSelect();
       renderEdges();
       renderParamPanel();
     }
@@ -1603,6 +1731,11 @@ function renderParamPanel() {
       `<div style="font-size:11px;color:var(--muted);margin-bottom:6px">List source for <b>${esc(parentName)}</b></div>`,
       `<button class="ve-remove-btn" onclick="disconnectList(${esc(JSON.stringify(node.listParentId))},${esc(JSON.stringify(node.id))})">Disconnect from list</button>`,
     ].join('');
+  } else if (node.isFunctionCall) {
+    footer.innerHTML = [
+      `<button class="ve-remove-btn" onclick="ve.selectedNodeId && removeNode(ve.selectedNodeId)">Remove call</button>`,
+      `<button class="ve-remove-btn" style="margin-left:6px" onclick="removeFunctionDef(${esc(JSON.stringify(node.plugin))})">Remove function…</button>`,
+    ].join('');
   } else {
     footer.innerHTML = `<button class="ve-remove-btn" onclick="ve.selectedNodeId && removeNode(ve.selectedNodeId)">Remove node</button>`;
   }
@@ -2032,6 +2165,11 @@ function allProducedUpstream(nodeId) {
 }
 
 function pluginMeta(name) {
+  if (ve.userFunctions[name]) {
+    const fd = ve.userFunctions[name];
+    return {name: fd.name, role: fd.role, description: fd.description, schema: fd.params || [],
+            produces: [], requires: [], is_user_function: true};
+  }
   return ve.plugins.find(p => p.name === name) || null;
 }
 
@@ -2078,9 +2216,521 @@ function topoSortNodes(nodes) {
   return result;
 }
 
+// ── Copy / Paste ───────────────────────────────────────────────────────────────
+
+// copySelected copies the current single-selection or multi-selection to
+// ve.clipboard. Sub-nodes (search/list) are excluded; internal edges between
+// copied nodes are preserved so pasting a group reconnects them automatically.
+function copySelected() {
+  const ids = ve.selectedNodeIds.size > 0
+    ? [...ve.selectedNodeIds]
+    : ve.selectedNodeId ? [ve.selectedNodeId] : [];
+  if (!ids.length) return;
+
+  const nodes = ids.map(findNode).filter(n => n && !n.isSearchNode && !n.isListNode);
+  if (!nodes.length) return;
+
+  // Store positions relative to the group centroid so paste can reconstruct layout.
+  const cx = nodes.reduce((s, n) => s + (n.x ?? 0), 0) / nodes.length;
+  const cy = nodes.reduce((s, n) => s + (n.y ?? 0), 0) / nodes.length;
+
+  const idSet = new Set(ids);
+  const edges = [];
+  for (const n of nodes) {
+    for (const up of (n.upstreams || [])) {
+      if (idSet.has(up)) edges.push({from: up, to: n.id});
+    }
+  }
+
+  ve.clipboard = {
+    nodes: nodes.map(n => ({
+      plugin:         n.plugin,
+      config:         JSON.parse(JSON.stringify(n.config || {})),
+      comment:        n.comment || '',
+      isFunctionCall: !!n.isFunctionCall,
+      origId:         n.id,
+      relX:           (n.x ?? 0) - cx,
+      relY:           (n.y ?? 0) - cy,
+    })),
+    edges,
+  };
+
+  updatePasteButton();
+  const count = ve.clipboard.nodes.length;
+  setSyncNote(`Copied ${count} node${count !== 1 ? 's' : ''}`);
+  setTimeout(() => setSyncNote(ve.graphs.length > 1 ? `Showing ${ve.graphs.length} pipelines` : ''), 1500);
+}
+
+// pasteClipboard inserts copies of the clipboard nodes into the active pipeline.
+// Each node gets a fresh ID; internal connections are re-wired; external
+// upstreams are left empty for the user to connect. Works across pipelines.
+function pasteClipboard() {
+  if (!ve.clipboard?.nodes?.length) return;
+  const g = activeG();
+  if (!g) return;
+
+  // Place pasted nodes centred on the visible viewport, offset slightly so
+  // repeated pastes don't stack exactly on top of each other.
+  const body  = document.getElementById('ve-canvas-body');
+  const PASTE_OFFSET = 40;
+  const baseX = body ? Math.max(20, body.scrollLeft / ve_zoom + body.clientWidth  / ve_zoom / 2) + PASTE_OFFSET : 200;
+  const baseY = body ? Math.max(20, body.scrollTop  / ve_zoom + body.clientHeight / ve_zoom / 2) + PASTE_OFFSET : 200;
+
+  const idMap  = {};  // origId → newId
+  const newIds = [];
+
+  for (const entry of ve.clipboard.nodes) {
+    const newId = genId(entry.plugin);
+    idMap[entry.origId] = newId;
+    newIds.push(newId);
+
+    const node = {
+      id:            newId,
+      plugin:        entry.plugin,
+      config:        JSON.parse(JSON.stringify(entry.config)),
+      comment:       entry.comment,
+      upstreams:     [],
+      searchNodeIds: [],
+      listNodeIds:   [],
+      x: baseX + entry.relX,
+      y: baseY + entry.relY,
+    };
+    if (entry.isFunctionCall) {
+      node.isFunctionCall  = true;
+      node.funcCallKey     = newId;
+      node.internalNodeIds = [];
+      node.returnNodeId    = '';
+    }
+    g.nodes.push(node);
+  }
+
+  // Reconnect internal edges using the new IDs.
+  for (const {from, to} of (ve.clipboard.edges || [])) {
+    const newTo   = idMap[to];
+    const newFrom = idMap[from];
+    if (!newTo || !newFrom) continue;
+    const node = g.nodes.find(n => n.id === newTo);
+    if (node) node.upstreams.push(newFrom);
+  }
+
+  // Select the newly pasted nodes.
+  clearMultiSelect();
+  if (newIds.length === 1) {
+    ve.selectedNodeId = newIds[0];
+  } else {
+    for (const id of newIds) ve.selectedNodeIds.add(id);
+    updateExtractButton();
+  }
+
+  veRender();
+  onModelChange();
+}
+
+function updatePasteButton() {
+  const btn = document.getElementById('ve-paste-btn');
+  if (!btn) return;
+  if (!ve.clipboard?.nodes?.length) {
+    btn.style.display = 'none';
+    return;
+  }
+  const n = ve.clipboard.nodes.length;
+  btn.textContent  = `Paste (${n} node${n !== 1 ? 's' : ''})`;
+  btn.style.display = '';
+}
+
+// ── Extract to function ────────────────────────────────────────────────────────
+
+// validateExtraction checks that the multi-selection can form a valid function:
+// - All nodes in the same pipeline, none are sub-nodes or function calls
+// - Exactly one "exit" (the node whose output feeds the rest of the pipeline)
+// Returns {ok, error, graphIdx, entryUpstreams, returnNodeId}.
+function validateExtraction() {
+  const ids = ve.selectedNodeIds;
+  if (!multiSelectIsValid()) return {ok: false, error: 'Select at least one main node (Cmd/Ctrl+click).'};
+
+  const graphIdx = findNodeGraph([...ids][0]);
+  const g = ve.graphs[graphIdx];
+  const allMain = g.nodes.filter(n => !n.isSearchNode && !n.isListNode);
+
+  // Entry upstreams: upstreams of selected nodes that are outside the selection.
+  const entryUpstreams = [];
+  for (const id of ids) {
+    for (const up of (findNode(id)?.upstreams || [])) {
+      if (!ids.has(up)) entryUpstreams.push(up);
+    }
+  }
+
+  // Exit nodes: selected nodes that have at least one downstream outside the selection.
+  const exitNodes = [...ids].filter(id =>
+    allMain.some(n => !ids.has(n.id) && (n.upstreams || []).includes(id))
+  );
+  // Terminal within the selection: selected nodes that no *other selected node*
+  // consumes. This correctly handles sink chains like deluge→email where both
+  // are selected — deluge is consumed by email (also selected), so only email
+  // is terminal. The old check used non-selected nodes only, which made both
+  // appear terminal when neither had an external consumer.
+  const terminalSelected = [...ids].filter(id =>
+    ![...ids].some(other => other !== id && (findNode(other)?.upstreams || []).includes(id))
+  );
+
+  let returnNodeId;
+  if (exitNodes.length === 1) {
+    returnNodeId = exitNodes[0];
+  } else if (exitNodes.length === 0 && terminalSelected.length === 1) {
+    returnNodeId = terminalSelected[0];
+  } else if (exitNodes.length === 0 && terminalSelected.length > 1) {
+    return {ok: false, error: 'Multiple terminal nodes — connect them first or pick a subset.'};
+  } else {
+    return {ok: false, error: 'Selection has multiple outputs. A function can only return one node.'};
+  }
+
+  return {ok: true, graphIdx, entryUpstreams, returnNodeId};
+}
+
+// inferExtractionParams collects all config key/value pairs across selected nodes
+// as candidate function parameters, deduplicating names.
+function inferExtractionParams() {
+  const params = [];
+  const usedNames = new Set(['upstream']); // reserved
+  let dedupCounter = 0;
+  for (const id of ve.selectedNodeIds) {
+    const n = findNode(id);
+    if (!n) continue;
+    for (const [key, val] of Object.entries(n.config || {})) {
+      if (val === null || val === undefined || val === '') continue;
+      let pName = key;
+      if (usedNames.has(pName)) pName = `${n.plugin.replace(/[^a-zA-Z0-9]/g, '_')}_${key}`;
+      if (usedNames.has(pName)) pName = `${pName}_${dedupCounter++}`;
+      usedNames.add(pName);
+      const type = Array.isArray(val) ? 'list'
+                 : typeof val === 'boolean' ? 'bool'
+                 : typeof val === 'number'  ? 'int' : 'string';
+      params.push({nodeId: id, configKey: key, paramName: pName, type, defaultValue: val, include: true});
+    }
+  }
+  return params;
+}
+
+// nodesToFunctionSource generates the Starlark def block text for the extracted function.
+function nodesToFunctionSource(funcName, params, selectedIds, validation, graph) {
+  const {entryUpstreams, returnNodeId} = validation;
+
+  // Map: nodeId → configKey → paramName (for included params).
+  const paramLookup = {};
+  for (const p of params) {
+    if (!p.include) continue;
+    (paramLookup[p.nodeId] = paramLookup[p.nodeId] || {})[p.configKey] = p.paramName;
+  }
+
+  const selectedNodes = graph.nodes.filter(n => selectedIds.has(n.id) && !n.isSearchNode && !n.isListNode);
+  const ordered = topoSortNodes(selectedNodes);
+
+  const lines = [];
+  for (const p of params) {
+    if (p.include) lines.push(`# pipeliner:param ${p.paramName}${p.hint ? '  ' + p.hint : ''}`);
+  }
+
+  // Parameters are required (no default in the def signature); the actual
+  // values live at the call site so every use is explicit.
+  const sigParams = params.filter(p => p.include).map(p => p.paramName);
+  // Only include 'upstream' when there are entry upstreams (processors/sinks).
+  const hasEntryUpstreams = entryUpstreams.length > 0;
+  const sig = hasEntryUpstreams ? ['upstream', ...sigParams].join(', ') : sigParams.join(', ');
+  lines.push(`def ${funcName}(${sig}):`);
+  if (ordered.length === 0) lines.push('    pass');
+
+  for (const n of ordered) {
+    const role = pluginMeta(n.plugin)?.role || 'processor';
+    const internalUps = (n.upstreams || []).filter(u => selectedIds.has(u));
+    const externalUps = (n.upstreams || []).filter(u => !selectedIds.has(u));
+
+    let upExpr;
+    if (externalUps.length > 0 && internalUps.length === 0) {
+      upExpr = 'upstream';
+    } else if (internalUps.length > 0 && externalUps.length === 0) {
+      upExpr = internalUps.length === 1 ? internalUps[0] : `merge(${internalUps.join(', ')})`;
+    } else if (internalUps.length > 0 && externalUps.length > 0) {
+      upExpr = `merge(upstream, ${internalUps.join(', ')})`;
+    } else {
+      upExpr = null;
+    }
+
+    const cfgParts = Object.entries(n.config || {}).map(([k, v]) => {
+      const pName = paramLookup[n.id]?.[k];
+      return `${k}=${pName ?? valToStar(v)}`;
+    });
+
+    if (role === 'source') {
+      lines.push(`    ${n.id} = input(${[starLit(n.plugin), ...cfgParts].join(', ')})`);
+    } else if (role === 'processor') {
+      const parts = [starLit(n.plugin)];
+      if (upExpr) parts.push(`upstream=${upExpr}`);
+      parts.push(...cfgParts);
+      lines.push(`    ${n.id} = process(${parts.join(', ')})`);
+    } else {
+      const parts = [starLit(n.plugin)];
+      if (upExpr) parts.push(`upstream=${upExpr}`);
+      parts.push(...cfgParts);
+      lines.push(`    ${n.id} = output(${parts.join(', ')})`);
+    }
+  }
+
+  if (returnNodeId) lines.push(`    return ${returnNodeId}`);
+  return lines.join('\n') + '\n';
+}
+
+// openExtractDialog shows the extraction modal: function name + parameter table.
+function openExtractDialog() {
+  const validation = validateExtraction();
+  if (!validation.ok) { alert(validation.error); return; }
+
+  const params = inferExtractionParams();
+  const graphIdx = validation.graphIdx;
+
+  // Suggest a function name from the dominant plugin name.
+  const pluginNames = [...ve.selectedNodeIds].map(id => findNode(id)?.plugin || '').filter(Boolean);
+  const dominant = pluginNames[Math.round((pluginNames.length - 1) / 2)] || 'my_function';
+  const suggestedName = dominant.replace(/[^a-zA-Z0-9]/g, '_') + '_fn';
+
+  let modal = document.getElementById('ve-extract-modal');
+  modal?.remove();
+  modal = document.createElement('div');
+  modal.id = 've-extract-modal';
+  modal.className = 've-extract-modal';
+
+  const paramRows = params.map((p, i) => `
+    <tr>
+      <td><input type="checkbox" data-pi="${i}" ${p.include ? 'checked' : ''}></td>
+      <td><input type="text" class="ep-name" data-pi="${i}" value="${esc(p.paramName)}"></td>
+      <td><input type="text" class="ep-hint" data-pi="${i}" value="${esc(p.hint || '')}" placeholder="optional description…"></td>
+      <td style="color:var(--muted);font-size:11px">${esc(p.type)}</td>
+      <td style="color:var(--muted);font-size:11px;max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+          title="${esc(String(p.defaultValue))}">${esc(String(p.defaultValue))}</td>
+    </tr>`).join('');
+
+  modal.innerHTML = `
+    <div class="ve-extract-inner">
+      <div class="ve-extract-header">
+        <span class="ve-extract-title">Extract to function</span>
+        <button class="ve-extract-close" id="ve-extract-close">×</button>
+      </div>
+      <div class="ve-extract-body">
+        <div class="ve-extract-field">
+          <label>Function name</label>
+          <input type="text" id="ve-extract-name" value="${esc(suggestedName)}" placeholder="my_function" spellcheck="false">
+        </div>
+        ${params.length ? `
+        <div class="ve-extract-field">
+          <label>Parameters <span style="font-weight:400;text-transform:none;letter-spacing:0">(uncheck to hardcode the value)</span></label>
+          <table class="ve-extract-param-table">
+            <thead><tr><th></th><th>Param name</th><th>Description</th><th>Type</th><th>Call value</th></tr></thead>
+            <tbody id="ve-extract-params">${paramRows}</tbody>
+          </table>
+        </div>` : '<p style="color:var(--muted);font-size:12px">No configurable values — the function will have only an upstream parameter.</p>'}
+        <div class="ve-extract-error" id="ve-extract-err"></div>
+      </div>
+      <div class="ve-extract-footer">
+        <button class="ve-extract-cancel" id="ve-extract-cancel">Cancel</button>
+        <button class="ve-extract-create" id="ve-extract-create">Create function</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+
+  const close = () => modal.remove();
+  document.getElementById('ve-extract-close').onclick  = close;
+  document.getElementById('ve-extract-cancel').onclick = close;
+  modal.onkeydown = e => { if (e.key === 'Escape') close(); };
+  modal.addEventListener('pointerdown', e => { if (e.target === modal) close(); });
+
+  document.getElementById('ve-extract-create').onclick = () => {
+    const name = document.getElementById('ve-extract-name').value.trim();
+    const errEl = document.getElementById('ve-extract-err');
+    errEl.textContent = '';
+    if (!name || !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
+      errEl.textContent = 'Function name must be a valid identifier (letters, digits, underscores).';
+      return;
+    }
+    // Read back param state from the table.
+    const tbody = document.getElementById('ve-extract-params');
+    if (tbody) {
+      tbody.querySelectorAll('tr').forEach(row => {
+        const pi = parseInt(row.querySelector('[data-pi]')?.dataset.pi ?? '-1');
+        if (pi < 0 || pi >= params.length) return;
+        params[pi].include   = row.querySelector('input[type=checkbox]').checked;
+        params[pi].paramName = row.querySelector('.ep-name').value.trim() || params[pi].paramName;
+        params[pi].hint      = row.querySelector('.ep-hint').value.trim();
+      });
+    }
+    // Check for duplicate param names.
+    const included = params.filter(p => p.include);
+    const nameSet = new Set(included.map(p => p.paramName));
+    if (nameSet.size !== included.length) {
+      errEl.textContent = 'Duplicate parameter names — each parameter must have a unique name.';
+      return;
+    }
+    close();
+    performExtraction(name, params, validation, graphIdx);
+  };
+
+  document.getElementById('ve-extract-name').focus();
+  document.getElementById('ve-extract-name').select();
+}
+
+// performExtraction replaces the selected nodes with a function call node and
+// registers the new user function definition.
+function performExtraction(funcName, params, validation, graphIdx) {
+  const {entryUpstreams, returnNodeId} = validation;
+  const selectedIds = new Set(ve.selectedNodeIds); // snapshot before clearing
+  const g = ve.graphs[graphIdx];
+
+  // Generate the function source text.
+  const sourceText = nodesToFunctionSource(funcName, params, selectedIds, validation, g);
+
+  // Infer role from body.
+  const role = sourceText.includes(' = input(') ? 'source'
+             : sourceText.includes(' = output(') ? 'sink' : 'processor';
+
+  // Build the function call node's config args from included params.
+  const callArgs = {};
+  for (const p of params) {
+    if (p.include) callArgs[p.paramName] = p.defaultValue;
+  }
+
+  // Generate a unique call node ID.
+  const callNodeId = genId(funcName);
+
+  // Reroute: nodes that had the return node as an upstream now point to the call node.
+  for (const n of g.nodes) {
+    if (!selectedIds.has(n.id)) {
+      n.upstreams = (n.upstreams || []).map(u => u === returnNodeId ? callNodeId : u);
+    }
+  }
+
+  // Compute centroid position of selected nodes so the call node lands in place.
+  const positioned = [...selectedIds].map(findNode).filter(n => n?.x != null && n?.y != null);
+  const cx = positioned.length ? positioned.reduce((s, n) => s + n.x, 0) / positioned.length : null;
+  const cy = positioned.length ? positioned.reduce((s, n) => s + n.y, 0) / positioned.length : null;
+
+  // Remove selected nodes and insert the function call node.
+  g.nodes = g.nodes.filter(n => !selectedIds.has(n.id));
+  g.nodes.push({
+    id:             callNodeId,
+    plugin:         funcName,
+    config:         callArgs,
+    upstreams:      entryUpstreams,
+    searchNodeIds:  [],
+    listNodeIds:    [],
+    comment:        '',
+    isFunctionCall: true,
+    funcCallKey:    callNodeId,
+    internalNodeIds: [...selectedIds],
+    returnNodeId,
+    x: cx, y: cy,
+  });
+
+  // Register the user function.
+  ve.userFunctions[funcName] = {
+    name:        funcName,
+    role,
+    description: '',
+    params:      params.filter(p => p.include).map(p => ({
+      key: p.paramName, type: p.type, required: true, default: null, hint: p.hint || '',
+    })),
+    _sourceText: sourceText,
+  };
+
+  clearMultiSelect();
+  ve.selectedNodeId = callNodeId;
+  // Force a full palette re-render so the new function appears immediately in
+  // the Functions section (syncPaletteState only re-renders on disabled state
+  // change, so veRender() alone won't update the palette for a new function).
+  renderPalette(document.getElementById('ve-search')?.value ?? '');
+  veRender();
+  onModelChange();
+}
+
+// removeFunctionDef removes a user function definition and all nodes that call
+// it from every pipeline, after asking for confirmation.
+function removeFunctionDef(funcName) {
+  const usedIn = [];
+  for (const g of ve.graphs) {
+    const count = g.nodes.filter(n => n.isFunctionCall && n.plugin === funcName).length;
+    if (count) usedIn.push(`"${g.name}" (${count} use${count !== 1 ? 's' : ''})`);
+  }
+  const usageNote = usedIn.length
+    ? `\n\nIt is used in: ${usedIn.join(', ')}. Those call nodes will also be removed.`
+    : '';
+  if (!confirm(`Remove function "${funcName}"?${usageNote}`)) return;
+
+  delete ve.userFunctions[funcName];
+  for (const g of ve.graphs) {
+    const removedIds = new Set(
+      g.nodes.filter(n => n.isFunctionCall && n.plugin === funcName).map(n => n.id)
+    );
+    // Remove dangling upstreams pointing to the removed call nodes.
+    for (const n of g.nodes) {
+      n.upstreams = (n.upstreams || []).filter(u => !removedIds.has(u));
+    }
+    g.nodes = g.nodes.filter(n => !removedIds.has(n.id));
+  }
+  if (ve.selectedNodeId && !findNode(ve.selectedNodeId)) ve.selectedNodeId = null;
+  renderPalette(document.getElementById('ve-search')?.value ?? '');
+  veRender();
+  onModelChange();
+}
+
+// extractFunctionSource returns the full text of a user function (including its
+// preceding # pipeliner: comments and the def block) from the raw config string.
+function extractFunctionSource(src, funcName) {
+  const lines = src.split('\n');
+  let start = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^def\s+/.test(lines[i].trimStart()) &&
+        lines[i].trimStart().startsWith(`def ${funcName}(`)) {
+      // Walk backwards to include preceding comment block.
+      let s = i;
+      while (s > 0 && lines[s - 1].trimStart().startsWith('#')) s--;
+      start = s;
+      break;
+    }
+  }
+  if (start < 0) return '';
+  // Collect def line + indented body.
+  const result = [];
+  for (let i = start; i < lines.length; i++) {
+    result.push(lines[i]);
+    if (i > start && lines[i] !== '' && !/^\s/.test(lines[i])) {
+      result.pop(); // stop before the next top-level statement
+      break;
+    }
+  }
+  return result.join('\n');
+}
+
 function dagToStarlark() {
   const graphs = ve.graphs.filter(g => g.name || g.nodes.length);
   if (!graphs.length) return '';
+
+  // Collect user functions that are actually used across all pipelines.
+  const usedFunctions = new Set();
+  for (const g of graphs) {
+    for (const n of g.nodes) {
+      if (n.isFunctionCall && ve.userFunctions[n.plugin]) usedFunctions.add(n.plugin);
+    }
+  }
+
+  // Emit function definitions at the top (preserved from the parsed source).
+  // We re-emit the function definitions from their stored body source if available,
+  // otherwise from the internal node model (Phase 3 — editing not yet implemented).
+  const preamble = [];
+  for (const funcName of usedFunctions) {
+    const fd = ve.userFunctions[funcName];
+    if (!fd) continue;
+    if (fd._sourceText) {
+      // Preserve the original def block verbatim.
+      preamble.push(fd._sourceText.trimEnd());
+    }
+  }
 
   const sections = [];
   for (const g of graphs) {
@@ -2088,14 +2738,12 @@ function dagToStarlark() {
     // Sort so every upstream variable is assigned before it is referenced.
     const ordered = topoSortNodes(g.nodes.filter(n => !n.isSearchNode && !n.isListNode));
     for (const n of ordered) {
-      // (search nodes already excluded from ordered)
-
-      const role    = pluginMeta(n.plugin)?.role || 'processor';
-      const cfgKw   = configToKwargs(n.config);
-      const fromStr = upstreamsStr(n.upstreams);
+      const meta     = pluginMeta(n.plugin);
+      const role     = meta?.role || 'processor';
+      const cfgKw    = configToKwargs(n.config);
+      const fromStr  = upstreamsStr(n.upstreams);
 
       // Emit user comment then pipeliner:pos before the definition.
-      // A blank line separates this node's header block from the previous line.
       const hasPos     = !n.isSearchNode && !n.isListNode && n.x != null && n.y != null;
       const hasComment = !!n.comment?.trim();
       if (hasPos || hasComment) {
@@ -2117,7 +2765,13 @@ function dagToStarlark() {
         lines.push(posLine);
       }
 
-      if (role === 'source') {
+      if (n.isFunctionCall) {
+        // Serialize as a user function call: varname = funcname(upstream=..., kwargs)
+        const parts = [];
+        if (fromStr) parts.push(`upstream=${fromStr}`);
+        if (cfgKw)   parts.push(cfgKw);
+        lines.push(`${n.id} = ${n.plugin}(${parts.join(', ')})`);
+      } else if (role === 'source') {
         lines.push(`${n.id} = input(${[starLit(n.plugin), cfgKw].filter(Boolean).join(', ')})`);
       } else if (role === 'processor') {
         const parts = [starLit(n.plugin)];
@@ -2141,7 +2795,6 @@ function dagToStarlark() {
     }
 
     // Pipeline footer: optional user comment then pipeline() call.
-    // Always insert a blank line before the footer when node lines precede it.
     if (lines.length > 0) lines.push('');
     if (g.comment?.trim()) {
       for (const cl of g.comment.trim().split('\n')) lines.push(`# ${cl}`);
@@ -2151,7 +2804,9 @@ function dagToStarlark() {
     lines.push(`pipeline(${starLit(g.name)}${schedArg})`);
     sections.push(lines.join('\n'));
   }
-  return sections.join('\n\n') + '\n';
+
+  const body = sections.join('\n\n') + '\n';
+  return preamble.length ? preamble.join('\n\n') + '\n\n' + body : body;
 }
 
 // Serialise a via-connected node as a Starlark dict: {"name": "jackett", "url": "..."}.
@@ -2216,6 +2871,15 @@ async function textToVisualSync() {
     const data    = await r.json();
     const entries = Object.entries(data.graphs || {});
 
+    // Merge user functions into the plugin registry so the palette can show them.
+    // Also extract each function's source text from the config content so
+    // dagToStarlark can re-emit function definitions verbatim.
+    ve.userFunctions = {};
+    for (const fd of (data.functions || [])) {
+      ve.userFunctions[fd.name] = fd;
+      fd._sourceText = extractFunctionSource(content, fd.name);
+    }
+
     ve.syncing = true;
     if (!entries.length) {
       ve.graphs         = [];       // no stub — user must click "+ Add pipeline"
@@ -2229,23 +2893,36 @@ async function textToVisualSync() {
 
     ve.graphs = entries.map(([name, graph]) => {
       const rawNodes = graph.nodes || [];
-      // First pass: build regular nodes, loading comments.
+
+      // Build a set of node IDs that belong to a function call (internal nodes).
+      // These are hidden from the main canvas in collapsed mode.
+      const internalNodeIds = new Set();
+      for (const fc of (graph.function_calls || [])) {
+        for (const nid of fc.internal_node_ids) internalNodeIds.add(nid);
+      }
+
+      // First pass: build regular (non-internal) nodes.
       // Positions (x, y) come from per-node # pipeliner:pos comments on the
       // server; y is relative to the pipeline's region top and is converted to
       // absolute by initLayout() after stacking order is determined.
-      const nodes = rawNodes.map(n => ({
-        id: n.id, plugin: n.plugin, config: n.config || {}, upstreams: n.upstreams || [],
-        searchNodeIds: [], comment: n.comment || '',
-        x: n.x ?? null,
-        y: n.y ?? null,
-      }));
+      const nodes = rawNodes
+        .filter(n => !internalNodeIds.has(n.id))
+        .map(n => ({
+          id: n.id, plugin: n.plugin, config: n.config || {}, upstreams: n.upstreams || [],
+          searchNodeIds: [], comment: n.comment || '',
+          x: n.x ?? null, y: n.y ?? null,
+        }));
+
       // Second pass: convert search/list items to regular nodes with flags.
       for (let ni = 0; ni < rawNodes.length; ni++) {
         const raw = rawNodes[ni];
+        if (internalNodeIds.has(raw.id)) continue;
+        const nodeIdx = nodes.findIndex(n => n.id === raw.id);
+        if (nodeIdx < 0) continue;
         for (let si = 0; si < (raw.search || []).length; si++) {
           const s  = raw.search[si];
           const id = `${raw.id}__search__${si}`;
-          nodes[ni].searchNodeIds.push(id);
+          nodes[nodeIdx].searchNodeIds.push(id);
           nodes.push({
             id, plugin: s.plugin, config: s.config || {},
             upstreams: [], searchNodeIds: [], listNodeIds: [], comment: '',
@@ -2256,8 +2933,8 @@ async function textToVisualSync() {
         for (let li = 0; li < (raw.list || []).length; li++) {
           const l  = raw.list[li];
           const id = `${raw.id}__list__${li}`;
-          if (!nodes[ni].listNodeIds) nodes[ni].listNodeIds = [];
-          nodes[ni].listNodeIds.push(id);
+          if (!nodes[nodeIdx].listNodeIds) nodes[nodeIdx].listNodeIds = [];
+          nodes[nodeIdx].listNodeIds.push(id);
           nodes.push({
             id, plugin: l.plugin, config: l.config || {},
             upstreams: [], searchNodeIds: [], listNodeIds: [], comment: '',
@@ -2266,6 +2943,45 @@ async function textToVisualSync() {
           });
         }
       }
+
+      // Third pass: insert synthetic function-call nodes.
+      // Each call is represented as a single collapsed card whose upstreams are
+      // the external upstreams of the call's entry node(s) and whose position
+      // is the stored call-key position (if any).
+      for (const fc of (graph.function_calls || [])) {
+        // Find the entry nodes: internal nodes whose upstreams are all external.
+        const internalSet = new Set(fc.internal_node_ids);
+        const entryUpstreams = [];
+        for (const n of rawNodes) {
+          if (!internalSet.has(n.id)) continue;
+          for (const up of (n.upstreams || [])) {
+            if (!internalSet.has(up)) entryUpstreams.push(up);
+          }
+        }
+        // Find downstream nodes of the return node (nodes outside the function
+        // that list the return node as an upstream).
+        // The synthetic node replaces the return node in their upstream lists.
+        for (const n of nodes) {
+          if (n.isFunctionCall) continue;
+          n.upstreams = n.upstreams.map(u => u === fc.return_node_id ? fc.call_key : u);
+        }
+        nodes.push({
+          id:               fc.call_key,
+          plugin:           fc.func,
+          config:           fc.args || {},
+          upstreams:        entryUpstreams,
+          searchNodeIds:    [],
+          listNodeIds:      [],
+          comment:          '',
+          isFunctionCall:   true,
+          funcCallKey:      fc.call_key,
+          internalNodeIds:  fc.internal_node_ids,
+          returnNodeId:     fc.return_node_id,
+          x:                fc.x ?? null,
+          y:                fc.y ?? null,
+        });
+      }
+
       // A pipeline "has layout" when any main node carries a stored position.
       const _hasLayout = nodes.some(n => !n.isSearchNode && !n.isListNode && n.x != null && n.y != null);
       return {name, schedule: graph.schedule || '', comment: graph.comment || '', nodes, _hasLayout};

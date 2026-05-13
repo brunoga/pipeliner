@@ -277,14 +277,15 @@ func (ex *Executor) runNode(
 
 	// Snapshot entry states before the node runs so we can log what changed.
 	type snapshot struct {
-		e            *entry.Entry
-		stateBefore  entry.State
+		e              *entry.Entry
+		stateBefore    entry.State
+		consumedBefore bool
 	}
 	var snaps []snapshot
 	if len(upstream) > 0 {
 		snaps = make([]snapshot, len(upstream))
 		for i, e := range upstream {
-			snaps[i] = snapshot{e: e, stateBefore: e.State}
+			snaps[i] = snapshot{e: e, stateBefore: e.State, consumedBefore: e.IsConsumed()}
 		}
 	}
 
@@ -338,7 +339,9 @@ func (ex *Executor) runNode(
 		for _, s := range snaps {
 			if s.e.IsFailed() && s.stateBefore != entry.Failed {
 				tc.Logger.Warn("entry failed", "title", s.e.Title, "reason", s.e.FailReason)
-			} else if s.e.IsAccepted() {
+			} else if s.e.IsConsumed() && !s.consumedBefore {
+				tc.Logger.Info("entry consumed", "title", s.e.Title)
+			} else if s.e.IsAccepted() && !s.e.IsConsumed() {
 				tc.Logger.Info("entry accepted", "title", s.e.Title)
 			}
 		}

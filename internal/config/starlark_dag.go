@@ -14,19 +14,44 @@ package config
 
 import (
 	"fmt"
+	"strings"
 
 	"go.starlark.net/starlark"
 
 	"github.com/brunoga/pipeliner/internal/dag"
 )
 
+// activeFunctionCall returns the call key for the innermost user function on
+// the Starlark call stack, or "" if none. The key is "funcName@line:col" where
+// line:col is the position of the call to the user function in its outer scope,
+// making it unique per call site.
+func (ctx *execContext) activeFunctionCall(thread *starlark.Thread) string {
+	depth := thread.CallStackDepth()
+	// Depth 0 = the current built-in (process/input/output).
+	// Depth 1 = its direct caller (a user function or <toplevel>).
+	for i := 1; i < depth; i++ {
+		frame := thread.CallFrame(i)
+		if _, ok := ctx.userFunctions[frame.Name]; ok {
+			// The frame at i+1 is the scope that called the user function; its
+			// Position is the call site that uniquely identifies this invocation.
+			if i+1 < depth {
+				outer := thread.CallFrame(i + 1)
+				return fmt.Sprintf("%s@%d:%d", frame.Name, outer.Pos.Line, outer.Pos.Col)
+			}
+			return fmt.Sprintf("%s@%d:%d", frame.Name, frame.Pos.Line, frame.Pos.Col)
+		}
+	}
+	return ""
+}
+
 // dagNodeRecord holds the information for one pending graph node before
 // pipeline() assembles it into a dag.Graph.
 type dagNodeRecord struct {
-	id         dag.NodeID
-	pluginName string
-	config     map[string]any
-	upstreams  []dag.NodeID
+	id              dag.NodeID
+	pluginName      string
+	config          map[string]any
+	upstreams       []dag.NodeID
+	functionCallKey string // non-empty when created inside a user function call
 }
 
 // dagGraph is the assembled result: a dag.Graph paired with its raw node
@@ -79,7 +104,7 @@ func resolveFrom(v starlark.Value) ([]dag.NodeID, error) {
 }
 
 // inputBuiltin implements input("plugin-name", key=val, ...) → nodeHandle.
-func (ctx *execContext) inputBuiltin(_ *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+func (ctx *execContext) inputBuiltin(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	if len(args) < 1 {
 		return nil, fmt.Errorf("%s: missing plugin name", fn.Name())
 	}
@@ -93,15 +118,16 @@ func (ctx *execContext) inputBuiltin(_ *starlark.Thread, fn *starlark.Builtin, a
 	}
 	id := ctx.nextNodeID(name)
 	ctx.pendingNodes = append(ctx.pendingNodes, &dagNodeRecord{
-		id:         id,
-		pluginName: name,
-		config:     cfg,
+		id:              id,
+		pluginName:      name,
+		config:          cfg,
+		functionCallKey: ctx.activeFunctionCall(thread),
 	})
 	return &nodeHandle{id: id}, nil
 }
 
 // processBuiltin implements process("plugin-name", upstream=node, key=val, ...) → nodeHandle.
-func (ctx *execContext) processBuiltin(_ *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+func (ctx *execContext) processBuiltin(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	if len(args) < 1 {
 		return nil, fmt.Errorf("%s: missing plugin name", fn.Name())
 	}
@@ -119,10 +145,11 @@ func (ctx *execContext) processBuiltin(_ *starlark.Thread, fn *starlark.Builtin,
 	}
 	id := ctx.nextNodeID(name)
 	ctx.pendingNodes = append(ctx.pendingNodes, &dagNodeRecord{
-		id:         id,
-		pluginName: name,
-		config:     cfg,
-		upstreams:  upstreams,
+		id:              id,
+		pluginName:      name,
+		config:          cfg,
+		upstreams:       upstreams,
+		functionCallKey: ctx.activeFunctionCall(thread),
 	})
 	return &nodeHandle{id: id}, nil
 }
@@ -130,7 +157,7 @@ func (ctx *execContext) processBuiltin(_ *starlark.Thread, fn *starlark.Builtin,
 // mergeBuiltin implements merge(node_a, node_b, ...) → starlark.List of nodeHandles.
 // It is a convenience alias: merging two nodes is equivalent to passing a list
 // as upstream= to the next process() call. No graph node is created.
-func (ctx *execContext) mergeBuiltin(_ *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+func (ctx *execContext) mergeBuiltin(_ *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) { //nolint:unparam
 	if len(kwargs) > 0 {
 		return nil, fmt.Errorf("%s: does not accept keyword arguments", fn.Name())
 	}
@@ -150,7 +177,7 @@ func (ctx *execContext) mergeBuiltin(_ *starlark.Thread, fn *starlark.Builtin, a
 // outputBuiltin implements output("plugin-name", upstream=node, key=val, ...) → nodeHandle.
 // Returns a nodeHandle that can be passed as upstream= to another output() call,
 // enabling sink chaining. Only sink → sink connections are valid in the DAG validator.
-func (ctx *execContext) outputBuiltin(_ *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+func (ctx *execContext) outputBuiltin(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	if len(args) < 1 {
 		return nil, fmt.Errorf("%s: missing plugin name", fn.Name())
 	}
@@ -168,10 +195,11 @@ func (ctx *execContext) outputBuiltin(_ *starlark.Thread, fn *starlark.Builtin, 
 	}
 	id := ctx.nextNodeID(name)
 	ctx.pendingNodes = append(ctx.pendingNodes, &dagNodeRecord{
-		id:         id,
-		pluginName: name,
-		config:     cfg,
-		upstreams:  upstreams,
+		id:              id,
+		pluginName:      name,
+		config:          cfg,
+		upstreams:       upstreams,
+		functionCallKey: ctx.activeFunctionCall(thread),
 	})
 	return &nodeHandle{id: id}, nil
 }
@@ -209,6 +237,32 @@ func (ctx *execContext) pipelineBuiltin(_ *starlark.Thread, fn *starlark.Builtin
 	}
 
 	ctx.graphs[name] = &dagGraph{graph: g, nodes: ctx.pendingNodes}
+
+	// Build FunctionCallRecords by grouping nodes that share the same call key.
+	callMap := make(map[string]*FunctionCallRecord)
+	callOrder := make([]string, 0) // preserve first-seen order
+	for _, rec := range ctx.pendingNodes {
+		if rec.functionCallKey == "" {
+			continue
+		}
+		fcr, exists := callMap[rec.functionCallKey]
+		if !exists {
+			funcName, _, _ := strings.Cut(rec.functionCallKey, "@")
+			fcr = &FunctionCallRecord{
+				CallKey:  rec.functionCallKey,
+				FuncName: funcName,
+				Args:     make(map[string]any),
+			}
+			callMap[rec.functionCallKey] = fcr
+			callOrder = append(callOrder, rec.functionCallKey)
+		}
+		fcr.InternalNodeIDs = append(fcr.InternalNodeIDs, string(rec.id))
+		fcr.ReturnNodeID = string(rec.id) // last node encountered = return node
+	}
+	for _, key := range callOrder {
+		ctx.functionCalls[name] = append(ctx.functionCalls[name], callMap[key])
+	}
+
 	ctx.pendingNodes = nil // reset for the next pipeline() block
 
 	if s, ok := starlark.AsString(schedule); ok && s != "" {

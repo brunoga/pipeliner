@@ -34,14 +34,20 @@ func (s State) String() string {
 
 // Entry is the core data unit that flows through a pipeline task.
 type Entry struct {
-	Title       string
-	URL         string
-	OriginalURL string // set once at input time, never mutated by plugins
-	State       State
+	Title        string
+	URL          string
+	OriginalURL  string // set once at input time, never mutated by plugins
+	State        State
 	RejectReason string
-	FailReason  string
-	Task        string // owning task name, set by the engine
-	Fields      map[string]any
+	FailReason   string
+	Task         string // owning task name, set by the engine
+	Fields       map[string]any
+
+	// consumed is set by Consume(). It keeps State = Accepted (so CommitPlugin
+	// still runs for this entry) but signals FilterAccepted to exclude it from
+	// subsequent sinks. Use it when the side effect was already applied by other
+	// means and chained notification sinks should be silent.
+	consumed bool
 }
 
 // New creates an Undecided entry with the given title and URL.
@@ -78,18 +84,32 @@ func (e *Entry) IsAccepted() bool  { return e.State == Accepted }
 func (e *Entry) IsRejected() bool  { return e.State == Rejected }
 func (e *Entry) IsFailed() bool    { return e.State == Failed }
 func (e *Entry) IsUndecided() bool { return e.State == Undecided }
+func (e *Entry) IsConsumed() bool  { return e.consumed }
+
+// Consume marks the entry as silently handled: subsequent sinks are skipped
+// (same as Fail), but the entry remains Accepted so CommitPlugin.Commit still
+// runs for it (unlike Fail). Use when the side effect was already applied by
+// other means and chained notification sinks should be silent.
+func (e *Entry) Consume() {
+	if e.State != Rejected && e.State != Failed {
+		e.consumed = true
+	}
+}
 
 // Set stores a value in the entry's metadata bag.
 func (e *Entry) Set(key string, value any) {
 	e.Fields[key] = value
 }
 
-// FilterAccepted returns entries in the Accepted state. Used by SinkPlugin
-// implementations that should only act on accepted entries.
+// FilterAccepted returns entries that are Accepted and not Consumed. Used by
+// SinkPlugin implementations and the executor to pass entries to subsequent
+// sinks. Consumed entries (marked by a prior sink via e.Consume()) are
+// excluded so they do not trigger chained notification sinks, even though
+// CommitPlugin.Commit still runs for them.
 func FilterAccepted(entries []*Entry) []*Entry {
 	out := make([]*Entry, 0, len(entries))
 	for _, e := range entries {
-		if e.IsAccepted() {
+		if e.IsAccepted() && !e.consumed {
 			out = append(out, e)
 		}
 	}
@@ -169,7 +189,7 @@ func (e *Entry) GetTime(key string) time.Time {
 
 // Clone returns a deep copy of the entry. Mutating the clone does not affect the original.
 func (e *Entry) Clone() *Entry {
-	c := &Entry{
+	return &Entry{
 		Title:        e.Title,
 		URL:          e.URL,
 		OriginalURL:  e.OriginalURL,
@@ -178,8 +198,8 @@ func (e *Entry) Clone() *Entry {
 		FailReason:   e.FailReason,
 		Task:         e.Task,
 		Fields:       maps.Clone(e.Fields),
+		consumed:     e.consumed,
 	}
-	return c
 }
 
 func (e *Entry) String() string {

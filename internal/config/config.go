@@ -31,6 +31,12 @@ type Config struct {
 	Graphs map[string]*dag.Graph
 	// GraphSchedules maps pipeline names to schedule expressions ("1h", "0 * * * *").
 	GraphSchedules map[string]string
+	// UserFunctions holds the user-defined pipeline functions discovered in the
+	// source, keyed by function name.
+	UserFunctions map[string]*UserFunctionDef
+	// FunctionCalls holds the function call invocations per pipeline, keyed by
+	// pipeline name then call key.
+	FunctionCalls map[string][]*FunctionCallRecord
 }
 
 // Load reads and executes a Starlark configuration file.

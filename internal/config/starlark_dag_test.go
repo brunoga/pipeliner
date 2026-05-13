@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/brunoga/pipeliner/internal/dag"
@@ -253,5 +254,150 @@ pipeline("field-check")
 	errs := Validate(c)
 	if len(errs) == 0 {
 		t.Error("want validation error for missing required field, got none")
+	}
+}
+
+// ── user function tests ───────────────────────────────────────────────────────
+
+const userFuncConfig = `
+# A reusable dedup+quality filter.
+# pipeliner:param quality  Minimum quality spec
+def quality_filter(upstream, quality="1080p"):
+    s = process("seen",    upstream=upstream)
+    p = process("print",   upstream=s)
+    return p
+
+src      = input("rss", url="https://example.com/rss")
+filtered = quality_filter(upstream=src, quality="720p")
+pipeline("tv")
+`
+
+func TestUserFunctionDiscovery(t *testing.T) {
+	defs := scanUserFunctions(userFuncConfig)
+	fd, ok := defs["quality_filter"]
+	if !ok {
+		t.Fatal("quality_filter not discovered")
+	}
+	if fd.Role != "processor" {
+		t.Errorf("role: got %q, want processor", fd.Role)
+	}
+	if fd.Description == "" {
+		t.Error("description should be non-empty")
+	}
+	if len(fd.Params) != 1 {
+		t.Fatalf("params: got %d, want 1", len(fd.Params))
+	}
+	if fd.Params[0].Name != "quality" {
+		t.Errorf("param name: got %q, want quality", fd.Params[0].Name)
+	}
+	if fd.Params[0].Hint == "" {
+		t.Error("param hint should be non-empty")
+	}
+}
+
+func TestUserFunctionRuntimeTracking(t *testing.T) {
+	c := parseDAGOK(t, userFuncConfig)
+
+	calls, ok := c.FunctionCalls["tv"]
+	if !ok || len(calls) == 0 {
+		t.Fatal("no function calls recorded for pipeline tv")
+	}
+	fcr := calls[0]
+	if fcr.FuncName != "quality_filter" {
+		t.Errorf("func name: got %q, want quality_filter", fcr.FuncName)
+	}
+	if len(fcr.InternalNodeIDs) != 2 {
+		t.Errorf("internal nodes: got %d, want 2", len(fcr.InternalNodeIDs))
+	}
+	if fcr.ReturnNodeID == "" {
+		t.Error("return node ID should be set")
+	}
+	// The return node should be the last internal node (print_1).
+	last := fcr.InternalNodeIDs[len(fcr.InternalNodeIDs)-1]
+	if fcr.ReturnNodeID != last {
+		t.Errorf("return node: got %q, want %q", fcr.ReturnNodeID, last)
+	}
+	// Call key must be the Starlark variable name ("filtered"), not the
+	// position-derived "quality_filter@line:col" which is invalid as an identifier.
+	if fcr.CallKey == "" || fcr.CallKey != "filtered" {
+		t.Errorf("call key: got %q, want the variable name %q", fcr.CallKey, "filtered")
+	}
+	if strings.Contains(fcr.CallKey, "@") {
+		t.Errorf("call key %q contains '@' — not a valid Starlark identifier", fcr.CallKey)
+	}
+}
+
+func TestUserFunctionNodesStillInGraph(t *testing.T) {
+	// Internal nodes are still part of the DAG graph (the visual editor hides
+	// them in collapsed mode, but the executor sees all of them).
+	c := parseDAGOK(t, userFuncConfig)
+	g, ok := c.Graphs["tv"]
+	if !ok {
+		t.Fatal("graph tv not found")
+	}
+	// 3 nodes total: rss_0 (outer), seen_1 and print_2 (inside quality_filter).
+	if g.Len() != 3 {
+		t.Errorf("graph len: got %d, want 3", g.Len())
+	}
+}
+
+func TestUserFunctionNotDiscoveredWithoutPipelinerComment(t *testing.T) {
+	src := `
+def helper(x):
+    return x
+
+src = input("rss", url="https://example.com")
+pipeline("p")
+`
+	defs := scanUserFunctions(src)
+	if _, ok := defs["helper"]; ok {
+		t.Error("helper should not be discovered without a # pipeliner: comment")
+	}
+}
+
+// TestUserFunctionReturnNodeIDNonLinear verifies that ReturnNodeID is set to
+// the node the function actually returns, even when that node is NOT the last
+// node created inside the function body.
+func TestUserFunctionReturnNodeIDNonLinear(t *testing.T) {
+	// quality_filter creates 'accepted' first, then 'filtered', but returns
+	// 'accepted'. The old heuristic (last created = return) would set
+	// ReturnNodeID to 'filtered', which is wrong.
+	src := `
+# pipeliner:param quality Quality threshold
+def quality_filter(upstream, quality="1080p"):
+    accepted = process("accept_all", upstream=upstream)
+    filtered  = process("seen",     upstream=upstream)
+    return accepted
+
+src    = input("rss", url="https://example.com/rss")
+result = quality_filter(upstream=src)
+pipeline("nonlinear")
+`
+	c := parseDAGOK(t, src)
+	calls, ok := c.FunctionCalls["nonlinear"]
+	if !ok || len(calls) == 0 {
+		t.Fatal("no function calls recorded")
+	}
+	fcr := calls[0]
+	if fcr.ReturnNodeID == "" {
+		t.Fatal("ReturnNodeID is empty")
+	}
+	// ReturnNodeID must be the accept_all node (first created), not seen (last created).
+	var acceptID string
+	for _, nid := range fcr.InternalNodeIDs {
+		if strings.Contains(nid, "accept_all") {
+			acceptID = nid
+			break
+		}
+	}
+	if acceptID == "" {
+		t.Fatalf("accept_all node not found in InternalNodeIDs: %v", fcr.InternalNodeIDs)
+	}
+	if fcr.ReturnNodeID != acceptID {
+		t.Errorf("ReturnNodeID = %q, want %q (the returned node, not the last created)", fcr.ReturnNodeID, acceptID)
+	}
+	// CallKey must also be "result" (the variable name), not "quality_filter@...".
+	if fcr.CallKey != "result" {
+		t.Errorf("CallKey = %q, want %q", fcr.CallKey, "result")
 	}
 }

@@ -13,11 +13,14 @@ import (
 
 // execute runs a Starlark config script and returns a populated Config.
 func execute(filename string, src []byte) (*Config, error) {
+	userFuncs := scanUserFunctions(string(src))
 	ctx := &execContext{
 		graphs:         make(map[string]*dagGraph),
 		graphSchedules: make(map[string]string),
 		dir:            filepath.Dir(filename),
 		loaded:         make(map[string]starlark.StringDict),
+		userFunctions:  userFuncs,
+		functionCalls:  make(map[string][]*FunctionCallRecord),
 	}
 
 	thread := &starlark.Thread{
@@ -32,8 +35,37 @@ func execute(filename string, src []byte) (*Config, error) {
 	if src == nil {
 		srcArg = nil
 	}
-	if _, err := starlark.ExecFileOptions(opts, thread, filename, srcArg, predeclared); err != nil {
+	globals, err := starlark.ExecFileOptions(opts, thread, filename, srcArg, predeclared)
+	if err != nil {
 		return nil, formatStarlarkError(err)
+	}
+
+	// Fix function call records: replace the runtime call key ("funcname@line:col")
+	// with the variable name the call result was assigned to in the module globals,
+	// and correct ReturnNodeID by matching globals against each call's internal nodes.
+	//
+	// pipelineBuiltin sets ReturnNodeID to the last node created inside the
+	// function body, which is correct for linear chains but wrong for any body
+	// where the returned node is not the last one created (e.g. fork-then-merge
+	// where the merge is returned before a sibling branch finishes). Walking
+	// globals is the authoritative source: if globals["q1"] is a *nodeHandle
+	// that belongs to a function call's internal nodes, then q1 IS the returned
+	// node and "q1" IS the call key.
+	nodeToCall := make(map[dag.NodeID]*FunctionCallRecord)
+	for _, calls := range ctx.functionCalls {
+		for _, fcr := range calls {
+			for _, nid := range fcr.InternalNodeIDs {
+				nodeToCall[dag.NodeID(nid)] = fcr
+			}
+		}
+	}
+	for varName, val := range globals {
+		if h, ok := val.(*nodeHandle); ok {
+			if fcr, ok := nodeToCall[h.id]; ok {
+				fcr.CallKey = varName
+				fcr.ReturnNodeID = string(h.id)
+			}
+		}
 	}
 
 	graphs := make(map[string]*dag.Graph, len(ctx.graphs))
@@ -43,6 +75,8 @@ func execute(filename string, src []byte) (*Config, error) {
 	return &Config{
 		Graphs:         graphs,
 		GraphSchedules: ctx.graphSchedules,
+		UserFunctions:  ctx.userFunctions,
+		FunctionCalls:  ctx.functionCalls,
 	}, nil
 }
 
@@ -54,6 +88,9 @@ type execContext struct {
 	nodeCounter    int
 	dir            string
 	loaded         map[string]starlark.StringDict
+	// User function support.
+	userFunctions map[string]*UserFunctionDef       // discovered before execution
+	functionCalls map[string][]*FunctionCallRecord  // populated by pipelineBuiltin
 }
 
 // predeclared returns the built-in functions available to config scripts.
