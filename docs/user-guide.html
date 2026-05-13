@@ -325,7 +325,7 @@ def standard_tv(upstream, dest="/media/tv"):
 def notify_email(upstream, subject):
     output("email", upstream=upstream,
            smtp_host="smtp.example.com", smtp_port=587,
-           **{"from": "me@example.com"}, to="me@example.com",
+           sender="me@example.com", to="me@example.com",
            subject=subject)
 
 <span class="y-comment"># Compose templates into a complete pipeline</span>
@@ -398,7 +398,7 @@ flt  = process("series", upstream=seen, static=["My Show"])
 
 output("transmission", upstream=flt, host="localhost")
 output("email",        upstream=flt, smtp_host="smtp.example.com",
-       **{"from": "me@example.com"}, to="me@example.com")
+       sender="me@example.com", to="me@example.com")
 pipeline("tv-fanout")</code></pre>
 
 <pre><code><span class="y-comment"># Sink chaining: email fires only for entries Transmission confirmed</span>
@@ -408,7 +408,7 @@ flt  = process("series", upstream=seen, static=["My Show"])
 
 dl = output("transmission", upstream=flt, host="localhost")
 output("email", upstream=dl, smtp_host="smtp.example.com",
-       **{"from": "me@example.com"}, to="me@example.com")
+       sender="me@example.com", to="me@example.com")
 pipeline("tv-chained")</code></pre>
 
 <div class="note"><strong>Fan-out vs chaining:</strong> When two <code>output()</code> calls share the same <code>upstream=</code> they run independently — each receives all accepted entries regardless of what the other does. When one <code>output()</code> uses another as its <code>upstream=</code>, the chained sink only receives entries the first sink did not fail. Use chaining when a downstream action (notification, post-processing) should only happen after the primary sink confirms success.</div>
@@ -1142,7 +1142,7 @@ acc  = process("accept_all", upstream=flt)
 output("email", upstream=acc,
        smtp_host="smtp.gmail.com", smtp_port=587,
        username=env("SMTP_USER"), password=env("SMTP_PASS"),
-       **{"from": env("SMTP_USER")}, to=env("SMTP_TO"),
+       sender=env("SMTP_USER"), to=env("SMTP_TO"),
        subject="{{len .Entries}} new article(s)")
 pipeline("tech-news", schedule="1h")</code></pre>
 
@@ -1368,7 +1368,7 @@ pipeline("tech-news", schedule="1h")</code></pre>
 <pre><code>output("email", upstream=ready,
        smtp_host="smtp.gmail.com", smtp_port=587,
        username=env("SMTP_USER"), password=env("SMTP_PASS"),
-       **{"from": "me@gmail.com"}, to="me@gmail.com", html=True,
+       sender="me@gmail.com", to="me@gmail.com", html=True,
        subject="New premieres: {{len .Entries}} show(s)",
        body_template="""{{range .Entries}}
 &lt;h2&gt;{{index .Fields "title"}}&lt;/h2&gt;
