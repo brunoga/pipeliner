@@ -8,6 +8,7 @@ async function loadConfig() {
     document.getElementById('config-editor').value = content;
     configLoaded = true;
     syncHighlight();
+    switchView('visual');
   } catch (e) { /* silently skip if endpoint not available */ }
 }
 

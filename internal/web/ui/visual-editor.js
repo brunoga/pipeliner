@@ -812,8 +812,13 @@ function layoutGraph(g, globalY) {
   }
 
   g._labelY = globalY;
-  const startY = globalY + 36; // space for pipeline label
   const isSub = n => n.isSearchNode || n.isListNode;
+  // Extra padding above main nodes so list-connected sub-nodes have room to sit
+  // above their parent without overlapping the pipeline label area.
+  const listPad = g.nodes.some(n => !isSub(n) && n.listNodeIds?.length)
+    ? NODE_H + 65 + 16
+    : 0;
+  const startY = globalY + 36 + listPad; // space for pipeline label (+ list nodes)
 
   // ── 1. Topological depth (search/list sub-nodes are laid out separately) ───
   const depth = {};
@@ -867,7 +872,7 @@ function layoutGraph(g, globalY) {
 
   // ── 4. Shift everything so the topmost node starts at startY ─────────────
   let topY = Infinity;
-  for (const n of g.nodes) topY = Math.min(topY, n.y);
+  for (const n of g.nodes) topY = Math.min(topY, n.y ?? Infinity);
   if (topY > startY) {
     const shift = topY - startY;
     for (const n of g.nodes) n.y -= shift;
@@ -950,6 +955,13 @@ function initLayout() {
       maxAbsX = Math.max(maxAbsX, (n.x ?? 0) + NODE_W + 60);
     }
 
+    // Convert relative-y to absolute-y for sub-nodes with stored positions.
+    for (const n of g.nodes) {
+      if ((n.isSearchNode || n.isListNode) && n.x != null && n.y != null) {
+        n.y = g._regionY + n.y;
+      }
+    }
+
     // Place unpositioned main nodes to the right of the bounding box.
     const noPos = mainNodes.filter(n => n.x == null || n.y == null);
     noPos.forEach((n, i) => {
@@ -958,7 +970,7 @@ function initLayout() {
       maxAbsY = Math.max(maxAbsY, n.y);
     });
 
-    // Re-derive search/list sub-node positions from their parent.
+    // Derive positions for sub-nodes that don't yet have stored positions.
     placeSubNodes(g, g._regionY + 36);
 
     g._regionH = maxAbsY - g._regionY + NODE_H + 60;
@@ -969,6 +981,7 @@ function initLayout() {
 // placeSubNodes positions search/list sub-nodes relative to their parent.
 // Mirrors the sub-node placement in layoutGraph; called after main node
 // positions are finalised so parents have absolute coordinates.
+// Sub-nodes that already have stored positions (x != null && y != null) are skipped.
 function placeSubNodes(g, startY) {
   for (const n of g.nodes) {
     if (n.searchNodeIds?.length) {
@@ -977,7 +990,7 @@ function placeSubNodes(g, startY) {
       const startSX = (n.x ?? 0) + NODE_W / 2 - totalW / 2;
       n.searchNodeIds.forEach((id, i) => {
         const sn = g.nodes.find(x => x.id === id);
-        if (sn) {
+        if (sn && (sn.x == null || sn.y == null)) {
           sn.x = Math.max(0, startSX + i * (NODE_W + SEARCH_GAP));
           sn.y = (n.y ?? 0) + NODE_H + 70;
         }
@@ -989,7 +1002,7 @@ function placeSubNodes(g, startY) {
       const startLX  = (n.x ?? 0) + NODE_W / 2 - totalW / 2;
       n.listNodeIds.forEach((id, i) => {
         const ln = g.nodes.find(x => x.id === id);
-        if (ln) {
+        if (ln && (ln.x == null || ln.y == null)) {
           ln.x = Math.max(0, startLX + i * (NODE_W + LIST_GAP));
           ln.y = Math.max(startY + 4, (n.y ?? 0) - NODE_H - 65);
         }
@@ -2073,7 +2086,15 @@ function dagToStarlark() {
       }
       if (hasPos) {
         const regionY = g._regionY ?? 0;
-        lines.push(`# pipeliner:pos ${Math.round(n.x)} ${Math.round(n.y - regionY)}`);
+        let posLine = `# pipeliner:pos ${Math.round(n.x)} ${Math.round(n.y - regionY)}`;
+        const subCoords = (ids) => ids
+          .map(id => g.nodes.find(x => x.id === id))
+          .filter(Boolean)
+          .map(sn => `${Math.round(sn.x ?? 0)} ${Math.round((sn.y ?? 0) - regionY)}`)
+          .join(' ');
+        if (n.listNodeIds?.length)   posLine += ` list ${subCoords(n.listNodeIds)}`;
+        if (n.searchNodeIds?.length) posLine += ` search ${subCoords(n.searchNodeIds)}`;
+        lines.push(posLine);
       }
 
       if (role === 'source') {
@@ -2095,18 +2116,7 @@ function dagToStarlark() {
         const parts = [starLit(n.plugin)];
         if (fromStr) parts.push(`upstream=${fromStr}`);
         if (cfgKw)   parts.push(cfgKw);
-        // If this sink has downstream sinks (chaining), assign the return value
-        // so it can be referenced as upstream= by the chained output.
-        const hasChainedDownstream = g.nodes.some(
-          dn => !dn.isSearchNode && !dn.isListNode &&
-                (dn.upstreams || []).includes(n.id) &&
-                (pluginMeta(dn.plugin)?.role === 'sink')
-        );
-        if (hasChainedDownstream) {
-          lines.push(`${n.id} = output(${parts.join(', ')})`);
-        } else {
-          lines.push(`output(${parts.join(', ')})`);
-        }
+        lines.push(`${n.id} = output(${parts.join(', ')})`);
       }
     }
 
@@ -2220,6 +2230,7 @@ async function textToVisualSync() {
             id, plugin: s.plugin, config: s.config || {},
             upstreams: [], searchNodeIds: [], listNodeIds: [], comment: '',
             isSearchNode: true, searchParentId: raw.id,
+            x: s.x ?? null, y: s.y ?? null,
           });
         }
         for (let li = 0; li < (raw.list || []).length; li++) {
@@ -2231,6 +2242,7 @@ async function textToVisualSync() {
             id, plugin: l.plugin, config: l.config || {},
             upstreams: [], searchNodeIds: [], listNodeIds: [], comment: '',
             isListNode: true, listParentId: raw.id,
+            x: l.x ?? null, y: l.y ?? null,
           });
         }
       }
