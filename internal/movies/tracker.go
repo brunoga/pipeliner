@@ -14,6 +14,7 @@ type Record struct {
 	Title        string          `json:"title"`
 	Year         int             `json:"year"`
 	Is3D         bool            `json:"is_3d,omitempty"`
+	Repack       bool            `json:"repack,omitempty"`
 	DownloadedAt time.Time       `json:"downloaded_at"`
 	Quality      quality.Quality `json:"quality"`
 }

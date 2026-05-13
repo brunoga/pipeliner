@@ -189,7 +189,10 @@ func (p *moviesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *en
 			betterQuality := m.Quality.Better(rec.Quality)
 			properOrRepack := m.Proper || m.Repack
 			notDowngrade := !rec.Quality.Better(m.Quality)
-			if betterQuality || (properOrRepack && notDowngrade) {
+			// Allow a REPACK/PROPER only when the stored version was not already
+			// a REPACK at the same quality; otherwise the same torrent would be
+			// accepted on every pipeline run indefinitely.
+			if betterQuality || (properOrRepack && !rec.Repack && notDowngrade) {
 				e.Accept()
 				return nil
 			}
@@ -222,6 +225,7 @@ func (p *moviesPlugin) persist(ctx context.Context, tc *plugin.TaskContext, entr
 			Title:   matchedTitle,
 			Year:    year,
 			Is3D:    is3D,
+			Repack:  m.Repack || m.Proper,
 			Quality: m.Quality,
 		}); err != nil {
 			return fmt.Errorf("movies: mark %s (%d): %w", matchedTitle, year, err)

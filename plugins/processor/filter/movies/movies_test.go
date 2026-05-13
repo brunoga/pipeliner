@@ -220,6 +220,33 @@ func TestProperSameQualityUpgradesExisting(t *testing.T) {
 	}
 }
 
+func TestRepackNotAcceptedAgainAfterRepackDownloaded(t *testing.T) {
+	// Regression: once a REPACK is downloaded, the same REPACK torrent must not
+	// be accepted on every subsequent pipeline run (infinite loop).
+	p := openPlugin(t, nil)
+	tc := makeCtx()
+
+	// Step 1: download the original, then the REPACK (first upgrade, should accept).
+	e1 := entry.New("Inception.2010.1080p.BluRay.x264", "http://x.com/a")
+	p.filter(context.Background(), tc, e1)  //nolint:errcheck
+	e1.Accept()
+	p.persist(context.Background(), tc, []*entry.Entry{e1}) //nolint:errcheck
+
+	e2 := entry.New("Inception.2010.REPACK.1080p.BluRay.x264", "http://x.com/b")
+	p.filter(context.Background(), tc, e2) //nolint:errcheck
+	if !e2.IsAccepted() {
+		t.Fatalf("REPACK of non-REPACK should be accepted: %s", e2.RejectReason)
+	}
+	p.persist(context.Background(), tc, []*entry.Entry{e2}) //nolint:errcheck
+
+	// Step 2: same REPACK appears again on the next run — must be rejected.
+	e3 := entry.New("Inception.2010.REPACK.1080p.BluRay.x264", "http://x.com/b")
+	p.filter(context.Background(), tc, e3) //nolint:errcheck
+	if !e3.IsRejected() {
+		t.Error("same REPACK must not be accepted again after it was already downloaded")
+	}
+}
+
 func TestNoUpgradeWhenQualityNotBetter(t *testing.T) {
 	p := openPlugin(t, nil)
 	tc := makeCtx()
