@@ -275,6 +275,19 @@ func (ex *Executor) runNode(
 	tc.Logger.Info("node started", "role", role, "in", len(upstream))
 	nodeStart := time.Now()
 
+	// Snapshot entry states before the node runs so we can log what changed.
+	type snapshot struct {
+		e            *entry.Entry
+		stateBefore  entry.State
+	}
+	var snaps []snapshot
+	if len(upstream) > 0 {
+		snaps = make([]snapshot, len(upstream))
+		for i, e := range upstream {
+			snaps[i] = snapshot{e: e, stateBefore: e.State}
+		}
+	}
+
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("panic in plugin %q: %v\n%s", pi.Impl.Name(), r, debug.Stack())
@@ -296,6 +309,18 @@ func (ex *Executor) runNode(
 			return nil, fmt.Errorf("plugin %q does not implement ProcessorPlugin", pi.Impl.Name())
 		}
 		produced, err = proc.Process(ctx, tc, upstream)
+		// Log state changes caused by this processor.
+		for _, s := range snaps {
+			if s.e.State == s.stateBefore {
+				continue
+			}
+			switch s.e.State {
+			case entry.Rejected:
+				tc.Logger.Debug("entry rejected", "title", s.e.Title, "reason", s.e.RejectReason)
+			case entry.Failed:
+				tc.Logger.Warn("entry failed", "title", s.e.Title, "reason", s.e.FailReason)
+			}
+		}
 
 	case plugin.RoleSink:
 		sink, ok := pi.Impl.(plugin.SinkPlugin)
@@ -304,6 +329,19 @@ func (ex *Executor) runNode(
 		}
 		err = sink.Consume(ctx, tc, upstream)
 		produced = entry.FilterAccepted(upstream) // pass non-failed accepted entries to chained sinks
+		// Log per-entry outcomes at every sink. Because the executor passes only
+		// FilterAccepted(upstream) to chained sinks, each sink only sees the
+		// entries it is actually responsible for — logging at every sink (not
+		// just the terminal one) is therefore correct and useful:
+		//   deluge → "entry accepted" for the 3 it enqueued
+		//   email  → "entry accepted" for the same 3 it then notified about
+		for _, s := range snaps {
+			if s.e.IsFailed() && s.stateBefore != entry.Failed {
+				tc.Logger.Warn("entry failed", "title", s.e.Title, "reason", s.e.FailReason)
+			} else if s.e.IsAccepted() {
+				tc.Logger.Info("entry accepted", "title", s.e.Title)
+			}
+		}
 
 	default:
 		return nil, fmt.Errorf("unknown role %q for plugin %q", role, pi.Impl.Name())
