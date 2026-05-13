@@ -73,7 +73,7 @@ func validate(cfg map[string]any) []error {
 
 type moviesPlugin struct {
 	staticTitles    []string // normalised movie titles from config
-	from            []plugin.SourcePlugin
+	listSources     []plugin.SourcePlugin
 	listCache       *cache.Cache[[]string]
 	spec            quality.Spec
 	tracker         *imovies.Tracker
@@ -88,16 +88,16 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 	}
 
 	listRaw, _ := cfg["list"].([]any)
-	var froms []plugin.SourcePlugin
+	var listSources []plugin.SourcePlugin
 	for _, item := range listRaw {
 		src, err := plugin.MakeFromPlugin(item, db)
 		if err != nil {
 			return nil, fmt.Errorf("movies: list: %w", err)
 		}
-		froms = append(froms, src)
+		listSources = append(listSources, src)
 	}
 
-	if len(staticTitles) == 0 && len(froms) == 0 {
+	if len(staticTitles) == 0 && len(listSources) == 0 {
 		return nil, fmt.Errorf("movies: at least one of 'static' or 'list' is required")
 	}
 
@@ -132,8 +132,8 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 
 	return &moviesPlugin{
 		staticTitles:    staticTitles,
-		from:            froms,
-		listCache:       cache.NewPersistent[[]string](ttl, db.Bucket("cache_movies_from")),
+		listSources:     listSources,
+		listCache:       cache.NewPersistent[[]string](ttl, db.Bucket("cache_movies_list")),
 		spec:            spec,
 		rejectUnmatched: rejectUnmatched,
 		tracker:      imovies.NewTracker(db.Bucket("movies")),
@@ -231,7 +231,7 @@ func (p *moviesPlugin) persist(ctx context.Context, tc *plugin.TaskContext, entr
 }
 
 func (p *moviesPlugin) resolveTitles(ctx context.Context, tc *plugin.TaskContext) []string {
-	return plugin.ResolveDynamicList(ctx, tc, p.from, p.staticTitles,
+	return plugin.ResolveDynamicList(ctx, tc, p.listSources, p.staticTitles,
 		func(src string) ([]string, bool) { return p.listCache.Get(src) },
 		func(src string, v []string) { p.listCache.Set(src, v) },
 		match.Normalize,
