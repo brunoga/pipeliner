@@ -1,8 +1,8 @@
-// Package trakt provides a from plugin that fetches movies or shows from a
+// Package trakt provides a list sub-plugin that fetches movies or shows from a
 // Trakt.tv list and emits one entry per item.
 //
 // Entries carry the item title and a canonical Trakt URL. They are suitable as
-// title sources for discover.from, series.from, and movies.from.
+// title sources for the list= parameter of discover, series, and movies.
 //
 // Config keys:
 //

@@ -7,7 +7,7 @@
 // the best copy. State is persisted within Process() so the best-quality
 // episode is recorded after dedup selects it.
 //
-// The show list may be provided statically via 'static', dynamically via 'from'
+// The show list may be provided statically via 'static', dynamically via 'list'
 // (source plugins whose entry titles are used as show names), or both.
 // Dynamic lists are cached for the configured ttl (default: 1h).
 package series

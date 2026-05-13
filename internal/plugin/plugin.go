@@ -93,7 +93,7 @@ type CommitPlugin interface {
 }
 
 // SearchPlugin actively searches a source for entries matching a query string.
-// SearchPlugins are used as via-plugins by the discover processor.
+// SearchPlugins are used as search sub-plugins by the discover processor.
 type SearchPlugin interface {
 	Plugin
 	Search(ctx context.Context, tc *TaskContext, query string) ([]*entry.Entry, error)
