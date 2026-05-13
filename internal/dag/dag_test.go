@@ -197,3 +197,50 @@ func TestValidate_SinkToProcessor_Invalid(t *testing.T) {
 		t.Error("sink→processor should be invalid, got no errors")
 	}
 }
+
+func TestValidate_RequiresFieldFromListSubPlugin(t *testing.T) {
+	// movies (AcceptsList, list=[trakt_list]) → metainfo_tmdb (Requires trakt_year)
+	// The validator must propagate trakt_list's Produces through the movies node
+	// so that metainfo_tmdb's Requires check passes.
+	g := dag.New()
+	moviesNode := &dag.Node{
+		ID: "movies_0", PluginName: "movies",
+		Config: map[string]any{
+			"list": []any{map[string]any{"name": "trakt_list"}},
+		},
+	}
+	if err := g.AddNode(&dag.Node{ID: "src", PluginName: "rssp"}); err != nil {
+		t.Fatal(err)
+	}
+	moviesNode.Upstreams = []dag.NodeID{"src"}
+	if err := g.AddNode(moviesNode); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.AddNode(&dag.Node{ID: "meta", PluginName: "metap", Upstreams: []dag.NodeID{"movies_0"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	reg := makeRegistry(
+		sourceDescFor("rssp"),
+		&plugin.Descriptor{
+			PluginName:  "movies",
+			Role:        plugin.RoleProcessor,
+			AcceptsList: true,
+		},
+		&plugin.Descriptor{
+			PluginName: "trakt_list",
+			Role:       plugin.RoleSource,
+			Produces:   []string{"trakt_year", "trakt_tmdb_id"},
+		},
+		&plugin.Descriptor{
+			PluginName: "metap",
+			Role:       plugin.RoleProcessor,
+			Requires:   []string{"trakt_year"},
+		},
+	)
+
+	errs := dag.Validate(g, reg)
+	if len(errs) != 0 {
+		t.Errorf("expected no errors when required field is produced by a list sub-plugin; got: %v", errs)
+	}
+}

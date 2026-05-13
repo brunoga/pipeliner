@@ -74,11 +74,32 @@ func Validate(g *Graph, reg func(name string) (*plugin.Descriptor, bool)) []erro
 				}
 			}
 
-			// Add this node's produced fields to the reachable set, then store
-			// the accumulated set for downstream nodes to inherit.
+			// Add this node's produced fields to the reachable set.
 			for _, prod := range d.Produces {
 				fields[prod] = true
 			}
+
+			// Also include fields produced by list= and search= sub-plugins
+			// configured on this node. Those sub-plugins run as part of the node
+			// and their produced fields are visible to all downstream nodes.
+			for _, key := range []string{"list", "search"} {
+				items, ok := n.Config[key].([]any)
+				if !ok {
+					continue
+				}
+				for _, item := range items {
+					subName, _, err := plugin.ResolveNameAndConfig(item)
+					if err != nil {
+						continue
+					}
+					if subDesc, ok2 := reg(subName); ok2 {
+						for _, prod := range subDesc.Produces {
+							fields[prod] = true
+						}
+					}
+				}
+			}
+
 			reachable[n.ID] = fields
 		}
 	}
