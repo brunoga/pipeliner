@@ -44,9 +44,6 @@ func init() {
 			entry.FieldVideoVotes,
 			"tmdb_id",
 		},
-		// trakt_tmdb_id and trakt_year are consumed when present; the plugin
-		// still works without them (falls back to title-parsed year).
-		Requires: []string{"trakt_tmdb_id", "trakt_year"},
 		Factory:  newPlugin,
 		Validate: validate,
 		Schema: []plugin.FieldSchema{
