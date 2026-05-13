@@ -5,21 +5,27 @@ Pipeliner uses a single Starlark file (default `config.star`). Pass a custom pat
 ## Top-level structure
 
 ```python
-# variables — assign values at the top of the file
+# variables — ordinary Starlark assignments
 tv_root = "/media/tv"
+tvdb_key = env("TVDB_API_KEY")   # read from environment
 
-# templates — define reusable functions
-def common_input(feed_url):
-    return [plugin("rss", url=feed_url), plugin("seen")]
+# templates — Starlark functions that build pipeline chains
+def enrich_and_format(upstream, dest):
+    meta = process("metainfo_tvdb", upstream=upstream, api_key=tvdb_key)
+    req  = process("require",       upstream=meta, fields=["enriched"])
+    fmt  = process("pathfmt",       upstream=req,
+                   path=dest + "/{title}/Season {series_season:02d}",
+                   field="download_path")
+    return fmt
 
-# tasks — one or more named pipelines
-task("task-name", [
-    plugin("plugin_name", option="value"),
-] + common_input("https://example.com/rss"))
-
-# schedules are set via the schedule= argument on task()
-task("task-name", [...], schedule="1h")          # interval
-task("task-name", [...], schedule="0 * * * *")   # cron expression
+# pipelines — connect nodes, call pipeline() to register
+src    = input("rss", url="https://example.com/rss")
+seen   = process("seen",   upstream=src)
+series = process("series", upstream=seen, static=["My Show"])
+output("transmission", upstream=enrich_and_format(series, tv_root),
+       host="localhost", path="{download_path}")
+pipeline("my-pipeline", schedule="1h")          # interval
+# pipeline("cron-task",  schedule="0 6 * * *")  # cron expression
 ```
 
 ## Database
@@ -28,105 +34,52 @@ Pipeliner automatically maintains a single SQLite database named `pipeliner.db` 
 
 ## Variables
 
-Variables are ordinary Starlark assignments at the top of the file. They are useful for secrets and paths shared across multiple tasks.
+Variables are ordinary Starlark assignments at the top of the file. They are useful for secrets and paths shared across multiple pipelines.
 
 ```python
 tv_root = "/media/tv"
 
-task("my-task", [
-    plugin("seen"),
-    plugin("pathfmt", path=tv_root + "/{title}", field="download_path"),
-])
+src = input("rss", url="https://example.com/rss")
+fmt = process("pathfmt", upstream=src, path=tv_root + "/{title}", field="download_path")
+output("transmission", upstream=fmt, host="localhost")
+pipeline("my-pipeline")
 ```
 
 ## Templates
 
-Templates are Starlark functions that return a list of plugin calls. Declare parameters normally and use them inside the function body.
-
-Three call forms are supported (all just normal Starlark function calls):
+Templates are Starlark functions that accept an upstream node handle and return a downstream node handle. They can be composed by passing one function's return value into another.
 
 ```python
-# Zero params — just call the function
-common_input()
+def common_source(feed_url, local_seen=False):
+    src  = input("rss", url=feed_url)
+    seen = process("seen", upstream=src, local=local_seen)
+    return seen
 
-# Positional params — concise for short scalar values
-common_input("https://example.com/rss", "localhost")
+def common_sink(upstream, dest, host="localhost"):
+    fmt = process("pathfmt", upstream=upstream,
+                  path=dest + "/{title}", field="download_path")
+    output("transmission", upstream=fmt, host=host, path="{download_path}")
 
-# Named params — clear for multiline values, list values, or many arguments
-common_input(feed_url="https://example.com/rss", host="localhost")
-```
-
-Parameters can be any Starlark type: strings, numbers, lists, or multiline strings.
-
-```python
-def common_input(feed_url):
-    return [
-        plugin("rss", url=feed_url),
-        plugin("seen"),
-    ]
-
-def common_output(dest, host):
-    return [
-        plugin("pathfmt", path=dest + "/{title}", field="download_path"),
-        plugin("transmission", host=host, path="{download_path}"),
-    ]
-
-def jackett_search(indexers, categories):
-    return [
-        plugin("jackett_input", indexers=indexers, categories=categories),
-    ]
-
-def email_notify(subject, body_template):
-    return [
-        plugin("email", subject=subject, body_template=body_template),
-    ]
-
-task("tv-shows",
-    common_input("https://example.com/rss/tv") +
-    [plugin("series", static=["Breaking Bad"])] +
-    common_output("/media/tv", "localhost") +
-    jackett_search(["torrenting", "showrss"], ["5000"]) +
-    email_notify(
-        subject="New episodes: {{len .Entries}}",
-        body_template="""{{range .Entries}}<p>{{index .Fields "title"}}</p>{{end}}""",
-    )
+# Compose templates
+common_sink(
+    process("series", upstream=common_source("https://example.com/rss/tv"),
+            static=["Breaking Bad"]),
+    "/media/tv",
 )
+pipeline("tv-shows", schedule="30m")
 ```
 
-## Tasks
+## Pipelines and schedules
 
-A task is an ordered chain of plugins. Phases always execute in this fixed order; within each phase, plugins run in the order they appear in the list:
-
-1. **input** — produces entries
-2. **filter** — accepts, rejects, or leaves entries undecided
-3. **metainfo** — annotates accepted entries with extra fields
-4. **modify** — mutates entry fields
-5. **output / notify** — acts on accepted entries
-
-Each list item is a `plugin(name, ...)` call. If a plugin takes no config, call it with just the name.
+A pipeline connects nodes (sources, processors, sinks) and registers them with an optional schedule. In `daemon` mode, pipelines run according to their schedule.
 
 ```python
-task("example", [
-    plugin("rss", url="https://feeds.example.com/torrents"),
-    plugin("seen"),
-    plugin("series", static=["My Show"]),
-    plugin("metainfo_quality"),
-    plugin("pathfmt", path="/media/tv/{title}/Season {series_season:02d}", field="download_path"),
-    plugin("transmission", host="localhost", port=9091),
-])
+pipeline("hourly-pipeline",  schedule="1h")
+pipeline("daily-pipeline",   schedule="24h")
+pipeline("morning-pipeline", schedule="0 6 * * *")   # daily at 06:00
 ```
 
-## Schedules
-
-In `daemon` mode, tasks run on the schedule defined in the `schedule=` argument of `task()`. Intervals (`1h`, `30m`, `24h`) and standard 5-field cron expressions are both supported.
-
-```python
-task("daily-task", [...], schedule="24h")
-task("hourly-task", [...], schedule="1h")
-task("cron-task", [...], schedule="0 6 * * *")   # daily at 06:00
-```
-
-Tasks without a `schedule=` argument are not run automatically by the daemon.
+Pipelines without a `schedule=` argument are not run automatically by the daemon.
 
 ## Entry fields
 
@@ -229,7 +182,7 @@ Fields follow a tiered naming convention. Three universal fields have no prefix;
 | `trakt_tvdb_id` | `metainfo_trakt` | TheTVDB cross-reference ID |
 | `download_path` | `pathfmt` (with `field="download_path"`) | Rendered, scrubbed download path |
 
-Custom fields can be set with the [`set`](../plugins/modify/set/README.md) plugin and read in any pattern expression.
+Custom fields can be set with the [`set`](../plugins/processor/modify/set/README.md) plugin and read in any pattern expression.
 
 ## Pattern syntax
 
@@ -258,15 +211,56 @@ The `condition` plugin's `accept` and `reject` values use infix boolean syntax:
 
 Go template syntax (`{{gt .field value}}`) is still accepted for backward compatibility.
 
+## Pipelines
+
+Pipelines use `input()`, `process()`, `merge()`, `output()`, and `pipeline()` to wire plugins into a directed graph.
+
+```python
+src     = input("rss", url="https://example.com/rss")
+quality = process("metainfo_quality", upstream=src)
+flt     = process("quality", upstream=quality, min="720p")
+output("transmission", upstream=flt, host="localhost")
+pipeline("my-pipeline", schedule="1h")
+```
+
+| Feature | How |
+|---------|-----|
+| Multiple RSS sources | `merge(src1, src2)` |
+| Fan-out to N sinks | Reference the same node in multiple `output()` calls |
+| Routing (TV→client A, movies→client B) | Two branches from one shared upstream node |
+| Topology | Explicit — visible directly in the config |
+
 ## Example configs
 
-See the other files in this directory for complete working examples:
+### TV / series
 
-- [`tv-series-deluge.star`](tv-series-deluge.star) — explicit show list → Deluge
-- [`movie-downloads.star`](movie-downloads.star) — explicit movie list + rating gate → qBittorrent
-- [`trakt-shows-transmission.star`](trakt-shows-transmission.star) — Trakt watchlist via `series.from` → Transmission
-- [`trakt-movies-qbittorrent.star`](trakt-movies-qbittorrent.star) — Trakt watchlist via `movies.from` → qBittorrent
-- [`tvdb-favorites-deluge.star`](tvdb-favorites-deluge.star) — TheTVDB favorites via `series.from` → Deluge
-- [`discover-trakt-qbittorrent.star`](discover-trakt-qbittorrent.star) — active search driven by Trakt via `discover.from` → qBittorrent
+- [`tv-series-deluge.star`](tv-series-deluge.star) — static show list → series filter → Deluge
+- [`trakt-shows-transmission.star`](trakt-shows-transmission.star) — Trakt watchlist + trending → two pipelines → Transmission
+- [`tvdb-favorites-deluge.star`](tvdb-favorites-deluge.star) — TheTVDB favorites → series filter → TVDB enrichment → Deluge
+- [`jackett-tv-transmission.star`](jackett-tv-transmission.star) — active Jackett search driven by Trakt watchlist → Transmission
+- [`dag-tv-two-feeds.star`](dag-tv-two-feeds.star) — **merge** two RSS feeds → dedup → series → Transmission
+
+### Movies
+
+- [`movie-downloads.star`](movie-downloads.star) — static list + TMDb rating gate → qBittorrent
+- [`trakt-movies-qbittorrent.star`](trakt-movies-qbittorrent.star) — Trakt watchlist + ratings → two pipelines → qBittorrent
+- [`movies-3d-qbittorrent.star`](movies-3d-qbittorrent.star) — 3D and flat pipelines side-by-side → qBittorrent
+- [`dag-movies-trakt-source.star`](dag-movies-trakt-source.star) — `trakt_list` as standalone source → movies filter → qBittorrent
+
+### Active search
+
+- [`discover-trakt-qbittorrent.star`](discover-trakt-qbittorrent.star) — Trakt sources feed `discover` → Jackett search → qBittorrent
+
+### News / articles
+
 - [`ars-technica-email.star`](ars-technica-email.star) — RSS → keyword filter → email
-- [`filesystem-cleanup.star`](filesystem-cleanup.star) — filesystem entries → exec
+- [`dag-news-fanout.star`](dag-news-fanout.star) — two RSS feeds merged → **fan-out** to email + persistent list
+
+### Filesystem
+
+- [`filesystem-cleanup.star`](filesystem-cleanup.star) — scan for *.part files → delete via exec
+- [`filesystem-example.star`](filesystem-example.star) — scan .torrent files → reject spam → tag → print
+
+### Multi-sink patterns
+
+- [`dag-multi-client.star`](dag-multi-client.star) — single feed → **branch**: TV → Transmission, movies → qBittorrent

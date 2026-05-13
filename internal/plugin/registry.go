@@ -17,17 +17,45 @@ type Factory func(cfg map[string]any, db *store.SQLiteStore) (Plugin, error)
 type Descriptor struct {
 	PluginName  string
 	Description string
-	PluginPhase Phase
-	Factory     Factory
+	// Role declares the plugin's place in a DAG pipeline.
+	Role Role
+	// Produces lists entry field names this plugin writes to Fields.
+	// Used by the DAG validator to check that downstream nodes' Requires are met.
+	Produces []string
+	// Requires lists entry field names this plugin reads from Fields.
+	// The DAG validator ensures at least one upstream node Produces each field.
+	Requires []string
+	Factory  Factory
 	// Validate checks the plugin's configuration map and returns any errors.
-	// It is called by config.Validate before plugin construction so all
-	// config errors are surfaced at once by pipeliner check.
+	// Called by config.Validate before plugin construction.
 	// nil means no validation beyond what the factory enforces.
 	Validate func(cfg map[string]any) []error
-	// Schema declares the config keys accepted by this plugin. It is optional
-	// but enables typed form fields in the visual pipeline editor. Plugins
-	// without a Schema get a generic key-value editor instead.
+	// Schema declares the config keys accepted by this plugin. Enables typed
+	// form fields in the visual pipeline editor.
 	Schema []FieldSchema
+	// AcceptsSearch indicates this plugin takes a "search" list of search sub-plugin
+	// configs (e.g. discover). The visual editor shows a dedicated bottom port
+	// for these connections and serialises them inline as search=[{...}, ...].
+	AcceptsSearch bool
+	// IsSearchPlugin marks plugins that implement the SearchPlugin interface
+	// and can therefore be used in a discover search=[...] list. Only these
+	// plugins may be dropped onto a search-port in the visual editor.
+	IsSearchPlugin bool
+	// AcceptsList indicates the plugin takes a "list" list of source-plugin
+	// configs that supply a dynamic title/name list (e.g. series, movies).
+	// The visual editor shows a dedicated teal port for these connections.
+	AcceptsList bool
+	// IsListPlugin marks source plugins whose entry titles can be used as a
+	// name list by AcceptsList plugins (e.g. tvdb_favorites, trakt_list).
+	IsListPlugin bool
+}
+
+// EffectiveRole returns the plugin's Role.
+func (d *Descriptor) EffectiveRole() Role {
+	if d.Role != "" {
+		return d.Role
+	}
+	return RoleProcessor // safe default
 }
 
 var (

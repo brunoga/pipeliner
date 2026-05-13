@@ -84,6 +84,36 @@ func (e *Entry) Set(key string, value any) {
 	e.Fields[key] = value
 }
 
+// FilterAccepted returns entries in the Accepted state. Used by SinkPlugin
+// implementations that should only act on accepted entries.
+func FilterAccepted(entries []*Entry) []*Entry {
+	out := make([]*Entry, 0, len(entries))
+	for _, e := range entries {
+		if e.IsAccepted() {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// PassThrough returns entries that are not rejected or failed. Used by
+// ProcessorPlugin implementations to filter their output slice.
+// When all entries pass, the original slice is returned without allocation.
+func PassThrough(entries []*Entry) []*Entry {
+	for _, e := range entries {
+		if e.IsRejected() || e.IsFailed() {
+			out := make([]*Entry, 0, len(entries))
+			for _, e2 := range entries {
+				if !e2.IsRejected() && !e2.IsFailed() {
+					out = append(out, e2)
+				}
+			}
+			return out
+		}
+	}
+	return entries
+}
+
 // Get retrieves a value from the entry's metadata bag.
 func (e *Entry) Get(key string) (any, bool) {
 	v, ok := e.Fields[key]

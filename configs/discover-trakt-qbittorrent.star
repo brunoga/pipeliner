@@ -1,17 +1,18 @@
 # discover-trakt-qbittorrent.star
 #
-# Actively searches for movies and TV episodes from the Trakt watchlist using
+# Actively searches for movies and TV shows from Trakt watchlists using
 # Jackett as the search backend and qBittorrent as the download client.
 #
-# Requirements:
-#   - Jackett running at jackett_url with the given api_key
-#   - qBittorrent running and reachable
-#   - TRAKT_CLIENT_ID and TRAKT_CLIENT_SECRET set as environment variables
+# discover receives the Trakt list as upstream source nodes and searches
+# Jackett for each title found. This makes the topology explicit in the config.
+#
+# Requirements: TRAKT_CLIENT_ID, TRAKT_CLIENT_SECRET, JACKETT_URL, JACKETT_API_KEY
 
-trakt_client_id     = env("TRAKT_CLIENT_ID")
-trakt_client_secret = env("TRAKT_CLIENT_SECRET")
-jackett_url         = "https://jackett.example.com"
-jackett_key         = "YOUR_JACKETT_API_KEY"
+trakt_client_id     = env("TRAKT_CLIENT_ID", default="YOUR_TRAKT_ID")
+trakt_client_secret = env("TRAKT_CLIENT_SECRET", default="YOUR_TRAKT_SECRET")
+jackett_url         = env("JACKETT_URL", default="http://localhost:9117")
+jackett_key         = env("JACKETT_API_KEY", default="YOUR_JACKETT_KEY")
+tmdb_key            = env("TMDB_API_KEY", default="YOUR_TMDB_KEY")
 qbit_host           = "localhost"
 qbit_port           = 8080
 qbit_user           = "admin"
@@ -19,83 +20,62 @@ qbit_pass           = "changeme"
 movies_path         = "/media/movies"
 tv_path             = "/media/tv"
 
-# ── shared helpers ───────────────────────────────────────────────────────────
+def jackett_search():
+    return [{"name": "jackett",
+             "url":      jackett_url,
+             "api_key":  jackett_key,
+             "indexers": ["all"]}]
 
-def trakt_movies():
-    return [{"name": "trakt_list",
-             "client_id": trakt_client_id,
-             "client_secret": trakt_client_secret,
-             "type": "movies",
-             "list": "watchlist"}]
+def qbit_output(upstream, savepath, category):
+    fmt = process("pathfmt", upstream=upstream, path=savepath, field="download_path")
+    output("qbittorrent", upstream=fmt,
+           host=qbit_host, port=qbit_port,
+           username=qbit_user, password=qbit_pass,
+           savepath="{download_path}", category=category)
 
-def trakt_shows():
-    return [{"name": "trakt_list",
-             "client_id": trakt_client_id,
-             "client_secret": trakt_client_secret,
-             "type": "shows",
-             "list": "watchlist"}]
+# ── Pipeline 1: discover movies from Trakt watchlist ─────────────────────────
 
-def jackett_via():
-    return [{"name": "rss_search",
-             "url_template": jackett_url + "/api/v2.0/indexers/all/results/torznab?q={QueryEscaped}&apikey=" + jackett_key}]
+movie_watchlist = input("trakt_list",
+    client_id=trakt_client_id, client_secret=trakt_client_secret,
+    type="movies", list="watchlist")
+disc_movies  = process("discover", upstream=movie_watchlist,
+                        search=jackett_search(), interval="6h")
+seen_movies  = process("seen",            upstream=disc_movies)
+q_movies     = process("metainfo_quality", upstream=seen_movies)
+tmdb_movies  = process("metainfo_tmdb",   upstream=q_movies, api_key=tmdb_key)
+flt_movies   = process("movies",           upstream=tmdb_movies,
+                        quality="1080p+",
+                        list=[{"name": "trakt_list",
+                               "client_id":     trakt_client_id,
+                               "client_secret": trakt_client_secret,
+                               "type": "movies", "list": "watchlist"}])
+cond_movies  = process("condition", upstream=flt_movies, rules=[
+    {"reject": 'video_source == "CAM"'},
+    {"reject": 'video_rating < 6.5'},
+])
+qbit_output(cond_movies,
+            savepath=movies_path + "/{title} ({video_year})",
+            category="movies")
 
-def qbit(savepath, category):
-    return plugin("qbittorrent",
-        host=qbit_host, port=qbit_port,
-        username=qbit_user, password=qbit_pass,
-        savepath=savepath, category=category)
+pipeline("discover-movies", schedule="6h")
 
-# ── tasks ─────────────────────────────────────────────────────────────────────
+# ── Pipeline 2: discover TV shows from Trakt watchlist ───────────────────────
 
-# Actively searches for movies from the Trakt watchlist.
-task("discover-movies",
-    [
-        plugin("discover", {
-            "ttl": "4h",
-            "from": trakt_movies(),
-            "via":  jackett_via(),
-            "interval": "6h",
-        }),
-        plugin("seen"),
-        plugin("metainfo_quality"),
-        plugin("metainfo_magnet", resolve_timeout="30s"),
-        plugin("movies", {
-            "quality": "1080p",
-            "ttl":     "4h",
-            "from":    trakt_movies(),
-        }),
-        plugin("metainfo_tmdb", api_key="YOUR_TMDB_API_KEY"),
-        plugin("condition", rules=[
-            {"reject": 'video_source == "CAM"'},
-            {"reject": 'video_rating < 6.5'},
-        ]),
-        plugin("pathfmt",
-            path=movies_path + "/{title} ({video_year})",
-            field="download_path"),
-        qbit(savepath="{download_path}", category="movies"),
-    ],
-    schedule="6h")
+show_watchlist = input("trakt_list",
+    client_id=trakt_client_id, client_secret=trakt_client_secret,
+    type="shows", list="watchlist")
+disc_shows  = process("discover", upstream=show_watchlist,
+                       search=jackett_search(), interval="3h")
+seen_shows  = process("seen",            upstream=disc_shows)
+q_shows     = process("metainfo_quality", upstream=seen_shows)
+flt_shows   = process("series",           upstream=q_shows,
+                        tracking="strict", quality="720p+",
+                        list=[{"name": "trakt_list",
+                               "client_id":     trakt_client_id,
+                               "client_secret": trakt_client_secret,
+                               "type": "shows", "list": "watchlist"}])
+qbit_output(flt_shows,
+            savepath=tv_path + "/{title}/Season {series_season:02d}",
+            category="tv")
 
-# Actively searches for TV episodes from the Trakt watchlist.
-task("discover-shows",
-    [
-        plugin("discover", {
-            "ttl": "2h",
-            "from": trakt_shows(),
-            "via":  jackett_via(),
-            "interval": "3h",
-        }),
-        plugin("seen"),
-        plugin("metainfo_quality"),
-        plugin("series", {
-            "tracking": "strict",
-            "quality":  "720p",
-            "ttl":      "2h",
-            "from":     trakt_shows(),
-        }),
-        plugin("pathfmt",
-            path=tv_path + "/{title}/Season {series_season:02d}",
-            field="download_path"),
-        qbit(savepath="{download_path}", category="tv"),
-    ],
-    schedule="3h")
+pipeline("discover-shows", schedule="3h")

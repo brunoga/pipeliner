@@ -31,16 +31,16 @@ golangci-lint run
 
 ## Adding a plugin
 
-Each plugin lives in its own package under `plugins/<phase>/<name>/` and registers itself via `init()`. To add one:
+Plugins live under `plugins/source/`, `plugins/processor/`, or `plugins/sink/` depending on their role. Within `processor/` there are subdirectories for `metainfo/`, `filter/`, and `modify/`. To add a plugin:
 
-1. Create the package directory and implement the relevant interface from `internal/plugin/plugin.go`.
-2. Call `plugin.Register` in an `init()` function with a `plugin.Descriptor`.
+1. Create the package directory (e.g. `plugins/processor/filter/myfilter/`) and implement `SourcePlugin`, `ProcessorPlugin`, or `SinkPlugin` from `internal/plugin/plugin.go`.
+2. Call `plugin.Register` in an `init()` function with a `plugin.Descriptor` that sets `Role`, `Produces`, and `Requires`.
 3. Add a blank import of your new package in `cmd/pipeliner/main.go`.
 4. Write tests alongside the plugin code.
-5. Add a `README.md` in the plugin directory documenting the config options.
-6. Update the phase index (`plugins/<phase>/README.md`) to include the new plugin.
+5. Add a `README.md` documenting config options and the DAG role table.
+6. Update the sub-directory index (e.g. `plugins/processor/filter/README.md`) to include the new plugin.
 
-See any existing plugin (e.g. `plugins/filter/regexp/`) as a template.
+See `plugins/processor/filter/regexp/` as a template.
 
 ## Commit messages
 

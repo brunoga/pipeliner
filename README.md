@@ -2,7 +2,7 @@
 
 A media-automation tool that pulls entries from RSS feeds, active searches, or local filesystems, filters them against configurable rules, enriches them with metadata, and hands them off to download clients, notification services, or arbitrary shell commands.
 
-Heavily inspired by [FlexGet](https://flexget.com). Pipelines are described in [Starlark](https://github.com/bazelbuild/starlark) — a deterministic Python dialect used by Bazel and Buck. Each pipeline task chains a sequence of plugins — one input, any number of filters and metainfo annotators, optional modifiers, and one or more outputs. The scheduler runs tasks on cron or interval schedules.
+Heavily inspired by [FlexGet](https://flexget.com). Pipelines are described in [Starlark](https://github.com/bazelbuild/starlark) — a deterministic Python dialect used by Bazel and Buck. Plugins are connected into pipelines: sources produce entries, processors filter and enrich them, sinks act on the accepted ones. The scheduler runs pipelines on cron or interval schedules.
 
 ## Installation
 
@@ -21,20 +21,21 @@ go build -o pipeliner ./cmd/pipeliner
 ## Quick start
 
 ```python
-# config.star
-task("breaking-bad",
-    [
-        plugin("rss", url="https://example.com/rss"),
-        plugin("seen"),
-        plugin("series", static=["Breaking Bad"]),
-        plugin("transmission", host="localhost", port=9091),
-    ],
-    schedule="1h")
+# config.star — connect nodes with upstream= to build a pipeline
+src    = input("rss", url="https://example.com/rss")
+seen   = process("seen",       upstream=src)
+series = process("series",     upstream=seen, static=["Breaking Bad"])
+fmt    = process("pathfmt",    upstream=series,
+                 path="/media/tv/{title}/Season {series_season:02d}",
+                 field="download_path")
+output("transmission", upstream=fmt, host="localhost", port=9091,
+                        path="{download_path}")
+pipeline("breaking-bad", schedule="1h")
 ```
 
 ```sh
-pipeliner run               # run all tasks once
-pipeliner daemon            # run tasks on their schedules
+pipeliner run               # run all pipelines once
+pipeliner daemon            # run pipelines on their schedules
 pipeliner check             # validate config without running
 pipeliner list-plugins      # print all registered plugins
 ```
@@ -45,102 +46,93 @@ See [`configs/`](configs/README.md) for the full config format reference and ann
 
 ## Plugins
 
-Pipeliner is built entirely from plugins. Each task is a chain of plugins executed in order:
+Pipeliner is built entirely from plugins. Each plugin has one of three roles:
 
-| Phase | Purpose |
-|-------|---------|
-| **input** | Produce entries from sources (RSS, files, searches) |
-| **metainfo** | Annotate entries with metadata (quality, series info, TMDb) |
-| **filter** | Accept, reject, or leave entries undecided based on rules |
-| **modify** | Mutate entry fields (path formatting, field setting) |
-| **output** | Act on accepted entries (download, client RPC, notify) |
-| **learn** | Persist decisions and state for future runs (seen, series tracking) |
+| Role | Used as | Purpose |
+|------|---------|---------|
+| **source** | `input(…)` | Produce entries from RSS, files, indexers |
+| **processor** | `process(…, upstream=…)` | Filter, enrich, or transform entries |
+| **sink** | `output(…, upstream=…)` | Act on accepted entries (download, notify, exec) |
 
-Metainfo, filter, and modify plugins run in config-file order and can be freely interleaved — a filter can be placed immediately after the metainfo plugin that sets the field it inspects.
+Connect multiple sources with `merge(src1, src2)` for deduplication. Fan out to multiple sinks by calling `output()` more than once from the same upstream node. See [`plugins/`](plugins/README.md) for the full plugin model.
 
-See [`plugins/`](plugins/README.md) for the plugin model and links to every plugin.
+The visual pipeline editor in the web UI lets you build pipelines by clicking and connecting nodes without writing config by hand.
 
-### Input
+### Sources (`input(…)`)
 
 | Plugin | Description |
 |--------|-------------|
-| [`rss`](plugins/input/rss/README.md) | Fetch entries from an RSS/Atom feed |
-| [`html`](plugins/input/html/README.md) | Scrape entries from an HTML page with CSS selectors |
-| [`filesystem`](plugins/input/filesystem/README.md) | Walk a directory tree and emit file entries |
-| [`discover`](plugins/input/discover/README.md) | Actively search multiple sources for a configured title list |
-| [`jackett_input`](plugins/input/search/jackett/README.md) | Fetch recent results from Jackett indexers as a passive feed |
+| [`rss`](plugins/source/rss/README.md) | Fetch entries from an RSS/Atom feed |
+| [`html`](plugins/source/html/README.md) | Scrape entries from an HTML page |
+| [`filesystem`](plugins/source/filesystem/README.md) | Walk a directory tree and emit file entries |
+| [`jackett_input`](plugins/source/jackett_input/README.md) | Fetch recent results from Jackett indexers |
+| [`trakt_list`](plugins/source/trakt_list/README.md) | Fetch movies or shows from a Trakt.tv list |
+| [`tvdb_favorites`](plugins/source/tvdb_favorites/README.md) | Fetch shows from a TheTVDB user's favorites |
+| [`jackett`](plugins/source/jackett/README.md) | Search Jackett via Torznab (also a search backend for `discover.via`) |
+| [`rss_search`](plugins/source/rss_search/README.md) | Search a parameterized RSS URL (also a backend for `discover.via`) |
 
-#### From plugins (used by `series.from`, `movies.from`, `discover.from`, and `discover.via`)
-
-| Plugin | Description |
-|--------|-------------|
-| [`jackett`](plugins/from/jackett/README.md) | Query Jackett indexers via Torznab |
-| [`rss_search`](plugins/from/rss/README.md) | Search an RSS feed by querying its URL with a `q=` parameter |
-| [`trakt_list`](plugins/from/trakt/README.md) | Fetch movies or shows from a Trakt.tv list |
-| [`tvdb_favorites`](plugins/from/tvdb/README.md) | Fetch shows from a TheTVDB user's favorites list |
-
-### Filter
+### Processors — filtering
 
 | Plugin | Description |
 |--------|-------------|
-| [`seen`](plugins/filter/seen/README.md) | Reject entries already processed in a previous run |
-| [`series`](plugins/filter/series/README.md) | Accept episodes of configured TV shows; track downloads |
-| [`movies`](plugins/filter/movies/README.md) | Accept movies from a configured title list; track downloads |
-| [`list_match`](plugins/filter/list_match/README.md) | Accept entries whose title is in a persistent cross-task list |
-| [`trakt`](plugins/filter/trakt/README.md) | Accept entries whose title matches a Trakt.tv list |
-| [`tvdb`](plugins/filter/tvdb/README.md) | Accept entries whose title matches TheTVDB user favorites |
-| [`quality`](plugins/filter/quality/README.md) | Reject entries below or above a quality range |
-| [`regexp`](plugins/filter/regexp/README.md) | Accept or reject entries by regular expression |
-| [`exists`](plugins/filter/exists/README.md) | Reject entries whose target file already exists on disk |
-| [`condition`](plugins/filter/condition/README.md) | Accept or reject entries using boolean expressions |
-| [`content`](plugins/filter/content/README.md) | Reject or require entries based on torrent file contents |
-| [`premiere`](plugins/filter/premiere/README.md) | Reject entries for episodes that have not yet aired |
-| [`torrentalive`](plugins/filter/torrentalive/README.md) | Reject torrents with no active seeders |
-| [`upgrade`](plugins/filter/upgrade/README.md) | Accept entries that are a quality upgrade over what is on disk |
-| [`require`](plugins/filter/require/README.md) | Reject entries missing one or more required fields |
-| [`accept_all`](plugins/filter/accept_all/README.md) | Accept every undecided entry unconditionally |
+| [`seen`](plugins/processor/filter/seen/README.md) | Reject entries already processed in a previous run |
+| [`series`](plugins/processor/filter/series/README.md) | Accept episodes of configured TV shows; track downloads |
+| [`movies`](plugins/processor/filter/movies/README.md) | Accept movies from a configured title list; track downloads |
+| [`list_match`](plugins/processor/filter/list_match/README.md) | Accept entries whose title is in a persistent cross-task list |
+| [`trakt`](plugins/processor/filter/trakt/README.md) | Accept entries whose title matches a Trakt.tv list |
+| [`tvdb`](plugins/processor/filter/tvdb/README.md) | Accept entries whose title matches TheTVDB user favorites |
+| [`quality`](plugins/processor/filter/quality/README.md) | Reject entries below or above a quality range |
+| [`regexp`](plugins/processor/filter/regexp/README.md) | Accept or reject entries by regular expression |
+| [`exists`](plugins/processor/filter/exists/README.md) | Reject entries whose target file already exists on disk |
+| [`condition`](plugins/processor/filter/condition/README.md) | Accept or reject entries using boolean expressions |
+| [`content`](plugins/processor/filter/content/README.md) | Reject or require entries based on torrent file contents |
+| [`premiere`](plugins/processor/filter/premiere/README.md) | Reject entries for episodes that have not yet aired |
+| [`torrentalive`](plugins/processor/filter/torrentalive/README.md) | Reject torrents with no active seeders |
+| [`upgrade`](plugins/processor/filter/upgrade/README.md) | Accept entries that are a quality upgrade over what is on disk |
+| [`require`](plugins/processor/filter/require/README.md) | Reject entries missing one or more required fields |
+| [`accept_all`](plugins/processor/filter/accept_all/README.md) | Accept every undecided entry unconditionally |
 
-### Metainfo
-
-| Plugin | Description |
-|--------|-------------|
-| [`metainfo_quality`](plugins/metainfo/quality/README.md) | Parse quality tags (resolution, source, codec) from the title |
-| [`metainfo_series`](plugins/metainfo/series/README.md) | Parse series name, season, and episode from the title |
-| [`metainfo_tmdb`](plugins/metainfo/tmdb/README.md) | Enrich movie entries with TMDb metadata |
-| [`metainfo_tvdb`](plugins/metainfo/tvdb/README.md) | Enrich series entries with TheTVDB metadata |
-| [`metainfo_trakt`](plugins/metainfo/trakt/README.md) | Annotate entries with Trakt.tv metadata |
-| [`metainfo_torrent`](plugins/metainfo/torrent/README.md) | Read `.torrent` file metadata (info hash, size, file list) |
-| [`metainfo_magnet`](plugins/metainfo/magnet/README.md) | Annotate magnet-link entries with info hash, trackers, and DHT metadata |
-
-### Modify
+### Processors — enrichment
 
 | Plugin | Description |
 |--------|-------------|
-| [`pathfmt`](plugins/modify/pathfmt/README.md) | Render a path pattern into a named field, with automatic scrubbing |
-| [`set`](plugins/modify/set/README.md) | Unconditionally set one or more entry fields |
+| [`metainfo_quality`](plugins/processor/metainfo/quality/README.md) | Parse quality tags (resolution, source, codec) from the title |
+| [`metainfo_series`](plugins/processor/metainfo/series/README.md) | Parse series name, season, and episode from the title |
+| [`metainfo_tmdb`](plugins/processor/metainfo/tmdb/README.md) | Enrich movie entries with TMDb metadata |
+| [`metainfo_tvdb`](plugins/processor/metainfo/tvdb/README.md) | Enrich series entries with TheTVDB metadata |
+| [`metainfo_trakt`](plugins/processor/metainfo/trakt/README.md) | Annotate entries with Trakt.tv metadata |
+| [`metainfo_torrent`](plugins/processor/metainfo/torrent/README.md) | Read `.torrent` file metadata (info hash, size, file list) |
+| [`metainfo_magnet`](plugins/processor/metainfo/magnet/README.md) | Annotate magnet-link entries with info hash, trackers, and DHT metadata |
 
-### Output
-
-| Plugin | Description |
-|--------|-------------|
-| [`transmission`](plugins/output/transmission/README.md) | Add torrents to a Transmission client via JSON-RPC |
-| [`deluge`](plugins/output/deluge/README.md) | Add torrents to a Deluge client via JSON-RPC |
-| [`qbittorrent`](plugins/output/qbittorrent/README.md) | Add torrents to a qBittorrent client via Web API |
-| [`download`](plugins/output/download/README.md) | Download the entry URL to a local file |
-| [`exec`](plugins/output/exec/README.md) | Run a shell command for each accepted entry |
-| [`decompress`](plugins/output/decompress/README.md) | Decompress downloaded archives (zip, rar, tar.gz, …) |
-| [`list_add`](plugins/output/list_add/README.md) | Add accepted entries to a named persistent list |
-| [`email`](plugins/output/email/README.md) | Send an email for each accepted entry |
-| [`print`](plugins/output/print/README.md) | Print accepted entries to stdout |
-| [`notify`](plugins/output/notify/README.md) | Delegate to configured notify plugins |
-
-### Notify Notifiers
+### Processors — field mutation
 
 | Plugin | Description |
 |--------|-------------|
-| [`email`](plugins/notify/email/README.md) | Send a run-summary email via SMTP |
-| [`pushover`](plugins/notify/pushover/README.md) | Send a notification via the Pushover API |
-| [`webhook`](plugins/notify/webhook/README.md) | POST a run summary to an HTTP endpoint |
+| [`pathfmt`](plugins/processor/modify/pathfmt/README.md) | Render a path pattern into a named field, with automatic scrubbing |
+| [`set`](plugins/processor/modify/set/README.md) | Unconditionally set one or more entry fields |
+
+### Sinks (`output(…)`)
+
+| Plugin | Description |
+|--------|-------------|
+| [`transmission`](plugins/sink/transmission/README.md) | Add torrents to a Transmission client via JSON-RPC |
+| [`deluge`](plugins/sink/deluge/README.md) | Add torrents to a Deluge client via JSON-RPC |
+| [`qbittorrent`](plugins/sink/qbittorrent/README.md) | Add torrents to a qBittorrent client via Web API |
+| [`download`](plugins/sink/download/README.md) | Download the entry URL to a local file |
+| [`exec`](plugins/sink/exec/README.md) | Run a shell command for each accepted entry |
+| [`decompress`](plugins/sink/decompress/README.md) | Decompress downloaded archives (zip, rar, tar.gz, …) |
+| [`list_add`](plugins/sink/list_add/README.md) | Add accepted entries to a named persistent list |
+| [`email`](plugins/sink/email/README.md) | Send an email for each accepted entry |
+| [`print`](plugins/sink/print/README.md) | Print accepted entries to stdout |
+| [`notify`](plugins/sink/notify/README.md) | Delegate to configured notify plugins |
+
+### Sink notifiers (used by `notify`)
+
+| Plugin | Description |
+|--------|-------------|
+| [`email`](plugins/sink/notify/email/README.md) | Send a run-summary email via SMTP |
+| [`pushover`](plugins/sink/notify/pushover/README.md) | Send a notification via the Pushover API |
+| [`webhook`](plugins/sink/notify/webhook/README.md) | POST a run summary to an HTTP endpoint |
 
 ## Standard fields
 
@@ -158,11 +150,11 @@ Every entry carries a `Fields` map that plugins read and write. Pipeliner define
 
 `title` is the canonical display name set by external metainfo providers (TVDB, TMDb, Trakt). The raw entry title as parsed from the filename or feed is available as `raw_title`.
 
-`enriched` is set to `true` by any external metainfo provider on a successful lookup. Use it with [`require`](plugins/filter/require/README.md) to discard entries that couldn't be identified:
+`enriched` is set to `true` by any external metainfo provider on a successful lookup. Use it with [`require`](plugins/processor/filter/require/README.md) to discard entries that couldn't be identified:
 
-```yaml
-require:
-  fields: ["enriched"]   # works with TVDB, TMDb, or Trakt
+```python
+req = process("require", upstream=meta_node, fields=["enriched"])
+# works with TVDB, TMDb, or Trakt — no change needed if you swap providers
 ```
 
 Provider-specific fields (e.g. `tvdb_id`, `tmdb_id`, `trakt_slug`) are still set alongside the standard fields for cases that need them.

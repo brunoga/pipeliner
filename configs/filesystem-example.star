@@ -2,9 +2,10 @@
 #
 # Scans /tmp for .torrent files, rejects spam, tags and prints the rest.
 
-task("scan-torrents", [
-    plugin("filesystem", path="/tmp", mask="*.torrent"),
-    plugin("regexp", reject=["(?i)spam"]),
-    plugin("set", category="torrent", label="{filename}"),
-    plugin("print", format="[{state}] {title}  ({category})"),
-])
+src      = input("filesystem", path="/tmp", mask="*.torrent")
+filtered = process("regexp",    upstream=src, reject=["(?i)spam"])
+tagged   = process("set",       upstream=filtered, category="torrent", label="{file_name}")
+accepted = process("accept_all", upstream=tagged)
+output("print", upstream=accepted, format="[{state}] {title}  ({category})")
+
+pipeline("scan-torrents")

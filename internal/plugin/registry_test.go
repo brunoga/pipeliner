@@ -1,10 +1,8 @@
 package plugin
 
 import (
-	"context"
 	"testing"
 
-	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/store"
 )
 
@@ -15,18 +13,13 @@ func resetForTest() {
 	registry = map[string]*Descriptor{}
 }
 
-// stubInput is a minimal InputPlugin used for registry tests.
-type stubInput struct{ name string }
+type stubPlugin struct{ name string }
 
-func (s *stubInput) Name() string  { return s.name }
-func (s *stubInput) Phase() Phase  { return PhaseInput }
-func (s *stubInput) Run(_ context.Context, _ *TaskContext) ([]*entry.Entry, error) {
-	return nil, nil
-}
+func (s *stubPlugin) Name() string { return s.name }
 
 func newStubFactory(name string) Factory {
 	return func(_ map[string]any, _ *store.SQLiteStore) (Plugin, error) {
-		return &stubInput{name: name}, nil
+		return &stubPlugin{name: name}, nil
 	}
 }
 
@@ -35,7 +28,7 @@ func TestRegisterAndLookup(t *testing.T) {
 
 	Register(&Descriptor{
 		PluginName:  "myplugin",
-		PluginPhase: PhaseInput,
+		Role: RoleSource,
 		Factory:     newStubFactory("myplugin"),
 	})
 
@@ -58,20 +51,20 @@ func TestLookupMiss(t *testing.T) {
 
 func TestRegisterPanicOnDuplicate(t *testing.T) {
 	resetForTest()
-	Register(&Descriptor{PluginName: "dup", PluginPhase: PhaseInput, Factory: newStubFactory("dup")})
+	Register(&Descriptor{PluginName: "dup", Role: RoleSource, Factory: newStubFactory("dup")})
 
 	defer func() {
 		if r := recover(); r == nil {
 			t.Error("expected panic on duplicate registration")
 		}
 	}()
-	Register(&Descriptor{PluginName: "dup", PluginPhase: PhaseInput, Factory: newStubFactory("dup")})
+	Register(&Descriptor{PluginName: "dup", Role: RoleSource, Factory: newStubFactory("dup")})
 }
 
 func TestAll(t *testing.T) {
 	resetForTest()
-	Register(&Descriptor{PluginName: "b", PluginPhase: PhaseInput, Factory: newStubFactory("b")})
-	Register(&Descriptor{PluginName: "a", PluginPhase: PhaseFilter, Factory: newStubFactory("a")})
+	Register(&Descriptor{PluginName: "b", Role: RoleSource, Factory: newStubFactory("b")})
+	Register(&Descriptor{PluginName: "a", Role: RoleProcessor, Factory: newStubFactory("a")})
 
 	all := All()
 	if len(all) != 2 {
