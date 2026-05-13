@@ -540,6 +540,8 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 	type subPluginResp struct {
 		PluginName string         `json:"plugin"`
 		Config     map[string]any `json:"config"`
+		X          *float64       `json:"x,omitempty"`
+		Y          *float64       `json:"y,omitempty"`
 	}
 	type nodeResp struct {
 		ID         string          `json:"id"`
@@ -604,6 +606,22 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 				if desc.AcceptsList   { list   = extractSubPlugins("list")   }
 			}
 
+			if pos, ok := nodePositions[string(n.ID)]; ok {
+				for i := range list {
+					if i < len(pos.List) {
+						lx, ly := pos.List[i][0], pos.List[i][1]
+						list[i].X = &lx
+						list[i].Y = &ly
+					}
+				}
+				for i := range search {
+					if i < len(pos.Search) {
+						sx, sy := pos.Search[i][0], pos.Search[i][1]
+						search[i].X = &sx
+						search[i].Y = &sy
+					}
+				}
+			}
 			nr := nodeResp{
 				ID:         string(n.ID),
 				PluginName: n.PluginName,
@@ -614,7 +632,7 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 				Comment:    nodeComments[string(n.ID)],
 			}
 			if pos, ok := nodePositions[string(n.ID)]; ok {
-				x, y := pos[0], pos[1]
+				x, y := pos.Main[0], pos.Main[1]
 				nr.X = &x
 				nr.Y = &y
 			}
@@ -630,13 +648,22 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"graphs": graphs})
 }
 
+// nodePosData stores canvas positions for a node and its ordered list/search sub-nodes.
+// Y values are relative to the pipeline region top (same convention as the comment format).
+type nodePosData struct {
+	Main   [2]float64
+	List   [][2]float64 // one entry per list= item, in order
+	Search [][2]float64 // one entry per search= item, in order
+}
+
 // scanComments extracts user-visible comments and per-node layout positions from
 // raw Starlark text. It looks for contiguous # comment blocks immediately
-// preceding node assignments (id = input/process) and pipeline() calls.
+// preceding node assignments (id = input/process/output) and pipeline() calls.
 //
-// "# pipeliner:pos X Y" lines store the canvas position (relative to the
-// pipeline region) for the immediately following node assignment. They are
-// consumed as metadata and not included in the user-visible comment.
+// "# pipeliner:pos X Y [list X Y ...] [search X Y ...]" stores the main node
+// position followed by optional ordered positions for list and search sub-nodes.
+// Y values are relative to the pipeline region top. Consumed as metadata and
+// not included in the user-visible comment.
 //
 // "# pipeliner:layout {...}" (legacy aggregate format) is also accepted for
 // backward compatibility: positions are distributed to the named node IDs.
@@ -645,17 +672,35 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 func scanComments(content string) (
 	nodeComments     map[string]string,
 	pipelineComments map[string]string,
-	nodePositions    map[string][2]float64,
+	nodePositions    map[string]nodePosData,
 ) {
-	nodeComments  = make(map[string]string)
+	nodeComments     = make(map[string]string)
 	pipelineComments = make(map[string]string)
-	nodePositions = make(map[string][2]float64)
+	nodePositions    = make(map[string]nodePosData)
 
-	nodeRe     := regexp.MustCompile(`^([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(input|process)\s*\(`)
+	nodeRe     := regexp.MustCompile(`^([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(input|process|output)\s*\(`)
 	pipelineRe := regexp.MustCompile(`^pipeline\s*\(\s*"([^"]+)"`)
 
 	var commentLines []string
-	var pendingPos   *[2]float64
+	var pendingPos   *nodePosData
+
+	parsePairs := func(parts []string, start int, stop func(string) bool) ([][2]float64, int) {
+		var out [][2]float64
+		i := start
+		for i+1 < len(parts) {
+			if stop(parts[i]) {
+				break
+			}
+			x, ex := strconv.ParseFloat(parts[i], 64)
+			y, ey := strconv.ParseFloat(parts[i+1], 64)
+			if ex != nil || ey != nil {
+				break
+			}
+			out = append(out, [2]float64{x, y})
+			i += 2
+		}
+		return out, i
+	}
 
 	for _, line := range strings.Split(content, "\n") {
 		trimmed := strings.TrimSpace(line)
@@ -668,12 +713,24 @@ func scanComments(content string) (
 			switch {
 			case strings.HasPrefix(rest, "pipeliner:pos "):
 				parts := strings.Fields(strings.TrimPrefix(rest, "pipeliner:pos "))
-				if len(parts) == 2 {
+				if len(parts) >= 2 {
 					x, errX := strconv.ParseFloat(parts[0], 64)
 					y, errY := strconv.ParseFloat(parts[1], 64)
 					if errX == nil && errY == nil {
-						pos := [2]float64{x, y}
-						pendingPos = &pos
+						pd := nodePosData{Main: [2]float64{x, y}}
+						isKeyword := func(s string) bool { return s == "list" || s == "search" }
+						i := 2
+						for i < len(parts) {
+							switch parts[i] {
+							case "list":
+								pd.List, i = parsePairs(parts, i+1, isKeyword)
+							case "search":
+								pd.Search, i = parsePairs(parts, i+1, isKeyword)
+							default:
+								i++
+							}
+						}
+						pendingPos = &pd
 					}
 				}
 			case strings.HasPrefix(rest, "pipeliner:layout "):
@@ -682,7 +739,7 @@ func scanComments(content string) (
 				if err := json.Unmarshal([]byte(strings.TrimPrefix(rest, "pipeliner:layout ")), &legacy); err == nil {
 					for id, pos := range legacy {
 						if _, exists := nodePositions[id]; !exists {
-							nodePositions[id] = pos
+							nodePositions[id] = nodePosData{Main: pos}
 						}
 					}
 				}

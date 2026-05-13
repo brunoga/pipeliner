@@ -234,42 +234,37 @@ describe('dagToStarlark', () => {
     expect(out).toContain('seen_1 = process("seen", upstream=rss_0)');
   });
 
-  it('generates output() for sink nodes (no variable when terminal)', () => {
+  it('assigns variable to output() for sink nodes (position persistence)', () => {
     setup([
       { id: 'rss_0',           plugin: 'rss',          config: {}, upstreams: [] },
       { id: 'transmission_1',  plugin: 'transmission', config: {}, upstreams: ['rss_0'] },
     ]);
     const out = dagToStarlark();
-    expect(out).toContain('output("transmission", upstream=rss_0)');
-    expect(out).not.toContain('transmission_1 =');
+    expect(out).toContain('transmission_1 = output("transmission", upstream=rss_0)');
   });
 
-  it('assigns variable to output() when it has a chained downstream sink', () => {
-    // src → sink1 → sink2: sink1 must be assigned so sink2 can reference it.
+  it('assigns variable to all output() nodes in a chained sink', () => {
+    // src → sink1 → sink2: both get assignments so positions can be persisted.
     setup([
       { id: 'rss_0',  plugin: 'rss',          config: {}, upstreams: [] },
       { id: 'sink_1', plugin: 'transmission', config: {}, upstreams: ['rss_0'] },
       { id: 'sink_2', plugin: 'print',        config: {}, upstreams: ['sink_1'] },
     ]);
     const out = dagToStarlark();
-    // The first (chained) sink must get a variable assignment.
     expect(out).toContain('sink_1 = output("transmission"');
-    // The terminal sink should NOT have a variable.
-    expect(out).not.toContain('sink_2 =');
-    // The terminal sink references the intermediate sink.
-    expect(out).toContain('output("print", upstream=sink_1)');
+    expect(out).toContain('sink_2 = output("print", upstream=sink_1)');
   });
 
-  it('does not assign variable to a fan-out sink (two terminal sinks)', () => {
-    // src → sink1, src → sink2: neither is chained so neither needs a variable.
+  it('assigns variable to fan-out sinks (two terminal sinks)', () => {
+    // src → sink1, src → sink2: both get assignments for position persistence.
     setup([
       { id: 'rss_0',  plugin: 'rss',          config: {}, upstreams: [] },
       { id: 'sink_1', plugin: 'transmission', config: {}, upstreams: ['rss_0'] },
       { id: 'sink_2', plugin: 'print',        config: {}, upstreams: ['rss_0'] },
     ]);
     const out = dagToStarlark();
-    expect(out).not.toContain('sink_1 =');
-    expect(out).not.toContain('sink_2 =');
+    expect(out).toContain('sink_1 = output(');
+    expect(out).toContain('sink_2 = output(');
   });
 
   it('uses merge() for multiple upstreams', () => {

@@ -625,8 +625,26 @@ func TestScanCommentsPerNodePos(t *testing.T) {
 	if !ok {
 		t.Fatal("position missing for src_0")
 	}
-	if p[0] != 50 || p[1] != 32 {
-		t.Errorf("position: got [%v %v], want [50 32]", p[0], p[1])
+	if p.Main[0] != 50 || p.Main[1] != 32 {
+		t.Errorf("position: got [%v %v], want [50 32]", p.Main[0], p.Main[1])
+	}
+}
+
+func TestScanCommentsPosWithSubNodes(t *testing.T) {
+	content := "# pipeliner:pos 50 32 list 10 5 20 6 search 30 7\nsrc_0 = input(\"rss\")\npipeline(\"tv\")\n"
+	_, _, pos := scanComments(content)
+	p, ok := pos["src_0"]
+	if !ok {
+		t.Fatal("position missing for src_0")
+	}
+	if p.Main[0] != 50 || p.Main[1] != 32 {
+		t.Errorf("main position: got [%v %v], want [50 32]", p.Main[0], p.Main[1])
+	}
+	if len(p.List) != 2 || p.List[0] != [2]float64{10, 5} || p.List[1] != [2]float64{20, 6} {
+		t.Errorf("list positions: got %v, want [{10 5} {20 6}]", p.List)
+	}
+	if len(p.Search) != 1 || p.Search[0] != [2]float64{30, 7} {
+		t.Errorf("search positions: got %v, want [{30 7}]", p.Search)
 	}
 }
 
@@ -639,8 +657,8 @@ func TestScanCommentsPosWithUserComment(t *testing.T) {
 	if !ok {
 		t.Fatal("position missing for src_0")
 	}
-	if p[0] != 50 || p[1] != 32 {
-		t.Errorf("position: got [%v %v], want [50 32]", p[0], p[1])
+	if p.Main[0] != 50 || p.Main[1] != 32 {
+		t.Errorf("position: got [%v %v], want [50 32]", p.Main[0], p.Main[1])
 	}
 }
 
@@ -651,8 +669,8 @@ func TestScanCommentsLegacyLayoutBackwardCompat(t *testing.T) {
 	if !ok {
 		t.Fatal("legacy layout position missing for src_0")
 	}
-	if p[0] != 50 || p[1] != 76 {
-		t.Errorf("legacy layout position: got [%v %v], want [50 76]", p[0], p[1])
+	if p.Main[0] != 50 || p.Main[1] != 76 {
+		t.Errorf("legacy layout position: got [%v %v], want [50 76]", p.Main[0], p.Main[1])
 	}
 }
 
