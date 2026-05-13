@@ -514,6 +514,14 @@ section { margin-bottom: 32px; }
 }
 .ve-extract-fn-btn:hover { border-color:#fbbf24; background:rgba(251,191,36,.08); }
 
+/* Paste toolbar button */
+.ve-paste-btn {
+  padding:3px 12px; border:1px solid var(--border); border-radius:5px;
+  background:transparent; color:var(--muted); font-size:12px; cursor:pointer;
+  font-weight:500; transition:border-color .15s, color .15s; flex-shrink:0;
+}
+.ve-paste-btn:hover { border-color:var(--accent); color:var(--accent); }
+
 /* Multi-selected node highlight */
 .ve-node.multi-selected { outline:2px solid #fbbf24; outline-offset:2px; }
 
