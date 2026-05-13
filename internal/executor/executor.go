@@ -329,13 +329,17 @@ func (ex *Executor) runNode(
 		}
 		err = sink.Consume(ctx, tc, upstream)
 		produced = entry.FilterAccepted(upstream) // pass non-failed accepted entries to chained sinks
-		// Log per-entry outcomes at the sink: accepted = successfully consumed,
-		// failed = sink itself already logged the reason.
+		// Log per-entry outcomes at every sink. Because the executor passes only
+		// FilterAccepted(upstream) to chained sinks, each sink only sees the
+		// entries it is actually responsible for — logging at every sink (not
+		// just the terminal one) is therefore correct and useful:
+		//   deluge → "entry accepted" for the 3 it enqueued
+		//   email  → "entry accepted" for the same 3 it then notified about
 		for _, s := range snaps {
-			if s.e.IsAccepted() {
-				tc.Logger.Info("entry accepted", "title", s.e.Title)
-			} else if s.e.IsFailed() && s.stateBefore != entry.Failed {
+			if s.e.IsFailed() && s.stateBefore != entry.Failed {
 				tc.Logger.Warn("entry failed", "title", s.e.Title, "reason", s.e.FailReason)
+			} else if s.e.IsAccepted() {
+				tc.Logger.Info("entry accepted", "title", s.e.Title)
 			}
 		}
 
