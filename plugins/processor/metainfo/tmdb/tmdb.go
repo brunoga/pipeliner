@@ -44,6 +44,9 @@ func init() {
 			entry.FieldVideoVotes,
 			"tmdb_id",
 		},
+		// trakt_tmdb_id and trakt_year are consumed when present; the plugin
+		// still works without them (falls back to title-parsed year).
+		Requires: []string{"trakt_tmdb_id", "trakt_year"},
 		Factory:  newPlugin,
 		Validate: validate,
 		Schema: []plugin.FieldSchema{
@@ -94,27 +97,61 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 func (p *tmdbPlugin) Name() string        { return "metainfo_tmdb" }
 
 func (p *tmdbPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
-	m, ok := imovies.Parse(e.Title)
-	if !ok {
+	// Fast path: if a Trakt (or other) TMDB ID is already on the entry, fetch
+	// by ID directly and skip the search step. This avoids picking the wrong
+	// result when multiple movies share the same title (e.g. "Michael" 1996 vs
+	// 2026).
+	if rawID, ok := e.Fields["trakt_tmdb_id"]; ok {
+		if tmdbID, ok := rawID.(int); ok && tmdbID > 0 {
+			return p.annotateByID(ctx, tc, e, tmdbID)
+		}
+	}
+
+	// Parse the release title to extract the canonical movie title and year.
+	// If parsing fails (entry has no quality markers or year suffix — e.g. a
+	// clean Trakt title like "Michael") fall back to the raw title + trakt_year
+	// so that list-sourced entries can still be enriched.
+	var searchTitle string
+	var searchYear int
+
+	if m, ok := imovies.Parse(e.Title); ok {
+		searchTitle = m.Title
+		searchYear = m.Year
+	} else if y, ok := e.Fields["trakt_year"].(int); ok && y > 0 {
+		// Clean Trakt title with known year — search directly.
+		searchTitle = imovies.NormalizeTitle(e.Title)
+		if searchTitle == "" {
+			searchTitle = e.Title
+		}
+		searchYear = y
+	} else {
 		tc.Logger.Warn("metainfo_tmdb: title did not parse as movie", "entry", e.Title)
 		return nil
 	}
 
-	key := fmt.Sprintf("%s:%d", m.Title, m.Year)
+	// When the parsed year is 0 (title has no year suffix), use trakt_year as a
+	// hint to avoid popularity-ranked mismatches for same-name films.
+	if searchYear == 0 {
+		if y, ok := e.Fields["trakt_year"].(int); ok && y > 0 {
+			searchYear = y
+		}
+	}
+
+	key := fmt.Sprintf("%s:%d", searchTitle, searchYear)
 	results, cached := p.cache.Get(key)
 	if !cached {
 		var err error
-		results, err = p.client.SearchMovie(ctx, m.Title, m.Year)
+		results, err = p.client.SearchMovie(ctx, searchTitle, searchYear)
 		if err != nil {
-			tc.Logger.Warn("metainfo_tmdb: search failed", "title", m.Title, "err", err)
+			tc.Logger.Warn("metainfo_tmdb: search failed", "title", searchTitle, "err", err)
 			return nil
 		}
 		// Year in the release name may be wrong (off-by-one, regional difference,
 		// etc.). Retry without the year filter before giving up.
-		if len(results) == 0 && m.Year > 0 {
-			results, err = p.client.SearchMovie(ctx, m.Title, 0)
+		if len(results) == 0 && searchYear > 0 {
+			results, err = p.client.SearchMovie(ctx, searchTitle, 0)
 			if err != nil {
-				tc.Logger.Warn("metainfo_tmdb: search failed", "title", m.Title, "err", err)
+				tc.Logger.Warn("metainfo_tmdb: search failed", "title", searchTitle, "err", err)
 				return nil
 			}
 		}
@@ -126,7 +163,7 @@ func (p *tmdbPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 		}
 	}
 	if len(results) == 0 {
-		tc.Logger.Warn("metainfo_tmdb: no results", "title", m.Title, "year", m.Year, "entry", e.Title)
+		tc.Logger.Warn("metainfo_tmdb: no results", "title", searchTitle, "year", searchYear, "entry", e.Title)
 		return nil
 	}
 
@@ -202,6 +239,84 @@ func (p *tmdbPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 	}
 
 	// Content rating: first certification found for the US.
+	for _, cr := range detail.ReleaseDates.Results {
+		if cr.ISO == "US" {
+			for _, rd := range cr.Dates {
+				if rd.Certification != "" {
+					mi.ContentRating = rd.Certification
+					break
+				}
+			}
+			break
+		}
+	}
+
+	e.SetMovieInfo(mi)
+	return nil
+}
+
+// annotateByID fetches a movie directly by its TMDb ID, bypassing the search
+// step. Used when the entry already carries a trakt_tmdb_id so we never risk
+// picking the wrong film due to title ambiguity or popularity ranking.
+func (p *tmdbPlugin) annotateByID(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry, id int) error {
+	detail, err := p.client.GetMovie(ctx, id)
+	if err != nil {
+		tc.Logger.Warn("metainfo_tmdb: fetch by id failed", "id", id, "err", err)
+		return nil
+	}
+
+	e.Set("tmdb_id", detail.ID)
+
+	mi := entry.MovieInfo{}
+	mi.Enriched = true
+	mi.Title = detail.Title
+	mi.Description = detail.Overview
+	mi.PublishedDate = detail.ReleaseDate
+	mi.Rating = detail.VoteAverage
+	mi.Popularity = detail.Popularity
+	mi.Votes = detail.VoteCount
+	if detail.OrigTitle != detail.Title {
+		mi.OriginalTitle = detail.OrigTitle
+	}
+	if len(detail.ReleaseDate) >= 4 {
+		if y, err := strconv.Atoi(detail.ReleaseDate[:4]); err == nil {
+			mi.Year = y
+		}
+	}
+	if detail.PosterPath != "" {
+		mi.Poster = itmdb.ImageBaseURL + detail.PosterPath
+	}
+
+	genres := make([]string, len(detail.Genres))
+	for i, g := range detail.Genres {
+		genres[i] = g.Name
+	}
+	mi.Runtime = detail.Runtime
+	mi.Tagline = detail.Tagline
+	mi.ImdbID = detail.ImdbID
+	mi.Genres = genres
+	mi.Language = iso639_1Name(detail.OriginalLanguage)
+	if len(detail.ProductionCountries) > 0 {
+		mi.Country = detail.ProductionCountries[0].Name
+	}
+	for i, c := range detail.Credits.Cast {
+		if i >= 10 {
+			break
+		}
+		if c.Name != "" {
+			mi.Cast = append(mi.Cast, c.Name)
+		}
+	}
+	for _, v := range detail.Videos.Results {
+		if v.Site == "YouTube" && v.Type == "Trailer" && v.Key != "" {
+			mi.Trailers = append(mi.Trailers, "https://www.youtube.com/watch?v="+v.Key)
+		}
+	}
+	for _, t := range detail.AlternativeTitles.Titles {
+		if t.Title != "" {
+			mi.Aliases = append(mi.Aliases, t.Title)
+		}
+	}
 	for _, cr := range detail.ReleaseDates.Results {
 		if cr.ISO == "US" {
 			for _, rd := range cr.Dates {

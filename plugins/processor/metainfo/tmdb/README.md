@@ -48,7 +48,15 @@ Enriches movie entries with metadata from The Movie Database (TMDb). Searches by
 |----------|-------|
 | Role | `processor` |
 | Produces | `enriched`, `title`, `movie_title`, `movie_tagline`, `video_year`, `video_language`, `video_original_title`, `video_country`, `video_genres`, `video_rating`, `video_poster`, `video_runtime`, `video_aliases`, `video_imdb_id`, `video_popularity`, `video_votes`, `tmdb_id` |
-| Requires | — |
+| Requires | `trakt_tmdb_id` (optional), `trakt_year` (optional) |
+
+## Lookup strategy
+
+The plugin resolves movies in this order:
+
+1. **By ID** — if the entry carries `trakt_tmdb_id` (set by `trakt_list` or `metainfo_trakt`), the movie is fetched directly by TMDb ID. No search is performed, so there is no ambiguity even when multiple films share the same title (e.g. "Michael" 1996 vs 2026).
+2. **By title + year** — the title is parsed from the entry (torrent release format or plain Trakt title). If no year is found in the title but `trakt_year` is present, that year is used as the search hint.
+3. **Year-less retry** — if the year-filtered search returns nothing (off-by-one year, regional difference, etc.), the search is retried without a year filter before giving up.
 
 ## Example
 
@@ -61,9 +69,18 @@ output("qbittorrent", upstream=fmt, host="localhost")
 pipeline("movies", schedule="1h")
 ```
 
+With a Trakt watchlist as the movie source the plugin resolves the correct film even when the title is ambiguous:
+
+```python
+trakt_src = input("trakt_list", client_id=env("TRAKT_ID"), type="movies", list="watchlist")
+flt  = process("movies",        upstream=rss, list=[trakt_src])
+meta = process("metainfo_tmdb", upstream=flt, api_key=env("TMDB_KEY"))
+```
+
 ## Notes
 
 - Free API keys at [themoviedb.org/settings/api](https://www.themoviedb.org/settings/api).
-- Only annotates entries whose title can be parsed as a movie (title + year). Entries without a parseable year are skipped.
+- Entries from `trakt_list` carry both `trakt_tmdb_id` and `trakt_year`, which are used to resolve the correct film unambiguously.
+- Plain Trakt titles (no quality markers, no year suffix) are supported as search terms when `trakt_year` is present.
 - Results are cached in `pipeliner.db` in the same directory as the config file.
-- Use `enriched` (not `tmdb_id`) to check whether TMDb successfully found metadata: `plugin("require", fields=["enriched"])`.
+- Use `enriched` (not `tmdb_id`) to check whether TMDb successfully found metadata: `process("require", upstream=…, fields=["enriched"])`.
