@@ -61,17 +61,20 @@ func startTestServer(t *testing.T, starConfig string) *testServer {
 	bcast := web.NewBroadcaster()
 	srv := web.New(infos, &noopDaemon{}, hist, bcast, "test", "admin", "password")
 	srv.SetStore(db)
-	srv.SetConfigValidator(func(data []byte) []string {
+	srv.SetConfigValidator(func(data []byte) ([]string, []string) {
 		c, err := config.ParseBytes(data)
 		if err != nil {
-			return []string{err.Error()}
+			return []string{err.Error()}, nil
 		}
-		errs := config.Validate(c)
-		msgs := make([]string, len(errs))
-		for i, e := range errs {
-			msgs[i] = e.Error()
+		errs, warns := config.Validate(c)
+		toStrings := func(es []error) []string {
+			s := make([]string, len(es))
+			for i, e := range es {
+				s[i] = e.Error()
+			}
+			return s
 		}
-		return msgs
+		return toStrings(errs), toStrings(warns)
 	})
 
 	// Pick a free port.

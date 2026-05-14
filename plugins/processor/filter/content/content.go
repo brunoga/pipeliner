@@ -35,7 +35,7 @@ func init() {
 		PluginName:  "content",
 		Description: "reject entries whose torrent file listing matches unwanted glob patterns",
 		Role:        plugin.RoleProcessor,
-		Requires:    []string{entry.FieldTorrentFiles},
+		Requires:    plugin.RequireAll(entry.FieldTorrentFiles),
 		Factory:     newPlugin,
 		Validate:    validate,
 		Schema: []plugin.FieldSchema{

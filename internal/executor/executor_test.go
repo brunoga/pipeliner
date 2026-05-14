@@ -607,3 +607,96 @@ func TestExecutor_LogsAcceptedToFailedTransition(t *testing.T) {
 		t.Error("expected no plain 'entry failed' log line when entry was previously accepted")
 	}
 }
+
+// requiresFieldPlugin is a processor that requires "needed_field" but never
+// sets it — used to verify the ValidateFields warning path.
+type requiresFieldPlugin struct{}
+
+func (p *requiresFieldPlugin) Name() string { return "test_requires_field" }
+func (p *requiresFieldPlugin) Process(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
+	return entries, nil
+}
+
+func requiresFieldDesc() *plugin.Descriptor {
+	return &plugin.Descriptor{
+		PluginName: "test_requires_field",
+		Role:       plugin.RoleProcessor,
+		Requires:   plugin.RequireAll("needed_field"),
+	}
+}
+
+func TestExecutor_ValidateFields_WarnsOnMissingField(t *testing.T) {
+	ls := &logSink{}
+	logger := slog.New(ls)
+
+	src := &sourcePlugin{urls: []string{"http://a.com"}}
+	proc := &requiresFieldPlugin{}
+
+	g := dag.New()
+	for _, n := range []*dag.Node{
+		{ID: "src", PluginName: "test_source"},
+		{ID: "proc", PluginName: "test_requires_field", Upstreams: []dag.NodeID{"src"}},
+	} {
+		if err := g.AddNode(n); err != nil {
+			t.Fatal(err)
+		}
+	}
+	plugins := map[dag.NodeID]*executor.PluginInstance{
+		"src":  {Desc: sourceDesc(), Impl: src, Config: map[string]any{}},
+		"proc": {Desc: requiresFieldDesc(), Impl: proc, Config: map[string]any{}},
+	}
+	ex := executor.New("test", g, plugins, nil, logger, false)
+	ex.SetValidateFields(true)
+	if _, err := ex.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	if !ls.has(slog.LevelWarn, "entry missing required fields") {
+		t.Error("expected Warn 'entry missing required fields' when ValidateFields is on and field is absent")
+	}
+}
+
+func TestExecutor_ValidateFields_SilentWhenFieldPresent(t *testing.T) {
+	ls := &logSink{}
+	logger := slog.New(ls)
+
+	// src → setField (sets "needed_field") → proc (Requires "needed_field")
+	// ValidateFields should produce no warning because the field is present.
+	src := &sourcePlugin{urls: []string{"http://a.com"}}
+	proc := &requiresFieldPlugin{}
+
+	g := dag.New()
+	for _, n := range []*dag.Node{
+		{ID: "src", PluginName: "test_source"},
+		{ID: "sf", PluginName: "test_set_field", Upstreams: []dag.NodeID{"src"}},
+		{ID: "proc", PluginName: "test_requires_field", Upstreams: []dag.NodeID{"sf"}},
+	} {
+		if err := g.AddNode(n); err != nil {
+			t.Fatal(err)
+		}
+	}
+	plugins := map[dag.NodeID]*executor.PluginInstance{
+		"src":  {Desc: sourceDesc(), Impl: src, Config: map[string]any{}},
+		"sf":   {Desc: &plugin.Descriptor{PluginName: "test_set_field", Role: plugin.RoleProcessor}, Impl: &setFieldProcessor{}, Config: map[string]any{}},
+		"proc": {Desc: requiresFieldDesc(), Impl: proc, Config: map[string]any{}},
+	}
+	ex := executor.New("test", g, plugins, nil, logger, false)
+	ex.SetValidateFields(true)
+	if _, err := ex.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	if ls.has(slog.LevelWarn, "entry missing required fields") {
+		t.Error("expected no 'entry missing required fields' warning when field is present")
+	}
+}
+
+type setFieldProcessor struct{}
+
+func (p *setFieldProcessor) Name() string { return "test_set_field" }
+func (p *setFieldProcessor) Process(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
+	for _, e := range entries {
+		e.Set("needed_field", "value")
+	}
+	return entries, nil
+}

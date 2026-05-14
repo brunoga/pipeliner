@@ -22,9 +22,11 @@ func init() {
 		Role:        plugin.RoleSource,
 		Produces: []string{
 			entry.FieldTitle,
+			entry.FieldRSSFeed,
+		},
+		MayProduce: []string{
 			entry.FieldDescription,
 			entry.FieldPublishedDate,
-			entry.FieldRSSFeed,
 			entry.FieldRSSGUID,
 			entry.FieldRSSLink,
 			entry.FieldRSSEnclosureURL,

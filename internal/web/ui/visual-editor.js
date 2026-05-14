@@ -479,7 +479,8 @@ function renderGraphNodes() {
           badgeHtml,
           preview        ? `<div class="ve-node-preview">${esc(preview)}</div>` : '',
           commentPreview,
-          warns.length   ? `<div class="ve-node-warn">⚠ ${esc(warns[0])}</div>` : '',
+          warns.some(w=>w.level==='error') ? `<div class="ve-node-warn">⚠ ${esc(warns.find(w=>w.level==='error').msg)}</div>`
+          : warns.some(w=>w.level==='warn') ? `<div class="ve-node-soft-warn">~ ${esc(warns.find(w=>w.level==='warn').msg)}</div>` : '',
         '</div>',
         `<button class="ve-node-remove" tabindex="-1" title="Remove">×</button>`,
         `<button class="ve-node-comment-btn${commentBtnCls}" tabindex="-1" title="Edit comment">#</button>`,
@@ -1926,7 +1927,7 @@ function renderParamPanel() {
     return;
   }
 
-  const meta = pluginMeta(node.plugin) || {role: 'processor', schema: [], produces: [], requires: []};
+  const meta = pluginMeta(node.plugin) || {role: 'processor', schema: [], produces: [], may_produce: [], requires: []};
   empty.style.display = 'none'; title.style.display = '';
   nameEl.textContent = node.plugin;
   roleEl.textContent = node.isSearchNode ? 'search' : node.isListNode ? 'list' : meta.role;
@@ -2013,17 +2014,23 @@ function renderParamPanel() {
     html.push('</div>');
   }
 
-  if (meta.produces?.length || meta.requires?.length) {
+  if (meta.produces?.length || meta.may_produce?.length || meta.requires?.length) {
     html.push('<div class="ve-field-sep"></div>');
     if (meta.produces?.length)
       html.push(`<div class="ve-field-hint-block"><b>Produces:</b> ${meta.produces.map(f=>`<code>${esc(f)}</code>`).join(' ')}</div>`);
+    if (meta.may_produce?.length)
+      html.push(`<div class="ve-field-hint-block ve-field-hint-maybe"><b>May produce:</b> ${meta.may_produce.map(f=>`<code>${esc(f)}</code>`).join(' ')}</div>`);
     if (meta.requires?.length)
       html.push(`<div class="ve-field-hint-block"><b>Requires:</b> ${meta.requires.map(f=>`<code>${esc(f)}</code>`).join(' ')}</div>`);
   }
 
   const warns = fieldWarnings(node);
-  if (warns.length)
-    html.push(`<div class="ve-conn-warn">${warns.map(w => `⚠ ${esc(w)}`).join('<br>')}</div>`);
+  const hardWarns = warns.filter(w => w.level === 'error');
+  const softWarns = warns.filter(w => w.level === 'warn');
+  if (hardWarns.length)
+    html.push(`<div class="ve-conn-warn">${hardWarns.map(w => `⚠ ${esc(w.msg)}`).join('<br>')}</div>`);
+  if (softWarns.length)
+    html.push(`<div class="ve-conn-soft-warn">${softWarns.map(w => `~ ${esc(w.msg)}`).join('<br>')}</div>`);
 
   html.push('<div class="ve-field-sep"></div>');
   // Wrap main-node fields in a scoped container so collectParams can be wired
@@ -2412,21 +2419,36 @@ function configPreview(cfg) {
   }).join('  ');
 }
 
+// fieldWarnings returns [{level:'error'|'warn', msg:string}] for a node.
+// 'error' = required field not produced by any upstream at all.
+// 'warn'  = required field only conditionally produced (may_produce) upstream.
 function fieldWarnings(node) {
   const meta = pluginMeta(node.plugin);
   if (!meta?.requires?.length) return [];
-  const produced = allProducedUpstream(node.id);
-  return meta.requires.filter(f => !produced.has(f))
-    .map(f => `requires "${f}" — add ${f}-producing node upstream`);
+  const {certain, maybe} = allProducedUpstream(node.id);
+  const warns = [];
+  for (const f of meta.requires) {
+    if (!certain.has(f) && !maybe.has(f)) {
+      warns.push({level: 'error', msg: `requires "${f}" — add ${f}-producing node upstream`});
+    } else if (!certain.has(f)) {
+      warns.push({level: 'warn', msg: `requires "${f}" — only conditionally produced upstream; plugin may silently skip entries missing this field`});
+    }
+  }
+  return warns;
 }
 
+// allProducedUpstream returns {certain, maybe} Sets for all fields reachable
+// from the transitive upstreams of nodeId.
+// certain = from Produces (guaranteed on every entry).
+// maybe   = from may_produce (conditionally set; not guaranteed).
 function allProducedUpstream(nodeId) {
   const gi = findNodeGraph(nodeId);
   const g  = gi >= 0 ? ve.graphs[gi] : null;
-  if (!g) return new Set();
+  if (!g) return {certain: new Set(), maybe: new Set()};
 
-  const produced = new Set();
-  const visited  = new Set();
+  const certain = new Set();
+  const maybe   = new Set();
+  const visited = new Set();
   const startNode = g.nodes.find(n => n.id === nodeId);
   const queue = [...(startNode?.upstreams || [])];
   while (queue.length) {
@@ -2435,17 +2457,18 @@ function allProducedUpstream(nodeId) {
     visited.add(id);
     const n    = g.nodes.find(x => x.id === id);
     const meta = n ? pluginMeta(n.plugin) : null;
-    if (meta?.produces) meta.produces.forEach(f => produced.add(f));
+    if (meta?.produces)     meta.produces.forEach(f => certain.add(f));
+    if (meta?.may_produce)  meta.may_produce.forEach(f => { if (!certain.has(f)) maybe.add(f); });
     if (n) n.upstreams.forEach(u => queue.push(u));
   }
-  return produced;
+  return {certain, maybe};
 }
 
 function pluginMeta(name) {
   if (ve.userFunctions[name]) {
     const fd = ve.userFunctions[name];
     return {name: fd.name, role: fd.role, description: fd.description, schema: fd.params || [],
-            produces: [], requires: [], is_user_function: true};
+            produces: [], may_produce: [], requires: [], is_user_function: true};
   }
   return ve.plugins.find(p => p.name === name) || null;
 }

@@ -32,7 +32,9 @@ func init() {
 		PluginName:  "series",
 		Description: "accept episodes for configured shows; track downloads across runs",
 		Role:        plugin.RoleProcessor,
-		Produces: []string{
+		// Only set on matched entries; with reject_unmatched:false unmatched entries
+		// pass through without these fields.
+		MayProduce: []string{
 			entry.FieldTitle,
 			entry.FieldSeriesSeason,
 			entry.FieldSeriesEpisode,

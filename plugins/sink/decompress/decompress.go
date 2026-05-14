@@ -33,7 +33,7 @@ func init() {
 		PluginName:  "decompress",
 		Description: "extract archive files (RAR, ZIP, 7z) to a destination directory",
 		Role:        plugin.RoleSink,
-		Requires:    []string{entry.FieldFileLocation},
+		Requires:    plugin.RequireAll(entry.FieldFileLocation),
 		Factory:  newPlugin,
 		Validate: validate,
 		Schema: []plugin.FieldSchema{
