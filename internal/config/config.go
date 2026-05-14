@@ -63,15 +63,18 @@ func ParseBytes(data []byte) (*Config, error) {
 }
 
 // Validate checks that all plugins referenced in the config are registered and
-// have valid configs. Returns a list of errors (never nil).
-func Validate(c *Config) []error {
-	var errs []error
+// have valid configs. Returns (errors, warnings); errors block loading,
+// warnings are advisory (e.g. merge-gap or MayProduce field risks).
+func Validate(c *Config) (errs, warnings []error) {
 	for name, g := range c.Graphs {
-		dagErrs := dag.Validate(g, func(pluginName string) (*plugin.Descriptor, bool) {
+		dagErrs, dagWarnings := dag.Validate(g, func(pluginName string) (*plugin.Descriptor, bool) {
 			return plugin.Lookup(pluginName)
 		})
 		for _, err := range dagErrs {
 			errs = append(errs, fmt.Errorf("pipeline %q: %w", name, err))
+		}
+		for _, w := range dagWarnings {
+			warnings = append(warnings, fmt.Errorf("pipeline %q: %w", name, w))
 		}
 		for _, n := range g.Nodes() {
 			d, ok := plugin.Lookup(n.PluginName)
@@ -87,7 +90,7 @@ func Validate(c *Config) []error {
 			}
 		}
 	}
-	return errs
+	return errs, warnings
 }
 
 // BuildTasks instantiates all DAG pipelines and returns them as []*task.Task

@@ -46,11 +46,12 @@ type edgeKey struct{ from, to dag.NodeID }
 
 // Executor runs a DAG pipeline.
 type Executor struct {
-	name    string
-	graph   *dag.Graph
-	plugins map[dag.NodeID]*PluginInstance
-	logger  *slog.Logger
-	dryRun  bool
+	name           string
+	graph          *dag.Graph
+	plugins        map[dag.NodeID]*PluginInstance
+	logger         *slog.Logger
+	dryRun         bool
+	validateFields bool
 }
 
 // New constructs an Executor. plugins maps each NodeID to its instantiated plugin.
@@ -79,6 +80,11 @@ func (ex *Executor) Name() string { return ex.name }
 
 // SetDryRun enables or disables dry-run mode on a running executor.
 func (ex *Executor) SetDryRun(v bool) { ex.dryRun = v }
+
+// SetValidateFields enables per-entry field validation before each node runs.
+// When true, the executor warns whenever an entry is missing all fields in a
+// Requires group, helping diagnose misconfigured pipelines at runtime.
+func (ex *Executor) SetValidateFields(v bool) { ex.validateFields = v }
 
 // Shutdown calls Shutdown() on any plugin that implements plugin.ShutdownPlugin.
 func (ex *Executor) Shutdown() {
@@ -274,6 +280,24 @@ func (ex *Executor) runNode(
 	role := pi.Desc.EffectiveRole()
 	tc.Logger.Info("node started", "role", role, "in", len(upstream))
 	nodeStart := time.Now()
+
+	// Per-entry field validation (debug mode only).
+	if ex.validateFields && role != plugin.RoleSource {
+		for _, e := range upstream {
+			for _, group := range pi.Desc.Requires {
+				satisfied := false
+				for _, f := range group {
+					if _, ok := e.Fields[f]; ok {
+						satisfied = true
+						break
+					}
+				}
+				if !satisfied {
+					tc.Logger.Warn("entry missing required fields", "url", e.URL, "group", group)
+				}
+			}
+		}
+	}
 
 	// Snapshot entry states before the node runs so we can log what changed.
 	type snapshot struct {

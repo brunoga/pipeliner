@@ -53,8 +53,10 @@ func init() {
         PluginName:  "my_plugin",
         Description: "one-line description",
         Role:        plugin.RoleProcessor,
-        Produces:    []string{"my_field"},
-        Requires:    []string{"series_episode_id"},
+        Produces:    []string{"my_field"},           // set on every passing entry
+        MayProduce:  []string{"my_optional_field"},  // set only when data is available
+        Requires:    plugin.RequireAll("series_episode_id"), // AND: all must be present
+        // OR group example: plugin.RequireAny("tmdb_id", "movie_title")
         Factory:     newPlugin,
         Validate:    validate, // optional
         Schema:      []plugin.FieldSchema{...}, // optional, enables visual editor

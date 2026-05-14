@@ -25,7 +25,9 @@ func init() {
 		PluginName:  "tvdb_favorites",
 		Description: "fetch TheTVDB favorites as show-name entries; usable as a standalone DAG source or inside series.list/discover.list",
 		Role:        plugin.RoleSource,
-		Produces:    []string{entry.FieldTitle, "tvdb_id", "tvdb_year"},
+		// title is set on e.Title (struct field) via entry.New, not in Fields.
+		Produces:    []string{"tvdb_id"},
+		MayProduce:  []string{"tvdb_year"},
 		Factory:      newPlugin,
 		Validate:     validate,
 		IsListPlugin: true,

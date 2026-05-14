@@ -341,6 +341,18 @@ section { margin-bottom: 32px; }
   white-space: pre-wrap;
   display: none;
 }
+.config-warnings {
+  margin-top: 10px;
+  padding: 10px 14px;
+  background: rgba(210, 153, 34, 0.08);
+  border: 1px solid rgba(210, 153, 34, 0.3);
+  border-radius: 6px;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 12px;
+  color: var(--amber);
+  white-space: pre-wrap;
+  display: none;
+}
 
 /* ── visual pipeline editor ─────────────────────────────────────────────── */
 .view-toggle { display:flex; gap:4px; margin-bottom:10px; }
@@ -1178,7 +1190,8 @@ section { margin-bottom: 32px; }
 }
 
 /* Inline warning on canvas node */
-.ve-node-warn { font-size:10px; color:var(--amber); margin-top:3px; }
+.ve-node-warn      { font-size:10px; color:var(--amber); margin-top:3px; }
+.ve-node-soft-warn { font-size:10px; color:var(--muted);  margin-top:3px; }
 
 /* Upstream checkbox rows in param panel */
 .ve-upstream-row {
@@ -1232,10 +1245,18 @@ section { margin-bottom: 32px; }
   border:1px solid rgba(210,153,34,.35); border-radius:5px; margin-bottom:10px;
   background:rgba(210,153,34,.06);
 }
+.ve-conn-soft-warn {
+  font-size:11px; color:var(--muted); padding:6px 8px;
+  border:1px solid rgba(130,130,130,.25); border-radius:5px; margin-bottom:10px;
+  background:rgba(130,130,130,.04);
+}
 
 /* Produces/Requires info block in param panel */
 .ve-field-hint-block {
   font-size:11px; color:var(--muted); margin-bottom:6px; line-height:1.6;
+}
+.ve-field-hint-block.ve-field-hint-maybe {
+  opacity: 0.7;
 }
 .ve-field-hint-block code {
   font-family:'SFMono-Regular',Consolas,monospace; font-size:10px;

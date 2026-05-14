@@ -3,5 +3,5 @@ package docs
 
 import "embed"
 
-//go:embed user-guide.html
+//go:embed user-guide.html images
 var FS embed.FS

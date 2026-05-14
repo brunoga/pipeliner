@@ -19,12 +19,20 @@ type Descriptor struct {
 	Description string
 	// Role declares the plugin's place in a DAG pipeline.
 	Role Role
-	// Produces lists entry field names this plugin writes to Fields.
-	// Used by the DAG validator to check that downstream nodes' Requires are met.
+	// Produces lists entry field names this plugin writes to Fields on every
+	// passing entry. Used by the DAG validator for field reachability checks.
 	Produces []string
-	// Requires lists entry field names this plugin reads from Fields.
-	// The DAG validator ensures at least one upstream node Produces each field.
-	Requires []string
+	// MayProduce lists fields this plugin sets only on some entries (e.g. when
+	// parsing succeeds or a lookup finds a match). The DAG validator treats
+	// these as reachable but emits a warning when a downstream Requires group
+	// can only be satisfied by MayProduce or merge-partial fields.
+	MayProduce []string
+	// Requires lists groups of entry field names this plugin reads from Fields.
+	// Each inner slice is an OR group: at least one field in the group must be
+	// produced by a transitive upstream. Groups are ANDed: every group must be
+	// independently satisfied. Use RequireAll for AND chains and RequireAny for
+	// OR groups.
+	Requires [][]string
 	Factory  Factory
 	// Validate checks the plugin's configuration map and returns any errors.
 	// Called by config.Validate before plugin construction.
@@ -56,6 +64,23 @@ func (d *Descriptor) EffectiveRole() Role {
 		return d.Role
 	}
 	return RoleProcessor // safe default
+}
+
+// RequiresFlat returns a deduplicated flat list of all fields mentioned in any
+// Requires group. Useful for display and backward-compatible JSON APIs that
+// cannot express OR-group semantics.
+func (d *Descriptor) RequiresFlat() []string {
+	seen := make(map[string]bool)
+	var out []string
+	for _, group := range d.Requires {
+		for _, f := range group {
+			if !seen[f] {
+				seen[f] = true
+				out = append(out, f)
+			}
+		}
+	}
+	return out
 }
 
 var (

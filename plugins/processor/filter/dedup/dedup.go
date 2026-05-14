@@ -31,7 +31,6 @@ func init() {
 		PluginName:  "dedup",
 		Description: "keep the best-quality copy when multiple entries refer to the same episode or movie",
 		Role:        plugin.RoleProcessor,
-		Requires: []string{},
 		Factory:     func(_ map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) { return &dedupPlugin{}, nil },
 		Validate: func(cfg map[string]any) []error {
 			return plugin.OptUnknownKeys(cfg, "dedup")
