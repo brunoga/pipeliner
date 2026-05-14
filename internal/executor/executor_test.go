@@ -422,6 +422,36 @@ func (s *logSink) has(level slog.Level, msg string) bool {
 	return false
 }
 
+// lateRejectPlugin rejects every incoming entry (expects them already Accepted).
+type lateRejectPlugin struct{}
+
+func (p *lateRejectPlugin) Name() string { return "test_late_reject" }
+func (p *lateRejectPlugin) Process(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
+	for _, e := range entries {
+		e.Reject("changed mind")
+	}
+	return nil, nil
+}
+
+func lateRejectDesc() *plugin.Descriptor {
+	return &plugin.Descriptor{PluginName: "test_late_reject", Role: plugin.RoleProcessor}
+}
+
+// lateFailPlugin fails every incoming entry (expects them already Accepted).
+type lateFailPlugin struct{}
+
+func (p *lateFailPlugin) Name() string { return "test_late_fail" }
+func (p *lateFailPlugin) Process(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
+	for _, e := range entries {
+		e.Fail("hardware error")
+	}
+	return nil, nil
+}
+
+func lateFailDesc() *plugin.Descriptor {
+	return &plugin.Descriptor{PluginName: "test_late_fail", Role: plugin.RoleProcessor}
+}
+
 // rejectPlugin rejects every entry.
 type rejectPlugin struct{}
 
@@ -499,5 +529,81 @@ func TestExecutor_LogsAcceptedEntryAtSink(t *testing.T) {
 
 	if !sink.has(slog.LevelInfo, "entry accepted") {
 		t.Error("expected Info 'entry accepted' log line for entry reaching sink")
+	}
+}
+
+func TestExecutor_LogsAcceptedToRejectedTransition(t *testing.T) {
+	ls := &logSink{}
+	logger := slog.New(ls)
+
+	// Two-node pipeline: first node accepts, second node rejects.
+	// stateBefore at the reject node will be Accepted, triggering the transition log.
+	src := &sourcePlugin{urls: []string{"http://a.com"}}
+	acc := &acceptAllPlugin{}
+	rej := &lateRejectPlugin{}
+
+	g := dag.New()
+	for _, n := range []*dag.Node{
+		{ID: "src", PluginName: "test_source"},
+		{ID: "acc", PluginName: "test_accept", Upstreams: []dag.NodeID{"src"}},
+		{ID: "rej", PluginName: "test_late_reject", Upstreams: []dag.NodeID{"acc"}},
+	} {
+		if err := g.AddNode(n); err != nil {
+			t.Fatal(err)
+		}
+	}
+	plugins := map[dag.NodeID]*executor.PluginInstance{
+		"src": {Desc: sourceDesc(), Impl: src, Config: map[string]any{}},
+		"acc": {Desc: processorDesc(), Impl: acc, Config: map[string]any{}},
+		"rej": {Desc: lateRejectDesc(), Impl: rej, Config: map[string]any{}},
+	}
+	ex := executor.New("test", g, plugins, nil, logger, false)
+	if _, err := ex.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	if !ls.has(slog.LevelDebug, "entry accepted → rejected") {
+		t.Error("expected Debug 'entry accepted → rejected' log line for accepted-then-rejected entry")
+	}
+	if ls.has(slog.LevelDebug, "entry rejected") {
+		t.Error("expected no plain 'entry rejected' log line when entry was previously accepted")
+	}
+}
+
+func TestExecutor_LogsAcceptedToFailedTransition(t *testing.T) {
+	ls := &logSink{}
+	logger := slog.New(ls)
+
+	// Two-node pipeline: first node accepts, second node fails.
+	// stateBefore at the fail node will be Accepted, triggering the transition log.
+	src := &sourcePlugin{urls: []string{"http://a.com"}}
+	acc := &acceptAllPlugin{}
+	fail := &lateFailPlugin{}
+
+	g := dag.New()
+	for _, n := range []*dag.Node{
+		{ID: "src", PluginName: "test_source"},
+		{ID: "acc", PluginName: "test_accept", Upstreams: []dag.NodeID{"src"}},
+		{ID: "fail", PluginName: "test_late_fail", Upstreams: []dag.NodeID{"acc"}},
+	} {
+		if err := g.AddNode(n); err != nil {
+			t.Fatal(err)
+		}
+	}
+	plugins := map[dag.NodeID]*executor.PluginInstance{
+		"src":  {Desc: sourceDesc(), Impl: src, Config: map[string]any{}},
+		"acc":  {Desc: processorDesc(), Impl: acc, Config: map[string]any{}},
+		"fail": {Desc: lateFailDesc(), Impl: fail, Config: map[string]any{}},
+	}
+	ex := executor.New("test", g, plugins, nil, logger, false)
+	if _, err := ex.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	if !ls.has(slog.LevelWarn, "entry accepted → failed") {
+		t.Error("expected Warn 'entry accepted → failed' log line for accepted-then-failed entry")
+	}
+	if ls.has(slog.LevelWarn, "entry failed") {
+		t.Error("expected no plain 'entry failed' log line when entry was previously accepted")
 	}
 }

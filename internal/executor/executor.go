@@ -317,9 +317,17 @@ func (ex *Executor) runNode(
 			}
 			switch s.e.State {
 			case entry.Rejected:
-				tc.Logger.Debug("entry rejected", "title", s.e.Title, "reason", s.e.RejectReason)
+				if s.stateBefore == entry.Accepted {
+					tc.Logger.Debug("entry accepted → rejected", "title", s.e.Title, "reason", s.e.RejectReason)
+				} else {
+					tc.Logger.Debug("entry rejected", "title", s.e.Title, "reason", s.e.RejectReason)
+				}
 			case entry.Failed:
-				tc.Logger.Warn("entry failed", "title", s.e.Title, "reason", s.e.FailReason)
+				if s.stateBefore == entry.Accepted {
+					tc.Logger.Warn("entry accepted → failed", "title", s.e.Title, "reason", s.e.FailReason)
+				} else {
+					tc.Logger.Warn("entry failed", "title", s.e.Title, "reason", s.e.FailReason)
+				}
 			}
 		}
 
