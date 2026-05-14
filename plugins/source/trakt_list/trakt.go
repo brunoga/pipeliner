@@ -34,11 +34,11 @@ func init() {
 		PluginName:  "trakt_list",
 		Description: "fetch movies or shows from a Trakt.tv list as pipeline entries; usable as a standalone DAG source or inside series.from/movies.from/discover.from",
 		Role:        plugin.RoleSource,
-		Produces: []string{
-			entry.FieldTitle,
-			"trakt_id",
-			"trakt_slug",
+		// title is set on e.Title (struct field) via entry.New, not in Fields.
+		// trakt_slug is used for the entry URL but not set as a field.
+		MayProduce: []string{
 			"trakt_year",
+			"trakt_id",
 			"trakt_imdb_id",
 			"trakt_tmdb_id",
 		},

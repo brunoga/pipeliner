@@ -21,13 +21,16 @@ async function validateConfig() {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({content, dry_run: true}),
     });
+    const body = await r.json();
     if (r.status === 422) {
-      const { errors } = await r.json();
-      showConfigErrors(errors);
-      setConfigStatus('err', '✗ ' + errors.length + ' error' + (errors.length !== 1 ? 's' : ''));
+      showConfigErrors(body.errors || []);
+      showConfigWarnings(body.warnings || []);
+      setConfigStatus('err', '✗ ' + (body.errors||[]).length + ' error' + ((body.errors||[]).length !== 1 ? 's' : ''));
     } else if (r.ok) {
       showConfigErrors([]);
-      setConfigStatus('ok', '✓ Config is valid');
+      showConfigWarnings(body.warnings || []);
+      const wc = (body.warnings||[]).length;
+      setConfigStatus('ok', wc ? `✓ Valid (${wc} warning${wc !== 1 ? 's' : ''})` : '✓ Config is valid');
     } else {
       setConfigStatus('err', 'Server error: ' + r.status);
     }
@@ -46,14 +49,16 @@ async function saveConfig() {
       body: JSON.stringify({content}),
     });
     if (r.status === 422) {
-      const { errors } = await r.json();
-      showConfigErrors(errors);
-      setConfigStatus('err', '✗ ' + errors.length + ' error' + (errors.length !== 1 ? 's' : '') + ' — not saved');
+      const resp = await r.json();
+      showConfigErrors(resp.errors || []);
+      showConfigWarnings(resp.warnings || []);
+      setConfigStatus('err', '✗ ' + (resp.errors||[]).length + ' error' + ((resp.errors||[]).length !== 1 ? 's' : '') + ' — not saved');
       return;
     }
     if (!r.ok) { setConfigStatus('err', 'Save failed: ' + r.status); return; }
     showConfigErrors([]);
     const body = await r.json();
+    showConfigWarnings(body.warnings || []);
     if (body.status === 'reloaded') {
       setConfigStatus('ok', '✓ Saved and reloaded');
       refresh();
@@ -114,6 +119,18 @@ function showConfigErrors(errors) {
   } else {
     el.style.display = 'block';
     el.textContent = errors.join('\n');
+  }
+}
+
+function showConfigWarnings(warnings) {
+  const el = document.getElementById('config-warnings');
+  if (!el) return;
+  if (!warnings || warnings.length === 0) {
+    el.style.display = 'none';
+    el.textContent = '';
+  } else {
+    el.style.display = 'block';
+    el.textContent = warnings.join('\n');
   }
 }
 

@@ -26,7 +26,7 @@ func (s stubDaemon) Trigger(_ string)           {}
 
 // newTestServer builds a Server wired for testing.
 // configPath and validateFn are optional; pass "" / nil to skip.
-func newTestServer(t *testing.T, configPath string, validateFn func([]byte) []string) (*Server, *httptest.Server) {
+func newTestServer(t *testing.T, configPath string, validateFn func([]byte) ([]string, []string)) (*Server, *httptest.Server) {
 	t.Helper()
 	srv := New(nil, stubDaemon{}, NewHistory(), NewBroadcaster(), "test", "user", "pass")
 	if configPath != "" {
@@ -124,7 +124,7 @@ func TestSaveConfigDryRunValid(t *testing.T) {
 	original := "original content\n"
 	path := writeConfig(t, dir, original)
 
-	_, ts := newTestServer(t, path, func(_ []byte) []string { return nil })
+	_, ts := newTestServer(t, path, func(_ []byte) ([]string, []string) { return nil, nil })
 	defer ts.Close()
 
 	body, _ := json.Marshal(map[string]any{"content": "new content\n", "dry_run": true})
@@ -151,8 +151,8 @@ func TestSaveConfigDryRunInvalid(t *testing.T) {
 	dir := t.TempDir()
 	path := writeConfig(t, dir, "")
 
-	validate := func(_ []byte) []string {
-		return []string{"error one", "error two"}
+	validate := func(_ []byte) ([]string, []string) {
+		return []string{"error one", "error two"}, nil
 	}
 	_, ts := newTestServer(t, path, validate)
 	defer ts.Close()
@@ -178,7 +178,7 @@ func TestSaveConfigWritesFile(t *testing.T) {
 	path := writeConfig(t, dir, "old content\n")
 
 	reloaded := false
-	srv, ts := newTestServer(t, path, func(_ []byte) []string { return nil })
+	srv, ts := newTestServer(t, path, func(_ []byte) ([]string, []string) { return nil, nil })
 	srv.SetReload(func() error { reloaded = true; return nil })
 	defer ts.Close()
 
@@ -211,7 +211,7 @@ func TestSaveConfigValidationError(t *testing.T) {
 	path := writeConfig(t, dir, "original\n")
 	original, _ := os.ReadFile(path)
 
-	validate := func(_ []byte) []string { return []string{"plugin \"bad\": unknown"} }
+	validate := func(_ []byte) ([]string, []string) { return []string{"plugin \"bad\": unknown"}, nil }
 	_, ts := newTestServer(t, path, validate)
 	defer ts.Close()
 
@@ -236,7 +236,7 @@ func TestSaveConfigQueuesPendingReloadWhenBusy(t *testing.T) {
 	path := writeConfig(t, dir, "old\n")
 
 	reloadCalls := 0
-	srv, ts := newTestServer(t, path, func(_ []byte) []string { return nil })
+	srv, ts := newTestServer(t, path, func(_ []byte) ([]string, []string) { return nil, nil })
 	srv.SetReload(func() error { reloadCalls++; return nil })
 	defer ts.Close()
 

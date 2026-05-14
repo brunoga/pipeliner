@@ -73,8 +73,9 @@ func init() {
         PluginName:  "my_filter",          // referenced in config: process("my_filter", …)
         Description: "one-line description shown by list-plugins",
         Role:        plugin.RoleProcessor,
-        Produces:    []string{"my_field"}, // fields this plugin writes to entry.Fields
-        Requires:    []string{},           // fields required from upstream
+        Produces:    []string{"my_field"},  // fields written on every passing entry
+        MayProduce:  []string{},           // fields written only when data is available
+        Requires:    nil,                  // use RequireAll / RequireAny helpers
         Factory:     newPlugin,
         Validate:    validate,             // optional but recommended
         Schema: []plugin.FieldSchema{      // optional, enables visual editor form fields
@@ -104,8 +105,9 @@ func validate(cfg map[string]any) []error {
 | `PluginName` | `string` | Name used in config and logs |
 | `Description` | `string` | Short description for `pipeliner list-plugins` |
 | `Role` | `Role` | `RoleSource`, `RoleProcessor`, or `RoleSink` |
-| `Produces` | `[]string` | Entry field names this plugin writes |
-| `Requires` | `[]string` | Entry field names required from upstream |
+| `Produces` | `[]string` | Fields written on **every** passing entry; used by the DAG validator for reachability checks |
+| `MayProduce` | `[]string` | Fields written only on **some** entries (e.g. when a lookup succeeds or parsing matches). The validator allows these to satisfy a `Requires` group but emits a warning — helps catch pipelines that may silently no-op |
+| `Requires` | `[][]string` | Field requirements as AND-of-OR groups. Use `RequireAll("a","b")` for "a AND b must be present" or `RequireAny("a","b")` for "at least one of a or b". The validator errors when no upstream produces any field in a group; warns when the only match is a `MayProduce` field |
 | `Factory` | `func(map[string]any, *store.SQLiteStore) (Plugin, error)` | Constructor |
 | `Validate` | `func(map[string]any) []error` | Optional config validator |
 | `Schema` | `[]FieldSchema` | Optional — enables typed form fields in the visual editor |
@@ -672,7 +674,7 @@ func init() {
         PluginName:  "myfilter",
         Description: "accept entries whose score exceeds a threshold",
         Role:        plugin.RoleProcessor,
-        Requires:    []string{"my_score"},
+        Requires:    plugin.RequireAll("my_score"),
         Factory:     newPlugin,
         Validate:    validate,
     })

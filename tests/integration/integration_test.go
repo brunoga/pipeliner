@@ -442,7 +442,7 @@ pipeline("t")
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	if errs := config.Validate(cfg); len(errs) != 0 {
+	if errs, _ := config.Validate(cfg); len(errs) != 0 {
 		t.Errorf("expected no validation errors, got: %v", errs)
 	}
 }
@@ -456,7 +456,7 @@ pipeline("t")
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	if errs := config.Validate(cfg); len(errs) == 0 {
+	if errs, _ := config.Validate(cfg); len(errs) == 0 {
 		t.Error("expected validation error for unknown plugin")
 	}
 }

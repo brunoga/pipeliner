@@ -32,11 +32,8 @@ func init() {
 		PluginName:  "discover",
 		Description: "actively search multiple backends for items from a title list; receives a title list from upstream source nodes and returns search results",
 		Role:        plugin.RoleProcessor,
-		Produces: []string{
-			entry.FieldTorrentSeeds,
-			entry.FieldTorrentInfoHash,
-			entry.FieldTorrentLinkType,
-		},
+		// discover does not set fields itself; entries come from search sub-plugins
+		// whose Produces/MayProduce are propagated by the DAG validator.
 		Factory:       newPlugin,
 		Validate:      validate,
 		AcceptsSearch: true,

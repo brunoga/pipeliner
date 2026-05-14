@@ -154,7 +154,7 @@ src = input("rss", url="https://example.com/rss")
 output("nonexistent_plugin", upstream=src)
 pipeline("bad")
 `)
-	errs := Validate(c)
+	errs, _ := Validate(c)
 	if len(errs) == 0 {
 		t.Error("want validation errors for unknown plugin, got none")
 	}
@@ -223,7 +223,7 @@ pipeline("chained")
 		t.Errorf("want 1 terminal sink, got %d: %v", len(sinks), sinks)
 	}
 	// Validate should pass with no errors (sink→sink is allowed).
-	errs := Validate(c)
+	errs, _ := Validate(c)
 	if len(errs) != 0 {
 		t.Errorf("chained outputs should be valid, got errors: %v", errs)
 	}
@@ -238,7 +238,7 @@ func TestDAG_Validate_FieldRequirements(t *testing.T) {
 			PluginName:  pluginName,
 			Description: "test plugin that requires an unprovided field",
 			Role: plugin.RoleProcessor,
-			Requires:    []string{"some_nonexistent_field"},
+			Requires:    plugin.RequireAll("some_nonexistent_field"),
 			Factory: func(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
 				return nil, nil // never constructed in this test
 			},
@@ -251,7 +251,7 @@ proc = process("test_requires_missing_field", upstream=src)
 output("print", upstream=proc)
 pipeline("field-check")
 `)
-	errs := Validate(c)
+	errs, _ := Validate(c)
 	if len(errs) == 0 {
 		t.Error("want validation error for missing required field, got none")
 	}

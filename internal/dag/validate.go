@@ -2,6 +2,7 @@ package dag
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/brunoga/pipeliner/internal/plugin"
 )
@@ -12,25 +13,29 @@ import (
 //  3. Source plugins (RoleSource) have no upstreams.
 //  4. Sink plugins (RoleSink) may only have downstream sink nodes (sink chaining).
 //  5. Processor/sink plugins have at least one upstream.
-//  6. Every field in Descriptor.Requires is produced by at least one
-//     transitive upstream node (field reachability check).
+//  6. Every Requires group on a node has at least one field reachable from a
+//     transitive upstream (error if none; warning if reachable but not certain).
 //
-// Returns a slice of all errors found; returns nil when the graph is valid.
-func Validate(g *Graph, reg func(name string) (*plugin.Descriptor, bool)) []error {
-	var errs []error
-
-	// Topological sort catches cycles and gives us a processing order.
+// "Certain" fields are guaranteed on every entry: a node's Produces fields and
+// the intersection of certain fields across all upstreams at a merge node.
+// "Reachable" fields are potentially present: union of upstreams, plus MayProduce.
+// A group satisfied only by reachable-but-not-certain fields emits a warning
+// (merge gap or conditional MayProduce upstream).
+//
+// Returns (errors, warnings). Errors block pipeline load; warnings are advisory.
+func Validate(g *Graph, reg func(name string) (*plugin.Descriptor, bool)) (errs, warnings []error) {
+	// Topological sort catches cycles and provides processing order.
 	layers, err := g.Layers()
 	if err != nil {
-		return []error{err}
+		return []error{err}, nil
 	}
 
-	// Build a map of which fields are reachable at each node (accumulated from
-	// all transitive upstreams), keyed by NodeID.
+	// Per-node field sets built up as we process layers in order.
+	// reachable: union of all fields that might appear (Produces + MayProduce from any path).
+	// certain:   intersection of Produces across all upstream paths (guaranteed on every entry).
 	reachable := make(map[NodeID]map[string]bool, g.Len())
+	certain := make(map[NodeID]map[string]bool, g.Len())
 
-	// Process layers in order so that when we reach a node, all its upstreams
-	// have already been processed.
 	for _, layer := range layers {
 		for _, n := range layer {
 			d, ok := reg(n.PluginName)
@@ -48,40 +53,82 @@ func Validate(g *Graph, reg func(name string) (*plugin.Descriptor, bool)) []erro
 				errs = append(errs, fmt.Errorf("node %q (plugin %q, role %s): non-source nodes must have at least one upstream", n.ID, n.PluginName, role))
 			}
 			if role == plugin.RoleSink {
-				for _, d := range g.Downstreams(n.ID) {
-					dd, ok := reg(d.PluginName)
+				for _, dn := range g.Downstreams(n.ID) {
+					dd, ok := reg(dn.PluginName)
 					if !ok {
 						continue // already reported as unknown plugin
 					}
 					if dd.EffectiveRole() != plugin.RoleSink {
-						errs = append(errs, fmt.Errorf("node %q (plugin %q, role sink): downstream node %q must also be a sink", n.ID, n.PluginName, d.ID))
+						errs = append(errs, fmt.Errorf("node %q (plugin %q, role sink): downstream node %q must also be a sink", n.ID, n.PluginName, dn.ID))
 					}
 				}
 			}
 
-			// Accumulate fields reachable at this node from all upstreams.
-			fields := make(map[string]bool)
-			for _, upID := range n.Upstreams {
-				for f := range reachable[upID] {
-					fields[f] = true
+			// Build reachable and certain sets for this node from its upstreams.
+			var reach, cert map[string]bool
+			switch len(n.Upstreams) {
+			case 0:
+				// Source: starts with empty sets.
+				reach = make(map[string]bool)
+				cert = make(map[string]bool)
+			case 1:
+				// Single upstream: inherit both sets directly.
+				upID := n.Upstreams[0]
+				reach = copySet(reachable[upID])
+				cert = copySet(certain[upID])
+			default:
+				// Merge (N>1 upstreams): union for reachable, intersection for certain.
+				reach = make(map[string]bool)
+				cert = nil
+				for i, upID := range n.Upstreams {
+					for f := range reachable[upID] {
+						reach[f] = true
+					}
+					if i == 0 {
+						cert = copySet(certain[upID])
+					} else {
+						for f := range cert {
+							if !certain[upID][f] {
+								delete(cert, f)
+							}
+						}
+					}
+				}
+				if cert == nil {
+					cert = make(map[string]bool)
 				}
 			}
 
-			// Check that all required fields are reachable.
-			for _, req := range d.Requires {
-				if !fields[req] {
-					errs = append(errs, fmt.Errorf("node %q (plugin %q): required field %q is not produced by any upstream node", n.ID, n.PluginName, req))
+			// Check Requires groups against reachable/certain.
+			for _, group := range d.Requires {
+				reachFound, certFound := false, false
+				for _, f := range group {
+					if reach[f] {
+						reachFound = true
+					}
+					if cert[f] {
+						certFound = true
+					}
+				}
+				groupStr := "[" + strings.Join(group, " | ") + "]"
+				if !reachFound {
+					errs = append(errs, fmt.Errorf("node %q (plugin %q): required field %s is not produced by any upstream node", n.ID, n.PluginName, groupStr))
+				} else if !certFound {
+					warnings = append(warnings, fmt.Errorf("node %q (plugin %q): required field %s may not be present on all entries (merge gap or conditional upstream)", n.ID, n.PluginName, groupStr))
 				}
 			}
 
-			// Add this node's produced fields to the reachable set.
-			for _, prod := range d.Produces {
-				fields[prod] = true
+			// Add this node's Produces to both sets, MayProduce to reachable only.
+			for _, f := range d.Produces {
+				reach[f] = true
+				cert[f] = true
+			}
+			for _, f := range d.MayProduce {
+				reach[f] = true
 			}
 
-			// Also include fields produced by list= and search= sub-plugins
-			// configured on this node. Those sub-plugins run as part of the node
-			// and their produced fields are visible to all downstream nodes.
+			// Propagate fields from list= and search= sub-plugins configured on
+			// this node. Their produced fields are visible to all downstream nodes.
 			for _, key := range []string{"list", "search"} {
 				items, ok := n.Config[key].([]any)
 				if !ok {
@@ -93,16 +140,29 @@ func Validate(g *Graph, reg func(name string) (*plugin.Descriptor, bool)) []erro
 						continue
 					}
 					if subDesc, ok2 := reg(subName); ok2 {
-						for _, prod := range subDesc.Produces {
-							fields[prod] = true
+						for _, f := range subDesc.Produces {
+							reach[f] = true
+							cert[f] = true
+						}
+						for _, f := range subDesc.MayProduce {
+							reach[f] = true
 						}
 					}
 				}
 			}
 
-			reachable[n.ID] = fields
+			reachable[n.ID] = reach
+			certain[n.ID] = cert
 		}
 	}
 
-	return errs
+	return errs, warnings
+}
+
+func copySet(s map[string]bool) map[string]bool {
+	out := make(map[string]bool, len(s))
+	for k, v := range s {
+		out[k] = v
+	}
+	return out
 }

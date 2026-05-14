@@ -161,7 +161,7 @@ func TestValidate_SinkToSink_Valid(t *testing.T) {
 		sinkDescFor("txp"),
 		sinkDescFor("emailp"),
 	)
-	errs := dag.Validate(g, reg)
+	errs, _ := dag.Validate(g, reg)
 	if len(errs) != 0 {
 		t.Errorf("sink→sink chain should be valid, got errors: %v", errs)
 	}
@@ -192,9 +192,87 @@ func TestValidate_SinkToProcessor_Invalid(t *testing.T) {
 		sinkDescFor("txp"),
 		processorDescFor("seenp"),
 	)
-	errs := dag.Validate(g, reg)
+	errs, _ := dag.Validate(g, reg)
 	if len(errs) == 0 {
 		t.Error("sink→processor should be invalid, got no errors")
+	}
+}
+
+func TestValidate_RequireAny_SatisfiedByEitherField(t *testing.T) {
+	// src (produces "A") → proc (RequireAny "A", "B") should pass with no errors.
+	g := makeGraph(t,
+		node("src", "srcp"),
+		node("proc", "procp", "src"),
+	)
+	reg := makeRegistry(
+		&plugin.Descriptor{PluginName: "srcp", Role: plugin.RoleSource, Produces: []string{"A"}},
+		&plugin.Descriptor{PluginName: "procp", Role: plugin.RoleProcessor, Requires: plugin.RequireAny("A", "B")},
+	)
+	errs, _ := dag.Validate(g, reg)
+	if len(errs) != 0 {
+		t.Errorf("RequireAny should pass when one of the fields is produced; got errors: %v", errs)
+	}
+}
+
+func TestValidate_RequireAny_ErrorWhenNoneProduced(t *testing.T) {
+	// src (produces "C") → proc (RequireAny "A", "B") should fail.
+	g := makeGraph(t,
+		node("src", "srcp"),
+		node("proc", "procp", "src"),
+	)
+	reg := makeRegistry(
+		&plugin.Descriptor{PluginName: "srcp", Role: plugin.RoleSource, Produces: []string{"C"}},
+		&plugin.Descriptor{PluginName: "procp", Role: plugin.RoleProcessor, Requires: plugin.RequireAny("A", "B")},
+	)
+	errs, _ := dag.Validate(g, reg)
+	if len(errs) == 0 {
+		t.Error("RequireAny should fail when none of the group fields is produced")
+	}
+}
+
+func TestValidate_MergeGap_Warning(t *testing.T) {
+	// src1 (produces "X") ↘
+	//                      merge → proc (RequireAll "X")
+	// src2 (no "X")       ↗
+	// "X" is reachable (from src1) but not certain (src2 doesn't produce it).
+	// Expects a warning, not an error.
+	g := makeGraph(t,
+		node("src1", "srcp1"),
+		node("src2", "srcp2"),
+		node("merge", "mergep", "src1", "src2"),
+		node("proc", "procp", "merge"),
+	)
+	reg := makeRegistry(
+		&plugin.Descriptor{PluginName: "srcp1", Role: plugin.RoleSource, Produces: []string{"X"}},
+		&plugin.Descriptor{PluginName: "srcp2", Role: plugin.RoleSource},
+		&plugin.Descriptor{PluginName: "mergep", Role: plugin.RoleProcessor},
+		&plugin.Descriptor{PluginName: "procp", Role: plugin.RoleProcessor, Requires: plugin.RequireAll("X")},
+	)
+	errs, warnings := dag.Validate(g, reg)
+	if len(errs) != 0 {
+		t.Errorf("merge gap should produce a warning, not an error; got errors: %v", errs)
+	}
+	if len(warnings) == 0 {
+		t.Error("expected a merge-gap warning when required field is missing from one upstream branch")
+	}
+}
+
+func TestValidate_MayProduce_Warning(t *testing.T) {
+	// src (MayProduces "X") → proc (RequireAll "X") should warn, not error.
+	g := makeGraph(t,
+		node("src", "srcp"),
+		node("proc", "procp", "src"),
+	)
+	reg := makeRegistry(
+		&plugin.Descriptor{PluginName: "srcp", Role: plugin.RoleSource, MayProduce: []string{"X"}},
+		&plugin.Descriptor{PluginName: "procp", Role: plugin.RoleProcessor, Requires: plugin.RequireAll("X")},
+	)
+	errs, warnings := dag.Validate(g, reg)
+	if len(errs) != 0 {
+		t.Errorf("MayProduce upstream should produce a warning, not an error; got errors: %v", errs)
+	}
+	if len(warnings) == 0 {
+		t.Error("expected a warning when required field is only MayProduced upstream")
 	}
 }
 
@@ -235,11 +313,11 @@ func TestValidate_RequiresFieldFromListSubPlugin(t *testing.T) {
 		&plugin.Descriptor{
 			PluginName: "metap",
 			Role:       plugin.RoleProcessor,
-			Requires:   []string{"trakt_year"},
+			Requires:   plugin.RequireAll("trakt_year"),
 		},
 	)
 
-	errs := dag.Validate(g, reg)
+	errs, _ := dag.Validate(g, reg)
 	if len(errs) != 0 {
 		t.Errorf("expected no errors when required field is produced by a list sub-plugin; got: %v", errs)
 	}

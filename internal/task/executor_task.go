@@ -14,6 +14,7 @@ type executorRunner interface {
 	Name() string
 	Run(ctx context.Context) (*executor.Result, error)
 	SetDryRun(v bool)
+	SetValidateFields(v bool)
 	Shutdown()
 }
 

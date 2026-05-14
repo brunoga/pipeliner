@@ -15,7 +15,7 @@ func init() {
 		PluginName:  "metainfo_series",
 		Description: "parse series/episode info from entry title and annotate fields",
 		Role:        plugin.RoleProcessor,
-		Produces: []string{
+		MayProduce: []string{
 			entry.FieldTitle,
 			entry.FieldSeriesSeason,
 			entry.FieldSeriesEpisode,
