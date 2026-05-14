@@ -607,6 +607,42 @@ describe('dagToStarlark with multiple pipelines', () => {
   });
 });
 
+// ── nodesToFunctionSource: param type annotation ──────────────────────────────
+
+describe('nodesToFunctionSource param type annotation', () => {
+  const graph = { name: 'g', schedule: '', comment: '', nodes: [
+    { id: 'rss_0', plugin: 'rss', config: {url: 'https://example.com'}, upstreams: [], searchNodeIds: [], listNodeIds: [] },
+    { id: 'seen_1', plugin: 'seen', config: {}, upstreams: ['rss_0'], searchNodeIds: [], listNodeIds: [] },
+  ]};
+  const selectedIds = new Set(['seen_1']);
+  const validation  = { entryUpstreams: ['rss_0'], returnNodeId: 'seen_1' };
+
+  it('emits type=list annotation for list params', () => {
+    const params = [
+      { nodeId: 'seen_1', configKey: 'cats', paramName: 'cats', type: 'list', defaultValue: ['5030'], include: true, hint: 'Categories' },
+    ];
+    const src = nodesToFunctionSource('my_fn', params, selectedIds, validation, graph);
+    expect(src).toContain('# pipeliner:param cats  type=list  Categories');
+  });
+
+  it('emits type=int annotation for int params', () => {
+    const params = [
+      { nodeId: 'seen_1', configKey: 'seeds', paramName: 'seeds', type: 'int', defaultValue: 1, include: true, hint: '' },
+    ];
+    const src = nodesToFunctionSource('my_fn', params, selectedIds, validation, graph);
+    expect(src).toContain('# pipeliner:param seeds  type=int');
+  });
+
+  it('does NOT emit a type annotation for string params', () => {
+    const params = [
+      { nodeId: 'seen_1', configKey: 'label', paramName: 'label', type: 'string', defaultValue: 'tv', include: true, hint: 'Label' },
+    ];
+    const src = nodesToFunctionSource('my_fn', params, selectedIds, validation, graph);
+    expect(src).not.toContain('type=string');
+    expect(src).toContain('# pipeliner:param label  Label');
+  });
+});
+
 // ── nodesToFunctionSource: list= and search= handling ────────────────────────
 
 describe('nodesToFunctionSource with list/search sub-nodes', () => {

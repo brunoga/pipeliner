@@ -2428,7 +2428,12 @@ function nodesToFunctionSource(funcName, params, selectedIds, validation, graph)
 
   const lines = [];
   for (const p of params) {
-    if (p.include) lines.push(`# pipeliner:param ${p.paramName}${p.hint ? '  ' + p.hint : ''}`);
+    if (p.include) {
+      // Persist non-string types so they survive a restart (the signature has
+      // no defaults, so the Go parser can't infer types on its own).
+      const typeAnno = (p.type && p.type !== 'string') ? `type=${p.type}  ` : '';
+      lines.push((`# pipeliner:param ${p.paramName}  ${typeAnno}${p.hint || ''}`).trimEnd());
+    }
   }
 
   // Parameters are required (no default in the def signature); the actual
