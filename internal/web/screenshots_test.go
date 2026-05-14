@@ -1,7 +1,9 @@
+//go:build screenshots
+
 package web_test
 
 // screenshots_test.go captures UI screenshots for the user guide.
-// Run with: go test ./internal/web/... -run TestScreenshots -v
+// Run with: go test -tags screenshots ./internal/web/... -run TestScreenshots -v
 
 import (
 	"os"
