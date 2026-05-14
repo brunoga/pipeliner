@@ -1698,6 +1698,7 @@ function zoomReset() { setZoom(1.0); }
 
 function renderParamPanel() {
   const empty  = document.getElementById('ve-param-empty');
+  if (!empty) return; // no DOM (e.g. test environment)
   const title  = document.getElementById('ve-param-title');
   const nameEl = document.getElementById('ve-param-name');
   const roleEl = document.getElementById('ve-param-phase');
@@ -2460,6 +2461,21 @@ function nodesToFunctionSource(funcName, params, selectedIds, validation, graph)
       return `${k}=${pName ?? valToStar(v)}`;
     });
 
+    // list= and search= are not in n.config (the server strips them); they live
+    // in n.searchNodeIds / n.listNodeIds as canvas sub-nodes.
+    if (n.searchNodeIds?.length) {
+      const items = n.searchNodeIds
+        .map(id => graph.nodes.find(x => x.id === id)).filter(Boolean)
+        .map(viaNodeToStar).join(', ');
+      cfgParts.push(`search=[${items}]`);
+    }
+    if (n.listNodeIds?.length) {
+      const items = n.listNodeIds
+        .map(id => graph.nodes.find(x => x.id === id)).filter(Boolean)
+        .map(viaNodeToStar).join(', ');
+      cfgParts.push(`list=[${items}]`);
+    }
+
     if (role === 'source') {
       lines.push(`    ${n.id} = input(${[starLit(n.plugin), ...cfgParts].join(', ')})`);
     } else if (role === 'processor') {
@@ -2611,8 +2627,18 @@ function performExtraction(funcName, params, validation, graphIdx) {
   const cx = positioned.length ? positioned.reduce((s, n) => s + n.x, 0) / positioned.length : null;
   const cy = positioned.length ? positioned.reduce((s, n) => s + n.y, 0) / positioned.length : null;
 
-  // Remove selected nodes and insert the function call node.
-  g.nodes = g.nodes.filter(n => !selectedIds.has(n.id));
+  // Collect list/search sub-nodes owned by the selected nodes so they don't
+  // remain as orphans on the canvas after extraction.
+  const subNodeIds = new Set();
+  for (const id of selectedIds) {
+    const n = g.nodes.find(x => x.id === id);
+    if (!n) continue;
+    for (const sid of (n.listNodeIds   || [])) subNodeIds.add(sid);
+    for (const sid of (n.searchNodeIds || [])) subNodeIds.add(sid);
+  }
+
+  // Remove selected nodes (and their sub-nodes) and insert the function call node.
+  g.nodes = g.nodes.filter(n => !selectedIds.has(n.id) && !subNodeIds.has(n.id));
   g.nodes.push({
     id:             callNodeId,
     plugin:         funcName,
@@ -2848,7 +2874,9 @@ function valToStar(v) {
 
 function onModelChange() {
   if (ve.syncing) return;
-  document.getElementById('config-editor').value = dagToStarlark();
+  const el = document.getElementById('config-editor');
+  if (!el) return;
+  el.value = dagToStarlark();
   syncHighlight();
 }
 
