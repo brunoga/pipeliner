@@ -12,7 +12,7 @@ const __dir = dirname(fileURLToPath(import.meta.url));
 const src = readFileSync(join(__dir, '..', 'visual-editor.js'), 'utf8');
 
 let starLit, valToStar, configToKwargs, upstreamsStr, dagToStarlark, viaNodeToStar,
-    nodesToFunctionSource, performExtraction, addNodeFromPalette, ve;
+    nodesToFunctionSource, performExtraction, addNodeFromPalette, extractFunctionSource, ve;
 
 beforeAll(() => {
   const mod = new Function(
@@ -27,6 +27,7 @@ exports.viaNodeToStar        = viaNodeToStar;
 exports.nodesToFunctionSource  = nodesToFunctionSource;
 exports.performExtraction     = performExtraction;
 exports.addNodeFromPalette    = addNodeFromPalette;
+exports.extractFunctionSource = extractFunctionSource;
 exports.ve                    = ve;
 `
   );
@@ -34,7 +35,7 @@ exports.ve                    = ve;
   const noopDoc = new Proxy({}, { get: () => () => null });
   mod(exports, noopDoc, () => Promise.resolve());
   ({ starLit, valToStar, configToKwargs, upstreamsStr, dagToStarlark, viaNodeToStar,
-     nodesToFunctionSource, performExtraction, addNodeFromPalette, ve } = exports);
+     nodesToFunctionSource, performExtraction, addNodeFromPalette, extractFunctionSource, ve } = exports);
 });
 
 // ── test helpers ──────────────────────────────────────────────────────────────
@@ -739,6 +740,47 @@ describe('performExtraction removes list/search sub-nodes from canvas', () => {
     expect(ids).not.toContain('rs_0');    // search node must be gone
     expect(ids).not.toContain('disc_1');  // selected node must be gone
     expect(ids).toContain('rss_src');     // unselected node must remain
+  });
+});
+
+// ── extractFunctionSource ─────────────────────────────────────────────────────
+
+describe('extractFunctionSource', () => {
+  const src = `
+# pipeliner:param categories  type=list  Categories to include
+# pipeliner:param indexers  type=list  Indexers to be used
+def fetch_fn(categories, indexers):
+    j = input("jackett_input", categories=categories, indexers=indexers)
+    t = process("torrent_alive", upstream=j)
+    return t
+
+# pipeliner:pos 138 328
+fetch_fn_41 = fetch_fn(categories=["2000"], indexers=["a", "b"])
+
+pipeline("p")
+`.trim();
+
+  it('includes all pipeliner:param comment lines before def', () => {
+    const result = extractFunctionSource(src, 'fetch_fn');
+    expect(result).toContain('# pipeliner:param categories');
+    expect(result).toContain('# pipeliner:param indexers');
+  });
+
+  it('includes the def line and full indented body', () => {
+    const result = extractFunctionSource(src, 'fetch_fn');
+    expect(result).toContain('def fetch_fn(categories, indexers):');
+    expect(result).toContain('jackett_input');
+    expect(result).toContain('return t');
+  });
+
+  it('does NOT include the pipeliner:pos comment or call site after the def body', () => {
+    const result = extractFunctionSource(src, 'fetch_fn');
+    expect(result).not.toContain('pipeliner:pos');
+    expect(result).not.toContain('fetch_fn_41');
+  });
+
+  it('returns empty string when function is not found', () => {
+    expect(extractFunctionSource(src, 'nonexistent_fn')).toBe('');
   });
 });
 

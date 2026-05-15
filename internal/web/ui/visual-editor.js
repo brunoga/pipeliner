@@ -2855,11 +2855,19 @@ function extractFunctionSource(src, funcName) {
     }
   }
   if (start < 0) return '';
-  // Collect def line + indented body.
+  // Collect pre-def comments + def line + indented body.
+  // Only apply the "stop at next top-level statement" check AFTER we have seen
+  // the def line — comment lines above the def are non-indented but are part of
+  // the function block and must not trigger early termination.
   const result = [];
+  let pastDef = false;
   for (let i = start; i < lines.length; i++) {
     result.push(lines[i]);
-    if (i > start && lines[i] !== '' && !/^\s/.test(lines[i])) {
+    if (!pastDef && /^def\s+/.test(lines[i].trimStart())) {
+      pastDef = true;
+      continue; // def line itself is never the terminator
+    }
+    if (pastDef && lines[i] !== '' && !/^\s/.test(lines[i])) {
       result.pop(); // stop before the next top-level statement
       break;
     }
