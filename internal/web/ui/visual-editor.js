@@ -385,8 +385,8 @@ function renderCanvas() {
   renderPipelineRegions(); // drawn first so they sit behind nodes
   renderGraphNodes();
   renderPipelineLabels();
-  renderEdges();
-  updateCanvasSize();
+  updateCanvasSize(); // size canvas/SVG BEFORE writing paths — avoids browser
+  renderEdges();     // discarding SVG innerHTML when dimensions change after write
 }
 
 // ── graph node rendering ───────────────────────────────────────────────────────
@@ -3251,13 +3251,6 @@ function openFunctionEditor(funcName) {
 
   initLayout();
   veRender();
-  // Re-draw edges after the browser has computed node layout so nodeMidY
-  // reads correct offsetHeight values (forces accurate midpoint positions).
-  if (typeof requestAnimationFrame === 'function') {
-    requestAnimationFrame(() => {
-      if (ve.fnEditor.active) { renderEdges(); updateCanvasSize(); }
-    });
-  }
 }
 
 // saveFunctionEditor regenerates the function's _sourceText from the edited
