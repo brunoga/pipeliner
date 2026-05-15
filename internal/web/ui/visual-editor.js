@@ -385,13 +385,13 @@ function renderCanvas() {
   renderPipelineRegions(); // drawn first so they sit behind nodes
   renderGraphNodes();
   renderPipelineLabels();
-  // Defer edge drawing one animation frame so the browser has laid out the
-  // newly-added .ve-node elements before nodeMidY reads their offsetHeight.
-  // Without this, nodeMidY falls back to NODE_H/2 and edges are mispositioned.
+  // Draw edges immediately so they appear on first render, then redraw after
+  // one animation frame so nodeMidY can read the browser-computed offsetHeight
+  // of the newly-added .ve-node elements for accurate midpoint calculation.
+  renderEdges();
+  updateCanvasSize();
   if (typeof requestAnimationFrame === 'function') {
     requestAnimationFrame(() => { renderEdges(); updateCanvasSize(); });
-  } else {
-    renderEdges(); updateCanvasSize(); // test / headless fallback
   }
 }
 
