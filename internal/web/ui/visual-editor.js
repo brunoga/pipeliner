@@ -226,9 +226,23 @@ function genId(pluginName) {
 function addNodeFromPalette(pluginName) {
   const g = activeG();
   if (!g) return; // palette is disabled when no pipelines exist
-  const id   = genId(pluginName);
+  const id     = genId(pluginName);
   const {x, y} = newNodePos(g);
-  g.nodes.push({id, plugin: pluginName, config: {}, upstreams: [], x, y, comment: '', searchNodeIds: [], listNodeIds: []});
+  const fd     = ve.userFunctions[pluginName];
+  // Pre-populate call args from function param defaults so the call site has
+  // the right initial values; mark the node as a function call so dagToStarlark
+  // emits  var = funcname(...)  instead of  var = input("funcname", ...).
+  const config = {};
+  if (fd) {
+    for (const p of (fd.params || [])) {
+      if (p.default != null) config[p.key] = p.default;
+    }
+  }
+  g.nodes.push({
+    id, plugin: pluginName, config, upstreams: [], x, y, comment: '',
+    searchNodeIds: [], listNodeIds: [],
+    ...(fd ? {isFunctionCall: true, funcCallKey: id} : {}),
+  });
   ve.selectedNodeId = id;
   clearMultiSelect();
   veRender();
@@ -1366,8 +1380,19 @@ function initCanvasEvents() {
     // Regions only expand down-and-right; they never expand upward.
     const labelBottom = (g._labelY ?? (g._regionY ?? 0) + 8) + 30;
     y = Math.max(y, labelBottom + 4);
-    const id = genId(ve.dragSrc.plugin);
-    g.nodes.push({id, plugin: ve.dragSrc.plugin, config: {}, upstreams: [], x, y, comment: '', searchNodeIds: [], listNodeIds: []});
+    const id      = genId(ve.dragSrc.plugin);
+    const dragFd  = ve.userFunctions[ve.dragSrc.plugin];
+    const dragCfg = {};
+    if (dragFd) {
+      for (const p of (dragFd.params || [])) {
+        if (p.default != null) dragCfg[p.key] = p.default;
+      }
+    }
+    g.nodes.push({
+      id, plugin: ve.dragSrc.plugin, config: dragCfg, upstreams: [], x, y, comment: '',
+      searchNodeIds: [], listNodeIds: [],
+      ...(dragFd ? {isFunctionCall: true, funcCallKey: id} : {}),
+    });
     ve.selectedNodeId = id;
     ve.activeGraph    = gi;
     // Expand the region (downward only) so the new node is fully visible.
