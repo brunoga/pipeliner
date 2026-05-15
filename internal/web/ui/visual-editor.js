@@ -385,14 +385,8 @@ function renderCanvas() {
   renderPipelineRegions(); // drawn first so they sit behind nodes
   renderGraphNodes();
   renderPipelineLabels();
-  // Draw edges immediately so they appear on first render, then redraw after
-  // one animation frame so nodeMidY can read the browser-computed offsetHeight
-  // of the newly-added .ve-node elements for accurate midpoint calculation.
   renderEdges();
   updateCanvasSize();
-  if (typeof requestAnimationFrame === 'function') {
-    requestAnimationFrame(() => { renderEdges(); updateCanvasSize(); });
-  }
 }
 
 // ── graph node rendering ───────────────────────────────────────────────────────
@@ -3257,6 +3251,13 @@ function openFunctionEditor(funcName) {
 
   initLayout();
   veRender();
+  // Re-draw edges after the browser has computed node layout so nodeMidY
+  // reads correct offsetHeight values (forces accurate midpoint positions).
+  if (typeof requestAnimationFrame === 'function') {
+    requestAnimationFrame(() => {
+      if (ve.fnEditor.active) { renderEdges(); updateCanvasSize(); }
+    });
+  }
 }
 
 // saveFunctionEditor regenerates the function's _sourceText from the edited
