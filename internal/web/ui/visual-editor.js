@@ -681,18 +681,26 @@ function renderPipelineRegions() {
     if (g._regionY == null) continue;
 
     // Recompute bounds from current node positions so the region always fits
-    // tightly — growing or shrinking both horizontally and vertically.
-    const PAD_X = 24, PAD_Y = 24;
-    let regionH = 80, minX = Infinity, maxX = 0;
+    // tightly around the actual content — no empty space on any side.
+    const PAD_X = 24, PAD_Y = 16;
+    let minX = Infinity, maxX = 0, minY = Infinity, maxY = 0;
     for (const n of g.nodes) {
-      const nx = n.x ?? 0;
+      const nx = n.x ?? 0, ny = n.y ?? 0;
       minX = Math.min(minX, nx);
       maxX = Math.max(maxX, nx + NODE_W);
-      const nodeBot = (n.y ?? 0) + NODE_H + (n.searchNodeIds?.length ? 100 : 24);
-      regionH = Math.max(regionH, nodeBot - (g._regionY ?? 0) + PAD_Y);
+      minY = Math.min(minY, ny);
+      maxY = Math.max(maxY, ny + NODE_H + (n.searchNodeIds?.length ? 100 : 0));
     }
+    if (minX === Infinity) { minX = 0; maxX = 500; minY = (g._regionY ?? 0) + 40; maxY = minY + 80; }
+
+    // Region top: sit just above the highest node, but never above the
+    // pipeline label (label is at g._labelY - 4, region must stay ≤ label).
+    const labelTop  = (g._labelY ?? (g._regionY ?? 0) + 8) - 8;
+    const regionTop = Math.min(labelTop, minY - PAD_Y);
+    const regionH   = maxY + PAD_Y - regionTop;
     g._regionH = regionH;
-    if (minX === Infinity) { minX = 0; maxX = 500; } // empty pipeline fallback
+    g._regionY = regionTop; // keep _regionY in sync for addPipeline / deletePipeline
+
     const regionLeft  = Math.max(0, minX - PAD_X);
     const regionWidth = maxX + PAD_X - regionLeft;
 
@@ -700,7 +708,7 @@ function renderPipelineRegions() {
     let region = canvas.querySelector(`.ve-pipeline-region[data-graph-idx="${i}"]`);
     if (region) {
       region.className    = `ve-pipeline-region${i === ve.activeGraph ? ' active' : ''}`;
-      region.style.top    = g._regionY + 'px';
+      region.style.top    = regionTop + 'px';
       region.style.height = regionH + 'px';
       region.style.left   = regionLeft + 'px';
       region.style.width  = regionWidth + 'px';
@@ -718,7 +726,7 @@ function renderPipelineRegions() {
     region = document.createElement('div');
     region.className = `ve-pipeline-region${i === ve.activeGraph ? ' active' : ''}`;
     region.dataset.graphIdx = i;
-    region.style.top    = g._regionY + 'px';
+    region.style.top    = regionTop + 'px';
     region.style.height = regionH + 'px';
     region.style.left   = regionLeft + 'px';
     region.style.width  = regionWidth + 'px';
