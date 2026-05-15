@@ -2872,10 +2872,13 @@ function dagToStarlark() {
   if (!graphs.length) return '';
 
   // Collect user functions that are actually used across all pipelines.
+  // Also catch nodes whose plugin name is a user function but isFunctionCall
+  // was not set (e.g. nodes created before the flag was introduced, or loaded
+  // from a config saved in a broken state).
   const usedFunctions = new Set();
   for (const g of graphs) {
     for (const n of g.nodes) {
-      if (n.isFunctionCall && ve.userFunctions[n.plugin]) usedFunctions.add(n.plugin);
+      if (ve.userFunctions[n.plugin]) usedFunctions.add(n.plugin);
     }
   }
 
@@ -2925,8 +2928,10 @@ function dagToStarlark() {
         lines.push(posLine);
       }
 
-      if (n.isFunctionCall) {
-        // Serialize as a user function call: varname = funcname(upstream=..., kwargs)
+      if (n.isFunctionCall || ve.userFunctions[n.plugin]) {
+        // Serialize as a user function call: varname = funcname(upstream=..., kwargs).
+        // The second condition handles nodes whose plugin is a user function but
+        // isFunctionCall was not set (e.g. loaded from a previously broken config).
         const parts = [];
         if (fromStr) parts.push(`upstream=${fromStr}`);
         if (cfgKw)   parts.push(cfgKw);

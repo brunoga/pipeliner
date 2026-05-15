@@ -788,6 +788,24 @@ describe('addNodeFromPalette with user function', () => {
     expect(node.isFunctionCall).toBeFalsy();
   });
 
+  it('dagToStarlark emits var=funcname(...) even when isFunctionCall flag is missing (legacy broken node)', () => {
+    ve.userFunctions['jackett_fn'] = {
+      name: 'jackett_fn', role: 'source', description: '',
+      params: [],
+      _sourceText: 'def jackett_fn():\n    j = input("jackett_input")\n    return j\n',
+    };
+    // Node without isFunctionCall (as saved by a broken older version).
+    ve.graphs[0].nodes.push({
+      id: 'jackett_fn_5', plugin: 'jackett_fn', config: {}, upstreams: [],
+      searchNodeIds: [], listNodeIds: [], comment: '', x: 60, y: 60,
+      // isFunctionCall deliberately absent
+    });
+    const src = dagToStarlark();
+    expect(src).not.toContain('input("jackett_fn"');
+    expect(src).toContain('= jackett_fn(');
+    expect(src).toContain('def jackett_fn(');
+  });
+
   it('dagToStarlark emits var=funcname(...) not input("funcname",...) for a function call node', () => {
     ve.userFunctions['jackett_fn'] = {
       name: 'jackett_fn', role: 'source', description: '',
