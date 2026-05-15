@@ -649,10 +649,12 @@ function renderPipelineLabels() {
         text => { ve.graphs[gi].comment = text; renderPipelineLabels(); onModelChange(); }
       );
     });
-    label.querySelector('.ve-pl-delete').addEventListener('click', e => {
-      e.stopPropagation();
-      deletePipeline(gi);
-    });
+    if (!ve.fnEditor.active) {
+      label.querySelector('.ve-pl-delete').addEventListener('click', e => {
+        e.stopPropagation();
+        deletePipeline(gi);
+      });
+    }
 
     canvas.appendChild(label);
   }
@@ -3251,7 +3253,6 @@ function openFunctionEditor(funcName) {
 
   initLayout();
   veRender();
-  renderEdges(); // explicit final draw — something in veRender clears SVG after renderCanvas
 }
 
 // saveFunctionEditor regenerates the function's _sourceText from the edited
