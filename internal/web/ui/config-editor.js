@@ -8,7 +8,7 @@ async function loadConfig() {
     document.getElementById('config-editor').value = content;
     configLoaded = true;
     syncHighlight();
-    switchView('visual');
+    textToVisualSync(); // already in visual mode — populate canvas directly
   } catch (e) { /* silently skip if endpoint not available */ }
 }
 
