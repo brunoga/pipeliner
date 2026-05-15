@@ -736,6 +736,9 @@ function addPipeline() {
 }
 
 function deletePipeline(graphIdx) {
+  // In function editing mode the single graph IS the function body — deleting
+  // it would wipe the canvas.  Use Cancel or ← Back to exit the editor instead.
+  if (ve.fnEditor.active) return;
   const removed = ve.graphs[graphIdx];
   // How much vertical space the deleted pipeline occupied (region height + the
   // 60 px inter-pipeline gap used by autoLayout).
@@ -3335,6 +3338,9 @@ function exitFunctionEditor() {
   ve_panX = 0; ve_panY = 0;
   initLayout();
   veRender();
+  // Flush the correct pipeline content back to the text editor now that
+  // ve.fnEditor.active is false and dagToStarlark() sees the real graphs.
+  onModelChange();
 }
 
 // fnEditorCommitRename is called when the function name input loses focus.
@@ -3727,6 +3733,10 @@ function valToStar(v) {
 
 function onModelChange() {
   if (ve.syncing) return;
+  // While editing a function body, ve.graphs contains only the function's
+  // internal nodes — serialising it would overwrite the pipeline content in
+  // the text editor.  Changes are flushed when the editor is saved/closed.
+  if (ve.fnEditor.active) return;
   const el = document.getElementById('config-editor');
   if (!el) return;
   el.value = dagToStarlark();
