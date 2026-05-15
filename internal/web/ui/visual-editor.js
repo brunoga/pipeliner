@@ -169,11 +169,15 @@ function renderPalette(filter) {
     html.push(`<div class="ve-role-header" onclick="toggleRoleGroup(this)">Functions</div>`);
     html.push(`<div class="ve-role-chips">`);
     for (const fd of userFuncList) {
-      html.push(`<button class="ve-chip ve-chip-fn" data-role="${fd.role}" draggable="true"
-        title="${esc(fd.description || fd.name)}"
-        ondragstart="paletteDragStart(event,${esc(JSON.stringify(fd.name))})"
-        onclick="addNodeFromPalette(${esc(JSON.stringify(fd.name))})">
-        ${esc(fd.name)}<span class="ve-chip-fn-badge">fn</span></button>`);
+      html.push(`<span class="ve-chip-fn-wrap">
+        <button class="ve-chip ve-chip-fn" data-role="${fd.role}" draggable="true"
+          title="${esc(fd.description || fd.name)}"
+          ondragstart="paletteDragStart(event,${esc(JSON.stringify(fd.name))})"
+          onclick="addNodeFromPalette(${esc(JSON.stringify(fd.name))})">
+          ${esc(fd.name)}<span class="ve-chip-fn-badge">fn</span></button
+        ><button class="ve-chip-fn-remove" title="Expand and remove function"
+          onclick="expandAndRemoveFunction(${esc(JSON.stringify(fd.name))})">×</button>
+      </span>`);
     }
     html.push('</div>');
   }
@@ -1735,7 +1739,7 @@ function renderParamPanel() {
   } else if (node.isFunctionCall) {
     footer.innerHTML = [
       `<button class="ve-remove-btn" onclick="ve.selectedNodeId && removeNode(ve.selectedNodeId)">Remove call</button>`,
-      `<button class="ve-remove-btn" style="margin-left:6px" onclick="removeFunctionDef(${esc(JSON.stringify(node.plugin))})">Remove function…</button>`,
+      `<button class="ve-remove-btn" style="margin-left:6px" onclick="expandAndRemoveFunction(${esc(JSON.stringify(node.plugin))})">Expand &amp; remove function…</button>`,
     ].join('');
   } else {
     footer.innerHTML = `<button class="ve-remove-btn" onclick="ve.selectedNodeId && removeNode(ve.selectedNodeId)">Remove node</button>`;
@@ -2680,31 +2684,134 @@ function performExtraction(funcName, params, validation, graphIdx) {
   onModelChange();
 }
 
-// removeFunctionDef removes a user function definition and all nodes that call
-// it from every pipeline, after asking for confirmation.
-function removeFunctionDef(funcName) {
+// expandAndRemoveFunction replaces every call site of funcName with the
+// function's constituent nodes inline (expanding the collapsed card), then
+// removes the function definition. If the function has no call sites the
+// definition is simply deleted.
+async function expandAndRemoveFunction(funcName) {
   const usedIn = [];
   for (const g of ve.graphs) {
     const count = g.nodes.filter(n => n.isFunctionCall && n.plugin === funcName).length;
-    if (count) usedIn.push(`"${g.name}" (${count} use${count !== 1 ? 's' : ''})`);
+    if (count) usedIn.push(`"${g.name}" (${count} call${count !== 1 ? 's' : ''})`);
   }
   const usageNote = usedIn.length
-    ? `\n\nIt is used in: ${usedIn.join(', ')}. Those call nodes will also be removed.`
+    ? `\n\nAll call sites will be expanded inline: ${usedIn.join(', ')}.`
     : '';
-  if (!confirm(`Remove function "${funcName}"?${usageNote}`)) return;
+  if (!confirm(`Expand and remove function "${funcName}"?${usageNote}`)) return;
 
-  delete ve.userFunctions[funcName];
-  for (const g of ve.graphs) {
-    const removedIds = new Set(
-      g.nodes.filter(n => n.isFunctionCall && n.plugin === funcName).map(n => n.id)
-    );
-    // Remove dangling upstreams pointing to the removed call nodes.
-    for (const n of g.nodes) {
-      n.upstreams = (n.upstreams || []).filter(u => !removedIds.has(u));
-    }
-    g.nodes = g.nodes.filter(n => !removedIds.has(n.id));
+  // Fetch the fully-resolved parse response so we can recover internal nodes.
+  const content = document.getElementById('config-editor')?.value ?? dagToStarlark();
+  let data;
+  try {
+    const r = await fetch('/api/config/parse', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({content}),
+    });
+    if (!r.ok) { alert('Could not expand function: server error ' + r.status); return; }
+    data = await r.json();
+  } catch (e) {
+    alert('Could not expand function: ' + e);
+    return;
   }
-  if (ve.selectedNodeId && !findNode(ve.selectedNodeId)) ve.selectedNodeId = null;
+
+  // Rebuild each graph, expanding call sites of funcName and leaving all
+  // other call sites collapsed as before.
+  const entries = Object.entries(data.graphs || {});
+  ve.graphs = entries.map(([name, graph]) => {
+    const rawNodes    = graph.nodes || [];
+    const allCalls    = graph.function_calls || [];
+    const expandCalls = allCalls.filter(fc => fc.func === funcName);
+    const keepCalls   = allCalls.filter(fc => fc.func !== funcName);
+
+    // Internal IDs from calls we are NOT expanding still get hidden.
+    const hiddenIds = new Set();
+    for (const fc of keepCalls) {
+      for (const nid of fc.internal_node_ids) hiddenIds.add(nid);
+    }
+
+    // First pass: all nodes except hidden-internal ones (expanded internal
+    // nodes pass through because they are NOT in hiddenIds).
+    const nodes = rawNodes
+      .filter(n => !hiddenIds.has(n.id))
+      .map(n => ({
+        id: n.id, plugin: n.plugin, config: n.config || {}, upstreams: n.upstreams || [],
+        searchNodeIds: [], listNodeIds: [], comment: n.comment || '',
+        x: n.x ?? null, y: n.y ?? null,
+      }));
+
+    // Second pass: search/list sub-nodes (same logic as textToVisualSync).
+    for (let ni = 0; ni < rawNodes.length; ni++) {
+      const raw = rawNodes[ni];
+      if (hiddenIds.has(raw.id)) continue;
+      const nodeIdx = nodes.findIndex(n => n.id === raw.id);
+      if (nodeIdx < 0) continue;
+      for (let si = 0; si < (raw.search || []).length; si++) {
+        const s = raw.search[si];
+        const id = `${raw.id}__search__${si}`;
+        nodes[nodeIdx].searchNodeIds.push(id);
+        nodes.push({ id, plugin: s.plugin, config: s.config || {},
+          upstreams: [], searchNodeIds: [], listNodeIds: [], comment: '',
+          isSearchNode: true, searchParentId: raw.id, x: s.x ?? null, y: s.y ?? null });
+      }
+      for (let li = 0; li < (raw.list || []).length; li++) {
+        const l = raw.list[li];
+        const id = `${raw.id}__list__${li}`;
+        nodes[nodeIdx].listNodeIds.push(id);
+        nodes.push({ id, plugin: l.plugin, config: l.config || {},
+          upstreams: [], searchNodeIds: [], listNodeIds: [], comment: '',
+          isListNode: true, listParentId: raw.id, x: l.x ?? null, y: l.y ?? null });
+      }
+    }
+
+    // Third pass: synthetic collapsed nodes for calls we are keeping.
+    for (const fc of keepCalls) {
+      const internalSet = new Set(fc.internal_node_ids);
+      const entryUpstreams = [];
+      for (const n of rawNodes) {
+        if (!internalSet.has(n.id)) continue;
+        for (const up of (n.upstreams || [])) {
+          if (!internalSet.has(up)) entryUpstreams.push(up);
+        }
+      }
+      for (const n of nodes) {
+        if (n.isFunctionCall) continue;
+        n.upstreams = n.upstreams.map(u => u === fc.return_node_id ? fc.call_key : u);
+      }
+      nodes.push({
+        id: fc.call_key, plugin: fc.func, config: fc.args || {},
+        upstreams: entryUpstreams, searchNodeIds: [], listNodeIds: [], comment: '',
+        isFunctionCall: true, funcCallKey: fc.call_key,
+        internalNodeIds: fc.internal_node_ids, returnNodeId: fc.return_node_id,
+        x: fc.x ?? null, y: fc.y ?? null,
+      });
+    }
+
+    const existingG = ve.graphs.find(g => g.name === name) || {};
+    const _hasLayout = nodes.some(n => !n.isSearchNode && !n.isListNode && n.x != null && n.y != null);
+    return {
+      name,
+      schedule: graph.schedule || existingG.schedule || '',
+      comment:  graph.comment  || existingG.comment  || '',
+      nodes, _hasLayout,
+    };
+  });
+
+  // Update ve.nextId so freshly-placed nodes get unique IDs.
+  ve.nextId = ve.graphs.flatMap(g => g.nodes).reduce((max, n) => {
+    const m = n.id.match(/_(\d+)$/);
+    return m ? Math.max(max, parseInt(m[1]) + 1) : max;
+  }, ve.nextId ?? 0);
+
+  // Remove the function definition.
+  delete ve.userFunctions[funcName];
+
+  if (ve.selectedNodeId) {
+    const sel = findNode(ve.selectedNodeId);
+    if (!sel || (sel.isFunctionCall && sel.plugin === funcName)) ve.selectedNodeId = null;
+  }
+  clearMultiSelect();
+  initLayout();
   renderPalette(document.getElementById('ve-search')?.value ?? '');
   veRender();
   onModelChange();

@@ -717,9 +717,18 @@ section { margin-bottom: 32px; }
 .ve-list-edge.selected { stroke:#2dd4b8; stroke-width:2; }
 .ve-list-edge.connecting { stroke:#2dd4b8; stroke-width:1.5; stroke-dasharray:5,3; }
 
-/* Palette user-function chip and badge */
-.ve-chip.ve-chip-fn { border-color:rgba(251,191,36,.4); color:#fbbf24; }
+/* Palette user-function chip, badge, and remove button */
+.ve-chip-fn-wrap { display:inline-flex; align-items:stretch; }
+.ve-chip.ve-chip-fn { border-color:rgba(251,191,36,.4); color:#fbbf24; border-right:none; border-radius:6px 0 0 6px; }
 .ve-chip.ve-chip-fn:hover { border-color:#fbbf24; }
+.ve-chip-fn-remove {
+  display:flex; align-items:center; padding:0 6px;
+  background:transparent; border:1px solid rgba(251,191,36,.4);
+  border-left:none; border-radius:0 6px 6px 0;
+  color:rgba(251,191,36,.5); font-size:13px; cursor:pointer; line-height:1;
+  transition:color .15s, border-color .15s, background .15s;
+}
+.ve-chip-fn-remove:hover { color:#fbbf24; border-color:#fbbf24; background:rgba(251,191,36,.08); }
 .ve-chip-fn-badge {
   display:inline-block; margin-left:5px; padding:1px 4px;
   font-size:8px; font-weight:700; text-transform:uppercase; letter-spacing:.04em;
