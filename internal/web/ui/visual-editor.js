@@ -226,9 +226,29 @@ function genId(pluginName) {
 function addNodeFromPalette(pluginName) {
   const g = activeG();
   if (!g) return; // palette is disabled when no pipelines exist
-  const id   = genId(pluginName);
+  const id     = genId(pluginName);
   const {x, y} = newNodePos(g);
-  g.nodes.push({id, plugin: pluginName, config: {}, upstreams: [], x, y, comment: '', searchNodeIds: [], listNodeIds: []});
+  const fd     = ve.userFunctions[pluginName];
+  // Pre-populate call args from function param defaults so the call site has
+  // the right initial values; mark the node as a function call so dagToStarlark
+  // emits  var = funcname(...)  instead of  var = input("funcname", ...).
+  const config = {};
+  if (fd) {
+    for (const p of (fd.params || [])) {
+      if (p.default != null) {
+        config[p.key] = p.default;
+      } else {
+        // Required param with no default: seed with a type-appropriate empty
+        // value so the call site is syntactically valid from the start.
+        config[p.key] = emptyForType(p.type);
+      }
+    }
+  }
+  g.nodes.push({
+    id, plugin: pluginName, config, upstreams: [], x, y, comment: '',
+    searchNodeIds: [], listNodeIds: [],
+    ...(fd ? {isFunctionCall: true, funcCallKey: id} : {}),
+  });
   ve.selectedNodeId = id;
   clearMultiSelect();
   veRender();
@@ -1366,8 +1386,19 @@ function initCanvasEvents() {
     // Regions only expand down-and-right; they never expand upward.
     const labelBottom = (g._labelY ?? (g._regionY ?? 0) + 8) + 30;
     y = Math.max(y, labelBottom + 4);
-    const id = genId(ve.dragSrc.plugin);
-    g.nodes.push({id, plugin: ve.dragSrc.plugin, config: {}, upstreams: [], x, y, comment: '', searchNodeIds: [], listNodeIds: []});
+    const id      = genId(ve.dragSrc.plugin);
+    const dragFd  = ve.userFunctions[ve.dragSrc.plugin];
+    const dragCfg = {};
+    if (dragFd) {
+      for (const p of (dragFd.params || [])) {
+        dragCfg[p.key] = p.default != null ? p.default : emptyForType(p.type);
+      }
+    }
+    g.nodes.push({
+      id, plugin: ve.dragSrc.plugin, config: dragCfg, upstreams: [], x, y, comment: '',
+      searchNodeIds: [], listNodeIds: [],
+      ...(dragFd ? {isFunctionCall: true, funcCallKey: id} : {}),
+    });
     ve.selectedNodeId = id;
     ve.activeGraph    = gi;
     // Expand the region (downward only) so the new node is fully visible.
@@ -1737,10 +1768,7 @@ function renderParamPanel() {
       `<button class="ve-remove-btn" onclick="disconnectList(${esc(JSON.stringify(node.listParentId))},${esc(JSON.stringify(node.id))})">Disconnect from list</button>`,
     ].join('');
   } else if (node.isFunctionCall) {
-    footer.innerHTML = [
-      `<button class="ve-remove-btn" onclick="ve.selectedNodeId && removeNode(ve.selectedNodeId)">Remove call</button>`,
-      `<button class="ve-remove-btn" style="margin-left:6px" onclick="expandAndRemoveFunction(${esc(JSON.stringify(node.plugin))})">Expand &amp; remove function…</button>`,
-    ].join('');
+    footer.innerHTML = `<button class="ve-remove-btn" onclick="ve.selectedNodeId && removeNode(ve.selectedNodeId)">Remove call</button>`;
   } else {
     footer.innerHTML = `<button class="ve-remove-btn" onclick="ve.selectedNodeId && removeNode(ve.selectedNodeId)">Remove node</button>`;
   }
@@ -2833,11 +2861,19 @@ function extractFunctionSource(src, funcName) {
     }
   }
   if (start < 0) return '';
-  // Collect def line + indented body.
+  // Collect pre-def comments + def line + indented body.
+  // Only apply the "stop at next top-level statement" check AFTER we have seen
+  // the def line — comment lines above the def are non-indented but are part of
+  // the function block and must not trigger early termination.
   const result = [];
+  let pastDef = false;
   for (let i = start; i < lines.length; i++) {
     result.push(lines[i]);
-    if (i > start && lines[i] !== '' && !/^\s/.test(lines[i])) {
+    if (!pastDef && /^def\s+/.test(lines[i].trimStart())) {
+      pastDef = true;
+      continue; // def line itself is never the terminator
+    }
+    if (pastDef && lines[i] !== '' && !/^\s/.test(lines[i])) {
       result.pop(); // stop before the next top-level statement
       break;
     }
@@ -2845,15 +2881,26 @@ function extractFunctionSource(src, funcName) {
   return result.join('\n');
 }
 
+// emptyForType returns a sensible empty/zero value for a given FieldType string.
+function emptyForType(type) {
+  if (type === 'list')     return [];
+  if (type === 'int')      return 0;
+  if (type === 'bool')     return false;
+  return '';
+}
+
 function dagToStarlark() {
   const graphs = ve.graphs.filter(g => g.name || g.nodes.length);
   if (!graphs.length) return '';
 
   // Collect user functions that are actually used across all pipelines.
+  // Also catch nodes whose plugin name is a user function but isFunctionCall
+  // was not set (e.g. nodes created before the flag was introduced, or loaded
+  // from a config saved in a broken state).
   const usedFunctions = new Set();
   for (const g of graphs) {
     for (const n of g.nodes) {
-      if (n.isFunctionCall && ve.userFunctions[n.plugin]) usedFunctions.add(n.plugin);
+      if (ve.userFunctions[n.plugin]) usedFunctions.add(n.plugin);
     }
   }
 
@@ -2903,11 +2950,27 @@ function dagToStarlark() {
         lines.push(posLine);
       }
 
-      if (n.isFunctionCall) {
-        // Serialize as a user function call: varname = funcname(upstream=..., kwargs)
+      if (n.isFunctionCall || ve.userFunctions[n.plugin]) {
+        // Serialize as a user function call: varname = funcname(upstream=..., kwargs).
+        // The second condition handles nodes whose plugin is a user function but
+        // isFunctionCall was not set (e.g. loaded from a previously broken config).
+        //
+        // Self-healing: if required params are missing from n.config (e.g. the
+        // config was saved before args were filled in), seed them with empty
+        // defaults so the call is at least syntactically valid.
+        const fd = ve.userFunctions[n.plugin];
+        if (fd?.params?.length) {
+          for (const p of fd.params) {
+            if (!(p.key in (n.config || {}))) {
+              n.config = n.config || {};
+              n.config[p.key] = p.default != null ? p.default : emptyForType(p.type);
+            }
+          }
+        }
+        const healedKw = configToKwargs(n.config);
         const parts = [];
-        if (fromStr) parts.push(`upstream=${fromStr}`);
-        if (cfgKw)   parts.push(cfgKw);
+        if (fromStr)   parts.push(`upstream=${fromStr}`);
+        if (healedKw)  parts.push(healedKw);
         lines.push(`${n.id} = ${n.plugin}(${parts.join(', ')})`);
       } else if (role === 'source') {
         lines.push(`${n.id} = input(${[starLit(n.plugin), cfgKw].filter(Boolean).join(', ')})`);
