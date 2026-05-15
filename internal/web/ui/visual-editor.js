@@ -1762,10 +1762,7 @@ function renderParamPanel() {
       `<button class="ve-remove-btn" onclick="disconnectList(${esc(JSON.stringify(node.listParentId))},${esc(JSON.stringify(node.id))})">Disconnect from list</button>`,
     ].join('');
   } else if (node.isFunctionCall) {
-    footer.innerHTML = [
-      `<button class="ve-remove-btn" onclick="ve.selectedNodeId && removeNode(ve.selectedNodeId)">Remove call</button>`,
-      `<button class="ve-remove-btn" style="margin-left:6px" onclick="expandAndRemoveFunction(${esc(JSON.stringify(node.plugin))})">Expand &amp; remove function…</button>`,
-    ].join('');
+    footer.innerHTML = `<button class="ve-remove-btn" onclick="ve.selectedNodeId && removeNode(ve.selectedNodeId)">Remove call</button>`;
   } else {
     footer.innerHTML = `<button class="ve-remove-btn" onclick="ve.selectedNodeId && removeNode(ve.selectedNodeId)">Remove node</button>`;
   }
