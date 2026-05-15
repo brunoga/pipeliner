@@ -2105,10 +2105,10 @@ function renderField(f, config, node) {
         onclick="fnEditorUnlinkParamRef(${esc(JSON.stringify(node.id))},${esc(JSON.stringify(f.key))})">× literal</button>`;
     return `<div class="ve-field ve-field-param-ref">
       <div class="ve-field-label">
-        ${esc(f.key)}${f.required ? ' <span class="ve-field-required">*</span>' : ''}
-        ${f.hint ? `<span class="ve-field-hint">— ${esc(f.hint)}</span>` : ''}
-        ${badge}${btn}
+        <span>${esc(f.key)}${f.required ? ' <span class="ve-field-required">*</span>' : ''} ${badge}</span>
+        ${btn}
       </div>
+      ${f.hint ? `<div class="ve-field-hint">— ${esc(f.hint)}</div>` : ''}
       <div class="ve-param-ref-note">value supplied by caller</div></div>`;
   }
 
@@ -2155,9 +2155,12 @@ function renderField(f, config, node) {
     : '';
 
   return `<div class="ve-field">
-    <div class="ve-field-label">${esc(f.key)}${f.required ? ' <span class="ve-field-required">*</span>' : ''}
-      ${f.hint ? `<span class="ve-field-hint">— ${esc(f.hint)}</span>` : ''}
-      ${promoteBtn}</div>${widget}</div>`;
+    <div class="ve-field-label">
+      <span>${esc(f.key)}${f.required ? ' <span class="ve-field-required">*</span>' : ''}</span>
+      ${promoteBtn}
+    </div>
+    ${f.hint ? `<div class="ve-field-hint">— ${esc(f.hint)}</div>` : ''}
+    ${widget}</div>`;
 }
 
 // Opens the text popup to edit a multiline schema field on the selected node.
