@@ -385,8 +385,14 @@ function renderCanvas() {
   renderPipelineRegions(); // drawn first so they sit behind nodes
   renderGraphNodes();
   renderPipelineLabels();
-  renderEdges();
-  updateCanvasSize();
+  // Defer edge drawing one animation frame so the browser has laid out the
+  // newly-added .ve-node elements before nodeMidY reads their offsetHeight.
+  // Without this, nodeMidY falls back to NODE_H/2 and edges are mispositioned.
+  if (typeof requestAnimationFrame === 'function') {
+    requestAnimationFrame(() => { renderEdges(); updateCanvasSize(); });
+  } else {
+    renderEdges(); updateCanvasSize(); // test / headless fallback
+  }
 }
 
 // ── graph node rendering ───────────────────────────────────────────────────────
@@ -3235,6 +3241,11 @@ function openFunctionEditor(funcName) {
 
   clearMultiSelect();
   ve_panX = 0; ve_panY = 0;
+
+  // Immediately wipe the SVG so pipeline edges don't linger while the
+  // function body layout is being calculated and rendered.
+  const svgEl = document.getElementById('ve-graph-svg');
+  if (svgEl) svgEl.innerHTML = '';
 
   // Show the function editor toolbar, hide the pipeline toolbar.
   const pbar = document.getElementById('ve-pipeline-bar');
