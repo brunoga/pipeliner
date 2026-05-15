@@ -69,7 +69,7 @@ func scanUserFunctions(src string) map[string]*UserFunctionDef {
 
 	lines := strings.Split(src, "\n")
 	var commentLines []string  // non-pipeliner comment lines (description)
-	var paramHints []struct{ name, hint string }
+	var paramHints []struct{ name, typ, hint string }
 
 	for i := 0; i < len(lines); i++ {
 		trimmed := strings.TrimSpace(lines[i])
@@ -82,7 +82,15 @@ func scanUserFunctions(src string) map[string]*UserFunctionDef {
 		case strings.HasPrefix(trimmed, "#"):
 			rest := strings.TrimSpace(strings.TrimPrefix(trimmed, "#"))
 			if m := paramLineRe.FindStringSubmatch(rest); m != nil {
-				paramHints = append(paramHints, struct{ name, hint string }{m[1], strings.TrimSpace(m[2])})
+				rawHint := strings.TrimSpace(m[2])
+				var typStr string
+				// Parse optional type=XXX annotation emitted by the visual editor.
+				if rest, ok := strings.CutPrefix(rawHint, "type="); ok {
+					word, after, _ := strings.Cut(rest, " ")
+					typStr = word
+					rawHint = strings.TrimSpace(after)
+				}
+				paramHints = append(paramHints, struct{ name, typ, hint string }{m[1], typStr, rawHint})
 			} else if strings.HasPrefix(rest, "pipeliner:") {
 				// other pipeliner: metadata — counts as the opt-in marker but no text
 				commentLines = append(commentLines, "") // preserve opt-in signal
@@ -171,7 +179,7 @@ func inferFunctionRole(body string) string {
 //
 // The "upstream" parameter (or any parameter whose default is a node handle)
 // is the wiring argument and is excluded from the config schema.
-func parseFunctionParams(defLine string, hints []struct{ name, hint string }) []UserFunctionParam {
+func parseFunctionParams(defLine string, hints []struct{ name, typ, hint string }) []UserFunctionParam {
 	// Extract the part between the first "(" and the matching ")".
 	open := strings.Index(defLine, "(")
 	if open < 0 {
@@ -199,9 +207,10 @@ func parseFunctionParams(defLine string, hints []struct{ name, hint string }) []
 	}
 	sig := defLine[open+1 : close]
 
-	hintMap := make(map[string]string, len(hints))
+	type hintEntry struct{ typ, hint string }
+	hintMap := make(map[string]hintEntry, len(hints))
 	for _, h := range hints {
-		hintMap[h.name] = h.hint
+		hintMap[h.name] = hintEntry{h.typ, h.hint}
 	}
 
 	var params []UserFunctionParam
@@ -224,14 +233,18 @@ func parseFunctionParams(defLine string, hints []struct{ name, hint string }) []
 			continue
 		}
 
+		he := hintMap[name]
 		p := UserFunctionParam{
 			Name:     name,
-			Hint:     hintMap[name],
+			Hint:     he.hint,
 			Required: !hasDefault,
 		}
 
 		if hasDefault {
 			p.Type, p.Default = inferTypeAndDefault(rawDefault)
+		} else if he.typ != "" {
+			// Type was persisted in the # pipeliner:param comment.
+			p.Type = plugin.FieldType(he.typ)
 		} else {
 			p.Type = plugin.FieldTypeString
 		}
