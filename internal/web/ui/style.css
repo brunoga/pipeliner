@@ -995,12 +995,6 @@ section { margin-bottom: 32px; }
   transition:background .15s;
 }
 .ve-fn-bar-save:hover { background:rgba(63,185,80,.1); }
-.ve-fn-bar-cancel {
-  padding:4px 14px; background:transparent; border:1px solid var(--border);
-  border-radius:5px; color:var(--muted); cursor:pointer; font-size:12px;
-  transition:color .15s,border-color .15s;
-}
-.ve-fn-bar-cancel:hover { color:var(--text); border-color:var(--text); }
 
 /* Function parameter panel */
 .ve-fn-params-panel {
