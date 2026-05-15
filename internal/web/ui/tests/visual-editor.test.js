@@ -3,7 +3,7 @@
  * Covers pure serialiser functions and the comment/layout/via features.
  */
 
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -12,7 +12,7 @@ const __dir = dirname(fileURLToPath(import.meta.url));
 const src = readFileSync(join(__dir, '..', 'visual-editor.js'), 'utf8');
 
 let starLit, valToStar, configToKwargs, upstreamsStr, dagToStarlark, viaNodeToStar,
-    nodesToFunctionSource, performExtraction, ve;
+    nodesToFunctionSource, performExtraction, addNodeFromPalette, ve;
 
 beforeAll(() => {
   const mod = new Function(
@@ -24,16 +24,17 @@ exports.configToKwargs       = configToKwargs;
 exports.upstreamsStr         = upstreamsStr;
 exports.dagToStarlark        = dagToStarlark;
 exports.viaNodeToStar        = viaNodeToStar;
-exports.nodesToFunctionSource = nodesToFunctionSource;
-exports.performExtraction    = performExtraction;
-exports.ve                   = ve;
+exports.nodesToFunctionSource  = nodesToFunctionSource;
+exports.performExtraction     = performExtraction;
+exports.addNodeFromPalette    = addNodeFromPalette;
+exports.ve                    = ve;
 `
   );
   const exports = {};
   const noopDoc = new Proxy({}, { get: () => () => null });
   mod(exports, noopDoc, () => Promise.resolve());
   ({ starLit, valToStar, configToKwargs, upstreamsStr, dagToStarlark, viaNodeToStar,
-     nodesToFunctionSource, performExtraction, ve } = exports);
+     nodesToFunctionSource, performExtraction, addNodeFromPalette, ve } = exports);
 });
 
 // ── test helpers ──────────────────────────────────────────────────────────────
@@ -738,5 +739,67 @@ describe('performExtraction removes list/search sub-nodes from canvas', () => {
     expect(ids).not.toContain('rs_0');    // search node must be gone
     expect(ids).not.toContain('disc_1');  // selected node must be gone
     expect(ids).toContain('rss_src');     // unselected node must remain
+  });
+});
+
+// ── addNodeFromPalette: user function nodes ───────────────────────────────────
+
+describe('addNodeFromPalette with user function', () => {
+  beforeEach(() => {
+    ve.graphs        = [{ name: 'g', schedule: '', comment: '', nodes: [] }];
+    ve.activeGraph   = 0;
+    ve.plugins       = PLUGINS;
+    ve.userFunctions = {};
+    ve.nextId        = 0;
+    ve.selectedNodeId = null;
+  });
+
+  it('sets isFunctionCall and funcCallKey when adding a user function', () => {
+    ve.userFunctions['my_fn'] = {
+      name: 'my_fn', role: 'source', description: '', params: [],
+      _sourceText: 'def my_fn():\n    pass\n',
+    };
+    addNodeFromPalette('my_fn');
+    const node = ve.graphs[0].nodes[0];
+    expect(node.isFunctionCall).toBe(true);
+    expect(node.funcCallKey).toBe(node.id);
+  });
+
+  it('pre-populates config from param defaults when adding a user function', () => {
+    ve.userFunctions['search_fn'] = {
+      name: 'search_fn', role: 'source', description: '', params: [
+        { key: 'categories', type: 'list',   required: false, default: ['5030'], hint: '' },
+        { key: 'min_seeds',  type: 'int',    required: false, default: 1,        hint: '' },
+        { key: 'required_p', type: 'string', required: true,  default: null,     hint: '' },
+      ],
+      _sourceText: '',
+    };
+    addNodeFromPalette('search_fn');
+    const cfg = ve.graphs[0].nodes[0].config;
+    expect(cfg.categories).toEqual(['5030']);
+    expect(cfg.min_seeds).toBe(1);
+    // Required params (no default) must not appear in config.
+    expect(cfg.required_p).toBeUndefined();
+  });
+
+  it('does NOT set isFunctionCall for a regular plugin', () => {
+    addNodeFromPalette('rss');
+    const node = ve.graphs[0].nodes[0];
+    expect(node.isFunctionCall).toBeFalsy();
+  });
+
+  it('dagToStarlark emits var=funcname(...) not input("funcname",...) for a function call node', () => {
+    ve.userFunctions['jackett_fn'] = {
+      name: 'jackett_fn', role: 'source', description: '',
+      params: [{ key: 'cats', type: 'list', required: false, default: ['5030'], hint: '' }],
+      _sourceText: '# pipeliner:param cats  type=list\ndef jackett_fn(cats):\n    j = input("jackett_input", categories=cats)\n    return j\n',
+    };
+    addNodeFromPalette('jackett_fn');
+    const src = dagToStarlark();
+    // Must be a function call, not input().
+    expect(src).not.toContain('input("jackett_fn"');
+    expect(src).toContain('= jackett_fn(');
+    // The function definition must also be emitted.
+    expect(src).toContain('def jackett_fn(');
   });
 });
