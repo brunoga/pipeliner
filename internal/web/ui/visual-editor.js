@@ -1114,6 +1114,9 @@ function initLayout() {
     if (!withPos.length) {
       // No stored positions — full auto-layout.
       globalY = layoutGraph(g, globalY);
+      // Normalize so the topmost node sits just below the label and the
+      // leftmost is at PAD_X, eliminating wasted space from listPad etc.
+      globalY = tightenPipeline(g, globalY, PIPELINE_GAP);
       continue;
     }
 
@@ -1171,7 +1174,39 @@ function initLayout() {
 
     g._regionH = maxAbsY - g._regionY + NODE_H + 60;
     globalY = g._regionY + g._regionH + PIPELINE_GAP;
+
+    // Normalize to eliminate empty space at top/left.
+    globalY = tightenPipeline(g, globalY, PIPELINE_GAP);
   }
+}
+
+// tightenPipeline shifts all nodes in g so the topmost node sits just
+// below the pipeline label and the leftmost node is at PAD_X.
+// Returns the updated globalY for the next pipeline.
+function tightenPipeline(g, currentGlobalY, pipelineGap) {
+  const PAD_X    = 50;  // left margin inside the pipeline box
+  const LABEL_H  = 36;  // height of the label bar + small gap below it
+
+  let minX = Infinity, minY = Infinity, maxY = 0;
+  for (const n of g.nodes) {
+    if (n.x != null) minX = Math.min(minX, n.x);
+    if (n.y != null) { minY = Math.min(minY, n.y); maxY = Math.max(maxY, n.y + NODE_H); }
+  }
+  if (minX === Infinity) return currentGlobalY;
+
+  const targetMinY = (g._labelY ?? 40) + LABEL_H;
+  const shiftX = minX - PAD_X;
+  const shiftY = minY - targetMinY;
+
+  for (const n of g.nodes) {
+    if (n.x != null) n.x -= shiftX;
+    if (n.y != null) n.y -= shiftY;
+  }
+
+  // Update cached region metrics to match the shifted positions.
+  const newMaxY = maxY - shiftY;
+  g._regionH = newMaxY - (g._regionY ?? 0) + 24;
+  return (g._regionY ?? 0) + g._regionH + pipelineGap;
 }
 
 // placeSubNodes positions search/list sub-nodes relative to their parent.
