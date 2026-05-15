@@ -581,7 +581,7 @@ function renderPipelineLabels() {
       `<button class="ve-pl-comment-btn${commentBtnCls}" title="Edit pipeline comment">#</button>`,
       `<span class="ve-pl-sep">schedule:</span>`,
       `<input class="ve-pl-sched" placeholder="e.g. 1h" value="${esc(g.schedule || '')}" title="Cron or interval schedule">`,
-      `<button class="ve-pl-delete" tabindex="-1" title="Delete pipeline and all its nodes">×</button>`,
+      ve.fnEditor.active ? '' : `<button class="ve-pl-delete" tabindex="-1" title="Delete pipeline and all its nodes">×</button>`,
     ].join('');
 
     label.addEventListener('pointerdown', e => e.stopPropagation());
