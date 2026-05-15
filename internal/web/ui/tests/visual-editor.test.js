@@ -820,8 +820,9 @@ describe('addNodeFromPalette with user function', () => {
     const cfg = ve.graphs[0].nodes[0].config;
     expect(cfg.categories).toEqual(['5030']);
     expect(cfg.min_seeds).toBe(1);
-    // Required params (no default) must not appear in config.
-    expect(cfg.required_p).toBeUndefined();
+    // Required params (no default) get a type-appropriate empty value so the
+    // call is syntactically valid; the user must fill in the real value.
+    expect(cfg.required_p).toBe('');
   });
 
   it('does NOT set isFunctionCall for a regular plugin', () => {

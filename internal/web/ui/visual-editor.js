@@ -235,7 +235,13 @@ function addNodeFromPalette(pluginName) {
   const config = {};
   if (fd) {
     for (const p of (fd.params || [])) {
-      if (p.default != null) config[p.key] = p.default;
+      if (p.default != null) {
+        config[p.key] = p.default;
+      } else {
+        // Required param with no default: seed with a type-appropriate empty
+        // value so the call site is syntactically valid from the start.
+        config[p.key] = emptyForType(p.type);
+      }
     }
   }
   g.nodes.push({
@@ -1385,7 +1391,7 @@ function initCanvasEvents() {
     const dragCfg = {};
     if (dragFd) {
       for (const p of (dragFd.params || [])) {
-        if (p.default != null) dragCfg[p.key] = p.default;
+        dragCfg[p.key] = p.default != null ? p.default : emptyForType(p.type);
       }
     }
     g.nodes.push({
@@ -2875,6 +2881,14 @@ function extractFunctionSource(src, funcName) {
   return result.join('\n');
 }
 
+// emptyForType returns a sensible empty/zero value for a given FieldType string.
+function emptyForType(type) {
+  if (type === 'list')     return [];
+  if (type === 'int')      return 0;
+  if (type === 'bool')     return false;
+  return '';
+}
+
 function dagToStarlark() {
   const graphs = ve.graphs.filter(g => g.name || g.nodes.length);
   if (!graphs.length) return '';
@@ -2940,9 +2954,23 @@ function dagToStarlark() {
         // Serialize as a user function call: varname = funcname(upstream=..., kwargs).
         // The second condition handles nodes whose plugin is a user function but
         // isFunctionCall was not set (e.g. loaded from a previously broken config).
+        //
+        // Self-healing: if required params are missing from n.config (e.g. the
+        // config was saved before args were filled in), seed them with empty
+        // defaults so the call is at least syntactically valid.
+        const fd = ve.userFunctions[n.plugin];
+        if (fd?.params?.length) {
+          for (const p of fd.params) {
+            if (!(p.key in (n.config || {}))) {
+              n.config = n.config || {};
+              n.config[p.key] = p.default != null ? p.default : emptyForType(p.type);
+            }
+          }
+        }
+        const healedKw = configToKwargs(n.config);
         const parts = [];
-        if (fromStr) parts.push(`upstream=${fromStr}`);
-        if (cfgKw)   parts.push(cfgKw);
+        if (fromStr)   parts.push(`upstream=${fromStr}`);
+        if (healedKw)  parts.push(healedKw);
         lines.push(`${n.id} = ${n.plugin}(${parts.join(', ')})`);
       } else if (role === 'source') {
         lines.push(`${n.id} = input(${[starLit(n.plugin), cfgKw].filter(Boolean).join(', ')})`);
