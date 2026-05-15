@@ -1023,6 +1023,34 @@ section { margin-bottom: 32px; }
 }
 .ve-fn-params-add:hover { color:var(--text); border-color:var(--text); }
 
+/* Param reference indicator in the param panel (function body editor) */
+.ve-field.ve-field-param-ref { opacity: 0.85; }
+.ve-param-ref-badge {
+  display:inline-block; margin-left:6px; padding:1px 6px;
+  font-size:10px; font-weight:600; border-radius:3px;
+  background:rgba(251,191,36,.15); color:#fbbf24;
+  border:1px solid rgba(251,191,36,.4); vertical-align:middle;
+}
+.ve-param-ref-note {
+  font-size:11px; color:var(--muted); font-style:italic; padding:2px 0;
+}
+.ve-param-ref-unlink {
+  display:inline-block; margin-left:6px; padding:1px 6px; font-size:10px;
+  background:transparent; border:1px solid rgba(251,191,36,.3);
+  border-radius:3px; color:rgba(251,191,36,.6); cursor:pointer;
+  vertical-align:middle; transition:color .15s, border-color .15s;
+}
+.ve-param-ref-unlink:hover { color:#fbbf24; border-color:#fbbf24; }
+
+/* Promote-to-param button shown next to field labels in function body editor */
+.ve-param-promote-btn {
+  display:inline-block; margin-left:6px; padding:1px 5px; font-size:10px;
+  background:transparent; border:1px dashed var(--border);
+  border-radius:3px; color:var(--muted); cursor:pointer;
+  vertical-align:middle; transition:color .15s, border-color .15s;
+}
+.ve-param-promote-btn:hover { color:#fbbf24; border-color:rgba(251,191,36,.5); }
+
 /* Upstream pseudo-node: represents the function's upstream= parameter */
 .ve-node.ve-node-upstream-pseudo {
   border-color:rgba(251,191,36,.5); background:rgba(251,191,36,.06);
