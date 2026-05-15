@@ -21,6 +21,7 @@ import (
 	_ "github.com/brunoga/pipeliner/plugins/processor/discover"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/seen"
 	_ "github.com/brunoga/pipeliner/plugins/processor/modify/pathfmt"
+	_ "github.com/brunoga/pipeliner/plugins/sink/print"
 	_ "github.com/brunoga/pipeliner/plugins/source/rss"
 	_ "github.com/brunoga/pipeliner/plugins/source/rss_search"
 )
@@ -848,4 +849,81 @@ func stringContains(s, sub string) bool {
 		}
 	}
 	return false
+}
+
+// ── function editor edge regression test ─────────────────────────────────────
+
+// TestE2EFunctionEditorEdgesDrawnOnOpen reproduces the bug where edges inside
+// the function body editor are not drawn until the user clicks somewhere.
+// The test opens the function editor and immediately inspects the SVG to check
+// whether ve-edge paths are present without any user interaction.
+func TestE2EFunctionEditorEdgesDrawnOnOpen(t *testing.T) {
+	// Two-node function body (rss → seen) so exactly one edge should be drawn.
+	const cfg = `
+# pipeliner:param url  type=string  Feed URL
+def fetch_fn(url):
+    src_0 = input("rss", url=url)
+    flt_1 = process("seen", upstream=src_0)
+    return flt_1
+
+call_2 = fetch_fn(url="https://example.com/rss")
+output("print", upstream=call_2)
+pipeline("test")
+`
+	ts := startTestServer(t, cfg)
+	browser, stop := pwSetup(t)
+	defer stop()
+
+	page, _ := browser.NewPage()
+	defer page.Close() //nolint:errcheck
+
+	login(t, page, ts.url)
+	openConfigTab(t, page)
+	switchToVisual(t, page, cfg)
+
+	// Click the ✏ edit button on the function chip in the palette.
+	editBtn := page.Locator(".ve-chip-fn-edit")
+	if err := editBtn.WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(5000),
+	}); err != nil {
+		t.Fatalf("edit button not visible: %v", err)
+	}
+	if err := editBtn.Click(); err != nil {
+		t.Fatalf("click edit button: %v", err)
+	}
+
+	// Wait for the function editor banner to appear.
+	if err := page.Locator("#ve-fn-bar").WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(5000),
+	}); err != nil {
+		t.Fatalf("function editor bar not visible: %v", err)
+	}
+	time.Sleep(200 * time.Millisecond)
+
+	// The edge between the two function body nodes must be present on open,
+	// without requiring any user interaction.
+	// Use a string result to avoid Go type assertion issues with JS numbers.
+	edgeCountStr, err := page.Evaluate(`String(document.querySelectorAll('#ve-graph-svg path.ve-edge').length)`)
+	if err != nil {
+		t.Fatalf("evaluate edge count: %v", err)
+	}
+	t.Logf("edge count on open: %v", edgeCountStr)
+	if edgeCountStr == "0" || edgeCountStr == nil {
+		// Check if clicking makes it appear (the original bug).
+		if err := page.Locator("#ve-canvas-body").Click(playwright.LocatorClickOptions{
+			Position: &playwright.Position{X: 300, Y: 200},
+		}); err == nil {
+			time.Sleep(100 * time.Millisecond)
+			afterStr, _ := page.Evaluate(`String(document.querySelectorAll('#ve-graph-svg path.ve-edge').length)`)
+			t.Logf("edge count after click: %v", afterStr)
+			if afterStr != "0" && afterStr != nil {
+				t.Errorf("BUG: edge only appears after a click, not on open")
+			} else {
+				t.Errorf("edge never appears — check parseFunctionBodyNodes and server config")
+			}
+		}
+	}
+	// else: edge is visible on open — test passes
 }
