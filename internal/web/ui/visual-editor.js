@@ -18,6 +18,7 @@ const ve = {
   selectedNodeIds:  new Set(), // multi-select for Extract to Function
   clipboard:        null,      // {nodes:[{plugin,config,comment,origId,relX,relY}], edges:[{from,to}]}
   dragSrc:          null,      // {type:'palette', plugin:''}
+  fnEditor:         {active: false}, // function editing mode state
   get model() { return this.graphs[this.activeGraph] || this.graphs[0]; },
 };
 
@@ -175,6 +176,8 @@ function renderPalette(filter) {
           ondragstart="paletteDragStart(event,${esc(JSON.stringify(fd.name))})"
           onclick="addNodeFromPalette(${esc(JSON.stringify(fd.name))})">
           ${esc(fd.name)}<span class="ve-chip-fn-badge">fn</span></button
+        ><button class="ve-chip-fn-edit" title="Edit function body"
+          onclick="openFunctionEditor(${esc(JSON.stringify(fd.name))})">✏</button
         ><button class="ve-chip-fn-remove" title="Expand and remove function"
           onclick="expandAndRemoveFunction(${esc(JSON.stringify(fd.name))})">×</button>
       </span>`);
@@ -270,6 +273,7 @@ function newNodePos(g) {
 }
 
 function removeNode(id) {
+  if (findNode(id)?.isUpstreamPseudo) return; // pseudo-node is permanent
   for (const g of ve.graphs) {
     const idx = g.nodes.findIndex(n => n.id === id);
     if (idx < 0) continue;
@@ -361,7 +365,7 @@ function multiSelectIsValid() {
   let graphIdx = -1;
   for (const id of ve.selectedNodeIds) {
     const n = findNode(id);
-    if (!n || n.isSearchNode || n.isListNode || n.isFunctionCall) return false;
+    if (!n || n.isSearchNode || n.isListNode || n.isFunctionCall || n.isUpstreamPseudo) return false;
     const gi = findNodeGraph(id);
     if (graphIdx < 0) graphIdx = gi;
     else if (gi !== graphIdx) return false;
@@ -381,8 +385,8 @@ function renderCanvas() {
   renderPipelineRegions(); // drawn first so they sit behind nodes
   renderGraphNodes();
   renderPipelineLabels();
-  renderEdges();
-  updateCanvasSize();
+  updateCanvasSize(); // size canvas/SVG BEFORE writing paths — avoids browser
+  renderEdges();     // discarding SVG innerHTML when dimensions change after write
 }
 
 // ── graph node rendering ───────────────────────────────────────────────────────
@@ -394,6 +398,32 @@ function renderGraphNodes() {
 
   for (const g of ve.graphs) {
     for (const n of g.nodes) {
+      // Upstream pseudo-node: non-selectable entry point for function body editing.
+      if (n.isUpstreamPseudo) {
+        const div = document.createElement('div');
+        div.className = 've-node ve-node-upstream-pseudo';
+        div.dataset.id   = n.id;
+        div.dataset.role = 'source';
+        div.style.left   = (n.x ?? 60) + 'px';
+        div.style.top    = (n.y ?? 60) + 'px';
+        div.innerHTML = `<div class="ve-node-role-bar"></div>
+          <div class="ve-node-body">
+            <div class="ve-node-name" style="color:#fbbf24">upstream</div>
+            <span class="ve-node-role-badge ve-role-source">source</span>
+            <div class="ve-upstream-label">function entry point</div>
+          </div>
+          <div class="ve-node-out-port" title="Drag to connect"></div>`;
+        div.style.left = (n.x ?? 60) + 'px';
+        div.style.top  = (n.y ?? 60) + 'px';
+        canvas.appendChild(div);
+        // Wire drag-to-connect from the out-port only.
+        div.querySelector('.ve-node-out-port')?.addEventListener('pointerdown', e => {
+          e.stopPropagation();
+          startConnect(e, n.id);
+        });
+        continue;
+      }
+
       const meta    = pluginMeta(n.plugin) || {role: 'processor'};
       const role    = meta.role;
       const sel     = n.id === ve.selectedNodeId;
@@ -470,6 +500,14 @@ function renderGraphNodes() {
         }
       });
 
+      // Double-click a function call node to open its editor.
+      if (n.isFunctionCall) {
+        div.addEventListener('dblclick', e => {
+          e.stopPropagation();
+          openFunctionEditor(n.plugin);
+        });
+      }
+
       // Receive regular upstream= drop (not allowed on source / sub-nodes).
       div.addEventListener('pointerup', () => {
         if (ve_connecting && ve_connecting.srcId !== n.id && role !== 'source' && !isSearch && !isList) finishConnect(n.id);
@@ -543,7 +581,7 @@ function renderPipelineLabels() {
       `<button class="ve-pl-comment-btn${commentBtnCls}" title="Edit pipeline comment">#</button>`,
       `<span class="ve-pl-sep">schedule:</span>`,
       `<input class="ve-pl-sched" placeholder="e.g. 1h" value="${esc(g.schedule || '')}" title="Cron or interval schedule">`,
-      `<button class="ve-pl-delete" tabindex="-1" title="Delete pipeline and all its nodes">×</button>`,
+      ve.fnEditor.active ? '' : `<button class="ve-pl-delete" tabindex="-1" title="Delete pipeline and all its nodes">×</button>`,
     ].join('');
 
     label.addEventListener('pointerdown', e => e.stopPropagation());
@@ -611,10 +649,12 @@ function renderPipelineLabels() {
         text => { ve.graphs[gi].comment = text; renderPipelineLabels(); onModelChange(); }
       );
     });
-    label.querySelector('.ve-pl-delete').addEventListener('click', e => {
-      e.stopPropagation();
-      deletePipeline(gi);
-    });
+    if (!ve.fnEditor.active) {
+      label.querySelector('.ve-pl-delete').addEventListener('click', e => {
+        e.stopPropagation();
+        deletePipeline(gi);
+      });
+    }
 
     canvas.appendChild(label);
   }
@@ -698,6 +738,9 @@ function addPipeline() {
 }
 
 function deletePipeline(graphIdx) {
+  // In function editing mode the single graph IS the function body — deleting
+  // it would wipe the canvas.  Use Cancel or ← Back to exit the editor instead.
+  if (ve.fnEditor.active) return;
   const removed = ve.graphs[graphIdx];
   // How much vertical space the deleted pipeline occupied (region height + the
   // 60 px inter-pipeline gap used by autoLayout).
@@ -1537,6 +1580,7 @@ function finishConnect(targetId) {
   // upstreams; and adding the edge must not create a cycle in the DAG.
   // Additionally, sink nodes may only connect to other sink nodes (chaining).
   if (src && tgt && tgtRole !== 'source' && !src.isListNode &&
+      !tgt.isUpstreamPseudo &&
       srcGi === tgtGi && !tgt.upstreams.includes(src.id)) {
     // If source is a sink, the target must also be a sink (sink chaining rule).
     if (srcRole === 'sink' && tgtRole !== 'sink') {
@@ -1744,6 +1788,16 @@ function renderParamPanel() {
   const gi   = node ? findNodeGraph(ve.selectedNodeId) : -1;
   const g    = gi >= 0 ? ve.graphs[gi] : null;
 
+  // Upstream pseudo-node: show a simple description, no config.
+  if (node?.isUpstreamPseudo) {
+    empty.style.display = 'none'; title.style.display = '';
+    if (nameEl) nameEl.textContent = 'upstream';
+    if (roleEl) roleEl.textContent = 'function entry';
+    body.innerHTML = '<p style="font-size:12px;color:var(--muted);padding:8px 0">This node represents the <code>upstream=</code> argument passed to the function at its call site. Connect it to the first node in the function body.</p>';
+    footer.style.display = 'none';
+    return;
+  }
+
   if (!node || !g) {
     empty.style.display = ''; title.style.display = 'none';
     body.innerHTML = ''; footer.style.display = 'none';
@@ -1856,7 +1910,7 @@ function renderParamPanel() {
     for (const f of meta.schema) {
       // Skip 'search' and 'list' fields — managed visually by the sections above.
       if ((f.key === 'search' && meta.accepts_search) || (f.key === 'list' && meta.accepts_list)) continue;
-      html.push(renderField(f, node.config));
+      html.push(renderField(f, node.config, node));
     }
   } else {
     html.push(renderGenericKV(node.config));
@@ -2037,8 +2091,30 @@ function updateCondRules() {
   renderGraphNodes(); renderEdges(); onModelChange();
 }
 
-function renderField(f, config) {
-  const val = config[f.key];
+// renderField renders one schema field widget.  When called inside the function
+// body editor (ve.fnEditor.active) and the field is a param reference, it shows
+// a read-only "param: name" indicator plus a "× literal" button.  Non-ref fields
+// get a "→ param" button so the user can promote them to function parameters.
+function renderField(f, config, node) {
+  const val      = config[f.key];
+  const paramRef = node?._paramRefs?.[f.key];   // paramName if this field is a ref
+  const inFnEditor = ve.fnEditor.active;
+
+  // ── param-reference mode: field is driven by a function parameter ──────────
+  if (paramRef) {
+    const badge = `<span class="ve-param-ref-badge">${esc(paramRef)}</span>`;
+    const btn   = `<button class="ve-param-ref-unlink" title="Convert back to a literal value"
+        onclick="fnEditorUnlinkParamRef(${esc(JSON.stringify(node.id))},${esc(JSON.stringify(f.key))})">× literal</button>`;
+    return `<div class="ve-field ve-field-param-ref">
+      <div class="ve-field-label">
+        <span>${esc(f.key)}${f.required ? ' <span class="ve-field-required">*</span>' : ''} ${badge}</span>
+        ${btn}
+      </div>
+      ${f.hint ? `<div class="ve-field-hint">— ${esc(f.hint)}</div>` : ''}
+      <div class="ve-param-ref-note">value supplied by caller</div></div>`;
+  }
+
+  // ── normal editable widget ─────────────────────────────────────────────────
   let widget = '';
   if (f.multiline) {
     const preview = val ? String(val).split('\n')[0].slice(0, 50) : '';
@@ -2073,9 +2149,20 @@ function renderField(f, config) {
         widget = `<input type="text" data-field="${f.key}" value="${esc(String(val ?? ''))}" placeholder="${esc(String(f.default ?? f.hint ?? ''))}">`;
     }
   }
+
+  // In the function body editor, add a "→ param" button for non-multiline fields.
+  const promoteBtn = (inFnEditor && !f.multiline && node)
+    ? `<button class="ve-param-promote-btn" title="Expose this field as a function parameter"
+        onclick="fnEditorPromoteToParam(${esc(JSON.stringify(node.id))},${esc(JSON.stringify(f.key))},${esc(JSON.stringify(f.type))})">→ param</button>`
+    : '';
+
   return `<div class="ve-field">
-    <div class="ve-field-label">${esc(f.key)}${f.required ? ' <span class="ve-field-required">*</span>' : ''}
-      ${f.hint ? `<span class="ve-field-hint">— ${esc(f.hint)}</span>` : ''}</div>${widget}</div>`;
+    <div class="ve-field-label">
+      <span>${esc(f.key)}${f.required ? ' <span class="ve-field-required">*</span>' : ''}</span>
+      ${promoteBtn}
+    </div>
+    ${f.hint ? `<div class="ve-field-hint">— ${esc(f.hint)}</div>` : ''}
+    ${widget}</div>`;
 }
 
 // Opens the text popup to edit a multiline schema field on the selected node.
@@ -2093,6 +2180,7 @@ function openFieldPopup(fieldKey, hint) {
 function collectParams(node, schema, body) {
   for (const f of schema) {
     if (f.multiline) continue; // saved directly via openFieldPopup
+    if (node._paramRefs?.[f.key]) continue; // param ref — not editable inline
     const el = body.querySelector(`[data-field="${f.key}"]`);
     if (!el) continue;
     if (f.type === 'bool')     node.config[f.key] = el.checked;
@@ -2881,6 +2969,612 @@ function extractFunctionSource(src, funcName) {
   return result.join('\n');
 }
 
+// ── visual function editor ─────────────────────────────────────────────────────
+
+// fnSplitArgs splits a function call argument string into tokens while
+// respecting nested brackets. Used by fnParseCallArgs.
+function fnSplitArgs(s) {
+  const parts = [];
+  let depth = 0, start = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (c === '(' || c === '[' || c === '{') depth++;
+    else if (c === ')' || c === ']' || c === '}') depth--;
+    else if (c === ',' && depth === 0) {
+      parts.push(s.slice(start, i));
+      start = i + 1;
+    }
+  }
+  parts.push(s.slice(start));
+  return parts;
+}
+
+// fnParseCallArgs extracts the plugin name and keyword args from the raw
+// arguments string of an input/process/output(...) call.
+function fnParseCallArgs(argsRaw) {
+  const parts = fnSplitArgs(argsRaw);
+  const pluginRaw = (parts[0] || '').trim();
+  const plugin = pluginRaw.replace(/^["']|["']$/g, '');
+  const kwargs = {};
+  for (let i = 1; i < parts.length; i++) {
+    const p = parts[i].trim();
+    const eq = p.indexOf('=');
+    if (eq < 0) continue;
+    kwargs[p.slice(0, eq).trim()] = p.slice(eq + 1).trim();
+  }
+  return {plugin, kwargs};
+}
+
+// fnParseUpstreamExpr parses an upstream= value into an array of upstream IDs,
+// replacing the bare 'upstream' identifier with '_upstream' (pseudo-node).
+function fnParseUpstreamExpr(expr) {
+  const t = expr.trim();
+  if (t === 'upstream') return ['_upstream'];
+  if (t.startsWith('merge(') && t.endsWith(')')) {
+    return fnSplitArgs(t.slice(6, -1))
+      .map(s => s.trim())
+      .map(s => s === 'upstream' ? '_upstream' : s);
+  }
+  return [t];
+}
+
+// fnParseLiteral converts a Starlark literal string to a JS value.
+function fnParseLiteral(s) {
+  s = s.trim();
+  if (s === 'True')  return true;
+  if (s === 'False') return false;
+  if (s === 'None')  return null;
+  if (/^-?\d+$/.test(s)) return parseInt(s, 10);
+  if (/^-?\d*\.\d+$/.test(s)) return parseFloat(s);
+  if ((s[0] === '"' && s[s.length-1] === '"') ||
+      (s[0] === "'" && s[s.length-1] === "'")) {
+    return s.slice(1, -1)
+      .replace(/\\n/g, '\n').replace(/\\t/g, '\t')
+      .replace(/\\"/g, '"').replace(/\\'/g, "'").replace(/\\\\/g, '\\');
+  }
+  if (s.startsWith('[')) {
+    try {
+      const inner = s.slice(1, -1).trim();
+      if (!inner) return [];
+      return fnSplitArgs(inner).map(item => fnParseLiteral(item.trim()));
+    } catch (_) { return s; }
+  }
+  if (s.startsWith('{')) {
+    try {
+      const inner = s.slice(1, -1).trim();
+      if (!inner) return {};
+      const obj = {};
+      for (const pair of fnSplitArgs(inner)) {
+        const ci = pair.indexOf(':');
+        if (ci < 0) continue;
+        const k = fnParseLiteral(pair.slice(0, ci).trim());
+        const v = fnParseLiteral(pair.slice(ci + 1).trim());
+        if (typeof k === 'string') obj[k] = v;
+      }
+      return obj;
+    } catch (_) { return s; }
+  }
+  return s; // bare identifier or unparseable — return as string
+}
+
+// parseFunctionBodyNodes extracts the internal canvas nodes from a function's
+// _sourceText. Param references in kwargs (bare identifiers matching param names)
+// are tracked in n._paramRefs = {configKey: paramName} so nodesToFunctionSource
+// can re-emit them correctly without substituting literal values.
+function parseFunctionBodyNodes(funcName) {
+  const fd = ve.userFunctions[funcName];
+  if (!fd?._sourceText) return null;
+
+  const paramNames = new Set((fd.params || []).map(p => p.key));
+  const lines = fd._sourceText.split('\n');
+  const defIdx = lines.findIndex(l =>
+    l.trimStart().startsWith(`def ${funcName}(`) && /^def\s+/.test(l.trimStart()));
+  if (defIdx < 0) return null;
+
+  const nodes = [];
+  let returnNodeId = null;
+
+  for (let i = defIdx + 1; i < lines.length; i++) {
+    const raw = lines[i];
+    if (!raw.trim()) continue;
+    if (!/^\s/.test(raw)) break; // end of function body
+
+    const line = raw.trim();
+    if (line.startsWith('return ')) {
+      returnNodeId = line.slice(7).trim();
+      continue;
+    }
+
+    // Match: var = input/process/output("plugin", ...kwargs...)
+    // Use a non-greedy match to the last ) on the line.
+    const m = line.match(/^(\w+)\s*=\s*(input|process|output)\((.+)\)\s*$/);
+    if (!m) continue;
+
+    const [, varName, , argsRaw] = m;
+    const {plugin, kwargs} = fnParseCallArgs(argsRaw);
+
+    const config     = {};
+    const paramRefs  = {};   // {configKey: paramName}
+    let   upstreams  = [];
+    let   searchRaw  = null;
+    let   listRaw    = null;
+
+    for (const [k, v] of Object.entries(kwargs)) {
+      const val = v.trim();
+      if (k === 'upstream') {
+        upstreams = fnParseUpstreamExpr(val);
+      } else if (k === 'search') {
+        searchRaw = val;
+      } else if (k === 'list') {
+        listRaw = val;
+      } else if (paramNames.has(val)) {
+        // Bare identifier matches a function param → it's a param reference.
+        const pDef = (fd.params || []).find(p => p.key === val);
+        paramRefs[k] = val;
+        config[k] = pDef?.default != null ? pDef.default : emptyForType(pDef?.type || 'string');
+      } else {
+        config[k] = fnParseLiteral(val);
+      }
+    }
+
+    const node = {
+      id: varName, plugin, config, upstreams,
+      searchNodeIds: [], listNodeIds: [], comment: '',
+      x: null, y: null,
+    };
+    if (Object.keys(paramRefs).length)  node._paramRefs = paramRefs;
+    if (searchRaw !== null)             node._searchRaw  = searchRaw;
+    if (listRaw   !== null)             node._listRaw    = listRaw;
+
+    // Parse search/list sub-plugin lists into canvas sub-nodes.
+    if (searchRaw) {
+      const items = fnParseSubPluginList(searchRaw);
+      items.forEach((item, si) => {
+        const id = `${varName}__search__${si}`;
+        node.searchNodeIds.push(id);
+        nodes.push({id, plugin: item.plugin, config: item.config,
+          upstreams: [], searchNodeIds: [], listNodeIds: [], comment: '',
+          isSearchNode: true, searchParentId: varName, x: null, y: null});
+      });
+    }
+    if (listRaw) {
+      const items = fnParseSubPluginList(listRaw);
+      items.forEach((item, li) => {
+        const id = `${varName}__list__${li}`;
+        if (!node.listNodeIds) node.listNodeIds = [];
+        node.listNodeIds.push(id);
+        nodes.push({id, plugin: item.plugin, config: item.config,
+          upstreams: [], searchNodeIds: [], listNodeIds: [], comment: '',
+          isListNode: true, listParentId: varName, x: null, y: null});
+      });
+    }
+
+    nodes.push(node);
+  }
+
+  return {nodes, returnNodeId};
+}
+
+// fnParseSubPluginList parses a Starlark list of sub-plugin dicts:
+//   [{"name": "plugin", "key": val, ...}, ...]
+// into [{plugin, config}, ...].
+function fnParseSubPluginList(raw) {
+  const t = raw.trim();
+  if (!t.startsWith('[')) return [];
+  const inner = t.slice(1, -1).trim();
+  if (!inner) return [];
+  return fnSplitArgs(inner).map(item => {
+    const d = item.trim();
+    if (!d.startsWith('{')) return null;
+    const inner2 = d.slice(1, -1).trim();
+    const obj = {};
+    for (const pair of fnSplitArgs(inner2)) {
+      const ci = pair.indexOf(':');
+      if (ci < 0) continue;
+      const k = fnParseLiteral(pair.slice(0, ci).trim());
+      const v = fnParseLiteral(pair.slice(ci + 1).trim());
+      if (typeof k === 'string') obj[k] = v;
+    }
+    if (!obj.name) return null;
+    const plugin = String(obj.name);
+    const config = {...obj};
+    delete config.name;
+    return {plugin, config};
+  }).filter(Boolean);
+}
+
+// openFunctionEditor enters function-editing mode for the named function.
+// The existing pipeline canvas is swapped out for the function's internal
+// nodes so all existing canvas interactions (drag, connect, palette) work
+// without modification.
+function openFunctionEditor(funcName) {
+  if (ve.fnEditor.active) return; // already editing
+  const fd = ve.userFunctions[funcName];
+  if (!fd) return;
+
+  const parsed = parseFunctionBodyNodes(funcName);
+  if (!parsed) {
+    alert(`Cannot open function "${funcName}": the function body could not be parsed. Try editing it in the text editor first.`);
+    return;
+  }
+
+  const {nodes, returnNodeId} = parsed;
+  const allNodes = [...nodes];
+
+  // For processor/sink functions, prepend the upstream pseudo-node so users
+  // can visually connect entry nodes to their function's upstream parameter.
+  if (fd.role !== 'source') {
+    allNodes.unshift({
+      id: '_upstream', plugin: '_upstream', config: {},
+      upstreams: [], searchNodeIds: [], listNodeIds: [], comment: '',
+      isUpstreamPseudo: true, x: null, y: null,
+    });
+  }
+
+  // Snapshot current canvas state for restoration on exit.
+  ve.fnEditor = {
+    active:         true,
+    funcName,
+    savedGraphs:    ve.graphs,
+    savedActive:    ve.activeGraph,
+    savedNextId:    ve.nextId,
+    savedSelected:  ve.selectedNodeId,
+    returnNodeId,
+    // Snapshot of params at open time (for change detection on save).
+    paramsSnapshot: JSON.parse(JSON.stringify(fd.params || [])),
+    paramsOpen:     false,
+  };
+
+  ve.graphs      = [{name: funcName, schedule: '', comment: '', nodes: allNodes, _hasLayout: false}];
+  ve.activeGraph = 0;
+  ve.selectedNodeId = null;
+
+  // Advance nextId past any existing counter values inside the function.
+  ve.nextId = allNodes.reduce((max, n) => {
+    const m = n.id.match(/_(\d+)$/);
+    return m ? Math.max(max, parseInt(m[1]) + 1) : max;
+  }, ve.nextId);
+
+  clearMultiSelect();
+  ve_panX = 0; ve_panY = 0;
+
+  // Immediately wipe the SVG so pipeline edges don't linger while the
+  // function body layout is being calculated and rendered.
+  const svgEl = document.getElementById('ve-graph-svg');
+  if (svgEl) svgEl.innerHTML = '';
+
+  // Show the function editor toolbar, hide the pipeline toolbar.
+  const pbar = document.getElementById('ve-pipeline-bar');
+  const fbar = document.getElementById('ve-fn-bar');
+  if (pbar) pbar.style.display = 'none';
+  if (fbar) fbar.style.display = '';
+  const nameInput = document.getElementById('ve-fn-bar-name');
+  if (nameInput) nameInput.value = funcName;
+
+  initLayout();
+  veRender();
+}
+
+// saveFunctionEditor regenerates the function's _sourceText from the edited
+// canvas nodes, updates call sites, and exits editing mode.
+function saveFunctionEditor() {
+  if (!ve.fnEditor.active) return;
+  const fd = ve.userFunctions[ve.fnEditor.funcName];
+  if (!fd) { exitFunctionEditor(); return; }
+
+  const g = ve.graphs[0];
+  const mainNodes = g.nodes.filter(n => !n.isSearchNode && !n.isListNode && !n.isUpstreamPseudo);
+  const selectedIds = new Set(mainNodes.map(n => n.id));
+
+  // Identify the terminal (return) node — the one not consumed by any other
+  // internal node as an upstream.
+  const usedInternally = new Set(
+    mainNodes.flatMap(n => (n.upstreams || []).filter(u => selectedIds.has(u)))
+  );
+  const terminals = mainNodes.filter(n => !usedInternally.has(n.id));
+
+  if (mainNodes.length === 0) {
+    alert('The function body is empty. Add at least one node.');
+    return;
+  }
+  if (terminals.length > 1) {
+    alert('The function has multiple output nodes. Connect them into a single chain first.');
+    return;
+  }
+
+  const returnNodeId      = terminals[0]?.id ?? mainNodes[mainNodes.length - 1].id;
+  const hasUpstreamPseudo = g.nodes.some(n => n.isUpstreamPseudo);
+  // entryUpstreams just needs to be non-empty to tell nodesToFunctionSource to
+  // add 'upstream' to the signature; the actual IDs don't matter here.
+  const entryUpstreams = hasUpstreamPseudo ? ['__entry__'] : [];
+  const validation     = {entryUpstreams, returnNodeId};
+
+  // Build the params array for nodesToFunctionSource by mapping each param to
+  // the node/configKey it references via _paramRefs.
+  const currentParams = ve.fnEditor.paramsSnapshot;
+  const fnParams = [];
+  for (const p of currentParams) {
+    let mapped = false;
+    for (const n of mainNodes) {
+      for (const [configKey, paramName] of Object.entries(n._paramRefs || {})) {
+        if (paramName === p.key) {
+          fnParams.push({nodeId: n.id, configKey, paramName: p.key,
+            type: p.type, defaultValue: p.default, include: true, hint: p.hint || ''});
+          mapped = true;
+          break;
+        }
+      }
+      if (mapped) break;
+    }
+    if (!mapped) {
+      // Param not referenced in any current node — include in signature only.
+      fnParams.push({nodeId: null, configKey: null, paramName: p.key,
+        type: p.type, defaultValue: p.default, include: true, hint: p.hint || ''});
+    }
+  }
+
+  const newSourceText = nodesToFunctionSource(ve.fnEditor.funcName, fnParams, selectedIds, validation, g);
+
+  fd._sourceText = newSourceText;
+  fd.params      = currentParams;
+  fd.role        = newSourceText.includes(' = input(') ? 'source'
+                 : newSourceText.includes(' = output(') ? 'sink' : 'processor';
+
+  // Propagate param additions/removals to all call sites.
+  fnSyncCallSiteParams(ve.fnEditor.funcName, ve.fnEditor.paramsSnapshot, currentParams);
+
+  exitFunctionEditor();
+  renderPalette(document.getElementById('ve-search')?.value ?? '');
+  onModelChange();
+}
+
+// exitFunctionEditor restores the pipeline canvas and hides the function bar.
+function exitFunctionEditor() {
+  if (!ve.fnEditor.active) return;
+  ve.graphs        = ve.fnEditor.savedGraphs;
+  ve.activeGraph   = ve.fnEditor.savedActive;
+  ve.nextId        = Math.max(ve.fnEditor.savedNextId, ve.nextId);
+  ve.selectedNodeId = ve.fnEditor.savedSelected;
+  ve.fnEditor      = {active: false};
+
+  clearMultiSelect();
+  const pbar = document.getElementById('ve-pipeline-bar');
+  const fbar = document.getElementById('ve-fn-bar');
+  const ppar = document.getElementById('ve-fn-params-panel');
+  if (pbar) pbar.style.display = '';
+  if (fbar) fbar.style.display = 'none';
+  if (ppar) ppar.style.display = 'none';
+
+  ve_panX = 0; ve_panY = 0;
+  initLayout();
+  veRender();
+  // Flush the correct pipeline content back to the text editor now that
+  // ve.fnEditor.active is false and dagToStarlark() sees the real graphs.
+  onModelChange();
+}
+
+// fnEditorCommitRename is called when the function name input loses focus.
+// It renames the function and updates all call sites.
+function fnEditorCommitRename(newName) {
+  if (!ve.fnEditor.active) return;
+  const oldName = ve.fnEditor.funcName;
+  if (!newName || newName === oldName) return;
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(newName)) {
+    alert('Function name must be a valid identifier.');
+    const inp = document.getElementById('ve-fn-bar-name');
+    if (inp) inp.value = oldName;
+    return;
+  }
+  if (ve.userFunctions[newName] && newName !== oldName) {
+    alert(`A function named "${newName}" already exists.`);
+    const inp = document.getElementById('ve-fn-bar-name');
+    if (inp) inp.value = oldName;
+    return;
+  }
+
+  // Update the function definition.
+  const fd = ve.userFunctions[oldName];
+  fd.name         = newName;
+  fd._sourceText  = (fd._sourceText || '').replace(
+    new RegExp(`\\bdef ${escapeRegExp(oldName)}\\b`), `def ${newName}`);
+  ve.userFunctions[newName] = fd;
+  delete ve.userFunctions[oldName];
+
+  // Update all call nodes in the saved pipeline graphs.
+  for (const g of (ve.fnEditor.savedGraphs || [])) {
+    for (const n of g.nodes) {
+      if ((n.isFunctionCall || ve.userFunctions[n.plugin]) && n.plugin === oldName) {
+        n.plugin = newName;
+        if (n.funcCallKey) n.funcCallKey = n.funcCallKey; // ID stays the same
+      }
+    }
+  }
+
+  // Update the graph name shown in the canvas.
+  if (ve.graphs[0]) ve.graphs[0].name = newName;
+  ve.fnEditor.funcName = newName;
+}
+
+function escapeRegExp(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// fnSyncCallSiteParams propagates param additions/removals to all call sites.
+function fnSyncCallSiteParams(funcName, oldParams, newParams) {
+  const oldKeys = new Set(oldParams.map(p => p.key));
+  const newKeys = new Set(newParams.map(p => p.key));
+  const added   = newParams.filter(p => !oldKeys.has(p.key));
+  const removed = oldParams.filter(p => !newKeys.has(p.key));
+
+  for (const g of (ve.fnEditor.savedGraphs || [])) {
+    for (const n of g.nodes) {
+      if (n.plugin !== funcName) continue;
+      for (const p of added) {
+        if (!(p.key in (n.config || {}))) {
+          n.config = n.config || {};
+          n.config[p.key] = p.default != null ? p.default : emptyForType(p.type);
+        }
+      }
+      for (const p of removed) {
+        delete (n.config || {})[p.key];
+      }
+    }
+  }
+}
+
+// ── function editor parameter management ──────────────────────────────────────
+
+function fnEditorToggleParams() {
+  if (!ve.fnEditor.active) return;
+  ve.fnEditor.paramsOpen = !ve.fnEditor.paramsOpen;
+  const panel = document.getElementById('ve-fn-params-panel');
+  const btn   = document.getElementById('ve-fn-bar-params-btn');
+  if (panel) panel.style.display = ve.fnEditor.paramsOpen ? '' : 'none';
+  if (btn)   btn.classList.toggle('active', ve.fnEditor.paramsOpen);
+  if (ve.fnEditor.paramsOpen) renderFnEditorParams();
+}
+
+function renderFnEditorParams() {
+  const body = document.getElementById('ve-fn-params-body');
+  if (!body) return;
+  const params = ve.fnEditor.paramsSnapshot || [];
+  body.innerHTML = params.map((p, i) => `
+    <div class="ve-fn-param-row" data-pi="${i}">
+      <input class="ve-fn-param-name" value="${esc(p.key)}" placeholder="param name"
+        onblur="fnEditorRenameParam(${i}, this.value)"
+        onkeydown="if(event.key==='Enter')this.blur()">
+      <select class="ve-fn-param-type" onchange="fnEditorChangeType(${i}, this.value)">
+        ${['string','int','bool','list','duration','enum'].map(t =>
+          `<option value="${t}"${p.type===t?' selected':''}>${t}</option>`).join('')}
+      </select>
+      <input class="ve-fn-param-hint" value="${esc(p.hint || '')}" placeholder="hint…"
+        oninput="fnEditorUpdateHint(${i}, this.value)">
+      <button class="ve-fn-param-remove" onclick="fnEditorRemoveParam(${i})" title="Remove parameter">✕</button>
+    </div>`).join('');
+}
+
+function fnEditorAddParam() {
+  if (!ve.fnEditor.active) return;
+  const params = ve.fnEditor.paramsSnapshot;
+  let i = params.length + 1;
+  let key = `param${i}`;
+  while (params.some(p => p.key === key)) key = `param${++i}`;
+  params.push({key, type: 'string', required: true, default: null, hint: ''});
+  renderFnEditorParams();
+}
+
+function fnEditorRemoveParam(idx) {
+  if (!ve.fnEditor.active) return;
+  ve.fnEditor.paramsSnapshot.splice(idx, 1);
+  renderFnEditorParams();
+}
+
+function fnEditorRenameParam(idx, newKey) {
+  if (!ve.fnEditor.active) return;
+  const params = ve.fnEditor.paramsSnapshot;
+  const p = params[idx];
+  if (!p || !newKey || newKey === p.key) return;
+  if (params.some((q, i) => i !== idx && q.key === newKey)) {
+    alert(`Parameter "${newKey}" already exists.`);
+    renderFnEditorParams();
+    return;
+  }
+  // Update _paramRefs in canvas nodes.
+  for (const n of (ve.graphs[0]?.nodes || [])) {
+    if (n._paramRefs?.[p.key] === p.key) {
+      n._paramRefs[p.key] = newKey; // wait — the key in _paramRefs is the configKey
+    }
+    // _paramRefs maps configKey → paramName; rename the paramName references.
+    if (n._paramRefs) {
+      for (const [cfgKey, pName] of Object.entries(n._paramRefs)) {
+        if (pName === p.key) n._paramRefs[cfgKey] = newKey;
+      }
+    }
+  }
+  p.key = newKey;
+  renderFnEditorParams();
+}
+
+function fnEditorChangeType(idx, type) {
+  if (!ve.fnEditor.active) return;
+  const p = ve.fnEditor.paramsSnapshot[idx];
+  if (p) p.type = type;
+}
+
+function fnEditorUpdateHint(idx, hint) {
+  if (!ve.fnEditor.active) return;
+  const p = ve.fnEditor.paramsSnapshot[idx];
+  if (p) p.hint = hint;
+}
+
+// fnEditorPromoteToParam converts a hardcoded config field on a function body
+// node into a function parameter reference.  A new param is created (or reused
+// if the field key already exists as a param) and the field is marked as a ref.
+function fnEditorPromoteToParam(nodeId, configKey, fieldType) {
+  if (!ve.fnEditor.active) return;
+  const node = findNode(nodeId);
+  if (!node) return;
+
+  const params = ve.fnEditor.paramsSnapshot;
+
+  // Suggest a param name: use the config key if not already taken, otherwise
+  // append a number suffix to make it unique.
+  let paramName = configKey;
+  let i = 2;
+  while (params.some(p => p.key === paramName)) paramName = `${configKey}${i++}`;
+
+  // Prompt the user to confirm or customise the param name.
+  const entered = window.prompt(`New parameter name for "${configKey}":`, paramName);
+  if (!entered) return;
+  paramName = entered.trim();
+  if (!paramName || !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(paramName)) {
+    alert('Parameter name must be a valid identifier.');
+    return;
+  }
+  if (params.some(p => p.key === paramName)) {
+    // Reuse the existing param: just link the field to it.
+    if (!node._paramRefs) node._paramRefs = {};
+    node._paramRefs[configKey] = paramName;
+    node.config[configKey] = emptyForType(fieldType);
+    renderParamPanel();
+    return;
+  }
+
+  // Create the new param.
+  params.push({key: paramName, type: fieldType, required: true, default: null, hint: ''});
+
+  // Mark the field as a param reference on this node.
+  if (!node._paramRefs) node._paramRefs = {};
+  node._paramRefs[configKey] = paramName;
+  // Seed the config with an empty value (the real value comes from the call site).
+  node.config[configKey] = emptyForType(fieldType);
+
+  renderParamPanel();
+  if (ve.fnEditor.paramsOpen) renderFnEditorParams();
+}
+
+// fnEditorUnlinkParamRef converts a param reference back to a literal value,
+// leaving the current (empty) config value in place for the user to fill in.
+function fnEditorUnlinkParamRef(nodeId, configKey) {
+  if (!ve.fnEditor.active) return;
+  const node = findNode(nodeId);
+  if (!node?._paramRefs) return;
+
+  const paramName = node._paramRefs[configKey];
+  delete node._paramRefs[configKey];
+
+  // Remove the param entirely if no other node still references it.
+  const stillUsed = ve.graphs[0]?.nodes.some(n =>
+    n._paramRefs && Object.values(n._paramRefs).includes(paramName)
+  );
+  if (!stillUsed) {
+    ve.fnEditor.paramsSnapshot = ve.fnEditor.paramsSnapshot.filter(p => p.key !== paramName);
+    if (ve.fnEditor.paramsOpen) renderFnEditorParams();
+  }
+
+  renderParamPanel();
+}
+
 // emptyForType returns a sensible empty/zero value for a given FieldType string.
 function emptyForType(type) {
   if (type === 'list')     return [];
@@ -3049,6 +3743,10 @@ function valToStar(v) {
 
 function onModelChange() {
   if (ve.syncing) return;
+  // While editing a function body, ve.graphs contains only the function's
+  // internal nodes — serialising it would overwrite the pipeline content in
+  // the text editor.  Changes are flushed when the editor is saved/closed.
+  if (ve.fnEditor.active) return;
   const el = document.getElementById('config-editor');
   if (!el) return;
   el.value = dagToStarlark();
