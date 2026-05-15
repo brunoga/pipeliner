@@ -1905,7 +1905,7 @@ function renderParamPanel() {
     for (const f of meta.schema) {
       // Skip 'search' and 'list' fields — managed visually by the sections above.
       if ((f.key === 'search' && meta.accepts_search) || (f.key === 'list' && meta.accepts_list)) continue;
-      html.push(renderField(f, node.config));
+      html.push(renderField(f, node.config, node));
     }
   } else {
     html.push(renderGenericKV(node.config));
@@ -2086,8 +2086,30 @@ function updateCondRules() {
   renderGraphNodes(); renderEdges(); onModelChange();
 }
 
-function renderField(f, config) {
-  const val = config[f.key];
+// renderField renders one schema field widget.  When called inside the function
+// body editor (ve.fnEditor.active) and the field is a param reference, it shows
+// a read-only "param: name" indicator plus a "× literal" button.  Non-ref fields
+// get a "→ param" button so the user can promote them to function parameters.
+function renderField(f, config, node) {
+  const val      = config[f.key];
+  const paramRef = node?._paramRefs?.[f.key];   // paramName if this field is a ref
+  const inFnEditor = ve.fnEditor.active;
+
+  // ── param-reference mode: field is driven by a function parameter ──────────
+  if (paramRef) {
+    const badge = `<span class="ve-param-ref-badge">${esc(paramRef)}</span>`;
+    const btn   = `<button class="ve-param-ref-unlink" title="Convert back to a literal value"
+        onclick="fnEditorUnlinkParamRef(${esc(JSON.stringify(node.id))},${esc(JSON.stringify(f.key))})">× literal</button>`;
+    return `<div class="ve-field ve-field-param-ref">
+      <div class="ve-field-label">
+        ${esc(f.key)}${f.required ? ' <span class="ve-field-required">*</span>' : ''}
+        ${f.hint ? `<span class="ve-field-hint">— ${esc(f.hint)}</span>` : ''}
+        ${badge}${btn}
+      </div>
+      <div class="ve-param-ref-note">value supplied by caller</div></div>`;
+  }
+
+  // ── normal editable widget ─────────────────────────────────────────────────
   let widget = '';
   if (f.multiline) {
     const preview = val ? String(val).split('\n')[0].slice(0, 50) : '';
@@ -2122,9 +2144,17 @@ function renderField(f, config) {
         widget = `<input type="text" data-field="${f.key}" value="${esc(String(val ?? ''))}" placeholder="${esc(String(f.default ?? f.hint ?? ''))}">`;
     }
   }
+
+  // In the function body editor, add a "→ param" button for non-multiline fields.
+  const promoteBtn = (inFnEditor && !f.multiline && node)
+    ? `<button class="ve-param-promote-btn" title="Expose this field as a function parameter"
+        onclick="fnEditorPromoteToParam(${esc(JSON.stringify(node.id))},${esc(JSON.stringify(f.key))},${esc(JSON.stringify(f.type))})">→ param</button>`
+    : '';
+
   return `<div class="ve-field">
     <div class="ve-field-label">${esc(f.key)}${f.required ? ' <span class="ve-field-required">*</span>' : ''}
-      ${f.hint ? `<span class="ve-field-hint">— ${esc(f.hint)}</span>` : ''}</div>${widget}</div>`;
+      ${f.hint ? `<span class="ve-field-hint">— ${esc(f.hint)}</span>` : ''}
+      ${promoteBtn}</div>${widget}</div>`;
 }
 
 // Opens the text popup to edit a multiline schema field on the selected node.
@@ -2142,6 +2172,7 @@ function openFieldPopup(fieldKey, hint) {
 function collectParams(node, schema, body) {
   for (const f of schema) {
     if (f.multiline) continue; // saved directly via openFieldPopup
+    if (node._paramRefs?.[f.key]) continue; // param ref — not editable inline
     const el = body.querySelector(`[data-field="${f.key}"]`);
     if (!el) continue;
     if (f.type === 'bool')     node.config[f.key] = el.checked;
@@ -3458,6 +3489,74 @@ function fnEditorUpdateHint(idx, hint) {
   if (!ve.fnEditor.active) return;
   const p = ve.fnEditor.paramsSnapshot[idx];
   if (p) p.hint = hint;
+}
+
+// fnEditorPromoteToParam converts a hardcoded config field on a function body
+// node into a function parameter reference.  A new param is created (or reused
+// if the field key already exists as a param) and the field is marked as a ref.
+function fnEditorPromoteToParam(nodeId, configKey, fieldType) {
+  if (!ve.fnEditor.active) return;
+  const node = findNode(nodeId);
+  if (!node) return;
+
+  const params = ve.fnEditor.paramsSnapshot;
+
+  // Suggest a param name: use the config key if not already taken, otherwise
+  // append a number suffix to make it unique.
+  let paramName = configKey;
+  let i = 2;
+  while (params.some(p => p.key === paramName)) paramName = `${configKey}${i++}`;
+
+  // Prompt the user to confirm or customise the param name.
+  const entered = window.prompt(`New parameter name for "${configKey}":`, paramName);
+  if (!entered) return;
+  paramName = entered.trim();
+  if (!paramName || !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(paramName)) {
+    alert('Parameter name must be a valid identifier.');
+    return;
+  }
+  if (params.some(p => p.key === paramName)) {
+    // Reuse the existing param: just link the field to it.
+    if (!node._paramRefs) node._paramRefs = {};
+    node._paramRefs[configKey] = paramName;
+    node.config[configKey] = emptyForType(fieldType);
+    renderParamPanel();
+    return;
+  }
+
+  // Create the new param.
+  params.push({key: paramName, type: fieldType, required: true, default: null, hint: ''});
+
+  // Mark the field as a param reference on this node.
+  if (!node._paramRefs) node._paramRefs = {};
+  node._paramRefs[configKey] = paramName;
+  // Seed the config with an empty value (the real value comes from the call site).
+  node.config[configKey] = emptyForType(fieldType);
+
+  renderParamPanel();
+  if (ve.fnEditor.paramsOpen) renderFnEditorParams();
+}
+
+// fnEditorUnlinkParamRef converts a param reference back to a literal value,
+// leaving the current (empty) config value in place for the user to fill in.
+function fnEditorUnlinkParamRef(nodeId, configKey) {
+  if (!ve.fnEditor.active) return;
+  const node = findNode(nodeId);
+  if (!node?._paramRefs) return;
+
+  const paramName = node._paramRefs[configKey];
+  delete node._paramRefs[configKey];
+
+  // Remove the param entirely if no other node still references it.
+  const stillUsed = ve.graphs[0]?.nodes.some(n =>
+    n._paramRefs && Object.values(n._paramRefs).includes(paramName)
+  );
+  if (!stillUsed) {
+    ve.fnEditor.paramsSnapshot = ve.fnEditor.paramsSnapshot.filter(p => p.key !== paramName);
+    if (ve.fnEditor.paramsOpen) renderFnEditorParams();
+  }
+
+  renderParamPanel();
 }
 
 // emptyForType returns a sensible empty/zero value for a given FieldType string.
