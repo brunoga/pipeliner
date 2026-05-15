@@ -11,25 +11,29 @@ import { dirname, join } from 'path';
 const __dir = dirname(fileURLToPath(import.meta.url));
 const src = readFileSync(join(__dir, '..', 'visual-editor.js'), 'utf8');
 
-let starLit, valToStar, configToKwargs, upstreamsStr, dagToStarlark, viaNodeToStar, ve; // viaNodeToStar renamed but kept for compat
+let starLit, valToStar, configToKwargs, upstreamsStr, dagToStarlark, viaNodeToStar,
+    nodesToFunctionSource, performExtraction, ve;
 
 beforeAll(() => {
   const mod = new Function(
     'exports', 'document', 'fetch',
     src + `
-exports.starLit        = starLit;
-exports.valToStar      = valToStar;
-exports.configToKwargs = configToKwargs;
-exports.upstreamsStr   = upstreamsStr;
-exports.dagToStarlark  = dagToStarlark;
-exports.viaNodeToStar  = viaNodeToStar;
-exports.ve             = ve;
+exports.starLit              = starLit;
+exports.valToStar            = valToStar;
+exports.configToKwargs       = configToKwargs;
+exports.upstreamsStr         = upstreamsStr;
+exports.dagToStarlark        = dagToStarlark;
+exports.viaNodeToStar        = viaNodeToStar;
+exports.nodesToFunctionSource = nodesToFunctionSource;
+exports.performExtraction    = performExtraction;
+exports.ve                   = ve;
 `
   );
   const exports = {};
   const noopDoc = new Proxy({}, { get: () => () => null });
   mod(exports, noopDoc, () => Promise.resolve());
-  ({ starLit, valToStar, configToKwargs, upstreamsStr, dagToStarlark, viaNodeToStar, ve } = exports);
+  ({ starLit, valToStar, configToKwargs, upstreamsStr, dagToStarlark, viaNodeToStar,
+     nodesToFunctionSource, performExtraction, ve } = exports);
 });
 
 // ── test helpers ──────────────────────────────────────────────────────────────
@@ -600,5 +604,139 @@ describe('dagToStarlark with multiple pipelines', () => {
   it('returns empty string for empty graphs list', () => {
     ve.graphs = [];
     expect(dagToStarlark()).toBe('');
+  });
+});
+
+// ── nodesToFunctionSource: param type annotation ──────────────────────────────
+
+describe('nodesToFunctionSource param type annotation', () => {
+  const graph = { name: 'g', schedule: '', comment: '', nodes: [
+    { id: 'rss_0', plugin: 'rss', config: {url: 'https://example.com'}, upstreams: [], searchNodeIds: [], listNodeIds: [] },
+    { id: 'seen_1', plugin: 'seen', config: {}, upstreams: ['rss_0'], searchNodeIds: [], listNodeIds: [] },
+  ]};
+  const selectedIds = new Set(['seen_1']);
+  const validation  = { entryUpstreams: ['rss_0'], returnNodeId: 'seen_1' };
+
+  it('emits type=list annotation for list params', () => {
+    const params = [
+      { nodeId: 'seen_1', configKey: 'cats', paramName: 'cats', type: 'list', defaultValue: ['5030'], include: true, hint: 'Categories' },
+    ];
+    const src = nodesToFunctionSource('my_fn', params, selectedIds, validation, graph);
+    expect(src).toContain('# pipeliner:param cats  type=list  Categories');
+  });
+
+  it('emits type=int annotation for int params', () => {
+    const params = [
+      { nodeId: 'seen_1', configKey: 'seeds', paramName: 'seeds', type: 'int', defaultValue: 1, include: true, hint: '' },
+    ];
+    const src = nodesToFunctionSource('my_fn', params, selectedIds, validation, graph);
+    expect(src).toContain('# pipeliner:param seeds  type=int');
+  });
+
+  it('does NOT emit a type annotation for string params', () => {
+    const params = [
+      { nodeId: 'seen_1', configKey: 'label', paramName: 'label', type: 'string', defaultValue: 'tv', include: true, hint: 'Label' },
+    ];
+    const src = nodesToFunctionSource('my_fn', params, selectedIds, validation, graph);
+    expect(src).not.toContain('type=string');
+    expect(src).toContain('# pipeliner:param label  Label');
+  });
+});
+
+// ── nodesToFunctionSource: list= and search= handling ────────────────────────
+
+describe('nodesToFunctionSource with list/search sub-nodes', () => {
+  const makeGraph = nodes => ({ name: 'g', schedule: '', nodes, comment: '' });
+
+  it('includes list= in function body when a node has listNodeIds', () => {
+    const listNode = {
+      id: 'tl_0', plugin: 'trakt_list', config: { type: 'movies' },
+      upstreams: [], searchNodeIds: [], listNodeIds: [], isListNode: true, listParentId: 'movies_1',
+    };
+    const moviesNode = {
+      id: 'movies_1', plugin: 'movies', config: {},
+      upstreams: ['rss_0'], searchNodeIds: [], listNodeIds: ['tl_0'],
+    };
+    const graph = makeGraph([
+      { id: 'rss_0', plugin: 'rss', config: { url: 'https://example.com' }, upstreams: [], searchNodeIds: [], listNodeIds: [] },
+      moviesNode,
+      listNode,
+    ]);
+    const selectedIds = new Set(['movies_1']);
+    const validation  = { entryUpstreams: ['rss_0'], returnNodeId: 'movies_1' };
+    const src = nodesToFunctionSource('my_fn', [], selectedIds, validation, graph);
+    expect(src).toContain("list=[{");
+    expect(src).toContain("trakt_list");
+    expect(src).toContain("movies");  // the type= config value
+  });
+
+  it('includes search= in function body when a node has searchNodeIds', () => {
+    const searchNode = {
+      id: 'rs_0', plugin: 'rss_search', config: { url_template: 'https://s.example.com/?q={Query}' },
+      upstreams: [], searchNodeIds: [], listNodeIds: [], isSearchNode: true, searchParentId: 'disc_1',
+    };
+    const discoverNode = {
+      id: 'disc_1', plugin: 'discover', config: {},
+      upstreams: ['rss_src'], searchNodeIds: ['rs_0'], listNodeIds: [],
+    };
+    const graph = makeGraph([
+      { id: 'rss_src', plugin: 'rss', config: { url: 'https://feed.example.com' }, upstreams: [], searchNodeIds: [], listNodeIds: [] },
+      discoverNode,
+      searchNode,
+    ]);
+    const selectedIds = new Set(['disc_1']);
+    const validation  = { entryUpstreams: ['rss_src'], returnNodeId: 'disc_1' };
+    const src = nodesToFunctionSource('my_fn', [], selectedIds, validation, graph);
+    expect(src).toContain("search=[{");
+    expect(src).toContain("rss_search");
+    expect(src).toContain("url_template");
+  });
+});
+
+describe('performExtraction removes list/search sub-nodes from canvas', () => {
+  function buildModel(nodes) {
+    ve.graphs      = [{ name: 'g', schedule: '', nodes, comment: '' }];
+    ve.activeGraph = 0;
+    ve.plugins     = PLUGINS;
+    ve.userFunctions = {};
+    ve.selectedNodeIds = new Set();
+  }
+
+  it('removes a list sub-node from g.nodes after extraction', () => {
+    const listNode = {
+      id: 'tl_0', plugin: 'trakt_list', config: { type: 'movies' },
+      upstreams: [], searchNodeIds: [], listNodeIds: [], isListNode: true, listParentId: 'movies_1',
+    };
+    buildModel([
+      { id: 'rss_0', plugin: 'rss', config: {}, upstreams: [], searchNodeIds: [], listNodeIds: [], x: 60, y: 60 },
+      { id: 'movies_1', plugin: 'movies', config: {}, upstreams: ['rss_0'], searchNodeIds: [], listNodeIds: ['tl_0'], x: 260, y: 60 },
+      listNode,
+    ]);
+    ve.selectedNodeIds = new Set(['movies_1']);
+    const validation = { ok: true, graphIdx: 0, entryUpstreams: ['rss_0'], returnNodeId: 'movies_1' };
+    performExtraction('my_fn', [], validation, 0);
+    const ids = ve.graphs[0].nodes.map(n => n.id);
+    expect(ids).not.toContain('tl_0');    // list node must be gone
+    expect(ids).not.toContain('movies_1'); // selected node must be gone
+    expect(ids).toContain('rss_0');        // unselected node must remain
+  });
+
+  it('removes a search sub-node from g.nodes after extraction', () => {
+    const searchNode = {
+      id: 'rs_0', plugin: 'rss_search', config: {}, upstreams: [], searchNodeIds: [], listNodeIds: [],
+      isSearchNode: true, searchParentId: 'disc_1',
+    };
+    buildModel([
+      { id: 'rss_src', plugin: 'rss', config: {}, upstreams: [], searchNodeIds: [], listNodeIds: [], x: 60, y: 60 },
+      { id: 'disc_1', plugin: 'discover', config: {}, upstreams: ['rss_src'], searchNodeIds: ['rs_0'], listNodeIds: [], x: 260, y: 60 },
+      searchNode,
+    ]);
+    ve.selectedNodeIds = new Set(['disc_1']);
+    const validation = { ok: true, graphIdx: 0, entryUpstreams: ['rss_src'], returnNodeId: 'disc_1' };
+    performExtraction('my_fn', [], validation, 0);
+    const ids = ve.graphs[0].nodes.map(n => n.id);
+    expect(ids).not.toContain('rs_0');    // search node must be gone
+    expect(ids).not.toContain('disc_1');  // selected node must be gone
+    expect(ids).toContain('rss_src');     // unselected node must remain
   });
 });

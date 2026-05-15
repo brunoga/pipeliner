@@ -401,3 +401,56 @@ pipeline("nonlinear")
 		t.Errorf("CallKey = %q, want %q", fcr.CallKey, "result")
 	}
 }
+
+// TestUserFunctionParamTypeAnnotation verifies that type=XXX annotations in
+// # pipeliner:param comments survive a round-trip through scanUserFunctions.
+// The visual editor emits these when a parameter's type is not string so that
+// the correct input widget is shown after a server restart.
+func TestUserFunctionParamTypeAnnotation(t *testing.T) {
+	src := `
+# pipeliner:param categories  type=list  Jackett category IDs
+# pipeliner:param min_seeds  type=int  Minimum seeds required
+# pipeliner:param enabled  type=bool  Enable the filter
+# pipeliner:param quality  Quality spec (string, no annotation needed)
+def search_fn(upstream, categories, min_seeds, enabled, quality):
+    r = process("seen", upstream=upstream)
+    return r
+
+src = input("rss", url="https://example.com/rss")
+pipeline("p")
+`
+	defs := scanUserFunctions(src)
+	fd, ok := defs["search_fn"]
+	if !ok {
+		t.Fatal("search_fn not discovered")
+	}
+	if len(fd.Params) != 4 {
+		t.Fatalf("want 4 params, got %d", len(fd.Params))
+	}
+
+	byName := make(map[string]UserFunctionParam)
+	for _, p := range fd.Params {
+		byName[p.Name] = p
+	}
+
+	if got := byName["categories"].Type; got != plugin.FieldTypeList {
+		t.Errorf("categories: want type list, got %q", got)
+	}
+	if got := byName["min_seeds"].Type; got != plugin.FieldTypeInt {
+		t.Errorf("min_seeds: want type int, got %q", got)
+	}
+	if got := byName["enabled"].Type; got != plugin.FieldTypeBool {
+		t.Errorf("enabled: want type bool, got %q", got)
+	}
+	// quality has no type annotation — must default to string.
+	if got := byName["quality"].Type; got != plugin.FieldTypeString {
+		t.Errorf("quality: want type string (default), got %q", got)
+	}
+	// Hint text must be preserved after stripping the type annotation.
+	if got := byName["categories"].Hint; got != "Jackett category IDs" {
+		t.Errorf("categories hint: want %q, got %q", "Jackett category IDs", got)
+	}
+	if got := byName["quality"].Hint; got != "Quality spec (string, no annotation needed)" {
+		t.Errorf("quality hint: want full hint text, got %q", got)
+	}
+}
