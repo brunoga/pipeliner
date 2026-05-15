@@ -80,19 +80,23 @@ function disconnectList(parentNodeId, listNodeId) {
 
 // ── view switching ─────────────────────────────────────────────────────────────
 
-let currentView = 'text';
+let currentView = 'visual'; // open in visual mode by default
 
 function switchView(view) {
-  if (view === currentView) return;
-  if (view === 'visual') {
+  // Don't switch views while the function body editor is active.
+  if (ve.fnEditor?.active) return;
+  if (view === 'text') {
+    if (view === currentView) return;
+    doSwitchView('text');
+  } else {
+    // Visual: always re-sync so the canvas reflects the current text editor
+    // content — no early-return even if already in visual mode.
     const load = ve.plugins.length ? Promise.resolve() : loadPalette();
     load.then(() => {
       doSwitchView('visual');
       if (!ve_canvasInited) { initCanvasEvents(); ve_canvasInited = true; }
       textToVisualSync();
     });
-  } else {
-    doSwitchView('text');
   }
 }
 
@@ -676,14 +680,21 @@ function renderPipelineRegions() {
     const g = ve.graphs[i];
     if (g._regionY == null) continue;
 
-    // Recompute height from current node positions every time so the region
-    // can both grow AND shrink as nodes are moved around.
-    let regionH = 80;
+    // Recompute bounds from current node positions so the region always fits
+    // tightly — growing or shrinking both horizontally and vertically.
+    const PAD_X = 24, PAD_Y = 24;
+    let regionH = 80, minX = Infinity, maxX = 0;
     for (const n of g.nodes) {
+      const nx = n.x ?? 0;
+      minX = Math.min(minX, nx);
+      maxX = Math.max(maxX, nx + NODE_W);
       const nodeBot = (n.y ?? 0) + NODE_H + (n.searchNodeIds?.length ? 100 : 24);
-      regionH = Math.max(regionH, nodeBot - (g._regionY ?? 0) + 24);
+      regionH = Math.max(regionH, nodeBot - (g._regionY ?? 0) + PAD_Y);
     }
     g._regionH = regionH;
+    if (minX === Infinity) { minX = 0; maxX = 500; } // empty pipeline fallback
+    const regionLeft  = Math.max(0, minX - PAD_X);
+    const regionWidth = maxX + PAD_X - regionLeft;
 
     // Update an existing element in-place (smooth during drag — no DOM churn).
     let region = canvas.querySelector(`.ve-pipeline-region[data-graph-idx="${i}"]`);
@@ -691,6 +702,8 @@ function renderPipelineRegions() {
       region.className    = `ve-pipeline-region${i === ve.activeGraph ? ' active' : ''}`;
       region.style.top    = g._regionY + 'px';
       region.style.height = regionH + 'px';
+      region.style.left   = regionLeft + 'px';
+      region.style.width  = regionWidth + 'px';
       // Sync empty-pipeline hint.
       const hint = region.querySelector('.ve-region-hint');
       if (!g.nodes.length && !hint) {
@@ -707,6 +720,8 @@ function renderPipelineRegions() {
     region.dataset.graphIdx = i;
     region.style.top    = g._regionY + 'px';
     region.style.height = regionH + 'px';
+    region.style.left   = regionLeft + 'px';
+    region.style.width  = regionWidth + 'px';
     region.addEventListener('pointerdown', e => {
       if (e.target === region) { ve.activeGraph = i; renderPipelineRegions(); }
     });
@@ -1771,6 +1786,25 @@ function paletteDragStart(e, name) {
 
 function zoomIn()    { setZoom(ve_zoom * 1.25); }
 function zoomOut()   { setZoom(ve_zoom / 1.25); }
+
+// zoomToFitHorizontal sets the zoom so that all pipeline nodes fit within
+// the canvas viewport width. Only zooms out (never zooms in beyond 100%).
+function zoomToFitHorizontal() {
+  const body = document.getElementById('ve-canvas-body');
+  if (!body || !body.clientWidth) return;
+  let maxX = 0;
+  for (const g of ve.graphs) {
+    for (const n of g.nodes) {
+      if (!n.isSearchNode && !n.isListNode) {
+        maxX = Math.max(maxX, (n.x ?? 0) + NODE_W);
+      }
+    }
+  }
+  if (maxX <= 0) return;
+  const targetZoom = (body.clientWidth - 40) / maxX; // 40px right margin
+  ve_zoom = Math.max(0.2, Math.min(1.0, targetZoom));
+  applyZoom();
+}
 function zoomReset() { setZoom(1.0); }
 
 // ── param panel ───────────────────────────────────────────────────────────────
@@ -3898,6 +3932,7 @@ async function textToVisualSync() {
     // Place all pipelines in order: stored relative positions for those that
     // have a layout comment, auto-layout for those that don't.
     initLayout();
+    zoomToFitHorizontal(); // zoom out so all pipelines fit within the viewport width
     veRender();
     setSyncNote(entries.length > 1 ? `Showing ${entries.length} pipelines` : '');
     // Write computed positions back so they survive the next round-trip.

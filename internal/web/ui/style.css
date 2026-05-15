@@ -428,7 +428,7 @@ section { margin-bottom: 32px; }
 
 /* pipeline region background panels */
 .ve-pipeline-region {
-  position:absolute; left:0; right:0;
+  position:absolute; /* left and width set by JS to fit tightly around nodes */
   border-radius:8px;
   border:1px solid rgba(255,255,255,.05);
   background:rgba(255,255,255,.018);

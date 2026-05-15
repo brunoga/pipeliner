@@ -50,8 +50,8 @@
     <!-- view toggle + shared action bar -->
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
       <div class="view-toggle">
-        <button class="view-btn active" id="view-btn-text"   onclick="switchView('text')">✏ Text</button>
-        <button class="view-btn"        id="view-btn-visual" onclick="switchView('visual')">⬡ Visual</button>
+        <button class="view-btn"        id="view-btn-text"   onclick="switchView('text')">✏ Text</button>
+        <button class="view-btn active" id="view-btn-visual" onclick="switchView('visual')">⬡ Visual</button>
       </div>
       <div class="config-toolbar" style="margin:0">
         <button class="btn-config" onclick="validateConfig()">Validate</button>
@@ -61,8 +61,8 @@
     </div>
     <div class="config-errors" id="config-errors"></div>
 
-    <!-- text view -->
-    <div id="view-text">
+    <!-- text view: hidden by default; visual is the initial view -->
+    <div id="view-text" style="display:none">
       <div class="editor-wrap">
         <pre class="editor-hl" id="editor-hl" aria-hidden="true"></pre>
         <textarea class="editor-ta" id="config-editor" spellcheck="false" autocomplete="off"
@@ -70,8 +70,8 @@
       </div>
     </div>
 
-    <!-- visual view -->
-    <div id="view-visual" style="display:none">
+    <!-- visual view: shown by default -->
+    <div id="view-visual">
       <div class="ve-layout">
 
         <!-- left: plugin palette -->
