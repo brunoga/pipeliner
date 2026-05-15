@@ -85,8 +85,8 @@
         <!-- center: pipeline canvas -->
         <div class="ve-canvas-area">
 
-          <!-- toolbar -->
-          <div class="ve-pipeline-bar">
+          <!-- toolbar (normal pipeline mode) -->
+          <div class="ve-pipeline-bar" id="ve-pipeline-bar">
             <button id="ve-add-pipeline" class="ve-add-pipeline-header" onclick="addPipeline()" title="Add a new pipeline">+ Add pipeline</button>
             <button id="ve-extract-fn-btn" class="ve-extract-fn-btn" onclick="openExtractDialog()" title="Extract selected nodes into a reusable function" style="display:none">⬡ Extract to function</button>
             <button id="ve-paste-btn" class="ve-paste-btn" onclick="pasteClipboard()" title="Paste copied node(s) into the active pipeline (Ctrl/Cmd+V)" style="display:none">Paste</button>
@@ -97,6 +97,26 @@
               <button class="ve-zoom-btn" onclick="zoomIn()" title="Zoom in">+</button>
               <button class="ve-zoom-btn" onclick="zoomReset()" title="Reset zoom" style="font-size:14px;padding:0 6px">⊙</button>
             </div>
+          </div>
+
+          <!-- toolbar (function editing mode, hidden until openFunctionEditor) -->
+          <div class="ve-fn-bar" id="ve-fn-bar" style="display:none">
+            <button class="ve-fn-bar-back" onclick="exitFunctionEditor()" title="Discard and return to pipelines">← Back</button>
+            <span class="ve-fn-bar-label">Editing function:</span>
+            <input class="ve-fn-bar-name" id="ve-fn-bar-name" spellcheck="false"
+                   onblur="fnEditorCommitRename(this.value)"
+                   onkeydown="if(event.key==='Enter')this.blur()">
+            <button class="ve-fn-bar-params-btn" id="ve-fn-bar-params-btn"
+                    onclick="fnEditorToggleParams()" title="Edit parameters">⚙ Params</button>
+            <div class="ve-fn-bar-spacer"></div>
+            <button class="ve-fn-bar-save"   onclick="saveFunctionEditor()">Save</button>
+            <button class="ve-fn-bar-cancel" onclick="exitFunctionEditor()">Cancel</button>
+          </div>
+
+          <!-- function parameter panel (shown below bar when open) -->
+          <div class="ve-fn-params-panel" id="ve-fn-params-panel" style="display:none">
+            <div class="ve-fn-params-body" id="ve-fn-params-body"></div>
+            <button class="ve-fn-params-add" onclick="fnEditorAddParam()">+ Add parameter</button>
           </div>
 
           <!-- node canvas -->
