@@ -719,16 +719,23 @@ section { margin-bottom: 32px; }
 
 /* Palette user-function chip, badge, and remove button */
 .ve-chip-fn-wrap { display:inline-flex; align-items:stretch; }
-.ve-chip.ve-chip-fn { border-color:rgba(251,191,36,.4); color:#fbbf24; border-right:none; border-radius:6px 0 0 6px; }
+/* Override .ve-chip's block/full-width so it plays nicely in inline-flex */
+.ve-chip.ve-chip-fn {
+  display:inline-flex !important; align-items:center;
+  width:auto !important; margin-bottom:0 !important;
+  border-color:rgba(251,191,36,.4); color:#fbbf24;
+  border-right:none; border-radius:6px 0 0 6px;
+}
 .ve-chip.ve-chip-fn:hover { border-color:#fbbf24; }
 .ve-chip-fn-edit, .ve-chip-fn-remove {
-  display:flex; align-items:center; padding:0 6px;
+  /* padding:4px matches .ve-chip vertical padding so all segments are the same height */
+  display:inline-flex; align-items:center; padding:4px 7px;
   background:transparent; border:1px solid rgba(251,191,36,.4);
   border-left:none; border-radius:0;
   color:rgba(251,191,36,.5); font-size:11px; cursor:pointer; line-height:1;
   transition:color .15s, border-color .15s, background .15s;
 }
-.ve-chip-fn-remove { border-radius:0 6px 6px 0; font-size:13px; }
+.ve-chip-fn-remove { border-radius:0 6px 6px 0; font-size:12px; }
 .ve-chip-fn-edit:hover, .ve-chip-fn-remove:hover {
   color:#fbbf24; border-color:#fbbf24; background:rgba(251,191,36,.08);
 }
