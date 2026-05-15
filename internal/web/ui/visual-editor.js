@@ -3251,6 +3251,7 @@ function openFunctionEditor(funcName) {
 
   initLayout();
   veRender();
+  renderEdges(); // explicit final draw — something in veRender clears SVG after renderCanvas
 }
 
 // saveFunctionEditor regenerates the function's _sourceText from the edited
