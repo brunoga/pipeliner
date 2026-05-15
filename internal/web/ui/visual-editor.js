@@ -701,8 +701,10 @@ function renderPipelineRegions() {
     g._regionH = regionH;
     g._regionY = regionTop; // keep _regionY in sync for addPipeline / deletePipeline
 
-    const regionLeft  = Math.max(0, minX - PAD_X);
-    const regionWidth = maxX + PAD_X - regionLeft;
+    // Always start at left=0 so all pipelines are left-aligned with each
+    // other and with their label bars. Only the right edge is tight.
+    const regionLeft  = 0;
+    const regionWidth = maxX + PAD_X;
 
     // Update an existing element in-place (smooth during drag — no DOM churn).
     let region = canvas.querySelector(`.ve-pipeline-region[data-graph-idx="${i}"]`);
