@@ -78,6 +78,45 @@ func TestCacheKeyIncludesTypeAndList(t *testing.T) {
 	}
 }
 
+func TestHistoryAndRecommendationsAccepted(t *testing.T) {
+	// Verify that history and recommendations are valid list values and hit
+	// the correct private endpoints (both require a token).
+	for _, list := range []string{"history", "recommendations"} {
+		t.Run(list, func(t *testing.T) {
+			srv := makeServer(t, []map[string]any{
+				{"title": "Dune", "year": 2021, "ids": map[string]any{"trakt": 1, "slug": "dune-2021"}},
+			})
+			orig := itrakt.BaseURL
+			itrakt.BaseURL = srv.URL
+			t.Cleanup(func() { itrakt.BaseURL = orig })
+
+			db, err := store.OpenSQLite(":memory:")
+			if err != nil {
+				t.Fatalf("OpenSQLite: %v", err)
+			}
+			t.Cleanup(func() { db.Close() })
+
+			p, err := newPlugin(map[string]any{
+				"client_id":    "test",
+				"access_token": "tok",
+				"type":         "movies",
+				"list":         list,
+			}, db)
+			if err != nil {
+				t.Fatalf("newPlugin(%s): %v", list, err)
+			}
+
+			entries, err := p.(*traktSourcePlugin).Generate(context.Background(), nil)
+			if err != nil {
+				t.Fatalf("Generate(%s): %v", list, err)
+			}
+			if len(entries) != 1 || entries[0].Title != "Dune" {
+				t.Errorf("Generate(%s): got %v", list, entries)
+			}
+		})
+	}
+}
+
 func TestRegistration(t *testing.T) {
 	d, ok := plugin.Lookup("trakt_list")
 	if !ok {
