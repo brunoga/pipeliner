@@ -2071,8 +2071,11 @@ function renderParamPanel() {
     const m = pluginMeta(n.plugin) || {schema: []};
     if (n.plugin !== 'condition' && m.schema?.length) {
       container.querySelectorAll('[data-field]').forEach(el => {
-        el.addEventListener('change', () => collectParams(n, m.schema, container));
-        el.addEventListener('input',  () => collectParams(n, m.schema, container));
+        // input: save model + sync text editor without re-rendering param panel
+        // (re-rendering on every keystroke destroys focus mid-typing).
+        el.addEventListener('input',  () => { collectParams(n, m.schema, container); onModelChange(); });
+        // change (blur): full re-render so canvas node preview updates.
+        el.addEventListener('change', () => { collectParams(n, m.schema, container); veRender(); onModelChange(); });
       });
     } else if (n.plugin !== 'condition' && nid === node.id) {
       wireGenericKV(container, n);
@@ -2338,7 +2341,8 @@ function collectParams(node, schema, body) {
     else if (f.type === 'int') { const v=parseInt(el.value,10); if(!isNaN(v)) node.config[f.key]=v; else delete node.config[f.key]; }
     else if (f.type !== 'list') { if(el.value!=='') node.config[f.key]=el.value; else delete node.config[f.key]; }
   }
-  veRender(); onModelChange();
+  // Do NOT call veRender() here — it rebuilds body.innerHTML and destroys focus.
+  // Callers decide whether a full re-render is needed (change vs. input event).
 }
 
 // Like collectParams but for a via-node (re-renders via nodes + edges).
@@ -2374,24 +2378,25 @@ function renderGenericKV(cfg) {
 }
 
 function wireGenericKV(body, node) {
-  const sync = () => {
+  const save = () => {
     const cfg = {};
     body.querySelectorAll('.ve-kv-row').forEach(row => {
       const k = row.querySelector('[data-kv-key]')?.value.trim();
       const v = row.querySelector('[data-kv-val]')?.value;
       if (k) { try { cfg[k] = JSON.parse(v); } catch { cfg[k] = v; } }
     });
-    node.config = cfg; veRender(); onModelChange();
+    node.config = cfg;
   };
-  body.addEventListener('input', sync);
+  body.addEventListener('input',  () => { save(); onModelChange(); });
+  body.addEventListener('change', () => { save(); veRender(); onModelChange(); });
   body.querySelectorAll('[data-kv-del]').forEach(btn =>
-    btn.addEventListener('click', () => { btn.closest('.ve-kv-row').remove(); sync(); }));
+    btn.addEventListener('click', () => { btn.closest('.ve-kv-row').remove(); save(); veRender(); onModelChange(); }));
   body.querySelector('#ve-kv-add')?.addEventListener('click', () => {
     const row = document.createElement('div');
     row.className = 've-kv-row';
     row.innerHTML = `<input class="ve-kv-key" placeholder="key">
       <input class="ve-kv-val" placeholder="value"><button class="ve-kv-del">×</button>`;
-    row.querySelector('.ve-kv-del').addEventListener('click', () => { row.remove(); sync(); });
+    row.querySelector('.ve-kv-del').addEventListener('click', () => { row.remove(); save(); veRender(); onModelChange(); });
     body.querySelector('#ve-kv-add').before(row);
   });
 }
