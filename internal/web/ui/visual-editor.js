@@ -171,7 +171,7 @@ function renderPalette(filter) {
   const userFuncList = Object.values(ve.userFunctions)
     .filter(fd => !q || fd.name.includes(q) || (fd.description||'').toLowerCase().includes(q));
   if (userFuncList.length) {
-    html.push(`<div class="ve-role-header" onclick="toggleRoleGroup(this)">Functions</div>`);
+    html.push(`<div class="ve-role-header" data-role="function" onclick="toggleRoleGroup(this)">Functions</div>`);
     html.push(`<div class="ve-role-chips">`);
     for (const fd of userFuncList) {
       html.push(`<span class="ve-chip-fn-wrap">
