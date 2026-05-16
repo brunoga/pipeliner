@@ -774,19 +774,22 @@ section { margin-bottom: 32px; }
 .ve-list-edge.connecting { stroke:var(--ve-list-lit); stroke-width:1.5; stroke-dasharray:5,3; }
 
 /* Palette user-function chip, badge, and remove button */
-.ve-chip-fn-wrap { display:inline-flex; align-items:stretch; }
-/* Override .ve-chip's block/full-width so it plays nicely in inline-flex */
+.ve-chip-fn-wrap { display:flex; align-items:stretch; width:100%; margin-bottom:2px; }
+/* Override .ve-chip's block/full-width so it can shrink inside the flex wrap */
 .ve-chip.ve-chip-fn {
   display:inline-flex !important; align-items:center;
+  flex:1; min-width:0;        /* shrink + truncate when name is long */
   width:auto !important; margin-bottom:0 !important;
   border-color:rgba(251,191,36,.4); color:var(--ve-fn);
   border-right:none; border-radius:6px 0 0 6px;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
   /* override any role-based hover colour — handled by the wrap rule below */
   transition:color .15s, border-color .15s, background .15s;
 }
 .ve-chip-fn-edit, .ve-chip-fn-remove {
   /* padding:4px matches .ve-chip vertical padding so all segments are the same height */
   display:inline-flex; align-items:center; padding:4px 7px;
+  flex-shrink:0;              /* buttons never get squeezed */
   background:transparent; border:1px solid rgba(251,191,36,.4);
   border-left:none; border-radius:0;
   color:rgba(251,191,36,.5); font-size:11px; cursor:pointer; line-height:1;
