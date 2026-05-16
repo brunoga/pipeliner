@@ -174,7 +174,7 @@ function renderPalette(filter) {
     html.push(`<div class="ve-role-header" data-role="function" onclick="toggleRoleGroup(this)">Functions</div>`);
     html.push(`<div class="ve-role-chips">`);
     for (const fd of userFuncList) {
-      html.push(`<span class="ve-chip-fn-wrap">
+      html.push(`<span class="ve-chip-fn-wrap" data-role="${fd.role}">
         <button class="ve-chip ve-chip-fn" data-role="${fd.role}" draggable="true"
           title="${esc(fd.description || fd.name)}"
           ondragstart="paletteDragStart(event,${esc(JSON.stringify(fd.name))})"

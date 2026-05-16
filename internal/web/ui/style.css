@@ -19,7 +19,8 @@ html { scrollbar-gutter: stable; }
   --ve-list:       #0d9373;
   --ve-list-lit:   #2dd4b8;
   --ve-chain:      #e3b341;
-  --ve-fn:         #fbbf24;
+  --ve-fn:         #f472b6;
+  --ve-output:     #ffa657;
 }
 
 /* keyboard-focus outline for all interactive elements */
@@ -387,7 +388,7 @@ section { margin-bottom: 32px; }
 .ve-phase-header[data-phase="metainfo"]::before { background:var(--ve-search-lit); }
 .ve-phase-header[data-phase="filter"]::before   { background:var(--accent); }
 .ve-phase-header[data-phase="modify"]::before   { background:#56d364; }
-.ve-phase-header[data-phase="output"]::before   { background:#ffa657; }
+.ve-phase-header[data-phase="output"]::before   { background:var(--ve-output); }
 .ve-phase-chips { }
 .ve-chip {
   display:block; width:100%; text-align:left;
@@ -564,11 +565,11 @@ section { margin-bottom: 32px; }
 
 /* Extract-to-function toolbar button */
 .ve-extract-fn-btn {
-  padding:3px 12px; border:1px solid rgba(251,191,36,.5); border-radius:5px;
+  padding:3px 12px; border:1px solid rgba(244,114,182,.5); border-radius:5px;
   background:transparent; color:var(--ve-fn); font-size:12px; cursor:pointer;
   font-weight:500; transition:border-color .15s, background .15s; flex-shrink:0;
 }
-.ve-extract-fn-btn:hover { border-color:var(--ve-fn); background:rgba(251,191,36,.08); }
+.ve-extract-fn-btn:hover { border-color:var(--ve-fn); background:rgba(244,114,182,.08); }
 
 /* Paste toolbar button */
 .ve-paste-btn {
@@ -780,47 +781,59 @@ section { margin-bottom: 32px; }
   display:inline-flex !important; align-items:center;
   flex:1; min-width:0;        /* shrink + truncate when name is long */
   width:auto !important; margin-bottom:0 !important;
-  border-color:rgba(251,191,36,.4); color:var(--ve-fn);
+  border-color:var(--border); color:var(--muted); /* overridden per-role below */
   border-right:none; border-radius:6px 0 0 6px;
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
-  /* override any role-based hover colour — handled by the wrap rule below */
   transition:color .15s, border-color .15s, background .15s;
 }
 .ve-chip-fn-edit, .ve-chip-fn-remove {
   /* padding:4px matches .ve-chip vertical padding so all segments are the same height */
   display:inline-flex; align-items:center; padding:4px 7px;
   flex-shrink:0;              /* buttons never get squeezed */
-  background:transparent; border:1px solid rgba(251,191,36,.4);
+  background:transparent; border:1px solid var(--border);
   border-left:none; border-radius:0;
-  color:rgba(251,191,36,.5); font-size:11px; cursor:pointer; line-height:1;
+  color:var(--muted); font-size:11px; cursor:pointer; line-height:1;
   transition:color .15s, border-color .15s, background .15s;
 }
 .ve-chip-fn-remove { border-radius:0 6px 6px 0; font-size:12px; }
-/* Hovering anywhere on the wrap highlights the whole row in amber. */
-.ve-chip-fn-wrap:hover .ve-chip.ve-chip-fn {
-  border-color:var(--ve-fn); color:var(--ve-fn);
-}
-.ve-chip-fn-wrap:hover .ve-chip-fn-edit,
-.ve-chip-fn-wrap:hover .ve-chip-fn-remove {
-  border-color:rgba(251,191,36,.6); color:rgba(251,191,36,.7);
-}
-/* Hovering directly over an action button gives it a stronger highlight. */
-.ve-chip-fn-edit:hover, .ve-chip-fn-remove:hover {
-  color:var(--ve-fn); border-color:var(--ve-fn); background:rgba(251,191,36,.08);
-}
+
+/* Role-keyed colours: dim at rest, full on wrap hover, background on direct button hover */
+.ve-chip-fn-wrap[data-role="source"]    .ve-chip.ve-chip-fn,
+.ve-chip-fn-wrap[data-role="source"]    .ve-chip-fn-edit,
+.ve-chip-fn-wrap[data-role="source"]    .ve-chip-fn-remove { border-color:rgba(63,185,80,.35);  color:var(--green); }
+.ve-chip-fn-wrap[data-role="processor"] .ve-chip.ve-chip-fn,
+.ve-chip-fn-wrap[data-role="processor"] .ve-chip-fn-edit,
+.ve-chip-fn-wrap[data-role="processor"] .ve-chip-fn-remove { border-color:rgba(88,166,255,.35); color:var(--accent); }
+.ve-chip-fn-wrap[data-role="sink"]      .ve-chip.ve-chip-fn,
+.ve-chip-fn-wrap[data-role="sink"]      .ve-chip-fn-edit,
+.ve-chip-fn-wrap[data-role="sink"]      .ve-chip-fn-remove { border-color:rgba(255,166,87,.35); color:var(--ve-output); }
+
+.ve-chip-fn-wrap[data-role="source"]:hover    .ve-chip.ve-chip-fn,
+.ve-chip-fn-wrap[data-role="source"]:hover    .ve-chip-fn-edit,
+.ve-chip-fn-wrap[data-role="source"]:hover    .ve-chip-fn-remove { border-color:var(--green);     color:var(--green); }
+.ve-chip-fn-wrap[data-role="processor"]:hover .ve-chip.ve-chip-fn,
+.ve-chip-fn-wrap[data-role="processor"]:hover .ve-chip-fn-edit,
+.ve-chip-fn-wrap[data-role="processor"]:hover .ve-chip-fn-remove { border-color:var(--accent);    color:var(--accent); }
+.ve-chip-fn-wrap[data-role="sink"]:hover      .ve-chip.ve-chip-fn,
+.ve-chip-fn-wrap[data-role="sink"]:hover      .ve-chip-fn-edit,
+.ve-chip-fn-wrap[data-role="sink"]:hover      .ve-chip-fn-remove { border-color:var(--ve-output); color:var(--ve-output); }
+
+.ve-chip-fn-edit:hover, .ve-chip-fn-remove:hover { background:rgba(255,255,255,.06); }
+
+/* "fn" badge inside the chip — role colour to match the row */
 .ve-chip-fn-badge {
   display:inline-block; margin-left:5px; padding:1px 4px;
   font-size:8px; font-weight:700; text-transform:uppercase; letter-spacing:.04em;
-  border-radius:3px; border:1px solid rgba(251,191,36,.5);
-  background:rgba(251,191,36,.15); color:var(--ve-fn);
+  border-radius:3px; border:1px solid currentColor;
+  background:transparent; opacity:.7;
   vertical-align:middle; line-height:1.4; pointer-events:none;
 }
-/* Function-call node card uses an amber left border */
+/* Function-call node: only amber for the left-border accent; role colours apply everywhere else */
 .ve-node.ve-node-fn { border-left-color:var(--ve-fn); }
 .ve-node-fn-badge {
   display:inline-block; margin-left:4px; padding:1px 4px;
   font-size:8px; font-weight:700; text-transform:uppercase; letter-spacing:.04em;
-  border-radius:3px; background:rgba(251,191,36,.2); color:var(--ve-fn);
+  border-radius:3px; background:rgba(244,114,182,.2); color:var(--ve-fn);
   vertical-align:middle; line-height:1.4;
 }
 
@@ -992,7 +1005,7 @@ section { margin-bottom: 32px; }
 /* Role colour palette */
 .ve-role-source    { color:var(--green); border-color:var(--green); }
 .ve-role-processor { color:var(--accent); border-color:var(--accent); }
-.ve-role-sink      { color:#ffa657; border-color:#ffa657; }
+.ve-role-sink      { color:var(--ve-output); border-color:var(--ve-output); }
 
 /* Palette role group headers */
 .ve-role-header {
@@ -1002,13 +1015,13 @@ section { margin-bottom: 32px; }
 }
 .ve-role-header[data-role="source"]::before    { content:''; display:inline-block; width:8px; height:8px; border-radius:50%; flex-shrink:0; background:var(--green); }
 .ve-role-header[data-role="processor"]::before { content:''; display:inline-block; width:8px; height:8px; border-radius:50%; flex-shrink:0; background:var(--accent); }
-.ve-role-header[data-role="sink"]::before      { content:''; display:inline-block; width:8px; height:8px; border-radius:50%; flex-shrink:0; background:#ffa657; }
+.ve-role-header[data-role="sink"]::before      { content:''; display:inline-block; width:8px; height:8px; border-radius:50%; flex-shrink:0; background:var(--ve-output); }
 .ve-role-header[data-role="function"]::before  { content:''; display:inline-block; width:8px; height:8px; border-radius:50%; flex-shrink:0; background:var(--ve-fn); }
 
 /* Chip role colouring — excluded from .ve-chip-fn (handled by wrap hover above) */
 .ve-chip[data-role="source"]:not(.ve-chip-fn):hover    { border-color:var(--green); color:var(--green); }
 .ve-chip[data-role="processor"]:not(.ve-chip-fn):hover { border-color:var(--accent); color:var(--accent); }
-.ve-chip[data-role="sink"]:not(.ve-chip-fn):hover      { border-color:#ffa657; color:#ffa657; }
+.ve-chip[data-role="sink"]:not(.ve-chip-fn):hover      { border-color:var(--ve-output); color:var(--ve-output); }
 
 /* Ghost chip rendered during palette drag (styles applied inline to avoid
    width:100% inheritance and CSS-variable context issues). */
@@ -1031,8 +1044,8 @@ section { margin-bottom: 32px; }
 /* Function editor toolbar */
 .ve-fn-bar {
   display:flex; align-items:center; gap:8px; flex-shrink:0;
-  padding:8px 14px; border-bottom:1px solid rgba(251,191,36,.3);
-  background:rgba(251,191,36,.04);
+  padding:8px 14px; border-bottom:1px solid rgba(244,114,182,.3);
+  background:rgba(244,114,182,.04);
 }
 .ve-fn-bar-back {
   padding:3px 10px; background:transparent; border:1px solid var(--border);
@@ -1042,7 +1055,7 @@ section { margin-bottom: 32px; }
 .ve-fn-bar-back:hover { color:var(--text); border-color:var(--text); }
 .ve-fn-bar-label { font-size:12px; color:var(--muted); white-space:nowrap; }
 .ve-fn-bar-name {
-  padding:3px 8px; border:1px solid rgba(251,191,36,.4); border-radius:5px;
+  padding:3px 8px; border:1px solid rgba(244,114,182,.4); border-radius:5px;
   background:var(--bg); color:var(--ve-fn); font-size:13px; font-weight:600;
   font-family:inherit; outline:none; min-width:120px;
 }
@@ -1105,16 +1118,16 @@ section { margin-bottom: 32px; }
 .ve-param-ref-badge {
   display:inline-block; margin-left:6px; padding:1px 6px;
   font-size:10px; font-weight:600; border-radius:3px;
-  background:rgba(251,191,36,.15); color:var(--ve-fn);
-  border:1px solid rgba(251,191,36,.4); vertical-align:middle;
+  background:rgba(244,114,182,.15); color:var(--ve-fn);
+  border:1px solid rgba(244,114,182,.4); vertical-align:middle;
 }
 .ve-param-ref-note {
   font-size:11px; color:var(--muted); font-style:italic; padding:2px 0;
 }
 .ve-param-ref-unlink {
   display:inline-block; margin-left:6px; padding:1px 6px; font-size:10px;
-  background:transparent; border:1px solid rgba(251,191,36,.3);
-  border-radius:3px; color:rgba(251,191,36,.6); cursor:pointer;
+  background:transparent; border:1px solid rgba(244,114,182,.3);
+  border-radius:3px; color:rgba(244,114,182,.6); cursor:pointer;
   vertical-align:middle; transition:color .15s, border-color .15s;
 }
 .ve-param-ref-unlink:hover { color:var(--ve-fn); border-color:var(--ve-fn); }
@@ -1126,17 +1139,17 @@ section { margin-bottom: 32px; }
   border-radius:3px; color:var(--muted); cursor:pointer;
   vertical-align:middle; transition:color .15s, border-color .15s;
 }
-.ve-param-promote-btn:hover { color:var(--ve-fn); border-color:rgba(251,191,36,.5); }
+.ve-param-promote-btn:hover { color:var(--ve-fn); border-color:rgba(244,114,182,.5); }
 
 /* Upstream pseudo-node: represents the function's upstream= parameter */
 .ve-node.ve-node-upstream-pseudo {
-  border-color:rgba(251,191,36,.5); background:rgba(251,191,36,.06);
+  border-color:rgba(244,114,182,.5); background:rgba(244,114,182,.06);
   cursor:default;
 }
 .ve-node.ve-node-upstream-pseudo .ve-node-role-bar { background:var(--ve-fn); }
 .ve-node.ve-node-upstream-pseudo .ve-node-name { color:var(--ve-fn); }
 .ve-upstream-label {
-  font-size:10px; color:rgba(251,191,36,.7); margin-top:2px;
+  font-size:10px; color:rgba(244,114,182,.7); margin-top:2px;
   font-style:italic;
 }
 .ve-pipeline-name-input {
@@ -1152,7 +1165,7 @@ section { margin-bottom: 32px; }
 }
 .ve-node[data-role="source"]    .ve-node-role-bar { background:var(--green); }
 .ve-node[data-role="processor"] .ve-node-role-bar { background:var(--accent); }
-.ve-node[data-role="sink"]      .ve-node-role-bar { background:#ffa657; }
+.ve-node[data-role="sink"]      .ve-node-role-bar { background:var(--ve-output); }
 
 /* Node name and badge are stacked (no header wrapper) */
 
