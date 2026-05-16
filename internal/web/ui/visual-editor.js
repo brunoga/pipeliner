@@ -2731,7 +2731,12 @@ function nodesToFunctionSource(funcName, params, selectedIds, validation, graph)
   lines.push(`def ${funcName}(${sig}):`);
   if (ordered.length === 0) lines.push('    pass');
 
+  const regionY = graph._regionY ?? 0;
   for (const n of ordered) {
+    // Persist position so reopening the function editor restores the layout.
+    if (n.x != null && n.y != null) {
+      lines.push(`    # pipeliner:pos ${Math.round(n.x)} ${Math.round(n.y - regionY)}`);
+    }
     const role = pluginMeta(n.plugin)?.role || 'processor';
     const internalUps = (n.upstreams || []).filter(u => selectedIds.has(u));
     const externalUps = (n.upstreams || []).filter(u => !selectedIds.has(u));
@@ -3248,6 +3253,7 @@ function parseFunctionBodyNodes(funcName) {
   const nodes = [];
   let returnNodeId = null;
 
+  let pendingPos = null; // set by # pipeliner:pos comments inside the body
   for (let i = defIdx + 1; i < lines.length; i++) {
     const raw = lines[i];
     if (!raw.trim()) continue;
@@ -3259,10 +3265,14 @@ function parseFunctionBodyNodes(funcName) {
       continue;
     }
 
+    // Capture position comment so the next node can use it.
+    const posM = line.match(/^#\s*pipeliner:pos\s+(-?\d+)\s+(-?\d+)/);
+    if (posM) { pendingPos = {x: parseInt(posM[1], 10), y: parseInt(posM[2], 10)}; continue; }
+
     // Match: var = input/process/output("plugin", ...kwargs...)
     // Use a non-greedy match to the last ) on the line.
     const m = line.match(/^(\w+)\s*=\s*(input|process|output)\((.+)\)\s*$/);
-    if (!m) continue;
+    if (!m) { pendingPos = null; continue; }
 
     const [, varName, , argsRaw] = m;
     const {plugin, kwargs} = fnParseCallArgs(argsRaw);
@@ -3294,8 +3304,9 @@ function parseFunctionBodyNodes(funcName) {
     const node = {
       id: varName, plugin, config, upstreams,
       searchNodeIds: [], listNodeIds: [], comment: '',
-      x: null, y: null,
+      x: pendingPos?.x ?? null, y: pendingPos?.y ?? null,
     };
+    pendingPos = null; // consumed
     if (Object.keys(paramRefs).length)  node._paramRefs = paramRefs;
     if (searchRaw !== null)             node._searchRaw  = searchRaw;
     if (listRaw   !== null)             node._listRaw    = listRaw;
@@ -3389,7 +3400,8 @@ function openFunctionEditor(funcName) {
     paramsOpen:     false,
   };
 
-  ve.graphs      = [{name: funcName, schedule: '', comment: '', nodes: allNodes, _hasLayout: false}];
+  const hasStoredLayout = allNodes.some(n => !n.isSearchNode && !n.isListNode && n.x != null && n.y != null);
+  ve.graphs      = [{name: funcName, schedule: '', comment: '', nodes: allNodes, _hasLayout: hasStoredLayout}];
   ve.activeGraph = 0;
   ve.selectedNodeId = null;
 
