@@ -100,7 +100,7 @@ MOVIE_CARD = """
 # ══════════════════════════════════════════════════════════════════════════════
 
 def jackett_source(indexers, categories):
-    src = input("jackett_input",
+    src = input("jackett",
                 url=jackett_url, api_key=jackett_key,
                 indexers=indexers, categories=categories, limit=500)
     return process("torrent_alive", upstream=src, min_seeds=1)
