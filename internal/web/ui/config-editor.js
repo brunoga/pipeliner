@@ -12,7 +12,7 @@ async function loadConfig() {
     configLoaded = true;
     syncHighlight();
     textToVisualSync(); // re-sync now that we have actual content
-  } catch (e) { /* silently skip if endpoint not available */ }
+  } catch (e) { console.error('loadConfig:', e); }
 }
 
 async function validateConfig() {
