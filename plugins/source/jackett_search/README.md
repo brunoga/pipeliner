@@ -1,10 +1,10 @@
 # jackett
 
-A from plugin that queries a [Jackett](https://github.com/Jackett/Jackett) indexer proxy via the Torznab API. Used as a search backend for the [`discover`](../../processor/discover/README.md) input plugin via its `via` config key.
+A search plugin that queries a [Jackett](https://github.com/Jackett/Jackett) indexer proxy via the Torznab API. Used as a search backend for the [`discover`](../../processor/discover/README.md) plugin via its `search` config key.
 
 Unlike `rss_search` pointed at Jackett's RSS endpoint, this plugin speaks Torznab natively: seeder/leecher counts, info hashes, and file sizes come back in the search response, so no separate `metainfo_torrent` or `metainfo_magnet` fetch is needed.
 
-Use as a standalone `input()` source node, or inside `series.from`, `movies.from`, `discover.from`, or `discover.via` config keys.
+Use as a standalone `input()` source node, or inside `series.list`, `movies.list`, `discover.list`, or `discover.search` config keys.
 
 ## Config
 
@@ -22,10 +22,10 @@ Use as a standalone `input()` source node, or inside `series.from`, `movies.from
 ```python
 task("tv-shows", [
     plugin("discover", **{
-        "from": [
+        "list": [
             {"name": "tvdb_favorites", "api_key": "YOUR_TVDB_KEY", "user_pin": "YOUR_TVDB_PIN"},
         ],
-        "via": [
+        "search": [
             {"name": "jackett_search", "url": "http://localhost:9117",
              "api_key": "YOUR_JACKETT_KEY", "indexers": ["all"],
              "categories": ["5000", "5030"]},
@@ -68,7 +68,7 @@ task("tv-shows", [
 
 ## DAG role
 
-`jackett` has `Role=source`. It is used inside `discover.via` for targeted searches, and can also be used as a standalone `input()` node in DAG pipelines:
+`jackett` has `Role=source`. It is used inside `discover.search` for targeted searches, and can also be used as a standalone `input()` node in DAG pipelines:
 
 ```python
 # DAG: jackett as a standalone source (no query — returns recent results)
