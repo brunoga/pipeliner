@@ -2026,6 +2026,9 @@ function renderParamPanel() {
     html.push(`<div class="ve-conn-warn">${warns.map(w => `⚠ ${esc(w)}`).join('<br>')}</div>`);
 
   html.push('<div class="ve-field-sep"></div>');
+  // Wrap main-node fields in a scoped container so collectParams can be wired
+  // independently from sub-node (list/search) fields below.
+  html.push(`<div class="ve-node-fields" data-node-id="${esc(node.id)}">`);
   if (node.plugin === 'condition') {
     html.push(renderCondRulesWidget(node));
   } else if (meta.schema?.length) {
@@ -2037,17 +2040,44 @@ function renderParamPanel() {
   } else {
     html.push(renderGenericKV(node.config));
   }
+  html.push('</div>');
+
+  // Append parameter sections for connected list and search sub-nodes so their
+  // fields can also be promoted to function params (or hardcoded) from here.
+  for (const subIds of [node.listNodeIds || [], node.searchNodeIds || []]) {
+    for (const sid of subIds) {
+      const sn    = findNode(sid);
+      const sMeta = sn ? pluginMeta(sn.plugin) : null;
+      if (!sn || !sMeta?.schema?.length) continue;
+      const badge = sn.isListNode ? '<span class="ve-node-list-badge">list</span>'
+                                  : '<span class="ve-node-search-badge">search</span>';
+      html.push(`<div class="ve-field-sep"></div>`);
+      html.push(`<div class="ve-sub-node-header">${badge} <span class="ve-sub-node-plugin">${esc(sn.plugin)}</span></div>`);
+      html.push(`<div class="ve-node-fields" data-node-id="${esc(sn.id)}">`);
+      for (const f of sMeta.schema) {
+        html.push(renderField(f, sn.config, sn));
+      }
+      html.push('</div>');
+    }
+  }
 
   body.innerHTML = html.join('');
 
-  if (node.plugin !== 'condition' && meta.schema?.length) {
-    body.querySelectorAll('[data-field]').forEach(el => {
-      el.addEventListener('change', () => collectParams(node, meta.schema, body));
-      el.addEventListener('input',  () => collectParams(node, meta.schema, body));
-    });
-  } else if (node.plugin !== 'condition') {
-    wireGenericKV(body, node);
-  }
+  // Wire collectParams for the main node and each sub-node independently.
+  body.querySelectorAll('.ve-node-fields').forEach(container => {
+    const nid = container.dataset.nodeId;
+    const n   = findNode(nid);
+    if (!n) return;
+    const m = pluginMeta(n.plugin) || {schema: []};
+    if (n.plugin !== 'condition' && m.schema?.length) {
+      container.querySelectorAll('[data-field]').forEach(el => {
+        el.addEventListener('change', () => collectParams(n, m.schema, container));
+        el.addEventListener('input',  () => collectParams(n, m.schema, container));
+      });
+    } else if (n.plugin !== 'condition' && nid === node.id) {
+      wireGenericKV(container, n);
+    }
+  });
 }
 
 function toggleUpstream(nodeId, upId, checked) {
