@@ -893,7 +893,7 @@ series = process("series", upstream=rss_src, list=[
 
 <!-- ─────────── jackett_search (from) ─────────── -->
 <h2 id="jackett_search">jackett_search</h2>
-<p>Searches a Jackett indexer proxy via Torznab. Used inside <code>discover.via</code> as a search backend. Seeder counts, info hashes, and sizes come directly in the search response — no separate metainfo fetch needed. Sets <code>torrent_link_type</code> on each result so downstream plugins (<code>metainfo_torrent</code>, <code>metainfo_magnet</code>, <code>deluge</code>, etc.) handle the URL correctly without probing it.</p>
+<p>Searches a Jackett indexer proxy via Torznab. Used inside <code>discover.search</code> as a search backend. Seeder counts, info hashes, and sizes come directly in the search response — no separate metainfo fetch needed. Sets <code>torrent_link_type</code> on each result so downstream plugins (<code>metainfo_torrent</code>, <code>metainfo_magnet</code>, <code>deluge</code>, etc.) handle the URL correctly without probing it.</p>
 
 <table>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
