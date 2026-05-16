@@ -985,10 +985,13 @@ function updateCanvasSize() {
 // No outer sizer div needed — the canvas body uses overflow:hidden.
 function applyZoom() {
   const canvas = document.getElementById('ve-graph-canvas');
-  const label  = document.getElementById('ve-zoom-pct');
   if (!canvas) return;
   canvas.style.transform = `translate(${ve_panX}px,${ve_panY}px) scale(${ve_zoom})`;
-  if (label) label.textContent = Math.round(ve_zoom * 100) + '%';
+  const pct = Math.round(ve_zoom * 100) + '%';
+  const l1 = document.getElementById('ve-zoom-pct');    // pipeline bar
+  const l2 = document.getElementById('ve-zoom-pct-fn'); // function bar
+  if (l1) l1.textContent = pct;
+  if (l2) l2.textContent = pct;
 }
 
 function setZoom(z) {
@@ -1099,6 +1102,8 @@ function layoutGraph(g, globalY) {
   }
 
   // Position list-connected nodes in a row above their parent.
+  // Minimum Y is just below the label (globalY + 40), NOT startY (which includes
+  // listPad and would push the list node down to the same level as the parent).
   for (const n of g.nodes) {
     if (!n.listNodeIds?.length) continue;
     const LIST_GAP = 18;
@@ -1108,7 +1113,7 @@ function layoutGraph(g, globalY) {
       const ln = g.nodes.find(x => x.id === id);
       if (ln) {
         ln.x = Math.max(0, startLX + i * (NODE_W + LIST_GAP));
-        ln.y = Math.max(startY + 4, (n.y ?? 0) - NODE_H - 65);
+        ln.y = Math.max(globalY + 40, (n.y ?? 0) - NODE_H - 65);
       }
     });
   }
@@ -3318,16 +3323,6 @@ function openFunctionEditor(funcName) {
   const {nodes, returnNodeId} = parsed;
   const allNodes = [...nodes];
 
-  // For processor/sink functions, prepend the upstream pseudo-node so users
-  // can visually connect entry nodes to their function's upstream parameter.
-  if (fd.role !== 'source') {
-    allNodes.unshift({
-      id: '_upstream', plugin: '_upstream', config: {},
-      upstreams: [], searchNodeIds: [], listNodeIds: [], comment: '',
-      isUpstreamPseudo: true, x: null, y: null,
-    });
-  }
-
   // Snapshot current canvas state for restoration on exit.
   ve.fnEditor = {
     active:         true,
@@ -3400,10 +3395,10 @@ function saveFunctionEditor() {
   }
 
   const returnNodeId      = terminals[0]?.id ?? mainNodes[mainNodes.length - 1].id;
-  const hasUpstreamPseudo = g.nodes.some(n => n.isUpstreamPseudo);
-  // entryUpstreams just needs to be non-empty to tell nodesToFunctionSource to
-  // add 'upstream' to the signature; the actual IDs don't matter here.
-  const entryUpstreams = hasUpstreamPseudo ? ['__entry__'] : [];
+  // A function needs an 'upstream' parameter if any body node connects to the
+  // '_upstream' entry point (implicit for processor/sink functions).
+  const entryUpstreams = mainNodes.some(n => (n.upstreams || []).includes('_upstream'))
+    ? ['__entry__'] : [];
   const validation     = {entryUpstreams, returnNodeId};
 
   // Build the params array for nodesToFunctionSource by mapping each param to
