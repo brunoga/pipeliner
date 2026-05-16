@@ -22,7 +22,7 @@ func (m *mockSourcePlugin) Generate(_ context.Context, _ *plugin.TaskContext) ([
 	return m.entries, nil
 }
 
-// registerMockSource registers a mock source-plugin factory so MakeFromPlugin can find it.
+// registerMockSource registers a mock source-plugin factory so MakeListPlugin can find it.
 func registerMockSource(mock *mockSourcePlugin) string {
 	name := "mock-src-" + mock.pluginName
 	func() {

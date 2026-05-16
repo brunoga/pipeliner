@@ -13,5 +13,5 @@ Combine multiple sources with `merge(src1, src2)` — duplicate URLs are dropped
 | [`jackett`](jackett/README.md) | `jackett` | Fetch recent results from Jackett indexers as a passive feed |
 | [`trakt_list`](trakt_list/README.md) | `trakt_list` | Fetch movies or shows from a Trakt.tv list |
 | [`tvdb_favorites`](tvdb_favorites/README.md) | `tvdb_favorites` | Fetch shows from a TheTVDB user's favorites list |
-| [`jackett_search`](jackett_search/README.md) | `jackett_search` | Search Jackett via Torznab (also a search backend for `discover.via`) |
-| [`rss_search`](rss_search/README.md) | `rss_search` | Search a parameterized RSS URL (also a backend for `discover.via`) |
+| [`jackett_search`](jackett_search/README.md) | `jackett_search` | Search Jackett via Torznab (also a search backend for `discover.search`) |
+| [`rss_search`](rss_search/README.md) | `rss_search` | Search a parameterized RSS URL (also a backend for `discover.search`) |
