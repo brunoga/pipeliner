@@ -485,7 +485,7 @@ function renderGraphNodes() {
           `Comment — ${n.plugin} (${n.id})`,
           'Enter a comment (shown above this node in the config file)…',
           n.comment || '',
-          text => { n.comment = text; renderGraphNodes(); renderEdges(); onModelChange(); }
+          text => { n.comment = text; veRender(); onModelChange(); }
         );
       });
 
@@ -1364,14 +1364,24 @@ function initCanvasEvents() {
   // Re-fit the layout on every window resize so the page never scrolls.
   window.addEventListener('resize', fitVisualEditor);
 
-  // Keyboard shortcuts: Escape clears multi-selection; Cmd/Ctrl+C copies;
-  // Cmd/Ctrl+V pastes. Shortcuts are suppressed when focus is in a text field.
+  // Keyboard shortcuts — all suppressed when focus is in a text input.
   window.addEventListener('keydown', e => {
     const inInput = ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName) ||
                     e.target.isContentEditable;
-    if (e.key === 'Escape' && ve.selectedNodeIds.size > 0 && !inInput) {
-      clearMultiSelect();
-      renderParamPanel();
+    if (e.key === 'Escape' && !inInput) {
+      if (ve.selectedNodeIds.size > 0) {
+        clearMultiSelect();
+        renderParamPanel();
+      } else if (ve.selectedNodeId) {
+        const prev = ve.selectedNodeId;
+        ve.selectedNodeId = null;
+        document.querySelector(`.ve-node[data-id="${prev}"]`)?.classList.remove('selected');
+        renderParamPanel();
+      }
+    }
+    if ((e.key === 'Delete' || e.key === 'Backspace') && !inInput && ve.selectedNodeId) {
+      e.preventDefault();
+      removeNode(ve.selectedNodeId);
     }
     if ((e.metaKey || e.ctrlKey) && e.key === 'c' && !inInput) {
       e.preventDefault();
@@ -2050,7 +2060,7 @@ function toggleSearch(nodeId, searchId, checked) {
     target.isSearchNode   = false;
     delete target.searchParentId;
   }
-  renderEdges(); renderGraphNodes(); onModelChange();
+  veRender(); onModelChange();
 }
 
 function toggleList(nodeId, listId, checked) {
@@ -2071,7 +2081,7 @@ function toggleList(nodeId, listId, checked) {
     target.isListNode   = false;
     delete target.listParentId;
   }
-  renderEdges(); renderGraphNodes(); onModelChange();
+  veRender(); onModelChange();
 }
 
 // ── field widgets ─────────────────────────────────────────────────────────────
@@ -2173,7 +2183,7 @@ function updateCondRules() {
     expr: row.querySelector('.ve-cond-expr').value,
   }));
   node.config = buildCondConfig(rules);
-  renderGraphNodes(); renderEdges(); onModelChange();
+  veRender(); onModelChange();
 }
 
 // renderField renders one schema field widget.  When called inside the function
@@ -2257,8 +2267,7 @@ function openFieldPopup(fieldKey, hint) {
   openTextPopup(fieldKey, hint, String(node.config[fieldKey] ?? ''), text => {
     if (text !== '') node.config[fieldKey] = text;
     else delete node.config[fieldKey];
-    renderGraphNodes(); renderEdges(); onModelChange();
-    renderParamPanel();
+    veRender(); onModelChange();
   });
 }
 
@@ -2272,7 +2281,7 @@ function collectParams(node, schema, body) {
     else if (f.type === 'int') { const v=parseInt(el.value,10); if(!isNaN(v)) node.config[f.key]=v; else delete node.config[f.key]; }
     else if (f.type !== 'list') { if(el.value!=='') node.config[f.key]=el.value; else delete node.config[f.key]; }
   }
-  renderGraphNodes(); renderEdges(); onModelChange();
+  veRender(); onModelChange();
 }
 
 // Like collectParams but for a via-node (re-renders via nodes + edges).
@@ -2315,7 +2324,7 @@ function wireGenericKV(body, node) {
       const v = row.querySelector('[data-kv-val]')?.value;
       if (k) { try { cfg[k] = JSON.parse(v); } catch { cfg[k] = v; } }
     });
-    node.config = cfg; renderGraphNodes(); renderEdges(); onModelChange();
+    node.config = cfg; veRender(); onModelChange();
   };
   body.addEventListener('input', sync);
   body.querySelectorAll('[data-kv-del]').forEach(btn =>
