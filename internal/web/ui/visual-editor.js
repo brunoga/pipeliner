@@ -3047,21 +3047,29 @@ async function expandAndRemoveFunction(funcName) {
     }
 
     // Third pass: synthetic collapsed nodes for calls we are keeping.
+    // Pre-build a map so function→function entry upstreams resolve correctly:
+    // when function B's entry node has upstream=<return_node of A>, we replace
+    // it with A's call_key rather than the internal variable name.
+    const returnToCallKey1 = {};
+    for (const fc of keepCalls) returnToCallKey1[fc.return_node_id] = fc.call_key;
+
     for (const fc of keepCalls) {
       const internalSet = new Set(fc.internal_node_ids);
       const entryUpstreams = [];
       for (const n of rawNodes) {
         if (!internalSet.has(n.id)) continue;
         for (const up of (n.upstreams || [])) {
-          if (!internalSet.has(up)) entryUpstreams.push(up);
+          if (!internalSet.has(up)) entryUpstreams.push(returnToCallKey1[up] ?? up);
         }
       }
       for (const n of nodes) {
-        if (n.isFunctionCall) continue;
         n.upstreams = n.upstreams.map(u => u === fc.return_node_id ? fc.call_key : u);
       }
+      // fc.args is always empty from the server — recover call-site kwargs from source.
+      const recoveredArgs = (fc.args && Object.keys(fc.args).length)
+        ? fc.args : parseFunctionCallArgs(content, fc.call_key, fc.func);
       nodes.push({
-        id: fc.call_key, plugin: fc.func, config: fc.args || {},
+        id: fc.call_key, plugin: fc.func, config: recoveredArgs,
         upstreams: entryUpstreams, searchNodeIds: [], listNodeIds: [], comment: '',
         isFunctionCall: true, funcCallKey: fc.call_key,
         internalNodeIds: fc.internal_node_ids, returnNodeId: fc.return_node_id,
@@ -3897,6 +3905,29 @@ function valToStar(v) {
   return starLit(String(v));
 }
 
+// ── parse call-site args from source text ─────────────────────────────────────
+// The Go server never populates fc.args in FunctionCallRecord. We recover them
+// by scanning the source text for the assignment line and parsing its kwargs.
+function parseFunctionCallArgs(src, callKey, funcName) {
+  const lines = src.split('\n');
+  const prefix = callKey + ' ';
+  for (const line of lines) {
+    const t = line.trim();
+    if (!t.startsWith(prefix) && !t.startsWith(callKey + '=')) continue;
+    // Match: callKey = funcName(...)
+    const m = t.match(new RegExp('^' + callKey.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      + '\\s*=\\s*' + funcName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\((.*)\\)\\s*$'));
+    if (!m) continue;
+    const result = {};
+    for (const [k, vRaw] of Object.entries(fnParseCallArgs(m[1]).kwargs)) {
+      if (k === 'upstream') continue; // handled as graph edge
+      result[k] = fnParseLiteral(vRaw);
+    }
+    return result;
+  }
+  return {};
+}
+
 // ── model change → sync to text editor ───────────────────────────────────────
 
 function onModelChange() {
@@ -4004,9 +4035,12 @@ async function textToVisualSync() {
       }
 
       // Third pass: insert synthetic function-call nodes.
-      // Each call is represented as a single collapsed card whose upstreams are
-      // the external upstreams of the call's entry node(s) and whose position
-      // is the stored call-key position (if any).
+      // Pre-build a map so function→function entry upstreams resolve correctly:
+      // when function B's entry node has upstream=<return_node of A>, replace
+      // it with A's call_key rather than the internal variable name.
+      const returnToCallKey2 = {};
+      for (const fc of (graph.function_calls || [])) returnToCallKey2[fc.return_node_id] = fc.call_key;
+
       for (const fc of (graph.function_calls || [])) {
         // Find the entry nodes: internal nodes whose upstreams are all external.
         const internalSet = new Set(fc.internal_node_ids);
@@ -4014,20 +4048,20 @@ async function textToVisualSync() {
         for (const n of rawNodes) {
           if (!internalSet.has(n.id)) continue;
           for (const up of (n.upstreams || [])) {
-            if (!internalSet.has(up)) entryUpstreams.push(up);
+            if (!internalSet.has(up)) entryUpstreams.push(returnToCallKey2[up] ?? up);
           }
         }
-        // Find downstream nodes of the return node (nodes outside the function
-        // that list the return node as an upstream).
-        // The synthetic node replaces the return node in their upstream lists.
+        // Remap return_node_id → call_key in all already-added nodes.
         for (const n of nodes) {
-          if (n.isFunctionCall) continue;
           n.upstreams = n.upstreams.map(u => u === fc.return_node_id ? fc.call_key : u);
         }
+        // fc.args is always empty from the server — recover call-site kwargs from source.
+        const recoveredArgs2 = (fc.args && Object.keys(fc.args).length)
+          ? fc.args : parseFunctionCallArgs(content, fc.call_key, fc.func);
         nodes.push({
           id:               fc.call_key,
           plugin:           fc.func,
-          config:           fc.args || {},
+          config:           recoveredArgs2,
           upstreams:        entryUpstreams,
           searchNodeIds:    [],
           listNodeIds:      [],
