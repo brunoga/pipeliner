@@ -326,13 +326,15 @@ function selectNode(id) {
 
 // toggleMultiSelect: Cmd/Ctrl+click adds/removes a node from the multi-selection
 // used for "Extract to function". The param panel and extract button are updated.
+// Associated search/list sub-nodes are highlighted together with their parent.
 function toggleMultiSelect(id) {
   const n = findNode(id);
   if (!n || n.isSearchNode || n.isListNode) return;
-  if (ve.selectedNodeIds.has(id)) {
-    ve.selectedNodeIds.delete(id);
-  } else {
+  const adding = !ve.selectedNodeIds.has(id);
+  if (adding) {
     ve.selectedNodeIds.add(id);
+  } else {
+    ve.selectedNodeIds.delete(id);
   }
   // Keep single-selection in sync: show the last toggled node in the param panel
   // only when the multi-selection is empty; otherwise clear it.
@@ -344,15 +346,26 @@ function toggleMultiSelect(id) {
     if (prev) document.querySelector(`.ve-node[data-id="${prev}"]`)?.classList.remove('selected');
     if (ve.selectedNodeId) document.querySelector(`.ve-node[data-id="${ve.selectedNodeId}"]`)?.classList.add('selected');
   }
-  document.querySelector(`.ve-node[data-id="${id}"]`)?.classList.toggle('multi-selected', ve.selectedNodeIds.has(id));
+  document.querySelector(`.ve-node[data-id="${id}"]`)?.classList.toggle('multi-selected', adding);
+  // Mirror the highlight on associated search/list sub-nodes.
+  for (const sid of [...(n.searchNodeIds || []), ...(n.listNodeIds || [])]) {
+    // When deselecting, only un-highlight if no other selected main node still owns this sub-node.
+    if (!adding) {
+      const stillOwned = [...ve.selectedNodeIds].some(mainId => {
+        const mn = findNode(mainId);
+        return mn?.searchNodeIds?.includes(sid) || mn?.listNodeIds?.includes(sid);
+      });
+      if (stillOwned) continue;
+    }
+    document.querySelector(`.ve-node[data-id="${sid}"]`)?.classList.toggle('multi-selected', adding);
+  }
   updateExtractButton();
   renderParamPanel();
 }
 
 function clearMultiSelect() {
-  for (const id of ve.selectedNodeIds) {
-    document.querySelector(`.ve-node[data-id="${id}"]`)?.classList.remove('multi-selected');
-  }
+  // Remove from all nodes including sub-nodes (which are not in the set).
+  document.querySelectorAll?.('.ve-node.multi-selected')?.forEach(el => el.classList.remove('multi-selected'));
   ve.selectedNodeIds.clear();
   updateExtractButton();
 }
@@ -442,7 +455,10 @@ function renderGraphNodes() {
                       : isFn     ? `<span class="ve-node-role-badge ve-role-${role}">${role}</span><span class="ve-node-fn-badge">fn</span>`
                       : `<span class="ve-node-role-badge ve-role-${role}">${role}</span>`;
 
-      const multiSel = ve.selectedNodeIds.has(n.id);
+      // Sub-nodes (search/list) are multi-selected when their parent is selected.
+      const multiSel = ve.selectedNodeIds.has(n.id) ||
+        (isSearch && n.searchParentId && ve.selectedNodeIds.has(n.searchParentId)) ||
+        (isList   && n.listParentId   && ve.selectedNodeIds.has(n.listParentId));
       const div = document.createElement('div');
       div.className = `ve-node${sel ? ' selected' : ''}${multiSel ? ' multi-selected' : ''}${isSearch ? ' ve-node-search' : ''}${isList ? ' ve-node-list' : ''}${isFn ? ' ve-node-fn' : ''}`;
       div.dataset.role       = role;
