@@ -109,6 +109,12 @@
             <button class="ve-fn-bar-params-btn" id="ve-fn-bar-params-btn"
                     onclick="fnEditorToggleParams()" title="Edit parameters">⚙ Params</button>
             <div class="ve-fn-bar-spacer"></div>
+            <div class="ve-zoom-bar">
+              <button class="ve-zoom-btn" onclick="zoomOut()" title="Zoom out" aria-label="Zoom out">−</button>
+              <span id="ve-zoom-pct-fn" class="ve-zoom-pct" aria-live="polite">100%</span>
+              <button class="ve-zoom-btn" onclick="zoomIn()" title="Zoom in" aria-label="Zoom in">+</button>
+              <button class="ve-zoom-btn" onclick="zoomReset()" title="Reset zoom" aria-label="Reset zoom" style="font-size:14px;padding:0 6px">⊙</button>
+            </div>
             <button class="ve-fn-bar-save" onclick="saveFunctionEditor()">Save</button>
           </div>
 
