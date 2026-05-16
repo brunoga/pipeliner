@@ -32,6 +32,41 @@ textarea:focus-visible,
   outline-offset: 2px;
 }
 
+/* thin scrollbar applied to every scrollable panel in the app */
+.log-console,
+.editor-ta,
+.ve-palette-body,
+.ve-extract-body,
+.ve-param-body,
+.db-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.log-console::-webkit-scrollbar,
+.editor-ta::-webkit-scrollbar,
+.ve-palette-body::-webkit-scrollbar,
+.ve-extract-body::-webkit-scrollbar,
+.ve-param-body::-webkit-scrollbar,
+.db-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+.log-console::-webkit-scrollbar-track,
+.editor-ta::-webkit-scrollbar-track,
+.ve-palette-body::-webkit-scrollbar-track,
+.ve-extract-body::-webkit-scrollbar-track,
+.ve-param-body::-webkit-scrollbar-track,
+.db-scroll::-webkit-scrollbar-track { background: transparent; }
+.log-console::-webkit-scrollbar-thumb,
+.editor-ta::-webkit-scrollbar-thumb,
+.ve-palette-body::-webkit-scrollbar-thumb,
+.ve-extract-body::-webkit-scrollbar-thumb,
+.ve-param-body::-webkit-scrollbar-thumb,
+.db-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+.log-console::-webkit-scrollbar-thumb:hover,
+.editor-ta::-webkit-scrollbar-thumb:hover,
+.ve-palette-body::-webkit-scrollbar-thumb:hover,
+.ve-extract-body::-webkit-scrollbar-thumb:hover,
+.ve-param-body::-webkit-scrollbar-thumb:hover,
+.db-scroll::-webkit-scrollbar-thumb:hover { background: #444c56; }
+
 body {
   background: var(--bg);
   color: var(--text);
@@ -338,15 +373,7 @@ section { margin-bottom: 32px; }
 .ve-palette-search:focus { border-color:var(--accent); }
 .ve-palette-body {
   flex:1; overflow-y:auto; overflow-x:hidden; padding:0 6px 8px;
-  scrollbar-width:thin;
-  scrollbar-color:var(--border) transparent;
 }
-.ve-palette-body::-webkit-scrollbar { width:5px; }
-.ve-palette-body::-webkit-scrollbar-track { background:transparent; }
-.ve-palette-body::-webkit-scrollbar-thumb {
-  background:var(--border); border-radius:3px;
-}
-.ve-palette-body::-webkit-scrollbar-thumb:hover { background:#444c56; }
 .ve-phase-header {
   font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.06em;
   color:var(--muted); padding:8px 4px 4px; user-select:none;
@@ -877,10 +904,7 @@ section { margin-bottom: 32px; }
 .ve-param-phase { font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; margin-top:1px; }
 .ve-param-body {
   flex:1; overflow-y:auto; padding:14px 16px;
-  /* Hide scrollbar track — content is still scrollable but uncluttered */
-  scrollbar-width:none;
 }
-.ve-param-body::-webkit-scrollbar { display:none; }
 .ve-param-empty { color:var(--muted); font-size:13px; text-align:center; padding:32px 0; }
 .ve-field { margin-bottom:16px; }
 .ve-field-label {
