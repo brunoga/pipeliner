@@ -1537,7 +1537,7 @@ pipeline("tech-news", schedule="1h")</code></pre>
 <p>A live Starlark editor with syntax highlighting. Use <strong>Validate</strong> to check config without saving, or <strong>Save &amp; Reload</strong> to write and apply immediately (or queue a reload if tasks are running). Tab key inserts two spaces.</p>
 
 <h3 id="visual-editor">Config tab — Visual editor</h3>
-<p>Click <strong>⬡ Visual</strong> to switch to the visual pipeline editor. The editor lets you build pipelines by clicking or dragging nodes from the palette onto the canvas without writing any Starlark.</p>
+<p>The Config tab opens directly in the visual pipeline editor. Use the <strong>✏ Text</strong> / <strong>⬡ Visual</strong> toggle in the toolbar to switch between the two views. On first open the canvas auto-zooms so all pipelines fit within the viewport width.</p>
 
 <h4>Palette</h4>
 <p>The left panel lists all registered plugins grouped by role: <strong>Sources</strong> (green), <strong>Processors</strong> (blue), and <strong>Sinks</strong> (orange). Click a plugin to add it to the canvas, or drag it to a specific position. Use the search box to filter by name or description.</p>
@@ -1552,7 +1552,7 @@ pipeline("tech-news", schedule="1h")</code></pre>
 <p>When a processor requires a field that no upstream node produces (for example, placing <code>quality</code> before <code>metainfo_quality</code>), the visual editor highlights the warning inline. This catches ordering mistakes before the pipeline runs.</p>
 
 <h4>Saving</h4>
-<p>Changes in the visual editor sync automatically to the text editor. Use <strong>Save &amp; Reload</strong> in the toolbar to apply. Switching back to the text editor shows the generated Starlark — you can continue editing there at any time. Click <strong>↺ Re-parse</strong> to reload the visual editor from the text editor if you edit both.</p>
+<p>Changes in the visual editor sync automatically to the text editor. Use <strong>Save &amp; Reload</strong> in the toolbar to apply. Switch to the <strong>✏ Text</strong> view to edit Starlark directly; switching back to <strong>⬡ Visual</strong> re-parses the text and reloads the canvas.</p>
 
 <h3>Database tab</h3>
 <p>Inspect and manage the two download trackers stored in <code>pipeliner.db</code>.</p>
