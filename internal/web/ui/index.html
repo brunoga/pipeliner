@@ -90,12 +90,12 @@
             <button id="ve-add-pipeline" class="ve-add-pipeline-header" onclick="addPipeline()" title="Add a new pipeline">+ Add pipeline</button>
             <button id="ve-extract-fn-btn" class="ve-extract-fn-btn" onclick="openExtractDialog()" title="Extract selected nodes into a reusable function" style="display:none">⬡ Extract to function</button>
             <button id="ve-paste-btn" class="ve-paste-btn" onclick="pasteClipboard()" title="Paste copied node(s) into the active pipeline (Ctrl/Cmd+V)" style="display:none">Paste</button>
-            <span class="ve-sync-note" id="ve-sync-note"></span>
+            <span class="ve-sync-note" id="ve-sync-note" aria-live="polite"></span>
             <div class="ve-zoom-bar">
-              <button class="ve-zoom-btn" onclick="zoomOut()" title="Zoom out">−</button>
-              <span id="ve-zoom-pct" class="ve-zoom-pct">100%</span>
-              <button class="ve-zoom-btn" onclick="zoomIn()" title="Zoom in">+</button>
-              <button class="ve-zoom-btn" onclick="zoomReset()" title="Reset zoom" style="font-size:14px;padding:0 6px">⊙</button>
+              <button class="ve-zoom-btn" onclick="zoomOut()" title="Zoom out" aria-label="Zoom out">−</button>
+              <span id="ve-zoom-pct" class="ve-zoom-pct" aria-live="polite" aria-label="Zoom level">100%</span>
+              <button class="ve-zoom-btn" onclick="zoomIn()" title="Zoom in" aria-label="Zoom in">+</button>
+              <button class="ve-zoom-btn" onclick="zoomReset()" title="Reset zoom" aria-label="Reset zoom">⊙</button>
             </div>
           </div>
 
@@ -109,6 +109,12 @@
             <button class="ve-fn-bar-params-btn" id="ve-fn-bar-params-btn"
                     onclick="fnEditorToggleParams()" title="Edit parameters">⚙ Params</button>
             <div class="ve-fn-bar-spacer"></div>
+            <div class="ve-zoom-bar">
+              <button class="ve-zoom-btn" onclick="zoomOut()" title="Zoom out" aria-label="Zoom out">−</button>
+              <span id="ve-zoom-pct-fn" class="ve-zoom-pct" aria-live="polite">100%</span>
+              <button class="ve-zoom-btn" onclick="zoomIn()" title="Zoom in" aria-label="Zoom in">+</button>
+              <button class="ve-zoom-btn" onclick="zoomReset()" title="Reset zoom" aria-label="Reset zoom">⊙</button>
+            </div>
             <button class="ve-fn-bar-save" onclick="saveFunctionEditor()">Save</button>
           </div>
 
@@ -124,8 +130,8 @@
               <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M9 12h6M12 9v6"/></svg>
               <span>No pipelines yet — click <b>+ Add pipeline</b> to get started.</span>
             </div>
-            <div class="ve-graph-canvas" id="ve-graph-canvas">
-              <svg class="ve-graph-svg" id="ve-graph-svg" xmlns="http://www.w3.org/2000/svg"></svg>
+            <div class="ve-graph-canvas" id="ve-graph-canvas" role="region" aria-label="Pipeline canvas">
+              <svg class="ve-graph-svg" id="ve-graph-svg" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"></svg>
             </div>
           </div>
 
