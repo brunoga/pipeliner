@@ -156,10 +156,11 @@ func openConfigTab(t *testing.T, page playwright.Page) {
 	if err := page.Locator("#tab-btn-config").Click(); err != nil {
 		t.Fatalf("click config tab: %v", err)
 	}
-	if err := page.Locator("#view-text").WaitFor(playwright.LocatorWaitForOptions{
+	// Visual is now the default view; wait for the config tab container.
+	if err := page.Locator("#tab-config").WaitFor(playwright.LocatorWaitForOptions{
 		State: playwright.WaitForSelectorStateVisible,
 	}); err != nil {
-		t.Fatalf("wait for text view: %v", err)
+		t.Fatalf("wait for config tab: %v", err)
 	}
 }
 
@@ -210,10 +211,11 @@ func TestE2EConfigTabLoadsStarlark(t *testing.T) {
 	login(t, page, ts.url)
 	openConfigTab(t, page)
 
-	// The text editor should contain the config (served by GET /api/config,
-	// which reads from disk — here it's not set so editor may be empty;
-	// the important thing is the editor is present and the tab works).
-	if err := page.Locator("#config-editor").WaitFor(); err != nil {
+	// The text editor element must exist in the DOM (it lives in the hidden
+	// text view; visual is the default view now).
+	if err := page.Locator("#config-editor").WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateAttached,
+	}); err != nil {
 		t.Errorf("config editor not found: %v", err)
 	}
 }
@@ -336,13 +338,12 @@ func TestE2ETextToVisualSync(t *testing.T) {
 	login(t, page, ts.url)
 	openConfigTab(t, page)
 
-	// Write DAG-syntax Starlark into the text editor.
+	// Switch to text view, fill, then switch to visual to trigger parse.
+	page.Locator("#view-btn-text").Click() //nolint:errcheck
 	starlark := fmt.Sprintf("src = input(\"rss\", url=%q)\npipeline(\"my-pipeline\")", "https://example.com")
 	if err := page.Locator("#config-editor").Fill(starlark); err != nil {
 		t.Fatalf("fill editor: %v", err)
 	}
-
-	// Switching to visual auto-parses the text config.
 	page.Locator("#view-btn-visual").Click() //nolint:errcheck
 
 	// An rss node card should appear in the canvas.
@@ -372,6 +373,7 @@ func TestE2EValidateConfig(t *testing.T) {
 	openConfigTab(t, page)
 
 	// Put valid DAG Starlark in the editor.
+	page.Locator("#view-btn-text").Click()                                                                          //nolint:errcheck
 	page.Locator("#config-editor").Fill("src = input(\"rss\", url=\"https://example.com\")\npipeline(\"p\")") //nolint:errcheck
 
 	// Click Validate.
@@ -392,6 +394,8 @@ func TestE2EValidateConfig(t *testing.T) {
 // switchToVisual loads a DAG config into the text editor and switches to visual mode.
 func switchToVisual(t *testing.T, page playwright.Page, starlark string) {
 	t.Helper()
+	// Switch to text view first so the editor is visible and fillable.
+	page.Locator("#view-btn-text").Click() //nolint:errcheck
 	if err := page.Locator("#config-editor").Fill(starlark); err != nil {
 		t.Fatalf("fill editor: %v", err)
 	}
@@ -620,6 +624,7 @@ flt_1 = process("seen", upstream=src_0)
 
 pipeline("tv")`
 
+	page.Locator("#view-btn-text").Click() //nolint:errcheck
 	if err := page.Locator("#config-editor").Fill(configWithLayout); err != nil {
 		t.Fatalf("fill editor: %v", err)
 	}

@@ -1,6 +1,9 @@
 // ── config editor ─────────────────────────────────────────────────────────────
 
 async function loadConfig() {
+  // switchView sets up canvas event listeners (initCanvasEvents) on first call.
+  // It also does an initial sync on the (empty) editor — that's fine.
+  switchView('visual');
   try {
     const r = await fetch('/api/config');
     if (!r.ok) return;
@@ -8,7 +11,7 @@ async function loadConfig() {
     document.getElementById('config-editor').value = content;
     configLoaded = true;
     syncHighlight();
-    switchView('visual');
+    textToVisualSync(); // re-sync now that we have actual content
   } catch (e) { /* silently skip if endpoint not available */ }
 }
 

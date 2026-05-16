@@ -80,19 +80,23 @@ function disconnectList(parentNodeId, listNodeId) {
 
 // ── view switching ─────────────────────────────────────────────────────────────
 
-let currentView = 'text';
+let currentView = 'visual'; // open in visual mode by default
 
 function switchView(view) {
-  if (view === currentView) return;
-  if (view === 'visual') {
+  // Don't switch views while the function body editor is active.
+  if (ve.fnEditor?.active) return;
+  if (view === 'text') {
+    if (view === currentView) return;
+    doSwitchView('text');
+  } else {
+    // Visual: always re-sync so the canvas reflects the current text editor
+    // content — no early-return even if already in visual mode.
     const load = ve.plugins.length ? Promise.resolve() : loadPalette();
     load.then(() => {
       doSwitchView('visual');
       if (!ve_canvasInited) { initCanvasEvents(); ve_canvasInited = true; }
       textToVisualSync();
     });
-  } else {
-    doSwitchView('text');
   }
 }
 
@@ -676,8 +680,8 @@ function renderPipelineRegions() {
     const g = ve.graphs[i];
     if (g._regionY == null) continue;
 
-    // Recompute height from current node positions every time so the region
-    // can both grow AND shrink as nodes are moved around.
+    // ── _regionH: MUST use identical formula to startNodeDrag.onMove so that
+    //    delta = new - prev is zero during normal rendering (no spurious cascade).
     let regionH = 80;
     for (const n of g.nodes) {
       const nodeBot = (n.y ?? 0) + NODE_H + (n.searchNodeIds?.length ? 100 : 24);
@@ -685,12 +689,32 @@ function renderPipelineRegions() {
     }
     g._regionH = regionH;
 
+    // ── Visual bounds: tight horizontal (right edge only) and tight vertical top.
+    const PAD_X = 24;
+    let minX = Infinity, maxX = 0, minY = Infinity;
+    for (const n of g.nodes) {
+      minX = Math.min(minX, n.x ?? 0);
+      maxX = Math.max(maxX, (n.x ?? 0) + NODE_W);
+      minY = Math.min(minY, n.y ?? 0);
+    }
+    if (minX === Infinity) { minX = 0; maxX = 500; minY = (g._regionY ?? 0) + 40; }
+
+    // Top and left are anchored (label position / x=0).
+    // Only the right and bottom edges shrink to hug the content.
+    const labelTop   = (g._labelY ?? (g._regionY ?? 0) + 8) - 8;
+    const regionTop  = labelTop;
+    const dispHeight = (g._regionY ?? 0) + regionH - regionTop;
+    const regionLeft  = 0;
+    const regionWidth = maxX + PAD_X;
+
     // Update an existing element in-place (smooth during drag — no DOM churn).
     let region = canvas.querySelector(`.ve-pipeline-region[data-graph-idx="${i}"]`);
     if (region) {
       region.className    = `ve-pipeline-region${i === ve.activeGraph ? ' active' : ''}`;
-      region.style.top    = g._regionY + 'px';
-      region.style.height = regionH + 'px';
+      region.style.top    = regionTop + 'px';
+      region.style.height = dispHeight + 'px';
+      region.style.left   = regionLeft + 'px';
+      region.style.width  = regionWidth + 'px';
       // Sync empty-pipeline hint.
       const hint = region.querySelector('.ve-region-hint');
       if (!g.nodes.length && !hint) {
@@ -705,8 +729,10 @@ function renderPipelineRegions() {
     region = document.createElement('div');
     region.className = `ve-pipeline-region${i === ve.activeGraph ? ' active' : ''}`;
     region.dataset.graphIdx = i;
-    region.style.top    = g._regionY + 'px';
-    region.style.height = regionH + 'px';
+    region.style.top    = regionTop + 'px';
+    region.style.height = dispHeight + 'px';
+    region.style.left   = regionLeft + 'px';
+    region.style.width  = regionWidth + 'px';
     region.addEventListener('pointerdown', e => {
       if (e.target === region) { ve.activeGraph = i; renderPipelineRegions(); }
     });
@@ -1089,6 +1115,9 @@ function initLayout() {
     if (!withPos.length) {
       // No stored positions — full auto-layout.
       globalY = layoutGraph(g, globalY);
+      // Normalize so the topmost node sits just below the label and the
+      // leftmost is at PAD_X, eliminating wasted space from listPad etc.
+      globalY = tightenPipeline(g, globalY, PIPELINE_GAP);
       continue;
     }
 
@@ -1146,7 +1175,44 @@ function initLayout() {
 
     g._regionH = maxAbsY - g._regionY + NODE_H + 60;
     globalY = g._regionY + g._regionH + PIPELINE_GAP;
+
+    // Normalize to eliminate empty space at top/left.
+    globalY = tightenPipeline(g, globalY, PIPELINE_GAP);
   }
+}
+
+// tightenPipeline shifts all nodes in g so the topmost node sits just
+// below the pipeline label and the leftmost node is at PAD_X.
+// Returns the updated globalY for the next pipeline.
+function tightenPipeline(g, currentGlobalY, pipelineGap) {
+  const PAD_X    = 50;  // left margin inside the pipeline box
+  const LABEL_H  = 36;  // height of the label bar + small gap below it
+
+  let minX = Infinity, minY = Infinity, maxY = 0;
+  for (const n of g.nodes) {
+    if (n.x != null) minX = Math.min(minX, n.x);
+    if (n.y != null) { minY = Math.min(minY, n.y); maxY = Math.max(maxY, n.y + NODE_H); }
+  }
+  if (minX === Infinity) return currentGlobalY;
+
+  const targetMinY = (g._labelY ?? 40) + LABEL_H;
+  const shiftX = minX - PAD_X;
+  const shiftY = minY - targetMinY;
+
+  for (const n of g.nodes) {
+    if (n.x != null) n.x -= shiftX;
+    if (n.y != null) n.y -= shiftY;
+  }
+
+  // Recompute _regionH using the SAME formula as the drag handler so the
+  // delta in startNodeDrag.onMove starts at zero — no spurious cascade.
+  let regionH = 80;
+  for (const n of g.nodes) {
+    const nodeBot = (n.y ?? 0) + NODE_H + (n.searchNodeIds?.length ? 100 : 24);
+    regionH = Math.max(regionH, nodeBot - (g._regionY ?? 0) + 24);
+  }
+  g._regionH = regionH;
+  return (g._regionY ?? 0) + regionH + pipelineGap;
 }
 
 // placeSubNodes positions search/list sub-nodes relative to their parent.
@@ -1771,6 +1837,25 @@ function paletteDragStart(e, name) {
 
 function zoomIn()    { setZoom(ve_zoom * 1.25); }
 function zoomOut()   { setZoom(ve_zoom / 1.25); }
+
+// zoomToFitHorizontal sets the zoom so that all pipeline nodes fit within
+// the canvas viewport width. Only zooms out (never zooms in beyond 100%).
+function zoomToFitHorizontal() {
+  const body = document.getElementById('ve-canvas-body');
+  if (!body || !body.clientWidth) return;
+  let maxX = 0;
+  for (const g of ve.graphs) {
+    for (const n of g.nodes) {
+      if (!n.isSearchNode && !n.isListNode) {
+        maxX = Math.max(maxX, (n.x ?? 0) + NODE_W);
+      }
+    }
+  }
+  if (maxX <= 0) return;
+  const targetZoom = (body.clientWidth - 40) / maxX; // 40px right margin
+  ve_zoom = Math.max(0.2, Math.min(1.0, targetZoom));
+  applyZoom();
+}
 function zoomReset() { setZoom(1.0); }
 
 // ── param panel ───────────────────────────────────────────────────────────────
@@ -3898,6 +3983,7 @@ async function textToVisualSync() {
     // Place all pipelines in order: stored relative positions for those that
     // have a layout comment, auto-layout for those that don't.
     initLayout();
+    zoomToFitHorizontal(); // zoom out so all pipelines fit within the viewport width
     veRender();
     setSyncNote(entries.length > 1 ? `Showing ${entries.length} pipelines` : '');
     // Write computed positions back so they survive the next round-trip.
