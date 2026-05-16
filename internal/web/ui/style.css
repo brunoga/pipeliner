@@ -1192,6 +1192,13 @@ section { margin-bottom: 32px; }
 
 /* Separator line between param panel sections */
 .ve-field-sep { height:1px; background:var(--border); margin:10px 0; }
+/* Sub-node (list/search) section header inside the param panel */
+.ve-sub-node-header {
+  display:flex; align-items:center; gap:6px;
+  font-size:11px; font-weight:600; color:var(--muted);
+  margin-bottom:6px;
+}
+.ve-sub-node-plugin { color:var(--text); }
 
 /* ── condition plugin rules editor ─────────────────────── */
 .ve-cond-rules { display:flex; flex-direction:column; gap:4px; }
