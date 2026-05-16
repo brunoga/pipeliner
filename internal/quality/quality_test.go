@@ -217,6 +217,9 @@ func TestParse3DConv(t *testing.T) {
 		// 3DCONV must win even when a higher-tier format marker is also present.
 		{"Avatar.2009.FULL-SBS.3DCONV.1080p.BluRay"},
 		{"Avatar.2009.3DCONV.FULL-SBS.1080p.BluRay"},
+		// "convert" and "3D-CONVERT" are synonyms for 3D-CONV.
+		{"Five Nights at Freddys 2 2025.1080.3D.FSBS.convert"},
+		{"Avatar.2009.3D-CONVERT.FULL-SBS.1080p.BluRay"},
 	}
 	for _, c := range cases {
 		q := Parse(c.title)
