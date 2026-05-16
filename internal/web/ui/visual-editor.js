@@ -579,6 +579,10 @@ function renderPipelineLabels() {
     label.className = `ve-pipeline-label${i === ve.activeGraph ? ' active' : ''}`;
     label.dataset.graphIdx = i;   // needed so startNodeDrag can move it in-place
     label.style.top = (g._labelY - 4) + 'px';
+    // Constrain the label to the region width so the × button stays inside the box.
+    // Regions are rendered before labels in renderCanvas(), so the element exists.
+    const regionEl = canvas.querySelector(`.ve-pipeline-region[data-graph-idx="${i}"]`);
+    if (regionEl) label.style.width = regionEl.style.width;
     const commentBtnCls = g.comment?.trim() ? ' has-comment' : '';
     label.innerHTML = [
       `<span class="ve-pl-name" title="Click to activate · Double-click to rename">${esc(g.name)}</span>`,

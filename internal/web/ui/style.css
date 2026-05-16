@@ -508,10 +508,11 @@ section { margin-bottom: 32px; }
 
 /* pipeline group labels and separators */
 .ve-pipeline-label {
-  position:absolute; left:0; right:0;
+  position:absolute; left:0;
   display:flex; align-items:center; gap:8px;
   font-size:11px; color:var(--muted);
   padding:0 4px; user-select:none; z-index:2;
+  overflow:hidden;
 }
 .ve-pipeline-label.active .ve-pl-name { color:var(--accent); }
 .ve-pl-name {
