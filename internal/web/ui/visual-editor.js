@@ -2660,14 +2660,13 @@ function validateExtraction() {
 }
 
 // inferExtractionParams collects all config key/value pairs across selected nodes
-// as candidate function parameters, deduplicating names.
+// (and their connected list/search sub-nodes) as candidate function parameters.
 function inferExtractionParams() {
   const params = [];
   const usedNames = new Set(['upstream']); // reserved
   let dedupCounter = 0;
-  for (const id of ve.selectedNodeIds) {
-    const n = findNode(id);
-    if (!n) continue;
+
+  function collectNode(n) {
     for (const [key, val] of Object.entries(n.config || {})) {
       if (val === null || val === undefined || val === '') continue;
       let pName = key;
@@ -2677,7 +2676,18 @@ function inferExtractionParams() {
       const type = Array.isArray(val) ? 'list'
                  : typeof val === 'boolean' ? 'bool'
                  : typeof val === 'number'  ? 'int' : 'string';
-      params.push({nodeId: id, configKey: key, paramName: pName, type, defaultValue: val, include: true});
+      params.push({nodeId: n.id, configKey: key, paramName: pName, type, defaultValue: val, include: true});
+    }
+  }
+
+  for (const id of ve.selectedNodeIds) {
+    const n = findNode(id);
+    if (!n) continue;
+    collectNode(n);
+    // Also collect params from connected list and search sub-nodes.
+    for (const sid of [...(n.listNodeIds || []), ...(n.searchNodeIds || [])]) {
+      const sn = findNode(sid);
+      if (sn) collectNode(sn);
     }
   }
   return params;
@@ -2742,13 +2752,13 @@ function nodesToFunctionSource(funcName, params, selectedIds, validation, graph)
     if (n.searchNodeIds?.length) {
       const items = n.searchNodeIds
         .map(id => graph.nodes.find(x => x.id === id)).filter(Boolean)
-        .map(viaNodeToStar).join(', ');
+        .map(sn => viaNodeToStar(sn, paramLookup[sn.id])).join(', ');
       cfgParts.push(`search=[${items}]`);
     }
     if (n.listNodeIds?.length) {
       const items = n.listNodeIds
         .map(id => graph.nodes.find(x => x.id === id)).filter(Boolean)
-        .map(viaNodeToStar).join(', ');
+        .map(ln => viaNodeToStar(ln, paramLookup[ln.id])).join(', ');
       cfgParts.push(`list=[${items}]`);
     }
 
@@ -3846,10 +3856,12 @@ function dagToStarlark() {
 }
 
 // Serialise a via-connected node as a Starlark dict: {"name": "jackett", "url": "..."}.
-function viaNodeToStar(node) {
+function viaNodeToStar(node, nodeLookup) {
   const entries = [`${starLit('name')}: ${starLit(node.plugin)}`];
   for (const [k, val] of Object.entries(node.config || {})) {
-    if (val !== '' && val != null) entries.push(`${starLit(k)}: ${valToStar(val)}`);
+    if (val === '' || val == null) continue;
+    const pName = nodeLookup?.[k];
+    entries.push(`${starLit(k)}: ${pName ?? valToStar(val)}`);
   }
   return `{${entries.join(', ')}}`;
 }
