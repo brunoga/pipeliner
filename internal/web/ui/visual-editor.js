@@ -719,6 +719,9 @@ function renderPipelineRegions() {
       region.style.height = dispHeight + 'px';
       region.style.left   = regionLeft + 'px';
       region.style.width  = regionWidth + 'px';
+      // Keep label width in sync so × stays at the box right edge during drag.
+      const label = canvas.querySelector(`.ve-pipeline-label[data-graph-idx="${i}"]`);
+      if (label) label.style.width = regionWidth + 'px';
       // Sync empty-pipeline hint.
       const hint = region.querySelector('.ve-region-hint');
       if (!g.nodes.length && !hint) {
