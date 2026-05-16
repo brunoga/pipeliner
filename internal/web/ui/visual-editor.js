@@ -1461,9 +1461,8 @@ function initCanvasEvents() {
     });
   }
 
-  // Ctrl-wheel to zoom.
+  // Wheel to zoom (Ctrl+wheel also works for trackpad pinch-to-zoom).
   canvas.addEventListener('wheel', e => {
-    if (!e.ctrlKey) return;
     e.preventDefault();
     setZoom(ve_zoom * (e.deltaY < 0 ? 1.1 : 1 / 1.1));
   }, {passive: false});
