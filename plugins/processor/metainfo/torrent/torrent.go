@@ -6,7 +6,7 @@
 // when any of the following is true:
 //   - the URL ends in ".torrent"
 //   - rss_enclosure_type is "application/x-bittorrent" (RSS torrent feeds)
-//   - torrent_info_hash is already set (e.g. by jackett_input / jackett) —
+//   - torrent_info_hash is already set (e.g. by jackett / jackett_search) —
 //     these entries have a Jackett proxy URL that serves the .torrent bytes
 //
 // Config keys:
@@ -210,7 +210,7 @@ func (p *torrentPlugin) readTorrent(ctx context.Context, log interface {
 	//   (a) URL ends in ".torrent"
 	//   (b) rss_enclosure_type signals a torrent file (RSS feeds)
 	//   (c) torrent_info_hash is already set by an upstream plugin such as
-	//       jackett_input, which returns Jackett proxy URLs that serve the
+	//       jackett, which returns Jackett proxy URLs that serve the
 	//       .torrent bytes even though the URL has no ".torrent" suffix
 	reason := torrentURLReason(e)
 	if reason == "" {
