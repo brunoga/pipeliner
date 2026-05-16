@@ -781,8 +781,9 @@ section { margin-bottom: 32px; }
   width:auto !important; margin-bottom:0 !important;
   border-color:rgba(251,191,36,.4); color:var(--ve-fn);
   border-right:none; border-radius:6px 0 0 6px;
+  /* override any role-based hover colour — handled by the wrap rule below */
+  transition:color .15s, border-color .15s, background .15s;
 }
-.ve-chip.ve-chip-fn:hover { border-color:var(--ve-fn); }
 .ve-chip-fn-edit, .ve-chip-fn-remove {
   /* padding:4px matches .ve-chip vertical padding so all segments are the same height */
   display:inline-flex; align-items:center; padding:4px 7px;
@@ -792,6 +793,15 @@ section { margin-bottom: 32px; }
   transition:color .15s, border-color .15s, background .15s;
 }
 .ve-chip-fn-remove { border-radius:0 6px 6px 0; font-size:12px; }
+/* Hovering anywhere on the wrap highlights the whole row in amber. */
+.ve-chip-fn-wrap:hover .ve-chip.ve-chip-fn {
+  border-color:var(--ve-fn); color:var(--ve-fn);
+}
+.ve-chip-fn-wrap:hover .ve-chip-fn-edit,
+.ve-chip-fn-wrap:hover .ve-chip-fn-remove {
+  border-color:rgba(251,191,36,.6); color:rgba(251,191,36,.7);
+}
+/* Hovering directly over an action button gives it a stronger highlight. */
 .ve-chip-fn-edit:hover, .ve-chip-fn-remove:hover {
   color:var(--ve-fn); border-color:var(--ve-fn); background:rgba(251,191,36,.08);
 }
@@ -990,11 +1000,12 @@ section { margin-bottom: 32px; }
 .ve-role-header[data-role="source"]::before    { content:''; display:inline-block; width:8px; height:8px; border-radius:50%; flex-shrink:0; background:var(--green); }
 .ve-role-header[data-role="processor"]::before { content:''; display:inline-block; width:8px; height:8px; border-radius:50%; flex-shrink:0; background:var(--accent); }
 .ve-role-header[data-role="sink"]::before      { content:''; display:inline-block; width:8px; height:8px; border-radius:50%; flex-shrink:0; background:#ffa657; }
+.ve-role-header[data-role="function"]::before  { content:''; display:inline-block; width:8px; height:8px; border-radius:50%; flex-shrink:0; background:var(--ve-fn); }
 
-/* Chip role colouring */
-.ve-chip[data-role="source"]:hover    { border-color:var(--green); color:var(--green); }
-.ve-chip[data-role="processor"]:hover { border-color:var(--accent); color:var(--accent); }
-.ve-chip[data-role="sink"]:hover      { border-color:#ffa657; color:#ffa657; }
+/* Chip role colouring — excluded from .ve-chip-fn (handled by wrap hover above) */
+.ve-chip[data-role="source"]:not(.ve-chip-fn):hover    { border-color:var(--green); color:var(--green); }
+.ve-chip[data-role="processor"]:not(.ve-chip-fn):hover { border-color:var(--accent); color:var(--accent); }
+.ve-chip[data-role="sink"]:not(.ve-chip-fn):hover      { border-color:#ffa657; color:#ffa657; }
 
 /* Ghost chip rendered during palette drag (styles applied inline to avoid
    width:100% inheritance and CSS-variable context issues). */
