@@ -16,7 +16,7 @@ shows = input("trakt_list",
     type="shows", list="watchlist")
 
 results = process("discover", upstream=shows,
-    search=[{"name":     "jackett",
+    search=[{"name":     "jackett_search",
              "url":      jackett_url,
              "api_key":  jackett_key,
              "indexers": ["all"],

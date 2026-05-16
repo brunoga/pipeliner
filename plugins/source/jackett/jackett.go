@@ -1,4 +1,4 @@
-// Package jackett provides a search sub-plugin that queries a Jackett indexer
+// Package jackett provides a search plugin that queries a Jackett indexer
 // proxy via the Torznab API. Unlike rss_search, it speaks Torznab natively:
 // seeder/leecher counts, info hashes, and file sizes come back in the search
 // response itself, so no separate metadata fetch is needed.
@@ -36,50 +36,6 @@ import (
 	"github.com/brunoga/pipeliner/internal/plugin"
 	"github.com/brunoga/pipeliner/internal/store"
 )
-
-func init() {
-	plugin.Register(&plugin.Descriptor{
-		PluginName:  "jackett",
-		Description: "search Jackett indexers via the Torznab API; usable as a standalone DAG source or inside discover.search",
-		Role:        plugin.RoleSource,
-		Produces: []string{
-			entry.FieldTorrentSeeds,
-			entry.FieldTorrentLeechers,
-			entry.FieldTorrentInfoHash,
-			entry.FieldTorrentLinkType,
-			entry.FieldTorrentFileSize,
-		},
-		Factory:        newPlugin,
-		Validate:       validate,
-		IsSearchPlugin: true,
-		Schema: []plugin.FieldSchema{
-			{Key: "url",        Type: plugin.FieldTypeString,   Required: true,  Hint: "Jackett base URL (e.g. http://localhost:9117)"},
-			{Key: "api_key",    Type: plugin.FieldTypeString,   Required: true,  Hint: "Jackett API key"},
-			{Key: "indexers",   Type: plugin.FieldTypeList,                      Hint: `Indexer IDs to query; omit or use ["all"] for all`},
-			{Key: "categories", Type: plugin.FieldTypeList,                      Hint: "Torznab category codes (e.g. 2000, 5000)"},
-			{Key: "limit",      Type: plugin.FieldTypeInt,                       Hint: "Maximum results per indexer"},
-			{Key: "timeout",    Type: plugin.FieldTypeDuration,                  Hint: "HTTP request timeout (default 60s)"},
-		},
-	})
-}
-
-func validate(cfg map[string]any) []error {
-	var errs []error
-	if err := plugin.RequireString(cfg, "url", "jackett"); err != nil {
-		errs = append(errs, err)
-	}
-	if err := plugin.RequireString(cfg, "api_key", "jackett"); err != nil {
-		errs = append(errs, err)
-	}
-	if err := validateLimit(cfg, "jackett"); err != nil {
-		errs = append(errs, err)
-	}
-	if err := plugin.OptDuration(cfg, "timeout", "jackett"); err != nil {
-		errs = append(errs, err)
-	}
-	errs = append(errs, plugin.OptUnknownKeys(cfg, "jackett", "url", "api_key", "indexers", "categories", "limit", "timeout")...)
-	return errs
-}
 
 // validateLimit checks that the optional limit key, if set, is a positive integer.
 func validateLimit(cfg map[string]any, pluginName string) error {
@@ -165,12 +121,6 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 
 func (p *jackettPlugin) Name() string        { return "jackett" }
 
-// Generate implements SourcePlugin for DAG pipelines. It calls Search with an
-// empty query, which returns recent results across configured indexers.
-func (p *jackettPlugin) Generate(ctx context.Context, tc *plugin.TaskContext) ([]*entry.Entry, error) {
-	return p.Search(ctx, tc, "")
-}
-
 // Search queries each configured indexer and returns the merged, deduplicated
 // results. Indexer errors are logged and skipped rather than aborting the
 // search, so a single broken indexer doesn't prevent results from others.
@@ -250,10 +200,6 @@ func toStringSlice(v any) []string {
 			switch s := item.(type) {
 			case string:
 				out = append(out, s)
-			case int64:
-				out = append(out, strconv.FormatInt(s, 10))
-			case float64:
-				out = append(out, strconv.Itoa(int(s)))
 			}
 		}
 		return out

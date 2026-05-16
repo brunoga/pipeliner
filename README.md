@@ -65,10 +65,10 @@ The visual pipeline editor in the web UI lets you build pipelines by clicking an
 | [`rss`](plugins/source/rss/README.md) | Fetch entries from an RSS/Atom feed |
 | [`html`](plugins/source/html/README.md) | Scrape entries from an HTML page |
 | [`filesystem`](plugins/source/filesystem/README.md) | Walk a directory tree and emit file entries |
-| [`jackett_input`](plugins/source/jackett_input/README.md) | Fetch recent results from Jackett indexers |
+| [`jackett`](plugins/source/jackett/README.md) | Fetch recent results from Jackett indexers |
 | [`trakt_list`](plugins/source/trakt_list/README.md) | Fetch movies or shows from a Trakt.tv list |
 | [`tvdb_favorites`](plugins/source/tvdb_favorites/README.md) | Fetch shows from a TheTVDB user's favorites |
-| [`jackett`](plugins/source/jackett/README.md) | Search Jackett via Torznab (also a search backend for `discover.via`) |
+| [`jackett_search`](plugins/source/jackett_search/README.md) | Search Jackett via Torznab (also a search backend for `discover.via`) |
 | [`rss_search`](plugins/source/rss_search/README.md) | Search a parameterized RSS URL (also a backend for `discover.via`) |
 
 ### Processors — filtering
