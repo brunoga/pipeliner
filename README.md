@@ -68,8 +68,8 @@ The visual pipeline editor in the web UI lets you build pipelines by clicking an
 | [`jackett`](plugins/source/jackett/README.md) | Fetch recent results from Jackett indexers |
 | [`trakt_list`](plugins/source/trakt_list/README.md) | Fetch movies or shows from a Trakt.tv list |
 | [`tvdb_favorites`](plugins/source/tvdb_favorites/README.md) | Fetch shows from a TheTVDB user's favorites |
-| [`jackett_search`](plugins/source/jackett_search/README.md) | Search Jackett via Torznab (also a search backend for `discover.via`) |
-| [`rss_search`](plugins/source/rss_search/README.md) | Search a parameterized RSS URL (also a backend for `discover.via`) |
+| [`jackett_search`](plugins/source/jackett_search/README.md) | Search Jackett via Torznab (also a search backend for `discover.search`) |
+| [`rss_search`](plugins/source/rss_search/README.md) | Search a parameterized RSS URL (also a backend for `discover.search`) |
 
 ### Processors — filtering
 
@@ -204,9 +204,9 @@ The `/config` volume holds both `config.star` and `pipeliner.db` (state database
 |------|-------------|
 | [`configs/tv-series-deluge\.star`](configs/\1.star) | TV shows by explicit list → Deluge |
 | [`configs/movie-downloads\.star`](configs/\1.star) | Movies by explicit list + TMDb rating gate → qBittorrent |
-| [`configs/trakt-shows-transmission\.star`](configs/\1.star) | TV shows via Trakt watchlist (`series.from`) → Transmission |
-| [`configs/trakt-movies-qbittorrent\.star`](configs/\1.star) | Movies via Trakt watchlist (`movies.from`) → qBittorrent |
-| [`configs/tvdb-favorites-deluge\.star`](configs/\1.star) | TV shows via TheTVDB favorites (`series.from`) → Deluge |
-| [`configs/discover-trakt-qbittorrent\.star`](configs/\1.star) | Active search driven by Trakt watchlist (`discover.from`) → qBittorrent |
+| [`configs/trakt-shows-transmission\.star`](configs/\1.star) | TV shows via Trakt watchlist (`series.list`) → Transmission |
+| [`configs/trakt-movies-qbittorrent\.star`](configs/\1.star) | Movies via Trakt watchlist (`movies.list`) → qBittorrent |
+| [`configs/tvdb-favorites-deluge\.star`](configs/\1.star) | TV shows via TheTVDB favorites (`series.list`) → Deluge |
+| [`configs/discover-trakt-qbittorrent\.star`](configs/\1.star) | Active search driven by Trakt watchlist (`discover.list`) → qBittorrent |
 | [`configs/ars-technica-email\.star`](configs/\1.star) | RSS articles filtered by keyword → email |
 | [`configs/filesystem-cleanup\.star`](configs/\1.star) | File system entries → conditional exec |
