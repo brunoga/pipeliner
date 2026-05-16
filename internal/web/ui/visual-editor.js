@@ -179,7 +179,7 @@ function renderPalette(filter) {
           title="${esc(fd.description || fd.name)}"
           ondragstart="paletteDragStart(event,${esc(JSON.stringify(fd.name))})"
           onclick="addNodeFromPalette(${esc(JSON.stringify(fd.name))})">
-          ${esc(fd.name)}<span class="ve-chip-fn-badge">fn</span></button
+          ${esc(fd.name)}</button
         ><button class="ve-chip-fn-edit" title="Edit function body"
           onclick="openFunctionEditor(${esc(JSON.stringify(fd.name))})">✏</button
         ><button class="ve-chip-fn-remove" title="Expand and remove function"
