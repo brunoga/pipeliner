@@ -680,29 +680,30 @@ function renderPipelineRegions() {
     const g = ve.graphs[i];
     if (g._regionY == null) continue;
 
-    // Recompute bounds from current node positions so the region always fits
-    // tightly around the actual content — no empty space on any side.
-    const PAD_X = 24, PAD_Y = 16;
-    let minX = Infinity, maxX = 0, minY = Infinity, maxY = 0;
+    // ── _regionH: MUST use identical formula to startNodeDrag.onMove so that
+    //    delta = new - prev is zero during normal rendering (no spurious cascade).
+    let regionH = 80;
     for (const n of g.nodes) {
-      const nx = n.x ?? 0, ny = n.y ?? 0;
-      minX = Math.min(minX, nx);
-      maxX = Math.max(maxX, nx + NODE_W);
-      minY = Math.min(minY, ny);
-      maxY = Math.max(maxY, ny + NODE_H + (n.searchNodeIds?.length ? 100 : 0));
+      const nodeBot = (n.y ?? 0) + NODE_H + (n.searchNodeIds?.length ? 100 : 24);
+      regionH = Math.max(regionH, nodeBot - (g._regionY ?? 0) + 24);
     }
-    if (minX === Infinity) { minX = 0; maxX = 500; minY = (g._regionY ?? 0) + 40; maxY = minY + 80; }
-
-    // Region top: sit just above the highest node, but never above the
-    // pipeline label (label is at g._labelY - 4, region must stay ≤ label).
-    const labelTop  = (g._labelY ?? (g._regionY ?? 0) + 8) - 8;
-    const regionTop = Math.min(labelTop, minY - PAD_Y);
-    const regionH   = maxY + PAD_Y - regionTop;
     g._regionH = regionH;
-    g._regionY = regionTop; // keep _regionY in sync for addPipeline / deletePipeline
 
-    // Always start at left=0 so all pipelines are left-aligned with each
-    // other and with their label bars. Only the right edge is tight.
+    // ── Visual bounds: tight horizontal (right edge only) and tight vertical top.
+    const PAD_X = 24;
+    let minX = Infinity, maxX = 0, minY = Infinity;
+    for (const n of g.nodes) {
+      minX = Math.min(minX, n.x ?? 0);
+      maxX = Math.max(maxX, (n.x ?? 0) + NODE_W);
+      minY = Math.min(minY, n.y ?? 0);
+    }
+    if (minX === Infinity) { minX = 0; maxX = 500; minY = (g._regionY ?? 0) + 40; }
+
+    const labelTop  = (g._labelY ?? (g._regionY ?? 0) + 8) - 8;
+    const regionTop = Math.min(labelTop, minY - 16);
+    // Display height spans from regionTop to the same bottom as _regionH implies.
+    const dispHeight = (g._regionY ?? 0) + regionH - regionTop;
+
     const regionLeft  = 0;
     const regionWidth = maxX + PAD_X;
 
@@ -711,7 +712,7 @@ function renderPipelineRegions() {
     if (region) {
       region.className    = `ve-pipeline-region${i === ve.activeGraph ? ' active' : ''}`;
       region.style.top    = regionTop + 'px';
-      region.style.height = regionH + 'px';
+      region.style.height = dispHeight + 'px';
       region.style.left   = regionLeft + 'px';
       region.style.width  = regionWidth + 'px';
       // Sync empty-pipeline hint.
@@ -729,7 +730,7 @@ function renderPipelineRegions() {
     region.className = `ve-pipeline-region${i === ve.activeGraph ? ' active' : ''}`;
     region.dataset.graphIdx = i;
     region.style.top    = regionTop + 'px';
-    region.style.height = regionH + 'px';
+    region.style.height = dispHeight + 'px';
     region.style.left   = regionLeft + 'px';
     region.style.width  = regionWidth + 'px';
     region.addEventListener('pointerdown', e => {
@@ -1203,10 +1204,15 @@ function tightenPipeline(g, currentGlobalY, pipelineGap) {
     if (n.y != null) n.y -= shiftY;
   }
 
-  // Update cached region metrics to match the shifted positions.
-  const newMaxY = maxY - shiftY;
-  g._regionH = newMaxY - (g._regionY ?? 0) + 24;
-  return (g._regionY ?? 0) + g._regionH + pipelineGap;
+  // Recompute _regionH using the SAME formula as the drag handler so the
+  // delta in startNodeDrag.onMove starts at zero — no spurious cascade.
+  let regionH = 80;
+  for (const n of g.nodes) {
+    const nodeBot = (n.y ?? 0) + NODE_H + (n.searchNodeIds?.length ? 100 : 24);
+    regionH = Math.max(regionH, nodeBot - (g._regionY ?? 0) + 24);
+  }
+  g._regionH = regionH;
+  return (g._regionY ?? 0) + regionH + pipelineGap;
 }
 
 // placeSubNodes positions search/list sub-nodes relative to their parent.
