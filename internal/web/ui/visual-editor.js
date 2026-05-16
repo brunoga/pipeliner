@@ -699,14 +699,13 @@ function renderPipelineRegions() {
     }
     if (minX === Infinity) { minX = 0; maxX = 500; minY = (g._regionY ?? 0) + 40; }
 
-    // Fully tight on all four sides: the box shrinks to hug the actual nodes.
-    // The label floats as an absolute overlay (z-index:2) so it doesn't constrain
-    // the region top — the region can sit below the label when nodes are far down.
-    const PAD_SIDE = 16;
-    const regionTop    = minY - PAD_SIDE;
-    const dispHeight   = (g._regionY ?? 0) + regionH - regionTop;
-    const regionLeft   = Math.max(0, minX - PAD_X);
-    const regionWidth  = maxX + PAD_SIDE - regionLeft;
+    // Top and left are anchored (label position / x=0).
+    // Only the right and bottom edges shrink to hug the content.
+    const labelTop   = (g._labelY ?? (g._regionY ?? 0) + 8) - 8;
+    const regionTop  = labelTop;
+    const dispHeight = (g._regionY ?? 0) + regionH - regionTop;
+    const regionLeft  = 0;
+    const regionWidth = maxX + PAD_X;
 
     // Update an existing element in-place (smooth during drag — no DOM churn).
     let region = canvas.querySelector(`.ve-pipeline-region[data-graph-idx="${i}"]`);
