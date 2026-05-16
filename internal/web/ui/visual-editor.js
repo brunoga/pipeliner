@@ -3910,18 +3910,20 @@ function valToStar(v) {
 // by scanning the source text for the assignment line and parsing its kwargs.
 function parseFunctionCallArgs(src, callKey, funcName) {
   const lines = src.split('\n');
-  const prefix = callKey + ' ';
   for (const line of lines) {
     const t = line.trim();
-    if (!t.startsWith(prefix) && !t.startsWith(callKey + '=')) continue;
     // Match: callKey = funcName(...)
     const m = t.match(new RegExp('^' + callKey.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
       + '\\s*=\\s*' + funcName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\((.*)\\)\\s*$'));
     if (!m) continue;
+    // All args are kwargs (no positional plugin-name arg), so parse every part.
     const result = {};
-    for (const [k, vRaw] of Object.entries(fnParseCallArgs(m[1]).kwargs)) {
-      if (k === 'upstream') continue; // handled as graph edge
-      result[k] = fnParseLiteral(vRaw);
+    for (const part of fnSplitArgs(m[1])) {
+      const eq = part.indexOf('=');
+      if (eq < 0) continue;
+      const k = part.slice(0, eq).trim();
+      if (k === 'upstream') continue; // graph edge, not a config arg
+      result[k] = fnParseLiteral(part.slice(eq + 1).trim());
     }
     return result;
   }
