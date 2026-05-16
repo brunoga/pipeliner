@@ -646,7 +646,7 @@ section { margin-bottom: 32px; }
 }
 .ve-zoom-btn:hover { border-color:var(--accent); color:var(--accent); }
 .ve-zoom-pct {
-  font-size:11px; color:var(--muted); min-width:36px; text-align:center;
+  font-size:13px; color:var(--muted); min-width:36px; text-align:center;
 }
 
 /* edges */
@@ -790,11 +790,12 @@ section { margin-bottom: 32px; }
   /* padding:4px matches .ve-chip vertical padding so all segments are the same height */
   display:inline-flex; align-items:center; padding:4px 7px;
   flex-shrink:0;              /* buttons never get squeezed */
-  background:transparent; border:1px solid var(--border);
+  background:var(--surface); border:1px solid var(--border);
   border-left:none; border-radius:0;
   color:var(--muted); font-size:11px; cursor:pointer; line-height:1;
   transition:color .15s, border-color .15s, background .15s;
 }
+.ve-chip-fn-edit  { border-right:none; }   /* no separator between edit and remove */
 .ve-chip-fn-remove { border-radius:0 6px 6px 0; font-size:12px; }
 
 /* Role-keyed colours: dim at rest, full on wrap hover, background on direct button hover */
