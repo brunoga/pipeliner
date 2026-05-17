@@ -2,6 +2,8 @@
 
 Parses series and episode information from the entry title. Takes no config.
 
+> **Note:** The `series` filter plugin sets all the same fields when it accepts an entry. A separate `metainfo_series` node is only needed in pipelines that do **not** include a `series` filter but still require episode metadata (e.g. for use with `pathfmt`, `condition`, or `exec`).
+
 ## Fields set on entry
 
 | Field | Type | Example | Description |

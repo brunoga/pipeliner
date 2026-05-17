@@ -51,9 +51,17 @@ series = process("series", upstream=seen,
 
 | Field | Type | Description |
 |-------|------|-------------|
+| `title` | string | Parsed series name (e.g. `Breaking Bad`) |
 | `series_season` | int | Season number |
 | `series_episode` | int | Episode number |
-| `series_episode_id` | string | Episode identifier string (e.g. `S02E05`) |
+| `series_episode_id` | string | Episode identifier (e.g. `S02E05`, `S01E01E02` for doubles) |
+| `series_double_episode` | int | Second episode number for double-episode releases |
+| `series_proper` | bool | `true` if the release is a PROPER |
+| `series_repack` | bool | `true` if the release is a REPACK |
+| `series_service` | string | Streaming service tag (e.g. `AMZN`, `NF`) |
+| `series_container` | string | Container format tag if present (e.g. `mkv`) |
+
+These are the same fields produced by `metainfo_series`; a separate `metainfo_series` node is not required when `series` is already in the pipeline.
 
 ## Example — static list
 
@@ -110,10 +118,12 @@ pipeline("tv-combined", schedule="30m")
 | Property | Value |
 |----------|-------|
 | Role | `processor` |
-| Produces | `series_season`, `series_episode`, `series_episode_id` |
+| Produces | `title`, `series_season`, `series_episode`, `series_episode_id`, `series_double_episode`, `series_proper`, `series_repack`, `series_service`, `series_container` |
 | Requires | — |
 
 ## Notes
 
 - Episode history and dynamic list cache are stored in `pipeliner.db` in the same directory as the config file.
 - The episode tracker is updated only after all downstream sinks confirm (via `CommitPlugin`). If a sink fails an entry, the episode is not recorded as downloaded and will be retried on the next run.
+- **Double episodes** (e.g. `S01E01E02`): when a double-episode release is committed, both individual episodes (`S01E01` and `S01E02`) are also marked as seen, preventing re-download of either part as a standalone release later.
+- `metainfo_series` is not needed in pipelines that already include `series` — all the same fields are set by the `series` filter itself.
