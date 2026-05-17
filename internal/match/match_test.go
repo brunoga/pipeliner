@@ -65,6 +65,18 @@ func TestFuzzySequel(t *testing.T) {
 	}
 }
 
+func TestFuzzyShortTitleNoFuzzy(t *testing.T) {
+	// Short titles (< minFuzzyLen chars) must not fuzzy-match similar-looking words.
+	// "junge" (5) is within edit-distance 1 of "jungle" (6) but they are unrelated.
+	if Fuzzy("junge", "jungle") {
+		t.Error(`Fuzzy("junge", "jungle") should be false — short title must not fuzzy-match`)
+	}
+	// Exact match still works for short titles.
+	if !Fuzzy("jaws", "jaws") {
+		t.Error(`Fuzzy("jaws", "jaws") should be true — exact match always works`)
+	}
+}
+
 func TestFuzzyEmpty(t *testing.T) {
 	if !Fuzzy("", "") {
 		t.Error("two empty strings should match")

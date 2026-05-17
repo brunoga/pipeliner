@@ -1,7 +1,7 @@
 # dag-movies-trakt-source.star
 #
 # Movie downloads driven by a Trakt watchlist, using trakt_list as a
-# standalone DAG source node rather than inside movies.from.
+# standalone DAG source node rather than inside movies.list.
 #
 # The DAG makes the topology explicit: the Trakt watchlist and the torrent
 # RSS feed are both visible as source nodes. The movies processor filters

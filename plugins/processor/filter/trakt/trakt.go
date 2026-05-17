@@ -1,6 +1,5 @@
-// Package trakt implements a filter plugin that fetches a Trakt.tv list
-// (watchlist, trending, popular, watched, ratings, or collection) and accepts
-// entries whose parsed title matches something on that list.
+// Package trakt implements a filter plugin that fetches a Trakt.tv list and
+// accepts or rejects entries whose parsed title matches something on that list.
 //
 // The fetched list is cached and refreshed according to the ttl setting
 // (default 1h); one API call per TTL window regardless of how often the
@@ -8,16 +7,18 @@
 //
 // Config keys:
 //
-//	client_id     - Trakt API Client ID (required)
-//	client_secret - OAuth client secret; when set, tokens are managed automatically
-//	                via pipeliner.db (run `pipeliner auth trakt` to authorise).
-//	access_token  - OAuth2 bearer token (alternative to client_secret; static)
-//	type          - "shows" or "movies" (required)
-//	list          - "trending", "popular", "watched", "watchlist", "ratings",
-//	                "collection" (default: "watchlist")
-//	limit         - max results for public lists (default: 100)
-//	min_rating    - minimum user rating to include (ratings list only; 1–10)
-//	ttl           - cache lifetime, e.g. "1h", "30m" (default: "1h")
+//	client_id      - Trakt API Client ID (required)
+//	client_secret  - OAuth client secret; when set, tokens are managed automatically
+//	                 via pipeliner.db (run `pipeliner auth trakt` to authorise).
+//	access_token   - OAuth2 bearer token (alternative to client_secret; static)
+//	type           - "shows" or "movies" (required)
+//	list           - "trending", "popular", "watched", "watchlist", "ratings",
+//	                 "collection", "history", "recommendations" (default: "watchlist")
+//	limit          - max results for public lists (default: 100)
+//	min_rating     - minimum user rating to include (ratings list only; 1–10)
+//	ttl            - cache lifetime, e.g. "1h", "30m" (default: "1h")
+//	reject_matched   - reject entries whose title IS in the list (default: false)
+//	reject_unmatched - reject entries whose title is NOT in the list (default: true)
 package trakt
 
 import (
@@ -45,12 +46,13 @@ func init() {
 		Schema: []plugin.FieldSchema{
 			{Key: "client_id",        Type: plugin.FieldTypeString, Required: true, Hint: "Trakt API client ID"},
 			{Key: "type",             Type: plugin.FieldTypeEnum,   Required: true, Enum: []string{"shows", "movies"}, Hint: "Content type to match"},
-			{Key: "list",             Type: plugin.FieldTypeEnum,                   Enum: []string{"watchlist", "trending", "popular", "watched", "ratings", "collection"}, Hint: "List to fetch (default watchlist)"},
+			{Key: "list",             Type: plugin.FieldTypeEnum,                   Enum: []string{"watchlist", "trending", "popular", "watched", "ratings", "collection", "history", "recommendations"}, Hint: "List to fetch (default watchlist)"},
 			{Key: "client_secret",    Type: plugin.FieldTypeString,                 Hint: "OAuth client secret (for private lists)"},
 			{Key: "access_token",     Type: plugin.FieldTypeString,                 Hint: "OAuth bearer token (for private lists)"},
 			{Key: "limit",            Type: plugin.FieldTypeInt,                    Hint: "Maximum results for public lists (default 100)"},
 			{Key: "min_rating",       Type: plugin.FieldTypeInt,                    Hint: "Minimum user rating 1–10 (ratings list only)"},
 			{Key: "ttl",              Type: plugin.FieldTypeDuration,               Hint: "Cache lifetime (default 1h)"},
+			{Key: "reject_matched",   Type: plugin.FieldTypeBool,                   Hint: "Reject entries whose title IS in the list (default false); use with reject_unmatched=false for anti-join"},
 			{Key: "reject_unmatched", Type: plugin.FieldTypeBool,                   Hint: "Reject entries not on the list (default true)"},
 		},
 	})
@@ -70,7 +72,7 @@ func validate(cfg map[string]any) []error {
 	if err := plugin.OptDuration(cfg, "ttl", "trakt"); err != nil {
 		errs = append(errs, err)
 	}
-	errs = append(errs, plugin.OptUnknownKeys(cfg, "trakt", "client_id", "client_secret", "type", "list", "limit", "min_rating", "ttl", "access_token", "reject_unmatched")...)
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "trakt", "client_id", "client_secret", "type", "list", "limit", "min_rating", "ttl", "access_token", "reject_matched", "reject_unmatched")...)
 	return errs
 }
 
@@ -84,6 +86,7 @@ type traktFilter struct {
 	limit           int
 	minRating       int
 	cache           *cache.Cache[[]string]
+	rejectMatched   bool
 	rejectUnmatched bool
 }
 
@@ -154,6 +157,9 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 	} else if token, _ := cfg["access_token"].(string); token != "" {
 		p.staticToken = token
 	}
+	if v, ok := cfg["reject_matched"]; ok {
+		p.rejectMatched, _ = v.(bool)
+	}
 	p.rejectUnmatched = true
 	if v, ok := cfg["reject_unmatched"]; ok {
 		p.rejectUnmatched, _ = v.(bool)
@@ -181,7 +187,11 @@ func (p *traktFilter) filter(ctx context.Context, tc *plugin.TaskContext, e *ent
 	norm := match.Normalize(parsed)
 	for _, t := range titles {
 		if match.Fuzzy(norm, t) {
-			e.Accept()
+			if p.rejectMatched {
+				e.Reject("trakt: title is in list")
+			} else {
+				e.Accept()
+			}
 			return nil
 		}
 	}

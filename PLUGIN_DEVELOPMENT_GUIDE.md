@@ -171,7 +171,7 @@ Fields follow a tiered naming convention with prefixes:
 | `video_` | VideoInfo | metainfo_tvdb, metainfo_tmdb, metainfo_trakt, movies |
 | `series_` | SeriesInfo | series, metainfo_series, metainfo_tvdb |
 | `movie_` | MovieInfo | movies |
-| `torrent_` | TorrentInfo | rss, jackett, jackett_input, metainfo_torrent, metainfo_magnet |
+| `torrent_` | TorrentInfo | rss, jackett_search, jackett, metainfo_torrent, metainfo_magnet |
 | `file_` | FileInfo | filesystem |
 | `rss_` | RSSInfo | rss |
 

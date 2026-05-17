@@ -27,16 +27,15 @@ the `via` config key, and can also be used as a standalone `input()` source node
 ```python
 src = process("discover",
     titles=["Breaking Bad"],
-    via=[{"name": "rss_search",
-          "url_template": "https://jackett.example.com/api/v2.0/indexers/all/results/torznab/api?t=search&q={{.QueryEscaped}}&apikey=" + env("JACKETT_API_KEY")}],
+    search=[{"name": "rss_search",
+             "url_template": "https://jackett.example.com/api/v2.0/indexers/all/results/torznab/api?t=search&q={{.QueryEscaped}}&apikey=" + env("JACKETT_API_KEY")}],
     interval="6h",
-    **{"from": []},
 )
 ```
 
 ## Role
 
-`rss_search` has `Role=source`. It is used inside `discover.via` for targeted searches, and can also be used as a standalone `input()` node (it will call the URL template with an empty query, returning all recent results):
+`rss_search` has `Role=source`. It is used inside `discover.search` for targeted searches, and can also be used as a standalone `input()` node (it will call the URL template with an empty query, returning all recent results):
 
 | Property | Value |
 |----------|-------|
