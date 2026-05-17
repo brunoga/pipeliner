@@ -19,6 +19,7 @@ import (
 	"go.starlark.net/starlark"
 
 	"github.com/brunoga/pipeliner/internal/dag"
+	"github.com/brunoga/pipeliner/internal/plugin"
 )
 
 // activeFunctionCall returns the call key for the innermost user function on
@@ -64,6 +65,13 @@ type dagGraph struct {
 // nodeHandle is the Starlark value returned by input(), process(), and output().
 // It records the NodeID so it can be passed as upstream= to downstream nodes.
 type nodeHandle struct {
+	id dag.NodeID
+}
+
+// nodeHandleRef is stored in a plugin config map when a *nodeHandle is used as
+// a list= or search= item. pipelineBuiltin() replaces these with *plugin.NodePipeline
+// before assembling the main graph.
+type nodeHandleRef struct {
 	id dag.NodeID
 }
 
@@ -204,6 +212,85 @@ func (ctx *execContext) outputBuiltin(thread *starlark.Thread, fn *starlark.Buil
 	return &nodeHandle{id: id}, nil
 }
 
+// collectSubgraph returns the nodes reachable from terminalID via upstream
+// links, in topological order (sources first). Nodes not present in nodeMap
+// are silently skipped.
+func (ctx *execContext) collectSubgraph(terminalID dag.NodeID, nodeMap map[dag.NodeID]*dagNodeRecord) []*dagNodeRecord {
+	visited := map[dag.NodeID]bool{}
+	var ordered []*dagNodeRecord
+	var walk func(dag.NodeID)
+	walk = func(id dag.NodeID) {
+		if visited[id] {
+			return
+		}
+		visited[id] = true
+		n, ok := nodeMap[id]
+		if !ok {
+			return
+		}
+		for _, up := range n.upstreams {
+			walk(up)
+		}
+		ordered = append(ordered, n)
+	}
+	walk(terminalID)
+	return ordered
+}
+
+// resolveNodePipelines scans all pending node configs for nodeHandleRef values
+// in list= and search= keys, extracts the referenced subgraphs as
+// *plugin.NodePipeline objects, replaces the refs, and removes the extracted
+// nodes from pendingNodes so they are not included in the main DAG.
+func (ctx *execContext) resolveNodePipelines() {
+	nodeMap := make(map[dag.NodeID]*dagNodeRecord, len(ctx.pendingNodes))
+	for _, n := range ctx.pendingNodes {
+		nodeMap[n.id] = n
+	}
+
+	extracted := map[dag.NodeID]bool{}
+
+	for _, n := range ctx.pendingNodes {
+		for _, key := range []string{"list", "search"} {
+			items, ok := n.config[key].([]any)
+			if !ok {
+				continue
+			}
+			changed := false
+			for i, item := range items {
+				ref, ok := item.(nodeHandleRef)
+				if !ok {
+					continue
+				}
+				subNodes := ctx.collectSubgraph(ref.id, nodeMap)
+				steps := make([]plugin.NodePipelineStep, len(subNodes))
+				for j, sn := range subNodes {
+					steps[j] = plugin.NodePipelineStep{
+						PluginName: sn.pluginName,
+						Config:     sn.config,
+					}
+					extracted[sn.id] = true
+				}
+				items[i] = &plugin.NodePipeline{Steps: steps}
+				changed = true
+			}
+			if changed {
+				n.config[key] = items
+			}
+		}
+	}
+
+	if len(extracted) == 0 {
+		return
+	}
+	kept := ctx.pendingNodes[:0]
+	for _, n := range ctx.pendingNodes {
+		if !extracted[n.id] {
+			kept = append(kept, n)
+		}
+	}
+	ctx.pendingNodes = kept
+}
+
 // pipelineBuiltin implements pipeline("name", schedule="...").
 // Assembles all pending nodes into a dag.Graph and registers it.
 func (ctx *execContext) pipelineBuiltin(_ *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
@@ -223,6 +310,8 @@ func (ctx *execContext) pipelineBuiltin(_ *starlark.Thread, fn *starlark.Builtin
 	if len(ctx.pendingNodes) == 0 {
 		return nil, fmt.Errorf("%s %q: no nodes defined before pipeline() call", fn.Name(), name)
 	}
+
+	ctx.resolveNodePipelines()
 
 	g := dag.New()
 	for _, rec := range ctx.pendingNodes {

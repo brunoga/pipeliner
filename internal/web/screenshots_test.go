@@ -15,11 +15,14 @@ import (
 	playwright "github.com/playwright-community/playwright-go"
 
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/content"
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/movies"
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/trakt"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/upgrade"
 	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/quality"
 	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/tmdb"
 	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/torrent"
 	_ "github.com/brunoga/pipeliner/plugins/sink/transmission"
+	_ "github.com/brunoga/pipeliner/plugins/source/trakt_list"
 )
 
 // screenshotOutDir returns docs/images/ relative to this source file.
@@ -211,4 +214,39 @@ func TestScreenshots(t *testing.T) {
 		// #tab-config > section holds the toolbar, error/warning boxes, and editor.
 		screenshotLocator(t, page.Locator("#tab-config > section"), dir, "ui-validation-warnings.png")
 	})
+
+	// ── 7. List-function palette chip with "list" badge ──────────────────────────
+	t.Run("list_function_chip", func(t *testing.T) {
+		ts := startTestServer(t, traktListFunctionConfig)
+		page := newPage(t)
+		defer page.Close() //nolint:errcheck
+		login(t, page, ts.url)
+		openConfigTab(t, page)
+		switchToVisual(t, page, traktListFunctionConfig)
+		// Wait for the function chip with the list badge to appear.
+		waitLocatorVisible(t, page.Locator(`.ve-chip-fn.ve-chip-list`))
+		pause(300)
+		// Screenshot the palette so the list badge is clearly visible.
+		screenshotLocator(t, page.Locator("#ve-palette-body"), dir, "ui-list-function-chip.png")
+	})
+
+	// ── 8. Movies node with mini-pipeline list source connected ──────────────────
+	t.Run("list_function_connected", func(t *testing.T) {
+		ts := startTestServer(t, traktListFunctionConfig)
+		page := newPage(t)
+		defer page.Close() //nolint:errcheck
+		login(t, page, ts.url)
+		openConfigTab(t, page)
+		switchToVisual(t, page, traktListFunctionConfig)
+		// Wait for the list sub-node (mini-pipeline) to appear below movies.
+		waitLocatorVisible(t, page.Locator(`.ve-node.ve-node-list`))
+		// Click the movies node to open its param panel.
+		if err := page.Locator(`.ve-node-name:has-text("movies")`).First().Click(); err != nil {
+			t.Fatalf("click movies node: %v", err)
+		}
+		waitLocatorVisible(t, page.Locator(`#ve-param-body .ve-node-list-badge`))
+		pause(300)
+		screenshotLocator(t, page.Locator("#view-visual"), dir, "ui-list-function-connected.png")
+	})
+
 }

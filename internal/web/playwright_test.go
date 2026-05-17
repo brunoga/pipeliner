@@ -20,7 +20,9 @@ import (
 	// Register plugins needed by test configs.
 	_ "github.com/brunoga/pipeliner/plugins/processor/discover"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/content"
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/movies"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/seen"
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/trakt"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/upgrade"
 	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/quality"
 	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/torrent"
@@ -29,6 +31,7 @@ import (
 	_ "github.com/brunoga/pipeliner/plugins/sink/transmission"
 	_ "github.com/brunoga/pipeliner/plugins/source/rss"
 	_ "github.com/brunoga/pipeliner/plugins/source/rss_search"
+	_ "github.com/brunoga/pipeliner/plugins/source/trakt_list"
 )
 
 // ── test server setup ────────────────────────────────────────────────────────
@@ -1091,4 +1094,72 @@ pipeline("test")
 		}
 	}
 	// else: edge is visible on open — test passes
+}
+
+// ── list-function connection test ─────────────────────────────────────────────
+
+// traktListFunctionConfig is a DAG config where:
+//   - unwatched_movies is a user function wrapping trakt_list → trakt
+//   - a movies node uses it via list=[unwatched_movies()]
+const traktListFunctionConfig = `
+# pipeliner:param
+def unwatched_movies():
+    src      = input("trakt_list", client_id="test-id", type="movies")
+    filtered = process("trakt", upstream=src, client_id="test-id", type="movies", list="history", reject_matched=True, reject_unmatched=False)
+    return filtered
+
+main_src = input("rss", url="https://example.com/rss")
+seen     = process("seen", upstream=main_src)
+flt      = process("movies", upstream=seen, list=[unwatched_movies()], static=["Inception"])
+output("print", upstream=flt)
+pipeline("unwatched", schedule="1h")
+`
+
+// TestPlaywrightListFunctionBadgeAndConnection verifies that:
+//  1. A user function whose body contains a trakt_list input gets a "list"
+//     badge on its palette chip (is_list_plugin propagated from Go → JSON → UI).
+//  2. The movies node renders the function's mini-pipeline as a connected list
+//     sub-node (the trakt_list→trakt chain appears below movies on the canvas).
+//  3. Clicking the movies node shows the list-source in the param panel.
+func TestPlaywrightListFunctionBadgeAndConnection(t *testing.T) {
+	ts := startTestServer(t, traktListFunctionConfig)
+	browser, stop := pwSetup(t)
+	defer stop()
+
+	page, _ := browser.NewPage()
+	defer page.Close() //nolint:errcheck
+
+	login(t, page, ts.url)
+	openConfigTab(t, page)
+	switchToVisual(t, page, traktListFunctionConfig)
+
+	// 1. The palette function chip must carry the "list" CSS class and badge.
+	//    This confirms is_list_plugin was detected server-side and sent to the UI.
+	if err := page.Locator(`.ve-chip-fn.ve-chip-list`).WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateVisible,
+	}); err != nil {
+		t.Errorf("function chip missing 'list' class — is_list_plugin not propagated from Go to UI: %v", err)
+	}
+
+	// 2. The movies node must have a list sub-node on the canvas showing the
+	//    mini-pipeline chain (trakt_list→trakt). It carries the ve-node-list CSS
+	//    class because isListNode=true.
+	if err := page.Locator(`.ve-node.ve-node-list`).WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateVisible,
+	}); err != nil {
+		t.Errorf("no list sub-node visible on canvas — mini-pipeline not shown as connected list source: %v", err)
+	}
+
+	// 3. Click the movies node; the param panel must show the list badge for
+	//    the connected mini-pipeline source.
+	if err := page.Locator(`.ve-node-name:has-text("movies")`).First().Click(); err != nil {
+		t.Fatalf("click movies node: %v", err)
+	}
+	// Use a scoped locator to avoid strict-mode violation (there are two
+	// .ve-node-list-badge elements: one in the canvas sub-node, one in the panel).
+	if err := page.Locator(`#ve-param-body .ve-node-list-badge`).WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateVisible,
+	}); err != nil {
+		t.Errorf("no list badge in movies param panel — function not shown as connected list source: %v", err)
+	}
 }
