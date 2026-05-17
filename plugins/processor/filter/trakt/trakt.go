@@ -52,7 +52,7 @@ func init() {
 			{Key: "limit",            Type: plugin.FieldTypeInt,                    Hint: "Maximum results for public lists (default 100)"},
 			{Key: "min_rating",       Type: plugin.FieldTypeInt,                    Hint: "Minimum user rating 1–10 (ratings list only)"},
 			{Key: "ttl",              Type: plugin.FieldTypeDuration,               Hint: "Cache lifetime (default 1h)"},
-			{Key: "reject_matched",   Type: plugin.FieldTypeBool,                   Hint: "Reject entries whose title IS in the list (default false); use with reject_unmatched=false for anti-join"},
+			{Key: "reject_matched",   Type: plugin.FieldTypeBool,                   Hint: "Reject entries whose title IS in the list (default false); when true, entries NOT in the list are accepted (anti-join)"},
 			{Key: "reject_unmatched", Type: plugin.FieldTypeBool,                   Hint: "Reject entries not on the list (default true)"},
 		},
 	})
@@ -176,9 +176,31 @@ func (p *traktFilter) filter(ctx context.Context, tc *plugin.TaskContext, e *ent
 		return nil
 	}
 
-	parsed, ok := p.parseTitle(e.Title)
+	// If the entry carries trakt_year (set by trakt_list), append it so
+	// movies.Parse() has a year anchor and won't fail on clean titles.
+	titleForParsing := e.Title
+	if year, ok := e.Get("trakt_year"); ok {
+		switch y := year.(type) {
+		case int:
+			if y > 0 {
+				titleForParsing = fmt.Sprintf("%s %d", e.Title, y)
+			}
+		case int64:
+			if y > 0 {
+				titleForParsing = fmt.Sprintf("%s %d", e.Title, y)
+			}
+		case float64:
+			if y > 0 {
+				titleForParsing = fmt.Sprintf("%s %d", e.Title, int(y))
+			}
+		}
+	}
+
+	parsed, ok := p.parseTitle(titleForParsing)
 	if !ok {
-		if p.rejectUnmatched {
+		if p.rejectMatched {
+			e.Accept() // can't confirm it's in the list, so let it through
+		} else if p.rejectUnmatched {
 			e.Reject("trakt: title did not parse")
 		}
 		return nil
@@ -195,7 +217,12 @@ func (p *traktFilter) filter(ctx context.Context, tc *plugin.TaskContext, e *ent
 			return nil
 		}
 	}
-	if p.rejectUnmatched {
+	// No match found.
+	if p.rejectMatched {
+		// Anti-join mode: reject_matched=true means "entries IN the list are bad".
+		// Entries NOT in the list are therefore wanted — accept them explicitly.
+		e.Accept()
+	} else if p.rejectUnmatched {
 		e.Reject("trakt: title not in list")
 	}
 	return nil
@@ -259,10 +286,15 @@ func (p *traktFilter) parseTitle(title string) (string, bool) {
 		return ep.SeriesName, true
 	}
 	mv, ok := imovies.Parse(title)
-	if !ok {
-		return "", false
+	if ok {
+		return mv.Title, true
 	}
-	return mv.Title, true
+	// Fall back to the bare title for entries with no year or quality markers
+	// (e.g. unreleased movies from trakt_list where Trakt has no year yet).
+	if title != "" {
+		return title, true
+	}
+	return "", false
 }
 
 func (p *traktFilter) Process(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
