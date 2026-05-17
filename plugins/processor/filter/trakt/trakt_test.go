@@ -255,11 +255,11 @@ func TestFilterRejectMatched(t *testing.T) {
 		t.Error("entry in list should be rejected when reject_matched=true")
 	}
 
-	// Entry NOT in the list should be left undecided.
+	// Entry NOT in the list should be accepted (anti-join: not in list = wanted).
 	notInList := entry.New("Some.Other.Show.S01E01.720p", "http://example.com/2")
 	p.filter(context.Background(), tc(), notInList) //nolint:errcheck
-	if notInList.IsAccepted() || notInList.IsRejected() {
-		t.Errorf("entry not in list should be undecided when reject_unmatched=false, got accepted=%v rejected=%v",
+	if !notInList.IsAccepted() {
+		t.Errorf("entry not in list should be accepted when reject_matched=true (anti-join mode), got accepted=%v rejected=%v",
 			notInList.IsAccepted(), notInList.IsRejected())
 	}
 }
