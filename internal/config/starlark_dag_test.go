@@ -10,6 +10,7 @@ import (
 
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/accept_all"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/seen"
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/series"
 	_ "github.com/brunoga/pipeliner/plugins/source/rss"
 	_ "github.com/brunoga/pipeliner/plugins/sink/print"
 )
@@ -452,5 +453,105 @@ pipeline("p")
 	}
 	if got := byName["quality"].Hint; got != "Quality spec (string, no annotation needed)" {
 		t.Errorf("quality hint: want full hint text, got %q", got)
+	}
+}
+
+func TestDAG_MiniPipelineInList(t *testing.T) {
+	// A helper function returns a nodeHandle; that handle is passed as a list=
+	// item to a process() node. After parsing, the mini-pipeline nodes must be
+	// extracted from the main graph and stored as a *plugin.NodePipeline in the
+	// parent node's config.
+	c := parseDAGOK(t, `
+def my_list():
+    src = input("rss", url="https://list-source.example.com/rss")
+    return src
+
+main_src = input("rss", url="https://main.example.com/rss")
+seen    = process("seen",   upstream=main_src)
+flt     = process("series", upstream=seen, list=[my_list()], static=["Fallback Show"])
+output("print", upstream=flt)
+pipeline("mini-pipeline-test")
+`)
+	g := c.Graphs["mini-pipeline-test"]
+	if g == nil {
+		t.Fatal("graph not found")
+	}
+
+	// The mini-pipeline rss node must NOT be in the main graph.
+	for _, n := range g.Nodes() {
+		if n.PluginName == "rss" && n.Config["url"] == "https://list-source.example.com/rss" {
+			t.Error("mini-pipeline source node must not appear in the main graph")
+		}
+	}
+
+	// The main graph should have: main_src(rss), seen, series, print = 4 nodes.
+	if g.Len() != 4 {
+		t.Errorf("main graph: want 4 nodes, got %d", g.Len())
+	}
+
+	// The series node's list= config must contain a *plugin.NodePipeline.
+	var seriesNode *dag.Node
+	for _, n := range g.Nodes() {
+		if n.PluginName == "series" {
+			seriesNode = n
+			break
+		}
+	}
+	if seriesNode == nil {
+		t.Fatal("series node not found in main graph")
+	}
+	listItems, ok := seriesNode.Config["list"].([]any)
+	if !ok || len(listItems) != 1 {
+		t.Fatalf("series list= config: want []any with 1 item, got %T %v", seriesNode.Config["list"], seriesNode.Config["list"])
+	}
+	np, ok := listItems[0].(*plugin.NodePipeline)
+	if !ok {
+		t.Fatalf("list[0]: want *plugin.NodePipeline, got %T", listItems[0])
+	}
+	if len(np.Steps) != 1 || np.Steps[0].PluginName != "rss" {
+		t.Errorf("NodePipeline steps: want [{rss}], got %v", np.Steps)
+	}
+}
+
+func TestDAG_MiniPipelineMultiStep(t *testing.T) {
+	// Helper function with source + processor chain.
+	c := parseDAGOK(t, `
+def filtered_list():
+    src  = input("rss", url="https://list.example.com/rss")
+    proc = process("seen", upstream=src)
+    return proc
+
+main_src = input("rss", url="https://main.example.com/rss")
+flt      = process("series", upstream=main_src, list=[filtered_list()], static=["Show"])
+output("print", upstream=flt)
+pipeline("multi-step-mini")
+`)
+	g := c.Graphs["multi-step-mini"]
+	if g == nil {
+		t.Fatal("graph not found")
+	}
+
+	// Main graph: main_src, series, print = 3 nodes (mini-pipeline nodes excluded).
+	if g.Len() != 3 {
+		t.Errorf("main graph: want 3 nodes, got %d", g.Len())
+	}
+
+	var seriesNode *dag.Node
+	for _, n := range g.Nodes() {
+		if n.PluginName == "series" {
+			seriesNode = n
+			break
+		}
+	}
+	if seriesNode == nil {
+		t.Fatal("series node not found")
+	}
+	listItems := seriesNode.Config["list"].([]any)
+	np := listItems[0].(*plugin.NodePipeline)
+	if len(np.Steps) != 2 {
+		t.Fatalf("NodePipeline: want 2 steps, got %d", len(np.Steps))
+	}
+	if np.Steps[0].PluginName != "rss" || np.Steps[1].PluginName != "seen" {
+		t.Errorf("steps: want [rss, seen], got [%s, %s]", np.Steps[0].PluginName, np.Steps[1].PluginName)
 	}
 }
