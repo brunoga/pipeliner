@@ -1579,6 +1579,52 @@ pipeline("tech-news", schedule="1h")</code></pre>
 <h4>Saving</h4>
 <p>Changes in the visual editor sync automatically to the text editor. Use <strong>Save &amp; Reload</strong> in the toolbar to apply. Switch to the <strong>✏ Text</strong> view to edit Starlark directly; switching back to <strong>⬡ Visual</strong> re-parses the text and reloads the canvas.</p>
 
+<h4>User functions as list and search sources</h4>
+<p>Plugins that accept a <code>list=</code> or <code>search=</code> port (such as <code>movies</code>, <code>series</code>, and <code>discover</code>) can be fed by a <strong>user-defined function</strong> — not just by registered plugins. This lets you build a mini-pipeline inside a function and plug it directly into a list or search slot.</p>
+
+<p><strong>How to create a list-source function:</strong></p>
+<ol>
+  <li>Add the source and processor nodes that form your list pipeline to the canvas — for example, a <code>trakt_list</code> source feeding into a <code>trakt</code> processor.</li>
+  <li>Select all nodes in the chain (click then Shift-click, or use box-select).</li>
+  <li>Click <strong>Create Function</strong> in the toolbar. Give it a name (e.g. <code>unwatched_movies</code>) and expose any config values you want parameterised.</li>
+  <li>The function appears as a chip in the <strong>Functions</strong> section of the palette. If the chain contains a list-capable source, the chip shows a teal <strong>LIST</strong> badge.</li>
+</ol>
+
+<figure style="margin:1em 0">
+  <img src="images/ui-list-function-chip.png" alt="Palette showing the unwatched_movies function chip with a LIST badge" style="max-width:220px;border-radius:6px">
+  <figcaption style="font-size:12px;color:var(--muted);margin-top:4px">The <em>unwatched_movies</em> function carries a <strong>LIST</strong> badge, indicating it can be dragged onto a <code>list=</code> port.</figcaption>
+</figure>
+
+<p><strong>How to connect it:</strong></p>
+<ol>
+  <li>Drag from the teal list port on the <code>movies</code> (or <code>series</code>) node to the function chip. The chip will highlight when it is a valid drop target — only chips with the <strong>LIST</strong> badge are accepted.</li>
+  <li>Alternatively, drag the function chip from the palette directly onto the canvas, then drag from the list port to the newly placed call node.</li>
+</ol>
+
+<p>The function call appears as a sub-node below the accepting node, labelled with the step names in the chain (e.g. <em>trakt_list→trakt</em>). The param panel shows it under <strong>List (list sources)</strong>.</p>
+
+<figure style="margin:1em 0">
+  <img src="images/ui-list-function-connected.png" alt="Visual editor showing movies node connected to a trakt_list→trakt mini-pipeline via its list port" style="max-width:100%;border-radius:6px">
+  <figcaption style="font-size:12px;color:var(--muted);margin-top:4px">The <em>trakt_list→trakt</em> mini-pipeline connected to the <code>movies</code> node's list port. Clicking <code>movies</code> reveals it under <strong>List (list sources)</strong> in the param panel.</figcaption>
+</figure>
+
+<p>The same pattern applies to <code>search=</code> ports on <code>discover</code>: a function whose body starts with a search plugin (<code>jackett_search</code>, <code>rss_search</code>) will carry a <strong>SEARCH</strong> badge and can be connected to the discover search port.</p>
+
+<p>In Starlark, the connection is expressed as <code>list=[my_func()]</code>:</p>
+<pre><code><span class="y-comment"># pipeliner:param type=string Trakt client ID</span>
+def unwatched_movies(client_id):
+    src = input(<span class="y-str">"trakt_list"</span>, client_id=client_id, type=<span class="y-str">"movies"</span>, list=<span class="y-str">"watchlist"</span>)
+    flt = process(<span class="y-str">"trakt"</span>, upstream=src, client_id=client_id, type=<span class="y-str">"movies"</span>,
+                  list=<span class="y-str">"history"</span>, reject_matched=True, reject_unmatched=False)
+    return flt
+
+src     = input(<span class="y-str">"rss"</span>, url=<span class="y-str">"https://example.com/rss"</span>)
+seen    = process(<span class="y-str">"seen"</span>, upstream=src)
+movies  = process(<span class="y-str">"movies"</span>, upstream=seen, list=[unwatched_movies(client_id=env(<span class="y-str">"TRAKT_ID"</span>))],
+                  static=[<span class="y-str">"Inception"</span>])
+output(<span class="y-str">"transmission"</span>, upstream=movies, host=<span class="y-str">"localhost"</span>)
+pipeline(<span class="y-str">"my-movies"</span>, schedule=<span class="y-str">"1h"</span>)</code></pre>
+
 <h3>Database tab</h3>
 <p>Inspect and manage the two download trackers stored in <code>pipeliner.db</code>.</p>
 <p>A sidebar lists the available trackers; click one to load its contents in the main panel. A filter box and <strong>Clear all</strong> button appear for the active tracker.</p>
