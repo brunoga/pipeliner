@@ -485,7 +485,8 @@ pipeline("split-pipeline")</code></pre>
   <tr><td><code>series_service</code></td><td>Streaming service tag parsed from title</td></tr>
   <tr><td><code>series_proper</code></td><td><code>true</code> when PROPER marker is detected</td></tr>
   <tr><td><code>series_repack</code></td><td><code>true</code> when REPACK marker is detected</td></tr>
-  <tr><td><code>series_double_episode</code></td><td><code>true</code> when a double episode is detected</td></tr>
+  <tr><td><code>series_double_episode</code></td><td>Second episode number for double-episode releases (e.g. <code>2</code> for <code>S01E01E02</code>)</td></tr>
+  <tr><td><code>series_container</code></td><td>Container format tag parsed from title (e.g. <code>mkv</code>)</td></tr>
 </table>
 
 <h4>MovieInfo (movie_ prefix) — set by movies</h4>
@@ -565,7 +566,12 @@ pipeline("split-pipeline")</code></pre>
   <tr><td><code>enriched</code></td><td>metainfo_tvdb, metainfo_tmdb, metainfo_trakt</td><td><code>true</code> when enriched by an external provider</td></tr>
   <tr><td><code>series_season</code></td><td>series, metainfo_series</td><td>Season number</td></tr>
   <tr><td><code>series_episode</code></td><td>series, metainfo_series</td><td>Episode number</td></tr>
-  <tr><td><code>series_episode_id</code></td><td>series, metainfo_series</td><td>Episode ID string (e.g. <code>S02E05</code>)</td></tr>
+  <tr><td><code>series_episode_id</code></td><td>series, metainfo_series</td><td>Episode ID string (e.g. <code>S02E05</code>, <code>S01E01E02</code> for doubles)</td></tr>
+  <tr><td><code>series_double_episode</code></td><td>series, metainfo_series</td><td>Second episode number for double-episode releases</td></tr>
+  <tr><td><code>series_proper</code></td><td>series, metainfo_series</td><td><code>true</code> when PROPER marker is detected</td></tr>
+  <tr><td><code>series_repack</code></td><td>series, metainfo_series</td><td><code>true</code> when REPACK marker is detected</td></tr>
+  <tr><td><code>series_service</code></td><td>series, metainfo_series</td><td>Streaming service tag (e.g. <code>AMZN</code>, <code>NF</code>)</td></tr>
+  <tr><td><code>series_container</code></td><td>series, metainfo_series</td><td>Container format tag (e.g. <code>mkv</code>)</td></tr>
   <tr><td><code>video_year</code></td><td>movies, metainfo_tvdb, metainfo_tmdb</td><td>Release or first-air year</td></tr>
   <tr><td><code>video_is_3d</code></td><td>movies</td><td><code>true</code> when any 3D format marker is detected (3D, SBS, HOU, BD3D, etc.)</td></tr>
   <tr><td><code>video_quality</code></td><td>movies</td><td>Parsed quality string from movie title, including 3D format when present (e.g. <code>BD3D 1080p BluRay</code>)</td></tr>
@@ -982,7 +988,7 @@ pipeline("hd-only")</code></pre>
 <!-- ─────────── metainfo_series ─────────── -->
 <h2 id="metainfo_series">metainfo_series</h2>
 <p>Parses series and episode information from the entry title. Takes no config. (The <code>series</code> filter also does this internally — use this standalone plugin when you need the fields without the series filter's show-list matching.)</p>
-<p>Fields set: <code>series_season</code>, <code>series_episode</code>, <code>series_episode_id</code>, <code>series_proper</code>, <code>series_repack</code>, <code>series_service</code>, <code>series_double_episode</code></p>
+<p>Fields set: <code>series_season</code>, <code>series_episode</code>, <code>series_episode_id</code>, <code>series_double_episode</code>, <code>series_proper</code>, <code>series_repack</code>, <code>series_service</code>, <code>series_container</code></p>
 
 <!-- ─────────── metainfo_torrent ─────────── -->
 <h2 id="metainfo_torrent">metainfo_torrent</h2>

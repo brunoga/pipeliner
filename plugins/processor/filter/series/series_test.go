@@ -566,3 +566,74 @@ func TestCommit_Persists(t *testing.T) {
 		t.Error("Commit() should persist to the tracker; S01E01 should now be tracked")
 	}
 }
+
+func TestEpisodeFieldsSetFull(t *testing.T) {
+	p := openPlugin(t, nil)
+	e := entry.New("My.Show.S02E05.PROPER.720p.AMZN.WEB-DL", "http://x.com/a")
+	p.filter(context.Background(), makeCtx(), e) //nolint:errcheck
+
+	if v := e.GetString("series_episode_id"); v != "S02E05" {
+		t.Errorf("series_episode_id: got %q, want S02E05", v)
+	}
+	if v := e.GetString(entry.FieldSeriesService); v != "AMZN" {
+		t.Errorf("series_service: got %q, want AMZN", v)
+	}
+	if v := e.GetString(entry.FieldTitle); v != "My Show" {
+		t.Errorf("title: got %q, want My Show", v)
+	}
+	if proper, _ := e.Get(entry.FieldSeriesProper); proper != true {
+		t.Errorf("series_proper: got %v, want true", proper)
+	}
+	if season, _ := e.Get(entry.FieldSeriesSeason); season != 2 {
+		t.Errorf("series_season: got %v, want 2", season)
+	}
+}
+
+func TestDoubleEpisodeCommitMarksBothParts(t *testing.T) {
+	p := openPlugin(t, nil)
+	tc := makeCtx()
+
+	// Accept and commit a double episode S01E01E02.
+	e := entry.New("My.Show.S01E01E02.1080p.WEB-DL", "http://x.com/double")
+	if _, err := p.Process(context.Background(), tc, []*entry.Entry{e}); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Commit(context.Background(), tc, []*entry.Entry{e}); err != nil {
+		t.Fatal(err)
+	}
+
+	// S01E01 individually should now be rejected (already part of the downloaded double).
+	e1 := entry.New("My.Show.S01E01.1080p.WEB-DL", "http://x.com/e01")
+	p.filter(context.Background(), tc, e1) //nolint:errcheck
+	if !e1.IsRejected() {
+		t.Error("S01E01 should be rejected after double S01E01E02 was committed")
+	}
+
+	// S01E02 individually should also be rejected.
+	e2 := entry.New("My.Show.S01E02.1080p.WEB-DL", "http://x.com/e02")
+	p.filter(context.Background(), tc, e2) //nolint:errcheck
+	if !e2.IsRejected() {
+		t.Error("S01E02 should be rejected after double S01E01E02 was committed")
+	}
+}
+
+func TestDoubleEpisodeDoesNotBlockNewContent(t *testing.T) {
+	p := openPlugin(t, nil)
+	tc := makeCtx()
+
+	// Commit S01E01 individually.
+	e := entry.New("My.Show.S01E01.720p.WEB-DL", "http://x.com/e01")
+	if _, err := p.Process(context.Background(), tc, []*entry.Entry{e}); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Commit(context.Background(), tc, []*entry.Entry{e}); err != nil {
+		t.Fatal(err)
+	}
+
+	// S01E01E02 double pack should still be accepted — it contains S01E02 which is new.
+	edbl := entry.New("My.Show.S01E01E02.1080p.WEB-DL", "http://x.com/double")
+	p.filter(context.Background(), tc, edbl) //nolint:errcheck
+	if edbl.IsRejected() {
+		t.Error("double S01E01E02 should not be blocked just because S01E01 was seen — S01E02 is new content")
+	}
+}
