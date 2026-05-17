@@ -79,7 +79,7 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 	listRaw, _ := cfg["list"].([]any)
 	var froms []plugin.SourcePlugin
 	for _, item := range listRaw {
-		src, err := plugin.MakeFromPlugin(item, db)
+		src, err := plugin.MakeListPlugin(item, db)
 		if err != nil {
 			return nil, fmt.Errorf("discover: list: %w", err)
 		}

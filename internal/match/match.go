@@ -20,15 +20,24 @@ func Normalize(s string) string {
 	return strings.Join(strings.Fields(s), " ")
 }
 
+// minFuzzyLen is the minimum length both titles must have before Levenshtein
+// fuzzy matching is attempted. Short titles have too high a false-positive rate
+// (e.g. "junge" matching "jungle") so they require an exact or glob match only.
+const minFuzzyLen = 6
+
 // Fuzzy returns true if a and b represent the same title after normalization.
 // It accepts an exact match, a glob pattern match (b as the pattern), or a
-// Levenshtein distance of at most 1 (single-character typo tolerance).
+// Levenshtein distance of at most 1 (single-character typo tolerance) — but
+// only when both titles are at least minFuzzyLen characters long.
 func Fuzzy(a, b string) bool {
 	if a == b {
 		return true
 	}
 	if matched, err := filepath.Match(b, a); err == nil && matched {
 		return true
+	}
+	if len(a) < minFuzzyLen || len(b) < minFuzzyLen {
+		return false
 	}
 	return levenshtein(a, b) <= 1
 }

@@ -33,7 +33,7 @@ import (
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/trakt"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/tvdb"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/upgrade"
-	_ "github.com/brunoga/pipeliner/plugins/source/jackett"
+	_ "github.com/brunoga/pipeliner/plugins/source/jackett_search"
 	_ "github.com/brunoga/pipeliner/plugins/source/rss_search"
 	_ "github.com/brunoga/pipeliner/plugins/source/trakt_list"
 	_ "github.com/brunoga/pipeliner/plugins/source/tvdb_favorites"
@@ -41,7 +41,7 @@ import (
 	_ "github.com/brunoga/pipeliner/plugins/source/filesystem"
 	_ "github.com/brunoga/pipeliner/plugins/source/html"
 	_ "github.com/brunoga/pipeliner/plugins/source/rss"
-	_ "github.com/brunoga/pipeliner/plugins/source/jackett_input"
+	_ "github.com/brunoga/pipeliner/plugins/source/jackett"
 	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/magnet"
 	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/quality"
 	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/series"
@@ -470,7 +470,7 @@ func TestAllPluginsRegistered(t *testing.T) {
 		"set", "pathfmt",
 		"print", "exec", "list_add",
 		"metainfo_quality", "metainfo_series", "metainfo_trakt", "metainfo_magnet",
-		"rss_search", "jackett",
+		"rss_search", "jackett_search",
 	}
 	for _, name := range want {
 		if _, ok := plugin.Lookup(name); !ok {

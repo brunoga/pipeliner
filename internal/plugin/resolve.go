@@ -6,10 +6,10 @@ import (
 	"github.com/brunoga/pipeliner/internal/store"
 )
 
-// MakeFromPlugin creates a logging-wrapped SourcePlugin from a config item.
+// MakeListPlugin creates a logging-wrapped SourcePlugin from a config item.
 // item may be a plugin name string or a map[string]any with a "name" key plus
 // config keys. The plugin must have Role=RoleSource.
-func MakeFromPlugin(item any, db *store.SQLiteStore) (SourcePlugin, error) {
+func MakeListPlugin(item any, db *store.SQLiteStore) (SourcePlugin, error) {
 	name, cfg, err := ResolveNameAndConfig(item)
 	if err != nil {
 		return nil, err

@@ -18,21 +18,6 @@ const (
 	RoleSink      Role = "sink"      // consumes entries; no downstream nodes
 )
 
-// Phase is a legacy identifier kept for plugins that still declare it.
-// All new plugin code should use Role instead.
-type Phase string
-
-const (
-	// PhaseFrom identifies from-plugins used as dynamic title sources by
-	// series, movies, and discover. These plugins implement SourcePlugin.
-	PhaseFrom     Phase = "from"
-	PhaseInput    Phase = "input"
-	PhaseMetainfo Phase = "metainfo"
-	PhaseFilter   Phase = "filter"
-	PhaseModify   Phase = "modify"
-	PhaseOutput   Phase = "output"
-	PhaseLearn    Phase = "learn"
-)
 
 // Plugin is the base interface every plugin must satisfy.
 type Plugin interface {
