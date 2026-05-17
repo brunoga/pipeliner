@@ -466,8 +466,8 @@ function renderGraphNodes() {
       div.className = `ve-node${sel ? ' selected' : ''}${multiSel ? ' multi-selected' : ''}${isSearch ? ' ve-node-search' : ''}${isList ? ' ve-node-list' : ''}${isFn ? ' ve-node-fn' : ''}`;
       div.dataset.role       = role;
       div.dataset.id         = n.id;
-      div.dataset.isSearch   = meta.is_search_plugin ? 'true' : 'false';
-      div.dataset.isList     = meta.is_list_plugin   ? 'true' : 'false';
+      div.dataset.isSearch   = nodeIsSearchPlugin(n) ? 'true' : 'false';
+      div.dataset.isList     = nodeIsListPlugin(n)   ? 'true' : 'false';
       div.dataset.isSearchNd = isSearch ? 'true' : 'false';
       div.dataset.isListNd   = isList   ? 'true' : 'false';
       div.style.left = (n.x ?? 60) + 'px';
