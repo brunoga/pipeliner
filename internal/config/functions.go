@@ -39,10 +39,12 @@ type UserFunctionParam struct {
 
 // UserFunctionDef holds the schema discovered for a user-defined function.
 type UserFunctionDef struct {
-	Name        string
-	Role        string // "source" | "processor" | "sink"
-	Description string
-	Params      []UserFunctionParam
+	Name           string
+	Role           string // "source" | "processor" | "sink"
+	Description    string
+	Params         []UserFunctionParam
+	IsListPlugin   bool // true when the body contains an input() with IsListPlugin=true
+	IsSearchPlugin bool // true when the body contains an input() with IsSearchPlugin=true
 }
 
 // FunctionCallRecord records one invocation of a user function inside a pipeline.
@@ -59,6 +61,8 @@ var (
 	defRe = regexp.MustCompile(`^def\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(`)
 	// paramLineRe parses "# pipeliner:param name hint text".
 	paramLineRe = regexp.MustCompile(`^pipeliner:param\s+(\S+)\s*(.*)$`)
+	// inputPluginRe extracts the plugin name from input("name", ...) calls.
+	inputPluginRe = regexp.MustCompile(`input\(\s*"([^"]+)"`)
 )
 
 // scanUserFunctions performs a text-only pre-scan of src and returns a map of
@@ -125,11 +129,14 @@ func scanUserFunctions(src string) map[string]*UserFunctionDef {
 					// Parse the function signature for parameters.
 					params := parseFunctionParams(trimmed, paramHints)
 
+					isList, isSearch := inferListSearchFlags(body)
 					result[funcName] = &UserFunctionDef{
-						Name:        funcName,
-						Role:        inferFunctionRole(body),
-						Description: strings.Join(descParts, " "),
-						Params:      params,
+						Name:           funcName,
+						Role:           inferFunctionRole(body),
+						Description:    strings.Join(descParts, " "),
+						Params:         params,
+						IsListPlugin:   isList,
+						IsSearchPlugin: isSearch,
 					}
 				}
 			}
@@ -172,6 +179,24 @@ func inferFunctionRole(body string) string {
 		return "sink"
 	}
 	return "processor"
+}
+
+// inferListSearchFlags returns whether the function body contains input() calls
+// that reference a list plugin or search plugin respectively.
+func inferListSearchFlags(body string) (isList, isSearch bool) {
+	for _, m := range inputPluginRe.FindAllStringSubmatch(body, -1) {
+		d, ok := plugin.Lookup(m[1])
+		if !ok {
+			continue
+		}
+		if d.IsListPlugin {
+			isList = true
+		}
+		if d.IsSearchPlugin {
+			isSearch = true
+		}
+	}
+	return
 }
 
 // parseFunctionParams parses the def signature line to extract parameter names
