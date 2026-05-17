@@ -21,7 +21,7 @@ movies_path         = "/media/movies"
 tv_path             = "/media/tv"
 
 def jackett_search():
-    return [{"name": "jackett",
+    return [{"name": "jackett_search",
              "url":      jackett_url,
              "api_key":  jackett_key,
              "indexers": ["all"]}]

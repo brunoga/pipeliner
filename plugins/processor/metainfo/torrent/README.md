@@ -3,7 +3,7 @@
 Reads metadata from a `.torrent` file and annotates entries with its contents. It recognises an entry as a torrent download using three signals, checked in order:
 
 1. `file_location` field ends in `.torrent` (set by the `filesystem` plugin) — reads the local file
-2. `torrent_link_type = "torrent"` (set by `jackett` / `jackett_input`) — fetches the URL
+2. `torrent_link_type = "torrent"` (set by `jackett_search` / `jackett`) — fetches the URL
 3. URL ends in `.torrent` or `rss_enclosure_type = "application/x-bittorrent"` — fetches the URL
 
 Entries with `torrent_link_type = "magnet"` are always skipped (handled by `metainfo_magnet`).

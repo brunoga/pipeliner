@@ -10,7 +10,7 @@ import (
 
 func init() {
 	plugin.Register(&plugin.Descriptor{
-		PluginName:  "jackett_input",
+		PluginName:  "jackett",
 		Description: "return recent results from Jackett indexers as pipeline entries (no query required)",
 		Role:        plugin.RoleSource,
 		Produces: []string{
@@ -23,7 +23,6 @@ func init() {
 		},
 		Factory:        newSourcePlugin,
 		Validate:       validateInput,
-		IsSearchPlugin: true,
 		Schema: []plugin.FieldSchema{
 			{Key: "url",        Type: plugin.FieldTypeString,   Required: true,  Hint: "Jackett base URL (e.g. http://localhost:9117)"},
 			{Key: "api_key",    Type: plugin.FieldTypeString,   Required: true,  Hint: "Jackett API key"},
@@ -38,19 +37,19 @@ func init() {
 
 func validateInput(cfg map[string]any) []error {
 	var errs []error
-	if err := plugin.RequireString(cfg, "url", "jackett_input"); err != nil {
+	if err := plugin.RequireString(cfg, "url", "jackett"); err != nil {
 		errs = append(errs, err)
 	}
-	if err := plugin.RequireString(cfg, "api_key", "jackett_input"); err != nil {
+	if err := plugin.RequireString(cfg, "api_key", "jackett"); err != nil {
 		errs = append(errs, err)
 	}
-	if err := validateLimit(cfg, "jackett_input"); err != nil {
+	if err := validateLimit(cfg, "jackett"); err != nil {
 		errs = append(errs, err)
 	}
-	if err := plugin.OptDuration(cfg, "timeout", "jackett_input"); err != nil {
+	if err := plugin.OptDuration(cfg, "timeout", "jackett"); err != nil {
 		errs = append(errs, err)
 	}
-	errs = append(errs, plugin.OptUnknownKeys(cfg, "jackett_input", "url", "api_key", "indexers", "categories", "limit", "timeout", "query")...)
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "jackett", "url", "api_key", "indexers", "categories", "limit", "timeout", "query")...)
 	return errs
 }
 
@@ -75,7 +74,7 @@ func newSourcePlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, 
 	}, nil
 }
 
-func (p *jackettSourcePlugin) Name() string        { return "jackett_input" }
+func (p *jackettSourcePlugin) Name() string        { return "jackett" }
 
 func (p *jackettSourcePlugin) Generate(ctx context.Context, tc *plugin.TaskContext) ([]*entry.Entry, error) {
 	return p.searcher.Search(ctx, tc, p.query)

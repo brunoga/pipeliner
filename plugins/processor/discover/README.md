@@ -46,7 +46,7 @@ watchlist = input("trakt_list", client_id=env("TRAKT_ID"),
                   client_secret=env("TRAKT_SECRET"),
                   type="movies", list="watchlist")
 results   = process("discover", upstream=watchlist,
-    search=[{"name": "jackett", "url": "http://localhost:9117",
+    search=[{"name": "jackett_search", "url": "http://localhost:9117",
              "api_key": env("JACKETT_KEY"), "categories": ["2000"]}],
     interval="12h")
 seen      = process("seen",            upstream=results)
@@ -82,7 +82,7 @@ watchlist = input("trakt_list",
 # discover receives those entries, searches Jackett for each title,
 # and returns torrent results (not the Trakt entries).
 results = process("discover", upstream=watchlist,
-    search=[{"name": "jackett",
+    search=[{"name": "jackett_search",
              "url":     "http://localhost:9117",
              "api_key": env("JACKETT_KEY"),
              "categories": ["5040", "5045"]}],

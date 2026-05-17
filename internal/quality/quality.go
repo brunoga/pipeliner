@@ -240,7 +240,7 @@ var (
 	reCodec      = regexp.MustCompile(`(?i)\b(av1|x265|h\.?265|hevc|x264|h\.?264|xvid|divx)\b`)
 	reColorRange = regexp.MustCompile(`(?i)\b(dolby[\s\.]?vision|dv\b|hdr10[\+]?|hdr|sdr)\b`)
 	// re3DConv matches 3D-conversion tags; checked before re3D so it always wins.
-	re3DConv = regexp.MustCompile(`(?i)\b3D[\-]?CONV\b`)
+	re3DConv = regexp.MustCompile(`(?i)(?:\b3D[\-]?CONV(?:ERT)?\b|\bCONVERT\b)`)
 	// re3D matches native 3D format markers; longer alternatives are listed first.
 	// MVC (Multiview Video Coding) is the Blu-ray 3D codec — always BD quality.
 	re3D = regexp.MustCompile(`(?i)\b(BD3D|MVC|FULL[\-]?SBS|FULL[\-]?OU|FSBS|F-SBS|FOU|F-OU|HALF[\-]?SBS|HALF[\-]?OU|HSBS|H-SBS|HOU|H-OU|SBS|OU|3D)\b`)
@@ -676,7 +676,7 @@ func parseAudio(s string) (Audio, bool) {
 
 func parseFormat3D(s string) (Format3D, bool) {
 	switch strings.ToLower(strings.ReplaceAll(s, "-", "")) {
-	case "3dconv", "conv":
+	case "3dconv", "conv", "3dconvert", "convert":
 		return Format3DConv, true
 	case "3d", "3dhalf", "half":
 		return Format3DHalf, true

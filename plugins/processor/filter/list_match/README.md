@@ -15,7 +15,7 @@ This pair of plugins replaces FlexGet's `list_add` / `list_match` / `movie_list`
 ## Example — download movies from a persistent watchlist
 
 ```python
-# Task 1 (priority 1): use movies.from to sync Trakt watchlist into a local list
+# Task 1 (priority 1): use movies.list to sync Trakt watchlist into a local list
 task("sync-watchlist", [
     plugin("rss", url="https://example.com/rss/movies"),
     plugin("movies", **{"from": [
@@ -28,10 +28,10 @@ task("sync-watchlist", [
 
 # Task 2 (priority 10): search and download, matching against the local list
 task("movies-search", [
-    plugin("discover", **{"from": [
+    plugin("discover", **{"list": [
         {"name": "trakt_list", "client_id": "YOUR_CLIENT_ID",
          "type": "movies", "list": "watchlist"},
-    ], "via": [
+    ], "search": [
         {"name": "rss_search",
          "url_template": "https://example.com/search?q={QueryEscaped}"},
     ], "interval": "24h"}),
