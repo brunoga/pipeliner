@@ -174,12 +174,15 @@ function renderPalette(filter) {
     html.push(`<div class="ve-role-header" data-role="function" onclick="toggleRoleGroup(this)">Functions</div>`);
     html.push(`<div class="ve-role-chips">`);
     for (const fd of userFuncList) {
+      const fnBadge   = fd.is_search_plugin ? ' <span class="ve-chip-search-badge">search</span>'
+                      : fd.is_list_plugin   ? ' <span class="ve-chip-list-badge">list</span>' : '';
+      const fnCls     = fd.is_search_plugin ? ' ve-chip-search' : fd.is_list_plugin ? ' ve-chip-list' : '';
       html.push(`<span class="ve-chip-fn-wrap" data-role="${fd.role}">
-        <button class="ve-chip ve-chip-fn" data-role="${fd.role}" draggable="true"
+        <button class="ve-chip ve-chip-fn${fnCls}" data-role="${fd.role}" draggable="true"
           title="${esc(fd.description || fd.name)}"
           ondragstart="paletteDragStart(event,${esc(JSON.stringify(fd.name))})"
           onclick="addNodeFromPalette(${esc(JSON.stringify(fd.name))})">
-          ${esc(fd.name)}</button
+          ${esc(fd.name)}${fnBadge}</button
         ><button class="ve-chip-fn-edit" title="Edit function body"
           onclick="openFunctionEditor(${esc(JSON.stringify(fd.name))})">✏</button
         ><button class="ve-chip-fn-remove" title="Expand and remove function"
@@ -463,8 +466,8 @@ function renderGraphNodes() {
       div.className = `ve-node${sel ? ' selected' : ''}${multiSel ? ' multi-selected' : ''}${isSearch ? ' ve-node-search' : ''}${isList ? ' ve-node-list' : ''}${isFn ? ' ve-node-fn' : ''}`;
       div.dataset.role       = role;
       div.dataset.id         = n.id;
-      div.dataset.isSearch   = meta.is_search_plugin ? 'true' : 'false';
-      div.dataset.isList     = meta.is_list_plugin   ? 'true' : 'false';
+      div.dataset.isSearch   = nodeIsSearchPlugin(n) ? 'true' : 'false';
+      div.dataset.isList     = nodeIsListPlugin(n)   ? 'true' : 'false';
       div.dataset.isSearchNd = isSearch ? 'true' : 'false';
       div.dataset.isListNd   = isList   ? 'true' : 'false';
       div.style.left = (n.x ?? 60) + 'px';
@@ -533,9 +536,9 @@ function renderGraphNodes() {
       div.addEventListener('pointerup', () => {
         if (ve_connecting && ve_connecting.srcId !== n.id && role !== 'source' && !isSearch && !isList) finishConnect(n.id);
         // Receive search-port drop.
-        if (ve_searchConnecting && ve_searchConnecting.discoverNodeId !== n.id && meta.is_search_plugin && !isSearch && !isList) finishSearchConnect(n.id);
+        if (ve_searchConnecting && ve_searchConnecting.discoverNodeId !== n.id && nodeIsSearchPlugin(n) && !isSearch && !isList) finishSearchConnect(n.id);
         // Receive list-port drop.
-        if (ve_listConnecting && ve_listConnecting.parentNodeId !== n.id && meta.is_list_plugin && !isSearch && !isList) finishListConnect(n.id);
+        if (ve_listConnecting && ve_listConnecting.parentNodeId !== n.id && nodeIsListPlugin(n) && !isSearch && !isList) finishListConnect(n.id);
       });
 
       const outPort = div.querySelector('.ve-node-out-port');
@@ -1741,10 +1744,19 @@ function startSearchConnect(e, discoverNodeId) {
   document.addEventListener('pointercancel', onCancel, {once: true});
 }
 
+// nodeIsListPlugin / nodeIsSearchPlugin check both registered plugins and
+// user-defined functions so that function calls can serve as list/search sources.
+function nodeIsListPlugin(n) {
+  return !!(pluginMeta(n.plugin)?.is_list_plugin || ve.userFunctions[n.plugin]?.is_list_plugin);
+}
+function nodeIsSearchPlugin(n) {
+  return !!(pluginMeta(n.plugin)?.is_search_plugin || ve.userFunctions[n.plugin]?.is_search_plugin);
+}
+
 function finishSearchConnect(targetNodeId) {
   const disc   = findNode(ve_searchConnecting?.discoverNodeId);
   const target = findNode(targetNodeId);
-  if (disc && target && pluginMeta(target.plugin)?.is_search_plugin && !target.isSearchNode) {
+  if (disc && target && nodeIsSearchPlugin(target) && !target.isSearchNode) {
     if (!disc.searchNodeIds) disc.searchNodeIds = [];
     if (!disc.searchNodeIds.includes(targetNodeId)) {
       disc.searchNodeIds.push(targetNodeId);
@@ -1800,7 +1812,7 @@ function finishListConnect(targetNodeId) {
   const target = findNode(targetNodeId);
   // Also block if the target is already a regular upstream of the parent
   // (one connection type per node).
-  if (parent && target && pluginMeta(target.plugin)?.is_list_plugin &&
+  if (parent && target && nodeIsListPlugin(target) &&
       !target.isListNode && !(parent.upstreams || []).includes(targetNodeId)) {
     if (!parent.listNodeIds) parent.listNodeIds = [];
     if (!parent.listNodeIds.includes(targetNodeId)) {
@@ -1940,8 +1952,11 @@ function renderParamPanel() {
     ].join('');
   } else if (node.isListNode && node.listParentId) {
     const parentName = findNode(node.listParentId)?.plugin ?? node.listParentId;
+    const miniNote = node.isMiniPipeline
+      ? `<div style="font-size:11px;color:var(--muted);margin-bottom:6px">Mini-pipeline — edit steps in the config text editor</div>` : '';
     footer.innerHTML = [
       `<div style="font-size:11px;color:var(--muted);margin-bottom:6px">List source for <b>${esc(parentName)}</b></div>`,
+      miniNote,
       `<button class="ve-remove-btn" onclick="disconnectList(${esc(JSON.stringify(node.listParentId))},${esc(JSON.stringify(node.id))})">Disconnect from list</button>`,
     ].join('');
   } else if (node.isFunctionCall) {
@@ -1976,7 +1991,7 @@ function renderParamPanel() {
 
   // ── Search section (discover and similar AcceptsSearch nodes) ─────────────
   if (meta.accepts_search) {
-    const searchNodes = g.nodes.filter(nd => pluginMeta(nd.plugin)?.is_search_plugin);
+    const searchNodes = g.nodes.filter(nd => nodeIsSearchPlugin(nd));
     html.push(`<div class="ve-field"><div class="ve-field-label">Search (search backends)</div>`);
     if (!searchNodes.length) {
       html.push(`<div style="color:var(--muted);font-size:12px;margin-top:4px">Add search-plugin nodes (jackett, rss_search…) to the canvas, then drag the <b>search</b> port to connect them</div>`);
@@ -1996,7 +2011,7 @@ function renderParamPanel() {
 
   // ── List section (series, movies and similar AcceptsList nodes) ─────────────
   if (meta.accepts_list) {
-    const listNodes = g.nodes.filter(nd => pluginMeta(nd.plugin)?.is_list_plugin);
+    const listNodes = g.nodes.filter(nd => nodeIsListPlugin(nd));
     html.push(`<div class="ve-field"><div class="ve-field-label">List (list sources)</div>`);
     if (!listNodes.length) {
       html.push(`<div style="color:var(--muted);font-size:12px;margin-top:4px">Add list-source nodes (tvdb_favorites, trakt_list…) to the canvas, then drag the <b>list</b> port to connect them</div>`);
@@ -2055,16 +2070,21 @@ function renderParamPanel() {
     for (const sid of subIds) {
       const sn    = findNode(sid);
       const sMeta = sn ? pluginMeta(sn.plugin) : null;
-      if (!sn || !sMeta?.schema?.length) continue;
+      if (!sn || (!sMeta?.schema?.length && !sn.isMiniPipeline)) continue;
       const badge = sn.isListNode ? '<span class="ve-node-list-badge">list</span>'
                                   : '<span class="ve-node-search-badge">search</span>';
       html.push(`<div class="ve-field-sep"></div>`);
-      html.push(`<div class="ve-sub-node-header">${badge} <span class="ve-sub-node-plugin">${esc(sn.plugin)}</span></div>`);
-      html.push(`<div class="ve-node-fields" data-node-id="${esc(sn.id)}">`);
-      for (const f of sMeta.schema) {
-        html.push(renderField(f, sn.config, sn));
+      if (sn.isMiniPipeline) {
+        const stepNames = (sn.miniPipelineSteps || []).map(s => esc(s.plugin)).join(' → ');
+        html.push(`<div class="ve-sub-node-header">${badge} <span class="ve-sub-node-plugin ve-mini-pipeline-label" title="Mini-pipeline — edit in the config text editor">${stepNames}</span></div>`);
+      } else {
+        html.push(`<div class="ve-sub-node-header">${badge} <span class="ve-sub-node-plugin">${esc(sn.plugin)}</span></div>`);
+        html.push(`<div class="ve-node-fields" data-node-id="${esc(sn.id)}">`);
+        for (const f of sMeta.schema) {
+          html.push(renderField(f, sn.config, sn));
+        }
+        html.push('</div>');
       }
-      html.push('</div>');
     }
   }
 
@@ -2115,7 +2135,7 @@ function toggleSearch(nodeId, searchId, checked) {
   const target = findNode(searchId);
   if (!node || !target) return;
   if (checked) {
-    if (!pluginMeta(target.plugin)?.is_search_plugin || target.isSearchNode) { renderParamPanel(); return; }
+    if (!nodeIsSearchPlugin(target) || target.isSearchNode) { renderParamPanel(); return; }
     if (!node.searchNodeIds) node.searchNodeIds = [];
     if (!node.searchNodeIds.includes(searchId)) {
       node.searchNodeIds.push(searchId);
@@ -2135,7 +2155,7 @@ function toggleList(nodeId, listId, checked) {
   const target = findNode(listId);
   if (!node || !target) return;
   if (checked) {
-    if (!pluginMeta(target.plugin)?.is_list_plugin || target.isListNode) { renderParamPanel(); return; }
+    if (!nodeIsListPlugin(target) || target.isListNode) { renderParamPanel(); return; }
     if ((node.upstreams || []).includes(listId)) { renderParamPanel(); return; } // already regular upstream
     if (!node.listNodeIds) node.listNodeIds = [];
     if (!node.listNodeIds.includes(listId)) {
@@ -2956,6 +2976,17 @@ function performExtraction(funcName, params, validation, graphIdx) {
     for (const sid of (n.searchNodeIds || [])) subNodeIds.add(sid);
   }
 
+  // Determine if this function acts as a list or search source BEFORE removing
+  // the selected nodes — after the filter they are no longer in g.nodes.
+  const is_list_plugin   = [...selectedIds].some(id => {
+    const nd = g.nodes.find(x => x.id === id);
+    return nd && nodeIsListPlugin(nd);
+  });
+  const is_search_plugin = [...selectedIds].some(id => {
+    const nd = g.nodes.find(x => x.id === id);
+    return nd && nodeIsSearchPlugin(nd);
+  });
+
   // Remove selected nodes (and their sub-nodes) and insert the function call node.
   g.nodes = g.nodes.filter(n => !selectedIds.has(n.id) && !subNodeIds.has(n.id));
   g.nodes.push({
@@ -2975,13 +3006,15 @@ function performExtraction(funcName, params, validation, graphIdx) {
 
   // Register the user function.
   ve.userFunctions[funcName] = {
-    name:        funcName,
+    name:           funcName,
     role,
-    description: '',
-    params:      params.filter(p => p.include).map(p => ({
+    description:    '',
+    params:         params.filter(p => p.include).map(p => ({
       key: p.paramName, type: p.type, required: true, default: null, hint: p.hint || '',
     })),
-    _sourceText: sourceText,
+    _sourceText:    sourceText,
+    is_list_plugin,
+    is_search_plugin,
   };
 
   clearMultiSelect();
@@ -3810,6 +3843,10 @@ function dagToStarlark() {
     }
   }
 
+  // Helper: stable function name for a mini-pipeline slot.
+  const miniPipelineFnName = (parentId, kind, idx) =>
+    `_mini_${kind}_${parentId.replace(/[^a-zA-Z0-9]/g, '_')}_${idx}`;
+
   const sections = [];
   for (const g of graphs) {
     const lines = [];
@@ -3843,6 +3880,34 @@ function dagToStarlark() {
         lines.push(posLine);
       }
 
+      // Emit mini-pipeline helper functions for any list/search slots on this node.
+      for (const [kind, ids] of [['list', n.listNodeIds || []], ['search', n.searchNodeIds || []]]) {
+        ids.forEach((id, idx) => {
+          const sub = g.nodes.find(x => x.id === id);
+          if (!sub?.isMiniPipeline) return;
+          const fnName  = miniPipelineFnName(n.id, kind, idx);
+          const steps   = sub.miniPipelineSteps || [];
+          const defLines = [`def ${fnName}():`];
+          let prevVar = null;
+          steps.forEach((step, si) => {
+            const vn  = `_s${si}`;
+            const kw  = Object.entries(step.config || {})
+              .filter(([, v]) => v !== '' && v != null)
+              .map(([k, v]) => `${k}=${valToStar(v)}`)
+              .join(', ');
+            if (si === 0) {
+              defLines.push(`    ${vn} = input(${starLit(step.plugin)}${kw ? ', ' + kw : ''})`);
+            } else {
+              defLines.push(`    ${vn} = process(${starLit(step.plugin)}, upstream=${prevVar}${kw ? ', ' + kw : ''})`);
+            }
+            prevVar = vn;
+          });
+          if (prevVar) defLines.push(`    return ${prevVar}`);
+          lines.push(defLines.join('\n'));
+          lines.push('');
+        });
+      }
+
       if (n.isFunctionCall || ve.userFunctions[n.plugin]) {
         // Serialize as a user function call: varname = funcname(upstream=..., kwargs).
         // The second condition handles nodes whose plugin is a user function but
@@ -3871,11 +3936,21 @@ function dagToStarlark() {
         const parts = [starLit(n.plugin)];
         if (fromStr) parts.push(`upstream=${fromStr}`);
         if (n.searchNodeIds?.length) {
-          const searchItems = n.searchNodeIds.map(id => g.nodes.find(x => x.id === id)).filter(Boolean).map(viaNodeToStar).join(', ');
+          const searchItems = n.searchNodeIds.map((id, idx) => {
+            const sn = g.nodes.find(x => x.id === id);
+            if (!sn) return null;
+            if (sn.isMiniPipeline) return `${miniPipelineFnName(n.id, 'search', idx)}()`;
+            return viaNodeToStar(sn);
+          }).filter(Boolean).join(', ');
           parts.push(`search=[${searchItems}]`);
         }
         if (n.listNodeIds?.length) {
-          const listItems = n.listNodeIds.map(id => g.nodes.find(x => x.id === id)).filter(Boolean).map(viaNodeToStar).join(', ');
+          const listItems = n.listNodeIds.map((id, idx) => {
+            const ln = g.nodes.find(x => x.id === id);
+            if (!ln) return null;
+            if (ln.isMiniPipeline) return `${miniPipelineFnName(n.id, 'list', idx)}()`;
+            return viaNodeToStar(ln);
+          }).filter(Boolean).join(', ');
           parts.push(`list=[${listItems}]`);
         }
         if (cfgKw) parts.push(cfgKw);
@@ -4050,24 +4125,47 @@ async function textToVisualSync() {
           const s  = raw.search[si];
           const id = `${raw.id}__search__${si}`;
           nodes[nodeIdx].searchNodeIds.push(id);
-          nodes.push({
-            id, plugin: s.plugin, config: s.config || {},
-            upstreams: [], searchNodeIds: [], listNodeIds: [], comment: '',
-            isSearchNode: true, searchParentId: raw.id,
-            x: s.x ?? null, y: s.y ?? null,
-          });
+          if (s.steps) {
+            const chainName = s.steps.map(st => st.plugin).join('→');
+            nodes.push({
+              id, plugin: chainName, config: {},
+              upstreams: [], searchNodeIds: [], listNodeIds: [], comment: '',
+              isSearchNode: true, searchParentId: raw.id,
+              isMiniPipeline: true, miniPipelineSteps: s.steps,
+              x: s.x ?? null, y: s.y ?? null,
+            });
+          } else {
+            nodes.push({
+              id, plugin: s.plugin, config: s.config || {},
+              upstreams: [], searchNodeIds: [], listNodeIds: [], comment: '',
+              isSearchNode: true, searchParentId: raw.id,
+              x: s.x ?? null, y: s.y ?? null,
+            });
+          }
         }
         for (let li = 0; li < (raw.list || []).length; li++) {
           const l  = raw.list[li];
           const id = `${raw.id}__list__${li}`;
           if (!nodes[nodeIdx].listNodeIds) nodes[nodeIdx].listNodeIds = [];
           nodes[nodeIdx].listNodeIds.push(id);
-          nodes.push({
-            id, plugin: l.plugin, config: l.config || {},
-            upstreams: [], searchNodeIds: [], listNodeIds: [], comment: '',
-            isListNode: true, listParentId: raw.id,
-            x: l.x ?? null, y: l.y ?? null,
-          });
+          if (l.steps) {
+            // Mini-pipeline: collapsed into a single representative node.
+            const chainName = l.steps.map(s => s.plugin).join('→');
+            nodes.push({
+              id, plugin: chainName, config: {},
+              upstreams: [], searchNodeIds: [], listNodeIds: [], comment: '',
+              isListNode: true, listParentId: raw.id,
+              isMiniPipeline: true, miniPipelineSteps: l.steps,
+              x: l.x ?? null, y: l.y ?? null,
+            });
+          } else {
+            nodes.push({
+              id, plugin: l.plugin, config: l.config || {},
+              upstreams: [], searchNodeIds: [], listNodeIds: [], comment: '',
+              isListNode: true, listParentId: raw.id,
+              x: l.x ?? null, y: l.y ?? null,
+            });
+          }
         }
       }
 

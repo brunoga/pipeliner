@@ -115,6 +115,9 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 }
 
 func resolveSearchPlugin(item any, db *store.SQLiteStore) (plugin.SearchPlugin, error) {
+	if p, ok := item.(*plugin.NodePipeline); ok {
+		return plugin.MakeSearchPipeline(p, db)
+	}
 	name, pluginCfg, err := plugin.ResolveNameAndConfig(item)
 	if err != nil {
 		return nil, err
