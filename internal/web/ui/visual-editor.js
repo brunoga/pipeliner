@@ -2993,11 +2993,18 @@ function performExtraction(funcName, params, validation, graphIdx) {
     x: cx, y: cy,
   });
 
-  // Determine if this function acts as a list or search source by inspecting
-  // the return node (so it can be connected to list= / search= ports).
-  const returnNode    = g.nodes.find(n => n.id === returnNodeId);
-  const is_list_plugin   = returnNode ? nodeIsListPlugin(returnNode)   : false;
-  const is_search_plugin = returnNode ? nodeIsSearchPlugin(returnNode) : false;
+  // Determine if this function acts as a list or search source by checking
+  // whether any node in the selection is a list/search plugin. The terminal
+  // (return) node is typically a processor; the list/search capability comes
+  // from a source node earlier in the chain.
+  const is_list_plugin   = [...selectedIds].some(id => {
+    const nd = g.nodes.find(x => x.id === id);
+    return nd && nodeIsListPlugin(nd);
+  });
+  const is_search_plugin = [...selectedIds].some(id => {
+    const nd = g.nodes.find(x => x.id === id);
+    return nd && nodeIsSearchPlugin(nd);
+  });
 
   // Register the user function.
   ve.userFunctions[funcName] = {
