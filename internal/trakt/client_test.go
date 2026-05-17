@@ -244,6 +244,106 @@ func TestGetListRatings(t *testing.T) {
 	}
 }
 
+func historyResponse(titles []string) []byte {
+	type ids struct {
+		Trakt int    `json:"trakt"`
+		Slug  string `json:"slug"`
+	}
+	type movie struct {
+		Title string `json:"title"`
+		Year  int    `json:"year"`
+		IDs   ids    `json:"ids"`
+	}
+	type item struct {
+		Plays         int    `json:"plays"`
+		LastWatchedAt string `json:"last_watched_at"`
+		Movie         movie  `json:"movie"`
+	}
+	var items []item
+	for i, t := range titles {
+		items = append(items, item{
+			Plays:         1,
+			LastWatchedAt: "2024-01-01T00:00:00.000Z",
+			Movie:         movie{Title: t, Year: 2020 + i, IDs: ids{Trakt: i + 1, Slug: "slug-" + t}},
+		})
+	}
+	b, _ := json.Marshal(items)
+	return b
+}
+
+func recommendationsResponse(titles []string) []byte {
+	type ids struct {
+		Trakt int    `json:"trakt"`
+		Slug  string `json:"slug"`
+	}
+	type movie struct {
+		Title string `json:"title"`
+		Year  int    `json:"year"`
+		IDs   ids    `json:"ids"`
+	}
+	type item struct {
+		Score float64 `json:"score"`
+		Movie movie   `json:"movie"`
+	}
+	var items []item
+	for i, t := range titles {
+		items = append(items, item{
+			Score: float64(100 - i),
+			Movie: movie{Title: t, Year: 2020 + i, IDs: ids{Trakt: i + 1, Slug: "slug-" + t}},
+		})
+	}
+	b, _ := json.Marshal(items)
+	return b
+}
+
+func TestGetListHistory(t *testing.T) {
+	srv := mockServer(t, "/users/me/watched/movies", historyResponse([]string{"Inception", "Interstellar"}), 200)
+	defer srv.Close()
+	BaseURL = srv.URL
+
+	c := NewWithToken("key", "token123")
+	items, err := c.GetList(context.Background(), "movies", "history", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("want 2 items, got %d", len(items))
+	}
+	if items[0].Title != "Inception" {
+		t.Errorf("item[0]: got %q", items[0].Title)
+	}
+	if items[1].Title != "Interstellar" {
+		t.Errorf("item[1]: got %q", items[1].Title)
+	}
+}
+
+func TestGetListHistoryRequiresToken(t *testing.T) {
+	BaseURL = "http://unused"
+	c := New("key")
+	_, err := c.GetList(context.Background(), "movies", "history", 0)
+	if err == nil {
+		t.Error("expected error when history requested without token")
+	}
+}
+
+func TestGetListRecommendations(t *testing.T) {
+	srv := mockServer(t, "/users/me/recommendations/movies", recommendationsResponse([]string{"Dune", "Arrival"}), 200)
+	defer srv.Close()
+	BaseURL = srv.URL
+
+	c := NewWithToken("key", "token123")
+	items, err := c.GetList(context.Background(), "movies", "recommendations", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("want 2 items, got %d", len(items))
+	}
+	if items[0].Title != "Dune" {
+		t.Errorf("item[0]: got %q", items[0].Title)
+	}
+}
+
 func TestGetListRequiresToken(t *testing.T) {
 	BaseURL = "http://unused"
 	c := New("key") // no token

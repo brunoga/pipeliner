@@ -67,9 +67,9 @@ const pageSize = 1000 // items per page for paginated requests
 // GetList fetches a named list from Trakt and returns the items.
 //
 // itemType is "shows" or "movies".
-// list is one of: "trending", "popular", "watched", "watchlist", "ratings", "collection".
-// limit caps results for public lists; private lists (watchlist, ratings, collection)
-// always fetch all pages regardless of limit.
+// list is one of: "trending", "popular", "watched", "watchlist", "ratings",
+// "collection", "history", "recommendations".
+// limit caps results for public lists; private lists always fetch all pages.
 func (c *Client) GetList(ctx context.Context, itemType, list string, limit int) ([]Item, error) {
 	var base string
 	private := false
@@ -88,6 +88,12 @@ func (c *Client) GetList(ctx context.Context, itemType, list string, limit int) 
 		private = true
 	case "collection":
 		base = fmt.Sprintf("%s/users/me/collection/%s?extended=full", BaseURL, itemType)
+		private = true
+	case "history":
+		base = fmt.Sprintf("%s/users/me/watched/%s?extended=full", BaseURL, itemType)
+		private = true
+	case "recommendations":
+		base = fmt.Sprintf("%s/users/me/recommendations/%s?extended=full", BaseURL, itemType)
 		private = true
 	default:
 		return nil, fmt.Errorf("trakt: unknown list %q", list)
