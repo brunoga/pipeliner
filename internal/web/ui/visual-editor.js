@@ -2976,6 +2976,17 @@ function performExtraction(funcName, params, validation, graphIdx) {
     for (const sid of (n.searchNodeIds || [])) subNodeIds.add(sid);
   }
 
+  // Determine if this function acts as a list or search source BEFORE removing
+  // the selected nodes — after the filter they are no longer in g.nodes.
+  const is_list_plugin   = [...selectedIds].some(id => {
+    const nd = g.nodes.find(x => x.id === id);
+    return nd && nodeIsListPlugin(nd);
+  });
+  const is_search_plugin = [...selectedIds].some(id => {
+    const nd = g.nodes.find(x => x.id === id);
+    return nd && nodeIsSearchPlugin(nd);
+  });
+
   // Remove selected nodes (and their sub-nodes) and insert the function call node.
   g.nodes = g.nodes.filter(n => !selectedIds.has(n.id) && !subNodeIds.has(n.id));
   g.nodes.push({
@@ -2991,19 +3002,6 @@ function performExtraction(funcName, params, validation, graphIdx) {
     internalNodeIds: [...selectedIds],
     returnNodeId,
     x: cx, y: cy,
-  });
-
-  // Determine if this function acts as a list or search source by checking
-  // whether any node in the selection is a list/search plugin. The terminal
-  // (return) node is typically a processor; the list/search capability comes
-  // from a source node earlier in the chain.
-  const is_list_plugin   = [...selectedIds].some(id => {
-    const nd = g.nodes.find(x => x.id === id);
-    return nd && nodeIsListPlugin(nd);
-  });
-  const is_search_plugin = [...selectedIds].some(id => {
-    const nd = g.nodes.find(x => x.id === id);
-    return nd && nodeIsSearchPlugin(nd);
   });
 
   // Register the user function.
