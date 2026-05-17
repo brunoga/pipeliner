@@ -194,6 +194,10 @@ func toGoValue(v starlark.Value) (any, error) {
 			m[k] = val
 		}
 		return m, nil
+	case *nodeHandle:
+		// A nodeHandle passed as a list= or search= item becomes a nodeHandleRef
+		// sentinel. pipelineBuiltin() resolves it to a *plugin.NodePipeline.
+		return nodeHandleRef{id: v.id}, nil
 	default:
 		return nil, fmt.Errorf("unsupported Starlark type %s", v.Type())
 	}
