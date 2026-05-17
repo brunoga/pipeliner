@@ -7,9 +7,13 @@ import (
 )
 
 // MakeListPlugin creates a logging-wrapped SourcePlugin from a config item.
-// item may be a plugin name string or a map[string]any with a "name" key plus
-// config keys. The plugin must have Role=RoleSource.
+// item may be a plugin name string, a map[string]any with a "name" key, or a
+// *NodePipeline (produced when a nodeHandle is passed as a list= item in config).
+// The plugin must have Role=RoleSource.
 func MakeListPlugin(item any, db *store.SQLiteStore) (SourcePlugin, error) {
+	if p, ok := item.(*NodePipeline); ok {
+		return MakeListPipeline(p, db)
+	}
 	name, cfg, err := ResolveNameAndConfig(item)
 	if err != nil {
 		return nil, err
@@ -19,7 +23,7 @@ func MakeListPlugin(item any, db *store.SQLiteStore) (SourcePlugin, error) {
 		return nil, fmt.Errorf("unknown plugin %q", name)
 	}
 	if d.EffectiveRole() != RoleSource {
-		return nil, fmt.Errorf("plugin %q (role %q) is not a source plugin; only source plugins may be used in from: lists", name, d.EffectiveRole())
+		return nil, fmt.Errorf("plugin %q (role %q) is not a source plugin; only source plugins may be used in list=", name, d.EffectiveRole())
 	}
 	p, err := d.Factory(cfg, db)
 	if err != nil {

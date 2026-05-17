@@ -558,10 +558,11 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 
 	// DAG graphs.
 	type subPluginResp struct {
-		PluginName string         `json:"plugin"`
-		Config     map[string]any `json:"config"`
-		X          *float64       `json:"x,omitempty"`
-		Y          *float64       `json:"y,omitempty"`
+		PluginName string          `json:"plugin,omitempty"`
+		Config     map[string]any  `json:"config,omitempty"`
+		Steps      []subPluginResp `json:"steps,omitempty"` // non-nil for mini-pipeline items
+		X          *float64        `json:"x,omitempty"`
+		Y          *float64        `json:"y,omitempty"`
 	}
 	type nodeResp struct {
 		ID              string          `json:"id"`
@@ -599,10 +600,12 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 		Multiline bool   `json:"multiline,omitempty"`
 	}
 	type userFuncResp struct {
-		Name        string          `json:"name"`
-		Role        string          `json:"role"`
-		Description string          `json:"description,omitempty"`
-		Params      []funcParamResp `json:"params"`
+		Name           string          `json:"name"`
+		Role           string          `json:"role"`
+		Description    string          `json:"description,omitempty"`
+		Params         []funcParamResp `json:"params"`
+		IsListPlugin   bool            `json:"is_list_plugin,omitempty"`
+		IsSearchPlugin bool            `json:"is_search_plugin,omitempty"`
 	}
 	// Build a node-ID → call-key lookup from all function call records.
 	nodeCallKey := make(map[string]string)
@@ -643,6 +646,18 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 				}
 				var out []subPluginResp
 				for _, item := range raw {
+					if np, ok := item.(*plugin.NodePipeline); ok {
+						steps := make([]subPluginResp, len(np.Steps))
+						for i, s := range np.Steps {
+							c := s.Config
+							if c == nil {
+								c = map[string]any{}
+							}
+							steps[i] = subPluginResp{PluginName: s.PluginName, Config: c}
+						}
+						out = append(out, subPluginResp{Steps: steps})
+						continue
+					}
 					pName, pCfg, err := plugin.ResolveNameAndConfig(item)
 					if err == nil {
 						if pCfg == nil {
@@ -735,10 +750,12 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		funcs = append(funcs, userFuncResp{
-			Name:        fd.Name,
-			Role:        fd.Role,
-			Description: fd.Description,
-			Params:      params,
+			Name:           fd.Name,
+			Role:           fd.Role,
+			Description:    fd.Description,
+			Params:         params,
+			IsListPlugin:   fd.IsListPlugin,
+			IsSearchPlugin: fd.IsSearchPlugin,
 		})
 	}
 
