@@ -174,12 +174,15 @@ function renderPalette(filter) {
     html.push(`<div class="ve-role-header" data-role="function" onclick="toggleRoleGroup(this)">Functions</div>`);
     html.push(`<div class="ve-role-chips">`);
     for (const fd of userFuncList) {
+      const fnBadge   = fd.is_search_plugin ? ' <span class="ve-chip-search-badge">search</span>'
+                      : fd.is_list_plugin   ? ' <span class="ve-chip-list-badge">list</span>' : '';
+      const fnCls     = fd.is_search_plugin ? ' ve-chip-search' : fd.is_list_plugin ? ' ve-chip-list' : '';
       html.push(`<span class="ve-chip-fn-wrap" data-role="${fd.role}">
-        <button class="ve-chip ve-chip-fn" data-role="${fd.role}" draggable="true"
+        <button class="ve-chip ve-chip-fn${fnCls}" data-role="${fd.role}" draggable="true"
           title="${esc(fd.description || fd.name)}"
           ondragstart="paletteDragStart(event,${esc(JSON.stringify(fd.name))})"
           onclick="addNodeFromPalette(${esc(JSON.stringify(fd.name))})">
-          ${esc(fd.name)}</button
+          ${esc(fd.name)}${fnBadge}</button
         ><button class="ve-chip-fn-edit" title="Edit function body"
           onclick="openFunctionEditor(${esc(JSON.stringify(fd.name))})">✏</button
         ><button class="ve-chip-fn-remove" title="Expand and remove function"
@@ -533,9 +536,9 @@ function renderGraphNodes() {
       div.addEventListener('pointerup', () => {
         if (ve_connecting && ve_connecting.srcId !== n.id && role !== 'source' && !isSearch && !isList) finishConnect(n.id);
         // Receive search-port drop.
-        if (ve_searchConnecting && ve_searchConnecting.discoverNodeId !== n.id && meta.is_search_plugin && !isSearch && !isList) finishSearchConnect(n.id);
+        if (ve_searchConnecting && ve_searchConnecting.discoverNodeId !== n.id && nodeIsSearchPlugin(n) && !isSearch && !isList) finishSearchConnect(n.id);
         // Receive list-port drop.
-        if (ve_listConnecting && ve_listConnecting.parentNodeId !== n.id && meta.is_list_plugin && !isSearch && !isList) finishListConnect(n.id);
+        if (ve_listConnecting && ve_listConnecting.parentNodeId !== n.id && nodeIsListPlugin(n) && !isSearch && !isList) finishListConnect(n.id);
       });
 
       const outPort = div.querySelector('.ve-node-out-port');
@@ -1741,10 +1744,19 @@ function startSearchConnect(e, discoverNodeId) {
   document.addEventListener('pointercancel', onCancel, {once: true});
 }
 
+// nodeIsListPlugin / nodeIsSearchPlugin check both registered plugins and
+// user-defined functions so that function calls can serve as list/search sources.
+function nodeIsListPlugin(n) {
+  return !!(pluginMeta(n.plugin)?.is_list_plugin || ve.userFunctions[n.plugin]?.is_list_plugin);
+}
+function nodeIsSearchPlugin(n) {
+  return !!(pluginMeta(n.plugin)?.is_search_plugin || ve.userFunctions[n.plugin]?.is_search_plugin);
+}
+
 function finishSearchConnect(targetNodeId) {
   const disc   = findNode(ve_searchConnecting?.discoverNodeId);
   const target = findNode(targetNodeId);
-  if (disc && target && pluginMeta(target.plugin)?.is_search_plugin && !target.isSearchNode) {
+  if (disc && target && nodeIsSearchPlugin(target) && !target.isSearchNode) {
     if (!disc.searchNodeIds) disc.searchNodeIds = [];
     if (!disc.searchNodeIds.includes(targetNodeId)) {
       disc.searchNodeIds.push(targetNodeId);
@@ -1800,7 +1812,7 @@ function finishListConnect(targetNodeId) {
   const target = findNode(targetNodeId);
   // Also block if the target is already a regular upstream of the parent
   // (one connection type per node).
-  if (parent && target && pluginMeta(target.plugin)?.is_list_plugin &&
+  if (parent && target && nodeIsListPlugin(target) &&
       !target.isListNode && !(parent.upstreams || []).includes(targetNodeId)) {
     if (!parent.listNodeIds) parent.listNodeIds = [];
     if (!parent.listNodeIds.includes(targetNodeId)) {
@@ -1979,7 +1991,7 @@ function renderParamPanel() {
 
   // ── Search section (discover and similar AcceptsSearch nodes) ─────────────
   if (meta.accepts_search) {
-    const searchNodes = g.nodes.filter(nd => pluginMeta(nd.plugin)?.is_search_plugin);
+    const searchNodes = g.nodes.filter(nd => nodeIsSearchPlugin(nd));
     html.push(`<div class="ve-field"><div class="ve-field-label">Search (search backends)</div>`);
     if (!searchNodes.length) {
       html.push(`<div style="color:var(--muted);font-size:12px;margin-top:4px">Add search-plugin nodes (jackett, rss_search…) to the canvas, then drag the <b>search</b> port to connect them</div>`);
@@ -1999,7 +2011,7 @@ function renderParamPanel() {
 
   // ── List section (series, movies and similar AcceptsList nodes) ─────────────
   if (meta.accepts_list) {
-    const listNodes = g.nodes.filter(nd => pluginMeta(nd.plugin)?.is_list_plugin);
+    const listNodes = g.nodes.filter(nd => nodeIsListPlugin(nd));
     html.push(`<div class="ve-field"><div class="ve-field-label">List (list sources)</div>`);
     if (!listNodes.length) {
       html.push(`<div style="color:var(--muted);font-size:12px;margin-top:4px">Add list-source nodes (tvdb_favorites, trakt_list…) to the canvas, then drag the <b>list</b> port to connect them</div>`);
@@ -2123,7 +2135,7 @@ function toggleSearch(nodeId, searchId, checked) {
   const target = findNode(searchId);
   if (!node || !target) return;
   if (checked) {
-    if (!pluginMeta(target.plugin)?.is_search_plugin || target.isSearchNode) { renderParamPanel(); return; }
+    if (!nodeIsSearchPlugin(target) || target.isSearchNode) { renderParamPanel(); return; }
     if (!node.searchNodeIds) node.searchNodeIds = [];
     if (!node.searchNodeIds.includes(searchId)) {
       node.searchNodeIds.push(searchId);
@@ -2143,7 +2155,7 @@ function toggleList(nodeId, listId, checked) {
   const target = findNode(listId);
   if (!node || !target) return;
   if (checked) {
-    if (!pluginMeta(target.plugin)?.is_list_plugin || target.isListNode) { renderParamPanel(); return; }
+    if (!nodeIsListPlugin(target) || target.isListNode) { renderParamPanel(); return; }
     if ((node.upstreams || []).includes(listId)) { renderParamPanel(); return; } // already regular upstream
     if (!node.listNodeIds) node.listNodeIds = [];
     if (!node.listNodeIds.includes(listId)) {
@@ -2981,15 +2993,23 @@ function performExtraction(funcName, params, validation, graphIdx) {
     x: cx, y: cy,
   });
 
+  // Determine if this function acts as a list or search source by inspecting
+  // the return node (so it can be connected to list= / search= ports).
+  const returnNode    = g.nodes.find(n => n.id === returnNodeId);
+  const is_list_plugin   = returnNode ? nodeIsListPlugin(returnNode)   : false;
+  const is_search_plugin = returnNode ? nodeIsSearchPlugin(returnNode) : false;
+
   // Register the user function.
   ve.userFunctions[funcName] = {
-    name:        funcName,
+    name:           funcName,
     role,
-    description: '',
-    params:      params.filter(p => p.include).map(p => ({
+    description:    '',
+    params:         params.filter(p => p.include).map(p => ({
       key: p.paramName, type: p.type, required: true, default: null, hint: p.hint || '',
     })),
-    _sourceText: sourceText,
+    _sourceText:    sourceText,
+    is_list_plugin,
+    is_search_plugin,
   };
 
   clearMultiSelect();

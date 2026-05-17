@@ -600,10 +600,12 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 		Multiline bool   `json:"multiline,omitempty"`
 	}
 	type userFuncResp struct {
-		Name        string          `json:"name"`
-		Role        string          `json:"role"`
-		Description string          `json:"description,omitempty"`
-		Params      []funcParamResp `json:"params"`
+		Name           string          `json:"name"`
+		Role           string          `json:"role"`
+		Description    string          `json:"description,omitempty"`
+		Params         []funcParamResp `json:"params"`
+		IsListPlugin   bool            `json:"is_list_plugin,omitempty"`
+		IsSearchPlugin bool            `json:"is_search_plugin,omitempty"`
 	}
 	// Build a node-ID → call-key lookup from all function call records.
 	nodeCallKey := make(map[string]string)
@@ -748,10 +750,12 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		funcs = append(funcs, userFuncResp{
-			Name:        fd.Name,
-			Role:        fd.Role,
-			Description: fd.Description,
-			Params:      params,
+			Name:           fd.Name,
+			Role:           fd.Role,
+			Description:    fd.Description,
+			Params:         params,
+			IsListPlugin:   fd.IsListPlugin,
+			IsSearchPlugin: fd.IsSearchPlugin,
 		})
 	}
 
