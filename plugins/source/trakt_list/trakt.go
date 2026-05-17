@@ -32,7 +32,7 @@ type authBucketIface = store.Bucket
 func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "trakt_list",
-		Description: "fetch movies or shows from a Trakt.tv list as pipeline entries; usable as a standalone DAG source or inside series.from/movies.from/discover.from",
+		Description: "fetch movies or shows from a Trakt.tv list as pipeline entries; usable as a standalone DAG source or inside series.list/movies.list/discover.list",
 		Role:        plugin.RoleSource,
 		Produces: []string{
 			entry.FieldTitle,

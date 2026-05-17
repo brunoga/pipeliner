@@ -141,13 +141,13 @@ Fields follow a tiered naming convention. Three universal fields have no prefix;
 
 | Field | Set by | Description |
 |-------|--------|-------------|
-| `torrent_link_type` | `jackett`, `jackett_input` | `"torrent"` or `"magnet"` — used by `metainfo_torrent`, `metainfo_magnet`, and `deluge` to route handling without a URL fetch |
+| `torrent_link_type` | `jackett_search`, `jackett` | `"torrent"` or `"magnet"` — used by `metainfo_torrent`, `metainfo_magnet`, and `deluge` to route handling without a URL fetch |
 | `torrent_info_hash` | `metainfo_torrent`, `metainfo_magnet`, `torrent_alive` | SHA-1 info hash (hex) |
-| `torrent_file_size` | `metainfo_torrent`, `metainfo_magnet`, `jackett_input` | Total size in bytes |
+| `torrent_file_size` | `metainfo_torrent`, `metainfo_magnet`, `jackett_search` | Total size in bytes |
 | `torrent_file_count` | `metainfo_torrent`, `metainfo_magnet` | Number of files |
 | `torrent_files` | `metainfo_torrent`, `metainfo_magnet` | List of file paths |
-| `torrent_seeds` | `torrent_alive`, `input/rss`, `jackett_input` | Seed count |
-| `torrent_leechers` | `jackett_input` | Leecher count |
+| `torrent_seeds` | `torrent_alive`, `input/rss`, `jackett_search` | Seed count |
+| `torrent_leechers` | `jackett_search` | Leecher count |
 | `torrent_announce` | `metainfo_torrent`, `metainfo_magnet` | Primary tracker URL |
 
 ### File (FileInfo)
