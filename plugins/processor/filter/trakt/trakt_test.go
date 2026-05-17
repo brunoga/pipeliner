@@ -235,6 +235,56 @@ func TestFilterMinRating(t *testing.T) {
 	}
 }
 
+func TestFilterRejectMatched(t *testing.T) {
+	srv := mockServer(t, trendingShows([]string{"Breaking Bad", "The Wire"}))
+	defer srv.Close()
+	itrakt.BaseURL = srv.URL
+
+	p := makeFilter(t, map[string]any{
+		"client_id":       "key",
+		"type":            "shows",
+		"list":            "trending",
+		"reject_matched":  true,
+		"reject_unmatched": false,
+	})
+
+	// Entry that IS in the list should be rejected.
+	inList := entry.New("Breaking.Bad.S01E01.720p", "http://example.com/1")
+	p.filter(context.Background(), tc(), inList) //nolint:errcheck
+	if !inList.IsRejected() {
+		t.Error("entry in list should be rejected when reject_matched=true")
+	}
+
+	// Entry NOT in the list should be left undecided.
+	notInList := entry.New("Some.Other.Show.S01E01.720p", "http://example.com/2")
+	p.filter(context.Background(), tc(), notInList) //nolint:errcheck
+	if notInList.IsAccepted() || notInList.IsRejected() {
+		t.Errorf("entry not in list should be undecided when reject_unmatched=false, got accepted=%v rejected=%v",
+			notInList.IsAccepted(), notInList.IsRejected())
+	}
+}
+
+func TestFilterHistoryList(t *testing.T) {
+	// history uses the same nested response format as watchlist.
+	body := trendingShows([]string{"Severance"}) // reuse nested format
+	srv := mockServer(t, body)
+	defer srv.Close()
+	itrakt.BaseURL = srv.URL
+
+	p := makeFilter(t, map[string]any{
+		"client_id":    "key",
+		"access_token": "tok",
+		"type":         "shows",
+		"list":         "history",
+	})
+
+	e := entry.New("Severance.S01E01.1080p", "http://example.com/1")
+	p.filter(context.Background(), tc(), e) //nolint:errcheck
+	if !e.IsAccepted() {
+		t.Error("show in history should be accepted")
+	}
+}
+
 func TestFilterNonParseableTitle(t *testing.T) {
 	srv := mockServer(t, trendingShows([]string{"Breaking Bad"}))
 	defer srv.Close()

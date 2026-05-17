@@ -10,7 +10,7 @@ episode/movie) and before output sinks.
 2. **Resolution** — higher resolution wins within the same seed tier
 3. **Seeds** — more seeds wins when tier and resolution are equal
 
-Episodes are keyed by series title + episode ID; movies by movie title.
+Episodes are keyed by series title (case-insensitive) + episode ID; movies by movie title (case-insensitive).
 Entries without either key pass through unchanged.
 
 ## Config

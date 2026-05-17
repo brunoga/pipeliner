@@ -17,6 +17,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"strings"
 
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/plugin"
@@ -93,11 +94,11 @@ func deduKey(e *entry.Entry) string {
 			name = e.GetString(entry.FieldTitle)
 		}
 		if name != "" {
-			return "episode:" + name + "/" + epID
+			return "episode:" + strings.ToLower(name) + "/" + epID
 		}
 	}
 	if movie := e.GetString(entry.FieldMovieTitle); movie != "" {
-		return "movie:" + movie
+		return "movie:" + strings.ToLower(movie)
 	}
 	return ""
 }

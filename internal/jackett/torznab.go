@@ -1,5 +1,5 @@
 // Package jackett provides shared Torznab parsing logic used by the jackett
-// and jackett_input plugins.
+// and jackett_search plugins.
 package jackett
 
 import (

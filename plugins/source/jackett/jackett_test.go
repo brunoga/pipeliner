@@ -81,6 +81,24 @@ func TestDefaultIndexer(t *testing.T) {
 	}
 }
 
+func TestJackettName(t *testing.T) {
+	p := makePlugin(t, "http://localhost:9117", "key", nil)
+	if p.Name() != "jackett" {
+		t.Errorf("name: got %q, want jackett", p.Name())
+	}
+}
+
+func TestInputName(t *testing.T) {
+	cfg := map[string]any{"url": "http://localhost:9117", "api_key": "key"}
+	p, err := newSourcePlugin(cfg, nil)
+	if err != nil {
+		t.Fatalf("newSourcePlugin: %v", err)
+	}
+	if p.Name() != "jackett" {
+		t.Errorf("name: got %q, want jackett", p.Name())
+	}
+}
+
 // --- search tests ---
 
 func TestSearchSendsCorrectQueryParams(t *testing.T) {
@@ -148,16 +166,16 @@ func TestSearchParsesEntries(t *testing.T) {
 		t.Errorf("url: got %q", e.URL)
 	}
 	if v := e.GetInt("torrent_seeds"); v != 42 {
-		t.Errorf("torrent_seeds: got %d, want 42", v)
+		t.Errorf("seeds: got %d, want 42", v)
 	}
 	if v := e.GetInt("torrent_leechers"); v != 3 {
-		t.Errorf("torrent_leechers: got %d, want 3", v)
+		t.Errorf("leechers: got %d, want 3", v)
 	}
 	if v := e.GetString("torrent_info_hash"); v != "aabbcc" {
-		t.Errorf("torrent_info_hash: got %q, want aabbcc", v)
+		t.Errorf("info_hash: got %q, want aabbcc", v)
 	}
 	if v := e.GetInt("torrent_file_size"); v != 1_500_000_000 {
-		t.Errorf("torrent_file_size: got %d", v)
+		t.Errorf("file_size: got %d", v)
 	}
 	if v := e.GetString("jackett_category"); v != "5030" {
 		t.Errorf("jackett_category: got %q", v)
@@ -268,28 +286,28 @@ func TestLimitDefaultIsZero(t *testing.T) {
 }
 
 func TestValidateLimitRejectsZero(t *testing.T) {
-	errs := validate(map[string]any{"url": "http://localhost", "api_key": "key", "limit": int64(0)})
+	errs := validateInput(map[string]any{"url": "http://localhost", "api_key": "key", "limit": int64(0)})
 	if len(errs) == 0 {
 		t.Error("expected error for limit=0")
 	}
 }
 
 func TestValidateLimitRejectsNegative(t *testing.T) {
-	errs := validate(map[string]any{"url": "http://localhost", "api_key": "key", "limit": int64(-5)})
+	errs := validateInput(map[string]any{"url": "http://localhost", "api_key": "key", "limit": int64(-5)})
 	if len(errs) == 0 {
 		t.Error("expected error for limit=-5")
 	}
 }
 
 func TestValidateLimitAcceptsPositive(t *testing.T) {
-	errs := validate(map[string]any{"url": "http://localhost", "api_key": "key", "limit": int64(100)})
+	errs := validateInput(map[string]any{"url": "http://localhost", "api_key": "key", "limit": int64(100)})
 	if len(errs) != 0 {
 		t.Errorf("unexpected errors for valid limit: %v", errs)
 	}
 }
 
 func TestValidateLimitAbsentIsOk(t *testing.T) {
-	errs := validate(map[string]any{"url": "http://localhost", "api_key": "key"})
+	errs := validateInput(map[string]any{"url": "http://localhost", "api_key": "key"})
 	if len(errs) != 0 {
 		t.Errorf("unexpected errors when limit absent: %v", errs)
 	}
@@ -310,7 +328,7 @@ func TestTimeoutDefault(t *testing.T) {
 }
 
 func TestValidateTimeoutRejectsInvalid(t *testing.T) {
-	errs := validate(map[string]any{"url": "http://localhost", "api_key": "key", "timeout": "notaduration"})
+	errs := validateInput(map[string]any{"url": "http://localhost", "api_key": "key", "timeout": "notaduration"})
 	if len(errs) == 0 {
 		t.Error("expected error for invalid timeout")
 	}
@@ -322,6 +340,82 @@ func TestCategoriesJoined(t *testing.T) {
 	})
 	if p.categories != "2000,2010" {
 		t.Errorf("categories: got %q, want %q", p.categories, "2000,2010")
+	}
+}
+
+// --- jackett source plugin tests ---
+
+func TestSourcePluginName(t *testing.T) {
+	cfg := map[string]any{"url": "http://localhost:9117", "api_key": "key"}
+	p, err := newSourcePlugin(cfg, nil)
+	if err != nil {
+		t.Fatalf("newSourcePlugin: %v", err)
+	}
+	if p.Name() != "jackett" {
+		t.Errorf("name: got %q, want jackett", p.Name())
+	}
+}
+
+func TestSourcePluginGenerateUsesEmptyQuery(t *testing.T) {
+	var gotQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.Query().Get("q")
+		fmt.Fprint(w, torznabResponse(nil)) //nolint:errcheck
+	}))
+	defer srv.Close()
+
+	p, err := newSourcePlugin(map[string]any{"url": srv.URL, "api_key": "key"}, nil)
+	if err != nil {
+		t.Fatalf("newSourcePlugin: %v", err)
+	}
+	if _, err := p.(*jackettSourcePlugin).Generate(context.Background(), tc()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if gotQuery != "" {
+		t.Errorf("default query should be empty, got %q", gotQuery)
+	}
+}
+
+func TestSourcePluginGenerateUsesConfiguredQuery(t *testing.T) {
+	var gotQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.Query().Get("q")
+		fmt.Fprint(w, torznabResponse(nil)) //nolint:errcheck
+	}))
+	defer srv.Close()
+
+	p, err := newSourcePlugin(map[string]any{"url": srv.URL, "api_key": "key", "query": "breaking bad"}, nil)
+	if err != nil {
+		t.Fatalf("newSourcePlugin: %v", err)
+	}
+	if _, err := p.(*jackettSourcePlugin).Generate(context.Background(), tc()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if gotQuery != "breaking bad" {
+		t.Errorf("query: got %q, want %q", gotQuery, "breaking bad")
+	}
+}
+
+func TestSourcePluginGenerateReturnsEntries(t *testing.T) {
+	items := []ijackett.Item{
+		{Title: "Breaking.Bad.S01E01.720p", Link: "http://example.com/1.torrent"},
+		{Title: "The.Wire.S01E01.720p", Link: "http://example.com/2.torrent"},
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, torznabResponse(items)) //nolint:errcheck
+	}))
+	defer srv.Close()
+
+	p, err := newSourcePlugin(map[string]any{"url": srv.URL, "api_key": "key"}, nil)
+	if err != nil {
+		t.Fatalf("newSourcePlugin: %v", err)
+	}
+	entries, err := p.(*jackettSourcePlugin).Generate(context.Background(), tc())
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("got %d entries, want 2", len(entries))
 	}
 }
 

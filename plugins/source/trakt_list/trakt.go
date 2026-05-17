@@ -32,7 +32,7 @@ type authBucketIface = store.Bucket
 func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "trakt_list",
-		Description: "fetch movies or shows from a Trakt.tv list as pipeline entries; usable as a standalone DAG source or inside series.from/movies.from/discover.from",
+		Description: "fetch movies or shows from a Trakt.tv list as pipeline entries; usable as a standalone DAG source or inside series.list/movies.list/discover.list",
 		Role:        plugin.RoleSource,
 		Produces: []string{
 			entry.FieldTitle,
@@ -48,7 +48,7 @@ func init() {
 		Schema: []plugin.FieldSchema{
 			{Key: "client_id",     Type: plugin.FieldTypeString, Required: true, Hint: "Trakt API client ID"},
 			{Key: "type",          Type: plugin.FieldTypeEnum,   Required: true, Enum: []string{"movies", "shows"}, Hint: "Content type"},
-			{Key: "list",          Type: plugin.FieldTypeEnum,                   Enum: []string{"watchlist", "trending", "popular", "watched", "ratings", "collection"}, Hint: "List to fetch (default: watchlist)"},
+			{Key: "list",          Type: plugin.FieldTypeEnum,                   Enum: []string{"watchlist", "trending", "popular", "watched", "ratings", "collection", "history", "recommendations"}, Hint: "List to fetch (default: watchlist)"},
 			{Key: "client_secret", Type: plugin.FieldTypeString,                 Hint: "OAuth client secret (for private lists)"},
 			{Key: "access_token",  Type: plugin.FieldTypeString,                 Hint: "OAuth bearer token (for private lists)"},
 			{Key: "limit",         Type: plugin.FieldTypeInt,                    Hint: "Maximum results (default 100)"},
