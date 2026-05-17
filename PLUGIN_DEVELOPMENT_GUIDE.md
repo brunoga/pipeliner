@@ -111,6 +111,10 @@ func validate(cfg map[string]any) []error {
 | `Factory` | `func(map[string]any, *store.SQLiteStore) (Plugin, error)` | Constructor |
 | `Validate` | `func(map[string]any) []error` | Optional config validator |
 | `Schema` | `[]FieldSchema` | Optional — enables typed form fields in the visual editor |
+| `IsListPlugin` | `bool` | Mark source plugins whose entry titles can feed a `list=` port on `series`, `movies`, or `discover`. The visual editor shows a teal **list** badge and allows the plugin (or a function wrapping it) to be connected to list ports |
+| `IsSearchPlugin` | `bool` | Mark source plugins that implement `SearchPlugin` and can feed a `search=` port on `discover`. The visual editor shows a blue **search** badge |
+| `AcceptsList` | `bool` | Declare that this plugin accepts a `list=` config key (a slice of list-plugin configs or mini-pipeline functions). Used by the visual editor to render the teal list port |
+| `AcceptsSearch` | `bool` | Declare that this plugin accepts a `search=` config key. Used by the visual editor to render the search port |
 
 ---
 
@@ -386,7 +390,7 @@ also called when a config reload replaces this plugin with a new instance.
 ### SearchPlugin
 
 Implement this when your plugin can search by query string. Used by the
-`discover` processor as a search backend via the `via` config key.
+`discover` processor as a search backend via the `search=` config key.
 
 ```go
 type SearchPlugin interface {
@@ -398,6 +402,36 @@ type SearchPlugin interface {
 A plugin implementing `SearchPlugin` should typically also implement
 `SourcePlugin.Generate()` (calling `Search` with an empty query) so it can
 be used as a standalone source node.
+
+### Mini-pipelines as list and search sources
+
+Instead of a single plugin name, a `list=` or `search=` slot can receive a
+**mini-pipeline** — a Starlark helper function that builds a small chain of
+`input()`/`process()` nodes and returns the terminal node handle:
+
+```python
+# pipeliner:param type=string Trakt client ID
+def unwatched_movies(client_id):
+    src = input("trakt_list", client_id=client_id, type="movies", list="watchlist")
+    flt = process("trakt", upstream=src, client_id=client_id, type="movies",
+                  list="history", reject_matched=True, reject_unmatched=False)
+    return flt
+
+movies_node = process("movies", upstream=rss, list=[unwatched_movies(client_id=env("TRAKT_ID"))])
+```
+
+**How it works at runtime:**
+
+1. `toGoValue()` stores a `nodeHandleRef` sentinel when a `nodeHandle` appears in a kwarg value.
+2. Before the main graph is assembled, `resolveNodePipelines()` scans all pending node configs for `nodeHandleRef` values in `list=` / `search=` keys, extracts the subgraph (the returned node and all its transitive upstreams) in topological order, builds a `*plugin.NodePipeline`, and removes those nodes from the main DAG.
+3. `MakeListPlugin` and `resolveSearchPlugin` detect `*NodePipeline` and instantiate a `miniPipelineSource` (or `miniPipelineSearch`) executor that runs the chain inline.
+4. `CommitPlugin` is **never called** on mini-pipeline processors — sub-pipelines are title sources only and must not persist state.
+
+**Validation rules:**
+
+- The first node in a `search=` mini-pipeline must have `IsSearchPlugin: true`.
+- All subsequent nodes must have `RoleProcessor`.
+- For `list=` mini-pipelines the first node must have `RoleSource`; subsequent nodes must be processors.
 
 ---
 
