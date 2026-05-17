@@ -21,11 +21,13 @@ func init() {
 			entry.FieldVideoResolution,
 			entry.FieldVideoSource,
 			entry.FieldVideoIs3D,
+			"quality_resolution",
+			"quality_source",
+		},
+		MayProduce: []string{
 			"codec",
 			"audio",
 			"color_range",
-			"quality_resolution",
-			"quality_source",
 		},
 		Factory: newPlugin,
 		Validate: func(cfg map[string]any) []error {

@@ -34,7 +34,8 @@ func init() {
 		PluginName:  "premiere",
 		Description: "accept only the first episode of series not previously seen (series premiere detection)",
 		Role:        plugin.RoleProcessor,
-		Produces: []string{
+		// Only set when the entry title parses as a series episode.
+		MayProduce: []string{
 			entry.FieldSeriesSeason,
 			entry.FieldSeriesEpisode,
 			entry.FieldSeriesEpisodeID,

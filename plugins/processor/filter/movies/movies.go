@@ -33,7 +33,9 @@ func init() {
 		PluginName:  "movies",
 		Description: "accept movies from a configured list; track downloads across runs",
 		Role:        plugin.RoleProcessor,
-		Produces: []string{
+		// Only set on matched entries; with reject_unmatched:false unmatched entries
+		// pass through without these fields.
+		MayProduce: []string{
 			entry.FieldMovieTitle,
 			entry.FieldVideoYear,
 			entry.FieldVideoQuality,

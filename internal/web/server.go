@@ -55,7 +55,7 @@ type Server struct {
 	pendingReload bool           // reload queued until all tasks are idle
 
 	configPath      string                 // path to config file on disk
-	validateConfig  func([]byte) []string  // returns validation error strings; nil if not set
+	validateConfig  func([]byte) ([]string, []string) // returns (errors, warnings); nil if not set
 	db              *store.SQLiteStore     // nil if not set
 
 	traktAuthMu sync.Mutex
@@ -129,8 +129,8 @@ func (s *Server) SetReload(fn func() error) { s.reload = fn }
 func (s *Server) SetConfigPath(path string) { s.configPath = path }
 
 // SetConfigValidator sets the function used to validate raw Starlark config before saving.
-// It returns a slice of human-readable error strings (empty = valid).
-func (s *Server) SetConfigValidator(fn func([]byte) []string) { s.validateConfig = fn }
+// The function returns (errors, warnings); errors block the save, warnings are advisory.
+func (s *Server) SetConfigValidator(fn func([]byte) ([]string, []string)) { s.validateConfig = fn }
 
 // SetStore wires the SQLite store so the database API endpoints can read and
 // modify tracker data and caches.
@@ -159,6 +159,7 @@ func (s *Server) Start(ctx context.Context, addr string, tlsCfg *tls.Config) err
 	protected := http.NewServeMux()
 	protected.HandleFunc("GET /{$}", s.serveUI) // exact root only; {$} prevents subtree match
 	protected.HandleFunc("GET /guide", s.serveGuide)
+	protected.Handle("GET /images/", http.StripPrefix("/images/", http.FileServer(http.FS(mustSub(docs.FS, "images")))))
 	protected.Handle("/", s.staticHandler()) // catch-all for CSS/JS assets (style.css, *.js)
 	protected.HandleFunc("GET /api/status", s.apiStatus)
 	protected.HandleFunc("GET /api/history", s.apiHistory)
@@ -234,6 +235,14 @@ func (s *Server) serveGuide(w http.ResponseWriter, r *http.Request) {
 	data, _ := docs.FS.ReadFile("user-guide.html")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = w.Write(data)
+}
+
+func mustSub(fsys embed.FS, dir string) fs.FS {
+	sub, err := fs.Sub(fsys, dir)
+	if err != nil {
+		panic(err)
+	}
+	return sub
 }
 
 func (s *Server) apiStatus(w http.ResponseWriter, _ *http.Request) {
@@ -407,11 +416,14 @@ func (s *Server) apiSaveConfig(w http.ResponseWriter, r *http.Request) {
 	data := []byte(req.Content)
 
 	// Always validate first (works even without a config path on disk).
+	var validationWarnings []string
 	if s.validateConfig != nil {
-		if errs := s.validateConfig(data); len(errs) > 0 {
+		errs, warns := s.validateConfig(data)
+		validationWarnings = warns
+		if len(errs) > 0 {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnprocessableEntity)
-			_ = json.NewEncoder(w).Encode(map[string]any{"errors": errs})
+			_ = json.NewEncoder(w).Encode(map[string]any{"errors": errs, "warnings": warns})
 			return
 		}
 	}
@@ -419,7 +431,7 @@ func (s *Server) apiSaveConfig(w http.ResponseWriter, r *http.Request) {
 	// Dry-run: validation passed, don't write.
 	// configPath is only required for actual saves, not for validation.
 	if req.DryRun {
-		writeJSON(w, map[string]string{"status": "valid"})
+		writeJSON(w, map[string]any{"status": "valid", "warnings": validationWarnings})
 		return
 	}
 
@@ -468,9 +480,10 @@ func (s *Server) apiPlugins(w http.ResponseWriter, _ *http.Request) {
 		Name        string      `json:"name"`
 		Role        string      `json:"role"`
 		Description string      `json:"description"`
-		Produces    []string    `json:"produces"` // entry field names this plugin writes
-		Requires    []string    `json:"requires"` // entry field names this plugin reads
-		Schema      []fieldResp `json:"schema"`   // empty slice, never null
+		Produces    []string    `json:"produces"`     // fields always written on every passing entry
+		MayProduce  []string    `json:"may_produce"`  // fields conditionally written (not guaranteed)
+		Requires    []string    `json:"requires"`     // fields this plugin reads (flattened OR groups)
+		Schema      []fieldResp `json:"schema"`       // empty slice, never null
 		AcceptsSearch  bool        `json:"accepts_search,omitempty"`
 		IsSearchPlugin bool        `json:"is_search_plugin,omitempty"`
 		AcceptsList    bool        `json:"accepts_list,omitempty"`
@@ -496,7 +509,11 @@ func (s *Server) apiPlugins(w http.ResponseWriter, _ *http.Request) {
 		if produces == nil {
 			produces = []string{}
 		}
-		requires := d.Requires
+		mayProduce := d.MayProduce
+		if mayProduce == nil {
+			mayProduce = []string{}
+		}
+		requires := d.RequiresFlat()
 		if requires == nil {
 			requires = []string{}
 		}
@@ -505,6 +522,7 @@ func (s *Server) apiPlugins(w http.ResponseWriter, _ *http.Request) {
 			Role:           string(d.EffectiveRole()),
 			Description:    d.Description,
 			Produces:       produces,
+			MayProduce:     mayProduce,
 			Requires:       requires,
 			Schema:         fields,
 			AcceptsSearch:  d.AcceptsSearch,

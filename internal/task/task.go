@@ -49,6 +49,13 @@ func (t *Task) SetDryRun(v bool) {
 	}
 }
 
+// SetValidateFields enables per-entry field validation before each node runs.
+func (t *Task) SetValidateFields(v bool) {
+	if t.exec != nil {
+		t.exec.SetValidateFields(v)
+	}
+}
+
 // Run executes the DAG pipeline and returns a Result.
 func (t *Task) Run(ctx context.Context) (*Result, error) {
 	return t.runFromExecutor(ctx)

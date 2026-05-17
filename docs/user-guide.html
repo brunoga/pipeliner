@@ -51,6 +51,10 @@ pre code{background:none;border:none;padding:0;font-size:inherit}
 .y-bool{color:#ff7b72}.y-comment{color:#8b949e;font-style:italic}
 .y-anchor{color:#e3b341}
 
+/* Screenshots */
+.screenshot{display:block;max-width:100%;border:1px solid var(--border);border-radius:8px;margin:16px 0 22px;box-shadow:0 4px 16px rgba(0,0,0,.4)}
+.screenshot-caption{font-size:12px;color:var(--muted);margin:-18px 0 22px;text-align:center}
+
 /* Tables */
 table{width:100%;border-collapse:collapse;margin-bottom:18px;font-size:14px}
 th{background:var(--surface);color:var(--muted);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;padding:8px 12px;text-align:left;border-bottom:2px solid var(--border)}
@@ -1532,6 +1536,7 @@ pipeline("tech-news", schedule="1h")</code></pre>
 <p>The interface has four tabs: <strong>Dashboard</strong>, <strong>Config</strong>, <strong>Database</strong>, and <strong>Settings</strong>. Within the Config tab, toggle between the <strong>✏ Text</strong> editor and the <strong>⬡ Visual</strong> pipeline editor. A <strong>User Guide</strong> link in the header opens this document.</p>
 
 <h3>Dashboard tab</h3>
+<img src="images/ui-dashboard.png" alt="Pipeliner dashboard showing a task card with run controls and live log" class="screenshot">
 <ul>
   <li><strong>Task cards</strong> — each card shows the next scheduled run datetime (hover for the raw cron/interval), the last run time, accepted/rejected/failed counts, and a <em>Run now</em> button.</li>
   <li><strong>Run all</strong> — triggers all tasks immediately.</li>
@@ -1549,13 +1554,27 @@ pipeline("tech-news", schedule="1h")</code></pre>
 <p>The left panel lists all registered plugins grouped by role: <strong>Sources</strong> (green), <strong>Processors</strong> (blue), and <strong>Sinks</strong> (orange). Click a plugin to add it to the canvas, or drag it to a specific position. Use the search box to filter by name or description.</p>
 
 <h4>Canvas</h4>
+<img src="images/ui-visual-editor.png" alt="Visual pipeline editor showing nodes connected in a DAG with palette on the left" class="screenshot">
 <p>Each node on the canvas shows its plugin name, role badge, upstream connections, and a preview of its most important config values. Click a node to select it and edit its configuration in the right panel. Drag nodes to reorder them. The pipeline name and schedule are shown at the top; edit them inline.</p>
 
 <h4>Param panel</h4>
-<p>The right panel shows the selected node's configuration. At the top, checkboxes let you connect the node to any existing upstream node (sets the <code>upstream=</code> relationship). Below, all config keys are editable with appropriate input widgets. If a required field is missing from any upstream, a warning appears so you can fix it before saving.</p>
+<p>The right panel shows the selected node's configuration. At the top, checkboxes let you connect the node to any existing upstream node (sets the <code>upstream=</code> relationship). Below, all config keys are editable with appropriate input widgets. A <strong>Produces</strong> section lists fields the plugin always sets; a dimmed <strong>May produce</strong> section lists fields set only when data is available (e.g. when a metadata lookup succeeds). Field warnings appear when required fields are missing or only conditionally available upstream.</p>
+<img src="images/ui-param-panel-may-produce.png" alt="Param panel for metainfo_quality showing Produces and May produce field lists" class="screenshot">
+<p class="screenshot-caption">metainfo_quality selected: <strong>Produces</strong> lists guaranteed fields; <strong>May produce</strong> lists fields set only when the quality string is parseable (codec, audio, color range).</p>
 
 <h4>Connection validation</h4>
-<p>When a processor requires a field that no upstream node produces (for example, placing <code>quality</code> before <code>metainfo_quality</code>), the visual editor highlights the warning inline. This catches ordering mistakes before the pipeline runs.</p>
+<p>The visual editor checks field reachability at two levels:</p>
+<ul>
+  <li><strong>Error (⚠ amber)</strong> — a required field is not produced by any upstream node at all. Fix by adding the appropriate plugin upstream (e.g. add <code>metainfo_quality</code> before <code>upgrade</code>).</li>
+  <li><strong>Warning (~ grey)</strong> — a required field is only <em>conditionally</em> produced upstream (the upstream plugin may not set it on every entry, for example <code>metainfo_torrent</code> only extracts file lists from entries it can parse). The pipeline will still run, but the plugin may silently skip entries that arrive without the field.</li>
+</ul>
+<img src="images/ui-field-warning-error.png" alt="upgrade node showing amber ⚠ warning: requires video_quality but no upstream produces it" class="screenshot">
+<p class="screenshot-caption"><strong>Hard error</strong>: <code>upgrade</code> placed directly after <code>rss</code> with no <code>metainfo_quality</code> in between — the required <code>video_quality</code> field has no upstream producer.</p>
+<img src="images/ui-field-warning-soft.png" alt="content node showing muted ~ warning and param panel with soft warning detail" class="screenshot">
+<p class="screenshot-caption"><strong>Soft warning</strong>: <code>content</code> requires <code>torrent_files</code>, which <code>metainfo_torrent</code> only <em>may</em> produce (it skips entries that are not .torrent URLs). The param panel shows the full explanation.</p>
+<p>The same warnings are also surfaced in the text editor after <strong>Validate</strong> or <strong>Save &amp; Reload</strong>, displayed in an amber box below any hard errors.</p>
+<img src="images/ui-validation-warnings.png" alt="Config text editor showing amber warning box with merge-gap warning after Validate" class="screenshot">
+<p class="screenshot-caption">After clicking <strong>Validate</strong>, the status line shows <em>✓ Valid (1 warning)</em> and the amber box explains which node and field are affected.</p>
 
 <h4>Saving</h4>
 <p>Changes in the visual editor sync automatically to the text editor. Use <strong>Save &amp; Reload</strong> in the toolbar to apply. Switch to the <strong>✏ Text</strong> view to edit Starlark directly; switching back to <strong>⬡ Visual</strong> re-parses the text and reloads the canvas.</p>
