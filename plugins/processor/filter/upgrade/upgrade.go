@@ -29,7 +29,7 @@ func init() {
 		PluginName:  "upgrade",
 		Description: "accept entries only when they offer a quality improvement over what was previously downloaded",
 		Role:        plugin.RoleProcessor,
-		Requires:    []string{entry.FieldVideoQuality},
+		Requires:    plugin.RequireAll(entry.FieldVideoQuality),
 		Factory:  newPlugin,
 		Validate: validate,
 		Schema: []plugin.FieldSchema{

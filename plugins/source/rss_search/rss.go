@@ -34,16 +34,9 @@ func init() {
 		PluginName:  "rss_search",
 		Description: "search a parameterized RSS URL for entries matching a query string; usable as a standalone DAG source or inside discover.search",
 		Role:        plugin.RoleSource,
-		Produces: []string{
-			entry.FieldTitle,
-			entry.FieldRSSFeed,
-			entry.FieldRSSGUID,
-			entry.FieldRSSLink,
-			entry.FieldRSSEnclosureURL,
-			entry.FieldRSSEnclosureType,
-			entry.FieldPublishedDate,
-			entry.FieldTorrentSeeds,
-		},
+		// rss_search creates entries with entry.New only; no Fields are populated.
+		// Produces/MayProduce are intentionally empty — actual fields come from
+		// the parent discover processor's search sub-plugin propagation.
 		Factory:        newPlugin,
 		Validate:       validate,
 		IsSearchPlugin: true,

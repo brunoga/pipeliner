@@ -19,9 +19,14 @@ import (
 
 	// Register plugins needed by test configs.
 	_ "github.com/brunoga/pipeliner/plugins/processor/discover"
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/content"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/seen"
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/upgrade"
+	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/quality"
+	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/torrent"
 	_ "github.com/brunoga/pipeliner/plugins/processor/modify/pathfmt"
 	_ "github.com/brunoga/pipeliner/plugins/sink/print"
+	_ "github.com/brunoga/pipeliner/plugins/sink/transmission"
 	_ "github.com/brunoga/pipeliner/plugins/source/rss"
 	_ "github.com/brunoga/pipeliner/plugins/source/rss_search"
 )
@@ -61,17 +66,20 @@ func startTestServer(t *testing.T, starConfig string) *testServer {
 	bcast := web.NewBroadcaster()
 	srv := web.New(infos, &noopDaemon{}, hist, bcast, "test", "admin", "password")
 	srv.SetStore(db)
-	srv.SetConfigValidator(func(data []byte) []string {
+	srv.SetConfigValidator(func(data []byte) ([]string, []string) {
 		c, err := config.ParseBytes(data)
 		if err != nil {
-			return []string{err.Error()}
+			return []string{err.Error()}, nil
 		}
-		errs := config.Validate(c)
-		msgs := make([]string, len(errs))
-		for i, e := range errs {
-			msgs[i] = e.Error()
+		errs, warns := config.Validate(c)
+		toStrings := func(es []error) []string {
+			s := make([]string, len(es))
+			for i, e := range es {
+				s[i] = e.Error()
+			}
+			return s
 		}
-		return msgs
+		return toStrings(errs), toStrings(warns)
 	})
 
 	// Pick a free port.
@@ -839,6 +847,158 @@ func TestE2ESearchPluginHasViaBadge(t *testing.T) {
 		State: playwright.WaitForSelectorStateVisible,
 	}); err != nil {
 		t.Errorf("no search badge found in palette — search plugins should show one: %v", err)
+	}
+}
+
+// ── field-hint / warning tests ───────────────────────────────────────────────
+
+// jsSelectNode calls the visual editor's selectNode(id) function directly.
+// More reliable than DOM clicking for absolutely-positioned canvas nodes.
+func jsSelectNode(t *testing.T, page playwright.Page, nodeID string) {
+	t.Helper()
+	if _, err := page.Evaluate("selectNode('" + nodeID + "')"); err != nil {
+		t.Fatalf("jsSelectNode(%q): %v", nodeID, err)
+	}
+}
+
+// waitVisible waits up to 5 s for a locator to become visible.
+func waitVisible(t *testing.T, loc playwright.Locator) {
+	t.Helper()
+	if err := loc.WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(5000),
+	}); err != nil {
+		t.Fatalf("waitVisible: %v", err)
+	}
+}
+
+// TestE2EParamPanelShowsMayProduce verifies that selecting a node with both
+// Produces and MayProduce fields shows both sections in the param panel.
+func TestE2EParamPanelShowsMayProduce(t *testing.T) {
+	// rss → metainfo_quality (has Produces + MayProduce) → upgrade → transmission
+	const cfg = `
+src  = input("rss", url="https://feeds.example.com/tv.rss")
+q    = process("metainfo_quality", upstream=src)
+up   = process("upgrade", upstream=q, target="1080p bluray")
+sink = output("transmission", upstream=up, host="localhost")
+pipeline("demo", schedule="1h")
+`
+	ts := startTestServer(t, cfg)
+	browser, stop := pwSetup(t)
+	defer stop()
+
+	page, _ := browser.NewPage()
+	defer page.Close() //nolint:errcheck
+
+	login(t, page, ts.url)
+	openConfigTab(t, page)
+	switchToVisual(t, page, cfg)
+
+	// metainfo_quality is the second node, ID = metainfo_quality_1.
+	jsSelectNode(t, page, "metainfo_quality_1")
+
+	// Param panel must show a plain Produces block.
+	waitVisible(t, page.Locator(".ve-field-hint-block").First())
+
+	// Param panel must also show the dimmed May produce block.
+	waitVisible(t, page.Locator(".ve-field-hint-maybe"))
+
+	// Sanity: the Produces block must mention video_quality.
+	text, err := page.Locator(".ve-field-hint-block").First().TextContent()
+	if err != nil {
+		t.Fatalf("get produces text: %v", err)
+	}
+	if !contains(text, "video_quality") {
+		t.Errorf("expected Produces block to mention video_quality, got: %q", text)
+	}
+
+	// Sanity: the May produce block must mention codec.
+	mayText, err := page.Locator(".ve-field-hint-maybe").TextContent()
+	if err != nil {
+		t.Fatalf("get may-produce text: %v", err)
+	}
+	if !contains(mayText, "codec") {
+		t.Errorf("expected May produce block to mention codec, got: %q", mayText)
+	}
+}
+
+// TestE2EHardFieldWarningOnNode verifies that a node whose required field has
+// no upstream producer shows an amber ⚠ warning inline on the canvas card.
+func TestE2EHardFieldWarningOnNode(t *testing.T) {
+	// upgrade requires video_quality, but rss doesn't produce it → hard warning.
+	// This config is only loaded into the visual editor (not saved), so the server
+	// can start with any valid config.
+	const validCfg = `
+src = input("rss", url="https://feeds.example.com/tv.rss")
+sink = output("transmission", upstream=src, host="localhost")
+pipeline("base")
+`
+	const warnCfg = `
+src  = input("rss", url="https://feeds.example.com/tv.rss")
+up   = process("upgrade", upstream=src, target="1080p bluray")
+sink = output("transmission", upstream=up, host="localhost")
+pipeline("demo")
+`
+	ts := startTestServer(t, validCfg)
+	browser, stop := pwSetup(t)
+	defer stop()
+
+	page, _ := browser.NewPage()
+	defer page.Close() //nolint:errcheck
+
+	login(t, page, ts.url)
+	openConfigTab(t, page)
+	// Load the broken config into the visual editor without saving.
+	switchToVisual(t, page, warnCfg)
+
+	// upgrade node must show the amber ⚠ hard warning.
+	waitVisible(t, page.Locator(".ve-node-warn"))
+
+	text, err := page.Locator(".ve-node-warn").First().TextContent()
+	if err != nil {
+		t.Fatalf("get warn text: %v", err)
+	}
+	if !contains(text, "video_quality") {
+		t.Errorf("expected hard warning to mention video_quality, got: %q", text)
+	}
+}
+
+// TestE2ESoftFieldWarningOnNode verifies that a node whose required field is
+// only conditionally produced upstream shows a muted ~ soft warning on the
+// canvas card and a detailed soft warning in the param panel.
+func TestE2ESoftFieldWarningOnNode(t *testing.T) {
+	// content requires torrent_files; metainfo_torrent only MayProduces it → soft warning.
+	const cfg = `
+src   = input("rss", url="https://feeds.example.com/tv.rss")
+meta  = process("metainfo_torrent", upstream=src)
+ct    = process("content", upstream=meta, reject=["*.rar"])
+sink  = output("transmission", upstream=ct, host="localhost")
+pipeline("torrent-check", schedule="1h")
+`
+	ts := startTestServer(t, cfg)
+	browser, stop := pwSetup(t)
+	defer stop()
+
+	page, _ := browser.NewPage()
+	defer page.Close() //nolint:errcheck
+
+	login(t, page, ts.url)
+	openConfigTab(t, page)
+	switchToVisual(t, page, cfg)
+
+	// content node (counter 2) must show the muted ~ soft warning on its card.
+	waitVisible(t, page.Locator(".ve-node-soft-warn"))
+
+	// Select the content node and verify the detailed soft warning in the param panel.
+	jsSelectNode(t, page, "content_2")
+	waitVisible(t, page.Locator(".ve-conn-soft-warn"))
+
+	detailText, err := page.Locator(".ve-conn-soft-warn").TextContent()
+	if err != nil {
+		t.Fatalf("get soft warn detail: %v", err)
+	}
+	if !contains(detailText, "torrent_files") {
+		t.Errorf("expected soft warning to mention torrent_files, got: %q", detailText)
 	}
 }
 

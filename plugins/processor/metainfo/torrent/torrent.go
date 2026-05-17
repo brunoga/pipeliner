@@ -47,7 +47,7 @@ func init() {
 		PluginName:  "metainfo_torrent",
 		Role:        plugin.RoleProcessor,
 		Description: "Annotates entries from .torrent files with name, info hash, size, and tracker metadata",
-		Produces: []string{
+		MayProduce: []string{
 			entry.FieldTitle,
 			entry.FieldTorrentInfoHash,
 			entry.FieldTorrentFileSize,

@@ -25,7 +25,7 @@ func init() {
 		PluginName:  "metainfo_tmdb",
 		Description: "enrich movie entries with TMDb metadata (title, overview, genres, runtime)",
 		Role:        plugin.RoleProcessor,
-		Produces: []string{
+		MayProduce: []string{
 			entry.FieldEnriched,
 			entry.FieldTitle,
 			entry.FieldMovieTitle,
@@ -44,9 +44,8 @@ func init() {
 			entry.FieldVideoVotes,
 			"tmdb_id",
 		},
-		// trakt_tmdb_id and trakt_year are consumed when present but are not
-		// required — omitting Requires so DAG validation doesn't reject configs
-		// that don't have a trakt_list upstream.
+		// trakt_tmdb_id and trakt_year are consumed as hints when present but
+		// not required; no Requires group so pipelines without trakt upstream work.
 		Factory:  newPlugin,
 		Validate: validate,
 		Schema: []plugin.FieldSchema{

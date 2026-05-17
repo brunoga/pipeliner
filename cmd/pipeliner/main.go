@@ -163,7 +163,8 @@ func cmdRun(args []string) int {
 	cfgPath   := fs.String("config",     "config.star", "path to config file")
 	logLevel  := fs.String("log-level",  "info",        "log level (debug, info, warn, error)")
 	logPlugin := fs.String("log-plugin", "",            "only show log output from these plugins, comma-separated (pipeline-level logs always shown)")
-	dryRun    := fs.Bool("dry-run",      false,         "run all source and processor nodes but skip sinks (idempotent)")
+	dryRun        := fs.Bool("dry-run",        false, "run all source and processor nodes but skip sinks (idempotent)")
+	validateFields := fs.Bool("validate-fields", false, "warn when an entry is missing fields required by the next node (debug)")
 	if err := fs.Parse(args); err != nil {
 		return 1
 	}
@@ -175,8 +176,12 @@ func cmdRun(args []string) int {
 		return 1
 	}
 
-	if errs := config.Validate(cfg); len(errs) > 0 {
-		for _, e := range errs {
+	runErrs, runWarns := config.Validate(cfg)
+	for _, w := range runWarns {
+		logger.Warn("config validation warning", "warn", w)
+	}
+	if len(runErrs) > 0 {
+		for _, e := range runErrs {
 			logger.Error("config validation error", "err", e)
 		}
 		return 1
@@ -230,6 +235,9 @@ func cmdRun(args []string) int {
 		}
 		if *dryRun {
 			t.SetDryRun(true)
+		}
+		if *validateFields {
+			t.SetValidateFields(true)
 		}
 		result, err := t.Run(ctx)
 
@@ -313,8 +321,12 @@ func cmdDaemon(args []string) int {
 		return 1
 	}
 
-	if errs := config.Validate(cfg); len(errs) > 0 {
-		for _, e := range errs {
+	daemonErrs, daemonWarns := config.Validate(cfg)
+	for _, w := range daemonWarns {
+		logger.Warn("config validation warning", "warn", w)
+	}
+	if len(daemonErrs) > 0 {
+		for _, e := range daemonErrs {
 			logger.Error("config validation error", "err", e)
 		}
 		return 1
@@ -398,8 +410,12 @@ func cmdDaemon(args []string) int {
 		if err != nil {
 			return fmt.Errorf("load config: %w", err)
 		}
-		if errs := config.Validate(newCfg); len(errs) > 0 {
-			return errs[0]
+		reloadErrs, reloadWarns := config.Validate(newCfg)
+		for _, w := range reloadWarns {
+			logger.Warn("config validation warning", "warn", w)
+		}
+		if len(reloadErrs) > 0 {
+			return reloadErrs[0]
 		}
 		newTasks, err := config.BuildTasks(newCfg, db, logger)
 		if err != nil {
@@ -460,17 +476,20 @@ func cmdDaemon(args []string) int {
 		ws.SetReload(reload)
 		ws.SetConfigPath(*cfgPath)
 		ws.SetStore(db)
-		ws.SetConfigValidator(func(data []byte) []string {
+		ws.SetConfigValidator(func(data []byte) ([]string, []string) {
 			c, err := config.ParseBytes(data)
 			if err != nil {
-				return []string{err.Error()}
+				return []string{err.Error()}, nil
 			}
-			errs := config.Validate(c)
-			msgs := make([]string, len(errs))
-			for i, e := range errs {
-				msgs[i] = e.Error()
+			errs, warns := config.Validate(c)
+			toStrings := func(es []error) []string {
+				s := make([]string, len(es))
+				for i, e := range es {
+					s[i] = e.Error()
+				}
+				return s
 			}
-			return msgs
+			return toStrings(errs), toStrings(warns)
 		})
 		go func() {
 			if err := ws.Start(ctx, *webAddr, tlsCfg); err != nil {
@@ -538,12 +557,15 @@ func cmdCheck(args []string) int {
 		return 1
 	}
 
-	errs := config.Validate(cfg)
-	if len(errs) == 0 {
+	checkErrs, checkWarns := config.Validate(cfg)
+	for _, w := range checkWarns {
+		fmt.Fprintf(os.Stderr, "warning: %v\n", w)
+	}
+	if len(checkErrs) == 0 {
 		fmt.Println("config OK")
 		return 0
 	}
-	for _, e := range errs {
+	for _, e := range checkErrs {
 		fmt.Fprintf(os.Stderr, "error: %v\n", e)
 	}
 	return 1

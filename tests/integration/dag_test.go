@@ -19,7 +19,8 @@ func parseConfig(t *testing.T, src string) (*config.Config, error) {
 
 func validateConfig(t *testing.T, cfg *config.Config) []error {
 	t.Helper()
-	return config.Validate(cfg)
+	errs, _ := config.Validate(cfg)
+	return errs
 }
 
 // TestDAG_BasicPipeline is the simplest end-to-end DAG: one source → one sink.
