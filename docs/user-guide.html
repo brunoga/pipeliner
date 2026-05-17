@@ -1590,10 +1590,7 @@ pipeline("tech-news", schedule="1h")</code></pre>
   <li>The function appears as a chip in the <strong>Functions</strong> section of the palette. If the chain contains a list-capable source, the chip shows a teal <strong>LIST</strong> badge.</li>
 </ol>
 
-<figure style="margin:1em 0">
-  <img src="images/ui-list-function-chip.png" alt="Palette showing the unwatched_movies function chip with a LIST badge" style="max-width:220px;border-radius:6px">
-  <figcaption style="font-size:12px;color:var(--muted);margin-top:4px">The <em>unwatched_movies</em> function carries a <strong>LIST</strong> badge, indicating it can be dragged onto a <code>list=</code> port.</figcaption>
-</figure>
+<img src="images/ui-list-function-chip.png" alt="Palette showing the unwatched_movies function chip with a LIST badge" class="screenshot" style="max-width:220px">
 
 <p><strong>How to connect it:</strong></p>
 <ol>
@@ -1603,10 +1600,7 @@ pipeline("tech-news", schedule="1h")</code></pre>
 
 <p>The function call appears as a sub-node below the accepting node, labelled with the step names in the chain (e.g. <em>trakt_list→trakt</em>). The param panel shows it under <strong>List (list sources)</strong>.</p>
 
-<figure style="margin:1em 0">
-  <img src="images/ui-list-function-connected.png" alt="Visual editor showing movies node connected to a trakt_list→trakt mini-pipeline via its list port" style="max-width:100%;border-radius:6px">
-  <figcaption style="font-size:12px;color:var(--muted);margin-top:4px">The <em>trakt_list→trakt</em> mini-pipeline connected to the <code>movies</code> node's list port. Clicking <code>movies</code> reveals it under <strong>List (list sources)</strong> in the param panel.</figcaption>
-</figure>
+<img src="images/ui-list-function-connected.png" alt="Visual editor showing movies node connected to a trakt_list→trakt mini-pipeline via its list port" class="screenshot">
 
 <p>The same pattern applies to <code>search=</code> ports on <code>discover</code>: a function whose body starts with a search plugin (<code>jackett_search</code>, <code>rss_search</code>) will carry a <strong>SEARCH</strong> badge and can be connected to the discover search port.</p>
 
