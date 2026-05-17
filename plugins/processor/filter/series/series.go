@@ -33,9 +33,15 @@ func init() {
 		Description: "accept episodes for configured shows; track downloads across runs",
 		Role:        plugin.RoleProcessor,
 		Produces: []string{
+			entry.FieldTitle,
 			entry.FieldSeriesSeason,
 			entry.FieldSeriesEpisode,
 			entry.FieldSeriesEpisodeID,
+			entry.FieldSeriesDoubleEpisode,
+			entry.FieldSeriesProper,
+			entry.FieldSeriesRepack,
+			entry.FieldSeriesService,
+			"series_container",
 		},
 		Factory:     newPlugin,
 		Validate:    validate,
@@ -183,10 +189,18 @@ func (p *seriesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *en
 
 	epID := series.EpisodeID(ep)
 	e.SetSeriesInfo(entry.SeriesInfo{
-		Season:    ep.Season,
-		Episode:   ep.Episode,
-		EpisodeID: epID,
+		VideoInfo:     entry.VideoInfo{GenericInfo: entry.GenericInfo{Title: ep.SeriesName}},
+		Season:        ep.Season,
+		Episode:       ep.Episode,
+		EpisodeID:     epID,
+		DoubleEpisode: ep.DoubleEpisode,
+		Proper:        ep.Proper,
+		Repack:        ep.Repack,
+		Service:       ep.Service,
 	})
+	if ep.Container != "" {
+		e.Set("series_container", ep.Container)
+	}
 
 	if p.tracker.IsSeen(matchedShow, epID) {
 		if latest, ok := p.tracker.Latest(matchedShow); ok && latest.EpisodeID == epID {
@@ -258,13 +272,30 @@ func (p *seriesPlugin) persist(ctx context.Context, tc *plugin.TaskContext, entr
 			continue
 		}
 		epID := series.EpisodeID(ep)
-		if err := p.tracker.Mark(series.Record{
+		rec := series.Record{
 			SeriesName:  matchedShow,
 			DisplayName: e.GetString(entry.FieldTitle),
 			EpisodeID:   epID,
 			Quality:     ep.Quality,
-		}); err != nil {
+		}
+		if err := p.tracker.Mark(rec); err != nil {
 			return fmt.Errorf("series: mark %s %s: %w", matchedShow, epID, err)
+		}
+		// For double episodes (e.g. S01E01E02), also mark each part individually
+		// so that a later single-episode release is recognised as already downloaded.
+		if ep.DoubleEpisode > 0 {
+			ep1 := *ep
+			ep1.DoubleEpisode = 0
+			ep2 := *ep
+			ep2.Episode = ep.DoubleEpisode
+			ep2.DoubleEpisode = 0
+			for _, partID := range []string{series.EpisodeID(&ep1), series.EpisodeID(&ep2)} {
+				partRec := rec
+				partRec.EpisodeID = partID
+				if err := p.tracker.Mark(partRec); err != nil {
+					return fmt.Errorf("series: mark %s %s: %w", matchedShow, partID, err)
+				}
+			}
 		}
 	}
 	return nil
