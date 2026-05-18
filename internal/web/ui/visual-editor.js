@@ -59,6 +59,64 @@ function nodeBottomY(nodeId, nodeY) {
   return (nodeY ?? 0) + (el ? el.offsetHeight : NODE_H);
 }
 
+// ── shared edge geometry helpers ─────────────────────────────────────────────
+
+// edgePath returns a cubic bezier SVG path string between two points.
+// dir='h'    horizontal (left-to-right, normal upstream connections)
+// dir='v'    vertical downward (search/list/route-leg connections)
+// dir='v-up' vertical upward  (list cursor — dragging upward to a list source)
+function edgePath(x1, y1, x2, y2, dir = 'h') {
+  if (dir === 'v') {
+    const dy = Math.max(50, Math.abs(y2 - y1) * 0.5);
+    return `M${x1},${y1} C${x1},${y1+dy} ${x2},${y2-dy} ${x2},${y2}`;
+  }
+  if (dir === 'v-up') {
+    const dy = Math.max(40, Math.abs(y1 - y2) * 0.4);
+    return `M${x1},${y1} C${x1},${y1-dy} ${x2},${y2+dy} ${x2},${y2}`;
+  }
+  // 'h' — horizontal
+  const dx = Math.max(60, Math.abs(x2 - x1) * 0.5);
+  return `M${x1},${y1} C${x1+dx},${y1} ${x2-dx},${y2} ${x2},${y2}`;
+}
+
+// toCanvasCoords converts a pointer event's client coordinates to canvas-space.
+function toCanvasCoords(e) {
+  const rect = document.getElementById('ve-graph-canvas')
+                      ?.getBoundingClientRect() ?? {left: 0, top: 0};
+  return {
+    x: (e.clientX - rect.left) / ve_zoom,
+    y: (e.clientY - rect.top)  / ve_zoom,
+  };
+}
+
+// startDragFlow wires the shared pointermove/pointerup/pointercancel boilerplate
+// for all drag-connect interactions.  The caller provides:
+//   stateSet(curX, curY)  — called on every move to update state
+//   onRelease(ev)         — called on pointerup to commit or cancel
+//   canvasCls             — CSS class added to the canvas while dragging
+function startDragFlow(e, stateSet, onRelease, canvasCls) {
+  const canvas = document.getElementById('ve-graph-canvas');
+  const {x, y} = toCanvasCoords(e);
+  stateSet(x, y);
+  canvas?.classList.add(canvasCls);
+
+  function onMove(ev) {
+    const {x: cx, y: cy} = toCanvasCoords(ev);
+    stateSet(cx, cy);
+    renderEdges();
+  }
+  function cleanup() {
+    document.removeEventListener('pointermove', onMove);
+    canvas?.classList.remove(canvasCls);
+  }
+  function onUp(ev) { cleanup(); onRelease(ev); }
+  function onCancel() { cleanup(); onRelease(null); }
+
+  document.addEventListener('pointermove', onMove);
+  document.addEventListener('pointerup',     onUp,    {once: true});
+  document.addEventListener('pointercancel', onCancel, {once: true});
+}
+
 // Disconnect a search-connected node from its parent discover node.
 function disconnectSearch(discoverNodeId, searchNodeId) {
   const disc = findNode(discoverNodeId);
@@ -418,6 +476,10 @@ function renderGraphNodes() {
 
   for (const g of ve.graphs) {
     for (const n of g.nodes) {
+      // Route selector nodes are virtual — their "ports" are drawn on the parent
+      // route node card. Skip rendering them as standalone canvas nodes.
+      if (n.isRouteLeg) continue;
+
       // Upstream pseudo-node: non-selectable entry point for function body editing.
       if (n.isUpstreamPseudo) {
         const div = document.createElement('div');
@@ -490,12 +552,19 @@ function renderGraphNodes() {
         '</div>',
         `<button class="ve-node-remove" tabindex="-1" title="Remove">×</button>`,
         `<button class="ve-node-comment-btn${commentBtnCls}" tabindex="-1" title="Edit comment">#</button>`,
-        // Output port: not shown on search/list sub-nodes. Route legs DO show
-        // one — they are upstream sources for downstream processors.
-        // Sinks show a chain port so they can connect to downstream sinks.
-        (!isSearch && !isList) ? `<div class="ve-node-out-port${isRouteLeg ? ' ve-node-route-out-port' : role === 'sink' ? ' ve-node-chain-port' : ''}" title="${isRouteLeg ? `Drag to connect a node to the "${n.routeLegName}" leg` : role === 'sink' ? 'Drag to chain to another output node' : 'Drag to connect'}"></div>` : '',
+        // Route nodes show named leg ports instead of a single out-port.
+        // Always suppress the generic out-port on route nodes.
+        n.plugin === 'route' ? (() => {
+          const legPorts = (n.legNodeIds || []).map(legId => {
+            const leg = g.nodes.find(x => x.id === legId);
+            if (!leg?.isRouteLeg) return '';
+            return `<div class="ve-route-leg-port" data-leg="${esc(leg.routeLegName)}" data-leg-id="${esc(legId)}"
+              title="${esc(leg.routeLegName)}"></div>`;
+          }).join('');
+          return legPorts ? `<div class="ve-route-leg-ports">${legPorts}</div>` : '';
+        })() : (!isSearch && !isList && !isRouteLeg) ? `<div class="ve-node-out-port${role === 'sink' ? ' ve-node-chain-port' : ''}" title="${role === 'sink' ? 'Drag to chain to another output node' : 'Drag to connect'}"></div>` : '',
         // Input port indicator: shown on valid drop-targets while dragging an output port.
-        (role !== 'source' && !isSearch && !isList) ? '<div class="ve-node-in-port"></div>' : '',
+        (role !== 'source' && !isSearch && !isList && !isRouteLeg) ? '<div class="ve-node-in-port"></div>' : '',
       ].join('');
 
       div.querySelector('.ve-node-remove').addEventListener('click', e => {
@@ -553,6 +622,22 @@ function renderGraphNodes() {
           startConnect(e, n.id);
         });
       }
+
+      // Route leg ports: each circle starts a connect using the selector's ID.
+      // Pass the port's canvas position as the visual anchor so the live
+      // cursor line starts from the circle, not the invisible selector node.
+      div.querySelectorAll('.ve-route-leg-port').forEach(port => {
+        port.addEventListener('pointerdown', e => {
+          e.stopPropagation();
+          e.preventDefault();
+          const canvas  = document.getElementById('ve-graph-canvas');
+          const cRect   = canvas?.getBoundingClientRect() ?? {left: 0, top: 0};
+          const pRect   = port.getBoundingClientRect();
+          const anchorX = (pRect.left + pRect.width  / 2 - cRect.left) / ve_zoom;
+          const anchorY = (pRect.top  + pRect.height / 2 - cRect.top)  / ve_zoom;
+          startConnect(e, port.dataset.legId, anchorX, anchorY);
+        });
+      });
 
       // Search-port (bottom circle): drag FROM here to a search-plugin node.
       if (meta.accepts_search) {
@@ -832,16 +917,36 @@ function renderEdges() {
 
   for (const g of ve.graphs) {
     for (const n of g.nodes) {
+      // Route selector nodes are virtual — skip their upstream edges.
+      // Their connections are represented by the leg ports on the route card.
+      if (n.isRouteLeg) continue;
       for (const upId of (n.upstreams || [])) {
         const up = g.nodes.find(x => x.id === upId);
         if (!up) continue;
-        const x1 = (up.x ?? 0) + NODE_W;
-        const y1 = nodeMidY(up.id, up.y);
+
+        // For route_selector upstreams, draw the edge from the port circle
+        // on the parent route card rather than from the invisible node (0,0).
+        let x1, y1;
+        if (up.isRouteLeg && up.routeParentId) {
+          const routeNode = g.nodes.find(x => x.id === up.routeParentId);
+          if (!routeNode) continue;
+          const legIds  = routeNode.legNodeIds || [];
+          const legIdx  = legIds.indexOf(upId);
+          const legCount = legIds.length;
+          const PORT_W  = 20, PORT_GAP = 10;
+          const totalW  = legCount * PORT_W + Math.max(0, legCount - 1) * PORT_GAP;
+          const portCX  = (routeNode.x ?? 0) + NODE_W / 2 - totalW / 2
+                          + legIdx * (PORT_W + PORT_GAP) + PORT_W / 2;
+          x1 = portCX;
+          y1 = (routeNode.y ?? 0) + NODE_H + PORT_W / 2;
+        } else {
+          x1 = (up.x ?? 0) + NODE_W;
+          y1 = nodeMidY(up.id, up.y);
+        }
         const x2 = (n.x ?? 0);
         const y2 = nodeMidY(n.id, n.y);
-        const dx  = Math.max(60, Math.abs(x2 - x1) * 0.5);
         const sel = n.id === ve.selectedNodeId || up.id === ve.selectedNodeId;
-        const d   = `M${x1},${y1} C${x1+dx},${y1} ${x2-dx},${y2} ${x2},${y2}`;
+        const d   = edgePath(x1, y1, x2, y2, up.isRouteLeg ? 'v' : 'h');
         // Use a distinct style for sink→sink chain edges.
         const upRole  = pluginMeta(up.plugin)?.role;
         const nRole   = pluginMeta(n.plugin)?.role;
@@ -859,12 +964,22 @@ function renderEdges() {
   }
 
   if (ve_connecting) {
-    const src = findNode(ve_connecting.srcId);
-    if (src) {
-      const x1 = (src.x ?? 0) + NODE_W, y1 = nodeMidY(src.id, src.y);
-      const x2 = ve_connecting.curX,     y2 = ve_connecting.curY;
-      const dx  = Math.max(60, Math.abs(x2 - x1) * 0.5);
-      vis += `<path d="M${x1},${y1} C${x1+dx},${y1} ${x2-dx},${y2} ${x2},${y2}" class="ve-edge connecting"/>`;
+    let x1, y1;
+    if (ve_connecting.anchorX !== undefined) {
+      // Explicit anchor (e.g. route leg port circle) overrides node position.
+      x1 = ve_connecting.anchorX;
+      y1 = ve_connecting.anchorY;
+    } else {
+      const src = findNode(ve_connecting.srcId);
+      if (!src) { /* skip */ } else {
+        x1 = (src.x ?? 0) + NODE_W;
+        y1 = nodeMidY(src.id, src.y);
+      }
+    }
+    if (x1 !== undefined) {
+      const x2 = ve_connecting.curX, y2 = ve_connecting.curY;
+      const dir = ve_connecting.anchorX !== undefined ? 'v' : 'h';
+      vis += `<path d="${edgePath(x1, y1, x2, y2, dir)}" class="ve-edge connecting"/>`;
     }
   }
 
@@ -880,7 +995,7 @@ function renderEdges() {
         const y2 = (sn.y ?? 0);                    // TOP border of search node (not mid)
         const sel = ve.selectedNodeId === n.id || ve.selectedNodeId === searchId;
         const mId = sel ? '#arrow-search-sel' : '#arrow-search';
-        const d   = `M${x1},${y1} C${x1},${y1+40} ${x2},${y2-40} ${x2},${y2}`;
+        const d   = edgePath(x1, y1, x2, y2, 'v');
         vis += `<path d="${d}" class="ve-search-edge${sel ? ' selected' : ''}"` +
                ` marker-end="url(${mId})" data-src="${n.id}" data-dst="${searchId}" data-search="true"/>`;
         hit += `<path d="${d}" class="ve-edge-hit"` +
@@ -896,7 +1011,7 @@ function renderEdges() {
       const x1 = (disc.x ?? 0) + NODE_W / 2;
       const y1 = nodeBottomY(disc.id, disc.y);
       const x2 = ve_searchConnecting.curX, y2 = ve_searchConnecting.curY;
-      vis += `<path d="M${x1},${y1} C${x1},${y1+40} ${x2},${y2-40} ${x2},${y2}" class="ve-search-edge connecting"/>`;
+      vis += `<path d="${edgePath(x1, y1, x2, y2, 'v')}" class="ve-search-edge connecting"/>`;
     }
   }
 
@@ -914,37 +1029,19 @@ function renderEdges() {
         const y1 = nodeBottomY(lnId, ln.y);
         const x2 = (n.x  ?? 0) + NODE_W / 2;
         const y2 = (n.y  ?? 0);                // top of parent = list-port
-        const dy  = Math.max(50, Math.abs(y2 - y1) * 0.5);
-        // cp2 uses x2 so the final approach is straight down into the list port.
         const sel  = ve.selectedNodeId === n.id || ve.selectedNodeId === lnId;
         const mEnd = sel ? '#arrow-list-sel' : '#arrow-list';
-        vis += `<path d="M${x1},${y1} C${x1},${y1+dy} ${x2},${y2-dy} ${x2},${y2}"` +
-               ` class="ve-list-edge${sel ? ' selected' : ''}" marker-end="url(${mEnd})"` +
+        const d    = edgePath(x1, y1, x2, y2, 'v');
+        vis += `<path d="${d}" class="ve-list-edge${sel ? ' selected' : ''}" marker-end="url(${mEnd})"` +
                ` data-src="${n.id}" data-dst="${lnId}" data-list="true"/>`;
-        hit += `<path d="M${x1},${y1} C${x1},${y1+dy} ${x2},${y2-dy} ${x2},${y2}"` +
-               ` class="ve-edge-hit" data-src="${n.id}" data-dst="${lnId}" data-list="true"><title>Click to disconnect</title></path>`;
+        hit += `<path d="${d}" class="ve-edge-hit" data-src="${n.id}" data-dst="${lnId}" data-list="true"><title>Click to disconnect</title></path>`;
       }
     }
   }
 
-  // Route-leg edges: orange dashed lines flowing downward FROM the route node's
-  // bottom TO each route_selector (leg) node's top.
-  for (const g of ve.graphs) {
-    for (const n of g.nodes) {
-      for (const legId of (n.legNodeIds || [])) {
-        const leg = g.nodes.find(x => x.id === legId);
-        if (!leg) continue;
-        const x1 = (n.x   ?? 0) + NODE_W / 2;
-        const y1 = nodeBottomY(n.id, n.y);
-        const x2 = (leg.x ?? 0) + NODE_W / 2;
-        const y2 = (leg.y ?? 0);
-        const dy  = Math.max(40, Math.abs(y2 - y1) * 0.4);
-        const sel  = ve.selectedNodeId === n.id || ve.selectedNodeId === legId;
-        vis += `<path d="M${x1},${y1} C${x1},${y1+dy} ${x2},${y2-dy} ${x2},${y2}"` +
-               ` class="ve-route-edge${sel ? ' selected' : ''}"/>`;
-      }
-    }
-  }
+  // Route-leg edges: route_selector nodes are now virtual (invisible).
+  // Connections FROM a leg go directly from the route card's port position
+  // to the downstream node via the normal upstream edge drawing below.
 
   // Live cursor line while dragging from a list-port.
   // Drawn FROM the list-port (top of parent) UPWARD TO the cursor — same
@@ -955,8 +1052,7 @@ function renderEdges() {
       const x1 = (par.x ?? 0) + NODE_W / 2;
       const y1 = (par.y ?? 0);  // top of parent = list-port
       const x2 = ve_listConnecting.curX, y2 = ve_listConnecting.curY;
-      const dy  = Math.max(40, Math.abs(y1 - y2) * 0.4);
-      vis += `<path d="M${x1},${y1} C${x1},${y1-dy} ${x2},${y2+dy} ${x2},${y2}" class="ve-list-edge connecting"/>`;
+      vis += `<path d="${edgePath(x1, y1, x2, y2, 'v-up')}" class="ve-list-edge connecting"/>`;
     }
   }
 
@@ -1041,6 +1137,7 @@ function layoutGraph(g, globalY) {
   }
 
   g._labelY = globalY;
+  // Route legs are virtual (not rendered as standalone nodes) so exclude from layout.
   const isSub = n => n.isSearchNode || n.isListNode || n.isRouteLeg;
   // Extra padding above main nodes so list-connected sub-nodes have room to sit
   // above their parent without overlapping the pipeline label area.
@@ -1664,55 +1761,33 @@ function startNodeDrag(e, n) {
 
 // ── connect interaction ────────────────────────────────────────────────────────
 
-function startConnect(e, srcId) {
-  const canvas = document.getElementById('ve-graph-canvas');
-  // getBoundingClientRect() accounts for scroll and CSS transform,
-  // so (clientX - rect.left) / zoom gives the canvas coordinate directly.
-  const rect = canvas?.getBoundingClientRect() ?? {left: 0, top: 0};
-  ve_connecting = {
-    srcId,
-    curX: (e.clientX - rect.left) / ve_zoom,
-    curY: (e.clientY - rect.top)  / ve_zoom,
-  };
-  canvas?.classList.add('is-connecting');
-  // Mark the source node so CSS can exclude its own input indicator.
-  const srcDiv = document.querySelector(`.ve-node[data-id="${srcId}"]`);
-  srcDiv?.classList.add('is-connect-source');
-  // Mark all ancestor nodes (which would form a cycle if connected to src).
+// startConnect begins a drag-to-connect operation.
+// srcAnchorX/Y optionally override the visual start position of the line
+// (used when the source is a virtual node like a route leg port whose canvas
+// position is the port circle rather than the invisible selector node).
+function startConnect(e, srcId, srcAnchorX, srcAnchorY) {
+  ve_connecting = { srcId, anchorX: srcAnchorX, anchorY: srcAnchorY };
+  // Mark source and cycle-risk nodes for CSS highlighting.
+  document.querySelector(`.ve-node[data-id="${srcId}"]`)?.classList.add('is-connect-source');
   const gi = findNodeGraph(srcId);
   const g  = gi >= 0 ? ve.graphs[gi] : null;
-  if (g) {
-    ancestorIds(g.nodes, srcId).forEach(id => {
-      document.querySelector(`.ve-node[data-id="${id}"]`)?.classList.add('would-create-cycle');
-    });
-  }
+  if (g) ancestorIds(g.nodes, srcId).forEach(id =>
+    document.querySelector(`.ve-node[data-id="${id}"]`)?.classList.add('would-create-cycle'));
 
-  function onMove(ev) {
-    const r = canvas?.getBoundingClientRect() ?? {left: 0, top: 0};
-    ve_connecting.curX = (ev.clientX - r.left) / ve_zoom;
-    ve_connecting.curY = (ev.clientY - r.top)  / ve_zoom;
-    renderEdges();
-  }
-  function cleanup() {
-    document.removeEventListener('pointermove', onMove);
-    canvas?.classList.remove('is-connecting');
-    document.querySelectorAll('.ve-node.is-connect-source').forEach(el => el.classList.remove('is-connect-source'));
-    document.querySelectorAll('.ve-node.would-create-cycle').forEach(el => el.classList.remove('would-create-cycle'));
-  }
-  function onUp(ev) {
-    cleanup();
-    if (!ve_connecting) return;
-    const el  = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('.ve-node[data-id]');
-    const tid = el?.dataset?.id;
-    const tgtMeta = tid ? pluginMeta(findNode(tid)?.plugin) : null;
-    if (tid && tid !== srcId && tgtMeta?.role !== 'source') finishConnect(tid);
-    else { ve_connecting = null; renderEdges(); }
-  }
-  function onCancel() { cleanup(); ve_connecting = null; renderEdges(); }
-
-  document.addEventListener('pointermove', onMove);
-  document.addEventListener('pointerup',     onUp,    {once: true});
-  document.addEventListener('pointercancel', onCancel, {once: true});
+  startDragFlow(e,
+    (cx, cy) => { ve_connecting.curX = cx; ve_connecting.curY = cy; },
+    ev => {
+      document.querySelectorAll('.ve-node.is-connect-source').forEach(el => el.classList.remove('is-connect-source'));
+      document.querySelectorAll('.ve-node.would-create-cycle').forEach(el => el.classList.remove('would-create-cycle'));
+      if (!ev || !ve_connecting) { ve_connecting = null; renderEdges(); return; }
+      const el  = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('.ve-node[data-id]');
+      const tid = el?.dataset?.id;
+      const tgtMeta = tid ? pluginMeta(findNode(tid)?.plugin) : null;
+      if (tid && tid !== srcId && tgtMeta?.role !== 'source') finishConnect(tid);
+      else { ve_connecting = null; renderEdges(); }
+    },
+    'is-connecting'
+  );
 }
 
 function finishConnect(targetId) {
@@ -1748,39 +1823,19 @@ function finishConnect(targetId) {
 // Drag from a discover node's search-port to a search-plugin node on the canvas.
 
 function startSearchConnect(e, discoverNodeId) {
-  const canvas = document.getElementById('ve-graph-canvas');
-  const rect   = canvas?.getBoundingClientRect() ?? {left: 0, top: 0};
-  ve_searchConnecting = {
-    discoverNodeId,
-    curX: (e.clientX - rect.left) / ve_zoom,
-    curY: (e.clientY - rect.top)  / ve_zoom,
-  };
-  canvas?.classList.add('is-searchconnecting');
-
-  function onMove(ev) {
-    const r = canvas?.getBoundingClientRect() ?? {left: 0, top: 0};
-    ve_searchConnecting.curX = (ev.clientX - r.left) / ve_zoom;
-    ve_searchConnecting.curY = (ev.clientY - r.top)  / ve_zoom;
-    renderEdges();
-  }
-  function cleanup() {
-    document.removeEventListener('pointermove', onMove);
-    canvas?.classList.remove('is-searchconnecting');
-  }
-  function onUp(ev) {
-    cleanup();
-    if (!ve_searchConnecting) return;
-    const el  = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('.ve-node[data-id]');
-    const tid = el?.dataset?.id;
-    if (tid && tid !== discoverNodeId && el.dataset.isSearch === 'true' && el.dataset.isSearchNd !== 'true') {
-      finishSearchConnect(tid);
-    } else { ve_searchConnecting = null; renderEdges(); }
-  }
-  function onCancel() { cleanup(); ve_searchConnecting = null; renderEdges(); }
-
-  document.addEventListener('pointermove', onMove);
-  document.addEventListener('pointerup',     onUp,    {once: true});
-  document.addEventListener('pointercancel', onCancel, {once: true});
+  ve_searchConnecting = { discoverNodeId };
+  startDragFlow(e,
+    (cx, cy) => { ve_searchConnecting.curX = cx; ve_searchConnecting.curY = cy; },
+    ev => {
+      if (!ev || !ve_searchConnecting) { ve_searchConnecting = null; renderEdges(); return; }
+      const el  = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('.ve-node[data-id]');
+      const tid = el?.dataset?.id;
+      if (tid && tid !== discoverNodeId && el.dataset.isSearch === 'true' && el.dataset.isSearchNd !== 'true') {
+        finishSearchConnect(tid);
+      } else { ve_searchConnecting = null; renderEdges(); }
+    },
+    'is-searchconnecting'
+  );
 }
 
 // nodeIsListPlugin / nodeIsSearchPlugin check both registered plugins and
@@ -1812,38 +1867,18 @@ function finishSearchConnect(targetNodeId) {
 // Drag from a series/movies node's "list" port to a list-source plugin node.
 
 function startListConnect(e, parentNodeId) {
-  const canvas = document.getElementById('ve-graph-canvas');
-  const rect   = canvas?.getBoundingClientRect() ?? {left: 0, top: 0};
-  ve_listConnecting = {
-    parentNodeId,
-    curX: (e.clientX - rect.left) / ve_zoom,
-    curY: (e.clientY - rect.top)  / ve_zoom,
-  };
-  canvas?.classList.add('is-listconnecting');
-
-  function onMove(ev) {
-    const r = canvas?.getBoundingClientRect() ?? {left: 0, top: 0};
-    ve_listConnecting.curX = (ev.clientX - r.left) / ve_zoom;
-    ve_listConnecting.curY = (ev.clientY - r.top)  / ve_zoom;
-    renderEdges();
-  }
-  function cleanup() {
-    document.removeEventListener('pointermove', onMove);
-    canvas?.classList.remove('is-listconnecting');
-  }
-  function onUp(ev) {
-    cleanup();
-    if (!ve_listConnecting) return;
-    const el  = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('.ve-node[data-id]');
-    const tid = el?.dataset?.id;
-    if (tid && tid !== parentNodeId && el.dataset.isList === 'true' && el.dataset.isListNd !== 'true') finishListConnect(tid);
-    else { ve_listConnecting = null; renderEdges(); }
-  }
-  function onCancel() { cleanup(); ve_listConnecting = null; renderEdges(); }
-
-  document.addEventListener('pointermove', onMove);
-  document.addEventListener('pointerup',     onUp,    {once: true});
-  document.addEventListener('pointercancel', onCancel, {once: true});
+  ve_listConnecting = { parentNodeId };
+  startDragFlow(e,
+    (cx, cy) => { ve_listConnecting.curX = cx; ve_listConnecting.curY = cy; },
+    ev => {
+      if (!ev || !ve_listConnecting) { ve_listConnecting = null; renderEdges(); return; }
+      const el  = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('.ve-node[data-id]');
+      const tid = el?.dataset?.id;
+      if (tid && tid !== parentNodeId && el.dataset.isList === 'true' && el.dataset.isListNd !== 'true') finishListConnect(tid);
+      else { ve_listConnecting = null; renderEdges(); }
+    },
+    'is-listconnecting'
+  );
 }
 
 function finishListConnect(targetNodeId) {
@@ -2015,7 +2050,12 @@ function renderParamPanel() {
 
   // Search-connected nodes have no pipeline upstreams (they're search backends, not DAG nodes).
   if (meta.role !== 'source' && !node.isSearchNode) {
-    const others = g.nodes.filter(n => n.id !== node.id && !n.isSearchNode && !n.isListNode);
+    const others = g.nodes.filter(n => {
+      if (n.id === node.id || n.isSearchNode || n.isListNode) return false;
+      // Don't show a route node's own leg chips as upstream candidates.
+      if (n.isRouteLeg && n.routeParentId === node.id) return false;
+      return true;
+    });
     html.push(`<div class="ve-field"><div class="ve-field-label">Upstreams (upstream=)</div>`);
     if (!others.length) {
       html.push('<div style="color:var(--muted);font-size:12px;margin-top:4px">Add source nodes first</div>');
@@ -2372,6 +2412,29 @@ function renderField(f, config, node) {
           <button class="ve-add-kv" onclick="addTag('${fid}','${f.key}')">Add</button></div>`;
         break;
       }
+      case 'rule_list': {
+        // Structured list of {name, accept} route rules.
+        const rules = Array.isArray(val) ? val : [];
+        const nid   = esc(JSON.stringify(node?.id ?? ''));
+        const fkey  = esc(f.key);
+        const rows  = rules.map((r, i) => {
+          const rObj = (typeof r === 'object' && r) ? r : {name: '', accept: String(r ?? '')};
+          return `<tr class="ve-rule-row" data-idx="${i}">
+            <td><input class="ve-rule-name" placeholder="leg name" value="${esc(rObj.name ?? '')}"
+              oninput="updateRuleNameOnly(${nid},'${fkey}',${i},this.value)"
+              onblur="syncRouteLegsForNode(${nid})"></td>
+            <td><input class="ve-rule-cond" placeholder="condition expression" value="${esc(rObj.accept ?? '')}"
+              oninput="updateRuleField(${nid},'${fkey}',${i},'accept',this.value)"></td>
+            <td><button class="ve-rule-del" onclick="removeRule(${nid},'${fkey}',${i})">×</button></td>
+          </tr>`;
+        }).join('');
+        widget = `<table class="ve-rule-table">
+          <thead><tr><th>Name</th><th>Condition</th><th></th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+        <button class="ve-add-kv" style="margin-top:4px" onclick="addRule(${nid},'${fkey}')">+ Add rule</button>`;
+        break;
+      }
       default:
         widget = `<input type="text" data-field="${f.key}" value="${esc(String(val ?? ''))}" placeholder="${esc(String(f.default ?? f.hint ?? ''))}">`;
     }
@@ -2440,6 +2503,59 @@ function removeTag(btn, field) {
   tag.remove(); onModelChange();
 }
 
+// ── route rule_list handlers ──────────────────────────────────────────────────
+
+function addRule(nodeId, field) {
+  const node = findNode(nodeId);
+  if (!node) return;
+  if (!Array.isArray(node.config[field])) node.config[field] = [];
+  node.config[field].push({ name: '', accept: '' });
+  renderParamPanel();
+  onModelChange();
+}
+
+function removeRule(nodeId, field, idx) {
+  const node = findNode(nodeId);
+  if (!node || !Array.isArray(node.config[field])) return;
+  node.config[field].splice(idx, 1);
+  renderParamPanel();
+  onModelChange();
+}
+
+function updateRuleField(nodeId, field, idx, key, value) {
+  const node = findNode(nodeId);
+  if (!node || !Array.isArray(node.config[field])) return;
+  if (!node.config[field][idx]) node.config[field][idx] = {};
+  node.config[field][idx][key] = value;
+  onModelChange();
+}
+
+// Update the rule name in the model WITHOUT syncing legs — prevents focus loss
+// on every keystroke. syncRouteLegsForNode is called onblur to finalize.
+function updateRuleNameOnly(nodeId, field, idx, value) {
+  const node = findNode(nodeId);
+  if (!node || !Array.isArray(node.config[field])) return;
+  if (!node.config[field][idx]) node.config[field][idx] = {};
+  node.config[field][idx].name = value;
+  // Update text editor without triggering leg sync / veRender.
+  const el = document.getElementById('config-editor');
+  if (el) { el.value = dagToStarlark(); syncHighlight(); }
+}
+
+// Called onblur of the leg name input: sync leg chips and re-render canvas.
+function syncRouteLegsForNode(nodeId) {
+  const node = findNode(nodeId);
+  if (!node) return;
+  const g = ve.graphs.find(gr => gr.nodes.some(n => n.id === nodeId));
+  if (!g) return;
+  const changed = syncRouteLegs(node, g);
+  if (changed) {
+    veRender();
+    const el = document.getElementById('config-editor');
+    if (el) { el.value = dagToStarlark(); syncHighlight(); }
+  }
+}
+
 function renderGenericKV(cfg) {
   const entries = Object.entries(cfg || {});
   return entries.map(([k, v], i) => `<div class="ve-kv-row">
@@ -2478,8 +2594,19 @@ function wireGenericKV(body, node) {
 function configPreview(cfg) {
   const entries = Object.entries(cfg || {}).slice(0, 2);
   return entries.map(([k, v]) => {
-    const vs = Array.isArray(v) ? `[${v.slice(0,2).join(', ')}${v.length>2?'…':''}]`
-             : typeof v === 'string' ? (v.length > 28 ? v.slice(0,28)+'…' : v) : String(v);
+    let vs;
+    if (Array.isArray(v)) {
+      // Array of objects (e.g. route rules): show count summary.
+      if (v.length > 0 && typeof v[0] === 'object' && v[0] !== null) {
+        vs = `${v.length} rule${v.length !== 1 ? 's' : ''}`;
+      } else {
+        vs = `[${v.slice(0,2).join(', ')}${v.length>2?'…':''}]`;
+      }
+    } else if (typeof v === 'string') {
+      vs = v.length > 28 ? v.slice(0,28)+'…' : v;
+    } else {
+      vs = String(v);
+    }
     return `${k}: ${vs}`;
   }).join('  ');
 }
@@ -3854,9 +3981,10 @@ function fnEditorUnlinkParamRef(nodeId, configKey) {
 
 // emptyForType returns a sensible empty/zero value for a given FieldType string.
 function emptyForType(type) {
-  if (type === 'list')     return [];
-  if (type === 'int')      return 0;
-  if (type === 'bool')     return false;
+  if (type === 'list')      return [];
+  if (type === 'rule_list') return [];
+  if (type === 'int')       return 0;
+  if (type === 'bool')      return false;
   return '';
 }
 
@@ -4102,12 +4230,80 @@ function parseFunctionCallArgs(src, callKey, funcName) {
 
 // ── model change → sync to text editor ───────────────────────────────────────
 
+// syncRouteLegs keeps the route_selector sub-nodes in sync with the rules
+// configured on a route node. Called on every model change so that adding or
+// removing rules immediately adds/removes the corresponding leg chips, letting
+// the user drag from them to connect downstream processors.
+// syncRouteLegs returns true if it added or removed any leg nodes.
+function syncRouteLegs(routeNode, g) {
+  const rules  = routeNode.config?.rules || [];
+  // Include all rules — use index-based fallback name for empty names so
+  // each rule gets a port immediately on "Add rule".
+  const wanted = rules.map((r, i) => r?.name || `_leg_${i}`);
+  let changed  = false;
+
+  // Index existing leg nodes by name.
+  const byName = {};
+  for (const legId of (routeNode.legNodeIds || [])) {
+    const leg = g.nodes.find(n => n.id === legId);
+    if (leg?.isRouteLeg) byName[leg.routeLegName] = leg;
+  }
+
+  // Remove legs whose rule was deleted.
+  for (const name of Object.keys(byName)) {
+    if (wanted.includes(name)) continue;
+    const leg = byName[name];
+    g.nodes = g.nodes.filter(n => n.id !== leg.id);
+    routeNode.legNodeIds = (routeNode.legNodeIds || []).filter(id => id !== leg.id);
+    changed = true;
+  }
+
+  // Add legs for new rules (wanted already has fallback names for empty rules).
+  for (let wi = 0; wi < wanted.length; wi++) {
+    const name = wanted[wi];
+    if (byName[name]) continue;
+    // Display label: use actual rule name if available, else placeholder.
+    const displayName = rules[wi]?.name || '';
+    const legId = `${routeNode.id}__leg__${name}`;
+    g.nodes.push({
+      id: legId, plugin: 'route_selector', config: {},
+      upstreams: [routeNode.id],
+      searchNodeIds: [], listNodeIds: [], legNodeIds: [], comment: '',
+      isRouteLeg: true, routeParentId: routeNode.id,
+      routeLegName: displayName || name,
+      x: null, y: null,
+    });
+    if (!routeNode.legNodeIds) routeNode.legNodeIds = [];
+    if (!routeNode.legNodeIds.includes(legId)) routeNode.legNodeIds.push(legId);
+    changed = true;
+  }
+  return changed;
+}
+
 function onModelChange() {
   if (ve.syncing) return;
   // While editing a function body, ve.graphs contains only the function's
   // internal nodes — serialising it would overwrite the pipeline content in
   // the text editor.  Changes are flushed when the editor is saved/closed.
   if (ve.fnEditor.active) return;
+
+  // Keep route leg chips in sync with their node's rule list.
+  // If any legs were added/removed, re-render so the layout runs immediately
+  // (new legs start with x:null and need initLayout to position them).
+  let legsChanged = false;
+  for (const g of ve.graphs) {
+    for (const n of g.nodes) {
+      if (n.plugin === 'route') legsChanged = syncRouteLegs(n, g) || legsChanged;
+    }
+  }
+  if (legsChanged) {
+    veRender();
+    // Also sync the text editor after the new layout.
+    const textEl = document.getElementById('config-editor');
+    if (textEl) { textEl.value = dagToStarlark(); syncHighlight(); }
+    return;
+  }
+
   const el = document.getElementById('config-editor');
   if (!el) return;
   el.value = dagToStarlark();
