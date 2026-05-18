@@ -25,8 +25,11 @@ var (
 	reEpisode = regexp.MustCompile(`(?i)\bS\d+E\d+\b`)
 
 	// Tokens that commonly appear right after the year in scene release names.
+	// The leading character class includes ')' so that years in parentheses
+	// like "(2026)" are handled correctly — the closing paren is skipped before
+	// looking for the quality token that follows.
 	reQualityStart = regexp.MustCompile(
-		`(?i)^[.\s_\-]*(4k|2160p|1080p|720p|576p|480p|` +
+		`(?i)^[.\s_\-\)]*(4k|2160p|1080p|720p|576p|480p|` +
 			`blu[\-\s]?ray|bdrip|bdremux|bd(?:25|50|100)|web[\-\s]?dl|webrip|hdtv|dvdrip|tvrip|remux|` +
 			`x265|h\.?265|hevc|x264|h\.?264|xvid|divx|av1|mvc|` +
 			`bd3d|full[\-]?sbs|full[\-]?ou|fsbs|f[\-]sbs|fou|f[\-]ou|half[\-]?sbs|half[\-]?ou|hsbs|h[\-]sbs|hou|h[\-]ou|sbs|ou|3d[\-]?conv|3d|` +
@@ -110,11 +113,13 @@ func Parse(title string) (*Movie, bool) {
 			break
 		}
 	}
-	// Fall back to the last year occurrence.
+	// Fall back to the first year occurrence. Movie years always appear
+	// directly after the title; using the last year would pick up a trailing
+	// original-release year on re-encodes like "Title (2026) ... (1999)".
 	if yearIdx == -1 {
-		last := idxs[len(idxs)-1]
-		yearIdx = last[0]
-		yearVal, _ = strconv.Atoi(title[last[0]:last[1]])
+		first := idxs[0]
+		yearIdx = first[0]
+		yearVal, _ = strconv.Atoi(title[first[0]:first[1]])
 	}
 
 	m.Year = yearVal
