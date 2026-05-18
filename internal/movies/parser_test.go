@@ -25,6 +25,11 @@ func TestParse(t *testing.T) {
 		{"Everything.Everywhere.All.At.Once.BD50.MVC", "Everything Everywhere All At Once", 0, true},
 		{"The Secret Life of Pets (2015) BD3D 1080p Bluray Complete ISO by devil666", "The Secret Life Of Pets", 2015, true},
 		{"The.Lion.King.2019.3DCONV.1080p.BluRay", "The Lion King", 2019, true},
+		// Re-encode with two years: release year (2026) then original year (1999).
+		// The first year after the title is the correct one to use as the
+		// year anchor; the trailing original year must not override it.
+		{"The Mummy (2026) [1080p] [WEBRip] [5.1] [YTS.BZ] (1999)", "The Mummy", 2026, true},
+		{"The Mummy (2026) 1080p WEBRip x265 10bit 5.1-LAMA (1999)", "The Mummy", 2026, true},
 	}
 
 	for _, tt := range tests {
