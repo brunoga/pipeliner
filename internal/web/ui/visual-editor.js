@@ -62,21 +62,38 @@ function nodeBottomY(nodeId, nodeY) {
 // ── shared edge geometry helpers ─────────────────────────────────────────────
 
 // edgePath returns a cubic bezier SVG path string between two points.
-// dir='h'    horizontal (left-to-right, normal upstream connections)
-// dir='v'    vertical downward (search/list/route-leg connections)
-// dir='v-up' vertical upward  (list cursor — dragging upward to a list source)
-function edgePath(x1, y1, x2, y2, dir = 'h') {
-  if (dir === 'v') {
-    const dy = Math.max(50, Math.abs(y2 - y1) * 0.5);
-    return `M${x1},${y1} C${x1},${y1+dy} ${x2},${y2-dy} ${x2},${y2}`;
-  }
-  if (dir === 'v-up') {
-    const dy = Math.max(40, Math.abs(y1 - y2) * 0.4);
-    return `M${x1},${y1} C${x1},${y1-dy} ${x2},${y2+dy} ${x2},${y2}`;
-  }
-  // 'h' — horizontal
+// exitDir  — direction the curve leaves the source port:
+//   'right' (default) left-to-right side port
+//   'down'  bottom port (route legs, search-port, list-node)
+//   'up'    top port (list cursor dragging upward)
+// entryDir — direction the curve arrives at the target port:
+//   'left'  (default) left-side input
+//   'top'   top input (search/list target ports)
+//   'bottom' bottom (list cursor target)
+// Shorthand aliases: 'h' = right+left, 'v' = down+top, 'v-up' = up+bottom
+function edgePath(x1, y1, x2, y2, exitDir = 'right', entryDir) {
+  // Resolve shorthand aliases.
+  if (exitDir === 'h')    { exitDir = 'right'; entryDir = entryDir ?? 'left'; }
+  else if (exitDir === 'v')    { exitDir = 'down';  entryDir = entryDir ?? 'top';  }
+  else if (exitDir === 'v-up') { exitDir = 'up';    entryDir = entryDir ?? 'bottom'; }
+  else { entryDir = entryDir ?? 'left'; }
+
   const dx = Math.max(60, Math.abs(x2 - x1) * 0.5);
-  return `M${x1},${y1} C${x1+dx},${y1} ${x2-dx},${y2} ${x2},${y2}`;
+  const dy = Math.max(50, Math.abs(y2 - y1) * 0.5);
+
+  let cp1x, cp1y;
+  if (exitDir === 'right') { cp1x = x1 + dx; cp1y = y1; }
+  else if (exitDir === 'down') { cp1x = x1; cp1y = y1 + dy; }
+  else if (exitDir === 'up')   { cp1x = x1; cp1y = y1 - Math.max(40, Math.abs(y1 - y2) * 0.4); }
+  else                         { cp1x = x1 - dx; cp1y = y1; } // 'left'
+
+  let cp2x, cp2y;
+  if (entryDir === 'left')   { cp2x = x2 - dx; cp2y = y2; }
+  else if (entryDir === 'top')    { cp2x = x2; cp2y = y2 - dy; }
+  else if (entryDir === 'bottom') { cp2x = x2; cp2y = y2 + Math.max(40, Math.abs(y1 - y2) * 0.4); }
+  else                            { cp2x = x2 + dx; cp2y = y2; } // 'right'
+
+  return `M${x1},${y1} C${cp1x},${cp1y} ${cp2x},${cp2y} ${x2},${y2}`;
 }
 
 // toCanvasCoords converts a pointer event's client coordinates to canvas-space.
@@ -946,7 +963,11 @@ function renderEdges() {
         const x2 = (n.x ?? 0);
         const y2 = nodeMidY(n.id, n.y);
         const sel = n.id === ve.selectedNodeId || up.id === ve.selectedNodeId;
-        const d   = edgePath(x1, y1, x2, y2, up.isRouteLeg ? 'v' : 'h');
+        // Route leg ports are at the bottom (exit down) but processors accept
+        // connections on their left side (entry left).
+        const d   = up.isRouteLeg
+          ? edgePath(x1, y1, x2, y2, 'down', 'left')
+          : edgePath(x1, y1, x2, y2, 'h');
         // Use a distinct style for sink→sink chain edges.
         const upRole  = pluginMeta(up.plugin)?.role;
         const nRole   = pluginMeta(n.plugin)?.role;
@@ -978,8 +999,11 @@ function renderEdges() {
     }
     if (x1 !== undefined) {
       const x2 = ve_connecting.curX, y2 = ve_connecting.curY;
-      const dir = ve_connecting.anchorX !== undefined ? 'v' : 'h';
-      vis += `<path d="${edgePath(x1, y1, x2, y2, dir)}" class="ve-edge connecting"/>`;
+      // Route leg anchor exits downward, target processors accept from the left.
+      const d = ve_connecting.anchorX !== undefined
+        ? edgePath(x1, y1, x2, y2, 'down', 'left')
+        : edgePath(x1, y1, x2, y2, 'h');
+      vis += `<path d="${d}" class="ve-edge connecting"/>`;
     }
   }
 
