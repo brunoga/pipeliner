@@ -59,6 +59,10 @@ const (
 	FieldSeriesRepack             = "series_repack"
 	FieldSeriesDoubleEpisode      = "series_double_episode"
 
+	// RouteLeg is set by the route processor on matched entries to identify
+	// which named leg they matched. Used by route_selector nodes downstream.
+	FieldRouteLeg = "_route_leg"
+
 	// TorrentInfo — torrent_ prefix.
 	FieldTorrentInfoHash     = "torrent_info_hash"
 	FieldTorrentFileSize     = "torrent_file_size"

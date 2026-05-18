@@ -77,25 +77,41 @@ func Validate(g *Graph, reg func(name string) (*plugin.Descriptor, bool)) (errs,
 				reach = copySet(reachable[upID])
 				cert = copySet(certain[upID])
 			default:
-				// Merge (N>1 upstreams): union for reachable, intersection for certain.
+				// Merge (N>1 upstreams): union for reachable always.
+				// For certain: use union when all upstreams belong to the same
+				// route group (mutually exclusive legs), intersection otherwise.
 				reach = make(map[string]bool)
-				cert = nil
-				for i, upID := range n.Upstreams {
+				for _, upID := range n.Upstreams {
 					for f := range reachable[upID] {
 						reach[f] = true
 					}
-					if i == 0 {
-						cert = copySet(certain[upID])
-					} else {
-						for f := range cert {
-							if !certain[upID][f] {
-								delete(cert, f)
+				}
+				if routeGroup := sharedRouteGroup(n.Upstreams, g, reg); routeGroup != "" {
+					// All upstreams are legs of the same route — every entry
+					// arrives from exactly one leg, so the union of certain
+					// fields is still guaranteed for that entry.
+					cert = make(map[string]bool)
+					for _, upID := range n.Upstreams {
+						for f := range certain[upID] {
+							cert[f] = true
+						}
+					}
+				} else {
+					cert = nil
+					for i, upID := range n.Upstreams {
+						if i == 0 {
+							cert = copySet(certain[upID])
+						} else {
+							for f := range cert {
+								if !certain[upID][f] {
+									delete(cert, f)
+								}
 							}
 						}
 					}
-				}
-				if cert == nil {
-					cert = make(map[string]bool)
+					if cert == nil {
+						cert = make(map[string]bool)
+					}
 				}
 			}
 
@@ -157,6 +173,48 @@ func Validate(g *Graph, reg func(name string) (*plugin.Descriptor, bool)) (errs,
 	}
 
 	return errs, warnings
+}
+
+// sharedRouteGroup returns the route group ID if all upstreams (transitively
+// through single-upstream chains) are route_selector nodes from the same
+// group, indicating the branches are mutually exclusive. Returns "" otherwise.
+func sharedRouteGroup(upstreams []NodeID, g *Graph, reg func(string) (*plugin.Descriptor, bool)) string {
+	if len(upstreams) < 2 {
+		return ""
+	}
+	var group string
+	for _, upID := range upstreams {
+		g2 := routeGroupOf(upID, g, reg)
+		if g2 == "" {
+			return ""
+		}
+		if group == "" {
+			group = g2
+		} else if group != g2 {
+			return ""
+		}
+	}
+	return group
+}
+
+// routeGroupOf returns the _route_group for nodeID if it is a route_selector
+// or inherits one through a single-upstream chain.
+func routeGroupOf(id NodeID, g *Graph, reg func(string) (*plugin.Descriptor, bool)) string {
+	n := g.Node(id)
+	if n == nil {
+		return ""
+	}
+	// Direct route_selector.
+	if n.PluginName == "route_selector" {
+		if rg, _ := n.Config["_route_group"].(string); rg != "" {
+			return rg
+		}
+	}
+	// Propagate through single-upstream chains.
+	if len(n.Upstreams) == 1 {
+		return routeGroupOf(n.Upstreams[0], g, reg)
+	}
+	return ""
 }
 
 func copySet(s map[string]bool) map[string]bool {
