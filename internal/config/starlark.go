@@ -101,6 +101,7 @@ func (ctx *execContext) predeclared() starlark.StringDict {
 		"merge":    starlark.NewBuiltin("merge", ctx.mergeBuiltin),
 		"output":   starlark.NewBuiltin("output", ctx.outputBuiltin),
 		"pipeline": starlark.NewBuiltin("pipeline", ctx.pipelineBuiltin),
+		"route":    starlark.NewBuiltin("route", ctx.routeBuiltin),
 		"env":      starlark.NewBuiltin("env", envBuiltin),
 	}
 }
