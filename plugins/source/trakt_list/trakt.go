@@ -37,7 +37,7 @@ func init() {
 		// title is set on e.Title (struct field) via entry.New, not in Fields.
 		// trakt_slug is used for the entry URL but not set as a field.
 		MayProduce: []string{
-			"trakt_year",
+			entry.FieldVideoYear,
 			"trakt_id",
 			"trakt_imdb_id",
 			"trakt_tmdb_id",
@@ -148,7 +148,7 @@ func (p *traktSourcePlugin) Generate(ctx context.Context, tc *plugin.TaskContext
 		url := fmt.Sprintf("https://trakt.tv/%s/%s", p.itemType, item.IDs.Slug)
 		e := entry.New(item.Title, url)
 		if item.Year > 0 {
-			e.Set("trakt_year", item.Year)
+			e.Set(entry.FieldVideoYear, item.Year)
 		}
 		if item.IDs.Trakt != 0 {
 			e.Set("trakt_id", item.IDs.Trakt)

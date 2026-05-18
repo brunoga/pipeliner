@@ -546,7 +546,6 @@ pipeline("split-pipeline")</code></pre>
   <tr><td><code>tmdb_id</code></td><td>metainfo_tmdb</td><td>TMDb movie/series ID</td></tr>
   <tr><td><code>trakt_id</code></td><td>metainfo_trakt, trakt_list</td><td>Trakt internal ID</td></tr>
   <tr><td><code>trakt_slug</code></td><td>metainfo_trakt, trakt_list</td><td>Trakt URL slug</td></tr>
-  <tr><td><code>trakt_year</code></td><td>trakt_list</td><td>Release year from Trakt (used by metainfo_tmdb to resolve the correct film when the title is ambiguous)</td></tr>
   <tr><td><code>trakt_imdb_id</code></td><td>trakt_list</td><td>IMDb ID from Trakt</td></tr>
   <tr><td><code>trakt_tmdb_id</code></td><td>metainfo_trakt, trakt_list</td><td>TMDb ID from Trakt — when present, metainfo_tmdb fetches by ID directly instead of searching</td></tr>
   <tr><td><code>trakt_tvdb_id</code></td><td>metainfo_trakt</td><td>TVDB ID from Trakt</td></tr>
@@ -577,7 +576,7 @@ pipeline("split-pipeline")</code></pre>
   <tr><td><code>series_repack</code></td><td>series, metainfo_series</td><td><code>true</code> when REPACK marker is detected</td></tr>
   <tr><td><code>series_service</code></td><td>series, metainfo_series</td><td>Streaming service tag (e.g. <code>AMZN</code>, <code>NF</code>)</td></tr>
   <tr><td><code>series_container</code></td><td>series, metainfo_series</td><td>Container format tag (e.g. <code>mkv</code>)</td></tr>
-  <tr><td><code>video_year</code></td><td>movies, metainfo_tvdb, metainfo_tmdb</td><td>Release or first-air year</td></tr>
+  <tr><td><code>video_year</code></td><td>trakt_list, movies, metainfo_tvdb, metainfo_tmdb</td><td>Release or first-air year. Also set by <code>trakt_list</code> from the Trakt API so year-aware matching works before any enrichment step.</td></tr>
   <tr><td><code>video_is_3d</code></td><td>movies</td><td><code>true</code> when any 3D format marker is detected (3D, SBS, HOU, BD3D, etc.)</td></tr>
   <tr><td><code>video_quality</code></td><td>movies</td><td>Parsed quality string from movie title, including 3D format when present (e.g. <code>BD3D 1080p BluRay</code>)</td></tr>
   <tr><td><code>video_language</code></td><td>metainfo_tvdb, metainfo_tmdb</td><td>Original language display name (e.g. <code>English</code>)</td></tr>
