@@ -493,6 +493,9 @@ func (s *Server) apiPlugins(w http.ResponseWriter, _ *http.Request) {
 	descs := plugin.All()
 	out := make([]pluginResp, 0, len(descs))
 	for _, d := range descs {
+		if d.Internal {
+			continue
+		}
 		fields := make([]fieldResp, 0, len(d.Schema))
 		for _, f := range d.Schema {
 			fields = append(fields, fieldResp{
