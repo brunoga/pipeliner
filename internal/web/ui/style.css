@@ -935,6 +935,10 @@ section { margin-bottom: 32px; }
 /* sink chain port: amber colour, shown on hover like regular ports */
 .ve-node[data-role="sink"] .ve-node-out-port.ve-node-chain-port { border-color:var(--ve-chain); }
 .ve-node[data-role="sink"] .ve-node-out-port.ve-node-chain-port:hover { background:rgba(227,179,65,.15); }
+/* Route leg out-port: orange to match the leg badge colour */
+.ve-node-route-leg .ve-node-out-port.ve-node-route-out-port { border-color:var(--ve-route); opacity:0.85; }
+.ve-node-route-leg:hover .ve-node-out-port.ve-node-route-out-port { opacity:1; }
+.ve-node-route-leg .ve-node-out-port.ve-node-route-out-port:hover { background:rgba(194,130,10,.2); }
 /* sink→sink chain edge: amber dashed stroke */
 .ve-chain-edge { fill:none; stroke:var(--ve-chain); stroke-width:1.5; stroke-dasharray:6,3; pointer-events:none; }
 .ve-chain-edge.selected { stroke:#f0d070; stroke-width:2; }

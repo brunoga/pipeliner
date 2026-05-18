@@ -490,9 +490,10 @@ function renderGraphNodes() {
         '</div>',
         `<button class="ve-node-remove" tabindex="-1" title="Remove">×</button>`,
         `<button class="ve-node-comment-btn${commentBtnCls}" tabindex="-1" title="Edit comment">#</button>`,
-        // Output port: not shown on sub-nodes. Sinks show a chain port so they
-        // can connect to downstream sinks (sink chaining).
-        (!isSearch && !isList) ? `<div class="ve-node-out-port${role === 'sink' ? ' ve-node-chain-port' : ''}" title="${role === 'sink' ? 'Drag to chain to another output node' : 'Drag to connect'}"></div>` : '',
+        // Output port: not shown on search/list sub-nodes. Route legs DO show
+        // one — they are upstream sources for downstream processors.
+        // Sinks show a chain port so they can connect to downstream sinks.
+        (!isSearch && !isList) ? `<div class="ve-node-out-port${isRouteLeg ? ' ve-node-route-out-port' : role === 'sink' ? ' ve-node-chain-port' : ''}" title="${isRouteLeg ? `Drag to connect a node to the "${n.routeLegName}" leg` : role === 'sink' ? 'Drag to chain to another output node' : 'Drag to connect'}"></div>` : '',
         // Input port indicator: shown on valid drop-targets while dragging an output port.
         (role !== 'source' && !isSearch && !isList) ? '<div class="ve-node-in-port"></div>' : '',
       ].join('');
@@ -2591,7 +2592,7 @@ function copySelected() {
     : ve.selectedNodeId ? [ve.selectedNodeId] : [];
   if (!ids.length) return;
 
-  const nodes = ids.map(findNode).filter(n => n && !n.isSearchNode && !n.isListNode && !n.isRouteLeg);
+  const nodes = ids.map(findNode).filter(n => n && !n.isSearchNode && !n.isListNode);
   if (!nodes.length) return;
 
   // Store positions relative to the group centroid so paste can reconstruct layout.
