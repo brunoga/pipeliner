@@ -52,6 +52,7 @@ func init() {
 		Description: "internal: passes only entries whose _route_leg matches the configured leg name",
 		Role:        plugin.RoleProcessor,
 		Requires:    plugin.RequireAll(entry.FieldRouteLeg),
+		Internal:    true,
 		Factory:     newSelectorPlugin,
 		Validate: func(cfg map[string]any) []error {
 			return plugin.OptUnknownKeys(cfg, "route_selector", "_route_leg_name", RouteGroupKey)
