@@ -56,6 +56,11 @@ type Descriptor struct {
 	// IsListPlugin marks source plugins whose entry titles can be used as a
 	// name list by AcceptsList plugins (e.g. tvdb_favorites, trakt_list).
 	IsListPlugin bool
+	// Internal marks plugins that are implementation details of a builtin
+	// (e.g. route_selector created by the route() Starlark builtin). Internal
+	// plugins are registered so the executor can instantiate them but are hidden
+	// from the visual editor palette and cannot be used directly in config.
+	Internal bool
 }
 
 // EffectiveRole returns the plugin's Role.
