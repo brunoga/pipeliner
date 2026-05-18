@@ -555,3 +555,51 @@ pipeline("multi-step-mini")
 		t.Errorf("steps: want [rss, seen], got [%s, %s]", np.Steps[0].PluginName, np.Steps[1].PluginName)
 	}
 }
+
+func TestDAG_RouteBuiltin(t *testing.T) {
+	// route() with two legs: entries are routed to series or movies selectors.
+	// The two selector legs plus their enrichment paths merge back at the output.
+	// Because all upstreams share the same route group, the validator must not
+	// emit merge-gap warnings for branch-specific fields.
+	c := parseDAGOK(t, `
+src    = input("rss", url="https://example.com/rss")
+routes = route(src,
+    series = "series_episode_id != ''",
+    movies = "series_episode_id == ''")
+series_path = process("seen", upstream=routes.series)
+movies_path = process("seen", upstream=routes.movies)
+output("print", upstream=merge(series_path, movies_path))
+pipeline("branched")
+`)
+	g := c.Graphs["branched"]
+	if g == nil {
+		t.Fatal("graph 'branched' not found")
+	}
+
+	// Expect: rss, route, route_selector×2, seen×2, print = 7 nodes
+	if g.Len() != 7 {
+		t.Errorf("want 7 nodes, got %d", g.Len())
+	}
+
+	// Both selectors must carry the same _route_group.
+	var groups []string
+	for _, n := range g.Nodes() {
+		if n.PluginName == "route_selector" {
+			if rg, _ := n.Config["_route_group"].(string); rg != "" {
+				groups = append(groups, rg)
+			}
+		}
+	}
+	if len(groups) != 2 {
+		t.Fatalf("want 2 route_selector nodes with _route_group, got %v", groups)
+	}
+	if groups[0] != groups[1] {
+		t.Errorf("selectors must share the same route group: %v", groups)
+	}
+
+	// Validation must pass without errors (route merge is mutually exclusive).
+	errs, _ := Validate(c)
+	if len(errs) != 0 {
+		t.Errorf("unexpected validation errors: %v", errs)
+	}
+}

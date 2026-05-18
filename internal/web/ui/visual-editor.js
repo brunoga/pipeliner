@@ -449,21 +449,24 @@ function renderGraphNodes() {
       const sel     = n.id === ve.selectedNodeId;
       const warns   = fieldWarnings(n);
       const preview = configPreview(n.config);
-      const isSearch = !!n.isSearchNode;
-      const isList   = !!n.isListNode;
-      const isFn     = !!n.isFunctionCall;
+      const isSearch   = !!n.isSearchNode;
+      const isList     = !!n.isListNode;
+      const isFn       = !!n.isFunctionCall;
+      const isRouteLeg = !!n.isRouteLeg;
       // Sub-connected nodes show a badge in place of the role badge.
-      const badgeHtml = isSearch ? '<span class="ve-node-search-badge">search</span>'
-                      : isList   ? '<span class="ve-node-list-badge">list</span>'
-                      : isFn     ? `<span class="ve-node-role-badge ve-role-${role}">${role}</span><span class="ve-node-fn-badge">fn</span>`
+      const badgeHtml = isSearch   ? '<span class="ve-node-search-badge">search</span>'
+                      : isList     ? '<span class="ve-node-list-badge">list</span>'
+                      : isRouteLeg ? `<span class="ve-node-route-badge">${esc(n.routeLegName || 'leg')}</span>`
+                      : isFn       ? `<span class="ve-node-role-badge ve-role-${role}">${role}</span><span class="ve-node-fn-badge">fn</span>`
                       : `<span class="ve-node-role-badge ve-role-${role}">${role}</span>`;
 
-      // Sub-nodes (search/list) are multi-selected when their parent is selected.
+      // Sub-nodes (search/list/route-leg) are multi-selected when their parent is selected.
       const multiSel = ve.selectedNodeIds.has(n.id) ||
-        (isSearch && n.searchParentId && ve.selectedNodeIds.has(n.searchParentId)) ||
-        (isList   && n.listParentId   && ve.selectedNodeIds.has(n.listParentId));
+        (isSearch   && n.searchParentId && ve.selectedNodeIds.has(n.searchParentId)) ||
+        (isList     && n.listParentId   && ve.selectedNodeIds.has(n.listParentId))   ||
+        (isRouteLeg && n.routeParentId  && ve.selectedNodeIds.has(n.routeParentId));
       const div = document.createElement('div');
-      div.className = `ve-node${sel ? ' selected' : ''}${multiSel ? ' multi-selected' : ''}${isSearch ? ' ve-node-search' : ''}${isList ? ' ve-node-list' : ''}${isFn ? ' ve-node-fn' : ''}`;
+      div.className = `ve-node${sel ? ' selected' : ''}${multiSel ? ' multi-selected' : ''}${isSearch ? ' ve-node-search' : ''}${isList ? ' ve-node-list' : ''}${isRouteLeg ? ' ve-node-route-leg' : ''}${isFn ? ' ve-node-fn' : ''}`;
       div.dataset.role       = role;
       div.dataset.id         = n.id;
       div.dataset.isSearch   = nodeIsSearchPlugin(n) ? 'true' : 'false';
@@ -923,6 +926,25 @@ function renderEdges() {
     }
   }
 
+  // Route-leg edges: orange dashed lines flowing downward FROM the route node's
+  // bottom TO each route_selector (leg) node's top.
+  for (const g of ve.graphs) {
+    for (const n of g.nodes) {
+      for (const legId of (n.legNodeIds || [])) {
+        const leg = g.nodes.find(x => x.id === legId);
+        if (!leg) continue;
+        const x1 = (n.x   ?? 0) + NODE_W / 2;
+        const y1 = nodeBottomY(n.id, n.y);
+        const x2 = (leg.x ?? 0) + NODE_W / 2;
+        const y2 = (leg.y ?? 0);
+        const dy  = Math.max(40, Math.abs(y2 - y1) * 0.4);
+        const sel  = ve.selectedNodeId === n.id || ve.selectedNodeId === legId;
+        vis += `<path d="M${x1},${y1} C${x1},${y1+dy} ${x2},${y2-dy} ${x2},${y2}"` +
+               ` class="ve-route-edge${sel ? ' selected' : ''}"/>`;
+      }
+    }
+  }
+
   // Live cursor line while dragging from a list-port.
   // Drawn FROM the list-port (top of parent) UPWARD TO the cursor — same
   // convention as startConnect/startSearchConnect so the fixed anchor is obvious.
@@ -1018,7 +1040,7 @@ function layoutGraph(g, globalY) {
   }
 
   g._labelY = globalY;
-  const isSub = n => n.isSearchNode || n.isListNode;
+  const isSub = n => n.isSearchNode || n.isListNode || n.isRouteLeg;
   // Extra padding above main nodes so list-connected sub-nodes have room to sit
   // above their parent without overlapping the pipeline label area.
   const listPad = g.nodes.some(n => !isSub(n) && n.listNodeIds?.length)
@@ -1122,6 +1144,22 @@ function layoutGraph(g, globalY) {
     });
   }
 
+  // Position route-leg nodes in a row below their route parent.
+  for (const n of g.nodes) {
+    if (!n.legNodeIds?.length) continue;
+    const LEG_GAP = 18;
+    const totalW  = n.legNodeIds.length * NODE_W + (n.legNodeIds.length - 1) * LEG_GAP;
+    const startLX = (n.x ?? 0) + NODE_W / 2 - totalW / 2;
+    n.legNodeIds.forEach((id, i) => {
+      const leg = g.nodes.find(x => x.id === id);
+      if (leg && (leg.x == null || leg.y == null)) {
+        leg.x = Math.max(0, startLX + i * (NODE_W + LEG_GAP));
+        leg.y = (n.y ?? 0) + NODE_H + 50;
+        maxY = Math.max(maxY, leg.y + NODE_H + 20);
+      }
+    });
+  }
+
   g._regionY = g._labelY - 8;
   g._regionH = maxY - g._regionY + 16;
   return maxY + PIPELINE_GAP;
@@ -1141,7 +1179,7 @@ function initLayout() {
   let globalY = 40;
 
   for (const g of ve.graphs) {
-    const mainNodes = g.nodes.filter(n => !n.isSearchNode && !n.isListNode);
+    const mainNodes = g.nodes.filter(n => !n.isSearchNode && !n.isListNode && !n.isRouteLeg);
     const withPos   = mainNodes.filter(n => n.x != null && n.y != null);
 
     if (!withPos.length) {
@@ -1168,7 +1206,7 @@ function initLayout() {
 
     // Convert relative-y to absolute-y for sub-nodes with stored positions.
     for (const n of g.nodes) {
-      if ((n.isSearchNode || n.isListNode) && n.x != null && n.y != null) {
+      if ((n.isSearchNode || n.isListNode || n.isRouteLeg) && n.x != null && n.y != null) {
         n.y = g._regionY + n.y;
       }
     }
@@ -1942,13 +1980,19 @@ function renderParamPanel() {
   const meta = pluginMeta(node.plugin) || {role: 'processor', schema: [], produces: [], may_produce: [], requires: []};
   empty.style.display = 'none'; title.style.display = '';
   nameEl.textContent = node.plugin;
-  roleEl.textContent = node.isSearchNode ? 'search' : node.isListNode ? 'list' : meta.role;
+  roleEl.textContent = node.isSearchNode ? 'search' : node.isListNode ? 'list' : node.isRouteLeg ? `leg: ${node.routeLegName}` : meta.role;
 
   if (node.isSearchNode && node.searchParentId) {
     const parentName = findNode(node.searchParentId)?.plugin ?? node.searchParentId;
     footer.innerHTML = [
       `<div style="font-size:11px;color:var(--muted);margin-bottom:6px">Search backend for <b>${esc(parentName)}</b></div>`,
       `<button class="ve-remove-btn" onclick="disconnectSearch(${esc(JSON.stringify(node.searchParentId))},${esc(JSON.stringify(node.id))})">Disconnect from search</button>`,
+    ].join('');
+  } else if (node.isRouteLeg && node.routeParentId) {
+    const parentName = findNode(node.routeParentId)?.plugin ?? node.routeParentId;
+    footer.innerHTML = [
+      `<div style="font-size:11px;color:var(--muted);margin-bottom:6px">Leg <b>${esc(node.routeLegName)}</b> of route node <b>${esc(parentName)}</b></div>`,
+      `<div style="font-size:11px;color:var(--muted)">Connect downstream nodes to this leg's output port.</div>`,
     ].join('');
   } else if (node.isListNode && node.listParentId) {
     const parentName = findNode(node.listParentId)?.plugin ?? node.listParentId;
@@ -2547,7 +2591,7 @@ function copySelected() {
     : ve.selectedNodeId ? [ve.selectedNodeId] : [];
   if (!ids.length) return;
 
-  const nodes = ids.map(findNode).filter(n => n && !n.isSearchNode && !n.isListNode);
+  const nodes = ids.map(findNode).filter(n => n && !n.isSearchNode && !n.isListNode && !n.isRouteLeg);
   if (!nodes.length) return;
 
   // Store positions relative to the group centroid so paste can reconstruct layout.
@@ -3851,7 +3895,7 @@ function dagToStarlark() {
   for (const g of graphs) {
     const lines = [];
     // Sort so every upstream variable is assigned before it is referenced.
-    const ordered = topoSortNodes(g.nodes.filter(n => !n.isSearchNode && !n.isListNode));
+    const ordered = topoSortNodes(g.nodes.filter(n => !n.isSearchNode && !n.isListNode && !n.isRouteLeg));
     for (const n of ordered) {
       const meta     = pluginMeta(n.plugin);
       const role     = meta?.role || 'processor';
@@ -3908,7 +3952,15 @@ function dagToStarlark() {
         });
       }
 
-      if (n.isFunctionCall || ve.userFunctions[n.plugin]) {
+      if (n.plugin === 'route') {
+        // route(upstream, leg1="cond1", leg2="cond2", ...)
+        const rules = n.config?.rules || [];
+        const legParts = rules
+          .filter(r => r.name && r.accept)
+          .map(r => `${r.name}=${starLit(r.accept)}`);
+        const parts = fromStr ? [fromStr, ...legParts] : legParts;
+        lines.push(`${n.id} = route(${parts.join(', ')})`);
+      } else if (n.isFunctionCall || ve.userFunctions[n.plugin]) {
         // Serialize as a user function call: varname = funcname(upstream=..., kwargs).
         // The second condition handles nodes whose plugin is a user function but
         // isFunctionCall was not set (e.g. loaded from a previously broken config).
@@ -3991,7 +4043,14 @@ function viaNodeToStar(node, nodeLookup) {
 
 function upstreamsStr(ups) {
   if (!ups?.length) return '';
-  return ups.length === 1 ? ups[0] : `merge(${ups.join(', ')})`;
+  const resolved = ups.map(id => {
+    const n = findNode(id);
+    // Route-selector nodes are not assigned a variable — reference via the
+    // parent route node's handles object: routeNodeId.legName
+    if (n?.isRouteLeg) return `${n.routeParentId}.${n.routeLegName}`;
+    return id;
+  });
+  return resolved.length === 1 ? resolved[0] : `merge(${resolved.join(', ')})`;
 }
 
 function configToKwargs(cfg) {
@@ -4166,6 +4225,32 @@ async function textToVisualSync() {
               x: l.x ?? null, y: l.y ?? null,
             });
           }
+        }
+      }
+
+      // Pass 2b: wire route_selector nodes as leg sub-nodes on their route parent.
+      for (const raw of rawNodes) {
+        if (!raw.is_route_leg) continue;
+        const parentIdx = nodes.findIndex(n => n.id === raw.route_parent_id);
+        if (parentIdx < 0) continue;
+        if (!nodes[parentIdx].legNodeIds) nodes[parentIdx].legNodeIds = [];
+        const existing = nodes.find(n => n.id === raw.id);
+        if (existing) {
+          // Already added as a regular node — convert it in place.
+          existing.isRouteLeg   = true;
+          existing.routeParentId = raw.route_parent_id;
+          existing.routeLegName  = raw.route_leg_name;
+          nodes[parentIdx].legNodeIds.push(raw.id);
+        } else {
+          nodes[parentIdx].legNodeIds.push(raw.id);
+          nodes.push({
+            id: raw.id, plugin: raw.plugin, config: raw.config || {},
+            upstreams: raw.upstreams || [],
+            searchNodeIds: [], listNodeIds: [], legNodeIds: [], comment: '',
+            isRouteLeg: true, routeParentId: raw.route_parent_id,
+            routeLegName: raw.route_leg_name,
+            x: raw.x ?? null, y: raw.y ?? null,
+          });
         }
       }
 

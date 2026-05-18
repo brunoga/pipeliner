@@ -14,12 +14,14 @@ package config
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"go.starlark.net/starlark"
 
 	"github.com/brunoga/pipeliner/internal/dag"
 	"github.com/brunoga/pipeliner/internal/plugin"
+	filterroute "github.com/brunoga/pipeliner/plugins/processor/filter/route"
 )
 
 // activeFunctionCall returns the call key for the innermost user function on
@@ -389,4 +391,101 @@ func kwargsToConfig(pluginName string, kwargs []starlark.Tuple) (map[string]any,
 		cfg[k] = v
 	}
 	return cfg, nil
+}
+
+// ── route() builtin ───────────────────────────────────────────────────────────
+
+// routeHandles is the Starlark value returned by route(). It supports
+// attribute access so users can write routes.series, routes.movies, etc.
+type routeHandles struct {
+	legs     map[string]*nodeHandle
+	legOrder []string // preserve kwargs order for determinism
+}
+
+func (r *routeHandles) String() string        { return fmt.Sprintf("route(%s)", strings.Join(r.legOrder, ", ")) }
+func (r *routeHandles) Type() string          { return "route_handles" }
+func (r *routeHandles) Freeze()               {}
+func (r *routeHandles) Truth() starlark.Bool  { return starlark.True }
+func (r *routeHandles) Hash() (uint32, error) { return 0, fmt.Errorf("unhashable type: route_handles") }
+
+func (r *routeHandles) Attr(name string) (starlark.Value, error) {
+	if h, ok := r.legs[name]; ok {
+		return h, nil
+	}
+	return nil, nil // nil,nil = attribute not found
+}
+
+func (r *routeHandles) AttrNames() []string {
+	names := make([]string, len(r.legOrder))
+	copy(names, r.legOrder)
+	sort.Strings(names)
+	return names
+}
+
+// routeBuiltin implements route(upstream, leg1="cond1", leg2="cond2", ...).
+//
+// Creates:
+//   - one "route" processor node that evaluates all conditions
+//   - one "route_selector" node per leg, downstream of the route node
+//
+// All nodes share a _route_group tag so the validator can detect the
+// mutually-exclusive merge pattern and use union semantics for certain fields.
+//
+// Returns a routeHandles struct with attribute access (routes.leg1, etc.).
+func (ctx *execContext) routeBuiltin(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	if len(args) != 1 {
+		return nil, fmt.Errorf("route: expected exactly one positional argument (upstream node), got %d", len(args))
+	}
+	if len(kwargs) == 0 {
+		return nil, fmt.Errorf("route: at least one named leg is required (e.g. series=\"...\")")
+	}
+
+	upstreams, err := resolveFrom(args[0])
+	if err != nil {
+		return nil, fmt.Errorf("route: %w", err)
+	}
+
+	// Build ordered rules list and validate leg names.
+	var legOrder []string
+	rules := make([]any, 0, len(kwargs))
+	for _, kv := range kwargs {
+		name := string(kv[0].(starlark.String))
+		accept, ok := starlark.AsString(kv[1])
+		if !ok {
+			return nil, fmt.Errorf("route: leg %q condition must be a string, got %s", name, kv[1].Type())
+		}
+		rules = append(rules, map[string]any{"name": name, "accept": accept})
+		legOrder = append(legOrder, name)
+	}
+
+	// Generate a unique route group ID.
+	groupID := fmt.Sprintf("rg_%d", ctx.nodeCounter)
+
+	// Create the route processor node.
+	routeID := ctx.nextNodeID("route")
+	ctx.pendingNodes = append(ctx.pendingNodes, &dagNodeRecord{
+		id:              routeID,
+		pluginName:      "route",
+		config:          map[string]any{"rules": rules, filterroute.RouteGroupKey: groupID},
+		upstreams:       upstreams,
+		functionCallKey: ctx.activeFunctionCall(thread),
+	})
+
+	// Create one route_selector node per leg.
+	handles := &routeHandles{legs: make(map[string]*nodeHandle), legOrder: legOrder}
+	for _, name := range legOrder {
+		selID := ctx.nextNodeID("route_selector")
+		ctx.pendingNodes = append(ctx.pendingNodes, &dagNodeRecord{
+			id:         selID,
+			pluginName: "route_selector",
+			config: map[string]any{
+				"_route_leg_name":          name,
+				filterroute.RouteGroupKey:  groupID,
+			},
+			upstreams:       []dag.NodeID{routeID},
+			functionCallKey: ctx.activeFunctionCall(thread),
+		})
+		handles.legs[name] = &nodeHandle{id: selID}
+	}
+	return handles, nil
 }
