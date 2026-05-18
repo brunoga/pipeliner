@@ -45,7 +45,7 @@ func init() {
 			entry.FieldVideoVotes,
 			"tmdb_id",
 		},
-		// trakt_tmdb_id and trakt_year are consumed as hints when present but
+		// trakt_tmdb_id is used when present; video_year provides the year hint when present but
 		// not required; no Requires group so pipelines without trakt upstream work.
 		Factory:  newPlugin,
 		Validate: validate,
@@ -111,7 +111,7 @@ func (p *tmdbPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 
 	// Parse the release title to extract the canonical movie title and year.
 	// If parsing fails (entry has no quality markers or year suffix — e.g. a
-	// clean Trakt title like "Michael") fall back to the raw title + trakt_year
+	// clean list title like "Michael") fall back to the raw title + video_year
 	// so that list-sourced entries can still be enriched.
 	var searchTitle string
 	var searchYear int
@@ -119,8 +119,8 @@ func (p *tmdbPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 	if m, ok := imovies.Parse(e.Title); ok {
 		searchTitle = m.Title
 		searchYear = m.Year
-	} else if y, ok := e.Fields["trakt_year"].(int); ok && y > 0 {
-		// Clean Trakt title with known year — search directly.
+	} else if y := entry.ReleaseYear(e); y > 0 {
+		// Clean list title with known year (e.g. from trakt_list) — search directly.
 		searchTitle = imovies.NormalizeTitle(e.Title)
 		if searchTitle == "" {
 			searchTitle = e.Title
@@ -131,12 +131,10 @@ func (p *tmdbPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 		return nil
 	}
 
-	// When the parsed year is 0 (title has no year suffix), use trakt_year as a
+	// When the parsed year is 0 (title has no year suffix), use video_year as a
 	// hint to avoid popularity-ranked mismatches for same-name films.
 	if searchYear == 0 {
-		if y, ok := e.Fields["trakt_year"].(int); ok && y > 0 {
-			searchYear = y
-		}
+		searchYear = entry.ReleaseYear(e)
 	}
 
 	key := fmt.Sprintf("%s:%d", searchTitle, searchYear)

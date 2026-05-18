@@ -317,7 +317,7 @@ func openWithFrom(t *testing.T, mock *mockInput) *seriesPlugin {
 	}
 	return &seriesPlugin{
 		listSources: []plugin.SourcePlugin{mock},
-		listCache: cache.NewPersistent[[]string](time.Hour, db.Bucket("test")),
+		listCache: cache.NewPersistent[[]match.TitleEntry](time.Hour, db.Bucket("test")),
 		tracking:  trackingBackfill,
 		tracker:   series.NewTracker(db.Bucket("series")),
 	}
@@ -357,7 +357,7 @@ func TestFromCachesResults(t *testing.T) {
 	db, _ := store.OpenSQLite(":memory:")
 	p := &seriesPlugin{
 		listSources: []plugin.SourcePlugin{counted},
-		listCache: cache.NewPersistent[[]string](time.Hour, db.Bucket("test")),
+		listCache: cache.NewPersistent[[]match.TitleEntry](time.Hour, db.Bucket("test")),
 		tracking:  trackingBackfill,
 		tracker:   series.NewTracker(db.Bucket("series")),
 	}
@@ -376,7 +376,7 @@ func TestFromEmptyResultNotCached(t *testing.T) {
 	db, _ := store.OpenSQLite(":memory:")
 	p := &seriesPlugin{
 		listSources: []plugin.SourcePlugin{counted},
-		listCache: cache.NewPersistent[[]string](time.Hour, db.Bucket("test")),
+		listCache: cache.NewPersistent[[]match.TitleEntry](time.Hour, db.Bucket("test")),
 		tracking:  trackingBackfill,
 		tracker:   series.NewTracker(db.Bucket("series")),
 	}

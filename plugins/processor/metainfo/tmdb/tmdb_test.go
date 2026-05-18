@@ -271,7 +271,7 @@ func TestAnnotateByTraktTMDBID(t *testing.T) {
 	// Entry from trakt_list: plain title, year stored in trakt_tmdb_id.
 	e := entry.New("Michael", "https://trakt.tv/movies/michael-2026")
 	e.Set("trakt_tmdb_id", 27205)
-	e.Set("trakt_year", 2026)
+	e.Set(entry.FieldVideoYear, 2026)
 
 	if err := p.annotate(context.Background(), makeCtx(), e); err != nil {
 		t.Fatal(err)
@@ -335,7 +335,7 @@ func TestTraktYearUsedAsSearchHint(t *testing.T) {
 
 	// Plain title with no year, year provided via trakt_year only.
 	e := entry.New("Michael", "https://trakt.tv/movies/michael-2026")
-	e.Set("trakt_year", 2026)
+	e.Set(entry.FieldVideoYear, 2026)
 
 	if err := p.annotate(context.Background(), makeCtx(), e); err != nil {
 		t.Fatal(err)

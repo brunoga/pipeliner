@@ -12,6 +12,7 @@ import (
 	"github.com/brunoga/pipeliner/internal/plugin"
 	"github.com/brunoga/pipeliner/internal/store"
 	itrakt "github.com/brunoga/pipeliner/internal/trakt"
+	"github.com/brunoga/pipeliner/internal/match"
 )
 
 // --- mock server helpers ---
@@ -364,7 +365,7 @@ func TestPluginRegistered(t *testing.T) {
 	}
 }
 
-func TestYearsMatch(t *testing.T) {
+func TestYearsCompatible(t *testing.T) {
 	cases := []struct{ a, b int; want bool }{
 		{2017, 2017, true},   // exact
 		{2017, 2018, true},   // off-by-one (digital vs theatrical)
@@ -375,8 +376,8 @@ func TestYearsMatch(t *testing.T) {
 		{0,    0,    true},   // both unknown — allow
 	}
 	for _, c := range cases {
-		if got := yearsMatch(c.a, c.b); got != c.want {
-			t.Errorf("yearsMatch(%d, %d) = %v, want %v", c.a, c.b, got, c.want)
+		if got := match.YearsCompatible(c.a, c.b); got != c.want {
+			t.Errorf("match.YearsCompatible(%d, %d) = %v, want %v", c.a, c.b, got, c.want)
 		}
 	}
 }
@@ -422,7 +423,7 @@ func TestFilterYearAwareMatchSameYear(t *testing.T) {
 
 	// "mother! 2017" is on the watchlist — release with year 2017 should match.
 	e := entry.New("Mother.2017.1080p.BluRay", "http://x.com/1")
-	e.Set("trakt_year", 2017)
+	e.Set(entry.FieldVideoYear, 2017)
 	p.filter(context.Background(), tc(), e) //nolint:errcheck
 	if !e.IsAccepted() {
 		t.Error("same-year release should be accepted when title on watchlist")
@@ -446,7 +447,7 @@ func TestFilterYearAwareNoMatchDifferentYear(t *testing.T) {
 
 	// "Mother (2025)" has year 2025 — should NOT match "mother! (2017)".
 	e := entry.New("Mother.2025.1080p.WEBRip", "http://x.com/2")
-	e.Set("trakt_year", 2025)
+	e.Set(entry.FieldVideoYear, 2025)
 	p.filter(context.Background(), tc(), e) //nolint:errcheck
 	if e.IsAccepted() {
 		t.Error("different-year release should not match watchlist entry from 8 years earlier")
