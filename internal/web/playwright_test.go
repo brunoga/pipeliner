@@ -1183,9 +1183,8 @@ pipeline("branched", schedule="1h")
 
 // TestPlaywrightRouteNodeRendersLegs verifies that:
 //  1. A route() node appears on the canvas.
-//  2. Each leg (route_selector) appears as a sub-chip with an orange badge
-//     showing the leg name.
-//  3. The leg chip is styled with the route-leg CSS class.
+//  2. Named leg ports appear on the route card (one per rule).
+//  3. No standalone route_selector chip nodes are visible on the canvas.
 func TestPlaywrightRouteNodeRendersLegs(t *testing.T) {
 	ts := startTestServer(t, routeConfig)
 	browser, stop := pwSetup(t)
@@ -1205,26 +1204,25 @@ func TestPlaywrightRouteNodeRendersLegs(t *testing.T) {
 		t.Errorf("route node not visible on canvas: %v", err)
 	}
 
-	// 2. Two orange route-leg badge chips must appear (one per leg).
-	legBadges := page.Locator(`.ve-node-route-badge`)
-	count, err := legBadges.Count()
+	// 2. Named leg port circles must appear on the route card (one per rule).
+	legPorts := page.Locator(`.ve-route-leg-port`)
+	count, err := legPorts.Count()
 	if err != nil {
-		t.Fatalf("count route badges: %v", err)
+		t.Fatalf("count route leg ports: %v", err)
 	}
 	if count != 2 {
-		t.Errorf("want 2 route-leg badges (series + movies), got %d", count)
+		t.Errorf("want 2 leg port circles on route card, got %d", count)
 	}
 
-	// 3. The leg nodes carry the ve-node-route-leg CSS class.
-	if err := page.Locator(`.ve-node.ve-node-route-leg`).First().WaitFor(playwright.LocatorWaitForOptions{
-		State: playwright.WaitForSelectorStateAttached,
-	}); err != nil {
-		t.Errorf("no node with ve-node-route-leg class found: %v", err)
+	// 3. No standalone route_selector chip nodes on the canvas.
+	chips, _ := page.Locator(`.ve-node.ve-node-route-leg`).Count()
+	if chips != 0 {
+		t.Errorf("route_selector should not appear as standalone canvas nodes, got %d", chips)
 	}
 }
 
-// TestPlaywrightRouteNodeParamPanel verifies that clicking a route leg chip
-// opens the param panel and shows the leg name in the role area.
+// TestPlaywrightRouteNodeParamPanel verifies that clicking the route node
+// opens the param panel and shows the rules editor.
 func TestPlaywrightRouteNodeParamPanel(t *testing.T) {
 	ts := startTestServer(t, routeConfig)
 	browser, stop := pwSetup(t)
@@ -1237,12 +1235,12 @@ func TestPlaywrightRouteNodeParamPanel(t *testing.T) {
 	openConfigTab(t, page)
 	switchToVisual(t, page, routeConfig)
 
-	// Click the first route-leg node.
-	if err := page.Locator(`.ve-node.ve-node-route-leg`).First().Click(); err != nil {
-		t.Fatalf("click route leg node: %v", err)
+	// Click the route node itself.
+	if err := page.Locator(`.ve-node-name:has-text("route")`).First().Click(); err != nil {
+		t.Fatalf("click route node: %v", err)
 	}
 
-	// Param panel role element should show "leg: <name>".
+	// Param panel role element should show "processor".
 	roleEl := page.Locator(`#ve-param-phase`)
 	if err := roleEl.WaitFor(playwright.LocatorWaitForOptions{
 		State: playwright.WaitForSelectorStateVisible,
@@ -1253,8 +1251,8 @@ func TestPlaywrightRouteNodeParamPanel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get role text: %v", err)
 	}
-	if roleText != "leg: series" && roleText != "leg: movies" {
-		t.Errorf("param panel role: got %q, want 'leg: series' or 'leg: movies'", roleText)
+	if roleText != "processor" {
+		t.Errorf("param panel role for route node: got %q, want 'processor'", roleText)
 	}
 }
 
@@ -1293,5 +1291,64 @@ func TestPlaywrightRouteCodegenRoundTrip(t *testing.T) {
 	// Must NOT contain route_selector (internal plugin, should not appear).
 	if strings.Contains(generated, "route_selector") {
 		t.Errorf("generated config must not expose internal route_selector plugin:\n%s", generated)
+	}
+}
+
+// TestPlaywrightRouteLegPortsOnCard verifies the expected route node UX:
+//  1. Each rule produces one named port circle on the bottom of the route card.
+//  2. The port circle carries a tooltip with the leg name.
+//  3. Separate route_selector chip nodes are NOT visible as standalone canvas nodes.
+func TestPlaywrightRouteLegPortsOnCard(t *testing.T) {
+	ts := startTestServer(t, routeConfig)
+	browser, stop := pwSetup(t)
+	defer stop()
+
+	page, _ := browser.NewPage()
+	defer page.Close() //nolint:errcheck
+
+	login(t, page, ts.url)
+	openConfigTab(t, page)
+	switchToVisual(t, page, routeConfig)
+
+	// Wait for the route node.
+	if err := page.Locator(`.ve-node-name:has-text("route")`).First().WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateVisible,
+	}); err != nil {
+		t.Fatalf("route node not visible: %v", err)
+	}
+
+	// 1. Exactly two leg ports must be visible on the route card.
+	legPorts := page.Locator(`.ve-route-leg-port`)
+	count, err := legPorts.Count()
+	if err != nil {
+		t.Fatalf("count leg ports: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("want 2 leg ports on the route card (one per rule), got %d", count)
+	}
+
+	// 2. Each port carries a data-leg attribute with the leg name.
+	seriesPort := page.Locator(`.ve-route-leg-port[data-leg="series"]`)
+	if err := seriesPort.WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateAttached,
+	}); err != nil {
+		t.Errorf("no port with data-leg=\"series\" found: %v", err)
+	}
+
+	moviesPort := page.Locator(`.ve-route-leg-port[data-leg="movies"]`)
+	if err := moviesPort.WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateAttached,
+	}); err != nil {
+		t.Errorf("no port with data-leg=\"movies\" found: %v", err)
+	}
+
+	// 3. route_selector nodes must NOT appear as visible standalone canvas nodes.
+	selectorNodes := page.Locator(`.ve-node-route-leg`)
+	selectorCount, err := selectorNodes.Count()
+	if err != nil {
+		t.Fatalf("count selector nodes: %v", err)
+	}
+	if selectorCount > 0 {
+		t.Errorf("route_selector should not appear as separate canvas nodes; got %d visible chips", selectorCount)
 	}
 }

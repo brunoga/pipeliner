@@ -43,7 +43,7 @@ func init() {
 		Factory:     newRoutePlugin,
 		Validate:    validateRoute,
 		Schema: []plugin.FieldSchema{
-			{Key: "rules", Type: plugin.FieldTypeList, Required: true, Hint: "Ordered list of {name, accept} rule objects"},
+			{Key: "rules", Type: plugin.FieldTypeRuleList, Required: true, Hint: "Ordered list of named conditions — each entry needs a Name and a Condition expression"},
 		},
 	})
 

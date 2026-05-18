@@ -935,6 +935,33 @@ section { margin-bottom: 32px; }
 /* sink chain port: amber colour, shown on hover like regular ports */
 .ve-node[data-role="sink"] .ve-node-out-port.ve-node-chain-port { border-color:var(--ve-chain); }
 .ve-node[data-role="sink"] .ve-node-out-port.ve-node-chain-port:hover { background:rgba(227,179,65,.15); }
+/* Route rule_list editor */
+.ve-rule-table { width:100%; border-collapse:collapse; font-size:12px; margin-top:4px; }
+.ve-rule-table th { text-align:left; padding:2px 4px; color:var(--muted); font-weight:500; font-size:10px; text-transform:uppercase; }
+.ve-rule-table td { padding:3px 2px; }
+.ve-rule-name { width:90px; }
+.ve-rule-cond { width:100%; }
+.ve-rule-name, .ve-rule-cond { background:var(--input-bg); border:1px solid var(--border); border-radius:3px; color:var(--fg); padding:3px 5px; font-size:12px; }
+.ve-rule-name:focus, .ve-rule-cond:focus { outline:none; border-color:var(--accent); }
+.ve-rule-del { background:none; border:none; color:var(--muted); cursor:pointer; padding:0 4px; font-size:14px; }
+.ve-rule-del:hover { color:var(--danger); }
+
+/* Named leg ports: row of circles at the bottom of the route card,
+   mirroring the absolute positioning of .ve-node-out-port */
+.ve-route-leg-ports {
+  position:absolute; bottom:-11px; left:50%; transform:translateX(-50%);
+  display:flex; gap:10px; z-index:3;
+}
+.ve-route-leg-port {
+  width:20px; height:20px; border-radius:50%;
+  background:var(--bg); border:2px solid var(--ve-route);
+  cursor:crosshair; flex-shrink:0;
+  opacity:0.85; transition:opacity .12s, transform .12s, box-shadow .12s;
+}
+.ve-route-leg-port:hover {
+  opacity:1; transform:scale(1.2);
+  box-shadow:0 0 0 3px rgba(194,130,10,.25);
+}
 /* sink→sink chain edge: amber dashed stroke */
 .ve-chain-edge { fill:none; stroke:var(--ve-chain); stroke-width:1.5; stroke-dasharray:6,3; pointer-events:none; }
 .ve-chain-edge.selected { stroke:#f0d070; stroke-width:2; }
