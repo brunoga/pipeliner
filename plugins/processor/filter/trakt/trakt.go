@@ -85,7 +85,7 @@ type traktFilter struct {
 	list            string
 	limit           int
 	minRating       int
-	cache           *cache.Cache[[]string]
+	cache           *cache.Cache[[]match.TitleEntry]
 	rejectMatched   bool
 	rejectUnmatched bool
 }
@@ -149,7 +149,7 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 		list:      list,
 		limit:     limit,
 		minRating: minRating,
-		cache:     cache.NewPersistent[[]string](ttl, db.Bucket("cache_filter_trakt")),
+		cache:     cache.NewPersistent[[]match.TitleEntry](ttl, db.Bucket("cache_filter_trakt")),
 	}
 	if secret, _ := cfg["client_secret"].(string); secret != "" {
 		p.clientSecret = secret
@@ -176,24 +176,11 @@ func (p *traktFilter) filter(ctx context.Context, tc *plugin.TaskContext, e *ent
 		return nil
 	}
 
-	// If the entry carries trakt_year (set by trakt_list), append it so
-	// movies.Parse() has a year anchor and won't fail on clean titles.
+	// Append the entry's year (from video_year) to the title so movies.Parse()
+	// has an anchor and won't fail on clean titles like "Moana".
 	titleForParsing := e.Title
-	if year, ok := e.Get("trakt_year"); ok {
-		switch y := year.(type) {
-		case int:
-			if y > 0 {
-				titleForParsing = fmt.Sprintf("%s %d", e.Title, y)
-			}
-		case int64:
-			if y > 0 {
-				titleForParsing = fmt.Sprintf("%s %d", e.Title, y)
-			}
-		case float64:
-			if y > 0 {
-				titleForParsing = fmt.Sprintf("%s %d", e.Title, int(y))
-			}
-		}
+	if y := entry.ReleaseYear(e); y > 0 {
+		titleForParsing = fmt.Sprintf("%s %d", e.Title, y)
 	}
 
 	parsed, ok := p.parseTitle(titleForParsing)
@@ -207,8 +194,9 @@ func (p *traktFilter) filter(ctx context.Context, tc *plugin.TaskContext, e *ent
 	}
 
 	norm := match.Normalize(parsed)
+	candidateYear := entry.ReleaseYear(e)
 	for _, t := range titles {
-		if match.Fuzzy(norm, t) {
+		if match.FuzzyEntry(norm, candidateYear, t) {
 			if p.rejectMatched {
 				e.Reject("trakt: title is in list")
 			} else {
@@ -228,6 +216,10 @@ func (p *traktFilter) filter(ctx context.Context, tc *plugin.TaskContext, e *ent
 	return nil
 }
 
+// yearsMatch returns true when the two years are compatible for matching.
+// Either year being 0 means unknown — we allow the match rather than
+// over-rejecting entries whose year information is absent. When both years
+// are known they must be within 1 of each other (off-by-one for regional
 func (p *traktFilter) buildClient(ctx context.Context) (*itrakt.Client, error) {
 	if p.authBucket != nil {
 		token, err := itrakt.GetValidAccessToken(ctx, p.authBucket, p.clientID, p.clientSecret)
@@ -243,12 +235,12 @@ func (p *traktFilter) buildClient(ctx context.Context) (*itrakt.Client, error) {
 }
 
 // ensureTitles returns the cached title list, fetching from Trakt if stale.
-func (p *traktFilter) ensureTitles(ctx context.Context, tc *plugin.TaskContext) ([]string, error) {
+func (p *traktFilter) ensureTitles(ctx context.Context, tc *plugin.TaskContext) ([]match.TitleEntry, error) {
 	// Cache key includes min_rating so different rating floors don't collide.
 	key := fmt.Sprintf("%s:%s:%d", p.itemType, p.list, p.minRating)
 
-	if titles, ok := p.cache.Get(key); ok {
-		return titles, nil
+	if entries, ok := p.cache.Get(key); ok {
+		return entries, nil
 	}
 
 	client, err := p.buildClient(ctx)
@@ -263,17 +255,17 @@ func (p *traktFilter) ensureTitles(ctx context.Context, tc *plugin.TaskContext) 
 		tc.Logger.Warn("trakt: partial results due to pagination error", "count", len(items), "err", err)
 	}
 
-	var titles []string
+	var entries []match.TitleEntry
 	for _, it := range items {
 		if p.minRating > 0 && it.UserRating < p.minRating {
 			continue
 		}
-		titles = append(titles, match.Normalize(it.Title))
+		entries = append(entries, match.NewTitleEntry(it.Title, it.Year))
 	}
-	if len(titles) > 0 {
-		p.cache.Set(key, titles)
+	if len(entries) > 0 {
+		p.cache.Set(key, entries)
 	}
-	return titles, nil
+	return entries, nil
 }
 
 // parseTitle extracts the show name or movie title from an entry title.
