@@ -864,3 +864,103 @@ describe('addNodeFromPalette with user function', () => {
     expect(src).toContain('def jackett_fn(');
   });
 });
+
+// ── route() node tests ────────────────────────────────────────────────────────
+
+// Shared setup: src → route → [series_sel, movies_sel] → [seen_s, seen_m] → print
+function setupRoute() {
+  ve.graphs = [{
+    name: 'branched', schedule: '1h', comment: '',
+    nodes: [
+      { id: 'src_0', plugin: 'rss', config: { url: 'https://example.com/rss' },
+        upstreams: [], searchNodeIds: [], listNodeIds: [], legNodeIds: [] },
+      { id: 'route_1', plugin: 'route',
+        config: { rules: [
+          { name: 'series', accept: "series_episode_id != ''" },
+          { name: 'movies', accept: "series_episode_id == ''" },
+        ]},
+        upstreams: ['src_0'], searchNodeIds: [], listNodeIds: [],
+        legNodeIds: ['sel_series_2', 'sel_movies_3'] },
+      { id: 'sel_series_2', plugin: 'route_selector', config: {},
+        upstreams: ['route_1'], searchNodeIds: [], listNodeIds: [], legNodeIds: [],
+        isRouteLeg: true, routeParentId: 'route_1', routeLegName: 'series' },
+      { id: 'sel_movies_3', plugin: 'route_selector', config: {},
+        upstreams: ['route_1'], searchNodeIds: [], listNodeIds: [], legNodeIds: [],
+        isRouteLeg: true, routeParentId: 'route_1', routeLegName: 'movies' },
+      { id: 'seen_s_4', plugin: 'seen', config: {},
+        upstreams: ['sel_series_2'], searchNodeIds: [], listNodeIds: [], legNodeIds: [] },
+      { id: 'seen_m_5', plugin: 'seen', config: {},
+        upstreams: ['sel_movies_3'], searchNodeIds: [], listNodeIds: [], legNodeIds: [] },
+      { id: 'print_6', plugin: 'print', config: {},
+        upstreams: ['seen_s_4', 'seen_m_5'], searchNodeIds: [], listNodeIds: [], legNodeIds: [] },
+    ],
+  }];
+  ve.activeGraph = 0;
+  ve.plugins = [
+    ...PLUGINS,
+    { name: 'route',          role: 'processor' },
+    { name: 'route_selector', role: 'processor' },
+  ];
+}
+
+describe('upstreamsStr with route leg nodes', () => {
+  it('translates route_selector upstream to routeNodeId.legName', () => {
+    setupRoute();
+    // seen_s_4 has upstream sel_series_2, which is isRouteLeg with parent route_1, leg series
+    expect(upstreamsStr(['sel_series_2'])).toBe('route_1.series');
+  });
+
+  it('translates multiple route leg upstreams in merge()', () => {
+    setupRoute();
+    expect(upstreamsStr(['sel_series_2', 'sel_movies_3']))
+      .toBe('merge(route_1.series, route_1.movies)');
+  });
+
+  it('leaves non-route upstream IDs unchanged', () => {
+    setupRoute();
+    expect(upstreamsStr(['src_0'])).toBe('src_0');
+  });
+});
+
+describe('dagToStarlark with route() node', () => {
+  it('emits route() call with upstream and leg conditions', () => {
+    setupRoute();
+    const out = dagToStarlark();
+    expect(out).toContain('route_1 = route(src_0,');
+    expect(out).toContain('series=');
+    expect(out).toContain('movies=');
+  });
+
+  it('does not emit process() or input() for route_selector nodes', () => {
+    setupRoute();
+    const out = dagToStarlark();
+    expect(out).not.toContain('sel_series_2');
+    expect(out).not.toContain('sel_movies_3');
+    expect(out).not.toContain('route_selector');
+  });
+
+  it('emits downstream nodes with leg references as upstream', () => {
+    setupRoute();
+    const out = dagToStarlark();
+    expect(out).toContain('upstream=route_1.series');
+    expect(out).toContain('upstream=route_1.movies');
+  });
+
+  it('emits merge() at the convergence point', () => {
+    setupRoute();
+    const out = dagToStarlark();
+    expect(out).toContain('merge(seen_s_4, seen_m_5)');
+  });
+
+  it('still emits input() for the source node', () => {
+    setupRoute();
+    const out = dagToStarlark();
+    expect(out).toContain('src_0 = input("rss"');
+  });
+
+  it('emits the pipeline() call with schedule', () => {
+    setupRoute();
+    const out = dagToStarlark();
+    expect(out).toContain('pipeline("branched", schedule="1h")');
+  });
+});
