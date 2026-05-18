@@ -12,7 +12,8 @@ const __dir = dirname(fileURLToPath(import.meta.url));
 const src = readFileSync(join(__dir, '..', 'visual-editor.js'), 'utf8');
 
 let starLit, valToStar, configToKwargs, upstreamsStr, dagToStarlark, viaNodeToStar,
-    nodesToFunctionSource, performExtraction, addNodeFromPalette, extractFunctionSource, ve;
+    nodesToFunctionSource, performExtraction, addNodeFromPalette, extractFunctionSource,
+    edgePath, configPreview, syncRouteLegs, ve;
 
 beforeAll(() => {
   const mod = new Function(
@@ -28,6 +29,9 @@ exports.nodesToFunctionSource  = nodesToFunctionSource;
 exports.performExtraction     = performExtraction;
 exports.addNodeFromPalette    = addNodeFromPalette;
 exports.extractFunctionSource = extractFunctionSource;
+exports.edgePath              = edgePath;
+exports.configPreview         = configPreview;
+exports.syncRouteLegs         = syncRouteLegs;
 exports.ve                    = ve;
 `
   );
@@ -35,7 +39,8 @@ exports.ve                    = ve;
   const noopDoc = new Proxy({}, { get: () => () => null });
   mod(exports, noopDoc, () => Promise.resolve());
   ({ starLit, valToStar, configToKwargs, upstreamsStr, dagToStarlark, viaNodeToStar,
-     nodesToFunctionSource, performExtraction, addNodeFromPalette, extractFunctionSource, ve } = exports);
+     nodesToFunctionSource, performExtraction, addNodeFromPalette, extractFunctionSource,
+     edgePath, configPreview, syncRouteLegs, ve } = exports);
 });
 
 // ── test helpers ──────────────────────────────────────────────────────────────
@@ -962,5 +967,135 @@ describe('dagToStarlark with route() node', () => {
     setupRoute();
     const out = dagToStarlark();
     expect(out).toContain('pipeline("branched", schedule="1h")');
+  });
+});
+
+// ── edgePath ─────────────────────────────────────────────────────────────────
+
+describe('edgePath', () => {
+  it('horizontal: control points extend in x direction', () => {
+    const d = edgePath(0, 50, 200, 50, 'right', 'left');
+    expect(d).toMatch(/^M0,50 C/);
+    expect(d).toContain(',50'); // both control points at y=50 for flat line
+    expect(d).toContain('200,50');
+  });
+
+  it('vertical down: control points extend in y direction', () => {
+    const d = edgePath(100, 0, 100, 200, 'down', 'top');
+    expect(d).toMatch(/^M100,0 C/);
+    expect(d).toContain('100,'); // cp1 x stays at 100
+    expect(d).toContain('100,200');
+  });
+
+  it('mixed down+left: cp1 goes down, cp2 goes left', () => {
+    // route leg port (bottom) → processor (left side)
+    const d = edgePath(100, 0, 300, 100, 'down', 'left');
+    // cp1 should be (100, something>0) — exits downward
+    // cp2 should be (something<300, 100) — arrives from left
+    const parts = d.replace('M100,0 C', '').split(' ');
+    const [cp1, cp2] = parts;
+    const [cp1x, cp1y] = cp1.split(',').map(Number);
+    const [cp2x, cp2y] = cp2.split(',').map(Number);
+    expect(cp1x).toBe(100);   // doesn't move horizontally from start
+    expect(cp1y).toBeGreaterThan(0); // exits downward
+    expect(cp2x).toBeLessThan(300);  // arrives from the left
+    expect(cp2y).toBe(100);  // at target y level
+  });
+
+  it('shorthand h = right+left', () => {
+    expect(edgePath(0, 0, 100, 0, 'h')).toBe(edgePath(0, 0, 100, 0, 'right', 'left'));
+  });
+
+  it('shorthand v = down+top', () => {
+    expect(edgePath(0, 0, 0, 100, 'v')).toBe(edgePath(0, 0, 0, 100, 'down', 'top'));
+  });
+
+  it('shorthand v-up = up+bottom', () => {
+    expect(edgePath(0, 100, 0, 0, 'v-up')).toBe(edgePath(0, 100, 0, 0, 'up', 'bottom'));
+  });
+});
+
+// ── configPreview ─────────────────────────────────────────────────────────────
+
+describe('configPreview', () => {
+  it('shows key: value for plain strings', () => {
+    expect(configPreview({url: 'https://example.com'})).toContain('url: https://example.com');
+  });
+
+  it('shows "N rules" for arrays of objects (rule_list)', () => {
+    const cfg = { rules: [{name: 'a', accept: '1'}, {name: 'b', accept: '2'}] };
+    expect(configPreview(cfg)).toContain('2 rules');
+    expect(configPreview(cfg)).not.toContain('[object');
+  });
+
+  it('shows "1 rule" singular', () => {
+    expect(configPreview({rules: [{name: 'a', accept: '1'}]})).toContain('1 rule');
+  });
+
+  it('shows [] for empty arrays', () => {
+    expect(configPreview({items: []})).toContain('[]');
+  });
+
+  it('truncates long strings', () => {
+    const preview = configPreview({url: 'a'.repeat(50)});
+    expect(preview.length).toBeLessThan(60);
+    expect(preview).toContain('…');
+  });
+});
+
+// ── syncRouteLegs ─────────────────────────────────────────────────────────────
+
+describe('syncRouteLegs', () => {
+  function makeGraph(routeNode) {
+    const g = { nodes: [routeNode] };
+    ve.graphs = [g];
+    ve.activeGraph = 0;
+    return g;
+  }
+
+  it('creates leg nodes for each named rule', () => {
+    const route = { id: 'r0', plugin: 'route', config: {
+      rules: [{name: 'series', accept: "1"}, {name: 'movies', accept: "2"}]
+    }, legNodeIds: [] };
+    const g = makeGraph(route);
+    const changed = syncRouteLegs(route, g);
+    expect(changed).toBe(true);
+    expect(route.legNodeIds).toHaveLength(2);
+    const legNames = g.nodes.filter(n => n.isRouteLeg).map(n => n.routeLegName);
+    expect(legNames).toContain('series');
+    expect(legNames).toContain('movies');
+  });
+
+  it('removes leg nodes when rule is deleted', () => {
+    const legId = 'r0__leg__series';
+    const route = { id: 'r0', plugin: 'route', config: {
+      rules: [{name: 'movies', accept: "2"}]
+    }, legNodeIds: [legId] };
+    const leg = { id: legId, isRouteLeg: true, routeParentId: 'r0', routeLegName: 'series' };
+    const g = { nodes: [route, leg] };
+    const changed = syncRouteLegs(route, g);
+    expect(changed).toBe(true);
+    expect(route.legNodeIds).not.toContain(legId);
+    expect(g.nodes.find(n => n.id === legId)).toBeUndefined();
+  });
+
+  it('returns false when nothing changes', () => {
+    const legId = 'r0__leg__series';
+    const route = { id: 'r0', plugin: 'route', config: {
+      rules: [{name: 'series', accept: "1"}]
+    }, legNodeIds: [legId] };
+    const leg = { id: legId, isRouteLeg: true, routeParentId: 'r0', routeLegName: 'series' };
+    const g = { nodes: [route, leg] };
+    const changed = syncRouteLegs(route, g);
+    expect(changed).toBe(false);
+  });
+
+  it('creates placeholder leg for empty-name rules', () => {
+    const route = { id: 'r0', plugin: 'route', config: {
+      rules: [{name: '', accept: ''}]
+    }, legNodeIds: [] };
+    const g = makeGraph(route);
+    syncRouteLegs(route, g);
+    expect(route.legNodeIds).toHaveLength(1); // placeholder leg created
   });
 });

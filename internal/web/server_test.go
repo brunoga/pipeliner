@@ -752,3 +752,26 @@ func TestAPIConfigParseReturnsCommentAndPos(t *testing.T) {
 		t.Errorf("node pos: got x=%v y=%v, want 50 76", node["x"], node["y"])
 	}
 }
+
+func TestAPIPluginsExcludesInternalPlugins(t *testing.T) {
+	// Internal plugins (e.g. route_selector) must never appear in the palette
+	// response even though they are registered in the plugin registry.
+	srv := New(nil, stubDaemon{}, NewHistory(), NewBroadcaster(), "test", "u", "p")
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/plugins", srv.apiPlugins)
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	resp := get(t, ts.URL+"/api/plugins")
+	defer resp.Body.Close()
+
+	var plugins []map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&plugins); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	for _, p := range plugins {
+		if p["name"] == "route_selector" {
+			t.Error("route_selector is an internal plugin and must not appear in /api/plugins")
+		}
+	}
+}
