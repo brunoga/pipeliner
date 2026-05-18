@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 	_ "github.com/brunoga/pipeliner/plugins/processor/discover"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/content"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/movies"
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/route"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/seen"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/trakt"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/upgrade"
@@ -1161,5 +1163,135 @@ func TestPlaywrightListFunctionBadgeAndConnection(t *testing.T) {
 		State: playwright.WaitForSelectorStateVisible,
 	}); err != nil {
 		t.Errorf("no list badge in movies param panel — function not shown as connected list source: %v", err)
+	}
+}
+
+// ── route() node tests ────────────────────────────────────────────────────────
+
+// routeConfig has a route() node with two legs: series and movies.
+// Both legs feed separate seen processors that merge at a print sink.
+const routeConfig = `
+src    = input("rss", url="https://example.com/rss")
+routes = route(src,
+    series = "series_episode_id != ''",
+    movies = "series_episode_id == ''")
+series_path = process("seen", upstream=routes.series)
+movies_path  = process("seen", upstream=routes.movies)
+output("print", upstream=merge(series_path, movies_path))
+pipeline("branched", schedule="1h")
+`
+
+// TestPlaywrightRouteNodeRendersLegs verifies that:
+//  1. A route() node appears on the canvas.
+//  2. Each leg (route_selector) appears as a sub-chip with an orange badge
+//     showing the leg name.
+//  3. The leg chip is styled with the route-leg CSS class.
+func TestPlaywrightRouteNodeRendersLegs(t *testing.T) {
+	ts := startTestServer(t, routeConfig)
+	browser, stop := pwSetup(t)
+	defer stop()
+
+	page, _ := browser.NewPage()
+	defer page.Close() //nolint:errcheck
+
+	login(t, page, ts.url)
+	openConfigTab(t, page)
+	switchToVisual(t, page, routeConfig)
+
+	// 1. The route processor node must be on the canvas.
+	if err := page.Locator(`.ve-node-name:has-text("route")`).First().WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateVisible,
+	}); err != nil {
+		t.Errorf("route node not visible on canvas: %v", err)
+	}
+
+	// 2. Two orange route-leg badge chips must appear (one per leg).
+	legBadges := page.Locator(`.ve-node-route-badge`)
+	count, err := legBadges.Count()
+	if err != nil {
+		t.Fatalf("count route badges: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("want 2 route-leg badges (series + movies), got %d", count)
+	}
+
+	// 3. The leg nodes carry the ve-node-route-leg CSS class.
+	if err := page.Locator(`.ve-node.ve-node-route-leg`).First().WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateAttached,
+	}); err != nil {
+		t.Errorf("no node with ve-node-route-leg class found: %v", err)
+	}
+}
+
+// TestPlaywrightRouteNodeParamPanel verifies that clicking a route leg chip
+// opens the param panel and shows the leg name in the role area.
+func TestPlaywrightRouteNodeParamPanel(t *testing.T) {
+	ts := startTestServer(t, routeConfig)
+	browser, stop := pwSetup(t)
+	defer stop()
+
+	page, _ := browser.NewPage()
+	defer page.Close() //nolint:errcheck
+
+	login(t, page, ts.url)
+	openConfigTab(t, page)
+	switchToVisual(t, page, routeConfig)
+
+	// Click the first route-leg node.
+	if err := page.Locator(`.ve-node.ve-node-route-leg`).First().Click(); err != nil {
+		t.Fatalf("click route leg node: %v", err)
+	}
+
+	// Param panel role element should show "leg: <name>".
+	roleEl := page.Locator(`#ve-param-phase`)
+	if err := roleEl.WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateVisible,
+	}); err != nil {
+		t.Fatalf("param panel role element not visible: %v", err)
+	}
+	roleText, err := roleEl.TextContent()
+	if err != nil {
+		t.Fatalf("get role text: %v", err)
+	}
+	if roleText != "leg: series" && roleText != "leg: movies" {
+		t.Errorf("param panel role: got %q, want 'leg: series' or 'leg: movies'", roleText)
+	}
+}
+
+// TestPlaywrightRouteCodegenRoundTrip verifies that loading a route() config
+// in visual mode and switching back to text produces valid Starlark that
+// contains route() syntax and the correct leg references.
+func TestPlaywrightRouteCodegenRoundTrip(t *testing.T) {
+	ts := startTestServer(t, routeConfig)
+	browser, stop := pwSetup(t)
+	defer stop()
+
+	page, _ := browser.NewPage()
+	defer page.Close() //nolint:errcheck
+
+	login(t, page, ts.url)
+	openConfigTab(t, page)
+	switchToVisual(t, page, routeConfig)
+
+	// Switch back to text and read the generated config.
+	generated := editorContent(t, page)
+
+	if generated == "" {
+		t.Fatal("generated config is empty")
+	}
+	// Must contain a route() call.
+	if !strings.Contains(generated, "route(") {
+		t.Errorf("generated config missing route() call:\n%s", generated)
+	}
+	// Must contain leg references (routeNodeId.series / routeNodeId.movies).
+	if !strings.Contains(generated, ".series") {
+		t.Errorf("generated config missing .series leg reference:\n%s", generated)
+	}
+	if !strings.Contains(generated, ".movies") {
+		t.Errorf("generated config missing .movies leg reference:\n%s", generated)
+	}
+	// Must NOT contain route_selector (internal plugin, should not appear).
+	if strings.Contains(generated, "route_selector") {
+		t.Errorf("generated config must not expose internal route_selector plugin:\n%s", generated)
 	}
 }
