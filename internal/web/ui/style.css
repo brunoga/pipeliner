@@ -786,6 +786,22 @@ section { margin-bottom: 32px; }
 .ve-list-edge.selected { stroke:var(--ve-list-lit); stroke-width:2; }
 .ve-list-edge.connecting { stroke:var(--ve-list-lit); stroke-width:1.5; stroke-dasharray:5,3; }
 
+/* ── route nodes ──────────────────────────────────────────────────────── */
+:root { --ve-route:#c2820a; --ve-route-lit:#f0a030; }
+
+.ve-node-route-badge {
+  display:inline-block; padding:1px 5px; border-radius:3px;
+  font-size:9px; font-weight:700; letter-spacing:.05em;
+  border:1px solid var(--ve-route); color:var(--ve-route-lit); background:transparent; flex-shrink:0;
+}
+.ve-node-route-leg .ve-node-role-bar { background:var(--ve-route); }
+.ve-node.ve-node-route-leg           { border-color:var(--ve-route); }
+.ve-node.ve-node-route-leg.selected  { border-color:var(--ve-route-lit); box-shadow:0 0 0 2px rgba(194,130,10,.35); }
+
+/* route-edges: orange dashed lines from route node to each leg */
+.ve-route-edge { fill:none; stroke:var(--ve-route); stroke-width:1.5; stroke-dasharray:5,3; pointer-events:none; }
+.ve-route-edge.selected { stroke:var(--ve-route-lit); stroke-width:2; }
+
 /* Palette user-function chip, badge, and remove button */
 .ve-chip-fn-wrap { display:flex; align-items:stretch; width:100%; margin-bottom:2px; }
 /* Override .ve-chip's block/full-width so it can shrink inside the flex wrap */

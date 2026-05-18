@@ -17,7 +17,7 @@ plugins/
   source/          sources (RSS, files, indexers, Trakt, TVDB)
   processor/
     metainfo/      enrichment processors (quality, series, TMDb, TVDB, Trakt, torrent)
-    filter/        accept/reject processors (series, movies, seen, quality, condition…)
+    filter/        accept/reject processors (series, movies, seen, quality, condition, route…)
     modify/        field-mutation processors (pathfmt, set)
     discover/      active-search processor
   sink/
