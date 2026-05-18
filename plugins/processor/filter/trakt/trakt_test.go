@@ -12,6 +12,7 @@ import (
 	"github.com/brunoga/pipeliner/internal/plugin"
 	"github.com/brunoga/pipeliner/internal/store"
 	itrakt "github.com/brunoga/pipeliner/internal/trakt"
+	"github.com/brunoga/pipeliner/internal/match"
 )
 
 // --- mock server helpers ---
@@ -361,5 +362,118 @@ func TestEmptyListNotCached(t *testing.T) {
 func TestPluginRegistered(t *testing.T) {
 	if _, ok := plugin.Lookup("trakt"); !ok {
 		t.Error("trakt plugin not registered")
+	}
+}
+
+func TestYearsCompatible(t *testing.T) {
+	cases := []struct{ a, b int; want bool }{
+		{2017, 2017, true},   // exact
+		{2017, 2018, true},   // off-by-one (digital vs theatrical)
+		{2017, 2016, true},   // off-by-one other direction
+		{2017, 2025, false},  // clearly different films
+		{0,    2017, true},   // unknown candidate — allow
+		{2017, 0,    true},   // unknown list entry — allow
+		{0,    0,    true},   // both unknown — allow
+	}
+	for _, c := range cases {
+		if got := match.YearsCompatible(c.a, c.b); got != c.want {
+			t.Errorf("match.YearsCompatible(%d, %d) = %v, want %v", c.a, c.b, got, c.want)
+		}
+	}
+}
+
+func moviesWatchlistResponse(movies []struct{ title string; year int }) []byte {
+	type ids struct {
+		Trakt int    `json:"trakt"`
+		Slug  string `json:"slug"`
+	}
+	type movie struct {
+		Title string `json:"title"`
+		Year  int    `json:"year"`
+		IDs   ids    `json:"ids"`
+	}
+	type item struct {
+		Movie movie `json:"movie"`
+	}
+	var items []item
+	for i, m := range movies {
+		items = append(items, item{Movie: movie{
+			Title: m.title, Year: m.year,
+			IDs: ids{Trakt: i + 1, Slug: m.title},
+		}})
+	}
+	b, _ := json.Marshal(items)
+	return b
+}
+
+func TestFilterYearAwareMatchSameYear(t *testing.T) {
+	body := moviesWatchlistResponse([]struct{ title string; year int }{
+		{"mother!", 2017},
+	})
+	srv := mockServer(t, body)
+	defer srv.Close()
+	itrakt.BaseURL = srv.URL
+
+	p := makeFilter(t, map[string]any{
+		"client_id":    "key",
+		"access_token": "tok",
+		"type":         "movies",
+		"list":         "watchlist",
+	})
+
+	// "mother! 2017" is on the watchlist — release with year 2017 should match.
+	e := entry.New("Mother.2017.1080p.BluRay", "http://x.com/1")
+	e.Set(entry.FieldVideoYear, 2017)
+	p.filter(context.Background(), tc(), e) //nolint:errcheck
+	if !e.IsAccepted() {
+		t.Error("same-year release should be accepted when title on watchlist")
+	}
+}
+
+func TestFilterYearAwareNoMatchDifferentYear(t *testing.T) {
+	body := moviesWatchlistResponse([]struct{ title string; year int }{
+		{"mother!", 2017},
+	})
+	srv := mockServer(t, body)
+	defer srv.Close()
+	itrakt.BaseURL = srv.URL
+
+	p := makeFilter(t, map[string]any{
+		"client_id":    "key",
+		"access_token": "tok",
+		"type":         "movies",
+		"list":         "watchlist",
+	})
+
+	// "Mother (2025)" has year 2025 — should NOT match "mother! (2017)".
+	e := entry.New("Mother.2025.1080p.WEBRip", "http://x.com/2")
+	e.Set(entry.FieldVideoYear, 2025)
+	p.filter(context.Background(), tc(), e) //nolint:errcheck
+	if e.IsAccepted() {
+		t.Error("different-year release should not match watchlist entry from 8 years earlier")
+	}
+}
+
+func TestFilterYearAwareUnknownYearAllowed(t *testing.T) {
+	body := moviesWatchlistResponse([]struct{ title string; year int }{
+		{"inception", 2010},
+	})
+	srv := mockServer(t, body)
+	defer srv.Close()
+	itrakt.BaseURL = srv.URL
+
+	p := makeFilter(t, map[string]any{
+		"client_id":    "key",
+		"access_token": "tok",
+		"type":         "movies",
+		"list":         "watchlist",
+	})
+
+	// No trakt_year set on the entry — should still match by title.
+	e := entry.New("Inception.1080p.BluRay", "http://x.com/3")
+	// no trakt_year set
+	p.filter(context.Background(), tc(), e) //nolint:errcheck
+	if !e.IsAccepted() {
+		t.Errorf("unknown year should still match by title: %s", e.RejectReason)
 	}
 }

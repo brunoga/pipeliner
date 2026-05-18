@@ -271,7 +271,7 @@ func TestAnnotateByTraktTMDBID(t *testing.T) {
 	// Entry from trakt_list: plain title, year stored in trakt_tmdb_id.
 	e := entry.New("Michael", "https://trakt.tv/movies/michael-2026")
 	e.Set("trakt_tmdb_id", 27205)
-	e.Set("trakt_year", 2026)
+	e.Set(entry.FieldVideoYear, 2026)
 
 	if err := p.annotate(context.Background(), makeCtx(), e); err != nil {
 		t.Fatal(err)
@@ -335,7 +335,7 @@ func TestTraktYearUsedAsSearchHint(t *testing.T) {
 
 	// Plain title with no year, year provided via trakt_year only.
 	e := entry.New("Michael", "https://trakt.tv/movies/michael-2026")
-	e.Set("trakt_year", 2026)
+	e.Set(entry.FieldVideoYear, 2026)
 
 	if err := p.annotate(context.Background(), makeCtx(), e); err != nil {
 		t.Fatal(err)
@@ -427,5 +427,59 @@ func TestRegistration(t *testing.T) {
 	}
 	if d.Role != plugin.RoleProcessor {
 		t.Errorf("phase: got %v", d.Role)
+	}
+}
+
+// TestYearlessRetryFiltersNonMatchingTitles verifies that when the year-based
+// search returns no results and the yearless retry fires, only results whose
+// title fuzzy-matches the searched title are kept. This prevents cases like
+// "Mother" (2025) being enriched as "Mother's Day" (2016).
+func TestYearlessRetryFiltersNonMatchingTitles(t *testing.T) {
+	callCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		year := r.URL.Query().Get("year")
+		switch r.URL.Path {
+		case "/3/search/movie":
+			if year != "" {
+				// First call (with year): no results — film not on TMDb yet.
+				json.NewEncoder(w).Encode(map[string]any{"results": []any{}, "page": 1, "total_results": 0}) //nolint:errcheck
+			} else {
+				// Yearless retry: return "Mother's Day" as the top popularity result.
+				json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+					"results": []map[string]any{
+						{"id": 9999, "title": "Mother's Day", "release_date": "2016-05-06",
+							"popularity": 120.0, "vote_average": 5.8, "vote_count": 1000},
+					},
+					"page": 1, "total_results": 1,
+				})
+			}
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	c := itmdb.New("test-key")
+	c.BaseURL = srv.URL + "/3"
+	db, _ := store.OpenSQLite(":memory:")
+	defer db.Close()
+	p := &tmdbPlugin{
+		client:      c,
+		cache:       cache.NewPersistent[[]itmdb.Movie](time.Hour, db.Bucket("cache_tmdb_test")),
+		detailCache: cache.NewPersistent[*itmdb.MovieDetail](time.Hour, db.Bucket("cache_tmdb_detail_test")),
+	}
+
+	e := entry.New("Mother.2025.1080p.WEBRip", "http://x.com/1")
+	if err := p.annotate(context.Background(), makeCtx(), e); err != nil {
+		t.Fatal(err)
+	}
+
+	// The entry must NOT be enriched — "Mother's Day" is not a title match for "Mother".
+	if e.GetString("title") == "Mother's Day" {
+		t.Error("yearless retry must not accept a non-matching title like Mother's Day for Mother")
+	}
+	if e.GetInt("tmdb_id") != 0 {
+		t.Errorf("tmdb_id should not be set when no valid title match found, got %d", e.GetInt("tmdb_id"))
 	}
 }

@@ -324,7 +324,7 @@ func openWithFrom(t *testing.T, mock *mockInput) *moviesPlugin {
 	}
 	return &moviesPlugin{
 		listSources: []plugin.SourcePlugin{mock},
-		listCache: cache.NewPersistent[[]string](time.Hour, db.Bucket("test")),
+		listCache: cache.NewPersistent[[]match.TitleEntry](time.Hour, db.Bucket("test")),
 		tracker:   imovies.NewTracker(db.Bucket("movies")),
 	}
 }
@@ -362,7 +362,7 @@ func TestFromCachesResults(t *testing.T) {
 	db, _ := store.OpenSQLite(":memory:")
 	p := &moviesPlugin{
 		listSources: []plugin.SourcePlugin{counted},
-		listCache: cache.NewPersistent[[]string](time.Hour, db.Bucket("test")),
+		listCache: cache.NewPersistent[[]match.TitleEntry](time.Hour, db.Bucket("test")),
 		tracker:   imovies.NewTracker(db.Bucket("movies")),
 	}
 	tc := makeCtx()
@@ -380,7 +380,7 @@ func TestFromEmptyResultNotCached(t *testing.T) {
 	db, _ := store.OpenSQLite(":memory:")
 	p := &moviesPlugin{
 		listSources: []plugin.SourcePlugin{counted},
-		listCache: cache.NewPersistent[[]string](time.Hour, db.Bucket("test")),
+		listCache: cache.NewPersistent[[]match.TitleEntry](time.Hour, db.Bucket("test")),
 		tracker:   imovies.NewTracker(db.Bucket("movies")),
 	}
 	tc := makeCtx()

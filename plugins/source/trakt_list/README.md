@@ -46,7 +46,7 @@ process("movies", upstream=seen,
 | Field | Type | Description |
 |-------|------|-------------|
 | `trakt_id` | int | Trakt internal ID |
-| `trakt_year` | int | Release or premiere year |
+| `video_year` | int | Release or premiere year — stored as the standard `video_year` field so downstream filters and enrichers can use it directly |
 | `trakt_imdb_id` | string | IMDb ID (e.g. `tt1375666`) |
 | `trakt_tmdb_id` | int | TMDb ID |
 
@@ -91,5 +91,5 @@ pipeline("trakt-tv", schedule="1h")
 | Property | Value |
 |----------|-------|
 | Role | `source` |
-| Produces | `title`, `trakt_id`, `trakt_slug`, `trakt_year`, `trakt_imdb_id`, `trakt_tmdb_id` |
+| Produces | `title`, `video_year`, `trakt_id`, `trakt_imdb_id`, `trakt_tmdb_id` |
 | Requires | — |
