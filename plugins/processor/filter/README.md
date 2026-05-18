@@ -14,6 +14,7 @@ Filter processors accept or reject entries. Use them with `process("plugin-name"
 | [`regexp`](regexp/README.md) | Accept or reject entries by regular expression |
 | [`exists`](exists/README.md) | Reject entries whose target file already exists on disk |
 | [`condition`](condition/README.md) | Accept or reject entries using boolean expressions |
+| [`route`](route/README.md) | Route entries to named legs by condition; entries matching no leg are rejected with a warning |
 | [`content`](content/README.md) | Reject or require entries based on torrent file contents |
 | [`premiere`](premiere/README.md) | Accept only the first episode of series not previously seen |
 | [`torrentalive`](torrentalive/README.md) | Reject torrents with no active seeders |
