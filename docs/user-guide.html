@@ -955,7 +955,7 @@ series = process("series", upstream=rss_src, list=[
 
 <!-- ─────────── metainfo_tmdb ─────────── -->
 <h2 id="metainfo_tmdb">metainfo_tmdb</h2>
-<p>Enriches movie entries with TMDb metadata. Only processes entries whose title parses as a movie (title + year). Results cached in <code>pipeliner.db</code>. When a year-filtered search returns no results, the plugin automatically retries without the year filter — this handles releases where the year in the filename is wrong (off-by-one error, regional release difference, etc.). Empty results are never cached — the lookup will be retried on every run until a match is found.</p>
+<p>Enriches movie entries with TMDb metadata. Only processes entries whose title parses as a movie (title + year). Results cached in <code>pipeliner.db</code>. When a year-filtered search returns no results, the plugin automatically retries without the year filter — this handles releases where the year in the filename is wrong (off-by-one error, regional release difference, etc.). The yearless retry results are filtered so that only candidates whose title fuzzy-matches the searched title are considered; this prevents popularity-ranked mismatches (e.g. "Mother's Day" appearing for a search of "Mother"). Empty results are never cached — the lookup will be retried on every run until a match is found.</p>
 
 <table>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
@@ -1200,7 +1200,7 @@ pipeline("tech-news", schedule="1h")</code></pre>
 
 <!-- ─────────── trakt filter ─────────── -->
 <h2 id="trakt-filter">trakt</h2>
-<p>Accepts entries whose parsed title matches something on a Trakt.tv list.</p>
+<p>Accepts entries whose parsed title matches something on a Trakt.tv list. Matching is <strong>year-aware</strong>: the release year from the Trakt list is stored alongside each title. When the candidate entry carries a year (<code>trakt_year</code> from <code>trakt_list</code>, or <code>video_year</code> from <code>metainfo_tmdb</code>), entries that fuzzy-match on title but differ in year by more than 1 are not accepted. This prevents, for example, "Mother (2025)" matching "mother! (2017)" because they share a similar title. If either year is unknown the match falls back to title-only.</p>
 
 <table>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>

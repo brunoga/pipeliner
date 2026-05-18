@@ -76,6 +76,12 @@ func validate(cfg map[string]any) []error {
 	return errs
 }
 
+// titleEntry holds a normalised title and its release year for year-aware matching.
+type titleEntry struct {
+	norm string
+	year int
+}
+
 type traktFilter struct {
 	clientID        string
 	clientSecret    string
@@ -85,7 +91,7 @@ type traktFilter struct {
 	list            string
 	limit           int
 	minRating       int
-	cache           *cache.Cache[[]string]
+	cache           *cache.Cache[[]titleEntry]
 	rejectMatched   bool
 	rejectUnmatched bool
 }
@@ -149,7 +155,7 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 		list:      list,
 		limit:     limit,
 		minRating: minRating,
-		cache:     cache.NewPersistent[[]string](ttl, db.Bucket("cache_filter_trakt")),
+		cache:     cache.NewPersistent[[]titleEntry](ttl, db.Bucket("cache_filter_trakt")),
 	}
 	if secret, _ := cfg["client_secret"].(string); secret != "" {
 		p.clientSecret = secret
@@ -206,9 +212,30 @@ func (p *traktFilter) filter(ctx context.Context, tc *plugin.TaskContext, e *ent
 		return nil
 	}
 
+	// Extract the candidate year for year-aware matching. trakt_year is set by
+	// trakt_list; video_year is set by metainfo_tmdb after enrichment.
+	var candidateYear int
+	for _, field := range []string{"trakt_year", "video_year"} {
+		if v, ok := e.Get(field); ok {
+			switch y := v.(type) {
+			case int:
+				if y > 0 {
+					candidateYear = y
+				}
+			case int64:
+				if y > 0 {
+					candidateYear = int(y)
+				}
+			}
+			if candidateYear > 0 {
+				break
+			}
+		}
+	}
+
 	norm := match.Normalize(parsed)
 	for _, t := range titles {
-		if match.Fuzzy(norm, t) {
+		if match.Fuzzy(norm, t.norm) && yearsMatch(candidateYear, t.year) {
 			if p.rejectMatched {
 				e.Reject("trakt: title is in list")
 			} else {
@@ -228,6 +255,22 @@ func (p *traktFilter) filter(ctx context.Context, tc *plugin.TaskContext, e *ent
 	return nil
 }
 
+// yearsMatch returns true when the two years are compatible for matching.
+// Either year being 0 means unknown — we allow the match rather than
+// over-rejecting entries whose year information is absent. When both years
+// are known they must be within 1 of each other (off-by-one for regional
+// or digital vs theatrical release differences).
+func yearsMatch(a, b int) bool {
+	if a == 0 || b == 0 {
+		return true
+	}
+	diff := a - b
+	if diff < 0 {
+		diff = -diff
+	}
+	return diff <= 1
+}
+
 func (p *traktFilter) buildClient(ctx context.Context) (*itrakt.Client, error) {
 	if p.authBucket != nil {
 		token, err := itrakt.GetValidAccessToken(ctx, p.authBucket, p.clientID, p.clientSecret)
@@ -243,12 +286,12 @@ func (p *traktFilter) buildClient(ctx context.Context) (*itrakt.Client, error) {
 }
 
 // ensureTitles returns the cached title list, fetching from Trakt if stale.
-func (p *traktFilter) ensureTitles(ctx context.Context, tc *plugin.TaskContext) ([]string, error) {
+func (p *traktFilter) ensureTitles(ctx context.Context, tc *plugin.TaskContext) ([]titleEntry, error) {
 	// Cache key includes min_rating so different rating floors don't collide.
 	key := fmt.Sprintf("%s:%s:%d", p.itemType, p.list, p.minRating)
 
-	if titles, ok := p.cache.Get(key); ok {
-		return titles, nil
+	if entries, ok := p.cache.Get(key); ok {
+		return entries, nil
 	}
 
 	client, err := p.buildClient(ctx)
@@ -263,17 +306,17 @@ func (p *traktFilter) ensureTitles(ctx context.Context, tc *plugin.TaskContext) 
 		tc.Logger.Warn("trakt: partial results due to pagination error", "count", len(items), "err", err)
 	}
 
-	var titles []string
+	var entries []titleEntry
 	for _, it := range items {
 		if p.minRating > 0 && it.UserRating < p.minRating {
 			continue
 		}
-		titles = append(titles, match.Normalize(it.Title))
+		entries = append(entries, titleEntry{norm: match.Normalize(it.Title), year: it.Year})
 	}
-	if len(titles) > 0 {
-		p.cache.Set(key, titles)
+	if len(entries) > 0 {
+		p.cache.Set(key, entries)
 	}
-	return titles, nil
+	return entries, nil
 }
 
 // parseTitle extracts the show name or movie title from an entry title.
