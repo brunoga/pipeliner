@@ -74,9 +74,9 @@ func validate(cfg map[string]any) []error {
 }
 
 type moviesPlugin struct {
-	staticTitles    []string // normalised movie titles from config
+	staticTitles    []match.TitleEntry // movie titles from config (year=0 for plain strings)
 	listSources     []plugin.SourcePlugin
-	listCache       *cache.Cache[[]string]
+	listCache       *cache.Cache[[]match.TitleEntry]
 	spec            quality.Spec
 	tracker         *imovies.Tracker
 	rejectUnmatched bool
@@ -84,9 +84,9 @@ type moviesPlugin struct {
 
 func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
 	raw := toStringSlice(cfg["static"])
-	staticTitles := make([]string, len(raw))
+	staticTitles := make([]match.TitleEntry, len(raw))
 	for i, s := range raw {
-		staticTitles[i] = match.Normalize(s)
+		staticTitles[i] = match.NewTitleEntry(s, 0) // static titles have no year
 	}
 
 	listRaw, _ := cfg["list"].([]any)
@@ -135,7 +135,7 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 	return &moviesPlugin{
 		staticTitles:    staticTitles,
 		listSources:     listSources,
-		listCache:       cache.NewPersistent[[]string](ttl, db.Bucket("cache_movies_list")),
+		listCache:       cache.NewPersistent[[]match.TitleEntry](ttl, db.Bucket("cache_movies_list")),
 		spec:            spec,
 		rejectUnmatched: rejectUnmatched,
 		tracker:      imovies.NewTracker(db.Bucket("movies")),
@@ -153,8 +153,14 @@ func (p *moviesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *en
 		return nil
 	}
 
+	// Use the year from the parsed title; fall back to entry.ReleaseYear if absent.
+	candidateYear := m.Year
+	if candidateYear == 0 {
+		candidateYear = entry.ReleaseYear(e)
+	}
+
 	titles := p.resolveTitles(ctx, tc)
-	matchedTitle, ok := matchTitle(m.Title, titles)
+	matchedTitle, ok := matchTitle(m.Title, candidateYear, titles)
 	if !ok {
 		if p.rejectUnmatched {
 			e.Reject("movies: title not in list")
@@ -214,14 +220,18 @@ func (p *moviesPlugin) persist(ctx context.Context, tc *plugin.TaskContext, entr
 		if !ok {
 			continue
 		}
-		matchedTitle, ok := matchTitle(m.Title, titles)
+		candidateYear := m.Year
+		if candidateYear == 0 {
+			candidateYear = entry.ReleaseYear(e)
+		}
+		matchedTitle, ok := matchTitle(m.Title, candidateYear, titles)
 		if !ok {
 			continue
 		}
 		is3D := m.Quality.Format3D != quality.Format3DNone
 		year := m.Year
 		if year == 0 {
-			year = e.GetInt(entry.FieldVideoYear)
+			year = entry.ReleaseYear(e)
 		}
 		if err := p.tracker.Mark(imovies.Record{
 			Title:   matchedTitle,
@@ -236,19 +246,21 @@ func (p *moviesPlugin) persist(ctx context.Context, tc *plugin.TaskContext, entr
 	return nil
 }
 
-func (p *moviesPlugin) resolveTitles(ctx context.Context, tc *plugin.TaskContext) []string {
+func (p *moviesPlugin) resolveTitles(ctx context.Context, tc *plugin.TaskContext) []match.TitleEntry {
 	return plugin.ResolveDynamicList(ctx, tc, p.listSources, p.staticTitles,
-		func(src string) ([]string, bool) { return p.listCache.Get(src) },
-		func(src string, v []string) { p.listCache.Set(src, v) },
-		match.Normalize,
+		func(src string) ([]match.TitleEntry, bool) { return p.listCache.Get(src) },
+		func(src string, v []match.TitleEntry) { p.listCache.Set(src, v) },
 	)
 }
 
-func matchTitle(parsed string, titles []string) (string, bool) {
+// matchTitle returns the normalised title from the list that matches the
+// candidate (title + year). Year-aware: if both the candidate and a list entry
+// carry a year, they must be within 1 of each other.
+func matchTitle(parsed string, year int, titles []match.TitleEntry) (string, bool) {
 	norm := match.Normalize(parsed)
-	for _, title := range titles {
-		if match.Fuzzy(norm, title) {
-			return title, true
+	for _, t := range titles {
+		if match.FuzzyEntry(norm, year, t) {
+			return t.Norm, true
 		}
 	}
 	return "", false
