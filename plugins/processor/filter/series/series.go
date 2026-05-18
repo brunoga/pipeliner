@@ -89,9 +89,9 @@ const (
 )
 
 type seriesPlugin struct {
-	staticShows     []string // normalised show names from config
+	staticShows     []match.TitleEntry // show names from config (year=0 for plain strings)
 	listSources     []plugin.SourcePlugin
-	listCache       *cache.Cache[[]string]
+	listCache       *cache.Cache[[]match.TitleEntry]
 	spec            quality.Spec
 	tracking        tracking
 	tracker         *series.Tracker
@@ -100,9 +100,9 @@ type seriesPlugin struct {
 
 func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
 	raw := toStringSlice(cfg["static"])
-	staticShows := make([]string, len(raw))
+	staticShows := make([]match.TitleEntry, len(raw))
 	for i, s := range raw {
-		staticShows[i] = match.Normalize(s)
+		staticShows[i] = match.NewTitleEntry(s, 0) // static show names have no year
 	}
 
 	listRaw, _ := cfg["list"].([]any)
@@ -161,7 +161,7 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 	return &seriesPlugin{
 		staticShows:     staticShows,
 		listSources:     listSources,
-		listCache:       cache.NewPersistent[[]string](ttl, db.Bucket("cache_series_list")),
+		listCache:       cache.NewPersistent[[]match.TitleEntry](ttl, db.Bucket("cache_series_list")),
 		spec:            spec,
 		tracking:        tr,
 		tracker:         tracker,
@@ -303,20 +303,21 @@ func (p *seriesPlugin) persist(ctx context.Context, tc *plugin.TaskContext, entr
 	return nil
 }
 
-func (p *seriesPlugin) resolveShows(ctx context.Context, tc *plugin.TaskContext) []string {
+func (p *seriesPlugin) resolveShows(ctx context.Context, tc *plugin.TaskContext) []match.TitleEntry {
 	return plugin.ResolveDynamicList(ctx, tc, p.listSources, p.staticShows,
-		func(src string) ([]string, bool) { return p.listCache.Get(src) },
-		func(src string, v []string) { p.listCache.Set(src, v) },
-		match.Normalize,
+		func(src string) ([]match.TitleEntry, bool) { return p.listCache.Get(src) },
+		func(src string, v []match.TitleEntry) { p.listCache.Set(src, v) },
 	)
 }
 
 // matchShow returns the canonical show name if parsed matches any configured show.
-func matchShow(parsed string, shows []string) (string, bool) {
+// Series matching is title-only — shows air over multiple years so year
+// comparison would cause false negatives for ongoing series.
+func matchShow(parsed string, shows []match.TitleEntry) (string, bool) {
 	norm := match.Normalize(parsed)
-	for _, show := range shows {
-		if match.Fuzzy(norm, show) {
-			return show, true
+	for _, s := range shows {
+		if match.Fuzzy(norm, s.Norm) {
+			return s.Norm, true
 		}
 	}
 	return "", false
