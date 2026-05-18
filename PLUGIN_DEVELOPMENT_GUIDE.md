@@ -433,6 +433,25 @@ movies_node = process("movies", upstream=rss, list=[unwatched_movies(client_id=e
 - All subsequent nodes must have `RoleProcessor`.
 - For `list=` mini-pipelines the first node must have `RoleSource`; subsequent nodes must be processors.
 
+### Conditional branching with route()
+
+The `route()` Starlark builtin routes entries to named legs based on ordered boolean conditions. It is not a plugin — it is a built-in function that creates a `route` processor node and N `route_selector` nodes internally:
+
+```python
+routes = route(upstream,
+    series = "series_episode_id != ''",
+    movies = "series_episode_id == ''")
+series_path = process("metainfo_series", upstream=routes.series)
+movies_path  = process("metainfo_tmdb",   upstream=routes.movies, ...)
+output("transmission", upstream=merge(series_path, movies_path))
+```
+
+Key properties:
+- Exactly one leg matches each entry (first match wins); unmatched entries are rejected with `WARN`.
+- At a `merge()` of route legs the DAG validator uses **union** semantics for `certain` fields — no spurious merge-gap warnings for intentional branching.
+- The `_route_leg` field is stamped on matched entries and is available downstream.
+- See [`plugins/processor/filter/route/README.md`](../plugins/processor/filter/route/README.md) for the full reference.
+
 ---
 
 ## Config validation
