@@ -10,8 +10,9 @@ const (
 	FieldTypeBool     FieldType = "bool"     // boolean
 	FieldTypeDuration FieldType = "duration" // Go duration string, e.g. "1h", "30m"
 	FieldTypeEnum     FieldType = "enum"     // string restricted to Enum values
-	FieldTypeList     FieldType = "list"     // []string
-	FieldTypeDict     FieldType = "dict"     // map[string]any (sub-plugin lists, nested config)
+	FieldTypeList     FieldType = "list"      // []string
+	FieldTypeDict     FieldType = "dict"      // map[string]any (sub-plugin lists, nested config)
+	FieldTypeRuleList FieldType = "rule_list" // []map[string]any with {name, accept} keys (route rules)
 )
 
 // FieldSchema describes one config key accepted by a plugin.
