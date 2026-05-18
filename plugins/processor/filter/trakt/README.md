@@ -62,3 +62,4 @@ pipeline("trakt-filtered")
 - `watchlist`, `ratings`, and `collection` are private and require either `client_secret` (recommended) or `access_token`.
 - The cache key includes `type`, `list`, and `min_rating`, so separate plugin instances with different settings coexist safely.
 - The cache is stored in `pipeliner.db` in the same directory as the config file.
+- **Year-aware matching** — the list year from Trakt is stored alongside each title. When the candidate entry carries a year (`trakt_year` or `video_year`), entries whose title fuzzy-matches but whose year differs by more than 1 are not accepted. This prevents, for example, "Mother (2025)" matching "mother! (2017)" via a single-character edit. If either year is unknown (0), the match falls back to title-only.

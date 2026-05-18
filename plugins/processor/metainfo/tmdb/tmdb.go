@@ -14,6 +14,7 @@ import (
 
 	"github.com/brunoga/pipeliner/internal/cache"
 	"github.com/brunoga/pipeliner/internal/entry"
+	"github.com/brunoga/pipeliner/internal/match"
 	imovies "github.com/brunoga/pipeliner/internal/movies"
 	"github.com/brunoga/pipeliner/internal/plugin"
 	"github.com/brunoga/pipeliner/internal/store"
@@ -154,6 +155,19 @@ func (p *tmdbPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 			if err != nil {
 				tc.Logger.Warn("metainfo_tmdb: search failed", "title", searchTitle, "err", err)
 				return nil
+			}
+			// The yearless search returns popularity-ranked results that may have
+			// nothing to do with the searched title (e.g. "Mother's Day" for "Mother").
+			// Filter to only candidates whose title fuzzy-matches the search title.
+			if len(results) > 0 {
+				normSearch := match.Normalize(searchTitle)
+				filtered := results[:0]
+				for _, r := range results {
+					if match.Fuzzy(normSearch, match.Normalize(r.Title)) {
+						filtered = append(filtered, r)
+					}
+				}
+				results = filtered
 			}
 		}
 		// Only cache hits — an empty result must not be stored so the next

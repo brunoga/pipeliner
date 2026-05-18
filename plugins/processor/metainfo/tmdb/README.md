@@ -56,7 +56,7 @@ The plugin resolves movies in this order:
 
 1. **By ID** — if the entry carries `trakt_tmdb_id` (set by `trakt_list` or `metainfo_trakt`), the movie is fetched directly by TMDb ID. No search is performed, so there is no ambiguity even when multiple films share the same title (e.g. "Michael" 1996 vs 2026).
 2. **By title + year** — the title is parsed from the entry (torrent release format or plain Trakt title). If no year is found in the title but `trakt_year` is present, that year is used as the search hint.
-3. **Year-less retry** — if the year-filtered search returns nothing (off-by-one year, regional difference, etc.), the search is retried without a year filter before giving up.
+3. **Year-less retry** — if the year-filtered search returns nothing (off-by-one year, regional difference, etc.), the search is retried without a year filter. Results are filtered to candidates whose title fuzzy-matches the searched title, preventing popularity-ranked mismatches (e.g. "Mother's Day" appearing for a search of "Mother").
 
 ## Example
 
