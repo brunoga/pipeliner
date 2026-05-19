@@ -13,7 +13,7 @@ const src = readFileSync(join(__dir, '..', 'visual-editor.js'), 'utf8');
 
 let starLit, valToStar, configToKwargs, upstreamsStr, dagToStarlark, viaNodeToStar,
     nodesToFunctionSource, performExtraction, addNodeFromPalette, extractFunctionSource,
-    parseFunctionComment, edgePath, configPreview, syncRouteLegs, ve;
+    parseFunctionComment, nodeTooltipText, edgePath, configPreview, syncRouteLegs, ve;
 
 beforeAll(() => {
   const mod = new Function(
@@ -30,6 +30,7 @@ exports.performExtraction     = performExtraction;
 exports.addNodeFromPalette    = addNodeFromPalette;
 exports.extractFunctionSource = extractFunctionSource;
 exports.parseFunctionComment  = parseFunctionComment;
+exports.nodeTooltipText       = nodeTooltipText;
 exports.edgePath              = edgePath;
 exports.configPreview         = configPreview;
 exports.syncRouteLegs         = syncRouteLegs;
@@ -41,7 +42,7 @@ exports.ve                    = ve;
   mod(exports, noopDoc, () => Promise.resolve());
   ({ starLit, valToStar, configToKwargs, upstreamsStr, dagToStarlark, viaNodeToStar,
      nodesToFunctionSource, performExtraction, addNodeFromPalette, extractFunctionSource,
-     parseFunctionComment, edgePath, configPreview, syncRouteLegs, ve } = exports);
+     parseFunctionComment, nodeTooltipText, edgePath, configPreview, syncRouteLegs, ve } = exports);
 });
 
 // ── test helpers ──────────────────────────────────────────────────────────────
@@ -825,6 +826,80 @@ describe('parseFunctionComment', () => {
   it('handles comment lines without a space after #', () => {
     const src = `#No space\ndef my_fn():\n    pass\n`;
     expect(parseFunctionComment(src)).toBe('No space');
+  });
+});
+
+// ── nodeTooltipText ───────────────────────────────────────────────────────────
+
+describe('nodeTooltipText', () => {
+  beforeEach(() => {
+    ve.plugins = PLUGINS;
+    ve.userFunctions = {};
+  });
+
+  it('returns the node comment for a regular plugin node', () => {
+    const n = { plugin: 'rss', comment: 'My feed source', isFunctionCall: false };
+    expect(nodeTooltipText(n, { description: 'RSS plugin' })).toBe('My feed source');
+  });
+
+  it('returns the plugin description when node comment is empty', () => {
+    const n = { plugin: 'rss', comment: '', isFunctionCall: false };
+    expect(nodeTooltipText(n, { description: 'RSS plugin' })).toBe('RSS plugin');
+  });
+
+  it('returns empty string when node comment and plugin description are both absent', () => {
+    const n = { plugin: 'rss', comment: '', isFunctionCall: false };
+    expect(nodeTooltipText(n, {})).toBe('');
+  });
+
+  it('returns the node comment for a function call node, overriding fn definition comment', () => {
+    ve.userFunctions['my_fn'] = { comment: 'Fn def comment', description: 'desc' };
+    const n = { plugin: 'my_fn', comment: 'Instance comment', isFunctionCall: true };
+    expect(nodeTooltipText(n, {})).toBe('Instance comment');
+  });
+
+  it('falls back to function definition comment when node comment is empty', () => {
+    ve.userFunctions['my_fn'] = { comment: 'Fn def comment', description: 'desc' };
+    const n = { plugin: 'my_fn', comment: '', isFunctionCall: true };
+    expect(nodeTooltipText(n, {})).toBe('Fn def comment');
+  });
+
+  it('falls back to function description when both node comment and fn comment are empty', () => {
+    ve.userFunctions['my_fn'] = { comment: '', description: 'Fn description' };
+    const n = { plugin: 'my_fn', comment: '', isFunctionCall: true };
+    expect(nodeTooltipText(n, {})).toBe('Fn description');
+  });
+
+  it('returns empty string when all comment and description fields are empty', () => {
+    ve.userFunctions['my_fn'] = { comment: '', description: '' };
+    const n = { plugin: 'my_fn', comment: '', isFunctionCall: true };
+    expect(nodeTooltipText(n, {})).toBe('');
+  });
+
+  it('preserves newlines in node comment', () => {
+    const n = { plugin: 'rss', comment: 'Line one\nLine two', isFunctionCall: false };
+    const tip = nodeTooltipText(n, { description: 'RSS plugin' });
+    expect(tip).toBe('Line one\nLine two');
+    expect(tip).toContain('\n');
+  });
+
+  it('preserves newlines in function definition comment', () => {
+    ve.userFunctions['my_fn'] = { comment: 'First line\nSecond line', description: '' };
+    const n = { plugin: 'my_fn', comment: '', isFunctionCall: true };
+    const tip = nodeTooltipText(n, {});
+    expect(tip).toBe('First line\nSecond line');
+    expect(tip).toContain('\n');
+  });
+
+  it('trims leading/trailing whitespace from node comment', () => {
+    const n = { plugin: 'rss', comment: '  padded  ', isFunctionCall: false };
+    expect(nodeTooltipText(n, {})).toBe('padded');
+  });
+
+  it('trims leading/trailing whitespace from fn definition comment', () => {
+    ve.userFunctions['my_fn'] = { comment: '  padded  ', description: '' };
+    const n = { plugin: 'my_fn', comment: '', isFunctionCall: true };
+    expect(nodeTooltipText(n, {})).toBe('padded');
   });
 });
 

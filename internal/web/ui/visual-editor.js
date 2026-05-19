@@ -231,7 +231,7 @@ function renderPalette(filter) {
       chipHtml.push(`<div class="ve-role-header" data-role="${role}">${ROLE_LABEL[role]}</div>`);
       chipHtml.push(`<div class="ve-role-chips" id="ve-role-${role}">`);
       for (const p of group) {
-        chipHtml.push(`<button class="ve-chip" data-role="${role}" disabled title="${esc(p.description)}">${esc(p.name)}</button>`);
+        chipHtml.push(`<button class="ve-chip" data-role="${role}" disabled data-tip="${esc(p.description)}">${esc(p.name)}</button>`);
       }
       chipHtml.push('</div>');
     }
@@ -254,7 +254,7 @@ function renderPalette(filter) {
       const fnCls     = fd.is_search_plugin ? ' ve-chip-search' : fd.is_list_plugin ? ' ve-chip-list' : '';
       html.push(`<span class="ve-chip-fn-wrap" data-role="${fd.role}">
         <button class="ve-chip ve-chip-fn${fnCls}" data-role="${fd.role}" draggable="true"
-          title="${esc(fd.comment || fd.description || fd.name)}"
+          data-tip="${esc(fd.comment || fd.description || fd.name)}"
           ondragstart="paletteDragStart(event,${esc(JSON.stringify(fd.name))})"
           onclick="addNodeFromPalette(${esc(JSON.stringify(fd.name))})">
           ${esc(fd.name)}${fnBadge}</button
@@ -284,7 +284,7 @@ function renderPalette(filter) {
       const extraTip = p.is_search_plugin ? '\n(drag onto a discover node\'s search port to use as a search backend)'
                      : p.is_list_plugin   ? '\n(drag onto a series/movies node\'s list port as a list source)' : '';
       html.push(`<button class="ve-chip${extraCls}" data-role="${role}" draggable="true"
-        title="${esc(p.description)}${extraTip}"
+        data-tip="${esc(p.description + extraTip)}"
         ondragstart="paletteDragStart(event,${esc(JSON.stringify(p.name))})"
         onclick="addNodeFromPalette(${esc(JSON.stringify(p.name))})">${esc(p.name)}${searchBadge}</button>`);
     }
@@ -555,9 +555,7 @@ function renderGraphNodes() {
       div.dataset.isListNd   = isList   ? 'true' : 'false';
       div.style.left = (n.x ?? 60) + 'px';
       div.style.top  = (n.y ?? 60) + 'px';
-      const nodeTip = n.comment?.trim()
-        || (isFn ? (ve.userFunctions[n.plugin]?.comment?.trim() || ve.userFunctions[n.plugin]?.description || '')
-                 : (meta.description || ''));
+      const nodeTip = nodeTooltipText(n, meta);
       if (nodeTip) {
         div.addEventListener('mouseenter', e => veTooltipShow(nodeTip, e));
         div.addEventListener('mousemove',  veTooltipMove);
@@ -1561,6 +1559,22 @@ function fitVisualEditor() {
 function initCanvasEvents() {
   const canvas = document.getElementById('ve-graph-canvas');
   if (!canvas) return;
+
+  // Palette chip tooltips via event delegation (chips are re-rendered on every
+  // filter change so individual listeners would need to be re-added each time).
+  const paletteBody = document.getElementById('ve-palette-body');
+  if (paletteBody) {
+    paletteBody.addEventListener('mouseover', e => {
+      const chip = e.target.closest('[data-tip]');
+      if (chip && chip.dataset.tip) veTooltipShow(chip.dataset.tip, e);
+    });
+    paletteBody.addEventListener('mousemove', e => {
+      if (e.target.closest('[data-tip]')) veTooltipMove(e);
+    });
+    paletteBody.addEventListener('mouseout', e => {
+      if (!e.relatedTarget?.closest('[data-tip]')) veTooltipHide();
+    });
+  }
 
   // Re-fit the layout on every window resize so the page never scrolls.
   window.addEventListener('resize', fitVisualEditor);
@@ -4601,6 +4615,19 @@ function setSyncNote(msg) {
 }
 
 // ── canvas node tooltip ───────────────────────────────────────────────────────
+
+// nodeTooltipText returns the hover tooltip string for a canvas node:
+// the node's own comment takes priority; for function-call nodes the fallback
+// is the function definition's comment then its description; for regular plugin
+// nodes the fallback is the plugin's description.
+function nodeTooltipText(n, meta) {
+  if (n.comment?.trim()) return n.comment.trim();
+  if (n.isFunctionCall) {
+    const fd = ve.userFunctions[n.plugin];
+    return fd?.comment?.trim() || fd?.description || '';
+  }
+  return meta?.description || '';
+}
 
 let _veTooltipTimer = null;
 
