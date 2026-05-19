@@ -254,7 +254,7 @@ function renderPalette(filter) {
       const fnCls     = fd.is_search_plugin ? ' ve-chip-search' : fd.is_list_plugin ? ' ve-chip-list' : '';
       html.push(`<span class="ve-chip-fn-wrap" data-role="${fd.role}">
         <button class="ve-chip ve-chip-fn${fnCls}" data-role="${fd.role}" draggable="true"
-          title="${esc(fd.description || fd.name)}"
+          title="${esc(fd.comment || fd.description || fd.name)}"
           ondragstart="paletteDragStart(event,${esc(JSON.stringify(fd.name))})"
           onclick="addNodeFromPalette(${esc(JSON.stringify(fd.name))})">
           ${esc(fd.name)}${fnBadge}</button
@@ -554,6 +554,10 @@ function renderGraphNodes() {
       div.dataset.isListNd   = isList   ? 'true' : 'false';
       div.style.left = (n.x ?? 60) + 'px';
       div.style.top  = (n.y ?? 60) + 'px';
+      const nodeTip = n.comment?.trim()
+        || (isFn ? (ve.userFunctions[n.plugin]?.comment?.trim() || ve.userFunctions[n.plugin]?.description || '')
+                 : (meta.description || ''));
+      if (nodeTip) div.title = nodeTip;
       const commentPreview = n.comment?.trim()
         ? `<div class="ve-node-comment-preview">${esc(n.comment.trim().split('\n')[0])}</div>` : '';
       const commentBtnCls = n.comment?.trim() ? ' has-comment' : '';
