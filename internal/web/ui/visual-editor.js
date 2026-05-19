@@ -473,6 +473,7 @@ function multiSelectIsValid() {
 function veRender() { renderCanvas(); renderParamPanel(); syncPaletteState(); }
 
 function renderCanvas() {
+  veTooltipHide();
   // Empty-hint only shows when there are zero pipelines.
   const hint = document.getElementById('ve-empty-hint');
   if (hint) hint.style.display = ve.graphs.length === 0 ? '' : 'none';
@@ -557,7 +558,11 @@ function renderGraphNodes() {
       const nodeTip = n.comment?.trim()
         || (isFn ? (ve.userFunctions[n.plugin]?.comment?.trim() || ve.userFunctions[n.plugin]?.description || '')
                  : (meta.description || ''));
-      if (nodeTip) div.title = nodeTip;
+      if (nodeTip) {
+        div.addEventListener('mouseenter', e => veTooltipShow(nodeTip, e));
+        div.addEventListener('mousemove',  veTooltipMove);
+        div.addEventListener('mouseleave', veTooltipHide);
+      }
       const commentPreview = n.comment?.trim()
         ? `<div class="ve-node-comment-preview">${esc(n.comment.trim().split('\n')[0])}</div>` : '';
       const commentBtnCls = n.comment?.trim() ? ' has-comment' : '';
@@ -4593,6 +4598,38 @@ async function textToVisualSync() {
 function setSyncNote(msg) {
   const el = document.getElementById('ve-sync-note');
   if (el) el.textContent = msg;
+}
+
+// ── canvas node tooltip ───────────────────────────────────────────────────────
+
+let _veTooltipTimer = null;
+
+function veTooltipShow(text, e) {
+  clearTimeout(_veTooltipTimer);
+  _veTooltipTimer = setTimeout(() => {
+    let tip = document.getElementById('ve-node-tooltip');
+    if (!tip) {
+      tip = document.createElement('div');
+      tip.id = 've-node-tooltip';
+      document.body.appendChild(tip);
+    }
+    tip.textContent = text;
+    tip.style.display = 'block';
+    veTooltipMove(e);
+  }, 600);
+}
+
+function veTooltipMove(e) {
+  const tip = document.getElementById('ve-node-tooltip');
+  if (!tip || tip.style.display === 'none') return;
+  tip.style.left = (e.clientX + 14) + 'px';
+  tip.style.top  = (e.clientY + 18) + 'px';
+}
+
+function veTooltipHide() {
+  clearTimeout(_veTooltipTimer);
+  const tip = document.getElementById('ve-node-tooltip');
+  if (tip) tip.style.display = 'none';
 }
 
 // ── text pop-up editor ────────────────────────────────────────────────────────
