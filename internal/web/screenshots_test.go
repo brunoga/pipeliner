@@ -108,7 +108,7 @@ sink = output("transmission", upstream=up, host="localhost")
 pipeline("demo")
 `
 
-// routeScreenshotConfig: rss → seen → metainfo_quality → route() with tv/movies legs.
+// routeScreenshotConfig: rss → seen → metainfo_quality → route() with tv/movies ports.
 // Shows the route() branching pattern in the visual editor.
 const routeScreenshotConfig = `
 src    = input("rss", url="https://feeds.example.com/all.rss")

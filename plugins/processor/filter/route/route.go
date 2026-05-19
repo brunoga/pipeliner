@@ -2,11 +2,11 @@
 // conditional entry routing in DAG pipelines.
 //
 // The "route" processor evaluates an ordered list of named conditions; the
-// first match stamps _route_leg on the entry and accepts it. Entries that
-// match no leg are rejected with a warning so they are not silently dropped.
+// first match stamps _route_port on the entry and accepts it. Entries that
+// match no port are rejected with a warning so they are not silently dropped.
 //
 // The "route_selector" processor (created automatically by the route() Starlark
-// builtin) passes only entries whose _route_leg matches a given leg name.
+// builtin) passes only entries whose _route_port matches a given port name.
 //
 // Users never instantiate these plugins directly — they use the route()
 // builtin in their config:
@@ -37,9 +37,9 @@ const RouteGroupKey = "_route_group"
 func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "route",
-		Description: "route entries to named legs based on conditions; unmatched entries are rejected with a warning",
+		Description: "route entries to named ports based on conditions; unmatched entries are rejected with a warning",
 		Role:        plugin.RoleProcessor,
-		Produces:    []string{entry.FieldRouteLeg},
+		Produces:    []string{entry.FieldRoutePort},
 		Factory:     newRoutePlugin,
 		Validate:    validateRoute,
 		Schema: []plugin.FieldSchema{
@@ -49,13 +49,13 @@ func init() {
 
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "route_selector",
-		Description: "internal: passes only entries whose _route_leg matches the configured leg name",
+		Description: "internal: passes only entries whose _route_port matches the configured port name",
 		Role:        plugin.RoleProcessor,
-		Requires:    plugin.RequireAll(entry.FieldRouteLeg),
+		Requires:    plugin.RequireAll(entry.FieldRoutePort),
 		Internal:    true,
 		Factory:     newSelectorPlugin,
 		Validate: func(cfg map[string]any) []error {
-			return plugin.OptUnknownKeys(cfg, "route_selector", "_route_leg_name", RouteGroupKey)
+			return plugin.OptUnknownKeys(cfg, "route_selector", "_route_port_name", RouteGroupKey)
 		},
 	})
 }
@@ -120,19 +120,19 @@ func (p *routePlugin) Process(ctx context.Context, tc *plugin.TaskContext, entri
 		for _, r := range p.rules {
 			ok, err := r.expr.Eval(data)
 			if err != nil {
-				tc.Logger.Warn("route: expression error", "leg", r.name, "entry", e.Title, "err", err)
+				tc.Logger.Warn("route: expression error", "port", r.name, "entry", e.Title, "err", err)
 				continue
 			}
 			if ok {
-				e.Set(entry.FieldRouteLeg, r.name)
+				e.Set(entry.FieldRoutePort, r.name)
 				e.Accept()
 				matched = true
 				break
 			}
 		}
 		if !matched {
-			tc.Logger.Warn("route: no leg matched", "entry", e.Title)
-			e.Reject("route: no leg matched")
+			tc.Logger.Warn("route: no port matched", "entry", e.Title)
+			e.Reject("route: no port matched")
 		}
 	}
 	return entry.PassThrough(entries), nil
@@ -141,15 +141,15 @@ func (p *routePlugin) Process(ctx context.Context, tc *plugin.TaskContext, entri
 // ── route_selector ───────────────────────────────────────────────────────────
 
 type selectorPlugin struct {
-	legName string
+	portName string
 }
 
 func newSelectorPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
-	name, _ := cfg["_route_leg_name"].(string)
+	name, _ := cfg["_route_port_name"].(string)
 	if name == "" {
-		return nil, fmt.Errorf("route_selector: missing _route_leg_name")
+		return nil, fmt.Errorf("route_selector: missing _route_port_name")
 	}
-	return &selectorPlugin{legName: name}, nil
+	return &selectorPlugin{portName: name}, nil
 }
 
 func (p *selectorPlugin) Name() string { return "route_selector" }
@@ -159,8 +159,8 @@ func (p *selectorPlugin) Process(_ context.Context, _ *plugin.TaskContext, entri
 		if e.IsRejected() || e.IsFailed() {
 			continue
 		}
-		if leg, _ := e.Get(entry.FieldRouteLeg); leg != p.legName {
-			e.Reject(fmt.Sprintf("route_selector: entry belongs to leg %q, not %q", leg, p.legName))
+		if port, _ := e.Get(entry.FieldRoutePort); port != p.portName {
+			e.Reject(fmt.Sprintf("route_selector: entry belongs to port %q, not %q", port, p.portName))
 		}
 	}
 	return entry.PassThrough(entries), nil

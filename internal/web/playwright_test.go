@@ -1168,8 +1168,8 @@ func TestPlaywrightListFunctionBadgeAndConnection(t *testing.T) {
 
 // ── route() node tests ────────────────────────────────────────────────────────
 
-// routeConfig has a route() node with two legs: series and movies.
-// Both legs feed separate seen processors that merge at a print sink.
+// routeConfig has a route() node with two ports: series and movies.
+// Both ports feed separate seen processors that merge at a print sink.
 const routeConfig = `
 src    = input("rss", url="https://example.com/rss")
 routes = route(src,
@@ -1181,11 +1181,11 @@ output("print", upstream=merge(series_path, movies_path))
 pipeline("branched", schedule="1h")
 `
 
-// TestPlaywrightRouteNodeRendersLegs verifies that:
+// TestPlaywrightRouteNodeRendersPorts verifies that:
 //  1. A route() node appears on the canvas.
-//  2. Named leg ports appear on the route card (one per rule).
+//  2. Named port circles appear on the route card (one per rule).
 //  3. No standalone route_selector chip nodes are visible on the canvas.
-func TestPlaywrightRouteNodeRendersLegs(t *testing.T) {
+func TestPlaywrightRouteNodeRendersPorts(t *testing.T) {
 	ts := startTestServer(t, routeConfig)
 	browser, stop := pwSetup(t)
 	defer stop()
@@ -1204,18 +1204,18 @@ func TestPlaywrightRouteNodeRendersLegs(t *testing.T) {
 		t.Errorf("route node not visible on canvas: %v", err)
 	}
 
-	// 2. Named leg port circles must appear on the route card (one per rule).
-	legPorts := page.Locator(`.ve-route-leg-port`)
-	count, err := legPorts.Count()
+	// 2. Named port circles must appear on the route card (one per rule).
+	portList := page.Locator(`.ve-route-port`)
+	count, err := portList.Count()
 	if err != nil {
-		t.Fatalf("count route leg ports: %v", err)
+		t.Fatalf("count route ports: %v", err)
 	}
 	if count != 2 {
-		t.Errorf("want 2 leg port circles on route card, got %d", count)
+		t.Errorf("want 2 port circles on route card, got %d", count)
 	}
 
 	// 3. No standalone route_selector chip nodes on the canvas.
-	chips, _ := page.Locator(`.ve-node.ve-node-route-leg`).Count()
+	chips, _ := page.Locator(`.ve-node.ve-node-route-port`).Count()
 	if chips != 0 {
 		t.Errorf("route_selector should not appear as standalone canvas nodes, got %d", chips)
 	}
@@ -1258,7 +1258,7 @@ func TestPlaywrightRouteNodeParamPanel(t *testing.T) {
 
 // TestPlaywrightRouteCodegenRoundTrip verifies that loading a route() config
 // in visual mode and switching back to text produces valid Starlark that
-// contains route() syntax and the correct leg references.
+// contains route() syntax and the correct port references.
 func TestPlaywrightRouteCodegenRoundTrip(t *testing.T) {
 	ts := startTestServer(t, routeConfig)
 	browser, stop := pwSetup(t)
@@ -1281,12 +1281,12 @@ func TestPlaywrightRouteCodegenRoundTrip(t *testing.T) {
 	if !strings.Contains(generated, "route(") {
 		t.Errorf("generated config missing route() call:\n%s", generated)
 	}
-	// Must contain leg references (routeNodeId.series / routeNodeId.movies).
+	// Must contain port references (routeNodeId.series / routeNodeId.movies).
 	if !strings.Contains(generated, ".series") {
-		t.Errorf("generated config missing .series leg reference:\n%s", generated)
+		t.Errorf("generated config missing .series port reference:\n%s", generated)
 	}
 	if !strings.Contains(generated, ".movies") {
-		t.Errorf("generated config missing .movies leg reference:\n%s", generated)
+		t.Errorf("generated config missing .movies port reference:\n%s", generated)
 	}
 	// Must NOT contain route_selector (internal plugin, should not appear).
 	if strings.Contains(generated, "route_selector") {
@@ -1294,11 +1294,11 @@ func TestPlaywrightRouteCodegenRoundTrip(t *testing.T) {
 	}
 }
 
-// TestPlaywrightRouteLegPortsOnCard verifies the expected route node UX:
+// TestPlaywrightRoutePortsOnCard verifies the expected route node UX:
 //  1. Each rule produces one named port circle on the bottom of the route card.
-//  2. The port circle carries a tooltip with the leg name.
+//  2. The port circle carries a tooltip with the port name.
 //  3. Separate route_selector chip nodes are NOT visible as standalone canvas nodes.
-func TestPlaywrightRouteLegPortsOnCard(t *testing.T) {
+func TestPlaywrightRoutePortsOnCard(t *testing.T) {
 	ts := startTestServer(t, routeConfig)
 	browser, stop := pwSetup(t)
 	defer stop()
@@ -1317,33 +1317,33 @@ func TestPlaywrightRouteLegPortsOnCard(t *testing.T) {
 		t.Fatalf("route node not visible: %v", err)
 	}
 
-	// 1. Exactly two leg ports must be visible on the route card.
-	legPorts := page.Locator(`.ve-route-leg-port`)
-	count, err := legPorts.Count()
+	// 1. Exactly two port circles must be visible on the route card.
+	portList := page.Locator(`.ve-route-port`)
+	count, err := portList.Count()
 	if err != nil {
-		t.Fatalf("count leg ports: %v", err)
+		t.Fatalf("count ports: %v", err)
 	}
 	if count != 2 {
-		t.Errorf("want 2 leg ports on the route card (one per rule), got %d", count)
+		t.Errorf("want 2 ports on the route card (one per rule), got %d", count)
 	}
 
-	// 2. Each port carries a data-leg attribute with the leg name.
-	seriesPort := page.Locator(`.ve-route-leg-port[data-leg="series"]`)
+	// 2. Each port carries a data-port attribute with the port name.
+	seriesPort := page.Locator(`.ve-route-port[data-port="series"]`)
 	if err := seriesPort.WaitFor(playwright.LocatorWaitForOptions{
 		State: playwright.WaitForSelectorStateAttached,
 	}); err != nil {
-		t.Errorf("no port with data-leg=\"series\" found: %v", err)
+		t.Errorf("no port with data-port=\"series\" found: %v", err)
 	}
 
-	moviesPort := page.Locator(`.ve-route-leg-port[data-leg="movies"]`)
+	moviesPort := page.Locator(`.ve-route-port[data-port="movies"]`)
 	if err := moviesPort.WaitFor(playwright.LocatorWaitForOptions{
 		State: playwright.WaitForSelectorStateAttached,
 	}); err != nil {
-		t.Errorf("no port with data-leg=\"movies\" found: %v", err)
+		t.Errorf("no port with data-port=\"movies\" found: %v", err)
 	}
 
 	// 3. route_selector nodes must NOT appear as visible standalone canvas nodes.
-	selectorNodes := page.Locator(`.ve-node-route-leg`)
+	selectorNodes := page.Locator(`.ve-node-route-port`)
 	selectorCount, err := selectorNodes.Count()
 	if err != nil {
 		t.Fatalf("count selector nodes: %v", err)
