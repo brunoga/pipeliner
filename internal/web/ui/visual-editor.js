@@ -231,7 +231,7 @@ function renderPalette(filter) {
       chipHtml.push(`<div class="ve-role-header" data-role="${role}">${ROLE_LABEL[role]}</div>`);
       chipHtml.push(`<div class="ve-role-chips" id="ve-role-${role}">`);
       for (const p of group) {
-        chipHtml.push(`<button class="ve-chip" data-role="${role}" disabled title="${esc(p.description)}">${esc(p.name)}</button>`);
+        chipHtml.push(`<button class="ve-chip" data-role="${role}" disabled data-tip="${esc(p.description)}">${esc(p.name)}</button>`);
       }
       chipHtml.push('</div>');
     }
@@ -254,7 +254,7 @@ function renderPalette(filter) {
       const fnCls     = fd.is_search_plugin ? ' ve-chip-search' : fd.is_list_plugin ? ' ve-chip-list' : '';
       html.push(`<span class="ve-chip-fn-wrap" data-role="${fd.role}">
         <button class="ve-chip ve-chip-fn${fnCls}" data-role="${fd.role}" draggable="true"
-          title="${esc(fd.description || fd.name)}"
+          data-tip="${esc(fd.comment || fd.description || fd.name)}"
           ondragstart="paletteDragStart(event,${esc(JSON.stringify(fd.name))})"
           onclick="addNodeFromPalette(${esc(JSON.stringify(fd.name))})">
           ${esc(fd.name)}${fnBadge}</button
@@ -284,7 +284,7 @@ function renderPalette(filter) {
       const extraTip = p.is_search_plugin ? '\n(drag onto a discover node\'s search port to use as a search backend)'
                      : p.is_list_plugin   ? '\n(drag onto a series/movies node\'s list port as a list source)' : '';
       html.push(`<button class="ve-chip${extraCls}" data-role="${role}" draggable="true"
-        title="${esc(p.description)}${extraTip}"
+        data-tip="${esc(p.description + extraTip)}"
         ondragstart="paletteDragStart(event,${esc(JSON.stringify(p.name))})"
         onclick="addNodeFromPalette(${esc(JSON.stringify(p.name))})">${esc(p.name)}${searchBadge}</button>`);
     }
@@ -473,6 +473,7 @@ function multiSelectIsValid() {
 function veRender() { renderCanvas(); renderParamPanel(); syncPaletteState(); }
 
 function renderCanvas() {
+  veTooltipHide();
   // Empty-hint only shows when there are zero pipelines.
   const hint = document.getElementById('ve-empty-hint');
   if (hint) hint.style.display = ve.graphs.length === 0 ? '' : 'none';
@@ -554,6 +555,12 @@ function renderGraphNodes() {
       div.dataset.isListNd   = isList   ? 'true' : 'false';
       div.style.left = (n.x ?? 60) + 'px';
       div.style.top  = (n.y ?? 60) + 'px';
+      const nodeTip = nodeTooltipText(n, meta);
+      if (nodeTip) {
+        div.addEventListener('mouseenter', e => veTooltipShow(nodeTip, e));
+        div.addEventListener('mousemove',  veTooltipMove);
+        div.addEventListener('mouseleave', veTooltipHide);
+      }
       const commentPreview = n.comment?.trim()
         ? `<div class="ve-node-comment-preview">${esc(n.comment.trim().split('\n')[0])}</div>` : '';
       const commentBtnCls = n.comment?.trim() ? ' has-comment' : '';
@@ -1552,6 +1559,22 @@ function fitVisualEditor() {
 function initCanvasEvents() {
   const canvas = document.getElementById('ve-graph-canvas');
   if (!canvas) return;
+
+  // Palette chip tooltips via event delegation (chips are re-rendered on every
+  // filter change so individual listeners would need to be re-added each time).
+  const paletteBody = document.getElementById('ve-palette-body');
+  if (paletteBody) {
+    paletteBody.addEventListener('mouseover', e => {
+      const chip = e.target.closest('[data-tip]');
+      if (chip && chip.dataset.tip) veTooltipShow(chip.dataset.tip, e);
+    });
+    paletteBody.addEventListener('mousemove', e => {
+      if (e.target.closest('[data-tip]')) veTooltipMove(e);
+    });
+    paletteBody.addEventListener('mouseout', e => {
+      if (!e.relatedTarget?.closest('[data-tip]')) veTooltipHide();
+    });
+  }
 
   // Re-fit the layout on every window resize so the page never scrolls.
   window.addEventListener('resize', fitVisualEditor);
@@ -2938,7 +2961,7 @@ function inferExtractionParams() {
 }
 
 // nodesToFunctionSource generates the Starlark def block text for the extracted function.
-function nodesToFunctionSource(funcName, params, selectedIds, validation, graph) {
+function nodesToFunctionSource(funcName, params, selectedIds, validation, graph, comment = '') {
   const {entryUpstreams, returnNodeId} = validation;
 
   // Map: nodeId → configKey → paramName (for included params).
@@ -2952,6 +2975,9 @@ function nodesToFunctionSource(funcName, params, selectedIds, validation, graph)
   const ordered = topoSortNodes(selectedNodes);
 
   const lines = [];
+  if (comment?.trim()) {
+    for (const cl of comment.trim().split('\n')) lines.push(`# ${cl}`);
+  }
   for (const p of params) {
     if (p.include) {
       // Persist non-string types so they survive a restart (the signature has
@@ -3070,6 +3096,10 @@ function openExtractDialog() {
           <label>Function name</label>
           <input type="text" id="ve-extract-name" value="${esc(suggestedName)}" placeholder="my_function" spellcheck="false">
         </div>
+        <div class="ve-extract-field">
+          <label>Comment <span style="font-weight:400;text-transform:none;letter-spacing:0">(optional)</span></label>
+          <textarea id="ve-extract-comment" rows="2" placeholder="Describe what this function does…"></textarea>
+        </div>
         ${params.length ? `
         <div class="ve-extract-field">
           <label>Parameters <span style="font-weight:400;text-transform:none;letter-spacing:0">(uncheck to hardcode the value)</span></label>
@@ -3101,6 +3131,7 @@ function openExtractDialog() {
       errEl.textContent = 'Function name must be a valid identifier (letters, digits, underscores).';
       return;
     }
+    const comment = document.getElementById('ve-extract-comment').value.trim();
     // Read back param state from the table.
     const tbody = document.getElementById('ve-extract-params');
     if (tbody) {
@@ -3120,7 +3151,7 @@ function openExtractDialog() {
       return;
     }
     close();
-    performExtraction(name, params, validation, graphIdx);
+    performExtraction(name, params, validation, graphIdx, comment);
   };
 
   document.getElementById('ve-extract-name').focus();
@@ -3129,13 +3160,13 @@ function openExtractDialog() {
 
 // performExtraction replaces the selected nodes with a function call node and
 // registers the new user function definition.
-function performExtraction(funcName, params, validation, graphIdx) {
+function performExtraction(funcName, params, validation, graphIdx, comment = '') {
   const {entryUpstreams, returnNodeId} = validation;
   const selectedIds = new Set(ve.selectedNodeIds); // snapshot before clearing
   const g = ve.graphs[graphIdx];
 
   // Generate the function source text.
-  const sourceText = nodesToFunctionSource(funcName, params, selectedIds, validation, g);
+  const sourceText = nodesToFunctionSource(funcName, params, selectedIds, validation, g, comment);
 
   // Infer role from body.
   const role = sourceText.includes(' = input(') ? 'source'
@@ -3205,6 +3236,7 @@ function performExtraction(funcName, params, validation, graphIdx) {
     name:           funcName,
     role,
     description:    '',
+    comment:        comment,
     params:         params.filter(p => p.include).map(p => ({
       key: p.paramName, type: p.type, required: true, default: null, hint: p.hint || '',
     })),
@@ -3362,6 +3394,20 @@ async function expandAndRemoveFunction(funcName) {
   renderPalette(document.getElementById('ve-search')?.value ?? '');
   veRender();
   onModelChange();
+}
+
+// parseFunctionComment extracts user-written comment lines from a function's
+// source text — lines before def that are not pipeliner: machine comments.
+function parseFunctionComment(sourceText) {
+  if (!sourceText) return '';
+  const lines = [];
+  for (const line of sourceText.split('\n')) {
+    if (/^def\s/.test(line)) break;
+    if (line.startsWith('#') && !line.startsWith('# pipeliner:')) {
+      lines.push(line.startsWith('# ') ? line.slice(2) : line.slice(1));
+    }
+  }
+  return lines.join('\n');
 }
 
 // extractFunctionSource returns the full text of a user function (including its
@@ -3640,16 +3686,17 @@ function openFunctionEditor(funcName) {
 
   // Snapshot current canvas state for restoration on exit.
   ve.fnEditor = {
-    active:         true,
+    active:          true,
     funcName,
-    savedGraphs:    ve.graphs,
-    savedActive:    ve.activeGraph,
-    savedNextId:    ve.nextId,
-    savedSelected:  ve.selectedNodeId,
+    savedGraphs:     ve.graphs,
+    savedActive:     ve.activeGraph,
+    savedNextId:     ve.nextId,
+    savedSelected:   ve.selectedNodeId,
     returnNodeId,
     // Snapshot of params at open time (for change detection on save).
-    paramsSnapshot: JSON.parse(JSON.stringify(fd.params || [])),
-    paramsOpen:     false,
+    paramsSnapshot:  JSON.parse(JSON.stringify(fd.params || [])),
+    paramsOpen:      false,
+    commentSnapshot: fd.comment || '',
   };
 
   const hasStoredLayout = allNodes.some(n => !n.isSearchNode && !n.isListNode && n.x != null && n.y != null);
@@ -3678,6 +3725,8 @@ function openFunctionEditor(funcName) {
   if (fbar) fbar.style.display = '';
   const nameInput = document.getElementById('ve-fn-bar-name');
   if (nameInput) nameInput.value = funcName;
+  const commentBtn = document.getElementById('ve-fn-bar-comment-btn');
+  if (commentBtn) commentBtn.classList.toggle('has-comment', !!(fd.comment?.trim()));
 
   initLayout();
   veRender();
@@ -3741,10 +3790,11 @@ function saveFunctionEditor() {
     }
   }
 
-  const newSourceText = nodesToFunctionSource(ve.fnEditor.funcName, fnParams, selectedIds, validation, g);
+  const newSourceText = nodesToFunctionSource(ve.fnEditor.funcName, fnParams, selectedIds, validation, g, ve.fnEditor.commentSnapshot || '');
 
   fd._sourceText = newSourceText;
   fd.params      = currentParams;
+  fd.comment     = ve.fnEditor.commentSnapshot || '';
   fd.role        = newSourceText.includes(' = input(') ? 'source'
                  : newSourceText.includes(' = output(') ? 'sink' : 'processor';
 
@@ -3848,6 +3898,21 @@ function fnSyncCallSiteParams(funcName, oldParams, newParams) {
       }
     }
   }
+}
+
+// fnEditorEditComment opens the text popup to edit the function's comment.
+function fnEditorEditComment() {
+  if (!ve.fnEditor.active) return;
+  openTextPopup(
+    `Comment — function "${ve.fnEditor.funcName}"`,
+    'Enter a comment (shown above the function definition in the config file)…',
+    ve.fnEditor.commentSnapshot || '',
+    text => {
+      ve.fnEditor.commentSnapshot = text;
+      const btn = document.getElementById('ve-fn-bar-comment-btn');
+      if (btn) btn.classList.toggle('has-comment', !!text.trim());
+    }
+  );
 }
 
 // ── function editor parameter management ──────────────────────────────────────
@@ -4360,6 +4425,7 @@ async function textToVisualSync() {
     for (const fd of (data.functions || [])) {
       ve.userFunctions[fd.name] = fd;
       fd._sourceText = extractFunctionSource(content, fd.name);
+      fd.comment = parseFunctionComment(fd._sourceText);
     }
 
     ve.syncing = true;
@@ -4546,6 +4612,51 @@ async function textToVisualSync() {
 function setSyncNote(msg) {
   const el = document.getElementById('ve-sync-note');
   if (el) el.textContent = msg;
+}
+
+// ── canvas node tooltip ───────────────────────────────────────────────────────
+
+// nodeTooltipText returns the hover tooltip string for a canvas node:
+// the node's own comment takes priority; for function-call nodes the fallback
+// is the function definition's comment then its description; for regular plugin
+// nodes the fallback is the plugin's description.
+function nodeTooltipText(n, meta) {
+  if (n.comment?.trim()) return n.comment.trim();
+  if (n.isFunctionCall) {
+    const fd = ve.userFunctions[n.plugin];
+    return fd?.comment?.trim() || fd?.description || '';
+  }
+  return meta?.description || '';
+}
+
+let _veTooltipTimer = null;
+
+function veTooltipShow(text, e) {
+  clearTimeout(_veTooltipTimer);
+  _veTooltipTimer = setTimeout(() => {
+    let tip = document.getElementById('ve-node-tooltip');
+    if (!tip) {
+      tip = document.createElement('div');
+      tip.id = 've-node-tooltip';
+      document.body.appendChild(tip);
+    }
+    tip.textContent = text;
+    tip.style.display = 'block';
+    veTooltipMove(e);
+  }, 600);
+}
+
+function veTooltipMove(e) {
+  const tip = document.getElementById('ve-node-tooltip');
+  if (!tip || tip.style.display === 'none') return;
+  tip.style.left = (e.clientX + 14) + 'px';
+  tip.style.top  = (e.clientY + 18) + 'px';
+}
+
+function veTooltipHide() {
+  clearTimeout(_veTooltipTimer);
+  const tip = document.getElementById('ve-node-tooltip');
+  if (tip) tip.style.display = 'none';
 }
 
 // ── text pop-up editor ────────────────────────────────────────────────────────

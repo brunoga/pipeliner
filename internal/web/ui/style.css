@@ -619,6 +619,12 @@ section { margin-bottom: 32px; }
   padding:5px 8px; color:var(--text); font-size:13px; outline:none;
 }
 .ve-extract-field input[type=text]:focus { border-color:var(--accent); }
+.ve-extract-field textarea {
+  background:var(--input-bg,#1e1e1e); border:1px solid var(--border); border-radius:4px;
+  padding:5px 8px; color:var(--text); font-size:13px; outline:none; resize:vertical;
+  font-family:inherit; line-height:1.4;
+}
+.ve-extract-field textarea:focus { border-color:var(--accent); }
 .ve-extract-error { color:var(--red); font-size:12px; padding:4px 0; }
 .ve-extract-param-table { width:100%; border-collapse:collapse; font-size:12px; }
 .ve-extract-param-table th {
@@ -1124,6 +1130,14 @@ section { margin-bottom: 32px; }
 .ve-fn-bar-params-btn:hover,.ve-fn-bar-params-btn.active {
   color:var(--text); border-color:var(--text);
 }
+.ve-fn-bar-comment-btn {
+  padding:3px 8px; background:transparent; border:1px solid var(--border);
+  border-radius:5px; color:var(--muted); cursor:pointer; font-size:12px; font-weight:600;
+  transition:color .15s,border-color .15s;
+}
+.ve-fn-bar-comment-btn:hover,.ve-fn-bar-comment-btn.has-comment {
+  color:var(--text); border-color:var(--text);
+}
 .ve-fn-bar-spacer { flex:1; }
 .ve-fn-bar-save {
   padding:4px 14px; background:transparent; border:1px solid var(--green);
@@ -1372,6 +1386,15 @@ section { margin-bottom: 32px; }
 
 
 /* ── multiline text pop-up editor ──────────────────────────────────────────── */
+/* Canvas node hover tooltip */
+#ve-node-tooltip {
+  display:none; position:fixed; z-index:3000; pointer-events:none;
+  background:#1c2128; border:1px solid #444c56; border-radius:5px;
+  padding:5px 9px; font-size:12px; color:var(--text);
+  max-width:260px; white-space:pre-wrap; word-break:break-word; line-height:1.4;
+  box-shadow:0 3px 10px rgba(0,0,0,.5);
+}
+
 .ve-text-popup {
   display:none; position:fixed; inset:0;
   background:rgba(0,0,0,.55); z-index:2000;
