@@ -8,6 +8,8 @@ Reads metadata from a `.torrent` file and annotates entries with its contents. I
 
 Entries with `torrent_link_type = "magnet"` are always skipped (handled by `metainfo_magnet`).
 
+If the `.torrent` file cannot be fetched or parsed, the entry is failed so it will be retried on the next run rather than passing through without metadata.
+
 ## Config
 
 | Key | Type | Required | Default | Description |
