@@ -164,6 +164,7 @@ func (p *torrentPlugin) Process(ctx context.Context, tc *plugin.TaskContext, ent
 		}
 		if err := p.annotate(ctx, tc, e); err != nil {
 			tc.Logger.Warn("metainfo_torrent error", "entry", e.Title, "err", err)
+			e.Fail(err.Error())
 		}
 	}
 	return entries, nil
