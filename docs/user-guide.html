@@ -619,7 +619,7 @@ pipeline("split-pipeline")</code></pre>
 <!-- ═══════════════════════════════════════════════════════════ -->
 <h2 id="expressions">Expression Language</h2>
 
-<p>Used by the <code>condition</code> filter, <code>route()</code> leg conditions, and anywhere a boolean expression is accepted. Identifiers resolve to entry fields; unknown fields return <code>""</code>.</p>
+<p>Used by the <code>condition</code> filter, <code>route()</code> port conditions, and anywhere a boolean expression is accepted. Identifiers resolve to entry fields; unknown fields return <code>""</code>.</p>
 
 <h3>Operators</h3>
 <table>
@@ -1128,7 +1128,7 @@ pipeline("tv-dynamic", schedule="1h")</code></pre>
 
 <!-- ─────────── route ─────────── -->
 <h2 id="route">route()</h2>
-<p>Routes entries to named legs based on ordered boolean conditions. The first matching leg accepts the entry; entries that match no leg are rejected with a warning log. <code>route()</code> is a <strong>Starlark builtin</strong>, not a plugin — it is used directly in the config, not with <code>process()</code>.</p>
+<p>Routes entries to named ports based on ordered boolean conditions. The first matching port accepts the entry; entries that match no port are rejected with a warning log. <code>route()</code> is a <strong>Starlark builtin</strong>, not a plugin — it is used directly in the config, not with <code>process()</code>.</p>
 
 <pre><code>routes = route(upstream_node,
     series = "series_episode_id != ''",
@@ -1139,22 +1139,22 @@ output("transmission", upstream=merge(series_path, movies_path), host="localhost
 pipeline("mixed", schedule="1h")</code></pre>
 
 <h4>Syntax</h4>
-<pre><code>handles = route(upstream, leg_name="condition", ...)</code></pre>
+<pre><code>handles = route(upstream, port_name="condition", ...)</code></pre>
 <ul>
-  <li><strong>Leg order matters</strong> — conditions are evaluated in declaration order; the first match wins.</li>
-  <li><strong>No match</strong> — entry is rejected with reason <code>"route: no leg matched"</code> and a <code>WARN</code> log line. Nothing is silently dropped.</li>
-  <li><strong>Leg handles</strong> — attribute access on the returned object (<code>routes.series</code>, <code>routes.movies</code>). Each handle is a valid <code>upstream=</code> argument.</li>
+  <li><strong>Port order matters</strong> — conditions are evaluated in declaration order; the first match wins.</li>
+  <li><strong>No match</strong> — entry is rejected with reason <code>"route: no port matched"</code> and a <code>WARN</code> log line. Nothing is silently dropped.</li>
+  <li><strong>Port handles</strong> — attribute access on the returned object (<code>routes.series</code>, <code>routes.movies</code>). Each handle is a valid <code>upstream=</code> argument.</li>
   <li><strong>Condition syntax</strong> — same expression language as the <code>condition</code> filter. See the <a href="#expressions">Expression Language</a> section.</li>
 </ul>
 
-<img src="images/ui-route-visual.png" alt="Visual editor showing a route() node with tv and movies leg ports connecting to separate print sinks" class="screenshot">
-<p class="screenshot-caption">The <code>route()</code> node shows one named leg port per condition. Each leg feeds an independent downstream chain.</p>
+<img src="images/ui-route-visual.png" alt="Visual editor showing a route() node with tv and movies port circles connecting to separate print sinks" class="screenshot">
+<p class="screenshot-caption">The <code>route()</code> node shows one named port per condition. Each port feeds an independent downstream chain.</p>
 
 <h4>Why route() instead of separate condition filters?</h4>
 <p>Separate <code>condition</code> filters with fan-out achieve the same routing, but the DAG validator emits soft <code>~</code> warnings at the merge point because it sees two branches with different field sets. <code>route()</code> declares the branches are mutually exclusive, so the validator uses union semantics at the merge — no spurious warnings, and the intent is explicit.</p>
 
 <h4>Fields set</h4>
-<p><code>_route_leg</code> (string) — name of the matched leg (e.g. <code>"series"</code>). Available to downstream plugins including <code>pathfmt</code> templates, <code>condition</code> expressions, and <code>exec</code> commands.</p>
+<p><code>_route_port</code> (string) — name of the matched port (e.g. <code>"series"</code>). Available to downstream plugins including <code>pathfmt</code> templates, <code>condition</code> expressions, and <code>exec</code> commands.</p>
 
 <!-- ─────────── torrentalive ─────────── -->
 <h2 id="torrentalive">torrentalive</h2>

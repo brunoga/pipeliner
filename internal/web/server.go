@@ -578,9 +578,9 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 		X               *float64        `json:"x,omitempty"`
 		Y               *float64        `json:"y,omitempty"`
 		FunctionCallKey string          `json:"function_call_key,omitempty"`
-		// Route leg fields — set on route_selector nodes.
-		IsRouteLeg   bool   `json:"is_route_leg,omitempty"`
-		RouteLegName string `json:"route_leg_name,omitempty"`
+		// Route port fields — set on route_selector nodes.
+		IsRoutePort   bool   `json:"is_route_port,omitempty"`
+		RoutePortName string `json:"route_port_name,omitempty"`
 		RouteParentID string `json:"route_parent_id,omitempty"`
 	}
 	type funcCallResp struct {
@@ -701,7 +701,7 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 			}
 			// Strip internal route fields from the config before sending to UI.
 			delete(cfg, "_route_group")
-			delete(cfg, "_route_leg_name")
+			delete(cfg, "_route_port_name")
 
 			nr := nodeResp{
 				ID:              string(n.ID),
@@ -713,10 +713,10 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 				Comment:         nodeComments[string(n.ID)],
 				FunctionCallKey: nodeCallKey[string(n.ID)],
 			}
-			// Populate route leg fields for route_selector nodes.
+			// Populate route port fields for route_selector nodes.
 			if n.PluginName == "route_selector" {
-				nr.IsRouteLeg = true
-				nr.RouteLegName, _ = n.Config["_route_leg_name"].(string)
+				nr.IsRoutePort = true
+				nr.RoutePortName, _ = n.Config["_route_port_name"].(string)
 				// Parent is the single upstream route node.
 				if len(n.Upstreams) == 1 {
 					nr.RouteParentID = string(n.Upstreams[0])

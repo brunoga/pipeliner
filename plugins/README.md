@@ -50,7 +50,7 @@ Not every stage is required. A simple news-to-email pipeline might just be `rss 
 | [`regexp`](processor/filter/regexp/README.md) | Accept or reject entries by regular expression |
 | [`exists`](processor/filter/exists/README.md) | Reject entries whose target file already exists on disk |
 | [`condition`](processor/filter/condition/README.md) | Accept or reject entries using boolean expressions |
-| [`route`](processor/filter/route/README.md) | Route entries to named mutually-exclusive legs based on ordered boolean conditions |
+| [`route`](processor/filter/route/README.md) | Route entries to named mutually-exclusive ports based on ordered boolean conditions |
 | [`content`](processor/filter/content/README.md) | Reject or require entries based on torrent file contents |
 | [`premiere`](processor/filter/premiere/README.md) | Accept the first episode of previously unseen series (automatic show discovery) |
 | [`torrentalive`](processor/filter/torrentalive/README.md) | Reject torrents with no active seeders |
