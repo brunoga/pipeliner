@@ -1,30 +1,22 @@
 # exec
 
-Runs a shell command for each accepted entry. The command is a Go template rendered against the entry's field map.
+Runs a command for each accepted entry. The command string is a template rendered against the entry, then split on whitespace and executed directly — there is no shell. Pipes, globs, redirects, and shell variable expansion are not supported.
 
 ## Config
 
-| Key | Type | Required | Default | Description |
-|-----|------|----------|---------|-------------|
-| `command` | string | yes | — | Shell command template |
+| Key | Required | Default | Description |
+|-----|----------|---------|-------------|
+| `command` | yes | — | Command template; split on whitespace and executed directly |
 
 ## Example
 
 ```python
-output("exec", upstream=ready,
-       command='notify-send "New" "{{.Title}}"' )
+src  = input("filesystem", path="/downloads", mask="*.torrent")
+meta = process("metainfo_torrent", upstream=src)
+output("exec", upstream=meta,
+       command="transmission-remote --add {file_location}")
+pipeline("watch-folder", schedule="1m")
 ```
-
-```python
-output("exec", upstream=ready,
-       command='notify-send "New" "{{.Title}}"' )
-```
-
-## Notes
-
-- Commands are executed via the system shell (`/bin/sh -c`).
-- Errors are logged as warnings; processing continues for remaining entries.
-- Quote paths carefully — filenames with spaces require quoting inside the template.
 
 ## DAG role
 
@@ -33,3 +25,9 @@ output("exec", upstream=ready,
 | Role | `sink` |
 | Produces | — |
 | Requires | — |
+
+## Notes
+
+- The command is split on whitespace — arguments with spaces must be handled by designing the command so spaces don't appear in interpolated values, or by using a wrapper script.
+- Command errors are logged at error level; processing continues for remaining entries (the entry is not marked failed).
+- Template functions (`upper`, `lower`, `scrub`, `replace`, etc.) are available — use `{title | scrub}` to produce filesystem-safe names.

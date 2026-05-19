@@ -55,7 +55,7 @@ Enriches movie entries with metadata from The Movie Database (TMDb). Searches by
 The plugin resolves movies in this order:
 
 1. **By ID** — if the entry carries `trakt_tmdb_id` (set by `trakt_list` or `metainfo_trakt`), the movie is fetched directly by TMDb ID. No search is performed, so there is no ambiguity even when multiple films share the same title (e.g. "Michael" 1996 vs 2026).
-2. **By title + year** — the title is parsed from the entry (torrent release format or plain Trakt title). If no year is found in the title but `trakt_year` is present, that year is used as the search hint.
+2. **By title + year** — the title is parsed from the entry (torrent release format or plain Trakt title). If no year is found in the title but `video_year` is present (set by `trakt_list`), that year is used as the search hint.
 3. **Year-less retry** — if the year-filtered search returns nothing (off-by-one year, regional difference, etc.), the search is retried without a year filter. Results are filtered to candidates whose title fuzzy-matches the searched title, preventing popularity-ranked mismatches (e.g. "Mother's Day" appearing for a search of "Mother").
 
 ## Example
@@ -80,7 +80,7 @@ meta = process("metainfo_tmdb", upstream=flt, api_key=env("TMDB_KEY"))
 ## Notes
 
 - Free API keys at [themoviedb.org/settings/api](https://www.themoviedb.org/settings/api).
-- Entries from `trakt_list` carry both `trakt_tmdb_id` and `trakt_year`, which are used to resolve the correct film unambiguously.
-- Plain Trakt titles (no quality markers, no year suffix) are supported as search terms when `trakt_year` is present.
+- Entries from `trakt_list` carry both `trakt_tmdb_id` and `video_year`, which are used to resolve the correct film unambiguously.
+- Plain Trakt titles (no quality markers, no year suffix) are supported as search terms when `video_year` is present.
 - Results are cached in `pipeliner.db` in the same directory as the config file.
 - Use `enriched` (not `tmdb_id`) to check whether TMDb successfully found metadata: `process("require", upstream=…, fields=["enriched"])`.

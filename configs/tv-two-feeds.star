@@ -1,4 +1,4 @@
-# dag-tv-two-feeds.star
+# tv-two-feeds.star
 #
 # Merge two RSS feeds into a single torrent pipeline.
 #

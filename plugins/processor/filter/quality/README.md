@@ -1,57 +1,38 @@
 # quality
 
-Rejects entries whose parsed video quality falls outside a configured range. At least one of `min`, `max`, or a `+`-suffix spec must be set.
+Rejects entries whose parsed video quality falls outside a configured range. At least one of `min` or `max` must be set. Place `metainfo_quality` upstream so the `video_quality` field is populated before this filter runs.
 
 ## Config
 
-| Key | Type | Required | Default | Description |
-|-----|------|----------|---------|-------------|
-| `min` | string | conditional | — | Minimum quality spec (e.g. `720p`, `webrip`) |
-| `max` | string | conditional | — | Maximum quality spec |
+| Key | Required | Default | Description |
+|-----|----------|---------|-------------|
+| `min` | conditional | — | Minimum quality spec (e.g. `720p`, `webrip`) |
+| `max` | conditional | — | Maximum quality spec (e.g. `1080p`, `bluray`) |
 
-Quality specs are compared across six dimensions: resolution, source, codec, audio, color range, and 3D format. A release must meet or exceed every configured dimension to pass.
+Quality specs are compared across six dimensions: resolution, source, codec, audio, colour range, and 3D format. A release must meet or exceed every configured dimension to pass.
 
 ## Spec syntax
-
-A spec token names a single value or a range for one quality dimension. Tokens are separated by spaces; all must match.
 
 | Form | Meaning | Example |
 |------|---------|---------|
 | `value` | Exact value | `1080p`, `webrip` |
 | `min-max` | Inclusive range | `720p-1080p`, `hdtv-bluray` |
-| `value+` | This value or better (no upper bound) | `720p+`, `dvdrip+` |
+| `value+` | This value or better | `720p+`, `webrip+` |
 
-### Recognized values
+### Recognised values (low → high)
 
-| Dimension | Values (low → high) |
-|-----------|---------------------|
+| Dimension | Values |
+|-----------|--------|
 | Resolution | `sd`, `480p`, `576p`, `720p`, `1080p`, `2160p` / `4k` |
 | Source | `cam`, `ts` / `tc`, `scr`, `dvdrip`, `tvrip`, `hdtv`, `webrip`, `webdl` / `web-dl`, `bluray`, `remux` |
 | Codec | `xvid`, `divx`, `h264` / `x264`, `h265` / `x265` / `hevc`, `av1` |
 | Audio | `mp3`, `aac`, `dd` / `dolbydigital`, `dts`, `truehd`, `atmos` |
-| Color range | `sdr`, `hdr`, `hdr10`, `dv` / `dolbyvision` |
+| Colour range | `sdr`, `hdr`, `hdr10`, `dv` / `dolbyvision` |
 | 3D format | `3d` / `3d-half` / `half`, `3d-full` / `full` / `sbs` / `ou`, `bd3d` / `bd` |
-
-## 3D format dimension
-
-When a 3D token is included in the spec, non-3D entries are rejected automatically — the zero value of Format3D (not 3D) is below any 3D tier. Omitting a 3D token leaves the dimension unconstrained, accepting both 3D and non-3D entries.
-
-```python
-plugin("movies", quality="1080p+ 3d+")   # any 3D at 1080p or better
-plugin("movies", quality="1080p+ bd3d")  # exactly BD3D
-plugin("movies", quality="1080p+")       # unchanged — accepts both 3D and non-3D
-```
 
 ## CAM/TS/SCR rejection
 
-Theater-recorded and pre-release sources are explicitly detected and ranked at the bottom of the source hierarchy (`CAM < TS < SCR < DVDRip`). Any source constraint rejects them automatically — no extra condition needed:
-
-```python
-plugin("movies", quality="1080p+ webrip+")  # rejects CAM, TS, SCR, DVDRip, TVRip, HDTV
-plugin("movies", quality="1080p+ dvdrip+")  # rejects CAM, TS, SCR only
-```
-
-Detected tokens:
+Theater-recorded and pre-release sources sit at the bottom of the source hierarchy. Any `webrip+` or higher spec automatically rejects them — no extra condition needed.
 
 | Source | Detected markers |
 |--------|-----------------|
@@ -59,42 +40,32 @@ Detected tokens:
 | `TS` | `TS`, `HDTS`, `TC`, `HDTC`, `TELESYNC`, `TELECINE` |
 | `SCR` | `SCR`, `SCREENER`, `DVDScr`, `DVDScreener`, `BDScr` |
 
-## Example — standalone filter plugin
+## Example
 
 ```python
 src = input("rss", url="https://example.com/rss")
 q   = process("metainfo_quality", upstream=src)
-flt = process("quality", upstream=q, min="720p")
+flt = process("quality", upstream=q, min="720p webrip+")
 acc = process("accept_all", upstream=flt)
 output("transmission", upstream=acc, host="localhost")
-pipeline("hd-only")
+pipeline("hd-only", schedule="1h")
 ```
 
-## Example — inline quality spec in series / movies / premiere
-
-The `series`, `movies`, and `premiere` filters accept a `quality` key directly, eliminating the need for a separate `quality` plugin:
+The `series`, `movies`, and `premiere` plugins accept a `quality=` key directly, eliminating the need for a separate `quality` node:
 
 ```python
-task("tv", [
-    plugin("rss", url="https://example.com/feed"),
-    plugin("series", static=["Breaking Bad"], quality="720p+ webrip+"),
-])
+series = process("series", upstream=seen, static=["Breaking Bad"], quality="720p+ webrip+")
+```
 
 ## DAG role
 
 | Property | Value |
 |----------|-------|
 | Role | `processor` |
-| Produces | `quality` (internal parsed quality string) |
+| Produces | `quality` (parsed quality string, usable in condition expressions) |
 | Requires | — |
 
-Place `metainfo_quality` upstream of `quality` in DAG pipelines.
+## Notes
 
-task("movies-3d", [
-    plugin("rss", url="https://example.com/feed"),
-    plugin("movies",
-        static=["Avatar", "Inception"],
-        quality="1080p+ bd3d",  # BD3D only; non-3D copies rejected automatically
-    ),
-])
-```
+- When a 3D token is included in the spec, non-3D entries are rejected automatically; omitting a 3D token leaves it unconstrained.
+- The `series`, `movies`, and `premiere` filters apply quality filtering internally — a separate `quality` node is only needed for finer control or pipelines without those filters.

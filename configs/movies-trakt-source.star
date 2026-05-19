@@ -1,4 +1,4 @@
-# dag-movies-trakt-source.star
+# movies-trakt-source.star
 #
 # Movie downloads driven by a Trakt watchlist, using trakt_list as a
 # standalone DAG source node rather than inside movies.list.
