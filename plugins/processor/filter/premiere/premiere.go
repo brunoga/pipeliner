@@ -3,8 +3,9 @@
 //
 // All qualifying entries for an unseen series are accepted — multiple
 // quality variants from different sources pass through so the dedup processor
-// can keep the best copy. A series is marked "seen" when entries pass through
-// Process() so only the dedup survivor is ultimately tracked.
+// can keep the best copy. A series is marked "seen" via CommitPlugin.Commit,
+// which runs only after all downstream sinks confirm success. If the download
+// fails, the premiere is not recorded and will be retried on the next run.
 //
 // Episode metadata is parsed directly from the entry title, so metainfo/series
 // is not required. The parsed series_name, series_season, series_episode, and
@@ -109,7 +110,7 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 
 func (p *premierePlugin) Name() string        { return "premiere" }
 
-func (p *premierePlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
+func (p *premierePlugin) filter(_ context.Context, _ *plugin.TaskContext, e *entry.Entry) error {
 	ep, ok := series.Parse(e.Title)
 	if !ok {
 		if p.rejectUnmatched {
@@ -157,7 +158,7 @@ func (p *premierePlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *
 // Multiple entries for the same series may be accepted in the same run
 // (different qualities/sources); place dedup after premiere so only the
 // best-quality copy is persisted.
-func (p *premierePlugin) persist(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) error {
+func (p *premierePlugin) persist(entries []*entry.Entry) error {
 	for _, e := range entries {
 		ep, ok := series.Parse(e.Title)
 		if !ok {
@@ -198,11 +199,14 @@ func (p *premierePlugin) Process(ctx context.Context, tc *plugin.TaskContext, en
 			tc.Logger.Warn("premiere filter error", "entry", e.Title, "err", err)
 		}
 	}
-	out := entry.PassThrough(entries)
-	if len(out) > 0 {
-		if err := p.persist(ctx, tc, out); err != nil {
-			tc.Logger.Warn("premiere learn error", "err", err)
-		}
-	}
-	return out, nil
+	return entry.PassThrough(entries), nil
+}
+
+// Commit implements plugin.CommitPlugin. It persists premiere tracking records
+// for all entries that were accepted by Process and not subsequently failed by
+// any downstream sink. This ensures we only mark episodes as seen when the full
+// pipeline (including download/output) succeeded. Failed downloads are retried
+// on the next run.
+func (p *premierePlugin) Commit(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) error {
+	return p.persist(entries)
 }
