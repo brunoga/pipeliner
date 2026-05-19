@@ -13,7 +13,7 @@ const src = readFileSync(join(__dir, '..', 'visual-editor.js'), 'utf8');
 
 let starLit, valToStar, configToKwargs, upstreamsStr, dagToStarlark, viaNodeToStar,
     nodesToFunctionSource, performExtraction, addNodeFromPalette, extractFunctionSource,
-    edgePath, configPreview, syncRouteLegs, ve;
+    parseFunctionComment, edgePath, configPreview, syncRouteLegs, ve;
 
 beforeAll(() => {
   const mod = new Function(
@@ -29,6 +29,7 @@ exports.nodesToFunctionSource  = nodesToFunctionSource;
 exports.performExtraction     = performExtraction;
 exports.addNodeFromPalette    = addNodeFromPalette;
 exports.extractFunctionSource = extractFunctionSource;
+exports.parseFunctionComment  = parseFunctionComment;
 exports.edgePath              = edgePath;
 exports.configPreview         = configPreview;
 exports.syncRouteLegs         = syncRouteLegs;
@@ -40,7 +41,7 @@ exports.ve                    = ve;
   mod(exports, noopDoc, () => Promise.resolve());
   ({ starLit, valToStar, configToKwargs, upstreamsStr, dagToStarlark, viaNodeToStar,
      nodesToFunctionSource, performExtraction, addNodeFromPalette, extractFunctionSource,
-     edgePath, configPreview, syncRouteLegs, ve } = exports);
+     parseFunctionComment, edgePath, configPreview, syncRouteLegs, ve } = exports);
 });
 
 // ── test helpers ──────────────────────────────────────────────────────────────
@@ -786,6 +787,85 @@ pipeline("p")
 
   it('returns empty string when function is not found', () => {
     expect(extractFunctionSource(src, 'nonexistent_fn')).toBe('');
+  });
+});
+
+// ── parseFunctionComment ──────────────────────────────────────────────────────
+
+describe('parseFunctionComment', () => {
+  it('returns empty string when sourceText is empty', () => {
+    expect(parseFunctionComment('')).toBe('');
+  });
+
+  it('extracts a single user comment line', () => {
+    const src = `# My function description\ndef my_fn(upstream):\n    pass\n`;
+    expect(parseFunctionComment(src)).toBe('My function description');
+  });
+
+  it('extracts multiple user comment lines', () => {
+    const src = `# Line one\n# Line two\ndef my_fn():\n    pass\n`;
+    expect(parseFunctionComment(src)).toBe('Line one\nLine two');
+  });
+
+  it('ignores pipeliner: machine comment lines', () => {
+    const src = `# pipeliner:param host type=string  Host\ndef my_fn(host):\n    pass\n`;
+    expect(parseFunctionComment(src)).toBe('');
+  });
+
+  it('extracts only user comments when mixed with pipeliner: lines', () => {
+    const src = `# Fetches from jackett\n# pipeliner:param cats  type=list  Categories\ndef fetch_fn(cats):\n    pass\n`;
+    expect(parseFunctionComment(src)).toBe('Fetches from jackett');
+  });
+
+  it('stops at the def line', () => {
+    const src = `# Before def\ndef my_fn():\n    # inside body\n    pass\n`;
+    expect(parseFunctionComment(src)).toBe('Before def');
+  });
+
+  it('handles comment lines without a space after #', () => {
+    const src = `#No space\ndef my_fn():\n    pass\n`;
+    expect(parseFunctionComment(src)).toBe('No space');
+  });
+});
+
+// ── nodesToFunctionSource: function comment ───────────────────────────────────
+
+describe('nodesToFunctionSource with function comment', () => {
+  const graph = { name: 'g', schedule: '', comment: '', nodes: [
+    { id: 'rss_0', plugin: 'rss', config: {}, upstreams: [], searchNodeIds: [], listNodeIds: [] },
+  ]};
+  const selectedIds = new Set(['rss_0']);
+  const validation  = { entryUpstreams: [], returnNodeId: 'rss_0' };
+
+  it('emits comment lines before the def line', () => {
+    const src = nodesToFunctionSource('my_fn', [], selectedIds, validation, graph, 'Fetches RSS feed');
+    expect(src).toContain('# Fetches RSS feed\ndef my_fn():');
+  });
+
+  it('emits multiline comment as separate # lines', () => {
+    const src = nodesToFunctionSource('my_fn', [], selectedIds, validation, graph, 'Line one\nLine two');
+    expect(src).toContain('# Line one\n# Line two\ndef my_fn():');
+  });
+
+  it('emits comment before pipeliner:param lines', () => {
+    const params = [{ nodeId: 'rss_0', configKey: 'url', paramName: 'url', type: 'string', defaultValue: '', include: true, hint: '' }];
+    const src = nodesToFunctionSource('my_fn', params, selectedIds, validation, graph, 'My comment');
+    const commentPos = src.indexOf('# My comment');
+    const paramPos   = src.indexOf('# pipeliner:param');
+    expect(commentPos).toBeGreaterThan(-1);
+    expect(commentPos).toBeLessThan(paramPos);
+  });
+
+  it('omits comment block when comment is empty', () => {
+    const src = nodesToFunctionSource('my_fn', [], selectedIds, validation, graph, '');
+    const lines = src.split('\n').filter(l => l.startsWith('#') && !l.includes('pipeliner:'));
+    expect(lines).toHaveLength(0);
+  });
+
+  it('omits comment block when comment is whitespace only', () => {
+    const src = nodesToFunctionSource('my_fn', [], selectedIds, validation, graph, '   ');
+    const lines = src.split('\n').filter(l => l.startsWith('#') && !l.includes('pipeliner:'));
+    expect(lines).toHaveLength(0);
   });
 });
 

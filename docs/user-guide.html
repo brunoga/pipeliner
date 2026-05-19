@@ -1622,6 +1622,7 @@ pipeline("tv")</code></pre>
 <h4>Canvas</h4>
 <img src="images/ui-visual-editor.png" alt="Visual pipeline editor showing nodes connected in a DAG with palette on the left" class="screenshot">
 <p>Each node on the canvas shows its plugin name, role badge, upstream connections, and a preview of its most important config values. Click a node to select it and edit its configuration in the right panel. Drag nodes to reorder them. The pipeline name and schedule are shown at the top; edit them inline.</p>
+<p>Each node has a small <strong>#</strong> button (top-right of the card) for attaching a free-text comment. The comment is emitted as <code># …</code> lines immediately above the node's assignment in the generated Starlark. The pipeline label also has a <strong>#</strong> button for a pipeline-level comment, emitted above the <code>pipeline()</code> call. Both support multi-line text.</p>
 
 <h4>Param panel</h4>
 <p>The right panel shows the selected node's configuration. At the top, checkboxes let you connect the node to any existing upstream node (sets the <code>upstream=</code> relationship). Below, all config keys are editable with appropriate input widgets. A <strong>Produces</strong> section lists fields the plugin always sets; a dimmed <strong>May produce</strong> section lists fields set only when data is available (e.g. when a metadata lookup succeeds). Field warnings appear when required fields are missing or only conditionally available upstream.</p>
@@ -1652,7 +1653,7 @@ pipeline("tv")</code></pre>
 <ol>
   <li>Add the source and processor nodes that form your list pipeline to the canvas — for example, a <code>trakt_list</code> source feeding into a <code>trakt</code> processor.</li>
   <li>Select all nodes in the chain (click then Shift-click, or use box-select).</li>
-  <li>Click <strong>Create Function</strong> in the toolbar. Give it a name (e.g. <code>unwatched_movies</code>) and expose any config values you want parameterised.</li>
+  <li>Click <strong>⬡ Extract to function</strong> in the toolbar. Give it a name (e.g. <code>unwatched_movies</code>), optionally add a comment describing the function, and expose any config values you want parameterised.</li>
   <li>The function appears as a chip in the <strong>Functions</strong> section of the palette. If the chain contains a list-capable source, the chip shows a teal <strong>LIST</strong> badge.</li>
 </ol>
 
@@ -1665,6 +1666,8 @@ pipeline("tv")</code></pre>
 </ol>
 
 <p>The function call appears as a sub-node below the accepting node, labelled with the step names in the chain (e.g. <em>trakt_list→trakt</em>). The param panel shows it under <strong>List (list sources)</strong>.</p>
+
+<p>To edit a function's body or parameters later, click the <strong>✏</strong> button on any call node. This opens the function editor, which shows the function's internal nodes on the canvas with the usual editing tools. The toolbar provides a <strong>⚙ Params</strong> button to manage parameters and a <strong>#</strong> button to edit the function's comment (shown above the <code>def</code> line in the config). Click <strong>Save</strong> to apply changes and return to the pipeline view.</p>
 
 <img src="images/ui-list-function-connected.png" alt="Visual editor showing movies node connected to a trakt_list→trakt mini-pipeline via its list port" class="screenshot">
 
