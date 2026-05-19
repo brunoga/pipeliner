@@ -144,6 +144,27 @@ func TestAnnotateHTTPError(t *testing.T) {
 	}
 }
 
+func TestProcessHTTPErrorFailsEntry(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "not found", http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	e := entry.New("bad", srv.URL+"/missing.torrent")
+
+	p := makePlugin(t)
+	out, err := p.Process(context.Background(), tc(), []*entry.Entry{e})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(out))
+	}
+	if !out[0].IsFailed() {
+		t.Error("expected entry to be failed after HTTP 404")
+	}
+}
+
 // TestAnnotateEnclosureType verifies that an entry whose URL has no .torrent
 // suffix is still fetched when rss_enclosure_type signals a torrent file.
 func TestAnnotateEnclosureType(t *testing.T) {
