@@ -1,18 +1,25 @@
 # set
 
-Unconditionally sets one or more entry fields. Each config key becomes a field name; its value is a Go template rendered against the current entry fields.
+Unconditionally sets one or more entry fields. Each config key becomes the field name written on the entry; its value is a `{field}` pattern or Go template rendered against the current entry fields.
 
 ## Config
 
-Any key-value pairs. Values are Go template strings.
+Any key-value pairs are accepted. The key is the field name to set; the value is a pattern string.
+
+```python
+tagged = process("set", upstream=upstream,
+    category="tv",                 # plain string
+    label="{title} — {video_year}",  # {field} interpolation
+    slug="{{.title | lower | replace \" \" \"-\"}}")  # Go template
+```
 
 ## Example
 
 ```python
 src    = input("rss", url="https://example.com/rss")
-tagged = process("set", upstream=src, category="tv")
+tagged = process("set", upstream=src, category="tv", feed="main")
 output("print", upstream=tagged)
-pipeline("tagged-feed")
+pipeline("tagged-feed", schedule="1h")
 ```
 
 ## DAG role

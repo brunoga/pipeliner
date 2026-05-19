@@ -11,18 +11,26 @@ State is persisted in `pipeliner.db` in the same directory as the config file.
 
 ## Config
 
-| Key | Type | Required | Default | Description |
-|-----|------|----------|---------|-------------|
-| `episode` | int | no | `1` | Episode number to treat as premiere |
-| `season` | int | no | `1` | Season number to match; `0` means any season |
-| `quality` | string | no | — | Quality spec the entry must satisfy (e.g. `720p+`, `webrip+`) |
-| `reject_unmatched` | bool | no | `true` | Reject entries whose titles do not parse as a series episode |
+| Key | Required | Default | Description |
+|-----|----------|---------|-------------|
+| `episode` | no | `1` | Episode number to treat as premiere |
+| `season` | no | `1` | Season number to match; `0` means any season |
+| `quality` | no | — | Quality spec the entry must satisfy (e.g. `720p+`, `webrip+`) |
+| `reject_unmatched` | no | `true` | Reject entries whose titles do not parse as a series episode |
 
-Episode metadata is parsed directly from the entry title — `metainfo_series` is
-not required. The `series_name`, `series_season`, `series_episode`, and
-`series_episode_id` fields are set on the entry for use by downstream plugins.
+Episode metadata is parsed directly from the entry title — `metainfo_series` is not required.
 
 See [`quality`](../quality/README.md) for the spec syntax.
+
+## Fields set on entry
+
+| Field | Description |
+|-------|-------------|
+| `series_episode_id` | Episode identifier (e.g. `S01E01`) |
+| `series_season` | Season number |
+| `series_episode` | Episode number |
+
+These are the same fields produced by `metainfo_series`. A separate `metainfo_series` node is not required when `premiere` is already in the pipeline.
 
 ## Example
 

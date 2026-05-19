@@ -4,15 +4,16 @@ Scrapes all `<a href>` links from an HTML page and emits one entry per link. Opt
 
 ## Config
 
-| Key | Type | Required | Default | Description |
-|-----|------|----------|---------|-------------|
-| `url` | string | yes | — | Page URL to fetch |
-| `mask` | string | no | — | Glob pattern to filter link filenames (e.g. `*.torrent`) |
+| Key | Required | Default | Description |
+|-----|----------|---------|-------------|
+| `url` | yes | — | Page URL to fetch |
+| `mask` | no | — | Glob pattern to filter link filenames (e.g. `*.torrent`) |
 
 ## Fields set on entry
 
 | Field | Description |
 |-------|-------------|
+| `title` | Link text, or the href if the link has no visible text |
 | `html_page` | Source page URL |
 
 ## DAG role
@@ -20,7 +21,7 @@ Scrapes all `<a href>` links from an HTML page and emits one entry per link. Opt
 | Property | Value |
 |----------|-------|
 | Role | `source` |
-| Produces | `html_page` |
+| Produces | `title`, `html_page` |
 | Requires | — |
 
 ## Example

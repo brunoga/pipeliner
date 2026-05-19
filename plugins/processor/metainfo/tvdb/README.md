@@ -41,23 +41,23 @@ All results are cached in `pipeliner.db` to avoid redundant API calls across run
 | `video_aliases` | []string | Alternative titles |
 | `series_network` | string | Originating network (e.g. `AMC`) |
 | `series_status` | string | Series status (e.g. `Ended`, `Continuing`) |
-| `series_first_air_date` | time.Time | Date of first broadcast |
-| `series_last_air_date` | time.Time | Date of most recent episode |
-| `series_next_air_date` | time.Time | Next scheduled air date, if known |
+| `series_first_air_date` | Date of first broadcast |
+| `series_last_air_date` | Date of most recent episode |
+| `series_next_air_date` | Next scheduled air date, if known |
 
 ### Episode-level (when season and episode are parsed)
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `tvdb_episode_id` | int | TheTVDB internal numeric episode ID |
-| `series_season` | int | Season number |
-| `series_episode` | int | Episode number |
-| `series_episode_id` | string | Episode identifier string (e.g. `S02E05`) |
-| `series_episode_title` | string | Episode title |
-| `series_episode_description` | string | Episode overview |
-| `series_episode_air_date` | time.Time | Episode air date |
-| `series_episode_image` | string | Episode still/thumbnail URL |
-| `video_runtime` | int | Episode runtime in minutes |
+| Field | Description |
+|-------|-------------|
+| `tvdb_episode_id` | TheTVDB internal numeric episode ID |
+| `series_season` | Season number |
+| `series_episode` | Episode number |
+| `series_episode_id` | Episode identifier string (e.g. `S02E05`) |
+| `series_episode_title` | Episode title |
+| `series_episode_description` | Episode overview |
+| `series_episode_air_date` | Episode air date |
+| `series_episode_image` | Episode still/thumbnail URL |
+| `video_runtime` | Episode runtime in minutes |
 
 ## DAG role
 
@@ -69,11 +69,24 @@ All results are cached in `pipeliner.db` to avoid redundant API calls across run
 
 ## Example
 
+```python
+src  = input("rss", url="https://example.com/rss")
+seen = process("seen",          upstream=src)
+ep   = process("metainfo_series", upstream=seen)
+tvdb = process("metainfo_tvdb",   upstream=ep, api_key=env("TVDB_KEY"))
+req  = process("require",         upstream=tvdb, fields=["enriched"])
+fmt  = process("pathfmt",         upstream=req,
+               path="/media/tv/{title}/Season {series_season:02d}",
+               field="download_path")
+output("transmission", upstream=fmt, host="localhost")
+pipeline("tv-tvdb", schedule="1h")
+```
+
 ## Notes
 
 - API keys are available at [thetvdb.com/api-information](https://thetvdb.com/api-information).
 - Only annotates entries whose title parses as a series episode. Non-episode titles are skipped.
 - Language codes (e.g. `eng`) are automatically mapped to display names (e.g. `English`).
 - The `video_genres` field is a string slice; use `{{join ", " (index .Fields "video_genres")}}` in templates.
-- Date fields (`series_first_air_date`, `series_last_air_date`, `series_next_air_date`, `series_episode_air_date`) are `time.Time` values. Use `{{formatdate "January 2, 2006" .}}` in templates and `< daysago(n)` / `> daysago(n)` in conditions.
-- Use `enriched` (not `tvdb_id`) to check whether TVDB successfully found metadata: `plugin("require", fields=["enriched"])`.
+- Date fields (`series_first_air_date`, `series_last_air_date`, `series_next_air_date`, `series_episode_air_date`) are date values. Use `{{formatdate "January 2, 2006" .series_first_air_date}}` in templates and `< daysago(n)` / `> daysago(n)` in conditions.
+- Use `enriched` (not `tvdb_id`) to check whether TVDB successfully found metadata: `process("require", upstream=…, fields=["enriched"])`.

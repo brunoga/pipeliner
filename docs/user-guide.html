@@ -72,7 +72,7 @@ td code{font-size:12px}
 .phases{display:flex;align-items:center;gap:0;margin:20px 0;flex-wrap:wrap;gap:4px}
 .phase{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:8px 14px;font-size:13px;font-weight:600;text-align:center}
 .phase.input{color:var(--accent)}.phase.metainfo{color:var(--purple)}.phase.filter{color:var(--amber)}
-.phase.modify{color:var(--green)}.phase.output{color:#ff7b72}.phase.learn{color:var(--muted)}
+.phase.modify{color:var(--green)}.phase.output{color:#ff7b72}
 .arrow{color:var(--muted);font-size:18px;line-height:1;padding:0 2px}
 </style>
 </head>
@@ -107,7 +107,7 @@ td code{font-size:12px}
     <a href="#discover" class="sub">discover</a>
     <a href="#jackett" class="sub">jackett</a>
 
-    <div class="section">From Plugins</div>
+    <div class="section">Dynamic Sources</div>
     <a href="#tvdb_favorites" class="sub">tvdb_favorites</a>
     <a href="#trakt_list" class="sub">trakt_list</a>
     <a href="#trakt-auth" class="sub">Trakt auth setup</a>
@@ -129,7 +129,7 @@ td code{font-size:12px}
     <a href="#premiere" class="sub">premiere</a>
     <a href="#condition" class="sub">condition</a>
     <a href="#route" class="sub">route()</a>
-    <a href="#torrent_alive" class="sub">torrent_alive</a>
+    <a href="#torrentalive" class="sub">torrentalive</a>
     <a href="#require" class="sub">require</a>
     <a href="#seen" class="sub">seen</a>
     <a href="#tvdb-filter" class="sub">tvdb</a>
@@ -140,6 +140,7 @@ td code{font-size:12px}
     <a href="#quality-filter" class="sub">quality</a>
     <a href="#upgrade" class="sub">upgrade</a>
     <a href="#content" class="sub">content</a>
+    <a href="#dedup" class="sub">dedup</a>
     <a href="#accept_all" class="sub">accept_all</a>
 
     <div class="section">Modify Plugins</div>
@@ -180,7 +181,7 @@ td code{font-size:12px}
 
 <p>Pipeliner is a media-automation daemon that pulls entries from RSS feeds, torrent indexers, or local filesystems, enriches them with metadata, applies configurable filters, and hands accepted entries off to download clients, notification services, or shell commands.</p>
 
-<p>It is heavily inspired by <a href="https://flexget.com" target="_blank">FlexGet</a>. Pipelines are described in <a href="https://github.com/bazelbuild/starlark/blob/master/spec.md" target="_blank">Starlark</a> — a deterministic, side-effect-free dialect of Python used by Bazel and Buck. Pipelines connect nodes that produce, transform, and consume entries. The scheduler runs pipelines on cron or interval schedules, persisting state in a SQLite database.</p>
+<p>It is heavily inspired by <a href="https://flexget.com" target="_blank">FlexGet</a>. Pipelines are described in <a href="https://github.com/bazelbuild/starlark/blob/master/spec.md" target="_blank">Starlark</a> — a simple, readable Python-like scripting language. Pipelines connect nodes that produce, transform, and consume entries. The scheduler runs pipelines on cron or interval schedules, persisting state in a SQLite database.</p>
 
 <h3>Key concepts</h3>
 <ul>
@@ -437,7 +438,7 @@ pipeline("split-pipeline")</code></pre>
 <h3>Standard fields</h3>
 <p>Fields follow a tiered naming convention. Three universal fields have no prefix; all others are prefixed by their info type. Every entry enriched by an external provider (TVDB, TMDb, Trakt) has <code>enriched</code> set to <code>true</code>.</p>
 
-<h4>GenericInfo (no prefix) — set by any enriching provider</h4>
+<h4>Universal fields (no prefix) — set by any enriching provider</h4>
 <table>
   <tr><th>Field</th><th>Description</th></tr>
   <tr><td><code>title</code></td><td>Canonical display name from provider (e.g. "Breaking Bad" from TVDB). Use <code>{title}</code> in path templates for the enriched name. See also <code>{raw_title}</code> below.</td></tr>
@@ -448,7 +449,7 @@ pipeline("split-pipeline")</code></pre>
 
 <div class="note"><strong><code>{title}</code> vs <code>{raw_title}</code>:</strong> <code>{title}</code> resolves to the canonical enriched title (e.g. "Breaking Bad" from TVDB). <code>{raw_title}</code> is the original entry title as received from the input (torrent filename or feed item title). Before enrichment, both refer to the same raw value.</div>
 
-<h4>VideoInfo (video_ prefix) — set by metainfo_tvdb, metainfo_tmdb, metainfo_trakt, movies</h4>
+<h4>Video fields (video_ prefix) — set by metainfo_tvdb, metainfo_tmdb, metainfo_trakt, movies</h4>
 <table>
   <tr><th>Field</th><th>Description</th></tr>
   <tr><td><code>video_year</code></td><td>Release or first-air year</td></tr>
@@ -472,7 +473,7 @@ pipeline("split-pipeline")</code></pre>
   <tr><td><code>video_votes</code></td><td>Vote count</td></tr>
 </table>
 
-<h4>SeriesInfo (series_ prefix) — set by series, metainfo_series, metainfo_tvdb</h4>
+<h4>Series fields (series_ prefix) — set by series, metainfo_series, metainfo_tvdb</h4>
 <table>
   <tr><th>Field</th><th>Description</th></tr>
   <tr><td><code>series_season</code></td><td>Season number</td></tr>
@@ -485,7 +486,7 @@ pipeline("split-pipeline")</code></pre>
   <tr><td><code>series_next_air_date</code></td><td>Next scheduled air date</td></tr>
   <tr><td><code>series_episode_title</code></td><td>Episode title</td></tr>
   <tr><td><code>series_episode_description</code></td><td>Episode overview text</td></tr>
-  <tr><td><code>series_episode_air_date</code></td><td>Episode air date (<code>time.Time</code>)</td></tr>
+  <tr><td><code>series_episode_air_date</code></td><td>Episode air date</td></tr>
   <tr><td><code>series_episode_image</code></td><td>Episode still/thumbnail URL</td></tr>
   <tr><td><code>series_service</code></td><td>Streaming service tag parsed from title</td></tr>
   <tr><td><code>series_proper</code></td><td><code>true</code> when PROPER marker is detected</td></tr>
@@ -494,13 +495,14 @@ pipeline("split-pipeline")</code></pre>
   <tr><td><code>series_container</code></td><td>Container format tag parsed from title (e.g. <code>mkv</code>)</td></tr>
 </table>
 
-<h4>MovieInfo (movie_ prefix) — set by movies</h4>
+<h4>Movie fields (movie_ prefix) — set by movies, metainfo_tmdb</h4>
 <table>
   <tr><th>Field</th><th>Description</th></tr>
+  <tr><td><code>movie_title</code></td><td>Canonical movie title</td></tr>
   <tr><td><code>movie_tagline</code></td><td>Movie tagline</td></tr>
 </table>
 
-<h4>TorrentInfo (torrent_ prefix) — set by rss, jackett_search, jackett, metainfo_torrent, metainfo_magnet</h4>
+<h4>Torrent fields (torrent_ prefix) — set by rss, jackett_search, jackett, metainfo_torrent, metainfo_magnet</h4>
 <table>
   <tr><th>Field</th><th>Description</th></tr>
   <tr><td><code>torrent_link_type</code></td><td><code>"torrent"</code> or <code>"magnet"</code> — set by Jackett plugins to indicate the link type without an HTTP fetch</td></tr>
@@ -517,7 +519,7 @@ pipeline("split-pipeline")</code></pre>
   <tr><td><code>torrent_private</code></td><td><code>true</code> for private torrents</td></tr>
 </table>
 
-<h4>FileInfo (file_ prefix) — set by filesystem</h4>
+<h4>File fields (file_ prefix) — set by filesystem</h4>
 <table>
   <tr><th>Field</th><th>Description</th></tr>
   <tr><td><code>file_name</code></td><td>Filename (basename)</td></tr>
@@ -527,7 +529,7 @@ pipeline("split-pipeline")</code></pre>
   <tr><td><code>file_modified_time</code></td><td>Last-modified timestamp</td></tr>
 </table>
 
-<h4>RSSInfo (rss_ prefix) — set by rss</h4>
+<h4>RSS fields (rss_ prefix) — set by rss</h4>
 <table>
   <tr><th>Field</th><th>Description</th></tr>
   <tr><td><code>rss_feed</code></td><td>Feed URL the entry came from</td></tr>
@@ -551,7 +553,7 @@ pipeline("split-pipeline")</code></pre>
   <tr><td><code>trakt_tvdb_id</code></td><td>metainfo_trakt</td><td>TVDB ID from Trakt</td></tr>
   <tr><td><code>jackett_category</code></td><td>jackett_search, jackett</td><td>Torznab category code</td></tr>
   <tr><td><code>jackett_indexer</code></td><td>jackett_search, jackett</td><td>Source indexer name</td></tr>
-  <tr><td><code>series_container</code></td><td>series</td><td>Internal series container reference</td></tr>
+  <tr><td><code>series_container</code></td><td>series</td><td>Container format tag parsed from title (e.g. <code>mkv</code>)</td></tr>
   <tr><td><code>codec</code></td><td>metainfo_quality</td><td>Codec tag (e.g. <code>x265</code>, <code>HEVC</code>)</td></tr>
   <tr><td><code>audio</code></td><td>metainfo_quality</td><td>Audio tag (e.g. <code>DTS</code>, <code>Atmos</code>)</td></tr>
   <tr><td><code>color_range</code></td><td>metainfo_quality</td><td>Color range tag (e.g. <code>HDR</code>, <code>SDR</code>)</td></tr>
@@ -589,10 +591,10 @@ pipeline("split-pipeline")</code></pre>
   <tr><td><code>video_trailers</code></td><td>metainfo_tvdb, metainfo_tmdb</td><td>Trailer URLs (string slice)</td></tr>
   <tr><td><code>video_content_rating</code></td><td>metainfo_tvdb, metainfo_tmdb</td><td>Content rating (e.g. <code>TV-MA</code>, <code>PG-13</code>)</td></tr>
   <tr><td><code>video_aliases</code></td><td>metainfo_tvdb, metainfo_tmdb</td><td>Alternative titles (string slice)</td></tr>
-  <tr><td><code>series_first_air_date</code></td><td>metainfo_tvdb</td><td>Date of first broadcast (<code>time.Time</code>)</td></tr>
-  <tr><td><code>series_next_air_date</code></td><td>metainfo_tvdb</td><td>Next scheduled air date (<code>time.Time</code>)</td></tr>
+  <tr><td><code>series_first_air_date</code></td><td>metainfo_tvdb</td><td>Date of first broadcast</td></tr>
+  <tr><td><code>series_next_air_date</code></td><td>metainfo_tvdb</td><td>Next scheduled air date</td></tr>
   <tr><td><code>series_episode_title</code></td><td>metainfo_tvdb</td><td>Episode title</td></tr>
-  <tr><td><code>series_episode_air_date</code></td><td>metainfo_tvdb</td><td>Episode air date (<code>time.Time</code>)</td></tr>
+  <tr><td><code>series_episode_air_date</code></td><td>metainfo_tvdb</td><td>Episode air date</td></tr>
   <tr><td><code>file_location</code></td><td>filesystem</td><td>Absolute file path on disk</td></tr>
   <tr><td><code>file_name</code></td><td>filesystem</td><td>Filename (basename)</td></tr>
   <tr><td><code>file_size</code></td><td>filesystem</td><td>File size in bytes</td></tr>
@@ -617,7 +619,7 @@ pipeline("split-pipeline")</code></pre>
 <!-- ═══════════════════════════════════════════════════════════ -->
 <h2 id="expressions">Expression Language</h2>
 
-<p>Used by the <code>condition</code> filter. Identifiers resolve to entry fields; unknown fields return <code>""</code>.</p>
+<p>Used by the <code>condition</code> filter, <code>route()</code> leg conditions, and anywhere a boolean expression is accepted. Identifiers resolve to entry fields; unknown fields return <code>""</code>.</p>
 
 <h3>Operators</h3>
 <table>
@@ -684,7 +686,7 @@ pipeline("split-pipeline")</code></pre>
 <!-- ═══════════════════════════════════════════════════════════ -->
 <h2 id="template-funcs">Template Functions</h2>
 
-<p>Available in <code>email</code> body templates, <code>print</code> format, <code>exec</code> command, and <code>set</code> values:</p>
+<p>Available in all pattern and template strings — <code>pathfmt</code> paths, <code>exec</code> commands, <code>print</code> format, <code>set</code> values, <code>email</code> and <code>notify</code> body templates:</p>
 
 <table>
   <tr><th>Function</th><th>Usage</th><th>Description</th></tr>
@@ -712,7 +714,7 @@ pipeline("split-pipeline")</code></pre>
 <table>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
   <tr><td><code>url</code></td><td>yes</td><td>—</td><td>Feed URL</td></tr>
-  <tr><td><code>all_entries</code></td><td>no</td><td>false</td><td>Skip filter phase; accept all entries</td></tr>
+  <tr><td><code>all_entries</code></td><td>no</td><td>false</td><td>Accepted in config but has no effect — all feed items are always returned as undecided entries for downstream processors to filter</td></tr>
 </table>
 
 <h4>Fields set</h4>
@@ -816,16 +818,19 @@ pipeline("movie-discover", schedule="2h")</code></pre>
 <h1>Dynamic Source Plugins</h1>
 <p>These plugins produce title lists or search results. They have two uses:</p>
 <ul>
-  <li><strong>As standalone sources</strong> — use <code>input("tvdb_favorites", …)</code> to create a source node whose entries drive downstream processors.</li>
-  <li><strong>As config-driven title sources</strong> — pass them inside a parent plugin's <code>list</code> config key (e.g. inside <code>series</code>) when you prefer the implicit connection style.</li>
+  <li><strong>As standalone source nodes</strong> — use <code>input("trakt_list", …)</code> to create a source node. The entries (each with a show/movie title) can drive <code>discover</code> as its title list, or be further processed with <code>trakt</code>/<code>tvdb</code> filters before being merged into a main feed.</li>
+  <li><strong>Inside a <code>list=</code> config key</strong> — pass them in the <code>list=[…]</code> config of <code>series</code>, <code>movies</code>, or <code>discover</code>. Pipeliner runs the plugin internally and uses the resulting titles to match against.</li>
 </ul>
-<pre><code><span class="y-comment"># Option A: standalone source node (explicit DAG connection)</span>
+<pre><code><span class="y-comment"># As a standalone source node — entries drive discover's title list</span>
 watchlist = input("trakt_list", client_id=env("TRAKT_ID"),
-                  client_secret=env("TRAKT_SECRET"), type="shows")
-series = process("series", upstream=watchlist, tracking="follow")
+                  client_secret=env("TRAKT_SECRET"), type="movies", list="watchlist")
+results = process("discover", upstream=watchlist,
+    search=[{"name": "jackett_search", "url": "http://localhost:9117",
+             "api_key": env("JACKETT_KEY"), "categories": ["2000"]}])
 
-<span class="y-comment"># Option B: inside series.list config key</span>
-series = process("series", upstream=rss_src, list=[
+<span class="y-comment"># Inside series/movies.list — provides the show/movie title list</span>
+src    = input("rss", url="https://feed.example.com/rss")
+series = process("series", upstream=src, list=[
     {"name": "trakt_list", "client_id": env("TRAKT_ID"),
      "client_secret": env("TRAKT_SECRET"), "type": "shows"},
 ])</code></pre>
@@ -842,13 +847,14 @@ series = process("series", upstream=rss_src, list=[
 
 <p>Get your API key and user PIN at <a href="https://thetvdb.com/api-information" target="_blank">thetvdb.com/api-information</a>.</p>
 
-<pre><code><span class="y-key">series</span>:
-  <span class="y-key">tracking</span>: <span class="y-str">backfill</span>
-  <span class="y-key">quality</span>: <span class="y-str">720p+ webrip+</span>
-  <span class="y-key">from</span>:
-    - <span class="y-key">name</span>: <span class="y-str">tvdb_favorites</span>
-      <span class="y-key">api_key</span>: <span class="y-str">YOUR_TVDB_API_KEY</span>
-      <span class="y-key">user_pin</span>: <span class="y-str">YOUR_TVDB_USER_PIN</span></code></pre>
+<pre><code>src    = input("rss", url="https://feed.example.com/rss")
+seen   = process("seen", upstream=src)
+series = process("series", upstream=seen,
+    list=[{"name": "tvdb_favorites",
+           "api_key": env("TVDB_KEY"), "user_pin": env("TVDB_PIN")}],
+    tracking="backfill", quality="720p+ webrip+")
+output("transmission", upstream=series, host="localhost")
+pipeline("tv-tvdb", schedule="1h")</code></pre>
 
 <!-- ─────────── trakt_list ─────────── -->
 <h2 id="trakt_list">trakt_list</h2>
@@ -883,23 +889,23 @@ series = process("series", upstream=rss_src, list=[
   </li>
   <li>Visit the URL shown and enter the displayed code on Trakt's website.</li>
   <li>Use <code>client_secret</code> in your config — no <code>access_token</code> needed:<br>
-<pre><code><span class="y-key">from</span>:
-  - <span class="y-key">name</span>: <span class="y-str">trakt_list</span>
-    <span class="y-key">client_id</span>: <span class="y-str">YOUR_CLIENT_ID</span>
-    <span class="y-key">client_secret</span>: <span class="y-str">YOUR_CLIENT_SECRET</span>
-    <span class="y-key">type</span>: <span class="y-str">movies</span>
-    <span class="y-key">list</span>: <span class="y-str">watchlist</span></code></pre>
+<pre><code>series = process("series", upstream=src, list=[
+    {"name": "trakt_list",
+     "client_id": env("TRAKT_CLIENT_ID"),
+     "client_secret": env("TRAKT_CLIENT_SECRET"),
+     "type": "shows", "list": "watchlist"},
+])</code></pre>
   </li>
 </ol>
 
 <h4>Alternative: static <code>access_token</code></h4>
 <p>Obtain a token manually from Trakt and place it directly in the config. Tokens expire after 90 days and must be updated manually.</p>
-<pre><code><span class="y-key">from</span>:
-  - <span class="y-key">name</span>: <span class="y-str">trakt_list</span>
-    <span class="y-key">client_id</span>: <span class="y-str">YOUR_CLIENT_ID</span>
-    <span class="y-key">access_token</span>: <span class="y-str">YOUR_TOKEN</span>
-    <span class="y-key">type</span>: <span class="y-str">movies</span>
-    <span class="y-key">list</span>: <span class="y-str">watchlist</span></code></pre>
+<pre><code>movies = process("movies", upstream=src, list=[
+    {"name": "trakt_list",
+     "client_id": env("TRAKT_CLIENT_ID"),
+     "access_token": env("TRAKT_ACCESS_TOKEN"),
+     "type": "movies", "list": "watchlist"},
+])</code></pre>
 
 <!-- ─────────── jackett_search (from) ─────────── -->
 <h2 id="jackett_search">jackett_search</h2>
@@ -926,12 +932,14 @@ series = process("series", upstream=rss_src, list=[
 
 <p>Template variables: <code>{{.Query}}</code> (raw) and <code>{{.QueryEscaped}}</code> (URL-encoded). Brace syntax <code>{QueryEscaped}</code> also works.</p>
 
-<pre><code><span class="y-key">discover</span>:
-  <span class="y-key">titles</span>: [<span class="y-str">"Breaking Bad"</span>]
-  <span class="y-key">via</span>:
-    - <span class="y-key">name</span>: <span class="y-str">rss_search</span>
-      <span class="y-key">url_template</span>: <span class="y-str">"https://jackett.example.com/api?q={{.QueryEscaped}}&amp;apikey=KEY"</span>
-  <span class="y-key">interval</span>: <span class="y-str">6h</span></code></pre>
+<pre><code>src = input("rss", url="https://feed.example.com/rss")
+disc = process("discover", upstream=src,
+    titles=["Breaking Bad"],
+    search=[{"name": "rss_search",
+             "url_template": "https://example.com/search?q={QueryEscaped}"}],
+    interval="6h")
+output("transmission", upstream=disc, host="localhost")
+pipeline("rss-search")</code></pre>
 
 <hr>
 <!-- ═══════════════════════════════════════════════════════════ -->
@@ -996,13 +1004,19 @@ pipeline("hd-only")</code></pre>
 
 <!-- ─────────── metainfo_torrent ─────────── -->
 <h2 id="metainfo_torrent">metainfo_torrent</h2>
-<p>Reads metadata from a <code>.torrent</code> file. Reads from <code>file_location</code> field (filesystem plugin) or downloads the URL if it ends in <code>.torrent</code>.</p>
+<p>Reads metadata from a <code>.torrent</code> file. Recognises an entry as a torrent download using three signals, checked in order:</p>
+<ol>
+  <li><code>file_location</code> ends in <code>.torrent</code> (set by the <code>filesystem</code> plugin) — reads the local file</li>
+  <li><code>torrent_link_type = "torrent"</code> (set by <code>jackett_search</code> / <code>jackett</code>) — fetches the URL</li>
+  <li>URL ends in <code>.torrent</code> or <code>rss_enclosure_type = "application/x-bittorrent"</code> — fetches the URL</li>
+</ol>
+<p>Entries with <code>torrent_link_type = "magnet"</code> are always skipped (handled by <code>metainfo_magnet</code>). If the <code>.torrent</code> file cannot be fetched or parsed, the entry is <strong>failed</strong> so it will be retried on the next run rather than passing through without metadata.</p>
 
 <table>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
   <tr><td><code>fetch_timeout</code></td><td>no</td><td><code>30s</code></td><td>HTTP timeout for downloading <code>.torrent</code> files</td></tr>
 </table>
-<p>Fields set: <code>torrent_info_hash</code>, <code>torrent_file_size</code>, <code>torrent_file_count</code>, <code>torrent_files</code>, <code>torrent_announce</code>, <code>torrent_announce_list</code>, <code>torrent_created_by</code>, <code>torrent_creation_date</code>, <code>torrent_private</code></p>
+<p>Fields set: <code>title</code> (torrent name), <code>torrent_info_hash</code>, <code>torrent_file_size</code>, <code>torrent_file_count</code>, <code>torrent_files</code>, <code>torrent_announce</code>, <code>torrent_announce_list</code>, <code>torrent_created_by</code>, <code>torrent_creation_date</code>, <code>torrent_private</code></p>
 
 <!-- ─────────── metainfo_magnet ─────────── -->
 <h2 id="metainfo_magnet">metainfo_magnet</h2>
@@ -1023,7 +1037,7 @@ After DHT: <code>torrent_file_size</code>, <code>torrent_file_count</code>, <cod
 
 <!-- ─────────── series ─────────── -->
 <h2 id="series">series</h2>
-<p>Accepts episodes of configured TV shows. Parses the episode identifier from the title, matches series names with fuzzy matching, and enforces optional quality and ordering constraints. Multiple quality variants of the same episode are all accepted — the task engine's automatic deduplication picks the best copy. Download history is recorded in the Learn phase. A re-download of an already-seen episode is accepted when the new copy is strictly better quality, or when it is a PROPER/REPACK that is not a quality downgrade.</p>
+<p>Accepts episodes of configured TV shows. Parses the episode identifier from the title, matches series names with fuzzy matching, and enforces optional quality and ordering constraints. Multiple quality variants of the same episode are all accepted — place <code>dedup</code> downstream to pick the best copy. Download history is committed to the database only after all downstream sinks confirm success. A re-download of an already-seen episode is accepted when the new copy is strictly better quality, or when it is a PROPER/REPACK that is not a quality downgrade.</p>
 
 <table>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
@@ -1065,7 +1079,7 @@ pipeline("tv-dynamic", schedule="1h")</code></pre>
 
 <!-- ─────────── movies ─────────── -->
 <h2 id="movies">movies</h2>
-<p>Accepts movies from a configured title list. Same quality and deduplication behavior as <code>series</code>. Download history recorded in Learn phase. A re-download is accepted when the new copy is strictly better quality, or when it is a PROPER/REPACK that is not a quality downgrade.</p>
+<p>Accepts movies from a configured title list. Same quality and deduplication behavior as <code>series</code>. Download history is committed after all downstream sinks confirm success. A re-download is accepted when the new copy is strictly better quality, or when it is a PROPER/REPACK that is not a quality downgrade.</p>
 
 <table>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
@@ -1082,7 +1096,7 @@ pipeline("tv-dynamic", schedule="1h")</code></pre>
 
 <!-- ─────────── premiere ─────────── -->
 <h2 id="premiere">premiere</h2>
-<p>Accepts premiere episodes of previously unseen series. Once a premiere is downloaded, subsequent runs reject that series. Useful for discovering new shows; let <code>series</code> take over episode tracking after the first download.</p>
+<p>Accepts premiere episodes of previously unseen series. All spec-matching quality variants are accepted so the <code>dedup</code> processor can pick the best copy. Once a premiere is successfully downloaded (all downstream sinks confirm), subsequent runs reject that series. Useful for discovering new shows; let <code>series</code> take over episode tracking after the first download.</p>
 
 <table>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
@@ -1133,14 +1147,17 @@ pipeline("mixed", schedule="1h")</code></pre>
   <li><strong>Condition syntax</strong> — same expression language as the <code>condition</code> filter. See the <a href="#expressions">Expression Language</a> section.</li>
 </ul>
 
+<img src="images/ui-route-visual.png" alt="Visual editor showing a route() node with tv and movies leg ports connecting to separate print sinks" class="screenshot">
+<p class="screenshot-caption">The <code>route()</code> node shows one named leg port per condition. Each leg feeds an independent downstream chain.</p>
+
 <h4>Why route() instead of separate condition filters?</h4>
 <p>Separate <code>condition</code> filters with fan-out achieve the same routing, but the DAG validator emits soft <code>~</code> warnings at the merge point because it sees two branches with different field sets. <code>route()</code> declares the branches are mutually exclusive, so the validator uses union semantics at the merge — no spurious warnings, and the intent is explicit.</p>
 
 <h4>Fields set</h4>
 <p><code>_route_leg</code> (string) — name of the matched leg (e.g. <code>"series"</code>). Available to downstream plugins including <code>pathfmt</code> templates, <code>condition</code> expressions, and <code>exec</code> commands.</p>
 
-<!-- ─────────── torrent_alive ─────────── -->
-<h2 id="torrent_alive">torrent_alive</h2>
+<!-- ─────────── torrentalive ─────────── -->
+<h2 id="torrentalive">torrentalive</h2>
 <p>Rejects torrents with fewer than a minimum number of seeds. The <code>torrent_seeds</code> field is set by the RSS input, <code>jackett_search</code>, and <code>jackett</code>. Entries without seed data are left undecided.</p>
 
 <table>
@@ -1148,7 +1165,7 @@ pipeline("mixed", schedule="1h")</code></pre>
   <tr><td><code>min_seeds</code></td><td>no</td><td><code>1</code></td><td>Minimum seed count required</td></tr>
 </table>
 
-<pre><code>alive = process("torrent_alive", upstream=upstream, min_seeds=3)</code></pre>
+<pre><code>alive = process("torrentalive", upstream=upstream, min_seeds=3)</code></pre>
 
 <!-- ─────────── require ─────────── -->
 <h2 id="require">require</h2>
@@ -1199,7 +1216,7 @@ pipeline("tech-news", schedule="1h")</code></pre>
 
 <!-- ─────────── trakt filter ─────────── -->
 <h2 id="trakt-filter">trakt</h2>
-<p>Accepts entries whose parsed title matches something on a Trakt.tv list. Matching is <strong>year-aware</strong>: the release year from the Trakt list is stored alongside each title. When the candidate entry carries a year (<code>trakt_year</code> from <code>trakt_list</code>, or <code>video_year</code> from <code>metainfo_tmdb</code>), entries that fuzzy-match on title but differ in year by more than 1 are not accepted. This prevents, for example, "Mother (2025)" matching "mother! (2017)" because they share a similar title. If either year is unknown the match falls back to title-only.</p>
+<p>Accepts entries whose parsed title matches something on a Trakt.tv list. Matching is <strong>year-aware</strong>: the release year from the Trakt list is stored alongside each title. When the candidate entry carries a year (<code>video_year</code> from <code>trakt_list</code> or <code>metainfo_tmdb</code>), entries that fuzzy-match on title but differ in year by more than 1 are not accepted. This prevents, for example, "Mother (2025)" matching "mother! (2017)" because they share a similar title. If either year is unknown the match falls back to title-only.</p>
 
 <table>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
@@ -1263,11 +1280,13 @@ pipeline("tech-news", schedule="1h")</code></pre>
 
 <!-- ─────────── upgrade ─────────── -->
 <h2 id="upgrade">upgrade</h2>
-<p>Accepts entries only when they offer a quality improvement over the previously downloaded version. Stops accepting once the target quality is reached.</p>
+<p>Accepts entries only when they offer a quality improvement over the previously downloaded version. Stops accepting once the target quality is reached. State is committed after all downstream sinks confirm success, so a failed download does not update the quality record.</p>
+
+<div class="note"><strong>Prerequisite:</strong> Place <code>metainfo_quality</code> upstream so the <code>video_quality</code> field is set. For series entries, a metainfo plugin (<code>metainfo_series</code> or <code>metainfo_tvdb</code>) should also run upstream to set the episode title used as the tracking key.</div>
 
 <table>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
-  <tr><td><code>target</code></td><td>yes</td><td>—</td><td>Quality ceiling (e.g. <code>1080p</code>)</td></tr>
+  <tr><td><code>target</code></td><td>yes</td><td>—</td><td>Quality ceiling (e.g. <code>1080p bluray</code>); upgrades stop once reached</td></tr>
   <tr><td><code>on_lower</code></td><td>no</td><td><code>reject</code></td><td>Action when quality is not better: <code>reject</code> or <code>accept</code></td></tr>
 </table>
 
@@ -1282,18 +1301,34 @@ pipeline("tech-news", schedule="1h")</code></pre>
 <p>When none of the above is available the check is skipped and a <code>Warn</code> is logged. Run with <code>--log-level debug</code> to see which source was used.</p>
 <p>Patterns use <a href="https://pkg.go.dev/path#Match"><code>path.Match</code></a> semantics, tested against both the filename component and the full path.</p>
 
-<pre><code><span class="y-key">content</span>:
-  <span class="y-key">reject</span>:
-    - <span class="y-str">"*.exe"</span>
-    - <span class="y-str">"*.bat"</span>
-  <span class="y-key">require</span>:
-    - <span class="y-str">"*.mkv"</span></code></pre>
+<pre><code>ct = process("content", upstream=upstream,
+             reject=["*.exe", "*.bat"],
+             require=["*.mkv"])</code></pre>
+
+<!-- ─────────── dedup ─────────── -->
+<h2 id="dedup">dedup</h2>
+<p>Keeps the best-quality copy when multiple entries for the same episode or movie arrive in one run. The <code>series</code> and <code>movies</code> filters accept <em>all</em> quality variants so you can get the best available copy — place <code>dedup</code> after them to select the winner.</p>
+<p>Takes no config. Identifies entries by <code>series_episode_id</code> (for episodes) or <code>movie_title</code> (for movies); entries without either key pass through unchanged.</p>
+<p>Selection order (highest wins):</p>
+<ol>
+  <li>Seed tier — entries with 2 or more seeders beat entries with 1</li>
+  <li>Resolution — higher wins (2160p &gt; 1080p &gt; 720p &gt; …)</li>
+  <li>Seed count — more seeds wins when tier and resolution tie</li>
+</ol>
+<pre><code>src    = input("rss", url="https://feed.example.com/rss")
+seen   = process("seen",   upstream=src)
+q      = process("metainfo_quality", upstream=seen)
+series = process("series", upstream=q,
+                 static=["Breaking Bad"], tracking="strict", quality="720p+")
+best   = process("dedup",  upstream=series)
+output("transmission", upstream=best, host="localhost")
+pipeline("tv")</code></pre>
 
 <!-- ─────────── accept_all ─────────── -->
 <h2 id="accept_all">accept_all</h2>
 <p>Accepts every entry that is not already accepted or rejected. Useful before <code>list_add</code> when the task's only purpose is list population.</p>
 
-<pre><code><span class="y-key">accept_all</span>:    <span class="y-comment"># no config needed</span></code></pre>
+<pre><code>acc = process("accept_all", upstream=upstream)  <span class="y-comment"># no config needed</span></code></pre>
 
 <hr>
 <!-- ═══════════════════════════════════════════════════════════ -->
@@ -1395,7 +1430,7 @@ pipeline("tech-news", schedule="1h")</code></pre>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
   <tr><td><code>smtp_host</code></td><td>yes</td><td>—</td><td>SMTP server hostname</td></tr>
   <tr><td><code>smtp_port</code></td><td>no</td><td><code>25</code></td><td>SMTP port</td></tr>
-  <tr><td><code>from</code></td><td>yes</td><td>—</td><td>Sender address</td></tr>
+  <tr><td><code>sender</code></td><td>yes</td><td>—</td><td>Sender address</td></tr>
   <tr><td><code>to</code></td><td>yes</td><td>—</td><td>Recipient address(es)</td></tr>
   <tr><td><code>username</code></td><td>no</td><td>—</td><td>SMTP auth username</td></tr>
   <tr><td><code>password</code></td><td>no</td><td>—</td><td>SMTP auth password</td></tr>
@@ -1416,11 +1451,11 @@ pipeline("tech-news", schedule="1h")</code></pre>
 
 <!-- ─────────── exec ─────────── -->
 <h2 id="exec">exec</h2>
-<p>Runs a shell command for each accepted entry. Command is a Go template rendered against the entry.</p>
+<p>Runs a command for each accepted entry. The command is a template rendered against the entry, then split on whitespace and executed directly — there is no shell, so pipes, globs, and variable expansion are not supported.</p>
 
 <table>
   <tr><th>Key</th><th>Required</th><th>Description</th></tr>
-  <tr><td><code>command</code></td><td>yes</td><td>Shell command template (run via <code>/bin/sh -c</code>)</td></tr>
+  <tr><td><code>command</code></td><td>yes</td><td>Command template; split on whitespace and executed directly (no shell — no pipes, globs, or variable expansion)</td></tr>
 </table>
 
 <pre><code>output("exec", upstream=ready, command='notify-send "New download" "{{.Title}}"')</code></pre>
@@ -1440,13 +1475,17 @@ pipeline("tech-news", schedule="1h")</code></pre>
 
 <table>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
-  <tr><td><code>via</code></td><td>yes</td><td>—</td><td>Notifier type: <code>webhook</code> or <code>email</code></td></tr>
+  <tr><td><code>via</code></td><td>yes</td><td>—</td><td>Notifier type: <code>webhook</code>, <code>email</code>, or <code>pushover</code></td></tr>
   <tr><td><code>title</code></td><td>no</td><td>auto</td><td>Notification title template</td></tr>
   <tr><td><code>body</code></td><td>no</td><td>auto</td><td>Notification body template</td></tr>
   <tr><td><code>on</code></td><td>no</td><td>—</td><td>Set to <code>all</code> to notify even when no entries accepted</td></tr>
 </table>
 
-<p>Additional keys are forwarded to the chosen notifier (see <a href="#notify-email">email notifier</a> and <a href="#webhook">webhook</a>).</p>
+<p>Notifier-specific config goes inside a nested <code>config={}</code> dict — not as flat keys on the <code>notify</code> call. See <a href="#notify-email">email notifier</a>, <a href="#pushover">pushover</a>, and <a href="#webhook">webhook</a> for available keys.</p>
+<pre><code>output("notify", upstream=ready,
+       via="webhook",
+       config={"url": env("DISCORD_WEBHOOK_URL", default="https://…")},
+       title="pipeliner — {{len .Entries}} new item(s)")</code></pre>
 
 <!-- ─────────── decompress ─────────── -->
 <h2 id="decompress">decompress</h2>
@@ -1482,7 +1521,7 @@ pipeline("tech-news", schedule="1h")</code></pre>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
   <tr><td><code>smtp_host</code></td><td>yes</td><td>—</td><td>SMTP server hostname</td></tr>
   <tr><td><code>port</code></td><td>no</td><td><code>25</code></td><td>SMTP port</td></tr>
-  <tr><td><code>from</code></td><td>yes</td><td>—</td><td>Sender address</td></tr>
+  <tr><td><code>sender</code></td><td>yes</td><td>—</td><td>Sender address</td></tr>
   <tr><td><code>to</code></td><td>yes</td><td>—</td><td>Recipient address(es)</td></tr>
   <tr><td><code>username</code></td><td>no</td><td>—</td><td>SMTP auth username</td></tr>
   <tr><td><code>password</code></td><td>no</td><td>—</td><td>SMTP auth password</td></tr>
@@ -1526,7 +1565,7 @@ pipeline("tech-news", schedule="1h")</code></pre>
   <tr><td><code>--config</code></td><td><code>config.star</code></td><td>Path to config file</td></tr>
   <tr><td><code>--log-level</code></td><td><code>info</code></td><td><code>debug</code>, <code>info</code>, <code>warn</code>, <code>error</code></td></tr>
   <tr><td><code>--log-plugin</code></td><td>—</td><td>Show log output from only these plugins, comma-separated (e.g. <code>metainfo_tvdb,series</code>); task-level logs always shown</td></tr>
-  <tr><td><code>--dry-run</code></td><td>false</td><td>Skip output and learn phases (idempotent)</td></tr>
+  <tr><td><code>--dry-run</code></td><td>false</td><td>Skip all sinks and state commits; sources and processors run normally (idempotent)</td></tr>
   <tr><td><code>task ...</code></td><td>all</td><td>Optional list of task names to run</td></tr>
 </table>
 
@@ -1647,7 +1686,8 @@ output(<span class="y-str">"transmission"</span>, upstream=movies, host=<span cl
 pipeline(<span class="y-str">"my-movies"</span>, schedule=<span class="y-str">"1h"</span>)</code></pre>
 
 <h3>Database tab</h3>
-<p>Inspect and manage the two download trackers stored in <code>pipeliner.db</code>.</p>
+<p>Inspect and manage the download trackers stored in <code>pipeliner.db</code>.</p>
+<img src="images/ui-database-tab.png" alt="Database tab showing the Series, Movies, and Seen tracker categories in the sidebar" class="screenshot">
 <p>A sidebar lists the available trackers; click one to load its contents in the main panel. A filter box and <strong>Clear all</strong> button appear for the active tracker.</p>
 <ul>
   <li><strong>Series</strong> — all TV episodes recorded as downloaded, grouped by show. Expand a show to see each episode's ID, quality, and download date. Delete an individual episode or an entire show to force a re-download on the next run. Includes entries from both the <code>series</code> and <code>premiere</code> filters.</li>
@@ -1656,6 +1696,7 @@ pipeline(<span class="y-str">"my-movies"</span>, schedule=<span class="y-str">"1
 </ul>
 
 <h3>Settings tab</h3>
+<img src="images/ui-settings-tab.png" alt="Settings tab showing the Trakt Authorization form with client ID and client secret fields" class="screenshot">
 <p>The Settings tab provides a <strong>Trakt Authorization</strong> form for completing the Trakt device auth flow directly in the browser — useful when running in Docker or any environment where interactive console access is not available. Enter your <code>client_id</code> and <code>client_secret</code>, click <strong>Authorize</strong>, then visit the displayed URL and enter the code on Trakt's website. The token is saved to <code>pipeliner.db</code> automatically on success and refreshed before expiry, exactly as if you had run <code>pipeliner auth trakt</code> from the CLI.</p>
 
 <h3>HTTPS</h3>
@@ -1730,8 +1771,8 @@ docker compose up -d --no-build pipeliner</code></pre>
 <h3>Deluge "Not authenticated" errors</h3>
 <p>This was a bug where the Deluge session cookie from login was not preserved. It is fixed in v0.1.3+. Ensure you are running a current version.</p>
 
-<h3>torrent_alive is slow</h3>
-<p>When entries lack a <code>torrent_seeds</code> field, <code>torrent_alive</code> must resolve the info hash and scrape trackers. Use inputs that provide seed counts (<code>jackett_search</code>, <code>jackett</code>, nyaa RSS) to avoid scraping. Set <code>scrape: false</code> to disable tracker scraping entirely (entries without seed data will be left undecided).</p>
+<h3>torrentalive is slow</h3>
+<p>When entries lack a <code>torrent_seeds</code> field, <code>torrentalive</code> must resolve the info hash and scrape trackers. Use inputs that provide seed counts (<code>jackett_search</code>, <code>jackett</code>, nyaa RSS) to avoid scraping. Set <code>scrape: false</code> to disable tracker scraping entirely (entries without seed data will be left undecided).</p>
 
 <h3>Config validation errors</h3>
 <p><code>pipeliner check</code> validates each plugin's config and verifies that all required fields are produced by upstream nodes. If you see a field requirement error, check that the metainfo processor producing that field is connected upstream of the filter or sink that needs it.</p>

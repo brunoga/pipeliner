@@ -1,76 +1,32 @@
 # jackett
 
-See also [`jackett_search`](../jackett_search/README.md) — the Torznab search backend (also usable as a source node).
+Returns recent results from Jackett indexers without requiring a search query. Behaves like an RSS feed: each run fetches whatever the configured indexers consider recent for the configured categories.
 
----
+See also [`jackett_search`](../jackett_search/README.md) — the Torznab search backend for active searching via the [`discover`](../../processor/discover/README.md) plugin.
 
-## `jackett` — direct input (recent results)
+## Config
 
-Input plugin that returns recent results from Jackett indexers without requiring a search query. Behaves like an RSS feed: each run fetches whatever the indexer considers recent for the configured categories.
+| Key | Required | Default | Description |
+|-----|----------|---------|-------------|
+| `url` | yes | — | Jackett base URL (e.g. `http://localhost:9117`) |
+| `api_key` | yes | — | Jackett API key (found in the Jackett web UI) |
+| `indexers` | no | `["all"]` | Indexer IDs to query; Jackett aggregates results server-side |
+| `categories` | no | — | Torznab category codes to filter |
+| `limit` | no | — | Maximum number of results across all indexers |
+| `timeout` | no | `60s` | HTTP request timeout |
+| `query` | no | `""` | Optional search query; empty returns all recent results |
 
-### Config
+## Fields set on entry
 
-| Key | Type | Required | Default | Description |
-|-----|------|----------|---------|-------------|
-| `url` | string | yes | — | Jackett base URL |
-| `api_key` | string | yes | — | Jackett API key |
-| `indexers` | list | no | `["all"]` | Indexer IDs to query. All passed in a single call; Jackett aggregates results server-side. |
-| `categories` | list | no | (none) | Torznab category codes to filter |
-| `limit` | int | no | (none) | Maximum number of results to return across all indexers. |
-| `timeout` | string | no | `60s` | HTTP request timeout, e.g. `60s`, `2m`. Increase when querying many indexers. |
-| `query` | string | no | `""` | Optional search query; empty returns all recent results |
-
-### Example
-
-```python
-task("tv-discover", [
-    plugin("jackett",
-        url="http://localhost:9117",
-        api_key="YOUR_JACKETT_KEY",
-        indexers=["all"],
-        categories=["5040", "5045"],
-    ),
-    plugin("premiere", quality="720p+ webrip+"),
-    plugin("email",
-        smtp_host="smtp.example.com",
-        **{"from": "me@example.com"},
-        to="me@example.com",
-    ),
-])
-```
-
-## DAG role (`jackett`)
-
-| Property | Value |
-|----------|-------|
-| Role | `source` |
-| Produces | `published_date`, `torrent_seeds`, `torrent_leechers`, `torrent_info_hash`, `torrent_link_type`, `torrent_file_size` |
-| Requires | — |
-
-DAG example:
-```python
-src = input("jackett",
-    url="http://localhost:9117",
-    api_key=env("JACKETT_KEY"),
-    categories=["5040", "5045"],
-)
-output("print", upstream=src)
-pipeline("jackett-feed", schedule="1h")
-```
-
----
-
-## Entry fields set
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `torrent_seeds` | int | Seeder count from the indexer |
-| `torrent_leechers` | int | Leecher count from the indexer |
-| `torrent_file_size` | int64 | Total size in bytes |
-| `torrent_info_hash` | string | SHA-1 info hash (lowercase hex), if provided |
-| `torrent_link_type` | string | `"torrent"` if the entry URL serves a `.torrent` file; `"magnet"` if the Torznab `magneturl` attribute was present and `e.URL` was set to the magnet URI |
-| `jackett_category` | string | Torznab category code of the result |
-| `jackett_indexer` | string | Indexer ID that returned the result |
+| Field | Description |
+|-------|-------------|
+| `torrent_seeds` | Seeder count |
+| `torrent_leechers` | Leecher count |
+| `torrent_file_size` | Total size in bytes |
+| `torrent_info_hash` | SHA-1 info hash, if provided |
+| `torrent_link_type` | `"torrent"` or `"magnet"` |
+| `jackett_category` | Torznab category code |
+| `jackett_indexer` | Source indexer name |
 
 ## Common Torznab categories
 
@@ -78,15 +34,35 @@ pipeline("jackett-feed", schedule="1h")
 |------|----------|
 | 2000 | Movies |
 | 2010 | Movies / HD |
-| 2020 | Movies / SD |
 | 5000 | TV |
 | 5030 | TV / HD |
 | 5040 | TV / SD |
-| 5045 | TV / HD |
+| 5045 | TV / UHD |
+
+## Example
+
+```python
+src     = input("jackett", url="http://localhost:9117",
+                api_key=env("JACKETT_KEY"), categories=["5040", "5045"])
+seen    = process("seen",   upstream=src)
+quality = process("metainfo_quality", upstream=seen)
+prem    = process("premiere", upstream=quality, quality="720p+ webrip+")
+best    = process("dedup",  upstream=prem)
+output("transmission", upstream=best, host="localhost")
+pipeline("new-shows", schedule="1h")
+```
+
+## DAG role
+
+| Property | Value |
+|----------|-------|
+| Role | `source` |
+| Produces | `torrent_seeds`, `torrent_leechers`, `torrent_file_size`, `torrent_info_hash`, `torrent_link_type`, `jackett_category`, `jackett_indexer` |
+| MayProduce | `published_date` |
+| Requires | — |
 
 ## Notes
 
-- All configured indexers are queried in a single Jackett API call by passing them as a comma-separated list; Jackett aggregates results server-side.
+- All configured indexers are queried in a single Jackett API call; Jackett aggregates results server-side.
 - Category filtering is applied server-side by Jackett.
-- The error response body is included in the log when Jackett returns a non-200 status, making misconfiguration easier to diagnose.
-- `torrent_info_hash` being set makes `metainfo_magnet` and `metainfo_torrent` redundant for hash-based operations.
+- `torrent_info_hash` being set makes separate `metainfo_torrent` or `metainfo_magnet` fetches unnecessary for hash-based operations.

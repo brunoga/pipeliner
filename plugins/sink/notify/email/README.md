@@ -1,31 +1,44 @@
 # email (notifier)
 
-Sends a single email with the run title as subject and body via SMTP. Used via the [`notify` output plugin](../README.md).
+Sends a summary email via SMTP for the entire run. Used via the [`notify` output plugin](../README.md) with `via="email"`.
 
 ## Config
 
-| Key | Type | Required | Default | Description |
-|-----|------|----------|---------|-------------|
-| `smtp_host` | string | yes | — | SMTP server hostname |
-| `port` | int | no | `25` | SMTP port |
-| `from` | string | yes | — | Sender address |
-| `to` | string or list | yes | — | Recipient address(es) |
-| `username` | string | no | — | SMTP auth username |
-| `password` | string | no | — | SMTP auth password |
+Pass these keys inside the `config={}` dict of the `notify` output:
+
+| Key | Required | Default | Description |
+|-----|----------|---------|-------------|
+| `smtp_host` | yes | — | SMTP server hostname |
+| `smtp_port` | no | `25` | SMTP server port |
+| `sender` | yes | — | Sender address |
+| `to` | yes | — | Recipient address or list of addresses |
+| `username` | no | — | SMTP auth username |
+| `password` | no | — | SMTP auth password |
 
 ## Example
 
 ```python
-task("tv", [
-    # ... filters and output ...
-    plugin("notify",
-        via="email",
-        smtp_host="smtp.example.com",
-        **{"from": "pipeliner@example.com"},
-        to="me@example.com",
-        username="pipeliner@example.com",
-        password="secret",
-        title="{{len .Entries}} new episodes",
-    ),
-])
+src  = input("rss", url="https://example.com/rss")
+seen = process("seen",   upstream=src)
+flt  = process("series", upstream=seen, static=["Breaking Bad"])
+fmt  = process("pathfmt", upstream=flt,
+               path="/media/tv/{title}/Season {series_season:02d}",
+               field="download_path")
+output("transmission", upstream=fmt, host="localhost")
+output("notify", upstream=fmt,
+       via="email",
+       config={"smtp_host": "smtp.gmail.com", "smtp_port": 587,
+               "sender":   env("SMTP_USER"),
+               "to":       env("SMTP_TO"),
+               "username": env("SMTP_USER"),
+               "password": env("SMTP_PASS")})
+pipeline("tv", schedule="1h")
 ```
+
+## DAG role
+
+| Property | Value |
+|----------|-------|
+| Role | `sink` (via `notify`) |
+| Produces | — |
+| Requires | — |

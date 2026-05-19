@@ -1,4 +1,4 @@
-# dag-multi-client.star
+# multi-client.star
 #
 # Send TV episodes to Transmission and movies to qBittorrent from the same
 # RSS feed, using two independent processor branches after a shared seen/dedup

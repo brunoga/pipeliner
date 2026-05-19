@@ -96,3 +96,25 @@ pipeline("tv-discover", schedule="1h")
 
 ## Example — combined static and dynamic
 
+```python
+# Static titles always searched; Trakt watchlist adds more dynamically.
+watchlist = input("trakt_list", client_id=env("TRAKT_ID"),
+                  client_secret=env("TRAKT_SECRET"),
+                  type="movies", list="watchlist")
+results   = process("discover", upstream=watchlist,
+    titles=["Dune Part Two", "Oppenheimer"],
+    search=[{"name": "jackett_search",
+             "url":     "http://localhost:9117",
+             "api_key": env("JACKETT_KEY"),
+             "categories": ["2000"]}],
+    interval="12h")
+seen    = process("seen",   upstream=results)
+movies  = process("movies", upstream=seen,
+    static=["Dune Part Two", "Oppenheimer"],
+    list=[{"name": "trakt_list", "client_id": env("TRAKT_ID"),
+           "client_secret": env("TRAKT_SECRET"), "type": "movies", "list": "watchlist"}],
+    quality="1080p+")
+output("qbittorrent", upstream=movies, host="localhost")
+pipeline("movie-discover", schedule="2h")
+```
+

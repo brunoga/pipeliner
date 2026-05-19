@@ -1,46 +1,37 @@
 # list_match
 
-Accepts entries whose title is present in a named persistent list; rejects everything else. The list is populated by the [`list_add`](../../../sink/list_add/README.md) output plugin, which can run in a separate task.
-
-This pair of plugins replaces FlexGet's `list_add` / `list_match` / `movie_list` mechanism.
+Accepts entries whose title is in a named persistent list. The list is populated by the [`list_add`](../../../sink/list_add/README.md) output plugin. This pair allows two independent pipelines to coordinate: one pipeline discovers and stores titles, another searches and downloads them.
 
 ## Config
 
-| Key | Type | Required | Default | Description |
-|-----|------|----------|---------|-------------|
-| `list` | string | yes | — | Name of the list to match against |
-| `remove_on_match` | bool | no | `false` | Remove the entry from the list after a successful match |
-| `reject_unmatched` | bool | no | `true` | Reject entries that do not match the list; set `false` to leave them undecided when chaining filters |
+| Key | Required | Default | Description |
+|-----|----------|---------|-------------|
+| `list` | yes | — | Name of the list to match against |
+| `remove_on_match` | no | `false` | Remove the entry from the list after a successful match (one-shot queues) |
+| `reject_unmatched` | no | `true` | Reject entries not in the list; set `false` to leave them undecided when chaining filters |
 
-## Example — download movies from a persistent watchlist
+## Example
 
 ```python
-# Task 1 (priority 1): use movies.list to sync Trakt watchlist into a local list
-task("sync-watchlist", [
-    plugin("rss", url="https://example.com/rss/movies"),
-    plugin("movies", **{"from": [
-        {"name": "trakt_list", "client_id": "YOUR_CLIENT_ID",
-         "access_token": "YOUR_ACCESS_TOKEN", "type": "movies", "list": "watchlist"},
-    ]}),
-    plugin("accept_all"),
-    plugin("list_add", list="movie_watchlist"),
-], schedule="1h")
+# Pipeline 1: populate the list every hour from Trakt
+src = input("trakt_list", client_id=env("TRAKT_ID"),
+            client_secret=env("TRAKT_SECRET"), type="movies", list="watchlist")
+acc = process("accept_all", upstream=src)
+output("list_add", upstream=acc, list="movie_watchlist")
+pipeline("sync-watchlist", schedule="1h")
 
-# Task 2 (priority 10): search and download, matching against the local list
-task("movies-search", [
-    plugin("discover", **{"list": [
-        {"name": "trakt_list", "client_id": "YOUR_CLIENT_ID",
-         "type": "movies", "list": "watchlist"},
-    ], "search": [
-        {"name": "rss_search",
-         "url_template": "https://example.com/search?q={QueryEscaped}"},
-    ], "interval": "24h"}),
-    plugin("seen"),
-    plugin("metainfo_quality"),
-    plugin("list_match", list="movie_watchlist", remove_on_match=True),
-    plugin("pathfmt", path="/media/movies", field="download_path"),
-    plugin("transmission", host="localhost", path="{download_path}"),
-], schedule="6h")
+# Pipeline 2: search for movies in the list via Jackett
+watchlist = input("trakt_list", client_id=env("TRAKT_ID"),
+                  client_secret=env("TRAKT_SECRET"), type="movies", list="watchlist")
+results   = process("discover", upstream=watchlist,
+    search=[{"name": "jackett_search", "url": "http://localhost:9117",
+             "api_key": env("JACKETT_KEY"), "categories": ["2000"]}],
+    interval="24h")
+seen = process("seen", upstream=results)
+flt  = process("list_match", upstream=seen, list="movie_watchlist",
+               remove_on_match=True)
+output("qbittorrent", upstream=flt, host="localhost")
+pipeline("download-movies", schedule="6h")
 ```
 
 ## DAG role
@@ -53,6 +44,6 @@ task("movies-search", [
 
 ## Notes
 
-- Matching is by exact entry title. The `movies` filter (with `from`) is often the better choice when the source is a single Trakt or TVDB list — `list_match` is most useful when combining multiple sources or when you want manual list management.
-- `remove_on_match=True` is appropriate for one-shot download queues (download once, then stop). Leave it `False` (the default) if multiple tasks should be able to match the same list entry.
-- The list is stored in `pipeliner.db` in the same directory as the config file, shared with all other stateful plugins.
+- Matching is by entry title (case-insensitive fuzzy match). For precise matching, use `movies` or `series` with a static list instead.
+- `remove_on_match=true` is appropriate for one-shot queues where each title should be downloaded exactly once.
+- The list is stored in `pipeliner.db` in the same directory as the config file.

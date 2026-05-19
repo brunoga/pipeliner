@@ -10,13 +10,14 @@ The show list can be provided statically via `static`, dynamically via `list` (a
 
 ## Config
 
-| Key | Type | Required | Default | Description |
-|-----|------|----------|---------|-------------|
-| `static` | string or list | conditional | — | Static show names to accept |
-| `list` | list | conditional | — | List-plugin configs whose entry titles supplement the show list |
-| `ttl` | string | no | `1h` | How long to cache the dynamic list fetched via `list` |
-| `tracking` | string | no | `strict` | Episode ordering mode: `strict`, `backfill`, or `follow` |
-| `quality` | string | no | — | Minimum quality spec (e.g. `720p`, `1080p bluray`) |
+| Key | Required | Default | Description |
+|-----|----------|---------|-------------|
+| `static` | conditional | — | Static show names to accept |
+| `list` | conditional | — | List-plugin configs whose entry titles supplement the show list |
+| `ttl` | no | `1h` | How long to cache the dynamic list fetched via `list` |
+| `tracking` | no | `strict` | Episode ordering mode: `strict`, `backfill`, or `follow` |
+| `quality` | no | — | Minimum quality spec (e.g. `720p`, `1080p bluray`) |
+| `reject_unmatched` | no | `true` | Reject episodes not in the show list; set `false` to leave them undecided when chaining multiple series filters |
 
 At least one of `static` or `list` is required.
 

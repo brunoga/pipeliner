@@ -1,23 +1,26 @@
 # require
 
-Rejects entries that are missing one or more required metadata fields.
+Rejects entries that are missing one or more required fields. A field is considered missing when its value is absent, empty string, zero, `false`, or an empty list.
 
-A field is considered missing if its value is `nil`, an empty string, zero
-integer, zero `time.Time`, `false`, or an empty slice.
+A common use is to gate on the `enriched` field set by external metainfo plugins (TVDB, TMDb, Trakt), so entries that couldn't be identified are dropped early.
 
 ## Config
 
-```python
-plugin("require", fields="series_name")          # single field
-# or
-plugin("require", fields=["series_name", "series_season", "quality"])
-```
+| Key | Required | Default | Description |
+|-----|----------|---------|-------------|
+| `fields` | yes | — | Field name or list of field names that must be present and non-empty |
 
-## Example
+## Example — drop entries not identified by TVDB
 
 ```python
 meta = process("metainfo_tvdb", upstream=upstream, api_key=env("TVDB_KEY"))
 req  = process("require", upstream=meta, fields=["enriched"])
+```
+
+## Example — require episode metadata
+
+```python
+req = process("require", upstream=upstream, fields=["series_episode_id"])
 ```
 
 ## DAG role
@@ -26,4 +29,4 @@ req  = process("require", upstream=meta, fields=["enriched"])
 |----------|-------|
 | Role | `processor` |
 | Produces | — |
-| Requires | — (dynamic: whatever fields are listed in `fields` config) |
+| Requires | (the fields named in the `fields` config) |

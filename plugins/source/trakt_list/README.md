@@ -6,14 +6,14 @@ Use as a standalone `input()` source node, or inside `series.list`, `movies.list
 
 ## Config
 
-| Key | Type | Required | Default | Description |
-|-----|------|----------|---------|-------------|
-| `client_id` | string | yes | — | Trakt API Client ID |
-| `type` | string | yes | — | `movies` or `shows` |
-| `list` | string | no | `watchlist` | `watchlist`, `trending`, `popular`, `watched`, `ratings`, `collection` |
-| `client_secret` | string | conditional | — | OAuth client secret; enables automatic token management via `pipeliner.db`. Run `pipeliner auth trakt` once to authorise. |
-| `access_token` | string | conditional | — | Static OAuth bearer token (alternative to `client_secret`) |
-| `limit` | int | no | `100` | Max results for public lists |
+| Key | Required | Default | Description |
+|-----|----------|---------|-------------|
+| `client_id` | yes | — | Trakt API Client ID |
+| `type` | yes | — | `movies` or `shows` |
+| `list` | no | `watchlist` | `watchlist`, `trending`, `popular`, `watched`, `ratings`, `collection` |
+| `client_secret` | conditional | — | OAuth client secret — required for `watchlist`, `ratings`, and `collection`. Enables automatic token management. |
+| `access_token` | conditional | — | Static OAuth bearer token (alternative to `client_secret`) |
+| `limit` | no | `100` | Max results for public lists |
 
 One of `client_secret` or `access_token` is required for `watchlist`, `ratings`, and `collection`. Public lists (`trending`, `popular`, `watched`) need neither.
 
@@ -43,12 +43,12 @@ process("movies", upstream=seen,
 
 ## Fields set on each entry
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `trakt_id` | int | Trakt internal ID |
-| `video_year` | int | Release or premiere year — stored as the standard `video_year` field so downstream filters and enrichers can use it directly |
-| `trakt_imdb_id` | string | IMDb ID (e.g. `tt1375666`) |
-| `trakt_tmdb_id` | int | TMDb ID |
+| Field | Description |
+|-------|-------------|
+| `trakt_id` | Trakt internal ID |
+| `video_year` | Release or premiere year — stored as the standard `video_year` field so downstream filters and enrichers can use it directly |
+| `trakt_imdb_id` | IMDb ID (e.g. `tt1375666`) |
+| `trakt_tmdb_id` | TMDb ID |
 
 ## Example — dynamic title source for series and movies filters
 

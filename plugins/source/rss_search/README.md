@@ -1,44 +1,51 @@
 # rss_search
 
-A from plugin that fetches entries from a parameterized RSS URL. The URL is
-constructed by rendering a Go template with the search query substituted for
-`{{.Query}}` or `{{.QueryEscaped}}`.
-
-It is used as a sub-plugin of [`discover`](../../processor/discover/) via
-the `via` config key, and can also be used as a standalone `input()` source node.
+Fetches entries from a parameterized RSS URL, substituting the search query into the URL template. Used as a search backend for the [`discover`](../../processor/discover/README.md) plugin, and can also be used as a standalone `input()` source node (queries with an empty string).
 
 ## Config
 
-```python
-# inline in discover via list:
-{"name": "rss_search", "url_template": "https://example.com/search?q={{.QueryEscaped}}"}
-```
-
-| Key            | Description                                           |
-|----------------|-------------------------------------------------------|
-| `url_template` | Go template for the search URL (required)             |
+| Key | Required | Default | Description |
+|-----|----------|---------|-------------|
+| `url_template` | yes | — | URL with `{Query}` or `{QueryEscaped}` placeholder |
 
 **Template variables:**
-- `{{.Query}}` — raw query string (not URL-encoded; use only for path segments)
-- `{{.QueryEscaped}}` — URL-encoded query string (safe for query parameters)
+- `{Query}` — raw query string (not URL-encoded)
+- `{QueryEscaped}` — URL-encoded query string (safe for query parameters)
 
-## Example
+Go template syntax (`{{.Query}}`, `{{.QueryEscaped}}`) is also accepted.
+
+## Example — as a discover search backend
 
 ```python
-src = process("discover",
-    titles=["Breaking Bad"],
+watchlist = input("trakt_list", client_id=env("TRAKT_ID"),
+                  client_secret=env("TRAKT_SECRET"),
+                  type="movies", list="watchlist")
+results   = process("discover", upstream=watchlist,
     search=[{"name": "rss_search",
-             "url_template": "https://jackett.example.com/api/v2.0/indexers/all/results/torznab/api?t=search&q={{.QueryEscaped}}&apikey=" + env("JACKETT_API_KEY")}],
-    interval="6h",
-)
+             "url_template": "https://example.com/search?q={QueryEscaped}&apikey=" + env("KEY")}],
+    interval="12h")
+output("qbittorrent", upstream=results, host="localhost")
+pipeline("movie-discover", schedule="2h")
 ```
 
-## Role
+## Example — as a standalone source
 
-`rss_search` has `Role=source`. It is used inside `discover.search` for targeted searches, and can also be used as a standalone `input()` node (it will call the URL template with an empty query, returning all recent results):
+```python
+src = input("rss_search",
+            url_template="https://nyaa.si/?page=rss&q={QueryEscaped}&c=1_2&f=0")
+output("print", upstream=src)
+pipeline("nyaa-browse", schedule="1h")
+```
+
+## Fields set on entry
+
+Same fields as the `rss` plugin: `title`, `description`, `published_date`, `rss_feed`, `rss_guid`, `rss_link`, `rss_enclosure_url`, `rss_enclosure_type`. `torrent_seeds` is set when torrent namespace extensions are present in the feed.
+
+## DAG role
 
 | Property | Value |
 |----------|-------|
 | Role | `source` |
-| Produces | `title`, `rss_feed`, `rss_guid`, `rss_link`, `rss_enclosure_url`, `rss_enclosure_type`, `published_date`, `torrent_seeds` |
+| Produces | `title`, `rss_feed`, `rss_guid`, `rss_link`, `rss_enclosure_url`, `rss_enclosure_type` |
+| MayProduce | `description`, `published_date`, `torrent_seeds` |
 | Requires | — |
