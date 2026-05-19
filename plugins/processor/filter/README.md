@@ -11,6 +11,7 @@ Filter processors accept or reject entries. Use them with `process("plugin-name"
 | [`trakt`](trakt/README.md) | Accept entries whose title matches a Trakt.tv list |
 | [`tvdb`](tvdb/README.md) | Accept entries whose title matches TheTVDB user favorites |
 | [`quality`](quality/README.md) | Reject entries below or above a quality range |
+| [`age`](age/README.md) | Reject entries whose date field falls outside a configured age window |
 | [`regexp`](regexp/README.md) | Accept or reject entries by regular expression |
 | [`exists`](exists/README.md) | Reject entries whose target file already exists on disk |
 | [`condition`](condition/README.md) | Accept or reject entries using boolean expressions |
