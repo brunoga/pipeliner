@@ -47,6 +47,7 @@ Not every stage is required. A simple news-to-email pipeline might just be `rss 
 | [`trakt`](processor/filter/trakt/README.md) | Accept entries whose title matches a Trakt.tv list |
 | [`tvdb`](processor/filter/tvdb/README.md) | Accept entries whose title matches TheTVDB user favorites |
 | [`quality`](processor/filter/quality/README.md) | Reject entries below or above a quality range |
+| [`age`](processor/filter/age/README.md) | Reject entries whose date field falls outside a configured age window |
 | [`regexp`](processor/filter/regexp/README.md) | Accept or reject entries by regular expression |
 | [`exists`](processor/filter/exists/README.md) | Reject entries whose target file already exists on disk |
 | [`condition`](processor/filter/condition/README.md) | Accept or reject entries using boolean expressions |
