@@ -4,43 +4,44 @@ Fetches entries from an RSS 2.0 or Atom 1.0 feed. Prefers enclosure URLs (torren
 
 ## Config
 
-| Key | Type | Required | Default | Description |
-|-----|------|----------|---------|-------------|
-| `url` | string | yes | — | Feed URL |
-| `all_entries` | bool | no | false | Accept all entries, skipping filter phase |
+| Key | Required | Default | Description |
+|-----|----------|---------|-------------|
+| `url` | yes | — | Feed URL |
+| `all_entries` | no | `false` | Accepted in config for compatibility; has no effect — all feed items are always returned as undecided entries for downstream processors to filter |
 
 ## Fields set on entry
 
 ### Generic fields
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `title` | string | Item title |
-| `description` | string | Item description or summary |
-| `published_date` | string | Publication date string |
+| Field | Description |
+|-------|-------------|
+| `title` | Item title |
+| `description` | Item description or summary |
+| `published_date` | Publication date string |
 
 ### RSS fields
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `rss_feed` | string | Feed URL (the configured `url`) |
-| `rss_guid` | string | Item GUID |
-| `rss_link` | string | Item link |
-| `rss_enclosure_url` | string | Enclosure URL (if present) |
-| `rss_enclosure_type` | string | Enclosure MIME type (if present) |
+| Field | Description |
+|-------|-------------|
+| `rss_feed` | Feed URL (the configured `url`) |
+| `rss_guid` | Item GUID |
+| `rss_link` | Item link |
+| `rss_enclosure_url` | Enclosure URL (if present) |
+| `rss_enclosure_type` | Enclosure MIME type (if present) |
 
-### Torrent fields (when torrent namespace extensions are present)
+### Torrent fields (set when torrent namespace extensions are present)
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `torrent_seeds` | int | Seeder count from torrent namespace extensions (nyaa, Jackett, ezrss, etc.) |
+| Field | Description |
+|-------|-------------|
+| `torrent_seeds` | Seeder count from torrent namespace extensions (nyaa, Jackett, ezrss, etc.) |
 
 ## DAG role
 
 | Property | Value |
 |----------|-------|
 | Role | `source` |
-| Produces | `title`, `description`, `published_date`, `rss_feed`, `rss_guid`, `rss_link`, `rss_enclosure_url`, `rss_enclosure_type`, `torrent_seeds` |
+| Produces | `title`, `rss_feed`, `rss_guid`, `rss_link`, `rss_enclosure_url`, `rss_enclosure_type` |
+| MayProduce | `description`, `published_date`, `torrent_seeds` |
 | Requires | — |
 
 ## Example

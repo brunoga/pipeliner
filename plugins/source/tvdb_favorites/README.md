@@ -6,17 +6,17 @@ Use as a standalone `input()` source node, or inside `series.list`, `movies.list
 
 ## Config
 
-| Key | Type | Required | Default | Description |
-|-----|------|----------|---------|-------------|
-| `api_key` | string | yes | — | TheTVDB v4 API key |
-| `user_pin` | string | yes | — | User PIN from thetvdb.com account settings |
+| Key | Required | Default | Description |
+|-----|----------|---------|-------------|
+| `api_key` | yes | — | TheTVDB v4 API key |
+| `user_pin` | yes | — | User PIN from thetvdb.com account settings |
 
 ## Fields set on each entry
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `tvdb_id` | string | TheTVDB series ID |
-| `tvdb_year` | string | Premiere year (if known) |
+| Field | Description |
+|-------|-------------|
+| `tvdb_id` | TheTVDB series ID |
+| `tvdb_year` | Premiere year (if known) |
 
 ## Example — dynamic title source for the series filter
 

@@ -32,14 +32,14 @@ movies = process("movies", upstream=seen,
 
 ## Fields set on each entry
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `title` | string | Matched canonical movie title |
-| `video_year` | int | Parsed release year |
-| `video_quality` | string | Human-readable quality string, e.g. `1080p BluRay H.265` (absent if unparseable) |
-| `video_resolution` | string | Resolution tag, e.g. `1080p` (absent if unparseable) |
-| `video_source` | string | Source tag, e.g. `BluRay` (absent if unparseable) |
-| `video_is_3d` | bool | `true` when any 3D format marker is detected |
+| Field | Description |
+|-------|-------------|
+| `movie_title` | Matched canonical movie title |
+| `video_year` | Parsed release year |
+| `video_quality` | Human-readable quality string, e.g. `1080p BluRay H.265` (absent if unparseable) |
+| `video_resolution` | Resolution tag, e.g. `1080p` (absent if unparseable) |
+| `video_source` | Source tag, e.g. `BluRay` (absent if unparseable) |
+| `video_is_3d` | `true` when any 3D format marker is detected |
 
 ## 3D quality
 
@@ -84,9 +84,12 @@ pipeline("movies", schedule="1h")
 ```python
 src    = input("rss", url="https://example.com/rss")
 seen   = process("seen",   upstream=src)
-movies = process("movies", upstream=seen, static=["Inception"], quality="1080p+")
+movies = process("movies", upstream=seen,
+    list=[{"name": "trakt_list", "client_id": env("TRAKT_ID"),
+           "client_secret": env("TRAKT_SECRET"), "type": "movies", "list": "watchlist"}],
+    quality="1080p+")
 output("qbittorrent", upstream=movies, host="localhost")
-pipeline("movies", schedule="1h")
+pipeline("movies-trakt", schedule="1h")
 ```
 
 To accept only BD3D quality or better among 3D releases (and still download non-3D copies independently), use the `video_quality` field which includes the 3D format string:
