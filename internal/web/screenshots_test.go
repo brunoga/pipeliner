@@ -108,6 +108,20 @@ sink = output("transmission", upstream=up, host="localhost")
 pipeline("demo")
 `
 
+// routeScreenshotConfig: rss → seen → metainfo_quality → route() with tv/movies legs.
+// Shows the route() branching pattern in the visual editor.
+const routeScreenshotConfig = `
+src    = input("rss", url="https://feeds.example.com/all.rss")
+seen   = process("seen", upstream=src)
+q      = process("metainfo_quality", upstream=seen)
+routes = route(q,
+    tv     = "series_episode_id != ''",
+    movies = "series_episode_id == ''")
+tv_out    = output("print", upstream=routes.tv)
+movie_out = output("print", upstream=routes.movies)
+pipeline("route-demo", schedule="1h")
+`
+
 // TestScreenshots generates UI screenshots for the user guide.
 func TestScreenshots(t *testing.T) {
 	dir := screenshotOutDir(t)
@@ -202,6 +216,8 @@ func TestScreenshots(t *testing.T) {
 		defer page.Close() //nolint:errcheck
 		login(t, page, ts.url)
 		openConfigTab(t, page)
+		// Switch to text view before filling — visual editor is the default.
+		page.Locator("#view-btn-text").Click() //nolint:errcheck
 		if err := page.Locator("#config-editor").Fill(softWarnConfig); err != nil {
 			t.Fatalf("fill: %v", err)
 		}
@@ -247,6 +263,48 @@ func TestScreenshots(t *testing.T) {
 		waitLocatorVisible(t, page.Locator(`#ve-param-body .ve-node-list-badge`))
 		pause(300)
 		screenshotLocator(t, page.Locator("#view-visual"), dir, "ui-list-function-connected.png")
+	})
+
+	// ── 9. route() branching in the visual editor ─────────────────────────────
+	t.Run("route_visual", func(t *testing.T) {
+		ts := startTestServer(t, normalConfig)
+		page := newPage(t)
+		defer page.Close() //nolint:errcheck
+		login(t, page, ts.url)
+		openConfigTab(t, page)
+		switchToVisual(t, page, routeScreenshotConfig)
+		// Wait for route node to render.
+		waitLocatorVisible(t, page.Locator(`.ve-node-name:has-text("route")`).First())
+		pause(400)
+		screenshotLocator(t, page.Locator("#view-visual"), dir, "ui-route-visual.png")
+	})
+
+	// ── 10. Settings tab — Trakt authorization form ────────────────────────────
+	t.Run("settings_tab", func(t *testing.T) {
+		ts := startTestServer(t, normalConfig)
+		page := newPage(t)
+		defer page.Close() //nolint:errcheck
+		login(t, page, ts.url)
+		if err := page.Locator("#tab-btn-settings").Click(); err != nil {
+			t.Fatalf("click settings tab: %v", err)
+		}
+		waitLocatorVisible(t, page.Locator("#tab-settings"))
+		pause(300)
+		screenshotLocator(t, page.Locator("#tab-settings"), dir, "ui-settings-tab.png")
+	})
+
+	// ── 11. Database tab — series/movie/seen trackers ─────────────────────────
+	t.Run("database_tab", func(t *testing.T) {
+		ts := startTestServer(t, normalConfig)
+		page := newPage(t)
+		defer page.Close() //nolint:errcheck
+		login(t, page, ts.url)
+		if err := page.Locator("#tab-btn-db").Click(); err != nil {
+			t.Fatalf("click database tab: %v", err)
+		}
+		waitLocatorVisible(t, page.Locator("#tab-db"))
+		pause(400)
+		screenshotPage(t, page, dir, "ui-database-tab.png")
 	})
 
 }

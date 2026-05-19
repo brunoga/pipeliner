@@ -1,28 +1,46 @@
 # webhook (notifier)
 
-POSTs a JSON payload to an HTTP endpoint. Used via the [`notify` output plugin](../README.md).
+POSTs a JSON payload to an HTTP endpoint. Works with Discord, Slack, Gotify, and any webhook-accepting service. Used via the [`notify` output plugin](../README.md) with `via="webhook"`.
 
 ## Config
 
-| Key | Type | Required | Default | Description |
-|-----|------|----------|---------|-------------|
-| `url` | string | yes | — | Webhook endpoint URL |
-| `headers` | map | no | — | Additional HTTP headers to include |
+Pass these keys inside the `config={}` dict of the `notify` output:
+
+| Key | Required | Default | Description |
+|-----|----------|---------|-------------|
+| `url` | yes | — | Webhook endpoint URL |
+| `headers` | no | — | Additional HTTP headers as a `{name: value}` dict |
 
 ## Payload
 
 ```json
-{
-  "title": "rendered title string",
-  "body": "rendered body string",
-  "entries": [
-    { "title": "...", "url": "..." }
-  ]
-}
+{"title": "…", "body": "…", "entries": [{"title": "…", "url": "…"}, …]}
 ```
+
+The `title` and `body` values come from the `title=` and `body=` keys on the `notify` output.
 
 ## Example
 
 ```python
-output("notify", upstream=ready, via="webhook", url=env("WEBHOOK_URL"))
+src  = input("rss", url="https://example.com/rss")
+seen = process("seen",   upstream=src)
+flt  = process("series", upstream=seen, static=["Breaking Bad"])
+fmt  = process("pathfmt", upstream=flt,
+               path="/media/tv/{title}/Season {series_season:02d}",
+               field="download_path")
+output("transmission", upstream=fmt, host="localhost")
+output("notify", upstream=fmt,
+       via="webhook",
+       config={"url": env("DISCORD_WEBHOOK_URL", default="https://discord.com/api/webhooks/…")},
+       title="pipeliner — {{len .Entries}} new episode(s)",
+       body="{{range .Entries}}- {{.Title}}\n{{end}}")
+pipeline("tv", schedule="1h")
 ```
+
+## DAG role
+
+| Property | Value |
+|----------|-------|
+| Role | `sink` (via `notify`) |
+| Produces | — |
+| Requires | — |

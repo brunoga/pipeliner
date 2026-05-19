@@ -44,7 +44,16 @@ Annotates entries with metadata from Trakt.tv via the search API. Searches by pa
 
 ## Example
 
+```python
+src  = input("rss", url="https://example.com/rss")
+meta = process("metainfo_trakt", upstream=src, client_id=env("TRAKT_ID"), type="movies")
+req  = process("require",        upstream=meta, fields=["enriched"])
+flt  = process("condition",      upstream=req,  accept="video_rating >= 7.0")
+output("qbittorrent", upstream=flt, host="localhost")
+pipeline("movies-trakt", schedule="1h")
+```
+
 ## Notes
 
 - Results are cached in `pipeliner.db` in the same directory as the config file.
-- Use `enriched` (not `trakt_id`) to check whether Trakt successfully found metadata: `plugin("require", fields=["enriched"])`.
+- Use `enriched` (not `trakt_id`) to check whether Trakt successfully found metadata: `process("require", upstream=…, fields=["enriched"])`.

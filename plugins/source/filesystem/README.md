@@ -4,22 +4,22 @@ Walks a local directory and emits one entry per file. Entry URLs use the `file:/
 
 ## Config
 
-| Key | Type | Required | Default | Description |
-|-----|------|----------|---------|-------------|
-| `path` | string | yes | — | Directory to scan |
-| `recursive` | bool | no | false | Recurse into subdirectories |
-| `mask` | string | no | — | Glob pattern to filter filenames (e.g. `*.torrent`) |
+| Key | Required | Default | Description |
+|-----|----------|---------|-------------|
+| `path` | yes | — | Directory to scan |
+| `recursive` | no | `false` | Recurse into subdirectories |
+| `mask` | no | — | Glob pattern to filter filenames (e.g. `*.torrent`) |
 
 ## Fields set on entry
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `title` | string | File name (same as `file_name`) |
-| `file_name` | string | File name including extension |
-| `file_extension` | string | File extension including the leading dot (e.g. `.torrent`) |
-| `file_location` | string | Absolute file path |
-| `file_size` | int64 | File size in bytes |
-| `file_modified_time` | time.Time | Last modified time |
+| Field | Description |
+|-------|-------------|
+| `title` | File name (same as `file_name`) |
+| `file_name` | File name including extension |
+| `file_extension` | File extension including the leading dot (e.g. `.torrent`) |
+| `file_location` | Absolute file path |
+| `file_size` | File size in bytes |
+| `file_modified_time` | Last-modified timestamp |
 
 ## DAG role
 

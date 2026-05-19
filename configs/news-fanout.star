@@ -1,4 +1,4 @@
-# dag-news-fanout.star
+# news-fanout.star
 #
 # RSS news pipeline with fan-out: matching articles are sent to email AND
 # saved to a persistent list for later review.
@@ -29,11 +29,11 @@ accepted = process("accept_all", upstream=filtered)
 output("email", upstream=accepted,
     smtp_host=smtp_host,
     smtp_port=smtp_port,
+    sender=smtp_user,
     username=smtp_user,
     password=smtp_pass,
     to=mail_to,
-    subject="Tech digest: {{len .Entries}} article(s)",
-    **{"from": smtp_user})
+    subject="Tech digest: {{len .Entries}} article(s)")
 
 output("list_add", upstream=accepted, list="tech_articles")
 
