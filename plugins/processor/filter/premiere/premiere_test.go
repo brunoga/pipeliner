@@ -87,7 +87,7 @@ func TestAlreadySeenRejected(t *testing.T) {
 	p := makePlugin(t, map[string]any{})
 	tc := makeCtx()
 
-	// First run — accept then persist via Learn.
+	// First run — accept then commit (simulating a successful download).
 	e1 := makeEntry("Breaking Bad", 1, 1)
 	if err := p.filter(context.Background(), tc, e1); err != nil {
 		t.Fatal(err)
@@ -95,7 +95,7 @@ func TestAlreadySeenRejected(t *testing.T) {
 	if !e1.IsAccepted() {
 		t.Fatal("first run should accept")
 	}
-	if err := p.persist(context.Background(), tc, []*entry.Entry{e1}); err != nil {
+	if err := p.Commit(context.Background(), tc, []*entry.Entry{e1}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -106,6 +106,30 @@ func TestAlreadySeenRejected(t *testing.T) {
 	}
 	if !e2.IsRejected() {
 		t.Error("second run should reject already-seen premiere")
+	}
+}
+
+func TestFailedDownloadAllowsRetry(t *testing.T) {
+	p := makePlugin(t, map[string]any{})
+	tc := makeCtx()
+
+	// First run — accept but do NOT commit (simulating a failed download).
+	e1 := makeEntry("Breaking Bad", 1, 1)
+	if err := p.filter(context.Background(), tc, e1); err != nil {
+		t.Fatal(err)
+	}
+	if !e1.IsAccepted() {
+		t.Fatal("first run should accept")
+	}
+	// No Commit call — download failed.
+
+	// Second run — same series should still be accepted (retry).
+	e2 := makeEntry("Breaking Bad", 1, 1)
+	if err := p.filter(context.Background(), tc, e2); err != nil {
+		t.Fatal(err)
+	}
+	if !e2.IsAccepted() {
+		t.Errorf("premiere should be retried after failed download; reason: %q", e2.RejectReason)
 	}
 }
 
