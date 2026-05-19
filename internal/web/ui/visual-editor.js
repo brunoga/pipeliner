@@ -2938,7 +2938,7 @@ function inferExtractionParams() {
 }
 
 // nodesToFunctionSource generates the Starlark def block text for the extracted function.
-function nodesToFunctionSource(funcName, params, selectedIds, validation, graph) {
+function nodesToFunctionSource(funcName, params, selectedIds, validation, graph, comment = '') {
   const {entryUpstreams, returnNodeId} = validation;
 
   // Map: nodeId → configKey → paramName (for included params).
@@ -2952,6 +2952,9 @@ function nodesToFunctionSource(funcName, params, selectedIds, validation, graph)
   const ordered = topoSortNodes(selectedNodes);
 
   const lines = [];
+  if (comment?.trim()) {
+    for (const cl of comment.trim().split('\n')) lines.push(`# ${cl}`);
+  }
   for (const p of params) {
     if (p.include) {
       // Persist non-string types so they survive a restart (the signature has
@@ -3070,6 +3073,10 @@ function openExtractDialog() {
           <label>Function name</label>
           <input type="text" id="ve-extract-name" value="${esc(suggestedName)}" placeholder="my_function" spellcheck="false">
         </div>
+        <div class="ve-extract-field">
+          <label>Comment <span style="font-weight:400;text-transform:none;letter-spacing:0">(optional)</span></label>
+          <textarea id="ve-extract-comment" rows="2" placeholder="Describe what this function does…"></textarea>
+        </div>
         ${params.length ? `
         <div class="ve-extract-field">
           <label>Parameters <span style="font-weight:400;text-transform:none;letter-spacing:0">(uncheck to hardcode the value)</span></label>
@@ -3101,6 +3108,7 @@ function openExtractDialog() {
       errEl.textContent = 'Function name must be a valid identifier (letters, digits, underscores).';
       return;
     }
+    const comment = document.getElementById('ve-extract-comment').value.trim();
     // Read back param state from the table.
     const tbody = document.getElementById('ve-extract-params');
     if (tbody) {
@@ -3120,7 +3128,7 @@ function openExtractDialog() {
       return;
     }
     close();
-    performExtraction(name, params, validation, graphIdx);
+    performExtraction(name, params, validation, graphIdx, comment);
   };
 
   document.getElementById('ve-extract-name').focus();
@@ -3129,13 +3137,13 @@ function openExtractDialog() {
 
 // performExtraction replaces the selected nodes with a function call node and
 // registers the new user function definition.
-function performExtraction(funcName, params, validation, graphIdx) {
+function performExtraction(funcName, params, validation, graphIdx, comment = '') {
   const {entryUpstreams, returnNodeId} = validation;
   const selectedIds = new Set(ve.selectedNodeIds); // snapshot before clearing
   const g = ve.graphs[graphIdx];
 
   // Generate the function source text.
-  const sourceText = nodesToFunctionSource(funcName, params, selectedIds, validation, g);
+  const sourceText = nodesToFunctionSource(funcName, params, selectedIds, validation, g, comment);
 
   // Infer role from body.
   const role = sourceText.includes(' = input(') ? 'source'
@@ -3205,6 +3213,7 @@ function performExtraction(funcName, params, validation, graphIdx) {
     name:           funcName,
     role,
     description:    '',
+    comment:        comment,
     params:         params.filter(p => p.include).map(p => ({
       key: p.paramName, type: p.type, required: true, default: null, hint: p.hint || '',
     })),
@@ -3362,6 +3371,20 @@ async function expandAndRemoveFunction(funcName) {
   renderPalette(document.getElementById('ve-search')?.value ?? '');
   veRender();
   onModelChange();
+}
+
+// parseFunctionComment extracts user-written comment lines from a function's
+// source text — lines before def that are not pipeliner: machine comments.
+function parseFunctionComment(sourceText) {
+  if (!sourceText) return '';
+  const lines = [];
+  for (const line of sourceText.split('\n')) {
+    if (/^def\s/.test(line)) break;
+    if (line.startsWith('#') && !line.startsWith('# pipeliner:')) {
+      lines.push(line.startsWith('# ') ? line.slice(2) : line.slice(1));
+    }
+  }
+  return lines.join('\n');
 }
 
 // extractFunctionSource returns the full text of a user function (including its
@@ -3640,16 +3663,17 @@ function openFunctionEditor(funcName) {
 
   // Snapshot current canvas state for restoration on exit.
   ve.fnEditor = {
-    active:         true,
+    active:          true,
     funcName,
-    savedGraphs:    ve.graphs,
-    savedActive:    ve.activeGraph,
-    savedNextId:    ve.nextId,
-    savedSelected:  ve.selectedNodeId,
+    savedGraphs:     ve.graphs,
+    savedActive:     ve.activeGraph,
+    savedNextId:     ve.nextId,
+    savedSelected:   ve.selectedNodeId,
     returnNodeId,
     // Snapshot of params at open time (for change detection on save).
-    paramsSnapshot: JSON.parse(JSON.stringify(fd.params || [])),
-    paramsOpen:     false,
+    paramsSnapshot:  JSON.parse(JSON.stringify(fd.params || [])),
+    paramsOpen:      false,
+    commentSnapshot: fd.comment || '',
   };
 
   const hasStoredLayout = allNodes.some(n => !n.isSearchNode && !n.isListNode && n.x != null && n.y != null);
@@ -3678,6 +3702,8 @@ function openFunctionEditor(funcName) {
   if (fbar) fbar.style.display = '';
   const nameInput = document.getElementById('ve-fn-bar-name');
   if (nameInput) nameInput.value = funcName;
+  const commentBtn = document.getElementById('ve-fn-bar-comment-btn');
+  if (commentBtn) commentBtn.classList.toggle('has-comment', !!(fd.comment?.trim()));
 
   initLayout();
   veRender();
@@ -3741,10 +3767,11 @@ function saveFunctionEditor() {
     }
   }
 
-  const newSourceText = nodesToFunctionSource(ve.fnEditor.funcName, fnParams, selectedIds, validation, g);
+  const newSourceText = nodesToFunctionSource(ve.fnEditor.funcName, fnParams, selectedIds, validation, g, ve.fnEditor.commentSnapshot || '');
 
   fd._sourceText = newSourceText;
   fd.params      = currentParams;
+  fd.comment     = ve.fnEditor.commentSnapshot || '';
   fd.role        = newSourceText.includes(' = input(') ? 'source'
                  : newSourceText.includes(' = output(') ? 'sink' : 'processor';
 
@@ -3848,6 +3875,21 @@ function fnSyncCallSiteParams(funcName, oldParams, newParams) {
       }
     }
   }
+}
+
+// fnEditorEditComment opens the text popup to edit the function's comment.
+function fnEditorEditComment() {
+  if (!ve.fnEditor.active) return;
+  openTextPopup(
+    `Comment — function "${ve.fnEditor.funcName}"`,
+    'Enter a comment (shown above the function definition in the config file)…',
+    ve.fnEditor.commentSnapshot || '',
+    text => {
+      ve.fnEditor.commentSnapshot = text;
+      const btn = document.getElementById('ve-fn-bar-comment-btn');
+      if (btn) btn.classList.toggle('has-comment', !!text.trim());
+    }
+  );
 }
 
 // ── function editor parameter management ──────────────────────────────────────
@@ -4360,6 +4402,7 @@ async function textToVisualSync() {
     for (const fd of (data.functions || [])) {
       ve.userFunctions[fd.name] = fd;
       fd._sourceText = extractFunctionSource(content, fd.name);
+      fd.comment = parseFunctionComment(fd._sourceText);
     }
 
     ve.syncing = true;

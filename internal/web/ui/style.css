@@ -619,6 +619,12 @@ section { margin-bottom: 32px; }
   padding:5px 8px; color:var(--text); font-size:13px; outline:none;
 }
 .ve-extract-field input[type=text]:focus { border-color:var(--accent); }
+.ve-extract-field textarea {
+  background:var(--input-bg,#1e1e1e); border:1px solid var(--border); border-radius:4px;
+  padding:5px 8px; color:var(--text); font-size:13px; outline:none; resize:vertical;
+  font-family:inherit; line-height:1.4;
+}
+.ve-extract-field textarea:focus { border-color:var(--accent); }
 .ve-extract-error { color:var(--red); font-size:12px; padding:4px 0; }
 .ve-extract-param-table { width:100%; border-collapse:collapse; font-size:12px; }
 .ve-extract-param-table th {
@@ -1122,6 +1128,14 @@ section { margin-bottom: 32px; }
   transition:color .15s,border-color .15s;
 }
 .ve-fn-bar-params-btn:hover,.ve-fn-bar-params-btn.active {
+  color:var(--text); border-color:var(--text);
+}
+.ve-fn-bar-comment-btn {
+  padding:3px 8px; background:transparent; border:1px solid var(--border);
+  border-radius:5px; color:var(--muted); cursor:pointer; font-size:12px; font-weight:600;
+  transition:color .15s,border-color .15s;
+}
+.ve-fn-bar-comment-btn:hover,.ve-fn-bar-comment-btn.has-comment {
   color:var(--text); border-color:var(--text);
 }
 .ve-fn-bar-spacer { flex:1; }
