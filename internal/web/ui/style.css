@@ -800,11 +800,11 @@ section { margin-bottom: 32px; }
   font-size:9px; font-weight:700; letter-spacing:.05em;
   border:1px solid var(--ve-route); color:var(--ve-route-lit); background:transparent; flex-shrink:0;
 }
-.ve-node-route-leg .ve-node-role-bar { background:var(--ve-route); }
-.ve-node.ve-node-route-leg           { border-color:var(--ve-route); }
-.ve-node.ve-node-route-leg.selected  { border-color:var(--ve-route-lit); box-shadow:0 0 0 2px rgba(194,130,10,.35); }
+.ve-node-route-port .ve-node-role-bar { background:var(--ve-route); }
+.ve-node.ve-node-route-port           { border-color:var(--ve-route); }
+.ve-node.ve-node-route-port.selected  { border-color:var(--ve-route-lit); box-shadow:0 0 0 2px rgba(194,130,10,.35); }
 
-/* route-edges: orange dashed lines from route node to each leg */
+/* route-edges: orange dashed lines from route node to each port */
 .ve-route-edge { fill:none; stroke:var(--ve-route); stroke-width:1.5; stroke-dasharray:5,3; pointer-events:none; }
 .ve-route-edge.selected { stroke:var(--ve-route-lit); stroke-width:2; }
 
@@ -952,19 +952,19 @@ section { margin-bottom: 32px; }
 .ve-rule-del { background:none; border:none; color:var(--muted); cursor:pointer; padding:0 4px; font-size:14px; }
 .ve-rule-del:hover { color:var(--danger); }
 
-/* Named leg ports: row of circles at the bottom of the route card,
+/* Named port circles: row of circles at the bottom of the route card,
    mirroring the absolute positioning of .ve-node-out-port */
-.ve-route-leg-ports {
+.ve-route-ports {
   position:absolute; bottom:-11px; left:50%; transform:translateX(-50%);
   display:flex; gap:10px; z-index:3;
 }
-.ve-route-leg-port {
+.ve-route-port {
   width:20px; height:20px; border-radius:50%;
   background:var(--bg); border:2px solid var(--ve-route);
   cursor:crosshair; flex-shrink:0;
   opacity:0.85; transition:opacity .12s, transform .12s, box-shadow .12s;
 }
-.ve-route-leg-port:hover {
+.ve-route-port:hover {
   opacity:1; transform:scale(1.2);
   box-shadow:0 0 0 3px rgba(194,130,10,.25);
 }

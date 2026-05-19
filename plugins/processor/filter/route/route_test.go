@@ -27,16 +27,16 @@ func makeRoute(t *testing.T, rules []map[string]any) *routePlugin {
 	return p.(*routePlugin)
 }
 
-func makeSelector(t *testing.T, legName string) *selectorPlugin {
+func makeSelector(t *testing.T, portName string) *selectorPlugin {
 	t.Helper()
-	p, err := newSelectorPlugin(map[string]any{"_route_leg_name": legName}, nil)
+	p, err := newSelectorPlugin(map[string]any{"_route_port_name": portName}, nil)
 	if err != nil {
 		t.Fatalf("newSelectorPlugin: %v", err)
 	}
 	return p.(*selectorPlugin)
 }
 
-func TestRouteMatchesFirstLeg(t *testing.T) {
+func TestRouteMatchesFirstPort(t *testing.T) {
 	p := makeRoute(t, []map[string]any{
 		{"name": "series", "accept": "series_episode_id != ''"},
 		{"name": "movies", "accept": "true"},
@@ -53,13 +53,13 @@ func TestRouteMatchesFirstLeg(t *testing.T) {
 	if !e.IsAccepted() {
 		t.Error("matched entry should be accepted")
 	}
-	leg, _ := e.Get(entry.FieldRouteLeg)
-	if leg != "series" {
-		t.Errorf("_route_leg: got %q, want %q", leg, "series")
+	port, _ := e.Get(entry.FieldRoutePort)
+	if port != "series" {
+		t.Errorf("_route_port: got %q, want %q", port, "series")
 	}
 }
 
-func TestRouteFallsToSecondLeg(t *testing.T) {
+func TestRouteFallsToSecondPort(t *testing.T) {
 	p := makeRoute(t, []map[string]any{
 		{"name": "series", "accept": "series_episode_id != ''"},
 		{"name": "movies", "accept": "true"},
@@ -70,11 +70,11 @@ func TestRouteFallsToSecondLeg(t *testing.T) {
 
 	p.Process(context.Background(), tc(), []*entry.Entry{e}) //nolint:errcheck
 	if !e.IsAccepted() {
-		t.Error("fallback leg should accept the entry")
+		t.Error("fallback port should accept the entry")
 	}
-	leg, _ := e.Get(entry.FieldRouteLeg)
-	if leg != "movies" {
-		t.Errorf("_route_leg: got %q, want %q", leg, "movies")
+	port, _ := e.Get(entry.FieldRoutePort)
+	if port != "movies" {
+		t.Errorf("_route_port: got %q, want %q", port, "movies")
 	}
 }
 
@@ -89,34 +89,34 @@ func TestRouteRejectsUnmatched(t *testing.T) {
 	if !e.IsRejected() {
 		t.Error("unmatched entry should be rejected")
 	}
-	if e.RejectReason != "route: no leg matched" {
+	if e.RejectReason != "route: no port matched" {
 		t.Errorf("reject reason: got %q", e.RejectReason)
 	}
 }
 
-func TestSelectorPassesMatchingLeg(t *testing.T) {
+func TestSelectorPassesMatchingPort(t *testing.T) {
 	sel := makeSelector(t, "series")
 
 	e := entry.New("Breaking.Bad.S01E01", "http://example.com/1")
-	e.Set(entry.FieldRouteLeg, "series")
+	e.Set(entry.FieldRoutePort, "series")
 	e.Accept()
 
 	sel.Process(context.Background(), tc(), []*entry.Entry{e}) //nolint:errcheck
 	if !e.IsAccepted() {
-		t.Error("matching leg entry should remain accepted")
+		t.Error("matching port entry should remain accepted")
 	}
 }
 
-func TestSelectorRejectsNonMatchingLeg(t *testing.T) {
+func TestSelectorRejectsNonMatchingPort(t *testing.T) {
 	sel := makeSelector(t, "series")
 
 	e := entry.New("Inception.2010", "http://example.com/2")
-	e.Set(entry.FieldRouteLeg, "movies")
+	e.Set(entry.FieldRoutePort, "movies")
 	e.Accept()
 
 	sel.Process(context.Background(), tc(), []*entry.Entry{e}) //nolint:errcheck
 	if !e.IsRejected() {
-		t.Error("non-matching leg entry should be rejected by selector")
+		t.Error("non-matching port entry should be rejected by selector")
 	}
 }
 

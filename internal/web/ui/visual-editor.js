@@ -64,7 +64,7 @@ function nodeBottomY(nodeId, nodeY) {
 // edgePath returns a cubic bezier SVG path string between two points.
 // exitDir  — direction the curve leaves the source port:
 //   'right' (default) left-to-right side port
-//   'down'  bottom port (route legs, search-port, list-node)
+//   'down'  bottom port (route ports, search-port, list-node)
 //   'up'    top port (list cursor dragging upward)
 // entryDir — direction the curve arrives at the target port:
 //   'left'  (default) left-side input
@@ -494,9 +494,9 @@ function renderGraphNodes() {
 
   for (const g of ve.graphs) {
     for (const n of g.nodes) {
-      // Route selector nodes are virtual — their "ports" are drawn on the parent
-      // route node card. Skip rendering them as standalone canvas nodes.
-      if (n.isRouteLeg) continue;
+      // Route selector nodes are virtual — their port circles are drawn on the
+      // parent route node card. Skip rendering them as standalone canvas nodes.
+      if (n.isRoutePort) continue;
 
       // Upstream pseudo-node: non-selectable entry point for function body editing.
       if (n.isUpstreamPseudo) {
@@ -532,21 +532,21 @@ function renderGraphNodes() {
       const isSearch   = !!n.isSearchNode;
       const isList     = !!n.isListNode;
       const isFn       = !!n.isFunctionCall;
-      const isRouteLeg = !!n.isRouteLeg;
+      const isRoutePort = !!n.isRoutePort;
       // Sub-connected nodes show a badge in place of the role badge.
-      const badgeHtml = isSearch   ? '<span class="ve-node-search-badge">search</span>'
-                      : isList     ? '<span class="ve-node-list-badge">list</span>'
-                      : isRouteLeg ? `<span class="ve-node-route-badge">${esc(n.routeLegName || 'leg')}</span>`
-                      : isFn       ? `<span class="ve-node-role-badge ve-role-${role}">${role}</span><span class="ve-node-fn-badge">fn</span>`
+      const badgeHtml = isSearch    ? '<span class="ve-node-search-badge">search</span>'
+                      : isList      ? '<span class="ve-node-list-badge">list</span>'
+                      : isRoutePort ? `<span class="ve-node-route-badge">${esc(n.routePortName || 'port')}</span>`
+                      : isFn        ? `<span class="ve-node-role-badge ve-role-${role}">${role}</span><span class="ve-node-fn-badge">fn</span>`
                       : `<span class="ve-node-role-badge ve-role-${role}">${role}</span>`;
 
-      // Sub-nodes (search/list/route-leg) are multi-selected when their parent is selected.
+      // Sub-nodes (search/list/route-port) are multi-selected when their parent is selected.
       const multiSel = ve.selectedNodeIds.has(n.id) ||
-        (isSearch   && n.searchParentId && ve.selectedNodeIds.has(n.searchParentId)) ||
-        (isList     && n.listParentId   && ve.selectedNodeIds.has(n.listParentId))   ||
-        (isRouteLeg && n.routeParentId  && ve.selectedNodeIds.has(n.routeParentId));
+        (isSearch    && n.searchParentId && ve.selectedNodeIds.has(n.searchParentId)) ||
+        (isList      && n.listParentId   && ve.selectedNodeIds.has(n.listParentId))   ||
+        (isRoutePort && n.routeParentId  && ve.selectedNodeIds.has(n.routeParentId));
       const div = document.createElement('div');
-      div.className = `ve-node${sel ? ' selected' : ''}${multiSel ? ' multi-selected' : ''}${isSearch ? ' ve-node-search' : ''}${isList ? ' ve-node-list' : ''}${isRouteLeg ? ' ve-node-route-leg' : ''}${isFn ? ' ve-node-fn' : ''}`;
+      div.className = `ve-node${sel ? ' selected' : ''}${multiSel ? ' multi-selected' : ''}${isSearch ? ' ve-node-search' : ''}${isList ? ' ve-node-list' : ''}${isRoutePort ? ' ve-node-route-port' : ''}${isFn ? ' ve-node-fn' : ''}`;
       div.dataset.role       = role;
       div.dataset.id         = n.id;
       div.dataset.isSearch   = nodeIsSearchPlugin(n) ? 'true' : 'false';
@@ -576,19 +576,19 @@ function renderGraphNodes() {
         '</div>',
         `<button class="ve-node-remove" tabindex="-1" title="Remove">×</button>`,
         `<button class="ve-node-comment-btn${commentBtnCls}" tabindex="-1" title="Edit comment">#</button>`,
-        // Route nodes show named leg ports instead of a single out-port.
+        // Route nodes show named port circles instead of a single out-port.
         // Always suppress the generic out-port on route nodes.
         n.plugin === 'route' ? (() => {
-          const legPorts = (n.legNodeIds || []).map(legId => {
-            const leg = g.nodes.find(x => x.id === legId);
-            if (!leg?.isRouteLeg) return '';
-            return `<div class="ve-route-leg-port" data-leg="${esc(leg.routeLegName)}" data-leg-id="${esc(legId)}"
-              title="${esc(leg.routeLegName)}"></div>`;
+          const portList = (n.portNodeIds || []).map(portId => {
+            const port = g.nodes.find(x => x.id === portId);
+            if (!port?.isRoutePort) return '';
+            return `<div class="ve-route-port" data-port="${esc(port.routePortName)}" data-port-id="${esc(portId)}"
+              title="${esc(port.routePortName)}"></div>`;
           }).join('');
-          return legPorts ? `<div class="ve-route-leg-ports">${legPorts}</div>` : '';
-        })() : (!isSearch && !isList && !isRouteLeg) ? `<div class="ve-node-out-port${role === 'sink' ? ' ve-node-chain-port' : ''}" title="${role === 'sink' ? 'Drag to chain to another output node' : 'Drag to connect'}"></div>` : '',
+          return portList ? `<div class="ve-route-ports">${portList}</div>` : '';
+        })() : (!isSearch && !isList && !isRoutePort) ? `<div class="ve-node-out-port${role === 'sink' ? ' ve-node-chain-port' : ''}" title="${role === 'sink' ? 'Drag to chain to another output node' : 'Drag to connect'}"></div>` : '',
         // Input port indicator: shown on valid drop-targets while dragging an output port.
-        (role !== 'source' && !isSearch && !isList && !isRouteLeg) ? '<div class="ve-node-in-port"></div>' : '',
+        (role !== 'source' && !isSearch && !isList && !isRoutePort) ? '<div class="ve-node-in-port"></div>' : '',
       ].join('');
 
       div.querySelector('.ve-node-remove').addEventListener('click', e => {
@@ -647,10 +647,10 @@ function renderGraphNodes() {
         });
       }
 
-      // Route leg ports: each circle starts a connect using the selector's ID.
+      // Route port circles: each circle starts a connect using the selector's ID.
       // Pass the port's canvas position as the visual anchor so the live
       // cursor line starts from the circle, not the invisible selector node.
-      div.querySelectorAll('.ve-route-leg-port').forEach(port => {
+      div.querySelectorAll('.ve-route-port').forEach(port => {
         port.addEventListener('pointerdown', e => {
           e.stopPropagation();
           e.preventDefault();
@@ -659,7 +659,7 @@ function renderGraphNodes() {
           const pRect   = port.getBoundingClientRect();
           const anchorX = (pRect.left + pRect.width  / 2 - cRect.left) / ve_zoom;
           const anchorY = (pRect.top  + pRect.height / 2 - cRect.top)  / ve_zoom;
-          startConnect(e, port.dataset.legId, anchorX, anchorY);
+          startConnect(e, port.dataset.portId, anchorX, anchorY);
         });
       });
 
@@ -942,8 +942,8 @@ function renderEdges() {
   for (const g of ve.graphs) {
     for (const n of g.nodes) {
       // Route selector nodes are virtual — skip their upstream edges.
-      // Their connections are represented by the leg ports on the route card.
-      if (n.isRouteLeg) continue;
+      // Their connections are represented by the port circles on the route card.
+      if (n.isRoutePort) continue;
       for (const upId of (n.upstreams || [])) {
         const up = g.nodes.find(x => x.id === upId);
         if (!up) continue;
@@ -951,16 +951,16 @@ function renderEdges() {
         // For route_selector upstreams, draw the edge from the port circle
         // on the parent route card rather than from the invisible node (0,0).
         let x1, y1;
-        if (up.isRouteLeg && up.routeParentId) {
+        if (up.isRoutePort && up.routeParentId) {
           const routeNode = g.nodes.find(x => x.id === up.routeParentId);
           if (!routeNode) continue;
-          const legIds  = routeNode.legNodeIds || [];
-          const legIdx  = legIds.indexOf(upId);
-          const legCount = legIds.length;
+          const portIds   = routeNode.portNodeIds || [];
+          const portIdx   = portIds.indexOf(upId);
+          const portCount = portIds.length;
           const PORT_W  = 20, PORT_GAP = 10;
-          const totalW  = legCount * PORT_W + Math.max(0, legCount - 1) * PORT_GAP;
+          const totalW  = portCount * PORT_W + Math.max(0, portCount - 1) * PORT_GAP;
           const portCX  = (routeNode.x ?? 0) + NODE_W / 2 - totalW / 2
-                          + legIdx * (PORT_W + PORT_GAP) + PORT_W / 2;
+                          + portIdx * (PORT_W + PORT_GAP) + PORT_W / 2;
           x1 = portCX;
           y1 = (routeNode.y ?? 0) + NODE_H + PORT_W / 2;
         } else {
@@ -970,9 +970,9 @@ function renderEdges() {
         const x2 = (n.x ?? 0);
         const y2 = nodeMidY(n.id, n.y);
         const sel = n.id === ve.selectedNodeId || up.id === ve.selectedNodeId;
-        // Route leg ports are at the bottom (exit down) but processors accept
+        // Route port circles are at the bottom (exit down) but processors accept
         // connections on their left side (entry left).
-        const d   = up.isRouteLeg
+        const d   = up.isRoutePort
           ? edgePath(x1, y1, x2, y2, 'down', 'left')
           : edgePath(x1, y1, x2, y2, 'h');
         // Use a distinct style for sink→sink chain edges.
@@ -994,7 +994,7 @@ function renderEdges() {
   if (ve_connecting) {
     let x1, y1;
     if (ve_connecting.anchorX !== undefined) {
-      // Explicit anchor (e.g. route leg port circle) overrides node position.
+      // Explicit anchor (e.g. route port circle) overrides node position.
       x1 = ve_connecting.anchorX;
       y1 = ve_connecting.anchorY;
     } else {
@@ -1006,7 +1006,7 @@ function renderEdges() {
     }
     if (x1 !== undefined) {
       const x2 = ve_connecting.curX, y2 = ve_connecting.curY;
-      // Route leg anchor exits downward, target processors accept from the left.
+      // Route port anchor exits downward, target processors accept from the left.
       const d = ve_connecting.anchorX !== undefined
         ? edgePath(x1, y1, x2, y2, 'down', 'left')
         : edgePath(x1, y1, x2, y2, 'h');
@@ -1070,8 +1070,8 @@ function renderEdges() {
     }
   }
 
-  // Route-leg edges: route_selector nodes are now virtual (invisible).
-  // Connections FROM a leg go directly from the route card's port position
+  // Route-port edges: route_selector nodes are now virtual (invisible).
+  // Connections FROM a port go directly from the route card's port position
   // to the downstream node via the normal upstream edge drawing below.
 
   // Live cursor line while dragging from a list-port.
@@ -1168,8 +1168,8 @@ function layoutGraph(g, globalY) {
   }
 
   g._labelY = globalY;
-  // Route legs are virtual (not rendered as standalone nodes) so exclude from layout.
-  const isSub = n => n.isSearchNode || n.isListNode || n.isRouteLeg;
+  // Route ports are virtual (not rendered as standalone nodes) so exclude from layout.
+  const isSub = n => n.isSearchNode || n.isListNode || n.isRoutePort;
   // Extra padding above main nodes so list-connected sub-nodes have room to sit
   // above their parent without overlapping the pipeline label area.
   const listPad = g.nodes.some(n => !isSub(n) && n.listNodeIds?.length)
@@ -1273,18 +1273,18 @@ function layoutGraph(g, globalY) {
     });
   }
 
-  // Position route-leg nodes in a row below their route parent.
+  // Position route-port nodes in a row below their route parent.
   for (const n of g.nodes) {
-    if (!n.legNodeIds?.length) continue;
-    const LEG_GAP = 18;
-    const totalW  = n.legNodeIds.length * NODE_W + (n.legNodeIds.length - 1) * LEG_GAP;
-    const startLX = (n.x ?? 0) + NODE_W / 2 - totalW / 2;
-    n.legNodeIds.forEach((id, i) => {
-      const leg = g.nodes.find(x => x.id === id);
-      if (leg && (leg.x == null || leg.y == null)) {
-        leg.x = Math.max(0, startLX + i * (NODE_W + LEG_GAP));
-        leg.y = (n.y ?? 0) + NODE_H + 50;
-        maxY = Math.max(maxY, leg.y + NODE_H + 20);
+    if (!n.portNodeIds?.length) continue;
+    const PORT_GAP = 18;
+    const totalW   = n.portNodeIds.length * NODE_W + (n.portNodeIds.length - 1) * PORT_GAP;
+    const startLX  = (n.x ?? 0) + NODE_W / 2 - totalW / 2;
+    n.portNodeIds.forEach((id, i) => {
+      const port = g.nodes.find(x => x.id === id);
+      if (port && (port.x == null || port.y == null)) {
+        port.x = Math.max(0, startLX + i * (NODE_W + PORT_GAP));
+        port.y = (n.y ?? 0) + NODE_H + 50;
+        maxY = Math.max(maxY, port.y + NODE_H + 20);
       }
     });
   }
@@ -1308,7 +1308,7 @@ function initLayout() {
   let globalY = 40;
 
   for (const g of ve.graphs) {
-    const mainNodes = g.nodes.filter(n => !n.isSearchNode && !n.isListNode && !n.isRouteLeg);
+    const mainNodes = g.nodes.filter(n => !n.isSearchNode && !n.isListNode && !n.isRoutePort);
     const withPos   = mainNodes.filter(n => n.x != null && n.y != null);
 
     if (!withPos.length) {
@@ -1335,7 +1335,7 @@ function initLayout() {
 
     // Convert relative-y to absolute-y for sub-nodes with stored positions.
     for (const n of g.nodes) {
-      if ((n.isSearchNode || n.isListNode || n.isRouteLeg) && n.x != null && n.y != null) {
+      if ((n.isSearchNode || n.isListNode || n.isRoutePort) && n.x != null && n.y != null) {
         n.y = g._regionY + n.y;
       }
     }
@@ -1810,7 +1810,7 @@ function startNodeDrag(e, n) {
 
 // startConnect begins a drag-to-connect operation.
 // srcAnchorX/Y optionally override the visual start position of the line
-// (used when the source is a virtual node like a route leg port whose canvas
+// (used when the source is a virtual node like a route port circle whose canvas
 // position is the port circle rather than the invisible selector node).
 function startConnect(e, srcId, srcAnchorX, srcAnchorY) {
   ve_connecting = { srcId, anchorX: srcAnchorX, anchorY: srcAnchorY };
@@ -2063,7 +2063,7 @@ function renderParamPanel() {
   const meta = pluginMeta(node.plugin) || {role: 'processor', schema: [], produces: [], may_produce: [], requires: []};
   empty.style.display = 'none'; title.style.display = '';
   nameEl.textContent = node.plugin;
-  roleEl.textContent = node.isSearchNode ? 'search' : node.isListNode ? 'list' : node.isRouteLeg ? `leg: ${node.routeLegName}` : meta.role;
+  roleEl.textContent = node.isSearchNode ? 'search' : node.isListNode ? 'list' : node.isRoutePort ? `port: ${node.routePortName}` : meta.role;
 
   if (node.isSearchNode && node.searchParentId) {
     const parentName = findNode(node.searchParentId)?.plugin ?? node.searchParentId;
@@ -2071,11 +2071,11 @@ function renderParamPanel() {
       `<div style="font-size:11px;color:var(--muted);margin-bottom:6px">Search backend for <b>${esc(parentName)}</b></div>`,
       `<button class="ve-remove-btn" onclick="disconnectSearch(${esc(JSON.stringify(node.searchParentId))},${esc(JSON.stringify(node.id))})">Disconnect from search</button>`,
     ].join('');
-  } else if (node.isRouteLeg && node.routeParentId) {
+  } else if (node.isRoutePort && node.routeParentId) {
     const parentName = findNode(node.routeParentId)?.plugin ?? node.routeParentId;
     footer.innerHTML = [
-      `<div style="font-size:11px;color:var(--muted);margin-bottom:6px">Leg <b>${esc(node.routeLegName)}</b> of route node <b>${esc(parentName)}</b></div>`,
-      `<div style="font-size:11px;color:var(--muted)">Connect downstream nodes to this leg's output port.</div>`,
+      `<div style="font-size:11px;color:var(--muted);margin-bottom:6px">Port <b>${esc(node.routePortName)}</b> of route node <b>${esc(parentName)}</b></div>`,
+      `<div style="font-size:11px;color:var(--muted)">Connect downstream nodes to this port's output.</div>`,
     ].join('');
   } else if (node.isListNode && node.listParentId) {
     const parentName = findNode(node.listParentId)?.plugin ?? node.listParentId;
@@ -2099,8 +2099,8 @@ function renderParamPanel() {
   if (meta.role !== 'source' && !node.isSearchNode) {
     const others = g.nodes.filter(n => {
       if (n.id === node.id || n.isSearchNode || n.isListNode) return false;
-      // Don't show a route node's own leg chips as upstream candidates.
-      if (n.isRouteLeg && n.routeParentId === node.id) return false;
+      // Don't show a route node's own port chips as upstream candidates.
+      if (n.isRoutePort && n.routeParentId === node.id) return false;
       return true;
     });
     html.push(`<div class="ve-field"><div class="ve-field-label">Upstreams (upstream=)</div>`);
@@ -2467,9 +2467,9 @@ function renderField(f, config, node) {
         const rows  = rules.map((r, i) => {
           const rObj = (typeof r === 'object' && r) ? r : {name: '', accept: String(r ?? '')};
           return `<tr class="ve-rule-row" data-idx="${i}">
-            <td><input class="ve-rule-name" placeholder="leg name" value="${esc(rObj.name ?? '')}"
+            <td><input class="ve-rule-name" placeholder="port name" value="${esc(rObj.name ?? '')}"
               oninput="updateRuleNameOnly(${nid},'${fkey}',${i},this.value)"
-              onblur="syncRouteLegsForNode(${nid})"></td>
+              onblur="syncRoutePortsForNode(${nid})"></td>
             <td><input class="ve-rule-cond" placeholder="condition expression" value="${esc(rObj.accept ?? '')}"
               oninput="updateRuleField(${nid},'${fkey}',${i},'accept',this.value)"></td>
             <td><button class="ve-rule-del" onclick="removeRule(${nid},'${fkey}',${i})">×</button></td>
@@ -2577,25 +2577,25 @@ function updateRuleField(nodeId, field, idx, key, value) {
   onModelChange();
 }
 
-// Update the rule name in the model WITHOUT syncing legs — prevents focus loss
-// on every keystroke. syncRouteLegsForNode is called onblur to finalize.
+// Update the rule name in the model WITHOUT syncing ports — prevents focus loss
+// on every keystroke. syncRoutePortsForNode is called onblur to finalize.
 function updateRuleNameOnly(nodeId, field, idx, value) {
   const node = findNode(nodeId);
   if (!node || !Array.isArray(node.config[field])) return;
   if (!node.config[field][idx]) node.config[field][idx] = {};
   node.config[field][idx].name = value;
-  // Update text editor without triggering leg sync / veRender.
+  // Update text editor without triggering port sync / veRender.
   const el = document.getElementById('config-editor');
   if (el) { el.value = dagToStarlark(); syncHighlight(); }
 }
 
-// Called onblur of the leg name input: sync leg chips and re-render canvas.
-function syncRouteLegsForNode(nodeId) {
+// Called onblur of the port name input: sync port chips and re-render canvas.
+function syncRoutePortsForNode(nodeId) {
   const node = findNode(nodeId);
   if (!node) return;
   const g = ve.graphs.find(gr => gr.nodes.some(n => n.id === nodeId));
   if (!g) return;
-  const changed = syncRouteLegs(node, g);
+  const changed = syncRoutePorts(node, g);
   if (changed) {
     veRender();
     const el = document.getElementById('config-editor');
@@ -4113,7 +4113,7 @@ function dagToStarlark() {
   for (const g of graphs) {
     const lines = [];
     // Sort so every upstream variable is assigned before it is referenced.
-    const ordered = topoSortNodes(g.nodes.filter(n => !n.isSearchNode && !n.isListNode && !n.isRouteLeg));
+    const ordered = topoSortNodes(g.nodes.filter(n => !n.isSearchNode && !n.isListNode && !n.isRoutePort));
     for (const n of ordered) {
       const meta     = pluginMeta(n.plugin);
       const role     = meta?.role || 'processor';
@@ -4171,12 +4171,12 @@ function dagToStarlark() {
       }
 
       if (n.plugin === 'route') {
-        // route(upstream, leg1="cond1", leg2="cond2", ...)
+        // route(upstream, port1="cond1", port2="cond2", ...)
         const rules = n.config?.rules || [];
-        const legParts = rules
+        const portParts = rules
           .filter(r => r.name && r.accept)
           .map(r => `${r.name}=${starLit(r.accept)}`);
-        const parts = fromStr ? [fromStr, ...legParts] : legParts;
+        const parts = fromStr ? [fromStr, ...portParts] : portParts;
         lines.push(`${n.id} = route(${parts.join(', ')})`);
       } else if (n.isFunctionCall || ve.userFunctions[n.plugin]) {
         // Serialize as a user function call: varname = funcname(upstream=..., kwargs).
@@ -4264,8 +4264,8 @@ function upstreamsStr(ups) {
   const resolved = ups.map(id => {
     const n = findNode(id);
     // Route-selector nodes are not assigned a variable — reference via the
-    // parent route node's handles object: routeNodeId.legName
-    if (n?.isRouteLeg) return `${n.routeParentId}.${n.routeLegName}`;
+    // parent route node's handles object: routeNodeId.portName
+    if (n?.isRoutePort) return `${n.routeParentId}.${n.routePortName}`;
     return id;
   });
   return resolved.length === 1 ? resolved[0] : `merge(${resolved.join(', ')})`;
@@ -4319,51 +4319,51 @@ function parseFunctionCallArgs(src, callKey, funcName) {
 
 // ── model change → sync to text editor ───────────────────────────────────────
 
-// syncRouteLegs keeps the route_selector sub-nodes in sync with the rules
+// syncRoutePorts keeps the route_selector sub-nodes in sync with the rules
 // configured on a route node. Called on every model change so that adding or
-// removing rules immediately adds/removes the corresponding leg chips, letting
+// removing rules immediately adds/removes the corresponding port chips, letting
 // the user drag from them to connect downstream processors.
-// syncRouteLegs returns true if it added or removed any leg nodes.
-function syncRouteLegs(routeNode, g) {
+// syncRoutePorts returns true if it added or removed any port nodes.
+function syncRoutePorts(routeNode, g) {
   const rules  = routeNode.config?.rules || [];
   // Include all rules — use index-based fallback name for empty names so
   // each rule gets a port immediately on "Add rule".
-  const wanted = rules.map((r, i) => r?.name || `_leg_${i}`);
+  const wanted = rules.map((r, i) => r?.name || `_port_${i}`);
   let changed  = false;
 
-  // Index existing leg nodes by name.
+  // Index existing port nodes by name.
   const byName = {};
-  for (const legId of (routeNode.legNodeIds || [])) {
-    const leg = g.nodes.find(n => n.id === legId);
-    if (leg?.isRouteLeg) byName[leg.routeLegName] = leg;
+  for (const portId of (routeNode.portNodeIds || [])) {
+    const port = g.nodes.find(n => n.id === portId);
+    if (port?.isRoutePort) byName[port.routePortName] = port;
   }
 
-  // Remove legs whose rule was deleted.
+  // Remove ports whose rule was deleted.
   for (const name of Object.keys(byName)) {
     if (wanted.includes(name)) continue;
-    const leg = byName[name];
-    g.nodes = g.nodes.filter(n => n.id !== leg.id);
-    routeNode.legNodeIds = (routeNode.legNodeIds || []).filter(id => id !== leg.id);
+    const port = byName[name];
+    g.nodes = g.nodes.filter(n => n.id !== port.id);
+    routeNode.portNodeIds = (routeNode.portNodeIds || []).filter(id => id !== port.id);
     changed = true;
   }
 
-  // Add legs for new rules (wanted already has fallback names for empty rules).
+  // Add ports for new rules (wanted already has fallback names for empty rules).
   for (let wi = 0; wi < wanted.length; wi++) {
     const name = wanted[wi];
     if (byName[name]) continue;
     // Display label: use actual rule name if available, else placeholder.
     const displayName = rules[wi]?.name || '';
-    const legId = `${routeNode.id}__leg__${name}`;
+    const portId = `${routeNode.id}__port__${name}`;
     g.nodes.push({
-      id: legId, plugin: 'route_selector', config: {},
+      id: portId, plugin: 'route_selector', config: {},
       upstreams: [routeNode.id],
-      searchNodeIds: [], listNodeIds: [], legNodeIds: [], comment: '',
-      isRouteLeg: true, routeParentId: routeNode.id,
-      routeLegName: displayName || name,
+      searchNodeIds: [], listNodeIds: [], portNodeIds: [], comment: '',
+      isRoutePort: true, routeParentId: routeNode.id,
+      routePortName: displayName || name,
       x: null, y: null,
     });
-    if (!routeNode.legNodeIds) routeNode.legNodeIds = [];
-    if (!routeNode.legNodeIds.includes(legId)) routeNode.legNodeIds.push(legId);
+    if (!routeNode.portNodeIds) routeNode.portNodeIds = [];
+    if (!routeNode.portNodeIds.includes(portId)) routeNode.portNodeIds.push(portId);
     changed = true;
   }
   return changed;
@@ -4376,16 +4376,16 @@ function onModelChange() {
   // the text editor.  Changes are flushed when the editor is saved/closed.
   if (ve.fnEditor.active) return;
 
-  // Keep route leg chips in sync with their node's rule list.
-  // If any legs were added/removed, re-render so the layout runs immediately
-  // (new legs start with x:null and need initLayout to position them).
-  let legsChanged = false;
+  // Keep route port chips in sync with their node's rule list.
+  // If any ports were added/removed, re-render so the layout runs immediately
+  // (new ports start with x:null and need initLayout to position them).
+  let portsChanged = false;
   for (const g of ve.graphs) {
     for (const n of g.nodes) {
-      if (n.plugin === 'route') legsChanged = syncRouteLegs(n, g) || legsChanged;
+      if (n.plugin === 'route') portsChanged = syncRoutePorts(n, g) || portsChanged;
     }
   }
-  if (legsChanged) {
+  if (portsChanged) {
     veRender();
     // Also sync the text editor after the new layout.
     const textEl = document.getElementById('config-editor');
@@ -4515,27 +4515,27 @@ async function textToVisualSync() {
         }
       }
 
-      // Pass 2b: wire route_selector nodes as leg sub-nodes on their route parent.
+      // Pass 2b: wire route_selector nodes as port sub-nodes on their route parent.
       for (const raw of rawNodes) {
-        if (!raw.is_route_leg) continue;
+        if (!raw.is_route_port) continue;
         const parentIdx = nodes.findIndex(n => n.id === raw.route_parent_id);
         if (parentIdx < 0) continue;
-        if (!nodes[parentIdx].legNodeIds) nodes[parentIdx].legNodeIds = [];
+        if (!nodes[parentIdx].portNodeIds) nodes[parentIdx].portNodeIds = [];
         const existing = nodes.find(n => n.id === raw.id);
         if (existing) {
           // Already added as a regular node — convert it in place.
-          existing.isRouteLeg   = true;
+          existing.isRoutePort   = true;
           existing.routeParentId = raw.route_parent_id;
-          existing.routeLegName  = raw.route_leg_name;
-          nodes[parentIdx].legNodeIds.push(raw.id);
+          existing.routePortName  = raw.route_port_name;
+          nodes[parentIdx].portNodeIds.push(raw.id);
         } else {
-          nodes[parentIdx].legNodeIds.push(raw.id);
+          nodes[parentIdx].portNodeIds.push(raw.id);
           nodes.push({
             id: raw.id, plugin: raw.plugin, config: raw.config || {},
             upstreams: raw.upstreams || [],
-            searchNodeIds: [], listNodeIds: [], legNodeIds: [], comment: '',
-            isRouteLeg: true, routeParentId: raw.route_parent_id,
-            routeLegName: raw.route_leg_name,
+            searchNodeIds: [], listNodeIds: [], portNodeIds: [], comment: '',
+            isRoutePort: true, routeParentId: raw.route_parent_id,
+            routePortName: raw.route_port_name,
             x: raw.x ?? null, y: raw.y ?? null,
           });
         }

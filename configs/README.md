@@ -198,7 +198,7 @@ For advanced formatting, Go template syntax is also supported: `{{.field}}`, `{{
 
 ## Boolean expressions
 
-The same infix expression syntax is used by the `condition` plugin, `route()` leg conditions, and the `upgrade` plugin's `on_lower` rules:
+The same infix expression syntax is used by the `condition` plugin, `route()` port conditions, and the `upgrade` plugin's `on_lower` rules:
 
 | Syntax | Meaning | Example |
 |--------|---------|---------|
@@ -228,7 +228,7 @@ pipeline("my-pipeline", schedule="1h")
 |---------|-----|
 | Merge multiple sources | `merge(src1, src2)` — deduplicates by URL |
 | Fan-out to multiple sinks | Pass the same upstream node to multiple `output()` calls |
-| Conditional branching | `route(upstream, tv="expr", movies="expr")` — mutually exclusive legs |
+| Conditional branching | `route(upstream, tv="expr", movies="expr")` — mutually exclusive ports |
 | Parallel branches | Wire the same node to multiple independent `process()` chains |
 
 ## Example configs
