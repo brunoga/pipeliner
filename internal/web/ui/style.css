@@ -1386,6 +1386,15 @@ section { margin-bottom: 32px; }
 
 
 /* ── multiline text pop-up editor ──────────────────────────────────────────── */
+/* Canvas node hover tooltip */
+#ve-node-tooltip {
+  display:none; position:fixed; z-index:3000; pointer-events:none;
+  background:#1c2128; border:1px solid #444c56; border-radius:5px;
+  padding:5px 9px; font-size:12px; color:var(--text);
+  max-width:260px; white-space:pre-wrap; word-break:break-word; line-height:1.4;
+  box-shadow:0 3px 10px rgba(0,0,0,.5);
+}
+
 .ve-text-popup {
   display:none; position:fixed; inset:0;
   background:rgba(0,0,0,.55); z-index:2000;
