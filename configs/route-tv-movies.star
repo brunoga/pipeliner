@@ -4,7 +4,7 @@
 #
 # route() declares the two branches mutually exclusive — the DAG validator
 # applies union field semantics at any merge point so there are no spurious
-# warnings, and entries that match neither leg are rejected with a WARN log
+# warnings, and entries that match neither port are rejected with a WARN log
 # rather than silently dropped.
 #
 # Compare with multi-client.star which achieves a similar result using

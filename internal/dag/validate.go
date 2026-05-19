@@ -79,7 +79,7 @@ func Validate(g *Graph, reg func(name string) (*plugin.Descriptor, bool)) (errs,
 			default:
 				// Merge (N>1 upstreams): union for reachable always.
 				// For certain: use union when all upstreams belong to the same
-				// route group (mutually exclusive legs), intersection otherwise.
+				// route group (mutually exclusive ports), intersection otherwise.
 				reach = make(map[string]bool)
 				for _, upID := range n.Upstreams {
 					for f := range reachable[upID] {
@@ -87,8 +87,8 @@ func Validate(g *Graph, reg func(name string) (*plugin.Descriptor, bool)) (errs,
 					}
 				}
 				if routeGroup := sharedRouteGroup(n.Upstreams, g, reg); routeGroup != "" {
-					// All upstreams are legs of the same route — every entry
-					// arrives from exactly one leg, so the union of certain
+					// All upstreams are ports of the same route — every entry
+					// arrives from exactly one port, so the union of certain
 					// fields is still guaranteed for that entry.
 					cert = make(map[string]bool)
 					for _, upID := range n.Upstreams {

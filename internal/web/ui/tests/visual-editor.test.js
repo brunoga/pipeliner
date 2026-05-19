@@ -13,7 +13,7 @@ const src = readFileSync(join(__dir, '..', 'visual-editor.js'), 'utf8');
 
 let starLit, valToStar, configToKwargs, upstreamsStr, dagToStarlark, viaNodeToStar,
     nodesToFunctionSource, performExtraction, addNodeFromPalette, extractFunctionSource,
-    parseFunctionComment, nodeTooltipText, edgePath, configPreview, syncRouteLegs, ve;
+    parseFunctionComment, nodeTooltipText, edgePath, configPreview, syncRoutePorts, ve;
 
 beforeAll(() => {
   const mod = new Function(
@@ -33,7 +33,7 @@ exports.parseFunctionComment  = parseFunctionComment;
 exports.nodeTooltipText       = nodeTooltipText;
 exports.edgePath              = edgePath;
 exports.configPreview         = configPreview;
-exports.syncRouteLegs         = syncRouteLegs;
+exports.syncRoutePorts        = syncRoutePorts;
 exports.ve                    = ve;
 `
   );
@@ -42,7 +42,7 @@ exports.ve                    = ve;
   mod(exports, noopDoc, () => Promise.resolve());
   ({ starLit, valToStar, configToKwargs, upstreamsStr, dagToStarlark, viaNodeToStar,
      nodesToFunctionSource, performExtraction, addNodeFromPalette, extractFunctionSource,
-     parseFunctionComment, nodeTooltipText, edgePath, configPreview, syncRouteLegs, ve } = exports);
+     parseFunctionComment, nodeTooltipText, edgePath, configPreview, syncRoutePorts, ve } = exports);
 });
 
 // ── test helpers ──────────────────────────────────────────────────────────────
@@ -1033,26 +1033,26 @@ function setupRoute() {
     name: 'branched', schedule: '1h', comment: '',
     nodes: [
       { id: 'src_0', plugin: 'rss', config: { url: 'https://example.com/rss' },
-        upstreams: [], searchNodeIds: [], listNodeIds: [], legNodeIds: [] },
+        upstreams: [], searchNodeIds: [], listNodeIds: [], portNodeIds: [] },
       { id: 'route_1', plugin: 'route',
         config: { rules: [
           { name: 'series', accept: "series_episode_id != ''" },
           { name: 'movies', accept: "series_episode_id == ''" },
         ]},
         upstreams: ['src_0'], searchNodeIds: [], listNodeIds: [],
-        legNodeIds: ['sel_series_2', 'sel_movies_3'] },
+        portNodeIds: ['sel_series_2', 'sel_movies_3'] },
       { id: 'sel_series_2', plugin: 'route_selector', config: {},
-        upstreams: ['route_1'], searchNodeIds: [], listNodeIds: [], legNodeIds: [],
-        isRouteLeg: true, routeParentId: 'route_1', routeLegName: 'series' },
+        upstreams: ['route_1'], searchNodeIds: [], listNodeIds: [], portNodeIds: [],
+        isRoutePort: true, routeParentId: 'route_1', routePortName: 'series' },
       { id: 'sel_movies_3', plugin: 'route_selector', config: {},
-        upstreams: ['route_1'], searchNodeIds: [], listNodeIds: [], legNodeIds: [],
-        isRouteLeg: true, routeParentId: 'route_1', routeLegName: 'movies' },
+        upstreams: ['route_1'], searchNodeIds: [], listNodeIds: [], portNodeIds: [],
+        isRoutePort: true, routeParentId: 'route_1', routePortName: 'movies' },
       { id: 'seen_s_4', plugin: 'seen', config: {},
-        upstreams: ['sel_series_2'], searchNodeIds: [], listNodeIds: [], legNodeIds: [] },
+        upstreams: ['sel_series_2'], searchNodeIds: [], listNodeIds: [], portNodeIds: [] },
       { id: 'seen_m_5', plugin: 'seen', config: {},
-        upstreams: ['sel_movies_3'], searchNodeIds: [], listNodeIds: [], legNodeIds: [] },
+        upstreams: ['sel_movies_3'], searchNodeIds: [], listNodeIds: [], portNodeIds: [] },
       { id: 'print_6', plugin: 'print', config: {},
-        upstreams: ['seen_s_4', 'seen_m_5'], searchNodeIds: [], listNodeIds: [], legNodeIds: [] },
+        upstreams: ['seen_s_4', 'seen_m_5'], searchNodeIds: [], listNodeIds: [], portNodeIds: [] },
     ],
   }];
   ve.activeGraph = 0;
@@ -1063,14 +1063,14 @@ function setupRoute() {
   ];
 }
 
-describe('upstreamsStr with route leg nodes', () => {
-  it('translates route_selector upstream to routeNodeId.legName', () => {
+describe('upstreamsStr with route port nodes', () => {
+  it('translates route_selector upstream to routeNodeId.portName', () => {
     setupRoute();
-    // seen_s_4 has upstream sel_series_2, which is isRouteLeg with parent route_1, leg series
+    // seen_s_4 has upstream sel_series_2, which is isRoutePort with parent route_1, port series
     expect(upstreamsStr(['sel_series_2'])).toBe('route_1.series');
   });
 
-  it('translates multiple route leg upstreams in merge()', () => {
+  it('translates multiple route port upstreams in merge()', () => {
     setupRoute();
     expect(upstreamsStr(['sel_series_2', 'sel_movies_3']))
       .toBe('merge(route_1.series, route_1.movies)');
@@ -1083,7 +1083,7 @@ describe('upstreamsStr with route leg nodes', () => {
 });
 
 describe('dagToStarlark with route() node', () => {
-  it('emits route() call with upstream and leg conditions', () => {
+  it('emits route() call with upstream and port conditions', () => {
     setupRoute();
     const out = dagToStarlark();
     expect(out).toContain('route_1 = route(src_0,');
@@ -1099,7 +1099,7 @@ describe('dagToStarlark with route() node', () => {
     expect(out).not.toContain('route_selector');
   });
 
-  it('emits downstream nodes with leg references as upstream', () => {
+  it('emits downstream nodes with port references as upstream', () => {
     setupRoute();
     const out = dagToStarlark();
     expect(out).toContain('upstream=route_1.series');
@@ -1143,7 +1143,7 @@ describe('edgePath', () => {
   });
 
   it('mixed down+left: cp1 goes down, cp2 goes left', () => {
-    // route leg port (bottom) → processor (left side)
+    // route port circle (bottom) → processor (left side)
     const d = edgePath(100, 0, 300, 100, 'down', 'left');
     // cp1 should be (100, something>0) — exits downward
     // cp2 should be (something<300, 100) — arrives from left
@@ -1198,9 +1198,9 @@ describe('configPreview', () => {
   });
 });
 
-// ── syncRouteLegs ─────────────────────────────────────────────────────────────
+// ── syncRoutePorts ────────────────────────────────────────────────────────────
 
-describe('syncRouteLegs', () => {
+describe('syncRoutePorts', () => {
   function makeGraph(routeNode) {
     const g = { nodes: [routeNode] };
     ve.graphs = [g];
@@ -1208,49 +1208,49 @@ describe('syncRouteLegs', () => {
     return g;
   }
 
-  it('creates leg nodes for each named rule', () => {
+  it('creates port nodes for each named rule', () => {
     const route = { id: 'r0', plugin: 'route', config: {
       rules: [{name: 'series', accept: "1"}, {name: 'movies', accept: "2"}]
-    }, legNodeIds: [] };
+    }, portNodeIds: [] };
     const g = makeGraph(route);
-    const changed = syncRouteLegs(route, g);
+    const changed = syncRoutePorts(route, g);
     expect(changed).toBe(true);
-    expect(route.legNodeIds).toHaveLength(2);
-    const legNames = g.nodes.filter(n => n.isRouteLeg).map(n => n.routeLegName);
-    expect(legNames).toContain('series');
-    expect(legNames).toContain('movies');
+    expect(route.portNodeIds).toHaveLength(2);
+    const portNames = g.nodes.filter(n => n.isRoutePort).map(n => n.routePortName);
+    expect(portNames).toContain('series');
+    expect(portNames).toContain('movies');
   });
 
-  it('removes leg nodes when rule is deleted', () => {
-    const legId = 'r0__leg__series';
+  it('removes port nodes when rule is deleted', () => {
+    const portId = 'r0__port__series';
     const route = { id: 'r0', plugin: 'route', config: {
       rules: [{name: 'movies', accept: "2"}]
-    }, legNodeIds: [legId] };
-    const leg = { id: legId, isRouteLeg: true, routeParentId: 'r0', routeLegName: 'series' };
-    const g = { nodes: [route, leg] };
-    const changed = syncRouteLegs(route, g);
+    }, portNodeIds: [portId] };
+    const port = { id: portId, isRoutePort: true, routeParentId: 'r0', routePortName: 'series' };
+    const g = { nodes: [route, port] };
+    const changed = syncRoutePorts(route, g);
     expect(changed).toBe(true);
-    expect(route.legNodeIds).not.toContain(legId);
-    expect(g.nodes.find(n => n.id === legId)).toBeUndefined();
+    expect(route.portNodeIds).not.toContain(portId);
+    expect(g.nodes.find(n => n.id === portId)).toBeUndefined();
   });
 
   it('returns false when nothing changes', () => {
-    const legId = 'r0__leg__series';
+    const portId = 'r0__port__series';
     const route = { id: 'r0', plugin: 'route', config: {
       rules: [{name: 'series', accept: "1"}]
-    }, legNodeIds: [legId] };
-    const leg = { id: legId, isRouteLeg: true, routeParentId: 'r0', routeLegName: 'series' };
-    const g = { nodes: [route, leg] };
-    const changed = syncRouteLegs(route, g);
+    }, portNodeIds: [portId] };
+    const port = { id: portId, isRoutePort: true, routeParentId: 'r0', routePortName: 'series' };
+    const g = { nodes: [route, port] };
+    const changed = syncRoutePorts(route, g);
     expect(changed).toBe(false);
   });
 
-  it('creates placeholder leg for empty-name rules', () => {
+  it('creates placeholder port for empty-name rules', () => {
     const route = { id: 'r0', plugin: 'route', config: {
       rules: [{name: '', accept: ''}]
-    }, legNodeIds: [] };
+    }, portNodeIds: [] };
     const g = makeGraph(route);
-    syncRouteLegs(route, g);
-    expect(route.legNodeIds).toHaveLength(1); // placeholder leg created
+    syncRoutePorts(route, g);
+    expect(route.portNodeIds).toHaveLength(1); // placeholder port created
   });
 });

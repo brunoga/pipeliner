@@ -299,7 +299,7 @@ The full list of constants is in `internal/entry/info.go`.
 | `video_resolution` | string | Resolution tag (e.g. `1080p`) |
 | `torrent_seeds` | int | Seeder count |
 | `file_location` | string | Absolute local file path |
-| `_route_leg` | string | Set by `route()` on matched entries; identifies which named leg was matched (`entry.FieldRouteLeg`) |
+| `_route_port` | string | Set by `route()` on matched entries; identifies which named port was matched (`entry.FieldRoutePort`) |
 
 All field name strings have corresponding `entry.FieldXxx` constants in
 `internal/entry/info.go`. Always prefer the constants over raw strings so that
@@ -745,7 +745,7 @@ movies_node = process("movies", upstream=rss, list=[unwatched_movies(client_id=e
 
 ### Conditional branching with route()
 
-The `route()` Starlark builtin routes entries to named legs based on ordered boolean conditions. It is not a plugin — it is a built-in function that creates a `route` processor node and N `route_selector` nodes internally:
+The `route()` Starlark builtin routes entries to named ports based on ordered boolean conditions. It is not a plugin — it is a built-in function that creates a `route` processor node and N `route_selector` nodes internally:
 
 ```python
 routes = route(upstream,
@@ -757,9 +757,9 @@ output("transmission", upstream=merge(series_path, movies_path))
 ```
 
 Key properties:
-- Exactly one leg matches each entry (first match wins); unmatched entries are rejected with `WARN`.
-- At a `merge()` of route legs the DAG validator uses **union** semantics for `certain` fields — no spurious merge-gap warnings for intentional branching.
-- The `_route_leg` field is stamped on matched entries and is available downstream.
+- Exactly one port matches each entry (first match wins); unmatched entries are rejected with `WARN`.
+- At a `merge()` of route ports the DAG validator uses **union** semantics for `certain` fields — no spurious merge-gap warnings for intentional branching.
+- The `_route_port` field is stamped on matched entries and is available downstream.
 - See [`plugins/processor/filter/route/README.md`](plugins/processor/filter/route/README.md) for the full reference.
 
 ---
@@ -1190,12 +1190,12 @@ strings (`"30m"`, `"1h"`, `"24h"`) or a 5-field cron expression.
 
 ```python
 routes = route(upstream_node,
-    leg_name = "boolean expression",
+    port_name = "boolean expression",
     ...)
-downstream = process("plugin", upstream=routes.leg_name, ...)
+downstream = process("plugin", upstream=routes.port_name, ...)
 ```
 
-Routes entries to named legs based on ordered boolean conditions. See
+Routes entries to named ports based on ordered boolean conditions. See
 [Conditional branching with route()](#conditional-branching-with-route) for details.
 
 ### env()
@@ -1487,7 +1487,7 @@ Internal plugins:
 - Cannot be referenced directly in user config files.
 
 The `route_selector` plugin (created automatically by the `route()` Starlark
-builtin to fan entries out to named legs) is the canonical example.
+builtin to fan entries out to named ports) is the canonical example.
 
 ---
 
