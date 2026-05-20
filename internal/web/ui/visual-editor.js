@@ -31,6 +31,40 @@ let ve_listConnecting    = null;   // {parentNodeId, curX, curY} while drawing a
 let ve_panX          = 0;      // canvas pan offset (screen pixels)
 let ve_panY          = 0;
 
+// ── undo ─────────────────────────────────────────────────────────────────────
+
+const VE_MAX_UNDO = 50;
+let ve_undoStack = [];
+
+// pushUndo snapshots the current model state. Call before any destructive action.
+function pushUndo() {
+  ve_undoStack.push(JSON.stringify({
+    graphs:        ve.graphs,
+    userFunctions: ve.userFunctions,
+    nextId:        ve.nextId,
+  }));
+  if (ve_undoStack.length > VE_MAX_UNDO) ve_undoStack.shift();
+}
+
+function undo() {
+  if (!ve_undoStack.length) {
+    setSyncNote('Nothing to undo');
+    setTimeout(() => setSyncNote(''), 1500);
+    return;
+  }
+  const snap = JSON.parse(ve_undoStack.pop());
+  ve.graphs        = snap.graphs;
+  ve.userFunctions = snap.userFunctions;
+  ve.nextId        = snap.nextId;
+  ve.selectedNodeId = null;
+  clearMultiSelect();
+  initLayout();
+  veRender();
+  onModelChange();
+  setSyncNote('↩ Undone');
+  setTimeout(() => setSyncNote(''), 1500);
+}
+
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 function activeG() { return ve.graphs[ve.activeGraph] || ve.graphs[0]; }
@@ -136,6 +170,7 @@ function startDragFlow(e, stateSet, onRelease, canvasCls) {
 
 // Disconnect a search-connected node from its parent discover node.
 function disconnectSearch(discoverNodeId, searchNodeId) {
+  pushUndo();
   const disc = findNode(discoverNodeId);
   const sn   = findNode(searchNodeId);
   if (disc) disc.searchNodeIds = (disc.searchNodeIds || []).filter(id => id !== searchNodeId);
@@ -145,6 +180,7 @@ function disconnectSearch(discoverNodeId, searchNodeId) {
 }
 
 function disconnectList(parentNodeId, listNodeId) {
+  pushUndo();
   const parent = findNode(parentNodeId);
   const ln     = findNode(listNodeId);
   if (parent) parent.listNodeIds = (parent.listNodeIds || []).filter(id => id !== listNodeId);
@@ -357,6 +393,7 @@ function newNodePos(g) {
 
 function removeNode(id) {
   if (findNode(id)?.isUpstreamPseudo) return; // pseudo-node is permanent
+  pushUndo();
   for (const g of ve.graphs) {
     const idx = g.nodes.findIndex(n => n.id === id);
     if (idx < 0) continue;
@@ -453,6 +490,15 @@ function updateExtractButton() {
   const btn = document.getElementById('ve-extract-fn-btn');
   if (!btn) return;
   btn.style.display = ve.selectedNodeIds.size >= 1 && multiSelectIsValid() ? '' : 'none';
+  updateCopyButton();
+}
+
+function updateCopyButton() {
+  const hasSelection = ve.selectedNodeIds.size > 0 || !!ve.selectedNodeId;
+  const copyBtn = document.getElementById('ve-copy-btn');
+  const cutBtn  = document.getElementById('ve-cut-btn');
+  if (copyBtn) copyBtn.style.display = hasSelection ? '' : 'none';
+  if (cutBtn)  cutBtn.style.display  = hasSelection ? '' : 'none';
 }
 
 // Quick check: all selected nodes are non-sub, non-function main nodes in the same pipeline.
@@ -887,6 +933,7 @@ function renderPipelineRegions() {
 // ── add / manage pipelines ────────────────────────────────────────────────────
 
 function addPipeline() {
+  pushUndo();
   const lastG = ve.graphs[ve.graphs.length - 1];
   const newLabelY = lastG
     ? (lastG._regionY ?? 40) + Math.max(80, lastG._regionH ?? 80) + 60
@@ -908,6 +955,7 @@ function deletePipeline(graphIdx) {
   // In function editing mode the single graph IS the function body — deleting
   // it would wipe the canvas.  Use Cancel or ← Back to exit the editor instead.
   if (ve.fnEditor.active) return;
+  pushUndo();
   const removed = ve.graphs[graphIdx];
   // How much vertical space the deleted pipeline occupied (region height + the
   // 60 px inter-pipeline gap used by autoLayout).
@@ -1612,6 +1660,14 @@ function initCanvasEvents() {
       e.preventDefault();
       removeNode(ve.selectedNodeId);
     }
+    if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !inInput) {
+      e.preventDefault();
+      if (!ve.fnEditor.active) undo();
+    }
+    if ((e.metaKey || e.ctrlKey) && e.key === 'x' && !inInput) {
+      e.preventDefault();
+      if (!ve.fnEditor.active) cutSelected();
+    }
     if ((e.metaKey || e.ctrlKey) && e.key === 'c' && !inInput) {
       e.preventDefault();
       copySelected();
@@ -1619,18 +1675,6 @@ function initCanvasEvents() {
     if ((e.metaKey || e.ctrlKey) && e.key === 'v' && !inInput) {
       e.preventDefault();
       pasteClipboard();
-    }
-  });
-
-  // Deselect on empty-canvas click.
-  canvas.addEventListener('pointerdown', e => {
-    if (!e.target.closest('.ve-node') && !e.target.closest('.ve-pipeline-label')) {
-      const prev = ve.selectedNodeId;
-      ve.selectedNodeId = null;
-      if (prev) document.querySelector(`.ve-node[data-id="${prev}"]`)?.classList.remove('selected');
-      clearMultiSelect();
-      renderEdges();
-      renderParamPanel();
     }
   });
 
@@ -1654,6 +1698,7 @@ function initCanvasEvents() {
         // Regular edge: remove the upstream.
         const tgt = findNode(hit.dataset.dst);
         if (tgt) {
+          pushUndo();
           tgt.upstreams = tgt.upstreams.filter(u => u !== hit.dataset.src);
           veRender();
           onModelChange();
@@ -1671,6 +1716,9 @@ function initCanvasEvents() {
   // Middle-mouse drag to pan (unlimited, no scrollbars).
   const body = document.getElementById('ve-canvas-body');
   if (body) {
+    // Prevent OS context menu on canvas so Ctrl+click doesn't open it on Mac.
+    body.addEventListener('contextmenu', e => e.preventDefault());
+
     body.addEventListener('pointerdown', e => {
       if (e.button !== 1) return; // middle button only
       e.preventDefault();
@@ -1685,6 +1733,78 @@ function initCanvasEvents() {
         body.style.cursor = '';
         body.removeEventListener('pointermove', onMove);
       }
+      body.addEventListener('pointermove', onMove);
+      body.addEventListener('pointerup',     onUp, {once: true});
+      body.addEventListener('pointercancel', onUp, {once: true});
+    });
+
+    // Left-button on empty canvas: rubber-band selection or deselect-on-click.
+    // Node and pipeline-label pointerdown handlers call stopPropagation() so
+    // this only fires when the user clicks/drags on truly empty space.
+    body.addEventListener('pointerdown', e => {
+      if (e.button !== 0) return;
+      if (e.target.closest('.ve-node') || e.target.closest('.ve-pipeline-label')) return;
+
+      const startX = e.clientX, startY = e.clientY;
+      let isDragging = false;
+      let marquee = null;
+
+      function onMove(ev) {
+        if (!isDragging && Math.hypot(ev.clientX - startX, ev.clientY - startY) < 6) return;
+        if (!isDragging) {
+          isDragging = true;
+          // Clear any selection when a drag starts.
+          const prev = ve.selectedNodeId;
+          ve.selectedNodeId = null;
+          if (prev) document.querySelector(`.ve-node[data-id="${prev}"]`)?.classList.remove('selected');
+          clearMultiSelect();
+          renderEdges();
+          renderParamPanel();
+          // Create the marquee overlay (in body/viewport coordinates).
+          marquee = document.createElement('div');
+          marquee.className = 've-marquee';
+          body.appendChild(marquee);
+        }
+        const br = body.getBoundingClientRect();
+        marquee.style.left   = Math.min(startX, ev.clientX) - br.left + 'px';
+        marquee.style.top    = Math.min(startY, ev.clientY) - br.top  + 'px';
+        marquee.style.width  = Math.abs(ev.clientX - startX) + 'px';
+        marquee.style.height = Math.abs(ev.clientY - startY) + 'px';
+      }
+
+      function onUp(ev) {
+        body.removeEventListener('pointermove', onMove);
+        if (isDragging && marquee) {
+          marquee.remove();
+          // Convert marquee from body coords to canvas coords and select nodes.
+          const br = body.getBoundingClientRect();
+          const x1 = (Math.min(startX, ev.clientX) - br.left - ve_panX) / ve_zoom;
+          const y1 = (Math.min(startY, ev.clientY) - br.top  - ve_panY) / ve_zoom;
+          const x2 = (Math.max(startX, ev.clientX) - br.left - ve_panX) / ve_zoom;
+          const y2 = (Math.max(startY, ev.clientY) - br.top  - ve_panY) / ve_zoom;
+          const g = ve.graphs[ve.activeGraph];
+          if (g) {
+            for (const n of g.nodes) {
+              if (n.isSearchNode || n.isListNode || n.isRoutePort || n.isUpstreamPseudo) continue;
+              const nx = n.x ?? 0, ny = n.y ?? 0;
+              if (nx < x2 && nx + NODE_W > x1 && ny < y2 && ny + NODE_H > y1) {
+                ve.selectedNodeIds.add(n.id);
+                document.querySelector(`.ve-node[data-id="${n.id}"]`)?.classList.add('multi-selected');
+              }
+            }
+          }
+          updateExtractButton(); // also calls updateCopyButton
+        } else {
+          // Pure click on empty canvas → deselect everything.
+          const prev = ve.selectedNodeId;
+          ve.selectedNodeId = null;
+          if (prev) document.querySelector(`.ve-node[data-id="${prev}"]`)?.classList.remove('selected');
+          clearMultiSelect();
+          renderEdges();
+          renderParamPanel();
+        }
+      }
+
       body.addEventListener('pointermove', onMove);
       body.addEventListener('pointerup',     onUp, {once: true});
       body.addEventListener('pointercancel', onUp, {once: true});
@@ -1733,6 +1853,7 @@ function initCanvasEvents() {
     // Regions only expand down-and-right; they never expand upward.
     const labelBottom = (g._labelY ?? (g._regionY ?? 0) + 8) + 30;
     y = Math.max(y, labelBottom + 4);
+    pushUndo();
     const id      = genId(ve.dragSrc.plugin);
     const dragFd  = ve.userFunctions[ve.dragSrc.plugin];
     const dragCfg = {};
@@ -1759,6 +1880,51 @@ function initCanvasEvents() {
 // selectNode no longer rebuilds the DOM, so div (found by data-id) stays valid.
 
 function startNodeDrag(e, n) {
+  pushUndo();
+
+  // Multi-node drag: when dragging a node that's part of a multi-selection,
+  // move all selected main nodes together by the same delta.
+  const isMultiDrag = ve.selectedNodeIds.size > 1 && ve.selectedNodeIds.has(n.id);
+  if (isMultiDrag) {
+    const dragIds = [...ve.selectedNodeIds].filter(id => {
+      const nd = findNode(id);
+      return nd && !nd.isSearchNode && !nd.isListNode && !nd.isRoutePort && !nd.isUpstreamPseudo;
+    });
+    const origPos = new Map(dragIds.map(id => {
+      const nd = findNode(id);
+      return [id, {x: nd.x ?? 0, y: nd.y ?? 0}];
+    }));
+    const startX = e.clientX, startY = e.clientY;
+    ve_dragging = true;
+
+    function onMoveMulti(ev) {
+      const dx = (ev.clientX - startX) / ve_zoom;
+      const dy = (ev.clientY - startY) / ve_zoom;
+      for (const id of dragIds) {
+        const nd = findNode(id);
+        const orig = origPos.get(id);
+        if (!nd || !orig) continue;
+        nd.x = Math.max(0, orig.x + dx);
+        nd.y = Math.max(0, orig.y + dy);
+        const div = document.querySelector(`.ve-node[data-id="${id}"]`);
+        if (div) { div.style.left = nd.x + 'px'; div.style.top = nd.y + 'px'; }
+      }
+      renderEdges();
+      renderPipelineRegions();
+      updateCanvasSize();
+    }
+    function onUpMulti() {
+      ve_dragging = null;
+      document.removeEventListener('pointermove', onMoveMulti);
+      onModelChange();
+    }
+    document.addEventListener('pointermove', onMoveMulti);
+    document.addEventListener('pointerup',     onUpMulti, {once: true});
+    document.addEventListener('pointercancel', onUpMulti, {once: true});
+    return;
+  }
+
+  // Single-node drag (original logic).
   const origX = n.x ?? 0, origY = n.y ?? 0;
   const startX = e.clientX, startY = e.clientY;
   ve_dragging = true;
@@ -1872,6 +2038,7 @@ function finishConnect(targetId) {
     }
     const g = srcGi >= 0 ? ve.graphs[srcGi] : null;
     if (g && !wouldCreateCycle(g.nodes, src.id, tgt.id)) {
+      pushUndo();
       tgt.upstreams.push(src.id);
       onModelChange();
     }
@@ -2830,6 +2997,7 @@ function pasteClipboard() {
   if (!ve.clipboard?.nodes?.length) return;
   const g = activeG();
   if (!g) return;
+  pushUndo();
 
   // Place pasted nodes centred on the visible viewport, offset slightly so
   // repeated pastes don't stack exactly on top of each other.
@@ -2898,6 +3066,50 @@ function updatePasteButton() {
   const n = ve.clipboard.nodes.length;
   btn.textContent  = `Paste (${n} node${n !== 1 ? 's' : ''})`;
   btn.style.display = '';
+}
+
+// cutSelected copies the current selection to clipboard, then deletes the nodes.
+function cutSelected() {
+  const ids = ve.selectedNodeIds.size > 0
+    ? [...ve.selectedNodeIds].filter(id => {
+        const n = findNode(id);
+        return n && !n.isSearchNode && !n.isListNode && !n.isUpstreamPseudo;
+      })
+    : ve.selectedNodeId ? [ve.selectedNodeId] : [];
+  if (!ids.length) return;
+  pushUndo();
+  copySelected();
+  removeNodeBatch(ids);
+  if (ids.includes(ve.selectedNodeId)) ve.selectedNodeId = null;
+  clearMultiSelect();
+  veRender();
+  onModelChange();
+}
+
+// removeNodeBatch removes multiple nodes without triggering a render per-node.
+function removeNodeBatch(ids) {
+  for (const id of ids) {
+    if (findNode(id)?.isUpstreamPseudo) continue;
+    for (const g of ve.graphs) {
+      const idx = g.nodes.findIndex(n => n.id === id);
+      if (idx < 0) continue;
+      const [removed] = g.nodes.splice(idx, 1);
+      for (const n of g.nodes) {
+        n.upstreams     = (n.upstreams     || []).filter(u => u !== id);
+        n.searchNodeIds = (n.searchNodeIds || []).filter(u => u !== id);
+        n.listNodeIds   = (n.listNodeIds   || []).filter(u => u !== id);
+      }
+      if (removed.searchParentId) {
+        const p = g.nodes.find(n => n.id === removed.searchParentId);
+        if (p) p.searchNodeIds = (p.searchNodeIds || []).filter(u => u !== id);
+      }
+      if (removed.listParentId) {
+        const p = g.nodes.find(n => n.id === removed.listParentId);
+        if (p) p.listNodeIds = (p.listNodeIds || []).filter(u => u !== id);
+      }
+      break;
+    }
+  }
 }
 
 // ── Extract to function ────────────────────────────────────────────────────────
@@ -3184,6 +3396,7 @@ function openExtractDialog() {
 // performExtraction replaces the selected nodes with a function call node and
 // registers the new user function definition.
 function performExtraction(funcName, params, validation, graphIdx, comment = '') {
+  pushUndo();
   const {entryUpstreams, returnNodeId} = validation;
   const selectedIds = new Set(ve.selectedNodeIds); // snapshot before clearing
   const g = ve.graphs[graphIdx];
