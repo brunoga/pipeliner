@@ -166,6 +166,20 @@ func writeLoginPage(w http.ResponseWriter, failed bool) {
   --bg:#080b10;--surface:#111827;--border:#232c3b;
   --text:#c8d6e5;--muted:#5d6e82;--accent:#4da8ff;--red:#f25149;
 }
+@media(prefers-color-scheme:light){
+  :root{
+    --bg:#f0f2f6;--surface:#ffffff;--border:#ccd3de;
+    --text:#0d1117;--muted:#5a6a7e;--accent:#0969da;--red:#d1242f;
+  }
+}
+body.light{
+  --bg:#f0f2f6;--surface:#ffffff;--border:#ccd3de;
+  --text:#0d1117;--muted:#5a6a7e;--accent:#0969da;--red:#d1242f;
+}
+body.dark{
+  --bg:#080b10;--surface:#111827;--border:#232c3b;
+  --text:#c8d6e5;--muted:#5d6e82;--accent:#4da8ff;--red:#f25149;
+}
 body{background:var(--bg);color:var(--text);
   font-family:'JetBrains Mono','SF Mono',ui-monospace,Consolas,monospace;
   font-size:13px;display:flex;align-items:center;justify-content:center;min-height:100vh}
@@ -192,6 +206,7 @@ button:hover{background:color-mix(in srgb,var(--accent) 8%,transparent)}
 </style>
 </head>
 <body>
+<script>(function(){var t=localStorage.getItem('pipeliner-theme');if(t==='light'||t==='dark')document.body.classList.add(t);}());</script>
 <div class="card">
   <h1><span>▶</span>Pipeliner</h1>
   <form method="post" action="/login">

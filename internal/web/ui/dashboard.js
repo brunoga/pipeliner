@@ -1,5 +1,22 @@
 'use strict';
 
+// ── theme ─────────────────────────────────────────────────────────────────────
+
+function applyTheme(theme) {
+  document.body.classList.remove('light', 'dark');
+  if (theme === 'light' || theme === 'dark') document.body.classList.add(theme);
+  ['dark', 'auto', 'light'].forEach(t => {
+    const btn = document.getElementById('theme-btn-' + t);
+    if (btn) btn.classList.toggle('active', t === theme);
+  });
+}
+
+function setTheme(theme) {
+  localStorage.setItem('pipeliner-theme', theme);
+  applyTheme(theme);
+}
+
+// ── polling ───────────────────────────────────────────────────────────────────
 
 const MAX_LINES = 500;
 let logLines = []; // [{el, raw}]
