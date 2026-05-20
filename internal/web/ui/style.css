@@ -6,6 +6,17 @@ html { scrollbar-gutter: stable; }
   --surface:   #111827;
   --input-bg:  #1a2333;
   --code-bg:   #000;       /* terminal/code areas — stays dark even in light mode */
+
+  /* Starlark syntax token colours — never overridden in light mode because
+     the code editor always has a dark background (--code-bg). */
+  --code-text:    #c0caf5;  /* base text — warm lavender-white */
+  --code-key:     #bb9af7;  /* keywords: def, if, return — soft purple */
+  --code-str:     #9ece6a;  /* string literals — soft green */
+  --code-num:     #ff9e64;  /* numbers — warm orange */
+  --code-bool:    #e0af68;  /* True/False/None — amber gold (literal, not error) */
+  --code-builtin: #7dcfff;  /* pipeliner builtins: process(), route() — bright cyan */
+  --code-func:    #7aa2f7;  /* user-defined function names — medium blue */
+  --code-comment: #565f89;  /* comments — muted purple-gray */
   --border:    #232c3b;
   --text:      #c8d6e5;
   --muted:     #5d6e82;
@@ -443,6 +454,34 @@ body.light {
   --code-bg:  #1e2433;
 }
 
+/* Force dark regardless of system preference (overrides the light media query). */
+body.dark {
+  --bg:       #080b10;
+  --surface:  #111827;
+  --input-bg: #1a2333;
+  --border:   #232c3b;
+  --text:     #c8d6e5;
+  --muted:    #5d6e82;
+  --accent:   #4da8ff;
+  --green:    #3db84a;
+  --amber:    #d4a017;
+  --red:      #f25149;
+  --purple:   #8250df;
+  --code-bg:  #000;
+}
+
+/* Theme switcher in settings tab */
+.theme-toggle { display:flex; gap:4px; margin-top:8px; }
+.theme-btn {
+  padding:5px 18px; border:1px solid var(--border); border-radius:3px;
+  background:transparent; color:var(--muted);
+  font-size:10px; font-weight:600; font-family:var(--mono-font);
+  letter-spacing:0.08em; text-transform:uppercase;
+  cursor:pointer; transition:border-color 0.15s, color 0.15s, background 0.15s;
+}
+.theme-btn.active { border-color:var(--accent); color:var(--accent); background:color-mix(in srgb, var(--accent) 7%, transparent); }
+.theme-btn:hover:not(.active) { border-color:var(--border); color:var(--text); }
+
 /* tabs */
 .tab-bar { display: flex; gap: 2px; border-bottom: 1px solid var(--border); margin-bottom: 24px; }
 .tab-btn {
@@ -491,7 +530,7 @@ body.light {
 }
 .editor-hl {
   background: var(--code-bg);
-  color: var(--text);
+  color: var(--code-text);
   pointer-events: none;
   position: absolute;
   top: 0; left: 0; bottom: 0;
@@ -508,14 +547,16 @@ body.light {
   z-index: 1;
   overflow-y: auto;
 }
-/* Starlark token colours */
-.y-key     { color: #79c0ff; }   /* keywords: def, if, for, return … */
-.y-str     { color: #a5d6ff; }   /* string literals */
-.y-num     { color: #f2cc60; }   /* numbers */
-.y-bool    { color: #ff7b72; }   /* True, False, None */
-.y-builtin { color: var(--ve-search-lit); }   /* plugin(), task(), env() */
-.y-func    { color: #79c0ff; }   /* function names after def */
-.y-comment { color: var(--muted); font-style: italic; }
+/* Starlark token colours — use --code-* variables defined in :root.
+   These are never overridden in the light-mode block because the code
+   editor always has a dark background (--code-bg). */
+.y-key     { color: var(--code-key); }
+.y-str     { color: var(--code-str); }
+.y-num     { color: var(--code-num); }
+.y-bool    { color: var(--code-bool); }
+.y-builtin { color: var(--code-builtin); }
+.y-func    { color: var(--code-func); }
+.y-comment { color: var(--code-comment); font-style: italic; }
 .config-toolbar { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
 .config-status {
   font-size: 10px;
