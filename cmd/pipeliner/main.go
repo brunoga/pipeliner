@@ -26,6 +26,7 @@ import (
 
 	// Register all built-in plugins via side-effect imports.
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/accept_all"
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/age"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/condition"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/route"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/content"
