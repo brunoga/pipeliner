@@ -2,16 +2,17 @@
 html { scrollbar-gutter: stable; }
 
 :root {
-  --bg:      #0d1117;
-  --surface: #161b22;
-  --border:  #30363d;
-  --text:    #e6edf3;
-  --muted:   #8b949e;
-  --accent:  #58a6ff;
-  --green:   #3fb950;
-  --amber:   #d29922;
-  --red:     #f85149;
-  --purple:  #bc8cff;
+  --bg:        #0d1117;
+  --surface:   #161b22;
+  --input-bg:  #1e1e1e;
+  --border:    #30363d;
+  --text:      #e6edf3;
+  --muted:     #8b949e;
+  --accent:    #58a6ff;
+  --green:     #3fb950;
+  --amber:     #d29922;
+  --red:       #f85149;
+  --purple:    #bc8cff;
 
   /* visual editor semantic colours */
   --ve-search:     #9a6ad8;
@@ -21,6 +22,8 @@ html { scrollbar-gutter: stable; }
   --ve-chain:      #e3b341;
   --ve-fn:         #f472b6;
   --ve-output:     #ffa657;
+  --ve-route:      #c2820a;
+  --ve-route-lit:  #f0a030;
 }
 
 /* keyboard-focus outline for all interactive elements */
@@ -615,12 +618,12 @@ section { margin-bottom: 32px; }
 .ve-extract-field { display:flex; flex-direction:column; gap:4px; }
 .ve-extract-field label { font-size:11px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; }
 .ve-extract-field input[type=text] {
-  background:var(--input-bg,#1e1e1e); border:1px solid var(--border); border-radius:4px;
+  background:var(--input-bg); border:1px solid var(--border); border-radius:4px;
   padding:5px 8px; color:var(--text); font-size:13px; outline:none;
 }
 .ve-extract-field input[type=text]:focus { border-color:var(--accent); }
 .ve-extract-field textarea {
-  background:var(--input-bg,#1e1e1e); border:1px solid var(--border); border-radius:4px;
+  background:var(--input-bg); border:1px solid var(--border); border-radius:4px;
   padding:5px 8px; color:var(--text); font-size:13px; outline:none; resize:vertical;
   font-family:inherit; line-height:1.4;
 }
@@ -634,7 +637,7 @@ section { margin-bottom: 32px; }
 }
 .ve-extract-param-table td { padding:5px 6px; border-bottom:1px solid rgba(255,255,255,.04); vertical-align:middle; }
 .ve-extract-param-table input[type=text] {
-  background:var(--input-bg,#1e1e1e); border:1px solid var(--border); border-radius:3px;
+  background:var(--input-bg); border:1px solid var(--border); border-radius:3px;
   padding:3px 6px; color:var(--text); font-size:12px; outline:none; width:100%;
 }
 .ve-extract-param-table input[type=text]:focus { border-color:var(--accent); }
@@ -644,7 +647,7 @@ section { margin-bottom: 32px; }
 }
 .ve-extract-create {
   padding:5px 16px; background:var(--accent); border:none; border-radius:5px;
-  color:#000; font-size:12px; font-weight:600; cursor:pointer;
+  color:#fff; font-size:12px; font-weight:600; cursor:pointer;
 }
 .ve-extract-create:hover { opacity:.85; }
 .ve-extract-cancel {
@@ -793,7 +796,6 @@ section { margin-bottom: 32px; }
 .ve-list-edge.connecting { stroke:var(--ve-list-lit); stroke-width:1.5; stroke-dasharray:5,3; }
 
 /* ── route nodes ──────────────────────────────────────────────────────── */
-:root { --ve-route:#c2820a; --ve-route-lit:#f0a030; }
 
 .ve-node-route-badge {
   display:inline-block; padding:1px 5px; border-radius:3px;
@@ -947,10 +949,10 @@ section { margin-bottom: 32px; }
 .ve-rule-table td { padding:3px 2px; }
 .ve-rule-name { width:90px; }
 .ve-rule-cond { width:100%; }
-.ve-rule-name, .ve-rule-cond { background:var(--input-bg); border:1px solid var(--border); border-radius:3px; color:var(--fg); padding:3px 5px; font-size:12px; }
+.ve-rule-name, .ve-rule-cond { background:var(--input-bg); border:1px solid var(--border); border-radius:3px; color:var(--text); padding:3px 5px; font-size:12px; }
 .ve-rule-name:focus, .ve-rule-cond:focus { outline:none; border-color:var(--accent); }
 .ve-rule-del { background:none; border:none; color:var(--muted); cursor:pointer; padding:0 4px; font-size:14px; }
-.ve-rule-del:hover { color:var(--danger); }
+.ve-rule-del:hover { color:var(--red); }
 
 /* Named port circles: row of circles at the bottom of the route card,
    mirroring the absolute positioning of .ve-node-out-port */
@@ -1045,7 +1047,7 @@ section { margin-bottom: 32px; }
 .ve-add-kv { font-size:11px; color:var(--muted); background:none; border:none; cursor:pointer; padding:0; margin-top:2px; }
 .ve-add-kv:hover { color:var(--accent); }
 .ve-multiline-btn {
-  width:100%; text-align:left; background:var(--input-bg,#1e1e1e); border:1px solid var(--border);
+  width:100%; text-align:left; background:var(--input-bg); border:1px solid var(--border);
   border-radius:4px; padding:5px 8px; cursor:pointer; color:var(--text); font-size:12px;
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
 }
@@ -1357,6 +1359,7 @@ section { margin-bottom: 32px; }
 .db-chevron { font-size: 11px; color: var(--muted); user-select: none; }
 .db-show-row { cursor: pointer; }
 .db-show-row:hover td { background: rgba(255,255,255,.02); }
+.db-show-row td:first-child { font-weight: 500; }
 .db-toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; gap: 10px; }
 .db-title { font-size: 14px; font-weight: 600; }
 .db-search { padding: 4px 10px; background: var(--surface); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-size: 12px; outline: none; width: 200px; }
@@ -1364,14 +1367,13 @@ section { margin-bottom: 32px; }
 .btn-danger { padding: 4px 12px; background: transparent; border: 1px solid var(--border); color: var(--muted); border-radius: 5px; cursor: pointer; font-size: 12px; }
 .btn-danger:hover { border-color: var(--red); color: var(--red); }
 .btn-sm { padding: 2px 8px; background: transparent; border: 1px solid var(--border); color: var(--muted); border-radius: 4px; cursor: pointer; font-size: 11px; }
-.btn-sm:hover { border-color: var(--red); color: var(--red); }
+.btn-sm:hover { border-color: var(--text); color: var(--text); }
+.btn-sm.btn-sm-danger:hover { border-color: var(--red); color: var(--red); }
 .db-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .db-table th { background: var(--surface); color: var(--muted); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; padding: 7px 10px; text-align: left; border-bottom: 2px solid var(--border); }
 .db-table td { padding: 7px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
 .db-table tr:last-child td { border-bottom: none; }
 .db-table tr:hover td { background: rgba(255,255,255,.02); }
-.db-show-row { cursor: pointer; }
-.db-show-row td:first-child { font-weight: 500; }
 .db-eps { display: none; }
 .db-eps.open { display: table-row-group; }
 .db-eps td { background: var(--bg); font-size: 12px; padding: 5px 10px 5px 24px; color: var(--muted); }
@@ -1379,6 +1381,7 @@ section { margin-bottom: 32px; }
 .ep-quality { color: var(--muted); }
 .db-empty { color: var(--muted); padding: 30px; text-align: center; font-size: 13px; }
 .db-loading { color: var(--muted); padding: 20px; text-align: center; font-size: 13px; }
+.db-error-banner { display: none; padding: 8px 14px; margin-bottom: 10px; background: rgba(248, 81, 73, 0.08); border: 1px solid rgba(248, 81, 73, 0.3); border-radius: 6px; font-size: 12px; color: var(--red); }
 .db-pager { display: flex; align-items: center; gap: 8px; padding: 8px 0 10px; }
 .db-pager-info { color: var(--muted); font-size: 12px; flex: 1; text-align: center; }
 .db-pager-size { display: flex; align-items: center; gap: 4px; color: var(--muted); font-size: 12px; margin-left: auto; }

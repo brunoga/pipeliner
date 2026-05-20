@@ -2343,7 +2343,7 @@ function renderCondRulesWidget(node) {
               title="Click to toggle accept / reject">${r.type}</button>
       <input type="text" class="ve-cond-expr" value="${esc(r.expr)}"
              placeholder="expression…"
-             oninput="updateCondRules()" onchange="updateCondRules()">
+             onchange="updateCondRules()">
       <button class="ve-cond-del" onclick="deleteCondRule(this)" title="Remove rule">×</button>
     </div>`).join('');
   const body = rowsHtml || '<div class="ve-cond-empty">No rules yet</div>';
@@ -2369,7 +2369,7 @@ function addCondRule(type) {
     <button class="ve-cond-type ${type}" onclick="toggleCondType(this)"
             title="Click to toggle accept / reject">${type}</button>
     <input type="text" class="ve-cond-expr" placeholder="expression…"
-           oninput="updateCondRules()" onchange="updateCondRules()">
+           onchange="updateCondRules()">
     <button class="ve-cond-del" onclick="deleteCondRule(this)" title="Remove rule">×</button>`;
   container.appendChild(row);
   row.querySelector('.ve-cond-expr').focus();
@@ -2538,6 +2538,7 @@ function addTag(inputId, field) {
   node.config[field].push(input.value.trim());
   input.value = '';
   renderParamPanel(); onModelChange();
+  document.getElementById(inputId)?.focus();
 }
 
 function removeTag(btn, field) {
@@ -2559,6 +2560,8 @@ function addRule(nodeId, field) {
   node.config[field].push({ name: '', accept: '' });
   renderParamPanel();
   onModelChange();
+  const nameInputs = document.querySelectorAll('.ve-rule-row .ve-rule-name');
+  nameInputs[nameInputs.length - 1]?.focus();
 }
 
 function removeRule(nodeId, field, idx) {
@@ -2623,7 +2626,13 @@ function wireGenericKV(body, node) {
     node.config = cfg;
   };
   body.addEventListener('input',  () => { save(); onModelChange(); });
-  body.addEventListener('change', () => { save(); veRender(); onModelChange(); });
+  body.addEventListener('change', () => {
+    save();
+    onModelChange();
+    // Skip veRender if Tab moved focus to another field inside this container —
+    // veRender rebuilds the whole param panel and would destroy the new focus target.
+    if (!body.contains(document.activeElement)) veRender();
+  });
   body.querySelectorAll('[data-kv-del]').forEach(btn =>
     btn.addEventListener('click', () => { btn.closest('.ve-kv-row').remove(); save(); veRender(); onModelChange(); }));
   body.querySelector('#ve-kv-add')?.addEventListener('click', () => {
@@ -3059,7 +3068,7 @@ function nodesToFunctionSource(funcName, params, selectedIds, validation, graph,
 // openExtractDialog shows the extraction modal: function name + parameter table.
 function openExtractDialog() {
   const validation = validateExtraction();
-  if (!validation.ok) { alert(validation.error); return; }
+  if (!validation.ok) { veShowError(validation.error); return; }
 
   const params = inferExtractionParams();
   const graphIdx = validation.graphIdx;
@@ -3279,10 +3288,10 @@ async function expandAndRemoveFunction(funcName) {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({content}),
     });
-    if (!r.ok) { alert('Could not expand function: server error ' + r.status); return; }
+    if (!r.ok) { veShowError('Could not expand function: server error ' + r.status); return; }
     data = await r.json();
   } catch (e) {
-    alert('Could not expand function: ' + e);
+    veShowError('Could not expand function: ' + e);
     return;
   }
 
@@ -3677,7 +3686,7 @@ function openFunctionEditor(funcName) {
 
   const parsed = parseFunctionBodyNodes(funcName);
   if (!parsed) {
-    alert(`Cannot open function "${funcName}": the function body could not be parsed. Try editing it in the text editor first.`);
+    veShowError(`Cannot open function "${funcName}": the function body could not be parsed. Try editing it in the text editor first.`);
     return;
   }
 
@@ -3751,11 +3760,11 @@ function saveFunctionEditor() {
   const terminals = mainNodes.filter(n => !usedInternally.has(n.id));
 
   if (mainNodes.length === 0) {
-    alert('The function body is empty. Add at least one node.');
+    veShowError('The function body is empty. Add at least one node.');
     return;
   }
   if (terminals.length > 1) {
-    alert('The function has multiple output nodes. Connect them into a single chain first.');
+    veShowError('The function has multiple output nodes. Connect them into a single chain first.');
     return;
   }
 
@@ -3838,13 +3847,13 @@ function fnEditorCommitRename(newName) {
   const oldName = ve.fnEditor.funcName;
   if (!newName || newName === oldName) return;
   if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(newName)) {
-    alert('Function name must be a valid identifier.');
+    veShowError('Function name must be a valid identifier.');
     const inp = document.getElementById('ve-fn-bar-name');
     if (inp) inp.value = oldName;
     return;
   }
   if (ve.userFunctions[newName] && newName !== oldName) {
-    alert(`A function named "${newName}" already exists.`);
+    veShowError(`A function named "${newName}" already exists.`);
     const inp = document.getElementById('ve-fn-bar-name');
     if (inp) inp.value = oldName;
     return;
@@ -3954,6 +3963,8 @@ function fnEditorAddParam() {
   while (params.some(p => p.key === key)) key = `param${++i}`;
   params.push({key, type: 'string', required: true, default: null, hint: ''});
   renderFnEditorParams();
+  const nameInputs = document.querySelectorAll('.ve-fn-param-row .ve-fn-param-name');
+  nameInputs[nameInputs.length - 1]?.focus();
 }
 
 function fnEditorRemoveParam(idx) {
@@ -3968,7 +3979,7 @@ function fnEditorRenameParam(idx, newKey) {
   const p = params[idx];
   if (!p || !newKey || newKey === p.key) return;
   if (params.some((q, i) => i !== idx && q.key === newKey)) {
-    alert(`Parameter "${newKey}" already exists.`);
+    veShowError(`Parameter "${newKey}" already exists.`);
     renderFnEditorParams();
     return;
   }
@@ -4001,8 +4012,8 @@ function fnEditorUpdateHint(idx, hint) {
 }
 
 // fnEditorPromoteToParam converts a hardcoded config field on a function body
-// node into a function parameter reference.  A new param is created (or reused
-// if the field key already exists as a param) and the field is marked as a ref.
+// node into a function parameter reference.  A new param is created with an
+// auto-generated unique name; the params panel opens so the user can rename it.
 function fnEditorPromoteToParam(nodeId, configKey, fieldType) {
   if (!ve.fnEditor.active) return;
   const node = findNode(nodeId);
@@ -4010,28 +4021,10 @@ function fnEditorPromoteToParam(nodeId, configKey, fieldType) {
 
   const params = ve.fnEditor.paramsSnapshot;
 
-  // Suggest a param name: use the config key if not already taken, otherwise
-  // append a number suffix to make it unique.
+  // Auto-generate a unique param name from the config key.
   let paramName = configKey;
   let i = 2;
   while (params.some(p => p.key === paramName)) paramName = `${configKey}${i++}`;
-
-  // Prompt the user to confirm or customise the param name.
-  const entered = window.prompt(`New parameter name for "${configKey}":`, paramName);
-  if (!entered) return;
-  paramName = entered.trim();
-  if (!paramName || !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(paramName)) {
-    alert('Parameter name must be a valid identifier.');
-    return;
-  }
-  if (params.some(p => p.key === paramName)) {
-    // Reuse the existing param: just link the field to it.
-    if (!node._paramRefs) node._paramRefs = {};
-    node._paramRefs[configKey] = paramName;
-    node.config[configKey] = emptyForType(fieldType);
-    renderParamPanel();
-    return;
-  }
 
   // Create the new param.
   params.push({key: paramName, type: fieldType, required: true, default: null, hint: ''});
@@ -4043,7 +4036,13 @@ function fnEditorPromoteToParam(nodeId, configKey, fieldType) {
   node.config[configKey] = emptyForType(fieldType);
 
   renderParamPanel();
-  if (ve.fnEditor.paramsOpen) renderFnEditorParams();
+
+  // Open the params panel (if closed) and focus the new param's name input so
+  // the user can rename it immediately.
+  if (!ve.fnEditor.paramsOpen) fnEditorToggleParams();
+  else renderFnEditorParams();
+  const rows = document.querySelectorAll('.ve-fn-param-row .ve-fn-param-name');
+  rows[rows.length - 1]?.focus();
 }
 
 // fnEditorUnlinkParamRef converts a param reference back to a literal value,
@@ -4614,6 +4613,20 @@ function setSyncNote(msg) {
   if (el) el.textContent = msg;
 }
 
+let _veErrorTimer = null;
+
+// veShowError displays an inline error message in the active toolbar note span
+// (ve-sync-note in pipeline mode, ve-fn-note in function-editor mode) and
+// auto-clears it after 6 seconds.
+function veShowError(msg) {
+  const id = ve.fnEditor?.active ? 've-fn-note' : 've-sync-note';
+  const el = document.getElementById(id);
+  if (!el) return;
+  clearTimeout(_veErrorTimer);
+  el.textContent = '✗ ' + msg;
+  _veErrorTimer = setTimeout(() => { el.textContent = ''; }, 6000);
+}
+
 // ── canvas node tooltip ───────────────────────────────────────────────────────
 
 // nodeTooltipText returns the hover tooltip string for a canvas node:
@@ -4726,7 +4739,3 @@ function computePipelineBoundsFromNodes() {
 }
 
 // ── utility ───────────────────────────────────────────────────────────────────
-
-function esc(s) {
-  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
