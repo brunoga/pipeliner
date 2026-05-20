@@ -2,93 +2,148 @@
 
 Routes entries to named ports based on ordered boolean conditions. The first matching port accepts the entry and stamps `_route_port` on it. Entries that match no port are rejected with a warning log so nothing is silently dropped.
 
-The `route()` Starlark builtin creates the route node and returns a handle object whose attributes are the individual port handles:
+`route()` is a **Starlark builtin**, not a plugin — use it directly in the config, not via `process()`.
+
+## Basic usage
 
 ```python
 routes = route(upstream,
     series = "series_episode_id != ''",
     movies = "series_episode_id == ''")
+
+series_path = process("metainfo_series", upstream=routes.series)
+movies_path = process("metainfo_tmdb",   upstream=routes.movies, api_key=env("TMDB_KEY"))
+output("transmission", upstream=merge(series_path, movies_path), host="localhost")
 ```
 
-Each port attribute is a node handle that can be used as `upstream=` for subsequent processors.
+## Port field contracts: `port()`
 
-## Why use route instead of separate condition filters?
-
-`condition` filters achieve the same routing effect, but they apply independently — an entry rejected by port A is still processed by port B, and a merge downstream produces soft `~` warnings because the validator sees two branches with different field sets.
-
-`route()` declares the branches are **mutually exclusive**: exactly one port matches each entry. The DAG validator uses union semantics at merge points (no warnings), and unmatched entries are explicitly rejected with a clear log message.
-
-## Full example
+The `port()` helper adds optional field contracts to each route port. This makes the DAG validator significantly more precise for branching pipelines:
 
 ```python
-src    = input("rss", url="https://example.com/feed")
-meta   = process("metainfo_quality", upstream=src)
-
-routes = route(meta,
-    series = "series_episode_id != ''",
-    movies = "series_episode_id == ''")
-
-# Series branch
-meta_s  = process("metainfo_series",    upstream=routes.series)
-series  = process("series", upstream=meta_s, list=[{"name": "tvdb_favorites", ...}])
-
-# Movies branch
-meta_m  = process("metainfo_tmdb",      upstream=routes.movies, api_key=env("TMDB_KEY"))
-movies  = process("movies", upstream=meta_m, list=[{"name": "trakt_list", ...}])
-
-# Merge and download
-output("transmission", upstream=merge(series, movies), host="localhost")
-pipeline("mixed", schedule="1h")
+routes = route(upstream,
+    torrent = port("torrent_url != ''",
+                   guarantees=["torrent_url"],
+                   masks=["magnet_url"]),
+    magnet  = port("magnet_url != ''",
+                   guarantees=["magnet_url"],
+                   masks=["torrent_url"]),
+)
 ```
+
+### `guarantees`
+
+Fields listed in `guarantees` are promoted from **MayProduce** (reachable but uncertain) to **Produces** (certain) on this branch. A downstream `Requires` for a guaranteed field passes validation without a warning.
+
+```python
+# Without guarantees: torrent_url is only MayProduce from upstream,
+# so a downstream Requires produces a ~ warning.
+# With guarantees: the validator knows torrent_url is always present
+# on this branch — Requires passes cleanly.
+```
+
+### `masks`
+
+Fields listed in `masks` are **explicitly removed** from the branch's available field set. Any downstream `Requires` for a masked field is a **hard validation error** at config-load time, not a soft warning.
+
+At runtime, `route_selector` strips masked fields from passing entries so the actual entry data matches the validator's model.
+
+```python
+# On the torrent branch, masking magnet_url means:
+# - A plugin that accidentally Requires magnet_url → load-time error
+# - Entries passing through this port have magnet_url stripped
+# This catches wiring mistakes before any entry is processed.
+```
+
+Both `guarantees` and `masks` are optional. Plain string port values remain fully backward compatible:
+```python
+routes = route(upstream, series="cond1", movies="cond2")  # still works
+```
+
+## Full example with field contracts
+
+See [`configs/route-port-contracts.star`](../../../../configs/route-port-contracts.star) for a complete working example using `port()`.
 
 ## Starlark syntax
 
 ```python
-routes = route(upstream_node,
-    port_name_1 = "boolean expression 1",
-    port_name_2 = "boolean expression 2",
-    ...
+# Plain string (backward compatible):
+routes = route(upstream, port_a="condition_a", port_b="condition_b")
+
+# With field contracts:
+routes = route(upstream,
+    port_a = port("condition_a", guarantees=["field1"], masks=["field2"]),
+    port_b = port("condition_b", guarantees=["field2"], masks=["field1"]),
 )
-downstream = process("plugin", upstream=routes.port_name_1, ...)
 ```
 
-- **Port order matters**: conditions are evaluated in declaration order; the first match wins.
-- **No match**: the entry is rejected with reason `"route: no port matched"` and a `WARN` log line. There is no silent loss.
-- **Port names**: any valid Starlark identifier. Accessible as attributes on the returned handle object (`routes.series`, `routes.movies`, etc.).
+- **Port order matters** — conditions are evaluated in declaration order; the first match wins.
+- **No match** — entry is rejected with reason `"route: no port matched"` and a `WARN` log line. Nothing is silently dropped.
+- **Port handles** — attribute access on the returned object (`routes.series`, `routes.movies`). Each handle is a valid `upstream=` argument.
+- **Condition syntax** — same expression language as the `condition` filter. See [`condition`](../condition/README.md) for the full reference.
 
-## Expression syntax
+## Why `route()` instead of separate condition filters?
 
-Same language as the `condition` filter:
+`condition` filters achieve the same routing effect, but they apply independently — an entry rejected by port A is still evaluated by port B, and a merge downstream produces soft `~` warnings because the validator sees two branches with different field sets.
 
-| Form | Example |
-|------|---------|
-| Field comparison | `series_episode_id != ''` |
-| Numeric | `tmdb_vote_average >= 7.0` |
-| Logical | `not (source == "CAM" or source == "TS")` |
-| String match | `video_genres contains "Documentary"` |
+`route()` declares the branches are **mutually exclusive**: exactly one port matches each entry. This has two benefits:
 
-See [`condition`](../condition/README.md) for the full expression reference.
+1. **Cleaner validation** — at merge points the validator uses correct field semantics (no spurious warnings).
+2. **Explicit intent** — unmatched entries are explicitly rejected with a clear log message.
 
-## Config keys (internal — set by the route() builtin)
+## Validator behaviour
+
+### Merge points (without `port()`)
+
+When all upstreams of a `merge()` node trace back to ports of the same `route()` call (directly or through a single-upstream chain), the DAG validator uses **intersection** of the `certain` field sets across branches. Without `port()` contracts both branches inherit identical field sets from the shared upstream, so intersection and union are the same — no behaviour change from previous versions.
+
+### Merge points (with `port()`)
+
+When ports have different `guarantees`/`masks`, the branches carry different `certain` field sets. After the merge, only fields that are certain on **all** branches remain certain. Branch-specific fields (guaranteed on one branch, masked on another) become `MayProduce`-equivalent at the merge point — producing a warning if a downstream node `Requires` them, which is the correct signal.
+
+### Within a branch
+
+- `guarantees` fields are added to both `reachable` and `certain` for this branch — downstream `Requires` passes without warning.
+- `masks` fields are removed from both `reachable` and `certain` — downstream `Requires` is a hard error.
+
+## Visual editor
+
+In the **Config → Visual** editor, each route rule displays two compact sub-row inputs beneath the port name and condition:
+
+- **guarantees** (green label) — space-separated field names
+- **masks** (amber label) — space-separated field names
+
+Both are editable inline and are preserved through save/load cycles.
+
+## Config keys
+
+| Key | Type | Set by | Description |
+|-----|------|--------|-------------|
+| `rules` | list | `route()` builtin | Ordered `[{name, accept, guarantees?, masks?}]` records |
+
+### Internal keys (on `route_selector` nodes)
 
 | Key | Type | Description |
 |-----|------|-------------|
-| `rules` | list | Ordered `[{name, accept}]` pairs generated from the `route()` kwargs |
+| `_route_port_name` | string | Port name this selector passes |
+| `_route_group` | string | Group ID linking all selectors of the same `route()` call |
+| `_port_guarantees` | list | Fields guaranteed present (read by DAG validator) |
+| `_port_masks` | list | Fields guaranteed absent (read by DAG validator + stripped at runtime) |
 
-> Users never instantiate `route` directly; always use the `route()` Starlark builtin.
+> Users never set these directly; they are managed by the `route()` builtin.
 
 ## Fields produced
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `_route_port` | string | Name of the matched port (e.g. `"series"`, `"movies"`) |
+| `_route_port` | string | Name of the matched port (e.g. `"series"`, `"torrent"`) |
 
-This field is consumed by the internal `route_selector` nodes and is also available downstream for use in templates, `condition` filters, `pathfmt` patterns, etc.
+This field is consumed by the internal `route_selector` nodes and is also available downstream for use in templates, `condition` filters, `pathfmt` patterns, and `exec` commands.
 
 ## Unmatched entry log
 
 ```
-WARN  route: no port matched  entry="Some Podcast S01E01 720p"  task=my-task  node=route_0  plugin=route
+WARN  route: no port matched  entry="Some Title 720p"  task=my-task  node=route_0  plugin=route
 ```
 
 ## DAG role
@@ -98,7 +153,3 @@ WARN  route: no port matched  entry="Some Podcast S01E01 720p"  task=my-task  no
 | Role | `processor` |
 | Produces | `_route_port` |
 | Requires | — |
-
-## Validator behaviour
-
-When all upstreams of a `merge()` node trace back to ports of the same `route()` call (directly or through a single-upstream chain), the DAG validator uses **union** semantics for `certain` fields instead of intersection. This means field requirements satisfied on any one port are considered satisfied at the merge point — no spurious merge-gap `~` warnings.
