@@ -1616,9 +1616,11 @@ function expandRegionForNode(graphIdx, nodeX, nodeY) {
 function fitVisualEditor() {
   const layout = document.querySelector('.ve-layout');
   if (!layout) return;
-  const layoutPageTop = layout.getBoundingClientRect().top + window.scrollY;
+  // getBoundingClientRect().top is viewport-relative — no scrollY needed.
+  // "height to fill the viewport from this element down" = innerHeight - top.
+  const top = layout.getBoundingClientRect().top;
   const padBottom = parseFloat(getComputedStyle(document.body).paddingBottom) || 0;
-  const h = Math.floor(window.innerHeight - padBottom - layoutPageTop);
+  const h = Math.floor(window.innerHeight - padBottom - top);
   layout.style.height = Math.max(400, h) + 'px';
 }
 
@@ -1628,7 +1630,8 @@ function fitVisualEditor() {
 function fitTextEditor() {
   const wrap = document.querySelector('#view-text .editor-wrap');
   if (!wrap) return;
-  const top = wrap.getBoundingClientRect().top + window.scrollY;
+  // getBoundingClientRect().top is viewport-relative — no scrollY needed.
+  const top = wrap.getBoundingClientRect().top;
   const padBottom = parseFloat(getComputedStyle(document.body).paddingBottom) || 0;
   const h = Math.max(300, Math.floor(window.innerHeight - padBottom - top));
   wrap.style.height = h + 'px';
