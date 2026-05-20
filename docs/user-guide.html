@@ -15,6 +15,9 @@
   --amber:#d4a017;--red:#f25149;--purple:#bc8cff;--sidebar-w:260px;
   --mono:'JetBrains Mono','SFMono-Regular',Consolas,monospace;
   --code-bg:#000;
+  --code-text:#c0caf5;--code-key:#bb9af7;--code-str:#9ece6a;
+  --code-num:#ff9e64;--code-bool:#e0af68;--code-builtin:#7dcfff;
+  --code-func:#7aa2f7;--code-comment:#565f89;
 }
 @media(prefers-color-scheme:light){
   :root{
@@ -56,13 +59,13 @@ code{font-family:var(--mono);font-size:.875em;background:var(--surface);border:1
 hr{border:none;border-top:1px solid var(--border);margin:32px 0}
 
 /* Code blocks */
-pre{background:var(--code-bg);border:1px solid var(--border);border-radius:4px;padding:16px 18px;overflow-x:auto;margin:0 0 18px;font-size:12px;line-height:1.65}
+pre{background:var(--code-bg);color:var(--code-text);border:1px solid var(--border);border-radius:4px;padding:16px 18px;overflow-x:auto;margin:0 0 18px;font-size:12px;line-height:1.65}
 pre code{background:none;border:none;padding:0;font-size:inherit}
 
-/* Syntax highlighting */
-.y-key{color:#79c0ff}.y-str{color:#a5d6ff}.y-num{color:#f2cc60}
-.y-bool{color:#ff7b72}.y-comment{color:var(--muted);font-style:italic}
-.y-anchor{color:#e3b341}
+/* Syntax highlighting — use --code-* variables so colors match the app editor */
+.y-key{color:var(--code-key)}.y-str{color:var(--code-str)}.y-num{color:var(--code-num)}
+.y-bool{color:var(--code-bool)}.y-comment{color:var(--code-comment);font-style:italic}
+.y-anchor{color:var(--code-num)}
 
 /* Screenshots */
 .screenshot{display:block;max-width:100%;border:1px solid var(--border);border-radius:4px;margin:16px 0 22px;box-shadow:0 4px 20px rgba(0,0,0,.5)}
