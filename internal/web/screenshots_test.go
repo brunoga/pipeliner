@@ -168,6 +168,14 @@ func TestScreenshots(t *testing.T) {
 		if err := page.SetViewportSize(1400, 900); err != nil {
 			t.Fatalf("set viewport: %v", err)
 		}
+		// Headless Chromium defaults to prefers-color-scheme: light, which
+		// triggers our light-mode CSS override. Force dark so screenshots
+		// always show the intended dark theme.
+		if err := page.EmulateMedia(playwright.PageEmulateMediaOptions{
+			ColorScheme: playwright.ColorSchemeDark,
+		}); err != nil {
+			t.Fatalf("emulate dark: %v", err)
+		}
 		return page
 	}
 
