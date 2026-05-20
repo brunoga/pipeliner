@@ -386,7 +386,44 @@ func (ex *Executor) runNode(
 	if err != nil {
 		tc.Logger.Warn("node error", "err", err, "duration", dur)
 	} else {
-		tc.Logger.Info("node done", "out", len(produced), "duration", dur)
+		args := []any{"out", len(produced), "duration", dur}
+		if ports := portBreakdown(produced); ports != "" {
+			args = append(args, "ports", ports)
+		}
+		tc.Logger.Info("node done", args...)
 	}
 	return produced, err
+}
+
+// portBreakdown returns a "name=N ..." summary for entries that carry a
+// _route_port tag (set by the route processor). The port order follows first
+// appearance in the slice. Returns "" when no entries carry a port tag.
+func portBreakdown(entries []*entry.Entry) string {
+	var order []string
+	counts := map[string]int{}
+	for _, e := range entries {
+		v, ok := e.Get(entry.FieldRoutePort)
+		if !ok {
+			continue
+		}
+		name, _ := v.(string)
+		if name == "" {
+			continue
+		}
+		if _, seen := counts[name]; !seen {
+			order = append(order, name)
+		}
+		counts[name]++
+	}
+	if len(order) == 0 {
+		return ""
+	}
+	b := make([]byte, 0, 32)
+	for i, name := range order {
+		if i > 0 {
+			b = append(b, ' ')
+		}
+		b = fmt.Appendf(b, "%s=%d", name, counts[name])
+	}
+	return string(b)
 }
