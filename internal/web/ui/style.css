@@ -383,6 +383,7 @@ section { margin-bottom: 36px; }
 .log-console {
   position: relative;
   background: var(--code-bg);
+  color: var(--code-text);  /* always light — log always has a dark background */
   border: 1px solid var(--border);
   border-radius: 4px;
   padding: 12px 14px;
