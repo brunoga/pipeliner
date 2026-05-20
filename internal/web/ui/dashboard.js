@@ -270,6 +270,10 @@ function showTab(name) {
   document.getElementById('tab-btn-settings').classList.toggle('active', name === 'settings');
   if (name === 'dashboard') {
     // Re-play the entry animation on existing cards when switching to this tab.
+    // Do NOT touch _dashboardFirstRender here — the animation is handled by the
+    // reflow trick below and is independent of the polling-refresh suppression flag.
+    // Setting _dashboardFirstRender = true here would cause the next polling
+    // refresh to also animate (the blink we want to avoid).
     const grid = document.getElementById('task-grid');
     if (grid) {
       grid.classList.remove('no-anim');
@@ -280,7 +284,6 @@ function showTab(name) {
         el.style.animationDelay = `${Math.min(i, 9) * 50}ms`;
       });
     }
-    _dashboardFirstRender = true;
   }
   if (name === 'config' && !configLoaded) loadConfig();
   if (name === 'db') {
