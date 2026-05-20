@@ -265,6 +265,13 @@ func (p *seriesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *en
 func (p *seriesPlugin) persist(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
 	shows := p.resolveShows(ctx, tc)
 	for _, e := range entries {
+		// Only persist entries that were accepted by all downstream nodes.
+		// The executor passes every entry the series node produced to Commit,
+		// including those later rejected by dedup — we must filter them here
+		// so the stored quality reflects the entry that was actually downloaded.
+		if !e.IsAccepted() {
+			continue
+		}
 		ep, ok := series.Parse(e.Title)
 		if !ok {
 			continue
@@ -275,10 +282,11 @@ func (p *seriesPlugin) persist(ctx context.Context, tc *plugin.TaskContext, entr
 		}
 		epID := series.EpisodeID(ep)
 		rec := series.Record{
-			SeriesName:  matchedShow,
-			DisplayName: e.GetString(entry.FieldTitle),
-			EpisodeID:   epID,
-			Quality:     ep.Quality,
+			SeriesName:   matchedShow,
+			DisplayName:  e.GetString(entry.FieldTitle),
+			EpisodeID:    epID,
+			Quality:      ep.Quality,
+			DownloadedAt: time.Now(),
 		}
 		if err := p.tracker.Mark(rec); err != nil {
 			return fmt.Errorf("series: mark %s %s: %w", matchedShow, epID, err)

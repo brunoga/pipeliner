@@ -237,8 +237,8 @@ func (q Quality) Better(other Quality) bool {
 var (
 	reResolution = regexp.MustCompile(`(?i)\b(4k|2160p|1080p|720p|576p|480p)\b`)
 	reSource     = regexp.MustCompile(`(?i)\b(remux|blu[\-\s]?ray|bdrip|bdremux|bd(?:25|50|100)|web[\-\s]?dl|webrip|hdtv|dvdrip|tvrip|hd[\-]?cam|camrip|cam\b|hd[\-]?ts|telesync|hd[\-]?tc|telecine|\bts\b|\btc\b|dvd[\-]?scr(?:eener)?|bd[\-]?scr|screener|\bscr\b)\b`)
-	reCodec      = regexp.MustCompile(`(?i)\b(av1|x265|h\.?265|hevc|x264|h\.?264|xvid|divx)\b`)
-	reColorRange = regexp.MustCompile(`(?i)\b(dolby[\s\.]?vision|dv\b|hdr10[\+]?|hdr|sdr)\b`)
+	reCodec      = regexp.MustCompile(`(?i)\b(av1|x265|h[\.\s]?265|hevc|x264|h[\.\s]?264|xvid|divx)\b`)
+	reColorRange = regexp.MustCompile(`(?i)\b(dolby[\s\.]?vision|dovi\b|dv\b|hdr10[\+]?|hdr|sdr)\b`)
 	// re3DConv matches 3D-conversion tags; checked before re3D so it always wins.
 	re3DConv = regexp.MustCompile(`(?i)(?:\b3D[\-]?CONV(?:ERT)?\b|\bCONVERT\b)`)
 	// re3D matches native 3D format markers; longer alternatives are listed first.
@@ -257,7 +257,7 @@ var (
 		{regexp.MustCompile(`(?i)\btruehd\b`), AudioTrueHD},
 		{regexp.MustCompile(`(?i)\bdts[\-\s]?(hd|ma)\b`), AudioDTS},
 		{regexp.MustCompile(`(?i)\bdts\b`), AudioDTS},
-		{regexp.MustCompile(`(?i)\bdd[\+]?5\.1\b`), AudioDolbyDigital},
+		{regexp.MustCompile(`(?i)\bdd[p+]?[\s]?5[.\s]1\b`), AudioDolbyDigital},
 		{regexp.MustCompile(`(?i)\bdolby[\s\.]?digital\b`), AudioDolbyDigital},
 		{regexp.MustCompile(`(?i)\baac\b`), AudioAAC},
 		{regexp.MustCompile(`(?i)\bmp3\b`), AudioMP3},
@@ -315,7 +315,7 @@ func Parse(title string) Quality {
 	}
 
 	if m := reCodec.FindString(title); m != "" {
-		ml := strings.ToLower(strings.ReplaceAll(m, ".", ""))
+		ml := strings.ToLower(strings.NewReplacer(".", "", " ", "").Replace(m))
 		switch {
 		case ml == "av1":
 			q.Codec = CodecAV1
@@ -340,7 +340,7 @@ func Parse(title string) Quality {
 	if m := reColorRange.FindString(title); m != "" {
 		ml := strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(m, " ", ""), "-", ""))
 		switch {
-		case strings.Contains(ml, "dolbyvision") || ml == "dv":
+		case strings.Contains(ml, "dolbyvision") || ml == "dv" || ml == "dovi":
 			q.ColorRange = ColorRangeDolbyVision
 		case strings.Contains(ml, "hdr10"):
 			q.ColorRange = ColorRangeHDR10

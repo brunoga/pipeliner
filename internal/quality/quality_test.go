@@ -50,6 +50,16 @@ func TestParseKnownTitles(t *testing.T) {
 			Quality{Resolution: Resolutionp2160, Source: SourceBluRay, Audio: AudioTrueHD, ColorRange: ColorRangeDolbyVision},
 		},
 		{
+			// "DoVi" is a common Dolby Vision abbreviation used by playWEB and similar groups.
+			"The.Boys.S05E08.2160p.AMZN.WEB-DL.DD.5.1.Atmos.DoVi.H.265-playWEB",
+			Quality{Resolution: Resolutionp2160, Source: SourceWebDL, Codec: CodecH265, Audio: AudioAtmos, ColorRange: ColorRangeDolbyVision},
+		},
+		{
+			// Scene releases often use "H 265" (space) instead of "H.265" (dot).
+			"The Boys S05E08 2160p AMZN WEB-DL DDP5 1 Atmos DV H 265-FLUX",
+			Quality{Resolution: Resolutionp2160, Source: SourceWebDL, Codec: CodecH265, Audio: AudioAtmos, ColorRange: ColorRangeDolbyVision},
+		},
+		{
 			"No.Quality.Markers.At.All",
 			Quality{},
 		},
@@ -118,6 +128,9 @@ func TestParseCodecVariants(t *testing.T) {
 	cases := []struct{ title string; want Codec }{
 		{"Movie.x265", CodecH265},
 		{"Movie.H.265", CodecH265},
+		{"Movie.H265", CodecH265},
+		{"Movie H 265-Group", CodecH265},    // space separator (common in scene titles)
+		{"Movie H 264-Group", CodecH264},    // space separator
 		{"Movie.HEVC", CodecH265},
 		{"Movie.x264", CodecH264},
 		{"Movie.H.264", CodecH264},
@@ -140,9 +153,13 @@ func TestParseAudioVariants(t *testing.T) {
 		{"Movie.TrueHD", AudioTrueHD},
 		{"Movie.DTS-HD", AudioDTS},
 		{"Movie.DTS-MA", AudioDTS},
+		{"Movie.DTS MA", AudioDTS},
 		{"Movie.DTS", AudioDTS},
 		{"Movie.DD5.1", AudioDolbyDigital},
 		{"Movie.DD+5.1", AudioDolbyDigital},
+		{"Movie.DDP5.1", AudioDolbyDigital},    // Dolby Digital Plus with P notation
+		{"Movie DDP5 1-Group", AudioDolbyDigital}, // space-separated (scene format)
+		{"Movie.DD5 1-Group", AudioDolbyDigital},  // dot replaced by space
 		{"Movie.Dolby.Digital", AudioDolbyDigital},
 		{"Movie.AAC", AudioAAC},
 		{"Movie.MP3", AudioMP3},
