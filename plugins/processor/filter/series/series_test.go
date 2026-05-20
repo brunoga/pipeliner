@@ -173,6 +173,73 @@ func TestNoUpgradeWhenQualityNotBetter(t *testing.T) {
 	}
 }
 
+// TestPersistOnlyStoresAcceptedEntries verifies that dedup-rejected entries
+// passed to Commit do not overwrite the quality stored for the accepted copy.
+// Regression: the executor passes all entries produced by the series node to
+// Commit (not just the accepted one), so persist must skip non-accepted entries.
+func TestPersistOnlyStoresAcceptedEntries(t *testing.T) {
+	p := openPlugin(t, nil)
+	tc := makeCtx()
+
+	// Two copies of S01E01: BluRay (accepted by dedup) and HDTV (rejected by dedup).
+	// Both pass the series filter initially.
+	eHigh := entry.New("My.Show.S01E01.1080p.BluRay.x264", "http://x.com/high")
+	eLow := entry.New("My.Show.S01E01.480p.HDTV", "http://x.com/low")
+
+	p.filter(context.Background(), tc, eHigh) //nolint:errcheck
+	p.filter(context.Background(), tc, eLow)  //nolint:errcheck
+
+	// Simulate what dedup does: reject the lower-quality copy.
+	eLow.Reject("dedup: better copy already accepted")
+
+	// Executor passes both to Commit; persist must only store the accepted one.
+	if err := p.persist(context.Background(), tc, []*entry.Entry{eHigh, eLow}); err != nil {
+		t.Fatalf("persist: %v", err)
+	}
+
+	// If eLow's HDTV quality was stored (the bug), an HDTV copy in the next run
+	// would appear as an "upgrade" over stored HDTV — it should instead be rejected
+	// as a same-quality copy.  If eHigh's BluRay quality was stored (the fix), the
+	// HDTV copy is correctly rejected as a downgrade.
+	eDowngrade := entry.New("My.Show.S01E01.1080p.HDTV", "http://x.com/downgrade")
+	p.filter(context.Background(), tc, eDowngrade) //nolint:errcheck
+	if !eDowngrade.IsRejected() {
+		t.Error("HDTV copy should be rejected as a downgrade when BluRay is stored; " +
+			"if this fails, a rejected entry's quality was stored instead of the accepted one")
+	}
+}
+
+// TestDoViParsesAsDolbyVision verifies that the "DoVi" abbreviation (used by
+// playWEB and similar groups) is recognised as Dolby Vision, not unknown.
+// Regression: previously "DoVi" was not matched by the reColorRange regex,
+// causing DoVi releases to appear as ColorRange=Unknown which could then pass
+// a quality-upgrade check against a stored Dolby Vision entry.
+func TestDoViParsesAsDolbyVision(t *testing.T) {
+	p := openPlugin(t, nil)
+	tc := makeCtx()
+
+	// Store a 2160p Dolby Vision (DV) copy.
+	eDV := entry.New("My.Show.S01E01.2160p.AMZN.WEB-DL.Atmos.DV.H.265-FLUX", "http://x.com/dv")
+	p.filter(context.Background(), tc, eDV) //nolint:errcheck
+	p.persist(context.Background(), tc, []*entry.Entry{eDV}) //nolint:errcheck
+
+	// A DoVi-labeled copy at the same resolution/source should be rejected
+	// (same quality, not an upgrade).
+	eDoVi := entry.New("My.Show.S01E01.2160p.AMZN.WEB-DL.Atmos.DoVi.H.265-playWEB", "http://x.com/dovi")
+	p.filter(context.Background(), tc, eDoVi) //nolint:errcheck
+	if !eDoVi.IsRejected() {
+		t.Errorf("DoVi copy at same quality should be rejected; reason: %s", eDoVi.RejectReason)
+	}
+
+	// An HDR (non-DV) copy at the same resolution/source should also be rejected
+	// since HDR < Dolby Vision.
+	eHDR := entry.New("My.Show.S01E01.2160p.AMZN.WEB-DL.Atmos.HDR.H.265-playWEB", "http://x.com/hdr")
+	p.filter(context.Background(), tc, eHDR) //nolint:errcheck
+	if !eHDR.IsRejected() {
+		t.Errorf("HDR copy should be rejected when DV already stored; reason: %s", eHDR.RejectReason)
+	}
+}
+
 // --- Strict tracking ---
 
 func TestStrictAllowsNext(t *testing.T) {
