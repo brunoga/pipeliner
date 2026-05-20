@@ -805,6 +805,33 @@ body.light .log-console { background: #0a0c10; border-color: #2a3040; }
 }
 .ve-extract-fn-btn:hover { border-color:var(--ve-fn); background:color-mix(in srgb, var(--ve-fn) 8%, transparent); }
 
+/* Undo toolbar button */
+.ve-undo-btn {
+  padding:3px 10px; border:1px solid var(--border); border-radius:3px;
+  background:transparent; color:var(--muted);
+  font-size:10px; font-weight:600; font-family:var(--mono-font); letter-spacing:0.06em;
+  cursor:pointer; transition:border-color .15s, color .15s; flex-shrink:0;
+}
+.ve-undo-btn:hover:not(:disabled) { border-color:var(--accent); color:var(--accent); }
+.ve-undo-btn:disabled { opacity:0.3; cursor:not-allowed; }
+
+/* Copy / Cut toolbar buttons */
+.ve-copy-btn, .ve-cut-btn {
+  padding:3px 10px; border:1px solid var(--border); border-radius:3px;
+  background:transparent; color:var(--muted);
+  font-size:10px; font-weight:600; font-family:var(--mono-font); letter-spacing:0.06em;
+  cursor:pointer; transition:border-color .15s, color .15s; flex-shrink:0;
+}
+.ve-copy-btn:hover { border-color:var(--accent); color:var(--accent); }
+.ve-cut-btn:hover  { border-color:var(--amber);  color:var(--amber); }
+
+/* Rubber-band selection marquee */
+.ve-marquee {
+  position:absolute; pointer-events:none; z-index:100; border-radius:2px;
+  border:1px dashed var(--accent);
+  background:color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
 /* Paste toolbar button */
 .ve-paste-btn {
   padding:3px 10px; border:1px solid var(--border); border-radius:3px;

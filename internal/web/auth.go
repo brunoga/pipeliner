@@ -157,31 +157,38 @@ func writeLoginPage(w http.ResponseWriter, failed bool) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Pipeliner — Login</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --bg:#0d1117;--surface:#161b22;--border:#30363d;
-  --text:#c9d1d9;--muted:#8b949e;--accent:#58a6ff;--red:#f85149;
+  --bg:#080b10;--surface:#111827;--border:#232c3b;
+  --text:#c8d6e5;--muted:#5d6e82;--accent:#4da8ff;--red:#f25149;
 }
-body{background:var(--bg);color:var(--text);font-family:'SF Mono',ui-monospace,monospace;
+body{background:var(--bg);color:var(--text);
+  font-family:'JetBrains Mono','SF Mono',ui-monospace,Consolas,monospace;
   font-size:13px;display:flex;align-items:center;justify-content:center;min-height:100vh}
-.card{background:var(--surface);border:1px solid var(--border);border-radius:8px;
+.card{background:var(--surface);border:1px solid var(--border);border-radius:4px;
   padding:32px;width:320px}
-h1{font-size:16px;font-weight:600;margin-bottom:24px;color:var(--text)}
+h1{font-size:15px;font-weight:700;letter-spacing:-0.01em;margin-bottom:24px;color:var(--text)}
 h1 span{color:var(--accent);margin-right:6px}
-label{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;
-  letter-spacing:.06em;margin-bottom:4px;margin-top:16px}
+.version{color:var(--muted);font-size:9px;font-weight:400;
+  border:1px solid var(--border);padding:1px 5px;border-radius:2px;
+  vertical-align:middle;letter-spacing:.06em}
+label{display:block;font-size:9px;color:var(--muted);text-transform:uppercase;
+  letter-spacing:.12em;margin-bottom:4px;margin-top:14px;font-weight:700}
 label:first-of-type{margin-top:0}
-input{width:100%;background:#0d1117;border:1px solid var(--border);border-radius:6px;
-  color:var(--text);font-family:inherit;font-size:13px;padding:8px 10px;outline:none;
+input{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:3px;
+  color:var(--text);font-family:inherit;font-size:12px;padding:6px 10px;outline:none;
   transition:border-color .15s}
 input:focus{border-color:var(--accent)}
-button{margin-top:20px;width:100%;padding:9px;background:transparent;
-  border:1px solid var(--accent);border-radius:6px;color:var(--accent);
-  font-family:inherit;font-size:13px;font-weight:500;cursor:pointer;
-  transition:background .15s}
-button:hover{background:rgba(88,166,255,.08)}
-.error{margin-top:16px;font-size:12px;color:var(--red);text-align:center}
+button{margin-top:20px;width:100%;padding:8px;background:transparent;
+  border:1px solid var(--accent);border-radius:3px;color:var(--accent);
+  font-family:inherit;font-size:10px;font-weight:700;letter-spacing:.08em;
+  text-transform:uppercase;cursor:pointer;transition:background .15s}
+button:hover{background:color-mix(in srgb,var(--accent) 8%,transparent)}
+.error{margin-top:14px;font-size:10px;color:var(--red);text-align:center;letter-spacing:.04em}
 </style>
 </head>
 <body>
