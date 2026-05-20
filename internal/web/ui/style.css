@@ -1216,6 +1216,19 @@ body.light .log-console { background: #0a0c10; border-color: #2a3040; }
 .ve-rule-name:focus, .ve-rule-cond:focus { outline:none; border-color:var(--accent); }
 .ve-rule-del { background:none; border:none; color:var(--muted); cursor:pointer; padding:0 4px; font-size:14px; }
 .ve-rule-del:hover { color:var(--red); }
+/* Guarantees / masks sub-row beneath each rule */
+.ve-rule-meta td { padding:0 2px 5px !important; }
+.ve-rule-fields { display:grid; grid-template-columns:auto 1fr; gap:3px 6px; padding:1px 0 0 2px; align-items:center; }
+.ve-rule-meta-label { font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:0.08em; color:var(--muted); white-space:nowrap; }
+.ve-rule-meta-label.g { color:var(--green); }
+.ve-rule-meta-label.m { color:var(--amber); }
+.ve-rule-meta-input {
+  background:var(--bg); border:1px solid var(--border); border-radius:2px;
+  color:var(--text); font-family:var(--mono-font); font-size:10px;
+  padding:2px 5px; outline:none; width:100%; min-width:0;
+}
+.ve-rule-meta-input:focus { border-color:var(--accent); }
+.ve-rule-meta-input::placeholder { color:var(--muted); opacity:0.5; }
 
 /* Named port circles: row of circles at the bottom of the route card,
    mirroring the absolute positioning of .ve-node-out-port */
