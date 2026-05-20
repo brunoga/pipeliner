@@ -665,6 +665,25 @@ function renderGraphNodes() {
         e.stopPropagation();
         if (e.metaKey || e.ctrlKey) {
           toggleMultiSelect(n.id);
+        } else if (ve.selectedNodeIds.size > 1 && ve.selectedNodeIds.has(n.id)) {
+          // Node is already part of a multi-selection.  Defer the single-select
+          // decision: if the pointer moves it's a drag (keep all selected nodes
+          // moving together); if it lifts without movement it's a click (collapse
+          // to single selection).
+          const startX = e.clientX, startY = e.clientY;
+          function onMoveDecide(ev) {
+            if (Math.hypot(ev.clientX - startX, ev.clientY - startY) < 5) return;
+            document.removeEventListener('pointermove', onMoveDecide);
+            document.removeEventListener('pointerup',   onUpDecide);
+            startNodeDrag(e, n);
+          }
+          function onUpDecide() {
+            document.removeEventListener('pointermove', onMoveDecide);
+            selectNode(n.id); // collapse multi → single
+          }
+          document.addEventListener('pointermove', onMoveDecide);
+          document.addEventListener('pointerup',     onUpDecide, {once: true});
+          document.addEventListener('pointercancel', onUpDecide, {once: true});
         } else {
           selectNode(n.id);
           startNodeDrag(e, n);
