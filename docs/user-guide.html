@@ -138,6 +138,7 @@ td code{font-size:12px}
     <a href="#list_match" class="sub">list_match</a>
     <a href="#regexp" class="sub">regexp</a>
     <a href="#quality-filter" class="sub">quality</a>
+    <a href="#age" class="sub">age</a>
     <a href="#upgrade" class="sub">upgrade</a>
     <a href="#content" class="sub">content</a>
     <a href="#dedup" class="sub">dedup</a>
@@ -1277,6 +1278,34 @@ pipeline("tech-news", schedule="1h")</code></pre>
 </table>
 
 <pre><code>flt = process("quality", upstream=upstream, min="720p webrip", max="1080p")</code></pre>
+
+<!-- ─────────── age ─────────── -->
+<h2 id="age">age</h2>
+<p>Rejects entries whose date field falls outside a configured age window. Useful for keeping pipelines focused on recent content or for enforcing a waiting period before downloading (e.g. wait 30 days for a higher-quality release to appear).</p>
+<p>The <code>field</code> value can be any entry field that holds a <code>time.Time</code> (e.g. <code>series_episode_air_date</code>, <code>torrent_creation_date</code>, <code>file_modified_time</code>) or a date string in any common format (RFC3339, RFC822, RFC1123, <code>YYYY-MM-DD</code>, and others). When the field is absent and <code>on_missing</code> is <code>pass</code> (the default), the entry is not rejected.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>field</code></td><td>no</td><td><code>published_date</code></td><td>Entry field to read the date from</td></tr>
+  <tr><td><code>newer_than</code></td><td>conditional</td><td>—</td><td>Reject entries older than this duration (e.g. <code>7d</code>, <code>2w</code>, <code>24h</code>)</td></tr>
+  <tr><td><code>older_than</code></td><td>conditional</td><td>—</td><td>Reject entries newer than this duration</td></tr>
+  <tr><td><code>on_missing</code></td><td>no</td><td><code>pass</code></td><td><code>pass</code> or <code>reject</code> when the field is absent or unparseable</td></tr>
+</table>
+
+<p>At least one of <code>newer_than</code> or <code>older_than</code> must be set. Duration values accept <code>d</code> (days) and <code>w</code> (weeks) in addition to standard Go durations (<code>h</code>, <code>m</code>, <code>s</code>).</p>
+
+<pre><code><span class="y-comment"># Only entries published in the last two weeks</span>
+recent = process("age", upstream=src, newer_than="14d")
+
+<span class="y-comment"># Wait 30 days before downloading (higher-quality releases appear later)</span>
+mature = process("age", upstream=src, older_than="30d")
+
+<span class="y-comment"># Combine: published between 30 days and 1 year ago</span>
+window = process("age", upstream=src, older_than="30d", newer_than="52w")
+
+<span class="y-comment"># Filter by episode air date instead of feed publication date</span>
+by_air = process("age", upstream=enriched,
+                 field="series_episode_air_date", newer_than="7d")</code></pre>
 
 <!-- ─────────── upgrade ─────────── -->
 <h2 id="upgrade">upgrade</h2>
