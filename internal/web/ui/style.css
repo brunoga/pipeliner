@@ -464,7 +464,7 @@ body.light .log-console { background: #0a0c10; border-color: #2a3040; }
 .editor-wrap {
   position: relative;
   width: 100%;
-  min-height: 400px;
+  min-height: 300px;   /* JS (fitTextEditor) overrides this once the view is shown */
   border: 1px solid var(--border);
   border-radius: 4px;
   overflow: hidden;
@@ -477,7 +477,8 @@ body.light .log-console { background: #0a0c10; border-color: #2a3040; }
   padding: 12px 14px;
   margin: 0;
   width: 100%;
-  min-height: 400px;
+  height: 100%;
+  min-height: 300px;
   white-space: pre-wrap;
   word-wrap: break-word;
   tab-size: 2;
@@ -500,7 +501,7 @@ body.light .log-console { background: #0a0c10; border-color: #2a3040; }
   color: transparent;
   caret-color: var(--text);
   position: relative;
-  resize: vertical;
+  resize: none;   /* height is managed by fitTextEditor() */
   z-index: 1;
   overflow-y: auto;
 }
@@ -643,7 +644,7 @@ body.light .log-console { background: #0a0c10; border-color: #2a3040; }
   background:transparent; color:var(--muted); font-size:12px;
   cursor:pointer; white-space:nowrap; transition:all 0.15s;
 }
-.ve-task-tab.active { border-color:var(--accent); color:var(--accent); background:rgba(88,166,255,.07); }
+.ve-task-tab.active { border-color:var(--accent); color:var(--accent); background:color-mix(in srgb, var(--accent) 7%, transparent); }
 .ve-task-tab:hover:not(.active) { color:var(--text); border-color:var(--border); }
 .ve-task-tab-close {
   display:inline-block; margin-left:6px; color:var(--muted);
@@ -728,8 +729,8 @@ body.light .log-console { background: #0a0c10; border-color: #2a3040; }
 }
 /* Highlighted when a palette chip is dragged over this region */
 .ve-pipeline-region.drag-over {
-  border-color:rgba(88,166,255,.55);
-  background:rgba(88,166,255,.08);
+  border-color:color-mix(in srgb, var(--accent) 55%, transparent);
+  background:color-mix(in srgb, var(--accent) 8%, transparent);
   pointer-events:none; /* keep non-interactive even when highlighted */
 }
 .ve-region-hint {
@@ -983,13 +984,13 @@ body.light .log-console { background: #0a0c10; border-color: #2a3040; }
 }
 .ve-graph-canvas.is-listconnecting .ve-node:not([data-is-list="true"]) * { pointer-events:none; }
 .ve-graph-canvas.is-listconnecting .ve-node[data-is-list="true"]:not([data-is-list-nd="true"]) {
-  border-color:var(--ve-list); box-shadow:0 0 0 3px rgba(13,147,115,.2);
+  border-color:var(--ve-list); box-shadow:0 0 0 3px color-mix(in srgb, var(--ve-list) 20%, transparent);
 }
 
 /* Search-connected nodes: dashed purple border */
 .ve-node.ve-node-search {
   border-style:dashed; border-color:var(--ve-search);
-  background:rgba(154,106,216,.06);
+  background:color-mix(in srgb, var(--ve-search) 6%, transparent);
 }
 .ve-node.ve-node-search.selected { border-color:var(--ve-search-lit); box-shadow:0 0 0 2px rgba(210,168,255,.25); }
 .ve-node-search-badge {
@@ -1001,9 +1002,9 @@ body.light .log-console { background: #0a0c10; border-color: #2a3040; }
 /* List-connected nodes: dashed teal border */
 .ve-node.ve-node-list {
   border-style:dashed; border-color:var(--ve-list);
-  background:rgba(13,147,115,.06);
+  background:color-mix(in srgb, var(--ve-list) 6%, transparent);
 }
-.ve-node.ve-node-list.selected { border-color:var(--ve-list-lit); box-shadow:0 0 0 2px rgba(13,147,115,.25); }
+.ve-node.ve-node-list.selected { border-color:var(--ve-list-lit); box-shadow:0 0 0 2px color-mix(in srgb, var(--ve-list) 25%, transparent); }
 .ve-node-list-badge {
   display:inline-block; padding:1px 5px; border-radius:3px;
   font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:.05em;
@@ -1022,7 +1023,7 @@ body.light .log-console { background: #0a0c10; border-color: #2a3040; }
 }
 .ve-node-list-port.dragover {
   transform:translateX(-50%) scale(1.25);
-  box-shadow:0 0 0 4px rgba(13,147,115,.35);
+  box-shadow:0 0 0 4px color-mix(in srgb, var(--ve-list) 35%, transparent);
 }
 
 /* list-edges: teal dashed */
@@ -1039,7 +1040,7 @@ body.light .log-console { background: #0a0c10; border-color: #2a3040; }
 }
 .ve-node-route-port .ve-node-role-bar { background:var(--ve-route); }
 .ve-node.ve-node-route-port           { border-color:var(--ve-route); }
-.ve-node.ve-node-route-port.selected  { border-color:var(--ve-route-lit); box-shadow:0 0 0 2px rgba(194,130,10,.35); }
+.ve-node.ve-node-route-port.selected  { border-color:var(--ve-route-lit); box-shadow:0 0 0 2px color-mix(in srgb, var(--ve-route) 35%, transparent); }
 
 /* route-edges: orange dashed lines from route node to each port */
 .ve-route-edge { fill:none; stroke:var(--ve-route); stroke-width:1.5; stroke-dasharray:5,3; pointer-events:none; }
@@ -1072,13 +1073,13 @@ body.light .log-console { background: #0a0c10; border-color: #2a3040; }
 /* Role-keyed colours: dim at rest, full on wrap hover, background on direct button hover */
 .ve-chip-fn-wrap[data-role="source"]    .ve-chip.ve-chip-fn,
 .ve-chip-fn-wrap[data-role="source"]    .ve-chip-fn-edit,
-.ve-chip-fn-wrap[data-role="source"]    .ve-chip-fn-remove { border-color:rgba(63,185,80,.35);  color:var(--green); }
+.ve-chip-fn-wrap[data-role="source"]    .ve-chip-fn-remove { border-color:color-mix(in srgb, var(--green) 35%, transparent);  color:var(--green); }
 .ve-chip-fn-wrap[data-role="processor"] .ve-chip.ve-chip-fn,
 .ve-chip-fn-wrap[data-role="processor"] .ve-chip-fn-edit,
-.ve-chip-fn-wrap[data-role="processor"] .ve-chip-fn-remove { border-color:rgba(88,166,255,.35); color:var(--accent); }
+.ve-chip-fn-wrap[data-role="processor"] .ve-chip-fn-remove { border-color:color-mix(in srgb, var(--accent) 35%, transparent); color:var(--accent); }
 .ve-chip-fn-wrap[data-role="sink"]      .ve-chip.ve-chip-fn,
 .ve-chip-fn-wrap[data-role="sink"]      .ve-chip-fn-edit,
-.ve-chip-fn-wrap[data-role="sink"]      .ve-chip-fn-remove { border-color:rgba(255,166,87,.35); color:var(--ve-output); }
+.ve-chip-fn-wrap[data-role="sink"]      .ve-chip-fn-remove { border-color:color-mix(in srgb, var(--ve-output) 35%, transparent); color:var(--ve-output); }
 
 .ve-chip-fn-wrap[data-role="source"]:hover    .ve-chip.ve-chip-fn,
 .ve-chip-fn-wrap[data-role="source"]:hover    .ve-chip-fn-edit,
@@ -1105,7 +1106,7 @@ body.light .log-console { background: #0a0c10; border-color: #2a3040; }
 .ve-node-fn-badge {
   display:inline-block; margin-left:4px; padding:1px 4px;
   font-size:8px; font-weight:700; text-transform:uppercase; letter-spacing:.04em;
-  border-radius:3px; background:rgba(244,114,182,.2); color:var(--ve-fn);
+  border-radius:3px; background:color-mix(in srgb, var(--ve-fn) 20%, transparent); color:var(--ve-fn);
   vertical-align:middle; line-height:1.4;
 }
 
@@ -1113,8 +1114,8 @@ body.light .log-console { background: #0a0c10; border-color: #2a3040; }
 .ve-chip-list-badge {
   display:inline-block; margin-left:5px; padding:1px 4px;
   font-size:8px; font-weight:700; text-transform:uppercase; letter-spacing:.04em;
-  border-radius:3px; border:1px solid rgba(13,147,115,.5);
-  background:rgba(13,147,115,.15); color:var(--ve-list-lit);
+  border-radius:3px; border:1px solid color-mix(in srgb, var(--ve-list) 50%, transparent);
+  background:color-mix(in srgb, var(--ve-list) 15%, transparent); color:var(--ve-list-lit);
   vertical-align:middle; line-height:1.4; pointer-events:none;
 }
 .ve-chip.ve-chip-list:hover { border-color:var(--ve-list-lit); color:var(--ve-list-lit); }
@@ -1131,7 +1132,7 @@ body.light .log-console { background: #0a0c10; border-color: #2a3040; }
 }
 .ve-node-search-port.dragover {
   transform:translateX(-50%) scale(1.25);
-  box-shadow:0 0 0 4px rgba(154,106,216,.35);
+  box-shadow:0 0 0 4px color-mix(in srgb, var(--ve-search) 35%, transparent);
 }
 
 /* search-edges: dashed purple lines */
@@ -1151,12 +1152,12 @@ body.light .log-console { background: #0a0c10; border-color: #2a3040; }
 .ve-graph-canvas.is-connecting .ve-node:not(.is-connect-source):not(.would-create-cycle):not([data-role="source"]):not([data-is-search-nd="true"]):not([data-is-list-nd="true"]) .ve-node-in-port {
   opacity:1;
   border-color:var(--accent);
-  background:rgba(88,166,255,.2);
+  background:color-mix(in srgb, var(--accent) 20%, transparent);
 }
 /* Brighter highlight when hovering over a valid target */
 .ve-graph-canvas.is-connecting .ve-node:not(.is-connect-source):not(.would-create-cycle):not([data-role="source"]):not([data-is-search-nd="true"]):not([data-is-list-nd="true"]):hover .ve-node-in-port {
   border-color:#a5cfff;
-  background:rgba(88,166,255,.4);
+  background:color-mix(in srgb, var(--accent) 40%, transparent);
 }
 /* Dim ancestor nodes that would close a cycle — no input indicator */
 .ve-graph-canvas.is-connecting .ve-node.would-create-cycle {
@@ -1174,10 +1175,10 @@ body.light .log-console { background: #0a0c10; border-color: #2a3040; }
 .ve-node:hover .ve-node-out-port { opacity:1; }
 .ve-node[data-role="source"]    .ve-node-out-port { border-color:var(--green); }
 .ve-node[data-role="processor"] .ve-node-out-port { border-color:var(--accent); }
-.ve-node-out-port:hover { background:rgba(88,166,255,.15); }
+.ve-node-out-port:hover { background:color-mix(in srgb, var(--accent) 15%, transparent); }
 /* sink chain port: amber colour, shown on hover like regular ports */
 .ve-node[data-role="sink"] .ve-node-out-port.ve-node-chain-port { border-color:var(--ve-chain); }
-.ve-node[data-role="sink"] .ve-node-out-port.ve-node-chain-port:hover { background:rgba(227,179,65,.15); }
+.ve-node[data-role="sink"] .ve-node-out-port.ve-node-chain-port:hover { background:color-mix(in srgb, var(--ve-chain) 15%, transparent); }
 /* Route rule_list editor */
 .ve-rule-table { width:100%; border-collapse:collapse; font-size:12px; margin-top:4px; }
 .ve-rule-table th { text-align:left; padding:2px 4px; color:var(--muted); font-weight:500; font-size:10px; text-transform:uppercase; }
@@ -1203,7 +1204,7 @@ body.light .log-console { background: #0a0c10; border-color: #2a3040; }
 }
 .ve-route-port:hover {
   opacity:1; transform:scale(1.2);
-  box-shadow:0 0 0 3px rgba(194,130,10,.25);
+  box-shadow:0 0 0 3px color-mix(in srgb, var(--ve-route) 25%, transparent);
 }
 /* sink→sink chain edge: amber dashed stroke */
 .ve-chain-edge { fill:none; stroke:var(--ve-chain); stroke-width:1.5; stroke-dasharray:6,3; pointer-events:none; }
@@ -1335,8 +1336,8 @@ body.light .log-console { background: #0a0c10; border-color: #2a3040; }
 .ve-chip-search-badge {
   display:inline-block; margin-left:5px; padding:1px 4px;
   font-size:8px; font-weight:700; text-transform:uppercase; letter-spacing:.04em;
-  border-radius:3px; border:1px solid rgba(154,106,216,.5);
-  background:rgba(154,106,216,.15); color:var(--ve-search-lit);
+  border-radius:3px; border:1px solid color-mix(in srgb, var(--ve-search) 50%, transparent);
+  background:color-mix(in srgb, var(--ve-search) 15%, transparent); color:var(--ve-search-lit);
   vertical-align:middle; line-height:1.4; pointer-events:none;
 }
 
@@ -1523,7 +1524,7 @@ body.light .log-console { background: #0a0c10; border-color: #2a3040; }
 .ve-upstream-row input { cursor:pointer; }
 .ve-upstream-id {
   font-family:var(--mono-font); font-size:11px;
-  background:rgba(88,166,255,.1); color:var(--accent); padding:0 4px; border-radius:2px;
+  background:color-mix(in srgb, var(--accent) 10%, transparent); color:var(--accent); padding:0 4px; border-radius:2px;
 }
 
 /* Separator line between param panel sections */
@@ -1545,10 +1546,10 @@ body.light .log-console { background: #0a0c10; border-color: #2a3040; }
   letter-spacing:.04em; padding:2px 7px; border-radius:3px; border:none;
   cursor:pointer; min-width:54px; text-align:center; transition:background .1s;
 }
-.ve-cond-type.reject { background:rgba(248,81,73,.15); color:var(--red); }
-.ve-cond-type.reject:hover { background:rgba(248,81,73,.28); }
-.ve-cond-type.accept { background:rgba(63,185,80,.15);  color:var(--green); }
-.ve-cond-type.accept:hover { background:rgba(63,185,80,.28); }
+.ve-cond-type.reject { background:color-mix(in srgb, var(--red) 15%, transparent); color:var(--red); }
+.ve-cond-type.reject:hover { background:color-mix(in srgb, var(--red) 28%, transparent); }
+.ve-cond-type.accept { background:color-mix(in srgb, var(--green) 15%, transparent);  color:var(--green); }
+.ve-cond-type.accept:hover { background:color-mix(in srgb, var(--green) 28%, transparent); }
 .ve-cond-expr {
   flex:1; font-family:var(--mono-font); font-size:11px;
   padding:3px 6px; border:1px solid var(--border); border-radius:3px;
