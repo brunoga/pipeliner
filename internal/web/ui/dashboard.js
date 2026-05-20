@@ -27,16 +27,25 @@ async function refresh() {
   }
 }
 
+// True only for the very first render after page load or tab switch.
+// Polling refreshes set this to false so cards don't re-animate every 10 s.
+let _dashboardFirstRender = true;
+
 function render(tasks, history) {
   const grid = document.getElementById('task-grid');
   if (!tasks.length) {
     grid.innerHTML = '<div class="no-tasks">No tasks configured.</div>';
+    _dashboardFirstRender = true;
     return;
   }
-  grid.innerHTML = tasks.map(t => card(t, (history[t.name] || [])[0])).join('');
+  // Suppress animation during background refreshes by adding no-anim before
+  // replacing innerHTML — new card nodes inherit animation:none from the class.
+  if (!_dashboardFirstRender) grid.classList.add('no-anim');
+  grid.innerHTML = tasks.map((t, i) => card(t, (history[t.name] || [])[0], i)).join('');
+  _dashboardFirstRender = false;
 }
 
-function card(t, last) {
+function card(t, last, idx = 0) {
   const nextDate   = t.nextRun ? new Date(t.nextRun) : null;
   const schedLabel = nextDate ? fmtDatetime(nextDate) : (t.schedule ? t.schedule : 'manual');
   const schedOpacity = (!nextDate && !t.schedule) ? ' style="opacity:.5"' : '';
@@ -46,11 +55,18 @@ function card(t, last) {
   const lastStr = last ? relTime(new Date(last.at)) + ' ago' : 'never';
   const durStr  = last ? ' · ' + last.duration : '';
 
+  // Card accent stripe color reflects last run health at a glance.
+  let cardColor = 'var(--border)';
+  if (t.running)          cardColor = 'var(--accent)';
+  else if (last?.failed)  cardColor = 'var(--red)';
+  else if (last?.rejected)cardColor = 'var(--amber)';
+  else if (last?.accepted)cardColor = 'var(--green)';
+
   const stats = last
     ? `<div class="task-stats">
-         <div class="stat"><div class="stat-val a">${last.accepted}</div><div class="stat-lbl">accepted</div></div>
-         <div class="stat"><div class="stat-val r">${last.rejected}</div><div class="stat-lbl">rejected</div></div>
-         <div class="stat"><div class="stat-val f">${last.failed}</div><div class="stat-lbl">failed</div></div>
+         <div class="stat a"><div class="stat-val a">${last.accepted}</div><div class="stat-lbl">accepted</div></div>
+         <div class="stat r"><div class="stat-val r">${last.rejected}</div><div class="stat-lbl">rejected</div></div>
+         <div class="stat f"><div class="stat-val f">${last.failed}</div><div class="stat-lbl">failed</div></div>
        </div>`
     : `<div class="task-empty">No runs yet</div>`;
 
@@ -61,11 +77,14 @@ function card(t, last) {
     ? `<button class="btn-run running" disabled>Running…</button>`
     : `<button class="btn-run" onclick="triggerRun(${esc(JSON.stringify(t.name))}, this)">Run now</button>`;
 
+  // nth-child handles first 10 cards; inline delay covers beyond that.
+  const extraDelay = idx >= 10 ? `;animation-delay:${idx * 50}ms` : '';
+
   return `
-    <div class="task-card">
+    <div class="task-card" style="--card-color:${cardColor}${extraDelay}">
       <div class="task-card-header">
         <div class="task-name">${esc(t.name)}</div>
-        <div style="display:flex;gap:6px;align-items:center">${schedBadge}</div>
+        ${schedBadge}
       </div>
       <div class="task-timing">
         <span><span>Next run</span><b>${nextStr}</b></span>
@@ -249,6 +268,23 @@ function showTab(name) {
   document.getElementById('tab-btn-config').classList.toggle('active', name === 'config');
   document.getElementById('tab-btn-db').classList.toggle('active', name === 'db');
   document.getElementById('tab-btn-settings').classList.toggle('active', name === 'settings');
+  if (name === 'dashboard') {
+    // Re-play the entry animation on existing cards when switching to this tab.
+    // Do NOT touch _dashboardFirstRender here — the animation is handled by the
+    // reflow trick below and is independent of the polling-refresh suppression flag.
+    // Setting _dashboardFirstRender = true here would cause the next polling
+    // refresh to also animate (the blink we want to avoid).
+    const grid = document.getElementById('task-grid');
+    if (grid) {
+      grid.classList.remove('no-anim');
+      grid.querySelectorAll('.task-card').forEach((el, i) => {
+        el.style.animationName = 'none';
+        el.offsetHeight; // force reflow so the browser registers the reset
+        el.style.animationName = '';
+        el.style.animationDelay = `${Math.min(i, 9) * 50}ms`;
+      });
+    }
+  }
   if (name === 'config' && !configLoaded) loadConfig();
   if (name === 'db') {
     if (!dbLoaded) loadDBTab();

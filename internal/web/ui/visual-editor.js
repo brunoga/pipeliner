@@ -184,6 +184,7 @@ function doSwitchView(view) {
   // Re-measure the textarea now that it is visible so the highlight overlay
   // gets the correct width (it would be 0 if syncHighlight ran while hidden).
   if (view === 'text' && typeof syncHighlight === 'function') syncHighlight();
+  if (view === 'text')   fitTextEditor();
   if (view === 'visual') fitVisualEditor();
 }
 
@@ -1545,13 +1546,23 @@ function expandRegionForNode(graphIdx, nodeX, nodeY) {
 function fitVisualEditor() {
   const layout = document.querySelector('.ve-layout');
   if (!layout) return;
-  // Page-absolute top of the layout (stable across scroll positions).
   const layoutPageTop = layout.getBoundingClientRect().top + window.scrollY;
-  // Body bottom padding so the layout ends flush with the content area.
   const padBottom = parseFloat(getComputedStyle(document.body).paddingBottom) || 0;
-  // Layout should reach exactly: window.innerHeight - padBottom (page coords).
   const h = Math.floor(window.innerHeight - padBottom - layoutPageTop);
   layout.style.height = Math.max(400, h) + 'px';
+}
+
+// Set .editor-wrap height so the text editor fills the available viewport
+// height, mirroring the visual editor's behaviour.
+
+function fitTextEditor() {
+  const wrap = document.querySelector('#view-text .editor-wrap');
+  if (!wrap) return;
+  const top = wrap.getBoundingClientRect().top + window.scrollY;
+  const padBottom = parseFloat(getComputedStyle(document.body).paddingBottom) || 0;
+  const h = Math.max(300, Math.floor(window.innerHeight - padBottom - top));
+  wrap.style.height = h + 'px';
+  wrap.style.minHeight = h + 'px';
 }
 
 // ── canvas event wiring (once) ─────────────────────────────────────────────────
@@ -1576,8 +1587,11 @@ function initCanvasEvents() {
     });
   }
 
-  // Re-fit the layout on every window resize so the page never scrolls.
-  window.addEventListener('resize', fitVisualEditor);
+  // Re-fit whichever editor is currently visible on every window resize.
+  window.addEventListener('resize', () => {
+    if (currentView === 'text') fitTextEditor();
+    else fitVisualEditor();
+  });
 
   // Keyboard shortcuts — all suppressed when focus is in a text input.
   window.addEventListener('keydown', e => {
