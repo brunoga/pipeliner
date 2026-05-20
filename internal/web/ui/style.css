@@ -5,6 +5,7 @@ html { scrollbar-gutter: stable; }
   --bg:        #080b10;
   --surface:   #111827;
   --input-bg:  #1a2333;
+  --code-bg:   #000;       /* terminal/code areas — stays dark even in light mode */
   --border:    #232c3b;
   --text:      #c8d6e5;
   --muted:     #5d6e82;
@@ -370,7 +371,7 @@ section { margin-bottom: 36px; }
 
 .log-console {
   position: relative;
-  background: #000;
+  background: var(--code-bg);
   border: 1px solid var(--border);
   border-radius: 4px;
   padding: 12px 14px;
@@ -419,9 +420,11 @@ section { margin-bottom: 36px; }
     --amber:    #9a6700;
     --red:      #d1242f;
     --purple:   #8250df;
+    /* Code/terminal areas stay dark — ANSI log colors and syntax
+       highlighting are designed for dark backgrounds. Use a deliberate
+       dark navy rather than pure black so it reads as intentional. */
+    --code-bg:  #1e2433;
   }
-  /* keep terminal always dark */
-  .log-console { background: #0a0c10; border-color: #2a3040; }
   .log-console::before { background: repeating-linear-gradient(0deg,transparent 0px,transparent 3px,rgba(0,0,0,0.05) 3px,rgba(0,0,0,0.05) 4px); }
 }
 
@@ -437,8 +440,8 @@ body.light {
   --amber:    #9a6700;
   --red:      #d1242f;
   --purple:   #8250df;
+  --code-bg:  #1e2433;
 }
-body.light .log-console { background: #0a0c10; border-color: #2a3040; }
 
 /* tabs */
 .tab-bar { display: flex; gap: 2px; border-bottom: 1px solid var(--border); margin-bottom: 24px; }
@@ -487,7 +490,7 @@ body.light .log-console { background: #0a0c10; border-color: #2a3040; }
   outline: none;
 }
 .editor-hl {
-  background: #000;
+  background: var(--code-bg);
   color: var(--text);
   pointer-events: none;
   position: absolute;
