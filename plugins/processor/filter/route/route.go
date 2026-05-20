@@ -126,6 +126,7 @@ func (p *routePlugin) Process(ctx context.Context, tc *plugin.TaskContext, entri
 			if ok {
 				e.Set(entry.FieldRoutePort, r.name)
 				e.Accept()
+				tc.Logger.Debug("route: entry routed", "port", r.name, "entry", e.Title)
 				matched = true
 				break
 			}
