@@ -118,8 +118,15 @@ function syncHighlight() {
 function syncScroll() {
   const ta = document.getElementById('config-editor');
   const hl = document.getElementById('editor-hl');
-  hl.style.height = ta.clientHeight + 'px';
-  hl.style.width  = ta.clientWidth  + 'px';  // match exactly, incl. scrollbar gutter
+  // Width is set explicitly so the highlight text wraps identically to the
+  // textarea (accounts for scrollbar gutter width). Only set when the
+  // textarea has been laid out — 0px would hide the overlay.
+  if (ta.clientWidth > 0) hl.style.width = ta.clientWidth + 'px';
+  // Height is NOT set here. CSS `top:0; bottom:0` on the absolutely-positioned
+  // overlay already fills the editor-wrap container. Setting an explicit pixel
+  // height would pin it to the textarea's current clientHeight and prevent it
+  // from expanding when fitTextEditor() later grows the container.
+  hl.style.height = '';   // clear any previously written inline height
   hl.scrollTop  = ta.scrollTop;
   hl.scrollLeft = ta.scrollLeft;
 }

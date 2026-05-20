@@ -533,8 +533,9 @@ body.dark {
   color: var(--code-text);
   pointer-events: none;
   position: absolute;
-  top: 0; left: 0; bottom: 0;
-  /* width is set by JS to match the textarea's clientWidth exactly */
+  top: 0; left: 0; right: 0; bottom: 0;
+  /* JS also sets an explicit width once the textarea is visible so the
+     highlight text aligns pixel-perfectly with the textarea content. */
   overflow: hidden;
   height: auto;
 }
