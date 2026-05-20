@@ -1346,17 +1346,28 @@ body.light .log-console { background: #0a0c10; border-color: #2a3040; }
   padding:8px 14px; border-bottom:1px solid var(--border); flex-shrink:0;
 }
 
-/* Function editor toolbar */
+/* Function editor toolbar — two-row layout */
 .ve-fn-bar {
-  display:flex; align-items:center; gap:8px; flex-shrink:0;
-  padding:8px 14px; border-bottom:1px solid rgba(244,114,182,.3);
-  background:rgba(244,114,182,.04);
+  display:flex; flex-direction:column; flex-shrink:0;
+  border-bottom:1px solid color-mix(in srgb, var(--ve-fn) 30%, transparent);
+  background:color-mix(in srgb, var(--ve-fn) 4%, transparent);
+}
+/* Row 1: identity + primary actions (Back, name, comment, Save) */
+.ve-fn-bar-primary {
+  display:flex; align-items:center; gap:8px;
+  padding:6px 14px;
+  border-bottom:1px solid color-mix(in srgb, var(--ve-fn) 12%, transparent);
+}
+/* Row 2: tools (Params, error note, zoom) */
+.ve-fn-bar-secondary {
+  display:flex; align-items:center; gap:8px;
+  padding:4px 14px;
 }
 .ve-fn-bar-back {
   padding:3px 8px; background:transparent; border:1px solid var(--border);
   border-radius:3px; color:var(--muted); cursor:pointer;
   font-size:10px; font-weight:600; font-family:var(--mono-font); letter-spacing:0.06em;
-  transition:color .15s,border-color .15s;
+  transition:color .15s,border-color .15s; flex-shrink:0;
 }
 .ve-fn-bar-back:hover { color:var(--text); border-color:var(--text); }
 .ve-fn-bar-label { font-size:10px; color:var(--muted); white-space:nowrap; letter-spacing:0.06em; }
@@ -1364,7 +1375,7 @@ body.light .log-console { background: #0a0c10; border-color: #2a3040; }
   padding:3px 8px; border:1px solid color-mix(in srgb, var(--ve-fn) 40%, transparent);
   border-radius:3px; background:var(--bg); color:var(--ve-fn);
   font-size:12px; font-weight:600; font-family:var(--mono-font);
-  outline:none; min-width:120px;
+  outline:none; min-width:120px; flex:1;
 }
 .ve-fn-bar-name:focus { border-color:var(--ve-fn); }
 .ve-fn-bar-params-btn {
@@ -1379,7 +1390,7 @@ body.light .log-console { background: #0a0c10; border-color: #2a3040; }
 .ve-fn-bar-comment-btn {
   padding:3px 7px; background:transparent; border:1px solid var(--border);
   border-radius:3px; color:var(--muted); cursor:pointer;
-  font-size:11px; font-weight:700; font-family:var(--mono-font);
+  font-size:11px; font-weight:700; font-family:var(--mono-font); flex-shrink:0;
   transition:color .15s,border-color .15s;
 }
 .ve-fn-bar-comment-btn:hover { color:var(--text); border-color:var(--text); }
@@ -1390,7 +1401,7 @@ body.light .log-console { background: #0a0c10; border-color: #2a3040; }
   border:1px solid var(--green); border-radius:3px;
   color:var(--green); cursor:pointer;
   font-size:10px; font-weight:700; font-family:var(--mono-font); letter-spacing:0.08em;
-  text-transform:uppercase; transition:background .15s;
+  text-transform:uppercase; transition:background .15s; flex-shrink:0;
 }
 .ve-fn-bar-save:hover { background:color-mix(in srgb, var(--green) 10%, transparent); }
 
