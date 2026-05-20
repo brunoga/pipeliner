@@ -4,6 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Pipeliner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Bebas+Neue&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -102,24 +105,31 @@
 
           <!-- toolbar (function editing mode, hidden until openFunctionEditor) -->
           <div class="ve-fn-bar" id="ve-fn-bar" style="display:none">
-            <button class="ve-fn-bar-back" onclick="exitFunctionEditor()" title="Discard and return to pipelines">← Back</button>
-            <span class="ve-fn-bar-label">Editing function:</span>
-            <input class="ve-fn-bar-name" id="ve-fn-bar-name" spellcheck="false"
-                   onblur="fnEditorCommitRename(this.value)"
-                   onkeydown="if(event.key==='Enter')this.blur()">
-            <button class="ve-fn-bar-params-btn" id="ve-fn-bar-params-btn"
-                    onclick="fnEditorToggleParams()" title="Edit parameters">⚙ Params</button>
-            <button class="ve-fn-bar-comment-btn" id="ve-fn-bar-comment-btn"
-                    onclick="fnEditorEditComment()" title="Edit function comment">#</button>
-            <span class="ve-sync-note" id="ve-fn-note" aria-live="polite"></span>
-            <div class="ve-fn-bar-spacer"></div>
-            <div class="ve-zoom-bar">
-              <button class="ve-zoom-btn" onclick="zoomOut()" title="Zoom out" aria-label="Zoom out">−</button>
-              <span id="ve-zoom-pct-fn" class="ve-zoom-pct" aria-live="polite">100%</span>
-              <button class="ve-zoom-btn" onclick="zoomIn()" title="Zoom in" aria-label="Zoom in">+</button>
-              <button class="ve-zoom-btn" onclick="zoomReset()" title="Reset zoom" aria-label="Reset zoom">⊙</button>
+            <!-- row 1: identity + primary actions -->
+            <div class="ve-fn-bar-primary">
+              <button class="ve-fn-bar-back" onclick="exitFunctionEditor()" title="Discard and return to pipelines">← Back</button>
+              <span class="ve-fn-bar-label">fn:</span>
+              <input class="ve-fn-bar-name" id="ve-fn-bar-name" spellcheck="false"
+                     onblur="fnEditorCommitRename(this.value)"
+                     onkeydown="if(event.key==='Enter')this.blur()">
+              <button class="ve-fn-bar-comment-btn" id="ve-fn-bar-comment-btn"
+                      onclick="fnEditorEditComment()" title="Edit function comment">#</button>
+              <div class="ve-fn-bar-spacer"></div>
+              <button class="ve-fn-bar-save" onclick="saveFunctionEditor()">Save</button>
             </div>
-            <button class="ve-fn-bar-save" onclick="saveFunctionEditor()">Save</button>
+            <!-- row 2: configuration tools + zoom -->
+            <div class="ve-fn-bar-secondary">
+              <button class="ve-fn-bar-params-btn" id="ve-fn-bar-params-btn"
+                      onclick="fnEditorToggleParams()" title="Edit parameters">⚙ Params</button>
+              <span class="ve-sync-note" id="ve-fn-note" aria-live="polite"></span>
+              <div class="ve-fn-bar-spacer"></div>
+              <div class="ve-zoom-bar">
+                <button class="ve-zoom-btn" onclick="zoomOut()" title="Zoom out" aria-label="Zoom out">−</button>
+                <span id="ve-zoom-pct-fn" class="ve-zoom-pct" aria-live="polite">100%</span>
+                <button class="ve-zoom-btn" onclick="zoomIn()" title="Zoom in" aria-label="Zoom in">+</button>
+                <button class="ve-zoom-btn" onclick="zoomReset()" title="Reset zoom" aria-label="Reset zoom">⊙</button>
+              </div>
+            </div>
           </div>
 
           <!-- function parameter panel (shown below bar when open) -->
