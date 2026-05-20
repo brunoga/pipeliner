@@ -44,14 +44,11 @@ function pushUndo() {
     nextId:        ve.nextId,
   }));
   if (ve_undoStack.length > VE_MAX_UNDO) ve_undoStack.shift();
+  updateUndoButton();
 }
 
 function undo() {
-  if (!ve_undoStack.length) {
-    setSyncNote('Nothing to undo');
-    setTimeout(() => setSyncNote(''), 1500);
-    return;
-  }
+  if (!ve_undoStack.length) return;
   const snap = JSON.parse(ve_undoStack.pop());
   ve.graphs        = snap.graphs;
   ve.userFunctions = snap.userFunctions;
@@ -61,8 +58,14 @@ function undo() {
   initLayout();
   veRender();
   onModelChange();
+  updateUndoButton();
   setSyncNote('↩ Undone');
   setTimeout(() => setSyncNote(''), 1500);
+}
+
+function updateUndoButton() {
+  const btn = document.getElementById('ve-undo-btn');
+  if (btn) btn.disabled = ve_undoStack.length === 0;
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
