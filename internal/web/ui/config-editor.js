@@ -81,8 +81,14 @@ async function saveConfig() {
 // pollUntilIdle polls /api/status until no tasks are running, then refreshes
 // the dashboard and clears the pending config status. Called after a save
 // that returned "pending" because tasks were running at the time.
+// Gives up after 5 minutes in case the server gets stuck.
 function pollUntilIdle() {
+  const deadline = Date.now() + 5 * 60 * 1000;
   const check = async () => {
+    if (Date.now() > deadline) {
+      setConfigStatus('err', '⚠ Saved — reload timed out. Check the live log for details.');
+      return;
+    }
     try {
       const r = await fetch('/api/status');
       if (!r.ok) return;
