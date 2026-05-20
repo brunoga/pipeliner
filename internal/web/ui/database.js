@@ -68,13 +68,21 @@ async function selectDBBucket(name) {
   await fetchDBPage(name);
 }
 
+let _dbAbortController = null;
+
 async function fetchDBPage(name) {
   const main = document.getElementById('db-main-content');
   main.innerHTML = '<div class="db-loading">Loading…</div>';
-  const r = await fetch(dbPageURL(name));
-  if (!r.ok) { main.innerHTML = '<div class="db-empty">Error loading data.</div>'; return; }
-  const data = await r.json();
-  renderDBContent(name, data);
+  if (_dbAbortController) _dbAbortController.abort();
+  _dbAbortController = new AbortController();
+  try {
+    const r = await fetch(dbPageURL(name), {signal: _dbAbortController.signal});
+    if (!r.ok) { main.innerHTML = '<div class="db-empty">Error loading data.</div>'; return; }
+    const data = await r.json();
+    renderDBContent(name, data);
+  } catch (e) {
+    if (e.name !== 'AbortError') main.innerHTML = '<div class="db-empty">Error loading data.</div>';
+  }
 }
 
 async function dbNextPage() {
@@ -99,18 +107,21 @@ async function dbSetPageSize(n) {
   if (dbActiveBucket) await fetchDBPage(dbActiveBucket);
 }
 
-async function dbFilter(val) {
+let _dbFilterTimer = null;
+
+function dbFilter(val) {
   dbFilterQuery = (val || '').toLowerCase().trim();
   dbCurrentCursor = '';
   dbCursorStack = [];
-  if (dbActiveBucket) await fetchDBPage(dbActiveBucket);
+  clearTimeout(_dbFilterTimer);
+  _dbFilterTimer = setTimeout(() => { if (dbActiveBucket) fetchDBPage(dbActiveBucket); }, 300);
 }
 
 function renderDBContent(name, data) {
   const item = dbNavItems.find(i => i.bucket === name) || {label: name};
   const main = document.getElementById('db-main-content');
 
-  const toolbar = `<div class="db-toolbar" style="margin-bottom:12px">
+  const toolbar = `<div class="db-toolbar">
     <span class="db-title">${esc(item.label)}</span>
     <div style="display:flex;gap:8px;align-items:center">
       <input type="text" class="db-search" id="db-filter-input" placeholder="filter…"
@@ -155,7 +166,7 @@ function renderSeriesTable(shows, bucket) {
       <tr class="db-show-row" onclick="toggleEps('${sid}',this)">
         <td colspan="2"><span class="db-chevron" id="chv-${sid}">▸</span> <strong>${esc(toTitleCase(show.name))}</strong> <span style="color:var(--muted);font-size:12px">${show.episodes.length} ep${show.episodes.length !== 1 ? 's' : ''}</span></td>
         <td></td><td></td>
-        <td style="text-align:right"><button class="btn-sm" onclick="event.stopPropagation();dbDeleteShow(${esc(JSON.stringify(show.name))})">Delete all</button></td>
+        <td style="text-align:right"><button class="btn-sm btn-sm-danger" onclick="event.stopPropagation();dbDeleteShow(${esc(JSON.stringify(show.name))})">Delete all</button></td>
       </tr>
     </tbody>
     <tbody class="db-eps" id="${sid}">`;
@@ -167,7 +178,7 @@ function renderSeriesTable(shows, bucket) {
         <td style="color:var(--accent);font-family:monospace;font-size:12px">${esc(ep.episode_id)}</td>
         <td class="ep-quality">${esc(ep.quality || '—')}</td>
         <td style="color:var(--muted)">${date}</td>
-        <td style="text-align:right"><button class="btn-sm" onclick="dbDeleteEntry(${esc(JSON.stringify(bucket))},${esc(JSON.stringify(key))})">×</button></td>
+        <td style="text-align:right"><button class="btn-sm btn-sm-danger" onclick="dbDeleteEntry(${esc(JSON.stringify(bucket))},${esc(JSON.stringify(key))})">×</button></td>
       </tr>`;
     }
     html += '</tbody>';
@@ -189,7 +200,7 @@ function renderMoviesTable(entries, bucket) {
       <td style="color:var(--muted)">${rec.year || '—'}</td>
       <td class="ep-quality">${esc(rec.quality?.string || '—')}</td>
       <td style="color:var(--muted)">${date}</td>
-      <td style="text-align:right"><button class="btn-sm" onclick="dbDeleteEntry(${esc(JSON.stringify(bucket))},${esc(JSON.stringify(e.key))})">×</button></td>
+      <td style="text-align:right"><button class="btn-sm btn-sm-danger" onclick="dbDeleteEntry(${esc(JSON.stringify(bucket))},${esc(JSON.stringify(e.key))})">×</button></td>
     </tr>`;
   }
   return html + '</tbody></table>';
@@ -208,7 +219,7 @@ function renderSeenTable(entries, bucket) {
       <td style="word-break:break-word">${esc(rec.title || e.key)}</td>
       <td style="color:var(--muted);white-space:nowrap">${esc(rec.task || '—')}</td>
       <td style="color:var(--muted);white-space:nowrap">${date}</td>
-      <td style="text-align:right"><button class="btn-sm" onclick="dbDeleteEntry(${esc(JSON.stringify(bucket))},${esc(JSON.stringify(e.key))})">×</button></td>
+      <td style="text-align:right"><button class="btn-sm btn-sm-danger" onclick="dbDeleteEntry(${esc(JSON.stringify(bucket))},${esc(JSON.stringify(e.key))})">×</button></td>
     </tr>`;
   }
   return html + '</tbody></table>';
@@ -226,11 +237,28 @@ function toggleEps(id, row) {
 
 // dbFilter is defined above alongside the other pagination helpers.
 
+let _dbErrorTimer = null;
+
+function dbShowError(msg) {
+  const main = document.getElementById('db-main-content');
+  let banner = document.getElementById('db-error-banner');
+  if (!banner) {
+    banner = document.createElement('div');
+    banner.id = 'db-error-banner';
+    banner.className = 'db-error-banner';
+    main.prepend(banner);
+  }
+  clearTimeout(_dbErrorTimer);
+  banner.textContent = '✗ ' + msg;
+  banner.style.display = 'block';
+  _dbErrorTimer = setTimeout(() => { banner.style.display = 'none'; }, 6000);
+}
+
 async function dbClearBucket(bucket, label) {
   if (!confirm(`Clear all entries in "${label}"? They will be re-processed next run.`)) return;
   const r = await fetch('/api/db/buckets/' + encodeURIComponent(bucket), {method: 'DELETE'});
   if (r.ok) { await selectDBBucket(bucket); await loadDBSidebar(); }
-  else alert('Error: ' + await r.text());
+  else dbShowError(await r.text());
 }
 
 async function loadDBSidebar() {
@@ -247,11 +275,14 @@ async function loadDBSidebar() {
 async function dbDeleteShow(showName) {
   if (!confirm(`Delete all episodes of "${showName}"? They will be re-downloaded next run.`)) return;
   const r = await fetch('/api/db/buckets/series');
+  if (!r.ok) { dbShowError('Could not load series list: ' + r.status); return; }
   const data = await r.json();
   const keys = (data.entries || []).filter(e => e.key.startsWith(showName + '|')).map(e => e.key);
-  await Promise.all(keys.map(key => fetch('/api/db/entries/series', {
+  const results = await Promise.all(keys.map(key => fetch('/api/db/entries/series', {
     method: 'DELETE', headers: {'Content-Type':'application/json'}, body: JSON.stringify({key}),
   })));
+  const failed = results.filter(res => !res.ok).length;
+  if (failed) dbShowError(`${failed} of ${keys.length} deletion(s) failed`);
   await selectDBBucket('series');
   await loadDBSidebar();
 }
@@ -261,6 +292,6 @@ async function dbDeleteEntry(bucket, key) {
     method: 'DELETE', headers: {'Content-Type':'application/json'}, body: JSON.stringify({key}),
   });
   if (r.ok) { await selectDBBucket(bucket); await loadDBSidebar(); }
-  else alert('Error: ' + await r.text());
+  else dbShowError(await r.text());
 }
 
