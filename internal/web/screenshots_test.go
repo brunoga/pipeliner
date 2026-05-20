@@ -414,13 +414,14 @@ func TestScreenshots(t *testing.T) {
 	})
 
 	// ── 15. Function editor — two-row toolbar with fn name and Params panel ───
+	// Uses traktListFunctionConfig which reliably produces a function chip.
 	t.Run("fn_editor", func(t *testing.T) {
-		ts := startTestServer(t, normalConfig)
+		ts := startTestServer(t, traktListFunctionConfig)
 		page := newPage(t)
 		defer page.Close() //nolint:errcheck
 		login(t, page, ts.url)
 		openConfigTab(t, page)
-		switchToVisual(t, page, fnEditorConfig)
+		switchToVisual(t, page, traktListFunctionConfig)
 		// Wait for the function chip to appear in the palette.
 		waitLocatorVisible(t, page.Locator(`.ve-chip-fn`).First())
 		pause(300)
@@ -430,7 +431,8 @@ func TestScreenshots(t *testing.T) {
 		}
 		// Wait for the fn-bar to become visible.
 		waitLocatorVisible(t, page.Locator("#ve-fn-bar"))
-		// Open the params panel.
+		pause(200)
+		// Open the params panel so the screenshot shows both toolbar rows.
 		if err := page.Locator("#ve-fn-bar-params-btn").Click(); err != nil {
 			t.Fatalf("click params btn: %v", err)
 		}
