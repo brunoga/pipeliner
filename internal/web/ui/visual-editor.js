@@ -4429,11 +4429,21 @@ function dagToStarlark() {
       }
 
       if (n.plugin === 'route') {
-        // route(upstream, port1="cond1", port2="cond2", ...)
+        // route(upstream, port1="cond1", port2=port("cond2", guarantees=[...], masks=[...]))
         const rules = n.config?.rules || [];
         const portParts = rules
           .filter(r => r.name && r.accept)
-          .map(r => `${r.name}=${starLit(r.accept)}`);
+          .map(r => {
+            const gs = Array.isArray(r.guarantees) ? r.guarantees.filter(Boolean) : [];
+            const ms = Array.isArray(r.masks)      ? r.masks.filter(Boolean)      : [];
+            if (!gs.length && !ms.length) {
+              return `${r.name}=${starLit(r.accept)}`;
+            }
+            const portArgs = [starLit(r.accept)];
+            if (gs.length) portArgs.push(`guarantees=[${gs.map(starLit).join(', ')}]`);
+            if (ms.length) portArgs.push(`masks=[${ms.map(starLit).join(', ')}]`);
+            return `${r.name}=port(${portArgs.join(', ')})`;
+          });
         const parts = fromStr ? [fromStr, ...portParts] : portParts;
         lines.push(`${n.id} = route(${parts.join(', ')})`);
       } else if (n.isFunctionCall || ve.userFunctions[n.plugin]) {
@@ -4617,7 +4627,9 @@ function syncRoutePorts(routeNode, g) {
       upstreams: [routeNode.id],
       searchNodeIds: [], listNodeIds: [], portNodeIds: [], comment: '',
       isRoutePort: true, routeParentId: routeNode.id,
-      routePortName: displayName || name,
+      routePortName:  displayName || name,
+      portGuarantees: rules[wi]?.guarantees || [],
+      portMasks:      rules[wi]?.masks       || [],
       x: null, y: null,
     });
     if (!routeNode.portNodeIds) routeNode.portNodeIds = [];
@@ -4782,9 +4794,11 @@ async function textToVisualSync() {
         const existing = nodes.find(n => n.id === raw.id);
         if (existing) {
           // Already added as a regular node — convert it in place.
-          existing.isRoutePort   = true;
-          existing.routeParentId = raw.route_parent_id;
-          existing.routePortName  = raw.route_port_name;
+          existing.isRoutePort      = true;
+          existing.routeParentId    = raw.route_parent_id;
+          existing.routePortName    = raw.route_port_name;
+          existing.portGuarantees   = raw.port_guarantees || [];
+          existing.portMasks        = raw.port_masks       || [];
           nodes[parentIdx].portNodeIds.push(raw.id);
         } else {
           nodes[parentIdx].portNodeIds.push(raw.id);
@@ -4793,7 +4807,9 @@ async function textToVisualSync() {
             upstreams: raw.upstreams || [],
             searchNodeIds: [], listNodeIds: [], portNodeIds: [], comment: '',
             isRoutePort: true, routeParentId: raw.route_parent_id,
-            routePortName: raw.route_port_name,
+            routePortName:  raw.route_port_name,
+            portGuarantees: raw.port_guarantees || [],
+            portMasks:      raw.port_masks       || [],
             x: raw.x ?? null, y: raw.y ?? null,
           });
         }

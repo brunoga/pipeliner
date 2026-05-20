@@ -29,6 +29,27 @@ import (
 	"github.com/brunoga/pipeliner/internal/store"
 )
 
+// configStringSlice reads a []string or []any{string...} value from a config map.
+func configStringSlice(cfg map[string]any, key string) []string {
+	v, ok := cfg[key]
+	if !ok {
+		return nil
+	}
+	switch t := v.(type) {
+	case []string:
+		return t
+	case []any:
+		out := make([]string, 0, len(t))
+		for _, item := range t {
+			if s, ok := item.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+	return nil
+}
+
 // RouteGroupKey is the config key used to tag route and route_selector nodes
 // with their shared group ID. The DAG validator uses this to detect
 // mutually-exclusive merge points and apply union semantics for certain fields.
@@ -55,7 +76,9 @@ func init() {
 		Internal:    true,
 		Factory:     newSelectorPlugin,
 		Validate: func(cfg map[string]any) []error {
-			return plugin.OptUnknownKeys(cfg, "route_selector", "_route_port_name", RouteGroupKey)
+			return plugin.OptUnknownKeys(cfg, "route_selector",
+				"_route_port_name", RouteGroupKey,
+				"_port_guarantees", "_port_masks")
 		},
 	})
 }
@@ -143,6 +166,7 @@ func (p *routePlugin) Process(ctx context.Context, tc *plugin.TaskContext, entri
 
 type selectorPlugin struct {
 	portName string
+	masks    []string // fields to strip from passing entries
 }
 
 func newSelectorPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
@@ -150,7 +174,10 @@ func newSelectorPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin,
 	if name == "" {
 		return nil, fmt.Errorf("route_selector: missing _route_port_name")
 	}
-	return &selectorPlugin{portName: name}, nil
+	return &selectorPlugin{
+		portName: name,
+		masks:    configStringSlice(cfg, "_port_masks"),
+	}, nil
 }
 
 func (p *selectorPlugin) Name() string { return "route_selector" }
@@ -162,6 +189,11 @@ func (p *selectorPlugin) Process(_ context.Context, _ *plugin.TaskContext, entri
 		}
 		if port, _ := e.Get(entry.FieldRoutePort); port != p.portName {
 			e.Reject(fmt.Sprintf("route_selector: entry belongs to port %q, not %q", port, p.portName))
+			continue
+		}
+		// Strip masked fields so runtime behaviour matches the validator's model.
+		for _, f := range p.masks {
+			e.Delete(f)
 		}
 	}
 	return entry.PassThrough(entries), nil
