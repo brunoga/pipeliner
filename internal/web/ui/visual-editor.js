@@ -923,9 +923,9 @@ function renderPipelineRegions() {
     region.style.height = dispHeight + 'px';
     region.style.left   = regionLeft + 'px';
     region.style.width  = regionWidth + 'px';
-    region.addEventListener('pointerdown', e => {
-      if (e.target === region) { ve.activeGraph = i; renderPipelineRegions(); }
-    });
+    // Pipeline selection is handled by the canvas body pointerdown handler
+    // via findGraphAtPosition — pointer-events:none on regions prevents direct
+    // event handling here.
     if (!g.nodes.length) {
       region.innerHTML = '<div class="ve-region-hint">Drop plugins from the palette to build this pipeline</div>';
     }
@@ -1798,11 +1798,21 @@ function initCanvasEvents() {
           }
           updateExtractButton(); // also calls updateCopyButton
         } else {
-          // Pure click on empty canvas → deselect everything.
+          // Pure click on empty canvas → deselect and select the pipeline region
+          // that was clicked (pipeline regions have pointer-events:none so they
+          // can't receive events directly; we detect via canvas coordinates).
           const prev = ve.selectedNodeId;
           ve.selectedNodeId = null;
           if (prev) document.querySelector(`.ve-node[data-id="${prev}"]`)?.classList.remove('selected');
           clearMultiSelect();
+          const br = body.getBoundingClientRect();
+          const cx = (startX - br.left - ve_panX) / ve_zoom;
+          const cy = (startY - br.top  - ve_panY) / ve_zoom;
+          const gi = findGraphAtPosition(cx, cy);
+          if (gi >= 0 && gi !== ve.activeGraph) {
+            ve.activeGraph = gi;
+            renderPipelineRegions();
+          }
           renderEdges();
           renderParamPanel();
         }
