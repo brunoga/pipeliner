@@ -579,9 +579,11 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 		Y               *float64        `json:"y,omitempty"`
 		FunctionCallKey string          `json:"function_call_key,omitempty"`
 		// Route port fields — set on route_selector nodes.
-		IsRoutePort   bool   `json:"is_route_port,omitempty"`
-		RoutePortName string `json:"route_port_name,omitempty"`
-		RouteParentID string `json:"route_parent_id,omitempty"`
+		IsRoutePort      bool     `json:"is_route_port,omitempty"`
+		RoutePortName    string   `json:"route_port_name,omitempty"`
+		RouteParentID    string   `json:"route_parent_id,omitempty"`
+		PortGuarantees   []string `json:"port_guarantees,omitempty"`
+		PortMasks        []string `json:"port_masks,omitempty"`
 	}
 	type funcCallResp struct {
 		CallKey         string         `json:"call_key"`
@@ -702,6 +704,8 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 			// Strip internal route fields from the config before sending to UI.
 			delete(cfg, "_route_group")
 			delete(cfg, "_route_port_name")
+			delete(cfg, "_port_guarantees")
+			delete(cfg, "_port_masks")
 
 			nr := nodeResp{
 				ID:              string(n.ID),
@@ -721,6 +725,9 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 				if len(n.Upstreams) == 1 {
 					nr.RouteParentID = string(n.Upstreams[0])
 				}
+				// Expose guarantees/masks so the visual editor can round-trip them.
+				nr.PortGuarantees = configStringSlice(n.Config, "_port_guarantees")
+				nr.PortMasks = configStringSlice(n.Config, "_port_masks")
 			}
 			if pos, ok := nodePositions[string(n.ID)]; ok {
 				x, y := pos.Main[0], pos.Main[1]
@@ -903,6 +910,28 @@ func scanComments(content string) (
 		}
 	}
 	return
+}
+
+// configStringSlice reads a string slice stored as []string or []any from a
+// node config map (Starlark-derived configs store lists as []any).
+func configStringSlice(cfg map[string]any, key string) []string {
+	v, ok := cfg[key]
+	if !ok {
+		return nil
+	}
+	switch t := v.(type) {
+	case []string:
+		return t
+	case []any:
+		out := make([]string, 0, len(t))
+		for _, item := range t {
+			if s, ok := item.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+	return nil
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

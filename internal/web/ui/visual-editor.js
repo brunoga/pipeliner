@@ -2673,12 +2673,14 @@ function renderField(f, config, node) {
         break;
       }
       case 'rule_list': {
-        // Structured list of {name, accept} route rules.
+        // Structured list of {name, accept, guarantees?, masks?} route rules.
         const rules = Array.isArray(val) ? val : [];
         const nid   = esc(JSON.stringify(node?.id ?? ''));
         const fkey  = esc(f.key);
         const rows  = rules.map((r, i) => {
           const rObj = (typeof r === 'object' && r) ? r : {name: '', accept: String(r ?? '')};
+          const gs = Array.isArray(rObj.guarantees) ? rObj.guarantees.join(' ') : (rObj.guarantees || '');
+          const ms = Array.isArray(rObj.masks)      ? rObj.masks.join(' ')      : (rObj.masks      || '');
           return `<tr class="ve-rule-row" data-idx="${i}">
             <td><input class="ve-rule-name" placeholder="port name" value="${esc(rObj.name ?? '')}"
               oninput="updateRuleNameOnly(${nid},'${fkey}',${i},this.value)"
@@ -2686,6 +2688,18 @@ function renderField(f, config, node) {
             <td><input class="ve-rule-cond" placeholder="condition expression" value="${esc(rObj.accept ?? '')}"
               oninput="updateRuleField(${nid},'${fkey}',${i},'accept',this.value)"></td>
             <td><button class="ve-rule-del" onclick="removeRule(${nid},'${fkey}',${i})">×</button></td>
+          </tr>
+          <tr class="ve-rule-meta" data-idx="${i}">
+            <td colspan="3"><div class="ve-rule-fields">
+              <span class="ve-rule-meta-label g">guarantees</span>
+              <input class="ve-rule-meta-input" placeholder="field names…" value="${esc(gs)}"
+                title="Space-separated field names guaranteed present on entries through this port"
+                onchange="updateRuleFieldList(${nid},'${fkey}',${i},'guarantees',this.value)">
+              <span class="ve-rule-meta-label m">masks</span>
+              <input class="ve-rule-meta-input" placeholder="field names…" value="${esc(ms)}"
+                title="Space-separated field names stripped from entries through this port (Requires them downstream = hard error)"
+                onchange="updateRuleFieldList(${nid},'${fkey}',${i},'masks',this.value)">
+            </div></td>
           </tr>`;
         }).join('');
         widget = `<table class="ve-rule-table">
@@ -2790,6 +2804,21 @@ function updateRuleField(nodeId, field, idx, key, value) {
   if (!node || !Array.isArray(node.config[field])) return;
   if (!node.config[field][idx]) node.config[field][idx] = {};
   node.config[field][idx][key] = value;
+  onModelChange();
+}
+
+// updateRuleFieldList updates a list-typed field on a rule (guarantees or masks).
+// Accepts space- or comma-separated field names; stores as an array.
+function updateRuleFieldList(nodeId, field, idx, key, value) {
+  const node = findNode(nodeId);
+  if (!node || !Array.isArray(node.config[field])) return;
+  if (!node.config[field][idx]) node.config[field][idx] = {};
+  const items = value.split(/[\s,]+/).map(s => s.trim()).filter(Boolean);
+  if (items.length > 0) {
+    node.config[field][idx][key] = items;
+  } else {
+    delete node.config[field][idx][key];
+  }
   onModelChange();
 }
 
@@ -4429,11 +4458,21 @@ function dagToStarlark() {
       }
 
       if (n.plugin === 'route') {
-        // route(upstream, port1="cond1", port2="cond2", ...)
+        // route(upstream, port1="cond1", port2=port("cond2", guarantees=[...], masks=[...]))
         const rules = n.config?.rules || [];
         const portParts = rules
           .filter(r => r.name && r.accept)
-          .map(r => `${r.name}=${starLit(r.accept)}`);
+          .map(r => {
+            const gs = Array.isArray(r.guarantees) ? r.guarantees.filter(Boolean) : [];
+            const ms = Array.isArray(r.masks)      ? r.masks.filter(Boolean)      : [];
+            if (!gs.length && !ms.length) {
+              return `${r.name}=${starLit(r.accept)}`;
+            }
+            const portArgs = [starLit(r.accept)];
+            if (gs.length) portArgs.push(`guarantees=[${gs.map(starLit).join(', ')}]`);
+            if (ms.length) portArgs.push(`masks=[${ms.map(starLit).join(', ')}]`);
+            return `${r.name}=port(${portArgs.join(', ')})`;
+          });
         const parts = fromStr ? [fromStr, ...portParts] : portParts;
         lines.push(`${n.id} = route(${parts.join(', ')})`);
       } else if (n.isFunctionCall || ve.userFunctions[n.plugin]) {
@@ -4605,10 +4644,15 @@ function syncRoutePorts(routeNode, g) {
     changed = true;
   }
 
-  // Add ports for new rules (wanted already has fallback names for empty rules).
+  // Add ports for new rules; sync guarantees/masks on existing ones.
   for (let wi = 0; wi < wanted.length; wi++) {
     const name = wanted[wi];
-    if (byName[name]) continue;
+    if (byName[name]) {
+      // Port already exists — keep it but refresh guarantees/masks from the rule.
+      byName[name].portGuarantees = Array.isArray(rules[wi]?.guarantees) ? rules[wi].guarantees : [];
+      byName[name].portMasks      = Array.isArray(rules[wi]?.masks)      ? rules[wi].masks      : [];
+      continue;
+    }
     // Display label: use actual rule name if available, else placeholder.
     const displayName = rules[wi]?.name || '';
     const portId = `${routeNode.id}__port__${name}`;
@@ -4617,7 +4661,9 @@ function syncRoutePorts(routeNode, g) {
       upstreams: [routeNode.id],
       searchNodeIds: [], listNodeIds: [], portNodeIds: [], comment: '',
       isRoutePort: true, routeParentId: routeNode.id,
-      routePortName: displayName || name,
+      routePortName:  displayName || name,
+      portGuarantees: rules[wi]?.guarantees || [],
+      portMasks:      rules[wi]?.masks       || [],
       x: null, y: null,
     });
     if (!routeNode.portNodeIds) routeNode.portNodeIds = [];
@@ -4782,9 +4828,11 @@ async function textToVisualSync() {
         const existing = nodes.find(n => n.id === raw.id);
         if (existing) {
           // Already added as a regular node — convert it in place.
-          existing.isRoutePort   = true;
-          existing.routeParentId = raw.route_parent_id;
-          existing.routePortName  = raw.route_port_name;
+          existing.isRoutePort      = true;
+          existing.routeParentId    = raw.route_parent_id;
+          existing.routePortName    = raw.route_port_name;
+          existing.portGuarantees   = raw.port_guarantees || [];
+          existing.portMasks        = raw.port_masks       || [];
           nodes[parentIdx].portNodeIds.push(raw.id);
         } else {
           nodes[parentIdx].portNodeIds.push(raw.id);
@@ -4793,7 +4841,9 @@ async function textToVisualSync() {
             upstreams: raw.upstreams || [],
             searchNodeIds: [], listNodeIds: [], portNodeIds: [], comment: '',
             isRoutePort: true, routeParentId: raw.route_parent_id,
-            routePortName: raw.route_port_name,
+            routePortName:  raw.route_port_name,
+            portGuarantees: raw.port_guarantees || [],
+            portMasks:      raw.port_masks       || [],
             x: raw.x ?? null, y: raw.y ?? null,
           });
         }

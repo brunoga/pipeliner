@@ -101,6 +101,11 @@ func (e *Entry) Set(key string, value any) {
 	e.Fields[key] = value
 }
 
+// Delete removes a field from the entry's Fields map. No-op if absent.
+func (e *Entry) Delete(key string) {
+	delete(e.Fields, key)
+}
+
 // FilterAccepted returns entries that are Accepted and not Consumed. Used by
 // SinkPlugin implementations and the executor to pass entries to subsequent
 // sinks. Consumed entries (marked by a prior sink via e.Consume()) are

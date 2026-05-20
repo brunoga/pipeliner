@@ -122,6 +122,37 @@ movie_out = output("print", upstream=routes.movies)
 pipeline("route-demo", schedule="1h")
 `
 
+// routePortContractsConfig: same topology but uses port() with guarantees/masks.
+// Used to screenshot the param panel showing the sub-row inputs.
+const routePortContractsConfig = `
+src    = input("rss", url="https://feeds.example.com/all.rss")
+seen   = process("seen", upstream=src)
+q      = process("metainfo_quality", upstream=seen)
+routes = route(q,
+    torrent = port("torrent_url != ''",
+                   guarantees=["torrent_url"],
+                   masks=["magnet_url"]),
+    magnet  = port("magnet_url != ''",
+                   guarantees=["magnet_url"],
+                   masks=["torrent_url"]))
+torrent_out = output("print", upstream=routes.torrent)
+magnet_out  = output("print", upstream=routes.magnet)
+pipeline("port-contracts-demo", schedule="1h")
+`
+
+// fnEditorConfig: a pipeline with a user function so we can open the fn editor.
+const fnEditorConfig = `
+def enrich(upstream):
+    q = process("metainfo_quality", upstream=upstream)
+    return q
+
+src    = input("rss", url="https://feeds.example.com/tv.rss")
+seen   = process("seen", upstream=src)
+result = enrich(upstream=seen)
+sink   = output("print", upstream=result)
+pipeline("fn-demo", schedule="1h")
+`
+
 // TestScreenshots generates UI screenshots for the user guide.
 func TestScreenshots(t *testing.T) {
 	dir := screenshotOutDir(t)
@@ -136,6 +167,14 @@ func TestScreenshots(t *testing.T) {
 		}
 		if err := page.SetViewportSize(1400, 900); err != nil {
 			t.Fatalf("set viewport: %v", err)
+		}
+		// Headless Chromium defaults to prefers-color-scheme: light, which
+		// triggers our light-mode CSS override. Force dark so screenshots
+		// always show the intended dark theme.
+		if err := page.EmulateMedia(playwright.PageEmulateMediaOptions{
+			ColorScheme: playwright.ColorSchemeDark,
+		}); err != nil {
+			t.Fatalf("emulate dark: %v", err)
 		}
 		return page
 	}
@@ -305,6 +344,109 @@ func TestScreenshots(t *testing.T) {
 		waitLocatorVisible(t, page.Locator("#tab-db"))
 		pause(400)
 		screenshotPage(t, page, dir, "ui-database-tab.png")
+	})
+
+	// ── 12. Text / config editor — fills the viewport height ─────────────────
+	t.Run("text_editor", func(t *testing.T) {
+		ts := startTestServer(t, normalConfig)
+		page := newPage(t)
+		defer page.Close() //nolint:errcheck
+		login(t, page, ts.url)
+		openConfigTab(t, page)
+		// Switch to text view.
+		if err := page.Locator("#view-btn-text").Click(); err != nil {
+			t.Fatalf("click text view: %v", err)
+		}
+		waitLocatorVisible(t, page.Locator("#view-text"))
+		if err := page.Locator("#config-editor").Fill(normalConfig); err != nil {
+			t.Fatalf("fill editor: %v", err)
+		}
+		pause(400)
+		screenshotLocator(t, page.Locator("#tab-config > section"), dir, "ui-text-editor.png")
+	})
+
+	// ── 13. route() with port() field contracts — param panel sub-rows ────────
+	t.Run("route_port_contracts", func(t *testing.T) {
+		ts := startTestServer(t, normalConfig)
+		page := newPage(t)
+		defer page.Close() //nolint:errcheck
+		login(t, page, ts.url)
+		openConfigTab(t, page)
+		switchToVisual(t, page, routePortContractsConfig)
+		// Wait for route node then click it to open the param panel.
+		waitLocatorVisible(t, page.Locator(`.ve-node-name:has-text("route")`).First())
+		if err := page.Locator(`.ve-node[data-id="route_3"]`).Click(); err != nil {
+			// Fallback: click the first route node found.
+			if err2 := page.Locator(`.ve-node-name:has-text("route")`).First().Click(); err2 != nil {
+				t.Fatalf("click route node: %v / %v", err, err2)
+			}
+		}
+		// Wait for the guarantees sub-row to appear in the param panel.
+		waitLocatorVisible(t, page.Locator(".ve-rule-meta").First())
+		pause(400)
+		screenshotLocator(t, page.Locator("#view-visual"), dir, "ui-route-port-contracts.png")
+	})
+
+	// ── 14. Multi-select — nodes selected with Copy/Cut/Undo toolbar ──────────
+	t.Run("multi_select", func(t *testing.T) {
+		ts := startTestServer(t, normalConfig)
+		page := newPage(t)
+		defer page.Close() //nolint:errcheck
+		login(t, page, ts.url)
+		openConfigTab(t, page)
+		switchToVisual(t, page, normalConfig)
+		waitLocatorVisible(t, page.Locator(".ve-node").First())
+		pause(400)
+
+		// Click first node, then Cmd/Ctrl+click second node to multi-select.
+		if err := page.Locator(`.ve-node[data-id="metainfo_quality_1"]`).Click(); err != nil {
+			t.Fatalf("click first node: %v", err)
+		}
+		pause(200)
+		if err := page.Keyboard().Down("Meta"); err != nil {
+			t.Fatalf("meta down: %v", err)
+		}
+		if err := page.Locator(`.ve-node[data-id="upgrade_2"]`).Click(); err != nil {
+			// Try Ctrl key on non-Mac.
+			page.Keyboard().Up("Meta") //nolint:errcheck
+			page.Keyboard().Down("Control") //nolint:errcheck
+			page.Locator(`.ve-node[data-id="upgrade_2"]`).Click() //nolint:errcheck
+			page.Keyboard().Up("Control") //nolint:errcheck
+		} else {
+			page.Keyboard().Up("Meta") //nolint:errcheck
+		}
+		// Wait for Copy and Cut buttons to appear.
+		waitLocatorVisible(t, page.Locator("#ve-copy-btn"))
+		pause(300)
+		screenshotLocator(t, page.Locator("#view-visual"), dir, "ui-multi-select.png")
+	})
+
+	// ── 15. Function editor — two-row toolbar with fn name and Params panel ───
+	// Uses traktListFunctionConfig which reliably produces a function chip.
+	t.Run("fn_editor", func(t *testing.T) {
+		ts := startTestServer(t, traktListFunctionConfig)
+		page := newPage(t)
+		defer page.Close() //nolint:errcheck
+		login(t, page, ts.url)
+		openConfigTab(t, page)
+		switchToVisual(t, page, traktListFunctionConfig)
+		// Wait for the function chip to appear in the palette.
+		waitLocatorVisible(t, page.Locator(`.ve-chip-fn`).First())
+		pause(300)
+		// Click the edit (pencil) button on the function chip.
+		if err := page.Locator(`.ve-chip-fn-edit`).First().Click(); err != nil {
+			t.Fatalf("click fn edit: %v", err)
+		}
+		// Wait for the fn-bar to become visible.
+		waitLocatorVisible(t, page.Locator("#ve-fn-bar"))
+		pause(200)
+		// Open the params panel so the screenshot shows both toolbar rows.
+		if err := page.Locator("#ve-fn-bar-params-btn").Click(); err != nil {
+			t.Fatalf("click params btn: %v", err)
+		}
+		waitLocatorVisible(t, page.Locator("#ve-fn-params-panel"))
+		pause(400)
+		screenshotLocator(t, page.Locator("#view-visual"), dir, "ui-fn-editor.png")
 	})
 
 }
