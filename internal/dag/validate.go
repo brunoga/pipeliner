@@ -87,14 +87,26 @@ func Validate(g *Graph, reg func(name string) (*plugin.Descriptor, bool)) (errs,
 					}
 				}
 				if routeGroup := sharedRouteGroup(n.Upstreams, g, reg); routeGroup != "" {
-					// All upstreams are ports of the same route — every entry
-					// arrives from exactly one port, so the union of certain
-					// fields is still guaranteed for that entry.
-					cert = make(map[string]bool)
-					for _, upID := range n.Upstreams {
-						for f := range certain[upID] {
-							cert[f] = true
+					// All upstreams are ports of the same route (mutually
+					// exclusive branches — every entry arrives from exactly
+					// one port). Use INTERSECTION so that fields masked on
+					// any branch are not falsely considered certain after the
+					// merge. Without masking all branch cert sets are
+					// identical so intersection == union (no behaviour change).
+					cert = nil
+					for i, upID := range n.Upstreams {
+						if i == 0 {
+							cert = copySet(certain[upID])
+						} else {
+							for f := range cert {
+								if !certain[upID][f] {
+									delete(cert, f)
+								}
+							}
 						}
+					}
+					if cert == nil {
+						cert = make(map[string]bool)
 					}
 				} else {
 					cert = nil
@@ -113,6 +125,19 @@ func Validate(g *Graph, reg func(name string) (*plugin.Descriptor, bool)) (errs,
 						cert = make(map[string]bool)
 					}
 				}
+			}
+
+			// Apply port masks: remove fields from this branch's sets.
+			// Downstream Requires for a masked field becomes a hard error.
+			for _, f := range configStringSlice(n.Config, "_port_masks") {
+				delete(reach, f)
+				delete(cert, f)
+			}
+			// Apply port guarantees: promote fields to certain on this branch.
+			// Converts MayProduce (reachable only) to Produces (certain) here.
+			for _, f := range configStringSlice(n.Config, "_port_guarantees") {
+				reach[f] = true
+				cert[f] = true
 			}
 
 			// Check Requires groups against reachable/certain.
@@ -223,4 +248,26 @@ func copySet(s map[string]bool) map[string]bool {
 		out[k] = v
 	}
 	return out
+}
+
+// configStringSlice reads a []string or []any{string...} value from a node
+// config map. Handles both native Go []string and Starlark-derived []any.
+func configStringSlice(cfg map[string]any, key string) []string {
+	v, ok := cfg[key]
+	if !ok {
+		return nil
+	}
+	switch t := v.(type) {
+	case []string:
+		return t
+	case []any:
+		out := make([]string, 0, len(t))
+		for _, item := range t {
+			if s, ok := item.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+	return nil
 }
