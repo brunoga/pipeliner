@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -84,16 +85,28 @@ func containsField(fields []string, name string) bool {
 	return false
 }
 
+// getFields is a test helper that fetches /api/fields with a context so the
+// noctx linter is satisfied.
+func getFields(t *testing.T, baseURL string) *http.Response {
+	t.Helper()
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, baseURL+"/api/fields", nil)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET /api/fields: %v", err)
+	}
+	return resp
+}
+
 // ── GET /api/fields ───────────────────────────────────────────────────────────
 
 func TestAPIFieldsReturnsArray(t *testing.T) {
 	ts := newFieldsServer(t)
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/api/fields")
-	if err != nil {
-		t.Fatalf("GET /api/fields: %v", err)
-	}
+	resp := getFields(t, ts.URL)
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
@@ -113,7 +126,7 @@ func TestAPIFieldsContainsRequiredProperties(t *testing.T) {
 	ts := newFieldsServer(t)
 	defer ts.Close()
 
-	resp, _ := http.Get(ts.URL + "/api/fields")
+	resp := getFields(t, ts.URL)
 	defer resp.Body.Close()
 
 	var fields []map[string]any
@@ -140,7 +153,7 @@ func TestAPIFieldsContainsWellKnownFields(t *testing.T) {
 	ts := newFieldsServer(t)
 	defer ts.Close()
 
-	resp, _ := http.Get(ts.URL + "/api/fields")
+	resp := getFields(t, ts.URL)
 	defer resp.Body.Close()
 
 	var fields []map[string]any
@@ -175,7 +188,7 @@ func TestAPIFieldsKnownValuesForEnum(t *testing.T) {
 	ts := newFieldsServer(t)
 	defer ts.Close()
 
-	resp, _ := http.Get(ts.URL + "/api/fields")
+	resp := getFields(t, ts.URL)
 	defer resp.Body.Close()
 
 	var fields []map[string]any

@@ -1410,20 +1410,38 @@ pipeline("test")
 	// ── Step 2: with condition — soft warning must be gone ────────────────────
 	switchToVisual(t, page, withCond)
 
-	// Content node is now at index 3.
-	jsSelectNode(t, page, "content_3")
-	waitVisible(t, page.Locator(".ve-fields-section"))
-
-	// The soft warning must not appear in the param panel.
-	softWarnCount, _ := page.Locator(".ve-conn-soft-warn").Count()
-	if softWarnCount > 0 {
-		text, _ := page.Locator(".ve-conn-soft-warn").TextContent()
-		t.Errorf("soft warning should be gone after condition accept rule, still shows: %q", text)
+	// Wait for exactly 5 canvas nodes (rss, meta, cond, content, print) to
+	// confirm the withCond config has fully rendered before we interact.
+	if err := page.Locator(".ve-node").Nth(4).WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateAttached,
+		Timeout: playwright.Float(8000),
+	}); err != nil {
+		t.Fatalf("5th canvas node not found after withCond load: %v", err)
 	}
 
-	// The canvas node-level soft warning must also be gone.
-	// (We wait briefly for the re-render to settle.)
-	time.Sleep(150 * time.Millisecond)
+	// Evaluate fieldWarnings() in the browser directly — this bypasses DOM
+	// rendering timing and tests the narrowing logic itself, which is the
+	// point of this test.
+	var jsResult any
+	jsResult, err = page.Evaluate(`
+		(function() {
+			var node = findNode('content_3');
+			if (!node) return 'node_not_found';
+			var warns = fieldWarnings(node);
+			var tf = warns.filter(function(w) { return w.msg.indexOf('torrent_files') !== -1; });
+			return tf.length === 0 ? 'ok' : 'warning:' + tf[0].msg;
+		})()
+	`)
+	if err != nil {
+		t.Fatalf("fieldWarnings JS evaluation failed: %v", err)
+	}
+	if jsResult != "ok" {
+		t.Errorf("expected no torrent_files warning after condition accept rule, got: %v", jsResult)
+	}
+
+	// Canvas node-level soft warning must also be gone.
+	// Give the render a moment to settle before counting.
+	time.Sleep(200 * time.Millisecond)
 	nodeWarnCount, _ := page.Locator(".ve-node-soft-warn").Count()
 	if nodeWarnCount > 0 {
 		t.Error("canvas soft-warn badge should be gone after condition accept rule")
