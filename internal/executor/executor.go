@@ -172,10 +172,11 @@ func (ex *Executor) Run(ctx context.Context) (*Result, error) {
 
 	// Commit phase: call CommitPlugin.Commit for all processor nodes that
 	// implement CommitPlugin, passing only entries not failed by any sink.
+commitLoop:
 	for _, layer := range layers {
 		for _, n := range layer {
 			if ctx.Err() != nil {
-				break
+				break commitLoop
 			}
 			pi, ok := ex.plugins[n.ID]
 			if !ok {
