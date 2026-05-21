@@ -14,6 +14,7 @@ func init() {
 		Description: "return recent results from Jackett indexers as pipeline entries (no query required)",
 		Role:        plugin.RoleSource,
 		Produces: []string{
+			entry.FieldSource,
 			entry.FieldPublishedDate,
 			entry.FieldTorrentSeeds,
 			entry.FieldTorrentLeechers,

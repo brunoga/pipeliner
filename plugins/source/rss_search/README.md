@@ -39,13 +39,23 @@ pipeline("nyaa-browse", schedule="1h")
 
 ## Fields set on entry
 
-Same fields as the `rss` plugin: `title`, `description`, `published_date`, `rss_feed`, `rss_guid`, `rss_link`, `rss_enclosure_url`, `rss_enclosure_type`. `torrent_seeds` is set when torrent namespace extensions are present in the feed.
+| Field | Description |
+|-------|-------------|
+| `source` | Origin in the form `rss_search:<hostname>` (e.g. `rss_search:nyaa.si`) |
+| `title` | Item title |
+| `rss_feed` | Rendered search URL used to fetch this batch of results |
+| `description` | Item description or summary (if present) |
+| `published_date` | Publication date string (if present) |
+| `rss_guid` | Item GUID (if present) |
+| `rss_link` | Item link (if present) |
+| `rss_enclosure_url` | Enclosure URL (if present) |
+| `rss_enclosure_type` | Enclosure MIME type (if present) |
 
 ## DAG role
 
 | Property | Value |
 |----------|-------|
 | Role | `source` |
-| Produces | `title`, `rss_feed`, `rss_guid`, `rss_link`, `rss_enclosure_url`, `rss_enclosure_type` |
-| MayProduce | `description`, `published_date`, `torrent_seeds` |
+| Produces | `source`, `title`, `rss_feed` |
+| MayProduce | `description`, `published_date`, `rss_guid`, `rss_link`, `rss_enclosure_url`, `rss_enclosure_type` |
 | Requires | — |

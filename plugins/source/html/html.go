@@ -21,7 +21,7 @@ func init() {
 		PluginName:  "html",
 		Description: "extract links from an HTML page",
 		Role:        plugin.RoleSource,
-		Produces:    []string{"html_page"},
+		Produces:    []string{entry.FieldSource, "html_page"},
 		Factory:  newPlugin,
 		Validate: validate,
 		Schema: []plugin.FieldSchema{
@@ -106,9 +106,18 @@ func (p *htmlPlugin) Generate(ctx context.Context, _ *plugin.TaskContext) ([]*en
 		}
 		e := entry.New(title, href)
 		e.Set("html_page", p.pageURL)
+		e.Set(entry.FieldSource, "html:"+hostFromURL(p.pageURL))
 		entries = append(entries, e)
 	}
 	return entries, nil
+}
+
+func hostFromURL(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Host == "" {
+		return rawURL
+	}
+	return u.Host
 }
 
 // link holds the extracted href and inner text of an <a> element.

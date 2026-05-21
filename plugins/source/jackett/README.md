@@ -26,7 +26,7 @@ See also [`jackett_search`](../jackett_search/README.md) — the Torznab search 
 | `torrent_info_hash` | SHA-1 info hash, if provided |
 | `torrent_link_type` | `"torrent"` or `"magnet"` |
 | `jackett_category` | Torznab category code |
-| `jackett_indexer` | Source indexer name |
+| `source` | Origin in the form `jackett:<indexer>` (e.g. `jackett:1337x`) |
 
 ## Common Torznab categories
 
@@ -57,7 +57,8 @@ pipeline("new-shows", schedule="1h")
 | Property | Value |
 |----------|-------|
 | Role | `source` |
-| Produces | `torrent_seeds`, `torrent_leechers`, `torrent_file_size`, `torrent_info_hash`, `torrent_link_type`, `jackett_category`, `jackett_indexer` |
+| Produces | `source`, `torrent_seeds`, `torrent_leechers`, `torrent_file_size`, `torrent_info_hash`, `torrent_link_type`, `published_date` |
+| MayProduce | `jackett_category` |
 | MayProduce | `published_date` |
 | Requires | — |
 

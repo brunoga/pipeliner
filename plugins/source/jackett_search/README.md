@@ -25,7 +25,7 @@ Unlike pointing `rss_search` at Jackett's RSS endpoint, this plugin speaks Torzn
 | `torrent_info_hash` | SHA-1 info hash, if provided |
 | `torrent_link_type` | `"torrent"` or `"magnet"` |
 | `jackett_category` | Torznab category code |
-| `jackett_indexer` | Source indexer name |
+| `source` | Origin in the form `jackett:<indexer>` (e.g. `jackett:rutracker`) |
 
 ## Common Torznab categories
 
@@ -74,7 +74,8 @@ pipeline("jackett-tv", schedule="1h")
 | Property | Value |
 |----------|-------|
 | Role | `source` |
-| Produces | `torrent_seeds`, `torrent_leechers`, `torrent_file_size`, `torrent_info_hash`, `torrent_link_type`, `jackett_category`, `jackett_indexer` |
+| Produces | `source`, `torrent_seeds`, `torrent_leechers`, `torrent_file_size`, `torrent_info_hash`, `torrent_link_type` |
+| MayProduce | `jackett_category` |
 | Requires | — |
 
 ## Notes

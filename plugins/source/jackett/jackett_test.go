@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/brunoga/pipeliner/internal/entry"
 	ijackett "github.com/brunoga/pipeliner/internal/jackett"
 	"github.com/brunoga/pipeliner/internal/plugin"
 )
@@ -180,8 +181,8 @@ func TestSearchParsesEntries(t *testing.T) {
 	if v := e.GetString("jackett_category"); v != "5030" {
 		t.Errorf("jackett_category: got %q", v)
 	}
-	if v := e.GetString("jackett_indexer"); v != "all" {
-		t.Errorf("jackett_indexer: got %q", v)
+	if v := e.GetString(entry.FieldSource); v != "jackett:all" {
+		t.Errorf("source: got %q, want \"jackett:all\"", v)
 	}
 }
 

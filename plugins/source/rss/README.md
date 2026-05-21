@@ -15,6 +15,7 @@ Fetches entries from an RSS 2.0 or Atom 1.0 feed. Prefers enclosure URLs (torren
 
 | Field | Description |
 |-------|-------------|
+| `source` | Origin in the form `rss:<hostname>` (e.g. `rss:nyaa.si`) |
 | `title` | Item title |
 | `description` | Item description or summary |
 | `published_date` | Publication date string |
@@ -40,7 +41,8 @@ Fetches entries from an RSS 2.0 or Atom 1.0 feed. Prefers enclosure URLs (torren
 | Property | Value |
 |----------|-------|
 | Role | `source` |
-| Produces | `title`, `rss_feed`, `rss_guid`, `rss_link`, `rss_enclosure_url`, `rss_enclosure_type` |
+| Produces | `source`, `title`, `rss_feed` |
+| MayProduce | `description`, `published_date`, `rss_guid`, `rss_link`, `rss_enclosure_url`, `rss_enclosure_type`, `torrent_seeds` |
 | MayProduce | `description`, `published_date`, `torrent_seeds` |
 | Requires | — |
 
