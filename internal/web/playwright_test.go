@@ -1356,6 +1356,80 @@ func TestPlaywrightRoutePortsOnCard(t *testing.T) {
 	}
 }
 
+// TestE2EConditionEditorClearsSoftWarning verifies that adding a condition
+// node whose accept rule guarantees a required field clears the soft (~)
+// warning that was previously shown on the downstream node.
+func TestE2EConditionEditorClearsSoftWarning(t *testing.T) {
+	// Without condition: content requires torrent_files, metainfo_torrent only
+	// MayProduces it → soft warning on content node.
+	const withoutCond = `
+src   = input("rss", url="https://example.com/rss")
+meta  = process("metainfo_torrent", upstream=src)
+ct    = process("content", upstream=meta, reject=["*.rar"])
+sink  = output("print", upstream=ct)
+pipeline("test")
+`
+	// With condition: same pipeline but a condition node that accepts only entries
+	// where torrent_files is set sits between metainfo_torrent and content.
+	const withCond = `
+src   = input("rss", url="https://example.com/rss")
+meta  = process("metainfo_torrent", upstream=src)
+cond  = process("condition", upstream=meta, accept="torrent_files != \"\"")
+ct    = process("content", upstream=cond, reject=["*.rar"])
+sink  = output("print", upstream=ct)
+pipeline("test")
+`
+	// Start the server with any valid config; we load test configs via the editor.
+	ts := startTestServer(t, minimalConfig)
+	browser, stop := pwSetup(t)
+	defer stop()
+
+	page, _ := browser.NewPage()
+	defer page.Close() //nolint:errcheck
+
+	login(t, page, ts.url)
+	openConfigTab(t, page)
+
+	// ── Step 1: without condition — soft warning must be visible ──────────────
+	switchToVisual(t, page, withoutCond)
+
+	waitVisible(t, page.Locator(".ve-node-soft-warn"))
+
+	// Select the content node (index 2 in this pipeline).
+	jsSelectNode(t, page, "content_2")
+	waitVisible(t, page.Locator(".ve-conn-soft-warn"))
+
+	softWarnText, err := page.Locator(".ve-conn-soft-warn").TextContent()
+	if err != nil {
+		t.Fatalf("get soft warn text: %v", err)
+	}
+	if !contains(softWarnText, "torrent_files") {
+		t.Errorf("expected soft warning about torrent_files, got: %q", softWarnText)
+	}
+
+	// ── Step 2: with condition — soft warning must be gone ────────────────────
+	switchToVisual(t, page, withCond)
+
+	// Content node is now at index 3.
+	jsSelectNode(t, page, "content_3")
+	waitVisible(t, page.Locator(".ve-fields-section"))
+
+	// The soft warning must not appear in the param panel.
+	softWarnCount, _ := page.Locator(".ve-conn-soft-warn").Count()
+	if softWarnCount > 0 {
+		text, _ := page.Locator(".ve-conn-soft-warn").TextContent()
+		t.Errorf("soft warning should be gone after condition accept rule, still shows: %q", text)
+	}
+
+	// The canvas node-level soft warning must also be gone.
+	// (We wait briefly for the re-render to settle.)
+	time.Sleep(150 * time.Millisecond)
+	nodeWarnCount, _ := page.Locator(".ve-node-soft-warn").Count()
+	if nodeWarnCount > 0 {
+		t.Error("canvas soft-warn badge should be gone after condition accept rule")
+	}
+}
+
 // ── condition editor e2e tests ────────────────────────────────────────────────
 
 // conditionPipelineConfig is a minimal rss → condition → print DAG.

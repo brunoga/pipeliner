@@ -3669,48 +3669,30 @@ function configPreview(cfg) {
 }
 
 // fieldWarnings returns [{level:'error'|'warn', msg:string}] for a node.
-// 'error' = required field not produced by any upstream at all.
-// 'warn'  = required field only conditionally produced (may_produce) upstream.
+// 'error' = required field not reachable from any upstream at all.
+// 'warn'  = required field reachable but not certain (conditionally produced).
+//
+// Uses computeInputFields so that condition-node narrowing is respected:
+// a condition accept rule that tests "field != ''" promotes that field to
+// certain, clearing the warning for downstream nodes that require it.
 function fieldWarnings(node) {
   const meta = pluginMeta(node.plugin);
   if (!meta?.requires?.length) return [];
-  const {certain, maybe} = allProducedUpstream(node.id);
+
+  const nf       = computeInputFields(node);
+  const certain  = new Set(nf.certain);
+  // reachable in computeInputFields excludes certain; rebuild the full set.
+  const reachable = new Set([...nf.certain, ...nf.reachable]);
+
   const warns = [];
   for (const f of meta.requires) {
-    if (!certain.has(f) && !maybe.has(f)) {
+    if (!reachable.has(f)) {
       warns.push({level: 'error', msg: `requires "${f}" — add ${f}-producing node upstream`});
     } else if (!certain.has(f)) {
       warns.push({level: 'warn', msg: `requires "${f}" — only conditionally produced upstream; plugin may silently skip entries missing this field`});
     }
   }
   return warns;
-}
-
-// allProducedUpstream returns {certain, maybe} Sets for all fields reachable
-// from the transitive upstreams of nodeId.
-// certain = from Produces (guaranteed on every entry).
-// maybe   = from may_produce (conditionally set; not guaranteed).
-function allProducedUpstream(nodeId) {
-  const gi = findNodeGraph(nodeId);
-  const g  = gi >= 0 ? ve.graphs[gi] : null;
-  if (!g) return {certain: new Set(), maybe: new Set()};
-
-  const certain = new Set();
-  const maybe   = new Set();
-  const visited = new Set();
-  const startNode = g.nodes.find(n => n.id === nodeId);
-  const queue = [...(startNode?.upstreams || [])];
-  while (queue.length) {
-    const id = queue.shift();
-    if (visited.has(id)) continue;
-    visited.add(id);
-    const n    = g.nodes.find(x => x.id === id);
-    const meta = n ? pluginMeta(n.plugin) : null;
-    if (meta?.produces)     meta.produces.forEach(f => certain.add(f));
-    if (meta?.may_produce)  meta.may_produce.forEach(f => { if (!certain.has(f)) maybe.add(f); });
-    if (n) n.upstreams.forEach(u => queue.push(u));
-  }
-  return {certain, maybe};
 }
 
 function pluginMeta(name) {
