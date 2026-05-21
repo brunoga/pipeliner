@@ -75,9 +75,12 @@ func (e *Entry) Reject(reason string) {
 }
 
 // Fail marks the entry as Failed with the given reason.
+// No-op if the entry is already Rejected (rejection always wins).
 func (e *Entry) Fail(reason string) {
-	e.State = Failed
-	e.FailReason = reason
+	if e.State != Rejected {
+		e.State = Failed
+		e.FailReason = reason
+	}
 }
 
 func (e *Entry) IsAccepted() bool  { return e.State == Accepted }
