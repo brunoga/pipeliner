@@ -8,6 +8,7 @@ const NODE_H = 80;   // fallback node height for edge midpoints
 
 const ve = {
   plugins:          [],   // [{name, role, description, schema, produces, requires}]
+  fieldRegistry:    [],   // [{name, type, description, set_by, known_values}] from /api/fields
   userFunctions:    {},   // {funcName: {name, role, description, params, _sourceText}}
   syncing:          false,
   // All loaded pipelines. ve.model is a live alias for ve.graphs[ve.activeGraph].
@@ -245,9 +246,9 @@ const ROLE_LABEL = {source: 'Sources', processor: 'Processors', sink: 'Sinks'};
 
 async function loadPalette() {
   try {
-    const r = await fetch('/api/plugins');
-    if (!r.ok) return;
-    ve.plugins = await r.json();
+    const [pr, fr] = await Promise.all([fetch('/api/plugins'), fetch('/api/fields')]);
+    if (pr.ok) ve.plugins = await pr.json();
+    if (fr.ok) ve.fieldRegistry = await fr.json();
     renderPalette('');
   } catch (_) {}
 }
@@ -1057,7 +1058,9 @@ function renderEdges() {
           vis += `<path d="${d}" class="ve-edge${sel ? ' selected' : ''}" marker-end="url(${sel ? '#arrow-sel' : '#arrow'})"/>`;
         }
         // Invisible fat stroke for easy click-to-delete; data attrs carry the link info.
-        hit += `<path d="${d}" class="ve-edge-hit" data-src="${upId}" data-dst="${n.id}"><title>Click to disconnect</title></path>`;
+        hit += `<path d="${d}" class="ve-edge-hit" data-src="${upId}" data-dst="${n.id}"
+            onmouseenter="showEdgeFieldTooltip(event,'${upId}')"
+            onmouseleave="hideEdgeFieldTooltip()"><title>Click to disconnect</title></path>`;
       }
     }
   }
@@ -2395,6 +2398,9 @@ function renderParamPanel() {
   if (softWarns.length)
     html.push(`<div class="ve-conn-soft-warn">${softWarns.map(w => `~ ${esc(w.msg)}`).join('<br>')}</div>`);
 
+  // Fields available at this node's input (from upstream pipeline).
+  html.push(renderNodeFieldsSection(node));
+
   html.push('<div class="ve-field-sep"></div>');
   // Wrap main-node fields in a scoped container so collectParams can be wired
   // independently from sub-node (list/search) fields below.
@@ -2521,6 +2527,340 @@ function toggleList(nodeId, listId, checked) {
 
 // ── field widgets ─────────────────────────────────────────────────────────────
 
+// ── field registry helpers ────────────────────────────────────────────────────
+
+function getFieldMeta(name) {
+  return ve.fieldRegistry.find(f => f.name === name) || null;
+}
+
+function getFieldType(name) {
+  return getFieldMeta(name)?.type || 'string';
+}
+
+function getKnownValues(name) {
+  return getFieldMeta(name)?.known_values || null;
+}
+
+// Operators available for each field type.
+// Each op: {id, label, noValue?}
+// noValue=true means the value input is hidden (the op is self-contained, e.g. "!= \"\"")
+const COND_OPS_BY_TYPE = {
+  string: [
+    {id: '==',       label: 'equals'},
+    {id: '!=',       label: 'not equals'},
+    {id: 'contains', label: 'contains'},
+    {id: 'matches',  label: 'matches (regex)'},
+    {id: '!= ""',    label: 'is set',     noValue: true},
+    {id: '== ""',    label: 'is not set', noValue: true},
+  ],
+  int: [
+    {id: '==',   label: '='},
+    {id: '!=',   label: '≠'},
+    {id: '>',    label: '>'},
+    {id: '>=',   label: '≥'},
+    {id: '<',    label: '<'},
+    {id: '<=',   label: '≤'},
+    {id: '> 0',  label: 'is set',     noValue: true},
+    {id: '== 0', label: 'is not set', noValue: true},
+  ],
+  int64: [
+    {id: '==',   label: '='},
+    {id: '!=',   label: '≠'},
+    {id: '>',    label: '>'},
+    {id: '>=',   label: '≥'},
+    {id: '<',    label: '<'},
+    {id: '<=',   label: '≤'},
+    {id: '> 0',  label: 'is set',     noValue: true},
+    {id: '== 0', label: 'is not set', noValue: true},
+  ],
+  float: [
+    {id: '==',  label: '='},
+    {id: '!=',  label: '≠'},
+    {id: '>',   label: '>'},
+    {id: '>=',  label: '≥'},
+    {id: '<',   label: '<'},
+    {id: '<=',  label: '≤'},
+    {id: '> 0', label: 'is set',     noValue: true},
+  ],
+  bool: [
+    {id: '== true',  label: 'is true',  noValue: true},
+    {id: '== false', label: 'is false', noValue: true},
+  ],
+  string_list: [
+    {id: 'contains', label: 'contains'},
+    {id: '!= ""',    label: 'is not empty', noValue: true},
+    {id: '== ""',    label: 'is empty',     noValue: true},
+  ],
+  time: [
+    {id: '>',  label: 'after'},
+    {id: '<',  label: 'before'},
+  ],
+};
+
+function getOpsForType(type) {
+  return COND_OPS_BY_TYPE[type] || COND_OPS_BY_TYPE.string;
+}
+
+function opIsNoValue(op) {
+  return ['!= ""', '== ""', '> 0', '== 0', '== true', '== false'].includes(op);
+}
+
+// ── expression ↔ flat-clause model ───────────────────────────────────────────
+//
+// The builder represents each rule as a flat list of clauses joined by a single
+// combinator (AND or OR).  Mixed combinators fall back to raw mode.
+
+// Parse an expression string into [{field, op, value}] + combinator.
+// Returns {clauses, combinator} or null (fall back to raw mode).
+function exprToFlatModel(s) {
+  if (!s || !s.trim()) return {clauses: [], combinator: 'and'};
+  s = s.trim();
+
+  // Split on top-level ' or ' first, then ' and '.
+  const orParts  = topLevelSplit(s, ' or ');
+  const andParts = topLevelSplit(s, ' and ');
+
+  let parts, combinator;
+  if (orParts.length > 1 && andParts.length > 1) return null; // mixed — raw mode
+  if (orParts.length > 1)  { parts = orParts;  combinator = 'or'; }
+  else if (andParts.length > 1) { parts = andParts; combinator = 'and'; }
+  else                          { parts = [s];       combinator = 'and'; }
+
+  const clauses = parts.map(p => parseClause(p.trim())).filter(Boolean);
+  if (clauses.length !== parts.length) return null; // at least one unparseable clause
+
+  return {clauses, combinator};
+}
+
+// Split s on sep, respecting paren nesting and quoted strings.
+function topLevelSplit(s, sep) {
+  const parts = [];
+  let depth = 0, inStr = false, strChar = '', start = 0;
+  const sl = sep.toLowerCase();
+  let i = 0;
+  while (i < s.length) {
+    const c = s[i];
+    if (inStr) { if (c === strChar && s[i-1] !== '\\') inStr = false; i++; continue; }
+    if (c === '"' || c === "'") { inStr = true; strChar = c; i++; continue; }
+    if (c === '(') { depth++; i++; continue; }
+    if (c === ')') { depth--; i++; continue; }
+    if (depth === 0 && s.slice(i).toLowerCase().startsWith(sl)) {
+      parts.push(s.slice(start, i));
+      i += sep.length;
+      start = i;
+      continue;
+    }
+    i++;
+  }
+  parts.push(s.slice(start));
+  return parts;
+}
+
+// Parse "field op value" or a "no-value" compound operator pattern.
+// Returns {field, op, value} or null.
+function parseClause(s) {
+  s = s.trim();
+  if (!s) return null;
+
+  // Remove outer parens
+  while (s.startsWith('(') && s.endsWith(')') && isFullyWrapped(s)) {
+    s = s.slice(1, -1).trim();
+  }
+
+  // Try each op (longer ops first to avoid partial matches)
+  const OPS = ['contains', 'matches', '!= ""', '== ""', '!=', '==', '<=', '>=', '<', '>'];
+  for (const op of OPS) {
+    const opLow = op.toLowerCase();
+    const idx = findOpInClause(s, op);
+    if (idx === -1) continue;
+
+    const lhs = s.slice(0, idx).trim();
+    const rhs = s.slice(idx + opLow.length).trim();
+
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(lhs)) continue;
+
+    // For no-value operators the rhs must be empty (consumed by the op)
+    if (opIsNoValue(op)) {
+      if (rhs === '') return {field: lhs, op, value: ''};
+      continue;
+    }
+    const value = parseExprLiteral(rhs);
+    if (value === null) continue;
+    return {field: lhs, op, value};
+  }
+  return null;
+}
+
+// Find op at top level in s. Returns index or -1.
+function findOpInClause(s, op) {
+  const opLow = op.toLowerCase();
+  let depth = 0, inStr = false, strChar = '';
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (inStr) { if (c === strChar && s[i-1] !== '\\') inStr = false; continue; }
+    if (c === '"' || c === "'") { inStr = true; strChar = c; continue; }
+    if (c === '(') { depth++; continue; }
+    if (c === ')') { depth--; continue; }
+    if (depth !== 0) continue;
+    const slice = s.slice(i).toLowerCase();
+    if (!slice.startsWith(opLow)) continue;
+    // For symbol ops, just check position
+    if (!/^[a-z]/.test(opLow)) return i;
+    // For word ops, require word boundaries
+    const prevOk = i === 0 || /\s/.test(s[i-1]);
+    const nextOk = i + opLow.length >= s.length || /\s/.test(s[i + opLow.length]);
+    if (prevOk && nextOk) return i;
+  }
+  return -1;
+}
+
+// Parse a literal value token: string, number, or boolean.
+function parseExprLiteral(s) {
+  if (!s) return null;
+  if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'")))
+    return s.slice(1, -1);
+  if (s.toLowerCase() === 'true') return true;
+  if (s.toLowerCase() === 'false') return false;
+  const n = Number(s);
+  if (!isNaN(n) && s !== '') return n;
+  return null;
+}
+
+function isFullyWrapped(s) {
+  if (!s || s[0] !== '(') return false;
+  let d = 0;
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] === '(') d++;
+    else if (s[i] === ')') { d--; if (d === 0 && i < s.length - 1) return false; }
+  }
+  return d === 0;
+}
+
+// Build an expression string from a flat clause model.
+function flatModelToExpr(clauses, combinator) {
+  if (!clauses.length) return '';
+  const parts = clauses.map(c => clauseToStr(c.field, c.op, c.value)).filter(Boolean);
+  return parts.join(` ${combinator} `);
+}
+
+// Serialise one clause to expression string.
+function clauseToStr(field, op, value) {
+  if (opIsNoValue(op)) return `${field} ${op}`;
+  if (typeof value === 'boolean') return `${field} == ${value}`;
+  if (typeof value === 'number')  return `${field} ${op} ${value}`;
+  const escaped = String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  return `${field} ${op} "${escaped}"`;
+}
+
+// ── condition narrowing (client-side, mirrors condnarrow.go) ──────────────────
+
+// Returns true when an op+value pair indicates "field is present/set".
+// Handles both the builder's combined no-value form ('!= ""', '> 0') and the
+// parsed form produced by exprToFlatModel ('!=' with value='', '>' with value=0).
+function isPresenceCheck(op, value) {
+  if (op === '!= ""' || op === '> 0') return true;       // builder no-value form
+  if (op === '!=' && (value === '' || value == null)) return true; // parsed form
+  if (op === '>'  && value === 0)                 return true; // parsed form
+  return false;
+}
+
+// condRejectedFields is the dual of condNarrowedFields.
+// For REJECT rules: entries that PASS through are those where the condition
+// evaluated to false.  When the condition tests whether a field is present
+// (using a presence op), the passing entries are guaranteed NOT to have that
+// field set — so it should be removed from the reachable set downstream.
+//
+// AND semantics: NOT(A∧B) = ¬A∨¬B — at least one is absent, but we can't
+//   say which, so we cannot safely remove either field.  Returns [].
+// OR semantics:  NOT(A∨B) = ¬A∧¬B — both are absent. Returns all fields
+//   whose clauses use presence ops.
+// Single clause: NOT(field is set) → field is absent. Returns [field].
+//
+// Non-presence ops (e.g. == "x", > 5) do not guarantee absence, so they
+// are excluded.
+function condRejectedFields(exprStr, nodeFields) {
+  if (!exprStr || !nodeFields) return [];
+  const {reachable = []} = nodeFields;
+  const reachSet = new Set(reachable);
+
+  const model = exprToFlatModel(exprStr);
+  if (!model || !model.clauses.length) return [];
+
+  const isMultiAnd = model.combinator === 'and' && model.clauses.length > 1;
+  if (isMultiAnd) {
+    // NOT(A AND B) = NOT A OR NOT B — can't guarantee any specific field absent.
+    return [];
+  }
+
+  const isOr = model.combinator === 'or' && model.clauses.length > 1;
+  const presenceClauses = model.clauses.filter(c => isPresenceCheck(c.op, c.value));
+
+  if (isOr) {
+    // For OR: all clauses must use presence ops, otherwise we can't safely
+    // remove anything (a non-presence clause means a field may still be present).
+    if (presenceClauses.length !== model.clauses.length) return [];
+    return presenceClauses.map(c => c.field).filter(f => reachSet.has(f));
+  }
+
+  // Single clause: only remove if it's a presence op.
+  return presenceClauses.map(c => c.field).filter(f => reachSet.has(f));
+}
+
+// Simple client-side field narrowing for the UI preview.
+// Returns array of field names promoted from reachable → certain.
+function condNarrowedFields(exprStr, nodeFields) {
+  if (!exprStr || !nodeFields) return [];
+  const {certain = [], reachable = []} = nodeFields;
+  const certSet  = new Set(certain);
+  const reachSet = new Set(reachable);
+
+  const model = exprToFlatModel(exprStr);
+  if (!model) return [];
+
+  const promoted = new Set();
+  const isOr = model.combinator === 'or' && model.clauses.length > 1;
+
+  if (isOr) {
+    // OR: we only know at least one clause is true, not which one.
+    // Only promote a field if it appears in EVERY clause (intersection) —
+    // those are the only fields guaranteed regardless of which branch matched.
+    // e.g. "description != '' OR rss_category != ''" → neither promoted.
+    // e.g. "description != '' OR description contains 'x'" → description promoted.
+    const fieldSets = model.clauses.map(c => new Set([c.field]));
+    const first = new Set(fieldSets[0]);
+    for (let i = 1; i < fieldSets.length; i++) {
+      for (const f of first) { if (!fieldSets[i].has(f)) first.delete(f); }
+    }
+    for (const f of first) {
+      if (reachSet.has(f) && !certSet.has(f)) promoted.add(f);
+    }
+    // Semantic groups require specific values (e.g. enriched==true), so they
+    // are never safe to fire for OR conditions.
+  } else {
+    // AND (or single clause): all referenced fields are true simultaneously.
+    for (const c of model.clauses) {
+      if (reachSet.has(c.field) && !certSet.has(c.field)) promoted.add(c.field);
+    }
+    // Semantic sentinel promotions.
+    const allFields = model.clauses.map(c => c.field);
+    for (const sg of SEMANTIC_GROUPS) {
+      if (allFields.includes(sg.sentinel)) {
+        for (const f of sg.promotes) {
+          if (reachSet.has(f) && !certSet.has(f)) promoted.add(f);
+        }
+      }
+    }
+  }
+
+  return [...promoted].sort();
+}
+
+const SEMANTIC_GROUPS = [
+  {sentinel: 'enriched',         promotes: ['video_year','video_language','video_genres','video_rating','video_popularity','video_imdb_id']},
+  {sentinel: 'series_episode_id', promotes: ['series_season','series_episode']},
+  {sentinel: 'torrent_link_type', promotes: ['torrent_seeds','torrent_leechers','torrent_file_size','torrent_info_hash']},
+];
+
 // ── condition plugin — rules editor ──────────────────────────────────────────
 
 // Convert any stored condition config format → [{type:'accept'|'reject', expr}].
@@ -2551,21 +2891,135 @@ function buildCondConfig(rules) {
   return {rules: valid.map(r => ({[r.type]: r.expr.trim()}))};
 }
 
+// collectOutputFields recursively collects all fields produced by node and
+// its upstream chain into the certain/reachable sets.
+// graphNodes is the node list for the CURRENT graph — traversal is restricted
+// to that graph so we never bleed fields in from other pipelines.
+function collectOutputFields(node, certain, reachable, visited, graphNodes) {
+  if (!node || visited.has(node.id)) return;
+  visited.add(node.id);
+
+  // Collect this node's own declared fields from plugin metadata.
+  const meta = pluginMeta(node.plugin);
+  for (const f of (meta?.produces    || [])) { certain.add(f); reachable.add(f); }
+  for (const f of (meta?.may_produce || [])) { reachable.add(f); }
+
+  // Recurse into upstreams (within the same graph only).
+  for (const upId of (node.upstreams || [])) {
+    const up = graphNodes.find(n => n.id === upId);
+    if (up) collectOutputFields(up, certain, reachable, visited, graphNodes);
+  }
+
+  // For condition nodes: apply narrowing from the rules config.
+  if (node.plugin === 'condition') {
+    const rules    = condRulesFromConfig(node.config);
+    const certArr  = [...certain];
+    const reachArr = [...certain, ...reachable];  // full set (certain ⊆ reachable)
+
+    // Accept rules: promote fields to certain.
+    // e.g. "accept: description != ''" → description guaranteed set downstream.
+    for (const rule of rules) {
+      if (rule.type !== 'accept') continue;
+      for (const f of condNarrowedFields(rule.expr, {certain: certArr, reachable: reachArr})) {
+        certain.add(f);
+      }
+    }
+
+    // Reject rules: remove fields from both reachable and certain.
+    // e.g. "reject: description != ''" → passing entries have description absent,
+    // so downstream nodes cannot rely on description being present at all.
+    for (const rule of rules) {
+      if (rule.type !== 'reject') continue;
+      for (const f of condRejectedFields(rule.expr, {reachable: reachArr})) {
+        reachable.delete(f);
+        certain.delete(f);
+      }
+    }
+  }
+}
+
+// computeInputFields computes the field sets available at the INPUT of node
+// by walking its full upstream chain using plugin metadata from ve.plugins.
+function computeInputFields(node) {
+  // Find the graph this node belongs to so traversal stays within it.
+  const gi = findNodeGraph(node.id);
+  const graphNodes = gi >= 0 ? (ve.graphs[gi]?.nodes || []) : [];
+
+  const certain  = new Set();
+  const reachable = new Set();
+  for (const upId of (node.upstreams || [])) {
+    const up = graphNodes.find(n => n.id === upId);
+    if (up) collectOutputFields(up, certain, reachable, new Set(), graphNodes);
+  }
+  return {
+    certain:  [...certain].sort(),
+    reachable: [...reachable].filter(f => !certain.has(f)).sort(),
+  };
+}
+
+// renderNodeFieldsSection renders a collapsible "Fields available" section
+// showing what's certain and reachable at this node's input.
+function renderNodeFieldsSection(node) {
+  // Always recompute from the current visual model. Never fall back to
+  // node.fields (server-supplied data from the last textToVisualSync) because
+  // it becomes stale the moment any node or connection changes in-memory.
+  // If the node has no reachable upstreams the section is correctly empty.
+  const nf = computeInputFields(node);
+
+  if (!nf || (!nf.certain?.length && !nf.reachable?.length)) return '';
+
+  const certain  = nf.certain  || [];
+  const reachOnly = (nf.reachable || []).filter(f => !certain.includes(f));
+
+  const certHtml = certain.length
+    ? certain.map(f => {
+        const m = getFieldMeta(f);
+        return `<span class="ve-f-tag ve-f-certain" title="${esc(m?.description||f)}">${esc(f)}</span>`;
+      }).join('')
+    : '';
+  const reachHtml = reachOnly.length
+    ? reachOnly.map(f => {
+        const m = getFieldMeta(f);
+        return `<span class="ve-f-tag ve-f-reachable" title="${esc(m?.description||f)}">${esc(f)}</span>`;
+      }).join('')
+    : '';
+
+  const id = `ve-fields-${esc(node.id)}`;
+  return `<details class="ve-fields-section" open>
+    <summary class="ve-fields-summary">
+      Fields available at input
+      <span class="ve-fields-count">${certain.length} certain, ${reachOnly.length} reachable</span>
+    </summary>
+    <div class="ve-fields-body">
+      ${certHtml ? `<div class="ve-fields-row"><span class="ve-f-label">✓ certain:</span>${certHtml}</div>` : ''}
+      ${reachHtml ? `<div class="ve-fields-row"><span class="ve-f-label">◐ reachable:</span>${reachHtml}</div>` : ''}
+      <div class="ve-fields-legend">
+        <span class="ve-f-tag ve-f-certain">✓</span> guaranteed on every entry
+        &nbsp;
+        <span class="ve-f-tag ve-f-reachable">◐</span> may not be present
+      </div>
+    </div>
+  </details>`;
+}
+
+// Tracks rules the user has explicitly forced into raw mode.
+// Keys: "${nodeId}:${ruleIdx}". Persists across re-renders but is
+// intentionally in-memory only — it resets on page reload.
+const _forcedRaw = new Set();
+
+// renderCondRulesWidget renders the condition editor for a condition node.
+// Each rule is either in "builder mode" (structured field/op/value picker) or
+// "raw mode" (a plain text input for complex expressions).
 function renderCondRulesWidget(node) {
   const rules = condRulesFromConfig(node.config);
-  const rowsHtml = rules.map(r => `
-    <div class="ve-cond-row">
-      <button class="ve-cond-type ${r.type}" onclick="toggleCondType(this)"
-              title="Click to toggle accept / reject">${r.type}</button>
-      <input type="text" class="ve-cond-expr" value="${esc(r.expr)}"
-             placeholder="expression…"
-             onchange="updateCondRules()">
-      <button class="ve-cond-del" onclick="deleteCondRule(this)" title="Remove rule">×</button>
-    </div>`).join('');
+  const nf    = node.fields || {certain: [], reachable: []};
+
+  const rowsHtml = rules.map((r, i) => renderCondRule(r, i, nf)).join('');
   const body = rowsHtml || '<div class="ve-cond-empty">No rules yet</div>';
+
   return `<div class="ve-field">
     <div class="ve-field-label">Rules
-      <span class="ve-field-hint">— evaluated top to bottom; first match wins; within a rule, reject beats accept</span>
+      <span class="ve-field-hint">— top to bottom; first match wins; reject beats accept</span>
     </div>
     <div class="ve-cond-rules" id="ve-cond-rules">${body}</div>
     <div style="display:flex;gap:6px;margin-top:6px">
@@ -2575,37 +3029,339 @@ function renderCondRulesWidget(node) {
   </div>`;
 }
 
-function addCondRule(type) {
-  const container = document.getElementById('ve-cond-rules');
-  if (!container) return;
-  container.querySelector('.ve-cond-empty')?.remove();
-  const row = document.createElement('div');
-  row.className = 've-cond-row';
-  row.innerHTML = `
-    <button class="ve-cond-type ${type}" onclick="toggleCondType(this)"
-            title="Click to toggle accept / reject">${type}</button>
-    <input type="text" class="ve-cond-expr" placeholder="expression…"
-           onchange="updateCondRules()">
-    <button class="ve-cond-del" onclick="deleteCondRule(this)" title="Remove rule">×</button>`;
-  container.appendChild(row);
-  row.querySelector('.ve-cond-expr').focus();
+// Render a single condition rule at index i.
+function renderCondRule(rule, i, nodeFields) {
+  const {type, expr} = rule;
+  const nodeId  = findNode(ve.selectedNodeId)?.id ?? '';
+  const fkey    = `${nodeId}:${i}`;
+  const model   = exprToFlatModel(expr);
+  const rawMode = _forcedRaw.has(fkey) || !model || expr.trim() === '';
+
+  const builderHtml = rawMode ? '' : renderCondBuilderBody(model, i, nodeFields);
+  const rawHtml     = rawMode
+    ? `<textarea class="ve-cond-expr ve-cond-raw-ta" rows="2"
+           placeholder="expression…"
+           oninput="condRawInput(${i},this.value)"
+           onchange="condRawChanged(${i},this.value)">${esc(expr)}</textarea>`
+    : '';
+
+  const rawBtn = `<button class="ve-cond-raw-btn" title="${rawMode ? 'Switch to builder' : 'Switch to raw mode'}"
+      onclick="toggleCondRawMode(${i})">${rawMode ? '≡ builder' : '⋮ raw'}</button>`;
+
+  const effectiveFields = computeInputFields(findNode(ve.selectedNodeId));
+  const reachAll = {certain: effectiveFields.certain,
+                    reachable: [...effectiveFields.certain, ...effectiveFields.reachable]};
+  const promoted = type === 'accept' ? condNarrowedFields(expr, reachAll)  : [];
+  const removed  = type === 'reject' ? condRejectedFields(expr, reachAll)  : [];
+  const narrowHtml = promoted.length
+    ? `<div class="ve-cond-narrow">↳ Promotes to certain: ${promoted.map(f => `<code>${esc(f)}</code>`).join(', ')}</div>`
+    : removed.length
+    ? `<div class="ve-cond-narrow ve-cond-narrow-remove">↳ Removes from available: ${removed.map(f => `<code>${esc(f)}</code>`).join(', ')}</div>`
+    : '';
+
+  const previewHtml = (!rawMode && expr)
+    ? `<div class="ve-cond-preview">${esc(expr)}</div>`
+    : '';
+
+  return `<div class="ve-cond-rule" data-rule-idx="${i}">
+    <div class="ve-cond-rule-header">
+      <button class="ve-cond-type ${type}" onclick="toggleCondType2(${i})"
+              title="Click to toggle accept / reject">${type}</button>
+      ${rawBtn}
+      <button class="ve-cond-del" onclick="deleteCondRule2(${i})" title="Remove">×</button>
+    </div>
+    ${rawMode ? rawHtml : builderHtml}
+    ${previewHtml}
+    ${narrowHtml}
+  </div>`;
 }
 
-function deleteCondRule(btn) {
-  const row = btn.closest('.ve-cond-row');
-  const container = row?.closest('.ve-cond-rules');
-  if (!row || !container) return;
-  row.remove();
-  if (!container.querySelector('.ve-cond-row')) {
-    container.innerHTML = '<div class="ve-cond-empty">No rules yet</div>';
+// Render the builder body (field picker + op + value rows) for a rule.
+function renderCondBuilderBody(model, ruleIdx, nodeFields) {
+  const {clauses, combinator} = model;
+  const nf = computeInputFields(findNode(ve.selectedNodeId));
+  const certain  = new Set(nf.certain);
+  const reachable = new Set(nf.reachable);
+
+  // Collect fields: certain (green), reachable-only (amber), all known (grey)
+  const allKnown  = ve.fieldRegistry.map(f => f.name);
+  const extraKnown = allKnown.filter(f => !reachable.has(f));
+
+  function fieldOption(name, selected) {
+    let group = '';
+    if (certain.has(name))  group = '✓ ';
+    else if (reachable.has(name)) group = '◐ ';
+    return `<option value="${esc(name)}" ${selected===name?'selected':''}>${group}${esc(name)}</option>`;
   }
-  updateCondRules();
+
+  const clauseRows = clauses.map((c, ci) => {
+    const fieldType = getFieldType(c.field);
+    const ops       = getOpsForType(fieldType);
+    const noVal     = opIsNoValue(c.op);
+    const knownVals = getKnownValues(c.field);
+
+    // Build field selector options
+    const certFields  = [...certain].sort();
+    const reachFields = [...reachable].filter(f => !certain.has(f)).sort();
+    const optsCert  = certFields.map(f  => fieldOption(f, c.field)).join('');
+    const optsReach = reachFields.map(f => fieldOption(f, c.field)).join('');
+    const optsExtra = extraKnown.map(f  => fieldOption(f, c.field)).join('');
+    const fieldSel  = `<select class="ve-cb-field" data-rule="${ruleIdx}" data-clause="${ci}"
+        onchange="condFieldChanged(${ruleIdx},${ci},this.value)">
+        ${certFields.length  ? `<optgroup label="✓ certain">${optsCert}</optgroup>` : ''}
+        ${reachFields.length ? `<optgroup label="◐ reachable">${optsReach}</optgroup>` : ''}
+        ${extraKnown.length  ? `<optgroup label="other">${optsExtra}</optgroup>` : ''}
+        ${!reachable.has(c.field) && !allKnown.includes(c.field)
+          ? `<option value="${esc(c.field)}" selected>${esc(c.field)}</option>` : ''}
+      </select>`;
+
+    const opsSel = `<select class="ve-cb-op" data-rule="${ruleIdx}" data-clause="${ci}"
+        onchange="condOpChanged(${ruleIdx},${ci},this.value)">
+        ${ops.map(o => `<option value="${esc(o.id)}" ${c.op===o.id?'selected':''}>${esc(o.label)}</option>`).join('')}
+      </select>`;
+
+    let valWidget = '';
+    if (!noVal) {
+      const inputType = (fieldType === 'int' || fieldType === 'int64' || fieldType === 'float') ? 'number'
+                      : (fieldType === 'time') ? 'date' : 'text';
+      const valStr = c.value == null ? '' : String(c.value);
+      const listAttr = knownVals?.length
+        ? `list="ve-cb-datalist-${ruleIdx}-${ci}"`
+        : '';
+      const datalist = knownVals?.length
+        ? `<datalist id="ve-cb-datalist-${ruleIdx}-${ci}">${knownVals.map(v=>`<option value="${esc(v)}">`).join('')}</datalist>`
+        : '';
+      valWidget = `<input class="ve-cb-val" type="${inputType}" value="${esc(valStr)}"
+          ${listAttr}
+          data-rule="${ruleIdx}" data-clause="${ci}"
+          placeholder="value"
+          oninput="condValChanged(${ruleIdx},${ci},this.value,this)"
+          onchange="condValChanged(${ruleIdx},${ci},this.value,this)">
+          ${datalist}`;
+    }
+
+    const combRow = (ci < clauses.length - 1)
+      ? `<div class="ve-cb-combinator"
+            onclick="toggleCombinator(${ruleIdx})"
+            title="Click to toggle AND / OR">${combinator}</div>`
+      : '';
+
+    return `<div class="ve-cb-clause">
+        ${fieldSel}${opsSel}${valWidget}
+        <button class="ve-cond-del ve-cb-clause-del"
+                onclick="condDeleteClause(${ruleIdx},${ci})" title="Remove clause">×</button>
+      </div>${combRow}`;
+  }).join('');
+
+  return `<div class="ve-cond-builder" data-rule="${ruleIdx}">
+    ${clauseRows || '<div class="ve-cond-empty">No clauses — add one below</div>'}
+    <div style="display:flex;gap:4px;margin-top:4px">
+      <button class="ve-add-kv" onclick="condAddClause(${ruleIdx})">+ Clause</button>
+    </div>
+  </div>`;
 }
 
+// ── condition builder event handlers ─────────────────────────────────────────
+
+// Internal: get the current rules array from config.
+function _condGetRules() {
+  const node = findNode(ve.selectedNodeId);
+  return node ? condRulesFromConfig(node.config) : [];
+}
+
+// Internal: rebuild config from rules, sync the text editor, and re-render.
+function _condSetRules(rules) {
+  const node = findNode(ve.selectedNodeId);
+  if (!node) return;
+  node.config = buildCondConfig(rules);
+  onModelChange();  // updates text editor; also schedules a debounced textToVisualSync
+  veRender();       // immediate re-render so the builder UI reflects the new rules
+}
+
+function addCondRule(type) {
+  const rules = _condGetRules();
+  const node  = findNode(ve.selectedNodeId);
+  const nf    = computeInputFields(node);
+
+  // Pick the first reachable (then certain, then hardcoded fallback) field so
+  // the new rule starts in builder mode with a parseable default expression.
+  // "source != ''" is used as the ultimate fallback because source is always
+  // produced by every source plugin and serialises cleanly without quoting issues.
+  const defaultField = nf.reachable[0] || nf.certain[0] || 'source';
+  const ops     = getOpsForType(getFieldType(defaultField));
+  const isSetOp = ops.find(o => o.noValue) || ops[0];
+  const defaultExpr = clauseToStr(defaultField, isSetOp?.id || '!= ""', '');
+
+  rules.push({type, expr: defaultExpr});
+  _condSetRules(rules);
+}
+
+function deleteCondRule2(ruleIdx) {
+  const node = findNode(ve.selectedNodeId);
+  const nodeId = node?.id ?? '';
+  // Clean up any force-raw entries for this and later rules.
+  const rules = _condGetRules();
+  for (let i = ruleIdx; i < rules.length; i++) _forcedRaw.delete(`${nodeId}:${i}`);
+  rules.splice(ruleIdx, 1);
+  _condSetRules(rules);
+}
+
+function toggleCondType2(ruleIdx) {
+  const rules = _condGetRules();
+  if (!rules[ruleIdx]) return;
+  rules[ruleIdx].type = rules[ruleIdx].type === 'reject' ? 'accept' : 'reject';
+  _condSetRules(rules);
+}
+
+function toggleCondRawMode(ruleIdx) {
+  const node = findNode(ve.selectedNodeId);
+  if (!node) return;
+  const rules = _condGetRules();
+  if (!rules[ruleIdx]) return;
+
+  const fkey = `${node.id}:${ruleIdx}`;
+  const expr  = rules[ruleIdx].expr;
+  const model = exprToFlatModel(expr);
+
+  if (_forcedRaw.has(fkey)) {
+    // Explicitly forced raw → remove the force flag to switch back to builder.
+    _forcedRaw.delete(fkey);
+  } else if (model) {
+    // Currently in builder mode (parseable) → force raw.
+    _forcedRaw.add(fkey);
+  } else {
+    // In raw mode because expression is unparseable → try to switch to builder
+    // by replacing the expression with a default parseable one.
+    const nf = computeInputFields(node);
+    const defaultField = nf.reachable[0] || nf.certain[0] || 'title';
+    const ops      = getOpsForType(getFieldType(defaultField));
+    const isSetOp  = ops.find(o => o.noValue) || ops[0];
+    rules[ruleIdx].expr = clauseToStr(defaultField, isSetOp?.id || '!= ""', '');
+    // Clear any stale force-raw flag so it renders in builder mode.
+    _forcedRaw.delete(fkey);
+  }
+
+  _condSetRules(rules);
+}
+
+function condRawInput(ruleIdx, val) {
+  // Update preview in real-time without full re-render
+  const rule = document.querySelector(`.ve-cond-rule[data-rule-idx="${ruleIdx}"]`);
+  if (!rule) return;
+  const pre = rule.querySelector('.ve-cond-preview');
+  if (pre) pre.textContent = val;
+}
+
+function condRawChanged(ruleIdx, val) {
+  const rules = _condGetRules();
+  if (!rules[ruleIdx]) return;
+  rules[ruleIdx].expr = val;
+  _condSetRules(rules);
+}
+
+function condFieldChanged(ruleIdx, clauseIdx, newField) {
+  const rules = _condGetRules();
+  const model = exprToFlatModel(rules[ruleIdx]?.expr || '');
+  if (!model) return;
+  const c = model.clauses[clauseIdx];
+  if (!c) return;
+  c.field = newField;
+  // Reset op to first valid one for the new field type
+  const ops = getOpsForType(getFieldType(newField));
+  c.op    = ops[0]?.id || '==';
+  c.value = '';
+  rules[ruleIdx].expr = flatModelToExpr(model.clauses, model.combinator);
+  _condSetRules(rules);
+}
+
+function condOpChanged(ruleIdx, clauseIdx, newOp) {
+  const rules = _condGetRules();
+  const model = exprToFlatModel(rules[ruleIdx]?.expr || '');
+  if (!model) return;
+  const c = model.clauses[clauseIdx];
+  if (!c) return;
+  c.op    = newOp;
+  c.value = opIsNoValue(newOp) ? '' : c.value;
+  rules[ruleIdx].expr = flatModelToExpr(model.clauses, model.combinator);
+  _condSetRules(rules);
+}
+
+function condValChanged(ruleIdx, clauseIdx, newVal, inputEl) {
+  const rules = _condGetRules();
+  const model = exprToFlatModel(rules[ruleIdx]?.expr || '');
+  if (!model) return;
+  const c = model.clauses[clauseIdx];
+  if (!c) return;
+  const fieldType = getFieldType(c.field);
+  if (fieldType === 'int' || fieldType === 'int64') c.value = parseInt(newVal, 10) || 0;
+  else if (fieldType === 'float') c.value = parseFloat(newVal) || 0;
+  else c.value = newVal;
+  rules[ruleIdx].expr = flatModelToExpr(model.clauses, model.combinator);
+  // Update preview directly without full re-render for smooth typing
+  const ruleEl  = inputEl?.closest('.ve-cond-rule');
+  const preview = ruleEl?.querySelector('.ve-cond-preview');
+  if (preview) preview.textContent = rules[ruleIdx].expr;
+  const node = findNode(ve.selectedNodeId);
+  if (node) { node.config = buildCondConfig(rules); onModelChange(); }
+}
+
+function condAddClause(ruleIdx) {
+  const rules = _condGetRules();
+  const model = exprToFlatModel(rules[ruleIdx]?.expr || '');
+  const node  = findNode(ve.selectedNodeId);
+  const nf    = node?.fields || {certain: [], reachable: []};
+  // Default to first reachable field or 'title'
+  const defaultField = nf.reachable[0] || nf.certain[0] || 'title';
+  const ops = getOpsForType(getFieldType(defaultField));
+  const newClause = {field: defaultField, op: ops[0]?.id || '==', value: ''};
+  if (model) {
+    model.clauses.push(newClause);
+    rules[ruleIdx].expr = flatModelToExpr(model.clauses, model.combinator);
+  } else {
+    rules[ruleIdx].expr = clauseToStr(newClause.field, newClause.op, newClause.value);
+  }
+  _condSetRules(rules);
+}
+
+function condDeleteClause(ruleIdx, clauseIdx) {
+  const rules = _condGetRules();
+  const model = exprToFlatModel(rules[ruleIdx]?.expr || '');
+  if (!model) return;
+  model.clauses.splice(clauseIdx, 1);
+  rules[ruleIdx].expr = flatModelToExpr(model.clauses, model.combinator);
+  _condSetRules(rules);
+}
+
+function toggleCombinator(ruleIdx) {
+  const rules = _condGetRules();
+  const model = exprToFlatModel(rules[ruleIdx]?.expr || '');
+  if (!model) return;
+  model.combinator = model.combinator === 'and' ? 'or' : 'and';
+  rules[ruleIdx].expr = flatModelToExpr(model.clauses, model.combinator);
+  _condSetRules(rules);
+}
+
+// Legacy handlers kept for backward compat (may be called from old inline HTML)
 function toggleCondType(btn) {
+  const row = btn.closest('.ve-cond-rule');
+  const idx = row ? parseInt(row.dataset.ruleIdx, 10) : -1;
+  if (idx >= 0) { toggleCondType2(idx); return; }
+  // Fallback: old DOM-based toggle
   const newType = btn.classList.contains('reject') ? 'accept' : 'reject';
   btn.className = `ve-cond-type ${newType}`;
   btn.textContent = newType;
+  updateCondRules();
+}
+
+function deleteCondRule(btn) {
+  const row = btn.closest('.ve-cond-rule');
+  const idx = row ? parseInt(row.dataset.ruleIdx, 10) : -1;
+  if (idx >= 0) { deleteCondRule2(idx); return; }
+  // Fallback: old DOM-based delete
+  const container = row?.closest('.ve-cond-rules');
+  if (!row || !container) return;
+  row.remove();
+  if (!container.querySelector('.ve-cond-row')) container.innerHTML = '<div class="ve-cond-empty">No rules yet</div>';
   updateCondRules();
 }
 
@@ -2615,7 +3371,7 @@ function updateCondRules() {
   const rows = document.querySelectorAll('#ve-cond-rules .ve-cond-row');
   const rules = [...rows].map(row => ({
     type: row.querySelector('.ve-cond-type').classList.contains('reject') ? 'reject' : 'accept',
-    expr: row.querySelector('.ve-cond-expr').value,
+    expr: row.querySelector('.ve-cond-expr')?.value || '',
   }));
   node.config = buildCondConfig(rules);
   veRender(); onModelChange();
@@ -2913,48 +3669,30 @@ function configPreview(cfg) {
 }
 
 // fieldWarnings returns [{level:'error'|'warn', msg:string}] for a node.
-// 'error' = required field not produced by any upstream at all.
-// 'warn'  = required field only conditionally produced (may_produce) upstream.
+// 'error' = required field not reachable from any upstream at all.
+// 'warn'  = required field reachable but not certain (conditionally produced).
+//
+// Uses computeInputFields so that condition-node narrowing is respected:
+// a condition accept rule that tests "field != ''" promotes that field to
+// certain, clearing the warning for downstream nodes that require it.
 function fieldWarnings(node) {
   const meta = pluginMeta(node.plugin);
   if (!meta?.requires?.length) return [];
-  const {certain, maybe} = allProducedUpstream(node.id);
+
+  const nf       = computeInputFields(node);
+  const certain  = new Set(nf.certain);
+  // reachable in computeInputFields excludes certain; rebuild the full set.
+  const reachable = new Set([...nf.certain, ...nf.reachable]);
+
   const warns = [];
   for (const f of meta.requires) {
-    if (!certain.has(f) && !maybe.has(f)) {
+    if (!reachable.has(f)) {
       warns.push({level: 'error', msg: `requires "${f}" — add ${f}-producing node upstream`});
     } else if (!certain.has(f)) {
       warns.push({level: 'warn', msg: `requires "${f}" — only conditionally produced upstream; plugin may silently skip entries missing this field`});
     }
   }
   return warns;
-}
-
-// allProducedUpstream returns {certain, maybe} Sets for all fields reachable
-// from the transitive upstreams of nodeId.
-// certain = from Produces (guaranteed on every entry).
-// maybe   = from may_produce (conditionally set; not guaranteed).
-function allProducedUpstream(nodeId) {
-  const gi = findNodeGraph(nodeId);
-  const g  = gi >= 0 ? ve.graphs[gi] : null;
-  if (!g) return {certain: new Set(), maybe: new Set()};
-
-  const certain = new Set();
-  const maybe   = new Set();
-  const visited = new Set();
-  const startNode = g.nodes.find(n => n.id === nodeId);
-  const queue = [...(startNode?.upstreams || [])];
-  while (queue.length) {
-    const id = queue.shift();
-    if (visited.has(id)) continue;
-    visited.add(id);
-    const n    = g.nodes.find(x => x.id === id);
-    const meta = n ? pluginMeta(n.plugin) : null;
-    if (meta?.produces)     meta.produces.forEach(f => certain.add(f));
-    if (meta?.may_produce)  meta.may_produce.forEach(f => { if (!certain.has(f)) maybe.add(f); });
-    if (n) n.upstreams.forEach(u => queue.push(u));
-  }
-  return {certain, maybe};
 }
 
 function pluginMeta(name) {
@@ -4766,6 +5504,7 @@ async function textToVisualSync() {
           id: n.id, plugin: n.plugin, config: n.config || {}, upstreams: n.upstreams || [],
           searchNodeIds: [], comment: n.comment || '',
           x: n.x ?? null, y: n.y ?? null,
+          fields: n.fields || {certain: [], reachable: []},
         }));
 
       // Second pass: convert search/list items to regular nodes with flags.
@@ -5048,6 +5787,67 @@ function computePipelineBoundsFromNodes() {
     g._regionH = maxY - g._regionY + 20;
     prevBottom = g._regionY + g._regionH + 60;
   }
+}
+
+// ── edge field tooltip ────────────────────────────────────────────────────────
+
+let _edgeTooltipEl = null;
+
+function _ensureEdgeTooltip() {
+  if (_edgeTooltipEl) return _edgeTooltipEl;
+  _edgeTooltipEl = document.createElement('div');
+  _edgeTooltipEl.id = 've-edge-tooltip';
+  _edgeTooltipEl.className = 've-edge-tooltip';
+  _edgeTooltipEl.style.display = 'none';
+  document.body.appendChild(_edgeTooltipEl);
+  return _edgeTooltipEl;
+}
+
+// Show a tooltip with the fields flowing through an edge on hover.
+// fromNodeId is the source node; the edge carries that node's OUTPUT fields
+// (its own produces + everything from its upstream chain).
+function showEdgeFieldTooltip(event, fromNodeId) {
+  // Find the source node within its own graph only.
+  const gi         = findNodeGraph(fromNodeId);
+  const graphNodes = gi >= 0 ? (ve.graphs[gi]?.nodes || []) : [];
+  const fromNode   = graphNodes.find(n => n.id === fromNodeId);
+  if (!fromNode) return;
+
+  // Compute the OUTPUT fields of the source node by collecting its entire
+  // upstream chain plus its own produces/condition-narrowing.
+  const certain  = new Set();
+  const reachable = new Set();
+  collectOutputFields(fromNode, certain, reachable, new Set(), graphNodes);
+
+  const certArr   = [...certain].sort();
+  const reachOnly = [...reachable].filter(f => !certain.has(f)).sort();
+  if (!certArr.length && !reachOnly.length) return;
+
+  const label  = pluginMeta(fromNode.plugin)?.role === 'source'
+    ? fromNode.plugin
+    : fromNodeId;
+  const tt = _ensureEdgeTooltip();
+  const certStr  = certArr.map(f  => `<span class="ve-f-tag ve-f-certain">${esc(f)}</span>`).join(' ');
+  const reachStr = reachOnly.map(f => `<span class="ve-f-tag ve-f-reachable">${esc(f)}</span>`).join(' ');
+  tt.innerHTML = `
+    <div class="ve-tt-title">Fields on this edge (out of <em>${esc(label)}</em>)</div>
+    ${certStr  ? `<div class="ve-tt-row"><span class="ve-f-label">✓ certain:</span> ${certStr}</div>`   : ''}
+    ${reachStr ? `<div class="ve-tt-row"><span class="ve-f-label">◐ reachable:</span> ${reachStr}</div>` : ''}`;
+  tt.style.display = 'block';
+  _positionEdgeTooltip(event);
+}
+
+function _positionEdgeTooltip(event) {
+  const tt = _edgeTooltipEl;
+  if (!tt) return;
+  const x = event.clientX + 12;
+  const y = event.clientY + 12;
+  tt.style.left = Math.min(x, window.innerWidth  - tt.offsetWidth  - 8) + 'px';
+  tt.style.top  = Math.min(y, window.innerHeight - tt.offsetHeight - 8) + 'px';
+}
+
+function hideEdgeFieldTooltip() {
+  if (_edgeTooltipEl) _edgeTooltipEl.style.display = 'none';
 }
 
 // ── utility ───────────────────────────────────────────────────────────────────

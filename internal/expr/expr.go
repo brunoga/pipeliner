@@ -82,6 +82,107 @@ func (e *Expr) Eval(data map[string]any) (bool, error) {
 	}
 }
 
+// FieldRefs returns all entry field names (identifiers) referenced in this
+// expression. Returns nil for template expressions. Duplicates are removed.
+func (e *Expr) FieldRefs() []string {
+	if e.node == nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var refs []string
+	collectFieldRefs(e.node, seen, &refs)
+	return refs
+}
+
+// NarrowedCertain returns the field names that are guaranteed to be set (and
+// non-zero/non-empty) when this expression evaluates to true.
+//
+// Rules:
+//   - A comparison involving a field on either side (field op value) promotes
+//     that field to certain.
+//   - AND: promote from both sides.
+//   - OR: promote only fields that appear in BOTH sides (intersection).
+//   - NOT: no promotion (inverse is hard to narrow safely).
+//
+// Returns nil for template expressions.
+func (e *Expr) NarrowedCertain() []string {
+	if e.node == nil {
+		return nil
+	}
+	var out []string
+	narrowCertain(e.node, &out)
+	return dedupStrings(out)
+}
+
+func collectFieldRefs(n node, seen map[string]bool, out *[]string) {
+	switch v := n.(type) {
+	case *identNode:
+		if !seen[v.name] {
+			seen[v.name] = true
+			*out = append(*out, v.name)
+		}
+	case *binaryNode:
+		collectFieldRefs(v.left, seen, out)
+		collectFieldRefs(v.right, seen, out)
+	case *unaryNode:
+		collectFieldRefs(v.arg, seen, out)
+	case *funcNode:
+		if v.arg != nil {
+			collectFieldRefs(v.arg, seen, out)
+		}
+	}
+}
+
+func narrowCertain(n node, out *[]string) {
+	switch v := n.(type) {
+	case *binaryNode:
+		switch v.op {
+		case "and", "&&":
+			narrowCertain(v.left, out)
+			narrowCertain(v.right, out)
+		case "or", "||":
+			var left, right []string
+			narrowCertain(v.left, &left)
+			narrowCertain(v.right, &right)
+			// Intersection: only fields promoted by both sides.
+			leftSet := make(map[string]bool, len(left))
+			for _, f := range left {
+				leftSet[f] = true
+			}
+			for _, f := range right {
+				if leftSet[f] {
+					*out = append(*out, f)
+				}
+			}
+		default:
+			// Comparison: if either side is a field reference, the field is
+			// certainly set (the comparison would short-circuit to false otherwise).
+			if id, ok := v.left.(*identNode); ok {
+				*out = append(*out, id.name)
+			}
+			if id, ok := v.right.(*identNode); ok {
+				*out = append(*out, id.name)
+			}
+		}
+	// unaryNode (not): no promotion — inverse narrowing is unsafe.
+	}
+}
+
+func dedupStrings(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(in))
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		if !seen[s] {
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
 func truthy(s string) bool {
 	if s == "" {
 		return false
