@@ -283,7 +283,7 @@ Fields follow a tiered naming convention with prefixes:
 | `movie_` | MovieInfo | movies |
 | `torrent_` | TorrentInfo | rss, jackett, metainfo_torrent, metainfo_magnet |
 | `file_` | FileInfo | filesystem |
-| `rss_` | RSSInfo | rss, rss_search |
+| `rss_` | RSSInfo | rss |
 
 The full list of constants is in `internal/entry/info.go`.
 
