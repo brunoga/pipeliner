@@ -2904,6 +2904,11 @@ function renderNodeFieldsSection(node) {
   </details>`;
 }
 
+// Tracks rules the user has explicitly forced into raw mode.
+// Keys: "${nodeId}:${ruleIdx}". Persists across re-renders but is
+// intentionally in-memory only — it resets on page reload.
+const _forcedRaw = new Set();
+
 // renderCondRulesWidget renders the condition editor for a condition node.
 // Each rule is either in "builder mode" (structured field/op/value picker) or
 // "raw mode" (a plain text input for complex expressions).
@@ -2929,8 +2934,10 @@ function renderCondRulesWidget(node) {
 // Render a single condition rule at index i.
 function renderCondRule(rule, i, nodeFields) {
   const {type, expr} = rule;
-  const model = exprToFlatModel(expr);
-  const rawMode = !model || expr.trim() === '';
+  const nodeId  = findNode(ve.selectedNodeId)?.id ?? '';
+  const fkey    = `${nodeId}:${i}`;
+  const model   = exprToFlatModel(expr);
+  const rawMode = _forcedRaw.has(fkey) || !model || expr.trim() === '';
 
   const builderHtml = rawMode ? '' : renderCondBuilderBody(model, i, nodeFields);
   const rawHtml     = rawMode
@@ -3078,7 +3085,11 @@ function addCondRule(type) {
 }
 
 function deleteCondRule2(ruleIdx) {
+  const node = findNode(ve.selectedNodeId);
+  const nodeId = node?.id ?? '';
+  // Clean up any force-raw entries for this and later rules.
   const rules = _condGetRules();
+  for (let i = ruleIdx; i < rules.length; i++) _forcedRaw.delete(`${nodeId}:${i}`);
   rules.splice(ruleIdx, 1);
   _condSetRules(rules);
 }
@@ -3091,18 +3102,33 @@ function toggleCondType2(ruleIdx) {
 }
 
 function toggleCondRawMode(ruleIdx) {
+  const node = findNode(ve.selectedNodeId);
+  if (!node) return;
   const rules = _condGetRules();
   if (!rules[ruleIdx]) return;
-  const current = exprToFlatModel(rules[ruleIdx].expr);
-  if (current) {
-    // In builder mode → switch to raw mode (no change to expr)
-    // Force re-render in raw mode by flagging the expr as "raw-forced" is complex;
-    // instead, just set expr to a temporary marker that parseClause won't parse.
-    // Actually, let's just keep the same expr — raw mode shows the same string.
+
+  const fkey = `${node.id}:${ruleIdx}`;
+  const expr  = rules[ruleIdx].expr;
+  const model = exprToFlatModel(expr);
+
+  if (_forcedRaw.has(fkey)) {
+    // Explicitly forced raw → remove the force flag to switch back to builder.
+    _forcedRaw.delete(fkey);
+  } else if (model) {
+    // Currently in builder mode (parseable) → force raw.
+    _forcedRaw.add(fkey);
   } else {
-    // In raw mode → try to switch to builder mode
-    // Just re-render; if exprToFlatModel fails it stays raw
+    // In raw mode because expression is unparseable → try to switch to builder
+    // by replacing the expression with a default parseable one.
+    const nf = computeInputFields(node);
+    const defaultField = nf.reachable[0] || nf.certain[0] || 'title';
+    const ops      = getOpsForType(getFieldType(defaultField));
+    const isSetOp  = ops.find(o => o.noValue) || ops[0];
+    rules[ruleIdx].expr = clauseToStr(defaultField, isSetOp?.id || '!= ""', '');
+    // Clear any stale force-raw flag so it renders in builder mode.
+    _forcedRaw.delete(fkey);
   }
+
   _condSetRules(rules);
 }
 
