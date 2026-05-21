@@ -2823,26 +2823,35 @@ function buildCondConfig(rules) {
 
 // collectOutputFields recursively collects all fields produced by node and
 // its upstream chain into the certain/reachable sets.
-function collectOutputFields(node, certain, reachable, visited) {
+// graphNodes is the node list for the CURRENT graph — traversal is restricted
+// to that graph so we never bleed fields in from other pipelines.
+function collectOutputFields(node, certain, reachable, visited, graphNodes) {
   if (!node || visited.has(node.id)) return;
   visited.add(node.id);
   const meta = pluginMeta(node.plugin);
   for (const f of (meta?.produces    || [])) { certain.add(f); reachable.add(f); }
   for (const f of (meta?.may_produce || [])) { reachable.add(f); }
   for (const upId of (node.upstreams || [])) {
-    const up = findNode(upId);
-    if (up) collectOutputFields(up, certain, reachable, visited);
+    // Look up strictly within the same graph to avoid cross-pipeline leakage
+    // (different pipelines may share variable names, or findNode could
+    // return a same-ID node from another pipeline).
+    const up = graphNodes.find(n => n.id === upId);
+    if (up) collectOutputFields(up, certain, reachable, visited, graphNodes);
   }
 }
 
 // computeInputFields computes the field sets available at the INPUT of node
 // by walking its full upstream chain using plugin metadata from ve.plugins.
 function computeInputFields(node) {
+  // Find the graph this node belongs to so traversal stays within it.
+  const gi = findNodeGraph(node.id);
+  const graphNodes = gi >= 0 ? (ve.graphs[gi]?.nodes || []) : [];
+
   const certain  = new Set();
   const reachable = new Set();
   for (const upId of (node.upstreams || [])) {
-    const up = findNode(upId);
-    if (up) collectOutputFields(up, certain, reachable, new Set());
+    const up = graphNodes.find(n => n.id === upId);
+    if (up) collectOutputFields(up, certain, reachable, new Set(), graphNodes);
   }
   return {
     certain:  [...certain].sort(),
@@ -2853,12 +2862,16 @@ function computeInputFields(node) {
 // renderNodeFieldsSection renders a collapsible "Fields available" section
 // showing what's certain and reachable at this node's input.
 function renderNodeFieldsSection(node) {
-  // Prefer server-supplied field sets; fall back to client-side computation
-  // from plugin metadata so the section is always populated even if the
-  // server-side DAG field propagation hasn't run yet.
-  let nf = (node.fields?.certain?.length || node.fields?.reachable?.length)
-    ? node.fields
-    : computeInputFields(node);
+  // Always prefer the live client-side computation so the display reflects
+  // the CURRENT visual model state, not stale server data from the last
+  // textToVisualSync call (which may predate in-memory edits such as adding
+  // or removing nodes and connections).
+  // Fall back to server-supplied node.fields only when the client-side result
+  // is empty (e.g. for a source node whose upstreams list is empty).
+  let nf = computeInputFields(node);
+  if (!nf.certain.length && !nf.reachable.length) {
+    nf = node.fields || nf;
+  }
 
   if (!nf || (!nf.certain?.length && !nf.reachable?.length)) return '';
 
@@ -2935,9 +2948,11 @@ function renderCondRule(rule, i, nodeFields) {
   const rawBtn = `<button class="ve-cond-raw-btn" title="${rawMode ? 'Switch to builder' : 'Switch to raw mode'}"
       onclick="toggleCondRawMode(${i})">${rawMode ? '≡ builder' : '⋮ raw'}</button>`;
 
-  const effectiveFields = (nodeFields?.certain?.length || nodeFields?.reachable?.length)
-    ? nodeFields
-    : computeInputFields(findNode(ve.selectedNodeId));
+  const selectedNode = findNode(ve.selectedNodeId);
+  const liveFields   = computeInputFields(selectedNode);
+  const effectiveFields = (liveFields.certain.length || liveFields.reachable.length)
+    ? liveFields
+    : (nodeFields || {certain: [], reachable: []});
   const promoted = condNarrowedFields(expr, effectiveFields);
   const narrowHtml = promoted.length
     ? `<div class="ve-cond-narrow">↳ Promotes to certain: ${promoted.map(f => `<code>${esc(f)}</code>`).join(', ')}</div>`
@@ -2963,11 +2978,12 @@ function renderCondRule(rule, i, nodeFields) {
 // Render the builder body (field picker + op + value rows) for a rule.
 function renderCondBuilderBody(model, ruleIdx, nodeFields) {
   const {clauses, combinator} = model;
-  // Use server-supplied fields or fall back to client-side computation.
-  const resolved = (nodeFields?.certain?.length || nodeFields?.reachable?.length)
-    ? nodeFields
-    : computeInputFields(findNode(ve.selectedNodeId));
-  const nf = resolved || {certain: [], reachable: []};
+  // Always use live client-side computation; server fields are stale after edits.
+  const liveNf   = computeInputFields(findNode(ve.selectedNodeId));
+  const resolved = (liveNf.certain.length || liveNf.reachable.length)
+    ? liveNf
+    : (nodeFields || {certain: [], reachable: []});
+  const nf = resolved;
   const certain  = new Set(nf.certain);
   const reachable = new Set(nf.reachable);
 
