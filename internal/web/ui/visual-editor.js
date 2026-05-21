@@ -2828,15 +2828,32 @@ function buildCondConfig(rules) {
 function collectOutputFields(node, certain, reachable, visited, graphNodes) {
   if (!node || visited.has(node.id)) return;
   visited.add(node.id);
+
+  // Collect this node's own declared fields from plugin metadata.
   const meta = pluginMeta(node.plugin);
   for (const f of (meta?.produces    || [])) { certain.add(f); reachable.add(f); }
   for (const f of (meta?.may_produce || [])) { reachable.add(f); }
+
+  // Recurse into upstreams (within the same graph only).
   for (const upId of (node.upstreams || [])) {
-    // Look up strictly within the same graph to avoid cross-pipeline leakage
-    // (different pipelines may share variable names, or findNode could
-    // return a same-ID node from another pipeline).
     const up = graphNodes.find(n => n.id === upId);
     if (up) collectOutputFields(up, certain, reachable, visited, graphNodes);
+  }
+
+  // For condition nodes: apply narrowing from accept expressions.
+  // When an accept rule tests a field (e.g. "description != """), entries that
+  // pass are guaranteed to have that field set, so promote it from reachable
+  // to certain for downstream nodes.
+  if (node.plugin === 'condition') {
+    const rules    = condRulesFromConfig(node.config);
+    const certArr  = [...certain];
+    const reachArr = [...certain, ...reachable];   // reachable includes certain
+    for (const rule of rules) {
+      if (rule.type !== 'accept') continue;
+      for (const f of condNarrowedFields(rule.expr, {certain: certArr, reachable: reachArr})) {
+        certain.add(f);   // promote from reachable → certain
+      }
+    }
   }
 }
 
