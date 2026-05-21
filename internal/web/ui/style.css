@@ -2053,3 +2053,273 @@ details[open] > .ve-fields-summary::before { content:'▼ '; }
   font-weight:600; text-transform:uppercase; letter-spacing:.05em;
 }
 .ve-tt-row { display:flex; flex-wrap:wrap; gap:3px; margin-bottom:3px; align-items:baseline; }
+
+/* ── Panel redesign: more air, cleaner hierarchy ─────────────────────────── */
+
+/* Header: taller with subtle role-coloured left accent */
+.ve-param-header {
+  padding:14px 16px 12px;
+  border-bottom:1px solid var(--border);
+  flex-shrink:0;
+  background:var(--surface);
+}
+.ve-param-name {
+  font-size:15px; font-weight:700; color:var(--text); letter-spacing:-0.02em;
+}
+.ve-param-phase {
+  font-size:10px; color:var(--muted); text-transform:uppercase;
+  letter-spacing:.1em; margin-top:3px;
+}
+
+/* Body: more breathing room */
+.ve-param-body { padding:16px 16px 8px; }
+
+/* Field labels: sentence-case, not screaming caps */
+.ve-field {
+  margin-bottom:18px;
+}
+.ve-field-label {
+  font-size:11px; font-weight:600; text-transform:none; letter-spacing:0;
+  color:var(--text); margin-bottom:5px;
+}
+/* Hint text sits below the label, smaller and muted */
+.ve-field-hint {
+  font-size:10px; color:var(--muted); margin-bottom:6px;
+  line-height:1.55; font-weight:400; letter-spacing:0;
+}
+
+/* Inputs: a touch more padding, slightly warmer border */
+.ve-field input[type="text"],
+.ve-field input[type="number"],
+.ve-field select,
+.ve-field textarea {
+  padding:6px 10px; border-radius:6px;
+  font-size:12px; border:1px solid var(--border);
+  background:var(--bg); color:var(--text);
+}
+
+/* Upstream rows: slightly larger, more spacing */
+.ve-upstream-row {
+  padding:4px 2px; gap:8px; font-size:12px;
+}
+.ve-upstream-id {
+  font-size:11px; padding:1px 6px; border-radius:3px;
+}
+
+/* Section separator: more margin */
+.ve-field-sep { margin:14px 0; }
+
+/* Sub-node header */
+.ve-sub-node-header {
+  font-size:11px; font-weight:600; color:var(--muted); margin-bottom:8px;
+}
+
+/* Connection warnings: rounder, less aggressive */
+.ve-conn-warn {
+  border-radius:6px; padding:8px 10px; margin-bottom:12px; font-size:11px;
+}
+.ve-conn-soft-warn {
+  border-radius:6px; padding:8px 10px; margin-bottom:6px;
+}
+
+/* Produces/Requires hint blocks */
+.ve-field-hint-block {
+  font-size:11px; line-height:1.6; margin-bottom:8px;
+}
+
+/* Footer */
+.ve-param-footer { padding:12px 16px; }
+.ve-remove-btn {
+  border-radius:6px; padding:7px; font-size:10px; letter-spacing:.06em;
+}
+
+/* ── Condition rules: card-with-left-accent system ────────────────────────── */
+
+/* The overall rules section */
+.ve-field .ve-field-label { /* "Rules" label above the list */
+  font-size:11px; font-weight:600; color:var(--text); letter-spacing:0;
+}
+
+/* Individual rule card: left-accent border, no full box border */
+.ve-cond-rule {
+  border:none;
+  border-left:3px solid var(--border);
+  border-radius:0 6px 6px 0;
+  padding:10px 12px;
+  margin-bottom:10px;
+  background:color-mix(in srgb, var(--bg) 70%, var(--surface));
+}
+/* Colour the left accent by rule type */
+.ve-cond-rule:has(.ve-cond-type.accept) { border-left-color: var(--green); }
+.ve-cond-rule:has(.ve-cond-type.reject) { border-left-color: var(--red);   }
+
+/* Rule header: accept/reject badge + toggle + delete */
+.ve-cond-rule-header {
+  display:flex; align-items:center; gap:6px; margin-bottom:8px;
+}
+
+/* Accept/Reject badge: cleaner pill */
+.ve-cond-type {
+  font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.06em;
+  padding:3px 9px; border-radius:12px; border:none; cursor:pointer;
+  min-width:58px; text-align:center; transition:opacity .15s;
+}
+.ve-cond-type:hover { opacity:.8; }
+.ve-cond-type.accept { background:color-mix(in srgb, var(--green) 18%, transparent); color:var(--green); }
+.ve-cond-type.reject { background:color-mix(in srgb, var(--red) 18%, transparent);   color:var(--red);   }
+
+/* Raw-mode toggle: minimal text button */
+.ve-cond-raw-btn {
+  margin-left:auto; background:none; border:none;
+  color:var(--muted); cursor:pointer; font-size:10px;
+  padding:2px 4px; border-radius:3px; letter-spacing:.02em;
+  transition:color .15s;
+}
+.ve-cond-raw-btn:hover { color:var(--text); }
+
+/* Delete button */
+.ve-cond-del {
+  color:var(--muted); font-size:15px; padding:0 3px; line-height:1;
+  transition:color .15s;
+}
+.ve-cond-del:hover { color:var(--red); }
+
+/* Raw textarea */
+.ve-cond-raw-ta {
+  font-size:12px; padding:7px 10px; border-radius:6px;
+  min-height:42px; border:1px solid var(--border);
+  background:var(--bg); color:var(--text);
+}
+.ve-cond-raw-ta:focus { border-color:var(--accent); outline:none; }
+
+/* Builder: clause rows with more vertical rhythm */
+.ve-cond-builder { display:flex; flex-direction:column; gap:6px; }
+.ve-cb-clause {
+  display:flex; align-items:center; gap:5px;
+  flex-wrap:wrap;               /* allow wrapping on very narrow panels */
+}
+
+/* Builder selects and value input */
+.ve-cb-field, .ve-cb-op {
+  font-size:11px; font-family:var(--mono-font);
+  padding:4px 7px; border:1px solid var(--border); border-radius:5px;
+  background:var(--bg); color:var(--text); cursor:pointer;
+}
+.ve-cb-field { min-width:120px; max-width:150px; }
+.ve-cb-op    { min-width:95px; }
+.ve-cb-field:focus, .ve-cb-op:focus { border-color:var(--accent); outline:none; }
+
+.ve-cb-val {
+  flex:1; min-width:60px; font-family:var(--mono-font); font-size:11px;
+  padding:4px 8px; border:1px solid var(--border); border-radius:5px;
+  background:var(--bg); color:var(--text);
+}
+.ve-cb-val:focus { border-color:var(--accent); outline:none; }
+
+.ve-cb-clause-del {
+  flex-shrink:0; background:none; border:none; color:var(--muted);
+  cursor:pointer; font-size:14px; padding:0 3px; line-height:1;
+  transition:color .15s;
+}
+.ve-cb-clause-del:hover { color:var(--red); }
+
+/* AND/OR combinator pill: centred, clear and clickable */
+.ve-cb-combinator {
+  font-size:9px; font-weight:800; text-transform:uppercase; letter-spacing:.12em;
+  color:var(--muted); cursor:pointer; padding:2px 10px;
+  border:1px solid var(--border); border-radius:10px;
+  display:inline-block; align-self:center;
+  background:var(--bg); transition:color .15s, border-color .15s;
+  width:fit-content;
+}
+.ve-cb-combinator:hover {
+  color:var(--accent); border-color:var(--accent);
+  background:color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+/* Expression preview: code-like, subtler */
+.ve-cond-preview {
+  font-family:var(--mono-font); font-size:10px; color:var(--muted);
+  margin-top:8px; padding:4px 8px; border-radius:4px;
+  background:color-mix(in srgb, var(--bg) 50%, transparent);
+  word-break:break-all; line-height:1.5;
+}
+
+/* Narrowing promotion notice */
+.ve-cond-narrow {
+  font-size:10px; color:var(--green); margin-top:6px;
+  padding:4px 8px; border-radius:4px;
+  background:color-mix(in srgb, var(--green) 5%, transparent);
+  line-height:1.5;
+}
+.ve-cond-narrow code {
+  background:color-mix(in srgb, var(--green) 14%, transparent);
+  padding:1px 4px; border-radius:3px; font-size:9px;
+}
+
+/* "Add clause" button */
+.ve-cond-builder .ve-add-kv {
+  font-size:11px; color:var(--muted); margin-top:2px; padding:1px 0;
+}
+.ve-cond-builder .ve-add-kv:hover { color:var(--accent); }
+
+/* Add rule buttons row */
+.ve-cond-rules + div { margin-top:4px; gap:8px; }
+
+/* Empty-rules placeholder */
+.ve-cond-empty { font-size:12px; color:var(--muted); padding:8px 4px; }
+
+/* ── Fields available: open by default, no header clutter ─────────────────── */
+
+.ve-fields-section {
+  margin:0 0 16px;
+  border:none; border-left:2px solid var(--border); border-radius:0;
+  background:transparent; padding-left:10px;
+}
+details[open] > .ve-fields-summary::before,
+.ve-fields-summary::before { content: none; }
+.ve-fields-summary {
+  font-size:10px; font-weight:600; letter-spacing:.03em;
+  color:var(--muted); padding:0 0 5px;
+  cursor:pointer; user-select:none;
+  display:flex; justify-content:space-between; align-items:center;
+}
+.ve-fields-summary::after {
+  content:'▾'; font-size:11px; color:var(--muted);
+}
+details[open] > .ve-fields-summary::after { content:'▴'; }
+.ve-fields-count { display:none; } /* no need for the count label */
+.ve-fields-body {
+  padding:0 0 4px; display:flex; flex-direction:column; gap:5px;
+}
+.ve-fields-row { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px; }
+.ve-f-label {
+  font-size:9px; font-weight:600; text-transform:uppercase; letter-spacing:.06em;
+  color:var(--muted); white-space:nowrap; min-width:56px;
+}
+.ve-f-tag {
+  font-family:var(--mono-font); font-size:10px; padding:1px 6px;
+  border-radius:4px; cursor:default; white-space:nowrap; line-height:1.6;
+}
+.ve-f-certain {
+  background:color-mix(in srgb, var(--green) 12%, transparent);
+  color:color-mix(in srgb, var(--green) 90%, var(--text));
+  border:1px solid color-mix(in srgb, var(--green) 20%, transparent);
+}
+.ve-f-reachable {
+  background:color-mix(in srgb, var(--amber) 10%, transparent);
+  color:color-mix(in srgb, var(--amber) 80%, var(--text));
+  border:1px solid color-mix(in srgb, var(--amber) 18%, transparent);
+}
+.ve-fields-legend { display:none; } /* legend clutter removed */
+
+/* ── Edge tooltip: cleaner ────────────────────────────────────────────────── */
+.ve-edge-tooltip {
+  border-radius:8px; padding:10px 13px; max-width:360px;
+  box-shadow:0 6px 24px rgba(0,0,0,.6);
+  border:1px solid var(--border);
+}
+.ve-tt-title {
+  font-size:10px; font-weight:600; color:var(--muted);
+  text-transform:none; letter-spacing:.01em; margin-bottom:6px;
+}
