@@ -35,10 +35,10 @@ qbit_host    = "localhost"   # handles magnet links
 # ── Sources ────────────────────────────────────────────────────────────────
 
 # Jackett may set torrent_url, magnet_url, or both depending on the indexer.
-tv_feed  = input("jackett_search",
+tv_feed  = input("jackett",
     url=jackett_url, api_key=jackett_key,
     query="4K HDTV",  categories=["5000"])
-mv_feed  = input("jackett_search",
+mv_feed  = input("jackett",
     url=jackett_url, api_key=jackett_key,
     query="BluRay Remux", categories=["2000"])
 
