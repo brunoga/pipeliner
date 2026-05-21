@@ -3180,10 +3180,19 @@ function _condSetRules(rules) {
 
 function addCondRule(type) {
   const rules = _condGetRules();
-  // Use "true" as the placeholder — it is always non-empty so buildCondConfig
-  // doesn't filter it out, it is valid Starlark, and it serialises/parses
-  // cleanly with no quoting issues.  The user replaces it via the builder.
-  rules.push({type, expr: 'true'});
+  const node  = findNode(ve.selectedNodeId);
+  const nf    = computeInputFields(node);
+
+  // Pick the first reachable (then certain, then hardcoded fallback) field so
+  // the new rule starts in builder mode with a parseable default expression.
+  // "source != ''" is used as the ultimate fallback because source is always
+  // produced by every source plugin and serialises cleanly without quoting issues.
+  const defaultField = nf.reachable[0] || nf.certain[0] || 'source';
+  const ops     = getOpsForType(getFieldType(defaultField));
+  const isSetOp = ops.find(o => o.noValue) || ops[0];
+  const defaultExpr = clauseToStr(defaultField, isSetOp?.id || '!= ""', '');
+
+  rules.push({type, expr: defaultExpr});
   _condSetRules(rules);
 }
 
