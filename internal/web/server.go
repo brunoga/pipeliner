@@ -227,8 +227,7 @@ func (s *Server) serveUI(w http.ResponseWriter, r *http.Request) {
 // embedded ui/ directory. Exposed so tests can wire it without starting a
 // full authenticated server.
 func (s *Server) staticHandler() http.Handler {
-	subFS, _ := fs.Sub(uiFS, "ui")
-	return http.FileServer(http.FS(subFS))
+	return http.FileServer(http.FS(mustSub(uiFS, "ui")))
 }
 
 func (s *Server) serveGuide(w http.ResponseWriter, r *http.Request) {
