@@ -465,6 +465,7 @@ pipeline("split-pipeline")</code></pre>
   <tr><td><code>description</code></td><td>Synopsis or overview text</td></tr>
   <tr><td><code>published_date</code></td><td>Release or premiere date</td></tr>
   <tr><td><code>enriched</code></td><td><code>true</code> when an external provider has enriched this entry</td></tr>
+  <tr><td><code>source</code></td><td>Origin of the entry in the form <code>plugin:identifier</code>, set by every source plugin. Examples: <code>jackett:1337x</code>, <code>rss:nyaa.si</code>, <code>filesystem:/downloads/watch</code>, <code>trakt_list:watchlist</code>.</td></tr>
 </table>
 
 <div class="note"><strong><code>{title}</code> vs <code>{raw_title}</code>:</strong> <code>{title}</code> resolves to the canonical enriched title (e.g. "Breaking Bad" from TVDB). <code>{raw_title}</code> is the original entry title as received from the input (torrent filename or feed item title). Before enrichment, both refer to the same raw value.</div>
@@ -572,7 +573,6 @@ pipeline("split-pipeline")</code></pre>
   <tr><td><code>trakt_tmdb_id</code></td><td>metainfo_trakt, trakt_list</td><td>TMDb ID from Trakt — when present, metainfo_tmdb fetches by ID directly instead of searching</td></tr>
   <tr><td><code>trakt_tvdb_id</code></td><td>metainfo_trakt</td><td>TVDB ID from Trakt</td></tr>
   <tr><td><code>jackett_category</code></td><td>jackett_search, jackett</td><td>Torznab category code</td></tr>
-  <tr><td><code>jackett_indexer</code></td><td>jackett_search, jackett</td><td>Source indexer name</td></tr>
   <tr><td><code>series_container</code></td><td>series</td><td>Container format tag parsed from title (e.g. <code>mkv</code>)</td></tr>
   <tr><td><code>codec</code></td><td>metainfo_quality</td><td>Codec tag (e.g. <code>x265</code>, <code>HEVC</code>)</td></tr>
   <tr><td><code>audio</code></td><td>metainfo_quality</td><td>Audio tag (e.g. <code>DTS</code>, <code>Atmos</code>)</td></tr>
@@ -738,7 +738,7 @@ pipeline("split-pipeline")</code></pre>
 </table>
 
 <h4>Fields set</h4>
-<p><code>rss_feed</code>, <code>rss_link</code>, <code>rss_guid</code>, <code>rss_enclosure_url</code>, <code>rss_enclosure_type</code>, <code>description</code> (item description), <code>published_date</code> (item pubdate), <code>torrent_seeds</code> (when present in feed)</p>
+<p><code>source</code> (e.g. <code>rss:nyaa.si</code>), <code>rss_feed</code>, <code>title</code>. Optionally: <code>description</code>, <code>published_date</code>, <code>rss_link</code>, <code>rss_guid</code>, <code>rss_enclosure_url</code>, <code>rss_enclosure_type</code>, <code>torrent_seeds</code> (when present in feed).</p>
 
 <pre><code>src = input("rss", url="https://example.com/torrents/rss")
 output("print", upstream=src)
@@ -753,6 +753,9 @@ pipeline("my-pipeline")</code></pre>
   <tr><td><code>url</code></td><td>yes</td><td>—</td><td>Page URL to fetch</td></tr>
   <tr><td><code>mask</code></td><td>no</td><td>—</td><td>Glob filter on link filenames (e.g. <code>*.torrent</code>)</td></tr>
 </table>
+
+<h4>Fields set</h4>
+<p><code>source</code> (e.g. <code>html:example.com</code>), <code>title</code> (link text or href), <code>html_page</code> (the fetched page URL).</p>
 
 <pre><code>src = input("html", url="https://example.com/downloads", mask="*.torrent")
 output("print", upstream=src)
@@ -770,7 +773,7 @@ pipeline("html-feed")</code></pre>
 </table>
 
 <h4>Fields set</h4>
-<p><code>file_location</code> (absolute path), <code>file_name</code>, <code>file_extension</code>, <code>file_size</code>, <code>file_modified_time</code></p>
+<p><code>source</code> (e.g. <code>filesystem:/downloads/watch</code>), <code>file_location</code> (absolute path), <code>file_name</code>, <code>file_extension</code>, <code>file_size</code>, <code>file_modified_time</code>.</p>
 
 <pre><code>src  = input("filesystem", path="/downloads/watch", mask="*.torrent")
 meta = process("metainfo_torrent", upstream=src)
@@ -820,7 +823,7 @@ pipeline("movie-discover", schedule="2h")</code></pre>
 </table>
 
 <h4>Fields set</h4>
-<p><code>torrent_link_type</code> (<code>"torrent"</code> or <code>"magnet"</code>), <code>torrent_seeds</code>, <code>torrent_leechers</code>, <code>torrent_file_size</code>, <code>torrent_info_hash</code>, <code>jackett_category</code>, <code>jackett_indexer</code></p>
+<p><code>source</code> (e.g. <code>jackett:1337x</code>), <code>torrent_link_type</code> (<code>"torrent"</code> or <code>"magnet"</code>), <code>torrent_seeds</code>, <code>torrent_leechers</code>, <code>torrent_file_size</code>, <code>torrent_info_hash</code>. Optionally: <code>jackett_category</code>.</p>
 
 <h4>Common Torznab categories</h4>
 <table>
@@ -867,6 +870,9 @@ series = process("series", upstream=src, list=[
 
 <p>Get your API key and user PIN at <a href="https://thetvdb.com/api-information" target="_blank">thetvdb.com/api-information</a>.</p>
 
+<h4>Fields set</h4>
+<p><code>source</code> (always <code>tvdb_favorites:favorites</code>), <code>tvdb_id</code>. Optionally: <code>tvdb_year</code>.</p>
+
 <pre><code>src    = input("rss", url="https://feed.example.com/rss")
 seen   = process("seen", upstream=src)
 series = process("series", upstream=seen,
@@ -891,6 +897,9 @@ pipeline("tv-tvdb", schedule="1h")</code></pre>
 </table>
 
 <p>One of <code>client_secret</code> or <code>access_token</code> is required for <code>watchlist</code>, <code>ratings</code>, and <code>collection</code>. Public lists (<code>trending</code>, <code>popular</code>, <code>watched</code>) need neither. See <a href="#trakt-auth">Trakt Authentication</a> for setup instructions.</p>
+
+<h4>Fields set</h4>
+<p><code>source</code> (e.g. <code>trakt_list:watchlist</code>). Optionally: <code>video_year</code>, <code>trakt_id</code>, <code>trakt_imdb_id</code>, <code>trakt_tmdb_id</code>.</p>
 
 <!-- ─────────── trakt auth ─────────── -->
 <h2 id="trakt-auth">Trakt Authentication</h2>
@@ -941,6 +950,9 @@ pipeline("tv-tvdb", schedule="1h")</code></pre>
   <tr><td><code>timeout</code></td><td>no</td><td><code>60s</code></td><td>HTTP timeout</td></tr>
 </table>
 
+<h4>Fields set</h4>
+<p><code>source</code> (e.g. <code>jackett:1337x</code>), <code>torrent_link_type</code> (<code>"torrent"</code> or <code>"magnet"</code>), <code>torrent_seeds</code>, <code>torrent_leechers</code>, <code>torrent_file_size</code>, <code>torrent_info_hash</code>. Optionally: <code>jackett_category</code>.</p>
+
 <!-- ─────────── rss_search ─────────── -->
 <h2 id="rss_search">rss_search</h2>
 <p>Fetches entries from a parameterized RSS URL. Used inside <code>discover.search</code>. The URL template receives the search query.</p>
@@ -951,6 +963,9 @@ pipeline("tv-tvdb", schedule="1h")</code></pre>
 </table>
 
 <p>Template variables: <code>{{.Query}}</code> (raw) and <code>{{.QueryEscaped}}</code> (URL-encoded). Brace syntax <code>{QueryEscaped}</code> also works.</p>
+
+<h4>Fields set</h4>
+<p><code>source</code> (e.g. <code>rss_search:nyaa.si</code>), <code>title</code>, <code>rss_feed</code> (the rendered search URL). Optionally: <code>description</code>, <code>published_date</code>, <code>rss_guid</code>, <code>rss_link</code>, <code>rss_enclosure_url</code>, <code>rss_enclosure_type</code>.</p>
 
 <pre><code>src = input("rss", url="https://feed.example.com/rss")
 disc = process("discover", upstream=src,

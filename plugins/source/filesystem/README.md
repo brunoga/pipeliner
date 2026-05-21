@@ -14,6 +14,7 @@ Walks a local directory and emits one entry per file. Entry URLs use the `file:/
 
 | Field | Description |
 |-------|-------------|
+| `source` | Origin in the form `filesystem:<path>` (e.g. `filesystem:/downloads/watch`) |
 | `title` | File name (same as `file_name`) |
 | `file_name` | File name including extension |
 | `file_extension` | File extension including the leading dot (e.g. `.torrent`) |
@@ -26,7 +27,7 @@ Walks a local directory and emits one entry per file. Entry URLs use the `file:/
 | Property | Value |
 |----------|-------|
 | Role | `source` |
-| Produces | `title`, `file_name`, `file_extension`, `file_location`, `file_size`, `file_modified_time` |
+| Produces | `source`, `title`, `file_name`, `file_extension`, `file_location`, `file_size`, `file_modified_time` |
 | Requires | — |
 
 ## Example

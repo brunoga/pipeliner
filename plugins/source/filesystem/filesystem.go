@@ -19,6 +19,7 @@ func init() {
 		Description: "scan a local directory and emit one entry per file",
 		Role:        plugin.RoleSource,
 		Produces: []string{
+			entry.FieldSource,
 			entry.FieldTitle,
 			entry.FieldFileName,
 			entry.FieldFileExtension,
@@ -103,6 +104,7 @@ func (f *filesystemPlugin) Generate(ctx context.Context, _ *plugin.TaskContext) 
 			FileSize:     info.Size(),
 			ModifiedTime: info.ModTime(),
 		})
+		e.Set(entry.FieldSource, "filesystem:"+f.path)
 		entries = append(entries, e)
 		return nil
 	}

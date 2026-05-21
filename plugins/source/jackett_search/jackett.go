@@ -43,6 +43,7 @@ func init() {
 		Description: "search Jackett indexers via the Torznab API; usable as a standalone DAG source or inside discover.search",
 		Role:        plugin.RoleSource,
 		Produces: []string{
+			entry.FieldSource,
 			entry.FieldTorrentSeeds,
 			entry.FieldTorrentLeechers,
 			entry.FieldTorrentInfoHash,
