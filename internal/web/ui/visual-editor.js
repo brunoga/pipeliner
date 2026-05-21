@@ -3033,7 +3033,17 @@ function veRenderParamPanel(node) {
 
 function addCondRule(type) {
   const rules = _condGetRules();
-  rules.push({type, expr: ''});
+  const node  = findNode(ve.selectedNodeId);
+  const nf    = node?.fields || {certain: [], reachable: []};
+
+  // Pick a sensible default expression so buildCondConfig doesn't discard it
+  // (it filters empty expressions). Use the first available field with "is set".
+  const defaultField = nf.reachable[0] || nf.certain[0] || 'title';
+  const ops      = getOpsForType(getFieldType(defaultField));
+  const isSetOp  = ops.find(o => o.noValue) || ops[0];
+  const defaultExpr = clauseToStr(defaultField, isSetOp?.id || '!= ""', '');
+
+  rules.push({type, expr: defaultExpr});
   _condSetRules(rules);
 }
 
