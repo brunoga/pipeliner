@@ -2331,3 +2331,213 @@ details[open] > .ve-fields-summary::after { content:'▴'; }
   font-size:10px; font-weight:600; color:var(--muted);
   text-transform:none; letter-spacing:.01em; margin-bottom:6px;
 }
+
+/* ── Canvas node card redesign ───────────────────────────────────────────────
+   Goals:
+   - Left-aligned content (was centred) for better readability in a DAG
+   - Plugin name in monospace — it's a code identifier, not prose
+   - Role bar thicker and more prominent; coloured shadow on the selected glow
+   - Subtle shadow so cards visually "float" above the canvas background
+   - Role badge moved inline with the name as a coloured dot + text, not tiny
+   - Hover lifts the card slightly; selected state matches the role colour
+──────────────────────────────────────────────────────────────────────────── */
+
+.ve-node {
+  border-radius:6px;
+  box-shadow:0 2px 8px rgba(0,0,0,.35), 0 1px 2px rgba(0,0,0,.5);
+  transition:border-color .15s, box-shadow .15s, transform .1s;
+}
+.ve-node:hover:not(.selected) {
+  border-color:color-mix(in srgb, var(--muted) 60%, transparent);
+  box-shadow:0 4px 14px rgba(0,0,0,.45), 0 1px 3px rgba(0,0,0,.6);
+  transform:translateY(-1px);
+}
+.ve-node.selected {
+  box-shadow:0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent),
+             0 4px 16px rgba(0,0,0,.5);
+  transform:translateY(-1px);
+}
+/* Role-coloured selected glow */
+.ve-node[data-role="source"].selected {
+  border-color:var(--green);
+  box-shadow:0 0 0 2px color-mix(in srgb, var(--green) 25%, transparent),
+             0 4px 16px rgba(0,0,0,.5);
+}
+.ve-node[data-role="sink"].selected {
+  border-color:var(--ve-output);
+  box-shadow:0 0 0 2px color-mix(in srgb, var(--ve-output) 25%, transparent),
+             0 4px 16px rgba(0,0,0,.5);
+}
+
+/* Role bar: thicker, no top-left radius gap */
+.ve-node-role-bar {
+  width:5px; flex-shrink:0;
+  border-radius:5px 0 0 5px;
+}
+
+/* Body: left-aligned, tighter top pad so role badge sits at the top */
+.ve-node-body {
+  padding:9px 11px 9px 10px;
+  text-align:left;
+}
+
+/* Plugin name: monospace, slightly larger, stronger weight */
+.ve-node-name {
+  font-family:var(--mono-font);
+  font-size:12px; font-weight:700; letter-spacing:-0.01em;
+  color:var(--text);
+  margin-bottom:4px;
+}
+
+/* Role badge: sits ABOVE the name as a small coloured label row */
+.ve-node-role-badge {
+  display:inline-flex; align-items:center; gap:4px;
+  font-size:8px; font-weight:800; text-transform:uppercase; letter-spacing:.1em;
+  padding:1px 5px 1px 4px; border-radius:3px;
+  margin-bottom:4px;
+}
+/* Add a small coloured dot before the role text */
+.ve-node-role-badge::before {
+  content:'';
+  display:inline-block; width:5px; height:5px; border-radius:50%; flex-shrink:0;
+}
+.ve-role-source.ve-node-role-badge  { color:var(--green);     border-color:color-mix(in srgb, var(--green) 35%, transparent);     background:color-mix(in srgb, var(--green) 8%, transparent); }
+.ve-role-source.ve-node-role-badge::before  { background:var(--green); }
+.ve-role-processor.ve-node-role-badge { color:var(--accent);   border-color:color-mix(in srgb, var(--accent) 35%, transparent);   background:color-mix(in srgb, var(--accent) 8%, transparent); }
+.ve-role-processor.ve-node-role-badge::before { background:var(--accent); }
+.ve-role-sink.ve-node-role-badge    { color:var(--ve-output); border-color:color-mix(in srgb, var(--ve-output) 35%, transparent); background:color-mix(in srgb, var(--ve-output) 8%, transparent); }
+.ve-role-sink.ve-node-role-badge::before    { background:var(--ve-output); }
+
+/* fn badge: sits next to the role badge */
+.ve-node-fn-badge {
+  display:inline-flex; align-items:center;
+  font-size:8px; font-weight:800; text-transform:uppercase; letter-spacing:.1em;
+  padding:1px 5px; border-radius:3px; margin-left:3px;
+  color:var(--ve-fn); border:1px solid color-mix(in srgb, var(--ve-fn) 35%, transparent);
+  background:color-mix(in srgb, var(--ve-fn) 8%, transparent);
+}
+
+/* Config preview: monospace, slightly more contrast */
+.ve-node-preview {
+  font-family:var(--mono-font);
+  font-size:10px; color:color-mix(in srgb, var(--muted) 85%, var(--text));
+  margin-top:3px;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+
+/* Warnings: left-aligned, slightly more prominent */
+.ve-node-warn      { font-size:10px; color:var(--amber); margin-top:4px; text-align:left; }
+.ve-node-soft-warn { font-size:10px; color:var(--muted);  margin-top:4px; text-align:left; }
+
+/* Remove button: flush right, only on hover */
+.ve-node-remove {
+  padding:0 8px;
+  opacity:0; transition:opacity .15s, color .15s;
+}
+.ve-node:hover .ve-node-remove { opacity:1; }
+.ve-node-remove:hover { color:var(--red); }
+
+/* Comment preview: left-aligned */
+.ve-node-comment-preview {
+  text-align:left;
+  font-size:10px; color:var(--muted); margin-top:3px;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  font-style:italic;
+  padding-left:1px;
+}
+
+/* ── Palette redesign ─────────────────────────────────────────────────────────
+   Goals:
+   - Chips feel like structured building blocks, not a flat list
+   - Role colour appears as a left-border accent on hover + in the header dot
+   - Section headers are more legible with larger text
+   - Search feels integrated, not tacked on
+──────────────────────────────────────────────────────────────────────────── */
+
+.ve-palette { border-radius:6px; }
+
+.ve-palette-search {
+  margin:10px 8px 6px;
+  padding:6px 10px; border-radius:5px;
+  font-size:11px;
+  background:var(--bg);
+}
+
+/* Role section headers: larger, more readable, with a coloured accent line */
+.ve-role-header {
+  font-size:9px; font-weight:800; text-transform:uppercase; letter-spacing:.1em;
+  color:var(--muted); padding:10px 6px 5px;
+  display:flex; align-items:center; gap:6px; cursor:pointer; user-select:none;
+  border-top:1px solid var(--border);
+}
+.ve-role-header:first-child { border-top:none; }
+.ve-role-header::before {
+  content:''; display:inline-block; width:7px; height:7px; border-radius:50%;
+  flex-shrink:0; opacity:.9;
+}
+.ve-role-header[data-role="source"]::before    { background:var(--green); }
+.ve-role-header[data-role="processor"]::before { background:var(--accent); }
+.ve-role-header[data-role="sink"]::before      { background:var(--ve-output); }
+.ve-role-header[data-role="function"]::before  { background:var(--ve-fn); }
+
+/* Chips: left border on hover matching the role colour, stronger text */
+.ve-chip {
+  display:block; width:100%;
+  padding:4px 9px; margin-bottom:2px; border-radius:4px;
+  border:1px solid transparent;
+  border-left:2px solid transparent;
+  background:transparent;
+  color:color-mix(in srgb, var(--muted) 90%, var(--text));
+  font-family:var(--mono-font); font-size:11px;
+  cursor:grab; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  transition:border-color .12s, color .12s, background .12s;
+}
+.ve-chip:hover {
+  border-color:color-mix(in srgb, var(--accent) 40%, transparent);
+  border-left-color:var(--accent);
+  color:var(--text);
+  background:color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+/* Role-coloured left accent on hover */
+.ve-chip[data-role="source"]:hover {
+  border-color:color-mix(in srgb, var(--green) 30%, transparent);
+  border-left-color:var(--green);
+  color:color-mix(in srgb, var(--green) 80%, var(--text));
+  background:color-mix(in srgb, var(--green) 5%, transparent);
+}
+.ve-chip[data-role="processor"]:hover {
+  border-color:color-mix(in srgb, var(--accent) 30%, transparent);
+  border-left-color:var(--accent);
+  color:var(--accent);
+  background:color-mix(in srgb, var(--accent) 6%, transparent);
+}
+.ve-chip[data-role="sink"]:hover {
+  border-color:color-mix(in srgb, var(--ve-output) 30%, transparent);
+  border-left-color:var(--ve-output);
+  color:color-mix(in srgb, var(--ve-output) 80%, var(--text));
+  background:color-mix(in srgb, var(--ve-output) 5%, transparent);
+}
+
+/* Search/list badge chips */
+.ve-chip.ve-chip-search:hover {
+  border-left-color:var(--ve-search-lit);
+  color:var(--ve-search-lit);
+  background:color-mix(in srgb, var(--ve-search) 6%, transparent);
+  border-color:color-mix(in srgb, var(--ve-search) 30%, transparent);
+}
+
+/* Disabled chips (no pipeline loaded yet): slightly dimmer */
+.ve-palette-body .ve-chip[disabled] {
+  opacity:.35; cursor:default; pointer-events:none;
+}
+
+/* Search badge in palette chips: refined */
+.ve-chip-search-badge {
+  font-size:8px; font-weight:800; letter-spacing:.08em;
+  padding:1px 4px; border-radius:2px; margin-left:5px;
+  background:color-mix(in srgb, var(--ve-search) 18%, transparent);
+  color:var(--ve-search-lit);
+  border:1px solid color-mix(in srgb, var(--ve-search) 35%, transparent);
+  vertical-align:middle; line-height:1.4; pointer-events:none;
+}
