@@ -9,37 +9,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/brunoga/pipeliner/internal/entry"
-	ijackett "github.com/brunoga/pipeliner/internal/jackett"
 	"github.com/brunoga/pipeliner/internal/plugin"
 )
-
-// torznabResponse builds a minimal Torznab RSS document from the given items.
-func torznabResponse(items []ijackett.Item) string {
-	var sb strings.Builder
-	sb.WriteString(`<?xml version="1.0" encoding="UTF-8"?>`)
-	sb.WriteString(`<rss version="2.0" xmlns:torznab="http://torznab.com/schemas/2015/feed">`)
-	sb.WriteString(`<channel>`)
-	for _, it := range items {
-		fmt.Fprintf(&sb, `<item><title>%s</title>`, it.Title)
-		if it.Enclosure.URL != "" {
-			fmt.Fprintf(&sb, `<enclosure url="%s" type="application/x-bittorrent"/>`, it.Enclosure.URL)
-		} else if it.Link != "" {
-			fmt.Fprintf(&sb, `<link>%s</link>`, it.Link)
-		}
-		if it.Size > 0 {
-			fmt.Fprintf(&sb, `<size>%d</size>`, it.Size)
-		}
-		for _, a := range it.Attrs {
-			fmt.Fprintf(&sb, `<torznab:attr name="%s" value="%s"/>`, a.Name, a.Value)
-		}
-		sb.WriteString(`</item>`)
-	}
-	sb.WriteString(`</channel></rss>`)
-	return sb.String()
-}
 
 func makePlugin(t *testing.T, baseURL, apiKey string, extra map[string]any) *jackettPlugin {
 	t.Helper()
@@ -82,21 +58,10 @@ func TestDefaultIndexer(t *testing.T) {
 	}
 }
 
-func TestJackettName(t *testing.T) {
+func TestName(t *testing.T) {
 	p := makePlugin(t, "http://localhost:9117", "key", nil)
 	if p.Name() != "jackett" {
-		t.Errorf("name: got %q, want jackett", p.Name())
-	}
-}
-
-func TestInputName(t *testing.T) {
-	cfg := map[string]any{"url": "http://localhost:9117", "api_key": "key"}
-	p, err := newSourcePlugin(cfg, nil)
-	if err != nil {
-		t.Fatalf("newSourcePlugin: %v", err)
-	}
-	if p.Name() != "jackett" {
-		t.Errorf("name: got %q, want jackett", p.Name())
+		t.Errorf("Name: got %q, want jackett", p.Name())
 	}
 }
 
@@ -108,7 +73,7 @@ func TestSearchSendsCorrectQueryParams(t *testing.T) {
 		gotQuery = r.URL.Query().Get("q")
 		gotAPIKey = r.URL.Query().Get("apikey")
 		gotCat = r.URL.Query().Get("cat")
-		fmt.Fprint(w, torznabResponse(nil)) //nolint:errcheck
+		fmt.Fprint(w, string(buildXML(nil))) //nolint:errcheck
 	}))
 	defer srv.Close()
 
@@ -130,15 +95,28 @@ func TestSearchSendsCorrectQueryParams(t *testing.T) {
 	}
 }
 
+func TestSearchSetsUserAgent(t *testing.T) {
+	var gotUA string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotUA = r.Header.Get("User-Agent")
+		fmt.Fprint(w, string(buildXML(nil))) //nolint:errcheck
+	}))
+	defer srv.Close()
+
+	p := makePlugin(t, srv.URL, "key", nil)
+	_, _ = p.Search(context.Background(), tc(), "test")
+	if gotUA != "pipeliner/1.0" {
+		t.Errorf("User-Agent: got %q, want pipeliner/1.0", gotUA)
+	}
+}
+
 func TestSearchParsesEntries(t *testing.T) {
-	items := []ijackett.Item{
+	items := []torznabItem{
 		{
-			Title: "Breaking.Bad.S01E01.720p.HDTV",
-			Enclosure: struct{ URL string `xml:"url,attr"` }{
-				URL: "http://tracker.example.com/1.torrent",
-			},
-			Size: 1_500_000_000,
-			Attrs: []ijackett.Attr{
+			Title:     "Breaking.Bad.S01E01.720p.HDTV",
+			Enclosure: struct{ URL string `xml:"url,attr"` }{URL: "http://tracker.example.com/1.torrent"},
+			Size:      1_500_000_000,
+			Attrs: []torznabAttr{
 				{Name: "seeders", Value: "42"},
 				{Name: "leechers", Value: "3"},
 				{Name: "infohash", Value: "AABBCC"},
@@ -147,7 +125,7 @@ func TestSearchParsesEntries(t *testing.T) {
 		},
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, torznabResponse(items)) //nolint:errcheck
+		fmt.Fprint(w, string(buildXML(items))) //nolint:errcheck
 	}))
 	defer srv.Close()
 
@@ -166,16 +144,16 @@ func TestSearchParsesEntries(t *testing.T) {
 	if e.URL != "http://tracker.example.com/1.torrent" {
 		t.Errorf("url: got %q", e.URL)
 	}
-	if v := e.GetInt("torrent_seeds"); v != 42 {
+	if v := e.GetInt(entry.FieldTorrentSeeds); v != 42 {
 		t.Errorf("seeds: got %d, want 42", v)
 	}
-	if v := e.GetInt("torrent_leechers"); v != 3 {
+	if v := e.GetInt(entry.FieldTorrentLeechers); v != 3 {
 		t.Errorf("leechers: got %d, want 3", v)
 	}
-	if v := e.GetString("torrent_info_hash"); v != "aabbcc" {
+	if v := e.GetString(entry.FieldTorrentInfoHash); v != "aabbcc" {
 		t.Errorf("info_hash: got %q, want aabbcc", v)
 	}
-	if v := e.GetInt("torrent_file_size"); v != 1_500_000_000 {
+	if v := e.GetInt(entry.FieldTorrentFileSize); v != 1_500_000_000 {
 		t.Errorf("file_size: got %d", v)
 	}
 	if v := e.GetString("jackett_category"); v != "5030" {
@@ -186,13 +164,14 @@ func TestSearchParsesEntries(t *testing.T) {
 	}
 }
 
-func TestSearchMultipleIndexersCalledSeparately(t *testing.T) {
-	// Each indexer must be queried with its own request — Jackett does not
-	// support comma-separated indexer names in the URL path.
+func TestSearchQueriesAllIndexers(t *testing.T) {
+	var mu sync.Mutex
 	var gotPaths []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
 		gotPaths = append(gotPaths, r.URL.Path)
-		fmt.Fprint(w, torznabResponse(nil)) //nolint:errcheck
+		mu.Unlock()
+		fmt.Fprint(w, string(buildXML(nil))) //nolint:errcheck
 	}))
 	defer srv.Close()
 
@@ -206,15 +185,21 @@ func TestSearchMultipleIndexersCalledSeparately(t *testing.T) {
 	if len(gotPaths) != 3 {
 		t.Fatalf("expected 3 requests, got %d: %v", len(gotPaths), gotPaths)
 	}
-	for i, want := range []string{"idx1", "idx2", "idx3"} {
-		if !strings.Contains(gotPaths[i], want) {
-			t.Errorf("request %d: expected %q in path, got %q", i, want, gotPaths[i])
+	for _, want := range []string{"idx1", "idx2", "idx3"} {
+		found := false
+		for _, path := range gotPaths {
+			if strings.Contains(path, want) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("no request found for indexer %q in paths: %v", want, gotPaths)
 		}
 	}
 }
 
 func TestSearchFailureReturnsNoEntriesNoError(t *testing.T) {
-	// A failed call logs a warning and returns (nil, nil) — no error propagated.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 	}))
@@ -223,7 +208,7 @@ func TestSearchFailureReturnsNoEntriesNoError(t *testing.T) {
 	p := makePlugin(t, srv.URL, "key", nil)
 	entries, err := p.Search(context.Background(), tc(), "Show")
 	if err != nil {
-		t.Errorf("Search should not return error on failure, got: %v", err)
+		t.Errorf("Search should not return error on indexer failure, got: %v", err)
 	}
 	if len(entries) != 0 {
 		t.Errorf("expected 0 entries on failure, got %d", len(entries))
@@ -232,7 +217,7 @@ func TestSearchFailureReturnsNoEntriesNoError(t *testing.T) {
 
 func TestSearchEmptyFeed(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, torznabResponse(nil)) //nolint:errcheck
+		fmt.Fprint(w, string(buildXML(nil))) //nolint:errcheck
 	}))
 	defer srv.Close()
 
@@ -250,7 +235,7 @@ func TestLimitSentAsQueryParam(t *testing.T) {
 	var gotLimit string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotLimit = r.URL.Query().Get("limit")
-		fmt.Fprint(w, torznabResponse(nil)) //nolint:errcheck
+		fmt.Fprint(w, string(buildXML(nil))) //nolint:errcheck
 	}))
 	defer srv.Close()
 
@@ -268,11 +253,11 @@ func TestNoLimitOmitsParam(t *testing.T) {
 	var gotRaw string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotRaw = r.URL.RawQuery
-		fmt.Fprint(w, torznabResponse(nil)) //nolint:errcheck
+		fmt.Fprint(w, string(buildXML(nil))) //nolint:errcheck
 	}))
 	defer srv.Close()
 
-	p := makePlugin(t, srv.URL, "key", nil) // no limit configured
+	p := makePlugin(t, srv.URL, "key", nil)
 	_, _ = p.Search(context.Background(), tc(), "test")
 	if strings.Contains(gotRaw, "limit=") {
 		t.Errorf("limit param should be absent when not configured; got %q", gotRaw)
@@ -287,28 +272,28 @@ func TestLimitDefaultIsZero(t *testing.T) {
 }
 
 func TestValidateLimitRejectsZero(t *testing.T) {
-	errs := validateInput(map[string]any{"url": "http://localhost", "api_key": "key", "limit": int64(0)})
+	errs := validate(map[string]any{"url": "http://localhost", "api_key": "key", "limit": int64(0)})
 	if len(errs) == 0 {
 		t.Error("expected error for limit=0")
 	}
 }
 
 func TestValidateLimitRejectsNegative(t *testing.T) {
-	errs := validateInput(map[string]any{"url": "http://localhost", "api_key": "key", "limit": int64(-5)})
+	errs := validate(map[string]any{"url": "http://localhost", "api_key": "key", "limit": int64(-5)})
 	if len(errs) == 0 {
 		t.Error("expected error for limit=-5")
 	}
 }
 
 func TestValidateLimitAcceptsPositive(t *testing.T) {
-	errs := validateInput(map[string]any{"url": "http://localhost", "api_key": "key", "limit": int64(100)})
+	errs := validate(map[string]any{"url": "http://localhost", "api_key": "key", "limit": int64(100)})
 	if len(errs) != 0 {
 		t.Errorf("unexpected errors for valid limit: %v", errs)
 	}
 }
 
 func TestValidateLimitAbsentIsOk(t *testing.T) {
-	errs := validateInput(map[string]any{"url": "http://localhost", "api_key": "key"})
+	errs := validate(map[string]any{"url": "http://localhost", "api_key": "key"})
 	if len(errs) != 0 {
 		t.Errorf("unexpected errors when limit absent: %v", errs)
 	}
@@ -316,20 +301,20 @@ func TestValidateLimitAbsentIsOk(t *testing.T) {
 
 func TestTimeoutConfigured(t *testing.T) {
 	p := makePlugin(t, "http://localhost", "key", map[string]any{"timeout": "2m"})
-	if p.timeout != 2*60*1000*1000*1000 {
-		t.Errorf("timeout: got %v, want 2m", p.timeout)
+	if p.client.Timeout != 2*time.Minute {
+		t.Errorf("timeout: got %v, want 2m", p.client.Timeout)
 	}
 }
 
 func TestTimeoutDefault(t *testing.T) {
 	p := makePlugin(t, "http://localhost", "key", nil)
-	if p.timeout != 60*1000*1000*1000 {
-		t.Errorf("default timeout: got %v, want 60s", p.timeout)
+	if p.client.Timeout != 60*time.Second {
+		t.Errorf("default timeout: got %v, want 60s", p.client.Timeout)
 	}
 }
 
 func TestValidateTimeoutRejectsInvalid(t *testing.T) {
-	errs := validateInput(map[string]any{"url": "http://localhost", "api_key": "key", "timeout": "notaduration"})
+	errs := validate(map[string]any{"url": "http://localhost", "api_key": "key", "timeout": "notaduration"})
 	if len(errs) == 0 {
 		t.Error("expected error for invalid timeout")
 	}
@@ -344,79 +329,12 @@ func TestCategoriesJoined(t *testing.T) {
 	}
 }
 
-// --- jackett source plugin tests ---
-
-func TestSourcePluginName(t *testing.T) {
-	cfg := map[string]any{"url": "http://localhost:9117", "api_key": "key"}
-	p, err := newSourcePlugin(cfg, nil)
-	if err != nil {
-		t.Fatalf("newSourcePlugin: %v", err)
-	}
-	if p.Name() != "jackett" {
-		t.Errorf("name: got %q, want jackett", p.Name())
-	}
-}
-
-func TestSourcePluginGenerateUsesEmptyQuery(t *testing.T) {
-	var gotQuery string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotQuery = r.URL.Query().Get("q")
-		fmt.Fprint(w, torznabResponse(nil)) //nolint:errcheck
-	}))
-	defer srv.Close()
-
-	p, err := newSourcePlugin(map[string]any{"url": srv.URL, "api_key": "key"}, nil)
-	if err != nil {
-		t.Fatalf("newSourcePlugin: %v", err)
-	}
-	if _, err := p.(*jackettSourcePlugin).Generate(context.Background(), tc()); err != nil {
-		t.Fatalf("Run: %v", err)
-	}
-	if gotQuery != "" {
-		t.Errorf("default query should be empty, got %q", gotQuery)
-	}
-}
-
-func TestSourcePluginGenerateUsesConfiguredQuery(t *testing.T) {
-	var gotQuery string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotQuery = r.URL.Query().Get("q")
-		fmt.Fprint(w, torznabResponse(nil)) //nolint:errcheck
-	}))
-	defer srv.Close()
-
-	p, err := newSourcePlugin(map[string]any{"url": srv.URL, "api_key": "key", "query": "breaking bad"}, nil)
-	if err != nil {
-		t.Fatalf("newSourcePlugin: %v", err)
-	}
-	if _, err := p.(*jackettSourcePlugin).Generate(context.Background(), tc()); err != nil {
-		t.Fatalf("Run: %v", err)
-	}
-	if gotQuery != "breaking bad" {
-		t.Errorf("query: got %q, want %q", gotQuery, "breaking bad")
-	}
-}
-
-func TestSourcePluginGenerateReturnsEntries(t *testing.T) {
-	items := []ijackett.Item{
-		{Title: "Breaking.Bad.S01E01.720p", Link: "http://example.com/1.torrent"},
-		{Title: "The.Wire.S01E01.720p", Link: "http://example.com/2.torrent"},
-	}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, torznabResponse(items)) //nolint:errcheck
-	}))
-	defer srv.Close()
-
-	p, err := newSourcePlugin(map[string]any{"url": srv.URL, "api_key": "key"}, nil)
-	if err != nil {
-		t.Fatalf("newSourcePlugin: %v", err)
-	}
-	entries, err := p.(*jackettSourcePlugin).Generate(context.Background(), tc())
-	if err != nil {
-		t.Fatalf("Run: %v", err)
-	}
-	if len(entries) != 2 {
-		t.Fatalf("got %d entries, want 2", len(entries))
+func TestCategoriesAsIntegers(t *testing.T) {
+	p := makePlugin(t, "http://localhost", "key", map[string]any{
+		"categories": []any{int64(2000), float64(5000)},
+	})
+	if p.categories != "2000,5000" {
+		t.Errorf("categories: got %q, want \"2000,5000\"", p.categories)
 	}
 }
 
@@ -424,7 +342,7 @@ func TestNoCategoriesOmitsParam(t *testing.T) {
 	var gotRaw string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotRaw = r.URL.RawQuery
-		fmt.Fprint(w, torznabResponse(nil)) //nolint:errcheck
+		fmt.Fprint(w, string(buildXML(nil))) //nolint:errcheck
 	}))
 	defer srv.Close()
 
@@ -437,13 +355,13 @@ func TestNoCategoriesOmitsParam(t *testing.T) {
 
 func TestSearchMagnetURLUsedWhenMagneturlAttrPresent(t *testing.T) {
 	magnet := "magnet:?xt=urn:btih:aabbccddeeff00112233445566778899aabbccdd"
-	items := []ijackett.Item{{
+	items := []torznabItem{{
 		Title:     "My.Show.S01E01.720p",
 		Enclosure: struct{ URL string `xml:"url,attr"` }{URL: "https://jackett.host/dl/idx/?key=abc"},
-		Attrs:     []ijackett.Attr{{Name: "magneturl", Value: magnet}},
+		Attrs:     []torznabAttr{{Name: "magneturl", Value: magnet}},
 	}}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, torznabResponse(items)) //nolint:errcheck
+		fmt.Fprint(w, string(buildXML(items))) //nolint:errcheck
 	}))
 	defer srv.Close()
 
@@ -459,18 +377,18 @@ func TestSearchMagnetURLUsedWhenMagneturlAttrPresent(t *testing.T) {
 	if e.URL != magnet {
 		t.Errorf("URL: got %q, want magnet URI", e.URL)
 	}
-	if v := e.GetString("torrent_link_type"); v != "magnet" {
+	if v := e.GetString(entry.FieldTorrentLinkType); v != "magnet" {
 		t.Errorf("torrent_link_type: got %q, want magnet", v)
 	}
 }
 
 func TestSearchTorrentLinkTypeSetForNonMagnet(t *testing.T) {
-	items := []ijackett.Item{{
+	items := []torznabItem{{
 		Title:     "My.Show.S01E01.720p",
 		Enclosure: struct{ URL string `xml:"url,attr"` }{URL: "https://jackett.host/dl/idx/?key=abc"},
 	}}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, torznabResponse(items)) //nolint:errcheck
+		fmt.Fprint(w, string(buildXML(items))) //nolint:errcheck
 	}))
 	defer srv.Close()
 
@@ -482,7 +400,187 @@ func TestSearchTorrentLinkTypeSetForNonMagnet(t *testing.T) {
 	if len(entries) != 1 {
 		t.Fatalf("got %d entries, want 1", len(entries))
 	}
-	if v := entries[0].GetString("torrent_link_type"); v != "torrent" {
+	if v := entries[0].GetString(entry.FieldTorrentLinkType); v != "torrent" {
 		t.Errorf("torrent_link_type: got %q, want torrent", v)
+	}
+}
+
+// --- Generate (source mode) tests ---
+
+func TestGenerateUsesEmptyQueryByDefault(t *testing.T) {
+	var gotQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.Query().Get("q")
+		fmt.Fprint(w, string(buildXML(nil))) //nolint:errcheck
+	}))
+	defer srv.Close()
+
+	p := makePlugin(t, srv.URL, "key", nil)
+	if _, err := p.Generate(context.Background(), tc()); err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	if gotQuery != "" {
+		t.Errorf("default query should be empty, got %q", gotQuery)
+	}
+}
+
+func TestGenerateUsesConfiguredQuery(t *testing.T) {
+	var gotQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.Query().Get("q")
+		fmt.Fprint(w, string(buildXML(nil))) //nolint:errcheck
+	}))
+	defer srv.Close()
+
+	p := makePlugin(t, srv.URL, "key", map[string]any{"query": "breaking bad"})
+	if _, err := p.Generate(context.Background(), tc()); err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	if gotQuery != "breaking bad" {
+		t.Errorf("query: got %q, want %q", gotQuery, "breaking bad")
+	}
+}
+
+func TestGenerateReturnsEntries(t *testing.T) {
+	items := []torznabItem{
+		{Title: "Breaking.Bad.S01E01.720p", Link: "http://example.com/1.torrent"},
+		{Title: "The.Wire.S01E01.720p", Link: "http://example.com/2.torrent"},
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, string(buildXML(items))) //nolint:errcheck
+	}))
+	defer srv.Close()
+
+	p := makePlugin(t, srv.URL, "key", nil)
+	entries, err := p.Generate(context.Background(), tc())
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("got %d entries, want 2", len(entries))
+	}
+}
+
+// --- retry tests ---
+
+func TestSearchRetriesOn5xx(t *testing.T) {
+	attempts := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		if attempts < 3 {
+			http.Error(w, "server error", http.StatusInternalServerError)
+			return
+		}
+		fmt.Fprint(w, string(buildXML([]torznabItem{ //nolint:errcheck
+			{Title: "Show.S01E01", Link: "http://example.com/1.torrent"},
+		})))
+	}))
+	defer srv.Close()
+
+	p := makePlugin(t, srv.URL, "key", nil)
+	entries, err := p.Search(context.Background(), tc(), "show")
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if attempts != 3 {
+		t.Errorf("expected 3 attempts, got %d", attempts)
+	}
+	if len(entries) != 1 {
+		t.Errorf("expected 1 entry after retry, got %d", len(entries))
+	}
+}
+
+func TestSearchNoRetryOn4xx(t *testing.T) {
+	attempts := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		http.Error(w, "forbidden", http.StatusForbidden)
+	}))
+	defer srv.Close()
+
+	p := makePlugin(t, srv.URL, "key", nil)
+	p.Search(context.Background(), tc(), "show") //nolint:errcheck
+	if attempts != 1 {
+		t.Errorf("expected 1 attempt for 4xx, got %d", attempts)
+	}
+}
+
+func TestSearchNoRetryOnAPIError(t *testing.T) {
+	attempts := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		fmt.Fprint(w, `<?xml version="1.0"?><error code="100" description="Incorrect user credentials"/>`) //nolint:errcheck
+	}))
+	defer srv.Close()
+
+	p := makePlugin(t, srv.URL, "key", nil)
+	// Torznab API errors are permanent — Search logs them and returns empty.
+	p.Search(context.Background(), tc(), "show") //nolint:errcheck
+	if attempts != 1 {
+		t.Errorf("expected 1 attempt for API error, got %d", attempts)
+	}
+}
+
+// --- info-hash deduplication tests ---
+
+func TestSearchDeduplicatesByInfoHash(t *testing.T) {
+	// Two indexers return the same torrent (same hash) via different URLs.
+	hash := "aabbccddeeff00112233445566778899aabbccdd"
+	itemA := torznabItem{
+		Title: "Show.S01E01",
+		Link:  "http://indexer-a.example.com/1.torrent",
+		Attrs: []torznabAttr{{Name: "infohash", Value: hash}, {Name: "seeders", Value: "10"}},
+	}
+	itemB := torznabItem{
+		Title: "Show.S01E01",
+		Link:  "http://indexer-b.example.com/2.torrent",
+		Attrs: []torznabAttr{{Name: "infohash", Value: hash}, {Name: "seeders", Value: "5"}},
+	}
+
+	// Serve itemA from indexer-a and itemB from indexer-b.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "indexer-a") {
+			fmt.Fprint(w, string(buildXML([]torznabItem{itemA}))) //nolint:errcheck
+		} else {
+			fmt.Fprint(w, string(buildXML([]torznabItem{itemB}))) //nolint:errcheck
+		}
+	}))
+	defer srv.Close()
+
+	p := makePlugin(t, srv.URL, "key", map[string]any{
+		"indexers": []any{"indexer-a", "indexer-b"},
+	})
+	entries, err := p.Search(context.Background(), tc(), "show")
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 deduplicated entry, got %d", len(entries))
+	}
+	// The entry with more seeds (itemA, 10 seeds) should be kept.
+	if got := entries[0].GetInt(entry.FieldTorrentSeeds); got != 10 {
+		t.Errorf("expected higher-seed entry to be kept: seeds=%d", got)
+	}
+}
+
+func TestSearchKeepsBothWhenHashesDiffer(t *testing.T) {
+	items := []torznabItem{
+		{Title: "Show.S01E01", Link: "http://example.com/1.torrent",
+			Attrs: []torznabAttr{{Name: "infohash", Value: "aaaa"}}},
+		{Title: "Show.S01E02", Link: "http://example.com/2.torrent",
+			Attrs: []torznabAttr{{Name: "infohash", Value: "bbbb"}}},
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, string(buildXML(items))) //nolint:errcheck
+	}))
+	defer srv.Close()
+
+	p := makePlugin(t, srv.URL, "key", nil)
+	entries, err := p.Search(context.Background(), tc(), "show")
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Errorf("expected 2 entries with distinct hashes, got %d", len(entries))
 	}
 }
