@@ -18,7 +18,7 @@ const src   = readFileSync(join(__dir, '..', 'visual-editor.js'), 'utf8');
 let exprToFlatModel, flatModelToExpr, clauseToStr, topLevelSplit, parseClause,
     parseExprLiteral, isFullyWrapped, opIsNoValue,
     condNarrowedFields, condRejectedFields, condRulesFromConfig, buildCondConfig,
-    computeInputFields, collectOutputFields, findNodeGraph,
+    computeInputFields, collectOutputFields, findNodeGraph, fieldWarnings,
     ve;
 
 beforeAll(() => {
@@ -33,6 +33,7 @@ beforeAll(() => {
     exports.opIsNoValue         = opIsNoValue;
     exports.condNarrowedFields  = condNarrowedFields;
     exports.condRejectedFields  = condRejectedFields;
+    exports.fieldWarnings       = fieldWarnings;
     exports.condRulesFromConfig = condRulesFromConfig;
     exports.buildCondConfig     = buildCondConfig;
     exports.computeInputFields  = computeInputFields;
@@ -46,7 +47,7 @@ beforeAll(() => {
   ({ exprToFlatModel, flatModelToExpr, clauseToStr, topLevelSplit, parseClause,
      parseExprLiteral, isFullyWrapped, opIsNoValue,
      condNarrowedFields, condRejectedFields, condRulesFromConfig, buildCondConfig,
-     computeInputFields, collectOutputFields, findNodeGraph, ve } = exports);
+     computeInputFields, collectOutputFields, findNodeGraph, fieldWarnings, ve } = exports);
 });
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -712,5 +713,88 @@ describe('computeInputFields', () => {
     expect(nf.reachable).not.toContain('trakt_imdb_id');
     // Fields from same pipeline still present
     expect(nf.certain).toContain('source');
+  });
+});
+
+// ── fieldWarnings — condition narrowing clears warnings ───────────────────────
+
+const METAINFO_TORRENT_PLUGIN = {
+  name: 'metainfo_torrent', role: 'processor',
+  produces: [], may_produce: ['torrent_files', 'torrent_info_hash', 'torrent_file_size'],
+};
+const CONTENT_PLUGIN = {
+  name: 'content', role: 'processor',
+  produces: [], may_produce: [],
+  requires: ['torrent_files'],
+};
+
+// Helper that sets both graphs and the full plugin list for fieldWarnings tests.
+function setupWarningGraph(nodes) {
+  ve.graphs      = [{ name: 'test', schedule: '', nodes }];
+  ve.activeGraph = 0;
+  ve.plugins     = [RSS_PLUGIN, METAINFO_TORRENT_PLUGIN, CONDITION_PLUGIN, CONTENT_PLUGIN, PRINT_PLUGIN];
+}
+
+describe('fieldWarnings', () => {
+
+  it('emits soft warning when required field is only in may_produce upstream', () => {
+    const rssNode    = {id:'rss_0', plugin:'rss', upstreams:[], config:{}};
+    const metaNode   = {id:'meta_1', plugin:'metainfo_torrent', upstreams:['rss_0'], config:{}};
+    const contentNode= {id:'content_2', plugin:'content', upstreams:['meta_1'], config:{}};
+    setupWarningGraph([rssNode, metaNode, contentNode]);
+
+    const warns = fieldWarnings(contentNode);
+    const warnLevels = warns.map(w => w.level);
+    expect(warnLevels).toContain('warn');
+    expect(warns.some(w => w.msg.includes('torrent_files'))).toBe(true);
+  });
+
+  it('clears soft warning when condition accept rule guarantees the required field', () => {
+    // rss → metainfo_torrent → condition(accept: torrent_files != "") → content
+    // The condition guarantees torrent_files is present, so content should see it as certain.
+    const rssNode    = {id:'rss_0', plugin:'rss', upstreams:[], config:{}};
+    const metaNode   = {id:'meta_1', plugin:'metainfo_torrent', upstreams:['rss_0'], config:{}};
+    const condNode   = {
+      id:'cond_2', plugin:'condition', upstreams:['meta_1'],
+      config:{accept:'torrent_files != ""'},
+    };
+    const contentNode= {id:'content_3', plugin:'content', upstreams:['cond_2'], config:{}};
+    setupWarningGraph([rssNode, metaNode, condNode, contentNode]);
+
+    const warns = fieldWarnings(contentNode);
+    // The condition accept rule guarantees torrent_files → no warning.
+    expect(warns.filter(w => w.msg.includes('torrent_files'))).toHaveLength(0);
+  });
+
+  it('emits error when required field has no upstream producer at all', () => {
+    // rss → content (torrent_files not produced by anything upstream)
+    const rssNode    = {id:'rss_0', plugin:'rss', upstreams:[], config:{}};
+    const contentNode= {id:'content_1', plugin:'content', upstreams:['rss_0'], config:{}};
+    setupWarningGraph([rssNode, contentNode]);
+
+    const warns = fieldWarnings(contentNode);
+    expect(warns.some(w => w.level === 'error' && w.msg.includes('torrent_files'))).toBe(true);
+  });
+
+  it('emits soft warning for OR condition (field only guaranteed on one branch)', () => {
+    // OR condition: NOT both guaranteed, so torrent_files stays conditional.
+    const rssNode    = {id:'rss_0', plugin:'rss', upstreams:[], config:{}};
+    const metaNode   = {id:'meta_1', plugin:'metainfo_torrent', upstreams:['rss_0'], config:{}};
+    const condNode   = {
+      id:'cond_2', plugin:'condition', upstreams:['meta_1'],
+      config:{accept:'torrent_files != "" or torrent_info_hash != ""'},
+    };
+    const contentNode= {id:'content_3', plugin:'content', upstreams:['cond_2'], config:{}};
+    setupWarningGraph([rssNode, metaNode, condNode, contentNode]);
+
+    const warns = fieldWarnings(contentNode);
+    // OR means only one branch matched — torrent_files not certain → still warns.
+    expect(warns.some(w => w.level === 'warn' && w.msg.includes('torrent_files'))).toBe(true);
+  });
+
+  it('emits no warnings when node has no requires', () => {
+    const rssNode = {id:'rss_0', plugin:'rss', upstreams:[], config:{}};
+    setupWarningGraph([rssNode]);
+    expect(fieldWarnings(rssNode)).toHaveLength(0);
   });
 });
