@@ -99,6 +99,10 @@ const (
 	FieldRSSLink          = "rss_link"
 	FieldRSSEnclosureURL  = "rss_enclosure_url"
 	FieldRSSEnclosureType = "rss_enclosure_type"
+	// FieldRSSCategory is the item category from the standard RSS <category> element
+	// or namespace extensions (e.g. nyaa:category). Multiple categories are
+	// joined with ", ".
+	FieldRSSCategory = "rss_category"
 )
 
 // --- Tier 1: Generic ---
