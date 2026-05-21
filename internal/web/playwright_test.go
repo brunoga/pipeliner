@@ -32,7 +32,6 @@ import (
 	_ "github.com/brunoga/pipeliner/plugins/sink/print"
 	_ "github.com/brunoga/pipeliner/plugins/sink/transmission"
 	_ "github.com/brunoga/pipeliner/plugins/source/rss"
-	_ "github.com/brunoga/pipeliner/plugins/source/rss_search"
 	_ "github.com/brunoga/pipeliner/plugins/source/trakt_list"
 )
 
@@ -789,7 +788,7 @@ func TestE2EViaPortVisibleOnDiscoverNode(t *testing.T) {
 	// A config with a discover node.
 	discoverConfig := `titles = input("rss", url="https://example.com/rss")
 disc = process("discover", upstream=titles, interval="24h",
-  search=[{"name": "rss_search", "url_template": "https://nyaa.si/?page=rss&q={QueryEscaped}"}])
+  search=[{"name": "rss", "url_template": "https://nyaa.si/?page=rss&q={QueryEscaped}"}])
 pipeline("tv")`
 
 	switchToVisual(t, page, discoverConfig)
@@ -816,16 +815,19 @@ func TestE2EViaNodeAppearsAfterParseWithVia(t *testing.T) {
 	// Config with a discover node that has a search backend.
 	discoverConfig := `titles = input("rss", url="https://example.com/rss")
 disc = process("discover", upstream=titles, interval="24h",
-  search=[{"name": "rss_search", "url_template": "https://nyaa.si/?page=rss&q={QueryEscaped}"}])
+  search=[{"name": "rss", "url_template": "https://nyaa.si/?page=rss&q={QueryEscaped}"}])
 pipeline("tv")`
 
 	switchToVisual(t, page, discoverConfig)
 
-	// A node with the "rss_search" plugin should appear (search-connected).
-	if err := page.Locator(`.ve-node-name:has-text("rss_search")`).WaitFor(playwright.LocatorWaitForOptions{
-		State: playwright.WaitForSelectorStateVisible,
-	}); err != nil {
-		t.Errorf("search-connected rss_search node not visible: %v", err)
+	// Both the regular rss input node and the rss search-backend node should be
+	// visible — the config contains two distinct rss nodes (url= and url_template=).
+	rssCount, err := page.Locator(`.ve-node-name:has-text("rss")`).Count()
+	if err != nil {
+		t.Fatalf("counting rss nodes: %v", err)
+	}
+	if rssCount < 2 {
+		t.Errorf("expected at least 2 rss nodes (input + search backend), got %d", rssCount)
 	}
 }
 

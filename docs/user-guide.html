@@ -128,7 +128,7 @@ td code{font-size:11px}
     <a href="#trakt_list" class="sub">trakt_list</a>
     <a href="#trakt-auth" class="sub">Trakt Authentication</a>
     <a href="#jackett" class="sub">jackett (search)</a>
-    <a href="#rss_search" class="sub">rss_search</a>
+    <a href="#rss" class="sub">rss (search)</a>
 
     <div class="section">Metainfo Plugins</div>
     <a href="#metainfo_tvdb" class="sub">metainfo_tvdb</a>
@@ -572,7 +572,12 @@ pipeline("split-pipeline")</code></pre>
   <tr><td><code>trakt_imdb_id</code></td><td>trakt_list</td><td>IMDb ID from Trakt</td></tr>
   <tr><td><code>trakt_tmdb_id</code></td><td>metainfo_trakt, trakt_list</td><td>TMDb ID from Trakt — when present, metainfo_tmdb fetches by ID directly instead of searching</td></tr>
   <tr><td><code>trakt_tvdb_id</code></td><td>metainfo_trakt</td><td>TVDB ID from Trakt</td></tr>
+  <tr><td><code>rss_category</code></td><td>rss</td><td>Category from RSS <code>&lt;category&gt;</code> elements or <code>nyaa:category</code>, comma-joined</td></tr>
   <tr><td><code>jackett_category</code></td><td>jackett</td><td>Torznab category code</td></tr>
+  <tr><td><code>jackett_tvdb_id</code></td><td>jackett</td><td>Raw TVDB ID — same pattern as <code>trakt_tvdb_id</code>, usable for fast metainfo_tvdb lookups</td></tr>
+  <tr><td><code>jackett_tmdb_id</code></td><td>jackett</td><td>Raw TMDb ID — same pattern as <code>trakt_tmdb_id</code></td></tr>
+  <tr><td><code>jackett_dl_factor</code></td><td>jackett</td><td>Download volume factor: <code>0.0</code> = freeleech, <code>1.0</code> = normal (private trackers)</td></tr>
+  <tr><td><code>jackett_ul_factor</code></td><td>jackett</td><td>Upload volume factor (private trackers)</td></tr>
   <tr><td><code>series_container</code></td><td>series</td><td>Container format tag parsed from title (e.g. <code>mkv</code>)</td></tr>
   <tr><td><code>codec</code></td><td>metainfo_quality</td><td>Codec tag (e.g. <code>x265</code>, <code>HEVC</code>)</td></tr>
   <tr><td><code>audio</code></td><td>metainfo_quality</td><td>Audio tag (e.g. <code>DTS</code>, <code>Atmos</code>)</td></tr>
@@ -619,7 +624,9 @@ pipeline("split-pipeline")</code></pre>
   <tr><td><code>file_name</code></td><td>filesystem</td><td>Filename (basename)</td></tr>
   <tr><td><code>file_size</code></td><td>filesystem</td><td>File size in bytes</td></tr>
   <tr><td><code>torrent_seeds</code></td><td>rss, jackett</td><td>Seeder count</td></tr>
-  <tr><td><code>torrent_info_hash</code></td><td>metainfo_torrent, metainfo_magnet, jackett</td><td>SHA-1 info hash (hex)</td></tr>
+  <tr><td><code>torrent_leechers</code></td><td>rss (nyaa), jackett</td><td>Leecher count</td></tr>
+  <tr><td><code>torrent_info_hash</code></td><td>rss (nyaa), metainfo_torrent, metainfo_magnet, jackett</td><td>SHA-1 info hash (hex)</td></tr>
+  <tr><td><code>torrent_grabs</code></td><td>rss (nyaa), jackett</td><td>Number of times downloaded from the indexer</td></tr>
   <tr><td><code>torrent_file_size</code></td><td>metainfo_torrent, metainfo_magnet, jackett</td><td>Total torrent size in bytes</td></tr>
   <tr><td><code>torrent_files</code></td><td>metainfo_torrent, metainfo_magnet</td><td>List of file paths inside torrent</td></tr>
   <tr><td><code>tvdb_id</code></td><td>metainfo_tvdb</td><td>TheTVDB series ID</td></tr>
@@ -729,20 +736,34 @@ pipeline("split-pipeline")</code></pre>
 
 <!-- ─────────── rss ─────────── -->
 <h2 id="rss">rss</h2>
-<p>Fetches entries from an RSS 2.0 or Atom 1.0 feed. Prefers enclosure URLs (torrent feeds) and falls back to item links.</p>
+<p>Fetches entries from an RSS 2.0 or Atom 1.0 feed. Use <code>url=</code> for a fixed passive source or <code>url_template=</code> as a <code>discover.search</code> backend. Both modes use identical parsing, retry, and field-extraction logic.</p>
 
 <table>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
-  <tr><td><code>url</code></td><td>yes</td><td>—</td><td>Feed URL</td></tr>
-  <tr><td><code>all_entries</code></td><td>no</td><td>false</td><td>Accepted in config but has no effect — all feed items are always returned as undecided entries for downstream processors to filter</td></tr>
+  <tr><td><code>url</code></td><td>conditional</td><td>—</td><td>Fixed feed URL (required unless <code>url_template</code> is set)</td></tr>
+  <tr><td><code>url_template</code></td><td>conditional</td><td>—</td><td>URL with <code>{Query}</code> or <code>{QueryEscaped}</code> placeholder for search mode (required unless <code>url</code> is set)</td></tr>
+  <tr><td><code>timeout</code></td><td>no</td><td><code>30s</code></td><td>HTTP request timeout</td></tr>
 </table>
 
-<h4>Fields set</h4>
-<p><code>source</code> (e.g. <code>rss:nyaa.si</code>), <code>rss_feed</code>, <code>title</code>. Optionally: <code>description</code>, <code>published_date</code>, <code>rss_link</code>, <code>rss_guid</code>, <code>rss_enclosure_url</code>, <code>rss_enclosure_type</code>, <code>torrent_seeds</code> (when present in feed).</p>
+<p>Exactly one of <code>url</code> or <code>url_template</code> is required. Template variables: <code>{{.Query}}</code> (raw) and <code>{{.QueryEscaped}}</code> (URL-encoded). Brace syntax <code>{QueryEscaped}</code> also works.</p>
 
-<pre><code>src = input("rss", url="https://example.com/torrents/rss")
+<h4>Fields set</h4>
+<p>Always: <code>source</code> (e.g. <code>rss:nyaa.si</code>), <code>title</code>, <code>rss_feed</code>.</p>
+<p>When present in the feed: <code>description</code>, <code>published_date</code> (from <code>pubDate</code> or <code>dc:date</code>), <code>rss_link</code>, <code>rss_guid</code>, <code>rss_enclosure_url</code>, <code>rss_enclosure_type</code>, <code>rss_category</code>, <code>torrent_seeds</code> (from multiple torrent namespaces including nyaa), <code>torrent_leechers</code>, <code>torrent_info_hash</code>, <code>torrent_grabs</code> (nyaa download count).</p>
+
+<pre><code><span class="y-comment"># Passive source — fixed URL</span>
+src = input("rss", url="https://example.com/torrents/rss")
 output("print", upstream=src)
-pipeline("my-pipeline")</code></pre>
+pipeline("my-pipeline")
+
+<span class="y-comment"># Search backend — used inside discover.search</span>
+src  = input("rss", url="https://feed.example.com/rss")
+disc = process("discover", upstream=src,
+    titles=["Breaking Bad"],
+    search=[{"name": "rss", "url_template": "https://example.com/search?q={QueryEscaped}"}],
+    interval="6h")
+output("transmission", upstream=disc, host="localhost")
+pipeline("rss-search")</code></pre>
 
 <!-- ─────────── html ─────────── -->
 <h2 id="html">html</h2>
@@ -937,29 +958,6 @@ pipeline("tv-tvdb", schedule="1h")</code></pre>
      "access_token": env("TRAKT_ACCESS_TOKEN"),
      "type": "movies", "list": "watchlist"},
 ])</code></pre>
-
-<!-- ─────────── rss_search ─────────── -->
-<h2 id="rss_search">rss_search</h2>
-<p>Fetches entries from a parameterized RSS URL. Used inside <code>discover.search</code>. The URL template receives the search query.</p>
-
-<table>
-  <tr><th>Key</th><th>Required</th><th>Description</th></tr>
-  <tr><td><code>url_template</code></td><td>yes</td><td>Go template for the search URL</td></tr>
-</table>
-
-<p>Template variables: <code>{{.Query}}</code> (raw) and <code>{{.QueryEscaped}}</code> (URL-encoded). Brace syntax <code>{QueryEscaped}</code> also works.</p>
-
-<h4>Fields set</h4>
-<p><code>source</code> (e.g. <code>rss_search:nyaa.si</code>), <code>title</code>, <code>rss_feed</code> (the rendered search URL). Optionally: <code>description</code>, <code>published_date</code>, <code>rss_guid</code>, <code>rss_link</code>, <code>rss_enclosure_url</code>, <code>rss_enclosure_type</code>.</p>
-
-<pre><code>src = input("rss", url="https://feed.example.com/rss")
-disc = process("discover", upstream=src,
-    titles=["Breaking Bad"],
-    search=[{"name": "rss_search",
-             "url_template": "https://example.com/search?q={QueryEscaped}"}],
-    interval="6h")
-output("transmission", upstream=disc, host="localhost")
-pipeline("rss-search")</code></pre>
 
 <hr>
 <!-- ═══════════════════════════════════════════════════════════ -->
@@ -1782,7 +1780,7 @@ pipeline("tv")</code></pre>
 
 <img src="images/ui-list-function-connected.png" alt="Visual editor showing movies node connected to a trakt_list→trakt mini-pipeline via its list port" class="screenshot">
 
-<p>The same pattern applies to <code>search=</code> ports on <code>discover</code>: a function whose body starts with a search plugin (<code>jackett</code>, <code>rss_search</code>) will carry a <strong>SEARCH</strong> badge and can be connected to the discover search port.</p>
+<p>The same pattern applies to <code>search=</code> ports on <code>discover</code>: a function whose body starts with a search plugin (<code>jackett</code>, <code>rss</code>) will carry a <strong>SEARCH</strong> badge and can be connected to the discover search port.</p>
 
 <p>In Starlark, the connection is expressed as <code>list=[my_func()]</code>:</p>
 <pre><code><span class="y-comment"># pipeliner:param type=string Trakt client ID</span>
