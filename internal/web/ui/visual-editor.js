@@ -5744,25 +5744,35 @@ function _ensureEdgeTooltip() {
   return _edgeTooltipEl;
 }
 
-// Show a tooltip with the output field sets of `fromNodeId` on edge hover.
+// Show a tooltip with the fields flowing through an edge on hover.
+// fromNodeId is the source node; the edge carries that node's OUTPUT fields
+// (its own produces + everything from its upstream chain).
 function showEdgeFieldTooltip(event, fromNodeId) {
-  const node = ve.model.nodes.find(n => n.id === fromNodeId);
-  if (!node?.fields) return;
+  // Find the source node within its own graph only.
+  const gi         = findNodeGraph(fromNodeId);
+  const graphNodes = gi >= 0 ? (ve.graphs[gi]?.nodes || []) : [];
+  const fromNode   = graphNodes.find(n => n.id === fromNodeId);
+  if (!fromNode) return;
 
-  const nf = node.fields;
-  // The edge represents what EXITS fromNodeId, which is the node's input fields
-  // plus its own Produces. Since we only store input fields, show those labelled
-  // as "entering the next node".
-  const certain   = nf.certain  || [];
-  const reachOnly = (nf.reachable || []).filter(f => !certain.includes(f));
-  if (!certain.length && !reachOnly.length) return;
+  // Compute the OUTPUT fields of the source node by collecting its entire
+  // upstream chain plus its own produces/condition-narrowing.
+  const certain  = new Set();
+  const reachable = new Set();
+  collectOutputFields(fromNode, certain, reachable, new Set(), graphNodes);
 
+  const certArr   = [...certain].sort();
+  const reachOnly = [...reachable].filter(f => !certain.has(f)).sort();
+  if (!certArr.length && !reachOnly.length) return;
+
+  const label  = pluginMeta(fromNode.plugin)?.role === 'source'
+    ? fromNode.plugin
+    : fromNodeId;
   const tt = _ensureEdgeTooltip();
-  const certStr  = certain.map(f => `<span class="ve-f-tag ve-f-certain">${esc(f)}</span>`).join(' ');
+  const certStr  = certArr.map(f  => `<span class="ve-f-tag ve-f-certain">${esc(f)}</span>`).join(' ');
   const reachStr = reachOnly.map(f => `<span class="ve-f-tag ve-f-reachable">${esc(f)}</span>`).join(' ');
   tt.innerHTML = `
-    <div class="ve-tt-title">Fields on this edge (entering <em>${esc(fromNodeId)}</em>'s downstream)</div>
-    ${certStr  ? `<div class="ve-tt-row"><span class="ve-f-label">✓ certain:</span> ${certStr}</div>` : ''}
+    <div class="ve-tt-title">Fields on this edge (out of <em>${esc(label)}</em>)</div>
+    ${certStr  ? `<div class="ve-tt-row"><span class="ve-f-label">✓ certain:</span> ${certStr}</div>`   : ''}
     ${reachStr ? `<div class="ve-tt-row"><span class="ve-f-label">◐ reachable:</span> ${reachStr}</div>` : ''}`;
   tt.style.display = 'block';
   _positionEdgeTooltip(event);
