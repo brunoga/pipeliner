@@ -142,13 +142,13 @@ Fields are grouped by prefix — the prefix tells you what kind of data the fiel
 
 | Field | Set by | Description |
 |-------|--------|-------------|
-| `torrent_link_type` | `jackett_search`, `jackett` | `"torrent"` or `"magnet"` — used by `metainfo_torrent`, `metainfo_magnet`, and `deluge` to route handling without a URL fetch |
+| `torrent_link_type` | `jackett`, `rss` | `"torrent"` or `"magnet"` — used by `metainfo_torrent`, `metainfo_magnet`, and `deluge` to route handling without a URL fetch |
 | `torrent_info_hash` | `metainfo_torrent`, `metainfo_magnet`, `torrentalive` | SHA-1 info hash (hex) |
-| `torrent_file_size` | `metainfo_torrent`, `metainfo_magnet`, `jackett_search` | Total size in bytes |
+| `torrent_file_size` | `metainfo_torrent`, `metainfo_magnet`, `jackett` | Total size in bytes |
 | `torrent_file_count` | `metainfo_torrent`, `metainfo_magnet` | Number of files |
 | `torrent_files` | `metainfo_torrent`, `metainfo_magnet` | List of file paths |
-| `torrent_seeds` | `torrentalive`, `rss`, `jackett_search` | Seed count |
-| `torrent_leechers` | `jackett_search` | Leecher count |
+| `torrent_seeds` | `torrentalive`, `rss`, `jackett` | Seed count |
+| `torrent_leechers` | `jackett` | Leecher count |
 | `torrent_announce` | `metainfo_torrent`, `metainfo_magnet` | Primary tracker URL |
 
 ### File fields

@@ -1,8 +1,7 @@
-// Package jackett provides shared Torznab parsing logic used by the jackett
-// and jackett_search plugins.
 package jackett
 
 import (
+	"bytes"
 	"encoding/xml"
 	"fmt"
 	"net/url"
@@ -12,43 +11,42 @@ import (
 	"github.com/brunoga/pipeliner/internal/entry"
 )
 
-// Feed is the top-level Torznab RSS envelope.
-type Feed struct {
+type torznabFeed struct {
 	Channel struct {
-		Items []Item `xml:"item"`
+		Items []torznabItem `xml:"item"`
 	} `xml:"channel"`
 }
 
-// Item is a single result in a Torznab feed.
-type Item struct {
+type torznabItem struct {
 	Title     string `xml:"title"`
 	Link      string `xml:"link"`
 	GUID      string `xml:"guid"`
+	PubDate   string `xml:"pubDate"`
 	Size      int64  `xml:"size"`
 	Enclosure struct {
 		URL string `xml:"url,attr"`
 	} `xml:"enclosure"`
-	Attrs []Attr `xml:"http://torznab.com/schemas/2015/feed attr"`
+	Attrs []torznabAttr `xml:"http://torznab.com/schemas/2015/feed attr"`
 }
 
-// Attr is a Torznab extension attribute (<torznab:attr name="..." value="..."/>).
-type Attr struct {
+type torznabAttr struct {
 	XMLName xml.Name `xml:"http://torznab.com/schemas/2015/feed attr"`
 	Name    string   `xml:"name,attr"`
 	Value   string   `xml:"value,attr"`
 }
 
-// ParseTorznab parses a raw Torznab XML response and returns one entry per item.
+// parseTorznab parses a raw Torznab XML response and returns one entry per item.
 //
 // It sets torrent_link_type on every entry:
 //   - "magnet"  — the Torznab magneturl attribute is present; e.URL is set to
 //     the magnet URI so metainfo_magnet and output plugins handle it naturally
 //   - "torrent" — no magnet URI; the enclosure URL serves a .torrent file
-//
-// When torrent_link_type is absent (non-Jackett entries), metainfo plugins
-// fall back to inspecting the URL directly.
-func ParseTorznab(data []byte, indexer string) ([]*entry.Entry, error) {
-	var feed Feed
+func parseTorznab(data []byte, indexer string) ([]*entry.Entry, error) {
+	if err := checkTorznabError(data); err != nil {
+		return nil, err
+	}
+
+	var feed torznabFeed
 	if err := xml.Unmarshal(data, &feed); err != nil {
 		return nil, fmt.Errorf("parse Torznab response: %w", err)
 	}
@@ -92,7 +90,9 @@ func ParseTorznab(data []byte, indexer string) ([]*entry.Entry, error) {
 
 		e := entry.New(title, link)
 		e.Set(entry.FieldTorrentLinkType, linkType)
+		e.Set(entry.FieldSource, "jackett:"+indexer)
 
+		// --- Core torrent fields ---
 		ti := entry.TorrentInfo{}
 		if item.Size > 0 {
 			ti.FileSize = item.Size
@@ -112,14 +112,98 @@ func ParseTorznab(data []byte, indexer string) ([]*entry.Entry, error) {
 		}
 		e.SetTorrentInfo(ti)
 
+		// --- Published date: prefer Torznab publishdate attr, fall back to RSS pubDate ---
+		if v := attrs["publishdate"]; v != "" {
+			e.Set(entry.FieldPublishedDate, v)
+		} else if item.PubDate != "" {
+			e.Set(entry.FieldPublishedDate, item.PubDate)
+		}
+
+		// --- Standard video/series fields from Torznab metadata ---
+		if v := attrs["imdbid"]; v != "" {
+			e.Set(entry.FieldVideoImdbID, v)
+		}
+		if v := attrs["year"]; v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				e.Set(entry.FieldVideoYear, n)
+			}
+		}
+		if v := attrs["season"]; v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				e.Set(entry.FieldSeriesSeason, n)
+			}
+		}
+		if v := attrs["episode"]; v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				e.Set(entry.FieldSeriesEpisode, n)
+			}
+		}
+
+		// --- Indexer statistics ---
+		if v := attrs["grabs"]; v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				e.Set(entry.FieldTorrentGrabs, n)
+			}
+		}
+
+		// --- Jackett-specific fields ---
+		// IDs provided by Jackett but owned by their respective metainfo plugins;
+		// stored under jackett_ prefix so downstream plugins can use them for
+		// fast by-ID lookups (same pattern as trakt_tmdb_id from trakt_list).
+		if v := attrs["tvdbid"]; v != "" {
+			e.Set("jackett_tvdb_id", v)
+		}
+		if v := attrs["tmdbid"]; v != "" {
+			e.Set("jackett_tmdb_id", v)
+		}
+		// Private-tracker ratio fields: 0.0 = freeleech, 0.5 = half-leech, 1.0 = normal.
+		if v := attrs["downloadvolumefactor"]; v != "" {
+			if f, err := strconv.ParseFloat(v, 64); err == nil {
+				e.Set("jackett_dl_factor", f)
+			}
+		}
+		if v := attrs["uploadvolumefactor"]; v != "" {
+			if f, err := strconv.ParseFloat(v, 64); err == nil {
+				e.Set("jackett_ul_factor", f)
+			}
+		}
 		if v := attrs["category"]; v != "" {
 			e.Set("jackett_category", v)
 		}
-		e.Set(entry.FieldSource, "jackett:"+indexer)
 
 		entries = append(entries, e)
 	}
 	return entries, nil
+}
+
+// checkTorznabError inspects data for a Torznab error response
+// (<error code="..." description="..."/>) and returns a non-nil error if one
+// is found. Returns nil for normal feed responses.
+func checkTorznabError(data []byte) error {
+	dec := xml.NewDecoder(bytes.NewReader(data))
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			return nil // not parseable as an error response; let the feed parser handle it
+		}
+		se, ok := tok.(xml.StartElement)
+		if !ok {
+			continue
+		}
+		if se.Name.Local != "error" {
+			return nil // first element is not <error>; normal feed
+		}
+		var code, desc string
+		for _, a := range se.Attr {
+			switch a.Name.Local {
+			case "code":
+				code = a.Value
+			case "description":
+				desc = a.Value
+			}
+		}
+		return fmt.Errorf("torznab error %s: %s", code, desc)
+	}
 }
 
 // ensureMagnetDN returns magnetURI unchanged if it already contains a dn=

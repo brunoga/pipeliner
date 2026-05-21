@@ -74,6 +74,7 @@ const (
 	FieldTorrentFiles        = "torrent_files"
 	FieldTorrentSeeds        = "torrent_seeds"
 	FieldTorrentLeechers     = "torrent_leechers"
+	FieldTorrentGrabs        = "torrent_grabs" // number of times downloaded from the indexer
 	FieldTorrentAnnounce     = "torrent_announce"
 	FieldTorrentAnnounceList = "torrent_announce_list"
 	FieldTorrentCreatedBy    = "torrent_created_by"
