@@ -2766,18 +2766,36 @@ function condNarrowedFields(exprStr, nodeFields) {
   if (!model) return [];
 
   const promoted = new Set();
+  const isOr = model.combinator === 'or' && model.clauses.length > 1;
 
-  // Syntactic: each referenced field becomes certain
-  for (const c of model.clauses) {
-    if (reachSet.has(c.field) && !certSet.has(c.field)) promoted.add(c.field);
-  }
-
-  // Semantic sentinel promotions
-  const allFields = model.clauses.map(c => c.field);
-  for (const sg of SEMANTIC_GROUPS) {
-    if (allFields.includes(sg.sentinel)) {
-      for (const f of sg.promotes) {
-        if (reachSet.has(f) && !certSet.has(f)) promoted.add(f);
+  if (isOr) {
+    // OR: we only know at least one clause is true, not which one.
+    // Only promote a field if it appears in EVERY clause (intersection) —
+    // those are the only fields guaranteed regardless of which branch matched.
+    // e.g. "description != '' OR rss_category != ''" → neither promoted.
+    // e.g. "description != '' OR description contains 'x'" → description promoted.
+    const fieldSets = model.clauses.map(c => new Set([c.field]));
+    const first = new Set(fieldSets[0]);
+    for (let i = 1; i < fieldSets.length; i++) {
+      for (const f of first) { if (!fieldSets[i].has(f)) first.delete(f); }
+    }
+    for (const f of first) {
+      if (reachSet.has(f) && !certSet.has(f)) promoted.add(f);
+    }
+    // Semantic groups require specific values (e.g. enriched==true), so they
+    // are never safe to fire for OR conditions.
+  } else {
+    // AND (or single clause): all referenced fields are true simultaneously.
+    for (const c of model.clauses) {
+      if (reachSet.has(c.field) && !certSet.has(c.field)) promoted.add(c.field);
+    }
+    // Semantic sentinel promotions.
+    const allFields = model.clauses.map(c => c.field);
+    for (const sg of SEMANTIC_GROUPS) {
+      if (allFields.includes(sg.sentinel)) {
+        for (const f of sg.promotes) {
+          if (reachSet.has(f) && !certSet.has(f)) promoted.add(f);
+        }
       }
     }
   }
