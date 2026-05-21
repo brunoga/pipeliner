@@ -2862,16 +2862,11 @@ function computeInputFields(node) {
 // renderNodeFieldsSection renders a collapsible "Fields available" section
 // showing what's certain and reachable at this node's input.
 function renderNodeFieldsSection(node) {
-  // Always prefer the live client-side computation so the display reflects
-  // the CURRENT visual model state, not stale server data from the last
-  // textToVisualSync call (which may predate in-memory edits such as adding
-  // or removing nodes and connections).
-  // Fall back to server-supplied node.fields only when the client-side result
-  // is empty (e.g. for a source node whose upstreams list is empty).
-  let nf = computeInputFields(node);
-  if (!nf.certain.length && !nf.reachable.length) {
-    nf = node.fields || nf;
-  }
+  // Always recompute from the current visual model. Never fall back to
+  // node.fields (server-supplied data from the last textToVisualSync) because
+  // it becomes stale the moment any node or connection changes in-memory.
+  // If the node has no reachable upstreams the section is correctly empty.
+  const nf = computeInputFields(node);
 
   if (!nf || (!nf.certain?.length && !nf.reachable?.length)) return '';
 
@@ -2948,11 +2943,7 @@ function renderCondRule(rule, i, nodeFields) {
   const rawBtn = `<button class="ve-cond-raw-btn" title="${rawMode ? 'Switch to builder' : 'Switch to raw mode'}"
       onclick="toggleCondRawMode(${i})">${rawMode ? '≡ builder' : '⋮ raw'}</button>`;
 
-  const selectedNode = findNode(ve.selectedNodeId);
-  const liveFields   = computeInputFields(selectedNode);
-  const effectiveFields = (liveFields.certain.length || liveFields.reachable.length)
-    ? liveFields
-    : (nodeFields || {certain: [], reachable: []});
+  const effectiveFields = computeInputFields(findNode(ve.selectedNodeId));
   const promoted = condNarrowedFields(expr, effectiveFields);
   const narrowHtml = promoted.length
     ? `<div class="ve-cond-narrow">↳ Promotes to certain: ${promoted.map(f => `<code>${esc(f)}</code>`).join(', ')}</div>`
@@ -2978,12 +2969,7 @@ function renderCondRule(rule, i, nodeFields) {
 // Render the builder body (field picker + op + value rows) for a rule.
 function renderCondBuilderBody(model, ruleIdx, nodeFields) {
   const {clauses, combinator} = model;
-  // Always use live client-side computation; server fields are stale after edits.
-  const liveNf   = computeInputFields(findNode(ve.selectedNodeId));
-  const resolved = (liveNf.certain.length || liveNf.reachable.length)
-    ? liveNf
-    : (nodeFields || {certain: [], reachable: []});
-  const nf = resolved;
+  const nf = computeInputFields(findNode(ve.selectedNodeId));
   const certain  = new Set(nf.certain);
   const reachable = new Set(nf.reachable);
 
