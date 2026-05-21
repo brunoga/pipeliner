@@ -127,7 +127,7 @@ td code{font-size:11px}
     <a href="#tvdb_favorites" class="sub">tvdb_favorites</a>
     <a href="#trakt_list" class="sub">trakt_list</a>
     <a href="#trakt-auth" class="sub">Trakt Authentication</a>
-    <a href="#jackett_search" class="sub">jackett_search</a>
+    <a href="#jackett" class="sub">jackett (search)</a>
     <a href="#rss_search" class="sub">rss_search</a>
 
     <div class="section">Metainfo Plugins</div>
@@ -523,7 +523,7 @@ pipeline("split-pipeline")</code></pre>
   <tr><td><code>movie_tagline</code></td><td>Movie tagline</td></tr>
 </table>
 
-<h4>Torrent fields (torrent_ prefix) — set by rss, jackett_search, jackett, metainfo_torrent, metainfo_magnet</h4>
+<h4>Torrent fields (torrent_ prefix) — set by rss, jackett, metainfo_torrent, metainfo_magnet</h4>
 <table>
   <tr><th>Field</th><th>Description</th></tr>
   <tr><td><code>torrent_link_type</code></td><td><code>"torrent"</code> or <code>"magnet"</code> — set by Jackett plugins to indicate the link type without an HTTP fetch</td></tr>
@@ -572,7 +572,7 @@ pipeline("split-pipeline")</code></pre>
   <tr><td><code>trakt_imdb_id</code></td><td>trakt_list</td><td>IMDb ID from Trakt</td></tr>
   <tr><td><code>trakt_tmdb_id</code></td><td>metainfo_trakt, trakt_list</td><td>TMDb ID from Trakt — when present, metainfo_tmdb fetches by ID directly instead of searching</td></tr>
   <tr><td><code>trakt_tvdb_id</code></td><td>metainfo_trakt</td><td>TVDB ID from Trakt</td></tr>
-  <tr><td><code>jackett_category</code></td><td>jackett_search, jackett</td><td>Torznab category code</td></tr>
+  <tr><td><code>jackett_category</code></td><td>jackett</td><td>Torznab category code</td></tr>
   <tr><td><code>series_container</code></td><td>series</td><td>Container format tag parsed from title (e.g. <code>mkv</code>)</td></tr>
   <tr><td><code>codec</code></td><td>metainfo_quality</td><td>Codec tag (e.g. <code>x265</code>, <code>HEVC</code>)</td></tr>
   <tr><td><code>audio</code></td><td>metainfo_quality</td><td>Audio tag (e.g. <code>DTS</code>, <code>Atmos</code>)</td></tr>
@@ -618,9 +618,9 @@ pipeline("split-pipeline")</code></pre>
   <tr><td><code>file_location</code></td><td>filesystem</td><td>Absolute file path on disk</td></tr>
   <tr><td><code>file_name</code></td><td>filesystem</td><td>Filename (basename)</td></tr>
   <tr><td><code>file_size</code></td><td>filesystem</td><td>File size in bytes</td></tr>
-  <tr><td><code>torrent_seeds</code></td><td>rss, jackett_search, jackett</td><td>Seeder count</td></tr>
-  <tr><td><code>torrent_info_hash</code></td><td>metainfo_torrent, metainfo_magnet, jackett_search</td><td>SHA-1 info hash (hex)</td></tr>
-  <tr><td><code>torrent_file_size</code></td><td>metainfo_torrent, metainfo_magnet, jackett_search</td><td>Total torrent size in bytes</td></tr>
+  <tr><td><code>torrent_seeds</code></td><td>rss, jackett</td><td>Seeder count</td></tr>
+  <tr><td><code>torrent_info_hash</code></td><td>metainfo_torrent, metainfo_magnet, jackett</td><td>SHA-1 info hash (hex)</td></tr>
+  <tr><td><code>torrent_file_size</code></td><td>metainfo_torrent, metainfo_magnet, jackett</td><td>Total torrent size in bytes</td></tr>
   <tr><td><code>torrent_files</code></td><td>metainfo_torrent, metainfo_magnet</td><td>List of file paths inside torrent</td></tr>
   <tr><td><code>tvdb_id</code></td><td>metainfo_tvdb</td><td>TheTVDB series ID</td></tr>
   <tr><td><code>tmdb_id</code></td><td>metainfo_tmdb</td><td>TMDb movie/series ID</td></tr>
@@ -799,7 +799,7 @@ watchlist = input("trakt_list", client_id=env("TRAKT_ID"),
                   client_secret=env("TRAKT_SECRET"),
                   type="movies", list="watchlist")
 results   = process("discover", upstream=watchlist,
-    search=[{"name": "jackett_search", "url": "http://localhost:9117",
+    search=[{"name": "jackett", "url": "http://localhost:9117",
              "api_key": env("JACKETT_KEY"), "categories": ["2000"]}],
     interval="12h")
 seen      = process("seen",   upstream=results)
@@ -810,7 +810,7 @@ pipeline("movie-discover", schedule="2h")</code></pre>
 
 <!-- ─────────── jackett ─────────── -->
 <h2 id="jackett">jackett</h2>
-<p>Returns recent results from Jackett indexers without a search query — behaves like an RSS feed. Queries the configured categories and returns whatever the indexers consider recent.</p>
+<p>Queries Jackett indexer proxies via the Torznab API. Use as a <strong>passive source</strong> (<code>input("jackett", …)</code>) to receive recent results like an RSS feed, or as a <strong>search backend</strong> inside <code>discover.search</code> for active title-based searching.</p>
 
 <table>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
@@ -818,12 +818,14 @@ pipeline("movie-discover", schedule="2h")</code></pre>
   <tr><td><code>api_key</code></td><td>yes</td><td>—</td><td>Jackett API key</td></tr>
   <tr><td><code>indexers</code></td><td>no</td><td><code>["all"]</code></td><td>Indexer IDs to query</td></tr>
   <tr><td><code>categories</code></td><td>no</td><td>—</td><td>Torznab category codes (e.g. <code>["5040","5045"]</code>)</td></tr>
-  <tr><td><code>limit</code></td><td>no</td><td>—</td><td>Max results across all indexers</td></tr>
+  <tr><td><code>query</code></td><td>no</td><td>—</td><td>Static search query for passive-source mode; empty returns recent results</td></tr>
+  <tr><td><code>limit</code></td><td>no</td><td>—</td><td>Max results</td></tr>
   <tr><td><code>timeout</code></td><td>no</td><td><code>60s</code></td><td>HTTP request timeout</td></tr>
 </table>
 
 <h4>Fields set</h4>
-<p><code>source</code> (e.g. <code>jackett:1337x</code>), <code>torrent_link_type</code> (<code>"torrent"</code> or <code>"magnet"</code>), <code>torrent_seeds</code>, <code>torrent_leechers</code>, <code>torrent_file_size</code>, <code>torrent_info_hash</code>. Optionally: <code>jackett_category</code>.</p>
+<p>Always: <code>source</code> (e.g. <code>jackett:1337x</code>), <code>torrent_link_type</code> (<code>"torrent"</code> or <code>"magnet"</code>).</p>
+<p>When provided by the indexer: <code>torrent_seeds</code>, <code>torrent_leechers</code>, <code>torrent_file_size</code>, <code>torrent_info_hash</code>, <code>torrent_grabs</code>, <code>published_date</code>, <code>video_year</code>, <code>video_imdb_id</code>, <code>series_season</code>, <code>series_episode</code>, <code>jackett_category</code>, <code>jackett_tvdb_id</code>, <code>jackett_tmdb_id</code>, <code>jackett_dl_factor</code> (<code>0.0</code> = freeleech), <code>jackett_ul_factor</code>.</p>
 
 <h4>Common Torznab categories</h4>
 <table>
@@ -848,7 +850,7 @@ pipeline("movie-discover", schedule="2h")</code></pre>
 watchlist = input("trakt_list", client_id=env("TRAKT_ID"),
                   client_secret=env("TRAKT_SECRET"), type="movies", list="watchlist")
 results = process("discover", upstream=watchlist,
-    search=[{"name": "jackett_search", "url": "http://localhost:9117",
+    search=[{"name": "jackett", "url": "http://localhost:9117",
              "api_key": env("JACKETT_KEY"), "categories": ["2000"]}])
 
 <span class="y-comment"># Inside series/movies.list — provides the show/movie title list</span>
@@ -935,23 +937,6 @@ pipeline("tv-tvdb", schedule="1h")</code></pre>
      "access_token": env("TRAKT_ACCESS_TOKEN"),
      "type": "movies", "list": "watchlist"},
 ])</code></pre>
-
-<!-- ─────────── jackett_search (from) ─────────── -->
-<h2 id="jackett_search">jackett_search</h2>
-<p>Searches a Jackett indexer proxy via Torznab. Used inside <code>discover.search</code> as a search backend. Seeder counts, info hashes, and sizes come directly in the search response — no separate metainfo fetch needed. Sets <code>torrent_link_type</code> on each result so downstream plugins (<code>metainfo_torrent</code>, <code>metainfo_magnet</code>, <code>deluge</code>, etc.) handle the URL correctly without probing it.</p>
-
-<table>
-  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
-  <tr><td><code>url</code></td><td>yes</td><td>—</td><td>Jackett base URL</td></tr>
-  <tr><td><code>api_key</code></td><td>yes</td><td>—</td><td>Jackett API key</td></tr>
-  <tr><td><code>indexers</code></td><td>no</td><td><code>["all"]</code></td><td>Indexer IDs</td></tr>
-  <tr><td><code>categories</code></td><td>no</td><td>—</td><td>Torznab category codes</td></tr>
-  <tr><td><code>limit</code></td><td>no</td><td>—</td><td>Max results</td></tr>
-  <tr><td><code>timeout</code></td><td>no</td><td><code>60s</code></td><td>HTTP timeout</td></tr>
-</table>
-
-<h4>Fields set</h4>
-<p><code>source</code> (e.g. <code>jackett:1337x</code>), <code>torrent_link_type</code> (<code>"torrent"</code> or <code>"magnet"</code>), <code>torrent_seeds</code>, <code>torrent_leechers</code>, <code>torrent_file_size</code>, <code>torrent_info_hash</code>. Optionally: <code>jackett_category</code>.</p>
 
 <!-- ─────────── rss_search ─────────── -->
 <h2 id="rss_search">rss_search</h2>
@@ -1042,7 +1027,7 @@ pipeline("hd-only")</code></pre>
 <p>Reads metadata from a <code>.torrent</code> file. Recognises an entry as a torrent download using three signals, checked in order:</p>
 <ol>
   <li><code>file_location</code> ends in <code>.torrent</code> (set by the <code>filesystem</code> plugin) — reads the local file</li>
-  <li><code>torrent_link_type = "torrent"</code> (set by <code>jackett_search</code> / <code>jackett</code>) — fetches the URL</li>
+  <li><code>torrent_link_type = "torrent"</code> (set by <code>jackett</code> / <code>jackett</code>) — fetches the URL</li>
   <li>URL ends in <code>.torrent</code> or <code>rss_enclosure_type = "application/x-bittorrent"</code> — fetches the URL</li>
 </ol>
 <p>Entries with <code>torrent_link_type = "magnet"</code> are always skipped (handled by <code>metainfo_magnet</code>). If the <code>.torrent</code> file cannot be fetched or parsed, the entry is <strong>failed</strong> so it will be retried on the next run rather than passing through without metadata.</p>
@@ -1245,7 +1230,7 @@ output(<span class="y-str">"transmission"</span>, upstream=merge(routes.torrent,
 
 <!-- ─────────── torrentalive ─────────── -->
 <h2 id="torrentalive">torrentalive</h2>
-<p>Rejects torrents with fewer than a minimum number of seeds. The <code>torrent_seeds</code> field is set by the RSS input, <code>jackett_search</code>, and <code>jackett</code>. Entries without seed data are left undecided.</p>
+<p>Rejects torrents with fewer than a minimum number of seeds. The <code>torrent_seeds</code> field is set by the RSS input, <code>jackett</code>, and <code>jackett</code>. Entries without seed data are left undecided.</p>
 
 <table>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
@@ -1797,7 +1782,7 @@ pipeline("tv")</code></pre>
 
 <img src="images/ui-list-function-connected.png" alt="Visual editor showing movies node connected to a trakt_list→trakt mini-pipeline via its list port" class="screenshot">
 
-<p>The same pattern applies to <code>search=</code> ports on <code>discover</code>: a function whose body starts with a search plugin (<code>jackett_search</code>, <code>rss_search</code>) will carry a <strong>SEARCH</strong> badge and can be connected to the discover search port.</p>
+<p>The same pattern applies to <code>search=</code> ports on <code>discover</code>: a function whose body starts with a search plugin (<code>jackett</code>, <code>rss_search</code>) will carry a <strong>SEARCH</strong> badge and can be connected to the discover search port.</p>
 
 <p>In Starlark, the connection is expressed as <code>list=[my_func()]</code>:</p>
 <pre><code><span class="y-comment"># pipeliner:param type=string Trakt client ID</span>
@@ -1912,7 +1897,7 @@ docker compose up -d --no-build pipeliner</code></pre>
 <p>This was a bug where the Deluge session cookie from login was not preserved. It is fixed in v0.1.3+. Ensure you are running a current version.</p>
 
 <h3>torrentalive is slow</h3>
-<p>When entries lack a <code>torrent_seeds</code> field, <code>torrentalive</code> must resolve the info hash and scrape trackers. Use inputs that provide seed counts (<code>jackett_search</code>, <code>jackett</code>, nyaa RSS) to avoid scraping. Set <code>scrape: false</code> to disable tracker scraping entirely (entries without seed data will be left undecided).</p>
+<p>When entries lack a <code>torrent_seeds</code> field, <code>torrentalive</code> must resolve the info hash and scrape trackers. Use inputs that provide seed counts (<code>jackett</code>, <code>jackett</code>, nyaa RSS) to avoid scraping. Set <code>scrape: false</code> to disable tracker scraping entirely (entries without seed data will be left undecided).</p>
 
 <h3>Config validation errors</h3>
 <p><code>pipeliner check</code> validates each plugin's config and verifies that all required fields are produced by upstream nodes. If you see a field requirement error, check that the metainfo processor producing that field is connected upstream of the filter or sink that needs it.</p>
