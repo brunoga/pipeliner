@@ -74,8 +74,8 @@ func TestParseTorznabTorrentEntry(t *testing.T) {
 	if got := e.GetInt(entry.FieldTorrentSeeds); got != 10 {
 		t.Errorf("torrent_seeds: got %d, want 10", got)
 	}
-	if got := e.GetString("jackett_indexer"); got != "myindexer" {
-		t.Errorf("jackett_indexer: got %q", got)
+	if got := e.GetString(entry.FieldSource); got != "jackett:myindexer" {
+		t.Errorf("source: got %q, want \"jackett:myindexer\"", got)
 	}
 }
 

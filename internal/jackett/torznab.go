@@ -115,7 +115,7 @@ func ParseTorznab(data []byte, indexer string) ([]*entry.Entry, error) {
 		if v := attrs["category"]; v != "" {
 			e.Set("jackett_category", v)
 		}
-		e.Set("jackett_indexer", indexer)
+		e.Set(entry.FieldSource, "jackett:"+indexer)
 
 		entries = append(entries, e)
 	}

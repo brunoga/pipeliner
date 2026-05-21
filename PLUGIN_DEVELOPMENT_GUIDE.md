@@ -277,13 +277,13 @@ Fields follow a tiered naming convention with prefixes:
 
 | Prefix | Tier | Set by |
 |--------|------|--------|
-| *(none)* | GenericInfo | all metainfo providers |
+| *(none)* | GenericInfo | all source and metainfo providers |
 | `video_` | VideoInfo | metainfo_tvdb, metainfo_tmdb, metainfo_trakt, movies |
 | `series_` | SeriesInfo | series, metainfo_series, metainfo_tvdb |
 | `movie_` | MovieInfo | movies |
 | `torrent_` | TorrentInfo | rss, jackett_search, jackett, metainfo_torrent, metainfo_magnet |
 | `file_` | FileInfo | filesystem |
-| `rss_` | RSSInfo | rss |
+| `rss_` | RSSInfo | rss, rss_search |
 
 The full list of constants is in `internal/entry/info.go`.
 
@@ -291,6 +291,7 @@ The full list of constants is in `internal/entry/info.go`.
 
 | Field | Type | Description |
 |-------|------|-------------|
+| `source` | string | Origin of the entry in the form `plugin:identifier` — set by **every source plugin** (e.g. `jackett:1337x`, `rss:nyaa.si`, `filesystem:/downloads`). Never mutated by processors or sinks. |
 | `title` | string | Canonical enriched display name (set by external providers) |
 | `raw_title` | string | Original entry title from the source |
 | `enriched` | bool | `true` when any external metainfo provider enriched this entry |
@@ -433,6 +434,7 @@ func (p *mySource) Generate(ctx context.Context, tc *plugin.TaskContext) ([]*ent
     out := make([]*entry.Entry, 0, len(items))
     for _, item := range items {
         e := entry.New(item.Title, item.URL)
+        e.Set(entry.FieldSource, "my_source:"+p.identifier)
         e.SetGenericInfo(entry.GenericInfo{
             Description:   item.Description,
             PublishedDate: item.Date,

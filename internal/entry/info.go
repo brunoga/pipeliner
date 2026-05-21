@@ -15,6 +15,10 @@ const (
 	FieldDescription   = "description"
 	FieldPublishedDate = "published_date"
 	FieldEnriched      = "enriched" // true when an external metainfo provider successfully enriched this entry
+	// FieldSource identifies the origin of an entry in the form "plugin:identifier"
+	// (e.g. "jackett:1337x", "rss:nyaa.si", "filesystem:/downloads/watch").
+	// Set by every source plugin; never mutated by processors or sinks.
+	FieldSource = "source"
 
 	// VideoInfo — video_ prefix, shared by movies and series.
 	FieldVideoYear          = "video_year"
