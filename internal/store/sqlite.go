@@ -124,7 +124,15 @@ func OpenSQLite(path string) (*SQLiteStore, error) {
 		return nil, fmt.Errorf("store: create schema: %w", err)
 	}
 
-	return &SQLiteStore{db: db, releaseLock: release}, nil
+	s := &SQLiteStore{db: db, releaseLock: release}
+	if err := s.migrate(); err != nil {
+		db.Close()
+		if release != nil {
+			release()
+		}
+		return nil, err
+	}
+	return s, nil
 }
 
 // Bucket returns a SQLite-backed Bucket for the given name.
