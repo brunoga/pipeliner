@@ -2256,6 +2256,14 @@ details[open] > .ve-fields-summary::before { content:'▼ '; }
   background:color-mix(in srgb, var(--green) 14%, transparent);
   padding:1px 4px; border-radius:3px; font-size:9px;
 }
+.ve-cond-narrow-remove {
+  color:var(--red);
+  background:color-mix(in srgb, var(--red) 5%, transparent);
+}
+.ve-cond-narrow-remove code {
+  background:color-mix(in srgb, var(--red) 14%, transparent);
+  color:var(--red);
+}
 
 /* "Add clause" button */
 .ve-cond-builder .ve-add-kv {
