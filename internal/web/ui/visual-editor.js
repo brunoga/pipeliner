@@ -2821,10 +2821,45 @@ function buildCondConfig(rules) {
   return {rules: valid.map(r => ({[r.type]: r.expr.trim()}))};
 }
 
+// collectOutputFields recursively collects all fields produced by node and
+// its upstream chain into the certain/reachable sets.
+function collectOutputFields(node, certain, reachable, visited) {
+  if (!node || visited.has(node.id)) return;
+  visited.add(node.id);
+  const meta = pluginMeta(node.plugin);
+  for (const f of (meta?.produces    || [])) { certain.add(f); reachable.add(f); }
+  for (const f of (meta?.may_produce || [])) { reachable.add(f); }
+  for (const upId of (node.upstreams || [])) {
+    const up = findNode(upId);
+    if (up) collectOutputFields(up, certain, reachable, visited);
+  }
+}
+
+// computeInputFields computes the field sets available at the INPUT of node
+// by walking its full upstream chain using plugin metadata from ve.plugins.
+function computeInputFields(node) {
+  const certain  = new Set();
+  const reachable = new Set();
+  for (const upId of (node.upstreams || [])) {
+    const up = findNode(upId);
+    if (up) collectOutputFields(up, certain, reachable, new Set());
+  }
+  return {
+    certain:  [...certain].sort(),
+    reachable: [...reachable].filter(f => !certain.has(f)).sort(),
+  };
+}
+
 // renderNodeFieldsSection renders a collapsible "Fields available" section
 // showing what's certain and reachable at this node's input.
 function renderNodeFieldsSection(node) {
-  const nf = node.fields;
+  // Prefer server-supplied field sets; fall back to client-side computation
+  // from plugin metadata so the section is always populated even if the
+  // server-side DAG field propagation hasn't run yet.
+  let nf = (node.fields?.certain?.length || node.fields?.reachable?.length)
+    ? node.fields
+    : computeInputFields(node);
+
   if (!nf || (!nf.certain?.length && !nf.reachable?.length)) return '';
 
   const certain  = nf.certain  || [];
@@ -2844,7 +2879,7 @@ function renderNodeFieldsSection(node) {
     : '';
 
   const id = `ve-fields-${esc(node.id)}`;
-  return `<details class="ve-fields-section">
+  return `<details class="ve-fields-section" open>
     <summary class="ve-fields-summary">
       Fields available at input
       <span class="ve-fields-count">${certain.length} certain, ${reachOnly.length} reachable</span>
@@ -2900,7 +2935,10 @@ function renderCondRule(rule, i, nodeFields) {
   const rawBtn = `<button class="ve-cond-raw-btn" title="${rawMode ? 'Switch to builder' : 'Switch to raw mode'}"
       onclick="toggleCondRawMode(${i})">${rawMode ? '≡ builder' : '⋮ raw'}</button>`;
 
-  const promoted = condNarrowedFields(expr, nodeFields);
+  const effectiveFields = (nodeFields?.certain?.length || nodeFields?.reachable?.length)
+    ? nodeFields
+    : computeInputFields(findNode(ve.selectedNodeId));
+  const promoted = condNarrowedFields(expr, effectiveFields);
   const narrowHtml = promoted.length
     ? `<div class="ve-cond-narrow">↳ Promotes to certain: ${promoted.map(f => `<code>${esc(f)}</code>`).join(', ')}</div>`
     : '';
@@ -2925,7 +2963,11 @@ function renderCondRule(rule, i, nodeFields) {
 // Render the builder body (field picker + op + value rows) for a rule.
 function renderCondBuilderBody(model, ruleIdx, nodeFields) {
   const {clauses, combinator} = model;
-  const nf = nodeFields || {certain: [], reachable: []};
+  // Use server-supplied fields or fall back to client-side computation.
+  const resolved = (nodeFields?.certain?.length || nodeFields?.reachable?.length)
+    ? nodeFields
+    : computeInputFields(findNode(ve.selectedNodeId));
+  const nf = resolved || {certain: [], reachable: []};
   const certain  = new Set(nf.certain);
   const reachable = new Set(nf.reachable);
 
@@ -3015,35 +3057,21 @@ function _condGetRules() {
   return node ? condRulesFromConfig(node.config) : [];
 }
 
-// Internal: rebuild config from rules and re-render.
+// Internal: rebuild config from rules, sync the text editor, and re-render.
 function _condSetRules(rules) {
   const node = findNode(ve.selectedNodeId);
   if (!node) return;
   node.config = buildCondConfig(rules);
-  onModelChange();
-  veRenderParamPanel(node);  // full panel re-render to reflect changes
-}
-
-// Panel re-render helper — re-renders the side panel for the given node.
-function veRenderParamPanel(node) {
-  const panel = document.getElementById('ve-param-panel');
-  if (!panel) return;
-  veRender(); // triggers full canvas+panel re-render
+  onModelChange();  // updates text editor; also schedules a debounced textToVisualSync
+  veRender();       // immediate re-render so the builder UI reflects the new rules
 }
 
 function addCondRule(type) {
   const rules = _condGetRules();
-  const node  = findNode(ve.selectedNodeId);
-  const nf    = node?.fields || {certain: [], reachable: []};
-
-  // Pick a sensible default expression so buildCondConfig doesn't discard it
-  // (it filters empty expressions). Use the first available field with "is set".
-  const defaultField = nf.reachable[0] || nf.certain[0] || 'title';
-  const ops      = getOpsForType(getFieldType(defaultField));
-  const isSetOp  = ops.find(o => o.noValue) || ops[0];
-  const defaultExpr = clauseToStr(defaultField, isSetOp?.id || '!= ""', '');
-
-  rules.push({type, expr: defaultExpr});
+  // Use "true" as the placeholder — it is always non-empty so buildCondConfig
+  // doesn't filter it out, it is valid Starlark, and it serialises/parses
+  // cleanly with no quoting issues.  The user replaces it via the builder.
+  rules.push({type, expr: 'true'});
   _condSetRules(rules);
 }
 
