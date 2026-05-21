@@ -34,9 +34,19 @@ func init() {
 		PluginName:  "rss_search",
 		Description: "search a parameterized RSS URL for entries matching a query string; usable as a standalone DAG source or inside discover.search",
 		Role:        plugin.RoleSource,
-		// rss_search creates entries with entry.New only; no Fields are populated.
-		// Produces/MayProduce are intentionally empty — actual fields come from
-		// the parent discover processor's search sub-plugin propagation.
+		Produces: []string{
+			entry.FieldSource,
+			entry.FieldTitle,
+			entry.FieldRSSFeed,
+		},
+		MayProduce: []string{
+			entry.FieldDescription,
+			entry.FieldPublishedDate,
+			entry.FieldRSSGUID,
+			entry.FieldRSSLink,
+			entry.FieldRSSEnclosureURL,
+			entry.FieldRSSEnclosureType,
+		},
 		Factory:        newPlugin,
 		Validate:       validate,
 		IsSearchPlugin: true,
@@ -113,7 +123,20 @@ func (p *searchRSSPlugin) Search(ctx context.Context, _ *plugin.TaskContext, que
 	if err != nil {
 		return nil, fmt.Errorf("rss_search: parse feed: %w", err)
 	}
+	src := "rss_search:" + hostFromURL(fetchURL)
+	for _, e := range entries {
+		e.Set(entry.FieldSource, src)
+		e.SetRSSInfo(entry.RSSInfo{Feed: fetchURL})
+	}
 	return entries, nil
+}
+
+func hostFromURL(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Host == "" {
+		return rawURL
+	}
+	return u.Host
 }
 
 type rss20Feed struct {
@@ -123,10 +146,12 @@ type rss20Feed struct {
 }
 
 type rss20Item struct {
-	Title     string `xml:"title"`
-	Link      string `xml:"link"`
-	GUID      string `xml:"guid"`
-	Enclosure struct {
+	Title       string `xml:"title"`
+	Link        string `xml:"link"`
+	Description string `xml:"description"`
+	PubDate     string `xml:"pubDate"`
+	GUID        string `xml:"guid"`
+	Enclosure   struct {
 		URL  string `xml:"url,attr"`
 		Type string `xml:"type,attr"`
 	} `xml:"enclosure"`
@@ -153,7 +178,19 @@ func parseRSS(data []byte) ([]*entry.Entry, error) {
 		if title == "" {
 			title = link
 		}
-		entries = append(entries, entry.New(title, link))
+		e := entry.New(title, link)
+		e.SetGenericInfo(entry.GenericInfo{
+			Title:         title,
+			Description:   strings.TrimSpace(item.Description),
+			PublishedDate: strings.TrimSpace(item.PubDate),
+		})
+		e.SetRSSInfo(entry.RSSInfo{
+			GUID:          item.GUID,
+			Link:          item.Link,
+			EnclosureURL:  item.Enclosure.URL,
+			EnclosureType: item.Enclosure.Type,
+		})
+		entries = append(entries, e)
 	}
 	return entries, nil
 }

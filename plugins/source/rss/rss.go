@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -21,6 +22,7 @@ func init() {
 		Description: "fetch entries from an RSS 2.0 or Atom 1.0 feed",
 		Role:        plugin.RoleSource,
 		Produces: []string{
+			entry.FieldSource,
 			entry.FieldTitle,
 			entry.FieldRSSFeed,
 		},
@@ -89,10 +91,20 @@ func (p *rssPlugin) Generate(ctx context.Context, _ *plugin.TaskContext) ([]*ent
 		return nil, fmt.Errorf("rss: parse feed: %w", err)
 	}
 
+	src := "rss:" + hostFromURL(p.url)
 	for _, e := range entries {
 		e.SetRSSInfo(entry.RSSInfo{Feed: p.url})
+		e.Set(entry.FieldSource, src)
 	}
 	return entries, nil
+}
+
+func hostFromURL(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Host == "" {
+		return rawURL
+	}
+	return u.Host
 }
 
 // fetch performs the HTTP GET with simple retry on transient errors.

@@ -13,6 +13,7 @@ Scrapes all `<a href>` links from an HTML page and emits one entry per link. Opt
 
 | Field | Description |
 |-------|-------------|
+| `source` | Origin in the form `html:<hostname>` (e.g. `html:example.com`) |
 | `title` | Link text, or the href if the link has no visible text |
 | `html_page` | Source page URL |
 
@@ -21,7 +22,7 @@ Scrapes all `<a href>` links from an HTML page and emits one entry per link. Opt
 | Property | Value |
 |----------|-------|
 | Role | `source` |
-| Produces | `title`, `html_page` |
+| Produces | `source`, `title`, `html_page` |
 | Requires | — |
 
 ## Example

@@ -15,6 +15,7 @@ Use as a standalone `input()` source node, or inside `series.list`, `movies.list
 
 | Field | Description |
 |-------|-------------|
+| `source` | Always `tvdb_favorites:favorites` |
 | `tvdb_id` | TheTVDB series ID |
 | `tvdb_year` | Premiere year (if known) |
 
@@ -42,5 +43,6 @@ pipeline("tv-favorites", schedule="1h")
 | Property | Value |
 |----------|-------|
 | Role | `source` |
-| Produces | `title`, `tvdb_id`, `tvdb_year` |
+| Produces | `source`, `tvdb_id` |
+| MayProduce | `tvdb_year` |
 | Requires | — |
