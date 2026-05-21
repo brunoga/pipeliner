@@ -18,6 +18,8 @@ import (
 
 	"github.com/brunoga/pipeliner/docs"
 	"github.com/brunoga/pipeliner/internal/config"
+	"github.com/brunoga/pipeliner/internal/dag"
+	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/plugin"
 	"github.com/brunoga/pipeliner/internal/store"
 )
@@ -170,6 +172,7 @@ func (s *Server) Start(ctx context.Context, addr string, tlsCfg *tls.Config) err
 	protected.HandleFunc("GET /api/config", s.apiGetConfig)
 	protected.HandleFunc("POST /api/config", s.apiSaveConfig)
 	protected.HandleFunc("GET /api/plugins", s.apiPlugins)
+	protected.HandleFunc("GET /api/fields", s.apiFields)
 	protected.HandleFunc("POST /api/config/parse", s.apiConfigParse)
 	protected.HandleFunc("GET /api/db/buckets", s.apiDBBuckets)
 	protected.HandleFunc("GET /api/db/buckets/{name}", s.apiDBGetBucket)
@@ -536,6 +539,12 @@ func (s *Server) apiPlugins(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, out)
 }
 
+// apiFields returns the complete entry field registry — name, type, description,
+// and which plugins produce each field. Used by the visual condition editor.
+func (s *Server) apiFields(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, entry.KnownFields)
+}
+
 // apiConfigParse executes a Starlark config string server-side and returns
 // the resolved Config as JSON. Used by the visual editor's Text→Visual sync.
 func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
@@ -566,6 +575,10 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 		X          *float64        `json:"x,omitempty"`
 		Y          *float64        `json:"y,omitempty"`
 	}
+	type nodeFieldsResp struct {
+		Certain   []string `json:"certain"`
+		Reachable []string `json:"reachable"`
+	}
 	type nodeResp struct {
 		ID              string          `json:"id"`
 		PluginName      string          `json:"plugin"`
@@ -577,6 +590,8 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 		X               *float64        `json:"x,omitempty"`
 		Y               *float64        `json:"y,omitempty"`
 		FunctionCallKey string          `json:"function_call_key,omitempty"`
+		// Fields holds field availability at this node's input (before its own Produces).
+		Fields nodeFieldsResp `json:"fields"`
 		// Route port fields — set on route_selector nodes.
 		IsRoutePort      bool     `json:"is_route_port,omitempty"`
 		RoutePortName    string   `json:"route_port_name,omitempty"`
@@ -625,8 +640,16 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Pre-compute per-node field availability for all graphs.
+	pluginReg := func(name string) (*plugin.Descriptor, bool) { return plugin.Lookup(name) }
+	allNodeFields := make(map[string]map[dag.NodeID]dag.NodeFieldSets, len(c.Graphs))
+	for name, g := range c.Graphs {
+		allNodeFields[name] = dag.ComputeNodeFields(g, pluginReg)
+	}
+
 	graphs := make(map[string]graphResp, len(c.Graphs))
 	for name, g := range c.Graphs {
+		nodeFields := allNodeFields[name]
 		nodes := make([]nodeResp, 0, g.Len())
 		for _, n := range g.Nodes() {
 			ups := make([]string, len(n.Upstreams))
@@ -706,6 +729,13 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 			delete(cfg, "_port_guarantees")
 			delete(cfg, "_port_masks")
 
+			nf := nodeFields[n.ID]
+			if nf.Certain == nil {
+				nf.Certain = []string{}
+			}
+			if nf.Reachable == nil {
+				nf.Reachable = []string{}
+			}
 			nr := nodeResp{
 				ID:              string(n.ID),
 				PluginName:      n.PluginName,
@@ -715,6 +745,7 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 				List:            list,
 				Comment:         nodeComments[string(n.ID)],
 				FunctionCallKey: nodeCallKey[string(n.ID)],
+				Fields:          nodeFieldsResp{Certain: nf.Certain, Reachable: nf.Reachable},
 			}
 			// Populate route port fields for route_selector nodes.
 			if n.PluginName == "route_selector" {
