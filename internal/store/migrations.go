@@ -75,7 +75,7 @@ func (s *SQLiteStore) applyMigration(m migration) (retErr error) {
 	}
 	defer func() {
 		if retErr != nil {
-			tx.Rollback()
+			_ = tx.Rollback()
 		}
 	}()
 
