@@ -17,7 +17,7 @@ const src   = readFileSync(join(__dir, '..', 'visual-editor.js'), 'utf8');
 // Functions under test
 let exprToFlatModel, flatModelToExpr, clauseToStr, topLevelSplit, parseClause,
     parseExprLiteral, isFullyWrapped, opIsNoValue,
-    condNarrowedFields, condRulesFromConfig, buildCondConfig,
+    condNarrowedFields, condRejectedFields, condRulesFromConfig, buildCondConfig,
     computeInputFields, collectOutputFields, findNodeGraph,
     ve;
 
@@ -32,6 +32,7 @@ beforeAll(() => {
     exports.isFullyWrapped      = isFullyWrapped;
     exports.opIsNoValue         = opIsNoValue;
     exports.condNarrowedFields  = condNarrowedFields;
+    exports.condRejectedFields  = condRejectedFields;
     exports.condRulesFromConfig = condRulesFromConfig;
     exports.buildCondConfig     = buildCondConfig;
     exports.computeInputFields  = computeInputFields;
@@ -44,7 +45,7 @@ beforeAll(() => {
   mod(exports, noopDoc, () => Promise.resolve());
   ({ exprToFlatModel, flatModelToExpr, clauseToStr, topLevelSplit, parseClause,
      parseExprLiteral, isFullyWrapped, opIsNoValue,
-     condNarrowedFields, condRulesFromConfig, buildCondConfig,
+     condNarrowedFields, condRejectedFields, condRulesFromConfig, buildCondConfig,
      computeInputFields, collectOutputFields, findNodeGraph, ve } = exports);
 });
 
@@ -322,6 +323,129 @@ describe('expression round-trip', () => {
       expect(flatModelToExpr(m.clauses, m.combinator)).toBe(expr);
     });
   }
+});
+
+// ── condRejectedFields ────────────────────────────────────────────────────────
+
+describe('condRejectedFields — single clause', () => {
+  const nf = {reachable: ['source', 'title', 'description', 'rss_category', 'torrent_seeds']};
+
+  it('removes field when reject uses is-set op (!= "")', () => {
+    const removed = condRejectedFields('description != ""', nf);
+    expect(removed).toContain('description');
+  });
+
+  it('removes field when reject uses numeric is-set op (> 0)', () => {
+    const removed = condRejectedFields('torrent_seeds > 0', nf);
+    expect(removed).toContain('torrent_seeds');
+  });
+
+  it('does NOT remove field for non-presence ops (specific value reject)', () => {
+    // reject: torrent_seeds > 5 — passing entries can still have seeds (0..5)
+    const removed = condRejectedFields('torrent_seeds > 5', nf);
+    expect(removed).not.toContain('torrent_seeds');
+  });
+
+  it('does NOT remove field for equality reject', () => {
+    // reject: description == "foo" — field might still be present with other value
+    const removed = condRejectedFields('description == "foo"', nf);
+    expect(removed).not.toContain('description');
+  });
+
+  it('does NOT remove field not in reachable', () => {
+    const removed = condRejectedFields('movie_tagline != ""', nf);
+    expect(removed).not.toContain('movie_tagline');
+  });
+
+  it('returns empty for empty expression', () => {
+    expect(condRejectedFields('', nf)).toHaveLength(0);
+  });
+});
+
+describe('condRejectedFields — AND behaviour', () => {
+  const nf = {reachable: ['description', 'rss_category']};
+
+  it('does NOT remove fields for multi-clause AND (NOT(A∧B) = ¬A∨¬B)', () => {
+    // Passing entries satisfy ¬description∨¬rss_category — can't guarantee either absent
+    const removed = condRejectedFields('description != "" and rss_category != ""', nf);
+    expect(removed).toHaveLength(0);
+  });
+
+  it('removes field for single-clause AND (degenerate case)', () => {
+    const removed = condRejectedFields('description != ""', nf);
+    expect(removed).toContain('description');
+  });
+});
+
+describe('condRejectedFields — OR behaviour', () => {
+  const nf = {reachable: ['description', 'rss_category', 'torrent_seeds']};
+
+  it('removes BOTH fields when all OR clauses use presence ops (NOT(A∨B) = ¬A∧¬B)', () => {
+    const removed = condRejectedFields('description != "" or rss_category != ""', nf);
+    expect(removed).toContain('description');
+    expect(removed).toContain('rss_category');
+  });
+
+  it('removes NOTHING when not all OR clauses use presence ops', () => {
+    // description != "" is presence, but torrent_seeds > 5 is not
+    const removed = condRejectedFields('description != "" or torrent_seeds > 5', nf);
+    expect(removed).toHaveLength(0);
+  });
+});
+
+// ── computeInputFields — reject rule removes fields downstream ────────────────
+
+describe('computeInputFields — reject rule narrows downstream', () => {
+  beforeEach(() => {
+    ve.plugins = [RSS_PLUGIN, CONDITION_PLUGIN, PRINT_PLUGIN];
+  });
+
+  it('removes field from downstream reachable when reject rule uses is-set', () => {
+    const rssNode  = {id:'rss_0', plugin:'rss', upstreams:[], config:{}};
+    const condNode = {
+      id:'cond_1', plugin:'condition', upstreams:['rss_0'],
+      config:{reject:'description != ""'},
+    };
+    const printNode = {id:'print_2', plugin:'print', upstreams:['cond_1'], config:{}};
+    setupGraph([rssNode, condNode, printNode]);
+
+    const nf = computeInputFields(printNode);
+    // description was in rss MayProduce, but is removed by the reject rule
+    expect(nf.reachable).not.toContain('description');
+    expect(nf.certain).not.toContain('description');
+    // Other rss fields should still be present
+    expect(nf.certain).toContain('source');
+    expect(nf.reachable).toContain('torrent_seeds');
+  });
+
+  it('removes fields for OR reject rule (both absent in passing entries)', () => {
+    const rssNode  = {id:'rss_0', plugin:'rss', upstreams:[], config:{}};
+    const condNode = {
+      id:'cond_1', plugin:'condition', upstreams:['rss_0'],
+      config:{reject:'description != "" or rss_category != ""'},
+    };
+    const printNode = {id:'print_2', plugin:'print', upstreams:['cond_1'], config:{}};
+    setupGraph([rssNode, condNode, printNode]);
+
+    const nf = computeInputFields(printNode);
+    expect(nf.reachable).not.toContain('description');
+    expect(nf.reachable).not.toContain('rss_category');
+  });
+
+  it('does NOT remove fields for AND reject rule (ambiguous which is absent)', () => {
+    const rssNode  = {id:'rss_0', plugin:'rss', upstreams:[], config:{}};
+    const condNode = {
+      id:'cond_1', plugin:'condition', upstreams:['rss_0'],
+      config:{reject:'description != "" and rss_category != ""'},
+    };
+    const printNode = {id:'print_2', plugin:'print', upstreams:['cond_1'], config:{}};
+    setupGraph([rssNode, condNode, printNode]);
+
+    const nf = computeInputFields(printNode);
+    // Can't guarantee which field is absent — both may still appear
+    expect(nf.reachable).toContain('description');
+    expect(nf.reachable).toContain('rss_category');
+  });
 });
 
 // ── condRulesFromConfig / buildCondConfig ─────────────────────────────────────

@@ -2754,6 +2754,58 @@ function clauseToStr(field, op, value) {
 
 // ── condition narrowing (client-side, mirrors condnarrow.go) ──────────────────
 
+// Returns true when an op+value pair indicates "field is present/set".
+// Handles both the builder's combined no-value form ('!= ""', '> 0') and the
+// parsed form produced by exprToFlatModel ('!=' with value='', '>' with value=0).
+function isPresenceCheck(op, value) {
+  if (op === '!= ""' || op === '> 0') return true;       // builder no-value form
+  if (op === '!=' && (value === '' || value == null)) return true; // parsed form
+  if (op === '>'  && value === 0)                 return true; // parsed form
+  return false;
+}
+
+// condRejectedFields is the dual of condNarrowedFields.
+// For REJECT rules: entries that PASS through are those where the condition
+// evaluated to false.  When the condition tests whether a field is present
+// (using a presence op), the passing entries are guaranteed NOT to have that
+// field set — so it should be removed from the reachable set downstream.
+//
+// AND semantics: NOT(A∧B) = ¬A∨¬B — at least one is absent, but we can't
+//   say which, so we cannot safely remove either field.  Returns [].
+// OR semantics:  NOT(A∨B) = ¬A∧¬B — both are absent. Returns all fields
+//   whose clauses use presence ops.
+// Single clause: NOT(field is set) → field is absent. Returns [field].
+//
+// Non-presence ops (e.g. == "x", > 5) do not guarantee absence, so they
+// are excluded.
+function condRejectedFields(exprStr, nodeFields) {
+  if (!exprStr || !nodeFields) return [];
+  const {reachable = []} = nodeFields;
+  const reachSet = new Set(reachable);
+
+  const model = exprToFlatModel(exprStr);
+  if (!model || !model.clauses.length) return [];
+
+  const isMultiAnd = model.combinator === 'and' && model.clauses.length > 1;
+  if (isMultiAnd) {
+    // NOT(A AND B) = NOT A OR NOT B — can't guarantee any specific field absent.
+    return [];
+  }
+
+  const isOr = model.combinator === 'or' && model.clauses.length > 1;
+  const presenceClauses = model.clauses.filter(c => isPresenceCheck(c.op, c.value));
+
+  if (isOr) {
+    // For OR: all clauses must use presence ops, otherwise we can't safely
+    // remove anything (a non-presence clause means a field may still be present).
+    if (presenceClauses.length !== model.clauses.length) return [];
+    return presenceClauses.map(c => c.field).filter(f => reachSet.has(f));
+  }
+
+  // Single clause: only remove if it's a presence op.
+  return presenceClauses.map(c => c.field).filter(f => reachSet.has(f));
+}
+
 // Simple client-side field narrowing for the UI preview.
 // Returns array of field names promoted from reachable → certain.
 function condNarrowedFields(exprStr, nodeFields) {
@@ -2858,18 +2910,29 @@ function collectOutputFields(node, certain, reachable, visited, graphNodes) {
     if (up) collectOutputFields(up, certain, reachable, visited, graphNodes);
   }
 
-  // For condition nodes: apply narrowing from accept expressions.
-  // When an accept rule tests a field (e.g. "description != """), entries that
-  // pass are guaranteed to have that field set, so promote it from reachable
-  // to certain for downstream nodes.
+  // For condition nodes: apply narrowing from the rules config.
   if (node.plugin === 'condition') {
     const rules    = condRulesFromConfig(node.config);
     const certArr  = [...certain];
-    const reachArr = [...certain, ...reachable];   // reachable includes certain
+    const reachArr = [...certain, ...reachable];  // full set (certain ⊆ reachable)
+
+    // Accept rules: promote fields to certain.
+    // e.g. "accept: description != ''" → description guaranteed set downstream.
     for (const rule of rules) {
       if (rule.type !== 'accept') continue;
       for (const f of condNarrowedFields(rule.expr, {certain: certArr, reachable: reachArr})) {
-        certain.add(f);   // promote from reachable → certain
+        certain.add(f);
+      }
+    }
+
+    // Reject rules: remove fields from both reachable and certain.
+    // e.g. "reject: description != ''" → passing entries have description absent,
+    // so downstream nodes cannot rely on description being present at all.
+    for (const rule of rules) {
+      if (rule.type !== 'reject') continue;
+      for (const f of condRejectedFields(rule.expr, {reachable: reachArr})) {
+        reachable.delete(f);
+        certain.delete(f);
       }
     }
   }
@@ -2986,9 +3049,14 @@ function renderCondRule(rule, i, nodeFields) {
       onclick="toggleCondRawMode(${i})">${rawMode ? '≡ builder' : '⋮ raw'}</button>`;
 
   const effectiveFields = computeInputFields(findNode(ve.selectedNodeId));
-  const promoted = condNarrowedFields(expr, effectiveFields);
+  const reachAll = {certain: effectiveFields.certain,
+                    reachable: [...effectiveFields.certain, ...effectiveFields.reachable]};
+  const promoted = type === 'accept' ? condNarrowedFields(expr, reachAll)  : [];
+  const removed  = type === 'reject' ? condRejectedFields(expr, reachAll)  : [];
   const narrowHtml = promoted.length
     ? `<div class="ve-cond-narrow">↳ Promotes to certain: ${promoted.map(f => `<code>${esc(f)}</code>`).join(', ')}</div>`
+    : removed.length
+    ? `<div class="ve-cond-narrow ve-cond-narrow-remove">↳ Removes from available: ${removed.map(f => `<code>${esc(f)}</code>`).join(', ')}</div>`
     : '';
 
   const previewHtml = (!rawMode && expr)
