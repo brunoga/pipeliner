@@ -454,15 +454,19 @@ func (s *Server) apiSaveConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	s.runMu.Unlock()
 
+	warns := validationWarnings
+	if warns == nil {
+		warns = []string{}
+	}
 	if idle && s.reload != nil {
 		if err := s.reload(); err != nil {
-			writeJSON(w, map[string]string{"status": "saved", "warning": err.Error()})
+			writeJSON(w, map[string]any{"status": "saved", "warning": err.Error(), "warnings": warns})
 			return
 		}
-		writeJSON(w, map[string]string{"status": "reloaded"})
+		writeJSON(w, map[string]any{"status": "reloaded", "warnings": warns})
 		return
 	}
-	writeJSON(w, map[string]string{"status": "pending"})
+	writeJSON(w, map[string]any{"status": "pending", "warnings": warns})
 }
 
 

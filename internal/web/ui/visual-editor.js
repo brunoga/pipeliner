@@ -2397,7 +2397,17 @@ function renderParamPanel() {
     html.push('</div>');
   }
 
-  if (meta.produces?.length || meta.may_produce?.length || meta.requires?.length) {
+  if (node.isFunctionCall) {
+    const cert  = node.outputFields?.certain  || [];
+    const reach = node.outputFields?.reachable || [];
+    if (cert.length || reach.length) {
+      html.push('<div class="ve-field-sep"></div>');
+      if (cert.length)
+        html.push(`<div class="ve-field-hint-block"><b>Produces:</b> ${cert.map(f=>`<code>${esc(f)}</code>`).join(' ')}</div>`);
+      if (reach.length)
+        html.push(`<div class="ve-field-hint-block ve-field-hint-maybe"><b>May produce:</b> ${reach.map(f=>`<code>${esc(f)}</code>`).join(' ')}</div>`);
+    }
+  } else if (meta.produces?.length || meta.may_produce?.length || meta.requires?.length) {
     html.push('<div class="ve-field-sep"></div>');
     if (meta.produces?.length)
       html.push(`<div class="ve-field-hint-block"><b>Produces:</b> ${meta.produces.map(f=>`<code>${esc(f)}</code>`).join(' ')}</div>`);
@@ -2781,6 +2791,47 @@ function isPresenceCheck(op, value) {
   return false;
 }
 
+// isAbsenceCheck returns true when an op+value pair tests that a field is
+// absent/empty — the logical inverse of isPresenceCheck.
+function isAbsenceCheck(op, value) {
+  if (op === '== ""' || op === '== 0') return true;       // builder no-value form
+  if (op === '==' && (value === '' || value == null)) return true; // parsed form
+  if (op === '==' && value === 0)                return true; // parsed numeric form
+  return false;
+}
+
+// condRejectPromotedFields handles the "absence-check rejection" case:
+//   reject: field == ""   →  passing entries have field SET  →  promote to certain
+//
+// This is the mirror of condRejectedFields (presence ops remove) but for
+// absence ops (which promote).  AND/OR semantics are the same:
+//   single / OR-of-absence-ops: promote the fields
+//   AND of multiple clauses:    NOT(A∧B) = ¬A∨¬B — can't guarantee either present
+function condRejectPromotedFields(exprStr, nodeFields) {
+  if (!exprStr || !nodeFields) return [];
+  const {certain = [], reachable = []} = nodeFields;
+  const certSet  = new Set(certain);
+  const reachSet = new Set(reachable);
+
+  const model = exprToFlatModel(exprStr);
+  if (!model || !model.clauses.length) return [];
+
+  const isMultiAnd = model.combinator === 'and' && model.clauses.length > 1;
+  if (isMultiAnd) return []; // NOT(A∧B) = ¬A∨¬B — ambiguous
+
+  const isOr       = model.combinator === 'or' && model.clauses.length > 1;
+  const absClause  = model.clauses.filter(c => isAbsenceCheck(c.op, c.value));
+
+  if (isOr) {
+    // All clauses must be absence ops: NOT(A∨B) = ¬A∧¬B → both present.
+    if (absClause.length !== model.clauses.length) return [];
+    return absClause.map(c => c.field).filter(f => reachSet.has(f) && !certSet.has(f));
+  }
+
+  // Single absence-op clause: passing entries have the field set.
+  return absClause.map(c => c.field).filter(f => reachSet.has(f) && !certSet.has(f));
+}
+
 // condRejectedFields is the dual of condNarrowedFields.
 // For REJECT rules: entries that PASS through are those where the condition
 // evaluated to false.  When the condition tests whether a field is present
@@ -2916,6 +2967,25 @@ function collectOutputFields(node, certain, reachable, visited, graphNodes) {
   if (!node || visited.has(node.id)) return;
   visited.add(node.id);
 
+  // Function-call nodes: output fields are pre-computed in textToVisualSync()
+  // from the return node's server-provided field sets plus its own produces.
+  // Use those directly — no recursion needed since outputFields already accounts
+  // for the entire internal chain and its external upstreams.
+  // Fallback to transparent pass-through when outputFields isn't available yet
+  // (e.g. a node just dropped from the palette before a parse round-trip).
+  if (node.isFunctionCall) {
+    if (node.outputFields) {
+      for (const f of node.outputFields.certain)  { certain.add(f); reachable.add(f); }
+      for (const f of node.outputFields.reachable) { reachable.add(f); }
+    } else {
+      for (const upId of (node.upstreams || [])) {
+        const up = graphNodes.find(n => n.id === upId);
+        if (up) collectOutputFields(up, certain, reachable, visited, graphNodes);
+      }
+    }
+    return;
+  }
+
   // Collect this node's own declared fields from plugin metadata.
   const meta = pluginMeta(node.plugin);
   for (const f of (meta?.produces    || [])) { certain.add(f); reachable.add(f); }
@@ -2943,16 +3013,69 @@ function collectOutputFields(node, certain, reachable, visited, graphNodes) {
     }
 
     // Reject rules: remove fields from both reachable and certain.
-    // e.g. "reject: description != ''" → passing entries have description absent,
-    // so downstream nodes cannot rely on description being present at all.
+    // Reject rules have TWO effects depending on the operator:
+    //
+    // (a) Presence ops  (reject: field != "")  → passing entries lack the field
+    //     → remove from reachable/certain
+    //
+    // (b) Absence ops   (reject: field == "")  → passing entries HAVE the field
+    //     → promote to certain  (mirror of "accept: field != """)
     for (const rule of rules) {
       if (rule.type !== 'reject') continue;
       for (const f of condRejectedFields(rule.expr, {reachable: reachArr})) {
         reachable.delete(f);
         certain.delete(f);
       }
+      for (const f of condRejectPromotedFields(rule.expr, {certain: certArr, reachable: reachArr})) {
+        certain.add(f);
+      }
     }
   }
+}
+
+// computeFnCallOutputFields derives the output field sets for a function-call
+// node from its return node's server-provided input fields plus that node's own
+// plugin produces/may_produce.  rawById maps node ID → raw server node (includes
+// internal nodes filtered from the display graph).
+function computeFnCallOutputFields(fc, rawById) {
+  const returnRaw = rawById[fc.return_node_id];
+  if (!returnRaw) return {certain: [], reachable: []};
+
+  // Server NodeFieldSets: Certain ⊆ Reachable (reachable is the full combined set).
+  const certain  = new Set(returnRaw.fields?.certain  || []);
+  const reachable = new Set(returnRaw.fields?.reachable || []);
+  for (const f of certain) reachable.add(f); // guarantee certain ⊆ reachable
+
+  // Add the return node's own plugin produces / may_produce.
+  const retMeta = ve.plugins.find(p => p.name === returnRaw.plugin);
+  if (retMeta) {
+    for (const f of (retMeta.produces    || [])) { certain.add(f); reachable.add(f); }
+    for (const f of (retMeta.may_produce || [])) { reachable.add(f); }
+  }
+
+  // If the return node is a condition, apply its narrowing rules.
+  if (returnRaw.plugin === 'condition' && returnRaw.config) {
+    const rules   = condRulesFromConfig(returnRaw.config);
+    const certArr  = [...certain];
+    const reachArr = [...reachable];
+    for (const rule of rules) {
+      if (rule.type === 'accept') {
+        for (const f of condNarrowedFields(rule.expr, {certain: certArr, reachable: reachArr}))
+          certain.add(f);
+      } else if (rule.type === 'reject') {
+        for (const f of condRejectedFields(rule.expr, {reachable: reachArr}))
+          { reachable.delete(f); certain.delete(f); }
+        for (const f of condRejectPromotedFields(rule.expr, {certain: certArr, reachable: reachArr}))
+          certain.add(f);
+      }
+    }
+  }
+
+  const certFinal = [...certain].sort();
+  return {
+    certain:  certFinal,
+    reachable: [...reachable].filter(f => !certain.has(f)).sort(),
+  };
 }
 
 // computeInputFields computes the field sets available at the INPUT of node
@@ -3068,8 +3191,13 @@ function renderCondRule(rule, i, nodeFields) {
   const effectiveFields = computeInputFields(findNode(ve.selectedNodeId));
   const reachAll = {certain: effectiveFields.certain,
                     reachable: [...effectiveFields.certain, ...effectiveFields.reachable]};
-  const promoted = type === 'accept' ? condNarrowedFields(expr, reachAll)  : [];
-  const removed  = type === 'reject' ? condRejectedFields(expr, reachAll)  : [];
+  // For reject rules, two effects are possible depending on the operator:
+  //   reject presence op (!= "")  → removes field (shown in red)
+  //   reject absence  op (== "")  → promotes field (shown in green, same as accept)
+  const promoted = type === 'accept'
+    ? condNarrowedFields(expr, reachAll)
+    : type === 'reject' ? condRejectPromotedFields(expr, reachAll) : [];
+  const removed  = type === 'reject' ? condRejectedFields(expr, reachAll) : [];
   const narrowHtml = promoted.length
     ? `<div class="ve-cond-narrow">↳ Promotes to certain: ${promoted.map(f => `<code>${esc(f)}</code>`).join(', ')}</div>`
     : removed.length
@@ -5615,6 +5743,10 @@ async function textToVisualSync() {
       const returnToCallKey2 = {};
       for (const fc of (graph.function_calls || [])) returnToCallKey2[fc.return_node_id] = fc.call_key;
 
+      // Index ALL raw nodes (including internal) so computeFnCallOutputFields
+      // can look up the return node's server-provided field sets.
+      const rawById = Object.fromEntries(rawNodes.map(n => [n.id, n]));
+
       for (const fc of (graph.function_calls || [])) {
         // Find the entry nodes: internal nodes whose upstreams are all external.
         const internalSet = new Set(fc.internal_node_ids);
@@ -5644,6 +5776,7 @@ async function textToVisualSync() {
           funcCallKey:      fc.call_key,
           internalNodeIds:  fc.internal_node_ids,
           returnNodeId:     fc.return_node_id,
+          outputFields:     computeFnCallOutputFields(fc, rawById),
           x:                fc.x ?? null,
           y:                fc.y ?? null,
         });
