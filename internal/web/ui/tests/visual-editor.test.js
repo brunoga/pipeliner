@@ -15,7 +15,8 @@ let starLit, valToStar, configToKwargs, upstreamsStr, dagToStarlark, viaNodeToSt
     nodesToFunctionSource, performExtraction, addNodeFromPalette, extractFunctionSource,
     parseFunctionComment, nodeTooltipText, edgePath, configPreview, syncRoutePorts,
     condAcceptAbsenceRemovedFields, condNarrowedFields, ve,
-    _builderGetExpr, _builderSetExpr, renderRouteRulesWidget, renderRouteRuleRow;
+    _builderGetExpr, _builderSetExpr, renderRouteRulesWidget, renderRouteRuleRow,
+    toggleRouteRawMode, _forcedRaw, exprToFlatModel;
 
 // Minimal HTML-escape helper matching dashboard.js's esc() — needed so render
 // functions (which call esc as a global) work in the test sandbox.
@@ -49,6 +50,9 @@ exports._builderGetExpr               = _builderGetExpr;
 exports._builderSetExpr               = _builderSetExpr;
 exports.renderRouteRulesWidget        = renderRouteRulesWidget;
 exports.renderRouteRuleRow            = renderRouteRuleRow;
+exports.toggleRouteRawMode            = toggleRouteRawMode;
+exports._forcedRaw                    = _forcedRaw;
+exports.exprToFlatModel               = exprToFlatModel;
 `
   );
   const exports = {};
@@ -58,7 +62,8 @@ exports.renderRouteRuleRow            = renderRouteRuleRow;
      nodesToFunctionSource, performExtraction, addNodeFromPalette, extractFunctionSource,
      parseFunctionComment, nodeTooltipText, edgePath, configPreview, syncRoutePorts,
      condAcceptAbsenceRemovedFields, condNarrowedFields, ve,
-     _builderGetExpr, _builderSetExpr, renderRouteRulesWidget, renderRouteRuleRow } = exports);
+     _builderGetExpr, _builderSetExpr, renderRouteRulesWidget, renderRouteRuleRow,
+     toggleRouteRawMode, _forcedRaw, exprToFlatModel } = exports);
 });
 
 // ── test helpers ──────────────────────────────────────────────────────────────
@@ -1520,5 +1525,160 @@ describe('renderRouteRuleRow', () => {
     const node = makeRouteNode([{ name: 'tv', accept: '' }]);
     const html = renderRouteRuleRow(node.config.rules[0], 0, node);
     expect(html).toContain('syncRoutePortsForNode(');
+  });
+});
+
+// ── Bug regression: nid escaping in route widget onclick attributes ────────────
+// JSON.stringify(node.id) produces a double-quoted string; without esc() the
+// onclick attribute is malformed and all buttons are silently dead.
+
+describe('renderRouteRulesWidget — onclick nid escaping', () => {
+  it('Add-port button uses HTML-escaped node ID (no raw double-quotes inside onclick)', () => {
+    const node = { id: 'route_1', plugin: 'route', config: { rules: [] }, portNodeIds: [],
+                   fields: { certain: [], reachable: [] } };
+    ve.graphs = [{ name: 'p', schedule: '', nodes: [node] }];
+    ve.activeGraph = 0; ve.selectedNodeId = 'route_1';
+    const html = renderRouteRulesWidget(node);
+    // The id "route_1" gets JSON-stringified to "route_1" and must be &quot;-escaped
+    expect(html).toContain('&quot;route_1&quot;');
+    // There must be no unescaped " inside an onclick="..." attribute
+    expect(html).not.toMatch(/onclick="[^"]*"[^'=][^"]*"/);
+  });
+
+  it('Remove and name-input handlers in renderRouteRuleRow use escaped node ID', () => {
+    const node = { id: 'route_2', plugin: 'route',
+                   config: { rules: [{ name: 'tv', accept: '' }] }, portNodeIds: [],
+                   fields: { certain: [], reachable: [] } };
+    ve.graphs = [{ name: 'p', schedule: '', nodes: [node] }];
+    ve.activeGraph = 0; ve.selectedNodeId = 'route_2'; ve.fieldRegistry = [];
+    const html = renderRouteRuleRow(node.config.rules[0], 0, node);
+    expect(html).toContain('&quot;route_2&quot;');
+  });
+});
+
+// ── Bug regression: toggleRouteRawMode with empty expression ──────────────────
+// When a new port is added (accept:''), the rule starts in raw mode because
+// expr.trim()==='' . Clicking "≡ builder" should switch TO builder by setting
+// a default expression — not add a forced-raw flag.
+
+describe('toggleRouteRawMode', () => {
+  beforeEach(() => _forcedRaw.clear());
+
+  it('switches empty-expression rule to builder by setting a default expression', () => {
+    const node = { id: 'r0', plugin: 'route', upstreams: [],
+                   config: { rules: [{ name: 'tv', accept: '' }] }, portNodeIds: [],
+                   fields: { certain: [], reachable: ['title', 'source'] } };
+    ve.graphs = [{ name: 'p', schedule: '', nodes: [node] }];
+    ve.activeGraph = 0; ve.selectedNodeId = 'r0'; ve.plugins = PLUGINS;
+
+    toggleRouteRawMode(0);
+
+    expect(node.config.rules[0].accept).not.toBe('');
+    const model = exprToFlatModel(node.config.rules[0].accept);
+    expect(model).not.toBeNull();
+    expect(model.clauses.length).toBeGreaterThan(0);
+  });
+
+  it('does NOT add a forced-raw key when switching empty → builder', () => {
+    const node = { id: 'r0', plugin: 'route', upstreams: [],
+                   config: { rules: [{ name: 'tv', accept: '' }] }, portNodeIds: [],
+                   fields: { certain: [], reachable: ['title'] } };
+    ve.graphs = [{ name: 'p', schedule: '', nodes: [node] }];
+    ve.activeGraph = 0; ve.selectedNodeId = 'r0'; ve.plugins = PLUGINS;
+
+    toggleRouteRawMode(0);
+
+    expect(_forcedRaw.has('route:r0:0')).toBe(false);
+  });
+
+  it('switches parseable-expression builder → raw by setting forced-raw flag', () => {
+    const node = { id: 'r0', plugin: 'route', upstreams: [],
+                   config: { rules: [{ name: 'tv', accept: 'title != ""' }] }, portNodeIds: [],
+                   fields: { certain: [], reachable: ['title'] } };
+    ve.graphs = [{ name: 'p', schedule: '', nodes: [node] }];
+    ve.activeGraph = 0; ve.selectedNodeId = 'r0'; ve.plugins = PLUGINS;
+
+    toggleRouteRawMode(0); // builder → raw
+
+    expect(_forcedRaw.has('route:r0:0')).toBe(true);
+    expect(node.config.rules[0].accept).toBe('title != ""'); // expression unchanged
+  });
+
+  it('switches forced-raw → builder by removing the forced-raw flag', () => {
+    _forcedRaw.add('route:r0:0');
+    const node = { id: 'r0', plugin: 'route', upstreams: [],
+                   config: { rules: [{ name: 'tv', accept: 'title != ""' }] }, portNodeIds: [],
+                   fields: { certain: [], reachable: ['title'] } };
+    ve.graphs = [{ name: 'p', schedule: '', nodes: [node] }];
+    ve.activeGraph = 0; ve.selectedNodeId = 'r0'; ve.plugins = PLUGINS;
+
+    toggleRouteRawMode(0); // forced-raw → builder
+
+    expect(_forcedRaw.has('route:r0:0')).toBe(false);
+    expect(node.config.rules[0].accept).toBe('title != ""'); // expression preserved
+  });
+});
+
+// ── Bug regression: dagToStarlark topo-sort with route ports ──────────────────
+// Route port nodes are excluded from the sort but their IDs appear in downstream
+// node upstreams. Without remapping, the route node has no dependency edges and
+// may be emitted after its dependents — causing "referenced before assignment".
+
+describe('dagToStarlark — route port upstream topo ordering', () => {
+  it('emits the route node before any node that uses one of its ports', () => {
+    const rss   = { id: 'rss_0', plugin: 'rss', upstreams: [], config: { url: 'http://x' },
+                    x: 50, y: 100 };
+    const route = { id: 'route_1', plugin: 'route', upstreams: ['rss_0'],
+                    config: { rules: [{ name: 'torrent', accept: 'torrent_link_type == "torrent"' }] },
+                    portNodeIds: ['route_1__port__torrent'], x: 310, y: 100 };
+    const port  = { id: 'route_1__port__torrent', plugin: 'route_selector',
+                    upstreams: ['route_1'], config: {},
+                    isRoutePort: true, routeParentId: 'route_1', routePortName: 'torrent',
+                    portAcceptExpr: 'torrent_link_type == "torrent"', x: null, y: null };
+    const seen  = { id: 'seen_2', plugin: 'seen', upstreams: ['route_1__port__torrent'],
+                    config: {}, x: 570, y: 100 };
+    setup([rss, route, port, seen]);
+
+    const star  = dagToStarlark();
+    const lines = star.split('\n');
+    const routeLine = lines.findIndex(l => l.includes('route_1 ='));
+    const seenLine  = lines.findIndex(l => l.includes('seen_2 ='));
+    expect(routeLine).toBeGreaterThanOrEqual(0);
+    expect(seenLine).toBeGreaterThanOrEqual(0);
+    expect(routeLine).toBeLessThan(seenLine);
+  });
+
+  it('handles two downstream nodes (torrent + magnet ports) both after route', () => {
+    const rss     = { id: 'rss_0', plugin: 'rss', upstreams: [], config: { url: 'http://x' },
+                      x: 50, y: 100 };
+    const route   = { id: 'route_1', plugin: 'route', upstreams: ['rss_0'],
+                      config: { rules: [
+                        { name: 'torrent', accept: 'torrent_link_type == "torrent"' },
+                        { name: 'magnet',  accept: 'torrent_link_type == "magnet"'  },
+                      ]},
+                      portNodeIds: ['route_1__port__torrent', 'route_1__port__magnet'],
+                      x: 310, y: 100 };
+    const portT   = { id: 'route_1__port__torrent', plugin: 'route_selector',
+                      upstreams: ['route_1'], config: {},
+                      isRoutePort: true, routeParentId: 'route_1', routePortName: 'torrent',
+                      portAcceptExpr: 'torrent_link_type == "torrent"', x: null, y: null };
+    const portM   = { id: 'route_1__port__magnet', plugin: 'route_selector',
+                      upstreams: ['route_1'], config: {},
+                      isRoutePort: true, routeParentId: 'route_1', routePortName: 'magnet',
+                      portAcceptExpr: 'torrent_link_type == "magnet"', x: null, y: null };
+    const metaT   = { id: 'meta_t_3', plugin: 'seen', upstreams: ['route_1__port__torrent'],
+                      config: {}, x: 570, y: 50  };
+    const metaM   = { id: 'meta_m_4', plugin: 'seen', upstreams: ['route_1__port__magnet'],
+                      config: {}, x: 570, y: 150 };
+    setup([rss, route, portT, portM, metaT, metaM]);
+
+    const star  = dagToStarlark();
+    const lines = star.split('\n');
+    const routeLine = lines.findIndex(l => l.includes('route_1 ='));
+    const metaTLine = lines.findIndex(l => l.includes('meta_t_3 ='));
+    const metaMLine = lines.findIndex(l => l.includes('meta_m_4 ='));
+    expect(routeLine).toBeGreaterThanOrEqual(0);
+    expect(routeLine).toBeLessThan(metaTLine);
+    expect(routeLine).toBeLessThan(metaMLine);
   });
 });
