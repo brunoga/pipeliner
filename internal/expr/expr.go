@@ -297,9 +297,21 @@ func narrowCertain(n node, out *[]string) {
 					*out = append(*out, f)
 				}
 			}
+		case "==":
+			// Only promote when the right-hand side is a non-zero/non-empty
+			// value. field == "" means the field is absent, not certainly set.
+			if id, ok := v.left.(*identNode); ok {
+				if s, ok2 := v.right.(*stringNode); ok2 && s.v == "" {
+					break // absence check — do not promote
+				}
+				if n, ok2 := v.right.(*numberNode); ok2 && n.v == 0 {
+					break // absence check — do not promote
+				}
+				*out = append(*out, id.name)
+			}
 		default:
-			// Comparison: if either side is a field reference, the field is
-			// certainly set (the comparison would short-circuit to false otherwise).
+			// Any other comparison operator: if either side is a field
+			// reference the field must be set for the expression to be true.
 			if id, ok := v.left.(*identNode); ok {
 				*out = append(*out, id.name)
 			}

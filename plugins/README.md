@@ -33,8 +33,8 @@ Not every stage is required. A simple news-to-email pipeline might just be `rss 
 | [`jackett`](source/jackett/README.md) | Fetch recent results from Jackett indexers |
 | [`trakt_list`](source/trakt_list/README.md) | Fetch movies or shows from a Trakt.tv list |
 | [`tvdb_favorites`](source/tvdb_favorites/README.md) | Fetch shows from a TheTVDB user's favorites |
-| [`jackett_search`](source/jackett_search/README.md) | Search Jackett via Torznab (also a search backend for `discover`) |
-| [`rss_search`](source/rss_search/README.md) | Search a parameterized RSS URL (also a search backend for `discover`) |
+| [`jackett`](source/jackett/README.md) (search mode) | Also acts as a search backend for `discover` via `url_template` |
+| [`rss`](source/rss/README.md) (search mode) | Also acts as a search backend for `discover` via `url_template` |
 
 ## Processors — filtering
 

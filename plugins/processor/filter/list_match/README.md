@@ -24,7 +24,7 @@ pipeline("sync-watchlist", schedule="1h")
 watchlist = input("trakt_list", client_id=env("TRAKT_ID"),
                   client_secret=env("TRAKT_SECRET"), type="movies", list="watchlist")
 results   = process("discover", upstream=watchlist,
-    search=[{"name": "jackett_search", "url": "http://localhost:9117",
+    search=[{"name": "jackett", "url": "http://localhost:9117",
              "api_key": env("JACKETT_KEY"), "categories": ["2000"]}],
     interval="24h")
 seen = process("seen", upstream=results)

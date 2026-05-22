@@ -3,6 +3,7 @@ package executor_test
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"testing"
 
 	"github.com/brunoga/pipeliner/internal/dag"
@@ -699,4 +700,101 @@ func (p *setFieldProcessor) Process(_ context.Context, _ *plugin.TaskContext, en
 		e.Set("needed_field", "value")
 	}
 	return entries, nil
+}
+
+// TestExecutor_RouteSelectorAcceptedCount verifies that fan-out through a
+// route_selector does not corrupt the pipeline accepted/rejected summary.
+// The route node stamps _route_port; one selector passes matching entries and
+// silently drops non-matching ones (filter semantics, not reject semantics).
+// A 2-port route with 3 entries (2 torrent, 1 magnet) that all reach the sink
+// should report accepted=3, not accepted=2.
+func TestExecutor_RouteSelectorAcceptedCount(t *testing.T) {
+	const portTorrent = "torrent"
+	const portMagnet  = "magnet"
+
+	// routeStamper stamps _route_port on every entry based on URL prefix.
+	type routeStamper struct{}
+	_ = (*routeStamper)(nil)
+
+	src := &sourcePlugin{urls: []string{
+		"https://example.com/t1.torrent",
+		"https://example.com/t2.torrent",
+		"magnet:?xt=urn:btih:abc",
+	}}
+
+	// Stamp _route_port and Accept each entry.
+	stampRoute := &funcProcessor{fn: func(entries []*entry.Entry) []*entry.Entry {
+		for _, e := range entries {
+			if strings.HasPrefix(e.URL, "magnet:") {
+				e.Set(entry.FieldRoutePort, portMagnet)
+			} else {
+				e.Set(entry.FieldRoutePort, portTorrent)
+			}
+			e.Accept()
+		}
+		return entry.PassThrough(entries)
+	}}
+
+	// Selectors — filter-style (return only matching).
+	selTorrent := &funcProcessor{fn: func(entries []*entry.Entry) []*entry.Entry {
+		var out []*entry.Entry
+		for _, e := range entries {
+			if e.IsRejected() || e.IsFailed() { continue }
+			if p, _ := e.Get(entry.FieldRoutePort); p == portTorrent {
+				out = append(out, e)
+			}
+		}
+		return out
+	}}
+	selMagnet := &funcProcessor{fn: func(entries []*entry.Entry) []*entry.Entry {
+		var out []*entry.Entry
+		for _, e := range entries {
+			if e.IsRejected() || e.IsFailed() { continue }
+			if p, _ := e.Get(entry.FieldRoutePort); p == portMagnet {
+				out = append(out, e)
+			}
+		}
+		return out
+	}}
+
+	sink := &sinkPlugin{}
+
+	g := dag.New()
+	for _, n := range []*dag.Node{
+		{ID: "src",         PluginName: "test_source"},
+		{ID: "route",       PluginName: "test_route",        Upstreams: []dag.NodeID{"src"}},
+		{ID: "sel_torrent", PluginName: "test_sel_torrent",  Upstreams: []dag.NodeID{"route"}},
+		{ID: "sel_magnet",  PluginName: "test_sel_magnet",   Upstreams: []dag.NodeID{"route"}},
+		{ID: "sink",        PluginName: "test_sink",         Upstreams: []dag.NodeID{"sel_torrent", "sel_magnet"}},
+	} {
+		if err := g.AddNode(n); err != nil { t.Fatal(err) }
+	}
+
+	plugins := map[dag.NodeID]*executor.PluginInstance{
+		"src":         {Desc: sourceDesc(),    Impl: src,        Config: map[string]any{}},
+		"route":       {Desc: processorDesc(), Impl: stampRoute,  Config: map[string]any{}},
+		"sel_torrent": {Desc: processorDesc(), Impl: selTorrent,  Config: map[string]any{}},
+		"sel_magnet":  {Desc: processorDesc(), Impl: selMagnet,   Config: map[string]any{}},
+		"sink":        {Desc: sinkDesc(),      Impl: sink,        Config: map[string]any{}},
+	}
+
+	ex := executor.New("test", g, plugins, nil, slog.New(&logSink{}), false)
+	res, err := ex.Run(context.Background())
+	if err != nil { t.Fatal(err) }
+
+	if res.Accepted != 3 {
+		t.Errorf("want accepted=3, got %d (fan-out must not corrupt accepted count)", res.Accepted)
+	}
+	if res.Rejected != 0 {
+		t.Errorf("want rejected=0, got %d", res.Rejected)
+	}
+}
+
+// funcProcessor is a test helper that runs a user-supplied function as a processor.
+type funcProcessor struct {
+	fn func([]*entry.Entry) []*entry.Entry
+}
+func (p *funcProcessor) Name() string { return "test_func" }
+func (p *funcProcessor) Process(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
+	return p.fn(entries), nil
 }
