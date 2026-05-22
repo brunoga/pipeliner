@@ -144,6 +144,23 @@ func (e *Expr) PresenceRemovedFields() []string {
 	return presenceRemoved(e.node)
 }
 
+// AbsenceRemovedFields returns fields that are guaranteed absent when this
+// expression evaluates to true, suitable for ACCEPT conditions on route ports.
+// "accept: field == ''" on a route port means only entries without that field
+// reach this port — the field should be removed from the downstream reachable set.
+//
+// AND: both sides' fields removed (union — all clauses must hold).
+// OR:  intersection only — field must be absent in every branch.
+// NOT: no inference.
+func (e *Expr) AbsenceRemovedFields() []string {
+	if e.node == nil {
+		return nil
+	}
+	var out []string
+	absenceRemoved(e.node, &out)
+	return dedupStrings(out)
+}
+
 // absencePromoted walks the AST and returns fields from absence-check ops
 // (== "", == 0) respecting OR-union / AND-nil semantics.
 func absencePromoted(n node) []string {
@@ -203,6 +220,41 @@ func presenceRemoved(n node) []string {
 		}
 	}
 	return nil
+}
+
+// absenceRemoved walks the AST and collects fields from absence-check ops
+// (== "", == 0) with AND-union / OR-intersection semantics.
+func absenceRemoved(n node, out *[]string) {
+	switch v := n.(type) {
+	case *binaryNode:
+		switch v.op {
+		case "and", "&&":
+			absenceRemoved(v.left, out)
+			absenceRemoved(v.right, out)
+		case "or", "||":
+			var left, right []string
+			absenceRemoved(v.left, &left)
+			absenceRemoved(v.right, &right)
+			leftSet := make(map[string]bool, len(left))
+			for _, f := range left {
+				leftSet[f] = true
+			}
+			for _, f := range right {
+				if leftSet[f] {
+					*out = append(*out, f)
+				}
+			}
+		case "==":
+			if id, ok := v.left.(*identNode); ok {
+				if s, ok2 := v.right.(*stringNode); ok2 && s.v == "" {
+					*out = append(*out, id.name)
+				}
+				if num, ok2 := v.right.(*numberNode); ok2 && num.v == 0 {
+					*out = append(*out, id.name)
+				}
+			}
+		}
+	}
 }
 
 func collectFieldRefs(n node, seen map[string]bool, out *[]string) {

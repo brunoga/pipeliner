@@ -88,3 +88,49 @@ func TestNarrowedCertain(t *testing.T) {
 		}
 	}
 }
+
+func TestAbsenceRemovedFields(t *testing.T) {
+	cases := []struct {
+		expr     string
+		wantAny  []string // at least one of these must appear
+		wantNone []string // none of these must appear
+	}{
+		// Single absence op removes the field.
+		{`field == ""`, []string{"field"}, nil},
+		{`count == 0`, []string{"count"}, nil},
+		// AND: all absence-op fields removed (union).
+		{`a == "" and b == ""`, []string{"a", "b"}, nil},
+		// OR of different fields: intersection is empty — nothing removed.
+		{`a == "" or b == ""`, nil, []string{"a", "b"}},
+		// OR of the same field: appears in every clause — field removed.
+		{`a == "" or a == ""`, []string{"a"}, nil},
+		// Presence op: AbsenceRemovedFields returns nothing.
+		{`a != ""`, nil, []string{"a"}},
+		// NOT: no inference.
+		{`not (a == "")`, nil, []string{"a"}},
+		// Literal: no fields.
+		{`true`, nil, nil},
+	}
+	for _, tc := range cases {
+		e, err := Compile(tc.expr)
+		if err != nil {
+			t.Errorf("Compile(%q): %v", tc.expr, err)
+			continue
+		}
+		got := e.AbsenceRemovedFields()
+		gotSet := make(map[string]bool, len(got))
+		for _, f := range got {
+			gotSet[f] = true
+		}
+		for _, f := range tc.wantAny {
+			if !gotSet[f] {
+				t.Errorf("AbsenceRemovedFields(%q): want %q in result, got %v", tc.expr, f, got)
+			}
+		}
+		for _, f := range tc.wantNone {
+			if gotSet[f] {
+				t.Errorf("AbsenceRemovedFields(%q): want %q NOT in result, got %v", tc.expr, f, got)
+			}
+		}
+	}
+}

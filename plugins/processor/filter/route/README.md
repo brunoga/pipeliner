@@ -16,65 +16,44 @@ movies_path = process("metainfo_tmdb",   upstream=routes.movies, api_key=env("TM
 output("transmission", upstream=merge(series_path, movies_path), host="localhost")
 ```
 
-## Port field contracts: `port()`
+## Automatic field inference
 
-The `port()` helper adds optional field contracts to each route port. This makes the DAG validator significantly more precise for branching pipelines:
+The DAG validator automatically infers field contracts from each port's accept expression — no explicit annotations needed:
 
 ```python
 routes = route(upstream,
-    torrent = port("torrent_url != ''",
-                   guarantees=["torrent_url"],
-                   masks=["magnet_url"]),
-    magnet  = port("magnet_url != ''",
-                   guarantees=["magnet_url"],
-                   masks=["torrent_url"]),
-)
+    torrent = "torrent_url != ''",   # presence check → torrent_url certain on this branch
+    magnet  = "magnet_url != ''")    # presence check → magnet_url certain on this branch
 ```
 
-### `guarantees`
+### Presence checks (`field != ""`)
 
-Fields listed in `guarantees` are promoted from **MayProduce** (reachable but uncertain) to **Produces** (certain) on this branch. A downstream `Requires` for a guaranteed field passes validation without a warning.
+When a port condition uses a presence-check operator, the referenced field is promoted to **certain** (guaranteed present) on that branch. A downstream `Requires` for that field passes validation without a warning.
 
 ```python
-# Without guarantees: torrent_url is only MayProduce from upstream,
-# so a downstream Requires produces a ~ warning.
-# With guarantees: the validator knows torrent_url is always present
-# on this branch — Requires passes cleanly.
+# "torrent_url != ''" on the torrent port means every entry reaching that
+# port has torrent_url set — the validator treats it as certain.
 ```
 
-### `masks`
+### Absence checks (`field == ""`)
 
-Fields listed in `masks` are **explicitly removed** from the branch's available field set. Any downstream `Requires` for a masked field is a **hard validation error** at config-load time, not a soft warning.
-
-At runtime, `route_selector` strips masked fields from passing entries so the actual entry data matches the validator's model.
+When a port condition uses an absence-check operator, the referenced field is **removed** from the reachable field set on that branch. Any downstream `Requires` for the absent field is a **hard validation error** at config-load time.
 
 ```python
-# On the torrent branch, masking magnet_url means:
-# - A plugin that accidentally Requires magnet_url → load-time error
-# - Entries passing through this port have magnet_url stripped
-# This catches wiring mistakes before any entry is processed.
+routes = route(upstream,
+    torrent = "torrent_url != '' and magnet_url == ''",
+    magnet  = "magnet_url != '' and torrent_url == ''")
+
+# On the torrent branch: torrent_url is certain, magnet_url is removed.
+# On the magnet branch:  magnet_url is certain, torrent_url is removed.
+# A plugin accidentally Requires magnet_url on the torrent branch → load-time error.
 ```
-
-Both `guarantees` and `masks` are optional. Plain string port values remain fully backward compatible:
-```python
-routes = route(upstream, series="cond1", movies="cond2")  # still works
-```
-
-## Full example with field contracts
-
-See [`configs/route-port-contracts.star`](../../../../configs/route-port-contracts.star) for a complete working example using `port()`.
 
 ## Starlark syntax
 
 ```python
-# Plain string (backward compatible):
+# All ports use plain string conditions:
 routes = route(upstream, port_a="condition_a", port_b="condition_b")
-
-# With field contracts:
-routes = route(upstream,
-    port_a = port("condition_a", guarantees=["field1"], masks=["field2"]),
-    port_b = port("condition_b", guarantees=["field2"], masks=["field1"]),
-)
 ```
 
 - **Port order matters** — conditions are evaluated in declaration order; the first match wins.
@@ -93,33 +72,28 @@ routes = route(upstream,
 
 ## Validator behaviour
 
-### Merge points (without `port()`)
+### Merge points
 
-When all upstreams of a `merge()` node trace back to ports of the same `route()` call (directly or through a single-upstream chain), the DAG validator uses **intersection** of the `certain` field sets across branches. Without `port()` contracts both branches inherit identical field sets from the shared upstream, so intersection and union are the same — no behaviour change from previous versions.
-
-### Merge points (with `port()`)
-
-When ports have different `guarantees`/`masks`, the branches carry different `certain` field sets. After the merge, only fields that are certain on **all** branches remain certain. Branch-specific fields (guaranteed on one branch, masked on another) become `MayProduce`-equivalent at the merge point — producing a warning if a downstream node `Requires` them, which is the correct signal.
+When all upstreams of a `merge()` node trace back to ports of the same `route()` call (directly or through a single-upstream chain), the DAG validator uses **intersection** of the `certain` field sets across branches. Without inferred field differences both branches inherit identical field sets from the shared upstream, so intersection and union are the same — no behaviour change.
 
 ### Within a branch
 
-- `guarantees` fields are added to both `reachable` and `certain` for this branch — downstream `Requires` passes without warning.
-- `masks` fields are removed from both `reachable` and `certain` — downstream `Requires` is a hard error.
+- Presence-check fields (`field != ""`) are added to both `reachable` and `certain` — downstream `Requires` passes without warning.
+- Absence-check fields (`field == ""`) are removed from both `reachable` and `certain` — downstream `Requires` is a hard error.
+
+These inferences apply automatically from the port condition. Both `AND` and `OR` combinators are supported:
+- `AND`: all clauses' fields are inferred (union).
+- `OR`: only fields that appear in every clause (intersection).
 
 ## Visual editor
 
-In the **Config → Visual** editor, each route rule displays two compact sub-row inputs beneath the port name and condition:
-
-- **guarantees** (green label) — space-separated field names
-- **masks** (amber label) — space-separated field names
-
-Both are editable inline and are preserved through save/load cycles.
+In the **Config → Visual** editor, each route rule displays a port name and condition expression. Field inference is shown automatically in the field availability panel — no manual input required.
 
 ## Config keys
 
 | Key | Type | Set by | Description |
 |-----|------|--------|-------------|
-| `rules` | list | `route()` builtin | Ordered `[{name, accept, guarantees?, masks?}]` records |
+| `rules` | list | `route()` builtin | Ordered `[{name, accept}]` records |
 
 ### Internal keys (on `route_selector` nodes)
 
@@ -127,8 +101,7 @@ Both are editable inline and are preserved through save/load cycles.
 |-----|------|-------------|
 | `_route_port_name` | string | Port name this selector passes |
 | `_route_group` | string | Group ID linking all selectors of the same `route()` call |
-| `_port_guarantees` | list | Fields guaranteed present (read by DAG validator) |
-| `_port_masks` | list | Fields guaranteed absent (read by DAG validator + stripped at runtime) |
+| `_port_accept_expr` | string | Port's accept expression (read by DAG validator for field inference) |
 
 > Users never set these directly; they are managed by the `route()` builtin.
 
