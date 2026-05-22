@@ -393,70 +393,6 @@ func kwargsToConfig(pluginName string, kwargs []starlark.Tuple) (map[string]any,
 	return cfg, nil
 }
 
-// ── port() value ─────────────────────────────────────────────────────────────
-//
-// portSpec is the Starlark value returned by port(). It carries the route
-// condition together with optional field guarantees and masks:
-//
-//	port("torrent_url != ''", guarantees=["torrent_url"], masks=["magnet_url"])
-//
-// When used as a route() kwarg value it supersedes the plain-string form.
-
-type portSpec struct {
-	condition  string
-	guarantees []string
-	masks      []string
-}
-
-func (p *portSpec) String() string {
-	return fmt.Sprintf("port(%q, guarantees=%v, masks=%v)", p.condition, p.guarantees, p.masks)
-}
-func (p *portSpec) Type() string          { return "port_spec" }
-func (p *portSpec) Freeze()               {}
-func (p *portSpec) Truth() starlark.Bool  { return starlark.True }
-func (p *portSpec) Hash() (uint32, error) { return 0, fmt.Errorf("unhashable type: port_spec") }
-
-// portBuiltin implements port(condition, guarantees=[], masks=[]).
-func portBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	if len(args) != 1 {
-		return nil, fmt.Errorf("port: expected exactly one positional argument (condition string), got %d", len(args))
-	}
-	cond, ok := starlark.AsString(args[0])
-	if !ok {
-		return nil, fmt.Errorf("port: condition must be a string, got %s", args[0].Type())
-	}
-	ps := &portSpec{condition: cond}
-	for _, kv := range kwargs {
-		key := string(kv[0].(starlark.String))
-		switch key {
-		case "guarantees", "masks":
-			seq, ok := kv[1].(starlark.Iterable)
-			if !ok {
-				return nil, fmt.Errorf("port: %q must be a list of strings, got %s", key, kv[1].Type())
-			}
-			var fields []string
-			iter := seq.Iterate()
-			defer iter.Done()
-			var v starlark.Value
-			for iter.Next(&v) {
-				s, ok := starlark.AsString(v)
-				if !ok {
-					return nil, fmt.Errorf("port: %q elements must be strings, got %s", key, v.Type())
-				}
-				fields = append(fields, s)
-			}
-			if key == "guarantees" {
-				ps.guarantees = fields
-			} else {
-				ps.masks = fields
-			}
-		default:
-			return nil, fmt.Errorf("port: unexpected keyword argument %q", key)
-		}
-	}
-	return ps, nil
-}
-
 // ── route() builtin ───────────────────────────────────────────────────────────
 
 // routeHandles is the Starlark value returned by route(). It supports
@@ -509,47 +445,28 @@ func (ctx *execContext) routeBuiltin(thread *starlark.Thread, fn *starlark.Built
 		return nil, fmt.Errorf("route: %w", err)
 	}
 
-	// Build ordered rules list. Each kwarg value may be a plain string condition
-	// (backward compatible) or a portSpec created by the port() builtin.
+	// Build ordered rules list from plain string kwargs.
 	type portEntry struct {
-		name       string
-		accept     string
-		guarantees []string
-		masks      []string
+		name   string
+		accept string
 	}
 	var ports []portEntry
 	for _, kv := range kwargs {
 		name := string(kv[0].(starlark.String))
-		switch v := kv[1].(type) {
-		case starlark.String:
-			ports = append(ports, portEntry{name: name, accept: string(v)})
-		case *portSpec:
-			ports = append(ports, portEntry{
-				name:       name,
-				accept:     v.condition,
-				guarantees: v.guarantees,
-				masks:      v.masks,
-			})
-		default:
-			return nil, fmt.Errorf("route: port %q value must be a string or port(...) spec, got %s", name, kv[1].Type())
+		v, ok := starlark.AsString(kv[1])
+		if !ok {
+			return nil, fmt.Errorf("route: port %q value must be a string condition, got %s", name, kv[1].Type())
 		}
+		ports = append(ports, portEntry{name: name, accept: v})
 	}
 
 	// Generate a unique route group ID.
 	groupID := fmt.Sprintf("rg_%d", ctx.nodeCounter)
 
-	// Build the rules list for the route node config. Include guarantees/masks
-	// so the visual editor can round-trip them without loss.
+	// Build the rules list for the route node config.
 	rules := make([]any, 0, len(ports))
 	for _, p := range ports {
-		r := map[string]any{"name": p.name, "accept": p.accept}
-		if len(p.guarantees) > 0 {
-			r["guarantees"] = toAnySlice(p.guarantees)
-		}
-		if len(p.masks) > 0 {
-			r["masks"] = toAnySlice(p.masks)
-		}
-		rules = append(rules, r)
+		rules = append(rules, map[string]any{"name": p.name, "accept": p.accept})
 	}
 
 	// Create the route processor node.
@@ -562,21 +479,16 @@ func (ctx *execContext) routeBuiltin(thread *starlark.Thread, fn *starlark.Built
 		functionCallKey: ctx.activeFunctionCall(thread),
 	})
 
-	// Create one route_selector node per port. Store guarantees/masks so the
-	// DAG validator can apply them when computing per-branch field sets.
+	// Create one route_selector node per port. Store the accept expression so
+	// the DAG validator can infer field contracts from it.
 	handles := &routeHandles{ports: make(map[string]*nodeHandle), portOrder: make([]string, 0, len(ports))}
 	for _, p := range ports {
 		handles.portOrder = append(handles.portOrder, p.name)
 		selID := ctx.nextNodeID("route_selector")
 		selCfg := map[string]any{
-			"_route_port_name":        p.name,
+			"_route_port_name":  p.name,
+			"_port_accept_expr": p.accept,
 			filterroute.RouteGroupKey: groupID,
-		}
-		if len(p.guarantees) > 0 {
-			selCfg["_port_guarantees"] = toAnySlice(p.guarantees)
-		}
-		if len(p.masks) > 0 {
-			selCfg["_port_masks"] = toAnySlice(p.masks)
 		}
 		ctx.pendingNodes = append(ctx.pendingNodes, &dagNodeRecord{
 			id:              selID,
@@ -590,11 +502,3 @@ func (ctx *execContext) routeBuiltin(thread *starlark.Thread, fn *starlark.Built
 	return handles, nil
 }
 
-// toAnySlice converts []string to []any for storage in map[string]any configs.
-func toAnySlice(ss []string) []any {
-	out := make([]any, len(ss))
-	for i, s := range ss {
-		out[i] = s
-	}
-	return out
-}

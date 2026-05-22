@@ -150,6 +150,127 @@ func TestRejectPresenceRemoved(t *testing.T) {
 	})
 }
 
+func TestAcceptAbsenceRemoved(t *testing.T) {
+	reachable := []string{"source", "title", "description", "torrent_files", "magnet_url"}
+
+	t.Run("single == '' removes field", func(t *testing.T) {
+		got := AcceptAbsenceRemoved(`description == ""`, reachable)
+		if !containsStr(got, "description") {
+			t.Errorf(`accept description == "": want description removed, got %v`, got)
+		}
+	})
+
+	t.Run("AND of two absence ops removes both", func(t *testing.T) {
+		got := AcceptAbsenceRemoved(`description == "" and torrent_files == ""`, reachable)
+		if !containsStr(got, "description") || !containsStr(got, "torrent_files") {
+			t.Errorf("AND: want both removed, got %v", got)
+		}
+	})
+
+	t.Run("OR of two different absence ops: intersection empty", func(t *testing.T) {
+		got := AcceptAbsenceRemoved(`description == "" or torrent_files == ""`, reachable)
+		if containsStr(got, "description") || containsStr(got, "torrent_files") {
+			t.Errorf("OR with different fields: want nothing removed (intersection empty), got %v", got)
+		}
+	})
+
+	t.Run("OR of same field: intersection keeps it", func(t *testing.T) {
+		got := AcceptAbsenceRemoved(`description == "" or description == ""`, reachable)
+		if !containsStr(got, "description") {
+			t.Errorf("OR of same field: want description removed, got %v", got)
+		}
+	})
+
+	t.Run("presence op != '' returns nothing", func(t *testing.T) {
+		got := AcceptAbsenceRemoved(`description != ""`, reachable)
+		if len(got) != 0 {
+			t.Errorf("presence op: AcceptAbsenceRemoved should return nothing, got %v", got)
+		}
+	})
+
+	t.Run("field not in reachable not returned", func(t *testing.T) {
+		got := AcceptAbsenceRemoved(`movie_tagline == ""`, reachable)
+		if containsStr(got, "movie_tagline") {
+			t.Errorf("non-reachable field should not appear in removed list, got %v", got)
+		}
+	})
+
+	t.Run("empty expression returns nil", func(t *testing.T) {
+		if AcceptAbsenceRemoved("", reachable) != nil {
+			t.Error("empty expression should return nil")
+		}
+	})
+}
+
+func TestApplyPortAcceptNarrowing(t *testing.T) {
+	t.Run("presence op promotes field to certain", func(t *testing.T) {
+		reach := map[string]bool{"torrent_files": true, "source": true}
+		cert  := map[string]bool{"source": true}
+		ApplyPortAcceptNarrowing(`torrent_files != ""`, reach, cert)
+		if !cert["torrent_files"] {
+			t.Error("want torrent_files promoted to certain")
+		}
+		if !reach["torrent_files"] {
+			t.Error("want torrent_files still in reachable")
+		}
+	})
+
+	t.Run("absence op removes field from reachable and certain", func(t *testing.T) {
+		reach := map[string]bool{"magnet_url": true, "source": true}
+		cert  := map[string]bool{"source": true}
+		ApplyPortAcceptNarrowing(`magnet_url == ""`, reach, cert)
+		if reach["magnet_url"] {
+			t.Error("want magnet_url removed from reachable")
+		}
+		if cert["magnet_url"] {
+			t.Error("want magnet_url not in certain")
+		}
+		if !reach["source"] {
+			t.Error("want source unchanged")
+		}
+	})
+
+	t.Run("AND: promotes presence-op fields AND removes absence-op fields", func(t *testing.T) {
+		reach := map[string]bool{"torrent_url": true, "magnet_url": true, "source": true}
+		cert  := map[string]bool{"source": true}
+		ApplyPortAcceptNarrowing(`torrent_url != "" and magnet_url == ""`, reach, cert)
+		if !cert["torrent_url"] {
+			t.Error("want torrent_url promoted to certain")
+		}
+		if reach["magnet_url"] {
+			t.Error("want magnet_url removed from reachable")
+		}
+	})
+
+	t.Run("already-certain field not re-promoted", func(t *testing.T) {
+		reach := map[string]bool{"source": true}
+		cert  := map[string]bool{"source": true}
+		before := len(cert)
+		ApplyPortAcceptNarrowing(`source != ""`, reach, cert)
+		if len(cert) != before {
+			t.Error("want no change for already-certain field")
+		}
+	})
+
+	t.Run("empty expression is a no-op", func(t *testing.T) {
+		reach := map[string]bool{"a": true}
+		cert  := map[string]bool{}
+		ApplyPortAcceptNarrowing("", reach, cert)
+		if cert["a"] || !reach["a"] {
+			t.Error("want no change for empty expression")
+		}
+	})
+
+	t.Run("field not in reachable is not promoted or removed", func(t *testing.T) {
+		reach := map[string]bool{"source": true}
+		cert  := map[string]bool{}
+		ApplyPortAcceptNarrowing(`mystery_field != ""`, reach, cert)
+		if cert["mystery_field"] || reach["mystery_field"] {
+			t.Error("want non-reachable field ignored")
+		}
+	})
+}
+
 func containsStr(slice []string, s string) bool {
 	for _, v := range slice {
 		if v == s {

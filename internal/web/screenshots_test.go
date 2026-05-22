@@ -122,19 +122,15 @@ movie_out = output("print", upstream=routes.movies)
 pipeline("route-demo", schedule="1h")
 `
 
-// routePortContractsConfig: same topology but uses port() with guarantees/masks.
-// Used to screenshot the param panel showing the sub-row inputs.
+// routePortContractsConfig: same topology using automatic field inference.
+// Used to screenshot the param panel showing route rules.
 const routePortContractsConfig = `
 src    = input("rss", url="https://feeds.example.com/all.rss")
 seen   = process("seen", upstream=src)
 q      = process("metainfo_quality", upstream=seen)
 routes = route(q,
-    torrent = port("torrent_url != ''",
-                   guarantees=["torrent_url"],
-                   masks=["magnet_url"]),
-    magnet  = port("magnet_url != ''",
-                   guarantees=["magnet_url"],
-                   masks=["torrent_url"]))
+    torrent = "torrent_url != ''",
+    magnet  = "magnet_url != ''")
 torrent_out = output("print", upstream=routes.torrent)
 magnet_out  = output("print", upstream=routes.magnet)
 pipeline("port-contracts-demo", schedule="1h")
