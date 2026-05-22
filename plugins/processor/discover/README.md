@@ -33,8 +33,8 @@ Each entry references a registered [search plugin](../search/). Either a plugin 
 ```python
 results = process("discover", upstream=rss_src,
     search=[
-        "rss_search",    # name only, uses defaults
-        {"name": "rss_search",
+        "rss",    # name only, uses defaults
+        {"name": "rss",
          "url_template": "https://jackett.example.com/api?q={{.QueryEscaped}}&apikey=abc"},
     ])
 ```
@@ -46,7 +46,7 @@ watchlist = input("trakt_list", client_id=env("TRAKT_ID"),
                   client_secret=env("TRAKT_SECRET"),
                   type="movies", list="watchlist")
 results   = process("discover", upstream=watchlist,
-    search=[{"name": "jackett_search", "url": "http://localhost:9117",
+    search=[{"name": "jackett", "url": "http://localhost:9117",
              "api_key": env("JACKETT_KEY"), "categories": ["2000"]}],
     interval="12h")
 seen      = process("seen",            upstream=results)
@@ -82,7 +82,7 @@ watchlist = input("trakt_list",
 # discover receives those entries, searches Jackett for each title,
 # and returns torrent results (not the Trakt entries).
 results = process("discover", upstream=watchlist,
-    search=[{"name": "jackett_search",
+    search=[{"name": "jackett",
              "url":     "http://localhost:9117",
              "api_key": env("JACKETT_KEY"),
              "categories": ["5040", "5045"]}],
@@ -103,7 +103,7 @@ watchlist = input("trakt_list", client_id=env("TRAKT_ID"),
                   type="movies", list="watchlist")
 results   = process("discover", upstream=watchlist,
     titles=["Dune Part Two", "Oppenheimer"],
-    search=[{"name": "jackett_search",
+    search=[{"name": "jackett",
              "url":     "http://localhost:9117",
              "api_key": env("JACKETT_KEY"),
              "categories": ["2000"]}],
