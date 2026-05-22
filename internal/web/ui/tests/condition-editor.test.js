@@ -17,7 +17,8 @@ const src   = readFileSync(join(__dir, '..', 'visual-editor.js'), 'utf8');
 // Functions under test
 let exprToFlatModel, flatModelToExpr, clauseToStr, topLevelSplit, parseClause,
     parseExprLiteral, isFullyWrapped, opIsNoValue,
-    condNarrowedFields, condRejectedFields, condRulesFromConfig, buildCondConfig,
+    condNarrowedFields, condRejectedFields, condRejectPromotedFields,
+    condRulesFromConfig, buildCondConfig,
     computeInputFields, collectOutputFields, findNodeGraph, fieldWarnings,
     ve;
 
@@ -32,7 +33,8 @@ beforeAll(() => {
     exports.isFullyWrapped      = isFullyWrapped;
     exports.opIsNoValue         = opIsNoValue;
     exports.condNarrowedFields  = condNarrowedFields;
-    exports.condRejectedFields  = condRejectedFields;
+    exports.condRejectedFields        = condRejectedFields;
+    exports.condRejectPromotedFields  = condRejectPromotedFields;
     exports.fieldWarnings       = fieldWarnings;
     exports.condRulesFromConfig = condRulesFromConfig;
     exports.buildCondConfig     = buildCondConfig;
@@ -46,7 +48,8 @@ beforeAll(() => {
   mod(exports, noopDoc, () => Promise.resolve());
   ({ exprToFlatModel, flatModelToExpr, clauseToStr, topLevelSplit, parseClause,
      parseExprLiteral, isFullyWrapped, opIsNoValue,
-     condNarrowedFields, condRejectedFields, condRulesFromConfig, buildCondConfig,
+     condNarrowedFields, condRejectedFields, condRejectPromotedFields,
+     condRulesFromConfig, buildCondConfig,
      computeInputFields, collectOutputFields, findNodeGraph, fieldWarnings, ve } = exports);
 });
 
@@ -394,6 +397,54 @@ describe('condRejectedFields — OR behaviour', () => {
   });
 });
 
+// ── condRejectPromotedFields ──────────────────────────────────────────────────
+
+describe('condRejectPromotedFields — absence-check rejection promotes field', () => {
+  const nf = {
+    certain:  ['source'],
+    reachable:['source', 'description', 'torrent_files', 'rss_category'],
+  };
+
+  it('promotes field when reject uses absence op (== "")', () => {
+    const promoted = condRejectPromotedFields('torrent_files == ""', nf);
+    expect(promoted).toContain('torrent_files');
+  });
+
+  it('promotes field when reject uses numeric absence op (== 0)', () => {
+    const promoted = condRejectPromotedFields('torrent_files == 0', nf);
+    expect(promoted).toContain('torrent_files');
+  });
+
+  it('does NOT promote field for presence ops (those belong to condRejectedFields)', () => {
+    // reject: field != "" removes the field; condRejectPromotedFields should return []
+    expect(condRejectPromotedFields('torrent_files != ""', nf)).toHaveLength(0);
+  });
+
+  it('does NOT promote field not in reachable', () => {
+    expect(condRejectPromotedFields('movie_tagline == ""', nf)).not.toContain('movie_tagline');
+  });
+
+  it('does NOT promote already-certain field', () => {
+    expect(condRejectPromotedFields('source == ""', nf)).not.toContain('source');
+  });
+
+  it('does NOT promote for multi-clause AND (NOT(A∧B) = ¬A∨¬B — ambiguous)', () => {
+    const p = condRejectPromotedFields('description == "" and rss_category == ""', nf);
+    expect(p).toHaveLength(0);
+  });
+
+  it('promotes BOTH fields for OR of absence ops (NOT(A∨B) = ¬A∧¬B)', () => {
+    const p = condRejectPromotedFields('description == "" or rss_category == ""', nf);
+    expect(p).toContain('description');
+    expect(p).toContain('rss_category');
+  });
+
+  it('does NOT promote for mixed OR (presence + absence ops)', () => {
+    const p = condRejectPromotedFields('description == "" or torrent_files != ""', nf);
+    expect(p).toHaveLength(0);
+  });
+});
+
 // ── computeInputFields — reject rule removes fields downstream ────────────────
 
 describe('computeInputFields — reject rule narrows downstream', () => {
@@ -446,6 +497,25 @@ describe('computeInputFields — reject rule narrows downstream', () => {
     // Can't guarantee which field is absent — both may still appear
     expect(nf.reachable).toContain('description');
     expect(nf.reachable).toContain('rss_category');
+  });
+
+  it('promotes field when reject rule uses absence op (== "") — the torrent_files case', () => {
+    // This is the exact scenario the user reported:
+    //   metainfo_torrent MayProduces torrent_files
+    //   condition(reject: torrent_files == "") gates the content node
+    //   → entries that pass have torrent_files SET → should be certain downstream
+    const rssNode  = {id:'rss_0', plugin:'rss', upstreams:[], config:{}};
+    const metaNode = {id:'meta_1', plugin:'metainfo_torrent', upstreams:['rss_0'], config:{}};
+    const condNode = {
+      id:'cond_2', plugin:'condition', upstreams:['meta_1'],
+      config:{reject:'torrent_files == ""'},
+    };
+    const printNode = {id:'print_3', plugin:'print', upstreams:['cond_2'], config:{}};
+    setupWarningGraph([rssNode, metaNode, condNode, printNode]);
+
+    const nf = computeInputFields(printNode);
+    // torrent_files was in MayProduce; the reject rule guarantees it is set
+    expect(nf.certain).toContain('torrent_files');
   });
 });
 

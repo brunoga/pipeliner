@@ -2781,6 +2781,47 @@ function isPresenceCheck(op, value) {
   return false;
 }
 
+// isAbsenceCheck returns true when an op+value pair tests that a field is
+// absent/empty — the logical inverse of isPresenceCheck.
+function isAbsenceCheck(op, value) {
+  if (op === '== ""' || op === '== 0') return true;       // builder no-value form
+  if (op === '==' && (value === '' || value == null)) return true; // parsed form
+  if (op === '==' && value === 0)                return true; // parsed numeric form
+  return false;
+}
+
+// condRejectPromotedFields handles the "absence-check rejection" case:
+//   reject: field == ""   →  passing entries have field SET  →  promote to certain
+//
+// This is the mirror of condRejectedFields (presence ops remove) but for
+// absence ops (which promote).  AND/OR semantics are the same:
+//   single / OR-of-absence-ops: promote the fields
+//   AND of multiple clauses:    NOT(A∧B) = ¬A∨¬B — can't guarantee either present
+function condRejectPromotedFields(exprStr, nodeFields) {
+  if (!exprStr || !nodeFields) return [];
+  const {certain = [], reachable = []} = nodeFields;
+  const certSet  = new Set(certain);
+  const reachSet = new Set(reachable);
+
+  const model = exprToFlatModel(exprStr);
+  if (!model || !model.clauses.length) return [];
+
+  const isMultiAnd = model.combinator === 'and' && model.clauses.length > 1;
+  if (isMultiAnd) return []; // NOT(A∧B) = ¬A∨¬B — ambiguous
+
+  const isOr       = model.combinator === 'or' && model.clauses.length > 1;
+  const absClause  = model.clauses.filter(c => isAbsenceCheck(c.op, c.value));
+
+  if (isOr) {
+    // All clauses must be absence ops: NOT(A∨B) = ¬A∧¬B → both present.
+    if (absClause.length !== model.clauses.length) return [];
+    return absClause.map(c => c.field).filter(f => reachSet.has(f) && !certSet.has(f));
+  }
+
+  // Single absence-op clause: passing entries have the field set.
+  return absClause.map(c => c.field).filter(f => reachSet.has(f) && !certSet.has(f));
+}
+
 // condRejectedFields is the dual of condNarrowedFields.
 // For REJECT rules: entries that PASS through are those where the condition
 // evaluated to false.  When the condition tests whether a field is present
@@ -2943,13 +2984,21 @@ function collectOutputFields(node, certain, reachable, visited, graphNodes) {
     }
 
     // Reject rules: remove fields from both reachable and certain.
-    // e.g. "reject: description != ''" → passing entries have description absent,
-    // so downstream nodes cannot rely on description being present at all.
+    // Reject rules have TWO effects depending on the operator:
+    //
+    // (a) Presence ops  (reject: field != "")  → passing entries lack the field
+    //     → remove from reachable/certain
+    //
+    // (b) Absence ops   (reject: field == "")  → passing entries HAVE the field
+    //     → promote to certain  (mirror of "accept: field != """)
     for (const rule of rules) {
       if (rule.type !== 'reject') continue;
       for (const f of condRejectedFields(rule.expr, {reachable: reachArr})) {
         reachable.delete(f);
         certain.delete(f);
+      }
+      for (const f of condRejectPromotedFields(rule.expr, {certain: certArr, reachable: reachArr})) {
+        certain.add(f);
       }
     }
   }
@@ -3068,8 +3117,13 @@ function renderCondRule(rule, i, nodeFields) {
   const effectiveFields = computeInputFields(findNode(ve.selectedNodeId));
   const reachAll = {certain: effectiveFields.certain,
                     reachable: [...effectiveFields.certain, ...effectiveFields.reachable]};
-  const promoted = type === 'accept' ? condNarrowedFields(expr, reachAll)  : [];
-  const removed  = type === 'reject' ? condRejectedFields(expr, reachAll)  : [];
+  // For reject rules, two effects are possible depending on the operator:
+  //   reject presence op (!= "")  → removes field (shown in red)
+  //   reject absence  op (== "")  → promotes field (shown in green, same as accept)
+  const promoted = type === 'accept'
+    ? condNarrowedFields(expr, reachAll)
+    : type === 'reject' ? condRejectPromotedFields(expr, reachAll) : [];
+  const removed  = type === 'reject' ? condRejectedFields(expr, reachAll) : [];
   const narrowHtml = promoted.length
     ? `<div class="ve-cond-narrow">↳ Promotes to certain: ${promoted.map(f => `<code>${esc(f)}</code>`).join(', ')}</div>`
     : removed.length
