@@ -82,15 +82,24 @@
     </div>
 
     <!-- visual view: shown by default -->
-    <div id="view-visual">
-      <div class="ve-layout">
+    <div id="view-visual" style="position:relative">
+      <div class="ve-layout" id="ve-layout">
 
-        <!-- left: plugin palette -->
-        <div class="ve-palette">
-          <input class="ve-palette-search" id="ve-search" placeholder="Search plugins…" oninput="filterPalette(this.value)">
+        <!-- left: plugin palette with collapse toggle -->
+        <div class="ve-palette" id="ve-palette-panel">
+          <div class="ve-palette-topbar">
+            <input class="ve-palette-search" id="ve-search" placeholder="Search plugins…" oninput="filterPalette(this.value)">
+            <button class="ve-palette-collapse-btn" id="ve-palette-collapse-btn"
+                    onclick="veTogglePalette()" title="Collapse palette (more canvas space)">«</button>
+          </div>
           <div class="ve-palette-body" id="ve-palette-body">
             <div style="color:var(--muted);font-size:12px;padding:8px 4px">Loading plugins…</div>
           </div>
+        </div>
+
+        <!-- collapsed palette handle: a thin strip with an expand button -->
+        <div class="ve-palette-collapsed-strip" id="ve-palette-strip" onclick="veTogglePalette()" title="Expand palette">
+          <span class="ve-palette-expand-icon">»</span>
         </div>
 
         <!-- center: pipeline canvas -->
@@ -161,20 +170,27 @@
 
         </div>
 
-        <!-- right: param panel -->
-        <div class="ve-param-panel">
-          <div class="ve-param-header" id="ve-param-header">
-            <div class="ve-param-empty" id="ve-param-empty">Select a node to configure it</div>
-            <div id="ve-param-title" style="display:none">
-              <div class="ve-param-name" id="ve-param-name"></div>
-              <div class="ve-param-phase" id="ve-param-phase"></div>
-            </div>
-          </div>
-          <div class="ve-param-body" id="ve-param-body"></div>
-          <div class="ve-param-footer" id="ve-param-footer" style="display:none"></div>
-        </div>
-
       </div><!-- ve-layout -->
+
+      <!-- floating param panel (outside grid, overlays the canvas) -->
+      <div class="ve-param-panel" id="ve-param-panel">
+        <!-- top resize handle -->
+        <div class="ve-param-resize-top" id="ve-param-resize-top"></div>
+        <!-- drag handle: clicking and dragging the header moves the panel -->
+        <div class="ve-param-header" id="ve-param-header">
+          <div class="ve-param-empty" id="ve-param-empty">Select a node to configure it</div>
+          <div id="ve-param-title" style="display:none">
+            <div class="ve-param-name" id="ve-param-name"></div>
+            <div class="ve-param-phase" id="ve-param-phase"></div>
+          </div>
+          <button class="ve-param-close-btn" id="ve-param-close-btn"
+                  onclick="veHideParamPanel()" title="Close panel">×</button>
+        </div>
+        <div class="ve-param-body" id="ve-param-body"></div>
+        <div class="ve-param-footer" id="ve-param-footer" style="display:none"></div>
+        <!-- bottom resize handle -->
+        <div class="ve-param-resize-bottom" id="ve-param-resize-bottom"></div>
+      </div>
 
     </div><!-- view-visual -->
   </section>
