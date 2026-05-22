@@ -2397,7 +2397,17 @@ function renderParamPanel() {
     html.push('</div>');
   }
 
-  if (meta.produces?.length || meta.may_produce?.length || meta.requires?.length) {
+  if (node.isFunctionCall) {
+    const cert  = node.outputFields?.certain  || [];
+    const reach = node.outputFields?.reachable || [];
+    if (cert.length || reach.length) {
+      html.push('<div class="ve-field-sep"></div>');
+      if (cert.length)
+        html.push(`<div class="ve-field-hint-block"><b>Produces:</b> ${cert.map(f=>`<code>${esc(f)}</code>`).join(' ')}</div>`);
+      if (reach.length)
+        html.push(`<div class="ve-field-hint-block ve-field-hint-maybe"><b>May produce:</b> ${reach.map(f=>`<code>${esc(f)}</code>`).join(' ')}</div>`);
+    }
+  } else if (meta.produces?.length || meta.may_produce?.length || meta.requires?.length) {
     html.push('<div class="ve-field-sep"></div>');
     if (meta.produces?.length)
       html.push(`<div class="ve-field-hint-block"><b>Produces:</b> ${meta.produces.map(f=>`<code>${esc(f)}</code>`).join(' ')}</div>`);
@@ -2957,6 +2967,25 @@ function collectOutputFields(node, certain, reachable, visited, graphNodes) {
   if (!node || visited.has(node.id)) return;
   visited.add(node.id);
 
+  // Function-call nodes: output fields are pre-computed in textToVisualSync()
+  // from the return node's server-provided field sets plus its own produces.
+  // Use those directly — no recursion needed since outputFields already accounts
+  // for the entire internal chain and its external upstreams.
+  // Fallback to transparent pass-through when outputFields isn't available yet
+  // (e.g. a node just dropped from the palette before a parse round-trip).
+  if (node.isFunctionCall) {
+    if (node.outputFields) {
+      for (const f of node.outputFields.certain)  { certain.add(f); reachable.add(f); }
+      for (const f of node.outputFields.reachable) { reachable.add(f); }
+    } else {
+      for (const upId of (node.upstreams || [])) {
+        const up = graphNodes.find(n => n.id === upId);
+        if (up) collectOutputFields(up, certain, reachable, visited, graphNodes);
+      }
+    }
+    return;
+  }
+
   // Collect this node's own declared fields from plugin metadata.
   const meta = pluginMeta(node.plugin);
   for (const f of (meta?.produces    || [])) { certain.add(f); reachable.add(f); }
@@ -3002,6 +3031,51 @@ function collectOutputFields(node, certain, reachable, visited, graphNodes) {
       }
     }
   }
+}
+
+// computeFnCallOutputFields derives the output field sets for a function-call
+// node from its return node's server-provided input fields plus that node's own
+// plugin produces/may_produce.  rawById maps node ID → raw server node (includes
+// internal nodes filtered from the display graph).
+function computeFnCallOutputFields(fc, rawById) {
+  const returnRaw = rawById[fc.return_node_id];
+  if (!returnRaw) return {certain: [], reachable: []};
+
+  // Server NodeFieldSets: Certain ⊆ Reachable (reachable is the full combined set).
+  const certain  = new Set(returnRaw.fields?.certain  || []);
+  const reachable = new Set(returnRaw.fields?.reachable || []);
+  for (const f of certain) reachable.add(f); // guarantee certain ⊆ reachable
+
+  // Add the return node's own plugin produces / may_produce.
+  const retMeta = ve.plugins.find(p => p.name === returnRaw.plugin);
+  if (retMeta) {
+    for (const f of (retMeta.produces    || [])) { certain.add(f); reachable.add(f); }
+    for (const f of (retMeta.may_produce || [])) { reachable.add(f); }
+  }
+
+  // If the return node is a condition, apply its narrowing rules.
+  if (returnRaw.plugin === 'condition' && returnRaw.config) {
+    const rules   = condRulesFromConfig(returnRaw.config);
+    const certArr  = [...certain];
+    const reachArr = [...reachable];
+    for (const rule of rules) {
+      if (rule.type === 'accept') {
+        for (const f of condNarrowedFields(rule.expr, {certain: certArr, reachable: reachArr}))
+          certain.add(f);
+      } else if (rule.type === 'reject') {
+        for (const f of condRejectedFields(rule.expr, {reachable: reachArr}))
+          { reachable.delete(f); certain.delete(f); }
+        for (const f of condRejectPromotedFields(rule.expr, {certain: certArr, reachable: reachArr}))
+          certain.add(f);
+      }
+    }
+  }
+
+  const certFinal = [...certain].sort();
+  return {
+    certain:  certFinal,
+    reachable: [...reachable].filter(f => !certain.has(f)).sort(),
+  };
 }
 
 // computeInputFields computes the field sets available at the INPUT of node
@@ -5669,6 +5743,10 @@ async function textToVisualSync() {
       const returnToCallKey2 = {};
       for (const fc of (graph.function_calls || [])) returnToCallKey2[fc.return_node_id] = fc.call_key;
 
+      // Index ALL raw nodes (including internal) so computeFnCallOutputFields
+      // can look up the return node's server-provided field sets.
+      const rawById = Object.fromEntries(rawNodes.map(n => [n.id, n]));
+
       for (const fc of (graph.function_calls || [])) {
         // Find the entry nodes: internal nodes whose upstreams are all external.
         const internalSet = new Set(fc.internal_node_ids);
@@ -5698,6 +5776,7 @@ async function textToVisualSync() {
           funcCallKey:      fc.call_key,
           internalNodeIds:  fc.internal_node_ids,
           returnNodeId:     fc.return_node_id,
+          outputFields:     computeFnCallOutputFields(fc, rawById),
           x:                fc.x ?? null,
           y:                fc.y ?? null,
         });
