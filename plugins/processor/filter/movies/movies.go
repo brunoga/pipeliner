@@ -201,7 +201,11 @@ func (p *moviesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *en
 			// a REPACK at the same quality; otherwise the same torrent would be
 			// accepted on every pipeline run indefinitely.
 			if betterQuality || (properOrRepack && !rec.Repack && notDowngrade) {
-				e.Accept()
+				reason := fmt.Sprintf("movies: %s (%d) quality upgrade", matchedTitle, m.Year)
+				if properOrRepack && !betterQuality {
+					reason = fmt.Sprintf("movies: %s (%d) proper/repack accepted", matchedTitle, m.Year)
+				}
+				e.Accept(reason)
 				return nil
 			}
 		}
@@ -209,7 +213,7 @@ func (p *moviesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *en
 		return nil
 	}
 
-	e.Accept()
+	e.Accept(fmt.Sprintf("movies: %s (%d) matched", matchedTitle, m.Year))
 	return nil
 }
 
