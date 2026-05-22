@@ -2860,6 +2860,43 @@ function condRejectPromotedFields(exprStr, nodeFields) {
   return absClause.map(c => c.field).filter(f => reachSet.has(f) && !certSet.has(f));
 }
 
+// condAcceptAbsenceRemovedFields handles the "absence-check accept" case for
+// ROUTE PORT conditions:
+//   accept: field == ""   →  entries reaching this port lack the field  →  remove from reachable
+//
+// Only valid for route ports (all entries satisfy the condition).
+// AND semantics: both fields removed (all clauses hold → both absent).
+// OR semantics:  intersection only — field must be absent in every branch.
+function condAcceptAbsenceRemovedFields(exprStr, nodeFields) {
+  if (!exprStr || !nodeFields) return [];
+  const {reachable = []} = nodeFields;
+  const reachSet = new Set(reachable);
+
+  const model = exprToFlatModel(exprStr);
+  if (!model || !model.clauses.length) return [];
+
+  const absClause = model.clauses.filter(c => isAbsenceCheck(c.op, c.value));
+
+  if (model.combinator === 'and' && model.clauses.length > 1) {
+    // AND: all absence-op fields removed.
+    return absClause.map(c => c.field).filter(f => reachSet.has(f));
+  }
+
+  if (model.combinator === 'or' && model.clauses.length > 1) {
+    // OR: intersection — only if the same field appears absent in ALL clauses.
+    if (absClause.length !== model.clauses.length) return []; // mixed ops — unsafe
+    const fieldCounts = {};
+    for (const c of absClause) fieldCounts[c.field] = (fieldCounts[c.field] || 0) + 1;
+    return Object.entries(fieldCounts)
+      .filter(([, n]) => n === model.clauses.length)
+      .map(([f]) => f)
+      .filter(f => reachSet.has(f));
+  }
+
+  // Single clause.
+  return absClause.map(c => c.field).filter(f => reachSet.has(f));
+}
+
 // condRejectedFields is the dual of condNarrowedFields.
 // For REJECT rules: entries that PASS through are those where the condition
 // evaluated to false.  When the condition tests whether a field is present
@@ -2994,6 +3031,33 @@ function buildCondConfig(rules) {
 function collectOutputFields(node, certain, reachable, visited, graphNodes) {
   if (!node || visited.has(node.id)) return;
   visited.add(node.id);
+
+  // Route port nodes (route_selector): apply inferred field narrowing from the
+  // port's accept expression, then recurse into upstreams.
+  // Both NarrowCertain (presence ops → promote) and AcceptAbsenceRemoved (absence
+  // ops → remove) apply since only matched entries reach a route port.
+  if (node.isRoutePort) {
+    // Recurse into upstreams first to collect their fields.
+    for (const upId of (node.upstreams || [])) {
+      const up = graphNodes.find(n => n.id === upId);
+      if (up) collectOutputFields(up, certain, reachable, visited, graphNodes);
+    }
+    // Apply inferred narrowing from the port's accept expression.
+    const expr = node.portAcceptExpr;
+    if (expr) {
+      const certArr  = [...certain];
+      const reachArr = [...certain, ...reachable];
+      for (const f of condNarrowedFields(expr, {certain: certArr, reachable: reachArr})) {
+        certain.add(f);
+        reachable.add(f);
+      }
+      for (const f of condAcceptAbsenceRemovedFields(expr, {reachable: reachArr})) {
+        reachable.delete(f);
+        certain.delete(f);
+      }
+    }
+    return;
+  }
 
   // Function-call nodes: output fields are pre-computed in textToVisualSync()
   // from the return node's server-provided field sets plus its own produces.
@@ -3605,14 +3669,12 @@ function renderField(f, config, node) {
         break;
       }
       case 'rule_list': {
-        // Structured list of {name, accept, guarantees?, masks?} route rules.
+        // Structured list of {name, accept} route rules.
         const rules = Array.isArray(val) ? val : [];
         const nid   = esc(JSON.stringify(node?.id ?? ''));
         const fkey  = esc(f.key);
         const rows  = rules.map((r, i) => {
           const rObj = (typeof r === 'object' && r) ? r : {name: '', accept: String(r ?? '')};
-          const gs = Array.isArray(rObj.guarantees) ? rObj.guarantees.join(' ') : (rObj.guarantees || '');
-          const ms = Array.isArray(rObj.masks)      ? rObj.masks.join(' ')      : (rObj.masks      || '');
           return `<tr class="ve-rule-row" data-idx="${i}">
             <td><input class="ve-rule-name" placeholder="port name" value="${esc(rObj.name ?? '')}"
               oninput="updateRuleNameOnly(${nid},'${fkey}',${i},this.value)"
@@ -3620,18 +3682,6 @@ function renderField(f, config, node) {
             <td><input class="ve-rule-cond" placeholder="condition expression" value="${esc(rObj.accept ?? '')}"
               oninput="updateRuleField(${nid},'${fkey}',${i},'accept',this.value)"></td>
             <td><button class="ve-rule-del" onclick="removeRule(${nid},'${fkey}',${i})">×</button></td>
-          </tr>
-          <tr class="ve-rule-meta" data-idx="${i}">
-            <td colspan="3"><div class="ve-rule-fields">
-              <span class="ve-rule-meta-label g">guarantees</span>
-              <input class="ve-rule-meta-input" placeholder="field names…" value="${esc(gs)}"
-                title="Space-separated field names guaranteed present on entries through this port"
-                onchange="updateRuleFieldList(${nid},'${fkey}',${i},'guarantees',this.value)">
-              <span class="ve-rule-meta-label m">masks</span>
-              <input class="ve-rule-meta-input" placeholder="field names…" value="${esc(ms)}"
-                title="Space-separated field names stripped from entries through this port (Requires them downstream = hard error)"
-                onchange="updateRuleFieldList(${nid},'${fkey}',${i},'masks',this.value)">
-            </div></td>
           </tr>`;
         }).join('');
         widget = `<table class="ve-rule-table">
@@ -3736,21 +3786,6 @@ function updateRuleField(nodeId, field, idx, key, value) {
   if (!node || !Array.isArray(node.config[field])) return;
   if (!node.config[field][idx]) node.config[field][idx] = {};
   node.config[field][idx][key] = value;
-  onModelChange();
-}
-
-// updateRuleFieldList updates a list-typed field on a rule (guarantees or masks).
-// Accepts space- or comma-separated field names; stores as an array.
-function updateRuleFieldList(nodeId, field, idx, key, value) {
-  const node = findNode(nodeId);
-  if (!node || !Array.isArray(node.config[field])) return;
-  if (!node.config[field][idx]) node.config[field][idx] = {};
-  const items = value.split(/[\s,]+/).map(s => s.trim()).filter(Boolean);
-  if (items.length > 0) {
-    node.config[field][idx][key] = items;
-  } else {
-    delete node.config[field][idx][key];
-  }
   onModelChange();
 }
 
@@ -5372,21 +5407,11 @@ function dagToStarlark() {
       }
 
       if (n.plugin === 'route') {
-        // route(upstream, port1="cond1", port2=port("cond2", guarantees=[...], masks=[...]))
+        // route(upstream, port1="cond1", port2="cond2")
         const rules = n.config?.rules || [];
         const portParts = rules
           .filter(r => r.name && r.accept)
-          .map(r => {
-            const gs = Array.isArray(r.guarantees) ? r.guarantees.filter(Boolean) : [];
-            const ms = Array.isArray(r.masks)      ? r.masks.filter(Boolean)      : [];
-            if (!gs.length && !ms.length) {
-              return `${r.name}=${starLit(r.accept)}`;
-            }
-            const portArgs = [starLit(r.accept)];
-            if (gs.length) portArgs.push(`guarantees=[${gs.map(starLit).join(', ')}]`);
-            if (ms.length) portArgs.push(`masks=[${ms.map(starLit).join(', ')}]`);
-            return `${r.name}=port(${portArgs.join(', ')})`;
-          });
+          .map(r => `${r.name}=${starLit(r.accept)}`);
         const parts = fromStr ? [fromStr, ...portParts] : portParts;
         lines.push(`${n.id} = route(${parts.join(', ')})`);
       } else if (n.isFunctionCall || ve.userFunctions[n.plugin]) {
@@ -5558,13 +5583,12 @@ function syncRoutePorts(routeNode, g) {
     changed = true;
   }
 
-  // Add ports for new rules; sync guarantees/masks on existing ones.
+  // Add ports for new rules; sync portAcceptExpr on existing ones.
   for (let wi = 0; wi < wanted.length; wi++) {
     const name = wanted[wi];
     if (byName[name]) {
-      // Port already exists — keep it but refresh guarantees/masks from the rule.
-      byName[name].portGuarantees = Array.isArray(rules[wi]?.guarantees) ? rules[wi].guarantees : [];
-      byName[name].portMasks      = Array.isArray(rules[wi]?.masks)      ? rules[wi].masks      : [];
+      // Port already exists — keep it but refresh the accept expression from the rule.
+      byName[name].portAcceptExpr = rules[wi]?.accept || '';
       continue;
     }
     // Display label: use actual rule name if available, else placeholder.
@@ -5576,8 +5600,7 @@ function syncRoutePorts(routeNode, g) {
       searchNodeIds: [], listNodeIds: [], portNodeIds: [], comment: '',
       isRoutePort: true, routeParentId: routeNode.id,
       routePortName:  displayName || name,
-      portGuarantees: rules[wi]?.guarantees || [],
-      portMasks:      rules[wi]?.masks       || [],
+      portAcceptExpr: rules[wi]?.accept || '',
       x: null, y: null,
     });
     if (!routeNode.portNodeIds) routeNode.portNodeIds = [];
@@ -5743,11 +5766,10 @@ async function textToVisualSync() {
         const existing = nodes.find(n => n.id === raw.id);
         if (existing) {
           // Already added as a regular node — convert it in place.
-          existing.isRoutePort      = true;
-          existing.routeParentId    = raw.route_parent_id;
-          existing.routePortName    = raw.route_port_name;
-          existing.portGuarantees   = raw.port_guarantees || [];
-          existing.portMasks        = raw.port_masks       || [];
+          existing.isRoutePort    = true;
+          existing.routeParentId  = raw.route_parent_id;
+          existing.routePortName  = raw.route_port_name;
+          existing.portAcceptExpr = raw.port_accept_expr || '';
           nodes[parentIdx].portNodeIds.push(raw.id);
         } else {
           nodes[parentIdx].portNodeIds.push(raw.id);
@@ -5757,8 +5779,7 @@ async function textToVisualSync() {
             searchNodeIds: [], listNodeIds: [], portNodeIds: [], comment: '',
             isRoutePort: true, routeParentId: raw.route_parent_id,
             routePortName:  raw.route_port_name,
-            portGuarantees: raw.port_guarantees || [],
-            portMasks:      raw.port_masks       || [],
+            portAcceptExpr: raw.port_accept_expr || '',
             x: raw.x ?? null, y: raw.y ?? null,
           });
         }

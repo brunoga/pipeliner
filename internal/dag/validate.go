@@ -139,6 +139,19 @@ func Validate(g *Graph, reg func(name string) (*plugin.Descriptor, bool)) (errs,
 				reach[f] = true
 				cert[f] = true
 			}
+			// Infer field contracts from the port's accept expression.
+			if acceptExpr, _ := n.Config["_port_accept_expr"].(string); acceptExpr != "" {
+				reachSlice := mapKeys(reach)
+				certSlice := mapKeys(cert)
+				for _, f := range NarrowCertain(acceptExpr, certSlice, reachSlice) {
+					reach[f] = true
+					cert[f] = true
+				}
+				for _, f := range AcceptAbsenceRemoved(acceptExpr, reachSlice) {
+					delete(reach, f)
+					delete(cert, f)
+				}
+			}
 
 			// Check Requires groups against reachable/certain.
 			for _, group := range d.Requires {
