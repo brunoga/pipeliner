@@ -1,6 +1,6 @@
 package dag_test
 
-// Tests for port-level guarantees, masks, and the corrected merge semantics.
+// Tests for port-level field inference from accept expressions.
 
 import (
 	"testing"
@@ -11,12 +11,12 @@ import (
 
 // buildPortGraph constructs a minimal route-with-ports graph:
 //
-//	source → route → selector_a (guarantees gA, masks mA)
-//	                → selector_b (guarantees gB, masks mB)
+//	source → route → selector_a (accept_expr exprA)
+//	                → selector_b (accept_expr exprB)
 //	                                     ↓ (optional: a node after selector_a)
 func buildPortGraph(
 	t *testing.T,
-	gA, mA, gB, mB []string,
+	exprA, exprB string,
 	extraAfterA ...dag.NodeID,
 ) (*dag.Graph, func(string) (*plugin.Descriptor, bool)) {
 	t.Helper()
@@ -37,11 +37,8 @@ func buildPortGraph(
 		"_route_port_name": "a",
 		"_route_group":     "rg1",
 	}
-	if len(gA) > 0 {
-		selACfg["_port_guarantees"] = toAnySliceT(gA)
-	}
-	if len(mA) > 0 {
-		selACfg["_port_masks"] = toAnySliceT(mA)
+	if exprA != "" {
+		selACfg["_port_accept_expr"] = exprA
 	}
 	addNode("sel_a", "route_selector", []dag.NodeID{"route"}, selACfg)
 
@@ -49,11 +46,8 @@ func buildPortGraph(
 		"_route_port_name": "b",
 		"_route_group":     "rg1",
 	}
-	if len(gB) > 0 {
-		selBCfg["_port_guarantees"] = toAnySliceT(gB)
-	}
-	if len(mB) > 0 {
-		selBCfg["_port_masks"] = toAnySliceT(mB)
+	if exprB != "" {
+		selBCfg["_port_accept_expr"] = exprB
 	}
 	addNode("sel_b", "route_selector", []dag.NodeID{"route"}, selBCfg)
 
@@ -76,23 +70,15 @@ func buildPortGraph(
 	return g, reg
 }
 
-func toAnySliceT(ss []string) []any {
-	out := make([]any, len(ss))
-	for i, s := range ss {
-		out[i] = s
-	}
-	return out
-}
-
-// TestPortGuaranteePromotesMayProduce verifies that a port guarantee converts
-// a MayProduce field to "certain" on the branch — downstream Requires passes
-// without a warning.
-func TestPortGuaranteePromotesMayProduce(t *testing.T) {
+// TestPortAcceptExprPromotesMayProduce verifies that a presence-check accept
+// expression (field != "") promotes a MayProduce field to certain on the branch.
+// Downstream Requires passes without a warning.
+func TestPortAcceptExprPromotesMayProduce(t *testing.T) {
 	g, _ := buildPortGraph(t,
-		[]string{"torrent_url"}, nil, // branch a: guarantees torrent_url
-		[]string{"magnet_url"}, nil,  // branch b: guarantees magnet_url
+		`torrent_url != ""`, // branch a: presence check promotes torrent_url
+		`magnet_url != ""`,  // branch b: presence check promotes magnet_url
 	)
-	// Add a consumer on the torrent branch that Requires torrent_url.
+	// Add a consumer on branch a that Requires torrent_url.
 	if err := g.AddNode(&dag.Node{
 		ID: "consumer_a", PluginName: "consumer_req",
 		Upstreams: []dag.NodeID{"sel_a"},
@@ -119,13 +105,14 @@ func TestPortGuaranteePromotesMayProduce(t *testing.T) {
 		t.Errorf("expected no errors, got: %v", errs)
 	}
 	if len(warnings) != 0 {
-		t.Errorf("expected no warnings (guarantee should promote MayProduce to certain), got: %v", warnings)
+		t.Errorf("expected no warnings (accept expr should promote MayProduce to certain), got: %v", warnings)
 	}
 }
 
-// TestPortMaskCausesHardError verifies that a downstream Requires for a field
-// masked on its branch is a validation error, not just a warning.
-func TestPortMaskCausesHardError(t *testing.T) {
+// TestPortAbsenceExprCausesHardError verifies that an absence-check accept
+// expression (field == "") removes the field from downstream reachable set,
+// making a downstream Requires for that field a hard validation error.
+func TestPortAbsenceExprCausesHardError(t *testing.T) {
 	g := dag.New()
 	addNode := func(id, plug string, ups []dag.NodeID, cfg map[string]any) {
 		if err := g.AddNode(&dag.Node{ID: dag.NodeID(id), PluginName: plug, Upstreams: ups, Config: cfg}); err != nil {
@@ -135,11 +122,11 @@ func TestPortMaskCausesHardError(t *testing.T) {
 
 	addNode("src", "source", nil, nil)
 	addNode("route", "route", []dag.NodeID{"src"}, nil)
-	// torrent branch masks magnet_url
+	// torrent branch: absence check on magnet_url removes it from reachable
 	addNode("sel_t", "route_selector", []dag.NodeID{"route"}, map[string]any{
 		"_route_port_name": "torrent",
 		"_route_group":     "rg1",
-		"_port_masks":      []any{"magnet_url"},
+		"_port_accept_expr": `magnet_url == ""`,
 	})
 	// A consumer on the torrent branch mistakenly requires magnet_url.
 	addNode("bad", "bad_consumer", []dag.NodeID{"sel_t"}, nil)
@@ -153,19 +140,19 @@ func TestPortMaskCausesHardError(t *testing.T) {
 			Requires: plugin.RequireAll("_route_port"),
 		},
 		&plugin.Descriptor{PluginName: "bad_consumer", Role: plugin.RoleProcessor,
-			Requires: plugin.RequireAll("magnet_url"), // masked on this branch
+			Requires: plugin.RequireAll("magnet_url"), // absent on this branch
 		},
 	)
 	errs, _ := dag.Validate(g, reg)
 	if len(errs) == 0 {
-		t.Error("expected a validation error for Requires on a masked field, got none")
+		t.Error("expected a validation error for Requires on a field absent from accept expr, got none")
 	}
 }
 
-// TestMergeIntersectionWithMasks verifies that after merging two route branches
-// that mask each other's fields, branch-specific fields are NOT certain at the
-// merge point (warning instead of silent false-certain).
-func TestMergeIntersectionWithMasks(t *testing.T) {
+// TestMergeIntersectionWithAcceptExprs verifies that after merging two route
+// branches whose accept expressions infer different field sets, branch-specific
+// fields are NOT certain at the merge point (warning instead of silent false-certain).
+func TestMergeIntersectionWithAcceptExprs(t *testing.T) {
 	g := dag.New()
 	addNode := func(id, plug string, ups []dag.NodeID, cfg map[string]any) {
 		if err := g.AddNode(&dag.Node{ID: dag.NodeID(id), PluginName: plug, Upstreams: ups, Config: cfg}); err != nil {
@@ -175,15 +162,15 @@ func TestMergeIntersectionWithMasks(t *testing.T) {
 
 	addNode("src", "source", nil, nil)
 	addNode("route", "route", []dag.NodeID{"src"}, nil)
+	// torrent branch: promotes torrent_url, removes magnet_url
 	addNode("sel_t", "route_selector", []dag.NodeID{"route"}, map[string]any{
 		"_route_port_name": "torrent", "_route_group": "rg1",
-		"_port_guarantees": []any{"torrent_url"},
-		"_port_masks":      []any{"magnet_url"},
+		"_port_accept_expr": `torrent_url != "" and magnet_url == ""`,
 	})
+	// magnet branch: promotes magnet_url, removes torrent_url
 	addNode("sel_m", "route_selector", []dag.NodeID{"route"}, map[string]any{
 		"_route_port_name": "magnet", "_route_group": "rg1",
-		"_port_guarantees": []any{"magnet_url"},
-		"_port_masks":      []any{"torrent_url"},
+		"_port_accept_expr": `magnet_url != "" and torrent_url == ""`,
 	})
 	// Merge both branches back together.
 	addNode("merge_node", "after_merge", []dag.NodeID{"sel_t", "sel_m"}, nil)
@@ -211,10 +198,10 @@ func TestMergeIntersectionWithMasks(t *testing.T) {
 	}
 }
 
-// TestMergeNoChangeWithoutMasks verifies that the intersection-at-merge change
-// is backward compatible: without masks both branches have identical cert sets,
-// so intersection == union and common fields remain certain after merge.
-func TestMergeNoChangeWithoutMasks(t *testing.T) {
+// TestMergeNoChangeWithoutAcceptExprs verifies backward compatibility: without
+// accept exprs both branches inherit identical field sets, so intersection ==
+// union and common fields remain certain after merge.
+func TestMergeNoChangeWithoutAcceptExprs(t *testing.T) {
 	g := dag.New()
 	addNode := func(id, plug string, ups []dag.NodeID, cfg map[string]any) {
 		if err := g.AddNode(&dag.Node{ID: dag.NodeID(id), PluginName: plug, Upstreams: ups, Config: cfg}); err != nil {

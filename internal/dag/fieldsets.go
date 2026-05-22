@@ -49,6 +49,19 @@ func ComputeNodeFields(g *Graph, reg func(name string) (*plugin.Descriptor, bool
 				inReach[f] = true
 				inCert[f] = true
 			}
+			// Infer field contracts from the port's accept expression.
+			if acceptExpr, _ := n.Config["_port_accept_expr"].(string); acceptExpr != "" {
+				reachSlice := mapKeys(inReach)
+				certSlice := mapKeys(inCert)
+				for _, f := range NarrowCertain(acceptExpr, certSlice, reachSlice) {
+					inReach[f] = true
+					inCert[f] = true
+				}
+				for _, f := range AcceptAbsenceRemoved(acceptExpr, reachSlice) {
+					delete(inReach, f)
+					delete(inCert, f)
+				}
+			}
 
 			// Record the input field sets — these are what a condition on this
 			// node can reference.
@@ -142,6 +155,15 @@ func inheritSets(n *Node, reachable, certain map[NodeID]map[string]bool,
 		}
 		return reach, c
 	}
+}
+
+// mapKeys returns the keys of a map[string]bool as an unsorted []string.
+func mapKeys(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
 }
 
 func sortedKeys(m map[string]bool) []string {

@@ -150,6 +150,58 @@ func TestRejectPresenceRemoved(t *testing.T) {
 	})
 }
 
+func TestAcceptAbsenceRemoved(t *testing.T) {
+	reachable := []string{"source", "title", "description", "torrent_files", "magnet_url"}
+
+	t.Run("single == '' removes field", func(t *testing.T) {
+		got := AcceptAbsenceRemoved(`description == ""`, reachable)
+		if !containsStr(got, "description") {
+			t.Errorf(`accept description == "": want description removed, got %v`, got)
+		}
+	})
+
+	t.Run("AND of two absence ops removes both", func(t *testing.T) {
+		got := AcceptAbsenceRemoved(`description == "" and torrent_files == ""`, reachable)
+		if !containsStr(got, "description") || !containsStr(got, "torrent_files") {
+			t.Errorf("AND: want both removed, got %v", got)
+		}
+	})
+
+	t.Run("OR of two different absence ops: intersection empty", func(t *testing.T) {
+		got := AcceptAbsenceRemoved(`description == "" or torrent_files == ""`, reachable)
+		if containsStr(got, "description") || containsStr(got, "torrent_files") {
+			t.Errorf("OR with different fields: want nothing removed (intersection empty), got %v", got)
+		}
+	})
+
+	t.Run("OR of same field: intersection keeps it", func(t *testing.T) {
+		got := AcceptAbsenceRemoved(`description == "" or description == ""`, reachable)
+		if !containsStr(got, "description") {
+			t.Errorf("OR of same field: want description removed, got %v", got)
+		}
+	})
+
+	t.Run("presence op != '' returns nothing", func(t *testing.T) {
+		got := AcceptAbsenceRemoved(`description != ""`, reachable)
+		if len(got) != 0 {
+			t.Errorf("presence op: AcceptAbsenceRemoved should return nothing, got %v", got)
+		}
+	})
+
+	t.Run("field not in reachable not returned", func(t *testing.T) {
+		got := AcceptAbsenceRemoved(`movie_tagline == ""`, reachable)
+		if containsStr(got, "movie_tagline") {
+			t.Errorf("non-reachable field should not appear in removed list, got %v", got)
+		}
+	})
+
+	t.Run("empty expression returns nil", func(t *testing.T) {
+		if AcceptAbsenceRemoved("", reachable) != nil {
+			t.Error("empty expression should return nil")
+		}
+	})
+}
+
 func containsStr(slice []string, s string) bool {
 	for _, v := range slice {
 		if v == s {

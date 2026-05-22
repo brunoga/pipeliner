@@ -102,7 +102,6 @@ func (ctx *execContext) predeclared() starlark.StringDict {
 		"output":   starlark.NewBuiltin("output", ctx.outputBuiltin),
 		"pipeline": starlark.NewBuiltin("pipeline", ctx.pipelineBuiltin),
 		"route":    starlark.NewBuiltin("route", ctx.routeBuiltin),
-		"port":     starlark.NewBuiltin("port", portBuiltin),
 		"env":      starlark.NewBuiltin("env", envBuiltin),
 	}
 }

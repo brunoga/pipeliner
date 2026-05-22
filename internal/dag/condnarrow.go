@@ -122,6 +122,37 @@ func RejectPresenceRemoved(exprStr string, reachableFields []string) []string {
 	return removed
 }
 
+// AcceptAbsenceRemoved returns field names that should be removed from the
+// reachable set on a route port's output branch when the port's accept
+// expression uses absence-check operators (== "", == 0).
+//
+// Only valid for route port conditions (not condition plugin accept rules):
+// route ports receive only matched entries so the absence is guaranteed,
+// while condition lets unmatched entries pass through unchanged.
+//
+// AND: all absence-checked fields removed.
+// OR:  only fields absent in every branch (intersection).
+func AcceptAbsenceRemoved(exprStr string, reachableFields []string) []string {
+	if exprStr == "" {
+		return nil
+	}
+	e, err := expr.Compile(exprStr)
+	if err != nil {
+		return nil
+	}
+	reachable := make(map[string]bool, len(reachableFields))
+	for _, f := range reachableFields {
+		reachable[f] = true
+	}
+	var removed []string
+	for _, f := range e.AbsenceRemovedFields() {
+		if reachable[f] {
+			removed = append(removed, f)
+		}
+	}
+	return removed
+}
+
 // semanticGroup describes a set of fields that become certain when a specific
 // sentinel field is referenced in the expression (conservatively: if the field
 // name appears at all in the expression it's likely being tested).

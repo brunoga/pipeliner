@@ -13,7 +13,8 @@ const src = readFileSync(join(__dir, '..', 'visual-editor.js'), 'utf8');
 
 let starLit, valToStar, configToKwargs, upstreamsStr, dagToStarlark, viaNodeToStar,
     nodesToFunctionSource, performExtraction, addNodeFromPalette, extractFunctionSource,
-    parseFunctionComment, nodeTooltipText, edgePath, configPreview, syncRoutePorts, ve;
+    parseFunctionComment, nodeTooltipText, edgePath, configPreview, syncRoutePorts,
+    condAcceptAbsenceRemovedFields, condNarrowedFields, ve;
 
 beforeAll(() => {
   const mod = new Function(
@@ -33,8 +34,10 @@ exports.parseFunctionComment  = parseFunctionComment;
 exports.nodeTooltipText       = nodeTooltipText;
 exports.edgePath              = edgePath;
 exports.configPreview         = configPreview;
-exports.syncRoutePorts        = syncRoutePorts;
-exports.ve                    = ve;
+exports.syncRoutePorts                = syncRoutePorts;
+exports.condAcceptAbsenceRemovedFields = condAcceptAbsenceRemovedFields;
+exports.condNarrowedFields             = condNarrowedFields;
+exports.ve                            = ve;
 `
   );
   const exports = {};
@@ -42,7 +45,8 @@ exports.ve                    = ve;
   mod(exports, noopDoc, () => Promise.resolve());
   ({ starLit, valToStar, configToKwargs, upstreamsStr, dagToStarlark, viaNodeToStar,
      nodesToFunctionSource, performExtraction, addNodeFromPalette, extractFunctionSource,
-     parseFunctionComment, nodeTooltipText, edgePath, configPreview, syncRoutePorts, ve } = exports);
+     parseFunctionComment, nodeTooltipText, edgePath, configPreview, syncRoutePorts,
+     condAcceptAbsenceRemovedFields, condNarrowedFields, ve } = exports);
 });
 
 // ── test helpers ──────────────────────────────────────────────────────────────
@@ -1252,5 +1256,58 @@ describe('syncRoutePorts', () => {
     const g = makeGraph(route);
     syncRoutePorts(route, g);
     expect(route.portNodeIds).toHaveLength(1); // placeholder port created
+  });
+
+  it('syncs portAcceptExpr on existing port', () => {
+    const portId = 'r0__port__series';
+    const route = { id: 'r0', plugin: 'route', config: {
+      rules: [{name: 'series', accept: 'series_episode_id != ""'}]
+    }, portNodeIds: [portId] };
+    const port = { id: portId, isRoutePort: true, routeParentId: 'r0', routePortName: 'series', portAcceptExpr: '' };
+    const g = { nodes: [route, port] };
+    syncRoutePorts(route, g);
+    expect(port.portAcceptExpr).toBe('series_episode_id != ""');
+  });
+});
+
+// ── condAcceptAbsenceRemovedFields ────────────────────────────────────────────
+
+describe('condAcceptAbsenceRemovedFields', () => {
+  const reachable = ['source', 'description', 'torrent_files', 'magnet_url'];
+
+  it('removes field when accept uses == ""', () => {
+    const removed = condAcceptAbsenceRemovedFields('description == ""', {reachable});
+    expect(removed).toContain('description');
+  });
+
+  it('AND of two absence ops removes both', () => {
+    const removed = condAcceptAbsenceRemovedFields('description == "" and torrent_files == ""', {reachable});
+    expect(removed).toContain('description');
+    expect(removed).toContain('torrent_files');
+  });
+
+  it('OR of two different absence ops: intersection empty — removes nothing', () => {
+    const removed = condAcceptAbsenceRemovedFields('description == "" or torrent_files == ""', {reachable});
+    expect(removed).not.toContain('description');
+    expect(removed).not.toContain('torrent_files');
+  });
+
+  it('OR of same field: intersection keeps it', () => {
+    const removed = condAcceptAbsenceRemovedFields('description == "" or description == ""', {reachable});
+    expect(removed).toContain('description');
+  });
+
+  it('presence op != "" returns nothing', () => {
+    const removed = condAcceptAbsenceRemovedFields('description != ""', {reachable});
+    expect(removed).toHaveLength(0);
+  });
+
+  it('field not in reachable not returned', () => {
+    const removed = condAcceptAbsenceRemovedFields('movie_tagline == ""', {reachable});
+    expect(removed).not.toContain('movie_tagline');
+  });
+
+  it('empty expression returns empty array', () => {
+    expect(condAcceptAbsenceRemovedFields('', {reachable})).toHaveLength(0);
   });
 });
