@@ -1741,6 +1741,7 @@ function initCanvasEvents() {
       if (!hit) return;
       e.stopPropagation(); // prevent canvas handler from deselecting / rebuilding SVG
       e.preventDefault();
+      hideEdgeFieldTooltip();
       if (hit.dataset.search === 'true') {
         disconnectSearch(hit.dataset.src, hit.dataset.dst);
       } else if (hit.dataset.list === 'true') {
@@ -2805,7 +2806,12 @@ function clauseToStr(field, op, value) {
   if (opIsNoValue(op)) return `${field} ${op}`;
   if (typeof value === 'boolean') return `${field} == ${value}`;
   if (typeof value === 'number')  return `${field} ${op} ${value}`;
-  const escaped = String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  const str = String(value);
+  // Use single-quotes for an empty string value so the output cannot be
+  // confused with the no-value compound operators '== ""' / '!= ""'.
+  // parseExprLiteral handles both quote styles, so round-trips correctly.
+  if (str === '') return `${field} ${op} ''`;
+  const escaped = str.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
   return `${field} ${op} "${escaped}"`;
 }
 
@@ -5528,7 +5534,29 @@ function dagToStarlark() {
   for (const g of graphs) {
     const lines = [];
     // Sort so every upstream variable is assigned before it is referenced.
-    const ordered = topoSortNodes(g.nodes.filter(n => !n.isSearchNode && !n.isListNode && !n.isRoutePort));
+    // Route port nodes are excluded from the sort but their IDs appear in the
+    // upstreams of downstream nodes. Build a map so the sort can resolve a port
+    // node ID to the parent route node ID and register the real dependency.
+    const portToRoute = new Map(
+      g.nodes.filter(n => n.isRoutePort && n.routeParentId)
+             .map(n => [n.id, n.routeParentId])
+    );
+    const mainNodes = g.nodes.filter(n => !n.isSearchNode && !n.isListNode && !n.isRoutePort);
+    // Temporarily rewrite port-node upstreams to route-node IDs for the sort,
+    // then restore them afterward so the rest of serialisation is unaffected.
+    const savedUpstreams = new Map();
+    for (const n of mainNodes) {
+      const remapped = (n.upstreams || []).map(uid => portToRoute.get(uid) ?? uid);
+      if (remapped.some((uid, i) => uid !== (n.upstreams || [])[i])) {
+        savedUpstreams.set(n.id, n.upstreams);
+        n.upstreams = remapped;
+      }
+    }
+    const ordered = topoSortNodes(mainNodes);
+    for (const [id, ups] of savedUpstreams) {
+      const n = mainNodes.find(x => x.id === id);
+      if (n) n.upstreams = ups;
+    }
     for (const n of ordered) {
       const meta     = pluginMeta(n.plugin);
       const role     = meta?.role || 'processor';
