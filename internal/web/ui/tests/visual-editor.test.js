@@ -14,12 +14,19 @@ const src = readFileSync(join(__dir, '..', 'visual-editor.js'), 'utf8');
 let starLit, valToStar, configToKwargs, upstreamsStr, dagToStarlark, viaNodeToStar,
     nodesToFunctionSource, performExtraction, addNodeFromPalette, extractFunctionSource,
     parseFunctionComment, nodeTooltipText, edgePath, configPreview, syncRoutePorts,
-    condAcceptAbsenceRemovedFields, condNarrowedFields, ve;
+    condAcceptAbsenceRemovedFields, condNarrowedFields, ve,
+    _builderGetExpr, _builderSetExpr, renderRouteRulesWidget, renderRouteRuleRow;
+
+// Minimal HTML-escape helper matching dashboard.js's esc() — needed so render
+// functions (which call esc as a global) work in the test sandbox.
+const escHelper = `function esc(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}\n`;
 
 beforeAll(() => {
   const mod = new Function(
     'exports', 'document', 'fetch',
-    src + `
+    escHelper + src + `
 exports.starLit              = starLit;
 exports.valToStar            = valToStar;
 exports.configToKwargs       = configToKwargs;
@@ -38,6 +45,10 @@ exports.syncRoutePorts                = syncRoutePorts;
 exports.condAcceptAbsenceRemovedFields = condAcceptAbsenceRemovedFields;
 exports.condNarrowedFields             = condNarrowedFields;
 exports.ve                            = ve;
+exports._builderGetExpr               = _builderGetExpr;
+exports._builderSetExpr               = _builderSetExpr;
+exports.renderRouteRulesWidget        = renderRouteRulesWidget;
+exports.renderRouteRuleRow            = renderRouteRuleRow;
 `
   );
   const exports = {};
@@ -46,7 +57,8 @@ exports.ve                            = ve;
   ({ starLit, valToStar, configToKwargs, upstreamsStr, dagToStarlark, viaNodeToStar,
      nodesToFunctionSource, performExtraction, addNodeFromPalette, extractFunctionSource,
      parseFunctionComment, nodeTooltipText, edgePath, configPreview, syncRoutePorts,
-     condAcceptAbsenceRemovedFields, condNarrowedFields, ve } = exports);
+     condAcceptAbsenceRemovedFields, condNarrowedFields, ve,
+     _builderGetExpr, _builderSetExpr, renderRouteRulesWidget, renderRouteRuleRow } = exports);
 });
 
 // ── test helpers ──────────────────────────────────────────────────────────────
@@ -1309,5 +1321,204 @@ describe('condAcceptAbsenceRemovedFields', () => {
 
   it('empty expression returns empty array', () => {
     expect(condAcceptAbsenceRemovedFields('', {reachable})).toHaveLength(0);
+  });
+});
+
+// ── _builderGetExpr / _builderSetExpr ─────────────────────────────────────────
+
+describe('_builderGetExpr route mode', () => {
+  beforeEach(() => {
+    ve.graphs = [{name: 'p', schedule: '', nodes: [
+      { id: 'route1', plugin: 'route', config: {
+          rules: [
+            { name: 'series', accept: 'series_episode_id != ""' },
+            { name: 'movies', accept: 'movie_title != ""' },
+          ]
+        }, portNodeIds: [] }
+    ]}];
+    ve.activeGraph  = 0;
+    ve.selectedNodeId = 'route1';
+  });
+
+  it('returns accept expression for the given ruleIdx', () => {
+    expect(_builderGetExpr('route', 0)).toBe('series_episode_id != ""');
+    expect(_builderGetExpr('route', 1)).toBe('movie_title != ""');
+  });
+
+  it('returns empty string for out-of-bounds index', () => {
+    expect(_builderGetExpr('route', 99)).toBe('');
+  });
+
+  it('returns empty string when rules array is missing', () => {
+    const node = ve.graphs[0].nodes[0];
+    delete node.config.rules;
+    expect(_builderGetExpr('route', 0)).toBe('');
+  });
+});
+
+describe('_builderGetExpr cond mode', () => {
+  beforeEach(() => {
+    ve.graphs = [{name: 'p', schedule: '', nodes: [
+      { id: 'cond1', plugin: 'condition', config: {
+          rules: [{ accept: 'title != ""' }, { reject: 'source == ""' }]
+        }}
+    ]}];
+    ve.activeGraph    = 0;
+    ve.selectedNodeId = 'cond1';
+  });
+
+  it('returns expr for the given cond ruleIdx', () => {
+    expect(_builderGetExpr('cond', 0)).toBe('title != ""');
+    expect(_builderGetExpr('cond', 1)).toBe('source == ""');
+  });
+});
+
+describe('_builderSetExpr route mode', () => {
+  let routeNode;
+
+  beforeEach(() => {
+    routeNode = { id: 'route1', plugin: 'route', config: {
+        rules: [{ name: 'series', accept: '' }]
+      }, portNodeIds: [] };
+    ve.graphs        = [{ name: 'p', schedule: '', nodes: [routeNode] }];
+    ve.activeGraph   = 0;
+    ve.selectedNodeId = 'route1';
+    ve.plugins       = PLUGINS;
+  });
+
+  it('updates node.config.rules[idx].accept', () => {
+    _builderSetExpr('route', 0, 'series_episode_id != ""');
+    expect(routeNode.config.rules[0].accept).toBe('series_episode_id != ""');
+  });
+
+  it('does nothing for out-of-bounds index', () => {
+    _builderSetExpr('route', 5, 'x != ""');
+    expect(routeNode.config.rules).toHaveLength(1);
+  });
+
+  it('does nothing when node is not selected', () => {
+    ve.selectedNodeId = 'nonexistent';
+    _builderSetExpr('route', 0, 'x != ""');
+    // Original value unchanged
+    expect(routeNode.config.rules[0].accept).toBe('');
+  });
+});
+
+// ── renderRouteRulesWidget ────────────────────────────────────────────────────
+
+describe('renderRouteRulesWidget', () => {
+  it('renders empty state when no rules', () => {
+    const node = { id: 'r0', plugin: 'route', config: {}, portNodeIds: [] };
+    ve.graphs = [{ name: 'p', schedule: '', nodes: [node] }];
+    ve.activeGraph = 0;
+    ve.selectedNodeId = 'r0';
+    const html = renderRouteRulesWidget(node);
+    expect(html).toContain('No ports yet');
+    expect(html).toContain('+ Add port');
+  });
+
+  it('renders one row per rule', () => {
+    const node = { id: 'r0', plugin: 'route', config: {
+      rules: [
+        { name: 'tv',     accept: 'series_episode_id != ""' },
+        { name: 'movies', accept: 'movie_title != ""' },
+      ]
+    }, portNodeIds: [], fields: { certain: [], reachable: [] } };
+    ve.graphs = [{ name: 'p', schedule: '', nodes: [node] }];
+    ve.activeGraph = 0;
+    ve.selectedNodeId = 'r0';
+    ve.fieldRegistry = [];
+    const html = renderRouteRulesWidget(node);
+    expect(html).toContain('data-rule-idx="0"');
+    expect(html).toContain('data-rule-idx="1"');
+    expect(html).not.toContain('No ports yet');
+  });
+
+  it('uses Ports label with first-match hint', () => {
+    const node = { id: 'r0', plugin: 'route', config: { rules: [] }, portNodeIds: [] };
+    ve.graphs = [{ name: 'p', schedule: '', nodes: [node] }];
+    ve.activeGraph = 0;
+    ve.selectedNodeId = 'r0';
+    const html = renderRouteRulesWidget(node);
+    expect(html).toContain('Ports');
+    expect(html).toContain('first match wins');
+  });
+});
+
+// ── renderRouteRuleRow ────────────────────────────────────────────────────────
+
+describe('renderRouteRuleRow', () => {
+  function makeRouteNode(rules) {
+    const node = { id: 'r0', plugin: 'route', config: { rules }, portNodeIds: [],
+                   fields: { certain: [], reachable: [] } };
+    ve.graphs        = [{ name: 'p', schedule: '', nodes: [node] }];
+    ve.activeGraph   = 0;
+    ve.selectedNodeId = 'r0';
+    ve.fieldRegistry  = [];
+    return node;
+  }
+
+  it('renders port name input', () => {
+    const node = makeRouteNode([{ name: 'series', accept: 'series_episode_id != ""' }]);
+    const html = renderRouteRuleRow(node.config.rules[0], 0, node);
+    expect(html).toContain('ve-cond-port-name');
+    expect(html).toContain('value="series"');
+  });
+
+  it('renders raw textarea when expression is empty', () => {
+    const node = makeRouteNode([{ name: 'p1', accept: '' }]);
+    const html = renderRouteRuleRow(node.config.rules[0], 0, node);
+    expect(html).toContain('ve-cond-raw-ta');
+    expect(html).toContain('routeRawInput');
+    expect(html).toContain('routeRawChanged');
+  });
+
+  it('renders builder body when expression is parseable', () => {
+    const node = makeRouteNode([{ name: 'tv', accept: 'series_episode_id != ""' }]);
+    const html = renderRouteRuleRow(node.config.rules[0], 0, node);
+    expect(html).toContain('ve-cond-builder');
+    expect(html).toContain('routeFieldChanged');
+    expect(html).toContain('routeOpChanged');
+    expect(html).not.toContain('ve-cond-raw-ta');
+  });
+
+  it('shows toggleRouteRawMode on raw button', () => {
+    const node = makeRouteNode([{ name: 'tv', accept: 'series_episode_id != ""' }]);
+    const html = renderRouteRuleRow(node.config.rules[0], 0, node);
+    expect(html).toContain('toggleRouteRawMode(0)');
+  });
+
+  it('uses removeRule for delete button', () => {
+    const node = makeRouteNode([{ name: 'tv', accept: '' }]);
+    const html = renderRouteRuleRow(node.config.rules[0], 0, node);
+    expect(html).toContain('removeRule(');
+  });
+
+  it('shows narrowing preview for presence-op accept', () => {
+    const node = makeRouteNode([{ name: 'tv', accept: 'series_episode_id != ""' }]);
+    node.fields = { certain: [], reachable: ['series_episode_id'] };
+    const html = renderRouteRuleRow(node.config.rules[0], 0, node);
+    expect(html).toContain('Promotes to certain');
+    expect(html).toContain('series_episode_id');
+  });
+
+  it('shows removal notice for absence-op accept', () => {
+    const node = makeRouteNode([{ name: 'noDesc', accept: 'description == ""' }]);
+    node.fields = { certain: [], reachable: ['description'] };
+    const html = renderRouteRuleRow(node.config.rules[0], 0, node);
+    expect(html).toContain('Removes from available');
+    expect(html).toContain('description');
+  });
+
+  it('uses updateRuleNameOnly oninput', () => {
+    const node = makeRouteNode([{ name: 'tv', accept: '' }]);
+    const html = renderRouteRuleRow(node.config.rules[0], 0, node);
+    expect(html).toContain('updateRuleNameOnly(');
+  });
+
+  it('uses syncRoutePortsForNode onblur', () => {
+    const node = makeRouteNode([{ name: 'tv', accept: '' }]);
+    const html = renderRouteRuleRow(node.config.rules[0], 0, node);
+    expect(html).toContain('syncRoutePortsForNode(');
   });
 });
