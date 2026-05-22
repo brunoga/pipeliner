@@ -34,6 +34,7 @@ async function validateConfig() {
       showConfigWarnings(body.warnings || []);
       const wc = (body.warnings||[]).length;
       setConfigStatus('ok', wc ? `✓ Valid (${wc} warning${wc !== 1 ? 's' : ''})` : '✓ Config is valid');
+      textToVisualSync();
     } else {
       setConfigStatus('err', 'Server error: ' + r.status);
     }
@@ -65,6 +66,7 @@ async function saveConfig() {
     if (body.status === 'reloaded') {
       setConfigStatus('ok', '✓ Saved and reloaded');
       refresh();
+      textToVisualSync();
     } else if (body.status === 'saved') {
       // Config was saved but the reload step failed.
       setConfigStatus('err', '⚠ Saved — reload failed: ' + (body.warning || 'unknown error'));
@@ -96,6 +98,7 @@ function pollUntilIdle() {
       if (!(tasks || []).some(t => t.running)) {
         setConfigStatus('ok', '✓ Saved and reloaded');
         refresh();
+        textToVisualSync();
         return;
       }
     } catch (_) { /* keep polling */ }
