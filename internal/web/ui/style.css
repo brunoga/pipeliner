@@ -1730,8 +1730,8 @@ body.dark {
 }
 
 /* Inline warning on canvas node */
-.ve-node-warn      { font-size:10px; color:var(--amber); margin-top:3px; }
-.ve-node-soft-warn { font-size:10px; color:var(--muted);  margin-top:3px; }
+.ve-node-warn      { font-size:10px; color:var(--amber); margin-top:3px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:160px; }
+.ve-node-soft-warn { font-size:10px; color:var(--muted);  margin-top:3px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:160px; }
 
 /* Upstream checkbox rows in param panel */
 .ve-upstream-row {
@@ -2518,8 +2518,8 @@ details[open] > .ve-fields-summary::after { content:'▴'; }
 }
 
 /* Warnings: left-aligned, slightly more prominent */
-.ve-node-warn      { font-size:10px; color:var(--amber); margin-top:4px; text-align:left; }
-.ve-node-soft-warn { font-size:10px; color:var(--muted);  margin-top:4px; text-align:left; }
+.ve-node-warn      { font-size:10px; color:var(--amber); margin-top:4px; text-align:left; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:160px; }
+.ve-node-soft-warn { font-size:10px; color:var(--muted);  margin-top:4px; text-align:left; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:160px; }
 
 /* Remove button: flush right, only on hover */
 .ve-node-remove {
@@ -2633,3 +2633,153 @@ details[open] > .ve-fields-summary::after { content:'▴'; }
   border:1px solid color-mix(in srgb, var(--ve-search) 35%, transparent);
   vertical-align:middle; line-height:1.4; pointer-events:none;
 }
+
+/* ── Refinement pass 2: compact density, fn tint, warning truncation ─────────
+   Goals:
+   - Card height ~68px: tighter body padding + role badge collapsed to a dot
+   - Role badge: text hidden, only the ::before dot visible (role bar already
+     communicates role; the dot is compact secondary reinforcement)
+   - Function-call nodes: warm pink background tint — distinct at a glance
+   - Warnings: single-line with ellipsis; never wraps in a compact card
+   - Palette search: border-bottom separator makes it feel part of the panel
+   - Palette chips: persistent dim role-color dot before each name so the
+     role is scannable without hovering; dot brightens on hover
+─────────────────────────────────────────────────────────────────────────── */
+
+/* ── Node body: tighter vertical padding ── */
+.ve-node-body {
+  padding:7px 10px 7px 10px;
+}
+
+/* ── Plugin name: tighten bottom gap now that the badge row is minimal ── */
+.ve-node-name {
+  margin-bottom:2px;
+}
+
+/* ── Role badge: collapse to a pure 6px dot.
+   Text is set to font-size:0 so it disappears; the ::before dot (already
+   defined in pass 1) stays. The colored left role bar is the primary role
+   signal — the badge is just a compact secondary indicator. ── */
+.ve-node-role-badge {
+  font-size:0;
+  padding:0;
+  margin-bottom:2px;
+  border:none;
+  background:transparent;
+  line-height:0;
+  display:inline-block;
+}
+.ve-node-role-badge::before {
+  width:6px; height:6px; border-radius:50%; display:inline-block;
+  margin-right:0;
+}
+/* Suppress the background/border tints — dot color is already set above */
+.ve-role-source.ve-node-role-badge    { background:transparent; border:none; }
+.ve-role-processor.ve-node-role-badge { background:transparent; border:none; }
+.ve-role-sink.ve-node-role-badge      { background:transparent; border:none; }
+
+/* ── fn badge: keep legible, adjust spacing for the tighter row ── */
+.ve-node-fn-badge {
+  margin-left:5px;
+  vertical-align:middle;
+}
+
+/* ── Function-call nodes: warm pink-tinted background ──
+   Reinforces the fn badge — these nodes are "special" at a glance ── */
+.ve-node.ve-node-fn {
+  background:color-mix(in srgb, var(--ve-fn) 4%, var(--surface));
+}
+.ve-node.ve-node-fn:hover:not(.selected) {
+  background:color-mix(in srgb, var(--ve-fn) 7%, var(--surface));
+}
+.ve-node.ve-node-fn.selected {
+  background:color-mix(in srgb, var(--ve-fn) 6%, var(--surface));
+  border-color:color-mix(in srgb, var(--ve-fn) 70%, transparent);
+  box-shadow:0 0 0 2px color-mix(in srgb, var(--ve-fn) 22%, transparent),
+             0 4px 16px rgba(0,0,0,.5);
+}
+
+/* ── Warnings: single-line truncation — no wrapping in compact cards ── */
+.ve-node-warn {
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  margin-top:3px;
+}
+.ve-node-soft-warn {
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  margin-top:3px;
+}
+
+/* ── Remove button: absolute top-right corner — away from the output port ──
+   The output port sits at right:-7px / top:50%.  By pinning × to the top
+   corner we get strong vertical separation: users aiming for the port aim
+   at the vertical centre; × is only reachable by aiming at the top corner. ── */
+.ve-node-remove {
+  position:absolute; top:3px; right:4px;
+  display:flex; align-items:center;
+  padding:2px 4px; font-size:13px;
+}
+
+/* ── Palette topbar: separator line makes the search feel inset/integrated ── */
+.ve-palette-topbar {
+  padding:7px 6px 7px;
+  border-bottom:1px solid var(--border);
+}
+.ve-palette-search {
+  margin:0;
+  padding:5px 9px;
+  border-radius:4px;
+  background:color-mix(in srgb, var(--bg) 70%, var(--surface));
+  border-color:color-mix(in srgb, var(--border) 80%, transparent);
+}
+.ve-palette-search:focus {
+  border-color:var(--accent);
+  background:var(--bg);
+}
+.ve-palette-body {
+  padding-top:4px;
+}
+
+/* ── Section headers: tighter but consistent vertical rhythm ── */
+.ve-role-header {
+  padding:8px 6px 4px;
+}
+
+/* ── Palette chips: flex layout + persistent role-color dot via ::before ──
+   Dot is always visible at 50% opacity; brightens to full on hover.
+   Role is readable instantly — no hovering required. ── */
+.ve-chip {
+  display:flex; align-items:center; gap:6px;
+  padding:4px 8px;
+}
+.ve-chip::before {
+  content:'';
+  display:inline-block; flex-shrink:0;
+  width:5px; height:5px; border-radius:50%;
+  background:var(--muted);
+  opacity:.35;
+  transition:background .12s, opacity .12s;
+}
+.ve-chip[data-role="source"]::before    { background:var(--green);     opacity:.5; }
+.ve-chip[data-role="processor"]::before { background:var(--accent);    opacity:.5; }
+.ve-chip[data-role="sink"]::before      { background:var(--ve-output); opacity:.5; }
+
+/* Brighten dot on hover */
+.ve-chip:hover::before                        { opacity:1; }
+.ve-chip[data-role="source"]:hover::before    { background:var(--green);         opacity:1; }
+.ve-chip[data-role="processor"]:hover::before { background:var(--accent);        opacity:1; }
+.ve-chip[data-role="sink"]:hover::before      { background:var(--ve-output);     opacity:1; }
+.ve-chip.ve-chip-search:hover::before         { background:var(--ve-search-lit); opacity:1; }
+.ve-chip.ve-chip-list:hover::before           { background:var(--ve-list-lit);   opacity:1; }
+
+/* fn chips: dot color matches the wrapped role */
+.ve-chip-fn-wrap[data-role="source"]    .ve-chip.ve-chip-fn::before { background:var(--green);     opacity:.5; }
+.ve-chip-fn-wrap[data-role="processor"] .ve-chip.ve-chip-fn::before { background:var(--accent);    opacity:.5; }
+.ve-chip-fn-wrap[data-role="sink"]      .ve-chip.ve-chip-fn::before { background:var(--ve-output); opacity:.5; }
+
+/* fn chip row: always-on faint role-accent left border */
+.ve-chip-fn-wrap[data-role="source"]    .ve-chip.ve-chip-fn { border-left-width:2px; border-left-color:color-mix(in srgb, var(--green)     25%, transparent); }
+.ve-chip-fn-wrap[data-role="processor"] .ve-chip.ve-chip-fn { border-left-width:2px; border-left-color:color-mix(in srgb, var(--accent)    25%, transparent); }
+.ve-chip-fn-wrap[data-role="sink"]      .ve-chip.ve-chip-fn { border-left-width:2px; border-left-color:color-mix(in srgb, var(--ve-output) 25%, transparent); }
+
+/* Disabled chips: less dim so they remain legible */
+.ve-palette-body .ve-chip[disabled] { opacity:.3; }
