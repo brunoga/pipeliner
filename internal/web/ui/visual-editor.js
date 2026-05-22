@@ -1448,7 +1448,7 @@ function initLayout() {
           n.y = rightmost.y;
         } else {
           n.x = maxAbsX;
-          n.y = g._regionY + 40 + stackIdx * 120;
+          n.y = (g._labelY ?? g._regionY + 8) + 36 + stackIdx * 120;
           stackIdx++;
         }
         posById[n.id] = n;
@@ -1460,11 +1460,19 @@ function initLayout() {
     // Derive positions for sub-nodes that don't yet have stored positions.
     placeSubNodes(g, g._regionY + 36);
 
-    g._regionH = maxAbsY - g._regionY + NODE_H + 60;
-    globalY = g._regionY + g._regionH + PIPELINE_GAP;
-
-    // Normalize to eliminate empty space at top/left.
-    globalY = tightenPipeline(g, globalY, PIPELINE_GAP);
+    // Compute _regionH using the same formula as renderPipelineRegions /
+    // startNodeDrag so the region box always fits.  Do NOT call tightenPipeline
+    // here — it would shift user-positioned nodes to the tightest possible
+    // layout on every re-parse (triggered by save/validate), causing the subtle
+    // drift the user sees.  Stored positions are the user's intent and must be
+    // preserved exactly.
+    let storedRegionH = 80;
+    for (const n of g.nodes) {
+      const nodeBot = (n.y ?? 0) + NODE_H + (n.searchNodeIds?.length ? 100 : 24);
+      storedRegionH = Math.max(storedRegionH, nodeBot - (g._regionY ?? 0) + 24);
+    }
+    g._regionH = storedRegionH;
+    globalY = (g._regionY ?? 0) + storedRegionH + PIPELINE_GAP;
   }
 }
 
@@ -1959,8 +1967,8 @@ function startNodeDrag(e, n) {
         if (!nd || !orig) continue;
         const gIdx = findNodeGraph(id);
         const gm   = gIdx >= 0 ? ve.graphs[gIdx] : null;
-        const minY = gm ? (gm._regionY ?? 0) + 40 : 0;
-        nd.x = Math.max(8, orig.x + dx);
+        const minY = gm ? (gm._labelY ?? (gm._regionY ?? 0) + 8) + 36 : 40;
+        nd.x = Math.max(50, orig.x + dx);
         nd.y = Math.max(minY, orig.y + dy);
         const div = document.querySelector(`.ve-node[data-id="${id}"]`);
         if (div) { div.style.left = nd.x + 'px'; div.style.top = nd.y + 'px'; }
@@ -1985,9 +1993,12 @@ function startNodeDrag(e, n) {
   const startX = e.clientX, startY = e.clientY;
   const giSingle = findNodeGraph(n.id);
   const gSingle  = giSingle >= 0 ? ve.graphs[giSingle] : null;
-  // Minimum position: keep nodes inside their pipeline region (below the label, right of left wall).
-  const minDragX = 8;
-  const minDragY = gSingle ? (gSingle._regionY ?? 0) + 40 : 0;
+  // Minimum position: keep nodes inside their pipeline region.
+  // x=50 and y=labelY+36 match tightenPipeline's PAD_X/LABEL_H so that
+  // fresh auto-layouts and drag positions are always consistent — no shift
+  // on re-parse after save/validate.
+  const minDragX = 50;
+  const minDragY = gSingle ? (gSingle._labelY ?? (gSingle._regionY ?? 0) + 8) + 36 : 40;
   ve_dragging = true;
 
   function onMove(ev) {
