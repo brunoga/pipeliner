@@ -158,13 +158,20 @@ func newSelectorPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin,
 func (p *selectorPlugin) Name() string { return "route_selector" }
 
 func (p *selectorPlugin) Process(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
+	// Filter to only matching entries — do NOT reject non-matching ones.
+	// The route node already rejected entries that matched no port; here we are
+	// distributing accepted entries across fan-out branches. Calling Reject on
+	// the original copy (which storeOutputs passes to the first downstream) would
+	// corrupt the pipeline's accepted/rejected summary: the original would be
+	// counted as rejected even though a clone on the correct branch was accepted.
+	var out []*entry.Entry
 	for _, e := range entries {
 		if e.IsRejected() || e.IsFailed() {
 			continue
 		}
-		if port, _ := e.Get(entry.FieldRoutePort); port != p.portName {
-			e.Reject(fmt.Sprintf("route_selector: entry belongs to port %q, not %q", port, p.portName))
+		if port, _ := e.Get(entry.FieldRoutePort); port == p.portName {
+			out = append(out, e)
 		}
 	}
-	return entry.PassThrough(entries), nil
+	return out, nil
 }

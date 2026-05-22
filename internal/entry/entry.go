@@ -38,6 +38,7 @@ type Entry struct {
 	URL          string
 	OriginalURL  string // set once at input time, never mutated by plugins
 	State        State
+	AcceptReason string
 	RejectReason string
 	FailReason   string
 	Task         string // owning task name, set by the engine
@@ -62,9 +63,13 @@ func New(title, url string) *Entry {
 }
 
 // Accept moves the entry to Accepted unless it is already Rejected.
-func (e *Entry) Accept() {
+// An optional reason string is stored in AcceptReason for logging.
+func (e *Entry) Accept(reason ...string) {
 	if e.State != Rejected {
 		e.State = Accepted
+		if len(reason) > 0 {
+			e.AcceptReason = reason[0]
+		}
 	}
 }
 
@@ -202,6 +207,7 @@ func (e *Entry) Clone() *Entry {
 		URL:          e.URL,
 		OriginalURL:  e.OriginalURL,
 		State:        e.State,
+		AcceptReason: e.AcceptReason,
 		RejectReason: e.RejectReason,
 		FailReason:   e.FailReason,
 		Task:         e.Task,
