@@ -72,9 +72,7 @@ func (p *dedupPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entri
 		if best[k] == e {
 			out = append(out, e)
 		} else {
-			reason := fmt.Sprintf("dedup: better copy already accepted for %q", k)
-			e.Reject(reason)
-			tc.Logger.Info("entry rejected", "entry", e.Title, "reason", reason)
+			e.Reject(fmt.Sprintf("dedup: better copy already accepted for %q", k))
 		}
 	}
 	return out, nil
