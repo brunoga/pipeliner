@@ -127,31 +127,9 @@ func Validate(g *Graph, reg func(name string) (*plugin.Descriptor, bool)) (errs,
 				}
 			}
 
-			// Apply port masks: remove fields from this branch's sets.
-			// Downstream Requires for a masked field becomes a hard error.
-			for _, f := range configStringSlice(n.Config, "_port_masks") {
-				delete(reach, f)
-				delete(cert, f)
-			}
-			// Apply port guarantees: promote fields to certain on this branch.
-			// Converts MayProduce (reachable only) to Produces (certain) here.
-			for _, f := range configStringSlice(n.Config, "_port_guarantees") {
-				reach[f] = true
-				cert[f] = true
-			}
 			// Infer field contracts from the port's accept expression.
-			if acceptExpr, _ := n.Config["_port_accept_expr"].(string); acceptExpr != "" {
-				reachSlice := mapKeys(reach)
-				certSlice := mapKeys(cert)
-				for _, f := range NarrowCertain(acceptExpr, certSlice, reachSlice) {
-					reach[f] = true
-					cert[f] = true
-				}
-				for _, f := range AcceptAbsenceRemoved(acceptExpr, reachSlice) {
-					delete(reach, f)
-					delete(cert, f)
-				}
-			}
+			acceptExpr, _ := n.Config["_port_accept_expr"].(string)
+			ApplyPortAcceptNarrowing(acceptExpr, reach, cert)
 
 			// Check Requires groups against reachable/certain.
 			for _, group := range d.Requires {
@@ -337,24 +315,3 @@ func applyConditionNarrowingValidate(config map[string]any, reach, cert map[stri
 	}
 }
 
-// configStringSlice reads a []string or []any{string...} value from a node
-// config map. Handles both native Go []string and Starlark-derived []any.
-func configStringSlice(cfg map[string]any, key string) []string {
-	v, ok := cfg[key]
-	if !ok {
-		return nil
-	}
-	switch t := v.(type) {
-	case []string:
-		return t
-	case []any:
-		out := make([]string, 0, len(t))
-		for _, item := range t {
-			if s, ok := item.(string); ok {
-				out = append(out, s)
-			}
-		}
-		return out
-	}
-	return nil
-}

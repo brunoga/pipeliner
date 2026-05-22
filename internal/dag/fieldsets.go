@@ -41,27 +41,9 @@ func ComputeNodeFields(g *Graph, reg func(name string) (*plugin.Descriptor, bool
 			inReach, inCert := inheritSets(n, postReach, postCert, nil, nil)
 
 			// Apply port masks and guarantees before recording input state.
-			for _, f := range configStringSlice(n.Config, "_port_masks") {
-				delete(inReach, f)
-				delete(inCert, f)
-			}
-			for _, f := range configStringSlice(n.Config, "_port_guarantees") {
-				inReach[f] = true
-				inCert[f] = true
-			}
 			// Infer field contracts from the port's accept expression.
-			if acceptExpr, _ := n.Config["_port_accept_expr"].(string); acceptExpr != "" {
-				reachSlice := mapKeys(inReach)
-				certSlice := mapKeys(inCert)
-				for _, f := range NarrowCertain(acceptExpr, certSlice, reachSlice) {
-					inReach[f] = true
-					inCert[f] = true
-				}
-				for _, f := range AcceptAbsenceRemoved(acceptExpr, reachSlice) {
-					delete(inReach, f)
-					delete(inCert, f)
-				}
-			}
+			acceptExpr, _ := n.Config["_port_accept_expr"].(string)
+			ApplyPortAcceptNarrowing(acceptExpr, inReach, inCert)
 
 			// Record the input field sets — these are what a condition on this
 			// node can reference.

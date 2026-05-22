@@ -153,6 +153,26 @@ func AcceptAbsenceRemoved(exprStr string, reachableFields []string) []string {
 	return removed
 }
 
+// ApplyPortAcceptNarrowing applies field-availability inference from a route
+// port's accept expression to the provided reachable/certain maps in-place.
+// Called by both Validate and ComputeNodeFields when processing route_selector
+// nodes — the single source of truth for port-accept narrowing logic.
+func ApplyPortAcceptNarrowing(acceptExpr string, reach, cert map[string]bool) {
+	if acceptExpr == "" {
+		return
+	}
+	reachSlice := mapKeys(reach)
+	certSlice := mapKeys(cert)
+	for _, f := range NarrowCertain(acceptExpr, certSlice, reachSlice) {
+		reach[f] = true
+		cert[f] = true
+	}
+	for _, f := range AcceptAbsenceRemoved(acceptExpr, reachSlice) {
+		delete(reach, f)
+		delete(cert, f)
+	}
+}
+
 // semanticGroup describes a set of fields that become certain when a specific
 // sentinel field is referenced in the expression (conservatively: if the field
 // name appears at all in the expression it's likely being tested).
