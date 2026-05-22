@@ -2,7 +2,7 @@
 
 Rejects torrents with fewer than a minimum number of seeds. Sources seed counts in this order:
 
-1. **Fast path** — uses the `torrent_seeds` field if already set (populated by `rss`, `jackett`, or `jackett_search`).
+1. **Fast path** — uses the `torrent_seeds` field if already set (populated by `rss`, `jackett`, or `jackett`).
 2. **Live scrape** — if `torrent_seeds` is absent and scraping is enabled, resolves the info hash and performs a live tracker scrape. The result is written back to `torrent_seeds`.
 
 Entries where no seed count can be determined are left undecided (passed through unchanged).
