@@ -6,6 +6,15 @@
 const NODE_W = 200;  // node card width (px)
 const NODE_H = 80;   // fallback node height for edge midpoints
 
+// nodeCardHeight returns the actual rendered height of a node card by reading
+// its DOM offsetHeight.  Falls back to NODE_H when the element doesn't exist yet
+// (e.g. before the first renderCanvas call).  Used for region-height computation
+// so that warning badges (which make the card taller) don't overflow the pipeline box.
+function nodeCardHeight(nd) {
+  const div = document.querySelector(`.ve-node[data-id="${CSS.escape(nd.id)}"]`);
+  return (div && div.offsetHeight > 0) ? div.offsetHeight : NODE_H;
+}
+
 const ve = {
   plugins:          [],   // [{name, role, description, schema, produces, requires}]
   fieldRegistry:    [],   // [{name, type, description, set_by, known_values}] from /api/fields
@@ -896,7 +905,7 @@ function renderPipelineRegions() {
     //    delta = new - prev is zero during normal rendering (no spurious cascade).
     let regionH = 80;
     for (const n of g.nodes) {
-      const nodeBot = (n.y ?? 0) + NODE_H + (n.searchNodeIds?.length ? 100 : 24);
+      const nodeBot = (n.y ?? 0) + nodeCardHeight(n) + (n.searchNodeIds?.length ? 100 : 24);
       regionH = Math.max(regionH, nodeBot - (g._regionY ?? 0) + 24);
     }
     g._regionH = regionH;
@@ -1948,8 +1957,11 @@ function startNodeDrag(e, n) {
         const nd = findNode(id);
         const orig = origPos.get(id);
         if (!nd || !orig) continue;
-        nd.x = Math.max(0, orig.x + dx);
-        nd.y = Math.max(0, orig.y + dy);
+        const gIdx = findNodeGraph(id);
+        const gm   = gIdx >= 0 ? ve.graphs[gIdx] : null;
+        const minY = gm ? (gm._regionY ?? 0) + 40 : 0;
+        nd.x = Math.max(8, orig.x + dx);
+        nd.y = Math.max(minY, orig.y + dy);
         const div = document.querySelector(`.ve-node[data-id="${id}"]`);
         if (div) { div.style.left = nd.x + 'px'; div.style.top = nd.y + 'px'; }
       }
@@ -1971,11 +1983,16 @@ function startNodeDrag(e, n) {
   // Single-node drag (original logic).
   const origX = n.x ?? 0, origY = n.y ?? 0;
   const startX = e.clientX, startY = e.clientY;
+  const giSingle = findNodeGraph(n.id);
+  const gSingle  = giSingle >= 0 ? ve.graphs[giSingle] : null;
+  // Minimum position: keep nodes inside their pipeline region (below the label, right of left wall).
+  const minDragX = 8;
+  const minDragY = gSingle ? (gSingle._regionY ?? 0) + 40 : 0;
   ve_dragging = true;
 
   function onMove(ev) {
-    n.x = Math.max(0, origX + (ev.clientX - startX) / ve_zoom);
-    n.y = Math.max(0, origY + (ev.clientY - startY) / ve_zoom);
+    n.x = Math.max(minDragX, origX + (ev.clientX - startX) / ve_zoom);
+    n.y = Math.max(minDragY, origY + (ev.clientY - startY) / ve_zoom);
     const div = document.querySelector(`.ve-node[data-id="${n.id}"]`);
     if (div) { div.style.left = n.x + 'px'; div.style.top = n.y + 'px'; }
 
@@ -1987,7 +2004,7 @@ function startNodeDrag(e, n) {
       const prevH = g._regionH ?? 80;
       let regionH = 80;
       for (const nd of g.nodes) {
-        const nodeBot = (nd.y ?? 0) + NODE_H + (nd.searchNodeIds?.length ? 100 : 24);
+        const nodeBot = (nd.y ?? 0) + nodeCardHeight(nd) + (nd.searchNodeIds?.length ? 100 : 24);
         regionH = Math.max(regionH, nodeBot - (g._regionY ?? 0) + 24);
       }
       g._regionH = regionH;
