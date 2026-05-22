@@ -209,7 +209,12 @@ function switchView(view) {
     const load = ve.plugins.length ? Promise.resolve() : loadPalette();
     load.then(() => {
       doSwitchView('visual');
-      if (!ve_canvasInited) { initCanvasEvents(); ve_canvasInited = true; }
+      if (!ve_canvasInited) {
+        initCanvasEvents();
+        veInitPaletteState();  // restore collapsed/expanded state from localStorage
+        veInitPanelDrag();     // wire up the floating param panel drag handle
+        ve_canvasInited = true;
+      }
       textToVisualSync();
     });
   }
@@ -1623,8 +1628,9 @@ function fitVisualEditor() {
   // "height to fill the viewport from this element down" = innerHeight - top.
   const top = layout.getBoundingClientRect().top;
   const padBottom = parseFloat(getComputedStyle(document.body).paddingBottom) || 0;
-  const h = Math.floor(window.innerHeight - padBottom - top);
-  layout.style.height = Math.max(400, h) + 'px';
+  const h = Math.max(400, Math.floor(window.innerHeight - padBottom - top));
+  layout.style.height = h + 'px';
+  // The floating panel uses max-height:calc(100vh - 96px) in CSS — no JS needed.
 }
 
 // Set .editor-wrap height so the text editor fills the available viewport
@@ -2262,6 +2268,17 @@ function renderParamPanel() {
   const node = ve.selectedNodeId ? findNode(ve.selectedNodeId) : null;
   const gi   = node ? findNodeGraph(ve.selectedNodeId) : -1;
   const g    = gi >= 0 ? ve.graphs[gi] : null;
+
+  // No node selected → hide the floating panel entirely.
+  if (!node || !g) {
+    veHideParamPanel();
+    empty.style.display = ''; title.style.display = 'none';
+    body.innerHTML = ''; footer.style.display = 'none';
+    return;
+  }
+
+  // Node selected → show the floating panel.
+  veShowParamPanel();
 
   // Upstream pseudo-node: show a simple description, no config.
   if (node?.isUpstreamPseudo) {
@@ -5848,6 +5865,243 @@ function _positionEdgeTooltip(event) {
 
 function hideEdgeFieldTooltip() {
   if (_edgeTooltipEl) _edgeTooltipEl.style.display = 'none';
+}
+
+// ── palette collapse ──────────────────────────────────────────────────────────
+
+const VE_PALETTE_KEY = 'pipeliner.paletteCollapsed';
+
+function veTogglePalette() {
+  const layout = document.getElementById('ve-layout');
+  if (!layout) return;
+  const collapsed = layout.classList.toggle('palette-collapsed');
+  localStorage.setItem(VE_PALETTE_KEY, collapsed ? '1' : '0');
+  // Update collapse button icon
+  const btn = document.getElementById('ve-palette-collapse-btn');
+  if (btn) btn.textContent = collapsed ? '»' : '«';
+  // Re-fit and re-render so edge paths update to new canvas width
+  setTimeout(() => { fitVisualEditor(); updateCanvasSize(); renderEdges(); }, 0);
+}
+
+function veInitPaletteState() {
+  if (localStorage.getItem(VE_PALETTE_KEY) === '1') {
+    const layout = document.getElementById('ve-layout');
+    if (layout) layout.classList.add('palette-collapsed');
+    const btn = document.getElementById('ve-palette-collapse-btn');
+    if (btn) btn.textContent = '»';
+  }
+}
+
+// ── floating param panel ──────────────────────────────────────────────────────
+
+// Restore last saved panel position/size from localStorage.
+const VE_PANEL_POS_KEY = 'pipeliner.paramPanelPos'; // legacy key (ignored)
+
+// Show/hide the floating panel.  Called from renderParamPanel() whenever the
+// selected node changes.
+function veShowParamPanel() {
+  const panel = document.getElementById('ve-param-panel');
+  if (!panel) return;
+  // Restore saved position + size.
+  try {
+    const s = localStorage.getItem(VE_PANEL_DIM_KEY);
+    if (s) {
+      const dim = JSON.parse(s);
+      panel.style.top    = dim.top    + 'px';
+      panel.style.left   = dim.left   + 'px';
+      panel.style.right  = '';
+      if (dim.height) panel.style.height = dim.height + 'px';
+    }
+  } catch(_) {}
+  panel.classList.add('visible');
+  // After the panel is rendered with real dimensions, nudge it away from the
+  // selected node if they overlap.
+  requestAnimationFrame(veAvoidNodeOverlap);
+}
+
+// Nudge the floating panel just enough to stop it overlapping the selected
+// node.  Uses the smallest-distance move in any of the four directions so the
+// panel doesn't jump dramatically — it only moves as far as needed.
+function veAvoidNodeOverlap() {
+  if (!ve.selectedNodeId) return;
+  const panel  = document.getElementById('ve-param-panel');
+  const nodeEl = document.querySelector(`.ve-node[data-id="${ve.selectedNodeId}"]`);
+  if (!panel || !nodeEl) return;
+
+  const pr = panel.getBoundingClientRect();
+  const nr = nodeEl.getBoundingClientRect();
+
+  // No overlap — nothing to do.
+  if (pr.right <= nr.left || pr.left >= nr.right ||
+      pr.bottom <= nr.top || pr.top >= nr.bottom) return;
+
+  const M = 12; // clearance gap
+  // Four candidate moves (direction, resulting panel edge position, distance needed)
+  const candidates = [
+    {left: nr.right  + M,                top: pr.top,            dist: nr.right  + M - pr.left},   // push right
+    {left: nr.left   - pr.width - M,     top: pr.top,            dist: pr.right  - (nr.left - M)}, // push left
+    {left: pr.left,                       top: nr.bottom + M,     dist: nr.bottom + M - pr.top},    // push down
+    {left: pr.left,                       top: nr.top - pr.height - M, dist: pr.bottom - (nr.top - M)}, // push up
+  ];
+  candidates.sort((a, b) => a.dist - b.dist);
+
+  for (const c of candidates) {
+    // Accept the move only if it keeps the panel on-screen.
+    if (c.left >= 0 && c.left + pr.width  <= window.innerWidth &&
+        c.top  >= 0 && c.top  + pr.height <= window.innerHeight) {
+      panel.style.left  = c.left + 'px';
+      panel.style.right = '';
+      panel.style.top   = c.top  + 'px';
+      _savePanelDim(c.top, c.left, panel.offsetHeight);
+      return;
+    }
+  }
+  // Fallback: if no clean slot exists (very small viewport), just push to right edge.
+  const fallbackLeft = Math.max(0, Math.min(window.innerWidth - pr.width - 8, nr.right + M));
+  panel.style.left  = fallbackLeft + 'px';
+  panel.style.right = '';
+  _savePanelDim(pr.top, fallbackLeft, panel.offsetHeight);
+}
+
+function veHideParamPanel() {
+  const panel = document.getElementById('ve-param-panel');
+  if (!panel) return;
+  panel.classList.remove('visible');
+  // Clear the selected node so clicking the canvas feels natural.
+  if (ve.selectedNodeId) {
+    const prev = ve.selectedNodeId;
+    ve.selectedNodeId = null;
+    clearMultiSelect();
+    if (prev) document.querySelector(`.ve-node[data-id="${prev}"]`)?.classList.remove('selected');
+    renderEdges();
+  }
+}
+
+// ── param panel drag ──────────────────────────────────────────────────────────
+//
+// The panel is position:fixed — all coordinates are VIEWPORT space.
+// getBoundingClientRect() on a fixed element returns viewport coords that
+// map 1:1 to style.left/top, so there is no parent-offset mismatch.
+// We intentionally keep left+top throughout (no left→right conversion)
+// to avoid any subpixel snap on drop.
+
+const VE_PANEL_DIM_KEY = 'pipeliner.paramPanelDim'; // stores {top,left,height}
+let _panelDrag   = null; // {startX, startY, startLeft, startTop}
+let _panelResize = null; // {startY, startTop, startH, edge:'top'|'bottom'}
+
+function veInitPanelDrag() {
+  const header = document.getElementById('ve-param-header');
+  const panel  = document.getElementById('ve-param-panel');
+  if (!header || !panel) return;
+
+  header.addEventListener('pointerdown', e => {
+    if (e.target.closest('button, input, select, textarea, a')) return;
+    e.preventDefault();
+    panel.classList.add('dragging');
+
+    // For position:fixed, getBoundingClientRect() == viewport coords == style values.
+    const rect = panel.getBoundingClientRect();
+    panel.style.left  = rect.left + 'px';
+    panel.style.right = '';
+    panel.style.top   = rect.top  + 'px';
+
+    _panelDrag = {
+      startX:    e.clientX,
+      startY:    e.clientY,
+      startLeft: rect.left,
+      startTop:  rect.top,
+    };
+    document.addEventListener('pointermove', _onPanelDragMove);
+    document.addEventListener('pointerup',   _onPanelDragEnd, {once: true});
+  });
+
+  // Wire resize handles.
+  _wireResizeHandle('ve-param-resize-top',    'top');
+  _wireResizeHandle('ve-param-resize-bottom', 'bottom');
+}
+
+function _wireResizeHandle(id, edge) {
+  const handle = document.getElementById(id);
+  const panel  = document.getElementById('ve-param-panel');
+  if (!handle || !panel) return;
+  handle.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    e.stopPropagation();
+    panel.classList.add('resizing');
+    const rect = panel.getBoundingClientRect();
+    panel.style.height = rect.height + 'px';
+    panel.style.maxHeight = 'none'; // override CSS max-height while resizing
+    _panelResize = {startY: e.clientY, startTop: rect.top, startH: rect.height, edge};
+    document.addEventListener('pointermove', _onPanelResizeMove);
+    document.addEventListener('pointerup',   _onPanelResizeEnd, {once: true});
+  });
+}
+
+function _onPanelDragMove(e) {
+  if (!_panelDrag) return;
+  const panel = document.getElementById('ve-param-panel');
+  if (!panel) return;
+  const dx    = e.clientX - _panelDrag.startX;
+  const dy    = e.clientY - _panelDrag.startY;
+  const GRIP  = 48; // min pixels of panel that must stay on-screen
+  const newLeft = Math.max(-(panel.offsetWidth - GRIP),
+                  Math.min(window.innerWidth   - GRIP, _panelDrag.startLeft + dx));
+  const newTop  = Math.max(0,
+                  Math.min(window.innerHeight  - GRIP, _panelDrag.startTop  + dy));
+  panel.style.left = newLeft + 'px';
+  panel.style.top  = newTop  + 'px';
+}
+
+function _onPanelDragEnd() {
+  document.removeEventListener('pointermove', _onPanelDragMove);
+  const panel = document.getElementById('ve-param-panel');
+  if (!panel) { _panelDrag = null; return; }
+  panel.classList.remove('dragging');
+  // Keep left+top — no left→right conversion to avoid any subpixel snap.
+  const rect = panel.getBoundingClientRect();
+  _savePanelDim(rect.top, rect.left, panel.offsetHeight);
+  _panelDrag = null;
+}
+
+// ── param panel resize ────────────────────────────────────────────────────────
+
+const MIN_PANEL_H = 120;
+
+function _onPanelResizeMove(e) {
+  if (!_panelResize) return;
+  const panel = document.getElementById('ve-param-panel');
+  if (!panel) return;
+  const dy = e.clientY - _panelResize.startY;
+
+  if (_panelResize.edge === 'bottom') {
+    const newH = Math.max(MIN_PANEL_H,
+                 Math.min(window.innerHeight - _panelResize.startTop - 8,
+                          _panelResize.startH + dy));
+    panel.style.height = newH + 'px';
+  } else {
+    // top edge: move top boundary, keeping the bottom fixed
+    const newTop = Math.max(0,
+                   Math.min(_panelResize.startTop + _panelResize.startH - MIN_PANEL_H,
+                            _panelResize.startTop + dy));
+    const newH   = _panelResize.startH - (newTop - _panelResize.startTop);
+    panel.style.top    = newTop + 'px';
+    panel.style.height = newH   + 'px';
+  }
+}
+
+function _onPanelResizeEnd() {
+  document.removeEventListener('pointermove', _onPanelResizeMove);
+  const panel = document.getElementById('ve-param-panel');
+  if (!panel) { _panelResize = null; return; }
+  panel.classList.remove('resizing');
+  panel.style.maxHeight = ''; // restore CSS max-height
+  const rect = panel.getBoundingClientRect();
+  _savePanelDim(rect.top, rect.left, panel.offsetHeight);
+  _panelResize = null;
+}
+
+function _savePanelDim(top, left, height) {
+  localStorage.setItem(VE_PANEL_DIM_KEY, JSON.stringify({top, left, height}));
 }
 
 // ── utility ───────────────────────────────────────────────────────────────────
