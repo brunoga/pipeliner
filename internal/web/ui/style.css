@@ -640,11 +640,15 @@ body.dark {
 
 .ve-layout {
   display:grid;
-  grid-template-columns:200px 1fr 260px;
+  grid-template-columns:200px 1fr;
   gap:12px;
-  /* height is set dynamically by fitVisualEditor() — no CSS fallback needed
-     because #view-visual starts display:none, so it can't overflow before JS runs. */
+  /* height is set dynamically by fitVisualEditor(). */
   min-height:400px;
+  position:relative;
+}
+/* Collapsed state: palette shrinks to a thin strip */
+.ve-layout.palette-collapsed {
+  grid-template-columns:36px 1fr;
 }
 
 /* palette */
@@ -652,11 +656,49 @@ body.dark {
   border:1px solid var(--border); border-radius:4px;
   background:var(--surface);
   display:flex; flex-direction:column; overflow:hidden;
+  transition:opacity .2s;
+  grid-column: 1;
+  grid-row: 1;
 }
+/* Hide palette body content in collapsed mode, show collapsed strip */
+.ve-layout.palette-collapsed .ve-palette { display:none; }
+.ve-palette-collapsed-strip {
+  display:none; /* shown only when collapsed */
+  grid-column: 1; grid-row: 1;
+  border:1px solid var(--border); border-radius:4px;
+  background:var(--surface);
+  align-items:flex-start; justify-content:center;
+  padding:10px 0;
+  cursor:pointer;
+  transition:background .15s, border-color .15s;
+}
+.ve-layout.palette-collapsed .ve-palette-collapsed-strip {
+  display:flex;
+}
+.ve-palette-collapsed-strip:hover {
+  border-color:var(--accent);
+  background:color-mix(in srgb, var(--accent) 5%, var(--surface));
+}
+.ve-palette-expand-icon {
+  font-size:14px; color:var(--muted); user-select:none;
+}
+.ve-palette-collapsed-strip:hover .ve-palette-expand-icon { color:var(--accent); }
+
+/* Palette topbar: search + collapse button side by side */
+.ve-palette-topbar {
+  display:flex; align-items:center; gap:4px; padding:6px 6px 0;
+}
+.ve-palette-collapse-btn {
+  flex-shrink:0; background:none; border:none; color:var(--muted);
+  cursor:pointer; font-size:13px; padding:3px 5px; border-radius:3px;
+  line-height:1; transition:color .15s, background .15s;
+}
+.ve-palette-collapse-btn:hover { color:var(--text); background:rgba(255,255,255,.06); }
+
 .ve-palette-search {
-  margin:8px; padding:5px 8px; border:1px solid var(--border);
+  flex:1; padding:5px 8px; border:1px solid var(--border);
   border-radius:3px; background:var(--bg); color:var(--text);
-  font-size:11px; font-family:var(--mono-font); outline:none;
+  font-size:11px; font-family:var(--mono-font); outline:none; min-width:0;
 }
 .ve-palette-search:focus { border-color:var(--accent); }
 .ve-palette-body {
@@ -1346,16 +1388,66 @@ body.dark {
 
 /* param panel */
 .ve-param-panel {
-  border:1px solid var(--border); border-radius:4px;
+  /* Viewport-level floating panel: fixed so it can be dragged anywhere on
+     screen without parent-coordinate translation issues. */
+  position:fixed;
+  top:80px; right:16px;   /* default: below toolbar, flush right */
+  width:300px;
+  max-height:calc(100vh - 96px);  /* leave room for toolbar + margin */
+  z-index:200;
+  border:1px solid var(--border); border-radius:8px;
   background:var(--surface);
   display:flex; flex-direction:column; overflow:hidden;
+  box-shadow:0 8px 32px rgba(0,0,0,.55), 0 2px 8px rgba(0,0,0,.4);
+  /* Hidden by default; shown when a node is selected */
+  opacity:0; pointer-events:none;
+  transform:translateY(-4px);
+  transition:opacity .18s ease, transform .18s ease;
 }
+.ve-param-panel.visible {
+  opacity:1; pointer-events:auto;
+  transform:translateY(0);
+}
+/* While dragging or resizing: disable transition */
+.ve-param-panel.dragging,
+.ve-param-panel.resizing { transition:none; }
+
+/* Resize handles: thin strips at top and bottom edges */
+.ve-param-resize-top,
+.ve-param-resize-bottom {
+  flex-shrink:0; height:5px; cursor:ns-resize;
+  background:transparent; user-select:none;
+}
+.ve-param-resize-top {
+  border-radius:8px 8px 0 0;
+}
+.ve-param-resize-bottom {
+  border-radius:0 0 8px 8px;
+}
+.ve-param-resize-top:hover,
+.ve-param-resize-bottom:hover {
+  background:color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
 .ve-param-header {
   padding:10px 14px; border-bottom:1px solid var(--border); flex-shrink:0;
   background:var(--surface);
+  cursor:grab; user-select:none; /* drag handle */
+  display:flex; align-items:flex-start;
 }
+.ve-param-header:active { cursor:grabbing; }
+/* Push content to fill remaining width beside the close button */
+.ve-param-header > :first-child { flex:1; min-width:0; }
 .ve-param-name { font-size:13px; font-weight:700; color:var(--text); letter-spacing:-0.01em; }
 .ve-param-phase { font-size:9px; color:var(--muted); text-transform:uppercase; letter-spacing:.08em; margin-top:2px; }
+/* Close button in panel header */
+.ve-param-close-btn {
+  flex-shrink:0; background:none; border:none; color:var(--muted);
+  cursor:pointer; font-size:16px; padding:0 0 0 8px; line-height:1;
+  align-self:flex-start; margin-top:1px;
+  transition:color .15s;
+}
+.ve-param-close-btn:hover { color:var(--red); }
 .ve-param-body {
   flex:1; overflow-y:auto; padding:12px 14px;
   background:var(--surface);
