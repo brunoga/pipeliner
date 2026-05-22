@@ -89,6 +89,48 @@ func TestNarrowedCertain(t *testing.T) {
 	}
 }
 
+func TestNarrowedCertainAbsenceCheck(t *testing.T) {
+	// field == "" means the field is absent — it must NOT be promoted to certain.
+	e, err := Compile(`field == ""`)
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+	got := e.NarrowedCertain()
+	for _, f := range got {
+		if f == "field" {
+			t.Error(`NarrowedCertain("field == \"\"") must not promote "field" (absence check, field is absent)`)
+		}
+	}
+
+	// field == 0 (numeric absence) must also not promote.
+	e2, err := Compile(`count == 0`)
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+	got2 := e2.NarrowedCertain()
+	for _, f := range got2 {
+		if f == "count" {
+			t.Error(`NarrowedCertain("count == 0") must not promote "count" (absence check)`)
+		}
+	}
+
+	// field == "something" should still promote (non-empty value).
+	e3, err := Compile(`status == "active"`)
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+	got3 := e3.NarrowedCertain()
+	found := false
+	for _, f := range got3 {
+		if f == "status" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error(`NarrowedCertain("status == \"active\"") should promote "status"`)
+	}
+}
+
 func TestAbsenceRemovedFields(t *testing.T) {
 	cases := []struct {
 		expr     string

@@ -66,6 +66,49 @@ func TestStateTransitions(t *testing.T) {
 			t.Errorf("want reject reason %q, got %q", "too small", e.RejectReason)
 		}
 	})
+
+	t.Run("fail is no-op when already rejected", func(t *testing.T) {
+		e := New("t", "u")
+		e.Reject("rejected first")
+		e.Fail("later failure")
+		if !e.IsRejected() {
+			t.Errorf("rejection should win over fail, got %s", e.State)
+		}
+		if e.FailReason != "" {
+			t.Errorf("FailReason should be empty when rejected, got %q", e.FailReason)
+		}
+	})
+
+	t.Run("accept with reason stores AcceptReason", func(t *testing.T) {
+		e := New("t", "u")
+		e.Accept("series: Breaking Bad S01E01 matched")
+		if !e.IsAccepted() {
+			t.Errorf("expected accepted, got %s", e.State)
+		}
+		if e.AcceptReason != "series: Breaking Bad S01E01 matched" {
+			t.Errorf("want AcceptReason %q, got %q", "series: Breaking Bad S01E01 matched", e.AcceptReason)
+		}
+	})
+
+	t.Run("accept without reason leaves AcceptReason empty", func(t *testing.T) {
+		e := New("t", "u")
+		e.Accept()
+		if e.AcceptReason != "" {
+			t.Errorf("want empty AcceptReason, got %q", e.AcceptReason)
+		}
+	})
+
+	t.Run("accept is no-op when already rejected even with reason", func(t *testing.T) {
+		e := New("t", "u")
+		e.Reject("bad")
+		e.Accept("should not win")
+		if !e.IsRejected() {
+			t.Errorf("rejection should win, got %s", e.State)
+		}
+		if e.AcceptReason != "" {
+			t.Errorf("AcceptReason should not be set on rejected entry, got %q", e.AcceptReason)
+		}
+	})
 }
 
 func TestFieldsRoundTrip(t *testing.T) {
@@ -137,7 +180,7 @@ func TestFieldsWrongType(t *testing.T) {
 
 func TestClone(t *testing.T) {
 	e := New("original", "http://orig.com")
-	e.Accept()
+	e.Accept("test reason")
 	e.Set("key", "value")
 
 	c := e.Clone()
@@ -145,6 +188,9 @@ func TestClone(t *testing.T) {
 	// clone has same values
 	if c.Title != e.Title || c.URL != e.URL || c.State != e.State {
 		t.Errorf("clone fields differ from original")
+	}
+	if c.AcceptReason != e.AcceptReason {
+		t.Errorf("clone AcceptReason %q differs from original %q", c.AcceptReason, e.AcceptReason)
 	}
 	if c.GetString("key") != "value" {
 		t.Errorf("clone missing field")
