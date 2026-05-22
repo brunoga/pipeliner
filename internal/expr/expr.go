@@ -114,6 +114,97 @@ func (e *Expr) NarrowedCertain() []string {
 	return dedupStrings(out)
 }
 
+// AbsencePromotedFields returns fields that should be promoted to certain
+// when this expression is used as a REJECT condition and evaluates to FALSE.
+// "reject: field == ''" → passing entries have field set → promote.
+//
+// AND: NOT(A∧B) = ¬A∨¬B — ambiguous, returns nil.
+// OR:  NOT(A∨B) = ¬A∧¬B — all fields absent; if all clauses are absence-checks
+//   return them all.
+// Single absence-check clause: returns that field.
+func (e *Expr) AbsencePromotedFields() []string {
+	if e.node == nil {
+		return nil
+	}
+	return absencePromoted(e.node)
+}
+
+// PresenceRemovedFields returns fields that should be removed from reachable
+// when this expression is used as a REJECT condition and evaluates to FALSE.
+// "reject: field != ''" → passing entries lack field → remove.
+//
+// AND: NOT(A∧B) = ¬A∨¬B — ambiguous, returns nil.
+// OR:  NOT(A∨B) = ¬A∧¬B — both absent; if all clauses are presence-checks
+//   return them all.
+// Single presence-check clause: returns that field.
+func (e *Expr) PresenceRemovedFields() []string {
+	if e.node == nil {
+		return nil
+	}
+	return presenceRemoved(e.node)
+}
+
+// absencePromoted walks the AST and returns fields from absence-check ops
+// (== "", == 0) respecting OR-union / AND-nil semantics.
+func absencePromoted(n node) []string {
+	switch v := n.(type) {
+	case *binaryNode:
+		switch v.op {
+		case "or", "||":
+			l := absencePromoted(v.left)
+			r := absencePromoted(v.right)
+			if l == nil || r == nil {
+				return nil // one branch isn't a pure absence check — ambiguous
+			}
+			return append(l, r...)
+		case "and", "&&":
+			return nil // NOT(A∧B) = ¬A∨¬B — can't guarantee either field present
+		case "==":
+			if id, ok := v.left.(*identNode); ok {
+				if s, ok2 := v.right.(*stringNode); ok2 && s.v == "" {
+					return []string{id.name}
+				}
+				if num, ok2 := v.right.(*numberNode); ok2 && num.v == 0 {
+					return []string{id.name}
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// presenceRemoved walks the AST and returns fields from presence-check ops
+// (!= "", > 0) respecting OR-union / AND-nil semantics.
+func presenceRemoved(n node) []string {
+	switch v := n.(type) {
+	case *binaryNode:
+		switch v.op {
+		case "or", "||":
+			l := presenceRemoved(v.left)
+			r := presenceRemoved(v.right)
+			if l == nil || r == nil {
+				return nil
+			}
+			return append(l, r...)
+		case "and", "&&":
+			return nil // NOT(A∧B) = ¬A∨¬B — can't guarantee either field absent
+		case "!=":
+			if id, ok := v.left.(*identNode); ok {
+				if s, ok2 := v.right.(*stringNode); ok2 && s.v == "" {
+					return []string{id.name}
+				}
+			}
+		case ">":
+			if id, ok := v.left.(*identNode); ok {
+				if num, ok2 := v.right.(*numberNode); ok2 && num.v == 0 {
+					return []string{id.name}
+				}
+			}
+		}
+	}
+	return nil
+}
+
 func collectFieldRefs(n node, seen map[string]bool, out *[]string) {
 	switch v := n.(type) {
 	case *identNode:

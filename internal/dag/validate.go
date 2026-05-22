@@ -168,6 +168,14 @@ func Validate(g *Graph, reg func(name string) (*plugin.Descriptor, bool)) (errs,
 				reach[f] = true
 			}
 
+			// For condition nodes: apply narrowing from the rule expressions so
+			// that the Validate() field-certainty analysis matches what the UI
+			// shows.  accept rules promote fields; reject rules either remove or
+			// promote depending on whether they use presence or absence ops.
+			if n.PluginName == "condition" {
+				applyConditionNarrowingValidate(n.Config, reach, cert)
+			}
+
 			// Propagate fields from list= and search= sub-plugins configured on
 			// this node. Their produced fields are visible to all downstream nodes.
 			for _, key := range []string{"list", "search"} {
@@ -248,6 +256,72 @@ func copySet(s map[string]bool) map[string]bool {
 		out[k] = v
 	}
 	return out
+}
+
+// applyConditionNarrowingValidate applies condition-expression narrowing to the
+// field sets being built by Validate().  It mirrors the client-side logic in
+// visual-editor.js so that server-side field warnings are consistent with what
+// the condition builder UI shows.
+func applyConditionNarrowingValidate(config map[string]any, reach, cert map[string]bool) {
+	type rule struct{ ruleType, expr string }
+	var rules []rule
+
+	// Single-rule format: {accept: "expr"} or {reject: "expr"}
+	if accept, ok := config["accept"].(string); ok && accept != "" {
+		rules = append(rules, rule{"accept", accept})
+	}
+	if reject, ok := config["reject"].(string); ok && reject != "" {
+		rules = append(rules, rule{"reject", reject})
+	}
+	// Multi-rule format: {rules: [{accept: "..."}, ...]}
+	if items, ok := config["rules"].([]any); ok {
+		for _, item := range items {
+			m, ok := item.(map[string]any)
+			if !ok {
+				continue
+			}
+			if accept, ok := m["accept"].(string); ok && accept != "" {
+				rules = append(rules, rule{"accept", accept})
+			}
+			if reject, ok := m["reject"].(string); ok && reject != "" {
+				rules = append(rules, rule{"reject", reject})
+			}
+		}
+	}
+
+	// Helper: convert map[string]bool to sorted []string.
+	keys := func(m map[string]bool) []string {
+		out := make([]string, 0, len(m))
+		for k := range m {
+			out = append(out, k)
+		}
+		return out
+	}
+
+	for _, r := range rules {
+		certSlice  := keys(cert)
+		reachSlice := keys(reach)
+
+		switch r.ruleType {
+		case "accept":
+			// Accept rules promote fields to certain.
+			for _, f := range NarrowCertain(r.expr, certSlice, reachSlice) {
+				reach[f] = true
+				cert[f] = true
+			}
+		case "reject":
+			// Reject presence-op rules remove fields from reachable/certain.
+			for _, f := range RejectPresenceRemoved(r.expr, reachSlice) {
+				delete(reach, f)
+				delete(cert, f)
+			}
+			// Reject absence-op rules promote fields to certain.
+			for _, f := range RejectAbsencePromoted(r.expr, certSlice, reachSlice) {
+				reach[f] = true
+				cert[f] = true
+			}
+		}
+	}
 }
 
 // configStringSlice reads a []string or []any{string...} value from a node
