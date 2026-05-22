@@ -34,5 +34,11 @@ archives:
 checksum:
   name_template: checksums.txt
 
+release:
+  # Allow overwriting an existing release when a tag is re-pushed
+  # (e.g. after fixing the tag to point at the right commit).
+  # Without this, GoReleaser fails with "422 already_exists" on every asset.
+  replace_existing_artifacts: true
+
 changelog:
   use: github-native
