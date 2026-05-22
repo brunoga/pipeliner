@@ -2462,6 +2462,8 @@ function renderParamPanel() {
   html.push(`<div class="ve-node-fields" data-node-id="${esc(node.id)}">`);
   if (node.plugin === 'condition') {
     html.push(renderCondRulesWidget(node));
+  } else if (node.plugin === 'route') {
+    html.push(renderRouteRulesWidget(node));
   } else if (meta.schema?.length) {
     for (const f of meta.schema) {
       // Skip 'search' and 'list' fields — managed visually by the sections above.
@@ -2505,7 +2507,7 @@ function renderParamPanel() {
     const n   = findNode(nid);
     if (!n) return;
     const m = pluginMeta(n.plugin) || {schema: []};
-    if (n.plugin !== 'condition' && m.schema?.length) {
+    if (n.plugin !== 'condition' && n.plugin !== 'route' && m.schema?.length) {
       container.querySelectorAll('[data-field]').forEach(el => {
         // input: save model + sync text editor without re-rendering param panel
         // (re-rendering on every keystroke destroys focus mid-typing).
@@ -2513,7 +2515,7 @@ function renderParamPanel() {
         // change (blur): full re-render so canvas node preview updates.
         el.addEventListener('change', () => { collectParams(n, m.schema, container); veRender(); onModelChange(); });
       });
-    } else if (n.plugin !== 'condition' && nid === node.id) {
+    } else if (n.plugin !== 'condition' && n.plugin !== 'route' && nid === node.id) {
       wireGenericKV(container, n);
     }
   });
@@ -3261,6 +3263,79 @@ function renderCondRulesWidget(node) {
   </div>`;
 }
 
+// renderRouteRulesWidget renders the route port editor for a route node.
+// Each port has a name input and a full expression builder for its accept condition.
+function renderRouteRulesWidget(node) {
+  const rules = Array.isArray(node.config?.rules) ? node.config.rules : [];
+  const nid   = JSON.stringify(node.id);
+  const rowsHtml = rules.map((r, i) => renderRouteRuleRow(r, i, node)).join('');
+  return `<div class="ve-field">
+    <div class="ve-field-label">Ports
+      <span class="ve-field-hint">— top to bottom; first match wins; unmatched entries are rejected</span>
+    </div>
+    <div class="ve-cond-rules" id="ve-route-rules">${rowsHtml || '<div class="ve-cond-empty">No ports yet</div>'}</div>
+    <div style="display:flex;gap:6px;margin-top:6px">
+      <button class="ve-add-kv" onclick="addRule(${nid},'rules')">+ Add port</button>
+    </div>
+  </div>`;
+}
+
+// Render a single route port row at index ruleIdx.
+function renderRouteRuleRow(rule, ruleIdx, node) {
+  const nid    = JSON.stringify(node.id);
+  const expr   = rule.accept || '';
+  const model  = exprToFlatModel(expr);
+  const fkey   = _builderRawKey('route', node.id, ruleIdx);
+  const rawMode = _forcedRaw.has(fkey) || !model || expr.trim() === '';
+
+  const nf = node.fields || {certain: [], reachable: []};
+
+  const builderHtml = rawMode ? '' : renderBuilderBody(model, ruleIdx, nf, 'route');
+  const rawHtml = rawMode
+    ? `<textarea class="ve-cond-expr ve-cond-raw-ta" rows="2"
+           placeholder="condition expression…"
+           oninput="routeRawInput(${ruleIdx},this.value)"
+           onchange="routeRawChanged(${ruleIdx},this.value)">${esc(expr)}</textarea>`
+    : '';
+
+  const rawBtn = `<button class="ve-cond-raw-btn"
+      title="${rawMode ? 'Switch to builder' : 'Switch to raw mode'}"
+      onclick="toggleRouteRawMode(${ruleIdx})">${rawMode ? '≡ builder' : '⋮ raw'}</button>`;
+
+  // Route accept rules can both promote (presence ops) and remove (absence ops).
+  // Use node.fields if pre-computed; fall back to computeInputFields.
+  const inputFields = node.fields || computeInputFields(node);
+  const reachAll = {
+    certain:   inputFields.certain,
+    reachable: [...inputFields.certain, ...inputFields.reachable],
+  };
+  const promoted = condNarrowedFields(expr, reachAll);
+  const removed  = condAcceptAbsenceRemovedFields(expr, {reachable: reachAll.reachable});
+  // Show promoted first; if both exist, show both on separate lines
+  const narrowHtml = [
+    promoted.length ? `<div class="ve-cond-narrow">↳ Promotes to certain: ${promoted.map(f => `<code>${esc(f)}</code>`).join(', ')}</div>` : '',
+    removed.length  ? `<div class="ve-cond-narrow ve-cond-narrow-remove">↳ Removes from available: ${removed.map(f => `<code>${esc(f)}</code>`).join(', ')}</div>` : '',
+  ].join('');
+
+  const previewHtml = (!rawMode && expr)
+    ? `<div class="ve-cond-preview">${esc(expr)}</div>`
+    : '';
+
+  return `<div class="ve-cond-rule" data-rule-idx="${ruleIdx}">
+    <div class="ve-cond-rule-header">
+      <input class="ve-rule-name ve-cond-port-name" placeholder="port name"
+        value="${esc(rule.name || '')}"
+        oninput="updateRuleNameOnly(${nid},'rules',${ruleIdx},this.value)"
+        onblur="syncRoutePortsForNode(${nid})">
+      ${rawBtn}
+      <button class="ve-cond-del" onclick="removeRule(${nid},'rules',${ruleIdx})" title="Remove">×</button>
+    </div>
+    ${rawMode ? rawHtml : builderHtml}
+    ${previewHtml}
+    ${narrowHtml}
+  </div>`;
+}
+
 // Render a single condition rule at index i.
 function renderCondRule(rule, i, nodeFields) {
   const {type, expr} = rule;
@@ -3314,7 +3389,9 @@ function renderCondRule(rule, i, nodeFields) {
 }
 
 // Render the builder body (field picker + op + value rows) for a rule.
-function renderCondBuilderBody(model, ruleIdx, nodeFields) {
+// mode='cond' uses cond* handler names; mode='route' uses route* handler names.
+function renderBuilderBody(model, ruleIdx, nodeFields, mode) {
+  mode = mode || 'cond';
   const {clauses, combinator} = model;
   const nf = computeInputFields(findNode(ve.selectedNodeId));
   const certain  = new Set(nf.certain);
@@ -3331,6 +3408,10 @@ function renderCondBuilderBody(model, ruleIdx, nodeFields) {
     return `<option value="${esc(name)}" ${selected===name?'selected':''}>${group}${esc(name)}</option>`;
   }
 
+  const p = mode; // handler prefix: 'cond' or 'route'
+  // The combinator toggle has an irregular name: toggleCombinator (cond) vs routeToggleCombinator (route)
+  const combToggleFn = mode === 'cond' ? 'toggleCombinator' : 'routeToggleCombinator';
+
   const clauseRows = clauses.map((c, ci) => {
     const fieldType = getFieldType(c.field);
     const ops       = getOpsForType(fieldType);
@@ -3344,7 +3425,7 @@ function renderCondBuilderBody(model, ruleIdx, nodeFields) {
     const optsReach = reachFields.map(f => fieldOption(f, c.field)).join('');
     const optsExtra = extraKnown.map(f  => fieldOption(f, c.field)).join('');
     const fieldSel  = `<select class="ve-cb-field" data-rule="${ruleIdx}" data-clause="${ci}"
-        onchange="condFieldChanged(${ruleIdx},${ci},this.value)">
+        onchange="${p}FieldChanged(${ruleIdx},${ci},this.value)">
         ${certFields.length  ? `<optgroup label="✓ certain">${optsCert}</optgroup>` : ''}
         ${reachFields.length ? `<optgroup label="◐ reachable">${optsReach}</optgroup>` : ''}
         ${extraKnown.length  ? `<optgroup label="other">${optsExtra}</optgroup>` : ''}
@@ -3353,7 +3434,7 @@ function renderCondBuilderBody(model, ruleIdx, nodeFields) {
       </select>`;
 
     const opsSel = `<select class="ve-cb-op" data-rule="${ruleIdx}" data-clause="${ci}"
-        onchange="condOpChanged(${ruleIdx},${ci},this.value)">
+        onchange="${p}OpChanged(${ruleIdx},${ci},this.value)">
         ${ops.map(o => `<option value="${esc(o.id)}" ${c.op===o.id?'selected':''}>${esc(o.label)}</option>`).join('')}
       </select>`;
 
@@ -3372,30 +3453,35 @@ function renderCondBuilderBody(model, ruleIdx, nodeFields) {
           ${listAttr}
           data-rule="${ruleIdx}" data-clause="${ci}"
           placeholder="value"
-          oninput="condValChanged(${ruleIdx},${ci},this.value,this)"
-          onchange="condValChanged(${ruleIdx},${ci},this.value,this)">
+          oninput="${p}ValChanged(${ruleIdx},${ci},this.value,this)"
+          onchange="${p}ValChanged(${ruleIdx},${ci},this.value,this)">
           ${datalist}`;
     }
 
     const combRow = (ci < clauses.length - 1)
       ? `<div class="ve-cb-combinator"
-            onclick="toggleCombinator(${ruleIdx})"
+            onclick="${combToggleFn}(${ruleIdx})"
             title="Click to toggle AND / OR">${combinator}</div>`
       : '';
 
     return `<div class="ve-cb-clause">
         ${fieldSel}${opsSel}${valWidget}
         <button class="ve-cond-del ve-cb-clause-del"
-                onclick="condDeleteClause(${ruleIdx},${ci})" title="Remove clause">×</button>
+                onclick="${p}DeleteClause(${ruleIdx},${ci})" title="Remove clause">×</button>
       </div>${combRow}`;
   }).join('');
 
   return `<div class="ve-cond-builder" data-rule="${ruleIdx}">
     ${clauseRows || '<div class="ve-cond-empty">No clauses — add one below</div>'}
     <div style="display:flex;gap:4px;margin-top:4px">
-      <button class="ve-add-kv" onclick="condAddClause(${ruleIdx})">+ Clause</button>
+      <button class="ve-add-kv" onclick="${p}AddClause(${ruleIdx})">+ Clause</button>
     </div>
   </div>`;
+}
+
+// Backwards-compat alias
+function renderCondBuilderBody(model, ruleIdx, nodeFields) {
+  return renderBuilderBody(model, ruleIdx, nodeFields, 'cond');
 }
 
 // ── condition builder event handlers ─────────────────────────────────────────
@@ -3414,6 +3500,129 @@ function _condSetRules(rules) {
   onModelChange();  // updates text editor; also schedules a debounced textToVisualSync
   veRender();       // immediate re-render so the builder UI reflects the new rules
 }
+
+// ── shared expression-builder helpers ────────────────────────────────────────
+// These are the single source of truth for reading/writing clause expressions
+// in both condition and route rule editors.
+
+// _builderGetExpr: returns the expression string for rule ruleIdx.
+// mode='cond' reads from condition config; mode='route' reads from route rules array.
+function _builderGetExpr(mode, ruleIdx) {
+  if (mode === 'cond') return _condGetRules()[ruleIdx]?.expr || '';
+  const node = findNode(ve.selectedNodeId);
+  const rules = Array.isArray(node?.config?.rules) ? node.config.rules : [];
+  return rules[ruleIdx]?.accept || '';
+}
+
+// _builderSetExpr: writes a new expression for rule ruleIdx and persists.
+function _builderSetExpr(mode, ruleIdx, expr) {
+  if (mode === 'cond') {
+    const rules = _condGetRules();
+    if (!rules[ruleIdx]) return;
+    rules[ruleIdx].expr = expr;
+    _condSetRules(rules);
+    return;
+  }
+  const node = findNode(ve.selectedNodeId);
+  const rules = Array.isArray(node?.config?.rules) ? node.config.rules : [];
+  if (!rules[ruleIdx]) return;
+  rules[ruleIdx].accept = expr;
+  syncRoutePortsForNode(node.id);
+  onModelChange();
+  veRender();
+}
+
+function _builderFieldChanged(mode, ruleIdx, clauseIdx, newField) {
+  const model = exprToFlatModel(_builderGetExpr(mode, ruleIdx));
+  if (!model) return;
+  const c = model.clauses[clauseIdx];
+  if (!c) return;
+  c.field = newField;
+  const ops = getOpsForType(getFieldType(newField));
+  c.op    = ops[0]?.id || '==';
+  c.value = '';
+  _builderSetExpr(mode, ruleIdx, flatModelToExpr(model.clauses, model.combinator));
+}
+
+function _builderOpChanged(mode, ruleIdx, clauseIdx, newOp) {
+  const model = exprToFlatModel(_builderGetExpr(mode, ruleIdx));
+  if (!model) return;
+  const c = model.clauses[clauseIdx];
+  if (!c) return;
+  c.op    = newOp;
+  c.value = opIsNoValue(newOp) ? '' : c.value;
+  _builderSetExpr(mode, ruleIdx, flatModelToExpr(model.clauses, model.combinator));
+}
+
+function _builderValChanged(mode, ruleIdx, clauseIdx, newVal, inputEl) {
+  const model = exprToFlatModel(_builderGetExpr(mode, ruleIdx));
+  if (!model) return;
+  const c = model.clauses[clauseIdx];
+  if (!c) return;
+  const ft = getFieldType(c.field);
+  if (ft === 'int' || ft === 'int64') c.value = parseInt(newVal, 10) || 0;
+  else if (ft === 'float')             c.value = parseFloat(newVal)  || 0;
+  else                                 c.value = newVal;
+  const newExpr = flatModelToExpr(model.clauses, model.combinator);
+  // Update preview directly for smooth typing
+  const ruleEl  = inputEl?.closest('.ve-cond-rule');
+  const preview = ruleEl?.querySelector('.ve-cond-preview');
+  if (preview) preview.textContent = newExpr;
+  // For condition, update config without re-render (avoids losing focus)
+  if (mode === 'cond') {
+    const rules = _condGetRules();
+    if (rules[ruleIdx]) { rules[ruleIdx].expr = newExpr; }
+    const node = findNode(ve.selectedNodeId);
+    if (node) { node.config = buildCondConfig(rules); onModelChange(); }
+    return;
+  }
+  _builderSetExpr(mode, ruleIdx, newExpr);
+}
+
+function _builderAddClause(mode, ruleIdx) {
+  const node  = findNode(ve.selectedNodeId);
+  const nf    = node?.fields || {certain: [], reachable: []};
+  const model = exprToFlatModel(_builderGetExpr(mode, ruleIdx));
+  const defaultField = nf.reachable[0] || nf.certain[0] || 'title';
+  const ops          = getOpsForType(getFieldType(defaultField));
+  const newClause    = {field: defaultField, op: ops[0]?.id || '==', value: ''};
+  if (model) {
+    model.clauses.push(newClause);
+    _builderSetExpr(mode, ruleIdx, flatModelToExpr(model.clauses, model.combinator));
+  } else {
+    _builderSetExpr(mode, ruleIdx, clauseToStr(newClause.field, newClause.op, newClause.value));
+  }
+}
+
+function _builderDeleteClause(mode, ruleIdx, clauseIdx) {
+  const model = exprToFlatModel(_builderGetExpr(mode, ruleIdx));
+  if (!model) return;
+  model.clauses.splice(clauseIdx, 1);
+  _builderSetExpr(mode, ruleIdx, flatModelToExpr(model.clauses, model.combinator));
+}
+
+function _builderToggleCombinator(mode, ruleIdx) {
+  const model = exprToFlatModel(_builderGetExpr(mode, ruleIdx));
+  if (!model) return;
+  model.combinator = model.combinator === 'and' ? 'or' : 'and';
+  _builderSetExpr(mode, ruleIdx, flatModelToExpr(model.clauses, model.combinator));
+}
+
+// Named shortcuts for inline HTML onclick — condition (keep same names, no HTML changes)
+function condFieldChanged(r, c, f)     { _builderFieldChanged('cond', r, c, f); }
+function condOpChanged(r, c, o)        { _builderOpChanged('cond', r, c, o); }
+function condValChanged(r, c, v, el)   { _builderValChanged('cond', r, c, v, el); }
+function condAddClause(r)              { _builderAddClause('cond', r); }
+function condDeleteClause(r, c)        { _builderDeleteClause('cond', r, c); }
+function toggleCombinator(r)           { _builderToggleCombinator('cond', r); }
+
+// Named shortcuts for inline HTML onclick — route
+function routeFieldChanged(r, c, f)    { _builderFieldChanged('route', r, c, f); }
+function routeOpChanged(r, c, o)       { _builderOpChanged('route', r, c, o); }
+function routeValChanged(r, c, v, el)  { _builderValChanged('route', r, c, v, el); }
+function routeAddClause(r)             { _builderAddClause('route', r); }
+function routeDeleteClause(r, c)       { _builderDeleteClause('route', r, c); }
+function routeToggleCombinator(r)      { _builderToggleCombinator('route', r); }
 
 function addCondRule(type) {
   const rules = _condGetRules();
@@ -3450,13 +3659,20 @@ function toggleCondType2(ruleIdx) {
   _condSetRules(rules);
 }
 
+// _builderRawKey: returns the _forcedRaw set key for a given mode/nodeId/ruleIdx.
+// cond uses "${nodeId}:${ruleIdx}" (legacy format preserved for backwards compat).
+// route uses "route:${nodeId}:${ruleIdx}" to prevent collisions.
+function _builderRawKey(mode, nodeId, ruleIdx) {
+  return mode === 'cond' ? `${nodeId}:${ruleIdx}` : `route:${nodeId}:${ruleIdx}`;
+}
+
 function toggleCondRawMode(ruleIdx) {
   const node = findNode(ve.selectedNodeId);
   if (!node) return;
   const rules = _condGetRules();
   if (!rules[ruleIdx]) return;
 
-  const fkey = `${node.id}:${ruleIdx}`;
+  const fkey = _builderRawKey('cond', node.id, ruleIdx);
   const expr  = rules[ruleIdx].expr;
   const model = exprToFlatModel(expr);
 
@@ -3496,86 +3712,37 @@ function condRawChanged(ruleIdx, val) {
   _condSetRules(rules);
 }
 
-function condFieldChanged(ruleIdx, clauseIdx, newField) {
-  const rules = _condGetRules();
-  const model = exprToFlatModel(rules[ruleIdx]?.expr || '');
-  if (!model) return;
-  const c = model.clauses[clauseIdx];
-  if (!c) return;
-  c.field = newField;
-  // Reset op to first valid one for the new field type
-  const ops = getOpsForType(getFieldType(newField));
-  c.op    = ops[0]?.id || '==';
-  c.value = '';
-  rules[ruleIdx].expr = flatModelToExpr(model.clauses, model.combinator);
-  _condSetRules(rules);
-}
-
-function condOpChanged(ruleIdx, clauseIdx, newOp) {
-  const rules = _condGetRules();
-  const model = exprToFlatModel(rules[ruleIdx]?.expr || '');
-  if (!model) return;
-  const c = model.clauses[clauseIdx];
-  if (!c) return;
-  c.op    = newOp;
-  c.value = opIsNoValue(newOp) ? '' : c.value;
-  rules[ruleIdx].expr = flatModelToExpr(model.clauses, model.combinator);
-  _condSetRules(rules);
-}
-
-function condValChanged(ruleIdx, clauseIdx, newVal, inputEl) {
-  const rules = _condGetRules();
-  const model = exprToFlatModel(rules[ruleIdx]?.expr || '');
-  if (!model) return;
-  const c = model.clauses[clauseIdx];
-  if (!c) return;
-  const fieldType = getFieldType(c.field);
-  if (fieldType === 'int' || fieldType === 'int64') c.value = parseInt(newVal, 10) || 0;
-  else if (fieldType === 'float') c.value = parseFloat(newVal) || 0;
-  else c.value = newVal;
-  rules[ruleIdx].expr = flatModelToExpr(model.clauses, model.combinator);
-  // Update preview directly without full re-render for smooth typing
-  const ruleEl  = inputEl?.closest('.ve-cond-rule');
-  const preview = ruleEl?.querySelector('.ve-cond-preview');
-  if (preview) preview.textContent = rules[ruleIdx].expr;
+function toggleRouteRawMode(ruleIdx) {
   const node = findNode(ve.selectedNodeId);
-  if (node) { node.config = buildCondConfig(rules); onModelChange(); }
-}
-
-function condAddClause(ruleIdx) {
-  const rules = _condGetRules();
-  const model = exprToFlatModel(rules[ruleIdx]?.expr || '');
-  const node  = findNode(ve.selectedNodeId);
-  const nf    = node?.fields || {certain: [], reachable: []};
-  // Default to first reachable field or 'title'
-  const defaultField = nf.reachable[0] || nf.certain[0] || 'title';
-  const ops = getOpsForType(getFieldType(defaultField));
-  const newClause = {field: defaultField, op: ops[0]?.id || '==', value: ''};
-  if (model) {
-    model.clauses.push(newClause);
-    rules[ruleIdx].expr = flatModelToExpr(model.clauses, model.combinator);
+  if (!node) return;
+  const rules = Array.isArray(node.config?.rules) ? node.config.rules : [];
+  if (!rules[ruleIdx]) return;
+  const fkey = _builderRawKey('route', node.id, ruleIdx);
+  const expr  = rules[ruleIdx].accept || '';
+  const model = exprToFlatModel(expr);
+  if (_forcedRaw.has(fkey)) {
+    _forcedRaw.delete(fkey);
+  } else if (model) {
+    _forcedRaw.add(fkey);
   } else {
-    rules[ruleIdx].expr = clauseToStr(newClause.field, newClause.op, newClause.value);
+    const nf = computeInputFields(node);
+    const defaultField = nf.reachable[0] || nf.certain[0] || 'title';
+    const ops = getOpsForType(getFieldType(defaultField));
+    rules[ruleIdx].accept = clauseToStr(defaultField, ops.find(o => o.noValue)?.id || '!= ""', '');
+    _forcedRaw.delete(fkey);
   }
-  _condSetRules(rules);
+  _builderSetExpr('route', ruleIdx, rules[ruleIdx].accept || '');
 }
 
-function condDeleteClause(ruleIdx, clauseIdx) {
-  const rules = _condGetRules();
-  const model = exprToFlatModel(rules[ruleIdx]?.expr || '');
-  if (!model) return;
-  model.clauses.splice(clauseIdx, 1);
-  rules[ruleIdx].expr = flatModelToExpr(model.clauses, model.combinator);
-  _condSetRules(rules);
+function routeRawInput(ruleIdx, val) {
+  const rule = document.querySelector(`.ve-cond-rule[data-rule-idx="${ruleIdx}"]`);
+  if (!rule) return;
+  const pre = rule.querySelector('.ve-cond-preview');
+  if (pre) pre.textContent = val;
 }
 
-function toggleCombinator(ruleIdx) {
-  const rules = _condGetRules();
-  const model = exprToFlatModel(rules[ruleIdx]?.expr || '');
-  if (!model) return;
-  model.combinator = model.combinator === 'and' ? 'or' : 'and';
-  rules[ruleIdx].expr = flatModelToExpr(model.clauses, model.combinator);
-  _condSetRules(rules);
+function routeRawChanged(ruleIdx, val) {
+  _builderSetExpr('route', ruleIdx, val);
 }
 
 // Legacy handlers kept for backward compat (may be called from old inline HTML)
