@@ -868,3 +868,98 @@ describe('fieldWarnings', () => {
     expect(fieldWarnings(rssNode)).toHaveLength(0);
   });
 });
+
+// ── collectOutputFields — route port narrowing ────────────────────────────────
+// Tests the isRoutePort branch added to collectOutputFields: a route port node
+// applies both condNarrowedFields (presence → promote) and
+// condAcceptAbsenceRemovedFields (absence → remove) to downstream field sets.
+
+const ROUTE_PLUGIN = {
+  name: 'route', role: 'processor',
+  produces:    ['_route_port'],
+  may_produce: [],
+};
+const JACKETT_PLUGIN = {
+  name: 'jackett', role: 'source',
+  produces:    ['source', 'title'],
+  may_produce: ['torrent_url', 'magnet_url', 'series_episode_id', 'description'],
+};
+
+function setupRouteGraph(nodes) {
+  ve.graphs      = [{ name: 'test', schedule: '', nodes }];
+  ve.activeGraph = 0;
+  ve.plugins     = [RSS_PLUGIN, ROUTE_PLUGIN, JACKETT_PLUGIN, CONDITION_PLUGIN, PRINT_PLUGIN];
+}
+
+describe('collectOutputFields — route port nodes', () => {
+  it('presence-check accept promotes field to certain for downstream node', () => {
+    // jackett → route → port(accept: "series_episode_id != ''") → print
+    const src      = {id:'src_0',  plugin:'jackett', upstreams:[], config:{}};
+    const routeN   = {id:'route_1', plugin:'route',   upstreams:['src_0'], config:{rules:[]}};
+    const portNode = {
+      id:'port_2', plugin:'route_selector', upstreams:['route_1'],
+      config:{}, isRoutePort:true, routeParentId:'route_1', routePortName:'tv',
+      portAcceptExpr: "series_episode_id != ''",
+    };
+    const downstream = {id:'print_3', plugin:'print', upstreams:['port_2'], config:{}};
+    setupRouteGraph([src, routeN, portNode, downstream]);
+
+    const fields = computeInputFields(downstream);
+    // series_episode_id was reachable (may_produce of jackett); the port promotes it to certain
+    expect(fields.certain).toContain('series_episode_id');
+  });
+
+  it('absence-check accept removes field from reachable for downstream node', () => {
+    // jackett → route → port(accept: "magnet_url == ''") → print
+    const src      = {id:'src_0',  plugin:'jackett', upstreams:[], config:{}};
+    const routeN   = {id:'route_1', plugin:'route',   upstreams:['src_0'], config:{rules:[]}};
+    const portNode = {
+      id:'port_2', plugin:'route_selector', upstreams:['route_1'],
+      config:{}, isRoutePort:true, routeParentId:'route_1', routePortName:'no-magnet',
+      portAcceptExpr: "magnet_url == ''",
+    };
+    const downstream = {id:'print_3', plugin:'print', upstreams:['port_2'], config:{}};
+    setupRouteGraph([src, routeN, portNode, downstream]);
+
+    const fields = computeInputFields(downstream);
+    // magnet_url was reachable from jackett; absence-check removes it entirely
+    const all = [...fields.certain, ...fields.reachable];
+    expect(all).not.toContain('magnet_url');
+  });
+
+  it('AND expression: promotes presence-op fields AND removes absence-op fields', () => {
+    // port: "torrent_url != '' and magnet_url == ''"
+    const src      = {id:'src_0',  plugin:'jackett', upstreams:[], config:{}};
+    const routeN   = {id:'route_1', plugin:'route',   upstreams:['src_0'], config:{rules:[]}};
+    const portNode = {
+      id:'port_2', plugin:'route_selector', upstreams:['route_1'],
+      config:{}, isRoutePort:true, routeParentId:'route_1', routePortName:'torrent',
+      portAcceptExpr: "torrent_url != '' and magnet_url == ''",
+    };
+    const downstream = {id:'print_3', plugin:'print', upstreams:['port_2'], config:{}};
+    setupRouteGraph([src, routeN, portNode, downstream]);
+
+    const fields = computeInputFields(downstream);
+    expect(fields.certain).toContain('torrent_url');
+    const all = [...fields.certain, ...fields.reachable];
+    expect(all).not.toContain('magnet_url');
+  });
+
+  it('port with no accept expression passes fields through unchanged', () => {
+    const src      = {id:'src_0',  plugin:'jackett', upstreams:[], config:{}};
+    const routeN   = {id:'route_1', plugin:'route',   upstreams:['src_0'], config:{rules:[]}};
+    const portNode = {
+      id:'port_2', plugin:'route_selector', upstreams:['route_1'],
+      config:{}, isRoutePort:true, routeParentId:'route_1', routePortName:'all',
+      portAcceptExpr: '',
+    };
+    const downstream = {id:'print_3', plugin:'print', upstreams:['port_2'], config:{}};
+    setupRouteGraph([src, routeN, portNode, downstream]);
+
+    const fields = computeInputFields(downstream);
+    // Upstream fields still flow through; nothing promoted or removed
+    expect([...fields.certain, ...fields.reachable]).toContain('torrent_url');
+    expect([...fields.certain, ...fields.reachable]).toContain('magnet_url');
+    expect(fields.certain).not.toContain('torrent_url'); // still reachable-only
+  });
+});
