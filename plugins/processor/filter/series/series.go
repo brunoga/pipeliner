@@ -210,7 +210,11 @@ func (p *seriesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *en
 			properOrRepack := ep.Proper || ep.Repack
 			notDowngrade := !latest.Quality.Better(ep.Quality)
 			if betterQuality || (properOrRepack && notDowngrade) {
-				e.Accept()
+				reason := fmt.Sprintf("series: %s %s quality upgrade", matchedShow, epID)
+				if properOrRepack && !betterQuality {
+					reason = fmt.Sprintf("series: %s %s proper/repack accepted", matchedShow, epID)
+				}
+				e.Accept(reason)
 				return nil
 			}
 		}
@@ -258,7 +262,7 @@ func (p *seriesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *en
 		}
 	}
 
-	e.Accept()
+	e.Accept(fmt.Sprintf("series: %s %s matched", matchedShow, epID))
 	return nil
 }
 
