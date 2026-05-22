@@ -94,7 +94,7 @@ func (p *upgradePlugin) filter(_ context.Context, tc *plugin.TaskContext, e *ent
 
 	if !found {
 		// First time seeing this title — always accept.
-		e.Accept()
+		e.Accept("upgrade: first download")
 		return nil
 	}
 
@@ -108,7 +108,8 @@ func (p *upgradePlugin) filter(_ context.Context, tc *plugin.TaskContext, e *ent
 
 		// Accept if current is strictly better.
 		if current.Better(storedQ) {
-			e.Accept()
+			e.Accept(fmt.Sprintf("upgrade: quality upgrade %q → %q for %q",
+				stored.Quality, e.GetString(entry.FieldVideoQuality), key))
 			return nil
 		}
 
@@ -117,13 +118,14 @@ func (p *upgradePlugin) filter(_ context.Context, tc *plugin.TaskContext, e *ent
 			e.Reject(fmt.Sprintf("upgrade: quality %q is not better than stored %q for %q",
 				e.GetString(entry.FieldVideoQuality), stored.Quality, key))
 		} else {
-			e.Accept()
+			e.Accept(fmt.Sprintf("upgrade: keeping lower quality %q (on_lower=accept) for %q",
+				e.GetString(entry.FieldVideoQuality), key))
 		}
 		return nil
 	}
 
 	// Stored record exists but has no quality string — treat as first download.
-	e.Accept()
+	e.Accept("upgrade: first download (no stored quality)")
 	return nil
 }
 

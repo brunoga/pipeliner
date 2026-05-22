@@ -1741,6 +1741,7 @@ function initCanvasEvents() {
       if (!hit) return;
       e.stopPropagation(); // prevent canvas handler from deselecting / rebuilding SVG
       e.preventDefault();
+      hideEdgeFieldTooltip();
       if (hit.dataset.search === 'true') {
         disconnectSearch(hit.dataset.src, hit.dataset.dst);
       } else if (hit.dataset.list === 'true') {
@@ -2805,7 +2806,12 @@ function clauseToStr(field, op, value) {
   if (opIsNoValue(op)) return `${field} ${op}`;
   if (typeof value === 'boolean') return `${field} == ${value}`;
   if (typeof value === 'number')  return `${field} ${op} ${value}`;
-  const escaped = String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  const str = String(value);
+  // Use single-quotes for an empty string value so the output cannot be
+  // confused with the no-value compound operators '== ""' / '!= ""'.
+  // parseExprLiteral handles both quote styles, so round-trips correctly.
+  if (str === '') return `${field} ${op} ''`;
+  const escaped = str.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
   return `${field} ${op} "${escaped}"`;
 }
 
@@ -3267,7 +3273,7 @@ function renderCondRulesWidget(node) {
 // Each port has a name input and a full expression builder for its accept condition.
 function renderRouteRulesWidget(node) {
   const rules = Array.isArray(node.config?.rules) ? node.config.rules : [];
-  const nid   = JSON.stringify(node.id);
+  const nid   = esc(JSON.stringify(node.id));
   const rowsHtml = rules.map((r, i) => renderRouteRuleRow(r, i, node)).join('');
   return `<div class="ve-field">
     <div class="ve-field-label">Ports
@@ -3282,7 +3288,7 @@ function renderRouteRulesWidget(node) {
 
 // Render a single route port row at index ruleIdx.
 function renderRouteRuleRow(rule, ruleIdx, node) {
-  const nid    = JSON.stringify(node.id);
+  const nid    = esc(JSON.stringify(node.id));
   const expr   = rule.accept || '';
   const model  = exprToFlatModel(expr);
   const fkey   = _builderRawKey('route', node.id, ruleIdx);
@@ -3717,19 +3723,29 @@ function toggleRouteRawMode(ruleIdx) {
   if (!node) return;
   const rules = Array.isArray(node.config?.rules) ? node.config.rules : [];
   if (!rules[ruleIdx]) return;
-  const fkey = _builderRawKey('route', node.id, ruleIdx);
+  const fkey  = _builderRawKey('route', node.id, ruleIdx);
   const expr  = rules[ruleIdx].accept || '';
   const model = exprToFlatModel(expr);
-  if (_forcedRaw.has(fkey)) {
-    _forcedRaw.delete(fkey);
-  } else if (model) {
+
+  // Determine the current display mode using the same logic as renderRouteRuleRow.
+  const isCurrentlyRaw = _forcedRaw.has(fkey) || !model || expr.trim() === '';
+
+  if (!isCurrentlyRaw) {
+    // Builder → switch to raw.
     _forcedRaw.add(fkey);
-  } else {
+    veRender();
+    return;
+  }
+
+  // Raw → switch to builder. Remove any forced-raw flag; if the expression is
+  // empty or unparseable, replace it with a parseable default so the builder
+  // has something to show (mirrors addCondRule behaviour).
+  _forcedRaw.delete(fkey);
+  if (!model || expr.trim() === '') {
     const nf = computeInputFields(node);
-    const defaultField = nf.reachable[0] || nf.certain[0] || 'title';
-    const ops = getOpsForType(getFieldType(defaultField));
-    rules[ruleIdx].accept = clauseToStr(defaultField, ops.find(o => o.noValue)?.id || '!= ""', '');
-    _forcedRaw.delete(fkey);
+    const df  = nf.reachable[0] || nf.certain[0] || 'title';
+    const ops = getOpsForType(getFieldType(df));
+    rules[ruleIdx].accept = clauseToStr(df, ops.find(o => o.noValue)?.id || '!= ""', '');
   }
   _builderSetExpr('route', ruleIdx, rules[ruleIdx].accept || '');
 }
@@ -3936,8 +3952,10 @@ function addRule(nodeId, field) {
   node.config[field].push({ name: '', accept: '' });
   renderParamPanel();
   onModelChange();
-  const nameInputs = document.querySelectorAll('.ve-rule-row .ve-rule-name');
-  nameInputs[nameInputs.length - 1]?.focus();
+  // Focus the port-name input of the newly added row (.ve-cond-port-name in the
+  // route builder widget; fall back to .ve-rule-name for any other rule_list).
+  const inputs = document.querySelectorAll('.ve-cond-port-name, .ve-rule-row .ve-rule-name');
+  [...inputs].at(-1)?.focus();
 }
 
 function removeRule(nodeId, field, idx) {
@@ -5516,7 +5534,29 @@ function dagToStarlark() {
   for (const g of graphs) {
     const lines = [];
     // Sort so every upstream variable is assigned before it is referenced.
-    const ordered = topoSortNodes(g.nodes.filter(n => !n.isSearchNode && !n.isListNode && !n.isRoutePort));
+    // Route port nodes are excluded from the sort but their IDs appear in the
+    // upstreams of downstream nodes. Build a map so the sort can resolve a port
+    // node ID to the parent route node ID and register the real dependency.
+    const portToRoute = new Map(
+      g.nodes.filter(n => n.isRoutePort && n.routeParentId)
+             .map(n => [n.id, n.routeParentId])
+    );
+    const mainNodes = g.nodes.filter(n => !n.isSearchNode && !n.isListNode && !n.isRoutePort);
+    // Temporarily rewrite port-node upstreams to route-node IDs for the sort,
+    // then restore them afterward so the rest of serialisation is unaffected.
+    const savedUpstreams = new Map();
+    for (const n of mainNodes) {
+      const remapped = (n.upstreams || []).map(uid => portToRoute.get(uid) ?? uid);
+      if (remapped.some((uid, i) => uid !== (n.upstreams || [])[i])) {
+        savedUpstreams.set(n.id, n.upstreams);
+        n.upstreams = remapped;
+      }
+    }
+    const ordered = topoSortNodes(mainNodes);
+    for (const [id, ups] of savedUpstreams) {
+      const n = mainNodes.find(x => x.id === id);
+      if (n) n.upstreams = ups;
+    }
     for (const n of ordered) {
       const meta     = pluginMeta(n.plugin);
       const role     = meta?.role || 'processor';

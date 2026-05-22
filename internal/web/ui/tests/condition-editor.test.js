@@ -280,6 +280,19 @@ describe('clauseToStr', () => {
   it('escapes double quotes in string values', () => {
     expect(clauseToStr('title', '==', 'say "hi"')).toBe('title == "say \\"hi\\""');
   });
+  it('uses single-quote for empty string value to avoid collision with == "" / != "" ops', () => {
+    // Without this, clauseToStr('f','==','') → 'f == ""' which parseClause
+    // re-parses as op='== ""' (is not set), resetting the dropdown.
+    expect(clauseToStr('torrent_link_type', '==', '')).toBe("torrent_link_type == ''");
+    expect(clauseToStr('title', '!=', '')).toBe("title != ''");
+  });
+  it('empty-string round-trip: clauseToStr → exprToFlatModel preserves op', () => {
+    const expr  = clauseToStr('torrent_link_type', '==', '');
+    const model = exprToFlatModel(expr);
+    expect(model).not.toBeNull();
+    expect(model.clauses[0].op).toBe('==');
+    expect(model.clauses[0].value).toBe('');
+  });
 });
 
 // ── flatModelToExpr ───────────────────────────────────────────────────────────

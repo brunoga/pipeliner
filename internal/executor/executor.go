@@ -341,11 +341,17 @@ func (ex *Executor) runNode(
 				continue
 			}
 			switch s.e.State {
+			case entry.Accepted:
+				args := []any{"title", s.e.Title}
+				if s.e.AcceptReason != "" {
+					args = append(args, "reason", s.e.AcceptReason)
+				}
+				tc.Logger.Info("entry accepted", args...)
 			case entry.Rejected:
 				if s.stateBefore == entry.Accepted {
-					tc.Logger.Debug("entry accepted → rejected", "title", s.e.Title, "reason", s.e.RejectReason)
+					tc.Logger.Info("entry accepted → rejected", "title", s.e.Title, "reason", s.e.RejectReason)
 				} else {
-					tc.Logger.Debug("entry rejected", "title", s.e.Title, "reason", s.e.RejectReason)
+					tc.Logger.Info("entry rejected", "title", s.e.Title, "reason", s.e.RejectReason)
 				}
 			case entry.Failed:
 				if s.stateBefore == entry.Accepted {

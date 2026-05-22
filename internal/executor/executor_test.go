@@ -493,8 +493,8 @@ func TestExecutor_LogsRejectedEntry(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if !sink.has(slog.LevelDebug, "entry rejected") {
-		t.Error("expected Debug 'entry rejected' log line for rejected entry")
+	if !sink.has(slog.LevelInfo, "entry rejected") {
+		t.Error("expected Info 'entry rejected' log line for rejected entry")
 	}
 }
 
@@ -562,10 +562,10 @@ func TestExecutor_LogsAcceptedToRejectedTransition(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if !ls.has(slog.LevelDebug, "entry accepted → rejected") {
-		t.Error("expected Debug 'entry accepted → rejected' log line for accepted-then-rejected entry")
+	if !ls.has(slog.LevelInfo, "entry accepted → rejected") {
+		t.Error("expected Info 'entry accepted → rejected' log line for accepted-then-rejected entry")
 	}
-	if ls.has(slog.LevelDebug, "entry rejected") {
+	if ls.has(slog.LevelInfo, "entry rejected") {
 		t.Error("expected no plain 'entry rejected' log line when entry was previously accepted")
 	}
 }
