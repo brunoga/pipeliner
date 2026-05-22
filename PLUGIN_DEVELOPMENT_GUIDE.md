@@ -760,7 +760,8 @@ output("transmission", upstream=merge(series_path, movies_path))
 
 Key properties:
 - Exactly one port matches each entry (first match wins); unmatched entries are rejected with `WARN`.
-- At a `merge()` of route ports the DAG validator uses **union** semantics for `certain` fields — no spurious merge-gap warnings for intentional branching.
+- The DAG validator **automatically infers field contracts** from each port's accept expression: presence-check operators (`!= ""`) promote the field to certain on that branch; absence-check operators (`== ""`) remove the field from the reachable set. No explicit annotations are needed.
+- At a `merge()` of route ports the DAG validator uses **intersection** semantics for `certain` fields — fields certain on every branch remain certain; fields present only on some branches become reachable-only.
 - The `_route_port` field is stamped on matched entries and is available downstream.
 - See [`plugins/processor/filter/route/README.md`](plugins/processor/filter/route/README.md) for the full reference.
 

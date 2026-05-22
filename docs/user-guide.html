@@ -145,7 +145,7 @@ td code{font-size:11px}
     <a href="#premiere" class="sub">premiere</a>
     <a href="#condition" class="sub">condition</a>
     <a href="#route" class="sub">route()</a>
-    <a href="#port-contracts" class="sub">port() contracts</a>
+    <a href="#route-field-inference" class="sub">Field inference</a>
     <a href="#torrentalive" class="sub">torrentalive</a>
     <a href="#require" class="sub">require</a>
     <a href="#seen" class="sub">seen</a>
@@ -277,8 +277,7 @@ pipeline("breaking-bad", schedule="1h")</code></pre>
   <tr><td><code>process("plugin", upstream=node, key=val, …)</code></td><td>Create a <strong>processor</strong> node connected to an upstream node</td></tr>
   <tr><td><code>merge(a, b, …)</code></td><td>Combine multiple source/processor nodes into one (deduplicated by URL)</td></tr>
   <tr><td><code>output("plugin", upstream=node, key=val, …)</code></td><td>Create a <strong>sink</strong> node; returns a handle so another <code>output()</code> can chain from it</td></tr>
-  <tr><td><code>route(upstream, port="cond", …)</code></td><td>Split entries onto mutually-exclusive named ports; returns a handle object with one attribute per port. See <a href="#route">route()</a>.</td></tr>
-  <tr><td><code>port("cond", guarantees=[], masks=[])</code></td><td>Attach field contracts to a <code>route()</code> port — fields the validator should treat as definitely present or explicitly absent on this branch. See <a href="#port-contracts">Port field contracts</a>.</td></tr>
+  <tr><td><code>route(upstream, port="cond", …)</code></td><td>Split entries onto mutually-exclusive named ports; returns a handle object with one attribute per port. Field contracts are inferred automatically from conditions. See <a href="#route">route()</a>.</td></tr>
   <tr><td><code>pipeline(name, schedule="")</code></td><td>Register all nodes defined above as a named, scheduled pipeline</td></tr>
   <tr><td><code>env(name, default=None)</code></td><td>Read an environment variable; errors if unset and no default given</td></tr>
   <tr><td><code>load("./other.star", "sym")</code></td><td>Import a symbol from another <code>.star</code> file (Starlark built-in)</td></tr>
@@ -1157,13 +1156,13 @@ output("transmission", upstream=merge(series_path, movies_path), host="localhost
 pipeline("mixed", schedule="1h")</code></pre>
 
 <h4>Syntax</h4>
-<pre><code>handles = route(upstream, port_name="condition", ...)
-handles = route(upstream, port_name=port("condition", guarantees=[], masks=[]), ...)</code></pre>
+<pre><code>handles = route(upstream, port_name="condition", ...)</code></pre>
 <ul>
   <li><strong>Port order matters</strong> — conditions are evaluated in declaration order; the first match wins.</li>
   <li><strong>No match</strong> — entry is rejected with reason <code>"route: no port matched"</code> and a <code>WARN</code> log line. Nothing is silently dropped.</li>
   <li><strong>Port handles</strong> — attribute access on the returned object (<code>routes.series</code>, <code>routes.movies</code>). Each handle is a valid <code>upstream=</code> argument.</li>
   <li><strong>Condition syntax</strong> — same expression language as the <code>condition</code> filter. See the <a href="#expressions">Expression Language</a> section.</li>
+  <li><strong>Field contracts inferred automatically</strong> — presence checks (<code>!= ""</code>) promote fields to certain; absence checks (<code>== ""</code>) remove fields from the reachable set. See <a href="#route-field-inference">Field inference</a>.</li>
 </ul>
 
 <img src="images/ui-route-visual.png" alt="Visual editor showing a route() node with tv and movies port circles connecting to separate print sinks" class="screenshot">
@@ -1175,56 +1174,41 @@ handles = route(upstream, port_name=port("condition", guarantees=[], masks=[]), 
 <h4>Fields set</h4>
 <p><code>_route_port</code> (string) — name of the matched port (e.g. <code>"series"</code>). Available to downstream plugins including <code>pathfmt</code> templates, <code>condition</code> expressions, and <code>exec</code> commands.</p>
 
-<!-- ─────────── port contracts ─────────── -->
-<h2 id="port-contracts">Port field contracts: port()</h2>
-<p>The <code>port()</code> helper attaches optional field contracts to a <code>route()</code> port, giving the DAG validator precise knowledge of which fields are present or absent on each branch.</p>
+<!-- ─────────── route field inference ─────────── -->
+<h2 id="route-field-inference">Route port field inference</h2>
+<p>The DAG validator automatically infers field contracts from each port's condition expression — no explicit annotations needed. The same logic used by the <code>condition</code> filter applies to every port condition:</p>
+
+<table>
+  <tr><th>Expression form</th><th>Effect on this branch</th></tr>
+  <tr><td><code>field != ""</code></td><td><code>field</code> promoted to <strong>certain</strong> — a downstream <code>Requires</code> passes without a <code>~</code> warning</td></tr>
+  <tr><td><code>field == ""</code></td><td><code>field</code> <strong>removed</strong> from the reachable set — a downstream <code>Requires</code> is a hard validation error</td></tr>
+  <tr><td><code>A and B</code></td><td>both sides' fields inferred (union)</td></tr>
+  <tr><td><code>A or B</code></td><td>only fields that appear in every branch (intersection)</td></tr>
+</table>
 
 <pre><code>routes = route(src,
-    torrent = port(<span class="y-str">"torrent_url != ''"</span>,
-                   guarantees=[<span class="y-str">"torrent_url"</span>],
-                   masks=[<span class="y-str">"magnet_url"</span>]),
-    magnet  = port(<span class="y-str">"magnet_url != ''"</span>,
-                   guarantees=[<span class="y-str">"magnet_url"</span>],
-                   masks=[<span class="y-str">"torrent_url"</span>]))</code></pre>
-
-<p>Plain string port values (<code>port_name="condition"</code>) remain fully backward compatible — <code>port()</code> is optional.</p>
-
-<h4>guarantees</h4>
-<p>Fields listed in <code>guarantees</code> are promoted from <strong>MayProduce</strong> (reachable but uncertain) to <strong>Produces</strong> (certain) on this branch. A downstream <code>Requires</code> for a guaranteed field passes validation without a soft <code>~</code> warning.</p>
-
-<p>This is useful when an upstream plugin sets a field only on some entries (<code>MayProduce</code>) and the route condition is the thing that guarantees it is present on entries through a particular port.</p>
-
-<h4>masks</h4>
-<p>Fields listed in <code>masks</code> are <strong>explicitly removed</strong> from the branch's available field set. Any downstream <code>Requires</code> for a masked field becomes a <strong>hard validation error</strong> at config-load time — not a soft warning.</p>
-
-<p>At runtime, the route selector also strips masked fields from passing entries, so the entry data matches what the validator models.</p>
+    torrent = <span class="y-str">"torrent_url != '' and magnet_url == ''"</span>,
+    magnet  = <span class="y-str">"magnet_url != '' and torrent_url == ''"</span>)
+<span class="y-comment"># torrent branch: torrent_url is certain, magnet_url is removed</span>
+<span class="y-comment"># magnet  branch: magnet_url is certain, torrent_url is removed</span>
+<span class="y-comment"># A plugin that accidentally Requires magnet_url on the torrent branch → load-time error</span></code></pre>
 
 <div class="note">
-  <strong>Masks catch wiring mistakes before any entry is processed.</strong>
-  Without masks, a plugin on the torrent branch that accidentally requires <code>magnet_url</code> would silently receive an empty value at runtime. With <code>masks=["magnet_url"]</code> on the torrent port, the same mistake is a load-time error with a clear message.
+  <strong>No manual annotation needed.</strong>
+  The expression is the single source of truth — the validator reads it directly. There is no separate <code>guarantees</code> or <code>masks</code> parameter to keep in sync.
 </div>
 
 <h4>Merge point behaviour</h4>
-<p>When branches with different field contracts merge back together, the validator uses the <strong>intersection</strong> of the certain field sets: only fields that are certain on <em>all</em> merging branches remain certain after the merge. Fields that were guaranteed on one branch but masked on another become MayProduce-equivalent, producing a warning if a downstream node requires them.</p>
+<p>When branches merge back together, the validator uses the <strong>intersection</strong> of the certain field sets across all merging branches. Only fields that are certain on every branch remain certain after the merge. Fields certain on one branch but removed or absent on another become reachable-only, producing a soft <code>~</code> warning if a downstream node requires them.</p>
 
 <pre><code><span class="y-comment"># After merging the torrent and magnet branches:</span>
-<span class="y-comment"># - common fields (A, B, C) remain certain — present on every entry</span>
-<span class="y-comment"># - torrent_url and magnet_url become uncertain — each entry has one but not both</span>
+<span class="y-comment"># - common fields remain certain</span>
+<span class="y-comment"># - torrent_url and magnet_url become uncertain (each entry has one but not both)</span>
 <span class="y-comment"># - a sink that Requires torrent_url downstream of the merge gets a ~ warning</span>
 output(<span class="y-str">"transmission"</span>, upstream=merge(routes.torrent, routes.magnet), ...)</code></pre>
 
 <h4>Visual editor</h4>
-<p>Each route rule in the param panel shows two compact sub-row inputs beneath the port name and condition:</p>
-<ul>
-  <li><strong>guarantees</strong> (green label) — space-separated field names</li>
-  <li><strong>masks</strong> (amber label) — space-separated field names</li>
-</ul>
-<p>Both are editable inline and are preserved through save/load cycles. Changes take effect immediately in the visual canvas and in the generated Starlark.</p>
-<img src="images/ui-route-port-contracts.png" alt="Visual editor with route node selected showing guarantees and masks sub-row inputs in the param panel" class="screenshot">
-<p class="screenshot-caption">The <code>route</code> node selected with two ports configured using <code>port()</code>. Each rule in the param panel shows inline <strong>guarantees</strong> (green) and <strong>masks</strong> (amber) sub-rows beneath the port name and condition fields.</p>
-
-<h4>Complete example</h4>
-<p>See <a href="https://github.com/brunoga/pipeliner/blob/main/configs/route-port-contracts.star"><code>configs/route-port-contracts.star</code></a> for a full working pipeline using <code>port()</code> to route torrent-URL and magnet-URL entries to separate download clients, with the validator enforcing that each branch only uses the field it is guaranteed to have.</p>
+<p>In the visual editor, each route rule shows only a port name and condition expression. Field availability for downstream nodes is updated automatically as you edit conditions — the field panel on each downstream node reflects the inferred contracts in real time.</p>
 
 <!-- ─────────── torrentalive ─────────── -->
 <h2 id="torrentalive">torrentalive</h2>
