@@ -76,6 +76,80 @@ func TestNarrowCertain(t *testing.T) {
 	})
 }
 
+func TestRejectAbsencePromoted(t *testing.T) {
+	certain  := []string{"source", "title"}
+	reachable := []string{
+		"source", "title", "torrent_files", "description",
+	}
+
+	t.Run("reject == '' promotes field", func(t *testing.T) {
+		got := RejectAbsencePromoted(`torrent_files == ""`, certain, reachable)
+		if !containsStr(got, "torrent_files") {
+			t.Errorf(`reject torrent_files == "": want torrent_files promoted, got %v`, got)
+		}
+	})
+
+	t.Run("reject OR absence promotes all fields", func(t *testing.T) {
+		got := RejectAbsencePromoted(`torrent_files == "" or description == ""`, certain, reachable)
+		if !containsStr(got, "torrent_files") || !containsStr(got, "description") {
+			t.Errorf("OR reject: want both promoted, got %v", got)
+		}
+	})
+
+	t.Run("reject AND absence promotes nothing (ambiguous)", func(t *testing.T) {
+		got := RejectAbsencePromoted(`torrent_files == "" and description == ""`, certain, reachable)
+		if len(got) != 0 {
+			t.Errorf("AND reject: want nothing promoted, got %v", got)
+		}
+	})
+
+	t.Run("reject presence op returns nothing", func(t *testing.T) {
+		got := RejectAbsencePromoted(`torrent_files != ""`, certain, reachable)
+		if len(got) != 0 {
+			t.Errorf("presence op reject: want nothing from RejectAbsencePromoted, got %v", got)
+		}
+	})
+
+	t.Run("already-certain field not re-promoted", func(t *testing.T) {
+		got := RejectAbsencePromoted(`source == ""`, certain, reachable)
+		if containsStr(got, "source") {
+			t.Errorf("already-certain field should not appear in promoted list")
+		}
+	})
+}
+
+func TestRejectPresenceRemoved(t *testing.T) {
+	reachable := []string{"source", "title", "description", "torrent_files"}
+
+	t.Run("reject != '' removes field", func(t *testing.T) {
+		got := RejectPresenceRemoved(`description != ""`, reachable)
+		if !containsStr(got, "description") {
+			t.Errorf(`reject description != "": want description removed, got %v`, got)
+		}
+	})
+
+	t.Run("reject OR presence removes all", func(t *testing.T) {
+		got := RejectPresenceRemoved(`description != "" or torrent_files != ""`, reachable)
+		if !containsStr(got, "description") || !containsStr(got, "torrent_files") {
+			t.Errorf("OR reject: want both removed, got %v", got)
+		}
+	})
+
+	t.Run("reject AND presence removes nothing (ambiguous)", func(t *testing.T) {
+		got := RejectPresenceRemoved(`description != "" and torrent_files != ""`, reachable)
+		if len(got) != 0 {
+			t.Errorf("AND reject: want nothing removed, got %v", got)
+		}
+	})
+
+	t.Run("reject absence op returns nothing", func(t *testing.T) {
+		got := RejectPresenceRemoved(`torrent_files == ""`, reachable)
+		if len(got) != 0 {
+			t.Errorf("absence op: RejectPresenceRemoved should return nothing, got %v", got)
+		}
+	})
+}
+
 func containsStr(slice []string, s string) bool {
 	for _, v := range slice {
 		if v == s {

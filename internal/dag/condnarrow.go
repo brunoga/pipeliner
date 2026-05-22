@@ -62,6 +62,66 @@ func NarrowCertain(exprStr string, certainFields, reachableFields []string) []st
 	return sortedKeys(promoted)
 }
 
+// RejectAbsencePromoted returns field names promoted to certain by a REJECT
+// rule whose expression uses absence-check operators (== "", == 0).
+//
+// "reject: field == ''" means only entries where the field is SET pass through,
+// so the field becomes certain downstream — the mirror of NarrowCertain for
+// an accept rule with a presence op.
+func RejectAbsencePromoted(exprStr string, certainFields, reachableFields []string) []string {
+	if exprStr == "" {
+		return nil
+	}
+	e, err := expr.Compile(exprStr)
+	if err != nil {
+		return nil
+	}
+	certain := make(map[string]bool, len(certainFields))
+	for _, f := range certainFields {
+		certain[f] = true
+	}
+	reachable := make(map[string]bool, len(reachableFields))
+	for _, f := range reachableFields {
+		reachable[f] = true
+	}
+	promoted := make(map[string]bool)
+	for _, f := range e.AbsencePromotedFields() {
+		if reachable[f] && !certain[f] {
+			promoted[f] = true
+		}
+	}
+	if len(promoted) == 0 {
+		return nil
+	}
+	return sortedKeys(promoted)
+}
+
+// RejectPresenceRemoved returns field names that should be removed from the
+// reachable set by a REJECT rule using presence-check operators (!= "", > 0).
+//
+// "reject: field != ''" means only entries where the field is ABSENT pass,
+// so the field should be removed from downstream field availability.
+func RejectPresenceRemoved(exprStr string, reachableFields []string) []string {
+	if exprStr == "" {
+		return nil
+	}
+	e, err := expr.Compile(exprStr)
+	if err != nil {
+		return nil
+	}
+	reachable := make(map[string]bool, len(reachableFields))
+	for _, f := range reachableFields {
+		reachable[f] = true
+	}
+	var removed []string
+	for _, f := range e.PresenceRemovedFields() {
+		if reachable[f] {
+			removed = append(removed, f)
+		}
+	}
+	return removed
+}
+
 // semanticGroup describes a set of fields that become certain when a specific
 // sentinel field is referenced in the expression (conservatively: if the field
 // name appears at all in the expression it's likely being tested).

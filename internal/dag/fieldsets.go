@@ -93,6 +93,11 @@ func ComputeNodeFields(g *Graph, reg func(name string) (*plugin.Descriptor, bool
 				}
 			}
 
+			// Apply condition narrowing so ComputeNodeFields output matches Validate.
+			if n.PluginName == "condition" {
+				applyConditionNarrowingValidate(n.Config, outReach, outCert)
+			}
+
 			postReach[n.ID] = outReach
 			postCert[n.ID] = outCert
 		}
