@@ -107,16 +107,23 @@ func TestSelectorPassesMatchingPort(t *testing.T) {
 	}
 }
 
-func TestSelectorRejectsNonMatchingPort(t *testing.T) {
+func TestSelectorFiltersNonMatchingPort(t *testing.T) {
 	sel := makeSelector(t, "series")
 
 	e := entry.New("Inception.2010", "http://example.com/2")
 	e.Set(entry.FieldRoutePort, "movies")
 	e.Accept()
 
-	sel.Process(context.Background(), tc(), []*entry.Entry{e}) //nolint:errcheck
-	if !e.IsRejected() {
-		t.Error("non-matching port entry should be rejected by selector")
+	out, _ := sel.Process(context.Background(), tc(), []*entry.Entry{e})
+	// Non-matching entries are filtered out (not returned) rather than rejected.
+	// Rejecting them would corrupt the pipeline accepted/rejected count because
+	// the executor passes the original entry to the first route_selector even when
+	// a clone will be accepted by the correct selector on another branch.
+	if len(out) != 0 {
+		t.Errorf("non-matching port entry should be absent from output, got %d entries", len(out))
+	}
+	if e.IsRejected() {
+		t.Error("non-matching port entry should NOT be rejected (state must not be mutated)")
 	}
 }
 
