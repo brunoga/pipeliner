@@ -1071,7 +1071,7 @@ After DHT: <code>torrent_file_size</code>, <code>torrent_file_count</code>, <cod
   <tr><th>Mode</th><th>Behaviour</th></tr>
   <tr><td><code>strict</code></td><td>Accept only the next expected episode; reject gaps &gt;1 ahead of latest downloaded. Does not handle full-season binge drops well.</td></tr>
   <tr><td><code>backfill</code></td><td>Accept any episode not yet downloaded, including older ones. Downloads full back-catalogue.</td></tr>
-  <tr><td><code>follow</code></td><td>Recommended for new and continuing series. On first encounter accept everything (full season drops in one pass). Afterwards the earliest tracked <strong>season</strong> acts as an anchor — episodes from older seasons are rejected, all episodes in the anchor season or newer are accepted (including gap-fills within the current season).</td></tr>
+  <tr><td><code>follow</code></td><td>Recommended for new and continuing series. On first encounter accept everything (full season drops in one pass). Afterwards the highest tracked episode defines the season floor — episodes from seasons older than the current position are rejected, all episodes in the current season or newer are accepted (including gap-fills within the current season).</td></tr>
 </table>
 
 <p>Fields set: <code>series_season</code>, <code>series_episode</code>, <code>series_episode_id</code>. The matched show name is written to <code>title</code> (canonical) and <code>raw_title</code> (original parsed name).</p>

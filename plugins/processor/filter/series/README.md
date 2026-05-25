@@ -27,13 +27,13 @@ At least one of `static` or `list` is required.
 |------|-----------|
 | `strict` | Accept only the next expected episode; reject gaps greater than one ahead of the latest downloaded |
 | `backfill` | Accept any episode not yet downloaded, including older ones |
-| `follow` | On first encounter accept everything (handles full-season binge dumps in one pass); afterwards use the earliest tracked **season** as an anchor — episodes from older seasons are rejected, all episodes in the anchor season or newer are accepted |
+| `follow` | On first encounter accept everything (handles full-season binge dumps in one pass); afterwards the highest tracked episode defines the season floor — episodes from seasons older than the current position are rejected, all episodes in the current season or newer are accepted (including gap-fills) |
 
 #### Choosing a tracking mode
 
 - **`strict`** — weekly airing shows where gaps indicate a missing episode. Does not handle full-season drops well (requires one run per episode).
 - **`backfill`** — catching up on a show's entire back-catalogue. Will download all historical episodes that appear in the feed.
-- **`follow`** — recommended for new shows and continuing series. Start tracking whenever you first see the show; get entire season drops in one pass; never download episodes from seasons before you started watching. The season is the anchor, so adding the show mid-season still picks up the whole current season.
+- **`follow`** — recommended for new shows and continuing series. On first encounter the entire season drop is accepted in one pass. Afterwards episodes from seasons older than the current tracking position are ignored — once you are at S05, S01 will not be re-downloaded. Gap-fills within the current season are still picked up in later runs.
 
 ### `list` entries
 
