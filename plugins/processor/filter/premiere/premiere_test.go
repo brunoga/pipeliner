@@ -179,3 +179,77 @@ func TestDifferentSeriesIndependent(t *testing.T) {
 		t.Errorf("premiere of different series should be accepted; reason: %q", e2.RejectReason)
 	}
 }
+
+func TestNormalizedNameTrackerKey(t *testing.T) {
+	// Tracker keys must use the normalized (lowercase) show name so that
+	// records written by the series plugin (which also normalizes) are visible
+	// to the premiere plugin and vice versa.
+	p := makePlugin(t, map[string]any{})
+	tc := makeCtx()
+
+	e1 := makeEntry("Breaking Bad", 1, 1)
+	if err := p.filter(context.Background(), tc, e1); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Commit(context.Background(), tc, []*entry.Entry{e1}); err != nil {
+		t.Fatal(err)
+	}
+
+	// IsSeen must find the record using the normalized key.
+	if !p.tracker.IsSeen("breaking bad", "S01E01") {
+		t.Error("tracker should store record under normalized (lowercase) show name")
+	}
+	// Must NOT be stored under the raw capitalized form.
+	if p.tracker.IsSeen("Breaking Bad", "S01E01") {
+		t.Error("tracker must not store record under raw capitalized show name")
+	}
+}
+
+func TestPersistSkipsNonAccepted(t *testing.T) {
+	// Regression: dedup-rejected entries passed to Commit must not be persisted.
+	p := makePlugin(t, map[string]any{})
+	tc := makeCtx()
+
+	eHigh := makeEntry("Breaking Bad", 1, 1)
+	eLow := entry.New("Breaking.Bad.S01E01.480p.HDTV", "http://example.com/low.torrent")
+
+	_ = p.filter(context.Background(), tc, eHigh)
+	_ = p.filter(context.Background(), tc, eLow)
+
+	// Simulate dedup rejecting the lower-quality copy.
+	eLow.Reject("dedup: better copy accepted")
+
+	if err := p.Commit(context.Background(), tc, []*entry.Entry{eHigh, eLow}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Only eHigh should have been persisted; eLow's quality must not be stored.
+	if !p.tracker.IsSeen("breaking bad", "S01E01") {
+		t.Error("accepted entry should be marked in tracker")
+	}
+}
+
+func TestDoubleEpisodePremiereMarksBothParts(t *testing.T) {
+	// A double-episode premiere (S01E01E02) should mark the combined ID and
+	// each individual part so single-episode releases are recognised later.
+	p := makePlugin(t, map[string]any{})
+	tc := makeCtx()
+
+	slug := "Breaking.Bad.S01E01E02.720p.HDTV"
+	e := entry.New(slug, "http://example.com/"+slug+".torrent")
+	if err := p.filter(context.Background(), tc, e); err != nil {
+		t.Fatal(err)
+	}
+	if !e.IsAccepted() {
+		t.Fatalf("double premiere should be accepted: %s", e.RejectReason)
+	}
+	if err := p.Commit(context.Background(), tc, []*entry.Entry{e}); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, epID := range []string{"S01E01E02", "S01E01", "S01E02"} {
+		if !p.tracker.IsSeen("breaking bad", epID) {
+			t.Errorf("tracker should have %s marked after double premiere commit", epID)
+		}
+	}
+}
