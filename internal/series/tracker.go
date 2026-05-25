@@ -102,7 +102,9 @@ func (t *Tracker) Latest(seriesName string) (*Record, bool) {
 		if rec.SeriesName != seriesName {
 			continue
 		}
-		if latest == nil || rec.DownloadedAt.After(latest.DownloadedAt) {
+		if latest == nil ||
+			rec.DownloadedAt.After(latest.DownloadedAt) ||
+			(rec.DownloadedAt.Equal(latest.DownloadedAt) && rec.EpisodeID > latest.EpisodeID) {
 			r := rec
 			latest = &r
 		}
