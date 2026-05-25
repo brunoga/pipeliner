@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"time"
 )
 
@@ -91,5 +92,6 @@ func (s *SQLiteStore) applyMigration(m migration) (retErr error) {
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("store: migration %d: commit: %w", m.version, err)
 	}
+	slog.Info("store: applied migration", "version", m.version, "description", m.description)
 	return nil
 }

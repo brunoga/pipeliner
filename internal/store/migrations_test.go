@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"testing"
 )
@@ -68,37 +69,44 @@ func TestMigrateIdempotent(t *testing.T) {
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
-	if count != 1 {
-		t.Errorf("expected 1 row after idempotent run, got %d", count)
+	// Version 0 (baseline) + one row per real migration.
+	want := 1 + len(migrations)
+	if count != want {
+		t.Errorf("expected %d rows after idempotent run, got %d", want, count)
 	}
 }
 
 func TestMigrateAppliesInOrder(t *testing.T) {
+	// Use version numbers above the highest real migration to avoid conflicts.
+	base := len(migrations) + 1
 	var order []int
 	ms := []migration{
-		{version: 1, description: "first", fn: func(tx *sql.Tx) error { order = append(order, 1); return nil }},
-		{version: 2, description: "second", fn: func(tx *sql.Tx) error { order = append(order, 2); return nil }},
-		{version: 3, description: "third", fn: func(tx *sql.Tx) error { order = append(order, 3); return nil }},
+		{version: base, description: "first", fn: func(tx *sql.Tx) error { order = append(order, base); return nil }},
+		{version: base + 1, description: "second", fn: func(tx *sql.Tx) error { order = append(order, base+1); return nil }},
+		{version: base + 2, description: "third", fn: func(tx *sql.Tx) error { order = append(order, base+2); return nil }},
 	}
 	s := openMem(t)
 	if err := s.runMigrations(ms); err != nil {
 		t.Fatalf("runMigrations: %v", err)
 	}
-	if len(order) != 3 || order[0] != 1 || order[1] != 2 || order[2] != 3 {
+	if len(order) != 3 || order[0] != base || order[1] != base+1 || order[2] != base+2 {
 		t.Errorf("wrong execution order: %v", order)
 	}
-	// Baseline (0) + 3 applied.
+	// Version 0 (baseline) + real migrations + 3 test migrations.
 	var count int
 	s.db.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&count)
-	if count != 4 {
-		t.Errorf("expected 4 rows in schema_migrations, got %d", count)
+	want := 1 + len(migrations) + 3
+	if count != want {
+		t.Errorf("expected %d rows in schema_migrations, got %d", want, count)
 	}
 }
 
 func TestMigrateSkipsAlreadyApplied(t *testing.T) {
 	calls := 0
+	// Use a version number above the highest real migration to avoid conflicts.
+	next := len(migrations) + 1
 	ms := []migration{
-		{version: 1, description: "once", fn: func(tx *sql.Tx) error { calls++; return nil }},
+		{version: next, description: "once", fn: func(tx *sql.Tx) error { calls++; return nil }},
 	}
 	s := openMem(t)
 	if err := s.runMigrations(ms); err != nil {
@@ -151,5 +159,111 @@ func TestMigrateFailureRollsBack(t *testing.T) {
 	s.db.QueryRow(`SELECT COUNT(*) FROM schema_migrations WHERE version = 0`).Scan(&count)
 	if count != 1 {
 		t.Error("baseline version 0 must remain after failed migration")
+	}
+}
+
+func TestMigrateNormalizeSeriesKeys(t *testing.T) {
+	// Build a bare DB: schema present, baseline stamped, but migration 1 not yet applied.
+	// Seeding happens before the migration runs so we can verify the transformation.
+	s := openBare(t, ":memory:")
+	if _, err := s.db.Exec(schema); err != nil {
+		t.Fatalf("create schema: %v", err)
+	}
+	if _, err := s.db.Exec(migrationsSchema); err != nil {
+		t.Fatalf("create migrations schema: %v", err)
+	}
+	if _, err := s.db.Exec(`INSERT INTO schema_migrations (version, applied_at) VALUES (0, '2026-01-01T00:00:00Z')`); err != nil {
+		t.Fatalf("stamp baseline: %v", err)
+	}
+
+	// Seed stale capitalized entries (pre-ac9e5c7 format).
+	seedSQL := `INSERT INTO store (bucket, key, value) VALUES (?, ?, ?)`
+	staleRecords := []struct {
+		key   string
+		value string
+	}{
+		// Old capitalized key with real timestamp — no normalized equivalent.
+		{"The Testaments|S01E05", `{"series_name":"The Testaments","episode_id":"S01E05","downloaded_at":"2026-05-10T12:00:00Z","quality":{}}`},
+		// Old capitalized key where a normalized entry already exists with a later timestamp.
+		{"The Testaments|S01E01", `{"series_name":"The Testaments","episode_id":"S01E01","downloaded_at":"2026-05-08T00:00:00Z","quality":{}}`},
+		// Old capitalized key where a normalized entry already exists with a zero timestamp (stale should win).
+		{"Good Omens|S02E01", `{"series_name":"Good Omens","episode_id":"S02E01","downloaded_at":"2026-05-09T00:00:00Z","quality":{}}`},
+	}
+	normalized := []struct {
+		key   string
+		value string
+	}{
+		// Already-normalized entry with later timestamp — should survive unchanged.
+		{"the testaments|S01E01", `{"series_name":"the testaments","display_name":"The Testaments","episode_id":"S01E01","downloaded_at":"2026-05-24T12:00:00Z","quality":{}}`},
+		// Already-normalized entry with zero timestamp — stale capitalized should overwrite.
+		{"good omens|S02E01", `{"series_name":"good omens","episode_id":"S02E01","downloaded_at":"0001-01-01T00:00:00Z","quality":{}}`},
+	}
+	for _, r := range staleRecords {
+		if _, err := s.db.Exec(seedSQL, "series", r.key, r.value); err != nil {
+			t.Fatalf("seed stale %q: %v", r.key, err)
+		}
+	}
+	for _, r := range normalized {
+		if _, err := s.db.Exec(seedSQL, "series", r.key, r.value); err != nil {
+			t.Fatalf("seed normalized %q: %v", r.key, err)
+		}
+	}
+
+	// Run only migration 1 (the normalize migration).
+	if err := s.runMigrations(migrations[:1]); err != nil {
+		t.Fatalf("runMigrations: %v", err)
+	}
+
+	// Old capitalized keys must be gone.
+	for _, r := range staleRecords {
+		var dummy string
+		err := s.db.QueryRow(`SELECT value FROM store WHERE bucket='series' AND key=?`, r.key).Scan(&dummy)
+		if err != sql.ErrNoRows {
+			t.Errorf("stale key %q still present after migration", r.key)
+		}
+	}
+
+	// the testaments|S01E01: normalized entry had later timestamp — its value must be preserved.
+	var val string
+	if err := s.db.QueryRow(`SELECT value FROM store WHERE bucket='series' AND key='the testaments|S01E01'`).Scan(&val); err != nil {
+		t.Fatalf("the testaments|S01E01 missing: %v", err)
+	}
+	var rec struct {
+		SeriesName   string `json:"series_name"`
+		DownloadedAt string `json:"downloaded_at"`
+	}
+	if err := json.Unmarshal([]byte(val), &rec); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if rec.SeriesName != "the testaments" {
+		t.Errorf("series_name = %q, want %q", rec.SeriesName, "the testaments")
+	}
+	if rec.DownloadedAt != "2026-05-24T12:00:00Z" {
+		t.Errorf("downloaded_at = %q, want newer timestamp kept", rec.DownloadedAt)
+	}
+
+	// the testaments|S01E05: did not exist before — must be created from stale entry.
+	if err := s.db.QueryRow(`SELECT value FROM store WHERE bucket='series' AND key='the testaments|S01E05'`).Scan(&val); err != nil {
+		t.Fatalf("the testaments|S01E05 missing: %v", err)
+	}
+	if err := json.Unmarshal([]byte(val), &rec); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if rec.SeriesName != "the testaments" {
+		t.Errorf("series_name = %q, want %q", rec.SeriesName, "the testaments")
+	}
+
+	// good omens|S02E01: stale had later timestamp — must overwrite the zero-timestamp entry.
+	if err := s.db.QueryRow(`SELECT value FROM store WHERE bucket='series' AND key='good omens|S02E01'`).Scan(&val); err != nil {
+		t.Fatalf("good omens|S02E01 missing: %v", err)
+	}
+	if err := json.Unmarshal([]byte(val), &rec); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if rec.SeriesName != "good omens" {
+		t.Errorf("series_name = %q, want %q", rec.SeriesName, "good omens")
+	}
+	if rec.DownloadedAt != "2026-05-09T00:00:00Z" {
+		t.Errorf("downloaded_at = %q, want stale timestamp applied", rec.DownloadedAt)
 	}
 }
