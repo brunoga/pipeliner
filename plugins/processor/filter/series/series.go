@@ -85,8 +85,12 @@ type tracking string
 const (
 	trackingStrict   tracking = "strict"   // reject if episode number skips > 1 ahead of latest
 	trackingBackfill tracking = "backfill" // accept any episode not yet downloaded
-	trackingFollow   tracking = "follow"   // accept all on first encounter; thereafter reject episodes older than the earliest ever downloaded
+	trackingFollow   tracking = "follow"   // accept all on first encounter; thereafter reject episodes from seasons older than the highest tracked episode
 )
+
+// seriesTrackerName is the entry field used to carry the normalized matched
+// show name from filter() to persist(). It is internal to this plugin.
+const seriesTrackerName = "_series_tracker_name"
 
 type seriesPlugin struct {
 	staticShows     []match.TitleEntry // show names from config (year=0 for plain strings)
@@ -190,6 +194,7 @@ func (p *seriesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *en
 	}
 
 	epID := series.EpisodeID(ep)
+	e.Set(seriesTrackerName, matchedShow)
 	e.SetSeriesInfo(entry.SeriesInfo{
 		VideoInfo:     entry.VideoInfo{GenericInfo: entry.GenericInfo{Title: ep.SeriesName}},
 		Season:        ep.Season,
@@ -204,19 +209,17 @@ func (p *seriesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *en
 		e.Set("series_container", ep.Container)
 	}
 
-	if p.tracker.IsSeen(matchedShow, epID) {
-		if latest, ok := p.tracker.Latest(matchedShow); ok && latest.EpisodeID == epID {
-			betterQuality := ep.Quality.Better(latest.Quality)
-			properOrRepack := ep.Proper || ep.Repack
-			notDowngrade := !latest.Quality.Better(ep.Quality)
-			if betterQuality || (properOrRepack && notDowngrade) {
-				reason := fmt.Sprintf("series: %s %s quality upgrade", matchedShow, epID)
-				if properOrRepack && !betterQuality {
-					reason = fmt.Sprintf("series: %s %s proper/repack accepted", matchedShow, epID)
-				}
-				e.Accept(reason)
-				return nil
+	if stored, ok := p.tracker.Get(matchedShow, epID); ok {
+		betterQuality := ep.Quality.Better(stored.Quality)
+		properOrRepack := ep.Proper || ep.Repack
+		notDowngrade := !stored.Quality.Better(ep.Quality)
+		if betterQuality || (properOrRepack && notDowngrade) {
+			reason := fmt.Sprintf("series: %s %s quality upgrade", matchedShow, epID)
+			if properOrRepack && !betterQuality {
+				reason = fmt.Sprintf("series: %s %s proper/repack accepted", matchedShow, epID)
 			}
+			e.Accept(reason)
+			return nil
 		}
 		e.Reject(fmt.Sprintf("series: %s %s already downloaded", matchedShow, epID))
 		return nil
@@ -240,23 +243,25 @@ func (p *seriesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *en
 	if p.tracking == trackingFollow {
 		// On first encounter (no episodes tracked yet) accept everything —
 		// handles binge dumps where a full season lands in a single run.
-		// Once tracking is established, use the earliest tracked season as
-		// the anchor: reject episodes from older seasons, accept everything
-		// from the anchor season onwards (including unseen episodes of the
-		// anchor season itself, e.g. mid-season gaps filled on a later run).
-		// For date-based shows (no season number) fall back to comparing
-		// the full episode ID string lexicographically.
-		if earliest, ok := p.tracker.Earliest(matchedShow); ok {
-			anchorSeason := seasonFromEpisodeID(earliest.EpisodeID)
-			if ep.Season > 0 && anchorSeason > 0 {
-				if ep.Season < anchorSeason {
-					e.Reject(fmt.Sprintf("series: %s S%02d predates tracking start (S%02d)",
-						matchedShow, ep.Season, anchorSeason))
+		// Once tracking is established, use the highest tracked episode as
+		// the season floor: reject episodes from older seasons, accept
+		// everything from the floor season onwards (including unseen episodes
+		// within the floor season, e.g. mid-season gaps filled on a later run).
+		// Using the highest episode (not earliest) prevents stale old-season
+		// records from pulling the floor back to an earlier season.
+		// For date-based shows fall back to comparing the full episode ID
+		// string lexicographically.
+		if highest, ok := p.tracker.HighestEpisode(matchedShow); ok {
+			floorSeason := seasonFromEpisodeID(highest.EpisodeID)
+			if ep.Season > 0 && floorSeason > 0 {
+				if ep.Season < floorSeason {
+					e.Reject(fmt.Sprintf("series: %s S%02d predates tracking window (at S%02d)",
+						matchedShow, ep.Season, floorSeason))
 					return nil
 				}
-			} else if epID < earliest.EpisodeID {
-				e.Reject(fmt.Sprintf("series: %s %s predates tracking start (%s)",
-					matchedShow, epID, earliest.EpisodeID))
+			} else if epID < highest.EpisodeID {
+				e.Reject(fmt.Sprintf("series: %s %s predates tracking window (at %s)",
+					matchedShow, epID, highest.EpisodeID))
 				return nil
 			}
 		}
@@ -266,8 +271,7 @@ func (p *seriesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *en
 	return nil
 }
 
-func (p *seriesPlugin) persist(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
-	shows := p.resolveShows(ctx, tc)
+func (p *seriesPlugin) persist(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) error {
 	for _, e := range entries {
 		// Only persist entries that were accepted by all downstream nodes.
 		// The executor passes every entry the series node produced to Commit,
@@ -276,11 +280,13 @@ func (p *seriesPlugin) persist(ctx context.Context, tc *plugin.TaskContext, entr
 		if !e.IsAccepted() {
 			continue
 		}
-		ep, ok := series.Parse(e.Title)
-		if !ok {
+		// matchedShow was stamped onto the entry by filter(); reading it back
+		// here avoids re-resolving the show list at commit time.
+		matchedShow := e.GetString(seriesTrackerName)
+		if matchedShow == "" {
 			continue
 		}
-		matchedShow, ok := matchShow(ep.SeriesName, shows)
+		ep, ok := series.Parse(e.Title)
 		if !ok {
 			continue
 		}

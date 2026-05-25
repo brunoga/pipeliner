@@ -173,6 +173,32 @@ func TestNoUpgradeWhenQualityNotBetter(t *testing.T) {
 	}
 }
 
+// TestUpgradeNonLatestEpisode is a regression test for the bug where quality
+// upgrades were only accepted for the most recently downloaded episode.
+// Previously the upgrade check used Latest() and gated on latest.EpisodeID ==
+// epID, so a better-quality release for an older episode was silently rejected
+// as "already downloaded" once a newer episode had been recorded.
+func TestUpgradeNonLatestEpisode(t *testing.T) {
+	p := openPlugin(t, nil)
+	tc := makeCtx()
+
+	// Download S01E01 at 720p, then S01E02 at 720p (making S01E02 the "latest").
+	e1 := entry.New("My.Show.S01E01.720p.HDTV", "http://x.com/a")
+	e2 := entry.New("My.Show.S01E02.720p.HDTV", "http://x.com/b")
+	p.filter(context.Background(), tc, e1) //nolint:errcheck
+	p.persist(context.Background(), tc, []*entry.Entry{e1}) //nolint:errcheck
+	p.filter(context.Background(), tc, e2) //nolint:errcheck
+	p.persist(context.Background(), tc, []*entry.Entry{e2}) //nolint:errcheck
+
+	// A 1080p BluRay of S01E01 should be accepted as an upgrade even though
+	// S01E02 is the most recently downloaded episode.
+	eUpgrade := entry.New("My.Show.S01E01.1080p.BluRay", "http://x.com/c")
+	p.filter(context.Background(), tc, eUpgrade) //nolint:errcheck
+	if !eUpgrade.IsAccepted() {
+		t.Errorf("higher-quality copy of older episode should be accepted as upgrade: %s", eUpgrade.RejectReason)
+	}
+}
+
 // TestPersistOnlyStoresAcceptedEntries verifies that dedup-rejected entries
 // passed to Commit do not overwrite the quality stored for the accepted copy.
 // Regression: the executor passes all entries produced by the series node to
@@ -584,6 +610,35 @@ func TestFollowAcceptsGapFillWithinAnchorSeason(t *testing.T) {
 		if !e.IsAccepted() {
 			t.Errorf("gap fill %s should be accepted in follow mode, got: %s", title, e.RejectReason)
 		}
+	}
+}
+
+func TestFollowRejectsStaleOldSeasonWithNewerTracking(t *testing.T) {
+	// Regression: a stale migrated record at S01 (real timestamp) must not
+	// pull the tracking floor back to season 1 when S05 episodes are also
+	// tracked (even with zero timestamps from a now-fixed bug window).
+	p := openPlugin(t, map[string]any{"tracking": "follow"})
+
+	if err := p.tracker.Mark(series.Record{
+		SeriesName:   "my show",
+		EpisodeID:    "S01E01",
+		DownloadedAt: time.Now().Add(-100 * 24 * time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.tracker.Mark(series.Record{
+		SeriesName:   "my show",
+		EpisodeID:    "S05E08",
+		DownloadedAt: time.Time{},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	tc := makeCtx()
+	e := entry.New("My.Show.S01E04.720p", "http://x.com/1")
+	p.filter(context.Background(), tc, e) //nolint:errcheck
+	if !e.IsRejected() {
+		t.Error("S01E04 should be rejected: highest tracked is S05E08, so S01 predates the tracking window")
 	}
 }
 
