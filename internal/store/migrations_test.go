@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 )
 
 // openBare creates a SQLiteStore bypassing OpenSQLite (no lock, no migrate).
@@ -159,6 +160,82 @@ func TestMigrateFailureRollsBack(t *testing.T) {
 	s.db.QueryRow(`SELECT COUNT(*) FROM schema_migrations WHERE version = 0`).Scan(&count)
 	if count != 1 {
 		t.Error("baseline version 0 must remain after failed migration")
+	}
+}
+
+func TestMigrateBackfillSeriesTimestamps(t *testing.T) {
+	// Build a bare DB with baseline stamped and migration 1 applied, but not 2.
+	s := openBare(t, ":memory:")
+	if _, err := s.db.Exec(schema); err != nil {
+		t.Fatalf("create schema: %v", err)
+	}
+	if _, err := s.db.Exec(migrationsSchema); err != nil {
+		t.Fatalf("create migrations schema: %v", err)
+	}
+	for _, v := range []int{0, 1} {
+		if _, err := s.db.Exec(`INSERT INTO schema_migrations (version, applied_at) VALUES (?, '2026-01-01T00:00:00Z')`, v); err != nil {
+			t.Fatalf("stamp v%d: %v", v, err)
+		}
+	}
+
+	seedSQL := `INSERT INTO store (bucket, key, value) VALUES (?, ?, ?)`
+	// Zero-timestamp records — should be updated.
+	zeroRecords := []struct{ key, value string }{
+		{"my show|S01E06", `{"series_name":"my show","episode_id":"S01E06","downloaded_at":"0001-01-01T00:00:00Z","quality":{}}`},
+		{"my show|S01E07", `{"series_name":"my show","episode_id":"S01E07","downloaded_at":"0001-01-01T00:00:00Z","quality":{}}`},
+	}
+	// Real-timestamp record — must remain unchanged.
+	realRecord := struct{ key, value string }{
+		"my show|S01E01", `{"series_name":"my show","episode_id":"S01E01","downloaded_at":"2026-05-24T12:00:00Z","quality":{}}`,
+	}
+	for _, r := range zeroRecords {
+		if _, err := s.db.Exec(seedSQL, "series", r.key, r.value); err != nil {
+			t.Fatalf("seed %q: %v", r.key, err)
+		}
+	}
+	if _, err := s.db.Exec(seedSQL, "series", realRecord.key, realRecord.value); err != nil {
+		t.Fatalf("seed real record: %v", err)
+	}
+
+	before := time.Now()
+	if err := s.runMigrations(migrations[1:2]); err != nil {
+		t.Fatalf("runMigrations: %v", err)
+	}
+	after := time.Now()
+
+	// Zero-timestamp records must now have a non-zero timestamp within [before, after].
+	for _, r := range zeroRecords {
+		var val string
+		if err := s.db.QueryRow(`SELECT value FROM store WHERE bucket='series' AND key=?`, r.key).Scan(&val); err != nil {
+			t.Fatalf("read %q: %v", r.key, err)
+		}
+		var rec struct {
+			DownloadedAt time.Time `json:"downloaded_at"`
+		}
+		if err := json.Unmarshal([]byte(val), &rec); err != nil {
+			t.Fatalf("unmarshal %q: %v", r.key, err)
+		}
+		if rec.DownloadedAt.IsZero() {
+			t.Errorf("%q: downloaded_at is still zero after migration", r.key)
+		}
+		if rec.DownloadedAt.Before(before) || rec.DownloadedAt.After(after) {
+			t.Errorf("%q: downloaded_at %v not within migration window [%v, %v]", r.key, rec.DownloadedAt, before, after)
+		}
+	}
+
+	// Real-timestamp record must not be touched.
+	var val string
+	if err := s.db.QueryRow(`SELECT value FROM store WHERE bucket='series' AND key=?`, realRecord.key).Scan(&val); err != nil {
+		t.Fatalf("read real record: %v", err)
+	}
+	var rec struct {
+		DownloadedAt string `json:"downloaded_at"`
+	}
+	if err := json.Unmarshal([]byte(val), &rec); err != nil {
+		t.Fatalf("unmarshal real record: %v", err)
+	}
+	if rec.DownloadedAt != "2026-05-24T12:00:00Z" {
+		t.Errorf("real record downloaded_at changed: got %q", rec.DownloadedAt)
 	}
 }
 

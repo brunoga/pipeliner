@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"slices"
 	"time"
 )
 
@@ -24,6 +25,14 @@ type migration struct {
 // Never remove or reorder entries — only append.
 // Version 0 is the baseline (the initial schema); it is never a runnable fn.
 var migrations []migration
+
+func init() {
+	// Sort after all per-migration init() functions have run (this file sorts
+	// after migration_*.go alphabetically, so this init executes last).
+	slices.SortFunc(migrations, func(a, b migration) int {
+		return a.version - b.version
+	})
+}
 
 func (s *SQLiteStore) migrate() error {
 	return s.runMigrations(migrations)
