@@ -45,6 +45,38 @@ func TestTrackerIsSeenMarkForget(t *testing.T) {
 	}
 }
 
+func TestTrackerGet(t *testing.T) {
+	tr := openTracker(t)
+
+	_, ok := tr.Get("My Show", "S01E01")
+	if ok {
+		t.Fatal("Get should return false before Mark")
+	}
+
+	want := quality.Quality{Resolution: 5, Source: 5}
+	if err := tr.Mark(Record{
+		SeriesName:   "My Show",
+		EpisodeID:    "S01E01",
+		DownloadedAt: time.Now(),
+		Quality:      want,
+	}); err != nil {
+		t.Fatalf("Mark: %v", err)
+	}
+
+	rec, ok := tr.Get("My Show", "S01E01")
+	if !ok {
+		t.Fatal("Get should return true after Mark")
+	}
+	if rec.Quality != want {
+		t.Errorf("Get quality = %+v, want %+v", rec.Quality, want)
+	}
+
+	_, ok = tr.Get("My Show", "S01E02")
+	if ok {
+		t.Error("Get should return false for unseen episode")
+	}
+}
+
 func TestTrackerLatest(t *testing.T) {
 	tr := openTracker(t)
 
@@ -94,6 +126,36 @@ func TestTrackerLatestIsolatedBySeries(t *testing.T) {
 	}
 	if !okB || latB.EpisodeID != "S02E05" {
 		t.Errorf("Show B latest: %v %v", okB, latB)
+	}
+}
+
+func TestTrackerHighestEpisode(t *testing.T) {
+	tr := openTracker(t)
+
+	for _, r := range []Record{
+		{SeriesName: "My Show", EpisodeID: "S01E01", DownloadedAt: time.Now()},
+		{SeriesName: "My Show", EpisodeID: "S05E08", DownloadedAt: time.Time{}},
+		{SeriesName: "My Show", EpisodeID: "S03E04", DownloadedAt: time.Now()},
+	} {
+		if err := tr.Mark(r); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	highest, ok := tr.HighestEpisode("My Show")
+	if !ok {
+		t.Fatal("expected a highest episode")
+	}
+	if highest.EpisodeID != "S05E08" {
+		t.Errorf("want S05E08 as highest, got %q", highest.EpisodeID)
+	}
+}
+
+func TestTrackerHighestEpisodeEmpty(t *testing.T) {
+	tr := openTracker(t)
+	_, ok := tr.HighestEpisode("Unknown Show")
+	if ok {
+		t.Error("expected no highest episode for unseen series")
 	}
 }
 

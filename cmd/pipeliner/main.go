@@ -170,6 +170,7 @@ func cmdRun(args []string) int {
 	}
 
 	logger := makeLogger(*logLevel, *logPlugin)
+	slog.SetDefault(logger)
 	cfg, err := config.Load(*cfgPath)
 	if err != nil {
 		logger.Error("failed to load config", "err", err)
@@ -314,6 +315,7 @@ func cmdDaemon(args []string) int {
 			logger = slog.New(h)
 		}
 	}
+	slog.SetDefault(logger)
 
 	cfg, err := config.Load(*cfgPath)
 	if err != nil {

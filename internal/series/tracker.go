@@ -38,11 +38,20 @@ func NewTracker(b bucket) *Tracker {
 	return &Tracker{bucket: b}
 }
 
-// IsSeen returns true if the given episode has already been downloaded.
-func (t *Tracker) IsSeen(seriesName, episodeID string) bool {
+// Get returns the stored record for the given episode if it has been downloaded.
+func (t *Tracker) Get(seriesName, episodeID string) (*Record, bool) {
 	var rec Record
 	found, _ := t.bucket.Get(recordKey(seriesName, episodeID), &rec)
-	return found
+	if !found {
+		return nil, false
+	}
+	return &rec, true
+}
+
+// IsSeen returns true if the given episode has already been downloaded.
+func (t *Tracker) IsSeen(seriesName, episodeID string) bool {
+	_, ok := t.Get(seriesName, episodeID)
+	return ok
 }
 
 // Mark records that an episode has been downloaded.
@@ -50,18 +59,18 @@ func (t *Tracker) Mark(r Record) error {
 	return t.bucket.Put(recordKey(r.SeriesName, r.EpisodeID), r)
 }
 
-// Earliest returns the episode with the lexicographically smallest EpisodeID
+// HighestEpisode returns the episode with the lexicographically greatest EpisodeID
 // for the given series. Because episode IDs are zero-padded (S01E01, 2023-11-15,
-// EP001), lexicographic order matches episode order. This is used by the
-// "follow" tracking mode to establish a tracking-start anchor: episodes older
-// than the earliest downloaded are rejected in future runs.
-func (t *Tracker) Earliest(seriesName string) (*Record, bool) {
+// EP001), lexicographic order matches episode order. This represents the furthest
+// progress point and is used by "follow" tracking mode as the season floor:
+// episodes from seasons older than the highest tracked season are rejected.
+func (t *Tracker) HighestEpisode(seriesName string) (*Record, bool) {
 	all, err := t.bucket.All()
 	if err != nil {
 		return nil, false
 	}
 	prefix := seriesName + "|"
-	var earliest *Record
+	var highest *Record
 	for k, raw := range all {
 		if !hasPrefix(k, prefix) {
 			continue
@@ -73,12 +82,12 @@ func (t *Tracker) Earliest(seriesName string) (*Record, bool) {
 		if rec.SeriesName != seriesName {
 			continue
 		}
-		if earliest == nil || rec.EpisodeID < earliest.EpisodeID {
+		if highest == nil || rec.EpisodeID > highest.EpisodeID {
 			r := rec
-			earliest = &r
+			highest = &r
 		}
 	}
-	return earliest, earliest != nil
+	return highest, highest != nil
 }
 
 // Latest returns the most recently downloaded episode for the given series,
