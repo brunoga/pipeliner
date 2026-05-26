@@ -15,14 +15,14 @@
 rss_url    = "https://feeds.example.com/all"
 trans_host = "localhost"
 
-src  = input("rss",               url=rss_url)
-seen = process("seen",            upstream=src)
-q    = process("metainfo_quality", upstream=seen)
-prem = process("premiere",        upstream=q,
+src  = input("rss",            url=rss_url)
+seen = process("seen",         upstream=src)
+meta = process("metainfo_file", upstream=seen)   # classifies + sets series_*, _quality, etc.
+prem = process("premiere",     upstream=meta,
     quality="720p+ webrip+",   # only try new shows that meet a minimum bar
     season=1, episode=1,       # default, shown explicitly for clarity
     reject_unmatched=False)    # pass movies and other non-episode entries through
-best = process("dedup",           upstream=prem)
+best = process("dedup",        upstream=prem)
 output("transmission", upstream=best, host=trans_host)
 
 pipeline("premiere-discovery", schedule="2h")
