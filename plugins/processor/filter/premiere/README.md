@@ -23,11 +23,12 @@ any equivalent plugin that sets the same fields) upstream:
 | `series_episode_id` | Tracker key + classification gate |
 | `series_season` | Season constraint check |
 | `series_episode` | Episode constraint check |
-| `series_double_episode` *(optional)* | Marks each part of a double episode |
 | `_quality` *(via `e.Quality()`)* | Quality spec matching, persisted record |
+| `series_double_episode` *(optional)* | Marks each part of a double episode |
 
-These are declared via `Descriptor.Requires`, so the DAG validator catches
-pipelines that wire `premiere` without an upstream metainfo step.
+The first five fields are declared via `Descriptor.Requires`, so the DAG
+validator catches pipelines that wire `premiere` without an upstream
+metainfo step.
 
 ## Config
 
@@ -57,7 +58,7 @@ pipeline("new-shows", schedule="1h")
 | Property | Value |
 |----------|-------|
 | Role | `processor` |
-| Requires | `title`, `series_episode_id`, `series_season`, `series_episode` (declared via `RequireAll`) |
+| Requires | `title`, `series_episode_id`, `series_season`, `series_episode`, `_quality` (declared via `RequireAll`) |
 | Produces | — (no new public fields; reads-only of upstream metadata) |
 
 `premiere` passes through fields set upstream; it does not produce new ones.
