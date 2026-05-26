@@ -27,9 +27,9 @@ rss_src = input("rss", url="https://feeds.example.com/movies/1080p")
 # entries as the accepted title set and the rss entries as candidates.
 all_src = merge(rss_src, watchlist)
 
-seen   = process("seen",            upstream=all_src)
-meta   = process("metainfo_quality", upstream=seen)
-tmdb   = process("metainfo_tmdb",   upstream=meta, api_key=env("TMDB_KEY", default="YOUR_TMDB_KEY"))
+seen   = process("seen",          upstream=all_src)
+meta   = process("metainfo_file", upstream=seen)
+tmdb   = process("metainfo_tmdb", upstream=meta, api_key=env("TMDB_KEY", default="YOUR_TMDB_KEY"))
 movies = process("movies",          upstream=tmdb,
     quality="1080p+",
     list=[{"name": "trakt_list",

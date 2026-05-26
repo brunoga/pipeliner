@@ -26,10 +26,10 @@ def qbit_output(upstream, category):
 # ── Pipeline 1: watchlist (720p+) ────────────────────────────────────────────
 
 src1    = input("rss", url="https://example.com/rss/movies")
-seen1   = process("seen",             upstream=src1)
-q1      = process("metainfo_quality", upstream=seen1)
-tmdb1   = process("metainfo_tmdb",   upstream=q1, api_key=tmdb_key)
-movies1 = process("movies",           upstream=tmdb1,
+seen1   = process("seen",          upstream=src1)
+meta1   = process("metainfo_file", upstream=seen1)
+tmdb1   = process("metainfo_tmdb", upstream=meta1, api_key=tmdb_key)
+movies1 = process("movies",        upstream=tmdb1,
                    quality="720p+", ttl="4h",
                    list=[{"name": "trakt_list",
                           "client_id":     trakt_client_id,
@@ -42,10 +42,10 @@ pipeline("movies-watchlist", schedule="2h")
 # ── Pipeline 2: top-rated (1080p+, rating filter) ────────────────────────────
 
 src2    = input("rss", url="https://example.com/rss/movies")
-seen2   = process("seen",             upstream=src2)
-q2      = process("metainfo_quality", upstream=seen2)
-tmdb2   = process("metainfo_tmdb",   upstream=q2, api_key=tmdb_key)
-movies2 = process("movies",           upstream=tmdb2,
+seen2   = process("seen",          upstream=src2)
+meta2   = process("metainfo_file", upstream=seen2)
+tmdb2   = process("metainfo_tmdb", upstream=meta2, api_key=tmdb_key)
+movies2 = process("movies",        upstream=tmdb2,
                    quality="1080p+", ttl="4h",
                    list=[{"name": "trakt_list",
                           "client_id":     trakt_client_id,
