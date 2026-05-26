@@ -51,6 +51,7 @@ import (
 	_ "github.com/brunoga/pipeliner/plugins/source/html"
 	_ "github.com/brunoga/pipeliner/plugins/source/rss"
 	_ "github.com/brunoga/pipeliner/plugins/source/jackett"
+	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/file"
 	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/magnet"
 	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/quality"
 	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/series"
