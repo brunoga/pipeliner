@@ -24,7 +24,8 @@ Use as a standalone `input()` source node, or inside `series.list`, `movies.list
 ```python
 src    = input("rss", url="https://example.com/rss/shows")
 seen   = process("seen", upstream=src)
-series = process("series", upstream=seen,
+meta   = process("metainfo_file", upstream=seen)
+series = process("series", upstream=meta,
     tracking="strict", quality="720p+",
     list=[{"name": "tvdb_favorites", "api_key": "YOUR_TVDB_API_KEY", "user_pin": "YOUR_TVDB_USER_PIN"}])
 output("deluge", upstream=series, host="localhost", password="changeme")

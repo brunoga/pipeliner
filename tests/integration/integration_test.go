@@ -40,6 +40,7 @@ import (
 	_ "github.com/brunoga/pipeliner/plugins/source/html"
 	_ "github.com/brunoga/pipeliner/plugins/source/rss"
 	_ "github.com/brunoga/pipeliner/plugins/source/jackett"
+	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/file"
 	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/magnet"
 	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/quality"
 	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/series"
@@ -197,7 +198,8 @@ func TestSeriesFilterAcceptsKnownShow(t *testing.T) {
 
 	res := buildAndRun(t, fmt.Sprintf(`
 src    = input("rss", url=%q)
-series = process("series", upstream=src, static=["Breaking Bad"])
+meta   = process("metainfo_file", upstream=src)
+series = process("series", upstream=meta, static=["Breaking Bad"])
 output("print", upstream=series)
 pipeline("t")
 `, srv.URL))
@@ -214,7 +216,8 @@ func TestSeriesSeenAcrossCycles(t *testing.T) {
 
 	tk := buildTask(t, fmt.Sprintf(`
 src    = input("rss", url=%q)
-series = process("series", upstream=src, static=["Breaking Bad"])
+meta   = process("metainfo_file", upstream=src)
+series = process("series", upstream=meta, static=["Breaking Bad"])
 output("print", upstream=series)
 pipeline("t")
 `, srv.URL))
@@ -680,7 +683,8 @@ func TestMultipleTemplates(t *testing.T) {
 
 	res := buildAndRun(t, fmt.Sprintf(`
 def hd_base(upstream):
-    return process("metainfo_quality", upstream=upstream)
+    # metainfo_file sets quality fields plus series_episode_id (required by series).
+    return process("metainfo_file", upstream=upstream)
 
 def bb_only(upstream):
     q = process("quality", upstream=upstream, min="720p")

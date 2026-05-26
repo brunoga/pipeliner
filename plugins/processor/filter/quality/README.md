@@ -54,7 +54,8 @@ pipeline("hd-only", schedule="1h")
 The `series`, `movies`, and `premiere` plugins accept a `quality=` key directly, eliminating the need for a separate `quality` node:
 
 ```python
-series = process("series", upstream=seen, static=["Breaking Bad"], quality="720p+ webrip+")
+meta   = process("metainfo_file", upstream=seen)
+series = process("series",        upstream=meta, static=["Breaking Bad"], quality="720p+ webrip+")
 ```
 
 ## DAG role

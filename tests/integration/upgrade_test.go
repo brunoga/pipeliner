@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/dedup"
+	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/file"
 	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/quality"
 
 	"github.com/brunoga/pipeliner/internal/entry"
@@ -43,9 +44,9 @@ func TestSeriesInRunDedup(t *testing.T) {
 
 	res := buildAndRun(t, fmt.Sprintf(`
 src    = input("rss", url=%q)
-series = process("series", upstream=src, static=["Breaking Bad"])
-q      = process("metainfo_quality", upstream=series)
-dd     = process("dedup", upstream=q)
+meta   = process("metainfo_file", upstream=src)
+series = process("series", upstream=meta, static=["Breaking Bad"])
+dd     = process("dedup", upstream=series)
 output("print", upstream=dd)
 pipeline("t")
 `, srv.URL))
@@ -85,7 +86,8 @@ func TestSeriesUpgradeAcrossRuns(t *testing.T) {
 
 	tk := buildTask(t, fmt.Sprintf(`
 src    = input("rss", url=%q)
-series = process("series", upstream=src, static=["Breaking Bad"])
+meta   = process("metainfo_file", upstream=src)
+series = process("series", upstream=meta, static=["Breaking Bad"])
 output("print", upstream=series)
 pipeline("t")
 `, srv.URL))
@@ -123,7 +125,8 @@ func TestSeriesProperUpgradeAcrossRuns(t *testing.T) {
 
 	tk := buildTask(t, fmt.Sprintf(`
 src    = input("rss", url=%q)
-series = process("series", upstream=src, static=["Breaking Bad"])
+meta   = process("metainfo_file", upstream=src)
+series = process("series", upstream=meta, static=["Breaking Bad"])
 output("print", upstream=series)
 pipeline("t")
 `, srv.URL))
@@ -157,7 +160,8 @@ func TestSeriesDowngradeRejected(t *testing.T) {
 
 	tk := buildTask(t, fmt.Sprintf(`
 src    = input("rss", url=%q)
-series = process("series", upstream=src, static=["Breaking Bad"])
+meta   = process("metainfo_file", upstream=src)
+series = process("series", upstream=meta, static=["Breaking Bad"])
 output("print", upstream=series)
 pipeline("t")
 `, srv.URL))

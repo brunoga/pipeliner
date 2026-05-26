@@ -56,7 +56,8 @@ process("movies", upstream=seen,
 ```python
 src    = input("rss", url="https://example.com/rss/shows")
 seen   = process("seen", upstream=src)
-series = process("series", upstream=seen,
+meta   = process("metainfo_file", upstream=seen)
+series = process("series", upstream=meta,
     tracking="strict", quality="720p+",
     list=[{"name": "trakt_list", "client_id": "YOUR_CLIENT_ID",
            "client_secret": "YOUR_CLIENT_SECRET", "type": "shows", "list": "watchlist"}])

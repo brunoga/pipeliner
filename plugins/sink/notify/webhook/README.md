@@ -24,7 +24,8 @@ The `title` and `body` values come from the `title=` and `body=` keys on the `no
 ```python
 src  = input("rss", url="https://example.com/rss")
 seen = process("seen",   upstream=src)
-flt  = process("series", upstream=seen, static=["Breaking Bad"])
+meta = process("metainfo_file", upstream=seen)
+flt  = process("series", upstream=meta, static=["Breaking Bad"])
 fmt  = process("pathfmt", upstream=flt,
                path="/media/tv/{title}/Season {series_season:02d}",
                field="download_path")
