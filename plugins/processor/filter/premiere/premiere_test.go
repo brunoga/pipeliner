@@ -306,6 +306,7 @@ func TestRequiresDeclared(t *testing.T) {
 		entry.FieldSeriesEpisodeID: false,
 		entry.FieldSeriesSeason:    false,
 		entry.FieldSeriesEpisode:   false,
+		entry.FieldQuality:         false, // quality spec match + persisted record read e.Quality()
 	}
 	for _, group := range d.Requires {
 		for _, f := range group {
