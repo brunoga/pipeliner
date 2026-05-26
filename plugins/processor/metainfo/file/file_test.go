@@ -147,6 +147,29 @@ func TestQualityCodecAudio(t *testing.T) {
 	}
 }
 
+func TestQualityStructAvailable(t *testing.T) {
+	// The parsed Quality struct is stored on the entry so downstream consumers
+	// (premiere, series, movies, quality filter) can spec.Matches without
+	// re-parsing the title.
+	e := annotateTitle(t, "Movie.2020.2160p.BluRay.x265.Atmos")
+	q, ok := e.Quality()
+	if !ok {
+		t.Fatal("Quality() returned ok=false after metainfo_file ran")
+	}
+	if q.Resolution == 0 || q.Source == 0 {
+		t.Errorf("Quality struct missing dimensions: %+v", q)
+	}
+}
+
+func TestQualityStructNotSetWhenNothingDetected(t *testing.T) {
+	// A plain-text title with no quality markers must not stamp an empty
+	// Quality struct (the SetQuality call is gated on q != zero).
+	e := annotateTitle(t, "Just A Plain Article Title")
+	if _, ok := e.Quality(); ok {
+		t.Error("Quality() should return ok=false for plain-text titles")
+	}
+}
+
 func TestQualityNotSetWhenAbsent(t *testing.T) {
 	// Plain article-style title — no quality detectable.
 	e := annotateTitle(t, "Just A Plain Article Title")

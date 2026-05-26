@@ -10,6 +10,7 @@ import (
 
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/plugin"
+	"github.com/brunoga/pipeliner/internal/series"
 	"github.com/brunoga/pipeliner/internal/store"
 )
 
@@ -27,10 +28,45 @@ func makePlugin(t *testing.T, cfg map[string]any) *premierePlugin {
 	return p.(*premierePlugin)
 }
 
+// metaize simulates what metainfo_file does upstream: parses the entry title
+// and populates the series_* / Quality fields that premiere reads. The premiere
+// plugin requires these fields (via Descriptor.Requires) so tests must call
+// this helper before invoking filter().
+func metaize(e *entry.Entry) {
+	ep, ok := series.Parse(e.Title)
+	if !ok {
+		return
+	}
+	e.SetSeriesInfo(entry.SeriesInfo{
+		VideoInfo: entry.VideoInfo{
+			GenericInfo: entry.GenericInfo{Title: ep.SeriesName},
+		},
+		Season:        ep.Season,
+		Episode:       ep.Episode,
+		EpisodeID:     series.EpisodeID(ep),
+		DoubleEpisode: ep.DoubleEpisode,
+		Proper:        ep.Proper,
+		Repack:        ep.Repack,
+		Service:       ep.Service,
+	})
+	e.SetQuality(ep.Quality)
+}
+
 func makeEntry(seriesName string, season, episode int) *entry.Entry {
 	slug := strings.ReplaceAll(seriesName, " ", ".")
 	title := fmt.Sprintf("%s.S%02dE%02d.720p.HDTV", slug, season, episode)
-	return entry.New(title, "http://example.com/"+slug+".torrent")
+	e := entry.New(title, "http://example.com/"+slug+".torrent")
+	metaize(e)
+	return e
+}
+
+// rawEntry creates an entry with a custom title and runs the metaize helper so
+// the required upstream fields are present. Use this for tests that supply
+// non-standard titles.
+func rawEntry(title, url string) *entry.Entry {
+	e := entry.New(title, url)
+	metaize(e)
+	return e
 }
 
 func makeCtx() *plugin.TaskContext {
@@ -137,9 +173,11 @@ func TestMultipleEntriesSameSeriesAllAccepted(t *testing.T) {
 	p := makePlugin(t, map[string]any{})
 
 	// Multiple entries for the same unseen premiere should all be accepted
-	// so the dedup step can pick the best one.
-	e1 := makeEntry("Breaking Bad", 1, 1)
-	e2 := makeEntry("Breaking Bad", 1, 1)
+	// so the dedup step can pick the best one. Use distinct titles so the
+	// metaize helper sets different qualities (otherwise both entries share
+	// the same URL key downstream).
+	e1 := rawEntry("Breaking.Bad.S01E01.720p.HDTV", "http://example.com/a.torrent")
+	e2 := rawEntry("Breaking.Bad.S01E01.1080p.WEB-DL", "http://example.com/b.torrent")
 	filter(t, p, e1)
 	filter(t, p, e2)
 	if !e1.IsAccepted() || !e2.IsAccepted() {
@@ -149,19 +187,21 @@ func TestMultipleEntriesSameSeriesAllAccepted(t *testing.T) {
 
 func TestNonEpisodeRejectedByDefault(t *testing.T) {
 	p := makePlugin(t, map[string]any{})
-	e := entry.New("random.file.mkv", "http://example.com/file.mkv")
+	// Title does not parse as an episode → metainfo_file would leave
+	// series_episode_id unset. premiere must reject.
+	e := rawEntry("random.file.mkv", "http://example.com/file.mkv")
 	filter(t, p, e)
 	if !e.IsRejected() {
-		t.Errorf("entry that does not parse as an episode should be rejected by default, got: %s", e.State)
+		t.Errorf("entry without series_episode_id should be rejected by default, got: %s", e.State)
 	}
 }
 
 func TestNonEpisodeUndecidedOptOut(t *testing.T) {
 	p := makePlugin(t, map[string]any{"reject_unmatched": false})
-	e := entry.New("random.file.mkv", "http://example.com/file.mkv")
+	e := rawEntry("random.file.mkv", "http://example.com/file.mkv")
 	filter(t, p, e)
 	if !e.IsUndecided() {
-		t.Errorf("entry that does not parse as an episode should be undecided when reject_unmatched is false, got: %s", e.State)
+		t.Errorf("entry without series_episode_id should be undecided when reject_unmatched is false, got: %s", e.State)
 	}
 }
 
@@ -211,7 +251,7 @@ func TestPersistSkipsNonAccepted(t *testing.T) {
 	tc := makeCtx()
 
 	eHigh := makeEntry("Breaking Bad", 1, 1)
-	eLow := entry.New("Breaking.Bad.S01E01.480p.HDTV", "http://example.com/low.torrent")
+	eLow := rawEntry("Breaking.Bad.S01E01.480p.HDTV", "http://example.com/low.torrent")
 
 	_ = p.filter(context.Background(), tc, eHigh)
 	_ = p.filter(context.Background(), tc, eLow)
@@ -235,8 +275,7 @@ func TestDoubleEpisodePremiereMarksBothParts(t *testing.T) {
 	p := makePlugin(t, map[string]any{})
 	tc := makeCtx()
 
-	slug := "Breaking.Bad.S01E01E02.720p.HDTV"
-	e := entry.New(slug, "http://example.com/"+slug+".torrent")
+	e := rawEntry("Breaking.Bad.S01E01E02.720p.HDTV", "http://example.com/double.torrent")
 	if err := p.filter(context.Background(), tc, e); err != nil {
 		t.Fatal(err)
 	}
@@ -250,6 +289,34 @@ func TestDoubleEpisodePremiereMarksBothParts(t *testing.T) {
 	for _, epID := range []string{"S01E01E02", "S01E01", "S01E02"} {
 		if !p.tracker.IsSeen("breaking bad", epID) {
 			t.Errorf("tracker should have %s marked after double premiere commit", epID)
+		}
+	}
+}
+
+// TestRequiresDeclared verifies that the plugin descriptor declares the
+// required upstream fields. The DAG validator uses this to catch pipelines
+// that wire premiere without an upstream metainfo step.
+func TestRequiresDeclared(t *testing.T) {
+	d, ok := plugin.Lookup("premiere")
+	if !ok {
+		t.Fatal("premiere not registered")
+	}
+	want := map[string]bool{
+		entry.FieldTitle:           false,
+		entry.FieldSeriesEpisodeID: false,
+		entry.FieldSeriesSeason:    false,
+		entry.FieldSeriesEpisode:   false,
+	}
+	for _, group := range d.Requires {
+		for _, f := range group {
+			if _, ok := want[f]; ok {
+				want[f] = true
+			}
+		}
+	}
+	for f, found := range want {
+		if !found {
+			t.Errorf("Requires must include %q", f)
 		}
 	}
 }
