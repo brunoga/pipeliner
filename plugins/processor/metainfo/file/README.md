@@ -13,10 +13,12 @@ The plugin sets `media_type` to one of:
 | `media_type` | Set when | Series fields | Movie fields |
 |---|---|---|---|
 | `"series"` | Title parses as a TV episode (SxxExx, dates, etc.) | ✓ | — |
-| `"movie"`  | Title parses as a movie (year + quality marker, etc.) | — | ✓ |
-| unset      | Neither parser matched (e.g. RSS articles, plain text) | — | — |
+| `"movie"`  | Title parses as a movie (year + quality marker, etc.), **or** the title is unparseable but `video_year` was set upstream (typically by `trakt_list`) | — | ✓ |
+| unset      | Neither parser matched and no `video_year` hint is present | — | — |
 
 Series is tried first because the series parser requires an explicit episode pattern. A title like `Show.2023.S01E01.720p` matches both parsers, but the unambiguous episode marker makes it a series.
+
+**List-source fallback.** When the entry title is a clean string with no year or quality marker (e.g. `"Avengers"` from `trakt_list`), the filename parser can't anchor the title boundary and returns no match. In that case `metainfo_file` falls back to the upstream-set `video_year`: it normalises the raw title (lowercasing dots and underscores, title-casing words) and stamps the entry as a movie. This makes list-sourced pipelines work without requiring a downstream API enricher just to classify entries.
 
 Quality fields are set whenever any quality dimension is detected, **regardless of classification** — a "movie" entry still gets `video_resolution`, `codec`, etc.
 
