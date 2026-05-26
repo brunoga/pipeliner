@@ -10,7 +10,7 @@ tv_path     = "/media/tv"
 
 src    = input("rss", url="https://example.com/rss/torrents")
 seen   = process("seen",             upstream=src)
-q      = process("metainfo_quality", upstream=seen)
+q      = process("metainfo_file", upstream=seen)
 series = process("series",           upstream=q,
                   tracking="strict", quality="720p",
                   static=["Breaking Bad", "Better Call Saul",

@@ -279,7 +279,7 @@ Fields follow a tiered naming convention with prefixes:
 |--------|------|--------|
 | *(none)* | GenericInfo | all source and metainfo providers |
 | `video_` | VideoInfo | metainfo_tvdb, metainfo_tmdb, metainfo_trakt, metainfo_quality, metainfo_file, movies |
-| `series_` | SeriesInfo | series, metainfo_series, metainfo_file, metainfo_tvdb |
+| `series_` | SeriesInfo | metainfo_series, metainfo_file, metainfo_tvdb |
 | `movie_` | MovieInfo | movies, metainfo_tmdb, metainfo_file |
 | `torrent_` | TorrentInfo | rss, jackett, metainfo_torrent, metainfo_magnet |
 | `file_` | FileInfo | filesystem |

@@ -1,11 +1,17 @@
 // Package series provides a TV series processor that accepts episodes from a
 // configured show list and tracks downloads across runs.
 //
-// It parses episode information from entry titles, matches against the show
-// list, and enforces quality and tracking constraints. Multiple quality
-// variants of the same episode are accepted so the dedup processor can choose
-// the best copy. State is persisted within Process() so the best-quality
-// episode is recorded after dedup selects it.
+// Episode metadata is read from entry fields populated upstream by
+// metainfo_file (or any equivalent metainfo source). The plugin does not
+// parse the entry title itself; the upstream requirement is declared via
+// Descriptor.Requires so the DAG validator catches misconfigured pipelines
+// at load time.
+//
+// The plugin matches the parsed series name against the configured show list,
+// enforces optional quality and ordering constraints, and persists downloads
+// via CommitPlugin so only entries that survive all downstream sinks are
+// recorded. Multiple quality variants of the same episode are accepted so the
+// dedup processor can pick the best copy.
 //
 // The show list may be provided statically via 'static', dynamically via 'list'
 // (source plugins whose entry titles are used as show names), or both.
@@ -32,19 +38,12 @@ func init() {
 		PluginName:  "series",
 		Description: "accept episodes for configured shows; track downloads across runs",
 		Role:        plugin.RoleProcessor,
-		// Only set on matched entries; with reject_unmatched:false unmatched entries
-		// pass through without these fields.
-		MayProduce: []string{
+		// Episode metadata must be populated upstream — by metainfo_file in
+		// the common case, or by any other plugin that sets these fields.
+		Requires: plugin.RequireAll(
 			entry.FieldTitle,
-			entry.FieldSeriesSeason,
-			entry.FieldSeriesEpisode,
 			entry.FieldSeriesEpisodeID,
-			entry.FieldSeriesDoubleEpisode,
-			entry.FieldSeriesProper,
-			entry.FieldSeriesRepack,
-			entry.FieldSeriesService,
-			"series_container",
-		},
+		),
 		Factory:     newPlugin,
 		Validate:    validate,
 		AcceptsList: true,
@@ -54,7 +53,7 @@ func init() {
 			{Key: "tracking", Type: plugin.FieldTypeEnum, Enum: []string{"strict", "backfill", "follow"}, Default: "strict", Hint: "Episode ordering mode"},
 			{Key: "quality", Type: plugin.FieldTypeString, Hint: "Quality spec, e.g. 720p+ (floor), 720p (exact), 720p-1080p (range)"},
 			{Key: "ttl", Type: plugin.FieldTypeDuration, Default: "1h", Hint: "Cache TTL for dynamic lists"},
-			{Key: "reject_unmatched", Type: plugin.FieldTypeBool, Default: true, Hint: "Reject episodes not in the show list"},
+			{Key: "reject_unmatched", Type: plugin.FieldTypeBool, Default: true, Hint: "Reject episodes not classified as series upstream or not in the show list"},
 		},
 	})
 }
@@ -169,19 +168,20 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 	}, nil
 }
 
-func (p *seriesPlugin) Name() string        { return "series" }
+func (p *seriesPlugin) Name() string { return "series" }
 
 func (p *seriesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
-	ep, ok := series.Parse(e.Title)
-	if !ok {
+	epID := e.GetString(entry.FieldSeriesEpisodeID)
+	if epID == "" {
 		if p.rejectUnmatched {
-			e.Reject("series: title did not parse as episode")
+			e.Reject("series: entry has no series_episode_id (not classified as series upstream)")
 		}
 		return nil
 	}
 
+	parsedName := e.GetString(entry.FieldTitle)
 	shows := p.resolveShows(ctx, tc)
-	matchedShow, ok := matchShow(ep.SeriesName, shows)
+	matchedShow, ok := matchShow(parsedName, shows)
 	if !ok {
 		if p.rejectUnmatched {
 			e.Reject("series: show not in list")
@@ -189,26 +189,14 @@ func (p *seriesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *en
 		return nil
 	}
 
-	epID := series.EpisodeID(ep)
 	e.Set(seriesTrackerName, matchedShow)
-	e.SetSeriesInfo(entry.SeriesInfo{
-		VideoInfo:     entry.VideoInfo{GenericInfo: entry.GenericInfo{Title: ep.SeriesName}},
-		Season:        ep.Season,
-		Episode:       ep.Episode,
-		EpisodeID:     epID,
-		DoubleEpisode: ep.DoubleEpisode,
-		Proper:        ep.Proper,
-		Repack:        ep.Repack,
-		Service:       ep.Service,
-	})
-	if ep.Container != "" {
-		e.Set("series_container", ep.Container)
-	}
+
+	incomingQuality, _ := e.Quality()
 
 	if stored, ok := p.tracker.Get(matchedShow, epID); ok {
-		betterQuality := ep.Quality.Better(stored.Quality)
-		properOrRepack := ep.Proper || ep.Repack
-		notDowngrade := !stored.Quality.Better(ep.Quality)
+		betterQuality := incomingQuality.Better(stored.Quality)
+		properOrRepack := e.GetBool(entry.FieldSeriesProper) || e.GetBool(entry.FieldSeriesRepack)
+		notDowngrade := !stored.Quality.Better(incomingQuality)
 		if betterQuality || (properOrRepack && notDowngrade) {
 			reason := fmt.Sprintf("series: %s %s quality upgrade", matchedShow, epID)
 			if properOrRepack && !betterQuality {
@@ -221,15 +209,15 @@ func (p *seriesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *en
 		return nil
 	}
 
-	if (p.spec != quality.Spec{}) && !p.spec.Matches(ep.Quality) {
+	if (p.spec != quality.Spec{}) && !p.spec.Matches(incomingQuality) {
 		e.Reject(fmt.Sprintf("series: %s %s quality %s does not match spec",
-			matchedShow, epID, ep.Quality.String()))
+			matchedShow, epID, incomingQuality.String()))
 		return nil
 	}
 
 	if p.tracking == trackingStrict {
 		if latest, ok := p.tracker.Latest(matchedShow); ok {
-			if err := enforceStrict(tc.Logger, ep, epID, latest); err != nil {
+			if err := enforceStrict(tc.Logger, epID, latest); err != nil {
 				e.Reject(err.Error())
 				return nil
 			}
@@ -248,11 +236,12 @@ func (p *seriesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *en
 		// For date-based shows fall back to comparing the full episode ID
 		// string lexicographically.
 		if highest, ok := p.tracker.HighestEpisode(matchedShow); ok {
+			incomingSeason := e.GetInt(entry.FieldSeriesSeason)
 			floorSeason := seasonFromEpisodeID(highest.EpisodeID)
-			if ep.Season > 0 && floorSeason > 0 {
-				if ep.Season < floorSeason {
+			if incomingSeason > 0 && floorSeason > 0 {
+				if incomingSeason < floorSeason {
 					e.Reject(fmt.Sprintf("series: %s S%02d predates tracking window (at S%02d)",
-						matchedShow, ep.Season, floorSeason))
+						matchedShow, incomingSeason, floorSeason))
 					return nil
 				}
 			} else if epID < highest.EpisodeID {
@@ -282,17 +271,26 @@ func (p *seriesPlugin) persist(_ context.Context, _ *plugin.TaskContext, entries
 		if matchedShow == "" {
 			continue
 		}
-		ep, ok := series.Parse(e.Title)
-		if !ok {
+		epID := e.GetString(entry.FieldSeriesEpisodeID)
+		if epID == "" {
 			continue
 		}
-		epID := series.EpisodeID(ep)
+		q, _ := e.Quality()
 		rec := series.Record{
 			SeriesName:   matchedShow,
 			DisplayName:  e.GetString(entry.FieldTitle),
 			EpisodeID:    epID,
-			Quality:      ep.Quality,
+			Quality:      q,
 			DownloadedAt: time.Now(),
+		}
+		// Build a minimal Episode for MarkWithParts so double-episode releases
+		// also mark each individual part. MarkWithParts only consults Season,
+		// Episode, and DoubleEpisode; date-based IDs (which can't be doubles)
+		// naturally fall through with DoubleEpisode == 0.
+		ep := &series.Episode{
+			Season:        e.GetInt(entry.FieldSeriesSeason),
+			Episode:       e.GetInt(entry.FieldSeriesEpisode),
+			DoubleEpisode: e.GetInt(entry.FieldSeriesDoubleEpisode),
 		}
 		if err := p.tracker.MarkWithParts(rec, ep); err != nil {
 			return fmt.Errorf("series: mark %s %s: %w", matchedShow, epID, err)
@@ -322,10 +320,13 @@ func matchShow(parsed string, shows []match.TitleEntry) (string, bool) {
 }
 
 // enforceStrict rejects episodes that skip more than one ahead of the latest
-// downloaded episode (standard episode numbering only; date episodes skip this check).
-func enforceStrict(log *slog.Logger, ep *series.Episode, epID string, latest *series.Record) error {
-	if ep.IsDate {
-		return nil
+// downloaded episode (standard / absolute episode numbering only; date episodes
+// skip this check because their IDs do not encode comparable season/episode
+// numbers).
+func enforceStrict(log *slog.Logger, epID string, latest *series.Record) error {
+	incomingSeason, incomingEpisode, ok := series.ParseEpisodeID(epID)
+	if !ok {
+		return nil // date or unparseable: skip strict comparison
 	}
 	latestSeason, latestEpisode, ok := series.ParseEpisodeID(latest.EpisodeID)
 	if !ok {
@@ -333,10 +334,10 @@ func enforceStrict(log *slog.Logger, ep *series.Episode, epID string, latest *se
 			"series", latest.SeriesName, "episode_id", latest.EpisodeID)
 		return nil
 	}
-	if ep.Season != latestSeason {
+	if incomingSeason != latestSeason {
 		return nil
 	}
-	gap := ep.Episode - latestEpisode
+	gap := incomingEpisode - latestEpisode
 	if gap > 1 {
 		return fmt.Errorf("series: strict tracking: %s skips %d episodes ahead of latest %s",
 			epID, gap-1, latest.EpisodeID)

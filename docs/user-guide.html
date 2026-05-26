@@ -494,7 +494,7 @@ pipeline("split-pipeline")</code></pre>
   <tr><td><code>video_votes</code></td><td>Vote count</td></tr>
 </table>
 
-<h4>Series fields (series_ prefix) — set by series, metainfo_series, metainfo_file, metainfo_tvdb</h4>
+<h4>Series fields (series_ prefix) — set by metainfo_series, metainfo_file, metainfo_tvdb</h4>
 <table>
   <tr><th>Field</th><th>Description</th></tr>
   <tr><td><code>series_season</code></td><td>Season number</td></tr>
@@ -578,7 +578,7 @@ pipeline("split-pipeline")</code></pre>
   <tr><td><code>jackett_tmdb_id</code></td><td>jackett</td><td>Raw TMDb ID — same pattern as <code>trakt_tmdb_id</code></td></tr>
   <tr><td><code>jackett_dl_factor</code></td><td>jackett</td><td>Download volume factor: <code>0.0</code> = freeleech, <code>1.0</code> = normal (private trackers)</td></tr>
   <tr><td><code>jackett_ul_factor</code></td><td>jackett</td><td>Upload volume factor (private trackers)</td></tr>
-  <tr><td><code>series_container</code></td><td>series, metainfo_series, metainfo_file</td><td>Container format tag parsed from title (e.g. <code>mkv</code>)</td></tr>
+  <tr><td><code>series_container</code></td><td>metainfo_series, metainfo_file</td><td>Container format tag parsed from title (e.g. <code>mkv</code>)</td></tr>
   <tr><td><code>media_type</code></td><td>metainfo_file</td><td>Classification: <code>"series"</code>, <code>"movie"</code>, or unset. Useful as a <code>route()</code> dispatch key.</td></tr>
   <tr><td><code>codec</code></td><td>metainfo_quality, metainfo_file</td><td>Codec tag (e.g. <code>x265</code>, <code>HEVC</code>)</td></tr>
   <tr><td><code>audio</code></td><td>metainfo_quality, metainfo_file</td><td>Audio tag (e.g. <code>DTS</code>, <code>Atmos</code>)</td></tr>
@@ -591,20 +591,20 @@ pipeline("split-pipeline")</code></pre>
 <h3>Common fields (quick reference)</h3>
 <table>
   <tr><th>Field</th><th>Set by</th><th>Description</th></tr>
-  <tr><td><code>title</code></td><td>metainfo_tvdb, metainfo_tmdb, metainfo_trakt, metainfo_series, metainfo_file, series, movies</td><td>Canonical enriched display name</td></tr>
+  <tr><td><code>title</code></td><td>metainfo_tvdb, metainfo_tmdb, metainfo_trakt, metainfo_series, metainfo_file, movies</td><td>Canonical enriched display name</td></tr>
   <tr><td><code>raw_title</code></td><td>(built-in)</td><td>Original entry title from the input source</td></tr>
   <tr><td><code>media_type</code></td><td>metainfo_file</td><td>Classification (<code>"series"</code>, <code>"movie"</code>, or unset). Convenient dispatch key for <code>route()</code>.</td></tr>
   <tr><td><code>description</code></td><td>rss, metainfo_tvdb, metainfo_tmdb, metainfo_trakt</td><td>Synopsis or overview text</td></tr>
   <tr><td><code>published_date</code></td><td>rss, metainfo providers</td><td>Release/premiere date</td></tr>
   <tr><td><code>enriched</code></td><td>metainfo_tvdb, metainfo_tmdb, metainfo_trakt</td><td><code>true</code> when enriched by an external provider</td></tr>
-  <tr><td><code>series_season</code></td><td>series, metainfo_series, metainfo_file</td><td>Season number</td></tr>
-  <tr><td><code>series_episode</code></td><td>series, metainfo_series, metainfo_file</td><td>Episode number</td></tr>
-  <tr><td><code>series_episode_id</code></td><td>series, metainfo_series, metainfo_file</td><td>Episode ID string (e.g. <code>S02E05</code>, <code>S01E01E02</code> for doubles)</td></tr>
-  <tr><td><code>series_double_episode</code></td><td>series, metainfo_series, metainfo_file</td><td>Second episode number for double-episode releases</td></tr>
-  <tr><td><code>series_proper</code></td><td>series, metainfo_series, metainfo_file</td><td><code>true</code> when PROPER marker is detected</td></tr>
-  <tr><td><code>series_repack</code></td><td>series, metainfo_series, metainfo_file</td><td><code>true</code> when REPACK marker is detected</td></tr>
-  <tr><td><code>series_service</code></td><td>series, metainfo_series, metainfo_file</td><td>Streaming service tag (e.g. <code>AMZN</code>, <code>NF</code>)</td></tr>
-  <tr><td><code>series_container</code></td><td>series, metainfo_series, metainfo_file</td><td>Container format tag (e.g. <code>mkv</code>)</td></tr>
+  <tr><td><code>series_season</code></td><td>metainfo_series, metainfo_file</td><td>Season number</td></tr>
+  <tr><td><code>series_episode</code></td><td>metainfo_series, metainfo_file</td><td>Episode number</td></tr>
+  <tr><td><code>series_episode_id</code></td><td>metainfo_series, metainfo_file</td><td>Episode ID string (e.g. <code>S02E05</code>, <code>S01E01E02</code> for doubles)</td></tr>
+  <tr><td><code>series_double_episode</code></td><td>metainfo_series, metainfo_file</td><td>Second episode number for double-episode releases</td></tr>
+  <tr><td><code>series_proper</code></td><td>metainfo_series, metainfo_file</td><td><code>true</code> when PROPER marker is detected</td></tr>
+  <tr><td><code>series_repack</code></td><td>metainfo_series, metainfo_file</td><td><code>true</code> when REPACK marker is detected</td></tr>
+  <tr><td><code>series_service</code></td><td>metainfo_series, metainfo_file</td><td>Streaming service tag (e.g. <code>AMZN</code>, <code>NF</code>)</td></tr>
+  <tr><td><code>series_container</code></td><td>metainfo_series, metainfo_file</td><td>Container format tag (e.g. <code>mkv</code>)</td></tr>
   <tr><td><code>video_year</code></td><td>trakt_list, movies, metainfo_tvdb, metainfo_tmdb, metainfo_file</td><td>Release or first-air year. Also set by <code>trakt_list</code> from the Trakt API so year-aware matching works before any enrichment step.</td></tr>
   <tr><td><code>video_is_3d</code></td><td>movies, metainfo_quality, metainfo_file</td><td><code>true</code> when any 3D format marker is detected (3D, SBS, HOU, BD3D, etc.)</td></tr>
   <tr><td><code>video_quality</code></td><td>movies, metainfo_quality, metainfo_file</td><td>Parsed quality string from filename, including 3D format when present (e.g. <code>BD3D 1080p BluRay</code>)</td></tr>
@@ -1095,7 +1095,9 @@ After DHT: <code>torrent_file_size</code>, <code>torrent_file_count</code>, <cod
 
 <!-- ─────────── series ─────────── -->
 <h2 id="series">series</h2>
-<p>Accepts episodes of configured TV shows. Parses the episode identifier from the title, matches series names with fuzzy matching, and enforces optional quality and ordering constraints. Multiple quality variants of the same episode are all accepted — place <code>dedup</code> downstream to pick the best copy. Download history is committed to the database only after all downstream sinks confirm success. A re-download of an already-seen episode is accepted when the new copy is strictly better quality, or when it is a PROPER/REPACK that is not a quality downgrade.</p>
+<p>Accepts episodes of configured TV shows. Matches the parsed series name against a configured list with fuzzy matching, enforces optional quality and ordering constraints, and persists download history across runs. Multiple quality variants of the same episode are all accepted — place <code>dedup</code> downstream to pick the best copy. Download history is committed to the database only after all downstream sinks confirm success. A re-download of an already-seen episode is accepted when the new copy is strictly better quality, or when it is a PROPER/REPACK that is not a quality downgrade.</p>
+
+<div class="note"><strong>Upstream requirement:</strong> <code>series</code> reads episode metadata from entry fields rather than parsing titles itself. Run <code>metainfo_file</code> (or any plugin that sets <code>title</code> and <code>series_episode_id</code>) upstream. The requirement is declared in the plugin descriptor so the DAG validator catches misconfigured pipelines at load time.</div>
 
 <table>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
@@ -1104,7 +1106,7 @@ After DHT: <code>torrent_file_size</code>, <code>torrent_file_count</code>, <cod
   <tr><td><code>ttl</code></td><td>no</td><td><code>1h</code></td><td>Cache TTL for dynamic show list. An empty list from a <code>list:</code> source is not cached — the source will be queried again on the next run.</td></tr>
   <tr><td><code>tracking</code></td><td>no</td><td><code>strict</code></td><td>Episode ordering mode: <code>strict</code>, <code>backfill</code>, or <code>follow</code></td></tr>
   <tr><td><code>quality</code></td><td>no</td><td>—</td><td>Quality spec (e.g. <code>720p+</code> for floor, <code>720p</code> for exact, <code>720p-1080p</code> for range)</td></tr>
-  <tr><td><code>reject_unmatched</code></td><td>no</td><td><code>true</code></td><td>When <code>true</code> (default), entries that do not parse as a series episode or whose show name is not in the configured list are explicitly rejected. Set to <code>false</code> to leave such entries undecided — useful when chaining multiple series filters in one pipeline.</td></tr>
+  <tr><td><code>reject_unmatched</code></td><td>no</td><td><code>true</code></td><td>When <code>true</code> (default), entries that lack <code>series_episode_id</code> (i.e. were not classified as a series episode upstream) or whose show name is not in the configured list are explicitly rejected. Set to <code>false</code> to leave such entries undecided when chaining multiple series filters.</td></tr>
 </table>
 
 <h4>Tracking modes</h4>
@@ -1115,21 +1117,22 @@ After DHT: <code>torrent_file_size</code>, <code>torrent_file_count</code>, <cod
   <tr><td><code>follow</code></td><td>Recommended for new and continuing series. On first encounter accept everything (full season drops in one pass). Afterwards the highest tracked episode defines the season floor — episodes from seasons older than the current position are rejected, all episodes in the current season or newer are accepted (including gap-fills within the current season).</td></tr>
 </table>
 
-<p>Fields set on accepted entries: <code>title</code> (matched show name), <code>series_season</code>, <code>series_episode</code>, <code>series_episode_id</code>, <code>series_double_episode</code>, <code>series_proper</code>, <code>series_repack</code>, <code>series_service</code>, <code>series_container</code>.</p>
+<p>Fields produced: none. <code>series</code> reads upstream metadata and only writes to its internal tracker on commit; all <code>series_*</code> fields seen downstream were set by the upstream metainfo step.</p>
 
-<pre><code>src    = input("rss", url="https://feed.example.com/rss")
-seen   = process("seen",   upstream=src)
-series = process("series", upstream=seen,
+<pre><code>src    = input("rss",            url="https://feed.example.com/rss")
+seen   = process("seen",          upstream=src)
+meta   = process("metainfo_file", upstream=seen)   <span class="y-comment"># sets series_*, _quality, etc.</span>
+series = process("series",        upstream=meta,
                  static=["Breaking Bad", "Better Call Saul"],
                  tracking="strict", quality="720p+ webrip+")
 output("transmission", upstream=series, host="localhost")
 pipeline("tv", schedule="30m")</code></pre>
 
 <pre><code><span class="y-comment"># Dynamic show list from TVDB favorites</span>
-favs   = input("tvdb_favorites", api_key=env("TVDB_KEY"), user_pin=env("TVDB_PIN"))
-src    = input("rss", url="https://feed.example.com/rss")
-seen   = process("seen",   upstream=merge(src, favs))
-series = process("series", upstream=seen, list=[
+src    = input("rss",            url="https://feed.example.com/rss")
+seen   = process("seen",          upstream=src)
+meta   = process("metainfo_file", upstream=seen)
+series = process("series",        upstream=meta, list=[
     {"name": "tvdb_favorites", "api_key": env("TVDB_KEY"), "user_pin": env("TVDB_PIN")},
 ], tracking="backfill", quality="720p+ webrip+")
 output("transmission", upstream=series, host="localhost")

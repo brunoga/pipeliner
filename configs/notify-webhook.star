@@ -17,7 +17,7 @@ tv_path     = "/media/tv"
 
 src    = input("rss",               url="https://feeds.example.com/all")
 seen   = process("seen",            upstream=src)
-q      = process("metainfo_quality", upstream=seen)
+q      = process("metainfo_file", upstream=seen)
 series = process("series",          upstream=q,
     static=["Breaking Bad", "Severance"],
     tracking="strict", quality="720p+")
