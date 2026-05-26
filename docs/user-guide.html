@@ -1155,20 +1155,23 @@ pipeline("tv-dynamic", schedule="1h")</code></pre>
 <h2 id="premiere">premiere</h2>
 <p>Accepts premiere episodes of previously unseen series. All spec-matching quality variants are accepted so the <code>dedup</code> processor can pick the best copy. Once a premiere is successfully downloaded (all downstream sinks confirm), subsequent runs reject that series. Useful for discovering new shows; let <code>series</code> take over episode tracking after the first download. The shared tracker bucket is the same one used by <code>series</code> — a show downloaded via <code>premiere</code> will not be re-offered to <code>series</code> and vice versa.</p>
 
+<div class="note"><strong>Upstream requirement:</strong> <code>premiere</code> reads episode metadata from entry fields rather than parsing titles itself. Run <code>metainfo_file</code> (or any plugin that sets <code>title</code>, <code>series_episode_id</code>, <code>series_season</code>, <code>series_episode</code>) upstream. The requirement is declared in the plugin descriptor so the DAG validator catches misconfigured pipelines at load time.</div>
+
 <table>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
   <tr><td><code>episode</code></td><td>no</td><td><code>1</code></td><td>Episode number to treat as premiere</td></tr>
   <tr><td><code>season</code></td><td>no</td><td><code>1</code></td><td>Season number to match; <code>0</code> means any</td></tr>
   <tr><td><code>quality</code></td><td>no</td><td>—</td><td>Quality spec (e.g. <code>720p+</code> for floor, <code>720p</code> for exact, <code>720p-1080p</code> for range)</td></tr>
-  <tr><td><code>reject_unmatched</code></td><td>no</td><td><code>true</code></td><td>When <code>true</code> (default), entries whose title does not parse as a series episode are explicitly rejected. Set to <code>false</code> to leave such entries undecided — useful when chaining <code>premiere</code> alongside other filters in one pipeline.</td></tr>
+  <tr><td><code>reject_unmatched</code></td><td>no</td><td><code>true</code></td><td>When <code>true</code> (default), entries that lack <code>series_episode_id</code> (i.e. were not classified as a series episode upstream) are explicitly rejected. Set to <code>false</code> to leave such entries undecided when chaining <code>premiere</code> alongside other filters.</td></tr>
 </table>
 
-<p>Fields set on accepted entries: <code>title</code> (parsed series name), <code>series_season</code>, <code>series_episode</code>, <code>series_episode_id</code>, <code>series_double_episode</code>, <code>series_proper</code>, <code>series_repack</code>, <code>series_service</code>, <code>series_container</code>. These are the same fields produced by <code>metainfo_series</code> — a separate <code>metainfo_series</code> node is not required.</p>
+<p>Fields produced: none. <code>premiere</code> reads upstream metadata and only writes to its internal tracker on commit; all <code>series_*</code> fields seen downstream were set by the upstream metainfo step.</p>
 
-<pre><code>src  = input("rss", url="https://feed.example.com/rss")
-seen = process("seen",     upstream=src)
-prem = process("premiere", upstream=seen, quality="720p+ webrip+")
-best = process("dedup",    upstream=prem)
+<pre><code>src  = input("rss",            url="https://feed.example.com/rss")
+seen = process("seen",          upstream=src)
+meta = process("metainfo_file", upstream=seen)   <span class="y-comment"># sets series_*, _quality, etc.</span>
+prem = process("premiere",      upstream=meta, quality="720p+ webrip+")
+best = process("dedup",         upstream=prem)
 output("transmission", upstream=best, host="localhost")
 pipeline("new-shows", schedule="1h")</code></pre>
 
