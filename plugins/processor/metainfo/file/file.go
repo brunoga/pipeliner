@@ -57,6 +57,7 @@ func init() {
 			entry.FieldVideoResolution,
 			entry.FieldVideoSource,
 			entry.FieldVideoIs3D,
+			entry.FieldQuality, // typed quality.Quality struct for downstream consumers
 			"codec",
 			"audio",
 			"color_range",
@@ -157,12 +158,15 @@ func annotateMovie(e *entry.Entry, m *imovies.Movie) {
 
 // annotateQuality sets video_* and codec/audio/color_range fields when any
 // quality dimension is detected. Mirrors the behaviour of metainfo_quality so
-// existing pipelines see the same field shape.
+// existing pipelines see the same field shape, and additionally stores the
+// parsed quality.Quality struct via e.SetQuality so downstream consumers can
+// run spec.Matches without re-parsing the title.
 func annotateQuality(e *entry.Entry) {
 	q := quality.Parse(e.Title)
 	if q == (quality.Quality{}) {
 		return
 	}
+	e.SetQuality(q)
 	e.SetVideoInfo(entry.VideoInfo{
 		Quality:    q.String(),
 		Resolution: q.ResolutionName(),

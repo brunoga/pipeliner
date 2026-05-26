@@ -7,9 +7,11 @@
 // which runs only after all downstream sinks confirm success. If the download
 // fails, the premiere is not recorded and will be retried on the next run.
 //
-// Episode metadata is parsed directly from the entry title, so metainfo/series
-// is not required. The parsed series fields are set on the entry for use by
-// downstream plugins.
+// Episode metadata is read from entry fields populated upstream by
+// metainfo_file (or any equivalent metainfo source that sets the required
+// fields). The plugin does not parse the entry title itself; the upstream
+// requirement is declared via Descriptor.Requires so the DAG validator catches
+// misconfigured pipelines at load time.
 //
 // Config keys:
 //
@@ -40,25 +42,21 @@ func init() {
 		PluginName:  "premiere",
 		Description: "accept only the first episode of series not previously seen (series premiere detection)",
 		Role:        plugin.RoleProcessor,
-		// Only set when the entry title parses as a series episode.
-		MayProduce: []string{
+		// Episode metadata must be populated upstream — by metainfo_file in
+		// the common case, or by any other plugin that sets these fields.
+		Requires: plugin.RequireAll(
 			entry.FieldTitle,
+			entry.FieldSeriesEpisodeID,
 			entry.FieldSeriesSeason,
 			entry.FieldSeriesEpisode,
-			entry.FieldSeriesEpisodeID,
-			entry.FieldSeriesDoubleEpisode,
-			entry.FieldSeriesProper,
-			entry.FieldSeriesRepack,
-			entry.FieldSeriesService,
-			"series_container",
-		},
+		),
 		Factory:  newPlugin,
 		Validate: validate,
 		Schema: []plugin.FieldSchema{
-			{Key: "quality", Type: plugin.FieldTypeString, Hint: "Quality spec the entry must satisfy"},
+			{Key: "quality", Type: plugin.FieldTypeString, Hint: "Quality spec, e.g. 720p+ (floor), 720p (exact), 720p-1080p (range)"},
 			{Key: "episode", Type: plugin.FieldTypeInt, Default: 1, Hint: "Episode number to treat as premiere"},
 			{Key: "season", Type: plugin.FieldTypeInt, Default: 1, Hint: "Season number to match (0 = any season)"},
-			{Key: "reject_unmatched", Type: plugin.FieldTypeBool, Default: true, Hint: "Reject entries that do not parse as episodes"},
+			{Key: "reject_unmatched", Type: plugin.FieldTypeBool, Default: true, Hint: "Reject entries that lack series_episode_id (i.e. not classified as a series episode upstream)"},
 		},
 	})
 }
@@ -122,60 +120,49 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 func (p *premierePlugin) Name() string { return "premiere" }
 
 func (p *premierePlugin) filter(_ context.Context, _ *plugin.TaskContext, e *entry.Entry) error {
-	ep, ok := series.Parse(e.Title)
-	if !ok {
+	epID := e.GetString(entry.FieldSeriesEpisodeID)
+	if epID == "" {
 		if p.rejectUnmatched {
-			e.Reject("premiere: title did not parse as episode")
+			e.Reject("premiere: entry has no series_episode_id (not classified as series upstream)")
 		}
 		return nil
 	}
 
-	epID := series.EpisodeID(ep)
-	// Normalize the show name so tracker keys match those written by the series
-	// plugin, which also uses match.Normalize for all bucket operations.
-	normalizedName := match.Normalize(ep.SeriesName)
+	season := e.GetInt(entry.FieldSeriesSeason)
+	episode := e.GetInt(entry.FieldSeriesEpisode)
+	displayName := e.GetString(entry.FieldTitle)
 
-	// Stamp normalized name for persist() to read back at commit time.
+	// Tracker keys are normalized so they match those written by the series
+	// plugin (which also normalizes). Stamp the normalized name so persist()
+	// can read it back without re-normalizing.
+	normalizedName := match.Normalize(displayName)
 	e.Set(premiereTrackerName, normalizedName)
-	e.SetSeriesInfo(entry.SeriesInfo{
-		VideoInfo:     entry.VideoInfo{GenericInfo: entry.GenericInfo{Title: ep.SeriesName}},
-		Season:        ep.Season,
-		Episode:       ep.Episode,
-		EpisodeID:     epID,
-		DoubleEpisode: ep.DoubleEpisode,
-		Proper:        ep.Proper,
-		Repack:        ep.Repack,
-		Service:       ep.Service,
-	})
-	if ep.Container != "" {
-		e.Set("series_container", ep.Container)
-	}
 
-	// Check season constraint.
-	if p.season != 0 && ep.Season != p.season {
-		e.Reject(fmt.Sprintf("premiere: season %d does not match premiere season %d", ep.Season, p.season))
+	if p.season != 0 && season != p.season {
+		e.Reject(fmt.Sprintf("premiere: season %d does not match premiere season %d", season, p.season))
 		return nil
 	}
 
-	// Check episode number.
-	if ep.Episode != p.episode {
-		e.Reject(fmt.Sprintf("premiere: episode %d is not premiere episode %d", ep.Episode, p.episode))
+	if episode != p.episode {
+		e.Reject(fmt.Sprintf("premiere: episode %d is not premiere episode %d", episode, p.episode))
 		return nil
 	}
 
-	if (p.spec != quality.Spec{}) && !p.spec.Matches(ep.Quality) {
-		e.Reject(fmt.Sprintf("premiere: %s %s quality %s does not match spec", ep.SeriesName, epID, ep.Quality.String()))
-		return nil
+	if (p.spec != quality.Spec{}) {
+		q, _ := e.Quality()
+		if !p.spec.Matches(q) {
+			e.Reject(fmt.Sprintf("premiere: %s %s quality %s does not match spec", displayName, epID, q.String()))
+			return nil
+		}
 	}
 
-	// Reject if this episode is already in the shared series tracker.
 	if p.tracker.IsSeen(normalizedName, epID) {
-		e.Reject(fmt.Sprintf("premiere: %s %s already downloaded", ep.SeriesName, epID))
+		e.Reject(fmt.Sprintf("premiere: %s %s already downloaded", displayName, epID))
 		return nil
 	}
 
 	// Accept all matching entries — dedup will keep the best one.
-	e.Accept(fmt.Sprintf("premiere: %s %s matched", ep.SeriesName, epID))
+	e.Accept(fmt.Sprintf("premiere: %s %s matched", displayName, epID))
 	return nil
 }
 
@@ -194,17 +181,26 @@ func (p *premierePlugin) persist(_ context.Context, _ *plugin.TaskContext, entri
 		if normalizedName == "" {
 			continue
 		}
-		ep, ok := series.Parse(e.Title)
-		if !ok {
+		epID := e.GetString(entry.FieldSeriesEpisodeID)
+		if epID == "" {
 			continue
 		}
-		epID := series.EpisodeID(ep)
+		q, _ := e.Quality()
 		rec := series.Record{
 			SeriesName:   normalizedName,
 			DisplayName:  e.GetString(entry.FieldTitle),
 			EpisodeID:    epID,
-			Quality:      ep.Quality,
+			Quality:      q,
 			DownloadedAt: time.Now(),
+		}
+		// Build a minimal Episode for MarkWithParts so double-episode releases
+		// also mark each individual part. MarkWithParts only consults Season,
+		// Episode, and DoubleEpisode; date-based IDs (which can't be doubles)
+		// naturally fall through with DoubleEpisode == 0.
+		ep := &series.Episode{
+			Season:        e.GetInt(entry.FieldSeriesSeason),
+			Episode:       e.GetInt(entry.FieldSeriesEpisode),
+			DoubleEpisode: e.GetInt(entry.FieldSeriesDoubleEpisode),
 		}
 		if err := p.tracker.MarkWithParts(rec, ep); err != nil {
 			return fmt.Errorf("premiere: mark %s %s: %w", normalizedName, epID, err)
