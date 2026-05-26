@@ -101,6 +101,71 @@ func TestMovieWithYear(t *testing.T) {
 	}
 }
 
+func TestMovieListSourceFallback(t *testing.T) {
+	// A clean list-sourced title (e.g. from trakt_list) has no year or quality
+	// marker, so imovies.Parse returns false. metainfo_file falls back to the
+	// upstream-set video_year to classify it as a movie.
+	p, _ := newPlugin(nil, nil)
+	e := entry.New("Avengers", "http://x.com/a")
+	e.Set(entry.FieldVideoYear, 2012)
+	if _, err := p.(plugin.ProcessorPlugin).Process(context.Background(), makeCtx(), []*entry.Entry{e}); err != nil {
+		t.Fatal(err)
+	}
+	if v := e.GetString(entry.FieldMediaType); v != entry.MediaTypeMovie {
+		t.Errorf("media_type: got %q, want %q (list-sourced fallback should classify as movie)", v, entry.MediaTypeMovie)
+	}
+	if v := e.GetString(entry.FieldMovieTitle); v != "Avengers" {
+		t.Errorf("movie_title: got %q, want Avengers", v)
+	}
+	// video_year was already set upstream; annotateMovie writes it back via
+	// SetMovieInfo. Either way, the downstream value should still be 2012.
+	if v := e.GetInt(entry.FieldVideoYear); v != 2012 {
+		t.Errorf("video_year: got %d, want 2012", v)
+	}
+}
+
+func TestMovieListSourceFallbackPreservesDottedTitle(t *testing.T) {
+	// trakt_list titles are usually clean already, but the fallback should
+	// still normalise (handle dots, underscores, casing) for resilience.
+	p, _ := newPlugin(nil, nil)
+	e := entry.New("the.dark.knight", "http://x.com/a")
+	e.Set(entry.FieldVideoYear, 2008)
+	if _, err := p.(plugin.ProcessorPlugin).Process(context.Background(), makeCtx(), []*entry.Entry{e}); err != nil {
+		t.Fatal(err)
+	}
+	if v := e.GetString(entry.FieldMovieTitle); v != "The Dark Knight" {
+		t.Errorf("movie_title: got %q, want The Dark Knight (normalised)", v)
+	}
+}
+
+func TestNoFallbackWhenYearAbsent(t *testing.T) {
+	// Without video_year and without any title-derivable signal, the entry
+	// stays unclassified.
+	p, _ := newPlugin(nil, nil)
+	e := entry.New("Avengers", "http://x.com/a")
+	if _, err := p.(plugin.ProcessorPlugin).Process(context.Background(), makeCtx(), []*entry.Entry{e}); err != nil {
+		t.Fatal(err)
+	}
+	if v := e.GetString(entry.FieldMediaType); v != "" {
+		t.Errorf("media_type should be unset without year hint, got %q", v)
+	}
+}
+
+func TestSeriesStillWinsOverFallback(t *testing.T) {
+	// Even when video_year is set, an explicit episode marker keeps the
+	// classification as series — the list-source fallback only kicks in when
+	// neither parser matched.
+	p, _ := newPlugin(nil, nil)
+	e := entry.New("My.Show.S01E01.720p.HDTV", "http://x.com/a")
+	e.Set(entry.FieldVideoYear, 2012)
+	if _, err := p.(plugin.ProcessorPlugin).Process(context.Background(), makeCtx(), []*entry.Entry{e}); err != nil {
+		t.Fatal(err)
+	}
+	if v := e.GetString(entry.FieldMediaType); v != entry.MediaTypeSeries {
+		t.Errorf("media_type: got %q, want series", v)
+	}
+}
+
 func TestSeriesWinsOverMovie(t *testing.T) {
 	// "Show.2023.S01E01" matches both parsers; series must win because the
 	// episode marker is unambiguous.
