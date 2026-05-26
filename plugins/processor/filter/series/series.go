@@ -207,7 +207,7 @@ func (p *seriesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *en
 
 	if stored, ok := p.tracker.Get(matchedShow, epID); ok {
 		betterQuality := incomingQuality.Better(stored.Quality)
-		properOrRepack := e.GetBool(entry.FieldSeriesProper) || e.GetBool(entry.FieldSeriesRepack)
+		properOrRepack := e.GetBool(entry.FieldVideoProper) || e.GetBool(entry.FieldVideoRepack)
 		notDowngrade := !stored.Quality.Better(incomingQuality)
 		if betterQuality || (properOrRepack && notDowngrade) {
 			reason := fmt.Sprintf("series: %s %s quality upgrade", matchedShow, epID)

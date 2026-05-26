@@ -5,14 +5,16 @@ import (
 	"io"
 	"log/slog"
 	"maps"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/brunoga/pipeliner/internal/cache"
 	"github.com/brunoga/pipeliner/internal/entry"
-	imovies "github.com/brunoga/pipeliner/internal/movies"
 	"github.com/brunoga/pipeliner/internal/match"
+	imovies "github.com/brunoga/pipeliner/internal/movies"
 	"github.com/brunoga/pipeliner/internal/plugin"
+	"github.com/brunoga/pipeliner/internal/quality"
 	"github.com/brunoga/pipeliner/internal/store"
 )
 
@@ -21,7 +23,7 @@ type mockInput struct {
 	entries []*entry.Entry
 }
 
-func (m *mockInput) Name() string        { return "mock_input" }
+func (m *mockInput) Name() string { return "mock_input" }
 func (m *mockInput) Generate(_ context.Context, _ *plugin.TaskContext) ([]*entry.Entry, error) {
 	return m.entries, nil
 }
@@ -51,9 +53,57 @@ func openPlugin(t *testing.T, extra map[string]any) *moviesPlugin {
 	return p.(*moviesPlugin)
 }
 
+// metaize simulates what metainfo_file does upstream: classifies the entry as
+// a movie and populates the title / video_year / video_is_3d / video_proper /
+// video_repack / _quality fields the movies filter requires. The movies
+// plugin requires these (via Descriptor.Requires) so tests must call this
+// helper before invoking filter() or Process().
+func metaize(e *entry.Entry) {
+	if m, ok := imovies.Parse(e.Title); ok {
+		setMovieFields(e, m)
+	} else if y := entry.ReleaseYear(e); y > 0 {
+		// List-source fallback: a clean title (no year, no quality) with
+		// video_year already set upstream.
+		title := imovies.NormalizeTitle(e.Title)
+		if title == "" {
+			title = e.Title
+		}
+		setMovieFields(e, &imovies.Movie{Title: title, Year: y})
+	}
+	q := quality.Parse(e.Title)
+	if q != (quality.Quality{}) {
+		e.SetQuality(q)
+		e.SetVideoInfo(entry.VideoInfo{
+			Quality:    q.String(),
+			Resolution: q.ResolutionName(),
+			Source:     q.SourceName(),
+			Is3D:       q.Format3D != quality.Format3DNone,
+		})
+	}
+}
+
+func setMovieFields(e *entry.Entry, m *imovies.Movie) {
+	e.SetMovieInfo(entry.MovieInfo{
+		VideoInfo: entry.VideoInfo{
+			GenericInfo: entry.GenericInfo{Title: m.Title},
+			Year:        m.Year,
+			Proper:      m.Proper,
+			Repack:      m.Repack,
+		},
+	})
+}
+
+// makeEntry builds an entry with the given title and runs metaize so the
+// fields movies reads are present (simulating metainfo_file upstream).
+func makeEntry(title, url string) *entry.Entry {
+	e := entry.New(title, url)
+	metaize(e)
+	return e
+}
+
 func TestFilterAcceptsListedMovie(t *testing.T) {
 	p := openPlugin(t, nil)
-	e := entry.New("Inception.2010.1080p.BluRay.x264", "http://x.com/a")
+	e := makeEntry("Inception.2010.1080p.BluRay.x264", "http://x.com/a")
 	if err := p.filter(context.Background(), makeCtx(), e); err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +114,7 @@ func TestFilterAcceptsListedMovie(t *testing.T) {
 
 func TestFilterRejectsUnlistedMovieByDefault(t *testing.T) {
 	p := openPlugin(t, map[string]any{"static": []any{"The Matrix"}})
-	e := entry.New("Inception.2010.1080p.BluRay.x264", "http://x.com/a")
+	e := makeEntry("Inception.2010.1080p.BluRay.x264", "http://x.com/a")
 	if err := p.filter(context.Background(), makeCtx(), e); err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +128,7 @@ func TestFilterUnmatchedOptOut(t *testing.T) {
 		"static":           []any{"The Matrix"},
 		"reject_unmatched": false,
 	})
-	e := entry.New("Inception.2010.1080p.BluRay.x264", "http://x.com/a")
+	e := makeEntry("Inception.2010.1080p.BluRay.x264", "http://x.com/a")
 	if err := p.filter(context.Background(), makeCtx(), e); err != nil {
 		t.Fatal(err)
 	}
@@ -88,9 +138,9 @@ func TestFilterUnmatchedOptOut(t *testing.T) {
 }
 
 func TestFilterNoYear(t *testing.T) {
-	// A title with no year but a quality marker now parses and can match.
+	// A title with no year but a quality marker still parses and matches.
 	p := openPlugin(t, nil)
-	e := entry.New("Inception.BluRay.1080p", "http://x.com/a")
+	e := makeEntry("Inception.BluRay.1080p", "http://x.com/a")
 	if err := p.filter(context.Background(), makeCtx(), e); err != nil {
 		t.Fatal(err)
 	}
@@ -100,9 +150,10 @@ func TestFilterNoYear(t *testing.T) {
 }
 
 func TestFilterNoQualityMarker(t *testing.T) {
-	// A title with no year and no quality marker cannot be parsed — rejected by default.
+	// A title with no year and no quality marker — metainfo_file can't
+	// classify it as a movie, so the movies filter rejects by default.
 	p := openPlugin(t, nil)
-	e := entry.New("Inception something with no quality markers at all", "http://x.com/a")
+	e := makeEntry("Inception something with no quality markers at all", "http://x.com/a")
 	if err := p.filter(context.Background(), makeCtx(), e); err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +164,7 @@ func TestFilterNoQualityMarker(t *testing.T) {
 
 func TestFilterNoQualityMarkerOptOut(t *testing.T) {
 	p := openPlugin(t, map[string]any{"reject_unmatched": false})
-	e := entry.New("Inception something with no quality markers at all", "http://x.com/a")
+	e := makeEntry("Inception something with no quality markers at all", "http://x.com/a")
 	if err := p.filter(context.Background(), makeCtx(), e); err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +175,7 @@ func TestFilterNoQualityMarkerOptOut(t *testing.T) {
 
 func TestFilterQualityGate(t *testing.T) {
 	p := openPlugin(t, map[string]any{"quality": "1080p"})
-	e := entry.New("Inception.2010.720p.HDTV", "http://x.com/a")
+	e := makeEntry("Inception.2010.720p.HDTV", "http://x.com/a")
 	if err := p.filter(context.Background(), makeCtx(), e); err != nil {
 		t.Fatal(err)
 	}
@@ -134,13 +185,13 @@ func TestFilterQualityGate(t *testing.T) {
 }
 
 func TestFilterQualityGatePass(t *testing.T) {
-	p := openPlugin(t, map[string]any{"quality": "720p"})
-	e := entry.New("Inception.2010.1080p.BluRay.x264", "http://x.com/a")
+	p := openPlugin(t, map[string]any{"quality": "720p+"})
+	e := makeEntry("Inception.2010.1080p.BluRay.x264", "http://x.com/a")
 	if err := p.filter(context.Background(), makeCtx(), e); err != nil {
 		t.Fatal(err)
 	}
 	if !e.IsAccepted() {
-		t.Errorf("1080p should pass a 720p quality floor: %s", e.RejectReason)
+		t.Errorf("1080p should pass a 720p+ quality floor: %s", e.RejectReason)
 	}
 }
 
@@ -149,7 +200,7 @@ func TestFilterQualityGate3DRejectsNon3D(t *testing.T) {
 		"static":  []any{"Despicable Me 3"},
 		"quality": "3dfull",
 	})
-	e := entry.New("Despicable Me 3 Bluray Complete d666", "http://x.com/a")
+	e := makeEntry("Despicable Me 3 Bluray Complete d666", "http://x.com/a")
 	if err := p.filter(context.Background(), makeCtx(), e); err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +214,7 @@ func TestFilterQualityGate3DAccepts3DFull(t *testing.T) {
 		"static":  []any{"Inception"},
 		"quality": "3dfull",
 	})
-	e := entry.New("Inception.2010.SBS.1080p.BluRay", "http://x.com/a")
+	e := makeEntry("Inception.2010.SBS.1080p.BluRay", "http://x.com/a")
 	if err := p.filter(context.Background(), makeCtx(), e); err != nil {
 		t.Fatal(err)
 	}
@@ -176,12 +227,11 @@ func TestDuplicateRejected(t *testing.T) {
 	p := openPlugin(t, nil)
 	tc := makeCtx()
 
-	e1 := entry.New("Inception.2010.1080p.BluRay.x264", "http://x.com/a")
-	p.filter(context.Background(), tc, e1)  //nolint:errcheck
-	e1.Accept()
+	e1 := makeEntry("Inception.2010.1080p.BluRay.x264", "http://x.com/a")
+	p.filter(context.Background(), tc, e1) //nolint:errcheck
 	p.persist(context.Background(), tc, []*entry.Entry{e1}) //nolint:errcheck
 
-	e2 := entry.New("Inception.2010.1080p.BluRay.x264", "http://x.com/b")
+	e2 := makeEntry("Inception.2010.1080p.BluRay.x264", "http://x.com/b")
 	p.filter(context.Background(), tc, e2) //nolint:errcheck
 	if !e2.IsRejected() {
 		t.Error("already-downloaded movie should be rejected")
@@ -192,12 +242,11 @@ func TestQualityUpgradesExisting(t *testing.T) {
 	p := openPlugin(t, nil)
 	tc := makeCtx()
 
-	e1 := entry.New("Inception.2010.720p.HDTV", "http://x.com/a")
-	p.filter(context.Background(), tc, e1)  //nolint:errcheck
-	e1.Accept()
+	e1 := makeEntry("Inception.2010.720p.HDTV", "http://x.com/a")
+	p.filter(context.Background(), tc, e1) //nolint:errcheck
 	p.persist(context.Background(), tc, []*entry.Entry{e1}) //nolint:errcheck
 
-	e2 := entry.New("Inception.2010.1080p.BluRay.x264", "http://x.com/b")
+	e2 := makeEntry("Inception.2010.1080p.BluRay.x264", "http://x.com/b")
 	p.filter(context.Background(), tc, e2) //nolint:errcheck
 	if !e2.IsAccepted() {
 		t.Errorf("higher-quality copy should be accepted: %s", e2.RejectReason)
@@ -208,12 +257,11 @@ func TestProperSameQualityUpgradesExisting(t *testing.T) {
 	p := openPlugin(t, nil)
 	tc := makeCtx()
 
-	e1 := entry.New("Inception.2010.720p.HDTV", "http://x.com/a")
-	p.filter(context.Background(), tc, e1)  //nolint:errcheck
-	e1.Accept()
+	e1 := makeEntry("Inception.2010.720p.HDTV", "http://x.com/a")
+	p.filter(context.Background(), tc, e1) //nolint:errcheck
 	p.persist(context.Background(), tc, []*entry.Entry{e1}) //nolint:errcheck
 
-	e2 := entry.New("Inception.2010.PROPER.720p.HDTV", "http://x.com/b")
+	e2 := makeEntry("Inception.2010.PROPER.720p.HDTV", "http://x.com/b")
 	p.filter(context.Background(), tc, e2) //nolint:errcheck
 	if !e2.IsAccepted() {
 		t.Errorf("proper at same quality should be accepted: %s", e2.RejectReason)
@@ -227,12 +275,11 @@ func TestRepackNotAcceptedAgainAfterRepackDownloaded(t *testing.T) {
 	tc := makeCtx()
 
 	// Step 1: download the original, then the REPACK (first upgrade, should accept).
-	e1 := entry.New("Inception.2010.1080p.BluRay.x264", "http://x.com/a")
-	p.filter(context.Background(), tc, e1)  //nolint:errcheck
-	e1.Accept()
+	e1 := makeEntry("Inception.2010.1080p.BluRay.x264", "http://x.com/a")
+	p.filter(context.Background(), tc, e1) //nolint:errcheck
 	p.persist(context.Background(), tc, []*entry.Entry{e1}) //nolint:errcheck
 
-	e2 := entry.New("Inception.2010.REPACK.1080p.BluRay.x264", "http://x.com/b")
+	e2 := makeEntry("Inception.2010.REPACK.1080p.BluRay.x264", "http://x.com/b")
 	p.filter(context.Background(), tc, e2) //nolint:errcheck
 	if !e2.IsAccepted() {
 		t.Fatalf("REPACK of non-REPACK should be accepted: %s", e2.RejectReason)
@@ -240,7 +287,7 @@ func TestRepackNotAcceptedAgainAfterRepackDownloaded(t *testing.T) {
 	p.persist(context.Background(), tc, []*entry.Entry{e2}) //nolint:errcheck
 
 	// Step 2: same REPACK appears again on the next run — must be rejected.
-	e3 := entry.New("Inception.2010.REPACK.1080p.BluRay.x264", "http://x.com/b")
+	e3 := makeEntry("Inception.2010.REPACK.1080p.BluRay.x264", "http://x.com/b")
 	p.filter(context.Background(), tc, e3) //nolint:errcheck
 	if !e3.IsRejected() {
 		t.Error("same REPACK must not be accepted again after it was already downloaded")
@@ -251,13 +298,12 @@ func TestNoUpgradeWhenQualityNotBetter(t *testing.T) {
 	p := openPlugin(t, nil)
 	tc := makeCtx()
 
-	e1 := entry.New("Inception.2010.720p.BluRay.x264", "http://x.com/a")
-	p.filter(context.Background(), tc, e1)  //nolint:errcheck
-	e1.Accept()
+	e1 := makeEntry("Inception.2010.720p.BluRay.x264", "http://x.com/a")
+	p.filter(context.Background(), tc, e1) //nolint:errcheck
 	p.persist(context.Background(), tc, []*entry.Entry{e1}) //nolint:errcheck
 
 	// Lower source quality (HDTV < BluRay) — rejected even with PROPER tag.
-	e2 := entry.New("Inception.2010.PROPER.720p.HDTV", "http://x.com/b")
+	e2 := makeEntry("Inception.2010.PROPER.720p.HDTV", "http://x.com/b")
 	p.filter(context.Background(), tc, e2) //nolint:errcheck
 	if !e2.IsRejected() {
 		t.Error("copy with lower quality should not replace existing")
@@ -283,11 +329,36 @@ func TestRegistration(t *testing.T) {
 	}
 }
 
+// TestRequiresDeclared verifies that the plugin descriptor declares the
+// required upstream fields. The DAG validator uses this to catch pipelines
+// that wire movies without an upstream metainfo step.
+func TestRequiresDeclared(t *testing.T) {
+	d, ok := plugin.Lookup("movies")
+	if !ok {
+		t.Fatal("movies not registered")
+	}
+	want := []string{
+		entry.FieldTitle,
+		entry.FieldVideoYear,
+		entry.FieldQuality,
+	}
+	flat := make([]string, 0)
+	for _, group := range d.Requires {
+		flat = append(flat, group...)
+	}
+	for _, f := range want {
+		if !slices.Contains(flat, f) {
+			t.Errorf("Requires must include %q", f)
+		}
+	}
+}
+
 func TestLearnMarksAccepted(t *testing.T) {
 	p := openPlugin(t, nil)
 	tc := makeCtx()
 
-	e := entry.New("Inception.2010.1080p.BluRay.x264", "http://x.com/a")
+	e := makeEntry("Inception.2010.1080p.BluRay.x264", "http://x.com/a")
+	e.Set(moviesTrackerName, "inception")
 	e.Accept()
 
 	if err := p.persist(context.Background(), tc, []*entry.Entry{e}); err != nil {
@@ -295,7 +366,7 @@ func TestLearnMarksAccepted(t *testing.T) {
 	}
 
 	// Verify the entry is now seen.
-	e2 := entry.New("Inception.2010.1080p.BluRay.x264", "http://x.com/b")
+	e2 := makeEntry("Inception.2010.1080p.BluRay.x264", "http://x.com/b")
 	p.filter(context.Background(), tc, e2) //nolint:errcheck
 	if !e2.IsRejected() {
 		t.Error("movie should be rejected after learn marks it seen")
@@ -314,7 +385,7 @@ func TestFuzzyMatch(t *testing.T) {
 	}
 }
 
-// --- Dynamic from ---
+// --- Dynamic list ---
 
 func openWithFrom(t *testing.T, mock *mockInput) *moviesPlugin {
 	t.Helper()
@@ -324,8 +395,8 @@ func openWithFrom(t *testing.T, mock *mockInput) *moviesPlugin {
 	}
 	return &moviesPlugin{
 		listSources: []plugin.SourcePlugin{mock},
-		listCache: cache.NewPersistent[[]match.TitleEntry](time.Hour, db.Bucket("test")),
-		tracker:   imovies.NewTracker(db.Bucket("movies")),
+		listCache:   cache.NewPersistent[[]match.TitleEntry](time.Hour, db.Bucket("test")),
+		tracker:     imovies.NewTracker(db.Bucket("movies")),
 	}
 }
 
@@ -335,7 +406,7 @@ func TestFromAcceptsDynamicMovie(t *testing.T) {
 	}}
 	p := openWithFrom(t, mock)
 
-	e := entry.New("Inception.2010.1080p.BluRay.x264", "http://x.com/a")
+	e := makeEntry("Inception.2010.1080p.BluRay.x264", "http://x.com/a")
 	p.filter(context.Background(), makeCtx(), e) //nolint:errcheck
 	if !e.IsAccepted() {
 		t.Errorf("dynamic movie should be accepted: %s", e.RejectReason)
@@ -348,7 +419,7 @@ func TestFromIgnoresUnlistedMovie(t *testing.T) {
 	}}
 	p := openWithFrom(t, mock)
 
-	e := entry.New("The.Matrix.1999.1080p.BluRay.x264", "http://x.com/a")
+	e := makeEntry("The.Matrix.1999.1080p.BluRay.x264", "http://x.com/a")
 	p.filter(context.Background(), makeCtx(), e) //nolint:errcheck
 	if e.IsAccepted() || e.IsRejected() {
 		t.Errorf("unlisted movie should be undecided; got %v", e.State)
@@ -362,8 +433,8 @@ func TestFromCachesResults(t *testing.T) {
 	db, _ := store.OpenSQLite(":memory:")
 	p := &moviesPlugin{
 		listSources: []plugin.SourcePlugin{counted},
-		listCache: cache.NewPersistent[[]match.TitleEntry](time.Hour, db.Bucket("test")),
-		tracker:   imovies.NewTracker(db.Bucket("movies")),
+		listCache:   cache.NewPersistent[[]match.TitleEntry](time.Hour, db.Bucket("test")),
+		tracker:     imovies.NewTracker(db.Bucket("movies")),
 	}
 	tc := makeCtx()
 	p.resolveTitles(context.Background(), tc)
@@ -380,8 +451,8 @@ func TestFromEmptyResultNotCached(t *testing.T) {
 	db, _ := store.OpenSQLite(":memory:")
 	p := &moviesPlugin{
 		listSources: []plugin.SourcePlugin{counted},
-		listCache: cache.NewPersistent[[]match.TitleEntry](time.Hour, db.Bucket("test")),
-		tracker:   imovies.NewTracker(db.Bucket("movies")),
+		listCache:   cache.NewPersistent[[]match.TitleEntry](time.Hour, db.Bucket("test")),
+		tracker:     imovies.NewTracker(db.Bucket("movies")),
 	}
 	tc := makeCtx()
 	p.resolveTitles(context.Background(), tc)
@@ -396,41 +467,10 @@ type countingInput struct {
 	count   *int
 }
 
-func (c *countingInput) Name() string        { return "counting_input" }
+func (c *countingInput) Name() string { return "counting_input" }
 func (c *countingInput) Generate(ctx context.Context, tc *plugin.TaskContext) ([]*entry.Entry, error) {
 	*c.count++
 	return c.wrapped.Generate(ctx, tc)
-}
-
-func TestFilterSetsQualityAndNot3D(t *testing.T) {
-	p := openPlugin(t, nil)
-	e := entry.New("Inception.2010.1080p.BluRay.x264", "http://x.com/a")
-	if err := p.filter(context.Background(), makeCtx(), e); err != nil {
-		t.Fatal(err)
-	}
-	if !e.IsAccepted() {
-		t.Fatalf("expected accepted: %s", e.RejectReason)
-	}
-	if e.GetString("video_quality") == "" {
-		t.Error("movie_quality should be set")
-	}
-	if e.GetBool("video_is_3d") {
-		t.Error("movie_3d should be false for non-3D title")
-	}
-}
-
-func TestFilterSets3D(t *testing.T) {
-	p := openPlugin(t, nil)
-	e := entry.New("Inception.2010.3D.1080p.BluRay.x264", "http://x.com/a")
-	if err := p.filter(context.Background(), makeCtx(), e); err != nil {
-		t.Fatal(err)
-	}
-	if !e.IsAccepted() {
-		t.Fatalf("expected accepted: %s", e.RejectReason)
-	}
-	if !e.GetBool("video_is_3d") {
-		t.Error("movie_3d should be true for 3D title")
-	}
 }
 
 func TestMultipleEntriesSameMovieAllAccepted(t *testing.T) {
@@ -439,9 +479,9 @@ func TestMultipleEntriesSameMovieAllAccepted(t *testing.T) {
 	p := openPlugin(t, nil)
 	tc := makeCtx()
 
-	e1 := entry.New("Inception.2010.720p.HDTV", "http://x.com/a")
-	e2 := entry.New("Inception.2010.1080p.WEB-DL", "http://x.com/b")
-	e3 := entry.New("Inception.2010.2160p.BluRay", "http://x.com/c")
+	e1 := makeEntry("Inception.2010.720p.HDTV", "http://x.com/a")
+	e2 := makeEntry("Inception.2010.1080p.WEB-DL", "http://x.com/b")
+	e3 := makeEntry("Inception.2010.2160p.BluRay", "http://x.com/c")
 
 	for _, e := range []*entry.Entry{e1, e2, e3} {
 		if err := p.filter(context.Background(), tc, e); err != nil {
@@ -461,8 +501,7 @@ func TestMultipleEntriesSameMovieLearnRejectsOldOnNextRun(t *testing.T) {
 	p := openPlugin(t, nil)
 	tc := makeCtx()
 
-	e1 := entry.New("Inception.2010.1080p.WEB-DL", "http://x.com/a")
-	e1.Set("movie_title", "Inception")
+	e1 := makeEntry("Inception.2010.1080p.WEB-DL", "http://x.com/a")
 	if err := p.filter(context.Background(), tc, e1); err != nil {
 		t.Fatal(err)
 	}
@@ -470,7 +509,7 @@ func TestMultipleEntriesSameMovieLearnRejectsOldOnNextRun(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	e2 := entry.New("Inception.2010.720p.HDTV", "http://x.com/b")
+	e2 := makeEntry("Inception.2010.720p.HDTV", "http://x.com/b")
 	if err := p.filter(context.Background(), tc, e2); err != nil {
 		t.Fatal(err)
 	}
@@ -483,14 +522,14 @@ func TestProcess_DoesNotPersist(t *testing.T) {
 	p := openPlugin(t, nil)
 	tc := makeCtx()
 
-	e := entry.New("Inception.2010.1080p.BluRay.x264", "http://x.com/a")
+	e := makeEntry("Inception.2010.1080p.BluRay.x264", "http://x.com/a")
 	if _, err := p.Process(context.Background(), tc, []*entry.Entry{e}); err != nil {
 		t.Fatal(err)
 	}
 
 	// Process must not write to the tracker — a second entry for the same
 	// movie must still be accepted (no duplicate rejection).
-	e2 := entry.New("Inception.2010.1080p.BluRay.x264", "http://x.com/b")
+	e2 := makeEntry("Inception.2010.1080p.BluRay.x264", "http://x.com/b")
 	if err := p.filter(context.Background(), tc, e2); err != nil {
 		t.Fatal(err)
 	}
@@ -503,14 +542,17 @@ func TestCommit_Persists(t *testing.T) {
 	p := openPlugin(t, nil)
 	tc := makeCtx()
 
-	e := entry.New("Inception.2010.1080p.BluRay.x264", "http://x.com/a")
-	e.Accept()
+	e := makeEntry("Inception.2010.1080p.BluRay.x264", "http://x.com/a")
+	// Run Process so the matched-title tracker field is stamped.
+	if _, err := p.Process(context.Background(), tc, []*entry.Entry{e}); err != nil {
+		t.Fatal(err)
+	}
 	if err := p.Commit(context.Background(), tc, []*entry.Entry{e}); err != nil {
 		t.Fatal(err)
 	}
 
 	// After Commit, the movie should be marked as seen.
-	e2 := entry.New("Inception.2010.1080p.BluRay.x264", "http://x.com/b")
+	e2 := makeEntry("Inception.2010.1080p.BluRay.x264", "http://x.com/b")
 	if err := p.filter(context.Background(), tc, e2); err != nil {
 		t.Fatal(err)
 	}
@@ -552,7 +594,7 @@ func TestSpecCheckedBeforeIsSeen_3DTaskDoesNotAcceptNon3DRepack(t *testing.T) {
 	})
 
 	// Step 1: flat movies task downloads Ferrari at 1080p WEB-DL (non-3D).
-	e1 := entry.New("Ferrari.2023.1080p.AMZN.WEB-DL.DDP5.1.Atmos.H.264-FLUX", "http://x.com/1")
+	e1 := makeEntry("Ferrari.2023.1080p.AMZN.WEB-DL.DDP5.1.Atmos.H.264-FLUX", "http://x.com/1")
 	if err := flatPlugin.filter(context.Background(), tc, e1); err != nil {
 		t.Fatal(err)
 	}
@@ -565,7 +607,7 @@ func TestSpecCheckedBeforeIsSeen_3DTaskDoesNotAcceptNon3DRepack(t *testing.T) {
 
 	// Step 2: movies-3d task sees the REPACK version — must reject it because
 	// it is NOT 3D, even though it's a REPACK of a previously downloaded title.
-	e2 := entry.New("Ferrari.2023.REPACK.1080p.AMZN.WEB-DL.DDP5.1.Atmos.H.264-FLUX", "http://x.com/2")
+	e2 := makeEntry("Ferrari.2023.REPACK.1080p.AMZN.WEB-DL.DDP5.1.Atmos.H.264-FLUX", "http://x.com/2")
 	if err := threeDPlugin.filter(context.Background(), tc, e2); err != nil {
 		t.Fatal(err)
 	}

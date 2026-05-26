@@ -67,9 +67,9 @@ func TestMoviesInRunDedup(t *testing.T) {
 
 	res := buildAndRun(t, fmt.Sprintf(`
 src    = input("rss", url=%q)
-movies = process("movies", upstream=src, static=["Inception"])
-q      = process("metainfo_quality", upstream=movies)
-dd     = process("dedup", upstream=q)
+meta   = process("metainfo_file", upstream=src)
+movies = process("movies", upstream=meta, static=["Inception"])
+dd     = process("dedup", upstream=movies)
 output("print", upstream=dd)
 pipeline("t")
 `, srv.URL))
@@ -106,7 +106,8 @@ func TestMoviesUpgradeAcrossRuns(t *testing.T) {
 
 	tk := buildTask(t, fmt.Sprintf(`
 src    = input("rss", url=%q)
-movies = process("movies", upstream=src, static=["Inception"])
+meta   = process("metainfo_file", upstream=src)
+movies = process("movies", upstream=meta, static=["Inception"])
 output("print", upstream=movies)
 pipeline("t")
 `, srv.URL))
@@ -143,7 +144,8 @@ func TestMoviesProperUpgradeAcrossRuns(t *testing.T) {
 
 	tk := buildTask(t, fmt.Sprintf(`
 src    = input("rss", url=%q)
-movies = process("movies", upstream=src, static=["Inception"])
+meta   = process("metainfo_file", upstream=src)
+movies = process("movies", upstream=meta, static=["Inception"])
 output("print", upstream=movies)
 pipeline("t")
 `, srv.URL))
@@ -178,7 +180,8 @@ func TestMoviesDowngradeRejected(t *testing.T) {
 
 	tk := buildTask(t, fmt.Sprintf(`
 src    = input("rss", url=%q)
-movies = process("movies", upstream=src, static=["Inception"])
+meta   = process("metainfo_file", upstream=src)
+movies = process("movies", upstream=meta, static=["Inception"])
 output("print", upstream=movies)
 pipeline("t")
 `, srv.URL))
