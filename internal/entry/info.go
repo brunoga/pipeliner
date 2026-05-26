@@ -63,6 +63,15 @@ const (
 	FieldSeriesRepack             = "series_repack"
 	FieldSeriesDoubleEpisode      = "series_double_episode"
 
+	// MediaType is set by metainfo_file to classify an entry as "series",
+	// "movie", or "" (neither/unknown). Downstream filters and route() can use
+	// it to dispatch entries by detected media type without re-parsing the title.
+	FieldMediaType = "media_type"
+
+	// MediaType values written by metainfo_file.
+	MediaTypeSeries = "series"
+	MediaTypeMovie  = "movie"
+
 	// RoutePort is set by the route processor on matched entries to identify
 	// which named port they matched. Used by route_selector nodes downstream.
 	FieldRoutePort = "_route_port"
