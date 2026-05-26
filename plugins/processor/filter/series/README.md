@@ -16,13 +16,13 @@ The show list can be provided statically via `static`, dynamically via `list` (a
 |-------|----------|
 | `title` | Show name (normalized) used for matching against the configured list |
 | `series_episode_id` | Tracker key + classification gate |
+| `series_season` | `follow` season-floor logic |
+| `series_episode` | Persist + double-episode part marking |
 | `_quality` *(via `e.Quality()`)* | Quality spec matching, upgrade comparison, persisted record |
-| `series_season` *(optional)* | `follow` season-floor logic |
-| `series_episode` *(optional)* | persist/double-episode bookkeeping |
 | `series_double_episode` *(optional)* | Marks each part of a double episode on commit |
 | `series_proper`, `series_repack` *(optional)* | PROPER/REPACK upgrade detection |
 
-`title`, `series_episode_id`, and `_quality` are declared via `Descriptor.Requires`, so the DAG validator catches pipelines that wire `series` without an upstream metainfo step.
+The first five fields are declared via `Descriptor.Requires`, so the DAG validator catches pipelines that wire `series` without an upstream metainfo step.
 
 ## Config
 
@@ -123,7 +123,7 @@ pipeline("tv-combined", schedule="30m")
 | Property | Value |
 |----------|-------|
 | Role | `processor` |
-| Requires | `title`, `series_episode_id`, `_quality` (declared via `RequireAll`) |
+| Requires | `title`, `series_episode_id`, `series_season`, `series_episode`, `_quality` (declared via `RequireAll`) |
 | Produces | — (no new public fields; reads-only of upstream metadata) |
 
 `series` passes through fields set upstream; it does not produce new ones. The same `series_*` fields are available downstream because `metainfo_file` (upstream) already set them.

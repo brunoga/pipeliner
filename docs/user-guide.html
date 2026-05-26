@@ -1097,7 +1097,7 @@ After DHT: <code>torrent_file_size</code>, <code>torrent_file_count</code>, <cod
 <h2 id="series">series</h2>
 <p>Accepts episodes of configured TV shows. Matches the parsed series name against a configured list with fuzzy matching, enforces optional quality and ordering constraints, and persists download history across runs. Multiple quality variants of the same episode are all accepted — place <code>dedup</code> downstream to pick the best copy. Download history is committed to the database only after all downstream sinks confirm success. A re-download of an already-seen episode is accepted when the new copy is strictly better quality, or when it is a PROPER/REPACK that is not a quality downgrade.</p>
 
-<div class="note"><strong>Upstream requirement:</strong> <code>series</code> reads episode metadata from entry fields rather than parsing titles itself. Run <code>metainfo_file</code> (or any plugin that sets <code>title</code>, <code>series_episode_id</code>, and the <code>_quality</code> typed struct) upstream. The requirement is declared in the plugin descriptor so the DAG validator catches misconfigured pipelines at load time.</div>
+<div class="note"><strong>Upstream requirement:</strong> <code>series</code> reads episode metadata from entry fields rather than parsing titles itself. Run <code>metainfo_file</code> (or any plugin that sets <code>title</code>, <code>series_episode_id</code>, <code>series_season</code>, <code>series_episode</code>, and the <code>_quality</code> typed struct) upstream. The requirement is declared in the plugin descriptor so the DAG validator catches misconfigured pipelines at load time.</div>
 
 <table>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
