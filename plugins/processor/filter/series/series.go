@@ -52,7 +52,7 @@ func init() {
 			{Key: "static", Type: plugin.FieldTypeList, Hint: "Static list of show names to accept"},
 			{Key: "list", Type: plugin.FieldTypeDict, Hint: "Dynamic show list from a source plugin (e.g. tvdb_favorites, trakt_list)"},
 			{Key: "tracking", Type: plugin.FieldTypeEnum, Enum: []string{"strict", "backfill", "follow"}, Default: "strict", Hint: "Episode ordering mode"},
-			{Key: "quality", Type: plugin.FieldTypeString, Hint: "Minimum quality spec, e.g. 720p+ webrip+"},
+			{Key: "quality", Type: plugin.FieldTypeString, Hint: "Quality spec, e.g. 720p+ (floor), 720p (exact), 720p-1080p (range)"},
 			{Key: "ttl", Type: plugin.FieldTypeDuration, Default: "1h", Hint: "Cache TTL for dynamic lists"},
 			{Key: "reject_unmatched", Type: plugin.FieldTypeBool, Default: true, Hint: "Reject episodes not in the show list"},
 		},
@@ -150,11 +150,7 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 		if err != nil {
 			return nil, fmt.Errorf("series: invalid quality spec: %w", err)
 		}
-		spec.MinResolution = s.MinResolution
-		spec.MinSource = s.MinSource
-		spec.MinCodec = s.MinCodec
-		spec.MinAudio = s.MinAudio
-		spec.MinColorRange = s.MinColorRange
+		spec = s
 	}
 
 	rejectUnmatched := true
@@ -298,24 +294,8 @@ func (p *seriesPlugin) persist(_ context.Context, _ *plugin.TaskContext, entries
 			Quality:      ep.Quality,
 			DownloadedAt: time.Now(),
 		}
-		if err := p.tracker.Mark(rec); err != nil {
+		if err := p.tracker.MarkWithParts(rec, ep); err != nil {
 			return fmt.Errorf("series: mark %s %s: %w", matchedShow, epID, err)
-		}
-		// For double episodes (e.g. S01E01E02), also mark each part individually
-		// so that a later single-episode release is recognised as already downloaded.
-		if ep.DoubleEpisode > 0 {
-			ep1 := *ep
-			ep1.DoubleEpisode = 0
-			ep2 := *ep
-			ep2.Episode = ep.DoubleEpisode
-			ep2.DoubleEpisode = 0
-			for _, partID := range []string{series.EpisodeID(&ep1), series.EpisodeID(&ep2)} {
-				partRec := rec
-				partRec.EpisodeID = partID
-				if err := p.tracker.Mark(partRec); err != nil {
-					return fmt.Errorf("series: mark %s %s: %w", matchedShow, partID, err)
-				}
-			}
 		}
 	}
 	return nil
@@ -347,16 +327,16 @@ func enforceStrict(log *slog.Logger, ep *series.Episode, epID string, latest *se
 	if ep.IsDate {
 		return nil
 	}
-	latestEp, ok := series.Parse(latest.SeriesName + " " + latest.EpisodeID)
+	latestSeason, latestEpisode, ok := series.ParseEpisodeID(latest.EpisodeID)
 	if !ok {
 		log.Warn("series: strict tracking: stored episode ID did not parse, skipping strict check",
 			"series", latest.SeriesName, "episode_id", latest.EpisodeID)
 		return nil
 	}
-	if ep.Season != latestEp.Season {
+	if ep.Season != latestSeason {
 		return nil
 	}
-	gap := ep.Episode - latestEp.Episode
+	gap := ep.Episode - latestEpisode
 	if gap > 1 {
 		return fmt.Errorf("series: strict tracking: %s skips %d episodes ahead of latest %s",
 			epID, gap-1, latest.EpisodeID)

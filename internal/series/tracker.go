@@ -59,6 +59,30 @@ func (t *Tracker) Mark(r Record) error {
 	return t.bucket.Put(recordKey(r.SeriesName, r.EpisodeID), r)
 }
 
+// MarkWithParts records that an episode has been downloaded and, for double
+// episodes (e.g. S01E01E02), also marks each individual part so that a later
+// single-episode release for either part is recognised as already downloaded.
+func (t *Tracker) MarkWithParts(r Record, ep *Episode) error {
+	if err := t.Mark(r); err != nil {
+		return err
+	}
+	if ep.DoubleEpisode > 0 {
+		ep1 := *ep
+		ep1.DoubleEpisode = 0
+		ep2 := *ep
+		ep2.Episode = ep.DoubleEpisode
+		ep2.DoubleEpisode = 0
+		for _, partID := range []string{EpisodeID(&ep1), EpisodeID(&ep2)} {
+			partRec := r
+			partRec.EpisodeID = partID
+			if err := t.Mark(partRec); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // HighestEpisode returns the episode with the lexicographically greatest EpisodeID
 // for the given series. Because episode IDs are zero-padded (S01E01, 2023-11-15,
 // EP001), lexicographic order matches episode order. This represents the furthest

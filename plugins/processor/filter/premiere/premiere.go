@@ -175,7 +175,7 @@ func (p *premierePlugin) filter(_ context.Context, _ *plugin.TaskContext, e *ent
 	}
 
 	// Accept all matching entries — dedup will keep the best one.
-	e.Accept()
+	e.Accept(fmt.Sprintf("premiere: %s %s matched", ep.SeriesName, epID))
 	return nil
 }
 
@@ -206,24 +206,8 @@ func (p *premierePlugin) persist(_ context.Context, _ *plugin.TaskContext, entri
 			Quality:      ep.Quality,
 			DownloadedAt: time.Now(),
 		}
-		if err := p.tracker.Mark(rec); err != nil {
+		if err := p.tracker.MarkWithParts(rec, ep); err != nil {
 			return fmt.Errorf("premiere: mark %s %s: %w", normalizedName, epID, err)
-		}
-		// For double episodes, also mark each part individually so a later
-		// single-episode release is recognised as already downloaded.
-		if ep.DoubleEpisode > 0 {
-			ep1 := *ep
-			ep1.DoubleEpisode = 0
-			ep2 := *ep
-			ep2.Episode = ep.DoubleEpisode
-			ep2.DoubleEpisode = 0
-			for _, partID := range []string{series.EpisodeID(&ep1), series.EpisodeID(&ep2)} {
-				partRec := rec
-				partRec.EpisodeID = partID
-				if err := p.tracker.Mark(partRec); err != nil {
-					return fmt.Errorf("premiere: mark %s %s: %w", normalizedName, partID, err)
-				}
-			}
 		}
 	}
 	return nil
