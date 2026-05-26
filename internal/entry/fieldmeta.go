@@ -248,6 +248,12 @@ var KnownFields = []FieldMeta{
 		Description: "Category from RSS <category> elements or nyaa:category, comma-joined",
 		SetBy:       []string{"rss"}},
 
+	// ── Classification ────────────────────────────────────────────────────
+	{Name: FieldMediaType, Type: FieldTypeString,
+		Description: "Media classification set by metainfo_file: \"series\", \"movie\", or unset",
+		SetBy:       []string{"metainfo_file"},
+		KnownValues: []string{MediaTypeSeries, MediaTypeMovie}},
+
 	// ── Route ─────────────────────────────────────────────────────────────
 	{Name: FieldRoutePort, Type: FieldTypeString,
 		Description: "Port name stamped by route() — identifies which branch this entry took",
