@@ -40,9 +40,13 @@ func init() {
 		Role:        plugin.RoleProcessor,
 		// Episode metadata must be populated upstream — by metainfo_file in
 		// the common case, or by any other plugin that sets these fields.
+		// FieldQuality (the typed quality.Quality struct read via e.Quality())
+		// is required so spec matching and upgrade detection work; without it
+		// quality features silently degrade to no-op.
 		Requires: plugin.RequireAll(
 			entry.FieldTitle,
 			entry.FieldSeriesEpisodeID,
+			entry.FieldQuality,
 		),
 		Factory:     newPlugin,
 		Validate:    validate,
