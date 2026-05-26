@@ -88,9 +88,10 @@ results = process("discover", upstream=watchlist,
              "categories": ["5040", "5045"]}],
     interval="6h")
 
-seen  = process("seen",   upstream=results)
-seen2 = process("series", upstream=seen, static=["Breaking Bad"])
-output("transmission", upstream=seen2, host="localhost")
+seen  = process("seen",          upstream=results)
+meta  = process("metainfo_file", upstream=seen)
+srs   = process("series",        upstream=meta, static=["Breaking Bad"])
+output("transmission", upstream=srs, host="localhost")
 pipeline("tv-discover", schedule="1h")
 ```
 

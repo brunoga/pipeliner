@@ -41,7 +41,7 @@ movie_watchlist = input("trakt_list",
 disc_movies  = process("discover", upstream=movie_watchlist,
                         search=jackett_search(), interval="6h")
 seen_movies  = process("seen",            upstream=disc_movies)
-q_movies     = process("metainfo_quality", upstream=seen_movies)
+q_movies     = process("metainfo_file", upstream=seen_movies)
 tmdb_movies  = process("metainfo_tmdb",   upstream=q_movies, api_key=tmdb_key)
 flt_movies   = process("movies",           upstream=tmdb_movies,
                         quality="1080p+",
@@ -67,7 +67,7 @@ show_watchlist = input("trakt_list",
 disc_shows  = process("discover", upstream=show_watchlist,
                        search=jackett_search(), interval="3h")
 seen_shows  = process("seen",            upstream=disc_shows)
-q_shows     = process("metainfo_quality", upstream=seen_shows)
+q_shows     = process("metainfo_file", upstream=seen_shows)
 flt_shows   = process("series",           upstream=q_shows,
                         tracking="strict", quality="720p+",
                         list=[{"name": "trakt_list",

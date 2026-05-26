@@ -40,7 +40,8 @@ Fields marked **always** are set on every entry. All others depend on the feed c
 ```python
 src = input("rss", url="https://nyaa.si/?page=rss&c=1_2&f=0")
 seen    = process("seen", upstream=src)
-series  = process("series", upstream=seen, tracking="strict",
+meta   = process("metainfo_file", upstream=seen)
+series  = process("series", upstream=meta, tracking="strict",
     list=[{"name": "trakt_list", "client_id": env("TRAKT_ID"),
            "type": "shows", "list": "watchlist"}])
 output("transmission", upstream=series, host="localhost")

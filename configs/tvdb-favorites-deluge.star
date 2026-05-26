@@ -12,7 +12,7 @@ tv_path       = "/media/tv"
 
 src     = input("rss", url="https://example.com/rss/shows")
 seen    = process("seen",             upstream=src)
-q       = process("metainfo_quality", upstream=seen)
+q       = process("metainfo_file", upstream=seen)
 series  = process("series",           upstream=q,
                    tracking="strict", quality="720p+", ttl="2h",
                    list=[{"name":     "tvdb_favorites",

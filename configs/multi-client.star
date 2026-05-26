@@ -13,7 +13,7 @@ qbit_host  = "localhost"
 
 src  = input("rss",             url=rss_url)
 seen = process("seen",          upstream=src)
-meta = process("metainfo_quality", upstream=seen)
+meta = process("metainfo_file", upstream=seen)
 
 # --- TV branch ---
 series  = process("series",  upstream=meta,

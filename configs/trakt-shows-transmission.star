@@ -23,7 +23,7 @@ def enriched_output(upstream):
 
 src1    = input("rss", url="https://example.com/rss/shows")
 seen1   = process("seen",             upstream=src1)
-q1      = process("metainfo_quality", upstream=seen1)
+q1      = process("metainfo_file", upstream=seen1)
 series1 = process("series",           upstream=q1,
                    tracking="strict", quality="720p+", ttl="2h",
                    list=[{"name": "trakt_list",
@@ -38,7 +38,7 @@ pipeline("tv-watchlist", schedule="1h")
 
 src2    = input("rss", url="https://example.com/rss/shows")
 seen2   = process("seen",             upstream=src2)
-q2      = process("metainfo_quality", upstream=seen2)
+q2      = process("metainfo_file", upstream=seen2)
 series2 = process("series",           upstream=q2,
                    tracking="backfill", quality="1080p+", ttl="6h",
                    list=[{"name": "trakt_list",
