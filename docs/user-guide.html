@@ -470,7 +470,7 @@ pipeline("split-pipeline")</code></pre>
 
 <div class="note"><strong><code>{title}</code> vs <code>{raw_title}</code>:</strong> <code>{title}</code> resolves to the canonical enriched title (e.g. "Breaking Bad" from TVDB). <code>{raw_title}</code> is the original entry title as received from the input (torrent filename or feed item title). Before enrichment, both refer to the same raw value.</div>
 
-<h4>Video fields (video_ prefix) — set by metainfo_tvdb, metainfo_tmdb, metainfo_trakt, metainfo_quality, metainfo_file, movies</h4>
+<h4>Video fields (video_ prefix) — set by metainfo_tvdb, metainfo_tmdb, metainfo_trakt, metainfo_quality, metainfo_file</h4>
 <table>
   <tr><th>Field</th><th>Description</th></tr>
   <tr><td><code>video_year</code></td><td>Release or first-air year</td></tr>
@@ -516,7 +516,7 @@ pipeline("split-pipeline")</code></pre>
   <tr><td><code>series_container</code></td><td>Container format tag parsed from title (e.g. <code>mkv</code>)</td></tr>
 </table>
 
-<h4>Movie fields (movie_ prefix) — set by movies, metainfo_tmdb, metainfo_file</h4>
+<h4>Movie fields (movie_ prefix) — set by metainfo_tmdb, metainfo_file</h4>
 <table>
   <tr><th>Field</th><th>Description</th></tr>
   <tr><td><code>movie_title</code></td><td>Canonical movie title</td></tr>
@@ -591,7 +591,7 @@ pipeline("split-pipeline")</code></pre>
 <h3>Common fields (quick reference)</h3>
 <table>
   <tr><th>Field</th><th>Set by</th><th>Description</th></tr>
-  <tr><td><code>title</code></td><td>metainfo_tvdb, metainfo_tmdb, metainfo_trakt, metainfo_series, metainfo_file, movies</td><td>Canonical enriched display name</td></tr>
+  <tr><td><code>title</code></td><td>metainfo_tvdb, metainfo_tmdb, metainfo_trakt, metainfo_series, metainfo_file</td><td>Canonical enriched display name</td></tr>
   <tr><td><code>raw_title</code></td><td>(built-in)</td><td>Original entry title from the input source</td></tr>
   <tr><td><code>media_type</code></td><td>metainfo_file</td><td>Classification (<code>"series"</code>, <code>"movie"</code>, or unset). Convenient dispatch key for <code>route()</code>.</td></tr>
   <tr><td><code>description</code></td><td>rss, metainfo_tvdb, metainfo_tmdb, metainfo_trakt</td><td>Synopsis or overview text</td></tr>
@@ -605,9 +605,9 @@ pipeline("split-pipeline")</code></pre>
   <tr><td><code>video_repack</code></td><td>metainfo_series, metainfo_file</td><td><code>true</code> when REPACK marker is detected</td></tr>
   <tr><td><code>series_service</code></td><td>metainfo_series, metainfo_file</td><td>Streaming service tag (e.g. <code>AMZN</code>, <code>NF</code>)</td></tr>
   <tr><td><code>series_container</code></td><td>metainfo_series, metainfo_file</td><td>Container format tag (e.g. <code>mkv</code>)</td></tr>
-  <tr><td><code>video_year</code></td><td>trakt_list, movies, metainfo_tvdb, metainfo_tmdb, metainfo_file</td><td>Release or first-air year. Also set by <code>trakt_list</code> from the Trakt API so year-aware matching works before any enrichment step.</td></tr>
-  <tr><td><code>video_is_3d</code></td><td>movies, metainfo_quality, metainfo_file</td><td><code>true</code> when any 3D format marker is detected (3D, SBS, HOU, BD3D, etc.)</td></tr>
-  <tr><td><code>video_quality</code></td><td>movies, metainfo_quality, metainfo_file</td><td>Parsed quality string from filename, including 3D format when present (e.g. <code>BD3D 1080p BluRay</code>)</td></tr>
+  <tr><td><code>video_year</code></td><td>trakt_list, metainfo_tvdb, metainfo_tmdb, metainfo_file</td><td>Release or first-air year. Also set by <code>trakt_list</code> from the Trakt API so year-aware matching works before any enrichment step.</td></tr>
+  <tr><td><code>video_is_3d</code></td><td>metainfo_quality, metainfo_file</td><td><code>true</code> when any 3D format marker is detected (3D, SBS, HOU, BD3D, etc.)</td></tr>
+  <tr><td><code>video_quality</code></td><td>metainfo_quality, metainfo_file</td><td>Parsed quality string from filename, including 3D format when present (e.g. <code>BD3D 1080p BluRay</code>)</td></tr>
   <tr><td><code>video_language</code></td><td>metainfo_tvdb, metainfo_tmdb</td><td>Original language display name (e.g. <code>English</code>)</td></tr>
   <tr><td><code>video_country</code></td><td>metainfo_tvdb, metainfo_tmdb</td><td>Country of origin display name</td></tr>
   <tr><td><code>video_genres</code></td><td>metainfo_tvdb, metainfo_tmdb, metainfo_trakt</td><td>Genre names (string slice)</td></tr>
@@ -1142,18 +1142,29 @@ pipeline("tv-dynamic", schedule="1h")</code></pre>
 <h2 id="movies">movies</h2>
 <p>Accepts movies from a configured title list. Same quality and deduplication behavior as <code>series</code>. Download history is committed after all downstream sinks confirm success. A re-download is accepted when the new copy is strictly better quality, or when it is a PROPER/REPACK that is not a quality downgrade.</p>
 
+<div class="note"><strong>Upstream requirement:</strong> <code>movies</code> reads movie metadata from entry fields rather than parsing titles itself. Run <code>metainfo_file</code> (or any plugin that sets <code>title</code>, <code>video_year</code>, and the <code>_quality</code> typed struct) upstream. The requirement is declared in the plugin descriptor so the DAG validator catches misconfigured pipelines at load time.</div>
+
 <table>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
   <tr><td><code>static</code></td><td>conditional</td><td>—</td><td>Static list of movie titles</td></tr>
   <tr><td><code>list</code></td><td>conditional</td><td>—</td><td>List-plugin configs providing titles dynamically</td></tr>
   <tr><td><code>ttl</code></td><td>no</td><td><code>1h</code></td><td>Cache TTL for dynamic list. An empty list from a <code>list:</code> source is not cached — the source will be queried again on the next run.</td></tr>
   <tr><td><code>quality</code></td><td>no</td><td>—</td><td>Quality spec (e.g. <code>720p+</code> for floor, <code>720p</code> for exact, <code>720p-1080p</code> for range)</td></tr>
-  <tr><td><code>reject_unmatched</code></td><td>no</td><td><code>true</code></td><td>When <code>true</code> (default), entries whose title does not match any title in the configured list are explicitly rejected. Set to <code>false</code> to leave such entries undecided — useful when chaining multiple movies filters in one pipeline.</td></tr>
+  <tr><td><code>reject_unmatched</code></td><td>no</td><td><code>true</code></td><td>When <code>true</code> (default), entries that lack <code>title</code> or whose title is not in the configured list are explicitly rejected. Set to <code>false</code> to leave such entries undecided.</td></tr>
 </table>
 
-<p>Fields set: <code>title</code> (movie title), <code>video_year</code>, <code>video_quality</code>, <code>video_resolution</code>, <code>video_source</code>, <code>video_is_3d</code></p>
+<p>Fields produced: none. <code>movies</code> reads upstream metadata and only writes to its internal tracker on commit; all <code>movie_*</code> / <code>video_*</code> fields seen downstream were set by the upstream metainfo step.</p>
 
 <div class="note"><strong>3D handling:</strong> 3D and non-3D versions of the same movie are tracked independently — both are downloaded if both match. Among competing 3D copies, 3D format quality (BD3D &gt; Full SBS/OU &gt; Half SBS/OU) takes precedence over resolution and source. Use <code>condition: reject: 'video_is_3d == true'</code> to exclude all 3D releases.</div>
+
+<pre><code>src    = input("rss",            url="https://feed.example.com/movies")
+seen   = process("seen",          upstream=src)
+meta   = process("metainfo_file", upstream=seen)   <span class="y-comment"># sets title, video_year, _quality, video_is_3d, etc.</span>
+movies = process("movies",        upstream=meta,
+                 static=["Inception", "Interstellar"],
+                 quality="1080p+ webrip+")
+output("qbittorrent", upstream=movies, host="localhost")
+pipeline("movies", schedule="6h")</code></pre>
 
 <!-- ─────────── premiere ─────────── -->
 <h2 id="premiere">premiere</h2>
