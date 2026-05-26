@@ -55,12 +55,12 @@ Fields marked **always** are set on every entry. All others depend on whether th
 ## Example — passive source
 
 ```python
-src     = input("jackett", url="http://localhost:9117",
-                api_key=env("JACKETT_KEY"), categories=["5040", "5045"])
-seen    = process("seen",   upstream=src)
-quality = process("metainfo_quality", upstream=seen)
-prem    = process("premiere", upstream=quality, quality="720p+ webrip+")
-best    = process("dedup",  upstream=prem)
+src  = input("jackett", url="http://localhost:9117",
+             api_key=env("JACKETT_KEY"), categories=["5040", "5045"])
+seen = process("seen",          upstream=src)
+meta = process("metainfo_file", upstream=seen)   # required for premiere downstream
+prem = process("premiere",      upstream=meta, quality="720p+ webrip+")
+best = process("dedup",         upstream=prem)
 output("transmission", upstream=best, host="localhost")
 pipeline("new-shows", schedule="1h")
 ```
