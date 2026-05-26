@@ -112,6 +112,13 @@ func (p *filePlugin) Process(_ context.Context, _ *plugin.TaskContext, entries [
 // The order matters: series is tried first because its parser is the strictest
 // (requires an explicit episode marker); a title that matches as series may
 // also parse as a movie (due to year detection) and series wins.
+//
+// Movie classification has two paths:
+//  1. Title-driven: imovies.Parse extracts title + year from the filename.
+//  2. List-driven: the title alone is unparseable (no year, no quality marker)
+//     but an upstream source — typically trakt_list — has already set
+//     video_year. In that case we treat the entry's raw title as the movie
+//     title (normalised) and the upstream year as the release year.
 func annotate(e *entry.Entry) {
 	if ep, ok := series.Parse(e.Title); ok {
 		annotateSeries(e, ep)
@@ -120,6 +127,15 @@ func annotate(e *entry.Entry) {
 	}
 	if m, ok := imovies.Parse(e.Title); ok {
 		annotateMovie(e, m)
+		annotateQuality(e)
+		return
+	}
+	if y := entry.ReleaseYear(e); y > 0 {
+		title := imovies.NormalizeTitle(e.Title)
+		if title == "" {
+			title = e.Title
+		}
+		annotateMovie(e, &imovies.Movie{Title: title, Year: y})
 		annotateQuality(e)
 		return
 	}

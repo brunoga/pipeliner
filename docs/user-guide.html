@@ -973,11 +973,12 @@ pipeline("tv-tvdb", schedule="1h")</code></pre>
 <p>Takes no config. Classification order:</p>
 <ol>
   <li><strong>Series</strong> — requires a strong episode pattern (<code>SxxExx</code>, dates, <code>1x01</code>, <code>EP123</code>). Sets <code>media_type = "series"</code> and all <code>series_*</code> fields.</li>
-  <li><strong>Movie</strong> — falls back to the movie parser (year + quality marker). Sets <code>media_type = "movie"</code> and <code>movie_title</code>, <code>video_year</code>.</li>
+  <li><strong>Movie (filename-driven)</strong> — the movie parser (year + quality marker, or quality marker only). Sets <code>media_type = "movie"</code> and <code>movie_title</code>, <code>video_year</code>.</li>
+  <li><strong>Movie (list-source fallback)</strong> — when the title alone can't be parsed (no year, no quality marker) but an upstream source (typically <code>trakt_list</code>) has already set <code>video_year</code>, the raw title is normalised and the entry is classified as a movie using that year. This is how clean list-sourced titles like <code>"Avengers"</code> get classified without a downstream API enricher.</li>
   <li><strong>Quality</strong> — always runs when any quality dimension is detected, regardless of classification. Sets <code>video_quality</code>, <code>video_resolution</code>, <code>video_source</code>, <code>video_is_3d</code>, <code>codec</code>, <code>audio</code>, <code>color_range</code>, <code>quality_resolution</code>, <code>quality_source</code>.</li>
 </ol>
 
-<p>Series is tried first because the series parser is the strictest (episode marker required). A title like <code>Show.2023.S01E01.720p</code> matches both parsers; the unambiguous episode pattern makes it a series.</p>
+<p>Series is tried first because the series parser is the strictest (episode marker required). A title like <code>Show.2023.S01E01.720p</code> matches both parsers; the unambiguous episode pattern makes it a series. The list-source fallback only kicks in when neither parser matched on the title alone.</p>
 
 <p>Fields set on entry — <code>media_type</code> (<code>"series"</code> / <code>"movie"</code> / unset), plus all the <code>series_*</code> / <code>movie_*</code> / <code>video_*</code> / <code>codec</code> / <code>audio</code> / <code>color_range</code> / <code>quality_resolution</code> / <code>quality_source</code> fields documented for <code>metainfo_series</code> and <code>metainfo_quality</code>.</p>
 
