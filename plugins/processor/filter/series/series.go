@@ -40,9 +40,21 @@ func init() {
 		Role:        plugin.RoleProcessor,
 		// Episode metadata must be populated upstream — by metainfo_file in
 		// the common case, or by any other plugin that sets these fields.
+		// series_season and series_episode are part of the same parsed-episode
+		// bundle as series_episode_id (metainfo_file always sets them
+		// together); they support follow-mode season-floor logic and
+		// double-episode part marking on commit. Declaring them keeps the
+		// contract symmetric with the premiere plugin and documents the
+		// expected upstream shape.
+		// FieldQuality (the typed quality.Quality struct read via e.Quality())
+		// is required so spec matching and upgrade detection work; without it
+		// quality features silently degrade to no-op.
 		Requires: plugin.RequireAll(
 			entry.FieldTitle,
 			entry.FieldSeriesEpisodeID,
+			entry.FieldSeriesSeason,
+			entry.FieldSeriesEpisode,
+			entry.FieldQuality,
 		),
 		Factory:     newPlugin,
 		Validate:    validate,

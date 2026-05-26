@@ -445,6 +445,9 @@ func TestRequiresDeclared(t *testing.T) {
 	want := map[string]bool{
 		entry.FieldTitle:           false,
 		entry.FieldSeriesEpisodeID: false,
+		entry.FieldSeriesSeason:    false, // follow-mode season floor + double-episode persist
+		entry.FieldSeriesEpisode:   false, // double-episode persist
+		entry.FieldQuality:         false, // quality features (spec, upgrade) read e.Quality()
 	}
 	for _, group := range d.Requires {
 		for _, f := range group {
