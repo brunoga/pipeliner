@@ -325,11 +325,22 @@ func TestQualityGateRejects(t *testing.T) {
 }
 
 func TestQualityGateAccepts(t *testing.T) {
-	p := openPlugin(t, map[string]any{"quality": "720p"})
+	// "720p+" means 720p or better — 1080p should pass.
+	p := openPlugin(t, map[string]any{"quality": "720p+"})
 	e := entry.New("My.Show.S01E01.1080p.BluRay", "http://x.com/a")
 	p.filter(context.Background(), makeCtx(), e) //nolint:errcheck
 	if !e.IsAccepted() {
-		t.Errorf("1080p should pass 720p quality gate: %s", e.RejectReason)
+		t.Errorf("1080p should pass 720p+ quality gate: %s", e.RejectReason)
+	}
+}
+
+func TestQualityGateExact(t *testing.T) {
+	// "720p" (no +) means exactly 720p — 1080p should be rejected.
+	p := openPlugin(t, map[string]any{"quality": "720p"})
+	e := entry.New("My.Show.S01E01.1080p.BluRay", "http://x.com/a")
+	p.filter(context.Background(), makeCtx(), e) //nolint:errcheck
+	if !e.IsRejected() {
+		t.Error("1080p should be rejected by exact 720p quality spec")
 	}
 }
 

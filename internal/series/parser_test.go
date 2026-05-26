@@ -275,3 +275,31 @@ func TestNormalizeName(t *testing.T) {
 		})
 	}
 }
+
+func TestParseEpisodeID(t *testing.T) {
+	cases := []struct {
+		id             string
+		season, episode int
+		ok             bool
+	}{
+		{"S01E05", 1, 5, true},
+		{"S02E12", 2, 12, true},
+		{"S10E01", 10, 1, true},
+		{"EP123", 0, 123, true},
+		{"EP012", 0, 12, true},
+		{"2023-11-15", 0, 0, false}, // date-based
+		{"", 0, 0, false},
+		{"garbage", 0, 0, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.id, func(t *testing.T) {
+			s, e, ok := ParseEpisodeID(tc.id)
+			if ok != tc.ok {
+				t.Fatalf("ParseEpisodeID(%q) ok = %v, want %v", tc.id, ok, tc.ok)
+			}
+			if ok && (s != tc.season || e != tc.episode) {
+				t.Errorf("ParseEpisodeID(%q) = (%d, %d), want (%d, %d)", tc.id, s, e, tc.season, tc.episode)
+			}
+		})
+	}
+}

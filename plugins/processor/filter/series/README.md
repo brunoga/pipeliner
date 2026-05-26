@@ -16,7 +16,7 @@ The show list can be provided statically via `static`, dynamically via `list` (a
 | `list` | conditional | — | List-plugin configs whose entry titles supplement the show list |
 | `ttl` | no | `1h` | How long to cache the dynamic list fetched via `list` |
 | `tracking` | no | `strict` | Episode ordering mode: `strict`, `backfill`, or `follow` |
-| `quality` | no | — | Minimum quality spec (e.g. `720p`, `1080p bluray`) |
+| `quality` | no | — | Quality spec (e.g. `720p+` for floor, `720p` for exact, `720p-1080p` for range) |
 | `reject_unmatched` | no | `true` | Reject episodes not in the show list; set `false` to leave them undecided when chaining multiple series filters |
 
 At least one of `static` or `list` is required.

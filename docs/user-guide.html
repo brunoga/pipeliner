@@ -1062,7 +1062,7 @@ After DHT: <code>torrent_file_size</code>, <code>torrent_file_count</code>, <cod
   <tr><td><code>list</code></td><td>conditional</td><td>—</td><td>List-plugin configs providing show names dynamically</td></tr>
   <tr><td><code>ttl</code></td><td>no</td><td><code>1h</code></td><td>Cache TTL for dynamic show list. An empty list from a <code>list:</code> source is not cached — the source will be queried again on the next run.</td></tr>
   <tr><td><code>tracking</code></td><td>no</td><td><code>strict</code></td><td>Episode ordering mode: <code>strict</code>, <code>backfill</code>, or <code>follow</code></td></tr>
-  <tr><td><code>quality</code></td><td>no</td><td>—</td><td>Minimum quality spec (e.g. <code>720p+ webrip+</code>)</td></tr>
+  <tr><td><code>quality</code></td><td>no</td><td>—</td><td>Quality spec (e.g. <code>720p+</code> for floor, <code>720p</code> for exact, <code>720p-1080p</code> for range)</td></tr>
   <tr><td><code>reject_unmatched</code></td><td>no</td><td><code>true</code></td><td>When <code>true</code> (default), entries that do not parse as a series episode or whose show name is not in the configured list are explicitly rejected. Set to <code>false</code> to leave such entries undecided — useful when chaining multiple series filters in one pipeline.</td></tr>
 </table>
 
@@ -1074,7 +1074,7 @@ After DHT: <code>torrent_file_size</code>, <code>torrent_file_count</code>, <cod
   <tr><td><code>follow</code></td><td>Recommended for new and continuing series. On first encounter accept everything (full season drops in one pass). Afterwards the highest tracked episode defines the season floor — episodes from seasons older than the current position are rejected, all episodes in the current season or newer are accepted (including gap-fills within the current season).</td></tr>
 </table>
 
-<p>Fields set: <code>series_season</code>, <code>series_episode</code>, <code>series_episode_id</code>. The matched show name is written to <code>title</code> (canonical) and <code>raw_title</code> (original parsed name).</p>
+<p>Fields set on accepted entries: <code>title</code> (matched show name), <code>series_season</code>, <code>series_episode</code>, <code>series_episode_id</code>, <code>series_double_episode</code>, <code>series_proper</code>, <code>series_repack</code>, <code>series_service</code>, <code>series_container</code>.</p>
 
 <pre><code>src    = input("rss", url="https://feed.example.com/rss")
 seen   = process("seen",   upstream=src)
@@ -1103,7 +1103,7 @@ pipeline("tv-dynamic", schedule="1h")</code></pre>
   <tr><td><code>static</code></td><td>conditional</td><td>—</td><td>Static list of movie titles</td></tr>
   <tr><td><code>list</code></td><td>conditional</td><td>—</td><td>List-plugin configs providing titles dynamically</td></tr>
   <tr><td><code>ttl</code></td><td>no</td><td><code>1h</code></td><td>Cache TTL for dynamic list. An empty list from a <code>list:</code> source is not cached — the source will be queried again on the next run.</td></tr>
-  <tr><td><code>quality</code></td><td>no</td><td>—</td><td>Minimum quality floor</td></tr>
+  <tr><td><code>quality</code></td><td>no</td><td>—</td><td>Quality spec (e.g. <code>720p+</code> for floor, <code>720p</code> for exact, <code>720p-1080p</code> for range)</td></tr>
   <tr><td><code>reject_unmatched</code></td><td>no</td><td><code>true</code></td><td>When <code>true</code> (default), entries whose title does not match any title in the configured list are explicitly rejected. Set to <code>false</code> to leave such entries undecided — useful when chaining multiple movies filters in one pipeline.</td></tr>
 </table>
 
@@ -1113,17 +1113,24 @@ pipeline("tv-dynamic", schedule="1h")</code></pre>
 
 <!-- ─────────── premiere ─────────── -->
 <h2 id="premiere">premiere</h2>
-<p>Accepts premiere episodes of previously unseen series. All spec-matching quality variants are accepted so the <code>dedup</code> processor can pick the best copy. Once a premiere is successfully downloaded (all downstream sinks confirm), subsequent runs reject that series. Useful for discovering new shows; let <code>series</code> take over episode tracking after the first download.</p>
+<p>Accepts premiere episodes of previously unseen series. All spec-matching quality variants are accepted so the <code>dedup</code> processor can pick the best copy. Once a premiere is successfully downloaded (all downstream sinks confirm), subsequent runs reject that series. Useful for discovering new shows; let <code>series</code> take over episode tracking after the first download. The shared tracker bucket is the same one used by <code>series</code> — a show downloaded via <code>premiere</code> will not be re-offered to <code>series</code> and vice versa.</p>
 
 <table>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
   <tr><td><code>episode</code></td><td>no</td><td><code>1</code></td><td>Episode number to treat as premiere</td></tr>
   <tr><td><code>season</code></td><td>no</td><td><code>1</code></td><td>Season number to match; <code>0</code> means any</td></tr>
-  <tr><td><code>quality</code></td><td>no</td><td>—</td><td>Quality spec the entry must satisfy</td></tr>
+  <tr><td><code>quality</code></td><td>no</td><td>—</td><td>Quality spec (e.g. <code>720p+</code> for floor, <code>720p</code> for exact, <code>720p-1080p</code> for range)</td></tr>
   <tr><td><code>reject_unmatched</code></td><td>no</td><td><code>true</code></td><td>When <code>true</code> (default), entries whose title does not parse as a series episode are explicitly rejected. Set to <code>false</code> to leave such entries undecided — useful when chaining <code>premiere</code> alongside other filters in one pipeline.</td></tr>
 </table>
 
-<pre><code>prem = process("premiere", upstream=upstream, quality="720p+ webrip+")</code></pre>
+<p>Fields set on accepted entries: <code>title</code> (parsed series name), <code>series_season</code>, <code>series_episode</code>, <code>series_episode_id</code>, <code>series_double_episode</code>, <code>series_proper</code>, <code>series_repack</code>, <code>series_service</code>, <code>series_container</code>. These are the same fields produced by <code>metainfo_series</code> — a separate <code>metainfo_series</code> node is not required.</p>
+
+<pre><code>src  = input("rss", url="https://feed.example.com/rss")
+seen = process("seen",     upstream=src)
+prem = process("premiere", upstream=seen, quality="720p+ webrip+")
+best = process("dedup",    upstream=prem)
+output("transmission", upstream=best, host="localhost")
+pipeline("new-shows", schedule="1h")</code></pre>
 
 <!-- ─────────── condition ─────────── -->
 <h2 id="condition">condition</h2>
