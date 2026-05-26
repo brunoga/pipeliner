@@ -20,7 +20,7 @@ The show list can be provided statically via `static`, dynamically via `list` (a
 | `series_episode` | Persist + double-episode part marking |
 | `_quality` *(via `e.Quality()`)* | Quality spec matching, upgrade comparison, persisted record |
 | `series_double_episode` *(optional)* | Marks each part of a double episode on commit |
-| `series_proper`, `series_repack` *(optional)* | PROPER/REPACK upgrade detection |
+| `video_proper`, `video_repack` *(optional)* | PROPER/REPACK upgrade detection |
 
 The first five fields are declared via `Descriptor.Requires`, so the DAG validator catches pipelines that wire `series` without an upstream metainfo step.
 

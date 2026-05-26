@@ -38,6 +38,8 @@ const (
 	FieldVideoResolution    = "video_resolution"
 	FieldVideoSource        = "video_source"
 	FieldVideoIs3D          = "video_is_3d"
+	FieldVideoProper        = "video_proper"
+	FieldVideoRepack        = "video_repack"
 	FieldVideoPopularity    = "video_popularity"
 	FieldVideoVotes         = "video_votes"
 
@@ -59,8 +61,6 @@ const (
 	FieldSeriesEpisodeAirDate     = "series_episode_air_date"
 	FieldSeriesEpisodeImage       = "series_episode_image"
 	FieldSeriesService            = "series_service"
-	FieldSeriesProper             = "series_proper"
-	FieldSeriesRepack             = "series_repack"
 	FieldSeriesDoubleEpisode      = "series_double_episode"
 
 	// MediaType is set by metainfo_file to classify an entry as "series",
@@ -146,6 +146,8 @@ type VideoInfo struct {
 	Resolution    string
 	Source        string
 	Is3D          bool
+	Proper        bool // PROPER release marker — corrected re-release of any video content
+	Repack        bool // REPACK release marker
 	Popularity    float64
 	Votes         int
 }
@@ -176,8 +178,6 @@ type SeriesInfo struct {
 	EpisodeAirDate     time.Time
 	EpisodeImage       string
 	Service            string
-	Proper             bool
-	Repack             bool
 	DoubleEpisode      int
 }
 
@@ -295,6 +295,12 @@ func (e *Entry) SetVideoInfo(info VideoInfo) {
 	if info.Is3D {
 		e.Fields[FieldVideoIs3D] = true
 	}
+	if info.Proper {
+		e.Fields[FieldVideoProper] = true
+	}
+	if info.Repack {
+		e.Fields[FieldVideoRepack] = true
+	}
 	if info.Popularity > 0 {
 		e.Fields[FieldVideoPopularity] = info.Popularity
 	}
@@ -355,12 +361,6 @@ func (e *Entry) SetSeriesInfo(info SeriesInfo) {
 	}
 	if info.Service != "" {
 		e.Fields[FieldSeriesService] = info.Service
-	}
-	if info.Proper {
-		e.Fields[FieldSeriesProper] = true
-	}
-	if info.Repack {
-		e.Fields[FieldSeriesRepack] = true
 	}
 	if info.DoubleEpisode > 0 {
 		e.Fields[FieldSeriesDoubleEpisode] = info.DoubleEpisode

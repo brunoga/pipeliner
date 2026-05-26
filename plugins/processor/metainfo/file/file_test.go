@@ -54,8 +54,24 @@ func TestSeriesDoubleEpisode(t *testing.T) {
 
 func TestSeriesProperFlag(t *testing.T) {
 	e := annotateTitle(t, "My.Show.S01E01.PROPER.720p.HDTV")
-	if v, _ := e.Get(entry.FieldSeriesProper); v != true {
-		t.Errorf("series_proper: got %v, want true", v)
+	if v, _ := e.Get(entry.FieldVideoProper); v != true {
+		t.Errorf("video_proper: got %v, want true", v)
+	}
+}
+
+func TestMovieProperFlag(t *testing.T) {
+	// PROPER on a movie release should set the same video_proper field as
+	// for series — the marker describes the release, not the media type.
+	e := annotateTitle(t, "Avengers.2012.PROPER.1080p.BluRay")
+	if v, _ := e.Get(entry.FieldVideoProper); v != true {
+		t.Errorf("video_proper: got %v, want true", v)
+	}
+}
+
+func TestMovieRepackFlag(t *testing.T) {
+	e := annotateTitle(t, "Avengers.2012.REPACK.1080p.BluRay")
+	if v, _ := e.Get(entry.FieldVideoRepack); v != true {
+		t.Errorf("video_repack: got %v, want true", v)
 	}
 }
 
