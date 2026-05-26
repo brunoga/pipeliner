@@ -14,7 +14,7 @@ Most pipelines follow this order — you only need the stages relevant to your u
 
 1. **Source** — `rss`, `filesystem`, `jackett`, `discover`, …
 2. **Dedup across runs** — `seen` (reject entries processed in previous runs)
-3. **Enrichment** — `metainfo_quality`, `metainfo_series`, `metainfo_tvdb`, … (parse and look up metadata)
+3. **Enrichment** — `metainfo_file` (parse everything from the filename in one pass), or use the focused plugins individually: `metainfo_quality`, `metainfo_series`, `metainfo_tvdb`, `metainfo_tmdb`, …
 4. **Quality requirement check** — `require(fields=["enriched"])` to drop entries that couldn't be identified
 5. **Content filter** — `series`, `movies`, `condition`, `regexp`, `quality`, … (accept or reject)
 6. **Within-run dedup** — `dedup` (keep the best copy when multiple variants arrive in one run)
@@ -70,6 +70,7 @@ Not every stage is required. A simple news-to-email pipeline might just be `rss 
 
 | Plugin | Description |
 |--------|-------------|
+| [`metainfo_file`](processor/metainfo/file/README.md) | Parse the filename and annotate everything detectable in one pass: classify as series/movie, set series/movie/quality fields, and stamp `media_type` |
 | [`metainfo_quality`](processor/metainfo/quality/README.md) | Parse quality tags (resolution, source, codec) from the title |
 | [`metainfo_series`](processor/metainfo/series/README.md) | Parse series name, season, and episode from the title |
 | [`metainfo_tmdb`](processor/metainfo/tmdb/README.md) | Enrich movie entries with TMDb metadata |
