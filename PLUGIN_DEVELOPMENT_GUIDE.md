@@ -278,9 +278,9 @@ Fields follow a tiered naming convention with prefixes:
 | Prefix | Tier | Set by |
 |--------|------|--------|
 | *(none)* | GenericInfo | all source and metainfo providers |
-| `video_` | VideoInfo | metainfo_tvdb, metainfo_tmdb, metainfo_trakt, movies |
-| `series_` | SeriesInfo | series, metainfo_series, metainfo_tvdb |
-| `movie_` | MovieInfo | movies |
+| `video_` | VideoInfo | metainfo_tvdb, metainfo_tmdb, metainfo_trakt, metainfo_quality, metainfo_file, movies |
+| `series_` | SeriesInfo | series, metainfo_series, metainfo_file, metainfo_tvdb |
+| `movie_` | MovieInfo | movies, metainfo_tmdb, metainfo_file |
 | `torrent_` | TorrentInfo | rss, jackett, metainfo_torrent, metainfo_magnet |
 | `file_` | FileInfo | filesystem |
 | `rss_` | RSSInfo | rss |
@@ -750,11 +750,12 @@ movies_node = process("movies", upstream=rss, list=[unwatched_movies(client_id=e
 The `route()` Starlark builtin routes entries to named ports based on ordered boolean conditions. It is not a plugin — it is a built-in function that creates a `route` processor node and N `route_selector` nodes internally:
 
 ```python
-routes = route(upstream,
-    series = "series_episode_id != ''",
-    movies = "series_episode_id == ''")
-series_path = process("metainfo_series", upstream=routes.series)
-movies_path  = process("metainfo_tmdb",   upstream=routes.movies, ...)
+meta   = process("metainfo_file", upstream=upstream)  # sets media_type, series_*, movie_*, video_*
+routes = route(meta,
+    series = "media_type == 'series'",
+    movies = "media_type == 'movie'")
+series_path = process("metainfo_tvdb", upstream=routes.series, api_key=env("TVDB_KEY"))
+movies_path = process("metainfo_tmdb", upstream=routes.movies, api_key=env("TMDB_KEY"))
 output("transmission", upstream=merge(series_path, movies_path))
 ```
 
