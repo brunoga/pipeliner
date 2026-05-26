@@ -20,8 +20,8 @@ func init() {
 			entry.FieldSeriesSeason,
 			entry.FieldSeriesEpisode,
 			entry.FieldSeriesEpisodeID,
-			entry.FieldSeriesProper,
-			entry.FieldSeriesRepack,
+			entry.FieldVideoProper,
+			entry.FieldVideoRepack,
 			entry.FieldSeriesDoubleEpisode,
 			entry.FieldSeriesService,
 			"series_container",
@@ -55,12 +55,14 @@ func (p *seriesMetaPlugin) Process(_ context.Context, _ *plugin.TaskContext, ent
 			e.Set("series_container", ep.Container)
 		}
 		e.SetSeriesInfo(entry.SeriesInfo{
-			VideoInfo:     entry.VideoInfo{GenericInfo: entry.GenericInfo{Title: ep.SeriesName}},
+			VideoInfo: entry.VideoInfo{
+				GenericInfo: entry.GenericInfo{Title: ep.SeriesName},
+				Proper:      ep.Proper,
+				Repack:      ep.Repack,
+			},
 			Season:        ep.Season,
 			Episode:       ep.Episode,
 			EpisodeID:     epID,
-			Proper:        ep.Proper,
-			Repack:        ep.Repack,
 			Service:       ep.Service,
 			DoubleEpisode: ep.DoubleEpisode,
 		})

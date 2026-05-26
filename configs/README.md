@@ -115,6 +115,8 @@ Fields are grouped by prefix — the prefix tells you what kind of data the fiel
 | `video_resolution` | `metainfo_quality`, `metainfo_file` | Resolution (e.g. `1080p`, `720p`) |
 | `video_source` | `metainfo_quality`, `metainfo_file` | Source (e.g. `BluRay`, `WEB-DL`, `HDTV`) |
 | `video_is_3d` | `metainfo_quality`, `metainfo_file`, `movies` | `true` when any 3D format marker is detected (3D, SBS, HOU, BD3D, etc.) |
+| `video_proper` | `metainfo_series`, `metainfo_file` | `true` for PROPER releases (applies to series and movies) |
+| `video_repack` | `metainfo_series`, `metainfo_file` | `true` for REPACK releases (applies to series and movies) |
 | `video_imdb_id` | `metainfo_tmdb`, `metainfo_trakt` | IMDb ID (e.g. `tt1375666`) |
 
 ### Series fields
@@ -130,8 +132,6 @@ Fields are grouped by prefix — the prefix tells you what kind of data the fiel
 | `series_episode_title` | `metainfo_tvdb` | Episode title |
 | `series_episode_air_date` | `metainfo_tvdb` | Episode air date |
 | `series_service` | `metainfo_series`, `metainfo_file` | Streaming service tag from filename (e.g. `AMZN`, `NF`) |
-| `series_proper` | `metainfo_series`, `metainfo_file` | `true` for PROPER releases |
-| `series_repack` | `metainfo_series`, `metainfo_file` | `true` for REPACK releases |
 
 ### Movie fields
 

@@ -39,8 +39,6 @@ Quality fields are set whenever any quality dimension is detected, **regardless 
 | `series_episode` | int | `1` |
 | `series_episode_id` | string | `S01E01`, `2023-11-15`, `EP123` |
 | `series_double_episode` | int | `2` (for `S01E01E02`) |
-| `series_proper` | bool | `true` |
-| `series_repack` | bool | `true` |
 | `series_service` | string | `AMZN`, `Netflix` |
 | `series_container` | string | `mkv` |
 
@@ -52,7 +50,7 @@ Quality fields are set whenever any quality dimension is detected, **regardless 
 | `movie_title` | string | `Avengers` |
 | `video_year` | int | `2012` |
 
-### Quality (always, when any dimension detected)
+### Quality + release markers (always, when any signal detected)
 
 | Field | Type | Example |
 |---|---|---|
@@ -60,6 +58,8 @@ Quality fields are set whenever any quality dimension is detected, **regardless 
 | `video_resolution` | string | `1080p` |
 | `video_source` | string | `BluRay` |
 | `video_is_3d` | bool | `false` |
+| `video_proper` | bool | `true` (set when the title contains PROPER, for either series or movies) |
+| `video_repack` | bool | `true` (set when the title contains REPACK or RERIP) |
 | `codec` | string | `H264` |
 | `audio` | string | `Atmos` |
 | `color_range` | string | `HDR10` |

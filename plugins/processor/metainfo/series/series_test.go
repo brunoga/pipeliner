@@ -45,8 +45,8 @@ func TestDoubleEpisode(t *testing.T) {
 
 func TestProperFlag(t *testing.T) {
 	e := annotate(t, "My.Show.S01E01.PROPER.720p.HDTV")
-	if v, _ := e.Get("series_proper"); v != true {
-		t.Errorf("series_proper: got %v", v)
+	if v, _ := e.Get("video_proper"); v != true {
+		t.Errorf("video_proper: got %v", v)
 	}
 }
 

@@ -63,13 +63,13 @@ func metaize(e *entry.Entry) {
 	e.SetSeriesInfo(entry.SeriesInfo{
 		VideoInfo: entry.VideoInfo{
 			GenericInfo: entry.GenericInfo{Title: ep.SeriesName},
+			Proper:      ep.Proper,
+			Repack:      ep.Repack,
 		},
 		Season:        ep.Season,
 		Episode:       ep.Episode,
 		EpisodeID:     series.EpisodeID(ep),
 		DoubleEpisode: ep.DoubleEpisode,
-		Proper:        ep.Proper,
-		Repack:        ep.Repack,
 		Service:       ep.Service,
 	})
 	e.SetQuality(ep.Quality)

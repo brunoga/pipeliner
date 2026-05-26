@@ -45,18 +45,19 @@ func init() {
 			entry.FieldSeriesEpisode,
 			entry.FieldSeriesEpisodeID,
 			entry.FieldSeriesDoubleEpisode,
-			entry.FieldSeriesProper,
-			entry.FieldSeriesRepack,
 			entry.FieldSeriesService,
 			"series_container",
 			// Movie fields (only when classified as movie).
 			entry.FieldMovieTitle,
 			entry.FieldVideoYear,
-			// Quality fields (set whenever any dimension is detected).
+			// Quality + release fields (set whenever any dimension is detected,
+			// or PROPER/REPACK markers are present, for either media type).
 			entry.FieldVideoQuality,
 			entry.FieldVideoResolution,
 			entry.FieldVideoSource,
 			entry.FieldVideoIs3D,
+			entry.FieldVideoProper,
+			entry.FieldVideoRepack,
 			entry.FieldQuality, // typed quality.Quality struct for downstream consumers
 			"codec",
 			"audio",
@@ -148,13 +149,15 @@ func annotateSeries(e *entry.Entry, ep *series.Episode) {
 		e.Set("series_container", ep.Container)
 	}
 	e.SetSeriesInfo(entry.SeriesInfo{
-		VideoInfo:     entry.VideoInfo{GenericInfo: entry.GenericInfo{Title: ep.SeriesName}},
+		VideoInfo: entry.VideoInfo{
+			GenericInfo: entry.GenericInfo{Title: ep.SeriesName},
+			Proper:      ep.Proper,
+			Repack:      ep.Repack,
+		},
 		Season:        ep.Season,
 		Episode:       ep.Episode,
 		EpisodeID:     series.EpisodeID(ep),
 		DoubleEpisode: ep.DoubleEpisode,
-		Proper:        ep.Proper,
-		Repack:        ep.Repack,
 		Service:       ep.Service,
 	})
 }
@@ -163,11 +166,15 @@ func annotateMovie(e *entry.Entry, m *imovies.Movie) {
 	e.Set(entry.FieldMediaType, entry.MediaTypeMovie)
 	// SetMovieInfo writes the title to both FieldTitle (via GenericInfo) and
 	// FieldMovieTitle (via the explicit check in SetMovieInfo), so a single
-	// assignment in GenericInfo populates both.
+	// assignment in GenericInfo populates both. Proper/Repack on VideoInfo
+	// propagates the PROPER/REPACK markers parsed from the release title —
+	// these are release-level properties shared with series.
 	e.SetMovieInfo(entry.MovieInfo{
 		VideoInfo: entry.VideoInfo{
 			GenericInfo: entry.GenericInfo{Title: m.Title},
 			Year:        m.Year,
+			Proper:      m.Proper,
+			Repack:      m.Repack,
 		},
 	})
 }
