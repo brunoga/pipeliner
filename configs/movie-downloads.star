@@ -11,10 +11,10 @@ tmdb_key    = env("TMDB_API_KEY", default="YOUR_TMDB_API_KEY")
 movies_path = "/media/movies"
 
 src    = input("rss", url="https://example.com/rss/movies")
-seen   = process("seen",             upstream=src)
-q      = process("metainfo_quality", upstream=seen)
-tmdb   = process("metainfo_tmdb",   upstream=q, api_key=tmdb_key)
-movies = process("movies",           upstream=tmdb,
+seen   = process("seen",          upstream=src)
+meta   = process("metainfo_file", upstream=seen)
+tmdb   = process("metainfo_tmdb", upstream=meta, api_key=tmdb_key)
+movies = process("movies",        upstream=tmdb,
                   quality="1080p",
                   static=["Inception", "Interstellar", "The Dark Knight",
                            "Oppenheimer", "Dune"])

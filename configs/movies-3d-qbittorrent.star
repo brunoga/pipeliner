@@ -23,10 +23,10 @@ def qbit_output(upstream, category):
 # condition explicitly rejects 3D so the two pipelines track independently.
 
 src1    = input("rss", url="https://example.com/rss/movies")
-seen1   = process("seen",             upstream=src1)
-q1      = process("metainfo_quality", upstream=seen1)
-no3d    = process("condition",        upstream=q1, reject="video_is_3d == true")
-movies1 = process("movies",           upstream=no3d, quality="1080p+ webrip+",
+seen1   = process("seen",          upstream=src1)
+meta1   = process("metainfo_file", upstream=seen1)
+no3d    = process("condition",     upstream=meta1, reject="video_is_3d == true")
+movies1 = process("movies",        upstream=no3d, quality="1080p+ webrip+",
                    static=movie_list)
 dd1     = process("dedup",            upstream=movies1)
 fmt1    = process("pathfmt",          upstream=dd1,
@@ -41,8 +41,9 @@ pipeline("movies-flat", schedule="6h")
 # The dedup processor prefers BD3D > Full > Half among competing 3D copies.
 
 src2    = input("rss", url="https://example.com/rss/movies")
-seen2   = process("seen",    upstream=src2)
-movies2 = process("movies",  upstream=seen2, quality="1080p+ 3d+", static=movie_list)
+seen2   = process("seen",          upstream=src2)
+meta2   = process("metainfo_file", upstream=seen2)
+movies2 = process("movies",        upstream=meta2, quality="1080p+ 3d+", static=movie_list)
 dd2     = process("dedup",   upstream=movies2)
 fmt2    = process("pathfmt", upstream=dd2,
                    path=movies_path + "/{title} ({video_year}) 3D",

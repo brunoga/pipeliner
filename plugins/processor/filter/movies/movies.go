@@ -1,13 +1,12 @@
 // Package movies provides a movie filter and learn plugin.
 //
-// It parses movie title, year, quality, and 3D format from entry titles,
-// matches against a configured title list, and enforces quality constraints.
-// Multiple quality variants of the same movie are all accepted so the dedup
-// processor can choose the best copy. The tracker is updated via CommitPlugin
-// after all sinks confirm, so only successfully downloaded movies are recorded.
-//
-// Fields set on each matched entry: movie_title, movie_year, movie_quality,
-// movie_3d.
+// It reads movie metadata (title, year, quality, 3D, PROPER/REPACK markers)
+// from entry fields populated upstream by metainfo_file (or any equivalent
+// source), matches against a configured title list, and enforces quality
+// constraints. Multiple quality variants of the same movie are all accepted so
+// the dedup processor can choose the best copy. The tracker is updated via
+// CommitPlugin after all sinks confirm, so only successfully downloaded movies
+// are recorded.
 //
 // The movie list may be provided statically via 'static', dynamically via 'list'
 // (a list of input plugins whose entry titles are used as movie names), or both.
@@ -33,25 +32,24 @@ func init() {
 		PluginName:  "movies",
 		Description: "accept movies from a configured list; track downloads across runs",
 		Role:        plugin.RoleProcessor,
-		// Only set on matched entries; with reject_unmatched:false unmatched entries
-		// pass through without these fields.
-		MayProduce: []string{
-			entry.FieldMovieTitle,
+		// Movie metadata must be populated upstream — by metainfo_file in the
+		// common case, or by any other plugin that sets these fields.
+		// FieldQuality (the typed quality.Quality struct read via e.Quality())
+		// is required so spec matching and upgrade detection work.
+		Requires: plugin.RequireAll(
+			entry.FieldTitle,
 			entry.FieldVideoYear,
-			entry.FieldVideoQuality,
-			entry.FieldVideoResolution,
-			entry.FieldVideoSource,
-			entry.FieldVideoIs3D,
-		},
+			entry.FieldQuality,
+		),
 		Factory:     newPlugin,
 		Validate:    validate,
 		AcceptsList: true,
 		Schema: []plugin.FieldSchema{
 			{Key: "static", Type: plugin.FieldTypeList, Hint: "Static list of movie titles"},
 			{Key: "list", Type: plugin.FieldTypeDict, Hint: "Dynamic list from a source plugin (e.g. trakt_list)"},
-			{Key: "quality", Type: plugin.FieldTypeString, Hint: "Quality spec, e.g. 1080p+ webrip+"},
+			{Key: "quality", Type: plugin.FieldTypeString, Hint: "Quality spec, e.g. 1080p+ (floor), 1080p (exact), 720p-1080p (range)"},
 			{Key: "ttl", Type: plugin.FieldTypeDuration, Default: "1h", Hint: "Cache TTL for dynamic lists"},
-			{Key: "reject_unmatched", Type: plugin.FieldTypeBool, Default: true, Hint: "Reject movies not in the list"},
+			{Key: "reject_unmatched", Type: plugin.FieldTypeBool, Default: true, Hint: "Reject entries not classified as movie upstream or not in the configured list"},
 		},
 	})
 }
@@ -118,13 +116,7 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 		if err != nil {
 			return nil, fmt.Errorf("movies: invalid quality spec: %w", err)
 		}
-		spec.MinResolution = s.MinResolution
-		spec.MinSource = s.MinSource
-		spec.MinCodec = s.MinCodec
-		spec.MinAudio = s.MinAudio
-		spec.MinColorRange = s.MinColorRange
-		spec.MinFormat3D = s.MinFormat3D
-		spec.MaxFormat3D = s.MaxFormat3D
+		spec = s
 	}
 
 	rejectUnmatched := true
@@ -138,29 +130,24 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 		listCache:       cache.NewPersistent[[]match.TitleEntry](ttl, db.Bucket("cache_movies_list")),
 		spec:            spec,
 		rejectUnmatched: rejectUnmatched,
-		tracker:      imovies.NewTracker(db.Bucket("movies")),
+		tracker:         imovies.NewTracker(db.Bucket("movies")),
 	}, nil
 }
 
-func (p *moviesPlugin) Name() string        { return "movies" }
+func (p *moviesPlugin) Name() string { return "movies" }
 
 func (p *moviesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
-	m, ok := imovies.Parse(e.Title)
-	if !ok {
+	parsedTitle := e.GetString(entry.FieldTitle)
+	year := e.GetInt(entry.FieldVideoYear)
+	if parsedTitle == "" {
 		if p.rejectUnmatched {
-			e.Reject("movies: title did not parse as movie")
+			e.Reject("movies: entry has no title (not classified as movie upstream)")
 		}
 		return nil
 	}
 
-	// Use the year from the parsed title; fall back to entry.ReleaseYear if absent.
-	candidateYear := m.Year
-	if candidateYear == 0 {
-		candidateYear = entry.ReleaseYear(e)
-	}
-
 	titles := p.resolveTitles(ctx, tc)
-	matchedTitle, ok := matchTitle(m.Title, candidateYear, titles)
+	matchedTitle, ok := matchTitle(parsedTitle, year, titles)
 	if !ok {
 		if p.rejectUnmatched {
 			e.Reject("movies: title not in list")
@@ -168,81 +155,76 @@ func (p *moviesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *en
 		return nil
 	}
 
-	is3D := m.Quality.Format3D != quality.Format3DNone
-	qualStr := m.Quality.String()
-	mi := entry.MovieInfo{}
-	mi.Title = matchedTitle
-	mi.Year = m.Year
-	mi.Is3D = is3D
-	if qualStr != "unknown" {
-		mi.Quality = qualStr
-		mi.Resolution = m.Quality.ResolutionName()
-		mi.Source = m.Quality.SourceName()
-	}
-	e.SetMovieInfo(mi)
+	q, _ := e.Quality()
+	is3D := e.GetBool(entry.FieldVideoIs3D)
+	properOrRepack := e.GetBool(entry.FieldVideoProper) || e.GetBool(entry.FieldVideoRepack)
+
+	// Stamp the matched (normalized) title for persist() to read back at
+	// commit time, so we don't have to re-resolve the list there.
+	e.Set(moviesTrackerName, matchedTitle)
 
 	// Check the quality spec first — the spec is an absolute gate for this
 	// task and must never be bypassed, even for REPACK/PROPER upgrades.
 	// Without this ordering, a non-3D film already recorded by the flat
 	// `movies` task (is3D=false) would be found by the `movies-3d` task's
 	// IsSeen lookup and accepted as a REPACK upgrade, skipping the 3D check.
-	if (p.spec != quality.Spec{}) && !p.spec.Matches(m.Quality) {
+	if (p.spec != quality.Spec{}) && !p.spec.Matches(q) {
 		e.Reject(fmt.Sprintf("movies: %s (%d) quality %s does not match spec",
-			matchedTitle, m.Year, m.Quality.String()))
+			matchedTitle, year, q.String()))
 		return nil
 	}
 
-	if p.tracker.IsSeen(matchedTitle, m.Year, is3D) {
-		if rec, ok := p.tracker.Latest(matchedTitle, is3D); ok && rec.Year == m.Year {
-			betterQuality := m.Quality.Better(rec.Quality)
-			properOrRepack := m.Proper || m.Repack
-			notDowngrade := !rec.Quality.Better(m.Quality)
+	if p.tracker.IsSeen(matchedTitle, year, is3D) {
+		if rec, ok := p.tracker.Latest(matchedTitle, is3D); ok && rec.Year == year {
+			betterQuality := q.Better(rec.Quality)
+			notDowngrade := !rec.Quality.Better(q)
 			// Allow a REPACK/PROPER only when the stored version was not already
 			// a REPACK at the same quality; otherwise the same torrent would be
 			// accepted on every pipeline run indefinitely.
 			if betterQuality || (properOrRepack && !rec.Repack && notDowngrade) {
-				reason := fmt.Sprintf("movies: %s (%d) quality upgrade", matchedTitle, m.Year)
+				reason := fmt.Sprintf("movies: %s (%d) quality upgrade", matchedTitle, year)
 				if properOrRepack && !betterQuality {
-					reason = fmt.Sprintf("movies: %s (%d) proper/repack accepted", matchedTitle, m.Year)
+					reason = fmt.Sprintf("movies: %s (%d) proper/repack accepted", matchedTitle, year)
 				}
 				e.Accept(reason)
 				return nil
 			}
 		}
-		e.Reject(fmt.Sprintf("movies: %s (%d) already downloaded", matchedTitle, m.Year))
+		e.Reject(fmt.Sprintf("movies: %s (%d) already downloaded", matchedTitle, year))
 		return nil
 	}
 
-	e.Accept(fmt.Sprintf("movies: %s (%d) matched", matchedTitle, m.Year))
+	e.Accept(fmt.Sprintf("movies: %s (%d) matched", matchedTitle, year))
 	return nil
 }
 
-func (p *moviesPlugin) persist(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
-	titles := p.resolveTitles(ctx, tc)
+// moviesTrackerName is the entry field used to carry the matched (normalized)
+// movie title from filter() to persist(). It is internal to this plugin.
+const moviesTrackerName = "_movies_tracker_title"
+
+func (p *moviesPlugin) persist(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) error {
 	for _, e := range entries {
-		m, ok := imovies.Parse(e.Title)
-		if !ok {
+		// Only persist entries that were accepted by all downstream nodes.
+		// The executor passes every entry the movies node produced to Commit,
+		// including those later rejected by dedup — we must filter them here
+		// so the stored quality reflects the entry that was actually downloaded.
+		if !e.IsAccepted() {
 			continue
 		}
-		candidateYear := m.Year
-		if candidateYear == 0 {
-			candidateYear = entry.ReleaseYear(e)
-		}
-		matchedTitle, ok := matchTitle(m.Title, candidateYear, titles)
-		if !ok {
+		matchedTitle := e.GetString(moviesTrackerName)
+		if matchedTitle == "" {
 			continue
 		}
-		is3D := m.Quality.Format3D != quality.Format3DNone
-		year := m.Year
-		if year == 0 {
-			year = entry.ReleaseYear(e)
-		}
+		year := e.GetInt(entry.FieldVideoYear)
+		is3D := e.GetBool(entry.FieldVideoIs3D)
+		q, _ := e.Quality()
+		properOrRepack := e.GetBool(entry.FieldVideoProper) || e.GetBool(entry.FieldVideoRepack)
 		if err := p.tracker.Mark(imovies.Record{
 			Title:   matchedTitle,
 			Year:    year,
 			Is3D:    is3D,
-			Repack:  m.Repack || m.Proper,
-			Quality: m.Quality,
+			Repack:  properOrRepack,
+			Quality: q,
 		}); err != nil {
 			return fmt.Errorf("movies: mark %s (%d): %w", matchedTitle, year, err)
 		}

@@ -92,7 +92,7 @@ Fields are grouped by prefix — the prefix tells you what kind of data the fiel
 
 | Field | Set by | Description |
 |-------|--------|-------------|
-| `title` | `metainfo_tvdb`, `metainfo_tmdb`, `metainfo_trakt`, `metainfo_series`, `metainfo_file`, `movies` | Canonical enriched display name |
+| `title` | `metainfo_tvdb`, `metainfo_tmdb`, `metainfo_trakt`, `metainfo_series`, `metainfo_file` | Canonical enriched display name |
 | `media_type` | `metainfo_file` | Classification: `"series"`, `"movie"`, or unset. Useful as a `route()` dispatch key. |
 | `description` | `metainfo_tvdb`, `metainfo_tmdb`, `metainfo_trakt` | Synopsis / overview |
 | `published_date` | `metainfo_tvdb`, `metainfo_tmdb`, `rss` | Release or premiere date |
@@ -103,7 +103,7 @@ Fields are grouped by prefix — the prefix tells you what kind of data the fiel
 
 | Field | Set by | Description |
 |-------|--------|-------------|
-| `video_year` | `metainfo_tvdb`, `metainfo_tmdb`, `metainfo_trakt`, `metainfo_file`, `movies` | Release or premiere year |
+| `video_year` | `metainfo_tvdb`, `metainfo_tmdb`, `metainfo_trakt`, `metainfo_file` | Release or premiere year |
 | `video_language` | `metainfo_tvdb` | Original language (e.g. `English`) |
 | `video_country` | `metainfo_tvdb` | Country of origin (e.g. `United States`) |
 | `video_genres` | `metainfo_tvdb`, `metainfo_tmdb`, `metainfo_trakt` | Genre list |
@@ -111,10 +111,10 @@ Fields are grouped by prefix — the prefix tells you what kind of data the fiel
 | `video_poster` | `metainfo_tvdb` | Poster image URL |
 | `video_cast` | `metainfo_tvdb` | Cast list |
 | `video_runtime` | `metainfo_tvdb`, `metainfo_tmdb` | Runtime in minutes |
-| `video_quality` | `metainfo_quality`, `metainfo_file`, `movies` | Full quality string including 3D format when present (e.g. `BD3D 1080p BluRay H.265`) |
+| `video_quality` | `metainfo_quality`, `metainfo_file` | Full quality string including 3D format when present (e.g. `BD3D 1080p BluRay H.265`) |
 | `video_resolution` | `metainfo_quality`, `metainfo_file` | Resolution (e.g. `1080p`, `720p`) |
 | `video_source` | `metainfo_quality`, `metainfo_file` | Source (e.g. `BluRay`, `WEB-DL`, `HDTV`) |
-| `video_is_3d` | `metainfo_quality`, `metainfo_file`, `movies` | `true` when any 3D format marker is detected (3D, SBS, HOU, BD3D, etc.) |
+| `video_is_3d` | `metainfo_quality`, `metainfo_file` | `true` when any 3D format marker is detected (3D, SBS, HOU, BD3D, etc.) |
 | `video_proper` | `metainfo_series`, `metainfo_file` | `true` for PROPER releases (applies to series and movies) |
 | `video_repack` | `metainfo_series`, `metainfo_file` | `true` for REPACK releases (applies to series and movies) |
 | `video_imdb_id` | `metainfo_tmdb`, `metainfo_trakt` | IMDb ID (e.g. `tt1375666`) |
@@ -137,7 +137,7 @@ Fields are grouped by prefix — the prefix tells you what kind of data the fiel
 
 | Field | Set by | Description |
 |-------|--------|-------------|
-| `movie_title` | `movies`, `metainfo_tmdb`, `metainfo_file` | Canonical movie title |
+| `movie_title` | `metainfo_tmdb`, `metainfo_file` | Canonical movie title |
 | `movie_tagline` | `metainfo_tmdb` | Movie tagline |
 
 ### Torrent fields
