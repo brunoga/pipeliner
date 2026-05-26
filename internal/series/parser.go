@@ -214,6 +214,23 @@ func monthNumber(name string) int {
 	return monthNames[strings.ToLower(name)]
 }
 
+// ParseEpisodeID extracts the season and episode numbers from a canonical
+// episode ID as produced by EpisodeID (e.g. "S02E05" → 2, 5; "EP123" → 0,
+// 123). Returns ok=false for date-based IDs ("2023-11-15") and any other
+// format that cannot be parsed.
+func ParseEpisodeID(id string) (season, episode int, ok bool) {
+	if m := reStandard.FindStringSubmatch(id); m != nil {
+		s, _ := strconv.Atoi(m[1])
+		e, _ := strconv.Atoi(m[2])
+		return s, e, true
+	}
+	if m := reAbsolute.FindStringSubmatch(id); m != nil {
+		e, _ := strconv.Atoi(m[1])
+		return 0, e, true
+	}
+	return 0, 0, false
+}
+
 // extractName derives the series name from the portion of the title that
 // precedes the episode identifier at position idx.
 func extractName(title string, idx int) string {

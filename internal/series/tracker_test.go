@@ -159,6 +159,34 @@ func TestTrackerHighestEpisodeEmpty(t *testing.T) {
 	}
 }
 
+// --- MarkWithParts ---
+
+func TestMarkWithPartsDouble(t *testing.T) {
+	tr := openTracker(t)
+	ep := &Episode{Season: 1, Episode: 1, DoubleEpisode: 2}
+	rec := Record{SeriesName: "My Show", EpisodeID: EpisodeID(ep), DownloadedAt: time.Now()}
+	if err := tr.MarkWithParts(rec, ep); err != nil {
+		t.Fatalf("MarkWithParts: %v", err)
+	}
+	for _, id := range []string{"S01E01E02", "S01E01", "S01E02"} {
+		if !tr.IsSeen("My Show", id) {
+			t.Errorf("expected %s to be marked after MarkWithParts of S01E01E02", id)
+		}
+	}
+}
+
+func TestMarkWithPartsSingle(t *testing.T) {
+	tr := openTracker(t)
+	ep := &Episode{Season: 1, Episode: 5}
+	rec := Record{SeriesName: "My Show", EpisodeID: EpisodeID(ep), DownloadedAt: time.Now()}
+	if err := tr.MarkWithParts(rec, ep); err != nil {
+		t.Fatalf("MarkWithParts: %v", err)
+	}
+	if !tr.IsSeen("My Show", "S01E05") {
+		t.Error("expected S01E05 to be marked")
+	}
+}
+
 // --- EpisodeID ---
 
 func TestEpisodeID(t *testing.T) {
