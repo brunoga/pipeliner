@@ -23,7 +23,8 @@ If a torrent cannot be added, the affected entry is marked failed and will **not
 ```python
 src    = input("rss", url="https://example.com/rss")
 seen   = process("seen", upstream=src)
-series = process("series", upstream=seen, static=["Breaking Bad"])
+meta   = process("metainfo_file", upstream=seen)
+series = process("series", upstream=meta, static=["Breaking Bad"])
 output("transmission", upstream=series,
        host="localhost", port=9091)
 pipeline("tv", schedule="30m")

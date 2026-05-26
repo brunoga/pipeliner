@@ -15,7 +15,7 @@ feed2 = input("rss", url="https://feeds.example.com/tv/full")
 all_entries = merge(feed1, feed2)
 
 seen    = process("seen",            upstream=all_entries)
-quality = process("metainfo_quality", upstream=seen)
+quality = process("metainfo_file", upstream=seen)
 series  = process("series",          upstream=quality,
     static=["Breaking Bad", "Severance", "The Bear"],
     tracking="strict",

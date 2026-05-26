@@ -24,9 +24,9 @@ src  = input("rss", url="https://feeds.example.com/all")
 seen = process("seen", upstream=src)
 
 # ── Enrichment phase ────────────────────────────────────────────────────────
-q    = process("metainfo_quality", upstream=seen)
-ep   = process("metainfo_series",  upstream=q)
-tvdb = process("metainfo_tvdb",    upstream=ep, api_key=tvdb_key)
+# metainfo_file does both the quality and series/episode parsing in one step.
+meta = process("metainfo_file", upstream=seen)
+tvdb = process("metainfo_tvdb", upstream=meta, api_key=tvdb_key)
 
 # Drop entries that could not be identified by TVDB.
 req  = process("require", upstream=tvdb, fields=["enriched"])

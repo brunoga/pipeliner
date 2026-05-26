@@ -24,7 +24,7 @@ results = process("discover", upstream=shows,
     interval="6h")
 
 seen   = process("seen",             upstream=results)
-q      = process("metainfo_quality", upstream=seen)
+q      = process("metainfo_file", upstream=seen)
 series = process("series",           upstream=q,
                   static=["Breaking Bad", "Better Call Saul", "The Wire"])
 flt    = process("quality",          upstream=series, min="720p")

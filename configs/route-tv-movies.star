@@ -17,16 +17,15 @@ qbit_host  = "localhost"
 tv_path    = "/media/tv"
 movie_path = "/media/movies"
 
-src  = input("rss",               url=rss_url)
-seen = process("seen",            upstream=src)
-meta = process("metainfo_quality", upstream=seen)
-epi  = process("metainfo_series",  upstream=meta)
+src  = input("rss",            url=rss_url)
+seen = process("seen",          upstream=src)
+meta = process("metainfo_file", upstream=seen)   # sets media_type + series_*/movie_* + quality
 
-# metainfo_series sets series_episode_id when the title looks like an episode.
-# Route on that field — TV entries have it, movie entries do not.
-routes = route(epi,
-    tv     = "series_episode_id != ''",
-    movies = "series_episode_id == ''")
+# metainfo_file stamps media_type with the detected classification.
+# Route on that field — cleaner than checking series_episode_id presence.
+routes = route(meta,
+    tv     = "media_type == 'series'",
+    movies = "media_type == 'movie'")
 
 # ── TV branch ──────────────────────────────────────────────────────────────
 series   = process("series",  upstream=routes.tv,

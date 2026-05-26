@@ -19,9 +19,10 @@ def enrich_and_format(upstream, dest):
     return fmt
 
 # pipelines — connect nodes, call pipeline() to register
-src    = input("rss", url="https://example.com/rss")
-seen   = process("seen",   upstream=src)
-series = process("series", upstream=seen, static=["My Show"])
+src    = input("rss",            url="https://example.com/rss")
+seen   = process("seen",          upstream=src)
+meta   = process("metainfo_file", upstream=seen)   # required by series/movies/premiere
+series = process("series",        upstream=meta, static=["My Show"])
 output("transmission", upstream=enrich_and_format(series, tv_root),
        host="localhost", path="{download_path}")
 pipeline("my-pipeline", schedule="1h")          # interval
@@ -91,7 +92,7 @@ Fields are grouped by prefix — the prefix tells you what kind of data the fiel
 
 | Field | Set by | Description |
 |-------|--------|-------------|
-| `title` | `metainfo_tvdb`, `metainfo_tmdb`, `metainfo_trakt`, `metainfo_series`, `metainfo_file`, `series`, `movies` | Canonical enriched display name |
+| `title` | `metainfo_tvdb`, `metainfo_tmdb`, `metainfo_trakt`, `metainfo_series`, `metainfo_file`, `movies` | Canonical enriched display name |
 | `media_type` | `metainfo_file` | Classification: `"series"`, `"movie"`, or unset. Useful as a `route()` dispatch key. |
 | `description` | `metainfo_tvdb`, `metainfo_tmdb`, `metainfo_trakt` | Synopsis / overview |
 | `published_date` | `metainfo_tvdb`, `metainfo_tmdb`, `rss` | Release or premiere date |
@@ -120,9 +121,9 @@ Fields are grouped by prefix — the prefix tells you what kind of data the fiel
 
 | Field | Set by | Description |
 |-------|--------|-------------|
-| `series_season` | `series`, `metainfo_series`, `metainfo_file` | Season number |
-| `series_episode` | `series`, `metainfo_series`, `metainfo_file` | Episode number |
-| `series_episode_id` | `series`, `metainfo_series`, `metainfo_file` | Episode ID string (e.g. `S02E05`) |
+| `series_season` | `metainfo_series`, `metainfo_file` | Season number |
+| `series_episode` | `metainfo_series`, `metainfo_file` | Episode number |
+| `series_episode_id` | `metainfo_series`, `metainfo_file` | Episode ID string (e.g. `S02E05`) |
 | `series_network` | `metainfo_tvdb` | Broadcasting network |
 | `series_status` | `metainfo_tvdb` | Series status (e.g. `Ended`, `Continuing`) |
 | `series_first_air_date` | `metainfo_tvdb` | Series premiere date |

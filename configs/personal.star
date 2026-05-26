@@ -159,7 +159,8 @@ def email_out(up, subject, body_template):
 # ══════════════════════════════════════════════════════════════════════════════
 
 disc_src    = jackett_source(indexers=["torrenting", "showrss"], categories=["5000"])
-disc_prem   = process("premiere", upstream=disc_src,
+disc_meta   = process("metainfo_file", upstream=disc_src)
+disc_prem   = process("premiere", upstream=disc_meta,
                        quality="720p+ webrip+")
 disc_dd     = process("dedup", upstream=disc_prem)   # best copy per show when ties
 disc_enrich = tvdb_enrich(disc_dd)
@@ -186,7 +187,8 @@ pipeline("tvshows-discover")
 # ══════════════════════════════════════════════════════════════════════════════
 
 fav_src    = jackett_source(indexers=["torrenting", "showrss"], categories=["5000"])
-fav_srs    = process("series", upstream=fav_src,
+fav_meta   = process("metainfo_file", upstream=fav_src)
+fav_srs    = process("series", upstream=fav_meta,
                       tracking="follow", quality="720p+ webrip+",
                       list=[{"name":     "tvdb_favorites",
                              "api_key":  tvdb_key,
@@ -242,7 +244,7 @@ pipeline("movies-3d")
 
 mov_src     = jackett_source(indexers=["torrenting", "therarbg", "yts"],
                               categories=["2000"])
-mov_qual    = process("metainfo_quality", upstream=mov_src)
+mov_qual    = process("metainfo_file", upstream=mov_src)
 mov_no3d    = process("condition",        upstream=mov_qual, reject="video_is_3d == true")
 mov_movs    = process("movies", upstream=mov_no3d,
                         quality="1080p+",

@@ -21,7 +21,7 @@ type mockInput struct {
 	entries []*entry.Entry
 }
 
-func (m *mockInput) Name() string        { return "mock_input" }
+func (m *mockInput) Name() string { return "mock_input" }
 func (m *mockInput) Generate(_ context.Context, _ *plugin.TaskContext) ([]*entry.Entry, error) {
 	return m.entries, nil
 }
@@ -51,11 +51,43 @@ func openPlugin(t *testing.T, extra map[string]any) *seriesPlugin {
 	return p.(*seriesPlugin)
 }
 
+// metaize simulates what metainfo_file does upstream: parses the entry title
+// and populates the series_* / Quality fields that series reads. The series
+// plugin requires these fields (via Descriptor.Requires) so tests must call
+// this helper before invoking filter() or Process().
+func metaize(e *entry.Entry) {
+	ep, ok := series.Parse(e.Title)
+	if !ok {
+		return
+	}
+	e.SetSeriesInfo(entry.SeriesInfo{
+		VideoInfo: entry.VideoInfo{
+			GenericInfo: entry.GenericInfo{Title: ep.SeriesName},
+		},
+		Season:        ep.Season,
+		Episode:       ep.Episode,
+		EpisodeID:     series.EpisodeID(ep),
+		DoubleEpisode: ep.DoubleEpisode,
+		Proper:        ep.Proper,
+		Repack:        ep.Repack,
+		Service:       ep.Service,
+	})
+	e.SetQuality(ep.Quality)
+}
+
+// makeEntry builds an entry with the given title and runs metaize so the
+// fields series reads are present (simulating metainfo_file upstream).
+func makeEntry(title, url string) *entry.Entry {
+	e := entry.New(title, url)
+	metaize(e)
+	return e
+}
+
 // --- Basic accept/reject ---
 
 func TestAcceptsKnownShow(t *testing.T) {
 	p := openPlugin(t, nil)
-	e := entry.New("My.Show.S01E01.720p.HDTV", "http://x.com/a")
+	e := makeEntry("My.Show.S01E01.720p.HDTV", "http://x.com/a")
 	p.filter(context.Background(), makeCtx(), e) //nolint:errcheck
 	if !e.IsAccepted() {
 		t.Errorf("known show episode should be accepted: %s", e.RejectReason)
@@ -64,7 +96,7 @@ func TestAcceptsKnownShow(t *testing.T) {
 
 func TestRejectsUnknownShowByDefault(t *testing.T) {
 	p := openPlugin(t, nil)
-	e := entry.New("Other.Show.S01E01.720p.HDTV", "http://x.com/a")
+	e := makeEntry("Other.Show.S01E01.720p.HDTV", "http://x.com/a")
 	p.filter(context.Background(), makeCtx(), e) //nolint:errcheck
 	if !e.IsRejected() {
 		t.Error("unknown show should be rejected by default")
@@ -73,16 +105,19 @@ func TestRejectsUnknownShowByDefault(t *testing.T) {
 
 func TestRejectsNonEpisodeByDefault(t *testing.T) {
 	p := openPlugin(t, nil)
-	e := entry.New("Just A Movie 2023 1080p BluRay", "http://x.com/a")
+	// metaize sets no series_* fields when the title doesn't parse as an
+	// episode — series_episode_id is empty so series rejects with the
+	// "no series_episode_id" path.
+	e := makeEntry("Just A Movie 2023 1080p BluRay", "http://x.com/a")
 	p.filter(context.Background(), makeCtx(), e) //nolint:errcheck
 	if !e.IsRejected() {
-		t.Error("non-episode title should be rejected by default")
+		t.Error("entry without series_episode_id should be rejected by default")
 	}
 }
 
 func TestUnmatchedOptOut(t *testing.T) {
 	p := openPlugin(t, map[string]any{"reject_unmatched": false})
-	e := entry.New("Other.Show.S01E01.720p.HDTV", "http://x.com/a")
+	e := makeEntry("Other.Show.S01E01.720p.HDTV", "http://x.com/a")
 	p.filter(context.Background(), makeCtx(), e) //nolint:errcheck
 	if e.IsAccepted() || e.IsRejected() {
 		t.Error("unknown show should be left undecided when reject_unmatched is false")
@@ -94,11 +129,11 @@ func TestUnmatchedOptOut(t *testing.T) {
 func TestDuplicateRejected(t *testing.T) {
 	p := openPlugin(t, nil)
 	tc := makeCtx()
-	e1 := entry.New("My.Show.S01E01.720p.HDTV", "http://x.com/a")
-	p.filter(context.Background(), tc, e1) //nolint:errcheck
+	e1 := makeEntry("My.Show.S01E01.720p.HDTV", "http://x.com/a")
+	p.filter(context.Background(), tc, e1)                  //nolint:errcheck
 	p.persist(context.Background(), tc, []*entry.Entry{e1}) //nolint:errcheck
 
-	e2 := entry.New("My.Show.S01E01.720p.HDTV", "http://x.com/b")
+	e2 := makeEntry("My.Show.S01E01.720p.HDTV", "http://x.com/b")
 	p.filter(context.Background(), tc, e2) //nolint:errcheck
 	if !e2.IsRejected() {
 		t.Error("already-downloaded episode should be rejected")
@@ -112,12 +147,12 @@ func TestQualityUpgradesExisting(t *testing.T) {
 	tc := makeCtx()
 
 	// Download a 720p copy.
-	e1 := entry.New("My.Show.S01E01.720p.HDTV", "http://x.com/a")
-	p.filter(context.Background(), tc, e1) //nolint:errcheck
+	e1 := makeEntry("My.Show.S01E01.720p.HDTV", "http://x.com/a")
+	p.filter(context.Background(), tc, e1)                  //nolint:errcheck
 	p.persist(context.Background(), tc, []*entry.Entry{e1}) //nolint:errcheck
 
 	// A plain 1080p copy (no PROPER/REPACK) should be accepted as an upgrade.
-	e2 := entry.New("My.Show.S01E01.1080p.BluRay", "http://x.com/b")
+	e2 := makeEntry("My.Show.S01E01.1080p.BluRay", "http://x.com/b")
 	p.filter(context.Background(), tc, e2) //nolint:errcheck
 	if !e2.IsAccepted() {
 		t.Errorf("higher-quality copy should be accepted: %s", e2.RejectReason)
@@ -129,12 +164,12 @@ func TestProperUpgradesExisting(t *testing.T) {
 	tc := makeCtx()
 
 	// Download a 720p copy.
-	e1 := entry.New("My.Show.S01E01.720p.HDTV", "http://x.com/a")
-	p.filter(context.Background(), tc, e1) //nolint:errcheck
+	e1 := makeEntry("My.Show.S01E01.720p.HDTV", "http://x.com/a")
+	p.filter(context.Background(), tc, e1)                  //nolint:errcheck
 	p.persist(context.Background(), tc, []*entry.Entry{e1}) //nolint:errcheck
 
 	// A PROPER 1080p copy should also be accepted as an upgrade.
-	e2 := entry.New("My.Show.S01E01.PROPER.1080p.BluRay", "http://x.com/b")
+	e2 := makeEntry("My.Show.S01E01.PROPER.1080p.BluRay", "http://x.com/b")
 	p.filter(context.Background(), tc, e2) //nolint:errcheck
 	if !e2.IsAccepted() {
 		t.Errorf("proper higher-quality copy should be accepted: %s", e2.RejectReason)
@@ -145,12 +180,12 @@ func TestProperSameQualityUpgradesExisting(t *testing.T) {
 	p := openPlugin(t, nil)
 	tc := makeCtx()
 
-	e1 := entry.New("My.Show.S01E01.720p.HDTV", "http://x.com/a")
-	p.filter(context.Background(), tc, e1) //nolint:errcheck
+	e1 := makeEntry("My.Show.S01E01.720p.HDTV", "http://x.com/a")
+	p.filter(context.Background(), tc, e1)                  //nolint:errcheck
 	p.persist(context.Background(), tc, []*entry.Entry{e1}) //nolint:errcheck
 
 	// PROPER at identical quality specs should still be accepted (fixes content issues).
-	e2 := entry.New("My.Show.S01E01.PROPER.720p.HDTV", "http://x.com/b")
+	e2 := makeEntry("My.Show.S01E01.PROPER.720p.HDTV", "http://x.com/b")
 	p.filter(context.Background(), tc, e2) //nolint:errcheck
 	if !e2.IsAccepted() {
 		t.Errorf("proper at same quality should be accepted: %s", e2.RejectReason)
@@ -161,12 +196,12 @@ func TestNoUpgradeWhenQualityNotBetter(t *testing.T) {
 	p := openPlugin(t, nil)
 	tc := makeCtx()
 
-	e1 := entry.New("My.Show.S01E01.720p.BluRay", "http://x.com/a")
-	p.filter(context.Background(), tc, e1) //nolint:errcheck
+	e1 := makeEntry("My.Show.S01E01.720p.BluRay", "http://x.com/a")
+	p.filter(context.Background(), tc, e1)                  //nolint:errcheck
 	p.persist(context.Background(), tc, []*entry.Entry{e1}) //nolint:errcheck
 
 	// Lower source quality (HDTV < BluRay) — should be rejected even with PROPER tag.
-	e2 := entry.New("My.Show.S01E01.PROPER.720p.HDTV", "http://x.com/b")
+	e2 := makeEntry("My.Show.S01E01.PROPER.720p.HDTV", "http://x.com/b")
 	p.filter(context.Background(), tc, e2) //nolint:errcheck
 	if !e2.IsRejected() {
 		t.Error("copy with lower quality should not replace existing")
@@ -183,16 +218,16 @@ func TestUpgradeNonLatestEpisode(t *testing.T) {
 	tc := makeCtx()
 
 	// Download S01E01 at 720p, then S01E02 at 720p (making S01E02 the "latest").
-	e1 := entry.New("My.Show.S01E01.720p.HDTV", "http://x.com/a")
-	e2 := entry.New("My.Show.S01E02.720p.HDTV", "http://x.com/b")
-	p.filter(context.Background(), tc, e1) //nolint:errcheck
+	e1 := makeEntry("My.Show.S01E01.720p.HDTV", "http://x.com/a")
+	e2 := makeEntry("My.Show.S01E02.720p.HDTV", "http://x.com/b")
+	p.filter(context.Background(), tc, e1)                  //nolint:errcheck
 	p.persist(context.Background(), tc, []*entry.Entry{e1}) //nolint:errcheck
-	p.filter(context.Background(), tc, e2) //nolint:errcheck
+	p.filter(context.Background(), tc, e2)                  //nolint:errcheck
 	p.persist(context.Background(), tc, []*entry.Entry{e2}) //nolint:errcheck
 
 	// A 1080p BluRay of S01E01 should be accepted as an upgrade even though
 	// S01E02 is the most recently downloaded episode.
-	eUpgrade := entry.New("My.Show.S01E01.1080p.BluRay", "http://x.com/c")
+	eUpgrade := makeEntry("My.Show.S01E01.1080p.BluRay", "http://x.com/c")
 	p.filter(context.Background(), tc, eUpgrade) //nolint:errcheck
 	if !eUpgrade.IsAccepted() {
 		t.Errorf("higher-quality copy of older episode should be accepted as upgrade: %s", eUpgrade.RejectReason)
@@ -209,8 +244,8 @@ func TestPersistOnlyStoresAcceptedEntries(t *testing.T) {
 
 	// Two copies of S01E01: BluRay (accepted by dedup) and HDTV (rejected by dedup).
 	// Both pass the series filter initially.
-	eHigh := entry.New("My.Show.S01E01.1080p.BluRay.x264", "http://x.com/high")
-	eLow := entry.New("My.Show.S01E01.480p.HDTV", "http://x.com/low")
+	eHigh := makeEntry("My.Show.S01E01.1080p.BluRay.x264", "http://x.com/high")
+	eLow := makeEntry("My.Show.S01E01.480p.HDTV", "http://x.com/low")
 
 	p.filter(context.Background(), tc, eHigh) //nolint:errcheck
 	p.filter(context.Background(), tc, eLow)  //nolint:errcheck
@@ -227,7 +262,7 @@ func TestPersistOnlyStoresAcceptedEntries(t *testing.T) {
 	// would appear as an "upgrade" over stored HDTV — it should instead be rejected
 	// as a same-quality copy.  If eHigh's BluRay quality was stored (the fix), the
 	// HDTV copy is correctly rejected as a downgrade.
-	eDowngrade := entry.New("My.Show.S01E01.1080p.HDTV", "http://x.com/downgrade")
+	eDowngrade := makeEntry("My.Show.S01E01.1080p.HDTV", "http://x.com/downgrade")
 	p.filter(context.Background(), tc, eDowngrade) //nolint:errcheck
 	if !eDowngrade.IsRejected() {
 		t.Error("HDTV copy should be rejected as a downgrade when BluRay is stored; " +
@@ -245,13 +280,13 @@ func TestDoViParsesAsDolbyVision(t *testing.T) {
 	tc := makeCtx()
 
 	// Store a 2160p Dolby Vision (DV) copy.
-	eDV := entry.New("My.Show.S01E01.2160p.AMZN.WEB-DL.Atmos.DV.H.265-FLUX", "http://x.com/dv")
-	p.filter(context.Background(), tc, eDV) //nolint:errcheck
+	eDV := makeEntry("My.Show.S01E01.2160p.AMZN.WEB-DL.Atmos.DV.H.265-FLUX", "http://x.com/dv")
+	p.filter(context.Background(), tc, eDV)                  //nolint:errcheck
 	p.persist(context.Background(), tc, []*entry.Entry{eDV}) //nolint:errcheck
 
 	// A DoVi-labeled copy at the same resolution/source should be rejected
 	// (same quality, not an upgrade).
-	eDoVi := entry.New("My.Show.S01E01.2160p.AMZN.WEB-DL.Atmos.DoVi.H.265-playWEB", "http://x.com/dovi")
+	eDoVi := makeEntry("My.Show.S01E01.2160p.AMZN.WEB-DL.Atmos.DoVi.H.265-playWEB", "http://x.com/dovi")
 	p.filter(context.Background(), tc, eDoVi) //nolint:errcheck
 	if !eDoVi.IsRejected() {
 		t.Errorf("DoVi copy at same quality should be rejected; reason: %s", eDoVi.RejectReason)
@@ -259,7 +294,7 @@ func TestDoViParsesAsDolbyVision(t *testing.T) {
 
 	// An HDR (non-DV) copy at the same resolution/source should also be rejected
 	// since HDR < Dolby Vision.
-	eHDR := entry.New("My.Show.S01E01.2160p.AMZN.WEB-DL.Atmos.HDR.H.265-playWEB", "http://x.com/hdr")
+	eHDR := makeEntry("My.Show.S01E01.2160p.AMZN.WEB-DL.Atmos.HDR.H.265-playWEB", "http://x.com/hdr")
 	p.filter(context.Background(), tc, eHDR) //nolint:errcheck
 	if !eHDR.IsRejected() {
 		t.Errorf("HDR copy should be rejected when DV already stored; reason: %s", eHDR.RejectReason)
@@ -272,11 +307,11 @@ func TestStrictAllowsNext(t *testing.T) {
 	p := openPlugin(t, map[string]any{"tracking": "strict"})
 	tc := makeCtx()
 
-	e1 := entry.New("My.Show.S01E01.720p.HDTV", "http://x.com/a")
-	p.filter(context.Background(), tc, e1) //nolint:errcheck
+	e1 := makeEntry("My.Show.S01E01.720p.HDTV", "http://x.com/a")
+	p.filter(context.Background(), tc, e1)                  //nolint:errcheck
 	p.persist(context.Background(), tc, []*entry.Entry{e1}) //nolint:errcheck
 
-	e2 := entry.New("My.Show.S01E02.720p.HDTV", "http://x.com/b")
+	e2 := makeEntry("My.Show.S01E02.720p.HDTV", "http://x.com/b")
 	p.filter(context.Background(), tc, e2) //nolint:errcheck
 	if !e2.IsAccepted() {
 		t.Errorf("next episode should be accepted in strict mode: %s", e2.RejectReason)
@@ -287,11 +322,11 @@ func TestStrictRejectsSkip(t *testing.T) {
 	p := openPlugin(t, map[string]any{"tracking": "strict"})
 	tc := makeCtx()
 
-	e1 := entry.New("My.Show.S01E01.720p.HDTV", "http://x.com/a")
-	p.filter(context.Background(), tc, e1) //nolint:errcheck
+	e1 := makeEntry("My.Show.S01E01.720p.HDTV", "http://x.com/a")
+	p.filter(context.Background(), tc, e1)                  //nolint:errcheck
 	p.persist(context.Background(), tc, []*entry.Entry{e1}) //nolint:errcheck
 
-	e3 := entry.New("My.Show.S01E04.720p.HDTV", "http://x.com/c")
+	e3 := makeEntry("My.Show.S01E04.720p.HDTV", "http://x.com/c")
 	p.filter(context.Background(), tc, e3) //nolint:errcheck
 	if !e3.IsRejected() {
 		t.Error("strict mode should reject an episode that skips ahead by 3")
@@ -302,11 +337,11 @@ func TestBackfillAllowsOlder(t *testing.T) {
 	p := openPlugin(t, map[string]any{"tracking": "backfill"})
 	tc := makeCtx()
 
-	e5 := entry.New("My.Show.S01E05.720p.HDTV", "http://x.com/a")
-	p.filter(context.Background(), tc, e5) //nolint:errcheck
+	e5 := makeEntry("My.Show.S01E05.720p.HDTV", "http://x.com/a")
+	p.filter(context.Background(), tc, e5)                  //nolint:errcheck
 	p.persist(context.Background(), tc, []*entry.Entry{e5}) //nolint:errcheck
 
-	e1 := entry.New("My.Show.S01E01.720p.HDTV", "http://x.com/b")
+	e1 := makeEntry("My.Show.S01E01.720p.HDTV", "http://x.com/b")
 	p.filter(context.Background(), tc, e1) //nolint:errcheck
 	if !e1.IsAccepted() {
 		t.Errorf("backfill mode should accept older episodes: %s", e1.RejectReason)
@@ -317,7 +352,7 @@ func TestBackfillAllowsOlder(t *testing.T) {
 
 func TestQualityGateRejects(t *testing.T) {
 	p := openPlugin(t, map[string]any{"quality": "720p"})
-	e := entry.New("My.Show.S01E01.480p.HDTV", "http://x.com/a")
+	e := makeEntry("My.Show.S01E01.480p.HDTV", "http://x.com/a")
 	p.filter(context.Background(), makeCtx(), e) //nolint:errcheck
 	if !e.IsRejected() {
 		t.Error("quality gate should reject 480p when spec is 720p")
@@ -327,7 +362,7 @@ func TestQualityGateRejects(t *testing.T) {
 func TestQualityGateAccepts(t *testing.T) {
 	// "720p+" means 720p or better — 1080p should pass.
 	p := openPlugin(t, map[string]any{"quality": "720p+"})
-	e := entry.New("My.Show.S01E01.1080p.BluRay", "http://x.com/a")
+	e := makeEntry("My.Show.S01E01.1080p.BluRay", "http://x.com/a")
 	p.filter(context.Background(), makeCtx(), e) //nolint:errcheck
 	if !e.IsAccepted() {
 		t.Errorf("1080p should pass 720p+ quality gate: %s", e.RejectReason)
@@ -337,7 +372,7 @@ func TestQualityGateAccepts(t *testing.T) {
 func TestQualityGateExact(t *testing.T) {
 	// "720p" (no +) means exactly 720p — 1080p should be rejected.
 	p := openPlugin(t, map[string]any{"quality": "720p"})
-	e := entry.New("My.Show.S01E01.1080p.BluRay", "http://x.com/a")
+	e := makeEntry("My.Show.S01E01.1080p.BluRay", "http://x.com/a")
 	p.filter(context.Background(), makeCtx(), e) //nolint:errcheck
 	if !e.IsRejected() {
 		t.Error("1080p should be rejected by exact 720p quality spec")
@@ -352,29 +387,17 @@ func TestFuzzyMatchTypo(t *testing.T) {
 		want bool
 	}{
 		{"my show", "my show", true},
-		{"my show", "my sho", true},           // 1 edit (drop w)
-		{"my show", "mi show", true},          // 1 edit (y→i)
+		{"my show", "my sho", true},         // 1 edit (drop w)
+		{"my show", "mi show", true},        // 1 edit (y→i)
 		{"completely different", "my show", false},
-		{"my show", "my show 2", false},       // 2 edits — different show
-		{"my show", "my show extra", false},   // 5 edits — clearly different
+		{"my show", "my show 2", false},     // 2 edits — different show
+		{"my show", "my show extra", false}, // 5 edits — clearly different
 	}
 	for _, tc := range cases {
 		got := match.Fuzzy(tc.a, tc.b)
 		if got != tc.want {
 			t.Errorf("match.Fuzzy(%q, %q) = %v, want %v", tc.a, tc.b, got, tc.want)
 		}
-	}
-}
-
-// --- Entry fields ---
-
-func TestEpisodeFieldsSet(t *testing.T) {
-	p := openPlugin(t, nil)
-	e := entry.New("My.Show.S02E05.720p.HDTV", "http://x.com/a")
-	p.filter(context.Background(), makeCtx(), e) //nolint:errcheck
-
-	if v := e.GetString("series_episode_id"); v != "S02E05" {
-		t.Errorf("episode_id: got %q, want S02E05", v)
 	}
 }
 
@@ -411,7 +434,33 @@ func TestRegistration(t *testing.T) {
 	}
 }
 
-// --- Dynamic from ---
+// TestRequiresDeclared verifies that the plugin descriptor declares the
+// required upstream fields. The DAG validator uses this to catch pipelines
+// that wire series without an upstream metainfo step.
+func TestRequiresDeclared(t *testing.T) {
+	d, ok := plugin.Lookup("series")
+	if !ok {
+		t.Fatal("series not registered")
+	}
+	want := map[string]bool{
+		entry.FieldTitle:           false,
+		entry.FieldSeriesEpisodeID: false,
+	}
+	for _, group := range d.Requires {
+		for _, f := range group {
+			if _, ok := want[f]; ok {
+				want[f] = true
+			}
+		}
+	}
+	for f, found := range want {
+		if !found {
+			t.Errorf("Requires must include %q", f)
+		}
+	}
+}
+
+// --- Dynamic list ---
 
 func openWithFrom(t *testing.T, mock *mockInput) *seriesPlugin {
 	t.Helper()
@@ -421,9 +470,9 @@ func openWithFrom(t *testing.T, mock *mockInput) *seriesPlugin {
 	}
 	return &seriesPlugin{
 		listSources: []plugin.SourcePlugin{mock},
-		listCache: cache.NewPersistent[[]match.TitleEntry](time.Hour, db.Bucket("test")),
-		tracking:  trackingBackfill,
-		tracker:   series.NewTracker(db.Bucket("series")),
+		listCache:   cache.NewPersistent[[]match.TitleEntry](time.Hour, db.Bucket("test")),
+		tracking:    trackingBackfill,
+		tracker:     series.NewTracker(db.Bucket("series")),
 	}
 }
 
@@ -433,7 +482,7 @@ func TestFromAcceptsDynamicShow(t *testing.T) {
 	}}
 	p := openWithFrom(t, mock)
 
-	e := entry.New("My.Dynamic.Show.S01E01.720p.HDTV", "http://x.com/a")
+	e := makeEntry("My.Dynamic.Show.S01E01.720p.HDTV", "http://x.com/a")
 	p.filter(context.Background(), makeCtx(), e) //nolint:errcheck
 	if !e.IsAccepted() {
 		t.Errorf("dynamic show should be accepted: %s", e.RejectReason)
@@ -446,7 +495,7 @@ func TestFromIgnoresUnlistedShow(t *testing.T) {
 	}}
 	p := openWithFrom(t, mock)
 
-	e := entry.New("Other.Show.S01E01.720p.HDTV", "http://x.com/a")
+	e := makeEntry("Other.Show.S01E01.720p.HDTV", "http://x.com/a")
 	p.filter(context.Background(), makeCtx(), e) //nolint:errcheck
 	if e.IsAccepted() || e.IsRejected() {
 		t.Errorf("unlisted show should be undecided; got %v", e.State)
@@ -461,9 +510,9 @@ func TestFromCachesResults(t *testing.T) {
 	db, _ := store.OpenSQLite(":memory:")
 	p := &seriesPlugin{
 		listSources: []plugin.SourcePlugin{counted},
-		listCache: cache.NewPersistent[[]match.TitleEntry](time.Hour, db.Bucket("test")),
-		tracking:  trackingBackfill,
-		tracker:   series.NewTracker(db.Bucket("series")),
+		listCache:   cache.NewPersistent[[]match.TitleEntry](time.Hour, db.Bucket("test")),
+		tracking:    trackingBackfill,
+		tracker:     series.NewTracker(db.Bucket("series")),
 	}
 	tc := makeCtx()
 	p.resolveShows(context.Background(), tc)
@@ -480,9 +529,9 @@ func TestFromEmptyResultNotCached(t *testing.T) {
 	db, _ := store.OpenSQLite(":memory:")
 	p := &seriesPlugin{
 		listSources: []plugin.SourcePlugin{counted},
-		listCache: cache.NewPersistent[[]match.TitleEntry](time.Hour, db.Bucket("test")),
-		tracking:  trackingBackfill,
-		tracker:   series.NewTracker(db.Bucket("series")),
+		listCache:   cache.NewPersistent[[]match.TitleEntry](time.Hour, db.Bucket("test")),
+		tracking:    trackingBackfill,
+		tracker:     series.NewTracker(db.Bucket("series")),
 	}
 	tc := makeCtx()
 	p.resolveShows(context.Background(), tc)
@@ -497,7 +546,7 @@ type countingInput struct {
 	count   *int
 }
 
-func (c *countingInput) Name() string        { return "counting_input" }
+func (c *countingInput) Name() string { return "counting_input" }
 func (c *countingInput) Generate(ctx context.Context, tc *plugin.TaskContext) ([]*entry.Entry, error) {
 	*c.count++
 	return c.wrapped.Generate(ctx, tc)
@@ -509,9 +558,9 @@ func TestMultipleEntriesSameEpisodeAllAccepted(t *testing.T) {
 	p := openPlugin(t, nil)
 	tc := makeCtx()
 
-	e1 := entry.New("My.Show.S01E01.720p.HDTV", "http://x.com/a")
-	e2 := entry.New("My.Show.S01E01.1080p.WEB-DL", "http://x.com/b")
-	e3 := entry.New("My.Show.S01E01.2160p.BluRay", "http://x.com/c")
+	e1 := makeEntry("My.Show.S01E01.720p.HDTV", "http://x.com/a")
+	e2 := makeEntry("My.Show.S01E01.1080p.WEB-DL", "http://x.com/b")
+	e3 := makeEntry("My.Show.S01E01.2160p.BluRay", "http://x.com/c")
 
 	for _, e := range []*entry.Entry{e1, e2, e3} {
 		p.filter(context.Background(), tc, e) //nolint:errcheck
@@ -529,11 +578,11 @@ func TestMultipleEntriesSameEpisodeLearnRejectsOldOnNextRun(t *testing.T) {
 	p := openPlugin(t, nil)
 	tc := makeCtx()
 
-	e1 := entry.New("My.Show.S01E01.1080p.WEB-DL", "http://x.com/a")
-	p.filter(context.Background(), tc, e1) //nolint:errcheck
+	e1 := makeEntry("My.Show.S01E01.1080p.WEB-DL", "http://x.com/a")
+	p.filter(context.Background(), tc, e1)                  //nolint:errcheck
 	p.persist(context.Background(), tc, []*entry.Entry{e1}) //nolint:errcheck
 
-	e2 := entry.New("My.Show.S01E01.720p.HDTV", "http://x.com/b")
+	e2 := makeEntry("My.Show.S01E01.720p.HDTV", "http://x.com/b")
 	p.filter(context.Background(), tc, e2) //nolint:errcheck
 	if !e2.IsRejected() {
 		t.Error("episode already in tracker should be rejected on next run")
@@ -558,7 +607,7 @@ func TestFollowAcceptsAllOnFirstEncounter(t *testing.T) {
 	for _, title := range []string{
 		"My.Show.S01E01.720p", "My.Show.S01E05.720p", "My.Show.S01E10.720p",
 	} {
-		e := entry.New(title, "http://x.com/"+title)
+		e := makeEntry(title, "http://x.com/"+title)
 		p.filter(context.Background(), tc, e) //nolint:errcheck
 		if !e.IsAccepted() {
 			t.Errorf("first encounter: %s should be accepted, got: %s", title, e.RejectReason)
@@ -572,15 +621,15 @@ func TestFollowAcceptsNewSeasonInOnePass(t *testing.T) {
 	tc := makeCtx()
 
 	// Establish S01 anchor.
-	e1 := entry.New("My.Show.S01E01.720p", "http://x.com/1")
-	p.filter(context.Background(), tc, e1)         //nolint:errcheck
+	e1 := makeEntry("My.Show.S01E01.720p", "http://x.com/1")
+	p.filter(context.Background(), tc, e1)                  //nolint:errcheck
 	p.persist(context.Background(), tc, []*entry.Entry{e1}) //nolint:errcheck
 
 	// Full S02 binge dump — all should be accepted in one pass.
 	for _, title := range []string{
 		"My.Show.S02E01.720p", "My.Show.S02E05.720p", "My.Show.S02E10.720p",
 	} {
-		e := entry.New(title, "http://x.com/"+title)
+		e := makeEntry(title, "http://x.com/"+title)
 		p.filter(context.Background(), tc, e) //nolint:errcheck
 		if !e.IsAccepted() {
 			t.Errorf("S02 binge dump: %s should be accepted, got: %s", title, e.RejectReason)
@@ -594,12 +643,12 @@ func TestFollowRejectsEpisodesBeforeAnchorSeason(t *testing.T) {
 	tc := makeCtx()
 
 	// Establish S02 as anchor (started tracking mid-series).
-	e1 := entry.New("My.Show.S02E01.720p", "http://x.com/1")
-	p.filter(context.Background(), tc, e1)         //nolint:errcheck
+	e1 := makeEntry("My.Show.S02E01.720p", "http://x.com/1")
+	p.filter(context.Background(), tc, e1)                  //nolint:errcheck
 	p.persist(context.Background(), tc, []*entry.Entry{e1}) //nolint:errcheck
 
 	// S01 episode surfaces — should be rejected as it predates our tracking start.
-	e2 := entry.New("My.Show.S01E05.720p", "http://x.com/2")
+	e2 := makeEntry("My.Show.S01E05.720p", "http://x.com/2")
 	p.filter(context.Background(), tc, e2) //nolint:errcheck
 	if !e2.IsRejected() {
 		t.Error("S01 episode should be rejected when tracking started at S02")
@@ -611,12 +660,12 @@ func TestFollowAcceptsGapFillWithinAnchorSeason(t *testing.T) {
 	p := openPlugin(t, map[string]any{"tracking": "follow"})
 	tc := makeCtx()
 
-	e1 := entry.New("My.Show.S01E01.720p", "http://x.com/1")
-	p.filter(context.Background(), tc, e1)         //nolint:errcheck
+	e1 := makeEntry("My.Show.S01E01.720p", "http://x.com/1")
+	p.filter(context.Background(), tc, e1)                  //nolint:errcheck
 	p.persist(context.Background(), tc, []*entry.Entry{e1}) //nolint:errcheck
 
 	for _, title := range []string{"My.Show.S01E03.720p", "My.Show.S01E02.720p"} {
-		e := entry.New(title, "http://x.com/"+title)
+		e := makeEntry(title, "http://x.com/"+title)
 		p.filter(context.Background(), tc, e) //nolint:errcheck
 		if !e.IsAccepted() {
 			t.Errorf("gap fill %s should be accepted in follow mode, got: %s", title, e.RejectReason)
@@ -646,7 +695,7 @@ func TestFollowRejectsStaleOldSeasonWithNewerTracking(t *testing.T) {
 	}
 
 	tc := makeCtx()
-	e := entry.New("My.Show.S01E04.720p", "http://x.com/1")
+	e := makeEntry("My.Show.S01E04.720p", "http://x.com/1")
 	p.filter(context.Background(), tc, e) //nolint:errcheck
 	if !e.IsRejected() {
 		t.Error("S01E04 should be rejected: highest tracked is S05E08, so S01 predates the tracking window")
@@ -659,7 +708,7 @@ func TestProcess_DoesNotPersist(t *testing.T) {
 	p := openPlugin(t, nil)
 	tc := makeCtx()
 
-	e := entry.New("My.Show.S01E01.720p.HDTV", "http://x.com/a")
+	e := makeEntry("My.Show.S01E01.720p.HDTV", "http://x.com/a")
 	out, err := p.Process(context.Background(), tc, []*entry.Entry{e})
 	if err != nil {
 		t.Fatal(err)
@@ -670,7 +719,7 @@ func TestProcess_DoesNotPersist(t *testing.T) {
 
 	// Process must NOT have written to the tracker.
 	// A second episode should still be accepted because S01E01 is not tracked.
-	e2 := entry.New("My.Show.S01E01.720p.HDTV", "http://x.com/b")
+	e2 := makeEntry("My.Show.S01E01.720p.HDTV", "http://x.com/b")
 	p.filter(context.Background(), tc, e2) //nolint:errcheck
 	if e2.IsRejected() {
 		t.Error("Process() must not persist to the tracker; S01E01 should not be tracked yet")
@@ -682,7 +731,7 @@ func TestCommit_Persists(t *testing.T) {
 	p := openPlugin(t, nil)
 	tc := makeCtx()
 
-	e := entry.New("My.Show.S01E01.720p.HDTV", "http://x.com/a")
+	e := makeEntry("My.Show.S01E01.720p.HDTV", "http://x.com/a")
 	// Process to accept and populate episode info.
 	if _, err := p.Process(context.Background(), tc, []*entry.Entry{e}); err != nil {
 		t.Fatal(err)
@@ -693,32 +742,10 @@ func TestCommit_Persists(t *testing.T) {
 	}
 
 	// After Commit, the same episode should be rejected (already tracked).
-	e2 := entry.New("My.Show.S01E01.720p.HDTV", "http://x.com/b")
+	e2 := makeEntry("My.Show.S01E01.720p.HDTV", "http://x.com/b")
 	p.filter(context.Background(), tc, e2) //nolint:errcheck
 	if !e2.IsRejected() {
 		t.Error("Commit() should persist to the tracker; S01E01 should now be tracked")
-	}
-}
-
-func TestEpisodeFieldsSetFull(t *testing.T) {
-	p := openPlugin(t, nil)
-	e := entry.New("My.Show.S02E05.PROPER.720p.AMZN.WEB-DL", "http://x.com/a")
-	p.filter(context.Background(), makeCtx(), e) //nolint:errcheck
-
-	if v := e.GetString("series_episode_id"); v != "S02E05" {
-		t.Errorf("series_episode_id: got %q, want S02E05", v)
-	}
-	if v := e.GetString(entry.FieldSeriesService); v != "AMZN" {
-		t.Errorf("series_service: got %q, want AMZN", v)
-	}
-	if v := e.GetString(entry.FieldTitle); v != "My Show" {
-		t.Errorf("title: got %q, want My Show", v)
-	}
-	if proper, _ := e.Get(entry.FieldSeriesProper); proper != true {
-		t.Errorf("series_proper: got %v, want true", proper)
-	}
-	if season, _ := e.Get(entry.FieldSeriesSeason); season != 2 {
-		t.Errorf("series_season: got %v, want 2", season)
 	}
 }
 
@@ -727,7 +754,7 @@ func TestDoubleEpisodeCommitMarksBothParts(t *testing.T) {
 	tc := makeCtx()
 
 	// Accept and commit a double episode S01E01E02.
-	e := entry.New("My.Show.S01E01E02.1080p.WEB-DL", "http://x.com/double")
+	e := makeEntry("My.Show.S01E01E02.1080p.WEB-DL", "http://x.com/double")
 	if _, err := p.Process(context.Background(), tc, []*entry.Entry{e}); err != nil {
 		t.Fatal(err)
 	}
@@ -736,14 +763,14 @@ func TestDoubleEpisodeCommitMarksBothParts(t *testing.T) {
 	}
 
 	// S01E01 individually should now be rejected (already part of the downloaded double).
-	e1 := entry.New("My.Show.S01E01.1080p.WEB-DL", "http://x.com/e01")
+	e1 := makeEntry("My.Show.S01E01.1080p.WEB-DL", "http://x.com/e01")
 	p.filter(context.Background(), tc, e1) //nolint:errcheck
 	if !e1.IsRejected() {
 		t.Error("S01E01 should be rejected after double S01E01E02 was committed")
 	}
 
 	// S01E02 individually should also be rejected.
-	e2 := entry.New("My.Show.S01E02.1080p.WEB-DL", "http://x.com/e02")
+	e2 := makeEntry("My.Show.S01E02.1080p.WEB-DL", "http://x.com/e02")
 	p.filter(context.Background(), tc, e2) //nolint:errcheck
 	if !e2.IsRejected() {
 		t.Error("S01E02 should be rejected after double S01E01E02 was committed")
@@ -755,7 +782,7 @@ func TestDoubleEpisodeDoesNotBlockNewContent(t *testing.T) {
 	tc := makeCtx()
 
 	// Commit S01E01 individually.
-	e := entry.New("My.Show.S01E01.720p.WEB-DL", "http://x.com/e01")
+	e := makeEntry("My.Show.S01E01.720p.WEB-DL", "http://x.com/e01")
 	if _, err := p.Process(context.Background(), tc, []*entry.Entry{e}); err != nil {
 		t.Fatal(err)
 	}
@@ -764,7 +791,7 @@ func TestDoubleEpisodeDoesNotBlockNewContent(t *testing.T) {
 	}
 
 	// S01E01E02 double pack should still be accepted — it contains S01E02 which is new.
-	edbl := entry.New("My.Show.S01E01E02.1080p.WEB-DL", "http://x.com/double")
+	edbl := makeEntry("My.Show.S01E01E02.1080p.WEB-DL", "http://x.com/double")
 	p.filter(context.Background(), tc, edbl) //nolint:errcheck
 	if edbl.IsRejected() {
 		t.Error("double S01E01E02 should not be blocked just because S01E01 was seen — S01E02 is new content")
