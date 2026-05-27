@@ -830,9 +830,15 @@ function renderPipelineLabels() {
     label.querySelector('.ve-pl-sched').addEventListener('change', e => { ve.graphs[gi].schedule = e.target.value; onModelChange(); });
     const nameSpan = label.querySelector('.ve-pl-name');
     nameSpan.addEventListener('click', () => {
-      // Toggle .active on existing labels in-place rather than recreating them
-      // (recreating would destroy the dblclick handler on nameSpan).
+      // Clicking a pipeline label both focuses that pipeline AND dismisses
+      // any open node param panel — matching the empty-region click behaviour
+      // so the two ways to "select a pipeline" stay consistent.
+      const prev = ve.selectedNodeId;
+      ve.selectedNodeId = null;
+      if (prev) document.querySelector(`.ve-node[data-id="${prev}"]`)?.classList.remove('selected');
+      clearMultiSelect();
       setActiveGraph(gi);
+      renderEdges();
       renderParamPanel();
     });
 
