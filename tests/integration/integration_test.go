@@ -42,8 +42,6 @@ import (
 	_ "github.com/brunoga/pipeliner/plugins/source/jackett"
 	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/file"
 	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/magnet"
-	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/quality"
-	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/series"
 	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/trakt"
 	_ "github.com/brunoga/pipeliner/plugins/processor/modify/pathfmt"
 	_ "github.com/brunoga/pipeliner/plugins/processor/modify/set"
@@ -236,7 +234,7 @@ func TestQualityFilterRejectsBelow(t *testing.T) {
 
 	res := buildAndRun(t, fmt.Sprintf(`
 src = input("rss", url=%q)
-q   = process("metainfo_quality", upstream=src)
+q   = process("metainfo_file", upstream=src)
 flt = process("quality", upstream=q, min="720p")
 output("print", upstream=flt)
 pipeline("t")
@@ -258,7 +256,7 @@ func TestQualityFilterWithAccept(t *testing.T) {
 
 	res := buildAndRun(t, fmt.Sprintf(`
 src = input("rss", url=%q)
-q   = process("metainfo_quality", upstream=src)
+q   = process("metainfo_file", upstream=src)
 flt = process("quality", upstream=q, min="720p")
 acc = process("regexp", upstream=flt, accept=[".+"])
 output("print", upstream=acc)
@@ -277,7 +275,7 @@ func TestMetainfoQualityAnnotates(t *testing.T) {
 
 	res := buildAndRun(t, fmt.Sprintf(`
 src = input("rss", url=%q)
-q   = process("metainfo_quality", upstream=src)
+q   = process("metainfo_file", upstream=src)
 output("print", upstream=q)
 pipeline("t")
 `, srv.URL))
@@ -305,7 +303,7 @@ func TestMetainfoSeriesAnnotates(t *testing.T) {
 
 	res := buildAndRun(t, fmt.Sprintf(`
 src    = input("rss", url=%q)
-series = process("metainfo_series", upstream=src)
+series = process("metainfo_file", upstream=src)
 output("print", upstream=series)
 pipeline("t")
 `, srv.URL))
@@ -334,7 +332,7 @@ func TestEnrichedFieldUsedAsRequire(t *testing.T) {
 
 	res := buildAndRun(t, fmt.Sprintf(`
 src    = input("rss", url=%q)
-series = process("metainfo_series", upstream=src)
+series = process("metainfo_file", upstream=src)
 req    = process("require", upstream=series, fields=["enriched"])
 output("print", upstream=req)
 pipeline("t")
@@ -354,7 +352,7 @@ func TestConditionFilter(t *testing.T) {
 
 	res := buildAndRun(t, fmt.Sprintf(`
 src  = input("rss", url=%q)
-q    = process("metainfo_quality", upstream=src)
+q    = process("metainfo_file", upstream=src)
 cond = process("condition", upstream=q,
     accept='{{ne .video_resolution ""}}',
     reject='{{eq .video_resolution "480p"}}')
@@ -417,7 +415,7 @@ func TestPathfmtModify(t *testing.T) {
 
 	res := buildAndRun(t, fmt.Sprintf(`
 src    = input("rss", url=%q)
-series = process("metainfo_series", upstream=src)
+series = process("metainfo_file", upstream=src)
 fmt    = process("pathfmt", upstream=series,
     path='/tv/{{.title}}/S{{printf "%%02d" .series_season}}',
     field="download_path")
@@ -470,7 +468,7 @@ func TestAllPluginsRegistered(t *testing.T) {
 		"trakt", "tvdb", "accept_all", "list_match",
 		"set", "pathfmt",
 		"print", "exec", "list_add",
-		"metainfo_quality", "metainfo_series", "metainfo_trakt", "metainfo_magnet",
+		"metainfo_file", "metainfo_trakt", "metainfo_magnet",
 		"jackett",
 	}
 	for _, name := range want {
@@ -566,7 +564,7 @@ func TestConditionInfixSyntax(t *testing.T) {
 
 	res := buildAndRun(t, fmt.Sprintf(`
 src  = input("rss", url=%q)
-q    = process("metainfo_quality", upstream=src)
+q    = process("metainfo_file", upstream=src)
 cond = process("condition", upstream=q,
     accept='video_resolution != ""',
     reject='video_resolution == "480p"')
@@ -587,7 +585,7 @@ func TestConditionContainsOperator(t *testing.T) {
 
 	res := buildAndRun(t, fmt.Sprintf(`
 src  = input("rss", url=%q)
-q    = process("metainfo_quality", upstream=src)
+q    = process("metainfo_file", upstream=src)
 cond = process("condition", upstream=q, accept='video_source contains "BluRay"')
 output("print", upstream=cond)
 pipeline("t")
@@ -605,7 +603,7 @@ func TestPathfmtNewSyntax(t *testing.T) {
 
 	res := buildAndRun(t, fmt.Sprintf(`
 src    = input("rss", url=%q)
-series = process("metainfo_series", upstream=src)
+series = process("metainfo_file", upstream=src)
 fmt    = process("pathfmt", upstream=series,
     path="/tv/{title}/Season {series_season:02d}",
     field="download_path")
@@ -656,7 +654,7 @@ func TestTemplateInheritance(t *testing.T) {
 	// Starlark functions compose DAG chains cleanly.
 	res := buildAndRun(t, fmt.Sprintf(`
 def hd_only(upstream):
-    q = process("metainfo_quality", upstream=upstream)
+    q = process("metainfo_file", upstream=upstream)
     return process("quality", upstream=q, min="720p")
 
 def accept_matching(upstream):
@@ -708,7 +706,7 @@ func TestRegexpPerPatternFrom(t *testing.T) {
 
 	res := buildAndRun(t, fmt.Sprintf(`
 src = input("rss", url=%q)
-q   = process("metainfo_quality", upstream=src)
+q   = process("metainfo_file", upstream=src)
 flt = process("regexp", upstream=q,
     reject=[{"pattern": "BluRay", "from": "video_source"}],
     accept=[".+"])

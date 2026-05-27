@@ -72,9 +72,8 @@ func init() {
 	})
 }
 
-// codecNames, audioNames, colorRangeNames mirror metainfo_quality so that the
-// "codec", "audio", and "color_range" fields use the same string vocabulary
-// regardless of which metainfo plugin set them.
+// codecNames, audioNames, colorRangeNames map the quality enum values to the
+// canonical strings used by the "codec", "audio", and "color_range" fields.
 var codecNames = map[quality.Codec]string{
 	quality.CodecUnknown: "", quality.CodecXviD: "XviD", quality.CodecDivX: "DivX",
 	quality.CodecH264: "H264", quality.CodecH265: "H265", quality.CodecAV1: "AV1",
@@ -180,9 +179,8 @@ func annotateMovie(e *entry.Entry, m *imovies.Movie) {
 }
 
 // annotateQuality sets video_* and codec/audio/color_range fields when any
-// quality dimension is detected. Mirrors the behaviour of metainfo_quality so
-// existing pipelines see the same field shape, and additionally stores the
-// parsed quality.Quality struct via e.SetQuality so downstream consumers can
+// quality dimension is detected. The parsed quality.Quality struct is also
+// stored via e.SetQuality so downstream consumers can
 // run spec.Matches without re-parsing the title.
 func annotateQuality(e *entry.Entry) {
 	q := quality.Parse(e.Title)

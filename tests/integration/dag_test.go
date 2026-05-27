@@ -9,7 +9,6 @@ import (
 
 	"github.com/brunoga/pipeliner/internal/config"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/dedup"
-	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/quality"
 )
 
 func parseConfig(t *testing.T, src string) (*config.Config, error) {
@@ -80,7 +79,7 @@ func TestDAG_MetainfoThenFilter(t *testing.T) {
 
 	res := buildAndRun(t, fmt.Sprintf(`
 src     = input("rss", url=%q)
-quality = process("metainfo_quality", upstream=src)
+quality = process("metainfo_file", upstream=src)
 flt     = process("quality", upstream=quality, min="720p")
 acc     = process("accept_all", upstream=flt)
 output("print", upstream=acc)
@@ -101,9 +100,8 @@ func TestDAG_MetainfoAnnotatesFields(t *testing.T) {
 
 	res := buildAndRun(t, fmt.Sprintf(`
 src    = input("rss", url=%q)
-series = process("metainfo_series", upstream=src)
-qual   = process("metainfo_quality", upstream=series)
-output("print", upstream=qual)
+meta   = process("metainfo_file", upstream=src)
+output("print", upstream=meta)
 pipeline("p")
 `, srv.URL))
 
@@ -208,9 +206,8 @@ func TestDAG_DedupPlugin(t *testing.T) {
 
 	res := buildAndRun(t, fmt.Sprintf(`
 src    = input("rss", url=%q)
-series = process("metainfo_series", upstream=src)
-qual   = process("metainfo_quality", upstream=series)
-acc    = process("accept_all", upstream=qual)
+meta   = process("metainfo_file", upstream=src)
+acc    = process("accept_all", upstream=meta)
 dd     = process("dedup", upstream=acc)
 output("print", upstream=dd)
 pipeline("p")
@@ -286,12 +283,12 @@ pipeline("p")
 }
 
 // TestDAG_Validate_FieldRequirement_SatisfiedByUpstream verifies no errors
-// when metainfo_quality is correctly placed before upgrade.
+// when metainfo_file is correctly placed before upgrade.
 func TestDAG_Validate_FieldRequirement_SatisfiedByUpstream(t *testing.T) {
 	cfg, err := parseConfig(t, `
-src     = input("rss", url="http://example.com/rss")
-quality = process("metainfo_quality", upstream=src)
-flt     = process("upgrade", upstream=quality, target="1080p")
+src  = input("rss", url="http://example.com/rss")
+meta = process("metainfo_file", upstream=src)
+flt  = process("upgrade", upstream=meta, target="1080p")
 output("print", upstream=flt)
 pipeline("p")
 `)
@@ -314,8 +311,8 @@ func TestDAG_PathfmtInChain(t *testing.T) {
 
 	res := buildAndRun(t, fmt.Sprintf(`
 src    = input("rss", url=%q)
-series = process("metainfo_series", upstream=src)
-fmt    = process("pathfmt", upstream=series,
+meta   = process("metainfo_file", upstream=src)
+fmt    = process("pathfmt", upstream=meta,
                  path="/tv/{title}/Season {series_season:02d}",
                  field="download_path")
 output("print", upstream=fmt)

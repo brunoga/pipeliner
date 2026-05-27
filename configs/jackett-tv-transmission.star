@@ -23,14 +23,13 @@ results = process("discover", upstream=shows,
              "categories": [5000, 5030, 5040]}],
     interval="6h")
 
-seen   = process("seen",             upstream=results)
-q      = process("metainfo_file", upstream=seen)
-series = process("series",           upstream=q,
+seen   = process("seen",          upstream=results)
+meta   = process("metainfo_file", upstream=seen)
+series = process("series",        upstream=meta,
                   static=["Breaking Bad", "Better Call Saul", "The Wire"])
-flt    = process("quality",          upstream=series, min="720p")
-cond   = process("condition",        upstream=flt, accept="torrent_seeds >= 3")
-meta   = process("metainfo_series",  upstream=cond)
-fmt    = process("pathfmt",          upstream=meta,
+flt    = process("quality",       upstream=series, min="720p")
+cond   = process("condition",     upstream=flt, accept="torrent_seeds >= 3")
+fmt    = process("pathfmt",       upstream=cond,
                   path="/media/tv/{title}/Season {series_season:02d}",
                   field="download_path")
 output("transmission", upstream=fmt,

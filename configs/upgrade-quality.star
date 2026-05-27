@@ -8,18 +8,17 @@
 # after the download succeeds (CommitPlugin), so a failed download is retried.
 # Once an episode reaches the target ceiling quality it is not upgraded again.
 #
-# Typical placement: after metainfo_quality and metainfo_series (to build the
-# episode key), before dedup (to pick the best from multiple variants).
+# Typical placement: after metainfo_file (which sets both the quality fields
+# and the series episode key), before dedup (to pick the best from variants).
 
 rss_url    = "https://feeds.example.com/all"
 trans_host = "localhost"
 tv_path    = "/media/tv"
 
-src    = input("rss",               url=rss_url)
-seen   = process("seen",            upstream=src)
-q      = process("metainfo_quality", upstream=seen)
-ep     = process("metainfo_series",  upstream=q)
-upg    = process("upgrade",         upstream=ep,
+src    = input("rss",            url=rss_url)
+seen   = process("seen",          upstream=src)
+meta   = process("metainfo_file", upstream=seen)
+upg    = process("upgrade",       upstream=meta,
     target="1080p bluray",   # stop upgrading once we have a 1080p BluRay
     on_lower="reject")       # reject re-downloads at the same or lower quality
 best   = process("dedup",           upstream=upg)

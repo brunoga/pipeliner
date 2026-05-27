@@ -218,7 +218,7 @@ var semanticGroups = []semanticGroup{
 	},
 	{
 		// series_episode_id being tested implies season and episode are set —
-		// the metainfo_series plugin always sets all three together.
+		// metainfo_file always sets all three together.
 		sentinel: entry.FieldSeriesEpisodeID,
 		promotes: []string{
 			entry.FieldSeriesSeason,

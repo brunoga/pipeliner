@@ -92,7 +92,7 @@ Fields are grouped by prefix — the prefix tells you what kind of data the fiel
 
 | Field | Set by | Description |
 |-------|--------|-------------|
-| `title` | `metainfo_tvdb`, `metainfo_tmdb`, `metainfo_trakt`, `metainfo_series`, `metainfo_file` | Canonical enriched display name |
+| `title` | `metainfo_tvdb`, `metainfo_tmdb`, `metainfo_trakt`, `metainfo_file` | Canonical enriched display name |
 | `media_type` | `metainfo_file` | Classification: `"series"`, `"movie"`, or unset. Useful as a `route()` dispatch key. |
 | `description` | `metainfo_tvdb`, `metainfo_tmdb`, `metainfo_trakt` | Synopsis / overview |
 | `published_date` | `metainfo_tvdb`, `metainfo_tmdb`, `rss` | Release or premiere date |
@@ -111,27 +111,27 @@ Fields are grouped by prefix — the prefix tells you what kind of data the fiel
 | `video_poster` | `metainfo_tvdb` | Poster image URL |
 | `video_cast` | `metainfo_tvdb` | Cast list |
 | `video_runtime` | `metainfo_tvdb`, `metainfo_tmdb` | Runtime in minutes |
-| `video_quality` | `metainfo_quality`, `metainfo_file` | Full quality string including 3D format when present (e.g. `BD3D 1080p BluRay H.265`) |
-| `video_resolution` | `metainfo_quality`, `metainfo_file` | Resolution (e.g. `1080p`, `720p`) |
-| `video_source` | `metainfo_quality`, `metainfo_file` | Source (e.g. `BluRay`, `WEB-DL`, `HDTV`) |
-| `video_is_3d` | `metainfo_quality`, `metainfo_file` | `true` when any 3D format marker is detected (3D, SBS, HOU, BD3D, etc.) |
-| `video_proper` | `metainfo_series`, `metainfo_file` | `true` for PROPER releases (applies to series and movies) |
-| `video_repack` | `metainfo_series`, `metainfo_file` | `true` for REPACK releases (applies to series and movies) |
+| `video_quality` | `metainfo_file` | Full quality string including 3D format when present (e.g. `BD3D 1080p BluRay H.265`) |
+| `video_resolution` | `metainfo_file` | Resolution (e.g. `1080p`, `720p`) |
+| `video_source` | `metainfo_file` | Source (e.g. `BluRay`, `WEB-DL`, `HDTV`) |
+| `video_is_3d` | `metainfo_file` | `true` when any 3D format marker is detected (3D, SBS, HOU, BD3D, etc.) |
+| `video_proper` | `metainfo_file` | `true` for PROPER releases (applies to series and movies) |
+| `video_repack` | `metainfo_file` | `true` for REPACK releases (applies to series and movies) |
 | `video_imdb_id` | `metainfo_tmdb`, `metainfo_trakt` | IMDb ID (e.g. `tt1375666`) |
 
 ### Series fields
 
 | Field | Set by | Description |
 |-------|--------|-------------|
-| `series_season` | `metainfo_series`, `metainfo_file` | Season number |
-| `series_episode` | `metainfo_series`, `metainfo_file` | Episode number |
-| `series_episode_id` | `metainfo_series`, `metainfo_file` | Episode ID string (e.g. `S02E05`) |
+| `series_season` | `metainfo_file` | Season number |
+| `series_episode` | `metainfo_file` | Episode number |
+| `series_episode_id` | `metainfo_file` | Episode ID string (e.g. `S02E05`) |
 | `series_network` | `metainfo_tvdb` | Broadcasting network |
 | `series_status` | `metainfo_tvdb` | Series status (e.g. `Ended`, `Continuing`) |
 | `series_first_air_date` | `metainfo_tvdb` | Series premiere date |
 | `series_episode_title` | `metainfo_tvdb` | Episode title |
 | `series_episode_air_date` | `metainfo_tvdb` | Episode air date |
-| `series_service` | `metainfo_series`, `metainfo_file` | Streaming service tag from filename (e.g. `AMZN`, `NF`) |
+| `series_service` | `metainfo_file` | Streaming service tag from filename (e.g. `AMZN`, `NF`) |
 
 ### Movie fields
 
@@ -220,7 +220,7 @@ Pipelines are built by connecting nodes with `input()`, `process()`, `merge()`, 
 
 ```python
 src     = input("rss", url="https://example.com/rss")
-quality = process("metainfo_quality", upstream=src)
+quality = process("metainfo_file", upstream=src)
 flt     = process("quality", upstream=quality, min="720p")
 output("transmission", upstream=flt, host="localhost")
 pipeline("my-pipeline", schedule="1h")

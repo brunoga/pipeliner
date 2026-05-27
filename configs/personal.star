@@ -217,7 +217,8 @@ pipeline("tvshows-favorites")
 
 m3d_src     = jackett_source(indexers=["torrenting", "3dtorrents", "therarbg", "yts"],
                               categories=["2000"])
-m3d_movs    = process("movies", upstream=m3d_src,
+m3d_meta    = process("metainfo_file", upstream=m3d_src)
+m3d_movs    = process("movies", upstream=m3d_meta,
                         quality="3dfull",
                         list=trakt_watchlist("movies", "1h"))
 m3d_dd      = process("dedup",   upstream=m3d_movs) # best 3D format (BD3D > Full > Half)

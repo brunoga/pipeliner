@@ -5,8 +5,7 @@ Place each before any filter that reads the fields it produces.
 
 | Plugin | Description |
 |--------|-------------|
-| [`metainfo_quality`](quality/README.md) | Parse quality tags (resolution, source, codec) from the title |
-| [`metainfo_series`](series/README.md) | Parse series name, season, and episode from the title |
+| [`metainfo_file`](file/README.md) | Parse the filename and annotate everything detectable in one pass: classify as series/movie, set series/movie/quality fields, and stamp `media_type` |
 | [`metainfo_tmdb`](tmdb/README.md) | Enrich movie entries with TMDb metadata |
 | [`metainfo_tvdb`](tvdb/README.md) | Enrich series entries with TheTVDB metadata |
 | [`metainfo_trakt`](trakt/README.md) | Annotate entries with Trakt.tv metadata |

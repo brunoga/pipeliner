@@ -11,11 +11,12 @@
 // Users never instantiate these plugins directly — they use the route()
 // builtin in their config:
 //
-//	routes = route(upstream,
-//	    series = "series_episode_id != ''",
-//	    movies = "series_episode_id == ''")
-//	series_path = process("metainfo_series", upstream=routes.series)
-//	movies_path = process("metainfo_tmdb",   upstream=routes.movies, ...)
+//	meta = process("metainfo_file", upstream=upstream)
+//	routes = route(meta,
+//	    series = "media_type == 'series'",
+//	    movies = "media_type == 'movie'")
+//	series_path = process("metainfo_tvdb", upstream=routes.series, api_key=...)
+//	movies_path = process("metainfo_tmdb", upstream=routes.movies, api_key=...)
 package route
 
 import (
