@@ -19,7 +19,6 @@ Filter processors accept or reject entries. Use them with `process("plugin-name"
 | [`content`](content/README.md) | Reject or require entries based on torrent file contents |
 | [`premiere`](premiere/README.md) | Accept only the first episode of series not previously seen |
 | [`torrentalive`](torrentalive/README.md) | Reject torrents with no active seeders |
-| [`upgrade`](upgrade/README.md) | Accept entries that are a quality upgrade over what is on disk |
 | [`require`](require/README.md) | Reject entries missing one or more required fields |
 | [`accept_all`](accept_all/README.md) | Accept every undecided entry unconditionally |
 | [`dedup`](dedup/README.md) | Keep the best-quality copy when multiple entries refer to the same episode or movie |

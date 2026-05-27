@@ -155,7 +155,6 @@ td code{font-size:11px}
     <a href="#regexp" class="sub">regexp</a>
     <a href="#quality-filter" class="sub">quality</a>
     <a href="#age" class="sub">age</a>
-    <a href="#upgrade" class="sub">upgrade</a>
     <a href="#content" class="sub">content</a>
     <a href="#dedup" class="sub">dedup</a>
     <a href="#accept_all" class="sub">accept_all</a>
@@ -306,7 +305,7 @@ output("transmission", upstream=enrich_series(series),
 pipeline("my-pipeline", schedule="1h")</code></pre>
 
 <h3>Database</h3>
-<p>Pipeliner automatically maintains <code>pipeliner.db</code> (SQLite) in the same directory as the config file. All stateful plugins (<code>seen</code>, <code>series</code>, <code>movies</code>, <code>premiere</code>, <code>upgrade</code>, the TVDB/Trakt caches, and persistent lists) share this file. No configuration needed.</p>
+<p>Pipeliner automatically maintains <code>pipeliner.db</code> (SQLite) in the same directory as the config file. All stateful plugins (<code>seen</code>, <code>series</code>, <code>movies</code>, <code>premiere</code>, the TVDB/Trakt caches, and persistent lists) share this file. No configuration needed.</p>
 
 <!-- ═══════════════════════════════════════════════════════════ -->
 <h2 id="variables">Variables</h2>
@@ -966,7 +965,7 @@ pipeline("tv-tvdb", schedule="1h")</code></pre>
 
 <!-- ─────────── metainfo_file ─────────── -->
 <h2 id="metainfo_file">metainfo_file</h2>
-<p>Parses the entry title (filename) and annotates <strong>all</strong> detectable metadata in a single pass: classifies the entry as series, movie, or other; sets the appropriate <code>series_*</code> or <code>movie_*</code> fields; and sets the quality fields. This is the canonical "extract everything possible from the filename" step — the single source of filename-derived metadata for series, movies, premiere, quality, and upgrade filters.</p>
+<p>Parses the entry title (filename) and annotates <strong>all</strong> detectable metadata in a single pass: classifies the entry as series, movie, or other; sets the appropriate <code>series_*</code> or <code>movie_*</code> fields; and sets the quality fields. This is the canonical "extract everything possible from the filename" step — the single source of filename-derived metadata for series, movies, premiere, and quality filters.</p>
 
 <p>Takes no config. Classification order:</p>
 <ol>
@@ -1409,18 +1408,6 @@ window = process("age", upstream=src, older_than="30d", newer_than="52w")
 by_air = process("age", upstream=enriched,
                  field="series_episode_air_date", newer_than="7d")</code></pre>
 
-<!-- ─────────── upgrade ─────────── -->
-<h2 id="upgrade">upgrade</h2>
-<p>Accepts entries only when they offer a quality improvement over the previously downloaded version. Stops accepting once the target quality is reached. State is committed after all downstream sinks confirm success, so a failed download does not update the quality record.</p>
-
-<div class="note"><strong>Prerequisite:</strong> Place <code>metainfo_file</code> upstream so the <code>video_quality</code> field is set. For series entries, <code>metainfo_file</code> also sets the episode title used as the tracking key — chain <code>metainfo_tvdb</code> after if you also want enriched series metadata.</div>
-
-<table>
-  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
-  <tr><td><code>target</code></td><td>yes</td><td>—</td><td>Quality ceiling (e.g. <code>1080p bluray</code>); upgrades stop once reached</td></tr>
-  <tr><td><code>on_lower</code></td><td>no</td><td><code>reject</code></td><td>Action when quality is not better: <code>reject</code> or <code>accept</code></td></tr>
-</table>
-
 <!-- ─────────── content ─────────── -->
 <h2 id="content">content</h2>
 <p>Rejects or requires entries based on filenames. The file list is resolved in order:</p>
@@ -1771,11 +1758,11 @@ pipeline("tv")</code></pre>
 <h4>Connection validation</h4>
 <p>The visual editor checks field reachability at two levels:</p>
 <ul>
-  <li><strong>Error (⚠ amber)</strong> — a required field is not produced by any upstream node at all. Fix by adding the appropriate plugin upstream (e.g. add <code>metainfo_file</code> before <code>upgrade</code>).</li>
+  <li><strong>Error (⚠ amber)</strong> — a required field is not produced by any upstream node at all. Fix by adding the appropriate plugin upstream (e.g. add <code>metainfo_file</code> before <code>premiere</code>).</li>
   <li><strong>Warning (~ grey)</strong> — a required field is only <em>conditionally</em> produced upstream (the upstream plugin may not set it on every entry, for example <code>metainfo_torrent</code> only extracts file lists from entries it can parse). The pipeline will still run, but the plugin may silently skip entries that arrive without the field.</li>
 </ul>
-<img src="images/ui-field-warning-error.png" alt="upgrade node showing amber ⚠ warning: requires video_quality but no upstream produces it" class="screenshot">
-<p class="screenshot-caption"><strong>Hard error</strong>: <code>upgrade</code> placed directly after <code>rss</code> with no <code>metainfo_file</code> in between — the required <code>video_quality</code> field has no upstream producer.</p>
+<img src="images/ui-field-warning-error.png" alt="premiere node showing amber ⚠ warning: requires series_episode_id but no upstream produces it" class="screenshot">
+<p class="screenshot-caption"><strong>Hard error</strong>: <code>premiere</code> placed directly after <code>rss</code> with no <code>metainfo_file</code> in between — the required <code>series_episode_id</code> field has no upstream producer.</p>
 <img src="images/ui-field-warning-soft.png" alt="content node showing muted ~ warning and param panel with soft warning detail" class="screenshot">
 <p class="screenshot-caption"><strong>Soft warning</strong>: <code>content</code> requires <code>torrent_files</code>, which <code>metainfo_torrent</code> only <em>may</em> produce (it skips entries that are not .torrent URLs). The param panel shows the full explanation.</p>
 <p>The same warnings are also surfaced in the text editor after <strong>Validate</strong> or <strong>Save &amp; Reload</strong>, displayed in an amber box below any hard errors.</p>

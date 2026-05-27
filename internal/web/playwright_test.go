@@ -23,10 +23,10 @@ import (
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/condition"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/content"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/movies"
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/premiere"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/route"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/seen"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/trakt"
-	_ "github.com/brunoga/pipeliner/plugins/processor/filter/upgrade"
 	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/file"
 	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/torrent"
 	_ "github.com/brunoga/pipeliner/plugins/processor/modify/pathfmt"
@@ -883,11 +883,11 @@ func waitVisible(t *testing.T, loc playwright.Locator) {
 // TestE2EParamPanelShowsMayProduce verifies that selecting a node with both
 // Produces and MayProduce fields shows both sections in the param panel.
 func TestE2EParamPanelShowsMayProduce(t *testing.T) {
-	// rss → metainfo_file (has Produces + MayProduce) → upgrade → transmission
+	// rss → metainfo_file (has Produces + MayProduce) → premiere → transmission
 	const cfg = `
 src  = input("rss", url="https://feeds.example.com/tv.rss")
 q    = process("metainfo_file", upstream=src)
-up   = process("upgrade", upstream=q, target="1080p bluray")
+up   = process("premiere", upstream=q)
 sink = output("transmission", upstream=up, host="localhost")
 pipeline("demo", schedule="1h")
 `
@@ -933,7 +933,7 @@ pipeline("demo", schedule="1h")
 // TestE2EHardFieldWarningOnNode verifies that a node whose required field has
 // no upstream producer shows an amber ⚠ warning inline on the canvas card.
 func TestE2EHardFieldWarningOnNode(t *testing.T) {
-	// upgrade requires video_quality, but rss doesn't produce it → hard warning.
+	// premiere requires series_episode_id etc., but rss doesn't produce them → hard warning.
 	// This config is only loaded into the visual editor (not saved), so the server
 	// can start with any valid config.
 	const validCfg = `
@@ -943,7 +943,7 @@ pipeline("base")
 `
 	const warnCfg = `
 src  = input("rss", url="https://feeds.example.com/tv.rss")
-up   = process("upgrade", upstream=src, target="1080p bluray")
+up   = process("premiere", upstream=src)
 sink = output("transmission", upstream=up, host="localhost")
 pipeline("demo")
 `
@@ -959,15 +959,15 @@ pipeline("demo")
 	// Load the broken config into the visual editor without saving.
 	switchToVisual(t, page, warnCfg)
 
-	// upgrade node must show the amber ⚠ hard warning.
+	// premiere node must show the amber ⚠ hard warning.
 	waitVisible(t, page.Locator(".ve-node-warn"))
 
 	text, err := page.Locator(".ve-node-warn").First().TextContent()
 	if err != nil {
 		t.Fatalf("get warn text: %v", err)
 	}
-	if !contains(text, "video_quality") {
-		t.Errorf("expected hard warning to mention video_quality, got: %q", text)
+	if !contains(text, "series_episode_id") {
+		t.Errorf("expected hard warning to mention series_episode_id, got: %q", text)
 	}
 }
 

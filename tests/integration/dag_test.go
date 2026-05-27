@@ -261,14 +261,13 @@ pipeline("p")
 }
 
 // TestDAG_Validate_FieldRequirement verifies that the validator catches a
-// filter that requires video_quality when no upstream produces it.
-// TestDAG_Validate_FieldRequirement verifies that the validator catches a
-// processor that requires video_quality when no upstream produces it.
-// The upgrade filter genuinely requires video_quality (used for quality storage).
+// processor whose required upstream fields are not produced by anything.
+// premiere requires series_episode_id, series_season, etc. — an rss source
+// alone doesn't produce them.
 func TestDAG_Validate_FieldRequirement(t *testing.T) {
 	cfg, err := parseConfig(t, `
 src = input("rss", url="http://example.com/rss")
-flt = process("upgrade", upstream=src, target="1080p")
+flt = process("premiere", upstream=src)
 output("print", upstream=flt)
 pipeline("p")
 `)
@@ -278,17 +277,18 @@ pipeline("p")
 
 	errs := validateConfig(t, cfg)
 	if len(errs) == 0 {
-		t.Error("expected validation error for missing video_quality field, got none")
+		t.Error("expected validation error for missing series_episode_id field, got none")
 	}
 }
 
 // TestDAG_Validate_FieldRequirement_SatisfiedByUpstream verifies no errors
-// when metainfo_file is correctly placed before upgrade.
+// when metainfo_file is correctly placed before a filter that requires its
+// fields (premiere needs series_episode_id, _quality, etc.).
 func TestDAG_Validate_FieldRequirement_SatisfiedByUpstream(t *testing.T) {
 	cfg, err := parseConfig(t, `
 src  = input("rss", url="http://example.com/rss")
 meta = process("metainfo_file", upstream=src)
-flt  = process("upgrade", upstream=meta, target="1080p")
+flt  = process("premiere", upstream=meta)
 output("print", upstream=flt)
 pipeline("p")
 `)
