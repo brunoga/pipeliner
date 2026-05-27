@@ -18,7 +18,7 @@ import (
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/movies"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/trakt"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/upgrade"
-	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/quality"
+	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/file"
 	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/tmdb"
 	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/torrent"
 	_ "github.com/brunoga/pipeliner/plugins/sink/transmission"
@@ -78,11 +78,11 @@ func selectNode(t *testing.T, page playwright.Page, nodeID string) {
 
 // ── configs ──────────────────────────────────────────────────────────────────
 
-// normalConfig: rss → metainfo_quality → upgrade → transmission
-// upgrade.Requires(video_quality) satisfied by metainfo_quality.Produces → no warnings.
+// normalConfig: rss → metainfo_file → upgrade → transmission
+// upgrade.Requires(video_quality) satisfied by metainfo_file.Produces → no warnings.
 const normalConfig = `
 src  = input("rss", url="https://feeds.example.com/tv.rss")
-q    = process("metainfo_quality", upstream=src)
+q    = process("metainfo_file", upstream=src)
 up   = process("upgrade", upstream=q, target="1080p bluray")
 sink = output("transmission", upstream=up, host="localhost")
 pipeline("demo", schedule="1h")
@@ -108,12 +108,12 @@ sink = output("transmission", upstream=up, host="localhost")
 pipeline("demo")
 `
 
-// routeScreenshotConfig: rss → seen → metainfo_quality → route() with tv/movies ports.
+// routeScreenshotConfig: rss → seen → metainfo_file → route() with tv/movies ports.
 // Shows the route() branching pattern in the visual editor.
 const routeScreenshotConfig = `
 src    = input("rss", url="https://feeds.example.com/all.rss")
 seen   = process("seen", upstream=src)
-q      = process("metainfo_quality", upstream=seen)
+q      = process("metainfo_file", upstream=seen)
 routes = route(q,
     tv     = "series_episode_id != ''",
     movies = "series_episode_id == ''")
@@ -122,24 +122,26 @@ movie_out = output("print", upstream=routes.movies)
 pipeline("route-demo", schedule="1h")
 `
 
-// routePortContractsConfig: same topology using automatic field inference.
-// Used to screenshot the param panel showing route rules.
+// routePortContractsConfig: routes by media_type using real fields produced by
+// metainfo_file. Each port's presence/equality check promotes the field on
+// that branch, which the param panel displays as a "Promotes to certain"
+// annotation (.ve-cond-narrow).
 const routePortContractsConfig = `
 src    = input("rss", url="https://feeds.example.com/all.rss")
 seen   = process("seen", upstream=src)
-q      = process("metainfo_quality", upstream=seen)
-routes = route(q,
-    torrent = "torrent_url != ''",
-    magnet  = "magnet_url != ''")
-torrent_out = output("print", upstream=routes.torrent)
-magnet_out  = output("print", upstream=routes.magnet)
+meta   = process("metainfo_file", upstream=seen)
+routes = route(meta,
+    series = "media_type == 'series'",
+    movies = "media_type == 'movie'")
+series_out = output("print", upstream=routes.series)
+movies_out = output("print", upstream=routes.movies)
 pipeline("port-contracts-demo", schedule="1h")
 `
 
 // fnEditorConfig: a pipeline with a user function so we can open the fn editor.
 const fnEditorConfig = `
 def enrich(upstream):
-    q = process("metainfo_quality", upstream=upstream)
+    q = process("metainfo_file", upstream=upstream)
     return q
 
 src    = input("rss", url="https://feeds.example.com/tv.rss")
@@ -198,7 +200,7 @@ func TestScreenshots(t *testing.T) {
 		screenshotLocator(t, page.Locator("#view-visual"), dir, "ui-visual-editor.png")
 	})
 
-	// ── 3. Param panel: Produces + May produce (metainfo_quality) ───────────────
+	// ── 3. Param panel: Produces + May produce (metainfo_file) ───────────────
 	t.Run("param_panel_may_produce", func(t *testing.T) {
 		ts := startTestServer(t, normalConfig)
 		page := newPage(t)
@@ -206,13 +208,13 @@ func TestScreenshots(t *testing.T) {
 		login(t, page, ts.url)
 		openConfigTab(t, page)
 		switchToVisual(t, page, normalConfig)
-		// node IDs are pluginname_N; metainfo_quality is the second node (counter 1).
-		selectNode(t, page, "metainfo_quality_1")
+		// node IDs are pluginname_N; metainfo_file is the second node (counter 1).
+		selectNode(t, page, "metainfo_file_1")
 		waitLocatorVisible(t, page.Locator(".ve-field-hint-block").First())
 		screenshotLocator(t, page.Locator("#view-visual"), dir, "ui-param-panel-may-produce.png")
 	})
 
-	// ── 4. Hard field warning: upgrade node without metainfo_quality ─────────────
+	// ── 4. Hard field warning: upgrade node without metainfo_file ─────────────
 	t.Run("hard_field_warning", func(t *testing.T) {
 		// Start with valid config so the server loads, then load broken config
 		// into the visual editor via text editor (re-parse, no save needed).
@@ -377,8 +379,9 @@ func TestScreenshots(t *testing.T) {
 				t.Fatalf("click route node: %v / %v", err, err2)
 			}
 		}
-		// Wait for the guarantees sub-row to appear in the param panel.
-		waitLocatorVisible(t, page.Locator(".ve-rule-meta").First())
+		// Wait for the field-inference annotation to appear in the param panel
+		// (".ve-cond-narrow" is the "Promotes to certain: …" sub-row).
+		waitLocatorVisible(t, page.Locator(".ve-cond-narrow").First())
 		pause(400)
 		screenshotLocator(t, page.Locator("#view-visual"), dir, "ui-route-port-contracts.png")
 	})
@@ -395,7 +398,7 @@ func TestScreenshots(t *testing.T) {
 		pause(400)
 
 		// Click first node, then Cmd/Ctrl+click second node to multi-select.
-		if err := page.Locator(`.ve-node[data-id="metainfo_quality_1"]`).Click(); err != nil {
+		if err := page.Locator(`.ve-node[data-id="metainfo_file_1"]`).Click(); err != nil {
 			t.Fatalf("click first node: %v", err)
 		}
 		pause(200)

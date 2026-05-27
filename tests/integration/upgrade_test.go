@@ -9,7 +9,6 @@ import (
 
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/dedup"
 	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/file"
-	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/quality"
 
 	"github.com/brunoga/pipeliner/internal/entry"
 )

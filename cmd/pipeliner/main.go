@@ -53,8 +53,6 @@ import (
 	_ "github.com/brunoga/pipeliner/plugins/source/jackett"
 	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/file"
 	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/magnet"
-	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/quality"
-	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/series"
 	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/tmdb"
 	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/torrent"
 	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/trakt"
