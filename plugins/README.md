@@ -55,7 +55,6 @@ Not every stage is required. A simple news-to-email pipeline might just be `rss 
 | [`content`](processor/filter/content/README.md) | Reject or require entries based on torrent file contents |
 | [`premiere`](processor/filter/premiere/README.md) | Accept the first episode of previously unseen series (automatic show discovery) |
 | [`torrentalive`](processor/filter/torrentalive/README.md) | Reject torrents with no active seeders |
-| [`upgrade`](processor/filter/upgrade/README.md) | Accept entries that are a quality upgrade over what was previously downloaded |
 | [`require`](processor/filter/require/README.md) | Reject entries missing one or more required fields |
 | [`dedup`](processor/filter/dedup/README.md) | Keep the best-quality copy when multiple entries refer to the same episode or movie |
 | [`accept_all`](processor/filter/accept_all/README.md) | Accept every undecided entry unconditionally |

@@ -32,7 +32,6 @@ import (
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/torrentalive"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/trakt"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/tvdb"
-	_ "github.com/brunoga/pipeliner/plugins/processor/filter/upgrade"
 	_ "github.com/brunoga/pipeliner/plugins/source/trakt_list"
 	_ "github.com/brunoga/pipeliner/plugins/source/tvdb_favorites"
 	_ "github.com/brunoga/pipeliner/plugins/processor/discover"
@@ -464,7 +463,7 @@ func TestAllPluginsRegistered(t *testing.T) {
 	want := []string{
 		"rss", "html", "filesystem", "discover", "trakt_list", "tvdb_favorites",
 		"seen", "regexp", "quality", "exists", "series", "movies", "condition",
-		"require", "content", "premiere", "torrent_alive", "upgrade",
+		"require", "content", "premiere", "torrent_alive",
 		"trakt", "tvdb", "accept_all", "list_match",
 		"set", "pathfmt",
 		"print", "exec", "list_add",
