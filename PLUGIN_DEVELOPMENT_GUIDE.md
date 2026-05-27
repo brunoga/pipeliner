@@ -642,7 +642,7 @@ whenever you need to guarantee that state is only written when the full pipeline
 not receive that entry and the state is not persisted, so the entry will be
 retried on the next run.
 
-The built-in `seen`, `series`, `movies`, and `upgrade` plugins all implement
+The built-in `seen`, `series`, `movies`, and `premiere` plugins all implement
 `CommitPlugin` for exactly this reason.
 
 **Recommended pattern — separate filter and persist methods:**
@@ -696,8 +696,8 @@ func (p *myStateful) Commit(ctx context.Context, tc *plugin.TaskContext, entries
 > title-source only and must not persist state.
 
 Use `CommitPlugin` when "I only want to record this if the download succeeded."
-The built-in `seen`, `series`, `movies`, `upgrade`, and `premiere` plugins all
-follow this pattern.
+The built-in `seen`, `series`, `movies`, and `premiere` plugins all follow this
+pattern.
 
 ### SearchPlugin
 
@@ -921,7 +921,7 @@ across all pipeline runs. To scope state per-pipeline, use
 | Pattern | Example | Use |
 |---------|---------|-----|
 | `"plugin_name"` | `"seen"` | Global state shared across all pipelines |
-| `"plugin_name:" + tc.Name` | `"upgrade:tv-shows"` | Per-pipeline isolated state |
+| `"plugin_name:" + tc.Name` | `"premiere:new-shows"` | Per-pipeline isolated state |
 | `"cache_plugin_name"` | `"cache_metainfo_tmdb"` | Cache bucket (fed to `cache.NewPersistent`) |
 | `"cache_plugin_name_suffix"` | `"cache_metainfo_tvdb_ext"` | Multiple caches in one plugin |
 

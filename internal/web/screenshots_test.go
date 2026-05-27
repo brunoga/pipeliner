@@ -16,8 +16,8 @@ import (
 
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/content"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/movies"
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/premiere"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/trakt"
-	_ "github.com/brunoga/pipeliner/plugins/processor/filter/upgrade"
 	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/file"
 	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/tmdb"
 	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/torrent"
@@ -78,12 +78,12 @@ func selectNode(t *testing.T, page playwright.Page, nodeID string) {
 
 // ── configs ──────────────────────────────────────────────────────────────────
 
-// normalConfig: rss → metainfo_file → upgrade → transmission
-// upgrade.Requires(video_quality) satisfied by metainfo_file.Produces → no warnings.
+// normalConfig: rss → metainfo_file → premiere → transmission.
+// premiere.Requires(...) satisfied by metainfo_file.Produces → no warnings.
 const normalConfig = `
 src  = input("rss", url="https://feeds.example.com/tv.rss")
 q    = process("metainfo_file", upstream=src)
-up   = process("upgrade", upstream=q, target="1080p bluray")
+up   = process("premiere", upstream=q)
 sink = output("transmission", upstream=up, host="localhost")
 pipeline("demo", schedule="1h")
 `
@@ -98,12 +98,12 @@ sink  = output("transmission", upstream=ct, host="localhost")
 pipeline("torrent-check", schedule="1h")
 `
 
-// hardWarnConfig: rss → upgrade (NO quality node).
-// upgrade.Requires(video_quality) not satisfied → hard ⚠ error on node.
+// hardWarnConfig: rss → premiere (NO metainfo_file node).
+// premiere.Requires(...) not satisfied → hard ⚠ error on node.
 // Loaded into visual editor via text editor re-parse only (not saved).
 const hardWarnConfig = `
 src  = input("rss", url="https://feeds.example.com/tv.rss")
-up   = process("upgrade", upstream=src, target="1080p bluray")
+up   = process("premiere", upstream=src)
 sink = output("transmission", upstream=up, host="localhost")
 pipeline("demo")
 `
@@ -214,7 +214,7 @@ func TestScreenshots(t *testing.T) {
 		screenshotLocator(t, page.Locator("#view-visual"), dir, "ui-param-panel-may-produce.png")
 	})
 
-	// ── 4. Hard field warning: upgrade node without metainfo_file ─────────────
+	// ── 4. Hard field warning: premiere node without metainfo_file ─────────────
 	t.Run("hard_field_warning", func(t *testing.T) {
 		// Start with valid config so the server loads, then load broken config
 		// into the visual editor via text editor (re-parse, no save needed).
@@ -224,7 +224,7 @@ func TestScreenshots(t *testing.T) {
 		login(t, page, ts.url)
 		openConfigTab(t, page)
 		switchToVisual(t, page, hardWarnConfig)
-		// upgrade node should show ⚠ amber warning.
+		// premiere node should show ⚠ amber warning.
 		waitLocatorVisible(t, page.Locator(".ve-node-warn"))
 		pause(200)
 		screenshotLocator(t, page.Locator("#view-visual"), dir, "ui-field-warning-error.png")
@@ -405,11 +405,11 @@ func TestScreenshots(t *testing.T) {
 		if err := page.Keyboard().Down("Meta"); err != nil {
 			t.Fatalf("meta down: %v", err)
 		}
-		if err := page.Locator(`.ve-node[data-id="upgrade_2"]`).Click(); err != nil {
+		if err := page.Locator(`.ve-node[data-id="premiere_2"]`).Click(); err != nil {
 			// Try Ctrl key on non-Mac.
 			page.Keyboard().Up("Meta") //nolint:errcheck
 			page.Keyboard().Down("Control") //nolint:errcheck
-			page.Locator(`.ve-node[data-id="upgrade_2"]`).Click() //nolint:errcheck
+			page.Locator(`.ve-node[data-id="premiere_2"]`).Click() //nolint:errcheck
 			page.Keyboard().Up("Control") //nolint:errcheck
 		} else {
 			page.Keyboard().Up("Meta") //nolint:errcheck

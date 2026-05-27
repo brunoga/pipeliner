@@ -22,7 +22,6 @@ var bucketDisplayNames = map[string]string{
 	"series":                  "Series Tracker",
 	"movies":                  "Movie Tracker",
 	"premiere":                "Premiere Tracker",
-	"upgrade":                 "Upgrade Tracker",
 	"cache_metainfo_tvdb":     "TVDB Search Cache",
 	"cache_metainfo_tvdb_ext": "TVDB Extended Cache",
 	"cache_metainfo_tvdb_eps": "TVDB Episodes Cache",
@@ -35,7 +34,7 @@ var bucketDisplayNames = map[string]string{
 
 func classifyBucket(name string) bucketCategory {
 	switch name {
-	case "series", "movies", "upgrade":
+	case "series", "movies":
 		return catTracker
 	}
 	if strings.HasPrefix(name, "premiere:") {

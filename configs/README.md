@@ -31,7 +31,7 @@ pipeline("my-pipeline", schedule="1h")          # interval
 
 ## Database
 
-Pipeliner automatically maintains a single SQLite database named `pipeliner.db` in the same directory as the config file. All stateful plugins (`seen`, `series`, `movies`, `upgrade`, `premiere`, `discover`, the Trakt/TVDB caches, and the cross-task lists) share this one file. No configuration is needed — the file is created on first run and grows as state accumulates.
+Pipeliner automatically maintains a single SQLite database named `pipeliner.db` in the same directory as the config file. All stateful plugins (`seen`, `series`, `movies`, `premiere`, `discover`, the Trakt/TVDB caches, and the cross-task lists) share this one file. No configuration is needed — the file is created on first run and grows as state accumulates.
 
 ## Variables
 
@@ -200,7 +200,7 @@ For advanced formatting, Go template syntax is also supported: `{{.field}}`, `{{
 
 ## Boolean expressions
 
-The same infix expression syntax is used by the `condition` plugin, `route()` port conditions, and the `upgrade` plugin's `on_lower` rules:
+The same infix expression syntax is used by the `condition` plugin and `route()` port conditions:
 
 | Syntax | Meaning | Example |
 |--------|---------|---------|
@@ -271,7 +271,6 @@ pipeline("my-pipeline", schedule="1h")
 
 ### Quality management
 
-- [`upgrade-quality.star`](upgrade-quality.star) — **upgrade** plugin: accept an entry only when it offers a quality improvement
 
 ### Show discovery
 
@@ -283,4 +282,4 @@ pipeline("my-pipeline", schedule="1h")
 
 ### Advanced
 
-- [`advanced-tv-pipeline.star`](advanced-tv-pipeline.star) — Trakt list + TVDB enrichment + condition + upgrade + dedup + pathfmt + notify
+- [`advanced-tv-pipeline.star`](advanced-tv-pipeline.star) — Trakt list + TVDB enrichment + condition + range-based quality ceiling + dedup + pathfmt + notify

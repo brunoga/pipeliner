@@ -5,7 +5,7 @@
 #   - TVDB enrichment for canonical titles, episode metadata, ratings
 #   - require(enriched) to drop unrecognised entries early
 #   - condition to filter out content by rating category
-#   - upgrade to track and improve quality over time
+#   - quality range spec (720p-1080p bluray-bluray) caps the upgrade ceiling
 #   - dedup to pick the best copy from multiple variants in one run
 #   - pathfmt with scrub for filesystem-safe paths
 #   - notify/webhook for a per-run Discord summary
@@ -42,17 +42,14 @@ series = process("series", upstream=flt,
     list=[{"name": "trakt_list", "client_id": trakt_id,
            "type": "shows",      "list":      "watchlist"}],
     static=["Severance"],
-    tracking="strict", quality="720p+",
+    tracking="strict",
+    # quality spec doubles as an upgrade ceiling: 720p–1080p BluRay means we
+    # accept anything in that range and the upper bound stops further upgrades.
+    quality="720p-1080p bluray-bluray",
     ttl="2h")
 
-# ── Quality upgrade ─────────────────────────────────────────────────────────
-# Accept the entry only if it improves on the quality already downloaded.
-# Target ceiling: 1080p BluRay — stop upgrading once we have that.
-upg  = process("upgrade", upstream=series,
-    target="1080p bluray")
-
 # ── Dedup and output ────────────────────────────────────────────────────────
-best = process("dedup",   upstream=upg)
+best = process("dedup",   upstream=series)
 fmt  = process("pathfmt", upstream=best,
     path=tv_path + "/{{.title | scrub}}/Season {{printf \"%02d\" .series_season}}",
     field="download_path")

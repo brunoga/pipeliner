@@ -43,7 +43,6 @@ import (
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/torrentalive"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/trakt"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/tvdb"
-	_ "github.com/brunoga/pipeliner/plugins/processor/filter/upgrade"
 	_ "github.com/brunoga/pipeliner/plugins/source/trakt_list"
 	_ "github.com/brunoga/pipeliner/plugins/source/tvdb_favorites"
 	_ "github.com/brunoga/pipeliner/plugins/processor/discover"
