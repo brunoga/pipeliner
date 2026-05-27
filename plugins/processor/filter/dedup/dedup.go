@@ -82,7 +82,7 @@ func deduKey(e *entry.Entry) string {
 	if epID := e.GetString(entry.FieldSeriesEpisodeID); epID != "" {
 		// Derive a normalised series name. Prefer parsing e.Title (the raw entry
 		// title / torrent filename), which always gives a clean series name like
-		// "Breaking Bad" regardless of whether metainfo_series has run.
+		// "Breaking Bad" regardless of whether metainfo_file has run.
 		// Fall back to e.Fields["title"] when e.Title does not parse as an episode.
 		var name string
 		if ep, ok := series.Parse(e.Title); ok {

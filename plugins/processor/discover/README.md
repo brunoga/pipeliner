@@ -50,7 +50,7 @@ results   = process("discover", upstream=watchlist,
              "api_key": env("JACKETT_KEY"), "categories": ["2000"]}],
     interval="12h")
 seen      = process("seen",            upstream=results)
-q         = process("metainfo_quality", upstream=seen)
+q         = process("metainfo_file", upstream=seen)
 flt       = process("quality",          upstream=q, min="1080p")
 output("qbittorrent", upstream=flt, host="localhost")
 pipeline("movie-discover", schedule="2h")

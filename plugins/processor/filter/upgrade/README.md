@@ -14,15 +14,15 @@ State is persisted in `pipeliner.db` in the same directory as the config file, a
 | `on_lower` | string | no | `reject` | What to do when the incoming quality is not better: `reject` or `accept` |
 
 The entry key is `title:series_episode_id` when series metadata is present
-(set by `metainfo_series` or the `series` filter); otherwise the raw title is
-used. Run a series metainfo plugin before this filter to ensure stable keys.
+(set by `metainfo_file`); otherwise the raw title is used. Run `metainfo_file`
+before this filter to ensure stable keys.
 
 ## Example
 
 ```python
-src  = input("rss", url="https://example.com/rss")
-q    = process("metainfo_quality", upstream=src)
-up   = process("upgrade", upstream=q, target="1080p")
+src  = input("rss",            url="https://example.com/rss")
+meta = process("metainfo_file", upstream=src)
+up   = process("upgrade",       upstream=meta, target="1080p")
 output("transmission", upstream=up, host="localhost")
 pipeline("upgrade-quality")
 ```
@@ -33,4 +33,4 @@ pipeline("upgrade-quality")
 |----------|-------|
 | Role | `processor` |
 | Produces | — |
-| Requires | `video_quality` (set by `metainfo_quality`) |
+| Requires | `video_quality` (set by `metainfo_file`) |

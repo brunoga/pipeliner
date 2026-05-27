@@ -72,7 +72,7 @@ All results are cached in `pipeliner.db` to avoid redundant API calls across run
 ```python
 src  = input("rss", url="https://example.com/rss")
 seen = process("seen",          upstream=src)
-ep   = process("metainfo_series", upstream=seen)
+ep   = process("metainfo_file", upstream=seen)
 tvdb = process("metainfo_tvdb",   upstream=ep, api_key=env("TVDB_KEY"))
 req  = process("require",         upstream=tvdb, fields=["enriched"])
 fmt  = process("pathfmt",         upstream=req,

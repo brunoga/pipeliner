@@ -1,6 +1,6 @@
 # quality
 
-Rejects entries whose parsed video quality falls outside a configured range. At least one of `min` or `max` must be set. Place `metainfo_quality` upstream so the `video_quality` field is populated before this filter runs.
+Rejects entries whose parsed video quality falls outside a configured range. At least one of `min` or `max` must be set. Place `metainfo_file` upstream so the `video_quality` field is populated before this filter runs.
 
 ## Config
 
@@ -44,7 +44,7 @@ Theater-recorded and pre-release sources sit at the bottom of the source hierarc
 
 ```python
 src = input("rss", url="https://example.com/rss")
-q   = process("metainfo_quality", upstream=src)
+q   = process("metainfo_file", upstream=src)
 flt = process("quality", upstream=q, min="720p webrip+")
 acc = process("accept_all", upstream=flt)
 output("transmission", upstream=acc, host="localhost")

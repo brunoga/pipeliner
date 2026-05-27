@@ -11,7 +11,7 @@ routes = route(upstream,
     series = "series_episode_id != ''",
     movies = "series_episode_id == ''")
 
-series_path = process("metainfo_series", upstream=routes.series)
+series_path = process("metainfo_file", upstream=routes.series)
 movies_path = process("metainfo_tmdb",   upstream=routes.movies, api_key=env("TMDB_KEY"))
 output("transmission", upstream=merge(series_path, movies_path), host="localhost")
 ```

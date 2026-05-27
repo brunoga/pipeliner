@@ -4,7 +4,7 @@ Parses the entry title (filename) and annotates **all** detectable metadata in a
 
 Takes no config.
 
-> **Why this plugin:** without `metainfo_file`, a mixed feed needs `metainfo_series` + `metainfo_quality` chained together, and there is no equivalent for movies at all. `metainfo_file` is the single canonical "extract everything possible from the filename" step.
+> **Why this plugin:** `metainfo_file` is the single canonical "extract everything possible from the filename" step — series episode info, movie title/year, quality, codec, audio, PROPER/REPACK markers, and a `media_type` classification, all in one pass.
 
 ## Classification
 
@@ -125,6 +125,6 @@ pipeline("videos-only", schedule="1h")
 
 ## Notes
 
-- `metainfo_file` does the same title-parsing work as `metainfo_series` and `metainfo_quality` combined, plus movie detection. It does **not** call any external APIs — for richer enrichment (cast, overview, ratings) chain `metainfo_tvdb` or `metainfo_tmdb` after it.
+- `metainfo_file` does not call any external APIs — for richer enrichment (cast, overview, ratings) chain `metainfo_tvdb` or `metainfo_tmdb` after it.
 - Movie detection without a configured title list is best-effort: anything with a year followed by a quality marker is classified as movie. Use the `movies` filter (with a title list) for confident matching.
 - Entries already rejected or failed upstream are skipped — `metainfo_file` never resurrects them and never produces side effects on them.
