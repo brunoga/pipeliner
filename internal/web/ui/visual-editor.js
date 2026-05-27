@@ -438,6 +438,20 @@ function removeNode(id) {
   onModelChange();
 }
 
+// setActiveGraph updates ve.activeGraph AND syncs the pipeline label/region
+// DOM. Use this whenever the active pipeline changes — never assign
+// ve.activeGraph directly. The DOM sync is idempotent, so call it even when
+// gi may equal the current activeGraph (defensive against stale labels).
+function setActiveGraph(gi) {
+  if (gi < 0 || gi >= ve.graphs.length) return false;
+  ve.activeGraph = gi;
+  document.querySelectorAll('.ve-pipeline-label[data-graph-idx]').forEach(el => {
+    el.classList.toggle('active', parseInt(el.dataset.graphIdx) === gi);
+  });
+  renderPipelineRegions();
+  return true;
+}
+
 // selectNode: toggle selection WITHOUT rebuilding DOM (keeps drag div ref valid).
 // Clears any multi-selection when called (single-click behaviour).
 function selectNode(id) {
@@ -447,7 +461,7 @@ function selectNode(id) {
 
   if (ve.selectedNodeId) {
     const gi = findNodeGraph(ve.selectedNodeId);
-    if (gi >= 0) ve.activeGraph = gi;
+    if (gi >= 0) setActiveGraph(gi);
   }
 
   // Just toggle CSS class — no full DOM rebuild.
@@ -816,13 +830,9 @@ function renderPipelineLabels() {
     label.querySelector('.ve-pl-sched').addEventListener('change', e => { ve.graphs[gi].schedule = e.target.value; onModelChange(); });
     const nameSpan = label.querySelector('.ve-pl-name');
     nameSpan.addEventListener('click', () => {
-      ve.activeGraph = gi;
-      // Toggle .active on existing labels in-place so we don't recreate them
+      // Toggle .active on existing labels in-place rather than recreating them
       // (recreating would destroy the dblclick handler on nameSpan).
-      document.querySelectorAll('.ve-pipeline-label[data-graph-idx]').forEach(el => {
-        el.classList.toggle('active', parseInt(el.dataset.graphIdx) === gi);
-      });
-      renderPipelineRegions();
+      setActiveGraph(gi);
       renderParamPanel();
     });
 
@@ -1857,11 +1867,10 @@ function initCanvasEvents() {
           const br = body.getBoundingClientRect();
           const cx = (startX - br.left - ve_panX) / ve_zoom;
           const cy = (startY - br.top  - ve_panY) / ve_zoom;
-          const gi = findGraphAtPosition(cx, cy);
-          if (gi >= 0 && gi !== ve.activeGraph) {
-            ve.activeGraph = gi;
-            renderPipelineRegions();
-          }
+          // Always re-sync labels/regions: a prior selectNode may have moved
+          // ve.activeGraph without updating the DOM, so checking
+          // gi !== ve.activeGraph here would leave stale highlights forever.
+          setActiveGraph(findGraphAtPosition(cx, cy));
           renderEdges();
           renderParamPanel();
         }
