@@ -220,8 +220,8 @@ Pipelines are built by connecting nodes with `input()`, `process()`, `merge()`, 
 
 ```python
 src     = input("rss", url="https://example.com/rss")
-quality = process("metainfo_file", upstream=src)
-flt     = process("quality", upstream=quality, min="720p")
+meta    = process("metainfo_file", upstream=src)
+flt     = process("series", upstream=meta, static=["My Show"], quality="720p+")
 output("transmission", upstream=flt, host="localhost")
 pipeline("my-pipeline", schedule="1h")
 ```

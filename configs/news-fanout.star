@@ -26,14 +26,17 @@ filtered = process("regexp", upstream=seen,
 accepted = process("accept_all", upstream=filtered)
 
 # Fan-out: both sinks receive the same filtered articles independently.
-output("email", upstream=accepted,
-    smtp_host=smtp_host,
-    smtp_port=smtp_port,
-    sender=smtp_user,
-    username=smtp_user,
-    password=smtp_pass,
-    to=mail_to,
-    subject="Tech digest: {{len .Entries}} article(s)")
+output("notify", upstream=accepted,
+    via="email",
+    title="Tech digest: {{len .Entries}} article(s)",
+    config={
+        "smtp_host": smtp_host,
+        "smtp_port": smtp_port,
+        "sender":    smtp_user,
+        "username":  smtp_user,
+        "password":  smtp_pass,
+        "to":        mail_to,
+    })
 
 output("list_add", upstream=accepted, list="tech_articles")
 

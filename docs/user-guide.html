@@ -148,12 +148,9 @@ td code{font-size:11px}
     <a href="#torrentalive" class="sub">torrentalive</a>
     <a href="#require" class="sub">require</a>
     <a href="#seen" class="sub">seen</a>
-    <a href="#tvdb-filter" class="sub">tvdb</a>
-    <a href="#trakt-filter" class="sub">trakt</a>
     <a href="#exists" class="sub">exists</a>
     <a href="#list_match" class="sub">list_match</a>
     <a href="#regexp" class="sub">regexp</a>
-    <a href="#quality-filter" class="sub">quality</a>
     <a href="#age" class="sub">age</a>
     <a href="#content" class="sub">content</a>
     <a href="#dedup" class="sub">dedup</a>
@@ -168,7 +165,6 @@ td code{font-size:11px}
     <a href="#qbittorrent" class="sub">qbittorrent</a>
     <a href="#transmission" class="sub">transmission</a>
     <a href="#download" class="sub">download</a>
-    <a href="#email-output" class="sub">email</a>
     <a href="#exec" class="sub">exec</a>
     <a href="#print" class="sub">print</a>
     <a href="#notify-output" class="sub">notify</a>
@@ -337,26 +333,29 @@ pipeline("tv")</code></pre>
 
 <pre><code><span class="y-comment"># A template takes an upstream node and returns the last node in the chain</span>
 def standard_tv(upstream, dest="/media/tv"):
-    seen   = process("seen",            upstream=upstream)
-    quality = process("metainfo_file", upstream=seen)
-    flt    = process("quality",          upstream=quality, min="720p webrip+")
-    fmt    = process("pathfmt",          upstream=flt,
+    seen   = process("seen",          upstream=upstream)
+    meta   = process("metainfo_file", upstream=seen)
+    fmt    = process("pathfmt",       upstream=meta,
                      path=dest + "/{title}/Season {series_season:02d}",
                      field="download_path")
     return fmt
 
-def notify_email(upstream, subject):
-    output("email", upstream=upstream,
-           smtp_host="smtp.example.com", smtp_port=587,
-           sender="me@example.com", to="me@example.com",
-           subject=subject)
+def notify_email(upstream, title):
+    output("notify", upstream=upstream, via="email",
+           config={
+               "smtp_host": "smtp.example.com",
+               "smtp_port": 587,
+               "sender":    "me@example.com",
+               "to":        "me@example.com",
+           },
+           title=title)
 
 <span class="y-comment"># Compose templates into a complete pipeline</span>
 src    = input("rss", url="https://example.com/rss")
 series = process("series", upstream=src, static=["Breaking Bad", "Severance"])
 ready  = standard_tv(series)
 output("transmission", upstream=ready, host="localhost")
-notify_email(ready, subject="New: {{len .Entries}} episode(s)")
+notify_email(ready, title="New: {{len .Entries}} episode(s)")
 pipeline("tv-shows", schedule="30m")</code></pre>
 
 <h4>Key points</h4>
@@ -392,18 +391,18 @@ pipeline("morning", schedule="0 7 * * *")   <span class="y-comment"># every day 
   <tr><td><strong>Sink</strong> (<code>output()</code>)</td><td>Acts on accepted entries: queues torrents, sends notifications, runs commands. Skips side effects when <code>--dry-run</code> is set.</td><td>accepted / failed (on error)</td></tr>
 </table>
 
-<div class="note">Processors run in the order they are connected. Place metainfo processors before the filters that use their output — for example, put <code>metainfo_file</code> before <code>quality</code>.</div>
+<div class="note">Processors run in the order they are connected. Place metainfo processors before the filters that use their output — for example, put <code>metainfo_file</code> before <code>condition</code> or <code>series</code>.</div>
 
 <h2 id="connecting">Connecting Nodes</h2>
 
 <p>The <code>upstream=</code> argument connects a node to its upstream. The node receives the entries that upstream passed through. A node with multiple upstreams receives all of their combined output (deduplicated by URL).</p>
 
 <pre><code><span class="y-comment"># Linear chain — each node connects to the one before it</span>
-src     = input("rss", url="https://feed.example.com/rss")
-seen    = process("seen",             upstream=src)
-quality = process("metainfo_file", upstream=seen)
-flt     = process("quality",          upstream=quality, min="720p")
-output("transmission",                upstream=flt, host="localhost")
+src  = input("rss", url="https://feed.example.com/rss")
+seen = process("seen",          upstream=src)
+meta = process("metainfo_file", upstream=seen)
+flt  = process("condition",     upstream=meta, accept='video_resolution in ["720p","1080p"]')
+output("transmission",          upstream=flt, host="localhost")
 pipeline("tv")</code></pre>
 
 <pre><code><span class="y-comment"># Two sources merged into one chain</span>
@@ -420,18 +419,22 @@ seen = process("seen",   upstream=src)
 flt  = process("series", upstream=seen, static=["My Show"])
 
 output("transmission", upstream=flt, host="localhost")
-output("email",        upstream=flt, smtp_host="smtp.example.com",
-       sender="me@example.com", to="me@example.com")
+output("notify", upstream=flt, via="email",
+       config={"smtp_host": "smtp.example.com",
+               "sender":    "me@example.com",
+               "to":        "me@example.com"})
 pipeline("tv-fanout")</code></pre>
 
-<pre><code><span class="y-comment"># Sink chaining: email fires only for entries Transmission confirmed</span>
+<pre><code><span class="y-comment"># Sink chaining: notify fires only for entries Transmission confirmed</span>
 src  = input("rss", url="https://feed.example.com/rss")
 seen = process("seen",   upstream=src)
 flt  = process("series", upstream=seen, static=["My Show"])
 
 dl = output("transmission", upstream=flt, host="localhost")
-output("email", upstream=dl, smtp_host="smtp.example.com",
-       sender="me@example.com", to="me@example.com")
+output("notify", upstream=dl, via="email",
+       config={"smtp_host": "smtp.example.com",
+               "sender":    "me@example.com",
+               "to":        "me@example.com"})
 pipeline("tv-chained")</code></pre>
 
 <div class="note"><strong>Fan-out vs chaining:</strong> When two <code>output()</code> calls share the same <code>upstream=</code> they run independently — each receives all accepted entries regardless of what the other does. When one <code>output()</code> uses another as its <code>upstream=</code>, the chained sink only receives entries the first sink did not fail. Use chaining when a downstream action (notification, post-processing) should only happen after the primary sink confirms success.</div>
@@ -823,8 +826,8 @@ results   = process("discover", upstream=watchlist,
              "api_key": env("JACKETT_KEY"), "categories": ["2000"]}],
     interval="12h")
 seen      = process("seen",   upstream=results)
-quality   = process("metainfo_file", upstream=seen)
-flt       = process("quality",upstream=quality, min="1080p")
+meta      = process("metainfo_file", upstream=seen)
+flt       = process("movies", upstream=meta, list=watchlist, quality="1080p+")
 output("qbittorrent", upstream=flt, host="localhost")
 pipeline("movie-discover", schedule="2h")</code></pre>
 
@@ -1297,40 +1300,12 @@ Because <code>enriched</code> is set by any external provider, the same config w
 seen = process("seen", upstream=src)
 flt  = process("regexp", upstream=seen, accept=["(?i)linux|golang|open.?source"])
 acc  = process("accept_all", upstream=flt)
-output("email", upstream=acc,
-       smtp_host="smtp.gmail.com", smtp_port=587,
-       username=env("SMTP_USER"), password=env("SMTP_PASS"),
-       sender=env("SMTP_USER"), to=env("SMTP_TO"),
-       subject="{{len .Entries}} new article(s)")
+output("notify", upstream=acc, via="email",
+       config={"smtp_host": "smtp.gmail.com", "smtp_port": 587,
+               "username": env("SMTP_USER"), "password": env("SMTP_PASS"),
+               "sender":   env("SMTP_USER"), "to":       env("SMTP_TO")},
+       title="{{len .Entries}} new article(s)")
 pipeline("tech-news", schedule="1h")</code></pre>
-
-<!-- ─────────── tvdb filter ─────────── -->
-<h2 id="tvdb-filter">tvdb</h2>
-<p>Accepts series entries whose parsed show name fuzzy-matches a show in the user's TheTVDB favorites. Fetches and caches the favorites list.</p>
-
-<table>
-  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
-  <tr><td><code>api_key</code></td><td>yes</td><td>—</td><td>TheTVDB API key</td></tr>
-  <tr><td><code>user_pin</code></td><td>yes</td><td>—</td><td>User PIN from thetvdb.com</td></tr>
-  <tr><td><code>ttl</code></td><td>no</td><td><code>1h</code></td><td>Favorites list cache TTL. An empty list result is not cached — the API will be retried on the next run rather than serving a stale empty list.</td></tr>
-  <tr><td><code>reject_unmatched</code></td><td>no</td><td><code>true</code></td><td>Reject entries that do not match the favorites list. Set to <code>false</code> to leave them undecided when chaining filters.</td></tr>
-</table>
-
-<!-- ─────────── trakt filter ─────────── -->
-<h2 id="trakt-filter">trakt</h2>
-<p>Accepts entries whose parsed title matches something on a Trakt.tv list. Matching is <strong>year-aware</strong>: the release year from the Trakt list is stored alongside each title. When the candidate entry carries a year (<code>video_year</code> from <code>trakt_list</code> or <code>metainfo_tmdb</code>), entries that fuzzy-match on title but differ in year by more than 1 are not accepted. This prevents, for example, "Mother (2025)" matching "mother! (2017)" because they share a similar title. If either year is unknown the match falls back to title-only.</p>
-
-<table>
-  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
-  <tr><td><code>client_id</code></td><td>yes</td><td>—</td><td>Trakt API Client ID</td></tr>
-  <tr><td><code>type</code></td><td>yes</td><td>—</td><td><code>shows</code> or <code>movies</code></td></tr>
-  <tr><td><code>list</code></td><td>no</td><td><code>watchlist</code></td><td>List name</td></tr>
-  <tr><td><code>access_token</code></td><td>conditional</td><td>—</td><td>Required for private lists</td></tr>
-  <tr><td><code>limit</code></td><td>no</td><td>100</td><td>Max results for public lists</td></tr>
-  <tr><td><code>min_rating</code></td><td>no</td><td>—</td><td>Minimum rating (1–10, <code>ratings</code> list only)</td></tr>
-  <tr><td><code>ttl</code></td><td>no</td><td><code>1h</code></td><td>List cache TTL. An empty list result is not cached — the API will be retried on the next run rather than serving a stale empty list.</td></tr>
-  <tr><td><code>reject_unmatched</code></td><td>no</td><td><code>true</code></td><td>Reject entries that do not match the list. Set to <code>false</code> to leave them undecided when chaining filters.</td></tr>
-</table>
 
 <!-- ─────────── exists ─────────── -->
 <h2 id="exists">exists</h2>
@@ -1367,18 +1342,6 @@ pipeline("tech-news", schedule="1h")</code></pre>
 <pre><code>flt = process("regexp", upstream=upstream,
               accept=["(?i)golang", "(?i)kubernetes"],
               reject=["(?i)sponsored"])</code></pre>
-
-<!-- ─────────── quality filter ─────────── -->
-<h2 id="quality-filter">quality</h2>
-<p>Rejects entries whose parsed quality falls outside a configured range. See <a href="#quality-spec">Quality Specs</a>.</p>
-
-<table>
-  <tr><th>Key</th><th>Required</th><th>Description</th></tr>
-  <tr><td><code>min</code></td><td>conditional</td><td>Minimum quality spec</td></tr>
-  <tr><td><code>max</code></td><td>conditional</td><td>Maximum quality spec</td></tr>
-</table>
-
-<pre><code>flt = process("quality", upstream=upstream, min="720p webrip", max="1080p")</code></pre>
 
 <!-- ─────────── age ─────────── -->
 <h2 id="age">age</h2>
@@ -1540,33 +1503,6 @@ pipeline("tv")</code></pre>
   <tr><td><code>filename</code></td><td>no</td><td><code>{{.url_basename}}</code></td><td>Filename template (also has <code>url_basename</code> and <code>timestamp</code>)</td></tr>
 </table>
 
-<!-- ─────────── email output ─────────── -->
-<h2 id="email-output">email</h2>
-<p>Sends a single email for each batch of accepted entries via SMTP. Subject and body are Go templates rendered against the entry batch.</p>
-
-<table>
-  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
-  <tr><td><code>smtp_host</code></td><td>yes</td><td>—</td><td>SMTP server hostname</td></tr>
-  <tr><td><code>smtp_port</code></td><td>no</td><td><code>25</code></td><td>SMTP port</td></tr>
-  <tr><td><code>sender</code></td><td>yes</td><td>—</td><td>Sender address</td></tr>
-  <tr><td><code>to</code></td><td>yes</td><td>—</td><td>Recipient address(es)</td></tr>
-  <tr><td><code>username</code></td><td>no</td><td>—</td><td>SMTP auth username</td></tr>
-  <tr><td><code>password</code></td><td>no</td><td>—</td><td>SMTP auth password</td></tr>
-  <tr><td><code>html</code></td><td>no</td><td>false</td><td>Send as HTML email</td></tr>
-  <tr><td><code>subject</code></td><td>no</td><td><code>pipeliner: {{len .Entries}} new item(s)</code></td><td>Subject template</td></tr>
-  <tr><td><code>body_template</code></td><td>no</td><td>plain list</td><td>Body template; context has <code>.Entries</code></td></tr>
-</table>
-
-<pre><code>output("email", upstream=ready,
-       smtp_host="smtp.gmail.com", smtp_port=587,
-       username=env("SMTP_USER"), password=env("SMTP_PASS"),
-       sender="me@gmail.com", to="me@gmail.com", html=True,
-       subject="New premieres: {{len .Entries}} show(s)",
-       body_template="""{{range .Entries}}
-&lt;h2&gt;{{index .Fields "title"}}&lt;/h2&gt;
-&lt;p&gt;{{index .Fields "description"}}&lt;/p&gt;
-{{end}}""")</code></pre>
-
 <!-- ─────────── exec ─────────── -->
 <h2 id="exec">exec</h2>
 <p>Runs a command for each accepted entry. The command is a template rendered against the entry, then split on whitespace and executed directly — there is no shell, so pipes, globs, and variable expansion are not supported.</p>
@@ -1589,7 +1525,7 @@ pipeline("tv")</code></pre>
 
 <!-- ─────────── notify output ─────────── -->
 <h2 id="notify-output">notify</h2>
-<p>Sends a batch-level notification via a configured notifier. One notification per run (not per entry), unlike the <code>email</code> output plugin.</p>
+<p>Sends a batch-level notification via a configured notifier. One notification per run (not per entry).</p>
 
 <table>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>

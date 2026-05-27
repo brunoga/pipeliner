@@ -26,7 +26,6 @@ import (
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/premiere"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/route"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/seen"
-	_ "github.com/brunoga/pipeliner/plugins/processor/filter/trakt"
 	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/file"
 	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/torrent"
 	_ "github.com/brunoga/pipeliner/plugins/processor/modify/pathfmt"
@@ -1104,18 +1103,18 @@ pipeline("test")
 // ── list-function connection test ─────────────────────────────────────────────
 
 // traktListFunctionConfig is a DAG config where:
-//   - unwatched_movies is a user function wrapping trakt_list → trakt
-//   - a movies node uses it via list=[unwatched_movies()]
+//   - watchlist is a user function wrapping a trakt_list source
+//   - a movies node uses it via list=[watchlist()]
 const traktListFunctionConfig = `
 # pipeliner:param
-def unwatched_movies():
+def watchlist():
     src      = input("trakt_list", client_id="test-id", type="movies")
-    filtered = process("trakt", upstream=src, client_id="test-id", type="movies", list="history", reject_matched=True, reject_unmatched=False)
+    filtered = process("condition", upstream=src, accept="true")
     return filtered
 
 main_src = input("rss", url="https://example.com/rss")
 seen     = process("seen", upstream=main_src)
-flt      = process("movies", upstream=seen, list=[unwatched_movies()], static=["Inception"])
+flt      = process("movies", upstream=seen, list=[watchlist()], static=["Inception"])
 output("print", upstream=flt)
 pipeline("unwatched", schedule="1h")
 `

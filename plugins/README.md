@@ -16,12 +16,12 @@ Most pipelines follow this order — you only need the stages relevant to your u
 2. **Dedup across runs** — `seen` (reject entries processed in previous runs)
 3. **Enrichment** — `metainfo_file` (parse everything from the filename in one pass); add `metainfo_tvdb` / `metainfo_tmdb` / `metainfo_trakt` for external metadata APIs
 4. **Quality requirement check** — `require(fields=["enriched"])` to drop entries that couldn't be identified
-5. **Content filter** — `series`, `movies`, `condition`, `regexp`, `quality`, … (accept or reject)
+5. **Content filter** — `series`, `movies`, `premiere`, `condition`, `regexp`, … (accept or reject)
 6. **Within-run dedup** — `dedup` (keep the best copy when multiple variants arrive in one run)
 7. **Field setup** — `pathfmt`, `set` (compute download paths or set custom fields)
 8. **Sink** — `transmission`, `deluge`, `qbittorrent`, `exec`, `notify`, …
 
-Not every stage is required. A simple news-to-email pipeline might just be `rss → seen → regexp → email`.
+Not every stage is required. A simple news-to-email pipeline might just be `rss → seen → regexp → notify(via="email")`.
 
 ## Sources (`input(…)`)
 
@@ -44,9 +44,6 @@ Not every stage is required. A simple news-to-email pipeline might just be `rss 
 | [`series`](processor/filter/series/README.md) | Accept episodes of configured TV shows; track downloads |
 | [`movies`](processor/filter/movies/README.md) | Accept movies from a configured title list; track downloads |
 | [`list_match`](processor/filter/list_match/README.md) | Accept entries whose title is in a persistent cross-task list |
-| [`trakt`](processor/filter/trakt/README.md) | Accept entries whose title matches a Trakt.tv list |
-| [`tvdb`](processor/filter/tvdb/README.md) | Accept entries whose title matches TheTVDB user favorites |
-| [`quality`](processor/filter/quality/README.md) | Reject entries below or above a quality range |
 | [`age`](processor/filter/age/README.md) | Reject entries whose date field falls outside a configured age window |
 | [`regexp`](processor/filter/regexp/README.md) | Accept or reject entries by regular expression |
 | [`exists`](processor/filter/exists/README.md) | Reject entries whose target file already exists on disk |
@@ -94,13 +91,12 @@ Not every stage is required. A simple news-to-email pipeline might just be `rss 
 | [`exec`](sink/exec/README.md) | Run a shell command for each accepted entry |
 | [`decompress`](sink/decompress/README.md) | Decompress downloaded archives (zip, rar, tar.gz, …) |
 | [`list_add`](sink/list_add/README.md) | Add accepted entries to a named persistent list |
-| [`email`](sink/email/README.md) | Send an email for each accepted entry |
 | [`print`](sink/print/README.md) | Print accepted entries to stdout |
-| [`notify`](sink/notify/README.md) | Send a per-run batch notification via a configured backend |
+| [`notify`](sink/notify/README.md) | Send a per-run batch notification via a configured backend (email, webhook, Pushover) |
 
 ## Notification backends (used with the `notify` sink)
 
-The `notify` sink dispatches to one of these backends via `via="name"`. Unlike the `email` sink above — which sends one email per entry — these send a single summary for the whole run.
+The `notify` sink dispatches to one of these backends via `via="name"`.
 
 | Backend | Description |
 |---------|-------------|

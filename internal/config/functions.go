@@ -9,9 +9,11 @@ package config
 //	# Human-readable description.
 //	# pipeliner:param quality  Minimum quality spec, e.g. "1080p+"
 //	def quality_filter(upstream, quality="1080p"):
-//	    s = process("seen",    upstream=upstream)
-//	    q = process("quality", upstream=s, min=quality)
-//	    return q
+//	    s = process("seen",          upstream=upstream)
+//	    m = process("metainfo_file", upstream=s)
+//	    f = process("condition",     upstream=m,
+//	                accept='video_resolution in ["1080p","2160p"]')
+//	    return f
 //
 // Discovery is a two-phase process:
 //  1. Pre-execution text scan (scanUserFunctions) — extracts names, params,
