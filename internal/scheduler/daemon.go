@@ -31,6 +31,7 @@ type Daemon struct {
 	wakeCh    chan struct{}
 	immediate []string            // tasks to fire at the start of Run
 	running   map[string]struct{} // tasks currently executing
+	wg        sync.WaitGroup      // tracks every in-flight runTask goroutine
 }
 
 // triggerChan returns the trigger channel, creating it lazily.
@@ -130,6 +131,7 @@ func (d *Daemon) Run(ctx context.Context, runner TaskRunner) {
 	d.running = make(map[string]struct{})
 	d.mu.Unlock()
 	for _, name := range imm {
+		d.wg.Add(1)
 		go d.runTask(ctx, name, runner)
 	}
 
@@ -155,6 +157,7 @@ func (d *Daemon) Run(ctx context.Context, runner TaskRunner) {
 			d.fireDue(ctx, runner, now)
 		case name := <-triggerCh:
 			timer.Stop()
+			d.wg.Add(1)
 			go d.runTask(ctx, name, runner)
 		case <-wakeCh:
 			timer.Stop() // recalculate timer with new entries
@@ -162,8 +165,12 @@ func (d *Daemon) Run(ctx context.Context, runner TaskRunner) {
 	}
 }
 
-// runTask executes the runner if the task is not already running.
+// runTask executes the runner if the task is not already running. Every call
+// to runTask is tracked by d.wg so Wait can block for in-flight goroutines on
+// shutdown.
 func (d *Daemon) runTask(ctx context.Context, name string, runner TaskRunner) {
+	defer d.wg.Done()
+
 	d.mu.Lock()
 	if _, ok := d.running[name]; ok {
 		d.mu.Unlock()
@@ -179,6 +186,24 @@ func (d *Daemon) runTask(ctx context.Context, name string, runner TaskRunner) {
 	}()
 
 	runner(ctx, name)
+}
+
+// Wait blocks until every in-flight task goroutine has returned or shutdownCtx
+// is cancelled (whichever comes first). Returns true on a clean shutdown,
+// false on timeout. Safe to call after Run has returned; safe to call when
+// no tasks are running (returns true immediately).
+func (d *Daemon) Wait(shutdownCtx context.Context) bool {
+	done := make(chan struct{})
+	go func() {
+		d.wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return true
+	case <-shutdownCtx.Done():
+		return false
+	}
 }
 
 // nextWake returns the earliest scheduled fire time across all entries.
@@ -205,6 +230,7 @@ func (d *Daemon) fireDue(ctx context.Context, runner TaskRunner, now time.Time) 
 	d.mu.Unlock()
 
 	for _, name := range due {
+		d.wg.Add(1)
 		go d.runTask(ctx, name, runner)
 	}
 }

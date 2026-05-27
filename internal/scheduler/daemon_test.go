@@ -195,3 +195,70 @@ func TestDaemonScheduledOverlap(t *testing.T) {
 		t.Errorf("expected at most 1 instance of scheduled-overlap to run, but found %d", m)
 	}
 }
+
+// TestDaemonWaitBlocksForInFlightTasks is the core invariant for graceful
+// shutdown: after Run returns (scheduler ctx cancelled), Wait blocks until
+// every still-running task goroutine has finished. Without Wait the daemon
+// would return immediately and the caller might tear down resources the
+// task is still using (db handle, etc).
+func TestDaemonWaitBlocksForInFlightTasks(t *testing.T) {
+	d := &Daemon{}
+	d.TriggerAtStart("slow-task")
+
+	// runnerStarted closes once the runner has begun; runnerCanFinish gates
+	// when it returns. This lets us reliably exercise the "task still running
+	// when Run returns" scenario.
+	runnerStarted   := make(chan struct{})
+	runnerCanFinish := make(chan struct{})
+
+	runCtx, cancelRun := context.WithCancel(context.Background())
+	defer cancelRun()
+
+	runDone := make(chan struct{})
+	go func() {
+		defer close(runDone)
+		d.Run(runCtx, func(ctx context.Context, _ string) {
+			close(runnerStarted)
+			// Hold until the test releases us. The runner intentionally
+			// ignores ctx here to simulate a plugin that doesn't observe
+			// cancellation immediately.
+			<-runnerCanFinish
+			_ = ctx
+		})
+	}()
+
+	<-runnerStarted
+	cancelRun()
+	<-runDone // Run loop has exited; runner is still alive.
+
+	// Wait with a tight deadline must time out — runner is still blocked.
+	shortCtx, cancelShort := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancelShort()
+	if d.Wait(shortCtx) {
+		t.Fatal("Wait should NOT return true while a task goroutine is still running")
+	}
+
+	// Release the runner and wait again with plenty of slack.
+	close(runnerCanFinish)
+	longCtx, cancelLong := context.WithTimeout(context.Background(), time.Second)
+	defer cancelLong()
+	if !d.Wait(longCtx) {
+		t.Fatal("Wait should return true once the task goroutine has finished")
+	}
+}
+
+// TestDaemonWaitReturnsImmediatelyWhenIdle verifies the zero-tasks-in-flight
+// case — calling Wait on a daemon that never ran (or whose tasks all finished)
+// must not block.
+func TestDaemonWaitReturnsImmediatelyWhenIdle(t *testing.T) {
+	d := &Daemon{}
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	t0 := time.Now()
+	if !d.Wait(ctx) {
+		t.Fatal("Wait should return true immediately when no tasks are in flight")
+	}
+	if elapsed := time.Since(t0); elapsed > 50*time.Millisecond {
+		t.Errorf("Wait blocked for %v on an idle daemon; should be near-instant", elapsed)
+	}
+}
