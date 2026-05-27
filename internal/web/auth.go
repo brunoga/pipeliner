@@ -52,6 +52,17 @@ func (s *sessionStore) delete(token string) {
 	s.mu.Unlock()
 }
 
+// clearAll invalidates every existing session. The next request from any
+// previously-authenticated client will fail the valid() check and be
+// redirected to /login. Used to enforce single-session semantics: pipeliner
+// is designed for a single user, so a new login kicks any other browsers
+// rather than risk silently racing config saves.
+func (s *sessionStore) clearAll() {
+	s.mu.Lock()
+	s.sessions = make(map[string]time.Time)
+	s.mu.Unlock()
+}
+
 func (s *sessionStore) runCleanup() {
 	for range time.Tick(sessionCleanup) {
 		now := time.Now()
@@ -114,6 +125,10 @@ func (s *Server) handleLoginPost(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/login?failed=1", http.StatusSeeOther)
 		return
 	}
+	// Enforce single active session: kick every previously-authenticated
+	// browser before issuing the new token so concurrent editors can't race
+	// on /api/config saves.
+	s.sessions.clearAll()
 	token, err := s.sessions.create()
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
