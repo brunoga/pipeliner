@@ -23,6 +23,7 @@ package file
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/brunoga/pipeliner/internal/entry"
 	imovies "github.com/brunoga/pipeliner/internal/movies"
@@ -98,12 +99,12 @@ func newPlugin(_ map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
 
 func (p *filePlugin) Name() string { return "metainfo_file" }
 
-func (p *filePlugin) Process(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
+func (p *filePlugin) Process(_ context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
 	for _, e := range entries {
 		if e.IsRejected() || e.IsFailed() {
 			continue
 		}
-		annotate(e)
+		annotate(tc.Logger, e)
 	}
 	return entries, nil
 }
@@ -119,15 +120,20 @@ func (p *filePlugin) Process(_ context.Context, _ *plugin.TaskContext, entries [
 //     but an upstream source — typically trakt_list — has already set
 //     video_year. In that case we treat the entry's raw title as the movie
 //     title (normalised) and the upstream year as the release year.
-func annotate(e *entry.Entry) {
+func annotate(log *slog.Logger, e *entry.Entry) {
 	if ep, ok := series.Parse(e.Title); ok {
 		annotateSeries(e, ep)
 		annotateQuality(e)
+		log.Debug("metainfo_file: classified as series",
+			"entry", e.Title, "series", ep.SeriesName,
+			"season", ep.Season, "episode", ep.Episode)
 		return
 	}
 	if m, ok := imovies.Parse(e.Title); ok {
 		annotateMovie(e, m)
 		annotateQuality(e)
+		log.Debug("metainfo_file: classified as movie",
+			"entry", e.Title, "title", m.Title, "year", m.Year)
 		return
 	}
 	if y := entry.ReleaseYear(e); y > 0 {
@@ -137,9 +143,13 @@ func annotate(e *entry.Entry) {
 		}
 		annotateMovie(e, &imovies.Movie{Title: title, Year: y})
 		annotateQuality(e)
+		log.Debug("metainfo_file: classified as movie via upstream year",
+			"entry", e.Title, "title", title, "year", y)
 		return
 	}
 	annotateQuality(e)
+	log.Debug("metainfo_file: unclassified — filename did not parse as series or movie",
+		"entry", e.Title)
 }
 
 func annotateSeries(e *entry.Entry, ep *series.Episode) {
