@@ -322,3 +322,38 @@ func TestValidate_RequiresFieldFromListSubPlugin(t *testing.T) {
 		t.Errorf("expected no errors when required field is produced by a list sub-plugin; got: %v", errs)
 	}
 }
+
+func TestValidate_RequireNarrowsMayProduce(t *testing.T) {
+	// src (MayProduces "X") → require (fields=["X"]) → proc (RequireAll "X")
+	// The require node should promote "X" from reachable to certain on its
+	// output, so the downstream proc node has no warning.
+	g := dag.New()
+	if err := g.AddNode(&dag.Node{ID: "src", PluginName: "srcp"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.AddNode(&dag.Node{
+		ID: "req", PluginName: "require",
+		Config:    map[string]any{"fields": []any{"X"}},
+		Upstreams: []dag.NodeID{"src"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.AddNode(&dag.Node{
+		ID: "proc", PluginName: "procp",
+		Upstreams: []dag.NodeID{"req"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	reg := makeRegistry(
+		&plugin.Descriptor{PluginName: "srcp", Role: plugin.RoleSource, MayProduce: []string{"X"}},
+		&plugin.Descriptor{PluginName: "require", Role: plugin.RoleProcessor},
+		&plugin.Descriptor{PluginName: "procp", Role: plugin.RoleProcessor, Requires: plugin.RequireAll("X")},
+	)
+	errs, warnings := dag.Validate(g, reg)
+	if len(errs) != 0 {
+		t.Errorf("require should not introduce errors; got: %v", errs)
+	}
+	if len(warnings) != 0 {
+		t.Errorf("require(fields=[\"X\"]) should promote X to certain, eliminating the merge-gap warning; got: %v", warnings)
+	}
+}

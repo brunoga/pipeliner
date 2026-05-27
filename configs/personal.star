@@ -126,7 +126,12 @@ def content_check(up):
     # Most expensive step — fetch .torrent / resolve DHT. Always runs last.
     t = process("metainfo_torrent", upstream=up)
     m = process("metainfo_magnet",  upstream=t, resolve_timeout="1m")
-    return process("content", upstream=m, reject=["*.rar", "*.iso", "*.exe"])
+    r = process("require", upstream=m, fields=["torrent_files"])
+    return process("content", upstream=r, reject=["*.rar", "*.iso", "*.exe"])
+
+SERIES_REQUIRED = ["title", "series_episode_id", "series_season",
+                   "series_episode", "_quality"]
+MOVIES_REQUIRED = ["title", "video_year", "_quality"]
 
 def trakt_watchlist(type, ttl):
     return [{"name":          "trakt_list",
@@ -167,7 +172,8 @@ def email_out(up, subject, body_template):
 
 disc_src    = jackett_source(indexers=["torrenting", "showrss"], categories=["5000"])
 disc_meta   = process("metainfo_file", upstream=disc_src)
-disc_prem   = process("premiere", upstream=disc_meta,
+disc_req    = process("require", upstream=disc_meta, fields=SERIES_REQUIRED)
+disc_prem   = process("premiere", upstream=disc_req,
                        quality="720p+ webrip+")
 disc_dd     = process("dedup", upstream=disc_prem)   # best copy per show when ties
 disc_enrich = tvdb_enrich(disc_dd)
@@ -195,7 +201,8 @@ pipeline("tvshows-discover")
 
 fav_src    = jackett_source(indexers=["torrenting", "showrss"], categories=["5000"])
 fav_meta   = process("metainfo_file", upstream=fav_src)
-fav_srs    = process("series", upstream=fav_meta,
+fav_req    = process("require", upstream=fav_meta, fields=SERIES_REQUIRED)
+fav_srs    = process("series", upstream=fav_req,
                       tracking="follow", quality="720p+ webrip+",
                       list=[{"name":     "tvdb_favorites",
                              "api_key":  tvdb_key,
@@ -225,7 +232,8 @@ pipeline("tvshows-favorites")
 m3d_src     = jackett_source(indexers=["torrenting", "3dtorrents", "therarbg", "yts"],
                               categories=["2000"])
 m3d_meta    = process("metainfo_file", upstream=m3d_src)
-m3d_movs    = process("movies", upstream=m3d_meta,
+m3d_req     = process("require", upstream=m3d_meta, fields=MOVIES_REQUIRED)
+m3d_movs    = process("movies", upstream=m3d_req,
                         quality="3dfull",
                         list=trakt_watchlist("movies", "1h"))
 m3d_dd      = process("dedup",   upstream=m3d_movs) # best 3D format (BD3D > Full > Half)
@@ -252,9 +260,10 @@ pipeline("movies-3d")
 
 mov_src     = jackett_source(indexers=["torrenting", "therarbg", "yts"],
                               categories=["2000"])
-mov_qual    = process("metainfo_file", upstream=mov_src)
-mov_no3d    = process("condition",        upstream=mov_qual, reject="video_is_3d == true")
-mov_movs    = process("movies", upstream=mov_no3d,
+mov_meta    = process("metainfo_file", upstream=mov_src)
+mov_req     = process("require",    upstream=mov_meta,  fields=MOVIES_REQUIRED)
+mov_no3d    = process("condition",  upstream=mov_req,   reject="video_is_3d == true")
+mov_movs    = process("movies",     upstream=mov_no3d,
                         quality="1080p+",
                         list=trakt_watchlist("movies", "1h"))
 mov_dd      = process("dedup",   upstream=mov_movs) # best 1080p source (Blu-ray > WEB > etc.)

@@ -28,8 +28,11 @@ seen = process("seen", upstream=src)
 meta = process("metainfo_file", upstream=seen)
 tvdb = process("metainfo_tvdb", upstream=meta, api_key=tvdb_key)
 
-# Drop entries that could not be identified by TVDB.
-req  = process("require", upstream=tvdb, fields=["enriched"])
+# Drop entries that could not be identified by TVDB and any that lack the
+# fields the series filter needs (parsed episode + quality).
+req  = process("require", upstream=tvdb,
+    fields=["enriched", "title", "series_episode_id", "series_season",
+            "series_episode", "_quality"])
 
 # Skip entries rated for adult content.
 flt  = process("condition", upstream=req,

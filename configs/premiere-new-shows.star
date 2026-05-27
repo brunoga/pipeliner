@@ -11,6 +11,12 @@
 #
 # reject_unmatched=False lets non-episode entries pass through silently so
 # this pipeline can sit in front of a broader feed without dropping movies.
+#
+# Note: `pipeliner check` reports a merge-gap warning for premiere on the
+# series_* and _quality fields. That is expected here — reject_unmatched=False
+# explicitly handles missing fields by leaving the entry undecided. Adding a
+# require() filter to silence the warning would defeat the pass-through
+# behavior this config is demonstrating.
 
 rss_url    = "https://feeds.example.com/all"
 trans_host = "localhost"
