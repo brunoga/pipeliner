@@ -25,10 +25,13 @@ def qbit_output(upstream, category):
 
 # ── Pipeline 1: watchlist (720p+) ────────────────────────────────────────────
 
+_movies_required = ["title", "video_year", "_quality"]
+
 src1    = input("rss", url="https://example.com/rss/movies")
 seen1   = process("seen",          upstream=src1)
 meta1   = process("metainfo_file", upstream=seen1)
-tmdb1   = process("metainfo_tmdb", upstream=meta1, api_key=tmdb_key)
+req1    = process("require",       upstream=meta1, fields=_movies_required)
+tmdb1   = process("metainfo_tmdb", upstream=req1, api_key=tmdb_key)
 movies1 = process("movies",        upstream=tmdb1,
                    quality="720p+", ttl="4h",
                    list=[{"name": "trakt_list",
@@ -44,7 +47,8 @@ pipeline("movies-watchlist", schedule="2h")
 src2    = input("rss", url="https://example.com/rss/movies")
 seen2   = process("seen",          upstream=src2)
 meta2   = process("metainfo_file", upstream=seen2)
-tmdb2   = process("metainfo_tmdb", upstream=meta2, api_key=tmdb_key)
+req2    = process("require",       upstream=meta2, fields=_movies_required)
+tmdb2   = process("metainfo_tmdb", upstream=req2, api_key=tmdb_key)
 movies2 = process("movies",        upstream=tmdb2,
                    quality="1080p+", ttl="4h",
                    list=[{"name": "trakt_list",

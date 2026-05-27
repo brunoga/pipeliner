@@ -93,6 +93,11 @@ func ComputeNodeFields(g *Graph, reg func(name string) (*plugin.Descriptor, bool
 				applyConditionNarrowingValidate(n.Config, outReach, outCert)
 			}
 
+			// Mirror Validate: require nodes promote their listed fields.
+			if n.PluginName == "require" {
+				applyRequireNarrowing(n.Config, outReach, outCert)
+			}
+
 			postReach[n.ID] = outReach
 			postCert[n.ID] = outCert
 		}
