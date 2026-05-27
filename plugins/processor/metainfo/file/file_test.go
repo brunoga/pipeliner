@@ -2,14 +2,22 @@ package file
 
 import (
 	"context"
+	"io"
+	"log/slog"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/plugin"
 )
 
-func makeCtx() *plugin.TaskContext { return &plugin.TaskContext{Name: "test"} }
+func makeCtx() *plugin.TaskContext {
+	return &plugin.TaskContext{
+		Name:   "test",
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+}
 
 func annotateTitle(t *testing.T, title string) *entry.Entry {
 	t.Helper()
@@ -304,6 +312,59 @@ func TestProcessPassesEntriesThrough(t *testing.T) {
 	}
 	if len(out) != len(in) {
 		t.Errorf("Process must pass all entries through; got %d, want %d", len(out), len(in))
+	}
+}
+
+// --- Logging ---
+
+func TestLogsClassificationBranch(t *testing.T) {
+	cases := []struct {
+		name     string
+		title    string
+		setField func(*entry.Entry)
+		wantMsg  string
+	}{
+		{
+			name:    "series",
+			title:   "My.Show.S01E01.720p.HDTV",
+			wantMsg: "metainfo_file: classified as series",
+		},
+		{
+			name:    "movie",
+			title:   "Inception.2010.1080p.BluRay",
+			wantMsg: "metainfo_file: classified as movie",
+		},
+		{
+			name:     "movie via upstream year",
+			title:    "Some Movie Title",
+			setField: func(e *entry.Entry) { e.Set(entry.FieldVideoYear, 2024) },
+			wantMsg:  "metainfo_file: classified as movie via upstream year",
+		},
+		{
+			name:    "unclassified",
+			title:   "random news article",
+			wantMsg: "metainfo_file: unclassified — filename did not parse as series or movie",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf strings.Builder
+			tcx := &plugin.TaskContext{
+				Name:   "test",
+				Logger: slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})),
+			}
+			p, _ := newPlugin(nil, nil)
+			e := entry.New(tc.title, "http://x.com/a")
+			if tc.setField != nil {
+				tc.setField(e)
+			}
+			if _, err := p.(plugin.ProcessorPlugin).Process(context.Background(), tcx, []*entry.Entry{e}); err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(buf.String(), tc.wantMsg) {
+				t.Errorf("missing log line %q\ngot logs:\n%s", tc.wantMsg, buf.String())
+			}
+		})
 	}
 }
 
