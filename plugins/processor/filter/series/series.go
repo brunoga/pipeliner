@@ -205,6 +205,16 @@ func (p *seriesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *en
 
 	incomingQuality, _ := e.Quality()
 
+	// Check the quality spec first — the spec is an absolute gate and must
+	// never be bypassed, even for upgrades or PROPER/REPACK. Otherwise a
+	// stored 1080p with spec "720p-1080p" would accept an incoming 2160p as
+	// an upgrade, even though 2160p is outside the spec range.
+	if (p.spec != quality.Spec{}) && !p.spec.Matches(incomingQuality) {
+		e.Reject(fmt.Sprintf("series: %s %s quality %s does not match spec",
+			matchedShow, epID, incomingQuality.String()))
+		return nil
+	}
+
 	if stored, ok := p.tracker.Get(matchedShow, epID); ok {
 		betterQuality := incomingQuality.Better(stored.Quality)
 		properOrRepack := e.GetBool(entry.FieldVideoProper) || e.GetBool(entry.FieldVideoRepack)
@@ -218,12 +228,6 @@ func (p *seriesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *en
 			return nil
 		}
 		e.Reject(fmt.Sprintf("series: %s %s already downloaded", matchedShow, epID))
-		return nil
-	}
-
-	if (p.spec != quality.Spec{}) && !p.spec.Matches(incomingQuality) {
-		e.Reject(fmt.Sprintf("series: %s %s quality %s does not match spec",
-			matchedShow, epID, incomingQuality.String()))
 		return nil
 	}
 
