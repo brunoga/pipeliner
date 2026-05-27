@@ -24,14 +24,11 @@ import (
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/list_match"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/movies"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/premiere"
-	_ "github.com/brunoga/pipeliner/plugins/processor/filter/quality"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/regexp"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/require"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/seen"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/series"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/torrentalive"
-	_ "github.com/brunoga/pipeliner/plugins/processor/filter/trakt"
-	_ "github.com/brunoga/pipeliner/plugins/processor/filter/tvdb"
 	_ "github.com/brunoga/pipeliner/plugins/source/trakt_list"
 	_ "github.com/brunoga/pipeliner/plugins/source/tvdb_favorites"
 	_ "github.com/brunoga/pipeliner/plugins/processor/discover"
@@ -221,49 +218,6 @@ pipeline("t")
 
 	run(t, tk).assertAccepted(t, 1)
 	run(t, tk).assertRejected(t, 1)
-}
-
-func TestQualityFilterRejectsBelow(t *testing.T) {
-	srv := rssServer(t, []rssItem{
-		{"Movie.2019.1080p.BluRay.x264", "http://example.com/1"},
-		{"Movie.2019.720p.HDTV", "http://example.com/2"},
-		{"Movie.2019.480p.DVDRip", "http://example.com/3"},
-	})
-	defer srv.Close()
-
-	res := buildAndRun(t, fmt.Sprintf(`
-src = input("rss", url=%q)
-q   = process("metainfo_file", upstream=src)
-flt = process("quality", upstream=q, min="720p")
-output("print", upstream=flt)
-pipeline("t")
-`, srv.URL))
-
-	res.assertRejected(t, 1)
-	if res.accepted != 0 {
-		t.Errorf("quality filter should not accept entries, got %d accepted", res.accepted)
-	}
-}
-
-func TestQualityFilterWithAccept(t *testing.T) {
-	srv := rssServer(t, []rssItem{
-		{"Movie.2019.1080p.BluRay.x264", "http://example.com/1"},
-		{"Movie.2019.720p.HDTV", "http://example.com/2"},
-		{"Movie.2019.480p.DVDRip", "http://example.com/3"},
-	})
-	defer srv.Close()
-
-	res := buildAndRun(t, fmt.Sprintf(`
-src = input("rss", url=%q)
-q   = process("metainfo_file", upstream=src)
-flt = process("quality", upstream=q, min="720p")
-acc = process("regexp", upstream=flt, accept=[".+"])
-output("print", upstream=acc)
-pipeline("t")
-`, srv.URL))
-
-	res.assertAccepted(t, 2)
-	res.assertRejected(t, 1)
 }
 
 func TestMetainfoQualityAnnotates(t *testing.T) {
@@ -462,9 +416,9 @@ pipeline("t")
 func TestAllPluginsRegistered(t *testing.T) {
 	want := []string{
 		"rss", "html", "filesystem", "discover", "trakt_list", "tvdb_favorites",
-		"seen", "regexp", "quality", "exists", "series", "movies", "condition",
+		"seen", "regexp", "exists", "series", "movies", "condition",
 		"require", "content", "premiere", "torrent_alive",
-		"trakt", "tvdb", "accept_all", "list_match",
+		"accept_all", "list_match",
 		"set", "pathfmt",
 		"print", "exec", "list_add",
 		"metainfo_file", "metainfo_trakt", "metainfo_magnet",
@@ -653,8 +607,8 @@ func TestTemplateInheritance(t *testing.T) {
 	// Starlark functions compose DAG chains cleanly.
 	res := buildAndRun(t, fmt.Sprintf(`
 def hd_only(upstream):
-    q = process("metainfo_file", upstream=upstream)
-    return process("quality", upstream=q, min="720p")
+    meta = process("metainfo_file", upstream=upstream)
+    return process("condition", upstream=meta, reject='video_resolution == "480p"')
 
 def accept_matching(upstream):
     return process("regexp", upstream=upstream, accept=[".+"])
@@ -684,8 +638,8 @@ def hd_base(upstream):
     return process("metainfo_file", upstream=upstream)
 
 def bb_only(upstream):
-    q = process("quality", upstream=upstream, min="720p")
-    return process("series", upstream=q, static=["Breaking Bad"])
+    # series filter does its own quality gating via the quality= config.
+    return process("series", upstream=upstream, static=["Breaking Bad"], quality="720p+")
 
 src = input("rss", url=%q)
 output("print", upstream=bb_only(hd_base(src)))

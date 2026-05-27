@@ -78,10 +78,10 @@ func TestDAG_MetainfoThenFilter(t *testing.T) {
 	defer srv.Close()
 
 	res := buildAndRun(t, fmt.Sprintf(`
-src     = input("rss", url=%q)
-quality = process("metainfo_file", upstream=src)
-flt     = process("quality", upstream=quality, min="720p")
-acc     = process("accept_all", upstream=flt)
+src  = input("rss", url=%q)
+meta = process("metainfo_file", upstream=src)
+flt  = process("condition", upstream=meta, reject='video_resolution == "480p"')
+acc  = process("accept_all", upstream=flt)
 output("print", upstream=acc)
 pipeline("p")
 `, srv.URL))

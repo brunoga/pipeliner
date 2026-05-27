@@ -723,13 +723,12 @@ Instead of a single plugin name, a `list=` or `search=` slot can receive a
 
 ```python
 # pipeliner:param type=string Trakt client ID
-def unwatched_movies(client_id):
+def watchlist_titles(client_id):
     src = input("trakt_list", client_id=client_id, type="movies", list="watchlist")
-    flt = process("trakt", upstream=src, client_id=client_id, type="movies",
-                  list="history", reject_matched=True, reject_unmatched=False)
+    flt = process("regexp", upstream=src, reject=["(?i)\\bxxx\\b"])
     return flt
 
-movies_node = process("movies", upstream=rss, list=[unwatched_movies(client_id=env("TRAKT_ID"))])
+movies_node = process("movies", upstream=rss, list=[watchlist_titles(client_id=env("TRAKT_ID"))])
 ```
 
 **How it works at runtime:**
@@ -1228,13 +1227,15 @@ Functions that wrap reusable pipeline patterns can be annotated so the visual
 editor surfaces them as palette entries with typed form fields:
 
 ```python
-# Fetches torrent RSS and filters by quality.
-# pipeliner:param url          type=string  RSS feed URL
-# pipeliner:param min_quality  type=string  Minimum quality, e.g. "720p"
-def quality_rss(upstream, url, min_quality="720p"):
-    src = input("rss", url=url)
-    q   = process("quality", upstream=src, min=min_quality)
-    return q
+# Fetches a tagged RSS feed and rejects entries below a quality floor.
+# pipeliner:param url           type=string  RSS feed URL
+# pipeliner:param min_quality   type=string  Minimum quality, e.g. "720p"
+def tagged_rss(upstream, url, min_quality="720p"):
+    src  = input("rss", url=url)
+    meta = process("metainfo_file", upstream=src)
+    flt  = process("condition", upstream=meta,
+                   reject='video_resolution != "" and video_resolution < "' + min_quality + '"')
+    return flt
 ```
 
 The `# pipeliner:param name [type=TYPE] hint text` annotation syntax:

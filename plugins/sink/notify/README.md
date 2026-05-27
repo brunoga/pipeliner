@@ -1,6 +1,6 @@
 # notify (output)
 
-Sends a notification about the accepted entries via a configured notifier (webhook, email, Pushover, etc.). Unlike the `email` output plugin, this is batch-level — one notification for the whole run, not one per entry.
+Sends a notification about the accepted entries via a configured notifier (webhook, email, Pushover, etc.). Batch-level — one notification per run covering all accepted entries.
 
 ## Config
 
