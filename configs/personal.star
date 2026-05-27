@@ -142,12 +142,19 @@ def deluge_out(up, move_path):
            path="", move_completed_path=move_path)
 
 def email_out(up, subject, body_template):
-    output("email", upstream=up,
-           smtp_host=smtp_host, smtp_port=587,
-           username=smtp_user, password=smtp_pass,
-           to=smtp_to, html=True,
-           subject=subject, body_template=body_template,
-           **{"from": smtp_user})
+    output("notify", upstream=up,
+           via="email",
+           title=subject,
+           body=body_template,
+           config={
+               "smtp_host": smtp_host,
+               "smtp_port": 587,
+               "username":  smtp_user,
+               "password":  smtp_pass,
+               "sender":    smtp_user,
+               "to":        smtp_to,
+               "html":      True,
+           })
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Pipeline: tvshows-discover

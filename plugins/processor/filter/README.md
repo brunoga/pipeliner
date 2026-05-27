@@ -8,9 +8,6 @@ Filter processors accept or reject entries. Use them with `process("plugin-name"
 | [`series`](series/README.md) | Accept episodes of configured TV shows; track downloads |
 | [`movies`](movies/README.md) | Accept movies from a configured title list; track downloads |
 | [`list_match`](list_match/README.md) | Accept entries whose title is in a persistent cross-pipeline list |
-| [`trakt`](trakt/README.md) | Accept entries whose title matches a Trakt.tv list |
-| [`tvdb`](tvdb/README.md) | Accept entries whose title matches TheTVDB user favorites |
-| [`quality`](quality/README.md) | Reject entries below or above a quality range |
 | [`age`](age/README.md) | Reject entries whose date field falls outside a configured age window |
 | [`regexp`](regexp/README.md) | Accept or reject entries by regular expression |
 | [`exists`](exists/README.md) | Reject entries whose target file already exists on disk |
