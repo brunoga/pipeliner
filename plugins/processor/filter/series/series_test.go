@@ -379,6 +379,27 @@ func TestQualityGateExact(t *testing.T) {
 	}
 }
 
+func TestQualityGateBlocksUpgradeOutsideSpec(t *testing.T) {
+	// Spec "720p-1080p" means upgrades must stay inside the range. Even when
+	// a stored 1080p exists and an incoming 2160p is technically "better",
+	// the spec is an absolute gate and 2160p must be rejected.
+	p := openPlugin(t, map[string]any{"quality": "720p-1080p"})
+	tc := makeCtx()
+
+	e1 := makeEntry("My.Show.S01E01.1080p.BluRay", "http://x.com/a")
+	p.filter(context.Background(), tc, e1)                  //nolint:errcheck
+	p.persist(context.Background(), tc, []*entry.Entry{e1}) //nolint:errcheck
+	if !e1.IsAccepted() {
+		t.Fatalf("1080p inside spec should be accepted: %s", e1.RejectReason)
+	}
+
+	e2 := makeEntry("My.Show.S01E01.2160p.BluRay", "http://x.com/b")
+	p.filter(context.Background(), tc, e2) //nolint:errcheck
+	if !e2.IsRejected() {
+		t.Errorf("2160p outside spec 720p-1080p must be rejected even as upgrade; got accepted (%s)", e2.AcceptReason)
+	}
+}
+
 // --- Fuzzy matching ---
 
 func TestFuzzyMatchTypo(t *testing.T) {
