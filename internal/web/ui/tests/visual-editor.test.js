@@ -14,7 +14,7 @@ const src = readFileSync(join(__dir, '..', 'visual-editor.js'), 'utf8');
 let starLit, valToStar, configToKwargs, upstreamsStr, dagToStarlark, viaNodeToStar,
     nodesToFunctionSource, performExtraction, addNodeFromPalette, extractFunctionSource,
     parseFunctionComment, nodeTooltipText, edgePath, configPreview, syncRoutePorts,
-    condAcceptAbsenceRemovedFields, condNarrowedFields, ve,
+    condAcceptAbsenceRemovedFields, condNarrowedFields, ve, setActiveGraph,
     _builderGetExpr, _builderSetExpr, renderRouteRulesWidget, renderRouteRuleRow,
     toggleRouteRawMode, _forcedRaw, exprToFlatModel;
 
@@ -46,6 +46,7 @@ exports.syncRoutePorts                = syncRoutePorts;
 exports.condAcceptAbsenceRemovedFields = condAcceptAbsenceRemovedFields;
 exports.condNarrowedFields             = condNarrowedFields;
 exports.ve                            = ve;
+exports.setActiveGraph                = setActiveGraph;
 exports._builderGetExpr               = _builderGetExpr;
 exports._builderSetExpr               = _builderSetExpr;
 exports.renderRouteRulesWidget        = renderRouteRulesWidget;
@@ -56,12 +57,18 @@ exports.exprToFlatModel               = exprToFlatModel;
 `
   );
   const exports = {};
-  const noopDoc = new Proxy({}, { get: () => () => null });
+  // Stub document. Most methods return null (existing tests depend on the
+  // resulting falsy-guard branch being skipped), but querySelectorAll must
+  // return an empty iterable so `.forEach(...)` doesn't throw — production
+  // code is allowed to assume that contract.
+  const noopDoc = new Proxy({}, {
+    get: (_, prop) => prop === 'querySelectorAll' ? () => [] : () => null,
+  });
   mod(exports, noopDoc, () => Promise.resolve());
   ({ starLit, valToStar, configToKwargs, upstreamsStr, dagToStarlark, viaNodeToStar,
      nodesToFunctionSource, performExtraction, addNodeFromPalette, extractFunctionSource,
      parseFunctionComment, nodeTooltipText, edgePath, configPreview, syncRoutePorts,
-     condAcceptAbsenceRemovedFields, condNarrowedFields, ve,
+     condAcceptAbsenceRemovedFields, condNarrowedFields, ve, setActiveGraph,
      _builderGetExpr, _builderSetExpr, renderRouteRulesWidget, renderRouteRuleRow,
      toggleRouteRawMode, _forcedRaw, exprToFlatModel } = exports);
 });
@@ -1680,5 +1687,37 @@ describe('dagToStarlark — route port upstream topo ordering', () => {
     expect(routeLine).toBeGreaterThanOrEqual(0);
     expect(routeLine).toBeLessThan(metaTLine);
     expect(routeLine).toBeLessThan(metaMLine);
+  });
+});
+
+// setActiveGraph centralises the "switch active pipeline" mutation so all
+// call sites stay in sync. Selecting a node in another pipeline used to set
+// ve.activeGraph without refreshing the label/region DOM, then a follow-up
+// canvas click in that same pipeline early-returned (gi === activeGraph) and
+// the labels stayed stuck on the previous pipeline forever.
+describe('setActiveGraph', () => {
+  beforeEach(() => {
+    ve.graphs = [
+      { name: 'A', nodes: [], schedule: '' },
+      { name: 'B', nodes: [], schedule: '' },
+    ];
+    ve.activeGraph = 0;
+  });
+
+  it('updates ve.activeGraph and returns true for a valid index', () => {
+    expect(setActiveGraph(1)).toBe(true);
+    expect(ve.activeGraph).toBe(1);
+  });
+
+  it('is idempotent for the same index (still returns true, no churn)', () => {
+    setActiveGraph(0);
+    expect(setActiveGraph(0)).toBe(true);
+    expect(ve.activeGraph).toBe(0);
+  });
+
+  it('returns false and leaves activeGraph alone for out-of-range indices', () => {
+    expect(setActiveGraph(-1)).toBe(false);
+    expect(setActiveGraph(99)).toBe(false);
+    expect(ve.activeGraph).toBe(0);
   });
 });
