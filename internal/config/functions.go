@@ -65,6 +65,13 @@ var (
 	paramLineRe = regexp.MustCompile(`^pipeliner:param\s+(\S+)\s*(.*)$`)
 	// inputPluginRe extracts the plugin name from input("name", ...) calls.
 	inputPluginRe = regexp.MustCompile(`input\(\s*"([^"]+)"`)
+	// pluginCallRe extracts the plugin name from process("name", …) or
+	// output("name", …) calls so we can match function-body kwargs against
+	// the plugin's schema.
+	pluginCallRe = regexp.MustCompile(`(?:process|output)\(\s*"([^"]+)"`)
+	// kwargIdentRe matches `key=value_ident` kwargs — i.e. a kwarg whose
+	// value is a bare identifier (a parameter name), not a literal.
+	kwargIdentRe = regexp.MustCompile(`(\w+)\s*=\s*([A-Za-z_]\w*)`)
 )
 
 // scanUserFunctions performs a text-only pre-scan of src and returns a map of
@@ -130,6 +137,7 @@ func scanUserFunctions(src string) map[string]*UserFunctionDef {
 
 					// Parse the function signature for parameters.
 					params := parseFunctionParams(trimmed, paramHints)
+					inferMultilineParams(body, params)
 
 					isList, isSearch := inferListSearchFlags(body)
 					result[funcName] = &UserFunctionDef{
@@ -181,6 +189,76 @@ func inferFunctionRole(body string) string {
 		return "sink"
 	}
 	return "processor"
+}
+
+// inferMultilineParams marks a function parameter as Multiline when the body
+// passes it as the value of a plugin-schema field that is itself Multiline.
+//
+// Example: in `output("notify", body=body_template)`, the notify plugin's
+// `body` field is Multiline, so the `body_template` function parameter is
+// surfaced to the UI as a multiline-editable field. Without this, the
+// call-site param panel renders body_template as a single-line input even
+// though the underlying widget would be a textarea popup.
+func inferMultilineParams(body string, params []UserFunctionParam) {
+	if len(params) == 0 {
+		return
+	}
+	paramIdx := make(map[string]int, len(params))
+	for i, p := range params {
+		paramIdx[p.Name] = i
+	}
+
+	for _, m := range pluginCallRe.FindAllStringSubmatchIndex(body, -1) {
+		pluginName := body[m[2]:m[3]]
+		d, ok := plugin.Lookup(pluginName)
+		if !ok {
+			continue
+		}
+		// Find the kwargs slice between the call's "(" and its matching ")".
+		openParen := strings.Index(body[m[0]:], "(")
+		if openParen < 0 {
+			continue
+		}
+		openParen += m[0]
+		closeParen := matchingClose(body, openParen)
+		if closeParen < 0 {
+			continue
+		}
+		argText := body[openParen+1 : closeParen]
+
+		for _, km := range kwargIdentRe.FindAllStringSubmatch(argText, -1) {
+			key, val := km[1], km[2]
+			idx, isParam := paramIdx[val]
+			if !isParam {
+				continue
+			}
+			for _, f := range d.Schema {
+				if f.Key == key && f.Multiline {
+					params[idx].Multiline = true
+					break
+				}
+			}
+		}
+	}
+}
+
+// matchingClose returns the index of the ")" that closes the "(" at openIdx,
+// or -1 if unbalanced. It accounts for nested brackets so kwargs like
+// `list=[{"name": "x"}]` don't trip the scan.
+func matchingClose(s string, openIdx int) int {
+	depth := 0
+	for i := openIdx; i < len(s); i++ {
+		switch s[i] {
+		case '(', '[', '{':
+			depth++
+		case ')', ']', '}':
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+	return -1
 }
 
 // inferListSearchFlags returns whether the function body contains input() calls

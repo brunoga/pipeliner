@@ -11,8 +11,10 @@ import (
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/accept_all"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/seen"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/series"
-	_ "github.com/brunoga/pipeliner/plugins/source/rss"
+	_ "github.com/brunoga/pipeliner/plugins/sink/notify"
+	_ "github.com/brunoga/pipeliner/plugins/sink/notify/email"
 	_ "github.com/brunoga/pipeliner/plugins/sink/print"
+	_ "github.com/brunoga/pipeliner/plugins/source/rss"
 )
 
 func parseDAGOK(t *testing.T, src string) *Config {
@@ -453,6 +455,39 @@ pipeline("p")
 	}
 	if got := byName["quality"].Hint; got != "Quality spec (string, no annotation needed)" {
 		t.Errorf("quality hint: want full hint text, got %q", got)
+	}
+}
+
+// TestUserFunctionParamMultilineInferred verifies that a function parameter
+// passed as the value of a plugin-schema field marked Multiline is itself
+// reported as Multiline. This drives the call-site param panel to render the
+// "click to edit…" multi-line popup rather than a cramped single-line input.
+func TestUserFunctionParamMultilineInferred(t *testing.T) {
+	src := `
+# pipeliner:param body_template
+# pipeliner:param subject
+def send_email_fn(upstream, body_template, subject):
+    output("notify", upstream=upstream, via="email", title=subject, body=body_template)
+
+src = input("rss", url="https://example.com/rss")
+pipeline("p")
+`
+	defs := scanUserFunctions(src)
+	fd, ok := defs["send_email_fn"]
+	if !ok {
+		t.Fatal("send_email_fn not discovered")
+	}
+
+	byName := make(map[string]UserFunctionParam)
+	for _, p := range fd.Params {
+		byName[p.Name] = p
+	}
+
+	if !byName["body_template"].Multiline {
+		t.Error("body_template should be inferred as Multiline because notify.body is Multiline")
+	}
+	if byName["subject"].Multiline {
+		t.Error("subject must NOT be Multiline — notify.title is single-line")
 	}
 }
 
