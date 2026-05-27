@@ -1625,6 +1625,7 @@ pipeline("tv")</code></pre>
 
 <h3>pipeliner daemon</h3>
 <p>Runs tasks on their configured schedules. Starts the web UI if <code>--web</code> is specified.</p>
+<p><strong>Graceful shutdown:</strong> on <code>SIGINT</code> (Ctrl-C) or <code>SIGTERM</code>, the scheduler stops firing new pipeline runs and the in-flight pipelines see their context cancelled. The daemon then waits up to 30 seconds for those pipelines to unwind cleanly so the commit phase can persist tracker state and any half-applied sink work can complete. A second <code>SIGINT</code>/<code>SIGTERM</code> during the wait forces an immediate exit (code 1).</p>
 <pre><code>pipeliner daemon [--config path] [--web addr] [--web-user u] [--web-password p]
                  [--log-level level] [--log-plugin name[,name...]]
                  [--tls-cert path] [--tls-key path] [--tls-self-signed]</code></pre>

@@ -398,8 +398,24 @@ func cmdDaemon(args []string) int {
 		hist.Add(rec)
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Two-signal shutdown: the first SIGINT/SIGTERM cancels ctx (scheduler
+	// stops firing new tasks, in-flight tasks observe ctx.Done() and unwind);
+	// a second signal during the unwind force-exits via os.Exit(1) so the
+	// user always has an escape hatch if a plugin ignores cancellation.
+	sigCh := make(chan os.Signal, 2)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sigCh)
+	go func() {
+		<-sigCh
+		logger.Info("shutdown requested; waiting for in-flight pipelines (Ctrl-C again to force)")
+		cancel()
+		<-sigCh
+		logger.Warn("second signal received; forcing immediate exit")
+		os.Exit(1)
+	}()
 
 	reload := func() error {
 		newCfg, err := config.Load(*cfgPath)
@@ -497,7 +513,20 @@ func cmdDaemon(args []string) int {
 
 	logger.Info("daemon started")
 	d.Run(ctx, runner)
-	logger.Info("daemon stopped")
+	logger.Info("scheduler stopped; waiting for in-flight pipelines")
+
+	// Give in-flight pipelines a bounded grace period to finish their unwind
+	// (commit phase, sink completion, …). Plugins that respect ctx finish in
+	// seconds; the timeout is a safety net for ones that don't. The second-
+	// signal handler above provides the user-driven escape.
+	const shutdownGrace = 30 * time.Second
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdownGrace)
+	defer shutdownCancel()
+	if d.Wait(shutdownCtx) {
+		logger.Info("daemon stopped")
+	} else {
+		logger.Warn("timed out waiting for pipelines; abandoning them", "after", shutdownGrace)
+	}
 
 	taskMu.RLock()
 	currentTasks := taskByName
