@@ -28,7 +28,10 @@ routes = route(meta,
     movies = "media_type == 'movie'")
 
 # ── TV branch ──────────────────────────────────────────────────────────────
-series   = process("series",  upstream=routes.tv,
+tv_req   = process("require", upstream=routes.tv,
+    fields=["title", "series_episode_id", "series_season",
+            "series_episode", "_quality"])
+series   = process("series",  upstream=tv_req,
     static=["Breaking Bad", "Severance", "The Wire"],
     tracking="strict", quality="720p+")
 tv_dedup = process("dedup",   upstream=series)
@@ -39,7 +42,9 @@ output("transmission", upstream=tv_fmt,
     host=trans_host, path="{download_path}")
 
 # ── Movies branch ──────────────────────────────────────────────────────────
-movies     = process("movies",  upstream=routes.movies,
+mv_req   = process("require", upstream=routes.movies,
+    fields=["title", "video_year", "_quality"])
+movies     = process("movies",  upstream=mv_req,
     static=["Dune Part Two", "Oppenheimer", "The Batman"],
     quality="1080p+")
 mv_dedup   = process("dedup",   upstream=movies)

@@ -167,6 +167,13 @@ func Validate(g *Graph, reg func(name string) (*plugin.Descriptor, bool)) (errs,
 				applyConditionNarrowingValidate(n.Config, reach, cert)
 			}
 
+			// For require nodes: every listed field is guaranteed non-empty on
+			// the output (entries missing any of them are rejected), so promote
+			// each one from reachable to certain.
+			if n.PluginName == "require" {
+				applyRequireNarrowing(n.Config, reach, cert)
+			}
+
 			// Propagate fields from list= and search= sub-plugins configured on
 			// this node. Their produced fields are visible to all downstream nodes.
 			for _, key := range []string{"list", "search"} {
@@ -313,5 +320,43 @@ func applyConditionNarrowingValidate(config map[string]any, reach, cert map[stri
 			}
 		}
 	}
+}
+
+// applyRequireNarrowing promotes the fields listed in a require node's config
+// to certain (and reachable) on its output. The require filter rejects entries
+// missing any of those fields, so downstream nodes can assume they are present.
+func applyRequireNarrowing(config map[string]any, reach, cert map[string]bool) {
+	for _, f := range requireFields(config) {
+		reach[f] = true
+		cert[f] = true
+	}
+}
+
+// requireFields extracts the field names declared in a require node's "fields"
+// config. Accepts a single string or a list of strings; silently skips other
+// shapes (the plugin's own Validate already reports them).
+func requireFields(config map[string]any) []string {
+	v, ok := config["fields"]
+	if !ok {
+		return nil
+	}
+	switch t := v.(type) {
+	case string:
+		if t == "" {
+			return nil
+		}
+		return []string{t}
+	case []string:
+		return t
+	case []any:
+		out := make([]string, 0, len(t))
+		for _, item := range t {
+			if s, ok := item.(string); ok && s != "" {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+	return nil
 }
 

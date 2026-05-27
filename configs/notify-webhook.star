@@ -15,14 +15,17 @@ discord_url = env("DISCORD_WEBHOOK_URL", default="https://discord.com/api/webhoo
 trans_host  = "localhost"
 tv_path     = "/media/tv"
 
-src    = input("rss",               url="https://feeds.example.com/all")
-seen   = process("seen",            upstream=src)
-q      = process("metainfo_file", upstream=seen)
-series = process("series",          upstream=q,
+src    = input("rss",             url="https://feeds.example.com/all")
+seen   = process("seen",          upstream=src)
+meta   = process("metainfo_file", upstream=seen)
+req    = process("require",       upstream=meta,
+    fields=["title", "series_episode_id", "series_season",
+            "series_episode", "_quality"])
+series = process("series",        upstream=req,
     static=["Breaking Bad", "Severance"],
     tracking="strict", quality="720p+")
-best   = process("dedup",           upstream=series)
-fmt    = process("pathfmt",         upstream=best,
+best   = process("dedup",         upstream=series)
+fmt    = process("pathfmt",       upstream=best,
     path=tv_path + "/{title}/Season {series_season:02d}",
     field="download_path")
 

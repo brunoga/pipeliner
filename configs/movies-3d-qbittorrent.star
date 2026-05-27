@@ -22,10 +22,13 @@ def qbit_output(upstream, category):
 # ── Pipeline 1: flat (non-3D), 1080p+ BluRay/WEB-DL ─────────────────────────
 # condition explicitly rejects 3D so the two pipelines track independently.
 
+_movies_required = ["title", "video_year", "_quality"]
+
 src1    = input("rss", url="https://example.com/rss/movies")
 seen1   = process("seen",          upstream=src1)
 meta1   = process("metainfo_file", upstream=seen1)
-no3d    = process("condition",     upstream=meta1, reject="video_is_3d == true")
+req1    = process("require",       upstream=meta1, fields=_movies_required)
+no3d    = process("condition",     upstream=req1, reject="video_is_3d == true")
 movies1 = process("movies",        upstream=no3d, quality="1080p+ webrip+",
                    static=movie_list)
 dd1     = process("dedup",            upstream=movies1)
@@ -43,7 +46,8 @@ pipeline("movies-flat", schedule="6h")
 src2    = input("rss", url="https://example.com/rss/movies")
 seen2   = process("seen",          upstream=src2)
 meta2   = process("metainfo_file", upstream=seen2)
-movies2 = process("movies",        upstream=meta2, quality="1080p+ 3d+", static=movie_list)
+req2    = process("require",       upstream=meta2, fields=_movies_required)
+movies2 = process("movies",        upstream=req2, quality="1080p+ 3d+", static=movie_list)
 dd2     = process("dedup",   upstream=movies2)
 fmt2    = process("pathfmt", upstream=dd2,
                    path=movies_path + "/{title} ({video_year}) 3D",

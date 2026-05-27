@@ -11,9 +11,12 @@ deluge_pass   = "changeme"
 tv_path       = "/media/tv"
 
 src     = input("rss", url="https://example.com/rss/shows")
-seen    = process("seen",             upstream=src)
-q       = process("metainfo_file", upstream=seen)
-series  = process("series",           upstream=q,
+seen    = process("seen",          upstream=src)
+meta    = process("metainfo_file", upstream=seen)
+req     = process("require",       upstream=meta,
+                   fields=["title", "series_episode_id", "series_season",
+                           "series_episode", "_quality"])
+series  = process("series",        upstream=req,
                    tracking="strict", quality="720p+", ttl="2h",
                    list=[{"name":     "tvdb_favorites",
                           "api_key":  tvdb_api_key,

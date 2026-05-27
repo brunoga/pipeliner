@@ -14,14 +14,17 @@ feed2 = input("rss", url="https://feeds.example.com/tv/full")
 # Merge both feeds; duplicate URLs are dropped (first-seen wins).
 all_entries = merge(feed1, feed2)
 
-seen    = process("seen",            upstream=all_entries)
-quality = process("metainfo_file", upstream=seen)
-series  = process("series",          upstream=quality,
+seen    = process("seen",          upstream=all_entries)
+meta    = process("metainfo_file", upstream=seen)
+req     = process("require",       upstream=meta,
+    fields=["title", "series_episode_id", "series_season",
+            "series_episode", "_quality"])
+series  = process("series",        upstream=req,
     static=["Breaking Bad", "Severance", "The Bear"],
     tracking="strict",
     quality="720p+")
-dedup   = process("dedup",           upstream=series)
-pathfmt = process("pathfmt",         upstream=dedup,
+dedup   = process("dedup",         upstream=series)
+pathfmt = process("pathfmt",       upstream=dedup,
     path="/media/tv/{title}/Season {series_season:02d}",
     field="download_path")
 

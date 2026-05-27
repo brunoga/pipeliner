@@ -29,8 +29,10 @@ all_src = merge(rss_src, watchlist)
 
 seen   = process("seen",          upstream=all_src)
 meta   = process("metainfo_file", upstream=seen)
-tmdb   = process("metainfo_tmdb", upstream=meta, api_key=env("TMDB_KEY", default="YOUR_TMDB_KEY"))
-movies = process("movies",          upstream=tmdb,
+req    = process("require",       upstream=meta,
+                  fields=["title", "video_year", "_quality"])
+tmdb   = process("metainfo_tmdb", upstream=req, api_key=env("TMDB_KEY", default="YOUR_TMDB_KEY"))
+movies = process("movies",        upstream=tmdb,
     quality="1080p+",
     list=[{"name": "trakt_list",
            "client_id": trakt_id,

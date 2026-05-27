@@ -25,7 +25,10 @@ results = process("discover", upstream=shows,
 
 seen   = process("seen",          upstream=results)
 meta   = process("metainfo_file", upstream=seen)
-series = process("series",        upstream=meta,
+req    = process("require",       upstream=meta,
+                  fields=["title", "series_episode_id", "series_season",
+                          "series_episode", "_quality"])
+series = process("series",        upstream=req,
                   static=["Breaking Bad", "Better Call Saul", "The Wire"],
                   quality="720p+")
 cond   = process("condition",     upstream=series, accept="torrent_seeds >= 3")
