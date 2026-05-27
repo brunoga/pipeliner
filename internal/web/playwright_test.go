@@ -27,7 +27,7 @@ import (
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/seen"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/trakt"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/upgrade"
-	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/quality"
+	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/file"
 	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/torrent"
 	_ "github.com/brunoga/pipeliner/plugins/processor/modify/pathfmt"
 	_ "github.com/brunoga/pipeliner/plugins/sink/print"
@@ -883,10 +883,10 @@ func waitVisible(t *testing.T, loc playwright.Locator) {
 // TestE2EParamPanelShowsMayProduce verifies that selecting a node with both
 // Produces and MayProduce fields shows both sections in the param panel.
 func TestE2EParamPanelShowsMayProduce(t *testing.T) {
-	// rss → metainfo_quality (has Produces + MayProduce) → upgrade → transmission
+	// rss → metainfo_file (has Produces + MayProduce) → upgrade → transmission
 	const cfg = `
 src  = input("rss", url="https://feeds.example.com/tv.rss")
-q    = process("metainfo_quality", upstream=src)
+q    = process("metainfo_file", upstream=src)
 up   = process("upgrade", upstream=q, target="1080p bluray")
 sink = output("transmission", upstream=up, host="localhost")
 pipeline("demo", schedule="1h")
@@ -902,8 +902,8 @@ pipeline("demo", schedule="1h")
 	openConfigTab(t, page)
 	switchToVisual(t, page, cfg)
 
-	// metainfo_quality is the second node, ID = metainfo_quality_1.
-	jsSelectNode(t, page, "metainfo_quality_1")
+	// metainfo_file is the second node, ID = metainfo_file_1.
+	jsSelectNode(t, page, "metainfo_file_1")
 
 	// Param panel must show a plain Produces block.
 	waitVisible(t, page.Locator(".ve-field-hint-block").First())

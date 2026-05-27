@@ -135,8 +135,6 @@ td code{font-size:11px}
     <a href="#metainfo_tvdb" class="sub">metainfo_tvdb</a>
     <a href="#metainfo_tmdb" class="sub">metainfo_tmdb</a>
     <a href="#metainfo_trakt" class="sub">metainfo_trakt</a>
-    <a href="#metainfo_quality" class="sub">metainfo_quality</a>
-    <a href="#metainfo_series" class="sub">metainfo_series</a>
     <a href="#metainfo_torrent" class="sub">metainfo_torrent</a>
     <a href="#metainfo_magnet" class="sub">metainfo_magnet</a>
 
@@ -341,7 +339,7 @@ pipeline("tv")</code></pre>
 <pre><code><span class="y-comment"># A template takes an upstream node and returns the last node in the chain</span>
 def standard_tv(upstream, dest="/media/tv"):
     seen   = process("seen",            upstream=upstream)
-    quality = process("metainfo_quality", upstream=seen)
+    quality = process("metainfo_file", upstream=seen)
     flt    = process("quality",          upstream=quality, min="720p webrip+")
     fmt    = process("pathfmt",          upstream=flt,
                      path=dest + "/{title}/Season {series_season:02d}",
@@ -395,7 +393,7 @@ pipeline("morning", schedule="0 7 * * *")   <span class="y-comment"># every day 
   <tr><td><strong>Sink</strong> (<code>output()</code>)</td><td>Acts on accepted entries: queues torrents, sends notifications, runs commands. Skips side effects when <code>--dry-run</code> is set.</td><td>accepted / failed (on error)</td></tr>
 </table>
 
-<div class="note">Processors run in the order they are connected. Place metainfo processors before the filters that use their output — for example, put <code>metainfo_quality</code> before <code>quality</code>.</div>
+<div class="note">Processors run in the order they are connected. Place metainfo processors before the filters that use their output — for example, put <code>metainfo_file</code> before <code>quality</code>.</div>
 
 <h2 id="connecting">Connecting Nodes</h2>
 
@@ -404,7 +402,7 @@ pipeline("morning", schedule="0 7 * * *")   <span class="y-comment"># every day 
 <pre><code><span class="y-comment"># Linear chain — each node connects to the one before it</span>
 src     = input("rss", url="https://feed.example.com/rss")
 seen    = process("seen",             upstream=src)
-quality = process("metainfo_quality", upstream=seen)
+quality = process("metainfo_file", upstream=seen)
 flt     = process("quality",          upstream=quality, min="720p")
 output("transmission",                upstream=flt, host="localhost")
 pipeline("tv")</code></pre>
@@ -441,7 +439,7 @@ pipeline("tv-chained")</code></pre>
 
 <pre><code><span class="y-comment"># Branching: TV to Transmission, movies to qBittorrent</span>
 src = input("rss", url="https://feed.example.com/rss")
-q   = process("metainfo_quality", upstream=src)
+q   = process("metainfo_file", upstream=src)
 
 tv_branch     = process("series", upstream=q, static=["My Show"])
 movies_branch = process("movies", upstream=q, static=["Inception"])
@@ -470,7 +468,7 @@ pipeline("split-pipeline")</code></pre>
 
 <div class="note"><strong><code>{title}</code> vs <code>{raw_title}</code>:</strong> <code>{title}</code> resolves to the canonical enriched title (e.g. "Breaking Bad" from TVDB). <code>{raw_title}</code> is the original entry title as received from the input (torrent filename or feed item title). Before enrichment, both refer to the same raw value.</div>
 
-<h4>Video fields (video_ prefix) — set by metainfo_tvdb, metainfo_tmdb, metainfo_trakt, metainfo_quality, metainfo_file</h4>
+<h4>Video fields (video_ prefix) — set by metainfo_tvdb, metainfo_tmdb, metainfo_trakt, metainfo_file</h4>
 <table>
   <tr><th>Field</th><th>Description</th></tr>
   <tr><td><code>video_year</code></td><td>Release or first-air year</td></tr>
@@ -496,7 +494,7 @@ pipeline("split-pipeline")</code></pre>
   <tr><td><code>video_votes</code></td><td>Vote count</td></tr>
 </table>
 
-<h4>Series fields (series_ prefix) — set by metainfo_series, metainfo_file, metainfo_tvdb</h4>
+<h4>Series fields (series_ prefix) — set by metainfo_file, metainfo_tvdb</h4>
 <table>
   <tr><th>Field</th><th>Description</th></tr>
   <tr><td><code>series_season</code></td><td>Season number</td></tr>
@@ -578,36 +576,36 @@ pipeline("split-pipeline")</code></pre>
   <tr><td><code>jackett_tmdb_id</code></td><td>jackett</td><td>Raw TMDb ID — same pattern as <code>trakt_tmdb_id</code></td></tr>
   <tr><td><code>jackett_dl_factor</code></td><td>jackett</td><td>Download volume factor: <code>0.0</code> = freeleech, <code>1.0</code> = normal (private trackers)</td></tr>
   <tr><td><code>jackett_ul_factor</code></td><td>jackett</td><td>Upload volume factor (private trackers)</td></tr>
-  <tr><td><code>series_container</code></td><td>metainfo_series, metainfo_file</td><td>Container format tag parsed from title (e.g. <code>mkv</code>)</td></tr>
+  <tr><td><code>series_container</code></td><td>metainfo_file</td><td>Container format tag parsed from title (e.g. <code>mkv</code>)</td></tr>
   <tr><td><code>media_type</code></td><td>metainfo_file</td><td>Classification: <code>"series"</code>, <code>"movie"</code>, or unset. Useful as a <code>route()</code> dispatch key.</td></tr>
-  <tr><td><code>codec</code></td><td>metainfo_quality, metainfo_file</td><td>Codec tag (e.g. <code>x265</code>, <code>HEVC</code>)</td></tr>
-  <tr><td><code>audio</code></td><td>metainfo_quality, metainfo_file</td><td>Audio tag (e.g. <code>DTS</code>, <code>Atmos</code>)</td></tr>
-  <tr><td><code>color_range</code></td><td>metainfo_quality, metainfo_file</td><td>Color range tag (e.g. <code>HDR</code>, <code>SDR</code>)</td></tr>
-  <tr><td><code>quality_resolution</code></td><td>metainfo_quality, metainfo_file</td><td>Parsed resolution sub-field</td></tr>
-  <tr><td><code>quality_source</code></td><td>metainfo_quality, metainfo_file</td><td>Parsed source sub-field</td></tr>
+  <tr><td><code>codec</code></td><td>metainfo_file</td><td>Codec tag (e.g. <code>x265</code>, <code>HEVC</code>)</td></tr>
+  <tr><td><code>audio</code></td><td>metainfo_file</td><td>Audio tag (e.g. <code>DTS</code>, <code>Atmos</code>)</td></tr>
+  <tr><td><code>color_range</code></td><td>metainfo_file</td><td>Color range tag (e.g. <code>HDR</code>, <code>SDR</code>)</td></tr>
+  <tr><td><code>quality_resolution</code></td><td>metainfo_file</td><td>Parsed resolution sub-field</td></tr>
+  <tr><td><code>quality_source</code></td><td>metainfo_file</td><td>Parsed source sub-field</td></tr>
   <tr><td><code>download_path</code></td><td>pathfmt (<code>field: download_path</code>)</td><td>Rendered, scrubbed destination path — read by output plugins</td></tr>
 </table>
 
 <h3>Common fields (quick reference)</h3>
 <table>
   <tr><th>Field</th><th>Set by</th><th>Description</th></tr>
-  <tr><td><code>title</code></td><td>metainfo_tvdb, metainfo_tmdb, metainfo_trakt, metainfo_series, metainfo_file</td><td>Canonical enriched display name</td></tr>
+  <tr><td><code>title</code></td><td>metainfo_tvdb, metainfo_tmdb, metainfo_trakt, metainfo_file</td><td>Canonical enriched display name</td></tr>
   <tr><td><code>raw_title</code></td><td>(built-in)</td><td>Original entry title from the input source</td></tr>
   <tr><td><code>media_type</code></td><td>metainfo_file</td><td>Classification (<code>"series"</code>, <code>"movie"</code>, or unset). Convenient dispatch key for <code>route()</code>.</td></tr>
   <tr><td><code>description</code></td><td>rss, metainfo_tvdb, metainfo_tmdb, metainfo_trakt</td><td>Synopsis or overview text</td></tr>
   <tr><td><code>published_date</code></td><td>rss, metainfo providers</td><td>Release/premiere date</td></tr>
   <tr><td><code>enriched</code></td><td>metainfo_tvdb, metainfo_tmdb, metainfo_trakt</td><td><code>true</code> when enriched by an external provider</td></tr>
-  <tr><td><code>series_season</code></td><td>metainfo_series, metainfo_file</td><td>Season number</td></tr>
-  <tr><td><code>series_episode</code></td><td>metainfo_series, metainfo_file</td><td>Episode number</td></tr>
-  <tr><td><code>series_episode_id</code></td><td>metainfo_series, metainfo_file</td><td>Episode ID string (e.g. <code>S02E05</code>, <code>S01E01E02</code> for doubles)</td></tr>
-  <tr><td><code>series_double_episode</code></td><td>metainfo_series, metainfo_file</td><td>Second episode number for double-episode releases</td></tr>
-  <tr><td><code>video_proper</code></td><td>metainfo_series, metainfo_file</td><td><code>true</code> when PROPER marker is detected (applies to series and movies)</td></tr>
-  <tr><td><code>video_repack</code></td><td>metainfo_series, metainfo_file</td><td><code>true</code> when REPACK marker is detected</td></tr>
-  <tr><td><code>series_service</code></td><td>metainfo_series, metainfo_file</td><td>Streaming service tag (e.g. <code>AMZN</code>, <code>NF</code>)</td></tr>
-  <tr><td><code>series_container</code></td><td>metainfo_series, metainfo_file</td><td>Container format tag (e.g. <code>mkv</code>)</td></tr>
+  <tr><td><code>series_season</code></td><td>metainfo_file</td><td>Season number</td></tr>
+  <tr><td><code>series_episode</code></td><td>metainfo_file</td><td>Episode number</td></tr>
+  <tr><td><code>series_episode_id</code></td><td>metainfo_file</td><td>Episode ID string (e.g. <code>S02E05</code>, <code>S01E01E02</code> for doubles)</td></tr>
+  <tr><td><code>series_double_episode</code></td><td>metainfo_file</td><td>Second episode number for double-episode releases</td></tr>
+  <tr><td><code>video_proper</code></td><td>metainfo_file</td><td><code>true</code> when PROPER marker is detected (applies to series and movies)</td></tr>
+  <tr><td><code>video_repack</code></td><td>metainfo_file</td><td><code>true</code> when REPACK marker is detected</td></tr>
+  <tr><td><code>series_service</code></td><td>metainfo_file</td><td>Streaming service tag (e.g. <code>AMZN</code>, <code>NF</code>)</td></tr>
+  <tr><td><code>series_container</code></td><td>metainfo_file</td><td>Container format tag (e.g. <code>mkv</code>)</td></tr>
   <tr><td><code>video_year</code></td><td>trakt_list, metainfo_tvdb, metainfo_tmdb, metainfo_file</td><td>Release or first-air year. Also set by <code>trakt_list</code> from the Trakt API so year-aware matching works before any enrichment step.</td></tr>
-  <tr><td><code>video_is_3d</code></td><td>metainfo_quality, metainfo_file</td><td><code>true</code> when any 3D format marker is detected (3D, SBS, HOU, BD3D, etc.)</td></tr>
-  <tr><td><code>video_quality</code></td><td>metainfo_quality, metainfo_file</td><td>Parsed quality string from filename, including 3D format when present (e.g. <code>BD3D 1080p BluRay</code>)</td></tr>
+  <tr><td><code>video_is_3d</code></td><td>metainfo_file</td><td><code>true</code> when any 3D format marker is detected (3D, SBS, HOU, BD3D, etc.)</td></tr>
+  <tr><td><code>video_quality</code></td><td>metainfo_file</td><td>Parsed quality string from filename, including 3D format when present (e.g. <code>BD3D 1080p BluRay</code>)</td></tr>
   <tr><td><code>video_language</code></td><td>metainfo_tvdb, metainfo_tmdb</td><td>Original language display name (e.g. <code>English</code>)</td></tr>
   <tr><td><code>video_country</code></td><td>metainfo_tvdb, metainfo_tmdb</td><td>Country of origin display name</td></tr>
   <tr><td><code>video_genres</code></td><td>metainfo_tvdb, metainfo_tmdb, metainfo_trakt</td><td>Genre names (string slice)</td></tr>
@@ -826,7 +824,7 @@ results   = process("discover", upstream=watchlist,
              "api_key": env("JACKETT_KEY"), "categories": ["2000"]}],
     interval="12h")
 seen      = process("seen",   upstream=results)
-quality   = process("metainfo_quality", upstream=seen)
+quality   = process("metainfo_file", upstream=seen)
 flt       = process("quality",upstream=quality, min="1080p")
 output("qbittorrent", upstream=flt, host="localhost")
 pipeline("movie-discover", schedule="2h")</code></pre>
@@ -968,7 +966,7 @@ pipeline("tv-tvdb", schedule="1h")</code></pre>
 
 <!-- ─────────── metainfo_file ─────────── -->
 <h2 id="metainfo_file">metainfo_file</h2>
-<p>Parses the entry title (filename) and annotates <strong>all</strong> detectable metadata in a single pass: classifies the entry as series, movie, or other; sets the appropriate <code>series_*</code> or <code>movie_*</code> fields; and sets the quality fields. This is the canonical "extract everything possible from the filename" step — a single replacement for chaining <code>metainfo_series</code> + <code>metainfo_quality</code>, and the only way to populate <code>movie_*</code> fields from the filename without a configured title list.</p>
+<p>Parses the entry title (filename) and annotates <strong>all</strong> detectable metadata in a single pass: classifies the entry as series, movie, or other; sets the appropriate <code>series_*</code> or <code>movie_*</code> fields; and sets the quality fields. This is the canonical "extract everything possible from the filename" step — the single source of filename-derived metadata for series, movies, premiere, quality, and upgrade filters.</p>
 
 <p>Takes no config. Classification order:</p>
 <ol>
@@ -980,7 +978,7 @@ pipeline("tv-tvdb", schedule="1h")</code></pre>
 
 <p>Series is tried first because the series parser is the strictest (episode marker required). A title like <code>Show.2023.S01E01.720p</code> matches both parsers; the unambiguous episode pattern makes it a series. The list-source fallback only kicks in when neither parser matched on the title alone.</p>
 
-<p>Fields set on entry — <code>media_type</code> (<code>"series"</code> / <code>"movie"</code> / unset), plus all the <code>series_*</code> / <code>movie_*</code> / <code>video_*</code> / <code>codec</code> / <code>audio</code> / <code>color_range</code> / <code>quality_resolution</code> / <code>quality_source</code> fields documented for <code>metainfo_series</code> and <code>metainfo_quality</code>.</p>
+<p>Fields set on entry — <code>media_type</code> (<code>"series"</code> / <code>"movie"</code> / unset), plus <code>series_*</code> (when classified as series), <code>movie_title</code> + <code>video_year</code> (when classified as movie), and the full set of <code>video_*</code> / <code>codec</code> / <code>audio</code> / <code>color_range</code> / <code>quality_resolution</code> / <code>quality_source</code> fields whenever any quality dimension is detected.</p>
 
 <pre><code>src  = input("rss", url="https://example.com/feed")
 meta = process("metainfo_file", upstream=src)
@@ -1002,7 +1000,7 @@ output("transmission", upstream=merge(series_pipe, movies_pipe), host="localhost
 output("print",        upstream=routes.other)
 pipeline("mixed", schedule="30m")</code></pre>
 
-<div class="note"><strong>Note:</strong> <code>metainfo_file</code> does the title-parsing work of <code>metainfo_series</code> + <code>metainfo_quality</code> combined, plus movie detection. It does <strong>not</strong> call any external APIs — chain <code>metainfo_tvdb</code> or <code>metainfo_tmdb</code> after it for cast, overview, ratings, etc. Movie detection without a title list is best-effort (anything with a year and quality marker is "movie"); the <code>movies</code> filter remains the way to do confident, list-backed matching.</div>
+<div class="note"><strong>Note:</strong> <code>metainfo_file</code> does not call any external APIs — chain <code>metainfo_tvdb</code> or <code>metainfo_tmdb</code> after it for cast, overview, ratings, etc. Movie detection without a title list is best-effort (anything with a year and quality marker is "movie"); the <code>movies</code> filter remains the way to do confident, list-backed matching.</div>
 
 <!-- ─────────── metainfo_tvdb ─────────── -->
 <h2 id="metainfo_tvdb">metainfo_tvdb</h2>
@@ -1045,20 +1043,6 @@ pipeline("mixed", schedule="30m")</code></pre>
 
 <p>Standard fields set: <code>title</code>, <code>description</code> (overview), <code>published_date</code>, <code>enriched</code>, <code>video_year</code>, <code>video_genres</code>, <code>video_rating</code>, <code>video_votes</code></p>
 <p>Provider-specific fields kept: <code>trakt_id</code>, <code>trakt_slug</code>, <code>trakt_tmdb_id</code>, <code>trakt_tvdb_id</code></p>
-
-<!-- ─────────── metainfo_quality ─────────── -->
-<h2 id="metainfo_quality">metainfo_quality</h2>
-<p>Parses video quality tags from the entry title. Takes no config. Sets <code>video_quality</code>, <code>video_resolution</code>, <code>video_source</code>, <code>codec</code>, <code>audio</code>, <code>color_range</code>.</p>
-<pre><code>src = input("rss", url="https://feed.example.com/rss")
-q   = process("metainfo_quality", upstream=src)
-flt = process("quality", upstream=q, min="720p")   <span class="y-comment"># uses video_quality set above</span>
-output("transmission", upstream=flt, host="localhost")
-pipeline("hd-only")</code></pre>
-
-<!-- ─────────── metainfo_series ─────────── -->
-<h2 id="metainfo_series">metainfo_series</h2>
-<p>Parses series and episode information from the entry title. Takes no config. (The <code>series</code> filter also does this internally — use this standalone plugin when you need the fields without the series filter's show-list matching.)</p>
-<p>Fields set: <code>series_season</code>, <code>series_episode</code>, <code>series_episode_id</code>, <code>series_double_episode</code>, <code>video_proper</code>, <code>video_repack</code>, <code>series_service</code>, <code>series_container</code></p>
 
 <!-- ─────────── metainfo_torrent ─────────── -->
 <h2 id="metainfo_torrent">metainfo_torrent</h2>
@@ -1215,7 +1199,7 @@ pipeline("new-shows", schedule="1h")</code></pre>
 <pre><code>routes = route(upstream_node,
     series = "series_episode_id != ''",
     movies = "series_episode_id == ''")
-series_path = process("metainfo_series", upstream=routes.series)
+series_path = process("metainfo_file", upstream=routes.series)
 movies_path = process("metainfo_tmdb",   upstream=routes.movies, api_key=env("TMDB_KEY"))
 output("transmission", upstream=merge(series_path, movies_path), host="localhost")
 pipeline("mixed", schedule="1h")</code></pre>
@@ -1429,7 +1413,7 @@ by_air = process("age", upstream=enriched,
 <h2 id="upgrade">upgrade</h2>
 <p>Accepts entries only when they offer a quality improvement over the previously downloaded version. Stops accepting once the target quality is reached. State is committed after all downstream sinks confirm success, so a failed download does not update the quality record.</p>
 
-<div class="note"><strong>Prerequisite:</strong> Place <code>metainfo_quality</code> upstream so the <code>video_quality</code> field is set. For series entries, a metainfo plugin (<code>metainfo_series</code> or <code>metainfo_tvdb</code>) should also run upstream to set the episode title used as the tracking key.</div>
+<div class="note"><strong>Prerequisite:</strong> Place <code>metainfo_file</code> upstream so the <code>video_quality</code> field is set. For series entries, <code>metainfo_file</code> also sets the episode title used as the tracking key — chain <code>metainfo_tvdb</code> after if you also want enriched series metadata.</div>
 
 <table>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
@@ -1464,7 +1448,7 @@ by_air = process("age", upstream=enriched,
 </ol>
 <pre><code>src    = input("rss", url="https://feed.example.com/rss")
 seen   = process("seen",   upstream=src)
-q      = process("metainfo_quality", upstream=seen)
+q      = process("metainfo_file", upstream=seen)
 series = process("series", upstream=q,
                  static=["Breaking Bad"], tracking="strict", quality="720p+")
 best   = process("dedup",  upstream=series)
@@ -1781,17 +1765,17 @@ pipeline("tv")</code></pre>
 
 <h4>Param panel</h4>
 <p>The right panel shows the selected node's configuration. At the top, checkboxes let you connect the node to any existing upstream node (sets the <code>upstream=</code> relationship). Below, all config keys are editable with appropriate input widgets. A <strong>Produces</strong> section lists fields the plugin always sets; a dimmed <strong>May produce</strong> section lists fields set only when data is available (e.g. when a metadata lookup succeeds). Field warnings appear when required fields are missing or only conditionally available upstream.</p>
-<img src="images/ui-param-panel-may-produce.png" alt="Param panel for metainfo_quality showing Produces and May produce field lists" class="screenshot">
-<p class="screenshot-caption">metainfo_quality selected: <strong>Produces</strong> lists guaranteed fields; <strong>May produce</strong> lists fields set only when the quality string is parseable (codec, audio, color range).</p>
+<img src="images/ui-param-panel-may-produce.png" alt="Param panel for metainfo_file showing Produces and May produce field lists" class="screenshot">
+<p class="screenshot-caption">metainfo_file selected: <strong>Produces</strong> lists guaranteed fields; <strong>May produce</strong> lists fields set only when the title parses for a given media type (series_*, movie_*) or quality string (codec, audio, color range).</p>
 
 <h4>Connection validation</h4>
 <p>The visual editor checks field reachability at two levels:</p>
 <ul>
-  <li><strong>Error (⚠ amber)</strong> — a required field is not produced by any upstream node at all. Fix by adding the appropriate plugin upstream (e.g. add <code>metainfo_quality</code> before <code>upgrade</code>).</li>
+  <li><strong>Error (⚠ amber)</strong> — a required field is not produced by any upstream node at all. Fix by adding the appropriate plugin upstream (e.g. add <code>metainfo_file</code> before <code>upgrade</code>).</li>
   <li><strong>Warning (~ grey)</strong> — a required field is only <em>conditionally</em> produced upstream (the upstream plugin may not set it on every entry, for example <code>metainfo_torrent</code> only extracts file lists from entries it can parse). The pipeline will still run, but the plugin may silently skip entries that arrive without the field.</li>
 </ul>
 <img src="images/ui-field-warning-error.png" alt="upgrade node showing amber ⚠ warning: requires video_quality but no upstream produces it" class="screenshot">
-<p class="screenshot-caption"><strong>Hard error</strong>: <code>upgrade</code> placed directly after <code>rss</code> with no <code>metainfo_quality</code> in between — the required <code>video_quality</code> field has no upstream producer.</p>
+<p class="screenshot-caption"><strong>Hard error</strong>: <code>upgrade</code> placed directly after <code>rss</code> with no <code>metainfo_file</code> in between — the required <code>video_quality</code> field has no upstream producer.</p>
 <img src="images/ui-field-warning-soft.png" alt="content node showing muted ~ warning and param panel with soft warning detail" class="screenshot">
 <p class="screenshot-caption"><strong>Soft warning</strong>: <code>content</code> requires <code>torrent_files</code>, which <code>metainfo_torrent</code> only <em>may</em> produce (it skips entries that are not .torrent URLs). The param panel shows the full explanation.</p>
 <p>The same warnings are also surfaced in the text editor after <strong>Validate</strong> or <strong>Save &amp; Reload</strong>, displayed in an amber box below any hard errors.</p>

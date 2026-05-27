@@ -2,9 +2,10 @@
 // downloaded for each title and accepts a new entry only when it offers a
 // better quality, up to a configurable ceiling.
 //
-// Requires metainfo/quality to have run so that the "quality" field is set.
-// Series entries also need a metainfo plugin (e.g. metainfo/series, metainfo/tvdb)
-// to set the title and series_episode_id fields used as the stable key.
+// Requires metainfo_file (or another quality-setting plugin) to have run so
+// that the video_quality field is set. For series entries it also needs the
+// title and series_episode_id fields used as the stable key — metainfo_file
+// supplies these too, or metainfo_tvdb can be chained for enriched metadata.
 //
 // Config keys:
 //

@@ -36,8 +36,8 @@ mv_feed  = input("jackett",
     query="BluRay Remux", categories=["2000"])
 
 combined = merge(tv_feed, mv_feed)
-seen     = process("seen",             upstream=combined)
-quality  = process("metainfo_quality", upstream=seen)
+seen     = process("seen",          upstream=combined)
+quality  = process("metainfo_file", upstream=seen)
 
 # ── Route by URL type — field contracts are automatic ─────────────────────
 #
