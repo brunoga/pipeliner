@@ -16,10 +16,13 @@ seen = process("seen",          upstream=src)
 meta = process("metainfo_file", upstream=seen)
 
 # --- TV branch ---
-series  = process("series",  upstream=meta,
+tv_req   = process("require", upstream=meta,
+    fields=["title", "series_episode_id", "series_season",
+            "series_episode", "_quality"])
+series  = process("series",   upstream=tv_req,
     static=["Breaking Bad", "Severance"],
     tracking="strict", quality="720p+")
-tv_dedup = process("dedup",  upstream=series)
+tv_dedup = process("dedup",   upstream=series)
 tv_path  = process("pathfmt", upstream=tv_dedup,
     path="/media/tv/{title}/Season {series_season:02d}",
     field="download_path")
@@ -28,7 +31,9 @@ output("transmission", upstream=tv_path,
     path="{download_path}")
 
 # --- Movie branch ---
-movies    = process("movies",  upstream=meta,
+movie_req = process("require", upstream=meta,
+    fields=["title", "video_year", "_quality"])
+movies    = process("movies",  upstream=movie_req,
     static=["Dune Part Two", "Oppenheimer"],
     quality="1080p+")
 movie_path = process("pathfmt", upstream=movies,

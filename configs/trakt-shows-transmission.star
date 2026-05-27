@@ -21,10 +21,14 @@ def enriched_output(upstream):
 
 # ── Pipeline 1: watchlist (strict tracking, 720p+) ───────────────────────────
 
+_series_required = ["title", "series_episode_id", "series_season",
+                    "series_episode", "_quality"]
+
 src1    = input("rss", url="https://example.com/rss/shows")
-seen1   = process("seen",             upstream=src1)
-q1      = process("metainfo_file", upstream=seen1)
-series1 = process("series",           upstream=q1,
+seen1   = process("seen",          upstream=src1)
+meta1   = process("metainfo_file", upstream=seen1)
+req1    = process("require",       upstream=meta1, fields=_series_required)
+series1 = process("series",        upstream=req1,
                    tracking="strict", quality="720p+", ttl="2h",
                    list=[{"name": "trakt_list",
                           "client_id":     trakt_client_id,
@@ -37,9 +41,10 @@ pipeline("tv-watchlist", schedule="1h")
 # ── Pipeline 2: trending (backfill, 1080p+) ───────────────────────────────────
 
 src2    = input("rss", url="https://example.com/rss/shows")
-seen2   = process("seen",             upstream=src2)
-q2      = process("metainfo_file", upstream=seen2)
-series2 = process("series",           upstream=q2,
+seen2   = process("seen",          upstream=src2)
+meta2   = process("metainfo_file", upstream=seen2)
+req2    = process("require",       upstream=meta2, fields=_series_required)
+series2 = process("series",        upstream=req2,
                    tracking="backfill", quality="1080p+", ttl="6h",
                    list=[{"name": "trakt_list",
                           "client_id": trakt_client_id,
