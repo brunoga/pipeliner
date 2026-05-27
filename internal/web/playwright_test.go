@@ -1797,3 +1797,162 @@ func TestE2EConditionEditorEdgeTooltip(t *testing.T) {
 		t.Error("edge tooltip appeared but shows no field tags")
 	}
 }
+
+// TestE2ESelectingNodeInOtherPipelineActivatesIt reproduces the regression
+// originally reported as "click plugin in unselected pipeline → that pipeline
+// stays unselected". The bug compounded because subsequent clicks on the
+// pipeline (label or empty region) had no visible effect, leaving the
+// highlight stuck on the previously-active pipeline.
+func TestE2ESelectingNodeInOtherPipelineActivatesIt(t *testing.T) {
+	ts := startTestServer(t, minimalConfig)
+	browser, stop := pwSetup(t)
+	defer stop()
+
+	page, _ := browser.NewPage()
+	defer page.Close() //nolint:errcheck
+
+	login(t, page, ts.url)
+	openConfigTab(t, page)
+
+	twoPipelines := `src_a = input("rss", url="https://a.example.com/rss")
+seen_a = process("seen", upstream=src_a)
+pipeline("pipe-a")
+
+src_b = input("rss", url="https://b.example.com/rss")
+seen_b = process("seen", upstream=src_b)
+pipeline("pipe-b")`
+
+	switchToVisual(t, page, twoPipelines)
+
+	// Wait until both pipeline labels are rendered.
+	if err := page.Locator(`.ve-pipeline-label[data-graph-idx="1"]`).WaitFor(
+		playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateAttached},
+	); err != nil {
+		t.Fatalf("wait for pipeline-b label: %v", err)
+	}
+
+	labelA  := page.Locator(`.ve-pipeline-label[data-graph-idx="0"]`)
+	labelB  := page.Locator(`.ve-pipeline-label[data-graph-idx="1"]`)
+	regionA := page.Locator(`.ve-pipeline-region[data-graph-idx="0"]`)
+	regionB := page.Locator(`.ve-pipeline-region[data-graph-idx="1"]`)
+
+	hasActive := func(l playwright.Locator) bool {
+		cls, _ := l.GetAttribute("class")
+		return strings.Contains(" "+cls+" ", " active ")
+	}
+
+	// Sanity: pipeline-a is the initial active graph.
+	if !hasActive(labelA) {
+		cls, _ := labelA.GetAttribute("class")
+		t.Fatalf("baseline: pipeline-a label should be active; class=%q", cls)
+	}
+
+	// Click a node inside pipeline-b. Node IDs are pluginname_N counting
+	// across all pipelines, so seen_b is seen_3.
+	if err := page.Locator(`.ve-node[data-id="seen_3"]`).Click(); err != nil {
+		t.Fatalf("click seen_b node: %v", err)
+	}
+
+	// Both label AND region for pipeline-b should be active; pipeline-a
+	// should no longer be active.
+	if hasActive(labelA) {
+		cls, _ := labelA.GetAttribute("class")
+		t.Errorf("pipeline-a label should NOT be active after switching; class=%q", cls)
+	}
+	if !hasActive(labelB) {
+		cls, _ := labelB.GetAttribute("class")
+		t.Errorf("pipeline-b label should be active; class=%q", cls)
+	}
+	if hasActive(regionA) {
+		cls, _ := regionA.GetAttribute("class")
+		t.Errorf("pipeline-a region should NOT be active; class=%q", cls)
+	}
+	if !hasActive(regionB) {
+		cls, _ := regionB.GetAttribute("class")
+		t.Errorf("pipeline-b region should be active; class=%q", cls)
+	}
+
+	// Now click the empty area inside pipeline-b's region to dismiss the
+	// param panel. The pipeline must stay active.
+	bb, err := regionB.BoundingBox()
+	if err != nil || bb == nil {
+		t.Fatalf("pipeline-b region bounding box: %v", err)
+	}
+	// Click below the last node in pipeline-b (well inside the region).
+	if err := page.Mouse().Click(bb.X+bb.Width-30, bb.Y+bb.Height-20); err != nil {
+		t.Fatalf("click empty area in pipeline-b: %v", err)
+	}
+	if !hasActive(labelB) {
+		cls, _ := labelB.GetAttribute("class")
+		t.Errorf("after dismissing param panel, pipeline-b label should still be active; class=%q", cls)
+	}
+	if !hasActive(regionB) {
+		cls, _ := regionB.GetAttribute("class")
+		t.Errorf("after dismissing param panel, pipeline-b region should still be active; class=%q", cls)
+	}
+
+	// And clicking the same empty area a second time must not regress.
+	if err := page.Mouse().Click(bb.X+bb.Width-30, bb.Y+bb.Height-20); err != nil {
+		t.Fatalf("second click in pipeline-b: %v", err)
+	}
+	if !hasActive(labelB) {
+		cls, _ := labelB.GetAttribute("class")
+		t.Errorf("after second click, pipeline-b label should still be active; class=%q", cls)
+	}
+}
+
+// TestE2EClickingPipelineLabelDismissesParamPanel covers the secondary half
+// of the user-reported flow: after a node in pipeline-b has been selected and
+// its param panel is showing, clicking pipeline-b's label should both keep
+// pipeline-b active AND dismiss the param panel (clearing the previously
+// selected node). Without this, the label click handler silently leaves the
+// stale node selection in place.
+func TestE2EClickingPipelineLabelDismissesParamPanel(t *testing.T) {
+	ts := startTestServer(t, minimalConfig)
+	browser, stop := pwSetup(t)
+	defer stop()
+
+	page, _ := browser.NewPage()
+	defer page.Close() //nolint:errcheck
+
+	login(t, page, ts.url)
+	openConfigTab(t, page)
+
+	twoPipelines := `src_a = input("rss", url="https://a.example.com/rss")
+seen_a = process("seen", upstream=src_a)
+pipeline("pipe-a")
+
+src_b = input("rss", url="https://b.example.com/rss")
+seen_b = process("seen", upstream=src_b)
+pipeline("pipe-b")`
+
+	switchToVisual(t, page, twoPipelines)
+
+	if err := page.Locator(`.ve-pipeline-label[data-graph-idx="1"]`).WaitFor(
+		playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateAttached},
+	); err != nil {
+		t.Fatalf("wait for pipeline-b label: %v", err)
+	}
+
+	// Click seen_b (in pipeline-b) to open its param panel.
+	if err := page.Locator(`.ve-node[data-id="seen_3"]`).Click(); err != nil {
+		t.Fatalf("click seen_b: %v", err)
+	}
+	if err := page.Locator(`.ve-node[data-id="seen_3"].selected`).WaitFor(
+		playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateAttached, Timeout: playwright.Float(2000)},
+	); err != nil {
+		t.Fatalf("seen_b should be selected after click: %v", err)
+	}
+
+	// Now click pipeline-b's name label.
+	if err := page.Locator(`.ve-pipeline-label[data-graph-idx="1"] .ve-pl-name`).Click(); err != nil {
+		t.Fatalf("click pipeline-b name: %v", err)
+	}
+
+	// The .selected class on the node should be gone — clicking the pipeline
+	// label is meant to dismiss the param panel.
+	selectedAfter, _ := page.Locator(`.ve-node.selected`).Count()
+	if selectedAfter != 0 {
+		t.Errorf("clicking pipeline-b label should clear the selected node; %d nodes still .selected", selectedAfter)
+	}
+}
