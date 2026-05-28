@@ -40,6 +40,10 @@ let ve_searchConnecting  = null;   // {discoverNodeId, curX, curY} while drawing
 let ve_listConnecting    = null;   // {parentNodeId, curX, curY} while drawing a list edge
 let ve_panX          = 0;      // canvas pan offset (screen pixels)
 let ve_panY          = 0;
+// True while two-finger pinch/pan is active. Single-finger handlers (rubber-
+// band, node drag) read this and abort cleanly so a second finger landing on
+// the canvas takes over without leaving a half-finished marquee behind.
+let ve_pinching      = false;
 
 // ── undo ─────────────────────────────────────────────────────────────────────
 
@@ -165,6 +169,7 @@ function startDragFlow(e, stateSet, onRelease, canvasCls) {
   canvas?.classList.add(canvasCls);
 
   function onMove(ev) {
+    if (ve_pinching) return; // second finger took over — freeze the live edge
     const {x: cx, y: cy} = toCanvasCoords(ev);
     stateSet(cx, cy);
     renderEdges();
@@ -308,10 +313,9 @@ function renderPalette(filter) {
                       : fd.is_list_plugin   ? ' <span class="ve-chip-list-badge">list</span>' : '';
       const fnCls     = fd.is_search_plugin ? ' ve-chip-search' : fd.is_list_plugin ? ' ve-chip-list' : '';
       html.push(`<span class="ve-chip-fn-wrap" data-role="${fd.role}">
-        <button class="ve-chip ve-chip-fn${fnCls}" data-role="${fd.role}" draggable="true"
-          data-tip="${esc(fd.comment || fd.description || fd.name)}"
-          ondragstart="paletteDragStart(event,${esc(JSON.stringify(fd.name))})"
-          onclick="addNodeFromPalette(${esc(JSON.stringify(fd.name))})">
+        <button class="ve-chip ve-chip-fn${fnCls}" data-role="${fd.role}"
+          data-plugin="${esc(fd.name)}"
+          data-tip="${esc(fd.comment || fd.description || fd.name)}">
           ${esc(fd.name)}${fnBadge}</button
         ><button class="ve-chip-fn-edit" title="Edit function body"
           onclick="openFunctionEditor(${esc(JSON.stringify(fd.name))})">✏</button
@@ -338,10 +342,9 @@ function renderPalette(filter) {
       const extraCls = p.is_search_plugin ? ' ve-chip-search' : p.is_list_plugin ? ' ve-chip-list' : '';
       const extraTip = p.is_search_plugin ? '\n(drag onto a discover node\'s search port to use as a search backend)'
                      : p.is_list_plugin   ? '\n(drag onto a series/movies node\'s list port as a list source)' : '';
-      html.push(`<button class="ve-chip${extraCls}" data-role="${role}" draggable="true"
-        data-tip="${esc(p.description + extraTip)}"
-        ondragstart="paletteDragStart(event,${esc(JSON.stringify(p.name))})"
-        onclick="addNodeFromPalette(${esc(JSON.stringify(p.name))})">${esc(p.name)}${searchBadge}</button>`);
+      html.push(`<button class="ve-chip${extraCls}" data-role="${role}"
+        data-plugin="${esc(p.name)}"
+        data-tip="${esc(p.description + extraTip)}">${esc(p.name)}${searchBadge}</button>`);
     }
     html.push('</div>');
   }
@@ -1700,6 +1703,19 @@ function initCanvasEvents() {
     paletteBody.addEventListener('mouseout', e => {
       if (!e.relatedTarget?.closest('[data-tip]')) veTooltipHide();
     });
+
+    // Palette → canvas drag is pointer-based so it works on mouse and touch
+    // alike. The handler distinguishes tap (add at active pipeline) from drag
+    // (drop at pointer location) via a small movement threshold.
+    paletteBody.addEventListener('pointerdown', e => {
+      const chip = e.target.closest('.ve-chip');
+      if (!chip) return;
+      // The fn-edit / fn-remove buttons sit beside the chip in the wrap,
+      // not inside it; closest('.ve-chip') already excludes them. Belt-and-
+      // braces in case the markup grows.
+      if (e.target.closest('.ve-chip-fn-edit, .ve-chip-fn-remove')) return;
+      _beginPaletteDrag(e, chip);
+    });
   }
 
   // Re-fit whichever editor is currently visible on every window resize.
@@ -1806,6 +1822,80 @@ function initCanvasEvents() {
       body.addEventListener('pointercancel', onUp, {once: true});
     });
 
+    // Two-finger pan + pinch zoom for touch/pen input. Mouse keeps its
+    // existing wheel-zoom + middle-button-pan model and never enters this
+    // path. The handler runs in capture phase so it can short-circuit the
+    // single-finger rubber-band handler (added next, in bubble phase) when
+    // a second pointer lands.
+    const touchPointers = new Map(); // pointerId → {x, y}
+    body.addEventListener('pointerdown', e => {
+      if (e.pointerType === 'mouse') return;
+      touchPointers.set(e.pointerId, {x: e.clientX, y: e.clientY});
+      if (touchPointers.size !== 2 || ve_pinching) return;
+
+      // Second finger landed → take over.
+      e.preventDefault();
+      e.stopPropagation();
+      ve_pinching = true;
+      // The single-finger handler may have already created a marquee; sweep
+      // any stray ones from the DOM so they don't linger when pinch ends.
+      document.querySelectorAll('.ve-marquee').forEach(el => el.remove());
+
+      const pts = [...touchPointers.values()];
+      let lastMidX = (pts[0].x + pts[1].x) / 2;
+      let lastMidY = (pts[0].y + pts[1].y) / 2;
+      let lastDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) || 1;
+
+      function onMove(ev) {
+        if (!touchPointers.has(ev.pointerId)) return;
+        touchPointers.set(ev.pointerId, {x: ev.clientX, y: ev.clientY});
+        if (touchPointers.size !== 2) return;
+        const p = [...touchPointers.values()];
+        const midX = (p[0].x + p[1].x) / 2;
+        const midY = (p[0].y + p[1].y) / 2;
+        const dist = Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y) || 1;
+
+        // 1. Pan by midpoint screen delta.
+        ve_panX += midX - lastMidX;
+        ve_panY += midY - lastMidY;
+
+        // 2. Zoom anchored on the new midpoint so the world point under the
+        //    midpoint stays under the user's fingers across the zoom.
+        const newZoom = Math.max(0.2, Math.min(3.0, ve_zoom * (dist / lastDist)));
+        if (newZoom !== ve_zoom) {
+          const br = body.getBoundingClientRect();
+          const cx = midX - br.left;
+          const cy = midY - br.top;
+          const r  = newZoom / ve_zoom;
+          ve_panX = cx - (cx - ve_panX) * r;
+          ve_panY = cy - (cy - ve_panY) * r;
+          ve_zoom = newZoom;
+        }
+        applyZoom();
+        lastMidX = midX; lastMidY = midY; lastDist = dist;
+      }
+      function onUp(ev) {
+        touchPointers.delete(ev.pointerId);
+        if (touchPointers.size >= 2) return; // still pinching with other pair
+        document.removeEventListener('pointermove',   onMove);
+        document.removeEventListener('pointerup',     onUp);
+        document.removeEventListener('pointercancel', onUp);
+        ve_pinching = false;
+      }
+      document.addEventListener('pointermove',   onMove);
+      document.addEventListener('pointerup',     onUp);
+      document.addEventListener('pointercancel', onUp);
+    }, true /* capture */);
+
+    // Always drop touch pointers from the tracking map on release, even when
+    // pinch never engaged (single-finger taps still want their bookkeeping).
+    function _dropTouchPointer(e) {
+      if (e.pointerType === 'mouse') return;
+      touchPointers.delete(e.pointerId);
+    }
+    body.addEventListener('pointerup',     _dropTouchPointer, true);
+    body.addEventListener('pointercancel', _dropTouchPointer, true);
+
     // Left-button on empty canvas: rubber-band selection or deselect-on-click.
     // Node and pipeline-label pointerdown handlers call stopPropagation() so
     // this only fires when the user clicks/drags on truly empty space.
@@ -1818,6 +1908,13 @@ function initCanvasEvents() {
       let marquee = null;
 
       function onMove(ev) {
+        // A second finger landing turns this into a pinch gesture; bail out
+        // and let the pinch handler take the lead.
+        if (ve_pinching) {
+          if (marquee) { marquee.remove(); marquee = null; }
+          body.removeEventListener('pointermove', onMove);
+          return;
+        }
         if (!isDragging && Math.hypot(ev.clientX - startX, ev.clientY - startY) < 6) return;
         if (!isDragging) {
           isDragging = true;
@@ -1842,6 +1939,9 @@ function initCanvasEvents() {
 
       function onUp(ev) {
         body.removeEventListener('pointermove', onMove);
+        // If pinch took over partway through, neither commit a selection nor
+        // treat this as a plain click — the user is doing a two-finger gesture.
+        if (ve_pinching) { if (marquee) marquee.remove(); return; }
         if (isDragging && marquee) {
           marquee.remove();
           // Convert marquee from body coords to canvas coords and select nodes.
@@ -1888,69 +1988,9 @@ function initCanvasEvents() {
     });
   }
 
-  // Palette HTML5 drop — pipeline-aware.
-  // getBoundingClientRect() already accounts for scroll+transform; dividing by
-  // zoom gives the canvas coordinate directly.
-  function clearDragOver() {
-    canvas.querySelectorAll('.ve-pipeline-region.drag-over').forEach(el => el.classList.remove('drag-over'));
-  }
-
-  canvas.addEventListener('dragover', e => {
-    if (ve.dragSrc?.type !== 'palette') return;
-    e.preventDefault();
-    const rect = canvas.getBoundingClientRect();
-    const cx = (e.clientX - rect.left) / ve_zoom;
-    const cy = (e.clientY - rect.top)  / ve_zoom;
-    const gi = findGraphAtPosition(cx, cy);
-    e.dataTransfer.dropEffect = gi >= 0 ? 'copy' : 'none';
-    // Highlight the target pipeline region.
-    canvas.querySelectorAll('.ve-pipeline-region').forEach(el => {
-      el.classList.toggle('drag-over', parseInt(el.dataset.graphIdx) === gi);
-    });
-  });
-
-  canvas.addEventListener('dragleave', e => {
-    // Only clear when the cursor truly leaves the canvas (not just a child element).
-    if (!canvas.contains(e.relatedTarget)) clearDragOver();
-  });
-
-  canvas.addEventListener('drop', e => {
-    e.preventDefault();
-    clearDragOver();
-    if (!ve.dragSrc || ve.dragSrc.type !== 'palette') return;
-    const rect = canvas.getBoundingClientRect();
-    // Top-left corner of the new node card (centred on cursor).
-    const x = Math.max(0, (e.clientX - rect.left) / ve_zoom - NODE_W / 2);
-    let   y = Math.max(0, (e.clientY - rect.top)  / ve_zoom - NODE_H / 2);
-    // Only accept drops that land inside a pipeline region.
-    const gi = findGraphAtPosition(x + NODE_W / 2, y + NODE_H / 2);
-    if (gi < 0) { ve.dragSrc = null; return; }
-    const g = ve.graphs[gi];
-    // Clamp Y downward so the node never lands above the pipeline's label row.
-    // Regions only expand down-and-right; they never expand upward.
-    const labelBottom = (g._labelY ?? (g._regionY ?? 0) + 8) + 30;
-    y = Math.max(y, labelBottom + 4);
-    pushUndo();
-    const id      = genId(ve.dragSrc.plugin);
-    const dragFd  = ve.userFunctions[ve.dragSrc.plugin];
-    const dragCfg = {};
-    if (dragFd) {
-      for (const p of (dragFd.params || [])) {
-        dragCfg[p.key] = p.default != null ? p.default : emptyForType(p.type);
-      }
-    }
-    g.nodes.push({
-      id, plugin: ve.dragSrc.plugin, config: dragCfg, upstreams: [], x, y, comment: '',
-      searchNodeIds: [], listNodeIds: [],
-      ...(dragFd ? {isFunctionCall: true, funcCallKey: id} : {}),
-    });
-    ve.selectedNodeId = id;
-    ve.activeGraph    = gi;
-    // Expand the region (downward only) so the new node is fully visible.
-    expandRegionForNode(gi, x, y);
-    ve.dragSrc = null;
-    veRender(); onModelChange();
-  });
+  // Palette → canvas dropping is wired in _beginPaletteDrag (see palette
+  // section). The HTML5 Drag-and-Drop listeners that used to live here were
+  // removed because they never fire on touch input.
 }
 
 // ── node drag ─────────────────────────────────────────────────────────────────
@@ -1975,6 +2015,7 @@ function startNodeDrag(e, n) {
     ve_dragging = true;
 
     function onMoveMulti(ev) {
+      if (ve_pinching) return; // second finger took over — leave nodes alone
       const dx = (ev.clientX - startX) / ve_zoom;
       const dy = (ev.clientY - startY) / ve_zoom;
       for (const id of dragIds) {
@@ -2018,6 +2059,7 @@ function startNodeDrag(e, n) {
   ve_dragging = true;
 
   function onMove(ev) {
+    if (ve_pinching) return; // second finger took over — leave node alone
     n.x = Math.max(minDragX, origX + (ev.clientX - startX) / ve_zoom);
     n.y = Math.max(minDragY, origY + (ev.clientY - startY) / ve_zoom);
     const div = document.querySelector(`.ve-node[data-id="${n.id}"]`);
@@ -2217,25 +2259,20 @@ function finishListConnect(targetNodeId) {
 }
 
 // ── palette drag ───────────────────────────────────────────────────────────────
+//
+// Pointer-based palette → canvas drag. The earlier implementation relied on
+// the HTML5 Drag-and-Drop API (`draggable=true`, `dragstart`/`dragover`/`drop`),
+// which is mouse-only — touch devices never fire those events. The handler
+// below replaces it with pointerdown tracking that works for mouse, pen, and
+// touch uniformly. A short movement threshold separates a tap (add to active
+// pipeline) from a drag (drop at a specific location).
 
-function paletteDragStart(e, name) {
-  ve.dragSrc = {type: 'palette', plugin: name};
-  e.dataTransfer.setData('text/plain', name);
-  e.dataTransfer.effectAllowed = 'copy';
+const PALETTE_DRAG_THRESHOLD = 5; // px before pointerdown becomes a drag
 
-  // ── Suppress the browser's own drag ghost ──────────────────────────────────
-  // setDragImage with a rendered-but-off-screen element is unreliable in
-  // Chromium when the element is outside the viewport. Use a 1×1 blank canvas
-  // to suppress the default ghost entirely, then track the cursor manually.
-  const blank = document.createElement('canvas');
-  blank.width = blank.height = 1;
-  e.dataTransfer.setDragImage(blank, 0, 0);
-
-  // ── Floating node-card preview ─────────────────────────────────────────────
-  // position:fixed + pointer-events:none so it never blocks drag events.
-  // All values are concrete hex/px — no CSS-variable or width-inheritance issues.
+// Build the floating preview card shown under the pointer while dragging.
+function _createPalettePreview(name) {
   const meta = pluginMeta(name);
-  const role = meta?.role || 'processor';
+  const role = meta?.role || ve.userFunctions[name]?.role || 'processor';
   const RC   = {source: '#3fb950', processor: '#58a6ff', sink: '#ffa657'};
   const rc   = RC[role] || '#58a6ff';
 
@@ -2258,19 +2295,115 @@ function paletteDragStart(e, name) {
              `border:1px solid ${rc};color:${rc}">${role}</span>` +
     `</div>`;
   document.body.appendChild(preview);
+  return preview;
+}
 
-  // dragover fires continuously while the user moves the mouse during a drag
-  // (unlike pointermove, which is suppressed by the browser during DnD).
-  function onOver(ev) {
-    preview.style.left = (ev.clientX - NODE_W / 2) + 'px';
-    preview.style.top  = (ev.clientY - 44) + 'px';
+function _movePalettePreview(preview, clientX, clientY) {
+  preview.style.left = (clientX - NODE_W / 2) + 'px';
+  preview.style.top  = (clientY - 44) + 'px';
+}
+
+// Highlight the pipeline region under the pointer (if any), the same way the
+// old dragover handler did. Returns the matched graph index for caller use.
+function _updatePaletteHighlight(clientX, clientY) {
+  const canvas = document.getElementById('ve-graph-canvas');
+  if (!canvas) return -1;
+  const rect = canvas.getBoundingClientRect();
+  const cx = (clientX - rect.left) / ve_zoom;
+  const cy = (clientY - rect.top)  / ve_zoom;
+  const gi = findGraphAtPosition(cx, cy);
+  canvas.querySelectorAll('.ve-pipeline-region').forEach(el => {
+    el.classList.toggle('drag-over', parseInt(el.dataset.graphIdx) === gi);
+  });
+  return gi;
+}
+
+function _clearPaletteHighlight() {
+  document.querySelectorAll('.ve-pipeline-region.drag-over')
+    .forEach(el => el.classList.remove('drag-over'));
+}
+
+// Drop the palette item at the given client coordinates. Mirrors the old
+// canvas `drop` listener. Returns true if a node was created.
+function _dropPaletteAt(clientX, clientY, name) {
+  const canvas = document.getElementById('ve-graph-canvas');
+  if (!canvas) return false;
+  const rect = canvas.getBoundingClientRect();
+  const x = Math.max(0, (clientX - rect.left) / ve_zoom - NODE_W / 2);
+  let   y = Math.max(0, (clientY - rect.top)  / ve_zoom - NODE_H / 2);
+  const gi = findGraphAtPosition(x + NODE_W / 2, y + NODE_H / 2);
+  if (gi < 0) return false;
+  const g = ve.graphs[gi];
+  const labelBottom = (g._labelY ?? (g._regionY ?? 0) + 8) + 30;
+  y = Math.max(y, labelBottom + 4);
+  pushUndo();
+  const id      = genId(name);
+  const dragFd  = ve.userFunctions[name];
+  const dragCfg = {};
+  if (dragFd) {
+    for (const p of (dragFd.params || [])) {
+      dragCfg[p.key] = p.default != null ? p.default : emptyForType(p.type);
+    }
   }
-  function onEnd() {
-    preview.remove();
-    document.removeEventListener('dragover', onOver);
+  g.nodes.push({
+    id, plugin: name, config: dragCfg, upstreams: [], x, y, comment: '',
+    searchNodeIds: [], listNodeIds: [],
+    ...(dragFd ? {isFunctionCall: true, funcCallKey: id} : {}),
+  });
+  ve.selectedNodeId = id;
+  ve.activeGraph    = gi;
+  expandRegionForNode(gi, x, y);
+  veRender(); onModelChange();
+  return true;
+}
+
+// Begin a palette drag from a pointerdown on a chip. Movement under the
+// threshold falls through to a "tap = add to active pipeline" path so chips
+// remain clickable on touch and on mouse without an explicit drag.
+function _beginPaletteDrag(downEv, chip) {
+  const name = chip.dataset.plugin;
+  if (!name) return;
+  // Ignore non-primary mouse buttons; touch/pen always proceed.
+  if (downEv.pointerType === 'mouse' && downEv.button !== 0) return;
+
+  const startX = downEv.clientX;
+  const startY = downEv.clientY;
+  let dragging = false;
+  let preview  = null;
+
+  function onMove(ev) {
+    if (!dragging) {
+      const dx = ev.clientX - startX, dy = ev.clientY - startY;
+      if (Math.hypot(dx, dy) < PALETTE_DRAG_THRESHOLD) return;
+      dragging       = true;
+      preview        = _createPalettePreview(name);
+      ve.dragSrc     = {type: 'palette', plugin: name};
+      veTooltipHide();
+    }
+    _movePalettePreview(preview, ev.clientX, ev.clientY);
+    _updatePaletteHighlight(ev.clientX, ev.clientY);
   }
-  document.addEventListener('dragover', onOver);
-  document.addEventListener('dragend',   onEnd, {once: true});
+  function cleanup() {
+    document.removeEventListener('pointermove', onMove);
+    if (preview) preview.remove();
+    _clearPaletteHighlight();
+    ve.dragSrc = null;
+  }
+  function onUp(ev) {
+    if (!dragging) {
+      // Tap without movement → behave like the old onclick.
+      cleanup();
+      addNodeFromPalette(name);
+      return;
+    }
+    _dropPaletteAt(ev.clientX, ev.clientY, name);
+    cleanup();
+  }
+  function onCancel() { cleanup(); }
+
+  document.addEventListener('pointermove', onMove);
+  document.addEventListener('pointerup',     onUp,     {once: true});
+  document.addEventListener('pointercancel', onCancel, {once: true});
 }
 
 // ── zoom buttons (called from HTML) ───────────────────────────────────────────

@@ -95,6 +95,68 @@ body {
   padding: 24px;
   max-width: 1200px;
   margin: 0 auto;
+  /* Block pull-to-refresh and chrome rubber-banding so a stray vertical
+     drag at the top of the page can't reload and discard unsaved edits. */
+  overscroll-behavior: none;
+}
+
+/* Kill the iOS/Android 300ms double-tap-zoom delay on tap targets while
+   keeping default behavior (text selection, scroll) intact elsewhere. */
+button, .tab-btn, .view-btn, .ve-zoom-btn, .ve-chip,
+.theme-btn, .btn-reload, .btn-config, .btn-clear, .btn-logout {
+  touch-action: manipulation;
+}
+
+/* ── Touch-primary overrides ───────────────────────────────────────────────
+   Several node affordances are opacity:0 by default and rely on :hover to
+   reveal them (ports, × delete, # comment). Hover never fires on touch, so
+   those handles would be permanently invisible on a tablet. Show them at
+   rest when the device's primary pointer is coarse. Desktop with a mouse
+   keeps the existing reveal-on-hover behavior — this block only applies
+   when the system reports a touch-only or stylus-primary input.
+
+   Tap targets are also bumped here. Default visual sizes (14px ports, 4px
+   chip padding) are tuned for mouse precision; on a finger they're below
+   the ~30–44px comfortable-tap threshold and miss-prone. */
+@media (pointer: coarse) {
+  .ve-node-out-port      { opacity: 1; }
+  .ve-node-remove        { opacity: 0.75; }
+  .ve-node-comment-btn   { opacity: 0.55; }
+
+  /* Bump the small drag-handle ports. Keep them visually unobtrusive by
+     reusing the same circle styling — only the diameter changes. The
+     reposition keeps the circle centered on the node edge. */
+  .ve-node-out-port,
+  .ve-node-in-port {
+    width: 22px; height: 22px;
+  }
+  .ve-node-out-port { right: -11px; }
+  .ve-node-in-port  { left:  -11px; }
+
+  /* Route ports live in a row at the bottom; bump them and re-center. */
+  .ve-route-ports { bottom: -14px; gap: 14px; }
+  .ve-route-port  { width: 28px; height: 28px; }
+
+  /* Palette chips: roomier padding so the whole row is a comfortable target. */
+  .ve-chip { padding: 8px 10px; font-size: 12px; }
+
+  /* Node × delete and # comment buttons: more generous padding for the same
+     icon glyphs (don't change icon size — just the hit area). */
+  .ve-node-remove,
+  .ve-node-comment-btn { padding: 6px 10px; }
+}
+
+/* ── Narrow viewports (foldables, smaller tablets in portrait) ─────────────
+   The base layout assumes ~1200px desktop with 24px gutters. Below ~720px
+   the gutters eat too much of the row; below ~600px the database tab's
+   side-by-side layout becomes unusable. Both breakpoints leave tablet-
+   landscape (768px+) and full-size touchscreen monitors untouched. */
+@media (max-width: 720px) {
+  body { padding: 12px; }
+}
+@media (max-width: 600px) {
+  .db-layout { flex-direction: column; }
+  .db-sidebar { width: 100%; }
 }
 
 header {
@@ -728,7 +790,7 @@ body.dark {
   transition:border-color 0.1s, color 0.1s, background 0.1s;
 }
 .ve-chip:hover { border-color:var(--accent); color:var(--accent); background:color-mix(in srgb, var(--accent) 5%, transparent); }
-.ve-chip[draggable="true"]:active { cursor:grabbing; opacity:.7; }
+.ve-chip:active { cursor:grabbing; opacity:.7; }
 .ve-chip.hidden { display:none; }
 
 /* canvas */
@@ -764,6 +826,11 @@ body.dark {
   background-color: var(--bg);
   background-image: radial-gradient(circle, var(--border) 1px, transparent 1px);
   background-size: 22px 22px;
+  /* The editor owns every gesture inside the canvas (pan, zoom, drag,
+     rubber-band). Disable browser default gestures so touch input goes
+     straight to our pointer handlers without the UA hijacking it for
+     scroll, double-tap-zoom, etc. */
+  touch-action: none;
 }
 .ve-meta { padding:8px 16px; border-top:1px solid var(--border); display:flex; align-items:center; gap:8px; flex-shrink:0; }
 .ve-meta label { font-size:11px; color:var(--muted); }
@@ -1393,6 +1460,7 @@ body.dark {
   position:fixed;
   top:80px; right:16px;   /* default: below toolbar, flush right */
   width:300px;
+  max-width:calc(100vw - 32px); /* never overflow the viewport on small screens */
   max-height:calc(100vh - 96px);  /* leave room for toolbar + margin */
   z-index:200;
   border:1px solid var(--border); border-radius:8px;
@@ -1417,6 +1485,7 @@ body.dark {
 .ve-param-resize-bottom {
   flex-shrink:0; height:5px; cursor:ns-resize;
   background:transparent; user-select:none;
+  touch-action:none; /* JS owns the drag; don't let touch scroll the page */
 }
 .ve-param-resize-top {
   border-radius:8px 8px 0 0;
@@ -1433,6 +1502,7 @@ body.dark {
   padding:10px 14px; border-bottom:1px solid var(--border); flex-shrink:0;
   background:var(--surface);
   cursor:grab; user-select:none; /* drag handle */
+  touch-action:none; /* JS owns the drag; don't let touch scroll the page */
   display:flex; align-items:flex-start;
 }
 .ve-param-header:active { cursor:grabbing; }
