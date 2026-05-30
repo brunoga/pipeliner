@@ -21,13 +21,13 @@ An entry is treated as a magnet when `torrent_link_type = "magnet"` (set by `jac
 | `torrent_info_hash` | string | Hex SHA-1 info hash (40 chars) |
 | `torrent_announce` | string | First tracker announce URL |
 | `torrent_announce_list` | []string | All tracker announce URLs |
-| `title` | string | Human-readable name from the `dn=` parameter |
+| `title` | string | Human-readable name from the `dn=` parameter. Only written if no `title` is already set on the entry. |
 
 ### After DHT resolution (when peers respond within the timeout)
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `title` | string | Name from the info dict (overrides `dn=` value if resolved) |
+| `title` | string | Name from the info dict. Only written if no `title` is already set, so a canonical title from `metainfo_tmdb`/`tvdb`/`trakt` upstream is preserved. |
 | `torrent_file_size` | int64 | Total size in bytes |
 | `torrent_file_count` | int | Number of files |
 | `torrent_files` | []string | File paths relative to the torrent root |

@@ -591,7 +591,7 @@ pipeline("split-pipeline")</code></pre>
 <h3>Common fields (quick reference)</h3>
 <table>
   <tr><th>Field</th><th>Set by</th><th>Description</th></tr>
-  <tr><td><code>title</code></td><td>metainfo_tvdb, metainfo_tmdb, metainfo_trakt, metainfo_file</td><td>Canonical enriched display name</td></tr>
+  <tr><td><code>title</code></td><td>sources (raw), metainfo_file (cleaned), metainfo_tvdb / metainfo_tmdb / metainfo_trakt (canonical)</td><td>Display name, populated in tiers. Every source sets <code>title</code> to its raw entry name so a bare <code>input → print</code> pipeline always has something to render. <code>metainfo_file</code> overwrites with a cleaned version parsed from the filename. External providers overwrite with the canonical title. <code>metainfo_torrent</code> and <code>metainfo_magnet</code> only populate <code>title</code> when it isn't already set — they don't have anything better than the raw source title, so they never clobber upstream cleaning or enrichment.</td></tr>
   <tr><td><code>raw_title</code></td><td>(built-in)</td><td>Original entry title from the input source</td></tr>
   <tr><td><code>media_type</code></td><td>metainfo_file</td><td>Classification (<code>"series"</code>, <code>"movie"</code>, or unset). Convenient dispatch key for <code>route()</code>.</td></tr>
   <tr><td><code>description</code></td><td>rss, metainfo_tvdb, metainfo_tmdb, metainfo_trakt</td><td>Synopsis or overview text</td></tr>

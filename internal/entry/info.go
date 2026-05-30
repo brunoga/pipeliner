@@ -225,6 +225,21 @@ type RSSInfo struct {
 
 // --- Setters ---
 
+// SetTitleIfEmpty writes v to FieldTitle only if no value is already present.
+// Inferred-title plugins (metainfo_file, metainfo_torrent, metainfo_magnet —
+// which read titles from filenames or torrent display names) use this so they
+// never clobber a canonical title set by an external metadata provider
+// (metainfo_tmdb, metainfo_tvdb, metainfo_trakt).
+func (e *Entry) SetTitleIfEmpty(v string) {
+	if v == "" {
+		return
+	}
+	if existing, ok := e.Fields[FieldTitle].(string); ok && existing != "" {
+		return
+	}
+	e.Fields[FieldTitle] = v
+}
+
 // SetGenericInfo writes non-zero Tier-1 fields into the entry's Fields map.
 func (e *Entry) SetGenericInfo(info GenericInfo) {
 	if info.Title != "" {

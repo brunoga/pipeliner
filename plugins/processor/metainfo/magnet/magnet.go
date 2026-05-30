@@ -236,9 +236,9 @@ func annotateFromURI(e *entry.Entry) error {
 	if len(m.Trackers) > 0 {
 		ti.Announce = m.Trackers[0]
 	}
-	if m.DisplayName != "" {
-		ti.GenericInfo.Title = m.DisplayName
-	}
+	// Magnet display name is an inferred title; only adopt it if no canonical
+	// title is already set on the entry.
+	e.SetTitleIfEmpty(m.DisplayName)
 	e.SetTorrentInfo(ti)
 	return nil
 }
@@ -263,10 +263,11 @@ func applyInfo(t *torrent.Torrent, e *entry.Entry) {
 	for i, f := range files {
 		paths[i] = f.Path()
 	}
+	// Resolved torrent name is the release filename — inferred, not canonical.
+	e.SetTitleIfEmpty(t.Name())
 	e.SetTorrentInfo(entry.TorrentInfo{
-		GenericInfo: entry.GenericInfo{Title: t.Name()},
-		FileSize:    t.Length(),
-		FileCount:   len(files),
-		Files:       paths,
+		FileSize:  t.Length(),
+		FileCount: len(files),
+		Files:     paths,
 	})
 }

@@ -25,8 +25,7 @@ func init() {
 		PluginName:  "tvdb_favorites",
 		Description: "fetch TheTVDB favorites as show-name entries; usable as a standalone DAG source or inside series.list/discover.list",
 		Role:        plugin.RoleSource,
-		// title is set on e.Title (struct field) via entry.New, not in Fields.
-		Produces:    []string{entry.FieldSource, "tvdb_id"},
+		Produces:    []string{entry.FieldTitle, entry.FieldSource, "tvdb_id"},
 		MayProduce:  []string{"tvdb_year"},
 		Factory:      newPlugin,
 		Validate:     validate,
@@ -88,6 +87,7 @@ func (p *tvdbSourcePlugin) Generate(ctx context.Context, tc *plugin.TaskContext)
 		}
 		url := fmt.Sprintf("https://thetvdb.com/series/%s", s.Slug)
 		e := entry.New(s.Name, url)
+		e.Set(entry.FieldTitle, s.Name)
 		e.Set(entry.FieldSource, "tvdb_favorites:favorites")
 		e.Set("tvdb_id", s.ID)
 		if s.Year != "" {

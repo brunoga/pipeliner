@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/plugin"
 )
 
@@ -57,8 +58,10 @@ func TestExtractLinks(t *testing.T) {
 	}
 
 	got := map[string]string{}
+	gotField := map[string]string{}
 	for _, e := range entries {
 		got[e.URL] = e.Title
+		gotField[e.URL] = e.GetString(entry.FieldTitle)
 	}
 
 	for wantURL, wantTitle := range wantURLs {
@@ -66,6 +69,9 @@ func TestExtractLinks(t *testing.T) {
 			t.Errorf("missing URL %q", wantURL)
 		} else if gotTitle != wantTitle {
 			t.Errorf("URL %q: title got %q, want %q", wantURL, gotTitle, wantTitle)
+		}
+		if gotFieldTitle := gotField[wantURL]; gotFieldTitle != wantTitle {
+			t.Errorf("URL %q: FieldTitle got %q, want %q", wantURL, gotFieldTitle, wantTitle)
 		}
 	}
 

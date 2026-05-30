@@ -229,6 +229,31 @@ func TestSetMovieInfoWritesMovieTitle(t *testing.T) {
 	}
 }
 
+func TestSetTitleIfEmptyWritesWhenAbsent(t *testing.T) {
+	e := New("Superman.2025.2160p", "http://example.com")
+	e.SetTitleIfEmpty("Superman")
+	if got := e.GetString(FieldTitle); got != "Superman" {
+		t.Errorf("FieldTitle: want %q, got %q", "Superman", got)
+	}
+}
+
+func TestSetTitleIfEmptyPreservesExisting(t *testing.T) {
+	e := New("Superman.2025.2160p", "http://example.com")
+	e.Fields[FieldTitle] = "Superman"
+	e.SetTitleIfEmpty("Superman 2025 2160p UHD BluRay")
+	if got := e.GetString(FieldTitle); got != "Superman" {
+		t.Errorf("FieldTitle: want %q (preserved), got %q", "Superman", got)
+	}
+}
+
+func TestSetTitleIfEmptySkipsEmptyArg(t *testing.T) {
+	e := New("Whatever", "http://example.com")
+	e.SetTitleIfEmpty("")
+	if _, ok := e.Fields[FieldTitle]; ok {
+		t.Error("FieldTitle should not be set when arg is empty")
+	}
+}
+
 func TestSetMovieInfoEmptyTitleSkipsMovieTitle(t *testing.T) {
 	e := New("Some.Movie.1080p", "http://example.com")
 	e.SetMovieInfo(MovieInfo{})
