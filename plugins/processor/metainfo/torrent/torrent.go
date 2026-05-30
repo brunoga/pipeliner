@@ -129,8 +129,11 @@ func (p *torrentPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, e 
 	if ti.CreationDate != 0 {
 		creationTime = time.Unix(ti.CreationDate, 0)
 	}
+	// Torrent display name is an inferred title (release filename); only set
+	// it as the entry title if nothing canonical is there yet.
+	e.SetTitleIfEmpty(ti.Name)
 	e.SetTorrentInfo(entry.TorrentInfo{
-		GenericInfo:  entry.GenericInfo{Title: ti.Name, Description: ti.Comment},
+		GenericInfo:  entry.GenericInfo{Description: ti.Comment},
 		FileSize:     ti.TotalSize,
 		FileCount:    ti.FileCount,
 		Files:        ti.Files,

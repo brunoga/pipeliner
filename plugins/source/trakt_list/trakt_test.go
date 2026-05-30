@@ -8,9 +8,10 @@ import (
 	"testing"
 	"time"
 
-	itrakt "github.com/brunoga/pipeliner/internal/trakt"
+	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/plugin"
 	"github.com/brunoga/pipeliner/internal/store"
+	itrakt "github.com/brunoga/pipeliner/internal/trakt"
 )
 
 func makeServer(t *testing.T, movies []map[string]any) *httptest.Server {
@@ -200,6 +201,9 @@ func TestRunReturnsEntries(t *testing.T) {
 	}
 	if entries[0].Title != "Inception" {
 		t.Errorf("first entry title: got %q", entries[0].Title)
+	}
+	if v := entries[0].GetString(entry.FieldTitle); v != "Inception" {
+		t.Errorf("FieldTitle: got %q", v)
 	}
 	const wantURL = "https://trakt.tv/movies/inception-2010"
 	if entries[0].URL != wantURL {

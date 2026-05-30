@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/plugin"
 	itvdb "github.com/brunoga/pipeliner/internal/tvdb"
 )
@@ -96,6 +97,9 @@ func TestRunReturnsEntries(t *testing.T) {
 	}
 	if entries[0].Title != "Breaking Bad" {
 		t.Errorf("first title: got %q", entries[0].Title)
+	}
+	if v := entries[0].GetString(entry.FieldTitle); v != "Breaking Bad" {
+		t.Errorf("FieldTitle: got %q", v)
 	}
 	if entries[0].URL != "https://thetvdb.com/series/breaking-bad" {
 		t.Errorf("URL: got %q", entries[0].URL)

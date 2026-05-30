@@ -36,6 +36,7 @@ func init() {
 		Role:           plugin.RoleSource,
 		IsSearchPlugin: true,
 		Produces: []string{
+			entry.FieldTitle,
 			entry.FieldSource,
 			entry.FieldTorrentLinkType,
 		},

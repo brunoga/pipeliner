@@ -93,6 +93,33 @@ func TestAnnotateLocalFile(t *testing.T) {
 	}
 }
 
+func TestAnnotatePreservesExistingTitle(t *testing.T) {
+	torrentData := makeTorrent("Superman.2025.2160p.UHD.BluRay.HDR10.DoVi.TrueHD.7.1.Atmos.x265-SPHD.mkv", 1_000_000)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "superman.torrent")
+	if err := os.WriteFile(path, torrentData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	e := entry.New("Superman.2025.2160p.UHD.BluRay", "file://"+path)
+	e.Set("file_location", path)
+	// Simulate a canonical title written by metainfo_tmdb/trakt upstream.
+	e.Set("title", "Superman")
+
+	p := makePlugin(t)
+	if err := p.annotate(context.Background(), tc(), e); err != nil {
+		t.Fatal(err)
+	}
+
+	if v := e.GetString("title"); v != "Superman" {
+		t.Errorf("title: want %q (preserved), got %q", "Superman", v)
+	}
+	// Torrent-specific fields still populate normally.
+	if v := e.GetInt("torrent_file_size"); v != 1_000_000 {
+		t.Errorf("torrent_file_size: got %d", v)
+	}
+}
+
 func TestAnnotateRemoteURL(t *testing.T) {
 	torrentData := makeTorrent("remote.mkv", 500_000_000)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
