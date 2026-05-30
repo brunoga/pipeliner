@@ -20,7 +20,7 @@ If the `.torrent` file cannot be fetched or parsed, the entry is failed so it wi
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `title` | string | Torrent name (top-level file or directory) |
+| `title` | string | Torrent name (top-level file or directory). Only written if no `title` is already set on the entry, so a canonical title from `metainfo_tmdb`/`tvdb`/`trakt` upstream is preserved. |
 | `description` | string | Torrent comment field (if set) |
 | `torrent_info_hash` | string | SHA-1 info hash (hex) |
 | `torrent_file_size` | int64 | Total content size in bytes |

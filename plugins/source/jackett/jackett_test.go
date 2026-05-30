@@ -141,6 +141,9 @@ func TestSearchParsesEntries(t *testing.T) {
 	if e.Title != "Breaking.Bad.S01E01.720p.HDTV" {
 		t.Errorf("title: got %q", e.Title)
 	}
+	if v := e.GetString(entry.FieldTitle); v != "Breaking.Bad.S01E01.720p.HDTV" {
+		t.Errorf("FieldTitle: got %q", v)
+	}
 	if e.URL != "http://tracker.example.com/1.torrent" {
 		t.Errorf("url: got %q", e.URL)
 	}

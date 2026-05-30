@@ -89,6 +89,7 @@ func parseTorznab(data []byte, indexer string) ([]*entry.Entry, error) {
 		}
 
 		e := entry.New(title, link)
+		e.Set(entry.FieldTitle, title)
 		e.Set(entry.FieldTorrentLinkType, linkType)
 		e.Set(entry.FieldSource, "jackett:"+indexer)
 

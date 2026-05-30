@@ -34,9 +34,8 @@ func init() {
 		PluginName:  "trakt_list",
 		Description: "fetch movies or shows from a Trakt.tv list as pipeline entries; usable as a standalone DAG source or inside series.list/movies.list/discover.list",
 		Role:        plugin.RoleSource,
-		// title is set on e.Title (struct field) via entry.New, not in Fields.
 		// trakt_slug is used for the entry URL but not set as a field.
-		Produces: []string{entry.FieldSource},
+		Produces: []string{entry.FieldTitle, entry.FieldSource},
 		MayProduce: []string{
 			entry.FieldVideoYear,
 			"trakt_id",
@@ -148,6 +147,7 @@ func (p *traktSourcePlugin) Generate(ctx context.Context, tc *plugin.TaskContext
 	for _, item := range items {
 		url := fmt.Sprintf("https://trakt.tv/%s/%s", p.itemType, item.IDs.Slug)
 		e := entry.New(item.Title, url)
+		e.Set(entry.FieldTitle, item.Title)
 		e.Set(entry.FieldSource, "trakt_list:"+p.list)
 		if item.Year > 0 {
 			e.Set(entry.FieldVideoYear, item.Year)
