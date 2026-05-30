@@ -23,6 +23,30 @@ type FieldMeta struct {
 	// KnownValues lists the finite set of values this field can hold (if any).
 	// The UI uses this to offer autocomplete on the value side of a condition.
 	KnownValues []string `json:"known_values,omitempty"`
+	// Deprecated marks the field as scheduled for removal. The DAG validator
+	// surfaces a warning when a deprecated field is referenced in plugin
+	// Requires, condition rules, route ports, or pathfmt patterns. The visual
+	// editor renders deprecated names with a strikethrough and a hint.
+	Deprecated bool `json:"deprecated,omitempty"`
+	// ReplacedBy is the name of the field users should reference instead.
+	// Surfaced in warnings and tooltips when non-empty.
+	ReplacedBy string `json:"replaced_by,omitempty"`
+	// DeprecationNote is an optional human-readable reason shown alongside the
+	// warning. Used when the replacement isn't a single field name (e.g.
+	// "use media_type == \"movie\" with title").
+	DeprecationNote string `json:"deprecation_note,omitempty"`
+}
+
+// LookupField returns the FieldMeta for name, or (zero, false) if name is not a
+// known field. The lookup is linear over KnownFields; callers that need it in
+// a hot path should cache the result.
+func LookupField(name string) (FieldMeta, bool) {
+	for _, f := range KnownFields {
+		if f.Name == name {
+			return f, true
+		}
+	}
+	return FieldMeta{}, false
 }
 
 // KnownFields is the authoritative registry of all standard entry fields.

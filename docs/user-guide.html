@@ -636,6 +636,10 @@ pipeline("split-pipeline")</code></pre>
   <tr><td><code>trakt_id</code></td><td>metainfo_trakt, trakt_list</td><td>Trakt internal ID</td></tr>
 </table>
 
+<h3>Deprecated fields</h3>
+<p>Some fields are kept for backwards compatibility but discouraged in new configs. The visual editor renders deprecated names with a strikethrough and groups them under a <code>⚠ deprecated</code> heading in the field picker. <code>pipeliner check</code> (and the visual editor's inline validation) emits a warning every time a deprecated field is referenced in a plugin's <code>Requires</code>, in a <code>condition</code> rule, in a <code>route()</code> port expression, in <code>require fields=…</code>, or in a pattern-typed config such as <code>pathfmt path=…</code>. The warning identifies the node and suggests the replacement.</p>
+<p>The warning is advisory — the config still loads. Notify templates (<code>{{index .Fields "..."}}</code>) are not statically scanned, so deprecated references there are silent.</p>
+
 <h3>Pattern syntax for path/field templates</h3>
 <p>String values in <code>pathfmt</code>, <code>exec</code>, <code>print</code>, <code>set</code>, and download-client path configs support two syntaxes:</p>
 <table>
