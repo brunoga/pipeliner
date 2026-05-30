@@ -23,6 +23,7 @@ import (
 	"maps"
 	"strings"
 	"text/template"
+	"text/template/parse"
 
 	"github.com/brunoga/pipeliner/internal/entry"
 	itpl "github.com/brunoga/pipeliner/internal/template"
@@ -42,6 +43,73 @@ func Compile(pattern string) (*Interpolator, error) {
 		return nil, err
 	}
 	return &Interpolator{tmpl: tmpl}, nil
+}
+
+// FieldRefs returns the names of entry fields referenced in this pattern.
+// Only top-level field identifiers are returned: for `{{.foo.bar}}` the result
+// is "foo". Order matches first appearance; each name is returned at most once.
+// Used for static analysis — e.g. detecting references to deprecated fields.
+func (ip *Interpolator) FieldRefs() []string {
+	seen := make(map[string]bool)
+	var refs []string
+	visit := func(name string) {
+		if name == "" || seen[name] {
+			return
+		}
+		seen[name] = true
+		refs = append(refs, name)
+	}
+	for _, t := range ip.tmpl.Templates() {
+		if t.Tree == nil || t.Tree.Root == nil {
+			continue
+		}
+		walkParseNode(t.Tree.Root, visit)
+	}
+	return refs
+}
+
+func walkParseNode(n parse.Node, visit func(string)) {
+	switch v := n.(type) {
+	case *parse.ListNode:
+		if v == nil {
+			return
+		}
+		for _, c := range v.Nodes {
+			walkParseNode(c, visit)
+		}
+	case *parse.ActionNode:
+		walkPipeNode(v.Pipe, visit)
+	case *parse.IfNode:
+		walkPipeNode(v.Pipe, visit)
+		walkParseNode(v.List, visit)
+		walkParseNode(v.ElseList, visit)
+	case *parse.RangeNode:
+		walkPipeNode(v.Pipe, visit)
+		walkParseNode(v.List, visit)
+		walkParseNode(v.ElseList, visit)
+	case *parse.WithNode:
+		walkPipeNode(v.Pipe, visit)
+		walkParseNode(v.List, visit)
+		walkParseNode(v.ElseList, visit)
+	}
+}
+
+func walkPipeNode(p *parse.PipeNode, visit func(string)) {
+	if p == nil {
+		return
+	}
+	for _, cmd := range p.Cmds {
+		for _, arg := range cmd.Args {
+			switch a := arg.(type) {
+			case *parse.FieldNode:
+				if len(a.Ident) > 0 {
+					visit(a.Ident[0])
+				}
+			case *parse.PipeNode:
+				walkPipeNode(a, visit)
+			}
+		}
+	}
 }
 
 // Render executes the interpolator against data and returns the result.

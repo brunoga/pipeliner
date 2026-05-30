@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/brunoga/pipeliner/internal/entry"
+
 	// Register plugins so the field computation has real descriptors.
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/condition"
 	_ "github.com/brunoga/pipeliner/plugins/sink/print"
@@ -215,6 +217,43 @@ func TestAPIFieldsKnownValuesForEnum(t *testing.T) {
 		}
 	}
 	t.Error("torrent_link_type not found in /api/fields")
+}
+
+func TestAPIFieldsExposesDeprecation(t *testing.T) {
+	// Temporarily inject a deprecated field so we can confirm the JSON shape
+	// surfaces the deprecation attributes end-to-end.
+	orig := entry.KnownFields
+	entry.KnownFields = append(append([]entry.FieldMeta{}, orig...), entry.FieldMeta{
+		Name:        "_test_deprecated_field",
+		Type:        entry.FieldTypeString,
+		Description: "a test-only deprecated field",
+		Deprecated:  true,
+		ReplacedBy:  "title",
+	})
+	t.Cleanup(func() { entry.KnownFields = orig })
+
+	ts := newFieldsServer(t)
+	defer ts.Close()
+
+	resp := getFields(t, ts.URL)
+	defer resp.Body.Close()
+
+	var fields []map[string]any
+	json.NewDecoder(resp.Body).Decode(&fields) //nolint:errcheck
+
+	for _, f := range fields {
+		if f["name"] != "_test_deprecated_field" {
+			continue
+		}
+		if dep, _ := f["deprecated"].(bool); !dep {
+			t.Errorf("deprecated: want true, got %v", f["deprecated"])
+		}
+		if rb, _ := f["replaced_by"].(string); rb != "title" {
+			t.Errorf("replaced_by: want %q, got %v", "title", f["replaced_by"])
+		}
+		return
+	}
+	t.Error("_test_deprecated_field not found in /api/fields response")
 }
 
 // ── POST /api/config/parse — fields in response ───────────────────────────────

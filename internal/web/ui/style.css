@@ -2489,6 +2489,11 @@ details[open] > .ve-fields-summary::after { content:'▴'; }
   color:color-mix(in srgb, var(--amber) 80%, var(--text));
   border:1px solid color-mix(in srgb, var(--amber) 18%, transparent);
 }
+.ve-f-deprecated {
+  text-decoration:line-through;
+  text-decoration-thickness:1px;
+  opacity:0.7;
+}
 .ve-fields-legend { display:none; } /* legend clutter removed */
 
 /* ── Edge tooltip: cleaner ────────────────────────────────────────────────── */

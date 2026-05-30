@@ -277,3 +277,39 @@ func TestSetSeriesInfoWritesEpisodeID(t *testing.T) {
 		t.Errorf("FieldTitle: want %q, got %q", "Show", got)
 	}
 }
+
+func TestLookupField(t *testing.T) {
+	// A field that's definitely registered.
+	if _, ok := LookupField(FieldTitle); !ok {
+		t.Errorf("LookupField(%q): want found", FieldTitle)
+	}
+	// A name that isn't registered.
+	if meta, ok := LookupField("definitely_not_a_real_field"); ok {
+		t.Errorf("LookupField(unknown): want not found, got %+v", meta)
+	}
+}
+
+func TestLookupFieldDeprecated(t *testing.T) {
+	// Temporarily register a deprecated field. Tests that mutate KnownFields
+	// must not run in parallel; LookupField itself is safe to call from many
+	// goroutines because the slice is never resliced concurrently.
+	orig := KnownFields
+	KnownFields = append(append([]FieldMeta{}, orig...), FieldMeta{
+		Name:       "_test_deprecated",
+		Type:       FieldTypeString,
+		Deprecated: true,
+		ReplacedBy: "title",
+	})
+	t.Cleanup(func() { KnownFields = orig })
+
+	meta, ok := LookupField("_test_deprecated")
+	if !ok {
+		t.Fatal("LookupField: deprecated field not found")
+	}
+	if !meta.Deprecated {
+		t.Errorf("Deprecated: want true, got false")
+	}
+	if meta.ReplacedBy != "title" {
+		t.Errorf("ReplacedBy: want %q, got %q", "title", meta.ReplacedBy)
+	}
+}

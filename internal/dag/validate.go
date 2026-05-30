@@ -150,6 +150,12 @@ func Validate(g *Graph, reg func(name string) (*plugin.Descriptor, bool)) (errs,
 				}
 			}
 
+			// Warn on references to deprecated fields anywhere in this node's
+			// surface: Requires groups, route port expression, condition rules,
+			// require fields, and pattern-typed schema entries (e.g. pathfmt's
+			// path=). Static-only — runtime e.Get/Set calls aren't checked.
+			deprecationWarnings(n, d, &warnings)
+
 			// Add this node's Produces to both sets, MayProduce to reachable only.
 			for _, f := range d.Produces {
 				reach[f] = true

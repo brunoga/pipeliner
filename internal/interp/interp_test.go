@@ -119,3 +119,43 @@ func TestEntryDataWithState(t *testing.T) {
 		t.Errorf("EntryDataWithState[reject_reason] = %v; want %q", m["reject_reason"], "too slow")
 	}
 }
+
+func TestFieldRefs(t *testing.T) {
+	cases := []struct {
+		pattern string
+		want    []string
+	}{
+		{"{title}", []string{"title"}},
+		{"{title}/{video_year:04d}", []string{"title", "video_year"}},
+		{"static text only", nil},
+		{"", nil},
+		{"{{.foo}}{{range .bar}}{{.baz}}{{end}}", []string{"foo", "bar", "baz"}},
+		{"{{with .outer}}{{.inner}}{{end}}", []string{"outer", "inner"}},
+		{"/data/{title} ({video_year}) [{quality}]", []string{"title", "video_year", "quality"}},
+		// A field used twice still appears once.
+		{"{title}/{title}.txt", []string{"title"}},
+	}
+	for _, c := range cases {
+		ip, err := Compile(c.pattern)
+		if err != nil {
+			t.Errorf("Compile(%q): %v", c.pattern, err)
+			continue
+		}
+		got := ip.FieldRefs()
+		if !equalStringSlices(got, c.want) {
+			t.Errorf("FieldRefs(%q): got %v, want %v", c.pattern, got, c.want)
+		}
+	}
+}
+
+func equalStringSlices(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}

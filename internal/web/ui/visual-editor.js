@@ -2747,6 +2747,17 @@ function getKnownValues(name) {
   return getFieldMeta(name)?.known_values || null;
 }
 
+// deprecationTitle returns a human-readable tooltip string for a deprecated
+// field, or '' if the field is not deprecated. Combines the deprecation flag,
+// the replacement field (if any), and any free-form deprecation note.
+function deprecationTitle(meta) {
+  if (!meta || !meta.deprecated) return '';
+  let msg = `deprecated — ${meta.description || meta.name}`;
+  if (meta.replaced_by) msg += `\nuse "${meta.replaced_by}" instead`;
+  if (meta.deprecation_note) msg += `\n${meta.deprecation_note}`;
+  return msg;
+}
+
 // Operators available for each field type.
 // Each op: {id, label, noValue?}
 // noValue=true means the value input is hidden (the op is self-contained, e.g. "!= \"\"")
@@ -3362,13 +3373,15 @@ function renderNodeFieldsSection(node) {
   const certHtml = certain.length
     ? certain.map(f => {
         const m = getFieldMeta(f);
-        return `<span class="ve-f-tag ve-f-certain" title="${esc(m?.description||f)}">${esc(f)}</span>`;
+        const cls = m?.deprecated ? 've-f-tag ve-f-certain ve-f-deprecated' : 've-f-tag ve-f-certain';
+        return `<span class="${cls}" title="${esc(deprecationTitle(m) || m?.description || f)}">${esc(f)}</span>`;
       }).join('')
     : '';
   const reachHtml = reachOnly.length
     ? reachOnly.map(f => {
         const m = getFieldMeta(f);
-        return `<span class="ve-f-tag ve-f-reachable" title="${esc(m?.description||f)}">${esc(f)}</span>`;
+        const cls = m?.deprecated ? 've-f-tag ve-f-reachable ve-f-deprecated' : 've-f-tag ve-f-reachable';
+        return `<span class="${cls}" title="${esc(deprecationTitle(m) || m?.description || f)}">${esc(f)}</span>`;
       }).join('')
     : '';
 
@@ -3551,15 +3564,21 @@ function renderBuilderBody(model, ruleIdx, nodeFields, mode) {
   const certain  = new Set(nf.certain);
   const reachable = new Set(nf.reachable);
 
-  // Collect fields: certain (green), reachable-only (amber), all known (grey)
-  const allKnown  = ve.fieldRegistry.map(f => f.name);
+  // Collect fields: certain (green), reachable-only (amber), all known (grey),
+  // deprecated (separate optgroup, so they don't pollute the main lists).
+  const deprecatedNames = new Set(ve.fieldRegistry.filter(f => f.deprecated).map(f => f.name));
+  const allKnown  = ve.fieldRegistry.filter(f => !f.deprecated).map(f => f.name);
   const extraKnown = allKnown.filter(f => !reachable.has(f));
 
   function fieldOption(name, selected) {
-    let group = '';
-    if (certain.has(name))  group = '✓ ';
-    else if (reachable.has(name)) group = '◐ ';
-    return `<option value="${esc(name)}" ${selected===name?'selected':''}>${group}${esc(name)}</option>`;
+    const meta = getFieldMeta(name);
+    let prefix = '';
+    if (meta?.deprecated) prefix = '⚠ ';
+    else if (certain.has(name))  prefix = '✓ ';
+    else if (reachable.has(name)) prefix = '◐ ';
+    const tip = deprecationTitle(meta);
+    const titleAttr = tip ? ` title="${esc(tip)}"` : '';
+    return `<option value="${esc(name)}" ${selected===name?'selected':''}${titleAttr}>${prefix}${esc(name)}</option>`;
   }
 
   const p = mode; // handler prefix: 'cond' or 'route'
@@ -3573,17 +3592,20 @@ function renderBuilderBody(model, ruleIdx, nodeFields, mode) {
     const knownVals = getKnownValues(c.field);
 
     // Build field selector options
-    const certFields  = [...certain].sort();
-    const reachFields = [...reachable].filter(f => !certain.has(f)).sort();
-    const optsCert  = certFields.map(f  => fieldOption(f, c.field)).join('');
-    const optsReach = reachFields.map(f => fieldOption(f, c.field)).join('');
-    const optsExtra = extraKnown.map(f  => fieldOption(f, c.field)).join('');
+    const certFields  = [...certain].filter(f => !deprecatedNames.has(f)).sort();
+    const reachFields = [...reachable].filter(f => !certain.has(f) && !deprecatedNames.has(f)).sort();
+    const deprecFields = [...deprecatedNames].sort();
+    const optsCert   = certFields.map(f  => fieldOption(f, c.field)).join('');
+    const optsReach  = reachFields.map(f => fieldOption(f, c.field)).join('');
+    const optsExtra  = extraKnown.map(f  => fieldOption(f, c.field)).join('');
+    const optsDeprec = deprecFields.map(f => fieldOption(f, c.field)).join('');
     const fieldSel  = `<select class="ve-cb-field" data-rule="${ruleIdx}" data-clause="${ci}"
         onchange="${p}FieldChanged(${ruleIdx},${ci},this.value)">
-        ${certFields.length  ? `<optgroup label="✓ certain">${optsCert}</optgroup>` : ''}
-        ${reachFields.length ? `<optgroup label="◐ reachable">${optsReach}</optgroup>` : ''}
-        ${extraKnown.length  ? `<optgroup label="other">${optsExtra}</optgroup>` : ''}
-        ${!reachable.has(c.field) && !allKnown.includes(c.field)
+        ${certFields.length   ? `<optgroup label="✓ certain">${optsCert}</optgroup>` : ''}
+        ${reachFields.length  ? `<optgroup label="◐ reachable">${optsReach}</optgroup>` : ''}
+        ${extraKnown.length   ? `<optgroup label="other">${optsExtra}</optgroup>` : ''}
+        ${deprecFields.length ? `<optgroup label="⚠ deprecated">${optsDeprec}</optgroup>` : ''}
+        ${!reachable.has(c.field) && !allKnown.includes(c.field) && !deprecatedNames.has(c.field)
           ? `<option value="${esc(c.field)}" selected>${esc(c.field)}</option>` : ''}
       </select>`;
 
