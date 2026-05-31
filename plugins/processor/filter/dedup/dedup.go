@@ -6,11 +6,11 @@
 //  2. Resolution: higher resolution wins within the same tier.
 //  3. Seeds: more seeds wins when tier and resolution are equal.
 //
-// Episodes are keyed by series title + episode ID; movies by movie title.
-// Entries without either key pass through unchanged.
+// Episodes are keyed by series title + episode ID; movies by title (when
+// media_type == "movie"). Entries without either key pass through unchanged.
 //
 // Place dedup after metainfo processors that set series_episode_id or
-// movie_title and after filters that accept entries, before output sinks.
+// media_type and after filters that accept entries, before output sinks.
 package dedup
 
 import (
@@ -94,8 +94,10 @@ func deduKey(e *entry.Entry) string {
 			return "episode:" + strings.ToLower(name) + "/" + epID
 		}
 	}
-	if movie := e.GetString(entry.FieldMovieTitle); movie != "" {
-		return "movie:" + strings.ToLower(movie)
+	if e.GetString(entry.FieldMediaType) == entry.MediaTypeMovie {
+		if title := e.GetString(entry.FieldTitle); title != "" {
+			return "movie:" + strings.ToLower(title)
+		}
 	}
 	return ""
 }

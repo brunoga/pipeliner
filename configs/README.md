@@ -137,7 +137,7 @@ Fields are grouped by prefix — the prefix tells you what kind of data the fiel
 
 | Field | Set by | Description |
 |-------|--------|-------------|
-| `movie_title` | `metainfo_tmdb`, `metainfo_file` | Canonical movie title |
+| `movie_title` | `metainfo_tmdb`, `metainfo_file` | **Deprecated** — duplicates `title` when `media_type == "movie"`; use `title` |
 | `movie_tagline` | `metainfo_tmdb` | Movie tagline |
 
 ### Torrent fields

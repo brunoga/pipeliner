@@ -519,7 +519,7 @@ pipeline("split-pipeline")</code></pre>
 <h4>Movie fields (movie_ prefix) — set by metainfo_tmdb, metainfo_file</h4>
 <table>
   <tr><th>Field</th><th>Description</th></tr>
-  <tr><td><code>movie_title</code></td><td>Canonical movie title</td></tr>
+  <tr><td><code>movie_title</code></td><td><span style="text-decoration:line-through">Canonical movie title</span> — <strong>deprecated</strong>; duplicates <code>title</code> when <code>media_type == "movie"</code>. Use <code>title</code> instead.</td></tr>
   <tr><td><code>movie_tagline</code></td><td>Movie tagline</td></tr>
 </table>
 
@@ -1393,7 +1393,7 @@ by_air = process("age", upstream=enriched,
 <!-- ─────────── dedup ─────────── -->
 <h2 id="dedup">dedup</h2>
 <p>Keeps the best-quality copy when multiple entries for the same episode or movie arrive in one run. The <code>series</code> and <code>movies</code> filters accept <em>all</em> quality variants so you can get the best available copy — place <code>dedup</code> after them to select the winner.</p>
-<p>Takes no config. Identifies entries by <code>series_episode_id</code> (for episodes) or <code>movie_title</code> (for movies); entries without either key pass through unchanged.</p>
+<p>Takes no config. Identifies entries by <code>series_episode_id</code> (for episodes) or by <code>title</code> when <code>media_type == "movie"</code> (for movies); entries without either key pass through unchanged. Place <code>metainfo_file</code> (or <code>metainfo_tmdb</code>) upstream so <code>media_type</code> is set.</p>
 <p>Selection order (highest wins):</p>
 <ol>
   <li>Seed tier — entries with 2 or more seeders beat entries with 1</li>

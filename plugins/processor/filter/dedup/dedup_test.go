@@ -76,6 +76,63 @@ func TestDedupKeepsBestResolution(t *testing.T) {
 	}
 }
 
+// TestDedupMoviesByMediaTypeAndTitle exercises the post-deprecation path:
+// dedup must group movies by media_type + title rather than the deprecated
+// movie_title field. Two copies of the same movie at different qualities
+// should collapse to one accepted entry.
+func TestDedupMoviesByMediaTypeAndTitle(t *testing.T) {
+	p := &dedupPlugin{}
+	low := accepted("Superman.2025.1080p.WEB-DL")
+	high := accepted("Superman.2025.2160p.UHD.BluRay")
+	for _, e := range []*entry.Entry{low, high} {
+		e.Set(entry.FieldMediaType, entry.MediaTypeMovie)
+		e.Set(entry.FieldTitle, "Superman")
+	}
+
+	out, err := p.Process(context.Background(), tc(), []*entry.Entry{low, high})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var winners []*entry.Entry
+	for _, e := range out {
+		if e.IsAccepted() {
+			winners = append(winners, e)
+		}
+	}
+	if len(winners) != 1 {
+		t.Fatalf("want 1 winner, got %d", len(winners))
+	}
+	if winners[0] != high {
+		t.Errorf("want 2160p winner, got %q", winners[0].Title)
+	}
+}
+
+// TestDedupSkipsMovieWithoutMediaType verifies that an entry carrying only the
+// legacy movie_title (no media_type) is NOT deduped by movie title under the
+// new logic. This documents the intentional behavior change — pipelines that
+// want movie dedup must run metainfo_file or metainfo_tmdb upstream.
+func TestDedupSkipsMovieWithoutMediaType(t *testing.T) {
+	p := &dedupPlugin{}
+	a := accepted("Superman.2025.1080p.WEB-DL")
+	b := accepted("Superman.2025.2160p.UHD.BluRay")
+	for _, e := range []*entry.Entry{a, b} {
+		// Only movie_title set; no media_type or title field.
+		e.Set(entry.FieldMovieTitle, "Superman")
+	}
+
+	out, _ := p.Process(context.Background(), tc(), []*entry.Entry{a, b})
+	var winners []*entry.Entry
+	for _, e := range out {
+		if e.IsAccepted() {
+			winners = append(winners, e)
+		}
+	}
+	if len(winners) != 2 {
+		t.Errorf("entries without media_type must pass through unduplicated, got %d", len(winners))
+	}
+}
+
 func TestDedupPassesThroughEntriesWithNoKey(t *testing.T) {
 	p := &dedupPlugin{}
 	e := accepted("Some article with no media key")
