@@ -5,6 +5,12 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] - 2026-05-31
+
+### Fixed
+
+- **Title matching no longer tolerates single-character edits** ([#193](https://github.com/brunoga/pipeliner/pull/193)). `match.Fuzzy` previously accepted any pair within Levenshtein distance 1, which let "Masters of the Universe (2026)" match the unrelated movie "Master of the Universe (2026)" — and similar single-letter title flips elsewhere — causing the wrong content to download silently. Matching is now exact-or-glob only; `Normalize()` still handles realistic variation (case, dots, underscores, hyphens). Watchlist sources provide canonical titles and user-typed lists are short enough to proofread, so a no-match is observable while a wrong-match was not.
+
 ## [1.1.0] - 2026-05-31
 
 ### Added
@@ -33,4 +39,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Bump `modernc.org/sqlite` to the latest patch in the `all-go-deps` group ([#186](https://github.com/brunoga/pipeliner/pull/186)).
 
+[1.1.1]: https://github.com/brunoga/pipeliner/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/brunoga/pipeliner/compare/v1.0.0...v1.1.0
