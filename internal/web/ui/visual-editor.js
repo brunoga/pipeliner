@@ -1703,6 +1703,10 @@ function marqueeSelect(x1, y1, x2, y2) {
     if (nx < x2 && nx + NODE_W > x1 && ny < y2 && ny + NODE_H > y1) {
       ve.selectedNodeIds.add(n.id);
       document.querySelector(`.ve-node[data-id="${n.id}"]`)?.classList.add('multi-selected');
+      // Mirror Ctrl+Click: highlight any owned search/list sub-nodes too.
+      for (const sid of [...(n.searchNodeIds || []), ...(n.listNodeIds || [])]) {
+        document.querySelector(`.ve-node[data-id="${sid}"]`)?.classList.add('multi-selected');
+      }
       added.push(n.id);
     }
   }
