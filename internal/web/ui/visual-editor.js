@@ -52,6 +52,7 @@ let ve_undoStack = [];
 
 // pushUndo snapshots the current model state. Call before any destructive action.
 function pushUndo() {
+  veDebugLog('pushUndo', snapshotGraphPositions(ve.graphs));
   ve_undoStack.push(JSON.stringify({
     graphs:        ve.graphs,
     userFunctions: ve.userFunctions,
@@ -69,7 +70,22 @@ function undo() {
   ve.nextId        = snap.nextId;
   ve.selectedNodeId = null;
   clearMultiSelect();
+  // The snapshot stores absolute y values (the live state at pushUndo time).
+  // initLayout()'s stored-position branch expects RELATIVE y on input — same
+  // shape as a fresh server parse — and adds g._regionY to convert to
+  // absolute. So before re-running initLayout, subtract the saved _regionY
+  // from every node y. Without this conversion, each undo would re-add
+  // regionY and shift nodes down ~32px (more for later pipelines).
+  for (const g of ve.graphs) {
+    const regionY = g._regionY ?? 0;
+    if (regionY === 0) continue;
+    for (const n of g.nodes) {
+      if (n.y != null) n.y -= regionY;
+    }
+  }
+  veDebugLog('undo:beforeInitLayout', snapshotGraphPositions(ve.graphs));
   initLayout();
+  veDebugLog('undo:afterInitLayout', snapshotGraphPositions(ve.graphs));
   veRender();
   onModelChange();
   updateUndoButton();
@@ -80,6 +96,34 @@ function undo() {
 function updateUndoButton() {
   const btn = document.getElementById('ve-undo-btn');
   if (btn) btn.disabled = ve_undoStack.length === 0;
+}
+
+// veDebugLog is a no-op in production. To enable, set localStorage.veDebug='1'
+// in the browser devtools and reload. It logs node y/regionY transitions at
+// the spots that mutate layout (initLayout, undo, drag end, tightenPipeline)
+// so positional drift can be diagnosed when it next happens.
+function veDebugLog(tag, payload) {
+  if (typeof window === 'undefined') return;
+  try {
+    if (window.localStorage?.getItem('veDebug') !== '1') return;
+  } catch { return; }
+  // eslint-disable-next-line no-console
+  console.log(`[veDebug:${tag}]`, payload);
+}
+
+// snapshotGraphPositions returns a compact summary of every main node's y and
+// each graph's region metadata — the minimum needed to diagnose layout drift.
+// Cheap enough to call from log sites; only allocates when veDebug is on.
+function snapshotGraphPositions(graphs) {
+  return graphs.map((g, gi) => ({
+    gi,
+    labelY:  g._labelY  ?? null,
+    regionY: g._regionY ?? null,
+    regionH: g._regionH ?? null,
+    nodes:   (g.nodes || [])
+      .filter(n => !n.isSearchNode && !n.isListNode && !n.isRoutePort)
+      .map(n => ({id: n.id, x: n.x, y: n.y})),
+  }));
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -1410,7 +1454,14 @@ function layoutGraph(g, globalY) {
 // A pipeline with at least one positioned main node is "has layout". Unpositioned
 // nodes in such a pipeline are placed to the right of the existing bounding box.
 // Pipelines with no positioned nodes are fully auto-laid out via layoutGraph.
+//
+// IMPORTANT: callers must pass node y values in RELATIVE form (i.e. as written
+// into # pipeliner:pos comments). initLayout's stored-position branch adds
+// _regionY to every node y, so calling this on already-absolute coordinates
+// produces a per-call drift of _regionY pixels. The undo path subtracts
+// _regionY before calling initLayout for this reason.
 function initLayout() {
+  veDebugLog('initLayout:enter', snapshotGraphPositions(ve.graphs));
   const PIPELINE_GAP = 60;
   let globalY = 40;
 
@@ -1493,11 +1544,17 @@ function initLayout() {
     g._regionH = storedRegionH;
     globalY = (g._regionY ?? 0) + storedRegionH + PIPELINE_GAP;
   }
+  veDebugLog('initLayout:exit', snapshotGraphPositions(ve.graphs));
 }
 
 // tightenPipeline shifts all nodes in g so the topmost node sits just
 // below the pipeline label and the leftmost node is at PAD_X.
 // Returns the updated globalY for the next pipeline.
+//
+// WARNING: this mutates n.x and n.y on every node — call only on freshly
+// laid-out pipelines (no stored positions) where the user has no intent to
+// preserve. The withPos branch of initLayout intentionally does NOT call this
+// (see commit bd463fc).
 function tightenPipeline(g, currentGlobalY, pipelineGap) {
   const PAD_X    = 50;  // left margin inside the pipeline box
   const LABEL_H  = 36;  // height of the label bar + small gap below it
@@ -1512,6 +1569,7 @@ function tightenPipeline(g, currentGlobalY, pipelineGap) {
   const targetMinY = (g._labelY ?? 40) + LABEL_H;
   const shiftX = minX - PAD_X;
   const shiftY = minY - targetMinY;
+  veDebugLog('tightenPipeline', {graphIdx: ve.graphs?.indexOf?.(g), shiftX, shiftY, minX, minY, targetMinY});
 
   for (const n of g.nodes) {
     if (n.x != null) n.x -= shiftX;
@@ -2105,6 +2163,7 @@ function startNodeDrag(e, n) {
   function onUp() {
     ve_dragging = null;
     document.removeEventListener('pointermove', onMove);
+    veDebugLog('nodeDrag:end', {nodeId: n.id, dx: (n.x ?? 0) - origX, dy: (n.y ?? 0) - origY, graphs: snapshotGraphPositions(ve.graphs)});
     onModelChange();
   }
   document.addEventListener('pointermove', onMove);
@@ -6220,6 +6279,7 @@ async function textToVisualSync() {
     ve.selectedNodeId = null;
     ve_panX = 0; ve_panY = 0; // reset pan so freshly laid-out nodes are visible
     ve.syncing = false;
+    veDebugLog('textToVisualSync:parsedFromServer', snapshotGraphPositions(ve.graphs));
     // Place all pipelines in order: stored relative positions for those that
     // have a layout comment, auto-layout for those that don't.
     initLayout();
