@@ -16,7 +16,8 @@ let starLit, valToStar, configToKwargs, upstreamsStr, dagToStarlark, viaNodeToSt
     parseFunctionComment, nodeTooltipText, edgePath, configPreview, syncRoutePorts,
     condAcceptAbsenceRemovedFields, condNarrowedFields, ve, setActiveGraph,
     _builderGetExpr, _builderSetExpr, renderRouteRulesWidget, renderRouteRuleRow,
-    toggleRouteRawMode, _forcedRaw, exprToFlatModel;
+    toggleRouteRawMode, _forcedRaw, exprToFlatModel,
+    pushUndo, undo, initLayout;
 
 // Minimal HTML-escape helper matching dashboard.js's esc() — needed so render
 // functions (which call esc as a global) work in the test sandbox.
@@ -54,6 +55,9 @@ exports.renderRouteRuleRow            = renderRouteRuleRow;
 exports.toggleRouteRawMode            = toggleRouteRawMode;
 exports._forcedRaw                    = _forcedRaw;
 exports.exprToFlatModel               = exprToFlatModel;
+exports.pushUndo                      = pushUndo;
+exports.undo                          = undo;
+exports.initLayout                    = initLayout;
 `
   );
   const exports = {};
@@ -70,7 +74,8 @@ exports.exprToFlatModel               = exprToFlatModel;
      parseFunctionComment, nodeTooltipText, edgePath, configPreview, syncRoutePorts,
      condAcceptAbsenceRemovedFields, condNarrowedFields, ve, setActiveGraph,
      _builderGetExpr, _builderSetExpr, renderRouteRulesWidget, renderRouteRuleRow,
-     toggleRouteRawMode, _forcedRaw, exprToFlatModel } = exports);
+     toggleRouteRawMode, _forcedRaw, exprToFlatModel,
+     pushUndo, undo, initLayout } = exports);
 });
 
 // ── test helpers ──────────────────────────────────────────────────────────────
@@ -1719,5 +1724,87 @@ describe('setActiveGraph', () => {
     expect(setActiveGraph(-1)).toBe(false);
     expect(setActiveGraph(99)).toBe(false);
     expect(ve.activeGraph).toBe(0);
+  });
+});
+
+// ── undo: y values are stable across pushUndo + undo ──────────────────────────
+//
+// Regression: before the fix, undo() called initLayout() on a snapshot whose
+// nodes carried ABSOLUTE y values. initLayout's stored-position branch adds
+// g._regionY to every node y, treating it as relative — so each undo would
+// shift nodes down by ~32px (more for later pipelines). The fix subtracts
+// _regionY before calling initLayout, so the round-trip is idempotent.
+describe('undo() y-stability', () => {
+  beforeEach(() => {
+    ve.graphs = [];
+    ve.userFunctions = {};
+    ve.nextId = 1;
+    ve.activeGraph = 0;
+    ve.selectedNodeId = null;
+    ve.plugins = PLUGINS;
+  });
+
+  it('preserves node y after pushUndo() + undo() when nothing else changes', () => {
+    // Single pipeline with one positioned node (server-style: y is relative).
+    ve.graphs = [{
+      name: 'pipe', schedule: '', comment: '',
+      nodes: [
+        { id: 'n1', plugin: 'rss', config: {}, upstreams: [], x: 50, y: 44 },
+      ],
+    }];
+
+    // initLayout converts relative y → absolute y (_regionY + relY).
+    initLayout();
+    const afterInit = ve.graphs[0].nodes[0].y;
+    const regionY = ve.graphs[0]._regionY;
+    expect(afterInit).toBe(regionY + 44);
+
+    // Take a snapshot, then undo without making any change. After the round-
+    // trip the node must end up at the same absolute y, not shifted by
+    // _regionY.
+    pushUndo();
+    undo();
+
+    expect(ve.graphs[0].nodes[0].y).toBe(afterInit);
+  });
+
+  it('preserves node y across two consecutive undos', () => {
+    ve.graphs = [{
+      name: 'pipe', schedule: '', comment: '',
+      nodes: [
+        { id: 'n1', plugin: 'rss', config: {}, upstreams: [], x: 50, y: 44 },
+      ],
+    }];
+    initLayout();
+    const baseline = ve.graphs[0].nodes[0].y;
+
+    pushUndo();
+    pushUndo();
+    undo();
+    undo();
+
+    expect(ve.graphs[0].nodes[0].y).toBe(baseline);
+  });
+
+  it('preserves later-pipeline node y after undo (no compounding shift)', () => {
+    ve.graphs = [
+      { name: 'p1', schedule: '', comment: '', nodes: [
+        { id: 'a', plugin: 'rss',    config: {}, upstreams: [],   x: 50, y: 44 },
+        { id: 'b', plugin: 'print',  config: {}, upstreams: ['a'], x: 310, y: 44 },
+      ]},
+      { name: 'p2', schedule: '', comment: '', nodes: [
+        { id: 'c', plugin: 'rss',    config: {}, upstreams: [],   x: 50, y: 44 },
+        { id: 'd', plugin: 'print',  config: {}, upstreams: ['c'], x: 310, y: 44 },
+      ]},
+    ];
+
+    initLayout();
+    const before = ve.graphs.map(g => g.nodes.map(n => n.y));
+
+    pushUndo();
+    undo();
+
+    const after = ve.graphs.map(g => g.nodes.map(n => n.y));
+    expect(after).toEqual(before);
   });
 });
