@@ -11,6 +11,7 @@ import { dirname, join } from 'path';
 const __dir = dirname(fileURLToPath(import.meta.url));
 const src = readFileSync(join(__dir, '..', 'visual-editor.js'), 'utf8');
 
+let docQueries;
 let starLit, valToStar, configToKwargs, upstreamsStr, dagToStarlark, viaNodeToStar,
     nodesToFunctionSource, performExtraction, addNodeFromPalette, extractFunctionSource,
     parseFunctionComment, nodeTooltipText, edgePath, configPreview, syncRoutePorts,
@@ -65,9 +66,16 @@ exports.marqueeSelect                 = marqueeSelect;
   // Stub document. Most methods return null (existing tests depend on the
   // resulting falsy-guard branch being skipped), but querySelectorAll must
   // return an empty iterable so `.forEach(...)` doesn't throw — production
-  // code is allowed to assume that contract.
+  // code is allowed to assume that contract. querySelector still returns null
+  // (preserves the existing no-op behaviour for `?.classList.x()` callers) but
+  // records its selector so tests can observe which elements were queried.
+  docQueries = [];
   const noopDoc = new Proxy({}, {
-    get: (_, prop) => prop === 'querySelectorAll' ? () => [] : () => null,
+    get: (_, prop) => {
+      if (prop === 'querySelectorAll') return () => [];
+      if (prop === 'querySelector')    return sel => { docQueries.push(sel); return null; };
+      return () => null;
+    },
   });
   mod(exports, noopDoc, () => Promise.resolve());
   ({ starLit, valToStar, configToKwargs, upstreamsStr, dagToStarlark, viaNodeToStar,
@@ -828,6 +836,34 @@ describe('marqueeSelect', () => {
     expect(added).toEqual([]);
     expect(ve.selectedNodeIds.size).toBe(0);
     expect(ve.activeGraph).toBe(0); // unchanged
+  });
+
+  it('highlights owned list/search sub-nodes alongside their parent', () => {
+    // series owns a tvdb_favorites list child; discover owns an rss_search.
+    // Sub-nodes have no x/y of their own — they only appear visually attached
+    // to their parent, so the marquee never crosses them directly.
+    ve.graphs = [{
+      name: 'p', schedule: '', comment: '', _regionY: 0, _regionH: 400, nodes: [
+        { id: 'rss_0',   plugin: 'rss',      config: {}, upstreams: [],          x:  40, y:  40 },
+        { id: 'tl_0',    plugin: 'tvdb_favorites', config: {}, upstreams: [], isListNode: true,  listParentId: 'series_1' },
+        { id: 'series_1',plugin: 'series',   config: {}, upstreams: ['rss_0'],  x: 280, y:  40, listNodeIds:   ['tl_0'] },
+        { id: 'rs_0',    plugin: 'rss_search',     config: {}, upstreams: [], isSearchNode: true, searchParentId: 'disc_1' },
+        { id: 'disc_1',  plugin: 'discover', config: {}, upstreams: ['rss_0'],  x: 280, y: 160, searchNodeIds: ['rs_0'] },
+      ],
+    }];
+    ve.activeGraph = 0; ve.selectedNodeId = null; ve.selectedNodeIds = new Set();
+
+    docQueries.length = 0;
+    const added = marqueeSelect(20, 20, 520, 220);
+
+    expect(added.sort()).toEqual(['disc_1', 'rss_0', 'series_1']);
+    // Sub-nodes themselves stay out of the selection set — they ride along
+    // with their parent both visually and in extraction logic.
+    expect([...ve.selectedNodeIds].sort()).toEqual(['disc_1', 'rss_0', 'series_1']);
+    // The fix: marqueeSelect must querySelector the sub-node ids so they
+    // pick up the multi-selected highlight class.
+    expect(docQueries).toContain('.ve-node[data-id="tl_0"]');
+    expect(docQueries).toContain('.ve-node[data-id="rs_0"]');
   });
 });
 
