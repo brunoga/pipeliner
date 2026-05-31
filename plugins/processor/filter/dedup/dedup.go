@@ -6,11 +6,13 @@
 //  2. Resolution: higher resolution wins within the same tier.
 //  3. Seeds: more seeds wins when tier and resolution are equal.
 //
-// Episodes are keyed by series title + episode ID; movies by title (when
-// media_type == "movie"). Entries without either key pass through unchanged.
+// media_type drives the classification: "series" entries dedup by series
+// name + series_episode_id, "movie" entries dedup by title. Entries without
+// media_type pass through unchanged.
 //
-// Place dedup after metainfo processors that set series_episode_id or
-// media_type and after filters that accept entries, before output sinks.
+// Place dedup after a metainfo processor that sets media_type (typically
+// metainfo_file, metainfo_tmdb, or metainfo_tvdb) and after filters that
+// accept entries, before output sinks.
 package dedup
 
 import (
@@ -31,7 +33,17 @@ func init() {
 		PluginName:  "dedup",
 		Description: "keep the best-quality copy when multiple entries refer to the same episode or movie",
 		Role:        plugin.RoleProcessor,
-		Factory:     func(_ map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) { return &dedupPlugin{}, nil },
+		// media_type is the classifier; series_episode_id or title supplies
+		// the key data. Together they encode media_type AND
+		// (series_episode_id OR title) — enough signal to dedup either
+		// kind of media. Entries without these still pass through, but
+		// the validator surfaces a warning so users know dedup won't fire
+		// on un-classified entries.
+		Requires: [][]string{
+			{entry.FieldMediaType},
+			{entry.FieldSeriesEpisodeID, entry.FieldTitle},
+		},
+		Factory: func(_ map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) { return &dedupPlugin{}, nil },
 		Validate: func(cfg map[string]any) []error {
 			return plugin.OptUnknownKeys(cfg, "dedup")
 		},
@@ -79,25 +91,33 @@ func (p *dedupPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entri
 }
 
 func deduKey(e *entry.Entry) string {
-	if epID := e.GetString(entry.FieldSeriesEpisodeID); epID != "" {
-		// Derive a normalised series name. Prefer parsing e.Title (the raw entry
-		// title / torrent filename), which always gives a clean series name like
-		// "Breaking Bad" regardless of whether metainfo_file has run.
-		// Fall back to e.Fields["title"] when e.Title does not parse as an episode.
+	switch e.GetString(entry.FieldMediaType) {
+	case entry.MediaTypeSeries:
+		epID := e.GetString(entry.FieldSeriesEpisodeID)
+		if epID == "" {
+			return ""
+		}
+		// Derive a normalised series name. Prefer parsing e.Title (the raw
+		// entry title / torrent filename), which always yields a clean
+		// series name like "Breaking Bad" regardless of which metainfo
+		// plugin ran. Fall back to e.Fields["title"] when e.Title does not
+		// parse as an episode (e.g. a list-sourced entry).
 		var name string
 		if ep, ok := series.Parse(e.Title); ok {
 			name = ep.SeriesName
 		} else {
 			name = e.GetString(entry.FieldTitle)
 		}
-		if name != "" {
-			return "episode:" + strings.ToLower(name) + "/" + epID
+		if name == "" {
+			return ""
 		}
-	}
-	if e.GetString(entry.FieldMediaType) == entry.MediaTypeMovie {
-		if title := e.GetString(entry.FieldTitle); title != "" {
-			return "movie:" + strings.ToLower(title)
+		return "episode:" + strings.ToLower(name) + "/" + epID
+	case entry.MediaTypeMovie:
+		title := e.GetString(entry.FieldTitle)
+		if title == "" {
+			return ""
 		}
+		return "movie:" + strings.ToLower(title)
 	}
 	return ""
 }

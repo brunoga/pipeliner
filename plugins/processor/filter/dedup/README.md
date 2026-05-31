@@ -27,7 +27,7 @@ process("dedup")
 |----------|-------|
 | Role | `processor` |
 | Produces | — |
-| Requires | — (entries without `series_episode_id` or (`media_type == "movie"` + `title`) pass through unchanged) |
+| Requires | `media_type` AND (`series_episode_id` OR `title`). Place `metainfo_file`, `metainfo_tmdb`, or `metainfo_tvdb` upstream so `media_type` is set; entries lacking it pass through unchanged. |
 
 ## Example
 
