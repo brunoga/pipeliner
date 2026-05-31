@@ -391,8 +391,8 @@ func TestFuzzyMatch(t *testing.T) {
 	if !match.Fuzzy("the dark knight", "the dark knight") {
 		t.Error("exact match failed")
 	}
-	if !match.Fuzzy("the dark knigt", "the dark knight") {
-		t.Error("single typo should match")
+	if match.Fuzzy("the dark knigt", "the dark knight") {
+		t.Error("single typo must not match — silent wrong-matches outweigh typo tolerance")
 	}
 	if match.Fuzzy("the dark knight 2", "the dark knight") {
 		t.Error("sequel should not match")

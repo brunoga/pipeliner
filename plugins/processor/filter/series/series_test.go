@@ -402,17 +402,17 @@ func TestQualityGateBlocksUpgradeOutsideSpec(t *testing.T) {
 
 // --- Fuzzy matching ---
 
-func TestFuzzyMatchTypo(t *testing.T) {
+func TestFuzzyMatchExact(t *testing.T) {
 	cases := []struct {
 		a, b string
 		want bool
 	}{
 		{"my show", "my show", true},
-		{"my show", "my sho", true},         // 1 edit (drop w)
-		{"my show", "mi show", true},        // 1 edit (y→i)
+		{"my show", "my sho", false},        // 1 edit (drop w) — must not match
+		{"my show", "mi show", false},       // 1 edit (y→i) — must not match
 		{"completely different", "my show", false},
-		{"my show", "my show 2", false},     // 2 edits — different show
-		{"my show", "my show extra", false}, // 5 edits — clearly different
+		{"my show", "my show 2", false},
+		{"my show", "my show extra", false},
 	}
 	for _, tc := range cases {
 		got := match.Fuzzy(tc.a, tc.b)
