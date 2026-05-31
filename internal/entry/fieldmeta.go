@@ -278,8 +278,8 @@ var KnownFields = []FieldMeta{
 
 	// ── Classification ────────────────────────────────────────────────────
 	{Name: FieldMediaType, Type: FieldTypeString,
-		Description: "Media classification set by metainfo_file: \"series\", \"movie\", or unset",
-		SetBy:       []string{"metainfo_file"},
+		Description: "Media classification: \"series\", \"movie\", or unset. Set conditionally by metainfo plugins (when classification succeeds) and unconditionally by sources that only catalog one type (tvdb_favorites, trakt_list) and by classifier filters (every entry exiting series/movies/premiere carries this field).",
+		SetBy:       []string{"trakt_list", "tvdb_favorites", "metainfo_file", "metainfo_tmdb", "metainfo_tvdb", "metainfo_trakt", "series", "movies", "premiere"},
 		KnownValues: []string{MediaTypeSeries, MediaTypeMovie}},
 
 	// ── Route ─────────────────────────────────────────────────────────────

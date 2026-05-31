@@ -44,6 +44,6 @@ pipeline("tv-favorites", schedule="1h")
 | Property | Value |
 |----------|-------|
 | Role | `source` |
-| Produces | `source`, `tvdb_id` |
+| Produces | `title`, `media_type` (= `"series"` — TVDB only catalogs TV), `source`, `tvdb_id` |
 | MayProduce | `tvdb_year` |
 | Requires | — |

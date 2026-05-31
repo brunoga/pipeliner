@@ -579,7 +579,7 @@ pipeline("split-pipeline")</code></pre>
   <tr><td><code>jackett_dl_factor</code></td><td>jackett</td><td>Download volume factor: <code>0.0</code> = freeleech, <code>1.0</code> = normal (private trackers)</td></tr>
   <tr><td><code>jackett_ul_factor</code></td><td>jackett</td><td>Upload volume factor (private trackers)</td></tr>
   <tr><td><code>series_container</code></td><td>metainfo_file</td><td>Container format tag parsed from title (e.g. <code>mkv</code>)</td></tr>
-  <tr><td><code>media_type</code></td><td>metainfo_file</td><td>Classification: <code>"series"</code>, <code>"movie"</code>, or unset. Useful as a <code>route()</code> dispatch key.</td></tr>
+  <tr><td><code>media_type</code></td><td>trakt_list, tvdb_favorites, metainfo_file, metainfo_tmdb, metainfo_tvdb, metainfo_trakt, series, movies, premiere</td><td>Classification: <code>"series"</code>, <code>"movie"</code>, or unset. Set conditionally by metainfo plugins (when enrichment succeeds), unconditionally by sources that only catalog one type (<code>tvdb_favorites</code>, <code>trakt_list</code>), and unconditionally by classifier filters (every entry exiting <code>series</code>, <code>movies</code>, or <code>premiere</code> carries the field). Useful as a <code>route()</code> dispatch key.</td></tr>
   <tr><td><code>codec</code></td><td>metainfo_file</td><td>Codec tag (e.g. <code>x265</code>, <code>HEVC</code>)</td></tr>
   <tr><td><code>audio</code></td><td>metainfo_file</td><td>Audio tag (e.g. <code>DTS</code>, <code>Atmos</code>)</td></tr>
   <tr><td><code>color_range</code></td><td>metainfo_file</td><td>Color range tag (e.g. <code>HDR</code>, <code>SDR</code>)</td></tr>
@@ -593,7 +593,7 @@ pipeline("split-pipeline")</code></pre>
   <tr><th>Field</th><th>Set by</th><th>Description</th></tr>
   <tr><td><code>title</code></td><td>sources (raw), metainfo_file (cleaned), metainfo_tvdb / metainfo_tmdb / metainfo_trakt (canonical)</td><td>Display name, populated in tiers. Every source sets <code>title</code> to its raw entry name so a bare <code>input → print</code> pipeline always has something to render. <code>metainfo_file</code> overwrites with a cleaned version parsed from the filename. External providers overwrite with the canonical title. <code>metainfo_torrent</code> and <code>metainfo_magnet</code> only populate <code>title</code> when it isn't already set — they don't have anything better than the raw source title, so they never clobber upstream cleaning or enrichment.</td></tr>
   <tr><td><code>raw_title</code></td><td>(built-in)</td><td>Original entry title from the input source</td></tr>
-  <tr><td><code>media_type</code></td><td>metainfo_file</td><td>Classification (<code>"series"</code>, <code>"movie"</code>, or unset). Convenient dispatch key for <code>route()</code>.</td></tr>
+  <tr><td><code>media_type</code></td><td>trakt_list, tvdb_favorites, metainfo_*, series, movies, premiere</td><td>Classification (<code>"series"</code>, <code>"movie"</code>, or unset). Conditional from metainfo plugins; unconditional from single-type sources and classifier filters. Convenient dispatch key for <code>route()</code>.</td></tr>
   <tr><td><code>description</code></td><td>rss, metainfo_tvdb, metainfo_tmdb, metainfo_trakt</td><td>Synopsis or overview text</td></tr>
   <tr><td><code>published_date</code></td><td>rss, metainfo providers</td><td>Release/premiere date</td></tr>
   <tr><td><code>enriched</code></td><td>metainfo_tvdb, metainfo_tmdb, metainfo_trakt</td><td><code>true</code> when enriched by an external provider</td></tr>

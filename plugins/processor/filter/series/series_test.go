@@ -821,3 +821,24 @@ func TestDoubleEpisodeDoesNotBlockNewContent(t *testing.T) {
 		t.Error("double S01E01E02 should not be blocked just because S01E01 was seen — S01E02 is new content")
 	}
 }
+
+// TestProcessStampsMediaTypeSeries verifies that every entry the filter
+// processes — accepted or rejected — has media_type=series stamped on it so
+// downstream classifiers can rely on it as Certain.
+func TestProcessStampsMediaTypeSeries(t *testing.T) {
+	p := openPlugin(t, nil)
+	accepted := makeEntry("My.Show.S01E01.720p.HDTV", "http://x.com/a")
+	rejected := makeEntry("Other.Show.S01E01.720p.HDTV", "http://x.com/b")
+
+	in := []*entry.Entry{accepted, rejected}
+	if _, err := p.Process(context.Background(), makeCtx(), in); err != nil {
+		t.Fatal(err)
+	}
+	// PassThrough drops rejected entries from the result, but the underlying
+	// entries are mutated in place — both still carry media_type.
+	for _, e := range in {
+		if got := e.GetString(entry.FieldMediaType); got != entry.MediaTypeSeries {
+			t.Errorf("entry %q: media_type = %q, want %q", e.Title, got, entry.MediaTypeSeries)
+		}
+	}
+}

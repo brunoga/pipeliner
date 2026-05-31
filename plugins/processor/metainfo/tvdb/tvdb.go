@@ -38,6 +38,7 @@ func init() {
 		MayProduce: []string{
 			entry.FieldEnriched,
 			entry.FieldTitle,
+			entry.FieldMediaType,
 			entry.FieldDescription,
 			entry.FieldVideoYear,
 			entry.FieldVideoLanguage,
@@ -223,7 +224,9 @@ func (p *tvdbPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 	}
 
 	// Write series-level standard fields before the episode fetch so a fetch
-	// failure doesn't prevent them from being set.
+	// failure doesn't prevent them from being set. TVDB is series-only — any
+	// successfully-enriched entry is a series episode by construction.
+	e.Set(entry.FieldMediaType, entry.MediaTypeSeries)
 	e.SetSeriesInfo(si)
 
 	// Fetch episode-level detail if we have a specific episode.

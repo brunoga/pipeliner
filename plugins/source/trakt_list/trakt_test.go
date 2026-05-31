@@ -205,6 +205,12 @@ func TestRunReturnsEntries(t *testing.T) {
 	if v := entries[0].GetString(entry.FieldTitle); v != "Inception" {
 		t.Errorf("FieldTitle: got %q", v)
 	}
+	// type=movies → media_type=movie on every emitted entry.
+	for _, e := range entries {
+		if v := e.GetString(entry.FieldMediaType); v != entry.MediaTypeMovie {
+			t.Errorf("media_type: got %q, want %q", v, entry.MediaTypeMovie)
+		}
+	}
 	const wantURL = "https://trakt.tv/movies/inception-2010"
 	if entries[0].URL != wantURL {
 		t.Errorf("URL: got %q, want %q", entries[0].URL, wantURL)

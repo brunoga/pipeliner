@@ -41,6 +41,12 @@ func init() {
 			entry.FieldVideoYear,
 			entry.FieldQuality,
 		),
+		// Every entry exiting this filter is a movie by construction.
+		// Setting media_type here makes the classification Certain for
+		// downstream nodes like dedup.
+		Produces: []string{
+			entry.FieldMediaType,
+		},
 		Factory:     newPlugin,
 		Validate:    validate,
 		AcceptsList: true,
@@ -275,6 +281,9 @@ func (p *moviesPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entr
 		if e.IsRejected() || e.IsFailed() {
 			continue
 		}
+		// Movie classifier: every entry that reaches this filter is a
+		// movie (Requires guarantees title + video_year + _quality).
+		e.Set(entry.FieldMediaType, entry.MediaTypeMovie)
 		if err := p.filter(ctx, tc, e); err != nil {
 			tc.Logger.Warn("movies filter error", "entry", e.Title, "err", err)
 		}

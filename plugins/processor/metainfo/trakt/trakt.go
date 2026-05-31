@@ -29,6 +29,7 @@ func init() {
 		MayProduce: []string{
 			entry.FieldEnriched,
 			entry.FieldTitle,
+			entry.FieldMediaType,
 			entry.FieldDescription,
 			entry.FieldVideoYear,
 			entry.FieldVideoGenres,
@@ -153,8 +154,10 @@ func (p *traktMetaPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, 
 		Votes:         r.Votes,
 	}
 	if p.itemType == "shows" {
+		e.Set(entry.FieldMediaType, entry.MediaTypeSeries)
 		e.SetSeriesInfo(entry.SeriesInfo{VideoInfo: vi})
 	} else {
+		e.Set(entry.FieldMediaType, entry.MediaTypeMovie)
 		e.SetMovieInfo(entry.MovieInfo{VideoInfo: vi})
 	}
 

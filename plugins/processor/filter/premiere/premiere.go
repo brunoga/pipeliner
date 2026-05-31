@@ -54,6 +54,11 @@ func init() {
 			entry.FieldSeriesEpisode,
 			entry.FieldQuality,
 		),
+		// Every entry exiting this filter is a series episode by
+		// construction (Requires guarantees series_episode_id upstream).
+		Produces: []string{
+			entry.FieldMediaType,
+		},
 		Factory:  newPlugin,
 		Validate: validate,
 		Schema: []plugin.FieldSchema{
@@ -230,6 +235,9 @@ func (p *premierePlugin) Process(ctx context.Context, tc *plugin.TaskContext, en
 		if e.IsRejected() || e.IsFailed() {
 			continue
 		}
+		// Premiere is a series classifier — every processed entry is an
+		// episode by Requires.
+		e.Set(entry.FieldMediaType, entry.MediaTypeSeries)
 		if err := p.filter(ctx, tc, e); err != nil {
 			tc.Logger.Warn("premiere filter error", "entry", e.Title, "err", err)
 		}
