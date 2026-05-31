@@ -1686,6 +1686,30 @@ function findGraphAtPosition(cx, cy) {
   return -1;
 }
 
+// marqueeSelect commits a rubber-band selection given canvas-space corners.
+// The graph under the marquee's center is activated first — without this, a
+// drag inside an inactive pipeline would scan the wrong graph's nodes and
+// select nothing. Returns the array of node IDs added to the multi-selection.
+function marqueeSelect(x1, y1, x2, y2) {
+  const cx = (x1 + x2) / 2, cy = (y1 + y2) / 2;
+  const gi = findGraphAtPosition(cx, cy);
+  if (gi < 0) { updateExtractButton(); return []; }
+  if (gi !== ve.activeGraph) setActiveGraph(gi);
+  const g = ve.graphs[gi];
+  const added = [];
+  for (const n of g.nodes) {
+    if (n.isSearchNode || n.isListNode || n.isRoutePort || n.isUpstreamPseudo) continue;
+    const nx = n.x ?? 0, ny = n.y ?? 0;
+    if (nx < x2 && nx + NODE_W > x1 && ny < y2 && ny + NODE_H > y1) {
+      ve.selectedNodeIds.add(n.id);
+      document.querySelector(`.ve-node[data-id="${n.id}"]`)?.classList.add('multi-selected');
+      added.push(n.id);
+    }
+  }
+  updateExtractButton(); // also calls updateCopyButton
+  return added;
+}
+
 // Enlarge a pipeline's region so a node placed at (nodeX, nodeY) is fully
 // contained. Both vertical growth (down and up into the label area) are handled.
 function expandRegionForNode(graphIdx, nodeX, nodeY) {
@@ -2008,18 +2032,7 @@ function initCanvasEvents() {
           const y1 = (Math.min(startY, ev.clientY) - br.top  - ve_panY) / ve_zoom;
           const x2 = (Math.max(startX, ev.clientX) - br.left - ve_panX) / ve_zoom;
           const y2 = (Math.max(startY, ev.clientY) - br.top  - ve_panY) / ve_zoom;
-          const g = ve.graphs[ve.activeGraph];
-          if (g) {
-            for (const n of g.nodes) {
-              if (n.isSearchNode || n.isListNode || n.isRoutePort || n.isUpstreamPseudo) continue;
-              const nx = n.x ?? 0, ny = n.y ?? 0;
-              if (nx < x2 && nx + NODE_W > x1 && ny < y2 && ny + NODE_H > y1) {
-                ve.selectedNodeIds.add(n.id);
-                document.querySelector(`.ve-node[data-id="${n.id}"]`)?.classList.add('multi-selected');
-              }
-            }
-          }
-          updateExtractButton(); // also calls updateCopyButton
+          marqueeSelect(x1, y1, x2, y2);
         } else {
           // Pure click on empty canvas → deselect and select the pipeline region
           // that was clicked (pipeline regions have pointer-events:none so they

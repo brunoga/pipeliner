@@ -17,7 +17,7 @@ let starLit, valToStar, configToKwargs, upstreamsStr, dagToStarlark, viaNodeToSt
     condAcceptAbsenceRemovedFields, condNarrowedFields, ve, setActiveGraph,
     _builderGetExpr, _builderSetExpr, renderRouteRulesWidget, renderRouteRuleRow,
     toggleRouteRawMode, _forcedRaw, exprToFlatModel,
-    pushUndo, undo, initLayout;
+    pushUndo, undo, initLayout, marqueeSelect;
 
 // Minimal HTML-escape helper matching dashboard.js's esc() — needed so render
 // functions (which call esc as a global) work in the test sandbox.
@@ -58,6 +58,7 @@ exports.exprToFlatModel               = exprToFlatModel;
 exports.pushUndo                      = pushUndo;
 exports.undo                          = undo;
 exports.initLayout                    = initLayout;
+exports.marqueeSelect                 = marqueeSelect;
 `
   );
   const exports = {};
@@ -75,7 +76,7 @@ exports.initLayout                    = initLayout;
      condAcceptAbsenceRemovedFields, condNarrowedFields, ve, setActiveGraph,
      _builderGetExpr, _builderSetExpr, renderRouteRulesWidget, renderRouteRuleRow,
      toggleRouteRawMode, _forcedRaw, exprToFlatModel,
-     pushUndo, undo, initLayout } = exports);
+     pushUndo, undo, initLayout, marqueeSelect } = exports);
 });
 
 // ── test helpers ──────────────────────────────────────────────────────────────
@@ -780,6 +781,53 @@ describe('performExtraction removes list/search sub-nodes from canvas', () => {
     expect(ids).not.toContain('rs_0');    // search node must be gone
     expect(ids).not.toContain('disc_1');  // selected node must be gone
     expect(ids).toContain('rss_src');     // unselected node must remain
+  });
+});
+
+// ── marqueeSelect ─────────────────────────────────────────────────────────────
+
+describe('marqueeSelect', () => {
+  // Two pipelines stacked vertically. Region Y bounds are taken straight from
+  // _regionY/_regionH the way findGraphAtPosition uses them.
+  function setupTwoPipelines() {
+    ve.graphs = [
+      { name: 'pipe-a', schedule: '', comment: '', _regionY:   0, _regionH: 200, nodes: [
+        { id: 'a_src',  plugin: 'rss',  config: {}, upstreams: [],         x:  40, y:  40 },
+        { id: 'a_proc', plugin: 'seen', config: {}, upstreams: ['a_src'],  x: 280, y:  40 },
+      ]},
+      { name: 'pipe-b', schedule: '', comment: '', _regionY: 240, _regionH: 200, nodes: [
+        { id: 'b_src',  plugin: 'rss',  config: {}, upstreams: [],         x:  40, y: 280 },
+        { id: 'b_proc', plugin: 'seen', config: {}, upstreams: ['b_src'],  x: 280, y: 280 },
+      ]},
+    ];
+    ve.activeGraph     = 0;     // pipe-a is the active one
+    ve.selectedNodeId  = null;
+    ve.selectedNodeIds = new Set();
+  }
+
+  it('selects nodes inside an inactive pipeline and activates it', () => {
+    setupTwoPipelines();
+    // Marquee that covers both nodes of pipe-b (which is inactive).
+    const added = marqueeSelect(20, 260, 520, 380);
+    expect(added.sort()).toEqual(['b_proc', 'b_src']);
+    expect(ve.activeGraph).toBe(1);
+    expect([...ve.selectedNodeIds].sort()).toEqual(['b_proc', 'b_src']);
+  });
+
+  it('selects nodes in the active pipeline without changing activeGraph', () => {
+    setupTwoPipelines();
+    const added = marqueeSelect(20, 20, 520, 140);
+    expect(added.sort()).toEqual(['a_proc', 'a_src']);
+    expect(ve.activeGraph).toBe(0);
+  });
+
+  it('returns an empty selection when the marquee falls outside every region', () => {
+    setupTwoPipelines();
+    // Far below both pipelines.
+    const added = marqueeSelect(20, 2000, 520, 2100);
+    expect(added).toEqual([]);
+    expect(ve.selectedNodeIds.size).toBe(0);
+    expect(ve.activeGraph).toBe(0); // unchanged
   });
 });
 
