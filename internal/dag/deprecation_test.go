@@ -156,6 +156,30 @@ func TestDeprecation_WarnsOnPatternSchema(t *testing.T) {
 	}
 }
 
+// TestDeprecation_MovieTitleIsDeprecated is a smoke test that the real
+// movie_title field is registered as deprecated and surfaces a warning when
+// referenced — no test-only injection. If this fails because the deprecation
+// flag was removed, the test should be updated to mark a different field
+// (or deleted along with the deprecation framework).
+func TestDeprecation_MovieTitleIsDeprecated(t *testing.T) {
+	src := sourceDescFor("src")
+	src.Produces = []string{entry.FieldMovieTitle}
+	req := processorDescFor("require")
+
+	requireNode := node("b", "require", "a")
+	requireNode.Config = map[string]any{
+		"fields": []any{entry.FieldMovieTitle},
+	}
+
+	g := makeGraph(t, node("a", "src"), requireNode)
+	reg := makeRegistry(src, req)
+
+	_, warnings := dag.Validate(g, reg)
+	if !containsAll(warnings, "deprecated", entry.FieldMovieTitle, "title") {
+		t.Fatalf("expected real movie_title deprecation warning, got: %v", warnings)
+	}
+}
+
 func TestDeprecation_NoWarningWhenFieldUndeprecated(t *testing.T) {
 	// "title" is a known, non-deprecated field. References should not produce
 	// deprecation warnings even when statically detectable.

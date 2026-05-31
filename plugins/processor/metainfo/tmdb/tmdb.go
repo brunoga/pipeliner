@@ -29,6 +29,7 @@ func init() {
 		MayProduce: []string{
 			entry.FieldEnriched,
 			entry.FieldTitle,
+			entry.FieldMediaType,
 			entry.FieldMovieTitle,
 			entry.FieldMovieTagline,
 			entry.FieldVideoYear,
@@ -206,6 +207,7 @@ func (p *tmdbPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 		if r.PosterPath != "" {
 			mi.Poster = itmdb.ImageBaseURL + r.PosterPath
 		}
+		e.Set(entry.FieldMediaType, entry.MediaTypeMovie)
 		e.SetMovieInfo(mi)
 		return nil
 	}
@@ -305,6 +307,7 @@ func populateFromDetail(e *entry.Entry, detail *itmdb.MovieDetail) {
 			break
 		}
 	}
+	e.Set(entry.FieldMediaType, entry.MediaTypeMovie)
 	e.SetMovieInfo(mi)
 }
 

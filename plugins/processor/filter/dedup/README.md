@@ -27,7 +27,7 @@ process("dedup")
 |----------|-------|
 | Role | `processor` |
 | Produces | — |
-| Requires | — (entries without `series_episode_id` or `movie_title` pass through unchanged) |
+| Requires | — (entries without `series_episode_id` or (`media_type == "movie"` + `title`) pass through unchanged) |
 
 ## Example
 

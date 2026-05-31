@@ -47,7 +47,7 @@ Quality fields are set whenever any quality dimension is detected, **regardless 
 | Field | Type | Example |
 |---|---|---|
 | `title` | string | `Avengers` |
-| `movie_title` | string | `Avengers` |
+| `movie_title` | string | `Avengers` — **deprecated**, duplicates `title`; use `title` instead |
 | `video_year` | int | `2012` |
 
 ### Quality + release markers (always, when any signal detected)
