@@ -68,21 +68,21 @@ func init() {
 		Validate:    validate,
 		AcceptsList: true,
 		Schema: []plugin.FieldSchema{
-			{Key: "static", Type: plugin.FieldTypeList, Hint: "Static list of show names to accept"},
-			{Key: "list", Type: plugin.FieldTypeDict, Hint: "Dynamic show list from a source plugin (e.g. tvdb_favorites, trakt_list)"},
+			{Key: "static", Type: plugin.FieldTypeList, Hint: "Optional static list of show names to accept; omit to accept every classified episode"},
+			{Key: "list", Type: plugin.FieldTypeDict, Hint: "Optional dynamic show list from a source plugin (e.g. tvdb_favorites, trakt_list); omit to accept every classified episode"},
 			{Key: "tracking", Type: plugin.FieldTypeEnum, Enum: []string{"strict", "backfill", "follow"}, Default: "strict", Hint: "Episode ordering mode"},
 			{Key: "quality", Type: plugin.FieldTypeString, Hint: "Quality spec, e.g. 720p+ (floor), 720p (exact), 720p-1080p (range)"},
 			{Key: "ttl", Type: plugin.FieldTypeDuration, Default: "1h", Hint: "Cache TTL for dynamic lists"},
-			{Key: "reject_unmatched", Type: plugin.FieldTypeBool, Default: true, Hint: "Reject episodes not classified as series upstream or not in the show list"},
+			{Key: "reject_unmatched", Type: plugin.FieldTypeBool, Default: true, Hint: "Reject episodes not classified as series upstream; when a list is configured, also reject episodes whose show isn't in the list"},
 		},
 	})
 }
 
 func validate(cfg map[string]any) []error {
 	var errs []error
-	if err := plugin.RequireOneOf(cfg, "series", "static", "list"); err != nil {
-		errs = append(errs, err)
-	}
+	// static and list are both optional. With neither set, the filter accepts
+	// every classified episode that passes the quality spec and tracker checks
+	// — useful for "download every 720p+ episode I find" pipelines.
 	if err := plugin.OptDuration(cfg, "ttl", "series"); err != nil {
 		errs = append(errs, err)
 	}
@@ -138,10 +138,6 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 		listSources = append(listSources, src)
 	}
 
-	if len(staticShows) == 0 && len(listSources) == 0 {
-		return nil, fmt.Errorf("series: at least one of 'static' or 'list' is required")
-	}
-
 	ttl := time.Hour
 	if v, _ := cfg["ttl"].(string); v != "" {
 		d, err := time.ParseDuration(v)
@@ -190,6 +186,14 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 
 func (p *seriesPlugin) Name() string { return "series" }
 
+// hasList reports whether the filter has any source of show names — either a
+// static list or one or more dynamic list source plugins. When false, the
+// filter accepts every classified entry that passes the quality / tracker
+// checks instead of matching against a list.
+func (p *seriesPlugin) hasList() bool {
+	return len(p.staticShows) > 0 || len(p.listSources) > 0
+}
+
 func (p *seriesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
 	epID := e.GetString(entry.FieldSeriesEpisodeID)
 	if epID == "" {
@@ -200,13 +204,25 @@ func (p *seriesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *en
 	}
 
 	parsedName := e.GetString(entry.FieldTitle)
-	shows := p.resolveShows(ctx, tc)
-	matchedShow, ok := matchShow(parsedName, shows)
-	if !ok {
-		if p.rejectUnmatched {
-			e.Reject("series: show not in list")
+	// When no list is configured the filter operates in accept-all mode:
+	// every classified episode passes the upstream Requires + quality/tracker
+	// checks, with no title matching. The tracker key is the normalized parsed
+	// name so dedup and upgrade detection still work across runs.
+	var matchedShow string
+	if p.hasList() {
+		var ok bool
+		matchedShow, ok = matchShow(parsedName, p.resolveShows(ctx, tc))
+		if !ok {
+			if p.rejectUnmatched {
+				e.Reject("series: show not in list")
+			}
+			return nil
 		}
-		return nil
+	} else {
+		matchedShow = match.Normalize(parsedName)
+		if matchedShow == "" {
+			return nil
+		}
 	}
 
 	e.Set(seriesTrackerName, matchedShow)
