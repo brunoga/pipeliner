@@ -8,7 +8,7 @@ require (
 	github.com/playwright-community/playwright-go v0.5700.1
 	go.starlark.net v0.0.0-20260326113308-fadfc96def35
 	golang.org/x/sys v0.45.0
-	modernc.org/sqlite v1.50.1
+	modernc.org/sqlite v1.51.0
 )
 
 require (
