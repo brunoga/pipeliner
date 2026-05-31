@@ -310,12 +310,26 @@ func TestNoUpgradeWhenQualityNotBetter(t *testing.T) {
 	}
 }
 
-func TestRequiredMoviesList(t *testing.T) {
+// TestEmptyConfigAcceptsAll documents the no-list path: a movies filter with
+// no static and no list is valid and behaves as an accept-all filter (gated
+// only by the upstream Requires, the quality spec, and the tracker).
+func TestEmptyConfigAcceptsAll(t *testing.T) {
 	db, _ := store.OpenSQLite(":memory:")
 	defer db.Close()
-	_, err := newPlugin(map[string]any{}, db)
-	if err == nil {
-		t.Fatal("expected error when movies list is missing")
+	p, err := newPlugin(map[string]any{}, db)
+	if err != nil {
+		t.Fatalf("empty config should be valid for accept-all mode: %v", err)
+	}
+	mp := p.(*moviesPlugin)
+	if mp.hasList() {
+		t.Error("hasList should be false with no static or list")
+	}
+	e := makeEntry("Never.Listed.Movie.2024.1080p.BluRay.x264", "http://x.com/a")
+	if err := mp.filter(context.Background(), makeCtx(), e); err != nil {
+		t.Fatal(err)
+	}
+	if !e.IsAccepted() {
+		t.Errorf("accept-all filter should accept any classified movie; got %v: %s", e.State, e.RejectReason)
 	}
 }
 
@@ -561,12 +575,32 @@ func TestCommit_Persists(t *testing.T) {
 	}
 }
 
-func TestMissingMoviesAndFrom(t *testing.T) {
+// TestQualitySpecAppliesWithoutList exercises the no-list path with a
+// quality spec: the spec is still an absolute gate, so a movie below it
+// gets rejected even when there's no title list to match against.
+func TestQualitySpecAppliesWithoutList(t *testing.T) {
 	db, _ := store.OpenSQLite(":memory:")
 	defer db.Close()
-	_, err := newPlugin(map[string]any{}, db)
-	if err == nil {
-		t.Fatal("expected error when neither movies nor from is configured")
+	p, err := newPlugin(map[string]any{"quality": "1080p+"}, db)
+	if err != nil {
+		t.Fatalf("newPlugin: %v", err)
+	}
+	mp := p.(*moviesPlugin)
+
+	low := makeEntry("Cool.Movie.2024.720p.WEB-DL", "http://x.com/a")
+	if err := mp.filter(context.Background(), makeCtx(), low); err != nil {
+		t.Fatal(err)
+	}
+	if !low.IsRejected() {
+		t.Errorf("720p should be rejected when spec is 1080p+, got %v", low.State)
+	}
+
+	high := makeEntry("Other.Movie.2024.1080p.BluRay.x264", "http://x.com/b")
+	if err := mp.filter(context.Background(), makeCtx(), high); err != nil {
+		t.Fatal(err)
+	}
+	if !high.IsAccepted() {
+		t.Errorf("1080p should be accepted when spec is 1080p+; got %v: %s", high.State, high.RejectReason)
 	}
 }
 
@@ -643,5 +677,34 @@ func TestProcessStampsMediaTypeMovie(t *testing.T) {
 		if got := e.GetString(entry.FieldMediaType); got != entry.MediaTypeMovie {
 			t.Errorf("entry %q: media_type = %q, want %q", e.Title, got, entry.MediaTypeMovie)
 		}
+	}
+}
+
+// TestNoListTrackerDedups mirrors the series test: without a curated list,
+// the tracker still dedups across runs.
+func TestNoListTrackerDedups(t *testing.T) {
+	db, err := store.OpenSQLite(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	pp, err := newPlugin(map[string]any{}, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := pp.(*moviesPlugin)
+	tc := makeCtx()
+
+	first := makeEntry("Random.Movie.2024.1080p.BluRay.x264", "http://x.com/a")
+	p.filter(context.Background(), tc, first)                  //nolint:errcheck
+	p.persist(context.Background(), tc, []*entry.Entry{first}) //nolint:errcheck
+	if !first.IsAccepted() {
+		t.Fatalf("first sighting should be accepted; got %v", first.State)
+	}
+
+	second := makeEntry("Random.Movie.2024.1080p.BluRay.x264", "http://x.com/b")
+	p.filter(context.Background(), tc, second) //nolint:errcheck
+	if !second.IsRejected() {
+		t.Errorf("second sighting should be rejected by tracker; got %v", second.State)
 	}
 }

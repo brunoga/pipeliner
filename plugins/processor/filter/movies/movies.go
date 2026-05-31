@@ -51,20 +51,19 @@ func init() {
 		Validate:    validate,
 		AcceptsList: true,
 		Schema: []plugin.FieldSchema{
-			{Key: "static", Type: plugin.FieldTypeList, Hint: "Static list of movie titles"},
-			{Key: "list", Type: plugin.FieldTypeDict, Hint: "Dynamic list from a source plugin (e.g. trakt_list)"},
+			{Key: "static", Type: plugin.FieldTypeList, Hint: "Optional static list of movie titles; omit to accept every classified movie"},
+			{Key: "list", Type: plugin.FieldTypeDict, Hint: "Optional dynamic list from a source plugin (e.g. trakt_list); omit to accept every classified movie"},
 			{Key: "quality", Type: plugin.FieldTypeString, Hint: "Quality spec, e.g. 1080p+ (floor), 1080p (exact), 720p-1080p (range)"},
 			{Key: "ttl", Type: plugin.FieldTypeDuration, Default: "1h", Hint: "Cache TTL for dynamic lists"},
-			{Key: "reject_unmatched", Type: plugin.FieldTypeBool, Default: true, Hint: "Reject entries not classified as movie upstream or not in the configured list"},
+			{Key: "reject_unmatched", Type: plugin.FieldTypeBool, Default: true, Hint: "Reject entries not classified as movie upstream; when a list is configured, also reject entries whose title isn't in the list"},
 		},
 	})
 }
 
 func validate(cfg map[string]any) []error {
 	var errs []error
-	if err := plugin.RequireOneOf(cfg, "movies", "static", "list"); err != nil {
-		errs = append(errs, err)
-	}
+	// static and list are both optional. With neither set, the filter accepts
+	// every classified movie that passes the quality spec and tracker checks.
 	if err := plugin.OptDuration(cfg, "ttl", "movies"); err != nil {
 		errs = append(errs, err)
 	}
@@ -103,10 +102,6 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 		listSources = append(listSources, src)
 	}
 
-	if len(staticTitles) == 0 && len(listSources) == 0 {
-		return nil, fmt.Errorf("movies: at least one of 'static' or 'list' is required")
-	}
-
 	ttl := time.Hour
 	if v, _ := cfg["ttl"].(string); v != "" {
 		d, err := time.ParseDuration(v)
@@ -142,6 +137,14 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 
 func (p *moviesPlugin) Name() string { return "movies" }
 
+// hasList reports whether the filter has any source of movie titles — either
+// a static list or one or more dynamic list source plugins. When false, the
+// filter accepts every classified movie that passes the quality / tracker
+// checks instead of matching against a list.
+func (p *moviesPlugin) hasList() bool {
+	return len(p.staticTitles) > 0 || len(p.listSources) > 0
+}
+
 func (p *moviesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
 	parsedTitle := e.GetString(entry.FieldTitle)
 	year := e.GetInt(entry.FieldVideoYear)
@@ -152,13 +155,25 @@ func (p *moviesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *en
 		return nil
 	}
 
-	titles := p.resolveTitles(ctx, tc)
-	matchedTitle, ok := matchTitle(parsedTitle, year, titles)
-	if !ok {
-		if p.rejectUnmatched {
-			e.Reject("movies: title not in list")
+	// When no list is configured the filter operates in accept-all mode:
+	// every classified movie passes the upstream Requires + quality / tracker
+	// checks. The tracker key is the normalized parsed title so dedup and
+	// upgrade detection still work across runs.
+	var matchedTitle string
+	if p.hasList() {
+		var ok bool
+		matchedTitle, ok = matchTitle(parsedTitle, year, p.resolveTitles(ctx, tc))
+		if !ok {
+			if p.rejectUnmatched {
+				e.Reject("movies: title not in list")
+			}
+			return nil
 		}
-		return nil
+	} else {
+		matchedTitle = match.Normalize(parsedTitle)
+		if matchedTitle == "" {
+			return nil
+		}
 	}
 
 	q, _ := e.Quality()

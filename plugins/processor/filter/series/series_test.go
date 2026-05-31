@@ -424,12 +424,26 @@ func TestFuzzyMatchTypo(t *testing.T) {
 
 // --- Config validation ---
 
-func TestMissingShows(t *testing.T) {
+// TestEmptyConfigAcceptsAll documents the no-list path: a series filter with
+// no static and no list is valid and behaves as an accept-all filter (gated
+// only by the upstream Requires, the quality spec, and the tracker).
+func TestEmptyConfigAcceptsAll(t *testing.T) {
 	db, _ := store.OpenSQLite(":memory:")
 	defer db.Close()
-	_, err := newPlugin(map[string]any{}, db)
-	if err == nil {
-		t.Error("expected error when shows list is empty")
+	p, err := newPlugin(map[string]any{}, db)
+	if err != nil {
+		t.Fatalf("empty config should be valid for accept-all mode: %v", err)
+	}
+	sp := p.(*seriesPlugin)
+	if sp.hasList() {
+		t.Error("hasList should be false with no static or list")
+	}
+	e := makeEntry("Show.Never.Listed.S01E01.720p.HDTV", "http://x.com/a")
+	if err := sp.filter(context.Background(), makeCtx(), e); err != nil {
+		t.Fatal(err)
+	}
+	if !e.IsAccepted() {
+		t.Errorf("accept-all filter should accept any classified episode; got %v: %s", e.State, e.RejectReason)
 	}
 }
 
@@ -613,12 +627,32 @@ func TestMultipleEntriesSameEpisodeLearnRejectsOldOnNextRun(t *testing.T) {
 	}
 }
 
-func TestMissingShowsAndFrom(t *testing.T) {
+// TestQualitySpecAppliesWithoutList exercises the no-list code path with a
+// quality spec: the spec is still an absolute gate, so an episode below it
+// gets rejected even when there's no title list to match against.
+func TestQualitySpecAppliesWithoutList(t *testing.T) {
 	db, _ := store.OpenSQLite(":memory:")
 	defer db.Close()
-	_, err := newPlugin(map[string]any{}, db)
-	if err == nil {
-		t.Error("expected error when neither shows nor from is configured")
+	p, err := newPlugin(map[string]any{"quality": "1080p+"}, db)
+	if err != nil {
+		t.Fatalf("newPlugin: %v", err)
+	}
+	sp := p.(*seriesPlugin)
+
+	low := makeEntry("Some.Show.S01E01.720p.HDTV", "http://x.com/a")
+	if err := sp.filter(context.Background(), makeCtx(), low); err != nil {
+		t.Fatal(err)
+	}
+	if !low.IsRejected() {
+		t.Errorf("720p should be rejected when spec is 1080p+, got %v", low.State)
+	}
+
+	high := makeEntry("Some.Show.S02E03.1080p.WEB-DL", "http://x.com/b")
+	if err := sp.filter(context.Background(), makeCtx(), high); err != nil {
+		t.Fatal(err)
+	}
+	if !high.IsAccepted() {
+		t.Errorf("1080p should be accepted when spec is 1080p+; got %v: %s", high.State, high.RejectReason)
 	}
 }
 
@@ -840,5 +874,36 @@ func TestProcessStampsMediaTypeSeries(t *testing.T) {
 		if got := e.GetString(entry.FieldMediaType); got != entry.MediaTypeSeries {
 			t.Errorf("entry %q: media_type = %q, want %q", e.Title, got, entry.MediaTypeSeries)
 		}
+	}
+}
+
+// TestNoListTrackerDedups verifies that without a curated list, the tracker
+// still dedups across runs — same episode is rejected on the second sighting.
+// This is the headline benefit of the no-list mode: broad acceptance with
+// tracking intact.
+func TestNoListTrackerDedups(t *testing.T) {
+	db, err := store.OpenSQLite(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	pp, err := newPlugin(map[string]any{}, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := pp.(*seriesPlugin)
+	tc := makeCtx()
+
+	first := makeEntry("Random.Show.S01E01.720p.HDTV", "http://x.com/a")
+	p.filter(context.Background(), tc, first)                  //nolint:errcheck
+	p.persist(context.Background(), tc, []*entry.Entry{first}) //nolint:errcheck
+	if !first.IsAccepted() {
+		t.Fatalf("first sighting should be accepted; got %v", first.State)
+	}
+
+	second := makeEntry("Random.Show.S01E01.720p.HDTV", "http://x.com/b")
+	p.filter(context.Background(), tc, second) //nolint:errcheck
+	if !second.IsRejected() {
+		t.Errorf("second sighting should be rejected by tracker; got %v", second.State)
 	}
 }

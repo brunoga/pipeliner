@@ -1085,18 +1085,20 @@ After DHT: <code>torrent_file_size</code>, <code>torrent_file_count</code>, <cod
 
 <!-- ─────────── series ─────────── -->
 <h2 id="series">series</h2>
-<p>Accepts episodes of configured TV shows. Matches the parsed series name against a configured list with fuzzy matching, enforces optional quality and ordering constraints, and persists download history across runs. Multiple quality variants of the same episode are all accepted — place <code>dedup</code> downstream to pick the best copy. Download history is committed to the database only after all downstream sinks confirm success. A re-download of an already-seen episode is accepted when the new copy is strictly better quality, or when it is a PROPER/REPACK that is not a quality downgrade.</p>
+<p>Accepts episodes of TV shows. Optionally matches the parsed series name against a configured list with fuzzy matching, enforces optional quality and ordering constraints, and persists download history across runs. Multiple quality variants of the same episode are all accepted — place <code>dedup</code> downstream to pick the best copy. Download history is committed to the database only after all downstream sinks confirm success. A re-download of an already-seen episode is accepted when the new copy is strictly better quality, or when it is a PROPER/REPACK that is not a quality downgrade.</p>
+
+<p>The show list is optional. With neither <code>static</code> nor <code>list</code> set, the filter operates in <strong>accept-all mode</strong> — every classified episode passes the upstream requirements and the quality/tracker checks. The tracker still dedups and detects upgrades by series name + episode ID, so this is the right choice for "download every quality-matching episode I find" pipelines.</p>
 
 <div class="note"><strong>Upstream requirement:</strong> <code>series</code> reads episode metadata from entry fields rather than parsing titles itself. Run <code>metainfo_file</code> (or any plugin that sets <code>title</code>, <code>series_episode_id</code>, <code>series_season</code>, <code>series_episode</code>, and the <code>_quality</code> typed struct) upstream. The requirement is declared in the plugin descriptor so the DAG validator catches misconfigured pipelines at load time.</div>
 
 <table>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
-  <tr><td><code>static</code></td><td>conditional</td><td>—</td><td>Static list of show names</td></tr>
-  <tr><td><code>list</code></td><td>conditional</td><td>—</td><td>List-plugin configs providing show names dynamically</td></tr>
+  <tr><td><code>static</code></td><td>no</td><td>—</td><td>Optional static list of show names; omit (alongside <code>list</code>) for accept-all mode</td></tr>
+  <tr><td><code>list</code></td><td>no</td><td>—</td><td>Optional list-plugin configs providing show names dynamically; omit (alongside <code>static</code>) for accept-all mode</td></tr>
   <tr><td><code>ttl</code></td><td>no</td><td><code>1h</code></td><td>Cache TTL for dynamic show list. An empty list from a <code>list:</code> source is not cached — the source will be queried again on the next run.</td></tr>
   <tr><td><code>tracking</code></td><td>no</td><td><code>strict</code></td><td>Episode ordering mode: <code>strict</code>, <code>backfill</code>, or <code>follow</code></td></tr>
   <tr><td><code>quality</code></td><td>no</td><td>—</td><td>Quality spec (e.g. <code>720p+</code> for floor, <code>720p</code> for exact, <code>720p-1080p</code> for range)</td></tr>
-  <tr><td><code>reject_unmatched</code></td><td>no</td><td><code>true</code></td><td>When <code>true</code> (default), entries that lack <code>series_episode_id</code> (i.e. were not classified as a series episode upstream) or whose show name is not in the configured list are explicitly rejected. Set to <code>false</code> to leave such entries undecided when chaining multiple series filters.</td></tr>
+  <tr><td><code>reject_unmatched</code></td><td>no</td><td><code>true</code></td><td>When <code>true</code> (default), entries that lack <code>series_episode_id</code> (i.e. were not classified as a series episode upstream) are explicitly rejected; when a list is configured, entries whose show name isn't in the list are also rejected. Set to <code>false</code> to leave such entries undecided when chaining multiple series filters. With neither <code>static</code> nor <code>list</code> set, this flag only governs the classification check.</td></tr>
 </table>
 
 <h4>Tracking modes</h4>
@@ -1130,17 +1132,19 @@ pipeline("tv-dynamic", schedule="1h")</code></pre>
 
 <!-- ─────────── movies ─────────── -->
 <h2 id="movies">movies</h2>
-<p>Accepts movies from a configured title list. Same quality and deduplication behavior as <code>series</code>. Download history is committed after all downstream sinks confirm success. A re-download is accepted when the new copy is strictly better quality, or when it is a PROPER/REPACK that is not a quality downgrade.</p>
+<p>Accepts movies. Optionally matches against a configured title list with fuzzy matching, enforces an optional quality floor, and persists download history across runs. Same quality and deduplication behavior as <code>series</code>. Download history is committed after all downstream sinks confirm success. A re-download is accepted when the new copy is strictly better quality, or when it is a PROPER/REPACK that is not a quality downgrade.</p>
+
+<p>The title list is optional. With neither <code>static</code> nor <code>list</code> set, the filter operates in <strong>accept-all mode</strong> — every classified movie passes the upstream requirements and the quality/tracker checks.</p>
 
 <div class="note"><strong>Upstream requirement:</strong> <code>movies</code> reads movie metadata from entry fields rather than parsing titles itself. Run <code>metainfo_file</code> (or any plugin that sets <code>title</code>, <code>video_year</code>, and the <code>_quality</code> typed struct) upstream. The requirement is declared in the plugin descriptor so the DAG validator catches misconfigured pipelines at load time.</div>
 
 <table>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
-  <tr><td><code>static</code></td><td>conditional</td><td>—</td><td>Static list of movie titles</td></tr>
-  <tr><td><code>list</code></td><td>conditional</td><td>—</td><td>List-plugin configs providing titles dynamically</td></tr>
+  <tr><td><code>static</code></td><td>no</td><td>—</td><td>Optional static list of movie titles; omit (alongside <code>list</code>) for accept-all mode</td></tr>
+  <tr><td><code>list</code></td><td>no</td><td>—</td><td>Optional list-plugin configs providing titles dynamically; omit (alongside <code>static</code>) for accept-all mode</td></tr>
   <tr><td><code>ttl</code></td><td>no</td><td><code>1h</code></td><td>Cache TTL for dynamic list. An empty list from a <code>list:</code> source is not cached — the source will be queried again on the next run.</td></tr>
   <tr><td><code>quality</code></td><td>no</td><td>—</td><td>Quality spec (e.g. <code>720p+</code> for floor, <code>720p</code> for exact, <code>720p-1080p</code> for range)</td></tr>
-  <tr><td><code>reject_unmatched</code></td><td>no</td><td><code>true</code></td><td>When <code>true</code> (default), entries that lack <code>title</code> or whose title is not in the configured list are explicitly rejected. Set to <code>false</code> to leave such entries undecided.</td></tr>
+  <tr><td><code>reject_unmatched</code></td><td>no</td><td><code>true</code></td><td>When <code>true</code> (default), entries that lack <code>title</code> are explicitly rejected; when a list is configured, entries whose title isn't in the list are also rejected. Set to <code>false</code> to leave such entries undecided. With neither <code>static</code> nor <code>list</code> set, this flag only governs the classification check.</td></tr>
 </table>
 
 <p>Fields produced: none. <code>movies</code> reads upstream metadata and only writes to its internal tracker on commit; all <code>movie_*</code> / <code>video_*</code> fields seen downstream were set by the upstream metainfo step.</p>

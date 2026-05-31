@@ -1,12 +1,12 @@
 # movies
 
-Accepts movies from a configured title list. Matches against the list with fuzzy matching, enforces an optional quality floor, and persists download history across runs. A re-download of an already-seen movie is accepted when the new copy is strictly better quality, or when it is a PROPER/REPACK that is not a quality downgrade.
+Accepts movies. Optionally matches against a title list with fuzzy matching, enforces an optional quality floor, and persists download history across runs. A re-download of an already-seen movie is accepted when the new copy is strictly better quality, or when it is a PROPER/REPACK that is not a quality downgrade.
 
 **Multiple quality variants** of the same movie (from different sources or input feeds) are all accepted; add a `dedup` node after `movies` to keep only the best copy.
 
 **3D and non-3D versions are tracked independently.** If both a 3D and a non-3D copy of the same movie match, both are downloaded — they do not compete with each other.
 
-The movie list can be provided statically via `static`, dynamically via `list` (a list of input plugins whose entry titles are used as movie titles), or both. Dynamic results are cached for the configured `ttl` so external APIs are not called on every pipeline run.
+The title list is optional. When provided, it can be static via `static`, dynamic via `list` (input plugins whose entry titles are used as movie titles), or both — dynamic results are cached for the configured `ttl`. **With neither set, the filter operates in accept-all mode**: every classified movie passes the upstream requirements and the quality/tracker checks. The tracker still dedups and detects upgrades by title + year, so a no-list config is the right choice for "download every X-quality movie I find" pipelines.
 
 ## Upstream requirement
 
@@ -26,13 +26,13 @@ The movie list can be provided statically via `static`, dynamically via `list` (
 
 | Key | Type | Required | Default | Description |
 |-----|------|----------|---------|-------------|
-| `static` | string or list | conditional | — | Static movie titles to accept |
-| `list` | list | conditional | — | List-plugin configs whose entry titles supplement the movie list |
+| `static` | string or list | no | — | Optional static movie titles to accept; omit (alongside `list`) for accept-all mode |
+| `list` | list | no | — | Optional list-plugin configs whose entry titles supplement the movie list; omit (alongside `static`) for accept-all mode |
 | `ttl` | string | no | `1h` | How long to cache the dynamic list fetched via `list` |
 | `quality` | string | no | — | Quality spec (e.g. `1080p+` for floor, `1080p` for exact, `720p-1080p` for range). See [`quality`](../quality/README.md) for syntax. |
-| `reject_unmatched` | bool | no | `true` | Reject entries that lack `title` or whose title is not in the configured list. Set `false` to leave them undecided. |
+| `reject_unmatched` | bool | no | `true` | Reject entries that lack `title`. When a list is configured, also reject entries whose title isn't in the list. With neither `static` nor `list` set, this flag only governs the classification check. |
 
-At least one of `static` or `list` is required.
+Both `static` and `list` are optional. With neither set the filter accepts every classified movie that passes the quality spec and tracker checks.
 
 ### `list` entries
 

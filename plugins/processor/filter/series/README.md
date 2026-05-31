@@ -1,12 +1,12 @@
 # series
 
-Accepts episodes of configured TV shows. Matches the series name against a configured list (fuzzy match), enforces optional quality and ordering constraints, and persists download history across runs.
+Accepts episodes of TV shows. Optionally matches the series name against a configured list (fuzzy match), enforces optional quality and ordering constraints, and persists download history across runs.
 
 **Multiple quality variants** of the same episode (from different sources or input feeds) are all accepted; add a `dedup` node after `series` to keep only the best copy.
 
 A re-download of an already-seen episode is accepted when the new copy is strictly better quality, or when it is a PROPER/REPACK that is not a quality downgrade.
 
-The show list can be provided statically via `static`, dynamically via `list` (a list of input plugins whose entry titles are used as show names), or both. Dynamic results are cached for the configured `ttl` so external APIs are not called on every pipeline run.
+The show list is optional. When provided, it can be static via `static`, dynamic via `list` (input plugins whose entry titles are used as show names), or both — dynamic results are cached for the configured `ttl`. **With neither set, the filter operates in accept-all mode**: every classified episode passes the upstream requirements and the quality/tracker checks. The tracker still dedups and detects upgrades by series name + episode ID, so a no-list config is the right choice for "download every X-quality episode I find" pipelines.
 
 ## Upstream requirement
 
@@ -28,14 +28,14 @@ The first five fields are declared via `Descriptor.Requires`, so the DAG validat
 
 | Key | Required | Default | Description |
 |-----|----------|---------|-------------|
-| `static` | conditional | — | Static show names to accept |
-| `list` | conditional | — | List-plugin configs whose entry titles supplement the show list |
+| `static` | no | — | Optional static show names to accept; omit (alongside `list`) for accept-all mode |
+| `list` | no | — | Optional list-plugin configs whose entry titles supplement the show list; omit (alongside `static`) for accept-all mode |
 | `ttl` | no | `1h` | How long to cache the dynamic list fetched via `list` |
 | `tracking` | no | `strict` | Episode ordering mode: `strict`, `backfill`, or `follow` |
 | `quality` | no | — | Quality spec (e.g. `720p+` for floor, `720p` for exact, `720p-1080p` for range) |
-| `reject_unmatched` | no | `true` | Reject entries that lack `series_episode_id` (i.e. were not classified as a series episode upstream) or whose show name is not in the configured list. Set `false` to leave them undecided when chaining multiple series filters. |
+| `reject_unmatched` | no | `true` | Reject entries that lack `series_episode_id` (i.e. were not classified as a series episode upstream). When a list is configured, also reject entries whose show name isn't in the list. With neither `static` nor `list` set, this flag only governs the classification check. |
 
-At least one of `static` or `list` is required.
+Both `static` and `list` are optional. With neither set the filter accepts every classified episode that passes the quality spec and tracker checks.
 
 ### Tracking modes
 
