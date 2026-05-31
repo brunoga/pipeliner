@@ -93,6 +93,6 @@ pipeline("trakt-tv", schedule="1h")
 | Property | Value |
 |----------|-------|
 | Role | `source` |
-| Produces | `source` |
+| Produces | `title`, `media_type` (= `"series"` when `type=shows`, `"movie"` when `type=movies`), `source` |
 | MayProduce | `video_year`, `trakt_id`, `trakt_imdb_id`, `trakt_tmdb_id` |
 | Requires | — |

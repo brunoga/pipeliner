@@ -252,3 +252,50 @@ func TestDedupRequiresWarnsWhenMediaTypeOnlyReachable(t *testing.T) {
 		t.Fatalf("expected a warning mentioning media_type, got: %v", warnings)
 	}
 }
+
+// TestDedupNoMediaTypeWarningWhenClassifierFilterUpstream verifies the payoff
+// of having series/movies filters Produce media_type: when dedup follows one
+// of them, media_type is Certain (not merely MayProduced from metainfo_file)
+// so the "may not be present on all entries" warning disappears.
+func TestDedupNoMediaTypeWarningWhenClassifierFilterUpstream(t *testing.T) {
+	dedupDesc, ok := plugin.Lookup("dedup")
+	if !ok {
+		t.Fatal("dedup plugin not registered")
+	}
+	// Stand-in for a classifier filter: Produces media_type + the key data
+	// (title) as Certain — same shape series/movies advertise.
+	classifier := &plugin.Descriptor{
+		PluginName: "classifier", Role: plugin.RoleProcessor,
+		Produces: []string{entry.FieldMediaType, entry.FieldTitle},
+	}
+	g := dag.New()
+	must := func(err error) { t.Helper(); if err != nil { t.Fatal(err) } }
+	src := &plugin.Descriptor{
+		PluginName: "src", Role: plugin.RoleSource,
+		Produces: []string{entry.FieldSource},
+	}
+	must(g.AddNode(&dag.Node{ID: "a", PluginName: "src"}))
+	must(g.AddNode(&dag.Node{ID: "b", PluginName: "classifier", Upstreams: []dag.NodeID{"a"}}))
+	must(g.AddNode(&dag.Node{ID: "c", PluginName: "dedup", Upstreams: []dag.NodeID{"b"}}))
+
+	reg := func(name string) (*plugin.Descriptor, bool) {
+		switch name {
+		case "src":
+			return src, true
+		case "classifier":
+			return classifier, true
+		case "dedup":
+			return dedupDesc, true
+		}
+		return nil, false
+	}
+	errs, warnings := dag.Validate(g, reg)
+	if len(errs) > 0 {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+	for _, w := range warnings {
+		if strings.Contains(w.Error(), "media_type") {
+			t.Fatalf("did not expect a media_type warning, got: %v", w)
+		}
+	}
+}

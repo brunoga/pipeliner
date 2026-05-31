@@ -56,6 +56,14 @@ func init() {
 			entry.FieldSeriesEpisode,
 			entry.FieldQuality,
 		),
+		// Every entry exiting this filter is a series episode by
+		// construction (the filter only accepts entries that match a known
+		// show). Setting media_type here makes the classification Certain
+		// for downstream nodes like dedup, instead of relying on
+		// metainfo_file's conditional MayProduce.
+		Produces: []string{
+			entry.FieldMediaType,
+		},
 		Factory:     newPlugin,
 		Validate:    validate,
 		AcceptsList: true,
@@ -396,6 +404,9 @@ func (p *seriesPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entr
 		if e.IsRejected() || e.IsFailed() {
 			continue
 		}
+		// Series classifier: every entry that reaches this filter is a
+		// series episode (Requires guarantees series_episode_id upstream).
+		e.Set(entry.FieldMediaType, entry.MediaTypeSeries)
 		if err := p.filter(ctx, tc, e); err != nil {
 			tc.Logger.Warn("series filter error", "entry", e.Title, "err", err)
 		}

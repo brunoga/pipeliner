@@ -101,6 +101,12 @@ func TestRunReturnsEntries(t *testing.T) {
 	if v := entries[0].GetString(entry.FieldTitle); v != "Breaking Bad" {
 		t.Errorf("FieldTitle: got %q", v)
 	}
+	// TVDB only catalogs TV — every emitted entry must be tagged as series.
+	for _, e := range entries {
+		if v := e.GetString(entry.FieldMediaType); v != entry.MediaTypeSeries {
+			t.Errorf("media_type: got %q, want %q", v, entry.MediaTypeSeries)
+		}
+	}
 	if entries[0].URL != "https://thetvdb.com/series/breaking-bad" {
 		t.Errorf("URL: got %q", entries[0].URL)
 	}

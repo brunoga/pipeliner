@@ -102,6 +102,9 @@ func TestAnnotateShow(t *testing.T) {
 	if v := e.GetString("title"); v != "Breaking Bad" {
 		t.Errorf("trakt_title: got %q, want %q", v, "Breaking Bad")
 	}
+	if v := e.GetString(entry.FieldMediaType); v != entry.MediaTypeSeries {
+		t.Errorf("media_type: got %q, want %q", v, entry.MediaTypeSeries)
+	}
 	if v := e.GetInt("video_year"); v != 2008 {
 		t.Errorf("trakt_year: got %d, want 2008", v)
 	}
@@ -223,6 +226,9 @@ func TestAnnotateMovie(t *testing.T) {
 	}
 	if v := e.GetString("video_imdb_id"); v != "tt1375666" {
 		t.Errorf("trakt_imdb_id: got %q", v)
+	}
+	if v := e.GetString(entry.FieldMediaType); v != entry.MediaTypeMovie {
+		t.Errorf("media_type: got %q, want %q", v, entry.MediaTypeMovie)
 	}
 	// Movies don't have tvdb_id.
 	if v := e.GetInt("trakt_tvdb_id"); v != 0 {

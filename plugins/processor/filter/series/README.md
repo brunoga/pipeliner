@@ -124,9 +124,9 @@ pipeline("tv-combined", schedule="30m")
 |----------|-------|
 | Role | `processor` |
 | Requires | `title`, `series_episode_id`, `series_season`, `series_episode`, `_quality` (declared via `RequireAll`) |
-| Produces | — (no new public fields; reads-only of upstream metadata) |
+| Produces | `media_type` (= `"series"`) |
 
-`series` passes through fields set upstream; it does not produce new ones. The same `series_*` fields are available downstream because `metainfo_file` (upstream) already set them.
+`series` is a classifier by construction — every entry it lets through is a series episode — so it stamps `media_type = "series"` on each processed entry. Downstream nodes (e.g. `dedup`, `route`, `condition`) can rely on the field being present as Certain, instead of inheriting `metainfo_file`'s conditional `MayProduce`. The `series_*` fields are available downstream because `metainfo_file` (upstream) already set them.
 
 ## Notes
 

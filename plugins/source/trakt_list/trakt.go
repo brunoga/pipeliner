@@ -35,7 +35,9 @@ func init() {
 		Description: "fetch movies or shows from a Trakt.tv list as pipeline entries; usable as a standalone DAG source or inside series.list/movies.list/discover.list",
 		Role:        plugin.RoleSource,
 		// trakt_slug is used for the entry URL but not set as a field.
-		Produces: []string{entry.FieldTitle, entry.FieldSource},
+		// media_type is set from the configured itemType ("shows" or "movies")
+		// so downstream classifiers can dispatch without a metainfo step.
+		Produces: []string{entry.FieldTitle, entry.FieldMediaType, entry.FieldSource},
 		MayProduce: []string{
 			entry.FieldVideoYear,
 			"trakt_id",
@@ -143,11 +145,16 @@ func (p *traktSourcePlugin) Generate(ctx context.Context, tc *plugin.TaskContext
 		tc.Logger.Warn("trakt_list: partial results due to pagination error", "count", len(items), "err", err)
 	}
 
+	mediaType := entry.MediaTypeMovie
+	if p.itemType == "shows" {
+		mediaType = entry.MediaTypeSeries
+	}
 	entries := make([]*entry.Entry, 0, len(items))
 	for _, item := range items {
 		url := fmt.Sprintf("https://trakt.tv/%s/%s", p.itemType, item.IDs.Slug)
 		e := entry.New(item.Title, url)
 		e.Set(entry.FieldTitle, item.Title)
+		e.Set(entry.FieldMediaType, mediaType)
 		e.Set(entry.FieldSource, "trakt_list:"+p.list)
 		if item.Year > 0 {
 			e.Set(entry.FieldVideoYear, item.Year)

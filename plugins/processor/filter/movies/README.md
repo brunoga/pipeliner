@@ -112,9 +112,9 @@ cond = process("condition", upstream=movies, rules=[
 |----------|-------|
 | Role | `processor` |
 | Requires | `title`, `video_year`, `_quality` (declared via `RequireAll`) |
-| Produces | — (no new public fields; reads-only of upstream metadata) |
+| Produces | `media_type` (= `"movie"`) |
 
-`movies` passes through fields set upstream; it does not produce new ones. The same `movie_title` / `video_*` fields are available downstream because `metainfo_file` (upstream) already set them.
+`movies` is a classifier by construction — every entry it lets through is a movie — so it stamps `media_type = "movie"` on each processed entry. Downstream nodes (e.g. `dedup`, `route`, `condition`) can rely on the field being present as Certain, instead of inheriting `metainfo_file`'s conditional `MayProduce`. The `video_*` fields are available downstream because `metainfo_file` (upstream) already set them.
 
 ## Notes
 

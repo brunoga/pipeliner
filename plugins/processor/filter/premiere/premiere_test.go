@@ -321,3 +321,25 @@ func TestRequiresDeclared(t *testing.T) {
 		}
 	}
 }
+
+// TestProcessStampsMediaTypeSeries verifies that every entry the filter
+// processes — accepted or rejected — has media_type=series stamped on it so
+// downstream classifiers can rely on it.
+func TestProcessStampsMediaTypeSeries(t *testing.T) {
+	p := makePlugin(t, nil)
+	a := makeEntry("Brand New Show", 1, 1)
+	b := makeEntry("Another Show", 1, 1)
+
+	out, err := p.Process(context.Background(), makeCtx(), []*entry.Entry{a, b})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 2 {
+		t.Fatalf("want 2 entries out, got %d", len(out))
+	}
+	for _, e := range out {
+		if got := e.GetString(entry.FieldMediaType); got != entry.MediaTypeSeries {
+			t.Errorf("entry %q: media_type = %q, want %q", e.Title, got, entry.MediaTypeSeries)
+		}
+	}
+}

@@ -192,6 +192,9 @@ func TestAnnotateSeries(t *testing.T) {
 	if v := e.GetString("title"); v != "Breaking Bad" {
 		t.Errorf("title: got %q, want Breaking Bad", v)
 	}
+	if v := e.GetString(entry.FieldMediaType); v != entry.MediaTypeSeries {
+		t.Errorf("media_type: got %q, want %q", v, entry.MediaTypeSeries)
+	}
 	if v := e.GetString("video_language"); v != "English" {
 		t.Errorf("language: got %q, want English", v)
 	}

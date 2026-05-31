@@ -624,3 +624,24 @@ func openPluginWithDB(t *testing.T, db *store.SQLiteStore, cfg map[string]any) *
 	}
 	return p.(*moviesPlugin)
 }
+
+// TestProcessStampsMediaTypeMovie verifies that every entry the filter
+// processes — accepted or rejected — has media_type=movie stamped on it,
+// so downstream classifiers (dedup, route, condition) can rely on it.
+func TestProcessStampsMediaTypeMovie(t *testing.T) {
+	p := openPlugin(t, map[string]any{"static": []any{"Inception"}})
+	accepted := makeEntry("Inception.2010.1080p.BluRay.x264", "http://x.com/a")
+	rejected := makeEntry("Unknown.Title.2010.1080p.BluRay", "http://x.com/b")
+	in := []*entry.Entry{accepted, rejected}
+
+	if _, err := p.Process(context.Background(), makeCtx(), in); err != nil {
+		t.Fatal(err)
+	}
+	// PassThrough drops the rejected entry from the result, but the
+	// underlying entries are mutated in place — both still carry media_type.
+	for _, e := range in {
+		if got := e.GetString(entry.FieldMediaType); got != entry.MediaTypeMovie {
+			t.Errorf("entry %q: media_type = %q, want %q", e.Title, got, entry.MediaTypeMovie)
+		}
+	}
+}
