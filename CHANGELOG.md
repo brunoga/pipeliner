@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] - 2026-06-01
+
+### Fixed
+
+- **Deluge sink rejects empty / scheme-less URLs locally** ([#201](https://github.com/brunoga/pipeliner/pull/201)). Entries arriving at the `deluge` sink with `e.URL == ""` (or a URL lacking `http://` / `https://` / `magnet:`) surfaced as a cryptic Twisted traceback from `core.add_torrent_url` — `twisted.web.error.SchemeNotSupported: Unsupported scheme: b''` — buried inside the deluge RPC error. The sink now fails fast with `entry has empty URL` or `unsupported URL scheme: "..."` before any RPC is attempted, so the actionable error lands on the entry's `FailReason` instead of in a Python stack trace.
+- **`rss` and `jackett` no longer propagate non-URL feed identifiers** ([#201](https://github.com/brunoga/pipeliner/pull/201)). Both parsers fell back to the RSS `<guid>` (or Atom `<id>`) as `e.URL` when no link / enclosure was present. But RSS GUIDs with `isPermaLink="false"` are opaque identifiers (hashes, internal IDs), and Atom `<id>` is an IRI commonly of the form `urn:uuid:…` or `tag:host,date:…` — none of which are fetchable. The GUID / `<id>` fallback is now only accepted when the value actually starts with `http://`, `https://`, or `magnet:`; otherwise the item is dropped, matching the existing behaviour for items with no link at all. This is the root cause for the Deluge failures above.
+- **Drag in the visual editor follows attached search / list sub-nodes** ([#202](https://github.com/brunoga/pipeliner/pull/202)). When a parent node owned a search / list sub-node (e.g. `discover` + `rss_search`, `series` + `tvdb_favorites`) or route ports, dragging the parent left the sub-nodes frozen in place — both for plain single-node drags and for multi-selections where the sub-node was visibly highlighted as part of the group. Stale sub-node positions then persisted into the `# pipeliner:pos` comment on save. Both drag paths now translate each attached sub-node by the parent's *post-clamp* effective delta, so they stay anchored to the parent even when the group hits a pipeline region boundary.
+
 ## [1.2.0] - 2026-06-01
 
 ### Added
@@ -53,6 +61,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Bump `modernc.org/sqlite` to the latest patch in the `all-go-deps` group ([#186](https://github.com/brunoga/pipeliner/pull/186)).
 
+[1.2.1]: https://github.com/brunoga/pipeliner/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/brunoga/pipeliner/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/brunoga/pipeliner/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/brunoga/pipeliner/compare/v1.0.0...v1.1.0
