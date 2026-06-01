@@ -1,7 +1,9 @@
 package jackett
 
 import (
+	"bytes"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"strings"
 	"testing"
@@ -56,7 +58,7 @@ func TestParseTorznabTorrentEntry(t *testing.T) {
 		},
 	}})
 
-	entries, err := parseTorznab(data, "myindexer")
+	entries, err := parseTorznab(data, "myindexer", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +95,7 @@ func TestParseTorznabMagnetEntry(t *testing.T) {
 		},
 	}})
 
-	entries, err := parseTorznab(data, "idx")
+	entries, err := parseTorznab(data, "idx", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +152,7 @@ func TestEnsureMagnetDNNoFileParam(t *testing.T) {
 
 func TestParseTorznabSkipsEmptyLink(t *testing.T) {
 	data := buildXML([]torznabItem{{Title: "No Link Entry"}})
-	entries, err := parseTorznab(data, "idx")
+	entries, err := parseTorznab(data, "idx", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +171,7 @@ func TestParseTorznabSkipsNonURLGUID(t *testing.T) {
 		<item><title>Opaque GUID only</title><guid isPermaLink="false">7c1c8e4f</guid></item>
 		<item><title>Real link</title><enclosure url="http://example.com/x.torrent" type="application/x-bittorrent"/></item>
 	</channel></rss>`
-	entries, err := parseTorznab([]byte(xml), "idx")
+	entries, err := parseTorznab([]byte(xml), "idx", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,6 +183,52 @@ func TestParseTorznabSkipsNonURLGUID(t *testing.T) {
 	}
 }
 
+// TestParseTorznabSkipsNonFetchableLink covers indexers that emit a link or
+// enclosure URL that is empty, whitespace-only, or carries an unsupported
+// scheme. Those items must be dropped so downstream sinks never see a URL
+// they cannot act on, and the parser must log a warning so operators can
+// see why an item went missing from the feed.
+func TestParseTorznabSkipsNonFetchableLink(t *testing.T) {
+	cases := []struct {
+		name string
+		xml  string
+	}{
+		{
+			name: "whitespace-only enclosure url",
+			xml:  `<item><title>Whitespace enclosure</title><enclosure url="   " type="application/x-bittorrent"/></item>`,
+		},
+		{
+			name: "empty enclosure url attribute",
+			xml:  `<item><title>Empty enclosure</title><enclosure url="" type="application/x-bittorrent"/></item>`,
+		},
+		{
+			name: "whitespace-only link element",
+			xml:  `<item><title>Whitespace link</title><link>   </link></item>`,
+		},
+		{
+			name: "non-http scheme in link",
+			xml:  `<item><title>FTP link</title><link>ftp://example.com/x.torrent</link></item>`,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn}))
+			data := []byte(`<?xml version="1.0"?><rss version="2.0"><channel>` + tc.xml + `</channel></rss>`)
+			entries, err := parseTorznab(data, "idx", logger)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(entries) != 0 {
+				t.Errorf("expected 0 entries, got %d (URL=%q)", len(entries), entries[0].URL)
+			}
+			if !strings.Contains(buf.String(), "no fetchable URL") {
+				t.Errorf("expected warning log about no fetchable URL, got: %q", buf.String())
+			}
+		})
+	}
+}
+
 // TestParseTorznabAcceptsURLGUID confirms that the GUID fallback still kicks
 // in when the GUID is actually a usable URL.
 func TestParseTorznabAcceptsURLGUID(t *testing.T) {
@@ -188,7 +236,7 @@ func TestParseTorznabAcceptsURLGUID(t *testing.T) {
 	<rss version="2.0"><channel>
 		<item><title>GUID-as-permalink</title><guid isPermaLink="true">http://example.com/dl?id=42</guid></item>
 	</channel></rss>`
-	entries, err := parseTorznab([]byte(xml), "idx")
+	entries, err := parseTorznab([]byte(xml), "idx", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +252,7 @@ func TestParseTorznabPublishDate(t *testing.T) {
 			Link:    "http://example.com/1.torrent",
 			PubDate: "Mon, 01 Jan 2024 12:00:00 +0000",
 		}
-		entries, err := parseTorznab(buildXML([]torznabItem{item}), "idx")
+		entries, err := parseTorznab(buildXML([]torznabItem{item}), "idx", nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -220,7 +268,7 @@ func TestParseTorznabPublishDate(t *testing.T) {
 			PubDate: "Mon, 01 Jan 2024 12:00:00 +0000",
 			Attrs:   []torznabAttr{{Name: "publishdate", Value: "2024-01-01T12:00:00Z"}},
 		}
-		entries, err := parseTorznab(buildXML([]torznabItem{item}), "idx")
+		entries, err := parseTorznab(buildXML([]torznabItem{item}), "idx", nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -246,7 +294,7 @@ func TestParseTorznabExtendedAttrs(t *testing.T) {
 			{Name: "uploadvolumefactor", Value: "2.0"},
 		},
 	}
-	entries, err := parseTorznab(buildXML([]torznabItem{item}), "idx")
+	entries, err := parseTorznab(buildXML([]torznabItem{item}), "idx", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -256,7 +304,7 @@ func TestParseTorznabExtendedAttrs(t *testing.T) {
 		field string
 		want  any
 	}{
-		{entry.FieldVideoImdbID, "tt0903747"},
+		{"jackett_imdb_id", "tt0903747"},
 		{"jackett_tvdb_id", "81189"},
 		{"jackett_tmdb_id", "1396"},
 		{entry.FieldVideoYear, 2010},
@@ -312,7 +360,7 @@ func TestCheckTorznabError(t *testing.T) {
 
 func TestParseTorznabReturnsErrorOnAPIError(t *testing.T) {
 	data := []byte(`<?xml version="1.0"?><error code="200" description="Missing parameter"/>`)
-	_, err := parseTorznab(data, "idx")
+	_, err := parseTorznab(data, "idx", nil)
 	if err == nil {
 		t.Fatal("expected error from parseTorznab on API error response")
 	}

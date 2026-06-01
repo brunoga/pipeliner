@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/xml"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"strconv"
 	"strings"
@@ -41,7 +42,7 @@ type torznabAttr struct {
 //   - "magnet"  — the Torznab magneturl attribute is present; e.URL is set to
 //     the magnet URI so metainfo_magnet and output plugins handle it naturally
 //   - "torrent" — no magnet URI; the enclosure URL serves a .torrent file
-func parseTorznab(data []byte, indexer string) ([]*entry.Entry, error) {
+func parseTorznab(data []byte, indexer string, logger *slog.Logger) ([]*entry.Entry, error) {
 	if err := checkTorznabError(data); err != nil {
 		return nil, err
 	}
@@ -53,18 +54,23 @@ func parseTorznab(data []byte, indexer string) ([]*entry.Entry, error) {
 
 	var entries []*entry.Entry
 	for _, item := range feed.Channel.Items {
-		// Prefer the enclosure URL over the item link or GUID. GUID is only
-		// considered when it looks like a usable URL — many indexers set
-		// isPermaLink="false" with an internal identifier (hash, numeric id),
-		// which would otherwise reach a sink as a scheme-less URL.
-		link := item.Enclosure.URL
-		if link == "" {
-			link = item.Link
+		// Prefer the enclosure URL over the item link or GUID. Each candidate
+		// must be a fetchable URL — indexers occasionally emit whitespace-only
+		// link elements, empty enclosure attributes, or GUIDs that are opaque
+		// identifiers (e.g. isPermaLink="false" hashes), any of which would
+		// otherwise reach a sink as an empty or scheme-less URL.
+		var link string
+		for _, candidate := range []string{item.Enclosure.URL, item.Link, item.GUID} {
+			if c := strings.TrimSpace(candidate); isFetchableURL(c) {
+				link = c
+				break
+			}
 		}
-		if link == "" && isFetchableURL(item.GUID) {
-			link = item.GUID
-		}
 		if link == "" {
+			if logger != nil {
+				logger.Warn("jackett: dropping item with no fetchable URL",
+					"indexer", indexer, "title", strings.TrimSpace(item.Title))
+			}
 			continue
 		}
 
@@ -124,9 +130,6 @@ func parseTorznab(data []byte, indexer string) ([]*entry.Entry, error) {
 		}
 
 		// --- Standard video/series fields from Torznab metadata ---
-		if v := attrs["imdbid"]; v != "" {
-			e.Set(entry.FieldVideoImdbID, v)
-		}
 		if v := attrs["year"]; v != "" {
 			if n, err := strconv.Atoi(v); err == nil && n > 0 {
 				e.Set(entry.FieldVideoYear, n)
@@ -154,6 +157,9 @@ func parseTorznab(data []byte, indexer string) ([]*entry.Entry, error) {
 		// IDs provided by Jackett but owned by their respective metainfo plugins;
 		// stored under jackett_ prefix so downstream plugins can use them for
 		// fast by-ID lookups (same pattern as trakt_tmdb_id from trakt_list).
+		if v := attrs["imdbid"]; v != "" {
+			e.Set("jackett_imdb_id", v)
+		}
 		if v := attrs["tvdbid"]; v != "" {
 			e.Set("jackett_tvdb_id", v)
 		}

@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -48,10 +49,10 @@ func init() {
 			entry.FieldTorrentGrabs,
 			entry.FieldPublishedDate,
 			entry.FieldVideoYear,
-			entry.FieldVideoImdbID,
 			entry.FieldSeriesSeason,
 			entry.FieldSeriesEpisode,
 			"jackett_category",
+			"jackett_imdb_id",
 			"jackett_tvdb_id",
 			"jackett_tmdb_id",
 			"jackett_dl_factor",
@@ -234,7 +235,7 @@ func (p *jackettPlugin) searchIndexer(ctx context.Context, tc *plugin.TaskContex
 			case <-time.After(time.Duration(attempt) * 2 * time.Second):
 			}
 		}
-		entries, retry, err := p.doFetch(ctx, fetchURL, indexer)
+		entries, retry, err := p.doFetch(ctx, fetchURL, indexer, tc.Logger)
 		if err == nil {
 			tc.Logger.Debug("jackett: indexer returned results", "indexer", indexer, "count", len(entries))
 			return entries, nil
@@ -250,7 +251,7 @@ func (p *jackettPlugin) searchIndexer(ctx context.Context, tc *plugin.TaskContex
 // doFetch performs a single HTTP fetch. It returns (entries, retry, err).
 // retry is true for transient failures (network errors, HTTP 5xx) and false
 // for permanent failures (HTTP 4xx, Torznab API errors, parse errors).
-func (p *jackettPlugin) doFetch(ctx context.Context, fetchURL, indexer string) (_ []*entry.Entry, retry bool, _ error) {
+func (p *jackettPlugin) doFetch(ctx context.Context, fetchURL, indexer string, logger *slog.Logger) (_ []*entry.Entry, retry bool, _ error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fetchURL, nil)
 	if err != nil {
 		return nil, false, fmt.Errorf("build request: %w", err)
@@ -283,7 +284,7 @@ func (p *jackettPlugin) doFetch(ctx context.Context, fetchURL, indexer string) (
 		return nil, false, fmt.Errorf("HTTP %d from %s: %s", resp.StatusCode, indexer, snippet) // 4xx — permanent
 	}
 
-	entries, err := parseTorznab(body, indexer)
+	entries, err := parseTorznab(body, indexer, logger)
 	return entries, false, err // parse/API errors — permanent
 }
 

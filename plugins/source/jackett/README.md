@@ -32,10 +32,10 @@ Fields marked **always** are set on every entry. All others depend on whether th
 | `torrent_grabs` | | Number of times downloaded from the indexer |
 | `published_date` | | Publication date (`publishdate` attr, falls back to RSS `pubDate`) |
 | `video_year` | | Release year |
-| `video_imdb_id` | | IMDb ID (e.g. `tt0903747`) |
 | `series_season` | | Season number |
 | `series_episode` | | Episode number |
 | `jackett_category` | | Torznab category code |
+| `jackett_imdb_id` | | Raw IMDb ID from Jackett (e.g. `tt0903747`, same pattern as `trakt_imdb_id`) |
 | `jackett_tvdb_id` | | Raw TVDB ID from Jackett (use with `metainfo_tvdb` for fast by-ID lookup) |
 | `jackett_tmdb_id` | | Raw TMDb ID from Jackett (same pattern as `trakt_tmdb_id`) |
 | `jackett_dl_factor` | | Download volume factor: `0.0` = freeleech, `0.5` = half-leech, `1.0` = normal |
@@ -85,7 +85,7 @@ pipeline("movie-discover", schedule="2h")
 | Role | `source` |
 | IsSearchPlugin | `true` |
 | Produces | `source`, `torrent_link_type` |
-| MayProduce | `torrent_seeds`, `torrent_leechers`, `torrent_file_size`, `torrent_info_hash`, `torrent_grabs`, `published_date`, `video_year`, `video_imdb_id`, `series_season`, `series_episode`, `jackett_category`, `jackett_tvdb_id`, `jackett_tmdb_id`, `jackett_dl_factor`, `jackett_ul_factor` |
+| MayProduce | `torrent_seeds`, `torrent_leechers`, `torrent_file_size`, `torrent_info_hash`, `torrent_grabs`, `published_date`, `video_year`, `series_season`, `series_episode`, `jackett_category`, `jackett_imdb_id`, `jackett_tvdb_id`, `jackett_tmdb_id`, `jackett_dl_factor`, `jackett_ul_factor` |
 | Requires | — |
 
 ## Notes
