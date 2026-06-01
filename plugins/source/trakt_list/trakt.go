@@ -32,7 +32,7 @@ type authBucketIface = store.Bucket
 func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "trakt_list",
-		Description: "fetch movies or shows from a Trakt.tv list as pipeline entries; usable as a standalone DAG source or inside series.list/movies.list/discover.list",
+		Description: "fetch movies or shows from a Trakt.tv list as pipeline entries; usable as a standalone DAG source or inside series.list/movies.list",
 		Role:        plugin.RoleSource,
 		// trakt_slug is used for the entry URL but not set as a field.
 		// media_type is set from the configured itemType ("shows" or "movies")

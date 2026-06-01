@@ -818,12 +818,11 @@ pipeline("watch-folder", schedule="5m")</code></pre>
 <table>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
   <tr><td><code>titles</code></td><td>conditional</td><td>—</td><td>Static list of title strings</td></tr>
-  <tr><td><code>list</code></td><td>conditional</td><td>—</td><td>List-plugin configs whose entry titles supplement the list</td></tr>
   <tr><td><code>search</code></td><td>yes</td><td>—</td><td>Search plugin configs to query</td></tr>
   <tr><td><code>interval</code></td><td>no</td><td><code>24h</code></td><td>Minimum time between searches per title</td></tr>
 </table>
 
-<p>At least one of <code>titles</code> or <code>list</code> is required.</p>
+<p>Titles come from <code>titles=</code> and the <code>.Title</code> field of every upstream entry — at least one source must produce titles.</p>
 
 <pre><code><span class="y-comment"># Discover as a processor — upstream source provides titles</span>
 watchlist = input("trakt_list", client_id=env("TRAKT_ID"),
@@ -875,7 +874,7 @@ pipeline("movie-discover", schedule="2h")</code></pre>
 <p>These plugins produce title lists or search results. They have two uses:</p>
 <ul>
   <li><strong>As standalone source nodes</strong> — use <code>input("trakt_list", …)</code> to create a source node. The entries (each with a show/movie title) can drive <code>discover</code> as its title list, or be further processed with <code>trakt</code>/<code>tvdb</code> filters before being merged into a main feed.</li>
-  <li><strong>Inside a <code>list=</code> config key</strong> — pass them in the <code>list=[…]</code> config of <code>series</code>, <code>movies</code>, or <code>discover</code>. Pipeliner runs the plugin internally and uses the resulting titles to match against.</li>
+  <li><strong>Inside a <code>list=</code> config key</strong> — pass them in the <code>list=[…]</code> config of <code>series</code> or <code>movies</code>. Pipeliner runs the plugin internally and uses the resulting titles to match against.</li>
 </ul>
 <pre><code><span class="y-comment"># As a standalone source node — entries drive discover's title list</span>
 watchlist = input("trakt_list", client_id=env("TRAKT_ID"),
@@ -893,7 +892,7 @@ series = process("series", upstream=src, list=[
 
 <!-- ─────────── tvdb_favorites ─────────── -->
 <h2 id="tvdb_favorites">tvdb_favorites</h2>
-<p>Fetches a user's TheTVDB favorites list and emits one entry per show. Use inside <code>series.list</code> or <code>discover.list</code> to build a dynamic show list from your TVDB account.</p>
+<p>Fetches a user's TheTVDB favorites list and emits one entry per show. Use as an upstream node for <code>discover</code> or inside <code>series.list</code> to build a dynamic show list from your TVDB account.</p>
 
 <table>
   <tr><th>Key</th><th>Required</th><th>Description</th></tr>
@@ -917,7 +916,7 @@ pipeline("tv-tvdb", schedule="1h")</code></pre>
 
 <!-- ─────────── trakt_list ─────────── -->
 <h2 id="trakt_list">trakt_list</h2>
-<p>Fetches movies or shows from a Trakt.tv list. Use inside <code>series.list</code>, <code>movies.list</code>, or <code>discover.list</code>.</p>
+<p>Fetches movies or shows from a Trakt.tv list. Use as an upstream node for <code>discover</code> or inside <code>series.list</code> / <code>movies.list</code>.</p>
 
 <table>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
@@ -1722,7 +1721,7 @@ pipeline("tv")</code></pre>
 <p>Changes in the visual editor sync automatically to the text editor. Use <strong>Save &amp; Reload</strong> in the toolbar to apply. Switch to the <strong>✏ Text</strong> view to edit Starlark directly; switching back to <strong>⬡ Visual</strong> re-parses the text and reloads the canvas.</p>
 
 <h4>User functions as list and search sources</h4>
-<p>Plugins that accept a <code>list=</code> or <code>search=</code> port (such as <code>movies</code>, <code>series</code>, and <code>discover</code>) can be fed by a <strong>user-defined function</strong> — not just by registered plugins. This lets you build a mini-pipeline inside a function and plug it directly into a list or search slot.</p>
+<p>Plugins that accept a <code>list=</code> port (<code>movies</code>, <code>series</code>) or a <code>search=</code> port (<code>discover</code>) can be fed by a <strong>user-defined function</strong> — not just by registered plugins. This lets you build a mini-pipeline inside a function and plug it directly into a list or search slot.</p>
 
 <p><strong>How to create a list-source function:</strong></p>
 <ol>
