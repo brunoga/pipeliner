@@ -1,8 +1,8 @@
 # trakt_list
 
-Fetches movies or shows from a Trakt.tv list and emits one entry per item. Entries carry the item title and a canonical Trakt URL, making them suitable as title sources for `discover.list`, `series.list`, and `movies.list`.
+Fetches movies or shows from a Trakt.tv list and emits one entry per item. Entries carry the item title and a canonical Trakt URL, making them suitable as upstream nodes feeding `discover`, or as title sources inside `series.list` / `movies.list`.
 
-Use as a standalone `input()` source node, or inside `series.list`, `movies.list`, `discover.list`, or `discover.search` config keys.
+Use as a standalone `input()` source node, or inside `series.list`, `movies.list`, or `discover.search` config keys.
 
 ## Config
 
@@ -74,7 +74,7 @@ pipeline("tv-watchlist", schedule="1h")
 
 ## DAG role
 
-`trakt_list` has `Role=source`. It is used inside `series.list`, `movies.list`, and `discover.list`, and can also be used as a standalone `input()` node in DAG pipelines:
+`trakt_list` has `Role=source`. It is used inside `series.list` and `movies.list`, and can also be used as a standalone `input()` node feeding `discover` or any other DAG pipeline:
 
 ```python
 # DAG: trakt_list as a standalone source feeding a series filter

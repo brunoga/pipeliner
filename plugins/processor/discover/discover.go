@@ -2,14 +2,12 @@
 // title list, with a per-title cooldown to avoid redundant searches.
 //
 // As a DAG processor, upstream source nodes supply the title list via their
-// .Title fields. Static 'titles' from config and 'list' source plugins are
-// also merged in. The plugin returns search results, not the upstream entries.
+// .Title fields. Static 'titles' from config are also merged in. The plugin
+// returns search results, not the upstream entries.
 //
 // Config keys:
 //
 //	titles   - static list of title strings to search for (optional)
-//	list     - list of source plugin configs whose entry titles supplement the
-//	           title list (alternative to DAG upstream connections)
 //	search   - list of search plugin configs (required); each entry is a name
 //	           string or a map with "name" + plugin options
 //	interval - minimum time between searches for the same title (default: "24h")
@@ -37,7 +35,6 @@ func init() {
 		Factory:       newPlugin,
 		Validate:      validate,
 		AcceptsSearch: true,
-		AcceptsList:   true,
 		Schema: []plugin.FieldSchema{
 			{Key: "titles",   Type: plugin.FieldTypeList,     Hint: "Static title strings to search for (supplements upstream source nodes)"},
 			{Key: "interval", Type: plugin.FieldTypeDuration, Hint: "Minimum time between re-searches per title (default 24h)"},
@@ -54,13 +51,12 @@ func validate(cfg map[string]any) []error {
 	if err := plugin.OptDuration(cfg, "interval", "discover"); err != nil {
 		errs = append(errs, err)
 	}
-	errs = append(errs, plugin.OptUnknownKeys(cfg, "discover", "titles", "list", "search", "interval")...)
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "discover", "titles", "search", "interval")...)
 	return errs
 }
 
 type discoverPlugin struct {
 	titles    []string
-	from      []plugin.SourcePlugin
 	searchers []plugin.SearchPlugin
 	interval  time.Duration
 	db        *store.SQLiteStore
@@ -72,16 +68,6 @@ type searchRecord struct {
 
 func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
 	titles := toStringSlice(cfg["titles"])
-
-	listRaw, _ := cfg["list"].([]any)
-	var froms []plugin.SourcePlugin
-	for _, item := range listRaw {
-		src, err := plugin.MakeListPlugin(item, db)
-		if err != nil {
-			return nil, fmt.Errorf("discover: list: %w", err)
-		}
-		froms = append(froms, src)
-	}
 
 	intervalStr, _ := cfg["interval"].(string)
 	if intervalStr == "" {
@@ -107,7 +93,6 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 
 	return &discoverPlugin{
 		titles:    titles,
-		from:      froms,
 		searchers: searchers,
 		interval:  interval,
 		db:        db,
@@ -140,29 +125,13 @@ func resolveSearchPlugin(item any, db *store.SQLiteStore) (plugin.SearchPlugin, 
 func (p *discoverPlugin) Name() string        { return "discover" }
 
 // Process implements ProcessorPlugin for DAG pipelines. Upstream entries supply
-// the title list (via their .Title field); static titles from config and any
-// 'from' source plugins are also included.
+// the title list (via their .Title field); static titles from config are also
+// included.
 func (p *discoverPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
 	titles := append([]string{}, p.titles...)
-	// Titles from upstream DAG entries.
 	for _, e := range entries {
 		if e.Title != "" {
 			titles = append(titles, e.Title)
-		}
-	}
-	// Titles from 'from' source plugins (config-based, for non-DAG callers).
-	if len(p.from) > 0 {
-		innerTC := &plugin.TaskContext{Name: tc.Name, Logger: tc.Logger}
-		for _, src := range p.from {
-			fromEntries, err := src.Generate(ctx, innerTC)
-			if err != nil {
-				continue
-			}
-			for _, e := range fromEntries {
-				if e.Title != "" {
-					titles = append(titles, e.Title)
-				}
-			}
 		}
 	}
 	return p.searchTitles(ctx, tc, titles)

@@ -1,8 +1,8 @@
 # tvdb_favorites
 
-Fetches shows from a TheTVDB user's favorites list and emits one entry per show. Entries carry the show name and a canonical TheTVDB URL, making them suitable as title sources for `discover.list` and `series.list`.
+Fetches shows from a TheTVDB user's favorites list and emits one entry per show. Entries carry the show name and a canonical TheTVDB URL, making them suitable as upstream nodes feeding `discover`, or as title sources inside `series.list`.
 
-Use as a standalone `input()` source node, or inside `series.list`, `movies.list`, `discover.list`, or `discover.search` config keys.
+Use as a standalone `input()` source node, or inside `series.list`, `movies.list`, or `discover.search` config keys.
 
 ## Config
 
@@ -35,11 +35,11 @@ pipeline("tv-favorites", schedule="1h")
 ## Notes
 
 - API keys and user PINs are available at [thetvdb.com/api-information](https://thetvdb.com/api-information).
-- On the first run this plugin makes N+1 API calls: one for the favorites ID list and one per show to resolve its name and slug. Results are cached by the calling plugin (`series`, `discover`) according to its TTL setting.
+- On the first run this plugin makes N+1 API calls: one for the favorites ID list and one per show to resolve its name and slug. Results are cached by the calling plugin (`series`) according to its TTL setting.
 
 ## DAG role
 
-`tvdb_favorites` has `Role=source`. It is used inside `series.list` and `discover.list`, and can also be used as a standalone `input()` node in DAG pipelines:
+`tvdb_favorites` has `Role=source`. It is used inside `series.list`, and can also be used as a standalone `input()` node feeding `discover` or any other DAG pipeline:
 
 | Property | Value |
 |----------|-------|

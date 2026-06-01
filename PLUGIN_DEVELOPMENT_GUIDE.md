@@ -150,7 +150,7 @@ func validate(cfg map[string]any) []error {
 | `Factory` | `func(map[string]any, *store.SQLiteStore) (Plugin, error)` | Constructor |
 | `Validate` | `func(map[string]any) []error` | Optional config validator |
 | `Schema` | `[]FieldSchema` | Optional — enables typed form fields in the visual editor |
-| `IsListPlugin` | `bool` | Mark source plugins whose entry titles can feed a `list=` port on `series`, `movies`, or `discover`. The visual editor shows a teal **list** badge and allows the plugin (or a function wrapping it) to be connected to list ports |
+| `IsListPlugin` | `bool` | Mark source plugins whose entry titles can feed a `list=` port on `series` or `movies`. The visual editor shows a teal **list** badge and allows the plugin (or a function wrapping it) to be connected to list ports |
 | `IsSearchPlugin` | `bool` | Mark source plugins that implement `SearchPlugin` and can feed a `search=` port on `discover`. The visual editor shows a blue **search** badge |
 | `AcceptsList` | `bool` | Declare that this plugin accepts a `list=` config key (a slice of list-plugin configs or mini-pipeline functions). Used by the visual editor to render the teal list port |
 | `AcceptsSearch` | `bool` | Declare that this plugin accepts a `search=` config key. Used by the visual editor to render the search port |
@@ -1258,7 +1258,7 @@ without are required.
 ### Marking a source as a list plugin
 
 Set `IsListPlugin: true` in the descriptor when your source plugin's entry
-titles can serve as a dynamic name list for `series`, `movies`, or `discover`:
+titles can serve as a dynamic name list for `series` or `movies`:
 
 ```go
 plugin.Register(&plugin.Descriptor{

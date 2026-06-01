@@ -11,33 +11,6 @@ import (
 	"github.com/brunoga/pipeliner/internal/store"
 )
 
-// mockSourcePlugin is a SourcePlugin that returns pre-configured entries.
-type mockSourcePlugin struct {
-	pluginName string
-	entries    []*entry.Entry
-}
-
-func (m *mockSourcePlugin) Name() string        { return m.pluginName }
-func (m *mockSourcePlugin) Generate(_ context.Context, _ *plugin.TaskContext) ([]*entry.Entry, error) {
-	return m.entries, nil
-}
-
-// registerMockSource registers a mock source-plugin factory so MakeListPlugin can find it.
-func registerMockSource(mock *mockSourcePlugin) string {
-	name := "mock-src-" + mock.pluginName
-	func() {
-		defer func() { recover() }()
-		plugin.Register(&plugin.Descriptor{
-			PluginName: name,
-			Role:       plugin.RoleSource,
-			Factory: func(_ map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
-				return mock, nil
-			},
-		})
-	}()
-	return name
-}
-
 // mockSearch is a SearchPlugin that returns pre-configured entries per query.
 type mockSearch struct {
 	pluginName string
@@ -215,72 +188,42 @@ func TestDiscoverUnknownSearchPlugin(t *testing.T) {
 	}
 }
 
-// --- from ---
+// --- upstream entries supply titles ---
 
-func TestDiscoverFromSuppliesTitles(t *testing.T) {
-	src := &mockSourcePlugin{
-		pluginName: "from-supplier",
-		entries: []*entry.Entry{
-			entry.New("Dynamic Show", ""),
-		},
-	}
-	srcName := registerMockSource(src)
-
-	mock := newMockSearch("from-search")
+func TestDiscoverUpstreamSuppliesTitles(t *testing.T) {
+	mock := newMockSearch("upstream")
 	mock.results["Dynamic Show"] = []*entry.Entry{
 		entry.New("Dynamic.Show.S01E01.720p", "http://example.com/1"),
 	}
-	searchName := registerMock(mock)
 
-	db, _ := store.OpenSQLite(":memory:")
-	defer db.Close()
-	cfg := map[string]any{
-		"list":     []any{srcName},
-		"search":   []any{searchName},
-		"interval": "1h",
-	}
-	p, err := newPlugin(cfg, db)
-	if err != nil {
-		t.Fatalf("newPlugin: %v", err)
-	}
-	got, err := p.(*discoverPlugin).Process(context.Background(), taskCtx("t"), nil)
+	p := buildPlugin(t, mock, nil, nil)
+	got, err := p.Process(context.Background(), taskCtx("t"), []*entry.Entry{
+		entry.New("Dynamic Show", ""),
+	})
 	if err != nil {
 		t.Fatalf("Process: %v", err)
 	}
 	if len(got) != 1 {
-		t.Errorf("want 1 entry from dynamic title, got %d", len(got))
+		t.Errorf("want 1 entry from upstream-supplied title, got %d", len(got))
 	}
 }
 
-func TestDiscoverFromDeduplicatesTitles(t *testing.T) {
-	src := &mockSourcePlugin{
-		pluginName: "from-dedup",
-		entries: []*entry.Entry{
-			entry.New("My Show", ""),
-			entry.New("my show", ""), // case variant
-		},
-	}
-	srcName := registerMockSource(src)
-
-	mock := newMockSearch("from-dedup-search")
+func TestDiscoverDeduplicatesTitlesAcrossSources(t *testing.T) {
+	mock := newMockSearch("upstream-dedup")
 	mock.results["My Show"] = []*entry.Entry{
 		entry.New("My.Show.S01E01", "http://example.com/1"),
 	}
-	searchName := registerMock(mock)
 
-	db2, _ := store.OpenSQLite(":memory:")
-	defer db2.Close()
-	cfg := map[string]any{
-		"titles":   []any{"My Show"},
-		"list":     []any{srcName},
-		"search":   []any{searchName},
-		"interval": "1h",
-	}
-	p, err := newPlugin(cfg, db2)
+	// Same logical title appears as a static config entry AND as upstream
+	// entries with case variants — search should run exactly once.
+	p := buildPlugin(t, mock, []string{"My Show"}, nil)
+	_, err := p.Process(context.Background(), taskCtx("dedup-task"), []*entry.Entry{
+		entry.New("My Show", ""),
+		entry.New("my show", ""),
+	})
 	if err != nil {
-		t.Fatalf("newPlugin: %v", err)
+		t.Fatalf("Process: %v", err)
 	}
-	p.(*discoverPlugin).Process(context.Background(), taskCtx("dedup-task"), nil) //nolint:errcheck
 	if mock.calls["My Show"] != 1 {
 		t.Errorf("want exactly 1 search for deduplicated title, got %d", mock.calls["My Show"])
 	}

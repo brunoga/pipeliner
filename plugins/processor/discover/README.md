@@ -9,22 +9,10 @@ A per-title cooldown (`interval`) prevents redundant searches on successive runs
 | Key | Type | Required | Default | Description |
 |-----|------|----------|---------|-------------|
 | `titles` | list | conditional | — | Static list of title strings to search for |
-| `list` | list | conditional | — | List-plugin configs whose entry titles supplement the title list |
 | `search` | list | yes | — | Search plugins to query |
 | `interval` | string | no | `24h` | Minimum time between searches per title |
 
-At least one of `titles` or `list` must produce titles. The combined title list is deduplicated case-insensitively before searching. Search timestamps are stored in `pipeliner.db` in the same directory as the config file.
-
-### `list` entries
-
-Each entry is a plugin name string or an object with a `name` key plus plugin-specific config. The entry titles returned by those plugins are added to the search queue:
-
-```python
-results = process("discover", upstream=rss_src,
-    list=[{"name": "trakt_list", "client_id": "YOUR_CLIENT_ID",
-           "access_token": "YOUR_ACCESS_TOKEN", "type": "movies", "list": "watchlist"}],
-    search=[...])
-```
+Titles come from `titles=` (static) and the `.Title` field of every upstream entry. At least one source must produce titles. The combined title list is deduplicated case-insensitively before searching. Search timestamps are stored in `pipeliner.db` in the same directory as the config file.
 
 ### `search` entries
 
@@ -56,8 +44,6 @@ flt       = process("movies",        upstream=meta,
 output("qbittorrent", upstream=flt, host="localhost")
 pipeline("movie-discover", schedule="2h")
 ```
-
-## Example — dynamic title list from Trakt watchlist
 
 ## DAG role
 
