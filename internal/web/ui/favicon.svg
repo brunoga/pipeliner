@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" stroke-linecap="round">
+  <!-- A tiny DAG: source (green) → processor (blue) → sink (orange). Edges
+       are drawn first so the circles overlap their inner ends, leaving only
+       the between-node segment visible. -->
+  <line x1="6"  y1="6"  x2="26" y2="16" stroke="#5d6e82" stroke-width="2.5"/>
+  <line x1="26" y1="16" x2="6"  y2="26" stroke="#5d6e82" stroke-width="2.5"/>
+  <circle cx="6"  cy="6"  r="4" fill="#3db84a"/>
+  <circle cx="26" cy="16" r="4" fill="#4da8ff"/>
+  <circle cx="6"  cy="26" r="4" fill="#ffa657"/>
+</svg>

@@ -172,6 +172,7 @@ func writeLoginPage(w http.ResponseWriter, failed bool) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Pipeliner — Login</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
@@ -200,8 +201,9 @@ body{background:var(--bg);color:var(--text);
   font-size:13px;display:flex;align-items:center;justify-content:center;min-height:100vh}
 .card{background:var(--surface);border:1px solid var(--border);border-radius:4px;
   padding:32px;width:320px}
-h1{font-size:15px;font-weight:700;letter-spacing:-0.01em;margin-bottom:24px;color:var(--text)}
-h1 span{color:var(--accent);margin-right:6px}
+h1{font-size:15px;font-weight:700;letter-spacing:-0.01em;margin-bottom:24px;color:var(--text);
+  display:flex;align-items:center;gap:6px}
+h1 img{width:16px;height:16px}
 .version{color:var(--muted);font-size:9px;font-weight:400;
   border:1px solid var(--border);padding:1px 5px;border-radius:2px;
   vertical-align:middle;letter-spacing:.06em}
@@ -223,7 +225,7 @@ button:hover{background:color-mix(in srgb,var(--accent) 8%,transparent)}
 <body>
 <script>(function(){var t=localStorage.getItem('pipeliner-theme');if(t==='light'||t==='dark')document.body.classList.add(t);}());</script>
 <div class="card">
-  <h1><span>▶</span>Pipeliner</h1>
+  <h1><img src="/favicon.svg" alt="">Pipeliner</h1>
   <form method="post" action="/login">
     <label for="username">Username</label>
     <input id="username" name="username" type="text" autocomplete="username" autofocus required>

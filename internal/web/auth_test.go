@@ -101,3 +101,44 @@ func TestLoginKicksPreviousSession(t *testing.T) {
 		t.Error("the two logins must mint distinct session tokens")
 	}
 }
+
+// TestFaviconServesWithoutSession verifies /favicon.svg is reachable from
+// the login page, which renders before the user signs in. The favicon route
+// has to live on the open-mux *and* be exposed through the top mux ahead of
+// the session-protected catch-all — otherwise requests get redirected to
+// /login and the browser shows a broken icon.
+func TestFaviconServesWithoutSession(t *testing.T) {
+	srv := New(nil, stubDaemon{}, NewHistory(), NewBroadcaster(), "test", "alice", "secret")
+
+	// Mirror Start()'s composition for just the bits the favicon needs.
+	open := http.NewServeMux()
+	open.HandleFunc("GET /favicon.svg", srv.serveFavicon)
+
+	protected := http.NewServeMux()
+	protected.Handle("/", srv.staticHandler())
+
+	top := http.NewServeMux()
+	top.Handle("/favicon.svg", open)
+	top.Handle("/", srv.requireSession(protected))
+
+	ts := httptest.NewServer(top)
+	defer ts.Close()
+
+	// No cookies — the request must not be redirected to /login.
+	client := &http.Client{
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, ts.URL+"/favicon.svg", nil)
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("GET /favicon.svg: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (favicon must be reachable without a session)", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "image/svg+xml") {
+		t.Errorf("Content-Type = %q, want image/svg+xml", ct)
+	}
+}
