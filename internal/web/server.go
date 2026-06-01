@@ -24,7 +24,7 @@ import (
 	"github.com/brunoga/pipeliner/internal/store"
 )
 
-//go:embed ui/index.html ui/style.css ui/dashboard.js ui/highlight.js ui/config-editor.js ui/visual-editor.js ui/database.js ui/trakt.js
+//go:embed ui/index.html ui/style.css ui/dashboard.js ui/highlight.js ui/config-editor.js ui/visual-editor.js ui/database.js ui/trakt.js ui/favicon.svg
 var uiFS embed.FS
 
 // DaemonControl is the scheduler interface the Server uses.
@@ -156,6 +156,7 @@ func (s *Server) Start(ctx context.Context, addr string, tlsCfg *tls.Config) err
 	open.HandleFunc("GET /login", s.handleLoginGet)
 	open.HandleFunc("POST /login", s.handleLoginPost)
 	open.HandleFunc("POST /logout", s.handleLogout)
+	open.HandleFunc("GET /favicon.svg", s.serveFavicon) // unauth so the login page tab icon renders
 
 	// Authenticated routes wrapped in session middleware.
 	protected := http.NewServeMux()
@@ -185,6 +186,7 @@ func (s *Server) Start(ctx context.Context, addr string, tlsCfg *tls.Config) err
 	top := http.NewServeMux()
 	top.Handle("/login", open)
 	top.Handle("/logout", open)
+	top.Handle("/favicon.svg", open) // login-page tab icon needs to load without a session
 	top.Handle("/", s.requireSession(protected))
 
 	srv := &http.Server{
@@ -231,6 +233,15 @@ func (s *Server) serveUI(w http.ResponseWriter, r *http.Request) {
 // full authenticated server.
 func (s *Server) staticHandler() http.Handler {
 	return http.FileServer(http.FS(mustSub(uiFS, "ui")))
+}
+
+// serveFavicon serves the brand-mark SVG. Wired into the unauthenticated mux
+// so the browser-tab icon also shows up on the login page.
+func (s *Server) serveFavicon(w http.ResponseWriter, r *http.Request) {
+	data, _ := uiFS.ReadFile("ui/favicon.svg")
+	w.Header().Set("Content-Type", "image/svg+xml")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	_, _ = w.Write(data)
 }
 
 func (s *Server) serveGuide(w http.ResponseWriter, r *http.Request) {
