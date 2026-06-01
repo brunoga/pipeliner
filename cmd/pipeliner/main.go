@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/brunoga/pipeliner/internal/clog"
 	"github.com/brunoga/pipeliner/internal/config"
+	"github.com/brunoga/pipeliner/internal/logfile"
 	"github.com/brunoga/pipeliner/internal/plugin"
 	"github.com/brunoga/pipeliner/internal/scheduler"
 	"github.com/brunoga/pipeliner/internal/store"
@@ -163,7 +165,13 @@ func cmdRun(args []string) int {
 		return 1
 	}
 
-	logger := makeLogger(*logLevel, *logPlugin)
+	logFile := &logfile.Writer{
+		Path:        logFilePath(*cfgPath),
+		MaxBytes:    logFileMaxBytes,
+		MaxArchives: logFileMaxArchives,
+	}
+	defer logFile.Close() //nolint:errcheck
+	logger := makeLogger(*logLevel, *logPlugin, logFile)
 	slog.SetDefault(logger)
 	cfg, err := config.Load(*cfgPath)
 	if err != nil {
@@ -285,16 +293,25 @@ func cmdDaemon(args []string) int {
 	}
 
 	opts := logHandlerOptions(*logLevel)
+	logFile := &logfile.Writer{
+		Path:        logFilePath(*cfgPath),
+		MaxBytes:    logFileMaxBytes,
+		MaxArchives: logFileMaxArchives,
+	}
+	defer logFile.Close() //nolint:errcheck
+
 	var bcast *web.Broadcaster
 	var logger *slog.Logger
 	if *webAddr != "" {
 		bcast = web.NewBroadcaster()
-		// Write to both stderr and the broadcaster so startup errors (config not
-		// found, invalid config, etc.) are always visible on the terminal even
-		// before any web client connects.
+		// Write to stderr (so startup errors are visible on the terminal
+		// before any web client connects), the broadcaster (SSE live tail),
+		// and the rotating log file (scrollback + survives restart). The
+		// file gets plain (uncolored) text so cat/less/grep stay readable.
 		h := clog.Multi(
 			clog.New(os.Stderr, opts),
 			clog.NewColored(bcast, opts),
+			clog.New(logFile, opts),
 		)
 		if *logPlugin != "" {
 			logger = slog.New(clog.NewPluginFilter(h, splitPluginFilter(*logPlugin)))
@@ -302,7 +319,10 @@ func cmdDaemon(args []string) int {
 			logger = slog.New(h)
 		}
 	} else {
-		h := clog.New(os.Stderr, opts)
+		h := clog.Multi(
+			clog.New(os.Stderr, opts),
+			clog.New(logFile, opts),
+		)
 		if *logPlugin != "" {
 			logger = slog.New(clog.NewPluginFilter(h, splitPluginFilter(*logPlugin)))
 		} else {
@@ -488,6 +508,7 @@ func cmdDaemon(args []string) int {
 		ws.SetReload(reload)
 		ws.SetConfigPath(*cfgPath)
 		ws.SetStore(db)
+		ws.SetLogFile(logFilePath(*cfgPath), logFileMaxArchives)
 		ws.SetConfigValidator(func(data []byte) ([]string, []string) {
 			c, err := config.ParseBytes(data)
 			if err != nil {
@@ -701,8 +722,15 @@ func cmdAuthTrakt(args []string) int {
 	return 0
 }
 
-func makeLogger(level, pluginFilter string) *slog.Logger {
-	h := clog.New(os.Stderr, logHandlerOptions(level))
+// makeLogger builds the run-mode logger. logFile is optional; when non-nil
+// it receives a plain-text copy of every record so the run's output sticks
+// around in pipeliner.log after the process exits.
+func makeLogger(level, pluginFilter string, logFile io.Writer) *slog.Logger {
+	opts := logHandlerOptions(level)
+	var h slog.Handler = clog.New(os.Stderr, opts)
+	if logFile != nil {
+		h = clog.Multi(h, clog.New(logFile, opts))
+	}
 	if pluginFilter != "" {
 		return slog.New(clog.NewPluginFilter(h, splitPluginFilter(pluginFilter)))
 	}
@@ -727,6 +755,21 @@ func splitPluginFilter(s string) []string {
 func dbPath(cfgPath string) string {
 	return filepath.Join(filepath.Dir(filepath.Clean(cfgPath)), "pipeliner.db")
 }
+
+// logFilePath returns the rotating log file path: pipeliner.log in the same
+// directory as the config file. Mirrors dbPath() so a typical install keeps
+// all of pipeliner's persistent state in one place.
+func logFilePath(cfgPath string) string {
+	return filepath.Join(filepath.Dir(filepath.Clean(cfgPath)), "pipeliner.log")
+}
+
+// Rotation defaults for pipeliner.log. 10 MB × 5 archives caps disk at ~50 MB
+// while still leaving enough history to scroll back through a few days of
+// scheduled-task output for a typical home install.
+const (
+	logFileMaxBytes    = 10 * 1024 * 1024
+	logFileMaxArchives = 5
+)
 
 // buildTLSConfig returns the TLS configuration for the web server.
 //
