@@ -491,6 +491,14 @@ section { margin-bottom: 36px; }
   z-index: 1;
 }
 .log-line { white-space: pre; position: relative; z-index: 0; }
+.log-history-end {
+  text-align: center;
+  opacity: 0.55;
+  font-style: italic;
+  padding: 6px 0 10px;
+  position: relative;
+  z-index: 0;
+}
 
 /* glow log border when connected */
 #tab-dashboard:has(.dot.on) .log-console {

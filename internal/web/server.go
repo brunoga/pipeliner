@@ -2,10 +2,12 @@
 package web
 
 import (
+	"bufio"
 	"context"
 	"crypto/tls"
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"net/http"
@@ -59,6 +61,12 @@ type Server struct {
 	configPath      string                 // path to config file on disk
 	validateConfig  func([]byte) ([]string, []string) // returns (errors, warnings); nil if not set
 	db              *store.SQLiteStore     // nil if not set
+
+	// Rotating log file for the live-log scrollback endpoint. logFilePath is
+	// the base path (e.g. "/data/pipeliner.log"); the endpoint also reads
+	// .1 .. .logFileMaxArchives when serving older history.
+	logFilePath        string
+	logFileMaxArchives int
 
 	traktAuthMu sync.Mutex
 	traktAuth   *traktAuthSession
@@ -138,6 +146,15 @@ func (s *Server) SetConfigValidator(fn func([]byte) ([]string, []string)) { s.va
 // modify tracker data and caches.
 func (s *Server) SetStore(db *store.SQLiteStore) { s.db = db }
 
+// SetLogFile points the live-log scrollback endpoint at the rotating log
+// file written by the process. path is the base file; maxArchives is the
+// number of .1 .. .N archives the rotator keeps. Leave path empty to
+// disable scrollback (only the in-memory ring will be available).
+func (s *Server) SetLogFile(path string, maxArchives int) {
+	s.logFilePath = path
+	s.logFileMaxArchives = maxArchives
+}
+
 // SetTasks atomically replaces the task list shown in the UI.
 func (s *Server) SetTasks(tasks []TaskInfo) {
 	s.tasksMu.Lock()
@@ -170,6 +187,7 @@ func (s *Server) Start(ctx context.Context, addr string, tlsCfg *tls.Config) err
 	protected.HandleFunc("POST /api/tasks/run", s.apiRunAll)
 	protected.HandleFunc("POST /api/reload", s.apiReload)
 	protected.HandleFunc("GET /api/logs", s.apiLogs)
+	protected.HandleFunc("GET /api/logs/history", s.apiLogsHistory)
 	protected.HandleFunc("GET /api/config", s.apiGetConfig)
 	protected.HandleFunc("POST /api/config", s.apiSaveConfig)
 	protected.HandleFunc("GET /api/plugins", s.apiPlugins)
@@ -402,6 +420,117 @@ func (s *Server) apiLogs(w http.ResponseWriter, r *http.Request) {
 			flusher.Flush()
 		}
 	}
+}
+
+// apiLogsHistory serves older lines from the rotating log file so the
+// dashboard can lazy-load scrollback when the user scrolls past the in-
+// memory tail. The response is the slice [offset, offset+limit) counted in
+// *lines from EOF* (offset=0 ⇒ the most recent line). Newer-first within
+// the response: the UI prepends each chunk in order.
+//
+// Pagination cursor: offset is line count from EOF, not byte offset. Lines
+// shift each time a new record is appended, but the SSE channel covers
+// anything that arrived after the connect, so the UI only ever asks for
+// "older than what I currently have" — an offset that grows monotonically.
+const (
+	logHistoryDefaultLimit = 200
+	logHistoryMaxLimit     = 1000
+)
+
+func (s *Server) apiLogsHistory(w http.ResponseWriter, r *http.Request) {
+	if s.logFilePath == "" {
+		writeJSON(w, map[string]any{"lines": []string{}})
+		return
+	}
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	if offset < 0 {
+		offset = 0
+	}
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	if limit <= 0 {
+		limit = logHistoryDefaultLimit
+	}
+	if limit > logHistoryMaxLimit {
+		limit = logHistoryMaxLimit
+	}
+
+	lines, err := readLogTail(s.logFilePath, s.logFileMaxArchives, offset+limit)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// Trim to the requested window. lines is oldest-to-newest with the
+	// newest line at the end; the slice [len-offset-limit, len-offset)
+	// gives us the next-older chunk.
+	end := len(lines) - offset
+	if end <= 0 {
+		writeJSON(w, map[string]any{"lines": []string{}})
+		return
+	}
+	start := end - limit
+	if start < 0 {
+		start = 0
+	}
+	writeJSON(w, map[string]any{"lines": lines[start:end]})
+}
+
+// readLogTail returns up to want lines from the end of the rotating log,
+// reading archives in oldest-to-newest order so the result is already in
+// chronological order. Missing files (rotation hasn't reached that slot
+// yet, or the user wiped them) are skipped silently — they're not errors.
+func readLogTail(base string, maxArchives, want int) ([]string, error) {
+	if want <= 0 {
+		return nil, nil
+	}
+	// Walk newest-first so we can stop as soon as we have enough.
+	files := []string{base}
+	for i := 1; i <= maxArchives; i++ {
+		files = append(files, fmt.Sprintf("%s.%d", base, i))
+	}
+
+	// We need the LAST `want` lines across all files. Scan each file
+	// newest-first, prepending its tail into the result until we have
+	// enough.
+	result := make([]string, 0, want)
+	for _, fp := range files {
+		if len(result) >= want {
+			break
+		}
+		chunk, err := tailLines(fp, want-len(result))
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		result = append(chunk, result...)
+	}
+	return result, nil
+}
+
+// tailLines reads the last n lines of a file in chronological order. Uses
+// a sliding window so memory stays bounded at the requested line count
+// regardless of file size.
+func tailLines(path string, n int) ([]string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close() //nolint:errcheck
+
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	window := make([]string, 0, n)
+	for sc.Scan() {
+		if len(window) == n {
+			window = window[1:]
+		}
+		window = append(window, sc.Text())
+	}
+	if err := sc.Err(); err != nil {
+		return nil, err
+	}
+	return window, nil
 }
 
 func (s *Server) apiGetConfig(w http.ResponseWriter, _ *http.Request) {

@@ -19,7 +19,11 @@ function setTheme(theme) {
 // ── polling ───────────────────────────────────────────────────────────────────
 
 const MAX_LINES = 500;
-let logLines = []; // [{el, raw}]
+const LOG_HISTORY_LIMIT = 200;
+const LOG_HISTORY_SCROLL_THRESHOLD = 40;
+let logLines = []; // [{el, raw}] — lines fed by the SSE stream
+let historyLines = []; // [{el, raw}] — older lines lazy-loaded from /api/logs/history
+let logHistory = { offset: 0, exhausted: false, loading: false, endMarker: null };
 let startedAt = Date.now();
 
 // ── polling ───────────────────────────────────────────────────────────────────
@@ -147,6 +151,14 @@ function connectLogs() {
     es.close();
     setTimeout(connectLogs, 3000);
   };
+
+  // Lazy-load older history on scroll-up. Installed here so it only attaches
+  // once per page lifetime, regardless of how many SSE reconnects happen.
+  const con = document.getElementById('log-console');
+  if (con && !con._historyWired) {
+    con._historyWired = true;
+    con.addEventListener('scroll', maybeLoadLogHistory);
+  }
 }
 
 function appendLog(line) {
@@ -170,13 +182,93 @@ function appendLog(line) {
 function clearLog() {
   document.getElementById('log-console').innerHTML = '';
   logLines = [];
+  historyLines = [];
+  logHistory = { offset: 0, exhausted: false, loading: false, endMarker: null };
 }
 
 function applyFilter() {
   const filter = document.getElementById('log-filter').value.toLowerCase();
+  for (const {el, raw} of historyLines) {
+    el.style.display = (!filter || raw.toLowerCase().includes(filter)) ? '' : 'none';
+  }
   for (const {el, raw} of logLines) {
     el.style.display = (!filter || raw.toLowerCase().includes(filter)) ? '' : 'none';
   }
+}
+
+// ── scrollback history ───────────────────────────────────────────────────────
+//
+// The SSE stream only carries lines emitted after the page connected (with a
+// short in-memory ring as warm-up). For deeper scrollback we lazy-load older
+// chunks from /api/logs/history when the user scrolls within
+// LOG_HISTORY_SCROLL_THRESHOLD px of the top.
+
+async function maybeLoadLogHistory() {
+  if (logHistory.exhausted || logHistory.loading) return;
+  const con = document.getElementById('log-console');
+  if (!con) return;
+  if (con.scrollTop > LOG_HISTORY_SCROLL_THRESHOLD) return;
+  await loadLogHistory();
+}
+
+async function loadLogHistory() {
+  if (logHistory.exhausted || logHistory.loading) return;
+  logHistory.loading = true;
+  try {
+    const url = `/api/logs/history?offset=${logHistory.offset}&limit=${LOG_HISTORY_LIMIT}`;
+    const r = await fetch(url);
+    if (!r.ok) return;
+    const body = await r.json();
+    const lines = Array.isArray(body.lines) ? body.lines : [];
+    if (lines.length > 0) {
+      prependHistoryLines(lines);
+      logHistory.offset += lines.length;
+    }
+    if (lines.length < LOG_HISTORY_LIMIT) {
+      logHistory.exhausted = true;
+      showHistoryEndMarker();
+    }
+  } catch (_) {
+    // Transient fetch failure — leave loading=false so the next scroll retries.
+  } finally {
+    logHistory.loading = false;
+  }
+}
+
+function prependHistoryLines(lines) {
+  const con = document.getElementById('log-console');
+  const filterInput = document.getElementById('log-filter');
+  const filter = (filterInput && filterInput.value || '').toLowerCase();
+  const oldHeight = con.scrollHeight;
+  const oldTop    = con.scrollTop;
+  const frag = document.createDocumentFragment();
+  const newEntries = [];
+  for (const raw of lines) {
+    const el = document.createElement('div');
+    el.className = 'log-line log-history';
+    el.innerHTML = renderLogLine(raw);
+    if (filter && !raw.toLowerCase().includes(filter)) {
+      el.style.display = 'none';
+    }
+    frag.appendChild(el);
+    newEntries.push({el, raw});
+  }
+  con.insertBefore(frag, con.firstChild);
+  // Newest history first in the DOM (since each chunk is older than the previous
+  // one), so prepend in array order: oldest of this chunk at index 0.
+  historyLines = newEntries.concat(historyLines);
+  // Preserve visual position so the user's view doesn't jump after a prepend.
+  con.scrollTop = oldTop + (con.scrollHeight - oldHeight);
+}
+
+function showHistoryEndMarker() {
+  const con = document.getElementById('log-console');
+  if (!con || logHistory.endMarker) return;
+  const marker = document.createElement('div');
+  marker.className = 'log-history-end';
+  marker.textContent = '── start of recorded history ──';
+  con.insertBefore(marker, con.firstChild);
+  logHistory.endMarker = marker;
 }
 
 // Convert ANSI escape sequences in a log line to HTML spans.
