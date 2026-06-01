@@ -18,7 +18,7 @@ let starLit, valToStar, configToKwargs, upstreamsStr, dagToStarlark, viaNodeToSt
     condAcceptAbsenceRemovedFields, condNarrowedFields, ve, setActiveGraph,
     _builderGetExpr, _builderSetExpr, renderRouteRulesWidget, renderRouteRuleRow,
     toggleRouteRawMode, _forcedRaw, exprToFlatModel,
-    pushUndo, undo, initLayout, marqueeSelect;
+    pushUndo, undo, initLayout, marqueeSelect, initLayoutFromAbsolute;
 
 // Minimal HTML-escape helper matching dashboard.js's esc() — needed so render
 // functions (which call esc as a global) work in the test sandbox.
@@ -60,6 +60,7 @@ exports.pushUndo                      = pushUndo;
 exports.undo                          = undo;
 exports.initLayout                    = initLayout;
 exports.marqueeSelect                 = marqueeSelect;
+exports.initLayoutFromAbsolute        = initLayoutFromAbsolute;
 `
   );
   const exports = {};
@@ -84,7 +85,7 @@ exports.marqueeSelect                 = marqueeSelect;
      condAcceptAbsenceRemovedFields, condNarrowedFields, ve, setActiveGraph,
      _builderGetExpr, _builderSetExpr, renderRouteRulesWidget, renderRouteRuleRow,
      toggleRouteRawMode, _forcedRaw, exprToFlatModel,
-     pushUndo, undo, initLayout, marqueeSelect } = exports);
+     pushUndo, undo, initLayout, marqueeSelect, initLayoutFromAbsolute } = exports);
 });
 
 // ── test helpers ──────────────────────────────────────────────────────────────
@@ -1890,5 +1891,93 @@ describe('undo() y-stability', () => {
 
     const after = ve.graphs.map(g => g.nodes.map(n => n.y));
     expect(after).toEqual(before);
+  });
+});
+
+// ── exitFunctionEditor y-stability ────────────────────────────────────────────
+//
+// Regression: opening the function editor stashes the live ve.graphs in
+// ve.fnEditor.savedGraphs *by reference*. Those graphs already hold
+// ABSOLUTE y values and have _regionY set. exitFunctionEditor used to call
+// initLayout() directly on that restored reference — initLayout's stored-
+// position branch added _regionY back to every node, drifting all pipelines
+// down by ~_regionY (cumulatively worse for later pipelines because their
+// _regionY grows as pipeline 1's region expands). initLayoutFromAbsolute()
+// pre-shifts to relative so the round-trip is a no-op. This test exercises
+// the helper directly, so it would still catch the bug if a future caller
+// forgets the conversion and calls initLayout() instead.
+describe('initLayoutFromAbsolute() y-stability', () => {
+  beforeEach(() => {
+    ve.graphs = [];
+    ve.userFunctions = {};
+    ve.nextId = 1;
+    ve.activeGraph = 0;
+    ve.selectedNodeId = null;
+    ve.plugins = PLUGINS;
+  });
+
+  it('four pipelines: every node y is unchanged across a savedGraphs restore', () => {
+    // Server-style: y is relative to each pipeline's region.
+    ve.graphs = [
+      { name: 'p1', schedule: '', comment: '', nodes: [
+        { id: 'a1', plugin: 'rss',   config: {}, upstreams: [],     x: 50, y: 44 },
+        { id: 'a2', plugin: 'print', config: {}, upstreams: ['a1'], x: 310, y: 44 },
+      ]},
+      { name: 'p2', schedule: '', comment: '', nodes: [
+        { id: 'b1', plugin: 'rss',   config: {}, upstreams: [],     x: 50, y: 44 },
+        { id: 'b2', plugin: 'print', config: {}, upstreams: ['b1'], x: 310, y: 44 },
+      ]},
+      { name: 'p3', schedule: '', comment: '', nodes: [
+        { id: 'c1', plugin: 'rss',   config: {}, upstreams: [],     x: 50, y: 44 },
+        { id: 'c2', plugin: 'print', config: {}, upstreams: ['c1'], x: 310, y: 44 },
+      ]},
+      { name: 'p4', schedule: '', comment: '', nodes: [
+        { id: 'd1', plugin: 'rss',   config: {}, upstreams: [],     x: 50, y: 44 },
+        { id: 'd2', plugin: 'print', config: {}, upstreams: ['d1'], x: 310, y: 44 },
+      ]},
+    ];
+
+    // First pass: convert relative → absolute. Capture the resulting positions
+    // and _regionY values to compare against after the simulated exit.
+    initLayout();
+    const before = ve.graphs.map(g => ({
+      regionY: g._regionY,
+      ys:      g.nodes.map(n => n.y),
+    }));
+    // Sanity check: pipelines 2-4 should sit progressively further down, so
+    // their _regionY values are non-trivial — the regression would amplify on
+    // pipelines further down the canvas.
+    expect(before[1].regionY).toBeGreaterThan(before[0].regionY);
+    expect(before[3].regionY).toBeGreaterThan(before[2].regionY);
+
+    // Simulate exitFunctionEditor: ve.graphs already holds absolute y +
+    // pre-existing _regionY (it was just stashed by reference). The helper
+    // must un-shift before calling initLayout so the result is identical.
+    initLayoutFromAbsolute();
+
+    const after = ve.graphs.map(g => ({
+      regionY: g._regionY,
+      ys:      g.nodes.map(n => n.y),
+    }));
+    expect(after).toEqual(before);
+  });
+
+  it('calling initLayout() directly on absolute graphs would drift (sanity check that the helper is needed)', () => {
+    // This test documents the *bug* by demonstrating that without the
+    // helper, calling initLayout() on absolute coords does shift every node
+    // down by _regionY. If this assertion ever flips, initLayout itself has
+    // been made absolute-safe and the helper can be retired.
+    ve.graphs = [{
+      name: 'p', schedule: '', comment: '',
+      nodes: [{ id: 'n', plugin: 'rss', config: {}, upstreams: [], x: 50, y: 44 }],
+    }];
+    initLayout();
+    const regionY = ve.graphs[0]._regionY;
+    const absoluteY = ve.graphs[0].nodes[0].y;
+    expect(absoluteY).toBe(regionY + 44);
+
+    initLayout(); // BUG path: treats absolute y as relative.
+
+    expect(ve.graphs[0].nodes[0].y).toBe(regionY + absoluteY);
   });
 });

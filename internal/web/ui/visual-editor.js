@@ -70,12 +70,23 @@ function undo() {
   ve.nextId        = snap.nextId;
   ve.selectedNodeId = null;
   clearMultiSelect();
-  // The snapshot stores absolute y values (the live state at pushUndo time).
-  // initLayout()'s stored-position branch expects RELATIVE y on input — same
-  // shape as a fresh server parse — and adds g._regionY to convert to
-  // absolute. So before re-running initLayout, subtract the saved _regionY
-  // from every node y. Without this conversion, each undo would re-add
-  // regionY and shift nodes down ~32px (more for later pipelines).
+  initLayoutFromAbsolute('undo');
+  veRender();
+  onModelChange();
+  updateUndoButton();
+  setSyncNote('↩ Undone');
+  setTimeout(() => setSyncNote(''), 1500);
+}
+
+// initLayoutFromAbsolute runs initLayout on graphs whose nodes already hold
+// ABSOLUTE y values (an undo snapshot, fnEditor.savedGraphs, or anything
+// captured live). initLayout()'s stored-position branch expects RELATIVE y
+// and adds _regionY to convert; passing absolute coords directly would
+// re-add _regionY and drift every node down by it (cumulatively worse for
+// pipelines further down the canvas). This helper subtracts the saved
+// _regionY first so the round-trip is a no-op. The optional tag namespaces
+// the veDebug logs so drift bugs can be traced back to the trigger site.
+function initLayoutFromAbsolute(tag) {
   for (const g of ve.graphs) {
     const regionY = g._regionY ?? 0;
     if (regionY === 0) continue;
@@ -83,14 +94,9 @@ function undo() {
       if (n.y != null) n.y -= regionY;
     }
   }
-  veDebugLog('undo:beforeInitLayout', snapshotGraphPositions(ve.graphs));
+  if (tag) veDebugLog(`${tag}:beforeInitLayout`, snapshotGraphPositions(ve.graphs));
   initLayout();
-  veDebugLog('undo:afterInitLayout', snapshotGraphPositions(ve.graphs));
-  veRender();
-  onModelChange();
-  updateUndoButton();
-  setSyncNote('↩ Undone');
-  setTimeout(() => setSyncNote(''), 1500);
+  if (tag) veDebugLog(`${tag}:afterInitLayout`, snapshotGraphPositions(ve.graphs));
 }
 
 function updateUndoButton() {
@@ -5501,7 +5507,9 @@ function exitFunctionEditor() {
   if (ppar) ppar.style.display = 'none';
 
   ve_panX = 0; ve_panY = 0;
-  initLayout();
+  // savedGraphs holds absolute y + the previous _regionY; un-shift before
+  // re-laying out or every node drifts down by _regionY on each exit.
+  initLayoutFromAbsolute('exitFunctionEditor');
   veRender();
   // Flush the correct pipeline content back to the text editor now that
   // ve.fnEditor.active is false and dagToStarlark() sees the real graphs.
