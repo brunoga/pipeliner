@@ -118,7 +118,7 @@ var KnownFields = []FieldMeta{
 		SetBy:       []string{"metainfo_tvdb", "metainfo_tmdb"}},
 	{Name: FieldVideoImdbID, Type: FieldTypeString,
 		Description: "IMDb ID (e.g. tt0903747)",
-		SetBy:       []string{"metainfo_tmdb", "metainfo_trakt", "jackett"}},
+		SetBy:       []string{"metainfo_tmdb", "metainfo_trakt"}},
 	{Name: FieldVideoQuality, Type: FieldTypeString,
 		Description: "Parsed quality string (e.g. 1080p BluRay)",
 		SetBy:       []string{"metainfo_file", "movies"}},
@@ -290,6 +290,9 @@ var KnownFields = []FieldMeta{
 	// ── Jackett-specific ──────────────────────────────────────────────────
 	{Name: "jackett_category", Type: FieldTypeString,
 		Description: "Torznab category code from Jackett",
+		SetBy:       []string{"jackett"}},
+	{Name: "jackett_imdb_id", Type: FieldTypeString,
+		Description: "Raw IMDb ID from Jackett — same pattern as trakt_imdb_id, usable for fast metainfo_tmdb/metainfo_trakt lookups",
 		SetBy:       []string{"jackett"}},
 	{Name: "jackett_tvdb_id", Type: FieldTypeString,
 		Description: "Raw TVDB ID from Jackett — same pattern as trakt_tvdb_id, usable for fast metainfo_tvdb lookups",
