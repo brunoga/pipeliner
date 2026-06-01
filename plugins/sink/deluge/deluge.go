@@ -149,6 +149,9 @@ func (p *delugePlugin) login(ctx context.Context) error {
 }
 
 func (p *delugePlugin) addTorrent(ctx context.Context, url, linkType, savePath, moveCompletedPath string) error {
+	if url == "" {
+		return fmt.Errorf("entry has empty URL")
+	}
 	opts := map[string]any{}
 	if savePath != "" {
 		opts["download_location"] = savePath
@@ -162,6 +165,9 @@ func (p *delugePlugin) addTorrent(ctx context.Context, url, linkType, savePath, 
 	method := "core.add_torrent_url"
 	if linkType == "magnet" || (linkType == "" && strings.HasPrefix(url, "magnet:")) {
 		method = "core.add_torrent_magnet"
+	}
+	if method == "core.add_torrent_url" && !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
+		return fmt.Errorf("unsupported URL scheme: %q", url)
 	}
 	_, err := p.rpc(ctx, method, []any{url, opts})
 	return err

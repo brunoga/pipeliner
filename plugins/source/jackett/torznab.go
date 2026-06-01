@@ -53,12 +53,15 @@ func parseTorznab(data []byte, indexer string) ([]*entry.Entry, error) {
 
 	var entries []*entry.Entry
 	for _, item := range feed.Channel.Items {
-		// Prefer the enclosure URL over the item link or GUID.
+		// Prefer the enclosure URL over the item link or GUID. GUID is only
+		// considered when it looks like a usable URL — many indexers set
+		// isPermaLink="false" with an internal identifier (hash, numeric id),
+		// which would otherwise reach a sink as a scheme-less URL.
 		link := item.Enclosure.URL
 		if link == "" {
 			link = item.Link
 		}
-		if link == "" {
+		if link == "" && isFetchableURL(item.GUID) {
 			link = item.GUID
 		}
 		if link == "" {
@@ -205,6 +208,14 @@ func checkTorznabError(data []byte) error {
 		}
 		return fmt.Errorf("torznab error %s: %s", code, desc)
 	}
+}
+
+// isFetchableURL reports whether s starts with a scheme that downstream sinks
+// can act on (HTTP(S) for .torrent downloads, magnet: for magnet links).
+func isFetchableURL(s string) bool {
+	return strings.HasPrefix(s, "http://") ||
+		strings.HasPrefix(s, "https://") ||
+		strings.HasPrefix(s, "magnet:")
 }
 
 // ensureMagnetDN returns magnetURI unchanged if it already contains a dn=
