@@ -1956,3 +1956,199 @@ pipeline("pipe-b")`
 		t.Errorf("clicking pipeline-b label should clear the selected node; %d nodes still .selected", selectedAfter)
 	}
 }
+
+// ── sub-node drag-follow ──────────────────────────────────────────────────────
+//
+// When a parent node (e.g. discover) has an attached search/list sub-node,
+// dragging the parent — single-node or as part of a multi-selection — must
+// translate the sub-node by the same delta. Before the fix, the multi-drag
+// handler excluded sub-nodes from the moved set and the single-drag handler
+// never touched them, so they stayed frozen while the parent slid away.
+
+const discoverWithSearchConfig = `# pipeliner:pos 50 76
+titles = input("rss", url="https://example.com/rss")
+
+# pipeliner:pos 320 76 search 320 246
+disc = process("discover", upstream=titles, interval="24h",
+  search=[{"name": "rss", "url_template": "https://nyaa.si/?page=rss&q={QueryEscaped}"}])
+
+pipeline("tv")`
+
+// dragNodeBy moves the parent of `parentSelector` by (dx, dy) using a real
+// pointer-event sequence. Several intermediate move steps are emitted so the
+// editor's multi-drag path works — its deferred-drag wrapper consumes the
+// threshold-crossing pointermove to *install* the drag handler, and only the
+// next pointermove actually moves the node.
+func dragNodeBy(t *testing.T, page playwright.Page, parentSelector string, dx, dy float64) {
+	t.Helper()
+	bb, err := page.Locator(parentSelector).BoundingBox()
+	if err != nil || bb == nil {
+		t.Fatalf("bounding box for %q: %v", parentSelector, err)
+	}
+	cx, cy := bb.X+bb.Width/2, bb.Y+bb.Height/2
+	if err := page.Mouse().Move(cx, cy); err != nil {
+		t.Fatalf("mouse move to node: %v", err)
+	}
+	if err := page.Mouse().Down(); err != nil {
+		t.Fatalf("mouse down: %v", err)
+	}
+	// Walk to the target in several steps. The first two steps cross the 5px
+	// deferred-drag threshold (which installs the real drag handler); the
+	// remaining steps actually fire the drag handler's pointermove logic.
+	const steps = 6
+	for i := 1; i <= steps; i++ {
+		f := float64(i) / float64(steps)
+		if err := page.Mouse().Move(cx+dx*f, cy+dy*f); err != nil {
+			t.Fatalf("mouse drag move (step %d): %v", i, err)
+		}
+	}
+	if err := page.Mouse().Up(); err != nil {
+		t.Fatalf("mouse up: %v", err)
+	}
+}
+
+// nodePosition reads {x, y} from a node's inline style.left/style.top — the
+// canvas-space position the drag handler writes directly.
+func nodePosition(t *testing.T, page playwright.Page, selector string) (float64, float64) {
+	t.Helper()
+	res, err := page.Locator(selector).Evaluate(`el => ({x: parseFloat(el.style.left), y: parseFloat(el.style.top)})`, nil)
+	if err != nil {
+		t.Fatalf("read position for %q: %v", selector, err)
+	}
+	m, ok := res.(map[string]any)
+	if !ok {
+		t.Fatalf("position result is %T, want map", res)
+	}
+	asFloat := func(v any, key string) float64 {
+		switch x := v.(type) {
+		case float64:
+			return x
+		case int:
+			return float64(x)
+		case int64:
+			return float64(x)
+		default:
+			t.Fatalf("position[%s] is %T, want number", key, v)
+			return 0
+		}
+	}
+	return asFloat(m["x"], "x"), asFloat(m["y"], "y")
+}
+
+func TestE2ESingleDragMovesSearchSubNode(t *testing.T) {
+	ts := startTestServer(t, minimalConfig)
+	browser, stop := pwSetup(t)
+	defer stop()
+
+	page, _ := browser.NewPage()
+	defer page.Close() //nolint:errcheck
+
+	login(t, page, ts.url)
+	openConfigTab(t, page)
+	switchToVisual(t, page, discoverWithSearchConfig)
+
+	// Discover is the main node; .ve-node-search is its attached sub-node.
+	const parent = `.ve-node:has(.ve-node-name:has-text("discover"))`
+	const sub    = `.ve-node.ve-node-search`
+
+	if err := page.Locator(sub).WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateVisible,
+	}); err != nil {
+		t.Fatalf("search sub-node not visible: %v", err)
+	}
+
+	px0, py0 := nodePosition(t, page, parent)
+	sx0, sy0 := nodePosition(t, page, sub)
+
+	dragNodeBy(t, page, parent, 80, 60)
+
+	px1, py1 := nodePosition(t, page, parent)
+	sx1, sy1 := nodePosition(t, page, sub)
+
+	parentDx, parentDy := px1-px0, py1-py0
+	subDx,    subDy    := sx1-sx0, sy1-sy0
+
+	if parentDx == 0 && parentDy == 0 {
+		t.Fatalf("parent did not move: parent dx=%.1f dy=%.1f", parentDx, parentDy)
+	}
+	// Sub-node delta must match parent's effective (post-clamp) delta within
+	// a small tolerance for sub-pixel rounding.
+	const tol = 1.0
+	if abs(subDx-parentDx) > tol || abs(subDy-parentDy) > tol {
+		t.Errorf("search sub-node did not follow parent: parent Δ=(%.1f,%.1f), sub Δ=(%.1f,%.1f)",
+			parentDx, parentDy, subDx, subDy)
+	}
+}
+
+func TestE2EMultiDragMovesSearchSubNode(t *testing.T) {
+	ts := startTestServer(t, minimalConfig)
+	browser, stop := pwSetup(t)
+	defer stop()
+
+	page, _ := browser.NewPage()
+	defer page.Close() //nolint:errcheck
+
+	login(t, page, ts.url)
+	openConfigTab(t, page)
+	switchToVisual(t, page, discoverWithSearchConfig)
+
+	const titles = `.ve-node:has(.ve-node-name:has-text("rss")):not(.ve-node-search)`
+	const disc   = `.ve-node:has(.ve-node-name:has-text("discover"))`
+	const sub    = `.ve-node.ve-node-search`
+
+	if err := page.Locator(sub).WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateVisible,
+	}); err != nil {
+		t.Fatalf("search sub-node not visible: %v", err)
+	}
+
+	// Build a two-node multi-selection via Cmd+click (Meta on macOS, Ctrl
+	// elsewhere — Playwright accepts Meta on linux too and the editor's
+	// pointerdown handler treats both the same).
+	if err := page.Locator(titles).Click(playwright.LocatorClickOptions{
+		Modifiers: []playwright.KeyboardModifier{*playwright.KeyboardModifierMeta},
+	}); err != nil {
+		t.Fatalf("meta-click titles node: %v", err)
+	}
+	if err := page.Locator(disc).Click(playwright.LocatorClickOptions{
+		Modifiers: []playwright.KeyboardModifier{*playwright.KeyboardModifierMeta},
+	}); err != nil {
+		t.Fatalf("meta-click discover node: %v", err)
+	}
+
+	// The search sub-node must inherit the multi-selected class from its parent.
+	subClasses, err := page.Locator(sub).GetAttribute("class")
+	if err != nil {
+		t.Fatalf("read sub class: %v", err)
+	}
+	if !strings.Contains(subClasses, "multi-selected") {
+		t.Fatalf("sub-node should carry multi-selected class when parent is in selection; got %q", subClasses)
+	}
+
+	px0, py0 := nodePosition(t, page, disc)
+	sx0, sy0 := nodePosition(t, page, sub)
+
+	dragNodeBy(t, page, disc, 90, 50)
+
+	px1, py1 := nodePosition(t, page, disc)
+	sx1, sy1 := nodePosition(t, page, sub)
+
+	parentDx, parentDy := px1-px0, py1-py0
+	subDx,    subDy    := sx1-sx0, sy1-sy0
+
+	if parentDx == 0 && parentDy == 0 {
+		t.Fatalf("parent did not move during multi-drag: dx=%.1f dy=%.1f", parentDx, parentDy)
+	}
+	const tol = 1.0
+	if abs(subDx-parentDx) > tol || abs(subDy-parentDy) > tol {
+		t.Errorf("multi-drag: search sub-node did not follow parent: parent Δ=(%.1f,%.1f), sub Δ=(%.1f,%.1f)",
+			parentDx, parentDy, subDx, subDy)
+	}
+}
+
+func abs(v float64) float64 {
+	if v < 0 {
+		return -v
+	}
+	return v
+}
