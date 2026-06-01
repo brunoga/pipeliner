@@ -236,6 +236,9 @@ func TestAnnotateSeries(t *testing.T) {
 	if v := e.GetInt("video_runtime"); v != 47 {
 		t.Errorf("runtime: got %d, want 47", v)
 	}
+	if v := e.GetInt(entry.FieldVideoYear); v != 2008 {
+		t.Errorf("video_year: got %d, want 2008 (derived from firstAired)", v)
+	}
 	if v := e.GetString("series_episode_image"); v == "" {
 		t.Error("episode_image should be set")
 	}

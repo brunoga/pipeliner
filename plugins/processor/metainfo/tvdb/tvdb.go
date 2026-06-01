@@ -223,6 +223,13 @@ func (p *tvdbPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 		}
 	}
 
+	// Derive video_year from the first-air date when present — TVDB doesn't
+	// return a separate Year field, but the first-air year is the canonical
+	// premiere year for a series.
+	if !si.FirstAirDate.IsZero() {
+		si.Year = si.FirstAirDate.Year()
+	}
+
 	// Write series-level standard fields before the episode fetch so a fetch
 	// failure doesn't prevent them from being set. TVDB is series-only — any
 	// successfully-enriched entry is a series episode by construction.
