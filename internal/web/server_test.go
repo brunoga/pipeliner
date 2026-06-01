@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -376,6 +377,161 @@ func TestSSELastEventIDHeaderParsed(t *testing.T) {
 	if !strings.Contains(body, "line two") {
 		t.Errorf("line two should be replayed, got: %s", body)
 	}
+}
+
+// ── GET /api/logs/history ────────────────────────────────────────────────────
+//
+// The endpoint serves the scrollback the SSE channel can't reach. It paginates
+// by offset (lines from EOF), walks .1 .. .N archives in oldest-to-newest order
+// so the chronological ordering is preserved, and clamps requests above its
+// per-call max. Each test seeds a temp log file (and archives when relevant)
+// then issues a single GET to lock down the contract.
+
+func writeLogLines(t *testing.T, path string, lines []string) {
+	t.Helper()
+	body := strings.Join(lines, "\n") + "\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatalf("seed %s: %v", path, err)
+	}
+}
+
+func setupLogHistoryServer(t *testing.T, logPath string, archives int) *httptest.Server {
+	t.Helper()
+	srv := New(nil, stubDaemon{}, NewHistory(), NewBroadcaster(), "test", "u", "p")
+	srv.SetLogFile(logPath, archives)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/logs/history", srv.apiLogsHistory)
+	ts := httptest.NewServer(mux)
+	t.Cleanup(ts.Close)
+	return ts
+}
+
+func decodeLogHistory(t *testing.T, resp *http.Response) []string {
+	t.Helper()
+	var body struct {
+		Lines []string `json:"lines"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	return body.Lines
+}
+
+func TestAPILogsHistoryTailFromCurrentFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "pipeliner.log")
+	// Five lines; offset=0,limit=3 should return the LAST three in order.
+	writeLogLines(t, path, []string{"a", "b", "c", "d", "e"})
+	ts := setupLogHistoryServer(t, path, 0)
+
+	resp := get(t, ts.URL+"/api/logs/history?offset=0&limit=3")
+	defer resp.Body.Close()
+	got := decodeLogHistory(t, resp)
+	if want := []string{"c", "d", "e"}; !equalStrings(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+func TestAPILogsHistoryOffsetSkipsNewer(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "pipeliner.log")
+	writeLogLines(t, path, []string{"a", "b", "c", "d", "e"})
+	ts := setupLogHistoryServer(t, path, 0)
+
+	// Skip the newest 2 lines, then take 2 ⇒ "b", "c".
+	resp := get(t, ts.URL+"/api/logs/history?offset=2&limit=2")
+	defer resp.Body.Close()
+	got := decodeLogHistory(t, resp)
+	if want := []string{"b", "c"}; !equalStrings(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+func TestAPILogsHistorySpansArchives(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "pipeliner.log")
+	// Archives are written *older-first*: .2 is older than .1, which is older
+	// than the current file. After rotation pipeliner.log holds the newest
+	// lines, .1 holds the next-newest, etc.
+	writeLogLines(t, path+".2", []string{"a", "b"})
+	writeLogLines(t, path+".1", []string{"c", "d"})
+	writeLogLines(t, path,      []string{"e", "f"})
+	ts := setupLogHistoryServer(t, path, 5)
+
+	// Ask for the full window; result must be in chronological order across
+	// all three files (oldest archive first, current file last).
+	resp := get(t, ts.URL+"/api/logs/history?offset=0&limit=10")
+	defer resp.Body.Close()
+	got := decodeLogHistory(t, resp)
+	if want := []string{"a", "b", "c", "d", "e", "f"}; !equalStrings(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+func TestAPILogsHistoryLimitClamped(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "pipeliner.log")
+	// Write more lines than the default+max so we can prove clamping.
+	lines := make([]string, logHistoryMaxLimit+50)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("line-%d", i)
+	}
+	writeLogLines(t, path, lines)
+	ts := setupLogHistoryServer(t, path, 0)
+
+	resp := get(t, ts.URL+"/api/logs/history?offset=0&limit=99999")
+	defer resp.Body.Close()
+	got := decodeLogHistory(t, resp)
+	if len(got) != logHistoryMaxLimit {
+		t.Errorf("len = %d, want %d (max-limit clamp)", len(got), logHistoryMaxLimit)
+	}
+}
+
+func TestAPILogsHistoryOffsetPastBeginningReturnsEmpty(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "pipeliner.log")
+	writeLogLines(t, path, []string{"a", "b", "c"})
+	ts := setupLogHistoryServer(t, path, 0)
+
+	resp := get(t, ts.URL+"/api/logs/history?offset=100&limit=10")
+	defer resp.Body.Close()
+	got := decodeLogHistory(t, resp)
+	if len(got) != 0 {
+		t.Errorf("want empty, got %v", got)
+	}
+}
+
+func TestAPILogsHistoryNoLogFileConfigured(t *testing.T) {
+	// SetLogFile never called ⇒ endpoint must succeed with an empty payload
+	// rather than 500. This is the "web is running but file logging is off"
+	// path (unlikely in production but the contract should be tight).
+	srv := New(nil, stubDaemon{}, NewHistory(), NewBroadcaster(), "test", "u", "p")
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/logs/history", srv.apiLogsHistory)
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	resp := get(t, ts.URL+"/api/logs/history?offset=0&limit=10")
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	got := decodeLogHistory(t, resp)
+	if len(got) != 0 {
+		t.Errorf("want empty, got %v", got)
+	}
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // ── GET /api/plugins ─────────────────────────────────────────────────────────
