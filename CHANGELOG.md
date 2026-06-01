@@ -5,6 +5,20 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-06-01
+
+### Added
+
+- **Persistent rotating log file** ([#199](https://github.com/brunoga/pipeliner/pull/199)). Both `pipeliner run` and `pipeliner daemon` now tee their slog output through a size-based rotating writer in `internal/logfile`, persisting to `pipeliner.log` next to `config.star` and `pipeliner.db`. Defaults are 10 MB × 5 archives (~50 MB disk cap), uncolored so `cat` / `less` / `grep` stay readable. The file is reopened with `O_APPEND` on restart so the prior session's tail survives, and rotation happens on whole-write boundaries — a single slog record never straddles two files.
+- **Dashboard log scrollback** ([#199](https://github.com/brunoga/pipeliner/pull/199)). The Live Log on the dashboard now lazy-loads older entries from `pipeliner.log` when the user scrolls within 40 px of the top, prepending them in chronological order while pinning `scrollTop` so the view doesn't jump. Pagination is server-side via `GET /api/logs/history?offset=N&limit=M`: offsets count lines from EOF and the endpoint walks `.1..N` archives in oldest-to-newest order, so a single request can span the current file and any number of archives. A subtle "── start of recorded history ──" separator marks the end of recorded history.
+- **Brand-mark SVG favicon** ([#198](https://github.com/brunoga/pipeliner/pull/198)). Replaces the generic `▶` glyph (which read as "play/media") with a small directed-graph mark that mirrors the visual editor's role palette: green source → blue processor → orange sink, joined by two short edges into a directed-arrow shape. The same SVG is served as the browser-tab favicon and used in the dashboard header, the login page, and the user-guide sidebar so the tab and the app read as one product. Served from the unauthenticated route so the login page renders the icon too.
+
+### Fixed
+
+- **`exitFunctionEditor` no longer drifts pipelines down on save** ([#197](https://github.com/brunoga/pipeliner/pull/197)). After editing a function, clicking *Save* inside the function editor, then *Save & Reload* on the config, every pipeline shifted down by ~one region-height — and *Save & Reload* persisted the drifted layout. `openFunctionEditor` stashes the live `ve.graphs` by reference (absolute y, `_regionY` set), and `exitFunctionEditor` called `initLayout()` directly on that restored reference; `initLayout`'s stored-position branch then added `_regionY` *again*. The conversion is now factored into a shared `initLayoutFromAbsolute()` helper used by both `exitFunctionEditor` and `undo()` (the latter already did the right thing manually), so the next call site that needs to restore absolute-coord graphs can't silently reintroduce the drift.
+- **Marquee-select highlights owned `list` / `search` sub-nodes** ([#196](https://github.com/brunoga/pipeliner/pull/196)). Ctrl+Click on a parent that owns a list sub-node (e.g. `series` + `tvdb_favorites`) or a search sub-node (e.g. `discover` + `rss_search`) already highlighted both. Marquee-drag was leaving the sub-node un-highlighted until a full re-render fired, even though the parent ended up in the selection. `marqueeSelect` now mirrors the Ctrl+Click path: after adding a main node it walks `searchNodeIds` / `listNodeIds` and toggles the `multi-selected` class on each. Sub-node IDs themselves stay out of `ve.selectedNodeIds` — they ride along with their parent both visually and during "Extract to Function", matching the existing model.
+- **Marquee-select activates the pipeline under the drag** ([#195](https://github.com/brunoga/pipeliner/pull/195)). Rubber-banding inside a pipeline that wasn't the active one silently selected nothing — the commit step only scanned `ve.graphs[ve.activeGraph]`. The marquee now picks the graph at the rectangle's centre via `findGraphAtPosition`, activates it through `setActiveGraph`, and only then iterates that graph's nodes. Marquees that don't intersect any pipeline region (the gap between two pipelines, or below all of them) are now a no-op rather than accidentally selecting nodes from whichever pipeline happened to be active.
+
 ## [1.1.1] - 2026-05-31
 
 ### Fixed
@@ -39,5 +53,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Bump `modernc.org/sqlite` to the latest patch in the `all-go-deps` group ([#186](https://github.com/brunoga/pipeliner/pull/186)).
 
+[1.2.0]: https://github.com/brunoga/pipeliner/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/brunoga/pipeliner/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/brunoga/pipeliner/compare/v1.0.0...v1.1.0
