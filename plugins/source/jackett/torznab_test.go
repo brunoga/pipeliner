@@ -256,7 +256,7 @@ func TestParseTorznabExtendedAttrs(t *testing.T) {
 		field string
 		want  any
 	}{
-		{entry.FieldVideoImdbID, "tt0903747"},
+		{"jackett_imdb_id", "tt0903747"},
 		{"jackett_tvdb_id", "81189"},
 		{"jackett_tmdb_id", "1396"},
 		{entry.FieldVideoYear, 2010},

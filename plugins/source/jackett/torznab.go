@@ -124,9 +124,6 @@ func parseTorznab(data []byte, indexer string) ([]*entry.Entry, error) {
 		}
 
 		// --- Standard video/series fields from Torznab metadata ---
-		if v := attrs["imdbid"]; v != "" {
-			e.Set(entry.FieldVideoImdbID, v)
-		}
 		if v := attrs["year"]; v != "" {
 			if n, err := strconv.Atoi(v); err == nil && n > 0 {
 				e.Set(entry.FieldVideoYear, n)
@@ -154,6 +151,9 @@ func parseTorznab(data []byte, indexer string) ([]*entry.Entry, error) {
 		// IDs provided by Jackett but owned by their respective metainfo plugins;
 		// stored under jackett_ prefix so downstream plugins can use them for
 		// fast by-ID lookups (same pattern as trakt_tmdb_id from trakt_list).
+		if v := attrs["imdbid"]; v != "" {
+			e.Set("jackett_imdb_id", v)
+		}
 		if v := attrs["tvdbid"]; v != "" {
 			e.Set("jackett_tvdb_id", v)
 		}
