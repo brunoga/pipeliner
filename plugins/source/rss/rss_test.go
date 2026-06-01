@@ -540,6 +540,93 @@ func TestSearchModeNyaaSeedsPresent(t *testing.T) {
 	}
 }
 
+// TestRSS2NonURLGUIDSkipped guards the fallback path: an item with no link,
+// enclosure, or media:content but a GUID like "abc-123" (isPermaLink="false")
+// must be skipped — otherwise the non-URL GUID propagates as e.URL and a
+// downstream sink (e.g. deluge) gets a scheme-less string.
+func TestRSS2NonURLGUIDSkipped(t *testing.T) {
+	xml := `<?xml version="1.0"?>
+	<rss version="2.0"><channel>
+		<item>
+			<title>Has only opaque GUID</title>
+			<guid isPermaLink="false">deadbeef-internal-id</guid>
+		</item>
+		<item>
+			<title>Has real link</title>
+			<link>http://example.com/ep.torrent</link>
+		</item>
+	</channel></rss>`
+	srv := serveXML(t, xml)
+	defer srv.Close()
+
+	p := makeFixedPlugin(t, srv.URL)
+	entries, err := p.Generate(context.Background(), makeCtx())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("want 1 entry (opaque-GUID item skipped), got %d", len(entries))
+	}
+	if entries[0].URL != "http://example.com/ep.torrent" {
+		t.Errorf("URL: got %q", entries[0].URL)
+	}
+}
+
+// TestRSS2URLLikeGUIDUsed confirms that the GUID fallback still works when
+// the GUID actually is a fetchable URL (the legitimate use case).
+func TestRSS2URLLikeGUIDUsed(t *testing.T) {
+	xml := `<?xml version="1.0"?>
+	<rss version="2.0"><channel>
+		<item>
+			<title>GUID-as-permalink</title>
+			<guid isPermaLink="true">https://example.com/posts/42</guid>
+		</item>
+	</channel></rss>`
+	srv := serveXML(t, xml)
+	defer srv.Close()
+
+	p := makeFixedPlugin(t, srv.URL)
+	entries, err := p.Generate(context.Background(), makeCtx())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].URL != "https://example.com/posts/42" {
+		t.Fatalf("want 1 entry with URL from GUID, got %+v", entries)
+	}
+}
+
+// TestAtomURNIDSkipped guards the Atom <id> fallback. Atom IDs are IRIs that
+// often look like urn:uuid:… or tag:host,date:…; those are not fetchable and
+// must be rejected as URL candidates.
+func TestAtomURNIDSkipped(t *testing.T) {
+	xml := `<?xml version="1.0"?>
+	<feed xmlns="http://www.w3.org/2005/Atom">
+		<entry>
+			<title>No links, opaque id</title>
+			<id>urn:uuid:f81d4fae-7dec-11d0-a765-00a0c91e6bf6</id>
+		</entry>
+		<entry>
+			<title>Real link</title>
+			<link href="http://example.com/atom-ep1" rel="alternate"/>
+			<id>tag:example.com,2026:ep1</id>
+		</entry>
+	</feed>`
+	srv := serveXML(t, xml)
+	defer srv.Close()
+
+	p := makeFixedPlugin(t, srv.URL)
+	entries, err := p.Generate(context.Background(), makeCtx())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("want 1 entry (urn-id item skipped), got %d", len(entries))
+	}
+	if entries[0].URL != "http://example.com/atom-ep1" {
+		t.Errorf("URL: got %q", entries[0].URL)
+	}
+}
+
 func TestGenerateEmptyQuery(t *testing.T) {
 	var gotQuery string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

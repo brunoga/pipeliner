@@ -159,6 +159,44 @@ func TestParseTorznabSkipsEmptyLink(t *testing.T) {
 	}
 }
 
+// TestParseTorznabSkipsNonURLGUID covers the case where an indexer omits the
+// link/enclosure but emits a non-URL GUID (an internal hash or numeric id).
+// The item must be dropped rather than reaching downstream sinks as a
+// scheme-less URL.
+func TestParseTorznabSkipsNonURLGUID(t *testing.T) {
+	xml := `<?xml version="1.0"?>
+	<rss version="2.0"><channel>
+		<item><title>Opaque GUID only</title><guid isPermaLink="false">7c1c8e4f</guid></item>
+		<item><title>Real link</title><enclosure url="http://example.com/x.torrent" type="application/x-bittorrent"/></item>
+	</channel></rss>`
+	entries, err := parseTorznab([]byte(xml), "idx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry (opaque-GUID item dropped), got %d", len(entries))
+	}
+	if entries[0].URL != "http://example.com/x.torrent" {
+		t.Errorf("URL: got %q", entries[0].URL)
+	}
+}
+
+// TestParseTorznabAcceptsURLGUID confirms that the GUID fallback still kicks
+// in when the GUID is actually a usable URL.
+func TestParseTorznabAcceptsURLGUID(t *testing.T) {
+	xml := `<?xml version="1.0"?>
+	<rss version="2.0"><channel>
+		<item><title>GUID-as-permalink</title><guid isPermaLink="true">http://example.com/dl?id=42</guid></item>
+	</channel></rss>`
+	entries, err := parseTorznab([]byte(xml), "idx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].URL != "http://example.com/dl?id=42" {
+		t.Fatalf("expected 1 entry with GUID URL, got %+v", entries)
+	}
+}
+
 func TestParseTorznabPublishDate(t *testing.T) {
 	t.Run("from pubDate element", func(t *testing.T) {
 		item := torznabItem{

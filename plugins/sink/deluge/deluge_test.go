@@ -281,6 +281,57 @@ func TestHTTPTorrentUsesURLRPC(t *testing.T) {
 	}
 }
 
+func TestEmptyURLFailsFast(t *testing.T) {
+	// An entry with an empty URL must be Failed with a clear error before
+	// any RPC is attempted — otherwise Deluge returns a cryptic
+	// "Unsupported scheme: b''" traceback from Twisted.
+	mock := &mockDeluge{loginOK: true}
+	srv := httptest.NewServer(mock.handler())
+	defer srv.Close()
+
+	dp := newTestPlugin(t, srv, nil)
+	e := entry.New("missing url", "")
+	if err := dp.deliver(context.Background(), makeCtx(), []*entry.Entry{e}); err != nil {
+		t.Fatalf("deliver: %v", err)
+	}
+	if !e.IsFailed() {
+		t.Fatal("entry should be Failed when URL is empty")
+	}
+	if !strings.Contains(e.FailReason, "empty URL") {
+		t.Errorf("fail reason should mention empty URL, got %q", e.FailReason)
+	}
+	for _, c := range mock.calls {
+		if c.Method == "core.add_torrent_url" || c.Method == "core.add_torrent_magnet" {
+			t.Errorf("no add_torrent RPC should be made for empty URL, got %q", c.Method)
+		}
+	}
+}
+
+func TestSchemelessURLFailsFast(t *testing.T) {
+	// A URL without an http(s)/magnet scheme would otherwise reach Twisted
+	// and produce the same opaque "Unsupported scheme" error. Reject locally.
+	mock := &mockDeluge{loginOK: true}
+	srv := httptest.NewServer(mock.handler())
+	defer srv.Close()
+
+	dp := newTestPlugin(t, srv, nil)
+	e := entry.New("bad url", "example.com/foo.torrent")
+	if err := dp.deliver(context.Background(), makeCtx(), []*entry.Entry{e}); err != nil {
+		t.Fatalf("deliver: %v", err)
+	}
+	if !e.IsFailed() {
+		t.Fatal("entry should be Failed when URL has no scheme")
+	}
+	if !strings.Contains(e.FailReason, "unsupported URL scheme") {
+		t.Errorf("fail reason should mention unsupported scheme, got %q", e.FailReason)
+	}
+	for _, c := range mock.calls {
+		if c.Method == "core.add_torrent_url" || c.Method == "core.add_torrent_magnet" {
+			t.Errorf("no add_torrent RPC should be made for scheme-less URL, got %q", c.Method)
+		}
+	}
+}
+
 func TestRegistration(t *testing.T) {
 	d, ok := plugin.Lookup("deluge")
 	if !ok {

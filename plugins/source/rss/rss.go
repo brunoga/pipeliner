@@ -222,6 +222,16 @@ func hostFromURL(rawURL string) string {
 	return u.Host
 }
 
+// isFetchableURL reports whether s starts with a scheme that downstream sinks
+// can act on (HTTP(S) for direct fetches, magnet: for magnet links). Used to
+// reject opaque RSS GUIDs / Atom IDs (urn:uuid:…, internal hashes) that would
+// otherwise be propagated as e.URL.
+func isFetchableURL(s string) bool {
+	return strings.HasPrefix(s, "http://") ||
+		strings.HasPrefix(s, "https://") ||
+		strings.HasPrefix(s, "magnet:")
+}
+
 // --- XML structs for RSS 2.0 and Atom 1.0 ---
 
 // feedEnvelope peeks at the root element to dispatch to the right parser.
@@ -337,8 +347,11 @@ func parseRSS(data []byte) ([]*entry.Entry, error) {
 	for _, item := range feed.Channel.Items {
 		// URL priority: enclosure > media:content > link > GUID.
 		// Enclosure is preferred because for torrent feeds it is the download URL.
+		// GUID is only used when it looks like a fetchable URL — RSS GUIDs with
+		// isPermaLink="false" are arbitrary identifiers (hashes, internal IDs)
+		// and must not be passed to downstream sinks as a URL.
 		u := item.Link
-		if item.GUID != "" && u == "" {
+		if u == "" && isFetchableURL(item.GUID) {
 			u = item.GUID
 		}
 		if item.MediaContent.URL != "" {
@@ -411,9 +424,14 @@ func parseAtom(data []byte) ([]*entry.Entry, error) {
 	var entries []*entry.Entry
 	for _, item := range feed.Entries {
 		u := atomURL(item.Links)
-		// Fall back to the Atom ID — it is an IRI and often a usable URL.
+		// Fall back to the Atom ID only when it is a fetchable URL. Atom IDs
+		// are IRIs and may be opaque URNs (e.g. urn:uuid:..., tag:host,date:...),
+		// which would otherwise reach sinks as scheme-less URLs.
 		if u == "" {
-			u = strings.TrimSpace(item.ID)
+			id := strings.TrimSpace(item.ID)
+			if isFetchableURL(id) {
+				u = id
+			}
 		}
 		if u == "" {
 			continue
