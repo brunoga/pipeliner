@@ -2088,9 +2088,21 @@ function startNodeDrag(e, n) {
       const nd = findNode(id);
       return nd && !nd.isSearchNode && !nd.isListNode && !nd.isRoutePort && !nd.isUpstreamPseudo;
     });
-    const origPos = new Map(dragIds.map(id => {
+    // Sub-nodes (search/list/route ports) are not in selectedNodeIds — they
+    // only inherit the 'multi-selected' highlight from their parent — but they
+    // must follow that parent during the drag. subParent maps sub-id → main-id
+    // so each sub-node mirrors its parent's *clamped* delta and never drifts.
+    const subParent = new Map();
+    for (const id of dragIds) {
       const nd = findNode(id);
-      return [id, {x: nd.x ?? 0, y: nd.y ?? 0}];
+      if (!nd) continue;
+      for (const sid of [...(nd.searchNodeIds || []), ...(nd.listNodeIds || []), ...(nd.portNodeIds || [])]) {
+        subParent.set(sid, id);
+      }
+    }
+    const origPos = new Map([...dragIds, ...subParent.keys()].map(id => {
+      const nd = findNode(id);
+      return [id, {x: nd?.x ?? 0, y: nd?.y ?? 0}];
     }));
     const startX = e.clientX, startY = e.clientY;
     ve_dragging = true;
@@ -2110,6 +2122,19 @@ function startNodeDrag(e, n) {
         nd.y = Math.max(minY, orig.y + dy);
         const div = document.querySelector(`.ve-node[data-id="${id}"]`);
         if (div) { div.style.left = nd.x + 'px'; div.style.top = nd.y + 'px'; }
+      }
+      // Sub-nodes mirror their parent's effective (post-clamp) delta so they
+      // stay anchored even when the parent group hits a region boundary.
+      for (const [sid, pid] of subParent) {
+        const sub        = findNode(sid);
+        const subOrig    = origPos.get(sid);
+        const parent     = findNode(pid);
+        const parentOrig = origPos.get(pid);
+        if (!sub || !subOrig || !parent || !parentOrig) continue;
+        sub.x = subOrig.x + (parent.x - parentOrig.x);
+        sub.y = subOrig.y + (parent.y - parentOrig.y);
+        const sdiv = document.querySelector(`.ve-node[data-id="${sid}"]`);
+        if (sdiv) { sdiv.style.left = sub.x + 'px'; sdiv.style.top = sub.y + 'px'; }
       }
       renderEdges();
       renderPipelineRegions();
@@ -2138,6 +2163,15 @@ function startNodeDrag(e, n) {
   const minDragX = 50;
   const minDragY = gSingle ? (gSingle._labelY ?? (gSingle._regionY ?? 0) + 8) + 36 : 40;
   ve_dragging = true;
+  // Snapshot sub-node (search/list/route-port) origins so they can be
+  // translated by the parent's effective delta on every pointermove, keeping
+  // them anchored to the parent rather than drifting when the parent clamps
+  // against a region boundary.
+  const subIds = [...(n.searchNodeIds || []), ...(n.listNodeIds || []), ...(n.portNodeIds || [])];
+  const subOrig = new Map(subIds.map(sid => {
+    const sn = findNode(sid);
+    return [sid, {x: sn?.x ?? 0, y: sn?.y ?? 0}];
+  }));
 
   function onMove(ev) {
     if (ve_pinching) return; // second finger took over — leave node alone
@@ -2145,6 +2179,16 @@ function startNodeDrag(e, n) {
     n.y = Math.max(minDragY, origY + (ev.clientY - startY) / ve_zoom);
     const div = document.querySelector(`.ve-node[data-id="${n.id}"]`);
     if (div) { div.style.left = n.x + 'px'; div.style.top = n.y + 'px'; }
+    const subDx = n.x - origX, subDy = n.y - origY;
+    for (const sid of subIds) {
+      const sn = findNode(sid);
+      const so = subOrig.get(sid);
+      if (!sn || !so) continue;
+      sn.x = so.x + subDx;
+      sn.y = so.y + subDy;
+      const sdiv = document.querySelector(`.ve-node[data-id="${sid}"]`);
+      if (sdiv) { sdiv.style.left = sn.x + 'px'; sdiv.style.top = sn.y + 'px'; }
+    }
 
     // Recompute this pipeline's region height, then cascade any change in
     // height (up or down) to all subsequent pipelines so they never overlap.
