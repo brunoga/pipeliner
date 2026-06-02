@@ -150,9 +150,10 @@ func TestAnnotateNonTorrentEntry(t *testing.T) {
 	if err := p.annotate(context.Background(), tc(), e); err != nil {
 		t.Fatal(err)
 	}
-	// No torrent fields should be set
-	if v := e.GetString("title"); v != "" {
-		t.Errorf("expected no torrent_name for non-torrent entry, got %q", v)
+	// No torrent fields should be set. Check Fields directly because
+	// GetString("title") falls back to the raw struct e.Title.
+	if _, ok := e.Fields["title"]; ok {
+		t.Errorf("expected no Fields[\"title\"] for non-torrent entry, got %q", e.Fields["title"])
 	}
 }
 

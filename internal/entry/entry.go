@@ -147,15 +147,45 @@ func PassThrough(entries []*Entry) []*Entry {
 	return entries
 }
 
-// Get retrieves a value from the entry's metadata bag.
+// Get retrieves a value by name. Fields takes precedence so plugins that
+// explicitly populate a key (e.g. metainfo plugins setting "title") win.
+// If the key is one of the well-known struct field names — "title",
+// "url", "original_url", "task" — Get falls back to the struct field
+// when Fields has nothing for that key.
+//
+// This mirrors the convention [interp.EntryData] already uses for
+// templates and expressions, so name-based consumers (require,
+// condition rules, route ports, the typed Get* helpers below) all see
+// the same logical view of the entry: every standard field is
+// addressable by its lowercase name regardless of whether the value
+// lives in the Fields bag or on the Entry struct.
+//
+// The second return value reports whether a value was found. For
+// struct fields it is always true — the field always exists on the
+// entry, even when its value is the zero string; callers that care
+// about emptiness should test the value itself (which is what
+// [require] does via its isMissing helper).
 func (e *Entry) Get(key string) (any, bool) {
-	v, ok := e.Fields[key]
-	return v, ok
+	if v, ok := e.Fields[key]; ok {
+		return v, true
+	}
+	switch key {
+	case "title":
+		return e.Title, true
+	case "url":
+		return e.URL, true
+	case "original_url":
+		return e.OriginalURL, true
+	case "task":
+		return e.Task, true
+	}
+	return nil, false
 }
 
 // GetString returns the string value for key, or "" if absent or wrong type.
+// Honours the struct-field fallback documented on [Entry.Get].
 func (e *Entry) GetString(key string) string {
-	v, ok := e.Fields[key]
+	v, ok := e.Get(key)
 	if !ok {
 		return ""
 	}
@@ -164,8 +194,11 @@ func (e *Entry) GetString(key string) string {
 }
 
 // GetInt returns the int value for key, or 0 if absent or wrong type.
+// Honours the struct-field fallback documented on [Entry.Get] (though
+// none of the fallback fields are integers, the indirection keeps the
+// accessors consistent).
 func (e *Entry) GetInt(key string) int {
-	v, ok := e.Fields[key]
+	v, ok := e.Get(key)
 	if !ok {
 		return 0
 	}
@@ -181,8 +214,9 @@ func (e *Entry) GetInt(key string) int {
 }
 
 // GetBool returns the bool value for key, or false if absent or wrong type.
+// Honours the struct-field fallback documented on [Entry.Get].
 func (e *Entry) GetBool(key string) bool {
-	v, ok := e.Fields[key]
+	v, ok := e.Get(key)
 	if !ok {
 		return false
 	}
@@ -191,8 +225,9 @@ func (e *Entry) GetBool(key string) bool {
 }
 
 // GetTime returns the time.Time value for key, or zero time if absent or wrong type.
+// Honours the struct-field fallback documented on [Entry.Get].
 func (e *Entry) GetTime(key string) time.Time {
-	v, ok := e.Fields[key]
+	v, ok := e.Get(key)
 	if !ok {
 		return time.Time{}
 	}

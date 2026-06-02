@@ -178,6 +178,81 @@ func TestFieldsWrongType(t *testing.T) {
 	}
 }
 
+// TestGetFallsBackToStructFields covers the lookup convention shared
+// with interp.EntryData: Fields wins, but the well-known struct field
+// names ("title", "url", "original_url", "task") fall back to the
+// matching struct field when Fields has nothing for that key. The
+// concrete trigger for adding this: `require(fields=["url"])` was
+// rejecting every entry because nothing populates Fields["url"], even
+// though e.URL was set — config writers reasonably expected "url" to
+// mean the entry URL.
+func TestGetFallsBackToStructFields(t *testing.T) {
+	e := New("raw title", "http://example.com/x")
+	e.Task = "tvshows-discover"
+	e.OriginalURL = "http://example.com/original"
+
+	cases := []struct {
+		key  string
+		want string
+	}{
+		{"title", "raw title"},
+		{"url", "http://example.com/x"},
+		{"original_url", "http://example.com/original"},
+		{"task", "tvshows-discover"},
+	}
+	for _, tc := range cases {
+		v, ok := e.Get(tc.key)
+		if !ok {
+			t.Errorf("Get(%q) ok=false; struct fallback should always report true", tc.key)
+		}
+		if got, _ := v.(string); got != tc.want {
+			t.Errorf("Get(%q) = %q, want %q", tc.key, got, tc.want)
+		}
+		if got := e.GetString(tc.key); got != tc.want {
+			t.Errorf("GetString(%q) = %q, want %q (typed helpers must mirror Get)", tc.key, got, tc.want)
+		}
+	}
+}
+
+// TestGetFieldsWinsOverStructFallback confirms that an explicit Fields
+// entry shadows the struct fallback. This matters for "title" in
+// particular — metainfo plugins overwrite Fields["title"] with the
+// canonical name from TVDB/TMDb, and downstream consumers must see
+// the enriched value rather than the raw torrent filename in e.Title.
+func TestGetFieldsWinsOverStructFallback(t *testing.T) {
+	e := New("raw.title.S01E01", "http://example.com/x")
+	e.Fields["title"] = "Canonical Title"
+
+	if got := e.GetString("title"); got != "Canonical Title" {
+		t.Errorf("GetString(title): got %q, want %q (Fields must win)", got, "Canonical Title")
+	}
+	// The struct field is unchanged; only the lookup picks Fields first.
+	if e.Title != "raw.title.S01E01" {
+		t.Errorf("struct Title was mutated: %q", e.Title)
+	}
+}
+
+// TestGetUnknownKeyReturnsAbsent confirms the fallback only triggers
+// for the four well-known struct field names. Anything else still
+// returns (nil, false) so callers that distinguish "absent" from
+// "zero value" — e.g. route ports, year parsing — keep working.
+func TestGetUnknownKeyReturnsAbsent(t *testing.T) {
+	e := New("t", "u")
+	if v, ok := e.Get("anything_else"); ok || v != nil {
+		t.Errorf("Get(unknown) = (%v, %v); want (nil, false)", v, ok)
+	}
+	// Also verify struct fields that aren't in the fallback list don't
+	// leak through: State and AcceptReason are exported but not
+	// addressable by name (they're pipeline machinery, not data).
+	e.Accept("test")
+	if v, ok := e.Get("state"); ok || v != nil {
+		t.Errorf("Get(state) should not expose struct State; got (%v, %v)", v, ok)
+	}
+	if v, ok := e.Get("accept_reason"); ok || v != nil {
+		t.Errorf("Get(accept_reason) should not expose struct AcceptReason; got (%v, %v)", v, ok)
+	}
+}
+
 func TestClone(t *testing.T) {
 	e := New("original", "http://orig.com")
 	e.Accept("test reason")

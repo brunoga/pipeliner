@@ -230,8 +230,11 @@ func TestAnnotateNonMovie(t *testing.T) {
 	if err := p.annotate(context.Background(), makeCtx(), e); err != nil {
 		t.Fatal(err)
 	}
-	if v := e.GetString("title"); v != "" {
-		t.Errorf("series title should not set tmdb_title, got %q", v)
+	// Check Fields directly: GetString("title") would fall back to the
+	// raw struct e.Title (set by entry.New). What we want to verify
+	// here is that tmdb did not populate Fields["title"].
+	if _, ok := e.Fields["title"]; ok {
+		t.Errorf("Fields[\"title\"] should not be set for series, got %q", e.Fields["title"])
 	}
 }
 

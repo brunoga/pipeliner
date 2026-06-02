@@ -163,8 +163,10 @@ func TestAnnotateNonParseableTitle(t *testing.T) {
 	if err := p.annotate(context.Background(), tc(), e); err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
-	if e.GetString("title") != "" {
-		t.Error("non-parseable title should not set any fields")
+	// Check Fields directly: GetString("title") would fall back to the
+	// raw struct e.Title; we want to verify Fields was not populated.
+	if _, ok := e.Fields["title"]; ok {
+		t.Errorf("non-parseable title should not set Fields[\"title\"], got %q", e.Fields["title"])
 	}
 }
 
