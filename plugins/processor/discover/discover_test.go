@@ -11,11 +11,14 @@ import (
 	"github.com/brunoga/pipeliner/internal/store"
 )
 
-// mockSearch is a SearchPlugin that returns pre-configured entries per query.
+// mockSearch is a SearchPlugin that returns pre-configured entries per query
+// title. It also captures the full query entry per title so tests can assert
+// on the hint fields discover forwarded.
 type mockSearch struct {
 	pluginName string
 	results    map[string][]*entry.Entry
 	calls      map[string]int
+	queries    map[string]*entry.Entry
 }
 
 func newMockSearch(name string) *mockSearch {
@@ -23,13 +26,15 @@ func newMockSearch(name string) *mockSearch {
 		pluginName: name,
 		results:    map[string][]*entry.Entry{},
 		calls:      map[string]int{},
+		queries:    map[string]*entry.Entry{},
 	}
 }
 
 func (m *mockSearch) Name() string        { return m.pluginName }
-func (m *mockSearch) Search(_ context.Context, _ *plugin.TaskContext, query string) ([]*entry.Entry, error) {
-	m.calls[query]++
-	return m.results[query], nil
+func (m *mockSearch) Search(_ context.Context, _ *plugin.TaskContext, qe *entry.Entry) ([]*entry.Entry, error) {
+	m.calls[qe.Title]++
+	m.queries[qe.Title] = qe
+	return m.results[qe.Title], nil
 }
 
 // registerMock registers the mock under a unique name so discover can look it up.
@@ -226,5 +231,54 @@ func TestDiscoverDeduplicatesTitlesAcrossSources(t *testing.T) {
 	}
 	if mock.calls["My Show"] != 1 {
 		t.Errorf("want exactly 1 search for deduplicated title, got %d", mock.calls["My Show"])
+	}
+}
+
+func TestDiscoverForwardsHintFieldsFromUpstream(t *testing.T) {
+	mock := newMockSearch("forward-hints")
+	mock.results["Inception"] = []*entry.Entry{entry.New("Inception.2010.1080p", "http://example.com/1")}
+
+	// Upstream entry carries the title plus hints that a trakt_list or
+	// metainfo step would have provided.
+	upstream := entry.New("Inception", "")
+	upstream.Set(entry.FieldMediaType, entry.MediaTypeMovie)
+	upstream.Set(entry.FieldVideoYear, 2010)
+	upstream.Set(entry.FieldVideoImdbID, "tt1375666")
+
+	p := buildPlugin(t, mock, nil, nil)
+	_, err := p.Process(context.Background(), taskCtx("hints-task"), []*entry.Entry{upstream})
+	if err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	qe := mock.queries["Inception"]
+	if qe == nil {
+		t.Fatal("expected mock to be called for Inception")
+	}
+	if got := qe.GetInt(entry.FieldVideoYear); got != 2010 {
+		t.Errorf("video_year not forwarded: got %d, want 2010", got)
+	}
+	if got := qe.GetString(entry.FieldVideoImdbID); got != "tt1375666" {
+		t.Errorf("video_imdb_id not forwarded: got %q, want tt1375666", got)
+	}
+	if got := qe.GetString(entry.FieldMediaType); got != entry.MediaTypeMovie {
+		t.Errorf("media_type not forwarded: got %q, want movie", got)
+	}
+}
+
+func TestDiscoverUpstreamEntryWinsOverStaticTitle(t *testing.T) {
+	mock := newMockSearch("hint-priority")
+	mock.results["Inception"] = []*entry.Entry{entry.New("Inception.2010", "http://example.com/1")}
+
+	upstream := entry.New("Inception", "")
+	upstream.Set(entry.FieldVideoYear, 2010)
+
+	// Same title as the static config; upstream's hint fields should win.
+	p := buildPlugin(t, mock, []string{"Inception"}, nil)
+	_, err := p.Process(context.Background(), taskCtx("hint-priority-task"), []*entry.Entry{upstream})
+	if err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	if got := mock.queries["Inception"].GetInt(entry.FieldVideoYear); got != 2010 {
+		t.Errorf("expected upstream hint to beat bare static title (year): got %d, want 2010", got)
 	}
 }

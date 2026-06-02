@@ -365,3 +365,114 @@ func TestParseTorznabReturnsErrorOnAPIError(t *testing.T) {
 		t.Fatal("expected error from parseTorznab on API error response")
 	}
 }
+
+func TestBuildSearchParams(t *testing.T) {
+	cases := []struct {
+		name    string
+		entry   func() *entry.Entry
+		wantQ   string
+		wantT   string
+		want    map[string]string
+		notWant []string
+	}{
+		{
+			name:  "source mode — empty title, no hints",
+			entry: func() *entry.Entry { return entry.New("", "") },
+			wantQ: "",
+			wantT: "search",
+			notWant: []string{"year", "imdbid", "tmdbid", "tvdbid", "season", "ep"},
+		},
+		{
+			name: "source mode — static query, no hints",
+			entry: func() *entry.Entry {
+				return entry.New("recent releases", "")
+			},
+			wantQ: "recent releases",
+			wantT: "search",
+			notWant: []string{"year", "imdbid"},
+		},
+		{
+			name: "movie — title only",
+			entry: func() *entry.Entry {
+				e := entry.New("Inception", "")
+				e.Set(entry.FieldMediaType, entry.MediaTypeMovie)
+				return e
+			},
+			wantQ: "Inception",
+			wantT: "movie",
+		},
+		{
+			name: "movie — title + year + imdb (canonical tt-prefix stripped)",
+			entry: func() *entry.Entry {
+				e := entry.New("Inception", "")
+				e.Set(entry.FieldMediaType, entry.MediaTypeMovie)
+				e.Set(entry.FieldVideoYear, 2010)
+				e.Set(entry.FieldVideoImdbID, "tt1375666")
+				return e
+			},
+			wantQ: "Inception",
+			wantT: "movie",
+			want:  map[string]string{"year": "2010", "imdbid": "1375666"},
+		},
+		{
+			name: "movie — falls back to jackett_imdb_id when video_imdb_id absent",
+			entry: func() *entry.Entry {
+				e := entry.New("Inception", "")
+				e.Set(entry.FieldMediaType, entry.MediaTypeMovie)
+				e.Set("jackett_imdb_id", "tt1375666")
+				return e
+			},
+			want: map[string]string{"imdbid": "1375666"},
+		},
+		{
+			name: "series — title + season/ep + tvdbid",
+			entry: func() *entry.Entry {
+				e := entry.New("Breaking Bad", "")
+				e.Set(entry.FieldMediaType, entry.MediaTypeSeries)
+				e.Set(entry.FieldSeriesSeason, 3)
+				e.Set(entry.FieldSeriesEpisode, 7)
+				e.Set("jackett_tvdb_id", "81189")
+				return e
+			},
+			wantT: "tvsearch",
+			want:  map[string]string{"season": "3", "ep": "7", "tvdbid": "81189"},
+		},
+		{
+			name: "non-numeric imdb id is dropped",
+			entry: func() *entry.Entry {
+				e := entry.New("X", "")
+				e.Set(entry.FieldMediaType, entry.MediaTypeMovie)
+				e.Set(entry.FieldVideoImdbID, "notarealid")
+				return e
+			},
+			notWant: []string{"imdbid"},
+		},
+		{
+			name: "nil entry — defensive default",
+			entry: func() *entry.Entry { return nil },
+			wantT: "search",
+			wantQ: "",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			params := buildSearchParams(tc.entry())
+			if tc.wantT != "" && params.Get("t") != tc.wantT {
+				t.Errorf("t: got %q, want %q", params.Get("t"), tc.wantT)
+			}
+			if got := params.Get("q"); tc.wantQ != "" && got != tc.wantQ {
+				t.Errorf("q: got %q, want %q", got, tc.wantQ)
+			}
+			for k, v := range tc.want {
+				if got := params.Get(k); got != v {
+					t.Errorf("%s: got %q, want %q", k, got, v)
+				}
+			}
+			for _, k := range tc.notWant {
+				if got := params.Get(k); got != "" {
+					t.Errorf("%s: should be unset, got %q", k, got)
+				}
+			}
+		})
+	}
+}

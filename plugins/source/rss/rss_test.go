@@ -434,7 +434,7 @@ func TestSearchModeURLRendered(t *testing.T) {
 	defer srv.Close()
 
 	p := makeSearchPlugin(t, srv.URL+"/search?q={{.QueryEscaped}}")
-	_, err := p.Search(context.Background(), makeCtx(), "Breaking Bad")
+	_, err := p.Search(context.Background(), makeCtx(), entry.New("Breaking Bad", ""))
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -450,7 +450,7 @@ func TestSearchModeSourceField(t *testing.T) {
 	defer srv.Close()
 
 	p := makeSearchPlugin(t, srv.URL+"/search?q={Query}")
-	entries, err := p.Search(context.Background(), makeCtx(), "test")
+	entries, err := p.Search(context.Background(), makeCtx(), entry.New("test", ""))
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -471,7 +471,7 @@ func TestSearchModeRSSFeedIsRenderedURL(t *testing.T) {
 	defer srv.Close()
 
 	p := makeSearchPlugin(t, srv.URL+"/search?q={Query}")
-	entries, err := p.Search(context.Background(), makeCtx(), "myquery")
+	entries, err := p.Search(context.Background(), makeCtx(), entry.New("myquery", ""))
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -487,7 +487,7 @@ func TestSearchModeHandlesAtom(t *testing.T) {
 
 	// In search mode, Atom feeds must be parsed correctly too.
 	p := makeSearchPlugin(t, srv.URL)
-	entries, err := p.Search(context.Background(), makeCtx(), "")
+	entries, err := p.Search(context.Background(), makeCtx(), entry.New("", ""))
 	if err != nil {
 		t.Fatalf("Search on Atom feed: %v", err)
 	}
@@ -508,7 +508,7 @@ func TestSearchModeEnclosurePrecedence(t *testing.T) {
 	defer srv.Close()
 
 	p := makeSearchPlugin(t, srv.URL)
-	entries, err := p.Search(context.Background(), makeCtx(), "test")
+	entries, err := p.Search(context.Background(), makeCtx(), entry.New("test", ""))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -531,7 +531,7 @@ func TestSearchModeNyaaSeedsPresent(t *testing.T) {
 	defer srv.Close()
 
 	p := makeSearchPlugin(t, srv.URL)
-	entries, err := p.Search(context.Background(), makeCtx(), "")
+	entries, err := p.Search(context.Background(), makeCtx(), entry.New("", ""))
 	if err != nil {
 		t.Fatal(err)
 	}

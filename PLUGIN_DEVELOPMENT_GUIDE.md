@@ -701,19 +701,32 @@ pattern.
 
 ### SearchPlugin
 
-Implement this when your plugin can search by query string. Used by the
-`discover` processor as a search backend via the `search=` config key.
+Implement this when your plugin can search for entries matching a query entry.
+Used by the `discover` processor as a search backend via the `search=` config
+key.
 
 ```go
 type SearchPlugin interface {
     Plugin
-    Search(ctx context.Context, tc *TaskContext, query string) ([]*entry.Entry, error)
+    Search(ctx context.Context, tc *TaskContext, e *entry.Entry) ([]*entry.Entry, error)
 }
 ```
 
-A plugin implementing `SearchPlugin` should typically also implement
-`SourcePlugin.Generate()` (calling `Search` with an empty query) so it can
-be used as a standalone source node.
+The query entry's `Title` is always present — that's the string the backend
+should search for. Other fields (`video_year`, `video_imdb_id`,
+`jackett_tvdb_id`, `series_season`, `series_episode`, `media_type`, …) are
+optional hints the upstream pipeline gathered. Backends should treat them as
+refinements on top of the title and ignore the ones they can't use.
+
+In source mode (called from `Generate()` with a synthetic entry whose only
+field is the configured static query), the entry has no hint fields, so the
+backend naturally falls back to a plain title-only search:
+
+```go
+func (p *myPlugin) Generate(ctx context.Context, tc *plugin.TaskContext) ([]*entry.Entry, error) {
+    return p.Search(ctx, tc, entry.New(p.query, ""))
+}
+```
 
 ### Mini-pipelines as list and search sources
 

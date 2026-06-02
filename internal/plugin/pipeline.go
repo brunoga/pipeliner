@@ -168,8 +168,8 @@ type miniPipelineSearch struct {
 
 func (m *miniPipelineSearch) Name() string { return m.name }
 
-func (m *miniPipelineSearch) Search(ctx context.Context, tc *TaskContext, query string) ([]*entry.Entry, error) {
-	entries, err := m.root.Search(ctx, tc, query)
+func (m *miniPipelineSearch) Search(ctx context.Context, tc *TaskContext, queryEntry *entry.Entry) ([]*entry.Entry, error) {
+	entries, err := m.root.Search(ctx, tc, queryEntry)
 	if err != nil {
 		return nil, fmt.Errorf("mini-pipeline %q: search: %w", m.name, err)
 	}

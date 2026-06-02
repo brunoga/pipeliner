@@ -755,7 +755,7 @@ pipeline("split-pipeline")</code></pre>
   <tr><td><code>timeout</code></td><td>no</td><td><code>30s</code></td><td>HTTP request timeout</td></tr>
 </table>
 
-<p>Exactly one of <code>url</code> or <code>url_template</code> is required. Template variables: <code>{{.Query}}</code> (raw) and <code>{{.QueryEscaped}}</code> (URL-encoded). Brace syntax <code>{QueryEscaped}</code> also works.</p>
+<p>Exactly one of <code>url</code> or <code>url_template</code> is required. Template variables (brace or Go syntax both work): <code>{Query}</code>/<code>{Title}</code>, <code>{QueryEscaped}</code>/<code>{TitleEscaped}</code>, <code>{MediaType}</code>, <code>{Year}</code>, <code>{IMDbID}</code>, <code>{TMDbID}</code>, <code>{TVDbID}</code>, <code>{Season}</code>, <code>{Episode}</code> — sourced from the upstream entry's hint fields and rendered as <code>""</code> when absent so optional <code>&amp;year={Year}</code>-style segments stay clean.</p>
 
 <h4>Fields set</h4>
 <p>Always: <code>source</code> (e.g. <code>rss:nyaa.si</code>), <code>title</code>, <code>rss_feed</code>.</p>
