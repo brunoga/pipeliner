@@ -214,7 +214,7 @@ func TestFilterQualityGate3DAccepts3DFull(t *testing.T) {
 		"static":  []any{"Inception"},
 		"quality": "3dfull",
 	})
-	e := makeEntry("Inception.2010.SBS.1080p.BluRay", "http://x.com/a")
+	e := makeEntry("Inception.2010.FSBS.1080p.BluRay", "http://x.com/a")
 	if err := p.filter(context.Background(), makeCtx(), e); err != nil {
 		t.Fatal(err)
 	}

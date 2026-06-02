@@ -72,7 +72,13 @@ func TestParseKnownTitles(t *testing.T) {
 			Quality{Resolution: Resolutionp1080, Source: SourceBluRay, Format3D: Format3DHalf},
 		},
 		{
+			// Bare SBS is half-resolution by scene convention: a "1080p SBS"
+			// release cannot physically be full-SBS (which would be 3840×1080).
 			"Avatar.2009.SBS.1080p.BluRay",
+			Quality{Resolution: Resolutionp1080, Source: SourceBluRay, Format3D: Format3DHalf},
+		},
+		{
+			"Avatar.2009.FSBS.1080p.BluRay",
 			Quality{Resolution: Resolutionp1080, Source: SourceBluRay, Format3D: Format3DFull},
 		},
 		{
@@ -317,7 +323,9 @@ func TestParse3DHighestMarkerWins(t *testing.T) {
 	}{
 		// Generic "3D" before an explicit format tag — explicit tag must win.
 		{"Project.Hail.Mary.2026.IMAX.3D.FSBS.1080p.WEBRip", Format3DFull},
-		{"Avatar.2009.3D.SBS.1080p.BluRay", Format3DFull},
+		// Bare SBS is Half by convention; the explicit FSBS test below
+		// covers the explicit-full case.
+		{"Avatar.2009.3D.SBS.1080p.BluRay", Format3DHalf},
 		{"Avatar.2009.3D.HSBS.1080p.BluRay", Format3DHalf},
 		// BD3D beats a preceding plain 3D.
 		{"Movie.2020.3D.BD3D.1080p.BluRay", Format3DBD},
@@ -823,5 +831,189 @@ func TestVideoSourceFieldSetForCAM(t *testing.T) {
 	}
 	if sourceNames[SourceCAM] != "CAM" {
 		t.Errorf("sourceNames[SourceCAM]: got %q, want CAM", sourceNames[SourceCAM])
+	}
+}
+
+// ── Space-separated 3D markers (scene release convention) ────────────────────
+
+func TestParse3DSpaceSeparatedHalfMarkers(t *testing.T) {
+	cases := []struct{ title string }{
+		// Real titles observed in movies-3d-discover logs.
+		{"Ballerina 3D 2016 1080p H OU BluRay x264 DTS 5 1 vice"},
+		{"Snow White A Deadly Summer 2012 3D H SBS German DTS DL 1080p BluRay x264"},
+		{"The Monkey King 2 3D 2016 1080p H OU BluRay x264 TrueHD 7 1 vice"},
+		{"The Monkey King 3 Kingdom of Women 2018 1080p 3D BluRay Half SBS DD5 1 x264 LoRD"},
+		{"Avatar: The Way of Water 2022 Trailer 1080p 3D Half SBS DD+5 1 x264 LR0EZ"},
+		{"new gods nezha,reborn 2021 1080p h sbs chinese 5 1 mk3d"},
+		{"Shrek the Third 2007 1080p ac3 5 1 h sbs"},
+		{"Dolphins and Whales 3D Tribes of the Ocean 2008 1080p dts 5 1 h ou"},
+	}
+	for _, c := range cases {
+		q := Parse(c.title)
+		if q.Format3D != Format3DHalf {
+			t.Errorf("Parse(%q).Format3D = %v, want Format3DHalf", c.title, q.Format3D)
+		}
+	}
+}
+
+func TestParse3DSpaceSeparatedFullMarkers(t *testing.T) {
+	cases := []struct{ title string }{
+		{"Avatar The Way of Water 2022 3D Full SBS MULTI 1080p 10bit Bluray EAC3"},
+		{"Wolf Man (2025) Full SBS NeFud"},
+		{"Pirates of the Caribbean 3D (2003) Full OU 1080p x264 6xMultiAudio JFC"},
+		{"Megalopolis (2024) Full SBS NeFud mkv"},
+		{"The Darkest Hour 3D 2011 2160p F OU BluRay x264 DTS 5 1 vice"},
+	}
+	for _, c := range cases {
+		q := Parse(c.title)
+		if q.Format3D != Format3DFull {
+			t.Errorf("Parse(%q).Format3D = %v, want Format3DFull", c.title, q.Format3D)
+		}
+	}
+}
+
+func TestParseBareSBSAndOUAreHalf(t *testing.T) {
+	cases := []struct{ title string }{
+		{"Frankenstein vs the Wolfman 3D 2008 SBS bluto"},
+		{"Treasure of the Four Crowns (1983) 3D SBS bluto"},
+		{"Found Footage 3D 2016 SBS bluto"},
+		{"Wicked Part 1 3D 2024 SBS bluto"},
+	}
+	for _, c := range cases {
+		q := Parse(c.title)
+		if q.Format3D != Format3DHalf {
+			t.Errorf("Parse(%q).Format3D = %v, want Format3DHalf (bare SBS/OU is half by convention)",
+				c.title, q.Format3D)
+		}
+	}
+}
+
+// ── Conversion markers (Conv / Conversion / AI / StereoCrafter / DepthCrafter) ─
+
+func TestParse3DConvSpaceAndStandalone(t *testing.T) {
+	cases := []struct{ title string }{
+		// Space-separated "3D Conv".
+		{"Ballerina 2025 3D Conv FSBS DDP 5 1 Atmos AETHER"},
+		{"The Matrix Revolutions 2003 3D Conv FSBS Multi TrueHD 7 1 Atmos AETHER"},
+		// Standalone "conv" / "Conv" combined with another native marker.
+		{"A Working Man 2025 conv fsbs 3detective"},
+		{"Moonfall 2022 fsbs Conv Atmos 3detective"},
+		{"The Old Guard 2020 Conv fsbs 3detective"},
+		{"Bullet Train 2022 FSBS x265 10bit Atmos Manual Conv 3detective"},
+		// "Conversion" word.
+		{"The Greatest Showman 2017 1080p 3D Conversion FSBS dtshdma"},
+		{"The Wandering Earth 2019 fsbs conversion"},
+		// HT Conversion (a specific conversion tool/method).
+		{"Dune Part Two 2024 HT Conversion H265 3D Full SBS"},
+		{"The Brothers Grimsby 2016 HT Conversion H265 3D Full SBS"},
+		// 3D Convert (full word, space).
+		{"Avatar.2009.3D Convert.FULL-SBS.1080p.BluRay"},
+	}
+	for _, c := range cases {
+		q := Parse(c.title)
+		if q.Format3D != Format3DConv {
+			t.Errorf("Parse(%q).Format3D = %v, want Format3DConv", c.title, q.Format3D)
+		}
+	}
+}
+
+func TestParse3DConvAIEnhancedAndUpscaled(t *testing.T) {
+	cases := []struct{ title string }{
+		{"Monkey Man 2024 AIenhanced fsbs Conv Atmos 3detective"},
+		{"Spirited 2022 AIenhanced Conv fsbs 3detective"},
+		{"Gunpowder Milkshake 2021 AiEnhanced Atmos fsbs Conv 3detective"},
+		{"Meg 2 The Trench 2023 AIenhanced 1080p Fsbs Conv Atmos 3Detective mkv"},
+		{"A Quiet Place Day One 2024 AIenhanced 1080p fsbs Conv Atmos 3detective"},
+		{"The Batman 2022 AIenhanced 1080p fsbs Conv Atmos 3detective"},
+		{"Planet Of The Apes 1968 Ai Upscaled 60fps fsbs 3Dom"},
+		{"Blade Runner 1982 Ai Enhanced 60fps fsbs 3Dom"},
+		{"Migration 2023 3D 4k Upscaled H SBS TheDarknesS mkv"},
+	}
+	for _, c := range cases {
+		q := Parse(c.title)
+		if q.Format3D != Format3DConv {
+			t.Errorf("Parse(%q).Format3D = %v, want Format3DConv", c.title, q.Format3D)
+		}
+	}
+}
+
+func TestParse3DConvStereoAndDepthCrafter(t *testing.T) {
+	cases := []struct{ title string }{
+		{"Fight Or Flight 2024 fsbs Manual StereoCrafter conv 3detective"},
+		{"The Uninvited 2009 3D FSBS (STEREO CRAFTER) by CBG mkv"},
+		{"Ferrari 2023 H265 3D Conv FullSBS (DepthCrafter) by CBG"},
+	}
+	for _, c := range cases {
+		q := Parse(c.title)
+		if q.Format3D != Format3DConv {
+			t.Errorf("Parse(%q).Format3D = %v, want Format3DConv", c.title, q.Format3D)
+		}
+	}
+}
+
+// Weak conversion markers (bare Conv / Conversion / Upscaled / AI Enhanced) must
+// NOT trigger Format3DConv on non-3D releases, since they appear in unrelated
+// contexts (e.g. a 4K upscale of a 2D release).
+func TestParseWeakConvWithoutNative3DStaysNone(t *testing.T) {
+	cases := []struct{ title string }{
+		{"Movie.2020.1080p.WEBRip.Upscaled.to.4K"},
+		{"The.Conversion.2018.1080p.WEBRip"},
+		{"Some.Movie.2022.AI.Enhanced.2160p.HEVC"},
+	}
+	for _, c := range cases {
+		q := Parse(c.title)
+		if q.Format3D != Format3DNone {
+			t.Errorf("Parse(%q).Format3D = %v, want Format3DNone (weak conv marker without native 3D context)",
+				c.title, q.Format3D)
+		}
+	}
+}
+
+// ── Spec parser symmetry: bare SBS/OU as Half ────────────────────────────────
+
+func TestParseFormat3DSpecBareSBSOUAreHalf(t *testing.T) {
+	for _, tok := range []string{"sbs", "ou", "hsbs", "hou", "half-sbs", "half-ou"} {
+		spec, err := ParseSpec(tok)
+		if err != nil {
+			t.Errorf("ParseSpec(%q): %v", tok, err)
+			continue
+		}
+		if spec.MinFormat3D != Format3DHalf || spec.MaxFormat3D != Format3DHalf {
+			t.Errorf("ParseSpec(%q): got %v..%v, want Half..Half",
+				tok, spec.MinFormat3D, spec.MaxFormat3D)
+		}
+	}
+}
+
+func TestParseFormat3DSpecFullTokens(t *testing.T) {
+	for _, tok := range []string{"fsbs", "fou", "full-sbs", "full-ou", "3dfull"} {
+		spec, err := ParseSpec(tok)
+		if err != nil {
+			t.Errorf("ParseSpec(%q): %v", tok, err)
+			continue
+		}
+		if spec.MinFormat3D != Format3DFull || spec.MaxFormat3D != Format3DFull {
+			t.Errorf("ParseSpec(%q): got %v..%v, want Full..Full",
+				tok, spec.MinFormat3D, spec.MaxFormat3D)
+		}
+	}
+}
+
+// End-to-end regression: a 3dfull spec must reject both Ballerina entries that
+// triggered this fix — the half-3D rip ("H OU") and the conversion ("3D Conv").
+func TestSpec3DFullRejectsBallerinaCases(t *testing.T) {
+	spec, err := ParseSpec("3dfull")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rejected := []string{
+		"Ballerina 3D 2016 1080p H OU BluRay x264 DTS 5 1 vice",
+		"Ballerina 2025 3D Conv FSBS DDP 5 1 Atmos AETHER",
+	}
+	for _, title := range rejected {
+		if spec.Matches(Parse(title)) {
+			t.Errorf("3dfull spec should reject %q (Format3D=%v)",
+				title, Parse(title).Format3D)
+		}
 	}
 }
