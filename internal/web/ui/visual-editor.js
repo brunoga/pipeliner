@@ -40,6 +40,11 @@ let ve_searchConnecting  = null;   // {discoverNodeId, curX, curY} while drawing
 let ve_listConnecting    = null;   // {parentNodeId, curX, curY} while drawing a list edge
 let ve_panX          = 0;      // canvas pan offset (screen pixels)
 let ve_panY          = 0;
+// True when the text editor has been edited by the user since the last
+// textToVisualSync. Used to skip the re-sync (and viewport reset) when the
+// user switches text → visual without typing anything. Starts true so the
+// initial load triggers a sync.
+let ve_textDirty     = true;
 // True while two-finger pinch/pan is active. Single-finger handlers (rubber-
 // band, node drag) read this and abort cleanly so a second finger landing on
 // the canvas takes over without leaving a half-finished marquee behind.
@@ -268,8 +273,9 @@ function switchView(view) {
     if (view === currentView) return;
     doSwitchView('text');
   } else {
-    // Visual: always re-sync so the canvas reflects the current text editor
-    // content — no early-return even if already in visual mode.
+    // Visual: re-sync from the text editor only if the user has actually
+    // edited it since the last sync. Skipping the sync preserves the current
+    // zoom/pan — textToVisualSync resets the viewport unconditionally.
     const load = ve.plugins.length ? Promise.resolve() : loadPalette();
     load.then(() => {
       doSwitchView('visual');
@@ -279,7 +285,7 @@ function switchView(view) {
         veInitPanelDrag();     // wire up the floating param panel drag handle
         ve_canvasInited = true;
       }
-      textToVisualSync();
+      if (ve_textDirty) textToVisualSync();
     });
   }
 }
@@ -6180,6 +6186,7 @@ async function textToVisualSync() {
       ve.selectedNodeId = null;
       ve.activeGraph    = 0;
       ve.syncing = false;
+      ve_textDirty = false;
       veRender();
       setSyncNote('No DAG pipelines found — click "+ Add pipeline" to create one');
       return;
@@ -6348,6 +6355,7 @@ async function textToVisualSync() {
     ve.selectedNodeId = null;
     ve_panX = 0; ve_panY = 0; // reset pan so freshly laid-out nodes are visible
     ve.syncing = false;
+    ve_textDirty = false;
     veDebugLog('textToVisualSync:parsedFromServer', snapshotGraphPositions(ve.graphs));
     // Place all pipelines in order: stored relative positions for those that
     // have a layout comment, auto-layout for those that don't.

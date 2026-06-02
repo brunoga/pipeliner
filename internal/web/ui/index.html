@@ -81,7 +81,7 @@
       <div class="editor-wrap">
         <pre class="editor-hl" id="editor-hl" aria-hidden="true"></pre>
         <textarea class="editor-ta" id="config-editor" spellcheck="false" autocomplete="off"
-          oninput="syncHighlight()" onscroll="syncScroll()" onkeydown="editorTab(event)"></textarea>
+          oninput="ve_textDirty = true; syncHighlight()" onscroll="syncScroll()" onkeydown="editorTab(event)"></textarea>
       </div>
     </div>
 
