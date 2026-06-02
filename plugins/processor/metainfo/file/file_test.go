@@ -277,8 +277,12 @@ func TestPlainTextLeavesUnset(t *testing.T) {
 	if v := e.GetString(entry.FieldMediaType); v != "" {
 		t.Errorf("media_type should be unset for unclassifiable title, got %q", v)
 	}
-	if v := e.GetString(entry.FieldTitle); v != "" {
-		t.Errorf("title should not be set when nothing parsed, got %q", v)
+	// Check Fields directly: GetString("title") would fall back to the
+	// raw struct e.Title, which is set by entry.New; the assertion we
+	// actually want is "metainfo_file did not add a Fields entry".
+	if _, ok := e.Fields[entry.FieldTitle]; ok {
+		t.Errorf("Fields[%q] should not be set when nothing parsed, got %q",
+			entry.FieldTitle, e.Fields[entry.FieldTitle])
 	}
 	if v := e.GetString(entry.FieldMovieTitle); v != "" {
 		t.Errorf("movie_title should not be set when nothing parsed, got %q", v)

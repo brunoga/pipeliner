@@ -98,6 +98,57 @@ func TestRequireMultipleFieldsAllPresent(t *testing.T) {
 	}
 }
 
+// TestRequireURLChecksEntryStructField is the regression test for the
+// user-reported bug: a config writer added "url" to require's fields
+// expecting it to gate on Entry.URL, but require was inspecting only
+// the Fields metadata bag — which nothing populates with "url" — so
+// every entry was rejected. With Entry.Get's struct-field fallback,
+// "url" now reads e.URL.
+func TestRequireURLChecksEntryStructField(t *testing.T) {
+	p := makePlugin(t, map[string]any{"fields": []any{"url"}})
+
+	// Non-empty struct URL passes.
+	good := entry.New("good", "http://example.com/1.torrent")
+	filter(t, p, good)
+	if good.IsRejected() {
+		t.Errorf("entry with non-empty URL should pass, got rejected: %q", good.RejectReason)
+	}
+
+	// Empty struct URL is rejected with the expected reason.
+	bad := entry.New("bad", "")
+	filter(t, p, bad)
+	if !bad.IsRejected() {
+		t.Error("entry with empty URL should be rejected")
+	}
+	if bad.RejectReason != "missing required field: url" {
+		t.Errorf("reject reason: got %q", bad.RejectReason)
+	}
+}
+
+// TestRequireTitleChecksFieldsThenStruct confirms the Fields-wins
+// rule: a metainfo plugin can rewrite Fields["title"] to the canonical
+// name and require should see that; if no plugin set it, the raw
+// struct e.Title still qualifies.
+func TestRequireTitleChecksFieldsThenStruct(t *testing.T) {
+	p := makePlugin(t, map[string]any{"fields": []any{"title"}})
+
+	// Only struct title set — passes via fallback.
+	a := entry.New("My.Show.S01E01", "http://x.com/1")
+	filter(t, p, a)
+	if a.IsRejected() {
+		t.Errorf("entry with non-empty struct Title should pass via fallback, got %q", a.RejectReason)
+	}
+
+	// Fields override empty: even though struct e.Title was set,
+	// Fields["title"] = "" wins and the entry is rejected.
+	b := entry.New("My.Show.S01E01", "http://x.com/2")
+	b.Set("title", "")
+	filter(t, p, b)
+	if !b.IsRejected() {
+		t.Error("empty Fields[\"title\"] should override struct fallback and reject")
+	}
+}
+
 func TestRequireEmptyFieldsConfig(t *testing.T) {
 	_, err := newPlugin(map[string]any{"fields": []any{}}, nil)
 	if err == nil {
