@@ -187,19 +187,22 @@ func parseTorznab(data []byte, indexer string, logger *slog.Logger) ([]*entry.En
 }
 
 // buildSearchParams translates a query entry's hint fields into a Torznab
-// parameter map. Backends that don't recognise the chosen t= category (e.g. an
-// indexer configured only for movies receiving a t=tvsearch) just return empty
-// results — that's the indexer's job to decide, not ours.
+// parameter map, tailored to what the indexer reports it supports.
 //
 // The picked t= category is:
-//   - t=movie    when media_type == "movie"
-//   - t=tvsearch when media_type == "series"
-//   - t=search   otherwise (the generic free-text search Jackett uses in
-//     source/recent-feed mode)
+//   - t=movie    when media_type == "movie" AND caps say movie-search is available
+//   - t=tvsearch when media_type == "series" AND caps say tv-search is available
+//   - t=search   otherwise (generic free-text — every Torznab indexer must
+//     support this)
 //
-// Year and ID hints are added when t=movie or t=tvsearch — the generic t=search
-// category doesn't accept typed filters.
-func buildSearchParams(qe *entry.Entry) url.Values {
+// When caps is nil (caps fetch failed or hasn't run yet) we proceed as if
+// the chosen typed mode is available — searchIndexer's 201-fallback path
+// catches the case where the indexer disagrees.
+//
+// Typed params (year, imdbid, tmdbid, tvdbid, season, ep) are added only
+// when the chosen mode's supportedParams list allows them; the indexer
+// would otherwise return Torznab error 201.
+func buildSearchParams(qe *entry.Entry, caps *indexerCaps) url.Values {
 	params := url.Values{}
 	q := ""
 	if qe != nil {
@@ -215,64 +218,95 @@ func buildSearchParams(qe *entry.Entry) url.Values {
 	mediaType := qe.GetString(entry.FieldMediaType)
 	switch mediaType {
 	case entry.MediaTypeMovie:
-		params.Set("t", "movie")
-		addMovieHints(params, qe)
+		if caps == nil || caps.movieSearch.available {
+			params.Set("t", "movie")
+			mc := modeCaps{} // nil-params → supports() returns true for everything
+			if caps != nil {
+				mc = caps.movieSearch
+			}
+			addMovieHints(params, qe, mc)
+			return params
+		}
 	case entry.MediaTypeSeries:
-		params.Set("t", "tvsearch")
-		addSeriesHints(params, qe)
-	default:
-		params.Set("t", "search")
+		if caps == nil || caps.tvSearch.available {
+			params.Set("t", "tvsearch")
+			mc := modeCaps{}
+			if caps != nil {
+				mc = caps.tvSearch
+			}
+			addSeriesHints(params, qe, mc)
+			return params
+		}
 	}
+	params.Set("t", "search")
 	return params
 }
 
-func addMovieHints(params url.Values, qe *entry.Entry) {
-	if y := qe.GetInt(entry.FieldVideoYear); y > 0 {
-		params.Set("year", strconv.Itoa(y))
+func addMovieHints(params url.Values, qe *entry.Entry, mc modeCaps) {
+	if mc.supports("year") {
+		if y := qe.GetInt(entry.FieldVideoYear); y > 0 {
+			params.Set("year", strconv.Itoa(y))
+		}
 	}
-	if id := imdbIDDigits(firstNonEmpty(
-		qe.GetString(entry.FieldVideoImdbID),
-		qe.GetString("jackett_imdb_id"),
-		qe.GetString("trakt_imdb_id"),
-	)); id != "" {
-		params.Set("imdbid", id)
+	if mc.supports("imdbid") {
+		if id := imdbIDDigits(firstNonEmpty(
+			qe.GetString(entry.FieldVideoImdbID),
+			qe.GetString("jackett_imdb_id"),
+			qe.GetString("trakt_imdb_id"),
+		)); id != "" {
+			params.Set("imdbid", id)
+		}
 	}
-	if id := firstNonEmpty(
-		qe.GetString("jackett_tmdb_id"),
-		intToString(qe.GetInt("trakt_tmdb_id")),
-	); id != "" {
-		params.Set("tmdbid", id)
+	if mc.supports("tmdbid") {
+		if id := firstNonEmpty(
+			qe.GetString("jackett_tmdb_id"),
+			intToString(qe.GetInt("trakt_tmdb_id")),
+		); id != "" {
+			params.Set("tmdbid", id)
+		}
 	}
 }
 
-func addSeriesHints(params url.Values, qe *entry.Entry) {
-	if y := qe.GetInt(entry.FieldVideoYear); y > 0 {
-		params.Set("year", strconv.Itoa(y))
+func addSeriesHints(params url.Values, qe *entry.Entry, mc modeCaps) {
+	if mc.supports("year") {
+		if y := qe.GetInt(entry.FieldVideoYear); y > 0 {
+			params.Set("year", strconv.Itoa(y))
+		}
 	}
-	if id := imdbIDDigits(firstNonEmpty(
-		qe.GetString(entry.FieldVideoImdbID),
-		qe.GetString("jackett_imdb_id"),
-		qe.GetString("trakt_imdb_id"),
-	)); id != "" {
-		params.Set("imdbid", id)
+	if mc.supports("imdbid") {
+		if id := imdbIDDigits(firstNonEmpty(
+			qe.GetString(entry.FieldVideoImdbID),
+			qe.GetString("jackett_imdb_id"),
+			qe.GetString("trakt_imdb_id"),
+		)); id != "" {
+			params.Set("imdbid", id)
+		}
 	}
-	if id := firstNonEmpty(
-		qe.GetString("jackett_tvdb_id"),
-		intToString(qe.GetInt("tvdb_id")),
-	); id != "" {
-		params.Set("tvdbid", id)
+	if mc.supports("tvdbid") {
+		if id := firstNonEmpty(
+			qe.GetString("jackett_tvdb_id"),
+			intToString(qe.GetInt("tvdb_id")),
+		); id != "" {
+			params.Set("tvdbid", id)
+		}
 	}
-	if id := firstNonEmpty(
-		qe.GetString("jackett_tmdb_id"),
-		intToString(qe.GetInt("trakt_tmdb_id")),
-	); id != "" {
-		params.Set("tmdbid", id)
+	if mc.supports("tmdbid") {
+		if id := firstNonEmpty(
+			qe.GetString("jackett_tmdb_id"),
+			intToString(qe.GetInt("trakt_tmdb_id")),
+		); id != "" {
+			params.Set("tmdbid", id)
+		}
 	}
-	if s := qe.GetInt(entry.FieldSeriesSeason); s > 0 {
-		params.Set("season", strconv.Itoa(s))
+	if mc.supports("season") {
+		if s := qe.GetInt(entry.FieldSeriesSeason); s > 0 {
+			params.Set("season", strconv.Itoa(s))
+		}
 	}
-	if ep := qe.GetInt(entry.FieldSeriesEpisode); ep > 0 {
-		params.Set("ep", strconv.Itoa(ep))
+	if mc.supports("ep") {
+		if ep := qe.GetInt(entry.FieldSeriesEpisode); ep > 0 {
+			params.Set("ep", strconv.Itoa(ep))
+		}
 	}
 }
 
@@ -308,9 +342,24 @@ func intToString(n int) string {
 	return strconv.Itoa(n)
 }
 
+// torznabError is the typed error returned for a Torznab
+// <error code="..." description="..."/> response. searchIndexer uses
+// errors.As to detect code "201" (unsupported search mode / parameter) so
+// it can fall back from a typed t=movie/t=tvsearch query to a generic
+// t=search query — some indexers (e.g. 3dtorrents) reject anything but
+// generic search.
+type torznabError struct {
+	Code        string
+	Description string
+}
+
+func (e *torznabError) Error() string {
+	return fmt.Sprintf("torznab error %s: %s", e.Code, e.Description)
+}
+
 // checkTorznabError inspects data for a Torznab error response
-// (<error code="..." description="..."/>) and returns a non-nil error if one
-// is found. Returns nil for normal feed responses.
+// (<error code="..." description="..."/>) and returns a non-nil
+// *torznabError if one is found. Returns nil for normal feed responses.
 func checkTorznabError(data []byte) error {
 	dec := xml.NewDecoder(bytes.NewReader(data))
 	for {
@@ -334,7 +383,7 @@ func checkTorznabError(data []byte) error {
 				desc = a.Value
 			}
 		}
-		return fmt.Errorf("torznab error %s: %s", code, desc)
+		return &torznabError{Code: code, Description: desc}
 	}
 }
 

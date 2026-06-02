@@ -16,13 +16,16 @@ package jackett
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/brunoga/pipeliner/internal/entry"
@@ -80,6 +83,9 @@ type jackettPlugin struct {
 	query      string // static query for source mode; empty = recent results
 	limit      int    // 0 = no limit
 	client     *http.Client
+
+	capsMu    sync.Mutex
+	capsCache map[string]*indexerCaps // per-indexer caps, populated lazily on first search
 }
 
 func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
@@ -130,6 +136,7 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 		query:      query,
 		limit:      limit,
 		client:     &http.Client{Timeout: timeout},
+		capsCache:  make(map[string]*indexerCaps),
 	}, nil
 }
 
@@ -158,14 +165,15 @@ type indexerResult struct {
 // Hint fields on the query entry (media_type, video_year, IMDb/TMDb/TVDB IDs,
 // season/episode) are translated into typed Torznab parameters (t=movie or
 // t=tvsearch with year=/imdbid=/season=/ep=/etc.) so the indexer can filter
-// server-side rather than the caller filtering returned results.
+// server-side rather than the caller filtering returned results. Each
+// indexer's t=caps response decides which mode and params to use; an
+// indexer that advertises only generic t=search (e.g. 3dtorrents) gets a
+// generic query rather than a typed one it would reject with error 201.
 func (p *jackettPlugin) Search(ctx context.Context, tc *plugin.TaskContext, qe *entry.Entry) ([]*entry.Entry, error) {
-	params := buildSearchParams(qe)
-
 	ch := make(chan indexerResult, len(p.indexers))
 	for _, indexer := range p.indexers {
 		go func() {
-			entries, err := p.searchIndexer(ctx, tc, indexer, params)
+			entries, err := p.searchIndexer(ctx, tc, indexer, qe)
 			ch <- indexerResult{indexer: indexer, entries: entries, err: err}
 		}()
 	}
@@ -214,16 +222,49 @@ func (p *jackettPlugin) Search(ctx context.Context, tc *plugin.TaskContext, qe *
 
 // searchIndexer fetches results from a single indexer, retrying up to 3 times
 // on transient failures (network errors and HTTP 5xx). Permanent failures
-// (4xx, Torznab API errors) are returned immediately without retry.
-func (p *jackettPlugin) searchIndexer(ctx context.Context, tc *plugin.TaskContext, indexer string, baseParams url.Values) ([]*entry.Entry, error) {
-	endpoint := fmt.Sprintf("%s/api/v2.0/indexers/%s/results/torznab/api",
-		p.baseURL, url.PathEscape(indexer))
-	// Clone so per-indexer apikey/cat/limit additions don't mutate the shared
-	// param map.
-	params := url.Values{}
-	for k, v := range baseParams {
-		params[k] = v
+// (4xx, Torznab API errors) are returned immediately without retry — except
+// for error 201 ("unsupported search mode/parameter") on a typed query,
+// which triggers a single fallback retry to t=search. This is a safety net
+// for indexers whose caps response disagrees with what they actually accept.
+func (p *jackettPlugin) searchIndexer(ctx context.Context, tc *plugin.TaskContext, indexer string, qe *entry.Entry) ([]*entry.Entry, error) {
+	caps := p.getCaps(ctx, tc, indexer)
+	params := p.indexerParams(buildSearchParams(qe, caps))
+
+	entries, err := p.fetchWithRetry(ctx, tc, indexer, params)
+	if err == nil {
+		return entries, nil
 	}
+
+	var te *torznabError
+	if errors.As(err, &te) && te.Code == "201" && params.Get("t") != "search" {
+		tc.Logger.Warn("jackett: indexer rejected typed search with error 201, falling back to t=search",
+			"indexer", indexer, "t", params.Get("t"), "description", te.Description)
+		fallback := p.indexerParams(fallbackSearchParams(qe))
+		return p.fetchWithRetry(ctx, tc, indexer, fallback)
+	}
+	return nil, err
+}
+
+// fallbackSearchParams builds the minimal generic-search parameter set used
+// when a typed query is rejected. Only q= is set — no typed hints (year,
+// imdbid, season, ep) because the same indexer that rejected the typed
+// mode would reject those too.
+func fallbackSearchParams(qe *entry.Entry) url.Values {
+	params := url.Values{"t": {"search"}}
+	q := ""
+	if qe != nil {
+		q = strings.TrimSpace(qe.Title)
+	}
+	params.Set("q", q)
+	return params
+}
+
+// indexerParams returns a copy of base with the per-indexer fields
+// (apikey, cat, limit) merged in. Keeps the search-param builder pure so
+// the fallback path can reuse the same merge logic.
+func (p *jackettPlugin) indexerParams(base url.Values) url.Values {
+	params := url.Values{}
+	maps.Copy(params, base)
 	params.Set("apikey", p.apiKey)
 	if p.categories != "" {
 		params.Set("cat", p.categories)
@@ -231,6 +272,12 @@ func (p *jackettPlugin) searchIndexer(ctx context.Context, tc *plugin.TaskContex
 	if p.limit > 0 {
 		params.Set("limit", strconv.Itoa(p.limit))
 	}
+	return params
+}
+
+func (p *jackettPlugin) fetchWithRetry(ctx context.Context, tc *plugin.TaskContext, indexer string, params url.Values) ([]*entry.Entry, error) {
+	endpoint := fmt.Sprintf("%s/api/v2.0/indexers/%s/results/torznab/api",
+		p.baseURL, url.PathEscape(indexer))
 	fetchURL := endpoint + "?" + params.Encode()
 
 	tc.Logger.Debug("jackett: querying indexer",
