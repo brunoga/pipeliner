@@ -147,6 +147,7 @@ td code{font-size:11px}
     <a href="#route" class="sub">route()</a>
     <a href="#route-field-inference" class="sub">Field inference</a>
     <a href="#torrentalive" class="sub">torrentalive</a>
+    <a href="#trailer" class="sub">trailer</a>
     <a href="#require" class="sub">require</a>
     <a href="#seen" class="sub">seen</a>
     <a href="#exists" class="sub">exists</a>
@@ -1286,6 +1287,21 @@ output(<span class="y-str">"transmission"</span>, upstream=merge(routes.torrent,
 </table>
 
 <pre><code>alive = process("torrentalive", upstream=upstream, min_seeds=3)</code></pre>
+
+<!-- ─────────── trailer ─────────── -->
+<h2 id="trailer">trailer</h2>
+<p>Detects trailer/teaser/featurette/behind-the-scenes entries by matching title tokens (<code>trailer</code>, <code>teaser</code>, <code>sneak peek</code>, <code>featurette</code>, <code>behind the scenes</code>, <code>BTS</code>) with case-insensitive word boundaries. Useful as a guard on movie pipelines where trackers occasionally publish trailer rips alongside the full release.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>mode</code></td><td>no</td><td><code>reject</code></td><td><code>reject</code> drops trailer-like entries; <code>accept</code> rejects everything that is <em>not</em> a trailer (useful for trailer-only feeds)</td></tr>
+</table>
+
+<pre><code># Default: drop trailers from a movies pipeline.
+clean = process("trailer", upstream=src)
+
+# Or keep only trailers.
+trailers = process("trailer", upstream=src, mode="accept")</code></pre>
 
 <!-- ─────────── require ─────────── -->
 <h2 id="require">require</h2>
