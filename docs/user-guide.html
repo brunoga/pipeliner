@@ -857,6 +857,9 @@ pipeline("movie-discover", schedule="2h")</code></pre>
 <p>Always: <code>source</code> (e.g. <code>jackett:1337x</code>), <code>torrent_link_type</code> (<code>"torrent"</code> or <code>"magnet"</code>).</p>
 <p>When provided by the indexer: <code>torrent_seeds</code>, <code>torrent_leechers</code>, <code>torrent_file_size</code>, <code>torrent_info_hash</code>, <code>torrent_grabs</code>, <code>published_date</code>, <code>video_year</code>, <code>series_season</code>, <code>series_episode</code>, <code>jackett_category</code>, <code>jackett_imdb_id</code>, <code>jackett_tvdb_id</code>, <code>jackett_tmdb_id</code>, <code>jackett_dl_factor</code> (<code>0.0</code> = freeleech), <code>jackett_ul_factor</code>.</p>
 
+<h4>Capability-aware querying</h4>
+<p>On first use, each indexer's Torznab <code>t=caps</code> response is fetched once and cached for the lifetime of the process. The chosen search mode (<code>t=movie</code>, <code>t=tvsearch</code>, or generic <code>t=search</code>) and any typed parameters (<code>year</code>, <code>imdbid</code>, <code>tmdbid</code>, <code>tvdbid</code>, <code>season</code>, <code>ep</code>) are filtered against what the caps advertise as available and supported, so indexers that only support generic free-text search (e.g. 3dtorrents) get plain <code>t=search</code> queries rather than typed ones they would reject with Torznab error 201. If an indexer's caps are wrong or unparseable, the plugin still falls back to <code>t=search</code> once on a 201 response as a safety net.</p>
+
 <h4>Common Torznab categories</h4>
 <table>
   <tr><th>Code</th><th>Category</th></tr>

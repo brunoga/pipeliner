@@ -370,6 +370,7 @@ func TestBuildSearchParams(t *testing.T) {
 	cases := []struct {
 		name    string
 		entry   func() *entry.Entry
+		caps    *indexerCaps
 		wantQ   string
 		wantT   string
 		want    map[string]string
@@ -387,12 +388,12 @@ func TestBuildSearchParams(t *testing.T) {
 			entry: func() *entry.Entry {
 				return entry.New("recent releases", "")
 			},
-			wantQ: "recent releases",
-			wantT: "search",
+			wantQ:   "recent releases",
+			wantT:   "search",
 			notWant: []string{"year", "imdbid"},
 		},
 		{
-			name: "movie — title only",
+			name: "movie — title only, caps unknown",
 			entry: func() *entry.Entry {
 				e := entry.New("Inception", "")
 				e.Set(entry.FieldMediaType, entry.MediaTypeMovie)
@@ -402,7 +403,7 @@ func TestBuildSearchParams(t *testing.T) {
 			wantT: "movie",
 		},
 		{
-			name: "movie — title + year + imdb (canonical tt-prefix stripped)",
+			name: "movie — title + year + imdb (caps unknown → all params allowed)",
 			entry: func() *entry.Entry {
 				e := entry.New("Inception", "")
 				e.Set(entry.FieldMediaType, entry.MediaTypeMovie)
@@ -453,10 +454,72 @@ func TestBuildSearchParams(t *testing.T) {
 			wantT: "search",
 			wantQ: "",
 		},
+		{
+			name: "caps say movie-search unavailable — falls back to t=search",
+			entry: func() *entry.Entry {
+				e := entry.New("Inception", "")
+				e.Set(entry.FieldMediaType, entry.MediaTypeMovie)
+				e.Set(entry.FieldVideoYear, 2010)
+				return e
+			},
+			caps: &indexerCaps{
+				search:      modeCaps{available: true},
+				movieSearch: modeCaps{available: false},
+			},
+			wantT:   "search",
+			wantQ:   "Inception",
+			notWant: []string{"year", "imdbid"},
+		},
+		{
+			name: "caps say tv-search unavailable — falls back to t=search",
+			entry: func() *entry.Entry {
+				e := entry.New("Breaking Bad", "")
+				e.Set(entry.FieldMediaType, entry.MediaTypeSeries)
+				e.Set(entry.FieldSeriesSeason, 3)
+				return e
+			},
+			caps: &indexerCaps{
+				search:   modeCaps{available: true},
+				tvSearch: modeCaps{available: false},
+			},
+			wantT:   "search",
+			notWant: []string{"season", "ep"},
+		},
+		{
+			name: "caps movie-search supports only q — year/imdbid dropped",
+			entry: func() *entry.Entry {
+				e := entry.New("Inception", "")
+				e.Set(entry.FieldMediaType, entry.MediaTypeMovie)
+				e.Set(entry.FieldVideoYear, 2010)
+				e.Set(entry.FieldVideoImdbID, "tt1375666")
+				return e
+			},
+			caps: &indexerCaps{
+				movieSearch: modeCaps{available: true, params: map[string]bool{"q": true}},
+			},
+			wantT:   "movie",
+			notWant: []string{"year", "imdbid"},
+		},
+		{
+			name: "caps tv-search lists season but not ep — only season sent",
+			entry: func() *entry.Entry {
+				e := entry.New("Breaking Bad", "")
+				e.Set(entry.FieldMediaType, entry.MediaTypeSeries)
+				e.Set(entry.FieldSeriesSeason, 3)
+				e.Set(entry.FieldSeriesEpisode, 7)
+				return e
+			},
+			caps: &indexerCaps{
+				tvSearch: modeCaps{available: true, params: map[string]bool{"q": true, "season": true}},
+			},
+			wantT:   "tvsearch",
+			want:    map[string]string{"season": "3"},
+			notWant: []string{"ep"},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			params := buildSearchParams(tc.entry())
+			params := buildSearchParams(tc.entry(), tc.caps)
 			if tc.wantT != "" && params.Get("t") != tc.wantT {
 				t.Errorf("t: got %q, want %q", params.Get("t"), tc.wantT)
 			}
