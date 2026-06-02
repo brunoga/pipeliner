@@ -120,6 +120,8 @@ function loadModule(fetchImpl) {
       exports.clearLog             = clearLog;
       exports.applyFilter          = applyFilter;
       exports.appendLog            = appendLog;
+      exports.renderLogLine        = renderLogLine;
+      exports.trimHistoryOverlap   = trimHistoryOverlap;
       exports.getState = () => ({
         logHistory:    logHistory,
         historyLines:  historyLines,
@@ -295,6 +297,143 @@ describe('log scrollback', () => {
     const hist = exports.getState().historyLines;
     const visible = hist.filter(h => h.el.style.display !== 'none').map(h => h.raw);
     expect(visible).toEqual(['cat']);
+  });
+
+  // ── overlap trim (the 1.3.x scrollback wrap-around bug) ────────────────────
+  //
+  // The server-side history endpoint counts from EOF, so the first chunk a
+  // freshly-connected client requests always overlaps the SSE warm-up tail
+  // already on screen. The client trims that overlap before prepending and
+  // — importantly — still advances offset by the *original* chunk length
+  // so the next fetch reads strictly-older lines.
+
+  it('trims first-chunk overlap against the visible SSE tail', async () => {
+    const fetchStub = async () => jsonResponse({
+      // Only 5 lines on the server, all of which appeared via SSE already.
+      lines: ['t0', 't1', 't2', 't3', 't4'],
+    });
+    const { exports, dom } = loadModule(fetchStub);
+    // Simulate the SSE warm-up populating the live tail.
+    ['t0', 't1', 't2', 't3', 't4'].forEach(l => exports.appendLog(l));
+
+    await exports.loadLogHistory();
+    const s = exports.getState();
+    // Pure-overlap chunk → nothing prepended.
+    expect(s.historyLines).toHaveLength(0);
+    // Offset still advances past the duplicates so the next fetch skips them.
+    expect(s.logHistory.offset).toBe(5);
+    // The short chunk triggers exhausted + the end-marker.
+    expect(s.logHistory.exhausted).toBe(true);
+    expect(s.logHistory.endMarker).not.toBeNull();
+  });
+
+  it('treats ANSI-coded SSE lines as duplicates of their plain file copies', async () => {
+    // SSE line: same content with cyan + reset wrapped around it.
+    const ansi = '\x1b[36mINFO  pipeline started\x1b[0m';
+    const plain = 'INFO  pipeline started';
+    const fetchStub = async () => jsonResponse({ lines: [plain] });
+    const { exports } = loadModule(fetchStub);
+    exports.appendLog(ansi);
+
+    await exports.loadLogHistory();
+    // SSE line and file line match modulo ANSI → chunk fully trimmed.
+    expect(exports.getState().historyLines).toHaveLength(0);
+  });
+
+  it('keeps the older prefix of a partially-overlapping chunk', async () => {
+    // Server returns 5 lines; the newest 3 are already visible via SSE.
+    const fetchStub = async () => jsonResponse({
+      lines: ['old-a', 'old-b', 'visible-1', 'visible-2', 'visible-3'],
+    });
+    const { exports } = loadModule(fetchStub);
+    ['visible-1', 'visible-2', 'visible-3'].forEach(l => exports.appendLog(l));
+
+    await exports.loadLogHistory();
+    const s = exports.getState();
+    expect(s.historyLines.map(h => h.raw)).toEqual(['old-a', 'old-b']);
+    expect(s.logHistory.offset).toBe(5);
+  });
+
+  it('prepends the full chunk when nothing overlaps', async () => {
+    // Later scroll-back: chunk is strictly older than visible.
+    const fetchStub = async () => jsonResponse({
+      lines: Array.from({ length: 200 }, (_, i) => 'older-' + i),
+    });
+    const { exports } = loadModule(fetchStub);
+    exports.appendLog('live-newest');
+
+    await exports.loadLogHistory();
+    expect(exports.getState().historyLines).toHaveLength(200);
+  });
+
+  // ── plain (file-sourced) log line colorizer ────────────────────────────────
+  //
+  // SSE lines arrive with ANSI codes from clog and are rendered by ansiToHtml.
+  // File-sourced scrollback lines have no ANSI; plainLogToHtml mirrors clog's
+  // level + keyword coloring so they look the same on the page.
+
+  it('renders ANSI-bearing lines via ansiToHtml', () => {
+    const { exports } = loadModule(async () => jsonResponse({ lines: [] }));
+    const html = exports.renderLogLine('\x1b[36mhello\x1b[0m');
+    expect(html).toContain('color:#58a6ff');
+    expect(html).toContain('hello');
+  });
+
+  it('colorizes a plain INFO line with cyan level + amber attrs left plain', () => {
+    const { exports } = loadModule(async () => jsonResponse({ lines: [] }));
+    const html = exports.renderLogLine(
+      '2026-06-02 19:31:22.991 INFO  scheduled pipeline=movies-3d schedule="20 * * * *"'
+    );
+    expect(html).toContain('color:#8b949e">2026-06-02 19:31:22.991</span>'); // ts gray
+    expect(html).toContain('color:#58a6ff">INFO</span>');                     // INFO cyan
+    expect(html).toContain('scheduled');
+    // Attrs render outside any color span — match what ANSI version does.
+    expect(html).toContain('pipeline=movies-3d');
+  });
+
+  it('colorizes ERROR level red+bold', () => {
+    const { exports } = loadModule(async () => jsonResponse({ lines: [] }));
+    const html = exports.renderLogLine(
+      '2026-06-02 19:31:22.991 ERROR something exploded task=t1'
+    );
+    expect(html).toContain('color:#f85149');
+    expect(html).toContain('font-weight:600');
+    expect(html).toContain('ERROR');
+  });
+
+  it('highlights accepted/rejected/failed keywords inside the message body', () => {
+    const { exports } = loadModule(async () => jsonResponse({ lines: [] }));
+    // clog colors only the message portion — attrs (key=value pairs after
+    // the message) stay in the terminal's default color. So we craft a log
+    // line whose message contains the keywords directly, not the typical
+    // "pipeline done accepted=5 …" form where they live in attrs.
+    const html = exports.renderLogLine(
+      '2026-06-02 19:31:45.611 INFO  entry accepted by filter task=t1'
+    );
+    expect(html).toContain('color:#3fb950'); // accepted green
+    expect(html).toContain('>accepted<');    // colored inside its own span
+  });
+
+  it('leaves attrs uncolored even when their keys look like keywords', () => {
+    const { exports } = loadModule(async () => jsonResponse({ lines: [] }));
+    // "pipeline done" message + "accepted=0" attr — mirrors clog: only
+    // the message is colored, attrs render plain.
+    const html = exports.renderLogLine(
+      '2026-06-02 19:31:45.611 INFO  pipeline done accepted=0 rejected=0 failed=0'
+    );
+    // No keyword-color spans expected — these colors should not appear at
+    // all because keywords only live in the attrs portion here.
+    expect(html).not.toContain('color:#3fb950');
+    expect(html).not.toContain('color:#bc8cff');
+    // Attrs render as plain text after the colored message span.
+    expect(html).toContain('accepted=0 rejected=0 failed=0');
+  });
+
+  it('falls back to plain HTML for non-conforming lines (no panic)', () => {
+    const { exports } = loadModule(async () => jsonResponse({ lines: [] }));
+    const html = exports.renderLogLine('not a structured log line');
+    // No spans, just escaped text — but does not throw.
+    expect(html).toBe('not a structured log line');
   });
 
   it('survives concurrent maybeLoad calls — only one fetch in flight', async () => {

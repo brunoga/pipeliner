@@ -234,10 +234,18 @@ async function loadLogHistory() {
     if (!r.ok) return;
     const body = await r.json();
     const lines = Array.isArray(body.lines) ? body.lines : [];
-    if (lines.length > 0) {
-      prependHistoryLines(lines);
-      logHistory.offset += lines.length;
+    // The first chunk's newest end usually overlaps the SSE warm-up tail
+    // already in the DOM (server reads lines from EOF; the warm-up came
+    // from the broadcaster's ring of those same lines). Trim that overlap
+    // before prepending so we don't render the visible tail twice — the
+    // file copy carries no ANSI codes so the duplicates would also lose
+    // their colors. Advance offset by the *original* chunk length so the
+    // server-side cursor still skips past the whole fetched window.
+    const fresh = trimHistoryOverlap(lines);
+    if (fresh.length > 0) {
+      prependHistoryLines(fresh);
     }
+    logHistory.offset += lines.length;
     if (lines.length < LOG_HISTORY_LIMIT) {
       logHistory.exhausted = true;
       showHistoryEndMarker();
@@ -247,6 +255,41 @@ async function loadLogHistory() {
   } finally {
     logHistory.loading = false;
   }
+}
+
+// trimHistoryOverlap drops the chunk's newest-end portion that matches
+// the page's newest-end portion. The first history fetch always reads
+// the file's tail (since `offset=0` means "from EOF"), which is exactly
+// the slice the SSE warm-up already showed; without this trim the page
+// would render the live tail twice (and the second copy plain because
+// the on-disk log carries no ANSI). Comparison strips ANSI so SSE-
+// colored lines match their plain file copies. Returns the chunk
+// truncated to its genuinely-older prefix.
+function trimHistoryOverlap(chunk) {
+  if (chunk.length === 0) return chunk;
+  // Page lines in chronological order (newest visible line at the end).
+  const page = [];
+  for (const {raw} of historyLines) page.push(raw);
+  for (const {raw} of logLines) page.push(raw);
+  if (page.length === 0) return chunk;
+
+  // Walk both arrays backwards from their newest end. Each matching pair
+  // is a line on both sides; stop at the first mismatch (older lines in
+  // the chunk that the page doesn't have yet).
+  let i = chunk.length - 1;
+  let j = page.length - 1;
+  let matched = 0;
+  while (i >= 0 && j >= 0 &&
+         stripAnsi(chunk[i]) === stripAnsi(page[j])) {
+    matched++;
+    i--;
+    j--;
+  }
+  return chunk.slice(0, chunk.length - matched);
+}
+
+function stripAnsi(s) {
+  return s.replace(/\x1b\[[0-9;]*m/g, '');
 }
 
 function prependHistoryLines(lines) {
@@ -285,11 +328,99 @@ function showHistoryEndMarker() {
   logHistory.endMarker = marker;
 }
 
-// Convert ANSI escape sequences in a log line to HTML spans.
-// The server sends ANSI-colored output; this renders it faithfully without
-// any message-content guessing.
+// Convert a log line to HTML. Live SSE lines arrive with ANSI codes from
+// the colorizing clog handler; file-sourced scrollback lines do not (the
+// rotating file writer strips ANSI so on-disk logs stay grep-friendly).
+// Detect which by looking for an ESC byte and dispatch — plainLogToHtml
+// mirrors the server's coloring scheme so scrolled-back history keeps
+// the same level colors and keyword highlights as the live tail.
 function renderLogLine(line) {
-  return ansiToHtml(line);
+  if (line.indexOf('\x1b') !== -1) return ansiToHtml(line);
+  return plainLogToHtml(line);
+}
+
+// Mirrors clog/handler.go's renderMsg + level color choice for lines
+// that come from the on-disk log (no ANSI codes). The format is:
+//   "<YYYY-MM-DD HH:MM:SS.mmm> <LEVEL %-5s> <msg><attrs…>"
+// Lines that don't match the format render plain so we never corrupt
+// non-standard output (e.g. third-party libraries writing to stderr).
+const PLAIN_LOG_RE =
+  /^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}) (DEBUG|INFO|WARN|ERROR)(\s+)(.*)$/;
+
+const LEVEL_STYLE = {
+  DEBUG: { color: '#8b949e' },                 // gray
+  INFO:  { color: '#58a6ff' },                 // cyan
+  WARN:  { color: '#d29922' },                 // amber
+  ERROR: { color: '#f85149', bold: true },     // red+bold
+};
+
+// Same keyword highlights clog applies inside the message body.
+const MSG_KEYWORDS = [
+  { word: 'accepted',  style: { color: '#3fb950', bold: true } },
+  { word: 'rejected',  style: { color: '#f85149', bold: true } },
+  { word: 'undecided', style: { color: '#d29922' } },
+  { word: 'failed',    style: { color: '#bc8cff', bold: true } },
+];
+
+function plainLogToHtml(line) {
+  const m = PLAIN_LOG_RE.exec(line);
+  if (!m) return escHtml(line);
+  const [, ts, level, gap, rest] = m;
+  const levelStyle = LEVEL_STYLE[level];
+  // Split the post-level portion into the bare message and the trailing
+  // attrs — clog only colors the message and leaves "key=value" attrs in
+  // the terminal's default color. Attrs start at the first " key=" we see
+  // where key is a slog-style identifier; if there is no such match, the
+  // whole remainder is the message.
+  const attrSplit = rest.search(/ [A-Za-z_][\w.]*=/);
+  const msg   = attrSplit === -1 ? rest : rest.slice(0, attrSplit);
+  const attrs = attrSplit === -1 ? ''   : rest.slice(attrSplit);
+  return (
+    span({ color: '#8b949e' }, escHtml(ts)) + ' ' +
+    span(levelStyle, escHtml(level)) + escHtml(gap) +
+    renderPlainMsg(msg, levelStyle) +
+    escHtml(attrs)
+  );
+}
+
+// renderPlainMsg writes msg in the level's base color, swapping to each
+// keyword's own color when it appears. Mirrors clog.renderMsg's
+// left-to-right keyword scan so the result is byte-equivalent to what an
+// ANSI-rendered line would have produced.
+function renderPlainMsg(msg, baseStyle) {
+  let out = '';
+  let pos = 0;
+  while (pos < msg.length) {
+    let nextAt = -1, nextWord = '', nextStyle = null;
+    for (const kw of MSG_KEYWORDS) {
+      const at = msg.indexOf(kw.word, pos);
+      if (at !== -1 && (nextAt === -1 || at < nextAt)) {
+        nextAt = at; nextWord = kw.word; nextStyle = kw.style;
+      }
+    }
+    if (nextAt === -1) {
+      out += span(baseStyle, escHtml(msg.slice(pos)));
+      break;
+    }
+    if (nextAt > pos) {
+      out += span(baseStyle, escHtml(msg.slice(pos, nextAt)));
+    }
+    out += span(nextStyle, escHtml(nextWord));
+    pos = nextAt + nextWord.length;
+  }
+  return out;
+}
+
+function span(style, content) {
+  if (!style || !content) return content;
+  const css = [];
+  if (style.color) css.push('color:' + style.color);
+  if (style.bold)  css.push('font-weight:600');
+  return css.length ? `<span style="${css.join(';')}">${content}</span>` : content;
+}
+
+function escHtml(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 const ANSI_COLORS = {
