@@ -283,7 +283,7 @@ section { margin-bottom: 36px; }
   gap: 2px;
   margin-bottom: 12px;
 }
-.task-timing span { display: flex; justify-content: space-between; gap: 8px; }
+.task-timing span { display: flex; justify-content: space-between; gap: 8px; white-space: nowrap; }
 .task-timing b { color: var(--text); font-weight: 500; }
 
 /* stat numbers — visual anchor of each card */
