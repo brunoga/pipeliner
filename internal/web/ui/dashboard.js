@@ -73,8 +73,13 @@ function card(t, last, idx = 0) {
   const schedBadge = `<span class="task-schedule"${schedOpacity} title="${esc(t.schedule || '')}">${esc(schedLabel)}</span>`;
 
   const nextStr = nextDate ? 'in ' + relTime(nextDate) : '—';
+  // DRY badge lives next to the "Last run" label, not next to the timing
+  // text — placing it inside the right-side <b> with "1m ago · 1.5s" made
+  // the whole line wrap inside narrow cards, pushing the stats grid down.
+  // Anchored to the left label it never widens the right side, so the
+  // row stays single-line regardless of card width.
   const dryBadge = (last && last.dry_run) ? ' <span class="dry-badge" title="Last run was a dry-run">DRY</span>' : '';
-  const lastStr = last ? relTime(new Date(last.at)) + ' ago' + dryBadge : 'never';
+  const lastStr = last ? relTime(new Date(last.at)) + ' ago' : 'never';
   const durStr  = last ? ' · ' + last.duration : '';
 
   // Card accent stripe color reflects last run health at a glance.
@@ -113,7 +118,7 @@ function card(t, last, idx = 0) {
       </div>
       <div class="task-timing">
         <span><span>Next run</span><b>${nextStr}</b></span>
-        <span><span>Last run</span><b>${lastStr}${esc(durStr)}</b></span>
+        <span><span>Last run${dryBadge}</span><b>${lastStr}${esc(durStr)}</b></span>
       </div>
       ${stats}
       ${errLine}
