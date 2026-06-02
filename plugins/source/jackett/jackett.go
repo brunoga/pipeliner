@@ -136,9 +136,11 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 func (p *jackettPlugin) Name() string { return "jackett" }
 
 // Generate implements SourcePlugin — returns recent results, or results for the
-// configured static query if one was set.
+// configured static query if one was set. Wraps the static query in a synthetic
+// entry so Search's hint-extraction path naturally falls back to a plain
+// title-only Torznab call (no year/imdbid/season/etc. on the entry).
 func (p *jackettPlugin) Generate(ctx context.Context, tc *plugin.TaskContext) ([]*entry.Entry, error) {
-	return p.Search(ctx, tc, p.query)
+	return p.Search(ctx, tc, entry.New(p.query, ""))
 }
 
 type indexerResult struct {
@@ -152,11 +154,18 @@ type indexerResult struct {
 // and skipped so a single broken indexer never aborts results from others.
 // Deduplication prefers the entry with the most seeds when the same info hash
 // appears from multiple indexers.
-func (p *jackettPlugin) Search(ctx context.Context, tc *plugin.TaskContext, query string) ([]*entry.Entry, error) {
+//
+// Hint fields on the query entry (media_type, video_year, IMDb/TMDb/TVDB IDs,
+// season/episode) are translated into typed Torznab parameters (t=movie or
+// t=tvsearch with year=/imdbid=/season=/ep=/etc.) so the indexer can filter
+// server-side rather than the caller filtering returned results.
+func (p *jackettPlugin) Search(ctx context.Context, tc *plugin.TaskContext, qe *entry.Entry) ([]*entry.Entry, error) {
+	params := buildSearchParams(qe)
+
 	ch := make(chan indexerResult, len(p.indexers))
 	for _, indexer := range p.indexers {
 		go func() {
-			entries, err := p.searchIndexer(ctx, tc, indexer, query)
+			entries, err := p.searchIndexer(ctx, tc, indexer, params)
 			ch <- indexerResult{indexer: indexer, entries: entries, err: err}
 		}()
 	}
@@ -206,14 +215,16 @@ func (p *jackettPlugin) Search(ctx context.Context, tc *plugin.TaskContext, quer
 // searchIndexer fetches results from a single indexer, retrying up to 3 times
 // on transient failures (network errors and HTTP 5xx). Permanent failures
 // (4xx, Torznab API errors) are returned immediately without retry.
-func (p *jackettPlugin) searchIndexer(ctx context.Context, tc *plugin.TaskContext, indexer, query string) ([]*entry.Entry, error) {
+func (p *jackettPlugin) searchIndexer(ctx context.Context, tc *plugin.TaskContext, indexer string, baseParams url.Values) ([]*entry.Entry, error) {
 	endpoint := fmt.Sprintf("%s/api/v2.0/indexers/%s/results/torznab/api",
 		p.baseURL, url.PathEscape(indexer))
-	params := url.Values{
-		"apikey": {p.apiKey},
-		"t":      {"search"},
-		"q":      {query},
+	// Clone so per-indexer apikey/cat/limit additions don't mutate the shared
+	// param map.
+	params := url.Values{}
+	for k, v := range baseParams {
+		params[k] = v
 	}
+	params.Set("apikey", p.apiKey)
 	if p.categories != "" {
 		params.Set("cat", p.categories)
 	}
@@ -222,7 +233,8 @@ func (p *jackettPlugin) searchIndexer(ctx context.Context, tc *plugin.TaskContex
 	}
 	fetchURL := endpoint + "?" + params.Encode()
 
-	tc.Logger.Debug("jackett: querying indexer", "indexer", indexer, "query", query)
+	tc.Logger.Debug("jackett: querying indexer",
+		"indexer", indexer, "t", params.Get("t"), "q", params.Get("q"))
 
 	var lastErr error
 	for attempt := range 3 {

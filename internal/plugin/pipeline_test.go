@@ -41,8 +41,8 @@ func (m *mockSearchPlugin) Name() string { return "mock_search" }
 func (m *mockSearchPlugin) Generate(_ context.Context, _ *TaskContext) ([]*entry.Entry, error) {
 	return nil, nil
 }
-func (m *mockSearchPlugin) Search(_ context.Context, _ *TaskContext, query string) ([]*entry.Entry, error) {
-	return []*entry.Entry{entry.New("result for "+query, "http://example.com/result")}, nil
+func (m *mockSearchPlugin) Search(_ context.Context, _ *TaskContext, qe *entry.Entry) ([]*entry.Entry, error) {
+	return []*entry.Entry{entry.New("result for "+qe.Title, "http://example.com/result")}, nil
 }
 
 // setupMocks resets the registry and registers the three mock plugins used by
@@ -163,7 +163,7 @@ func TestMakeSearchPipeline(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	entries, err := sp.Search(context.Background(), pipelineTC(), "breaking bad")
+	entries, err := sp.Search(context.Background(), pipelineTC(), entry.New("breaking bad", ""))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,7 +184,7 @@ func TestMakeSearchPipelineWithProcessor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	entries, err := sp.Search(context.Background(), pipelineTC(), "breaking bad")
+	entries, err := sp.Search(context.Background(), pipelineTC(), entry.New("breaking bad", ""))
 	if err != nil {
 		t.Fatal(err)
 	}

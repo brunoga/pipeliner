@@ -80,7 +80,7 @@ func TestSearchSendsCorrectQueryParams(t *testing.T) {
 	p := makePlugin(t, srv.URL, "mykey", map[string]any{
 		"categories": []any{"5000", "5030"},
 	})
-	_, err := p.Search(context.Background(), tc(), "Breaking Bad")
+	_, err := p.Search(context.Background(), tc(), entry.New("Breaking Bad", ""))
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestSearchSetsUserAgent(t *testing.T) {
 	defer srv.Close()
 
 	p := makePlugin(t, srv.URL, "key", nil)
-	_, _ = p.Search(context.Background(), tc(), "test")
+	_, _ = p.Search(context.Background(), tc(), entry.New("test", ""))
 	if gotUA != "pipeliner/1.0" {
 		t.Errorf("User-Agent: got %q, want pipeliner/1.0", gotUA)
 	}
@@ -130,7 +130,7 @@ func TestSearchParsesEntries(t *testing.T) {
 	defer srv.Close()
 
 	p := makePlugin(t, srv.URL, "key", nil)
-	entries, err := p.Search(context.Background(), tc(), "Breaking Bad")
+	entries, err := p.Search(context.Background(), tc(), entry.New("Breaking Bad", ""))
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -181,7 +181,7 @@ func TestSearchQueriesAllIndexers(t *testing.T) {
 	p := makePlugin(t, srv.URL, "key", map[string]any{
 		"indexers": []any{"idx1", "idx2", "idx3"},
 	})
-	_, err := p.Search(context.Background(), tc(), "Show")
+	_, err := p.Search(context.Background(), tc(), entry.New("Show", ""))
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -209,7 +209,7 @@ func TestSearchFailureReturnsNoEntriesNoError(t *testing.T) {
 	defer srv.Close()
 
 	p := makePlugin(t, srv.URL, "key", nil)
-	entries, err := p.Search(context.Background(), tc(), "Show")
+	entries, err := p.Search(context.Background(), tc(), entry.New("Show", ""))
 	if err != nil {
 		t.Errorf("Search should not return error on indexer failure, got: %v", err)
 	}
@@ -225,7 +225,7 @@ func TestSearchEmptyFeed(t *testing.T) {
 	defer srv.Close()
 
 	p := makePlugin(t, srv.URL, "key", nil)
-	entries, err := p.Search(context.Background(), tc(), "anything")
+	entries, err := p.Search(context.Background(), tc(), entry.New("anything", ""))
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -243,7 +243,7 @@ func TestLimitSentAsQueryParam(t *testing.T) {
 	defer srv.Close()
 
 	p := makePlugin(t, srv.URL, "key", map[string]any{"limit": int64(50)})
-	_, err := p.Search(context.Background(), tc(), "test")
+	_, err := p.Search(context.Background(), tc(), entry.New("test", ""))
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -261,7 +261,7 @@ func TestNoLimitOmitsParam(t *testing.T) {
 	defer srv.Close()
 
 	p := makePlugin(t, srv.URL, "key", nil)
-	_, _ = p.Search(context.Background(), tc(), "test")
+	_, _ = p.Search(context.Background(), tc(), entry.New("test", ""))
 	if strings.Contains(gotRaw, "limit=") {
 		t.Errorf("limit param should be absent when not configured; got %q", gotRaw)
 	}
@@ -350,7 +350,7 @@ func TestNoCategoriesOmitsParam(t *testing.T) {
 	defer srv.Close()
 
 	p := makePlugin(t, srv.URL, "key", nil)
-	_, _ = p.Search(context.Background(), tc(), "test")
+	_, _ = p.Search(context.Background(), tc(), entry.New("test", ""))
 	if strings.Contains(gotRaw, "cat=") {
 		t.Errorf("cat param should be absent when no categories configured; got %q", gotRaw)
 	}
@@ -369,7 +369,7 @@ func TestSearchMagnetURLUsedWhenMagneturlAttrPresent(t *testing.T) {
 	defer srv.Close()
 
 	p := makePlugin(t, srv.URL, "key", nil)
-	entries, err := p.Search(context.Background(), tc(), "My Show")
+	entries, err := p.Search(context.Background(), tc(), entry.New("My Show", ""))
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -396,7 +396,7 @@ func TestSearchTorrentLinkTypeSetForNonMagnet(t *testing.T) {
 	defer srv.Close()
 
 	p := makePlugin(t, srv.URL, "key", nil)
-	entries, err := p.Search(context.Background(), tc(), "My Show")
+	entries, err := p.Search(context.Background(), tc(), entry.New("My Show", ""))
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -481,7 +481,7 @@ func TestSearchRetriesOn5xx(t *testing.T) {
 	defer srv.Close()
 
 	p := makePlugin(t, srv.URL, "key", nil)
-	entries, err := p.Search(context.Background(), tc(), "show")
+	entries, err := p.Search(context.Background(), tc(), entry.New("show", ""))
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -502,7 +502,7 @@ func TestSearchNoRetryOn4xx(t *testing.T) {
 	defer srv.Close()
 
 	p := makePlugin(t, srv.URL, "key", nil)
-	p.Search(context.Background(), tc(), "show") //nolint:errcheck
+	p.Search(context.Background(), tc(), entry.New("show", "")) //nolint:errcheck
 	if attempts != 1 {
 		t.Errorf("expected 1 attempt for 4xx, got %d", attempts)
 	}
@@ -518,7 +518,7 @@ func TestSearchNoRetryOnAPIError(t *testing.T) {
 
 	p := makePlugin(t, srv.URL, "key", nil)
 	// Torznab API errors are permanent — Search logs them and returns empty.
-	p.Search(context.Background(), tc(), "show") //nolint:errcheck
+	p.Search(context.Background(), tc(), entry.New("show", "")) //nolint:errcheck
 	if attempts != 1 {
 		t.Errorf("expected 1 attempt for API error, got %d", attempts)
 	}
@@ -553,7 +553,7 @@ func TestSearchDeduplicatesByInfoHash(t *testing.T) {
 	p := makePlugin(t, srv.URL, "key", map[string]any{
 		"indexers": []any{"indexer-a", "indexer-b"},
 	})
-	entries, err := p.Search(context.Background(), tc(), "show")
+	entries, err := p.Search(context.Background(), tc(), entry.New("show", ""))
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -579,7 +579,7 @@ func TestSearchKeepsBothWhenHashesDiffer(t *testing.T) {
 	defer srv.Close()
 
 	p := makePlugin(t, srv.URL, "key", nil)
-	entries, err := p.Search(context.Background(), tc(), "show")
+	entries, err := p.Search(context.Background(), tc(), entry.New("show", ""))
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}

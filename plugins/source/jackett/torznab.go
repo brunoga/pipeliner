@@ -186,6 +186,128 @@ func parseTorznab(data []byte, indexer string, logger *slog.Logger) ([]*entry.En
 	return entries, nil
 }
 
+// buildSearchParams translates a query entry's hint fields into a Torznab
+// parameter map. Backends that don't recognise the chosen t= category (e.g. an
+// indexer configured only for movies receiving a t=tvsearch) just return empty
+// results — that's the indexer's job to decide, not ours.
+//
+// The picked t= category is:
+//   - t=movie    when media_type == "movie"
+//   - t=tvsearch when media_type == "series"
+//   - t=search   otherwise (the generic free-text search Jackett uses in
+//     source/recent-feed mode)
+//
+// Year and ID hints are added when t=movie or t=tvsearch — the generic t=search
+// category doesn't accept typed filters.
+func buildSearchParams(qe *entry.Entry) url.Values {
+	params := url.Values{}
+	q := ""
+	if qe != nil {
+		q = strings.TrimSpace(qe.Title)
+	}
+	params.Set("q", q)
+
+	if qe == nil {
+		params.Set("t", "search")
+		return params
+	}
+
+	mediaType := qe.GetString(entry.FieldMediaType)
+	switch mediaType {
+	case entry.MediaTypeMovie:
+		params.Set("t", "movie")
+		addMovieHints(params, qe)
+	case entry.MediaTypeSeries:
+		params.Set("t", "tvsearch")
+		addSeriesHints(params, qe)
+	default:
+		params.Set("t", "search")
+	}
+	return params
+}
+
+func addMovieHints(params url.Values, qe *entry.Entry) {
+	if y := qe.GetInt(entry.FieldVideoYear); y > 0 {
+		params.Set("year", strconv.Itoa(y))
+	}
+	if id := imdbIDDigits(firstNonEmpty(
+		qe.GetString(entry.FieldVideoImdbID),
+		qe.GetString("jackett_imdb_id"),
+		qe.GetString("trakt_imdb_id"),
+	)); id != "" {
+		params.Set("imdbid", id)
+	}
+	if id := firstNonEmpty(
+		qe.GetString("jackett_tmdb_id"),
+		intToString(qe.GetInt("trakt_tmdb_id")),
+	); id != "" {
+		params.Set("tmdbid", id)
+	}
+}
+
+func addSeriesHints(params url.Values, qe *entry.Entry) {
+	if y := qe.GetInt(entry.FieldVideoYear); y > 0 {
+		params.Set("year", strconv.Itoa(y))
+	}
+	if id := imdbIDDigits(firstNonEmpty(
+		qe.GetString(entry.FieldVideoImdbID),
+		qe.GetString("jackett_imdb_id"),
+		qe.GetString("trakt_imdb_id"),
+	)); id != "" {
+		params.Set("imdbid", id)
+	}
+	if id := firstNonEmpty(
+		qe.GetString("jackett_tvdb_id"),
+		intToString(qe.GetInt("tvdb_id")),
+	); id != "" {
+		params.Set("tvdbid", id)
+	}
+	if id := firstNonEmpty(
+		qe.GetString("jackett_tmdb_id"),
+		intToString(qe.GetInt("trakt_tmdb_id")),
+	); id != "" {
+		params.Set("tmdbid", id)
+	}
+	if s := qe.GetInt(entry.FieldSeriesSeason); s > 0 {
+		params.Set("season", strconv.Itoa(s))
+	}
+	if ep := qe.GetInt(entry.FieldSeriesEpisode); ep > 0 {
+		params.Set("ep", strconv.Itoa(ep))
+	}
+}
+
+// imdbIDDigits strips a leading "tt" prefix and returns the numeric portion of
+// an IMDb ID — Torznab indexers expect the bare digits ("0903747"), not the
+// canonical "tt0903747" form.
+func imdbIDDigits(s string) string {
+	s = strings.TrimPrefix(strings.TrimSpace(s), "tt")
+	if s == "" {
+		return ""
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return ""
+		}
+	}
+	return s
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+func intToString(n int) string {
+	if n <= 0 {
+		return ""
+	}
+	return strconv.Itoa(n)
+}
+
 // checkTorznabError inspects data for a Torznab error response
 // (<error code="..." description="..."/>) and returns a non-nil error if one
 // is found. Returns nil for normal feed responses.

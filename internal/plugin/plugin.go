@@ -77,9 +77,18 @@ type CommitPlugin interface {
 	Commit(ctx context.Context, tc *TaskContext, entries []*entry.Entry) error
 }
 
-// SearchPlugin actively searches a source for entries matching a query string.
-// SearchPlugins are used as search sub-plugins by the discover processor.
+// SearchPlugin actively searches a source for entries matching a query entry.
+// SearchPlugins are used as search sub-plugins by the discover processor, which
+// forwards the upstream entry so search backends can opportunistically use any
+// available metadata as search hints (year, IMDb/TMDb/TVDB IDs, media_type,
+// season/episode, …). The entry's Title is always present; other fields may or
+// may not be — backends should treat them as optional refinements on top of the
+// title.
+//
+// In source mode (called from Generate with a synthetic entry that carries only
+// the configured static query as its Title), the entry has no hint fields, so
+// backends naturally fall back to a plain title-only search.
 type SearchPlugin interface {
 	Plugin
-	Search(ctx context.Context, tc *TaskContext, query string) ([]*entry.Entry, error)
+	Search(ctx context.Context, tc *TaskContext, e *entry.Entry) ([]*entry.Entry, error)
 }

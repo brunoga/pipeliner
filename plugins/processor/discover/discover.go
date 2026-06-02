@@ -125,57 +125,65 @@ func resolveSearchPlugin(item any, db *store.SQLiteStore) (plugin.SearchPlugin, 
 func (p *discoverPlugin) Name() string        { return "discover" }
 
 // Process implements ProcessorPlugin for DAG pipelines. Upstream entries supply
-// the title list (via their .Title field); static titles from config are also
-// included.
+// the title list (via their .Title field) plus optional search hints in other
+// fields (year, IDs, season/episode, …) that backends may use to refine the
+// query. Static titles from config produce synthetic entries with only Title
+// set, so they fall back to plain title-only searches.
 func (p *discoverPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
-	titles := append([]string{}, p.titles...)
+	// Upstream entries come first so their hint fields beat bare static-title
+	// entries when both share a title.
+	candidates := make([]*entry.Entry, 0, len(entries)+len(p.titles))
 	for _, e := range entries {
 		if e.Title != "" {
-			titles = append(titles, e.Title)
+			candidates = append(candidates, e)
 		}
 	}
-	return p.searchTitles(ctx, tc, titles)
+	for _, t := range p.titles {
+		candidates = append(candidates, entry.New(t, ""))
+	}
+	return p.searchEntries(ctx, tc, candidates)
 }
 
-// searchTitles deduplicates the title list and dispatches searches via the
-// configured search plugins, respecting the per-title interval cooldown.
-func (p *discoverPlugin) searchTitles(ctx context.Context, tc *plugin.TaskContext, titles []string) ([]*entry.Entry, error) {
-	// Deduplicate case-insensitively, preserve order.
+// searchEntries deduplicates the candidate list by lowercased title (preserving
+// the first-seen entry, so hint-rich upstream entries beat bare static ones)
+// and dispatches searches via the configured search plugins, respecting the
+// per-title interval cooldown.
+func (p *discoverPlugin) searchEntries(ctx context.Context, tc *plugin.TaskContext, candidates []*entry.Entry) ([]*entry.Entry, error) {
 	seenTitle := map[string]bool{}
-	unique := titles[:0:0]
-	for _, t := range titles {
-		if key := strings.ToLower(t); !seenTitle[key] {
+	unique := candidates[:0:0]
+	for _, e := range candidates {
+		key := strings.ToLower(e.Title)
+		if !seenTitle[key] {
 			seenTitle[key] = true
-			unique = append(unique, t)
+			unique = append(unique, e)
 		}
 	}
-	titles = unique
 
 	bucket := p.db.Bucket("discover:" + tc.Name)
 	seen := map[string]bool{}
 	var all []*entry.Entry
 
-	for _, title := range titles {
+	for _, qe := range unique {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		key := strings.ToLower(title)
+		key := strings.ToLower(qe.Title)
 
 		var rec searchRecord
 		found, err := bucket.Get(key, &rec)
 		if err != nil {
-			return nil, fmt.Errorf("discover: check interval for %q: %w", title, err)
+			return nil, fmt.Errorf("discover: check interval for %q: %w", qe.Title, err)
 		}
 		if found && time.Since(rec.LastSearched) < p.interval {
-			tc.Logger.Debug("discover: skipping (within interval)", "title", title)
+			tc.Logger.Debug("discover: skipping (within interval)", "title", qe.Title)
 			continue
 		}
 
 		for _, sp := range p.searchers {
-			results, searchErr := sp.Search(ctx, tc, title)
+			results, searchErr := sp.Search(ctx, tc, qe)
 			if searchErr != nil {
 				tc.Logger.Warn("discover: search failed",
-					"plugin", sp.Name(), "title", title, "err", searchErr)
+					"plugin", sp.Name(), "title", qe.Title, "err", searchErr)
 				continue
 			}
 			for _, e := range results {
@@ -187,7 +195,7 @@ func (p *discoverPlugin) searchTitles(ctx context.Context, tc *plugin.TaskContex
 		}
 
 		if putErr := bucket.Put(key, searchRecord{LastSearched: time.Now().UTC()}); putErr != nil {
-			tc.Logger.Warn("discover: update search timestamp failed", "title", title, "err", putErr)
+			tc.Logger.Warn("discover: update search timestamp failed", "title", qe.Title, "err", putErr)
 		}
 	}
 	return all, nil

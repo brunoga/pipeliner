@@ -10,7 +10,21 @@ Fetches entries from an RSS 2.0 or Atom 1.0 feed. Use `url=` for a fixed passive
 | `url_template` | conditional | — | URL with `{Query}` or `{QueryEscaped}` placeholder for search mode |
 | `timeout` | no | `30s` | HTTP request timeout |
 
-Exactly one of `url` or `url_template` is required. Template variables: `{Query}` (raw), `{QueryEscaped}` (URL-encoded). Go template syntax `{{.Query}}` / `{{.QueryEscaped}}` also works.
+Exactly one of `url` or `url_template` is required. Template variables (brace or Go syntax both work):
+
+| Variable | Source | Notes |
+|---|---|---|
+| `{Query}` / `{Title}` | upstream entry's title | the string discover passes to Search |
+| `{QueryEscaped}` / `{TitleEscaped}` | same, URL-encoded | use when the value goes in a query parameter |
+| `{MediaType}` | upstream `media_type` | `"movie"`, `"series"`, or `""` |
+| `{Year}` | upstream `video_year` | `""` when absent (so no spurious `&year=0`) |
+| `{IMDbID}` | `video_imdb_id` / `jackett_imdb_id` / `trakt_imdb_id` | canonical `tt…` form preserved |
+| `{TMDbID}` | `jackett_tmdb_id` / `trakt_tmdb_id` | `""` when absent |
+| `{TVDbID}` | `jackett_tvdb_id` / `tvdb_id` | `""` when absent |
+| `{Season}` | `series_season` | `""` when absent |
+| `{Episode}` | `series_episode` | `""` when absent |
+
+In source mode (`url=`) and in `discover.search` mode when the upstream entry only carries a title, the hint variables are empty strings.
 
 ## Fields set on entry
 

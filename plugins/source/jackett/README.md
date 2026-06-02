@@ -93,6 +93,7 @@ pipeline("movie-discover", schedule="2h")
 - All configured indexers are queried concurrently; results are merged and deduplicated. When the same info hash appears from multiple indexers, the entry with more seeds is kept.
 - Transient failures (network errors, HTTP 5xx) are retried up to 3 times with backoff. A broken indexer is logged and skipped — it does not abort results from other indexers.
 - Category filtering is applied server-side by Jackett.
+- **Search-backend mode (inside `discover.search`)** uses typed Torznab parameters when the upstream entry carries the corresponding hint fields: `media_type` picks `t=movie` vs `t=tvsearch` (otherwise generic `t=search`), `video_year` → `year=`, `video_imdb_id` / `jackett_imdb_id` / `trakt_imdb_id` → `imdbid=` (numeric portion only — the `tt` prefix is stripped), `jackett_tmdb_id` / `trakt_tmdb_id` → `tmdbid=`, `jackett_tvdb_id` / `tvdb_id` → `tvdbid=`, `series_season` → `season=`, `series_episode` → `ep=`. In source mode the configured `query` is sent as a plain `q=` with no extra filters.
 - `torrent_info_hash` being set makes separate `metainfo_torrent` or `metainfo_magnet` fetches unnecessary for hash-based operations.
 - `jackett_tvdb_id` and `jackett_tmdb_id` follow the same convention as `trakt_tvdb_id` / `trakt_tmdb_id` — downstream metainfo plugins can use them for faster by-ID lookups instead of title searches.
 - `jackett_dl_factor = 0.0` means freeleech (no download credit consumed) on private trackers.

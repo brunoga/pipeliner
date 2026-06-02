@@ -18,6 +18,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -123,16 +124,21 @@ func (p *rssPlugin) Name() string { return "rss" }
 
 // Generate implements SourcePlugin — fetches the feed with an empty query.
 func (p *rssPlugin) Generate(ctx context.Context, tc *plugin.TaskContext) ([]*entry.Entry, error) {
-	return p.Search(ctx, tc, "")
+	return p.Search(ctx, tc, entry.New("", ""))
 }
 
-// Search implements SearchPlugin — renders the URL template with query, fetches
-// and parses the feed, then returns the resulting entries.
-func (p *rssPlugin) Search(ctx context.Context, tc *plugin.TaskContext, query string) ([]*entry.Entry, error) {
-	fetchURL, err := p.urlIP.Render(map[string]any{
-		"Query":        query,
-		"QueryEscaped": url.QueryEscape(query),
-	})
+// Search implements SearchPlugin — renders the URL template against the query
+// entry's Title plus optional hint fields (year, IMDb/TMDb/TVDB IDs, season,
+// episode, media_type), fetches and parses the feed, then returns the
+// resulting entries. Existing templates that only reference {{.Query}} /
+// {{.QueryEscaped}} continue to work unchanged; new templates can refine the
+// URL with the additional variables.
+func (p *rssPlugin) Search(ctx context.Context, tc *plugin.TaskContext, qe *entry.Entry) ([]*entry.Entry, error) {
+	query := ""
+	if qe != nil {
+		query = strings.TrimSpace(qe.Title)
+	}
+	fetchURL, err := p.urlIP.Render(templateData(qe, query))
 	if err != nil {
 		return nil, fmt.Errorf("rss: render URL for %q: %w", query, err)
 	}
@@ -500,4 +506,78 @@ func atomCategories(cats []atomCategory) string {
 		}
 	}
 	return strings.Join(parts, ", ")
+}
+
+// templateData returns the variable map used by url_template rendering. Hint
+// fields from the query entry are exposed alongside the title so templates can
+// build typed search URLs (e.g. .Year, .IMDbID, .Season). Integer hints render
+// as empty strings when zero so a template like "{{.Year}}" doesn't emit "0"
+// for source/recent-feed mode where no entry-side year is present.
+func templateData(qe *entry.Entry, query string) map[string]any {
+	data := map[string]any{
+		"Query":        query,
+		"QueryEscaped": url.QueryEscape(query),
+		"Title":        query,
+		"TitleEscaped": url.QueryEscape(query),
+		"MediaType":    "",
+		"Year":         "",
+		"IMDbID":       "",
+		"TMDbID":       "",
+		"TVDbID":       "",
+		"Season":       "",
+		"Episode":      "",
+	}
+	if qe == nil {
+		return data
+	}
+	if v := qe.GetString(entry.FieldMediaType); v != "" {
+		data["MediaType"] = v
+	}
+	if v := qe.GetInt(entry.FieldVideoYear); v > 0 {
+		data["Year"] = strconv.Itoa(v)
+	}
+	if v := firstNonEmpty(
+		qe.GetString(entry.FieldVideoImdbID),
+		qe.GetString("jackett_imdb_id"),
+		qe.GetString("trakt_imdb_id"),
+	); v != "" {
+		data["IMDbID"] = v
+	}
+	if v := firstNonEmpty(
+		qe.GetString("jackett_tmdb_id"),
+		intToString(qe.GetInt("trakt_tmdb_id")),
+	); v != "" {
+		data["TMDbID"] = v
+	}
+	if v := firstNonEmpty(
+		qe.GetString("jackett_tvdb_id"),
+		intToString(qe.GetInt("tvdb_id")),
+	); v != "" {
+		data["TVDbID"] = v
+	}
+	if v := qe.GetInt(entry.FieldSeriesSeason); v > 0 {
+		data["Season"] = strconv.Itoa(v)
+	}
+	if v := qe.GetInt(entry.FieldSeriesEpisode); v > 0 {
+		data["Episode"] = strconv.Itoa(v)
+	}
+	return data
+}
+
+// firstNonEmpty returns the first non-empty string in values, or "".
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// intToString returns "" when n <= 0, otherwise strconv.Itoa(n).
+func intToString(n int) string {
+	if n <= 0 {
+		return ""
+	}
+	return strconv.Itoa(n)
 }
