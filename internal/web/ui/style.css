@@ -375,6 +375,33 @@ section { margin-bottom: 36px; }
 }
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
 
+.btn-run-group {
+  margin-top: auto;
+  display: grid;
+  grid-template-columns: 3fr 1fr;
+  gap: 4px;
+}
+.btn-run-group .btn-run { margin-top: 0; }
+.btn-run.btn-dry { letter-spacing: 0.1em; }
+.btn-run.btn-dry:hover:not(:disabled) {
+  border-color: var(--amber);
+  color: var(--amber);
+  background: color-mix(in srgb, var(--amber) 8%, transparent);
+}
+
+.dry-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 5px;
+  border: 1px solid var(--amber);
+  border-radius: 2px;
+  color: var(--amber);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  vertical-align: 1px;
+}
+
 .no-tasks {
   color: var(--muted);
   padding: 48px 0;

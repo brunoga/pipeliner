@@ -22,7 +22,7 @@ func TestDaemonFiresTask(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 
-	go d.Run(ctx, func(_ context.Context, name string) {
+	go d.Run(ctx, func(_ context.Context, name string, _ bool) {
 		mu.Lock()
 		fired = append(fired, name)
 		mu.Unlock()
@@ -53,7 +53,7 @@ func TestDaemonMultipleTasks(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()
 
-	go d.Run(ctx, func(_ context.Context, name string) {
+	go d.Run(ctx, func(_ context.Context, name string, _ bool) {
 		mu.Lock()
 		seen[name] = true
 		mu.Unlock()
@@ -79,7 +79,7 @@ func TestDaemonShutdownOnCancel(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		d.Run(ctx, func(_ context.Context, name string) {})
+		d.Run(ctx, func(_ context.Context, name string, _ bool) {})
 		close(done)
 	}()
 
@@ -101,7 +101,7 @@ func TestDaemonEmptyStartup(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		d.Run(ctx, func(_ context.Context, _ string) {})
+		d.Run(ctx, func(_ context.Context, _ string, _ bool) {})
 		close(done)
 	}()
 
@@ -123,7 +123,7 @@ func TestDaemonTriggerOverlap(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 
-	runner := func(ctx context.Context, name string) {
+	runner := func(ctx context.Context, name string, _ bool) {
 		mu.Lock()
 		running++
 		if running > maxRunning {
@@ -141,8 +141,8 @@ func TestDaemonTriggerOverlap(t *testing.T) {
 	go d.Run(ctx, runner)
 
 	// Trigger the same task twice quickly.
-	d.Trigger("manual-task")
-	d.Trigger("manual-task")
+	d.Trigger("manual-task", false)
+	d.Trigger("manual-task", false)
 
 	<-ctx.Done()
 
@@ -167,7 +167,7 @@ func TestDaemonScheduledOverlap(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
-	runner := func(ctx context.Context, name string) {
+	runner := func(ctx context.Context, name string, _ bool) {
 		mu.Lock()
 		running++
 		if running > maxRunning {
@@ -217,7 +217,7 @@ func TestDaemonWaitBlocksForInFlightTasks(t *testing.T) {
 	runDone := make(chan struct{})
 	go func() {
 		defer close(runDone)
-		d.Run(runCtx, func(ctx context.Context, _ string) {
+		d.Run(runCtx, func(ctx context.Context, _ string, _ bool) {
 			close(runnerStarted)
 			// Hold until the test releases us. The runner intentionally
 			// ignores ctx here to simulate a plugin that doesn't observe

@@ -1838,9 +1838,14 @@ docker compose up -d --no-build pipeliner</code></pre>
 <!-- ─────────── dry-run ─────────── -->
 <h2 id="dry-run">Dry-Run Mode</h2>
 
-<p>Pass <code>--dry-run</code> to <code>pipeliner run</code> to execute source and processor nodes normally but skip all sinks. The run is <strong>fully idempotent</strong> — no torrents are queued, no emails sent, no state written to <code>pipeliner.db</code>. You can run it repeatedly to inspect what would be accepted without any side effects.</p>
+<p>Dry-run mode executes source and processor nodes normally but skips all sinks <strong>and</strong> the commit phase, so trackers (<code>seen</code>, <code>movies</code>, <code>series</code>, <code>premiere</code>) don't advance. The run is fully idempotent — no torrents queued, no notifications sent, no state written to <code>pipeliner.db</code>. You can run it repeatedly to inspect what <em>would</em> be accepted without any side effects.</p>
 
+<p><strong>From the CLI</strong> — pass <code>--dry-run</code> to <code>pipeliner run</code>:</p>
 <pre><code>pipeliner run --config config.star --dry-run --log-level debug</code></pre>
+
+<p><strong>From the web dashboard</strong> — each task card has a <strong>Dry</strong> button next to <strong>Run now</strong>. A "Run all (dry)" button next to "Run all" dry-runs every task. Runs triggered as dry-run show a <code>DRY</code> badge in their last-run line so you can tell them apart later.</p>
+
+<p><strong>From the API</strong> — <code>POST /api/tasks/{name}/run</code> and <code>POST /api/tasks/run</code> accept a JSON body <code>{"dry_run": true}</code> (or a <code>?dry_run=true</code> query parameter). Missing body or false flag = normal run.</p>
 
 <!-- ─────────── troubleshooting ─────────── -->
 <h2 id="troubleshooting">Troubleshooting</h2>

@@ -172,38 +172,46 @@ func (ex *Executor) Run(ctx context.Context) (*Result, error) {
 
 	// Commit phase: call CommitPlugin.Commit for all processor nodes that
 	// implement CommitPlugin, passing only entries not failed by any sink.
-commitLoop:
-	for _, layer := range layers {
-		for _, n := range layer {
-			if ctx.Err() != nil {
-				break commitLoop
-			}
-			pi, ok := ex.plugins[n.ID]
-			if !ok {
-				continue
-			}
-			if pi.Desc.EffectiveRole() != plugin.RoleProcessor {
-				continue
-			}
-			cp, ok := pi.Impl.(plugin.CommitPlugin)
-			if !ok {
-				continue
-			}
-			produced := producedByNode[n.ID]
-			toCommit := make([]*entry.Entry, 0, len(produced))
-			for _, e := range produced {
-				if !failedURLs[e.URL] {
-					toCommit = append(toCommit, e)
+	// Skipped entirely in dry-run mode so tracker state (seen, movies,
+	// series, premiere) doesn't advance — without this skip, dry-run would
+	// suppress sink side effects but still leave the next real run thinking
+	// those entries had already been processed.
+	if ex.dryRun {
+		ex.logger.Debug("dry-run: skipping commit phase")
+	} else {
+	commitLoop:
+		for _, layer := range layers {
+			for _, n := range layer {
+				if ctx.Err() != nil {
+					break commitLoop
 				}
-			}
-			tc := &plugin.TaskContext{
-				Name:   ex.name,
-				Config: pi.Config,
-				Logger: ex.logger.With("node", n.ID, "plugin", pi.Impl.Name()),
-				DryRun: ex.dryRun,
-			}
-			if err := cp.Commit(ctx, tc, toCommit); err != nil {
-				tc.Logger.Warn("commit error", "err", err)
+				pi, ok := ex.plugins[n.ID]
+				if !ok {
+					continue
+				}
+				if pi.Desc.EffectiveRole() != plugin.RoleProcessor {
+					continue
+				}
+				cp, ok := pi.Impl.(plugin.CommitPlugin)
+				if !ok {
+					continue
+				}
+				produced := producedByNode[n.ID]
+				toCommit := make([]*entry.Entry, 0, len(produced))
+				for _, e := range produced {
+					if !failedURLs[e.URL] {
+						toCommit = append(toCommit, e)
+					}
+				}
+				tc := &plugin.TaskContext{
+					Name:   ex.name,
+					Config: pi.Config,
+					Logger: ex.logger.With("node", n.ID, "plugin", pi.Impl.Name()),
+					DryRun: ex.dryRun,
+				}
+				if err := cp.Commit(ctx, tc, toCommit); err != nil {
+					tc.Logger.Warn("commit error", "err", err)
+				}
 			}
 		}
 	}

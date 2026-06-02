@@ -17,6 +17,7 @@ type RunRecord struct {
 	Total    int
 	Duration time.Duration
 	Err      string // non-empty if the run returned an error
+	DryRun   bool   // true when this run was a dry-run (no side effects, no commit)
 }
 
 // History stores the last maxRunsPerTask records per task.
