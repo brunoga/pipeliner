@@ -151,6 +151,67 @@ func TestDAG_EmptyPipelineError(t *testing.T) {
 	parseDAGFail(t, `pipeline("empty")`)
 }
 
+// TestDAG_GraphOrderTracksSourceOrder confirms pipeline names are recorded
+// in the order their pipeline(…) calls appear in the source, so the
+// dashboard, scheduler, and visual editor can render them in source
+// order rather than alphabetical (Go map iteration is random and the
+// JSON encoder sorts keys, which is the bug this prevents).
+func TestDAG_GraphOrderTracksSourceOrder(t *testing.T) {
+	c := parseDAGOK(t, `
+# Names deliberately chosen so alphabetical order != source order.
+src_zulu = input("rss", url="https://z.example/rss")
+output("print", upstream=src_zulu)
+pipeline("zulu")
+
+src_alpha = input("rss", url="https://a.example/rss")
+output("print", upstream=src_alpha)
+pipeline("alpha")
+
+src_mike = input("rss", url="https://m.example/rss")
+output("print", upstream=src_mike)
+pipeline("mike")
+`)
+	want := []string{"zulu", "alpha", "mike"}
+	if len(c.GraphOrder) != len(want) {
+		t.Fatalf("GraphOrder length: got %d (%v), want %d (%v)", len(c.GraphOrder), c.GraphOrder, len(want), want)
+	}
+	for i, n := range want {
+		if c.GraphOrder[i] != n {
+			t.Errorf("GraphOrder[%d]: got %q, want %q (source order)", i, c.GraphOrder[i], n)
+		}
+	}
+}
+
+// TestDAG_GraphOrderRedefinitionKeepsFirstPosition covers an edge case:
+// re-declaring a pipeline name should overwrite the graph but not shuffle
+// its position in the order, so configs that redefine a pipeline (e.g.
+// during incremental refactors) don't reshuffle the visual editor.
+func TestDAG_GraphOrderRedefinitionKeepsFirstPosition(t *testing.T) {
+	c := parseDAGOK(t, `
+src1 = input("rss", url="https://a.example/rss")
+output("print", upstream=src1)
+pipeline("first")
+
+src2 = input("rss", url="https://b.example/rss")
+output("print", upstream=src2)
+pipeline("second")
+
+# Redefine "first" — the graph gets replaced but the name stays put at index 0.
+src3 = input("rss", url="https://c.example/rss")
+output("print", upstream=src3)
+pipeline("first")
+`)
+	want := []string{"first", "second"}
+	if len(c.GraphOrder) != len(want) {
+		t.Fatalf("GraphOrder: got %v, want %v", c.GraphOrder, want)
+	}
+	for i, n := range want {
+		if c.GraphOrder[i] != n {
+			t.Errorf("GraphOrder[%d]: got %q, want %q", i, c.GraphOrder[i], n)
+		}
+	}
+}
+
 func TestDAG_Validate_UnknownPlugin(t *testing.T) {
 	c := parseDAGOK(t, `
 src = input("rss", url="https://example.com/rss")
@@ -184,6 +245,79 @@ pipeline("built", schedule="1h")
 	}
 	if tasks[0].Name() != "built" {
 		t.Errorf("want task name 'built', got %q", tasks[0].Name())
+	}
+}
+
+// TestDAG_BuildTasks_PreservesSourceOrder is the regression test for the
+// dashboard ordering bug: BuildTasks used to return tasks alphabetically
+// (via sortedStringKeys over the map), so the dashboard was always
+// sorted while the text editor stayed in source order — making the two
+// surfaces disagree. With c.GraphOrder populated by the Starlark loader
+// BuildTasks now iterates in source order.
+func TestDAG_BuildTasks_PreservesSourceOrder(t *testing.T) {
+	db, err := store.OpenSQLite(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	c := parseDAGOK(t, `
+# Names chosen so alphabetical order != source order.
+src1 = input("rss", url="https://z.example/rss")
+output("print", upstream=src1)
+pipeline("zulu")
+
+src2 = input("rss", url="https://a.example/rss")
+output("print", upstream=src2)
+pipeline("alpha")
+
+src3 = input("rss", url="https://m.example/rss")
+output("print", upstream=src3)
+pipeline("mike")
+`)
+	tasks, err := BuildTasks(c, db, nil)
+	if err != nil {
+		t.Fatalf("BuildTasks: %v", err)
+	}
+	want := []string{"zulu", "alpha", "mike"}
+	if len(tasks) != len(want) {
+		t.Fatalf("got %d tasks, want %d", len(tasks), len(want))
+	}
+	for i, n := range want {
+		if tasks[i].Name() != n {
+			t.Errorf("tasks[%d].Name(): got %q, want %q (source order)", i, tasks[i].Name(), n)
+		}
+	}
+}
+
+// TestDAG_BuildTasks_FallsBackToAlphabetical covers the case where a
+// caller built a Config programmatically without populating GraphOrder
+// (e.g. a test helper or future SDK user). The fallback keeps behaviour
+// deterministic instead of exposing Go's random map iteration order.
+func TestDAG_BuildTasks_FallsBackToAlphabetical(t *testing.T) {
+	db, err := store.OpenSQLite(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	c := parseDAGOK(t, `
+src1 = input("rss", url="https://z.example/rss")
+output("print", upstream=src1)
+pipeline("zulu")
+
+src2 = input("rss", url="https://a.example/rss")
+output("print", upstream=src2)
+pipeline("alpha")
+`)
+	c.GraphOrder = nil // simulate programmatic Config without order tracking
+
+	tasks, err := BuildTasks(c, db, nil)
+	if err != nil {
+		t.Fatalf("BuildTasks: %v", err)
+	}
+	if len(tasks) != 2 || tasks[0].Name() != "alpha" || tasks[1].Name() != "zulu" {
+		t.Errorf("fallback should be alphabetical, got [%q, %q]", tasks[0].Name(), tasks[1].Name())
 	}
 }
 
