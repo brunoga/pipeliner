@@ -60,7 +60,7 @@ func TestParse3D(t *testing.T) {
 		{"Gravity.2013.HSBS.1080p.BluRay", quality.Format3DHalf},
 		{"Interstellar.2014.H-SBS.1080p", quality.Format3DHalf},
 		{"Pacific.Rim.2013.HALF-SBS.1080p.BluRay", quality.Format3DHalf},
-		{"Prometheus.2012.SBS.1080p.BluRay", quality.Format3DFull},
+		{"Prometheus.2012.SBS.1080p.BluRay", quality.Format3DHalf},
 		{"Gravity.2013.HOU.1080p.BluRay", quality.Format3DHalf},
 		{"Avatar.2009.FSBS.1080p.BluRay", quality.Format3DFull},
 		{"Avatar.2009.BD3D.1080p.BluRay", quality.Format3DBD},

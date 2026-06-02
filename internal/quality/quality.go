@@ -138,10 +138,10 @@ type Format3D int
 
 const (
 	Format3DNone Format3D = iota // not 3D
-	Format3DConv                 // 3D-CONV — artificially converted from a 2D source
-	Format3DHalf                 // half-resolution: HSBS, HOU, HALF-SBS, HALF-OU, plain 3D
-	Format3DFull                 // full-resolution: SBS, FSBS, OU, FOU, FULL-SBS, FULL-OU
-	Format3DBD                   // BD3D — Blu-ray 3D rip, highest quality
+	Format3DConv                 // 3D-CONV — artificially converted from a 2D source (incl. AI-enhanced, AI-upscaled, StereoCrafter/DepthCrafter tools)
+	Format3DHalf                 // half-resolution: bare SBS / OU, HSBS, HOU, HALF-SBS, HALF-OU, plain 3D
+	Format3DFull                 // full-resolution: FSBS, FOU, FULL-SBS, FULL-OU (explicit full marker required)
+	Format3DBD                   // BD3D / MVC — Blu-ray 3D rip, highest quality
 )
 
 var format3DNames = map[Format3D]string{
@@ -239,11 +239,20 @@ var (
 	reSource     = regexp.MustCompile(`(?i)\b(remux|blu[\-\s]?ray|bdrip|bdremux|bd(?:25|50|100)|web[\-\s]?dl|webrip|hdtv|dvdrip|tvrip|hd[\-]?cam|camrip|cam\b|hd[\-]?ts|telesync|hd[\-]?tc|telecine|\bts\b|\btc\b|dvd[\-]?scr(?:eener)?|bd[\-]?scr|screener|\bscr\b)\b`)
 	reCodec      = regexp.MustCompile(`(?i)\b(av1|x265|h[\.\s]?265|hevc|x264|h[\.\s]?264|xvid|divx)\b`)
 	reColorRange = regexp.MustCompile(`(?i)\b(dolby[\s\.]?vision|dovi\b|dv\b|hdr10[\+]?|hdr|sdr)\b`)
-	// re3DConv matches 3D-conversion tags; checked before re3D so it always wins.
-	re3DConv = regexp.MustCompile(`(?i)(?:\b3D[\-]?CONV(?:ERT)?\b|\bCONVERT\b)`)
+	// re3DConvStrong matches conversion markers that always imply 3D-conversion
+	// regardless of whether a native 3D marker (SBS/OU/MVC/BD3D) is also present.
+	// These tokens are specific enough that they don't appear in non-3D titles.
+	re3DConvStrong = regexp.MustCompile(`(?i)(?:\b3D[\s\-]?CONV(?:ERT|ERSION)?\b|\bHT[\s\-]?CONVERSION\b|\bSTEREO[\s\-]?CRAFTER\b|\bDEPTH[\s\-]?CRAFTER\b)`)
+	// re3DConvWeak matches generic conversion / AI-enhancement words that only
+	// imply 3D-conversion when a native 3D marker is also present in the title.
+	// Without that context "Upscaled" / "AI Enhanced" / "Conv" could appear on
+	// non-3D releases (e.g. a 4K-upscaled SDR remaster).
+	re3DConvWeak = regexp.MustCompile(`(?i)(?:\bCONV\b|\bCONVERT\b|\bCONVERSION\b|\bAI[\s\-]?ENHANCED\b|\bAI[\s\-]?UPSCALED\b|\bUPSCALED\b)`)
 	// re3D matches native 3D format markers; longer alternatives are listed first.
 	// MVC (Multiview Video Coding) is the Blu-ray 3D codec — always BD quality.
-	re3D = regexp.MustCompile(`(?i)\b(BD3D|MVC|FULL[\-]?SBS|FULL[\-]?OU|FSBS|F-SBS|FOU|F-OU|HALF[\-]?SBS|HALF[\-]?OU|HSBS|H-SBS|HOU|H-OU|SBS|OU|3D)\b`)
+	// Compound markers (FULL-SBS, H-OU, etc.) tolerate a space separator since
+	// scene releases routinely use "Full SBS" / "H OU" / "Half OU" with spaces.
+	re3D = regexp.MustCompile(`(?i)\b(BD3D|MVC|FULL[\s\-]?SBS|FULL[\s\-]?OU|FSBS|F[\s\-]SBS|FOU|F[\s\-]OU|HALF[\s\-]?SBS|HALF[\s\-]?OU|HSBS|H[\s\-]SBS|HOU|H[\s\-]OU|SBS|OU|3D)\b`)
 	// reComplete matches "COMPLETE" disc-rip labels; combined with a BluRay source
 	// and any non-conv 3D marker this implies a full BD3D disc rip.
 	reComplete = regexp.MustCompile(`(?i)\bCOMPLETE\b`)
@@ -351,23 +360,32 @@ func Parse(title string) Quality {
 		}
 	}
 
-	// 3DCONV overrides any other 3D format marker — a converted release stays
-	// at the lowest 3D tier regardless of the packaging format (SBS, OU, etc.).
-	if re3DConv.MatchString(title) {
+	// A conversion marker overrides any native 3D format marker — a converted
+	// release stays at the lowest 3D tier regardless of the packaging format.
+	// Strong markers (3D-Conv, StereoCrafter, etc.) trigger Conv unconditionally;
+	// weak markers (bare Conv, AI Enhanced, Upscaled) only trigger Conv when a
+	// native 3D marker is also present, so non-3D releases tagged "Upscaled"
+	// aren't misclassified as 3D-conversions.
+	native3D := re3D.FindAllString(title, -1)
+	hasNative3D := len(native3D) > 0
+	isConv := re3DConvStrong.MatchString(title) ||
+		(hasNative3D && re3DConvWeak.MatchString(title))
+	switch {
+	case isConv:
 		q.Format3D = Format3DConv
-	} else {
-		// Scan all native 3D markers and keep the highest-quality one.
-		// A title like "IMAX 3D FSBS" has both "3D" (Half) and "FSBS" (Full);
-		// the explicit format tag should win over the generic "3D" label.
-		for _, m := range re3D.FindAllString(title, -1) {
-			ml := strings.ToUpper(strings.ReplaceAll(m, "-", ""))
+	case hasNative3D:
+		// Scan native 3D markers and keep the highest-quality one. A title like
+		// "IMAX 3D FSBS" has both "3D" (Half) and "FSBS" (Full); the explicit
+		// format tag should win over the generic "3D" label.
+		normalize := strings.NewReplacer("-", "", " ", "")
+		for _, m := range native3D {
 			var f Format3D
-			switch ml {
+			switch strings.ToUpper(normalize.Replace(m)) {
 			case "BD3D", "MVC":
 				f = Format3DBD
-			case "SBS", "FSBS", "FOU", "OU", "FULLSBS", "FULLOU":
+			case "FSBS", "FOU", "FULLSBS", "FULLOU":
 				f = Format3DFull
-			default: // HSBS, HOU, HALFSBS, HALFOU, 3D
+			default: // SBS, OU, HSBS, HOU, HALFSBS, HALFOU, 3D
 				f = Format3DHalf
 			}
 			if f > q.Format3D {
@@ -678,11 +696,11 @@ func parseFormat3D(s string) (Format3D, bool) {
 	switch strings.ToLower(strings.ReplaceAll(s, "-", "")) {
 	case "3dconv", "conv", "3dconvert", "convert":
 		return Format3DConv, true
-	case "3d", "3dhalf", "half":
+	case "3d", "3dhalf", "half", "sbs", "ou", "hsbs", "hou", "halfsbs", "halfou":
 		return Format3DHalf, true
-	case "3dfull", "full", "sbs", "ou":
+	case "3dfull", "full", "fsbs", "fou", "fullsbs", "fullou":
 		return Format3DFull, true
-	case "bd3d", "bd":
+	case "bd3d", "bd", "mvc":
 		return Format3DBD, true
 	}
 	return Format3DNone, false
