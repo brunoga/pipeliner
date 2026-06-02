@@ -5,6 +5,28 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-06-02
+
+### Added
+
+- **Dry-run mode now actually idempotent + UI controls** ([#209](https://github.com/brunoga/pipeliner/pull/209)). The dry-run docstring promised "fully idempotent" runs, but the implementation only skipped sink side effects — the commit phase still fired, so `movies` / `series` / `seen` / `premiere` trackers advanced their state and the *next* real run silently skipped the entries the dry-run had already "processed". The executor now skips the commit phase entirely when `ex.dryRun` is true, so dry-run is finally repeatable for inspection. The dashboard gets per-task **Dry** buttons and a global **Run all (dry)** action that fire dry-run triggers through the existing endpoints (which now accept `{"dry_run": true}` or `?dry_run=true`); runs surfaced as dry-run get a **DRY** badge on the last-run line.
+- **`SearchPlugin.Search` receives the query entry, not just a title string** ([#208](https://github.com/brunoga/pipeliner/pull/208)). The string-only signature was a leftover from when `discover` only had a static title list; in a DAG world the upstream entry carries rich metadata that was being thrown away before the backend ever saw it. `Search(ctx, tc, e *entry.Entry)` now hands the full entry to backends, and `discover` forwards the upstream entry (preferring hint-rich entries over bare static titles when both share a title). In source mode, `Generate()` wraps the configured static query in a synthetic title-only entry so backends fall back to a plain title search.
+  - **Jackett** translates available hints into typed Torznab params: `media_type` → `t=movie`/`t=tvsearch`/`t=search`, `video_year` → `year=`, `video_imdb_id` / `jackett_imdb_id` / `trakt_imdb_id` → `imdbid=` (canonical `tt` prefix stripped per Torznab convention), `jackett_tmdb_id` / `trakt_tmdb_id` → `tmdbid=`, `jackett_tvdb_id` / `tvdb_id` → `tvdbid=` (tvsearch only), `series_season` → `season=`, `series_episode` → `ep=` (tvsearch only). Server-side filtering is both more accurate ("It" 1990 vs 2017) and lighter on bandwidth than fetching N results and filtering downstream.
+  - **RSS** exposes the same hints as new `url_template` variables (`{Year}`, `{IMDbID}`, `{TMDbID}`, `{TVDbID}`, `{Season}`, `{Episode}`, `{MediaType}`) alongside the existing `{Query}` / `{QueryEscaped}`. Integer hints render as empty string when zero so optional segments like `&year={Year}` don't emit `&year=0` in source mode.
+
+### Changed
+
+- **`jackett` emits `jackett_imdb_id` instead of `video_imdb_id`** ([#205](https://github.com/brunoga/pipeliner/pull/205)). `video_imdb_id` is the canonical IMDb ID field produced by metainfo enrichment plugins. Jackett was setting it directly from the Torznab `imdbid` attribute, while sibling indexer-provided IDs (`jackett_tvdb_id`, `jackett_tmdb_id`) followed the documented `jackett_`-prefixed hint pattern — `jackett` was the only source claiming a "canonical" `video_` field for unverified indexer data. The rename keeps `jackett` honest about what it produces (an indexer claim, not an authoritative ID) and lets downstream metainfo plugins promote hints to canonical fields uniformly. Configs that reference `video_imdb_id` immediately after a `jackett` source must rename it to `jackett_imdb_id`.
+
+### Removed
+
+- **`discover` no longer accepts a `list=` port** ([#206](https://github.com/brunoga/pipeliner/pull/206)). The `from=` / `list=` config key was a vestigial second path that did exactly what an upstream DAG connection already does, with worse error reporting (`Generate()` errors were silently dropped). The linear engine that originally required it has long since been removed, no sample configs use it, so the port, the `AcceptsList` flag on `discover`'s descriptor, and the backing parsing in `newPlugin` / `Process` are now gone. `series.list=` and `movies.list=` are untouched — those have a different filter-against-this-title-set semantic that upstream connections don't naturally express.
+
+### Fixed
+
+- **`metainfo_tvdb` now actually sets `video_year` on enriched series** ([#207](https://github.com/brunoga/pipeliner/pull/207)). `metainfo_tvdb` declared `video_year` in `Produces` but never populated it — `SeriesInfo.Year` was always 0 and `SetSeriesInfo` only writes the field when `Year > 0`. Downstream nodes that required `video_year` after a `tvdb` step were treated as "certain" by the DAG validator but the field was missing at runtime. `Year` is now derived from the parsed `FirstAirDate` that TVDB already returns for every enriched series, matching the field's documented "premiere year" semantics.
+- **`jackett` drops items whose link, enclosure, or GUID is not a fetchable URL** ([#204](https://github.com/brunoga/pipeliner/pull/204)). The previous guard only required `<guid>` to be a fetchable URL; an empty, whitespace-only, or scheme-less `<enclosure url>` or `<link>` still produced an entry that then surfaced downstream as a sink failure on an unusable URL. The parser now picks the first candidate (enclosure, link, GUID) that is a fetchable URL after whitespace trimming, and skips the item otherwise. Skipped items emit a warning log identifying the indexer and title so operators can see why a feed item went missing instead of it silently disappearing.
+
 ## [1.2.1] - 2026-06-01
 
 ### Fixed
@@ -61,6 +83,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Bump `modernc.org/sqlite` to the latest patch in the `all-go-deps` group ([#186](https://github.com/brunoga/pipeliner/pull/186)).
 
+[1.3.0]: https://github.com/brunoga/pipeliner/compare/v1.2.1...v1.3.0
 [1.2.1]: https://github.com/brunoga/pipeliner/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/brunoga/pipeliner/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/brunoga/pipeliner/compare/v1.1.0...v1.1.1
