@@ -302,8 +302,10 @@ func TestAnnotateNonSeries(t *testing.T) {
 	if err := p.annotate(context.Background(), makeCtx(), e); err != nil {
 		t.Fatal(err)
 	}
-	if v := e.GetString("title"); v != "" {
-		t.Errorf("non-series should not set title, got %q", v)
+	// Check Fields directly: GetString("title") would fall back to the
+	// raw struct e.Title; we want to verify Fields was not populated.
+	if _, ok := e.Fields["title"]; ok {
+		t.Errorf("non-series should not set Fields[\"title\"], got %q", e.Fields["title"])
 	}
 }
 
