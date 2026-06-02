@@ -121,7 +121,7 @@ func startTestServer(t *testing.T, starConfig string) *testServer {
 type noopDaemon struct{}
 
 func (d *noopDaemon) NextRun(_ string) time.Time { return time.Time{} }
-func (d *noopDaemon) Trigger(_ string)           {}
+func (d *noopDaemon) Trigger(_ string, _ bool)   {}
 
 // ── playwright helpers ───────────────────────────────────────────────────────
 

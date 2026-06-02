@@ -6,8 +6,17 @@ import (
 	"time"
 )
 
-// TaskRunner is called by the Daemon to execute a named task.
-type TaskRunner func(ctx context.Context, taskName string)
+// TaskRunner is called by the Daemon to execute a named task. dryRun is true
+// when the fire came from a Trigger-with-dryRun call; cron-scheduled fires
+// always pass false.
+type TaskRunner func(ctx context.Context, taskName string, dryRun bool)
+
+// triggerReq carries an explicit trigger request through the daemon's channel
+// so per-call options (currently just dryRun) reach the runner.
+type triggerReq struct {
+	name   string
+	dryRun bool
+}
 
 // entry holds one scheduled task.
 type entry struct {
@@ -27,7 +36,7 @@ type ScheduledTask struct {
 type Daemon struct {
 	mu        sync.Mutex
 	entries   []*entry
-	triggerCh chan string
+	triggerCh chan triggerReq
 	wakeCh    chan struct{}
 	immediate []string            // tasks to fire at the start of Run
 	running   map[string]struct{} // tasks currently executing
@@ -35,11 +44,11 @@ type Daemon struct {
 }
 
 // triggerChan returns the trigger channel, creating it lazily.
-func (d *Daemon) triggerChan() chan string {
+func (d *Daemon) triggerChan() chan triggerReq {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.triggerCh == nil {
-		d.triggerCh = make(chan string, 16)
+		d.triggerCh = make(chan triggerReq, 16)
 	}
 	return d.triggerCh
 }
@@ -75,12 +84,14 @@ func (d *Daemon) Reset(tasks []ScheduledTask) {
 }
 
 // Trigger fires the named task immediately, outside its normal schedule.
-// It is safe to call from any goroutine. If the channel is full the
-// trigger is silently dropped.
-func (d *Daemon) Trigger(name string) {
+// When dryRun is true the runner is invoked in dry-run mode for this one
+// firing (sinks skip side effects, the commit phase is skipped); subsequent
+// scheduled fires of the same task are unaffected. It is safe to call from
+// any goroutine. If the channel is full the trigger is silently dropped.
+func (d *Daemon) Trigger(name string, dryRun bool) {
 	ch := d.triggerChan()
 	select {
-	case ch <- name:
+	case ch <- triggerReq{name: name, dryRun: dryRun}:
 	default:
 	}
 }
@@ -132,7 +143,7 @@ func (d *Daemon) Run(ctx context.Context, runner TaskRunner) {
 	d.mu.Unlock()
 	for _, name := range imm {
 		d.wg.Add(1)
-		go d.runTask(ctx, name, runner)
+		go d.runTask(ctx, triggerReq{name: name}, runner)
 	}
 
 	for {
@@ -155,10 +166,10 @@ func (d *Daemon) Run(ctx context.Context, runner TaskRunner) {
 			return
 		case now := <-timer.C:
 			d.fireDue(ctx, runner, now)
-		case name := <-triggerCh:
+		case req := <-triggerCh:
 			timer.Stop()
 			d.wg.Add(1)
-			go d.runTask(ctx, name, runner)
+			go d.runTask(ctx, req, runner)
 		case <-wakeCh:
 			timer.Stop() // recalculate timer with new entries
 		}
@@ -168,24 +179,24 @@ func (d *Daemon) Run(ctx context.Context, runner TaskRunner) {
 // runTask executes the runner if the task is not already running. Every call
 // to runTask is tracked by d.wg so Wait can block for in-flight goroutines on
 // shutdown.
-func (d *Daemon) runTask(ctx context.Context, name string, runner TaskRunner) {
+func (d *Daemon) runTask(ctx context.Context, req triggerReq, runner TaskRunner) {
 	defer d.wg.Done()
 
 	d.mu.Lock()
-	if _, ok := d.running[name]; ok {
+	if _, ok := d.running[req.name]; ok {
 		d.mu.Unlock()
 		return
 	}
-	d.running[name] = struct{}{}
+	d.running[req.name] = struct{}{}
 	d.mu.Unlock()
 
 	defer func() {
 		d.mu.Lock()
-		delete(d.running, name)
+		delete(d.running, req.name)
 		d.mu.Unlock()
 	}()
 
-	runner(ctx, name)
+	runner(ctx, req.name, req.dryRun)
 }
 
 // Wait blocks until every in-flight task goroutine has returned or shutdownCtx
@@ -231,6 +242,6 @@ func (d *Daemon) fireDue(ctx context.Context, runner TaskRunner, now time.Time) 
 
 	for _, name := range due {
 		d.wg.Add(1)
-		go d.runTask(ctx, name, runner)
+		go d.runTask(ctx, triggerReq{name: name}, runner)
 	}
 }

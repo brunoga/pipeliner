@@ -383,7 +383,7 @@ func cmdDaemon(args []string) int {
 	// ws is captured by both runner and reload closures below; declared before both.
 	var ws *web.Server
 
-	runner := func(ctx context.Context, name string) {
+	runner := func(ctx context.Context, name string, triggerDryRun bool) {
 		if ws != nil {
 			ws.TaskStarted(name)
 			defer ws.TaskDone(name)
@@ -394,13 +394,25 @@ func cmdDaemon(args []string) int {
 		if !ok {
 			return
 		}
+		// The effective dry-run is the OR of the task's persistent setting
+		// (cmdDaemon has none today, but a Task may have been pre-configured)
+		// and the per-trigger override from this fire. RunDryRun mutates and
+		// restores around the single Run, safe under the daemon's per-task
+		// concurrency guard.
+		effectiveDry := triggerDryRun || t.DryRun()
 		at := time.Now()
-		result, runErr := t.Run(ctx)
+		var result *task.Result
+		var runErr error
+		if triggerDryRun && !t.DryRun() {
+			result, runErr = t.RunDryRun(ctx)
+		} else {
+			result, runErr = t.Run(ctx)
+		}
 
-		rec := web.RunRecord{Task: name, At: at}
+		rec := web.RunRecord{Task: name, At: at, DryRun: effectiveDry}
 		if runErr != nil {
 			rec.Err = runErr.Error()
-			logger.Error("pipeline failed", "pipeline", name, "err", runErr)
+			logger.Error("pipeline failed", "pipeline", name, "err", runErr, "dry_run", effectiveDry)
 		} else {
 			rec.Accepted = result.Accepted
 			rec.Rejected = result.Rejected
@@ -413,6 +425,7 @@ func cmdDaemon(args []string) int {
 				"rejected", result.Rejected,
 				"failed", result.Failed,
 				"duration", result.Duration,
+				"dry_run", effectiveDry,
 			)
 		}
 		hist.Add(rec)

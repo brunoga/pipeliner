@@ -32,7 +32,7 @@ var uiFS embed.FS
 // DaemonControl is the scheduler interface the Server uses.
 type DaemonControl interface {
 	NextRun(name string) time.Time
-	Trigger(name string)
+	Trigger(name string, dryRun bool)
 }
 
 // TaskInfo describes one task shown in the UI.
@@ -309,6 +309,7 @@ func (s *Server) apiHistory(w http.ResponseWriter, _ *http.Request) {
 		Total    int    `json:"total"`
 		Duration string `json:"duration"`
 		Err      string `json:"err,omitempty"`
+		DryRun   bool   `json:"dry_run,omitempty"`
 	}
 	all := s.history.All()
 	out := make(map[string][]runJSON, len(all))
@@ -323,6 +324,7 @@ func (s *Server) apiHistory(w http.ResponseWriter, _ *http.Request) {
 				Total:    r.Total,
 				Duration: r.Duration.Round(time.Millisecond).String(),
 				Err:      r.Err,
+				DryRun:   r.DryRun,
 			}
 		}
 		out[task] = rj
@@ -330,14 +332,35 @@ func (s *Server) apiHistory(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, out)
 }
 
-func (s *Server) apiRunAll(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) apiRunAll(w http.ResponseWriter, r *http.Request) {
+	dryRun := parseDryRunFlag(r)
 	s.tasksMu.RLock()
 	snap := s.tasks
 	s.tasksMu.RUnlock()
 	for _, t := range snap {
-		s.daemon.Trigger(t.Name)
+		s.daemon.Trigger(t.Name, dryRun)
 	}
 	w.WriteHeader(http.StatusAccepted)
+}
+
+// parseDryRunFlag reads the dry_run flag from the request body (preferred) or
+// the dry_run query parameter (fallback). A missing body or missing field
+// means "not a dry run." Body parse errors are ignored so a trigger with no
+// body keeps working as before.
+func parseDryRunFlag(r *http.Request) bool {
+	if r.URL.Query().Get("dry_run") == "true" {
+		return true
+	}
+	if r.Body == nil || r.ContentLength == 0 {
+		return false
+	}
+	var body struct {
+		DryRun bool `json:"dry_run"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		return false
+	}
+	return body.DryRun
 }
 
 func (s *Server) apiReload(w http.ResponseWriter, _ *http.Request) {
@@ -372,7 +395,7 @@ func (s *Server) apiTrigger(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "task not found", http.StatusNotFound)
 		return
 	}
-	s.daemon.Trigger(name)
+	s.daemon.Trigger(name, parseDryRunFlag(r))
 	w.WriteHeader(http.StatusAccepted)
 }
 

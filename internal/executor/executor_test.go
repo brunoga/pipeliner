@@ -255,6 +255,34 @@ func TestExecutor_DryRun_SkipsSink(t *testing.T) {
 	// In production this is tested via the legacy adapter.
 }
 
+// TestExecutor_DryRun_SkipsCommit verifies that in dry-run mode the commit
+// phase is skipped entirely, so trackers (seen/movies/series/premiere) don't
+// advance state on a preview run.
+func TestExecutor_DryRun_SkipsCommit(t *testing.T) {
+	proc := &commitPlugin{}
+	sink := &sinkPlugin{}
+	g := dag.New()
+	for _, n := range []*dag.Node{
+		{ID: "src", PluginName: "test_source"},
+		{ID: "proc", PluginName: "test_commit", Upstreams: []dag.NodeID{"src"}},
+		{ID: "sink", PluginName: "test_sink", Upstreams: []dag.NodeID{"proc"}},
+	} {
+		_ = g.AddNode(n)
+	}
+	ex := executor.New("test", g, map[dag.NodeID]*executor.PluginInstance{
+		"src":  {Desc: sourceDesc(), Impl: &sourcePlugin{urls: []string{"http://a.com"}}, Config: map[string]any{}},
+		"proc": {Desc: commitDesc(), Impl: proc, Config: map[string]any{}},
+		"sink": {Desc: sinkDesc(), Impl: sink, Config: map[string]any{}},
+	}, nil, nil, true /* dryRun */)
+
+	if _, err := ex.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(proc.committed) != 0 {
+		t.Errorf("dry-run: Commit must not be called; got %d committed entries", len(proc.committed))
+	}
+}
+
 // TestExecutor_CommitPlugin_CalledAfterSinks verifies that CommitPlugin.Commit
 // is called after all sinks have run and only for entries not failed by sinks.
 func TestExecutor_CommitPlugin_CalledAfterSinks(t *testing.T) {

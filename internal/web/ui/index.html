@@ -36,7 +36,10 @@
 
 <div id="tab-dashboard">
   <section>
-    <h2 style="display:flex;align-items:center;gap:12px">Tasks <button class="btn-reload" id="btn-run-all" onclick="runAll(this)" style="font-size:0.75rem">Run all</button></h2>
+    <h2 style="display:flex;align-items:center;gap:12px">Tasks
+      <button class="btn-reload" id="btn-run-all" onclick="runAll(this, false)" style="font-size:0.75rem">Run all</button>
+      <button class="btn-reload" id="btn-run-all-dry" onclick="runAll(this, true)" style="font-size:0.75rem" title="Dry-run every task — no side effects, no tracker advance">Run all (dry)</button>
+    </h2>
     <div class="task-grid" id="task-grid"><div class="no-tasks">Loading…</div></div>
   </section>
 

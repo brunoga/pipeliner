@@ -73,7 +73,8 @@ function card(t, last, idx = 0) {
   const schedBadge = `<span class="task-schedule"${schedOpacity} title="${esc(t.schedule || '')}">${esc(schedLabel)}</span>`;
 
   const nextStr = nextDate ? 'in ' + relTime(nextDate) : '—';
-  const lastStr = last ? relTime(new Date(last.at)) + ' ago' : 'never';
+  const dryBadge = (last && last.dry_run) ? ' <span class="dry-badge" title="Last run was a dry-run">DRY</span>' : '';
+  const lastStr = last ? relTime(new Date(last.at)) + ' ago' + dryBadge : 'never';
   const durStr  = last ? ' · ' + last.duration : '';
 
   // Card accent stripe color reflects last run health at a glance.
@@ -94,9 +95,12 @@ function card(t, last, idx = 0) {
   const errLine = (last && last.err)
     ? `<div class="task-err">⚠ ${esc(last.err)}</div>` : '';
 
-  const runBtn = t.running
+  const runBtns = t.running
     ? `<button class="btn-run running" disabled>Running…</button>`
-    : `<button class="btn-run" onclick="triggerRun(${esc(JSON.stringify(t.name))}, this)">Run now</button>`;
+    : `<div class="btn-run-group">
+         <button class="btn-run" onclick="triggerRun(${esc(JSON.stringify(t.name))}, this, false)" title="Run with side effects and tracker commits">Run now</button>
+         <button class="btn-run btn-dry" onclick="triggerRun(${esc(JSON.stringify(t.name))}, this, true)" title="Dry run — no side effects, no tracker advance">Dry</button>
+       </div>`;
 
   // nth-child handles first 10 cards; inline delay covers beyond that.
   const extraDelay = idx >= 10 ? `;animation-delay:${idx * 50}ms` : '';
@@ -113,23 +117,33 @@ function card(t, last, idx = 0) {
       </div>
       ${stats}
       ${errLine}
-      ${runBtn}
+      ${runBtns}
     </div>`;
 }
 
 // ── manual trigger ────────────────────────────────────────────────────────────
 
-async function triggerRun(name, btn) {
+async function triggerRun(name, btn, dryRun) {
+  const original = btn.textContent;
   btn.disabled = true;
-  btn.textContent = 'Triggered…';
+  btn.textContent = dryRun ? 'Dry…' : 'Triggered…';
   btn.classList.add('triggered');
+  // Disable the sibling button too so the user can't fire both back-to-back
+  // (the daemon would just drop the second, but it's confusing visually).
+  const siblings = btn.parentElement.querySelectorAll('button');
+  siblings.forEach(s => { if (s !== btn) s.disabled = true; });
   try {
-    await fetch('/api/tasks/' + encodeURIComponent(name) + '/run', { method: 'POST' });
+    await fetch('/api/tasks/' + encodeURIComponent(name) + '/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dry_run: !!dryRun }),
+    });
   } catch (_) {}
   setTimeout(() => {
     btn.disabled = false;
-    btn.textContent = 'Run now';
+    btn.textContent = original;
     btn.classList.remove('triggered');
+    siblings.forEach(s => { s.disabled = false; });
     refresh();
   }, 3000);
 }
@@ -348,17 +362,22 @@ function fmtDatetime(d) {
 
 // ── run all tasks ─────────────────────────────────────────────────────────────
 
-async function runAll(btn) {
+async function runAll(btn, dryRun) {
+  const original = btn.textContent;
   btn.disabled = true;
   btn.classList.add('triggered');
-  btn.textContent = 'Triggered…';
+  btn.textContent = dryRun ? 'Dry…' : 'Triggered…';
   try {
-    await fetch('/api/tasks/run', { method: 'POST' });
+    await fetch('/api/tasks/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dry_run: !!dryRun }),
+    });
   } catch (_) {}
   setTimeout(() => {
     btn.disabled = false;
     btn.classList.remove('triggered');
-    btn.textContent = 'Run all';
+    btn.textContent = original;
     refresh();
   }, 3000);
 }
