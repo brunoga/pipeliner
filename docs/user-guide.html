@@ -813,7 +813,7 @@ pipeline("watch-folder", schedule="5m")</code></pre>
 
 <!-- ─────────── discover ─────────── -->
 <h2 id="discover">discover</h2>
-<p>Actively searches multiple sources for entries matching a title list. Unlike RSS (which passively receives all items), <code>discover</code> iterates titles, dispatches one search query per title to each configured search plugin (<code>search</code>), and returns the merged results. A per-title cooldown prevents redundant searches.</p>
+<p>Actively searches multiple sources for entries matching a title list. Unlike RSS (which passively receives all items), <code>discover</code> iterates titles, dispatches one search query per title to each configured search plugin (<code>search</code>), and returns the merged results. A per-title cooldown throttles re-searching the indexer; within the cooldown the previously-returned results are served from a cache so the rest of the pipeline still has entries to act on. Dry-run mode bypasses the cache entirely so a dry-run exercises the backends end-to-end without poisoning subsequent real runs.</p>
 
 <table>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
