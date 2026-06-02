@@ -641,6 +641,57 @@ pipeline("tv", schedule="1h")
 	}
 }
 
+// TestAPIConfigParseReturnsGraphOrder is the regression test for the
+// dashboard/visual-editor ordering bug: the JSON encoder sorts the
+// graphs map by key, so without an explicit graph_order the client
+// would always render pipelines alphabetically. The response now
+// carries graph_order in source order so the visual editor can match
+// the text editor's layout.
+func TestAPIConfigParseReturnsGraphOrder(t *testing.T) {
+	ts := newParseServer(t)
+	defer ts.Close()
+
+	body, _ := json.Marshal(map[string]string{
+		"content": `
+# Names chosen so alphabetical order != source order.
+src1 = input("rss", url="https://z.example/rss")
+output("print", upstream=src1)
+pipeline("zulu")
+
+src2 = input("rss", url="https://a.example/rss")
+output("print", upstream=src2)
+pipeline("alpha")
+
+src3 = input("rss", url="https://m.example/rss")
+output("print", upstream=src3)
+pipeline("mike")
+`,
+	})
+	resp := post(t, ts.URL+"/api/config/parse", "application/json", body)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status: got %d, want 200", resp.StatusCode)
+	}
+	var result map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	rawOrder, ok := result["graph_order"].([]any)
+	if !ok {
+		t.Fatalf("graph_order missing or wrong type: %v", result["graph_order"])
+	}
+	want := []string{"zulu", "alpha", "mike"}
+	if len(rawOrder) != len(want) {
+		t.Fatalf("graph_order length: got %d (%v), want %d (%v)", len(rawOrder), rawOrder, len(want), want)
+	}
+	for i, name := range want {
+		if rawOrder[i] != name {
+			t.Errorf("graph_order[%d]: got %v, want %q", i, rawOrder[i], name)
+		}
+	}
+}
+
 func TestAPIConfigParseInvalidStarlark(t *testing.T) {
 	ts := newParseServer(t)
 	defer ts.Close()

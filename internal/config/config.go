@@ -29,6 +29,12 @@ import (
 type Config struct {
 	// Graphs maps pipeline names to their DAG graph.
 	Graphs map[string]*dag.Graph
+	// GraphOrder lists pipeline names in source order — the order in which the
+	// corresponding pipeline("name", …) calls appear in the config. The
+	// dashboard, scheduler, and visual editor iterate this slice so they all
+	// show pipelines in the same order as the text config. If empty (e.g.
+	// programmatically built Config), callers fall back to alphabetical.
+	GraphOrder []string
 	// GraphSchedules maps pipeline names to schedule expressions ("1h", "0 * * * *").
 	GraphSchedules map[string]string
 	// UserFunctions holds the user-defined pipeline functions discovered in the
@@ -94,10 +100,13 @@ func Validate(c *Config) (errs, warnings []error) {
 }
 
 // BuildTasks instantiates all DAG pipelines and returns them as []*task.Task
-// sorted alphabetically by name. db is the shared store forwarded to every
-// plugin factory. If logger is nil, slog.Default() is used.
+// in the source order recorded by c.GraphOrder (the order pipeline("name", …)
+// calls appear in the config). Falls back to alphabetical for callers that
+// build a Config programmatically without populating GraphOrder. db is the
+// shared store forwarded to every plugin factory. If logger is nil,
+// slog.Default() is used.
 func BuildTasks(c *Config, db *store.SQLiteStore, logger *slog.Logger, opts ...task.BuildOption) ([]*task.Task, error) {
-	names := sortedStringKeys(c.Graphs)
+	names := orderedNames(c)
 	tasks := make([]*task.Task, 0, len(names))
 	for _, name := range names {
 		g := c.Graphs[name]
@@ -134,4 +143,33 @@ func sortedStringKeys[V any](m map[string]V) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+// orderedNames returns the pipeline names in source order. If GraphOrder is
+// populated it is used as-is, with a defensive append of any Graphs key that
+// somehow isn't represented (shouldn't happen for configs from execute, but
+// keeps callers that mutate Graphs after parsing safe). If GraphOrder is
+// empty (programmatic Config builders), falls back to alphabetical.
+func orderedNames(c *Config) []string {
+	if len(c.GraphOrder) == 0 {
+		return sortedStringKeys(c.Graphs)
+	}
+	seen := make(map[string]bool, len(c.GraphOrder))
+	names := make([]string, 0, len(c.Graphs))
+	for _, n := range c.GraphOrder {
+		if _, ok := c.Graphs[n]; ok && !seen[n] {
+			names = append(names, n)
+			seen[n] = true
+		}
+	}
+	// Append any graphs not listed in GraphOrder (alphabetically) so we never
+	// silently drop a pipeline if order tracking missed it.
+	extra := make([]string, 0)
+	for name := range c.Graphs {
+		if !seen[name] {
+			extra = append(extra, name)
+		}
+	}
+	sort.Strings(extra)
+	return append(names, extra...)
 }

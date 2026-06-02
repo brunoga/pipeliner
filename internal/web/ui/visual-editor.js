@@ -6167,8 +6167,17 @@ async function textToVisualSync() {
       setSyncNote('✗ ' + error.split('\n')[0]);
       return;
     }
-    const data    = await r.json();
-    const entries = Object.entries(data.graphs || {});
+    const data = await r.json();
+    // graph_order lists pipeline names in the order their pipeline(…) calls
+    // appear in the text config. Without it the dashboard and visual editor
+    // would render alphabetically (Go's json encoder sorts map keys) while
+    // the text editor stays in source order — making the three surfaces
+    // disagree. Fall back to insertion order of data.graphs for safety.
+    const graphsMap   = data.graphs || {};
+    const orderedKeys = Array.isArray(data.graph_order) && data.graph_order.length
+      ? data.graph_order.filter(k => k in graphsMap)
+      : Object.keys(graphsMap);
+    const entries = orderedKeys.map(k => [k, graphsMap[k]]);
 
     // Merge user functions into the plugin registry so the palette can show them.
     // Also extract each function's source text from the config content so

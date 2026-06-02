@@ -74,6 +74,7 @@ func execute(filename string, src []byte) (*Config, error) {
 	}
 	return &Config{
 		Graphs:         graphs,
+		GraphOrder:     append([]string(nil), ctx.graphOrder...),
 		GraphSchedules: ctx.graphSchedules,
 		UserFunctions:  ctx.userFunctions,
 		FunctionCalls:  ctx.functionCalls,
@@ -83,6 +84,7 @@ func execute(filename string, src []byte) (*Config, error) {
 // execContext accumulates DAG pipeline graphs registered during Starlark execution.
 type execContext struct {
 	graphs         map[string]*dagGraph
+	graphOrder     []string // pipeline names in the order their pipeline() calls fired
 	graphSchedules map[string]string
 	pendingNodes   []*dagNodeRecord
 	nodeCounter    int

@@ -327,6 +327,13 @@ func (ctx *execContext) pipelineBuiltin(_ *starlark.Thread, fn *starlark.Builtin
 		}
 	}
 
+	// Record the registration order so callers (BuildTasks, the visual editor
+	// via apiConfigParse) can iterate pipelines in source order. A repeated
+	// pipeline("name", …) call overwrites the existing entry — keep the name
+	// at its first-seen position so a redefinition doesn't reshuffle the UI.
+	if _, exists := ctx.graphs[name]; !exists {
+		ctx.graphOrder = append(ctx.graphOrder, name)
+	}
 	ctx.graphs[name] = &dagGraph{graph: g, nodes: ctx.pendingNodes}
 
 	// Build FunctionCallRecords by grouping nodes that share the same call key.

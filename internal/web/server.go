@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -980,7 +981,29 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	writeJSON(w, map[string]any{"graphs": graphs, "functions": funcs})
+	// GraphOrder tells the visual editor which order to render pipeline regions
+	// in. The graphs map serializes to JSON in an unspecified order (Go's
+	// json encoder sorts keys), so without an explicit ordering the visual
+	// editor would always show pipelines alphabetically — out of sync with
+	// both the text editor (source order) and the user's mental model.
+	order := c.GraphOrder
+	if len(order) == 0 {
+		order = sortedGraphNames(graphs)
+	}
+	writeJSON(w, map[string]any{
+		"graphs":      graphs,
+		"graph_order": order,
+		"functions":   funcs,
+	})
+}
+
+func sortedGraphNames[T any](m map[string]T) []string {
+	names := make([]string, 0, len(m))
+	for n := range m {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // nodePosData stores canvas positions for a node and its ordered list/search sub-nodes.
