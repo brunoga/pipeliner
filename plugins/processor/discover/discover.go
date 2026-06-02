@@ -62,8 +62,18 @@ type discoverPlugin struct {
 	db        *store.SQLiteStore
 }
 
+// searchRecord is the per-title bucket value. Results is intentionally
+// declared without `omitempty` so an empty-but-non-nil slice serializes
+// as "results":[] and a nil slice serializes as "results":null. That
+// difference is load-bearing: pre-1.3.x records (and any record written
+// before the cache feature shipped) have no "results" field at all and
+// decode with Results==nil, which the read path treats as a cache miss
+// so legacy records auto-heal on first access. A legitimate "we
+// searched and got zero hits" cache writes []*entry.Entry{}, decodes as
+// a non-nil empty slice, and is honored as a valid empty cache.
 type searchRecord struct {
-	LastSearched time.Time `json:"last_searched"`
+	LastSearched time.Time      `json:"last_searched"`
+	Results      []*entry.Entry `json:"results"`
 }
 
 func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
@@ -169,16 +179,48 @@ func (p *discoverPlugin) searchEntries(ctx context.Context, tc *plugin.TaskConte
 		}
 		key := strings.ToLower(qe.Title)
 
-		var rec searchRecord
-		found, err := bucket.Get(key, &rec)
-		if err != nil {
-			return nil, fmt.Errorf("discover: check interval for %q: %w", qe.Title, err)
-		}
-		if found && time.Since(rec.LastSearched) < p.interval {
-			tc.Logger.Debug("discover: skipping (within interval)", "title", qe.Title)
-			continue
+		// Non-dry-run within-interval path: serve cached results so the
+		// downstream pipeline still gets entries to work with even while
+		// we're refusing to re-hit the indexers. Pre-1.3.x records have
+		// no Results field — Get unmarshals that into a nil slice and the
+		// title silently contributes nothing, matching the legacy
+		// behaviour until the interval expires and we cache a fresh set.
+		//
+		// Dry-run bypasses the bucket entirely (read and write): the
+		// debugging value of a dry-run is exercising the search backends
+		// end-to-end, and we must not stamp every title as "just searched"
+		// or the next real run within the TTL would silently no-op
+		// (same idempotency principle #209 applied to the commit phase).
+		if !tc.DryRun {
+			var rec searchRecord
+			found, err := bucket.Get(key, &rec)
+			if err != nil {
+				return nil, fmt.Errorf("discover: check cache for %q: %w", qe.Title, err)
+			}
+			// Legacy auto-heal: a pre-cache-feature record has a
+			// LastSearched but no Results field. Treat it as a cache
+			// miss so the title is re-searched immediately rather than
+			// silently emitting nothing until the TTL expires.
+			if found && rec.Results != nil && time.Since(rec.LastSearched) < p.interval {
+				tc.Logger.Debug("discover: serving cached results (within interval)",
+					"title", qe.Title, "count", len(rec.Results))
+				for _, e := range rec.Results {
+					if e == nil || seen[e.URL] {
+						continue
+					}
+					seen[e.URL] = true
+					all = append(all, e)
+				}
+				continue
+			}
 		}
 
+		// Fresh search: collect each searcher's results into a per-title
+		// slice so we can cache the complete set for this title, then
+		// apply cross-title URL dedup when assembling the output.
+		// Initialized non-nil so a zero-result cache round-trips as []
+		// rather than null — see searchRecord doc for why that matters.
+		titleResults := []*entry.Entry{}
 		for _, sp := range p.searchers {
 			results, searchErr := sp.Search(ctx, tc, qe)
 			if searchErr != nil {
@@ -186,16 +228,21 @@ func (p *discoverPlugin) searchEntries(ctx context.Context, tc *plugin.TaskConte
 					"plugin", sp.Name(), "title", qe.Title, "err", searchErr)
 				continue
 			}
-			for _, e := range results {
-				if !seen[e.URL] {
-					seen[e.URL] = true
-					all = append(all, e)
-				}
+			titleResults = append(titleResults, results...)
+		}
+		for _, e := range titleResults {
+			if e == nil || seen[e.URL] {
+				continue
 			}
+			seen[e.URL] = true
+			all = append(all, e)
 		}
 
-		if putErr := bucket.Put(key, searchRecord{LastSearched: time.Now().UTC()}); putErr != nil {
-			tc.Logger.Warn("discover: update search timestamp failed", "title", qe.Title, "err", putErr)
+		if !tc.DryRun {
+			rec := searchRecord{LastSearched: time.Now().UTC(), Results: titleResults}
+			if putErr := bucket.Put(key, rec); putErr != nil {
+				tc.Logger.Warn("discover: update search cache failed", "title", qe.Title, "err", putErr)
+			}
 		}
 	}
 	return all, nil

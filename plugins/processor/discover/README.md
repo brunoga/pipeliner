@@ -2,7 +2,7 @@
 
 Actively searches multiple sources for entries matching a list of titles. Unlike RSS-based inputs that passively receive all items, `discover` iterates a title list, dispatches a search query per title to each configured search plugin, and returns the merged, deduplicated results.
 
-A per-title cooldown (`interval`) prevents redundant searches on successive runs.
+A per-title cooldown (`interval`) prevents redundant searches on successive runs. Within the cooldown the previously-returned results are served from a cache so the rest of the pipeline still has entries to act on — the cooldown throttles the indexer, not the pipeline.
 
 ## Config
 
@@ -10,9 +10,9 @@ A per-title cooldown (`interval`) prevents redundant searches on successive runs
 |-----|------|----------|---------|-------------|
 | `titles` | list | conditional | — | Static list of title strings to search for |
 | `search` | list | yes | — | Search plugins to query |
-| `interval` | string | no | `24h` | Minimum time between searches per title |
+| `interval` | string | no | `24h` | Minimum time between live searches per title (cached results are still emitted between live searches) |
 
-Titles come from `titles=` (static) and the `.Title` field of every upstream entry. At least one source must produce titles. The combined title list is deduplicated case-insensitively before searching. Search timestamps are stored in `pipeliner.db` in the same directory as the config file.
+Titles come from `titles=` (static) and the `.Title` field of every upstream entry. At least one source must produce titles. The combined title list is deduplicated case-insensitively before searching. Per-title results and the timestamp of the last live search are stored in `pipeliner.db` in the same directory as the config file. Dry-run mode bypasses this cache entirely (read and write) so a dry-run exercises the backends end-to-end without poisoning subsequent real runs.
 
 ### `search` entries
 
