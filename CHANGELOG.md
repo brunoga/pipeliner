@@ -5,6 +5,12 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] - 2026-06-02
+
+### Fixed
+
+- **`jackett` probes `t=caps` and falls back to `t=search` on Torznab error 201** ([#213](https://github.com/brunoga/pipeliner/pull/213)). After 1.3.0's #208, `jackett` began sending typed Torznab queries (`t=movie` / `t=tvsearch`) whenever the upstream entry had `media_type` set. Indexers that advertise only the generic `t=search` mode — 3dtorrents is the canonical example — reject those with Torznab error 201, so every search through such an indexer returned zero entries and a logged error. Each indexer's `t=caps` response is now fetched once on first use and cached for the lifetime of the process; the chosen search mode and typed params (`year`, `imdbid`, `tmdbid`, `tvdbid`, `season`, `ep`) are filtered against the caps' `available=` and `supportedParams=` lists, so 3dtorrents et al. get a plain `q=` query instead. If an indexer's caps are wrong or unparseable, a single fallback retry to `t=search&q=…` on a 201 response covers the gap. Caps fetch failures are deliberately *not* cached so a transient probe error doesn't permanently disable typed queries for an indexer.
+
 ## [1.3.0] - 2026-06-02
 
 ### Added
