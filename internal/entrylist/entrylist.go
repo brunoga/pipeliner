@@ -34,4 +34,3 @@ func (l *List) Contains(title string) (bool, error) {
 func (l *List) Remove(title string) error {
 	return l.bucket.Delete(title)
 }
-

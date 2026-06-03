@@ -273,10 +273,10 @@ func TestHandlerValueQuoting(t *testing.T) {
 
 	out := buf.String()
 	for raw, want := range map[string]string{
-		"plain=value":    "plain=value",
-		`spaced=`:        `spaced="has space"`,
-		`empty=`:         `empty=""`,
-		`eq=`:            `eq="a=b"`,
+		"plain=value": "plain=value",
+		`spaced=`:     `spaced="has space"`,
+		`empty=`:      `empty=""`,
+		`eq=`:         `eq="a=b"`,
 	} {
 		_ = raw
 		if !strings.Contains(out, want) {

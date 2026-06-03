@@ -1544,7 +1544,7 @@ func TestE2EConditionEditorFieldsAvailableSection(t *testing.T) {
 }
 
 // TestE2EConditionEditorAcceptNarrowsDownstream verifies that adding
-// "accept: description != ''" to a condition node causes "description" to
+// "accept: description != ”" to a condition node causes "description" to
 // appear as a certain (green) field in the downstream print node's panel.
 func TestE2EConditionEditorAcceptNarrowsDownstream(t *testing.T) {
 	const cfg = `
@@ -1579,7 +1579,7 @@ pipeline("test")
 }
 
 // TestE2EConditionEditorORDoesNotPromote verifies that an OR accept rule
-// like "description != '' or rss_category != ''" does NOT promote either
+// like "description != ” or rss_category != ”" does NOT promote either
 // field to certain downstream, since only one branch needs to match.
 func TestE2EConditionEditorORDoesNotPromote(t *testing.T) {
 	const cfg = `
@@ -1612,7 +1612,7 @@ pipeline("test")
 }
 
 // TestE2EConditionEditorRejectRemovesField verifies that a reject rule
-// "description != ''" causes "description" to disappear from both certain
+// "description != ”" causes "description" to disappear from both certain
 // and reachable in the downstream node's Fields-available panel.
 func TestE2EConditionEditorRejectRemovesField(t *testing.T) {
 	const cfg = `
@@ -1831,8 +1831,8 @@ pipeline("pipe-b")`
 		t.Fatalf("wait for pipeline-b label: %v", err)
 	}
 
-	labelA  := page.Locator(`.ve-pipeline-label[data-graph-idx="0"]`)
-	labelB  := page.Locator(`.ve-pipeline-label[data-graph-idx="1"]`)
+	labelA := page.Locator(`.ve-pipeline-label[data-graph-idx="0"]`)
+	labelB := page.Locator(`.ve-pipeline-label[data-graph-idx="1"]`)
 	regionA := page.Locator(`.ve-pipeline-region[data-graph-idx="0"]`)
 	regionB := page.Locator(`.ve-pipeline-region[data-graph-idx="1"]`)
 
@@ -2049,7 +2049,7 @@ func TestE2ESingleDragMovesSearchSubNode(t *testing.T) {
 
 	// Discover is the main node; .ve-node-search is its attached sub-node.
 	const parent = `.ve-node:has(.ve-node-name:has-text("discover"))`
-	const sub    = `.ve-node.ve-node-search`
+	const sub = `.ve-node.ve-node-search`
 
 	if err := page.Locator(sub).WaitFor(playwright.LocatorWaitForOptions{
 		State: playwright.WaitForSelectorStateVisible,
@@ -2066,7 +2066,7 @@ func TestE2ESingleDragMovesSearchSubNode(t *testing.T) {
 	sx1, sy1 := nodePosition(t, page, sub)
 
 	parentDx, parentDy := px1-px0, py1-py0
-	subDx,    subDy    := sx1-sx0, sy1-sy0
+	subDx, subDy := sx1-sx0, sy1-sy0
 
 	if parentDx == 0 && parentDy == 0 {
 		t.Fatalf("parent did not move: parent dx=%.1f dy=%.1f", parentDx, parentDy)
@@ -2093,8 +2093,8 @@ func TestE2EMultiDragMovesSearchSubNode(t *testing.T) {
 	switchToVisual(t, page, discoverWithSearchConfig)
 
 	const titles = `.ve-node:has(.ve-node-name:has-text("rss")):not(.ve-node-search)`
-	const disc   = `.ve-node:has(.ve-node-name:has-text("discover"))`
-	const sub    = `.ve-node.ve-node-search`
+	const disc = `.ve-node:has(.ve-node-name:has-text("discover"))`
+	const sub = `.ve-node.ve-node-search`
 
 	if err := page.Locator(sub).WaitFor(playwright.LocatorWaitForOptions{
 		State: playwright.WaitForSelectorStateVisible,
@@ -2134,7 +2134,7 @@ func TestE2EMultiDragMovesSearchSubNode(t *testing.T) {
 	sx1, sy1 := nodePosition(t, page, sub)
 
 	parentDx, parentDy := px1-px0, py1-py0
-	subDx,    subDy    := sx1-sx0, sy1-sy0
+	subDx, subDy := sx1-sx0, sy1-sy0
 
 	if parentDx == 0 && parentDy == 0 {
 		t.Fatalf("parent did not move during multi-drag: dx=%.1f dy=%.1f", parentDx, parentDy)

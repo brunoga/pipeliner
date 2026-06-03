@@ -162,9 +162,9 @@ func TestAPIFieldsContainsWellKnownFields(t *testing.T) {
 	json.NewDecoder(resp.Body).Decode(&fields)
 
 	wanted := map[string]string{
-		"source":  "string",
-		"title":   "string",
-		"enriched": "bool",
+		"source":        "string",
+		"title":         "string",
+		"enriched":      "bool",
 		"torrent_seeds": "int",
 		"video_year":    "int",
 		"series_season": "int",
@@ -172,7 +172,7 @@ func TestAPIFieldsContainsWellKnownFields(t *testing.T) {
 	found := make(map[string]string, len(wanted))
 	for _, f := range fields {
 		name, _ := f["name"].(string)
-		typ, _  := f["type"].(string)
+		typ, _ := f["type"].(string)
 		if _, ok := wanted[name]; ok {
 			found[name] = typ
 		}

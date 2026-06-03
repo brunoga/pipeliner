@@ -261,10 +261,12 @@ func TestDBPaginationFirstPage(t *testing.T) {
 	resp := get(t, ts.URL+"/api/db/buckets/movies?limit=2")
 	defer resp.Body.Close()
 	var out struct {
-		Entries    []struct{ Key string `json:"key"` } `json:"entries"`
-		NextCursor string                               `json:"next_cursor"`
-		HasMore    bool                                 `json:"has_more"`
-		Total      int                                  `json:"total"`
+		Entries []struct {
+			Key string `json:"key"`
+		} `json:"entries"`
+		NextCursor string `json:"next_cursor"`
+		HasMore    bool   `json:"has_more"`
+		Total      int    `json:"total"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		t.Fatal(err)
@@ -296,9 +298,11 @@ func TestDBPaginationNextPage(t *testing.T) {
 	resp := get(t, ts.URL+"/api/db/buckets/movies?limit=2&after=b")
 	defer resp.Body.Close()
 	var out struct {
-		Entries    []struct{ Key string `json:"key"` } `json:"entries"`
-		NextCursor string                               `json:"next_cursor"`
-		HasMore    bool                                 `json:"has_more"`
+		Entries []struct {
+			Key string `json:"key"`
+		} `json:"entries"`
+		NextCursor string `json:"next_cursor"`
+		HasMore    bool   `json:"has_more"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		t.Fatal(err)
@@ -325,7 +329,9 @@ func TestDBPaginationLastPage(t *testing.T) {
 	defer resp.Body.Close()
 	var out struct {
 		HasMore bool `json:"has_more"`
-		Entries []struct{ Key string `json:"key"` } `json:"entries"`
+		Entries []struct {
+			Key string `json:"key"`
+		} `json:"entries"`
 	}
 	json.NewDecoder(resp.Body).Decode(&out)
 	if out.HasMore {
@@ -346,8 +352,10 @@ func TestDBPaginationFilter(t *testing.T) {
 	resp := get(t, ts.URL+"/api/db/buckets/movies?q=avatar")
 	defer resp.Body.Close()
 	var out struct {
-		Entries []struct{ Key string `json:"key"` } `json:"entries"`
-		Total   int                                  `json:"total"`
+		Entries []struct {
+			Key string `json:"key"`
+		} `json:"entries"`
+		Total int `json:"total"`
 	}
 	json.NewDecoder(resp.Body).Decode(&out)
 	if out.Total != 2 {
@@ -378,10 +386,12 @@ func TestDBSeriesPaginationByShow(t *testing.T) {
 	resp := get(t, ts.URL+"/api/db/buckets/series?limit=2")
 	defer resp.Body.Close()
 	var out struct {
-		Grouped    []struct{ Name string `json:"name"` } `json:"grouped"`
-		NextCursor string                                 `json:"next_cursor"`
-		HasMore    bool                                   `json:"has_more"`
-		Total      int                                    `json:"total"`
+		Grouped []struct {
+			Name string `json:"name"`
+		} `json:"grouped"`
+		NextCursor string `json:"next_cursor"`
+		HasMore    bool   `json:"has_more"`
+		Total      int    `json:"total"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		t.Fatal(err)
@@ -406,8 +416,10 @@ func TestDBSeriesPaginationByShow(t *testing.T) {
 	resp2 := get(t, ts.URL+"/api/db/buckets/series?limit=2&after=Dark")
 	defer resp2.Body.Close()
 	var out2 struct {
-		Grouped []struct{ Name string `json:"name"` } `json:"grouped"`
-		HasMore bool                                   `json:"has_more"`
+		Grouped []struct {
+			Name string `json:"name"`
+		} `json:"grouped"`
+		HasMore bool `json:"has_more"`
 	}
 	json.NewDecoder(resp2.Body).Decode(&out2)
 	if len(out2.Grouped) != 1 || out2.Grouped[0].Name != "Mindhunter" {

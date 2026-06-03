@@ -95,7 +95,7 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 	}, nil
 }
 
-func (p *torrentPlugin) Name() string        { return "metainfo_torrent" }
+func (p *torrentPlugin) Name() string { return "metainfo_torrent" }
 
 func (p *torrentPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
 	log := tc.Logger

@@ -80,7 +80,7 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 	return &contentPlugin{reject: reject, require: require}, nil
 }
 
-func (p *contentPlugin) Name() string        { return "content" }
+func (p *contentPlugin) Name() string { return "content" }
 
 func (p *contentPlugin) filter(_ context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
 	files, source := resolveFiles(e)

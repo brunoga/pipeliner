@@ -54,7 +54,7 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 	return &execPlugin{ip: ip}, nil
 }
 
-func (p *execPlugin) Name() string        { return "exec" }
+func (p *execPlugin) Name() string { return "exec" }
 
 func (p *execPlugin) deliver(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
 	for _, e := range entries {

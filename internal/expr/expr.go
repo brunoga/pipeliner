@@ -116,11 +116,13 @@ func (e *Expr) NarrowedCertain() []string {
 
 // AbsencePromotedFields returns fields that should be promoted to certain
 // when this expression is used as a REJECT condition and evaluates to FALSE.
-// "reject: field == ''" → passing entries have field set → promote.
+// "reject: field == ”" → passing entries have field set → promote.
 //
 // AND: NOT(A∧B) = ¬A∨¬B — ambiguous, returns nil.
 // OR:  NOT(A∨B) = ¬A∧¬B — all fields absent; if all clauses are absence-checks
-//   return them all.
+//
+//	return them all.
+//
 // Single absence-check clause: returns that field.
 func (e *Expr) AbsencePromotedFields() []string {
 	if e.node == nil {
@@ -131,11 +133,13 @@ func (e *Expr) AbsencePromotedFields() []string {
 
 // PresenceRemovedFields returns fields that should be removed from reachable
 // when this expression is used as a REJECT condition and evaluates to FALSE.
-// "reject: field != ''" → passing entries lack field → remove.
+// "reject: field != ”" → passing entries lack field → remove.
 //
 // AND: NOT(A∧B) = ¬A∨¬B — ambiguous, returns nil.
 // OR:  NOT(A∨B) = ¬A∧¬B — both absent; if all clauses are presence-checks
-//   return them all.
+//
+//	return them all.
+//
 // Single presence-check clause: returns that field.
 func (e *Expr) PresenceRemovedFields() []string {
 	if e.node == nil {
@@ -146,7 +150,7 @@ func (e *Expr) PresenceRemovedFields() []string {
 
 // AbsenceRemovedFields returns fields that are guaranteed absent when this
 // expression evaluates to true, suitable for ACCEPT conditions on route ports.
-// "accept: field == ''" on a route port means only entries without that field
+// "accept: field == ”" on a route port means only entries without that field
 // reach this port — the field should be removed from the downstream reachable set.
 //
 // AND: both sides' fields removed (union — all clauses must hold).
@@ -319,7 +323,7 @@ func narrowCertain(n node, out *[]string) {
 				*out = append(*out, id.name)
 			}
 		}
-	// unaryNode (not): no promotion — inverse narrowing is unsafe.
+		// unaryNode (not): no promotion — inverse narrowing is unsafe.
 	}
 }
 

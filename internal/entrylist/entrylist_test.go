@@ -57,4 +57,3 @@ func TestRemove(t *testing.T) {
 		t.Error("expected entry to be absent after Remove")
 	}
 }
-

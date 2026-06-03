@@ -17,6 +17,7 @@ import (
 	"github.com/brunoga/pipeliner/internal/task"
 
 	// Register all plugins under test.
+	_ "github.com/brunoga/pipeliner/plugins/processor/discover"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/accept_all"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/condition"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/content"
@@ -30,13 +31,6 @@ import (
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/series"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/torrentalive"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/trailer"
-	_ "github.com/brunoga/pipeliner/plugins/source/trakt_list"
-	_ "github.com/brunoga/pipeliner/plugins/source/tvdb_favorites"
-	_ "github.com/brunoga/pipeliner/plugins/processor/discover"
-	_ "github.com/brunoga/pipeliner/plugins/source/filesystem"
-	_ "github.com/brunoga/pipeliner/plugins/source/html"
-	_ "github.com/brunoga/pipeliner/plugins/source/rss"
-	_ "github.com/brunoga/pipeliner/plugins/source/jackett"
 	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/file"
 	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/magnet"
 	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/trakt"
@@ -45,6 +39,12 @@ import (
 	_ "github.com/brunoga/pipeliner/plugins/sink/exec"
 	_ "github.com/brunoga/pipeliner/plugins/sink/list_add"
 	_ "github.com/brunoga/pipeliner/plugins/sink/print"
+	_ "github.com/brunoga/pipeliner/plugins/source/filesystem"
+	_ "github.com/brunoga/pipeliner/plugins/source/html"
+	_ "github.com/brunoga/pipeliner/plugins/source/jackett"
+	_ "github.com/brunoga/pipeliner/plugins/source/rss"
+	_ "github.com/brunoga/pipeliner/plugins/source/trakt_list"
+	_ "github.com/brunoga/pipeliner/plugins/source/tvdb_favorites"
 )
 
 // ---------- helpers ----------

@@ -185,7 +185,12 @@ func TestDedupRequiresErrorsWhenMediaTypeUnreachable(t *testing.T) {
 		Produces: []string{entry.FieldTitle, entry.FieldSource},
 	}
 	g := dag.New()
-	must := func(err error) { t.Helper(); if err != nil { t.Fatal(err) } }
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
 	must(g.AddNode(&dag.Node{ID: "a", PluginName: "src"}))
 	must(g.AddNode(&dag.Node{ID: "b", PluginName: "dedup", Upstreams: []dag.NodeID{"a"}}))
 
@@ -225,7 +230,12 @@ func TestDedupRequiresWarnsWhenMediaTypeOnlyReachable(t *testing.T) {
 		MayProduce: []string{entry.FieldMediaType, entry.FieldSeriesEpisodeID},
 	}
 	g := dag.New()
-	must := func(err error) { t.Helper(); if err != nil { t.Fatal(err) } }
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
 	must(g.AddNode(&dag.Node{ID: "a", PluginName: "src"}))
 	must(g.AddNode(&dag.Node{ID: "b", PluginName: "dedup", Upstreams: []dag.NodeID{"a"}}))
 
@@ -269,7 +279,12 @@ func TestDedupNoMediaTypeWarningWhenClassifierFilterUpstream(t *testing.T) {
 		Produces: []string{entry.FieldMediaType, entry.FieldTitle},
 	}
 	g := dag.New()
-	must := func(err error) { t.Helper(); if err != nil { t.Fatal(err) } }
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
 	src := &plugin.Descriptor{
 		PluginName: "src", Role: plugin.RoleSource,
 		Produces: []string{entry.FieldSource},

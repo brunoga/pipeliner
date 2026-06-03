@@ -25,7 +25,7 @@ func init() {
 
 type acceptAllPlugin struct{}
 
-func (p *acceptAllPlugin) Name() string        { return "accept_all" }
+func (p *acceptAllPlugin) Name() string { return "accept_all" }
 func (p *acceptAllPlugin) Process(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
 	for _, e := range entries {
 		if !e.IsAccepted() && !e.IsRejected() && !e.IsFailed() {

@@ -208,7 +208,7 @@ func TestDaemonWaitBlocksForInFlightTasks(t *testing.T) {
 	// runnerStarted closes once the runner has begun; runnerCanFinish gates
 	// when it returns. This lets us reliably exercise the "task still running
 	// when Run returns" scenario.
-	runnerStarted   := make(chan struct{})
+	runnerStarted := make(chan struct{})
 	runnerCanFinish := make(chan struct{})
 
 	runCtx, cancelRun := context.WithCancel(context.Background())

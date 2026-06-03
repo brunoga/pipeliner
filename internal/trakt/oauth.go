@@ -15,15 +15,15 @@ type DeviceCode struct {
 	UserCode        string `json:"user_code"`
 	VerificationURL string `json:"verification_url"`
 	ExpiresIn       int    `json:"expires_in"` // seconds until code expires
-	Interval        int    `json:"interval"`    // minimum polling interval in seconds
+	Interval        int    `json:"interval"`   // minimum polling interval in seconds
 }
 
 // Token is the OAuth token pair returned after a successful authorization or refresh.
 type Token struct {
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`
-	ExpiresIn    int64  `json:"expires_in"`  // seconds from CreatedAt
-	CreatedAt    int64  `json:"created_at"`  // unix timestamp
+	ExpiresIn    int64  `json:"expires_in"` // seconds from CreatedAt
+	CreatedAt    int64  `json:"created_at"` // unix timestamp
 	TokenType    string `json:"token_type"`
 }
 

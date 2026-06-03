@@ -26,13 +26,13 @@ func init() {
 		Description: "fetch TheTVDB favorites as show-name entries; usable as a standalone DAG source or inside series.list",
 		Role:        plugin.RoleSource,
 		// TVDB only catalogs TV shows, so every entry is classified as a series.
-		Produces:    []string{entry.FieldTitle, entry.FieldMediaType, entry.FieldSource, "tvdb_id"},
-		MayProduce:  []string{"tvdb_year"},
+		Produces:     []string{entry.FieldTitle, entry.FieldMediaType, entry.FieldSource, "tvdb_id"},
+		MayProduce:   []string{"tvdb_year"},
 		Factory:      newPlugin,
 		Validate:     validate,
 		IsListPlugin: true,
 		Schema: []plugin.FieldSchema{
-			{Key: "api_key",  Type: plugin.FieldTypeString, Required: true, Hint: "TheTVDB v4 API key"},
+			{Key: "api_key", Type: plugin.FieldTypeString, Required: true, Hint: "TheTVDB v4 API key"},
 			{Key: "user_pin", Type: plugin.FieldTypeString, Required: true, Hint: "TheTVDB user PIN"},
 		},
 	})
@@ -68,7 +68,7 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 	}, nil
 }
 
-func (p *tvdbSourcePlugin) Name() string        { return "tvdb_favorites" }
+func (p *tvdbSourcePlugin) Name() string { return "tvdb_favorites" }
 
 func (p *tvdbSourcePlugin) Generate(ctx context.Context, tc *plugin.TaskContext) ([]*entry.Entry, error) {
 	ids, err := p.client.GetFavorites(ctx)

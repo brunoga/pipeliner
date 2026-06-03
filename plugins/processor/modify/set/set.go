@@ -48,7 +48,7 @@ func newSetPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, erro
 	return &setPlugin{fields: fields}, nil
 }
 
-func (s *setPlugin) Name() string        { return "set" }
+func (s *setPlugin) Name() string { return "set" }
 
 func (s *setPlugin) Process(_ context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
 	for _, e := range entries {

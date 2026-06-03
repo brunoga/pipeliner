@@ -58,12 +58,12 @@ type Series struct {
 	Year       string   `json:"year"`
 	Slug       string   `json:"slug"`
 	Genres     []string `json:"genres"`           // genre names, e.g. ["Drama","Crime"]
-	Network    string   `json:"network"`           // originating network name
-	Language   string   `json:"originalLanguage"`  // original language code, e.g. "eng"
-	Country    string   `json:"country"`           // country of origin, e.g. "usa"
-	ImageURL   string   `json:"image_url"`         // poster image URL
-	FirstAired string   `json:"first_air_time"`    // ISO-8601 from search; may be empty
-	Score      float64  `json:"score"`             // popularity score
+	Network    string   `json:"network"`          // originating network name
+	Language   string   `json:"originalLanguage"` // original language code, e.g. "eng"
+	Country    string   `json:"country"`          // country of origin, e.g. "usa"
+	ImageURL   string   `json:"image_url"`        // poster image URL
+	FirstAired string   `json:"first_air_time"`   // ISO-8601 from search; may be empty
+	Score      float64  `json:"score"`            // popularity score
 }
 
 // Episode represents a single episode from the series episodes endpoint.
@@ -185,6 +185,7 @@ type Character struct {
 	Image      string `json:"image"`      // headshot URL
 	Sort       int    `json:"sort"`       // display order
 }
+
 // Translation holds a localised name for a series, returned via meta=translations.
 type Translation struct {
 	Language string `json:"language"` // ISO 639-1 or 639-2 code, e.g. "spa"
@@ -196,7 +197,7 @@ type SeriesExtended struct {
 	Name     string  `json:"name"`
 	Overview string  `json:"overview"`
 	Slug     string  `json:"slug"`
-	Image    string  `json:"image"`    // poster URL (search uses "image_url")
+	Image    string  `json:"image"` // poster URL (search uses "image_url")
 	Year     string  `json:"year"`
 	Score    float64 `json:"score"`
 
@@ -260,6 +261,7 @@ func (s *SeriesExtended) TrailerURLs() []string {
 	}
 	return urls
 }
+
 // OriginalName returns the series name in the given language code from the
 // translations sub-object (populated when meta=translations is requested).
 // Returns "" if no matching translation is found.

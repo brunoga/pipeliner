@@ -100,9 +100,9 @@ func ratingsResponse(titles []string, ratings []int) []byte {
 		IDs   ids    `json:"ids"`
 	}
 	type item struct {
-		Rating int    `json:"rating"`
+		Rating  int    `json:"rating"`
 		RatedAt string `json:"rated_at"`
-		Show   show   `json:"show"`
+		Show    show   `json:"show"`
 	}
 	var items []item
 	for i, t := range titles {

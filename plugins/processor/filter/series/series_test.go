@@ -408,8 +408,8 @@ func TestFuzzyMatchExact(t *testing.T) {
 		want bool
 	}{
 		{"my show", "my show", true},
-		{"my show", "my sho", false},        // 1 edit (drop w) — must not match
-		{"my show", "mi show", false},       // 1 edit (y→i) — must not match
+		{"my show", "my sho", false},  // 1 edit (drop w) — must not match
+		{"my show", "mi show", false}, // 1 edit (y→i) — must not match
 		{"completely different", "my show", false},
 		{"my show", "my show 2", false},
 		{"my show", "my show extra", false},

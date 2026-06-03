@@ -138,7 +138,7 @@ func TestRegistration(t *testing.T) {
 	}
 	_, err := d.Factory(map[string]any{
 		"smtp_host": "localhost",
-		"sender":      "a@b.com",
+		"sender":    "a@b.com",
 		"to":        "x@y.com",
 	})
 	if err != nil {

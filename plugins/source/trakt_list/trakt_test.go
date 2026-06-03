@@ -184,9 +184,9 @@ func TestRunReturnsEntries(t *testing.T) {
 	t.Cleanup(func() { itrakt.BaseURL = orig })
 
 	p, err := newPlugin(map[string]any{
-		"client_id":    "test",
-		"type":         "movies",
-		"list":         "trending",
+		"client_id": "test",
+		"type":      "movies",
+		"list":      "trending",
 	}, nil)
 	if err != nil {
 		t.Fatalf("newPlugin: %v", err)

@@ -65,7 +65,7 @@ func NarrowCertain(exprStr string, certainFields, reachableFields []string) []st
 // RejectAbsencePromoted returns field names promoted to certain by a REJECT
 // rule whose expression uses absence-check operators (== "", == 0).
 //
-// "reject: field == ''" means only entries where the field is SET pass through,
+// "reject: field == ”" means only entries where the field is SET pass through,
 // so the field becomes certain downstream — the mirror of NarrowCertain for
 // an accept rule with a presence op.
 func RejectAbsencePromoted(exprStr string, certainFields, reachableFields []string) []string {
@@ -99,7 +99,7 @@ func RejectAbsencePromoted(exprStr string, certainFields, reachableFields []stri
 // RejectPresenceRemoved returns field names that should be removed from the
 // reachable set by a REJECT rule using presence-check operators (!= "", > 0).
 //
-// "reject: field != ''" means only entries where the field is ABSENT pass,
+// "reject: field != ”" means only entries where the field is ABSENT pass,
 // so the field should be removed from downstream field availability.
 func RejectPresenceRemoved(exprStr string, reachableFields []string) []string {
 	if exprStr == "" {

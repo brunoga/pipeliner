@@ -92,11 +92,11 @@ func ParseCron(expr string) (Schedule, error) {
 		target   *cronField
 	}
 	specs := []fieldSpec{
-		{0, 59, nil},  // minute
-		{0, 23, nil},  // hour
-		{1, 31, nil},  // dom
-		{1, 12, nil},  // month
-		{0, 6, nil},   // dow
+		{0, 59, nil}, // minute
+		{0, 23, nil}, // hour
+		{1, 31, nil}, // dom
+		{1, 12, nil}, // month
+		{0, 6, nil},  // dow
 	}
 	cs := &cronSchedule{}
 	specs[0].target = &cs.min

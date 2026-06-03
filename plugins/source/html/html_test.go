@@ -49,12 +49,12 @@ func TestExtractLinks(t *testing.T) {
 	// /uppercase and /single-quote should be found.
 	// abbr should NOT appear.
 	wantURLs := map[string]string{
-		srv.URL + "/ep1":                 "Episode One",
-		srv.URL + "/ep2":                 "Episode Two",
-		"http://other.com/file.torrent":  "Torrent",
-		srv.URL + "/uppercase":           "Upper",
-		srv.URL + "/single-quote":        "Single",
-		srv.URL + "/nested":              "Bold text",
+		srv.URL + "/ep1":                "Episode One",
+		srv.URL + "/ep2":                "Episode Two",
+		"http://other.com/file.torrent": "Torrent",
+		srv.URL + "/uppercase":          "Upper",
+		srv.URL + "/single-quote":       "Single",
+		srv.URL + "/nested":             "Bold text",
 	}
 
 	got := map[string]string{}

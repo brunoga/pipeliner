@@ -71,8 +71,8 @@ func validate(cfg map[string]any) []error {
 
 type tmdbPlugin struct {
 	client      *itmdb.Client
-	cache       *cache.Cache[[]itmdb.Movie]        // search results by "title:year"
-	detailCache *cache.Cache[*itmdb.MovieDetail]   // full detail by "detail:<id>"
+	cache       *cache.Cache[[]itmdb.Movie]      // search results by "title:year"
+	detailCache *cache.Cache[*itmdb.MovieDetail] // full detail by "detail:<id>"
 }
 
 func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {

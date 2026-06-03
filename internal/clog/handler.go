@@ -168,10 +168,10 @@ var msgKeywords = []struct {
 	word  string
 	color string
 }{
-	{"accepted",  ansiGreen + ansiBold},
-	{"rejected",  ansiRed + ansiBold},
+	{"accepted", ansiGreen + ansiBold},
+	{"rejected", ansiRed + ansiBold},
 	{"undecided", ansiYellow},
-	{"failed",    ansiMagenta + ansiBold},
+	{"failed", ansiMagenta + ansiBold},
 }
 
 // renderMsg writes the message to buf. The base color comes from the log level

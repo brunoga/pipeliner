@@ -124,8 +124,8 @@ func TestPortAbsenceExprCausesHardError(t *testing.T) {
 	addNode("route", "route", []dag.NodeID{"src"}, nil)
 	// torrent branch: absence check on magnet_url removes it from reachable
 	addNode("sel_t", "route_selector", []dag.NodeID{"route"}, map[string]any{
-		"_route_port_name": "torrent",
-		"_route_group":     "rg1",
+		"_route_port_name":  "torrent",
+		"_route_group":      "rg1",
 		"_port_accept_expr": `magnet_url == ""`,
 	})
 	// A consumer on the torrent branch mistakenly requires magnet_url.

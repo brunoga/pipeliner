@@ -46,11 +46,11 @@ func validate(cfg map[string]any) []error {
 }
 
 type delugePlugin struct {
-	endpoint          string // e.g. "http://host:8112/json"
-	password          string
-	pathIP            *interp.Interpolator
-	moveCompletedIP   *interp.Interpolator // nil = don't set move_completed
-	client            *http.Client
+	endpoint        string // e.g. "http://host:8112/json"
+	password        string
+	pathIP          *interp.Interpolator
+	moveCompletedIP *interp.Interpolator // nil = don't set move_completed
+	client          *http.Client
 }
 
 func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
@@ -94,7 +94,7 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 	}, nil
 }
 
-func (p *delugePlugin) Name() string        { return "deluge" }
+func (p *delugePlugin) Name() string { return "deluge" }
 
 func (p *delugePlugin) deliver(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
 	if err := p.login(ctx); err != nil {
@@ -201,7 +201,7 @@ func (p *delugePlugin) rpc(ctx context.Context, method string, params []any) (an
 		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 	var rpcResp struct {
-		Result any    `json:"result"`
+		Result any `json:"result"`
 		Error  *struct {
 			Message string `json:"message"`
 		} `json:"error"`

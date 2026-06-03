@@ -115,7 +115,7 @@ func stringVal(cfg map[string]any, key string) string {
 	return v
 }
 
-func (p *transmissionPlugin) Name() string        { return "transmission" }
+func (p *transmissionPlugin) Name() string { return "transmission" }
 
 func (p *transmissionPlugin) deliver(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
 	for _, e := range entries {
@@ -200,7 +200,6 @@ func (p *transmissionPlugin) doRequest(ctx context.Context, body []byte) (*http.
 	}
 	return p.client.Do(req)
 }
-
 
 func (p *transmissionPlugin) Consume(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
 	if tc.DryRun {

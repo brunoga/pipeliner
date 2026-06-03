@@ -15,8 +15,8 @@ import (
 
 	// Register a handful of plugins so plugin.All() is non-empty in tests.
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/seen"
-	_ "github.com/brunoga/pipeliner/plugins/source/rss"
 	_ "github.com/brunoga/pipeliner/plugins/processor/modify/pathfmt"
+	_ "github.com/brunoga/pipeliner/plugins/source/rss"
 )
 
 // stubDaemon satisfies DaemonControl with no-op implementations.
@@ -455,7 +455,7 @@ func TestAPILogsHistorySpansArchives(t *testing.T) {
 	// lines, .1 holds the next-newest, etc.
 	writeLogLines(t, path+".2", []string{"a", "b"})
 	writeLogLines(t, path+".1", []string{"c", "d"})
-	writeLogLines(t, path,      []string{"e", "f"})
+	writeLogLines(t, path, []string{"e", "f"})
 	ts := setupLogHistoryServer(t, path, 5)
 
 	// Ask for the full window; result must be in chronological order across
@@ -734,7 +734,9 @@ pipeline("t")
 	}
 	var result struct {
 		Graphs map[string]struct {
-			Nodes []struct{ Plugin string `json:"plugin"` } `json:"nodes"`
+			Nodes []struct {
+				Plugin string `json:"plugin"`
+			} `json:"nodes"`
 		} `json:"graphs"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {

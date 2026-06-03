@@ -55,9 +55,9 @@ func init() {
 		Factory:  newPlugin,
 		Validate: validate,
 		Schema: []plugin.FieldSchema{
-			{Key: "url",          Type: plugin.FieldTypeString,   Hint: "Fixed feed URL (passive source)"},
-			{Key: "url_template", Type: plugin.FieldTypeString,   Hint: "URL with {Query}/{QueryEscaped} placeholder (search backend)"},
-			{Key: "timeout",      Type: plugin.FieldTypeDuration, Hint: "HTTP request timeout (default 30s)"},
+			{Key: "url", Type: plugin.FieldTypeString, Hint: "Fixed feed URL (passive source)"},
+			{Key: "url_template", Type: plugin.FieldTypeString, Hint: "URL with {Query}/{QueryEscaped} placeholder (search backend)"},
+			{Key: "timeout", Type: plugin.FieldTypeDuration, Hint: "HTTP request timeout (default 30s)"},
 		},
 	})
 }

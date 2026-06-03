@@ -52,7 +52,7 @@ func init() {
 
 type dedupPlugin struct{}
 
-func (p *dedupPlugin) Name() string        { return "dedup" }
+func (p *dedupPlugin) Name() string { return "dedup" }
 
 func (p *dedupPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
 	best := map[string]*entry.Entry{}

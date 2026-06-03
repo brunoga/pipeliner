@@ -160,7 +160,10 @@ func TestParseAbsolutePattern(t *testing.T) {
 }
 
 func TestParseProper(t *testing.T) {
-	cases := []struct{ title string; proper, repack bool }{
+	cases := []struct {
+		title          string
+		proper, repack bool
+	}{
 		{"Show.S01E01.PROPER.720p", true, false},
 		{"Show.S01E01.REPACK.720p", false, true},
 		{"Show.S01E01.RERIP.720p", false, true},
@@ -278,9 +281,9 @@ func TestNormalizeName(t *testing.T) {
 
 func TestParseEpisodeID(t *testing.T) {
 	cases := []struct {
-		id             string
+		id              string
 		season, episode int
-		ok             bool
+		ok              bool
 	}{
 		{"S01E05", 1, 5, true},
 		{"S02E12", 2, 12, true},

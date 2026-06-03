@@ -31,7 +31,7 @@ func newMockSearch(name string) *mockSearch {
 	}
 }
 
-func (m *mockSearch) Name() string        { return m.pluginName }
+func (m *mockSearch) Name() string { return m.pluginName }
 func (m *mockSearch) Search(_ context.Context, _ *plugin.TaskContext, qe *entry.Entry) ([]*entry.Entry, error) {
 	m.calls[qe.Title]++
 	m.queries[qe.Title] = qe

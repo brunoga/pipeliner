@@ -8,7 +8,7 @@ type SeenRecord struct {
 	Title       string    `json:"title"`
 	URL         string    `json:"url"`
 	Task        string    `json:"task"`
-	Fields      []string  `json:"fields"`  // which fields were used to compute the fingerprint
+	Fields      []string  `json:"fields"` // which fields were used to compute the fingerprint
 	SeenAt      time.Time `json:"seen_at"`
 }
 
@@ -40,4 +40,3 @@ func (s *SeenStore) Mark(fingerprint string, rec SeenRecord) error {
 	}
 	return s.bucket.Put(fingerprint, rec)
 }
-

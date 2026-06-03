@@ -115,7 +115,6 @@ func TestInvalidRejectTemplate(t *testing.T) {
 	}
 }
 
-
 func TestRegistration(t *testing.T) {
 	d, ok := plugin.Lookup("condition")
 	if !ok {

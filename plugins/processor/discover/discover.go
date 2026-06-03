@@ -36,7 +36,7 @@ func init() {
 		Validate:      validate,
 		AcceptsSearch: true,
 		Schema: []plugin.FieldSchema{
-			{Key: "titles",   Type: plugin.FieldTypeList,     Hint: "Static title strings to search for (supplements upstream source nodes)"},
+			{Key: "titles", Type: plugin.FieldTypeList, Hint: "Static title strings to search for (supplements upstream source nodes)"},
 			{Key: "interval", Type: plugin.FieldTypeDuration, Hint: "Minimum time between re-searches per title (default 24h)"},
 		},
 	})
@@ -132,7 +132,7 @@ func resolveSearchPlugin(item any, db *store.SQLiteStore) (plugin.SearchPlugin, 
 	return sp, nil
 }
 
-func (p *discoverPlugin) Name() string        { return "discover" }
+func (p *discoverPlugin) Name() string { return "discover" }
 
 // Process implements ProcessorPlugin for DAG pipelines. Upstream entries supply
 // the title list (via their .Title field) plus optional search hints in other

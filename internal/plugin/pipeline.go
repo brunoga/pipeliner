@@ -135,7 +135,7 @@ type miniPipelineSource struct {
 	name   string
 }
 
-func (m *miniPipelineSource) Name()     string { return m.name }
+func (m *miniPipelineSource) Name() string     { return m.name }
 func (m *miniPipelineSource) CacheKey() string { return "mini:" + m.name }
 
 func (m *miniPipelineSource) Generate(ctx context.Context, tc *TaskContext) ([]*entry.Entry, error) {

@@ -29,7 +29,7 @@ func init() {
 		Factory:     newPlugin,
 		Validate:    validate,
 		Schema: []plugin.FieldSchema{
-			{Key: "field",      Type: plugin.FieldTypeString, Hint: "Entry field to read date from (default: published_date)"},
+			{Key: "field", Type: plugin.FieldTypeString, Hint: "Entry field to read date from (default: published_date)"},
 			{Key: "newer_than", Type: plugin.FieldTypeString, Hint: "Reject entries older than this duration (e.g. 7d, 2w, 24h)"},
 			{Key: "older_than", Type: plugin.FieldTypeString, Hint: "Reject entries newer than this duration"},
 			{Key: "on_missing", Type: plugin.FieldTypeEnum, Enum: []string{"pass", "reject"}, Hint: "Behaviour when field is absent or unparseable (default: pass)"},
@@ -132,7 +132,7 @@ func entryTime(e *entry.Entry, field string) (time.Time, bool) {
 
 // humanDur expresses a duration as Xw, Xd, or Xh rounding to nearest hour.
 func humanDur(d time.Duration) string {
-	hours := int(d.Hours()+0.5)
+	hours := int(d.Hours() + 0.5)
 	if hours < 0 {
 		hours = -hours
 	}

@@ -27,29 +27,23 @@ import (
 	"github.com/brunoga/pipeliner/internal/web"
 
 	// Register all built-in plugins via side-effect imports.
+	_ "github.com/brunoga/pipeliner/plugins/processor/discover"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/accept_all"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/age"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/condition"
-	_ "github.com/brunoga/pipeliner/plugins/processor/filter/route"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/content"
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/dedup"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/exists"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/list_match"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/movies"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/premiere"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/regexp"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/require"
-	_ "github.com/brunoga/pipeliner/plugins/processor/filter/dedup"
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/route"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/seen"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/series"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/torrentalive"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/trailer"
-	_ "github.com/brunoga/pipeliner/plugins/source/trakt_list"
-	_ "github.com/brunoga/pipeliner/plugins/source/tvdb_favorites"
-	_ "github.com/brunoga/pipeliner/plugins/processor/discover"
-	_ "github.com/brunoga/pipeliner/plugins/source/filesystem"
-	_ "github.com/brunoga/pipeliner/plugins/source/html"
-	_ "github.com/brunoga/pipeliner/plugins/source/rss"
-	_ "github.com/brunoga/pipeliner/plugins/source/jackett"
 	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/file"
 	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/magnet"
 	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/tmdb"
@@ -58,18 +52,24 @@ import (
 	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/tvdb"
 	_ "github.com/brunoga/pipeliner/plugins/processor/modify/pathfmt"
 	_ "github.com/brunoga/pipeliner/plugins/processor/modify/set"
-	_ "github.com/brunoga/pipeliner/plugins/sink/notify/email"
-	_ "github.com/brunoga/pipeliner/plugins/sink/notify/pushover"
-	_ "github.com/brunoga/pipeliner/plugins/sink/notify/webhook"
 	_ "github.com/brunoga/pipeliner/plugins/sink/decompress"
 	_ "github.com/brunoga/pipeliner/plugins/sink/deluge"
 	_ "github.com/brunoga/pipeliner/plugins/sink/download"
 	_ "github.com/brunoga/pipeliner/plugins/sink/exec"
 	_ "github.com/brunoga/pipeliner/plugins/sink/list_add"
 	_ "github.com/brunoga/pipeliner/plugins/sink/notify"
+	_ "github.com/brunoga/pipeliner/plugins/sink/notify/email"
+	_ "github.com/brunoga/pipeliner/plugins/sink/notify/pushover"
+	_ "github.com/brunoga/pipeliner/plugins/sink/notify/webhook"
 	_ "github.com/brunoga/pipeliner/plugins/sink/print"
 	_ "github.com/brunoga/pipeliner/plugins/sink/qbittorrent"
 	_ "github.com/brunoga/pipeliner/plugins/sink/transmission"
+	_ "github.com/brunoga/pipeliner/plugins/source/filesystem"
+	_ "github.com/brunoga/pipeliner/plugins/source/html"
+	_ "github.com/brunoga/pipeliner/plugins/source/jackett"
+	_ "github.com/brunoga/pipeliner/plugins/source/rss"
+	_ "github.com/brunoga/pipeliner/plugins/source/trakt_list"
+	_ "github.com/brunoga/pipeliner/plugins/source/tvdb_favorites"
 )
 
 // version is overridden at build time via:
@@ -157,10 +157,10 @@ TLS flags (optional; plain HTTP is used when none are set, suitable for a
 
 func cmdRun(args []string) int {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
-	cfgPath   := fs.String("config",     "config.star", "path to config file")
-	logLevel  := fs.String("log-level",  "info",        "log level (debug, info, warn, error)")
-	logPlugin := fs.String("log-plugin", "",            "only show log output from these plugins, comma-separated (pipeline-level logs always shown)")
-	dryRun        := fs.Bool("dry-run",        false, "run all source and processor nodes but skip sinks (idempotent)")
+	cfgPath := fs.String("config", "config.star", "path to config file")
+	logLevel := fs.String("log-level", "info", "log level (debug, info, warn, error)")
+	logPlugin := fs.String("log-plugin", "", "only show log output from these plugins, comma-separated (pipeline-level logs always shown)")
+	dryRun := fs.Bool("dry-run", false, "run all source and processor nodes but skip sinks (idempotent)")
 	validateFields := fs.Bool("validate-fields", false, "warn when an entry is missing fields required by the next node (debug)")
 	if err := fs.Parse(args); err != nil {
 		return 1
@@ -265,15 +265,15 @@ func cmdRun(args []string) int {
 
 func cmdDaemon(args []string) int {
 	fs := flag.NewFlagSet("daemon", flag.ContinueOnError)
-	cfgPath       := fs.String("config",          "config.star", "path to config file")
-	logLevel      := fs.String("log-level",       "info",        "log level (debug, info, warn, error)")
-	logPlugin     := fs.String("log-plugin",      "",            "only show log output from these plugins, comma-separated (pipeline-level logs always shown)")
-	webAddr       := fs.String("web",             "",            "web interface listen address (e.g. :8080); empty disables it")
-	webUser       := fs.String("web-user",        "",            "username for the web interface (required with --web)")
-	webPass       := fs.String("web-password",    "",            "password for the web interface (required with --web)")
-	tlsSelfSigned := fs.Bool("tls-self-signed",   false,         "generate a self-signed TLS certificate at startup")
-	tlsCert       := fs.String("tls-cert",        "",            "path to TLS certificate file (requires --tls-key)")
-	tlsKey        := fs.String("tls-key",         "",            "path to TLS private key file (requires --tls-cert)")
+	cfgPath := fs.String("config", "config.star", "path to config file")
+	logLevel := fs.String("log-level", "info", "log level (debug, info, warn, error)")
+	logPlugin := fs.String("log-plugin", "", "only show log output from these plugins, comma-separated (pipeline-level logs always shown)")
+	webAddr := fs.String("web", "", "web interface listen address (e.g. :8080); empty disables it")
+	webUser := fs.String("web-user", "", "username for the web interface (required with --web)")
+	webPass := fs.String("web-password", "", "password for the web interface (required with --web)")
+	tlsSelfSigned := fs.Bool("tls-self-signed", false, "generate a self-signed TLS certificate at startup")
+	tlsCert := fs.String("tls-cert", "", "path to TLS certificate file (requires --tls-key)")
+	tlsKey := fs.String("tls-key", "", "path to TLS private key file (requires --tls-cert)")
 	if err := fs.Parse(args); err != nil {
 		return 1
 	}
@@ -683,9 +683,9 @@ func cmdAuth(args []string) int {
 
 func cmdAuthTrakt(args []string) int {
 	fs := flag.NewFlagSet("auth trakt", flag.ContinueOnError)
-	clientID     := fs.String("client-id",     "", "Trakt API client ID (from trakt.tv/oauth/applications)")
+	clientID := fs.String("client-id", "", "Trakt API client ID (from trakt.tv/oauth/applications)")
 	clientSecret := fs.String("client-secret", "", "Trakt API client secret")
-	cfgPath      := fs.String("config",        "config.star", "path to config file (determines pipeliner.db location)")
+	cfgPath := fs.String("config", "config.star", "path to config file (determines pipeliner.db location)")
 	if err := fs.Parse(args); err != nil {
 		return 1
 	}
