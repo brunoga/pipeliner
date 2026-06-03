@@ -34,6 +34,7 @@ import (
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/content"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/dedup"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/exists"
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/limit"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/list_match"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/movies"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/premiere"
