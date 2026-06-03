@@ -29,8 +29,8 @@ seen1   = process("seen",          upstream=src1)
 meta1   = process("metainfo_file", upstream=seen1)
 req1    = process("require",       upstream=meta1, fields=_movies_required)
 no3d    = process("condition",     upstream=req1, reject="video_is_3d == true")
-movies1 = process("movies",        upstream=no3d, quality="1080p+ webrip+",
-                   static=movie_list)
+q1      = process("quality",       upstream=no3d, spec="1080p+ webrip+")
+movies1 = process("movies",        upstream=q1, static=movie_list)
 dd1     = process("dedup",            upstream=movies1)
 fmt1    = process("pathfmt",          upstream=dd1,
                    path=movies_path + "/{title} ({video_year})",
@@ -47,7 +47,8 @@ src2    = input("rss", url="https://example.com/rss/movies")
 seen2   = process("seen",          upstream=src2)
 meta2   = process("metainfo_file", upstream=seen2)
 req2    = process("require",       upstream=meta2, fields=_movies_required)
-movies2 = process("movies",        upstream=req2, quality="1080p+ 3d+", static=movie_list)
+q2      = process("quality",       upstream=req2, spec="1080p+ 3d+")
+movies2 = process("movies",        upstream=q2, static=movie_list)
 dd2     = process("dedup",   upstream=movies2)
 fmt2    = process("pathfmt", upstream=dd2,
                    path=movies_path + "/{title} ({video_year}) 3D",

@@ -28,9 +28,9 @@ meta   = process("metainfo_file", upstream=seen)
 req    = process("require",       upstream=meta,
                   fields=["title", "series_episode_id", "series_season",
                           "series_episode", "_quality"])
-series = process("series",        upstream=req,
-                  static=["Breaking Bad", "Better Call Saul", "The Wire"],
-                  quality="720p+")
+q      = process("quality",       upstream=req, spec="720p+")
+series = process("series",        upstream=q,
+                  static=["Breaking Bad", "Better Call Saul", "The Wire"])
 cond   = process("condition",     upstream=series, accept="torrent_seeds >= 3")
 fmt    = process("pathfmt",       upstream=cond,
                   path="/media/tv/{title}/Season {series_season:02d}",

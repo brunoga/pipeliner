@@ -684,7 +684,7 @@ function renderGraphNodes() {
         (isList      && n.listParentId   && ve.selectedNodeIds.has(n.listParentId))   ||
         (isRoutePort && n.routeParentId  && ve.selectedNodeIds.has(n.routeParentId));
       const div = document.createElement('div');
-      div.className = `ve-node${sel ? ' selected' : ''}${multiSel ? ' multi-selected' : ''}${isSearch ? ' ve-node-search' : ''}${isList ? ' ve-node-list' : ''}${isRoutePort ? ' ve-node-route-port' : ''}${isFn ? ' ve-node-fn' : ''}`;
+      div.className = `ve-node${sel ? ' selected' : ''}${multiSel ? ' multi-selected' : ''}${isSearch ? ' ve-node-search' : ''}${isList ? ' ve-node-list' : ''}${isRoutePort ? ' ve-node-route-port' : ''}${isFn ? ' ve-node-fn' : ''}${n.autoMigrated ? ' ve-node-auto-migrated' : ''}`;
       div.dataset.role       = role;
       div.dataset.id         = n.id;
       div.dataset.isSearch   = nodeIsSearchPlugin(n) ? 'true' : 'false';
@@ -702,11 +702,15 @@ function renderGraphNodes() {
       const commentPreview = n.comment?.trim()
         ? `<div class="ve-node-comment-preview">${esc(n.comment.trim().split('\n')[0])}</div>` : '';
       const commentBtnCls = n.comment?.trim() ? ' has-comment' : '';
+      const autoMigratedBadge = n.autoMigrated
+        ? `<div class="ve-node-auto-migrated-badge" title="Auto-migrated from a deprecated config shape (${esc(n.autoMigrated)}). This node is not in the text source — edits here are lost unless you also update the text, or save from this visual editor to persist the migration.">auto-migrated</div>`
+        : '';
       div.innerHTML = [
         '<div class="ve-node-role-bar"></div>',
         '<div class="ve-node-body">',
           `<div class="ve-node-name">${esc(n.plugin)}</div>`,
           badgeHtml,
+          autoMigratedBadge,
           preview        ? `<div class="ve-node-preview">${esc(preview)}</div>` : '',
           commentPreview,
           warns.some(w=>w.level==='error') ? `<div class="ve-node-warn">⚠ ${esc(warns.find(w=>w.level==='error').msg)}</div>`
@@ -5267,6 +5271,43 @@ function fnParseLiteral(s) {
   return s; // bare identifier or unparseable — return as string
 }
 
+// fnMaybeMigrateLegacyQuality applies the legacy `quality=` rewrite on a
+// freshly-parsed function-body node. Mirrors legacyQualityMigration in
+// internal/config/migrations.go — when the Go side gets a config it rewrites
+// it transparently; the function-body parser is JS-only so the same logic
+// has to live here too. Keep these two in sync.
+function fnMaybeMigrateLegacyQuality(node, nodes) {
+  if (node.plugin !== 'series' && node.plugin !== 'movies' && node.plugin !== 'premiere') return;
+  if (!('quality' in node.config)) return;
+  const spec = node.config.quality;
+  // Preserve param reference: if the original code had `quality=quality`,
+  // the synthesized quality node's spec param should reference the same param.
+  // The body's config.quality is just a placeholder (the param's default, or
+  // an empty value when the param has no default), so the param ref — not the
+  // literal value — is what actually matters at runtime.
+  const paramRef = node._paramRefs?.quality;
+  // Skip only when neither a literal spec nor a param ref is present:
+  // nothing to migrate. An empty literal *with* a param ref still migrates.
+  if ((spec === '' || spec == null) && !paramRef) return;
+
+  delete node.config.quality;
+  if (node._paramRefs) delete node._paramRefs.quality;
+  if (node._paramRefs && Object.keys(node._paramRefs).length === 0) delete node._paramRefs;
+
+  const qid = `_auto_quality_${node.id}`;
+  const qNode = {
+    id: qid, plugin: 'quality',
+    config: {spec: spec ?? ''},
+    upstreams: node.upstreams.slice(),
+    searchNodeIds: [], listNodeIds: [], comment: '',
+    autoMigrated: 'legacy-quality-knob',
+    x: null, y: null, // layout will be recomputed
+  };
+  if (paramRef) qNode._paramRefs = {spec: paramRef};
+  nodes.push(qNode);
+  node.upstreams = [qid];
+}
+
 // parseFunctionBodyNodes extracts the internal canvas nodes from a function's
 // _sourceText. Param references in kwargs (bare identifiers matching param names)
 // are tracked in n._paramRefs = {configKey: paramName} so nodesToFunctionSource
@@ -5341,6 +5382,13 @@ function parseFunctionBodyNodes(funcName) {
     if (Object.keys(paramRefs).length)  node._paramRefs = paramRefs;
     if (searchRaw !== null)             node._searchRaw  = searchRaw;
     if (listRaw   !== null)             node._listRaw    = listRaw;
+
+    // Apply the same legacy-quality migration the Go side runs at config
+    // load time (see internal/config/migrations.go). The function-body
+    // editor is a JS-only parse path, so without this it would show the
+    // deprecated quality= knob on movies/series/premiere and would
+    // round-trip it back to the source on save.
+    fnMaybeMigrateLegacyQuality(node, nodes);
 
     // Parse search/list sub-plugin lists into canvas sub-nodes.
     if (searchRaw) {
@@ -6222,6 +6270,7 @@ async function textToVisualSync() {
           searchNodeIds: [], comment: n.comment || '',
           x: n.x ?? null, y: n.y ?? null,
           fields: n.fields || {certain: [], reachable: []},
+          autoMigrated: n.auto_migrated || '',
         }));
 
       // Second pass: convert search/list items to regular nodes with flags.
@@ -6334,6 +6383,18 @@ async function textToVisualSync() {
         // fc.args is always empty from the server — recover call-site kwargs from source.
         const recoveredArgs2 = (fc.args && Object.keys(fc.args).length)
           ? fc.args : parseFunctionCallArgs(content, fc.call_key, fc.func);
+        // Surface auto-migration when any internal node was injected by a
+        // config-load migration. The function-call card is the only thing the
+        // user sees in the visual editor (internal nodes are collapsed), so
+        // the badge has to bubble up here.
+        let fnAutoMigrated = '';
+        for (const nid of fc.internal_node_ids) {
+          const raw = rawById[nid];
+          if (raw && raw.auto_migrated) {
+            fnAutoMigrated = raw.auto_migrated;
+            break;
+          }
+        }
         nodes.push({
           id:               fc.call_key,
           plugin:           fc.func,
@@ -6347,6 +6408,7 @@ async function textToVisualSync() {
           internalNodeIds:  fc.internal_node_ids,
           returnNodeId:     fc.return_node_id,
           outputFields:     computeFnCallOutputFields(fc, rawById),
+          autoMigrated:     fnAutoMigrated,
           x:                fc.x ?? null,
           y:                fc.y ?? null,
         });

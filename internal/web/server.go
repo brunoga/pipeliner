@@ -764,6 +764,10 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 		RoutePortName  string `json:"route_port_name,omitempty"`
 		RouteParentID  string `json:"route_parent_id,omitempty"`
 		PortAcceptExpr string `json:"port_accept_expr,omitempty"`
+		// AutoMigrated, when set, names the config-load migration that
+		// injected this node. The visual editor marks such nodes as not
+		// present in the text source.
+		AutoMigrated string `json:"auto_migrated,omitempty"`
 	}
 	type funcCallResp struct {
 		CallKey         string         `json:"call_key"`
@@ -915,6 +919,7 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 				Comment:         nodeComments[string(n.ID)],
 				FunctionCallKey: nodeCallKey[string(n.ID)],
 				Fields:          nodeFieldsResp{Certain: nf.Certain, Reachable: nf.Reachable},
+				AutoMigrated:    n.AutoMigrated,
 			}
 			// Populate route port fields for route_selector nodes.
 			if n.PluginName == "route_selector" {

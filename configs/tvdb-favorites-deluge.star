@@ -16,8 +16,9 @@ meta    = process("metainfo_file", upstream=seen)
 req     = process("require",       upstream=meta,
                    fields=["title", "series_episode_id", "series_season",
                            "series_episode", "_quality"])
-series  = process("series",        upstream=req,
-                   tracking="strict", quality="720p+", ttl="2h",
+q       = process("quality",       upstream=req, spec="720p+")
+series  = process("series",        upstream=q,
+                   tracking="strict", ttl="2h",
                    list=[{"name":     "tvdb_favorites",
                           "api_key":  tvdb_api_key,
                           "user_pin": tvdb_user_pin}])

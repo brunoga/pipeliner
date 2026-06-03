@@ -38,17 +38,18 @@ req  = process("require", upstream=tvdb,
 flt  = process("condition", upstream=req,
     reject="video_content_rating == 'TV-MA'")
 
+# Quality spec doubles as an upgrade ceiling: 720p–1080p BluRay means we
+# accept anything in that range and the upper bound stops further upgrades.
+q    = process("quality", upstream=flt, spec="720p-1080p bluray-bluray")
+
 # ── Series matching ─────────────────────────────────────────────────────────
 # Dynamic list: Trakt watchlist is fetched and cached (default ttl=1h).
 # Static fallback list supplements the watchlist.
-series = process("series", upstream=flt,
+series = process("series", upstream=q,
     list=[{"name": "trakt_list", "client_id": trakt_id,
            "type": "shows",      "list":      "watchlist"}],
     static=["Severance"],
     tracking="strict",
-    # quality spec doubles as an upgrade ceiling: 720p–1080p BluRay means we
-    # accept anything in that range and the upper bound stops further upgrades.
-    quality="720p-1080p bluray-bluray",
     ttl="2h")
 
 # ── Dedup and output ────────────────────────────────────────────────────────

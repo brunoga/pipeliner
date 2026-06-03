@@ -71,7 +71,6 @@ func init() {
 			{Key: "static", Type: plugin.FieldTypeList, Hint: "Optional static list of show names to accept; omit to accept every classified episode"},
 			{Key: "list", Type: plugin.FieldTypeDict, Hint: "Optional dynamic show list from a source plugin (e.g. tvdb_favorites, trakt_list); omit to accept every classified episode"},
 			{Key: "tracking", Type: plugin.FieldTypeEnum, Enum: []string{"strict", "backfill", "follow"}, Default: "strict", Hint: "Episode ordering mode"},
-			{Key: "quality", Type: plugin.FieldTypeString, Hint: "Quality spec, e.g. 720p+ (floor), 720p (exact), 720p-1080p (range)"},
 			{Key: "ttl", Type: plugin.FieldTypeDuration, Default: "1h", Hint: "Cache TTL for dynamic lists"},
 			{Key: "reject_unmatched", Type: plugin.FieldTypeBool, Default: true, Hint: "Reject episodes not classified as series upstream; when a list is configured, also reject episodes whose show isn't in the list"},
 		},
@@ -89,12 +88,7 @@ func validate(cfg map[string]any) []error {
 	if err := plugin.OptEnum(cfg, "tracking", "series", "strict", "backfill", "follow"); err != nil {
 		errs = append(errs, err)
 	}
-	if q, _ := cfg["quality"].(string); q != "" {
-		if _, err := quality.ParseSpec(q); err != nil {
-			errs = append(errs, fmt.Errorf("series: invalid quality spec: %w", err))
-		}
-	}
-	errs = append(errs, plugin.OptUnknownKeys(cfg, "series", "static", "list", "ttl", "tracking", "quality", "reject_unmatched")...)
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "series", "static", "list", "ttl", "tracking", "reject_unmatched")...)
 	return errs
 }
 
@@ -115,14 +109,13 @@ type seriesPlugin struct {
 	staticShows     []match.TitleEntry // show names from config (year=0 for plain strings)
 	listSources     []plugin.SourcePlugin
 	listCache       *cache.Cache[[]match.TitleEntry]
-	spec            quality.Spec
 	tracking        tracking
 	tracker         *series.Tracker
 	rejectUnmatched bool
 }
 
 func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
-	raw := toStringSlice(cfg["static"])
+	raw := plugin.ToStringSlice(cfg["static"])
 	staticShows := make([]match.TitleEntry, len(raw))
 	for i, s := range raw {
 		staticShows[i] = match.NewTitleEntry(s, 0) // static show names have no year
@@ -159,25 +152,12 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 		}
 	}
 
-	var spec quality.Spec
-	if q, _ := cfg["quality"].(string); q != "" {
-		s, err := quality.ParseSpec(q)
-		if err != nil {
-			return nil, fmt.Errorf("series: invalid quality spec: %w", err)
-		}
-		spec = s
-	}
-
-	rejectUnmatched := true
-	if v, ok := cfg["reject_unmatched"]; ok {
-		rejectUnmatched, _ = v.(bool)
-	}
+	rejectUnmatched := plugin.OptBool(cfg, "reject_unmatched", true)
 
 	return &seriesPlugin{
 		staticShows:     staticShows,
 		listSources:     listSources,
 		listCache:       cache.NewPersistent[[]match.TitleEntry](ttl, db.Bucket("cache_series_list")),
-		spec:            spec,
 		tracking:        tr,
 		tracker:         tracker,
 		rejectUnmatched: rejectUnmatched,
@@ -229,26 +209,14 @@ func (p *seriesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *en
 
 	incomingQuality, _ := e.Quality()
 
-	// Check the quality spec first — the spec is an absolute gate and must
-	// never be bypassed, even for upgrades or PROPER/REPACK. Otherwise a
-	// stored 1080p with spec "720p-1080p" would accept an incoming 2160p as
-	// an upgrade, even though 2160p is outside the spec range.
-	if (p.spec != quality.Spec{}) && !p.spec.Matches(incomingQuality) {
-		e.Reject(fmt.Sprintf("series: %s %s quality %s does not match spec",
-			matchedShow, epID, incomingQuality.String()))
-		return nil
-	}
-
 	if stored, ok := p.tracker.Get(matchedShow, epID); ok {
-		betterQuality := incomingQuality.Better(stored.Quality)
 		properOrRepack := e.GetBool(entry.FieldVideoProper) || e.GetBool(entry.FieldVideoRepack)
-		notDowngrade := !stored.Quality.Better(incomingQuality)
-		if betterQuality || (properOrRepack && notDowngrade) {
-			reason := fmt.Sprintf("series: %s %s quality upgrade", matchedShow, epID)
-			if properOrRepack && !betterQuality {
-				reason = fmt.Sprintf("series: %s %s proper/repack accepted", matchedShow, epID)
-			}
-			e.Accept(reason)
+		switch quality.Decide(incomingQuality, stored.Quality, properOrRepack, stored.Repack) {
+		case quality.UpgradeQuality:
+			e.Accept(fmt.Sprintf("series: %s %s quality upgrade", matchedShow, epID))
+			return nil
+		case quality.UpgradeProperRepack:
+			e.Accept(fmt.Sprintf("series: %s %s proper/repack accepted", matchedShow, epID))
 			return nil
 		}
 		e.Reject(fmt.Sprintf("series: %s %s already downloaded", matchedShow, epID))
@@ -322,6 +290,7 @@ func (p *seriesPlugin) persist(_ context.Context, _ *plugin.TaskContext, entries
 			EpisodeID:    epID,
 			Quality:      q,
 			DownloadedAt: time.Now(),
+			Repack:       e.GetBool(entry.FieldVideoProper) || e.GetBool(entry.FieldVideoRepack),
 		}
 		// Build a minimal Episode for MarkWithParts so double-episode releases
 		// also mark each individual part. MarkWithParts only consults Season,
@@ -395,24 +364,6 @@ func seasonFromEpisodeID(epID string) int {
 		return s
 	}
 	return 0
-}
-
-func toStringSlice(v any) []string {
-	switch t := v.(type) {
-	case string:
-		return []string{t}
-	case []string:
-		return t
-	case []any:
-		out := make([]string, 0, len(t))
-		for _, item := range t {
-			if s, ok := item.(string); ok {
-				out = append(out, s)
-			}
-		}
-		return out
-	}
-	return nil
 }
 
 func (p *seriesPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {

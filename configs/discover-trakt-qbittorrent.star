@@ -45,8 +45,8 @@ meta_movies  = process("metainfo_file", upstream=seen_movies)
 req_movies   = process("require",       upstream=meta_movies,
                         fields=["title", "video_year", "_quality"])
 tmdb_movies  = process("metainfo_tmdb", upstream=req_movies, api_key=tmdb_key)
-flt_movies   = process("movies",        upstream=tmdb_movies,
-                        quality="1080p+",
+q_movies     = process("quality",       upstream=tmdb_movies, spec="1080p+")
+flt_movies   = process("movies",        upstream=q_movies,
                         list=[{"name": "trakt_list",
                                "client_id":     trakt_client_id,
                                "client_secret": trakt_client_secret,
@@ -73,8 +73,9 @@ meta_shows  = process("metainfo_file", upstream=seen_shows)
 req_shows   = process("require",       upstream=meta_shows,
                        fields=["title", "series_episode_id", "series_season",
                                "series_episode", "_quality"])
-flt_shows   = process("series",        upstream=req_shows,
-                        tracking="strict", quality="720p+",
+q_shows     = process("quality",       upstream=req_shows, spec="720p+")
+flt_shows   = process("series",        upstream=q_shows,
+                        tracking="strict",
                         list=[{"name": "trakt_list",
                                "client_id":     trakt_client_id,
                                "client_secret": trakt_client_secret,

@@ -15,6 +15,12 @@ type Record struct {
 	EpisodeID    string          `json:"episode_id"`
 	DownloadedAt time.Time       `json:"downloaded_at"`
 	Quality      quality.Quality `json:"quality"`
+	// Repack is true when the stored release was itself a PROPER/REPACK. It
+	// blocks chaining REPACK→REPACK at the same quality forever: without it,
+	// the same REPACK torrent reappearing in a feed would be accepted on
+	// every run. Pre-existing records (written before this field existed)
+	// default to false, which costs one extra re-download in the worst case.
+	Repack bool `json:"repack,omitempty"`
 }
 
 // bucket is the minimal key-value interface that Tracker requires.

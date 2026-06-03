@@ -55,6 +55,7 @@ type dagNodeRecord struct {
 	config          map[string]any
 	upstreams       []dag.NodeID
 	functionCallKey string // non-empty when created inside a user function call
+	autoMigrated    string // non-empty when injected by a config-load migration
 }
 
 // dagGraph is the assembled result: a dag.Graph paired with its raw node
@@ -153,14 +154,12 @@ func (ctx *execContext) processBuiltin(thread *starlark.Thread, fn *starlark.Bui
 	if err != nil {
 		return nil, fmt.Errorf("%s %q: %w", fn.Name(), name, err)
 	}
-	id := ctx.nextNodeID(name)
-	ctx.pendingNodes = append(ctx.pendingNodes, &dagNodeRecord{
-		id:              id,
-		pluginName:      name,
-		config:          cfg,
-		upstreams:       upstreams,
-		functionCallKey: ctx.activeFunctionCall(thread),
-	})
+	callKey := ctx.activeFunctionCall(thread)
+	// Run config-load migrations. Each migration may strip deprecated keys
+	// from cfg, inject intermediate nodes upstream of this one, and emit a
+	// deprecation warning. See migrations.go.
+	upstreams = ctx.applyMigrations(name, cfg, upstreams, callKey)
+	id := ctx.addPendingNode(name, cfg, upstreams, callKey, "")
 	return &nodeHandle{id: id}, nil
 }
 
@@ -318,10 +317,11 @@ func (ctx *execContext) pipelineBuiltin(_ *starlark.Thread, fn *starlark.Builtin
 	g := dag.New()
 	for _, rec := range ctx.pendingNodes {
 		if err := g.AddNode(&dag.Node{
-			ID:         rec.id,
-			PluginName: rec.pluginName,
-			Config:     rec.config,
-			Upstreams:  rec.upstreams,
+			ID:           rec.id,
+			PluginName:   rec.pluginName,
+			Config:       rec.config,
+			Upstreams:    rec.upstreams,
+			AutoMigrated: rec.autoMigrated,
 		}); err != nil {
 			return nil, fmt.Errorf("%s %q: %w", fn.Name(), name, err)
 		}

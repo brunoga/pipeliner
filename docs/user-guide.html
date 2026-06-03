@@ -140,6 +140,7 @@ td code{font-size:11px}
     <a href="#metainfo_magnet" class="sub">metainfo_magnet</a>
 
     <div class="section">Filter Plugins</div>
+    <a href="#quality" class="sub">quality</a>
     <a href="#series" class="sub">series</a>
     <a href="#movies" class="sub">movies</a>
     <a href="#premiere" class="sub">premiere</a>
@@ -685,7 +686,7 @@ pipeline("split-pipeline")</code></pre>
 <!-- ═══════════════════════════════════════════════════════════ -->
 <h2 id="quality-spec">Quality Specs</h2>
 
-<p>Used in <code>series</code>, <code>movies</code>, <code>premiere</code>, and the <code>quality</code> filter. A spec is one or more space-separated tokens, each constraining one quality dimension.</p>
+<p>Used by the <code>quality</code> filter (and the <code>dedup</code> processor for tie-breaking). A spec is one or more space-separated tokens, each constraining one quality dimension.</p>
 
 <table>
   <tr><th>Form</th><th>Meaning</th><th>Example</th></tr>
@@ -837,7 +838,8 @@ results   = process("discover", upstream=watchlist,
     interval="12h")
 seen      = process("seen",   upstream=results)
 meta      = process("metainfo_file", upstream=seen)
-flt       = process("movies", upstream=meta, list=watchlist, quality="1080p+")
+q         = process("quality", upstream=meta, spec="1080p+")
+flt       = process("movies", upstream=q, list=watchlist)
 output("qbittorrent", upstream=flt, host="localhost")
 pipeline("movie-discover", schedule="2h")</code></pre>
 
@@ -913,10 +915,12 @@ series = process("series", upstream=src, list=[
 
 <pre><code>src    = input("rss", url="https://feed.example.com/rss")
 seen   = process("seen", upstream=src)
-series = process("series", upstream=seen,
+meta   = process("metainfo_file", upstream=seen)
+q      = process("quality", upstream=meta, spec="720p+ webrip+")
+series = process("series", upstream=q,
     list=[{"name": "tvdb_favorites",
            "api_key": env("TVDB_KEY"), "user_pin": env("TVDB_PIN")}],
-    tracking="backfill", quality="720p+ webrip+")
+    tracking="backfill")
 output("transmission", upstream=series, host="localhost")
 pipeline("tv-tvdb", schedule="1h")</code></pre>
 
@@ -1092,9 +1096,28 @@ After DHT: <code>torrent_file_size</code>, <code>torrent_file_count</code>, <cod
 <h1>Filter Processors</h1>
 <p>Filter processors accept or reject entries. Use them with <code>process()</code>. Each entry starts undecided; filters move it to accepted or rejected. Rejected entries don't reach downstream nodes or sinks.</p>
 
+<!-- ─────────── quality ─────────── -->
+<h2 id="quality">quality</h2>
+<p>Rejects entries whose parsed quality does not match a configured spec. Place it upstream of <code>series</code>, <code>movies</code>, or <code>premiere</code> when you want a quality gate — those plugins no longer carry their own <code>quality=</code> knob and rely on this filter instead.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>spec</code></td><td>yes</td><td>—</td><td>Quality spec (see <a href="#quality-spec">Quality Specs</a>)</td></tr>
+  <tr><td><code>on_missing</code></td><td>no</td><td><code>pass</code></td><td><code>pass</code> lets entries without <code>_quality</code> through; <code>reject</code> drops them</td></tr>
+</table>
+
+<pre><code>src    = input("rss", url="https://feed.example.com/rss")
+meta   = process("metainfo_file", upstream=src)
+q      = process("quality", upstream=meta, spec="720p+")
+series = process("series", upstream=q, static=["My Show"])
+output("transmission", upstream=series, host="localhost")
+pipeline("tv", schedule="1h")</code></pre>
+
 <!-- ─────────── series ─────────── -->
 <h2 id="series">series</h2>
-<p>Accepts episodes of TV shows. Optionally matches the parsed series name against a configured list with fuzzy matching, enforces optional quality and ordering constraints, and persists download history across runs. Multiple quality variants of the same episode are all accepted — place <code>dedup</code> downstream to pick the best copy. Download history is committed to the database only after all downstream sinks confirm success. A re-download of an already-seen episode is accepted when the new copy is strictly better quality, or when it is a PROPER/REPACK that is not a quality downgrade.</p>
+<p>Accepts episodes of TV shows. Optionally matches the parsed series name against a configured list with fuzzy matching, enforces optional ordering constraints, and persists download history across runs. Multiple quality variants of the same episode are all accepted — place <code>dedup</code> downstream to pick the best copy. Download history is committed to the database only after all downstream sinks confirm success. A re-download of an already-seen episode is accepted when the new copy is strictly better quality, or when it is a PROPER/REPACK that is not a quality downgrade (and the stored record was not itself a REPACK at the same quality).</p>
+
+<p>Quality spec filtering is now a separate concern — place a <code>process("quality", spec=…)</code> node upstream of <code>series</code> instead of using a per-plugin <code>quality=</code> knob.</p>
 
 <p>The show list is optional. With neither <code>static</code> nor <code>list</code> set, the filter operates in <strong>accept-all mode</strong> — every classified episode passes the upstream requirements and the quality/tracker checks. The tracker still dedups and detects upgrades by series name + episode ID, so this is the right choice for "download every quality-matching episode I find" pipelines.</p>
 
@@ -1106,7 +1129,6 @@ After DHT: <code>torrent_file_size</code>, <code>torrent_file_count</code>, <cod
   <tr><td><code>list</code></td><td>no</td><td>—</td><td>Optional list-plugin configs providing show names dynamically; omit (alongside <code>static</code>) for accept-all mode</td></tr>
   <tr><td><code>ttl</code></td><td>no</td><td><code>1h</code></td><td>Cache TTL for dynamic show list. An empty list from a <code>list:</code> source is not cached — the source will be queried again on the next run.</td></tr>
   <tr><td><code>tracking</code></td><td>no</td><td><code>strict</code></td><td>Episode ordering mode: <code>strict</code>, <code>backfill</code>, or <code>follow</code></td></tr>
-  <tr><td><code>quality</code></td><td>no</td><td>—</td><td>Quality spec (e.g. <code>720p+</code> for floor, <code>720p</code> for exact, <code>720p-1080p</code> for range)</td></tr>
   <tr><td><code>reject_unmatched</code></td><td>no</td><td><code>true</code></td><td>When <code>true</code> (default), entries that lack <code>series_episode_id</code> (i.e. were not classified as a series episode upstream) are explicitly rejected; when a list is configured, entries whose show name isn't in the list are also rejected. Set to <code>false</code> to leave such entries undecided when chaining multiple series filters. With neither <code>static</code> nor <code>list</code> set, this flag only governs the classification check.</td></tr>
 </table>
 
@@ -1123,9 +1145,10 @@ After DHT: <code>torrent_file_size</code>, <code>torrent_file_count</code>, <cod
 <pre><code>src    = input("rss",            url="https://feed.example.com/rss")
 seen   = process("seen",          upstream=src)
 meta   = process("metainfo_file", upstream=seen)   <span class="y-comment"># sets series_*, _quality, etc.</span>
-series = process("series",        upstream=meta,
+q      = process("quality",       upstream=meta, spec="720p+ webrip+")
+series = process("series",        upstream=q,
                  static=["Breaking Bad", "Better Call Saul"],
-                 tracking="strict", quality="720p+ webrip+")
+                 tracking="strict")
 output("transmission", upstream=series, host="localhost")
 pipeline("tv", schedule="30m")</code></pre>
 
@@ -1133,15 +1156,18 @@ pipeline("tv", schedule="30m")</code></pre>
 src    = input("rss",            url="https://feed.example.com/rss")
 seen   = process("seen",          upstream=src)
 meta   = process("metainfo_file", upstream=seen)
-series = process("series",        upstream=meta, list=[
+q      = process("quality",       upstream=meta, spec="720p+ webrip+")
+series = process("series",        upstream=q, list=[
     {"name": "tvdb_favorites", "api_key": env("TVDB_KEY"), "user_pin": env("TVDB_PIN")},
-], tracking="backfill", quality="720p+ webrip+")
+], tracking="backfill")
 output("transmission", upstream=series, host="localhost")
 pipeline("tv-dynamic", schedule="1h")</code></pre>
 
 <!-- ─────────── movies ─────────── -->
 <h2 id="movies">movies</h2>
-<p>Accepts movies. Optionally matches against a configured title list with fuzzy matching, enforces an optional quality floor, and persists download history across runs. Same quality and deduplication behavior as <code>series</code>. Download history is committed after all downstream sinks confirm success. A re-download is accepted when the new copy is strictly better quality, or when it is a PROPER/REPACK that is not a quality downgrade.</p>
+<p>Accepts movies. Optionally matches against a configured title list with fuzzy matching, and persists download history across runs. Same deduplication and upgrade behaviour as <code>series</code>. Download history is committed after all downstream sinks confirm success. A re-download is accepted when the new copy is strictly better quality, or when it is a PROPER/REPACK that is not a quality downgrade (and the stored record was not itself a REPACK at the same quality).</p>
+
+<p>Quality spec filtering is now a separate concern — place a <code>process("quality", spec=…)</code> node upstream of <code>movies</code> instead of using a per-plugin <code>quality=</code> knob.</p>
 
 <p>The title list is optional. With neither <code>static</code> nor <code>list</code> set, the filter operates in <strong>accept-all mode</strong> — every classified movie passes the upstream requirements and the quality/tracker checks.</p>
 
@@ -1152,7 +1178,6 @@ pipeline("tv-dynamic", schedule="1h")</code></pre>
   <tr><td><code>static</code></td><td>no</td><td>—</td><td>Optional static list of movie titles; omit (alongside <code>list</code>) for accept-all mode</td></tr>
   <tr><td><code>list</code></td><td>no</td><td>—</td><td>Optional list-plugin configs providing titles dynamically; omit (alongside <code>static</code>) for accept-all mode</td></tr>
   <tr><td><code>ttl</code></td><td>no</td><td><code>1h</code></td><td>Cache TTL for dynamic list. An empty list from a <code>list:</code> source is not cached — the source will be queried again on the next run.</td></tr>
-  <tr><td><code>quality</code></td><td>no</td><td>—</td><td>Quality spec (e.g. <code>720p+</code> for floor, <code>720p</code> for exact, <code>720p-1080p</code> for range)</td></tr>
   <tr><td><code>reject_unmatched</code></td><td>no</td><td><code>true</code></td><td>When <code>true</code> (default), entries that lack <code>title</code> are explicitly rejected; when a list is configured, entries whose title isn't in the list are also rejected. Set to <code>false</code> to leave such entries undecided. With neither <code>static</code> nor <code>list</code> set, this flag only governs the classification check.</td></tr>
 </table>
 
@@ -1163,9 +1188,9 @@ pipeline("tv-dynamic", schedule="1h")</code></pre>
 <pre><code>src    = input("rss",            url="https://feed.example.com/movies")
 seen   = process("seen",          upstream=src)
 meta   = process("metainfo_file", upstream=seen)   <span class="y-comment"># sets title, video_year, _quality, video_is_3d, etc.</span>
-movies = process("movies",        upstream=meta,
-                 static=["Inception", "Interstellar"],
-                 quality="1080p+ webrip+")
+q      = process("quality",       upstream=meta, spec="1080p+ webrip+")
+movies = process("movies",        upstream=q,
+                 static=["Inception", "Interstellar"])
 output("qbittorrent", upstream=movies, host="localhost")
 pipeline("movies", schedule="6h")</code></pre>
 
@@ -1179,7 +1204,6 @@ pipeline("movies", schedule="6h")</code></pre>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
   <tr><td><code>episode</code></td><td>no</td><td><code>1</code></td><td>Episode number to treat as premiere</td></tr>
   <tr><td><code>season</code></td><td>no</td><td><code>1</code></td><td>Season number to match; <code>0</code> means any</td></tr>
-  <tr><td><code>quality</code></td><td>no</td><td>—</td><td>Quality spec (e.g. <code>720p+</code> for floor, <code>720p</code> for exact, <code>720p-1080p</code> for range)</td></tr>
   <tr><td><code>reject_unmatched</code></td><td>no</td><td><code>true</code></td><td>When <code>true</code> (default), entries that lack <code>series_episode_id</code> (i.e. were not classified as a series episode upstream) are explicitly rejected. Set to <code>false</code> to leave such entries undecided when chaining <code>premiere</code> alongside other filters.</td></tr>
 </table>
 
@@ -1188,7 +1212,8 @@ pipeline("movies", schedule="6h")</code></pre>
 <pre><code>src  = input("rss",            url="https://feed.example.com/rss")
 seen = process("seen",          upstream=src)
 meta = process("metainfo_file", upstream=seen)   <span class="y-comment"># sets series_*, _quality, etc.</span>
-prem = process("premiere",      upstream=meta, quality="720p+ webrip+")
+q    = process("quality",       upstream=meta, spec="720p+ webrip+")
+prem = process("premiere",      upstream=q)
 best = process("dedup",         upstream=prem)
 output("transmission", upstream=best, host="localhost")
 pipeline("new-shows", schedule="1h")</code></pre>
@@ -1430,9 +1455,10 @@ by_air = process("age", upstream=enriched,
 </ol>
 <pre><code>src    = input("rss", url="https://feed.example.com/rss")
 seen   = process("seen",   upstream=src)
-q      = process("metainfo_file", upstream=seen)
+meta   = process("metainfo_file", upstream=seen)
+q      = process("quality", upstream=meta, spec="720p+")
 series = process("series", upstream=q,
-                 static=["Breaking Bad"], tracking="strict", quality="720p+")
+                 static=["Breaking Bad"], tracking="strict")
 best   = process("dedup",  upstream=series)
 output("transmission", upstream=best, host="localhost")
 pipeline("tv")</code></pre>

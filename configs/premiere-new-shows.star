@@ -24,8 +24,9 @@ trans_host = "localhost"
 src  = input("rss",            url=rss_url)
 seen = process("seen",         upstream=src)
 meta = process("metainfo_file", upstream=seen)   # classifies + sets series_*, _quality, etc.
-prem = process("premiere",     upstream=meta,
-    quality="720p+ webrip+",   # only try new shows that meet a minimum bar
+q    = process("quality",      upstream=meta, spec="720p+ webrip+",  # minimum quality bar
+    on_missing="pass")         # let entries without _quality continue (matches reject_unmatched=False below)
+prem = process("premiere",     upstream=q,
     season=1, episode=1,       # default, shown explicitly for clarity
     reject_unmatched=False)    # pass movies and other non-episode entries through
 best = process("dedup",        upstream=prem)

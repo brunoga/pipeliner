@@ -25,6 +25,7 @@ import (
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/list_match"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/movies"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/premiere"
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/quality"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/regexp"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/require"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/seen"
@@ -636,11 +637,11 @@ func TestMultipleTemplates(t *testing.T) {
 	res := buildAndRun(t, fmt.Sprintf(`
 def hd_base(upstream):
     # metainfo_file sets quality fields plus series_episode_id (required by series).
-    return process("metainfo_file", upstream=upstream)
+    meta = process("metainfo_file", upstream=upstream)
+    return process("quality", upstream=meta, spec="720p+")
 
 def bb_only(upstream):
-    # series filter does its own quality gating via the quality= config.
-    return process("series", upstream=upstream, static=["Breaking Bad"], quality="720p+")
+    return process("series", upstream=upstream, static=["Breaking Bad"])
 
 src = input("rss", url=%q)
 output("print", upstream=bb_only(hd_base(src)))

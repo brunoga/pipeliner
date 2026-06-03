@@ -1266,6 +1266,20 @@ body.dark {
 .ve-list-edge.selected { stroke:var(--ve-list-lit); stroke-width:2; }
 .ve-list-edge.connecting { stroke:var(--ve-list-lit); stroke-width:1.5; stroke-dasharray:5,3; }
 
+/* Auto-migrated nodes: injected by a config-load migration, not present in
+   the text source. Dashed amber border + small badge. */
+.ve-node.ve-node-auto-migrated {
+  border-style:dashed; border-color:#f59e0b;
+  background:color-mix(in srgb, #f59e0b 6%, transparent);
+}
+.ve-node.ve-node-auto-migrated.selected { border-color:#fbbf24; box-shadow:0 0 0 2px rgba(245,158,11,.25); }
+.ve-node-auto-migrated-badge {
+  display:inline-block; padding:1px 5px; margin-top:2px; border-radius:3px;
+  font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:.05em;
+  border:1px solid #f59e0b; color:#fbbf24; background:transparent; flex-shrink:0;
+  cursor:help;
+}
+
 /* ── route nodes ──────────────────────────────────────────────────────── */
 
 .ve-node-route-badge {

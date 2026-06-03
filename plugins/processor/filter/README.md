@@ -9,6 +9,7 @@ Filter processors accept or reject entries. Use them with `process("plugin-name"
 | [`movies`](movies/README.md) | Accept movies from a configured title list; track downloads |
 | [`list_match`](list_match/README.md) | Accept entries whose title is in a persistent cross-pipeline list |
 | [`age`](age/README.md) | Reject entries whose date field falls outside a configured age window |
+| [`quality`](quality/README.md) | Reject entries whose parsed quality does not match a configured spec |
 | [`regexp`](regexp/README.md) | Accept or reject entries by regular expression |
 | [`exists`](exists/README.md) | Reject entries whose target file already exists on disk |
 | [`condition`](condition/README.md) | Accept or reject entries using boolean expressions |
