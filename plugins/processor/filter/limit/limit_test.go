@@ -225,6 +225,28 @@ func TestRejectedUpstreamEntriesIgnoredByCap(t *testing.T) {
 	}
 }
 
+func TestRejectReasonMentionsSort(t *testing.T) {
+	// No sort: bare cap reason.
+	p, _ := newPlugin(map[string]any{"n": 1}, nil)
+	a := accepted("a")
+	b := accepted("b")
+	_, _ = p.(*limitPlugin).Process(context.Background(), tc(), []*entry.Entry{a, b})
+	if got, want := b.RejectReason, "limit: 1-entry cap reached"; got != want {
+		t.Errorf("no-sort reject reason: got %q, want %q", got, want)
+	}
+
+	// With sort: includes field and direction.
+	p, _ = newPlugin(map[string]any{"n": 1, "sort": "video_rating", "order": "asc"}, nil)
+	a = accepted("a")
+	a.Set("video_rating", 9.0)
+	b = accepted("b")
+	b.Set("video_rating", 5.0)
+	_, _ = p.(*limitPlugin).Process(context.Background(), tc(), []*entry.Entry{a, b})
+	if got, want := a.RejectReason, "limit: 1-entry cap reached (ordered by video_rating asc)"; got != want {
+		t.Errorf("sorted reject reason: got %q, want %q", got, want)
+	}
+}
+
 func TestStableArrivalOrderOnTie(t *testing.T) {
 	p, _ := newPlugin(map[string]any{"n": 2, "sort": "video_year"}, nil)
 	a := accepted("a")

@@ -132,8 +132,12 @@ func (p *limitPlugin) Process(_ context.Context, _ *plugin.TaskContext, entries 
 	}
 
 	if len(accepted) > p.n {
+		reason := fmt.Sprintf("limit: %d-entry cap reached", p.n)
+		if p.sort != "" {
+			reason += fmt.Sprintf(" (ordered by %s %s)", p.sort, p.order)
+		}
 		for _, s := range accepted[p.n:] {
-			s.e.Reject(fmt.Sprintf("limit: %d-entry cap reached", p.n))
+			s.e.Reject(reason)
 		}
 	}
 
