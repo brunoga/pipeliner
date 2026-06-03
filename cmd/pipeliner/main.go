@@ -38,6 +38,7 @@ import (
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/list_match"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/movies"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/premiere"
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/quality"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/regexp"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/require"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/route"
