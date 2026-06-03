@@ -5337,6 +5337,58 @@ function fnMaybeMigrateLegacyQuality(node, nodes) {
   node.upstreams = [qid];
 }
 
+// fnRegenerateSourceForMigration parses funcName's body, applies any JS-side
+// migrations via parseFunctionBodyNodes (which runs fnMaybeMigrateLegacyQuality
+// on each node), and re-serialises the body back to Starlark via
+// nodesToFunctionSource. Returns the new source text, or null if no migration
+// fired (so the caller can leave _sourceText untouched).
+//
+// Called once per loaded user function during textToVisualSync. Without this,
+// the call-site card correctly shows the auto-migrated badge (the Go-side
+// migration tags the injected internal node), but fd._sourceText still holds
+// the legacy form — so the next dagToStarlark() round-trips the deprecated
+// `quality=` back to disk. Re-baking _sourceText on load means a plain save
+// from the visual editor is enough to persist the migration.
+function fnRegenerateSourceForMigration(funcName) {
+  const fd = ve.userFunctions[funcName];
+  if (!fd?._sourceText) return null;
+  const parsed = parseFunctionBodyNodes(funcName);
+  if (!parsed) return null;
+  const {nodes, returnNodeId} = parsed;
+  if (!nodes.some(n => n.autoMigrated)) return null;
+
+  const mainNodes   = nodes.filter(n => !n.isSearchNode && !n.isListNode);
+  const selectedIds = new Set(mainNodes.map(n => n.id));
+  const entryUpstreams = mainNodes.some(n => (n.upstreams || []).includes('_upstream'))
+    ? ['__entry__'] : [];
+
+  // Map each declared param to whichever node/configKey references it via
+  // _paramRefs. Mirrors saveFunctionEditor's param-binding logic.
+  const fnParams = [];
+  for (const p of (fd.params || [])) {
+    let mapped = false;
+    for (const n of mainNodes) {
+      for (const [configKey, paramName] of Object.entries(n._paramRefs || {})) {
+        if (paramName === p.key) {
+          fnParams.push({nodeId: n.id, configKey, paramName: p.key,
+            type: p.type, defaultValue: p.default, include: true, hint: p.hint || ''});
+          mapped = true;
+          break;
+        }
+      }
+      if (mapped) break;
+    }
+    if (!mapped) {
+      fnParams.push({nodeId: null, configKey: null, paramName: p.key,
+        type: p.type, defaultValue: p.default, include: true, hint: p.hint || ''});
+    }
+  }
+
+  const graph      = {name: funcName, schedule: '', comment: '', nodes, _regionY: 0};
+  const validation = {entryUpstreams, returnNodeId};
+  return nodesToFunctionSource(funcName, fnParams, selectedIds, validation, graph, fd.comment || '');
+}
+
 // parseFunctionBodyNodes extracts the internal canvas nodes from a function's
 // _sourceText. Param references in kwargs (bare identifiers matching param names)
 // are tracked in n._paramRefs = {configKey: paramName} so nodesToFunctionSource
@@ -6264,6 +6316,13 @@ async function textToVisualSync() {
       ve.userFunctions[fd.name] = fd;
       fd._sourceText = extractFunctionSource(content, fd.name);
       fd.comment = parseFunctionComment(fd._sourceText);
+    }
+    // Second pass: rewrite _sourceText for any function whose body still
+    // carries a deprecated config shape. The first pass must populate every
+    // fd._sourceText first, since parseFunctionBodyNodes reads it.
+    for (const fd of (data.functions || [])) {
+      const migrated = fnRegenerateSourceForMigration(fd.name);
+      if (migrated) fd._sourceText = migrated;
     }
 
     ve.syncing = true;

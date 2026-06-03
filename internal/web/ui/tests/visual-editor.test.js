@@ -19,7 +19,7 @@ let starLit, valToStar, configToKwargs, upstreamsStr, dagToStarlark, viaNodeToSt
     _builderGetExpr, _builderSetExpr, renderRouteRulesWidget, renderRouteRuleRow,
     toggleRouteRawMode, _forcedRaw, exprToFlatModel,
     pushUndo, undo, initLayout, marqueeSelect, initLayoutFromAbsolute,
-    parseFunctionBodyNodes;
+    parseFunctionBodyNodes, fnRegenerateSourceForMigration;
 
 // Minimal HTML-escape helper matching dashboard.js's esc() — needed so render
 // functions (which call esc as a global) work in the test sandbox.
@@ -63,6 +63,7 @@ exports.initLayout                    = initLayout;
 exports.marqueeSelect                 = marqueeSelect;
 exports.initLayoutFromAbsolute        = initLayoutFromAbsolute;
 exports.parseFunctionBodyNodes        = parseFunctionBodyNodes;
+exports.fnRegenerateSourceForMigration = fnRegenerateSourceForMigration;
 `
   );
   const exports = {};
@@ -88,7 +89,7 @@ exports.parseFunctionBodyNodes        = parseFunctionBodyNodes;
      _builderGetExpr, _builderSetExpr, renderRouteRulesWidget, renderRouteRuleRow,
      toggleRouteRawMode, _forcedRaw, exprToFlatModel,
      pushUndo, undo, initLayout, marqueeSelect, initLayoutFromAbsolute,
-     parseFunctionBodyNodes } = exports);
+     parseFunctionBodyNodes, fnRegenerateSourceForMigration } = exports);
 });
 
 // ── test helpers ──────────────────────────────────────────────────────────────
@@ -2083,5 +2084,85 @@ describe('parseFunctionBodyNodes — legacy quality migration', () => {
     };
     const {nodes} = parseFunctionBodyNodes('f');
     expect(nodes.find(n => n.plugin === 'quality')).toBeUndefined();
+  });
+});
+
+describe('fnRegenerateSourceForMigration: load-time _sourceText rewrite', () => {
+  beforeEach(() => {
+    ve.userFunctions = {};
+  });
+
+  // The Go server strips the `upstream` wiring param from UserFunctionDef.Params
+  // (see parseFunctionParams in internal/config/functions.go), so fd.params
+  // here lists only user-declared kwargs — matching production data shape.
+
+  it('rewrites _sourceText when the body still uses the legacy quality= knob', () => {
+    ve.userFunctions.f = {
+      name: 'f', params: [],
+      _sourceText:
+`def f(upstream):
+    m = process("movies", upstream=upstream, quality="1080p+", static=["X"])
+    return m
+`,
+      comment: '',
+    };
+    const out = fnRegenerateSourceForMigration('f');
+    expect(out).not.toBeNull();
+    // The migrated source must drop quality= from movies and emit an upstream
+    // process("quality", spec=...) node.
+    expect(out).not.toMatch(/movies"[^)]*quality=/);
+    expect(out).toMatch(/process\("quality", upstream=upstream, spec="1080p\+"\)/);
+    // Movies now consumes the synthetic quality node.
+    expect(out).toMatch(/process\("movies", upstream=_auto_quality_m/);
+    // Signature is preserved (upstream is the wiring param, not a declared kwarg).
+    expect(out).toMatch(/def f\(upstream\):/);
+  });
+
+  it('preserves param refs in the regenerated source (quality=<param> → spec=<param>)', () => {
+    ve.userFunctions.f = {
+      name: 'f',
+      params: [{key: 'quality', type: 'string', default: '720p+'}],
+      _sourceText:
+`def f(upstream, quality):
+    m = process("series", upstream=upstream, quality=quality, static=["Show"])
+    return m
+`,
+      comment: '',
+    };
+    const out = fnRegenerateSourceForMigration('f');
+    expect(out).not.toBeNull();
+    // The synthetic quality node's spec= should reference the param, not the literal default.
+    expect(out).toMatch(/process\("quality", upstream=upstream, spec=quality\)/);
+    expect(out).not.toMatch(/spec="720p\+"/);
+    expect(out).toMatch(/def f\(upstream, quality\):/);
+  });
+
+  it('returns null when the body has no deprecated knobs', () => {
+    ve.userFunctions.f = {
+      name: 'f', params: [],
+      _sourceText:
+`def f(upstream):
+    m = process("movies", upstream=upstream, static=["X"])
+    return m
+`,
+      comment: '',
+    };
+    expect(fnRegenerateSourceForMigration('f')).toBeNull();
+  });
+
+  it('preserves the function comment when rewriting', () => {
+    ve.userFunctions.f = {
+      name: 'f', params: [],
+      _sourceText:
+`# Movies pipeline helper
+def f(upstream):
+    m = process("movies", upstream=upstream, quality="1080p", static=["X"])
+    return m
+`,
+      comment: 'Movies pipeline helper',
+    };
+    const out = fnRegenerateSourceForMigration('f');
+    expect(out).not.toBeNull();
+    expect(out).toMatch(/^# Movies pipeline helper\ndef f\(upstream\):/);
   });
 });
