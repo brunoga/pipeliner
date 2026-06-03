@@ -13,6 +13,7 @@ package tvdb
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/plugin"
@@ -26,8 +27,24 @@ func init() {
 		Description: "fetch TheTVDB favorites as show-name entries; usable as a standalone DAG source or inside series.list",
 		Role:        plugin.RoleSource,
 		// TVDB only catalogs TV shows, so every entry is classified as a series.
-		Produces:     []string{entry.FieldTitle, entry.FieldMediaType, entry.FieldSource, "tvdb_id"},
-		MayProduce:   []string{"tvdb_year"},
+		Produces: []string{entry.FieldTitle, entry.FieldMediaType, entry.FieldSource, "tvdb_id"},
+		// TVDB GetSeriesByID already returns rich metadata; surface what's there
+		// so list-only pipelines don't need a downstream metainfo_tvdb step to
+		// access genres/network/overview/popularity.
+		MayProduce: []string{
+			entry.FieldEnriched,
+			entry.FieldDescription,
+			entry.FieldVideoYear,
+			entry.FieldVideoLanguage,
+			entry.FieldVideoCountry,
+			entry.FieldVideoGenres,
+			entry.FieldVideoPopularity,
+			entry.FieldVideoPoster,
+			entry.FieldSeriesNetwork,
+			entry.FieldSeriesFirstAirDate,
+			"tvdb_year",
+			"tvdb_slug",
+		},
 		Factory:      newPlugin,
 		Validate:     validate,
 		IsListPlugin: true,
@@ -88,13 +105,39 @@ func (p *tvdbSourcePlugin) Generate(ctx context.Context, tc *plugin.TaskContext)
 		}
 		url := fmt.Sprintf("https://thetvdb.com/series/%s", s.Slug)
 		e := entry.New(s.Name, url)
-		e.Set(entry.FieldTitle, s.Name)
 		e.Set(entry.FieldMediaType, entry.MediaTypeSeries)
 		e.Set(entry.FieldSource, "tvdb_favorites:favorites")
 		e.Set("tvdb_id", s.ID)
+		if s.Slug != "" {
+			e.Set("tvdb_slug", s.Slug)
+		}
 		if s.Year != "" {
 			e.Set("tvdb_year", s.Year)
 		}
+
+		// Surface the same standard fields metainfo_tvdb would populate from a
+		// fresh search. Score is a popularity ranking (not a user rating), so
+		// it goes to video_popularity. Year string is parsed to an int when
+		// possible so video_year matches what other sources emit.
+		si := entry.SeriesInfo{}
+		si.Enriched = true
+		si.Title = s.Name
+		si.Description = s.Overview
+		si.Poster = s.ImageURL
+		si.Genres = s.Genres
+		si.Network = s.Network
+		si.Language = itvdb.LanguageName(s.Language)
+		si.Country = itvdb.CountryName(s.Country)
+		si.Popularity = s.Score
+		if t := itvdb.ParseDate(s.FirstAired); !t.IsZero() {
+			si.FirstAirDate = t
+			si.PublishedDate = s.FirstAired
+			si.Year = t.Year()
+		} else if y, err := strconv.Atoi(s.Year); err == nil && y > 0 {
+			si.Year = y
+		}
+		e.SetSeriesInfo(si)
+
 		entries = append(entries, e)
 	}
 	return entries, nil

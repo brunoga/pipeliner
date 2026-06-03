@@ -43,11 +43,21 @@ process("movies", upstream=seen,
 
 ## Fields set on each entry
 
+Trakt list responses use `extended=full` and return rating, votes, genres, and overview alongside titles and IDs — so `trakt_list` populates the standard `video_*` fields directly. A downstream `metainfo_trakt` step is only needed when you also want a fresh provider lookup (e.g. for entries that didn't start out as a Trakt list item).
+
 | Field | Description |
 |-------|-------------|
 | `source` | Origin in the form `trakt_list:<list>` (e.g. `trakt_list:watchlist`) |
+| `enriched` | `true` — set so downstream metainfo nodes know the entry already carries provider data |
+| `title` | Canonical title from Trakt |
+| `media_type` | `"series"` (when `type=shows`) or `"movie"` (when `type=movies`) |
+| `description` | Trakt overview |
+| `video_year` | Release or premiere year |
+| `video_rating` | Trakt user rating, 0-10 |
+| `video_votes` | Vote count behind `video_rating` |
+| `video_genres` | List of Trakt genres |
+| `video_imdb_id` | IMDb ID (also exposed as `trakt_imdb_id` for back-compat) |
 | `trakt_id` | Trakt internal ID |
-| `video_year` | Release or premiere year — stored as the standard `video_year` field so downstream filters and enrichers can use it directly |
 | `trakt_imdb_id` | IMDb ID (e.g. `tt1375666`) |
 | `trakt_tmdb_id` | TMDb ID |
 
@@ -94,5 +104,5 @@ pipeline("trakt-tv", schedule="1h")
 |----------|-------|
 | Role | `source` |
 | Produces | `title`, `media_type` (= `"series"` when `type=shows`, `"movie"` when `type=movies`), `source` |
-| MayProduce | `video_year`, `trakt_id`, `trakt_imdb_id`, `trakt_tmdb_id` |
+| MayProduce | `enriched`, `description`, `video_year`, `video_rating`, `video_votes`, `video_genres`, `video_imdb_id`, `trakt_id`, `trakt_imdb_id`, `trakt_tmdb_id` |
 | Requires | — |

@@ -485,7 +485,7 @@ pipeline("split-pipeline")</code></pre>
   <tr><td><code>video_original_title</code></td><td>Original title in native language</td></tr>
   <tr><td><code>video_country</code></td><td>Country of origin display name</td></tr>
   <tr><td><code>video_genres</code></td><td>Genre names (string slice)</td></tr>
-  <tr><td><code>video_rating</code></td><td>Community rating (0–10)</td></tr>
+  <tr><td><code>video_rating</code></td><td>Community user rating, 0–10 (set by metainfo_tmdb, metainfo_trakt, trakt_list — not by TVDB, whose Score is a popularity ranking, not a user rating)</td></tr>
   <tr><td><code>video_poster</code></td><td>Poster image URL</td></tr>
   <tr><td><code>video_cast</code></td><td>Actor names (string slice)</td></tr>
   <tr><td><code>video_content_rating</code></td><td>Content rating (e.g. <code>TV-MA</code>)</td></tr>
@@ -499,8 +499,8 @@ pipeline("split-pipeline")</code></pre>
   <tr><td><code>video_is_3d</code></td><td><code>true</code> when any 3D format marker is detected (3D, SBS, HOU, BD3D, etc.)</td></tr>
   <tr><td><code>video_proper</code></td><td><code>true</code> when the release is tagged PROPER (applies to both series and movies)</td></tr>
   <tr><td><code>video_repack</code></td><td><code>true</code> when the release is tagged REPACK</td></tr>
-  <tr><td><code>video_popularity</code></td><td>Popularity score</td></tr>
-  <tr><td><code>video_votes</code></td><td>Vote count</td></tr>
+  <tr><td><code>video_popularity</code></td><td>Popularity ranking (set by metainfo_tmdb, metainfo_tvdb). Provider-specific scale — compare within the same provider, not across.</td></tr>
+  <tr><td><code>video_votes</code></td><td>Vote count behind <code>video_rating</code> (set by metainfo_tmdb, metainfo_trakt, trakt_list)</td></tr>
 </table>
 
 <h4>Series fields (series_ prefix) — set by metainfo_file, metainfo_tvdb</h4>
@@ -615,12 +615,13 @@ pipeline("split-pipeline")</code></pre>
   <tr><td><code>video_year</code></td><td>trakt_list, metainfo_tvdb, metainfo_tmdb, metainfo_file</td><td>Release or first-air year. Also set by <code>trakt_list</code> from the Trakt API so year-aware matching works before any enrichment step.</td></tr>
   <tr><td><code>video_is_3d</code></td><td>metainfo_file</td><td><code>true</code> when any 3D format marker is detected (3D, SBS, HOU, BD3D, etc.)</td></tr>
   <tr><td><code>video_quality</code></td><td>metainfo_file</td><td>Parsed quality string from filename, including 3D format when present (e.g. <code>BD3D 1080p BluRay</code>)</td></tr>
-  <tr><td><code>video_language</code></td><td>metainfo_tvdb, metainfo_tmdb</td><td>Original language display name (e.g. <code>English</code>)</td></tr>
-  <tr><td><code>video_country</code></td><td>metainfo_tvdb, metainfo_tmdb</td><td>Country of origin display name</td></tr>
-  <tr><td><code>video_genres</code></td><td>metainfo_tvdb, metainfo_tmdb, metainfo_trakt</td><td>Genre names (string slice)</td></tr>
-  <tr><td><code>video_rating</code></td><td>metainfo_tvdb, metainfo_tmdb, metainfo_trakt</td><td>Community rating (0–10)</td></tr>
-  <tr><td><code>video_votes</code></td><td>metainfo_tvdb, metainfo_tmdb, metainfo_trakt</td><td>Vote count</td></tr>
-  <tr><td><code>video_poster</code></td><td>metainfo_tvdb, metainfo_tmdb</td><td>Poster image URL</td></tr>
+  <tr><td><code>video_language</code></td><td>tvdb_favorites, metainfo_tvdb, metainfo_tmdb</td><td>Original language display name (e.g. <code>English</code>)</td></tr>
+  <tr><td><code>video_country</code></td><td>tvdb_favorites, metainfo_tvdb, metainfo_tmdb</td><td>Country of origin display name</td></tr>
+  <tr><td><code>video_genres</code></td><td>trakt_list, tvdb_favorites, metainfo_tvdb, metainfo_tmdb, metainfo_trakt</td><td>Genre names (string slice)</td></tr>
+  <tr><td><code>video_rating</code></td><td>trakt_list, metainfo_tmdb, metainfo_trakt</td><td>Community user rating, 0–10. Not set by TVDB enrichment — TheTVDB's <code>Score</code> field is a popularity ranking, exposed as <code>video_popularity</code> instead.</td></tr>
+  <tr><td><code>video_votes</code></td><td>trakt_list, metainfo_tmdb, metainfo_trakt</td><td>Vote count behind <code>video_rating</code></td></tr>
+  <tr><td><code>video_popularity</code></td><td>tvdb_favorites, metainfo_tvdb, metainfo_tmdb</td><td>Provider popularity ranking (provider-specific scale — compare within the same provider, not across)</td></tr>
+  <tr><td><code>video_poster</code></td><td>tvdb_favorites, metainfo_tvdb, metainfo_tmdb</td><td>Poster image URL</td></tr>
   <tr><td><code>video_cast</code></td><td>metainfo_tvdb, metainfo_tmdb</td><td>Actor names in billing order (string slice)</td></tr>
   <tr><td><code>video_trailers</code></td><td>metainfo_tvdb, metainfo_tmdb</td><td>Trailer URLs (string slice)</td></tr>
   <tr><td><code>video_content_rating</code></td><td>metainfo_tvdb, metainfo_tmdb</td><td>Content rating (e.g. <code>TV-MA</code>, <code>PG-13</code>)</td></tr>

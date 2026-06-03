@@ -219,3 +219,61 @@ func TestRunReturnsEntries(t *testing.T) {
 		t.Errorf("trakt_imdb_id: got %v", v)
 	}
 }
+
+func TestEnrichesFromListResponse(t *testing.T) {
+	// Trakt list responses use extended=full and carry rating, votes, genres,
+	// and overview directly. Confirm the source surfaces them via Set*Info so
+	// downstream filters can act on them without a redundant metainfo_trakt
+	// round-trip.
+	srv := makeServer(t, []map[string]any{
+		{
+			"title":    "Inception",
+			"year":     2010,
+			"overview": "Dream within a dream.",
+			"rating":   8.5,
+			"votes":    12000,
+			"genres":   []any{"action", "sci-fi"},
+			"ids": map[string]any{
+				"trakt": 1, "slug": "inception-2010",
+				"imdb": "tt1375666", "tmdb": 27205,
+			},
+		},
+	})
+	orig := itrakt.BaseURL
+	itrakt.BaseURL = srv.URL
+	t.Cleanup(func() { itrakt.BaseURL = orig })
+
+	p, err := newPlugin(map[string]any{
+		"client_id": "test", "type": "movies", "list": "trending",
+	}, nil)
+	if err != nil {
+		t.Fatalf("newPlugin: %v", err)
+	}
+	entries, err := p.(*traktSourcePlugin).Generate(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("want 1 entry, got %d", len(entries))
+	}
+	e := entries[0]
+
+	checks := []struct {
+		field string
+		want  any
+	}{
+		{entry.FieldEnriched, true},
+		{entry.FieldTitle, "Inception"},
+		{entry.FieldDescription, "Dream within a dream."},
+		{entry.FieldVideoYear, 2010},
+		{entry.FieldVideoRating, 8.5},
+		{entry.FieldVideoVotes, 12000},
+		{entry.FieldVideoImdbID, "tt1375666"},
+	}
+	for _, c := range checks {
+		got, _ := e.Get(c.field)
+		if got != c.want {
+			t.Errorf("%s: got %v, want %v", c.field, got, c.want)
+		}
+	}
+}

@@ -38,8 +38,18 @@ func init() {
 		// media_type is set from the configured itemType ("shows" or "movies")
 		// so downstream classifiers can dispatch without a metainfo step.
 		Produces: []string{entry.FieldTitle, entry.FieldMediaType, entry.FieldSource},
+		// Trakt list responses use extended=full and carry rating, votes, genres,
+		// and overview directly. Surface them via Set*Info so downstream filters
+		// (quality, condition, accept=video_rating >= 7, etc.) can act on the
+		// list data without a redundant metainfo_trakt round-trip.
 		MayProduce: []string{
+			entry.FieldEnriched,
+			entry.FieldDescription,
 			entry.FieldVideoYear,
+			entry.FieldVideoGenres,
+			entry.FieldVideoRating,
+			entry.FieldVideoVotes,
+			entry.FieldVideoImdbID,
 			"trakt_id",
 			"trakt_imdb_id",
 			"trakt_tmdb_id",
@@ -145,20 +155,11 @@ func (p *traktSourcePlugin) Generate(ctx context.Context, tc *plugin.TaskContext
 		tc.Logger.Warn("trakt_list: partial results due to pagination error", "count", len(items), "err", err)
 	}
 
-	mediaType := entry.MediaTypeMovie
-	if p.itemType == "shows" {
-		mediaType = entry.MediaTypeSeries
-	}
 	entries := make([]*entry.Entry, 0, len(items))
 	for _, item := range items {
 		url := fmt.Sprintf("https://trakt.tv/%s/%s", p.itemType, item.IDs.Slug)
 		e := entry.New(item.Title, url)
-		e.Set(entry.FieldTitle, item.Title)
-		e.Set(entry.FieldMediaType, mediaType)
 		e.Set(entry.FieldSource, "trakt_list:"+p.list)
-		if item.Year > 0 {
-			e.Set(entry.FieldVideoYear, item.Year)
-		}
 		if item.IDs.Trakt != 0 {
 			e.Set("trakt_id", item.IDs.Trakt)
 		}
@@ -168,6 +169,32 @@ func (p *traktSourcePlugin) Generate(ctx context.Context, tc *plugin.TaskContext
 		if item.IDs.TMDB != 0 {
 			e.Set("trakt_tmdb_id", item.IDs.TMDB)
 		}
+
+		// Surface the same VideoInfo fields metainfo_trakt would populate from
+		// the equivalent search call — both use extended=full and carry the
+		// rating/votes/genres/overview that pipelines often want to filter on.
+		// Enriched=true so downstream metainfo nodes (if present) know the
+		// entry already has provider data.
+		vi := entry.VideoInfo{
+			GenericInfo: entry.GenericInfo{
+				Title:       item.Title,
+				Description: item.Overview,
+				Enriched:    true,
+			},
+			Year:   item.Year,
+			Rating: item.Rating,
+			Votes:  item.Votes,
+			Genres: item.Genres,
+			ImdbID: item.IDs.IMDB,
+		}
+		if p.itemType == "shows" {
+			e.Set(entry.FieldMediaType, entry.MediaTypeSeries)
+			e.SetSeriesInfo(entry.SeriesInfo{VideoInfo: vi})
+		} else {
+			e.Set(entry.FieldMediaType, entry.MediaTypeMovie)
+			e.SetMovieInfo(entry.MovieInfo{VideoInfo: vi})
+		}
+
 		entries = append(entries, e)
 	}
 	return entries, nil
