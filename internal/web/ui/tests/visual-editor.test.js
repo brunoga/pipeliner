@@ -18,7 +18,8 @@ let starLit, valToStar, configToKwargs, upstreamsStr, dagToStarlark, viaNodeToSt
     condAcceptAbsenceRemovedFields, condNarrowedFields, ve, setActiveGraph,
     _builderGetExpr, _builderSetExpr, renderRouteRulesWidget, renderRouteRuleRow,
     toggleRouteRawMode, _forcedRaw, exprToFlatModel,
-    pushUndo, undo, initLayout, marqueeSelect, initLayoutFromAbsolute;
+    pushUndo, undo, initLayout, marqueeSelect, initLayoutFromAbsolute,
+    parseFunctionBodyNodes;
 
 // Minimal HTML-escape helper matching dashboard.js's esc() — needed so render
 // functions (which call esc as a global) work in the test sandbox.
@@ -61,6 +62,7 @@ exports.undo                          = undo;
 exports.initLayout                    = initLayout;
 exports.marqueeSelect                 = marqueeSelect;
 exports.initLayoutFromAbsolute        = initLayoutFromAbsolute;
+exports.parseFunctionBodyNodes        = parseFunctionBodyNodes;
 `
   );
   const exports = {};
@@ -85,7 +87,8 @@ exports.initLayoutFromAbsolute        = initLayoutFromAbsolute;
      condAcceptAbsenceRemovedFields, condNarrowedFields, ve, setActiveGraph,
      _builderGetExpr, _builderSetExpr, renderRouteRulesWidget, renderRouteRuleRow,
      toggleRouteRawMode, _forcedRaw, exprToFlatModel,
-     pushUndo, undo, initLayout, marqueeSelect, initLayoutFromAbsolute } = exports);
+     pushUndo, undo, initLayout, marqueeSelect, initLayoutFromAbsolute,
+     parseFunctionBodyNodes } = exports);
 });
 
 // ── test helpers ──────────────────────────────────────────────────────────────
@@ -1979,5 +1982,83 @@ describe('initLayoutFromAbsolute() y-stability', () => {
     initLayout(); // BUG path: treats absolute y as relative.
 
     expect(ve.graphs[0].nodes[0].y).toBe(regionY + absoluteY);
+  });
+});
+
+describe('parseFunctionBodyNodes — legacy quality migration', () => {
+  beforeEach(() => {
+    ve.userFunctions = {};
+  });
+
+  it('inserts a quality node and strips quality= from movies (literal value)', () => {
+    ve.userFunctions.f = {
+      name: 'f', params: [{key: 'upstream'}],
+      _sourceText:
+`def f(upstream):
+    m = process("movies", upstream=upstream, quality="1080p+", static=["X"])
+    return m
+`,
+    };
+    const {nodes} = parseFunctionBodyNodes('f');
+    const movies  = nodes.find(n => n.plugin === 'movies');
+    const quality = nodes.find(n => n.plugin === 'quality');
+    expect(movies).toBeTruthy();
+    expect(quality).toBeTruthy();
+    expect('quality' in movies.config).toBe(false);
+    expect(quality.config.spec).toBe('1080p+');
+    expect(quality.autoMigrated).toBe('legacy-quality-knob');
+    // Movies should now consume the synthetic quality node, not the upstream
+    // param directly.
+    expect(movies.upstreams).toEqual([quality.id]);
+    // The quality node inherits the original upstream of the movies node
+    // (the function's wiring param is internally rendered as `_upstream`).
+    expect(quality.upstreams).toEqual(['_upstream']);
+  });
+
+  it('preserves param refs: quality=<param> becomes a paramRef on the synthetic quality node', () => {
+    ve.userFunctions.f = {
+      name: 'f',
+      params: [{key: 'upstream'}, {key: 'quality', type: 'string', default: '720p+'}],
+      _sourceText:
+`def f(upstream, quality):
+    m = process("series", upstream=upstream, quality=quality, static=["Show"])
+    return m
+`,
+    };
+    const {nodes} = parseFunctionBodyNodes('f');
+    const quality = nodes.find(n => n.plugin === 'quality');
+    const series  = nodes.find(n => n.plugin === 'series');
+    expect(quality).toBeTruthy();
+    // The `quality` config key on the synthetic node should reference the
+    // function's `quality` param so the saved source has spec=quality.
+    expect(quality._paramRefs).toEqual({spec: 'quality'});
+    // And the series node should no longer carry a quality paramRef.
+    expect(series._paramRefs?.quality).toBeUndefined();
+  });
+
+  it('leaves non-(series|movies|premiere) plugins untouched', () => {
+    ve.userFunctions.f = {
+      name: 'f', params: [{key: 'upstream'}],
+      _sourceText:
+`def f(upstream):
+    c = process("condition", upstream=upstream, accept="x == 1")
+    return c
+`,
+    };
+    const {nodes} = parseFunctionBodyNodes('f');
+    expect(nodes.find(n => n.plugin === 'quality')).toBeUndefined();
+  });
+
+  it('no-op when quality= is absent', () => {
+    ve.userFunctions.f = {
+      name: 'f', params: [{key: 'upstream'}],
+      _sourceText:
+`def f(upstream):
+    m = process("movies", upstream=upstream, static=["X"])
+    return m
+`,
+    };
+    const {nodes} = parseFunctionBodyNodes('f');
+    expect(nodes.find(n => n.plugin === 'quality')).toBeUndefined();
   });
 });

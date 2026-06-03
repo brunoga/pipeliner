@@ -5271,6 +5271,37 @@ function fnParseLiteral(s) {
   return s; // bare identifier or unparseable — return as string
 }
 
+// fnMaybeMigrateLegacyQuality applies the legacy `quality=` rewrite on a
+// freshly-parsed function-body node. Mirrors legacyQualityMigration in
+// internal/config/migrations.go — when the Go side gets a config it rewrites
+// it transparently; the function-body parser is JS-only so the same logic
+// has to live here too. Keep these two in sync.
+function fnMaybeMigrateLegacyQuality(node, nodes) {
+  if (node.plugin !== 'series' && node.plugin !== 'movies' && node.plugin !== 'premiere') return;
+  if (!('quality' in node.config)) return;
+  const spec = node.config.quality;
+  delete node.config.quality;
+  // Preserve param reference: if the original code had `quality=quality`,
+  // the synthesized quality node's spec param should reference the same param.
+  const paramRef = node._paramRefs?.quality;
+  if (node._paramRefs) delete node._paramRefs.quality;
+  if (node._paramRefs && Object.keys(node._paramRefs).length === 0) delete node._paramRefs;
+  if (spec === '' || spec == null) return; // empty value: nothing to inject
+
+  const qid = `_auto_quality_${node.id}`;
+  const qNode = {
+    id: qid, plugin: 'quality',
+    config: {spec},
+    upstreams: node.upstreams.slice(),
+    searchNodeIds: [], listNodeIds: [], comment: '',
+    autoMigrated: 'legacy-quality-knob',
+    x: null, y: null, // layout will be recomputed
+  };
+  if (paramRef) qNode._paramRefs = {spec: paramRef};
+  nodes.push(qNode);
+  node.upstreams = [qid];
+}
+
 // parseFunctionBodyNodes extracts the internal canvas nodes from a function's
 // _sourceText. Param references in kwargs (bare identifiers matching param names)
 // are tracked in n._paramRefs = {configKey: paramName} so nodesToFunctionSource
@@ -5345,6 +5376,13 @@ function parseFunctionBodyNodes(funcName) {
     if (Object.keys(paramRefs).length)  node._paramRefs = paramRefs;
     if (searchRaw !== null)             node._searchRaw  = searchRaw;
     if (listRaw   !== null)             node._listRaw    = listRaw;
+
+    // Apply the same legacy-quality migration the Go side runs at config
+    // load time (see internal/config/migrations.go). The function-body
+    // editor is a JS-only parse path, so without this it would show the
+    // deprecated quality= knob on movies/series/premiere and would
+    // round-trip it back to the source on save.
+    fnMaybeMigrateLegacyQuality(node, nodes);
 
     // Parse search/list sub-plugin lists into canvas sub-nodes.
     if (searchRaw) {
