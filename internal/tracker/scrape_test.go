@@ -67,7 +67,7 @@ func TestScrapeHTTPSuccess(t *testing.T) {
 		if !containsStr(r.URL.Path, "scrape") {
 			t.Errorf("expected scrape path, got %q", r.URL.Path)
 		}
-		fmt.Fprint(w, body) //nolint:errcheck
+		fmt.Fprint(w, body)
 	}))
 	defer srv.Close()
 
@@ -86,7 +86,7 @@ func TestScrapeHTTPFallbackToFirstEntry(t *testing.T) {
 	body := buildScrapeResponse("xxxxxxxxxxxxxxxxxxxx", 7)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, body) //nolint:errcheck
+		fmt.Fprint(w, body)
 	}))
 	defer srv.Close()
 
@@ -142,7 +142,7 @@ func TestScrapeUsesFirstSuccess(t *testing.T) {
 	body := buildScrapeResponse(string(ih[:]), 99)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		fmt.Fprint(w, body) //nolint:errcheck
+		fmt.Fprint(w, body)
 	}))
 	defer srv.Close()
 
@@ -179,7 +179,7 @@ func TestScrapeUDPSuccess(t *testing.T) {
 		binary.BigEndian.PutUint32(connResp[0:], 0) // action: connect
 		binary.BigEndian.PutUint32(connResp[4:], txID)
 		binary.BigEndian.PutUint64(connResp[8:], 12345) // connection ID
-		pc.WriteTo(connResp, addr)                       //nolint:errcheck
+		pc.WriteTo(connResp, addr)
 
 		// Handle scrape request.
 		n, addr, err = pc.ReadFrom(buf)
@@ -194,7 +194,7 @@ func TestScrapeUDPSuccess(t *testing.T) {
 		binary.BigEndian.PutUint32(scrapeResp[8:], 25)  // seeders
 		binary.BigEndian.PutUint32(scrapeResp[12:], 10) // completed
 		binary.BigEndian.PutUint32(scrapeResp[16:], 3)  // leechers
-		pc.WriteTo(scrapeResp, addr)                     //nolint:errcheck
+		pc.WriteTo(scrapeResp, addr)
 	}()
 
 	addr := pc.LocalAddr().String()

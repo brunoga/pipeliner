@@ -18,7 +18,7 @@ func switchableRSSServer(t *testing.T) (*httptest.Server, func([]rssItem)) {
 	var current string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/rss+xml")
-		fmt.Fprint(w, current) //nolint:errcheck
+		fmt.Fprint(w, current)
 	}))
 	t.Cleanup(srv.Close)
 	set := func(items []rssItem) {

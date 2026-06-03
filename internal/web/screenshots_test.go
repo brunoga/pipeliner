@@ -180,7 +180,7 @@ func TestScreenshots(t *testing.T) {
 	t.Run("dashboard", func(t *testing.T) {
 		ts := startTestServer(t, normalConfig)
 		page := newPage(t)
-		defer page.Close() //nolint:errcheck
+		defer page.Close()
 		login(t, page, ts.url)
 		waitLocatorVisible(t, page.Locator(".task-name"))
 		pause(500)
@@ -191,7 +191,7 @@ func TestScreenshots(t *testing.T) {
 	t.Run("visual_editor", func(t *testing.T) {
 		ts := startTestServer(t, normalConfig)
 		page := newPage(t)
-		defer page.Close() //nolint:errcheck
+		defer page.Close()
 		login(t, page, ts.url)
 		openConfigTab(t, page)
 		switchToVisual(t, page, normalConfig)
@@ -203,7 +203,7 @@ func TestScreenshots(t *testing.T) {
 	t.Run("param_panel_may_produce", func(t *testing.T) {
 		ts := startTestServer(t, normalConfig)
 		page := newPage(t)
-		defer page.Close() //nolint:errcheck
+		defer page.Close()
 		login(t, page, ts.url)
 		openConfigTab(t, page)
 		switchToVisual(t, page, normalConfig)
@@ -219,7 +219,7 @@ func TestScreenshots(t *testing.T) {
 		// into the visual editor via text editor (re-parse, no save needed).
 		ts := startTestServer(t, normalConfig)
 		page := newPage(t)
-		defer page.Close() //nolint:errcheck
+		defer page.Close()
 		login(t, page, ts.url)
 		openConfigTab(t, page)
 		switchToVisual(t, page, hardWarnConfig)
@@ -233,7 +233,7 @@ func TestScreenshots(t *testing.T) {
 	t.Run("soft_field_warning", func(t *testing.T) {
 		ts := startTestServer(t, softWarnConfig)
 		page := newPage(t)
-		defer page.Close() //nolint:errcheck
+		defer page.Close()
 		login(t, page, ts.url)
 		openConfigTab(t, page)
 		switchToVisual(t, page, softWarnConfig)
@@ -249,11 +249,11 @@ func TestScreenshots(t *testing.T) {
 	t.Run("validation_warnings", func(t *testing.T) {
 		ts := startTestServer(t, softWarnConfig)
 		page := newPage(t)
-		defer page.Close() //nolint:errcheck
+		defer page.Close()
 		login(t, page, ts.url)
 		openConfigTab(t, page)
 		// Switch to text view before filling — visual editor is the default.
-		page.Locator("#view-btn-text").Click() //nolint:errcheck
+		page.Locator("#view-btn-text").Click()
 		if err := page.Locator("#config-editor").Fill(softWarnConfig); err != nil {
 			t.Fatalf("fill: %v", err)
 		}
@@ -271,7 +271,7 @@ func TestScreenshots(t *testing.T) {
 	t.Run("list_function_chip", func(t *testing.T) {
 		ts := startTestServer(t, traktListFunctionConfig)
 		page := newPage(t)
-		defer page.Close() //nolint:errcheck
+		defer page.Close()
 		login(t, page, ts.url)
 		openConfigTab(t, page)
 		switchToVisual(t, page, traktListFunctionConfig)
@@ -286,7 +286,7 @@ func TestScreenshots(t *testing.T) {
 	t.Run("list_function_connected", func(t *testing.T) {
 		ts := startTestServer(t, traktListFunctionConfig)
 		page := newPage(t)
-		defer page.Close() //nolint:errcheck
+		defer page.Close()
 		login(t, page, ts.url)
 		openConfigTab(t, page)
 		switchToVisual(t, page, traktListFunctionConfig)
@@ -305,7 +305,7 @@ func TestScreenshots(t *testing.T) {
 	t.Run("route_visual", func(t *testing.T) {
 		ts := startTestServer(t, normalConfig)
 		page := newPage(t)
-		defer page.Close() //nolint:errcheck
+		defer page.Close()
 		login(t, page, ts.url)
 		openConfigTab(t, page)
 		switchToVisual(t, page, routeScreenshotConfig)
@@ -319,7 +319,7 @@ func TestScreenshots(t *testing.T) {
 	t.Run("settings_tab", func(t *testing.T) {
 		ts := startTestServer(t, normalConfig)
 		page := newPage(t)
-		defer page.Close() //nolint:errcheck
+		defer page.Close()
 		login(t, page, ts.url)
 		if err := page.Locator("#tab-btn-settings").Click(); err != nil {
 			t.Fatalf("click settings tab: %v", err)
@@ -333,7 +333,7 @@ func TestScreenshots(t *testing.T) {
 	t.Run("database_tab", func(t *testing.T) {
 		ts := startTestServer(t, normalConfig)
 		page := newPage(t)
-		defer page.Close() //nolint:errcheck
+		defer page.Close()
 		login(t, page, ts.url)
 		if err := page.Locator("#tab-btn-db").Click(); err != nil {
 			t.Fatalf("click database tab: %v", err)
@@ -347,7 +347,7 @@ func TestScreenshots(t *testing.T) {
 	t.Run("text_editor", func(t *testing.T) {
 		ts := startTestServer(t, normalConfig)
 		page := newPage(t)
-		defer page.Close() //nolint:errcheck
+		defer page.Close()
 		login(t, page, ts.url)
 		openConfigTab(t, page)
 		// Switch to text view.
@@ -366,7 +366,7 @@ func TestScreenshots(t *testing.T) {
 	t.Run("route_port_contracts", func(t *testing.T) {
 		ts := startTestServer(t, normalConfig)
 		page := newPage(t)
-		defer page.Close() //nolint:errcheck
+		defer page.Close()
 		login(t, page, ts.url)
 		openConfigTab(t, page)
 		switchToVisual(t, page, routePortContractsConfig)
@@ -389,7 +389,7 @@ func TestScreenshots(t *testing.T) {
 	t.Run("multi_select", func(t *testing.T) {
 		ts := startTestServer(t, normalConfig)
 		page := newPage(t)
-		defer page.Close() //nolint:errcheck
+		defer page.Close()
 		login(t, page, ts.url)
 		openConfigTab(t, page)
 		switchToVisual(t, page, normalConfig)
@@ -406,12 +406,12 @@ func TestScreenshots(t *testing.T) {
 		}
 		if err := page.Locator(`.ve-node[data-id="premiere_2"]`).Click(); err != nil {
 			// Try Ctrl key on non-Mac.
-			page.Keyboard().Up("Meta") //nolint:errcheck
-			page.Keyboard().Down("Control") //nolint:errcheck
-			page.Locator(`.ve-node[data-id="premiere_2"]`).Click() //nolint:errcheck
-			page.Keyboard().Up("Control") //nolint:errcheck
+			page.Keyboard().Up("Meta")
+			page.Keyboard().Down("Control")
+			page.Locator(`.ve-node[data-id="premiere_2"]`).Click()
+			page.Keyboard().Up("Control")
 		} else {
-			page.Keyboard().Up("Meta") //nolint:errcheck
+			page.Keyboard().Up("Meta")
 		}
 		// Wait for Copy and Cut buttons to appear.
 		waitLocatorVisible(t, page.Locator("#ve-copy-btn"))
@@ -424,7 +424,7 @@ func TestScreenshots(t *testing.T) {
 	t.Run("fn_editor", func(t *testing.T) {
 		ts := startTestServer(t, traktListFunctionConfig)
 		page := newPage(t)
-		defer page.Close() //nolint:errcheck
+		defer page.Close()
 		login(t, page, ts.url)
 		openConfigTab(t, page)
 		switchToVisual(t, page, traktListFunctionConfig)

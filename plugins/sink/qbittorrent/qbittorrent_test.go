@@ -32,13 +32,13 @@ func (m *qbtMock) handler() http.HandlerFunc {
 		switch r.URL.Path {
 		case "/api/v2/auth/login":
 			if m.loginFail {
-				w.Write([]byte("Fails.")) //nolint:errcheck
+				w.Write([]byte("Fails."))
 			} else {
-				w.Write([]byte("Ok.")) //nolint:errcheck
+				w.Write([]byte("Ok."))
 			}
 		case "/api/v2/torrents/add":
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("Ok.")) //nolint:errcheck
+			w.Write([]byte("Ok."))
 		}
 	}
 }
@@ -112,7 +112,7 @@ func TestCategoryAndTags(t *testing.T) {
 	qp.baseURL = srv.URL
 
 	e := entry.New("T", "http://x.com/a.torrent")
-	qp.deliver(context.Background(), makeCtx(), []*entry.Entry{e}) //nolint:errcheck
+	qp.deliver(context.Background(), makeCtx(), []*entry.Entry{e})
 
 	var addBody string
 	for i, path := range mock.requests {
@@ -142,7 +142,7 @@ func TestSavepathTemplate(t *testing.T) {
 
 	e := entry.New("My Show S01E01", "http://x.com/a.torrent")
 	e.Set("series_name", "My Show")
-	qp.deliver(context.Background(), makeCtx(), []*entry.Entry{e}) //nolint:errcheck
+	qp.deliver(context.Background(), makeCtx(), []*entry.Entry{e})
 
 	var addBody string
 	for i, path := range mock.requests {

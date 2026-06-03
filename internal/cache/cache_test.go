@@ -69,7 +69,7 @@ func TestConcurrentAccess(t *testing.T) {
 		}(i)
 		go func() {
 			defer wg.Done()
-			c.Get("k") //nolint:errcheck
+			c.Get("k")
 		}()
 	}
 	wg.Wait()

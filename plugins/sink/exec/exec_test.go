@@ -39,7 +39,7 @@ func TestTemplateInterpolation(t *testing.T) {
 	p, _ := newPlugin(map[string]any{"command": "touch " + marker + "_{{.series_season}}"}, nil)
 	e := entry.New("Test", "http://x.com/a")
 	e.Set("series_season", 3)
-	p.(*execPlugin).deliver(context.Background(), makeCtx(), []*entry.Entry{e}) //nolint:errcheck
+	p.(*execPlugin).deliver(context.Background(), makeCtx(), []*entry.Entry{e})
 
 	if _, err := os.Stat(marker + "_3"); err != nil {
 		t.Errorf("expected %s_3: %v", marker, err)
@@ -62,7 +62,7 @@ func TestContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	// Should return quickly due to cancelled context.
-	p.(*execPlugin).deliver(ctx, makeCtx(), []*entry.Entry{e}) //nolint:errcheck
+	p.(*execPlugin).deliver(ctx, makeCtx(), []*entry.Entry{e})
 }
 
 func TestMultipleEntries(t *testing.T) {
@@ -72,7 +72,7 @@ func TestMultipleEntries(t *testing.T) {
 		func() *entry.Entry { e := entry.New("A", "http://x.com/a"); e.Set("series_episode", 1); return e }(),
 		func() *entry.Entry { e := entry.New("B", "http://x.com/b"); e.Set("series_episode", 2); return e }(),
 	}
-	p.(*execPlugin).deliver(context.Background(), makeCtx(), entries) //nolint:errcheck
+	p.(*execPlugin).deliver(context.Background(), makeCtx(), entries)
 
 	for _, ep := range []string{"1", "2"} {
 		if _, err := os.Stat(filepath.Join(dir, ep)); err != nil {

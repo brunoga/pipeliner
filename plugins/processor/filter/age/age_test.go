@@ -128,7 +128,7 @@ func TestAgeFilter_NewerThan(t *testing.T) {
 	// Entry published 30 days ago → should be rejected.
 	old := entry.New("old", "http://example.com/old")
 	old.Set("published_date", time.Now().Add(-30*24*time.Hour))
-	proc.Process(ctx, tc, []*entry.Entry{old}) //nolint:errcheck
+	proc.Process(ctx, tc, []*entry.Entry{old})
 	if !old.IsRejected() {
 		t.Error("expected 30d-old entry to be rejected with newer_than=7d")
 	}
@@ -136,7 +136,7 @@ func TestAgeFilter_NewerThan(t *testing.T) {
 	// Entry published 1 hour ago → should pass.
 	fresh := entry.New("fresh", "http://example.com/fresh")
 	fresh.Set("published_date", time.Now().Add(-1*time.Hour))
-	proc.Process(ctx, tc, []*entry.Entry{fresh}) //nolint:errcheck
+	proc.Process(ctx, tc, []*entry.Entry{fresh})
 	if fresh.IsRejected() {
 		t.Errorf("expected fresh entry to pass: %s", fresh.RejectReason)
 	}
@@ -156,7 +156,7 @@ func TestAgeFilter_OlderThan(t *testing.T) {
 	// Entry published 1 hour ago → too new, should be rejected.
 	fresh := entry.New("fresh", "http://example.com/fresh")
 	fresh.Set("published_date", time.Now().Add(-1*time.Hour))
-	proc.Process(ctx, tc, []*entry.Entry{fresh}) //nolint:errcheck
+	proc.Process(ctx, tc, []*entry.Entry{fresh})
 	if !fresh.IsRejected() {
 		t.Error("expected 1h-old entry to be rejected with older_than=30d")
 	}
@@ -164,7 +164,7 @@ func TestAgeFilter_OlderThan(t *testing.T) {
 	// Entry published 60 days ago → passes.
 	old := entry.New("old", "http://example.com/old")
 	old.Set("published_date", time.Now().Add(-60*24*time.Hour))
-	proc.Process(ctx, tc, []*entry.Entry{old}) //nolint:errcheck
+	proc.Process(ctx, tc, []*entry.Entry{old})
 	if old.IsRejected() {
 		t.Errorf("expected 60d-old entry to pass: %s", old.RejectReason)
 	}
@@ -179,7 +179,7 @@ func TestAgeFilter_OnMissing_Pass(t *testing.T) {
 	}
 	proc := p.(plugin.ProcessorPlugin)
 	e := entry.New("nodate", "http://example.com/nodate")
-	proc.Process(context.Background(), makeCtx(), []*entry.Entry{e}) //nolint:errcheck
+	proc.Process(context.Background(), makeCtx(), []*entry.Entry{e})
 	if e.IsRejected() {
 		t.Errorf("expected missing-field entry to pass: %s", e.RejectReason)
 	}
@@ -194,7 +194,7 @@ func TestAgeFilter_OnMissing_Reject(t *testing.T) {
 	}
 	proc := p.(plugin.ProcessorPlugin)
 	e := entry.New("nodate", "http://example.com/nodate")
-	proc.Process(context.Background(), makeCtx(), []*entry.Entry{e}) //nolint:errcheck
+	proc.Process(context.Background(), makeCtx(), []*entry.Entry{e})
 	if !e.IsRejected() {
 		t.Error("expected missing-field entry to be rejected with on_missing=reject")
 	}
@@ -209,7 +209,7 @@ func TestAgeFilter_SkipsRejected(t *testing.T) {
 	proc := p.(plugin.ProcessorPlugin)
 	e := entry.New("pre-rejected", "http://example.com/r")
 	e.Reject("pre-existing reason")
-	proc.Process(context.Background(), makeCtx(), []*entry.Entry{e}) //nolint:errcheck
+	proc.Process(context.Background(), makeCtx(), []*entry.Entry{e})
 	if e.RejectReason != "pre-existing reason" {
 		t.Errorf("reject reason was mutated: %s", e.RejectReason)
 	}

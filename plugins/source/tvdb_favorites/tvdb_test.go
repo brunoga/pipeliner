@@ -31,7 +31,7 @@ func makeTVDBServer(t *testing.T, favoriteIDs []int, series []itvdb.Series) *htt
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		encode := func(v any) { json.NewEncoder(w).Encode(v) } //nolint:errcheck
+		encode := func(v any) { json.NewEncoder(w).Encode(v) }
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/login":
 			encode(map[string]any{"data": map[string]any{"token": "tok"}, "status": "success"})

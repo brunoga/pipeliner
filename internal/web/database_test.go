@@ -62,7 +62,7 @@ func TestDBBucketsEmpty(t *testing.T) {
 	var out struct {
 		Buckets []any `json:"buckets"`
 	}
-	json.NewDecoder(resp.Body).Decode(&out) //nolint:errcheck
+	json.NewDecoder(resp.Body).Decode(&out)
 	if len(out.Buckets) != 0 {
 		t.Errorf("expected empty bucket list, got %d", len(out.Buckets))
 	}
@@ -73,9 +73,9 @@ func TestDBBucketsListed(t *testing.T) {
 	defer ts.Close()
 
 	// Seed two buckets.
-	db.Bucket("series").Put("key1", "val1")   //nolint:errcheck
-	db.Bucket("cache_tvdb").Put("key2", "val2") //nolint:errcheck
-	db.Bucket("cache_tvdb").Put("key3", "val3") //nolint:errcheck
+	db.Bucket("series").Put("key1", "val1")
+	db.Bucket("cache_tvdb").Put("key2", "val2")
+	db.Bucket("cache_tvdb").Put("key3", "val3")
 
 	resp := get(t, ts.URL+"/api/db/buckets")
 	defer resp.Body.Close()
@@ -119,8 +119,8 @@ func TestDBGetBucketEntries(t *testing.T) {
 	_, ts, db := newDBTestServer(t)
 	defer ts.Close()
 
-	db.Bucket("mylist").Put("foo", "bar")  //nolint:errcheck
-	db.Bucket("mylist").Put("baz", "qux")  //nolint:errcheck
+	db.Bucket("mylist").Put("foo", "bar")
+	db.Bucket("mylist").Put("baz", "qux")
 
 	resp := get(t, ts.URL+"/api/db/buckets/mylist")
 	defer resp.Body.Close()
@@ -153,9 +153,9 @@ func TestDBGetSeriesBucketGrouped(t *testing.T) {
 			Str string `json:"string"`
 		} `json:"quality"`
 	}
-	db.Bucket("series").Put("Breaking Bad|S01E01", rec{SeriesName: "Breaking Bad", EpisodeID: "S01E01"})             //nolint:errcheck
-	db.Bucket("series").Put("Breaking Bad|S01E02", rec{SeriesName: "Breaking Bad", EpisodeID: "S01E02"})             //nolint:errcheck
-	db.Bucket("series").Put("Dark|S01E01", rec{SeriesName: "Dark", EpisodeID: "S01E01"}) //nolint:errcheck
+	db.Bucket("series").Put("Breaking Bad|S01E01", rec{SeriesName: "Breaking Bad", EpisodeID: "S01E01"})
+	db.Bucket("series").Put("Breaking Bad|S01E02", rec{SeriesName: "Breaking Bad", EpisodeID: "S01E02"})
+	db.Bucket("series").Put("Dark|S01E01", rec{SeriesName: "Dark", EpisodeID: "S01E01"})
 
 	resp := get(t, ts.URL+"/api/db/buckets/series")
 	defer resp.Body.Close()
@@ -187,8 +187,8 @@ func TestDBClearBucket(t *testing.T) {
 	_, ts, db := newDBTestServer(t)
 	defer ts.Close()
 
-	db.Bucket("cache_tvdb").Put("k1", "v1") //nolint:errcheck
-	db.Bucket("cache_tvdb").Put("k2", "v2") //nolint:errcheck
+	db.Bucket("cache_tvdb").Put("k1", "v1")
+	db.Bucket("cache_tvdb").Put("k2", "v2")
 
 	resp := deleteReq(t, ts.URL+"/api/db/buckets/cache_tvdb", nil)
 	defer resp.Body.Close()
@@ -208,8 +208,8 @@ func TestDBDeleteEntry(t *testing.T) {
 	_, ts, db := newDBTestServer(t)
 	defer ts.Close()
 
-	db.Bucket("series").Put("Breaking Bad|S01E01", "rec1") //nolint:errcheck
-	db.Bucket("series").Put("Breaking Bad|S01E02", "rec2") //nolint:errcheck
+	db.Bucket("series").Put("Breaking Bad|S01E01", "rec1")
+	db.Bucket("series").Put("Breaking Bad|S01E02", "rec2")
 
 	body, _ := json.Marshal(map[string]string{"key": "Breaking Bad|S01E01"})
 	resp := deleteReq(t, ts.URL+"/api/db/entries/series", body)
@@ -255,7 +255,7 @@ func TestDBPaginationFirstPage(t *testing.T) {
 	_, ts, db := newDBTestServer(t)
 	defer ts.Close()
 	for _, k := range []string{"a", "b", "c", "d", "e"} {
-		db.Bucket("movies").Put(k, `{"title":"`+k+`"}`) //nolint:errcheck
+		db.Bucket("movies").Put(k, `{"title":"`+k+`"}`)
 	}
 
 	resp := get(t, ts.URL+"/api/db/buckets/movies?limit=2")
@@ -290,7 +290,7 @@ func TestDBPaginationNextPage(t *testing.T) {
 	_, ts, db := newDBTestServer(t)
 	defer ts.Close()
 	for _, k := range []string{"a", "b", "c", "d", "e"} {
-		db.Bucket("movies").Put(k, `{"title":"`+k+`"}`) //nolint:errcheck
+		db.Bucket("movies").Put(k, `{"title":"`+k+`"}`)
 	}
 
 	resp := get(t, ts.URL+"/api/db/buckets/movies?limit=2&after=b")
@@ -318,7 +318,7 @@ func TestDBPaginationLastPage(t *testing.T) {
 	_, ts, db := newDBTestServer(t)
 	defer ts.Close()
 	for _, k := range []string{"a", "b", "c"} {
-		db.Bucket("movies").Put(k, `{"title":"`+k+`"}`) //nolint:errcheck
+		db.Bucket("movies").Put(k, `{"title":"`+k+`"}`)
 	}
 
 	resp := get(t, ts.URL+"/api/db/buckets/movies?limit=2&after=b")
@@ -327,7 +327,7 @@ func TestDBPaginationLastPage(t *testing.T) {
 		HasMore bool `json:"has_more"`
 		Entries []struct{ Key string `json:"key"` } `json:"entries"`
 	}
-	json.NewDecoder(resp.Body).Decode(&out) //nolint:errcheck
+	json.NewDecoder(resp.Body).Decode(&out)
 	if out.HasMore {
 		t.Error("want has_more=false on last page")
 	}
@@ -339,9 +339,9 @@ func TestDBPaginationLastPage(t *testing.T) {
 func TestDBPaginationFilter(t *testing.T) {
 	_, ts, db := newDBTestServer(t)
 	defer ts.Close()
-	db.Bucket("movies").Put("avatar|2009", `{"title":"avatar"}`)   //nolint:errcheck
-	db.Bucket("movies").Put("batman|2022", `{"title":"batman"}`)   //nolint:errcheck
-	db.Bucket("movies").Put("avatar|2022", `{"title":"avatar 2"}`) //nolint:errcheck
+	db.Bucket("movies").Put("avatar|2009", `{"title":"avatar"}`)
+	db.Bucket("movies").Put("batman|2022", `{"title":"batman"}`)
+	db.Bucket("movies").Put("avatar|2022", `{"title":"avatar 2"}`)
 
 	resp := get(t, ts.URL+"/api/db/buckets/movies?q=avatar")
 	defer resp.Body.Close()
@@ -349,7 +349,7 @@ func TestDBPaginationFilter(t *testing.T) {
 		Entries []struct{ Key string `json:"key"` } `json:"entries"`
 		Total   int                                  `json:"total"`
 	}
-	json.NewDecoder(resp.Body).Decode(&out) //nolint:errcheck
+	json.NewDecoder(resp.Body).Decode(&out)
 	if out.Total != 2 {
 		t.Errorf("total: got %d, want 2", out.Total)
 	}
@@ -371,7 +371,7 @@ func TestDBSeriesPaginationByShow(t *testing.T) {
 		{"Dark", "S01E01"},
 		{"Mindhunter", "S01E01"}, {"Mindhunter", "S01E02"},
 	} {
-		db.Bucket("series").Put(ep.show+"|"+ep.ep, rec{SeriesName: ep.show, EpisodeID: ep.ep}) //nolint:errcheck
+		db.Bucket("series").Put(ep.show+"|"+ep.ep, rec{SeriesName: ep.show, EpisodeID: ep.ep})
 	}
 
 	// Page 1: limit=2 shows
@@ -409,7 +409,7 @@ func TestDBSeriesPaginationByShow(t *testing.T) {
 		Grouped []struct{ Name string `json:"name"` } `json:"grouped"`
 		HasMore bool                                   `json:"has_more"`
 	}
-	json.NewDecoder(resp2.Body).Decode(&out2) //nolint:errcheck
+	json.NewDecoder(resp2.Body).Decode(&out2)
 	if len(out2.Grouped) != 1 || out2.Grouped[0].Name != "Mindhunter" {
 		t.Errorf("page 2 shows: %v", out2.Grouped)
 	}

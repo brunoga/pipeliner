@@ -20,7 +20,7 @@ func makeCtx() *plugin.TaskContext {
 func serve(t *testing.T, body string) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(body)) //nolint:errcheck
+		w.Write([]byte(body))
 	}))
 }
 
@@ -57,7 +57,7 @@ func TestDownloadPathFieldSet(t *testing.T) {
 	dir := t.TempDir()
 	p, _ := newPlugin(map[string]any{"path": dir}, nil)
 	e := entry.New("Test", srv.URL+"/ep.mkv")
-	p.(*downloadPlugin).deliver(context.Background(), makeCtx(), []*entry.Entry{e}) //nolint:errcheck
+	p.(*downloadPlugin).deliver(context.Background(), makeCtx(), []*entry.Entry{e})
 
 	if v := e.GetString("download_path"); v == "" {
 		t.Error("download_path should be set after download")
@@ -79,7 +79,7 @@ func TestCustomFilenameTemplate(t *testing.T) {
 	e := entry.New("Test", srv.URL+"/anything")
 	e.Set("series_name", "My Show")
 	e.Set("series_season", 2)
-	p.(*downloadPlugin).deliver(context.Background(), makeCtx(), []*entry.Entry{e}) //nolint:errcheck
+	p.(*downloadPlugin).deliver(context.Background(), makeCtx(), []*entry.Entry{e})
 
 	dest := filepath.Join(dir, "My Show.S2E01.mkv")
 	if _, err := os.Stat(dest); err != nil {
@@ -94,7 +94,7 @@ func TestAtomicWrite(t *testing.T) {
 	dir := t.TempDir()
 	p, _ := newPlugin(map[string]any{"path": dir}, nil)
 	e := entry.New("T", srv.URL+"/f.bin")
-	p.(*downloadPlugin).deliver(context.Background(), makeCtx(), []*entry.Entry{e}) //nolint:errcheck
+	p.(*downloadPlugin).deliver(context.Background(), makeCtx(), []*entry.Entry{e})
 
 	// .part file must not remain after success.
 	entries, _ := os.ReadDir(dir)
@@ -136,7 +136,7 @@ func TestContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // cancel immediately
 
-	p.(*downloadPlugin).deliver(ctx, makeCtx(), []*entry.Entry{e}) //nolint:errcheck
+	p.(*downloadPlugin).deliver(ctx, makeCtx(), []*entry.Entry{e})
 	// No .part file should linger.
 	entries, _ := os.ReadDir(dir)
 	for _, de := range entries {

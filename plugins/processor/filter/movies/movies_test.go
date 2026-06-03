@@ -228,11 +228,11 @@ func TestDuplicateRejected(t *testing.T) {
 	tc := makeCtx()
 
 	e1 := makeEntry("Inception.2010.1080p.BluRay.x264", "http://x.com/a")
-	p.filter(context.Background(), tc, e1) //nolint:errcheck
-	p.persist(context.Background(), tc, []*entry.Entry{e1}) //nolint:errcheck
+	p.filter(context.Background(), tc, e1)
+	p.persist(context.Background(), tc, []*entry.Entry{e1})
 
 	e2 := makeEntry("Inception.2010.1080p.BluRay.x264", "http://x.com/b")
-	p.filter(context.Background(), tc, e2) //nolint:errcheck
+	p.filter(context.Background(), tc, e2)
 	if !e2.IsRejected() {
 		t.Error("already-downloaded movie should be rejected")
 	}
@@ -243,11 +243,11 @@ func TestQualityUpgradesExisting(t *testing.T) {
 	tc := makeCtx()
 
 	e1 := makeEntry("Inception.2010.720p.HDTV", "http://x.com/a")
-	p.filter(context.Background(), tc, e1) //nolint:errcheck
-	p.persist(context.Background(), tc, []*entry.Entry{e1}) //nolint:errcheck
+	p.filter(context.Background(), tc, e1)
+	p.persist(context.Background(), tc, []*entry.Entry{e1})
 
 	e2 := makeEntry("Inception.2010.1080p.BluRay.x264", "http://x.com/b")
-	p.filter(context.Background(), tc, e2) //nolint:errcheck
+	p.filter(context.Background(), tc, e2)
 	if !e2.IsAccepted() {
 		t.Errorf("higher-quality copy should be accepted: %s", e2.RejectReason)
 	}
@@ -258,11 +258,11 @@ func TestProperSameQualityUpgradesExisting(t *testing.T) {
 	tc := makeCtx()
 
 	e1 := makeEntry("Inception.2010.720p.HDTV", "http://x.com/a")
-	p.filter(context.Background(), tc, e1) //nolint:errcheck
-	p.persist(context.Background(), tc, []*entry.Entry{e1}) //nolint:errcheck
+	p.filter(context.Background(), tc, e1)
+	p.persist(context.Background(), tc, []*entry.Entry{e1})
 
 	e2 := makeEntry("Inception.2010.PROPER.720p.HDTV", "http://x.com/b")
-	p.filter(context.Background(), tc, e2) //nolint:errcheck
+	p.filter(context.Background(), tc, e2)
 	if !e2.IsAccepted() {
 		t.Errorf("proper at same quality should be accepted: %s", e2.RejectReason)
 	}
@@ -276,19 +276,19 @@ func TestRepackNotAcceptedAgainAfterRepackDownloaded(t *testing.T) {
 
 	// Step 1: download the original, then the REPACK (first upgrade, should accept).
 	e1 := makeEntry("Inception.2010.1080p.BluRay.x264", "http://x.com/a")
-	p.filter(context.Background(), tc, e1) //nolint:errcheck
-	p.persist(context.Background(), tc, []*entry.Entry{e1}) //nolint:errcheck
+	p.filter(context.Background(), tc, e1)
+	p.persist(context.Background(), tc, []*entry.Entry{e1})
 
 	e2 := makeEntry("Inception.2010.REPACK.1080p.BluRay.x264", "http://x.com/b")
-	p.filter(context.Background(), tc, e2) //nolint:errcheck
+	p.filter(context.Background(), tc, e2)
 	if !e2.IsAccepted() {
 		t.Fatalf("REPACK of non-REPACK should be accepted: %s", e2.RejectReason)
 	}
-	p.persist(context.Background(), tc, []*entry.Entry{e2}) //nolint:errcheck
+	p.persist(context.Background(), tc, []*entry.Entry{e2})
 
 	// Step 2: same REPACK appears again on the next run — must be rejected.
 	e3 := makeEntry("Inception.2010.REPACK.1080p.BluRay.x264", "http://x.com/b")
-	p.filter(context.Background(), tc, e3) //nolint:errcheck
+	p.filter(context.Background(), tc, e3)
 	if !e3.IsRejected() {
 		t.Error("same REPACK must not be accepted again after it was already downloaded")
 	}
@@ -299,12 +299,12 @@ func TestNoUpgradeWhenQualityNotBetter(t *testing.T) {
 	tc := makeCtx()
 
 	e1 := makeEntry("Inception.2010.720p.BluRay.x264", "http://x.com/a")
-	p.filter(context.Background(), tc, e1) //nolint:errcheck
-	p.persist(context.Background(), tc, []*entry.Entry{e1}) //nolint:errcheck
+	p.filter(context.Background(), tc, e1)
+	p.persist(context.Background(), tc, []*entry.Entry{e1})
 
 	// Lower source quality (HDTV < BluRay) — rejected even with PROPER tag.
 	e2 := makeEntry("Inception.2010.PROPER.720p.HDTV", "http://x.com/b")
-	p.filter(context.Background(), tc, e2) //nolint:errcheck
+	p.filter(context.Background(), tc, e2)
 	if !e2.IsRejected() {
 		t.Error("copy with lower quality should not replace existing")
 	}
@@ -381,7 +381,7 @@ func TestLearnMarksAccepted(t *testing.T) {
 
 	// Verify the entry is now seen.
 	e2 := makeEntry("Inception.2010.1080p.BluRay.x264", "http://x.com/b")
-	p.filter(context.Background(), tc, e2) //nolint:errcheck
+	p.filter(context.Background(), tc, e2)
 	if !e2.IsRejected() {
 		t.Error("movie should be rejected after learn marks it seen")
 	}
@@ -421,7 +421,7 @@ func TestFromAcceptsDynamicMovie(t *testing.T) {
 	p := openWithFrom(t, mock)
 
 	e := makeEntry("Inception.2010.1080p.BluRay.x264", "http://x.com/a")
-	p.filter(context.Background(), makeCtx(), e) //nolint:errcheck
+	p.filter(context.Background(), makeCtx(), e)
 	if !e.IsAccepted() {
 		t.Errorf("dynamic movie should be accepted: %s", e.RejectReason)
 	}
@@ -434,7 +434,7 @@ func TestFromIgnoresUnlistedMovie(t *testing.T) {
 	p := openWithFrom(t, mock)
 
 	e := makeEntry("The.Matrix.1999.1080p.BluRay.x264", "http://x.com/a")
-	p.filter(context.Background(), makeCtx(), e) //nolint:errcheck
+	p.filter(context.Background(), makeCtx(), e)
 	if e.IsAccepted() || e.IsRejected() {
 		t.Errorf("unlisted movie should be undecided; got %v", e.State)
 	}
@@ -696,14 +696,14 @@ func TestNoListTrackerDedups(t *testing.T) {
 	tc := makeCtx()
 
 	first := makeEntry("Random.Movie.2024.1080p.BluRay.x264", "http://x.com/a")
-	p.filter(context.Background(), tc, first)                  //nolint:errcheck
-	p.persist(context.Background(), tc, []*entry.Entry{first}) //nolint:errcheck
+	p.filter(context.Background(), tc, first)
+	p.persist(context.Background(), tc, []*entry.Entry{first})
 	if !first.IsAccepted() {
 		t.Fatalf("first sighting should be accepted; got %v", first.State)
 	}
 
 	second := makeEntry("Random.Movie.2024.1080p.BluRay.x264", "http://x.com/b")
-	p.filter(context.Background(), tc, second) //nolint:errcheck
+	p.filter(context.Background(), tc, second)
 	if !second.IsRejected() {
 		t.Errorf("second sighting should be rejected by tracker; got %v", second.State)
 	}

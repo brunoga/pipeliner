@@ -22,7 +22,7 @@ func oauthServer(t *testing.T, handlers map[string]http.HandlerFunc) *httptest.S
 
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(v) //nolint:errcheck
+	json.NewEncoder(w).Encode(v)
 }
 
 func TestRequestDeviceCode(t *testing.T) {
@@ -165,7 +165,7 @@ func TestRefreshToken(t *testing.T) {
 				return
 			}
 			var body map[string]string
-			json.NewDecoder(r.Body).Decode(&body) //nolint:errcheck
+			json.NewDecoder(r.Body).Decode(&body)
 			if body["grant_type"] != "refresh_token" {
 				http.Error(w, "bad grant_type", http.StatusBadRequest)
 				return

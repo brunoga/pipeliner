@@ -23,7 +23,7 @@ func makeServer(t *testing.T, movies []map[string]any) *httptest.Server {
 			out[i] = map[string]any{"type": "movie", "movie": m}
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(out) //nolint:errcheck
+		json.NewEncoder(w).Encode(out)
 	}))
 	t.Cleanup(srv.Close)
 	return srv

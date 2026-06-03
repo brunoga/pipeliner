@@ -17,13 +17,3 @@ issues:
     # errcheck is noisy in test helpers — allow unchecked calls in _test.go files.
     - path: _test\.go
       linters: [errcheck]
-
-    # gosec G204 (subprocess launched with variable) is expected in output/exec.
-    - path: plugins/output/exec/exec\.go
-      linters: [gosec]
-      text: G204
-
-    # gosec G304 (file path from variable) is expected in decompress/download.
-    - path: plugins/output/(decompress|download)/
-      linters: [gosec]
-      text: G304

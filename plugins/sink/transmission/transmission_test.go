@@ -45,7 +45,7 @@ func mockTransmission(t *testing.T, handler func(rpcRequest) any) *httptest.Serv
 		}
 		result := handler(req)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+		json.NewEncoder(w).Encode(map[string]any{
 			"result":    "success",
 			"arguments": result,
 		})
@@ -125,7 +125,7 @@ func TestPausedConfig(t *testing.T) {
 	p := pluginWithEndpoint(t, srv, map[string]any{"paused": true})
 
 	e := entry.New("x", "http://example.com/x.torrent")
-	p.deliver(context.Background(), tc(), []*entry.Entry{e}) //nolint:errcheck
+	p.deliver(context.Background(), tc(), []*entry.Entry{e})
 
 	if captured.Arguments["paused"] != true {
 		t.Errorf("paused: got %v, want true", captured.Arguments["paused"])
@@ -147,7 +147,7 @@ func TestPathTemplate(t *testing.T) {
 	e := entry.New("My.Show.S01E01", "http://example.com/show.torrent")
 	e.Set("category", "tv")
 
-	p.deliver(context.Background(), tc(), []*entry.Entry{e}) //nolint:errcheck
+	p.deliver(context.Background(), tc(), []*entry.Entry{e})
 
 	if captured.Arguments["download-dir"] != "/media/tv/My.Show.S01E01" {
 		t.Errorf("download-dir: got %v", captured.Arguments["download-dir"])

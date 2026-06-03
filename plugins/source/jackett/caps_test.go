@@ -70,14 +70,14 @@ func TestSearchUsesCapsToPickMode(t *testing.T) {
 	var searchT, searchYear string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("t") == "caps" {
-			fmt.Fprint(w, capsNoMovie) //nolint:errcheck
+			fmt.Fprint(w, capsNoMovie)
 			return
 		}
 		mu.Lock()
 		searchT = r.URL.Query().Get("t")
 		searchYear = r.URL.Query().Get("year")
 		mu.Unlock()
-		fmt.Fprint(w, string(buildXML(nil))) //nolint:errcheck
+		fmt.Fprint(w, string(buildXML(nil)))
 	}))
 	defer srv.Close()
 
@@ -112,7 +112,7 @@ func TestSearchFallsBackOnTorznabError201(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("t") == "caps" {
 			// Caps say everything works — to force the 201 path.
-			fmt.Fprint(w, permissiveCaps) //nolint:errcheck
+			fmt.Fprint(w, permissiveCaps)
 			return
 		}
 		mu.Lock()
@@ -120,12 +120,12 @@ func TestSearchFallsBackOnTorznabError201(t *testing.T) {
 		switch r.URL.Query().Get("t") {
 		case "movie":
 			movieHits++
-			fmt.Fprint(w, errResp) //nolint:errcheck
+			fmt.Fprint(w, errResp)
 		case "search":
 			searchHit = true
 			fmt.Fprint(w, string(buildXML([]torznabItem{
 				{Title: "Inception", Link: "http://example.com/1.torrent"},
-			}))) //nolint:errcheck
+			})))
 		default:
 			t.Errorf("unexpected t=%q", r.URL.Query().Get("t"))
 		}
@@ -161,11 +161,11 @@ func TestSearchDoesNotFallBackOnSearchAlreadyGeneric(t *testing.T) {
 	var hits atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("t") == "caps" {
-			fmt.Fprint(w, permissiveCaps) //nolint:errcheck
+			fmt.Fprint(w, permissiveCaps)
 			return
 		}
 		hits.Add(1)
-		fmt.Fprint(w, errResp) //nolint:errcheck
+		fmt.Fprint(w, errResp)
 	}))
 	defer srv.Close()
 
@@ -185,10 +185,10 @@ func TestSearchCapsCached(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("t") == "caps" {
 			capsHits.Add(1)
-			fmt.Fprint(w, permissiveCaps) //nolint:errcheck
+			fmt.Fprint(w, permissiveCaps)
 			return
 		}
-		fmt.Fprint(w, string(buildXML(nil))) //nolint:errcheck
+		fmt.Fprint(w, string(buildXML(nil)))
 	}))
 	defer srv.Close()
 
@@ -214,7 +214,7 @@ func TestSearchCapsRetriedAfterFailure(t *testing.T) {
 			http.Error(w, "boom", http.StatusInternalServerError)
 			return
 		}
-		fmt.Fprint(w, string(buildXML(nil))) //nolint:errcheck
+		fmt.Fprint(w, string(buildXML(nil)))
 	}))
 	defer srv.Close()
 

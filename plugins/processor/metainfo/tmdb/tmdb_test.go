@@ -28,7 +28,7 @@ func makeServer() *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/3/search/movie":
-			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			json.NewEncoder(w).Encode(map[string]any{
 				"results": []map[string]any{
 					{
 						"id": 27205, "title": "Inception",
@@ -41,7 +41,7 @@ func makeServer() *httptest.Server {
 				"page": 1, "total_results": 1,
 			})
 		case "/3/movie/27205":
-			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			json.NewEncoder(w).Encode(map[string]any{
 				"id": 27205, "title": "Inception", "release_date": "2010-07-16",
 				"runtime": 148, "tagline": "Your mind is the scene.",
 				"imdb_id": "tt1375666", "original_language": "en",
@@ -166,7 +166,7 @@ func TestEmptyResultNotCached(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/3/search/movie" {
 			callCount++
-			json.NewEncoder(w).Encode(map[string]any{"results": []any{}, "total_results": 0}) //nolint:errcheck
+			json.NewEncoder(w).Encode(map[string]any{"results": []any{}, "total_results": 0})
 		}
 	}))
 	defer srv.Close()
@@ -185,8 +185,8 @@ func TestEmptyResultNotCached(t *testing.T) {
 	}
 
 	e := entry.New("Inception.2010.1080p.BluRay", "http://x.com/a")
-	p.annotate(context.Background(), makeCtx(), e) //nolint:errcheck
-	p.annotate(context.Background(), makeCtx(), e) //nolint:errcheck
+	p.annotate(context.Background(), makeCtx(), e)
+	p.annotate(context.Background(), makeCtx(), e)
 
 	// Each Annotate makes 2 API calls (year search + year-less retry).
 	// If empty results were cached, the second Annotate would skip the API entirely.
@@ -199,7 +199,7 @@ func TestEnrichedNotSetOnNoResults(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/3/search/movie":
-			json.NewEncoder(w).Encode(map[string]any{"results": []any{}, "total_results": 0}) //nolint:errcheck
+			json.NewEncoder(w).Encode(map[string]any{"results": []any{}, "total_results": 0})
 		}
 	}))
 	defer srv.Close()
@@ -246,9 +246,9 @@ func TestAnnotateByTraktTMDBID(t *testing.T) {
 		switch r.URL.Path {
 		case "/3/search/movie":
 			searchCalled = true
-			json.NewEncoder(w).Encode(map[string]any{"results": []any{}, "total_results": 0}) //nolint:errcheck
+			json.NewEncoder(w).Encode(map[string]any{"results": []any{}, "total_results": 0})
 		case "/3/movie/27205":
-			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			json.NewEncoder(w).Encode(map[string]any{
 				"id": 27205, "title": "Michael", "release_date": "2026-03-14",
 				"overview": "A film about Michael Jackson.", "popularity": 50.0,
 				"vote_average": 7.5, "vote_count": 1000, "poster_path": "",
@@ -306,7 +306,7 @@ func TestTraktYearUsedAsSearchHint(t *testing.T) {
 		switch r.URL.Path {
 		case "/3/search/movie":
 			searchedYear = r.URL.Query().Get("year")
-			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			json.NewEncoder(w).Encode(map[string]any{
 				"results": []map[string]any{
 					{
 						"id": 27205, "title": "Michael", "release_date": "2026-03-14",
@@ -317,7 +317,7 @@ func TestTraktYearUsedAsSearchHint(t *testing.T) {
 				"total_results": 1,
 			})
 		case "/3/movie/27205":
-			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			json.NewEncoder(w).Encode(map[string]any{
 				"id": 27205, "title": "Michael", "release_date": "2026-03-14",
 				"runtime": 132, "tagline": "", "imdb_id": "tt12345678",
 				"original_language": "en", "genres": []any{},
@@ -377,7 +377,7 @@ func TestAnnotateByIDDetailCached(t *testing.T) {
 		switch r.URL.Path {
 		case "/3/movie/27205":
 			callCount++
-			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			json.NewEncoder(w).Encode(map[string]any{
 				"id": 27205, "title": "Inception", "release_date": "2010-07-16",
 				"overview": "A thief...", "popularity": 99.5,
 				"vote_average": 8.8, "vote_count": 35000, "poster_path": "/inception.jpg",
@@ -446,10 +446,10 @@ func TestYearlessRetryFiltersNonMatchingTitles(t *testing.T) {
 		case "/3/search/movie":
 			if year != "" {
 				// First call (with year): no results — film not on TMDb yet.
-				json.NewEncoder(w).Encode(map[string]any{"results": []any{}, "page": 1, "total_results": 0}) //nolint:errcheck
+				json.NewEncoder(w).Encode(map[string]any{"results": []any{}, "page": 1, "total_results": 0})
 			} else {
 				// Yearless retry: return "Mother's Day" as the top popularity result.
-				json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+				json.NewEncoder(w).Encode(map[string]any{
 					"results": []map[string]any{
 						{"id": 9999, "title": "Mother's Day", "release_date": "2016-05-06",
 							"popularity": 120.0, "vote_average": 5.8, "vote_count": 1000},

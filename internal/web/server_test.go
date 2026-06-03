@@ -136,7 +136,7 @@ func TestSaveConfigDryRunValid(t *testing.T) {
 		t.Fatalf("status: got %d, want 200", resp.StatusCode)
 	}
 	var result map[string]string
-	json.NewDecoder(resp.Body).Decode(&result) //nolint:errcheck
+	json.NewDecoder(resp.Body).Decode(&result)
 	if result["status"] != "valid" {
 		t.Errorf("status: got %q, want \"valid\"", result["status"])
 	}
@@ -165,7 +165,7 @@ func TestSaveConfigDryRunInvalid(t *testing.T) {
 		t.Fatalf("status: got %d, want 422", resp.StatusCode)
 	}
 	var result map[string]any
-	json.NewDecoder(resp.Body).Decode(&result) //nolint:errcheck
+	json.NewDecoder(resp.Body).Decode(&result)
 	errs, _ := result["errors"].([]any)
 	if len(errs) != 2 {
 		t.Errorf("expected 2 errors, got %v", errs)
@@ -201,7 +201,7 @@ func TestSaveConfigWritesFile(t *testing.T) {
 	}
 
 	var result map[string]string
-	json.NewDecoder(resp.Body).Decode(&result) //nolint:errcheck
+	json.NewDecoder(resp.Body).Decode(&result)
 	if result["status"] != "reloaded" {
 		t.Errorf("status: got %q, want \"reloaded\"", result["status"])
 	}
@@ -249,7 +249,7 @@ func TestSaveConfigQueuesPendingReloadWhenBusy(t *testing.T) {
 	defer resp.Body.Close()
 
 	var result map[string]string
-	json.NewDecoder(resp.Body).Decode(&result) //nolint:errcheck
+	json.NewDecoder(resp.Body).Decode(&result)
 	if result["status"] != "pending" {
 		t.Errorf("status: got %q, want \"pending\"", result["status"])
 	}
@@ -297,9 +297,9 @@ func TestReloadBlockedWhileRunning(t *testing.T) {
 
 func TestBroadcasterSequenceNumbers(t *testing.T) {
 	b := NewBroadcaster()
-	b.Write([]byte("line one\n"))   //nolint:errcheck
-	b.Write([]byte("line two\n"))   //nolint:errcheck
-	b.Write([]byte("line three\n")) //nolint:errcheck
+	b.Write([]byte("line one\n"))
+	b.Write([]byte("line two\n"))
+	b.Write([]byte("line three\n"))
 
 	// Full snapshot: all three lines with ascending seq numbers.
 	snap, ch := b.Subscribe(0)
@@ -316,9 +316,9 @@ func TestBroadcasterSequenceNumbers(t *testing.T) {
 
 func TestBroadcasterResumeAfterSeq(t *testing.T) {
 	b := NewBroadcaster()
-	b.Write([]byte("line one\n"))   //nolint:errcheck
-	b.Write([]byte("line two\n"))   //nolint:errcheck
-	b.Write([]byte("line three\n")) //nolint:errcheck
+	b.Write([]byte("line one\n"))
+	b.Write([]byte("line two\n"))
+	b.Write([]byte("line three\n"))
 
 	// Reconnect after having seen seq=2: should only get line three.
 	snap, ch := b.Subscribe(2)
@@ -333,8 +333,8 @@ func TestBroadcasterResumeAfterSeq(t *testing.T) {
 
 func TestBroadcasterNoReplayWhenFullyUpToDate(t *testing.T) {
 	b := NewBroadcaster()
-	b.Write([]byte("line one\n")) //nolint:errcheck
-	b.Write([]byte("line two\n")) //nolint:errcheck
+	b.Write([]byte("line one\n"))
+	b.Write([]byte("line two\n"))
 
 	// Client already has everything (afterSeq matches latest).
 	snap, ch := b.Subscribe(2)
@@ -346,8 +346,8 @@ func TestBroadcasterNoReplayWhenFullyUpToDate(t *testing.T) {
 
 func TestSSELastEventIDHeaderParsed(t *testing.T) {
 	b := NewBroadcaster()
-	b.Write([]byte("line one\n")) //nolint:errcheck
-	b.Write([]byte("line two\n")) //nolint:errcheck
+	b.Write([]byte("line one\n"))
+	b.Write([]byte("line two\n"))
 
 	srv := New(nil, stubDaemon{}, NewHistory(), b, "test", "user", "pass")
 	mux := http.NewServeMux()

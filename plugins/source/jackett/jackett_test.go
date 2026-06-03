@@ -55,7 +55,7 @@ const permissiveCaps = `<?xml version="1.0"?>
 func servesCaps(searchHandler http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("t") == "caps" {
-			fmt.Fprint(w, permissiveCaps) //nolint:errcheck
+			fmt.Fprint(w, permissiveCaps)
 			return
 		}
 		searchHandler(w, r)
@@ -100,7 +100,7 @@ func TestSearchSendsCorrectQueryParams(t *testing.T) {
 		gotQuery = r.URL.Query().Get("q")
 		gotAPIKey = r.URL.Query().Get("apikey")
 		gotCat = r.URL.Query().Get("cat")
-		fmt.Fprint(w, string(buildXML(nil))) //nolint:errcheck
+		fmt.Fprint(w, string(buildXML(nil)))
 	}))
 	defer srv.Close()
 
@@ -126,7 +126,7 @@ func TestSearchSetsUserAgent(t *testing.T) {
 	var gotUA string
 	srv := httptest.NewServer(servesCaps(func(w http.ResponseWriter, r *http.Request) {
 		gotUA = r.Header.Get("User-Agent")
-		fmt.Fprint(w, string(buildXML(nil))) //nolint:errcheck
+		fmt.Fprint(w, string(buildXML(nil)))
 	}))
 	defer srv.Close()
 
@@ -152,7 +152,7 @@ func TestSearchParsesEntries(t *testing.T) {
 		},
 	}
 	srv := httptest.NewServer(servesCaps(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, string(buildXML(items))) //nolint:errcheck
+		fmt.Fprint(w, string(buildXML(items)))
 	}))
 	defer srv.Close()
 
@@ -201,7 +201,7 @@ func TestSearchQueriesAllIndexers(t *testing.T) {
 		mu.Lock()
 		gotPaths = append(gotPaths, r.URL.Path)
 		mu.Unlock()
-		fmt.Fprint(w, string(buildXML(nil))) //nolint:errcheck
+		fmt.Fprint(w, string(buildXML(nil)))
 	}))
 	defer srv.Close()
 
@@ -247,7 +247,7 @@ func TestSearchFailureReturnsNoEntriesNoError(t *testing.T) {
 
 func TestSearchEmptyFeed(t *testing.T) {
 	srv := httptest.NewServer(servesCaps(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, string(buildXML(nil))) //nolint:errcheck
+		fmt.Fprint(w, string(buildXML(nil)))
 	}))
 	defer srv.Close()
 
@@ -265,7 +265,7 @@ func TestLimitSentAsQueryParam(t *testing.T) {
 	var gotLimit string
 	srv := httptest.NewServer(servesCaps(func(w http.ResponseWriter, r *http.Request) {
 		gotLimit = r.URL.Query().Get("limit")
-		fmt.Fprint(w, string(buildXML(nil))) //nolint:errcheck
+		fmt.Fprint(w, string(buildXML(nil)))
 	}))
 	defer srv.Close()
 
@@ -283,7 +283,7 @@ func TestNoLimitOmitsParam(t *testing.T) {
 	var gotRaw string
 	srv := httptest.NewServer(servesCaps(func(w http.ResponseWriter, r *http.Request) {
 		gotRaw = r.URL.RawQuery
-		fmt.Fprint(w, string(buildXML(nil))) //nolint:errcheck
+		fmt.Fprint(w, string(buildXML(nil)))
 	}))
 	defer srv.Close()
 
@@ -372,7 +372,7 @@ func TestNoCategoriesOmitsParam(t *testing.T) {
 	var gotRaw string
 	srv := httptest.NewServer(servesCaps(func(w http.ResponseWriter, r *http.Request) {
 		gotRaw = r.URL.RawQuery
-		fmt.Fprint(w, string(buildXML(nil))) //nolint:errcheck
+		fmt.Fprint(w, string(buildXML(nil)))
 	}))
 	defer srv.Close()
 
@@ -391,7 +391,7 @@ func TestSearchMagnetURLUsedWhenMagneturlAttrPresent(t *testing.T) {
 		Attrs:     []torznabAttr{{Name: "magneturl", Value: magnet}},
 	}}
 	srv := httptest.NewServer(servesCaps(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, string(buildXML(items))) //nolint:errcheck
+		fmt.Fprint(w, string(buildXML(items)))
 	}))
 	defer srv.Close()
 
@@ -418,7 +418,7 @@ func TestSearchTorrentLinkTypeSetForNonMagnet(t *testing.T) {
 		Enclosure: struct{ URL string `xml:"url,attr"` }{URL: "https://jackett.host/dl/idx/?key=abc"},
 	}}
 	srv := httptest.NewServer(servesCaps(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, string(buildXML(items))) //nolint:errcheck
+		fmt.Fprint(w, string(buildXML(items)))
 	}))
 	defer srv.Close()
 
@@ -441,7 +441,7 @@ func TestGenerateUsesEmptyQueryByDefault(t *testing.T) {
 	var gotQuery string
 	srv := httptest.NewServer(servesCaps(func(w http.ResponseWriter, r *http.Request) {
 		gotQuery = r.URL.Query().Get("q")
-		fmt.Fprint(w, string(buildXML(nil))) //nolint:errcheck
+		fmt.Fprint(w, string(buildXML(nil)))
 	}))
 	defer srv.Close()
 
@@ -458,7 +458,7 @@ func TestGenerateUsesConfiguredQuery(t *testing.T) {
 	var gotQuery string
 	srv := httptest.NewServer(servesCaps(func(w http.ResponseWriter, r *http.Request) {
 		gotQuery = r.URL.Query().Get("q")
-		fmt.Fprint(w, string(buildXML(nil))) //nolint:errcheck
+		fmt.Fprint(w, string(buildXML(nil)))
 	}))
 	defer srv.Close()
 
@@ -477,7 +477,7 @@ func TestGenerateReturnsEntries(t *testing.T) {
 		{Title: "The.Wire.S01E01.720p", Link: "http://example.com/2.torrent"},
 	}
 	srv := httptest.NewServer(servesCaps(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, string(buildXML(items))) //nolint:errcheck
+		fmt.Fprint(w, string(buildXML(items)))
 	}))
 	defer srv.Close()
 
@@ -501,7 +501,7 @@ func TestSearchRetriesOn5xx(t *testing.T) {
 			http.Error(w, "server error", http.StatusInternalServerError)
 			return
 		}
-		fmt.Fprint(w, string(buildXML([]torznabItem{ //nolint:errcheck
+		fmt.Fprint(w, string(buildXML([]torznabItem{
 			{Title: "Show.S01E01", Link: "http://example.com/1.torrent"},
 		})))
 	}))
@@ -529,7 +529,7 @@ func TestSearchNoRetryOn4xx(t *testing.T) {
 	defer srv.Close()
 
 	p := makePlugin(t, srv.URL, "key", nil)
-	p.Search(context.Background(), tc(), entry.New("show", "")) //nolint:errcheck
+	p.Search(context.Background(), tc(), entry.New("show", ""))
 	if attempts != 1 {
 		t.Errorf("expected 1 attempt for 4xx, got %d", attempts)
 	}
@@ -539,13 +539,13 @@ func TestSearchNoRetryOnAPIError(t *testing.T) {
 	attempts := 0
 	srv := httptest.NewServer(servesCaps(func(w http.ResponseWriter, r *http.Request) {
 		attempts++
-		fmt.Fprint(w, `<?xml version="1.0"?><error code="100" description="Incorrect user credentials"/>`) //nolint:errcheck
+		fmt.Fprint(w, `<?xml version="1.0"?><error code="100" description="Incorrect user credentials"/>`)
 	}))
 	defer srv.Close()
 
 	p := makePlugin(t, srv.URL, "key", nil)
 	// Torznab API errors are permanent — Search logs them and returns empty.
-	p.Search(context.Background(), tc(), entry.New("show", "")) //nolint:errcheck
+	p.Search(context.Background(), tc(), entry.New("show", ""))
 	if attempts != 1 {
 		t.Errorf("expected 1 attempt for API error, got %d", attempts)
 	}
@@ -570,9 +570,9 @@ func TestSearchDeduplicatesByInfoHash(t *testing.T) {
 	// Serve itemA from indexer-a and itemB from indexer-b.
 	srv := httptest.NewServer(servesCaps(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.URL.Path, "indexer-a") {
-			fmt.Fprint(w, string(buildXML([]torznabItem{itemA}))) //nolint:errcheck
+			fmt.Fprint(w, string(buildXML([]torznabItem{itemA})))
 		} else {
-			fmt.Fprint(w, string(buildXML([]torznabItem{itemB}))) //nolint:errcheck
+			fmt.Fprint(w, string(buildXML([]torznabItem{itemB})))
 		}
 	}))
 	defer srv.Close()
@@ -601,7 +601,7 @@ func TestSearchKeepsBothWhenHashesDiffer(t *testing.T) {
 			Attrs: []torznabAttr{{Name: "infohash", Value: "bbbb"}}},
 	}
 	srv := httptest.NewServer(servesCaps(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, string(buildXML(items))) //nolint:errcheck
+		fmt.Fprint(w, string(buildXML(items)))
 	}))
 	defer srv.Close()
 

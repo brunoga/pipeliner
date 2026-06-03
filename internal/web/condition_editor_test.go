@@ -132,7 +132,7 @@ func TestAPIFieldsContainsRequiredProperties(t *testing.T) {
 	defer resp.Body.Close()
 
 	var fields []map[string]any
-	json.NewDecoder(resp.Body).Decode(&fields) //nolint:errcheck
+	json.NewDecoder(resp.Body).Decode(&fields)
 
 	for _, f := range fields {
 		name, _ := f["name"].(string)
@@ -159,7 +159,7 @@ func TestAPIFieldsContainsWellKnownFields(t *testing.T) {
 	defer resp.Body.Close()
 
 	var fields []map[string]any
-	json.NewDecoder(resp.Body).Decode(&fields) //nolint:errcheck
+	json.NewDecoder(resp.Body).Decode(&fields)
 
 	wanted := map[string]string{
 		"source":  "string",
@@ -194,7 +194,7 @@ func TestAPIFieldsKnownValuesForEnum(t *testing.T) {
 	defer resp.Body.Close()
 
 	var fields []map[string]any
-	json.NewDecoder(resp.Body).Decode(&fields) //nolint:errcheck
+	json.NewDecoder(resp.Body).Decode(&fields)
 
 	for _, f := range fields {
 		if f["name"] == "torrent_link_type" {
@@ -239,7 +239,7 @@ func TestAPIFieldsExposesDeprecation(t *testing.T) {
 	defer resp.Body.Close()
 
 	var fields []map[string]any
-	json.NewDecoder(resp.Body).Decode(&fields) //nolint:errcheck
+	json.NewDecoder(resp.Body).Decode(&fields)
 
 	for _, f := range fields {
 		if f["name"] != "_test_deprecated_field" {
@@ -273,7 +273,7 @@ pipeline("t")
 	defer resp.Body.Close()
 
 	var result map[string]any
-	json.NewDecoder(resp.Body).Decode(&result) //nolint:errcheck
+	json.NewDecoder(resp.Body).Decode(&result)
 
 	nodes := parseNodes(t, result, "t")
 	rssNode := nodeByPlugin(nodes, "rss")
@@ -307,7 +307,7 @@ pipeline("t")
 	defer resp.Body.Close()
 
 	var result map[string]any
-	json.NewDecoder(resp.Body).Decode(&result) //nolint:errcheck
+	json.NewDecoder(resp.Body).Decode(&result)
 
 	nodes := parseNodes(t, result, "t")
 
@@ -352,7 +352,7 @@ pipeline("t")
 	defer resp.Body.Close()
 
 	var result map[string]any
-	json.NewDecoder(resp.Body).Decode(&result) //nolint:errcheck
+	json.NewDecoder(resp.Body).Decode(&result)
 	raw, _ := json.Marshal(result)
 
 	// The raw JSON must not contain "certain":null or "reachable":null
