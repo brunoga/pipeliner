@@ -6339,6 +6339,18 @@ async function textToVisualSync() {
         // fc.args is always empty from the server — recover call-site kwargs from source.
         const recoveredArgs2 = (fc.args && Object.keys(fc.args).length)
           ? fc.args : parseFunctionCallArgs(content, fc.call_key, fc.func);
+        // Surface auto-migration when any internal node was injected by a
+        // config-load migration. The function-call card is the only thing the
+        // user sees in the visual editor (internal nodes are collapsed), so
+        // the badge has to bubble up here.
+        let fnAutoMigrated = '';
+        for (const nid of fc.internal_node_ids) {
+          const raw = rawById[nid];
+          if (raw && raw.auto_migrated) {
+            fnAutoMigrated = raw.auto_migrated;
+            break;
+          }
+        }
         nodes.push({
           id:               fc.call_key,
           plugin:           fc.func,
@@ -6352,6 +6364,7 @@ async function textToVisualSync() {
           internalNodeIds:  fc.internal_node_ids,
           returnNodeId:     fc.return_node_id,
           outputFields:     computeFnCallOutputFields(fc, rawById),
+          autoMigrated:     fnAutoMigrated,
           x:                fc.x ?? null,
           y:                fc.y ?? null,
         });

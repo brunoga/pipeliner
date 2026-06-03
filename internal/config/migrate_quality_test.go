@@ -159,6 +159,53 @@ pipeline("p")
 	}
 }
 
+// Inside a # pipeliner-annotated function, the legacy quality= knob still
+// triggers the migration. The injected node lands among the function's
+// internal nodes; the web UI bubbles the marker up to the function-call card.
+func TestMigrateInsideUserFunction(t *testing.T) {
+	c := parseDAGOK(t, `
+# pipeliner:param quality  Minimum quality spec
+def filter_movies(upstream, quality):
+    req = process("require", upstream=upstream, fields=["title", "video_year", "_quality"])
+    return process("movies", upstream=req, quality=quality, static=["Inception"])
+
+src  = input("rss", url="https://example.com/feed")
+meta = process("metainfo_file", upstream=src)
+out  = filter_movies(meta, "1080p+")
+output("print", upstream=out)
+pipeline("p")
+`)
+	g := c.Graphs["p"]
+	var quality *dag.Node
+	for _, n := range g.Nodes() {
+		if n.PluginName == "quality" {
+			quality = n
+			break
+		}
+	}
+	if quality == nil {
+		t.Fatal("expected an auto-injected quality node from migration inside the function body")
+	}
+	if quality.AutoMigrated == "" {
+		t.Error("injected quality node should be tagged AutoMigrated")
+	}
+
+	// The injected node should be part of the function call's internal nodes
+	// so the visual editor associates it with the function-call card.
+	calls := c.FunctionCalls["p"]
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 function call record; got %d", len(calls))
+	}
+	if !slices.Contains(calls[0].InternalNodeIDs, string(quality.ID)) {
+		t.Errorf("injected quality node %q should be in the function call's internal node IDs %v",
+			quality.ID, calls[0].InternalNodeIDs)
+	}
+
+	if len(c.LoadWarnings) == 0 {
+		t.Error("expected a deprecation warning even when the deprecated key is hidden inside a function body")
+	}
+}
+
 func TestNoMigrationWhenQualityAbsent(t *testing.T) {
 	c := parseDAGOK(t, `
 src    = input("rss", url="https://example.com/feed")
