@@ -14,6 +14,7 @@ import (
 
 	"github.com/brunoga/pipeliner/internal/cache"
 	"github.com/brunoga/pipeliner/internal/entry"
+	"github.com/brunoga/pipeliner/internal/locale"
 	"github.com/brunoga/pipeliner/internal/match"
 	imovies "github.com/brunoga/pipeliner/internal/movies"
 	"github.com/brunoga/pipeliner/internal/plugin"
@@ -44,6 +45,7 @@ func init() {
 			entry.FieldVideoImdbID,
 			entry.FieldVideoPopularity,
 			entry.FieldVideoVotes,
+			entry.FieldVideoHomepage,
 			"tmdb_id",
 		},
 		// trakt_tmdb_id is used when present; video_year provides the year hint when present but
@@ -272,9 +274,10 @@ func populateFromDetail(e *entry.Entry, detail *itmdb.MovieDetail) {
 	}
 	mi.Runtime = detail.Runtime
 	mi.Tagline = detail.Tagline
+	mi.Homepage = detail.Homepage
 	mi.ImdbID = detail.ImdbID
 	mi.Genres = genres
-	mi.Language = iso639_1Name(detail.OriginalLanguage)
+	mi.Language = locale.LanguageName639_1(detail.OriginalLanguage)
 	if len(detail.ProductionCountries) > 0 {
 		mi.Country = detail.ProductionCountries[0].Name
 	}
@@ -323,25 +326,6 @@ func (p *tmdbPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entrie
 	return entries, nil
 }
 
-// iso639_1Name maps ISO 639-1 two-letter language codes to English display names.
-func iso639_1Name(code string) string {
-	names := map[string]string{
-		"af": "Afrikaans", "ar": "Arabic", "bg": "Bulgarian", "bn": "Bengali",
-		"cs": "Czech", "da": "Danish", "de": "German", "el": "Greek",
-		"en": "English", "es": "Spanish", "et": "Estonian", "fa": "Persian",
-		"fi": "Finnish", "fr": "French", "gu": "Gujarati", "he": "Hebrew",
-		"hi": "Hindi", "hr": "Croatian", "hu": "Hungarian", "id": "Indonesian",
-		"it": "Italian", "ja": "Japanese", "ko": "Korean", "lt": "Lithuanian",
-		"lv": "Latvian", "mk": "Macedonian", "ml": "Malayalam", "mr": "Marathi",
-		"ms": "Malay", "nl": "Dutch", "no": "Norwegian", "pa": "Punjabi",
-		"pl": "Polish", "pt": "Portuguese", "ro": "Romanian", "ru": "Russian",
-		"sk": "Slovak", "sl": "Slovenian", "sq": "Albanian", "sr": "Serbian",
-		"sv": "Swedish", "sw": "Swahili", "ta": "Tamil", "te": "Telugu",
-		"th": "Thai", "tl": "Filipino", "tr": "Turkish", "uk": "Ukrainian",
-		"ur": "Urdu", "vi": "Vietnamese", "zh": "Chinese",
-	}
-	if n, ok := names[code]; ok {
-		return n
-	}
-	return code
-}
+// ISO 639-1 → display name mapping lives in internal/locale so both metainfo_tmdb
+// and metainfo_trakt (which receive 2-letter codes from their respective APIs)
+// share the same translation table.

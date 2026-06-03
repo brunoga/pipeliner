@@ -29,15 +29,37 @@ type IDs struct {
 }
 
 // Item represents a movie or show retrieved from any Trakt list or search.
+// All fields below the IDs block require extended=full on the request URL,
+// which GetList and Search both pass.
 type Item struct {
-	Title      string   `json:"title"`
-	Year       int      `json:"year"`
-	IDs        IDs      `json:"ids"`
-	Overview   string   `json:"overview"`
-	Rating     float64  `json:"rating"`
-	Votes      int      `json:"votes"`
-	Genres     []string `json:"genres"`
-	UserRating int      // rating given by the user (ratings list only)
+	Title    string   `json:"title"`
+	Year     int      `json:"year"`
+	IDs      IDs      `json:"ids"`
+	Overview string   `json:"overview"`
+	Rating   float64  `json:"rating"`
+	Votes    int      `json:"votes"`
+	Genres   []string `json:"genres"`
+
+	// extended=full fields. Network / Status / FirstAired / AiredEpisodes are
+	// shows-only; Released / Tagline are movies-only. The unused side of the
+	// pair stays at its zero value.
+	Runtime       int    `json:"runtime"`       // minutes (per-episode for shows)
+	Country       string `json:"country"`       // ISO 3166-1 alpha-2, e.g. "us"
+	Language      string `json:"language"`      // ISO 639-1, e.g. "en"
+	Trailer       string `json:"trailer"`       // single trailer URL
+	Homepage      string `json:"homepage"`      // official site URL
+	Certification string `json:"certification"` // e.g. "TV-MA", "PG-13"
+
+	// Shows-only.
+	Network    string `json:"network"`
+	Status     string `json:"status"`      // e.g. "returning series", "ended"
+	FirstAired string `json:"first_aired"` // ISO 8601
+
+	// Movies-only.
+	Released string `json:"released"` // YYYY-MM-DD
+	Tagline  string `json:"tagline"`
+
+	UserRating int // rating given by the user (ratings list only; not from JSON)
 }
 
 // Client is a Trakt.tv v2 REST API client.

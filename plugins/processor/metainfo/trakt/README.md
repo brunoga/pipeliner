@@ -29,17 +29,37 @@ Annotates entries with metadata from Trakt.tv via the search API. Searches by pa
 | `description` | string | Plot summary |
 | `enriched` | bool | `true` — Trakt successfully enriched this entry |
 | `video_year` | int | Year |
-| `video_rating` | float64 | Community rating (0–10) |
-| `video_votes` | int | Number of votes |
+| `video_rating` | float64 | Community user rating (0–10) |
+| `video_votes` | int | Number of votes behind `video_rating` |
 | `video_imdb_id` | string | IMDb ID |
 | `video_genres` | []string | Genre names |
+| `video_runtime` | int | Runtime in minutes (per-episode for shows) |
+| `video_language` | string | Original language display name (e.g. `English`) |
+| `video_country` | string | Country of origin display name (e.g. `United States`) |
+| `video_content_rating` | string | Certification (e.g. `TV-MA`, `PG-13`) |
+| `video_trailers` | []string | Trailer URLs (Trakt returns a single trailer; surfaced as a one-element slice for consistency with metainfo_tvdb / metainfo_tmdb) |
+| `video_homepage` | string | Official site URL |
+
+### Series-only (shows)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `series_network` | string | Originating network (e.g. `AMC`) |
+| `series_status` | string | Status (e.g. `returning series`, `ended`) |
+| `series_first_air_date` | time.Time | Premiere date |
+
+### Movie-only
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `movie_tagline` | string | Marketing tagline |
 
 ## DAG role
 
 | Property | Value |
 |----------|-------|
 | Role | `processor` |
-| Produces | `enriched`, `title`, `media_type` (= `"series"` or `"movie"` per `type=`), `description`, `video_year`, `video_genres`, `video_rating`, `video_votes`, `video_language`, `video_imdb_id`, `video_poster`, `trakt_id`, `trakt_slug`, `trakt_tmdb_id`, `trakt_tvdb_id` |
+| Produces | `enriched`, `title`, `media_type` (= `"series"` or `"movie"` per `type=`), `description`, `video_year`, `video_genres`, `video_rating`, `video_votes`, `video_language`, `video_country`, `video_runtime`, `video_trailers`, `video_content_rating`, `video_homepage`, `video_imdb_id`, `video_poster`, `movie_tagline`, `series_network`, `series_status`, `series_first_air_date`, `trakt_id`, `trakt_slug`, `trakt_tmdb_id`, `trakt_tvdb_id` |
 | Requires | — |
 
 ## Example

@@ -56,7 +56,17 @@ Trakt list responses use `extended=full` and return rating, votes, genres, and o
 | `video_rating` | Trakt user rating, 0-10 |
 | `video_votes` | Vote count behind `video_rating` |
 | `video_genres` | List of Trakt genres |
+| `video_runtime` | Runtime in minutes (per-episode for shows) |
+| `video_language` | Original language display name (e.g. `English`) |
+| `video_country` | Country of origin display name (e.g. `United States`) |
+| `video_content_rating` | Certification (e.g. `TV-MA`, `PG-13`) |
+| `video_trailers` | Trailer URL (single-element slice) |
+| `video_homepage` | Official site URL |
 | `video_imdb_id` | IMDb ID (also exposed as `trakt_imdb_id` for back-compat) |
+| `series_network` | Originating network (shows only) |
+| `series_status` | Status, e.g. `returning series`, `ended` (shows only) |
+| `series_first_air_date` | Premiere date as `time.Time` (shows only) |
+| `movie_tagline` | Marketing tagline (movies only) |
 | `trakt_id` | Trakt internal ID |
 | `trakt_imdb_id` | IMDb ID (e.g. `tt1375666`) |
 | `trakt_tmdb_id` | TMDb ID |
@@ -104,5 +114,5 @@ pipeline("trakt-tv", schedule="1h")
 |----------|-------|
 | Role | `source` |
 | Produces | `title`, `media_type` (= `"series"` when `type=shows`, `"movie"` when `type=movies`), `source` |
-| MayProduce | `enriched`, `description`, `video_year`, `video_rating`, `video_votes`, `video_genres`, `video_imdb_id`, `trakt_id`, `trakt_imdb_id`, `trakt_tmdb_id` |
+| MayProduce | `enriched`, `description`, `video_year`, `video_rating`, `video_votes`, `video_genres`, `video_runtime`, `video_language`, `video_country`, `video_content_rating`, `video_trailers`, `video_homepage`, `video_imdb_id`, `movie_tagline`, `series_network`, `series_status`, `series_first_air_date`, `trakt_id`, `trakt_imdb_id`, `trakt_tmdb_id` |
 | Requires | — |
