@@ -2114,6 +2114,27 @@ function startNodeDrag(e, n) {
       const nd = findNode(id);
       return [id, {x: nd?.x ?? 0, y: nd?.y ?? 0}];
     }));
+    // Pre-compute each parent's effective clamp so sub-nodes (typically
+    // positioned above their parent) stay inside the pipeline region when
+    // the parent hits the top/left boundary.
+    const effMinByParent = new Map();
+    for (const id of dragIds) {
+      const orig = origPos.get(id);
+      if (!orig) continue;
+      const gIdx = findNodeGraph(id);
+      const gm   = gIdx >= 0 ? ve.graphs[gIdx] : null;
+      const baseMinX = 50;
+      const baseMinY = gm ? (gm._labelY ?? (gm._regionY ?? 0) + 8) + 36 : 40;
+      let mx = baseMinX, my = baseMinY;
+      for (const [sid, pid] of subParent) {
+        if (pid !== id) continue;
+        const subOrig = origPos.get(sid);
+        if (!subOrig) continue;
+        mx = Math.max(mx, baseMinX - (subOrig.x - orig.x));
+        my = Math.max(my, baseMinY - (subOrig.y - orig.y));
+      }
+      effMinByParent.set(id, {x: mx, y: my});
+    }
     const startX = e.clientX, startY = e.clientY;
     ve_dragging = true;
 
@@ -2125,11 +2146,9 @@ function startNodeDrag(e, n) {
         const nd = findNode(id);
         const orig = origPos.get(id);
         if (!nd || !orig) continue;
-        const gIdx = findNodeGraph(id);
-        const gm   = gIdx >= 0 ? ve.graphs[gIdx] : null;
-        const minY = gm ? (gm._labelY ?? (gm._regionY ?? 0) + 8) + 36 : 40;
-        nd.x = Math.max(50, orig.x + dx);
-        nd.y = Math.max(minY, orig.y + dy);
+        const eff = effMinByParent.get(id) || {x: 50, y: 40};
+        nd.x = Math.max(eff.x, orig.x + dx);
+        nd.y = Math.max(eff.y, orig.y + dy);
         const div = document.querySelector(`.ve-node[data-id="${id}"]`);
         if (div) { div.style.left = nd.x + 'px'; div.style.top = nd.y + 'px'; }
       }
@@ -2182,11 +2201,21 @@ function startNodeDrag(e, n) {
     const sn = findNode(sid);
     return [sid, {x: sn?.x ?? 0, y: sn?.y ?? 0}];
   }));
+  // Expand the parent's clamp so the most top-left sub-node also stays inside
+  // the pipeline region. Sub-nodes (list/search) are typically positioned
+  // above the parent — without this, dragging the parent to the top of the
+  // region would push the list sub-node above the pipeline label.
+  let effMinX = minDragX;
+  let effMinY = minDragY;
+  for (const [, so] of subOrig) {
+    effMinX = Math.max(effMinX, minDragX - (so.x - origX));
+    effMinY = Math.max(effMinY, minDragY - (so.y - origY));
+  }
 
   function onMove(ev) {
     if (ve_pinching) return; // second finger took over — leave node alone
-    n.x = Math.max(minDragX, origX + (ev.clientX - startX) / ve_zoom);
-    n.y = Math.max(minDragY, origY + (ev.clientY - startY) / ve_zoom);
+    n.x = Math.max(effMinX, origX + (ev.clientX - startX) / ve_zoom);
+    n.y = Math.max(effMinY, origY + (ev.clientY - startY) / ve_zoom);
     const div = document.querySelector(`.ve-node[data-id="${n.id}"]`);
     if (div) { div.style.left = n.x + 'px'; div.style.top = n.y + 'px'; }
     const subDx = n.x - origX, subDy = n.y - origY;
