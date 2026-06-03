@@ -684,7 +684,7 @@ function renderGraphNodes() {
         (isList      && n.listParentId   && ve.selectedNodeIds.has(n.listParentId))   ||
         (isRoutePort && n.routeParentId  && ve.selectedNodeIds.has(n.routeParentId));
       const div = document.createElement('div');
-      div.className = `ve-node${sel ? ' selected' : ''}${multiSel ? ' multi-selected' : ''}${isSearch ? ' ve-node-search' : ''}${isList ? ' ve-node-list' : ''}${isRoutePort ? ' ve-node-route-port' : ''}${isFn ? ' ve-node-fn' : ''}`;
+      div.className = `ve-node${sel ? ' selected' : ''}${multiSel ? ' multi-selected' : ''}${isSearch ? ' ve-node-search' : ''}${isList ? ' ve-node-list' : ''}${isRoutePort ? ' ve-node-route-port' : ''}${isFn ? ' ve-node-fn' : ''}${n.autoMigrated ? ' ve-node-auto-migrated' : ''}`;
       div.dataset.role       = role;
       div.dataset.id         = n.id;
       div.dataset.isSearch   = nodeIsSearchPlugin(n) ? 'true' : 'false';
@@ -702,11 +702,15 @@ function renderGraphNodes() {
       const commentPreview = n.comment?.trim()
         ? `<div class="ve-node-comment-preview">${esc(n.comment.trim().split('\n')[0])}</div>` : '';
       const commentBtnCls = n.comment?.trim() ? ' has-comment' : '';
+      const autoMigratedBadge = n.autoMigrated
+        ? `<div class="ve-node-auto-migrated-badge" title="Auto-migrated from a deprecated config shape (${esc(n.autoMigrated)}). This node is not in the text source — edits here are lost unless you also update the text, or save from this visual editor to persist the migration.">auto-migrated</div>`
+        : '';
       div.innerHTML = [
         '<div class="ve-node-role-bar"></div>',
         '<div class="ve-node-body">',
           `<div class="ve-node-name">${esc(n.plugin)}</div>`,
           badgeHtml,
+          autoMigratedBadge,
           preview        ? `<div class="ve-node-preview">${esc(preview)}</div>` : '',
           commentPreview,
           warns.some(w=>w.level==='error') ? `<div class="ve-node-warn">⚠ ${esc(warns.find(w=>w.level==='error').msg)}</div>`
@@ -6222,6 +6226,7 @@ async function textToVisualSync() {
           searchNodeIds: [], comment: n.comment || '',
           x: n.x ?? null, y: n.y ?? null,
           fields: n.fields || {certain: [], reachable: []},
+          autoMigrated: n.auto_migrated || '',
         }));
 
       // Second pass: convert search/list items to regular nodes with flags.

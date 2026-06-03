@@ -28,7 +28,6 @@ import (
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/match"
 	"github.com/brunoga/pipeliner/internal/plugin"
-	"github.com/brunoga/pipeliner/internal/quality"
 	"github.com/brunoga/pipeliner/internal/series"
 	"github.com/brunoga/pipeliner/internal/store"
 )
@@ -62,7 +61,6 @@ func init() {
 		Factory:  newPlugin,
 		Validate: validate,
 		Schema: []plugin.FieldSchema{
-			{Key: "quality", Type: plugin.FieldTypeString, Hint: "Quality spec, e.g. 720p+ (floor), 720p (exact), 720p-1080p (range)"},
 			{Key: "episode", Type: plugin.FieldTypeInt, Default: 1, Hint: "Episode number to treat as premiere"},
 			{Key: "season", Type: plugin.FieldTypeInt, Default: 1, Hint: "Season number to match (0 = any season)"},
 			{Key: "reject_unmatched", Type: plugin.FieldTypeBool, Default: true, Hint: "Reject entries that lack series_episode_id (i.e. not classified as a series episode upstream)"},
@@ -72,11 +70,6 @@ func init() {
 
 func validate(cfg map[string]any) []error {
 	var errs []error
-	if q, _ := cfg["quality"].(string); q != "" {
-		if _, err := quality.ParseSpec(q); err != nil {
-			errs = append(errs, fmt.Errorf("premiere: invalid quality spec: %w", err))
-		}
-	}
 	if v, ok := cfg["episode"]; ok {
 		if n := plugin.IntVal(v, -1); n < 0 {
 			errs = append(errs, fmt.Errorf("premiere: \"episode\" must be a non-negative integer"))
@@ -87,14 +80,13 @@ func validate(cfg map[string]any) []error {
 			errs = append(errs, fmt.Errorf("premiere: \"season\" must be a non-negative integer"))
 		}
 	}
-	errs = append(errs, plugin.OptUnknownKeys(cfg, "premiere", "episode", "season", "quality", "reject_unmatched")...)
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "premiere", "episode", "season", "reject_unmatched")...)
 	return errs
 }
 
 type premierePlugin struct {
 	episode         int
 	season          int // 0 = any season
-	spec            quality.Spec
 	tracker         *series.Tracker
 	rejectUnmatched bool
 }
@@ -103,21 +95,11 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 	episode := plugin.IntVal(cfg["episode"], 1)
 	season := plugin.IntVal(cfg["season"], 1)
 
-	var spec quality.Spec
-	if q, _ := cfg["quality"].(string); q != "" {
-		s, err := quality.ParseSpec(q)
-		if err != nil {
-			return nil, fmt.Errorf("premiere: invalid quality spec: %w", err)
-		}
-		spec = s
-	}
-
 	rejectUnmatched := plugin.OptBool(cfg, "reject_unmatched", true)
 
 	return &premierePlugin{
 		episode:         episode,
 		season:          season,
-		spec:            spec,
 		tracker:         series.NewTracker(db.Bucket("series")),
 		rejectUnmatched: rejectUnmatched,
 	}, nil
@@ -152,14 +134,6 @@ func (p *premierePlugin) filter(_ context.Context, _ *plugin.TaskContext, e *ent
 	if episode != p.episode {
 		e.Reject(fmt.Sprintf("premiere: episode %d is not premiere episode %d", episode, p.episode))
 		return nil
-	}
-
-	if (p.spec != quality.Spec{}) {
-		q, _ := e.Quality()
-		if !p.spec.Matches(q) {
-			e.Reject(fmt.Sprintf("premiere: %s %s quality %s does not match spec", displayName, epID, q.String()))
-			return nil
-		}
 	}
 
 	if p.tracker.IsSeen(normalizedName, epID) {

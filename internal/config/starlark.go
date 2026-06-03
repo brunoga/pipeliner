@@ -78,6 +78,7 @@ func execute(filename string, src []byte) (*Config, error) {
 		GraphSchedules: ctx.graphSchedules,
 		UserFunctions:  ctx.userFunctions,
 		FunctionCalls:  ctx.functionCalls,
+		LoadWarnings:   ctx.loadWarnings,
 	}, nil
 }
 
@@ -93,6 +94,9 @@ type execContext struct {
 	// User function support.
 	userFunctions map[string]*UserFunctionDef      // discovered before execution
 	functionCalls map[string][]*FunctionCallRecord // populated by pipelineBuiltin
+	// loadWarnings collects advisory messages from built-in helpers
+	// (deprecation auto-migrations, etc.) and surfaces on Config.LoadWarnings.
+	loadWarnings []error
 }
 
 // predeclared returns the built-in functions available to config scripts.

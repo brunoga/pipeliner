@@ -19,10 +19,10 @@ meta    = process("metainfo_file", upstream=seen)
 req     = process("require",       upstream=meta,
     fields=["title", "series_episode_id", "series_season",
             "series_episode", "_quality"])
-series  = process("series",        upstream=req,
+q       = process("quality",       upstream=req, spec="720p+")
+series  = process("series",        upstream=q,
     static=["Breaking Bad", "Severance", "The Bear"],
-    tracking="strict",
-    quality="720p+")
+    tracking="strict")
 dedup   = process("dedup",         upstream=series)
 pathfmt = process("pathfmt",       upstream=dedup,
     path="/media/tv/{title}/Season {series_season:02d}",

@@ -53,7 +53,6 @@ func init() {
 		Schema: []plugin.FieldSchema{
 			{Key: "static", Type: plugin.FieldTypeList, Hint: "Optional static list of movie titles; omit to accept every classified movie"},
 			{Key: "list", Type: plugin.FieldTypeDict, Hint: "Optional dynamic list from a source plugin (e.g. trakt_list); omit to accept every classified movie"},
-			{Key: "quality", Type: plugin.FieldTypeString, Hint: "Quality spec, e.g. 1080p+ (floor), 1080p (exact), 720p-1080p (range)"},
 			{Key: "ttl", Type: plugin.FieldTypeDuration, Default: "1h", Hint: "Cache TTL for dynamic lists"},
 			{Key: "reject_unmatched", Type: plugin.FieldTypeBool, Default: true, Hint: "Reject entries not classified as movie upstream; when a list is configured, also reject entries whose title isn't in the list"},
 		},
@@ -67,12 +66,7 @@ func validate(cfg map[string]any) []error {
 	if err := plugin.OptDuration(cfg, "ttl", "movies"); err != nil {
 		errs = append(errs, err)
 	}
-	if q, _ := cfg["quality"].(string); q != "" {
-		if _, err := quality.ParseSpec(q); err != nil {
-			errs = append(errs, fmt.Errorf("movies: invalid quality spec: %w", err))
-		}
-	}
-	errs = append(errs, plugin.OptUnknownKeys(cfg, "movies", "static", "list", "ttl", "quality", "reject_unmatched")...)
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "movies", "static", "list", "ttl", "reject_unmatched")...)
 	return errs
 }
 
@@ -80,7 +74,6 @@ type moviesPlugin struct {
 	staticTitles    []match.TitleEntry // movie titles from config (year=0 for plain strings)
 	listSources     []plugin.SourcePlugin
 	listCache       *cache.Cache[[]match.TitleEntry]
-	spec            quality.Spec
 	tracker         *imovies.Tracker
 	rejectUnmatched bool
 }
@@ -111,22 +104,12 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 		ttl = d
 	}
 
-	var spec quality.Spec
-	if q, _ := cfg["quality"].(string); q != "" {
-		s, err := quality.ParseSpec(q)
-		if err != nil {
-			return nil, fmt.Errorf("movies: invalid quality spec: %w", err)
-		}
-		spec = s
-	}
-
 	rejectUnmatched := plugin.OptBool(cfg, "reject_unmatched", true)
 
 	return &moviesPlugin{
 		staticTitles:    staticTitles,
 		listSources:     listSources,
 		listCache:       cache.NewPersistent[[]match.TitleEntry](ttl, db.Bucket("cache_movies_list")),
-		spec:            spec,
 		rejectUnmatched: rejectUnmatched,
 		tracker:         imovies.NewTracker(db.Bucket("movies")),
 	}, nil
@@ -180,17 +163,6 @@ func (p *moviesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *en
 	// Stamp the matched (normalized) title for persist() to read back at
 	// commit time, so we don't have to re-resolve the list there.
 	e.Set(moviesTrackerName, matchedTitle)
-
-	// Check the quality spec first — the spec is an absolute gate for this
-	// task and must never be bypassed, even for REPACK/PROPER upgrades.
-	// Without this ordering, a non-3D film already recorded by the flat
-	// `movies` task (is3D=false) would be found by the `movies-3d` task's
-	// IsSeen lookup and accepted as a REPACK upgrade, skipping the 3D check.
-	if (p.spec != quality.Spec{}) && !p.spec.Matches(q) {
-		e.Reject(fmt.Sprintf("movies: %s (%d) quality %s does not match spec",
-			matchedTitle, year, q.String()))
-		return nil
-	}
 
 	if p.tracker.IsSeen(matchedTitle, year, is3D) {
 		if rec, ok := p.tracker.Latest(matchedTitle, is3D); ok && rec.Year == year {

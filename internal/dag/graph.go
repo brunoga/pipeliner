@@ -24,6 +24,11 @@ type Node struct {
 	// Upstreams lists the IDs of nodes whose output feeds into this node.
 	// Empty for source nodes.
 	Upstreams []NodeID
+	// AutoMigrated, when non-empty, identifies the config-load migration that
+	// injected this node (see internal/config/migrations.go). The visual
+	// editor uses this to mark the node as not present in the text source,
+	// so editing it without updating the text would be wasted.
+	AutoMigrated string
 }
 
 // Graph is a collection of Nodes forming a directed acyclic graph.

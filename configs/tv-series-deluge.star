@@ -14,8 +14,9 @@ meta   = process("metainfo_file", upstream=seen)
 req    = process("require",       upstream=meta,
                   fields=["title", "series_episode_id", "series_season",
                           "series_episode", "_quality"])
-series = process("series",        upstream=req,
-                  tracking="strict", quality="720p",
+q      = process("quality",       upstream=req, spec="720p")
+series = process("series",        upstream=q,
+                  tracking="strict",
                   static=["Breaking Bad", "Better Call Saul",
                           "The Wire", "Severance"])
 fmt    = process("pathfmt", upstream=series,

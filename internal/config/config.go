@@ -43,6 +43,10 @@ type Config struct {
 	// FunctionCalls holds the function call invocations per pipeline, keyed by
 	// pipeline name then call key.
 	FunctionCalls map[string][]*FunctionCallRecord
+	// LoadWarnings holds advisory messages emitted while loading the config
+	// (e.g. auto-migration of deprecated config shapes). These do not block
+	// loading — they surface alongside Validate's warnings.
+	LoadWarnings []error
 }
 
 // Load reads and executes a Starlark configuration file.
@@ -70,8 +74,10 @@ func ParseBytes(data []byte) (*Config, error) {
 
 // Validate checks that all plugins referenced in the config are registered and
 // have valid configs. Returns (errors, warnings); errors block loading,
-// warnings are advisory (e.g. merge-gap or MayProduce field risks).
+// warnings are advisory (e.g. merge-gap or MayProduce field risks, or any
+// LoadWarnings emitted during config evaluation).
 func Validate(c *Config) (errs, warnings []error) {
+	warnings = append(warnings, c.LoadWarnings...)
 	for name, g := range c.Graphs {
 		dagErrs, dagWarnings := dag.Validate(g, func(pluginName string) (*plugin.Descriptor, bool) {
 			return plugin.Lookup(pluginName)

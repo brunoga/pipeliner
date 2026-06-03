@@ -32,8 +32,9 @@ seen1   = process("seen",          upstream=src1)
 meta1   = process("metainfo_file", upstream=seen1)
 req1    = process("require",       upstream=meta1, fields=_movies_required)
 tmdb1   = process("metainfo_tmdb", upstream=req1, api_key=tmdb_key)
-movies1 = process("movies",        upstream=tmdb1,
-                   quality="720p+", ttl="4h",
+q1      = process("quality",       upstream=tmdb1, spec="720p+")
+movies1 = process("movies",        upstream=q1,
+                   ttl="4h",
                    list=[{"name": "trakt_list",
                           "client_id":     trakt_client_id,
                           "client_secret": trakt_client_secret,
@@ -49,8 +50,9 @@ seen2   = process("seen",          upstream=src2)
 meta2   = process("metainfo_file", upstream=seen2)
 req2    = process("require",       upstream=meta2, fields=_movies_required)
 tmdb2   = process("metainfo_tmdb", upstream=req2, api_key=tmdb_key)
-movies2 = process("movies",        upstream=tmdb2,
-                   quality="1080p+", ttl="4h",
+q2      = process("quality",       upstream=tmdb2, spec="1080p+")
+movies2 = process("movies",        upstream=q2,
+                   ttl="4h",
                    list=[{"name": "trakt_list",
                           "client_id":     trakt_client_id,
                           "client_secret": trakt_client_secret,

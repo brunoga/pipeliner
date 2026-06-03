@@ -31,9 +31,10 @@ routes = route(meta,
 tv_req   = process("require", upstream=routes.tv,
     fields=["title", "series_episode_id", "series_season",
             "series_episode", "_quality"])
-series   = process("series",  upstream=tv_req,
+tv_q     = process("quality", upstream=tv_req, spec="720p+")
+series   = process("series",  upstream=tv_q,
     static=["Breaking Bad", "Severance", "The Wire"],
-    tracking="strict", quality="720p+")
+    tracking="strict")
 tv_dedup = process("dedup",   upstream=series)
 tv_fmt   = process("pathfmt", upstream=tv_dedup,
     path=tv_path + "/{title}/Season {series_season:02d}",
@@ -44,9 +45,10 @@ output("transmission", upstream=tv_fmt,
 # ── Movies branch ──────────────────────────────────────────────────────────
 mv_req   = process("require", upstream=routes.movies,
     fields=["title", "video_year", "_quality"])
-movies     = process("movies",  upstream=mv_req,
+mv_q     = process("quality", upstream=mv_req, spec="1080p+")
+movies     = process("movies",  upstream=mv_q,
     static=["Dune Part Two", "Oppenheimer", "The Batman"],
-    quality="1080p+")
+)
 mv_dedup   = process("dedup",   upstream=movies)
 movie_fmt  = process("pathfmt", upstream=mv_dedup,
     path=movie_path + "/{title} ({video_year})",

@@ -21,9 +21,10 @@ meta   = process("metainfo_file", upstream=seen)
 req    = process("require",       upstream=meta,
     fields=["title", "series_episode_id", "series_season",
             "series_episode", "_quality"])
-series = process("series",        upstream=req,
+q      = process("quality",       upstream=req, spec="720p+")
+series = process("series",        upstream=q,
     static=["Breaking Bad", "Severance"],
-    tracking="strict", quality="720p+")
+    tracking="strict")
 best   = process("dedup",         upstream=series)
 fmt    = process("pathfmt",       upstream=best,
     path=tv_path + "/{title}/Season {series_season:02d}",

@@ -366,58 +366,6 @@ func TestBackfillAllowsOlder(t *testing.T) {
 	}
 }
 
-// --- Quality filter ---
-
-func TestQualityGateRejects(t *testing.T) {
-	p := openPlugin(t, map[string]any{"quality": "720p"})
-	e := makeEntry("My.Show.S01E01.480p.HDTV", "http://x.com/a")
-	p.filter(context.Background(), makeCtx(), e)
-	if !e.IsRejected() {
-		t.Error("quality gate should reject 480p when spec is 720p")
-	}
-}
-
-func TestQualityGateAccepts(t *testing.T) {
-	// "720p+" means 720p or better — 1080p should pass.
-	p := openPlugin(t, map[string]any{"quality": "720p+"})
-	e := makeEntry("My.Show.S01E01.1080p.BluRay", "http://x.com/a")
-	p.filter(context.Background(), makeCtx(), e)
-	if !e.IsAccepted() {
-		t.Errorf("1080p should pass 720p+ quality gate: %s", e.RejectReason)
-	}
-}
-
-func TestQualityGateExact(t *testing.T) {
-	// "720p" (no +) means exactly 720p — 1080p should be rejected.
-	p := openPlugin(t, map[string]any{"quality": "720p"})
-	e := makeEntry("My.Show.S01E01.1080p.BluRay", "http://x.com/a")
-	p.filter(context.Background(), makeCtx(), e)
-	if !e.IsRejected() {
-		t.Error("1080p should be rejected by exact 720p quality spec")
-	}
-}
-
-func TestQualityGateBlocksUpgradeOutsideSpec(t *testing.T) {
-	// Spec "720p-1080p" means upgrades must stay inside the range. Even when
-	// a stored 1080p exists and an incoming 2160p is technically "better",
-	// the spec is an absolute gate and 2160p must be rejected.
-	p := openPlugin(t, map[string]any{"quality": "720p-1080p"})
-	tc := makeCtx()
-
-	e1 := makeEntry("My.Show.S01E01.1080p.BluRay", "http://x.com/a")
-	p.filter(context.Background(), tc, e1)
-	p.persist(context.Background(), tc, []*entry.Entry{e1})
-	if !e1.IsAccepted() {
-		t.Fatalf("1080p inside spec should be accepted: %s", e1.RejectReason)
-	}
-
-	e2 := makeEntry("My.Show.S01E01.2160p.BluRay", "http://x.com/b")
-	p.filter(context.Background(), tc, e2)
-	if !e2.IsRejected() {
-		t.Errorf("2160p outside spec 720p-1080p must be rejected even as upgrade; got accepted (%s)", e2.AcceptReason)
-	}
-}
-
 // --- Fuzzy matching ---
 
 func TestFuzzyMatchExact(t *testing.T) {
@@ -642,35 +590,6 @@ func TestMultipleEntriesSameEpisodeLearnRejectsOldOnNextRun(t *testing.T) {
 	p.filter(context.Background(), tc, e2)
 	if !e2.IsRejected() {
 		t.Error("episode already in tracker should be rejected on next run")
-	}
-}
-
-// TestQualitySpecAppliesWithoutList exercises the no-list code path with a
-// quality spec: the spec is still an absolute gate, so an episode below it
-// gets rejected even when there's no title list to match against.
-func TestQualitySpecAppliesWithoutList(t *testing.T) {
-	db, _ := store.OpenSQLite(":memory:")
-	defer db.Close()
-	p, err := newPlugin(map[string]any{"quality": "1080p+"}, db)
-	if err != nil {
-		t.Fatalf("newPlugin: %v", err)
-	}
-	sp := p.(*seriesPlugin)
-
-	low := makeEntry("Some.Show.S01E01.720p.HDTV", "http://x.com/a")
-	if err := sp.filter(context.Background(), makeCtx(), low); err != nil {
-		t.Fatal(err)
-	}
-	if !low.IsRejected() {
-		t.Errorf("720p should be rejected when spec is 1080p+, got %v", low.State)
-	}
-
-	high := makeEntry("Some.Show.S02E03.1080p.WEB-DL", "http://x.com/b")
-	if err := sp.filter(context.Background(), makeCtx(), high); err != nil {
-		t.Fatal(err)
-	}
-	if !high.IsAccepted() {
-		t.Errorf("1080p should be accepted when spec is 1080p+; got %v: %s", high.State, high.RejectReason)
 	}
 }
 

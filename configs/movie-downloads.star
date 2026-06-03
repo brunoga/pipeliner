@@ -16,8 +16,8 @@ meta   = process("metainfo_file", upstream=seen)
 req    = process("require",       upstream=meta,
                   fields=["title", "video_year", "_quality"])
 tmdb   = process("metainfo_tmdb", upstream=req, api_key=tmdb_key)
-movies = process("movies",        upstream=tmdb,
-                  quality="1080p",
+q      = process("quality",       upstream=tmdb, spec="1080p")
+movies = process("movies",        upstream=q,
                   static=["Inception", "Interstellar", "The Dark Knight",
                            "Oppenheimer", "Dune"])
 cond   = process("condition",        upstream=movies, reject="video_rating < 7.0")
