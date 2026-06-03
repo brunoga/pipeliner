@@ -19,3 +19,4 @@ Filter processors accept or reject entries. Use them with `process("plugin-name"
 | [`require`](require/README.md) | Reject entries missing one or more required fields |
 | [`accept_all`](accept_all/README.md) | Accept every undecided entry unconditionally |
 | [`dedup`](dedup/README.md) | Keep the best-quality copy when multiple entries refer to the same episode or movie |
+| [`limit`](limit/README.md) | Cap the number of accepted entries to `n`, optionally taking the top-N by a sort field |

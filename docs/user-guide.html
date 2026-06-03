@@ -156,6 +156,7 @@ td code{font-size:11px}
     <a href="#age" class="sub">age</a>
     <a href="#content" class="sub">content</a>
     <a href="#dedup" class="sub">dedup</a>
+    <a href="#limit" class="sub">limit</a>
     <a href="#accept_all" class="sub">accept_all</a>
 
     <div class="section">Modify Plugins</div>
@@ -1435,6 +1436,32 @@ series = process("series", upstream=q,
 best   = process("dedup",  upstream=series)
 output("transmission", upstream=best, host="localhost")
 pipeline("tv")</code></pre>
+
+<!-- ─────────── limit ─────────── -->
+<h2 id="limit">limit</h2>
+<p>Caps the number of accepted entries to <code>n</code>, rejecting the rest. Useful on manually-triggered pipelines that go wide on a watchlist or discover-set and would otherwise hand 50+ downloads to the sink at once.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>n</code></td><td>yes</td><td>—</td><td>Maximum number of accepted entries to forward (must be &ge; 1)</td></tr>
+  <tr><td><code>sort</code></td><td>no</td><td>—</td><td>Entry field to sort by; without it, the first <code>n</code> in arrival order win</td></tr>
+  <tr><td><code>order</code></td><td>no</td><td><code>desc</code></td><td>Sort direction when <code>sort</code> is set: <code>desc</code> or <code>asc</code></td></tr>
+</table>
+
+<p>Entries missing the <code>sort</code> field are bucketed last regardless of <code>order</code>, so they never beat an entry that has the field. Numeric types (<code>int</code>, <code>int64</code>, <code>float64</code>) compare across each other; strings, <code>time.Time</code>, and booleans are also supported. String-encoded dates (RFC3339, RFC822, <code>2006-01-02</code>, …) are promoted to <code>time.Time</code> before comparison, so <code>published_date</code> from RSS feeds sorts chronologically.</p>
+
+<pre><code><span class="y-comment"># Cap a manual 3D-discovery pipeline to 5 movies per run, highest-rated first.</span>
+src  = input("trakt_list", list="watchlist", access_token=env("TRAKT_TOKEN"))
+disc = process("discover", upstream=src, search=["jackett"], match=True)
+meta = process("metainfo_file", upstream=disc)
+q3d  = process("condition", upstream=meta,
+               accept=[{"name": "3d", "expr": "video_is_3d"}])
+ext  = process("metainfo_tmdb", upstream=q3d, api_key=env("TMDB_KEY"))
+top5 = process("limit",   upstream=ext, n=5, sort="video_rating")
+output("transmission",    upstream=top5, host="localhost")
+pipeline("3d-movies")  <span class="y-comment"># manual trigger only</span></code></pre>
+
+<div class="note">Combine with <code>seen</code> to incrementally chip away at a backlog: each manual run downloads <code>n</code>, <code>seen</code> persists them, the next run picks up the next batch.</div>
 
 <!-- ─────────── accept_all ─────────── -->
 <h2 id="accept_all">accept_all</h2>

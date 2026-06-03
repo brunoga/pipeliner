@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/brunoga/pipeliner/internal/dateparse"
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/plugin"
 	"github.com/brunoga/pipeliner/internal/store"
@@ -91,22 +92,6 @@ func parseDuration(s string) (time.Duration, error) {
 	return d, nil
 }
 
-// dateLayouts is the ordered list of formats tried when the field value is a string.
-var dateLayouts = []string{
-	time.RFC3339,
-	time.RFC822,
-	time.RFC822Z,
-	time.RFC1123,
-	time.RFC1123Z,
-	"Mon, 02 Jan 2006 15:04:05 -0700",
-	"Mon, 02 Jan 2006 15:04:05 MST",
-	"2006-01-02T15:04:05",
-	"2006-01-02",
-	"02 Jan 2006",
-	"January 2, 2006",
-	"Jan 2, 2006",
-}
-
 // entryTime extracts a time.Time from the named field of e.
 // Returns the time and true on success, or zero and false if the field is
 // missing or unparseable.
@@ -115,19 +100,7 @@ func entryTime(e *entry.Entry, field string) (time.Time, bool) {
 	if !ok {
 		return time.Time{}, false
 	}
-	switch val := v.(type) {
-	case time.Time:
-		return val, true
-	case string:
-		for _, layout := range dateLayouts {
-			if t, err := time.Parse(layout, val); err == nil {
-				return t, true
-			}
-		}
-		return time.Time{}, false
-	default:
-		return time.Time{}, false
-	}
+	return dateparse.FromAny(v)
 }
 
 // humanDur expresses a duration as Xw, Xd, or Xh rounding to nearest hour.
