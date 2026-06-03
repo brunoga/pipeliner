@@ -240,15 +240,13 @@ func (p *seriesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *en
 	}
 
 	if stored, ok := p.tracker.Get(matchedShow, epID); ok {
-		betterQuality := incomingQuality.Better(stored.Quality)
 		properOrRepack := e.GetBool(entry.FieldVideoProper) || e.GetBool(entry.FieldVideoRepack)
-		notDowngrade := !stored.Quality.Better(incomingQuality)
-		if betterQuality || (properOrRepack && notDowngrade) {
-			reason := fmt.Sprintf("series: %s %s quality upgrade", matchedShow, epID)
-			if properOrRepack && !betterQuality {
-				reason = fmt.Sprintf("series: %s %s proper/repack accepted", matchedShow, epID)
-			}
-			e.Accept(reason)
+		switch quality.Decide(incomingQuality, stored.Quality, properOrRepack, stored.Repack) {
+		case quality.UpgradeQuality:
+			e.Accept(fmt.Sprintf("series: %s %s quality upgrade", matchedShow, epID))
+			return nil
+		case quality.UpgradeProperRepack:
+			e.Accept(fmt.Sprintf("series: %s %s proper/repack accepted", matchedShow, epID))
 			return nil
 		}
 		e.Reject(fmt.Sprintf("series: %s %s already downloaded", matchedShow, epID))
@@ -322,6 +320,7 @@ func (p *seriesPlugin) persist(_ context.Context, _ *plugin.TaskContext, entries
 			EpisodeID:    epID,
 			Quality:      q,
 			DownloadedAt: time.Now(),
+			Repack:       e.GetBool(entry.FieldVideoProper) || e.GetBool(entry.FieldVideoRepack),
 		}
 		// Build a minimal Episode for MarkWithParts so double-episode releases
 		// also mark each individual part. MarkWithParts only consults Season,

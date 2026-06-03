@@ -192,6 +192,24 @@ func TestProperSameQualityUpgradesExisting(t *testing.T) {
 	}
 }
 
+// Regression for the REPACK loop bug: once a REPACK is recorded, a subsequent
+// REPACK at the same quality must NOT be re-accepted, otherwise the same
+// release would download on every run as long as it stays in the feed.
+func TestRepackOverStoredRepackRejected(t *testing.T) {
+	p := openPlugin(t, nil)
+	tc := makeCtx()
+
+	e1 := makeEntry("My.Show.S01E01.REPACK.720p.HDTV", "http://x.com/a")
+	p.filter(context.Background(), tc, e1)
+	p.persist(context.Background(), tc, []*entry.Entry{e1})
+
+	e2 := makeEntry("My.Show.S01E01.REPACK.720p.HDTV", "http://x.com/b")
+	p.filter(context.Background(), tc, e2)
+	if !e2.IsRejected() {
+		t.Errorf("second REPACK at same quality must be rejected (loop guard); got accepted: %s", e2.AcceptReason)
+	}
+}
+
 func TestNoUpgradeWhenQualityNotBetter(t *testing.T) {
 	p := openPlugin(t, nil)
 	tc := makeCtx()

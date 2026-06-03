@@ -197,17 +197,12 @@ func (p *moviesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *en
 
 	if p.tracker.IsSeen(matchedTitle, year, is3D) {
 		if rec, ok := p.tracker.Latest(matchedTitle, is3D); ok && rec.Year == year {
-			betterQuality := q.Better(rec.Quality)
-			notDowngrade := !rec.Quality.Better(q)
-			// Allow a REPACK/PROPER only when the stored version was not already
-			// a REPACK at the same quality; otherwise the same torrent would be
-			// accepted on every pipeline run indefinitely.
-			if betterQuality || (properOrRepack && !rec.Repack && notDowngrade) {
-				reason := fmt.Sprintf("movies: %s (%d) quality upgrade", matchedTitle, year)
-				if properOrRepack && !betterQuality {
-					reason = fmt.Sprintf("movies: %s (%d) proper/repack accepted", matchedTitle, year)
-				}
-				e.Accept(reason)
+			switch quality.Decide(q, rec.Quality, properOrRepack, rec.Repack) {
+			case quality.UpgradeQuality:
+				e.Accept(fmt.Sprintf("movies: %s (%d) quality upgrade", matchedTitle, year))
+				return nil
+			case quality.UpgradeProperRepack:
+				e.Accept(fmt.Sprintf("movies: %s (%d) proper/repack accepted", matchedTitle, year))
 				return nil
 			}
 		}

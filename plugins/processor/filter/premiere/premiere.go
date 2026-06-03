@@ -201,6 +201,7 @@ func (p *premierePlugin) persist(_ context.Context, _ *plugin.TaskContext, entri
 			EpisodeID:    epID,
 			Quality:      q,
 			DownloadedAt: time.Now(),
+			Repack:       e.GetBool(entry.FieldVideoProper) || e.GetBool(entry.FieldVideoRepack),
 		}
 		// Build a minimal Episode for MarkWithParts so double-episode releases
 		// also mark each individual part. MarkWithParts only consults Season,
