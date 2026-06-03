@@ -42,6 +42,7 @@ const (
 	FieldVideoRepack        = "video_repack"
 	FieldVideoPopularity    = "video_popularity"
 	FieldVideoVotes         = "video_votes"
+	FieldVideoHomepage      = "video_homepage"
 
 	// MovieInfo — movie_ prefix.
 	FieldMovieTitle   = "movie_title"
@@ -150,6 +151,7 @@ type VideoInfo struct {
 	Repack        bool // REPACK release marker
 	Popularity    float64
 	Votes         int
+	Homepage      string
 }
 
 // --- Tier 3a: Movie ---
@@ -321,6 +323,9 @@ func (e *Entry) SetVideoInfo(info VideoInfo) {
 	}
 	if info.Votes > 0 {
 		e.Fields[FieldVideoVotes] = info.Votes
+	}
+	if info.Homepage != "" {
+		e.Fields[FieldVideoHomepage] = info.Homepage
 	}
 }
 

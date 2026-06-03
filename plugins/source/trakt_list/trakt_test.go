@@ -15,12 +15,16 @@ import (
 )
 
 func makeServer(t *testing.T, movies []map[string]any) *httptest.Server {
+	return makeServerForType(t, "movie", movies)
+}
+
+func makeServerForType(t *testing.T, itemType string, items []map[string]any) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Wrap each movie as {type: "movie", movie: {...}} like the real API
-		out := make([]map[string]any, len(movies))
-		for i, m := range movies {
-			out[i] = map[string]any{"type": "movie", "movie": m}
+		// Wrap each item as {type: <itemType>, <itemType>: {...}} like the real API.
+		out := make([]map[string]any, len(items))
+		for i, m := range items {
+			out[i] = map[string]any{"type": itemType, itemType: m}
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(out)
@@ -222,17 +226,26 @@ func TestRunReturnsEntries(t *testing.T) {
 
 func TestEnrichesFromListResponse(t *testing.T) {
 	// Trakt list responses use extended=full and carry rating, votes, genres,
-	// and overview directly. Confirm the source surfaces them via Set*Info so
-	// downstream filters can act on them without a redundant metainfo_trakt
-	// round-trip.
+	// overview, plus runtime/language/country/trailer/homepage/certification
+	// (and tagline for movies / network+status+first_aired for shows).
+	// Confirm the source surfaces all of them via Set*Info so downstream
+	// filters can act on them without a redundant metainfo_trakt round-trip.
 	srv := makeServer(t, []map[string]any{
 		{
-			"title":    "Inception",
-			"year":     2010,
-			"overview": "Dream within a dream.",
-			"rating":   8.5,
-			"votes":    12000,
-			"genres":   []any{"action", "sci-fi"},
+			"title":         "Inception",
+			"year":          2010,
+			"overview":      "Dream within a dream.",
+			"rating":        8.5,
+			"votes":         12000,
+			"genres":        []any{"action", "sci-fi"},
+			"runtime":       148,
+			"country":       "us",
+			"language":      "en",
+			"trailer":       "https://youtube.com/watch?v=inception",
+			"homepage":      "https://inception.example",
+			"certification": "PG-13",
+			"tagline":       "Your mind is the scene of the crime.",
+			"released":      "2010-07-16",
 			"ids": map[string]any{
 				"trakt": 1, "slug": "inception-2010",
 				"imdb": "tt1375666", "tmdb": 27205,
@@ -268,12 +281,80 @@ func TestEnrichesFromListResponse(t *testing.T) {
 		{entry.FieldVideoYear, 2010},
 		{entry.FieldVideoRating, 8.5},
 		{entry.FieldVideoVotes, 12000},
+		{entry.FieldVideoRuntime, 148},
+		{entry.FieldVideoLanguage, "English"},
+		{entry.FieldVideoCountry, "United States"},
+		{entry.FieldVideoContentRating, "PG-13"},
+		{entry.FieldVideoHomepage, "https://inception.example"},
 		{entry.FieldVideoImdbID, "tt1375666"},
+		{entry.FieldMovieTagline, "Your mind is the scene of the crime."},
 	}
 	for _, c := range checks {
 		got, _ := e.Get(c.field)
 		if got != c.want {
 			t.Errorf("%s: got %v, want %v", c.field, got, c.want)
 		}
+	}
+	trailers, _ := e.Get(entry.FieldVideoTrailers)
+	urls, _ := trailers.([]string)
+	if len(urls) != 1 || urls[0] != "https://youtube.com/watch?v=inception" {
+		t.Errorf("%s: got %v", entry.FieldVideoTrailers, trailers)
+	}
+}
+
+func TestEnrichesShowFromListResponse(t *testing.T) {
+	// Shows surface the series-only fields (network, status, first_aired) on
+	// top of the shared VideoInfo.
+	srv := makeServerForType(t, "show", []map[string]any{
+		{
+			"title":       "Breaking Bad",
+			"year":        2008,
+			"overview":    "A chemistry teacher.",
+			"rating":      9.2,
+			"votes":       50000,
+			"genres":      []any{"drama", "crime"},
+			"runtime":     47,
+			"country":     "us",
+			"language":    "en",
+			"network":     "AMC",
+			"status":      "ended",
+			"first_aired": "2008-01-20T05:00:00.000Z",
+			"ids": map[string]any{
+				"trakt": 1, "slug": "breaking-bad",
+				"imdb": "tt0903747", "tvdb": 81189,
+			},
+		},
+	})
+	orig := itrakt.BaseURL
+	itrakt.BaseURL = srv.URL
+	t.Cleanup(func() { itrakt.BaseURL = orig })
+
+	p, err := newPlugin(map[string]any{
+		"client_id": "test", "type": "shows", "list": "trending",
+	}, nil)
+	if err != nil {
+		t.Fatalf("newPlugin: %v", err)
+	}
+	entries, err := p.(*traktSourcePlugin).Generate(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("want 1 entry, got %d", len(entries))
+	}
+	e := entries[0]
+	if v := e.GetString(entry.FieldSeriesNetwork); v != "AMC" {
+		t.Errorf("series_network: got %q, want AMC", v)
+	}
+	if v := e.GetString(entry.FieldSeriesStatus); v != "ended" {
+		t.Errorf("series_status: got %q, want ended", v)
+	}
+	got, _ := e.Get(entry.FieldSeriesFirstAirDate)
+	tval, ok := got.(time.Time)
+	if !ok {
+		t.Fatalf("series_first_air_date: not a time.Time, got %T (%v)", got, got)
+	}
+	if tval.Format("2006-01-02") != "2008-01-20" {
+		t.Errorf("series_first_air_date: got %v", tval)
 	}
 }

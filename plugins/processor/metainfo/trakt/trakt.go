@@ -36,8 +36,17 @@ func init() {
 			entry.FieldVideoRating,
 			entry.FieldVideoVotes,
 			entry.FieldVideoLanguage,
+			entry.FieldVideoCountry,
+			entry.FieldVideoRuntime,
+			entry.FieldVideoTrailers,
+			entry.FieldVideoContentRating,
+			entry.FieldVideoHomepage,
 			entry.FieldVideoImdbID,
 			entry.FieldVideoPoster,
+			entry.FieldMovieTagline,
+			entry.FieldSeriesNetwork,
+			entry.FieldSeriesStatus,
+			entry.FieldSeriesFirstAirDate,
 			"trakt_id",
 			"trakt_slug",
 			"trakt_tmdb_id",
@@ -145,20 +154,18 @@ func (p *traktMetaPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, 
 		e.Set("trakt_tvdb_id", r.IDs.TVDB)
 	}
 
-	vi := entry.VideoInfo{
-		GenericInfo: entry.GenericInfo{Title: r.Title, Description: r.Overview, Enriched: true},
-		Year:        r.Year,
-		Rating:      r.Rating,
-		ImdbID:      r.IDs.IMDB,
-		Genres:      r.Genres,
-		Votes:       r.Votes,
-	}
+	vi := itrakt.ToVideoInfo(r)
 	if p.itemType == "shows" {
 		e.Set(entry.FieldMediaType, entry.MediaTypeSeries)
-		e.SetSeriesInfo(entry.SeriesInfo{VideoInfo: vi})
+		e.SetSeriesInfo(entry.SeriesInfo{
+			VideoInfo:    vi,
+			Network:      r.Network,
+			Status:       r.Status,
+			FirstAirDate: r.FirstAiredDate(),
+		})
 	} else {
 		e.Set(entry.FieldMediaType, entry.MediaTypeMovie)
-		e.SetMovieInfo(entry.MovieInfo{VideoInfo: vi})
+		e.SetMovieInfo(entry.MovieInfo{VideoInfo: vi, Tagline: r.Tagline})
 	}
 
 	return nil

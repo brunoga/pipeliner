@@ -277,3 +277,56 @@ func TestPluginRegistered(t *testing.T) {
 		t.Error("metainfo_trakt plugin not registered")
 	}
 }
+
+func TestAnnotateExtendedFields(t *testing.T) {
+	// Confirms extended=full fields (runtime/language/country/trailer/homepage/
+	// certification + show-only network/status/first_aired) land on the entry
+	// via the standard video_/series_ fields.
+	body := []byte(`[{
+		"type":"show","score":1000,"show":{
+			"title":"Breaking Bad","year":2008,
+			"ids":{"trakt":1,"slug":"breaking-bad","imdb":"tt0903747","tmdb":1396,"tvdb":81189},
+			"overview":"A chemistry teacher.",
+			"rating":9.4,"votes":500000,"genres":["drama"],
+			"runtime":47,"country":"us","language":"en",
+			"trailer":"https://youtube.com/watch?v=bb",
+			"homepage":"https://breakingbad.example",
+			"certification":"TV-MA",
+			"network":"AMC","status":"ended",
+			"first_aired":"2008-01-20T05:00:00.000Z"
+		}
+	}]`)
+	srv := mockServer(t, body)
+	defer srv.Close()
+	itrakt.BaseURL = srv.URL
+
+	p := makePlugin(t, map[string]any{"client_id": "key", "type": "shows"})
+	e := entry.New("Breaking.Bad.S01E01.720p.HDTV", "http://x.com/a")
+	if err := p.annotate(context.Background(), tc(), e); err != nil {
+		t.Fatal(err)
+	}
+
+	checks := []struct {
+		field string
+		want  any
+	}{
+		{entry.FieldVideoRuntime, 47},
+		{entry.FieldVideoLanguage, "English"},
+		{entry.FieldVideoCountry, "United States"},
+		{entry.FieldVideoContentRating, "TV-MA"},
+		{entry.FieldVideoHomepage, "https://breakingbad.example"},
+		{entry.FieldSeriesNetwork, "AMC"},
+		{entry.FieldSeriesStatus, "ended"},
+	}
+	for _, c := range checks {
+		got, _ := e.Get(c.field)
+		if got != c.want {
+			t.Errorf("%s: got %v, want %v", c.field, got, c.want)
+		}
+	}
+	trailers, _ := e.Get(entry.FieldVideoTrailers)
+	urls, _ := trailers.([]string)
+	if len(urls) != 1 || urls[0] != "https://youtube.com/watch?v=bb" {
+		t.Errorf("%s: got %v", entry.FieldVideoTrailers, trailers)
+	}
+}

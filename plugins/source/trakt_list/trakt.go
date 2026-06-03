@@ -49,7 +49,17 @@ func init() {
 			entry.FieldVideoGenres,
 			entry.FieldVideoRating,
 			entry.FieldVideoVotes,
+			entry.FieldVideoLanguage,
+			entry.FieldVideoCountry,
+			entry.FieldVideoRuntime,
+			entry.FieldVideoTrailers,
+			entry.FieldVideoContentRating,
+			entry.FieldVideoHomepage,
 			entry.FieldVideoImdbID,
+			entry.FieldMovieTagline,
+			entry.FieldSeriesNetwork,
+			entry.FieldSeriesStatus,
+			entry.FieldSeriesFirstAirDate,
 			"trakt_id",
 			"trakt_imdb_id",
 			"trakt_tmdb_id",
@@ -175,24 +185,18 @@ func (p *traktSourcePlugin) Generate(ctx context.Context, tc *plugin.TaskContext
 		// rating/votes/genres/overview that pipelines often want to filter on.
 		// Enriched=true so downstream metainfo nodes (if present) know the
 		// entry already has provider data.
-		vi := entry.VideoInfo{
-			GenericInfo: entry.GenericInfo{
-				Title:       item.Title,
-				Description: item.Overview,
-				Enriched:    true,
-			},
-			Year:   item.Year,
-			Rating: item.Rating,
-			Votes:  item.Votes,
-			Genres: item.Genres,
-			ImdbID: item.IDs.IMDB,
-		}
+		vi := itrakt.ToVideoInfo(item)
 		if p.itemType == "shows" {
 			e.Set(entry.FieldMediaType, entry.MediaTypeSeries)
-			e.SetSeriesInfo(entry.SeriesInfo{VideoInfo: vi})
+			e.SetSeriesInfo(entry.SeriesInfo{
+				VideoInfo:    vi,
+				Network:      item.Network,
+				Status:       item.Status,
+				FirstAirDate: item.FirstAiredDate(),
+			})
 		} else {
 			e.Set(entry.FieldMediaType, entry.MediaTypeMovie)
-			e.SetMovieInfo(entry.MovieInfo{VideoInfo: vi})
+			e.SetMovieInfo(entry.MovieInfo{VideoInfo: vi, Tagline: item.Tagline})
 		}
 
 		entries = append(entries, e)

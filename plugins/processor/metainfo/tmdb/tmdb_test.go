@@ -44,7 +44,8 @@ func makeServer() *httptest.Server {
 			json.NewEncoder(w).Encode(map[string]any{
 				"id": 27205, "title": "Inception", "release_date": "2010-07-16",
 				"runtime": 148, "tagline": "Your mind is the scene.",
-				"imdb_id": "tt1375666", "original_language": "en",
+				"homepage": "https://www.warnerbros.com/movies/inception",
+				"imdb_id":  "tt1375666", "original_language": "en",
 				"vote_count": 35000, "poster_path": "/inception.jpg",
 				"genres":               []map[string]any{{"id": 28, "name": "Action"}, {"id": 878, "name": "Science Fiction"}},
 				"production_countries": []map[string]any{{"iso_3166_1": "US", "name": "United States of America"}},
@@ -136,6 +137,9 @@ func TestAnnotateMovie(t *testing.T) {
 	}
 	if v := e.GetInt("video_votes"); v != 35000 {
 		t.Errorf("video_votes: got %d", v)
+	}
+	if v := e.GetString("video_homepage"); v != "https://www.warnerbros.com/movies/inception" {
+		t.Errorf("video_homepage: got %q", v)
 	}
 	aliasesRaw, _ := e.Get("video_aliases")
 	aliasSlice, _ := aliasesRaw.([]string)
@@ -349,22 +353,6 @@ func TestTraktYearUsedAsSearchHint(t *testing.T) {
 	}
 	if v := e.GetInt("tmdb_id"); v != 27205 {
 		t.Errorf("tmdb_id: got %d, want 27205", v)
-	}
-}
-
-func TestIso639_1Name(t *testing.T) {
-	cases := []struct{ code, want string }{
-		{"en", "English"},
-		{"fr", "French"},
-		{"ja", "Japanese"},
-		{"zh", "Chinese"},
-		{"xx", "xx"}, // unknown code falls back to the raw code
-		{"", ""},
-	}
-	for _, c := range cases {
-		if got := iso639_1Name(c.code); got != c.want {
-			t.Errorf("iso639_1Name(%q) = %q, want %q", c.code, got, c.want)
-		}
 	}
 }
 
