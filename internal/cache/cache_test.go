@@ -42,7 +42,7 @@ func TestZeroTTLDisablesCache(t *testing.T) {
 
 func TestNilReceiverSafe(t *testing.T) {
 	var c *Cache[string]
-	c.Set("k", "v")           // must not panic
+	c.Set("k", "v") // must not panic
 	_, ok := c.Get("k")
 	if ok {
 		t.Error("nil cache should always miss")

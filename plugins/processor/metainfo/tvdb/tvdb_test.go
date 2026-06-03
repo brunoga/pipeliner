@@ -363,7 +363,7 @@ func makeServerYearStrip() *httptest.Server {
 			}
 		case "/v4/series/322190/extended":
 			json.NewEncoder(w).Encode(map[string]any{
-				"data": map[string]any{"originalLanguage": "deu", "originalCountry": "deu"},
+				"data":   map[string]any{"originalLanguage": "deu", "originalCountry": "deu"},
 				"status": "success",
 			})
 		default:

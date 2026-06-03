@@ -53,7 +53,7 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 	return &requirePlugin{fields: fields}, nil
 }
 
-func (p *requirePlugin) Name() string        { return "require" }
+func (p *requirePlugin) Name() string { return "require" }
 
 // isMissing reports whether a value is absent or the zero value of its type.
 func isMissing(v any) bool {

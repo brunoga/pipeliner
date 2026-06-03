@@ -41,9 +41,9 @@ type Source int
 
 const (
 	SourceUnknown Source = iota
-	SourceCAM    // CAM, HDCAM — recorded inside a cinema
-	SourceTS     // TS, HDTS, TC, HDTC — telesync / telecine
-	SourceSCR    // SCR, Screener, DVDScr — pre-release copy
+	SourceCAM            // CAM, HDCAM — recorded inside a cinema
+	SourceTS             // TS, HDTS, TC, HDTC — telesync / telecine
+	SourceSCR            // SCR, Screener, DVDScr — pre-release copy
 	SourceDVDRip
 	SourceTVRip
 	SourceHDTV
@@ -115,7 +115,7 @@ var audioNames = map[Audio]string{
 type ColorRange int
 
 const (
-	ColorRangeUnknown    ColorRange = iota
+	ColorRangeUnknown ColorRange = iota
 	ColorRangeSDR
 	ColorRangeHDR
 	ColorRangeHDR10

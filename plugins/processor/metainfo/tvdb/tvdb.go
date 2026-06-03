@@ -122,7 +122,7 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 	return p, nil
 }
 
-func (p *tvdbPlugin) Name() string        { return "metainfo_tvdb" }
+func (p *tvdbPlugin) Name() string { return "metainfo_tvdb" }
 
 func (p *tvdbPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
 	ep, ok := series.Parse(e.Title)
@@ -335,7 +335,7 @@ func (p *tvdbPlugin) searchSeries(ctx context.Context, tc *plugin.TaskContext, n
 		"series", name, "stripped", stripped)
 
 	type result struct{ results []itvdb.Series }
-	fullCh     := make(chan result, 1)
+	fullCh := make(chan result, 1)
 	strippedCh := make(chan result, 1)
 
 	if fullInCache {
@@ -349,7 +349,7 @@ func (p *tvdbPlugin) searchSeries(ctx context.Context, tc *plugin.TaskContext, n
 		go func() { strippedCh <- result{p.fetchSearch(ctx, tc, stripped)} }()
 	}
 
-	fullRes     := <-fullCh
+	fullRes := <-fullCh
 	strippedRes := <-strippedCh
 
 	if len(fullRes.results) > 0 {

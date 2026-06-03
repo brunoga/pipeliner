@@ -22,11 +22,11 @@ func init() {
 		Description: "extract links from an HTML page",
 		Role:        plugin.RoleSource,
 		Produces:    []string{entry.FieldTitle, entry.FieldSource, "html_page"},
-		Factory:  newPlugin,
-		Validate: validate,
+		Factory:     newPlugin,
+		Validate:    validate,
 		Schema: []plugin.FieldSchema{
-			{Key: "url",  Type: plugin.FieldTypeString, Required: true, Hint: "Page URL to fetch and extract links from"},
-			{Key: "mask", Type: plugin.FieldTypeString,                 Hint: "Glob pattern to filter hrefs (e.g. *.torrent)"},
+			{Key: "url", Type: plugin.FieldTypeString, Required: true, Hint: "Page URL to fetch and extract links from"},
+			{Key: "mask", Type: plugin.FieldTypeString, Hint: "Glob pattern to filter hrefs (e.g. *.torrent)"},
 		},
 	})
 }
@@ -59,7 +59,7 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 	}, nil
 }
 
-func (p *htmlPlugin) Name() string        { return "html" }
+func (p *htmlPlugin) Name() string { return "html" }
 
 func (p *htmlPlugin) Generate(ctx context.Context, _ *plugin.TaskContext) ([]*entry.Entry, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.pageURL, nil)

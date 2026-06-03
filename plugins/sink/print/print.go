@@ -21,8 +21,8 @@ func init() {
 		PluginName:  "print",
 		Description: "print accepted entries to stdout",
 		Role:        plugin.RoleSink,
-		Factory:  newPrintPlugin,
-		Validate: validate,
+		Factory:     newPrintPlugin,
+		Validate:    validate,
 		Schema: []plugin.FieldSchema{
 			{Key: "format", Type: plugin.FieldTypePattern, Hint: `Output pattern, e.g. "{title}\t{url}" (default)`},
 		},
@@ -49,7 +49,7 @@ func newPrintPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, er
 	return &printPlugin{ip: ip}, nil
 }
 
-func (p *printPlugin) Name() string        { return "print" }
+func (p *printPlugin) Name() string { return "print" }
 
 func (p *printPlugin) Consume(_ context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
 	if tc.DryRun {

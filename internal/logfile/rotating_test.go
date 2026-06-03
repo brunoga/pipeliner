@@ -60,7 +60,7 @@ func TestRotation(t *testing.T) {
 			t.Errorf("%s = %q, want %q", path+suffix, got, want)
 		}
 	}
-	check("",   "ddddd\n")
+	check("", "ddddd\n")
 	check(".1", "ccccc\n")
 	check(".2", "bbbbb\n")
 	check(".3", "aaaaa\n")
@@ -127,7 +127,7 @@ func TestConcurrentWrites(t *testing.T) {
 	defer w.Close()
 
 	const (
-		workers = 8
+		workers   = 8
 		perWorker = 200
 	)
 	var wg sync.WaitGroup

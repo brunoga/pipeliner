@@ -27,9 +27,9 @@ func TestRegisterAndLookup(t *testing.T) {
 	resetForTest()
 
 	Register(&Descriptor{
-		PluginName:  "myplugin",
-		Role: RoleSource,
-		Factory:     newStubFactory("myplugin"),
+		PluginName: "myplugin",
+		Role:       RoleSource,
+		Factory:    newStubFactory("myplugin"),
 	})
 
 	d, ok := Lookup("myplugin")
@@ -74,4 +74,3 @@ func TestAll(t *testing.T) {
 		t.Errorf("All() not sorted by name: got %v, %v", all[0].PluginName, all[1].PluginName)
 	}
 }
-

@@ -20,13 +20,13 @@ func init() {
 		PluginName:  "notify",
 		Description: "send notifications via a configured notifier (webhook, email, …)",
 		Role:        plugin.RoleSink,
-		Factory:  newPlugin,
-		Validate: validate,
+		Factory:     newPlugin,
+		Validate:    validate,
 		Schema: []plugin.FieldSchema{
-			{Key: "via",   Type: plugin.FieldTypeString, Required: true, Hint: "Notifier type (e.g. webhook, email)"},
-			{Key: "title", Type: plugin.FieldTypePattern,                Hint: "Notification title template"},
-			{Key: "body",  Type: plugin.FieldTypePattern,                Hint: "Notification body template", Multiline: true},
-			{Key: "on",    Type: plugin.FieldTypeEnum,                   Enum: []string{"only-accepted", "all"}, Hint: "When to send (default only-accepted)"},
+			{Key: "via", Type: plugin.FieldTypeString, Required: true, Hint: "Notifier type (e.g. webhook, email)"},
+			{Key: "title", Type: plugin.FieldTypePattern, Hint: "Notification title template"},
+			{Key: "body", Type: plugin.FieldTypePattern, Hint: "Notification body template", Multiline: true},
+			{Key: "on", Type: plugin.FieldTypeEnum, Enum: []string{"only-accepted", "all"}, Hint: "When to send (default only-accepted)"},
 		},
 	})
 }
@@ -110,7 +110,7 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 	}, nil
 }
 
-func (p *notifyPlugin) Name() string        { return "notify" }
+func (p *notifyPlugin) Name() string { return "notify" }
 
 func (p *notifyPlugin) deliver(ctx context.Context, _ *plugin.TaskContext, entries []*entry.Entry) error {
 	if len(entries) == 0 && !p.onAll {
@@ -142,7 +142,6 @@ func renderTmpl(tmpl *template.Template, data map[string]any) (string, error) {
 	}
 	return buf.String(), nil
 }
-
 
 func (p *notifyPlugin) Consume(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
 	if tc.DryRun {

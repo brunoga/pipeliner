@@ -7,9 +7,9 @@
 //  2. If torrent_info_hash is not already set, the plugin populates it
 //     automatically:
 //     - magnet: URIs — info hash and tracker URLs are extracted from the URI
-//       itself (no network call required).
+//     itself (no network call required).
 //     - .torrent URLs — the file is downloaded and parsed to extract the info
-//       hash and announce list.
+//     hash and announce list.
 //  3. Live tracker scraping: the plugin sends a scrape request to each announce
 //     URL and uses the highest seed count returned.
 //
@@ -28,9 +28,9 @@ package torrentalive
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
-	"net/url"
 
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/magnet"
@@ -43,7 +43,7 @@ func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "torrent_alive",
 		Description: "reject torrent entries with fewer seeds than min_seeds; auto-resolves info hash from magnet URIs and .torrent URLs",
-		Role: plugin.RoleProcessor,
+		Role:        plugin.RoleProcessor,
 		// torrent_seeds only set when a seed count is successfully resolved.
 		// torrent_leechers is never populated by this plugin.
 		MayProduce: []string{
@@ -106,7 +106,7 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 	}, nil
 }
 
-func (p *torrentAlivePlugin) Name() string        { return "torrent_alive" }
+func (p *torrentAlivePlugin) Name() string { return "torrent_alive" }
 
 func (p *torrentAlivePlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
 	// 1. Use feed-provided seed count if available (fast path — no scrape needed).

@@ -77,4 +77,3 @@ func TestRegistered(t *testing.T) {
 		t.Errorf("want role sink, got %s", d.Role)
 	}
 }
-

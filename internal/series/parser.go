@@ -12,17 +12,17 @@ import (
 
 // Episode holds the parsed metadata for a single episode from a release title.
 type Episode struct {
-	SeriesName    string
-	Season        int
-	Episode       int
-	DoubleEpisode int  // second episode number for double releases (e.g. S01E01E02 → 2)
-	IsDate        bool // true when the episode is identified by air date rather than number
+	SeriesName       string
+	Season           int
+	Episode          int
+	DoubleEpisode    int  // second episode number for double releases (e.g. S01E01E02 → 2)
+	IsDate           bool // true when the episode is identified by air date rather than number
 	Year, Month, Day int
-	IsSpecial     bool
-	Proper, Repack bool
-	Service       string // streaming service tag, e.g. "Netflix", "AMZN", "ATVP"
-	Container     string // file container, e.g. "mkv", "mp4"
-	Quality       quality.Quality
+	IsSpecial        bool
+	Proper, Repack   bool
+	Service          string // streaming service tag, e.g. "Netflix", "AMZN", "ATVP"
+	Container        string // file container, e.g. "mkv", "mp4"
+	Quality          quality.Quality
 }
 
 // compiled patterns, from most specific to least specific
@@ -79,8 +79,8 @@ var (
 		"iplayer": "iPlayer", "ip": "iPlayer",
 		"hulu": "HULU",
 		"stan": "STAN",
-		"cbs": "CBS",
-		"fox": "FOX",
+		"cbs":  "CBS",
+		"fox":  "FOX",
 	}
 
 	// File container extensions.

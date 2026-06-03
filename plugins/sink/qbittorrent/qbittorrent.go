@@ -86,7 +86,7 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 	}, nil
 }
 
-func (p *qbtPlugin) Name() string        { return "qbittorrent" }
+func (p *qbtPlugin) Name() string { return "qbittorrent" }
 
 func (p *qbtPlugin) deliver(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
 	if err := p.login(ctx); err != nil {
@@ -139,7 +139,7 @@ func (p *qbtPlugin) addTorrent(ctx context.Context, torrentURL, savePath string)
 	var buf bytes.Buffer
 	w := multipart.NewWriter(&buf)
 
-	w.WriteField("urls", torrentURL)   //nolint:errcheck
+	w.WriteField("urls", torrentURL) //nolint:errcheck
 	if savePath != "" {
 		w.WriteField("savepath", savePath) //nolint:errcheck
 	}

@@ -23,8 +23,8 @@ func init() {
 		PluginName:  "list_add",
 		Description: "add accepted entries to a named persistent list",
 		Role:        plugin.RoleSink,
-		Factory:  newPlugin,
-		Validate: validate,
+		Factory:     newPlugin,
+		Validate:    validate,
 		Schema: []plugin.FieldSchema{
 			{Key: "list", Type: plugin.FieldTypeString, Required: true, Hint: "Persistent list name to add entries to"},
 		},
@@ -53,7 +53,7 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 	return &listAddPlugin{db: db, listName: listName}, nil
 }
 
-func (p *listAddPlugin) Name() string        { return "list_add" }
+func (p *listAddPlugin) Name() string { return "list_add" }
 
 func (p *listAddPlugin) Consume(_ context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
 	if tc.DryRun {

@@ -77,7 +77,7 @@ func TestNarrowCertain(t *testing.T) {
 }
 
 func TestRejectAbsencePromoted(t *testing.T) {
-	certain  := []string{"source", "title"}
+	certain := []string{"source", "title"}
 	reachable := []string{
 		"source", "title", "torrent_files", "description",
 	}
@@ -205,7 +205,7 @@ func TestAcceptAbsenceRemoved(t *testing.T) {
 func TestApplyPortAcceptNarrowing(t *testing.T) {
 	t.Run("presence op promotes field to certain", func(t *testing.T) {
 		reach := map[string]bool{"torrent_files": true, "source": true}
-		cert  := map[string]bool{"source": true}
+		cert := map[string]bool{"source": true}
 		ApplyPortAcceptNarrowing(`torrent_files != ""`, reach, cert)
 		if !cert["torrent_files"] {
 			t.Error("want torrent_files promoted to certain")
@@ -217,7 +217,7 @@ func TestApplyPortAcceptNarrowing(t *testing.T) {
 
 	t.Run("absence op removes field from reachable and certain", func(t *testing.T) {
 		reach := map[string]bool{"magnet_url": true, "source": true}
-		cert  := map[string]bool{"source": true}
+		cert := map[string]bool{"source": true}
 		ApplyPortAcceptNarrowing(`magnet_url == ""`, reach, cert)
 		if reach["magnet_url"] {
 			t.Error("want magnet_url removed from reachable")
@@ -232,7 +232,7 @@ func TestApplyPortAcceptNarrowing(t *testing.T) {
 
 	t.Run("AND: promotes presence-op fields AND removes absence-op fields", func(t *testing.T) {
 		reach := map[string]bool{"torrent_url": true, "magnet_url": true, "source": true}
-		cert  := map[string]bool{"source": true}
+		cert := map[string]bool{"source": true}
 		ApplyPortAcceptNarrowing(`torrent_url != "" and magnet_url == ""`, reach, cert)
 		if !cert["torrent_url"] {
 			t.Error("want torrent_url promoted to certain")
@@ -244,7 +244,7 @@ func TestApplyPortAcceptNarrowing(t *testing.T) {
 
 	t.Run("already-certain field not re-promoted", func(t *testing.T) {
 		reach := map[string]bool{"source": true}
-		cert  := map[string]bool{"source": true}
+		cert := map[string]bool{"source": true}
 		before := len(cert)
 		ApplyPortAcceptNarrowing(`source != ""`, reach, cert)
 		if len(cert) != before {
@@ -254,7 +254,7 @@ func TestApplyPortAcceptNarrowing(t *testing.T) {
 
 	t.Run("empty expression is a no-op", func(t *testing.T) {
 		reach := map[string]bool{"a": true}
-		cert  := map[string]bool{}
+		cert := map[string]bool{}
 		ApplyPortAcceptNarrowing("", reach, cert)
 		if cert["a"] || !reach["a"] {
 			t.Error("want no change for empty expression")
@@ -263,7 +263,7 @@ func TestApplyPortAcceptNarrowing(t *testing.T) {
 
 	t.Run("field not in reachable is not promoted or removed", func(t *testing.T) {
 		reach := map[string]bool{"source": true}
-		cert  := map[string]bool{}
+		cert := map[string]bool{}
 		ApplyPortAcceptNarrowing(`mystery_field != ""`, reach, cert)
 		if cert["mystery_field"] || reach["mystery_field"] {
 			t.Error("want non-reachable field ignored")

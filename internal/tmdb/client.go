@@ -52,12 +52,12 @@ const ImageBaseURL = "https://image.tmdb.org/t/p/w500"
 // including credits, videos, and release dates fetched via append_to_response.
 type MovieDetail struct {
 	Movie
-	Genres             []Genre `json:"genres"`
-	Runtime            int     `json:"runtime"`
-	Tagline            string  `json:"tagline"`
-	Homepage           string  `json:"homepage"`
-	ImdbID             string  `json:"imdb_id"`
-	OriginalLanguage   string  `json:"original_language"` // ISO 639-1, e.g. "en"
+	Genres              []Genre `json:"genres"`
+	Runtime             int     `json:"runtime"`
+	Tagline             string  `json:"tagline"`
+	Homepage            string  `json:"homepage"`
+	ImdbID              string  `json:"imdb_id"`
+	OriginalLanguage    string  `json:"original_language"` // ISO 639-1, e.g. "en"
 	ProductionCountries []struct {
 		Name string `json:"name"`
 	} `json:"production_countries"`

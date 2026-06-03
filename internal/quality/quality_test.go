@@ -108,7 +108,10 @@ func TestParseKnownTitles(t *testing.T) {
 }
 
 func TestParseSourceVariants(t *testing.T) {
-	cases := []struct{ title string; want Source }{
+	cases := []struct {
+		title string
+		want  Source
+	}{
 		{"Movie.BluRay.x264", SourceBluRay},
 		{"Movie.Blu-Ray.x264", SourceBluRay},
 		{"Movie.BDRip.x264", SourceBluRay},
@@ -131,12 +134,15 @@ func TestParseSourceVariants(t *testing.T) {
 }
 
 func TestParseCodecVariants(t *testing.T) {
-	cases := []struct{ title string; want Codec }{
+	cases := []struct {
+		title string
+		want  Codec
+	}{
 		{"Movie.x265", CodecH265},
 		{"Movie.H.265", CodecH265},
 		{"Movie.H265", CodecH265},
-		{"Movie H 265-Group", CodecH265},    // space separator (common in scene titles)
-		{"Movie H 264-Group", CodecH264},    // space separator
+		{"Movie H 265-Group", CodecH265}, // space separator (common in scene titles)
+		{"Movie H 264-Group", CodecH264}, // space separator
 		{"Movie.HEVC", CodecH265},
 		{"Movie.x264", CodecH264},
 		{"Movie.H.264", CodecH264},
@@ -154,7 +160,10 @@ func TestParseCodecVariants(t *testing.T) {
 }
 
 func TestParseAudioVariants(t *testing.T) {
-	cases := []struct{ title string; want Audio }{
+	cases := []struct {
+		title string
+		want  Audio
+	}{
 		{"Movie.Atmos", AudioAtmos},
 		{"Movie.TrueHD", AudioTrueHD},
 		{"Movie.DTS-HD", AudioDTS},
@@ -163,7 +172,7 @@ func TestParseAudioVariants(t *testing.T) {
 		{"Movie.DTS", AudioDTS},
 		{"Movie.DD5.1", AudioDolbyDigital},
 		{"Movie.DD+5.1", AudioDolbyDigital},
-		{"Movie.DDP5.1", AudioDolbyDigital},    // Dolby Digital Plus with P notation
+		{"Movie.DDP5.1", AudioDolbyDigital},       // Dolby Digital Plus with P notation
 		{"Movie DDP5 1-Group", AudioDolbyDigital}, // space-separated (scene format)
 		{"Movie.DD5 1-Group", AudioDolbyDigital},  // dot replaced by space
 		{"Movie.Dolby.Digital", AudioDolbyDigital},
@@ -295,8 +304,8 @@ func TestSpecFormat3DHalfPlusExcludesConv(t *testing.T) {
 
 func TestParse3DCompleteBluRayIsBD3D(t *testing.T) {
 	cases := []struct {
-		title   string
-		want    Format3D
+		title string
+		want  Format3D
 	}{
 		// 3D + COMPLETE BluRay → BD3D (full disc rip).
 		{"Spider.Man.Into.the.Spider.Verse.2018.3D.COMPLETE.BluRay", Format3DBD},
@@ -454,8 +463,8 @@ func TestSpecMatchesMultipleDimensions(t *testing.T) {
 		t.Fatal(err)
 	}
 	good := Quality{Resolution: Resolutionp720, Source: SourceWebDL}
-	bad1 := Quality{Resolution: Resolutionp480, Source: SourceWebDL}  // res too low
-	bad2 := Quality{Resolution: Resolutionp720, Source: SourceTVRip}  // source too low
+	bad1 := Quality{Resolution: Resolutionp480, Source: SourceWebDL} // res too low
+	bad2 := Quality{Resolution: Resolutionp720, Source: SourceTVRip} // source too low
 
 	if !spec.Matches(good) {
 		t.Error("good quality should match")
@@ -575,7 +584,10 @@ func TestSpecNoFormat3DAcceptsBoth(t *testing.T) {
 // --- parseResolution full coverage ---
 
 func TestParseResolutionValues(t *testing.T) {
-	cases := []struct{ s string; want Resolution }{
+	cases := []struct {
+		s    string
+		want Resolution
+	}{
 		{"sd", ResolutionSD},
 		{"480p", Resolutionp480},
 		{"576p", Resolutionp576},
@@ -599,7 +611,10 @@ func TestParseResolutionValues(t *testing.T) {
 // --- parseSource full coverage ---
 
 func TestParseSourceValues(t *testing.T) {
-	cases := []struct{ s string; want Source }{
+	cases := []struct {
+		s    string
+		want Source
+	}{
 		{"dvdrip", SourceDVDRip},
 		{"tvrip", SourceTVRip},
 		{"hdtv", SourceHDTV},
@@ -625,7 +640,10 @@ func TestParseSourceValues(t *testing.T) {
 // --- parseCodec full coverage ---
 
 func TestParseCodecValues(t *testing.T) {
-	cases := []struct{ s string; want Codec }{
+	cases := []struct {
+		s    string
+		want Codec
+	}{
 		{"xvid", CodecXviD},
 		{"divx", CodecDivX},
 		{"x264", CodecH264},
@@ -650,7 +668,10 @@ func TestParseCodecValues(t *testing.T) {
 // --- parseAudio full coverage ---
 
 func TestParseAudioValues(t *testing.T) {
-	cases := []struct{ s string; want Audio }{
+	cases := []struct {
+		s    string
+		want Audio
+	}{
 		{"mp3", AudioMP3},
 		{"aac", AudioAAC},
 		{"dd", AudioDolbyDigital},
@@ -674,7 +695,10 @@ func TestParseAudioValues(t *testing.T) {
 // --- parseColorRange full coverage ---
 
 func TestParseColorRangeValues(t *testing.T) {
-	cases := []struct{ s string; want ColorRange }{
+	cases := []struct {
+		s    string
+		want ColorRange
+	}{
 		{"sdr", ColorRangeSDR},
 		{"hdr", ColorRangeHDR},
 		{"hdr10", ColorRangeHDR10},

@@ -46,9 +46,9 @@ func init() {
 		Factory:  newPlugin,
 		Validate: validate,
 		Schema: []plugin.FieldSchema{
-			{Key: "client_id", Type: plugin.FieldTypeString,   Required: true, Hint: "Trakt API client ID"},
-			{Key: "type",      Type: plugin.FieldTypeEnum,     Required: true, Enum: []string{"shows", "movies"}, Hint: "Content type"},
-			{Key: "cache_ttl", Type: plugin.FieldTypeDuration,                 Hint: "Search result cache lifetime (default 24h)"},
+			{Key: "client_id", Type: plugin.FieldTypeString, Required: true, Hint: "Trakt API client ID"},
+			{Key: "type", Type: plugin.FieldTypeEnum, Required: true, Enum: []string{"shows", "movies"}, Hint: "Content type"},
+			{Key: "cache_ttl", Type: plugin.FieldTypeDuration, Hint: "Search result cache lifetime (default 24h)"},
 		},
 	})
 }
@@ -108,7 +108,7 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 	}, nil
 }
 
-func (p *traktMetaPlugin) Name() string        { return "metainfo_trakt" }
+func (p *traktMetaPlugin) Name() string { return "metainfo_trakt" }
 
 func (p *traktMetaPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
 	title, ok := p.parseTitle(e.Title)
@@ -146,12 +146,12 @@ func (p *traktMetaPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, 
 	}
 
 	vi := entry.VideoInfo{
-		GenericInfo:   entry.GenericInfo{Title: r.Title, Description: r.Overview, Enriched: true},
-		Year:          r.Year,
-		Rating:        r.Rating,
-		ImdbID:        r.IDs.IMDB,
-		Genres:        r.Genres,
-		Votes:         r.Votes,
+		GenericInfo: entry.GenericInfo{Title: r.Title, Description: r.Overview, Enriched: true},
+		Year:        r.Year,
+		Rating:      r.Rating,
+		ImdbID:      r.IDs.IMDB,
+		Genres:      r.Genres,
+		Votes:       r.Votes,
 	}
 	if p.itemType == "shows" {
 		e.Set(entry.FieldMediaType, entry.MediaTypeSeries)

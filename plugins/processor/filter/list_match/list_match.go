@@ -27,12 +27,12 @@ func init() {
 		PluginName:  "list_match",
 		Description: "accept entries whose title is in a named persistent list; reject others",
 		Role:        plugin.RoleProcessor,
-		Factory:  newPlugin,
-		Validate: validate,
+		Factory:     newPlugin,
+		Validate:    validate,
 		Schema: []plugin.FieldSchema{
-			{Key: "list",             Type: plugin.FieldTypeString, Required: true, Hint: "Persistent list name to match against"},
-			{Key: "remove_on_match",  Type: plugin.FieldTypeBool,                   Hint: "Remove matched entry from the list (default false)"},
-			{Key: "reject_unmatched", Type: plugin.FieldTypeBool,                   Hint: "Reject entries not in the list (default true)"},
+			{Key: "list", Type: plugin.FieldTypeString, Required: true, Hint: "Persistent list name to match against"},
+			{Key: "remove_on_match", Type: plugin.FieldTypeBool, Hint: "Remove matched entry from the list (default false)"},
+			{Key: "reject_unmatched", Type: plugin.FieldTypeBool, Hint: "Reject entries not in the list (default true)"},
 		},
 	})
 }
@@ -66,7 +66,7 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 	return &listMatchPlugin{db: db, listName: listName, removeOnMatch: remove, rejectUnmatched: rejectUnmatched}, nil
 }
 
-func (p *listMatchPlugin) Name() string        { return "list_match" }
+func (p *listMatchPlugin) Name() string { return "list_match" }
 
 func (p *listMatchPlugin) filter(_ context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
 	list := entrylist.Open(p.db, p.listName)

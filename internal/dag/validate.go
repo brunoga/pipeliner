@@ -303,7 +303,7 @@ func applyConditionNarrowingValidate(config map[string]any, reach, cert map[stri
 	}
 
 	for _, r := range rules {
-		certSlice  := keys(cert)
+		certSlice := keys(cert)
 		reachSlice := keys(reach)
 
 		switch r.ruleType {
@@ -365,4 +365,3 @@ func requireFields(config map[string]any) []string {
 	}
 	return nil
 }
-

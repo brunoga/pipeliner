@@ -140,9 +140,11 @@ func TestSearchSetsUserAgent(t *testing.T) {
 func TestSearchParsesEntries(t *testing.T) {
 	items := []torznabItem{
 		{
-			Title:     "Breaking.Bad.S01E01.720p.HDTV",
-			Enclosure: struct{ URL string `xml:"url,attr"` }{URL: "http://tracker.example.com/1.torrent"},
-			Size:      1_500_000_000,
+			Title: "Breaking.Bad.S01E01.720p.HDTV",
+			Enclosure: struct {
+				URL string `xml:"url,attr"`
+			}{URL: "http://tracker.example.com/1.torrent"},
+			Size: 1_500_000_000,
 			Attrs: []torznabAttr{
 				{Name: "seeders", Value: "42"},
 				{Name: "leechers", Value: "3"},
@@ -386,9 +388,11 @@ func TestNoCategoriesOmitsParam(t *testing.T) {
 func TestSearchMagnetURLUsedWhenMagneturlAttrPresent(t *testing.T) {
 	magnet := "magnet:?xt=urn:btih:aabbccddeeff00112233445566778899aabbccdd"
 	items := []torznabItem{{
-		Title:     "My.Show.S01E01.720p",
-		Enclosure: struct{ URL string `xml:"url,attr"` }{URL: "https://jackett.host/dl/idx/?key=abc"},
-		Attrs:     []torznabAttr{{Name: "magneturl", Value: magnet}},
+		Title: "My.Show.S01E01.720p",
+		Enclosure: struct {
+			URL string `xml:"url,attr"`
+		}{URL: "https://jackett.host/dl/idx/?key=abc"},
+		Attrs: []torznabAttr{{Name: "magneturl", Value: magnet}},
 	}}
 	srv := httptest.NewServer(servesCaps(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, string(buildXML(items)))
@@ -414,8 +418,10 @@ func TestSearchMagnetURLUsedWhenMagneturlAttrPresent(t *testing.T) {
 
 func TestSearchTorrentLinkTypeSetForNonMagnet(t *testing.T) {
 	items := []torznabItem{{
-		Title:     "My.Show.S01E01.720p",
-		Enclosure: struct{ URL string `xml:"url,attr"` }{URL: "https://jackett.host/dl/idx/?key=abc"},
+		Title: "My.Show.S01E01.720p",
+		Enclosure: struct {
+			URL string `xml:"url,attr"`
+		}{URL: "https://jackett.host/dl/idx/?key=abc"},
 	}}
 	srv := httptest.NewServer(servesCaps(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, string(buildXML(items)))

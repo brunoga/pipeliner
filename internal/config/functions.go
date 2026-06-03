@@ -34,7 +34,7 @@ type UserFunctionParam struct {
 	Name      string
 	Type      plugin.FieldType
 	Required  bool
-	Default   any    // nil if Required
+	Default   any // nil if Required
 	Hint      string
 	Multiline bool
 }
@@ -51,7 +51,7 @@ type UserFunctionDef struct {
 
 // FunctionCallRecord records one invocation of a user function inside a pipeline.
 type FunctionCallRecord struct {
-	CallKey         string         // "funcName@line:col" — unique per call site
+	CallKey         string // "funcName@line:col" — unique per call site
 	FuncName        string
 	Args            map[string]any // kwargs passed at the call site
 	InternalNodeIDs []string       // IDs of nodes created inside the function body
@@ -81,7 +81,7 @@ func scanUserFunctions(src string) map[string]*UserFunctionDef {
 	result := make(map[string]*UserFunctionDef)
 
 	lines := strings.Split(src, "\n")
-	var commentLines []string  // non-pipeliner comment lines (description)
+	var commentLines []string // non-pipeliner comment lines (description)
 	var paramHints []struct{ name, typ, hint string }
 
 	for i := 0; i < len(lines); i++ {
@@ -180,7 +180,7 @@ func collectFunctionBody(lines []string, defLine int) string {
 // inferFunctionRole returns "source", "processor", or "sink" by scanning the
 // function body for input() or output() calls.
 func inferFunctionRole(body string) string {
-	hasInput  := strings.Contains(body, "input(")
+	hasInput := strings.Contains(body, "input(")
 	hasOutput := strings.Contains(body, "output(")
 	if hasInput {
 		return "source"

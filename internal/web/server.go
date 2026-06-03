@@ -59,9 +59,9 @@ type Server struct {
 	running       map[string]int // task name → active run count
 	pendingReload bool           // reload queued until all tasks are idle
 
-	configPath      string                 // path to config file on disk
-	validateConfig  func([]byte) ([]string, []string) // returns (errors, warnings); nil if not set
-	db              *store.SQLiteStore     // nil if not set
+	configPath     string                            // path to config file on disk
+	validateConfig func([]byte) ([]string, []string) // returns (errors, warnings); nil if not set
+	db             *store.SQLiteStore                // nil if not set
 
 	// Rotating log file for the live-log scrollback endpoint. logFilePath is
 	// the base path (e.g. "/data/pipeliner.log"); the endpoint also reads
@@ -279,10 +279,10 @@ func mustSub(fsys embed.FS, dir string) fs.FS {
 
 func (s *Server) apiStatus(w http.ResponseWriter, _ *http.Request) {
 	type taskJSON struct {
-		Name    string `json:"name"`
+		Name     string `json:"name"`
 		Schedule string `json:"schedule"`
-		NextRun string `json:"nextRun,omitempty"`
-		Running bool   `json:"running,omitempty"`
+		NextRun  string `json:"nextRun,omitempty"`
+		Running  bool   `json:"running,omitempty"`
 	}
 	type resp struct {
 		Tasks []taskJSON `json:"tasks"`
@@ -633,7 +633,6 @@ func (s *Server) apiSaveConfig(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"status": "pending", "warnings": warns})
 }
 
-
 // apiPlugins returns all registered plugins with their metadata and optional
 // field schema, for use by the visual pipeline editor's plugin palette.
 func (s *Server) apiPlugins(w http.ResponseWriter, _ *http.Request) {
@@ -647,13 +646,13 @@ func (s *Server) apiPlugins(w http.ResponseWriter, _ *http.Request) {
 		Multiline bool     `json:"multiline,omitempty"`
 	}
 	type pluginResp struct {
-		Name        string      `json:"name"`
-		Role        string      `json:"role"`
-		Description string      `json:"description"`
-		Produces    []string    `json:"produces"`     // fields always written on every passing entry
-		MayProduce  []string    `json:"may_produce"`  // fields conditionally written (not guaranteed)
-		Requires    []string    `json:"requires"`     // fields this plugin reads (flattened OR groups)
-		Schema      []fieldResp `json:"schema"`       // empty slice, never null
+		Name           string      `json:"name"`
+		Role           string      `json:"role"`
+		Description    string      `json:"description"`
+		Produces       []string    `json:"produces"`    // fields always written on every passing entry
+		MayProduce     []string    `json:"may_produce"` // fields conditionally written (not guaranteed)
+		Requires       []string    `json:"requires"`    // fields this plugin reads (flattened OR groups)
+		Schema         []fieldResp `json:"schema"`      // empty slice, never null
 		AcceptsSearch  bool        `json:"accepts_search,omitempty"`
 		IsSearchPlugin bool        `json:"is_search_plugin,omitempty"`
 		AcceptsList    bool        `json:"accepts_list,omitempty"`
@@ -870,8 +869,12 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 
 			var search, list []subPluginResp
 			if desc, ok := plugin.Lookup(n.PluginName); ok {
-				if desc.AcceptsSearch { search = extractSubPlugins("search") }
-				if desc.AcceptsList   { list   = extractSubPlugins("list")   }
+				if desc.AcceptsSearch {
+					search = extractSubPlugins("search")
+				}
+				if desc.AcceptsList {
+					list = extractSubPlugins("list")
+				}
 			}
 
 			if pos, ok := nodePositions[string(n.ID)]; ok {
@@ -1028,19 +1031,19 @@ type nodePosData struct {
 //
 // All other "# pipeliner:*" lines are silently skipped (future metadata).
 func scanComments(content string) (
-	nodeComments     map[string]string,
+	nodeComments map[string]string,
 	pipelineComments map[string]string,
-	nodePositions    map[string]nodePosData,
+	nodePositions map[string]nodePosData,
 ) {
-	nodeComments     = make(map[string]string)
+	nodeComments = make(map[string]string)
 	pipelineComments = make(map[string]string)
-	nodePositions    = make(map[string]nodePosData)
+	nodePositions = make(map[string]nodePosData)
 
-	nodeRe     := regexp.MustCompile(`^([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*[a-zA-Z_][a-zA-Z0-9_]*\s*\(`)
+	nodeRe := regexp.MustCompile(`^([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*[a-zA-Z_][a-zA-Z0-9_]*\s*\(`)
 	pipelineRe := regexp.MustCompile(`^pipeline\s*\(\s*"([^"]+)"`)
 
 	var commentLines []string
-	var pendingPos   *nodePosData
+	var pendingPos *nodePosData
 
 	parsePairs := func(parts []string, start int, stop func(string) bool) ([][2]float64, int) {
 		var out [][2]float64

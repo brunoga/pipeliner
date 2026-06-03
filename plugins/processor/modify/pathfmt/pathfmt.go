@@ -67,7 +67,7 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 	return &pathfmtPlugin{ip: ip, field: field}, nil
 }
 
-func (p *pathfmtPlugin) Name() string        { return "pathfmt" }
+func (p *pathfmtPlugin) Name() string { return "pathfmt" }
 
 // scrubPath sanitizes each component of a path using generic (cross-platform)
 // rules, preserving the path separator.

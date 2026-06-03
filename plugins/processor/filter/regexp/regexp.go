@@ -132,7 +132,7 @@ func parseRule(item any) (regexpRule, error) {
 	}
 }
 
-func (p *regexpPlugin) Name() string        { return "regexp" }
+func (p *regexpPlugin) Name() string { return "regexp" }
 
 func (p *regexpPlugin) filter(_ context.Context, _ *plugin.TaskContext, e *entry.Entry) error {
 	// Reject takes priority: check reject patterns first.

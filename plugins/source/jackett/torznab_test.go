@@ -47,9 +47,11 @@ func buildXML(items []torznabItem) []byte {
 
 func TestParseTorznabTorrentEntry(t *testing.T) {
 	data := buildXML([]torznabItem{{
-		Title:     "My.Show.S01E01.720p",
-		Enclosure: struct{ URL string `xml:"url,attr"` }{URL: "https://jackett.host/dl/idx/?key=abc&path=xyz&file=My.Show"},
-		Size:      1_000_000_000,
+		Title: "My.Show.S01E01.720p",
+		Enclosure: struct {
+			URL string `xml:"url,attr"`
+		}{URL: "https://jackett.host/dl/idx/?key=abc&path=xyz&file=My.Show"},
+		Size: 1_000_000_000,
 		Attrs: []torznabAttr{
 			{Name: "seeders", Value: "10"},
 			{Name: "leechers", Value: "2"},
@@ -87,8 +89,10 @@ func TestParseTorznabTorrentEntry(t *testing.T) {
 func TestParseTorznabMagnetEntry(t *testing.T) {
 	magnet := "magnet:?xt=urn:btih:aabbccddeeff00112233445566778899aabbccdd&dn=My+Show+S01E01"
 	data := buildXML([]torznabItem{{
-		Title:     "My.Show.S01E01.720p",
-		Enclosure: struct{ URL string `xml:"url,attr"` }{URL: "https://jackett.host/dl/idx/?key=abc&path=xyz&file=My.Show"},
+		Title: "My.Show.S01E01.720p",
+		Enclosure: struct {
+			URL string `xml:"url,attr"`
+		}{URL: "https://jackett.host/dl/idx/?key=abc&path=xyz&file=My.Show"},
 		Attrs: []torznabAttr{
 			{Name: "magneturl", Value: magnet},
 			{Name: "seeders", Value: "5"},
@@ -377,10 +381,10 @@ func TestBuildSearchParams(t *testing.T) {
 		notWant []string
 	}{
 		{
-			name:  "source mode — empty title, no hints",
-			entry: func() *entry.Entry { return entry.New("", "") },
-			wantQ: "",
-			wantT: "search",
+			name:    "source mode — empty title, no hints",
+			entry:   func() *entry.Entry { return entry.New("", "") },
+			wantQ:   "",
+			wantT:   "search",
 			notWant: []string{"year", "imdbid", "tmdbid", "tvdbid", "season", "ep"},
 		},
 		{
@@ -449,7 +453,7 @@ func TestBuildSearchParams(t *testing.T) {
 			notWant: []string{"imdbid"},
 		},
 		{
-			name: "nil entry — defensive default",
+			name:  "nil entry — defensive default",
 			entry: func() *entry.Entry { return nil },
 			wantT: "search",
 			wantQ: "",

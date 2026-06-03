@@ -123,5 +123,3 @@ func All() []*Descriptor {
 	sort.Slice(out, func(i, j int) bool { return out[i].PluginName < out[j].PluginName })
 	return out
 }
-
-

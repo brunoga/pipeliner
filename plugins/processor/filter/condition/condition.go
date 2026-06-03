@@ -133,7 +133,7 @@ func parseRule(m map[string]any, prefix string) (rule, error) {
 	return r, nil
 }
 
-func (p *conditionPlugin) Name() string        { return "condition" }
+func (p *conditionPlugin) Name() string { return "condition" }
 
 func (p *conditionPlugin) filter(_ context.Context, _ *plugin.TaskContext, e *entry.Entry) error {
 	data := interp.EntryData(e)

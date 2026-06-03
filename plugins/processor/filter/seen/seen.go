@@ -52,7 +52,7 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 	}, nil
 }
 
-func (p *seenPlugin) Name() string        { return "seen" }
+func (p *seenPlugin) Name() string { return "seen" }
 
 func (p *seenPlugin) filter(_ context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
 	ss := p.seenStore(tc)

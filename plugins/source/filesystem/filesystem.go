@@ -62,7 +62,7 @@ func newFilesystemPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugi
 	return &filesystemPlugin{path: path, recursive: recursive, mask: mask}, nil
 }
 
-func (f *filesystemPlugin) Name() string        { return "filesystem" }
+func (f *filesystemPlugin) Name() string { return "filesystem" }
 
 func (f *filesystemPlugin) Generate(ctx context.Context, _ *plugin.TaskContext) ([]*entry.Entry, error) {
 	var entries []*entry.Entry

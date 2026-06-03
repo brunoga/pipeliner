@@ -91,8 +91,8 @@ type execContext struct {
 	dir            string
 	loaded         map[string]starlark.StringDict
 	// User function support.
-	userFunctions map[string]*UserFunctionDef       // discovered before execution
-	functionCalls map[string][]*FunctionCallRecord  // populated by pipelineBuiltin
+	userFunctions map[string]*UserFunctionDef      // discovered before execution
+	functionCalls map[string][]*FunctionCallRecord // populated by pipelineBuiltin
 }
 
 // predeclared returns the built-in functions available to config scripts.

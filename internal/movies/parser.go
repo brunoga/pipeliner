@@ -4,8 +4,8 @@ package movies
 
 import (
 	"regexp"
-	"strings"
 	"strconv"
+	"strings"
 	"unicode"
 
 	"github.com/brunoga/pipeliner/internal/quality"

@@ -119,4 +119,3 @@ func TestPluginFilterDebugLevel(t *testing.T) {
 		t.Errorf("DEBUG record should be suppressed at INFO level, got: %s", buf.String())
 	}
 }
-

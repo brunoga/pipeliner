@@ -81,7 +81,7 @@ func TestGetValidAccessTokenFresh(t *testing.T) {
 	tok := &Token{
 		AccessToken:  "fresh-acc",
 		RefreshToken: "fresh-ref",
-		ExpiresIn:    7776000,                   // 90 days
+		ExpiresIn:    7776000, // 90 days
 		CreatedAt:    time.Now().Unix(),
 	}
 	if err := SaveToken(bucket, "cid", tok); err != nil {

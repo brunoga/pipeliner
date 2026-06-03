@@ -16,7 +16,7 @@ import (
 
 type sourcePlugin struct{ urls []string }
 
-func (p *sourcePlugin) Name() string        { return "test_source" }
+func (p *sourcePlugin) Name() string { return "test_source" }
 func (p *sourcePlugin) Generate(_ context.Context, _ *plugin.TaskContext) ([]*entry.Entry, error) {
 	var out []*entry.Entry
 	for _, u := range p.urls {
@@ -28,7 +28,7 @@ func (p *sourcePlugin) Generate(_ context.Context, _ *plugin.TaskContext) ([]*en
 
 type acceptAllPlugin struct{}
 
-func (p *acceptAllPlugin) Name() string        { return "test_accept" }
+func (p *acceptAllPlugin) Name() string { return "test_accept" }
 func (p *acceptAllPlugin) Process(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
 	for _, e := range entries {
 		e.Accept()
@@ -38,7 +38,7 @@ func (p *acceptAllPlugin) Process(_ context.Context, _ *plugin.TaskContext, entr
 
 type sinkPlugin struct{ received []*entry.Entry }
 
-func (p *sinkPlugin) Name() string        { return "test_sink" }
+func (p *sinkPlugin) Name() string { return "test_sink" }
 func (p *sinkPlugin) Consume(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) error {
 	p.received = append(p.received, entries...)
 	return nil
@@ -150,10 +150,10 @@ func TestExecutor_FanOut(t *testing.T) {
 			{ID: "sink2", PluginName: "test_sink", Upstreams: []dag.NodeID{"accept"}},
 		},
 		map[dag.NodeID]*executor.PluginInstance{
-			"src":   {Desc: sourceDesc(), Impl: &sourcePlugin{urls: []string{"http://x.com"}}, Config: map[string]any{}},
+			"src":    {Desc: sourceDesc(), Impl: &sourcePlugin{urls: []string{"http://x.com"}}, Config: map[string]any{}},
 			"accept": {Desc: processorDesc(), Impl: &acceptAllPlugin{}, Config: map[string]any{}},
-			"sink1": {Desc: sinkDesc(), Impl: sink1, Config: map[string]any{}},
-			"sink2": {Desc: sinkDesc(), Impl: sink2, Config: map[string]any{}},
+			"sink1":  {Desc: sinkDesc(), Impl: sink1, Config: map[string]any{}},
+			"sink2":  {Desc: sinkDesc(), Impl: sink2, Config: map[string]any{}},
 		},
 	)
 
@@ -738,7 +738,7 @@ func (p *setFieldProcessor) Process(_ context.Context, _ *plugin.TaskContext, en
 // should report accepted=3, not accepted=2.
 func TestExecutor_RouteSelectorAcceptedCount(t *testing.T) {
 	const portTorrent = "torrent"
-	const portMagnet  = "magnet"
+	const portMagnet = "magnet"
 
 	// routeStamper stamps _route_port on every entry based on URL prefix.
 	type routeStamper struct{}
@@ -767,7 +767,9 @@ func TestExecutor_RouteSelectorAcceptedCount(t *testing.T) {
 	selTorrent := &funcProcessor{fn: func(entries []*entry.Entry) []*entry.Entry {
 		var out []*entry.Entry
 		for _, e := range entries {
-			if e.IsRejected() || e.IsFailed() { continue }
+			if e.IsRejected() || e.IsFailed() {
+				continue
+			}
 			if p, _ := e.Get(entry.FieldRoutePort); p == portTorrent {
 				out = append(out, e)
 			}
@@ -777,7 +779,9 @@ func TestExecutor_RouteSelectorAcceptedCount(t *testing.T) {
 	selMagnet := &funcProcessor{fn: func(entries []*entry.Entry) []*entry.Entry {
 		var out []*entry.Entry
 		for _, e := range entries {
-			if e.IsRejected() || e.IsFailed() { continue }
+			if e.IsRejected() || e.IsFailed() {
+				continue
+			}
 			if p, _ := e.Get(entry.FieldRoutePort); p == portMagnet {
 				out = append(out, e)
 			}
@@ -789,26 +793,30 @@ func TestExecutor_RouteSelectorAcceptedCount(t *testing.T) {
 
 	g := dag.New()
 	for _, n := range []*dag.Node{
-		{ID: "src",         PluginName: "test_source"},
-		{ID: "route",       PluginName: "test_route",        Upstreams: []dag.NodeID{"src"}},
-		{ID: "sel_torrent", PluginName: "test_sel_torrent",  Upstreams: []dag.NodeID{"route"}},
-		{ID: "sel_magnet",  PluginName: "test_sel_magnet",   Upstreams: []dag.NodeID{"route"}},
-		{ID: "sink",        PluginName: "test_sink",         Upstreams: []dag.NodeID{"sel_torrent", "sel_magnet"}},
+		{ID: "src", PluginName: "test_source"},
+		{ID: "route", PluginName: "test_route", Upstreams: []dag.NodeID{"src"}},
+		{ID: "sel_torrent", PluginName: "test_sel_torrent", Upstreams: []dag.NodeID{"route"}},
+		{ID: "sel_magnet", PluginName: "test_sel_magnet", Upstreams: []dag.NodeID{"route"}},
+		{ID: "sink", PluginName: "test_sink", Upstreams: []dag.NodeID{"sel_torrent", "sel_magnet"}},
 	} {
-		if err := g.AddNode(n); err != nil { t.Fatal(err) }
+		if err := g.AddNode(n); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	plugins := map[dag.NodeID]*executor.PluginInstance{
-		"src":         {Desc: sourceDesc(),    Impl: src,        Config: map[string]any{}},
-		"route":       {Desc: processorDesc(), Impl: stampRoute,  Config: map[string]any{}},
-		"sel_torrent": {Desc: processorDesc(), Impl: selTorrent,  Config: map[string]any{}},
-		"sel_magnet":  {Desc: processorDesc(), Impl: selMagnet,   Config: map[string]any{}},
-		"sink":        {Desc: sinkDesc(),      Impl: sink,        Config: map[string]any{}},
+		"src":         {Desc: sourceDesc(), Impl: src, Config: map[string]any{}},
+		"route":       {Desc: processorDesc(), Impl: stampRoute, Config: map[string]any{}},
+		"sel_torrent": {Desc: processorDesc(), Impl: selTorrent, Config: map[string]any{}},
+		"sel_magnet":  {Desc: processorDesc(), Impl: selMagnet, Config: map[string]any{}},
+		"sink":        {Desc: sinkDesc(), Impl: sink, Config: map[string]any{}},
 	}
 
 	ex := executor.New("test", g, plugins, nil, slog.New(&logSink{}), false)
 	res, err := ex.Run(context.Background())
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if res.Accepted != 3 {
 		t.Errorf("want accepted=3, got %d (fan-out must not corrupt accepted count)", res.Accepted)
@@ -822,6 +830,7 @@ func TestExecutor_RouteSelectorAcceptedCount(t *testing.T) {
 type funcProcessor struct {
 	fn func([]*entry.Entry) []*entry.Entry
 }
+
 func (p *funcProcessor) Name() string { return "test_func" }
 func (p *funcProcessor) Process(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
 	return p.fn(entries), nil

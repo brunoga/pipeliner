@@ -58,13 +58,13 @@ func TestParseCronWrongFieldCount(t *testing.T) {
 
 func TestParseCronInvalidFields(t *testing.T) {
 	bad := []string{
-		"60 * * * *",   // minute out of range
-		"* 24 * * *",   // hour out of range
-		"* * 0 * *",    // dom out of range (< 1)
-		"* * * 13 *",   // month out of range
-		"* * * * 7",    // dow out of range
-		"* * * * */0",  // step of zero
-		"foo * * * *",  // non-numeric
+		"60 * * * *",  // minute out of range
+		"* 24 * * *",  // hour out of range
+		"* * 0 * *",   // dom out of range (< 1)
+		"* * * 13 *",  // month out of range
+		"* * * * 7",   // dow out of range
+		"* * * * */0", // step of zero
+		"foo * * * *", // non-numeric
 	}
 	for _, s := range bad {
 		if _, err := ParseCron(s); err == nil {

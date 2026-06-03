@@ -409,7 +409,9 @@ type routeHandles struct {
 	portOrder []string // preserve kwargs order for determinism
 }
 
-func (r *routeHandles) String() string        { return fmt.Sprintf("route(%s)", strings.Join(r.portOrder, ", ")) }
+func (r *routeHandles) String() string {
+	return fmt.Sprintf("route(%s)", strings.Join(r.portOrder, ", "))
+}
 func (r *routeHandles) Type() string          { return "route_handles" }
 func (r *routeHandles) Freeze()               {}
 func (r *routeHandles) Truth() starlark.Bool  { return starlark.True }
@@ -493,8 +495,8 @@ func (ctx *execContext) routeBuiltin(thread *starlark.Thread, fn *starlark.Built
 		handles.portOrder = append(handles.portOrder, p.name)
 		selID := ctx.nextNodeID("route_selector")
 		selCfg := map[string]any{
-			"_route_port_name":  p.name,
-			"_port_accept_expr": p.accept,
+			"_route_port_name":        p.name,
+			"_port_accept_expr":       p.accept,
 			filterroute.RouteGroupKey: groupID,
 		}
 		ctx.pendingNodes = append(ctx.pendingNodes, &dagNodeRecord{
@@ -508,4 +510,3 @@ func (ctx *execContext) routeBuiltin(thread *starlark.Thread, fn *starlark.Built
 	}
 	return handles, nil
 }
-

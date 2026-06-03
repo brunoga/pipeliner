@@ -142,10 +142,10 @@ var KnownFields = []FieldMeta{
 
 	// ── Movie-specific ────────────────────────────────────────────────────
 	{Name: FieldMovieTitle, Type: FieldTypeString,
-		Description: "Canonical movie title from the metadata provider",
-		SetBy:       []string{"movies", "metainfo_tmdb"},
-		Deprecated:  true,
-		ReplacedBy:  FieldTitle,
+		Description:     "Canonical movie title from the metadata provider",
+		SetBy:           []string{"movies", "metainfo_tmdb"},
+		Deprecated:      true,
+		ReplacedBy:      FieldTitle,
 		DeprecationNote: `duplicates "title" whenever "media_type" == "movie"; use "title" (and check "media_type" if you need to disambiguate movies from series)`,
 	},
 	{Name: FieldMovieTagline, Type: FieldTypeString,

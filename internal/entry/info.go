@@ -93,7 +93,7 @@ const (
 	// without an HTTP fetch (e.g. Jackett via the Torznab magneturl attribute).
 	// Values: "torrent" (URL serves a .torrent file) or "magnet" (URL is a
 	// magnet URI). When absent, metainfo plugins fall back to URL inspection.
-	FieldTorrentLinkType     = "torrent_link_type"
+	FieldTorrentLinkType = "torrent_link_type"
 
 	// FileInfo — file_ prefix.
 	FieldFileName         = "file_name"

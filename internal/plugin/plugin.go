@@ -18,7 +18,6 @@ const (
 	RoleSink      Role = "sink"      // consumes entries; no downstream nodes
 )
 
-
 // Plugin is the base interface every plugin must satisfy.
 type Plugin interface {
 	Name() string

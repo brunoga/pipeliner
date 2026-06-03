@@ -254,7 +254,7 @@ func TestAnnotateByTraktTMDBID(t *testing.T) {
 				"vote_average": 7.5, "vote_count": 1000, "poster_path": "",
 				"original_language": "en", "original_title": "Michael",
 				"runtime": 132, "tagline": "", "imdb_id": "tt12345678",
-				"genres": []map[string]any{{"id": 18, "name": "Drama"}},
+				"genres":               []map[string]any{{"id": 18, "name": "Drama"}},
 				"production_countries": []map[string]any{},
 				"credits":              map[string]any{"cast": []any{}},
 				"videos":               map[string]any{"results": []any{}},
@@ -322,8 +322,8 @@ func TestTraktYearUsedAsSearchHint(t *testing.T) {
 				"runtime": 132, "tagline": "", "imdb_id": "tt12345678",
 				"original_language": "en", "genres": []any{},
 				"production_countries": []any{}, "credits": map[string]any{"cast": []any{}},
-				"videos": map[string]any{"results": []any{}},
-				"release_dates": map[string]any{"results": []any{}},
+				"videos":             map[string]any{"results": []any{}},
+				"release_dates":      map[string]any{"results": []any{}},
 				"alternative_titles": map[string]any{"titles": []any{}},
 			})
 		default:
@@ -383,7 +383,7 @@ func TestAnnotateByIDDetailCached(t *testing.T) {
 				"vote_average": 8.8, "vote_count": 35000, "poster_path": "/inception.jpg",
 				"original_language": "en", "original_title": "Inception",
 				"runtime": 148, "tagline": "Your mind is the scene.",
-				"imdb_id": "tt1375666",
+				"imdb_id":              "tt1375666",
 				"genres":               []map[string]any{{"id": 28, "name": "Action"}},
 				"production_countries": []map[string]any{},
 				"credits":              map[string]any{"cast": []any{}},

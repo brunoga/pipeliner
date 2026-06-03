@@ -98,7 +98,7 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 	}, nil
 }
 
-func (p *magnetPlugin) Name() string        { return "metainfo_magnet" }
+func (p *magnetPlugin) Name() string { return "metainfo_magnet" }
 
 // Shutdown closes the underlying DHT client, releasing its goroutines and
 // sockets. Called at process exit (daemon) or after the run completes.
