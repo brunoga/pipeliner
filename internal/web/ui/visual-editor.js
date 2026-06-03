@@ -5280,18 +5280,24 @@ function fnMaybeMigrateLegacyQuality(node, nodes) {
   if (node.plugin !== 'series' && node.plugin !== 'movies' && node.plugin !== 'premiere') return;
   if (!('quality' in node.config)) return;
   const spec = node.config.quality;
-  delete node.config.quality;
   // Preserve param reference: if the original code had `quality=quality`,
   // the synthesized quality node's spec param should reference the same param.
+  // The body's config.quality is just a placeholder (the param's default, or
+  // an empty value when the param has no default), so the param ref — not the
+  // literal value — is what actually matters at runtime.
   const paramRef = node._paramRefs?.quality;
+  // Skip only when neither a literal spec nor a param ref is present:
+  // nothing to migrate. An empty literal *with* a param ref still migrates.
+  if ((spec === '' || spec == null) && !paramRef) return;
+
+  delete node.config.quality;
   if (node._paramRefs) delete node._paramRefs.quality;
   if (node._paramRefs && Object.keys(node._paramRefs).length === 0) delete node._paramRefs;
-  if (spec === '' || spec == null) return; // empty value: nothing to inject
 
   const qid = `_auto_quality_${node.id}`;
   const qNode = {
     id: qid, plugin: 'quality',
-    config: {spec},
+    config: {spec: spec ?? ''},
     upstreams: node.upstreams.slice(),
     searchNodeIds: [], listNodeIds: [], comment: '',
     autoMigrated: 'legacy-quality-knob',

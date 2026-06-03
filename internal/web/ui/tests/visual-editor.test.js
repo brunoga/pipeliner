@@ -2036,6 +2036,29 @@ describe('parseFunctionBodyNodes — legacy quality migration', () => {
     expect(series._paramRefs?.quality).toBeUndefined();
   });
 
+  it('migrates when the value is a param ref with no default (placeholder is "")', () => {
+    // Regression: the function in the user's report had `def f(upstream, quality):`
+    // with no default. parseFunctionBodyNodes sets config.quality = '' (empty
+    // placeholder) plus _paramRefs.quality = 'quality'. The migration must
+    // still fire — the param ref carries the value at runtime.
+    ve.userFunctions.f = {
+      name: 'f',
+      params: [{key: 'upstream'}, {key: 'quality', type: 'string'}], // no default
+      _sourceText:
+`def f(upstream, quality):
+    m = process("movies", upstream=upstream, quality=quality, static=["Show"])
+    return m
+`,
+    };
+    const {nodes} = parseFunctionBodyNodes('f');
+    const quality = nodes.find(n => n.plugin === 'quality');
+    const movies  = nodes.find(n => n.plugin === 'movies');
+    expect(quality).toBeTruthy();
+    expect(quality._paramRefs).toEqual({spec: 'quality'});
+    expect(movies.upstreams).toEqual([quality.id]);
+    expect('quality' in movies.config).toBe(false);
+  });
+
   it('leaves non-(series|movies|premiere) plugins untouched', () => {
     ve.userFunctions.f = {
       name: 'f', params: [{key: 'upstream'}],
