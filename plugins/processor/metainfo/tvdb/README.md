@@ -33,7 +33,7 @@ All results are cached in `pipeliner.db` to avoid redundant API calls across run
 | `video_original_title` | string | Original-language title when different from `title` |
 | `video_country` | string | Country of origin (e.g. `usa`) |
 | `video_genres` | []string | Genre names (e.g. `["Drama", "Crime"]`) |
-| `video_rating` | float64 | Popularity score |
+| `video_popularity` | float64 | TheTVDB popularity score (NOT a 0-10 user rating — use TMDb or Trakt enrichment for that) |
 | `video_poster` | string | Poster image URL |
 | `video_cast` | []string | Actor names in display order |
 | `video_content_rating` | string | Content rating (e.g. `TV-MA`, `TV-14`) |
@@ -64,7 +64,7 @@ All results are cached in `pipeliner.db` to avoid redundant API calls across run
 | Property | Value |
 |----------|-------|
 | Role | `processor` |
-| Produces | `enriched`, `title`, `media_type` (= `"series"` — TVDB is series-only), `description`, `video_year`, `video_language`, `video_original_title`, `video_country`, `video_genres`, `video_rating`, `video_votes`, `video_poster`, `video_cast`, `video_content_rating`, `video_runtime`, `video_trailers`, `video_aliases`, `series_network`, `series_status`, `series_first_air_date`, `series_last_air_date`, `series_next_air_date`, `series_episode_id`, `series_episode_title`, `series_episode_description`, `series_episode_air_date`, `series_episode_image`, `tvdb_id`, `tvdb_slug`, `tvdb_episode_id` |
+| Produces | `enriched`, `title`, `media_type` (= `"series"` — TVDB is series-only), `description`, `video_year`, `video_language`, `video_original_title`, `video_country`, `video_genres`, `video_popularity`, `video_poster`, `video_cast`, `video_content_rating`, `video_runtime`, `video_trailers`, `video_aliases`, `series_network`, `series_status`, `series_first_air_date`, `series_last_air_date`, `series_next_air_date`, `series_episode_id`, `series_episode_title`, `series_episode_description`, `series_episode_air_date`, `series_episode_image`, `tvdb_id`, `tvdb_slug`, `tvdb_episode_id` |
 | Requires | — |
 
 ## Example

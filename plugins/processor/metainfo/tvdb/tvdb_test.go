@@ -282,8 +282,14 @@ func TestAnnotateExtendedFallback(t *testing.T) {
 	if len(aliasNames) != 1 {
 		t.Errorf("aliases: got %v", aliases)
 	}
-	if score, _ := e.Get("video_rating"); score == nil {
-		t.Error("rating should be set")
+	// TVDB Score is a popularity ranking, not a 0-10 user rating — see
+	// internal/tvdb/client.go's Score field comment. The plugin routes it to
+	// video_popularity; video_rating stays empty for TVDB-only enrichment.
+	if pop, _ := e.Get("video_popularity"); pop == nil {
+		t.Error("popularity should be set")
+	}
+	if v, _ := e.Get("video_rating"); v != nil {
+		t.Errorf("video_rating: should not be set by TVDB (got %v)", v)
 	}
 	cast, _ := e.Get("video_cast")
 	castNames, _ := cast.([]string)

@@ -13,11 +13,28 @@ Use as a standalone `input()` source node, or inside `series.list`, `movies.list
 
 ## Fields set on each entry
 
+TheTVDB's series-by-id response already carries genres, network, country, language, poster, overview, and a popularity score. `tvdb_favorites` surfaces these via the standard `video_*` / `series_*` fields so list-only pipelines don't need a downstream `metainfo_tvdb` step to filter on them.
+
+Note: TheTVDB's `Score` is a popularity ranking, not a 0-10 user rating — it goes into `video_popularity`, and `video_rating` stays empty unless a downstream provider with a user-rating field (TMDb, Trakt) enriches the entry.
+
 | Field | Description |
 |-------|-------------|
 | `source` | Always `tvdb_favorites:favorites` |
+| `enriched` | `true` — set so downstream metainfo nodes know the entry already carries provider data |
+| `title` | Series name |
+| `media_type` | `"series"` (TVDB only catalogs TV) |
+| `description` | Series overview |
+| `video_year` | Premiere year (parsed from `first_aired` when available, else from `year`) |
+| `video_language` | Original language name (e.g. `"English"`) |
+| `video_country` | Country of origin name (e.g. `"United States"`) |
+| `video_genres` | List of genre names |
+| `video_popularity` | TheTVDB popularity score (NOT a 0-10 user rating) |
+| `video_poster` | Poster image URL |
+| `series_network` | Originating network |
+| `series_first_air_date` | Premiere date as `time.Time` |
 | `tvdb_id` | TheTVDB series ID |
-| `tvdb_year` | Premiere year (if known) |
+| `tvdb_slug` | TheTVDB slug (e.g. `"breaking-bad"`) |
+| `tvdb_year` | Premiere year as the raw string TheTVDB returned (for back-compat) |
 
 ## Example — dynamic title source for the series filter
 
@@ -45,5 +62,5 @@ pipeline("tv-favorites", schedule="1h")
 |----------|-------|
 | Role | `source` |
 | Produces | `title`, `media_type` (= `"series"` — TVDB only catalogs TV), `source`, `tvdb_id` |
-| MayProduce | `tvdb_year` |
+| MayProduce | `enriched`, `description`, `video_year`, `video_language`, `video_country`, `video_genres`, `video_popularity`, `video_poster`, `series_network`, `series_first_air_date`, `tvdb_year`, `tvdb_slug` |
 | Requires | — |

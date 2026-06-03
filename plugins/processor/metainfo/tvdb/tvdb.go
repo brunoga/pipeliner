@@ -33,7 +33,7 @@ var reTrailingYearBare = regexp.MustCompile(`^(.*\S)\s+((?:19|20)\d{2})$`)
 func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "metainfo_tvdb",
-		Description: "enrich series entries with TheTVDB metadata (title, air date, overview)",
+		Description: "enrich series entries with TheTVDB metadata (title, air date, overview, popularity)",
 		Role:        plugin.RoleProcessor,
 		MayProduce: []string{
 			entry.FieldEnriched,
@@ -45,8 +45,7 @@ func init() {
 			entry.FieldVideoOriginalTitle,
 			entry.FieldVideoCountry,
 			entry.FieldVideoGenres,
-			entry.FieldVideoRating,
-			entry.FieldVideoVotes,
+			entry.FieldVideoPopularity,
 			entry.FieldVideoPoster,
 			entry.FieldVideoCast,
 			entry.FieldVideoContentRating,
@@ -179,28 +178,33 @@ func (p *tvdbPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 			if lang == "" {
 				lang = s.Language
 			}
-			si.Language = languageName(lang)
+			si.Language = itvdb.LanguageName(lang)
 			country := ext.OriginalCountry
 			if country == "" {
 				country = s.Country
 			}
-			si.Country = countryName(country)
-			if t := parseDate(ext.FirstAired); !t.IsZero() {
+			si.Country = itvdb.CountryName(country)
+			if t := itvdb.ParseDate(ext.FirstAired); !t.IsZero() {
 				si.FirstAirDate = t
 				si.PublishedDate = ext.FirstAired
-			} else if t := parseDate(s.FirstAired); !t.IsZero() {
+			} else if t := itvdb.ParseDate(s.FirstAired); !t.IsZero() {
 				si.FirstAirDate = t
 				si.PublishedDate = s.FirstAired
 			}
-			si.Rating = ext.Score
-			if si.Rating == 0 {
-				si.Rating = s.Score
+			// TVDB Score is a popularity ranking, not a 0-10 user rating. The
+			// search result's Score is the same scale; the extended record's is
+			// preferred when present. Routed to video_popularity (not video_rating)
+			// so accept= rules like `video_rating >= 7` keep their TMDb/Trakt
+			// semantics when an entry passes through metainfo_tvdb.
+			si.Popularity = ext.Score
+			if si.Popularity == 0 {
+				si.Popularity = s.Score
 			}
 			si.Status = ext.Status.Name
 			si.Trailers = ext.TrailerURLs()
 			si.ContentRating = ext.ContentRatingName()
-			si.LastAirDate = parseDate(ext.LastAired)
-			si.NextAirDate = parseDate(ext.NextAired)
+			si.LastAirDate = itvdb.ParseDate(ext.LastAired)
+			si.NextAirDate = itvdb.ParseDate(ext.NextAired)
 			si.Aliases = ext.AliasNames()
 			si.Cast = ext.ActorNames()
 			if name := ext.OriginalName(lang); name != "" && name != ext.Name && name != s.Name {
@@ -213,10 +217,10 @@ func (p *tvdbPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 			si.Poster = s.ImageURL
 			si.Genres = s.Genres
 			si.Network = s.Network
-			si.Language = languageName(s.Language)
-			si.Country = countryName(s.Country)
-			si.Rating = s.Score
-			if t := parseDate(s.FirstAired); !t.IsZero() {
+			si.Language = itvdb.LanguageName(s.Language)
+			si.Country = itvdb.CountryName(s.Country)
+			si.Popularity = s.Score
+			if t := itvdb.ParseDate(s.FirstAired); !t.IsZero() {
 				si.FirstAirDate = t
 				si.PublishedDate = s.FirstAired
 			}
@@ -250,7 +254,7 @@ func (p *tvdbPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 				e.Set("tvdb_episode_id", ep2.ID) // TVDB internal numeric episode ID
 				si.EpisodeTitle = ep2.Name
 				si.EpisodeDescription = ep2.Overview
-				si.EpisodeAirDate = parseDate(ep2.AirDate)
+				si.EpisodeAirDate = itvdb.ParseDate(ep2.AirDate)
 				si.Runtime = ep2.Runtime
 				si.EpisodeImage = ep2.Image
 				break
@@ -429,121 +433,5 @@ func (p *tvdbPlugin) fetchExtended(ctx context.Context, tc *plugin.TaskContext, 
 	return ext, nil
 }
 
-// languageName maps ISO 639-2 three-letter codes to English display names.
-// Falls back to the original code when not found.
-func languageName(code string) string {
-	if name, ok := iso639[code]; ok {
-		return name
-	}
-	return code
-}
-
-var iso639 = map[string]string{
-	"ara": "Arabic",
-	"bul": "Bulgarian",
-	"ces": "Czech",
-	"chi": "Chinese",
-	"zho": "Chinese",
-	"hrv": "Croatian",
-	"dan": "Danish",
-	"nld": "Dutch",
-	"eng": "English",
-	"fin": "Finnish",
-	"fra": "French",
-	"deu": "German",
-	"ger": "German",
-	"ell": "Greek",
-	"heb": "Hebrew",
-	"hin": "Hindi",
-	"hun": "Hungarian",
-	"ind": "Indonesian",
-	"ita": "Italian",
-	"jpn": "Japanese",
-	"kor": "Korean",
-	"msa": "Malay",
-	"nor": "Norwegian",
-	"pol": "Polish",
-	"por": "Portuguese",
-	"ron": "Romanian",
-	"rum": "Romanian",
-	"rus": "Russian",
-	"slk": "Slovak",
-	"slo": "Slovak",
-	"spa": "Spanish",
-	"swe": "Swedish",
-	"tha": "Thai",
-	"tur": "Turkish",
-	"ukr": "Ukrainian",
-	"vie": "Vietnamese",
-}
-
-// countryName maps ISO 3166-1 alpha-3 lowercase codes to English display names.
-// Covers the most common TV-producing countries; falls back to the original
-// code for anything not in the table.
-func countryName(code string) string {
-	if name, ok := iso3166[code]; ok {
-		return name
-	}
-	return code
-}
-
-var iso3166 = map[string]string{
-	"arg": "Argentina",
-	"aus": "Australia",
-	"aut": "Austria",
-	"bel": "Belgium",
-	"bra": "Brazil",
-	"can": "Canada",
-	"chl": "Chile",
-	"chn": "China",
-	"col": "Colombia",
-	"cze": "Czech Republic",
-	"dnk": "Denmark",
-	"fin": "Finland",
-	"fra": "France",
-	"deu": "Germany",
-	"hkg": "Hong Kong",
-	"hun": "Hungary",
-	"ind": "India",
-	"idn": "Indonesia",
-	"irl": "Ireland",
-	"isr": "Israel",
-	"ita": "Italy",
-	"jpn": "Japan",
-	"kor": "South Korea",
-	"mex": "Mexico",
-	"nld": "Netherlands",
-	"nzl": "New Zealand",
-	"nor": "Norway",
-	"pol": "Poland",
-	"prt": "Portugal",
-	"rus": "Russia",
-	"zaf": "South Africa",
-	"esp": "Spain",
-	"swe": "Sweden",
-	"che": "Switzerland",
-	"twn": "Taiwan",
-	"tha": "Thailand",
-	"tur": "Turkey",
-	"gbr": "United Kingdom",
-	"usa": "United States",
-}
-
-// parseDate parses a date string returned by the TVDB API.
-// The format varies: ISO-8601 with time ("2008-01-20T05:00:00.000Z") or
-// plain date ("2008-01-20"). Returns zero time on failure or empty input.
-func parseDate(s string) time.Time {
-	if s == "" {
-		return time.Time{}
-	}
-	for _, layout := range []string{
-		"2006-01-02T15:04:05.000Z",
-		"2006-01-02T15:04:05Z",
-		"2006-01-02",
-	} {
-		if t, err := time.Parse(layout, s); err == nil {
-			return t.UTC()
-		}
-	}
-	return time.Time{}
-}
+// Date and code-name helpers (LanguageName, CountryName, ParseDate) live in
+// internal/tvdb so both this plugin and the tvdb_favorites source can share them.

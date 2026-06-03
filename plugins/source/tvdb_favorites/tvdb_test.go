@@ -118,6 +118,71 @@ func TestRunReturnsEntries(t *testing.T) {
 	}
 }
 
+func TestEnrichesFromSeriesResponse(t *testing.T) {
+	// Verify TVDB favorites surface the same standard VideoInfo/SeriesInfo
+	// fields that metainfo_tvdb would otherwise populate from a fresh search.
+	// Score is a popularity ranking per the TVDB API, so it goes to
+	// video_popularity (not video_rating).
+	srv := makeTVDBServer(t, []int{1}, []itvdb.Series{
+		{
+			ID: "1", Name: "Severance", Slug: "severance",
+			Overview:   "An employee discovers a disturbing truth.",
+			Genres:     []string{"Drama", "Sci-Fi"},
+			Network:    "Apple TV+",
+			Language:   "eng",
+			Country:    "usa",
+			ImageURL:   "https://example.com/poster.jpg",
+			FirstAired: "2022-02-18",
+			Score:      12345.6,
+		},
+	})
+
+	p, err := newPlugin(map[string]any{"api_key": "key", "user_pin": "pin"}, nil)
+	if err != nil {
+		t.Fatalf("newPlugin: %v", err)
+	}
+	p.(*tvdbSourcePlugin).client.BaseURL = srv.URL
+
+	entries, err := p.(*tvdbSourcePlugin).Generate(context.Background(), makeCtx())
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("want 1 entry, got %d", len(entries))
+	}
+	e := entries[0]
+
+	checks := []struct {
+		field string
+		want  any
+	}{
+		{entry.FieldEnriched, true},
+		{entry.FieldTitle, "Severance"},
+		{entry.FieldDescription, "An employee discovers a disturbing truth."},
+		{entry.FieldVideoLanguage, "English"},
+		{entry.FieldVideoCountry, "United States"},
+		{entry.FieldVideoPoster, "https://example.com/poster.jpg"},
+		{entry.FieldSeriesNetwork, "Apple TV+"},
+		{entry.FieldVideoYear, 2022},
+		{entry.FieldVideoPopularity, 12345.6},
+	}
+	for _, c := range checks {
+		got, _ := e.Get(c.field)
+		if got != c.want {
+			t.Errorf("%s: got %v, want %v", c.field, got, c.want)
+		}
+	}
+	if v, _ := e.Get(entry.FieldVideoRating); v != nil {
+		t.Errorf("%s: should not be set by tvdb_favorites (got %v)", entry.FieldVideoRating, v)
+	}
+	if v, _ := e.Get(entry.FieldVideoGenres); fmt.Sprint(v) != "[Drama Sci-Fi]" {
+		t.Errorf("%s: got %v", entry.FieldVideoGenres, v)
+	}
+	if v, _ := e.Get("tvdb_slug"); v != "severance" {
+		t.Errorf("tvdb_slug: got %v", v)
+	}
+}
+
 func TestRunSkipsMissingShows(t *testing.T) {
 	// Favorites list includes ID 99 which the server doesn't know about.
 	srv := makeTVDBServer(t, []int{1, 99}, []itvdb.Series{
