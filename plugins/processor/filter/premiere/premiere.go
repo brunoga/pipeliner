@@ -78,12 +78,12 @@ func validate(cfg map[string]any) []error {
 		}
 	}
 	if v, ok := cfg["episode"]; ok {
-		if n := intVal(v, -1); n < 0 {
+		if n := plugin.IntVal(v, -1); n < 0 {
 			errs = append(errs, fmt.Errorf("premiere: \"episode\" must be a non-negative integer"))
 		}
 	}
 	if v, ok := cfg["season"]; ok {
-		if n := intVal(v, -1); n < 0 {
+		if n := plugin.IntVal(v, -1); n < 0 {
 			errs = append(errs, fmt.Errorf("premiere: \"season\" must be a non-negative integer"))
 		}
 	}
@@ -100,8 +100,8 @@ type premierePlugin struct {
 }
 
 func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
-	episode := intVal(cfg["episode"], 1)
-	season := intVal(cfg["season"], 1)
+	episode := plugin.IntVal(cfg["episode"], 1)
+	season := plugin.IntVal(cfg["season"], 1)
 
 	var spec quality.Spec
 	if q, _ := cfg["quality"].(string); q != "" {
@@ -112,10 +112,7 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 		spec = s
 	}
 
-	rejectUnmatched := true
-	if v, ok := cfg["reject_unmatched"]; ok {
-		rejectUnmatched, _ = v.(bool)
-	}
+	rejectUnmatched := plugin.OptBool(cfg, "reject_unmatched", true)
 
 	return &premierePlugin{
 		episode:         episode,
@@ -217,18 +214,6 @@ func (p *premierePlugin) persist(_ context.Context, _ *plugin.TaskContext, entri
 		}
 	}
 	return nil
-}
-
-func intVal(v any, def int) int {
-	switch t := v.(type) {
-	case int:
-		return t
-	case float64:
-		return int(t)
-	case int64:
-		return int(t)
-	}
-	return def
 }
 
 func (p *premierePlugin) Process(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {

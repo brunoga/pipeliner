@@ -86,7 +86,7 @@ type moviesPlugin struct {
 }
 
 func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
-	raw := toStringSlice(cfg["static"])
+	raw := plugin.ToStringSlice(cfg["static"])
 	staticTitles := make([]match.TitleEntry, len(raw))
 	for i, s := range raw {
 		staticTitles[i] = match.NewTitleEntry(s, 0) // static titles have no year
@@ -120,10 +120,7 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 		spec = s
 	}
 
-	rejectUnmatched := true
-	if v, ok := cfg["reject_unmatched"]; ok {
-		rejectUnmatched, _ = v.(bool)
-	}
+	rejectUnmatched := plugin.OptBool(cfg, "reject_unmatched", true)
 
 	return &moviesPlugin{
 		staticTitles:    staticTitles,
@@ -266,24 +263,6 @@ func matchTitle(parsed string, year int, titles []match.TitleEntry) (string, boo
 		}
 	}
 	return "", false
-}
-
-func toStringSlice(v any) []string {
-	switch t := v.(type) {
-	case string:
-		return []string{t}
-	case []string:
-		return t
-	case []any:
-		out := make([]string, 0, len(t))
-		for _, item := range t {
-			if s, ok := item.(string); ok {
-				out = append(out, s)
-			}
-		}
-		return out
-	}
-	return nil
 }
 
 func (p *moviesPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
