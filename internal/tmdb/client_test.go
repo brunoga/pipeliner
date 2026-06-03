@@ -19,7 +19,7 @@ func TestSearchMovie(t *testing.T) {
 			http.Error(w, "bad key", http.StatusUnauthorized)
 			return
 		}
-		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+		json.NewEncoder(w).Encode(map[string]any{
 			"results": []map[string]any{
 				{"id": 27205, "title": "Inception", "release_date": "2010-07-16", "popularity": 99.5},
 			},
@@ -55,7 +55,7 @@ func TestGetMovie(t *testing.T) {
 			return
 		}
 		gotQuery = r.URL.RawQuery
-		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+		json.NewEncoder(w).Encode(map[string]any{
 			"id":                27205,
 			"title":             "Inception",
 			"release_date":      "2010-07-16",

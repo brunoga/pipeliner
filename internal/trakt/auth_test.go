@@ -112,7 +112,7 @@ func TestGetValidAccessTokenRefreshesExpiring(t *testing.T) {
 
 	// Mock refresh endpoint.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+		json.NewEncoder(w).Encode(map[string]any{
 			"access_token":  "new-acc",
 			"refresh_token": "new-ref",
 			"expires_in":    7776000,

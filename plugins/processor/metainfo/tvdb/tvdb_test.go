@@ -25,11 +25,11 @@ func makeServer() *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/v4/login":
-			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			json.NewEncoder(w).Encode(map[string]any{
 				"data": map[string]string{"token": "jwt"}, "status": "success",
 			})
 		case "/v4/search":
-			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			json.NewEncoder(w).Encode(map[string]any{
 				"data": []map[string]any{
 					{
 						"tvdb_id":          "81189",
@@ -44,7 +44,7 @@ func makeServer() *httptest.Server {
 				"status": "success",
 			})
 		case "/v4/series/81189/extended":
-			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			json.NewEncoder(w).Encode(map[string]any{
 				"data": map[string]any{
 					"name":             "Breaking Bad",
 					"slug":             "breaking-bad",
@@ -65,7 +65,7 @@ func makeServer() *httptest.Server {
 				"status": "success",
 			})
 		case "/v4/series/81189/episodes/official":
-			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			json.NewEncoder(w).Encode(map[string]any{
 				"data": map[string]any{
 					"episodes": []map[string]any{
 						{"id": 111, "seasonNumber": 1, "number": 1, "name": "Pilot", "aired": "2008-01-20", "runtime": 47, "image": "https://artworks.thetvdb.com/banners/episodes/81189/1.jpg"},
@@ -86,18 +86,18 @@ func makeServerSparseSearch() *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/v4/login":
-			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			json.NewEncoder(w).Encode(map[string]any{
 				"data": map[string]string{"token": "jwt"}, "status": "success",
 			})
 		case "/v4/search":
-			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			json.NewEncoder(w).Encode(map[string]any{
 				"data": []map[string]any{
 					{"tvdb_id": "81189", "name": "Breaking Bad", "year": "2008", "slug": "breaking-bad"},
 				},
 				"status": "success",
 			})
 		case "/v4/series/81189/extended":
-			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			json.NewEncoder(w).Encode(map[string]any{
 				"data": map[string]any{
 					"name":             "Breaking Bad",
 					"originalLanguage": "eng",
@@ -143,11 +143,11 @@ func makeServerNoResults() *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/v4/login":
-			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			json.NewEncoder(w).Encode(map[string]any{
 				"data": map[string]string{"token": "jwt"}, "status": "success",
 			})
 		case "/v4/search":
-			json.NewEncoder(w).Encode(map[string]any{"data": []any{}, "status": "success"}) //nolint:errcheck
+			json.NewEncoder(w).Encode(map[string]any{"data": []any{}, "status": "success"})
 		default:
 			http.NotFound(w, r)
 		}
@@ -344,17 +344,17 @@ func makeServerYearStrip() *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/v4/login":
-			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			json.NewEncoder(w).Encode(map[string]any{
 				"data": map[string]string{"token": "jwt"}, "status": "success",
 			})
 		case "/v4/search":
 			q := r.URL.Query().Get("query")
 			if q == "Dark 2017" {
 				// Full name with year — return empty.
-				json.NewEncoder(w).Encode(map[string]any{"data": []any{}, "status": "success"}) //nolint:errcheck
+				json.NewEncoder(w).Encode(map[string]any{"data": []any{}, "status": "success"})
 			} else {
 				// Stripped name — return a result.
-				json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+				json.NewEncoder(w).Encode(map[string]any{
 					"data": []map[string]any{
 						{"tvdb_id": "322190", "name": "Dark", "year": "2017", "slug": "dark"},
 					},
@@ -362,7 +362,7 @@ func makeServerYearStrip() *httptest.Server {
 				})
 			}
 		case "/v4/series/322190/extended":
-			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			json.NewEncoder(w).Encode(map[string]any{
 				"data": map[string]any{"originalLanguage": "deu", "originalCountry": "deu"},
 				"status": "success",
 			})
@@ -414,11 +414,11 @@ func makeServerForeignShow() *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/v4/login":
-			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			json.NewEncoder(w).Encode(map[string]any{
 				"data": map[string]string{"token": "jwt"}, "status": "success",
 			})
 		case "/v4/search":
-			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			json.NewEncoder(w).Encode(map[string]any{
 				"data": []map[string]any{
 					{
 						"tvdb_id":          "355774",
@@ -431,7 +431,7 @@ func makeServerForeignShow() *httptest.Server {
 				"status": "success",
 			})
 		case "/v4/series/355774/extended":
-			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			json.NewEncoder(w).Encode(map[string]any{
 				"data": map[string]any{
 					"originalLanguage": "spa",
 					"originalCountry":  "esp",
@@ -487,12 +487,12 @@ func TestEmptySearchNotCached(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/v4/login":
-			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			json.NewEncoder(w).Encode(map[string]any{
 				"data": map[string]string{"token": "jwt"}, "status": "success",
 			})
 		case "/v4/search":
 			callCount++
-			json.NewEncoder(w).Encode(map[string]any{"data": []any{}, "status": "success"}) //nolint:errcheck
+			json.NewEncoder(w).Encode(map[string]any{"data": []any{}, "status": "success"})
 		default:
 			http.NotFound(w, r)
 		}
@@ -501,8 +501,8 @@ func TestEmptySearchNotCached(t *testing.T) {
 
 	p := makePlugin(t, srv)
 	e := entry.New("Breaking.Bad.S01E01.720p.HDTV", "http://x.com/a")
-	p.annotate(context.Background(), makeCtx(), e) //nolint:errcheck
-	p.annotate(context.Background(), makeCtx(), e) //nolint:errcheck
+	p.annotate(context.Background(), makeCtx(), e)
+	p.annotate(context.Background(), makeCtx(), e)
 
 	if callCount < 2 {
 		t.Errorf("empty search result should not be cached; API called %d times, want ≥2", callCount)

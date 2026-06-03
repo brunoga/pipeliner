@@ -15,7 +15,7 @@ func TestWriteCreatesFile(t *testing.T) {
 	path := filepath.Join(dir, "pipeliner.log")
 
 	w := &Writer{Path: path, MaxBytes: 1 << 20, MaxArchives: 3}
-	defer w.Close() //nolint:errcheck
+	defer w.Close()
 
 	if _, err := w.Write([]byte("hello\n")); err != nil {
 		t.Fatalf("write: %v", err)
@@ -39,7 +39,7 @@ func TestRotation(t *testing.T) {
 
 	// MaxBytes=10 so each 6-byte write rotates after the first one.
 	w := &Writer{Path: path, MaxBytes: 10, MaxArchives: 3}
-	defer w.Close() //nolint:errcheck
+	defer w.Close()
 
 	writes := []string{"aaaaa\n", "bbbbb\n", "ccccc\n", "ddddd\n"}
 	for _, s := range writes {
@@ -73,7 +73,7 @@ func TestMaxArchivesDropsOldest(t *testing.T) {
 	path := filepath.Join(dir, "pipeliner.log")
 
 	w := &Writer{Path: path, MaxBytes: 10, MaxArchives: 2}
-	defer w.Close() //nolint:errcheck
+	defer w.Close()
 
 	for _, s := range []string{"aaaaa\n", "bbbbb\n", "ccccc\n", "ddddd\n"} {
 		if _, err := w.Write([]byte(s)); err != nil {
@@ -103,7 +103,7 @@ func TestReopenPreservesAppend(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 	w := &Writer{Path: path, MaxBytes: 1 << 20, MaxArchives: 3}
-	defer w.Close() //nolint:errcheck
+	defer w.Close()
 
 	if _, err := w.Write([]byte("from-this-run\n")); err != nil {
 		t.Fatalf("write: %v", err)
@@ -124,7 +124,7 @@ func TestConcurrentWrites(t *testing.T) {
 	path := filepath.Join(dir, "pipeliner.log")
 
 	w := &Writer{Path: path, MaxBytes: 1 << 20, MaxArchives: 3}
-	defer w.Close() //nolint:errcheck
+	defer w.Close()
 
 	const (
 		workers = 8

@@ -16,7 +16,7 @@ func TestWebhookSend(t *testing.T) {
 	var received payload
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
-		json.Unmarshal(body, &received) //nolint:errcheck
+		json.Unmarshal(body, &received)
 		if ct := r.Header.Get("Content-Type"); ct != "application/json" {
 			t.Errorf("Content-Type: got %q", ct)
 		}

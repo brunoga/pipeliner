@@ -37,7 +37,7 @@ func (m *mockSMTP) serve() {
 	defer conn.Close()
 	w := bufio.NewWriter(conn)
 	r := bufio.NewReader(conn)
-	send := func(s string) { w.WriteString(s + "\r\n"); w.Flush() } //nolint:errcheck
+	send := func(s string) { w.WriteString(s + "\r\n"); w.Flush() }
 
 	send("220 mock SMTP ready")
 	var body strings.Builder

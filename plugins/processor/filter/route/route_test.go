@@ -68,7 +68,7 @@ func TestRouteFallsToSecondPort(t *testing.T) {
 	e := entry.New("Inception.2010.1080p.BluRay", "http://example.com/2")
 	// no series_episode_id set
 
-	p.Process(context.Background(), tc(), []*entry.Entry{e}) //nolint:errcheck
+	p.Process(context.Background(), tc(), []*entry.Entry{e})
 	if !e.IsAccepted() {
 		t.Error("fallback port should accept the entry")
 	}
@@ -85,7 +85,7 @@ func TestRouteRejectsUnmatched(t *testing.T) {
 
 	e := entry.New("Inception.2010.1080p.BluRay", "http://example.com/3")
 
-	p.Process(context.Background(), tc(), []*entry.Entry{e}) //nolint:errcheck
+	p.Process(context.Background(), tc(), []*entry.Entry{e})
 	if !e.IsRejected() {
 		t.Error("unmatched entry should be rejected")
 	}
@@ -101,7 +101,7 @@ func TestSelectorPassesMatchingPort(t *testing.T) {
 	e.Set(entry.FieldRoutePort, "series")
 	e.Accept()
 
-	sel.Process(context.Background(), tc(), []*entry.Entry{e}) //nolint:errcheck
+	sel.Process(context.Background(), tc(), []*entry.Entry{e})
 	if !e.IsAccepted() {
 		t.Error("matching port entry should remain accepted")
 	}

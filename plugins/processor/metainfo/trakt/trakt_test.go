@@ -65,7 +65,7 @@ func mockServer(t *testing.T, body []byte) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(body) //nolint:errcheck
+		w.Write(body)
 	}))
 }
 
@@ -243,15 +243,15 @@ func TestEmptyResultNotCached(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount++
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte("[]")) //nolint:errcheck
+		w.Write([]byte("[]"))
 	}))
 	defer srv.Close()
 	itrakt.BaseURL = srv.URL
 
 	p := makePlugin(t, map[string]any{"client_id": "key", "type": "shows"})
 	e := entry.New("Breaking.Bad.S01E01.720p.HDTV", "http://x.com/a")
-	p.annotate(context.Background(), tc(), e) //nolint:errcheck
-	p.annotate(context.Background(), tc(), e) //nolint:errcheck
+	p.annotate(context.Background(), tc(), e)
+	p.annotate(context.Background(), tc(), e)
 
 	if callCount < 2 {
 		t.Errorf("empty result should not be cached; API called %d times, want ≥2", callCount)

@@ -30,7 +30,7 @@ func serveFile(t *testing.T, path string) *httptest.Server {
 	}
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/xml")
-		w.Write(data) //nolint:errcheck
+		w.Write(data)
 	}))
 }
 
@@ -38,7 +38,7 @@ func serveXML(t *testing.T, body string) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/rss+xml")
-		fmt.Fprint(w, body) //nolint:errcheck
+		fmt.Fprint(w, body)
 	}))
 }
 
@@ -362,7 +362,7 @@ func TestHTTPRecoversAfterTransient(t *testing.T) {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}
-		fmt.Fprint(w, `<?xml version="1.0"?><rss version="2.0"><channel><item><title>OK</title><link>http://example.com/1</link></item></channel></rss>`) //nolint:errcheck
+		fmt.Fprint(w, `<?xml version="1.0"?><rss version="2.0"><channel><item><title>OK</title><link>http://example.com/1</link></item></channel></rss>`)
 	}))
 	defer srv.Close()
 
@@ -380,12 +380,12 @@ func TestAcceptHeader(t *testing.T) {
 	var gotAccept string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotAccept = r.Header.Get("Accept")
-		fmt.Fprint(w, `<?xml version="1.0"?><rss version="2.0"><channel></channel></rss>`) //nolint:errcheck
+		fmt.Fprint(w, `<?xml version="1.0"?><rss version="2.0"><channel></channel></rss>`)
 	}))
 	defer srv.Close()
 
 	p := makeFixedPlugin(t, srv.URL)
-	p.Generate(context.Background(), makeCtx()) //nolint:errcheck
+	p.Generate(context.Background(), makeCtx())
 	if !strings.Contains(gotAccept, "rss+xml") {
 		t.Errorf("Accept header missing rss+xml: %q", gotAccept)
 	}
@@ -429,7 +429,7 @@ func TestSearchModeURLRendered(t *testing.T) {
 	var receivedQuery string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		receivedQuery = r.URL.Query().Get("q")
-		fmt.Fprint(w, `<?xml version="1.0"?><rss version="2.0"><channel></channel></rss>`) //nolint:errcheck
+		fmt.Fprint(w, `<?xml version="1.0"?><rss version="2.0"><channel></channel></rss>`)
 	}))
 	defer srv.Close()
 
@@ -445,7 +445,7 @@ func TestSearchModeURLRendered(t *testing.T) {
 
 func TestSearchModeSourceField(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `<?xml version="1.0"?><rss version="2.0"><channel><item><title>T</title><link>http://x.com/1</link></item></channel></rss>`) //nolint:errcheck
+		fmt.Fprint(w, `<?xml version="1.0"?><rss version="2.0"><channel><item><title>T</title><link>http://x.com/1</link></item></channel></rss>`)
 	}))
 	defer srv.Close()
 
@@ -466,7 +466,7 @@ func TestSearchModeRSSFeedIsRenderedURL(t *testing.T) {
 	var gotPath string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.RequestURI()
-		fmt.Fprint(w, `<?xml version="1.0"?><rss version="2.0"><channel><item><title>T</title><link>http://x.com/1</link></item></channel></rss>`) //nolint:errcheck
+		fmt.Fprint(w, `<?xml version="1.0"?><rss version="2.0"><channel><item><title>T</title><link>http://x.com/1</link></item></channel></rss>`)
 	}))
 	defer srv.Close()
 
@@ -631,12 +631,12 @@ func TestGenerateEmptyQuery(t *testing.T) {
 	var gotQuery string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotQuery = r.URL.Query().Get("q")
-		fmt.Fprint(w, `<?xml version="1.0"?><rss version="2.0"><channel></channel></rss>`) //nolint:errcheck
+		fmt.Fprint(w, `<?xml version="1.0"?><rss version="2.0"><channel></channel></rss>`)
 	}))
 	defer srv.Close()
 
 	p := makeSearchPlugin(t, srv.URL+"/search?q={{.QueryEscaped}}")
-	p.Generate(context.Background(), makeCtx()) //nolint:errcheck
+	p.Generate(context.Background(), makeCtx())
 	if gotQuery != "" {
 		t.Errorf("Generate should use empty query, got %q", gotQuery)
 	}

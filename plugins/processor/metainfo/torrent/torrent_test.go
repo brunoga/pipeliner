@@ -124,7 +124,7 @@ func TestAnnotateRemoteURL(t *testing.T) {
 	torrentData := makeTorrent("remote.mkv", 500_000_000)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/x-bittorrent")
-		w.Write(torrentData) //nolint:errcheck
+		w.Write(torrentData)
 	}))
 	defer srv.Close()
 
@@ -199,7 +199,7 @@ func TestAnnotateEnclosureType(t *testing.T) {
 	torrentData := makeTorrent("show.s01e01.mkv", 1_000_000_000)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/x-bittorrent")
-		w.Write(torrentData) //nolint:errcheck
+		w.Write(torrentData)
 	}))
 	defer srv.Close()
 
@@ -221,7 +221,7 @@ func TestAnnotateTorrentLinkType(t *testing.T) {
 	torrentData := makeTorrent("movie.2025.mkv", 5_000_000_000)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/x-bittorrent")
-		w.Write(torrentData) //nolint:errcheck
+		w.Write(torrentData)
 	}))
 	defer srv.Close()
 

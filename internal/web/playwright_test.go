@@ -135,12 +135,12 @@ func pwSetup(t *testing.T) (playwright.Browser, func()) {
 		Headless: playwright.Bool(true),
 	})
 	if err != nil {
-		pw.Stop() //nolint:errcheck
+		pw.Stop()
 		t.Skipf("chromium not available: %v", err)
 	}
 	return browser, func() {
-		browser.Close() //nolint:errcheck
-		pw.Stop()       //nolint:errcheck
+		browser.Close()
+		pw.Stop()
 	}
 }
 
@@ -193,7 +193,7 @@ func TestE2ELoginAndDashboard(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new page: %v", err)
 	}
-	defer page.Close() //nolint:errcheck
+	defer page.Close()
 
 	login(t, page, ts.url)
 
@@ -218,7 +218,7 @@ func TestE2EConfigTabLoadsStarlark(t *testing.T) {
 	defer stop()
 
 	page, _ := browser.NewPage()
-	defer page.Close() //nolint:errcheck
+	defer page.Close()
 
 	login(t, page, ts.url)
 	openConfigTab(t, page)
@@ -238,7 +238,7 @@ func TestE2EVisualToggleShowsPalette(t *testing.T) {
 	defer stop()
 
 	page, _ := browser.NewPage()
-	defer page.Close() //nolint:errcheck
+	defer page.Close()
 
 	login(t, page, ts.url)
 	openConfigTab(t, page)
@@ -297,7 +297,7 @@ func TestE2EVisualAddPluginFromPalette(t *testing.T) {
 	defer stop()
 
 	page, _ := browser.NewPage()
-	defer page.Close() //nolint:errcheck
+	defer page.Close()
 
 	login(t, page, ts.url)
 	openConfigTab(t, page)
@@ -318,13 +318,13 @@ func TestE2EVisualToTextSync(t *testing.T) {
 	defer stop()
 
 	page, _ := browser.NewPage()
-	defer page.Close() //nolint:errcheck
+	defer page.Close()
 
 	login(t, page, ts.url)
 	openConfigTab(t, page)
 
 	addFirstPipelineThenChip(t, page)
-	page.Locator(".ve-node").First().WaitFor() //nolint:errcheck
+	page.Locator(".ve-node").First().WaitFor()
 
 	// Switch back to text view and verify the editor has content.
 	if err := page.Locator("#view-btn-text").Click(); err != nil {
@@ -345,18 +345,18 @@ func TestE2ETextToVisualSync(t *testing.T) {
 	defer stop()
 
 	page, _ := browser.NewPage()
-	defer page.Close() //nolint:errcheck
+	defer page.Close()
 
 	login(t, page, ts.url)
 	openConfigTab(t, page)
 
 	// Switch to text view, fill, then switch to visual to trigger parse.
-	page.Locator("#view-btn-text").Click() //nolint:errcheck
+	page.Locator("#view-btn-text").Click()
 	starlark := fmt.Sprintf("src = input(\"rss\", url=%q)\npipeline(\"my-pipeline\")", "https://example.com")
 	if err := page.Locator("#config-editor").Fill(starlark); err != nil {
 		t.Fatalf("fill editor: %v", err)
 	}
-	page.Locator("#view-btn-visual").Click() //nolint:errcheck
+	page.Locator("#view-btn-visual").Click()
 
 	// An rss node card should appear in the canvas.
 	if err := page.Locator(`.ve-node-name:has-text("rss")`).WaitFor(playwright.LocatorWaitForOptions{
@@ -379,14 +379,14 @@ func TestE2EValidateConfig(t *testing.T) {
 	defer stop()
 
 	page, _ := browser.NewPage()
-	defer page.Close() //nolint:errcheck
+	defer page.Close()
 
 	login(t, page, ts.url)
 	openConfigTab(t, page)
 
 	// Put valid DAG Starlark in the editor.
-	page.Locator("#view-btn-text").Click()                                                                          //nolint:errcheck
-	page.Locator("#config-editor").Fill("src = input(\"rss\", url=\"https://example.com\")\npipeline(\"p\")") //nolint:errcheck
+	page.Locator("#view-btn-text").Click()
+	page.Locator("#config-editor").Fill("src = input(\"rss\", url=\"https://example.com\")\npipeline(\"p\")")
 
 	// Click Validate.
 	if err := page.Locator(`button:has-text("Validate")`).Click(); err != nil {
@@ -407,11 +407,11 @@ func TestE2EValidateConfig(t *testing.T) {
 func switchToVisual(t *testing.T, page playwright.Page, starlark string) {
 	t.Helper()
 	// Switch to text view first so the editor is visible and fillable.
-	page.Locator("#view-btn-text").Click() //nolint:errcheck
+	page.Locator("#view-btn-text").Click()
 	if err := page.Locator("#config-editor").Fill(starlark); err != nil {
 		t.Fatalf("fill editor: %v", err)
 	}
-	page.Locator("#view-btn-visual").Click() //nolint:errcheck
+	page.Locator("#view-btn-visual").Click()
 	if err := page.Locator(".ve-node").First().WaitFor(playwright.LocatorWaitForOptions{
 		State: playwright.WaitForSelectorStateVisible,
 	}); err != nil {
@@ -422,7 +422,7 @@ func switchToVisual(t *testing.T, page playwright.Page, starlark string) {
 // editorContent returns the current text in the config editor textarea.
 func editorContent(t *testing.T, page playwright.Page) string {
 	t.Helper()
-	page.Locator("#view-btn-text").Click() //nolint:errcheck
+	page.Locator("#view-btn-text").Click()
 	v, err := page.Locator("#config-editor").InputValue()
 	if err != nil {
 		t.Fatalf("get editor content: %v", err)
@@ -442,7 +442,7 @@ func TestE2ENodeCommentButtonExists(t *testing.T) {
 	defer stop()
 
 	page, _ := browser.NewPage()
-	defer page.Close() //nolint:errcheck
+	defer page.Close()
 
 	login(t, page, ts.url)
 	openConfigTab(t, page)
@@ -465,15 +465,15 @@ func TestE2ENodeCommentOpenModal(t *testing.T) {
 	defer stop()
 
 	page, _ := browser.NewPage()
-	defer page.Close() //nolint:errcheck
+	defer page.Close()
 
 	login(t, page, ts.url)
 	openConfigTab(t, page)
 	switchToVisual(t, page, dagConfig)
 
 	// Hover then click the comment button.
-	page.Locator(".ve-node").First().Hover()             //nolint:errcheck
-	page.Locator(".ve-node-comment-btn").First().Click() //nolint:errcheck
+	page.Locator(".ve-node").First().Hover()
+	page.Locator(".ve-node-comment-btn").First().Click()
 
 	// Modal should appear.
 	if err := page.Locator(".ve-text-popup").WaitFor(playwright.LocatorWaitForOptions{
@@ -493,16 +493,16 @@ func TestE2ENodeCommentSavesToTextEditor(t *testing.T) {
 	defer stop()
 
 	page, _ := browser.NewPage()
-	defer page.Close() //nolint:errcheck
+	defer page.Close()
 
 	login(t, page, ts.url)
 	openConfigTab(t, page)
 	switchToVisual(t, page, dagConfig)
 
 	// Open comment modal on the first node.
-	page.Locator(".ve-node").First().Hover()              //nolint:errcheck
-	page.Locator(".ve-node-comment-btn").First().Click()  //nolint:errcheck
-	page.Locator(".ve-text-popup-ta").WaitFor()   //nolint:errcheck
+	page.Locator(".ve-node").First().Hover()
+	page.Locator(".ve-node-comment-btn").First().Click()
+	page.Locator(".ve-text-popup-ta").WaitFor()
 
 	// Type a comment and save.
 	if err := page.Locator(".ve-text-popup-ta").Fill("My test comment"); err != nil {
@@ -525,7 +525,7 @@ func TestE2EPipelineCommentButtonExists(t *testing.T) {
 	defer stop()
 
 	page, _ := browser.NewPage()
-	defer page.Close() //nolint:errcheck
+	defer page.Close()
 
 	login(t, page, ts.url)
 	openConfigTab(t, page)
@@ -545,20 +545,20 @@ func TestE2EPipelineCommentSavesToTextEditor(t *testing.T) {
 	defer stop()
 
 	page, _ := browser.NewPage()
-	defer page.Close() //nolint:errcheck
+	defer page.Close()
 
 	login(t, page, ts.url)
 	openConfigTab(t, page)
 	switchToVisual(t, page, dagConfig)
 
 	// Open the pipeline comment modal.
-	page.Locator(".ve-pl-comment-btn").Click()   //nolint:errcheck
-	page.Locator(".ve-text-popup-ta").WaitFor()  //nolint:errcheck
+	page.Locator(".ve-pl-comment-btn").Click()
+	page.Locator(".ve-text-popup-ta").WaitFor()
 
 	if err := page.Locator(".ve-text-popup-ta").Fill("Pipeline description"); err != nil {
 		t.Fatalf("fill pipeline comment: %v", err)
 	}
-	page.Locator(".ve-text-popup-save").Click() //nolint:errcheck
+	page.Locator(".ve-text-popup-save").Click()
 
 	content := editorContent(t, page)
 	if !contains(content, "# Pipeline description") {
@@ -572,17 +572,17 @@ func TestE2ECommentModalCancelDoesNotSave(t *testing.T) {
 	defer stop()
 
 	page, _ := browser.NewPage()
-	defer page.Close() //nolint:errcheck
+	defer page.Close()
 
 	login(t, page, ts.url)
 	openConfigTab(t, page)
 	switchToVisual(t, page, dagConfig)
 
-	page.Locator(".ve-node").First().Hover()                              //nolint:errcheck
-	page.Locator(".ve-node-comment-btn").First().Click()                  //nolint:errcheck
-	page.Locator(".ve-text-popup-ta").WaitFor()                   //nolint:errcheck
-	page.Locator(".ve-text-popup-ta").Fill("Should not appear")   //nolint:errcheck
-	page.Locator(".ve-text-popup-cancel").Click()                 //nolint:errcheck
+	page.Locator(".ve-node").First().Hover()
+	page.Locator(".ve-node-comment-btn").First().Click()
+	page.Locator(".ve-text-popup-ta").WaitFor()
+	page.Locator(".ve-text-popup-ta").Fill("Should not appear")
+	page.Locator(".ve-text-popup-cancel").Click()
 
 	// Modal should close.
 	if visible, _ := page.Locator(".ve-text-popup").IsVisible(); visible {
@@ -603,7 +603,7 @@ func TestE2ELayoutCommentAppearsInTextEditor(t *testing.T) {
 	defer stop()
 
 	page, _ := browser.NewPage()
-	defer page.Close() //nolint:errcheck
+	defer page.Close()
 
 	login(t, page, ts.url)
 	openConfigTab(t, page)
@@ -622,7 +622,7 @@ func TestE2ELayoutRoundTripPreservesNodes(t *testing.T) {
 	defer stop()
 
 	page, _ := browser.NewPage()
-	defer page.Close() //nolint:errcheck
+	defer page.Close()
 
 	login(t, page, ts.url)
 	openConfigTab(t, page)
@@ -636,11 +636,11 @@ flt_1 = process("seen", upstream=src_0)
 
 pipeline("tv")`
 
-	page.Locator("#view-btn-text").Click() //nolint:errcheck
+	page.Locator("#view-btn-text").Click()
 	if err := page.Locator("#config-editor").Fill(configWithLayout); err != nil {
 		t.Fatalf("fill editor: %v", err)
 	}
-	page.Locator("#view-btn-visual").Click() //nolint:errcheck
+	page.Locator("#view-btn-visual").Click()
 
 	// Both nodes should appear.
 	if err := page.Locator(`.ve-node-name:has-text("rss")`).WaitFor(playwright.LocatorWaitForOptions{
@@ -663,7 +663,7 @@ func TestE2EPipelineRegionVisible(t *testing.T) {
 	defer stop()
 
 	page, _ := browser.NewPage()
-	defer page.Close() //nolint:errcheck
+	defer page.Close()
 
 	login(t, page, ts.url)
 	openConfigTab(t, page)
@@ -683,7 +683,7 @@ func TestE2EAddPipelineCreatesNewRegion(t *testing.T) {
 	defer stop()
 
 	page, _ := browser.NewPage()
-	defer page.Close() //nolint:errcheck
+	defer page.Close()
 
 	login(t, page, ts.url)
 	openConfigTab(t, page)
@@ -718,7 +718,7 @@ func TestE2EMultiplePipelinesShowMultipleRegions(t *testing.T) {
 	defer stop()
 
 	page, _ := browser.NewPage()
-	defer page.Close() //nolint:errcheck
+	defer page.Close()
 
 	login(t, page, ts.url)
 	openConfigTab(t, page)
@@ -749,7 +749,7 @@ func TestE2EPipelineBoundariesDistinct(t *testing.T) {
 	defer stop()
 
 	page, _ := browser.NewPage()
-	defer page.Close() //nolint:errcheck
+	defer page.Close()
 
 	login(t, page, ts.url)
 	openConfigTab(t, page)
@@ -780,7 +780,7 @@ func TestE2EViaPortVisibleOnDiscoverNode(t *testing.T) {
 	defer stop()
 
 	page, _ := browser.NewPage()
-	defer page.Close() //nolint:errcheck
+	defer page.Close()
 
 	login(t, page, ts.url)
 	openConfigTab(t, page)
@@ -807,7 +807,7 @@ func TestE2EViaNodeAppearsAfterParseWithVia(t *testing.T) {
 	defer stop()
 
 	page, _ := browser.NewPage()
-	defer page.Close() //nolint:errcheck
+	defer page.Close()
 
 	login(t, page, ts.url)
 	openConfigTab(t, page)
@@ -839,15 +839,15 @@ func TestE2ESearchPluginHasViaBadge(t *testing.T) {
 	defer stop()
 
 	page, _ := browser.NewPage()
-	defer page.Close() //nolint:errcheck
+	defer page.Close()
 
 	login(t, page, ts.url)
 	openConfigTab(t, page)
 
 	// Need a pipeline so the palette is enabled (shows full chips with badges).
-	page.Locator("#view-btn-visual").Click()   //nolint:errcheck
-	page.Locator("#ve-add-pipeline").WaitFor() //nolint:errcheck
-	page.Locator("#ve-add-pipeline").Click()   //nolint:errcheck
+	page.Locator("#view-btn-visual").Click()
+	page.Locator("#ve-add-pipeline").WaitFor()
+	page.Locator("#ve-add-pipeline").Click()
 
 	// At least one palette chip should carry a "search" badge.
 	if err := page.Locator(".ve-chip-search-badge").WaitFor(playwright.LocatorWaitForOptions{
@@ -895,7 +895,7 @@ pipeline("demo", schedule="1h")
 	defer stop()
 
 	page, _ := browser.NewPage()
-	defer page.Close() //nolint:errcheck
+	defer page.Close()
 
 	login(t, page, ts.url)
 	openConfigTab(t, page)
@@ -951,7 +951,7 @@ pipeline("demo")
 	defer stop()
 
 	page, _ := browser.NewPage()
-	defer page.Close() //nolint:errcheck
+	defer page.Close()
 
 	login(t, page, ts.url)
 	openConfigTab(t, page)
@@ -987,7 +987,7 @@ pipeline("torrent-check", schedule="1h")
 	defer stop()
 
 	page, _ := browser.NewPage()
-	defer page.Close() //nolint:errcheck
+	defer page.Close()
 
 	login(t, page, ts.url)
 	openConfigTab(t, page)
@@ -1047,7 +1047,7 @@ pipeline("test")
 	defer stop()
 
 	page, _ := browser.NewPage()
-	defer page.Close() //nolint:errcheck
+	defer page.Close()
 
 	login(t, page, ts.url)
 	openConfigTab(t, page)
@@ -1131,7 +1131,7 @@ func TestPlaywrightListFunctionBadgeAndConnection(t *testing.T) {
 	defer stop()
 
 	page, _ := browser.NewPage()
-	defer page.Close() //nolint:errcheck
+	defer page.Close()
 
 	login(t, page, ts.url)
 	openConfigTab(t, page)
@@ -1193,7 +1193,7 @@ func TestPlaywrightRouteNodeRendersPorts(t *testing.T) {
 	defer stop()
 
 	page, _ := browser.NewPage()
-	defer page.Close() //nolint:errcheck
+	defer page.Close()
 
 	login(t, page, ts.url)
 	openConfigTab(t, page)
@@ -1231,7 +1231,7 @@ func TestPlaywrightRouteNodeParamPanel(t *testing.T) {
 	defer stop()
 
 	page, _ := browser.NewPage()
-	defer page.Close() //nolint:errcheck
+	defer page.Close()
 
 	login(t, page, ts.url)
 	openConfigTab(t, page)
@@ -1267,7 +1267,7 @@ func TestPlaywrightRouteCodegenRoundTrip(t *testing.T) {
 	defer stop()
 
 	page, _ := browser.NewPage()
-	defer page.Close() //nolint:errcheck
+	defer page.Close()
 
 	login(t, page, ts.url)
 	openConfigTab(t, page)
@@ -1306,7 +1306,7 @@ func TestPlaywrightRoutePortsOnCard(t *testing.T) {
 	defer stop()
 
 	page, _ := browser.NewPage()
-	defer page.Close() //nolint:errcheck
+	defer page.Close()
 
 	login(t, page, ts.url)
 	openConfigTab(t, page)
@@ -1384,7 +1384,7 @@ pipeline("test")
 	defer stop()
 
 	page, _ := browser.NewPage()
-	defer page.Close() //nolint:errcheck
+	defer page.Close()
 
 	login(t, page, ts.url)
 	openConfigTab(t, page)
@@ -1468,7 +1468,7 @@ func TestE2EConditionEditorAddRule(t *testing.T) {
 	defer stop()
 
 	page, _ := browser.NewPage()
-	defer page.Close() //nolint:errcheck
+	defer page.Close()
 
 	login(t, page, ts.url)
 	openConfigTab(t, page)
@@ -1511,7 +1511,7 @@ func TestE2EConditionEditorFieldsAvailableSection(t *testing.T) {
 	defer stop()
 
 	page, _ := browser.NewPage()
-	defer page.Close() //nolint:errcheck
+	defer page.Close()
 
 	login(t, page, ts.url)
 	openConfigTab(t, page)
@@ -1558,7 +1558,7 @@ pipeline("test")
 	defer stop()
 
 	page, _ := browser.NewPage()
-	defer page.Close() //nolint:errcheck
+	defer page.Close()
 
 	login(t, page, ts.url)
 	openConfigTab(t, page)
@@ -1593,7 +1593,7 @@ pipeline("test")
 	defer stop()
 
 	page, _ := browser.NewPage()
-	defer page.Close() //nolint:errcheck
+	defer page.Close()
 
 	login(t, page, ts.url)
 	openConfigTab(t, page)
@@ -1626,7 +1626,7 @@ pipeline("test")
 	defer stop()
 
 	page, _ := browser.NewPage()
-	defer page.Close() //nolint:errcheck
+	defer page.Close()
 
 	login(t, page, ts.url)
 	openConfigTab(t, page)
@@ -1669,7 +1669,7 @@ pipeline("test")
 	defer stop()
 
 	page, _ := browser.NewPage()
-	defer page.Close() //nolint:errcheck
+	defer page.Close()
 
 	login(t, page, ts.url)
 	openConfigTab(t, page)
@@ -1717,7 +1717,7 @@ func TestE2EConditionEditorNarrowingPreview(t *testing.T) {
 	defer stop()
 
 	page, _ := browser.NewPage()
-	defer page.Close() //nolint:errcheck
+	defer page.Close()
 
 	login(t, page, ts.url)
 	openConfigTab(t, page)
@@ -1762,7 +1762,7 @@ func TestE2EConditionEditorEdgeTooltip(t *testing.T) {
 	defer stop()
 
 	page, _ := browser.NewPage()
-	defer page.Close() //nolint:errcheck
+	defer page.Close()
 
 	login(t, page, ts.url)
 	openConfigTab(t, page)
@@ -1809,7 +1809,7 @@ func TestE2ESelectingNodeInOtherPipelineActivatesIt(t *testing.T) {
 	defer stop()
 
 	page, _ := browser.NewPage()
-	defer page.Close() //nolint:errcheck
+	defer page.Close()
 
 	login(t, page, ts.url)
 	openConfigTab(t, page)
@@ -1913,7 +1913,7 @@ func TestE2EClickingPipelineLabelDismissesParamPanel(t *testing.T) {
 	defer stop()
 
 	page, _ := browser.NewPage()
-	defer page.Close() //nolint:errcheck
+	defer page.Close()
 
 	login(t, page, ts.url)
 	openConfigTab(t, page)
@@ -2041,7 +2041,7 @@ func TestE2ESingleDragMovesSearchSubNode(t *testing.T) {
 	defer stop()
 
 	page, _ := browser.NewPage()
-	defer page.Close() //nolint:errcheck
+	defer page.Close()
 
 	login(t, page, ts.url)
 	openConfigTab(t, page)
@@ -2086,7 +2086,7 @@ func TestE2EMultiDragMovesSearchSubNode(t *testing.T) {
 	defer stop()
 
 	page, _ := browser.NewPage()
-	defer page.Close() //nolint:errcheck
+	defer page.Close()
 
 	login(t, page, ts.url)
 	openConfigTab(t, page)

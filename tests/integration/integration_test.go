@@ -64,7 +64,7 @@ func rssServer(t *testing.T, items []rssItem) *httptest.Server {
 	body := sb.String()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/rss+xml")
-		fmt.Fprint(w, body) //nolint:errcheck
+		fmt.Fprint(w, body)
 	}))
 }
 

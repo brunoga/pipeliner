@@ -34,18 +34,18 @@ func (m *mockDeluge) handler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		var call rpcCall
-		json.Unmarshal(body, &call) //nolint:errcheck
+		json.Unmarshal(body, &call)
 		m.calls = append(m.calls, call)
 
 		w.Header().Set("Content-Type", "application/json")
 		switch call.Method {
 		case "auth.login":
-			json.NewEncoder(w).Encode(map[string]any{"result": m.loginOK, "error": nil, "id": 1}) //nolint:errcheck
+			json.NewEncoder(w).Encode(map[string]any{"result": m.loginOK, "error": nil, "id": 1})
 		case "core.add_torrent_url", "core.add_torrent_magnet":
 			if m.addError != "" {
-				json.NewEncoder(w).Encode(map[string]any{"result": nil, "error": map[string]any{"message": m.addError}, "id": 1}) //nolint:errcheck
+				json.NewEncoder(w).Encode(map[string]any{"result": nil, "error": map[string]any{"message": m.addError}, "id": 1})
 			} else {
-				json.NewEncoder(w).Encode(map[string]any{"result": "infohash123", "error": nil, "id": 1}) //nolint:errcheck
+				json.NewEncoder(w).Encode(map[string]any{"result": "infohash123", "error": nil, "id": 1})
 			}
 		}
 	}
@@ -174,7 +174,7 @@ func TestSavePathTemplate(t *testing.T) {
 
 	e := entry.New("My Show S01E01", "http://x.com/a.torrent")
 	e.Set("series_name", "My Show")
-	dp.deliver(context.Background(), makeCtx(), []*entry.Entry{e}) //nolint:errcheck
+	dp.deliver(context.Background(), makeCtx(), []*entry.Entry{e})
 
 	// Find the add_torrent_url call and check options.
 	for _, c := range mock.calls {
@@ -231,7 +231,7 @@ func TestTorrentLinkTypeMagnetUsesMagnetRPC(t *testing.T) {
 	magnet := "magnet:?xt=urn:btih:aabbccddeeff00112233445566778899aabbccdd"
 	e := entry.New("movie", magnet)
 	e.Set(entry.FieldTorrentLinkType, "magnet")
-	dp.deliver(context.Background(), makeCtx(), []*entry.Entry{e}) //nolint:errcheck
+	dp.deliver(context.Background(), makeCtx(), []*entry.Entry{e})
 
 	var addCall *rpcCall
 	for i := range mock.calls {
@@ -256,7 +256,7 @@ func TestTorrentLinkTypeTorrentUsesURLRPC(t *testing.T) {
 	dp := newTestPlugin(t, srv, nil)
 	e := entry.New("movie", "https://jackett.host/dl/idx/?key=abc&file=movie")
 	e.Set(entry.FieldTorrentLinkType, "torrent")
-	dp.deliver(context.Background(), makeCtx(), []*entry.Entry{e}) //nolint:errcheck
+	dp.deliver(context.Background(), makeCtx(), []*entry.Entry{e})
 
 	for _, c := range mock.calls {
 		if c.Method == "core.add_torrent_magnet" {
@@ -272,7 +272,7 @@ func TestHTTPTorrentUsesURLRPC(t *testing.T) {
 
 	dp := newTestPlugin(t, srv, nil)
 	e := entry.New("My Show S01E01", "http://example.com/show.torrent")
-	dp.deliver(context.Background(), makeCtx(), []*entry.Entry{e}) //nolint:errcheck
+	dp.deliver(context.Background(), makeCtx(), []*entry.Entry{e})
 
 	for _, c := range mock.calls {
 		if c.Method == "core.add_torrent_magnet" {

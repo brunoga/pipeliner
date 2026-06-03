@@ -126,7 +126,7 @@ func TestScrapeFromHTTPTracker(t *testing.T) {
 	body := buildHTTPScrapeResponse(string(ih[:]), 8)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		fmt.Fprint(w, body) //nolint:errcheck
+		fmt.Fprint(w, body)
 	}))
 	defer srv.Close()
 
@@ -151,7 +151,7 @@ func TestScrapeRejectsLowSeedCount(t *testing.T) {
 	body := buildHTTPScrapeResponse(string(ih[:]), 2)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		fmt.Fprint(w, body) //nolint:errcheck
+		fmt.Fprint(w, body)
 	}))
 	defer srv.Close()
 
@@ -230,7 +230,7 @@ func TestScrapeFromUDPTracker(t *testing.T) {
 		binary.BigEndian.PutUint32(connResp[0:], 0)
 		binary.BigEndian.PutUint32(connResp[4:], txID)
 		binary.BigEndian.PutUint64(connResp[8:], 99999)
-		pc.WriteTo(connResp, addr) //nolint:errcheck
+		pc.WriteTo(connResp, addr)
 
 		n, addr, err = pc.ReadFrom(buf)
 		if err != nil || n < 36 {
@@ -241,7 +241,7 @@ func TestScrapeFromUDPTracker(t *testing.T) {
 		binary.BigEndian.PutUint32(scrapeResp[0:], 2)
 		binary.BigEndian.PutUint32(scrapeResp[4:], txID)
 		binary.BigEndian.PutUint32(scrapeResp[8:], 12)
-		pc.WriteTo(scrapeResp, addr) //nolint:errcheck
+		pc.WriteTo(scrapeResp, addr)
 	}()
 
 	p := makePlugin(t, map[string]any{"min_seeds": 5, "scrape_timeout": "5s"})

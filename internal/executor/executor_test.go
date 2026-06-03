@@ -417,7 +417,7 @@ func TestExecutor_CommitPlugin_ContextCancelled(t *testing.T) {
 	cancel()
 
 	// Run returns an error (context cancelled) but that's expected.
-	ex.Run(ctx) //nolint:errcheck
+	ex.Run(ctx)
 
 	// Commit should not have been called (context cancelled before commit phase).
 	if len(proc.committed) != 0 {

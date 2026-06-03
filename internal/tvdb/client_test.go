@@ -12,7 +12,7 @@ func TestLoginAndSearch(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/v4/login":
-			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			json.NewEncoder(w).Encode(map[string]any{
 				"data":   map[string]string{"token": "test-jwt"},
 				"status": "success",
 			})
@@ -21,7 +21,7 @@ func TestLoginAndSearch(t *testing.T) {
 				http.Error(w, "bad query", http.StatusBadRequest)
 				return
 			}
-			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			json.NewEncoder(w).Encode(map[string]any{
 				"data": []map[string]any{
 					{"tvdb_id": "81189", "name": "Breaking Bad", "year": "2008"},
 				},
@@ -55,12 +55,12 @@ func TestGetEpisodes(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/v4/login":
-			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			json.NewEncoder(w).Encode(map[string]any{
 				"data":   map[string]string{"token": "test-jwt"},
 				"status": "success",
 			})
 		case "/v4/series/81189/episodes/official":
-			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			json.NewEncoder(w).Encode(map[string]any{
 				"data": map[string]any{
 					"episodes": []map[string]any{
 						{"id": 1, "seasonNumber": 1, "number": 1, "name": "Pilot", "aired": "2008-01-20"},

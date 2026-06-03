@@ -165,7 +165,7 @@ func mockServer(t *testing.T, path string, body []byte, status int) *httptest.Se
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(status)
-		w.Write(body) //nolint:errcheck
+		w.Write(body)
 	}))
 }
 
@@ -402,9 +402,9 @@ func TestGetListWatchlistPaginates(t *testing.T) {
 		w.Header().Set("X-Pagination-Page-Count", "2")
 		w.Header().Set("Content-Type", "application/json")
 		if r.URL.Query().Get("page") == "2" {
-			w.Write(page2) //nolint:errcheck
+			w.Write(page2)
 		} else {
-			w.Write(page1) //nolint:errcheck
+			w.Write(page1)
 		}
 	}))
 	defer srv.Close()
@@ -438,7 +438,7 @@ func TestGetListWatchlistPartialPaginationError(t *testing.T) {
 		}
 		w.Header().Set("X-Pagination-Page-Count", "2")
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(page1) //nolint:errcheck
+		w.Write(page1)
 	}))
 	defer srv.Close()
 	BaseURL = srv.URL
