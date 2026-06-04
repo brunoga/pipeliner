@@ -296,6 +296,58 @@ func TestGenerate_FormatFilter(t *testing.T) {
 	}
 }
 
+func TestEntryFromCalendar_StripsFormatTokenFromTitle(t *testing.T) {
+	sp := &sourcePlugin{
+		indexCache: nil, // not consulted on the BD3D branch
+	}
+	bd3d := bluray.CalendarEntry{
+		IndexEntry: bluray.IndexEntry{
+			ID: "26954", Slug: "Avatar-3D-Blu-ray",
+			Title: "Avatar 3D", Format: bluray.FormatBD3D, Year: 2009,
+		},
+	}
+	uhd := bluray.CalendarEntry{
+		IndexEntry: bluray.IndexEntry{
+			ID: "999", Slug: "Avatar-4K-Blu-ray",
+			Title: "Avatar 4K", Format: bluray.FormatUHD, Year: 2009,
+		},
+	}
+	for _, tc := range []struct {
+		name string
+		row  bluray.CalendarEntry
+	}{{"BD3D", bd3d}, {"UHD", uhd}} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := sp.entryFromCalendar(tc.row)
+			if e.Title != "Avatar" {
+				t.Errorf("Title: got %q, want %q (format suffix must be stripped so list= consumers fuzzy-match correctly)", e.Title, "Avatar")
+			}
+			if v, _ := e.Fields[entry.FieldTitle].(string); v != "Avatar" {
+				t.Errorf("FieldTitle: got %q, want %q", v, "Avatar")
+			}
+			if got, _ := e.Fields[entry.FieldBlurayFormat].(string); got != string(tc.row.Format) {
+				t.Errorf("bluray_format: got %q, want %q (structural format must survive)", got, tc.row.Format)
+			}
+		})
+	}
+}
+
+func TestEntriesFromIndex_StripsFormatTokenFromTitle(t *testing.T) {
+	sp := &sourcePlugin{}
+	rows := []bluray.IndexEntry{
+		{ID: "26954", Slug: "Avatar-3D-Blu-ray", Title: "Avatar 3D", Format: bluray.FormatBD3D, Year: 2009},
+		{ID: "7847", Slug: "Avatar-Blu-ray", Title: "Avatar", Format: bluray.FormatBD, Year: 2009},
+	}
+	out := sp.entriesFromIndex(rows)
+	if len(out) != 2 {
+		t.Fatalf("entriesFromIndex: got %d entries, want 2", len(out))
+	}
+	for _, e := range out {
+		if e.Title != "Avatar" {
+			t.Errorf("Title: got %q, want %q", e.Title, "Avatar")
+		}
+	}
+}
+
 func TestSearch_IndexHit(t *testing.T) {
 	sp := newSourceWithServer(t, "http://invalid.invalid", nil)
 	// Pre-populate the index with a fake Avatar entry.
