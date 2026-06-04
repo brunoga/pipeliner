@@ -37,22 +37,33 @@ func NewTracker(b bucket) *Tracker {
 	return &Tracker{bucket: b}
 }
 
+// yearDriftTolerance is the maximum allowed difference (in years) between an
+// incoming entry's year and a stored record's year for them to be treated as
+// the same movie. Covers theatrical vs. home-video release-year drift — the
+// same release names a film by either the festival/theatrical year or the
+// Blu-ray year depending on the encode (e.g. Good Boy 2025 theatrical /
+// 2026 Blu-ray).
+const yearDriftTolerance = 1
+
 // IsSeen returns true if the given movie has already been downloaded.
-// 3D and non-3D versions are tracked independently.
-// When year is 0 (not present in the release filename), the exact-key lookup
-// will miss records that were stored with the real year from TMDb/TMDb enrichment
-// (which runs after the filter phase). In that case we fall back to a full
-// title+is3D scan so yearless filenames are still gated correctly.
+// 3D and non-3D versions are tracked independently. Two fallbacks cover
+// cases where the exact-key lookup misses but a related record exists:
+//   - year == 0 (no year in the release filename): scan all title+is3D
+//     records, so a previously-stored real year from TMDb/Trakt enrichment
+//     still gates the entry.
+//   - year != 0 but no exact match: scan for a record within
+//     ±yearDriftTolerance, so theatrical/home-video drift doesn't defeat
+//     dedup.
 func (t *Tracker) IsSeen(title string, year int, is3D bool) bool {
 	var rec Record
 	if found, _ := t.bucket.Get(recordKey(title, year, is3D), &rec); found {
 		return true
 	}
-	if year != 0 {
-		return false
+	if year == 0 {
+		_, found := t.Latest(title, is3D)
+		return found
 	}
-	// year unknown — scan for any record with matching title and 3D flag
-	_, found := t.Latest(title, is3D)
+	_, found := t.LatestNearYear(title, year, is3D)
 	return found
 }
 
@@ -73,6 +84,24 @@ func (t *Tracker) Forget(title string, year int, is3D bool) error {
 // Latest returns the most recently downloaded record for a movie by title,
 // matching the given 3D status. 3D and non-3D versions are tracked independently.
 func (t *Tracker) Latest(title string, is3D bool) (*Record, bool) {
+	return t.latestMatching(title, is3D, func(int) bool { return true })
+}
+
+// LatestNearYear is like Latest but restricts the scan to records whose
+// stored year is within ±yearDriftTolerance of the given year. Use this
+// (instead of Latest) when comparing an incoming entry against a tracked
+// one so theatrical/home-video drift is treated as the same movie.
+func (t *Tracker) LatestNearYear(title string, year int, is3D bool) (*Record, bool) {
+	return t.latestMatching(title, is3D, func(recYear int) bool {
+		diff := recYear - year
+		if diff < 0 {
+			diff = -diff
+		}
+		return diff <= yearDriftTolerance
+	})
+}
+
+func (t *Tracker) latestMatching(title string, is3D bool, yearOK func(int) bool) (*Record, bool) {
 	keys, err := t.bucket.Keys()
 	if err != nil {
 		return nil, false
@@ -88,6 +117,9 @@ func (t *Tracker) Latest(title string, is3D bool) (*Record, bool) {
 			continue
 		}
 		if rec.Is3D != is3D {
+			continue
+		}
+		if !yearOK(rec.Year) {
 			continue
 		}
 		if latest == nil || rec.DownloadedAt.After(latest.DownloadedAt) {

@@ -165,7 +165,10 @@ func (p *moviesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *en
 	e.Set(moviesTrackerName, matchedTitle)
 
 	if p.tracker.IsSeen(matchedTitle, year, is3D) {
-		if rec, ok := p.tracker.Latest(matchedTitle, is3D); ok && rec.Year == year {
+		// LatestNearYear (rather than Latest + exact-year check) so the
+		// upgrade decision still runs when the stored record's year drifts
+		// from the incoming year by ±1 — theatrical vs. home-video release.
+		if rec, ok := p.tracker.LatestNearYear(matchedTitle, year, is3D); ok {
 			switch quality.Decide(q, rec.Quality, properOrRepack, rec.Repack) {
 			case quality.UpgradeQuality:
 				e.Accept(fmt.Sprintf("movies: %s (%d) quality upgrade", matchedTitle, year))
