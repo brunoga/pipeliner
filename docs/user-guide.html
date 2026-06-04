@@ -995,6 +995,12 @@ cal = input("bluray_releases", months=2, country="us")
 output("print", upstream=cal)
 pipeline("bluray-warmer", schedule="168h")</code></pre>
 
+<h4>3D-only mode: auto-routes to a smaller, server-filtered page</h4>
+<p>When <code>formats=["BD3D"]</code> is the only requested format, <code>Generate()</code> automatically hits <code>/3d/releasedates.php</code> instead of <code>/movies/releasedates.php</code>. The 3D-specific calendar is the same JS-array shape (so the parser is unchanged) but contains only BD3D rows server-side. A typical recent month has 100+ rows on the generic calendar but 0-3 BD3D rows; the auto-route avoids paying for the discarded majority. Switching back to the generic calendar happens transparently when any non-BD3D format is in the set (including the default).</p>
+
+<h4>Backfilling the BD3D catalog</h4>
+<p>The window cap is 600 months (50 years), so a one-shot backfill of the entire BD3D era is just <code>from_year=2010, from_month=9, to_year=&lt;current&gt;, to_month=&lt;current&gt;, formats=["BD3D"]</code>. At the default 1 req/sec that's ~180 requests in ~3 minutes; after it runs the title index is fully warm and <code>metainfo_bluray</code> enrichment for any 3D-era movie hits the local cache without an HTTP round-trip.</p>
+
 <!-- ─────────── trakt auth ─────────── -->
 <h2 id="trakt-auth">Trakt Authentication</h2>
 <p>Private Trakt lists (watchlist, ratings, collection) require an OAuth token. Pipeliner supports two approaches:</p>

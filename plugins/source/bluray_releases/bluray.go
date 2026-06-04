@@ -171,11 +171,26 @@ func (p *sourcePlugin) Name() string { return pluginName }
 // Generate scans the configured month window of the release calendar, persists
 // every row into the shared index cache, and emits one entry per row whose
 // format is in the configured formats set.
+//
+// When the configured format set is exactly {BD3D}, Generate auto-routes to
+// the BD3D-specific calendar (/3d/releasedates.php) which is server-side
+// filtered. This is dramatically cheaper for the 3D-only use case: a typical
+// recent month has 100+ rows total but only 0-3 BD3D entries, so the regular
+// calendar mostly parses data we'd discard. The 3D calendar also makes
+// historical backfilling feasible — scanning back to BD3D launch (~2010-09)
+// returns hundreds of rows from ~180 small pages instead of ~180 large ones.
 func (p *sourcePlugin) Generate(ctx context.Context, tc *plugin.TaskContext) ([]*entry.Entry, error) {
 	windows := p.windows(time.Now())
+	use3DCalendar := len(p.formats) == 1 && p.formats[bluray.FormatBD3D]
 	var entries []*entry.Entry
 	for _, w := range windows {
-		rows, err := p.client.ListMonth(ctx, w.year, w.month)
+		var rows []bluray.CalendarEntry
+		var err error
+		if use3DCalendar {
+			rows, err = p.client.List3DMonth(ctx, w.year, w.month)
+		} else {
+			rows, err = p.client.ListMonth(ctx, w.year, w.month)
+		}
 		if err != nil {
 			tc.Logger.Warn("bluray_releases: list month failed",
 				"year", w.year, "month", w.month, "err", err)
@@ -324,7 +339,9 @@ func (p *sourcePlugin) windows(now time.Time) []window {
 			y++
 		}
 		// Guard against accidental infinite loops if config is malformed.
-		if len(out) > 240 {
+		// 600 months = 50 years, comfortably covers BD3D (2010-) and any
+		// full historical backfill someone might attempt.
+		if len(out) > 600 {
 			break
 		}
 	}
