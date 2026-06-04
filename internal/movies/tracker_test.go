@@ -117,6 +117,69 @@ func TestTrackerIsSeenYearlessFilename(t *testing.T) {
 	}
 }
 
+// TestTrackerIsSeenYearDrift covers theatrical vs. home-video release-year
+// drift: a film stored under one year must still be detected when the
+// incoming release names it by the adjacent year. The motivating case is
+// Good Boy (2025 theatrical / 2026 Blu-ray) — without ±1 tolerance the
+// 1080p Blu-ray rip gets accepted as a brand-new movie even though a
+// 2160p copy is already tracked.
+func TestTrackerIsSeenYearDrift(t *testing.T) {
+	tr := NewTracker(newMemBucket())
+	if err := tr.Mark(Record{Title: "Good Boy", Year: 2026}); err != nil {
+		t.Fatal(err)
+	}
+
+	cases := []struct {
+		year int
+		want bool
+	}{
+		{2025, true},  // ±1 drift below
+		{2026, true},  // exact
+		{2027, true},  // ±1 drift above
+		{2024, false}, // out of tolerance
+		{2028, false}, // out of tolerance
+	}
+	for _, c := range cases {
+		if got := tr.IsSeen("Good Boy", c.year, false); got != c.want {
+			t.Errorf("IsSeen(year=%d) = %v, want %v", c.year, got, c.want)
+		}
+	}
+}
+
+func TestTrackerLatestNearYear(t *testing.T) {
+	tr := NewTracker(newMemBucket())
+	if err := tr.Mark(Record{Title: "Good Boy", Year: 2026}); err != nil {
+		t.Fatal(err)
+	}
+
+	if rec, ok := tr.LatestNearYear("Good Boy", 2025, false); !ok || rec.Year != 2026 {
+		t.Errorf("LatestNearYear(2025): got ok=%v year=%d, want ok=true year=2026", ok, recYear(rec))
+	}
+	if _, ok := tr.LatestNearYear("Good Boy", 2024, false); ok {
+		t.Error("LatestNearYear(2024): want ok=false (out of ±1 tolerance)")
+	}
+
+	// Among multiple in-tolerance records, the most recent DownloadedAt wins.
+	older := time.Now().Add(-48 * time.Hour)
+	newer := time.Now().Add(-1 * time.Hour)
+	if err := tr.Mark(Record{Title: "Toy Story", Year: 1995, DownloadedAt: older}); err != nil {
+		t.Fatal(err)
+	}
+	if err := tr.Mark(Record{Title: "Toy Story", Year: 1996, DownloadedAt: newer}); err != nil {
+		t.Fatal(err)
+	}
+	if rec, ok := tr.LatestNearYear("Toy Story", 1995, false); !ok || rec.Year != 1996 {
+		t.Errorf("LatestNearYear should pick newest DownloadedAt within tolerance, got year=%d", recYear(rec))
+	}
+}
+
+func recYear(r *Record) int {
+	if r == nil {
+		return 0
+	}
+	return r.Year
+}
+
 func TestTrackerSeparates3DAndNon3D(t *testing.T) {
 	tr := NewTracker(newMemBucket())
 

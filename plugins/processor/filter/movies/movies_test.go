@@ -244,6 +244,60 @@ func TestRepackNotAcceptedAgainAfterRepackDownloaded(t *testing.T) {
 	}
 }
 
+// TestYearDriftRejectsDuplicate covers the theatrical-vs-Blu-ray release-year
+// drift case (e.g. Good Boy: 2025 theatrical / 2026 Blu-ray). A 2160p copy
+// stored under year=2026 must reject a 1080p rip arriving as year=2025 as
+// a duplicate, not accept it as a brand-new movie.
+func TestYearDriftRejectsDuplicate(t *testing.T) {
+	p := openPlugin(t, map[string]any{"static": []any{"Good Boy"}})
+	tc := makeCtx()
+
+	stored := makeEntry("Good.Boy.2026.2160p.BluRay.x265-GROUP", "http://x.com/a")
+	p.filter(context.Background(), tc, stored)
+	p.persist(context.Background(), tc, []*entry.Entry{stored})
+
+	incoming := makeEntry("Good.Boy.2025.1080p.BluRay.x264-GROUP", "http://x.com/b")
+	p.filter(context.Background(), tc, incoming)
+	if !incoming.IsRejected() {
+		t.Errorf("1080p with drifted year should be rejected as duplicate of 2160p; got accept reason %q", incoming.AcceptReason)
+	}
+}
+
+// TestYearDriftAllowsUpgrade is the reverse: a 1080p stored under year=2026
+// must still accept a 2160p arriving as year=2025 as a quality upgrade.
+func TestYearDriftAllowsUpgrade(t *testing.T) {
+	p := openPlugin(t, map[string]any{"static": []any{"Good Boy"}})
+	tc := makeCtx()
+
+	stored := makeEntry("Good.Boy.2026.1080p.BluRay.x264-GROUP", "http://x.com/a")
+	p.filter(context.Background(), tc, stored)
+	p.persist(context.Background(), tc, []*entry.Entry{stored})
+
+	incoming := makeEntry("Good.Boy.2025.2160p.BluRay.x265-GROUP", "http://x.com/b")
+	p.filter(context.Background(), tc, incoming)
+	if !incoming.IsAccepted() {
+		t.Errorf("2160p with drifted year should be accepted as quality upgrade; got reject %q", incoming.RejectReason)
+	}
+}
+
+// TestYearOutOfDriftToleranceAcceptedAsNew confirms the tolerance window is
+// finite: a stored 2026 record does not gate a 2024 release (Δ=2). Different
+// titles re-released years apart must still be treated as independent films.
+func TestYearOutOfDriftToleranceAcceptedAsNew(t *testing.T) {
+	p := openPlugin(t, map[string]any{"static": []any{"Good Boy"}})
+	tc := makeCtx()
+
+	stored := makeEntry("Good.Boy.2026.2160p.BluRay.x265-GROUP", "http://x.com/a")
+	p.filter(context.Background(), tc, stored)
+	p.persist(context.Background(), tc, []*entry.Entry{stored})
+
+	incoming := makeEntry("Good.Boy.2024.1080p.BluRay.x264-GROUP", "http://x.com/b")
+	p.filter(context.Background(), tc, incoming)
+	if !incoming.IsAccepted() {
+		t.Errorf("entry 2y from stored should be accepted as new movie; got reject %q", incoming.RejectReason)
+	}
+}
+
 func TestNoUpgradeWhenQualityNotBetter(t *testing.T) {
 	p := openPlugin(t, nil)
 	tc := makeCtx()
