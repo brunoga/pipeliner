@@ -127,6 +127,7 @@ td code{font-size:11px}
     <div class="section">Dynamic Sources</div>
     <a href="#tvdb_favorites" class="sub">tvdb_favorites</a>
     <a href="#trakt_list" class="sub">trakt_list</a>
+    <a href="#bluray_releases" class="sub">bluray_releases</a>
     <a href="#trakt-auth" class="sub">Trakt Authentication</a>
     <a href="#jackett" class="sub">jackett (search)</a>
     <a href="#rss" class="sub">rss (search)</a>
@@ -136,6 +137,7 @@ td code{font-size:11px}
     <a href="#metainfo_tvdb" class="sub">metainfo_tvdb</a>
     <a href="#metainfo_tmdb" class="sub">metainfo_tmdb</a>
     <a href="#metainfo_trakt" class="sub">metainfo_trakt</a>
+    <a href="#metainfo_bluray" class="sub">metainfo_bluray</a>
     <a href="#metainfo_torrent" class="sub">metainfo_torrent</a>
     <a href="#metainfo_magnet" class="sub">metainfo_magnet</a>
 
@@ -580,6 +582,20 @@ pipeline("split-pipeline")</code></pre>
   <tr><td><code>trakt_imdb_id</code></td><td>trakt_list</td><td>IMDb ID from Trakt</td></tr>
   <tr><td><code>trakt_tmdb_id</code></td><td>metainfo_trakt, trakt_list</td><td>TMDb ID from Trakt — when present, metainfo_tmdb fetches by ID directly instead of searching</td></tr>
   <tr><td><code>trakt_tvdb_id</code></td><td>metainfo_trakt</td><td>TVDB ID from Trakt</td></tr>
+  <tr><td><code>bluray_id</code></td><td>metainfo_bluray, bluray_releases</td><td>Blu-ray.com release ID</td></tr>
+  <tr><td><code>bluray_url</code></td><td>metainfo_bluray, bluray_releases</td><td>Canonical Blu-ray.com release URL</td></tr>
+  <tr><td><code>bluray_format</code></td><td>metainfo_bluray, bluray_releases</td><td>One of <code>BD</code>, <code>UHD</code>, <code>BD3D</code>, <code>DVD</code></td></tr>
+  <tr><td><code>bluray_studio</code></td><td>metainfo_bluray, bluray_releases</td><td>Distributing studio (e.g. <code>20th Century Fox</code>)</td></tr>
+  <tr><td><code>bluray_country</code></td><td>metainfo_bluray</td><td>Release locale (e.g. <code>United States</code>)</td></tr>
+  <tr><td><code>bluray_year</code></td><td>metainfo_bluray, bluray_releases</td><td>Production year</td></tr>
+  <tr><td><code>bluray_release_date</code></td><td>metainfo_bluray, bluray_releases</td><td>Disc release date (<code>YYYY-MM-DD</code>)</td></tr>
+  <tr><td><code>bluray_runtime_minutes</code></td><td>metainfo_bluray</td><td>Runtime in minutes</td></tr>
+  <tr><td><code>bluray_codec</code></td><td>metainfo_bluray</td><td>Video codec (<code>MPEG-4 MVC</code> is the BD3D codec; <code>HEVC</code>, <code>AVC</code> for UHD/BD)</td></tr>
+  <tr><td><code>bluray_resolution</code></td><td>metainfo_bluray</td><td>Video resolution (<code>1080p</code>, <code>2160p</code>)</td></tr>
+  <tr><td><code>bluray_aspect_ratio</code></td><td>metainfo_bluray</td><td>Aspect ratio (e.g. <code>1.78:1</code>, <code>2.39:1</code>)</td></tr>
+  <tr><td><code>bluray_edition</code></td><td>metainfo_bluray, bluray_releases</td><td>Edition tag from the page title (e.g. <code>Limited 3D Edition</code>)</td></tr>
+  <tr><td><code>bluray_3d_release</code></td><td>metainfo_bluray, bluray_releases</td><td><code>true</code> when a real 3D Blu-ray release exists in the catalog. Pair with <code>video_is_3d</code> to identify fake/upscaled 3D rips: <code>video_is_3d == true and bluray_3d_release != true</code>.</td></tr>
+  <tr><td><code>bluray_is_3d_edition</code></td><td>metainfo_bluray, bluray_releases</td><td><code>true</code> when this specific release is the 3D edition (format=BD3D or codec=MPEG-4 MVC)</td></tr>
   <tr><td><code>rss_category</code></td><td>rss</td><td>Category from RSS <code>&lt;category&gt;</code> elements or <code>nyaa:category</code>, comma-joined</td></tr>
   <tr><td><code>jackett_category</code></td><td>jackett</td><td>Torznab category code</td></tr>
   <tr><td><code>jackett_tvdb_id</code></td><td>jackett</td><td>Raw TVDB ID — same pattern as <code>trakt_tvdb_id</code>, usable for fast metainfo_tvdb lookups</td></tr>
@@ -604,7 +620,7 @@ pipeline("split-pipeline")</code></pre>
   <tr><td><code>media_type</code></td><td>trakt_list, tvdb_favorites, metainfo_*, series, movies, premiere</td><td>Classification (<code>"series"</code>, <code>"movie"</code>, or unset). Conditional from metainfo plugins; unconditional from single-type sources and classifier filters. Convenient dispatch key for <code>route()</code>.</td></tr>
   <tr><td><code>description</code></td><td>rss, metainfo_tvdb, metainfo_tmdb, metainfo_trakt</td><td>Synopsis or overview text</td></tr>
   <tr><td><code>published_date</code></td><td>rss, metainfo providers</td><td>Release/premiere date</td></tr>
-  <tr><td><code>enriched</code></td><td>metainfo_tvdb, metainfo_tmdb, metainfo_trakt</td><td><code>true</code> when enriched by an external provider</td></tr>
+  <tr><td><code>enriched</code></td><td>metainfo_tvdb, metainfo_tmdb, metainfo_trakt, metainfo_bluray</td><td><code>true</code> when enriched by an external provider</td></tr>
   <tr><td><code>series_season</code></td><td>metainfo_file</td><td>Season number</td></tr>
   <tr><td><code>series_episode</code></td><td>metainfo_file</td><td>Episode number</td></tr>
   <tr><td><code>series_episode_id</code></td><td>metainfo_file</td><td>Episode ID string (e.g. <code>S02E05</code>, <code>S01E01E02</code> for doubles)</td></tr>
@@ -950,6 +966,35 @@ pipeline("tv-tvdb", schedule="1h")</code></pre>
 <h4>Fields set</h4>
 <p><code>source</code> (e.g. <code>trakt_list:watchlist</code>). Optionally: <code>video_year</code>, <code>trakt_id</code>, <code>trakt_imdb_id</code>, <code>trakt_tmdb_id</code>.</p>
 
+<!-- ─────────── bluray_releases ─────────── -->
+<h2 id="bluray_releases">bluray_releases</h2>
+<p>Scrapes the <a href="https://www.blu-ray.com/movies/releasedates.php" target="_blank">Blu-ray.com release calendar</a> and emits one entry per release. Also implements <code>SearchPlugin</code>, so it works as a search backend inside <code>discover(search=[…])</code> and as a title list for <code>series.list</code> / <code>movies.list</code>.</p>
+
+<p>Calendar passes warm a local SQLite-backed title index (<code>cache_bluray_index</code>) that <code>metainfo_bluray</code> reads from. The shared index means a weekly calendar refresh almost eliminates per-entry search hits.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>country</code></td><td>no</td><td><code>us</code></td><td>Locale: <code>us</code>, <code>uk</code>, <code>ca</code>, <code>au</code>, <code>de</code>, <code>fr</code>, <code>kr</code></td></tr>
+  <tr><td><code>months</code></td><td>no</td><td><code>1</code></td><td>Number of months back from current month to scan</td></tr>
+  <tr><td><code>from_year</code> / <code>from_month</code></td><td>no</td><td>—</td><td>Explicit start month (overrides <code>months</code>)</td></tr>
+  <tr><td><code>to_year</code> / <code>to_month</code></td><td>no</td><td>current</td><td>Explicit end month</td></tr>
+  <tr><td><code>formats</code></td><td>no</td><td><code>[BD, UHD, BD3D]</code></td><td>Subset of formats to emit (aliases: <code>3D</code>=<code>BD3D</code>, <code>4K</code>=<code>UHD</code>)</td></tr>
+  <tr><td><code>cache_ttl</code></td><td>no</td><td><code>720h</code></td><td>Title-index TTL (30 days)</td></tr>
+  <tr><td><code>cache_detail_ttl</code></td><td>no</td><td><code>168h</code></td><td>Release-detail TTL (7 days)</td></tr>
+  <tr><td><code>cache_negative_ttl</code></td><td>no</td><td><code>168h</code></td><td>Search-miss TTL (7 days)</td></tr>
+  <tr><td><code>request_interval</code></td><td>no</td><td><code>1s</code></td><td>Minimum gap between HTTP requests</td></tr>
+  <tr><td><code>user_agent</code></td><td>no</td><td>generic Chrome UA</td><td>Custom <code>User-Agent</code></td></tr>
+</table>
+
+<h4>Fields set</h4>
+<p>Always: <code>title</code>, <code>movie_title</code>, <code>media_type</code> (= <code>movie</code>), <code>source</code> (e.g. <code>bluray_releases:bd3d</code>), <code>bluray_id</code>, <code>bluray_url</code>, <code>bluray_format</code>.</p>
+<p>Optionally: <code>bluray_studio</code>, <code>bluray_year</code>, <code>video_year</code>, <code>bluray_release_date</code>, <code>bluray_edition</code>, <code>bluray_3d_release</code>, <code>bluray_is_3d_edition</code>.</p>
+
+<pre><code><span class="y-comment"># Weekly calendar refresh — populates cache_bluray_index for metainfo_bluray.</span>
+cal = input("bluray_releases", months=2, country="us")
+output("print", upstream=cal)
+pipeline("bluray-warmer", schedule="168h")</code></pre>
+
 <!-- ─────────── trakt auth ─────────── -->
 <h2 id="trakt-auth">Trakt Authentication</h2>
 <p>Private Trakt lists (watchlist, ratings, collection) require an OAuth token. Pipeliner supports two approaches:</p>
@@ -1097,6 +1142,43 @@ pipeline("mixed", schedule="30m")</code></pre>
 
 <p>From URI: <code>torrent_info_hash</code>, <code>torrent_announce</code>, <code>torrent_announce_list</code>, <code>torrent_display_name</code><br>
 After DHT: <code>torrent_file_size</code>, <code>torrent_file_count</code>, <code>torrent_files</code></p>
+
+<!-- ─────────── metainfo_bluray ─────────── -->
+<h2 id="metainfo_bluray">metainfo_bluray</h2>
+<p>Enriches movie entries with metadata from <a href="https://www.blu-ray.com/" target="_blank">Blu-ray.com</a>: release date, studio, codec, aspect ratio, and — most usefully — <code>bluray_3d_release</code>, which tells you whether a movie actually has a real 3D Blu-ray release. This is the answer to "is the 3D label on this torrent real or upscaled?"</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>country</code></td><td>no</td><td><code>us</code></td><td>Locale: <code>us</code>, <code>uk</code>, <code>ca</code>, <code>au</code>, <code>de</code>, <code>fr</code>, <code>kr</code></td></tr>
+  <tr><td><code>cache_ttl</code></td><td>no</td><td><code>168h</code></td><td>How long to cache release-detail pages</td></tr>
+  <tr><td><code>cache_index_ttl</code></td><td>no</td><td><code>720h</code></td><td>How long to cache the title→ID index</td></tr>
+  <tr><td><code>cache_negative_ttl</code></td><td>no</td><td><code>168h</code></td><td>How long to remember "we searched, found nothing"</td></tr>
+  <tr><td><code>request_interval</code></td><td>no</td><td><code>1s</code></td><td>Minimum gap between HTTP requests</td></tr>
+  <tr><td><code>user_agent</code></td><td>no</td><td>generic Chrome UA</td><td>Custom <code>User-Agent</code></td></tr>
+</table>
+
+<h4>Lookup chain</h4>
+<ol>
+  <li>If the entry already carries <code>bluray_id</code>, fetch the detail page directly.</li>
+  <li>Otherwise look up the title in <code>cache_bluray_index</code> (populated by <code>bluray_releases</code> calendar passes).</li>
+  <li>On index miss, check the negative cache.</li>
+  <li>On negative-cache miss, fall back to Blu-ray.com's title search; write results back through the index, write zero-hit responses to the negative cache.</li>
+</ol>
+
+<h4>Fields set</h4>
+<p>On a successful lookup: <code>enriched</code> (<code>true</code>), <code>bluray_id</code>, <code>bluray_url</code>, <code>bluray_format</code>, <code>bluray_studio</code>, <code>bluray_country</code>, <code>bluray_year</code>, <code>bluray_release_date</code>, <code>bluray_runtime_minutes</code>, <code>bluray_codec</code> (e.g. <code>MPEG-4 MVC</code> for 3D), <code>bluray_resolution</code>, <code>bluray_aspect_ratio</code>, <code>bluray_edition</code>, <code>bluray_3d_release</code>, <code>bluray_is_3d_edition</code>.</p>
+
+<div class="note"><strong><code>bluray_3d_release</code> vs <code>video_is_3d</code>:</strong> <code>video_is_3d</code> means the release filename parses as 3D (set by <code>metainfo_file</code>); <code>bluray_3d_release</code> means Blu-ray.com actually has a 3D release for this movie. False here when <code>video_is_3d</code> is true is a strong signal the rip is fake or upscaled.</div>
+
+<pre><code><span class="y-comment"># Drop anything claiming to be 3D that does not have a real 3D Blu-ray release.</span>
+src    = input("rss",             url="https://example.com/feed")
+seen   = process("seen",          upstream=src)
+meta   = process("metainfo_file", upstream=seen)
+bluray = process("metainfo_bluray", upstream=meta)
+real   = process("condition", upstream=bluray,
+                 reject="video_is_3d == true and bluray_3d_release != true")
+output("transmission", upstream=real, host="localhost")
+pipeline("real-3d-only", schedule="1h")</code></pre>
 
 <hr>
 <!-- ═══════════════════════════════════════════════════════════ -->

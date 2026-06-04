@@ -33,8 +33,10 @@ Not every stage is required. A simple news-to-email pipeline might just be `rss 
 | [`jackett`](source/jackett/README.md) | Fetch recent results from Jackett indexers |
 | [`trakt_list`](source/trakt_list/README.md) | Fetch movies or shows from a Trakt.tv list |
 | [`tvdb_favorites`](source/tvdb_favorites/README.md) | Fetch shows from a TheTVDB user's favorites |
+| [`bluray_releases`](source/bluray_releases/README.md) | Scrape the Blu-ray.com release calendar |
 | [`jackett`](source/jackett/README.md) (search mode) | Also acts as a search backend for `discover` via `url_template` |
 | [`rss`](source/rss/README.md) (search mode) | Also acts as a search backend for `discover` via `url_template` |
+| [`bluray_releases`](source/bluray_releases/README.md) (search mode) | Also acts as a search backend for `discover` |
 
 ## Processors — filtering
 
@@ -71,6 +73,7 @@ Not every stage is required. A simple news-to-email pipeline might just be `rss 
 | [`metainfo_tmdb`](processor/metainfo/tmdb/README.md) | Enrich movie entries with TMDb metadata |
 | [`metainfo_tvdb`](processor/metainfo/tvdb/README.md) | Enrich series entries with TheTVDB metadata |
 | [`metainfo_trakt`](processor/metainfo/trakt/README.md) | Annotate entries with Trakt.tv metadata |
+| [`metainfo_bluray`](processor/metainfo/bluray/README.md) | Enrich movie entries with Blu-ray.com metadata; sets `bluray_3d_release` to identify real 3D Blu-ray titles vs fake/upscaled 3D rips |
 | [`metainfo_torrent`](processor/metainfo/torrent/README.md) | Read `.torrent` file metadata (info hash, size, file list) |
 | [`metainfo_magnet`](processor/metainfo/magnet/README.md) | Annotate magnet-link entries with info hash, trackers, and DHT metadata |
 
