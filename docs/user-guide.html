@@ -1176,7 +1176,9 @@ pipeline("tv-dynamic", schedule="1h")</code></pre>
 
 <p>Quality spec filtering is now a separate concern — place a <code>process("quality", spec=…)</code> node upstream of <code>movies</code> instead of using a per-plugin <code>quality=</code> knob.</p>
 
-<p>The title list is optional. With neither <code>static</code> nor <code>list</code> set, the filter operates in <strong>accept-all mode</strong> — every classified movie passes the upstream requirements and the quality/tracker checks.</p>
+<p>The title list is optional. With neither <code>static</code> nor <code>list</code> set, the filter operates in <strong>accept-all mode</strong> — every classified movie passes the upstream requirements and the tracker checks.</p>
+
+<div class="note"><strong>Release-year drift:</strong> the tracker key is <code>(title, video_year, video_is_3d)</code>, but the year encoded in release filenames swings between a film's theatrical and Blu-ray years (e.g. <em>Good Boy</em>: 2025 theatrical / 2026 Blu-ray). To prevent a re-download being accepted as a new movie, dedup and upgrade detection fall back to a ±1 year scan when the exact key misses. Films sharing a title that are ≥2 years apart remain independent.</div>
 
 <div class="note"><strong>Upstream requirement:</strong> <code>movies</code> reads movie metadata from entry fields rather than parsing titles itself. Run <code>metainfo_file</code> (or any plugin that sets <code>title</code>, <code>video_year</code>, and the <code>_quality</code> typed struct) upstream. The requirement is declared in the plugin descriptor so the DAG validator catches misconfigured pipelines at load time.</div>
 

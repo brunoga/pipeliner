@@ -1,12 +1,14 @@
 # movies
 
-Accepts movies. Optionally matches against a title list with fuzzy matching, enforces an optional quality floor, and persists download history across runs. A re-download of an already-seen movie is accepted when the new copy is strictly better quality, or when it is a PROPER/REPACK that is not a quality downgrade.
+Accepts movies. Optionally matches against a title list with fuzzy matching and persists download history across runs. A re-download of an already-seen movie is accepted when the new copy is strictly better quality, or when it is a PROPER/REPACK that is not a quality downgrade.
+
+Quality-spec gating is now a separate concern — place a `process("quality", spec=…)` node upstream of `movies` when you want a quality floor; the per-plugin `quality=` knob has been removed.
 
 **Multiple quality variants** of the same movie (from different sources or input feeds) are all accepted; add a `dedup` node after `movies` to keep only the best copy.
 
 **3D and non-3D versions are tracked independently.** If both a 3D and a non-3D copy of the same movie match, both are downloaded — they do not compete with each other.
 
-The title list is optional. When provided, it can be static via `static`, dynamic via `list` (input plugins whose entry titles are used as movie titles), or both — dynamic results are cached for the configured `ttl`. **With neither set, the filter operates in accept-all mode**: every classified movie passes the upstream requirements and the quality/tracker checks. The tracker still dedups and detects upgrades by title + year, so a no-list config is the right choice for "download every X-quality movie I find" pipelines.
+The title list is optional. When provided, it can be static via `static`, dynamic via `list` (input plugins whose entry titles are used as movie titles), or both — dynamic results are cached for the configured `ttl`. **With neither set, the filter operates in accept-all mode**: every classified movie passes the upstream requirements and the tracker checks. The tracker still dedups and detects upgrades by title + year, so a no-list config is the right choice for "download every movie I find" pipelines.
 
 ## Upstream requirement
 
@@ -29,20 +31,19 @@ The title list is optional. When provided, it can be static via `static`, dynami
 | `static` | string or list | no | — | Optional static movie titles to accept; omit (alongside `list`) for accept-all mode |
 | `list` | list | no | — | Optional list-plugin configs whose entry titles supplement the movie list; omit (alongside `static`) for accept-all mode |
 | `ttl` | string | no | `1h` | How long to cache the dynamic list fetched via `list` |
-| `quality` | string | no | — | Quality spec (e.g. `1080p+` for floor, `1080p` for exact, `720p-1080p` for range). See [`quality`](../quality/README.md) for syntax. |
 | `reject_unmatched` | bool | no | `true` | Reject entries that lack `title`. When a list is configured, also reject entries whose title isn't in the list. With neither `static` nor `list` set, this flag only governs the classification check. |
 
-Both `static` and `list` are optional. With neither set the filter accepts every classified movie that passes the quality spec and tracker checks.
+Both `static` and `list` are optional. With neither set the filter accepts every classified movie that passes the tracker checks. For a quality floor, place a [`quality`](../quality/README.md) filter upstream.
 
 ### `list` entries
 
 Each entry is a plugin name string or an object with a `name` key plus plugin-specific config:
 
 ```python
-movies = process("movies", upstream=meta,
+q      = process("quality", upstream=meta, spec="1080p+")
+movies = process("movies",  upstream=q,
     list=[{"name": "trakt_list", "client_id": env("TRAKT_ID"),
-           "client_secret": env("TRAKT_SECRET"), "type": "movies", "list": "watchlist"}],
-    quality="1080p+")
+           "client_secret": env("TRAKT_SECRET"), "type": "movies", "list": "watchlist"}])
 ```
 
 ## 3D quality
@@ -79,7 +80,8 @@ Run with `--log-level debug --log-plugin movies` to see (combine plugins with a 
 src    = input("rss",            url="https://example.com/rss")
 seen   = process("seen",          upstream=src)
 meta   = process("metainfo_file", upstream=seen)   # sets title, video_year, _quality, etc.
-movies = process("movies",        upstream=meta, static=["Inception"], quality="1080p+")
+q      = process("quality",       upstream=meta, spec="1080p+")
+movies = process("movies",        upstream=q, static=["Inception"])
 output("qbittorrent", upstream=movies, host="localhost")
 pipeline("movies", schedule="1h")
 ```
@@ -90,10 +92,10 @@ pipeline("movies", schedule="1h")
 src    = input("rss",            url="https://example.com/rss")
 seen   = process("seen",          upstream=src)
 meta   = process("metainfo_file", upstream=seen)
-movies = process("movies",        upstream=meta,
+q      = process("quality",       upstream=meta, spec="1080p+")
+movies = process("movies",        upstream=q,
     list=[{"name": "trakt_list", "client_id": env("TRAKT_ID"),
-           "client_secret": env("TRAKT_SECRET"), "type": "movies", "list": "watchlist"}],
-    quality="1080p+")
+           "client_secret": env("TRAKT_SECRET"), "type": "movies", "list": "watchlist"}])
 output("qbittorrent", upstream=movies, host="localhost")
 pipeline("movies-trakt", schedule="1h")
 ```
@@ -119,5 +121,5 @@ cond = process("condition", upstream=movies, rules=[
 ## Notes
 
 - Download history and dynamic list cache are stored in `pipeliner.db` in the same directory as the config file.
-- `quality:` accepts `720p+` (floor), `720p` (exact), or `720p-1080p` (range) — same syntax as series and the `quality` filter.
 - The tracker is updated only after all downstream sinks confirm (via `CommitPlugin`). If a sink fails an entry, the movie is not recorded as downloaded and will be retried on the next run.
+- **Year-drift tolerance.** The tracker key is `(title, year, is3D)`. To survive theatrical-vs-Blu-ray release-year drift (e.g. *Good Boy*: 2025 theatrical / 2026 Blu-ray), `IsSeen` falls back to a ±1 year scan when the exact key misses, and the upgrade decision uses the same window. Two films sharing a title that are ≥2 years apart are still treated as independent (e.g. *The Matrix* 1999 vs. a 2021 reboot).
