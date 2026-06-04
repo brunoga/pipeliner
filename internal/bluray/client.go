@@ -154,17 +154,43 @@ func (c *Client) releaseURL(id, slug string) string {
 // every release row found, in document order. Months in the future have no
 // "releasedate" yet — those rows are skipped.
 func (c *Client) ListMonth(ctx context.Context, year, month int) ([]CalendarEntry, error) {
+	return c.listMonth(ctx, "/movies/releasedates.php", year, month, "")
+}
+
+// List3DMonth fetches the 3D-specific release calendar for (year, month).
+// Uses the same movies[N] = {…} JS-array markup as ListMonth — but the rows
+// are pre-filtered to BD3D releases server-side. Every returned CalendarEntry
+// has Format=FormatBD3D regardless of what FormatFromTitle would have inferred,
+// which is the source of truth for edge-case titles like "Alita: Battle Angel
+// 4K and 3D" that don't end with " 3D".
+func (c *Client) List3DMonth(ctx context.Context, year, month int) ([]CalendarEntry, error) {
+	return c.listMonth(ctx, "/3d/releasedates.php", year, month, FormatBD3D)
+}
+
+// listMonth is the shared implementation behind ListMonth / List3DMonth. If
+// forceFormat is non-empty, every parsed CalendarEntry has its Format
+// overwritten — used by List3DMonth to honour the server-side BD3D filter.
+func (c *Client) listMonth(ctx context.Context, path string, year, month int, forceFormat Format) ([]CalendarEntry, error) {
 	if year <= 0 || month < 1 || month > 12 {
-		return nil, fmt.Errorf("bluray: ListMonth: invalid (year=%d, month=%d)", year, month)
+		return nil, fmt.Errorf("bluray: listMonth: invalid (year=%d, month=%d)", year, month)
 	}
 	q := url.Values{}
 	q.Set("year", fmt.Sprintf("%04d", year))
 	q.Set("month", fmt.Sprintf("%02d", month))
-	body, err := c.get(ctx, c.baseURL+"/movies/releasedates.php?"+q.Encode())
+	body, err := c.get(ctx, c.baseURL+path+"?"+q.Encode())
 	if err != nil {
 		return nil, err
 	}
-	return ParseCalendar(body)
+	rows, err := ParseCalendar(body)
+	if err != nil {
+		return nil, err
+	}
+	if forceFormat != "" {
+		for i := range rows {
+			rows[i].Format = forceFormat
+		}
+	}
+	return rows, nil
 }
 
 // SearchTitle performs a quicksearch in the bluraymovies section and returns

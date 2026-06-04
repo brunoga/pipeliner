@@ -86,6 +86,24 @@ func TestWindows_ExplicitFromTo(t *testing.T) {
 	}
 }
 
+func TestWindows_HistoricalBackfill(t *testing.T) {
+	// 15 years back from Dec 2025 = 180 months; well under the 600-month cap
+	// but well over the previous 240-month cap. Verifies the cap lift enables
+	// the documented BD3D backfill pattern.
+	sp := &sourcePlugin{months: 15 * 12}
+	got := sp.windows(time.Date(2025, 12, 15, 0, 0, 0, 0, time.UTC))
+	if len(got) != 180 {
+		t.Fatalf("windows: got %d, want 180 (15 years × 12 months)", len(got))
+	}
+	// First window should be January 2011 (15 years before Dec 2025).
+	if got[0] != (window{2011, 1}) {
+		t.Errorf("windows[0]: got %v, want {2011, 1}", got[0])
+	}
+	if got[len(got)-1] != (window{2025, 12}) {
+		t.Errorf("windows[last]: got %v, want {2025, 12}", got[len(got)-1])
+	}
+}
+
 func TestIndexKey_StripsFormatTokens(t *testing.T) {
 	cases := []struct {
 		title, key string
@@ -163,6 +181,89 @@ func TestGenerate_PopulatesIndexAndEmitsEntries(t *testing.T) {
 	}
 	if hits, ok := sp.indexCache.Get(sampleKey); !ok || len(hits) == 0 {
 		t.Errorf("indexCache empty for key %q after Generate", sampleKey)
+	}
+}
+
+func TestGenerate_RoutesBD3DOnlyToDedicatedCalendar(t *testing.T) {
+	// With formats=[BD3D] (the only requested format), Generate must hit the
+	// 3D-specific calendar (/3d/releasedates.php). To prove the routing we
+	// 404 the generic calendar and only serve the 3D fixture on the 3D path.
+	body3D, err := os.ReadFile("../../../internal/bluray/testdata/calendar_3d_2012_10.html")
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+	var paths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		if r.URL.Path == "/3d/releasedates.php" {
+			w.Write(body3D)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	sp := newSourceWithServer(t, srv.URL, map[string]any{
+		"from_year": int64(2012), "from_month": int64(10),
+		"to_year": int64(2012), "to_month": int64(10),
+		"formats": []any{"BD3D"},
+	})
+
+	entries, err := sp.Generate(context.Background(), taskCtx())
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	if len(entries) < 20 {
+		t.Fatalf("entries: got %d, want >= 20 (Oct 2012 had 23 BD3D rows)", len(entries))
+	}
+	// Every routing decision must have hit /3d/releasedates.php — never
+	// /movies/releasedates.php.
+	for _, p := range paths {
+		if p != "/3d/releasedates.php" {
+			t.Errorf("unexpected path: %q (auto-route should have used /3d/)", p)
+		}
+	}
+	// Every emitted entry should be BD3D.
+	for _, e := range entries {
+		if v, _ := e.Fields[entry.FieldBlurayFormat].(string); v != string(bluray.FormatBD3D) {
+			t.Errorf("entry %q format: got %q, want BD3D", e.Title, v)
+		}
+	}
+}
+
+func TestGenerate_MultipleFormatsUseGenericCalendar(t *testing.T) {
+	// Inverse: when more than one format is requested (or the default set),
+	// Generate must use the generic /movies/releasedates.php and never touch
+	// the 3D-specific path.
+	body, err := os.ReadFile("../../../internal/bluray/testdata/calendar_2025_12.html")
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+	var paths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		if r.URL.Path == "/movies/releasedates.php" {
+			w.Write(body)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	sp := newSourceWithServer(t, srv.URL, map[string]any{
+		"from_year": int64(2025), "from_month": int64(12),
+		"to_year": int64(2025), "to_month": int64(12),
+		// No formats= means default = {BD, UHD, BD3D}; multiple formats so
+		// routing must NOT pick the 3D-only path.
+	})
+
+	if _, err := sp.Generate(context.Background(), taskCtx()); err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	for _, p := range paths {
+		if p != "/movies/releasedates.php" {
+			t.Errorf("unexpected path: %q (default formats should use /movies/)", p)
+		}
 	}
 }
 

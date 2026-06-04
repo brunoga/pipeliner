@@ -96,6 +96,71 @@ func TestClient_ListMonth_InvalidArgs(t *testing.T) {
 	}
 }
 
+func TestClient_List3DMonth(t *testing.T) {
+	var gotPath, gotQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotQuery = r.URL.RawQuery
+		if r.URL.Path != "/3d/releasedates.php" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Write(readFixture(t, "calendar_3d_2012_10.html"))
+	}))
+	defer srv.Close()
+
+	c := New(WithBaseURL(srv.URL), WithRequestInterval(0))
+	rows, err := c.List3DMonth(context.Background(), 2012, 10)
+	if err != nil {
+		t.Fatalf("List3DMonth: %v", err)
+	}
+	if gotPath != "/3d/releasedates.php" {
+		t.Errorf("path: got %q, want /3d/releasedates.php", gotPath)
+	}
+	if !strings.Contains(gotQuery, "year=2012") || !strings.Contains(gotQuery, "month=10") {
+		t.Errorf("query: got %q, want year=2012 and month=10", gotQuery)
+	}
+	if len(rows) < 20 {
+		t.Fatalf("rows: got %d, want >= 20 (Oct 2012 was peak BD3D era)", len(rows))
+	}
+
+	// Every row must be BD3D regardless of title shape — the server-side filter
+	// guarantees the page is BD3D-only and List3DMonth enforces this on the
+	// client side too.
+	for _, r := range rows {
+		if r.Format != FormatBD3D {
+			t.Errorf("row %q (id=%s) format: got %q, want BD3D", r.Title, r.ID, r.Format)
+		}
+	}
+
+	// Prometheus 3D (id 39474, October 9, 2012) is a known sample from the
+	// fixture; its presence locks the parser to the captured page.
+	var foundPrometheus bool
+	for _, r := range rows {
+		if r.ID == "39474" {
+			foundPrometheus = true
+			if !strings.Contains(r.Title, "Prometheus") {
+				t.Errorf("id 39474 title: got %q, want to contain Prometheus", r.Title)
+			}
+			if r.ReleaseDate != "2012-10-09" {
+				t.Errorf("id 39474 release date: got %q, want 2012-10-09", r.ReleaseDate)
+			}
+		}
+	}
+	if !foundPrometheus {
+		t.Error("expected to find Prometheus 3D (id 39474) in October 2012 3D calendar fixture")
+	}
+}
+
+func TestClient_List3DMonth_InvalidArgs(t *testing.T) {
+	c := New(WithRequestInterval(0))
+	for _, tc := range []struct{ y, m int }{{0, 1}, {2012, 0}, {2012, 13}} {
+		if _, err := c.List3DMonth(context.Background(), tc.y, tc.m); err == nil {
+			t.Errorf("List3DMonth(%d, %d): want error, got nil", tc.y, tc.m)
+		}
+	}
+}
+
 func TestClient_SearchTitle(t *testing.T) {
 	var gotQuery string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

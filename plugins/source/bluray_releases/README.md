@@ -85,8 +85,34 @@ output("transmission", upstream=bluray, host="localhost")
 pipeline("rss-with-bluray-meta", schedule="1h")
 ```
 
+## 3D-only mode: auto-routes to the BD3D-specific calendar
+
+When `formats=["BD3D"]` is the only requested format, `Generate()` automatically hits `/3d/releasedates.php` instead of the generic `/movies/releasedates.php`. Blu-ray.com publishes a parallel calendar that's server-side filtered to 3D releases only. This matters because:
+
+- A typical recent month has 100+ rows on the generic calendar but only 0-3 BD3D entries — most of the bytes parsed get discarded by the client-side format filter.
+- The 3D calendar is the same JS-array shape and the same parser, so no extra code complexity — the plugin just picks the smaller, pre-filtered page when it can.
+- Every row from `/3d/releasedates.php` is treated as BD3D regardless of title shape, so edge cases like `"Alita: Battle Angel 4K and 3D"` (which doesn't end with " 3D") still classify correctly.
+
+The fallback to the generic calendar happens transparently when any non-BD3D format is in the set (including the default `[BD, UHD, BD3D]`). There's no config knob — the routing is purely a function of the `formats` value.
+
+## Backfilling the BD3D catalog
+
+The plugin supports scanning up to 50 years of monthly windows (capped at 600 windows per `Generate()` call). Combined with the 3D-only auto-route, you can populate `cache_bluray_index` with the entire BD3D catalog in a single one-shot pipeline:
+
+```python
+# Run once to populate the index, then disable or delete the pipeline.
+backfill = input("bluray_releases",
+                 from_year=2010, from_month=9,   # BD3D launched September 2010
+                 to_year=2025,  to_month=12,
+                 formats=["BD3D"])
+output("print", upstream=backfill)
+pipeline("bluray-3d-backfill", schedule="0 0 1 1 *")  # yearly; manually trigger once
+```
+
+That's ~180 monthly windows, ~3 minutes at the default 1 req/sec interval, and from then on every `metainfo_bluray` enrichment for a 3D-era movie hits the local index without an HTTP round-trip.
+
 ## Notes
 
 - The calendar page embeds the full month's release list as a JavaScript data dump, which is far more stable to parse than the surrounding DOM. Parsing is therefore tolerant to the site's frequent layout tweaks.
-- Blu-ray.com's `robots.txt` disallows `/search/`; this plugin uses it as a fallback inside `Search()` and relies on caching to keep request volume low. `Generate()` only ever hits `/movies/releasedates.php`, which is allowed.
+- Blu-ray.com's `robots.txt` disallows `/search/`; this plugin uses it as a fallback inside `Search()` and relies on caching to keep request volume low. `Generate()` only ever hits `/movies/releasedates.php` (or `/3d/releasedates.php` in 3D-only mode), both of which are allowed.
 - All caches are persisted to the shared `pipeliner.db` so cold starts replay warmly.
