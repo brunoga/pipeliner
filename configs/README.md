@@ -96,7 +96,7 @@ Fields are grouped by prefix — the prefix tells you what kind of data the fiel
 | `media_type` | `metainfo_file` | Classification: `"series"`, `"movie"`, or unset. Useful as a `route()` dispatch key. |
 | `description` | `metainfo_tvdb`, `metainfo_tmdb`, `metainfo_trakt` | Synopsis / overview |
 | `published_date` | `metainfo_tvdb`, `metainfo_tmdb`, `rss` | Release or premiere date |
-| `enriched` | `metainfo_tvdb`, `metainfo_tmdb`, `metainfo_trakt` | `true` when an external provider enriched this entry |
+| `enriched` | `metainfo_tvdb`, `metainfo_tmdb`, `metainfo_trakt`, `metainfo_bluray` | `true` when an external provider enriched this entry |
 | `raw_title` | all sources | Original entry title (torrent filename or feed item title) |
 
 ### Video fields — movies and series
@@ -183,6 +183,20 @@ Fields are grouped by prefix — the prefix tells you what kind of data the fiel
 | `trakt_slug` | `metainfo_trakt` | Trakt URL slug |
 | `trakt_tmdb_id` | `metainfo_trakt` | TMDb cross-reference ID |
 | `trakt_tvdb_id` | `metainfo_trakt` | TheTVDB cross-reference ID |
+| `bluray_id` | `metainfo_bluray`, `bluray_releases` | Blu-ray.com release ID |
+| `bluray_url` | `metainfo_bluray`, `bluray_releases` | Canonical Blu-ray.com release URL |
+| `bluray_format` | `metainfo_bluray`, `bluray_releases` | `BD`, `UHD`, `BD3D`, or `DVD` |
+| `bluray_studio` | `metainfo_bluray`, `bluray_releases` | Distributing studio |
+| `bluray_country` | `metainfo_bluray` | Release locale (e.g. `United States`) |
+| `bluray_year` | `metainfo_bluray`, `bluray_releases` | Production year |
+| `bluray_release_date` | `metainfo_bluray`, `bluray_releases` | `YYYY-MM-DD` |
+| `bluray_runtime_minutes` | `metainfo_bluray` | Runtime in minutes |
+| `bluray_codec` | `metainfo_bluray` | Video codec (e.g. `MPEG-4 MVC` for BD3D) |
+| `bluray_resolution` | `metainfo_bluray` | Video resolution (e.g. `1080p`, `2160p`) |
+| `bluray_aspect_ratio` | `metainfo_bluray` | Aspect ratio (e.g. `1.78:1`) |
+| `bluray_edition` | `metainfo_bluray`, `bluray_releases` | Edition tag (e.g. `Limited 3D Edition`) |
+| `bluray_3d_release` | `metainfo_bluray`, `bluray_releases` | `true` when a real 3D Blu-ray release exists in the catalog — pair with `video_is_3d` to identify fake/upscaled 3D rips |
+| `bluray_is_3d_edition` | `metainfo_bluray`, `bluray_releases` | `true` when this specific release is the 3D edition (format=BD3D or codec=MPEG-4 MVC) |
 | `download_path` | `pathfmt` (with `field="download_path"`) | Rendered, scrubbed download path |
 
 Custom fields can be set with the [`set`](../plugins/processor/modify/set/README.md) plugin and used in any pattern or condition.
@@ -254,6 +268,13 @@ pipeline("my-pipeline", schedule="1h")
 ### Active search
 
 - [`discover-trakt-qbittorrent.star`](discover-trakt-qbittorrent.star) — Trakt sources feed `discover` → Jackett search → qBittorrent
+- [`bluray-discover.star`](bluray-discover.star) — Trakt trending list feeds `discover` → `bluray_releases` search backend → filter for BD3D editions
+
+### Blu-ray.com
+
+- [`bluray-calendar.star`](bluray-calendar.star) — `bluray_releases` as a source: scrape the release calendar for new BD3D releases
+- [`bluray-enrich.star`](bluray-enrich.star) — `metainfo_bluray` as a processor: route real 3D releases vs fake/upscaled 3D rips using `bluray_3d_release`
+- [`bluray-discover.star`](bluray-discover.star) — `bluray_releases` as a search backend inside `discover()`
 
 ### News / articles
 
