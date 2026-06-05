@@ -62,17 +62,21 @@ type Descriptor struct {
 	// plugins are registered so the executor can instantiate them but are hidden
 	// from the visual editor palette and cannot be used directly in config.
 	Internal bool
-	// InputStates declares which entry states the plugin's Process method
-	// actually acts on. The executor pre-filters upstream entries to this set
-	// before calling Process, removing the per-plugin "skip rejected/failed"
-	// boilerplate that lived at the top of every processor. Excluded entries
-	// bypass the plugin and are merged back into the downstream slice unchanged.
+	// InputStates declares which entry states the plugin's Process or Consume
+	// method actually acts on. The executor pre-filters upstream entries to
+	// this set before calling the plugin, removing the per-plugin
+	// "skip rejected/failed" boilerplate that lived at the top of every
+	// processor and the FilterAccepted wrapper that lived at the top of every
+	// sink. Excluded entries bypass the plugin and are merged back into the
+	// downstream slice unchanged.
 	//
 	// When zero, EffectiveInputStates falls back to a role-appropriate default:
 	//   - RoleProcessor → entry.StatesAcceptedUndecided
+	//   - RoleSink      → entry.StatesAcceptedOnly
 	//
-	// (Sinks still gate their input through entry.FilterAccepted, which is
-	// consumed-aware and lives outside the InputStates mechanism for now.)
+	// Sinks additionally have an always-on consumed-exclusion at the boundary,
+	// regardless of the declared InputStates — consumed is orthogonal to State
+	// and the executor's SplitConsumed pass handles it independently.
 	//
 	// Plugins with non-default needs declare an explicit set; see the
 	// pre-built named constants in package entry.

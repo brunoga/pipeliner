@@ -15,9 +15,11 @@
 // All plugins must implement one of the three role interfaces:
 // SourcePlugin.Generate, ProcessorPlugin.Process, or SinkPlugin.Consume.
 //
-// Sink chaining: a sink node may have downstream sink nodes. After Consume runs,
-// the executor passes FilterAccepted(upstream) to the next sink so entries failed
-// by the upstream sink are not forwarded to chained sinks.
+// Sink chaining: a sink node may have downstream sink nodes. Each sink applies
+// its declared InputStates pre-filter (default RoleSink: StatesAcceptedOnly)
+// plus an always-on consumed-exclusion at the sink boundary, so chained sinks
+// naturally only see entries the upstream sink accepted. No special case in
+// the executor's chained-sink path — the per-sink pre-filter is the gate.
 package executor
 
 import (

@@ -145,9 +145,10 @@ type Entry struct {
 	LastStateChange *StateChange
 
 	// consumed is set by Consume(). It keeps State = Accepted (so CommitPlugin
-	// still runs for this entry) but signals FilterAccepted to exclude it from
-	// subsequent sinks. Use it when the side effect was already applied by other
-	// means and chained notification sinks should be silent.
+	// still runs for this entry) but causes the executor's sink-boundary
+	// SplitConsumed pass to exclude it from subsequent sinks. Use it when the
+	// side effect was already applied by other means and chained notification
+	// sinks should be silent.
 	consumed bool
 }
 
@@ -228,11 +229,14 @@ func (e *Entry) Delete(key string) {
 	delete(e.Fields, key)
 }
 
-// FilterAccepted returns entries that are Accepted and not Consumed. Used by
-// SinkPlugin implementations and the executor to pass entries to subsequent
-// sinks. Consumed entries (marked by a prior sink via e.Consume()) are
-// excluded so they do not trigger chained notification sinks, even though
-// CommitPlugin.Commit still runs for them.
+// FilterAccepted returns entries that are Accepted and not Consumed.
+//
+// As of the InputStates refactor (PR #245 + #247) production sinks no longer
+// call this — the executor's per-sink pre-filter (StatesAcceptedOnly +
+// always-on SplitConsumed) does the same job declaratively. The helper stays
+// for tests that want a one-line equivalent of "the entries a default sink
+// would actually have received" and for any external callers that built on
+// the original contract.
 func FilterAccepted(entries []*Entry) []*Entry {
 	out := make([]*Entry, 0, len(entries))
 	for _, e := range entries {
