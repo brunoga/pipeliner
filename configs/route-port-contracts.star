@@ -55,7 +55,7 @@ routes = route(quality,
 # Only entries guaranteed to have torrent_url reach here.
 
 filt_t = process("condition", upstream=routes.torrent,
-    accept='video_resolution == "2160p" and video_source == "WEBRip"')
+    reject='not (video_resolution == "2160p" and video_source == "WEBRip")')
 output("transmission", upstream=filt_t,
     host=trans_host, port=9091,
     username=env("TRANS_USER", default=""),
@@ -66,7 +66,7 @@ output("transmission", upstream=filt_t,
 # Only entries guaranteed to have magnet_url reach here.
 
 filt_m = process("condition", upstream=routes.magnet,
-    accept='video_resolution == "2160p" and video_source == "WEBRip"')
+    reject='not (video_resolution == "2160p" and video_source == "WEBRip")')
 output("qbittorrent", upstream=filt_m,
     host=qbit_host, port=8080,
     username=env("QBIT_USER", default=""),

@@ -156,6 +156,12 @@ func Validate(g *Graph, reg func(name string) (*plugin.Descriptor, bool)) (errs,
 			// path=). Static-only — runtime e.Get/Set calls aren't checked.
 			deprecationWarnings(n, d, &warnings)
 
+			// Warn on accept-only condition nodes — they don't reject the
+			// non-matching rest, which is almost always the user's intent.
+			if w := conditionMissingRejectWarning(n, d); w != nil {
+				warnings = append(warnings, w)
+			}
+
 			// Add this node's Produces to both sets, MayProduce to reachable only.
 			for _, f := range d.Produces {
 				reach[f] = true

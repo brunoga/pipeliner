@@ -31,7 +31,7 @@ req    = process("require",       upstream=meta,
 q      = process("quality",       upstream=req, spec="720p+")
 series = process("series",        upstream=q,
                   static=["Breaking Bad", "Better Call Saul", "The Wire"])
-cond   = process("condition",     upstream=series, accept="torrent_seeds >= 3")
+cond   = process("condition",     upstream=series, reject="torrent_seeds < 3")
 fmt    = process("pathfmt",       upstream=cond,
                   path="/media/tv/{title}/Season {series_season:02d}",
                   field="download_path")
