@@ -155,6 +155,7 @@ func validate(cfg map[string]any) []error {
 | `AcceptsList` | `bool` | Declare that this plugin accepts a `list=` config key (a slice of list-plugin configs or mini-pipeline functions). Used by the visual editor to render the teal list port |
 | `AcceptsSearch` | `bool` | Declare that this plugin accepts a `search=` config key. Used by the visual editor to render the search port |
 | `Internal` | `bool` | Mark plugins that are implementation details of a built-in (e.g. `route_selector` created by the `route()` Starlark builtin). Internal plugins are registered so the executor can instantiate them but are hidden from the visual editor palette and cannot be used directly in config |
+| `InputStates` | `entry.StateSet` | Optional. Declares which entry states this plugin's `Process` method acts on; the executor pre-filters upstream entries to this set before calling `Process`. Excluded entries bypass the plugin and are merged back into the downstream slice unchanged. **Defaults to `entry.StatesAcceptedUndecided` for processors when unset** (matches the historical "skip rejected/failed" convention), so most plugins don't need to set it. Use the pre-built constants in package `entry` (`StatesAcceptedOnly`, `StatesUndecidedOnly`, `StatesAcceptedUndecided`, `StatesAllButFailed`, `StatesAll`). The only plugin that needs `StatesAll` today is `swap_state` (it operates on rejected and failed entries by design). See [ProcessorPlugin](#processorplugin) below for examples |
 
 ---
 
@@ -210,6 +211,35 @@ e.IsConsumed() bool
 
 `entry.FilterAccepted(entries)` excludes both `Failed` entries and `Consumed` entries,
 so a sink calling `e.Consume()` stops the entry from reaching any chained sinks.
+
+### State-mutating plugins
+
+A small number of plugins exist to flip entry state after some upstream node has
+already decided on it (the canonical example is `swap_state`, which swaps two
+states such as `Accepted ↔ Rejected` so downstream nodes can act on entries
+others rejected or failed). These plugins must:
+
+1. Declare `Descriptor.InputStates: entry.StatesAll` so the executor's pre-filter
+   does not hide the very entries they need to act on. See [Declaring
+   InputStates](#declaring-inputstates).
+2. Populate `Entry.LastStateChange` whenever they change a state, so notification
+   templates and downstream consumers can render both the prior reason and the
+   override:
+
+   ```go
+   e.LastStateChange = &entry.StateChange{
+       From:   prevState,
+       To:     newState,
+       Plugin: "my_plugin",
+       Reason: "human-readable description of why this transition happened",
+       At:     time.Now(),
+   }
+   ```
+
+`AcceptReason` / `RejectReason` / `FailReason` are preserved across the
+transition as audit history — do not clear them. A notify template can render
+both `{{.FailReason}}` (the original cause) and `{{.LastStateChange.Reason}}`
+(why the entry is no longer in that state).
 
 ### Cloning
 
@@ -460,8 +490,13 @@ type ProcessorPlugin interface {
 **Rules:**
 - Call `e.Reject(reason)` on entries you drop from the output, so the
   executor can count and report them correctly.
-- Entries with `e.IsRejected() || e.IsFailed()` arriving in your input
-  should normally be skipped (or passed through unchanged).
+- **The executor pre-filters your input by `Descriptor.InputStates`** (default:
+  `entry.StatesAcceptedUndecided`). You only see entries in the states you
+  declared, so you do not need an `if e.IsRejected() || e.IsFailed() { continue }`
+  guard at the top of `Process`. Excluded entries are merged back into the
+  downstream slice automatically. Declare a non-default `InputStates` only when
+  your plugin specifically needs broader or narrower access — see
+  [Declaring InputStates](#declaring-inputstates) below.
 - Return the same slice when nothing was filtered (avoid allocating):
   `return entries, nil`
 - For stateful processors (e.g. `seen`): read state first, apply the
@@ -479,13 +514,10 @@ type myFilter struct { minRating float64 }
 func (p *myFilter) Name() string { return "my_filter" }
 
 func (p *myFilter) Process(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
+    // No skip-guard needed — the executor pre-filtered to Accepted+Undecided
+    // entries based on Descriptor.InputStates default.
     out := make([]*entry.Entry, 0, len(entries))
     for _, e := range entries {
-        if e.IsRejected() || e.IsFailed() {
-            // pass failed/rejected entries through without counting them
-            out = append(out, e)
-            continue
-        }
         rating, _ := e.Get("video_rating")
         if r, ok := rating.(float64); ok && r >= p.minRating {
             out = append(out, e)
@@ -502,9 +534,6 @@ func (p *myFilter) Process(_ context.Context, _ *plugin.TaskContext, entries []*
 ```go
 func (p *myMetaPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
     for _, e := range entries {
-        if e.IsRejected() || e.IsFailed() {
-            continue
-        }
         if err := p.annotate(ctx, tc, e); err != nil {
             tc.Logger.Warn("annotation failed", "entry", e.Title, "err", err)
         }
@@ -514,10 +543,12 @@ func (p *myMetaPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entr
 ```
 
 Use `entry.PassThrough(entries)` as a helper when you need to return only
-the non-rejected entries from a filter:
+the non-rejected entries from a filter — it drops entries you `Reject`-ed in
+this same call (the executor pre-filter only excludes entries that arrived
+already-rejected from upstream):
 
 ```go
-// After calling e.Reject() on unwanted entries:
+// After calling e.Reject() on entries you've decided against in this Process call:
 return entry.PassThrough(entries), nil
 ```
 
@@ -529,9 +560,6 @@ abort the whole batch.
 
 ```go
 for _, e := range entries {
-    if e.IsRejected() || e.IsFailed() {
-        continue
-    }
     if err := p.check(ctx, tc, e); err != nil {
         tc.Logger.Warn("check error", "entry", e.Title, "err", err)
         // do not return err — continue with remaining entries
@@ -539,6 +567,35 @@ for _, e := range entries {
 }
 return entry.PassThrough(entries), nil
 ```
+
+### Declaring InputStates
+
+The default for processors is `entry.StatesAcceptedUndecided`. Override it only
+when your plugin specifically needs broader or narrower access. Common cases:
+
+| Set | When | Examples |
+|---|---|---|
+| `entry.StatesAcceptedOnly` | Plugin operates on already-accepted entries (decides between them, caps a count, looks them up in a list) | `dedup`, `limit`, `discover` |
+| `entry.StatesUndecidedOnly` | Plugin only ever acts on entries no upstream decided on | `accept_all` |
+| `entry.StatesAcceptedUndecided` *(default)* | Standard filter or enrichment — Reject/Fail entries based on inspection, leave terminal ones alone | most processors |
+| `entry.StatesAllButFailed` | Broad access but should never act on terminal-failed entries | rare; reserved for the next layer of plugins that want to inspect rejected entries without reviving failed ones |
+| `entry.StatesAll` | Plugin **needs** to see rejected and failed entries — typically because it intends to mutate their state | `swap_state` |
+
+Declared in the descriptor:
+
+```go
+plugin.Register(&plugin.Descriptor{
+    PluginName: "my_state_plugin",
+    Role:       plugin.RoleProcessor,
+    InputStates: entry.StatesAll, // see everything — overrides the default
+    ...
+})
+```
+
+Reaching for `entry.StatesAll` is a strong signal: the plugin is willing to
+operate on entries some upstream node already failed. Document why in a comment
+on the descriptor — code reviewers should be skeptical of any non-default
+declaration.
 
 ### SinkPlugin
 
