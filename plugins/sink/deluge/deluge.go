@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/cookiejar"
+	"net/url"
 	"strings"
 
 	"github.com/brunoga/pipeliner/internal/entry"
@@ -119,7 +120,8 @@ func (p *delugePlugin) deliver(ctx context.Context, tc *plugin.TaskContext, entr
 				continue
 			}
 		}
-		if err := p.addTorrent(ctx, e.URL, e.GetString(entry.FieldTorrentLinkType), savePath, moveCompleted); err != nil {
+		linkType := e.GetString(entry.FieldTorrentLinkType)
+		if err := p.addTorrent(ctx, e.URL, linkType, savePath, moveCompleted); err != nil {
 			if strings.Contains(err.Error(), "already in session") {
 				// Torrent is already in Deluge (e.g. manually added). Mark the
 				// entry consumed so chained notification sinks (email, etc.) are
@@ -129,7 +131,9 @@ func (p *delugePlugin) deliver(ctx context.Context, tc *plugin.TaskContext, entr
 				tc.Logger.Info("deluge: torrent already in session, skipping notifications", "title", e.Title)
 				e.Consume()
 			} else {
-				tc.Logger.Error("deluge: add torrent", "title", e.Title, "err", err)
+				err = summarizeAddError(e.URL, err)
+				tc.Logger.Error("deluge: add torrent",
+					"title", e.Title, "url", e.URL, "link_type", linkType, "err", err)
 				e.Fail("deluge: " + err.Error())
 			}
 		}
@@ -148,9 +152,9 @@ func (p *delugePlugin) login(ctx context.Context) error {
 	return nil
 }
 
-func (p *delugePlugin) addTorrent(ctx context.Context, url, linkType, savePath, moveCompletedPath string) error {
-	if url == "" {
-		return fmt.Errorf("entry has empty URL")
+func (p *delugePlugin) addTorrent(ctx context.Context, rawURL, linkType, savePath, moveCompletedPath string) error {
+	if err := validateTorrentURL(rawURL); err != nil {
+		return err
 	}
 	opts := map[string]any{}
 	if savePath != "" {
@@ -163,14 +167,65 @@ func (p *delugePlugin) addTorrent(ctx context.Context, url, linkType, savePath, 
 	// Check torrent_link_type first (set by sources such as Jackett that know
 	// the type without an HTTP fetch), then fall back to URL prefix inspection.
 	method := "core.add_torrent_url"
-	if linkType == "magnet" || (linkType == "" && strings.HasPrefix(url, "magnet:")) {
+	if linkType == "magnet" || (linkType == "" && strings.HasPrefix(rawURL, "magnet:")) {
 		method = "core.add_torrent_magnet"
 	}
-	if method == "core.add_torrent_url" && !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
-		return fmt.Errorf("unsupported URL scheme: %q", url)
-	}
-	_, err := p.rpc(ctx, method, []any{url, opts})
+	_, err := p.rpc(ctx, method, []any{rawURL, opts})
 	return err
+}
+
+// validateTorrentURL rejects URLs that the Deluge daemon cannot act on. The
+// Twisted HTTP downloader inside Deluge raises a verbose
+// `twisted.web.error.SchemeNotSupported: Unsupported scheme: b''`
+// traceback for empty / scheme-less / host-less URLs, so we surface a
+// useful error here before the RPC is made.
+func validateTorrentURL(rawURL string) error {
+	if rawURL == "" {
+		return fmt.Errorf("entry has empty URL")
+	}
+	if strings.HasPrefix(rawURL, "magnet:") {
+		return nil
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid URL %q: %w", rawURL, err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("unsupported URL scheme %q (full URL: %q)", u.Scheme, rawURL)
+	}
+	if u.Host == "" {
+		return fmt.Errorf("URL has no host: %q", rawURL)
+	}
+	return nil
+}
+
+// summarizeAddError replaces deluge / Twisted error walls-of-text with a
+// concise one-liner that names the URL and the likely cause. The RPC error
+// body for a malformed download URL is a multi-line Python traceback, which
+// is useless in the entry FailReason and floods the log. We pattern-match
+// on the well-known terminal exception class and rewrite the message; the
+// original is still emitted at debug level by the caller via slog.
+func summarizeAddError(rawURL string, err error) error {
+	if err == nil {
+		return nil
+	}
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "SchemeNotSupported: Unsupported scheme: b''"):
+		return fmt.Errorf("deluge could not download torrent from %q (empty URL scheme parsed by Python — likely the indexer redirected to a target with an empty Location header or a non-HTTP scheme)", rawURL)
+	case strings.Contains(msg, "SchemeNotSupported: Unsupported scheme:"):
+		// scheme is included in the original message after the colon
+		return fmt.Errorf("deluge could not download torrent from %q (indexer redirected to an unsupported scheme; original: %s)", rawURL, oneLine(msg))
+	}
+	return err
+}
+
+// oneLine collapses any newlines into spaces so a multi-line traceback fits
+// on a single log line.
+func oneLine(s string) string {
+	s = strings.ReplaceAll(s, "\r", " ")
+	s = strings.ReplaceAll(s, "\n", " ")
+	return strings.Join(strings.Fields(s), " ")
 }
 
 // rpc sends a single JSON-RPC 2.0 call and returns the result field.
