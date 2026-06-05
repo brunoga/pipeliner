@@ -55,7 +55,7 @@ func (p *printPlugin) Consume(_ context.Context, tc *plugin.TaskContext, entries
 	if tc.DryRun {
 		return nil
 	}
-	for _, e := range entry.FilterAccepted(entries) {
+	for _, e := range entries {
 		result, err := p.ip.Render(interp.EntryDataWithState(e))
 		if err != nil {
 			fmt.Printf("[print error: %v]\n", err)

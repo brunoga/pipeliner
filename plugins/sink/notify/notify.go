@@ -147,5 +147,5 @@ func (p *notifyPlugin) Consume(ctx context.Context, tc *plugin.TaskContext, entr
 	if tc.DryRun {
 		return nil
 	}
-	return p.deliver(ctx, tc, entry.FilterAccepted(entries))
+	return p.deliver(ctx, tc, entries)
 }

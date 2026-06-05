@@ -896,16 +896,24 @@ func TestExecutor_InputStatesPreFilter_Default(t *testing.T) {
 	if len(observe.seen) != 1 || observe.seen[0] != "http://a.com" {
 		t.Errorf("observe.seen: got %v, want [http://a.com] (rejected b should have been filtered before Process)", observe.seen)
 	}
-	// The rejected entry must STILL flow downstream through observe's output,
-	// because the executor merges procOutput with the pre-filter-excluded
-	// entries. Without that merge, the sink would never see the rejected
-	// entry at all, which would break logging, accounting, and chained-sink
-	// rules in production. sinkPlugin is a naive test sink that records every
-	// entry it's handed without applying FilterAccepted, so it should receive
-	// both.
-	if len(collect.received) != 2 {
-		t.Errorf("sink.received: got %d, want 2 (rejected entry must be merged back into downstream slice)", len(collect.received))
+	// The downstream sink defaults to InputStates=StatesAcceptedOnly, so it
+	// must NOT see the rejected entry — that's the same pre-filter mechanism
+	// applied at the sink boundary. The rejected entry is still merged into
+	// the executor's `produced` slice for commit-phase accounting, but the
+	// sink's Consume only sees the accepted one.
+	if len(collect.received) != 1 || collect.received[0].URL != "http://a.com" {
+		t.Errorf("sink.received: got %v, want [http://a.com] (sink default InputStates filters rejected entries)", urls(collect.received))
 	}
+}
+
+// urls is a small helper that pulls .URL out of a slice for clearer error
+// messages in tests.
+func urls(es []*entry.Entry) []string {
+	out := make([]string, len(es))
+	for i, e := range es {
+		out[i] = e.URL
+	}
+	return out
 }
 
 // TestExecutor_InputStatesPreFilter_AllStates verifies that a processor with
@@ -958,5 +966,150 @@ func TestExecutor_InputStatesPreFilter_AllStates(t *testing.T) {
 		if !wantURLs[u] {
 			t.Errorf("observe saw unexpected URL %q", u)
 		}
+	}
+}
+
+// TestExecutor_SinkInputStatesPreFilter_Default verifies that sinks default
+// to InputStates=StatesAcceptedOnly: rejected and undecided entries from
+// upstream must not reach the sink's Consume call.
+func TestExecutor_SinkInputStatesPreFilter_Default(t *testing.T) {
+	// reject_b rejects http://b.com, leaves http://a.com Accepted.
+	rejectB := &funcProcessor{fn: func(entries []*entry.Entry) []*entry.Entry {
+		for _, e := range entries {
+			if e.URL == "http://b.com" {
+				e.Reject("test: reject b")
+			} else {
+				e.Accept()
+			}
+		}
+		return entries
+	}}
+	sink := &sinkPlugin{}
+
+	ex := buildExec(t,
+		[]*dag.Node{
+			{ID: "src", PluginName: "test_source"},
+			{ID: "reject", PluginName: "test_func", Upstreams: []dag.NodeID{"src"}},
+			{ID: "sink", PluginName: "test_sink", Upstreams: []dag.NodeID{"reject"}},
+		},
+		map[dag.NodeID]*executor.PluginInstance{
+			"src":    {Desc: sourceDesc(), Impl: &sourcePlugin{urls: []string{"http://a.com", "http://b.com"}}, Config: map[string]any{}},
+			"reject": {Desc: processorDesc(), Impl: rejectB, Config: map[string]any{}},
+			"sink":   {Desc: sinkDesc(), Impl: sink, Config: map[string]any{}},
+		},
+	)
+	if _, err := ex.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(sink.received) != 1 || sink.received[0].URL != "http://a.com" {
+		t.Errorf("sink.received: got %v, want [http://a.com] (sink default filters rejected entries)", urls(sink.received))
+	}
+}
+
+// TestExecutor_SinkConsumedExclusion verifies that consumed entries are
+// always excluded from sink input, regardless of InputStates. The consumed
+// flag is orthogonal to State and the executor applies it as an always-on
+// filter at the sink boundary.
+func TestExecutor_SinkConsumedExclusion(t *testing.T) {
+	// accept_and_consume_b accepts both entries, then marks b consumed.
+	mutator := &funcProcessor{fn: func(entries []*entry.Entry) []*entry.Entry {
+		for _, e := range entries {
+			e.Accept()
+			if e.URL == "http://b.com" {
+				e.Consume()
+			}
+		}
+		return entries
+	}}
+	sink := &sinkPlugin{}
+
+	ex := buildExec(t,
+		[]*dag.Node{
+			{ID: "src", PluginName: "test_source"},
+			{ID: "mark", PluginName: "test_func", Upstreams: []dag.NodeID{"src"}},
+			{ID: "sink", PluginName: "test_sink", Upstreams: []dag.NodeID{"mark"}},
+		},
+		map[dag.NodeID]*executor.PluginInstance{
+			"src":  {Desc: sourceDesc(), Impl: &sourcePlugin{urls: []string{"http://a.com", "http://b.com"}}, Config: map[string]any{}},
+			"mark": {Desc: processorDesc(), Impl: mutator, Config: map[string]any{}},
+			"sink": {Desc: sinkDesc(), Impl: sink, Config: map[string]any{}},
+		},
+	)
+	if _, err := ex.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(sink.received) != 1 || sink.received[0].URL != "http://a.com" {
+		t.Errorf("sink.received: got %v, want [http://a.com] (consumed entries are always excluded from sink input)", urls(sink.received))
+	}
+}
+
+// TestExecutor_SinkChained_NoSpecialCase verifies that a chained sink only
+// sees what the upstream sink approved — the same behavior the old
+// chained-sink special case at executor.go:379 used to enforce explicitly.
+// Now subsumed by the general per-sink pre-filter: when sink A fails an
+// entry, sink B's default InputStates=StatesAcceptedOnly excludes it.
+func TestExecutor_SinkChained_NoSpecialCase(t *testing.T) {
+	sink1 := &failingSinkPlugin{failURLs: map[string]bool{"http://b.com": true}}
+	sink2 := &sinkPlugin{}
+
+	ex := buildExec(t,
+		[]*dag.Node{
+			{ID: "src", PluginName: "test_source"},
+			{ID: "proc", PluginName: "test_commit", Upstreams: []dag.NodeID{"src"}},
+			{ID: "sink1", PluginName: "test_failing_sink", Upstreams: []dag.NodeID{"proc"}},
+			{ID: "sink2", PluginName: "test_sink", Upstreams: []dag.NodeID{"sink1"}},
+		},
+		map[dag.NodeID]*executor.PluginInstance{
+			"src":   {Desc: sourceDesc(), Impl: &sourcePlugin{urls: []string{"http://a.com", "http://b.com"}}, Config: map[string]any{}},
+			"proc":  {Desc: commitDesc(), Impl: &commitPlugin{}, Config: map[string]any{}},
+			"sink1": {Desc: failingSinkDesc(), Impl: sink1, Config: map[string]any{}},
+			"sink2": {Desc: sinkDesc(), Impl: sink2, Config: map[string]any{}},
+		},
+	)
+	if _, err := ex.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(sink2.received) != 1 || sink2.received[0].URL != "http://a.com" {
+		t.Errorf("chained sink2.received: got %v, want [http://a.com] (sink2's pre-filter must exclude the entry sink1 failed)", urls(sink2.received))
+	}
+}
+
+// TestExecutor_SinkInputStatesOverride proves that a sink can declare a
+// non-default InputStates to legitimately act on failed entries — the
+// notify-on-failure use case that was previously inexpressible because the
+// chained-sink special case unconditionally filtered to Accepted.
+func TestExecutor_SinkInputStatesOverride(t *testing.T) {
+	failSink := &failingSinkPlugin{failURLs: map[string]bool{"http://b.com": true}}
+	notifier := &sinkPlugin{}
+
+	// Chained sink that wants to see Failed entries (notify-on-failure).
+	notifyDesc := &plugin.Descriptor{
+		PluginName:  "test_sink",
+		Role:        plugin.RoleSink,
+		InputStates: entry.StateBit(entry.Accepted) | entry.StateBit(entry.Failed),
+	}
+
+	ex := buildExec(t,
+		[]*dag.Node{
+			{ID: "src", PluginName: "test_source"},
+			{ID: "proc", PluginName: "test_commit", Upstreams: []dag.NodeID{"src"}},
+			{ID: "primary", PluginName: "test_failing_sink", Upstreams: []dag.NodeID{"proc"}},
+			{ID: "notify", PluginName: "test_sink", Upstreams: []dag.NodeID{"primary"}},
+		},
+		map[dag.NodeID]*executor.PluginInstance{
+			"src":     {Desc: sourceDesc(), Impl: &sourcePlugin{urls: []string{"http://a.com", "http://b.com"}}, Config: map[string]any{}},
+			"proc":    {Desc: commitDesc(), Impl: &commitPlugin{}, Config: map[string]any{}},
+			"primary": {Desc: failingSinkDesc(), Impl: failSink, Config: map[string]any{}},
+			"notify":  {Desc: notifyDesc, Impl: notifier, Config: map[string]any{}},
+		},
+	)
+	if _, err := ex.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	// notify with InputStates=Accepted|Failed sees both — the one sink1
+	// accepted AND the one sink1 failed. This is the new capability.
+	if len(notifier.received) != 2 {
+		t.Fatalf("notifier.received: got %d entries (%v), want 2 (override should surface both Accepted and Failed)",
+			len(notifier.received), urls(notifier.received))
 	}
 }
