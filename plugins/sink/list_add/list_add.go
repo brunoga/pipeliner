@@ -60,7 +60,7 @@ func (p *listAddPlugin) Consume(_ context.Context, tc *plugin.TaskContext, entri
 		return nil
 	}
 	list := entrylist.Open(p.db, p.listName)
-	for _, e := range entry.FilterAccepted(entries) {
+	for _, e := range entries {
 		if err := list.Add(e.Title, e.URL); err != nil {
 			tc.Logger.Error("list_add: store entry", "title", e.Title, "err", err)
 		}

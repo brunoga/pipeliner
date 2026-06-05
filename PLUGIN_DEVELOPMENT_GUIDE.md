@@ -570,14 +570,15 @@ return entry.PassThrough(entries), nil
 
 ### Declaring InputStates
 
-The default for processors is `entry.StatesAcceptedUndecided`. Override it only
-when your plugin specifically needs broader or narrower access. Common cases:
+The default for processors is `entry.StatesAcceptedUndecided`; the default for
+sinks is `entry.StatesAcceptedOnly`. Override only when your plugin specifically
+needs broader or narrower access. Common cases:
 
 | Set | When | Examples |
 |---|---|---|
-| `entry.StatesAcceptedOnly` | Plugin operates on already-accepted entries (decides between them, caps a count, looks them up in a list) | `dedup`, `limit`, `discover` |
+| `entry.StatesAcceptedOnly` *(default for sinks)* | Plugin operates on already-accepted entries (decides between them, caps a count, looks them up in a list; any normal sink) | `dedup`, `limit`, `discover`, every standard sink (`deluge`, `transmission`, `download`, `print`, `notify`, …) |
 | `entry.StatesUndecidedOnly` | Plugin only ever acts on entries no upstream decided on | `accept_all` |
-| `entry.StatesAcceptedUndecided` *(default)* | Standard filter or enrichment — Reject/Fail entries based on inspection, leave terminal ones alone | most processors |
+| `entry.StatesAcceptedUndecided` *(default for processors)* | Standard filter or enrichment — Reject/Fail entries based on inspection, leave terminal ones alone | most processors |
 | `entry.StatesAllButFailed` | Broad access but should never act on terminal-failed entries | rare; reserved for the next layer of plugins that want to inspect rejected entries without reviving failed ones |
 | `entry.StatesAll` | Plugin **needs** to see rejected and failed entries — typically because it intends to mutate their state | `swap_state` |
 
@@ -597,6 +598,33 @@ operate on entries some upstream node already failed. Document why in a comment
 on the descriptor — code reviewers should be skeptical of any non-default
 declaration.
 
+#### Sinks specifically
+
+The `consumed` flag is orthogonal to `State` and is **always** excluded from
+sink input regardless of `InputStates`. So a sink declaring
+`InputStates: StatesAll` still won't see consumed entries — the executor
+applies a `SplitConsumed` pass at the sink boundary alongside the state
+pre-filter.
+
+The override is what makes a chained "notify on failure" sink expressible:
+
+```go
+plugin.Register(&plugin.Descriptor{
+    PluginName: "notify_failure",
+    Role:       plugin.RoleSink,
+    // See both Accepted (the upstream sink succeeded) and Failed (it failed).
+    // Chain after a primary sink that may Fail entries.
+    InputStates: entry.StateBit(entry.Accepted) | entry.StateBit(entry.Failed),
+    ...
+})
+```
+
+Before `InputStates` for sinks, the executor's chained-sink path
+unconditionally pre-filtered to `Accepted`, so a chained sink could never see
+Failed entries from its upstream sink. The override now makes that pattern
+possible without going through a separate `swap_state` (which can't sit
+between sinks — the DAG validator only permits sink → sink chains).
+
 ### SinkPlugin
 
 Sinks consume entries and perform side effects.
@@ -609,7 +637,14 @@ type SinkPlugin interface {
 ```
 
 **Rules:**
-- Call `entry.FilterAccepted(entries)` to get only accepted, non-consumed entries.
+- **The executor pre-filters your input** by `Descriptor.InputStates` (default:
+  `entry.StatesAcceptedOnly`) AND always excludes `consumed` entries. You only
+  see entries the sink is supposed to act on, so you do not need to call
+  `entry.FilterAccepted(entries)` yourself or guard inside the loop. Declare a
+  non-default `InputStates` only when your sink specifically needs broader
+  access — see [Declaring InputStates](#declaring-inputstates) above, and
+  specifically the "Sinks specifically" subsection for the notify-on-failure
+  pattern.
 - Check `tc.DryRun` and skip all external side effects when it is `true`.
 - Use `e.Fail("reason")` on entries that could not be processed so they
   will be retried on the next run.
@@ -622,7 +657,10 @@ func (p *mySink) Consume(ctx context.Context, tc *plugin.TaskContext, entries []
     if tc.DryRun {
         return nil
     }
-    for _, e := range entry.FilterAccepted(entries) {
+    // Executor pre-filter (InputStates=StatesAcceptedOnly + always-on
+    // consumed-exclusion) means every entry here is Accepted and not
+    // consumed. No per-entry state check needed.
+    for _, e := range entries {
         if err := p.send(ctx, e); err != nil {
             tc.Logger.Error("send failed", "entry", e.Title, "err", err)
             e.Fail("my_sink: " + err.Error())

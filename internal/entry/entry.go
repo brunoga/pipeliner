@@ -83,6 +83,27 @@ var (
 // Has reports whether s is present in the set.
 func (ss StateSet) Has(s State) bool { return ss&StateBit(s) != 0 }
 
+// SplitConsumed partitions entries into (nonConsumed, consumed) preserving
+// original order in each output slice. The executor uses this at the sink
+// boundary in addition to the InputStates pre-filter: a sink that handled an
+// entry by other means (e.Consume()) must still skip chained sinks even when
+// the entry's State remains Accepted.
+//
+// `consumed` is orthogonal to State — it stays on the entry across state
+// transitions and survives a swap_state flip. Both output slices reference
+// the same *Entry pointers as input; no clone. Either slice may be nil when
+// no entries fall on that side.
+func SplitConsumed(entries []*Entry) (nonConsumed, consumed []*Entry) {
+	for _, e := range entries {
+		if e.consumed {
+			consumed = append(consumed, e)
+		} else {
+			nonConsumed = append(nonConsumed, e)
+		}
+	}
+	return
+}
+
 // SplitByStates partitions entries into (matching, nonMatching) preserving
 // original order in each output slice. Used by the executor to pre-filter
 // upstream entries to a plugin's declared InputStates while keeping the
@@ -124,9 +145,10 @@ type Entry struct {
 	LastStateChange *StateChange
 
 	// consumed is set by Consume(). It keeps State = Accepted (so CommitPlugin
-	// still runs for this entry) but signals FilterAccepted to exclude it from
-	// subsequent sinks. Use it when the side effect was already applied by other
-	// means and chained notification sinks should be silent.
+	// still runs for this entry) but causes the executor's sink-boundary
+	// SplitConsumed pass to exclude it from subsequent sinks. Use it when the
+	// side effect was already applied by other means and chained notification
+	// sinks should be silent.
 	consumed bool
 }
 
@@ -207,11 +229,14 @@ func (e *Entry) Delete(key string) {
 	delete(e.Fields, key)
 }
 
-// FilterAccepted returns entries that are Accepted and not Consumed. Used by
-// SinkPlugin implementations and the executor to pass entries to subsequent
-// sinks. Consumed entries (marked by a prior sink via e.Consume()) are
-// excluded so they do not trigger chained notification sinks, even though
-// CommitPlugin.Commit still runs for them.
+// FilterAccepted returns entries that are Accepted and not Consumed.
+//
+// As of the InputStates refactor (PR #245 + #247) production sinks no longer
+// call this — the executor's per-sink pre-filter (StatesAcceptedOnly +
+// always-on SplitConsumed) does the same job declaratively. The helper stays
+// for tests that want a one-line equivalent of "the entries a default sink
+// would actually have received" and for any external callers that built on
+// the original contract.
 func FilterAccepted(entries []*Entry) []*Entry {
 	out := make([]*Entry, 0, len(entries))
 	for _, e := range entries {

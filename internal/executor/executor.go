@@ -15,9 +15,11 @@
 // All plugins must implement one of the three role interfaces:
 // SourcePlugin.Generate, ProcessorPlugin.Process, or SinkPlugin.Consume.
 //
-// Sink chaining: a sink node may have downstream sink nodes. After Consume runs,
-// the executor passes FilterAccepted(upstream) to the next sink so entries failed
-// by the upstream sink are not forwarded to chained sinks.
+// Sink chaining: a sink node may have downstream sink nodes. Each sink applies
+// its declared InputStates pre-filter (default RoleSink: StatesAcceptedOnly)
+// plus an always-on consumed-exclusion at the sink boundary, so chained sinks
+// naturally only see entries the upstream sink accepted. No special case in
+// the executor's chained-sink path — the per-sink pre-filter is the gate.
 package executor
 
 import (
@@ -397,12 +399,30 @@ func (ex *Executor) runNode(
 		if !ok {
 			return nil, fmt.Errorf("plugin %q does not implement SinkPlugin", pi.Impl.Name())
 		}
-		err = sink.Consume(ctx, tc, upstream)
-		produced = entry.FilterAccepted(upstream) // pass non-failed accepted entries to chained sinks
-		// Log per-entry outcomes at every sink. Because the executor passes only
-		// FilterAccepted(upstream) to chained sinks, each sink only sees the
-		// entries it is actually responsible for — logging at every sink (not
-		// just the terminal one) is therefore correct and useful:
+		// Pre-filter upstream to the states the sink acts on (default
+		// StatesAcceptedOnly for sinks), then additionally exclude consumed
+		// entries — `consumed` is orthogonal to State and an always-on filter
+		// at the sink boundary regardless of the declared InputStates.
+		// Excluded entries bypass Consume entirely and are merged back into
+		// produced for downstream / commit-phase bookkeeping. This replaces
+		// both the per-sink `entry.FilterAccepted(entries)` calls and the
+		// chained-sink special case that lived here pre-#246.
+		matching, excluded := entry.SplitByStates(upstream, pi.Desc.EffectiveInputStates())
+		matching, alsoExcluded := entry.SplitConsumed(matching)
+		excluded = append(excluded, alsoExcluded...)
+		err = sink.Consume(ctx, tc, matching)
+		if len(excluded) == 0 {
+			produced = matching
+		} else if len(matching) == 0 {
+			produced = excluded
+		} else {
+			produced = make([]*entry.Entry, 0, len(matching)+len(excluded))
+			produced = append(produced, matching...)
+			produced = append(produced, excluded...)
+		}
+		// Log per-entry outcomes at every sink. Each sink only acts on its
+		// pre-filtered slice, so logging at every sink (not just the terminal
+		// one) reflects only the entries that sink is responsible for:
 		//   deluge → "entry accepted" for the 3 it enqueued
 		//   email  → "entry accepted" for the same 3 it then notified about
 		for _, s := range snaps {
