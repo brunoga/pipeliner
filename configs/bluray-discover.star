@@ -29,9 +29,11 @@ disc = process("discover",
                search=[{"name": "bluray_releases"}],
                interval="168h")
 
-# Keep only the 3D editions among the catalog hits.
+# Keep only the 3D editions among the catalog hits. Expressed as a reject so
+# non-matching entries are actively dropped — accept-only would leave them
+# Undecided and PassThrough would forward them to the sink unchanged.
 only_3d = process("condition", upstream=disc,
-                  accept="bluray_format == 'BD3D'")
+                  reject="bluray_format != 'BD3D'")
 
 output("print", upstream=only_3d)
 
