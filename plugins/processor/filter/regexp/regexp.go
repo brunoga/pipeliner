@@ -248,9 +248,6 @@ func toStringSlice(v any) ([]string, error) {
 
 func (p *regexpPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
 	for _, e := range entries {
-		if e.IsRejected() || e.IsFailed() {
-			continue
-		}
 		if err := p.filter(ctx, tc, e); err != nil {
 			tc.Logger.Warn("filter error", "entry", e.Title, "err", err)
 		}

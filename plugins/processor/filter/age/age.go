@@ -178,9 +178,6 @@ func (p *agePlugin) Name() string { return "age" }
 func (p *agePlugin) Process(_ context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
 	now := time.Now()
 	for _, e := range entries {
-		if e.IsRejected() || e.IsFailed() {
-			continue
-		}
 		t, ok := entryTime(e, p.field)
 		if !ok {
 			if p.onMissing == "reject" {

@@ -173,9 +173,6 @@ func (p *traktMetaPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, 
 
 func (p *traktMetaPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
 	for _, e := range entries {
-		if e.IsRejected() || e.IsFailed() {
-			continue
-		}
 		if err := p.annotate(ctx, tc, e); err != nil {
 			tc.Logger.Warn("metainfo_trakt error", "entry", e.Title, "err", err)
 		}

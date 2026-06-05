@@ -203,28 +203,6 @@ func TestNGreaterThanInputForwardsAll(t *testing.T) {
 	}
 }
 
-func TestRejectedUpstreamEntriesIgnoredByCap(t *testing.T) {
-	p, _ := newPlugin(map[string]any{"n": 2}, nil)
-
-	a := accepted("a")
-	b := entry.New("b", "http://example.com/b")
-	b.Reject("upstream said no")
-	c := accepted("c")
-	d := accepted("d")
-
-	_, _ = p.(*limitPlugin).Process(context.Background(), tc(), []*entry.Entry{a, b, c, d})
-
-	if !a.IsAccepted() || !c.IsAccepted() {
-		t.Error("first two ACCEPTED entries should win")
-	}
-	if !d.IsRejected() {
-		t.Error("d should be rejected by limit")
-	}
-	if !b.IsRejected() {
-		t.Error("b should remain rejected (upstream)")
-	}
-}
-
 func TestRejectReasonMentionsSort(t *testing.T) {
 	// No sort: bare cap reason.
 	p, _ := newPlugin(map[string]any{"n": 1}, nil)

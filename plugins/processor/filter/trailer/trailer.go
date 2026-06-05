@@ -68,9 +68,6 @@ func (p *trailerPlugin) Name() string { return "trailer" }
 
 func (p *trailerPlugin) Process(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
 	for _, e := range entries {
-		if e.IsRejected() || e.IsFailed() {
-			continue
-		}
 		isTrailer := reTrailer.MatchString(e.Title)
 		switch p.mode {
 		case modeReject:

@@ -52,9 +52,6 @@ func (s *setPlugin) Name() string { return "set" }
 
 func (s *setPlugin) Process(_ context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
 	for _, e := range entries {
-		if e.IsRejected() || e.IsFailed() {
-			continue
-		}
 		data := interp.EntryData(e)
 		for key, ip := range s.fields {
 			val, err := ip.Render(data)

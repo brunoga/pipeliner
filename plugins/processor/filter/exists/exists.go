@@ -132,9 +132,6 @@ func normalize(s string) string {
 
 func (p *existsPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
 	for _, e := range entries {
-		if e.IsRejected() || e.IsFailed() {
-			continue
-		}
 		if err := p.filter(ctx, tc, e); err != nil {
 			tc.Logger.Warn("filter error", "entry", e.Title, "err", err)
 		}

@@ -368,9 +368,6 @@ func seasonFromEpisodeID(epID string) int {
 
 func (p *seriesPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
 	for _, e := range entries {
-		if e.IsRejected() || e.IsFailed() {
-			continue
-		}
 		// Series classifier: every entry that reaches this filter is a
 		// series episode (Requires guarantees series_episode_id upstream).
 		e.Set(entry.FieldMediaType, entry.MediaTypeSeries)

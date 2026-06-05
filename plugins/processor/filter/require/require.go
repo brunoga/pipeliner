@@ -104,9 +104,6 @@ func toStringSlice(v any) ([]string, error) {
 
 func (p *requirePlugin) Process(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
 	for _, e := range entries {
-		if e.IsRejected() || e.IsFailed() {
-			continue
-		}
 		for _, field := range p.fields {
 			v, _ := e.Get(field)
 			if isMissing(v) {

@@ -115,9 +115,6 @@ func (p *routePlugin) Name() string { return "route" }
 
 func (p *routePlugin) Process(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
 	for _, e := range entries {
-		if e.IsRejected() || e.IsFailed() {
-			continue
-		}
 		data := interp.EntryData(e)
 		matched := false
 		for _, r := range p.rules {
@@ -167,9 +164,6 @@ func (p *selectorPlugin) Process(_ context.Context, _ *plugin.TaskContext, entri
 	// counted as rejected even though a clone on the correct branch was accepted.
 	var out []*entry.Entry
 	for _, e := range entries {
-		if e.IsRejected() || e.IsFailed() {
-			continue
-		}
 		if port, _ := e.Get(entry.FieldRoutePort); port == p.portName {
 			out = append(out, e)
 		}

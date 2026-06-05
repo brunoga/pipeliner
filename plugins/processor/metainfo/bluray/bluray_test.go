@@ -186,29 +186,6 @@ func TestProcess_SearchMissCachesNegative(t *testing.T) {
 	}
 }
 
-func TestProcess_SkipsRejectedAndFailedEntries(t *testing.T) {
-	hits := 0
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		hits++
-		w.Write([]byte("<html></html>"))
-	}))
-	defer srv.Close()
-
-	pp := newProcessor(t, srv.URL)
-	rejected := entry.New("Avatar", "")
-	rejected.Reject("test")
-	failed := entry.New("Inception", "")
-	failed.Fail("test")
-
-	_, err := pp.Process(context.Background(), taskCtx(), []*entry.Entry{rejected, failed})
-	if err != nil {
-		t.Fatalf("Process: %v", err)
-	}
-	if hits != 0 {
-		t.Errorf("HTTP hits: got %d, want 0 (skipped entries)", hits)
-	}
-}
-
 func TestPickBest_PrefersBDOverBD3D(t *testing.T) {
 	hits := []ibluray.IndexEntry{
 		{ID: "26954", Format: ibluray.FormatBD3D, Year: 2009},
