@@ -1333,6 +1333,8 @@ pipeline("new-shows", schedule="1h")</code></pre>
     {"accept": 'video_rating >= 7.0'},
 ])</code></pre>
 
+<div class="note"><strong>Gotcha:</strong> <code>accept</code> only Accepts matching entries; non-matching entries are left <em>Undecided</em> and pass through unchanged. An <code>accept</code>-only configuration is therefore not an exclusive filter. For "keep only entries where X", use <code>reject='not (X)'</code> (or pair the accept with a catch-all <code>{"reject": "true"}</code> at the end of <code>rules</code>).</div>
+
 <!-- ─────────── route ─────────── -->
 <h2 id="route">route()</h2>
 <p>Routes entries to named ports based on ordered boolean conditions. The first matching port accepts the entry; entries that match no port are rejected with a warning log. <code>route()</code> is a <strong>Starlark builtin</strong>, not a plugin — it is used directly in the config, not with <code>process()</code>.</p>

@@ -75,6 +75,34 @@ cond = process("condition", upstream=meta,
     accept="video_rating >= 7.0")
 ```
 
+## Common pitfalls
+
+### `accept` alone does not reject the rest
+
+`accept` only **Accepts** matching entries; it does not Reject the non-matching ones — those pass through `Undecided`, which downstream nodes forward as-is. So a configuration like
+
+```python
+# WRONG: this does NOT mean "keep only entries with a 3D release"
+cond = process("condition", upstream=meta,
+    accept='bluray_3d_release == "true"')
+```
+
+leaks every entry that lacks `bluray_3d_release` straight to the downstream node, producing the surprising `in=80 out=80` shape in logs.
+
+Use **`reject`** for exclusive filters, or pair the accept with a catch-all reject:
+
+```python
+# Option A — express the exclusion directly
+cond = process("condition", upstream=meta,
+    reject='bluray_3d_release != "true"')
+
+# Option B — keep the accept, add an explicit catch-all
+cond = process("condition", upstream=meta, rules=[
+    {"accept": 'bluray_3d_release == "true"'},
+    {"reject": 'true'},
+])
+```
+
 ## DAG role
 
 | Property | Value |
