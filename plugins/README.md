@@ -83,6 +83,7 @@ Not every stage is required. A simple news-to-email pipeline might just be `rss 
 |--------|-------------|
 | [`pathfmt`](processor/modify/pathfmt/README.md) | Render a path pattern into a named field, with automatic scrubbing |
 | [`set`](processor/modify/set/README.md) | Unconditionally set one or more entry fields |
+| [`swap_state`](processor/modify/swap_state/README.md) | Swap entries between two states (e.g. `accepted` ↔ `rejected`) so downstream nodes can act on entries others rejected or failed |
 
 ## Sinks (`output(…)`)
 
