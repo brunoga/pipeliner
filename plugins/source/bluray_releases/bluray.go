@@ -258,11 +258,17 @@ func (p *sourcePlugin) writeIndex(e bluray.IndexEntry) {
 }
 
 // entryFromCalendar promotes a CalendarEntry into a pipeline entry.
+//
+// Title strips any trailing " 3D" / " 4K" format token so consumers that fuzzy
+// match on Title (e.g. movies.list= via ResolveDynamicList) see the canonical
+// title. The format is preserved structurally in bluray_format /
+// bluray_is_3d_edition.
 func (p *sourcePlugin) entryFromCalendar(ce bluray.CalendarEntry) *entry.Entry {
+	cleanTitle := stripFormatToken(ce.Title)
 	url := fmt.Sprintf("https://www.blu-ray.com/movies/%s/%s/", ce.Slug, ce.ID)
-	e := entry.New(ce.Title, url)
-	e.Set(entry.FieldTitle, ce.Title)
-	e.Set(entry.FieldMovieTitle, stripFormatToken(ce.Title))
+	e := entry.New(cleanTitle, url)
+	e.Set(entry.FieldTitle, cleanTitle)
+	e.Set(entry.FieldMovieTitle, cleanTitle)
 	e.Set(entry.FieldMediaType, entry.MediaTypeMovie)
 	e.Set(entry.FieldSource, pluginName+":"+strings.ToLower(string(ce.Format)))
 	e.Set(entry.FieldBlurayID, ce.ID)
@@ -295,10 +301,11 @@ func (p *sourcePlugin) entryFromCalendar(ce bluray.CalendarEntry) *entry.Entry {
 func (p *sourcePlugin) entriesFromIndex(rows []bluray.IndexEntry) []*entry.Entry {
 	out := make([]*entry.Entry, 0, len(rows))
 	for _, r := range rows {
+		cleanTitle := stripFormatToken(r.Title)
 		url := fmt.Sprintf("https://www.blu-ray.com/movies/%s/%s/", r.Slug, r.ID)
-		e := entry.New(r.Title, url)
-		e.Set(entry.FieldTitle, r.Title)
-		e.Set(entry.FieldMovieTitle, stripFormatToken(r.Title))
+		e := entry.New(cleanTitle, url)
+		e.Set(entry.FieldTitle, cleanTitle)
+		e.Set(entry.FieldMovieTitle, cleanTitle)
 		e.Set(entry.FieldMediaType, entry.MediaTypeMovie)
 		e.Set(entry.FieldSource, pluginName+":search")
 		e.Set(entry.FieldBlurayID, r.ID)

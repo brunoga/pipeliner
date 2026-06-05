@@ -332,6 +332,98 @@ func TestSchemelessURLFailsFast(t *testing.T) {
 	}
 }
 
+func TestValidateTorrentURL(t *testing.T) {
+	cases := []struct {
+		name    string
+		url     string
+		wantErr string // empty = expect nil; substring otherwise
+	}{
+		{"empty", "", "empty URL"},
+		{"http_ok", "http://example.com/x.torrent", ""},
+		{"https_ok", "https://example.com/x.torrent", ""},
+		{"magnet_ok", "magnet:?xt=urn:btih:abc", ""},
+		{"scheme_only", "http://", "no host"},                                // passes prefix check but has no host
+		{"host_only_no_scheme", "example.com/foo.torrent", "unsupported"},    // ftp-ish path-like input; prefix check missed it before
+		{"ftp_scheme", "ftp://example.com/x.torrent", "unsupported"},         // explicitly non-supported scheme
+		{"javascript_scheme", "javascript:alert(1)", "unsupported"},          // safety: dangerous scheme rejected
+		{"relative_path", "/dl/foo.torrent", "unsupported"},                  // path-only — exactly the b'' scheme case
+		{"colon_only", ":foo", "invalid URL"},                                // url.Parse rejects this outright
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateTorrentURL(tc.url)
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Errorf("want nil, got %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("want error containing %q, got nil", tc.wantErr)
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("err %q does not contain %q", err.Error(), tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestSummarizeAddError(t *testing.T) {
+	// The verbatim Twisted traceback we get back from deluge — same shape as
+	// the one in the bug report.
+	twistedDump := `RPC error: Failure: [Failure instance: Traceback (failure with no frames): <class 'deluge.error.WrappedException'>: Unsupported scheme: b''
+Traceback (most recent call last):
+  File "/usr/lib/python3/dist-packages/deluge/core/rpcserver.py", line 363, in on_fail
+    failure.raiseException()
+twisted.web.error.SchemeNotSupported: Unsupported scheme: b''
+]`
+	t.Run("empty_scheme_rewritten", func(t *testing.T) {
+		got := summarizeAddError("https://jackett.host/dl/idx/?file=x", errStr(twistedDump))
+		if got == nil {
+			t.Fatal("want non-nil")
+		}
+		msg := got.Error()
+		if strings.Contains(msg, "Traceback") || strings.Contains(msg, "\n") {
+			t.Errorf("summarized error should be one line without Python traceback: %q", msg)
+		}
+		if !strings.Contains(msg, "jackett.host") {
+			t.Errorf("summarized error should include the URL: %q", msg)
+		}
+		if !strings.Contains(msg, "empty URL scheme") {
+			t.Errorf("summarized error should explain the cause: %q", msg)
+		}
+	})
+	t.Run("named_scheme_rewritten", func(t *testing.T) {
+		dump := `RPC error: ... twisted.web.error.SchemeNotSupported: Unsupported scheme: b'magnet'`
+		got := summarizeAddError("https://jackett.host/dl/x", errStr(dump))
+		msg := got.Error()
+		if !strings.Contains(msg, "unsupported scheme") {
+			t.Errorf("named-scheme branch should mention 'unsupported scheme': %q", msg)
+		}
+		if !strings.Contains(msg, "jackett.host") {
+			t.Errorf("should include URL: %q", msg)
+		}
+	})
+	t.Run("unrelated_error_pass_through", func(t *testing.T) {
+		orig := errStr("some other RPC error")
+		got := summarizeAddError("https://example.com/x.torrent", orig)
+		if got != orig {
+			t.Errorf("unrelated error should be returned unchanged, got %v", got)
+		}
+	})
+	t.Run("nil_pass_through", func(t *testing.T) {
+		if got := summarizeAddError("https://example.com/x.torrent", nil); got != nil {
+			t.Errorf("nil in must give nil out, got %v", got)
+		}
+	})
+}
+
+func errStr(s string) error { return &simpleErr{s} }
+
+type simpleErr struct{ msg string }
+
+func (e *simpleErr) Error() string { return e.msg }
+
 func TestRegistration(t *testing.T) {
 	d, ok := plugin.Lookup("deluge")
 	if !ok {

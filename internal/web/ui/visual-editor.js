@@ -365,9 +365,12 @@ function renderPalette(filter) {
     html.push(`<div class="ve-role-header" data-role="function" onclick="toggleRoleGroup(this)">Functions</div>`);
     html.push(`<div class="ve-role-chips">`);
     for (const fd of userFuncList) {
-      const fnBadge   = fd.is_search_plugin ? ' <span class="ve-chip-search-badge">search</span>'
-                      : fd.is_list_plugin   ? ' <span class="ve-chip-list-badge">list</span>' : '';
-      const fnCls     = fd.is_search_plugin ? ' ve-chip-search' : fd.is_list_plugin ? ' ve-chip-list' : '';
+      // A plugin can be both search and list (e.g. bluray_releases) — render
+      // both badges (and classes), not just one.
+      const fnBadge   = (fd.is_search_plugin ? ' <span class="ve-chip-search-badge">search</span>' : '')
+                      + (fd.is_list_plugin   ? ' <span class="ve-chip-list-badge">list</span>'     : '');
+      const fnCls     = (fd.is_search_plugin ? ' ve-chip-search' : '')
+                      + (fd.is_list_plugin   ? ' ve-chip-list'   : '');
       html.push(`<span class="ve-chip-fn-wrap" data-role="${fd.role}">
         <button class="ve-chip ve-chip-fn${fnCls}" data-role="${fd.role}"
           data-plugin="${esc(fd.name)}"
@@ -393,14 +396,18 @@ function renderPalette(filter) {
     html.push(`<div class="ve-role-header" data-role="${role}" onclick="toggleRoleGroup(this)">${ROLE_LABEL[role]}</div>`);
     html.push(`<div class="ve-role-chips" id="ve-role-${role}">`);
     for (const p of group) {
-      const searchBadge = p.is_search_plugin ? ' <span class="ve-chip-search-badge">search</span>'
-                        : p.is_list_plugin  ? ' <span class="ve-chip-list-badge">list</span>' : '';
-      const extraCls = p.is_search_plugin ? ' ve-chip-search' : p.is_list_plugin ? ' ve-chip-list' : '';
-      const extraTip = p.is_search_plugin ? '\n(drag onto a discover node\'s search port to use as a search backend)'
-                     : p.is_list_plugin   ? '\n(drag onto a series/movies node\'s list port as a list source)' : '';
+      // A plugin can be both search and list (e.g. bluray_releases) — render
+      // both badges, both hover-accent classes, and both tooltip lines.
+      const capBadges = (p.is_search_plugin ? ' <span class="ve-chip-search-badge">search</span>' : '')
+                      + (p.is_list_plugin   ? ' <span class="ve-chip-list-badge">list</span>'     : '');
+      const extraCls = (p.is_search_plugin ? ' ve-chip-search' : '')
+                     + (p.is_list_plugin   ? ' ve-chip-list'   : '');
+      let extraTip = '';
+      if (p.is_search_plugin) extraTip += '\n(drag onto a discover node\'s search port to use as a search backend)';
+      if (p.is_list_plugin)   extraTip += '\n(drag onto a series/movies node\'s list port as a list source)';
       html.push(`<button class="ve-chip${extraCls}" data-role="${role}"
         data-plugin="${esc(p.name)}"
-        data-tip="${esc(p.description + extraTip)}">${esc(p.name)}${searchBadge}</button>`);
+        data-tip="${esc(p.description + extraTip)}">${esc(p.name)}${capBadges}</button>`);
     }
     html.push('</div>');
   }
