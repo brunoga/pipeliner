@@ -44,11 +44,35 @@ type Entry struct {
 	Task         string // owning task name, set by the engine
 	Fields       map[string]any
 
+	// LastStateChange records the most recent programmatic state transition
+	// caused by a state-mutating plugin (e.g. swap_state). nil when no such
+	// transition has occurred. AcceptReason / RejectReason / FailReason are
+	// preserved across transitions as audit history, so a notify template can
+	// render both the original cause and the reason for the override:
+	//
+	//   {{.FailReason}}                     "deluge: connection refused"
+	//   {{.LastStateChange.Reason}}         "swap_state: swapped accepted ↔ failed"
+	LastStateChange *StateChange
+
 	// consumed is set by Consume(). It keeps State = Accepted (so CommitPlugin
 	// still runs for this entry) but signals FilterAccepted to exclude it from
 	// subsequent sinks. Use it when the side effect was already applied by other
 	// means and chained notification sinks should be silent.
 	consumed bool
+}
+
+// StateChange records a programmatic transition between entry states caused
+// by a plugin that explicitly mutates state (currently only swap_state). It
+// is orthogonal to AcceptReason / RejectReason / FailReason — those carry the
+// reason an entry first entered a state and are preserved across transitions
+// as audit history; LastStateChange carries the reason the state was
+// subsequently overridden.
+type StateChange struct {
+	From   State
+	To     State
+	Plugin string // plugin name that caused the change (e.g. "swap_state")
+	Reason string // human-readable description of the cause
+	At     time.Time
 }
 
 // New creates an Undecided entry with the given title and URL.
@@ -237,7 +261,7 @@ func (e *Entry) GetTime(key string) time.Time {
 
 // Clone returns a deep copy of the entry. Mutating the clone does not affect the original.
 func (e *Entry) Clone() *Entry {
-	return &Entry{
+	clone := &Entry{
 		Title:        e.Title,
 		URL:          e.URL,
 		OriginalURL:  e.OriginalURL,
@@ -249,6 +273,11 @@ func (e *Entry) Clone() *Entry {
 		Fields:       maps.Clone(e.Fields),
 		consumed:     e.consumed,
 	}
+	if e.LastStateChange != nil {
+		sc := *e.LastStateChange
+		clone.LastStateChange = &sc
+	}
+	return clone
 }
 
 func (e *Entry) String() string {

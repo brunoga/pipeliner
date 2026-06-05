@@ -165,6 +165,7 @@ td code{font-size:11px}
     <div class="section">Modify Plugins</div>
     <a href="#pathfmt" class="sub">pathfmt</a>
     <a href="#set" class="sub">set</a>
+    <a href="#swap_state" class="sub">swap_state</a>
 
     <div class="section">Output Plugins</div>
     <a href="#deluge" class="sub">deluge</a>
@@ -1619,6 +1620,25 @@ pipeline("3d-movies")  <span class="y-comment"># manual trigger only</span></cod
 <p>Unconditionally sets one or more entry fields. Each config key becomes a field name; its value is a Go template rendered against the entry.</p>
 
 <pre><code>tagged = process("set", upstream=upstream, category="tv", label="{{.title}}")</code></pre>
+
+<!-- ─────────── swap_state ─────────── -->
+<h2 id="swap_state">swap_state</h2>
+<p>Swaps entries between two states (e.g. <code>accepted</code> ↔ <code>rejected</code>). Unlike most processors it deliberately operates on rejected and failed entries — its purpose is to flip them so downstream nodes can act on them. The classic use case is a cleanup pipeline: <code>dedup</code> rejects duplicate copies of a movie, and <code>swap_state</code> flips those losers into <code>accepted</code> (reaching a delete sink) while simultaneously flipping the winners into <code>rejected</code> (filtered out by the sink). The bidirectional swap is what makes a single sink target only the duplicates.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Description</th></tr>
+  <tr><td><code>swap</code></td><td>yes</td><td>Two distinct state names from <code>{accepted, rejected, failed, undecided}</code>; entries in either state are flipped to the other, entries in any third state are untouched</td></tr>
+</table>
+
+<pre><code>cleanup = process("swap_state", upstream=dedup_node, swap=["accepted", "rejected"])
+output("exec", upstream=cleanup, command="rm -f {file_location}")</code></pre>
+
+<p><code>AcceptReason</code> / <code>RejectReason</code> / <code>FailReason</code> survive the swap as audit history — a rescued failed entry still carries its original <code>FailReason</code> for templates. The swap itself is recorded on <code>Entry.LastStateChange</code> (<code>From</code>, <code>To</code>, <code>Plugin</code>, <code>Reason</code>, <code>At</code>) so notify templates can render both:</p>
+
+<pre><code>{{.FailReason}}                  →  deluge: connection refused
+{{.LastStateChange.Reason}}      →  swap [accepted, failed]</code></pre>
+
+<div class="note"><strong>Gotcha:</strong> the DAG validator's field-certainty analysis does not yet model what <code>swap_state</code> does to the entry population downstream. After a swap, the entries that are now <code>accepted</code> may have spent earlier hops as <code>rejected</code>, skipping enrichment processors that would have populated their fields. Treat downstream field availability as best-effort across a swap.</div>
 
 <hr>
 <!-- ═══════════════════════════════════════════════════════════ -->

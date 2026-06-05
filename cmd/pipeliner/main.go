@@ -55,6 +55,7 @@ import (
 	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/tvdb"
 	_ "github.com/brunoga/pipeliner/plugins/processor/modify/pathfmt"
 	_ "github.com/brunoga/pipeliner/plugins/processor/modify/set"
+	_ "github.com/brunoga/pipeliner/plugins/processor/modify/swap_state"
 	_ "github.com/brunoga/pipeliner/plugins/sink/decompress"
 	_ "github.com/brunoga/pipeliner/plugins/sink/deluge"
 	_ "github.com/brunoga/pipeliner/plugins/sink/download"
