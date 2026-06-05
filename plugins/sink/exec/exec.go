@@ -90,5 +90,5 @@ func (p *execPlugin) Consume(ctx context.Context, tc *plugin.TaskContext, entrie
 	if tc.DryRun {
 		return nil
 	}
-	return p.deliver(ctx, tc, entry.FilterAccepted(entries))
+	return p.deliver(ctx, tc, entries)
 }

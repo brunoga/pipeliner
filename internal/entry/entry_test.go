@@ -68,6 +68,44 @@ func TestSplitByStates_PartitionsPreservingOrder(t *testing.T) {
 	}
 }
 
+func TestSplitConsumed_PartitionsPreservingOrder(t *testing.T) {
+	mk := func(consumed bool) *Entry {
+		e := New("t", "u")
+		e.Accept()
+		if consumed {
+			e.Consume()
+		}
+		return e
+	}
+	a, b, c, d := mk(false), mk(true), mk(false), mk(true)
+	in := []*Entry{a, b, c, d}
+
+	nonConsumed, consumed := SplitConsumed(in)
+	if len(nonConsumed) != 2 || nonConsumed[0] != a || nonConsumed[1] != c {
+		t.Errorf("nonConsumed: got %v, want [a, c] preserving order", nonConsumed)
+	}
+	if len(consumed) != 2 || consumed[0] != b || consumed[1] != d {
+		t.Errorf("consumed: got %v, want [b, d] preserving order", consumed)
+	}
+}
+
+func TestSplitConsumed_EmptyAndAllInOneBucket(t *testing.T) {
+	if nc, c := SplitConsumed(nil); nc != nil || c != nil {
+		t.Errorf("nil input: got nc=%v c=%v, want both nil", nc, c)
+	}
+	e := New("t", "u")
+	e.Accept()
+	nc, c := SplitConsumed([]*Entry{e})
+	if len(nc) != 1 || nc[0] != e || c != nil {
+		t.Errorf("non-consumed only: got nc=%v c=%v", nc, c)
+	}
+	e.Consume()
+	nc, c = SplitConsumed([]*Entry{e})
+	if nc != nil || len(c) != 1 || c[0] != e {
+		t.Errorf("consumed only: got nc=%v c=%v", nc, c)
+	}
+}
+
 func TestSplitByStates_EmptyAndAllInOneBucket(t *testing.T) {
 	if m, n := SplitByStates(nil, StatesAll); m != nil || n != nil {
 		t.Errorf("nil input: got matching=%v nonMatching=%v, want both nil", m, n)

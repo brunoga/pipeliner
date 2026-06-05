@@ -88,20 +88,30 @@ func (d *Descriptor) EffectiveRole() Role {
 }
 
 // EffectiveInputStates returns the StateSet the executor should pre-filter
-// upstream entries to before calling this plugin's Process method. When
-// InputStates is unset (zero), a role-appropriate default is applied:
+// upstream entries to before calling this plugin's Process or Consume
+// method. When InputStates is unset (zero), a role-appropriate default is
+// applied:
 //
 //   - RoleProcessor → entry.StatesAcceptedUndecided  (matches the legacy
 //     per-plugin skip-guard convention)
-//   - other roles    → entry.StatesAll               (no executor pre-filter;
-//     the role's own gate applies — sinks use FilterAccepted, sources do
-//     not consume input at all)
+//   - RoleSink      → entry.StatesAcceptedOnly       (sinks act only on
+//     accepted entries; the consumed flag is excluded by a separate
+//     always-on filter at the sink boundary in the executor)
+//   - RoleSource    → entry.StatesAll                (sources don't consume
+//     input; the value is irrelevant)
+//
+// Sinks that legitimately need broader access — e.g. a notify backend that
+// reports on failed entries from an upstream sink — declare an explicit
+// non-default set, just like processors do.
 func (d *Descriptor) EffectiveInputStates() entry.StateSet {
 	if d.InputStates != 0 {
 		return d.InputStates
 	}
-	if d.EffectiveRole() == RoleProcessor {
+	switch d.EffectiveRole() {
+	case RoleProcessor:
 		return entry.StatesAcceptedUndecided
+	case RoleSink:
+		return entry.StatesAcceptedOnly
 	}
 	return entry.StatesAll
 }

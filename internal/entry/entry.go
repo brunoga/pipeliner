@@ -83,6 +83,27 @@ var (
 // Has reports whether s is present in the set.
 func (ss StateSet) Has(s State) bool { return ss&StateBit(s) != 0 }
 
+// SplitConsumed partitions entries into (nonConsumed, consumed) preserving
+// original order in each output slice. The executor uses this at the sink
+// boundary in addition to the InputStates pre-filter: a sink that handled an
+// entry by other means (e.Consume()) must still skip chained sinks even when
+// the entry's State remains Accepted.
+//
+// `consumed` is orthogonal to State — it stays on the entry across state
+// transitions and survives a swap_state flip. Both output slices reference
+// the same *Entry pointers as input; no clone. Either slice may be nil when
+// no entries fall on that side.
+func SplitConsumed(entries []*Entry) (nonConsumed, consumed []*Entry) {
+	for _, e := range entries {
+		if e.consumed {
+			consumed = append(consumed, e)
+		} else {
+			nonConsumed = append(nonConsumed, e)
+		}
+	}
+	return
+}
+
 // SplitByStates partitions entries into (matching, nonMatching) preserving
 // original order in each output slice. Used by the executor to pre-filter
 // upstream entries to a plugin's declared InputStates while keeping the
