@@ -101,9 +101,6 @@ func (p *filePlugin) Name() string { return "metainfo_file" }
 
 func (p *filePlugin) Process(_ context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
 	for _, e := range entries {
-		if e.IsRejected() || e.IsFailed() {
-			continue
-		}
 		annotate(tc.Logger, e)
 	}
 	return entries, nil

@@ -84,18 +84,6 @@ func TestDefaultModeIsReject(t *testing.T) {
 	}
 }
 
-func TestSkipsAlreadyRejected(t *testing.T) {
-	e := entry.New("Avatar Trailer 1", "http://example.com")
-	e.Reject("upstream rejected")
-	p, _ := newPlugin(map[string]any{"mode": "reject"}, nil)
-	if _, err := p.(*trailerPlugin).Process(context.Background(), nil, []*entry.Entry{e}); err != nil {
-		t.Fatalf("Process: %v", err)
-	}
-	if e.RejectReason != "upstream rejected" {
-		t.Errorf("upstream reject reason must be preserved, got %q", e.RejectReason)
-	}
-}
-
 func TestValidateRejectsUnknownMode(t *testing.T) {
 	errs := validate(map[string]any{"mode": "delete"})
 	if len(errs) == 0 {

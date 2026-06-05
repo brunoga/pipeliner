@@ -150,9 +150,6 @@ func (p *processorPlugin) Name() string { return pluginName }
 // dead Blu-ray.com query doesn't fail the whole pipeline.
 func (p *processorPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
 	for _, e := range entries {
-		if e.IsRejected() || e.IsFailed() {
-			continue
-		}
 		p.annotate(ctx, tc, e)
 	}
 	return entries, nil

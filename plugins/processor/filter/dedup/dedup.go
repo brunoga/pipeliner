@@ -33,6 +33,11 @@ func init() {
 		PluginName:  "dedup",
 		Description: "keep the best-quality copy when multiple entries refer to the same episode or movie",
 		Role:        plugin.RoleProcessor,
+		// dedup only re-decides already-accepted entries — picking the best
+		// among them. Undecided entries have no business being compared yet
+		// (no upstream has chosen them as candidates), and rejected/failed
+		// entries are off-limits.
+		InputStates: entry.StatesAcceptedOnly,
 		// media_type is the classifier; series_episode_id or title supplies
 		// the key data. Together they encode media_type AND
 		// (series_episode_id OR title) — enough signal to dedup either
@@ -55,12 +60,10 @@ type dedupPlugin struct{}
 func (p *dedupPlugin) Name() string { return "dedup" }
 
 func (p *dedupPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
+	// Executor pre-filter (InputStates=StatesAcceptedOnly) means every entry
+	// here is Accepted — no per-entry state check needed.
 	best := map[string]*entry.Entry{}
-
 	for _, e := range entries {
-		if !e.IsAccepted() {
-			continue
-		}
 		k := deduKey(e)
 		if k == "" {
 			continue
@@ -72,12 +75,10 @@ func (p *dedupPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entri
 
 	var out []*entry.Entry
 	for _, e := range entries {
-		if !e.IsAccepted() {
-			out = append(out, e)
-			continue
-		}
 		k := deduKey(e)
 		if k == "" {
+			// Unkeyable entries (missing media_type or title) pass through
+			// untouched — dedup has no opinion on them.
 			out = append(out, e)
 			continue
 		}

@@ -123,9 +123,6 @@ var windowsReserved = map[string]bool{
 
 func (p *pathfmtPlugin) Process(_ context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
 	for _, e := range entries {
-		if e.IsRejected() || e.IsFailed() {
-			continue
-		}
 		result, err := p.ip.Render(interp.EntryData(e))
 		if err != nil {
 			tc.Logger.Warn("pathfmt: render error", "entry", e.Title, "err", err)

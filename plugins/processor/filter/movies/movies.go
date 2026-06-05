@@ -242,9 +242,6 @@ func matchTitle(parsed string, year int, titles []match.TitleEntry) (string, boo
 
 func (p *moviesPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
 	for _, e := range entries {
-		if e.IsRejected() || e.IsFailed() {
-			continue
-		}
 		// Movie classifier: every entry that reaches this filter is a
 		// movie (Requires guarantees title + video_year + _quality).
 		e.Set(entry.FieldMediaType, entry.MediaTypeMovie)

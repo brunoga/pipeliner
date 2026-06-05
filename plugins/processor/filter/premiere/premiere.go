@@ -192,9 +192,6 @@ func (p *premierePlugin) persist(_ context.Context, _ *plugin.TaskContext, entri
 
 func (p *premierePlugin) Process(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
 	for _, e := range entries {
-		if e.IsRejected() || e.IsFailed() {
-			continue
-		}
 		// Premiere is a series classifier — every processed entry is an
 		// episode by Requires.
 		e.Set(entry.FieldMediaType, entry.MediaTypeSeries)

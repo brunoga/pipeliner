@@ -81,9 +81,6 @@ func (p *qualityPlugin) Name() string { return "quality" }
 
 func (p *qualityPlugin) Process(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
 	for _, e := range entries {
-		if e.IsRejected() || e.IsFailed() {
-			continue
-		}
 		q, ok := e.Quality()
 		if !ok {
 			if p.onMissing == "reject" {

@@ -234,9 +234,6 @@ func toInt(v any) int {
 
 func (p *torrentAlivePlugin) Process(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
 	for _, e := range entries {
-		if e.IsRejected() || e.IsFailed() {
-			continue
-		}
 		if err := p.filter(ctx, tc, e); err != nil {
 			tc.Logger.Warn("torrent_alive filter error", "entry", e.Title, "err", err)
 		}

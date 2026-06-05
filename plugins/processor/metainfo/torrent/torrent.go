@@ -162,9 +162,6 @@ func (p *torrentPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, e 
 // torrentURLReason returns a short reason string if the entry's URL should be
 func (p *torrentPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
 	for _, e := range entries {
-		if e.IsRejected() || e.IsFailed() {
-			continue
-		}
 		if err := p.annotate(ctx, tc, e); err != nil {
 			tc.Logger.Warn("metainfo_torrent error", "entry", e.Title, "err", err)
 			e.Fail(err.Error())

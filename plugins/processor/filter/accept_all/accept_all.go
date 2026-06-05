@@ -14,6 +14,9 @@ func init() {
 		PluginName:  "accept_all",
 		Description: "accept every undecided entry unconditionally",
 		Role:        plugin.RoleProcessor,
+		// Only act on Undecided entries — never re-decide entries that have
+		// already been accepted, rejected, or failed by an upstream node.
+		InputStates: entry.StatesUndecidedOnly,
 		Factory: func(_ map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
 			return &acceptAllPlugin{}, nil
 		},
@@ -27,10 +30,10 @@ type acceptAllPlugin struct{}
 
 func (p *acceptAllPlugin) Name() string { return "accept_all" }
 func (p *acceptAllPlugin) Process(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
+	// Executor pre-filter (InputStates=StatesUndecidedOnly) means every entry
+	// here is Undecided — no per-entry state check needed.
 	for _, e := range entries {
-		if !e.IsAccepted() && !e.IsRejected() && !e.IsFailed() {
-			e.Accept()
-		}
+		e.Accept()
 	}
 	return entry.PassThrough(entries), nil
 }

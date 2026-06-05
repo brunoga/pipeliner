@@ -291,18 +291,6 @@ func TestPlainTextLeavesUnset(t *testing.T) {
 
 // --- Pipeline behaviour ---
 
-func TestRejectedEntriesSkipped(t *testing.T) {
-	p, _ := newPlugin(nil, nil)
-	e := entry.New("My.Show.S01E01.720p", "http://x.com/a")
-	e.Reject("test")
-	if _, err := p.(plugin.ProcessorPlugin).Process(context.Background(), makeCtx(), []*entry.Entry{e}); err != nil {
-		t.Fatal(err)
-	}
-	if v := e.GetString(entry.FieldMediaType); v != "" {
-		t.Errorf("rejected entry should not be annotated, got media_type=%q", v)
-	}
-}
-
 func TestProcessPassesEntriesThrough(t *testing.T) {
 	p, _ := newPlugin(nil, nil)
 	in := []*entry.Entry{

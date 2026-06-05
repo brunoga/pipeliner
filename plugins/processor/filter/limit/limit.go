@@ -30,6 +30,10 @@ func init() {
 		PluginName:  "limit",
 		Description: "cap the number of accepted entries to n; reject the rest",
 		Role:        plugin.RoleProcessor,
+		// limit only caps the already-accepted population. Undecided entries
+		// are not candidates yet (some upstream still has to accept them) and
+		// rejected/failed entries are terminally decided.
+		InputStates: entry.StatesAcceptedOnly,
 		Factory:     newPlugin,
 		Validate:    validate,
 		Schema: []plugin.FieldSchema{
@@ -86,11 +90,10 @@ func (p *limitPlugin) Process(_ context.Context, _ *plugin.TaskContext, entries 
 		sortValue any
 	}
 
+	// Executor pre-filter (InputStates=StatesAcceptedOnly) means every entry
+	// here is Accepted — no per-entry state check needed.
 	var accepted []slot
 	for _, e := range entries {
-		if !e.IsAccepted() {
-			continue
-		}
 		s := slot{e: e, idx: len(accepted)}
 		if p.sort != "" {
 			if v, ok := e.Get(p.sort); ok {
