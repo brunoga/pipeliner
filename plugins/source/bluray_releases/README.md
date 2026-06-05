@@ -23,8 +23,8 @@ Calendar passes warm the local title-to-ID index that `metainfo_bluray` (and the
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `title` | string | Title as listed on the calendar (may include " 3D" / " 4K" suffix) |
-| `movie_title` | string | Cleaned title with format suffix stripped |
+| `title` | string | Title as listed on the calendar, with any trailing " 3D" / " 4K" format token stripped (the format lives in `bluray_format`) |
+| `movie_title` | string | Same as `title`; **deprecated** mirror — prefer `title` |
 | `media_type` | string | `"movie"` |
 | `source` | string | `"bluray_releases:<format>"` |
 | `bluray_id` | string | Numeric release ID |
