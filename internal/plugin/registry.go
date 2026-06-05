@@ -5,6 +5,7 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/store"
 )
 
@@ -61,6 +62,21 @@ type Descriptor struct {
 	// plugins are registered so the executor can instantiate them but are hidden
 	// from the visual editor palette and cannot be used directly in config.
 	Internal bool
+	// InputStates declares which entry states the plugin's Process method
+	// actually acts on. The executor pre-filters upstream entries to this set
+	// before calling Process, removing the per-plugin "skip rejected/failed"
+	// boilerplate that lived at the top of every processor. Excluded entries
+	// bypass the plugin and are merged back into the downstream slice unchanged.
+	//
+	// When zero, EffectiveInputStates falls back to a role-appropriate default:
+	//   - RoleProcessor → entry.StatesAcceptedUndecided
+	//
+	// (Sinks still gate their input through entry.FilterAccepted, which is
+	// consumed-aware and lives outside the InputStates mechanism for now.)
+	//
+	// Plugins with non-default needs declare an explicit set; see the
+	// pre-built named constants in package entry.
+	InputStates entry.StateSet
 }
 
 // EffectiveRole returns the plugin's Role.
@@ -69,6 +85,25 @@ func (d *Descriptor) EffectiveRole() Role {
 		return d.Role
 	}
 	return RoleProcessor // safe default
+}
+
+// EffectiveInputStates returns the StateSet the executor should pre-filter
+// upstream entries to before calling this plugin's Process method. When
+// InputStates is unset (zero), a role-appropriate default is applied:
+//
+//   - RoleProcessor → entry.StatesAcceptedUndecided  (matches the legacy
+//     per-plugin skip-guard convention)
+//   - other roles    → entry.StatesAll               (no executor pre-filter;
+//     the role's own gate applies — sinks use FilterAccepted, sources do
+//     not consume input at all)
+func (d *Descriptor) EffectiveInputStates() entry.StateSet {
+	if d.InputStates != 0 {
+		return d.InputStates
+	}
+	if d.EffectiveRole() == RoleProcessor {
+		return entry.StatesAcceptedUndecided
+	}
+	return entry.StatesAll
 }
 
 // RequiresFlat returns a deduplicated flat list of all fields mentioned in any

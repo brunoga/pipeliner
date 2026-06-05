@@ -32,6 +32,75 @@ func (s State) String() string {
 	}
 }
 
+// StateSet is a bitset over the four entry States. Used by
+// plugin.Descriptor.InputStates to declare which states a plugin's
+// Process/Consume method acts on; the executor pre-filters upstream entries
+// to the declared set before calling the plugin. This removes the
+// per-plugin "skip rejected/failed" boilerplate that used to live at the top
+// of every Process method.
+//
+// Use the named constants below in plugin descriptors rather than assembling
+// bitsets by hand.
+type StateSet uint8
+
+// StateBit returns the StateSet containing only s. Useful for assembling
+// custom sets, but most plugins should use the pre-built named constants.
+// Returns 0 for an out-of-range State, which is the empty set.
+func StateBit(s State) StateSet {
+	switch s {
+	case Undecided:
+		return 1 << 0
+	case Accepted:
+		return 1 << 1
+	case Rejected:
+		return 1 << 2
+	case Failed:
+		return 1 << 3
+	}
+	return 0
+}
+
+// Pre-built sets covering every common case. A plugin descriptor's
+// InputStates field defaults (via Descriptor.EffectiveInputStates) to a
+// role-appropriate value when left unset:
+//
+//   - RoleProcessor → StatesAcceptedUndecided
+//   - RoleSink      → handled separately by FilterAccepted (consumed-aware)
+//
+// Plugins with non-default needs declare an explicit set:
+//
+//   - swap_state                       → StatesAll
+//   - accept_all                       → StatesUndecidedOnly
+//   - dedup, limit, discover           → StatesAcceptedOnly
+var (
+	StatesAcceptedOnly      = StateBit(Accepted)
+	StatesUndecidedOnly     = StateBit(Undecided)
+	StatesAcceptedUndecided = StateBit(Accepted) | StateBit(Undecided)
+	StatesAllButFailed      = StateBit(Accepted) | StateBit(Rejected) | StateBit(Undecided)
+	StatesAll               = StateBit(Accepted) | StateBit(Rejected) | StateBit(Failed) | StateBit(Undecided)
+)
+
+// Has reports whether s is present in the set.
+func (ss StateSet) Has(s State) bool { return ss&StateBit(s) != 0 }
+
+// SplitByStates partitions entries into (matching, nonMatching) preserving
+// original order in each output slice. Used by the executor to pre-filter
+// upstream entries to a plugin's declared InputStates while keeping the
+// excluded entries available to forward downstream unchanged.
+//
+// Both output slices reference the same *Entry pointers as input — no clone.
+// Either slice may be nil when no entries fall on that side.
+func SplitByStates(entries []*Entry, states StateSet) (matching, nonMatching []*Entry) {
+	for _, e := range entries {
+		if states.Has(e.State) {
+			matching = append(matching, e)
+		} else {
+			nonMatching = append(nonMatching, e)
+		}
+	}
+	return
+}
+
 // Entry is the core data unit that flows through a pipeline task.
 type Entry struct {
 	Title        string

@@ -835,3 +835,128 @@ func (p *funcProcessor) Name() string { return "test_func" }
 func (p *funcProcessor) Process(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
 	return p.fn(entries), nil
 }
+
+// observeProcessor records the URLs it actually sees in its Process call so a
+// test can assert which states the executor pre-filter is hiding.
+type observeProcessor struct {
+	seen []string
+}
+
+func (p *observeProcessor) Name() string { return "test_observe" }
+func (p *observeProcessor) Process(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
+	for _, e := range entries {
+		p.seen = append(p.seen, e.URL)
+	}
+	return entries, nil
+}
+
+// TestExecutor_InputStatesPreFilter_Default verifies that the executor
+// pre-filters upstream to a processor's default InputStates
+// (StatesAcceptedUndecided) — rejected and failed entries bypass Process.
+// They must still reach downstream nodes for bookkeeping.
+func TestExecutor_InputStatesPreFilter_Default(t *testing.T) {
+	// src emits two entries; reject_b rejects http://b.com; observe records
+	// what reaches its Process(); collect records what reaches the sink.
+	rejectB := &funcProcessor{fn: func(entries []*entry.Entry) []*entry.Entry {
+		for _, e := range entries {
+			if e.URL == "http://b.com" {
+				e.Reject("test: reject b")
+			} else {
+				e.Accept()
+			}
+		}
+		// Return the full slice so the executor sees both populations; the
+		// pre-filter on the next node is what's under test.
+		return entries
+	}}
+	observe := &observeProcessor{}
+	collect := &sinkPlugin{}
+
+	ex := buildExec(t,
+		[]*dag.Node{
+			{ID: "src", PluginName: "test_source"},
+			{ID: "reject", PluginName: "test_func", Upstreams: []dag.NodeID{"src"}},
+			{ID: "observe", PluginName: "test_observe", Upstreams: []dag.NodeID{"reject"}},
+			{ID: "sink", PluginName: "test_sink", Upstreams: []dag.NodeID{"observe"}},
+		},
+		map[dag.NodeID]*executor.PluginInstance{
+			"src":     {Desc: sourceDesc(), Impl: &sourcePlugin{urls: []string{"http://a.com", "http://b.com"}}, Config: map[string]any{}},
+			"reject":  {Desc: processorDesc(), Impl: rejectB, Config: map[string]any{}},
+			"observe": {Desc: processorDesc(), Impl: observe, Config: map[string]any{}},
+			"sink":    {Desc: sinkDesc(), Impl: collect, Config: map[string]any{}},
+		},
+	)
+
+	if _, err := ex.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	// observe must have seen only the accepted entry — the rejected one was
+	// filtered out by the executor before Process was called.
+	if len(observe.seen) != 1 || observe.seen[0] != "http://a.com" {
+		t.Errorf("observe.seen: got %v, want [http://a.com] (rejected b should have been filtered before Process)", observe.seen)
+	}
+	// The rejected entry must STILL flow downstream through observe's output,
+	// because the executor merges procOutput with the pre-filter-excluded
+	// entries. Without that merge, the sink would never see the rejected
+	// entry at all, which would break logging, accounting, and chained-sink
+	// rules in production. sinkPlugin is a naive test sink that records every
+	// entry it's handed without applying FilterAccepted, so it should receive
+	// both.
+	if len(collect.received) != 2 {
+		t.Errorf("sink.received: got %d, want 2 (rejected entry must be merged back into downstream slice)", len(collect.received))
+	}
+}
+
+// TestExecutor_InputStatesPreFilter_AllStates verifies that a processor with
+// InputStates=StatesAll (e.g. swap_state) receives every state from upstream,
+// including rejected and failed entries.
+func TestExecutor_InputStatesPreFilter_AllStates(t *testing.T) {
+	rejectB := &funcProcessor{fn: func(entries []*entry.Entry) []*entry.Entry {
+		for _, e := range entries {
+			if e.URL == "http://b.com" {
+				e.Reject("test: reject b")
+			} else {
+				e.Accept()
+			}
+		}
+		return entries
+	}}
+	observe := &observeProcessor{}
+
+	observeAllDesc := &plugin.Descriptor{
+		PluginName:  "test_observe",
+		Role:        plugin.RoleProcessor,
+		InputStates: entry.StatesAll,
+	}
+
+	ex := buildExec(t,
+		[]*dag.Node{
+			{ID: "src", PluginName: "test_source"},
+			{ID: "reject", PluginName: "test_func", Upstreams: []dag.NodeID{"src"}},
+			{ID: "observe", PluginName: "test_observe", Upstreams: []dag.NodeID{"reject"}},
+		},
+		map[dag.NodeID]*executor.PluginInstance{
+			"src":     {Desc: sourceDesc(), Impl: &sourcePlugin{urls: []string{"http://a.com", "http://b.com"}}, Config: map[string]any{}},
+			"reject":  {Desc: processorDesc(), Impl: rejectB, Config: map[string]any{}},
+			"observe": {Desc: observeAllDesc, Impl: observe, Config: map[string]any{}},
+		},
+	)
+
+	if _, err := ex.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(observe.seen) != 2 {
+		t.Fatalf("observe.seen: got %d entries, want 2 (StatesAll must surface rejected entries too)", len(observe.seen))
+	}
+	// Order must match upstream emission order (matching followed by excluded
+	// is the executor's merge contract; here all entries are "matching" so
+	// they retain emission order).
+	wantURLs := map[string]bool{"http://a.com": true, "http://b.com": true}
+	for _, u := range observe.seen {
+		if !wantURLs[u] {
+			t.Errorf("observe saw unexpected URL %q", u)
+		}
+	}
+}

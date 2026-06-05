@@ -43,6 +43,11 @@ func init() {
 		PluginName:  pluginName,
 		Description: "swap entries between two states (e.g. accepted ↔ rejected) so downstream nodes can act on entries others rejected or failed",
 		Role:        plugin.RoleProcessor,
+		// Declare access to every state — the whole point of swap_state is to
+		// operate on entries other plugins have terminally rejected or failed,
+		// so the default processor pre-filter (StatesAcceptedUndecided) would
+		// hide exactly the entries this plugin needs to act on.
+		InputStates: entry.StatesAll,
 		Factory:     newPlugin,
 		Validate:    validate,
 		Schema: []plugin.FieldSchema{

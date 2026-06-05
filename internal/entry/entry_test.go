@@ -5,6 +5,91 @@ import (
 	"time"
 )
 
+func TestStateSet_HasAndNamedConstants(t *testing.T) {
+	cases := []struct {
+		name string
+		set  StateSet
+		want map[State]bool
+	}{
+		{"AcceptedOnly", StatesAcceptedOnly, map[State]bool{
+			Accepted: true, Rejected: false, Failed: false, Undecided: false,
+		}},
+		{"UndecidedOnly", StatesUndecidedOnly, map[State]bool{
+			Accepted: false, Rejected: false, Failed: false, Undecided: true,
+		}},
+		{"AcceptedUndecided", StatesAcceptedUndecided, map[State]bool{
+			Accepted: true, Rejected: false, Failed: false, Undecided: true,
+		}},
+		{"AllButFailed", StatesAllButFailed, map[State]bool{
+			Accepted: true, Rejected: true, Failed: false, Undecided: true,
+		}},
+		{"All", StatesAll, map[State]bool{
+			Accepted: true, Rejected: true, Failed: true, Undecided: true,
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for s, want := range tc.want {
+				if got := tc.set.Has(s); got != want {
+					t.Errorf("Has(%s): got %v, want %v", s, got, want)
+				}
+			}
+		})
+	}
+}
+
+func TestSplitByStates_PartitionsPreservingOrder(t *testing.T) {
+	mk := func(state State) *Entry {
+		e := New("t", "u")
+		e.State = state
+		return e
+	}
+	a, b, c, d, e := mk(Accepted), mk(Rejected), mk(Undecided), mk(Failed), mk(Accepted)
+	in := []*Entry{a, b, c, d, e}
+
+	matching, nonMatching := SplitByStates(in, StatesAcceptedUndecided)
+	wantMatch := []*Entry{a, c, e}
+	wantNon := []*Entry{b, d}
+	if len(matching) != len(wantMatch) {
+		t.Fatalf("matching length: got %d, want %d", len(matching), len(wantMatch))
+	}
+	for i, e := range wantMatch {
+		if matching[i] != e {
+			t.Errorf("matching[%d]: pointer mismatch — got %p, want %p", i, matching[i], e)
+		}
+	}
+	if len(nonMatching) != len(wantNon) {
+		t.Fatalf("nonMatching length: got %d, want %d", len(nonMatching), len(wantNon))
+	}
+	for i, e := range wantNon {
+		if nonMatching[i] != e {
+			t.Errorf("nonMatching[%d]: pointer mismatch — got %p, want %p", i, nonMatching[i], e)
+		}
+	}
+}
+
+func TestSplitByStates_EmptyAndAllInOneBucket(t *testing.T) {
+	if m, n := SplitByStates(nil, StatesAll); m != nil || n != nil {
+		t.Errorf("nil input: got matching=%v nonMatching=%v, want both nil", m, n)
+	}
+	e := New("t", "u")
+	e.State = Accepted
+	m, n := SplitByStates([]*Entry{e}, StatesAcceptedOnly)
+	if len(m) != 1 || m[0] != e {
+		t.Errorf("matching: got %v, want [e]", m)
+	}
+	if n != nil {
+		t.Errorf("nonMatching: got %v, want nil (no nonmatching entries)", n)
+	}
+	m2, n2 := SplitByStates([]*Entry{e}, StatesUndecidedOnly)
+	if m2 != nil {
+		t.Errorf("inverted: matching should be nil, got %v", m2)
+	}
+	if len(n2) != 1 || n2[0] != e {
+		t.Errorf("inverted: nonMatching should be [e], got %v", n2)
+	}
+}
+
 func TestNew(t *testing.T) {
 	e := New("title", "http://example.com")
 	if e.Title != "title" {

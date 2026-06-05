@@ -342,7 +342,29 @@ func (ex *Executor) runNode(
 		if !ok {
 			return nil, fmt.Errorf("plugin %q does not implement ProcessorPlugin", pi.Impl.Name())
 		}
-		produced, err = proc.Process(ctx, tc, upstream)
+		// Pre-filter upstream to the states the plugin actually acts on
+		// (declared via Descriptor.InputStates, defaulting to
+		// StatesAcceptedUndecided for processors). Entries in excluded states
+		// bypass Process entirely and are merged back into produced unchanged
+		// so they keep flowing downstream for bookkeeping. This is what
+		// replaces the per-plugin "if e.IsRejected() || e.IsFailed() { continue }"
+		// skip-guard at the top of every Process method.
+		matching, excluded := entry.SplitByStates(upstream, pi.Desc.EffectiveInputStates())
+		procOutput, perr := proc.Process(ctx, tc, matching)
+		err = perr
+		// Merge: produced = procOutput followed by the entries excluded by the
+		// pre-filter. Order within each group is preserved; the plugin may
+		// reorder its own slice, and excluded entries are appended at the end.
+		// Downstream nodes that care about order (e.g. limit) re-sort.
+		if len(excluded) == 0 {
+			produced = procOutput
+		} else if len(procOutput) == 0 {
+			produced = excluded
+		} else {
+			produced = make([]*entry.Entry, 0, len(procOutput)+len(excluded))
+			produced = append(produced, procOutput...)
+			produced = append(produced, excluded...)
+		}
 		// Log state changes caused by this processor.
 		for _, s := range snaps {
 			if s.e.State == s.stateBefore {
