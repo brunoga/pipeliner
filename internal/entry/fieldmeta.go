@@ -385,11 +385,3 @@ func init() {
 	}
 }
 
-// FieldTypeOf returns the FieldType for a known field name, or FieldTypeString
-// as a safe default for unknown fields.
-func FieldTypeOf(name string) FieldType {
-	if m, ok := KnownFieldMap[name]; ok {
-		return m.Type
-	}
-	return FieldTypeString
-}
