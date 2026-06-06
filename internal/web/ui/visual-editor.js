@@ -4866,12 +4866,32 @@ function pasteClipboard() {
   if (!g) return;
   pushUndo();
 
-  // Place pasted nodes centred on the visible viewport, offset slightly so
-  // repeated pastes don't stack exactly on top of each other.
+  // Place pasted nodes centred on the visible viewport, then clamp the
+  // result into the active pipeline's vertical band so the pasted node
+  // visibly belongs to that pipeline. Without the clamp, the viewport
+  // centre can fall above (or far below) the active region — the node
+  // renders as orphaned, and startNodeDrag's `effMinY = g._labelY + 36`
+  // floor snaps it back into the region the instant the user tries to
+  // move it. PASTE_OFFSET nudges repeat pastes off the original spot.
   const body  = document.getElementById('ve-canvas-body');
   const PASTE_OFFSET = 40;
-  const baseX = body ? Math.max(20, body.scrollLeft / ve_zoom + body.clientWidth  / ve_zoom / 2) + PASTE_OFFSET : 200;
-  const baseY = body ? Math.max(20, body.scrollTop  / ve_zoom + body.clientHeight / ve_zoom / 2) + PASTE_OFFSET : 200;
+
+  const viewCenterX = body ? body.scrollLeft / ve_zoom + body.clientWidth  / ve_zoom / 2 : 200;
+  const viewCenterY = body ? body.scrollTop  / ve_zoom + body.clientHeight / ve_zoom / 2 : 200;
+
+  // The drag handler clamps y to (labelY + 36) — match that as the floor.
+  const regionTopY = g._labelY != null
+    ? g._labelY + 36
+    : (g._regionY != null ? g._regionY + 8 + 36 : 20);
+  // Keep the new node above the bottom of the region when the region has
+  // height info; otherwise allow the viewport centre to dominate.
+  const regionBotY = (g._regionY != null && g._regionH != null)
+    ? Math.max(regionTopY, g._regionY + g._regionH - NODE_H - 24)
+    : Number.POSITIVE_INFINITY;
+  const clampedY = Math.max(regionTopY, Math.min(viewCenterY, regionBotY));
+
+  const baseX = Math.max(20, viewCenterX) + PASTE_OFFSET;
+  const baseY = clampedY + PASTE_OFFSET;
 
   const idMap  = {};  // origId → newId
   const newIds = [];
