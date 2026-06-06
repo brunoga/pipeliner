@@ -103,6 +103,24 @@ cond = process("condition", upstream=meta, rules=[
 ])
 ```
 
+### Comparing bool fields: prefer `!= true` over `== false`
+
+Missing fields evaluate to the empty string `""`, not to a typed zero value. So `bluray_3d_release == false` does **not** match entries where the plugin never set the field — `compareEq` ends up doing `"" == "false"` (after string coercion), which is false, so the rule never fires.
+
+```python
+# WRONG: doesn't reject entries where bluray_3d_release was never set
+reject="bluray_3d_release == false"
+```
+
+Compare against the truthy value instead — that way both "set to false" and "not set at all" trigger the rule:
+
+```python
+# RIGHT: rejects unless the field is exactly true
+reject="bluray_3d_release != true"
+```
+
+The same pattern applies to any boolean field whose upstream plugin only sets it on the positive case (e.g. `video_is_3d`, `enriched`, `video_proper`).
+
 ## DAG role
 
 | Property | Value |
