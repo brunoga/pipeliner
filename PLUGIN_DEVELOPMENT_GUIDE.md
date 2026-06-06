@@ -146,7 +146,7 @@ func validate(cfg map[string]any) []error {
 | `Role` | `Role` | `RoleSource`, `RoleProcessor`, or `RoleSink` |
 | `Produces` | `[]string` | Fields written on **every** passing entry; used by the DAG validator for reachability checks |
 | `MayProduce` | `[]string` | Fields written only on **some** entries (e.g. when a lookup succeeds or parsing matches). The validator allows these to satisfy a `Requires` group but emits a warning — helps catch pipelines that may silently no-op |
-| `Requires` | `[][]string` | Field requirements as AND-of-OR groups. Use `RequireAll("a","b")` for "a AND b must be present" or `RequireAny("a","b")` for "at least one of a or b". The validator distinguishes *certain* fields (in `Produces` of every upstream path — guaranteed on every entry) from *reachable* fields (in `Produces` or `MayProduce` of any path — potentially present). A `Requires` group satisfied only by reachable fields emits a warning; a group with no reachable field at all is an error |
+| `Requires` | `[][]string` | Field requirements as AND-of-OR groups. Use `RequireAll("a","b")` for "a AND b must be present" or `RequireAny("a","b")` for "at least one of a or b". The validator distinguishes *certain* fields (guaranteed on every entry the plugin sees) from *reachable* fields (potentially present — `Produces` or `MayProduce` of any upstream path). A `Requires` group satisfied only by reachable fields emits a warning; a group with no reachable field at all is an error. Certainty is tracked **per entry state** (Undecided / Accepted / Rejected / Failed) and the check intersects only the buckets the plugin's `InputStates` actually receives, so a `swap_state` that revives rejected entries correctly defeats the narrowing that promoted a field on the (formerly) passing branch. See [DAG field certainty](#dag-field-certainty) for the full model |
 | `Factory` | `func(map[string]any, *store.SQLiteStore) (Plugin, error)` | Constructor |
 | `Validate` | `func(map[string]any) []error` | Optional config validator |
 | `Schema` | `[]FieldSchema` | Optional — enables typed form fields in the visual editor |
@@ -156,6 +156,26 @@ func validate(cfg map[string]any) []error {
 | `AcceptsSearch` | `bool` | Declare that this plugin accepts a `search=` config key. Used by the visual editor to render the search port |
 | `Internal` | `bool` | Mark plugins that are implementation details of a built-in (e.g. `route_selector` created by the `route()` Starlark builtin). Internal plugins are registered so the executor can instantiate them but are hidden from the visual editor palette and cannot be used directly in config |
 | `InputStates` | `entry.StateSet` | Optional. Declares which entry states this plugin's `Process` method acts on; the executor pre-filters upstream entries to this set before calling `Process`. Excluded entries bypass the plugin and are merged back into the downstream slice unchanged. **Defaults to `entry.StatesAcceptedUndecided` for processors when unset** (matches the historical "skip rejected/failed" convention), so most plugins don't need to set it. Use the pre-built constants in package `entry` (`StatesAcceptedOnly`, `StatesUndecidedOnly`, `StatesAcceptedUndecided`, `StatesAllButFailed`, `StatesAll`). The only plugin that needs `StatesAll` today is `swap_state` (it operates on rejected and failed entries by design). See [ProcessorPlugin](#processorplugin) below for examples |
+
+---
+
+### DAG field certainty
+
+The validator's field-availability analysis is **per entry state**. Each node carries four buckets — Undecided / Accepted / Rejected / Failed — recording which fields are guaranteed on entries currently in that state, plus a `populated` bitmask tracking which states actually contain entries at this point in the graph.
+
+This matters because every narrowing rule (`condition` accept/reject, `require`, route ports, semantic groups) rests on the invariant that rejected/failed entries don't flow downstream — that's why `condition(reject="x == \"\"")` can promote `x` to certain on the passing branch. `swap_state` deliberately breaks that invariant by reviving rejected/failed entries, so the validator needs per-state precision to stay sound.
+
+Mechanics relevant to plugin authors:
+
+- A source's `Produces` populates the Undecided bucket only.
+- A processor's `Produces` populates the buckets in its `EffectiveInputStates`. **Classifier-shaped processors** (those with non-empty `Produces` — e.g. `series`, `movies`, `premiere`) additionally copy the upstream Undecided bucket into Accepted before adding their own fields, because matching entries flow Undecided→Accepted carrying whatever certainty they already had.
+- `condition` accept rules route matching entries to Accepted with the promoted fields; the validator initializes the Accepted bucket from Undecided before promotion. Reject and `require` rules merely route the failing fraction to Rejected, intersecting it against the newly-rejected certainty (the absence-checked field is provably absent on those entries).
+- `swap_state` exchanges the two named buckets *and* their populated bits.
+- A `Requires` check at the consuming node intersects the buckets named in its `InputStates`. If none of those states are populated upstream (a structurally unreachable node), it falls back to the union of populated buckets so the check doesn't fire on a node that wouldn't run at runtime anyway.
+
+The visual editor's "Fields available at input" panel and condition-builder hints use the same per-state model client-side (`internal/web/ui/visual-editor.js`), so the live preview agrees with what `pipeliner check` will report.
+
+Most plugin authors don't need to think about any of this beyond declaring `Produces` / `MayProduce` / `Requires` / `InputStates` correctly. The model becomes load-bearing only when writing a new state-mutating plugin (rare — see [State-mutating plugins](#state-mutating-plugins) below) or debugging a missing/spurious *may not be present* warning.
 
 ---
 
@@ -240,6 +260,16 @@ others rejected or failed). These plugins must:
 transition as audit history — do not clear them. A notify template can render
 both `{{.FailReason}}` (the original cause) and `{{.LastStateChange.Reason}}`
 (why the entry is no longer in that state).
+
+The validator models state-mutating plugins explicitly so downstream
+`Requires` checks stay sound. `swap_state` is recognised as exchanging the
+two named state buckets in the [per-state certainty model](#dag-field-certainty);
+a downstream node whose `Requires` was satisfied only by upstream narrowing
+(`require`, `condition` reject-absence, etc.) will get a *may not be present*
+warning across the swap, because the revived entries don't have the narrowed
+field. If you add another state-mutating plugin, follow the same pattern —
+hook it into `internal/dag/validate.go` so the validator can mirror its
+runtime effect on the per-state buckets.
 
 ### Cloning
 
