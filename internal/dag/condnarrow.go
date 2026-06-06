@@ -155,8 +155,9 @@ func AcceptAbsenceRemoved(exprStr string, reachableFields []string) []string {
 
 // ApplyPortAcceptNarrowing applies field-availability inference from a route
 // port's accept expression to the provided reachable/certain maps in-place.
-// Called by both Validate and ComputeNodeFields when processing route_selector
-// nodes — the single source of truth for port-accept narrowing logic.
+// Retained for external callers and tests; the per-state validator uses
+// applyPortAcceptNarrowingStateful below, which delegates to the same
+// narrowing primitives.
 func ApplyPortAcceptNarrowing(acceptExpr string, reach, cert map[string]bool) {
 	if acceptExpr == "" {
 		return
@@ -171,6 +172,33 @@ func ApplyPortAcceptNarrowing(acceptExpr string, reach, cert map[string]bool) {
 		delete(reach, f)
 		delete(cert, f)
 	}
+}
+
+// applyPortAcceptNarrowingStateful is the per-state-aware counterpart used by
+// the validator. Route ports only forward matching entries, so promoted
+// fields are guaranteed on the passing buckets (Accepted, Undecided);
+// absence-checked fields are removed from those buckets. The Rejected bucket
+// is left untouched — entries that didn't match the port don't flow down this
+// branch at all, so there is no "newly rejected" contribution here (route
+// rejection happens at the route_selector level, not per-port).
+func applyPortAcceptNarrowingStateful(acceptExpr string, reach map[string]bool, cert *stateCertainty) {
+	if acceptExpr == "" {
+		return
+	}
+	reachSlice := mapKeys(reach)
+	// Use the Accepted bucket as the syntactic reference — Accepted and
+	// Undecided are kept in lockstep through narrowing so either works.
+	certSlice := mapKeys(cert.get(entry.Accepted))
+	promoted := NarrowCertain(acceptExpr, certSlice, reachSlice)
+	for _, f := range promoted {
+		reach[f] = true
+	}
+	cert.narrowAcceptedUndecided(promoted, "")
+	removed := AcceptAbsenceRemoved(acceptExpr, reachSlice)
+	for _, f := range removed {
+		delete(reach, f)
+	}
+	cert.removeFromAcceptedUndecided(removed)
 }
 
 // semanticGroup describes a set of fields that become certain when a specific
