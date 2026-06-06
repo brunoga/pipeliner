@@ -929,6 +929,45 @@ pipeline("demo", schedule="1h")
 	}
 }
 
+// TestE2ECopyButtonAppearsAfterDirectClick verifies the toolbar Copy / Cut
+// buttons become visible when a node is selected via a single direct click
+// (the selectNode() path). Region-select already surfaced them — this guards
+// the missing updateCopyButton() hook that left the direct-click path silent.
+func TestE2ECopyButtonAppearsAfterDirectClick(t *testing.T) {
+	const cfg = `
+src  = input("rss", url="https://feeds.example.com/tv.rss")
+sink = output("print", upstream=src)
+pipeline("demo")
+`
+	ts := startTestServer(t, cfg)
+	browser, stop := pwSetup(t)
+	defer stop()
+
+	page, _ := browser.NewPage()
+	defer page.Close()
+
+	login(t, page, ts.url)
+	openConfigTab(t, page)
+	switchToVisual(t, page, cfg)
+
+	copyBtn := page.Locator("#ve-copy-btn")
+	cutBtn := page.Locator("#ve-cut-btn")
+
+	// Nothing selected yet → both buttons must be hidden.
+	if vis, _ := copyBtn.IsVisible(); vis {
+		t.Error("Copy button should be hidden with no selection")
+	}
+	if vis, _ := cutBtn.IsVisible(); vis {
+		t.Error("Cut button should be hidden with no selection")
+	}
+
+	// Direct-click selection via selectNode() — same code path as a click
+	// on the canvas node.
+	jsSelectNode(t, page, "rss_0")
+	waitVisible(t, copyBtn)
+	waitVisible(t, cutBtn)
+}
+
 // TestE2EHardFieldWarningOnNode verifies that a node whose required field has
 // no upstream producer shows an amber ⚠ warning inline on the canvas card.
 func TestE2EHardFieldWarningOnNode(t *testing.T) {

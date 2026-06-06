@@ -2608,6 +2608,14 @@ function zoomReset() { setZoom(1.0); }
 function renderParamPanel() {
   const empty  = document.getElementById('ve-param-empty');
   if (!empty) return; // no DOM (e.g. test environment)
+  // Keep the toolbar Copy/Cut buttons coherent with the panel: every
+  // selection-change path eventually calls renderParamPanel (selectNode,
+  // toggleMultiSelect, marqueeSelect, the Escape key handler, the empty-
+  // canvas-click deselect, etc.), so anchoring updateCopyButton here covers
+  // them all. Without this, direct-click selection set selectedNodeId but
+  // left the buttons hidden — only the multi-select path (which goes
+  // through updateExtractButton → updateCopyButton) showed them.
+  updateCopyButton();
   const title  = document.getElementById('ve-param-title');
   const nameEl = document.getElementById('ve-param-name');
   const roleEl = document.getElementById('ve-param-phase');
