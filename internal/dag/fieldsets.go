@@ -64,7 +64,10 @@ func ComputeNodeFields(g *Graph, reg func(name string) (*plugin.Descriptor, bool
 			}
 			effIn = inCert.effective(inStates)
 			if len(effIn) == 0 && inCert.populated != 0 && inCert.populated&inStates == 0 {
-				effIn = inCert.effective(inCert.populated)
+				// Fall back to passing-state buckets (Accepted ∪ Undecided)
+				// — matches Validate's fallback so the visual editor's
+				// preview agrees with what server-side warnings will see.
+				effIn = inCert.effective(inCert.populated & entry.StatesAcceptedUndecided)
 			}
 			result[n.ID] = NodeFieldSets{
 				Certain:   sortedKeys(effIn),

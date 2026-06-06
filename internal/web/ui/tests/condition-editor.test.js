@@ -832,20 +832,29 @@ describe('fieldWarnings', () => {
     expect(warns.some(w => w.msg.includes('torrent_files'))).toBe(true);
   });
 
-  it('clears soft warning when condition accept rule guarantees the required field', () => {
-    // rss → metainfo_torrent → condition(accept: torrent_files != "") → content
-    // The condition guarantees torrent_files is present, so content should see it as certain.
+  it('clears soft warning when condition accept+reject pair guarantees the required field', () => {
+    // rss → metainfo_torrent → condition(accept + reject-absence on torrent_files) → content
+    //
+    // The accept rule alone promotes torrent_files into the Accepted bucket
+    // only — a downstream processor that reads Accepted∪Undecided still sees
+    // Undecided entries that may lack it. That's why the server emits an
+    // "accept-only condition" warning. The realistic user pattern is to pair
+    // the accept rule with `reject: f == ""` so non-matching entries are
+    // filtered out entirely; only then is the field certain on every entry
+    // flowing past the condition.
     const rssNode    = {id:'rss_0', plugin:'rss', upstreams:[], config:{}};
     const metaNode   = {id:'meta_1', plugin:'metainfo_torrent', upstreams:['rss_0'], config:{}};
     const condNode   = {
       id:'cond_2', plugin:'condition', upstreams:['meta_1'],
-      config:{accept:'torrent_files != ""'},
+      config:{rules: [
+        {accept: 'torrent_files != ""'},
+        {reject: 'torrent_files == ""'},
+      ]},
     };
     const contentNode= {id:'content_3', plugin:'content', upstreams:['cond_2'], config:{}};
     setupWarningGraph([rssNode, metaNode, condNode, contentNode]);
 
     const warns = fieldWarnings(contentNode);
-    // The condition accept rule guarantees torrent_files → no warning.
     expect(warns.filter(w => w.msg.includes('torrent_files'))).toHaveLength(0);
   });
 

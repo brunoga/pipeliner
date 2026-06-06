@@ -1368,12 +1368,21 @@ ct    = process("content", upstream=meta, reject=["*.rar"])
 sink  = output("print", upstream=ct)
 pipeline("test")
 `
-	// With condition: same pipeline but a condition node that accepts only entries
-	// where torrent_files is set sits between metainfo_torrent and content.
+	// With condition: same pipeline but a condition node that accepts entries
+	// where torrent_files is set AND rejects entries where it is absent. The
+	// accept rule alone only promotes the field into the Accepted bucket —
+	// matching entries still arrive at content alongside Undecided pass-
+	// throughs that may lack the field. Pairing accept with a reject-absence
+	// rule is the realistic user pattern the conditionMissingRejectWarning
+	// nudges them toward, and the only configuration that makes
+	// torrent_files certain on every entry flowing past.
 	const withCond = `
 src   = input("rss", url="https://example.com/rss")
 meta  = process("metainfo_torrent", upstream=src)
-cond  = process("condition", upstream=meta, accept="torrent_files != \"\"")
+cond  = process("condition", upstream=meta, rules=[
+    {"accept": "torrent_files != \"\""},
+    {"reject": "torrent_files == \"\""},
+])
 ct    = process("content", upstream=cond, reject=["*.rar"])
 sink  = output("print", upstream=ct)
 pipeline("test")
