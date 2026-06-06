@@ -1638,7 +1638,7 @@ output("exec", upstream=cleanup, command="rm -f {file_location}")</code></pre>
 <pre><code>{{.FailReason}}                  →  deluge: connection refused
 {{.LastStateChange.Reason}}      →  swap [accepted, failed]</code></pre>
 
-<div class="note"><strong>Gotcha:</strong> the DAG validator's field-certainty analysis does not yet model what <code>swap_state</code> does to the entry population downstream. After a swap, the entries that are now <code>accepted</code> may have spent earlier hops as <code>rejected</code>, skipping enrichment processors that would have populated their fields. Treat downstream field availability as best-effort across a swap.</div>
+<div class="note"><strong>Validator note:</strong> the field-certainty analysis tracks each state bucket separately, so a downstream node whose <code>Requires</code> were only satisfied by upstream narrowing (a <code>require</code> filter or a <code>condition</code> that rejected entries missing the field) will get a <em>may not be present</em> warning across a <code>swap_state</code> that revives those rejected entries. This is intentional — the revived entries don't have the narrowed field, so the downstream guarantee no longer holds. Move the swap to immediately before the sink that needs to act on the revived population, or add a downstream <code>require</code>/<code>condition</code> to re-establish the contract on the new population.</div>
 
 <hr>
 <!-- ═══════════════════════════════════════════════════════════ -->
