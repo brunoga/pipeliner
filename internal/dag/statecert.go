@@ -306,3 +306,27 @@ func (sc *stateCertainty) removeFromAcceptedUndecided(fields []string) {
 		delete(sc.buckets[stateIdx(entry.Undecided)], f)
 	}
 }
+
+// promoteAccepted models the side of a condition accept rule that the
+// narrowing primitive misses: matching entries newly enter the Accepted
+// state, carrying whatever Undecided certainty they had plus the promoted
+// fields. If Accepted was previously unpopulated, the Undecided bucket is
+// copied in first (entries flow Undecided→Accepted, so the Acc bucket
+// inherits Und's contents). Then the promoted fields are added.
+//
+// Distinct from narrowAcceptedUndecided because accept rules also CREATE
+// Accepted population — reject and require rules merely route the failing
+// fraction to Rejected without populating Accepted, so they keep using the
+// narrowing helper.
+func (sc *stateCertainty) promoteAccepted(promotes []string) {
+	if len(promotes) == 0 {
+		return
+	}
+	if !sc.populated.Has(entry.Accepted) && sc.populated.Has(entry.Undecided) {
+		sc.copyBucket(entry.Undecided, entry.Accepted)
+	}
+	sc.populated |= entry.StateBit(entry.Accepted)
+	for _, f := range promotes {
+		sc.buckets[stateIdx(entry.Accepted)][f] = true
+	}
+}

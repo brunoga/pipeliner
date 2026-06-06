@@ -3363,105 +3363,392 @@ function buildCondConfig(rules) {
   return {rules: valid.map(r => ({[r.type]: r.expr.trim()}))};
 }
 
-// collectOutputFields recursively collects all fields produced by node and
-// its upstream chain into the certain/reachable sets.
+// ── Per-state field certainty ───────────────────────────────────────────────
+//
+// The validator on the server tracks which fields are certain per entry state
+// (undecided, accepted, rejected, failed), plus a `populated` set of states
+// that may actually contain entries at this point. This client-side mirror
+// keeps the live "Fields available at input" preview in lockstep with what
+// the server's ComputeNodeFields / Validate will report after the next
+// /api/parse round-trip — without it, swap_state and require nodes would
+// quietly show stale certainty in the visual editor.
+//
+// Public API:
+//   newStateCertainty()                              → fresh, all-empty.
+//   sc.copy() / sc.intersect(other)                  → immutable-style ops.
+//   sc.markPopulated(stateSet)                       → declare populated states.
+//   sc.addAll(stateSet, fields)                      → add fields to populated buckets.
+//   sc.swap(stateA, stateB)                          → swap two buckets + populated bits.
+//   sc.copyBucket(srcState, dstState)                → overwrite dst with copy of src.
+//   sc.narrowAcceptedUndecided(promotes, rejectedF)  → filter narrowing primitive.
+//   sc.removeFromAcceptedUndecided(fields)           → reject-presence dual.
+//   sc.effective(stateSet)                           → intersection over populated ∩ set.
+//
+// `stateSet` is a Set<string> of state names — accepts the {producing,input}
+// states JSON arrays the API returns. The fallback "if no populated state
+// overlaps the requested set, use the union of populated buckets" is applied
+// at the call site (computeInputFields), matching the server's Validate
+// behaviour for structurally unreachable nodes.
+
+const STATE_NAMES = ['undecided', 'accepted', 'rejected', 'failed'];
+const DEFAULT_PROCESSOR_STATES = new Set(['accepted', 'undecided']);
+
+function newStateCertainty() {
+  const buckets = {};
+  for (const s of STATE_NAMES) buckets[s] = new Set();
+  return { buckets, populated: new Set() };
+}
+
+function scCopy(sc) {
+  const out = newStateCertainty();
+  for (const s of STATE_NAMES) out.buckets[s] = new Set(sc.buckets[s]);
+  out.populated = new Set(sc.populated);
+  return out;
+}
+
+function scMarkPopulated(sc, states) {
+  for (const s of states) sc.populated.add(s);
+}
+
+function scAddAll(sc, states, fields) {
+  for (const s of states) {
+    if (!sc.populated.has(s)) continue;
+    for (const f of fields) sc.buckets[s].add(f);
+  }
+}
+
+function scSwap(sc, a, b) {
+  if (a === b) return;
+  const tmp = sc.buckets[a];
+  sc.buckets[a] = sc.buckets[b];
+  sc.buckets[b] = tmp;
+  const aHad = sc.populated.has(a);
+  const bHad = sc.populated.has(b);
+  sc.populated.delete(a);
+  sc.populated.delete(b);
+  if (aHad) sc.populated.add(b);
+  if (bHad) sc.populated.add(a);
+}
+
+function scCopyBucket(sc, src, dst) {
+  if (src === dst) return;
+  sc.buckets[dst] = new Set(sc.buckets[src]);
+}
+
+// scIntersect computes the per-state intersection. populated is the UNION
+// (so a state reachable on any branch stays reachable downstream); for
+// buckets populated on both sides we intersect, otherwise we take whichever
+// upstream had entries — matching internal/dag/statecert.go.
+function scIntersect(a, b) {
+  const out = newStateCertainty();
+  for (const s of STATE_NAMES) {
+    const aHas = a.populated.has(s);
+    const bHas = b.populated.has(s);
+    if (aHas && bHas) {
+      for (const f of a.buckets[s]) if (b.buckets[s].has(f)) out.buckets[s].add(f);
+    } else if (aHas) {
+      out.buckets[s] = new Set(a.buckets[s]);
+    } else if (bHas) {
+      out.buckets[s] = new Set(b.buckets[s]);
+    }
+    if (aHas || bHas) out.populated.add(s);
+  }
+  return out;
+}
+
+// scNarrowAcceptedUndecided is the shared shape of condition accept rules,
+// condition reject-absence rules, and require narrowing: promote fields on
+// the passing buckets (Accepted, Undecided), and intersect Rejected against
+// the newly-rejected certainty (which lacks `rejectedField` if known).
+function scNarrowAcceptedUndecided(sc, promotes, rejectedField) {
+  if (!promotes.length) return;
+  let newlyRejected;
+  const accPop = sc.populated.has('accepted');
+  const undPop = sc.populated.has('undecided');
+  if (accPop && undPop) {
+    newlyRejected = new Set();
+    for (const f of sc.buckets.accepted) if (sc.buckets.undecided.has(f)) newlyRejected.add(f);
+  } else if (accPop) {
+    newlyRejected = new Set(sc.buckets.accepted);
+  } else if (undPop) {
+    newlyRejected = new Set(sc.buckets.undecided);
+  } else {
+    // No passing entries — nothing to filter.
+    return;
+  }
+  if (rejectedField) newlyRejected.delete(rejectedField);
+
+  for (const f of promotes) {
+    if (accPop) sc.buckets.accepted.add(f);
+    if (undPop) sc.buckets.undecided.add(f);
+  }
+
+  if (sc.populated.has('rejected')) {
+    // Intersect existing Rejected with the newly-rejected certainty.
+    for (const f of [...sc.buckets.rejected]) {
+      if (!newlyRejected.has(f)) sc.buckets.rejected.delete(f);
+    }
+  } else {
+    sc.buckets.rejected = newlyRejected;
+    sc.populated.add('rejected');
+  }
+}
+
+function scRemoveFromAcceptedUndecided(sc, fields) {
+  for (const f of fields) {
+    sc.buckets.accepted.delete(f);
+    sc.buckets.undecided.delete(f);
+  }
+}
+
+// scPromoteAccepted models the side of a condition accept rule that the
+// narrowing primitive misses: matching entries newly enter the Accepted
+// state, carrying whatever Undecided certainty they had plus the promoted
+// fields. Mirrors statecert.go:promoteAccepted.
+function scPromoteAccepted(sc, promotes) {
+  if (!promotes.length) return;
+  if (!sc.populated.has('accepted') && sc.populated.has('undecided')) {
+    scCopyBucket(sc, 'undecided', 'accepted');
+  }
+  sc.populated.add('accepted');
+  for (const f of promotes) sc.buckets.accepted.add(f);
+}
+
+// scEffective returns the intersection of bucket contents across states ∈
+// (states ∩ populated). Unpopulated states are vacuously certain about
+// every field and so are skipped. Caller decides whether to use the
+// fallback when this returns ∅.
+function scEffective(sc, states) {
+  let out = null;
+  for (const s of STATE_NAMES) {
+    if (!states.has(s) || !sc.populated.has(s)) continue;
+    const bucket = sc.buckets[s];
+    if (out === null) {
+      out = new Set(bucket);
+    } else {
+      for (const f of [...out]) if (!bucket.has(f)) out.delete(f);
+    }
+  }
+  return out || new Set();
+}
+
+// parseInputStates accepts the API's input_states (string[]) or a Set, and
+// returns a Set<string>. Falls back to the role-appropriate default when
+// nothing is supplied — matches the server's EffectiveInputStates default:
+//   processor → accepted + undecided
+//   sink      → accepted (only)
+//   source    → all states (irrelevant; sources don't consume)
+function parseInputStates(v, role) {
+  if (v instanceof Set) return v;
+  if (Array.isArray(v) && v.length > 0) return new Set(v);
+  if (role === 'sink')   return new Set(['accepted']);
+  if (role === 'source') return new Set(STATE_NAMES);
+  return new Set(DEFAULT_PROCESSOR_STATES);
+}
+
+// producingStatesFor returns the state buckets a node's Produces should
+// populate. Sources emit Undecided entries regardless of their declared
+// input_states (which defaults to all-states for sources because they
+// don't consume input). Mirrors statecert.go: producingStatesFor.
+function producingStatesFor(meta) {
+  if (meta?.role === 'source') return new Set(['undecided']);
+  return parseInputStates(meta?.input_states, meta?.role);
+}
+
+// parseSwapConfig extracts the two states named in a swap_state node's
+// config. Returns null on malformed input (the plugin's server-side Validate
+// reports the user-facing error).
+function parseSwapConfig(cfg) {
+  if (!cfg) return null;
+  const raw = cfg.swap;
+  if (!Array.isArray(raw) || raw.length !== 2) return null;
+  const a = String(raw[0]);
+  const b = String(raw[1]);
+  if (!STATE_NAMES.includes(a) || !STATE_NAMES.includes(b) || a === b) return null;
+  return { a, b };
+}
+
+// requireFields extracts the fields listed in a require node's config.
+// Accepts a single string or a list; silently skips other shapes.
+function requireFieldsFromConfig(cfg) {
+  if (!cfg) return [];
+  const v = cfg.fields;
+  if (typeof v === 'string') return v ? [v] : [];
+  if (Array.isArray(v)) return v.filter(x => typeof x === 'string' && x);
+  return [];
+}
+
+// applyConditionNarrowingStateful mirrors Go's applyConditionNarrowingStateful.
+// Accept rules promote fields into Accepted/Undecided; reject rules either
+// remove (presence ops) or promote (absence ops). All rules update the
+// Rejected bucket through scNarrowAcceptedUndecided so a downstream
+// swap_state correctly sees a shrunk Rejected.
+function applyConditionNarrowingStateful(config, reach, cert) {
+  const rules = condRulesFromConfig(config);
+  // Prefer the Undecided bucket as the syntactic certain reference for
+  // narrowing: matching entries flow Undecided→Accepted under an accept
+  // rule, and the expression sees their pre-promotion certainty. Falls
+  // back to Accepted when only that side is populated.
+  const certRef = () => cert.populated.has('undecided')
+    ? [...cert.buckets.undecided]
+    : [...cert.buckets.accepted];
+  for (const r of rules) {
+    if (r.type === 'accept') {
+      const reachArr = [...reach];
+      const promoted = condNarrowedFields(r.expr, { certain: certRef(), reachable: reachArr });
+      for (const f of promoted) reach.add(f);
+      // Accept rule routes matched entries Undecided→Accepted with the
+      // promoted fields; promoteAccepted inherits Und's certainty into Acc
+      // and marks Acc populated so downstream sinks reading Accepted-only
+      // see the promoted fields.
+      scPromoteAccepted(cert, promoted);
+    } else if (r.type === 'reject') {
+      const reachArr = [...reach];
+      const removed  = condRejectedFields(r.expr, { reachable: reachArr });
+      for (const f of removed) reach.delete(f);
+      scRemoveFromAcceptedUndecided(cert, removed);
+
+      const promoted = condRejectPromotedFields(r.expr, { certain: certRef(), reachable: [...reach] });
+      for (const f of promoted) reach.add(f);
+      // Reject-absence: the rejection criterion is "field is absent", so
+      // newly-rejected entries provably lack the first promoted field.
+      // Multi-field absence checks are rare; the first-promoted-only choice
+      // is the conservative under-approximation.
+      const anchor = promoted[0] || '';
+      scNarrowAcceptedUndecided(cert, promoted, anchor);
+    }
+  }
+}
+
+// applyRequireNarrowingStateful mirrors Go's applyRequireNarrowingStateful.
+function applyRequireNarrowingStateful(config, reach, cert) {
+  const fields = requireFieldsFromConfig(config);
+  if (!fields.length) return;
+  for (const f of fields) reach.add(f);
+  scNarrowAcceptedUndecided(cert, fields, fields[0]);
+}
+
+// applySwapStateNarrowing mirrors Go's applySwapStateNarrowing.
+function applySwapStateNarrowing(config, cert) {
+  const swap = parseSwapConfig(config);
+  if (!swap) return;
+  scSwap(cert, swap.a, swap.b);
+}
+
+// applyPortAcceptNarrowingStateful is the per-state-aware port narrowing
+// helper. Promoted fields enter the passing buckets; absence-checked fields
+// are removed from those buckets. The Rejected bucket is untouched — port
+// rejection happens at the route_selector, not per-port.
+function applyPortAcceptNarrowingStateful(expr, reach, cert) {
+  if (!expr) return;
+  const reachArr = [...reach];
+  const certArr  = [...cert.buckets.accepted];
+  const promoted = condNarrowedFields(expr, { certain: certArr, reachable: reachArr });
+  for (const f of promoted) reach.add(f);
+  scNarrowAcceptedUndecided(cert, promoted, '');
+  const removed = condAcceptAbsenceRemovedFields(expr, { reachable: reachArr });
+  for (const f of removed) reach.delete(f);
+  scRemoveFromAcceptedUndecided(cert, removed);
+}
+
+// collectOutputFields walks the graph from `node` and returns the per-state
+// certainty + reachable set at this node's OUTPUT. Pure-function style: each
+// call returns a fresh state, and merges (multiple upstreams) intersect
+// per-state — matching what the server's Validate does.
+//
 // graphNodes is the node list for the CURRENT graph — traversal is restricted
 // to that graph so we never bleed fields in from other pipelines.
-function collectOutputFields(node, certain, reachable, visited, graphNodes) {
-  if (!node || visited.has(node.id)) return;
+function collectOutputFields(node, graphNodes, visited) {
+  if (!node || visited.has(node.id)) {
+    return { cert: newStateCertainty(), reach: new Set() };
+  }
   visited.add(node.id);
 
-  // Route port nodes (route_selector): apply inferred field narrowing from the
-  // port's accept expression, then recurse into upstreams.
-  // Both NarrowCertain (presence ops → promote) and AcceptAbsenceRemoved (absence
-  // ops → remove) apply since only matched entries reach a route port.
-  if (node.isRoutePort) {
-    // Recurse into upstreams first to collect their fields.
-    for (const upId of (node.upstreams || [])) {
+  // Inherit from upstreams.
+  let cert, reach;
+  const ups = node.upstreams || [];
+  if (ups.length === 0) {
+    cert  = newStateCertainty();
+    reach = new Set();
+  } else if (ups.length === 1) {
+    const up = graphNodes.find(n => n.id === ups[0]);
+    const upState = up ? collectOutputFields(up, graphNodes, visited) : null;
+    cert  = upState ? upState.cert  : newStateCertainty();
+    reach = upState ? new Set(upState.reach) : new Set();
+  } else {
+    // Merge: union for reach, per-state intersection for cert. Each upstream
+    // gets its own `visited` copy so siblings don't shadow each other.
+    cert  = null;
+    reach = new Set();
+    for (const upId of ups) {
       const up = graphNodes.find(n => n.id === upId);
-      if (up) collectOutputFields(up, certain, reachable, visited, graphNodes);
+      if (!up) continue;
+      const upState = collectOutputFields(up, graphNodes, new Set(visited));
+      for (const f of upState.reach) reach.add(f);
+      cert = cert ? scIntersect(cert, upState.cert) : upState.cert;
     }
-    // Apply inferred narrowing from the port's accept expression.
-    const expr = node.portAcceptExpr;
-    if (expr) {
-      const certArr  = [...certain];
-      const reachArr = [...certain, ...reachable];
-      for (const f of condNarrowedFields(expr, {certain: certArr, reachable: reachArr})) {
-        certain.add(f);
-        reachable.add(f);
-      }
-      for (const f of condAcceptAbsenceRemovedFields(expr, {reachable: reachArr})) {
-        reachable.delete(f);
-        certain.delete(f);
-      }
-    }
-    return;
+    if (!cert) cert = newStateCertainty();
   }
 
-  // Function-call nodes: output fields are pre-computed in textToVisualSync()
-  // from the return node's server-provided field sets plus its own produces.
-  // Use those directly — no recursion needed since outputFields already accounts
-  // for the entire internal chain and its external upstreams.
-  // Fallback to transparent pass-through when outputFields isn't available yet
-  // (e.g. a node just dropped from the palette before a parse round-trip).
+  // Route port nodes: apply port accept-expression narrowing on the passing
+  // buckets. No produces / may_produce.
+  if (node.isRoutePort) {
+    applyPortAcceptNarrowingStateful(node.portAcceptExpr || '', reach, cert);
+    return { cert, reach };
+  }
+
+  // Function-call nodes: server provides the precomputed output sets.
+  // Promote them onto the passing-state buckets (Accepted ∪ Undecided) since
+  // the visual editor's downstream nodes consume from those states by
+  // default. Fall back to transparent pass-through when outputFields isn't
+  // available yet (e.g. node just dropped from the palette).
   if (node.isFunctionCall) {
     if (node.outputFields) {
-      for (const f of node.outputFields.certain)  { certain.add(f); reachable.add(f); }
-      for (const f of node.outputFields.reachable) { reachable.add(f); }
-    } else {
-      for (const upId of (node.upstreams || [])) {
-        const up = graphNodes.find(n => n.id === upId);
-        if (up) collectOutputFields(up, certain, reachable, visited, graphNodes);
-      }
+      const passing = new Set(['accepted', 'undecided']);
+      scMarkPopulated(cert, passing);
+      for (const f of node.outputFields.certain)  { reach.add(f); scAddAll(cert, passing, [f]); }
+      for (const f of node.outputFields.reachable) { reach.add(f); }
     }
-    return;
+    return { cert, reach };
   }
 
-  // Collect this node's own declared fields from plugin metadata.
+  // Add this node's Produces / MayProduce + classifier-shaped population.
   const meta = pluginMeta(node.plugin);
-  for (const f of (meta?.produces    || [])) { certain.add(f); reachable.add(f); }
-  for (const f of (meta?.may_produce || [])) { reachable.add(f); }
-
-  // Recurse into upstreams (within the same graph only).
-  for (const upId of (node.upstreams || [])) {
-    const up = graphNodes.find(n => n.id === upId);
-    if (up) collectOutputFields(up, certain, reachable, visited, graphNodes);
+  if (meta) {
+    const role = meta.role;
+    const producingStates = producingStatesFor(meta);
+    if (role === 'source') {
+      scMarkPopulated(cert, producingStates);
+    } else if ((meta.produces || []).length > 0) {
+      // Classifier-shaped: matching entries flow Undecided→Accepted carrying
+      // their existing certainty. Inherit the Undecided bucket into the
+      // freshly-populated Accepted bucket before adding Produces.
+      if (producingStates.has('accepted') &&
+          !cert.populated.has('accepted') &&
+          cert.populated.has('undecided')) {
+        scCopyBucket(cert, 'undecided', 'accepted');
+      }
+      scMarkPopulated(cert, producingStates);
+    }
+    for (const f of (meta.produces || [])) {
+      reach.add(f);
+      scAddAll(cert, producingStates, [f]);
+    }
+    for (const f of (meta.may_produce || [])) {
+      reach.add(f);
+    }
   }
 
-  // For condition nodes: apply narrowing from the rules config.
+  // Per-plugin narrowing.
   if (node.plugin === 'condition') {
-    const rules    = condRulesFromConfig(node.config);
-    const certArr  = [...certain];
-    const reachArr = [...certain, ...reachable];  // full set (certain ⊆ reachable)
-
-    // Accept rules: promote fields to certain.
-    // e.g. "accept: description != ''" → description guaranteed set downstream.
-    for (const rule of rules) {
-      if (rule.type !== 'accept') continue;
-      for (const f of condNarrowedFields(rule.expr, {certain: certArr, reachable: reachArr})) {
-        certain.add(f);
-      }
-    }
-
-    // Reject rules: remove fields from both reachable and certain.
-    // Reject rules have TWO effects depending on the operator:
-    //
-    // (a) Presence ops  (reject: field != "")  → passing entries lack the field
-    //     → remove from reachable/certain
-    //
-    // (b) Absence ops   (reject: field == "")  → passing entries HAVE the field
-    //     → promote to certain  (mirror of "accept: field != """)
-    for (const rule of rules) {
-      if (rule.type !== 'reject') continue;
-      for (const f of condRejectedFields(rule.expr, {reachable: reachArr})) {
-        reachable.delete(f);
-        certain.delete(f);
-      }
-      for (const f of condRejectPromotedFields(rule.expr, {certain: certArr, reachable: reachArr})) {
-        certain.add(f);
-      }
-    }
+    applyConditionNarrowingStateful(node.config, reach, cert);
+  } else if (node.plugin === 'require') {
+    applyRequireNarrowingStateful(node.config, reach, cert);
+  } else if (node.plugin === 'swap_state') {
+    applySwapStateNarrowing(node.config, cert);
   }
+
+  return { cert, reach };
 }
 
 // computeFnCallOutputFields derives the output field sets for a function-call
@@ -3484,7 +3771,11 @@ function computeFnCallOutputFields(fc, rawById) {
     for (const f of (retMeta.may_produce || [])) { reachable.add(f); }
   }
 
-  // If the return node is a condition, apply its narrowing rules.
+  // If the return node is a condition, apply its narrowing rules. Re-use the
+  // flat (certain, reachable) form here since function-call boundaries
+  // collapse per-state info on the wire — the server has already done the
+  // per-state analysis up to the return node and only ships the effective
+  // view.
   if (returnRaw.plugin === 'condition' && returnRaw.config) {
     const rules   = condRulesFromConfig(returnRaw.config);
     const certArr  = [...certain];
@@ -3509,22 +3800,61 @@ function computeFnCallOutputFields(fc, rawById) {
   };
 }
 
-// computeInputFields computes the field sets available at the INPUT of node
-// by walking its full upstream chain using plugin metadata from ve.plugins.
+// computeInputFields computes the {certain, reachable} field sets available
+// at the INPUT of node by walking its full upstream chain. Internally tracks
+// per-state buckets (so swap_state, require, and merges propagate correctly)
+// then collapses to the consuming node's effective view via scEffective —
+// matching the server's Validate / ComputeNodeFields shape.
 function computeInputFields(node) {
-  // Find the graph this node belongs to so traversal stays within it.
   const gi = findNodeGraph(node.id);
   const graphNodes = gi >= 0 ? (ve.graphs[gi]?.nodes || []) : [];
 
-  const certain  = new Set();
-  const reachable = new Set();
-  for (const upId of (node.upstreams || [])) {
-    const up = graphNodes.find(n => n.id === upId);
-    if (up) collectOutputFields(up, certain, reachable, new Set(), graphNodes);
+  const ups = node.upstreams || [];
+  let cert, reach;
+  if (ups.length === 0) {
+    cert  = newStateCertainty();
+    reach = new Set();
+  } else if (ups.length === 1) {
+    const up = graphNodes.find(n => n.id === ups[0]);
+    const s  = up ? collectOutputFields(up, graphNodes, new Set()) : null;
+    cert  = s ? s.cert : newStateCertainty();
+    reach = s ? new Set(s.reach) : new Set();
+  } else {
+    cert  = null;
+    reach = new Set();
+    for (const upId of ups) {
+      const up = graphNodes.find(n => n.id === upId);
+      if (!up) continue;
+      const s = collectOutputFields(up, graphNodes, new Set());
+      for (const f of s.reach) reach.add(f);
+      cert = cert ? scIntersect(cert, s.cert) : s.cert;
+    }
+    if (!cert) cert = newStateCertainty();
   }
+
+  // Collapse to the consuming node's effective view. When the requested
+  // input states do not overlap any populated state at runtime (the node
+  // would never execute), fall back to the passing-state buckets
+  // (Accepted ∪ Undecided) ∩ populated — matches the server's Validate
+  // fallback so the live preview agrees with /api/check.
+  const meta = pluginMeta(node.plugin);
+  const inStates = parseInputStates(meta?.input_states, meta?.role);
+  let effective = scEffective(cert, inStates);
+  if (effective.size === 0 && cert.populated.size > 0) {
+    let overlap = false;
+    for (const s of inStates) { if (cert.populated.has(s)) { overlap = true; break; } }
+    if (!overlap) {
+      const fallback = new Set();
+      for (const s of ['accepted', 'undecided']) {
+        if (cert.populated.has(s)) fallback.add(s);
+      }
+      effective = scEffective(cert, fallback);
+    }
+  }
+
   return {
-    certain:  [...certain].sort(),
-    reachable: [...reachable].filter(f => !certain.has(f)).sort(),
+    certain:  [...effective].sort(),
+    reachable: [...reach].filter(f => !effective.has(f)).sort(),
   };
 }
 
