@@ -2094,6 +2094,12 @@ body.dark {
 .db-eps td { background: var(--bg); font-size: 11px; padding: 4px 10px 4px 24px; color: var(--muted); }
 .db-eps td:first-child { color: var(--accent); font-family: var(--mono-font); }
 .ep-quality { color: var(--muted); }
+.db-3d-badge {
+  display:inline-block; margin-left:6px; padding:1px 5px; border-radius:3px;
+  font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:.05em;
+  border:1px solid var(--accent); color:var(--accent); background:transparent;
+  vertical-align:1px;
+}
 .db-empty {
   color: var(--muted); padding: 40px 20px;
   text-align: center; font-size: 11px; letter-spacing: 0.06em;

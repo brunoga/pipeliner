@@ -195,8 +195,13 @@ function renderMoviesTable(entries, bucket) {
   for (const e of entries) {
     const rec = e.value || {};
     const date = rec.downloaded_at ? new Date(rec.downloaded_at).toLocaleDateString() : '—';
+    // 3D and non-3D versions of the same movie are tracked under distinct
+    // bucket keys (recordKey() incorporates Is3D), so a user may legitimately
+    // see two rows for one title. Surface a small 3D badge on the 3D one so
+    // the distinction is obvious at a glance.
+    const badge = rec.is_3d ? ' <span class="db-3d-badge">3D</span>' : '';
     html += `<tr>
-      <td>${esc(toTitleCase(rec.title || e.key))}</td>
+      <td>${esc(toTitleCase(rec.title || e.key))}${badge}</td>
       <td style="color:var(--muted)">${rec.year || '—'}</td>
       <td class="ep-quality">${esc(rec.quality?.string || '—')}</td>
       <td style="color:var(--muted)">${date}</td>
