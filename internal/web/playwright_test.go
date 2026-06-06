@@ -2200,3 +2200,74 @@ func abs(v float64) float64 {
 	}
 	return v
 }
+
+// TestE2EPasteLandsInsideActivePipelineRegion verifies that pasting a copied
+// node into a pipeline whose region sits below the viewport's vertical centre
+// places the new node inside that region's y-band. Without the clamp the paste
+// landed where the viewport centre fell — typically above the active region —
+// which startNodeDrag would then snap downward into the region as soon as the
+// user tried to move it (its `effMinY` floors y at g._labelY + 36).
+func TestE2EPasteLandsInsideActivePipelineRegion(t *testing.T) {
+	const cfg = `
+a_src  = input("rss", url="https://feeds.example.com/a.rss")
+a_sink = output("print", upstream=a_src)
+pipeline("alpha")
+
+b_src  = input("rss", url="https://feeds.example.com/b.rss")
+b_sink = output("print", upstream=b_src)
+pipeline("beta")
+`
+	ts := startTestServer(t, cfg)
+	browser, stop := pwSetup(t)
+	defer stop()
+
+	page, _ := browser.NewPage()
+	defer page.Close()
+
+	login(t, page, ts.url)
+	openConfigTab(t, page)
+	switchToVisual(t, page, cfg)
+
+	// Select a node in the SECOND pipeline so its graph is active. The beta
+	// pipeline's region sits below the alpha pipeline's, which is exactly where
+	// the previous viewport-only paste calculation went wrong.
+	jsSelectNode(t, page, "rss_2")
+
+	if _, err := page.Evaluate(`copySelected()`); err != nil {
+		t.Fatalf("copySelected: %v", err)
+	}
+	if _, err := page.Evaluate(`pasteClipboard()`); err != nil {
+		t.Fatalf("pasteClipboard: %v", err)
+	}
+
+	// The pasted node must land at a y at or below the drag floor
+	// (g._labelY + 36) — otherwise the first drag would snap it down.
+	res, err := page.Evaluate(`
+		(function () {
+			var g     = ve.graphs[ve.activeGraph];
+			var floor = (g._labelY != null ? g._labelY : (g._regionY != null ? g._regionY + 8 : 0)) + 36;
+			var newest = g.nodes[g.nodes.length - 1];
+			return { y: newest.y, floor: floor };
+		})()
+	`)
+	if err != nil {
+		t.Fatalf("evaluate node y: %v", err)
+	}
+	m, ok := res.(map[string]any)
+	if !ok {
+		t.Fatalf("unexpected eval result: %v", res)
+	}
+	num := func(v any) float64 {
+		switch x := v.(type) {
+		case float64:
+			return x
+		case int:
+			return float64(x)
+		}
+		return 0
+	}
+	y, floor := num(m["y"]), num(m["floor"])
+	if y < floor {
+		t.Errorf("pasted node y (%v) is above the active pipeline's drag floor (%v) — would snap downward on first drag", y, floor)
+	}
+}
