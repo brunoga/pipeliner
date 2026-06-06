@@ -84,15 +84,16 @@ func Validate(g *Graph, reg func(name string) (*plugin.Descriptor, bool)) (errs,
 			// Check Requires groups against reachable and the intersection of
 			// certain buckets across this node's effective input states. If
 			// none of those states are populated upstream (the node would
-			// never receive entries at runtime), fall back to the union of
-			// populated buckets so the Requires check doesn't fire on a
-			// structurally unreachable node — a real "no Accept filter"
-			// upstream is already caught elsewhere, and emitting an extra
-			// "may not be present" here would just be noise.
+			// never receive entries at runtime), fall back to the
+			// passing-state buckets (Accepted ∪ Undecided) ∩ populated —
+			// matches the entries that WOULD flow through if a more
+			// permissive consumer were here, instead of dragging in the
+			// Rejected/Failed buckets which the executor pre-filter would
+			// drop anyway.
 			inStates := d.EffectiveInputStates()
 			effCert := cert.effective(inStates)
 			if len(effCert) == 0 && cert.populated != 0 && cert.populated&inStates == 0 {
-				effCert = cert.effective(cert.populated)
+				effCert = cert.effective(cert.populated & entry.StatesAcceptedUndecided)
 			}
 			for _, group := range d.Requires {
 				reachFound, certFound := false, false
@@ -345,10 +346,10 @@ func applyConditionNarrowingStateful(config map[string]any, reach map[string]boo
 		}
 	}
 
-	// Use the Accepted bucket as the "currently certain" reference for
-	// narrowing decisions — by construction Accepted and Undecided are kept
-	// in lockstep through every promotion, so this is the field set the
-	// expression evaluator should see.
+	// Use the Undecided bucket as the "currently certain" reference for
+	// narrowing decisions on entries that have not yet been classified —
+	// matching entries flow Undecided→Accepted under an accept rule, and the
+	// expression sees their pre-promotion certainty.
 	keys := func(m map[string]bool) []string {
 		out := make([]string, 0, len(m))
 		for k := range m {
@@ -357,7 +358,14 @@ func applyConditionNarrowingStateful(config map[string]any, reach map[string]boo
 		return out
 	}
 	reachSlice := func() []string { return keys(reach) }
-	certSlice := func() []string { return keys(cert.get(entry.Accepted)) }
+	certSlice := func() []string {
+		// Prefer Undecided as the reference; fall back to Accepted when
+		// only that side is populated (e.g. after an upstream classifier).
+		if cert.populated.Has(entry.Undecided) {
+			return keys(cert.get(entry.Undecided))
+		}
+		return keys(cert.get(entry.Accepted))
+	}
 
 	for _, r := range rules {
 		switch r.ruleType {
@@ -366,12 +374,13 @@ func applyConditionNarrowingStateful(config map[string]any, reach map[string]boo
 			for _, f := range promoted {
 				reach[f] = true
 			}
-			// Accept rule promotes f → newly-rejected entries are the ones
-			// that did NOT match (so they may lack f). No specific field
-			// drives the rejection here; just intersect Rejected against
-			// the incoming Accepted∩Undecided certainty (unchanged by
-			// these promotions yet).
-			cert.narrowAcceptedUndecided(promoted, "")
+			// Accept rule routes matching entries Undecided→Accepted with
+			// the promoted fields set on them. promoteAccepted inherits the
+			// Undecided bucket's certainty into Accepted (the matched
+			// entries' fields don't disappear) and adds the promoted set;
+			// it also ensures Accepted is marked populated so a downstream
+			// sink that reads Accepted-only sees those fields as certain.
+			cert.promoteAccepted(promoted)
 		case "reject":
 			removed := RejectPresenceRemoved(r.expr, reachSlice())
 			for _, f := range removed {
