@@ -8,7 +8,19 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/crypto/bcrypt"
 )
+
+// Drop the bcrypt cost in tests. At DefaultCost the Playwright suite (which
+// constructs ~40 servers, each running newCredentials) blew past the 2-minute
+// test timeout in CI; bcrypt.MinCost keeps each hash under a millisecond
+// while still exercising the same code path. Both internal (package web) and
+// external (package web_test) tests compile into the same test binary, so
+// this init runs before any test code in either.
+func init() {
+	bcryptCost = bcrypt.MinCost
+}
 
 // TestSessionStoreClearAllInvalidatesEverySession is the core invariant for
 // single-session enforcement: once clearAll runs, every previously-issued

@@ -89,14 +89,22 @@ type credentials struct {
 	passwordHash []byte // bcrypt hash
 }
 
-// newCredentials bcrypt-hashes the password at the default cost. Panics if
-// bcrypt itself fails — that can only happen with an out-of-range cost, which
-// is hard-coded here, so a failure means the bcrypt implementation is broken.
+// bcryptCost controls the cost factor used when hashing the configured
+// password. Production uses bcrypt.DefaultCost (~250 ms per comparison on
+// modern hardware) so brute-force is naturally rate-limited. Tests drop this
+// to bcrypt.MinCost via a test-only init() — at default cost, a Playwright
+// suite that creates dozens of servers and performs a login per test would
+// burn through the test timeout on bcrypt alone.
+var bcryptCost = bcrypt.DefaultCost
+
+// newCredentials bcrypt-hashes the password at bcryptCost. Panics if bcrypt
+// itself fails — that can only happen with an out-of-range cost, which is
+// controlled here, so a failure means the bcrypt implementation is broken.
 func newCredentials(username, password string) credentials {
 	uh := sha256.Sum256([]byte(username))
-	ph, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	ph, err := bcrypt.GenerateFromPassword([]byte(password), bcryptCost)
 	if err != nil {
-		panic(fmt.Sprintf("auth: bcrypt failed at default cost: %v", err))
+		panic(fmt.Sprintf("auth: bcrypt failed at cost %d: %v", bcryptCost, err))
 	}
 	return credentials{usernameHash: uh[:], passwordHash: ph}
 }
