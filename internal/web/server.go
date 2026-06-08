@@ -49,15 +49,16 @@ type Server struct {
 	daemon   DaemonControl
 	history  *History
 	bcast    *Broadcaster
-	reload   func() error // nil if reload is not configured
+	reload   func(content []byte) error // nil if reload is not configured
 	version  string
 	creds    credentials
 	sessions *sessionStore
 	secure   bool // true when serving over TLS; controls the Secure cookie flag
 
-	runMu         sync.Mutex
-	running       map[string]int // task name → active run count
-	pendingReload bool           // reload queued until all tasks are idle
+	runMu              sync.Mutex
+	running            map[string]int // task name → active run count
+	pendingReload      bool           // reload queued until all tasks are idle
+	pendingReloadBytes []byte         // content for the queued reload
 
 	configPath     string                            // path to config file on disk
 	validateConfig func([]byte) ([]string, []string) // returns (errors, warnings); nil if not set
@@ -98,12 +99,15 @@ func (s *Server) TaskDone(name string) {
 		delete(s.running, name)
 	}
 	shouldReload := len(s.running) == 0 && s.pendingReload
+	var bytes []byte
 	if shouldReload {
 		s.pendingReload = false
+		bytes = s.pendingReloadBytes
+		s.pendingReloadBytes = nil
 	}
 	s.runMu.Unlock()
 	if shouldReload && s.reload != nil {
-		_ = s.reload()
+		_ = s.reload(bytes)
 	}
 }
 
@@ -133,8 +137,10 @@ func New(tasks []TaskInfo, d DaemonControl, h *History, b *Broadcaster, version,
 	}
 }
 
-// SetReload configures the function called when the user requests a config reload.
-func (s *Server) SetReload(fn func() error) { s.reload = fn }
+// SetReload configures the function called when the user requests a config
+// reload. The function is responsible for parsing, validating, building, and
+// (only on success) persisting the new content to disk.
+func (s *Server) SetReload(fn func(content []byte) error) { s.reload = fn }
 
 // SetConfigPath sets the path to the config file for the editor endpoints.
 func (s *Server) SetConfigPath(path string) { s.configPath = path }
@@ -373,7 +379,16 @@ func (s *Server) apiReload(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "cannot reload while tasks are running", http.StatusConflict)
 		return
 	}
-	if err := s.reload(); err != nil {
+	if s.configPath == "" {
+		http.Error(w, "config path not set", http.StatusNotImplemented)
+		return
+	}
+	data, err := os.ReadFile(s.configPath)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := s.reload(data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -571,6 +586,7 @@ func (s *Server) apiGetConfig(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) apiSaveConfig(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1 MB
 	var req struct {
 		Content string `json:"content"`
 		DryRun  bool   `json:"dry_run"`
@@ -605,26 +621,32 @@ func (s *Server) apiSaveConfig(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "config path not set", http.StatusNotImplemented)
 		return
 	}
-	if err := os.WriteFile(s.configPath, data, 0600); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// Reload immediately if idle, otherwise queue for when tasks finish.
-	s.runMu.Lock()
-	idle := len(s.running) == 0
-	if !idle {
-		s.pendingReload = true
-	}
-	s.runMu.Unlock()
 
 	warns := validationWarnings
 	if warns == nil {
 		warns = []string{}
 	}
+
+	// Reload owns persistence — it parses, builds, atomically writes the file
+	// only if the build succeeds, and then commits the in-memory swap. If the
+	// build fails the on-disk config is untouched. When tasks are running we
+	// queue the bytes for TaskDone to apply once idle.
+	s.runMu.Lock()
+	idle := len(s.running) == 0
+	if !idle {
+		s.pendingReload = true
+		s.pendingReloadBytes = data
+	}
+	s.runMu.Unlock()
+
 	if idle && s.reload != nil {
-		if err := s.reload(); err != nil {
-			writeJSON(w, map[string]any{"status": "saved", "warning": err.Error(), "warnings": warns})
+		if err := s.reload(data); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"errors":   []string{err.Error()},
+				"warnings": warns,
+			})
 			return
 		}
 		writeJSON(w, map[string]any{"status": "reloaded", "warnings": warns})

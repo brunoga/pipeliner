@@ -456,10 +456,15 @@ func cmdDaemon(args []string) int {
 		os.Exit(1)
 	}()
 
-	reload := func() error {
-		newCfg, err := config.Load(*cfgPath)
+	// reload parses, validates, and builds the new config from the supplied
+	// bytes; only on a successful build does it persist the file atomically and
+	// commit the in-memory task swap. Any failure leaves the on-disk config
+	// untouched and the old tasks running. Newly-constructed plugin instances
+	// from a failed build are Shutdown so they don't leak resources.
+	reload := func(content []byte) error {
+		newCfg, err := config.ParseBytes(content)
 		if err != nil {
-			return fmt.Errorf("load config: %w", err)
+			return fmt.Errorf("parse config: %w", err)
 		}
 		reloadErrs, reloadWarns := config.Validate(newCfg)
 		for _, w := range reloadWarns {
@@ -479,7 +484,19 @@ func cmdDaemon(args []string) int {
 		newAllSched := newCfg.GraphSchedules
 		scheduled, ok := addSchedules(nil, newAllSched, newMap, logger)
 		if !ok {
+			for _, t := range newTasks {
+				t.Shutdown()
+			}
 			return fmt.Errorf("invalid schedules in new config")
+		}
+
+		// Persist before swapping. A failed rename here means the on-disk
+		// config and the in-memory tasks both stay on the previous version.
+		if err := config.AtomicWriteFile(*cfgPath, content, 0600); err != nil {
+			for _, t := range newTasks {
+				t.Shutdown()
+			}
+			return fmt.Errorf("persist config: %w", err)
 		}
 
 		taskMu.Lock()

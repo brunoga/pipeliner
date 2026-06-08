@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -180,7 +181,13 @@ func TestSaveConfigWritesFile(t *testing.T) {
 
 	reloaded := false
 	srv, ts := newTestServer(t, path, func(_ []byte) ([]string, []string) { return nil, nil })
-	srv.SetReload(func() error { reloaded = true; return nil })
+	// Production reload writes the file atomically as part of the commit step;
+	// the test stub mirrors that contract so apiSaveConfig's "the file got
+	// updated after a successful save" guarantee can be observed end-to-end.
+	srv.SetReload(func(content []byte) error {
+		reloaded = true
+		return os.WriteFile(path, content, 0600)
+	})
 	defer ts.Close()
 
 	newContent := "new content\n"
@@ -204,6 +211,59 @@ func TestSaveConfigWritesFile(t *testing.T) {
 	json.NewDecoder(resp.Body).Decode(&result)
 	if result["status"] != "reloaded" {
 		t.Errorf("status: got %q, want \"reloaded\"", result["status"])
+	}
+}
+
+// TestSaveConfigPreservesFileOnReloadError verifies that a reload error
+// (e.g. plugin Factory rejecting a structurally-valid config) leaves the
+// on-disk file untouched. Previously the handler wrote the file before
+// calling reload, so a Factory error left a broken config persisted that
+// would block the next startup.
+func TestSaveConfigPreservesFileOnReloadError(t *testing.T) {
+	dir := t.TempDir()
+	path := writeConfig(t, dir, "original content\n")
+	original, _ := os.ReadFile(path)
+
+	srv, ts := newTestServer(t, path, func(_ []byte) ([]string, []string) { return nil, nil })
+	srv.SetReload(func([]byte) error {
+		// Simulate the production reload's contract: if Factory fails, the
+		// reload function returns an error without touching disk.
+		return errors.New("plugin factory error")
+	})
+	defer ts.Close()
+
+	body, _ := json.Marshal(map[string]any{"content": "new content that builds-fails\n"})
+	resp := post(t, ts.URL+"/api/config", "application/json", body)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusUnprocessableEntity {
+		t.Fatalf("status: got %d, want 422 (reload error)", resp.StatusCode)
+	}
+
+	got, _ := os.ReadFile(path)
+	if !bytes.Equal(got, original) {
+		t.Errorf("file content changed despite reload failure: got %q, want %q", got, original)
+	}
+}
+
+// TestSaveConfigRejectsOversizedBody verifies the 1 MB body cap. Without it
+// a malicious LAN client could buffer arbitrary amounts of memory by posting
+// a huge JSON body.
+func TestSaveConfigRejectsOversizedBody(t *testing.T) {
+	dir := t.TempDir()
+	path := writeConfig(t, dir, "x")
+	_, ts := newTestServer(t, path, func(_ []byte) ([]string, []string) { return nil, nil })
+	defer ts.Close()
+
+	// 2 MB of payload — the JSON object wrapping it is also charged against
+	// the limit, but the content alone is already over the cap.
+	huge := bytes.Repeat([]byte("a"), 2<<20)
+	body, _ := json.Marshal(map[string]any{"content": string(huge)})
+	resp := post(t, ts.URL+"/api/config", "application/json", body)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("status: got %d, want 400 (body too large should fail JSON decode)", resp.StatusCode)
 	}
 }
 
@@ -237,8 +297,13 @@ func TestSaveConfigQueuesPendingReloadWhenBusy(t *testing.T) {
 	path := writeConfig(t, dir, "old\n")
 
 	reloadCalls := 0
+	var reloadBytes []byte
 	srv, ts := newTestServer(t, path, func(_ []byte) ([]string, []string) { return nil, nil })
-	srv.SetReload(func() error { reloadCalls++; return nil })
+	srv.SetReload(func(content []byte) error {
+		reloadCalls++
+		reloadBytes = content
+		return nil
+	})
 	defer ts.Close()
 
 	// Simulate a running task.
@@ -257,10 +322,13 @@ func TestSaveConfigQueuesPendingReloadWhenBusy(t *testing.T) {
 		t.Error("reload should not fire while task is running")
 	}
 
-	// Task finishes → reload fires automatically.
+	// Task finishes → reload fires automatically with the queued bytes.
 	srv.TaskDone("my-task")
 	if reloadCalls != 1 {
 		t.Errorf("expected 1 reload after task done, got %d", reloadCalls)
+	}
+	if string(reloadBytes) != "new\n" {
+		t.Errorf("queued reload bytes: got %q, want %q", reloadBytes, "new\n")
 	}
 }
 
@@ -268,7 +336,7 @@ func TestSaveConfigNoPendingReloadWithoutSave(t *testing.T) {
 	srv, _ := newTestServer(t, "", nil)
 
 	reloaded := false
-	srv.SetReload(func() error { reloaded = true; return nil })
+	srv.SetReload(func([]byte) error { reloaded = true; return nil })
 
 	srv.TaskStarted("task")
 	srv.TaskDone("task")
@@ -282,7 +350,7 @@ func TestSaveConfigNoPendingReloadWithoutSave(t *testing.T) {
 
 func TestReloadBlockedWhileRunning(t *testing.T) {
 	srv, ts := newTestServer(t, "", nil)
-	srv.SetReload(func() error { return nil })
+	srv.SetReload(func([]byte) error { return nil })
 	defer ts.Close()
 
 	srv.TaskStarted("task")
