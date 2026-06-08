@@ -361,9 +361,9 @@ section { margin-bottom: 36px; }
   width: 100%;
 }
 .btn-run:hover:not(:disabled) {
-  border-color: var(--card-color, var(--accent));
-  color: var(--card-color, var(--accent));
-  background: color-mix(in srgb, var(--card-color, var(--accent)) 8%, transparent);
+  border-color: var(--accent);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 .btn-run:disabled { opacity: 0.35; cursor: not-allowed; }
 .btn-run.triggered { border-color: var(--amber); color: var(--amber); }

@@ -2271,3 +2271,64 @@ pipeline("beta")
 		t.Errorf("pasted node y (%v) is above the active pipeline's drag floor (%v) — would snap downward on first drag", y, floor)
 	}
 }
+
+// TestE2EDashboardRunButtonHoverColor verifies the dashboard "Run now" button
+// hover uses the accent colour as its own value, not via the per-card
+// --card-color custom property. The regression was that .btn-run:hover used
+// var(--card-color, var(--accent)) — and --card-color defaults to var(--border)
+// for cards with no run history (typical for no-schedule pipelines), so the
+// hover faded to grey instead of signalling an action. The test inspects the
+// CSS rule directly because headless Chromium does not reliably trigger
+// :hover via synthetic mouse moves.
+func TestE2EDashboardRunButtonHoverColor(t *testing.T) {
+	ts := startTestServer(t, minimalConfig)
+	browser, stop := pwSetup(t)
+	defer stop()
+
+	page, err := browser.NewPage()
+	if err != nil {
+		t.Fatalf("new page: %v", err)
+	}
+	defer page.Close()
+
+	login(t, page, ts.url)
+
+	// Wait for the dashboard so the stylesheet is loaded.
+	if err := page.Locator(".task-card .btn-run:not(.btn-dry)").First().WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateVisible,
+	}); err != nil {
+		t.Fatalf("wait for .btn-run: %v", err)
+	}
+
+	// Pull the border-color source value from the .btn-run:hover rule. We
+	// assert it does NOT reference --card-color (which is what caused the
+	// faded grey on cards with no run history).
+	border, err := page.Evaluate(`
+		(function () {
+			for (const sheet of document.styleSheets) {
+				let rules;
+				try { rules = sheet.cssRules; } catch (e) { continue; }
+				for (const r of rules) {
+					if (r.selectorText && r.selectorText.includes('.btn-run:hover')
+					    && !r.selectorText.includes('.btn-dry')) {
+						return r.style.borderColor;
+					}
+				}
+			}
+			return null;
+		})()
+	`)
+	if err != nil {
+		t.Fatalf("read .btn-run:hover rule: %v", err)
+	}
+	if border == nil {
+		t.Fatal(".btn-run:hover rule not found in stylesheets")
+	}
+	got, _ := border.(string)
+	if strings.Contains(got, "--card-color") {
+		t.Errorf("btn-run hover border-color still references --card-color: %q (regression: hover fades to grey on cards with no run history)", got)
+	}
+	if !strings.Contains(got, "--accent") {
+		t.Errorf("btn-run hover border-color should resolve via --accent: got %q", got)
+	}
+}
