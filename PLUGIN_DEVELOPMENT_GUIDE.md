@@ -736,13 +736,27 @@ also called when a config reload replaces this plugin with a new instance.
 **Config reload and plugin lifecycle:** In daemon mode the web UI supports hot
 config reload. Reload is queued until all running tasks are idle, then:
 
-1. Old plugin instances that implement `ShutdownPlugin` have `Shutdown()` called.
-2. New plugin instances are constructed from the reloaded config.
-3. In-memory state on the old instances is discarded.
+1. The new config is parsed and validated.
+2. New plugin instances are constructed from the reloaded config (factories
+   run before anything on disk or in memory is changed).
+3. If construction fails, the new instances that *were* built have
+   `Shutdown()` called immediately and the old instances keep running —
+   neither the on-disk config nor the in-memory state is touched.
+4. If construction succeeds, the new config is written to disk atomically
+   (temp file + rename) and only then are the old instances swapped out:
+   their `Shutdown()` is called and their in-memory state is discarded.
 
-Implications: do not rely on in-memory state surviving a reload. Cross-run
-state must live in a persistent `Bucket`. `CommitPlugin.Commit` is never called
-during shutdown — only during normal pipeline completion.
+Implications:
+
+- Factories may be called for a plugin instance that is never dispatched.
+  If construction succeeds for your plugin but fails for another in the
+  same reload, your `Shutdown()` will be called without `Generate` /
+  `Process` / `Consume` / `Commit` having run. Make `Shutdown()` safe to
+  call on a never-served instance.
+- Do not rely on in-memory state surviving a reload. Cross-run state must
+  live in a persistent `Bucket`.
+- `CommitPlugin.Commit` is never called during shutdown — only during
+  normal pipeline completion.
 
 ### CommitPlugin
 

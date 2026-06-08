@@ -7,7 +7,20 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
+
+	"golang.org/x/crypto/bcrypt"
 )
+
+// Drop the bcrypt cost in tests. At DefaultCost the Playwright suite (which
+// constructs ~40 servers, each running newCredentials) blew past the 2-minute
+// test timeout in CI; bcrypt.MinCost keeps each hash under a millisecond
+// while still exercising the same code path. Both internal (package web) and
+// external (package web_test) tests compile into the same test binary, so
+// this init runs before any test code in either.
+func init() {
+	bcryptCost = bcrypt.MinCost
+}
 
 // TestSessionStoreClearAllInvalidatesEverySession is the core invariant for
 // single-session enforcement: once clearAll runs, every previously-issued
@@ -140,5 +153,118 @@ func TestFaviconServesWithoutSession(t *testing.T) {
 	}
 	if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "image/svg+xml") {
 		t.Errorf("Content-Type = %q, want image/svg+xml", ct)
+	}
+}
+
+// TestCredentialsMatches covers the bcrypt-based credential check end to end:
+// the right (user, pass) pair succeeds; wrong username, wrong password, and
+// fully-wrong pairs all fail. Implicit guarantee: bcrypt.CompareHashAndPassword
+// runs even on username mismatch so timing doesn't leak username existence.
+func TestCredentialsMatches(t *testing.T) {
+	c := newCredentials("alice", "correct horse")
+
+	cases := []struct {
+		name     string
+		user     string
+		pass     string
+		wantPass bool
+	}{
+		{"right pair", "alice", "correct horse", true},
+		{"wrong password", "alice", "wrong", false},
+		{"wrong username", "bob", "correct horse", false},
+		{"both wrong", "bob", "nope", false},
+		{"empty password", "alice", "", false},
+		{"empty username", "", "correct horse", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := c.matches(tc.user, tc.pass); got != tc.wantPass {
+				t.Errorf("matches(%q, %q) = %v, want %v", tc.user, tc.pass, got, tc.wantPass)
+			}
+		})
+	}
+}
+
+// TestCredentialsHashIsNotPlaintext is a quick sanity check that the stored
+// password hash isn't trivially recoverable. A regression to a raw-string
+// or naive-hash storage would make this assertion fail.
+func TestCredentialsHashIsNotPlaintext(t *testing.T) {
+	c := newCredentials("alice", "secret123")
+	if strings.Contains(string(c.passwordHash), "secret123") {
+		t.Error("stored hash must not contain plaintext password")
+	}
+	// bcrypt hashes start with a $2 version prefix.
+	if !strings.HasPrefix(string(c.passwordHash), "$2") {
+		t.Errorf("stored hash %q does not look like a bcrypt hash", c.passwordHash)
+	}
+}
+
+// TestLoginPostThrottlesFailedAttempts proves the failure-path delay is in
+// effect. A successful login completes in well under the throttle; a failed
+// one waits at least failedLoginDelay before responding.
+func TestLoginPostThrottlesFailedAttempts(t *testing.T) {
+	srv := New(nil, stubDaemon{}, NewHistory(), NewBroadcaster(), "test", "alice", "secret")
+
+	form := url.Values{"username": {"alice"}, "password": {"wrong"}}
+	req := httptest.NewRequest(http.MethodPost, "/login",
+		strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+
+	start := time.Now()
+	srv.handleLoginPost(rec, req)
+	elapsed := time.Since(start)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303", rec.Code)
+	}
+	if elapsed < failedLoginDelay {
+		t.Errorf("failed login completed in %v, want >= %v (throttle missing?)",
+			elapsed, failedLoginDelay)
+	}
+}
+
+// TestRequireSessionBehaviorByPath verifies that the middleware distinguishes
+// API requests (which must get a 401 JSON response so the SPA's fetch wrapper
+// can detect expiry) from HTML page requests (which get a 303 redirect to
+// /login so the browser navigates there directly).
+func TestRequireSessionBehaviorByPath(t *testing.T) {
+	srv := New(nil, stubDaemon{}, NewHistory(), NewBroadcaster(), "test", "alice", "secret")
+
+	protected := http.NewServeMux()
+	protected.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := srv.requireSession(protected)
+
+	cases := []struct {
+		name           string
+		path           string
+		wantStatus     int
+		wantBodyPrefix string // "" means don't check body
+		wantLocation   string // "" means no Location header expected
+	}{
+		{"api request returns 401 JSON", "/api/status", http.StatusUnauthorized, `{"error":`, ""},
+		{"html page redirects to login", "/", http.StatusSeeOther, "", "/login"},
+		{"api subpath also returns 401", "/api/db/buckets", http.StatusUnauthorized, `{"error":`, ""},
+		{"non-api page redirects", "/guide", http.StatusSeeOther, "", "/login"},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, c.path, nil)
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+
+			if rec.Code != c.wantStatus {
+				t.Errorf("status = %d, want %d", rec.Code, c.wantStatus)
+			}
+			if c.wantBodyPrefix != "" && !strings.HasPrefix(rec.Body.String(), c.wantBodyPrefix) {
+				t.Errorf("body = %q, want prefix %q", rec.Body.String(), c.wantBodyPrefix)
+			}
+			if c.wantLocation != "" && rec.Header().Get("Location") != c.wantLocation {
+				t.Errorf("Location = %q, want %q", rec.Header().Get("Location"), c.wantLocation)
+			}
+		})
 	}
 }
