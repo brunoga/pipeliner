@@ -1088,13 +1088,17 @@ function deletePipeline(graphIdx) {
   ve.activeGraph    = Math.max(0, Math.min(ve.activeGraph, ve.graphs.length - 1));
   ve.selectedNodeId = null;
 
-  // Shift every pipeline that was below the deleted one upward to fill the gap.
+  // Shift every pipeline that was below the deleted one upward to fill the
+  // gap. The label, region top, and each node all carry absolute y, so they
+  // must shift by the same amount to keep the pipeline visually intact — a
+  // previous version clamped only n.y to ≥0, which could split a pipeline if
+  // the geometry pushed _regionY negative.
   for (let j = graphIdx; j < ve.graphs.length; j++) {
     const g = ve.graphs[j];
     if (g._labelY  != null) g._labelY  -= vacated;
     if (g._regionY != null) g._regionY -= vacated;
     for (const n of g.nodes) {
-      if (n.y != null) n.y = Math.max(0, n.y - vacated);
+      if (n.y != null) n.y -= vacated;
     }
   }
 
