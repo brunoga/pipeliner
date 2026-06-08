@@ -230,6 +230,92 @@ func TestExecutor_DeduplicatesURL(t *testing.T) {
 	}
 }
 
+// TestExecutor_EmptyURLEntriesBypassDedup proves that URL-less entries are
+// not collapsed by mergeAndDedup's URL key. Without the empty-URL guard a
+// source emitting two entries with URL="" would have only one survive.
+func TestExecutor_EmptyURLEntriesBypassDedup(t *testing.T) {
+	sink := &sinkPlugin{}
+	urlless := &sourcePlugin{urls: []string{""}}
+	urlless2 := &sourcePlugin{urls: []string{""}}
+	ex := buildExec(t,
+		[]*dag.Node{
+			{ID: "src1", PluginName: "test_source"},
+			{ID: "src2", PluginName: "test_source"},
+			{ID: "accept", PluginName: "test_accept", Upstreams: []dag.NodeID{"src1", "src2"}},
+			{ID: "sink", PluginName: "test_sink", Upstreams: []dag.NodeID{"accept"}},
+		},
+		map[dag.NodeID]*executor.PluginInstance{
+			"src1":   {Desc: sourceDesc(), Impl: urlless, Config: map[string]any{}},
+			"src2":   {Desc: sourceDesc(), Impl: urlless2, Config: map[string]any{}},
+			"accept": {Desc: processorDesc(), Impl: &acceptAllPlugin{}, Config: map[string]any{}},
+			"sink":   {Desc: sinkDesc(), Impl: sink, Config: map[string]any{}},
+		},
+	)
+	if _, err := ex.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(sink.received) != 2 {
+		t.Errorf("want 2 URL-less entries to survive merge, got %d", len(sink.received))
+	}
+}
+
+// TestExecutor_EmptyURLCommittedDespiteUnrelatedFailure proves that one
+// URL-less entry's commit isn't blocked by another URL-less entry's sink
+// failure. Without the guard both would share the same "" key in failedURLs
+// and the second one's commit would be incorrectly suppressed.
+func TestExecutor_EmptyURLCommittedDespiteUnrelatedFailure(t *testing.T) {
+	commit := &commitPlugin{}
+	// Two URL-less entries; the failing sink fails only the first (the one
+	// it sees first will fail by Title since its failURLs map is keyed by
+	// URL — both entries have URL=""). Use a Title-keyed failer instead.
+	failing := &titleFailingSink{failTitles: map[string]bool{"a": true}}
+	ex := buildExec(t,
+		[]*dag.Node{
+			{ID: "src", PluginName: "test_source"},
+			{ID: "commit", PluginName: "test_commit", Upstreams: []dag.NodeID{"src"}},
+			{ID: "sink", PluginName: "test_failing_sink", Upstreams: []dag.NodeID{"commit"}},
+		},
+		map[dag.NodeID]*executor.PluginInstance{
+			"src":    {Desc: sourceDesc(), Impl: &titleSource{titles: []string{"a", "b"}}, Config: map[string]any{}},
+			"commit": {Desc: commitDesc(), Impl: commit, Config: map[string]any{}},
+			"sink":   {Desc: failingSinkDesc(), Impl: failing, Config: map[string]any{}},
+		},
+	)
+	if _, err := ex.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	// Both URL-less entries must reach commit. Pre-fix, one would set
+	// failedURLs[""]=true and the other would be skipped.
+	if len(commit.committed) != 2 {
+		t.Errorf("want both URL-less entries committed, got %d", len(commit.committed))
+	}
+}
+
+// titleSource emits URL-less entries — Title carries the identity instead.
+type titleSource struct{ titles []string }
+
+func (p *titleSource) Name() string { return "test_source" }
+func (p *titleSource) Generate(_ context.Context, _ *plugin.TaskContext) ([]*entry.Entry, error) {
+	out := make([]*entry.Entry, 0, len(p.titles))
+	for _, t := range p.titles {
+		out = append(out, entry.New(t, ""))
+	}
+	return out, nil
+}
+
+// titleFailingSink fails entries whose Title is in failTitles.
+type titleFailingSink struct{ failTitles map[string]bool }
+
+func (p *titleFailingSink) Name() string { return "test_failing_sink" }
+func (p *titleFailingSink) Consume(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) error {
+	for _, e := range entries {
+		if p.failTitles[e.Title] {
+			e.Fail("test failure")
+		}
+	}
+	return nil
+}
+
 func TestExecutor_DryRun_SkipsSink(t *testing.T) {
 	sink := &sinkPlugin{}
 	g := dag.New()

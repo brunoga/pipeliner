@@ -160,9 +160,11 @@ func (ex *Executor) Run(ctx context.Context) (*Result, error) {
 
 			// After a sink runs, collect any entries it failed (by URL).
 			// runNode for sinks calls Consume which may mutate entry state via e.Fail().
+			// Skip empty URLs so future plugins that produce URL-less entries
+			// don't all collide on the same map key.
 			if role == plugin.RoleSink {
 				for _, e := range upstream {
-					if e.IsFailed() {
+					if e.IsFailed() && e.URL != "" {
 						failedURLs[e.URL] = true
 					}
 				}
@@ -201,7 +203,10 @@ func (ex *Executor) Run(ctx context.Context) (*Result, error) {
 				produced := producedByNode[n.ID]
 				toCommit := make([]*entry.Entry, 0, len(produced))
 				for _, e := range produced {
-					if !failedURLs[e.URL] {
+					// Empty-URL entries can't be tracked in failedURLs (URL is
+					// the key), so they always commit. Pair with the producer-
+					// side skip above so the semantics stay consistent.
+					if e.URL == "" || !failedURLs[e.URL] {
 						toCommit = append(toCommit, e)
 					}
 				}
