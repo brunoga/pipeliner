@@ -14,6 +14,25 @@
 <script>
 // Apply saved theme before first paint to prevent a flash of wrong theme.
 (function(){var t=localStorage.getItem('pipeliner-theme');if(t==='light'||t==='dark')document.body.classList.add(t);}());
+
+// Global fetch wrapper: when the server returns 401 from /api/* (session
+// expired), redirect to /login instead of letting the SPA flounder with an
+// HTML response that doesn't parse as JSON. Wraps fetch once at boot so every
+// downstream caller benefits without explicit error handling.
+(function(){
+  var orig = window.fetch.bind(window);
+  window.fetch = function(input, init){
+    return orig(input, init).then(function(r){
+      if (r.status === 401) {
+        var url = (typeof input === 'string') ? input : (input && input.url) || '';
+        if (url.indexOf('/api/') !== -1) {
+          window.location.href = '/login';
+        }
+      }
+      return r;
+    });
+  };
+}());
 </script>
 
 <header>

@@ -5,9 +5,13 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
+	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 const (
@@ -76,30 +80,53 @@ func (s *sessionStore) runCleanup() {
 	}
 }
 
-// credentials holds hashed copies of the configured username and password.
+// credentials holds the configured username (as a SHA-256 hash for
+// constant-time comparison) and a bcrypt hash of the password. The bcrypt
+// cost factor naturally throttles brute-force attempts to a few hundred
+// milliseconds each on modern hardware.
 type credentials struct {
 	usernameHash []byte
-	passwordHash []byte
+	passwordHash []byte // bcrypt hash
 }
 
+// newCredentials bcrypt-hashes the password at the default cost. Panics if
+// bcrypt itself fails — that can only happen with an out-of-range cost, which
+// is hard-coded here, so a failure means the bcrypt implementation is broken.
 func newCredentials(username, password string) credentials {
 	uh := sha256.Sum256([]byte(username))
-	ph := sha256.Sum256([]byte(password))
-	return credentials{usernameHash: uh[:], passwordHash: ph[:]}
+	ph, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		panic(fmt.Sprintf("auth: bcrypt failed at default cost: %v", err))
+	}
+	return credentials{usernameHash: uh[:], passwordHash: ph}
 }
 
+// matches verifies (username, password) against the stored credentials. It
+// always runs the bcrypt comparison even when the username does not match so
+// the response time does not leak username existence.
 func (c credentials) matches(username, password string) bool {
 	uh := sha256.Sum256([]byte(username))
-	ph := sha256.Sum256([]byte(password))
-	return subtle.ConstantTimeCompare(c.usernameHash, uh[:]) == 1 &&
-		subtle.ConstantTimeCompare(c.passwordHash, ph[:]) == 1
+	userOK := subtle.ConstantTimeCompare(c.usernameHash, uh[:]) == 1
+	passOK := bcrypt.CompareHashAndPassword(c.passwordHash, []byte(password)) == nil
+	return userOK && passOK
 }
 
-// requireSession is middleware that redirects unauthenticated requests to /login.
+// requireSession is middleware that gates requests on a valid session.
+// HTML page requests get a 303 redirect to /login so the browser navigates
+// there directly. API requests (/api/*) get a 401 with a JSON body so the
+// SPA's fetch wrapper can detect the expiry and trigger a full-page redirect
+// — a 303→/login would otherwise be auto-followed by the browser and the JS
+// would see a successful HTML response that doesn't parse as JSON.
 func (s *Server) requireSession(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cookie, err := r.Cookie(sessionCookie)
 		if err != nil || !s.sessions.valid(cookie.Value) {
+			if strings.HasPrefix(r.URL.Path, "/api/") {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnauthorized)
+				_, _ = w.Write([]byte(`{"error":"session expired"}`))
+				return
+			}
 			http.Redirect(w, r, "/login", http.StatusSeeOther)
 			return
 		}
@@ -116,12 +143,20 @@ func (s *Server) handleLoginGet(w http.ResponseWriter, r *http.Request) {
 	writeLoginPage(w, failed)
 }
 
+// failedLoginDelay throttles brute-force attempts. Bcrypt's cost factor
+// already adds ~250 ms per attempt; this extra sleep keeps the wall-clock
+// floor consistent if a future code path skips bcrypt (e.g. a malformed body
+// that short-circuits before matches() runs).
+const failedLoginDelay = 300 * time.Millisecond
+
 func (s *Server) handleLoginPost(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
+		time.Sleep(failedLoginDelay)
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
 	if !s.creds.matches(r.FormValue("username"), r.FormValue("password")) {
+		time.Sleep(failedLoginDelay)
 		http.Redirect(w, r, "/login?failed=1", http.StatusSeeOther)
 		return
 	}
