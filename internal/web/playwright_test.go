@@ -20,6 +20,7 @@ import (
 
 	// Register plugins needed by test configs.
 	_ "github.com/brunoga/pipeliner/plugins/processor/discover"
+	_ "github.com/brunoga/pipeliner/plugins/source/bluray_releases"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/condition"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/content"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/movies"
@@ -850,7 +851,7 @@ func TestE2ESearchPluginHasViaBadge(t *testing.T) {
 	page.Locator("#ve-add-pipeline").Click()
 
 	// At least one palette chip should carry a "search" badge.
-	if err := page.Locator(".ve-chip-search-badge").WaitFor(playwright.LocatorWaitForOptions{
+	if err := page.Locator(".ve-chip-search-badge").First().WaitFor(playwright.LocatorWaitForOptions{
 		State: playwright.WaitForSelectorStateVisible,
 	}); err != nil {
 		t.Errorf("no search badge found in palette — search plugins should show one: %v", err)
@@ -2269,6 +2270,78 @@ pipeline("beta")
 	y, floor := num(m["y"]), num(m["floor"])
 	if y < floor {
 		t.Errorf("pasted node y (%v) is above the active pipeline's drag floor (%v) — would snap downward on first drag", y, floor)
+	}
+}
+
+// TestE2EBlurayPaletteChipShowsBothBadges verifies that a plugin advertising
+// both IsSearchPlugin and IsListPlugin (bluray_releases is the canonical case)
+// renders BOTH badges visibly on its palette chip — not just one. The previous
+// regression was visual rather than logical: both badges were emitted into the
+// DOM, but the chip's `overflow:hidden` clipped the trailing badge when the
+// plugin name was long enough to push it past the right edge.
+func TestE2EBlurayPaletteChipShowsBothBadges(t *testing.T) {
+	ts := startTestServer(t, minimalConfig)
+	browser, stop := pwSetup(t)
+	defer stop()
+
+	page, err := browser.NewPage()
+	if err != nil {
+		t.Fatalf("new page: %v", err)
+	}
+	defer page.Close()
+
+	login(t, page, ts.url)
+	openConfigTab(t, page)
+	switchToVisual(t, page, dagConfig)
+
+	chip := page.Locator(`#ve-palette-body .ve-chip[data-plugin="bluray_releases"]`)
+	if err := chip.WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateAttached,
+	}); err != nil {
+		paletteHTML, _ := page.Locator("#ve-palette-body").InnerHTML()
+		t.Logf("palette HTML: %s", paletteHTML)
+		t.Fatalf("bluray_releases chip not present in palette: %v", err)
+	}
+
+	// Verify both badges render inside the chip's visible (unclipped) area.
+	// IsVisible() alone returns true even if a child element is clipped by an
+	// overflow:hidden ancestor — exactly the failure mode that hid the list
+	// badge in the wild — so we compare bounding rects instead.
+	rect, err := chip.Evaluate(`el => {
+		const c = el.getBoundingClientRect();
+		const s = el.querySelector('.ve-chip-search-badge')?.getBoundingClientRect();
+		const l = el.querySelector('.ve-chip-list-badge')?.getBoundingClientRect();
+		return {
+			chipRight: c.right,
+			searchRight: s ? s.right : null,
+			listRight: l ? l.right : null,
+		};
+	}`, nil)
+	if err != nil {
+		t.Fatalf("read bounding rects: %v", err)
+	}
+	m, _ := rect.(map[string]any)
+	getNum := func(v any) (float64, bool) {
+		switch x := v.(type) {
+		case float64:
+			return x, true
+		case int:
+			return float64(x), true
+		}
+		return 0, false
+	}
+	chipRight, _ := getNum(m["chipRight"])
+	searchRight, sok := getNum(m["searchRight"])
+	listRight, lok := getNum(m["listRight"])
+	if !sok {
+		t.Error("search badge not present in DOM")
+	} else if searchRight > chipRight+0.5 {
+		t.Errorf("search badge clipped: searchRight=%.1f > chipRight=%.1f", searchRight, chipRight)
+	}
+	if !lok {
+		t.Error("list badge not present in DOM")
+	} else if listRight > chipRight+0.5 {
+		t.Errorf("list badge clipped by chip overflow: listRight=%.1f > chipRight=%.1f (this is the bug — the list badge is rendered but visually hidden)", listRight, chipRight)
 	}
 }
 

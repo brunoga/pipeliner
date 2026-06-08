@@ -347,7 +347,11 @@ function renderPalette(filter) {
       chipHtml.push(`<div class="ve-role-header" data-role="${role}">${ROLE_LABEL[role]}</div>`);
       chipHtml.push(`<div class="ve-role-chips" id="ve-role-${role}">`);
       for (const p of group) {
-        chipHtml.push(`<button class="ve-chip" data-role="${role}" disabled data-tip="${esc(p.description)}">${esc(p.name)}</button>`);
+        // Capability badges are informational — render them even on the
+        // disabled palette so users can see which plugins offer search/list.
+        const capBadges = (p.is_search_plugin ? '<span class="ve-chip-search-badge">search</span>' : '')
+                        + (p.is_list_plugin   ? '<span class="ve-chip-list-badge">list</span>'     : '');
+        chipHtml.push(`<button class="ve-chip" data-role="${role}" disabled data-plugin="${esc(p.name)}" data-tip="${esc(p.description)}">${esc(p.name)}${capBadges}</button>`);
       }
       chipHtml.push('</div>');
     }

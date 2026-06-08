@@ -741,7 +741,7 @@ body.dark {
 
 .ve-layout {
   display:grid;
-  grid-template-columns:200px 1fr;
+  grid-template-columns:220px 1fr;
   gap:12px;
   /* height is set dynamically by fitVisualEditor(). */
   min-height:400px;
@@ -1361,7 +1361,7 @@ body.dark {
 
 /* Palette list-plugin chip badge */
 .ve-chip-list-badge {
-  display:inline-block; margin-left:5px; padding:1px 4px;
+  display:inline-block; padding:1px 3px;
   font-size:8px; font-weight:700; text-transform:uppercase; letter-spacing:.04em;
   border-radius:3px; border:1px solid color-mix(in srgb, var(--ve-list) 50%, transparent);
   background:color-mix(in srgb, var(--ve-list) 15%, transparent); color:var(--ve-list-lit);
@@ -1674,7 +1674,7 @@ body.dark {
 /* Search-plugin chips */
 .ve-chip.ve-chip-search:hover { border-color:var(--ve-search-lit); color:var(--ve-search-lit); }
 .ve-chip-search-badge {
-  display:inline-block; margin-left:5px; padding:1px 4px;
+  display:inline-block; padding:1px 3px;
   font-size:8px; font-weight:700; text-transform:uppercase; letter-spacing:.04em;
   border-radius:3px; border:1px solid color-mix(in srgb, var(--ve-search) 50%, transparent);
   background:color-mix(in srgb, var(--ve-search) 15%, transparent); color:var(--ve-search-lit);
@@ -2768,8 +2768,8 @@ details[open] > .ve-fields-summary::after { content:'▴'; }
 
 /* Search badge in palette chips: refined */
 .ve-chip-search-badge {
-  font-size:8px; font-weight:800; letter-spacing:.08em;
-  padding:1px 4px; border-radius:2px; margin-left:5px;
+  font-size:8px; font-weight:700; letter-spacing:.04em;
+  padding:1px 3px; border-radius:3px;
   background:color-mix(in srgb, var(--ve-search) 18%, transparent);
   color:var(--ve-search-lit);
   border:1px solid color-mix(in srgb, var(--ve-search) 35%, transparent);
@@ -2886,37 +2886,17 @@ details[open] > .ve-fields-summary::after { content:'▴'; }
   padding:8px 6px 4px;
 }
 
-/* ── Palette chips: flex layout + persistent role-color dot via ::before ──
-   Dot is always visible at 50% opacity; brightens to full on hover.
-   Role is readable instantly — no hovering required. ── */
+/* ── Palette chips: flex layout, tight horizontal padding.
+   The role-color dot that used to lead each chip has been removed: the
+   section header above each group already labels role, and reclaiming
+   that ~11px lets long plugin names ("bluray_releases") + two capability
+   badges fit without overflow-clipping the trailing badge. ── */
 .ve-chip {
-  display:flex; align-items:center; gap:6px;
-  padding:4px 8px;
+  display:flex; align-items:center; gap:4px;
+  padding:4px 6px;
 }
-.ve-chip::before {
-  content:'';
-  display:inline-block; flex-shrink:0;
-  width:5px; height:5px; border-radius:50%;
-  background:var(--muted);
-  opacity:.35;
-  transition:background .12s, opacity .12s;
-}
-.ve-chip[data-role="source"]::before    { background:var(--green);     opacity:.5; }
-.ve-chip[data-role="processor"]::before { background:var(--accent);    opacity:.5; }
-.ve-chip[data-role="sink"]::before      { background:var(--ve-output); opacity:.5; }
-
-/* Brighten dot on hover */
-.ve-chip:hover::before                        { opacity:1; }
-.ve-chip[data-role="source"]:hover::before    { background:var(--green);         opacity:1; }
-.ve-chip[data-role="processor"]:hover::before { background:var(--accent);        opacity:1; }
-.ve-chip[data-role="sink"]:hover::before      { background:var(--ve-output);     opacity:1; }
-.ve-chip.ve-chip-search:hover::before         { background:var(--ve-search-lit); opacity:1; }
-.ve-chip.ve-chip-list:hover::before           { background:var(--ve-list-lit);   opacity:1; }
-
-/* fn chips: dot color matches the wrapped role */
-.ve-chip-fn-wrap[data-role="source"]    .ve-chip.ve-chip-fn::before { background:var(--green);     opacity:.5; }
-.ve-chip-fn-wrap[data-role="processor"] .ve-chip.ve-chip-fn::before { background:var(--accent);    opacity:.5; }
-.ve-chip-fn-wrap[data-role="sink"]      .ve-chip.ve-chip-fn::before { background:var(--ve-output); opacity:.5; }
+/* Capability badges never shrink — they must stay fully visible. */
+.ve-chip-search-badge, .ve-chip-list-badge { flex-shrink:0; }
 
 /* fn chip row: always-on faint role-accent left border */
 .ve-chip-fn-wrap[data-role="source"]    .ve-chip.ve-chip-fn { border-left-width:2px; border-left-color:color-mix(in srgb, var(--green)     25%, transparent); }
