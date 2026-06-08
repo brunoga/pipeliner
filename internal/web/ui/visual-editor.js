@@ -1327,6 +1327,19 @@ function setZoom(z) {
   applyZoom();
 }
 
+// zoomAt changes the zoom level while keeping the world point currently at
+// viewport coordinates (cx, cy) fixed under that point. Used by wheel zoom
+// (cursor) and the +/- buttons (viewport center).
+function zoomAt(z, cx, cy) {
+  const newZoom = Math.max(0.2, Math.min(3.0, z));
+  if (newZoom === ve_zoom) return;
+  const r = newZoom / ve_zoom;
+  ve_panX = cx - (cx - ve_panX) * r;
+  ve_panY = cy - (cy - ve_panY) * r;
+  ve_zoom = newZoom;
+  applyZoom();
+}
+
 // ── layout ─────────────────────────────────────────────────────────────────────
 
 // layoutGraph auto-lays out a single pipeline starting at globalY.
@@ -1901,9 +1914,15 @@ function initCanvasEvents() {
   }
 
   // Wheel to zoom (Ctrl+wheel also works for trackpad pinch-to-zoom).
-  canvas.addEventListener('wheel', e => {
+  // Anchored on the cursor so the world point under the pointer stays put
+  // across the zoom — mirrors the pinch-zoom math below. Listener is on the
+  // viewport body (not the inner canvas) so wheel works over empty space too.
+  const wheelTarget = document.getElementById('ve-canvas-body') || canvas;
+  wheelTarget.addEventListener('wheel', e => {
     e.preventDefault();
-    setZoom(ve_zoom * (e.deltaY < 0 ? 1.1 : 1 / 1.1));
+    const br = wheelTarget.getBoundingClientRect();
+    zoomAt(ve_zoom * (e.deltaY < 0 ? 1.1 : 1 / 1.1),
+           e.clientX - br.left, e.clientY - br.top);
   }, {passive: false});
 
   // Middle-mouse drag to pan (unlimited, no scrollbars).
@@ -2580,11 +2599,20 @@ function _beginPaletteDrag(downEv, chip) {
 
 // ── zoom buttons (called from HTML) ───────────────────────────────────────────
 
-function zoomIn()    { setZoom(ve_zoom * 1.25); }
-function zoomOut()   { setZoom(ve_zoom / 1.25); }
+// zoomFromButton anchors zoom on the viewport center so clicking +/- doesn't
+// drift content toward the top-left.
+function zoomFromButton(factor) {
+  const body = document.getElementById('ve-canvas-body');
+  if (!body) { setZoom(ve_zoom * factor); return; }
+  zoomAt(ve_zoom * factor, body.clientWidth / 2, body.clientHeight / 2);
+}
+function zoomIn()  { zoomFromButton(1.25); }
+function zoomOut() { zoomFromButton(1 / 1.25); }
 
 // zoomToFitHorizontal sets the zoom so that all pipeline nodes fit within
 // the canvas viewport width. Only zooms out (never zooms in beyond 100%).
+// Resets horizontal pan so prior panning can't leave content cut off; keeps
+// vertical pan so the user's current vertical scroll position is preserved.
 function zoomToFitHorizontal() {
   const body = document.getElementById('ve-canvas-body');
   if (!body || !body.clientWidth) return;
@@ -2599,9 +2627,15 @@ function zoomToFitHorizontal() {
   if (maxX <= 0) return;
   const targetZoom = (body.clientWidth - 40) / maxX; // 40px right margin
   ve_zoom = Math.max(0.2, Math.min(1.0, targetZoom));
+  ve_panX = 0;
   applyZoom();
 }
-function zoomReset() { setZoom(1.0); }
+// zoomReset returns to the default view: 100% zoom with pan cleared.
+function zoomReset() {
+  ve_panX = 0;
+  ve_panY = 0;
+  setZoom(1.0);
+}
 
 // ── param panel ───────────────────────────────────────────────────────────────
 

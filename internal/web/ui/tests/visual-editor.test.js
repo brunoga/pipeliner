@@ -12,6 +12,7 @@ const __dir = dirname(fileURLToPath(import.meta.url));
 const src = readFileSync(join(__dir, '..', 'visual-editor.js'), 'utf8');
 
 let docQueries;
+let docElementsMock; // id → element-like mock; tests populate per-case
 let starLit, valToStar, configToKwargs, upstreamsStr, dagToStarlark, viaNodeToStar,
     nodesToFunctionSource, performExtraction, addNodeFromPalette, extractFunctionSource,
     parseFunctionComment, nodeTooltipText, edgePath, configPreview, syncRoutePorts,
@@ -19,7 +20,9 @@ let starLit, valToStar, configToKwargs, upstreamsStr, dagToStarlark, viaNodeToSt
     _builderGetExpr, _builderSetExpr, renderRouteRulesWidget, renderRouteRuleRow,
     toggleRouteRawMode, _forcedRaw, exprToFlatModel,
     pushUndo, undo, initLayout, marqueeSelect, initLayoutFromAbsolute,
-    parseFunctionBodyNodes, fnRegenerateSourceForMigration;
+    parseFunctionBodyNodes, fnRegenerateSourceForMigration,
+    zoomAt, zoomIn, zoomOut, zoomReset, zoomToFitHorizontal,
+    _getZoomState, _setZoomState, NODE_W_VAL;
 
 // Minimal HTML-escape helper matching dashboard.js's esc() — needed so render
 // functions (which call esc as a global) work in the test sandbox.
@@ -64,6 +67,14 @@ exports.marqueeSelect                 = marqueeSelect;
 exports.initLayoutFromAbsolute        = initLayoutFromAbsolute;
 exports.parseFunctionBodyNodes        = parseFunctionBodyNodes;
 exports.fnRegenerateSourceForMigration = fnRegenerateSourceForMigration;
+exports.zoomAt                        = zoomAt;
+exports.zoomIn                        = zoomIn;
+exports.zoomOut                       = zoomOut;
+exports.zoomReset                     = zoomReset;
+exports.zoomToFitHorizontal           = zoomToFitHorizontal;
+exports._getZoomState                 = () => ({ zoom: ve_zoom, panX: ve_panX, panY: ve_panY });
+exports._setZoomState                 = (z, px, py) => { ve_zoom = z; ve_panX = px; ve_panY = py; };
+exports.NODE_W_VAL                    = NODE_W;
 `
   );
   const exports = {};
@@ -74,10 +85,12 @@ exports.fnRegenerateSourceForMigration = fnRegenerateSourceForMigration;
   // (preserves the existing no-op behaviour for `?.classList.x()` callers) but
   // records its selector so tests can observe which elements were queried.
   docQueries = [];
+  docElementsMock = {};
   const noopDoc = new Proxy({}, {
     get: (_, prop) => {
       if (prop === 'querySelectorAll') return () => [];
       if (prop === 'querySelector')    return sel => { docQueries.push(sel); return null; };
+      if (prop === 'getElementById')   return id => docElementsMock[id] ?? null;
       return () => null;
     },
   });
@@ -89,7 +102,9 @@ exports.fnRegenerateSourceForMigration = fnRegenerateSourceForMigration;
      _builderGetExpr, _builderSetExpr, renderRouteRulesWidget, renderRouteRuleRow,
      toggleRouteRawMode, _forcedRaw, exprToFlatModel,
      pushUndo, undo, initLayout, marqueeSelect, initLayoutFromAbsolute,
-     parseFunctionBodyNodes, fnRegenerateSourceForMigration } = exports);
+     parseFunctionBodyNodes, fnRegenerateSourceForMigration,
+     zoomAt, zoomIn, zoomOut, zoomReset, zoomToFitHorizontal,
+     _getZoomState, _setZoomState, NODE_W_VAL } = exports);
 });
 
 // ── test helpers ──────────────────────────────────────────────────────────────
@@ -2164,5 +2179,185 @@ def f(upstream):
     const out = fnRegenerateSourceForMigration('f');
     expect(out).not.toBeNull();
     expect(out).toMatch(/^# Movies pipeline helper\ndef f\(upstream\):/);
+  });
+});
+
+// ── zoom anchoring ────────────────────────────────────────────────────────────
+//
+// The visual editor zooms anchored on a viewport point: the world point at
+// (cx, cy) before the zoom must stay at (cx, cy) after the zoom. Wheel uses
+// the cursor; +/- buttons use the viewport center. zoomReset/zoomToFitHorizontal
+// additionally clear pan so prior panning can't leave content offscreen.
+
+describe('zoomAt', () => {
+  beforeEach(() => {
+    _setZoomState(1.0, 0, 0);
+    docElementsMock = {};
+  });
+
+  it('keeps the world point under the anchor fixed', () => {
+    // Start at zoom=1, pan=0,0 — anchor (300, 200) maps to world (300, 200).
+    _setZoomState(1.0, 0, 0);
+    zoomAt(2.0, 300, 200);
+    const s = _getZoomState();
+    expect(s.zoom).toBe(2.0);
+    // world point under (300, 200) after zoom must still be (300, 200):
+    //   worldX = (cx - panX) / zoom  →  (300 - panX) / 2 = 300  →  panX = -300
+    expect(s.panX).toBe(-300);
+    expect(s.panY).toBe(-200);
+  });
+
+  it('preserves the anchor across a zoom-out', () => {
+    _setZoomState(2.0, -300, -200); // state from the zoom-in test above
+    zoomAt(1.0, 300, 200);
+    const s = _getZoomState();
+    expect(s.zoom).toBe(1.0);
+    expect(s.panX).toBe(0);
+    expect(s.panY).toBe(0);
+  });
+
+  it('honours a non-zero starting pan', () => {
+    _setZoomState(1.0, 50, 30);
+    zoomAt(2.0, 300, 200);
+    const s = _getZoomState();
+    // (cx - panX_old)/zoom_old = (cx - panX_new)/zoom_new
+    // (300 - 50)/1 = (300 - panX_new)/2  →  panX_new = 300 - 500 = -200
+    expect(s.panX).toBe(-200);
+    expect(s.panY).toBe(200 - (200 - 30) * 2);
+  });
+
+  it('clamps to min zoom (0.2) and is a no-op at the boundary', () => {
+    _setZoomState(0.2, 100, 100);
+    zoomAt(0.1, 0, 0);
+    const s = _getZoomState();
+    expect(s.zoom).toBe(0.2);
+    // No change → pan must not have drifted.
+    expect(s.panX).toBe(100);
+    expect(s.panY).toBe(100);
+  });
+
+  it('clamps to max zoom (3.0) and is a no-op at the boundary', () => {
+    _setZoomState(3.0, 0, 0);
+    zoomAt(5.0, 200, 200);
+    const s = _getZoomState();
+    expect(s.zoom).toBe(3.0);
+    expect(s.panX).toBe(0);
+    expect(s.panY).toBe(0);
+  });
+});
+
+describe('zoomIn / zoomOut buttons', () => {
+  beforeEach(() => {
+    _setZoomState(1.0, 0, 0);
+    docElementsMock = {
+      've-canvas-body': { clientWidth: 800, clientHeight: 600 },
+    };
+  });
+
+  it('zoomIn anchors on the viewport center', () => {
+    zoomIn();
+    const s = _getZoomState();
+    // factor 1.25, center (400, 300):
+    //   panX = 400 - (400 - 0) * 1.25 = -100
+    expect(s.zoom).toBe(1.25);
+    expect(s.panX).toBe(-100);
+    expect(s.panY).toBe(-75);
+  });
+
+  it('zoomOut is the inverse of zoomIn when applied immediately', () => {
+    zoomIn();
+    zoomOut();
+    const s = _getZoomState();
+    // 1.0 * 1.25 / 1.25 = 1.0; pan should return to 0,0.
+    expect(s.zoom).toBeCloseTo(1.0, 10);
+    expect(s.panX).toBeCloseTo(0, 10);
+    expect(s.panY).toBeCloseTo(0, 10);
+  });
+
+  it('falls back to plain setZoom when the body element is missing', () => {
+    docElementsMock = {}; // no ve-canvas-body
+    _setZoomState(1.0, 50, 50);
+    zoomIn();
+    const s = _getZoomState();
+    expect(s.zoom).toBe(1.25);
+    // No body → no pan adjustment.
+    expect(s.panX).toBe(50);
+    expect(s.panY).toBe(50);
+  });
+});
+
+describe('zoomReset', () => {
+  beforeEach(() => {
+    docElementsMock = {};
+  });
+
+  it('clears pan and returns zoom to 100%', () => {
+    _setZoomState(2.5, -400, -300);
+    zoomReset();
+    const s = _getZoomState();
+    expect(s.zoom).toBe(1.0);
+    expect(s.panX).toBe(0);
+    expect(s.panY).toBe(0);
+  });
+});
+
+describe('zoomToFitHorizontal', () => {
+  beforeEach(() => {
+    _setZoomState(1.0, 0, 0);
+    ve.graphs       = [];
+    ve.activeGraph  = 0;
+    docElementsMock = {
+      've-canvas-body': { clientWidth: 800, clientHeight: 600 },
+    };
+  });
+
+  it('zooms out to fit the widest node and clears horizontal pan', () => {
+    // Single node at x=1000 — rightmost edge is 1000 + NODE_W (200) = 1200.
+    // Target zoom = (800 - 40) / 1200 ≈ 0.633.
+    ve.graphs = [{
+      name: 'p', schedule: '', comment: '',
+      nodes: [{ id: 'n1', name: 'rss', role: 'source', x: 1000, y: 0, config: {} }],
+    }];
+    _setZoomState(1.0, 500, 200); // panned right and down before clicking fit
+    zoomToFitHorizontal();
+    const s = _getZoomState();
+    expect(s.zoom).toBeCloseTo(760 / 1200, 5);
+    expect(s.panX).toBe(0);       // horizontal pan cleared
+    expect(s.panY).toBe(200);     // vertical pan preserved
+  });
+
+  it('does not zoom in past 100% even if the content is narrow', () => {
+    ve.graphs = [{
+      name: 'p', schedule: '', comment: '',
+      nodes: [{ id: 'n1', name: 'rss', role: 'source', x: 0, y: 0, config: {} }],
+    }];
+    zoomToFitHorizontal();
+    expect(_getZoomState().zoom).toBe(1.0);
+  });
+
+  it('is a no-op when no pipeline nodes exist', () => {
+    ve.graphs = [{ name: 'p', schedule: '', comment: '', nodes: [] }];
+    _setZoomState(1.5, 100, 50);
+    zoomToFitHorizontal();
+    const s = _getZoomState();
+    expect(s.zoom).toBe(1.5);
+    expect(s.panX).toBe(100);
+    expect(s.panY).toBe(50);
+  });
+
+  it('ignores search/list helper nodes when computing fit width', () => {
+    ve.graphs = [{
+      name: 'p', schedule: '', comment: '',
+      nodes: [
+        { id: 'n1', name: 'rss',    role: 'source', x: 0,    y: 0, config: {} },
+        // A list helper at x=5000 must not pull the fit width out to the right.
+        { id: 'n2', name: 'static', role: 'source', x: 5000, y: 0, config: {},
+          isListNode: true },
+      ],
+    }];
+    zoomToFitHorizontal();
+    // Without the list node, maxX = 0 + NODE_W (200), and 760/200 > 1, so we
+    // clamp to 1.0.
+    expect(_getZoomState().zoom).toBe(1.0);
   });
 });
