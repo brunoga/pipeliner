@@ -996,6 +996,25 @@ cal = input("bluray_releases", months=2, country="us")
 output("print", upstream=cal)
 pipeline("bluray-warmer", schedule="168h")</code></pre>
 
+<h4>As a <code>movies.list</code> source (the firehose)</h4>
+<p><code>bluray_releases</code> is the only stock list source that isn't user-curated. <code>trakt_list</code> reads a Trakt list you maintain; a literal <code>["Inception", …]</code> is hand-picked. <code>bluray_releases.list</code> is <strong>every release in the configured window</strong> — typically 100+ titles per month. Treating it as a list source means "accept anything Blu-ray.com is publishing this window," and that intent should be deliberate.</p>
+
+<p>The canonical use case is restricting an upstream torrent feed to titles about to hit disc — using the Blu-ray.com calendar as a curation proxy:</p>
+
+<pre><code><span class="y-comment"># From an RSS torrent feed, keep only entries matching titles releasing</span>
+<span class="y-comment"># on Blu-ray (BD or UHD) in the next month.</span>
+feed   = input("rss",             url="https://example.com/movies.rss")
+meta   = process("metainfo_file", upstream=feed)
+req    = process("require",       upstream=meta,
+                 fields=["title", "video_year", "_quality"])
+q      = process("quality",       upstream=req, spec="1080p+")
+movies = process("movies",        upstream=q,
+                 list=[{"name": "bluray_releases", "months": 1, "formats": ["BD", "UHD"]}])
+output("transmission", upstream=movies, host="localhost")
+pipeline("upcoming-blurays", schedule="2h")</code></pre>
+
+<p>The list scope is whatever <code>bluray_releases</code> would emit on its own — same <code>country</code>, <code>months</code>, <code>formats</code>, and explicit <code>from_year</code>/<code>to_year</code> knobs. If you find yourself stacking many downstream <code>condition</code> rules to suppress noise from the calendar, the firehose model isn't right for the use case — switch to <code>trakt_list</code> or a literal title array so the list reflects intent, not a calendar.</p>
+
 <h4>3D-only mode: auto-routes to a smaller, server-filtered page</h4>
 <p>When <code>formats=["BD3D"]</code> is the only requested format, <code>Generate()</code> automatically hits <code>/3d/releasedates.php</code> instead of <code>/movies/releasedates.php</code>. The 3D-specific calendar is the same JS-array shape (so the parser is unchanged) but contains only BD3D rows server-side. A typical recent month has 100+ rows on the generic calendar but 0-3 BD3D rows; the auto-route avoids paying for the discarded majority. Switching back to the generic calendar happens transparently when any non-BD3D format is in the set (including the default).</p>
 

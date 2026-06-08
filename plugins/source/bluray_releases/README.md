@@ -68,6 +68,28 @@ output("print", upstream=disc)
 pipeline("discover-bluray", schedule="6h")
 ```
 
+### As a `movies.list` source (the firehose)
+
+`bluray_releases` is the only stock list source that isn't user-curated. `trakt_list` reads a Trakt list you maintain; a literal `["Inception", …]` is a hand-picked array. `bluray_releases.list` is **every release in the configured window** — typically 100+ titles per month. Treating it as a list source means "accept anything Blu-ray.com is publishing this window," and that intent should be deliberate.
+
+The canonical use case is restricting an upstream torrent feed to titles that are about to hit disc — i.e. filter a noisy public feed down to releases the user actually cares about by piggybacking on the Blu-ray.com calendar as a curation proxy:
+
+```python
+# "From this RSS torrent feed, keep only entries matching titles releasing
+# on Blu-ray (BD or UHD) in the next month."
+feed   = input("rss",             url="https://example.com/movies.rss")
+meta   = process("metainfo_file", upstream=feed)
+req    = process("require",       upstream=meta,
+                 fields=["title", "video_year", "_quality"])
+q      = process("quality",       upstream=req, spec="1080p+")
+movies = process("movies",        upstream=q,
+                 list=[{"name": "bluray_releases", "months": 1, "formats": ["BD", "UHD"]}])
+output("transmission", upstream=movies, host="localhost")
+pipeline("upcoming-blurays", schedule="2h")
+```
+
+The list scope is whatever `bluray_releases` would emit on its own — same `country`, `months`, `formats`, `from_year`/`from_month`/`to_year`/`to_month` knobs. Narrow it with `formats=["UHD"]` for 4K-only, widen the window with `months=3` for a longer release-window catch, etc. If you find yourself stacking many downstream `condition` rules to suppress noise from the calendar, that's a sign the firehose model isn't right for the use case — switch to `trakt_list` or a literal `["Title A", "Title B"]` so the list reflects intent, not a calendar.
+
 ### Index warmer + downstream consumer
 
 ```python
