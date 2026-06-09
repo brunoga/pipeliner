@@ -310,13 +310,14 @@ func cmdDaemon(args []string) int {
 	var logger *slog.Logger
 	if *webAddr != "" {
 		bcast = web.NewBroadcaster()
-		// Write to stderr (so startup errors are visible on the terminal
-		// before any web client connects), the broadcaster (SSE live tail),
-		// and the rotating log file (scrollback + survives restart). The
-		// file gets plain (uncolored) text so cat/less/grep stay readable.
+		// The Broadcaster feeds the SSE live tail off the file writer
+		// so every broadcast event carries the stable on-disk cursor
+		// for the corresponding line. Stderr gets a colored stream
+		// for terminal output; the web UI colorizes plain text in JS.
+		logFile.OnLine = bcast.Publish
+		logFile.OnRotate = bcast.NotifyRotate
 		h := clog.Multi(
 			clog.New(os.Stderr, opts),
-			clog.NewColored(bcast, opts),
 			clog.New(logFile, opts),
 		)
 		if *logPlugin != "" {

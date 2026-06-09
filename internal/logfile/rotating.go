@@ -7,6 +7,7 @@
 package logfile
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -21,10 +22,21 @@ import (
 // tests). MaxArchives = 0 rotates by truncating the base file (no history
 // kept). The file is created lazily on the first Write so callers can
 // construct a Writer without touching disk.
+//
+// OnLine, if set, is invoked once per '\n'-terminated record after a
+// successful Write, with the line text (sans trailing '\n') and the byte
+// offset of the first byte AFTER that '\n' in the active base file.
+// OnRotate, if set, is invoked after the base file has been renamed to
+// .1 and before the next write opens a fresh base. Both fire while the
+// writer's lock is held, so callbacks MUST NOT call back into the writer
+// (Write, Close, etc.) — they should hand off work to a goroutine.
 type Writer struct {
 	Path        string
 	MaxBytes    int64
 	MaxArchives int
+
+	OnLine   func(text string, byteEnd int64)
+	OnRotate func()
 
 	mu sync.Mutex
 	f  *os.File
@@ -48,10 +60,35 @@ func (w *Writer) Write(p []byte) (int, error) {
 		if err := w.rotateLocked(); err != nil {
 			return 0, err
 		}
+		if w.OnRotate != nil {
+			w.OnRotate()
+		}
 	}
 	n, err := w.f.Write(p)
+	startOffset := w.n
 	w.n += int64(n)
+	if w.OnLine != nil && n > 0 {
+		emitLines(p[:n], startOffset, w.OnLine)
+	}
 	return n, err
+}
+
+// emitLines invokes cb for every '\n'-terminated record in buf. A
+// trailing partial record (no '\n') is ignored — slog handlers always
+// terminate with '\n', so this only loses data on caller misuse.
+func emitLines(buf []byte, startOffset int64, cb func(text string, byteEnd int64)) {
+	pos := startOffset
+	for len(buf) > 0 {
+		nl := bytes.IndexByte(buf, '\n')
+		if nl < 0 {
+			return
+		}
+		line := string(buf[:nl])
+		end := pos + int64(nl) + 1
+		cb(line, end)
+		buf = buf[nl+1:]
+		pos = end
+	}
 }
 
 // Close flushes and releases the active file. Subsequent Writes will

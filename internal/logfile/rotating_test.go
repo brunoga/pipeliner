@@ -3,6 +3,7 @@ package logfile
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -159,4 +160,99 @@ func TestConcurrentWrites(t *testing.T) {
 			break
 		}
 	}
+}
+
+// TestOnLineHookFiresOnceWithCumulativeOffset: a single Write of one
+// line invokes OnLine once with the byte offset of the byte after the
+// line's trailing '\n'.
+func TestOnLineHookFiresOnceWithCumulativeOffset(t *testing.T) {
+	dir := t.TempDir()
+	w := &Writer{Path: filepath.Join(dir, "pipeliner.log"), MaxBytes: 1 << 20}
+	defer w.Close()
+
+	type ev struct {
+		text string
+		end  int64
+	}
+	var got []ev
+	w.OnLine = func(text string, end int64) { got = append(got, ev{text, end}) }
+
+	if _, err := w.Write([]byte("first\n")); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if _, err := w.Write([]byte("second\n")); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	want := []ev{
+		{"first", 6},
+		{"second", 13},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %d events, want %d (%v)", len(got), len(want), got)
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			t.Errorf("event[%d] = %v, want %v", i, got[i], want[i])
+		}
+	}
+}
+
+// TestOnLineHookSplitsMultiLineWrite: a single Write containing several
+// '\n'-terminated records fires OnLine once per record with monotonically
+// growing offsets.
+func TestOnLineHookSplitsMultiLineWrite(t *testing.T) {
+	dir := t.TempDir()
+	w := &Writer{Path: filepath.Join(dir, "pipeliner.log"), MaxBytes: 1 << 20}
+	defer w.Close()
+
+	var lines []string
+	var offsets []int64
+	w.OnLine = func(text string, end int64) {
+		lines = append(lines, text)
+		offsets = append(offsets, end)
+	}
+	if _, err := w.Write([]byte("a\nbb\nccc\n")); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if wantLines := []string{"a", "bb", "ccc"}; !reflect.DeepEqual(lines, wantLines) {
+		t.Errorf("lines = %v, want %v", lines, wantLines)
+	}
+	if wantOffsets := []int64{2, 5, 9}; !reflect.DeepEqual(offsets, wantOffsets) {
+		t.Errorf("offsets = %v, want %v", offsets, wantOffsets)
+	}
+}
+
+// TestOnRotateFires: a rotation triggers OnRotate, then OnLine fires
+// for the new line with an offset relative to the FRESH base file (not
+// the cumulative pre-rotation total).
+func TestOnRotateFires(t *testing.T) {
+	dir := t.TempDir()
+	w := &Writer{Path: filepath.Join(dir, "pipeliner.log"), MaxBytes: 10, MaxArchives: 1}
+	defer w.Close()
+
+	var rotated int
+	var lines []string
+	var offsets []int64
+	w.OnRotate = func() { rotated++ }
+	w.OnLine = func(text string, end int64) {
+		lines = append(lines, text)
+		offsets = append(offsets, end)
+	}
+	// First write: 8 bytes, no rotation. Second write: would push to 16,
+	// triggers rotation, lands in fresh base at offset 8.
+	if _, err := w.Write([]byte("foofoo\n")); err != nil {
+		t.Fatalf("write1: %v", err)
+	}
+	if _, err := w.Write([]byte("barbar\n")); err != nil {
+		t.Fatalf("write2: %v", err)
+	}
+	if rotated != 1 {
+		t.Errorf("rotated = %d, want 1", rotated)
+	}
+	// First line in old file at offset 7; second line in new file at
+	// offset 7 (fresh base file resets the counter).
+	if len(offsets) != 2 || offsets[0] != 7 || offsets[1] != 7 {
+		t.Errorf("offsets = %v, want [7 7] (per-file)", offsets)
+	}
+	_ = lines
 }

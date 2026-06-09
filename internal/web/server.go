@@ -2,12 +2,10 @@
 package web
 
 import (
-	"bufio"
 	"context"
 	"crypto/tls"
 	"embed"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io/fs"
 	"net/http"
@@ -75,19 +73,13 @@ type Server struct {
 }
 
 // TaskStarted records that a task has begun executing.
-// When the first task of a new batch starts (idle → running), the log
-// buffer is cleared so clients see only the current run's output.
 func (s *Server) TaskStarted(name string) {
 	s.runMu.Lock()
 	if s.running == nil {
 		s.running = make(map[string]int)
 	}
-	wasIdle := len(s.running) == 0
 	s.running[name]++
 	s.runMu.Unlock()
-	if wasIdle && s.bcast != nil {
-		s.bcast.Reset()
-	}
 }
 
 // TaskDone records that a task execution has finished.
@@ -194,7 +186,9 @@ func (s *Server) Start(ctx context.Context, addr string, tlsCfg *tls.Config) err
 	protected.HandleFunc("POST /api/tasks/run", s.apiRunAll)
 	protected.HandleFunc("POST /api/reload", s.apiReload)
 	protected.HandleFunc("GET /api/logs", s.apiLogs)
-	protected.HandleFunc("GET /api/logs/history", s.apiLogsHistory)
+	protected.HandleFunc("GET /api/logs/tail", s.apiLogsTail)
+	protected.HandleFunc("GET /api/logs/before", s.apiLogsBefore)
+	protected.HandleFunc("GET /api/logs/after", s.apiLogsAfter)
 	protected.HandleFunc("GET /api/config", s.apiGetConfig)
 	protected.HandleFunc("POST /api/config", s.apiSaveConfig)
 	protected.HandleFunc("GET /api/plugins", s.apiPlugins)
@@ -415,6 +409,13 @@ func (s *Server) apiTrigger(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusAccepted)
 }
 
+// apiLogs streams live log lines as Server-Sent Events. Each event is a
+// JSON object {"pos":"fileIdx:byteEnd","text":"..."} with the event id
+// set to the broadcaster's monotonic Seq so Last-Event-ID can resume
+// short disconnections. A rotation triggers a synthetic event with
+// {"rotate":true} so the client can refresh its in-memory cursors.
+// The optional ?q= query filters the stream server-side using
+// case-insensitive substring AND semantics.
 func (s *Server) apiLogs(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -426,33 +427,48 @@ func (s *Server) apiLogs(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 
-	// Parse Last-Event-ID so reconnecting clients only receive lines they
-	// have not seen yet, preventing the buffer from being replayed on reconnect.
+	filter := ParseFilter(r.URL.Query().Get("q"))
+
 	var afterSeq int64
-	if s := r.Header.Get("Last-Event-ID"); s != "" {
-		fmt.Sscanf(s, "%d", &afterSeq) //nolint:errcheck
+	if h := r.Header.Get("Last-Event-ID"); h != "" {
+		fmt.Sscanf(h, "%d", &afterSeq) //nolint:errcheck
 	}
 
-	snap, ch := s.bcast.Subscribe(afterSeq)
+	snap, ch, _ := s.bcast.Subscribe(afterSeq)
 	defer s.bcast.Unsubscribe(ch)
 
-	for _, ll := range snap {
-		escaped := strings.ReplaceAll(ll.text, "\n", "\ndata: ")
-		fmt.Fprintf(w, "id: %d\ndata: %s\n\n", ll.seq, escaped)
+	writeEvent := func(ev LogEvent) {
+		if ev.Pos.FileIdx < 0 {
+			fmt.Fprintf(w, "event: rotate\ndata: {\"rotate\":true}\n\n")
+			return
+		}
+		if !filter.match(ev.Text) {
+			return
+		}
+		payload, err := json.Marshal(map[string]any{
+			"pos":  ev.Pos.String(),
+			"text": ev.Text,
+		})
+		if err != nil {
+			return
+		}
+		fmt.Fprintf(w, "id: %d\ndata: %s\n\n", ev.Seq, payload)
+	}
+
+	for _, ev := range snap {
+		writeEvent(ev)
 	}
 	fmt.Fprint(w, ": connected\n\n")
 	flusher.Flush()
 
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
-
 	for {
 		select {
 		case <-r.Context().Done():
 			return
-		case ll := <-ch:
-			escaped := strings.ReplaceAll(ll.text, "\n", "\ndata: ")
-			fmt.Fprintf(w, "id: %d\ndata: %s\n\n", ll.seq, escaped)
+		case ev := <-ch:
+			writeEvent(ev)
 			flusher.Flush()
 		case <-ticker.C:
 			fmt.Fprint(w, ": heartbeat\n\n")
@@ -461,30 +477,24 @@ func (s *Server) apiLogs(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// apiLogsHistory serves older lines from the rotating log file so the
-// dashboard can lazy-load scrollback when the user scrolls past the in-
-// memory tail. The response is the slice [offset, offset+limit) counted in
-// *lines from EOF* (offset=0 ⇒ the most recent line). Newer-first within
-// the response: the UI prepends each chunk in order.
-//
-// Pagination cursor: offset is line count from EOF, not byte offset. Lines
-// shift each time a new record is appended, but the SSE channel covers
-// anything that arrived after the connect, so the UI only ever asks for
-// "older than what I currently have" — an offset that grows monotonically.
+// logResponseShape is the wire format shared by /api/logs/tail,
+// /api/logs/before, and /api/logs/after. lines is empty (not nil) when
+// no matches were found in the scanned window so the client can rely on
+// a consistent shape.
+type logResponseShape struct {
+	Lines        []LineWithPos `json:"lines"`
+	OlderCursor  string        `json:"older_cursor,omitempty"`
+	NewerCursor  string        `json:"newer_cursor,omitempty"`
+	Exhausted    bool          `json:"exhausted,omitempty"`
+	AtTail       bool          `json:"at_tail,omitempty"`
+}
+
 const (
 	logHistoryDefaultLimit = 200
 	logHistoryMaxLimit     = 1000
 )
 
-func (s *Server) apiLogsHistory(w http.ResponseWriter, r *http.Request) {
-	if s.logFilePath == "" {
-		writeJSON(w, map[string]any{"lines": []string{}})
-		return
-	}
-	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
-	if offset < 0 {
-		offset = 0
-	}
+func parseLogLimit(r *http.Request) int {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	if limit <= 0 {
 		limit = logHistoryDefaultLimit
@@ -492,84 +502,93 @@ func (s *Server) apiLogsHistory(w http.ResponseWriter, r *http.Request) {
 	if limit > logHistoryMaxLimit {
 		limit = logHistoryMaxLimit
 	}
+	return limit
+}
 
-	lines, err := readLogTail(s.logFilePath, s.logFileMaxArchives, offset+limit)
+func (s *Server) logFiles() *LogFiles {
+	return &LogFiles{Path: s.logFilePath, MaxArchives: s.logFileMaxArchives}
+}
+
+// apiLogsTail returns the newest matching lines (oldest-first) plus a
+// cursor pointing to the oldest emitted line, suitable for paging older
+// content via /api/logs/before.
+func (s *Server) apiLogsTail(w http.ResponseWriter, r *http.Request) {
+	if s.logFilePath == "" {
+		writeJSON(w, logResponseShape{Lines: []LineWithPos{}, Exhausted: true})
+		return
+	}
+	filter := ParseFilter(r.URL.Query().Get("q"))
+	lines, older, exhausted, err := s.logFiles().Tail(parseLogLimit(r), filter)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	// Trim to the requested window. lines is oldest-to-newest with the
-	// newest line at the end; the slice [len-offset-limit, len-offset)
-	// gives us the next-older chunk.
-	end := len(lines) - offset
-	if end <= 0 {
-		writeJSON(w, map[string]any{"lines": []string{}})
+	if lines == nil {
+		lines = []LineWithPos{}
+	}
+	resp := logResponseShape{Lines: lines, Exhausted: exhausted}
+	if !exhausted {
+		resp.OlderCursor = older.String()
+	}
+	writeJSON(w, resp)
+}
+
+// apiLogsBefore returns up to limit matching lines strictly older than
+// the provided cursor (oldest-first), plus the next older_cursor.
+func (s *Server) apiLogsBefore(w http.ResponseWriter, r *http.Request) {
+	if s.logFilePath == "" {
+		writeJSON(w, logResponseShape{Lines: []LineWithPos{}, Exhausted: true})
 		return
 	}
-	start := end - limit
-	if start < 0 {
-		start = 0
-	}
-	writeJSON(w, map[string]any{"lines": lines[start:end]})
-}
-
-// readLogTail returns up to want lines from the end of the rotating log,
-// reading archives in oldest-to-newest order so the result is already in
-// chronological order. Missing files (rotation hasn't reached that slot
-// yet, or the user wiped them) are skipped silently — they're not errors.
-func readLogTail(base string, maxArchives, want int) ([]string, error) {
-	if want <= 0 {
-		return nil, nil
-	}
-	// Walk newest-first so we can stop as soon as we have enough.
-	files := []string{base}
-	for i := 1; i <= maxArchives; i++ {
-		files = append(files, fmt.Sprintf("%s.%d", base, i))
-	}
-
-	// We need the LAST `want` lines across all files. Scan each file
-	// newest-first, prepending its tail into the result until we have
-	// enough.
-	result := make([]string, 0, want)
-	for _, fp := range files {
-		if len(result) >= want {
-			break
-		}
-		chunk, err := tailLines(fp, want-len(result))
-		if errors.Is(err, fs.ErrNotExist) {
-			continue
-		}
-		if err != nil {
-			return nil, err
-		}
-		result = append(chunk, result...)
-	}
-	return result, nil
-}
-
-// tailLines reads the last n lines of a file in chronological order. Uses
-// a sliding window so memory stays bounded at the requested line count
-// regardless of file size.
-func tailLines(path string, n int) ([]string, error) {
-	f, err := os.Open(path)
+	cur, err := ParseLinePos(r.URL.Query().Get("cursor"))
 	if err != nil {
-		return nil, err
+		http.Error(w, "bad cursor", http.StatusBadRequest)
+		return
 	}
-	defer f.Close() //nolint:errcheck
+	filter := ParseFilter(r.URL.Query().Get("q"))
+	lines, older, exhausted, err := s.logFiles().Before(cur, parseLogLimit(r), filter)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if lines == nil {
+		lines = []LineWithPos{}
+	}
+	resp := logResponseShape{Lines: lines, Exhausted: exhausted}
+	if !exhausted {
+		resp.OlderCursor = older.String()
+	}
+	writeJSON(w, resp)
+}
 
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	window := make([]string, 0, n)
-	for sc.Scan() {
-		if len(window) == n {
-			window = window[1:]
-		}
-		window = append(window, sc.Text())
+// apiLogsAfter returns up to limit matching lines strictly newer than
+// the cursor (oldest-first), plus the latest newer_cursor. at_tail=true
+// when the scan consumed the current base file to EOF — the client can
+// then trust the SSE stream alone.
+func (s *Server) apiLogsAfter(w http.ResponseWriter, r *http.Request) {
+	if s.logFilePath == "" {
+		writeJSON(w, logResponseShape{Lines: []LineWithPos{}, AtTail: true})
+		return
 	}
-	if err := sc.Err(); err != nil {
-		return nil, err
+	cur, err := ParseLinePos(r.URL.Query().Get("cursor"))
+	if err != nil {
+		http.Error(w, "bad cursor", http.StatusBadRequest)
+		return
 	}
-	return window, nil
+	filter := ParseFilter(r.URL.Query().Get("q"))
+	lines, newer, atTail, err := s.logFiles().After(cur, parseLogLimit(r), filter)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if lines == nil {
+		lines = []LineWithPos{}
+	}
+	resp := logResponseShape{Lines: lines, AtTail: atTail}
+	if !atTail || len(lines) > 0 {
+		resp.NewerCursor = newer.String()
+	}
+	writeJSON(w, resp)
 }
 
 func (s *Server) apiGetConfig(w http.ResponseWriter, _ *http.Request) {

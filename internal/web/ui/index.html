@@ -66,7 +66,8 @@
     <div class="log-header">
       <h2>Live Log</h2>
       <div class="log-controls">
-        <input type="text" id="log-filter" class="log-filter" placeholder="filter…" oninput="applyFilter()" autocomplete="off">
+        <input type="text" id="log-filter" class="log-filter" placeholder="search log…" oninput="onLogFilterInput()" autocomplete="off">
+        <div class="log-filter-spinner" id="log-filter-spinner" aria-hidden="true"></div>
         <div class="log-status">
           <div class="dot" id="log-dot"></div>
           <span id="log-status-text">disconnected</span>
@@ -74,7 +75,12 @@
         <button class="btn-clear" onclick="clearLog()">Clear</button>
       </div>
     </div>
-    <div class="log-console" id="log-console"></div>
+    <div class="log-console-wrap">
+      <div class="log-console" id="log-console"></div>
+      <button class="log-tail-pill" id="log-tail-pill" onclick="resumeLiveTail()" hidden>
+        <span id="log-tail-pill-count">0</span> new ↓
+      </button>
+    </div>
   </section>
 </div>
 

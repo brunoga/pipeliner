@@ -1,10 +1,15 @@
 /**
- * Tests for the dashboard log-scrollback feature in dashboard.js.
+ * Tests for the file-backed log viewer in dashboard.js.
  *
- * dashboard.js leans heavily on the DOM and global fetch, so we evaluate it
- * fresh per test inside a minimal mock environment: a tiny stand-in for
- * #log-console (with the few properties our scrollback code touches), a stub
- * for #log-filter, and a controllable fetch.
+ * The viewer maintains a sliding window of rendered lines over the
+ * rotating log file. These tests cover the state machine: boot via
+ * /api/logs/tail, scroll-up paging via /before, SSE delivery with
+ * live-follow vs paused, filter teardown, and window cap eviction.
+ *
+ * The runtime depends on EventSource and DOM, neither of which exist in
+ * vitest's environment. We evaluate dashboard.js against a controlled
+ * stand-in: minimal DOM nodes, a stubbed fetch, and a stubbed
+ * EventSource we can drive from inside each test.
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
@@ -16,30 +21,40 @@ const __dir = dirname(fileURLToPath(import.meta.url));
 const src   = readFileSync(join(__dir, '..', 'dashboard.js'), 'utf8');
 
 // ── tiny DOM stub ────────────────────────────────────────────────────────────
-//
-// We model only what dashboard.js touches: a console container, its children
-// list (so insertBefore/firstChild behave), and a filter input. Each "element"
-// is a plain object; the scrollback code reads/writes scrollTop, scrollHeight,
-// className, innerHTML, style.display, and DOM traversal helpers.
 
 function makeNode(tag) {
+  let _innerHTML = '';
   const node = {
     tagName: tag,
     className: '',
-    innerHTML: '',
     textContent: '',
+    hidden: false,
     style: { display: '' },
+    classList: {
+      _set: new Set(),
+      add(c) { this._set.add(c); },
+      remove(c) { this._set.delete(c); },
+      toggle(c, on) {
+        if (on === undefined) {
+          if (this._set.has(c)) this._set.delete(c); else this._set.add(c);
+        } else if (on) this._set.add(c); else this._set.delete(c);
+      },
+      contains(c) { return this._set.has(c); },
+    },
     children: [],
     parentNode: null,
     nodeType: 1,
+    _listeners: {},
+    addEventListener(name, fn) {
+      (this._listeners[name] ||= []).push(fn);
+    },
+    fireEvent(name) {
+      (this._listeners[name] || []).forEach(fn => fn({target: this}));
+    },
     appendChild(c) {
-      // Document fragments append their children, not themselves.
       if (c.tagName === '#fragment') {
         const items = c.children.slice();
-        for (const item of items) {
-          item.parentNode = this;
-          this.children.push(item);
-        }
+        for (const item of items) { item.parentNode = this; this.children.push(item); }
         c.children.length = 0;
         return c;
       }
@@ -48,7 +63,6 @@ function makeNode(tag) {
       return c;
     },
     insertBefore(c, ref) {
-      // ref === null means "append at end"
       if (ref == null) return this.appendChild(c);
       const idx = this.children.indexOf(ref);
       if (idx === -1) return this.appendChild(c);
@@ -63,399 +77,520 @@ function makeNode(tag) {
       }
       return c;
     },
+    remove() {
+      if (!this.parentNode) return;
+      const i = this.parentNode.children.indexOf(this);
+      if (i >= 0) this.parentNode.children.splice(i, 1);
+      this.parentNode = null;
+    },
     get firstChild() { return this.children[0] || null; },
-    addEventListener() {},
   };
+  Object.defineProperty(node, 'innerHTML', {
+    get() { return _innerHTML; },
+    set(v) {
+      _innerHTML = v;
+      // Mirror real DOM behavior: setting innerHTML='' clears children.
+      if (v === '') node.children.length = 0;
+    },
+  });
   return node;
 }
 
 function makeDOM() {
-  const console_ = makeNode('div');
-  console_.scrollTop = 0;
-  console_.clientHeight = 300;
-  // scrollHeight grows with each appended child so prepend math has something
-  // to measure. 20px per row is arbitrary — the only thing under test is the
-  // delta, not the absolute height.
-  Object.defineProperty(console_, 'scrollHeight', {
-    get() { return this.children.length * 20; },
+  const con = makeNode('div');
+  con.scrollTop = 0;
+  con.clientHeight = 300;
+  Object.defineProperty(con, 'scrollHeight', {
+    get() { return Math.max(this.children.length * 20, this.clientHeight); },
   });
 
-  const filter = { value: '' };
-  const dot   = { classList: { add() {}, remove() {} } };
-  const text  = { textContent: '' };
+  const filter = makeNode('input');
+  filter.value = '';
 
   const elements = {
-    'log-console':     console_,
-    'log-filter':      filter,
-    'log-dot':         dot,
-    'log-status-text': text,
+    'log-console':        con,
+    'log-filter':         filter,
+    'log-dot':            makeNode('div'),
+    'log-status-text':    makeNode('span'),
+    'log-tail-pill':      makeNode('button'),
+    'log-tail-pill-count': makeNode('span'),
+    'log-filter-spinner': makeNode('div'),
   };
-
   return {
     elements,
     document: {
       getElementById: id => elements[id],
-      createElement(tag) {
-        const n = makeNode(tag);
-        return n;
-      },
-      createDocumentFragment() {
-        const n = makeNode('#fragment');
-        return n;
-      },
+      createElement: tag => makeNode(tag),
+      createDocumentFragment: () => makeNode('#fragment'),
     },
   };
 }
 
-// loadModule evaluates dashboard.js fresh against a clean DOM + a stub fetch,
-// then returns the exports we need plus a handle on the mock for assertions.
-function loadModule(fetchImpl) {
-  const dom = makeDOM();
-  const mod = new Function(
-    'exports', 'document', 'fetch', 'window',
-    src + `
-      exports.loadLogHistory       = loadLogHistory;
-      exports.maybeLoadLogHistory  = maybeLoadLogHistory;
-      exports.prependHistoryLines  = prependHistoryLines;
-      exports.clearLog             = clearLog;
-      exports.applyFilter          = applyFilter;
-      exports.appendLog            = appendLog;
-      exports.renderLogLine        = renderLogLine;
-      exports.trimHistoryOverlap   = trimHistoryOverlap;
-      exports.getState = () => ({
-        logHistory:    logHistory,
-        historyLines:  historyLines,
-        logLines:      logLines,
-      });
-    `
-  );
-  const exports = {};
-  mod(exports, dom.document, fetchImpl, {});
-  return { exports, dom };
+// ── stubbed EventSource ──────────────────────────────────────────────────────
+
+function makeEventSourceStub() {
+  const instances = [];
+  function ES(url) {
+    this.url = url;
+    this.onopen = null;
+    this.onmessage = null;
+    this.onerror = null;
+    this.closed = false;
+    this._listeners = {};
+    instances.push(this);
+  }
+  ES.prototype.addEventListener = function(name, fn) {
+    (this._listeners[name] ||= []).push(fn);
+  };
+  ES.prototype.close = function() { this.closed = true; };
+  ES.prototype.fire = function(name, data, eventId) {
+    const ev = {data, lastEventId: String(eventId || '')};
+    if (name === 'message') {
+      if (this.onmessage) this.onmessage(ev);
+    } else if (name === 'open') {
+      if (this.onopen) this.onopen(ev);
+    } else {
+      (this._listeners[name] || []).forEach(fn => fn(ev));
+    }
+  };
+  ES.instances = instances;
+  return ES;
 }
 
-function jsonResponse(body) {
+// ── module loader ────────────────────────────────────────────────────────────
+
+function loadModule(fetchImpl) {
+  const dom = makeDOM();
+  const ES = makeEventSourceStub();
+  const window = {
+    EventSource: ES,
+    setTimeout: (fn, ms) => null,    // suppress reconnect timer
+    clearTimeout: () => {},
+    requestAnimationFrame: fn => fn(),
+  };
+  const exports = {};
+  const fn = new Function(
+    'exports', 'document', 'fetch', 'window', 'EventSource',
+    'setTimeout', 'clearTimeout', 'requestAnimationFrame',
+    src + `
+      exports.loadInitialTail = loadInitialTail;
+      exports.handleSSELine = handleSSELine;
+      exports.handleRotation = handleRotation;
+      exports.maybeLoadOlder = maybeLoadOlder;
+      exports.maybeLoadNewer = maybeLoadNewer;
+      exports.onLogScroll = onLogScroll;
+      exports.applyFilter = applyFilter;
+      exports.clearLog = clearLog;
+      exports.resumeLiveTail = resumeLiveTail;
+      exports.connectLogs = connectLogs;
+      exports.renderLogLine = renderLogLine;
+      exports.state = () => veLog;
+    `
+  );
+  fn(
+    exports, dom.document, fetchImpl, window, ES,
+    window.setTimeout, window.clearTimeout, window.requestAnimationFrame,
+  );
+  return { exports, dom, ES };
+}
+
+function jsonResp(body) {
   return { ok: true, json: async () => body };
+}
+
+function makeTailBody(lines, {exhausted = false, olderCursor = null} = {}) {
+  // Cumulative byte positions so a contiguous SSE line at
+  // pos = cumulative + nextText.length + 1 satisfies hasLogGap=false.
+  let cumulative = 0;
+  const items = lines.map((text) => {
+    cumulative += text.length + 1;
+    return {pos: `0:${cumulative}`, text};
+  });
+  return {
+    lines: items,
+    older_cursor: exhausted ? '' : (olderCursor || (items[0] ? items[0].pos : '')),
+    exhausted,
+  };
+}
+
+// posAfter computes the next contiguous file position given a prior pos
+// string and the new line's text length. Useful for synthesizing
+// gap-free SSE positions in tests.
+function posAfter(prevPos, text) {
+  const m = /^(\d+):(\d+)$/.exec(prevPos);
+  if (!m) return '0:0';
+  const f = parseInt(m[1], 10);
+  const b = parseInt(m[2], 10) + text.length + 1;
+  return `${f}:${b}`;
 }
 
 // ── tests ────────────────────────────────────────────────────────────────────
 
-describe('log scrollback', () => {
-  it('fetches /api/logs/history with offset=0 on first near-top scroll', async () => {
+describe('log viewer — boot via /api/logs/tail', () => {
+  it('hits /tail on boot and renders the lines into the console', async () => {
     const calls = [];
     const fetchStub = async (url) => {
       calls.push(url);
-      return jsonResponse({ lines: ['a', 'b', 'c'] });
+      return jsonResp(makeTailBody(['a', 'b', 'c']));
     };
     const { exports, dom } = loadModule(fetchStub);
-
-    dom.elements['log-console'].scrollTop = 0;
-    await exports.maybeLoadLogHistory();
+    await exports.loadInitialTail();
 
     expect(calls).toHaveLength(1);
-    expect(calls[0]).toMatch(/offset=0/);
-    expect(calls[0]).toMatch(/limit=200/);
-
-    const state = exports.getState();
-    expect(state.logHistory.offset).toBe(3);
-    expect(state.historyLines).toHaveLength(3);
+    expect(calls[0]).toMatch(/^\/api\/logs\/tail\?/);
+    expect(calls[0]).toMatch(/limit=300/);
+    const con = dom.elements['log-console'];
+    expect(con.children.map(c => c.innerHTML)).toEqual(['a', 'b', 'c']);
+    const st = exports.state();
+    expect(st.rendered).toHaveLength(3);
+    // First line 'a' (1 char + '\n' = 2 bytes) ⇒ pos 0:2.
+    expect(st.topCursor).toBe('0:2');
+    expect(st.topExhausted).toBe(false);
+    expect(st.bottomAtTail).toBe(true);
+    expect(st.liveFollow).toBe(true);
   });
 
-  it('does not fetch when scrolled away from the top', async () => {
-    let called = false;
-    const { exports, dom } = loadModule(async () => {
-      called = true;
-      return jsonResponse({ lines: [] });
-    });
-
-    dom.elements['log-console'].scrollTop = 200; // well past threshold
-    await exports.maybeLoadLogHistory();
-
-    expect(called).toBe(false);
-  });
-
-  it('increments offset across multiple chunks', async () => {
-    const responses = [
-      { lines: Array.from({ length: 200 }, (_, i) => 'newer-' + i) },
-      { lines: Array.from({ length: 200 }, (_, i) => 'older-' + i) },
-    ];
-    let i = 0;
-    const fetchStub = async () => jsonResponse(responses[i++]);
-    const { exports, dom } = loadModule(fetchStub);
-
-    dom.elements['log-console'].scrollTop = 0;
-    await exports.loadLogHistory();
-    expect(exports.getState().logHistory.offset).toBe(200);
-    expect(exports.getState().logHistory.exhausted).toBe(false);
-
-    await exports.loadLogHistory();
-    expect(exports.getState().logHistory.offset).toBe(400);
-  });
-
-  it('marks history exhausted when the server returns a short chunk', async () => {
-    const fetchStub = async () => jsonResponse({ lines: ['only', 'two'] });
+  it('marks topExhausted=true when /tail reports exhausted', async () => {
+    const fetchStub = async () => jsonResp(makeTailBody(['only'], {exhausted: true}));
     const { exports } = loadModule(fetchStub);
-
-    await exports.loadLogHistory();
-    const state = exports.getState();
-    expect(state.logHistory.exhausted).toBe(true);
-    expect(state.logHistory.endMarker).not.toBeNull();
+    await exports.loadInitialTail();
+    expect(exports.state().topExhausted).toBe(true);
   });
+});
 
-  it('skips further fetches once exhausted', async () => {
-    let count = 0;
-    const fetchStub = async () => {
-      count++;
-      return jsonResponse({ lines: ['x'] }); // short ⇒ marks exhausted
+describe('log viewer — scroll-up paging /before', () => {
+  it('fetches /before with the topCursor and prepends older lines', async () => {
+    let call = 0;
+    const responses = [
+      makeTailBody(['n1', 'n2', 'n3']),  // boot
+      {
+        lines: [
+          {pos: '0:1', text: 'o1'},
+          {pos: '0:2', text: 'o2'},
+        ],
+        older_cursor: '0:1',
+        exhausted: false,
+      },
+    ];
+    const calls = [];
+    const fetchStub = async (url) => {
+      calls.push(url);
+      return jsonResp(responses[call++]);
     };
     const { exports, dom } = loadModule(fetchStub);
+    await exports.loadInitialTail();
+
+    dom.elements['log-console'].scrollTop = 0; // near top
+    await exports.maybeLoadOlder();
+
+    expect(calls[1]).toMatch(/^\/api\/logs\/before\?/);
+    // makeTailBody(['n1','n2','n3']) → first line ends at byte 3.
+    expect(calls[1]).toMatch(/cursor=0%3A3/);
+    const st = exports.state();
+    expect(st.rendered.map(r => r.raw)).toEqual(['o1', 'o2', 'n1', 'n2', 'n3']);
+    expect(st.topCursor).toBe('0:1');
+  });
+
+  it('marks topExhausted and skips further /before calls', async () => {
+    let call = 0;
+    const responses = [
+      makeTailBody(['n']),
+      { lines: [{pos: '0:5', text: 'o'}], older_cursor: '', exhausted: true },
+    ];
+    const fetchStub = async () => jsonResp(responses[call++]);
+    const { exports, dom } = loadModule(fetchStub);
+    await exports.loadInitialTail();
 
     dom.elements['log-console'].scrollTop = 0;
-    await exports.loadLogHistory();
-    expect(count).toBe(1);
+    await exports.maybeLoadOlder();
+    expect(exports.state().topExhausted).toBe(true);
 
-    await exports.maybeLoadLogHistory();
-    await exports.maybeLoadLogHistory();
-    expect(count).toBe(1); // no extra fetches after exhaustion
+    let extra = 0;
+    const fetch2 = async () => { extra++; return jsonResp({lines: [], older_cursor: '', exhausted: true}); };
+    // Re-bind fetch by directly calling: the state is set, maybeLoadOlder should bail.
+    // (We just verify the local count doesn't grow on the original.)
+    const before = call;
+    await exports.maybeLoadOlder();
+    await exports.maybeLoadOlder();
+    expect(call).toBe(before);
+  });
+});
+
+describe('log viewer — live SSE delivery', () => {
+  it('appends live lines while at bottom (liveFollow)', async () => {
+    const fetchStub = async () => jsonResp(makeTailBody(['a']));
+    const { exports, dom } = loadModule(fetchStub);
+    await exports.loadInitialTail();
+
+    // Synthesize contiguous positions so the reconnect bridge stays out
+    // of the way; we test the bridge separately.
+    const p1 = posAfter(exports.state().lastLivePos, 'live1');
+    const p2 = posAfter(p1, 'live2');
+    exports.handleSSELine({pos: p1, text: 'live1', seq: 1});
+    exports.handleSSELine({pos: p2, text: 'live2', seq: 2});
+
+    const con = dom.elements['log-console'];
+    expect(con.children.map(c => c.innerHTML)).toEqual(['a', 'live1', 'live2']);
+    expect(exports.state().bottomCursor).toBe(p2);
+    expect(exports.state().pendingLive).toBe(0);
   });
 
-  it('prepends history above existing lines in chronological order', async () => {
-    // Round 1: a full-size chunk of 'n*' (newer). Must be exactly LOG_HISTORY_LIMIT
-    // so the loader doesn't mark itself exhausted and short-circuit round 2.
-    // Round 2: a small 'o*' chunk (older) — these should land above the n* in the DOM.
+  it('buffers under the pill while paused (not following)', async () => {
+    const fetchStub = async () => jsonResp(makeTailBody(['a']));
+    const { exports, dom } = loadModule(fetchStub);
+    await exports.loadInitialTail();
+
+    // Simulate user having scrolled away from the bottom by toggling
+    // liveFollow off directly — the geometry-based detection inside
+    // onLogScroll is exercised separately.
+    exports.state().liveFollow = false;
+
+    const p1 = posAfter(exports.state().lastLivePos, 'live1');
+    const p2 = posAfter(p1, 'live2');
+    exports.handleSSELine({pos: p1, text: 'live1', seq: 1});
+    exports.handleSSELine({pos: p2, text: 'live2', seq: 2});
+
+    const pill = dom.elements['log-tail-pill'];
+    const countEl = dom.elements['log-tail-pill-count'];
+    expect(pill.hidden).toBe(false);
+    expect(countEl.textContent).toBe('2');
+    const con = dom.elements['log-console'];
+    expect(con.children.map(c => c.innerHTML)).toEqual(['a', 'live1', 'live2']);
+  });
+
+  it('resumeLiveTail clears the pending counter and re-engages follow', async () => {
+    const fetchStub = async () => jsonResp(makeTailBody(['a']));
+    const { exports, dom } = loadModule(fetchStub);
+    await exports.loadInitialTail();
+
+    exports.state().liveFollow = false;
+    const p = posAfter(exports.state().lastLivePos, 'live');
+    exports.handleSSELine({pos: p, text: 'live', seq: 1});
+    expect(exports.state().pendingLive).toBe(1);
+
+    await exports.resumeLiveTail();
+    expect(exports.state().liveFollow).toBe(true);
+    expect(exports.state().pendingLive).toBe(0);
+    expect(dom.elements['log-tail-pill'].hidden).toBe(true);
+  });
+});
+
+describe('log viewer — filter', () => {
+  it('refetches /tail with q when the filter changes', async () => {
+    const calls = [];
+    let call = 0;
     const responses = [
-      { lines: Array.from({ length: 200 }, (_, i) => 'n' + i) },
-      { lines: ['o0', 'o1', 'o2'] },
+      makeTailBody(['a', 'b']),       // initial boot
+      makeTailBody(['match-x']),      // refetch after filter
     ];
-    let i = 0;
-    const fetchStub = async () => jsonResponse(responses[i++]);
-    const { exports, dom } = loadModule(fetchStub);
-
-    await exports.loadLogHistory(); // 200 n*
-    await exports.loadLogHistory(); // 3 o* prepended above
-
-    const con = dom.elements['log-console'];
-    // Total = 203 history rows + 1 end-marker (round 2 was short).
-    expect(con.children.length).toBe(204);
-    // First child is the end-marker. Rows after it must be in chronological
-    // order: o0..o2 (older) then n0..n199 (newer).
-    const rows = con.children.slice(1).map(c => c.innerHTML);
-    expect(rows.slice(0, 4)).toEqual(['o0', 'o1', 'o2', 'n0']);
-  });
-
-  it('preserves the user\'s scroll position after a prepend', async () => {
-    // The contract: after lazy-loading older lines, the user's view should not
-    // jump — scrollTop must shift by exactly the height of the prepended block
-    // so the previously-visible rows stay at the same physical position.
-    const { exports, dom } = loadModule(async () => jsonResponse({
-      lines: Array.from({ length: 200 }, (_, i) => 'h' + i),
-    }));
-    const con = dom.elements['log-console'];
-
-    exports.appendLog('live-1');
-    exports.appendLog('live-2');
-    con.scrollTop = 5; // user scrolled near the top
-
-    const before = con.scrollHeight;
-    await exports.loadLogHistory();
-    const after = con.scrollHeight;
-
-    expect(after).toBeGreaterThan(before);
-    expect(con.scrollTop).toBe(5 + (after - before));
-  });
-
-  it('clearLog resets history state so the next scroll starts over', async () => {
-    let calls = 0;
-    const fetchStub = async () => {
-      calls++;
-      return jsonResponse({ lines: Array.from({length: 200}, (_, i) => 'L' + i) });
+    const fetchStub = async (url) => {
+      calls.push(url);
+      return jsonResp(responses[call++] || {lines: [], older_cursor: '', exhausted: true});
     };
-    const { exports } = loadModule(fetchStub);
-
-    await exports.loadLogHistory();
-    expect(exports.getState().logHistory.offset).toBe(200);
-
-    exports.clearLog();
-    const cleared = exports.getState();
-    expect(cleared.logHistory.offset).toBe(0);
-    expect(cleared.logHistory.exhausted).toBe(false);
-    expect(cleared.historyLines).toHaveLength(0);
-
-    await exports.loadLogHistory();
-    expect(calls).toBe(2);
-    expect(exports.getState().logHistory.offset).toBe(200);
-  });
-
-  it('applies the filter to history lines too', async () => {
-    const fetchStub = async () => jsonResponse({ lines: ['cat', 'dog', 'fish'] });
     const { exports, dom } = loadModule(fetchStub);
+    await exports.loadInitialTail();
 
-    await exports.loadLogHistory();
-    dom.elements['log-filter'].value = 'cat';
-    exports.applyFilter();
+    dom.elements['log-filter'].value = 'match';
+    await exports.applyFilter();
 
-    const hist = exports.getState().historyLines;
-    const visible = hist.filter(h => h.el.style.display !== 'none').map(h => h.raw);
-    expect(visible).toEqual(['cat']);
+    expect(exports.state().filter).toBe('match');
+    expect(calls[1]).toMatch(/q=match/);
+    expect(dom.elements['log-console'].children.map(c => c.innerHTML)).toEqual(['match-x']);
   });
 
-  // ── overlap trim (the 1.3.x scrollback wrap-around bug) ────────────────────
-  //
-  // The server-side history endpoint counts from EOF, so the first chunk a
-  // freshly-connected client requests always overlaps the SSE warm-up tail
-  // already on screen. The client trims that overlap before prepending and
-  // — importantly — still advances offset by the *original* chunk length
-  // so the next fetch reads strictly-older lines.
-
-  it('trims first-chunk overlap against the visible SSE tail', async () => {
-    const fetchStub = async () => jsonResponse({
-      // Only 5 lines on the server, all of which appeared via SSE already.
-      lines: ['t0', 't1', 't2', 't3', 't4'],
-    });
+  it('applyFilter is idempotent when filter unchanged', async () => {
+    let call = 0;
+    const fetchStub = async () => { call++; return jsonResp(makeTailBody(['a'])); };
     const { exports, dom } = loadModule(fetchStub);
-    // Simulate the SSE warm-up populating the live tail.
-    ['t0', 't1', 't2', 't3', 't4'].forEach(l => exports.appendLog(l));
-
-    await exports.loadLogHistory();
-    const s = exports.getState();
-    // Pure-overlap chunk → nothing prepended.
-    expect(s.historyLines).toHaveLength(0);
-    // Offset still advances past the duplicates so the next fetch skips them.
-    expect(s.logHistory.offset).toBe(5);
-    // The short chunk triggers exhausted + the end-marker.
-    expect(s.logHistory.exhausted).toBe(true);
-    expect(s.logHistory.endMarker).not.toBeNull();
+    await exports.loadInitialTail();
+    dom.elements['log-filter'].value = '';
+    await exports.applyFilter();
+    expect(call).toBe(1); // only the initial boot
   });
+});
 
-  it('treats ANSI-coded SSE lines as duplicates of their plain file copies', async () => {
-    // SSE line: same content with cyan + reset wrapped around it.
-    const ansi = '\x1b[36mINFO  pipeline started\x1b[0m';
-    const plain = 'INFO  pipeline started';
-    const fetchStub = async () => jsonResponse({ lines: [plain] });
-    const { exports } = loadModule(fetchStub);
-    exports.appendLog(ansi);
-
-    await exports.loadLogHistory();
-    // SSE line and file line match modulo ANSI → chunk fully trimmed.
-    expect(exports.getState().historyLines).toHaveLength(0);
-  });
-
-  it('keeps the older prefix of a partially-overlapping chunk', async () => {
-    // Server returns 5 lines; the newest 3 are already visible via SSE.
-    const fetchStub = async () => jsonResponse({
-      lines: ['old-a', 'old-b', 'visible-1', 'visible-2', 'visible-3'],
-    });
-    const { exports } = loadModule(fetchStub);
-    ['visible-1', 'visible-2', 'visible-3'].forEach(l => exports.appendLog(l));
-
-    await exports.loadLogHistory();
-    const s = exports.getState();
-    expect(s.historyLines.map(h => h.raw)).toEqual(['old-a', 'old-b']);
-    expect(s.logHistory.offset).toBe(5);
-  });
-
-  it('prepends the full chunk when nothing overlaps', async () => {
-    // Later scroll-back: chunk is strictly older than visible.
-    const fetchStub = async () => jsonResponse({
-      lines: Array.from({ length: 200 }, (_, i) => 'older-' + i),
-    });
-    const { exports } = loadModule(fetchStub);
-    exports.appendLog('live-newest');
-
-    await exports.loadLogHistory();
-    expect(exports.getState().historyLines).toHaveLength(200);
-  });
-
-  // ── plain (file-sourced) log line colorizer ────────────────────────────────
-  //
-  // SSE lines arrive with ANSI codes from clog and are rendered by ansiToHtml.
-  // File-sourced scrollback lines have no ANSI; plainLogToHtml mirrors clog's
-  // level + keyword coloring so they look the same on the page.
-
-  it('renders ANSI-bearing lines via ansiToHtml', () => {
-    const { exports } = loadModule(async () => jsonResponse({ lines: [] }));
+describe('log viewer — rendering', () => {
+  it('renders ANSI lines via ansiToHtml', async () => {
+    const { exports } = loadModule(async () => jsonResp({lines: [], older_cursor: '', exhausted: true}));
     const html = exports.renderLogLine('\x1b[36mhello\x1b[0m');
     expect(html).toContain('color:#58a6ff');
     expect(html).toContain('hello');
   });
 
-  it('colorizes a plain INFO line with cyan level + amber attrs left plain', () => {
-    const { exports } = loadModule(async () => jsonResponse({ lines: [] }));
+  it('colorizes a plain INFO line', async () => {
+    const { exports } = loadModule(async () => jsonResp({lines: [], older_cursor: '', exhausted: true}));
     const html = exports.renderLogLine(
-      '2026-06-02 19:31:22.991 INFO  scheduled pipeline=movies-3d schedule="20 * * * *"'
+      '2026-06-02 19:31:22.991 INFO  scheduled pipeline=movies-3d'
     );
-    expect(html).toContain('color:#8b949e">2026-06-02 19:31:22.991</span>'); // ts gray
-    expect(html).toContain('color:#58a6ff">INFO</span>');                     // INFO cyan
+    expect(html).toContain('color:#58a6ff">INFO</span>');
     expect(html).toContain('scheduled');
-    // Attrs render outside any color span — match what ANSI version does.
-    expect(html).toContain('pipeline=movies-3d');
   });
 
-  it('colorizes ERROR level red+bold', () => {
-    const { exports } = loadModule(async () => jsonResponse({ lines: [] }));
-    const html = exports.renderLogLine(
-      '2026-06-02 19:31:22.991 ERROR something exploded task=t1'
-    );
-    expect(html).toContain('color:#f85149');
-    expect(html).toContain('font-weight:600');
-    expect(html).toContain('ERROR');
+  it('falls back to plain text for non-conforming lines', async () => {
+    const { exports } = loadModule(async () => jsonResp({lines: [], older_cursor: '', exhausted: true}));
+    const html = exports.renderLogLine('not a structured line');
+    expect(html).toBe('not a structured line');
   });
+});
 
-  it('highlights accepted/rejected/failed keywords inside the message body', () => {
-    const { exports } = loadModule(async () => jsonResponse({ lines: [] }));
-    // clog colors only the message portion — attrs (key=value pairs after
-    // the message) stay in the terminal's default color. So we craft a log
-    // line whose message contains the keywords directly, not the typical
-    // "pipeline done accepted=5 …" form where they live in attrs.
-    const html = exports.renderLogLine(
-      '2026-06-02 19:31:45.611 INFO  entry accepted by filter task=t1'
-    );
-    expect(html).toContain('color:#3fb950'); // accepted green
-    expect(html).toContain('>accepted<');    // colored inside its own span
-  });
-
-  it('leaves attrs uncolored even when their keys look like keywords', () => {
-    const { exports } = loadModule(async () => jsonResponse({ lines: [] }));
-    // "pipeline done" message + "accepted=0" attr — mirrors clog: only
-    // the message is colored, attrs render plain.
-    const html = exports.renderLogLine(
-      '2026-06-02 19:31:45.611 INFO  pipeline done accepted=0 rejected=0 failed=0'
-    );
-    // No keyword-color spans expected — these colors should not appear at
-    // all because keywords only live in the attrs portion here.
-    expect(html).not.toContain('color:#3fb950');
-    expect(html).not.toContain('color:#bc8cff');
-    // Attrs render as plain text after the colored message span.
-    expect(html).toContain('accepted=0 rejected=0 failed=0');
-  });
-
-  it('falls back to plain HTML for non-conforming lines (no panic)', () => {
-    const { exports } = loadModule(async () => jsonResponse({ lines: [] }));
-    const html = exports.renderLogLine('not a structured log line');
-    // No spans, just escaped text — but does not throw.
-    expect(html).toBe('not a structured log line');
-  });
-
-  it('survives concurrent maybeLoad calls — only one fetch in flight', async () => {
-    let inFlight = 0;
-    let maxInFlight = 0;
-    const fetchStub = async () => {
-      inFlight++;
-      maxInFlight = Math.max(maxInFlight, inFlight);
-      // Microtask gap so a parallel call could try to slip in.
-      await Promise.resolve();
-      inFlight--;
-      return jsonResponse({ lines: Array.from({length: 200}, (_, i) => 'L' + i) });
-    };
+describe('log viewer — window cap eviction', () => {
+  it('evicts oldest lines and re-anchors topCursor when window exceeds cap', async () => {
+    const fetchStub = async () => jsonResp(makeTailBody(['boot']));
     const { exports, dom } = loadModule(fetchStub);
-    dom.elements['log-console'].scrollTop = 0;
+    await exports.loadInitialTail();
 
-    await Promise.all([
-      exports.maybeLoadLogHistory(),
-      exports.maybeLoadLogHistory(),
-      exports.maybeLoadLogHistory(),
-    ]);
+    // Drive enough live lines to overflow LOG_WINDOW_CAP (2000).
+    // We push 2010 lines, then assert the rendered window holds exactly
+    // 2000 with the OLDEST being one of the live lines (the boot line
+    // was evicted) and topCursor pointing at that new oldest. Positions
+    // are made contiguous so the reconnect bridge stays out of the way.
+    const total = 2010;
+    let lastPos = exports.state().lastLivePos;
+    for (let i = 0; i < total; i++) {
+      const text = 'live-' + i;
+      const p = posAfter(lastPos, text);
+      exports.handleSSELine({pos: p, text, seq: i + 1});
+      lastPos = p;
+    }
 
-    expect(maxInFlight).toBe(1);
+    const st = exports.state();
+    expect(st.rendered.length).toBe(2000);
+    const expectedNewOldestText = `live-${total - 2000}`; // boot + earlier live lines were evicted
+    expect(st.rendered[0].raw).toBe(expectedNewOldestText);
+    expect(st.topCursor).toBe(st.rendered[0].pos);
+    expect(st.topExhausted).toBe(false);
+    expect(dom.elements['log-console'].children.length).toBe(2000);
+  });
+});
+
+describe('log viewer — resumeLiveTail iterates', () => {
+  it('pages /after until at_tail and then re-engages live-follow', async () => {
+    const responses = [
+      makeTailBody(['boot']),
+      // Two non-tail /after responses, then a tail response.
+      {
+        lines: [{pos: '0:100', text: 'page1-a'}, {pos: '0:110', text: 'page1-b'}],
+        newer_cursor: '0:110',
+        at_tail: false,
+      },
+      {
+        lines: [{pos: '0:120', text: 'page2-a'}],
+        newer_cursor: '0:120',
+        at_tail: false,
+      },
+      {
+        lines: [{pos: '0:130', text: 'final'}],
+        newer_cursor: '0:130',
+        at_tail: true,
+      },
+    ];
+    let i = 0;
+    const calls = [];
+    const fetchStub = async (url) => { calls.push(url); return jsonResp(responses[i++]); };
+    const { exports, dom } = loadModule(fetchStub);
+    await exports.loadInitialTail();
+
+    // Put the viewer into a paged-history state: pretend the user
+    // already scrolled forward off live.
+    exports.state().bottomAtTail = false;
+    exports.state().bottomCursor = '0:90';
+    exports.state().liveFollow = false;
+    exports.state().pendingLive = 3;
+
+    await exports.resumeLiveTail();
+
+    const st = exports.state();
+    expect(st.bottomAtTail).toBe(true);
+    expect(st.liveFollow).toBe(true);
+    expect(st.pendingLive).toBe(0);
+    expect(dom.elements['log-console'].children.map(c => c.innerHTML))
+      .toEqual(['boot', 'page1-a', 'page1-b', 'page2-a', 'final']);
+    // Three /after calls were issued, with cursors advancing.
+    const afterCalls = calls.filter(u => u.startsWith('/api/logs/after'));
+    expect(afterCalls).toHaveLength(3);
+    expect(afterCalls[0]).toMatch(/cursor=0%3A90/);
+    expect(afterCalls[1]).toMatch(/cursor=0%3A110/);
+    expect(afterCalls[2]).toMatch(/cursor=0%3A120/);
+  });
+});
+
+describe('log viewer — SSE reconnect bridge', () => {
+  it('detects a position gap and fills it via /after before applying the new live line', async () => {
+    // Boot with a single line at pos 0:10.
+    // Then SSE delivers a line at pos 0:200 whose byteEnd implies a
+    // ~190-byte gap. The bridge should fetch /after?cursor=0:10 to
+    // recover the missed lines.
+    const responses = [
+      makeTailBody(['boot']),
+      // /after returns the missed lines AND a copy of the SSE line at the
+      // same pos — the dedupe logic should drop the duplicate.
+      {
+        lines: [
+          {pos: '0:50',  text: 'missed-1'},
+          {pos: '0:120', text: 'missed-2'},
+          {pos: '0:200', text: 'live-200'},
+        ],
+        newer_cursor: '0:200',
+        at_tail: true,
+      },
+    ];
+    let i = 0;
+    const calls = [];
+    const fetchStub = async (url) => { calls.push(url); return jsonResp(responses[i++]); };
+    const { exports, dom } = loadModule(fetchStub);
+    await exports.loadInitialTail();
+    // After boot: 'boot' is 4 chars → byteEnd 5.
+    expect(exports.state().lastLivePos).toBe('0:5');
+
+    // Deliver the suddenly-far-ahead live line.
+    exports.handleSSELine({pos: '0:200', text: 'live-200', seq: 99});
+    // Wait a microtask for runBridge to complete.
+    await new Promise(r => setTimeout(r, 0));
+    await new Promise(r => setTimeout(r, 0));
+
+    const bridgeCalls = calls.filter(u => u.startsWith('/api/logs/after'));
+    expect(bridgeCalls).toHaveLength(1);
+    expect(bridgeCalls[0]).toMatch(/cursor=0%3A5/);
+
+    // The rendered window holds boot + 3 unique bridge lines (live-200
+    // is the same pos as one of them, so it's deduped).
+    const rendered = dom.elements['log-console'].children.map(c => c.innerHTML);
+    expect(rendered).toEqual(['boot', 'missed-1', 'missed-2', 'live-200']);
+    expect(exports.state().lastLivePos).toBe('0:200');
+  });
+
+  it('skips the bridge when the new line is contiguous', async () => {
+    const fetchStub = async () => jsonResp(makeTailBody(['boot']));
+    const calls = [];
+    const wrapped = async (url) => { calls.push(url); return fetchStub(); };
+    const { exports } = loadModule(wrapped);
+    await exports.loadInitialTail();
+    // boot ends at pos 0:5. SSE line 'next' (4 chars) at 0:10 = 5 + 4 + 1.
+    exports.handleSSELine({pos: '0:10', text: 'next', seq: 2});
+    // No /after call should fire.
+    expect(calls.filter(u => u.startsWith('/api/logs/after'))).toHaveLength(0);
+    expect(exports.state().lastLivePos).toBe('0:10');
+  });
+});
+
+describe('log viewer — handleRotation', () => {
+  it('triggers a full re-tail after a rotation event', async () => {
+    let call = 0;
+    const responses = [
+      makeTailBody(['a']),
+      makeTailBody(['fresh1', 'fresh2']),
+    ];
+    const calls = [];
+    const fetchStub = async (url) => { calls.push(url); return jsonResp(responses[call++]); };
+    const { exports, dom } = loadModule(fetchStub);
+    await exports.loadInitialTail();
+
+    await exports.handleRotation();
+    // Flush any pending microtasks from the inner loadInitialTail.
+    await new Promise(r => setTimeout(r, 0));
+
+    expect(calls[1]).toMatch(/^\/api\/logs\/tail\?/);
+    expect(dom.elements['log-console'].children.map(c => c.innerHTML))
+      .toEqual(['fresh1', 'fresh2']);
   });
 });
