@@ -365,57 +365,78 @@ func TestReloadBlockedWhileRunning(t *testing.T) {
 
 func TestBroadcasterSequenceNumbers(t *testing.T) {
 	b := NewBroadcaster()
-	b.Write([]byte("line one\n"))
-	b.Write([]byte("line two\n"))
-	b.Write([]byte("line three\n"))
+	b.Publish("line one", 9)
+	b.Publish("line two", 18)
+	b.Publish("line three", 29)
 
 	// Full snapshot: all three lines with ascending seq numbers.
-	snap, ch := b.Subscribe(0)
+	snap, ch, _ := b.Subscribe(0)
 	b.Unsubscribe(ch)
 	if len(snap) != 3 {
 		t.Fatalf("expected 3 lines, got %d", len(snap))
 	}
-	for i, ll := range snap {
-		if ll.seq != int64(i+1) {
-			t.Errorf("snap[%d].seq = %d, want %d", i, ll.seq, i+1)
+	for i, ev := range snap {
+		if ev.Seq != int64(i+1) {
+			t.Errorf("snap[%d].Seq = %d, want %d", i, ev.Seq, i+1)
 		}
 	}
 }
 
 func TestBroadcasterResumeAfterSeq(t *testing.T) {
 	b := NewBroadcaster()
-	b.Write([]byte("line one\n"))
-	b.Write([]byte("line two\n"))
-	b.Write([]byte("line three\n"))
+	b.Publish("line one", 9)
+	b.Publish("line two", 18)
+	b.Publish("line three", 29)
 
 	// Reconnect after having seen seq=2: should only get line three.
-	snap, ch := b.Subscribe(2)
+	snap, ch, _ := b.Subscribe(2)
 	b.Unsubscribe(ch)
 	if len(snap) != 1 {
 		t.Fatalf("expected 1 line after seq=2, got %d", len(snap))
 	}
-	if snap[0].text != "line three" {
-		t.Errorf("text: got %q, want %q", snap[0].text, "line three")
+	if snap[0].Text != "line three" {
+		t.Errorf("Text: got %q, want %q", snap[0].Text, "line three")
 	}
 }
 
 func TestBroadcasterNoReplayWhenFullyUpToDate(t *testing.T) {
 	b := NewBroadcaster()
-	b.Write([]byte("line one\n"))
-	b.Write([]byte("line two\n"))
+	b.Publish("line one", 9)
+	b.Publish("line two", 18)
 
 	// Client already has everything (afterSeq matches latest).
-	snap, ch := b.Subscribe(2)
+	snap, ch, _ := b.Subscribe(2)
 	b.Unsubscribe(ch)
 	if len(snap) != 0 {
 		t.Errorf("expected empty replay, got %d lines", len(snap))
 	}
 }
 
+func TestBroadcasterNotifyRotateBumpsFileIdx(t *testing.T) {
+	// Lines published before a rotation must surface to a reconnecting
+	// client at their post-rotation file index (now 1 since rotation
+	// pushed them out of the base file).
+	b := NewBroadcaster()
+	b.Publish("pre-rotate", 11)
+	b.NotifyRotate()
+
+	snap, ch, rot := b.Subscribe(0)
+	b.Unsubscribe(ch)
+	if rot != 1 {
+		t.Errorf("rotationSeq = %d, want 1", rot)
+	}
+	if len(snap) != 1 {
+		t.Fatalf("snap len = %d, want 1", len(snap))
+	}
+	if snap[0].Pos.FileIdx != 1 {
+		t.Errorf("FileIdx = %d after rotation, want 1", snap[0].Pos.FileIdx)
+	}
+}
+
 func TestSSELastEventIDHeaderParsed(t *testing.T) {
 	b := NewBroadcaster()
-	b.Write([]byte("line one\n"))
-	b.Write([]byte("line two\n"))
+	b.Publish("line one", 9)
+	b.Publish("line two", 18)
 
 	srv := New(nil, stubDaemon{}, NewHistory(), b, "test", "user", "pass")
 	mux := http.NewServeMux()
@@ -447,13 +468,106 @@ func TestSSELastEventIDHeaderParsed(t *testing.T) {
 	}
 }
 
-// ── GET /api/logs/history ────────────────────────────────────────────────────
+func TestSSERotateEventDeliveredToLiveSubscribers(t *testing.T) {
+	// A rotation that happens while a client is actively connected must
+	// surface as an `event: rotate` SSE frame so the client knows to
+	// refresh its in-memory cursors. The new file's first line then
+	// streams as a regular message event with FileIdx 0.
+	b := NewBroadcaster()
+	srv := New(nil, stubDaemon{}, NewHistory(), b, "test", "user", "pass")
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/logs", srv.apiLogs)
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, ts.URL+"/api/logs", nil)
+	req.Header.Set("Accept", "text/event-stream")
+	client := &http.Client{Timeout: 500 * time.Millisecond}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	// Drive the broadcaster: pre-rotation line, rotate, post-rotation line.
+	// Tiny delay so the request handler has subscribed before we start.
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		b.Publish("pre-rotate", 11)
+		b.NotifyRotate()
+		b.Publish("post-rotate", 12)
+	}()
+
+	// Drain the SSE stream until we've seen both the rotate frame and
+	// the post-rotate payload, or the connection times out.
+	var body string
+	deadline := time.Now().Add(400 * time.Millisecond)
+	buf := make([]byte, 4096)
+	for time.Now().Before(deadline) {
+		n, err := resp.Body.Read(buf)
+		if n > 0 {
+			body += string(buf[:n])
+			if strings.Contains(body, "event: rotate") && strings.Contains(body, "post-rotate") {
+				break
+			}
+		}
+		if err != nil {
+			break
+		}
+	}
+
+	if !strings.Contains(body, "event: rotate") {
+		t.Errorf("expected 'event: rotate' frame in stream, got:\n%s", body)
+	}
+	if !strings.Contains(body, "post-rotate") {
+		t.Errorf("expected post-rotate line after rotation, got:\n%s", body)
+	}
+	// post-rotate's payload should carry the fresh-file cursor 0:12.
+	if !strings.Contains(body, `"pos":"0:12"`) {
+		t.Errorf("expected post-rotate pos in stream, got:\n%s", body)
+	}
+}
+
+func TestSSEServerFilteredByQ(t *testing.T) {
+	// A line that matches and a line that doesn't both go through the
+	// broadcaster; the SSE handler only emits the matching one when ?q=
+	// is set.
+	b := NewBroadcaster()
+	b.Publish("match: pipeline tv done", 24)
+	b.Publish("skip: cache miss", 41)
+
+	srv := New(nil, stubDaemon{}, NewHistory(), b, "test", "user", "pass")
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/logs", srv.apiLogs)
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, ts.URL+"/api/logs?q=tv", nil)
+	req.Header.Set("Accept", "text/event-stream")
+	client := &http.Client{Timeout: 500 * time.Millisecond}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	buf := make([]byte, 4096)
+	n, _ := resp.Body.Read(buf)
+	body := string(buf[:n])
+	if !strings.Contains(body, "pipeline tv done") {
+		t.Errorf("want match present, body=%s", body)
+	}
+	if strings.Contains(body, "cache miss") {
+		t.Errorf("filter let non-matching line through: %s", body)
+	}
+}
+
+// ── GET /api/logs/{tail,before,after} ─────────────────────────────────────────
 //
-// The endpoint serves the scrollback the SSE channel can't reach. It paginates
-// by offset (lines from EOF), walks .1 .. .N archives in oldest-to-newest order
-// so the chronological ordering is preserved, and clamps requests above its
-// per-call max. Each test seeds a temp log file (and archives when relevant)
-// then issues a single GET to lock down the contract.
+// The viewer is a sliding window over the rotating log set. The endpoints
+// share a JSON shape carrying lines + opaque cursors. Each test seeds a
+// temp log file (and archives when relevant) then issues a single GET to
+// lock down the contract.
 
 func writeLogLines(t *testing.T, path string, lines []string) {
 	t.Helper()
@@ -463,131 +577,195 @@ func writeLogLines(t *testing.T, path string, lines []string) {
 	}
 }
 
-func setupLogHistoryServer(t *testing.T, logPath string, archives int) *httptest.Server {
+func setupLogServer(t *testing.T, logPath string, archives int) *httptest.Server {
 	t.Helper()
 	srv := New(nil, stubDaemon{}, NewHistory(), NewBroadcaster(), "test", "u", "p")
 	srv.SetLogFile(logPath, archives)
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/logs/history", srv.apiLogsHistory)
+	mux.HandleFunc("GET /api/logs/tail", srv.apiLogsTail)
+	mux.HandleFunc("GET /api/logs/before", srv.apiLogsBefore)
+	mux.HandleFunc("GET /api/logs/after", srv.apiLogsAfter)
 	ts := httptest.NewServer(mux)
 	t.Cleanup(ts.Close)
 	return ts
 }
 
-func decodeLogHistory(t *testing.T, resp *http.Response) []string {
+type logRespDecoded struct {
+	Lines       []LineWithPos `json:"lines"`
+	OlderCursor string        `json:"older_cursor"`
+	NewerCursor string        `json:"newer_cursor"`
+	Exhausted   bool          `json:"exhausted"`
+	AtTail      bool          `json:"at_tail"`
+}
+
+func decodeLogResp(t *testing.T, resp *http.Response) logRespDecoded {
 	t.Helper()
-	var body struct {
-		Lines []string `json:"lines"`
-	}
+	var body logRespDecoded
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	return body.Lines
+	return body
 }
 
-func TestAPILogsHistoryTailFromCurrentFile(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "pipeliner.log")
-	// Five lines; offset=0,limit=3 should return the LAST three in order.
-	writeLogLines(t, path, []string{"a", "b", "c", "d", "e"})
-	ts := setupLogHistoryServer(t, path, 0)
-
-	resp := get(t, ts.URL+"/api/logs/history?offset=0&limit=3")
-	defer resp.Body.Close()
-	got := decodeLogHistory(t, resp)
-	if want := []string{"c", "d", "e"}; !equalStrings(got, want) {
-		t.Errorf("got %v, want %v", got, want)
+func lineTexts(lwps []LineWithPos) []string {
+	out := make([]string, len(lwps))
+	for i, l := range lwps {
+		out[i] = l.Text
 	}
+	return out
 }
 
-func TestAPILogsHistoryOffsetSkipsNewer(t *testing.T) {
+func TestAPILogsTailReturnsNewest(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "pipeliner.log")
 	writeLogLines(t, path, []string{"a", "b", "c", "d", "e"})
-	ts := setupLogHistoryServer(t, path, 0)
+	ts := setupLogServer(t, path, 0)
 
-	// Skip the newest 2 lines, then take 2 ⇒ "b", "c".
-	resp := get(t, ts.URL+"/api/logs/history?offset=2&limit=2")
+	resp := get(t, ts.URL+"/api/logs/tail?limit=3")
 	defer resp.Body.Close()
-	got := decodeLogHistory(t, resp)
-	if want := []string{"b", "c"}; !equalStrings(got, want) {
-		t.Errorf("got %v, want %v", got, want)
+	body := decodeLogResp(t, resp)
+	if want := []string{"c", "d", "e"}; !equalStrings(lineTexts(body.Lines), want) {
+		t.Errorf("got %v, want %v", lineTexts(body.Lines), want)
+	}
+	if body.Exhausted {
+		t.Error("want exhausted=false (older lines exist)")
+	}
+	if body.OlderCursor == "" {
+		t.Error("want older_cursor when not exhausted")
 	}
 }
 
-func TestAPILogsHistorySpansArchives(t *testing.T) {
+func TestAPILogsTailExhaustedShortFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "pipeliner.log")
-	// Archives are written *older-first*: .2 is older than .1, which is older
-	// than the current file. After rotation pipeliner.log holds the newest
-	// lines, .1 holds the next-newest, etc.
-	writeLogLines(t, path+".2", []string{"a", "b"})
-	writeLogLines(t, path+".1", []string{"c", "d"})
-	writeLogLines(t, path, []string{"e", "f"})
-	ts := setupLogHistoryServer(t, path, 5)
+	writeLogLines(t, path, []string{"a", "b"})
+	ts := setupLogServer(t, path, 0)
 
-	// Ask for the full window; result must be in chronological order across
-	// all three files (oldest archive first, current file last).
-	resp := get(t, ts.URL+"/api/logs/history?offset=0&limit=10")
+	resp := get(t, ts.URL+"/api/logs/tail?limit=10")
 	defer resp.Body.Close()
-	got := decodeLogHistory(t, resp)
-	if want := []string{"a", "b", "c", "d", "e", "f"}; !equalStrings(got, want) {
-		t.Errorf("got %v, want %v", got, want)
+	body := decodeLogResp(t, resp)
+	if want := []string{"a", "b"}; !equalStrings(lineTexts(body.Lines), want) {
+		t.Errorf("texts = %v, want %v", lineTexts(body.Lines), want)
+	}
+	if !body.Exhausted {
+		t.Error("want exhausted=true")
 	}
 }
 
-func TestAPILogsHistoryLimitClamped(t *testing.T) {
+func TestAPILogsBeforePagesOlder(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "pipeliner.log")
-	// Write more lines than the default+max so we can prove clamping.
+	writeLogLines(t, path, []string{"a", "b", "c", "d", "e"})
+	ts := setupLogServer(t, path, 0)
+
+	tail := decodeLogResp(t, mustGet(t, ts.URL+"/api/logs/tail?limit=2"))
+	if want := []string{"d", "e"}; !equalStrings(lineTexts(tail.Lines), want) {
+		t.Fatalf("tail = %v, want %v", lineTexts(tail.Lines), want)
+	}
+
+	before := decodeLogResp(t, mustGet(t,
+		ts.URL+"/api/logs/before?cursor="+tail.OlderCursor+"&limit=2"))
+	if want := []string{"b", "c"}; !equalStrings(lineTexts(before.Lines), want) {
+		t.Fatalf("before = %v, want %v", lineTexts(before.Lines), want)
+	}
+}
+
+func TestAPILogsTailFilteredAcrossArchives(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "pipeliner.log")
+	writeLogLines(t, path+".1", []string{"INFO pipeline=tv started", "DEBUG misc"})
+	writeLogLines(t, path, []string{"INFO pipeline=movies done", "INFO pipeline=tv done"})
+	ts := setupLogServer(t, path, 5)
+
+	resp := get(t, ts.URL+"/api/logs/tail?limit=10&q=INFO+tv")
+	defer resp.Body.Close()
+	body := decodeLogResp(t, resp)
+	want := []string{"INFO pipeline=tv started", "INFO pipeline=tv done"}
+	if !equalStrings(lineTexts(body.Lines), want) {
+		t.Errorf("got %v, want %v", lineTexts(body.Lines), want)
+	}
+}
+
+func TestAPILogsAfterReachesTail(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "pipeliner.log")
+	writeLogLines(t, path, []string{"a", "b", "c", "d", "e"})
+	ts := setupLogServer(t, path, 0)
+
+	// Take the full file to obtain a cursor for 'a'.
+	full := decodeLogResp(t, mustGet(t, ts.URL+"/api/logs/tail?limit=5"))
+	if len(full.Lines) != 5 {
+		t.Fatalf("seed: got %d lines, want 5", len(full.Lines))
+	}
+	posOfA := full.Lines[0].Pos.String()
+
+	resp := decodeLogResp(t, mustGet(t,
+		ts.URL+"/api/logs/after?cursor="+posOfA+"&limit=10"))
+	if want := []string{"b", "c", "d", "e"}; !equalStrings(lineTexts(resp.Lines), want) {
+		t.Errorf("got %v, want %v", lineTexts(resp.Lines), want)
+	}
+	if !resp.AtTail {
+		t.Error("want at_tail=true after consuming base file")
+	}
+}
+
+func TestAPILogsTailLimitClamped(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "pipeliner.log")
 	lines := make([]string, logHistoryMaxLimit+50)
 	for i := range lines {
 		lines[i] = fmt.Sprintf("line-%d", i)
 	}
 	writeLogLines(t, path, lines)
-	ts := setupLogHistoryServer(t, path, 0)
+	ts := setupLogServer(t, path, 0)
 
-	resp := get(t, ts.URL+"/api/logs/history?offset=0&limit=99999")
+	resp := get(t, ts.URL+"/api/logs/tail?limit=99999")
 	defer resp.Body.Close()
-	got := decodeLogHistory(t, resp)
-	if len(got) != logHistoryMaxLimit {
-		t.Errorf("len = %d, want %d (max-limit clamp)", len(got), logHistoryMaxLimit)
+	body := decodeLogResp(t, resp)
+	if len(body.Lines) != logHistoryMaxLimit {
+		t.Errorf("len = %d, want %d (clamp)", len(body.Lines), logHistoryMaxLimit)
 	}
 }
 
-func TestAPILogsHistoryOffsetPastBeginningReturnsEmpty(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "pipeliner.log")
-	writeLogLines(t, path, []string{"a", "b", "c"})
-	ts := setupLogHistoryServer(t, path, 0)
-
-	resp := get(t, ts.URL+"/api/logs/history?offset=100&limit=10")
-	defer resp.Body.Close()
-	got := decodeLogHistory(t, resp)
-	if len(got) != 0 {
-		t.Errorf("want empty, got %v", got)
-	}
-}
-
-func TestAPILogsHistoryNoLogFileConfigured(t *testing.T) {
-	// SetLogFile never called ⇒ endpoint must succeed with an empty payload
-	// rather than 500. This is the "web is running but file logging is off"
-	// path (unlikely in production but the contract should be tight).
+func TestAPILogsTailNoLogFileConfigured(t *testing.T) {
 	srv := New(nil, stubDaemon{}, NewHistory(), NewBroadcaster(), "test", "u", "p")
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/logs/history", srv.apiLogsHistory)
+	mux.HandleFunc("GET /api/logs/tail", srv.apiLogsTail)
 	ts := httptest.NewServer(mux)
 	defer ts.Close()
 
-	resp := get(t, ts.URL+"/api/logs/history?offset=0&limit=10")
+	resp := get(t, ts.URL+"/api/logs/tail?limit=10")
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
-	got := decodeLogHistory(t, resp)
-	if len(got) != 0 {
-		t.Errorf("want empty, got %v", got)
+	body := decodeLogResp(t, resp)
+	if len(body.Lines) != 0 {
+		t.Errorf("lines = %v, want empty", body.Lines)
 	}
+	if !body.Exhausted {
+		t.Error("want exhausted=true when no file configured")
+	}
+}
+
+func TestAPILogsBeforeBadCursor(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "pipeliner.log")
+	writeLogLines(t, path, []string{"a"})
+	ts := setupLogServer(t, path, 0)
+
+	resp := get(t, ts.URL+"/api/logs/before?cursor=nope&limit=1")
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", resp.StatusCode)
+	}
+}
+
+func mustGet(t *testing.T, url string) *http.Response {
+	t.Helper()
+	r := get(t, url)
+	t.Cleanup(func() { r.Body.Close() })
+	return r
 }
 
 func equalStrings(a, b []string) bool {

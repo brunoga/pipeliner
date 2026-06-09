@@ -311,7 +311,7 @@ pipeline("my-pipeline", schedule="1h")</code></pre>
 <p>Pipeliner automatically maintains <code>pipeliner.db</code> (SQLite) in the same directory as the config file. All stateful plugins (<code>seen</code>, <code>series</code>, <code>movies</code>, <code>premiere</code>, the TVDB/Trakt caches, and persistent lists) share this file. No configuration needed.</p>
 
 <h3>Log file</h3>
-<p>Pipeliner also writes a rotating log file <code>pipeliner.log</code> next to <code>config.star</code> and <code>pipeliner.db</code>. Every record sent to stderr is also appended here (uncolored, so <code>cat</code>/<code>less</code>/<code>grep</code> stay readable), with rotation at 10 MB into <code>pipeliner.log.1</code> … <code>pipeliner.log.5</code> — capping disk usage at ~50 MB while preserving several days of scrollback for a typical home install. Both the <code>run</code> and <code>daemon</code> commands write this file; no configuration needed. The Dashboard's Live Log reads this file on-demand to provide scrollback older than what the in-memory SSE buffer can hold.</p>
+<p>Pipeliner also writes a rotating log file <code>pipeliner.log</code> next to <code>config.star</code> and <code>pipeliner.db</code>. Every record sent to stderr is also appended here (uncolored, so <code>cat</code>/<code>less</code>/<code>grep</code> stay readable), with rotation at 10 MB into <code>pipeliner.log.1</code> … <code>pipeliner.log.5</code> — capping disk usage at ~50 MB while preserving several days of scrollback for a typical home install. Both the <code>run</code> and <code>daemon</code> commands write this file; no configuration needed. The Dashboard's Live Log is a windowed view directly over this rotating file: scrolling and searching always operate against the on-disk content, so what you see is consistent regardless of how long the page has been open.</p>
 
 <!-- ═══════════════════════════════════════════════════════════ -->
 <h2 id="variables">Variables</h2>
@@ -1884,7 +1884,7 @@ output("exec", upstream=cleanup, command="rm -f {file_location}")</code></pre>
   <li><strong>Task cards</strong> — each card shows the next scheduled run datetime (hover for the raw cron/interval), the last run time, accepted/rejected/failed counts, and a <em>Run now</em> button.</li>
   <li><strong>Run all</strong> — triggers all tasks immediately.</li>
   <li><strong>Reload config</strong> — reloads <code>config.star</code> from disk without restarting the process. Queued for after running tasks finish if any are active.</li>
-  <li><strong>Live Log</strong> — SSE-streamed log with a filter box. Reconnects automatically; replays the last 10,000 lines for new connections. Scroll up past the in-memory buffer to lazy-load older entries from <code>pipeliner.log</code>; loading stops at <em>── start of recorded history ──</em>.</li>
+  <li><strong>Live Log</strong> — a windowed view over <code>pipeliner.log</code> with a server-side search box. The newest lines stream in via SSE; scroll up to lazy-load older entries from the rotating file (across <code>pipeliner.log.1</code> … <code>.5</code>) until <em>── start of recorded history ──</em>. Scrolling away from the bottom pauses auto-scroll and surfaces a <em>"N new ↓"</em> pill; click it (or scroll back to the bottom) to resume live-follow. The filter searches the entire on-disk log — typing it again later yields the same results regardless of how much you've scrolled.</li>
 </ul>
 
 <h3>Config tab — Text editor</h3>

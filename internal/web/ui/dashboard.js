@@ -18,13 +18,48 @@ function setTheme(theme) {
 
 // ── polling ───────────────────────────────────────────────────────────────────
 
-const MAX_LINES = 500;
-const LOG_HISTORY_LIMIT = 200;
-const LOG_HISTORY_SCROLL_THRESHOLD = 40;
-let logLines = []; // [{el, raw}] — lines fed by the SSE stream
-let historyLines = []; // [{el, raw}] — older lines lazy-loaded from /api/logs/history
-let logHistory = { offset: 0, exhausted: false, loading: false, endMarker: null };
 let startedAt = Date.now();
+
+// ── log viewer state ─────────────────────────────────────────────────────────
+//
+// The log viewer is a sliding window over the on-disk rotating log file.
+// rendered[] holds the lines currently in the DOM (oldest-first). topCursor
+// is the position of the oldest rendered line — the next /before fetch
+// pages from there. bottomCursor is the position of the newest rendered
+// non-live line; when bottomAtTail is true, the SSE stream owns the bottom
+// edge. Window eviction keeps the DOM bounded but the file is always the
+// source of truth — scrolling re-fetches anything we evicted.
+const LOG_WINDOW_CAP        = 2000;  // max rendered DOM lines
+const LOG_PAGE_SIZE         = 200;   // /tail, /before, /after page size
+const LOG_BOOT_TAIL         = 300;   // first /tail call
+const LOG_SCROLL_EDGE_PX    = 120;   // re-fetch trigger distance from edge
+const LOG_FILTER_DEBOUNCE_MS = 150;
+
+let veLog = newLogState();
+
+function newLogState() {
+  return {
+    rendered: [],         // [{el, raw, pos, seq, live}], oldest-first
+    topCursor: null,      // string cursor; null = haven't loaded any yet
+    topExhausted: false,  // start-of-history reached
+    bottomCursor: null,   // string cursor of newest non-live rendered line
+    bottomAtTail: true,   // false ⇒ /after needed to reach live edge
+    loadingTop: false,
+    loadingBottom: false,
+    liveFollow: true,
+    pendingLive: 0,
+    filter: '',
+    es: null,
+    lastSeq: 0,
+    lastLivePos: null,    // pos string of the most recent SSE-delivered line
+    startMarker: null,
+    emptyMarker: null,
+    filterToken: 0,       // bumps to cancel in-flight fetches after re-filter
+    filterDebounce: null,
+    bridgeBusy: false,    // true while runBridge() is fetching missed lines
+    pendingLiveQueue: [], // live lines buffered behind an in-flight bridge
+  };
+}
 
 // ── polling ───────────────────────────────────────────────────────────────────
 
@@ -158,179 +193,517 @@ async function triggerRun(name, btn, dryRun) {
 function connectLogs() {
   const dot  = document.getElementById('log-dot');
   const text = document.getElementById('log-status-text');
-  const es   = new EventSource('/api/logs');
+  // Boot path: load initial tail before the SSE stream begins so we have
+  // cursors anchored to the on-disk file. SSE then takes over the live edge.
+  if (!veLog.bootStarted) {
+    veLog.bootStarted = true;
+    loadInitialTail();
+  }
+  startSSE(dot, text);
+
+  const con = document.getElementById('log-console');
+  if (con && !con._scrollWired) {
+    con._scrollWired = true;
+    con.addEventListener('scroll', onLogScroll);
+  }
+}
+
+function startSSE(dot, text) {
+  const url = veLog.filter ? `/api/logs?q=${encodeURIComponent(veLog.filter)}` : '/api/logs';
+  const es = new EventSource(url);
+  veLog.es = es;
 
   es.onopen = () => { dot.classList.add('on'); text.textContent = 'connected'; };
 
-  es.onmessage = ev => appendLog(ev.data);
+  es.onmessage = ev => {
+    let payload;
+    try { payload = JSON.parse(ev.data); } catch (_) { return; }
+    if (!payload || typeof payload.text !== 'string') return;
+    const seq = parseInt(ev.lastEventId || '0', 10) || 0;
+    handleSSELine({pos: payload.pos || '', text: payload.text, seq});
+  };
+
+  es.addEventListener('rotate', () => {
+    // Rotation invalidates client-held cursors. Refresh from /tail.
+    handleRotation();
+  });
 
   es.onerror = () => {
     dot.classList.remove('on');
     text.textContent = 'reconnecting…';
     es.close();
-    setTimeout(connectLogs, 3000);
+    veLog.es = null;
+    setTimeout(() => startSSE(dot, text), 3000);
   };
+}
 
-  // Lazy-load older history on scroll-up. Installed here so it only attaches
-  // once per page lifetime, regardless of how many SSE reconnects happen.
-  const con = document.getElementById('log-console');
-  if (con && !con._historyWired) {
-    con._historyWired = true;
-    con.addEventListener('scroll', maybeLoadLogHistory);
+async function loadInitialTail() {
+  setFilterSpinner(true);
+  const token = ++veLog.filterToken;
+  try {
+    const url = buildLogUrl('/api/logs/tail', {limit: LOG_BOOT_TAIL});
+    const body = await fetchJSON(url);
+    if (token !== veLog.filterToken) return;
+    renderInitialTail(body);
+  } catch (_) {
+  } finally {
+    if (token === veLog.filterToken) setFilterSpinner(false);
   }
 }
 
-function appendLog(line) {
-  const el = document.createElement('div');
-  el.className = 'log-line';
-  el.innerHTML = renderLogLine(line);
-
-  const filter = document.getElementById('log-filter').value.toLowerCase();
-  if (filter && !line.toLowerCase().includes(filter)) {
-    el.style.display = 'none';
-  }
-
-  const con = document.getElementById('log-console');
-  const atBottom = con.scrollHeight - con.scrollTop - con.clientHeight < 60;
-  con.appendChild(el);
-  logLines.push({el, raw: line});
-  if (logLines.length > MAX_LINES) { logLines.shift().el.remove(); }
-  if (atBottom) con.scrollTop = con.scrollHeight;
-}
-
-function clearLog() {
-  document.getElementById('log-console').innerHTML = '';
-  logLines = [];
-  historyLines = [];
-  logHistory = { offset: 0, exhausted: false, loading: false, endMarker: null };
-}
-
-function applyFilter() {
-  const filter = document.getElementById('log-filter').value.toLowerCase();
-  for (const {el, raw} of historyLines) {
-    el.style.display = (!filter || raw.toLowerCase().includes(filter)) ? '' : 'none';
-  }
-  for (const {el, raw} of logLines) {
-    el.style.display = (!filter || raw.toLowerCase().includes(filter)) ? '' : 'none';
-  }
-}
-
-// ── scrollback history ───────────────────────────────────────────────────────
-//
-// The SSE stream only carries lines emitted after the page connected (with a
-// short in-memory ring as warm-up). For deeper scrollback we lazy-load older
-// chunks from /api/logs/history when the user scrolls within
-// LOG_HISTORY_SCROLL_THRESHOLD px of the top.
-
-async function maybeLoadLogHistory() {
-  if (logHistory.exhausted || logHistory.loading) return;
+function renderInitialTail(body) {
   const con = document.getElementById('log-console');
   if (!con) return;
-  if (con.scrollTop > LOG_HISTORY_SCROLL_THRESHOLD) return;
-  await loadLogHistory();
+  con.innerHTML = '';
+  veLog.rendered = [];
+  veLog.startMarker = null;
+  veLog.emptyMarker = null;
+  const lines = (body && Array.isArray(body.lines)) ? body.lines : [];
+  for (const ln of lines) appendRenderedLine(ln.text, ln.pos, false);
+  veLog.topCursor = body.older_cursor || (lines[0] ? lines[0].pos : null);
+  veLog.topExhausted = !!body.exhausted;
+  veLog.bottomCursor = lines.length ? lines[lines.length - 1].pos : null;
+  veLog.bottomAtTail = true;
+  veLog.liveFollow = true;
+  veLog.pendingLive = 0;
+  veLog.lastLivePos = veLog.bottomCursor;
+  updatePill();
+  refreshMarkers();
+  // Pin to bottom on initial boot.
+  requestAnimationFrame(() => { con.scrollTop = con.scrollHeight; });
 }
 
-async function loadLogHistory() {
-  if (logHistory.exhausted || logHistory.loading) return;
-  logHistory.loading = true;
+function handleSSELine(line) {
+  veLog.lastSeq = line.seq || veLog.lastSeq;
+  // The server already filters SSE lines server-side when ?q= is set, so
+  // every event we receive matches the current filter.
+  if (veLog.bridgeBusy) {
+    // A bridge is in flight; queue this line and let runBridge() drain
+    // it after the missed window arrives. Out-of-order delivery breaks
+    // chronological order, so queueing is required even for non-gap lines.
+    veLog.pendingLiveQueue.push(line);
+    return;
+  }
+  if (veLog.lastLivePos && line.pos && hasLogGap(veLog.lastLivePos, line)) {
+    veLog.pendingLiveQueue.push(line);
+    runBridge();
+    return;
+  }
+  applyLiveLine(line);
+}
+
+function applyLiveLine(line) {
+  if (!veLog.bottomAtTail) {
+    // We're paging forward from history; new live lines aren't part of
+    // the rendered window yet. They'll come in when /after returns
+    // at_tail=true or the user clicks the pill.
+    veLog.pendingLive++;
+    updatePill();
+    return;
+  }
+  appendRenderedLine(line.text, line.pos, true);
+  veLog.bottomCursor = line.pos || veLog.bottomCursor;
+  veLog.lastLivePos = line.pos || veLog.lastLivePos;
+  if (veLog.liveFollow) {
+    scrollLogToBottom();
+    capWindowFromTop();
+  } else {
+    veLog.pendingLive++;
+    updatePill();
+  }
+}
+
+// runBridge fills the gap between the client's last-seen live position
+// and a freshly-arrived SSE line that's NOT contiguous with it. Such a
+// gap appears when an SSE reconnect spans more lines than the server's
+// in-memory ring can replay. The bridge fetches /api/logs/after pages
+// until the queued line is either covered or accepted.
+async function runBridge() {
+  if (veLog.bridgeBusy) return;
+  veLog.bridgeBusy = true;
   try {
-    const url = `/api/logs/history?offset=${logHistory.offset}&limit=${LOG_HISTORY_LIMIT}`;
-    const r = await fetch(url);
-    if (!r.ok) return;
-    const body = await r.json();
-    const lines = Array.isArray(body.lines) ? body.lines : [];
-    // The first chunk's newest end usually overlaps the SSE warm-up tail
-    // already in the DOM (server reads lines from EOF; the warm-up came
-    // from the broadcaster's ring of those same lines). Trim that overlap
-    // before prepending so we don't render the visible tail twice — the
-    // file copy carries no ANSI codes so the duplicates would also lose
-    // their colors. Advance offset by the *original* chunk length so the
-    // server-side cursor still skips past the whole fetched window.
-    const fresh = trimHistoryOverlap(lines);
-    if (fresh.length > 0) {
-      prependHistoryLines(fresh);
-    }
-    logHistory.offset += lines.length;
-    if (lines.length < LOG_HISTORY_LIMIT) {
-      logHistory.exhausted = true;
-      showHistoryEndMarker();
+    // Hard guard against unbounded loops on pathological positions; in
+    // practice each /after page advances lastLivePos forward.
+    let guard = 50;
+    while (veLog.pendingLiveQueue.length > 0 && guard-- > 0) {
+      const next = veLog.pendingLiveQueue[0];
+      // Already covered by a previous bridge result.
+      if (positionCovered(veLog.lastLivePos, next.pos)) {
+        veLog.pendingLiveQueue.shift();
+        continue;
+      }
+      if (!hasLogGap(veLog.lastLivePos, next)) {
+        veLog.pendingLiveQueue.shift();
+        applyLiveLine(next);
+        continue;
+      }
+      // Genuine gap — fetch the missed window.
+      const body = await fetchJSON(buildLogUrl('/api/logs/after', {
+        cursor: veLog.lastLivePos,
+        limit: LOG_PAGE_SIZE,
+      }));
+      const lines = (body && Array.isArray(body.lines)) ? body.lines : [];
+      let appliedCount = 0;
+      for (const ln of lines) {
+        if (positionCovered(veLog.lastLivePos, ln.pos)) continue;
+        applyLiveLine({pos: ln.pos, text: ln.text, seq: 0});
+        appliedCount++;
+      }
+      if (appliedCount === 0) {
+        // Server returned no new content beyond what we already have.
+        // Don't loop — accept the queued line so it doesn't get stuck.
+        veLog.pendingLiveQueue.shift();
+        applyLiveLine(next);
+      }
     }
   } catch (_) {
-    // Transient fetch failure — leave loading=false so the next scroll retries.
+    // On fetch failure, drop the queue rather than block live delivery.
+    // The on-disk log still has the missed lines — the user can scroll
+    // up to find them.
   } finally {
-    logHistory.loading = false;
+    veLog.bridgeBusy = false;
   }
 }
 
-// trimHistoryOverlap drops the chunk's newest-end portion that matches
-// the page's newest-end portion. The first history fetch always reads
-// the file's tail (since `offset=0` means "from EOF"), which is exactly
-// the slice the SSE warm-up already showed; without this trim the page
-// would render the live tail twice (and the second copy plain because
-// the on-disk log carries no ANSI). Comparison strips ANSI so SSE-
-// colored lines match their plain file copies. Returns the chunk
-// truncated to its genuinely-older prefix.
-function trimHistoryOverlap(chunk) {
-  if (chunk.length === 0) return chunk;
-  // Page lines in chronological order (newest visible line at the end).
-  const page = [];
-  for (const {raw} of historyLines) page.push(raw);
-  for (const {raw} of logLines) page.push(raw);
-  if (page.length === 0) return chunk;
-
-  // Walk both arrays backwards from their newest end. Each matching pair
-  // is a line on both sides; stop at the first mismatch (older lines in
-  // the chunk that the page doesn't have yet).
-  let i = chunk.length - 1;
-  let j = page.length - 1;
-  let matched = 0;
-  while (i >= 0 && j >= 0 &&
-         stripAnsi(chunk[i]) === stripAnsi(page[j])) {
-    matched++;
-    i--;
-    j--;
-  }
-  return chunk.slice(0, chunk.length - matched);
+// hasLogGap returns true when `line` is not contiguous with the previous
+// live position — i.e., its starting byte (position - len(text) - 1) is
+// past the previous line's byte end. Cross-file transitions don't qualify;
+// the SSE rotate event handles those separately.
+function hasLogGap(lastPosStr, line) {
+  const last = parseLinePosClient(lastPosStr);
+  const cur = parseLinePosClient(line.pos);
+  if (!last || !cur) return false;
+  if (last.fileIdx !== cur.fileIdx) return false;
+  const predicted = last.byteEnd + (line.text ? line.text.length : 0) + 1;
+  return cur.byteEnd > predicted;
 }
 
-function stripAnsi(s) {
-  return s.replace(/\x1b\[[0-9;]*m/g, '');
+function positionCovered(lastPosStr, posStr) {
+  const last = parseLinePosClient(lastPosStr);
+  const cur = parseLinePosClient(posStr);
+  if (!last || !cur) return false;
+  return last.fileIdx === cur.fileIdx && cur.byteEnd <= last.byteEnd;
 }
 
-function prependHistoryLines(lines) {
+function parseLinePosClient(s) {
+  if (!s || typeof s !== 'string') return null;
+  const i = s.indexOf(':');
+  if (i < 0) return null;
+  const f = parseInt(s.slice(0, i), 10);
+  const b = parseInt(s.slice(i + 1), 10);
+  if (isNaN(f) || isNaN(b)) return null;
+  return {fileIdx: f, byteEnd: b};
+}
+
+function handleRotation() {
+  // Bump cursors and refetch from tail to re-anchor everything.
+  veLog.filterToken++;
+  return loadInitialTail();
+}
+
+function appendRenderedLine(text, pos, live) {
   const con = document.getElementById('log-console');
-  const filterInput = document.getElementById('log-filter');
-  const filter = (filterInput && filterInput.value || '').toLowerCase();
+  if (!con) return;
+  // Drop any "no matches" hint once content arrives.
+  removeEmptyMarker();
+  const el = document.createElement('div');
+  el.className = 'log-line';
+  el.innerHTML = renderLogLine(text);
+  con.appendChild(el);
+  veLog.rendered.push({el, raw: text, pos: pos || null, live: !!live});
+}
+
+function prependRenderedLines(items) {
+  const con = document.getElementById('log-console');
+  if (!con) return;
+  removeEmptyMarker();
   const oldHeight = con.scrollHeight;
-  const oldTop    = con.scrollTop;
+  const oldTop = con.scrollTop;
   const frag = document.createDocumentFragment();
   const newEntries = [];
-  for (const raw of lines) {
+  for (const {pos, text} of items) {
     const el = document.createElement('div');
-    el.className = 'log-line log-history';
-    el.innerHTML = renderLogLine(raw);
-    if (filter && !raw.toLowerCase().includes(filter)) {
-      el.style.display = 'none';
-    }
+    el.className = 'log-line';
+    el.innerHTML = renderLogLine(text);
     frag.appendChild(el);
-    newEntries.push({el, raw});
+    newEntries.push({el, raw: text, pos: pos || null, live: false});
   }
-  con.insertBefore(frag, con.firstChild);
-  // Newest history first in the DOM (since each chunk is older than the previous
-  // one), so prepend in array order: oldest of this chunk at index 0.
-  historyLines = newEntries.concat(historyLines);
-  // Preserve visual position so the user's view doesn't jump after a prepend.
+  // Insert after the start-of-history marker if it's present at the top.
+  const anchor = veLog.startMarker || con.firstChild;
+  if (anchor) con.insertBefore(frag, anchor);
+  else con.appendChild(frag);
+  veLog.rendered = newEntries.concat(veLog.rendered);
   con.scrollTop = oldTop + (con.scrollHeight - oldHeight);
 }
 
-function showHistoryEndMarker() {
+function scrollLogToBottom() {
   const con = document.getElementById('log-console');
-  if (!con || logHistory.endMarker) return;
-  const marker = document.createElement('div');
-  marker.className = 'log-history-end';
-  marker.textContent = '── start of recorded history ──';
-  con.insertBefore(marker, con.firstChild);
-  logHistory.endMarker = marker;
+  if (con) con.scrollTop = con.scrollHeight;
+}
+
+// capWindowFromTop evicts oldest rendered rows when the window grows
+// past LOG_WINDOW_CAP. The evicted lines are still on disk; the next
+// scroll-up will re-fetch them. topCursor is advanced to the new oldest
+// rendered line so /before paginates correctly. We never evict while the
+// user has scrolled away — that would lose context they're reading.
+function capWindowFromTop() {
+  if (veLog.rendered.length <= LOG_WINDOW_CAP) return;
+  const drop = veLog.rendered.length - LOG_WINDOW_CAP;
+  for (let i = 0; i < drop; i++) {
+    veLog.rendered[i].el.remove();
+  }
+  veLog.rendered = veLog.rendered.slice(drop);
+  // We've thrown lines away — they're now older than what we have.
+  veLog.topExhausted = false;
+  veLog.topCursor = veLog.rendered.length ? veLog.rendered[0].pos : veLog.topCursor;
+  if (veLog.startMarker) {
+    veLog.startMarker.remove();
+    veLog.startMarker = null;
+  }
+}
+
+function capWindowFromBottom() {
+  if (veLog.rendered.length <= LOG_WINDOW_CAP) return;
+  const drop = veLog.rendered.length - LOG_WINDOW_CAP;
+  const tail = veLog.rendered.length;
+  for (let i = tail - drop; i < tail; i++) {
+    veLog.rendered[i].el.remove();
+  }
+  veLog.rendered = veLog.rendered.slice(0, tail - drop);
+  veLog.bottomAtTail = false;
+  veLog.bottomCursor = veLog.rendered.length
+    ? veLog.rendered[veLog.rendered.length - 1].pos
+    : veLog.bottomCursor;
+}
+
+// ── scroll-driven paging ─────────────────────────────────────────────────────
+
+function onLogScroll() {
+  const con = document.getElementById('log-console');
+  if (!con) return;
+  const distFromBottom = con.scrollHeight - con.scrollTop - con.clientHeight;
+  // Determine live-follow state based on the user's viewport, not on past
+  // assumptions: at the bottom means following live.
+  const wasFollowing = veLog.liveFollow;
+  veLog.liveFollow = distFromBottom < 4;
+  if (!wasFollowing && veLog.liveFollow) {
+    // User scrolled back to bottom → drain pending pill counter.
+    veLog.pendingLive = 0;
+    updatePill();
+  } else if (wasFollowing && !veLog.liveFollow) {
+    updatePill();
+  }
+
+  if (con.scrollTop < LOG_SCROLL_EDGE_PX) {
+    maybeLoadOlder();
+  }
+  if (distFromBottom < LOG_SCROLL_EDGE_PX && !veLog.bottomAtTail) {
+    maybeLoadNewer();
+  }
+}
+
+async function maybeLoadOlder() {
+  if (veLog.loadingTop || veLog.topExhausted || !veLog.topCursor) return;
+  veLog.loadingTop = true;
+  if (veLog.filter) setFilterSpinner(true);
+  const token = veLog.filterToken;
+  try {
+    const url = buildLogUrl('/api/logs/before', {
+      cursor: veLog.topCursor,
+      limit: LOG_PAGE_SIZE,
+    });
+    const body = await fetchJSON(url);
+    if (token !== veLog.filterToken) return;
+    const lines = (body && Array.isArray(body.lines)) ? body.lines : [];
+    if (lines.length > 0) {
+      prependRenderedLines(lines.map(l => ({pos: l.pos, text: l.text})));
+      veLog.topCursor = body.older_cursor || lines[0].pos;
+    } else if (body && body.older_cursor) {
+      // No matches in this window but there's older content — advance the
+      // cursor so the next scroll pages further.
+      veLog.topCursor = body.older_cursor;
+    }
+    if (body && body.exhausted) {
+      veLog.topExhausted = true;
+    }
+    refreshMarkers();
+  } catch (_) {
+  } finally {
+    veLog.loadingTop = false;
+    if (veLog.filter) setFilterSpinner(false);
+  }
+}
+
+async function maybeLoadNewer() {
+  if (veLog.loadingBottom || veLog.bottomAtTail || !veLog.bottomCursor) return;
+  veLog.loadingBottom = true;
+  if (veLog.filter) setFilterSpinner(true);
+  const token = veLog.filterToken;
+  try {
+    const url = buildLogUrl('/api/logs/after', {
+      cursor: veLog.bottomCursor,
+      limit: LOG_PAGE_SIZE,
+    });
+    const body = await fetchJSON(url);
+    if (token !== veLog.filterToken) return;
+    const lines = (body && Array.isArray(body.lines)) ? body.lines : [];
+    for (const ln of lines) appendRenderedLine(ln.text, ln.pos, false);
+    if (lines.length > 0) {
+      veLog.bottomCursor = body.newer_cursor || lines[lines.length - 1].pos;
+    } else if (body && body.newer_cursor) {
+      veLog.bottomCursor = body.newer_cursor;
+    }
+    if (body && body.at_tail) {
+      veLog.bottomAtTail = true;
+      veLog.bottomCursor = veLog.lastLivePos || veLog.bottomCursor;
+    }
+  } catch (_) {
+  } finally {
+    veLog.loadingBottom = false;
+    if (veLog.filter) setFilterSpinner(false);
+  }
+}
+
+// resumeLiveTail jumps to the live edge: fetch forward until at_tail,
+// then scroll to bottom and re-engage live-follow.
+async function resumeLiveTail() {
+  while (!veLog.bottomAtTail && veLog.bottomCursor) {
+    await maybeLoadNewer();
+  }
+  veLog.pendingLive = 0;
+  veLog.liveFollow = true;
+  updatePill();
+  scrollLogToBottom();
+}
+
+// ── filter ──────────────────────────────────────────────────────────────────
+
+function onLogFilterInput() {
+  if (veLog.filterDebounce) clearTimeout(veLog.filterDebounce);
+  veLog.filterDebounce = setTimeout(() => {
+    veLog.filterDebounce = null;
+    applyFilter();
+  }, LOG_FILTER_DEBOUNCE_MS);
+}
+
+async function applyFilter() {
+  const input = document.getElementById('log-filter');
+  const newFilter = input ? input.value : '';
+  if (newFilter === veLog.filter) return;
+  veLog.filter = newFilter;
+  veLog.filterToken++;  // cancel pending fetches under the old filter
+  if (veLog.es) {
+    veLog.es.close();
+    veLog.es = null;
+  }
+  veLog.rendered = [];
+  veLog.topCursor = null;
+  veLog.topExhausted = false;
+  veLog.bottomCursor = null;
+  veLog.bottomAtTail = true;
+  veLog.liveFollow = true;
+  veLog.pendingLive = 0;
+  veLog.lastLivePos = null;
+  veLog.startMarker = null;
+  veLog.emptyMarker = null;
+  const con = document.getElementById('log-console');
+  if (con) con.innerHTML = '';
+  updatePill();
+  await loadInitialTail();
+  // Re-open SSE with the new filter (filter-aware server-side).
+  const dot  = document.getElementById('log-dot');
+  const text = document.getElementById('log-status-text');
+  startSSE(dot, text);
+}
+
+// clearLog wipes the rendered window and re-boots from /tail. The filter
+// stays as-is (use the X next to the input to clear that).
+function clearLog() {
+  veLog.filterToken++;
+  veLog.rendered = [];
+  veLog.topCursor = null;
+  veLog.topExhausted = false;
+  veLog.bottomCursor = null;
+  veLog.bottomAtTail = true;
+  veLog.liveFollow = true;
+  veLog.pendingLive = 0;
+  veLog.lastLivePos = null;
+  veLog.startMarker = null;
+  veLog.emptyMarker = null;
+  const con = document.getElementById('log-console');
+  if (con) con.innerHTML = '';
+  updatePill();
+  loadInitialTail();
+}
+
+// ── UI affordances ───────────────────────────────────────────────────────────
+
+function updatePill() {
+  const pill = document.getElementById('log-tail-pill');
+  const count = document.getElementById('log-tail-pill-count');
+  if (!pill || !count) return;
+  const show = !veLog.liveFollow && veLog.pendingLive > 0;
+  pill.hidden = !show;
+  if (show) count.textContent = String(veLog.pendingLive);
+}
+
+function setFilterSpinner(on) {
+  const sp = document.getElementById('log-filter-spinner');
+  if (!sp) return;
+  sp.classList.toggle('on', !!on);
+}
+
+function refreshMarkers() {
+  const con = document.getElementById('log-console');
+  if (!con) return;
+  if (veLog.topExhausted && veLog.rendered.length > 0) {
+    if (!veLog.startMarker) {
+      const m = document.createElement('div');
+      m.className = 'log-history-end';
+      m.textContent = '── start of recorded history ──';
+      con.insertBefore(m, con.firstChild);
+      veLog.startMarker = m;
+    }
+  } else if (veLog.startMarker) {
+    veLog.startMarker.remove();
+    veLog.startMarker = null;
+  }
+  if (veLog.rendered.length === 0 && veLog.filter && veLog.topExhausted) {
+    if (!veLog.emptyMarker) {
+      const m = document.createElement('div');
+      m.className = 'log-no-matches';
+      m.textContent = `no matches for "${veLog.filter}" in recorded history`;
+      con.appendChild(m);
+      veLog.emptyMarker = m;
+    }
+  } else {
+    removeEmptyMarker();
+  }
+}
+
+function removeEmptyMarker() {
+  if (veLog.emptyMarker) {
+    veLog.emptyMarker.remove();
+    veLog.emptyMarker = null;
+  }
+}
+
+// ── helpers ─────────────────────────────────────────────────────────────────
+
+function buildLogUrl(base, params) {
+  const usp = new URLSearchParams();
+  for (const k of Object.keys(params)) {
+    if (params[k] != null && params[k] !== '') usp.set(k, String(params[k]));
+  }
+  if (veLog.filter) usp.set('q', veLog.filter);
+  const qs = usp.toString();
+  return qs ? `${base}?${qs}` : base;
+}
+
+async function fetchJSON(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error('http ' + r.status);
+  return await r.json();
 }
 
 // Convert a log line to HTML. Live SSE lines arrive with ANSI codes from
