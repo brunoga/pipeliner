@@ -129,6 +129,7 @@ function card(t, last, idx = 0) {
          <div class="stat a"><div class="stat-val a">${last.accepted}</div><div class="stat-lbl">accepted</div></div>
          <div class="stat r"><div class="stat-val r">${last.rejected}</div><div class="stat-lbl">rejected</div></div>
          <div class="stat f"><div class="stat-val f">${last.failed}</div><div class="stat-lbl">failed</div></div>
+         <div class="stat u"><div class="stat-val u">${last.undecided ?? 0}</div><div class="stat-lbl">undecided</div></div>
        </div>`
     : `<div class="task-empty">No runs yet</div>`;
 

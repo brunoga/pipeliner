@@ -9,15 +9,16 @@ const maxRunsPerTask = 20
 
 // RunRecord captures the outcome of one task execution.
 type RunRecord struct {
-	Task     string
-	At       time.Time
-	Accepted int
-	Rejected int
-	Failed   int
-	Total    int
-	Duration time.Duration
-	Err      string // non-empty if the run returned an error
-	DryRun   bool   // true when this run was a dry-run (no side effects, no commit)
+	Task      string
+	At        time.Time
+	Accepted  int
+	Rejected  int
+	Failed    int
+	Undecided int
+	Total     int
+	Duration  time.Duration
+	Err       string // non-empty if the run returned an error
+	DryRun    bool   // true when this run was a dry-run (no side effects, no commit)
 }
 
 // History stores the last maxRunsPerTask records per task.

@@ -11,12 +11,13 @@ import (
 
 // Result summarises the outcome of a single pipeline run.
 type Result struct {
-	Accepted int
-	Rejected int
-	Failed   int
-	Total    int
-	Duration time.Duration
-	Entries  []*entry.Entry
+	Accepted  int
+	Rejected  int
+	Failed    int
+	Undecided int
+	Total     int
+	Duration  time.Duration
+	Entries   []*entry.Entry
 }
 
 // BuildOption is a functional option applied to a Task after construction.

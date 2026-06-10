@@ -204,6 +204,43 @@ func TestExecutor_Merge(t *testing.T) {
 	}
 }
 
+// TestExecutor_UndecidedCount confirms that source entries which never get
+// claimed by a processor (and so never transition out of Undecided) are
+// counted in res.Undecided. The sink's default AcceptedOnly pre-filter
+// excludes Undecided entries entirely, so they stay Undecided through the
+// run — exactly the case the new "undecided" log/stat counter exists for.
+func TestExecutor_UndecidedCount(t *testing.T) {
+	sink := &sinkPlugin{}
+	ex := buildExec(t,
+		[]*dag.Node{
+			{ID: "src", PluginName: "test_source"},
+			{ID: "sink", PluginName: "test_sink", Upstreams: []dag.NodeID{"src"}},
+		},
+		map[dag.NodeID]*executor.PluginInstance{
+			"src":  {Desc: sourceDesc(), Impl: &sourcePlugin{urls: []string{"http://a.com", "http://b.com"}}, Config: map[string]any{}},
+			"sink": {Desc: sinkDesc(), Impl: sink, Config: map[string]any{}},
+		},
+	)
+
+	res, err := ex.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Total != 2 {
+		t.Errorf("want Total=2, got %d", res.Total)
+	}
+	if res.Undecided != 2 {
+		t.Errorf("want Undecided=2 (neither source entry was accepted), got %d", res.Undecided)
+	}
+	if res.Accepted != 0 || res.Rejected != 0 || res.Failed != 0 {
+		t.Errorf("want zero terminal counts, got accepted=%d rejected=%d failed=%d",
+			res.Accepted, res.Rejected, res.Failed)
+	}
+	if len(sink.received) != 0 {
+		t.Errorf("sink must not receive Undecided entries (AcceptedOnly pre-filter), got %d", len(sink.received))
+	}
+}
+
 func TestExecutor_DeduplicatesURL(t *testing.T) {
 	// Both sources emit the same URL — merge should dedup.
 	sink := &sinkPlugin{}

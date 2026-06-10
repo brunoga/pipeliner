@@ -419,6 +419,7 @@ func cmdDaemon(args []string) int {
 			rec.Accepted = result.Accepted
 			rec.Rejected = result.Rejected
 			rec.Failed = result.Failed
+			rec.Undecided = result.Undecided
 			rec.Total = result.Total
 			rec.Duration = result.Duration
 			// The executor itself logs "pipeline done" with the same

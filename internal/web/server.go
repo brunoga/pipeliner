@@ -303,14 +303,15 @@ func (s *Server) apiStatus(w http.ResponseWriter, _ *http.Request) {
 
 func (s *Server) apiHistory(w http.ResponseWriter, _ *http.Request) {
 	type runJSON struct {
-		At       string `json:"at"`
-		Accepted int    `json:"accepted"`
-		Rejected int    `json:"rejected"`
-		Failed   int    `json:"failed"`
-		Total    int    `json:"total"`
-		Duration string `json:"duration"`
-		Err      string `json:"err,omitempty"`
-		DryRun   bool   `json:"dry_run,omitempty"`
+		At        string `json:"at"`
+		Accepted  int    `json:"accepted"`
+		Rejected  int    `json:"rejected"`
+		Failed    int    `json:"failed"`
+		Undecided int    `json:"undecided"`
+		Total     int    `json:"total"`
+		Duration  string `json:"duration"`
+		Err       string `json:"err,omitempty"`
+		DryRun    bool   `json:"dry_run,omitempty"`
 	}
 	all := s.history.All()
 	out := make(map[string][]runJSON, len(all))
@@ -318,14 +319,15 @@ func (s *Server) apiHistory(w http.ResponseWriter, _ *http.Request) {
 		rj := make([]runJSON, len(runs))
 		for i, r := range runs {
 			rj[i] = runJSON{
-				At:       r.At.UTC().Format(time.RFC3339),
-				Accepted: r.Accepted,
-				Rejected: r.Rejected,
-				Failed:   r.Failed,
-				Total:    r.Total,
-				Duration: r.Duration.Round(time.Millisecond).String(),
-				Err:      r.Err,
-				DryRun:   r.DryRun,
+				At:        r.At.UTC().Format(time.RFC3339),
+				Accepted:  r.Accepted,
+				Rejected:  r.Rejected,
+				Failed:    r.Failed,
+				Undecided: r.Undecided,
+				Total:     r.Total,
+				Duration:  r.Duration.Round(time.Millisecond).String(),
+				Err:       r.Err,
+				DryRun:    r.DryRun,
 			}
 		}
 		out[task] = rj

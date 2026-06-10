@@ -235,6 +235,8 @@ func (ex *Executor) Run(ctx context.Context) (*Result, error) {
 			res.Rejected++
 		case entry.Failed:
 			res.Failed++
+		case entry.Undecided:
+			res.Undecided++
 		}
 	}
 
@@ -244,6 +246,7 @@ func (ex *Executor) Run(ctx context.Context) (*Result, error) {
 		"accepted", res.Accepted,
 		"rejected", res.Rejected,
 		"failed", res.Failed,
+		"undecided", res.Undecided,
 		"duration", res.Duration.Round(time.Millisecond),
 		"dry_run", ex.dryRun,
 	)
