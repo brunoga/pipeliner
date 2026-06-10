@@ -511,3 +511,64 @@ func TestLookupFieldDeprecated(t *testing.T) {
 		t.Errorf("ReplacedBy: want %q, got %q", "title", meta.ReplacedBy)
 	}
 }
+
+func TestSplitMarker_PartitionsPreservingOrder(t *testing.T) {
+	mk := func(marker bool) *Entry {
+		e := New("t", "u")
+		if marker {
+			e.SetMarker()
+		}
+		return e
+	}
+	a, b, c, d := mk(false), mk(true), mk(false), mk(true)
+	in := []*Entry{a, b, c, d}
+
+	nonMarker, marker := SplitMarker(in)
+	if len(nonMarker) != 2 || nonMarker[0] != a || nonMarker[1] != c {
+		t.Errorf("nonMarker: got %v, want [a, c] preserving order", nonMarker)
+	}
+	if len(marker) != 2 || marker[0] != b || marker[1] != d {
+		t.Errorf("marker: got %v, want [b, d] preserving order", marker)
+	}
+}
+
+func TestSplitMarker_EmptyAndAllInOneBucket(t *testing.T) {
+	if nm, m := SplitMarker(nil); nm != nil || m != nil {
+		t.Errorf("nil input: got nm=%v m=%v, want both nil", nm, m)
+	}
+	e := New("t", "u")
+	nm, m := SplitMarker([]*Entry{e})
+	if len(nm) != 1 || nm[0] != e || m != nil {
+		t.Errorf("non-marker only: got nm=%v m=%v", nm, m)
+	}
+	e.SetMarker()
+	nm, m = SplitMarker([]*Entry{e})
+	if nm != nil || len(m) != 1 || m[0] != e {
+		t.Errorf("marker only: got nm=%v m=%v", nm, m)
+	}
+}
+
+func TestIsMarker_OrthogonalToState(t *testing.T) {
+	// The marker flag must survive every state transition — it represents
+	// "this is a synthetic placeholder", which is independent of accepted/
+	// rejected/failed. Equivalent guarantee already holds for `consumed`.
+	e := New("t", "u")
+	e.SetMarker()
+	if !e.IsMarker() {
+		t.Fatal("SetMarker should flag the entry")
+	}
+	e.Accept()
+	if !e.IsMarker() {
+		t.Errorf("marker must survive Accept()")
+	}
+	e.Reject("x")
+	if !e.IsMarker() {
+		t.Errorf("marker must survive Reject()")
+	}
+	e.Fail("y")
+	if !e.IsMarker() {
+		// Fail no-ops once Rejected (rejection always wins), but the
+		// marker flag is unaffected either way.
+		t.Errorf("marker must survive Fail()")
+	}
+}

@@ -48,8 +48,13 @@ func init() {
 		// MayProduce models the conditional flow better for downstream
 		// Requires checks.
 		MayProduce: []string{entry.FieldEmptyMarker},
-		Factory:    newPlugin,
-		Validate:   validate,
+		// Accept markers so that chaining report_empty after another
+		// marker-producing plugin doesn't double-fire — if upstream
+		// already produced a marker, this instance correctly sees the
+		// batch as "non-empty" and emits nothing.
+		AcceptsMarkers: true,
+		Factory:        newPlugin,
+		Validate:       validate,
 		Schema: []plugin.FieldSchema{
 			{Key: "message", Type: plugin.FieldTypeString,
 				Hint: `Title to set on the marker entry (default: "(no entries)").`},
@@ -84,12 +89,16 @@ func (p *reportEmptyPlugin) Process(_ context.Context, tc *plugin.TaskContext, e
 	}
 
 	// Empty: synthesize a single marker entry, born Accepted so default
-	// sinks (notify, exec, …) pick it up without needing a filter in
+	// sinks (notify, print, …) pick it up without needing a filter in
 	// between. The URL is synthetic and pipeline-scoped so it doesn't
-	// collide with real entries.
+	// collide with real entries. The marker flag tells the executor to
+	// strip this entry from any downstream plugin that hasn't opted in via
+	// Descriptor.AcceptsMarkers — so a misrouted tmdb/transmission/etc.
+	// won't try to enrich or download the placeholder.
 	url := fmt.Sprintf("pipeliner://empty/%s", tc.Name)
 	m := entry.New(p.message, url)
 	m.Set(entry.FieldEmptyMarker, true)
+	m.SetMarker()
 	m.Accept()
 	return []*entry.Entry{m}, nil
 }

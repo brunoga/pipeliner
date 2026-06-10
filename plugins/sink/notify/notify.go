@@ -20,8 +20,14 @@ func init() {
 		PluginName:  "notify",
 		Description: "send notifications via a configured notifier (webhook, email, …)",
 		Role:        plugin.RoleSink,
-		Factory:     newPlugin,
-		Validate:    validate,
+		// Notify is the canonical destination for report_empty's marker
+		// (empty-batch alerts) — opt in so the executor doesn't strip
+		// the marker before Consume sees it. Notify is a pure messenger;
+		// passing a marker through it just sends a notification, which
+		// is exactly what the user asked for.
+		AcceptsMarkers: true,
+		Factory:        newPlugin,
+		Validate:       validate,
 		Schema: []plugin.FieldSchema{
 			{Key: "via", Type: plugin.FieldTypeString, Required: true, Hint: "Notifier type (e.g. webhook, email)"},
 			{Key: "title", Type: plugin.FieldTypePattern, Hint: "Notification title template"},

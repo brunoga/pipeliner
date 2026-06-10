@@ -39,8 +39,13 @@ func init() {
 		PluginName:  "condition",
 		Description: "accept or reject entries via boolean expressions",
 		Role:        plugin.RoleProcessor,
-		Factory:     newPlugin,
-		Validate:    validate,
+		// Accept markers so users can write `accept: "empty_marker == true"`
+		// to gate marker-aware branches. The expression evaluator already
+		// reads e.Fields, so the empty_marker field is visible without any
+		// further plumbing.
+		AcceptsMarkers: true,
+		Factory:        newPlugin,
+		Validate:       validate,
 		Schema: []plugin.FieldSchema{
 			{Key: "accept", Type: plugin.FieldTypeString, Hint: "Expression; entry accepted when true"},
 			{Key: "reject", Type: plugin.FieldTypeString, Hint: "Expression; entry rejected when true"},
