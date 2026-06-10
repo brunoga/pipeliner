@@ -1236,3 +1236,105 @@ func TestExecutor_SinkInputStatesOverride(t *testing.T) {
 			len(notifier.received), urls(notifier.received))
 	}
 }
+
+// statefulProcessorPlugin is a processor that records the entries handed to
+// it by the executor's pre-filter and dynamically declares which states it
+// wants to see. Used to verify that DynamicInputStates widens the set of
+// states a plugin sees beyond what its Descriptor declares.
+type statefulProcessorPlugin struct {
+	dynamic  entry.StateSet
+	received []*entry.Entry
+}
+
+func (p *statefulProcessorPlugin) Name() string { return "test_stateful" }
+func (p *statefulProcessorPlugin) Process(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
+	p.received = append(p.received, entries...)
+	return entries, nil
+}
+func (p *statefulProcessorPlugin) EffectiveInputStates() entry.StateSet { return p.dynamic }
+
+// observerProcessorPlugin is the no-DynamicInputStates twin used to verify
+// the executor falls back to the Descriptor's declared states when the
+// plugin doesn't implement the interface.
+type observerProcessorPlugin struct {
+	received []*entry.Entry
+}
+
+func (p *observerProcessorPlugin) Name() string { return "test_observer" }
+func (p *observerProcessorPlugin) Process(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
+	p.received = append(p.received, entries...)
+	return entries, nil
+}
+
+// failingProcessorPlugin marks every entry it touches as Failed so a
+// downstream node sees a real Failed entry without needing a sink.
+type failingProcessorPlugin struct{}
+
+func (p *failingProcessorPlugin) Name() string { return "test_failing_proc" }
+func (p *failingProcessorPlugin) Process(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
+	for _, e := range entries {
+		e.Fail("test fail")
+	}
+	return entries, nil
+}
+
+// TestExecutor_DynamicInputStates confirms that when a plugin implements
+// plugin.DynamicInputStates the executor uses the returned StateSet for the
+// pre-filter, overriding the Descriptor's declared default. This is what
+// lets condition and route widen themselves at instance scope when their
+// expressions reference `state`.
+func TestExecutor_DynamicInputStates(t *testing.T) {
+	// Pipeline: src → fail-everything → observer.
+	//   - "fail" leaves every entry in Failed.
+	//   - "observe" has Descriptor=AcceptedUndecided but dynamic=StatesAll,
+	//     so it MUST see the Failed entry that the default pre-filter would
+	//     otherwise hide.
+	observer := &statefulProcessorPlugin{dynamic: entry.StatesAll}
+	ex := buildExec(t,
+		[]*dag.Node{
+			{ID: "src", PluginName: "test_source"},
+			{ID: "fail", PluginName: "test_failing_proc", Upstreams: []dag.NodeID{"src"}},
+			{ID: "observe", PluginName: "test_stateful", Upstreams: []dag.NodeID{"fail"}},
+		},
+		map[dag.NodeID]*executor.PluginInstance{
+			"src":     {Desc: sourceDesc(), Impl: &sourcePlugin{urls: []string{"http://a.com"}}, Config: map[string]any{}},
+			"fail":    {Desc: processorDesc(), Impl: &failingProcessorPlugin{}, Config: map[string]any{}},
+			"observe": {Desc: processorDesc(), Impl: observer, Config: map[string]any{}},
+		},
+	)
+
+	if _, err := ex.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(observer.received) != 1 {
+		t.Fatalf("widened observer should see the Failed entry; got %d", len(observer.received))
+	}
+	if !observer.received[0].IsFailed() {
+		t.Errorf("entry handed to observer should be Failed, got %v", observer.received[0].State)
+	}
+
+	// Sanity check the inverse: a plain processor that doesn't implement
+	// DynamicInputStates falls back to the Descriptor default
+	// (AcceptedUndecided for processors), so the same Failed entry bypasses
+	// it. This guarantees the new interface is opt-in: existing plugins
+	// see no behavior change.
+	observer2 := &observerProcessorPlugin{}
+	ex2 := buildExec(t,
+		[]*dag.Node{
+			{ID: "src", PluginName: "test_source"},
+			{ID: "fail", PluginName: "test_failing_proc", Upstreams: []dag.NodeID{"src"}},
+			{ID: "observe", PluginName: "test_observer", Upstreams: []dag.NodeID{"fail"}},
+		},
+		map[dag.NodeID]*executor.PluginInstance{
+			"src":     {Desc: sourceDesc(), Impl: &sourcePlugin{urls: []string{"http://a.com"}}, Config: map[string]any{}},
+			"fail":    {Desc: processorDesc(), Impl: &failingProcessorPlugin{}, Config: map[string]any{}},
+			"observe": {Desc: processorDesc(), Impl: observer2, Config: map[string]any{}},
+		},
+	)
+	if _, err := ex2.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(observer2.received) != 0 {
+		t.Errorf("non-widened observer must NOT see Failed entries; got %d", len(observer2.received))
+	}
+}

@@ -121,6 +121,21 @@ reject="bluray_3d_release != true"
 
 The same pattern applies to any boolean field whose upstream plugin only sets it on the positive case (e.g. `video_is_3d`, `enriched`, `video_proper`).
 
+### Branching on entry state
+
+Expressions can reference the entry's current state via the reserved `state` identifier — one of `"undecided" | "accepted" | "rejected" | "failed"`. The companion `reject_reason` identifier holds the reason string a previous processor or sink set.
+
+Useful for routing decisions that come from a previous sink's verdict rather than from a metadata field:
+
+```python
+# Mark entries the upstream sink failed so a downstream notifier picks them up.
+condition(accept='state == "failed"', upstream=output_sink)
+```
+
+When any rule references `state`, the plugin auto-widens its effective input states to all four (`accepted`, `undecided`, `rejected`, `failed`) so the executor's pre-filter doesn't hide the entries the rule was written for. Configs that don't mention `state` are unaffected — they keep the legacy `accepted | undecided` pre-filter.
+
+Accept/reject rules that fire on a `Failed` or `Rejected` entry are treated as no-ops at the state-machine level so the entry's terminal status (and its original reason) is preserved.
+
 ## DAG role
 
 | Property | Value |

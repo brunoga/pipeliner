@@ -80,7 +80,8 @@ type routeRule struct {
 }
 
 type routePlugin struct {
-	rules []routeRule
+	rules        []routeRule
+	referencesSt bool // any port expression references the `state` identifier
 }
 
 func newRoutePlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
@@ -106,6 +107,9 @@ func newRoutePlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, er
 		if err != nil {
 			return nil, fmt.Errorf("route: rules[%d] invalid accept expression: %w", i, err)
 		}
+		if e.ReferencesState() {
+			p.referencesSt = true
+		}
 		p.rules = append(p.rules, routeRule{name: name, expr: e})
 	}
 	return p, nil
@@ -113,9 +117,24 @@ func newRoutePlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, er
 
 func (p *routePlugin) Name() string { return "route" }
 
+// EffectiveInputStates widens the executor's state pre-filter to all four
+// states when any port expression references `state`. Without this, an
+// entry the user wrote a port for (say `failed = "state == \"failed\""`)
+// would be hidden by the default StatesAcceptedUndecided pre-filter. When
+// no port references state we keep the default so existing route configs
+// behave unchanged.
+func (p *routePlugin) EffectiveInputStates() entry.StateSet {
+	if p.referencesSt {
+		return entry.StatesAll
+	}
+	return entry.StatesAcceptedUndecided
+}
+
 func (p *routePlugin) Process(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
 	for _, e := range entries {
-		data := interp.EntryData(e)
+		// EntryDataWithState exposes the entry's state as the `state`
+		// identifier so port expressions can branch on it.
+		data := interp.EntryDataWithState(e)
 		matched := false
 		for _, r := range p.rules {
 			ok, err := r.expr.Eval(data)
@@ -125,13 +144,28 @@ func (p *routePlugin) Process(ctx context.Context, tc *plugin.TaskContext, entri
 			}
 			if ok {
 				e.Set(entry.FieldRoutePort, r.name)
-				e.Accept()
+				// Accept() naively un-Fails Failed entries (the state
+				// machine only no-ops for Rejected). When state widening
+				// puts a terminal entry in front of route, stamp the port
+				// but leave the entry's state as-is — the port assignment
+				// is metadata, not a re-acceptance.
+				if !e.IsFailed() && !e.IsRejected() {
+					e.Accept()
+				}
 				tc.Logger.Debug("route: entry routed", "port", r.name, "entry", e.Title)
 				matched = true
 				break
 			}
 		}
 		if !matched {
+			// Unmatched-on-default-states keeps the old behavior: reject so
+			// the user can see entries fell off the configured ports.
+			// Unmatched terminal-state entries (only visible when state
+			// widening is active) pass through unchanged — re-rejecting a
+			// Failed entry would lose the original failure reason.
+			if e.IsFailed() || e.IsRejected() {
+				continue
+			}
 			tc.Logger.Warn("route: no port matched", "entry", e.Title)
 			e.Reject("route: no port matched")
 		}
