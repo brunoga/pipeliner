@@ -19,6 +19,10 @@ type Result struct {
 	Rejected int
 	// Failed is the number of entries that errored in a sink.
 	Failed int
+	// Undecided is the number of entries that never reached a terminal
+	// state — neither accepted nor rejected nor failed. Typically these
+	// are source entries that no downstream processor or sink claimed.
+	Undecided int
 	// Duration is the wall-clock time for the full run.
 	Duration time.Duration
 	// Entries holds all entries that passed through the pipeline (for inspection).

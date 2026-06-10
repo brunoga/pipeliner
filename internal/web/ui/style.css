@@ -289,7 +289,7 @@ section { margin-bottom: 36px; }
 /* stat numbers — visual anchor of each card */
 .task-stats {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: repeat(4, 1fr);
   border: 1px solid var(--border);
   border-radius: 3px;
   overflow: hidden;
@@ -307,6 +307,7 @@ section { margin-bottom: 36px; }
 .stat.a { background: color-mix(in srgb, var(--green)  4%, transparent); }
 .stat.r { background: color-mix(in srgb, var(--amber)  4%, transparent); }
 .stat.f { background: color-mix(in srgb, var(--red)    4%, transparent); }
+.stat.u { background: color-mix(in srgb, var(--muted)  4%, transparent); }
 
 .stat-val {
   font-family: var(--stat-font);
@@ -317,6 +318,7 @@ section { margin-bottom: 36px; }
 .stat-val.a { color: var(--green); }
 .stat-val.r { color: var(--amber); }
 .stat-val.f { color: var(--red); }
+.stat-val.u { color: var(--muted); }
 
 .stat-lbl {
   font-size: 8px;
