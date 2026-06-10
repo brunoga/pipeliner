@@ -245,6 +245,7 @@ func (ex *Executor) Run(ctx context.Context) (*Result, error) {
 		"rejected", res.Rejected,
 		"failed", res.Failed,
 		"duration", res.Duration.Round(time.Millisecond),
+		"dry_run", ex.dryRun,
 	)
 	return res, nil
 }

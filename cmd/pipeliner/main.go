@@ -248,20 +248,15 @@ func cmdRun(args []string) int {
 		if *validateFields {
 			t.SetValidateFields(true)
 		}
-		result, err := t.Run(ctx)
-
+		_, err := t.Run(ctx)
 		if err != nil {
 			logger.Error("pipeline failed", "pipeline", t.Name(), "err", err)
 			exitCode = 2
 			continue
 		}
-		logger.Info("pipeline done",
-			"pipeline", t.Name(),
-			"accepted", result.Accepted,
-			"rejected", result.Rejected,
-			"failed", result.Failed,
-			"duration", result.Duration,
-		)
+		// The executor itself logs "pipeline done" with the result counters
+		// at the end of every Run; logging it again here would emit two
+		// near-identical records for the same event.
 	}
 	return exitCode
 }
@@ -426,14 +421,9 @@ func cmdDaemon(args []string) int {
 			rec.Failed = result.Failed
 			rec.Total = result.Total
 			rec.Duration = result.Duration
-			logger.Info("pipeline done",
-				"pipeline", name,
-				"accepted", result.Accepted,
-				"rejected", result.Rejected,
-				"failed", result.Failed,
-				"duration", result.Duration,
-				"dry_run", effectiveDry,
-			)
+			// The executor itself logs "pipeline done" with the same
+			// counters at the end of every Run; the daemon only owns
+			// the history record here.
 		}
 		hist.Add(rec)
 	}
