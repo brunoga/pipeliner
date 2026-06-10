@@ -83,7 +83,9 @@ func (e *Expr) Eval(data map[string]any) (bool, error) {
 }
 
 // FieldRefs returns all entry field names (identifiers) referenced in this
-// expression. Returns nil for template expressions. Duplicates are removed.
+// expression. Reserved identifiers (state, reject_reason) are excluded — they
+// don't name entry fields and shouldn't trigger unknown-field warnings in the
+// validator. Returns nil for template expressions. Duplicates are removed.
 func (e *Expr) FieldRefs() []string {
 	if e.node == nil {
 		return nil
@@ -92,6 +94,46 @@ func (e *Expr) FieldRefs() []string {
 	var refs []string
 	collectFieldRefs(e.node, seen, &refs)
 	return refs
+}
+
+// reservedIdents are identifier names handled specially by the evaluator
+// (populated by interp.EntryDataWithState) rather than mapping to entry
+// fields. They never participate in FieldRefs / NarrowedCertain / other
+// field-aware analyses.
+var reservedIdents = map[string]bool{
+	"state":         true,
+	"State":         true,
+	"reject_reason": true,
+	"RejectReason":  true,
+}
+
+// ReferencesState reports whether the expression contains any reference to
+// the reserved `state` identifier. Callers (condition, route) use this to
+// widen their InputStates to entry.StatesAll so the plugin actually sees
+// every entry the expression might match against — otherwise the executor's
+// state pre-filter would hide the entries the expression was written for.
+// Returns false for template expressions.
+func (e *Expr) ReferencesState() bool {
+	if e.node == nil {
+		return false
+	}
+	return containsIdent(e.node, "state") || containsIdent(e.node, "State")
+}
+
+func containsIdent(n node, name string) bool {
+	switch v := n.(type) {
+	case *identNode:
+		return v.name == name
+	case *binaryNode:
+		return containsIdent(v.left, name) || containsIdent(v.right, name)
+	case *unaryNode:
+		return containsIdent(v.arg, name)
+	case *funcNode:
+		if v.arg != nil {
+			return containsIdent(v.arg, name)
+		}
+	}
+	return false
 }
 
 // NarrowedCertain returns the field names that are guaranteed to be set (and
@@ -181,7 +223,7 @@ func absencePromoted(n node) []string {
 		case "and", "&&":
 			return nil // NOT(A∧B) = ¬A∨¬B — can't guarantee either field present
 		case "==":
-			if id, ok := v.left.(*identNode); ok {
+			if id, ok := v.left.(*identNode); ok && !reservedIdents[id.name] {
 				if s, ok2 := v.right.(*stringNode); ok2 && s.v == "" {
 					return []string{id.name}
 				}
@@ -210,13 +252,13 @@ func presenceRemoved(n node) []string {
 		case "and", "&&":
 			return nil // NOT(A∧B) = ¬A∨¬B — can't guarantee either field absent
 		case "!=":
-			if id, ok := v.left.(*identNode); ok {
+			if id, ok := v.left.(*identNode); ok && !reservedIdents[id.name] {
 				if s, ok2 := v.right.(*stringNode); ok2 && s.v == "" {
 					return []string{id.name}
 				}
 			}
 		case ">":
-			if id, ok := v.left.(*identNode); ok {
+			if id, ok := v.left.(*identNode); ok && !reservedIdents[id.name] {
 				if num, ok2 := v.right.(*numberNode); ok2 && num.v == 0 {
 					return []string{id.name}
 				}
@@ -249,7 +291,7 @@ func absenceRemoved(n node, out *[]string) {
 				}
 			}
 		case "==":
-			if id, ok := v.left.(*identNode); ok {
+			if id, ok := v.left.(*identNode); ok && !reservedIdents[id.name] {
 				if s, ok2 := v.right.(*stringNode); ok2 && s.v == "" {
 					*out = append(*out, id.name)
 				}
@@ -264,6 +306,9 @@ func absenceRemoved(n node, out *[]string) {
 func collectFieldRefs(n node, seen map[string]bool, out *[]string) {
 	switch v := n.(type) {
 	case *identNode:
+		if reservedIdents[v.name] {
+			return
+		}
 		if !seen[v.name] {
 			seen[v.name] = true
 			*out = append(*out, v.name)
@@ -304,7 +349,7 @@ func narrowCertain(n node, out *[]string) {
 		case "==":
 			// Only promote when the right-hand side is a non-zero/non-empty
 			// value. field == "" means the field is absent, not certainly set.
-			if id, ok := v.left.(*identNode); ok {
+			if id, ok := v.left.(*identNode); ok && !reservedIdents[id.name] {
 				if s, ok2 := v.right.(*stringNode); ok2 && s.v == "" {
 					break // absence check — do not promote
 				}
@@ -316,10 +361,10 @@ func narrowCertain(n node, out *[]string) {
 		default:
 			// Any other comparison operator: if either side is a field
 			// reference the field must be set for the expression to be true.
-			if id, ok := v.left.(*identNode); ok {
+			if id, ok := v.left.(*identNode); ok && !reservedIdents[id.name] {
 				*out = append(*out, id.name)
 			}
-			if id, ok := v.right.(*identNode); ok {
+			if id, ok := v.right.(*identNode); ok && !reservedIdents[id.name] {
 				*out = append(*out, id.name)
 			}
 		}

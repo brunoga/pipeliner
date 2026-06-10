@@ -655,6 +655,41 @@ Failed entries from its upstream sink. The override now makes that pattern
 possible without going through a separate `swap_state` (which can't sit
 between sinks — the DAG validator only permits sink → sink chains).
 
+#### Dynamic per-instance overrides
+
+`Descriptor.InputStates` is per-plugin-type. When the set of states a plugin
+needs to see depends on its config (typical for expression-driven processors
+like `condition` and `route` — the user's expression decides whether
+non-default states are interesting), implement the optional
+`DynamicInputStates` interface on the plugin instance:
+
+```go
+type DynamicInputStates interface {
+    Plugin
+    EffectiveInputStates() entry.StateSet
+}
+```
+
+The executor checks for this interface before falling back to
+`Descriptor.EffectiveInputStates()`. The returned set is authoritative for
+that instance — both the static descriptor declaration and the role-based
+default are ignored. Plugins that don't implement the interface behave
+exactly as before.
+
+The built-in pattern is: at construction, scan the parsed config (compiled
+expressions, rule lists, …) for references to states the descriptor default
+would hide; cache the resulting `StateSet` on the plugin struct; return it
+from `EffectiveInputStates`. `condition` and `route` use this to widen to
+`entry.StatesAll` only when an expression references the reserved `state`
+identifier — configs that don't reference state keep the legacy
+`AcceptedUndecided` pre-filter, so existing behavior is preserved.
+
+When you widen past the role's default, **guard your state transitions** —
+the entry state machine's `Accept()` is a no-op for `Rejected` but
+overwrites `Failed`. A plugin that calls `e.Accept()` on a `Failed` entry
+will silently un-Fail it and corrupt the run summary. Check `e.IsFailed()`
+(and `e.IsRejected()` if relevant) before transitioning.
+
 ### SinkPlugin
 
 Sinks consume entries and perform side effects.
@@ -1222,6 +1257,31 @@ Time fields (`series_first_air_date`, `series_next_air_date`, etc.) stored as
 date helper functions using `<`, `<=`, `>`, `>=`.
 
 Unknown field names evaluate to an empty string (lenient — no error).
+
+### Reserved identifiers
+
+A small set of identifier names is handled specially by the evaluator rather
+than mapping to entry fields:
+
+| Identifier | Resolves to | Notes |
+|------------|-------------|-------|
+| `state` / `State` | The entry's current state — one of `"undecided" \| "accepted" \| "rejected" \| "failed"` | Populated by `interp.EntryDataWithState`. Capitalized form is the `{{.State}}` template-style alias |
+| `reject_reason` / `RejectReason` | Reject reason string set by a prior node | Populated by `interp.EntryDataWithState`. Empty for entries that were never rejected |
+
+These names are excluded from `Expr.FieldRefs()`, `NarrowedCertain`, the
+absence/presence narrowing analyses, and the validator's unknown-field
+warnings — they aren't entry fields, so treating them as such would produce
+spurious warnings.
+
+Plugins that want to expose them must evaluate against
+`interp.EntryDataWithState(e)` rather than `interp.EntryData(e)`. `condition`
+and `route` use this and pair it with the `DynamicInputStates` interface
+above so referencing `state` automatically widens the executor's pre-filter
+to all four states; see those plugins for the pattern.
+
+`Expr.ReferencesState()` reports whether a compiled expression contains the
+reserved `state` identifier — useful when deciding whether to widen the
+plugin's effective input states at construction time.
 
 ---
 

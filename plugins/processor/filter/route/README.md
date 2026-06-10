@@ -119,6 +119,28 @@ This field is consumed by the internal `route_selector` nodes and is also availa
 WARN  route: no port matched  entry="Some Title 720p"  task=my-task  node=route_0  plugin=route
 ```
 
+## Branching on entry state
+
+Port expressions can reference the entry's current state via the reserved `state` identifier — one of `"undecided" | "accepted" | "rejected" | "failed"`. The companion `reject_reason` identifier holds the reason string a previous processor or sink set.
+
+This is how you fan out post-sink decisions — entries the upstream sink failed go to one port, entries it accepted go to another:
+
+```python
+dl     = output("transmission", upstream=picked, host="localhost")
+routes = route(dl,
+    failed_alert = "state == 'failed'",
+    ok           = "state == 'accepted'")
+notify("email",  upstream=routes.failed_alert, to="me@example.com",
+       subject="Download failed", body="{{.Title}}: {{.reject_reason}}")
+notify("pushover", upstream=routes.ok, message="{{.Title}} queued")
+```
+
+When any port expression references `state`, the plugin auto-widens its effective input states to all four (`accepted`, `undecided`, `rejected`, `failed`) so the executor's pre-filter doesn't hide the entries the port was written for. Route configs that don't mention `state` are unaffected — they keep the legacy `accepted | undecided` pre-filter.
+
+Routing a `Failed` or `Rejected` entry stamps `_route_port` for the downstream `route_selector`s but **leaves the entry's state and reason intact** — the port assignment is metadata, not a re-acceptance. Likewise, an unmatched terminal-state entry passes through unchanged instead of being re-rejected.
+
+Downstream sinks need to opt in to the widened states (e.g. via a non-default `InputStates` declaration) for the failed/rejected entries to actually reach them.
+
 ## DAG role
 
 | Property | Value |

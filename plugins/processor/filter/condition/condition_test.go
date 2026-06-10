@@ -182,3 +182,68 @@ func TestRulesInvalidItemError(t *testing.T) {
 		t.Fatal("expected error for non-map rule item")
 	}
 }
+
+func TestStateIdentifier(t *testing.T) {
+	// `state == "failed"` should fire only on Failed entries. The plugin
+	// auto-widens its InputStates to all four when any rule mentions state,
+	// so the executor stops hiding non-Accepted/Undecided entries from it.
+	p := open(t, map[string]any{"reject": `state == "failed"`})
+	if !p.referencesSt {
+		t.Fatal("plugin should detect state reference in reject expression")
+	}
+	if got := p.EffectiveInputStates(); got != entry.StatesAll {
+		t.Errorf("EffectiveInputStates() = %v; want StatesAll", got)
+	}
+
+	// A Failed entry hitting the reject rule must NOT transition to
+	// Rejected — that would overwrite the original failure reason. Reject
+	// on a Failed entry is a no-op (no state change, no reason change).
+	failed := makeEntry("Movie", nil)
+	failed.Fail("original failure")
+	p.filter(context.Background(), makeCtx(), failed)
+	if !failed.IsFailed() {
+		t.Errorf("Failed entry must stay Failed after reject rule fires, got %v", failed.State)
+	}
+	if failed.FailReason != "original failure" {
+		t.Errorf("FailReason mutated to %q; expected original to be preserved", failed.FailReason)
+	}
+
+	// Accepted entry not matching state=="failed" stays Undecided
+	// (no rule fired).
+	acc := makeEntry("Movie", nil)
+	acc.Accept()
+	p.filter(context.Background(), makeCtx(), acc)
+	if !acc.IsAccepted() {
+		t.Errorf("Accepted entry should stay Accepted when no rule matches, got %v", acc.State)
+	}
+}
+
+func TestStateIdentifierAcceptDoesNotUnfail(t *testing.T) {
+	// Pathological case: user writes `accept: state == "failed"`. Without
+	// the guard, Accept() would un-Fail the entry and corrupt the run
+	// summary. The plugin must treat accept-on-Failed as a no-op so the
+	// terminal state is preserved.
+	p := open(t, map[string]any{"accept": `state == "failed"`})
+	e := makeEntry("Movie", nil)
+	e.Fail("disk full")
+	p.filter(context.Background(), makeCtx(), e)
+	if !e.IsFailed() {
+		t.Errorf("Failed entry must stay Failed even when accept rule matches, got %v", e.State)
+	}
+	if e.FailReason != "disk full" {
+		t.Errorf("FailReason mutated to %q; expected original to be preserved", e.FailReason)
+	}
+}
+
+func TestNoStateRefKeepsDefaultInputStates(t *testing.T) {
+	// Existing configs that don't mention state must continue to use the
+	// default StatesAcceptedUndecided pre-filter — auto-widening must not
+	// leak into expressions written for the legacy behavior.
+	p := open(t, map[string]any{"accept": `tmdb_vote_average > 7`})
+	if p.referencesSt {
+		t.Fatal("plugin should NOT detect state reference in a field-only expression")
+	}
+	if got := p.EffectiveInputStates(); got != entry.StatesAcceptedUndecided {
+		t.Errorf("EffectiveInputStates() = %v; want StatesAcceptedUndecided", got)
+	}
+}

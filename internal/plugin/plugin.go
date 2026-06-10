@@ -66,6 +66,23 @@ type ShutdownPlugin interface {
 	Shutdown()
 }
 
+// DynamicInputStates is an optional interface a plugin instance can
+// implement to override its Descriptor's static InputStates on a per-
+// instance basis. Useful when the set of entry states a plugin needs to
+// see depends on its configuration — for example, condition and route
+// widen to include Failed/Rejected when their expressions reference the
+// `state` identifier, so the executor's pre-filter doesn't hide entries
+// the user explicitly wrote a rule for.
+//
+// When a plugin implements this, the returned set is authoritative; the
+// Descriptor's InputStates (and its role-based default) is ignored for
+// that instance. Plugins that don't implement it use the descriptor as
+// before.
+type DynamicInputStates interface {
+	Plugin
+	EffectiveInputStates() entry.StateSet
+}
+
 // CommitPlugin is an optional interface for processors that must persist
 // state only after all downstream sinks have confirmed success.
 // The executor calls Commit once after all sink nodes have run, passing
