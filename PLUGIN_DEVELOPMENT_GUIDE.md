@@ -156,6 +156,23 @@ func validate(cfg map[string]any) []error {
 | `AcceptsSearch` | `bool` | Declare that this plugin accepts a `search=` config key. Used by the visual editor to render the search port |
 | `Internal` | `bool` | Mark plugins that are implementation details of a built-in (e.g. `route_selector` created by the `route()` Starlark builtin). Internal plugins are registered so the executor can instantiate them but are hidden from the visual editor palette and cannot be used directly in config |
 | `InputStates` | `entry.StateSet` | Optional. Declares which entry states this plugin's `Process` method acts on; the executor pre-filters upstream entries to this set before calling `Process`. Excluded entries bypass the plugin and are merged back into the downstream slice unchanged. **Defaults to `entry.StatesAcceptedUndecided` for processors when unset** (matches the historical "skip rejected/failed" convention), so most plugins don't need to set it. Use the pre-built constants in package `entry` (`StatesAcceptedOnly`, `StatesUndecidedOnly`, `StatesAcceptedUndecided`, `StatesAllButFailed`, `StatesAll`). The only plugin that needs `StatesAll` today is `swap_state` (it operates on rejected and failed entries by design). See [ProcessorPlugin](#processorplugin) below for examples |
+| `AcceptsMarkers` | `bool` | Optional. Defaults to `false`. Declare `true` only when your plugin is an intended consumer of synthetic *marker* entries — placeholders that signal a pipeline state rather than carry real data (currently only produced by `report_empty`). When `false`, the executor strips markers from this plugin's input and merges them back into the downstream slice unchanged, so a misrouted pipeline can't make this plugin act on a placeholder (e.g. `metainfo_tmdb` trying to enrich `"(no entries)"`). Set `true` on sinks that render whatever they receive (`notify`, `print`) and on decision processors that might branch on `empty_marker == true`. Orthogonal to `InputStates`; mirrors the always-on `consumed` filter that already runs at the sink boundary |
+
+---
+
+### Marker entries
+
+Some plugins emit *marker* entries — synthetic placeholders that signal a pipeline state ("upstream was empty") rather than carry real data. Today `report_empty` is the only built-in marker producer; nothing prevents future plugins from synthesising others.
+
+A marker is just a normal `*entry.Entry` with the `marker` flag set via `e.SetMarker()`. The flag is orthogonal to `State` (a marker can be Accepted, like report_empty's output, or any other state) and to `consumed`, and `e.Clone()` preserves it across fan-out branches.
+
+The executor strips markers from every plugin's input by default and merges them back into the downstream slice unchanged — the same pattern `consumed` already uses at the sink boundary. To receive markers, a plugin opts in via `Descriptor.AcceptsMarkers: true`. As a plugin author you almost never need to set this; the only legitimate reasons are:
+
+- You are a renderer / notifier that should display whatever entry it gets (`notify`, `print`).
+- You are a decision plugin whose user-supplied expressions might filter on `empty_marker == true` (`condition`, `route`).
+- You are a marker producer that chains downstream of another marker producer and needs to know the batch is "already empty-signaled" (`report_empty` itself).
+
+For everything else (enrichment, downloading, deduplication, persisting "seen" state, etc.), leave `AcceptsMarkers` at its default so misrouted pipelines can't make your plugin act on a placeholder. If a user truly wants to branch on markers, they can add a `condition` with `accept="empty_marker == true"` between your plugin and the marker source.
 
 ---
 

@@ -374,6 +374,19 @@ func (ex *Executor) runNode(
 		// replaces the per-plugin "if e.IsRejected() || e.IsFailed() { continue }"
 		// skip-guard at the top of every Process method.
 		matching, excluded := entry.SplitByStates(upstream, effectiveInputStates(pi))
+		// Strip synthetic marker entries (e.g. report_empty's "no entries"
+		// placeholder) unless this plugin explicitly opts in via
+		// Descriptor.AcceptsMarkers. Markers represent pipeline state, not
+		// real data, and enrichment/decision processors that aren't aware
+		// of them would otherwise treat the marker as a normal entry —
+		// trying to e.g. look up "(no entries)" on TMDb. Filtered markers
+		// merge back into produced like state-excluded entries, so they
+		// keep flowing to the eventually-marker-aware downstream node.
+		if !pi.Desc.AcceptsMarkers {
+			var markers []*entry.Entry
+			matching, markers = entry.SplitMarker(matching)
+			excluded = append(excluded, markers...)
+		}
 		procOutput, perr := proc.Process(ctx, tc, matching)
 		err = perr
 		// Merge: produced = procOutput followed by the entries excluded by the
@@ -432,6 +445,15 @@ func (ex *Executor) runNode(
 		matching, excluded := entry.SplitByStates(upstream, effectiveInputStates(pi))
 		matching, alsoExcluded := entry.SplitConsumed(matching)
 		excluded = append(excluded, alsoExcluded...)
+		// Strip marker entries unless this sink opts in. Same rationale as
+		// the processor path above: a download/exec/etc. sink should never
+		// act on a synthetic "no entries" placeholder, but a notify sink
+		// chained off report_empty must.
+		if !pi.Desc.AcceptsMarkers {
+			var markers []*entry.Entry
+			matching, markers = entry.SplitMarker(matching)
+			excluded = append(excluded, markers...)
+		}
 		err = sink.Consume(ctx, tc, matching)
 		if len(excluded) == 0 {
 			produced = matching

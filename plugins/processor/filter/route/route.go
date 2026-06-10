@@ -41,8 +41,12 @@ func init() {
 		Description: "route entries to named ports based on conditions; unmatched entries are rejected with a warning",
 		Role:        plugin.RoleProcessor,
 		Produces:    []string{entry.FieldRoutePort},
-		Factory:     newRoutePlugin,
-		Validate:    validateRoute,
+		// Accept markers so a port expression like `"empty_marker == true"`
+		// can route the marker to a dedicated alert branch. The expression
+		// evaluator reads e.Fields, so the empty_marker field is visible.
+		AcceptsMarkers: true,
+		Factory:        newRoutePlugin,
+		Validate:       validateRoute,
 		Schema: []plugin.FieldSchema{
 			{Key: "rules", Type: plugin.FieldTypeRuleList, Required: true, Hint: "Ordered list of named conditions — each entry needs a Name and a Condition expression"},
 		},
@@ -54,7 +58,10 @@ func init() {
 		Role:        plugin.RoleProcessor,
 		Requires:    plugin.RequireAll(entry.FieldRoutePort),
 		Internal:    true,
-		Factory:     newSelectorPlugin,
+		// route stamped the marker with _route_port; route_selector must
+		// pass it through to the matching downstream port.
+		AcceptsMarkers: true,
+		Factory:        newSelectorPlugin,
 		Validate: func(cfg map[string]any) []error {
 			return plugin.OptUnknownKeys(cfg, "route_selector",
 				"_route_port_name", RouteGroupKey,

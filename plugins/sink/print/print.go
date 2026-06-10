@@ -21,8 +21,12 @@ func init() {
 		PluginName:  "print",
 		Description: "print accepted entries to stdout",
 		Role:        plugin.RoleSink,
-		Factory:     newPrintPlugin,
-		Validate:    validate,
+		// Accept markers so a report_empty branch ending in print() shows
+		// the placeholder line. print is harmless — it just renders the
+		// entry — so there's no downside to passing markers through.
+		AcceptsMarkers: true,
+		Factory:        newPrintPlugin,
+		Validate:       validate,
 		Schema: []plugin.FieldSchema{
 			{Key: "format", Type: plugin.FieldTypePattern, Hint: `Output pattern, e.g. "{title}\t{url}" (default)`},
 		},

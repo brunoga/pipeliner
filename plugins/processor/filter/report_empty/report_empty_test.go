@@ -44,6 +44,9 @@ func TestEmptyUpstreamProducesMarker(t *testing.T) {
 	if m.URL == "" {
 		t.Error("marker URL must not be empty — sinks log/template it")
 	}
+	if !m.IsMarker() {
+		t.Error("marker entry should be flagged IsMarker() so the executor's default pre-filter strips it from plugins that didn't opt in")
+	}
 }
 
 func TestEmptyUpstreamUsesConfiguredMessage(t *testing.T) {

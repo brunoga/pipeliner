@@ -1255,7 +1255,8 @@ func (p *statefulProcessorPlugin) EffectiveInputStates() entry.StateSet { return
 
 // observerProcessorPlugin is the no-DynamicInputStates twin used to verify
 // the executor falls back to the Descriptor's declared states when the
-// plugin doesn't implement the interface.
+// plugin doesn't implement the interface. Also reused by the marker-filter
+// tests below as a default-config (AcceptsMarkers=false) processor.
 type observerProcessorPlugin struct {
 	received []*entry.Entry
 }
@@ -1276,6 +1277,29 @@ func (p *failingProcessorPlugin) Process(_ context.Context, _ *plugin.TaskContex
 		e.Fail("test fail")
 	}
 	return entries, nil
+}
+
+// markerAwareSinkPlugin records every entry the executor hands it, used to
+// verify that markers are filtered out (or passed through) at the sink
+// boundary based on Descriptor.AcceptsMarkers.
+type markerAwareSinkPlugin struct{ received []*entry.Entry }
+
+func (p *markerAwareSinkPlugin) Name() string { return "test_marker_aware_sink" }
+func (p *markerAwareSinkPlugin) Consume(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) error {
+	p.received = append(p.received, entries...)
+	return nil
+}
+
+// markerEmitterSource emits a single marker entry, simulating report_empty
+// without depending on it.
+type markerEmitterSource struct{}
+
+func (p *markerEmitterSource) Name() string { return "test_marker_source" }
+func (p *markerEmitterSource) Generate(_ context.Context, _ *plugin.TaskContext) ([]*entry.Entry, error) {
+	m := entry.New("(marker)", "pipeliner://test/marker")
+	m.SetMarker()
+	m.Accept()
+	return []*entry.Entry{m}, nil
 }
 
 // TestExecutor_DynamicInputStates confirms that when a plugin implements
@@ -1336,5 +1360,87 @@ func TestExecutor_DynamicInputStates(t *testing.T) {
 	}
 	if len(observer2.received) != 0 {
 		t.Errorf("non-widened observer must NOT see Failed entries; got %d", len(observer2.received))
+	}
+}
+
+// TestExecutor_MarkerFilter confirms that the executor's marker pre-filter
+// strips synthetic entries from sinks/processors that didn't declare
+// AcceptsMarkers, while still delivering them to those that did. This is
+// what protects download/enrichment plugins from acting on a placeholder
+// emitted upstream (e.g. by report_empty).
+func TestExecutor_MarkerFilter(t *testing.T) {
+	defaultSink := &markerAwareSinkPlugin{}
+	optedInSink := &markerAwareSinkPlugin{}
+
+	// markerSource → defaultSink (no AcceptsMarkers — must not receive)
+	// markerSource → optedInSink (AcceptsMarkers=true — must receive)
+	defaultSinkDesc := &plugin.Descriptor{PluginName: "default_sink", Role: plugin.RoleSink}
+	optedInDesc := &plugin.Descriptor{PluginName: "opted_in_sink", Role: plugin.RoleSink, AcceptsMarkers: true}
+	markerSrcDesc := &plugin.Descriptor{PluginName: "test_marker_source", Role: plugin.RoleSource}
+
+	ex := buildExec(t,
+		[]*dag.Node{
+			{ID: "src", PluginName: "test_marker_source"},
+			{ID: "default", PluginName: "default_sink", Upstreams: []dag.NodeID{"src"}},
+			{ID: "opted", PluginName: "opted_in_sink", Upstreams: []dag.NodeID{"src"}},
+		},
+		map[dag.NodeID]*executor.PluginInstance{
+			"src":     {Desc: markerSrcDesc, Impl: &markerEmitterSource{}, Config: map[string]any{}},
+			"default": {Desc: defaultSinkDesc, Impl: defaultSink, Config: map[string]any{}},
+			"opted":   {Desc: optedInDesc, Impl: optedInSink, Config: map[string]any{}},
+		},
+	)
+	if _, err := ex.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(defaultSink.received) != 0 {
+		t.Errorf("default sink (AcceptsMarkers=false) must not see markers; got %d", len(defaultSink.received))
+	}
+	if len(optedInSink.received) != 1 {
+		t.Fatalf("opted-in sink must see the marker; got %d", len(optedInSink.received))
+	}
+	if !optedInSink.received[0].IsMarker() {
+		t.Errorf("entry delivered to opted-in sink should be flagged IsMarker()")
+	}
+}
+
+// TestExecutor_MarkerFilter_PassThrough confirms that markers stripped from
+// a default-config processor still flow downstream — they merge back into
+// the produced slice exactly like state-excluded entries. So a misrouted
+// pipeline (marker → tmdb-like processor → notify) still delivers the
+// marker to notify, just bypassing tmdb.
+func TestExecutor_MarkerFilter_PassThrough(t *testing.T) {
+	intermediate := &observerProcessorPlugin{}
+	terminal := &markerAwareSinkPlugin{}
+
+	markerSrcDesc := &plugin.Descriptor{PluginName: "test_marker_source", Role: plugin.RoleSource}
+	procDesc := &plugin.Descriptor{PluginName: "test_observer", Role: plugin.RoleProcessor} // no AcceptsMarkers
+	sinkDesc := &plugin.Descriptor{PluginName: "opted_in_sink", Role: plugin.RoleSink, AcceptsMarkers: true}
+
+	ex := buildExec(t,
+		[]*dag.Node{
+			{ID: "src", PluginName: "test_marker_source"},
+			{ID: "mid", PluginName: "test_observer", Upstreams: []dag.NodeID{"src"}},
+			{ID: "sink", PluginName: "opted_in_sink", Upstreams: []dag.NodeID{"mid"}},
+		},
+		map[dag.NodeID]*executor.PluginInstance{
+			"src":  {Desc: markerSrcDesc, Impl: &markerEmitterSource{}, Config: map[string]any{}},
+			"mid":  {Desc: procDesc, Impl: intermediate, Config: map[string]any{}},
+			"sink": {Desc: sinkDesc, Impl: terminal, Config: map[string]any{}},
+		},
+	)
+	if _, err := ex.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(intermediate.received) != 0 {
+		t.Errorf("intermediate processor (AcceptsMarkers=false) must not see the marker; got %d", len(intermediate.received))
+	}
+	if len(terminal.received) != 1 {
+		t.Fatalf("terminal sink must still receive the marker after pass-through; got %d", len(terminal.received))
+	}
+	if !terminal.received[0].IsMarker() {
+		t.Errorf("entry at terminal sink should be IsMarker()")
 	}
 }

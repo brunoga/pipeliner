@@ -104,6 +104,29 @@ func SplitConsumed(entries []*Entry) (nonConsumed, consumed []*Entry) {
 	return
 }
 
+// SplitMarker partitions entries into (nonMarker, marker) preserving original
+// order in each output slice. The executor uses this at every plugin
+// boundary by default: synthetic marker entries (currently only emitted by
+// report_empty) are not real data and should not flow into plugins that
+// would try to enrich, download, or otherwise act on them. Plugins that
+// legitimately need markers (notify, print, condition, route) declare
+// Descriptor.AcceptsMarkers and receive the original slice.
+//
+// `marker` is orthogonal to State and to `consumed`; same pattern as the
+// existing SplitConsumed pass at the sink boundary. Both output slices
+// reference the same *Entry pointers as input; no clone. Either slice may
+// be nil when no entries fall on that side.
+func SplitMarker(entries []*Entry) (nonMarker, marker []*Entry) {
+	for _, e := range entries {
+		if e.marker {
+			marker = append(marker, e)
+		} else {
+			nonMarker = append(nonMarker, e)
+		}
+	}
+	return
+}
+
 // SplitByStates partitions entries into (matching, nonMatching) preserving
 // original order in each output slice. Used by the executor to pre-filter
 // upstream entries to a plugin's declared InputStates while keeping the
@@ -150,6 +173,13 @@ type Entry struct {
 	// side effect was already applied by other means and chained notification
 	// sinks should be silent.
 	consumed bool
+
+	// marker is set on synthetic entries that signal a pipeline state rather
+	// than carry real data (e.g. report_empty's "(no entries)" placeholder).
+	// The executor strips markers from every plugin's input by default; only
+	// plugins that declare Descriptor.AcceptsMarkers (notify, print, etc.)
+	// receive them. Orthogonal to State and to `consumed`.
+	marker bool
 }
 
 // StateChange records a programmatic transition between entry states caused
@@ -208,6 +238,14 @@ func (e *Entry) IsRejected() bool  { return e.State == Rejected }
 func (e *Entry) IsFailed() bool    { return e.State == Failed }
 func (e *Entry) IsUndecided() bool { return e.State == Undecided }
 func (e *Entry) IsConsumed() bool  { return e.consumed }
+func (e *Entry) IsMarker() bool    { return e.marker }
+
+// SetMarker flags the entry as a synthetic marker — a placeholder that
+// signals a pipeline state (e.g. "upstream was empty") rather than carrying
+// real data. The executor strips markers from every plugin's input by
+// default; only plugins that declare Descriptor.AcceptsMarkers see them,
+// so enrichment and download sinks won't accidentally act on them.
+func (e *Entry) SetMarker() { e.marker = true }
 
 // Consume marks the entry as silently handled: subsequent sinks are skipped
 // (same as Fail), but the entry remains Accepted so CommitPlugin.Commit still
@@ -366,6 +404,7 @@ func (e *Entry) Clone() *Entry {
 		Task:         e.Task,
 		Fields:       maps.Clone(e.Fields),
 		consumed:     e.consumed,
+		marker:       e.marker,
 	}
 	if e.LastStateChange != nil {
 		sc := *e.LastStateChange

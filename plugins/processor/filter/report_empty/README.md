@@ -43,8 +43,21 @@ Fan-out semantics give you the opt-in for free: if you don't add the `report_emp
 |-------|-------|
 | `Title` | The configured `message` (default `"(no entries)"`) |
 | `URL` | Synthetic: `pipeliner://empty/<task_name>` |
-| `State` | `Accepted` — default sinks pick it up without a filter in between |
+| `State` | `Accepted` — opted-in sinks pick it up without a filter in between |
 | `empty_marker` | `true` (boolean) — use in downstream expressions to distinguish marker from real entries when you mix flows |
+| `marker` flag | Set on the entry. The executor strips markers from any plugin that didn't declare `Descriptor.AcceptsMarkers`, so misrouted pipelines (`report_empty` → `metainfo_tmdb` → `notify`) don't accidentally enrich, download, or otherwise act on the placeholder |
+
+## Which plugins receive the marker?
+
+The marker is delivered only to plugins that explicitly opted in via `Descriptor.AcceptsMarkers`. As of this commit:
+
+| Plugin | Receives markers? |
+|--------|-------------------|
+| `notify`, `print` | Yes — they're the intended destinations |
+| `report_empty` itself | Yes — chaining two of them sees the upstream marker and emits nothing (no double-fire) |
+| Everything else (`metainfo_*`, `transmission`, `qbittorrent`, `deluge`, `exec`, `download`, `seen`, every filter except `condition`/`route`) | No — markers bypass them and merge back into the downstream slice unchanged |
+
+The bypass is transparent: a marker that hits a non-opt-in plugin keeps flowing — it just doesn't enter that plugin's `Process` / `Consume`. So if you accidentally place `report_empty → metainfo_tmdb → notify`, the marker silently routes around `metainfo_tmdb` and lands at `notify` as expected.
 
 ## Config
 

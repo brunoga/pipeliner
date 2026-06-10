@@ -81,6 +81,16 @@ type Descriptor struct {
 	// Plugins with non-default needs declare an explicit set; see the
 	// pre-built named constants in package entry.
 	InputStates entry.StateSet
+
+	// AcceptsMarkers declares that this plugin's Process or Consume method
+	// correctly handles synthetic marker entries — placeholders that signal
+	// pipeline state (e.g. report_empty's "upstream was empty" output)
+	// rather than carrying real data. The executor strips markers from
+	// every plugin's input by default and merges them back into the
+	// downstream slice unchanged, mirroring the behaviour of `consumed`
+	// at the sink boundary. Set true on sinks/processors that are the
+	// intended consumers of markers (notify, print, condition, route).
+	AcceptsMarkers bool
 }
 
 // EffectiveRole returns the plugin's Role.
