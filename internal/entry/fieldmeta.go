@@ -287,6 +287,11 @@ var KnownFields = []FieldMeta{
 		Description: "Port name stamped by route() — identifies which branch this entry took",
 		SetBy:       []string{"route"}},
 
+	// ── report_empty ──────────────────────────────────────────────────────
+	{Name: FieldEmptyMarker, Type: FieldTypeBool,
+		Description: "True on the synthetic marker entry emitted by report_empty when its upstream was empty",
+		SetBy:       []string{"report_empty"}},
+
 	// ── Jackett-specific ──────────────────────────────────────────────────
 	{Name: "jackett_category", Type: FieldTypeString,
 		Description: "Torznab category code from Jackett",
