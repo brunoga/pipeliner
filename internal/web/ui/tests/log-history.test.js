@@ -573,6 +573,84 @@ describe('log viewer — SSE reconnect bridge', () => {
   });
 });
 
+describe('log viewer — SSE replays on first connect', () => {
+  it('drops live events whose position is already covered by /tail', async () => {
+    // Reproduces the bug where the broadcaster's recent ring (which the
+    // SSE handler replays on every Subscribe call, including the very
+    // first connect) delivers events older than the most recent /tail
+    // line. Without the position-covered guard those events used to be
+    // appended at the bottom of the view, putting the live tail out of
+    // chronological order.
+    const fetchStub = async () => jsonResp(makeTailBody(['old', 'newer']));
+    const calls = [];
+    const wrapped = async (url) => { calls.push(url); return fetchStub(); };
+    const { exports, dom } = loadModule(wrapped);
+    await exports.loadInitialTail();
+    // makeTailBody puts 'old' at 0:4 and 'newer' at 0:10.
+    expect(exports.state().lastLivePos).toBe('0:10');
+
+    // Ring replay: deliver an OLDER event (0:4) followed by an even
+    // older one (0:1). Both must be skipped, no bridge must fire.
+    exports.handleSSELine({pos: '0:4', text: 'old',  seq: 1});
+    exports.handleSSELine({pos: '0:1', text: 'x',    seq: 2});
+
+    expect(dom.elements['log-console'].children.map(c => c.innerHTML))
+      .toEqual(['old', 'newer']);
+    expect(calls.filter(u => u.startsWith('/api/logs/after'))).toHaveLength(0);
+  });
+
+  it('does not bridge between filtered SSE events with non-adjacent positions', async () => {
+    // With a server-side filter the SSE stream delivers only matching
+    // lines, so byte positions between consecutive deliveries are
+    // naturally non-adjacent (non-matching lines sit between them on
+    // disk). Without the filter check, hasLogGap would interpret that
+    // as a gap and fire runBridge for every event — one /after fetch
+    // per match — which is the slowdown the user reported.
+    let call = 0;
+    const responses = [
+      {lines: [{pos: '0:160', text: 'error one'}], older_cursor: '', exhausted: true},
+    ];
+    const calls = [];
+    const fetchStub = async (url) => {
+      calls.push(url);
+      return jsonResp(responses[call++] || {lines: [], at_tail: true});
+    };
+    const { exports } = loadModule(fetchStub);
+    // Pretend we entered the filtered view via applyFilter: filter is
+    // active, /tail returned a single matching line.
+    exports.state().filter = 'error';
+    await exports.loadInitialTail();
+    expect(exports.state().lastLivePos).toBe('0:160');
+
+    // SSE delivers another match much further along in the file; the
+    // bytes between them are non-matching lines the server suppressed.
+    exports.handleSSELine({pos: '0:900', text: 'error two', seq: 2});
+
+    const afterCalls = calls.filter(u => u.startsWith('/api/logs/after'));
+    expect(afterCalls).toHaveLength(0);
+    expect(exports.state().lastLivePos).toBe('0:900');
+  });
+
+  it('does not trigger a bridge for non-ASCII (multi-byte UTF-8) lines', async () => {
+    // hasLogGap predicts the next byte position from the prior cursor
+    // and the new line's length. It must count UTF-8 bytes, not JS UTF-16
+    // code units, otherwise any line with non-ASCII characters looks like
+    // it sits past a gap and the reconnect bridge fires for no reason —
+    // adding latency and reordering risk under load.
+    const fetchStub = async () => jsonResp(makeTailBody(['boot']));
+    const calls = [];
+    const wrapped = async (url) => { calls.push(url); return fetchStub(); };
+    const { exports } = loadModule(wrapped);
+    await exports.loadInitialTail();
+    // 'boot' ends at 0:5. Next contiguous line "Dünya" is 6 UTF-8 bytes
+    // (D=1, ü=2, n=1, y=1, a=1) → end at 5 + 6 + 1 = 12.
+    const text = 'Dünya';
+    exports.handleSSELine({pos: '0:12', text, seq: 1});
+    expect(calls.filter(u => u.startsWith('/api/logs/after'))).toHaveLength(0);
+    expect(exports.state().lastLivePos).toBe('0:12');
+  });
+});
+
 describe('log viewer — handleRotation', () => {
   it('triggers a full re-tail after a rotation event', async () => {
     let call = 0;
@@ -592,5 +670,48 @@ describe('log viewer — handleRotation', () => {
     expect(calls[1]).toMatch(/^\/api\/logs\/tail\?/);
     expect(dom.elements['log-console'].children.map(c => c.innerHTML))
       .toEqual(['fresh1', 'fresh2']);
+  });
+
+  it('does not drop post-rotation SSE events that arrive before the re-tail', async () => {
+    // Reproduces the bug where a fresh post-rotation event (fileIdx=0,
+    // small byteEnd) is compared against a stale pre-rotation cursor
+    // (also fileIdx=0, large byteEnd) by positionCovered and silently
+    // dropped. The fix clears lastLivePos before kicking off /tail so
+    // the guard treats anything arriving in the meantime as new.
+    let resolveTail = null;
+    let pendingBody = null;
+    const fetchStub = (url) => {
+      if (resolveTail) {
+        return new Promise(r => {
+          const captured = pendingBody;
+          resolveTail = () => r(jsonResp(captured));
+          pendingBody = null;
+        });
+      }
+      return jsonResp(pendingBody);
+    };
+    const { exports, dom } = loadModule(fetchStub);
+
+    // Pre-rotation boot.
+    pendingBody = makeTailBody(['big1', 'big2', 'big3']);
+    await exports.loadInitialTail();
+    expect(exports.state().lastLivePos).toBe('0:15');
+
+    // Arm the gated path: handleRotation's /tail will hang until
+    // resolveTail() is called.
+    resolveTail = () => {};
+    pendingBody = makeTailBody(['fresh']);
+    const rotPromise = exports.handleRotation();
+
+    // Brand-new file: tiny byteEnd. Before the fix, positionCovered
+    // ('0:15', '0:5') would return true and silently drop this event.
+    exports.handleSSELine({pos: '0:5', text: 'post-rot', seq: 999});
+
+    // The event must have been rendered (no skip).
+    expect(dom.elements['log-console'].children.some(c => c.innerHTML === 'post-rot')).toBe(true);
+
+    // Let the gated /tail resolve so handleRotation completes.
+    resolveTail();
+    await rotPromise;
   });
 });
