@@ -277,6 +277,17 @@ function handleSSELine(line) {
   veLog.lastSeq = line.seq || veLog.lastSeq;
   // The server already filters SSE lines server-side when ?q= is set, so
   // every event we receive matches the current filter.
+  //
+  // The broadcaster replays its in-memory ring (up to 256 events) to every
+  // new subscriber, including the very first connect. Those events are
+  // typically older than the most recent line returned by /tail, so without
+  // this guard they get appended at the bottom of the view as if newer than
+  // what /tail produced — which puts the live tail out of chronological
+  // order. Skipping covered positions is also what we want on reconnect:
+  // anything Last-Event-ID resurfaced and we already had gets ignored.
+  if (positionCovered(veLog.lastLivePos, line.pos)) {
+    return;
+  }
   if (veLog.bridgeBusy) {
     // A bridge is in flight; queue this line and let runBridge() drain
     // it after the missed window arrives. Out-of-order delivery breaks
@@ -284,7 +295,14 @@ function handleSSELine(line) {
     veLog.pendingLiveQueue.push(line);
     return;
   }
-  if (veLog.lastLivePos && line.pos && hasLogGap(veLog.lastLivePos, line)) {
+  // Byte-position gap detection only makes sense when the SSE stream
+  // delivers every line in the file. Under a server-side filter the
+  // stream skips non-matching lines, so two consecutive matches have
+  // non-adjacent positions by design — running the bridge per event
+  // would issue an /api/logs/after fetch for every live match and
+  // produce the visible slowdowns the user reported. Drops under a
+  // filter are unrecoverable from byte positions alone; accept that.
+  if (!veLog.filter && veLog.lastLivePos && line.pos && hasLogGap(veLog.lastLivePos, line)) {
     veLog.pendingLiveQueue.push(line);
     runBridge();
     return;
@@ -369,13 +387,38 @@ async function runBridge() {
 // live position — i.e., its starting byte (position - len(text) - 1) is
 // past the previous line's byte end. Cross-file transitions don't qualify;
 // the SSE rotate event handles those separately.
+//
+// Lengths must be compared in BYTES, not JS string units. The server's
+// byteEnd is a UTF-8 byte offset, but `String.length` counts UTF-16 code
+// units, so any line with non-ASCII characters (e.g. "Dünya") would
+// otherwise look like a gap and trigger an unneeded bridge fetch.
 function hasLogGap(lastPosStr, line) {
   const last = parseLinePosClient(lastPosStr);
   const cur = parseLinePosClient(line.pos);
   if (!last || !cur) return false;
   if (last.fileIdx !== cur.fileIdx) return false;
-  const predicted = last.byteEnd + (line.text ? line.text.length : 0) + 1;
+  const predicted = last.byteEnd + (line.text ? utf8ByteLength(line.text) : 0) + 1;
   return cur.byteEnd > predicted;
+}
+
+// utf8ByteLength returns the UTF-8 byte length of s, matching what the
+// rotating log writer reports as byteEnd on the server side. TextEncoder
+// is available in every browser the dashboard supports; in the vitest
+// test environment a global is provided by Node's `util` module.
+const _logTextEncoder = typeof TextEncoder !== 'undefined' ? new TextEncoder() : null;
+function utf8ByteLength(s) {
+  if (_logTextEncoder) return _logTextEncoder.encode(s).length;
+  // Fallback: walk code points and sum their UTF-8 byte widths. Only used
+  // in environments where TextEncoder is unavailable.
+  let n = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c < 0x80) n += 1;
+    else if (c < 0x800) n += 2;
+    else if (c >= 0xD800 && c <= 0xDBFF) { n += 4; i++; } // surrogate pair
+    else n += 3;
+  }
+  return n;
 }
 
 function positionCovered(lastPosStr, posStr) {
@@ -396,8 +439,18 @@ function parseLinePosClient(s) {
 }
 
 function handleRotation() {
-  // Bump cursors and refetch from tail to re-anchor everything.
+  // After rotation the base file's byte space restarts at 0, so every
+  // client-held cursor (lastLivePos, topCursor, bottomCursor) refers
+  // to a position in the now-archived file even though its fileIdx is
+  // still 0. If we leave them in place, the positionCovered guard in
+  // handleSSELine will compare brand-new (small) post-rotation byteEnds
+  // against the (large) pre-rotation byteEnd and silently drop every
+  // event arriving before loadInitialTail returns. Clear the cursors
+  // so the guard treats the post-rotation stream as fresh.
   veLog.filterToken++;
+  veLog.lastLivePos = null;
+  veLog.topCursor = null;
+  veLog.bottomCursor = null;
   return loadInitialTail();
 }
 
@@ -460,20 +513,6 @@ function capWindowFromTop() {
     veLog.startMarker.remove();
     veLog.startMarker = null;
   }
-}
-
-function capWindowFromBottom() {
-  if (veLog.rendered.length <= LOG_WINDOW_CAP) return;
-  const drop = veLog.rendered.length - LOG_WINDOW_CAP;
-  const tail = veLog.rendered.length;
-  for (let i = tail - drop; i < tail; i++) {
-    veLog.rendered[i].el.remove();
-  }
-  veLog.rendered = veLog.rendered.slice(0, tail - drop);
-  veLog.bottomAtTail = false;
-  veLog.bottomCursor = veLog.rendered.length
-    ? veLog.rendered[veLog.rendered.length - 1].pos
-    : veLog.bottomCursor;
 }
 
 // ── scroll-driven paging ─────────────────────────────────────────────────────
