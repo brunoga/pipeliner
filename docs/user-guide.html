@@ -707,6 +707,16 @@ pipeline("split-pipeline")</code></pre>
   <tr><td><code>date("YYYY-MM-DD")</code></td><td>Specific date literal</td><td><code>series_first_air_date &gt; date("2020-01-01")</code></td></tr>
 </table>
 
+<h3 id="state-identifier">Reserved identifiers: <code>state</code> and <code>reject_reason</code></h3>
+<p>Two identifiers don't refer to fields — they expose where the entry is in the pipeline's state machine. Use them in <code>condition</code> rules or <code>route()</code> port conditions to branch on a previous processor or sink's verdict.</p>
+<table>
+  <tr><th>Identifier</th><th>Value</th><th>Example</th></tr>
+  <tr><td><code>state</code></td><td>One of <code>"undecided"</code>, <code>"accepted"</code>, <code>"rejected"</code>, <code>"failed"</code></td><td><code>state == "failed"</code></td></tr>
+  <tr><td><code>reject_reason</code></td><td>Reason string set by a prior node when the entry was rejected; empty otherwise</td><td><code>reject_reason contains "quota"</code></td></tr>
+</table>
+<p>When a <code>condition</code> rule or <code>route()</code> port references <code>state</code>, the plugin automatically widens its view to include <strong>all four</strong> entry states — otherwise the executor's default pre-filter would hide the very entries the rule was written for. Configs that don't mention <code>state</code> are unaffected and keep seeing only <code>accepted</code>/<code>undecided</code> entries.</p>
+<p>Rule matches against <code>Failed</code> or <code>Rejected</code> entries are handled as <em>metadata</em> updates only — the entry's terminal status (and its original reason) is preserved. This is what makes patterns like "route failed downloads to a notifier" safe: the notifier gets the entry without the route call re-accepting it.</p>
+
 <!-- ═══════════════════════════════════════════════════════════ -->
 <h2 id="quality-spec">Quality Specs</h2>
 
@@ -1355,6 +1365,11 @@ pipeline("new-shows", schedule="1h")</code></pre>
 
 <div class="note"><strong>Gotcha:</strong> <code>accept</code> only Accepts matching entries; non-matching entries are left <em>Undecided</em> and pass through unchanged. An <code>accept</code>-only configuration is therefore not an exclusive filter. For "keep only entries where X", use <code>reject='not (X)'</code> (or pair the accept with a catch-all <code>{"reject": "true"}</code> at the end of <code>rules</code>).</div>
 
+<h4>Branching on entry state</h4>
+<p>Rules can reference the reserved <a href="#state-identifier"><code>state</code></a> identifier to react to a previous processor or sink's verdict — useful when chaining a condition after a sink that may fail some entries:</p>
+<pre><code><span class="y-comment"># Mark entries the upstream sink failed so a downstream notifier picks them up.</span>
+process(<span class="y-str">"condition"</span>, upstream=output_sink, accept=<span class="y-str">'state == "failed"'</span>)</code></pre>
+
 <!-- ─────────── route ─────────── -->
 <h2 id="route">route()</h2>
 <p>Routes entries to named ports based on ordered boolean conditions. The first matching port accepts the entry; entries that match no port are rejected with a warning log. <code>route()</code> is a <strong>Starlark builtin</strong>, not a plugin — it is used directly in the config, not with <code>process()</code>.</p>
@@ -1385,6 +1400,20 @@ pipeline("mixed", schedule="1h")</code></pre>
 
 <h4>Fields set</h4>
 <p><code>_route_port</code> (string) — name of the matched port (e.g. <code>"series"</code>). Available to downstream plugins including <code>pathfmt</code> templates, <code>condition</code> expressions, and <code>exec</code> commands.</p>
+
+<h4>Routing on entry state</h4>
+<p>Port conditions can reference the reserved <a href="#state-identifier"><code>state</code></a> identifier to fan out post-sink decisions — entries the upstream sink failed go to one port, entries it accepted go to another. The classic "notify on failure" pattern:</p>
+<pre><code>dl     = output(<span class="y-str">"transmission"</span>, upstream=picked, host=<span class="y-str">"localhost"</span>)
+routes = route(dl,
+    failed_alert = <span class="y-str">"state == 'failed'"</span>,
+    ok           = <span class="y-str">"state == 'accepted'"</span>)
+output(<span class="y-str">"notify"</span>, via=<span class="y-str">"email"</span>, upstream=routes.failed_alert,
+       to=<span class="y-str">"me@example.com"</span>, subject=<span class="y-str">"Download failed"</span>,
+       body=<span class="y-str">"{{.Title}}: {{.reject_reason}}"</span>)
+output(<span class="y-str">"notify"</span>, via=<span class="y-str">"pushover"</span>, upstream=routes.ok,
+       message=<span class="y-str">"{{.Title}} queued"</span>)</code></pre>
+<p>Stamping <code>_route_port</code> on a <code>Failed</code> or <code>Rejected</code> entry preserves its state and reason — the port assignment is metadata, not a re-acceptance. Unmatched terminal-state entries pass through unchanged instead of being re-rejected.</p>
+<p>Downstream sinks that should actually process those failed/rejected entries need to declare the corresponding <code>InputStates</code> — see <code>PLUGIN_DEVELOPMENT_GUIDE.md</code> in the repository for the pattern.</p>
 
 <!-- ─────────── route field inference ─────────── -->
 <h2 id="route-field-inference">Route port field inference</h2>

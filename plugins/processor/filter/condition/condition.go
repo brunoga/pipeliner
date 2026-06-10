@@ -66,7 +66,8 @@ type rule struct {
 }
 
 type conditionPlugin struct {
-	rules []rule
+	rules         []rule
+	referencesSt  bool // any rule expression references the `state` identifier
 }
 
 func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
@@ -91,6 +92,7 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 		if len(p.rules) == 0 {
 			return nil, fmt.Errorf("condition: 'rules' must not be empty")
 		}
+		p.computeStateReferences()
 		return p, nil
 	}
 
@@ -103,7 +105,38 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 		return nil, fmt.Errorf("condition: at least one of 'accept', 'reject', or 'rules' must be set")
 	}
 	p.rules = []rule{r}
+	p.computeStateReferences()
 	return p, nil
+}
+
+// computeStateReferences flips referencesSt when any of the plugin's
+// expressions read the reserved `state` identifier. Used by
+// EffectiveInputStates below to widen the executor's pre-filter so the
+// expressions actually see the entries they were written for.
+func (p *conditionPlugin) computeStateReferences() {
+	for _, r := range p.rules {
+		if r.accept != nil && r.accept.ReferencesState() {
+			p.referencesSt = true
+			return
+		}
+		if r.reject != nil && r.reject.ReferencesState() {
+			p.referencesSt = true
+			return
+		}
+	}
+}
+
+// EffectiveInputStates widens the executor's state pre-filter to all four
+// states when any rule expression references `state`. Without this, an
+// entry the user wrote a rule for (say `accept: state == "failed"`) would
+// be hidden by the default StatesAcceptedUndecided pre-filter and the rule
+// would never fire. When no rule references state we keep the default so
+// existing configurations behave unchanged.
+func (p *conditionPlugin) EffectiveInputStates() entry.StateSet {
+	if p.referencesSt {
+		return entry.StatesAll
+	}
+	return entry.StatesAcceptedUndecided
 }
 
 func parseRule(m map[string]any, prefix string) (rule, error) {
@@ -136,7 +169,11 @@ func parseRule(m map[string]any, prefix string) (rule, error) {
 func (p *conditionPlugin) Name() string { return "condition" }
 
 func (p *conditionPlugin) filter(_ context.Context, _ *plugin.TaskContext, e *entry.Entry) error {
-	data := interp.EntryData(e)
+	// EntryDataWithState exposes the entry's state as the `state` identifier
+	// (and "State" for backwards-compat with {{.State}} templates) so rule
+	// expressions can branch on it. Reject reason is exposed too for
+	// expressions like `reject_reason contains "quota"`.
+	data := interp.EntryDataWithState(e)
 	for _, r := range p.rules {
 		// Within a rule, reject wins over accept.
 		if r.reject != nil {
@@ -145,7 +182,14 @@ func (p *conditionPlugin) filter(_ context.Context, _ *plugin.TaskContext, e *en
 				return fmt.Errorf("condition: reject expression: %w", err)
 			}
 			if matched {
-				e.Reject(fmt.Sprintf("condition: %s", r.rejectExpr))
+				// Reject is unconditional in the entry state machine, but
+				// transitioning Failed → Rejected would lose the original
+				// failure reason. Leave Failed entries alone; the user
+				// almost certainly didn't mean to overwrite Failed with
+				// Rejected via a condition rule.
+				if !e.IsFailed() {
+					e.Reject(fmt.Sprintf("condition: %s", r.rejectExpr))
+				}
 				return nil
 			}
 		}
@@ -155,7 +199,15 @@ func (p *conditionPlugin) filter(_ context.Context, _ *plugin.TaskContext, e *en
 				return fmt.Errorf("condition: accept expression: %w", err)
 			}
 			if matched {
-				e.Accept()
+				// Accept() naively un-Fails Failed entries (the state machine
+				// only no-ops for Rejected). When `state` widening puts a
+				// Failed entry in front of an accept rule, treat the match as
+				// a port-style decision: leave state as-is. This preserves
+				// the rule's observation without lying about the entry's
+				// terminal status.
+				if !e.IsFailed() {
+					e.Accept()
+				}
 				return nil
 			}
 		}

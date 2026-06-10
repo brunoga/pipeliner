@@ -42,6 +42,19 @@ type PluginInstance struct {
 	Config map[string]any
 }
 
+// effectiveInputStates returns the state set the executor should pre-filter
+// upstream entries to before calling this plugin instance. A plugin that
+// implements plugin.DynamicInputStates wins over its Descriptor's static
+// declaration — that's how condition and route widen themselves when their
+// expressions reference the `state` identifier, without statically claiming
+// all four states for every instance.
+func effectiveInputStates(pi *PluginInstance) entry.StateSet {
+	if dis, ok := pi.Impl.(plugin.DynamicInputStates); ok {
+		return dis.EffectiveInputStates()
+	}
+	return pi.Desc.EffectiveInputStates()
+}
+
 // edgeKey identifies the directed edge from a producer node to a consumer node.
 // Entries are stored per-edge so fan-out branches each get their own slice.
 type edgeKey struct{ from, to dag.NodeID }
@@ -360,7 +373,7 @@ func (ex *Executor) runNode(
 		// so they keep flowing downstream for bookkeeping. This is what
 		// replaces the per-plugin "if e.IsRejected() || e.IsFailed() { continue }"
 		// skip-guard at the top of every Process method.
-		matching, excluded := entry.SplitByStates(upstream, pi.Desc.EffectiveInputStates())
+		matching, excluded := entry.SplitByStates(upstream, effectiveInputStates(pi))
 		procOutput, perr := proc.Process(ctx, tc, matching)
 		err = perr
 		// Merge: produced = procOutput followed by the entries excluded by the
@@ -416,7 +429,7 @@ func (ex *Executor) runNode(
 		// produced for downstream / commit-phase bookkeeping. This replaces
 		// both the per-sink `entry.FilterAccepted(entries)` calls and the
 		// chained-sink special case that lived here pre-#246.
-		matching, excluded := entry.SplitByStates(upstream, pi.Desc.EffectiveInputStates())
+		matching, excluded := entry.SplitByStates(upstream, effectiveInputStates(pi))
 		matching, alsoExcluded := entry.SplitConsumed(matching)
 		excluded = append(excluded, alsoExcluded...)
 		err = sink.Consume(ctx, tc, matching)

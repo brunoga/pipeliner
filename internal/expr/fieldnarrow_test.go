@@ -19,6 +19,12 @@ func TestFieldRefs(t *testing.T) {
 		{"not enriched", []string{"enriched"}},
 		{"true", nil},
 		{"\"fixed\"", nil},
+		// Reserved identifiers are not entry fields and must not surface here
+		// — otherwise the validator would emit unknown-field warnings for
+		// every condition/route expression that branches on entry state.
+		{`state == "failed"`, nil},
+		{`state == "accepted" and torrent_seeds > 0`, []string{"torrent_seeds"}},
+		{`reject_reason contains "quota"`, nil},
 	}
 	for _, tc := range cases {
 		e, err := Compile(tc.expr)
@@ -173,6 +179,36 @@ func TestAbsenceRemovedFields(t *testing.T) {
 			if gotSet[f] {
 				t.Errorf("AbsenceRemovedFields(%q): want %q NOT in result, got %v", tc.expr, f, got)
 			}
+		}
+	}
+}
+
+func TestReferencesState(t *testing.T) {
+	cases := []struct {
+		expr string
+		want bool
+	}{
+		{`state == "failed"`, true},
+		{`state != "accepted"`, true},
+		{`state == "failed" or torrent_seeds > 0`, true},
+		// Capitalized variant is also reserved (template-style backward compat).
+		{`State == "failed"`, true},
+		// Plain field-only expressions must NOT trip the widen heuristic.
+		{`torrent_seeds > 0`, false},
+		{`title contains "x"`, false},
+		{`true`, false},
+		// `state` only as a substring of another identifier shouldn't count —
+		// identifier matching is whole-word.
+		{`statehood == "foo"`, false},
+	}
+	for _, tc := range cases {
+		e, err := Compile(tc.expr)
+		if err != nil {
+			t.Errorf("Compile(%q): %v", tc.expr, err)
+			continue
+		}
+		if got := e.ReferencesState(); got != tc.want {
+			t.Errorf("ReferencesState(%q) = %v; want %v", tc.expr, got, tc.want)
 		}
 	}
 }

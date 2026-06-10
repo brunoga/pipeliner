@@ -134,3 +134,80 @@ func TestRoutePluginsRegistered(t *testing.T) {
 		}
 	}
 }
+
+func TestRouteStateIdentifier(t *testing.T) {
+	// A port that branches on `state` should widen the plugin's effective
+	// InputStates so the executor stops hiding non-default-state entries,
+	// and the port should match the corresponding entries.
+	p := makeRoute(t, []map[string]any{
+		{"name": "failed_alert", "accept": `state == "failed"`},
+		{"name": "ok", "accept": `state == "accepted"`},
+	})
+	if !p.referencesSt {
+		t.Fatal("plugin should detect state reference in port expression")
+	}
+	if got := p.EffectiveInputStates(); got != entry.StatesAll {
+		t.Errorf("EffectiveInputStates() = %v; want StatesAll", got)
+	}
+
+	failed := entry.New("a", "http://x/a")
+	failed.Fail("disk full")
+	acc := entry.New("b", "http://x/b")
+	acc.Accept()
+
+	p.Process(context.Background(), tc(), []*entry.Entry{failed, acc})
+
+	if port, _ := failed.Get(entry.FieldRoutePort); port != "failed_alert" {
+		t.Errorf("Failed entry: _route_port=%q; want failed_alert", port)
+	}
+	if !failed.IsFailed() {
+		t.Errorf("Failed entry must stay Failed after routing, got %v", failed.State)
+	}
+	if failed.FailReason != "disk full" {
+		t.Errorf("FailReason mutated to %q; expected original to be preserved", failed.FailReason)
+	}
+
+	if port, _ := acc.Get(entry.FieldRoutePort); port != "ok" {
+		t.Errorf("Accepted entry: _route_port=%q; want ok", port)
+	}
+	if !acc.IsAccepted() {
+		t.Errorf("Accepted entry must stay Accepted, got %v", acc.State)
+	}
+}
+
+func TestRouteUnmatchedTerminalStatePassesThrough(t *testing.T) {
+	// A Failed entry that doesn't match any port must NOT be re-rejected —
+	// that would overwrite the failure reason. Only entries in the default
+	// states (Accepted/Undecided) get the legacy "no match → reject"
+	// treatment.
+	p := makeRoute(t, []map[string]any{
+		{"name": "ok", "accept": `state == "accepted"`},
+	})
+
+	failed := entry.New("a", "http://x/a")
+	failed.Fail("disk full")
+
+	p.Process(context.Background(), tc(), []*entry.Entry{failed})
+
+	if !failed.IsFailed() {
+		t.Errorf("Failed entry must stay Failed when no port matches, got %v", failed.State)
+	}
+	if failed.FailReason != "disk full" {
+		t.Errorf("FailReason mutated to %q; expected original to be preserved", failed.FailReason)
+	}
+	if port, _ := failed.Get(entry.FieldRoutePort); port != nil {
+		t.Errorf("unmatched Failed entry should have no _route_port set, got %v", port)
+	}
+}
+
+func TestRouteNoStateRefKeepsDefaultInputStates(t *testing.T) {
+	p := makeRoute(t, []map[string]any{
+		{"name": "all", "accept": "true"},
+	})
+	if p.referencesSt {
+		t.Fatal("plugin should NOT detect state reference in a field-only expression")
+	}
+	if got := p.EffectiveInputStates(); got != entry.StatesAcceptedUndecided {
+		t.Errorf("EffectiveInputStates() = %v; want StatesAcceptedUndecided", got)
+	}
+}
