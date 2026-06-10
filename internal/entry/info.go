@@ -77,6 +77,12 @@ const (
 	// which named port they matched. Used by route_selector nodes downstream.
 	FieldRoutePort = "_route_port"
 
+	// EmptyMarker is set to true on the synthetic marker entry emitted by
+	// the report_empty processor when its upstream was empty. Downstream
+	// expressions can branch on it to distinguish marker-fired runs from
+	// runs with real entries.
+	FieldEmptyMarker = "empty_marker"
+
 	// TorrentInfo — torrent_ prefix.
 	FieldTorrentInfoHash     = "torrent_info_hash"
 	FieldTorrentFileSize     = "torrent_file_size"
