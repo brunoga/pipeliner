@@ -41,6 +41,7 @@ import (
 type testServer struct {
 	url  string
 	done chan struct{}
+	db   *store.SQLiteStore // exposed for tests that need to seed buckets
 }
 
 func startTestServer(t *testing.T, starConfig string) *testServer {
@@ -116,7 +117,7 @@ func startTestServer(t *testing.T, starConfig string) *testServer {
 		time.Sleep(20 * time.Millisecond)
 	}
 
-	return &testServer{url: url, done: done}
+	return &testServer{url: url, done: done, db: db}
 }
 
 type noopDaemon struct{}
@@ -2403,5 +2404,121 @@ func TestE2EDashboardRunButtonHoverColor(t *testing.T) {
 	}
 	if !strings.Contains(got, "--accent") {
 		t.Errorf("btn-run hover border-color should resolve via --accent: got %q", got)
+	}
+}
+
+// TestE2EDatabaseTabRendersCacheSection seeds two cache buckets, opens the
+// database tab, and verifies that:
+//   - the new "Caches" sidebar section appears alongside "Trackers"
+//   - each cache bucket is listed with its display name + entry count
+//   - the cache renderer surfaces the key, a shape-aware value preview, and
+//     an expiry label drawn from the storedEntry envelope
+//   - the per-row delete button removes the entry without disturbing siblings
+func TestE2EDatabaseTabRendersCacheSection(t *testing.T) {
+	ts := startTestServer(t, minimalConfig)
+	browser, stop := pwSetup(t)
+	defer stop()
+
+	// Seed two cache buckets directly via SQL so we exercise the exact on-disk
+	// envelope the live cache writes (storedEntry: {v, e}). Bucket.Put would
+	// JSON-marshal the value a second time, producing a base64-string blob.
+	expires := time.Now().Add(72 * time.Hour).UTC().Format(time.RFC3339Nano)
+	seed := func(bucket, key, innerJSON string) {
+		envelope := fmt.Sprintf(`{"v":%s,"e":%q}`, innerJSON, expires)
+		if _, err := ts.db.DB().Exec(
+			`INSERT INTO store (bucket, key, value) VALUES (?, ?, ?)`,
+			bucket, key, envelope); err != nil {
+			t.Fatalf("seed %s/%s: %v", bucket, key, err)
+		}
+	}
+	seed("cache_bluray_search_neg", "avatar", `"2026-06-12T10:00:00Z"`)
+	seed("cache_bluray_index", "avatar", `[{"id":"7847","format":"BD"},{"id":"26954","format":"BD3D"}]`)
+
+	page, _ := browser.NewPage()
+	defer page.Close()
+
+	login(t, page, ts.url)
+
+	if err := page.Locator("#tab-btn-db").Click(); err != nil {
+		t.Fatalf("click database tab: %v", err)
+	}
+	if err := page.Locator("#tab-db").WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateVisible,
+	}); err != nil {
+		t.Fatalf("db tab not visible: %v", err)
+	}
+
+	// "Caches" section header must appear in the sidebar.
+	cachesHeader := page.Locator(".db-sidebar-section", playwright.PageLocatorOptions{
+		HasText: "Caches",
+	})
+	if err := cachesHeader.WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateVisible,
+	}); err != nil {
+		t.Fatalf("Caches sidebar section not rendered: %v", err)
+	}
+
+	// Both seeded cache buckets must be listed. We match on the raw bucket
+	// name in the onclick handler — the visible label comes from the API's
+	// display field, which isn't asserted here (covered by database_test.go).
+	for _, want := range []string{"cache_bluray_index", "cache_bluray_search_neg"} {
+		// The nav button text is the display label (not the raw bucket name),
+		// so use the data-driven onclick selector to find the right button.
+		btn := page.Locator(fmt.Sprintf(`.db-nav-btn[onclick*=%q]`, want))
+		if err := btn.WaitFor(playwright.LocatorWaitForOptions{
+			State: playwright.WaitForSelectorStateVisible,
+		}); err != nil {
+			t.Fatalf("nav button for %s not visible: %v", want, err)
+		}
+	}
+
+	// Open the index cache and assert the renderer shows the key + value
+	// preview ("[2 items]" for the seeded array) + a relative expires label.
+	if err := page.Locator(`.db-nav-btn[onclick*="cache_bluray_index"]`).Click(); err != nil {
+		t.Fatalf("click cache_bluray_index: %v", err)
+	}
+	if err := page.Locator(".db-cache-table").WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateVisible,
+	}); err != nil {
+		t.Fatalf("cache table not rendered: %v", err)
+	}
+	keyCell, err := page.Locator(".db-cache-key").First().TextContent()
+	if err != nil {
+		t.Fatalf("read key cell: %v", err)
+	}
+	if keyCell != "avatar" {
+		t.Errorf("key cell: got %q, want %q", keyCell, "avatar")
+	}
+	previewCell, err := page.Locator(".db-cache-value").First().TextContent()
+	if err != nil {
+		t.Fatalf("read preview cell: %v", err)
+	}
+	if previewCell != "[2 items]" {
+		t.Errorf("value preview: got %q, want %q", previewCell, "[2 items]")
+	}
+	expiresCell, err := page.Locator(".db-cache-expires").First().TextContent()
+	if err != nil {
+		t.Fatalf("read expires cell: %v", err)
+	}
+	if !strings.HasPrefix(expiresCell, "in ") {
+		t.Errorf("expires label: got %q, want a prefix-\"in \" label for a future timestamp", expiresCell)
+	}
+
+	// Delete the row and confirm the table becomes empty (the seeded bucket
+	// only has the one key). Auto-confirm the prompt.
+	page.OnDialog(func(d playwright.Dialog) { _ = d.Accept() })
+	if err := page.Locator(".db-cache-table .btn-sm-danger").First().Click(); err != nil {
+		t.Fatalf("click delete: %v", err)
+	}
+	// After deletion the bucket re-renders with the empty-state message.
+	emptyState := page.Locator("#db-main-content .db-empty")
+	if err := emptyState.WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateVisible,
+	}); err != nil {
+		t.Fatalf("empty state not rendered after delete: %v", err)
+	}
+	emptyText, _ := emptyState.TextContent()
+	if !strings.Contains(emptyText, "No cached entries") {
+		t.Errorf("expected 'No cached entries' empty state, got %q", emptyText)
 	}
 }

@@ -2150,6 +2150,18 @@ body.dark {
   border:1px solid var(--accent); color:var(--accent); background:transparent;
   vertical-align:1px;
 }
+.db-cache-table .db-cache-key {
+  font-family: var(--mono-font); font-size: 11px;
+  word-break: break-all; max-width: 32ch;
+}
+.db-cache-table .db-cache-value {
+  font-family: var(--mono-font); font-size: 11px;
+  color: var(--muted); word-break: break-word;
+}
+.db-cache-table .db-cache-expires {
+  font-family: var(--mono-font); font-size: 11px;
+  color: var(--muted); white-space: nowrap;
+}
 .db-empty {
   color: var(--muted); padding: 40px 20px;
   text-align: center; font-size: 11px; letter-spacing: 0.06em;
