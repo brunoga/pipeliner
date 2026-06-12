@@ -133,6 +133,12 @@ func (ex *Executor) Run(ctx context.Context) (*Result, error) {
 	// Track all source entries for total/state accounting.
 	var sourceEntries []*entry.Entry
 
+	// discardedEntries holds pointers consumed as input by a plugin whose
+	// descriptor sets ReplacesUpstream=true (e.g. discover). They are excluded
+	// from the final result counter so the new entries the plugin emits are
+	// counted instead — see Result doc for the full semantics.
+	discardedEntries := map[*entry.Entry]bool{}
+
 	// failedURLs tracks URLs of entries that were failed by any sink node.
 	// Used during the commit phase to exclude them from CommitPlugin.Commit calls.
 	failedURLs := map[string]bool{}
@@ -164,6 +170,16 @@ func (ex *Executor) Run(ctx context.Context) (*Result, error) {
 			role := pi.Desc.EffectiveRole()
 			if role == plugin.RoleSource {
 				sourceEntries = append(sourceEntries, produced...)
+			}
+
+			// Mark the upstream entries this node consumed as discarded so the
+			// final counter doesn't double-count them alongside the new entries
+			// the plugin emitted. Only applies to processors that explicitly
+			// opt in via Descriptor.ReplacesUpstream.
+			if pi.Desc.ReplacesUpstream {
+				for _, e := range upstream {
+					discardedEntries[e] = true
+				}
 			}
 
 			// Track entries produced by processor nodes for the commit phase.
@@ -236,22 +252,18 @@ func (ex *Executor) Run(ctx context.Context) (*Result, error) {
 		}
 	}
 
-	// Count terminal states from source entries (their State is mutable and
-	// reflects all processing done to the originals).
-	res.Total = len(sourceEntries)
-	res.Entries = sourceEntries
-	for _, e := range sourceEntries {
-		switch e.State {
-		case entry.Accepted:
-			res.Accepted++
-		case entry.Rejected:
-			res.Rejected++
-		case entry.Failed:
-			res.Failed++
-		case entry.Undecided:
-			res.Undecided++
-		}
-	}
+	// Aggregate per-entry state across the whole DAG. Walk every entry that
+	// flowed across any edge (plus the source slice itself) and group by URL,
+	// falling back to the entry pointer for URL-less entries (which are
+	// uniquely identified by pointer because nothing in the executor clones
+	// them across branches via fan-out without preserving URL). Entries the
+	// counter has decided to discard (inputs to a ReplacesUpstream plugin)
+	// are excluded so they don't dominate the totals as Undecided. Within a
+	// group, the strongest state wins so a single Accepted clone propagates
+	// into the counter even when other clones (on different branches) never
+	// reached a sink.
+	res.Total, res.Accepted, res.Rejected, res.Failed, res.Undecided, res.Entries =
+		aggregateCounters(sourceEntries, edge, discardedEntries)
 
 	res.Duration = time.Since(start)
 	ex.logger.Info("pipeline done",

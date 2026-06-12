@@ -1544,3 +1544,143 @@ func TestExecutor_NodeStartedLogReportsInAndBypassed(t *testing.T) {
 		t.Errorf("sink bypassed: want 0, got %v", got)
 	}
 }
+
+// replacingProcessorPlugin mimics discover: it ignores upstream entries' state
+// entirely and emits a completely new set of entries derived from its config.
+// The upstream entries are conceptually "consumed for context only."
+type replacingProcessorPlugin struct {
+	emit []*entry.Entry
+}
+
+func (p *replacingProcessorPlugin) Name() string { return "test_replacing" }
+func (p *replacingProcessorPlugin) Process(_ context.Context, _ *plugin.TaskContext, _ []*entry.Entry) ([]*entry.Entry, error) {
+	return p.emit, nil
+}
+
+func replacingDesc() *plugin.Descriptor {
+	return &plugin.Descriptor{
+		PluginName:       "test_replacing",
+		Role:             plugin.RoleProcessor,
+		ReplacesUpstream: true,
+	}
+}
+
+// TestExecutor_ReplacesUpstreamCounter walks the exact pipeline shape that
+// motivated this change: a source produces N entries, a ReplacesUpstream
+// processor swallows them and emits K different entries with their own URLs,
+// and a sink accepts a subset of those. Before the rewrite the pipeline-done
+// counters would show total=N, accepted=0, undecided=N (the K emitted entries
+// were never in sourceEntries, so the counter never saw their state). After
+// the rewrite the counters report total=K, accepted=accepted-count.
+func TestExecutor_ReplacesUpstreamCounter(t *testing.T) {
+	// Source produces 3 candidate titles.
+	srcURLs := []string{"http://upstream-1", "http://upstream-2", "http://upstream-3"}
+
+	// Replacing processor emits 4 fresh entries; the sink will accept the
+	// first 2 and leave the others Undecided.
+	emitted := []*entry.Entry{
+		entry.New("hit-a", "http://hit-a"),
+		entry.New("hit-b", "http://hit-b"),
+		entry.New("hit-c", "http://hit-c"),
+		entry.New("hit-d", "http://hit-d"),
+	}
+
+	// Mirror the user's pipeline shape: discover (ReplacesUpstream) emits
+	// entries; a downstream processor accepts a subset (the rest stay
+	// Undecided); a sink consumes the accepted ones. Without ReplacesUpstream,
+	// the 3 upstream source entries dominate the result counters as Undecided
+	// even though the 4 emitted-then-accepted entries are what the user cares
+	// about.
+	ex := buildExec(t,
+		[]*dag.Node{
+			{ID: "src", PluginName: "test_source"},
+			{ID: "swap", PluginName: "test_replacing", Upstreams: []dag.NodeID{"src"}},
+			{ID: "accept2", PluginName: "test_accept_first_n_proc", Upstreams: []dag.NodeID{"swap"}},
+			{ID: "sink", PluginName: "test_sink", Upstreams: []dag.NodeID{"accept2"}},
+		},
+		map[dag.NodeID]*executor.PluginInstance{
+			"src":  {Desc: sourceDesc(), Impl: &sourcePlugin{urls: srcURLs}, Config: map[string]any{}},
+			"swap": {Desc: replacingDesc(), Impl: &replacingProcessorPlugin{emit: emitted}, Config: map[string]any{}},
+			"accept2": {Desc: &plugin.Descriptor{PluginName: "test_accept_first_n_proc", Role: plugin.RoleProcessor},
+				Impl: &acceptFirstNProcessor{n: 2}, Config: map[string]any{}},
+			"sink": {Desc: sinkDesc(), Impl: &sinkPlugin{}, Config: map[string]any{}},
+		},
+	)
+	res, err := ex.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The 3 upstream entries must be discarded; only the 4 emitted entries
+	// contribute to the totals.
+	if res.Total != 4 {
+		t.Errorf("Total: got %d, want 4 (only emitted entries should count)", res.Total)
+	}
+	if res.Accepted != 2 {
+		t.Errorf("Accepted: got %d, want 2 (sink accepted the first two emitted)", res.Accepted)
+	}
+	if res.Undecided != 2 {
+		t.Errorf("Undecided: got %d, want 2 (last two emitted entries were never accepted)", res.Undecided)
+	}
+	if res.Rejected != 0 || res.Failed != 0 {
+		t.Errorf("Rejected/Failed: got %d/%d, want 0/0", res.Rejected, res.Failed)
+	}
+}
+
+// acceptFirstNProcessor accepts only the first n entries; the rest pass
+// through unchanged (Undecided). Useful for setting up mixed-state pipelines.
+type acceptFirstNProcessor struct {
+	n int
+}
+
+func (p *acceptFirstNProcessor) Name() string { return "test_accept_first_n_proc" }
+func (p *acceptFirstNProcessor) Process(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
+	for i, e := range entries {
+		if i < p.n {
+			e.Accept()
+		}
+	}
+	return entries, nil
+}
+
+// TestExecutor_FanOutDoesNotOvercountClones is the second correctness fix.
+// Fan-out clones the same URL into multiple branches; the per-URL aggregator
+// must dedup so a single source entry that fans out to N branches still
+// counts as Total=1, not Total=N. (The old per-source-entry counter happened
+// to get this right by accident because it never looked at clones at all;
+// the new counter must explicitly dedup by URL.)
+func TestExecutor_FanOutDoesNotOvercountClones(t *testing.T) {
+	branchA := &sinkPlugin{}
+	branchB := &sinkPlugin{}
+
+	ex := buildExec(t,
+		[]*dag.Node{
+			{ID: "src", PluginName: "test_source"},
+			{ID: "accept", PluginName: "test_accept", Upstreams: []dag.NodeID{"src"}},
+			{ID: "branchA", PluginName: "test_sink", Upstreams: []dag.NodeID{"accept"}},
+			{ID: "branchB", PluginName: "test_sink", Upstreams: []dag.NodeID{"accept"}},
+		},
+		map[dag.NodeID]*executor.PluginInstance{
+			"src":     {Desc: sourceDesc(), Impl: &sourcePlugin{urls: []string{"http://shared"}}, Config: map[string]any{}},
+			"accept":  {Desc: processorDesc(), Impl: &acceptAllPlugin{}, Config: map[string]any{}},
+			"branchA": {Desc: sinkDesc(), Impl: branchA, Config: map[string]any{}},
+			"branchB": {Desc: sinkDesc(), Impl: branchB, Config: map[string]any{}},
+		},
+	)
+	res, err := ex.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if res.Total != 1 {
+		t.Errorf("Total: got %d, want 1 (one source URL, even though it fanned out)", res.Total)
+	}
+	if res.Accepted != 1 {
+		t.Errorf("Accepted: got %d, want 1", res.Accepted)
+	}
+	// Sanity: fan-out actually delivered to both sinks.
+	if len(branchA.received) != 1 || len(branchB.received) != 1 {
+		t.Errorf("fan-out delivery: branchA=%d branchB=%d, want 1/1",
+			len(branchA.received), len(branchB.received))
+	}
+}
