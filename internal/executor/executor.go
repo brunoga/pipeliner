@@ -311,7 +311,6 @@ func (ex *Executor) runNode(
 	}
 
 	role := pi.Desc.EffectiveRole()
-	tc.Logger.Info("node started", "role", role, "in", len(upstream))
 	nodeStart := time.Now()
 
 	// Per-entry field validation (debug mode only).
@@ -359,6 +358,7 @@ func (ex *Executor) runNode(
 		if !ok {
 			return nil, fmt.Errorf("plugin %q does not implement SourcePlugin", pi.Impl.Name())
 		}
+		tc.Logger.Info("node started", "role", role)
 		produced, err = src.Generate(ctx, tc)
 
 	case plugin.RoleProcessor:
@@ -387,6 +387,7 @@ func (ex *Executor) runNode(
 			matching, markers = entry.SplitMarker(matching)
 			excluded = append(excluded, markers...)
 		}
+		tc.Logger.Info("node started", "role", role, "in", len(matching), "bypassed", len(excluded))
 		procOutput, perr := proc.Process(ctx, tc, matching)
 		err = perr
 		// Merge: produced = procOutput followed by the entries excluded by the
@@ -454,6 +455,7 @@ func (ex *Executor) runNode(
 			matching, markers = entry.SplitMarker(matching)
 			excluded = append(excluded, markers...)
 		}
+		tc.Logger.Info("node started", "role", role, "in", len(matching), "bypassed", len(excluded))
 		err = sink.Consume(ctx, tc, matching)
 		if len(excluded) == 0 {
 			produced = matching
