@@ -93,6 +93,14 @@ func init() {
 				Hint: "Minimum gap between requests"},
 			{Key: "user_agent", Type: plugin.FieldTypeString, Hint: "Custom User-Agent (default generic browser)"},
 		},
+		// Shared with metainfo_bluray: both plugins write the same buckets so the
+		// title index built by weekly calendar passes warms per-entry enrichment.
+		// Duplicate names across descriptors are deduplicated by the web layer.
+		Caches: []plugin.CacheInfo{
+			{Name: bucketIndex, Display: "Blu-ray.com Title Index"},
+			{Name: bucketDetail, Display: "Blu-ray.com Release Detail Cache"},
+			{Name: bucketNeg, Display: "Blu-ray.com Negative Search Cache"},
+		},
 	})
 }
 

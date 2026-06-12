@@ -89,6 +89,11 @@ func init() {
 				Hint: "Minimum gap between requests"},
 			{Key: "user_agent", Type: plugin.FieldTypeString, Hint: "Custom User-Agent (default generic browser)"},
 		},
+		Caches: []plugin.CacheInfo{
+			{Name: bucketIndex, Display: "Blu-ray.com Title Index"},
+			{Name: bucketDetail, Display: "Blu-ray.com Release Detail Cache"},
+			{Name: bucketNeg, Display: "Blu-ray.com Negative Search Cache"},
+		},
 	})
 }
 

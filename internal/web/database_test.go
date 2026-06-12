@@ -50,6 +50,11 @@ func deleteReq(t *testing.T, url string, body []byte) *http.Response {
 
 // ── GET /api/db/buckets ───────────────────────────────────────────────────────
 
+// TestDBBucketsEmpty verifies the response stays well-formed when the store
+// has zero rows. Plugin-declared caches still appear (count=0) so the user
+// can pre-emptively clear a cache they expect to exist — and importantly,
+// none of them are written, so every returned bucket has count=0 and
+// category=cache.
 func TestDBBucketsEmpty(t *testing.T) {
 	_, ts, _ := newDBTestServer(t)
 	defer ts.Close()
@@ -60,11 +65,20 @@ func TestDBBucketsEmpty(t *testing.T) {
 		t.Fatalf("status: %d", resp.StatusCode)
 	}
 	var out struct {
-		Buckets []any `json:"buckets"`
+		Buckets []struct {
+			Name     string `json:"name"`
+			Count    int    `json:"count"`
+			Category string `json:"category"`
+		} `json:"buckets"`
 	}
 	json.NewDecoder(resp.Body).Decode(&out)
-	if len(out.Buckets) != 0 {
-		t.Errorf("expected empty bucket list, got %d", len(out.Buckets))
+	for _, b := range out.Buckets {
+		if b.Count != 0 {
+			t.Errorf("bucket %q count: got %d, want 0 (no buckets seeded)", b.Name, b.Count)
+		}
+		if b.Category != "cache" {
+			t.Errorf("bucket %q category: got %q, want cache (only registry-derived caches surface in an empty store)", b.Name, b.Category)
+		}
 	}
 }
 
@@ -90,9 +104,10 @@ func TestDBBucketsListed(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if len(out.Buckets) != 2 {
-		t.Fatalf("want 2 buckets, got %d", len(out.Buckets))
-	}
+	// The response contains the seeded buckets PLUS every plugin-declared
+	// cache (at count=0) from blank-imported plugin packages in the test
+	// binary. Assert on the seeded ones specifically so the test stays stable
+	// as plugins gain or lose Descriptor.Caches entries.
 	byName := map[string]int{}
 	byCategory := map[string]string{}
 	for _, b := range out.Buckets {
@@ -111,6 +126,98 @@ func TestDBBucketsListed(t *testing.T) {
 	if byCategory["cache_tvdb"] != "cache" {
 		t.Errorf("cache_tvdb category: got %q, want cache", byCategory["cache_tvdb"])
 	}
+}
+
+// TestDBBucketsRegistryMergesEmptyCaches confirms the database tab surfaces a
+// plugin-declared cache before the plugin first writes to it. The web-package
+// test binary blank-imports several plugins via playwright_test.go, so we can
+// pick a known one (cache_bluray_index, declared by both metainfo_bluray and
+// bluray_releases) and assert it appears at count=0 with the registered
+// display name even though nothing has been written.
+//
+// This is the regression guard for the "where's my bluray cache?" confusion
+// on fresh installs that motivated this change.
+func TestDBBucketsRegistryMergesEmptyCaches(t *testing.T) {
+	_, ts, _ := newDBTestServer(t)
+	defer ts.Close()
+
+	resp := get(t, ts.URL+"/api/db/buckets")
+	defer resp.Body.Close()
+
+	var out struct {
+		Buckets []struct {
+			Name     string `json:"name"`
+			Display  string `json:"display"`
+			Count    int    `json:"count"`
+			Category string `json:"category"`
+		} `json:"buckets"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	// We assert on the bluray caches because bluray_releases is guaranteed
+	// to be blank-imported by playwright_test.go in this test binary. Series
+	// and movies filter plugins are not imported here, so we don't check
+	// their caches — TestDBBucketsRegistryCountReflectsActualWrites would
+	// catch a broken merge for those if it mattered.
+	want := map[string]string{
+		"cache_bluray_index":      "Blu-ray.com Title Index",
+		"cache_bluray_search_neg": "Blu-ray.com Negative Search Cache",
+		"cache_bluray_detail":     "Blu-ray.com Release Detail Cache",
+	}
+	got := map[string]string{}
+	gotCounts := map[string]int{}
+	gotCategory := map[string]string{}
+	for _, b := range out.Buckets {
+		got[b.Name] = b.Display
+		gotCounts[b.Name] = b.Count
+		gotCategory[b.Name] = b.Category
+	}
+	for name, display := range want {
+		if got[name] != display {
+			t.Errorf("display name for %q: got %q, want %q", name, got[name], display)
+		}
+		if gotCounts[name] != 0 {
+			t.Errorf("count for %q: got %d, want 0 (registry merge for never-written bucket)", name, gotCounts[name])
+		}
+		if gotCategory[name] != "cache" {
+			t.Errorf("category for %q: got %q, want cache", name, gotCategory[name])
+		}
+	}
+}
+
+// TestDBBucketsRegistryCountReflectsActualWrites confirms that once a plugin
+// HAS written to one of its declared caches, the response reports the real
+// count (not the synthetic 0 from the registry merge). Otherwise the merge
+// would mask actual data.
+func TestDBBucketsRegistryCountReflectsActualWrites(t *testing.T) {
+	_, ts, db := newDBTestServer(t)
+	defer ts.Close()
+
+	db.Bucket("cache_bluray_index").Put("avatar", "x")
+	db.Bucket("cache_bluray_index").Put("inception", "y")
+
+	resp := get(t, ts.URL+"/api/db/buckets")
+	defer resp.Body.Close()
+
+	var out struct {
+		Buckets []struct {
+			Name  string `json:"name"`
+			Count int    `json:"count"`
+		} `json:"buckets"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	for _, b := range out.Buckets {
+		if b.Name == "cache_bluray_index" {
+			if b.Count != 2 {
+				t.Errorf("cache_bluray_index count: got %d, want 2 (real SQL count must win over registry default)", b.Count)
+			}
+			return
+		}
+	}
+	t.Error("cache_bluray_index not in bucket list")
 }
 
 // ── GET /api/db/buckets/{name} ────────────────────────────────────────────────

@@ -56,6 +56,10 @@ func init() {
 			{Key: "api_key", Type: plugin.FieldTypeString, Required: true, Hint: "TMDb API key"},
 			{Key: "cache_ttl", Type: plugin.FieldTypeDuration, Default: "24h", Hint: "How long to cache results"},
 		},
+		Caches: []plugin.CacheInfo{
+			{Name: "cache_metainfo_tmdb", Display: "TMDb Search Cache"},
+			{Name: "cache_metainfo_tmdb_detail", Display: "TMDb Detail Cache"},
+		},
 	})
 }
 

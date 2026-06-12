@@ -56,6 +56,9 @@ func init() {
 			{Key: "ttl", Type: plugin.FieldTypeDuration, Default: "1h", Hint: "Cache TTL for dynamic lists"},
 			{Key: "reject_unmatched", Type: plugin.FieldTypeBool, Default: true, Hint: "Reject entries not classified as movie upstream; when a list is configured, also reject entries whose title isn't in the list"},
 		},
+		Caches: []plugin.CacheInfo{
+			{Name: "cache_movies_list", Display: "Movies Title List Cache"},
+		},
 	})
 }
 

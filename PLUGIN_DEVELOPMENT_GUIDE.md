@@ -1216,6 +1216,33 @@ per-key SQLite reads during normal operation. If you only need in-memory
 caching (no cross-run persistence), store data directly in plugin struct
 fields (maps, slices) rather than using the cache package.
 
+### Declaring caches in the Descriptor
+
+Every cache bucket your plugin uses should be declared in
+`Descriptor.Caches`. The web UI's Database tab merges this declaration with
+the actual bucket counts so a user can see — and clear — the cache before
+the plugin first writes to it (otherwise empty caches simply do not exist
+yet and have nowhere to surface in the UI).
+
+```go
+plugin.Register(&plugin.Descriptor{
+    PluginName: "my_plugin",
+    // ...
+    Caches: []plugin.CacheInfo{
+        {Name: "cache_my_plugin",        Display: "My Plugin Search Cache"},
+        {Name: "cache_my_plugin_detail", Display: "My Plugin Detail Cache"},
+    },
+})
+```
+
+`Name` must match the string passed to `db.Bucket(...)` exactly. `Display`
+is a human-readable label shown in the database tab sidebar — write it the
+way you would write a section header, e.g. *Trakt Metainfo Cache*, not
+*cache_metainfo_trakt*. When two plugins share a bucket (e.g.
+`metainfo_bluray` and `bluray_releases` both read/write
+`cache_bluray_index`), both descriptors should declare it; duplicates are
+deduplicated by the web layer.
+
 All `Cache[V]` methods (`Get`, `Set`, `Preload`) are nil-safe — a nil
 `*Cache[V]` behaves as a disabled cache (every `Get` misses, every `Set` is
 a no-op). This lets you make caching optional by setting the cache field to

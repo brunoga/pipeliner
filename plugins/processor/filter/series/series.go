@@ -74,6 +74,9 @@ func init() {
 			{Key: "ttl", Type: plugin.FieldTypeDuration, Default: "1h", Hint: "Cache TTL for dynamic lists"},
 			{Key: "reject_unmatched", Type: plugin.FieldTypeBool, Default: true, Hint: "Reject episodes not classified as series upstream; when a list is configured, also reject episodes whose show isn't in the list"},
 		},
+		Caches: []plugin.CacheInfo{
+			{Name: "cache_series_list", Display: "Series Title List Cache"},
+		},
 	})
 }
 
