@@ -25,7 +25,7 @@ import (
 	"github.com/brunoga/pipeliner/internal/store"
 )
 
-//go:embed ui/index.html ui/style.css ui/dashboard.js ui/highlight.js ui/config-editor.js ui/visual-editor.js ui/database.js ui/trakt.js ui/favicon.svg
+//go:embed ui/index.html ui/style.css ui/dashboard.js ui/highlight.js ui/config-editor.js ui/visual-editor.js ui/database.js ui/plugin-debug.js ui/trakt.js ui/favicon.svg
 var uiFS embed.FS
 
 // DaemonControl is the scheduler interface the Server uses.
@@ -68,8 +68,21 @@ type Server struct {
 	logFilePath        string
 	logFileMaxArchives int
 
+	// pluginLogCtl is the runtime per-plugin debug-level toggle. nil when not
+	// wired (e.g. tests that don't exercise the log-debug-plugins endpoints).
+	pluginLogCtl PluginLogControl
+
 	traktAuthMu sync.Mutex
 	traktAuth   *traktAuthSession
+}
+
+// PluginLogControl is the slice of *clog.PerPluginLevel that the web server
+// needs to surface the per-plugin DEBUG override to users. Implemented in
+// internal/clog; declared as an interface here so the web package does not
+// take a hard dependency on the concrete handler type.
+type PluginLogControl interface {
+	DebugPlugins() []string
+	SetDebugPlugins([]string)
 }
 
 // TaskStarted records that a task has begun executing.
@@ -154,6 +167,12 @@ func (s *Server) SetLogFile(path string, maxArchives int) {
 	s.logFileMaxArchives = maxArchives
 }
 
+// SetPluginLogControl wires the runtime per-plugin DEBUG override. When set,
+// GET/PUT /api/log-debug-plugins read and write this control so users can
+// toggle a plugin's DEBUG output from the Settings tab without restarting
+// the daemon. Leave nil to disable the endpoints (they 501).
+func (s *Server) SetPluginLogControl(c PluginLogControl) { s.pluginLogCtl = c }
+
 // SetTasks atomically replaces the task list shown in the UI.
 func (s *Server) SetTasks(tasks []TaskInfo) {
 	s.tasksMu.Lock()
@@ -200,6 +219,8 @@ func (s *Server) Start(ctx context.Context, addr string, tlsCfg *tls.Config) err
 	protected.HandleFunc("DELETE /api/db/entries/{name}", s.apiDBDeleteEntry)
 	protected.HandleFunc("POST /api/trakt/auth/start", s.apiTraktAuthStart)
 	protected.HandleFunc("GET /api/trakt/auth/poll", s.apiTraktAuthPoll)
+	protected.HandleFunc("GET /api/log-debug-plugins", s.apiGetLogDebugPlugins)
+	protected.HandleFunc("PUT /api/log-debug-plugins", s.apiPutLogDebugPlugins)
 
 	// Top-level mux: open routes take priority; everything else goes through auth.
 	top := http.NewServeMux()
