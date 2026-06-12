@@ -6,7 +6,7 @@ function toTitleCase(s) {
 
 let dbLoaded = false;
 let dbActiveBucket = null;
-let dbNavItems = []; // [{bucket, label, count}]
+let dbNavItems = []; // [{bucket, label, count, section}]  section ∈ 'trackers' | 'caches'
 let dbPageSize = 20;
 let dbFilterQuery = '';
 let dbCursorStack = []; // stack of 'after' values; empty entry = first page
@@ -27,13 +27,20 @@ async function loadDBTab() {
   // Fixed trackers first — always present, count from bucket list.
   for (const {bucket, label} of DB_FIXED_BUCKETS) {
     const b = buckets.find(b => b.name === bucket);
-    dbNavItems.push({bucket, label, count: b?.count ?? 0});
+    dbNavItems.push({bucket, label, count: b?.count ?? 0, section: 'trackers'});
   }
   // Any per-task local seen buckets (seen:task-name).
   for (const b of buckets) {
     if (b.name.startsWith('seen:')) {
-      dbNavItems.push({bucket: b.name, label: 'Seen: ' + b.name.slice(5), count: b.count});
+      dbNavItems.push({bucket: b.name, label: 'Seen: ' + b.name.slice(5), count: b.count, section: 'trackers'});
     }
+  }
+  // Caches: every bucket the server classified as a cache. Display label and
+  // category come straight from the API, so adding a new cache_* bucket in Go
+  // surfaces here without a JS change.
+  const caches = buckets.filter(b => b.category === 'cache').sort((a, b) => a.display.localeCompare(b.display));
+  for (const b of caches) {
+    dbNavItems.push({bucket: b.name, label: b.display, count: b.count, section: 'caches'});
   }
   dbLoaded = true;
   renderDBSidebar();
@@ -41,15 +48,22 @@ async function loadDBTab() {
 }
 
 function renderDBSidebar() {
-  let html = '<div class="db-sidebar-section">Trackers</div>';
-  for (const item of dbNavItems) {
-    const active = dbActiveBucket === item.bucket ? ' active' : '';
-    html += `<button class="db-nav-btn${active}" onclick="selectDBBucket(${esc(JSON.stringify(item.bucket))})">
-      <span>${esc(item.label)}</span>
-      <span class="db-nav-count">${item.count}</span>
-    </button>`;
-  }
-  document.getElementById('db-sidebar').innerHTML = html;
+  const trackers = dbNavItems.filter(i => i.section === 'trackers');
+  const caches = dbNavItems.filter(i => i.section === 'caches');
+  const renderSection = (items, title) => {
+    if (!items.length) return '';
+    let html = `<div class="db-sidebar-section">${title}</div>`;
+    for (const item of items) {
+      const active = dbActiveBucket === item.bucket ? ' active' : '';
+      html += `<button class="db-nav-btn${active}" onclick="selectDBBucket(${esc(JSON.stringify(item.bucket))})">
+        <span>${esc(item.label)}</span>
+        <span class="db-nav-count">${item.count}</span>
+      </button>`;
+    }
+    return html;
+  };
+  document.getElementById('db-sidebar').innerHTML =
+    renderSection(trackers, 'Trackers') + renderSection(caches, 'Caches');
 }
 
 function dbPageURL(name) {
@@ -149,6 +163,7 @@ function renderDBContent(name, data) {
   let content = '';
   if (name === 'series') content = renderSeriesTable(data.grouped || [], name);
   else if (name === 'movies') content = renderMoviesTable(data.entries || [], name);
+  else if (item.section === 'caches') content = renderCacheTable(data.entries || [], name);
   else content = renderSeenTable(data.entries || [], name);
 
   main.innerHTML = toolbar + pager + `<div class="db-scroll">${content}</div>`;
@@ -228,6 +243,63 @@ function renderSeenTable(entries, bucket) {
     </tr>`;
   }
   return html + '</tbody></table>';
+}
+
+// ── caches ─────────────────────────────────────────────────────────────────────
+
+// Cache entries are stored as {"v": <inner>, "e": "<expires-at>"} by
+// internal/cache. Surface the inner value and the TTL so the user can tell
+// whether a row is stale, poisoned, or live before deciding to delete.
+function renderCacheTable(entries, bucket) {
+  if (!entries.length) return '<div class="db-empty">No cached entries.</div>';
+  let html = `<table class="db-table db-cache-table" id="db-content-table">
+    <thead><tr><th>Key</th><th>Value</th><th>Expires</th><th></th></tr></thead><tbody>`;
+  for (const e of entries) {
+    const v = e.value || {};
+    const inner = v.v !== undefined ? v.v : v;
+    const expiresAt = v.e || null;
+    html += `<tr>
+      <td class="db-cache-key">${esc(e.key)}</td>
+      <td class="db-cache-value">${esc(cacheValuePreview(inner))}</td>
+      <td class="db-cache-expires" title="${esc(expiresAt || '')}">${esc(cacheExpiryLabel(expiresAt))}</td>
+      <td style="text-align:right"><button class="btn-sm btn-sm-danger" onclick="dbDeleteEntry(${esc(JSON.stringify(bucket))},${esc(JSON.stringify(e.key))})">×</button></td>
+    </tr>`;
+  }
+  return html + '</tbody></table>';
+}
+
+// cacheValuePreview returns a one-line preview suitable for a table cell. Shows
+// shape and size cues so the user can spot empty/negative entries (a common
+// reason to clear a single cache row rather than the whole bucket).
+function cacheValuePreview(v) {
+  if (v === null || v === undefined) return '∅';
+  if (Array.isArray(v)) return `[${v.length} item${v.length === 1 ? '' : 's'}]`;
+  if (typeof v === 'object') {
+    const keys = Object.keys(v);
+    if (!keys.length) return '{}';
+    return `{${keys.slice(0, 4).join(', ')}${keys.length > 4 ? ', …' : ''}}`;
+  }
+  const s = String(v);
+  return s.length > 120 ? s.slice(0, 117) + '…' : s;
+}
+
+// cacheExpiryLabel returns a short relative label like "in 3d 4h", "in 12m", or
+// "expired 2h ago". Returns "—" if the timestamp can't be parsed.
+function cacheExpiryLabel(iso) {
+  if (!iso) return '—';
+  const t = Date.parse(iso);
+  if (isNaN(t)) return '—';
+  const deltaMs = t - Date.now();
+  const absMs = Math.abs(deltaMs);
+  const m = Math.floor(absMs / 60000);
+  const h = Math.floor(m / 60);
+  const d = Math.floor(h / 24);
+  let label;
+  if (d > 0) label = `${d}d ${h % 24}h`;
+  else if (h > 0) label = `${h}h ${m % 60}m`;
+  else if (m > 0) label = `${m}m`;
+  else label = '<1m';
+  return deltaMs >= 0 ? 'in ' + label : 'expired ' + label + ' ago';
 }
 
 // ── shared helpers ─────────────────────────────────────────────────────────────

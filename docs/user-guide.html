@@ -2043,14 +2043,18 @@ output(<span class="y-str">"transmission"</span>, upstream=movies, host=<span cl
 pipeline(<span class="y-str">"my-movies"</span>, schedule=<span class="y-str">"1h"</span>)</code></pre>
 
 <h3>Database tab</h3>
-<p>Inspect and manage the download trackers stored in <code>pipeliner.db</code>.</p>
+<p>Inspect and manage the download trackers and metainfo caches stored in <code>pipeliner.db</code>.</p>
 <img src="images/ui-database-tab.png" alt="Database tab showing the Series, Movies, and Seen tracker categories in the sidebar" class="screenshot">
-<p>A sidebar lists the available trackers; click one to load its contents in the main panel. A filter box and <strong>Clear all</strong> button appear for the active tracker.</p>
+<p>The sidebar is split into two sections — <strong>Trackers</strong> and <strong>Caches</strong>. Click any entry to load its contents in the main panel. A filter box and <strong>Clear all</strong> button appear for the active bucket; every row has a per-entry delete button.</p>
+<h4>Trackers</h4>
 <ul>
   <li><strong>Series</strong> — all TV episodes recorded as downloaded, grouped by show. Expand a show to see each episode's ID, quality, and download date. Delete an individual episode or an entire show to force a re-download on the next run. Includes entries from both the <code>series</code> and <code>premiere</code> filters.</li>
   <li><strong>Movies</strong> — all movies recorded as downloaded. Delete a movie to force a re-download.</li>
   <li><strong>Seen</strong> — entries recorded by the <code>seen</code> filter, showing title, task name, and date. Delete an entry to allow it to be processed again. Per-task local seen stores (<code>local: true</code>) appear as separate sidebar entries named <em>Seen: task-name</em>.</li>
 </ul>
+<h4>Caches</h4>
+<p>Every <code>cache_*</code> bucket maintained by a plugin (TVDB/TMDb/Trakt enrichment, the Blu-ray.com index and negative caches, discover/series/movies title caches, etc.) is listed here. Each row shows the cache key, a one-line value preview (<code>[3 items]</code> for arrays, <code>{a, b, c, …}</code> for objects, scalars truncated), and a relative expiry label (<code>in 4d 12h</code> or <code>expired 3d ago</code>).</p>
+<p>Use this section to delete a single cached entry when a lookup looks wrong (for instance a Blu-ray.com row that picked the wrong release, or a negative-cache row for a title you know exists) and to clear a whole bucket when you want a plugin to refetch everything on the next run. The TTL label is the timestamp the in-process cache uses to decide whether a row is still valid; "expired" rows have already lapsed and will be replaced by the next miss.</p>
 
 <h3>Settings tab</h3>
 <img src="images/ui-settings-tab.png" alt="Settings tab showing the Trakt Authorization form with client ID and client secret fields" class="screenshot">
