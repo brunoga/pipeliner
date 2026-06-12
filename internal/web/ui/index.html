@@ -236,6 +236,13 @@
     </div>
   </section>
   <section class="settings-section">
+    <h3>Plugin Debug Logging</h3>
+    <p style="font-size:12px;color:var(--muted);margin-bottom:10px">Show DEBUG-level output for individual plugins without raising the global log level. Click a plugin to toggle — changes apply immediately and survive until the daemon restarts.</p>
+    <input type="text" class="plugin-debug-search" id="plugin-debug-search" placeholder="filter plugins…" oninput="filterPluginDebug(this.value)">
+    <div id="plugin-debug-list" class="plugin-debug-list"><div class="plugin-debug-loading">Loading plugins…</div></div>
+    <div class="plugin-debug-status" id="plugin-debug-status"></div>
+  </section>
+  <section class="settings-section">
     <h3>Trakt Authorization</h3>
     <p style="font-size:12px;color:var(--muted);margin-bottom:16px">Authorize pipeliner to access your Trakt account. The token is stored in <code>pipeliner.db</code> and refreshed automatically.</p>
     <div class="field-row">
@@ -268,6 +275,7 @@
 <script src="config-editor.js"></script>
 <script src="visual-editor.js"></script>
 <script src="database.js"></script>
+<script src="plugin-debug.js"></script>
 <script src="trakt.js"></script>
 <script>
 // Boot — runs after all scripts are loaded so shared globals (dbLoaded, etc.)

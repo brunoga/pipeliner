@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -42,6 +43,7 @@ type testServer struct {
 	url  string
 	done chan struct{}
 	db   *store.SQLiteStore // exposed for tests that need to seed buckets
+	srv  *web.Server         // exposed so tests can wire optional controls (e.g. SetPluginLogControl)
 }
 
 func startTestServer(t *testing.T, starConfig string) *testServer {
@@ -117,7 +119,7 @@ func startTestServer(t *testing.T, starConfig string) *testServer {
 		time.Sleep(20 * time.Millisecond)
 	}
 
-	return &testServer{url: url, done: done, db: db}
+	return &testServer{url: url, done: done, db: db, srv: srv}
 }
 
 type noopDaemon struct{}
@@ -2521,4 +2523,106 @@ func TestE2EDatabaseTabRendersCacheSection(t *testing.T) {
 	if !strings.Contains(emptyText, "No cached entries") {
 		t.Errorf("expected 'No cached entries' empty state, got %q", emptyText)
 	}
+}
+
+// TestE2EPluginDebugSettings exercises the round-trip for the Settings tab's
+// "Plugin Debug Logging" panel: the section auto-loads plugin + override
+// state when opened, clicking a checkbox PUTs the new set to
+// /api/log-debug-plugins, the wired control records the change, and the
+// row visibly switches into its active state. Clicking again removes it.
+func TestE2EPluginDebugSettings(t *testing.T) {
+	ts := startTestServer(t, minimalConfig)
+	ctl := &captureLogCtl{}
+	ts.srv.SetPluginLogControl(ctl)
+
+	browser, stop := pwSetup(t)
+	defer stop()
+
+	page, _ := browser.NewPage()
+	defer page.Close()
+
+	login(t, page, ts.url)
+	if err := page.Locator("#tab-btn-settings").Click(); err != nil {
+		t.Fatalf("click settings tab: %v", err)
+	}
+	// Wait for the panel to populate (replaces the "Loading…" placeholder).
+	if err := page.Locator("#plugin-debug-list .plugin-debug-cb").First().WaitFor(
+		playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible},
+	); err != nil {
+		t.Fatalf("plugin-debug list never rendered checkboxes: %v", err)
+	}
+
+	// Toggle the rss source plugin (always registered for minimalConfig).
+	row := page.Locator(`#plugin-debug-list label:has(.plugin-debug-name:text-is("rss"))`)
+	if err := row.WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateVisible,
+	}); err != nil {
+		t.Fatalf("rss row not visible: %v", err)
+	}
+	if err := row.Locator(".plugin-debug-cb").Click(); err != nil {
+		t.Fatalf("click rss checkbox: %v", err)
+	}
+
+	// Server-side control should observe ["rss"] within a short window.
+	deadline := time.Now().Add(3 * time.Second)
+	var got []string
+	for time.Now().Before(deadline) {
+		got = ctl.DebugPlugins()
+		if len(got) == 1 && got[0] == "rss" {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if len(got) != 1 || got[0] != "rss" {
+		t.Fatalf("control after enable: got %v, want [rss]", got)
+	}
+
+	// And the row visibly switches to its active style — wait for the active
+	// class, since renderPluginDebugList runs AFTER the PUT promise resolves.
+	if err := page.Locator(
+		`#plugin-debug-list label.plugin-debug-row-active:has(.plugin-debug-name:text-is("rss"))`,
+	).WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateVisible,
+	}); err != nil {
+		t.Fatalf("enabled row did not receive active class: %v", err)
+	}
+
+	// Untoggle — set should clear.
+	if err := page.Locator(
+		`#plugin-debug-list label:has(.plugin-debug-name:text-is("rss")) .plugin-debug-cb`,
+	).Click(); err != nil {
+		t.Fatalf("click rss checkbox second time: %v", err)
+	}
+	deadline = time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		got = ctl.DebugPlugins()
+		if len(got) == 0 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if len(got) != 0 {
+		t.Errorf("control after disable: got %v, want []", got)
+	}
+}
+
+// captureLogCtl is a minimal in-test PluginLogControl. Mirrors the impl in
+// internal/clog without depending on the real handler here.
+type captureLogCtl struct {
+	mu      sync.Mutex
+	plugins []string
+}
+
+func (c *captureLogCtl) DebugPlugins() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := make([]string, len(c.plugins))
+	copy(out, c.plugins)
+	return out
+}
+
+func (c *captureLogCtl) SetDebugPlugins(names []string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.plugins = append(c.plugins[:0], names...)
 }

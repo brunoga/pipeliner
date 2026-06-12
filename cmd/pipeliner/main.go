@@ -302,8 +302,15 @@ func cmdDaemon(args []string) int {
 	}
 	defer logFile.Close() //nolint:errcheck
 
+	// pplFile/pplStderr is the inner clog handler for each sink. They are
+	// wrapped in clog.Multi, then in clog.PerPluginLevel so the web UI can
+	// toggle DEBUG on for individual plugins at runtime. The two inner
+	// handlers are configured with the same opts (so a debug record passes
+	// either side's threshold once we let it through), but each maintains its
+	// own colour state (stderr autodetects; the logfile writer is plain text).
 	var bcast *web.Broadcaster
 	var logger *slog.Logger
+	var perPlugin *clog.PerPluginLevel
 	if *webAddr != "" {
 		bcast = web.NewBroadcaster()
 		// The Broadcaster feeds the SSE live tail off the file writer
@@ -317,20 +324,22 @@ func cmdDaemon(args []string) int {
 			clog.New(logFile, opts),
 		)
 		if *logPlugin != "" {
-			logger = slog.New(clog.NewPluginFilter(h, splitPluginFilter(*logPlugin)))
-		} else {
-			logger = slog.New(h)
+			h = clog.NewPluginFilter(h, splitPluginFilter(*logPlugin))
 		}
+		perPlugin = clog.NewPerPluginLevel(h)
+		logger = slog.New(perPlugin)
 	} else {
 		h := clog.Multi(
 			clog.New(os.Stderr, opts),
 			clog.New(logFile, opts),
 		)
 		if *logPlugin != "" {
-			logger = slog.New(clog.NewPluginFilter(h, splitPluginFilter(*logPlugin)))
-		} else {
-			logger = slog.New(h)
+			h = clog.NewPluginFilter(h, splitPluginFilter(*logPlugin))
 		}
+		// No web UI to drive runtime toggles, but wrap anyway so behaviour is
+		// identical across modes — the empty override set is a pass-through.
+		perPlugin = clog.NewPerPluginLevel(h)
+		logger = slog.New(perPlugin)
 	}
 	slog.SetDefault(logger)
 
@@ -538,6 +547,7 @@ func cmdDaemon(args []string) int {
 		ws.SetConfigPath(*cfgPath)
 		ws.SetStore(db)
 		ws.SetLogFile(logFilePath(*cfgPath), logFileMaxArchives)
+		ws.SetPluginLogControl(perPlugin)
 		ws.SetConfigValidator(func(data []byte) ([]string, []string) {
 			c, err := config.ParseBytes(data)
 			if err != nil {

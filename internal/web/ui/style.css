@@ -1979,7 +1979,7 @@ body.dark {
 }
 
 /* settings tab */
-.settings-section { max-width: 420px; }
+.settings-section { max-width: 480px; }
 .settings-section h3 {
   font-size: 9px;
   font-weight: 700;
@@ -2058,6 +2058,83 @@ body.dark {
 .auth-url { font-size: 11px; color: var(--muted); }
 .auth-url a { color: var(--accent); }
 .auth-countdown { font-size: 10px; color: var(--muted); margin-top: 6px; letter-spacing: 0.02em; }
+
+/* plugin debug toggles (settings tab) */
+.plugin-debug-search {
+  width: 100%;
+  padding: 5px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text);
+  font-family: var(--mono-font);
+  font-size: 11px;
+  outline: none;
+  margin-bottom: 6px;
+  box-sizing: border-box;
+}
+.plugin-debug-search:focus { border-color: var(--accent); }
+.plugin-debug-list {
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  max-height: 360px;
+  overflow-y: auto;
+  background: var(--bg);
+}
+.plugin-debug-loading {
+  padding: 18px 14px;
+  font-size: 11px;
+  color: var(--muted);
+  text-align: center;
+}
+.plugin-debug-role {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+  padding: 8px 12px 4px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.plugin-debug-role:not(:first-child) { border-top: 1px solid var(--border); }
+.plugin-debug-row {
+  display: grid;
+  grid-template-columns: 18px 1fr 2fr;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  font-size: 11px;
+  cursor: pointer;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+}
+.plugin-debug-row:last-child { border-bottom: none; }
+.plugin-debug-row:hover { background: color-mix(in srgb, var(--accent) 5%, transparent); }
+.plugin-debug-row-active { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.plugin-debug-row-active:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.plugin-debug-cb { margin: 0; cursor: pointer; }
+.plugin-debug-name {
+  font-family: var(--mono-font);
+  font-size: 11px;
+  color: var(--text);
+  word-break: break-all;
+}
+.plugin-debug-row-active .plugin-debug-name { color: var(--accent); font-weight: 600; }
+.plugin-debug-desc {
+  color: var(--muted);
+  font-size: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.plugin-debug-status {
+  margin-top: 6px;
+  min-height: 14px;
+  font-size: 10px;
+  color: var(--muted);
+  font-family: var(--mono-font);
+}
+.plugin-debug-status-error { color: var(--red); }
 
 /* database tab */
 .db-layout { display: flex; gap: 20px; align-items: flex-start; }

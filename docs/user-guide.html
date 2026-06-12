@@ -2068,6 +2068,11 @@ pipeline(<span class="y-str">"my-movies"</span>, schedule=<span class="y-str">"1
 </ul>
 <p>Your preference is saved in browser local storage and applied on every page load, including the login page.</p>
 
+<h4>Plugin Debug Logging</h4>
+<p>Enable <code>DEBUG</code>-level output for individual plugins without raising the global log level. This is the runtime equivalent of starting the daemon with <code>--log-level=debug --log-plugin=name</code>, except you can toggle it on and off without a restart.</p>
+<p>Each checkbox flips the matching plugin's debug output on or off as you click it; changes take effect immediately on the running daemon and apply to both the stderr stream and <code>pipeliner.log</code>. The set is held in memory and resets when the daemon restarts — so you can leave the UI in whatever state you like during a long debug session and a planned restart will clean it up.</p>
+<p>Typical uses: turn on <code>metainfo_bluray</code> while diagnosing a misclassified 3D release, or enable <code>metainfo_tvdb</code> when an episode lookup misses. The filter field accepts plugin name, role, or description substrings.</p>
+
 <h4>Trakt Authorization</h4>
 <p>The Settings tab provides a <strong>Trakt Authorization</strong> form for completing the Trakt device auth flow directly in the browser — useful when running in Docker or any environment where interactive console access is not available. Enter your <code>client_id</code> and <code>client_secret</code>, click <strong>Authorize</strong>, then visit the displayed URL and enter the code on Trakt's website. The token is saved to <code>pipeliner.db</code> automatically on success and refreshed before expiry, exactly as if you had run <code>pipeliner auth trakt</code> from the CLI.</p>
 

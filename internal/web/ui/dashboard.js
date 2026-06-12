@@ -970,4 +970,7 @@ function showTab(name) {
       if (dbActiveBucket) selectDBBucket(dbActiveBucket); // refresh content too
     }
   }
+  if (name === 'settings' && typeof loadPluginDebugSettings === 'function') {
+    loadPluginDebugSettings();
+  }
 }
