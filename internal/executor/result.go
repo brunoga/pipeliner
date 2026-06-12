@@ -8,24 +8,42 @@ import (
 )
 
 // Result summarises the outcome of a single DAG pipeline run.
+//
+// Counter semantics: the executor walks every entry that flowed across an edge
+// in the DAG, deduplicates by URL (with the pointer as a fallback key for
+// empty-URL entries), and excludes entries that were consumed as input by a
+// Descriptor.ReplacesUpstream plugin. For each remaining group the strongest
+// state observed across all clones (Accepted > Rejected > Failed > Undecided)
+// is the one counted. This gives correct numbers for two patterns the old
+// per-source-entry counter got wrong:
+//
+//   - Fan-out: clones change state on non-branch-0 paths; the per-URL aggregate
+//     picks that up.
+//   - discover-style processors that emit brand new entries from search
+//     backends: the upstream source entries used as search candidates are
+//     excluded, and the new entries (with their own URLs) are what get counted.
 type Result struct {
 	// NodeResults holds per-node execution details.
 	NodeResults map[dag.NodeID]*NodeResult
-	// Total is the total number of entries produced by all source nodes.
+	// Total is the number of distinct entries (by URL or pointer) the
+	// executor's counter considered after ReplacesUpstream discards.
 	Total int
-	// Accepted is the number of entries that reached at least one sink.
+	// Accepted is the number of distinct entries that ended up Accepted in at
+	// least one branch.
 	Accepted int
-	// Rejected is the number of entries filtered out by processor nodes.
+	// Rejected is the number of distinct entries that were rejected somewhere
+	// in the pipeline and never made it to Accepted on any branch.
 	Rejected int
-	// Failed is the number of entries that errored in a sink.
+	// Failed is the number of distinct entries that failed and were not
+	// recovered by an accept on a different branch.
 	Failed int
-	// Undecided is the number of entries that never reached a terminal
-	// state — neither accepted nor rejected nor failed. Typically these
-	// are source entries that no downstream processor or sink claimed.
+	// Undecided is the remainder — distinct entries that never received a
+	// terminal state on any branch (passed through the DAG silently).
 	Undecided int
 	// Duration is the wall-clock time for the full run.
 	Duration time.Duration
-	// Entries holds all entries that passed through the pipeline (for inspection).
+	// Entries holds one representative entry per distinct group, in the same
+	// dedup order the counter used.
 	Entries []*entry.Entry
 }
 

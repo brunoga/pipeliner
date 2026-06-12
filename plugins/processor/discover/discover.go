@@ -35,6 +35,10 @@ func init() {
 		Factory:       newPlugin,
 		Validate:      validate,
 		AcceptsSearch: true,
+		// Upstream entries supply titles to search for; discover returns brand
+		// new entries built by the search backends. Without this hint the
+		// per-source-entry result counters never see the new entries' state.
+		ReplacesUpstream: true,
 		Schema: []plugin.FieldSchema{
 			{Key: "titles", Type: plugin.FieldTypeList, Hint: "Static title strings to search for (supplements upstream source nodes)"},
 			{Key: "interval", Type: plugin.FieldTypeDuration, Hint: "Minimum time between re-searches per title (default 24h)"},

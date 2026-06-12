@@ -51,6 +51,13 @@ pipeline("movie-discover", schedule="2h")
 the title list; `discover` searches for each title via the `search` backends and
 returns the found entries (not the upstream entries themselves).
 
+Because the returned entries replace the upstream ones, `discover` sets
+`Descriptor.ReplacesUpstream = true`. This tells the executor's pipeline-result
+counter to discard the upstream title entries it consumed for context and
+count only the search-backend results — otherwise an upstream of, say, 924
+titles feeding `discover` would show `total=924, accepted=0` even when the
+sink accepted 4 of the 100 emitted search results.
+
 | Property | Value |
 |----------|-------|
 | Role | `processor` |

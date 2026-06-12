@@ -92,6 +92,29 @@ type Descriptor struct {
 	// intended consumers of markers (notify, print, condition, route).
 	AcceptsMarkers bool
 
+	// ReplacesUpstream declares that this plugin's output is conceptually
+	// unrelated to its input — the upstream entries are used for context
+	// (e.g. their titles become search candidates) but the entries the
+	// plugin returns are freshly sourced, with their own URLs and lifetimes.
+	// The executor uses this hint to compute correct pipeline-result
+	// counters: upstream entries consumed by a replacing plugin are
+	// excluded from the final state aggregation so they don't dominate
+	// the counts as Undecided, and the new entries the plugin emits are
+	// what get counted instead.
+	//
+	// Without this flag, a 924-entry upstream feeding a search-emitting
+	// processor that produced 4 entries (all accepted by a downstream
+	// sink) would show `total=924, accepted=0, undecided=924` — the 4
+	// accepted entries are different pointers than the 924 source ones,
+	// so the per-source-entry counter never sees their state. Setting
+	// ReplacesUpstream=true makes the same pipeline report
+	// `total=4, accepted=4`.
+	//
+	// Today this applies to `discover` (search backend dispatch). Other
+	// candidates: any future plugin whose Process produces entries that
+	// did not exist on its input slice.
+	ReplacesUpstream bool
+
 	// Caches declares the SQLite store buckets this plugin uses as caches.
 	// The web UI's database tab merges this declaration with the buckets
 	// SQLite reports as actually present, so an unwritten cache still appears
