@@ -574,6 +574,24 @@ func (s *logSink) has(level slog.Level, msg string) bool {
 	return false
 }
 
+// attrsFor returns the attributes of every record matching msg, one map per
+// record, in emit order.
+func (s *logSink) attrsFor(msg string) []map[string]any {
+	var out []map[string]any
+	for _, r := range s.records {
+		if r.Message != msg {
+			continue
+		}
+		m := map[string]any{}
+		r.Attrs(func(a slog.Attr) bool {
+			m[a.Key] = a.Value.Any()
+			return true
+		})
+		out = append(out, m)
+	}
+	return out
+}
+
 // lateRejectPlugin rejects every incoming entry (expects them already Accepted).
 type lateRejectPlugin struct{}
 
@@ -1442,5 +1460,87 @@ func TestExecutor_MarkerFilter_PassThrough(t *testing.T) {
 	}
 	if !terminal.received[0].IsMarker() {
 		t.Errorf("entry at terminal sink should be IsMarker()")
+	}
+}
+
+// TestExecutor_NodeStartedLogReportsInAndBypassed confirms that the
+// per-node "node started" log records the post-filter in count and the
+// bypassed count, so users can tell at a glance when an upstream entry
+// reached a node but was excluded (state mismatch, consumed, or marker
+// without AcceptsMarkers) rather than processed.
+func TestExecutor_NodeStartedLogReportsInAndBypassed(t *testing.T) {
+	ls := &logSink{}
+	logger := slog.New(ls)
+
+	// marker source → default-config processor → opted-in sink. The
+	// processor bypasses the marker (in=0, bypassed=1) and the sink
+	// receives it (in=1, bypassed=0).
+	intermediate := &observerProcessorPlugin{}
+	terminal := &markerAwareSinkPlugin{}
+
+	markerSrcDesc := &plugin.Descriptor{PluginName: "test_marker_source", Role: plugin.RoleSource}
+	procDesc := &plugin.Descriptor{PluginName: "test_observer", Role: plugin.RoleProcessor}
+	sinkDesc := &plugin.Descriptor{PluginName: "opted_in_sink", Role: plugin.RoleSink, AcceptsMarkers: true}
+
+	g := dag.New()
+	for _, n := range []*dag.Node{
+		{ID: "src", PluginName: "test_marker_source"},
+		{ID: "mid", PluginName: "test_observer", Upstreams: []dag.NodeID{"src"}},
+		{ID: "sink", PluginName: "opted_in_sink", Upstreams: []dag.NodeID{"mid"}},
+	} {
+		if err := g.AddNode(n); err != nil {
+			t.Fatal(err)
+		}
+	}
+	plugins := map[dag.NodeID]*executor.PluginInstance{
+		"src":  {Desc: markerSrcDesc, Impl: &markerEmitterSource{}, Config: map[string]any{}},
+		"mid":  {Desc: procDesc, Impl: intermediate, Config: map[string]any{}},
+		"sink": {Desc: sinkDesc, Impl: terminal, Config: map[string]any{}},
+	}
+	ex := executor.New("test", g, plugins, nil, logger, false)
+	if _, err := ex.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	records := ls.attrsFor("node started")
+	// Source + processor + sink = 3 records. Source omits in/bypassed.
+	if len(records) != 3 {
+		t.Fatalf("expected 3 'node started' records (source, processor, sink); got %d", len(records))
+	}
+
+	// Source record carries role=source and no in/bypassed.
+	var src, proc, sink map[string]any
+	for _, r := range records {
+		switch r["role"] {
+		case plugin.RoleSource:
+			src = r
+		case plugin.RoleProcessor:
+			proc = r
+		case plugin.RoleSink:
+			sink = r
+		}
+	}
+	if src == nil || proc == nil || sink == nil {
+		t.Fatalf("missing role in 'node started' records: src=%v proc=%v sink=%v", src, proc, sink)
+	}
+	if _, ok := src["in"]; ok {
+		t.Errorf("source 'node started' should not carry 'in'; got %v", src)
+	}
+	if _, ok := src["bypassed"]; ok {
+		t.Errorf("source 'node started' should not carry 'bypassed'; got %v", src)
+	}
+	// Processor sees 0 entries (the marker is bypassed), 1 bypassed.
+	if got := proc["in"]; got != int64(0) {
+		t.Errorf("processor in: want 0, got %v", got)
+	}
+	if got := proc["bypassed"]; got != int64(1) {
+		t.Errorf("processor bypassed: want 1, got %v", got)
+	}
+	// Sink (opted in to markers) sees the marker as 1 in, 0 bypassed.
+	if got := sink["in"]; got != int64(1) {
+		t.Errorf("sink in: want 1, got %v", got)
+	}
+	if got := sink["bypassed"]; got != int64(0) {
+		t.Errorf("sink bypassed: want 0, got %v", got)
 	}
 }
