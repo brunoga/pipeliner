@@ -91,6 +91,27 @@ type Descriptor struct {
 	// at the sink boundary. Set true on sinks/processors that are the
 	// intended consumers of markers (notify, print, condition, route).
 	AcceptsMarkers bool
+
+	// Caches declares the SQLite store buckets this plugin uses as caches.
+	// The web UI's database tab merges this declaration with the buckets
+	// SQLite reports as actually present, so an unwritten cache still appears
+	// in the sidebar (count=0) with the correct human-readable display name.
+	// Without this, the only way to surface a new cache_* bucket was to wait
+	// for the plugin to run and then hardcode its display name in the web
+	// layer — both steps drifted in practice. Plugins that share a bucket
+	// across multiple instances (e.g. metainfo_bluray and bluray_releases
+	// both write cache_bluray_index) can each declare it; duplicate names
+	// are deduplicated by the merge.
+	Caches []CacheInfo
+}
+
+// CacheInfo describes one SQLite store bucket used as a cache by a plugin.
+// Name is the bucket key in pipeliner.db; Display is the human-readable label
+// shown in the database tab sidebar. Display must be non-empty — fallback to
+// the raw Name is the web layer's job, not the plugin's.
+type CacheInfo struct {
+	Name    string
+	Display string
 }
 
 // EffectiveRole returns the plugin's Role.

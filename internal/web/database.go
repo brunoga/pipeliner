@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/brunoga/pipeliner/internal/plugin"
 )
 
 // bucketCategory classifies a bucket by its naming convention.
@@ -18,27 +20,43 @@ const (
 	catOther    bucketCategory = "other"
 )
 
-var bucketDisplayNames = map[string]string{
-	"series":                  "Series Tracker",
-	"movies":                  "Movie Tracker",
-	"premiere":                "Premiere Tracker",
-	"cache_metainfo_tvdb":     "TVDB Search Cache",
-	"cache_metainfo_tvdb_ext": "TVDB Extended Cache",
-	"cache_metainfo_tvdb_eps": "TVDB Episodes Cache",
-	"cache_metainfo_tmdb":     "TMDb Cache",
-	"cache_metainfo_trakt":    "Trakt Metainfo Cache",
-	"cache_filter_tvdb":       "TVDB Filter Cache",
-	"cache_series_from":       "Series From-Sources Cache",
-	"cache_movies_from":       "Movies From-Sources Cache",
+// trackerDisplayNames covers the well-known top-level trackers. Plugin caches
+// no longer live here — they declare themselves via Descriptor.Caches and are
+// merged in by the database tab handler. See cacheRegistry().
+var trackerDisplayNames = map[string]string{
+	"series":   "Series Tracker",
+	"movies":   "Movie Tracker",
+	"premiere": "Premiere Tracker",
 }
 
-func classifyBucket(name string) bucketCategory {
+// cacheRegistry walks every registered plugin descriptor and collects the
+// (bucket → display name) pairs they declare. Duplicate names across plugins
+// (e.g. cache_bluray_index is shared by metainfo_bluray and bluray_releases)
+// are deduplicated — the first descriptor wins, which is deterministic
+// because plugin.All() returns a name-sorted slice.
+func cacheRegistry() map[string]string {
+	out := map[string]string{}
+	for _, d := range plugin.All() {
+		for _, c := range d.Caches {
+			if _, ok := out[c.Name]; ok {
+				continue
+			}
+			out[c.Name] = c.Display
+		}
+	}
+	return out
+}
+
+func classifyBucket(name string, registry map[string]string) bucketCategory {
 	switch name {
 	case "series", "movies":
 		return catTracker
 	}
 	if strings.HasPrefix(name, "premiere:") {
 		return catTracker
+	}
+	if _, ok := registry[name]; ok {
+		return catCache
 	}
 	if strings.HasPrefix(name, "cache_") {
 		return catCache
@@ -49,8 +67,11 @@ func classifyBucket(name string) bucketCategory {
 	return catOther
 }
 
-func bucketDisplay(name string) string {
-	if d, ok := bucketDisplayNames[name]; ok {
+func bucketDisplay(name string, registry map[string]string) string {
+	if d, ok := trackerDisplayNames[name]; ok {
+		return d
+	}
+	if d, ok := registry[name]; ok {
 		return d
 	}
 	if rest, ok := strings.CutPrefix(name, "premiere:"); ok {
@@ -69,6 +90,15 @@ type dbEntry struct {
 }
 
 // apiDBBuckets returns all buckets with entry counts and category info.
+//
+// The list is the union of:
+//  1. Every bucket the SQLite store actually contains (with its real count).
+//  2. Every cache bucket declared by a registered plugin via Descriptor.Caches
+//     (added at count=0 if the plugin has not yet written to it).
+//
+// (2) is what lets the database tab show e.g. cache_bluray_index on a fresh
+// install — before this, a bucket only appeared after its first Put, so users
+// could not pre-emptively clear a cache they expected to exist.
 func (s *Server) apiDBBuckets(w http.ResponseWriter, r *http.Request) {
 	if s.db == nil {
 		http.Error(w, "database not available", http.StatusNotImplemented)
@@ -88,6 +118,9 @@ func (s *Server) apiDBBuckets(w http.ResponseWriter, r *http.Request) {
 		Count    int            `json:"count"`
 		Category bucketCategory `json:"category"`
 	}
+
+	registry := cacheRegistry()
+	seen := make(map[string]bool)
 	var buckets []bucketInfo
 	for rows.Next() {
 		var name string
@@ -95,13 +128,27 @@ func (s *Server) apiDBBuckets(w http.ResponseWriter, r *http.Request) {
 		if err := rows.Scan(&name, &count); err != nil {
 			continue
 		}
+		seen[name] = true
 		buckets = append(buckets, bucketInfo{
 			Name:     name,
-			Display:  bucketDisplay(name),
+			Display:  bucketDisplay(name, registry),
 			Count:    count,
-			Category: classifyBucket(name),
+			Category: classifyBucket(name, registry),
 		})
 	}
+	// Surface plugin-declared cache buckets that haven't been written yet.
+	for name, display := range registry {
+		if seen[name] {
+			continue
+		}
+		buckets = append(buckets, bucketInfo{
+			Name:     name,
+			Display:  display,
+			Count:    0,
+			Category: catCache,
+		})
+	}
+	sort.Slice(buckets, func(i, j int) bool { return buckets[i].Name < buckets[j].Name })
 	if buckets == nil {
 		buckets = []bucketInfo{}
 	}

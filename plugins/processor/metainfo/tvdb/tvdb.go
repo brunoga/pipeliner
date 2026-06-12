@@ -72,6 +72,11 @@ func init() {
 			{Key: "api_key", Type: plugin.FieldTypeString, Required: true, Hint: "TheTVDB v4 API key"},
 			{Key: "cache_ttl", Type: plugin.FieldTypeDuration, Default: "24h", Hint: "How long to cache results"},
 		},
+		Caches: []plugin.CacheInfo{
+			{Name: "cache_metainfo_tvdb", Display: "TVDB Search Cache"},
+			{Name: "cache_metainfo_tvdb_ext", Display: "TVDB Extended Cache"},
+			{Name: "cache_metainfo_tvdb_eps", Display: "TVDB Episodes Cache"},
+		},
 	})
 }
 

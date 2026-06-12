@@ -59,6 +59,9 @@ func init() {
 			{Key: "type", Type: plugin.FieldTypeEnum, Required: true, Enum: []string{"shows", "movies"}, Hint: "Content type"},
 			{Key: "cache_ttl", Type: plugin.FieldTypeDuration, Hint: "Search result cache lifetime (default 24h)"},
 		},
+		Caches: []plugin.CacheInfo{
+			{Name: "cache_metainfo_trakt", Display: "Trakt Metainfo Cache"},
+		},
 	})
 }
 

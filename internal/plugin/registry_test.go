@@ -74,3 +74,33 @@ func TestAll(t *testing.T) {
 		t.Errorf("All() not sorted by name: got %v, %v", all[0].PluginName, all[1].PluginName)
 	}
 }
+
+// TestDescriptorCachesRoundTrip confirms Caches survives Register/Lookup
+// intact. Trivial today, but cheap insurance against a future refactor that
+// might copy descriptors and miss this slice.
+func TestDescriptorCachesRoundTrip(t *testing.T) {
+	resetForTest()
+	Register(&Descriptor{
+		PluginName: "with_caches",
+		Role:       RoleProcessor,
+		Factory:    newStubFactory("with_caches"),
+		Caches: []CacheInfo{
+			{Name: "cache_a", Display: "Cache A"},
+			{Name: "cache_b", Display: "Cache B"},
+		},
+	})
+
+	d, ok := Lookup("with_caches")
+	if !ok {
+		t.Fatal("plugin not found")
+	}
+	if len(d.Caches) != 2 {
+		t.Fatalf("Caches: got %d entries, want 2", len(d.Caches))
+	}
+	if d.Caches[0].Name != "cache_a" || d.Caches[0].Display != "Cache A" {
+		t.Errorf("Caches[0]: got %+v", d.Caches[0])
+	}
+	if d.Caches[1].Name != "cache_b" || d.Caches[1].Display != "Cache B" {
+		t.Errorf("Caches[1]: got %+v", d.Caches[1])
+	}
+}
