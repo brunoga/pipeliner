@@ -170,8 +170,10 @@ func TestProcess_RespectsNegativeCache(t *testing.T) {
 
 func TestProcess_SearchMissCachesNegative(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Search page with no hoverlink results.
-		w.Write([]byte("<html><body>no results</body></html>"))
+		// A real /search/ response with the canonical title marker but no
+		// hoverlink results — the legitimate "no results found" case.
+		w.Write([]byte(`<html><head><title>Blu-ray.com - Search</title></head>` +
+			`<body>No results.</body></html>`))
 	}))
 	defer srv.Close()
 
@@ -183,6 +185,34 @@ func TestProcess_SearchMissCachesNegative(t *testing.T) {
 	}
 	if _, ok := pp.negCache.Get(indexKey("NotReal")); !ok {
 		t.Error("negCache not populated after empty search")
+	}
+}
+
+// TestProcess_SoftBlockDoesNotCacheNegative confirms that a 200 response with
+// a body that does not look like a search results page (e.g. a Cloudflare
+// interstitial, an anti-bot challenge, or a markup change we have not adapted
+// to) is treated as a search failure — surfaced as a Warn log and NOT written
+// to the negative cache. Otherwise a single bad scrape window would poison
+// the cache for the negative TTL (default 168h).
+func TestProcess_SoftBlockDoesNotCacheNegative(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// HTTP 200 with body that lacks the "<title>Blu-ray.com - Search"
+		// marker — simulates a soft block.
+		w.Write([]byte(`<html><head><title>Just a moment...</title></head>` +
+			`<body>Checking your browser</body></html>`))
+	}))
+	defer srv.Close()
+
+	pp := newProcessor(t, srv.URL)
+	e := entry.New("Avatar (2009)", "https://example.com/x")
+	if _, err := pp.Process(context.Background(), taskCtx(), []*entry.Entry{e}); err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	if _, ok := pp.negCache.Get(indexKey("Avatar")); ok {
+		t.Error("negCache populated despite soft-block response; should NOT cache negative")
+	}
+	if _, ok := e.Fields[entry.FieldBlurayID]; ok {
+		t.Error("bluray_id set despite soft-block; entry should be untouched")
 	}
 }
 

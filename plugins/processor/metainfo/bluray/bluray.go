@@ -159,13 +159,14 @@ func (p *processorPlugin) Process(ctx context.Context, tc *plugin.TaskContext, e
 func (p *processorPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) {
 	id, slug, siblings, ok := p.resolve(ctx, tc, e)
 	if !ok {
+		tc.Logger.Debug("metainfo_bluray: entry unresolved", "title", e.Title)
 		return
 	}
 	rel, ok := p.fetchDetail(ctx, tc, id, slug)
 	if !ok {
 		return
 	}
-	p.populate(e, rel, siblings)
+	p.populate(tc, e, rel, siblings)
 }
 
 // resolve returns the release ID/slug to fetch and the catalog siblings used
@@ -182,9 +183,13 @@ func (p *processorPlugin) resolve(ctx context.Context, tc *plugin.TaskContext, e
 		// canonical (avoids relying on origin redirect behaviour).
 		for _, s := range siblings {
 			if s.ID == rawID && s.Slug != "" {
+				tc.Logger.Debug("metainfo_bluray: resolve by-id (canonical slug from index)",
+					"title", e.Title, "id", rawID, "slug", s.Slug, "siblings", len(siblings))
 				return rawID, s.Slug, siblings, true
 			}
 		}
+		tc.Logger.Debug("metainfo_bluray: resolve by-id (slug via redirect)",
+			"title", e.Title, "id", rawID, "siblings", len(siblings))
 		return rawID, "", siblings, true
 	}
 
@@ -198,18 +203,29 @@ func (p *processorPlugin) resolve(ctx context.Context, tc *plugin.TaskContext, e
 
 	if hits, found := p.indexCache.Get(key); found && len(hits) > 0 {
 		best := pickBest(hits, year)
+		tc.Logger.Debug("metainfo_bluray: index cache hit",
+			"title", title, "year", year, "key", key,
+			"hits", len(hits), "picked_id", best.ID, "picked_format", string(best.Format))
 		return best.ID, best.Slug, hits, true
 	}
 	if _, found := p.negCache.Get(key); found {
+		tc.Logger.Debug("metainfo_bluray: negative cache hit",
+			"title", title, "year", year, "key", key)
 		return "", "", nil, false
 	}
 
+	t0 := time.Now()
 	results, err := p.client.SearchTitle(ctx, title, year)
 	if err != nil {
-		tc.Logger.Warn("metainfo_bluray: search failed", "title", title, "err", err)
+		tc.Logger.Warn("metainfo_bluray: search failed",
+			"title", title, "year", year, "err", err,
+			"duration", time.Since(t0).Round(time.Millisecond))
 		return "", "", nil, false
 	}
 	if len(results) == 0 {
+		tc.Logger.Debug("metainfo_bluray: search returned no results (caching negative)",
+			"title", title, "year", year, "key", key,
+			"duration", time.Since(t0).Round(time.Millisecond))
 		p.negCache.Set(key, time.Now())
 		return "", "", nil, false
 	}
@@ -218,6 +234,10 @@ func (p *processorPlugin) resolve(ctx context.Context, tc *plugin.TaskContext, e
 	}
 	hits, _ := p.indexCache.Get(key)
 	best := pickBest(results, year)
+	tc.Logger.Debug("metainfo_bluray: search succeeded",
+		"title", title, "year", year, "key", key,
+		"results", len(results), "picked_id", best.ID, "picked_format", string(best.Format),
+		"duration", time.Since(t0).Round(time.Millisecond))
 	return best.ID, best.Slug, hits, true
 }
 
@@ -235,19 +255,26 @@ func (p *processorPlugin) mergeIndex(key string, e bluray.IndexEntry) {
 // fetchDetail returns the Release for id, hitting the detail cache first.
 func (p *processorPlugin) fetchDetail(ctx context.Context, tc *plugin.TaskContext, id, slug string) (*bluray.Release, bool) {
 	if r, ok := p.detailCache.Get(id); ok && r != nil {
+		tc.Logger.Debug("metainfo_bluray: detail cache hit", "id", id)
 		return r, true
 	}
+	t0 := time.Now()
 	r, err := p.client.GetRelease(ctx, id, slug)
 	if err != nil {
-		tc.Logger.Warn("metainfo_bluray: get release failed", "id", id, "err", err)
+		tc.Logger.Warn("metainfo_bluray: get release failed",
+			"id", id, "slug", slug, "err", err,
+			"duration", time.Since(t0).Round(time.Millisecond))
 		return nil, false
 	}
+	tc.Logger.Debug("metainfo_bluray: detail fetched",
+		"id", id, "slug", slug,
+		"duration", time.Since(t0).Round(time.Millisecond))
 	p.detailCache.Set(id, r)
 	return r, true
 }
 
 // populate writes the bluray_* fields from a Release plus the sibling set.
-func (p *processorPlugin) populate(e *entry.Entry, r *bluray.Release, siblings []bluray.IndexEntry) {
+func (p *processorPlugin) populate(tc *plugin.TaskContext, e *entry.Entry, r *bluray.Release, siblings []bluray.IndexEntry) {
 	e.Set(entry.FieldBlurayID, r.ID)
 	if r.URL != "" {
 		e.Set(entry.FieldBlurayURL, r.URL)
@@ -287,9 +314,20 @@ func (p *processorPlugin) populate(e *entry.Entry, r *bluray.Release, siblings [
 	if is3DEdition {
 		e.Set(entry.FieldBlurayIs3DEdition, true)
 	}
-	if is3DEdition || bluray.Is3DRelease(siblings) {
+	siblings3D := 0
+	for _, s := range siblings {
+		if s.Format == bluray.FormatBD3D {
+			siblings3D++
+		}
+	}
+	is3DRelease := is3DEdition || siblings3D > 0
+	if is3DRelease {
 		e.Set(entry.FieldBluray3DRelease, true)
 	}
+	tc.Logger.Debug("metainfo_bluray: 3d classification",
+		"title", e.Title, "id", r.ID, "format", string(r.Format), "codec", r.Codec,
+		"siblings", len(siblings), "siblings_3d", siblings3D,
+		"is_3d_edition", is3DEdition, "is_3d_release", is3DRelease)
 
 	e.Set(entry.FieldEnriched, true)
 }
