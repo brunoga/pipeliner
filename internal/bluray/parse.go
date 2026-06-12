@@ -150,11 +150,26 @@ var reSearchResult = regexp.MustCompile(
 // reTitleYear extracts "(YYYY)" or "(YYYY-YYYY)" at the end of a hoverlink title.
 var reTitleYear = regexp.MustCompile(`^(.*?)\s*\((\d{4})(?:-\d{4})?\)\s*$`)
 
+// reSearchPage is a stable marker present on every real /search/ response —
+// including legitimate zero-result pages. A body that lacks it is either a
+// soft block (Cloudflare interstitial, anti-bot challenge, error page returned
+// as HTTP 200) or a markup change we have not adapted to. Either way, treating
+// it as "no results" and writing the title to the negative cache poisons the
+// cache for the negative-TTL window. ParseSearch returns an error in that case
+// so callers can surface it as a warning instead of silently caching.
+var reSearchPage = regexp.MustCompile(`(?i)<title>\s*Blu-ray\.com\s*-\s*Search\b`)
+
 // ParseSearch extracts result rows from a /search/?quicksearch=1&… results page.
-// Returns an empty (but non-nil) slice when the page parses but contains zero
-// results — callers use the empty slice as the negative-cache signal.
+// Returns an empty (but non-nil) slice when the page parses as a real search
+// response but contains zero result rows — callers use the empty slice as the
+// negative-cache signal. Returns an error when the body does not look like a
+// search results page at all, so a transient soft block does not get cached
+// as "no such title".
 func ParseSearch(body []byte) ([]IndexEntry, error) {
 	s := string(body)
+	if !reSearchPage.MatchString(s) {
+		return nil, fmt.Errorf("bluray: parse search: body does not look like a search results page (length=%d)", len(body))
+	}
 	matches := reSearchResult.FindAllStringSubmatch(s, -1)
 	seen := make(map[string]bool, len(matches))
 	out := make([]IndexEntry, 0, len(matches))

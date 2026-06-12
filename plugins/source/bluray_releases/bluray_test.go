@@ -411,9 +411,11 @@ func TestSearch_FallsBackToSearchAndPopulates(t *testing.T) {
 }
 
 func TestSearch_FallsBackThenCachesNegative(t *testing.T) {
-	// Server returns search page with no .hoverlink results.
+	// Server returns a real /search/ page (canonical title marker present)
+	// with no .hoverlink results — the legitimate "no results found" case.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("<html><body>no results</body></html>"))
+		w.Write([]byte(`<html><head><title>Blu-ray.com - Search</title></head>` +
+			`<body>No results.</body></html>`))
 	}))
 	defer srv.Close()
 
@@ -428,6 +430,28 @@ func TestSearch_FallsBackThenCachesNegative(t *testing.T) {
 	}
 	if _, ok := sp.negCache.Get(indexKey("DefinitelyDoesNotExist")); !ok {
 		t.Error("negCache not populated after empty search")
+	}
+}
+
+// TestSearch_SoftBlockDoesNotCacheNegative mirrors the metainfo plugin's
+// soft-block guard: a 200 response with a body that does not look like a
+// search results page (Cloudflare interstitial, markup change, etc.) must
+// NOT be written to the negative cache. The fix lives in the shared parser
+// (internal/bluray.ParseSearch), which now returns an error in that case.
+func TestSearch_SoftBlockDoesNotCacheNegative(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`<html><head><title>Just a moment...</title></head>` +
+			`<body>Checking your browser</body></html>`))
+	}))
+	defer srv.Close()
+
+	sp := newSourceWithServer(t, srv.URL, nil)
+	qe := entry.New("Avatar", "")
+	if _, err := sp.Search(context.Background(), taskCtx(), qe); err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if _, ok := sp.negCache.Get(indexKey("Avatar")); ok {
+		t.Error("negCache populated despite soft-block response; should NOT cache negative")
 	}
 }
 

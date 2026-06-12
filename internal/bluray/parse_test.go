@@ -149,6 +149,47 @@ func TestParseSearch_Avatar(t *testing.T) {
 	}
 }
 
+func TestParseSearch_RejectsNonSearchPage(t *testing.T) {
+	// A soft block / interstitial / markup change must not be silently
+	// treated as "zero results". Anything missing the search-page title
+	// marker should error so the caller can warn instead of negative-caching.
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"empty", ""},
+		{"plain html", "<html><body>nothing here</body></html>"},
+		{"cloudflare-ish", "<html><head><title>Just a moment...</title></head><body>checking</body></html>"},
+		{"wrong title", "<html><head><title>Blu-ray.com - Movies</title></head><body></body></html>"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			results, err := ParseSearch([]byte(tc.body))
+			if err == nil {
+				t.Fatalf("ParseSearch returned no error for %s body (got %d results)", tc.name, len(results))
+			}
+			if results != nil {
+				t.Errorf("ParseSearch returned non-nil results alongside error: %v", results)
+			}
+		})
+	}
+}
+
+// A real search page that simply has no hits should still parse as an empty
+// success — only the page-shape check is the new gate. The marker title is
+// the same on populated and empty results pages.
+func TestParseSearch_EmptyButValidPageReturnsEmptySlice(t *testing.T) {
+	body := `<html><head><title>Blu-ray.com - Search</title></head><body>` +
+		`<div>No results for your query.</div></body></html>`
+	results, err := ParseSearch([]byte(body))
+	if err != nil {
+		t.Fatalf("ParseSearch: %v", err)
+	}
+	if len(results) != 0 {
+		t.Errorf("got %d results, want 0", len(results))
+	}
+}
+
 func TestParseSearch_YearFilteringHappensInClient(t *testing.T) {
 	// ParseSearch itself does not filter by year — it returns every result.
 	// The Client.SearchTitle wrapper applies year filtering.
