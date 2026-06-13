@@ -86,7 +86,16 @@ let _dbAbortController = null;
 
 async function fetchDBPage(name) {
   const main = document.getElementById('db-main-content');
-  main.innerHTML = '<div class="db-loading">Loading…</div>';
+  // When the user is refreshing the same bucket (e.g. typed into the filter
+  // box) keep the toolbar alive so the filter input doesn't lose focus
+  // mid-keystroke; only swap the scroll/content area for the loading
+  // indicator. On a fresh bucket (or first load) rebuild the whole panel.
+  if (dbMainHasToolbarFor(main, name)) {
+    const scrollHost = main.querySelector('.db-scroll');
+    if (scrollHost) scrollHost.innerHTML = '<div class="db-loading">Loading…</div>';
+  } else {
+    main.innerHTML = '<div class="db-loading">Loading…</div>';
+  }
   if (_dbAbortController) _dbAbortController.abort();
   _dbAbortController = new AbortController();
   try {
@@ -97,6 +106,14 @@ async function fetchDBPage(name) {
   } catch (e) {
     if (e.name !== 'AbortError') main.innerHTML = '<div class="db-empty">Error loading data.</div>';
   }
+}
+
+// dbMainHasToolbarFor reports whether main already contains a toolbar wired
+// up for `name` — used to decide between a surgical refresh (keep the filter
+// input alive) and a full panel rebuild (switching buckets, first load).
+function dbMainHasToolbarFor(main, name) {
+  const tb = main && main.querySelector ? main.querySelector('.db-toolbar') : null;
+  return !!(tb && tb.dataset && tb.dataset.bucket === name);
 }
 
 async function dbNextPage() {
@@ -135,15 +152,6 @@ function renderDBContent(name, data) {
   const item = dbNavItems.find(i => i.bucket === name) || {label: name};
   const main = document.getElementById('db-main-content');
 
-  const toolbar = `<div class="db-toolbar">
-    <span class="db-title">${esc(item.label)}</span>
-    <div style="display:flex;gap:8px;align-items:center">
-      <input type="text" class="db-search" id="db-filter-input" placeholder="filter…"
-        value="${esc(dbFilterQuery)}" oninput="dbFilter(this.value)">
-      <button class="btn-danger" onclick="dbClearBucket(${esc(JSON.stringify(name))},${esc(JSON.stringify(item.label))})">Clear all</button>
-    </div>
-  </div>`;
-
   const hasPrev = dbCursorStack.length > 0;
   const hasNext = data.has_more;
   const total   = data.total ?? 0;
@@ -165,8 +173,37 @@ function renderDBContent(name, data) {
   else if (name === 'movies') content = renderMoviesTable(data.entries || [], name);
   else if (item.section === 'caches') content = renderCacheTable(data.entries || [], name);
   else content = renderSeenTable(data.entries || [], name);
+  const scroll = `<div class="db-scroll">${content}</div>`;
 
-  main.innerHTML = toolbar + pager + `<div class="db-scroll">${content}</div>`;
+  // Fast path: same bucket as last render. The toolbar (filter input + Clear
+  // All) is already in the DOM and the user may be actively typing into the
+  // input — replacing it would steal focus mid-keystroke. Swap only the pager
+  // and the scroll region. The toolbar's filter input is left alone; its
+  // value is the user's typing and never needs server-side re-rendering.
+  if (dbMainHasToolbarFor(main, name)) {
+    const pagerEl  = main.querySelector('.db-pager');
+    const scrollEl = main.querySelector('.db-scroll');
+    if (pagerEl && scrollEl) {
+      pagerEl.outerHTML  = pager;
+      // Re-query: outerHTML on pagerEl detaches the old element; scrollEl is
+      // unaffected because it's a sibling, but be safe and re-find it.
+      const scrollEl2 = main.querySelector('.db-scroll');
+      if (scrollEl2) scrollEl2.outerHTML = scroll;
+      return;
+    }
+  }
+
+  // First render for this bucket (or main was wiped by an error path).
+  // data-bucket lets the fast path above know which bucket the toolbar is for.
+  const toolbar = `<div class="db-toolbar" data-bucket="${esc(name)}">
+    <span class="db-title">${esc(item.label)}</span>
+    <div style="display:flex;gap:8px;align-items:center">
+      <input type="text" class="db-search" id="db-filter-input" placeholder="filter…"
+        value="${esc(dbFilterQuery)}" oninput="dbFilter(this.value)">
+      <button class="btn-danger" onclick="dbClearBucket(${esc(JSON.stringify(name))},${esc(JSON.stringify(item.label))})">Clear all</button>
+    </div>
+  </div>`;
+  main.innerHTML = toolbar + pager + scroll;
 }
 
 // ── series ─────────────────────────────────────────────────────────────────────
