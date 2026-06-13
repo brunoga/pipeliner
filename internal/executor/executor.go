@@ -24,6 +24,8 @@ package executor
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"runtime/debug"
@@ -34,6 +36,20 @@ import (
 	"github.com/brunoga/pipeliner/internal/plugin"
 	"github.com/brunoga/pipeliner/internal/store"
 )
+
+// newRunID returns a short hex token that identifies one pipeline run in logs.
+// 8 hex chars (32 bits) is enough to make grepping a single run unambiguous
+// across any realistic log window without bloating every log line.
+func newRunID() string {
+	var b [4]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		// crypto/rand.Read never returns an error on supported platforms; if
+		// it does, fall back to a timestamp-derived token so logs still get
+		// *some* per-run discriminator.
+		return fmt.Sprintf("%08x", time.Now().UnixNano()&0xffffffff)
+	}
+	return hex.EncodeToString(b[:])
+}
 
 // PluginInstance pairs a resolved plugin with its per-node config.
 type PluginInstance struct {
@@ -113,10 +129,11 @@ func (ex *Executor) Shutdown() {
 // Run executes the pipeline and returns a Result.
 func (ex *Executor) Run(ctx context.Context) (*Result, error) {
 	start := time.Now()
+	logger := ex.logger.With("run_id", newRunID())
 	if ex.dryRun {
-		ex.logger.Info("pipeline started (DRY RUN)")
+		logger.Info("pipeline started (DRY RUN)")
 	} else {
-		ex.logger.Info("pipeline started")
+		logger.Info("pipeline started")
 	}
 
 	layers, err := ex.graph.Layers()
@@ -159,7 +176,7 @@ func (ex *Executor) Run(ctx context.Context) (*Result, error) {
 			}
 
 			upstream := ex.collectUpstream(n, edge)
-			produced, nodeErr := ex.runNode(ctx, n, pi, upstream)
+			produced, nodeErr := ex.runNode(ctx, logger, n, pi, upstream)
 
 			nr := &NodeResult{In: len(upstream), Out: len(produced), Err: nodeErr}
 			if len(upstream) > len(produced) {
@@ -210,7 +227,7 @@ func (ex *Executor) Run(ctx context.Context) (*Result, error) {
 	// suppress sink side effects but still leave the next real run thinking
 	// those entries had already been processed.
 	if ex.dryRun {
-		ex.logger.Debug("dry-run: skipping commit phase")
+		logger.Debug("dry-run: skipping commit phase")
 	} else {
 	commitLoop:
 		for _, layer := range layers {
@@ -242,7 +259,7 @@ func (ex *Executor) Run(ctx context.Context) (*Result, error) {
 				tc := &plugin.TaskContext{
 					Name:   ex.name,
 					Config: pi.Config,
-					Logger: ex.logger.With("node", n.ID, "plugin", pi.Impl.Name()),
+					Logger: logger.With("node", n.ID, "plugin", pi.Impl.Name()),
 					DryRun: ex.dryRun,
 				}
 				if err := cp.Commit(ctx, tc, toCommit); err != nil {
@@ -266,7 +283,7 @@ func (ex *Executor) Run(ctx context.Context) (*Result, error) {
 		aggregateCounters(sourceEntries, edge, discardedEntries)
 
 	res.Duration = time.Since(start)
-	ex.logger.Info("pipeline done",
+	logger.Info("pipeline done",
 		"total", res.Total,
 		"accepted", res.Accepted,
 		"rejected", res.Rejected,
@@ -308,9 +325,12 @@ func (ex *Executor) storeOutputs(n *dag.Node, produced []*entry.Entry, edge map[
 	}
 }
 
-// runNode dispatches to the appropriate role interface.
+// runNode dispatches to the appropriate role interface. logger is the per-run
+// logger (already scoped with run_id and task) so plugin logs carry the run
+// discriminator without runNode having to know how it was derived.
 func (ex *Executor) runNode(
 	ctx context.Context,
+	logger *slog.Logger,
 	n *dag.Node,
 	pi *PluginInstance,
 	upstream []*entry.Entry,
@@ -318,7 +338,7 @@ func (ex *Executor) runNode(
 	tc := &plugin.TaskContext{
 		Name:   ex.name,
 		Config: pi.Config,
-		Logger: ex.logger.With("node", n.ID, "plugin", pi.Impl.Name()),
+		Logger: logger.With("node", n.ID, "plugin", pi.Impl.Name()),
 		DryRun: ex.dryRun,
 	}
 
