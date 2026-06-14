@@ -318,6 +318,18 @@ function cacheValuePreview(v) {
   if (typeof v === 'object') {
     const keys = Object.keys(v);
     if (!keys.length) return '{}';
+    // Wrappers that pair a name with a list (e.g. the TVDB episodes cache
+    // stores {name, episodes: [...]}) read better as "[62 episodes]" than
+    // the generic "{name, episodes}" — the name is already surfaced as the
+    // key subtitle via cacheKeyTitle so repeating it here is noise. Only
+    // applies when exactly one non-name field is present and it's an array.
+    const nonNameKeys = keys.filter(k => k !== 'name' && k !== 'Name');
+    if (nonNameKeys.length === 1 && Array.isArray(v[nonNameKeys[0]])) {
+      const label = nonNameKeys[0];
+      const n = v[label].length;
+      const singular = n === 1 ? label.replace(/s$/, '') : label;
+      return `[${n} ${singular}]`;
+    }
     return `{${keys.slice(0, 4).join(', ')}${keys.length > 4 ? ', …' : ''}}`;
   }
   const s = String(v);

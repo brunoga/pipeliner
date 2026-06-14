@@ -48,6 +48,18 @@ describe('cacheValuePreview', () => {
     expect(cacheValuePreview({a: 1, b: 2, c: 3, d: 4, e: 5})).toBe('{a, b, c, d, …}');
   });
 
+  it('renders {name, episodes:[]} wrappers as "[N episodes]"', () => {
+    const eps = (n) => Array.from({length: n}, (_, i) => ({seasonNumber: 1, number: i + 1}));
+    expect(cacheValuePreview({name: 'Breaking Bad', episodes: eps(62)})).toBe('[62 episodes]');
+    expect(cacheValuePreview({name: 'Pilot', episodes: eps(1)})).toBe('[1 episode]');
+    expect(cacheValuePreview({name: 'New', episodes: []})).toBe('[0 episodes]');
+  });
+
+  it('only collapses single-array wrappers; multi-field objects still show the shape', () => {
+    expect(cacheValuePreview({name: 'X', episodes: [], extra: 1}))
+      .toBe('{name, episodes, extra}');
+  });
+
   it('returns scalars as-is, truncating long strings', () => {
     expect(cacheValuePreview('short')).toBe('short');
     expect(cacheValuePreview(42)).toBe('42');
