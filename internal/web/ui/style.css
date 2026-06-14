@@ -2231,6 +2231,11 @@ body.dark {
   font-family: var(--mono-font); font-size: 11px;
   word-break: break-all; max-width: 32ch;
 }
+.db-cache-table .db-cache-key-id { display: block; }
+.db-cache-table .db-cache-key-title {
+  display: block; margin-top: 2px;
+  font-family: inherit; font-size: 10px; color: var(--muted);
+}
 .db-cache-table .db-cache-value {
   font-family: var(--mono-font); font-size: 11px;
   color: var(--muted); word-break: break-word;
