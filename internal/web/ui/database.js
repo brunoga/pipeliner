@@ -295,8 +295,12 @@ function renderCacheTable(entries, bucket) {
     const v = e.value || {};
     const inner = v.v !== undefined ? v.v : v;
     const expiresAt = v.e || null;
+    const title = cacheKeyTitle(inner);
+    const keyHtml = title
+      ? `<span class="db-cache-key-id">${esc(e.key)}</span><span class="db-cache-key-title">${esc(title)}</span>`
+      : esc(e.key);
     html += `<tr>
-      <td class="db-cache-key">${esc(e.key)}</td>
+      <td class="db-cache-key">${keyHtml}</td>
       <td class="db-cache-value">${esc(cacheValuePreview(inner))}</td>
       <td class="db-cache-expires" title="${esc(expiresAt || '')}">${esc(cacheExpiryLabel(expiresAt))}</td>
       <td style="text-align:right"><button class="btn-sm btn-sm-danger" onclick="dbDeleteEntry(${esc(JSON.stringify(bucket))},${esc(JSON.stringify(e.key))})">×</button></td>
@@ -314,10 +318,40 @@ function cacheValuePreview(v) {
   if (typeof v === 'object') {
     const keys = Object.keys(v);
     if (!keys.length) return '{}';
+    // Wrappers that pair a name with a list (e.g. the TVDB episodes cache
+    // stores {name, episodes: [...]}) read better as "[62 episodes]" than
+    // the generic "{name, episodes}" — the name is already surfaced as the
+    // key subtitle via cacheKeyTitle so repeating it here is noise. Only
+    // applies when exactly one non-name field is present and it's an array.
+    const nonNameKeys = keys.filter(k => k !== 'name' && k !== 'Name');
+    if (nonNameKeys.length === 1 && Array.isArray(v[nonNameKeys[0]])) {
+      const label = nonNameKeys[0];
+      const n = v[label].length;
+      const singular = n === 1 ? label.replace(/s$/, '') : label;
+      return `[${n} ${singular}]`;
+    }
     return `{${keys.slice(0, 4).join(', ')}${keys.length > 4 ? ', …' : ''}}`;
   }
   const s = String(v);
   return s.length > 120 ? s.slice(0, 117) + '…' : s;
+}
+
+// cacheKeyTitle returns a human-friendly label derived from the inner cached
+// value, to show alongside opaque ID keys (TMDb/TVDB/Blu-ray detail caches
+// all key on numeric IDs but carry a title or name on the value). Tries the
+// common JSON shapes: TMDb uses lowercase {title, release_date}, TVDB uses
+// {name, year, firstAired}, Blu-ray's untagged Go struct serialises as
+// {Title, Year}. Returns '' when nothing usable is found, in which case the
+// key renders as-is.
+function cacheKeyTitle(v) {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return '';
+  const t = v.title || v.Title || v.name || v.Name || '';
+  if (typeof t !== 'string' || !t) return '';
+  const y = v.year || v.Year ||
+    (typeof v.release_date === 'string' ? v.release_date.slice(0, 4) : '') ||
+    (typeof v.firstAired === 'string' ? v.firstAired.slice(0, 4) : '');
+  const yStr = y == null ? '' : String(y).trim();
+  return /^\d{4}$/.test(yStr) ? `${t} (${yStr})` : t;
 }
 
 // cacheExpiryLabel returns a short relative label like "in 3d 4h", "in 12m", or

@@ -92,11 +92,24 @@ func validate(cfg map[string]any) []error {
 	return errs
 }
 
+// cachedEpisodes wraps the per-series episode list with the series name so the
+// database tab can label each row with something more useful than the raw
+// numeric series ID. The JSON shape (lowercase "name", lowercase "episodes")
+// is what the UI's cacheKeyTitle and cacheValuePreview helpers expect.
+//
+// Old cache entries written before this wrapper existed stored a bare JSON
+// array; they will fail to unmarshal into this struct and be treated as
+// cache misses, triggering a transparent refetch on first access.
+type cachedEpisodes struct {
+	Name     string          `json:"name"`
+	Episodes []itvdb.Episode `json:"episodes"`
+}
+
 type tvdbPlugin struct {
 	client        *itvdb.Client
 	cache         *cache.Cache[[]itvdb.Series]
 	extendedCache *cache.Cache[*itvdb.SeriesExtended]
-	episodeCache  *cache.Cache[[]itvdb.Episode]
+	episodeCache  *cache.Cache[cachedEpisodes]
 }
 
 func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
@@ -118,7 +131,7 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 		client:        itvdb.New(apiKey),
 		cache:         cache.NewPersistent[[]itvdb.Series](ttl, db.Bucket("cache_metainfo_tvdb")),
 		extendedCache: cache.NewPersistent[*itvdb.SeriesExtended](ttl, db.Bucket("cache_metainfo_tvdb_ext")),
-		episodeCache:  cache.NewPersistent[[]itvdb.Episode](ttl, db.Bucket("cache_metainfo_tvdb_eps")),
+		episodeCache:  cache.NewPersistent[cachedEpisodes](ttl, db.Bucket("cache_metainfo_tvdb_eps")),
 	}
 	p.cache.Preload()
 	p.extendedCache.Preload()
@@ -247,7 +260,7 @@ func (p *tvdbPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 
 	// Fetch episode-level detail if we have a specific episode.
 	if ep.Season > 0 && ep.Episode > 0 {
-		eps, err := p.fetchEpisodes(ctx, tc, s.ID)
+		eps, err := p.fetchEpisodes(ctx, tc, s.ID, si.Title)
 		if err != nil {
 			return nil
 		}
@@ -403,10 +416,10 @@ func stripTrailingYear(name string) (string, bool) {
 	return name, false
 }
 
-func (p *tvdbPlugin) fetchEpisodes(ctx context.Context, tc *plugin.TaskContext, id string) ([]itvdb.Episode, error) {
-	if eps, ok := p.episodeCache.Get(id); ok {
+func (p *tvdbPlugin) fetchEpisodes(ctx context.Context, tc *plugin.TaskContext, id, name string) ([]itvdb.Episode, error) {
+	if hit, ok := p.episodeCache.Get(id); ok {
 		tc.Logger.Debug("metainfo_tvdb: episodes cache hit", "id", id)
-		return eps, nil
+		return hit.Episodes, nil
 	}
 	t0 := time.Now()
 	eps, err := p.client.GetEpisodes(ctx, id)
@@ -414,7 +427,7 @@ func (p *tvdbPlugin) fetchEpisodes(ctx context.Context, tc *plugin.TaskContext, 
 		tc.Logger.Warn("metainfo_tvdb: episodes fetch failed", "id", id, "err", err)
 		return nil, err
 	}
-	p.episodeCache.Set(id, eps)
+	p.episodeCache.Set(id, cachedEpisodes{Name: name, Episodes: eps})
 	tc.Logger.Debug("metainfo_tvdb: episodes fetch", "id", id, "count", len(eps), "duration", time.Since(t0).Round(time.Millisecond))
 	return eps, nil
 }
