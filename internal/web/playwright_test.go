@@ -2607,6 +2607,75 @@ func TestE2EPluginDebugSettings(t *testing.T) {
 }
 
 // captureLogCtl is a minimal in-test PluginLogControl. Mirrors the impl in
+// TestE2EDatabaseFilterKeepsFocusWhileTyping pins down the database-tab fix
+// for the focus-loss-on-type bug: while the user is typing into the filter
+// box, the debounced refetch (300ms) fires mid-keystroke; before the fix the
+// full main-panel re-render replaced the input element, stealing focus and
+// dropping any in-flight keystrokes. After the fix, the toolbar (filter +
+// Clear All) survives a same-bucket refresh — only the pager and table swap.
+//
+// The test types one character at a time with a delay that crosses both the
+// 300ms debounce and the loading-indicator render, then asserts that the
+// filter input is still the active element AND that every keystroke landed in
+// its value. If the bug regresses, focus moves to <body> and the value is a
+// truncated tail of "search".
+func TestE2EDatabaseFilterKeepsFocusWhileTyping(t *testing.T) {
+	ts := startTestServer(t, minimalConfig)
+	browser, stop := pwSetup(t)
+	defer stop()
+
+	page, _ := browser.NewPage()
+	defer page.Close()
+
+	login(t, page, ts.url)
+
+	// Open the Database tab. The sidebar auto-selects the first bucket
+	// (Series, which is always present) and renders the filter input.
+	if err := page.Locator("#tab-btn-db").Click(); err != nil {
+		t.Fatalf("click db tab: %v", err)
+	}
+	filter := page.Locator("#db-filter-input")
+	if err := filter.WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateVisible,
+	}); err != nil {
+		t.Fatalf("wait filter input: %v", err)
+	}
+	if err := filter.Click(); err != nil {
+		t.Fatalf("focus filter: %v", err)
+	}
+
+	// 6 chars × 120ms delay = 720ms typing window. The debounced fetch fires
+	// after the first 300ms of quiet, but each keystroke restarts the timer,
+	// so the actual refetch lands somewhere after the last character — the
+	// loading-indicator + render path runs during this window. We typed the
+	// word "search" character-by-character, so any focus loss or keystroke
+	// drop during the re-render will leave a truncated value behind.
+	if err := filter.PressSequentially("search", playwright.LocatorPressSequentiallyOptions{
+		Delay: playwright.Float(120),
+	}); err != nil {
+		t.Fatalf("type into filter: %v", err)
+	}
+	// Wait past the 300ms debounce + a generous fetch+render budget so the
+	// refresh definitely completed before we check focus.
+	time.Sleep(600 * time.Millisecond)
+
+	activeID, err := page.Evaluate(`document.activeElement && document.activeElement.id`)
+	if err != nil {
+		t.Fatalf("eval activeElement: %v", err)
+	}
+	if activeID != "db-filter-input" {
+		t.Errorf("filter focus lost during typing: activeElement.id=%v, want db-filter-input", activeID)
+	}
+
+	val, err := filter.InputValue()
+	if err != nil {
+		t.Fatalf("input value: %v", err)
+	}
+	if val != "search" {
+		t.Errorf("filter value: got %q, want %q (keystrokes lost to a re-render)", val, "search")
+	}
+}
+
 // internal/clog without depending on the real handler here.
 type captureLogCtl struct {
 	mu      sync.Mutex

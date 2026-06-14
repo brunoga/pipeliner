@@ -7,7 +7,7 @@
  * constructor and exercise them directly — no DOM or fetch needed.
  */
 
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -58,6 +58,13 @@ describe('cacheValuePreview', () => {
 });
 
 describe('cacheExpiryLabel', () => {
+  // Freeze the clock so the function under test sees the same "now" the
+  // test used to build its ISO timestamps — otherwise even a few ms of
+  // setup time can floor 4560min down to 4559min and flip "3d 4h" to
+  // "3d 3h" (this used to flake in CI).
+  beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date('2026-01-01T00:00:00Z')); });
+  afterEach(() => { vi.useRealTimers(); });
+
   it('returns em-dash for missing or invalid timestamps', () => {
     expect(cacheExpiryLabel(null)).toBe('—');
     expect(cacheExpiryLabel('')).toBe('—');
