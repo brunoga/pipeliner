@@ -1,8 +1,10 @@
 package executor_test
 
 import (
+	"bytes"
 	"context"
 	"log/slog"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -1682,5 +1684,91 @@ func TestExecutor_FanOutDoesNotOvercountClones(t *testing.T) {
 	if len(branchA.received) != 1 || len(branchB.received) != 1 {
 		t.Errorf("fan-out delivery: branchA=%d branchB=%d, want 1/1",
 			len(branchA.received), len(branchB.received))
+	}
+}
+
+// logFromPluginSink writes one log line through its TaskContext.Logger so we
+// can verify the per-run logger reaches plugin code (not just executor logs).
+type logFromPluginSink struct{}
+
+func (p *logFromPluginSink) Name() string { return "test_log_sink" }
+func (p *logFromPluginSink) Consume(_ context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
+	tc.Logger.Info("plugin log line")
+	return nil
+}
+
+// TestExecutor_RunIDInLogs proves that every log line emitted during a single
+// Run() call carries a run_id attribute, that the value reaches plugin code via
+// TaskContext.Logger, and that two separate runs produce different run_ids.
+// Filtering a single run from a noisy log stream is the whole point of the
+// attribute — without these guarantees the user can't grep one run cleanly.
+func TestExecutor_RunIDInLogs(t *testing.T) {
+	collect := func() (string, []string) {
+		var buf bytes.Buffer
+		logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+		g := dag.New()
+		nodes := []*dag.Node{
+			{ID: "src", PluginName: "test_source"},
+			{ID: "accept", PluginName: "test_accept", Upstreams: []dag.NodeID{"src"}},
+			{ID: "sink", PluginName: "test_log_sink", Upstreams: []dag.NodeID{"accept"}},
+		}
+		for _, n := range nodes {
+			if err := g.AddNode(n); err != nil {
+				t.Fatalf("AddNode: %v", err)
+			}
+		}
+		instances := map[dag.NodeID]*executor.PluginInstance{
+			"src":    {Desc: sourceDesc(), Impl: &sourcePlugin{urls: []string{"http://a.com"}}, Config: map[string]any{}},
+			"accept": {Desc: processorDesc(), Impl: &acceptAllPlugin{}, Config: map[string]any{}},
+			"sink":   {Desc: sinkDesc(), Impl: &logFromPluginSink{}, Config: map[string]any{}},
+		}
+		ex := executor.New("test", g, instances, nil, logger, false)
+		if _, err := ex.Run(context.Background()); err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+		var lines []string
+		for l := range strings.SplitSeq(strings.TrimRight(buf.String(), "\n"), "\n") {
+			if l != "" {
+				lines = append(lines, l)
+			}
+		}
+		// slog's text handler emits run_id=<hex> unquoted; capture it.
+		re := regexp.MustCompile(`run_id=([0-9a-f]{8})\b`)
+		var runID string
+		for _, l := range lines {
+			m := re.FindStringSubmatch(l)
+			if m == nil {
+				t.Errorf("log line missing run_id: %q", l)
+				continue
+			}
+			if runID == "" {
+				runID = m[1]
+			} else if m[1] != runID {
+				t.Errorf("run_id changed mid-run: %q vs %q in %q", runID, m[1], l)
+			}
+		}
+		if runID == "" {
+			t.Fatal("no run_id captured — no log lines emitted")
+		}
+		// The plugin's own log line must carry run_id too.
+		var sawPlugin bool
+		for _, l := range lines {
+			if strings.Contains(l, "plugin log line") {
+				sawPlugin = true
+				if !strings.Contains(l, "run_id="+runID) {
+					t.Errorf("plugin log line missing run_id: %q", l)
+				}
+			}
+		}
+		if !sawPlugin {
+			t.Error("plugin log line never appeared — TaskContext.Logger not wired")
+		}
+		return runID, lines
+	}
+
+	id1, _ := collect()
+	id2, _ := collect()
+	if id1 == id2 {
+		t.Errorf("run_id should differ between runs, both were %q", id1)
 	}
 }
