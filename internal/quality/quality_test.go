@@ -120,6 +120,11 @@ func TestParseSourceVariants(t *testing.T) {
 		{"Movie.WEB-DL.x264", SourceWebDL},
 		{"Movie.WEBDL.x264", SourceWebDL},
 		{"Movie.WEBRip.x264", SourceWEBRip},
+		// Bare "WEB" token (scene shorthand for WEB-DL).
+		{"For All Mankind S01E03 720p WEB x265 MiNX EZTV", SourceWebDL},
+		{"Show.S01E01.1080p.WEB.x264-GROUP", SourceWebDL},
+		// Bare "WEB" must NOT trigger when it's a substring inside another word.
+		{"The.Spider.Cobweb.2020.1080p.x264", SourceUnknown},
 		{"Movie.HDTV.x264", SourceHDTV},
 		{"Movie.DVDRip.XviD", SourceDVDRip},
 		{"Movie.TVRip.XviD", SourceTVRip},
@@ -621,6 +626,7 @@ func TestParseSourceValues(t *testing.T) {
 		{"webrip", SourceWEBRip},
 		{"webdl", SourceWebDL},
 		{"web-dl", SourceWebDL},
+		{"web", SourceWebDL},
 		{"bluray", SourceBluRay},
 		{"bdrip", SourceBluRay},
 		{"remux", SourceRemux},

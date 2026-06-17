@@ -236,7 +236,10 @@ func (q Quality) Better(other Quality) bool {
 
 var (
 	reResolution = regexp.MustCompile(`(?i)\b(4k|2160p|1080p|720p|576p|480p)\b`)
-	reSource     = regexp.MustCompile(`(?i)\b(remux|blu[\-\s]?ray|bdrip|bdremux|bd(?:25|50|100)|web[\-\s]?dl|webrip|hdtv|dvdrip|tvrip|hd[\-]?cam|camrip|cam\b|hd[\-]?ts|telesync|hd[\-]?tc|telecine|\bts\b|\btc\b|dvd[\-]?scr(?:eener)?|bd[\-]?scr|screener|\bscr\b)\b`)
+	// Bare "WEB" (no -DL / -Rip suffix) is scene shorthand for WEB-DL; it
+	// must be listed AFTER "web[\-\s]?dl" and "webrip" so the longer
+	// alternatives win on titles that include the explicit suffix.
+	reSource     = regexp.MustCompile(`(?i)\b(remux|blu[\-\s]?ray|bdrip|bdremux|bd(?:25|50|100)|web[\-\s]?dl|webrip|web|hdtv|dvdrip|tvrip|hd[\-]?cam|camrip|cam\b|hd[\-]?ts|telesync|hd[\-]?tc|telecine|\bts\b|\btc\b|dvd[\-]?scr(?:eener)?|bd[\-]?scr|screener|\bscr\b)\b`)
 	reCodec      = regexp.MustCompile(`(?i)\b(av1|x265|h[\.\s]?265|hevc|x264|h[\.\s]?264|xvid|divx)\b`)
 	reColorRange = regexp.MustCompile(`(?i)\b(dolby[\s\.]?vision|dovi\b|dv\b|hdr10[\+]?|hdr|sdr)\b`)
 	// re3DConvStrong matches conversion markers that always imply 3D-conversion
@@ -305,6 +308,8 @@ func Parse(title string) Quality {
 			q.Source = SourceWebDL
 		case strings.Contains(ml, "webrip"):
 			q.Source = SourceWEBRip
+		case ml == "web":
+			q.Source = SourceWebDL
 		case strings.Contains(ml, "hdtv"):
 			q.Source = SourceHDTV
 		case strings.Contains(ml, "dvdrip"):
@@ -648,7 +653,7 @@ func parseSource(s string) (Source, bool) {
 		return SourceHDTV, true
 	case "webrip":
 		return SourceWEBRip, true
-	case "webdl":
+	case "web", "webdl":
 		return SourceWebDL, true
 	case "bluray", "bdrip":
 		return SourceBluRay, true
