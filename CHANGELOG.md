@@ -5,6 +5,18 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.2] - 2026-06-17
+
+### Added
+
+- **Optional-dimension `?` suffix in quality specs** ([#288](https://github.com/brunoga/pipeliner/pull/288)). `Spec.Matches` treats an Unknown value for any dimension as worse than every known value in that dimension, so a token like `webrip+` rejects entries whose release title carries no source tag at all — even though "unknown" there just means the scene group omitted the marker, not that the source is actually below WEBRip. Adding a trailing `?` to a spec token (e.g. `webrip+?`, `1080p?`, `720p-1080p?`) marks the dimension as optional: an Unknown value on the entry bypasses the min/max check for that dimension, while a detected-but-out-of-range value is still rejected. The flag is independent per dimension, so `720p+ webrip+?` still enforces the resolution floor on every entry while only enforcing the source floor on entries whose source was actually detected. Six new `Opt*` fields on `Spec` mirror the six dimensions; `applySpecToken` strips a trailing `?` before parsing the base token and propagates the flag through `applyMinOnly`, `applySingle`, and `applyRange`. Tests cover the new flag on every token shape, both Unknown-passes and detected-still-rejects cases, the per-dimension independence, and the error paths (bare `?`, unknown value with `?`).
+
+### Fixed
+
+- **Quality parser recognises bare `WEB` as WEB-DL** ([#288](https://github.com/brunoga/pipeliner/pull/288)). Scene releases often tag the distribution medium with a standalone `WEB` token (e.g. `Show.S01E01.720p.WEB.x265-GROUP`) rather than the longer `WEB-DL` or `WEBRip` forms. The parser's `reSource` regex only matched the longer forms, so bare-`WEB` titles ended up with `Source=Unknown` and were rejected by specs like `webrip+` — even though `WEB` is unambiguously a WEB-DL rip. Bare `web` is now an alternative in `reSource` (listed after `web[\-\s]?dl` and `webrip` so the longer alternatives still win on titles that include the suffix), and `parseSource` also accepts bare `web` so the same token works as a spec value — which was already documented in the plugin README but silently broken. Tests cover the new bare-`WEB` parse, the `cobweb` non-match guard (word-boundary anchored), and the spec-side acceptance.
+
+**Why 1.12.2**: a focused follow-up to 1.12.1 — a single PR with one parser bug fix and one additive grammar extension to quality specs. No new framework primitives, no behaviour change for pipelines that don't use the new `?` suffix or rely on bare `WEB` parsing. No config or plugin contract breaks. Comparable in scope to 1.9.1 (small fixes + a contained additive change) — substantially smaller than the 1.12.0 / 1.11.0 / 1.10.0 minor bumps.
+
 ## [1.12.1] - 2026-06-14
 
 ### Added
