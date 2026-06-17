@@ -21,6 +21,7 @@ instead.
 | `720p-1080p` | inclusive range |
 | `web` | source-only filter (any resolution) |
 | `720p+ web` | combined dimensions |
+| `webrip+?` | optional dimension — enforce when detected, pass when the entry has no value for it |
 
 See `internal/quality.ParseSpec` for the full grammar.
 

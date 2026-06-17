@@ -8,6 +8,7 @@
 //	720p-1080p  - inclusive range
 //	web         - source-only spec
 //	720p+ web   - combined dimensions
+//	webrip+?    - optional dimension: enforce when detected, pass when Unknown
 //
 // Config keys:
 //
@@ -34,7 +35,7 @@ func init() {
 		Factory:     newPlugin,
 		Validate:    validate,
 		Schema: []plugin.FieldSchema{
-			{Key: "spec", Type: plugin.FieldTypeString, Required: true, Hint: "Quality spec, e.g. 720p+ (floor), 720p (exact), 720p-1080p (range)"},
+			{Key: "spec", Type: plugin.FieldTypeString, Required: true, Hint: "Quality spec, e.g. 720p+ (floor), 720p (exact), 720p-1080p (range), webrip+? (optional)"},
 			{Key: "on_missing", Type: plugin.FieldTypeEnum, Enum: []string{"pass", "reject"}, Default: "pass", Hint: "Behaviour when _quality is absent on an entry (default: pass)"},
 		},
 	})

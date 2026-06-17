@@ -728,13 +728,14 @@ pipeline("split-pipeline")</code></pre>
   <tr><td><code>value</code></td><td>Exact value</td><td><code>1080p</code>, <code>bluray</code></td></tr>
   <tr><td><code>value+</code></td><td>This value or better</td><td><code>720p+</code>, <code>webrip+</code></td></tr>
   <tr><td><code>min-max</code></td><td>Inclusive range</td><td><code>720p-1080p</code></td></tr>
+  <tr><td><code>spec?</code></td><td>Optional dimension — entries with no value for this dimension bypass the check (a "<code>?</code>" suffix can be added to any of the above)</td><td><code>webrip+?</code>, <code>1080p?</code>, <code>720p-1080p?</code></td></tr>
 </table>
 
 <h4>Recognized dimension values (low → high)</h4>
 <table>
   <tr><th>Dimension</th><th>Values</th></tr>
   <tr><td>Resolution</td><td>sd, 480p, 576p, 720p, 1080p, 2160p/4k</td></tr>
-  <tr><td>Source</td><td><strong>cam</strong>, <strong>ts</strong>/tc, <strong>scr</strong>, dvdrip, tvrip, hdtv, webrip, webdl/web-dl, bluray, remux (low → high)</td></tr>
+  <tr><td>Source</td><td><strong>cam</strong>, <strong>ts</strong>/tc, <strong>scr</strong>, dvdrip, tvrip, hdtv, webrip, web/webdl/web-dl, bluray, remux (low → high)</td></tr>
   <tr><td>Codec</td><td>xvid, divx, h264/x264, h265/x265/hevc, av1</td></tr>
   <tr><td>Audio</td><td>mp3, aac, dd/dolbydigital, dts, truehd, atmos</td></tr>
   <tr><td>Color range</td><td>sdr, hdr, hdr10, dv/dolbyvision</td></tr>
@@ -742,6 +743,7 @@ pipeline("split-pipeline")</code></pre>
 </table>
 
 <p>Example: <code>720p+ webrip+</code> requires at least 720p resolution AND at least WEBRip source quality.</p>
+<p>The <code>?</code> suffix turns a constraint into "if detected, enforce; if not, let it through". Useful for scene releases that omit the source tag — <code>720p-1080p webrip+?</code> accepts <code>Show.S01E01.1080p.HEVC.x265-GROUP</code> (no source detected) while still rejecting <code>Show.S01E01.1080p.HDTV.x264</code> (HDTV is below WEBRip).</p>
 <p>When a 3D token is included, non-3D entries are rejected automatically. Omitting a 3D token leaves the dimension unconstrained — both 3D and non-3D entries pass. Examples: <code>1080p+ 3d+</code> (any 3D), <code>1080p+ bd3d</code> (BD3D only), <code>1080p+ 3dconv+</code> (converted 3D or better).</p>
 
 <h4>3D quality</h4>
