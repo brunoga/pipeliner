@@ -1029,6 +1029,120 @@ func TestParseFormat3DSpecFullTokens(t *testing.T) {
 	}
 }
 
+// ── Optional-dimension "?" suffix ─────────────────────────────────────────────
+
+func TestSpecOptionalSourceAllowsUnknown(t *testing.T) {
+	spec, err := ParseSpec("720p-1080p webrip+?")
+	if err != nil {
+		t.Fatalf("ParseSpec: %v", err)
+	}
+	if !spec.OptSource {
+		t.Error("expected OptSource=true after webrip+?")
+	}
+	// Title with no source token: 1080p HEVC release.
+	q := Parse("For.All.Mankind.S01E03.Nixons.Women.1080p.HEVC.x265-MeGusta")
+	if q.Source != SourceUnknown {
+		t.Fatalf("precondition: expected SourceUnknown, got %v", q.Source)
+	}
+	if !spec.Matches(q) {
+		t.Error("optional source spec should accept entry with unknown source")
+	}
+}
+
+func TestSpecOptionalSourceStillRejectsBadSource(t *testing.T) {
+	spec, err := ParseSpec("720p-1080p webrip+?")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A detected source that's below the floor must still be rejected — "?"
+	// only relaxes the check when the dimension is Unknown.
+	cam := Quality{Resolution: Resolutionp1080, Source: SourceCAM}
+	if spec.Matches(cam) {
+		t.Error("optional source spec should still reject CAM 1080p")
+	}
+	web := Quality{Resolution: Resolutionp1080, Source: SourceWEBRip}
+	if !spec.Matches(web) {
+		t.Error("optional source spec should accept WEBRip 1080p")
+	}
+}
+
+func TestSpecOptionalRange(t *testing.T) {
+	spec, err := ParseSpec("720p-1080p?")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !spec.OptResolution {
+		t.Error("expected OptResolution=true")
+	}
+	// Unknown resolution passes.
+	if !spec.Matches(Quality{}) {
+		t.Error("unknown resolution should pass with 720p-1080p?")
+	}
+	// In-range passes.
+	if !spec.Matches(Quality{Resolution: Resolutionp1080}) {
+		t.Error("1080p should pass with 720p-1080p?")
+	}
+	// Out-of-range still rejects.
+	if spec.Matches(Quality{Resolution: Resolutionp2160}) {
+		t.Error("2160p should still be rejected by 720p-1080p?")
+	}
+	if spec.Matches(Quality{Resolution: Resolutionp480}) {
+		t.Error("480p should still be rejected by 720p-1080p?")
+	}
+}
+
+func TestSpecOptionalExactValue(t *testing.T) {
+	spec, err := ParseSpec("1080p?")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !spec.Matches(Quality{}) {
+		t.Error("unknown should pass 1080p?")
+	}
+	if !spec.Matches(Quality{Resolution: Resolutionp1080}) {
+		t.Error("1080p should pass 1080p?")
+	}
+	if spec.Matches(Quality{Resolution: Resolutionp720}) {
+		t.Error("720p should not pass 1080p?")
+	}
+}
+
+func TestSpecOptionalIndependentPerDimension(t *testing.T) {
+	// Source is optional, resolution is not. An entry with unknown resolution
+	// must still fail; an entry with unknown source must pass (assuming the
+	// resolution checks out).
+	spec, err := ParseSpec("720p+ webrip+?")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if spec.OptResolution {
+		t.Error("OptResolution should be false")
+	}
+	if !spec.OptSource {
+		t.Error("OptSource should be true")
+	}
+	// Unknown source, 720p: passes.
+	if !spec.Matches(Quality{Resolution: Resolutionp720}) {
+		t.Error("720p unknown-source should pass")
+	}
+	// Unknown resolution: rejected.
+	if spec.Matches(Quality{Source: SourceWEBRip}) {
+		t.Error("unknown resolution should be rejected even with webrip source")
+	}
+}
+
+func TestSpecOptionalBareMarkerError(t *testing.T) {
+	if _, err := ParseSpec("?"); err == nil {
+		t.Error("expected error for bare ? token")
+	}
+}
+
+func TestSpecOptionalUnknownValueError(t *testing.T) {
+	if _, err := ParseSpec("not-a-quality?"); err == nil {
+		t.Error("expected error for unknown value with ? suffix")
+	}
+}
+
 // End-to-end regression: a 3dfull spec must reject both Ballerina entries that
 // triggered this fix — the half-3D rip ("H OU") and the conversion ("3D Conv").
 func TestSpec3DFullRejectsBallerinaCases(t *testing.T) {

@@ -4,6 +4,9 @@
 // A Spec is built from a human-readable string such as "720p-1080p webrip+"
 // where each space-separated token constrains one quality dimension. The "+"
 // suffix means "this value or better" (sets only the minimum, no upper bound).
+// A trailing "?" on a token (e.g. "webrip+?", "1080p?", "720p-1080p?") marks
+// the dimension as optional — entries whose value for that dimension is
+// Unknown bypass the min/max check.
 package quality
 
 import (
@@ -418,6 +421,12 @@ func Parse(title string) Quality {
 // A zero min means "any"; a zero max means "no upper bound".
 // When MinFormat3D is non-zero, non-3D entries (Format3D == Format3DNone) are
 // rejected — specifying any 3D token implicitly requires 3D content.
+//
+// The Opt* flags mark a dimension's constraint as optional: when set, an
+// entry whose value for that dimension is Unknown bypasses the min/max
+// check. This lets a spec author say "if this dimension was detected,
+// require X; if not, let the entry through" by writing the dimension's
+// token with a trailing "?" (e.g. "webrip+?").
 type Spec struct {
 	MinResolution, MaxResolution Resolution
 	MinSource, MaxSource         Source
@@ -425,46 +434,66 @@ type Spec struct {
 	MinAudio, MaxAudio           Audio
 	MinColorRange, MaxColorRange ColorRange
 	MinFormat3D, MaxFormat3D     Format3D
+
+	OptResolution bool
+	OptSource     bool
+	OptCodec      bool
+	OptAudio      bool
+	OptColorRange bool
+	OptFormat3D   bool
 }
 
 // Matches reports whether q falls within every constrained dimension of s.
-// Dimensions where both min and max are zero are unconstrained.
+// Dimensions where both min and max are zero are unconstrained. When Opt* is
+// set for a dimension, an Unknown value on q bypasses that dimension's check.
 func (s Spec) Matches(q Quality) bool {
-	if s.MinResolution > 0 && q.Resolution < s.MinResolution {
-		return false
+	if !(s.OptResolution && q.Resolution == ResolutionUnknown) {
+		if s.MinResolution > 0 && q.Resolution < s.MinResolution {
+			return false
+		}
+		if s.MaxResolution > 0 && q.Resolution > s.MaxResolution {
+			return false
+		}
 	}
-	if s.MaxResolution > 0 && q.Resolution > s.MaxResolution {
-		return false
+	if !(s.OptSource && q.Source == SourceUnknown) {
+		if s.MinSource > 0 && q.Source < s.MinSource {
+			return false
+		}
+		if s.MaxSource > 0 && q.Source > s.MaxSource {
+			return false
+		}
 	}
-	if s.MinSource > 0 && q.Source < s.MinSource {
-		return false
+	if !(s.OptCodec && q.Codec == CodecUnknown) {
+		if s.MinCodec > 0 && q.Codec < s.MinCodec {
+			return false
+		}
+		if s.MaxCodec > 0 && q.Codec > s.MaxCodec {
+			return false
+		}
 	}
-	if s.MaxSource > 0 && q.Source > s.MaxSource {
-		return false
+	if !(s.OptAudio && q.Audio == AudioUnknown) {
+		if s.MinAudio > 0 && q.Audio < s.MinAudio {
+			return false
+		}
+		if s.MaxAudio > 0 && q.Audio > s.MaxAudio {
+			return false
+		}
 	}
-	if s.MinCodec > 0 && q.Codec < s.MinCodec {
-		return false
+	if !(s.OptColorRange && q.ColorRange == ColorRangeUnknown) {
+		if s.MinColorRange > 0 && q.ColorRange < s.MinColorRange {
+			return false
+		}
+		if s.MaxColorRange > 0 && q.ColorRange > s.MaxColorRange {
+			return false
+		}
 	}
-	if s.MaxCodec > 0 && q.Codec > s.MaxCodec {
-		return false
-	}
-	if s.MinAudio > 0 && q.Audio < s.MinAudio {
-		return false
-	}
-	if s.MaxAudio > 0 && q.Audio > s.MaxAudio {
-		return false
-	}
-	if s.MinColorRange > 0 && q.ColorRange < s.MinColorRange {
-		return false
-	}
-	if s.MaxColorRange > 0 && q.ColorRange > s.MaxColorRange {
-		return false
-	}
-	if s.MinFormat3D > 0 && q.Format3D < s.MinFormat3D {
-		return false
-	}
-	if s.MaxFormat3D > 0 && q.Format3D > s.MaxFormat3D {
-		return false
+	if !(s.OptFormat3D && q.Format3D == Format3DNone) {
+		if s.MinFormat3D > 0 && q.Format3D < s.MinFormat3D {
+			return false
+		}
+		if s.MaxFormat3D > 0 && q.Format3D > s.MaxFormat3D {
+			return false
+		}
 	}
 	return true
 }
@@ -487,18 +516,30 @@ func ParseSpec(s string) (Spec, error) {
 // and applies it to spec.  The full token is tried first so that hyphenated
 // quality names like "web-dl" and "blu-ray" are not mistakenly split into a range.
 // A trailing "+" means "this value or better" (sets only the minimum, no upper bound).
+// A trailing "?" (after any "+") marks the dimension as optional — entries whose
+// value for that dimension is Unknown bypass the min/max check.
 func applySpecToken(spec *Spec, token string) error {
+	// "webrip+?" / "720p-1080p?" / "1080p?" → optional dimension.
+	optional := false
+	if strings.HasSuffix(token, "?") {
+		optional = true
+		token = token[:len(token)-1]
+		if token == "" {
+			return fmt.Errorf("optional marker %q needs a value", "?")
+		}
+	}
+
 	// "720p+" → minimum 720p, no upper bound.
 	if strings.HasSuffix(token, "+") {
 		base := token[:len(token)-1]
-		if applyMinOnly(spec, base) {
+		if applyMinOnly(spec, base, optional) {
 			return nil
 		}
 		return fmt.Errorf("unknown quality value %q", base)
 	}
 
 	// Try the full token as a single value first.
-	if applySingle(spec, token) {
+	if applySingle(spec, token, optional) {
 		return nil
 	}
 
@@ -511,13 +552,13 @@ func applySpecToken(spec *Spec, token string) error {
 
 	// If only lo is valid (hi is empty or same as lo), treat as single.
 	if hi == "" || hi == lo {
-		if applySingle(spec, lo) {
+		if applySingle(spec, lo, optional) {
 			return nil
 		}
 		return fmt.Errorf("unknown quality value %q", lo)
 	}
 
-	if applyRange(spec, lo, hi) {
+	if applyRange(spec, lo, hi, optional) {
 		return nil
 	}
 	return fmt.Errorf("unknown quality value %q", lo)
@@ -525,29 +566,35 @@ func applySpecToken(spec *Spec, token string) error {
 
 // applyMinOnly sets only the minimum for whichever dimension v belongs to,
 // leaving the maximum at zero (no upper bound). Returns true if v was recognised.
-func applyMinOnly(spec *Spec, v string) bool {
+func applyMinOnly(spec *Spec, v string, optional bool) bool {
 	if r, ok := parseResolution(v); ok {
 		spec.MinResolution = r
+		spec.OptResolution = optional
 		return true
 	}
 	if s, ok := parseSource(v); ok {
 		spec.MinSource = s
+		spec.OptSource = optional
 		return true
 	}
 	if c, ok := parseCodec(v); ok {
 		spec.MinCodec = c
+		spec.OptCodec = optional
 		return true
 	}
 	if a, ok := parseAudio(v); ok {
 		spec.MinAudio = a
+		spec.OptAudio = optional
 		return true
 	}
 	if cr, ok := parseColorRange(v); ok {
 		spec.MinColorRange = cr
+		spec.OptColorRange = optional
 		return true
 	}
 	if f, ok := parseFormat3D(v); ok {
 		spec.MinFormat3D = f
+		spec.OptFormat3D = optional
 		return true
 	}
 	return false
@@ -555,29 +602,35 @@ func applyMinOnly(spec *Spec, v string) bool {
 
 // applySingle sets min=max=value for whichever dimension v belongs to.
 // Returns true if v was recognised.
-func applySingle(spec *Spec, v string) bool {
+func applySingle(spec *Spec, v string, optional bool) bool {
 	if r, ok := parseResolution(v); ok {
 		spec.MinResolution, spec.MaxResolution = r, r
+		spec.OptResolution = optional
 		return true
 	}
 	if s, ok := parseSource(v); ok {
 		spec.MinSource, spec.MaxSource = s, s
+		spec.OptSource = optional
 		return true
 	}
 	if c, ok := parseCodec(v); ok {
 		spec.MinCodec, spec.MaxCodec = c, c
+		spec.OptCodec = optional
 		return true
 	}
 	if a, ok := parseAudio(v); ok {
 		spec.MinAudio, spec.MaxAudio = a, a
+		spec.OptAudio = optional
 		return true
 	}
 	if cr, ok := parseColorRange(v); ok {
 		spec.MinColorRange, spec.MaxColorRange = cr, cr
+		spec.OptColorRange = optional
 		return true
 	}
 	if f, ok := parseFormat3D(v); ok {
 		spec.MinFormat3D, spec.MaxFormat3D = f, f
+		spec.OptFormat3D = optional
 		return true
 	}
 	return false
@@ -585,35 +638,41 @@ func applySingle(spec *Spec, v string) bool {
 
 // applyRange sets min=lo, max=hi for whichever dimension lo belongs to.
 // Returns true if lo was recognised.
-func applyRange(spec *Spec, lo, hi string) bool {
+func applyRange(spec *Spec, lo, hi string, optional bool) bool {
 	if rLo, ok := parseResolution(lo); ok {
 		rHi, _ := parseResolution(hi)
 		spec.MinResolution, spec.MaxResolution = rLo, rHi
+		spec.OptResolution = optional
 		return true
 	}
 	if sLo, ok := parseSource(lo); ok {
 		sHi, _ := parseSource(hi)
 		spec.MinSource, spec.MaxSource = sLo, sHi
+		spec.OptSource = optional
 		return true
 	}
 	if cLo, ok := parseCodec(lo); ok {
 		cHi, _ := parseCodec(hi)
 		spec.MinCodec, spec.MaxCodec = cLo, cHi
+		spec.OptCodec = optional
 		return true
 	}
 	if aLo, ok := parseAudio(lo); ok {
 		aHi, _ := parseAudio(hi)
 		spec.MinAudio, spec.MaxAudio = aLo, aHi
+		spec.OptAudio = optional
 		return true
 	}
 	if crLo, ok := parseColorRange(lo); ok {
 		crHi, _ := parseColorRange(hi)
 		spec.MinColorRange, spec.MaxColorRange = crLo, crHi
+		spec.OptColorRange = optional
 		return true
 	}
 	if fLo, ok := parseFormat3D(lo); ok {
 		fHi, _ := parseFormat3D(hi)
 		spec.MinFormat3D, spec.MaxFormat3D = fLo, fHi
+		spec.OptFormat3D = optional
 		return true
 	}
 	return false
