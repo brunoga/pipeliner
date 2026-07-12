@@ -7,8 +7,8 @@ require (
 	github.com/mattn/go-isatty v0.0.22
 	github.com/playwright-community/playwright-go v0.5700.1
 	go.starlark.net v0.0.0-20260326113308-fadfc96def35
-	golang.org/x/crypto v0.53.0
-	golang.org/x/sys v0.46.0
+	golang.org/x/crypto v0.54.0
+	golang.org/x/sys v0.47.0
 	modernc.org/sqlite v1.53.0
 )
 
@@ -87,9 +87,9 @@ require (
 	go.opentelemetry.io/otel/metric v1.38.0 // indirect
 	go.opentelemetry.io/otel/trace v1.38.0 // indirect
 	golang.org/x/exp v0.0.0-20251113190631-e25ba8c21ef6 // indirect
-	golang.org/x/net v0.55.0 // indirect
-	golang.org/x/sync v0.21.0 // indirect
-	golang.org/x/text v0.38.0 // indirect
+	golang.org/x/net v0.56.0 // indirect
+	golang.org/x/sync v0.22.0 // indirect
+	golang.org/x/text v0.40.0 // indirect
 	golang.org/x/time v0.14.0 // indirect
 	lukechampine.com/blake3 v1.1.6 // indirect
 	modernc.org/libc v1.73.4 // indirect
