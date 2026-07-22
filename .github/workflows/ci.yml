@@ -80,7 +80,7 @@ jobs:
           cache: true
 
       - name: Install Playwright browsers
-        run: go run github.com/playwright-community/playwright-go/cmd/playwright install --with-deps chromium
+        run: go run github.com/mxschmitt/playwright-go/cmd/playwright install --with-deps chromium
 
       - name: Run E2E tests
         run: go test -race -timeout 120s ./internal/web/...
