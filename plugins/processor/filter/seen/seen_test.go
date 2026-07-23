@@ -226,3 +226,53 @@ func TestPluginCreation(t *testing.T) {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
+
+func TestRetryFailedRejectsFailedURL(t *testing.T) {
+	p := openPlugin(t, map[string]any{"retry_failed": true})
+	tc := makeCtx("task")
+
+	// Mark a release URL failed in the shared bucket (what mark_failed does).
+	fs := store.NewFailedStore(p.db.Bucket(store.FailedBucketName))
+	if err := fs.MarkFailed("http://example.com/dead.torrent", "stalled for 6h"); err != nil {
+		t.Fatal(err)
+	}
+
+	dead := entry.New("Dead Release", "http://example.com/dead.torrent")
+	if err := p.filter(context.Background(), tc, dead); err != nil {
+		t.Fatal(err)
+	}
+	if !dead.IsRejected() {
+		t.Fatal("failed URL should be rejected with retry_failed=true")
+	}
+	if dead.RejectReason != "seen: previously failed (stalled for 6h)" {
+		t.Errorf("reject reason = %q", dead.RejectReason)
+	}
+
+	// A different release of the same content (different URL) passes even
+	// though it was never seen — retry is possible.
+	alt := entry.New("Dead Release Alt", "http://example.com/alt.torrent")
+	if err := p.filter(context.Background(), tc, alt); err != nil {
+		t.Fatal(err)
+	}
+	if alt.IsRejected() {
+		t.Error("alternative release URL should not be rejected")
+	}
+}
+
+func TestRetryFailedDefaultOffIgnoresFailedBucket(t *testing.T) {
+	p := openPlugin(t, nil) // retry_failed defaults to false
+	tc := makeCtx("task")
+
+	fs := store.NewFailedStore(p.db.Bucket(store.FailedBucketName))
+	if err := fs.MarkFailed("http://example.com/dead.torrent", "errored"); err != nil {
+		t.Fatal(err)
+	}
+
+	e := entry.New("Dead Release", "http://example.com/dead.torrent")
+	if err := p.filter(context.Background(), tc, e); err != nil {
+		t.Fatal(err)
+	}
+	if e.IsRejected() {
+		t.Error("failed bucket should be ignored when retry_failed is off")
+	}
+}

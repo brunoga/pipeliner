@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/brunoga/pipeliner/internal/entry"
+	"github.com/brunoga/pipeliner/internal/grabs"
 	"github.com/brunoga/pipeliner/internal/interp"
 	"github.com/brunoga/pipeliner/internal/plugin"
 	"github.com/brunoga/pipeliner/internal/store"
@@ -50,9 +51,13 @@ type qbtPlugin struct {
 	category string
 	tags     string
 	client   *http.Client
+	// grabStore records hash → release-URL mappings for failed-grab
+	// recovery (mark_failed resolves session torrents through it).
+	// nil when the plugin was constructed without a store (tests).
+	grabStore *grabs.Store
 }
 
-func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
+func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
 	host, _ := cfg["host"].(string)
 	if host == "" {
 		host = "localhost"
@@ -75,7 +80,7 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 	}
 
 	jar, _ := cookiejar.New(nil)
-	return &qbtPlugin{
+	p := &qbtPlugin{
 		baseURL:  baseURL,
 		username: stringVal(cfg["username"]),
 		password: stringVal(cfg["password"]),
@@ -83,7 +88,11 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 		category: stringVal(cfg["category"]),
 		tags:     stringVal(cfg["tags"]),
 		client:   &http.Client{Jar: jar},
-	}, nil
+	}
+	if db != nil {
+		p.grabStore = grabs.NewStore(db.Bucket(grabs.BucketName))
+	}
+	return p, nil
 }
 
 func (p *qbtPlugin) Name() string { return "qbittorrent" }
@@ -105,9 +114,32 @@ func (p *qbtPlugin) deliver(ctx context.Context, tc *plugin.TaskContext, entries
 		if err := p.addTorrent(ctx, e.URL, savePath); err != nil {
 			tc.Logger.Error("qbittorrent: add torrent", "title", e.Title, "err", err)
 			e.Fail("qbittorrent: " + err.Error())
+			continue
 		}
+		p.recordGrab(tc, e)
 	}
 	return nil
+}
+
+// recordGrab stores the hash → release-URL mapping so mark_failed can walk
+// back from a dead session torrent to the release that produced it. The
+// qBittorrent add API does not return the hash, so it comes from the entry's
+// torrent_info_hash field (set by metainfo/Jackett/RSS) or the magnet URL.
+// Best-effort: a bare .torrent URL with no metainfo pass has no locally
+// determinable hash, which only means failed-grab recovery won't resolve
+// this torrent.
+func (p *qbtPlugin) recordGrab(tc *plugin.TaskContext, e *entry.Entry) {
+	if p.grabStore == nil {
+		return
+	}
+	hash := grabs.HashForEntry(e)
+	if hash == "" {
+		tc.Logger.Debug("qbittorrent: no info-hash for grab record", "entry", e.Title)
+		return
+	}
+	if err := p.grabStore.Put(hash, grabs.FromEntry(e, tc.Name)); err != nil {
+		tc.Logger.Warn("qbittorrent: record grab", "entry", e.Title, "err", err)
+	}
 }
 
 func (p *qbtPlugin) login(ctx context.Context) error {

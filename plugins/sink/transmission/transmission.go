@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/brunoga/pipeliner/internal/entry"
+	"github.com/brunoga/pipeliner/internal/grabs"
 	"github.com/brunoga/pipeliner/internal/interp"
 	"github.com/brunoga/pipeliner/internal/plugin"
 	"github.com/brunoga/pipeliner/internal/store"
@@ -61,11 +62,15 @@ type transmissionPlugin struct {
 	pathIP    *interp.Interpolator
 	paused    bool
 	client    *http.Client
+	// grabStore records hash → release-URL mappings for failed-grab
+	// recovery (mark_failed resolves session torrents through it).
+	// nil when the plugin was constructed without a store (tests).
+	grabStore *grabs.Store
 	mu        sync.Mutex
 	sessionID string
 }
 
-func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
+func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
 	host := "localhost"
 	if v, ok := cfg["host"].(string); ok && v != "" {
 		host = v
@@ -100,14 +105,18 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 		paused = v
 	}
 
-	return &transmissionPlugin{
+	p := &transmissionPlugin{
 		endpoint: fmt.Sprintf("http://%s:%d%s", host, port, rpcPath),
 		username: stringVal(cfg, "username"),
 		password: stringVal(cfg, "password"),
 		pathIP:   pathIP,
 		paused:   paused,
 		client:   &http.Client{Timeout: 30 * time.Second},
-	}, nil
+	}
+	if db != nil {
+		p.grabStore = grabs.NewStore(db.Bucket(grabs.BucketName))
+	}
+	return p, nil
 }
 
 func stringVal(cfg map[string]any, key string) string {
@@ -119,15 +128,41 @@ func (p *transmissionPlugin) Name() string { return "transmission" }
 
 func (p *transmissionPlugin) deliver(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
 	for _, e := range entries {
-		if err := p.addTorrent(ctx, e); err != nil {
+		hash, err := p.addTorrent(ctx, e)
+		if err != nil {
 			tc.Logger.Warn("transmission: failed to add torrent", "entry", e.Title, "err", err)
 			e.Fail("transmission: " + err.Error())
+			continue
 		}
+		p.recordGrab(tc, e, hash)
 	}
 	return nil
 }
 
-func (p *transmissionPlugin) addTorrent(ctx context.Context, e *entry.Entry) error {
+// recordGrab stores the hash → release-URL mapping so mark_failed can walk
+// back from a dead session torrent to the release that produced it. The
+// hash comes from the torrent-add RPC response, falling back to the entry's
+// torrent_info_hash field / magnet URL. Best-effort: an unknown hash only
+// means failed-grab recovery won't resolve this torrent.
+func (p *transmissionPlugin) recordGrab(tc *plugin.TaskContext, e *entry.Entry, hash string) {
+	if p.grabStore == nil {
+		return
+	}
+	if hash == "" {
+		hash = grabs.HashForEntry(e)
+	}
+	if hash == "" {
+		tc.Logger.Debug("transmission: no info-hash for grab record", "entry", e.Title)
+		return
+	}
+	if err := p.grabStore.Put(hash, grabs.FromEntry(e, tc.Name)); err != nil {
+		tc.Logger.Warn("transmission: record grab", "entry", e.Title, "err", err)
+	}
+}
+
+// addTorrent adds the entry's torrent and returns the info-hash Transmission
+// reported for it ("" when the response carried none).
+func (p *transmissionPlugin) addTorrent(ctx context.Context, e *entry.Entry) (string, error) {
 	args := map[string]any{
 		"filename": e.URL,
 		"paused":   p.paused,
@@ -135,14 +170,32 @@ func (p *transmissionPlugin) addTorrent(ctx context.Context, e *entry.Entry) err
 	if p.pathIP != nil {
 		downloadDir, err := p.pathIP.Render(interp.EntryData(e))
 		if err != nil {
-			return fmt.Errorf("render path: %w", err)
+			return "", fmt.Errorf("render path: %w", err)
 		}
 		if downloadDir != "" {
 			args["download-dir"] = downloadDir
 		}
 	}
 
-	return p.rpc(ctx, "torrent-add", args, nil)
+	var result struct {
+		Arguments struct {
+			Added struct {
+				HashString string `json:"hashString"`
+			} `json:"torrent-added"`
+			Duplicate struct {
+				HashString string `json:"hashString"`
+			} `json:"torrent-duplicate"`
+		} `json:"arguments"`
+		Result string `json:"result"`
+	}
+	if err := p.rpc(ctx, "torrent-add", args, &result); err != nil {
+		return "", err
+	}
+	hash := result.Arguments.Added.HashString
+	if hash == "" {
+		hash = result.Arguments.Duplicate.HashString
+	}
+	return hash, nil
 }
 
 // rpc calls the Transmission JSON-RPC method with the given arguments.

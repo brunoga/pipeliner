@@ -10,7 +10,9 @@ import (
 	"testing"
 
 	"github.com/brunoga/pipeliner/internal/entry"
+	"github.com/brunoga/pipeliner/internal/grabs"
 	"github.com/brunoga/pipeliner/internal/plugin"
+	"github.com/brunoga/pipeliner/internal/store"
 )
 
 func makeCtx() *plugin.TaskContext {
@@ -162,5 +164,103 @@ func TestRegistration(t *testing.T) {
 	}
 	if d.Role != plugin.RoleSink {
 		t.Errorf("phase: got %v", d.Role)
+	}
+}
+
+func TestGrabRecordedFromInfoHashField(t *testing.T) {
+	mock := &qbtMock{}
+	srv := httptest.NewServer(mock.handler())
+	defer srv.Close()
+
+	db, err := store.OpenSQLite(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	p, err := newPlugin(map[string]any{"username": "admin", "password": "secret"}, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	qp := p.(*qbtPlugin)
+	qp.baseURL = srv.URL
+
+	e := entry.New("Movie.2024.1080p", "http://example.com/movie.torrent")
+	e.Set(entry.FieldTorrentInfoHash, "ABCDEF0123456789ABCDEF0123456789ABCDEF01")
+	e.Set(entry.FieldMoviesTrackerTitle, "movie")
+	e.Set(entry.FieldVideoYear, 2024)
+
+	if err := qp.deliver(context.Background(), makeCtx(), []*entry.Entry{e}); err != nil {
+		t.Fatal(err)
+	}
+
+	gs := grabs.NewStore(db.Bucket(grabs.BucketName))
+	rec, ok := gs.Get("abcdef0123456789abcdef0123456789abcdef01")
+	if !ok {
+		t.Fatal("grab record should exist after successful add")
+	}
+	if rec.URL != "http://example.com/movie.torrent" {
+		t.Errorf("rec.URL = %q", rec.URL)
+	}
+	if rec.MovieTitle != "movie" || rec.MovieYear != 2024 {
+		t.Errorf("movie key = %q/%d", rec.MovieTitle, rec.MovieYear)
+	}
+}
+
+func TestGrabRecordedFromMagnetURL(t *testing.T) {
+	mock := &qbtMock{}
+	srv := httptest.NewServer(mock.handler())
+	defer srv.Close()
+
+	db, err := store.OpenSQLite(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	p, err := newPlugin(map[string]any{"username": "admin", "password": "secret"}, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	qp := p.(*qbtPlugin)
+	qp.baseURL = srv.URL
+
+	e := entry.New("Show", "magnet:?xt=urn:btih:1111111111111111111111111111111111111111&dn=Show")
+	if err := qp.deliver(context.Background(), makeCtx(), []*entry.Entry{e}); err != nil {
+		t.Fatal(err)
+	}
+
+	gs := grabs.NewStore(db.Bucket(grabs.BucketName))
+	if _, ok := gs.Get("1111111111111111111111111111111111111111"); !ok {
+		t.Fatal("grab record should be derived from the magnet URL")
+	}
+}
+
+func TestNoGrabRecordWithoutDeterminableHash(t *testing.T) {
+	mock := &qbtMock{}
+	srv := httptest.NewServer(mock.handler())
+	defer srv.Close()
+
+	db, err := store.OpenSQLite(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	p, err := newPlugin(map[string]any{"username": "admin", "password": "secret"}, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	qp := p.(*qbtPlugin)
+	qp.baseURL = srv.URL
+
+	// Bare .torrent URL, no torrent_info_hash field → add succeeds but no
+	// grab record can be written.
+	e := entry.New("Bare", "http://example.com/bare.torrent")
+	if err := qp.deliver(context.Background(), makeCtx(), []*entry.Entry{e}); err != nil {
+		t.Fatal(err)
+	}
+	if e.IsFailed() {
+		t.Fatal("add itself should succeed")
 	}
 }
