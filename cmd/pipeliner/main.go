@@ -65,6 +65,7 @@ import (
 	_ "github.com/brunoga/pipeliner/plugins/sink/deluge"
 	_ "github.com/brunoga/pipeliner/plugins/sink/download"
 	_ "github.com/brunoga/pipeliner/plugins/sink/exec"
+	_ "github.com/brunoga/pipeliner/plugins/sink/library_refresh"
 	_ "github.com/brunoga/pipeliner/plugins/sink/list_add"
 	_ "github.com/brunoga/pipeliner/plugins/sink/mark_failed"
 	_ "github.com/brunoga/pipeliner/plugins/sink/notify"

@@ -7,9 +7,9 @@
 // The filesystem backend walks the configured paths and parses video
 // filenames with the same release-name parsers the pipeline uses
 // (internal/series, internal/movies), caching the resulting index in memory
-// and refreshing it when older than ttl. Remote backends (Plex, Jellyfin)
-// are future work; the backend key exists so configs stay stable when they
-// arrive.
+// and refreshing it when older than ttl. The plex and jellyfin backends
+// build the same index from the server's API instead; they compare by
+// resolution only, since that is the quality signal those APIs expose.
 package library
 
 import (
@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/brunoga/pipeliner/internal/entry"
+	"github.com/brunoga/pipeliner/internal/mediaserver"
 	"github.com/brunoga/pipeliner/internal/movies"
 	"github.com/brunoga/pipeliner/internal/plugin"
 	"github.com/brunoga/pipeliner/internal/quality"
@@ -45,24 +46,36 @@ func init() {
 		Validate:    validate,
 		Schema: []plugin.FieldSchema{
 			{Key: "paths", Type: plugin.FieldTypeList, Required: true, Hint: "Library directories to index (walked recursively)"},
-			{Key: "backend", Type: plugin.FieldTypeString, Default: "filesystem", Hint: "Library backend; only \"filesystem\" is supported today"},
+			{Key: "backend", Type: plugin.FieldTypeString, Default: "filesystem", Hint: "Library backend: filesystem (paths), plex or jellyfin (url + token)"},
 			{Key: "ttl", Type: plugin.FieldTypeDuration, Default: "15m", Hint: "How long the disk index is reused before rescanning"},
 			{Key: "upgrade", Type: plugin.FieldTypeBool, Default: true, Hint: "Pass entries whose quality is strictly better than the library copy"},
-			{Key: "extensions", Type: plugin.FieldTypeList, Hint: "Video file extensions to index (default: common video types)"},
+			{Key: "extensions", Type: plugin.FieldTypeList, Hint: "Video file extensions to index (default: common video types; filesystem backend only)"},
+			{Key: "url", Type: plugin.FieldTypeString, Hint: "Media server base URL (plex/jellyfin backends)"},
+			{Key: "token", Type: plugin.FieldTypeString, Hint: "Media server API token (plex/jellyfin backends)"},
 		},
 	})
 }
 
 func validate(cfg map[string]any) []error {
 	var errs []error
-	if err := plugin.OptUnknownKeys(cfg, pluginName, "paths", "backend", "ttl", "upgrade", "extensions"); err != nil {
+	if err := plugin.OptUnknownKeys(cfg, pluginName, "paths", "backend", "ttl", "upgrade", "extensions", "url", "token"); err != nil {
 		errs = append(errs, err...)
 	}
-	if paths := toStringSlice(cfg["paths"]); len(paths) == 0 {
-		errs = append(errs, fmt.Errorf("%s: 'paths' must list at least one library directory", pluginName))
-	}
-	if b, ok := cfg["backend"].(string); ok && b != "" && b != "filesystem" {
-		errs = append(errs, fmt.Errorf("%s: unsupported backend %q (only \"filesystem\" is supported today)", pluginName, b))
+	backend, _ := cfg["backend"].(string)
+	switch backend {
+	case "", "filesystem":
+		if paths := toStringSlice(cfg["paths"]); len(paths) == 0 {
+			errs = append(errs, fmt.Errorf("%s: 'paths' must list at least one library directory", pluginName))
+		}
+	case "plex", "jellyfin":
+		if u, _ := cfg["url"].(string); u == "" {
+			errs = append(errs, fmt.Errorf("%s: backend %q requires 'url'", pluginName, backend))
+		}
+		if t, _ := cfg["token"].(string); t == "" {
+			errs = append(errs, fmt.Errorf("%s: backend %q requires 'token'", pluginName, backend))
+		}
+	default:
+		errs = append(errs, fmt.Errorf("%s: unsupported backend %q (supported: filesystem, plex, jellyfin)", pluginName, backend))
 	}
 	if err := plugin.OptDuration(cfg, "ttl", pluginName); err != nil {
 		errs = append(errs, err)
@@ -87,14 +100,35 @@ type libraryPlugin struct {
 	movies  map[string]indexEntry // NormalizeTitle(title) + "|" + year ("|0" when unknown)
 	builtAt time.Time
 
-	// walk is swappable in tests.
+	// walk is swappable in tests (filesystem backend).
 	walk func(root string, fn fs.WalkDirFunc) error
+	// client, when non-nil, replaces the filesystem walk (plex/jellyfin).
+	client mediaserver.Client
 }
 
 func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
+	backend, _ := cfg["backend"].(string)
+	if backend == "" {
+		backend = "filesystem"
+	}
+
+	var client mediaserver.Client
 	paths := toStringSlice(cfg["paths"])
-	if len(paths) == 0 {
-		return nil, fmt.Errorf("%s: 'paths' must list at least one library directory", pluginName)
+	if backend == "filesystem" {
+		if len(paths) == 0 {
+			return nil, fmt.Errorf("%s: 'paths' must list at least one library directory", pluginName)
+		}
+	} else {
+		url, _ := cfg["url"].(string)
+		token, _ := cfg["token"].(string)
+		if url == "" || token == "" {
+			return nil, fmt.Errorf("%s: backend %q requires 'url' and 'token'", pluginName, backend)
+		}
+		c, err := mediaserver.New(backend, url, token)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", pluginName, err)
+		}
+		client = c
 	}
 
 	ttl := 15 * time.Minute
@@ -129,6 +163,7 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 		ttl:        ttl,
 		upgrade:    upgrade,
 		walk:       filepath.WalkDir,
+		client:     client,
 	}, nil
 }
 
@@ -144,6 +179,47 @@ func (p *libraryPlugin) ensureIndex(tc *plugin.TaskContext) {
 
 	seriesIdx := make(map[string]indexEntry)
 	movieIdx := make(map[string]indexEntry)
+
+	if p.client != nil {
+		items, err := p.client.ListItems(context.Background())
+		if err != nil {
+			// Keep the previous index (possibly stale) rather than treating
+			// an unreachable server as an empty library — an empty index
+			// would wave every duplicate through.
+			tc.Logger.Warn(pluginName+": media server unreachable, keeping previous index", "err", err)
+			if p.series == nil {
+				p.series, p.movies = seriesIdx, movieIdx
+			}
+			p.builtAt = time.Now()
+			return
+		}
+		for _, it := range items {
+			q := quality.Parse(it.Resolution)
+			switch it.Type {
+			case "episode":
+				if it.Show == "" {
+					continue
+				}
+				key := series.NormalizeName(it.Show) + "|" + it.EpisodeID()
+				if cur, ok := seriesIdx[key]; !ok || q.Better(cur.Quality) {
+					seriesIdx[key] = indexEntry{Quality: q, Path: it.Show + " " + it.EpisodeID()}
+				}
+			case "movie":
+				if it.Title == "" {
+					continue
+				}
+				key := movies.NormalizeTitle(it.Title) + "|" + fmt.Sprint(it.Year)
+				if cur, ok := movieIdx[key]; !ok || q.Better(cur.Quality) {
+					movieIdx[key] = indexEntry{Quality: q, Path: it.Title}
+				}
+			}
+		}
+		p.series, p.movies, p.builtAt = seriesIdx, movieIdx, time.Now()
+		tc.Logger.Info(pluginName+": indexed media server",
+			"episodes", len(seriesIdx), "movies", len(movieIdx))
+		return
+	}
+
 	files := 0
 	for _, root := range p.paths {
 		err := p.walk(root, func(path string, d fs.DirEntry, err error) error {
