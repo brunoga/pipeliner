@@ -178,6 +178,9 @@ td code{font-size:11px}
     <a href="#notify-output" class="sub">notify</a>
     <a href="#decompress" class="sub">decompress</a>
     <a href="#list_add" class="sub">list_add</a>
+    <a href="#tvdb_favorites_add" class="sub">tvdb_favorites_add</a>
+    <a href="#trakt_list_update" class="sub">trakt_list_update</a>
+    <a href="#list-management" class="sub">List management</a>
 
     <div class="section">Notify Plugins</div>
     <a href="#notify-email" class="sub">email</a>
@@ -948,7 +951,7 @@ series = process("series", upstream=src, list=[
 <p>Get your API key and user PIN at <a href="https://thetvdb.com/api-information" target="_blank">thetvdb.com/api-information</a>.</p>
 
 <h4>Fields set</h4>
-<p><code>source</code> (always <code>tvdb_favorites:favorites</code>), <code>tvdb_id</code>. Optionally: <code>tvdb_year</code>.</p>
+<p><code>source</code> (always <code>tvdb_favorites:favorites</code>), <code>tvdb_id</code>. Optionally: <code>tvdb_year</code>, <code>series_status</code> (verbatim TheTVDB values: <code>Continuing</code>, <code>Ended</code>, <code>Cancelled</code>, <code>Upcoming</code>) plus the standard enrichment fields (<code>video_genres</code>, <code>series_network</code>, …). See <a href="#list-management">List management</a> for status-based favorites hygiene.</p>
 
 <pre><code>src    = input("rss", url="https://feed.example.com/rss")
 seen   = process("seen", upstream=src)
@@ -978,7 +981,7 @@ pipeline("tv-tvdb", schedule="1h")</code></pre>
 <p>One of <code>client_secret</code> or <code>access_token</code> is required for <code>watchlist</code>, <code>ratings</code>, and <code>collection</code>. Public lists (<code>trending</code>, <code>popular</code>, <code>watched</code>) need neither. See <a href="#trakt-auth">Trakt Authentication</a> for setup instructions.</p>
 
 <h4>Fields set</h4>
-<p><code>source</code> (e.g. <code>trakt_list:watchlist</code>). Optionally: <code>video_year</code>, <code>trakt_id</code>, <code>trakt_imdb_id</code>, <code>trakt_tmdb_id</code>.</p>
+<p><code>source</code> (e.g. <code>trakt_list:watchlist</code>). Optionally: <code>video_year</code>, <code>trakt_id</code>, <code>trakt_imdb_id</code>, <code>trakt_tmdb_id</code>, <code>series_status</code> (lowercase Trakt values: <code>returning series</code>, <code>ended</code>, <code>canceled</code>) and the other enrichment fields carried by <code>extended=full</code> responses. See <a href="#list-management">List management</a> for status-based watchlist pruning.</p>
 
 <!-- ─────────── bluray_releases ─────────── -->
 <h2 id="bluray_releases">bluray_releases</h2>
@@ -1845,12 +1848,87 @@ output("exec", upstream=cleanup, command="rm -f {file_location}")</code></pre>
 
 <!-- ─────────── list_add ─────────── -->
 <h2 id="list_add">list_add</h2>
-<p>Stores accepted entries in a named persistent list for use by <code>list_match</code> in the same or another task.</p>
+<p>Stores accepted entries in a named persistent list for use by <code>list_match</code> in the same or another pipeline.</p>
 
 <table>
   <tr><th>Key</th><th>Required</th><th>Description</th></tr>
   <tr><td><code>list</code></td><td>yes</td><td>List name</td></tr>
 </table>
+
+<!-- ─────────── tvdb_favorites_add ─────────── -->
+<h2 id="tvdb_favorites_add">tvdb_favorites_add</h2>
+<p>Adds accepted entries to your TheTVDB favorites list. Pairs with the <a href="#tvdb_favorites"><code>tvdb_favorites</code></a> source, which reads the same list.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>api_key</code></td><td>yes</td><td>—</td><td>TheTVDB v4 API key</td></tr>
+  <tr><td><code>user_pin</code></td><td>yes</td><td>—</td><td>User PIN from thetvdb.com account settings</td></tr>
+  <tr><td><code>action</code></td><td>no</td><td><code>add</code></td><td>Only <code>add</code> is supported (see below)</td></tr>
+</table>
+
+<p><strong>TheTVDB's v4 API cannot remove favorites.</strong> Per the official swagger, <code>/user/favorites</code> supports <code>GET</code> and <code>POST</code> only, so <code>action="remove"</code> is rejected at validation time with an error pointing at the supported alternative: filter on <code>series_status</code> into a local list (<code>list_add</code>) or a Trakt list (<code>trakt_list_update</code>, which does support removal). See <a href="#list-management">List management</a>.</p>
+
+<p>Entries need a <code>tvdb_id</code> field (set by the <code>tvdb_favorites</code> source or <code>metainfo_tvdb</code>); entries without one are marked failed. Already-favorited series are detected with a single favorites fetch per run and skipped silently. In <a href="#dry-run">dry-run mode</a> the sink logs a "would add favorite" preview per entry and makes no HTTP calls.</p>
+
+<pre><code># Auto-favorite highly rated shows that survive filtering.
+meta = process("metainfo_tvdb", upstream=src, api_key=env("TVDB_API_KEY"))
+good = process("condition", upstream=meta, rules=[
+    {"accept": 'video_rating &gt;= 7.5'},
+])
+output("tvdb_favorites_add", upstream=good,
+       api_key=env("TVDB_API_KEY"), user_pin=env("TVDB_USER_PIN"))
+pipeline("auto-favorite", schedule="12h")</code></pre>
+
+<!-- ─────────── trakt_list_update ─────────── -->
+<h2 id="trakt_list_update">trakt_list_update</h2>
+<p>Adds or removes accepted entries on a Trakt.tv user list or watchlist. Pairs with the <a href="#trakt_list"><code>trakt_list</code></a> source. Unlike TheTVDB favorites, Trakt lists support removal, so this sink covers full remote list hygiene.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>client_id</code></td><td>yes</td><td>—</td><td>Trakt API Client ID</td></tr>
+  <tr><td><code>list</code></td><td>yes</td><td>—</td><td><code>watchlist</code> or a personal list slug</td></tr>
+  <tr><td><code>action</code></td><td>no</td><td><code>add</code></td><td><code>add</code> or <code>remove</code></td></tr>
+  <tr><td><code>type</code></td><td>no</td><td>infer</td><td><code>shows</code> or <code>movies</code>; when omitted, inferred per entry from <code>media_type</code></td></tr>
+  <tr><td><code>client_secret</code></td><td>conditional</td><td>—</td><td>OAuth client secret — automatic token management (see <a href="#trakt-auth">Trakt Authentication</a>)</td></tr>
+  <tr><td><code>access_token</code></td><td>conditional</td><td>—</td><td>Static OAuth bearer token (alternative to <code>client_secret</code>)</td></tr>
+</table>
+
+<p>List mutation is always authenticated: exactly one of <code>client_secret</code> or <code>access_token</code> must be set. All entries of a run are batched into a single request (<code>POST /sync/watchlist[/remove]</code> for the watchlist, <code>POST /users/me/lists/{slug}/items[/remove]</code> for personal lists). The request's <code>ids</code> object is built from whichever ID fields are present: <code>trakt_id</code>, <code>trakt_imdb_id</code>/<code>video_imdb_id</code>, <code>trakt_tmdb_id</code>/<code>tmdb_id</code>, <code>trakt_tvdb_id</code>/<code>tvdb_id</code>. Entries with no usable ID, and entries Trakt reports as <code>not_found</code>, are marked failed. In <a href="#dry-run">dry-run mode</a> the sink logs a "would add"/"would remove" preview per entry and makes no HTTP calls.</p>
+
+<!-- ─────────── List management ─────────── -->
+<h2 id="list-management">List management</h2>
+<p>Pipelines can <em>write</em> lists, not just read them, which turns list hygiene into ordinary scheduled pipelines. The <code>series_status</code> field is the usual trigger: the <code>tvdb_favorites</code> and <code>trakt_list</code> sources and the <code>metainfo_tvdb</code>/<code>metainfo_trakt</code> processors surface it. TheTVDB uses capitalised values (<code>Continuing</code>, <code>Ended</code>, <code>Cancelled</code>, <code>Upcoming</code>); Trakt uses lowercase ones (<code>returning series</code>, <code>ended</code>, <code>canceled</code>).</p>
+
+<h3>Pattern 1: TheTVDB favorites → local active list</h3>
+<p>TheTVDB's API cannot remove favorites, so raw favorites cannot be pruned remotely. Instead, filter still-running shows into a local list and point <code>series.list</code> or <code>list_match</code> at that list instead of the raw favorites:</p>
+
+<pre><code>favs  = input("tvdb_favorites", api_key=tvdb_api_key, user_pin=tvdb_user_pin)
+alive = process("condition", upstream=favs, rules=[
+    {"reject": 'series_status == "Ended" or series_status == "Cancelled"'},
+    {"accept": 'true'},
+])
+keep  = output("list_add", upstream=alive, list="active_favorites")
+note  = output("notify", upstream=keep, via="pushover",
+               config={"user": pushover_user, "token": pushover_token},
+               body="Still following: {{.Title}}")
+pipeline("sync-active-favorites", schedule="168h")</code></pre>
+
+<h3>Pattern 2: Trakt watchlist pruning</h3>
+<p>Trakt lists support removal, so ended shows can be pruned remotely:</p>
+
+<pre><code>watch = input("trakt_list", client_id=trakt_client_id,
+              client_secret=trakt_client_secret,
+              type="shows", list="watchlist")
+done  = process("condition", upstream=watch, rules=[
+    {"accept": 'series_status == "ended" or series_status == "canceled"'},
+    {"reject": 'true'},
+])
+prune = output("trakt_list_update", upstream=done,
+               client_id=trakt_client_id, client_secret=trakt_client_secret,
+               list="watchlist", action="remove")
+pipeline("prune-trakt-watchlist", schedule="168h")</code></pre>
+
+<p>Both patterns ship as <code>configs/prune-ended-favorites.star</code>. Run them with <a href="#dry-run">dry-run</a> first to preview what would be added or removed.</p>
 
 <hr>
 <!-- ═══════════════════════════════════════════════════════════ -->
