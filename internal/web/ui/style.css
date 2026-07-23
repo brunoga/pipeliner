@@ -3049,3 +3049,9 @@ details[open] > .ve-fields-summary::after { content:'▴'; }
 
 /* Disabled chips: less dim so they remain legible */
 .ve-palette-body .ve-chip[disabled] { opacity:.3; }
+
+/* ── appended by fix/visual-editor-critical ── */
+/* Incomplete route port row: kept in the editor model but omitted from the
+   serialised config until both name and condition are set. */
+.ve-cond-rule.ve-rule-incomplete { border:1px solid #d9534f; border-radius:6px; }
+.ve-rule-incomplete-note { color:#d9534f; font-size:11px; margin-top:4px; }

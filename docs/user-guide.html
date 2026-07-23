@@ -1997,7 +1997,7 @@ output("exec", upstream=cleanup, command="rm -f {file_location}")</code></pre>
 <p class="screenshot-caption">After clicking <strong>Validate</strong>, the status line shows <em>✓ Valid (1 warning)</em> and the amber box explains which node and field are affected.</p>
 
 <h4>Saving</h4>
-<p>Changes in the visual editor sync automatically to the text editor. Use <strong>Save &amp; Reload</strong> in the toolbar to apply. Switch to the <strong>✏ Text</strong> view to edit Starlark directly; switching back to <strong>⬡ Visual</strong> re-parses the text and reloads the canvas.</p>
+<p>Changes in the visual editor sync automatically to the text editor. Use <strong>Save &amp; Reload</strong> in the toolbar to apply. Switch to the <strong>✏ Text</strong> view to edit Starlark directly; switching back to <strong>⬡ Visual</strong> re-parses the text and reloads the canvas. Merely opening the Config tab (or switching to the visual view) never rewrites a hand-authored config — your variable names, comments, and formatting are preserved until you actually change something on the canvas, at which point the whole file is regenerated from the visual model.</p>
 
 <h4>User functions as list and search sources</h4>
 <p>Plugins that accept a <code>list=</code> port (<code>movies</code>, <code>series</code>) or a <code>search=</code> port (<code>discover</code>) can be fed by a <strong>user-defined function</strong> — not just by registered plugins. This lets you build a mini-pipeline inside a function and plug it directly into a list or search slot.</p>
