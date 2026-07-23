@@ -14,6 +14,9 @@ Call `output()` multiple times from the same upstream node for fan-out.
 | [`list_add`](list_add/README.md) | Add accepted entries to a named persistent list |
 | [`print`](print/README.md) | Print accepted entries to stdout |
 | [`notify`](notify/README.md) | Delegate to a configured notifier (webhook, email, Pushover) |
+| [`series_tracker_update`](series_tracker_update/README.md) | Deactivate or reactivate a tracked show in the series tracker |
+| [`tvdb_favorites_add`](tvdb_favorites/README.md) | Add accepted entries to the user's TheTVDB favorites list |
+| [`trakt_list_update`](trakt_list/README.md) | Add or remove accepted entries on a Trakt list or watchlist |
 
 ## Notifier sub-plugins (`plugins/sink/notify/`)
 

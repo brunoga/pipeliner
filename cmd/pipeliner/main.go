@@ -49,6 +49,7 @@ import (
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/trailer"
 	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/bluray"
 	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/file"
+	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/lifecycle"
 	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/magnet"
 	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/tmdb"
 	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/torrent"
@@ -68,6 +69,7 @@ import (
 	_ "github.com/brunoga/pipeliner/plugins/sink/notify/webhook"
 	_ "github.com/brunoga/pipeliner/plugins/sink/print"
 	_ "github.com/brunoga/pipeliner/plugins/sink/qbittorrent"
+	_ "github.com/brunoga/pipeliner/plugins/sink/series_tracker_update"
 	_ "github.com/brunoga/pipeliner/plugins/sink/trakt_list"
 	_ "github.com/brunoga/pipeliner/plugins/sink/transmission"
 	_ "github.com/brunoga/pipeliner/plugins/sink/tvdb_favorites"
@@ -76,6 +78,7 @@ import (
 	_ "github.com/brunoga/pipeliner/plugins/source/html"
 	_ "github.com/brunoga/pipeliner/plugins/source/jackett"
 	_ "github.com/brunoga/pipeliner/plugins/source/rss"
+	_ "github.com/brunoga/pipeliner/plugins/source/series_tracker"
 	_ "github.com/brunoga/pipeliner/plugins/source/trakt_list"
 	_ "github.com/brunoga/pipeliner/plugins/source/tvdb_favorites"
 )
