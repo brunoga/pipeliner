@@ -1452,7 +1452,7 @@ output(<span class="y-str">"notify"</span>, via=<span class="y-str">"pushover"</
 output(<span class="y-str">"transmission"</span>, upstream=merge(routes.torrent, routes.magnet), ...)</code></pre>
 
 <h4>Visual editor</h4>
-<p>In the visual editor, each route rule shows only a port name and condition expression. Field availability for downstream nodes is updated automatically as you edit conditions — the field panel on each downstream node reflects the inferred contracts in real time.</p>
+<p>In the visual editor, each route rule shows only a port name and condition expression. On the canvas, the route card renders one output circle per port with the <strong>port name labelled beneath it</strong> (long names are truncated; hover for the full name), and the card's summary line lists the ports (e.g. <em>ports: tv, movies</em>). Field availability for downstream nodes is updated automatically as you edit conditions — the field panel on each downstream node reflects the inferred contracts in real time.</p>
 
 <!-- ─────────── report_empty ─────────── -->
 <h2 id="report_empty">report_empty</h2>
@@ -1973,6 +1973,12 @@ output("exec", upstream=cleanup, command="rm -f {file_location}")</code></pre>
 <p>Each node on the canvas shows its plugin name, role badge, upstream connections, and a preview of its most important config values. Click a node to select it and edit its configuration in the right panel. Drag nodes to reorder them. The pipeline name and schedule are shown at the top; edit them inline.</p>
 <p>Each node has a small <strong>#</strong> button (top-right of the card) for attaching a free-text comment. The comment is emitted as <code># …</code> lines immediately above the node's assignment in the generated Starlark. The pipeline label also has a <strong>#</strong> button for a pipeline-level comment, emitted above the <code>pipeline()</code> call. Both support multi-line text.</p>
 
+<h4>Panning and zooming</h4>
+<p>A plain scroll-wheel or two-finger trackpad scroll <strong>pans</strong> the canvas in any direction. Hold <kbd>Ctrl</kbd> (or <kbd>Cmd</kbd> on Mac) while scrolling to <strong>zoom</strong>, anchored on the cursor — trackpad pinch-to-zoom works the same way. Middle-mouse drag also pans, and the <strong>− / + / ⊙</strong> buttons in the toolbar zoom out, zoom in, and reset the view. On touch devices, two-finger drag pans and pinch zooms. Validating or saving the config no longer resets the view: the active pipeline, the selected node (and its open param panel), and the current pan/zoom all survive the round-trip.</p>
+
+<h4>Tidy layout</h4>
+<p>The <strong>⇤ Tidy layout</strong> button (next to Undo) re-runs the automatic left-to-right layered layout for the <em>active</em> pipeline only — useful after heavy editing has left nodes scattered. Other pipelines keep their positions, the action is undoable, and the new positions are persisted as <code># pipeliner:pos</code> comments. Nodes fed by <code>route()</code> ports are placed to the right of the route node so edges always flow left-to-right.</p>
+
 <h4>Multi-select, copy, cut and undo</h4>
 <p>Drag on empty canvas space to draw a rubber-band selection rectangle — all nodes within the rectangle are added to the selection. Alternatively, hold <kbd>Cmd</kbd> (Mac) or <kbd>Ctrl</kbd> (Windows/Linux) and click individual nodes to toggle them in or out of the selection.</p>
 <p>When two or more nodes are selected, the toolbar shows <strong>Copy</strong>, <strong>Cut</strong>, and <strong>⬡ Extract to function</strong>. Dragging any selected node moves all selected nodes together.</p>
@@ -1981,12 +1987,13 @@ output("exec", upstream=cleanup, command="rm -f {file_location}")</code></pre>
 <p class="screenshot-caption">Multi-selecting nodes with Cmd+Click: the toolbar shows contextual actions. <strong>↩ Undo</strong> is always visible and enables as soon as an undoable action has been taken.</p>
 
 <h4>Param panel</h4>
-<p>The right panel shows the selected node's configuration. At the top, checkboxes let you connect the node to any existing upstream node (sets the <code>upstream=</code> relationship). Below, all config keys are editable with appropriate input widgets. A <strong>Produces</strong> section lists fields the plugin always sets; a dimmed <strong>May produce</strong> section lists fields set only when data is available (e.g. when a metadata lookup succeeds). Field warnings appear when required fields are missing or only conditionally available upstream.</p>
+<p>The right panel shows the selected node's configuration. At the top, checkboxes let you connect the node to any existing upstream node (sets the <code>upstream=</code> relationship) — the checkboxes enforce the same rules as drag-connect (no cycles, sink output only chains into another sink), and an invalid toggle explains why in the toolbar note. Below, all config keys are editable with appropriate input widgets. A <strong>Produces</strong> section lists fields the plugin always sets; a dimmed <strong>May produce</strong> section lists fields set only when data is available (e.g. when a metadata lookup succeeds). A <strong>Requires</strong> section lists the plugin's input requirements; alternatives are shown as <code>a</code> OR <code>b</code> lines — the requirement is met when <em>any</em> field of an OR line is available. Field warnings appear when required fields are missing or only conditionally available upstream.</p>
 <img src="images/ui-param-panel-may-produce.png" alt="Param panel for metainfo_file showing Produces and May produce field lists" class="screenshot">
 <p class="screenshot-caption">metainfo_file selected: <strong>Produces</strong> lists guaranteed fields; <strong>May produce</strong> lists fields set only when the title parses for a given media type (series_*, movie_*) or quality string (codec, audio, color range).</p>
 
 <h4>Connection validation</h4>
-<p>The visual editor checks field reachability at two levels:</p>
+<p>While dragging a connection from a node's output port, only <em>valid</em> drop targets light up their input port; nodes that would be rejected (a different pipeline, a duplicate edge, a cycle, or a non-sink target for a sink's output) are dimmed. Dropping on an invalid target explains the rejection in the toolbar note, e.g. <em>cannot connect: would create a cycle</em> or <em>cannot connect: sink output can only feed another sink</em>.</p>
+<p>The visual editor checks field reachability at two levels (requirements with OR-alternatives count as satisfied when any alternative is available):</p>
 <ul>
   <li><strong>Error (⚠ amber)</strong> — a required field is not produced by any upstream node at all. Fix by adding the appropriate plugin upstream (e.g. add <code>metainfo_file</code> before <code>premiere</code>).</li>
   <li><strong>Warning (~ grey)</strong> — a required field is only <em>conditionally</em> produced upstream (the upstream plugin may not set it on every entry, for example <code>metainfo_torrent</code> only extracts file lists from entries it can parse). The pipeline will still run, but the plugin may silently skip entries that arrive without the field.</li>

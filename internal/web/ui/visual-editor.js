@@ -530,8 +530,27 @@ function newNodePos(g) {
   };
 }
 
+// fnDeletionDropsUpstream returns true when (in function-editor mode) deleting
+// the given node ids would leave the function body with NO consumer of the
+// '_upstream' entry point — i.e. the function's signature would lose its
+// upstream parameter and existing call sites passing upstream= would break.
+function fnDeletionDropsUpstream(ids) {
+  if (!ve.fnEditor.active) return false;
+  const g = ve.graphs[0];
+  if (!g) return false;
+  const idSet = ids instanceof Set ? ids : new Set(ids);
+  const consumers = g.nodes.filter(n => (n.upstreams || []).includes('_upstream'));
+  return consumers.length > 0 && consumers.every(n => idSet.has(n.id));
+}
+
+const FN_UPSTREAM_DELETE_WARNING =
+  'This is the last node connected to the function\'s "upstream" entry point. ' +
+  'Deleting it changes the function signature (the upstream parameter is dropped) ' +
+  'and breaks existing call sites that pass upstream=. Delete anyway?';
+
 function removeNode(id) {
   if (findNode(id)?.isUpstreamPseudo) return; // pseudo-node is permanent
+  if (fnDeletionDropsUpstream([id]) && !confirm(FN_UPSTREAM_DELETE_WARNING)) return;
   pushUndo();
   for (const g of ve.graphs) {
     const idx = g.nodes.findIndex(n => n.id === id);
@@ -571,6 +590,7 @@ function deleteSelection() {
     : (ve.selectedNodeId && !findNode(ve.selectedNodeId)?.isUpstreamPseudo
         ? [ve.selectedNodeId] : []);
   if (!ids.length) return;
+  if (fnDeletionDropsUpstream(ids) && !confirm(FN_UPSTREAM_DELETE_WARNING)) return;
   pushUndo();
   removeNodeBatch(ids);
   if (ids.includes(ve.selectedNodeId)) ve.selectedNodeId = null;
@@ -728,7 +748,7 @@ function renderGraphNodes() {
         div.style.top    = (n.y ?? 60) + 'px';
         div.innerHTML = `<div class="ve-node-role-bar"></div>
           <div class="ve-node-body">
-            <div class="ve-node-name" style="color:#fbbf24">upstream</div>
+            <div class="ve-node-name" style="color:var(--warn-text, #fbbf24)">⬅ upstream</div>
             <span class="ve-node-role-badge ve-role-source">source</span>
             <div class="ve-upstream-label">function entry point</div>
           </div>
@@ -807,7 +827,7 @@ function renderGraphNodes() {
             const port = g.nodes.find(x => x.id === portId);
             if (!port?.isRoutePort) return '';
             return `<div class="ve-route-port" data-port="${esc(port.routePortName)}" data-port-id="${esc(portId)}"
-              title="${esc(port.routePortName)}"></div>`;
+              title="${esc(port.routePortName)}"><span class="ve-route-port-label" title="${esc(port.routePortName)}">${esc(port.routePortName)}</span></div>`;
           }).join('');
           return portList ? `<div class="ve-route-ports">${portList}</div>` : '';
         })() : (!isSearch && !isList && !isRoutePort) ? `<div class="ve-node-out-port${role === 'sink' ? ' ve-node-chain-port' : ''}" title="${role === 'sink' ? 'Drag to chain to another output node' : 'Drag to connect'}"></div>` : '',
@@ -971,8 +991,14 @@ function renderPipelineLabels() {
     label.addEventListener('pointerdown', e => e.stopPropagation());
 
     const gi = i;
-    label.querySelector('.ve-pl-sched').addEventListener('input',  e => { ve.graphs[gi].schedule = e.target.value; onModelChange(); });
-    label.querySelector('.ve-pl-sched').addEventListener('change', e => { ve.graphs[gi].schedule = e.target.value; onModelChange(); });
+    const schedInput = label.querySelector('.ve-pl-sched');
+    schedInput.addEventListener('input',  e => { ve.graphs[gi].schedule = e.target.value; onModelChange(); });
+    schedInput.addEventListener('change', e => { ve.graphs[gi].schedule = e.target.value; onModelChange(); });
+    // Editing a pipeline's schedule is working IN that pipeline — activate it
+    // so the next palette tap-to-add lands here, not in a stale active graph.
+    // Always via setActiveGraph (never assign ve.activeGraph directly).
+    schedInput.addEventListener('pointerdown', () => setActiveGraph(gi));
+    schedInput.addEventListener('focus',       () => setActiveGraph(gi));
     const nameSpan = label.querySelector('.ve-pl-name');
     nameSpan.addEventListener('click', () => {
       // Clicking a pipeline label both focuses that pipeline AND dismisses
@@ -1002,14 +1028,25 @@ function renderPipelineLabels() {
 
       let done = false;
       function commit() {
-        if (done) return; done = true;
+        if (done) return;
         const next = input.value.trim();
-        // Reject empty or duplicate names (preserve original silently).
-        const duplicate = ve.graphs.some((gr, idx) => idx !== gi && gr.name === next);
-        if (next && next !== original && !duplicate) {
-          ve.graphs[gi].name = next;
-          onModelChange();
+        if (next === original) { done = true; renderPipelineLabels(); return; }
+        // Invalid names: surface the reason in the sync note (mirrors the
+        // fn-editor rename errors) and keep the editor open for correction.
+        if (!next) {
+          veShowError('pipeline name cannot be empty');
+          input.focus();
+          return;
         }
+        if (ve.graphs.some((gr, idx) => idx !== gi && gr.name === next)) {
+          veShowError(`a pipeline named "${next}" already exists`);
+          input.focus();
+          input.select();
+          return;
+        }
+        done = true;
+        ve.graphs[gi].name = next;
+        onModelChange();
         renderPipelineLabels();
       }
       function cancel() {
@@ -1157,6 +1194,11 @@ function deletePipeline(graphIdx) {
   // In function editing mode the single graph IS the function body — deleting
   // it would wipe the canvas.  Use Cancel or ← Back to exit the editor instead.
   if (ve.fnEditor.active) return;
+  const doomed = ve.graphs[graphIdx];
+  if (!doomed) return;
+  // Destructive: confirm with an explicit statement of what is lost.
+  const nodeCount = doomed.nodes.filter(n => !n.isRoutePort).length;
+  if (!confirm(`Delete pipeline "${doomed.name}" and its ${nodeCount} node${nodeCount === 1 ? '' : 's'}?`)) return;
   pushUndo();
   const removed = ve.graphs[graphIdx];
   // How much vertical space the deleted pipeline occupied (region height + the
@@ -1356,7 +1398,7 @@ function renderEdges() {
         `<path d="M0,1 L0,7 L7,4 z" fill="#e3b341"/>` +
       `</marker>` +
       `<marker id="arrow-chain-sel" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">` +
-        `<path d="M0,1 L0,7 L7,4 z" fill="#f0d070"/>` +
+        `<path d="M0,1 L0,7 L7,4 z" fill="var(--chain-edge-selected, #f0d070)"/>` +
       `</marker>` +
       `<marker id="arrow-list" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">` +
         `<path d="M0,1 L0,7 L7,4 z" fill="#0d9373"/>` +
@@ -1448,6 +1490,16 @@ function layoutGraph(g, globalY) {
   const startY = globalY + 36 + listPad; // space for pipeline label (+ list nodes)
 
   // ── 1. Topological depth (search/list sub-nodes are laid out separately) ───
+  // Route ports are excluded from layout (isSub), but downstream nodes
+  // reference the PORT id as their upstream. Resolve a port upstream to its
+  // parent route node so route children land one column to the RIGHT of the
+  // route card instead of falling back to depth 0 (which produced a left
+  // column under the source with backwards, right-to-left edges).
+  const nodeById = new Map(g.nodes.map(n => [n.id, n]));
+  const depthKey = uid => {
+    const un = nodeById.get(uid);
+    return (un?.isRoutePort && un.routeParentId) ? un.routeParentId : uid;
+  };
   const depth = {};
   for (const n of g.nodes) if (!isSub(n) && !n.upstreams.length) depth[n.id] = 0;
   let changed = true;
@@ -1455,7 +1507,7 @@ function layoutGraph(g, globalY) {
     changed = false;
     for (const n of g.nodes) {
       if (isSub(n) || !n.upstreams.length) continue;
-      const maxUp = Math.max(...n.upstreams.map(u => depth[u] ?? -1));
+      const maxUp = Math.max(...n.upstreams.map(u => depth[depthKey(u)] ?? -1));
       if (maxUp >= 0 && depth[n.id] !== maxUp + 1) { depth[n.id] = maxUp + 1; changed = true; }
     }
   }
@@ -1484,7 +1536,7 @@ function layoutGraph(g, globalY) {
     for (const id of ids) {
       const n = g.nodes.find(n => n.id === id);
       if (!n?.upstreams.length) { target[id] = null; continue; }
-      const upYs = n.upstreams.map(uid => (g.nodes.find(x => x.id === uid)?.y ?? startY));
+      const upYs = n.upstreams.map(uid => (nodeById.get(depthKey(uid))?.y ?? startY));
       target[id] = upYs.reduce((a, b) => a + b, 0) / upYs.length;
     }
     const sorted = [...ids].sort((a, b) => (target[a] ?? startY) - (target[b] ?? startY));
@@ -1749,6 +1801,40 @@ function autoLayout() {
   for (const g of ve.graphs) globalY = layoutGraph(g, globalY);
 }
 
+// tidyActivePipeline re-runs auto-layout for the ACTIVE pipeline only
+// ("Tidy layout" toolbar button). Stored positions of the other pipelines are
+// preserved; the active pipeline's positions are discarded so initLayout's
+// no-stored-positions branch performs a fresh layered left-to-right layout.
+// The result is persisted (onModelChange) so the new positions survive a
+// save/reload round-trip.
+function tidyActivePipeline() {
+  const g = activeG();
+  if (!g || !g.nodes.length) return;
+  pushUndo();
+  for (const n of g.nodes) { n.x = null; n.y = null; }
+  // Other pipelines hold ABSOLUTE y at runtime; initLayoutFromAbsolute
+  // converts back to relative before re-running initLayout so they don't
+  // drift (see the layout invariants at the top of initLayout).
+  initLayoutFromAbsolute('tidyLayout');
+  veRender();
+  onModelChange();
+}
+
+// veEnsureTidyButton injects the "Tidy layout" button into the pipeline bar
+// right after Undo. Created from JS so the toolbar markup stays untouched.
+function veEnsureTidyButton() {
+  if (document.getElementById('ve-tidy-btn')) return;
+  const undoBtn = document.getElementById('ve-undo-btn');
+  if (!undoBtn || !undoBtn.after) return; // no DOM (test environment)
+  const btn = document.createElement('button');
+  btn.id          = 've-tidy-btn';
+  btn.className   = 've-undo-btn';
+  btn.title       = 'Auto-arrange the active pipeline left-to-right';
+  btn.textContent = '⇤ Tidy layout';
+  btn.addEventListener('click', tidyActivePipeline);
+  undoBtn.after(btn);
+}
+
 // ── cycle detection ───────────────────────────────────────────────────────────
 
 // Returns true if adding the directed edge src → target would create a cycle.
@@ -1894,6 +1980,8 @@ function initCanvasEvents() {
   const canvas = document.getElementById('ve-graph-canvas');
   if (!canvas) return;
 
+  veEnsureTidyButton();
+
   // Palette chip tooltips via event delegation (chips are re-rendered on every
   // filter change so individual listeners would need to be re-added each time).
   const paletteBody = document.getElementById('ve-palette-body');
@@ -2002,16 +2090,26 @@ function initCanvasEvents() {
     });
   }
 
-  // Wheel to zoom (Ctrl+wheel also works for trackpad pinch-to-zoom).
-  // Anchored on the cursor so the world point under the pointer stays put
-  // across the zoom — mirrors the pinch-zoom math below. Listener is on the
+  // Wheel: plain wheel PANS (two-finger trackpad scroll moves the canvas),
+  // Ctrl/Cmd+wheel ZOOMS. Trackpad pinch-to-zoom arrives as ctrlKey+wheel in
+  // every major browser, so pinch keeps zooming under this convention too.
+  // Zoom is anchored on the cursor so the world point under the pointer stays
+  // put — mirrors the pinch-zoom math below. preventDefault only on the zoom
+  // path (to suppress browser page-zoom); plain pan must not swallow the
+  // default so nested scrollable UI keeps working. Listener is on the
   // viewport body (not the inner canvas) so wheel works over empty space too.
   const wheelTarget = document.getElementById('ve-canvas-body') || canvas;
   wheelTarget.addEventListener('wheel', e => {
-    e.preventDefault();
-    const br = wheelTarget.getBoundingClientRect();
-    zoomAt(ve_zoom * (e.deltaY < 0 ? 1.1 : 1 / 1.1),
-           e.clientX - br.left, e.clientY - br.top);
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      const br = wheelTarget.getBoundingClientRect();
+      zoomAt(ve_zoom * (e.deltaY < 0 ? 1.1 : 1 / 1.1),
+             e.clientX - br.left, e.clientY - br.top);
+      return;
+    }
+    ve_panX -= e.deltaX;
+    ve_panY -= e.deltaY;
+    applyZoom();
   }, {passive: false});
 
   // Middle-mouse drag to pan (unlimited, no scrollbars).
@@ -2419,25 +2517,57 @@ function startNodeDrag(e, n) {
 // srcAnchorX/Y optionally override the visual start position of the line
 // (used when the source is a virtual node like a route port circle whose canvas
 // position is the port circle rather than the invisible selector node).
-function startConnect(e, srcId, srcAnchorX, srcAnchorY) {
-  ve_connecting = { srcId, anchorX: srcAnchorX, anchorY: srcAnchorY };
-  // Mark source and cycle-risk nodes for CSS highlighting.
-  document.querySelector(`.ve-node[data-id="${srcId}"]`)?.classList.add('is-connect-source');
+// connectTargetError validates a would-be upstream edge src → target with the
+// SAME rules for both drag-connect and the param panel's Upstreams checkboxes.
+// Returns null when the connection is valid, else a human-readable reason
+// (surfaced in the sync note on an invalid drop / checkbox toggle).
+function connectTargetError(srcId, targetId) {
+  const src = findNode(srcId);
+  const tgt = findNode(targetId);
+  if (!src || !tgt) return 'node not found';
+  if (srcId === targetId) return 'a node cannot connect to itself';
+  const tgtRole = pluginMeta(tgt.plugin)?.role;
+  const srcRole = pluginMeta(src.plugin)?.role;
+  if (tgt.isUpstreamPseudo) return 'the upstream entry point cannot receive connections';
+  if (tgt.isSearchNode) return 'this node is a search backend — it cannot receive pipeline connections';
+  if (tgt.isListNode) return 'this node is a list source — it cannot receive pipeline connections';
+  if (tgtRole === 'source') return 'a source node cannot receive connections';
+  if (src.isListNode) return 'a list-source node cannot also be a regular upstream';
+  if (src.isSearchNode) return 'a search-backend node cannot also be a regular upstream';
+  if (findNodeGraph(srcId) !== findNodeGraph(targetId)) return 'nodes are in different pipelines';
+  if ((tgt.upstreams || []).includes(srcId)) return 'these nodes are already connected';
+  if (srcRole === 'sink' && tgtRole !== 'sink') return 'sink output can only feed another sink';
   const gi = findNodeGraph(srcId);
   const g  = gi >= 0 ? ve.graphs[gi] : null;
-  if (g) ancestorIds(g.nodes, srcId).forEach(id =>
-    document.querySelector(`.ve-node[data-id="${id}"]`)?.classList.add('would-create-cycle'));
+  if (g && wouldCreateCycle(g.nodes, srcId, targetId)) return 'would create a cycle';
+  return null;
+}
+
+function startConnect(e, srcId, srcAnchorX, srcAnchorY) {
+  ve_connecting = { srcId, anchorX: srcAnchorX, anchorY: srcAnchorY };
+  // Mark the source, then mark every INVALID drop target so the CSS only
+  // lights up targets the drop would actually accept (same pipeline, no
+  // duplicate edge, no cycle, sink→sink only).
+  document.querySelector(`.ve-node[data-id="${srcId}"]`)?.classList.add('is-connect-source');
+  for (const g of ve.graphs) {
+    for (const n of g.nodes) {
+      if (n.id === srcId || n.isRoutePort) continue;
+      if (connectTargetError(srcId, n.id)) {
+        document.querySelector(`.ve-node[data-id="${CSS.escape(n.id)}"]`)?.classList.add('ve-conn-invalid');
+      }
+    }
+  }
 
   startDragFlow(e,
     (cx, cy) => { ve_connecting.curX = cx; ve_connecting.curY = cy; },
     ev => {
       document.querySelectorAll('.ve-node.is-connect-source').forEach(el => el.classList.remove('is-connect-source'));
-      document.querySelectorAll('.ve-node.would-create-cycle').forEach(el => el.classList.remove('would-create-cycle'));
+      document.querySelectorAll('.ve-node.ve-conn-invalid').forEach(el => el.classList.remove('ve-conn-invalid'));
       if (!ev || !ve_connecting) { ve_connecting = null; renderEdges(); return; }
       const el  = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('.ve-node[data-id]');
       const tid = el?.dataset?.id;
-      const tgtMeta = tid ? pluginMeta(findNode(tid)?.plugin) : null;
-      if (tid && tid !== srcId && tgtMeta?.role !== 'source') finishConnect(tid);
+      // Let finishConnect validate — it reports the reason for invalid drops.
+      if (tid && tid !== srcId) finishConnect(tid);
       else { ve_connecting = null; renderEdges(); }
     },
     'is-connecting'
@@ -2445,32 +2575,19 @@ function startConnect(e, srcId, srcAnchorX, srcAnchorY) {
 }
 
 function finishConnect(targetId) {
-  const tgt     = findNode(targetId);
-  const src     = findNode(ve_connecting?.srcId);
-  const tgtRole = pluginMeta(tgt?.plugin)?.role;
-  const srcRole = pluginMeta(src?.plugin)?.role;
-  const srcGi   = findNodeGraph(ve_connecting?.srcId);
-  const tgtGi   = findNodeGraph(targetId);
-  // Sources never accept incoming edges; list-source nodes can't also be regular
-  // upstreams; and adding the edge must not create a cycle in the DAG.
-  // Additionally, sink nodes may only connect to other sink nodes (chaining).
-  if (src && tgt && tgtRole !== 'source' && !src.isListNode &&
-      !tgt.isUpstreamPseudo &&
-      srcGi === tgtGi && !tgt.upstreams.includes(src.id)) {
-    // If source is a sink, the target must also be a sink (sink chaining rule).
-    if (srcRole === 'sink' && tgtRole !== 'sink') {
-      ve_connecting = null;
-      veRender();
-      return;
-    }
-    const g = srcGi >= 0 ? ve.graphs[srcGi] : null;
-    if (g && !wouldCreateCycle(g.nodes, src.id, tgt.id)) {
-      pushUndo();
-      tgt.upstreams.push(src.id);
-      onModelChange();
-    }
-  }
+  if (!ve_connecting) return; // already handled (node pointerup + drag release)
+  const srcId = ve_connecting.srcId;
   ve_connecting = null;
+  const err = connectTargetError(srcId, targetId);
+  if (err) {
+    veRender();
+    veShowError('cannot connect: ' + err);
+    return;
+  }
+  const tgt = findNode(targetId);
+  pushUndo();
+  tgt.upstreams.push(srcId);
+  onModelChange();
   veRender();
 }
 
@@ -2577,7 +2694,7 @@ function _createPalettePreview(name) {
   preview.style.cssText =
     `position:fixed;top:-200px;left:-200px;` +
     `width:${NODE_W}px;display:flex;align-items:stretch;` +
-    `border:1px solid rgba(88,166,255,.55);border-radius:8px;background:#161b22;` +
+    `border:1px solid rgba(88,166,255,.55);border-radius:8px;background:var(--surface, #161b22);` +
     `box-shadow:0 6px 28px rgba(0,0,0,.75);opacity:0.92;` +
     `pointer-events:none;z-index:9999;` +
     `font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;` +
@@ -2585,7 +2702,7 @@ function _createPalettePreview(name) {
   preview.innerHTML =
     `<div style="width:4px;flex-shrink:0;border-radius:7px 0 0 7px;background:${rc}"></div>` +
     `<div style="flex:1;padding:8px 10px;min-width:0;text-align:center">` +
-      `<div style="font-size:13px;font-weight:600;color:#e6edf3;` +
+      `<div style="font-size:13px;font-weight:600;color:var(--text, #e6edf3);` +
                `overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:4px">${name}</div>` +
       `<span style="font-size:9px;font-weight:700;text-transform:uppercase;` +
              `letter-spacing:.05em;padding:1px 5px;border-radius:3px;` +
@@ -2910,8 +3027,13 @@ function renderParamPanel() {
       html.push(`<div class="ve-field-hint-block"><b>Produces:</b> ${meta.produces.map(f=>`<code>${esc(f)}</code>`).join(' ')}</div>`);
     if (meta.may_produce?.length)
       html.push(`<div class="ve-field-hint-block ve-field-hint-maybe"><b>May produce:</b> ${meta.may_produce.map(f=>`<code>${esc(f)}</code>`).join(' ')}</div>`);
-    if (meta.requires?.length)
-      html.push(`<div class="ve-field-hint-block"><b>Requires:</b> ${meta.requires.map(f=>`<code>${esc(f)}</code>`).join(' ')}</div>`);
+    if (meta.requires?.length) {
+      // Render OR-groups (AND across lines, OR within a line) so alternatives
+      // like "series_episode_id OR title" don't read as all-required.
+      const reqLines = requiresGroupsFor(meta)
+        .map(gr => gr.map(f => `<code>${esc(f)}</code>`).join(' <span class="ve-req-or">OR</span> '));
+      html.push(`<div class="ve-field-hint-block"><b>Requires:</b> ${reqLines.join('<br>')}</div>`);
+    }
   }
 
   const warns = fieldWarnings(node);
@@ -2994,11 +3116,13 @@ function toggleUpstream(nodeId, upId, checked) {
   const node = findNode(nodeId);
   if (!node) return;
   if (checked && !node.upstreams.includes(upId)) {
-    // Reject if adding this upstream would create a cycle.
-    const gi = findNodeGraph(nodeId);
-    const g  = gi >= 0 ? ve.graphs[gi] : null;
-    if (g && wouldCreateCycle(g.nodes, upId, nodeId)) {
+    // Enforce the same rules as drag-connect (cycle, sink chaining, same
+    // pipeline, …) and surface the reason instead of silently snapping the
+    // checkbox back.
+    const err = connectTargetError(upId, nodeId);
+    if (err) {
       renderParamPanel(); // re-render to uncheck the checkbox
+      veShowError('cannot connect: ' + err);
       return;
     }
     node.upstreams.push(upId);
@@ -4719,7 +4843,10 @@ function renderField(f, config, node) {
         break;
       }
       default:
-        widget = `<input type="text" data-field="${f.key}" value="${esc(String(val ?? ''))}" placeholder="${esc(String(f.default ?? f.hint ?? ''))}">`;
+        // Placeholder shows the schema default only — the hint sentence is
+        // already rendered right above the input, duplicating it as a
+        // placeholder just added noise.
+        widget = `<input type="text" data-field="${f.key}" value="${esc(String(val ?? ''))}" placeholder="${esc(String(f.default ?? ''))}">`;
     }
   }
 
@@ -4894,8 +5021,15 @@ function configPreview(cfg) {
   return entries.map(([k, v]) => {
     let vs;
     if (Array.isArray(v)) {
-      // Array of objects (e.g. route rules): show count summary.
+      // Array of objects (e.g. route rules): named rules list their names
+      // ("ports: tv, movies"); fall back to a count for long lists or
+      // unnamed rule objects.
       if (v.length > 0 && typeof v[0] === 'object' && v[0] !== null) {
+        const names = v.map(r => (r && typeof r.name === 'string') ? r.name.trim() : '').filter(Boolean);
+        if (names.length === v.length) {
+          const joined = names.join(', ');
+          return joined.length <= 30 ? `ports: ${joined}` : `${v.length} ports`;
+        }
         vs = `${v.length} rule${v.length !== 1 ? 's' : ''}`;
       } else {
         vs = `[${v.slice(0,2).join(', ')}${v.length>2?'…':''}]`;
@@ -4909,31 +5043,64 @@ function configPreview(cfg) {
   }).join('  ');
 }
 
+// requiresGroupsFor returns the plugin's Requires as OR-groups: AND across
+// groups, OR inside a group (mirrors plugin.Descriptor.Requires [][]string).
+// Falls back to wrapping the legacy flattened `requires` list into
+// single-field groups when the server predates `requires_groups`.
+function requiresGroupsFor(meta) {
+  if (Array.isArray(meta?.requires_groups) && meta.requires_groups.length) {
+    return meta.requires_groups.filter(g => Array.isArray(g) && g.length);
+  }
+  return (meta?.requires || []).map(f => [f]);
+}
+
+// evalRequiresGroups evaluates OR-group requirements against the certain /
+// reachable field sets at a node's input. A group is satisfied when ANY
+// member is certain; it warns when a member is only reachable, and errors
+// when no member is reachable at all.
+function evalRequiresGroups(groups, certain, reachable) {
+  const warns = [];
+  for (const group of groups) {
+    if (!group?.length) continue;
+    if (group.some(f => certain.has(f))) continue; // satisfied
+    if (group.length === 1) {
+      const f = group[0];
+      if (!reachable.has(f)) {
+        warns.push({level: 'error', msg: `requires "${f}" — add ${f}-producing node upstream`});
+      } else {
+        warns.push({level: 'warn', msg: `requires "${f}" — only conditionally produced upstream; plugin may silently skip entries missing this field`});
+      }
+      continue;
+    }
+    const label = group.join(' OR ');
+    if (!group.some(f => reachable.has(f))) {
+      warns.push({level: 'error', msg: `requires ${label} — add a node producing one of these upstream`});
+    } else {
+      warns.push({level: 'warn', msg: `requires ${label} — only conditionally produced upstream; plugin may silently skip entries missing these fields`});
+    }
+  }
+  return warns;
+}
+
 // fieldWarnings returns [{level:'error'|'warn', msg:string}] for a node.
-// 'error' = required field not reachable from any upstream at all.
-// 'warn'  = required field reachable but not certain (conditionally produced).
+// 'error' = no field of a required group reachable from any upstream at all.
+// 'warn'  = a required group satisfied only by reachable (conditionally
+//           produced) fields — never by a certain one.
 //
 // Uses computeInputFields so that condition-node narrowing is respected:
 // a condition accept rule that tests "field != ''" promotes that field to
 // certain, clearing the warning for downstream nodes that require it.
 function fieldWarnings(node) {
-  const meta = pluginMeta(node.plugin);
-  if (!meta?.requires?.length) return [];
+  const meta   = pluginMeta(node.plugin);
+  const groups = requiresGroupsFor(meta);
+  if (!groups.length) return [];
 
   const nf       = computeInputFields(node);
   const certain  = new Set(nf.certain);
   // reachable in computeInputFields excludes certain; rebuild the full set.
   const reachable = new Set([...nf.certain, ...nf.reachable]);
 
-  const warns = [];
-  for (const f of meta.requires) {
-    if (!reachable.has(f)) {
-      warns.push({level: 'error', msg: `requires "${f}" — add ${f}-producing node upstream`});
-    } else if (!certain.has(f)) {
-      warns.push({level: 'warn', msg: `requires "${f}" — only conditionally produced upstream; plugin may silently skip entries missing this field`});
-    }
-  }
-  return warns;
+  return evalRequiresGroups(groups, certain, reachable);
 }
 
 function pluginMeta(name) {
@@ -6079,6 +6246,27 @@ function openFunctionEditor(funcName) {
   const {nodes, returnNodeId} = parsed;
   const allNodes = [...nodes];
 
+  // Synthetic "⬅ upstream" entry-point stub: body nodes reference the
+  // '_upstream' pseudo-id (the function's upstream= argument), which would
+  // otherwise render as an invisible dangling upstream. The stub is visual
+  // only — non-deletable, excluded from serialisation (saveFunctionEditor
+  // filters isUpstreamPseudo; nodesToFunctionSource treats '_upstream' as an
+  // external upstream and emits `upstream=upstream`).
+  if (nodes.some(n => (n.upstreams || []).includes('_upstream'))) {
+    const hasStored = nodes.some(n => !n.isSearchNode && !n.isListNode && n.x != null && n.y != null);
+    const entryNode = nodes.find(n => (n.upstreams || []).includes('_upstream'));
+    allNodes.push({
+      id: '_upstream', plugin: 'upstream', config: {}, upstreams: [],
+      searchNodeIds: [], listNodeIds: [], comment: '',
+      isUpstreamPseudo: true,
+      // Stored-layout functions: pin the stub at the region's left edge level
+      // with the entry node (positions here are RELATIVE — initLayout converts).
+      // Auto-layout functions: leave null so layoutGraph places it at depth 0.
+      x: hasStored ? 4 : null,
+      y: hasStored ? Math.max(0, entryNode?.y ?? 40) : null,
+    });
+  }
+
   // Snapshot current canvas state for restoration on exit.
   ve.fnEditor = {
     active:          true,
@@ -6098,7 +6286,7 @@ function openFunctionEditor(funcName) {
   // fn-body-only graph and must never leak back onto the pipeline stack.
   undoStackEnterFnEditor();
 
-  const hasStoredLayout = allNodes.some(n => !n.isSearchNode && !n.isListNode && n.x != null && n.y != null);
+  const hasStoredLayout = allNodes.some(n => !n.isSearchNode && !n.isListNode && !n.isUpstreamPseudo && n.x != null && n.y != null);
   ve.graphs      = [{name: funcName, schedule: '', comment: '', nodes: allNodes, _hasLayout: hasStoredLayout}];
   ve.activeGraph = 0;
   ve.selectedNodeId = null;
@@ -6129,6 +6317,27 @@ function openFunctionEditor(funcName) {
 
   initLayout();
   veRender();
+  // Dirty-tracking baseline for the ← Back confirm: captured AFTER layout so
+  // the coordinate conversion itself never counts as an edit.
+  ve.fnEditor.dirtyBaseline = fnEditorStateSnapshot();
+}
+
+// fnEditorStateSnapshot serialises everything the fn editor can change:
+// body nodes (incl. positions), params, comment, and the function name.
+function fnEditorStateSnapshot() {
+  return JSON.stringify({
+    nodes:   ve.graphs[0]?.nodes ?? [],
+    params:  ve.fnEditor.paramsSnapshot ?? [],
+    comment: ve.fnEditor.commentSnapshot ?? '',
+    name:    ve.fnEditor.funcName ?? '',
+  });
+}
+
+// fnEditorIsDirty reports whether the function editor holds unsaved changes.
+function fnEditorIsDirty() {
+  if (!ve.fnEditor.active) return false;
+  if (ve.fnEditor.dirtyBaseline == null) return true; // unknown — be safe
+  return fnEditorStateSnapshot() !== ve.fnEditor.dirtyBaseline;
 }
 
 // saveFunctionEditor regenerates the function's _sourceText from the edited
@@ -6136,7 +6345,7 @@ function openFunctionEditor(funcName) {
 function saveFunctionEditor() {
   if (!ve.fnEditor.active) return;
   const fd = ve.userFunctions[ve.fnEditor.funcName];
-  if (!fd) { exitFunctionEditor(); return; }
+  if (!fd) { fnEditorRestorePipelines(); return; }
 
   const g = ve.graphs[0];
   const mainNodes = g.nodes.filter(n => !n.isSearchNode && !n.isListNode && !n.isUpstreamPseudo);
@@ -6200,13 +6409,25 @@ function saveFunctionEditor() {
   // Propagate param additions/removals to all call sites.
   fnSyncCallSiteParams(ve.fnEditor.funcName, ve.fnEditor.paramsSnapshot, currentParams);
 
-  exitFunctionEditor();
+  fnEditorRestorePipelines();
   renderPalette(document.getElementById('ve-search')?.value ?? '');
   onModelChange();
 }
 
-// exitFunctionEditor restores the pipeline canvas and hides the function bar.
+// exitFunctionEditor is the ← Back button: it DISCARDS any unsaved edits, so
+// confirm first when the editor is dirty. Save goes through
+// fnEditorRestorePipelines directly (nothing is discarded on that path).
 function exitFunctionEditor() {
+  if (!ve.fnEditor.active) return;
+  if (fnEditorIsDirty() &&
+      !confirm('Discard function edits and return to pipelines?')) {
+    return;
+  }
+  fnEditorRestorePipelines();
+}
+
+// fnEditorRestorePipelines restores the pipeline canvas and hides the function bar.
+function fnEditorRestorePipelines() {
   if (!ve.fnEditor.active) return;
   // Restore the pipeline undo stack, discarding fn-scoped snapshots. Must run
   // before ve.fnEditor is reset (it holds the parked stack).
@@ -6847,9 +7068,55 @@ function onModelChange() {
 
 // ── text → visual sync ────────────────────────────────────────────────────────
 
+// veCaptureViewState snapshots the parts of the editor view that a re-parse
+// (validate/save/text→visual switch) should preserve: the active pipeline
+// (by name — indices may shift), the selected node (by id), and pan/zoom.
+function veCaptureViewState() {
+  return {
+    activeName: ve.graphs[ve.activeGraph]?.name ?? null,
+    selectedId: ve.selectedNodeId,
+    panX: ve_panX,
+    panY: ve_panY,
+    zoom: ve_zoom,
+  };
+}
+
+// veRestoreViewAfterSync re-applies a captured view state after the graphs
+// have been rebuilt from a server parse. Returns true when the view was
+// preserved (pan/zoom kept, active graph matched by name, selection restored
+// if the node still exists). Returns false — meaning the caller should do the
+// full reset (pan to origin + zoom-to-fit) — only when the previously active
+// pipeline no longer exists (renamed away / deleted / first load).
+//
+// ve.activeGraph is assigned directly here rather than via setActiveGraph
+// because every caller does a full veRender() right after, which rebuilds the
+// labels/regions DOM from scratch anyway.
+function veRestoreViewAfterSync(prev) {
+  const gi = prev?.activeName != null
+    ? ve.graphs.findIndex(g => g.name === prev.activeName)
+    : -1;
+  if (gi < 0) {
+    ve.activeGraph    = 0;
+    ve.selectedNodeId = null;
+    ve_panX = 0; ve_panY = 0;
+    return false;
+  }
+  ve.activeGraph = gi;
+  // Restore selection only if the node survived the re-parse; the param
+  // panel reopens automatically via renderParamPanel when a node is selected.
+  ve.selectedNodeId = (prev.selectedId && findNode(prev.selectedId)) ? prev.selectedId : null;
+  ve_panX = prev.panX;
+  ve_panY = prev.panY;
+  ve_zoom = prev.zoom;
+  return true;
+}
+
 async function textToVisualSync() {
   const content = document.getElementById('config-editor').value;
   setSyncNote('Parsing…');
+  // Capture the current view so a validate/save round-trip doesn't yank the
+  // canvas back to the first pipeline at origin (issue: viewport reset).
+  const prevView = veCaptureViewState();
   try {
     const r = await fetch('/api/config/parse', {
       method: 'POST',
@@ -7080,16 +7347,19 @@ async function textToVisualSync() {
       const m = n.id.match(/_(\d+)$/);
       return m ? Math.max(max, parseInt(m[1]) + 1) : max;
     }, 0);
-    ve.activeGraph    = 0;
-    ve.selectedNodeId = null;
-    ve_panX = 0; ve_panY = 0; // reset pan so freshly laid-out nodes are visible
+    // Preserve the active pipeline / selection / pan / zoom across the
+    // re-parse when possible; fall back to the full reset (origin pan +
+    // zoom-to-fit) only when the previously active pipeline disappeared.
+    const preservedView = veRestoreViewAfterSync(prevView);
     ve.syncing = false;
     ve_textDirty = false;
     veDebugLog('textToVisualSync:parsedFromServer', snapshotGraphPositions(ve.graphs));
     // Place all pipelines in order: stored relative positions for those that
     // have a layout comment, auto-layout for those that don't.
     initLayout();
-    zoomToFitHorizontal(); // zoom out so all pipelines fit within the viewport width
+    if (!preservedView) {
+      zoomToFitHorizontal(); // zoom out so all pipelines fit within the viewport width
+    }
     veRender();
     setSyncNote(entries.length > 1 ? `Showing ${entries.length} pipelines` : '');
     // Do NOT write the regenerated Starlark back into the text editor here.

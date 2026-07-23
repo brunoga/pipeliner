@@ -15,6 +15,7 @@ import (
 	"time"
 
 	// Register a handful of plugins so plugin.All() is non-empty in tests.
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/dedup"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/seen"
 	_ "github.com/brunoga/pipeliner/plugins/processor/modify/pathfmt"
 	_ "github.com/brunoga/pipeliner/plugins/source/rss"
@@ -812,6 +813,82 @@ func TestAPIPluginsReturnsArray(t *testing.T) {
 				t.Errorf("plugin %v missing field %q", p["name"], field)
 			}
 		}
+	}
+}
+
+func TestAPIPluginsRequiresGroups(t *testing.T) {
+	// requires_groups must carry the OR-group structure of Descriptor.Requires
+	// ([][]string — OR inside a group, AND across groups) alongside the legacy
+	// flattened requires list, and must be [] (not null) for group-less plugins.
+	srv := New(nil, stubDaemon{}, NewHistory(), NewBroadcaster(), "test", "u", "p")
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/plugins", srv.apiPlugins)
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	resp := get(t, ts.URL+"/api/plugins")
+	defer resp.Body.Close()
+
+	var plugins []struct {
+		Name           string     `json:"name"`
+		Requires       []string   `json:"requires"`
+		RequiresGroups [][]string `json:"requires_groups"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&plugins); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	var sawDedup bool
+	for _, p := range plugins {
+		if p.RequiresGroups == nil {
+			t.Errorf("plugin %q: requires_groups is null, want []", p.Name)
+			continue
+		}
+		// The flattened requires list must equal the deduplicated union of
+		// the groups — the two representations must never drift apart.
+		seen := map[string]bool{}
+		var flat []string
+		for _, grp := range p.RequiresGroups {
+			if len(grp) == 0 {
+				t.Errorf("plugin %q: empty requires group", p.Name)
+			}
+			for _, f := range grp {
+				if !seen[f] {
+					seen[f] = true
+					flat = append(flat, f)
+				}
+			}
+		}
+		if len(flat) != len(p.Requires) {
+			t.Errorf("plugin %q: flattened groups %v != requires %v", p.Name, flat, p.Requires)
+		}
+		for i, f := range flat {
+			if p.Requires[i] != f {
+				t.Errorf("plugin %q: flattened groups %v != requires %v", p.Name, flat, p.Requires)
+				break
+			}
+		}
+
+		if p.Name == "dedup" {
+			sawDedup = true
+			want := [][]string{{"media_type"}, {"series_episode_id", "title"}}
+			if len(p.RequiresGroups) != len(want) {
+				t.Fatalf("dedup requires_groups: got %v, want %v", p.RequiresGroups, want)
+			}
+			for i := range want {
+				if len(p.RequiresGroups[i]) != len(want[i]) {
+					t.Fatalf("dedup requires_groups[%d]: got %v, want %v", i, p.RequiresGroups[i], want[i])
+				}
+				for j := range want[i] {
+					if p.RequiresGroups[i][j] != want[i][j] {
+						t.Errorf("dedup requires_groups[%d][%d]: got %q, want %q", i, j, p.RequiresGroups[i][j], want[i][j])
+					}
+				}
+			}
+		}
+	}
+	if !sawDedup {
+		t.Error("dedup plugin not present — OR-group serialization not exercised")
 	}
 }
 
