@@ -9,9 +9,9 @@
 // Config keys mirror torrent_session:
 //
 //	action   - "remove", "remove_with_data", "pause", or "reannounce" (required)
-//	backend  - "transmission" or "qbittorrent" (required)
+//	backend  - "transmission", "qbittorrent", or "deluge" (required)
 //	host     - client host (default: "localhost")
-//	port     - client port (default: 9091 transmission, 8080 qbittorrent)
+//	port     - client port (default: 9091 transmission, 8080 qbittorrent, 8112 deluge)
 //	username - auth username (optional)
 //	password - auth password (optional)
 //	rpc_path - Transmission RPC endpoint path (default: "/transmission/rpc")
@@ -52,7 +52,7 @@ func init() {
 			{Key: "action", Type: plugin.FieldTypeEnum, Enum: actions, Required: true, Hint: "remove_with_data also deletes the downloaded files from disk"},
 			{Key: "backend", Type: plugin.FieldTypeEnum, Enum: torrentclient.Backends, Required: true, Hint: "Download client to control"},
 			{Key: "host", Type: plugin.FieldTypeString, Default: "localhost", Hint: "Client host"},
-			{Key: "port", Type: plugin.FieldTypeInt, Hint: "Client port (default: 9091 transmission, 8080 qbittorrent)"},
+			{Key: "port", Type: plugin.FieldTypeInt, Hint: "Client port (default: 9091 transmission, 8080 qbittorrent, 8112 deluge)"},
 			{Key: "username", Type: plugin.FieldTypeString, Hint: "Auth username"},
 			{Key: "password", Type: plugin.FieldTypeString, Hint: "Auth password"},
 			{Key: "rpc_path", Type: plugin.FieldTypeString, Default: "/transmission/rpc", Hint: "Transmission RPC endpoint path"},

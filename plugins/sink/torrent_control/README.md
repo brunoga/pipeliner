@@ -11,9 +11,9 @@ Connection keys mirror `torrent_session`:
 | Key | Type | Required | Default | Description |
 |-----|------|----------|---------|-------------|
 | `action` | string | yes | — | `remove`, `remove_with_data`, `pause`, or `reannounce` |
-| `backend` | string | yes | — | `transmission` or `qbittorrent` |
+| `backend` | string | yes | — | `transmission`, `qbittorrent`, or `deluge` |
 | `host` | string | no | `localhost` | Client host |
-| `port` | int | no | `9091` (transmission), `8080` (qbittorrent) | Client port |
+| `port` | int | no | `9091` (transmission), `8080` (qbittorrent), `8112` (deluge) | Client port |
 | `username` | string | no | — | Auth username |
 | `password` | string | no | — | Auth password |
 | `rpc_path` | string | no | `/transmission/rpc` | Transmission RPC endpoint path |
