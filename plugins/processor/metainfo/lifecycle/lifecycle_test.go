@@ -86,7 +86,7 @@ func openPlugin(t *testing.T, srv *httptest.Server, extra map[string]any) (*life
 		t.Fatalf("newPlugin: %v", err)
 	}
 	p := pl.(*lifecyclePlugin)
-	p.client.BaseURL = srv.URL + "/v4"
+	p.resolver.Client.BaseURL = srv.URL + "/v4"
 	p.now = func() time.Time { return fixedNow }
 	return p, db
 }
