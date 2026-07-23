@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/brunoga/pipeliner/internal/store"
@@ -29,6 +31,7 @@ func newDBTestServer(t *testing.T) (*Server, *httptest.Server, *store.SQLiteStor
 	mux.HandleFunc("GET /api/db/buckets/{name}", srv.apiDBGetBucket)
 	mux.HandleFunc("DELETE /api/db/buckets/{name}", srv.apiDBClearBucket)
 	mux.HandleFunc("DELETE /api/db/entries/{name}", srv.apiDBDeleteEntry)
+	mux.HandleFunc("DELETE /api/db/series/show", srv.apiDBDeleteSeriesShow)
 
 	return srv, httptest.NewServer(mux), db
 }
@@ -285,6 +288,244 @@ func TestDBGetSeriesBucketGrouped(t *testing.T) {
 	}
 	if len(out.Grouped[0].Episodes) != 2 {
 		t.Errorf("Breaking Bad episodes: got %d, want 2", len(out.Grouped[0].Episodes))
+	}
+}
+
+// TestDBSeriesGroupedExposesStoredKeys is the regression guard for the silent
+// no-op delete: the tracker stores normalized (lowercased) series names in
+// the key while the record carries a DisplayName with the original casing.
+// The grouped response must expose the exact stored key per episode and the
+// normalized series_name per show, and deleting by the returned key must
+// actually remove the row — reconstructing "DisplayName|episode" client-side
+// matches nothing.
+func TestDBSeriesGroupedExposesStoredKeys(t *testing.T) {
+	_, ts, db := newDBTestServer(t)
+	defer ts.Close()
+
+	type rec struct {
+		SeriesName  string `json:"series_name"`
+		DisplayName string `json:"display_name"`
+		EpisodeID   string `json:"episode_id"`
+	}
+	// Stored key uses the normalized (lowercase) name; DisplayName differs in case.
+	db.Bucket("series").Put("breaking bad|S01E01",
+		rec{SeriesName: "breaking bad", DisplayName: "Breaking Bad", EpisodeID: "S01E01"})
+
+	resp := get(t, ts.URL+"/api/db/buckets/series")
+	defer resp.Body.Close()
+	var out struct {
+		Grouped []struct {
+			Name       string `json:"name"`
+			SeriesName string `json:"series_name"`
+			Episodes   []struct {
+				Key       string `json:"key"`
+				EpisodeID string `json:"episode_id"`
+			} `json:"episodes"`
+		} `json:"grouped"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(out.Grouped) != 1 {
+		t.Fatalf("want 1 show, got %d", len(out.Grouped))
+	}
+	show := out.Grouped[0]
+	if show.Name != "Breaking Bad" {
+		t.Errorf("display name: got %q, want Breaking Bad", show.Name)
+	}
+	if show.SeriesName != "breaking bad" {
+		t.Errorf("series_name: got %q, want normalized breaking bad", show.SeriesName)
+	}
+	if len(show.Episodes) != 1 || show.Episodes[0].Key != "breaking bad|S01E01" {
+		t.Fatalf("episode key: got %+v, want breaking bad|S01E01", show.Episodes)
+	}
+
+	// Deleting by the returned key must remove the row even though the
+	// display name differs in case from the stored key.
+	body, _ := json.Marshal(map[string]string{"key": show.Episodes[0].Key})
+	dresp := deleteReq(t, ts.URL+"/api/db/entries/series", body)
+	defer dresp.Body.Close()
+	if dresp.StatusCode != http.StatusNoContent {
+		t.Fatalf("delete status: %d", dresp.StatusCode)
+	}
+	keys, _ := db.Bucket("series").Keys()
+	if len(keys) != 0 {
+		t.Errorf("row survived delete-by-returned-key: %v", keys)
+	}
+}
+
+// TestDBSeriesGroupedUnrecognizedEntries verifies that entries whose value
+// fails to parse as a series record still surface — grouped by key prefix
+// when the key has one, and under "(unrecognized entries)" otherwise — so
+// the data stays visible and deletable instead of vanishing or rendering as
+// a nameless group.
+func TestDBSeriesGroupedUnrecognizedEntries(t *testing.T) {
+	_, ts, db := newDBTestServer(t)
+	defer ts.Close()
+
+	// Values are plain strings — json.Unmarshal into the record struct fails.
+	db.Bucket("series").Put("orphan-no-separator", "junk")
+	db.Bucket("series").Put("dark|S01E01", "junk")
+
+	resp := get(t, ts.URL+"/api/db/buckets/series")
+	defer resp.Body.Close()
+	var out struct {
+		Grouped []struct {
+			Name       string `json:"name"`
+			SeriesName string `json:"series_name"`
+			Episodes   []struct {
+				Key       string `json:"key"`
+				EpisodeID string `json:"episode_id"`
+			} `json:"episodes"`
+		} `json:"grouped"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	byName := map[string]int{}
+	for _, g := range out.Grouped {
+		byName[g.Name] = len(g.Episodes)
+	}
+	if byName["(unrecognized entries)"] != 1 {
+		t.Errorf("unrecognized group: got %v, want 1 episode under (unrecognized entries)", byName)
+	}
+	if byName["dark"] != 1 {
+		t.Errorf("keyed junk entry: got %v, want 1 episode under dark (grouped by key prefix)", byName)
+	}
+	for _, g := range out.Grouped {
+		for _, ep := range g.Episodes {
+			if ep.Key == "" {
+				t.Errorf("episode in group %q has empty key — not deletable", g.Name)
+			}
+		}
+	}
+}
+
+// ── DELETE /api/db/series/show ────────────────────────────────────────────────
+
+// TestDBDeleteSeriesShow seeds more shows than one UI page (20) and deletes a
+// show that only appears beyond page 1. The old client-side implementation
+// fetched page 1 and filtered keys locally, so such a show survived deletion.
+func TestDBDeleteSeriesShow(t *testing.T) {
+	_, ts, db := newDBTestServer(t)
+	defer ts.Close()
+
+	type rec struct {
+		SeriesName string `json:"series_name"`
+		EpisodeID  string `json:"episode_id"`
+	}
+	// 25 shows (show-00 … show-24), 2 episodes each. With the default page
+	// size of 20, show-24 is on page 2.
+	for i := 0; i < 25; i++ {
+		name := fmt.Sprintf("show-%02d", i)
+		for _, ep := range []string{"S01E01", "S01E02"} {
+			db.Bucket("series").Put(name+"|"+ep, rec{SeriesName: name, EpisodeID: ep})
+		}
+	}
+
+	body, _ := json.Marshal(map[string]string{"series_name": "show-24"})
+	resp := deleteReq(t, ts.URL+"/api/db/series/show", body)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("status: %d", resp.StatusCode)
+	}
+
+	keys, _ := db.Bucket("series").Keys()
+	if len(keys) != 48 {
+		t.Errorf("want 48 keys after deleting one 2-episode show, got %d", len(keys))
+	}
+	for _, k := range keys {
+		if strings.HasPrefix(k, "show-24|") {
+			t.Errorf("show-24 episode survived: %s", k)
+		}
+	}
+}
+
+// TestDBDeleteSeriesShowExactPrefixMatch guards against prefix bleed: deleting
+// "dark" must not touch "darker".
+func TestDBDeleteSeriesShowExactPrefixMatch(t *testing.T) {
+	_, ts, db := newDBTestServer(t)
+	defer ts.Close()
+
+	db.Bucket("series").Put("dark|S01E01", `{"series_name":"dark","episode_id":"S01E01"}`)
+	db.Bucket("series").Put("darker|S01E01", `{"series_name":"darker","episode_id":"S01E01"}`)
+
+	body, _ := json.Marshal(map[string]string{"series_name": "dark"})
+	resp := deleteReq(t, ts.URL+"/api/db/series/show", body)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("status: %d", resp.StatusCode)
+	}
+
+	keys, _ := db.Bucket("series").Keys()
+	if len(keys) != 1 || keys[0] != "darker|S01E01" {
+		t.Errorf("want only darker|S01E01 remaining, got %v", keys)
+	}
+}
+
+// TestDBDeleteSeriesShowUnrecognizedGroup: an empty series_name targets the
+// "(unrecognized entries)" group — keys with no '|' separator.
+func TestDBDeleteSeriesShowUnrecognizedGroup(t *testing.T) {
+	_, ts, db := newDBTestServer(t)
+	defer ts.Close()
+
+	db.Bucket("series").Put("orphan-no-separator", "junk")
+	db.Bucket("series").Put("dark|S01E01", `{"series_name":"dark","episode_id":"S01E01"}`)
+
+	body, _ := json.Marshal(map[string]string{"series_name": ""})
+	resp := deleteReq(t, ts.URL+"/api/db/series/show", body)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("status: %d", resp.StatusCode)
+	}
+
+	keys, _ := db.Bucket("series").Keys()
+	if len(keys) != 1 || keys[0] != "dark|S01E01" {
+		t.Errorf("want only dark|S01E01 remaining, got %v", keys)
+	}
+}
+
+func TestDBDeleteSeriesShowMissingName(t *testing.T) {
+	_, ts, _ := newDBTestServer(t)
+	defer ts.Close()
+
+	resp := deleteReq(t, ts.URL+"/api/db/series/show", []byte(`{}`))
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400 for missing series_name, got %d", resp.StatusCode)
+	}
+}
+
+// TestDBBucketDisplayLegacyCaches: buckets written by older pipeliner
+// versions that no current plugin declares still get a friendly sidebar
+// label instead of the raw bucket name.
+func TestDBBucketDisplayLegacyCaches(t *testing.T) {
+	_, ts, db := newDBTestServer(t)
+	defer ts.Close()
+
+	db.Bucket("cache_tvdb").Put("k", "v")
+	db.Bucket("cache_tmdb").Put("k", "v")
+
+	resp := get(t, ts.URL+"/api/db/buckets")
+	defer resp.Body.Close()
+	var out struct {
+		Buckets []struct {
+			Name    string `json:"name"`
+			Display string `json:"display"`
+		} `json:"buckets"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	got := map[string]string{}
+	for _, b := range out.Buckets {
+		got[b.Name] = b.Display
+	}
+	if got["cache_tvdb"] != "TVDB Lookup Cache" {
+		t.Errorf("cache_tvdb display: got %q, want TVDB Lookup Cache", got["cache_tvdb"])
+	}
+	if got["cache_tmdb"] != "TMDb Lookup Cache" {
+		t.Errorf("cache_tmdb display: got %q, want TMDb Lookup Cache", got["cache_tmdb"])
 	}
 }
 
