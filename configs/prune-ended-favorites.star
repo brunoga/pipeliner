@@ -3,10 +3,12 @@
 # List hygiene with series_status — both supported patterns:
 #
 # 1. TheTVDB favorites: the v4 API has no favorites-removal endpoint
-#    (/user/favorites supports GET and POST only), so favorites cannot be
-#    pruned remotely. The supported pattern filters still-running shows into
-#    a local list ("active_favorites") that series/discover pipelines consume
-#    via list_match or series.list instead of the raw favorites.
+#    (/user/favorites supports GET and POST only), so with v4 credentials
+#    alone favorites cannot be pruned remotely. The primary pattern filters
+#    still-running shows into a local list ("active_favorites") that
+#    series/discover pipelines consume via list_match or series.list instead
+#    of the raw favorites. (Direct removal IS possible via the legacy v3
+#    API — see the commented-out alternative below Pipeline 1.)
 #
 # 2. Trakt lists DO support removal, so the watchlist is pruned remotely:
 #    ended/cancelled shows are removed with the trakt_list_update sink.
@@ -39,6 +41,28 @@ note  = output("notify", upstream=keep, via="pushover",
                config={"user": pushover_user, "token": pushover_token},
                body="Still following: {{.Title}}")
 pipeline("sync-active-favorites", schedule="168h")
+
+# ── Alternative: remove ended shows from the favorites directly ──────────────
+#
+# tvdb_favorites_add can remove favorites via TheTVDB's legacy v3 API. It
+# needs the legacy credential pair — the "unique ID" (userkey) and username
+# from the thetvdb.com account dashboard (Account → Edit Information) — in
+# addition to the v4 api_key/user_pin. Uncomment and set TVDB_LEGACY_USER_KEY
+# and TVDB_LEGACY_USER_NAME to prune the favorites remotely:
+#
+# tvdb_legacy_user_key  = env("TVDB_LEGACY_USER_KEY", default="YOUR_V3_USERKEY")
+# tvdb_legacy_user_name = env("TVDB_LEGACY_USER_NAME", default="YOUR_V3_USERNAME")
+#
+# favs2 = input("tvdb_favorites", api_key=tvdb_api_key, user_pin=tvdb_user_pin)
+# ended = process("condition", upstream=favs2, rules=[
+#     {"accept": 'series_status == "Ended" or series_status == "Cancelled"'},
+#     {"reject": 'true'},
+# ])
+# gone  = output("tvdb_favorites_add", upstream=ended, action="remove",
+#                api_key=tvdb_api_key, user_pin=tvdb_user_pin,
+#                legacy_user_key=tvdb_legacy_user_key,
+#                legacy_user_name=tvdb_legacy_user_name)
+# pipeline("prune-tvdb-favorites", schedule="168h")
 
 # ── Pipeline 2: prune ended shows from the Trakt watchlist ───────────────────
 #

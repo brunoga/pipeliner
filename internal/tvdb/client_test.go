@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -257,5 +258,203 @@ func TestAddFavoriteHTTPError(t *testing.T) {
 
 	if err := c.AddFavorite(context.Background(), 1); err == nil {
 		t.Fatal("expected error on HTTP 401")
+	}
+}
+
+// legacyServer mimics the TheTVDB legacy v3 API (login + favorites DELETE).
+func legacyServer(t *testing.T, loginStatus int, token string) (*httptest.Server, *recordedRemove) {
+	t.Helper()
+	rec := &recordedRemove{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/login":
+			rec.loginAccept = r.Header.Get("Accept")
+			if loginStatus != http.StatusOK {
+				http.Error(w, "denied", loginStatus)
+				return
+			}
+			json.NewEncoder(w).Encode(map[string]string{"token": token})
+		case r.Method == http.MethodDelete:
+			rec.method = r.Method
+			rec.path = r.URL.Path
+			rec.auth = r.Header.Get("Authorization")
+			rec.accept = r.Header.Get("Accept")
+			w.WriteHeader(http.StatusOK)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv, rec
+}
+
+type recordedRemove struct {
+	loginAccept string
+	method      string
+	path        string
+	auth        string
+	accept      string
+}
+
+func TestLoginV3Success(t *testing.T) {
+	srv, rec := legacyServer(t, http.StatusOK, "v3-jwt")
+
+	c := New("test-key").WithLegacyAuth("userkey", "username")
+	c.LegacyBaseURL = srv.URL
+
+	if err := c.ensureV3Token(context.Background()); err != nil {
+		t.Fatalf("ensureV3Token: %v", err)
+	}
+	if c.v3Token != "v3-jwt" {
+		t.Errorf("v3 token: got %q, want v3-jwt", c.v3Token)
+	}
+	if rec.loginAccept != "application/vnd.thetvdb.v3" {
+		t.Errorf("login Accept header: got %q, want application/vnd.thetvdb.v3", rec.loginAccept)
+	}
+}
+
+func TestLoginV3HTTPError(t *testing.T) {
+	srv, _ := legacyServer(t, http.StatusUnauthorized, "")
+
+	c := New("test-key").WithLegacyAuth("userkey", "username")
+	c.LegacyBaseURL = srv.URL
+
+	if err := c.ensureV3Token(context.Background()); err == nil {
+		t.Fatal("expected error on HTTP 401 v3 login")
+	}
+}
+
+func TestLoginV3EmptyToken(t *testing.T) {
+	srv, _ := legacyServer(t, http.StatusOK, "")
+
+	c := New("test-key").WithLegacyAuth("userkey", "username")
+	c.LegacyBaseURL = srv.URL
+
+	err := c.ensureV3Token(context.Background())
+	if err == nil {
+		t.Fatal("expected error for empty v3 token")
+	}
+	if !strings.Contains(err.Error(), "empty token") {
+		t.Errorf("error: got %q, want mention of empty token", err)
+	}
+}
+
+func TestLoginV3ErrorField(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{"Error": "bad userkey"})
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New("test-key").WithLegacyAuth("userkey", "username")
+	c.LegacyBaseURL = srv.URL
+
+	err := c.ensureV3Token(context.Background())
+	if err == nil {
+		t.Fatal("expected error for v3 Error response")
+	}
+	if !strings.Contains(err.Error(), "bad userkey") {
+		t.Errorf("error: got %q, want the API's Error message", err)
+	}
+}
+
+func TestRemoveFavorite(t *testing.T) {
+	srv, rec := legacyServer(t, http.StatusOK, "v3-jwt")
+
+	c := NewWithPin("test-key", "test-pin").WithLegacyAuth("userkey", "username")
+	c.LegacyBaseURL = srv.URL
+
+	if err := c.RemoveFavorite(context.Background(), 81189); err != nil {
+		t.Fatalf("RemoveFavorite: %v", err)
+	}
+	if rec.method != http.MethodDelete {
+		t.Errorf("method: got %q, want DELETE", rec.method)
+	}
+	if rec.path != "/user/favorites/81189" {
+		t.Errorf("path: got %q, want /user/favorites/81189", rec.path)
+	}
+	if rec.auth != "Bearer v3-jwt" {
+		t.Errorf("auth header: got %q, want Bearer v3-jwt", rec.auth)
+	}
+	if rec.accept != "application/vnd.thetvdb.v3" {
+		t.Errorf("accept header: got %q, want application/vnd.thetvdb.v3", rec.accept)
+	}
+}
+
+func TestRemoveFavoriteRequiresLegacyCreds(t *testing.T) {
+	srv, rec := legacyServer(t, http.StatusOK, "v3-jwt")
+
+	c := NewWithPin("test-key", "test-pin") // no legacy creds
+	c.LegacyBaseURL = srv.URL
+
+	err := c.RemoveFavorite(context.Background(), 81189)
+	if err == nil {
+		t.Fatal("expected error without legacy credentials")
+	}
+	if !strings.Contains(err.Error(), "legacy v3 auth") {
+		t.Errorf("error: got %q, want mention of legacy v3 auth", err)
+	}
+	if rec.method != "" || rec.loginAccept != "" {
+		t.Error("no HTTP request should be made without legacy credentials")
+	}
+}
+
+func TestRemoveFavoriteErrorPropagation(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/login" {
+			json.NewEncoder(w).Encode(map[string]string{"token": "v3-jwt"})
+			return
+		}
+		http.Error(w, "nope", http.StatusNotFound)
+	}))
+	t.Cleanup(srv.Close)
+
+	c := NewWithPin("test-key", "test-pin").WithLegacyAuth("userkey", "username")
+	c.LegacyBaseURL = srv.URL
+
+	err := c.RemoveFavorite(context.Background(), 81189)
+	if err == nil {
+		t.Fatal("expected error on HTTP 404 delete")
+	}
+	if !strings.Contains(err.Error(), "remove favorite 81189") {
+		t.Errorf("error: got %q, want remove-favorite context", err)
+	}
+}
+
+// TestV3OutageDoesNotAffectV4Calls proves the lazy v3 login: a client with
+// legacy credentials pointed at a dead v3 host still serves v4 calls.
+func TestV3OutageDoesNotAffectV4Calls(t *testing.T) {
+	v4 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v4/login":
+			json.NewEncoder(w).Encode(map[string]any{
+				"data":   map[string]string{"token": "test-jwt"},
+				"status": "success",
+			})
+		case "/v4/search":
+			json.NewEncoder(w).Encode(map[string]any{
+				"data":   []map[string]any{{"tvdb_id": "81189", "name": "Breaking Bad"}},
+				"status": "success",
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(v4.Close)
+
+	dead := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "v3 is down", http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(dead.Close)
+
+	c := New("test-key").WithLegacyAuth("userkey", "username")
+	c.BaseURL = v4.URL + "/v4"
+	c.LegacyBaseURL = dead.URL
+
+	results, err := c.SearchSeries(context.Background(), "Breaking Bad")
+	if err != nil {
+		t.Fatalf("SearchSeries should not touch the v3 API: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected one result, got %d", len(results))
 	}
 }
