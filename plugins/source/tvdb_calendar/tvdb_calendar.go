@@ -123,9 +123,14 @@ func (p *calendarPlugin) Generate(ctx context.Context, tc *plugin.TaskContext) (
 		if display == "" {
 			display = show.Name
 		}
-		eps, err := p.resolver.Episodes(ctx, "", display)
-		if err != nil {
+		sr, err := p.resolver.ResolveSeries(ctx, "", display)
+		if err != nil || sr == nil {
 			// One unresolvable show must not kill the whole calendar.
+			tc.Logger.Warn(pluginName+": series lookup failed", "show", display, "err", err)
+			continue
+		}
+		eps, err := p.resolver.Episodes(ctx, sr.ID, display)
+		if err != nil {
 			tc.Logger.Warn(pluginName+": episodes lookup failed", "show", display, "err", err)
 			continue
 		}
