@@ -29,6 +29,21 @@ var trackerDisplayNames = map[string]string{
 	"premiere": "Premiere Tracker",
 }
 
+// legacyCacheDisplayNames maps cache buckets that no current plugin declares
+// (written by older pipeliner versions and possibly still present in a user's
+// database) to a friendly label. Without this, the sidebar shows the raw
+// bucket name (e.g. "cache_tvdb") among otherwise friendly cache names.
+// These buckets are never merged into the sidebar when absent — the mapping
+// only applies when the store actually contains them.
+var legacyCacheDisplayNames = map[string]string{
+	"cache_tvdb":        "TVDB Lookup Cache",
+	"cache_tmdb":        "TMDb Lookup Cache",
+	"cache_trakt":       "Trakt Lookup Cache",
+	"cache_filter_tvdb": "TVDB Filter Cache",
+	"cache_series_from": "Series From-List Cache",
+	"cache_movies_from": "Movies From-List Cache",
+}
+
 // cacheRegistry walks every registered plugin descriptor and collects the
 // (bucket → display name) pairs they declare. Duplicate names across plugins
 // (e.g. cache_bluray_index is shared by metainfo_bluray and bluray_releases)
@@ -72,6 +87,9 @@ func bucketDisplay(name string, registry map[string]string) string {
 		return d
 	}
 	if d, ok := registry[name]; ok {
+		return d
+	}
+	if d, ok := legacyCacheDisplayNames[name]; ok {
 		return d
 	}
 	if rest, ok := strings.CutPrefix(name, "premiere:"); ok {
@@ -368,14 +386,37 @@ func (s *Server) apiDBGetSeriesBucket(w http.ResponseWriter, r *http.Request, af
 }
 
 type seriesEpisode struct {
+	// Key is the exact stored bucket key (normalized series name + "|" +
+	// episode ID). The UI must use this — not a reconstruction from the
+	// display name — when deleting the row, because display and stored
+	// names may differ (e.g. in case after the lowercasing migration).
+	Key          string `json:"key"`
 	EpisodeID    string `json:"episode_id"`
 	Quality      string `json:"quality"`
 	DownloadedAt string `json:"downloaded_at"`
 }
 
 type seriesShow struct {
-	Name     string          `json:"name"`
-	Episodes []seriesEpisode `json:"episodes"`
+	// Name is the human-friendly display name.
+	Name string `json:"name"`
+	// SeriesName is the normalized name used as key material in the store
+	// (the part of the key before the '|'). Deletion APIs take this form.
+	SeriesName string          `json:"series_name"`
+	Episodes   []seriesEpisode `json:"episodes"`
+}
+
+// unrecognizedShowLabel is the display label for entries whose stored value
+// could not be parsed as a series record and whose key carries no show name.
+// The group still surfaces so the data remains visible and deletable.
+const unrecognizedShowLabel = "(unrecognized entries)"
+
+// seriesKeyPrefix returns the show portion of a stored series key
+// ("show|S01E01" → "show"). Empty when the key has no separator.
+func seriesKeyPrefix(key string) string {
+	if i := strings.Index(key, "|"); i >= 0 {
+		return key[:i]
+	}
+	return ""
 }
 
 func groupSeries(entries []dbEntry) []seriesShow {
@@ -391,16 +432,34 @@ func groupSeries(entries []dbEntry) []seriesShow {
 				Str string `json:"string"`
 			} `json:"quality"`
 		}
-		if err := json.Unmarshal(e.Value, &rec); err != nil {
-			continue
+		// Parse failures are tolerated: the entry is still grouped by its
+		// key prefix (or under the "(unrecognized entries)" group) so it
+		// can be inspected and deleted instead of silently disappearing.
+		_ = json.Unmarshal(e.Value, &rec)
+
+		// Group by the stored key prefix — that's what the pagination SQL
+		// groups by and what prefix deletion matches. Fall back to the
+		// record's own series_name for keys without a separator.
+		name := seriesKeyPrefix(e.Key)
+		if name == "" {
+			name = rec.SeriesName
 		}
-		groups[rec.SeriesName] = append(groups[rec.SeriesName], seriesEpisode{
-			EpisodeID:    rec.EpisodeID,
+		epID := rec.EpisodeID
+		if epID == "" {
+			if i := strings.Index(e.Key, "|"); i >= 0 {
+				epID = e.Key[i+1:]
+			} else {
+				epID = e.Key
+			}
+		}
+		groups[name] = append(groups[name], seriesEpisode{
+			Key:          e.Key,
+			EpisodeID:    epID,
 			Quality:      rec.Quality.Str,
 			DownloadedAt: rec.DownloadedAt,
 		})
 		if rec.DisplayName != "" {
-			displayNames[rec.SeriesName] = rec.DisplayName
+			displayNames[name] = rec.DisplayName
 		}
 	}
 	shows := make([]seriesShow, 0, len(groups))
@@ -410,7 +469,10 @@ func groupSeries(entries []dbEntry) []seriesShow {
 		if display == "" {
 			display = name
 		}
-		shows = append(shows, seriesShow{Name: display, Episodes: eps})
+		if display == "" {
+			display = unrecognizedShowLabel
+		}
+		shows = append(shows, seriesShow{Name: display, SeriesName: name, Episodes: eps})
 	}
 	sort.Slice(shows, func(i, j int) bool { return shows[i].Name < shows[j].Name })
 	return shows
@@ -449,6 +511,41 @@ func (s *Server) apiDBDeleteEntry(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, err := s.db.DB().ExecContext(r.Context(),
 		`DELETE FROM store WHERE bucket = ? AND key = ?`, name, req.Key); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// apiDBDeleteSeriesShow deletes every episode of one show from the series
+// bucket, matching on the normalized series name (the key prefix before '|').
+// Deleting server-side avoids the client having to page through the whole
+// bucket to collect keys — with >20 shows the UI only ever holds one page.
+//
+// The name is passed as a JSON body field (same rationale as
+// apiDBDeleteEntry: show names may contain slashes or other characters that
+// are awkward in a URL path). An empty series_name is valid and targets the
+// "(unrecognized entries)" group: rows whose key has no '|' separator.
+func (s *Server) apiDBDeleteSeriesShow(w http.ResponseWriter, r *http.Request) {
+	if s.db == nil {
+		http.Error(w, "database not available", http.StatusNotImplemented)
+		return
+	}
+	var req struct {
+		SeriesName *string `json:"series_name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.SeriesName == nil {
+		http.Error(w, "missing series_name", http.StatusBadRequest)
+		return
+	}
+	// Exact match on the key prefix: substr up to the '|' separator, which is
+	// how the pagination and grouping queries identify a show. For keys with
+	// no separator, instr()=0 makes substr() return '' — matching the empty
+	// series_name used by the unrecognized-entries group.
+	if _, err := s.db.DB().ExecContext(r.Context(),
+		`DELETE FROM store WHERE bucket = 'series'
+		 AND substr(key, 1, CASE WHEN instr(key,'|') > 0 THEN instr(key,'|')-1 ELSE 0 END) = ?`,
+		*req.SeriesName); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

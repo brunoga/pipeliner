@@ -78,8 +78,22 @@ async function selectDBBucket(name) {
   dbCurrentCursor = '';
   dbCursorStack = [];
   dbFilterQuery = '';
+  // The fast-path render keeps the toolbar (and its filter input) alive when
+  // re-selecting the current bucket, so the visible text must be reset along
+  // with the state or the input would show a filter that is no longer applied.
+  const inp = document.getElementById('db-filter-input');
+  if (inp) inp.value = '';
   renderDBSidebar();
   await fetchDBPage(name);
+}
+
+// dbRefreshBucket re-fetches the active bucket without touching the filter or
+// pagination state — used after row deletions so the user keeps their place
+// (active filter, current page) instead of being bounced back to an
+// unfiltered first page.
+async function dbRefreshBucket(name) {
+  await fetchDBPage(name);
+  await loadDBSidebar();
 }
 
 let _dbAbortController = null;
@@ -175,8 +189,8 @@ function renderDBContent(name, data) {
   else content = renderSeenTable(data.entries || [], name);
   const scroll = `<div class="db-scroll">${content}</div>`;
 
-  // Fast path: same bucket as last render. The toolbar (filter input + Clear
-  // All) is already in the DOM and the user may be actively typing into the
+  // Fast path: same bucket as last render. The toolbar (filter input + Delete
+  // all) is already in the DOM and the user may be actively typing into the
   // input — replacing it would steal focus mid-keystroke. Swap only the pager
   // and the scroll region. The toolbar's filter input is left alone; its
   // value is the user's typing and never needs server-side re-rendering.
@@ -200,7 +214,7 @@ function renderDBContent(name, data) {
     <div style="display:flex;gap:8px;align-items:center">
       <input type="text" class="db-search" id="db-filter-input" placeholder="filter…"
         value="${esc(dbFilterQuery)}" oninput="dbFilter(this.value)">
-      <button class="btn-danger" onclick="dbClearBucket(${esc(JSON.stringify(name))},${esc(JSON.stringify(item.label))})">Clear all</button>
+      <button class="btn-danger" onclick="dbClearBucket(${esc(JSON.stringify(name))},${esc(JSON.stringify(item.label))})">Delete all</button>
     </div>
   </div>`;
   main.innerHTML = toolbar + pager + scroll;
@@ -215,27 +229,39 @@ function renderSeriesTable(shows, bucket) {
   for (const show of shows) {
     const sid = 'eps-' + btoa(encodeURIComponent(show.name)).replace(/=/g,'');
     html += `<tbody>
-      <tr class="db-show-row" onclick="toggleEps('${sid}',this)">
+      <tr class="db-show-row" role="button" tabindex="0" aria-expanded="false"
+          onclick="toggleEps('${sid}',this)" onkeydown="dbShowRowKeydown(event,'${sid}',this)">
         <td colspan="2"><span class="db-chevron" id="chv-${sid}">▸</span> <strong>${esc(toTitleCase(show.name))}</strong> <span style="color:var(--muted);font-size:12px">${show.episodes.length} ep${show.episodes.length !== 1 ? 's' : ''}</span></td>
         <td></td><td></td>
-        <td style="text-align:right"><button class="btn-sm btn-sm-danger" onclick="event.stopPropagation();dbDeleteShow(${esc(JSON.stringify(show.name))})">Delete all</button></td>
+        <td style="text-align:right"><button class="btn-sm btn-sm-danger" aria-label="Delete all episodes of ${esc(show.name)}" onclick="event.stopPropagation();dbDeleteShow(${esc(JSON.stringify(show.series_name ?? show.name))},${esc(JSON.stringify(show.name))})">Delete all</button></td>
       </tr>
     </tbody>
     <tbody class="db-eps" id="${sid}">`;
     for (const ep of show.episodes) {
-      const key = show.name + '|' + ep.episode_id;
+      // The stored key comes from the API — display name and stored key
+      // material can differ (the tracker normalizes/lowercases names), so
+      // reconstructing "name|episode" client-side would delete nothing.
+      const key = ep.key || (show.series_name ?? show.name) + '|' + ep.episode_id;
       const date = ep.downloaded_at ? new Date(ep.downloaded_at).toLocaleDateString() : '—';
       html += `<tr>
         <td style="width:16px"></td>
         <td style="color:var(--accent);font-family:monospace;font-size:12px">${esc(ep.episode_id)}</td>
         <td class="ep-quality">${esc(ep.quality || '—')}</td>
         <td style="color:var(--muted)">${date}</td>
-        <td style="text-align:right"><button class="btn-sm btn-sm-danger" onclick="dbDeleteEntry(${esc(JSON.stringify(bucket))},${esc(JSON.stringify(key))})">×</button></td>
+        <td style="text-align:right"><button class="btn-sm btn-sm-danger" aria-label="Delete ${esc(show.name + ' ' + ep.episode_id)}" onclick="dbDeleteEntry(${esc(JSON.stringify(bucket))},${esc(JSON.stringify(key))})">×</button></td>
       </tr>`;
     }
     html += '</tbody>';
   }
   return html + '</table>';
+}
+
+// dbShowRowKeydown makes the expandable show rows keyboard-operable: Enter
+// and Space toggle the episode list, mirroring the click handler.
+function dbShowRowKeydown(ev, sid, row) {
+  if (ev.key !== 'Enter' && ev.key !== ' ') return;
+  ev.preventDefault();
+  toggleEps(sid, row);
 }
 
 // ── movies ─────────────────────────────────────────────────────────────────────
@@ -254,10 +280,10 @@ function renderMoviesTable(entries, bucket) {
     const badge = rec.is_3d ? ' <span class="db-3d-badge">3D</span>' : '';
     html += `<tr>
       <td>${esc(toTitleCase(rec.title || e.key))}${badge}</td>
-      <td style="color:var(--muted)">${rec.year || '—'}</td>
+      <td style="color:var(--muted)">${esc(rec.year || '—')}</td>
       <td class="ep-quality">${esc(rec.quality?.string || '—')}</td>
       <td style="color:var(--muted)">${date}</td>
-      <td style="text-align:right"><button class="btn-sm btn-sm-danger" onclick="dbDeleteEntry(${esc(JSON.stringify(bucket))},${esc(JSON.stringify(e.key))})">×</button></td>
+      <td style="text-align:right"><button class="btn-sm btn-sm-danger" aria-label="Delete ${esc(rec.title || e.key)}" onclick="dbDeleteEntry(${esc(JSON.stringify(bucket))},${esc(JSON.stringify(e.key))})">×</button></td>
     </tr>`;
   }
   return html + '</tbody></table>';
@@ -276,7 +302,7 @@ function renderSeenTable(entries, bucket) {
       <td style="word-break:break-word">${esc(rec.title || e.key)}</td>
       <td style="color:var(--muted);white-space:nowrap">${esc(rec.task || '—')}</td>
       <td style="color:var(--muted);white-space:nowrap">${date}</td>
-      <td style="text-align:right"><button class="btn-sm btn-sm-danger" onclick="dbDeleteEntry(${esc(JSON.stringify(bucket))},${esc(JSON.stringify(e.key))})">×</button></td>
+      <td style="text-align:right"><button class="btn-sm btn-sm-danger" aria-label="Delete ${esc(rec.title || e.key)}" onclick="dbDeleteEntry(${esc(JSON.stringify(bucket))},${esc(JSON.stringify(e.key))})">×</button></td>
     </tr>`;
   }
   return html + '</tbody></table>';
@@ -303,7 +329,7 @@ function renderCacheTable(entries, bucket) {
       <td class="db-cache-key">${keyHtml}</td>
       <td class="db-cache-value">${esc(cacheValuePreview(inner))}</td>
       <td class="db-cache-expires" title="${esc(expiresAt || '')}">${esc(cacheExpiryLabel(expiresAt))}</td>
-      <td style="text-align:right"><button class="btn-sm btn-sm-danger" onclick="dbDeleteEntry(${esc(JSON.stringify(bucket))},${esc(JSON.stringify(e.key))})">×</button></td>
+      <td style="text-align:right"><button class="btn-sm btn-sm-danger" aria-label="Delete ${esc(e.key)}" onclick="dbDeleteEntry(${esc(JSON.stringify(bucket))},${esc(JSON.stringify(e.key))})">×</button></td>
     </tr>`;
   }
   return html + '</tbody></table>';
@@ -379,8 +405,10 @@ function toggleEps(id, row) {
   const el = document.getElementById(id);
   if (!el) return;
   el.classList.toggle('open');
+  const open = el.classList.contains('open');
   const chv = document.getElementById('chv-' + id);
-  if (chv) chv.textContent = el.classList.contains('open') ? '▾' : '▸';
+  if (chv) chv.textContent = open ? '▾' : '▸';
+  if (row && row.setAttribute) row.setAttribute('aria-expanded', String(open));
 }
 
 // dbFilter is defined above alongside the other pagination helpers.
@@ -403,7 +431,7 @@ function dbShowError(msg) {
 }
 
 async function dbClearBucket(bucket, label) {
-  if (!confirm(`Clear all entries in "${label}"? They will be re-processed next run.`)) return;
+  if (!confirm(`Delete all entries in "${label}"? They will be re-processed next run.`)) return;
   const r = await fetch('/api/db/buckets/' + encodeURIComponent(bucket), {method: 'DELETE'});
   if (r.ok) { await selectDBBucket(bucket); await loadDBSidebar(); }
   else dbShowError(await r.text());
@@ -420,26 +448,49 @@ async function loadDBSidebar() {
   renderDBSidebar();
 }
 
-async function dbDeleteShow(showName) {
-  if (!confirm(`Delete all episodes of "${showName}"? They will be re-downloaded next run.`)) return;
-  const r = await fetch('/api/db/buckets/series');
-  if (!r.ok) { dbShowError('Could not load series list: ' + r.status); return; }
-  const data = await r.json();
-  const keys = (data.entries || []).filter(e => e.key.startsWith(showName + '|')).map(e => e.key);
-  const results = await Promise.all(keys.map(key => fetch('/api/db/entries/series', {
-    method: 'DELETE', headers: {'Content-Type':'application/json'}, body: JSON.stringify({key}),
-  })));
-  const failed = results.filter(res => !res.ok).length;
-  if (failed) dbShowError(`${failed} of ${keys.length} deletion(s) failed`);
-  await selectDBBucket('series');
-  await loadDBSidebar();
+// dbDeleteShowRequest builds the fetch arguments for a whole-show deletion.
+// The normalized series name (key material, not the display name) travels in
+// the JSON body so names containing slashes or pipes need no URL encoding.
+// Pure — extracted so unit tests can pin the endpoint and payload.
+function dbDeleteShowRequest(seriesName) {
+  return {
+    url: '/api/db/series/show',
+    options: {
+      method: 'DELETE', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({series_name: seriesName}),
+    },
+  };
+}
+
+// dbDeleteEntryRequest builds the fetch arguments for a single-row deletion.
+// Pure — extracted so unit tests can pin the endpoint and payload.
+function dbDeleteEntryRequest(bucket, key) {
+  return {
+    url: '/api/db/entries/' + encodeURIComponent(bucket),
+    options: {
+      method: 'DELETE', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({key}),
+    },
+  };
+}
+
+// dbDeleteShow deletes every episode of a show server-side in one request.
+// seriesName is the normalized stored name; label is the display name shown
+// in the confirmation. (Deleting client-side by paging through keys would
+// only ever see the current page — shows beyond page 1 would survive.)
+async function dbDeleteShow(seriesName, label) {
+  if (!confirm(`Delete all episodes of "${label}"? They will be re-downloaded next run.`)) return;
+  const {url, options} = dbDeleteShowRequest(seriesName);
+  const r = await fetch(url, options);
+  if (r.ok) await dbRefreshBucket('series');
+  else dbShowError(await r.text());
 }
 
 async function dbDeleteEntry(bucket, key) {
-  const r = await fetch('/api/db/entries/' + encodeURIComponent(bucket), {
-    method: 'DELETE', headers: {'Content-Type':'application/json'}, body: JSON.stringify({key}),
-  });
-  if (r.ok) { await selectDBBucket(bucket); await loadDBSidebar(); }
+  if (!confirm('Delete this entry? It may be re-downloaded next run.')) return;
+  const {url, options} = dbDeleteEntryRequest(bucket, key);
+  const r = await fetch(url, options);
+  if (r.ok) await dbRefreshBucket(bucket);
   else dbShowError(await r.text());
 }
 
