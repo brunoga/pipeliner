@@ -219,3 +219,116 @@ func TestDelugeListTorrentsClampsNegativeRatio(t *testing.T) {
 		t.Errorf("negative ratio should clamp to 0, got %v", list[0].Ratio)
 	}
 }
+
+func delugeCallsByMethod(mock *mockDelugeDaemon, method string) []delugeRPCCall {
+	var out []delugeRPCCall
+	for _, c := range mock.calls {
+		if c.Method == method {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+func TestDelugeRemoveWithData(t *testing.T) {
+	for _, withData := range []bool{true, false} {
+		mock := &mockDelugeDaemon{loginOK: true}
+		c := newTestDelugeClient(t, mock)
+
+		hashes := []string{"hash-one", "hash-two"}
+		if err := c.Remove(context.Background(), hashes, withData); err != nil {
+			t.Fatalf("Remove(withData=%v): %v", withData, err)
+		}
+		calls := delugeCallsByMethod(mock, "core.remove_torrent")
+		if len(calls) != 2 {
+			t.Fatalf("withData=%v: got %d remove_torrent calls, want 2", withData, len(calls))
+		}
+		for i, call := range calls {
+			if len(call.Params) != 2 {
+				t.Fatalf("withData=%v: params %v", withData, call.Params)
+			}
+			if call.Params[0] != hashes[i] {
+				t.Errorf("withData=%v: call %d hash got %v, want %q", withData, i, call.Params[0], hashes[i])
+			}
+			if got, _ := call.Params[1].(bool); got != withData {
+				t.Errorf("withData=%v: call %d flag got %v", withData, i, call.Params[1])
+			}
+		}
+	}
+}
+
+func TestDelugePause(t *testing.T) {
+	mock := &mockDelugeDaemon{loginOK: true}
+	c := newTestDelugeClient(t, mock)
+
+	if err := c.Pause(context.Background(), []string{"h1", "h2"}); err != nil {
+		t.Fatalf("Pause: %v", err)
+	}
+	calls := delugeCallsByMethod(mock, "core.pause_torrent")
+	if len(calls) != 1 {
+		t.Fatalf("got %d pause_torrent calls, want 1", len(calls))
+	}
+	got, _ := calls[0].Params[0].([]any)
+	if len(got) != 2 || got[0] != "h1" || got[1] != "h2" {
+		t.Errorf("pause params: got %v, want [h1 h2]", calls[0].Params)
+	}
+}
+
+func TestDelugePauseNoHashesIsNoOp(t *testing.T) {
+	mock := &mockDelugeDaemon{loginOK: true}
+	c := newTestDelugeClient(t, mock)
+
+	if err := c.Pause(context.Background(), nil); err != nil {
+		t.Fatalf("Pause: %v", err)
+	}
+	if calls := delugeCallsByMethod(mock, "core.pause_torrent"); len(calls) != 0 {
+		t.Errorf("no pause_torrent RPC expected for empty hash list, got %d", len(calls))
+	}
+}
+
+func TestDelugeReannounce(t *testing.T) {
+	mock := &mockDelugeDaemon{loginOK: true}
+	c := newTestDelugeClient(t, mock)
+
+	if err := c.Reannounce(context.Background(), []string{"h1"}); err != nil {
+		t.Fatalf("Reannounce: %v", err)
+	}
+	calls := delugeCallsByMethod(mock, "core.force_reannounce")
+	if len(calls) != 1 {
+		t.Fatalf("got %d force_reannounce calls, want 1", len(calls))
+	}
+	got, _ := calls[0].Params[0].([]any)
+	if len(got) != 1 || got[0] != "h1" {
+		t.Errorf("reannounce params: got %v, want [h1]", calls[0].Params)
+	}
+}
+
+func TestDelugeRPCErrorPropagation(t *testing.T) {
+	mock := &mockDelugeDaemon{loginOK: true, rpcError: "core failure"}
+	c := newTestDelugeClient(t, mock)
+	ctx := context.Background()
+
+	if _, err := c.ListTorrents(ctx); err == nil || !strings.Contains(err.Error(), "core failure") {
+		t.Errorf("ListTorrents should propagate the RPC error, got %v", err)
+	}
+	if err := c.Remove(ctx, []string{"h"}, false); err == nil || !strings.Contains(err.Error(), "core failure") {
+		t.Errorf("Remove should propagate the RPC error, got %v", err)
+	}
+	if err := c.Pause(ctx, []string{"h"}); err == nil || !strings.Contains(err.Error(), "core failure") {
+		t.Errorf("Pause should propagate the RPC error, got %v", err)
+	}
+	if err := c.Reannounce(ctx, []string{"h"}); err == nil || !strings.Contains(err.Error(), "core failure") {
+		t.Errorf("Reannounce should propagate the RPC error, got %v", err)
+	}
+}
+
+func TestDelugeNewClientDefaults(t *testing.T) {
+	c := newDelugeClient(Config{Host: "example.org"})
+	if c.endpoint != "http://example.org:8112/json" {
+		t.Errorf("default endpoint: got %q", c.endpoint)
+	}
+	tlsClient := newDelugeClient(Config{Host: "example.org", Port: 9999, TLS: true})
+	if tlsClient.endpoint != "https://example.org:9999/json" {
+		t.Errorf("tls endpoint: got %q", tlsClient.endpoint)
+	}
+}
