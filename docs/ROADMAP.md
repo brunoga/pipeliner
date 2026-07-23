@@ -169,7 +169,7 @@ pipeline; dry-run never advances it. Sample config
 `series tracking="backfill"` → transmission + chained notify); user-guide
 section "Backfill".
 
-## 5. Library awareness
+## 5. Library awareness — ✅ filesystem backend shipped (PR pending); Plex/Jellyfin backends + library_refresh deferred to M5b
 
 **Motivation.** The seen tracker knows what pipeliner grabbed — not what is
 actually on disk. Real-library checks enable disk-truth dedup and true
