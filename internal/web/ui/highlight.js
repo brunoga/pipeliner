@@ -1,14 +1,16 @@
 // ── Starlark syntax highlighting ──────────────────────────────────────────────
 // Line-by-line tokeniser for Starlark (.star) config files.
 // Handles: comments, string literals (single + triple-quoted), keywords,
-// built-in helpers (plugin/task/env), True/False/None, numbers, and def names.
+// pipeliner builtins (input/process/merge/output/pipeline/route/env — keep in
+// sync with internal/config/starlark.go), True/False/None, numbers, def names.
 // Multi-line triple-quoted strings are tracked with a state flag so subsequent
 // lines inside them are rendered as string spans.
 
 const STARLARK_KEYWORDS = new Set(
   ['def','if','elif','else','for','in','return','not','and','or',
    'load','pass','break','continue','lambda','import']);
-const STARLARK_BUILTINS  = new Set(['plugin','task','env']);
+const STARLARK_BUILTINS  = new Set(
+  ['input','process','merge','output','pipeline','route','env']);
 const STARLARK_BOOLEANS  = new Set(['True','False','None']);
 
 // Persistent state across lines for multi-line triple-quoted strings.

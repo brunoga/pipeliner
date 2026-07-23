@@ -1,6 +1,104 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 html { scrollbar-gutter: stable; }
 
+/* ── vendored web fonts (served from ./fonts/, no CDN request) ─────────────── */
+@font-face {
+  font-family: 'Bebas Neue';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('fonts/bebas-neue-400-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Bebas Neue';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('fonts/bebas-neue-400-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url('fonts/jetbrains-mono-400-italic-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url('fonts/jetbrains-mono-400-italic-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('fonts/jetbrains-mono-400-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('fonts/jetbrains-mono-400-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('fonts/jetbrains-mono-500-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('fonts/jetbrains-mono-500-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('fonts/jetbrains-mono-600-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('fonts/jetbrains-mono-600-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('fonts/jetbrains-mono-700-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('fonts/jetbrains-mono-700-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
 :root {
   --bg:        #080b10;
   --surface:   #111827;
@@ -16,15 +114,14 @@ html { scrollbar-gutter: stable; }
   --code-bool:    #e0af68;  /* True/False/None — amber gold (literal, not error) */
   --code-builtin: #7dcfff;  /* pipeliner builtins: process(), route() — bright cyan */
   --code-func:    #7aa2f7;  /* user-defined function names — medium blue */
-  --code-comment: #565f89;  /* comments — muted purple-gray */
+  --code-comment: #828dc0;  /* comments — muted purple-gray (≥4.5:1 on --code-bg) */
   --border:    #232c3b;
   --text:      #c8d6e5;
-  --muted:     #5d6e82;
+  --muted:     #7d90a6;
   --accent:    #4da8ff;
   --green:     #3db84a;
   --amber:     #d4a017;
   --red:       #f25149;
-  --purple:    #bc8cff;
 
   --mono-font: 'JetBrains Mono', 'SFMono-Regular', Consolas, monospace;
   --stat-font: 'Bebas Neue', 'Impact', sans-serif;
@@ -39,6 +136,18 @@ html { scrollbar-gutter: stable; }
   --ve-output:     #ffa657;
   --ve-route:      #c2820a;
   --ve-route-lit:  #f0a030;
+
+  /* theme-dependent interaction/decoration tokens */
+  --hover-overlay:        rgba(255,255,255,.06); /* row/button hover wash */
+  --hover-overlay-faint:  rgba(255,255,255,.02); /* table-row hover wash */
+  --scanline:             rgba(0,0,0,.07);       /* log console CRT texture */
+  --scrollbar-thumb-hover:#444c56;
+  --port-hover-ring:      #a5cfff;               /* in-port hover ring while connecting */
+  --chain-edge-selected:  #f0d070;               /* selected sink→sink chain edge */
+  --warn-border:          #f59e0b;               /* auto-migrated badge border */
+  --warn-text:            #fbbf24;               /* auto-migrated badge text */
+  --btn-primary-bg:       var(--accent);
+  --btn-primary-fg:       #06243d;               /* dark navy on accent — 6.3:1 */
 }
 
 /* keyboard-focus outline for all interactive elements */
@@ -84,7 +193,7 @@ textarea:focus-visible,
 .ve-palette-body::-webkit-scrollbar-thumb:hover,
 .ve-extract-body::-webkit-scrollbar-thumb:hover,
 .ve-param-body::-webkit-scrollbar-thumb:hover,
-.db-scroll::-webkit-scrollbar-thumb:hover { background: #444c56; }
+.db-scroll::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover); }
 
 body {
   background: var(--bg);
@@ -144,6 +253,41 @@ button, .tab-btn, .view-btn, .ve-zoom-btn, .ve-chip,
      icon glyphs (don't change icon size — just the hit area). */
   .ve-node-remove,
   .ve-node-comment-btn { padding: 6px 10px; }
+}
+
+/* ── Minimum hit areas (WCAG 2.5.8 target size) ────────────────────────────
+   Small × delete buttons keep their compact glyphs but get an invisible
+   centred 24×24 hit extension; zoom buttons get real minimum dimensions.
+   Applied unconditionally — mouse users benefit from the larger targets too. */
+.ve-zoom-btn { min-width: 24px; min-height: 24px; }
+.ve-tag-del, .ve-kv-del, .ve-var-del, .ve-cond-del, .ve-cb-clause-del {
+  position: relative;
+}
+.ve-tag-del::after, .ve-kv-del::after, .ve-var-del::after,
+.ve-cond-del::after, .ve-cb-clause-del::after {
+  content: '';
+  position: absolute;
+  left: 50%; top: 50%;
+  width: 24px; height: 24px;
+  transform: translate(-50%, -50%);
+}
+
+/* ── Reduced motion ────────────────────────────────────────────────────────
+   Kill infinite animations, the card entrance stagger, and transform-lift
+   hovers for users who ask for less motion. The log-filter spinner stays
+   statically visible (opacity still toggles) so state is not lost. */
+@media (prefers-reduced-motion: reduce) {
+  /* !important: this block sits above the rules it neutralises (cascade
+     order), and a user preference must win over any later declaration. */
+  .btn-run.running,
+  .dot.on,
+  .log-filter-spinner,
+  .db-loading,
+  .task-card { animation: none !important; }
+  .ve-node:hover:not(.selected),
+  .ve-node.selected,
+  .log-tail-pill:hover { transform: none !important; }
+  .ve-param-panel { transition: none !important; }
 }
 
 /* ── Narrow viewports (foldables, smaller tablets in portrait) ─────────────
@@ -352,7 +496,7 @@ section { margin-bottom: 36px; }
   background: transparent;
   border: 1px solid var(--border);
   color: var(--muted);
-  border-radius: 2px;
+  border-radius: 4px; /* shared radius across .btn-run/.btn-sm/.btn-config/.btn-reload */
   cursor: pointer;
   font-size: 9px;
   font-weight: 700;
@@ -471,6 +615,8 @@ section { margin-bottom: 36px; }
 }
 .btn-reload:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
 .btn-reload:disabled { opacity: 0.4; cursor: not-allowed; }
+/* Header "Run all" buttons: smaller text than the standard reload button */
+.btn-reload.btn-run-all { font-size: 0.75rem; }
 .btn-reload.ok        { border-color: var(--green); color: var(--green); }
 .btn-reload.err       { border-color: var(--red);   color: var(--red); }
 .btn-reload.triggered { border-color: var(--amber); color: var(--amber); }
@@ -508,12 +654,13 @@ section { margin-bottom: 36px; }
   content: '';
   position: absolute;
   inset: 0;
+  /* --scanline is themed per mode (:root, media-light, body.light, body.dark) */
   background: repeating-linear-gradient(
     0deg,
     transparent 0px,
     transparent 3px,
-    rgba(0,0,0,0.07) 3px,
-    rgba(0,0,0,0.07) 4px
+    var(--scanline) 3px,
+    var(--scanline) 4px
   );
   pointer-events: none;
   border-radius: inherit;
@@ -594,15 +741,35 @@ section { margin-bottom: 36px; }
     --muted:    #5a6a7e;
     --accent:   #0969da;
     --green:    #1a7f37;
-    --amber:    #9a6700;
+    --amber:    #8a5c00;
     --red:      #d1242f;
-    --purple:   #8250df;
     /* Code/terminal areas stay dark — ANSI log colors and syntax
        highlighting are designed for dark backgrounds. Use a deliberate
        dark navy rather than pure black so it reads as intentional. */
     --code-bg:  #1e2433;
+
+    /* visual editor semantic colours — darker, same hue; ≥4.5:1 on white */
+    --ve-search:     #7a52c4;
+    --ve-search-lit: #6f42c1;
+    --ve-list:       #0b7a63;
+    --ve-list-lit:   #0d7264;
+    --ve-chain:      #8a6100;
+    --ve-fn:         #be185d;
+    --ve-output:     #a24c00;
+    --ve-route:      #97650a;
+    --ve-route-lit:  #9d5800;
+
+    --hover-overlay:        rgba(0,0,0,.06);
+    --hover-overlay-faint:  rgba(0,0,0,.03);
+    --scanline:             rgba(0,0,0,.05);
+    --scrollbar-thumb-hover:#9aa6b5;
+    --port-hover-ring:      #0757b0;
+    --chain-edge-selected:  #8a5c00;
+    --warn-border:          #b45309;
+    --warn-text:            #8a5300;
+    --btn-primary-bg:       var(--accent);
+    --btn-primary-fg:       #ffffff;   /* white on #0969da — 5.2:1 */
   }
-  .log-console::before { background: repeating-linear-gradient(0deg,transparent 0px,transparent 3px,rgba(0,0,0,0.05) 3px,rgba(0,0,0,0.05) 4px); }
 }
 
 body.light {
@@ -614,10 +781,31 @@ body.light {
   --muted:    #5a6a7e;
   --accent:   #0969da;
   --green:    #1a7f37;
-  --amber:    #9a6700;
+  --amber:    #8a5c00;
   --red:      #d1242f;
-  --purple:   #8250df;
   --code-bg:  #1e2433;
+
+  /* visual editor semantic colours — keep in sync with the media query above */
+  --ve-search:     #7a52c4;
+  --ve-search-lit: #6f42c1;
+  --ve-list:       #0b7a63;
+  --ve-list-lit:   #0d7264;
+  --ve-chain:      #8a6100;
+  --ve-fn:         #be185d;
+  --ve-output:     #a24c00;
+  --ve-route:      #97650a;
+  --ve-route-lit:  #9d5800;
+
+  --hover-overlay:        rgba(0,0,0,.06);
+  --hover-overlay-faint:  rgba(0,0,0,.03);
+  --scanline:             rgba(0,0,0,.05);
+  --scrollbar-thumb-hover:#9aa6b5;
+  --port-hover-ring:      #0757b0;
+  --chain-edge-selected:  #8a5c00;
+  --warn-border:          #b45309;
+  --warn-text:            #8a5300;
+  --btn-primary-bg:       var(--accent);
+  --btn-primary-fg:       #ffffff;
 }
 
 /* Force dark regardless of system preference (overrides the light media query). */
@@ -627,13 +815,34 @@ body.dark {
   --input-bg: #1a2333;
   --border:   #232c3b;
   --text:     #c8d6e5;
-  --muted:    #5d6e82;
+  --muted:    #7d90a6;
   --accent:   #4da8ff;
   --green:    #3db84a;
   --amber:    #d4a017;
   --red:      #f25149;
-  --purple:   #8250df;
   --code-bg:  #000;
+
+  /* visual editor semantic colours — keep in sync with :root above */
+  --ve-search:     #9a6ad8;
+  --ve-search-lit: #d2a8ff;
+  --ve-list:       #0d9373;
+  --ve-list-lit:   #2dd4b8;
+  --ve-chain:      #e3b341;
+  --ve-fn:         #f472b6;
+  --ve-output:     #ffa657;
+  --ve-route:      #c2820a;
+  --ve-route-lit:  #f0a030;
+
+  --hover-overlay:        rgba(255,255,255,.06);
+  --hover-overlay-faint:  rgba(255,255,255,.02);
+  --scanline:             rgba(0,0,0,.07);
+  --scrollbar-thumb-hover:#444c56;
+  --port-hover-ring:      #a5cfff;
+  --chain-edge-selected:  #f0d070;
+  --warn-border:          #f59e0b;
+  --warn-text:            #fbbf24;
+  --btn-primary-bg:       var(--accent);
+  --btn-primary-fg:       #06243d;
 }
 
 /* Theme switcher in settings tab */
@@ -738,7 +947,7 @@ body.dark {
   background: transparent;
   border: 1px solid var(--border);
   color: var(--muted);
-  border-radius: 3px;
+  border-radius: 4px;
   cursor: pointer;
   font-size: 10px;
   font-weight: 600;
@@ -813,6 +1022,7 @@ body.dark {
 }
 /* Hide palette body content in collapsed mode, show collapsed strip */
 .ve-layout.palette-collapsed .ve-palette { display:none; }
+/* A <button>, so keyboard users can expand the palette; reset UA styles. */
 .ve-palette-collapsed-strip {
   display:none; /* shown only when collapsed */
   grid-column: 1; grid-row: 1;
@@ -821,6 +1031,7 @@ body.dark {
   align-items:flex-start; justify-content:center;
   padding:10px 0;
   cursor:pointer;
+  font-family:inherit; color:inherit; width:100%;
   transition:background .15s, border-color .15s;
 }
 .ve-layout.palette-collapsed .ve-palette-collapsed-strip {
@@ -844,7 +1055,7 @@ body.dark {
   cursor:pointer; font-size:13px; padding:3px 5px; border-radius:3px;
   line-height:1; transition:color .15s, background .15s;
 }
-.ve-palette-collapse-btn:hover { color:var(--text); background:rgba(255,255,255,.06); }
+.ve-palette-collapse-btn:hover { color:var(--text); background:var(--hover-overlay); }
 
 .ve-palette-search {
   flex:1; padding:5px 8px; border:1px solid var(--border);
@@ -855,30 +1066,9 @@ body.dark {
 .ve-palette-body {
   flex:1; overflow-y:auto; overflow-x:hidden; padding:0 6px 8px;
 }
-.ve-phase-header {
-  font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.06em;
-  color:var(--muted); padding:8px 4px 4px; user-select:none;
-  display:flex; align-items:center; gap:6px; cursor:pointer;
-}
-.ve-phase-header::before {
-  content:''; display:inline-block; width:8px; height:8px;
-  border-radius:50%; flex-shrink:0;
-}
-.ve-phase-header[data-phase="input"]::before    { background:var(--green); }
-.ve-phase-header[data-phase="metainfo"]::before { background:var(--ve-search-lit); }
-.ve-phase-header[data-phase="filter"]::before   { background:var(--accent); }
-.ve-phase-header[data-phase="modify"]::before   { background:#56d364; }
-.ve-phase-header[data-phase="output"]::before   { background:var(--ve-output); }
-.ve-phase-chips { }
-.ve-chip {
-  display:block; width:100%; text-align:left;
-  padding:3px 8px; margin-bottom:2px; border-radius:3px;
-  border:1px solid var(--border); background:transparent;
-  color:var(--muted); font-size:11px; cursor:grab;
-  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-  transition:border-color 0.1s, color 0.1s, background 0.1s;
-}
-.ve-chip:hover { border-color:var(--accent); color:var(--accent); background:color-mix(in srgb, var(--accent) 5%, transparent); }
+/* Base .ve-chip look lives in the palette-redesign section near the end of
+   this file; only the interaction states that the redesign does not redefine
+   remain here. */
 .ve-chip:active { cursor:grabbing; opacity:.7; }
 .ve-chip.hidden { display:none; }
 
@@ -887,29 +1077,6 @@ body.dark {
   border:1px solid var(--border); border-radius:4px;
   display:flex; flex-direction:column; overflow:hidden;
 }
-.ve-task-bar {
-  display:flex; align-items:center; gap:6px;
-  padding:8px 10px; border-bottom:1px solid var(--border);
-  overflow-x:auto; flex-shrink:0;
-}
-.ve-task-tab {
-  padding:3px 12px; border-radius:5px; border:1px solid var(--border);
-  background:transparent; color:var(--muted); font-size:12px;
-  cursor:pointer; white-space:nowrap; transition:all 0.15s;
-}
-.ve-task-tab.active { border-color:var(--accent); color:var(--accent); background:color-mix(in srgb, var(--accent) 7%, transparent); }
-.ve-task-tab:hover:not(.active) { color:var(--text); border-color:var(--border); }
-.ve-task-tab-close {
-  display:inline-block; margin-left:6px; color:var(--muted);
-  font-size:10px; vertical-align:middle;
-}
-.ve-task-tab-close:hover { color:var(--red); }
-.ve-add-task {
-  padding:3px 10px; border:1px dashed var(--border); border-radius:5px;
-  background:transparent; color:var(--muted); font-size:12px; cursor:pointer;
-  flex-shrink:0;
-}
-.ve-add-task:hover { border-color:var(--accent); color:var(--accent); }
 .ve-canvas-body {
   flex:1; overflow:hidden; position:relative; cursor:default;
   background-color: var(--bg);
@@ -921,13 +1088,6 @@ body.dark {
      scroll, double-tap-zoom, etc. */
   touch-action: none;
 }
-.ve-meta { padding:8px 16px; border-top:1px solid var(--border); display:flex; align-items:center; gap:8px; flex-shrink:0; }
-.ve-meta label { font-size:11px; color:var(--muted); }
-.ve-meta input {
-  flex:1; padding:4px 8px; border:1px solid var(--border); border-radius:5px;
-  background:var(--bg); color:var(--text); font-size:12px; outline:none;
-}
-.ve-meta input:focus { border-color:var(--accent); }
 .ve-vars-bar {
   padding:8px 16px; border-bottom:1px solid var(--border); flex-shrink:0;
 }
@@ -1161,8 +1321,8 @@ body.dark {
   display:flex; gap:8px; justify-content:flex-end;
 }
 .ve-extract-create {
-  padding:4px 16px; background:var(--accent); border:none; border-radius:3px;
-  color:#fff; font-size:10px; font-weight:700; font-family:var(--mono-font);
+  padding:4px 16px; background:var(--btn-primary-bg); border:none; border-radius:3px;
+  color:var(--btn-primary-fg); font-size:10px; font-weight:700; font-family:var(--mono-font);
   letter-spacing:0.08em; text-transform:uppercase; cursor:pointer;
 }
 .ve-extract-create:hover { opacity:.85; }
@@ -1232,7 +1392,7 @@ body.dark {
   opacity:0; transition:opacity .15s;
 }
 .ve-node:hover .ve-node-comment-btn { opacity:.7; }
-.ve-node-comment-btn:hover { opacity:1 !important; background:rgba(255,255,255,.06); }
+.ve-node-comment-btn:hover { opacity:1 !important; background:var(--hover-overlay); }
 .ve-node-comment-btn.has-comment { opacity:1; color:var(--accent); }
 
 /* Comment preview inside node card */
@@ -1260,7 +1420,7 @@ body.dark {
 }
 .ve-graph-canvas.is-searchconnecting .ve-node:not([data-is-search="true"]) * { pointer-events:none; }
 .ve-graph-canvas.is-searchconnecting .ve-node[data-is-search="true"]:not([data-is-search-nd="true"]) {
-  border-color:var(--ve-search-lit); box-shadow:0 0 0 3px rgba(210,168,255,.2);
+  border-color:var(--ve-search-lit); box-shadow:0 0 0 3px color-mix(in srgb, var(--ve-search-lit) 20%, transparent);
 }
 
 /* While drawing a list connection, non-list-plugin nodes are invalid targets. */
@@ -1277,7 +1437,7 @@ body.dark {
   border-style:dashed; border-color:var(--ve-search);
   background:color-mix(in srgb, var(--ve-search) 6%, transparent);
 }
-.ve-node.ve-node-search.selected { border-color:var(--ve-search-lit); box-shadow:0 0 0 2px rgba(210,168,255,.25); }
+.ve-node.ve-node-search.selected { border-color:var(--ve-search-lit); box-shadow:0 0 0 2px color-mix(in srgb, var(--ve-search-lit) 25%, transparent); }
 .ve-node-search-badge {
   display:inline-block; padding:1px 5px; border-radius:3px;
   font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:.05em;
@@ -1319,14 +1479,14 @@ body.dark {
 /* Auto-migrated nodes: injected by a config-load migration, not present in
    the text source. Dashed amber border + small badge. */
 .ve-node.ve-node-auto-migrated {
-  border-style:dashed; border-color:#f59e0b;
-  background:color-mix(in srgb, #f59e0b 6%, transparent);
+  border-style:dashed; border-color:var(--warn-border);
+  background:color-mix(in srgb, var(--warn-border) 6%, transparent);
 }
-.ve-node.ve-node-auto-migrated.selected { border-color:#fbbf24; box-shadow:0 0 0 2px rgba(245,158,11,.25); }
+.ve-node.ve-node-auto-migrated.selected { border-color:var(--warn-text); box-shadow:0 0 0 2px color-mix(in srgb, var(--warn-border) 25%, transparent); }
 .ve-node-auto-migrated-badge {
   display:inline-block; padding:1px 5px; margin-top:2px; border-radius:3px;
   font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:.05em;
-  border:1px solid #f59e0b; color:#fbbf24; background:transparent; flex-shrink:0;
+  border:1px solid var(--warn-border); color:var(--warn-text); background:transparent; flex-shrink:0;
   cursor:help;
 }
 
@@ -1341,8 +1501,9 @@ body.dark {
 .ve-node.ve-node-route-port           { border-color:var(--ve-route); }
 .ve-node.ve-node-route-port.selected  { border-color:var(--ve-route-lit); box-shadow:0 0 0 2px color-mix(in srgb, var(--ve-route) 35%, transparent); }
 
-/* route-edges: orange dashed lines from route node to each port */
-.ve-route-edge { fill:none; stroke:var(--ve-route); stroke-width:1.5; stroke-dasharray:5,3; pointer-events:none; }
+/* route-edges: orange dotted lines from route node to each port (2,3 —
+   distinct from list 5,3 / search 8,3,2,3 / chain 10,4) */
+.ve-route-edge { fill:none; stroke:var(--ve-route); stroke-width:1.5; stroke-dasharray:2,3; pointer-events:none; }
 .ve-route-edge.selected { stroke:var(--ve-route-lit); stroke-width:2; }
 
 /* Palette user-function chip, badge, and remove button */
@@ -1390,7 +1551,7 @@ body.dark {
 .ve-chip-fn-wrap[data-role="sink"]:hover      .ve-chip-fn-edit,
 .ve-chip-fn-wrap[data-role="sink"]:hover      .ve-chip-fn-remove { border-color:var(--ve-output); color:var(--ve-output); }
 
-.ve-chip-fn-edit:hover, .ve-chip-fn-remove:hover { background:rgba(255,255,255,.06); }
+.ve-chip-fn-edit:hover, .ve-chip-fn-remove:hover { background:var(--hover-overlay); }
 
 /* "fn" badge inside the chip — role colour to match the row */
 .ve-chip-fn-badge {
@@ -1434,10 +1595,11 @@ body.dark {
   box-shadow:0 0 0 4px color-mix(in srgb, var(--ve-search) 35%, transparent);
 }
 
-/* search-edges: dashed purple lines */
-.ve-search-edge { fill:none; stroke:var(--ve-search); stroke-width:1.5; stroke-dasharray:5,3; pointer-events:none; }
+/* search-edges: dash-dot purple lines (8,3,2,3 — distinct from list 5,3 /
+   route 2,3 / chain 10,4) */
+.ve-search-edge { fill:none; stroke:var(--ve-search); stroke-width:1.5; stroke-dasharray:8,3,2,3; pointer-events:none; }
 .ve-search-edge.selected { stroke:var(--ve-search-lit); stroke-width:2; }
-.ve-search-edge.connecting { stroke:var(--ve-search-lit); stroke-width:1.5; stroke-dasharray:5,3; }
+.ve-search-edge.connecting { stroke:var(--ve-search-lit); stroke-width:1.5; stroke-dasharray:8,3,2,3; }
 
 /* input port indicator — hidden by default, revealed during output-port drag */
 .ve-node-in-port {
@@ -1455,7 +1617,7 @@ body.dark {
 }
 /* Brighter highlight when hovering over a valid target */
 .ve-graph-canvas.is-connecting .ve-node:not(.is-connect-source):not(.would-create-cycle):not([data-role="source"]):not([data-is-search-nd="true"]):not([data-is-list-nd="true"]):hover .ve-node-in-port {
-  border-color:#a5cfff;
+  border-color:var(--port-hover-ring);
   background:color-mix(in srgb, var(--accent) 40%, transparent);
 }
 /* Dim ancestor nodes that would close a cycle — no input indicator */
@@ -1543,9 +1705,10 @@ body.dark {
   opacity:1; transform:scale(1.2);
   box-shadow:0 0 0 3px color-mix(in srgb, var(--ve-route) 25%, transparent);
 }
-/* sink→sink chain edge: amber dashed stroke */
-.ve-chain-edge { fill:none; stroke:var(--ve-chain); stroke-width:1.5; stroke-dasharray:6,3; pointer-events:none; }
-.ve-chain-edge.selected { stroke:#f0d070; stroke-width:2; }
+/* sink→sink chain edge: amber dashed stroke (long dash — distinct from
+   list 5,3 / route 2,3 / search 8,3,2,3) */
+.ve-chain-edge { fill:none; stroke:var(--ve-chain); stroke-width:1.5; stroke-dasharray:10,4; pointer-events:none; }
+.ve-chain-edge.selected { stroke:var(--chain-edge-selected); stroke-width:2; }
 
 .ve-empty-canvas {
   position:absolute; inset:0;
@@ -1602,7 +1765,7 @@ body.dark {
 }
 
 .ve-param-header {
-  padding:10px 14px; border-bottom:1px solid var(--border); flex-shrink:0;
+  padding:14px 16px 12px; border-bottom:1px solid var(--border); flex-shrink:0;
   background:var(--surface);
   cursor:grab; user-select:none; /* drag handle */
   touch-action:none; /* JS owns the drag; don't let touch scroll the page */
@@ -1611,8 +1774,8 @@ body.dark {
 .ve-param-header:active { cursor:grabbing; }
 /* Push content to fill remaining width beside the close button */
 .ve-param-header > :first-child { flex:1; min-width:0; }
-.ve-param-name { font-size:13px; font-weight:700; color:var(--text); letter-spacing:-0.01em; }
-.ve-param-phase { font-size:9px; color:var(--muted); text-transform:uppercase; letter-spacing:.08em; margin-top:2px; }
+.ve-param-name { font-size:15px; font-weight:700; color:var(--text); letter-spacing:-0.02em; }
+.ve-param-phase { font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.1em; margin-top:3px; }
 /* Close button in panel header */
 .ve-param-close-btn {
   flex-shrink:0; background:none; border:none; color:var(--muted);
@@ -1878,13 +2041,6 @@ body.dark {
   color:color-mix(in srgb, var(--ve-fn) 70%, transparent);
   margin-top:2px; font-style:italic;
 }
-.ve-pipeline-name-input {
-  flex:1; padding:4px 8px; border:1px solid var(--border); border-radius:3px;
-  background:var(--bg); color:var(--text); font-size:12px; font-weight:600;
-  font-family:var(--mono-font); outline:none;
-}
-.ve-pipeline-name-input:focus { border-color:var(--accent); }
-
 /* Node role stripe */
 .ve-node-role-bar {
   width:4px; border-radius:7px 0 0 7px; flex-shrink:0; background:var(--border);
@@ -1895,12 +2051,9 @@ body.dark {
 
 /* Node name and badge are stacked (no header wrapper) */
 
-/* Role badge pill */
-.ve-node-role-badge {
-  font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:.05em;
-  padding:1px 5px; border-radius:3px; border:1px solid; flex-shrink:0;
-  background:transparent;
-}
+/* Role badge pill: styled by the canvas-node redesign sections below (the
+   badge collapses to a coloured dot; the earlier bordered-pill styling was
+   fully superseded). */
 
 /* Inline warning on canvas node */
 .ve-node-warn      { font-size:10px; color:var(--amber); margin-top:3px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:160px; }
@@ -1931,14 +2084,9 @@ body.dark {
 .ve-cond-rules { display:flex; flex-direction:column; gap:4px; }
 .ve-cond-empty { font-size:12px; color:var(--muted); padding:4px 0; }
 .ve-cond-row   { display:flex; align-items:center; gap:4px; }
-.ve-cond-type  {
-  flex-shrink:0; font-size:10px; font-weight:700; text-transform:uppercase;
-  letter-spacing:.04em; padding:2px 7px; border-radius:3px; border:none;
-  cursor:pointer; min-width:54px; text-align:center; transition:background .1s;
-}
-.ve-cond-type.reject { background:color-mix(in srgb, var(--red) 15%, transparent); color:var(--red); }
+/* Base .ve-cond-type pill lives in the redesign section below; only the
+   per-type hover darkening (higher specificity than the base rules) is here. */
 .ve-cond-type.reject:hover { background:color-mix(in srgb, var(--red) 28%, transparent); }
-.ve-cond-type.accept { background:color-mix(in srgb, var(--green) 15%, transparent);  color:var(--green); }
 .ve-cond-type.accept:hover { background:color-mix(in srgb, var(--green) 28%, transparent); }
 .ve-cond-expr {
   flex:1; font-family:var(--mono-font); font-size:11px;
@@ -1980,7 +2128,7 @@ body.dark {
 
 /* settings tab */
 .settings-section { max-width: 480px; }
-.settings-section h3 {
+.settings-section h2 {
   font-size: 9px;
   font-weight: 700;
   text-transform: uppercase;
@@ -2174,7 +2322,7 @@ body.dark {
 .db-scroll { max-height: 520px; overflow-y: auto; border: 1px solid var(--border); border-radius: 3px; }
 .db-chevron { font-size: 10px; color: var(--muted); user-select: none; }
 .db-show-row { cursor: pointer; }
-.db-show-row:hover td { background: rgba(255,255,255,.025); }
+.db-show-row:hover td { background: var(--hover-overlay-faint); }
 .db-show-row td:first-child { font-weight: 600; }
 .db-toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; gap: 10px; }
 .db-title {
@@ -2200,7 +2348,7 @@ body.dark {
 .btn-sm {
   padding: 2px 7px; background: transparent;
   border: 1px solid var(--border); color: var(--muted);
-  border-radius: 2px; cursor: pointer; font-size: 10px;
+  border-radius: 4px; cursor: pointer; font-size: 10px;
   font-family: var(--mono-font);
   transition: border-color 0.1s, color 0.1s;
 }
@@ -2215,7 +2363,7 @@ body.dark {
 }
 .db-table td { padding: 6px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
 .db-table tr:last-child td { border-bottom: none; }
-.db-table tr:hover td { background: rgba(255,255,255,.018); }
+.db-table tr:hover td { background: var(--hover-overlay-faint); }
 .db-eps { display: none; }
 .db-eps.open { display: table-row-group; }
 .db-eps td { background: var(--bg); font-size: 11px; padding: 4px 10px 4px 24px; color: var(--muted); }
@@ -2304,7 +2452,7 @@ body.dark {
   padding:10px 16px; border-top:1px solid var(--border);
 }
 .ve-text-popup-save {
-  padding:4px 16px; background:var(--accent); color:#fff;
+  padding:4px 16px; background:var(--btn-primary-bg); color:var(--btn-primary-fg);
   border:none; border-radius:3px; cursor:pointer;
   font-size:10px; font-weight:700; font-family:var(--mono-font);
   letter-spacing:0.08em; text-transform:uppercase;
@@ -2382,30 +2530,9 @@ body.dark {
   background:color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
-/* Fields available section */
-.ve-fields-section {
-  margin:6px 0 2px; border:1px solid var(--border); border-radius:4px;
-  background:color-mix(in srgb, var(--surface) 40%, var(--bg));
-}
-.ve-fields-summary {
-  font-size:10px; color:var(--muted); padding:4px 8px; cursor:pointer;
-  display:flex; justify-content:space-between; align-items:center;
-  list-style:none; user-select:none;
-}
+/* Fields available section — styled in the "Fields available" redesign
+   section below; only the webkit marker suppression remains here. */
 .ve-fields-summary::-webkit-details-marker { display:none; }
-.ve-fields-summary::before { content:'▶ '; font-size:8px; }
-details[open] > .ve-fields-summary::before { content:'▼ '; }
-.ve-fields-count { font-size:9px; color:var(--muted); }
-.ve-fields-body { padding:4px 8px 6px; display:flex; flex-direction:column; gap:4px; }
-.ve-fields-row  { display:flex; flex-wrap:wrap; align-items:baseline; gap:3px; }
-.ve-f-label     { font-size:9px; color:var(--muted); white-space:nowrap; min-width:60px; }
-.ve-f-tag {
-  font-family:var(--mono-font); font-size:9px; padding:1px 4px;
-  border-radius:2px; cursor:default; white-space:nowrap;
-}
-.ve-f-certain  { background:color-mix(in srgb, var(--green) 14%, transparent); color:var(--green); }
-.ve-f-reachable { background:color-mix(in srgb, var(--amber) 14%, transparent); color:var(--amber); }
-.ve-fields-legend { font-size:9px; color:var(--muted); margin-top:2px; }
 
 /* Edge field tooltip */
 .ve-edge-tooltip {
@@ -2421,20 +2548,7 @@ details[open] > .ve-fields-summary::before { content:'▼ '; }
 
 /* ── Panel redesign: more air, cleaner hierarchy ─────────────────────────── */
 
-/* Header: taller with subtle role-coloured left accent */
-.ve-param-header {
-  padding:14px 16px 12px;
-  border-bottom:1px solid var(--border);
-  flex-shrink:0;
-  background:var(--surface);
-}
-.ve-param-name {
-  font-size:15px; font-weight:700; color:var(--text); letter-spacing:-0.02em;
-}
-.ve-param-phase {
-  font-size:10px; color:var(--muted); text-transform:uppercase;
-  letter-spacing:.1em; margin-top:3px;
-}
+/* Header/name/phase sizing folded into the base .ve-param-header rules above. */
 
 /* Body: more breathing room */
 .ve-param-body { padding:16px 16px 8px; }
@@ -2525,6 +2639,7 @@ details[open] > .ve-fields-summary::before { content:'▼ '; }
 
 /* Accept/Reject badge: cleaner pill */
 .ve-cond-type {
+  flex-shrink:0;
   font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.06em;
   padding:3px 9px; border-radius:12px; border:none; cursor:pointer;
   min-width:58px; text-align:center; transition:opacity .15s;
@@ -2657,12 +2772,10 @@ details[open] > .ve-fields-summary::before { content:'▼ '; }
   border:none; border-left:2px solid var(--border); border-radius:0;
   background:transparent; padding-left:10px;
 }
-details[open] > .ve-fields-summary::before,
-.ve-fields-summary::before { content: none; }
 .ve-fields-summary {
   font-size:10px; font-weight:600; letter-spacing:.03em;
   color:var(--muted); padding:0 0 5px;
-  cursor:pointer; user-select:none;
+  cursor:pointer; user-select:none; list-style:none;
   display:flex; justify-content:space-between; align-items:center;
 }
 .ve-fields-summary::after {
