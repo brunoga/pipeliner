@@ -19,7 +19,10 @@ import (
 	"time"
 )
 
-const defaultBaseURL = "https://api4.thetvdb.com/v4"
+const (
+	defaultBaseURL       = "https://api4.thetvdb.com/v4"
+	defaultLegacyBaseURL = "https://api.thetvdb.com"
+)
 
 // Client is a TheTVDB v4 REST API client. Safe for concurrent use.
 type Client struct {
@@ -28,6 +31,7 @@ type Client struct {
 	legacyUserKey  string // optional; enables v3 fallback for RemoveFavorite
 	legacyUserName string
 	BaseURL        string // overridable for testing; defaults to defaultBaseURL
+	LegacyBaseURL  string // overridable for testing; defaults to defaultLegacyBaseURL
 	mu             sync.Mutex
 	token          string
 	expires        time.Time
@@ -39,9 +43,10 @@ type Client struct {
 // New creates a Client for public TheTVDB endpoints.
 func New(apiKey string) *Client {
 	return &Client{
-		apiKey:  apiKey,
-		BaseURL: defaultBaseURL,
-		http:    &http.Client{Timeout: 15 * time.Second},
+		apiKey:        apiKey,
+		BaseURL:       defaultBaseURL,
+		LegacyBaseURL: defaultLegacyBaseURL,
+		http:          &http.Client{Timeout: 15 * time.Second},
 	}
 }
 
@@ -223,14 +228,14 @@ func (c *Client) AddFavorite(ctx context.Context, seriesID int) error {
 // Requires legacy v3 credentials (configured via WithLegacyAuth) because the
 // v4 API does not support deletion.
 func (c *Client) RemoveFavorite(ctx context.Context, seriesID int) error {
-	if err := c.ensureToken(ctx); err != nil {
-		return err
-	}
-	if c.legacyUserKey == "" || c.v3Token == "" {
+	if c.legacyUserKey == "" || c.legacyUserName == "" {
 		return fmt.Errorf("tvdb: RemoveFavorite requires legacy v3 auth (userkey/username)")
 	}
+	if err := c.ensureV3Token(ctx); err != nil {
+		return err
+	}
 
-	u := fmt.Sprintf("https://api.thetvdb.com/user/favorites/%d", seriesID)
+	u := fmt.Sprintf("%s/user/favorites/%d", c.LegacyBaseURL, seriesID)
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, u, nil)
 	if err != nil {
 		return err
@@ -448,23 +453,26 @@ func (c *Client) GetSeriesByID(ctx context.Context, id int) (*Series, error) {
 	return &resp.Data, nil
 }
 
-// ensureToken acquires a JWT if the current one is absent or expiring within 5 minutes.
+// ensureToken acquires a v4 JWT if the current one is absent or expiring within 5 minutes.
 func (c *Client) ensureToken(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	
-	needsV4 := c.token == "" || time.Until(c.expires) <= 5*time.Minute
-	needsV3 := c.legacyUserKey != "" && (c.v3Token == "" || time.Until(c.v3Expires) <= 5*time.Minute)
 
-	if needsV4 {
-		if err := c.login(ctx); err != nil {
-			return err
-		}
+	if c.token == "" || time.Until(c.expires) <= 5*time.Minute {
+		return c.login(ctx)
 	}
-	if needsV3 {
-		if err := c.loginV3(ctx); err != nil {
-			return err
-		}
+	return nil
+}
+
+// ensureV3Token acquires a legacy v3 JWT if the current one is absent or
+// expiring within 5 minutes. It is called lazily and only from RemoveFavorite,
+// so a v3 API outage never affects v4-only calls.
+func (c *Client) ensureV3Token(ctx context.Context) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.v3Token == "" || time.Until(c.v3Expires) <= 5*time.Minute {
+		return c.loginV3(ctx)
 	}
 	return nil
 }
@@ -506,7 +514,7 @@ func (c *Client) loginV3(ctx context.Context) error {
 		"username": c.legacyUserName,
 	}
 	payload, _ := json.Marshal(body)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.thetvdb.com/login", bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.LegacyBaseURL+"/login", bytes.NewReader(payload))
 	if err != nil {
 		return err
 	}
