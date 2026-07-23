@@ -1041,7 +1041,7 @@ pipeline("upcoming-blurays", schedule="2h")</code></pre>
 <h4>Recommended: managed tokens via <code>client_secret</code></h4>
 <p>Complete the device auth flow once to obtain and store a token in <code>pipeliner.db</code>. Pipeliner then refreshes it automatically before expiry (tokens last 90 days). There are two ways to do this:</p>
 
-<p><strong>Via the web UI (recommended for Docker)</strong> — open the <strong>Settings</strong> tab, enter your <code>client_id</code> and <code>client_secret</code>, click <strong>Authorize</strong>, then visit the displayed URL and enter the code on Trakt's website. The token is saved automatically.</p>
+<p><strong>Via the web UI (recommended for Docker)</strong> — open the <strong>Settings</strong> tab, enter your <code>client_id</code> and <code>client_secret</code>, click <strong>Authorize</strong>, then visit the displayed URL and enter the code on Trakt's website. The token is saved automatically. While the code is displayed the button reads <strong>Restart authorization</strong> in case you need a fresh code; if the code's countdown runs out the flow stops with a <em>Code expired</em> message — click <strong>Authorize</strong> to start over.</p>
 
 <p><strong>Via the CLI</strong> — run the auth command, then visit the displayed URL and enter the code:</p>
 <ol>
@@ -1949,14 +1949,17 @@ output("exec", upstream=cleanup, command="rm -f {file_location}")</code></pre>
 <h3>Dashboard tab</h3>
 <img src="images/ui-dashboard.png" alt="Pipeliner dashboard showing a task card with run controls and live log" class="screenshot">
 <ul>
-  <li><strong>Task cards</strong> — each card shows the next scheduled run datetime (hover for the raw cron/interval), the last run time, accepted/rejected/failed counts, and a <em>Run now</em> button.</li>
+  <li><strong>Task cards</strong> — each card shows the next scheduled run datetime (hover for the raw cron/interval), the last run time, accepted/rejected/failed counts, and a <em>Run now</em> button. A next run whose time has already passed reads <em>overdue</em>. If a trigger request fails (network error, task no longer exists after a config edit) the button briefly shows <em>Failed — see log</em> in red and the detail is logged to the browser console.</li>
+  <li><strong>Run history</strong> — click a card's header (or the ▸ chevron) to expand the task's recent runs: up to 20 entries with relative timestamp (hover for the absolute time), duration, accepted/rejected/failed/undecided counts, a <code>DRY</code> badge for dry-runs, and the error text for failed runs. A small red dot next to the task name on a collapsed card means one of the last 5 runs errored — useful when a failed run was followed by a successful one. Expansion state survives the 10-second dashboard refresh.</li>
   <li><strong>Run all</strong> — triggers all tasks immediately.</li>
   <li><strong>Reload config</strong> — reloads <code>config.star</code> from disk without restarting the process. Queued for after running tasks finish if any are active.</li>
-  <li><strong>Live Log</strong> — a windowed view over <code>pipeliner.log</code> with a server-side search box. The newest lines stream in via SSE; scroll up to lazy-load older entries from the rotating file (across <code>pipeliner.log.1</code> … <code>.5</code>) until <em>── start of recorded history ──</em>. Scrolling away from the bottom pauses auto-scroll and surfaces a <em>"N new ↓"</em> pill; click it (or scroll back to the bottom) to resume live-follow. The filter searches the entire on-disk log — typing it again later yields the same results regardless of how much you've scrolled.</li>
+  <li><strong>Live Log</strong> — a windowed view over <code>pipeliner.log</code> with a server-side search box. The newest lines stream in via SSE; scroll up to lazy-load older entries from the rotating file (across <code>pipeliner.log.1</code> … <code>.5</code>) until <em>── start of recorded history ──</em>. Scrolling away from the bottom pauses auto-scroll and surfaces a <em>"N new ↓"</em> pill; click it (or scroll back to the bottom) to resume live-follow. The filter searches the entire on-disk log — typing it again later yields the same results regardless of how much you've scrolled. <strong>Clear</strong> empties the view client-side only — a <em>── cleared ──</em> marker takes the place of the removed lines, new output resumes below it, and the on-disk log is untouched (scroll up to page the history back in).</li>
 </ul>
+<p>The header's <em>up …</em> indicator shows the daemon's uptime (from the server), not how long the browser page has been open.</p>
 
 <h3>Config tab — Text editor</h3>
 <p>A live Starlark editor with syntax highlighting. Use <strong>Validate</strong> to check config without saving, or <strong>Save &amp; Reload</strong> to write and apply immediately (or queue a reload if tasks are running). Tab key inserts two spaces.</p>
+<p>Two safety nets guard against losing config: navigating away with unsaved edits prompts for confirmation, and if the config fails to load from the server (so the editor would be empty) <strong>Save &amp; Reload</strong> is disabled — an empty editor is indistinguishable from an empty config, and saving it would overwrite the real file. Click <strong>Validate</strong> to retry loading.</p>
 <img src="images/ui-text-editor.png" alt="Config text editor filling the full viewport height with Starlark syntax highlighting" class="screenshot">
 
 <h3 id="visual-editor">Config tab — Visual editor</h3>
