@@ -3,6 +3,10 @@
 # Close the download loop: clean up the Transmission session and recover
 # from failed grabs.
 #
+# The backend= key accepts "transmission", "qbittorrent", or "deluge" —
+# torrent_session and torrent_control speak all three, so switching this
+# config to another client is just a backend/host swap.
+#
 # Pipeline 1 (seed-janitor): remove torrents that have earned their keep —
 # seeding with ratio >= 2.0 or more than 3 days (259200s) of seed time.
 # Entries that don't match the condition stay undecided, so the
@@ -13,7 +17,7 @@
 # stall_timeout) and fans out to two sinks:
 #
 #   - mark_failed writes the original release URL (resolved through the
-#     grab records the transmission/qbittorrent sinks store at add time)
+#     grab records the transmission/qbittorrent/deluge sinks store at add time)
 #     into the shared seen_failed bucket and un-tracks the episode/movie,
 #     so a *different* release of the same content can be grabbed on the
 #     next run of your download pipelines — put retry_failed=True on their
