@@ -4,10 +4,7 @@
 // sink plugins (transmission, qbittorrent), which keep their own minimal
 // clients tuned for adding.
 //
-// Supported backends: Transmission (JSON-RPC) and qBittorrent (Web API v2).
-// Deluge is deliberately not supported yet — its Web UI JSON-RPC requires a
-// separate state-mapping layer that is not shared with the add path, so it
-// is deferred until there is demand.
+// Supported backends: Transmission (JSON-RPC), qBittorrent (Web API v2), and Deluge.
 package torrentclient
 
 import (
@@ -85,10 +82,11 @@ type Client interface {
 const (
 	BackendTransmission = "transmission"
 	BackendQBittorrent  = "qbittorrent"
+	BackendDeluge       = "deluge"
 )
 
 // Backends lists the supported backend names, for schemas and validation.
-var Backends = []string{BackendTransmission, BackendQBittorrent}
+var Backends = []string{BackendTransmission, BackendQBittorrent, BackendDeluge}
 
 // Config carries the connection settings shared by all backends. Key names
 // mirror the corresponding sink plugin's config keys.
@@ -142,8 +140,10 @@ func New(backend string, cfg Config) (Client, error) {
 		return newTransmissionClient(cfg), nil
 	case BackendQBittorrent:
 		return newQBittorrentClient(cfg), nil
+	case BackendDeluge:
+		return newDelugeClient(cfg), nil
 	default:
-		return nil, fmt.Errorf("torrentclient: unsupported backend %q (supported: %s, %s)",
-			backend, BackendTransmission, BackendQBittorrent)
+		return nil, fmt.Errorf("torrentclient: unsupported backend %q (supported: %s, %s, %s)",
+			backend, BackendTransmission, BackendQBittorrent, BackendDeluge)
 	}
 }

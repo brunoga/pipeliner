@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/brunoga/pipeliner/internal/entry"
+	"github.com/brunoga/pipeliner/internal/grabs"
 	"github.com/brunoga/pipeliner/internal/interp"
 	"github.com/brunoga/pipeliner/internal/plugin"
 	"github.com/brunoga/pipeliner/internal/store"
@@ -52,9 +53,10 @@ type delugePlugin struct {
 	pathIP          *interp.Interpolator
 	moveCompletedIP *interp.Interpolator // nil = don't set move_completed
 	client          *http.Client
+	grabStore       *grabs.Store
 }
 
-func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
+func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
 	host, _ := cfg["host"].(string)
 	if host == "" {
 		host = "localhost"
@@ -85,6 +87,11 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 		scheme = "https"
 	}
 
+	var grabStore *grabs.Store
+	if db != nil {
+		grabStore = grabs.NewStore(db.Bucket(grabs.BucketName))
+	}
+
 	jar, _ := cookiejar.New(nil)
 	return &delugePlugin{
 		endpoint:        fmt.Sprintf("%s://%s:%d/json", scheme, host, port),
@@ -92,6 +99,7 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 		pathIP:          pathIP,
 		moveCompletedIP: moveCompletedIP,
 		client:          &http.Client{Jar: jar},
+		grabStore:       grabStore,
 	}, nil
 }
 
@@ -136,9 +144,27 @@ func (p *delugePlugin) deliver(ctx context.Context, tc *plugin.TaskContext, entr
 					"title", e.Title, "url", e.URL, "link_type", linkType, "err", err)
 				e.Fail("deluge: " + err.Error())
 			}
+		} else {
+			p.recordGrab(tc, e)
 		}
 	}
 	return nil
+}
+
+// recordGrab links the torrent back to its release URL so mark_failed can 
+// recover it if the torrent dies.
+func (p *delugePlugin) recordGrab(tc *plugin.TaskContext, e *entry.Entry) {
+	if p.grabStore == nil {
+		return
+	}
+	hash := grabs.HashForEntry(e)
+	if hash == "" {
+		tc.Logger.Debug("deluge: no info-hash for grab record", "entry", e.Title)
+		return
+	}
+	if err := p.grabStore.Put(hash, grabs.FromEntry(e, tc.Name)); err != nil {
+		tc.Logger.Warn("deluge: record grab", "entry", e.Title, "err", err)
+	}
 }
 
 func (p *delugePlugin) login(ctx context.Context) error {

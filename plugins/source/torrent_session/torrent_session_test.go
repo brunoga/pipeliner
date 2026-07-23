@@ -192,7 +192,7 @@ func TestGenerateQBittorrent(t *testing.T) {
 }
 
 func TestNewPluginRejectsUnknownBackend(t *testing.T) {
-	if _, err := newPlugin(map[string]any{"backend": "deluge"}, nil); err == nil {
+	if _, err := newPlugin(map[string]any{"backend": "rtorrent"}, nil); err == nil {
 		t.Fatal("expected error for unsupported backend")
 	}
 }
@@ -204,7 +204,7 @@ func TestValidate(t *testing.T) {
 	if errs := validate(map[string]any{}); len(errs) == 0 {
 		t.Error("missing backend should error")
 	}
-	if errs := validate(map[string]any{"backend": "deluge"}); len(errs) == 0 {
+	if errs := validate(map[string]any{"backend": "rtorrent"}); len(errs) == 0 {
 		t.Error("unsupported backend should error")
 	}
 	if errs := validate(map[string]any{"backend": "transmission", "bogus": 1}); len(errs) == 0 {
