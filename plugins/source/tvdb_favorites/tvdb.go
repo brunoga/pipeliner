@@ -41,6 +41,7 @@ func init() {
 			entry.FieldVideoPopularity,
 			entry.FieldVideoPoster,
 			entry.FieldSeriesNetwork,
+			entry.FieldSeriesStatus,
 			entry.FieldSeriesFirstAirDate,
 			"tvdb_year",
 			"tvdb_slug",
@@ -126,6 +127,9 @@ func (p *tvdbSourcePlugin) Generate(ctx context.Context, tc *plugin.TaskContext)
 		si.Poster = s.ImageURL
 		si.Genres = s.Genres
 		si.Network = s.Network
+		// TheTVDB status values pass through verbatim: "Continuing", "Ended",
+		// "Cancelled", "Upcoming" (and any future values the API may add).
+		si.Status = string(s.Status)
 		si.Language = itvdb.LanguageName(s.Language)
 		si.Country = itvdb.CountryName(s.Country)
 		si.Popularity = s.Score

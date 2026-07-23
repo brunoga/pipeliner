@@ -203,3 +203,45 @@ func TestRunSkipsMissingShows(t *testing.T) {
 		t.Errorf("want 1 entry (missing ID skipped), got %d", len(entries))
 	}
 }
+
+func TestSurfacesSeriesStatus(t *testing.T) {
+	srv := makeTVDBServer(t, []int{1, 2}, []itvdb.Series{
+		{ID: "1", Name: "Breaking Bad", Slug: "breaking-bad", Status: "Ended"},
+		{ID: "2", Name: "Severance", Slug: "severance"}, // API omitted status
+	})
+
+	p, err := newPlugin(map[string]any{"api_key": "key", "user_pin": "pin"}, nil)
+	if err != nil {
+		t.Fatalf("newPlugin: %v", err)
+	}
+	p.(*tvdbSourcePlugin).client.BaseURL = srv.URL
+
+	entries, err := p.(*tvdbSourcePlugin).Generate(context.Background(), makeCtx())
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("want 2 entries, got %d", len(entries))
+	}
+	if v := entries[0].GetString(entry.FieldSeriesStatus); v != "Ended" {
+		t.Errorf("series_status: got %q, want Ended", v)
+	}
+	if v, ok := entries[1].Get(entry.FieldSeriesStatus); ok {
+		t.Errorf("series_status should be absent when the API omits it, got %v", v)
+	}
+
+	// The descriptor must declare the field so the DAG validator knows about it.
+	d, ok := plugin.Lookup("tvdb_favorites")
+	if !ok {
+		t.Fatal("tvdb_favorites not registered")
+	}
+	found := false
+	for _, f := range d.MayProduce {
+		if f == entry.FieldSeriesStatus {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("MayProduce should include %s: %v", entry.FieldSeriesStatus, d.MayProduce)
+	}
+}
