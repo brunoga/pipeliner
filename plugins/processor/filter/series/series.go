@@ -105,8 +105,10 @@ const (
 )
 
 // seriesTrackerName is the entry field used to carry the normalized matched
-// show name from filter() to persist(). It is internal to this plugin.
-const seriesTrackerName = "_series_tracker_name"
+// show name from filter() to persist(). The constant lives in the entry
+// package because the torrent sinks' grab records also read it (failed-grab
+// recovery needs the tracker key to un-track an episode).
+const seriesTrackerName = entry.FieldSeriesTrackerName
 
 type seriesPlugin struct {
 	staticShows     []match.TitleEntry // show names from config (year=0 for plain strings)

@@ -9,6 +9,12 @@ import (
 	"github.com/brunoga/pipeliner/internal/quality"
 )
 
+// TrackerBucketName is the store bucket holding per-movie download records.
+// Like the series tracker bucket it is deliberately not namespaced by task:
+// the movies filter and the mark_failed sink across all pipelines share one
+// tracker.
+const TrackerBucketName = "movies"
+
 // Record is persisted for each downloaded movie.
 type Record struct {
 	Title        string          `json:"title"`
