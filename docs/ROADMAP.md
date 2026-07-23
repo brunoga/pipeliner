@@ -210,7 +210,7 @@ entry, run history in the web server.
 **Gaps.** Digest buffering, calendar API calls, run-report source (needs the
 engine to persist per-run reason tallies — today they only live in memory).
 
-## 7. Webhook ingest (push sources)
+## 7. Webhook ingest — ✅ shipped (webhook source + POST /api/ingest/{queue} with bearer token, bounded queues, optional immediate trigger)
 
 **Motivation.** Polling has latency; announce bots (autobrr, IRC bridges)
 can push. One authenticated endpoint makes pipeliner composable with
