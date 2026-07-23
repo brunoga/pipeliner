@@ -216,28 +216,31 @@ func writeLoginPage(w http.ResponseWriter, failed bool) {
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Pipeliner — Login</title>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+<!-- No web-font request here: static assets (incl. the vendored fonts served
+     to the SPA) sit behind the session gate, so the login page simply uses
+     the system monospace fallback stack. -->
 <style>
+/* Palette duplicated from ui/style.css (the SPA stylesheet is behind auth, so
+   the login page inlines its own copy) — keep these values in sync with the
+   :root / light / dark blocks in internal/web/ui/style.css. */
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --bg:#080b10;--surface:#111827;--border:#232c3b;
-  --text:#c8d6e5;--muted:#5d6e82;--accent:#4da8ff;--red:#f25149;
+  --bg:#080b10;--surface:#111827;--input-bg:#1a2333;--border:#232c3b;
+  --text:#c8d6e5;--muted:#7d90a6;--accent:#4da8ff;--red:#f25149;
 }
 @media(prefers-color-scheme:light){
   :root{
-    --bg:#f0f2f6;--surface:#ffffff;--border:#ccd3de;
+    --bg:#f0f2f6;--surface:#ffffff;--input-bg:#e8ecf2;--border:#ccd3de;
     --text:#0d1117;--muted:#5a6a7e;--accent:#0969da;--red:#d1242f;
   }
 }
 body.light{
-  --bg:#f0f2f6;--surface:#ffffff;--border:#ccd3de;
+  --bg:#f0f2f6;--surface:#ffffff;--input-bg:#e8ecf2;--border:#ccd3de;
   --text:#0d1117;--muted:#5a6a7e;--accent:#0969da;--red:#d1242f;
 }
 body.dark{
-  --bg:#080b10;--surface:#111827;--border:#232c3b;
-  --text:#c8d6e5;--muted:#5d6e82;--accent:#4da8ff;--red:#f25149;
+  --bg:#080b10;--surface:#111827;--input-bg:#1a2333;--border:#232c3b;
+  --text:#c8d6e5;--muted:#7d90a6;--accent:#4da8ff;--red:#f25149;
 }
 body{background:var(--bg);color:var(--text);
   font-family:'JetBrains Mono','SF Mono',ui-monospace,Consolas,monospace;
@@ -253,7 +256,7 @@ h1 img{width:16px;height:16px}
 label{display:block;font-size:9px;color:var(--muted);text-transform:uppercase;
   letter-spacing:.12em;margin-bottom:4px;margin-top:14px;font-weight:700}
 label:first-of-type{margin-top:0}
-input{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:3px;
+input{width:100%;background:var(--input-bg);border:1px solid var(--border);border-radius:3px;
   color:var(--text);font-family:inherit;font-size:12px;padding:6px 10px;outline:none;
   transition:border-color .15s}
 input:focus{border-color:var(--accent)}
@@ -262,6 +265,7 @@ button{margin-top:20px;width:100%;padding:8px;background:transparent;
   font-family:inherit;font-size:10px;font-weight:700;letter-spacing:.08em;
   text-transform:uppercase;cursor:pointer;transition:background .15s}
 button:hover{background:color-mix(in srgb,var(--accent) 8%,transparent)}
+input:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .error{margin-top:14px;font-size:10px;color:var(--red);text-align:center;letter-spacing:.04em}
 </style>
 </head>

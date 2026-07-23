@@ -45,6 +45,15 @@ let ve_panY          = 0;
 // user switches text → visual without typing anything. Starts true so the
 // initial load triggers a sync.
 let ve_textDirty     = true;
+// True after textToVisualSync failed to parse the text editor's content (422
+// or network error). While set, the visual model is STALE relative to the
+// text: onModelChange must not serialise it over the user's unsaved text
+// edits. Cleared on the next successful parse.
+let ve_parseFailed   = false;
+// Warnings produced by the last dagToStarlark run for route ports that were
+// omitted from the serialised output (missing name or accept expression).
+// Surfaced in the sync note by the text-write path.
+let ve_droppedPortWarnings = [];
 // True while two-finger pinch/pan is active. Single-finger handlers (rubber-
 // band, node drag) read this and abort cleanly so a second finger landing on
 // the canvas takes over without leaving a half-finished marquee behind.
@@ -55,15 +64,46 @@ let ve_pinching      = false;
 const VE_MAX_UNDO = 50;
 let ve_undoStack = [];
 
-// pushUndo snapshots the current model state. Call before any destructive action.
-function pushUndo() {
-  veDebugLog('pushUndo', snapshotGraphPositions(ve.graphs));
-  ve_undoStack.push(JSON.stringify({
+// veSnapshotModel serialises the current model state. Used by pushUndo and by
+// deferred-undo call sites (node drag) that capture the pre-action state but
+// only commit it to the stack once the action actually happens.
+function veSnapshotModel() {
+  return JSON.stringify({
     graphs:        ve.graphs,
     userFunctions: ve.userFunctions,
     nextId:        ve.nextId,
-  }));
+  });
+}
+
+// pushUndoSnapshot pushes an already-captured snapshot string onto the stack.
+function pushUndoSnapshot(snap) {
+  veDebugLog('pushUndo', snapshotGraphPositions(ve.graphs));
+  ve_undoStack.push(snap);
   if (ve_undoStack.length > VE_MAX_UNDO) ve_undoStack.shift();
+  updateUndoButton();
+}
+
+// pushUndo snapshots the current model state. Call before any destructive action.
+function pushUndo() {
+  pushUndoSnapshot(veSnapshotModel());
+}
+
+// ── undo stack × function editor boundary ────────────────────────────────────
+// Snapshots pushed while the function body editor is open describe the
+// fn-body-only graph. If they leaked onto the pipeline undo stack, a Ctrl+Z
+// after Save/Back would restore the function body AS the entire canvas and
+// onModelChange would serialise it over the real config. The pipeline stack is
+// therefore parked on entering the editor and restored (dropping every
+// fn-scoped snapshot) on exit — pre-editor undo history survives the round trip.
+
+function undoStackEnterFnEditor() {
+  ve.fnEditor.savedUndoStack = ve_undoStack;
+  ve_undoStack = [];
+  updateUndoButton();
+}
+
+function undoStackExitFnEditor() {
+  ve_undoStack = ve.fnEditor.savedUndoStack || [];
   updateUndoButton();
 }
 
@@ -265,6 +305,17 @@ function disconnectList(parentNodeId, listNodeId) {
 // ── view switching ─────────────────────────────────────────────────────────────
 
 let currentView = 'visual'; // open in visual mode by default
+
+// veShortcutsActive gates the window-level keyboard shortcuts (Delete,
+// Ctrl+C/X/V/Z). The handler is installed once when the visual editor first
+// initialises, but the shortcuts must only act while the Config tab is the
+// visible tab AND the visual view is the active sub-view — otherwise typing
+// Ctrl+C on the Dashboard or Database tab would be hijacked app-wide.
+function veShortcutsActive() {
+  const tab = document.getElementById('tab-config');
+  if (!tab || tab.style.display === 'none') return false;
+  return currentView === 'visual';
+}
 
 function switchView(view) {
   // Don't switch views while the function body editor is active.
@@ -504,6 +555,26 @@ function removeNode(id) {
     break;
   }
   if (ve.selectedNodeId === id) ve.selectedNodeId = null;
+  veRender();
+  onModelChange();
+}
+
+// deleteSelection removes every node in the current selection — the whole
+// multi-selection when one exists (marquee or Ctrl+click), else the single
+// selected node — under a single undo snapshot.
+function deleteSelection() {
+  const ids = ve.selectedNodeIds.size > 0
+    ? [...ve.selectedNodeIds].filter(id => {
+        const n = findNode(id);
+        return n && !n.isUpstreamPseudo;
+      })
+    : (ve.selectedNodeId && !findNode(ve.selectedNodeId)?.isUpstreamPseudo
+        ? [ve.selectedNodeId] : []);
+  if (!ids.length) return;
+  pushUndo();
+  removeNodeBatch(ids);
+  if (ids.includes(ve.selectedNodeId)) ve.selectedNodeId = null;
+  clearMultiSelect();
   veRender();
   onModelChange();
 }
@@ -1065,8 +1136,12 @@ function addPipeline() {
   const newLabelY = lastG
     ? (lastG._regionY ?? 40) + Math.max(80, lastG._regionH ?? 80) + 60
     : 40;
+  // First free "pipeline-N" suffix — length+1 collides after add→delete→add.
+  const usedNames = new Set(ve.graphs.map(g => g.name));
+  let suffix = 1;
+  while (usedNames.has(`pipeline-${suffix}`)) suffix++;
   ve.graphs.push({
-    name:     `pipeline-${ve.graphs.length + 1}`,
+    name:     `pipeline-${suffix}`,
     schedule: '',
     nodes:    [],
     _labelY:  newLabelY,
@@ -1852,10 +1927,15 @@ function initCanvasEvents() {
   window.addEventListener('resize', () => {
     if (currentView === 'text') fitTextEditor();
     else fitVisualEditor();
+    // Keep the floating param panel reachable when the window shrinks.
+    veClampPanelIntoView();
   });
 
-  // Keyboard shortcuts — all suppressed when focus is in a text input.
+  // Keyboard shortcuts — all suppressed when focus is in a text input, and
+  // no-ops entirely (no preventDefault, no action) unless the Config tab is
+  // visible and the visual view is active (veShortcutsActive).
   window.addEventListener('keydown', e => {
+    if (!veShortcutsActive()) return;
     const inInput = ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName) ||
                     e.target.isContentEditable;
     if (e.key === 'Escape' && !inInput) {
@@ -1869,9 +1949,10 @@ function initCanvasEvents() {
         renderParamPanel();
       }
     }
-    if ((e.key === 'Delete' || e.key === 'Backspace') && !inInput && ve.selectedNodeId) {
+    if ((e.key === 'Delete' || e.key === 'Backspace') && !inInput &&
+        (ve.selectedNodeId || ve.selectedNodeIds.size > 0)) {
       e.preventDefault();
-      removeNode(ve.selectedNodeId);
+      deleteSelection();
     }
     if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !inInput) {
       e.preventDefault();
@@ -2121,8 +2202,23 @@ function initCanvasEvents() {
 // ── node drag ─────────────────────────────────────────────────────────────────
 // selectNode no longer rebuilds the DOM, so div (found by data-id) stays valid.
 
+// Minimum pointer travel (px) before a pointerdown is treated as a drag.
+// Matches the deferred-drag threshold used by the multi-select click path.
+const VE_DRAG_THRESHOLD = 5;
+
 function startNodeDrag(e, n) {
-  pushUndo();
+  // Capture the pre-drag state now, but only commit it to the undo stack once
+  // the pointer actually travels beyond the drag threshold. Plain clicks
+  // (select without movement) must not push no-op undo snapshots.
+  const preDragSnap = veSnapshotModel();
+  let undoCommitted = false;
+  function commitUndoIfDragged(ev, startX, startY) {
+    if (undoCommitted) return true;
+    if (Math.hypot(ev.clientX - startX, ev.clientY - startY) < VE_DRAG_THRESHOLD) return false;
+    pushUndoSnapshot(preDragSnap);
+    undoCommitted = true;
+    return true;
+  }
 
   // Multi-node drag: when dragging a node that's part of a multi-selection,
   // move all selected main nodes together by the same delta.
@@ -2174,6 +2270,7 @@ function startNodeDrag(e, n) {
 
     function onMoveMulti(ev) {
       if (ve_pinching) return; // second finger took over — leave nodes alone
+      if (!commitUndoIfDragged(ev, startX, startY)) return; // below drag threshold
       const dx = (ev.clientX - startX) / ve_zoom;
       const dy = (ev.clientY - startY) / ve_zoom;
       for (const id of dragIds) {
@@ -2248,6 +2345,7 @@ function startNodeDrag(e, n) {
 
   function onMove(ev) {
     if (ve_pinching) return; // second finger took over — leave node alone
+    if (!commitUndoIfDragged(ev, startX, startY)) return; // below drag threshold
     n.x = Math.max(effMinX, origX + (ev.clientX - startX) / ve_zoom);
     n.y = Math.max(effMinY, origY + (ev.clientY - startY) / ve_zoom);
     const div = document.querySelector(`.ve-node[data-id="${n.id}"]`);
@@ -4040,7 +4138,15 @@ function renderRouteRuleRow(rule, ruleIdx, node) {
     ? `<div class="ve-cond-preview">${esc(expr)}</div>`
     : '';
 
-  return `<div class="ve-cond-rule" data-rule-idx="${ruleIdx}">
+  // A port without both a name and an accept expression is kept in the model
+  // but omitted by dagToStarlark (it would be invalid Starlark). Highlight it
+  // so the user knows it is not being saved.
+  const incomplete = !(rule.name && rule.accept);
+  const incompleteHtml = incomplete
+    ? '<div class="ve-rule-incomplete-note">incomplete port — needs a name and a condition; not saved to the config until both are set</div>'
+    : '';
+
+  return `<div class="ve-cond-rule${incomplete ? ' ve-rule-incomplete' : ''}" data-rule-idx="${ruleIdx}">
     <div class="ve-cond-rule-header">
       <input class="ve-rule-name ve-cond-port-name" placeholder="port name"
         value="${esc(rule.name || '')}"
@@ -4052,6 +4158,7 @@ function renderRouteRuleRow(rule, ruleIdx, node) {
     ${rawMode ? rawHtml : builderHtml}
     ${previewHtml}
     ${narrowHtml}
+    ${incompleteHtml}
   </div>`;
 }
 
@@ -4373,9 +4480,17 @@ function addCondRule(type) {
 function deleteCondRule2(ruleIdx) {
   const node = findNode(ve.selectedNodeId);
   const nodeId = node?.id ?? '';
-  // Clean up any force-raw entries for this and later rules.
   const rules = _condGetRules();
-  for (let i = ruleIdx; i < rules.length; i++) _forcedRaw.delete(`${nodeId}:${i}`);
+  // Drop the removed rule's force-raw flag, then shift every later rule's
+  // flag down one index so each flag stays attached to the same rule.
+  _forcedRaw.delete(_builderRawKey('cond', nodeId, ruleIdx));
+  for (let i = ruleIdx + 1; i < rules.length; i++) {
+    const from = _builderRawKey('cond', nodeId, i);
+    if (_forcedRaw.has(from)) {
+      _forcedRaw.add(_builderRawKey('cond', nodeId, i - 1));
+      _forcedRaw.delete(from);
+    }
+  }
   rules.splice(ruleIdx, 1);
   _condSetRules(rules);
 }
@@ -4544,9 +4659,14 @@ function renderField(f, config, node) {
 
   // ── normal editable widget ─────────────────────────────────────────────────
   let widget = '';
+  // Widgets rendered inline (tags, multiline popups) must resolve their target
+  // node explicitly. Sub-node sections (list/search backends) render fields for
+  // nodes OTHER than ve.selectedNodeId, so falling back to the selected node
+  // would write e.g. a jackett `indexers` tag into the parent discover config.
+  const targetId = esc(JSON.stringify(node?.id ?? ''));
   if (f.multiline) {
     const preview = val ? String(val).split('\n')[0].slice(0, 50) : '';
-    widget = `<button class="ve-multiline-btn" onclick="openFieldPopup('${esc(f.key)}','${esc(f.hint||'')}')">` +
+    widget = `<button class="ve-multiline-btn" onclick="openFieldPopup('${esc(f.key)}','${esc(f.hint||'')}',${targetId})">` +
       (preview ? `<span class="ve-multiline-preview">${esc(preview)}</span>` : '<span class="ve-multiline-empty">click to edit…</span>') +
       '</button>';
   } else {
@@ -4565,12 +4685,14 @@ function renderField(f, config, node) {
         break;
       case 'list': {
         const items = Array.isArray(val) ? val : (val ? [String(val)] : []);
-        const fid   = 'vef-' + f.key;
+        // Include the node id in the input id so a sub-node section sharing a
+        // schema key with the parent (or another sub-node) gets its own input.
+        const fid   = 'vef-' + (node?.id ?? '') + '-' + f.key;
         widget = `<div class="ve-tag-list" data-field="${f.key}" data-type="list">${
-          items.map(s => `<span class="ve-tag">${esc(s)}<button class="ve-tag-del" onclick="removeTag(this,'${f.key}')">×</button></span>`).join('')
+          items.map(s => `<span class="ve-tag">${esc(s)}<button class="ve-tag-del" onclick="removeTag(this,'${f.key}',${targetId})">×</button></span>`).join('')
         }</div><div style="display:flex;gap:4px">
-          <input class="ve-tag-input" id="${fid}" placeholder="add item…" onkeydown="if(event.key==='Enter'){event.preventDefault();addTag('${fid}','${f.key}')}">
-          <button class="ve-add-kv" onclick="addTag('${fid}','${f.key}')">Add</button></div>`;
+          <input class="ve-tag-input" id="${fid}" placeholder="add item…" onkeydown="if(event.key==='Enter'){event.preventDefault();addTag('${fid}','${f.key}',${targetId})}">
+          <button class="ve-add-kv" onclick="addTag('${fid}','${f.key}',${targetId})">Add</button></div>`;
         break;
       }
       case 'rule_list': {
@@ -4616,9 +4738,11 @@ function renderField(f, config, node) {
     ${widget}</div>`;
 }
 
-// Opens the text popup to edit a multiline schema field on the selected node.
-function openFieldPopup(fieldKey, hint) {
-  const node = findNode(ve.selectedNodeId);
+// Opens the text popup to edit a multiline schema field. nodeId identifies the
+// target node (it may be a list/search sub-node rendered inside the selected
+// node's panel); falls back to the selected node for legacy callers.
+function openFieldPopup(fieldKey, hint, nodeId) {
+  const node = findNode(nodeId || ve.selectedNodeId);
   if (!node) return;
   openTextPopup(fieldKey, hint, String(node.config[fieldKey] ?? ''), text => {
     if (text !== '') node.config[fieldKey] = text;
@@ -4643,10 +4767,14 @@ function collectParams(node, schema, body) {
 
 // Like collectParams but for a via-node (re-renders via nodes + edges).
 
-function addTag(inputId, field) {
+// addTag / removeTag mutate the list-type config field of the node identified
+// by nodeId. The id is threaded through from renderField so widgets rendered
+// in a sub-node section (list/search backend) edit the sub-node's config, not
+// the selected parent's. Falls back to the selected node for legacy callers.
+function addTag(inputId, field, nodeId) {
   const input = document.getElementById(inputId);
   if (!input || !input.value.trim()) return;
-  const node = findNode(ve.selectedNodeId);
+  const node = findNode(nodeId || ve.selectedNodeId);
   if (!node) return;
   if (!Array.isArray(node.config[field])) node.config[field] = [];
   node.config[field].push(input.value.trim());
@@ -4655,11 +4783,11 @@ function addTag(inputId, field) {
   document.getElementById(inputId)?.focus();
 }
 
-function removeTag(btn, field) {
+function removeTag(btn, field, nodeId) {
   const tag  = btn.closest('.ve-tag');
   const list = tag?.closest('[data-type="list"]');
   const idx  = [...list.querySelectorAll('.ve-tag')].indexOf(tag);
-  const node = findNode(ve.selectedNodeId);
+  const node = findNode(nodeId || ve.selectedNodeId);
   if (!node || !Array.isArray(node.config[field])) return;
   node.config[field].splice(idx, 1);
   tag.remove(); onModelChange();
@@ -4704,8 +4832,7 @@ function updateRuleNameOnly(nodeId, field, idx, value) {
   if (!node.config[field][idx]) node.config[field][idx] = {};
   node.config[field][idx].name = value;
   // Update text editor without triggering port sync / veRender.
-  const el = document.getElementById('config-editor');
-  if (el) { el.value = dagToStarlark(); syncHighlight(); }
+  veWriteTextEditor();
 }
 
 // Called onblur of the port name input: sync port chips and re-render canvas.
@@ -4717,8 +4844,7 @@ function syncRoutePortsForNode(nodeId) {
   const changed = syncRoutePorts(node, g);
   if (changed) {
     veRender();
-    const el = document.getElementById('config-editor');
-    if (el) { el.value = dagToStarlark(); syncHighlight(); }
+    veWriteTextEditor();
   }
 }
 
@@ -5968,6 +6094,10 @@ function openFunctionEditor(funcName) {
     commentSnapshot: fd.comment || '',
   };
 
+  // Park the pipeline undo stack; snapshots pushed from here on describe the
+  // fn-body-only graph and must never leak back onto the pipeline stack.
+  undoStackEnterFnEditor();
+
   const hasStoredLayout = allNodes.some(n => !n.isSearchNode && !n.isListNode && n.x != null && n.y != null);
   ve.graphs      = [{name: funcName, schedule: '', comment: '', nodes: allNodes, _hasLayout: hasStoredLayout}];
   ve.activeGraph = 0;
@@ -6078,6 +6208,9 @@ function saveFunctionEditor() {
 // exitFunctionEditor restores the pipeline canvas and hides the function bar.
 function exitFunctionEditor() {
   if (!ve.fnEditor.active) return;
+  // Restore the pipeline undo stack, discarding fn-scoped snapshots. Must run
+  // before ve.fnEditor is reset (it holds the parked stack).
+  undoStackExitFnEditor();
   ve.graphs        = ve.fnEditor.savedGraphs;
   ve.activeGraph   = ve.fnEditor.savedActive;
   ve.nextId        = Math.max(ve.fnEditor.savedNextId, ve.nextId);
@@ -6339,6 +6472,7 @@ function emptyForType(type) {
 }
 
 function dagToStarlark() {
+  ve_droppedPortWarnings = [];
   const graphs = ve.graphs.filter(g => g.name || g.nodes.length);
   if (!graphs.length) return '';
 
@@ -6455,7 +6589,17 @@ function dagToStarlark() {
 
       if (n.plugin === 'route') {
         // route(upstream, port1="cond1", port2="cond2")
+        // Half-configured ports (missing name or accept expression) stay in
+        // the client model but are omitted from the serialised output — a
+        // nameless/conditionless port would be invalid Starlark. Record a
+        // warning so the text-write path can surface the omission instead of
+        // dropping it silently.
         const rules = n.config?.rules || [];
+        rules.forEach((r, ri) => {
+          if (r?.name && r?.accept) return;
+          const label = r?.name ? `'${r.name}'` : `#${ri + 1}`;
+          ve_droppedPortWarnings.push(`route port ${label} on ${n.id} incomplete — not saved`);
+        });
         const portParts = rules
           .filter(r => r.name && r.accept)
           .map(r => `${r.name}=${starLit(r.accept)}`);
@@ -6657,6 +6801,27 @@ function syncRoutePorts(routeNode, g) {
   return changed;
 }
 
+// veWriteTextEditor serialises the visual model into the text editor.
+// Single choke point for every model→text write so the stale-model guard
+// (ve_parseFailed) and the dropped-port warnings apply uniformly.
+// Returns true when the textarea was written.
+function veWriteTextEditor() {
+  if (ve_parseFailed) {
+    // The text editor holds user edits that failed to parse; the visual model
+    // is stale. Overwriting the textarea here would destroy those edits.
+    setSyncNote('✗ Config text has parse errors — visual changes are NOT synced to text (fix the text and switch back to Visual)');
+    return false;
+  }
+  const el = document.getElementById('config-editor');
+  if (!el) return false;
+  el.value = dagToStarlark();
+  syncHighlight();
+  if (ve_droppedPortWarnings.length) {
+    setSyncNote('⚠ ' + ve_droppedPortWarnings.join('; '));
+  }
+  return true;
+}
+
 function onModelChange() {
   if (ve.syncing) return;
   // While editing a function body, ve.graphs contains only the function's
@@ -6675,16 +6840,9 @@ function onModelChange() {
   }
   if (portsChanged) {
     veRender();
-    // Also sync the text editor after the new layout.
-    const textEl = document.getElementById('config-editor');
-    if (textEl) { textEl.value = dagToStarlark(); syncHighlight(); }
-    return;
   }
-
-  const el = document.getElementById('config-editor');
-  if (!el) return;
-  el.value = dagToStarlark();
-  syncHighlight();
+  // Sync the text editor (after the new layout when ports changed).
+  veWriteTextEditor();
 }
 
 // ── text → visual sync ────────────────────────────────────────────────────────
@@ -6699,11 +6857,16 @@ async function textToVisualSync() {
       body: JSON.stringify({content}),
     });
     if (r.status === 422) {
+      // The text has parse errors: the visual model on screen is the LAST
+      // GOOD one. Flag it stale so onModelChange refuses to serialise it
+      // over the user's (unsaved, broken) text edits.
+      ve_parseFailed = true;
       const {error} = await r.json();
       setSyncNote('✗ ' + error.split('\n')[0]);
       return;
     }
     const data = await r.json();
+    ve_parseFailed = false; // parse succeeded — model and text agree again
     // graph_order lists pipeline names in the order their pipeline(…) calls
     // appear in the text config. Without it the dashboard and visual editor
     // would render alphabetically (Go's json encoder sorts map keys) while
@@ -6929,10 +7092,16 @@ async function textToVisualSync() {
     zoomToFitHorizontal(); // zoom out so all pipelines fit within the viewport width
     veRender();
     setSyncNote(entries.length > 1 ? `Showing ${entries.length} pipelines` : '');
-    // Write computed positions back so they survive the next round-trip.
-    // Skip when there are no pipelines (would overwrite a non-DAG config).
-    if (ve.graphs.length > 0) onModelChange();
+    // Do NOT write the regenerated Starlark back into the text editor here.
+    // Merely opening the tab (or switching Text→Visual) must never rewrite a
+    // hand-authored config — variable names, comments and formatting are only
+    // regenerated when the user actually mutates the model (the existing
+    // onModelChange call sites on real edits).
   } catch (e) {
+    // Network/parse-shape failure: same staleness hazard as a 422 — the
+    // visual model was not refreshed from the text, so block model→text
+    // writes until a successful parse.
+    ve_parseFailed = true;
     ve.syncing = false;
     setSyncNote('✗ ' + String(e));
   }
@@ -7082,24 +7251,38 @@ function _ensureEdgeTooltip() {
   return _edgeTooltipEl;
 }
 
-// Show a tooltip with the fields flowing through an edge on hover.
-// fromNodeId is the source node; the edge carries that node's OUTPUT fields
-// (its own produces + everything from its upstream chain).
-function showEdgeFieldTooltip(event, fromNodeId) {
+// edgeFieldSets computes the fields flowing OUT of fromNodeId — the data an
+// edge from that node carries. Walks the node's entire upstream chain (its
+// own produces + condition narrowing included) and collapses the per-state
+// certainty to the passing-state view (Accepted ∪ Undecided), the same
+// default consumer view computeInputFields uses downstream.
+// Returns {certain: string[], reachable: string[]} (disjoint, sorted) or null
+// when the node cannot be found.
+function edgeFieldSets(fromNodeId) {
   // Find the source node within its own graph only.
   const gi         = findNodeGraph(fromNodeId);
   const graphNodes = gi >= 0 ? (ve.graphs[gi]?.nodes || []) : [];
   const fromNode   = graphNodes.find(n => n.id === fromNodeId);
-  if (!fromNode) return;
+  if (!fromNode) return null;
 
-  // Compute the OUTPUT fields of the source node by collecting its entire
-  // upstream chain plus its own produces/condition-narrowing.
-  const certain  = new Set();
-  const reachable = new Set();
-  collectOutputFields(fromNode, certain, reachable, new Set(), graphNodes);
+  const { cert, reach } = collectOutputFields(fromNode, graphNodes, new Set());
+  const certain = scEffective(cert, new Set(['accepted', 'undecided']));
+  return {
+    certain:   [...certain].sort(),
+    reachable: [...reach].filter(f => !certain.has(f)).sort(),
+  };
+}
 
-  const certArr   = [...certain].sort();
-  const reachOnly = [...reachable].filter(f => !certain.has(f)).sort();
+// Show a tooltip with the fields flowing through an edge on hover.
+// fromNodeId is the source node; the edge carries that node's OUTPUT fields
+// (its own produces + everything from its upstream chain).
+function showEdgeFieldTooltip(event, fromNodeId) {
+  const sets = edgeFieldSets(fromNodeId);
+  if (!sets) return;
+  const fromNode = findNode(fromNodeId);
+
+  const certArr   = sets.certain;
+  const reachOnly = sets.reachable;
   if (!certArr.length && !reachOnly.length) return;
 
   const label  = pluginMeta(fromNode.plugin)?.role === 'source'
@@ -7159,18 +7342,43 @@ function veInitPaletteState() {
 // Restore last saved panel position/size from localStorage.
 const VE_PANEL_POS_KEY = 'pipeliner.paramPanelPos'; // legacy key (ignored)
 
+// clampPanelPos clamps a floating-panel position (viewport coords) so at
+// least minVisible px of the panel remain reachable on each axis. Guards
+// against restoring a localStorage position saved on a larger screen (or
+// after the window shrank) that would leave the panel entirely off-screen.
+function clampPanelPos(top, left, panelW, winW, winH, minVisible = 40) {
+  const l = Math.min(Math.max(left, minVisible - panelW), winW - minVisible);
+  const t = Math.min(Math.max(top, 0), winH - minVisible);
+  return { top: t, left: l };
+}
+
+// veClampPanelIntoView re-clamps the visible panel after a window resize.
+function veClampPanelIntoView() {
+  const panel = document.getElementById('ve-param-panel');
+  if (!panel || !panel.classList.contains('visible')) return;
+  const rect = panel.getBoundingClientRect();
+  const pos  = clampPanelPos(rect.top, rect.left, rect.width || 340,
+                             window.innerWidth, window.innerHeight);
+  if (pos.top === rect.top && pos.left === rect.left) return;
+  panel.style.top   = pos.top  + 'px';
+  panel.style.left  = pos.left + 'px';
+  panel.style.right = '';
+}
+
 // Show/hide the floating panel.  Called from renderParamPanel() whenever the
 // selected node changes.
 function veShowParamPanel() {
   const panel = document.getElementById('ve-param-panel');
   if (!panel) return;
-  // Restore saved position + size.
+  // Restore saved position + size, clamped into the current viewport.
   try {
     const s = localStorage.getItem(VE_PANEL_DIM_KEY);
     if (s) {
       const dim = JSON.parse(s);
-      panel.style.top    = dim.top    + 'px';
-      panel.style.left   = dim.left   + 'px';
+      const pos = clampPanelPos(dim.top, dim.left, panel.offsetWidth || 340,
+                                window.innerWidth, window.innerHeight);
+      panel.style.top    = pos.top  + 'px';
+      panel.style.left   = pos.left + 'px';
       panel.style.right  = '';
       if (dim.height) panel.style.height = dim.height + 'px';
     }

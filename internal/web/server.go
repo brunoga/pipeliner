@@ -25,7 +25,7 @@ import (
 	"github.com/brunoga/pipeliner/internal/store"
 )
 
-//go:embed ui/index.html ui/style.css ui/dashboard-extra.css ui/dashboard.js ui/highlight.js ui/config-editor.js ui/visual-editor.js ui/database.js ui/plugin-debug.js ui/trakt.js ui/favicon.svg
+//go:embed ui/index.html ui/style.css ui/dashboard-extra.css ui/dashboard.js ui/highlight.js ui/config-editor.js ui/visual-editor.js ui/database.js ui/plugin-debug.js ui/trakt.js ui/favicon.svg ui/fonts
 var uiFS embed.FS
 
 // DaemonControl is the scheduler interface the Server uses.
@@ -223,6 +223,7 @@ func (s *Server) Start(ctx context.Context, addr string, tlsCfg *tls.Config) err
 	protected.HandleFunc("GET /api/db/buckets/{name}", s.apiDBGetBucket)
 	protected.HandleFunc("DELETE /api/db/buckets/{name}", s.apiDBClearBucket)
 	protected.HandleFunc("DELETE /api/db/entries/{name}", s.apiDBDeleteEntry)
+	protected.HandleFunc("DELETE /api/db/series/show", s.apiDBDeleteSeriesShow)
 	protected.HandleFunc("POST /api/trakt/auth/start", s.apiTraktAuthStart)
 	protected.HandleFunc("GET /api/trakt/auth/poll", s.apiTraktAuthPoll)
 	protected.HandleFunc("GET /api/log-debug-plugins", s.apiGetLogDebugPlugins)

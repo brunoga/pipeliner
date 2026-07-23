@@ -49,9 +49,19 @@ describe('highlightStarlark', () => {
     expect(out).toContain('def');
   });
 
-  it('highlights built-ins (plugin, task, env) in y-builtin span', () => {
-    const out = highlightStarlark('plugin("rss", url="x")');
-    expect(out).toContain('class="y-builtin"');
+  it('highlights every DAG builtin in y-builtin span', () => {
+    // Must match the builtins registered in internal/config/starlark.go.
+    for (const b of ['input','process','merge','output','pipeline','route','env']) {
+      const out = highlightStarlark(`x = ${b}("arg")`);
+      expect(out, `builtin ${b}`).toContain(`<span class="y-builtin">${b}</span>`);
+    }
+  });
+
+  it('does not highlight removed legacy builtins (plugin, task)', () => {
+    for (const w of ['plugin', 'task']) {
+      const out = highlightStarlark(`${w}("rss", url="x")`);
+      expect(out, `legacy word ${w}`).not.toContain('class="y-builtin"');
+    }
   });
 
   it('highlights True/False/None in y-bool span', () => {
