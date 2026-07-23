@@ -107,7 +107,7 @@ func (c *delugeClient) ListTorrents(ctx context.Context) ([]Torrent, error) {
 		if !ok {
 			continue
 		}
-		
+
 		name, _ := fields["name"].(string)
 		stateStr, _ := fields["state"].(string)
 		progress, _ := fields["progress"].(float64)
@@ -117,26 +117,39 @@ func (c *delugeClient) ListTorrents(ctx context.Context) ([]Torrent, error) {
 		downloadLoc, _ := fields["download_location"].(string)
 		message, _ := fields["message"].(string)
 
+		// Deluge state strings: Downloading, Seeding, Paused, Queued,
+		// Checking, Allocating, Moving, Error. There is no distinct
+		// "stalled" string — a stalled torrent still reports Downloading
+		// or Seeding, so this backend never produces StateStalled.
+		// Queued maps to StatePaused, not StateDownloading: a queued
+		// torrent makes no progress by design, and a zero-progress
+		// "downloading" torrent would be flagged by torrent_failed after
+		// stall_timeout, falsely janitoring queue backlogs.
 		state := StateDownloading
 		switch stateStr {
 		case "Downloading":
 			state = StateDownloading
 		case "Seeding":
 			state = StateSeeding
-		case "Paused":
+		case "Paused", "Queued":
 			state = StatePaused
 		case "Error":
 			state = StateErrored
 		case "Checking", "Allocating", "Moving":
 			state = StateChecking
 		default:
-			// Deluge doesn't have a distinct "stalled" state string, it's usually "Downloading" or "Seeding"
-			// But we'll just map unknown to downloading. Wait, what about Queued?
 			state = StateDownloading
 		}
 
 		if ratio < 0 {
 			ratio = 0
+		}
+
+		// Deluge reports message == "OK" for healthy torrents. Torrent.Error
+		// must only carry a message when the torrent is actually errored;
+		// otherwise torrent_error would be stamped on every healthy torrent.
+		if state != StateErrored {
+			message = ""
 		}
 
 		torrents = append(torrents, Torrent{
