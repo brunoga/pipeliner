@@ -128,6 +128,7 @@ td code{font-size:11px}
     <a href="#tvdb_favorites" class="sub">tvdb_favorites</a>
     <a href="#trakt_list" class="sub">trakt_list</a>
     <a href="#bluray_releases" class="sub">bluray_releases</a>
+    <a href="#series_tracker" class="sub">series_tracker</a>
     <a href="#trakt-auth" class="sub">Trakt Authentication</a>
     <a href="#jackett" class="sub">jackett (search)</a>
     <a href="#rss" class="sub">rss (search)</a>
@@ -140,6 +141,7 @@ td code{font-size:11px}
     <a href="#metainfo_bluray" class="sub">metainfo_bluray</a>
     <a href="#metainfo_torrent" class="sub">metainfo_torrent</a>
     <a href="#metainfo_magnet" class="sub">metainfo_magnet</a>
+    <a href="#series_lifecycle" class="sub">series_lifecycle</a>
 
     <div class="section">Filter Plugins</div>
     <a href="#quality" class="sub">quality</a>
@@ -180,7 +182,9 @@ td code{font-size:11px}
     <a href="#list_add" class="sub">list_add</a>
     <a href="#tvdb_favorites_add" class="sub">tvdb_favorites_add</a>
     <a href="#trakt_list_update" class="sub">trakt_list_update</a>
+    <a href="#series_tracker_update" class="sub">series_tracker_update</a>
     <a href="#list-management" class="sub">List management</a>
+    <a href="#series-lifecycle" class="sub">Series lifecycle</a>
 
     <div class="section">Notify Plugins</div>
     <a href="#notify-email" class="sub">email</a>
@@ -1037,6 +1041,20 @@ pipeline("upcoming-blurays", schedule="2h")</code></pre>
 <h4>Backfilling the BD3D catalog</h4>
 <p>The window cap is 600 months (50 years), so a one-shot backfill of the entire BD3D era is just <code>from_year=2010, from_month=9, to_year=&lt;current&gt;, to_month=&lt;current&gt;, formats=["BD3D"]</code>. At the default 1 req/sec that's ~180 requests in ~3 minutes; after it runs the title index is fully warm and <code>metainfo_bluray</code> enrichment for any 3D-era movie hits the local cache without an HTTP round-trip.</p>
 
+<!-- ─────────── series_tracker ─────────── -->
+<h2 id="series_tracker">series_tracker</h2>
+<p>Emits one entry per show tracked by the series tracker — the same persistent store the <a href="#series"><code>series</code></a> and <a href="#premiere"><code>premiere</code></a> filters write per-episode download records to. The tracker store is shared across <em>all</em> pipelines (it is not namespaced by task), so this source sees every tracked show with no configuration at all. Also usable as a <code>list=</code> title source for <code>series</code>/<code>discover</code>.</p>
+
+<p>No config keys.</p>
+
+<h4>Fields set</h4>
+<p><code>title</code> (display name from the most recent record, falling back to the normalized name), <code>series_name</code> (normalized tracker key), <code>media_type</code> (always <code>series</code>), <code>source</code> (<code>series_tracker:tracker</code>), <code>series_episode_count</code>, <code>series_newest_episode</code> (e.g. <code>S03E08</code>), <code>series_last_downloaded_at</code>, <code>series_inactive</code> (<code>true</code> when the show was deactivated via <a href="#series_tracker_update"><code>series_tracker_update</code></a>). The entry URL is the stable synthetic <code>pipeliner://series/&lt;normalized-name&gt;</code>.</p>
+
+<pre><code>shows = input("series_tracker")
+lc    = process("series_lifecycle", upstream=shows, api_key=tvdb_api_key)</code></pre>
+
+<p>See <a href="#series-lifecycle">Series lifecycle</a> for the full flow.</p>
+
 <!-- ─────────── trakt auth ─────────── -->
 <h2 id="trakt-auth">Trakt Authentication</h2>
 <p>Private Trakt lists (watchlist, ratings, collection) require an OAuth token. Pipeliner supports two approaches:</p>
@@ -1221,6 +1239,26 @@ real   = process("condition", upstream=bluray,
                  reject="video_is_3d == true and bluray_3d_release != true")
 output("transmission", upstream=real, host="localhost")
 pipeline("real-3d-only", schedule="1h")</code></pre>
+
+<!-- ─────────── series_lifecycle ─────────── -->
+<h2 id="series_lifecycle">series_lifecycle</h2>
+<p>Classifies tracked shows by follow lifecycle using TheTVDB status and episode list, compared against the series tracker. Typically fed by the <a href="#series_tracker"><code>series_tracker</code></a> source; see <a href="#series-lifecycle">Series lifecycle</a> for the end-to-end flow.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>api_key</code></td><td>yes</td><td>—</td><td>TheTVDB v4 API key</td></tr>
+  <tr><td><code>cache_ttl</code></td><td>no</td><td><code>24h</code></td><td>How long to cache TVDB lookups</td></tr>
+  <tr><td><code>include_specials</code></td><td>no</td><td><code>false</code></td><td>Count season-0 specials as aired episodes</td></tr>
+</table>
+
+<p>Every entry gets <code>series_lifecycle</code>:</p>
+<ul>
+  <li><code>complete</code> — status <code>Ended</code>/<code>Cancelled</code> <em>and</em> every aired episode is in the tracker.</li>
+  <li><code>dormant</code> — <code>Ended</code>/<code>Cancelled</code> but aired episodes are missing (backfill candidate).</li>
+  <li><code>active</code> — anything else: still running, upcoming, or the TVDB lookup failed. Missing data never marks a show complete or dormant, so lookup failures can never deactivate a show or trigger backfill flows.</li>
+</ul>
+
+<p>Only episodes whose air date is in the past count as aired; unaired and undated episodes are ignored, and specials (season 0) are excluded unless <code>include_specials=true</code>. When the lookup succeeds the entry also gets <code>series_status</code>, <code>tvdb_id</code>, and — when the episode list was fetched — <code>series_aired_episode_count</code> and <code>series_missing_episode_count</code>. The show is resolved by <code>tvdb_id</code> when the entry already carries one, otherwise by name search using <code>series_name</code>/<code>title</code>.</p>
 
 <hr>
 <!-- ═══════════════════════════════════════════════════════════ -->
@@ -1929,6 +1967,53 @@ prune = output("trakt_list_update", upstream=done,
 pipeline("prune-trakt-watchlist", schedule="168h")</code></pre>
 
 <p>Both patterns ship as <code>configs/prune-ended-favorites.star</code>. Run them with <a href="#dry-run">dry-run</a> first to preview what would be added or removed.</p>
+
+<!-- ─────────── series_tracker_update ─────────── -->
+<h2 id="series_tracker_update">series_tracker_update</h2>
+<p>Flips a tracked show's <em>inactive</em> flag in the series tracker. Deactivated shows are rejected early by the <a href="#series"><code>series</code></a> filter with <code>series: &lt;show&gt; inactive (&lt;reason&gt;)</code> — before any quality or tracker checks — so pipelines stop spending work on shows that are over. The flag is stored per show, shared across all pipelines; the per-episode download records are untouched, so reactivating restores the show exactly where it left off.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>action</code></td><td>yes</td><td>—</td><td><code>deactivate</code> or <code>reactivate</code></td></tr>
+  <tr><td><code>reason</code></td><td>no</td><td>entry's <code>series_lifecycle</code>, else <code>deactivated</code></td><td>Reason recorded on deactivation; echoed in the series filter's rejection message</td></tr>
+</table>
+
+<p>Requires <code>series_name</code> (the normalized tracker key emitted by <a href="#series_tracker"><code>series_tracker</code></a>); entries without it are marked failed. In <a href="#dry-run">dry-run mode</a> the sink logs "would deactivate"/"would reactivate" previews per entry and makes no store writes.</p>
+
+<!-- ─────────── Series lifecycle ─────────── -->
+<h2 id="series-lifecycle">Series lifecycle</h2>
+<p>The series tracker follows shows forever by default. Once a show is over and fully downloaded, searching for it is wasted work — and knowing it is complete is useful in itself. The lifecycle flow closes that loop with three pieces:</p>
+
+<ol>
+  <li><a href="#series_tracker"><code>series_tracker</code></a> emits one entry per tracked show.</li>
+  <li><a href="#series_lifecycle"><code>series_lifecycle</code></a> enriches each show with TheTVDB status + episode list and classifies it <code>complete</code>, <code>dormant</code>, or <code>active</code>.</li>
+  <li><a href="#route"><code>route()</code></a> dispatches by classification: complete shows are deactivated via <a href="#series_tracker_update"><code>series_tracker_update</code></a> (with a chained <code>notify</code> that fires only after the tracker write succeeded); dormant shows just notify — they are backfill candidates, not done.</li>
+</ol>
+
+<pre><code>shows = input("series_tracker")
+lc    = process("series_lifecycle", upstream=shows, api_key=tvdb_api_key)
+
+routes = route(lc,
+    complete = 'series_lifecycle == "complete"',
+    dormant  = 'series_lifecycle == "dormant"',
+    active   = 'series_lifecycle == "active"')
+
+deact = output("series_tracker_update", upstream=routes.complete,
+               action="deactivate")
+output("notify", upstream=deact, via="pushover",
+       config={"user": pushover_user, "token": pushover_token},
+       body="{{range .Entries}}Series complete: {{.Title}}\n{{end}}")
+
+output("notify", upstream=routes.dormant, via="pushover",
+       config={"user": pushover_user, "token": pushover_token},
+       body="{{range .Entries}}Backfill candidate: {{.Title}}\n{{end}}")
+
+output("print", upstream=routes.active)
+pipeline("series-lifecycle", schedule="168h")</code></pre>
+
+<p><strong>The inactive flag.</strong> Deactivation writes a per-show flag (with a reason, e.g. <code>complete</code>) into a store bucket shared by every pipeline. The <a href="#series"><code>series</code></a> filter checks it right after matching the show and rejects episodes of inactive shows with <code>series: &lt;show&gt; inactive (complete)</code>. Download records are kept, so <code>action="reactivate"</code> restores normal tracking — including quality-upgrade and dedup behavior — without losing history. Lookup failures always classify as <code>active</code>, so a TVDB outage can never deactivate a show.</p>
+
+<p>The full pipeline ships as <code>configs/series-lifecycle.star</code>. Run it with <a href="#dry-run">dry-run</a> first to preview which shows would be deactivated.</p>
 
 <hr>
 <!-- ═══════════════════════════════════════════════════════════ -->
