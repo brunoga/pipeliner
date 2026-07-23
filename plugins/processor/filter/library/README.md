@@ -10,18 +10,26 @@ release strictly better than the library copy passes through (disable with
 The filesystem backend walks the configured paths and parses video filenames
 with the same release-name parsers the pipeline uses, keeping the best
 quality per episode/movie. The index is cached in memory and rebuilt when
-older than `ttl`. Remote backends (Plex, Jellyfin) are planned; the `backend`
-key exists so configs stay stable when they arrive.
+older than `ttl`.
+
+The `plex` and `jellyfin` backends build the same index from the media
+server's API (`url` + `token`) instead of walking disk. Those APIs expose
+resolution as the only reliable quality signal, so server backends compare
+resolution alone; the filesystem backend, which parses release names, also
+sees source/codec. If the server is unreachable at rescan time the previous
+index is kept — an unreachable server never counts as an empty library.
 
 ## Config
 
 | Key | Type | Required | Default | Description |
 |-----|------|----------|---------|-------------|
 | `paths` | list | yes | — | Library directories to index (walked recursively) |
-| `backend` | string | no | `filesystem` | Only `filesystem` is supported today |
+| `backend` | string | no | `filesystem` | `filesystem`, `plex`, or `jellyfin` |
 | `ttl` | duration | no | `15m` | How long the disk index is reused before rescanning |
 | `upgrade` | bool | no | `true` | Pass entries whose quality is strictly better than the library copy |
-| `extensions` | list | no | common video types | File extensions to index (`.mkv`, `.mp4`, `.avi`, `.m4v`, `.ts`, `.wmv`) |
+| `extensions` | list | no | common video types | File extensions to index (filesystem backend only) |
+| `url` | string | plex/jellyfin | — | Media server base URL |
+| `token` | string | plex/jellyfin | — | Media server API token |
 
 ## Matching
 
