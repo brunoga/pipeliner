@@ -1,0 +1,233 @@
+# Pipeliner Feature Roadmap
+
+This document formalizes the next wave of features. Each item is designed as a
+first-class DAG citizen: new capabilities arrive as source/processor/sink
+plugins (or engine/UI features that serve them), dry-run must always preview
+side effects, and the validator must know about any fields a plugin produces
+or requires. Items are ordered into milestones at the end.
+
+Conventions used below: *Exists* lists what the codebase already provides,
+*Gaps* what must be built, *Config sketch* the intended user-facing surface.
+
+---
+
+## 1. List management (remote-list mutation)
+
+**Motivation.** Pipelines currently *read* lists (`trakt_list`,
+`tvdb_favorites`, `list_add`/`list_match` local lists) but can only *write*
+downloads. Making list mutation a sink turns list hygiene into ordinary
+pipelines: prune ended series from TheTVDB favorites, mirror a filtered Trakt
+list, auto-add discovered premieres to a watchlist.
+
+**Config sketch.**
+
+```python
+favs   = input("tvdb_favorites")
+ended  = process("condition", upstream=favs,
+                 accept="series_status == 'Ended' or series_status == 'Cancelled'")
+prune  = output("tvdb_favorites", upstream=ended, action="remove")
+note   = output("notify", upstream=prune, via="pushover",
+                body="Unfavorited {{.Title}} ({{index .Fields \"series_status\"}})")
+pipeline("prune-ended-favorites", schedule="168h")
+```
+
+**Exists.** `tvdb_favorites` source with rich `video_*`/`series_*` fields;
+`internal/tvdb` client (search, series-by-id, extended, favorites GET);
+`trakt_list` source; Trakt OAuth device flow in the web UI; `list_add` sink +
+`list_match` processor for local lists.
+
+**Gaps.**
+- `series_status` (Continuing/Ended/Cancelled) is not surfaced today — add it
+  to the `tvdb_favorites` source and `metainfo_tvdb` enrichment (the extended
+  series response carries status), register the field constant + metadata.
+- `tvdb_favorites` **sink** with `action="add"|"remove"` and `Requires:
+  tvdb_id`. ⚠ Open question: TheTVDB v4 exposes GET and PUT for
+  `/user/favorites`; a DELETE endpoint may not exist. Verify against the
+  live API first; if removal is unsupported upstream, fall back to managing a
+  local mirror list (`list_add`) and document the limitation honestly rather
+  than shipping a sink that cannot remove.
+- `trakt_list` **sink**: add/remove items on a user list or watchlist
+  (`POST /users/{id}/lists/{list}/items[/remove]`), using the existing device
+  token. `Requires` one of `tmdb_id`/`tvdb_id`/`imdb_id`/`trakt_id`.
+- Refresh the stale `list_add` README (still shows removed `task()` syntax).
+
+**Deliverables.** Field constant + both enrichment paths; two sinks with
+dry-run previews ("would remove X"); sample config `configs/prune-ended-favorites.star`;
+user-guide section; README refresh.
+
+## 2. Follow lifecycle for tracked series
+
+**Motivation.** The `series` tracker follows shows forever. When a show is
+Ended and its final episode is downloaded, searching for it is wasted work —
+and knowing a series is complete is genuinely useful information.
+
+**Design.** A `series_lifecycle` processor: source = the series tracker
+itself (one entry per tracked show), enrich with TVDB status + episode list,
+and classify: `complete` (ended, last episode downloaded), `dormant` (ended,
+gaps remain — feeds backfill, see §4), `active`. Sinks decide what to do:
+notify, remove from `series.static`-equivalent local lists, or mark the
+tracker entry inactive (new tracker flag honored by the `series` filter).
+
+**Exists.** Series tracker with per-episode records; TVDB episode lists.
+
+**Gaps.** Tracker-as-source plugin, `inactive` flag + `series` filter
+support, the classifier, docs.
+
+## 3. Download-loop closure: session janitor and failed-grab recovery
+
+**Motivation.** Pipeliner adds torrents and then never looks back. Dead
+torrents leave permanent holes (the release is marked seen, no retry); seeded
+torrents accumulate forever.
+
+**Design.**
+- `torrent_session` source: one entry per torrent in
+  Transmission/qBittorrent/Deluge (reusing each sink's client code), with
+  fields `torrent_ratio`, `torrent_seed_time`, `torrent_state`,
+  `torrent_added_at`, `torrent_progress`, `torrent_stalled_for`.
+- Janitor pipelines are then just `condition` + a new
+  `torrent_control` sink (`action="remove"|"remove_with_data"|"pause"|"reannounce"`).
+- Failed-grab recovery: a `torrent_failed` classifier (stalled longer than
+  `stall_timeout`, or errored) whose sink chain marks the release **failed**
+  in the seen tracker (new state: retryable) and emits a synthetic entry that
+  `discover` can pick up on the next run to search for an alternative
+  release. The seen tracker gains a `failed_url` bucket so the same bad
+  release is never re-grabbed.
+
+**Exists.** Transmission/qBittorrent/Deluge clients inside the sinks; seen
+tracker; discover search machinery; commit-phase semantics for "only after
+confirmation".
+
+**Gaps.** Extract shared session clients into `internal/torrentclient`;
+source + control sink; seen-tracker failed state; recovery classifier; docs +
+sample config.
+
+## 4. Backfill via gap detection
+
+**Motivation.** Adding a show today only catches new episodes. The tracker
+knows what you have; TVDB knows what exists — the diff is the backlog.
+
+**Design.** `series_gaps` processor: upstream entries are shows (from
+`tvdb_favorites`, `trakt_list`, or the §2 tracker source); for each, fetch
+the TVDB episode list, diff against the series tracker, and emit one entry
+per missing episode (`series_season`, `series_episode`,
+`series_episode_id`, `title`) — which feeds straight into `discover`
+search backends. Season-pack preference: when more than `pack_threshold`
+(default 50%) of a season is missing, emit a single season-pack query entry
+instead of per-episode queries.
+
+**Exists.** Tracker, TVDB episodes, discover + jackett search,
+`ReplacesUpstream` descriptor semantics (this is exactly a
+`ReplacesUpstream` processor, like `discover`).
+
+**Gaps.** The processor, pack heuristics, rate limiting for big backlogs
+(cap per run, resume next run), docs + sample config.
+
+## 5. Library awareness
+
+**Motivation.** The seen tracker knows what pipeliner grabbed — not what is
+actually on disk. Real-library checks enable disk-truth dedup and true
+quality upgrades ("grab 1080p because the file on disk is 720p").
+
+**Design.**
+- `library` filter: reject entries whose episode/movie already exists in the
+  library at equal-or-better quality. Backends: filesystem glob (parse
+  filenames with the existing `internal/series`/`internal/movies` parsers)
+  first; Plex/Jellyfin API backends later (same plugin, `backend=` key).
+- `library_refresh` chained sink: after the download sink confirms, poke
+  Plex/Jellyfin to rescan the relevant path. Chained-sink semantics already
+  guarantee it only fires on confirmed downloads.
+
+**Exists.** Filename parsers, quality comparison (upgrade detection in the
+series tracker), sink chaining, `pathfmt` for destination paths.
+
+**Gaps.** Library index (scan + cache in a store bucket with mtime
+invalidation), the filter, refresh sink, Plex/Jellyfin clients, docs.
+
+## 6. Notification upgrades: digests, calendars, skip reports
+
+**Motivation.** Per-entry pushes get muted; a daily/weekly summary gets read.
+The engine already records accept/reject reasons — surfacing them is cheap.
+
+**Design.**
+- `notify` digest mode: `digest="run"|"1d"|"7d"` batches accepted entries
+  (store-buffered for time windows) into one templated message.
+- `tvdb_calendar` / `trakt_calendar` sources: one entry per upcoming episode
+  for followed shows — "tonight's episodes" notify pipelines, or feed
+  `discover` for day-of searching.
+- Skip report: a `run_report` source emitting per-run aggregates (accepted /
+  rejected by reason / failed) for a weekly "what happened and why" digest.
+
+**Exists.** Notifier registry (email/pushover/webhook), reasons on every
+entry, run history in the web server.
+
+**Gaps.** Digest buffering, calendar API calls, run-report source (needs the
+engine to persist per-run reason tallies — today they only live in memory).
+
+## 7. Webhook ingest (push sources)
+
+**Motivation.** Polling has latency; announce bots (autobrr, IRC bridges)
+can push. One authenticated endpoint makes pipeliner composable with
+anything that can POST JSON.
+
+**Design.** `webhook` source plugin that registers
+`POST /api/ingest/{pipeline}` (token auth via `env()`), maps JSON fields to
+entry fields (configurable mapping), queues entries, and triggers the
+pipeline immediately via the existing scheduler `Trigger` path. Rate-limited
+and size-capped.
+
+**Exists.** Web server + auth, scheduler trigger, `env()`.
+
+**Gaps.** Source plugin + server route + queue handoff, docs, sample config
+pairing it with autobrr.
+
+## 8. Run inspector (web UI)
+
+**Motivation.** "Why didn't it grab X?" is the most common debugging
+question. The engine knows the answer per entry, per node; the dashboard
+only shows counts.
+
+**Design.** Persist per-run entry traces (entry title/URL, per-node verdict
++ reason, final state) to a capped store bucket (last N runs, opt-out
+config). Dashboard run-history rows (added in PR #300) expand into an entry
+table with a per-node trace drill-down. Dry-runs always record traces —
+making dry-run + inspector the standard config-debugging loop.
+
+**Exists.** Run history UI, reasons on entries, dry-run mode.
+
+**Gaps.** Trace capture in the executor (bounded memory), storage schema,
+API, UI table + trace view, docs.
+
+## 9. Pipeline triggers
+
+**Motivation.** Multi-stage flows (gaps → search → notify; sync-list →
+filter) currently rely on schedule phasing. An explicit trigger is simpler
+and race-free.
+
+**Design.** `pipeline("b", after="a")` — run B when A finishes, optionally
+`after="a:accepted"` (only when A accepted ≥1 entry). Scheduler-level:
+`Daemon` fires dependents on completion; cycles rejected at config
+validation; UI shows the chain on the dashboard.
+
+**Exists.** Scheduler with named-task triggers, config validation pass.
+
+**Gaps.** Trigger wiring, validation, dashboard indication, docs.
+
+---
+
+## Milestones and order
+
+| # | Milestone | Items | Rationale |
+|---|-----------|-------|-----------|
+| M1 | List management core | §1 | The seed use case; small surface; establishes the list-mutation sink pattern |
+| M2 | Follow lifecycle | §2 | Builds directly on M1's status enrichment |
+| M3 | Download-loop closure | §3 | Biggest quiet win for every existing pipeline |
+| M4 | Backfill | §4 | Reuses M3's failed/seen plumbing and discover |
+| M5 | Library awareness | §5 | Independent; larger surface (external APIs) |
+| M6 | Notification upgrades | §6 | Independent; run-report depends on §8's tallies (do digest+calendar first) |
+| M7 | Webhook ingest | §7 | Independent; small |
+| M8 | Run inspector | §8 | UI-heavy; lands best after M3/M4 increase pipeline complexity |
+| M9 | Pipeline triggers | §9 | Scheduler change; benefits M2/M4 flows once they exist |
+
+Every milestone ships as one or more PRs with tests, a sample config that
+passes `pipeliner check`, and a user-guide section. Dry-run previews are a
+hard requirement for anything with remote side effects (M1, M3, M5).
