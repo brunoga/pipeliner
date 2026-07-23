@@ -48,6 +48,7 @@ import (
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/torrent_failed"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/torrentalive"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/trailer"
+	_ "github.com/brunoga/pipeliner/plugins/processor/gaps"
 	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/bluray"
 	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/file"
 	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/lifecycle"

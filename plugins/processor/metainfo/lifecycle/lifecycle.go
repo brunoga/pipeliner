@@ -26,11 +26,9 @@ package lifecycle
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
-	"github.com/brunoga/pipeliner/internal/cache"
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/match"
 	"github.com/brunoga/pipeliner/internal/plugin"
@@ -86,18 +84,9 @@ func validate(cfg map[string]any) []error {
 	return errs
 }
 
-// cachedEpisodes mirrors the JSON shape of metainfo_tvdb's episode cache
-// (lowercase "name"/"episodes") so the database tab labels rows the same way.
-type cachedEpisodes struct {
-	Name     string          `json:"name"`
-	Episodes []itvdb.Episode `json:"episodes"`
-}
-
 type lifecyclePlugin struct {
-	client          *itvdb.Client
+	resolver        *itvdb.Resolver
 	tracker         *series.Tracker
-	searchCache     *cache.Cache[[]itvdb.Series]
-	episodeCache    *cache.Cache[cachedEpisodes]
 	includeSpecials bool
 	// now is the reference time for "already aired"; overridable in tests.
 	now func() time.Time
@@ -118,17 +107,13 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 		ttl = d
 	}
 
-	p := &lifecyclePlugin{
-		client:          itvdb.New(apiKey),
+	return &lifecyclePlugin{
+		resolver: itvdb.NewResolver(itvdb.New(apiKey), ttl,
+			db.Bucket("cache_series_lifecycle"), db.Bucket("cache_series_lifecycle_eps")),
 		tracker:         series.NewTracker(db.Bucket(series.TrackerBucketName)),
-		searchCache:     cache.NewPersistent[[]itvdb.Series](ttl, db.Bucket("cache_series_lifecycle")),
-		episodeCache:    cache.NewPersistent[cachedEpisodes](ttl, db.Bucket("cache_series_lifecycle_eps")),
 		includeSpecials: plugin.OptBool(cfg, "include_specials", false),
 		now:             time.Now,
-	}
-	p.searchCache.Preload()
-	p.episodeCache.Preload()
-	return p, nil
+	}, nil
 }
 
 func (p *lifecyclePlugin) Name() string { return pluginName }
@@ -158,9 +143,15 @@ func (p *lifecyclePlugin) classify(ctx context.Context, tc *plugin.TaskContext, 
 		return
 	}
 
-	s := p.resolveSeries(ctx, tc, e, searchName)
+	s, err := p.resolver.ResolveSeries(ctx, e.GetString("tvdb_id"), searchName)
+	if err != nil {
+		tc.Logger.Warn(pluginName+": TVDB lookup failed; classifying as active",
+			"series", searchName, "err", err)
+		e.Set(entry.FieldSeriesLifecycle, entry.SeriesLifecycleActive)
+		return
+	}
 	if s == nil {
-		tc.Logger.Warn(pluginName+": TVDB lookup failed; classifying as active", "series", searchName)
+		tc.Logger.Warn(pluginName+": TVDB lookup found no match; classifying as active", "series", searchName)
 		e.Set(entry.FieldSeriesLifecycle, entry.SeriesLifecycleActive)
 		return
 	}
@@ -178,7 +169,7 @@ func (p *lifecyclePlugin) classify(ctx context.Context, tc *plugin.TaskContext, 
 		return
 	}
 
-	eps, err := p.fetchEpisodes(ctx, tc, s.ID, searchName)
+	eps, err := p.resolver.Episodes(ctx, s.ID, searchName)
 	if err != nil {
 		// Ended but unverifiable: stay active rather than emitting a wrong
 		// "dormant" (would trigger backfill flows) or "complete" (would
@@ -203,16 +194,10 @@ func (p *lifecyclePlugin) classify(ctx context.Context, tc *plugin.TaskContext, 
 // absent from the series tracker.
 func (p *lifecyclePlugin) diffAired(eps []itvdb.Episode, trackerName string) (aired, missing int) {
 	now := p.now()
-	for _, ep := range eps {
-		if ep.SeasonNumber == 0 && !p.includeSpecials {
+	for i := range eps {
+		ep := &eps[i]
+		if !itvdb.EpisodeAired(ep, now, p.includeSpecials) {
 			continue
-		}
-		if ep.SeasonNumber < 0 || ep.EpisodeNumber <= 0 {
-			continue
-		}
-		airDate := itvdb.ParseDate(ep.AirDate)
-		if airDate.IsZero() || !airDate.Before(now) {
-			continue // unaired or unscheduled episodes don't count
 		}
 		aired++
 		epID := series.EpisodeID(&series.Episode{Season: ep.SeasonNumber, Episode: ep.EpisodeNumber})
@@ -221,64 +206,6 @@ func (p *lifecyclePlugin) diffAired(eps []itvdb.Episode, trackerName string) (ai
 		}
 	}
 	return aired, missing
-}
-
-// resolveSeries finds the TVDB series record: by tvdb_id when the entry
-// carries one, otherwise by name search (cached).
-func (p *lifecyclePlugin) resolveSeries(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry, name string) *itvdb.Series {
-	if idStr := e.GetString("tvdb_id"); idStr != "" {
-		if id, err := strconv.Atoi(idStr); err == nil && id > 0 {
-			cacheKey := "id:" + idStr
-			if hit, ok := p.searchCache.Get(cacheKey); ok && len(hit) > 0 {
-				return &hit[0]
-			}
-			s, err := p.client.GetSeriesByID(ctx, id)
-			if err != nil {
-				tc.Logger.Warn(pluginName+": series by id failed", "tvdb_id", id, "err", err)
-				return nil
-			}
-			// GetSeriesByID responses omit the search alias "tvdb_id" key, so
-			// carry the ID forward explicitly before caching.
-			if s.ID == "" {
-				s.ID = idStr
-			}
-			p.searchCache.Set(cacheKey, []itvdb.Series{*s})
-			return s
-		}
-	}
-
-	if hit, ok := p.searchCache.Get(name); ok {
-		if len(hit) == 0 {
-			return nil
-		}
-		return &hit[0]
-	}
-	results, err := p.client.SearchSeries(ctx, name)
-	if err != nil {
-		tc.Logger.Warn(pluginName+": search failed", "series", name, "err", err)
-		return nil
-	}
-	p.searchCache.Set(name, results)
-	if len(results) == 0 {
-		return nil
-	}
-	return &results[0]
-}
-
-func (p *lifecyclePlugin) fetchEpisodes(ctx context.Context, tc *plugin.TaskContext, id, name string) ([]itvdb.Episode, error) {
-	if id == "" {
-		return nil, fmt.Errorf("%s: series has no tvdb id", pluginName)
-	}
-	if hit, ok := p.episodeCache.Get(id); ok {
-		return hit.Episodes, nil
-	}
-	eps, err := p.client.GetEpisodes(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	p.episodeCache.Set(id, cachedEpisodes{Name: name, Episodes: eps})
-	tc.Logger.Debug(pluginName+": episodes fetched", "id", id, "count", len(eps))
-	return eps, nil
 }
 
 // isEnded reports whether a series status string means the show is over.

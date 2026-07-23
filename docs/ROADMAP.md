@@ -153,6 +153,21 @@ instead of per-episode queries.
 
 **Gaps.** The processor, pack heuristics, rate limiting for big backlogs
 (cap per run, resume next run), docs + sample config.
+✅ Shipped (2026-07): `series_gaps` processor (`ReplacesUpstream`, TVDB
+resolution + episode lists via the shared `internal/tvdb` Resolver extracted
+from `series_lifecycle`, aired-only diff with `include_specials` opt-in,
+inactive shows skipped unless `include_inactive=true`). Season packs: a
+season whose missing fraction strictly exceeds `pack_threshold` (default
+0.5) emits one pack query ("Show S02", `series_season` set, no
+`series_episode_id` — the codebase has no pack tracking semantics, so pack
+entries are plain search queries and pack grabs are not recorded
+per-episode; the sample config pins `pack_threshold=1.0` for its strict
+episode chain). `max_per_run` (default 30) caps emissions in deterministic
+(show, season, episode) order with a persisted wrap-around cursor per
+pipeline; dry-run never advances it. Sample config
+`configs/series-backfill.star` (lifecycle dormant gate → gaps → discover →
+`series tracking="backfill"` → transmission + chained notify); user-guide
+section "Backfill".
 
 ## 5. Library awareness
 
