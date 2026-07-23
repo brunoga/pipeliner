@@ -43,11 +43,17 @@ async function traktStartAuth() {
       <div class="auth-countdown" id="trakt-countdown"></div>
     `);
 
+    // The device code is on screen — the device flow can take minutes, so
+    // don't leave the button stuck on "Starting…". It becomes a restart
+    // affordance in case the user wants a fresh code.
+    btn.disabled = false;
+    btn.textContent = 'Restart authorization';
+
     traktCountdownTimer = setInterval(() => {
       const secs = Math.max(0, Math.round((traktExpiresAt - Date.now()) / 1000));
       const el = document.getElementById('trakt-countdown');
       if (el) el.textContent = 'Expires in ' + secs + 's';
-      if (secs <= 0) clearInterval(traktCountdownTimer);
+      if (secs <= 0) traktExpireAuth();
     }, 1000);
 
     traktPollTimer = setInterval(traktPoll, 3000);
@@ -58,7 +64,34 @@ async function traktStartAuth() {
   }
 }
 
+// traktExpireAuth stops the device flow when the code's lifetime runs out:
+// polling stops, the user gets an actionable message, and the button
+// resets so a fresh flow can be started.
+function traktExpireAuth() {
+  clearInterval(traktPollTimer);
+  clearInterval(traktCountdownTimer);
+  traktPollTimer = null;
+  traktCountdownTimer = null;
+  traktExpiresAt = null;
+  traktSetStatus('error', '<strong>Code expired</strong> — click Authorize to try again.');
+  traktResetButton();
+}
+
+function traktResetButton() {
+  const btn = document.getElementById('trakt-auth-btn');
+  if (!btn) return;
+  btn.disabled = false;
+  btn.textContent = 'Authorize';
+}
+
 async function traktPoll() {
+  // Pause polling while the tab is hidden; the countdown timer still
+  // handles expiry, and polling resumes on the next tick once visible.
+  if (typeof document !== 'undefined' && document.hidden) return;
+  if (traktExpiresAt !== null && Date.now() >= traktExpiresAt) {
+    traktExpireAuth();
+    return;
+  }
   try {
     const r = await fetch('/api/trakt/auth/poll');
     if (!r.ok) return;
@@ -67,17 +100,15 @@ async function traktPoll() {
     if (status === 'authorized') {
       clearInterval(traktPollTimer);
       clearInterval(traktCountdownTimer);
+      traktExpiresAt = null;
       traktSetStatus('authorized', '✓ Authorization successful — token saved to database.');
-      const btn = document.getElementById('trakt-auth-btn');
-      btn.disabled = false;
-      btn.textContent = 'Authorize';
+      traktResetButton();
     } else if (status === 'error') {
       clearInterval(traktPollTimer);
       clearInterval(traktCountdownTimer);
+      traktExpiresAt = null;
       traktSetStatus('error', '<strong>Error:</strong> ' + esc(message || 'unknown error'));
-      const btn = document.getElementById('trakt-auth-btn');
-      btn.disabled = false;
-      btn.textContent = 'Authorize';
+      traktResetButton();
     }
   } catch (_) {}
 }
@@ -89,4 +120,3 @@ function traktSetStatus(type, html) {
   el.style.display = type ? 'block' : 'none';
   body.innerHTML = html;
 }
-
