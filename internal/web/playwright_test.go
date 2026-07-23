@@ -1,6 +1,6 @@
 // Playwright e2e browser tests for the web UI.
 // Tests are skipped automatically when Chromium is not installed.
-// Install Chromium once with: go run github.com/playwright-community/playwright-go/cmd/playwright install chromium
+// Install Chromium once with: go run github.com/mxschmitt/playwright-go/cmd/playwright install chromium
 package web_test
 
 import (
@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	playwright "github.com/playwright-community/playwright-go"
+	playwright "github.com/mxschmitt/playwright-go"
 
 	"github.com/brunoga/pipeliner/internal/config"
 	"github.com/brunoga/pipeliner/internal/store"
