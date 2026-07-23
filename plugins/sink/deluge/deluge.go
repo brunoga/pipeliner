@@ -151,7 +151,7 @@ func (p *delugePlugin) deliver(ctx context.Context, tc *plugin.TaskContext, entr
 	return nil
 }
 
-// recordGrab links the torrent back to its release URL so mark_failed can 
+// recordGrab links the torrent back to its release URL so mark_failed can
 // recover it if the torrent dies.
 func (p *delugePlugin) recordGrab(tc *plugin.TaskContext, e *entry.Entry) {
 	if p.grabStore == nil {
@@ -202,9 +202,10 @@ func (p *delugePlugin) addTorrent(ctx context.Context, rawURL, linkType, savePat
 
 // validateTorrentURL rejects URLs that the Deluge daemon cannot act on. The
 // Twisted HTTP downloader inside Deluge raises a verbose
-// `twisted.web.error.SchemeNotSupported: Unsupported scheme: b''`
-// traceback for empty / scheme-less / host-less URLs, so we surface a
-// useful error here before the RPC is made.
+// twisted.web.error.SchemeNotSupported traceback (Unsupported scheme, with
+// the scheme rendered as an empty Python bytes literal) for empty /
+// scheme-less / host-less URLs, so we surface a useful error here before
+// the RPC is made.
 func validateTorrentURL(rawURL string) error {
 	if rawURL == "" {
 		return fmt.Errorf("entry has empty URL")

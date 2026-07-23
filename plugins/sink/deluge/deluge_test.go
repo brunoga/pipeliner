@@ -342,12 +342,12 @@ func TestValidateTorrentURL(t *testing.T) {
 		{"http_ok", "http://example.com/x.torrent", ""},
 		{"https_ok", "https://example.com/x.torrent", ""},
 		{"magnet_ok", "magnet:?xt=urn:btih:abc", ""},
-		{"scheme_only", "http://", "no host"},                                // passes prefix check but has no host
-		{"host_only_no_scheme", "example.com/foo.torrent", "unsupported"},    // ftp-ish path-like input; prefix check missed it before
-		{"ftp_scheme", "ftp://example.com/x.torrent", "unsupported"},         // explicitly non-supported scheme
-		{"javascript_scheme", "javascript:alert(1)", "unsupported"},          // safety: dangerous scheme rejected
-		{"relative_path", "/dl/foo.torrent", "unsupported"},                  // path-only — exactly the b'' scheme case
-		{"colon_only", ":foo", "invalid URL"},                                // url.Parse rejects this outright
+		{"scheme_only", "http://", "no host"},                             // passes prefix check but has no host
+		{"host_only_no_scheme", "example.com/foo.torrent", "unsupported"}, // ftp-ish path-like input; prefix check missed it before
+		{"ftp_scheme", "ftp://example.com/x.torrent", "unsupported"},      // explicitly non-supported scheme
+		{"javascript_scheme", "javascript:alert(1)", "unsupported"},       // safety: dangerous scheme rejected
+		{"relative_path", "/dl/foo.torrent", "unsupported"},               // path-only — exactly the b'' scheme case
+		{"colon_only", ":foo", "invalid URL"},                             // url.Parse rejects this outright
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
