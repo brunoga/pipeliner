@@ -20,4 +20,9 @@ req  = process("require", upstream=lib,
 qual = process("quality", upstream=req, spec="720p+")
 flt  = process("series", upstream=qual, static=["Breaking Bad"])
 out  = output("transmission", upstream=flt, host="localhost")
+
+# Chained sink: fires only for downloads transmission confirmed, once per run.
+rescan = output("library_refresh", upstream=out,
+                backend="plex", url="http://localhost:32400",
+                token=env("PLEX_TOKEN", default="YOUR_PLEX_TOKEN"))
 pipeline("library-aware-tv", schedule="1h")

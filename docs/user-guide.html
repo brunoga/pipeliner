@@ -185,6 +185,7 @@ td code{font-size:11px}
     <a href="#print" class="sub">print</a>
     <a href="#notify-output" class="sub">notify</a>
     <a href="#decompress" class="sub">decompress</a>
+    <a href="#library_refresh" class="sub">library_refresh</a>
     <a href="#list_add" class="sub">list_add</a>
     <a href="#tvdb_favorites_add" class="sub">tvdb_favorites_add</a>
     <a href="#trakt_list_update" class="sub">trakt_list_update</a>
@@ -1662,7 +1663,7 @@ pipeline("tech-news", schedule="1h")</code></pre>
 <!-- ─────────── list_match ─────────── -->
 <h2 id="library">library</h2>
 <p>Rejects entries whose episode or movie already exists in the media library <em>on disk</em> at equal-or-better quality. Unlike <a href="#seen"><code>seen</code></a> and the download trackers (which record what pipeliner grabbed), this checks disk truth — content acquired outside pipeliner counts too — and enables real quality upgrades: a release strictly better than the library copy passes through.</p>
-<p>The filesystem backend walks the configured paths, parses video filenames with the same release-name parsers the pipeline uses, and keeps the best quality per episode (<code>show + series_episode_id</code>) and per movie (<code>title + year</code>). The index is cached in memory and rebuilt when older than <code>ttl</code>. Remote backends (Plex, Jellyfin) are planned; the <code>backend</code> key exists so configs stay stable when they arrive.</p>
+<p>The filesystem backend walks the configured paths, parses video filenames with the same release-name parsers the pipeline uses, and keeps the best quality per episode (<code>show + series_episode_id</code>) and per movie (<code>title + year</code>). The index is cached in memory and rebuilt when older than <code>ttl</code>. The <code>plex</code> and <code>jellyfin</code> backends build the same index from the media server's API (<code>url</code> + <code>token</code>); they compare by resolution only, and an unreachable server keeps the previous index rather than counting as an empty library.</p>
 <table>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
   <tr><td><code>paths</code></td><td>yes</td><td>—</td><td>Library directories to index (walked recursively)</td></tr>
@@ -1990,6 +1991,19 @@ output("exec", upstream=cleanup, command="rm -f {file_location}")</code></pre>
 </table>
 
 <!-- ─────────── list_add ─────────── -->
+<h2 id="library_refresh">library_refresh</h2>
+<p>Asks a Plex or Jellyfin server to rescan its libraries. Chain it after a download sink — chained sinks only receive entries the upstream sink confirmed, so the rescan fires exactly when new content landed, at most once per run. A failed rescan is logged but never fails the downloads.</p>
+<table>
+  <tr><th>Key</th><th>Required</th><th>Description</th></tr>
+  <tr><td><code>backend</code></td><td>yes</td><td><code>plex</code> or <code>jellyfin</code></td></tr>
+  <tr><td><code>url</code></td><td>yes</td><td>Media server base URL, e.g. <code>http://localhost:32400</code></td></tr>
+  <tr><td><code>token</code></td><td>yes</td><td>Media server API token</td></tr>
+</table>
+<pre><code>out    = output("transmission", upstream=flt, host="localhost")
+rescan = output("library_refresh", upstream=out,
+                backend="plex", url="http://localhost:32400",
+                token=env("PLEX_TOKEN", default="YOUR_TOKEN"))</code></pre>
+
 <h2 id="list_add">list_add</h2>
 <p>Stores accepted entries in a named persistent list for use by <code>list_match</code> in the same or another pipeline.</p>
 
