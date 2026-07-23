@@ -5539,6 +5539,9 @@ function openExtractDialog() {
   modal = document.createElement('div');
   modal.id = 've-extract-modal';
   modal.className = 've-extract-modal';
+  modal.setAttribute('role', 'dialog');
+  modal.setAttribute('aria-modal', 'true');
+  modal.setAttribute('aria-label', 'Extract to function');
 
   const paramRows = params.map((p, i) => `
     <tr>
@@ -7450,6 +7453,8 @@ function openTextPopup(title, placeholder, initialValue, onSave) {
     modal = document.createElement('div');
     modal.id = 've-text-popup';
     modal.className = 've-text-popup';
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
     modal.innerHTML =
       '<div class="ve-text-popup-inner">' +
         '<div class="ve-text-popup-header">' +
@@ -7466,6 +7471,7 @@ function openTextPopup(title, placeholder, initialValue, onSave) {
   }
 
   modal.querySelector('.ve-text-popup-title').textContent = title;
+  modal.setAttribute('aria-label', title);
   const ta = modal.querySelector('.ve-text-popup-ta');
   ta.placeholder = placeholder ?? '';
   ta.value       = initialValue ?? '';

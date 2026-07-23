@@ -3311,3 +3311,32 @@ pipeline("tv")`
 		t.Errorf("upstream pseudo-node leaked into serialisation:\n%s", content)
 	}
 }
+
+// TestE2ENarrowViewportNoHorizontalScroll guards the header/tab-bar/log-toolbar
+// flex-wrap: at tablet-ish widths the page must wrap its toolbars instead of
+// forcing sideways scrolling.
+func TestE2ENarrowViewportNoHorizontalScroll(t *testing.T) {
+	ts := startTestServer(t, minimalConfig)
+	browser, stop := pwSetup(t)
+	defer stop()
+
+	page, err := browser.NewPage(playwright.BrowserNewPageOptions{
+		Viewport: &playwright.Size{Width: 640, Height: 900},
+	})
+	if err != nil {
+		t.Fatalf("new page: %v", err)
+	}
+	defer page.Close()
+
+	login(t, page, ts.url)
+	waitVisible(t, page.Locator(".task-name"))
+
+	over, err := page.Evaluate(`() => document.documentElement.scrollWidth - document.documentElement.clientWidth`)
+	if err != nil {
+		t.Fatalf("evaluate overflow: %v", err)
+	}
+	// Allow 1px of rounding slack; anything more means a toolbar failed to wrap.
+	if n, ok := over.(int); ok && n > 1 {
+		t.Errorf("horizontal overflow at 640px: %dpx wider than the viewport", n)
+	}
+}

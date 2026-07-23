@@ -307,6 +307,8 @@ header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;          /* brand + status + actions stack instead of forcing sideways scroll at narrow widths */
+  gap: 8px 16px;
   margin-bottom: 28px;
   padding-bottom: 16px;
   border-bottom: 1px solid var(--border);
@@ -558,9 +560,9 @@ section { margin-bottom: 36px; }
 
 /* ── log console ────────────────────────────────────────────────────────────── */
 
-.log-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.log-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 10px; margin-bottom: 10px; }
 .log-header h2 { margin: 0; border-left: none; padding-left: 0; }
-.log-controls { display: flex; align-items: center; gap: 10px; }
+.log-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 
 .log-filter {
   padding: 3px 8px;
@@ -858,7 +860,7 @@ body.dark {
 .theme-btn:hover:not(.active) { border-color:var(--border); color:var(--text); }
 
 /* tabs */
-.tab-bar { display: flex; gap: 2px; border-bottom: 1px solid var(--border); margin-bottom: 24px; }
+.tab-bar { display: flex; gap: 2px; border-bottom: 1px solid var(--border); margin-bottom: 24px; flex-wrap: wrap; }
 .tab-btn {
   padding: 8px 14px;
   background: transparent;
@@ -1196,7 +1198,7 @@ body.dark {
 .ve-palette-body .ve-chip[disabled] {
   opacity:0.25; cursor:not-allowed; pointer-events:none;
 }
-.ve-pl-sep { color:var(--border); font-size:10px; }
+.ve-pl-sep { color:var(--muted); font-size:10px; }
 .ve-pl-sched {
   padding:2px 6px; border:1px solid var(--border); border-radius:4px;
   background:var(--bg); color:var(--text); font-size:11px;
