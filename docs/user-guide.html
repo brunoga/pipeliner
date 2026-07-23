@@ -123,6 +123,7 @@ td code{font-size:11px}
     <a href="#filesystem" class="sub">filesystem</a>
     <a href="#discover" class="sub">discover</a>
     <a href="#jackett" class="sub">jackett</a>
+    <a href="#torrent_session" class="sub">torrent_session</a>
 
     <div class="section">Dynamic Sources</div>
     <a href="#tvdb_favorites" class="sub">tvdb_favorites</a>
@@ -153,6 +154,7 @@ td code{font-size:11px}
     <a href="#route-field-inference" class="sub">Field inference</a>
     <a href="#report_empty" class="sub">report_empty</a>
     <a href="#torrentalive" class="sub">torrentalive</a>
+    <a href="#torrent_failed" class="sub">torrent_failed</a>
     <a href="#trailer" class="sub">trailer</a>
     <a href="#require" class="sub">require</a>
     <a href="#seen" class="sub">seen</a>
@@ -174,6 +176,8 @@ td code{font-size:11px}
     <a href="#deluge" class="sub">deluge</a>
     <a href="#qbittorrent" class="sub">qbittorrent</a>
     <a href="#transmission" class="sub">transmission</a>
+    <a href="#torrent_control" class="sub">torrent_control</a>
+    <a href="#mark_failed" class="sub">mark_failed</a>
     <a href="#download" class="sub">download</a>
     <a href="#exec" class="sub">exec</a>
     <a href="#print" class="sub">print</a>
@@ -185,6 +189,7 @@ td code{font-size:11px}
     <a href="#series_tracker_update" class="sub">series_tracker_update</a>
     <a href="#list-management" class="sub">List management</a>
     <a href="#series-lifecycle" class="sub">Series lifecycle</a>
+    <a href="#download-loop" class="sub">Download-loop closure</a>
 
     <div class="section">Notify Plugins</div>
     <a href="#notify-email" class="sub">email</a>
@@ -942,6 +947,26 @@ series = process("series", upstream=src, list=[
      "client_secret": env("TRAKT_SECRET"), "type": "shows"},
 ])</code></pre>
 
+<!-- ─────────── torrent_session ─────────── -->
+<h2 id="torrent_session">torrent_session</h2>
+<p>Emits one entry per torrent in a download client's session — Transmission (JSON-RPC) or qBittorrent (Web API v2) — so janitor pipelines can inspect ratio, seed time, and state, and act via <a href="#torrent_control"><code>torrent_control</code></a> and <a href="#mark_failed"><code>mark_failed</code></a>. See <a href="#download-loop">Download-loop closure</a> for the full flow.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>backend</code></td><td>yes</td><td>—</td><td><code>transmission</code> or <code>qbittorrent</code></td></tr>
+  <tr><td><code>host</code></td><td>no</td><td><code>localhost</code></td><td>Client host</td></tr>
+  <tr><td><code>port</code></td><td>no</td><td><code>9091</code> / <code>8080</code></td><td>Client port (default depends on backend)</td></tr>
+  <tr><td><code>username</code></td><td>no</td><td>—</td><td>Auth username</td></tr>
+  <tr><td><code>password</code></td><td>no</td><td>—</td><td>Auth password</td></tr>
+  <tr><td><code>rpc_path</code></td><td>no</td><td><code>/transmission/rpc</code></td><td>Transmission RPC endpoint path</td></tr>
+  <tr><td><code>tls</code></td><td>no</td><td>false</td><td>Use HTTPS (qBittorrent only)</td></tr>
+</table>
+
+<h4>Fields set</h4>
+<p><code>title</code> (torrent name), <code>torrent_info_hash</code>, <code>torrent_state</code> (normalized to <code>downloading</code>/<code>seeding</code>/<code>stalled</code>/<code>paused</code>/<code>errored</code>/<code>checking</code>), <code>torrent_ratio</code>, <code>torrent_seed_time</code> (seconds), <code>torrent_added_at</code>, <code>torrent_progress</code> (0–100), <code>torrent_download_dir</code>, plus <code>torrent_error</code> (only when errored) and <code>torrent_last_activity</code> (only when the client reports one). The entry URL is the stable <code>torrent://&lt;info-hash&gt;</code>.</p>
+
+<pre><code>sess = input("torrent_session", backend="transmission", host="localhost")</code></pre>
+
 <!-- ─────────── tvdb_favorites ─────────── -->
 <h2 id="tvdb_favorites">tvdb_favorites</h2>
 <p>Fetches a user's TheTVDB favorites list and emits one entry per show. Use as an upstream node for <code>discover</code> or inside <code>series.list</code> to build a dynamic show list from your TVDB account.</p>
@@ -1542,6 +1567,19 @@ output(<span class="y-str">"notify"</span>,                 upstream=alert,
 
 <pre><code>alive = process("torrentalive", upstream=upstream, min_seeds=3)</code></pre>
 
+<!-- ─────────── torrent_failed ─────────── -->
+<h2 id="torrent_failed">torrent_failed</h2>
+<p>Classifier for dead grabs: <strong>accepts</strong> torrents whose download has failed — errored in the client, or stalled/zero-progress with no activity for longer than <code>stall_timeout</code> — and <strong>rejects</strong> healthy ones. Upstream is <a href="#torrent_session"><code>torrent_session</code></a>; downstream is typically a fan-out to <a href="#mark_failed"><code>mark_failed</code></a> and <a href="#torrent_control"><code>torrent_control</code></a>.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>stall_timeout</code></td><td>no</td><td><code>4h</code></td><td>Inactivity window before a stalled/zero-progress torrent counts as failed</td></tr>
+</table>
+
+<p>Inactivity is measured from <code>torrent_last_activity</code> (falling back to <code>torrent_added_at</code>), so a slow-but-moving download keeps refreshing its clock and is never classified as failed. See <a href="#download-loop">Download-loop closure</a>.</p>
+
+<pre><code>failed = process("torrent_failed", upstream=sess, stall_timeout="4h")</code></pre>
+
 <!-- ─────────── trailer ─────────── -->
 <h2 id="trailer">trailer</h2>
 <p>Detects trailer/teaser/featurette/behind-the-scenes entries by matching title tokens (<code>trailer</code>, <code>teaser</code>, <code>sneak peek</code>, <code>featurette</code>, <code>behind the scenes</code>, <code>BTS</code>) with case-insensitive word boundaries. Useful as a guard on movie pipelines where trackers occasionally publish trailer rips alongside the full release.</p>
@@ -1824,6 +1862,34 @@ output("exec", upstream=cleanup, command="rm -f {file_location}")</code></pre>
   <tr><td><code>paused</code></td><td>no</td><td>false</td><td>Add torrent in paused state</td></tr>
 </table>
 
+<!-- ─────────── torrent_control ─────────── -->
+<h2 id="torrent_control">torrent_control</h2>
+<p>Acts on torrents in a download client's session: remove, remove with data, pause, or force a tracker reannounce. Pairs with <a href="#torrent_session"><code>torrent_session</code></a>, which produces the required <code>torrent_info_hash</code> field.</p>
+
+<p><strong>⚠️ <code>remove_with_data</code> deletes the torrent's downloaded files from disk</strong>, not just the session entry. There is no undo. Use plain <code>remove</code> to keep the files.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>action</code></td><td>yes</td><td>—</td><td><code>remove</code>, <code>remove_with_data</code>, <code>pause</code>, or <code>reannounce</code></td></tr>
+  <tr><td><code>backend</code></td><td>yes</td><td>—</td><td><code>transmission</code> or <code>qbittorrent</code></td></tr>
+  <tr><td><code>host</code>/<code>port</code>/<code>username</code>/<code>password</code>/<code>rpc_path</code>/<code>tls</code></td><td>no</td><td>—</td><td>Same connection keys as <a href="#torrent_session"><code>torrent_session</code></a></td></tr>
+</table>
+
+<p>In <a href="#dry-run">dry-run mode</a> the sink logs "would remove/pause/reannounce" previews per entry and makes <strong>zero</strong> client calls. On success entries get an accept reason, so a chained <code>notify</code> fires only after the client confirmed the operation.</p>
+
+<!-- ─────────── mark_failed ─────────── -->
+<h2 id="mark_failed">mark_failed</h2>
+<p>Records a dead torrent's <em>original release URL</em> in the shared failed-grab bucket (<code>seen_failed</code>) and un-tracks the associated episode/movie in the series/movies trackers, so a <em>different</em> release of the same content can be grabbed on a later run while the exact failed release is never retried (put <code>retry_failed=True</code> on your download pipelines' <a href="#seen"><code>seen</code></a> filter).</p>
+
+<p>Session entries only carry the info-hash, so the release URL is resolved through the <strong>grab records</strong> the <code>transmission</code>/<code>qbittorrent</code> sinks store at add time. Entries whose hash has no grab record (added outside pipeliner, or a bare <code>.torrent</code> URL added to qBittorrent without a metainfo pass) are marked failed with a clear reason.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>reason</code></td><td>no</td><td>entry's accept reason</td><td>Failure reason recorded with the URL</td></tr>
+</table>
+
+<p>See <a href="#download-loop">Download-loop closure</a> for the end-to-end flow.</p>
+
 <!-- ─────────── download ─────────── -->
 <h2 id="download">download</h2>
 <p>Downloads each accepted entry's URL to a local file. Uses an atomic write (temp file + rename) to avoid partial files. Sets <code>download_path</code> on the entry.</p>
@@ -2014,6 +2080,46 @@ pipeline("series-lifecycle", schedule="168h")</code></pre>
 <p><strong>The inactive flag.</strong> Deactivation writes a per-show flag (with a reason, e.g. <code>complete</code>) into a store bucket shared by every pipeline. The <a href="#series"><code>series</code></a> filter checks it right after matching the show and rejects episodes of inactive shows with <code>series: &lt;show&gt; inactive (complete)</code>. Download records are kept, so <code>action="reactivate"</code> restores normal tracking — including quality-upgrade and dedup behavior — without losing history. Lookup failures always classify as <code>active</code>, so a TVDB outage can never deactivate a show.</p>
 
 <p>The full pipeline ships as <code>configs/series-lifecycle.star</code>. Run it with <a href="#dry-run">dry-run</a> first to preview which shows would be deactivated.</p>
+
+<!-- ─────────── Download-loop closure ─────────── -->
+<h2 id="download-loop">Download-loop closure</h2>
+<p>Pipeliner adds torrents and, by default, never looks back: seeded torrents accumulate forever, and a torrent that dies after being added leaves a permanent hole — the release was marked seen and the episode tracked at add time, so nothing ever retries it. Two janitor flows close the loop, both built on the <a href="#torrent_session"><code>torrent_session</code></a> source:</p>
+
+<h3>Session janitor</h3>
+<p>A <a href="#condition"><code>condition</code></a> on the session fields plus <a href="#torrent_control"><code>torrent_control</code></a>:</p>
+
+<pre><code>sess = input("torrent_session", backend="transmission")
+done = process("condition", upstream=sess, rules=[
+    {"accept": 'torrent_state == "seeding" and (torrent_ratio >= 2.0 or torrent_seed_time > 259200)'},
+    {"reject": "true"},
+])
+output("torrent_control", upstream=done, action="remove", backend="transmission")
+pipeline("seed-janitor", schedule="6h")</code></pre>
+
+<h3>Failed-grab recovery</h3>
+<p>The <a href="#torrent_failed"><code>torrent_failed</code></a> classifier detects dead grabs (errored, or stalled past <code>stall_timeout</code>) and fans out to <a href="#mark_failed"><code>mark_failed</code></a> and <a href="#torrent_control"><code>torrent_control</code></a>:</p>
+
+<pre><code>sess   = input("torrent_session", backend="transmission")
+failed = process("torrent_failed", upstream=sess, stall_timeout="4h")
+
+output("mark_failed", upstream=failed)
+
+purged = output("torrent_control", upstream=failed,
+                action="remove_with_data", backend="transmission")
+output("notify", upstream=purged, via="pushover",
+       config={"user": pushover_user, "token": pushover_token},
+       body="{{range .Entries}}Purged: {{.Title}} — {{.AcceptReason}}\n{{end}}")
+pipeline("failed-grab-recovery", schedule="1h")</code></pre>
+
+<p>How the pieces cooperate:</p>
+<ul>
+  <li><strong>Grab records.</strong> The <code>transmission</code>/<code>qbittorrent</code> sinks record <em>info-hash → release URL + tracker keys</em> in a shared bucket at add time. <code>mark_failed</code> resolves session torrents (whose URL is just <code>torrent://&lt;hash&gt;</code>) back to the original release through it.</li>
+  <li><strong>The failed bucket.</strong> <code>mark_failed</code> writes the release URL into <code>seen_failed</code>. A <a href="#seen"><code>seen</code></a> filter with <code>retry_failed=True</code> rejects those URLs forever, so the exact dead release is never re-grabbed.</li>
+  <li><strong>Tracker un-marking.</strong> <code>mark_failed</code> also forgets the episode/movie in the series/movies trackers, so a <em>different</em> release of the same content passes the filters on the next run — and a <a href="#discover"><code>discover</code></a> pipeline can actively search for one.</li>
+  <li><strong>Add-time failures need none of this.</strong> When the download sink itself fails an entry, the commit phase never runs, so the seen filter and trackers were never updated and the next run retries naturally. The janitor exists for grabs that were confirmed at add time but died later.</li>
+</ul>
+
+<p>Both pipelines ship as <code>configs/torrent-janitor.star</code>. Run them with <a href="#dry-run">dry-run</a> first — especially before trusting <code>remove_with_data</code>, which deletes files from disk.</p>
 
 <hr>
 <!-- ═══════════════════════════════════════════════════════════ -->

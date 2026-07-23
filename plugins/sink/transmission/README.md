@@ -18,6 +18,10 @@ Adds accepted torrents to a Transmission BitTorrent client via its JSON-RPC API.
 
 If a torrent cannot be added, the affected entry is marked failed and will **not** be recorded by the learn phase. It will be retried on the next run.
 
+## Grab records
+
+Every successful add writes a grab record (shared `grabs` bucket, keyed by the info-hash from the `torrent-add` RPC response) linking the torrent back to its release URL and series/movies tracker keys. The [`mark_failed`](../mark_failed/README.md) sink resolves dead session torrents through these records for failed-grab recovery.
+
 ## Example
 
 ```python

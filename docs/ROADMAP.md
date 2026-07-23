@@ -117,6 +117,20 @@ confirmation".
 **Gaps.** Extract shared session clients into `internal/torrentclient`;
 source + control sink; seen-tracker failed state; recovery classifier; docs +
 sample config.
+✅ Shipped (2026-07): `internal/torrentclient` (Transmission + qBittorrent;
+Deluge deferred — its Web JSON-RPC needs a separate state-mapping layer),
+`torrent_session` source, `torrent_control` sink
+(remove/remove_with_data/pause/reannounce, dry-run previews),
+`torrent_failed` classifier (stall_timeout vs last-activity, so slow-but-
+moving downloads are never flagged), `mark_failed` sink + shared
+`seen_failed` bucket + `seen retry_failed=true`, and hash→release-URL grab
+records written by the transmission/qbittorrent sinks at add time (the
+resolver for `torrent://<hash>` session entries). `mark_failed` also
+forgets the series/movies tracker records so an alternative release can be
+grabbed; the "synthetic entry for discover" idea was dropped — un-tracking
+makes the next regular discover/RSS run pick up an alternative naturally.
+Sample config `configs/torrent-janitor.star`; user-guide section
+"Download-loop closure".
 
 ## 4. Backfill via gap detection
 
