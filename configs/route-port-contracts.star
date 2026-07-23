@@ -21,7 +21,7 @@
 # No explicit port() contracts needed — the conditions say it all.
 
 jackett_url  = "http://localhost:9117"
-jackett_key  = env("JACKETT_API_KEY")
+jackett_key  = env("JACKETT_API_KEY", default="YOUR_JACKETT_KEY")
 trans_host   = "localhost"   # handles .torrent files
 qbit_host    = "localhost"   # handles magnet links
 
