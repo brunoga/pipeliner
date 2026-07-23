@@ -5,9 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Pipeliner</title>
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Bebas+Neue&display=swap" rel="stylesheet">
+<!-- Fonts are vendored under fonts/ and declared via @font-face in style.css -->
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -46,18 +44,18 @@
   </div>
 </header>
 
-<div class="tab-bar">
-  <button class="tab-btn active" id="tab-btn-dashboard" onclick="showTab('dashboard')">Dashboard</button>
-  <button class="tab-btn" id="tab-btn-config" onclick="showTab('config')">Config</button>
-  <button class="tab-btn" id="tab-btn-db" onclick="showTab('db')">Database</button>
-  <button class="tab-btn" id="tab-btn-settings" onclick="showTab('settings')">Settings</button>
+<div class="tab-bar" role="tablist" aria-label="Main sections">
+  <button class="tab-btn active" id="tab-btn-dashboard" role="tab" aria-selected="true"  aria-controls="tab-dashboard" onclick="showTab('dashboard')">Dashboard</button>
+  <button class="tab-btn" id="tab-btn-config"   role="tab" aria-selected="false" aria-controls="tab-config"   onclick="showTab('config')">Config</button>
+  <button class="tab-btn" id="tab-btn-db"       role="tab" aria-selected="false" aria-controls="tab-db"       onclick="showTab('db')">Database</button>
+  <button class="tab-btn" id="tab-btn-settings" role="tab" aria-selected="false" aria-controls="tab-settings" onclick="showTab('settings')">Settings</button>
 </div>
 
-<div id="tab-dashboard">
+<div id="tab-dashboard" role="tabpanel" aria-labelledby="tab-btn-dashboard">
   <section>
     <h2 style="display:flex;align-items:center;gap:12px">Tasks
-      <button class="btn-reload" id="btn-run-all" onclick="runAll(this, false)" style="font-size:0.75rem">Run all</button>
-      <button class="btn-reload" id="btn-run-all-dry" onclick="runAll(this, true)" style="font-size:0.75rem" title="Dry-run every task — no side effects, no tracker advance">Run all (dry)</button>
+      <button class="btn-reload btn-run-all" id="btn-run-all" onclick="runAll(this, false)">Run all</button>
+      <button class="btn-reload btn-run-all" id="btn-run-all-dry" onclick="runAll(this, true)" title="Dry-run every task — no side effects, no tracker advance">Run all (dry)</button>
     </h2>
     <div class="task-grid" id="task-grid"><div class="no-tasks">Loading…</div></div>
   </section>
@@ -84,7 +82,7 @@
   </section>
 </div>
 
-<div id="tab-config" style="display:none">
+<div id="tab-config" style="display:none" role="tabpanel" aria-labelledby="tab-btn-config">
   <section>
     <!-- view toggle + shared action bar -->
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
@@ -127,9 +125,9 @@
         </div>
 
         <!-- collapsed palette handle: a thin strip with an expand button -->
-        <div class="ve-palette-collapsed-strip" id="ve-palette-strip" onclick="veTogglePalette()" title="Expand palette">
-          <span class="ve-palette-expand-icon">»</span>
-        </div>
+        <button type="button" class="ve-palette-collapsed-strip" id="ve-palette-strip" onclick="veTogglePalette()" title="Expand palette" aria-label="Expand palette">
+          <span class="ve-palette-expand-icon" aria-hidden="true">»</span>
+        </button>
 
         <!-- center: pipeline canvas -->
         <div class="ve-canvas-area">
@@ -225,9 +223,9 @@
   </section>
 </div>
 
-<div id="tab-settings" style="display:none">
+<div id="tab-settings" style="display:none" role="tabpanel" aria-labelledby="tab-btn-settings">
   <section class="settings-section">
-    <h3>Appearance</h3>
+    <h2>Appearance</h2>
     <p style="font-size:11px;color:var(--muted);margin-bottom:10px">Choose how Pipeliner looks. <b>Auto</b> follows your system preference.</p>
     <div class="theme-toggle">
       <button class="theme-btn" id="theme-btn-dark"  onclick="setTheme('dark')">Dark</button>
@@ -236,14 +234,14 @@
     </div>
   </section>
   <section class="settings-section">
-    <h3>Plugin Debug Logging</h3>
+    <h2>Plugin Debug Logging</h2>
     <p style="font-size:12px;color:var(--muted);margin-bottom:10px">Show DEBUG-level output for individual plugins without raising the global log level. Click a plugin to toggle — changes apply immediately and survive until the daemon restarts.</p>
     <input type="text" class="plugin-debug-search" id="plugin-debug-search" placeholder="filter plugins…" oninput="filterPluginDebug(this.value)">
     <div id="plugin-debug-list" class="plugin-debug-list"><div class="plugin-debug-loading">Loading plugins…</div></div>
     <div class="plugin-debug-status" id="plugin-debug-status"></div>
   </section>
   <section class="settings-section">
-    <h3>Trakt Authorization</h3>
+    <h2>Trakt Authorization</h2>
     <p style="font-size:12px;color:var(--muted);margin-bottom:16px">Authorize pipeliner to access your Trakt account. The token is stored in <code>pipeliner.db</code> and refreshed automatically.</p>
     <div class="field-row">
       <label for="trakt-client-id">Client ID</label>
@@ -260,7 +258,7 @@
   </section>
 </div>
 
-<div id="tab-db" style="display:none">
+<div id="tab-db" style="display:none" role="tabpanel" aria-labelledby="tab-btn-db">
   <div class="db-layout">
     <div class="db-sidebar" id="db-sidebar"><div class="db-loading">Loading…</div></div>
     <div class="db-main">
@@ -278,6 +276,20 @@
 <script src="plugin-debug.js"></script>
 <script src="trakt.js"></script>
 <script>
+// Keep aria-selected on the tab buttons in sync with the active tab.
+// showTab lives in dashboard.js; wrap it here (after all scripts are loaded)
+// so the a11y state stays alongside the tablist markup in this file.
+(function(){
+  var origShowTab = window.showTab;
+  window.showTab = function(name){
+    origShowTab(name);
+    ['dashboard','config','db','settings'].forEach(function(t){
+      var btn = document.getElementById('tab-btn-' + t);
+      if (btn) btn.setAttribute('aria-selected', t === name ? 'true' : 'false');
+    });
+  };
+}());
+
 // Boot — runs after all scripts are loaded so shared globals (dbLoaded, etc.)
 // are guaranteed to be declared before the first refresh() call.
 applyTheme(localStorage.getItem('pipeliner-theme') || 'auto');
