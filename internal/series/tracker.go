@@ -96,6 +96,26 @@ func (t *Tracker) MarkWithParts(r Record, ep *Episode) error {
 	return nil
 }
 
+// Forget removes the download record for an episode, so the series filter
+// stops considering it downloaded (failed-grab recovery). For double-episode
+// IDs (S01E01E02) the individual part records written by MarkWithParts are
+// removed too. No-op for unknown records.
+func (t *Tracker) Forget(seriesName, episodeID string) error {
+	if err := t.bucket.Delete(recordKey(seriesName, episodeID)); err != nil {
+		return err
+	}
+	var season, ep1, ep2 int
+	if n, err := fmt.Sscanf(episodeID, "S%dE%dE%d", &season, &ep1, &ep2); err == nil && n == 3 {
+		for _, part := range []int{ep1, ep2} {
+			partID := EpisodeID(&Episode{Season: season, Episode: part})
+			if err := t.bucket.Delete(recordKey(seriesName, partID)); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // HighestEpisode returns the episode with the lexicographically greatest EpisodeID
 // for the given series. Because episode IDs are zero-padded (S01E01, 2023-11-15,
 // EP001), lexicographic order matches episode order. This represents the furthest

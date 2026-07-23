@@ -30,6 +30,13 @@ Without `seen`, every hourly run would re-send articles that were already emaile
 |-----|------|----------|---------|-------------|
 | `fields` | string or list | no | `["url"]` | Entry fields to include in the fingerprint |
 | `local` | bool | no | false | Scope the seen store to this task name only |
+| `retry_failed` | bool | no | false | Also reject URLs from the shared failed-grab bucket (`seen_failed`) |
+
+## Failed-grab recovery (`retry_failed`)
+
+When a janitor pipeline detects a dead torrent, the [`mark_failed`](../../../sink/mark_failed/README.md) sink writes the original release URL into the shared `seen_failed` bucket and un-tracks the episode/movie. With `retry_failed=True`, this filter rejects any URL found there with `seen: previously failed (<reason>)` — the exact failed release is never re-grabbed, while alternative releases of the same content (different URLs) pass normally and can be retried.
+
+The failed-URL check is keyed by raw URL, independent of the configured fingerprint `fields`, so it works even when the fingerprint is built from other fields.
 
 ## DAG role
 

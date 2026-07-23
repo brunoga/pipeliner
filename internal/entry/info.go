@@ -100,6 +100,17 @@ const (
 	// which named port they matched. Used by route_selector nodes downstream.
 	FieldRoutePort = "_route_port"
 
+	// FieldSeriesTrackerName carries the normalized matched show name (the
+	// series tracker key) from the series filter's match phase to its commit
+	// phase. Internal (underscore-prefixed); also read by the torrent sinks'
+	// grab records so failed-grab recovery can un-track the episode.
+	FieldSeriesTrackerName = "_series_tracker_name"
+
+	// FieldMoviesTrackerTitle carries the matched (normalized) movie title —
+	// the movies tracker key — from the movies filter's match phase to its
+	// commit phase. Internal; also read by the torrent sinks' grab records.
+	FieldMoviesTrackerTitle = "_movies_tracker_title"
+
 	// EmptyMarker is set to true on the synthetic marker entry emitted by
 	// the report_empty processor when its upstream was empty. Downstream
 	// expressions can branch on it to distinguish marker-fired runs from
@@ -124,6 +135,18 @@ const (
 	// Values: "torrent" (URL serves a .torrent file) or "magnet" (URL is a
 	// magnet URI). When absent, metainfo plugins fall back to URL inspection.
 	FieldTorrentLinkType = "torrent_link_type"
+
+	// Torrent session fields — set by the torrent_session source, which emits
+	// one entry per torrent in a download client's session. The info-hash is
+	// carried in FieldTorrentInfoHash (same field the metainfo plugins set).
+	FieldTorrentState        = "torrent_state"         // normalized client state, see torrentclient.States
+	FieldTorrentRatio        = "torrent_ratio"         // upload ratio (float)
+	FieldTorrentSeedTime     = "torrent_seed_time"     // cumulative seeding time in seconds
+	FieldTorrentAddedAt      = "torrent_added_at"      // when the torrent was added to the session
+	FieldTorrentLastActivity = "torrent_last_activity" // last upload/download activity (absent when unknown)
+	FieldTorrentProgress     = "torrent_progress"      // download completion percentage, 0-100
+	FieldTorrentError        = "torrent_error"         // client error message when torrent_state == "errored"
+	FieldTorrentDownloadDir  = "torrent_download_dir"  // directory the torrent's data lives in
 
 	// FileInfo — file_ prefix.
 	FieldFileName         = "file_name"

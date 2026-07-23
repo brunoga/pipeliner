@@ -23,18 +23,28 @@ func init() {
 		Schema: []plugin.FieldSchema{
 			{Key: "fields", Type: plugin.FieldTypeList, Default: []string{"url"}, Hint: "Entry fields used to build the seen fingerprint"},
 			{Key: "local", Type: plugin.FieldTypeBool, Hint: "Isolate seen store per task instead of sharing globally"},
+			{Key: "retry_failed", Type: plugin.FieldTypeBool, Hint: "Reject URLs from the shared failed-grab bucket (written by mark_failed); the exact failed release is never re-grabbed even after its tracker records are forgotten"},
 		},
 	})
 }
 
 func validate(cfg map[string]any) []error {
-	return plugin.OptUnknownKeys(cfg, "seen", "fields", "local")
+	return plugin.OptUnknownKeys(cfg, "seen", "fields", "local", "retry_failed")
 }
 
 type seenPlugin struct {
 	fields []string // which entry fields to include in the fingerprint
 	local  bool     // if true, scope the seen store to the task name
-	db     *store.SQLiteStore
+	// retryFailed enables the failed-grab check: URLs in the shared
+	// seen_failed bucket are rejected with the recorded failure reason.
+	// The bucket is keyed by raw release URL (not fingerprint), so the
+	// check is independent of the configured fingerprint fields — a seen
+	// filter keyed by episode ID still blocks the exact failed release
+	// while letting alternative releases of the same episode through
+	// (mark_failed forgets the tracker records that would otherwise
+	// block them).
+	retryFailed bool
+	db          *store.SQLiteStore
 }
 
 func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
@@ -46,15 +56,27 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 	local, _ := cfg["local"].(bool)
 
 	return &seenPlugin{
-		fields: fields,
-		local:  local,
-		db:     db,
+		fields:      fields,
+		local:       local,
+		retryFailed: plugin.OptBool(cfg, "retry_failed", false),
+		db:          db,
 	}, nil
 }
 
 func (p *seenPlugin) Name() string { return "seen" }
 
 func (p *seenPlugin) filter(_ context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
+	if p.retryFailed {
+		fs := store.NewFailedStore(p.db.Bucket(store.FailedBucketName))
+		if rec, ok := fs.Get(e.URL); ok {
+			reason := rec.Reason
+			if reason == "" {
+				reason = "previous grab failed"
+			}
+			e.Reject("seen: previously failed (" + reason + ")")
+			return nil
+		}
+	}
 	ss := p.seenStore(tc)
 	fp := fingerprint(e, p.fields)
 	if ss.IsSeen(fp) {

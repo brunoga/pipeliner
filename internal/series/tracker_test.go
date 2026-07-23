@@ -43,6 +43,45 @@ func TestTrackerIsSeenMarkForget(t *testing.T) {
 	if tr.IsSeen("My Show", "S01E02") {
 		t.Error("S01E02 should not be seen")
 	}
+
+	if err := tr.Forget("My Show", "S01E01"); err != nil {
+		t.Fatalf("Forget: %v", err)
+	}
+	if tr.IsSeen("My Show", "S01E01") {
+		t.Error("should not be seen after Forget")
+	}
+	// Forgetting an unknown episode is a no-op, not an error.
+	if err := tr.Forget("My Show", "S09E09"); err != nil {
+		t.Errorf("Forget unknown: %v", err)
+	}
+}
+
+func TestTrackerForgetDoubleEpisodeParts(t *testing.T) {
+	tr := openTracker(t)
+
+	rec := Record{
+		SeriesName:   "my show",
+		EpisodeID:    "S01E01E02",
+		DownloadedAt: time.Now(),
+	}
+	ep := &Episode{Season: 1, Episode: 1, DoubleEpisode: 2}
+	if err := tr.MarkWithParts(rec, ep); err != nil {
+		t.Fatalf("MarkWithParts: %v", err)
+	}
+	for _, id := range []string{"S01E01E02", "S01E01", "S01E02"} {
+		if !tr.IsSeen("my show", id) {
+			t.Fatalf("%s should be seen after MarkWithParts", id)
+		}
+	}
+
+	if err := tr.Forget("my show", "S01E01E02"); err != nil {
+		t.Fatalf("Forget: %v", err)
+	}
+	for _, id := range []string{"S01E01E02", "S01E01", "S01E02"} {
+		if tr.IsSeen("my show", id) {
+			t.Errorf("%s should be forgotten", id)
+		}
+	}
 }
 
 func TestTrackerGet(t *testing.T) {

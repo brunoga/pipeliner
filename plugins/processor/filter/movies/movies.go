@@ -114,7 +114,7 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 		listSources:     listSources,
 		listCache:       cache.NewPersistent[[]match.TitleEntry](ttl, db.Bucket("cache_movies_list")),
 		rejectUnmatched: rejectUnmatched,
-		tracker:         imovies.NewTracker(db.Bucket("movies")),
+		tracker:         imovies.NewTracker(db.Bucket(imovies.TrackerBucketName)),
 	}, nil
 }
 
@@ -190,8 +190,10 @@ func (p *moviesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *en
 }
 
 // moviesTrackerName is the entry field used to carry the matched (normalized)
-// movie title from filter() to persist(). It is internal to this plugin.
-const moviesTrackerName = "_movies_tracker_title"
+// movie title from filter() to persist(). The constant lives in the entry
+// package because the torrent sinks' grab records also read it (failed-grab
+// recovery needs the tracker key to un-track a movie).
+const moviesTrackerName = entry.FieldMoviesTrackerTitle
 
 func (p *moviesPlugin) persist(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) error {
 	for _, e := range entries {

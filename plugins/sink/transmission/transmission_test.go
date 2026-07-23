@@ -3,13 +3,17 @@ package transmission
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
 
 	"github.com/brunoga/pipeliner/internal/entry"
+	"github.com/brunoga/pipeliner/internal/grabs"
 	"github.com/brunoga/pipeliner/internal/plugin"
+	"github.com/brunoga/pipeliner/internal/store"
 )
 
 // --- helpers ---
@@ -63,7 +67,12 @@ func pluginWithEndpoint(t *testing.T, srv *httptest.Server, cfg map[string]any) 
 	return tp
 }
 
-func tc() *plugin.TaskContext { return &plugin.TaskContext{Name: "test"} }
+func tc() *plugin.TaskContext {
+	return &plugin.TaskContext{
+		Name:   "test",
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+}
 
 // --- tests ---
 
@@ -201,5 +210,116 @@ func TestMultipleEntries(t *testing.T) {
 	}
 	if len(calls) != 3 {
 		t.Errorf("want 3 torrent-add calls, got %d", len(calls))
+	}
+}
+
+func TestGrabRecordedOnSuccessfulAdd(t *testing.T) {
+	srv := mockTransmission(t, func(req rpcRequest) any {
+		return map[string]any{"torrent-added": map[string]any{
+			"id":         1,
+			"hashString": "ABCDEF0123456789ABCDEF0123456789ABCDEF01",
+		}}
+	})
+	defer srv.Close()
+
+	db, err := store.OpenSQLite(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	p, err := newPlugin(map[string]any{}, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tp := p.(*transmissionPlugin)
+	tp.endpoint = srv.URL + "/transmission/rpc"
+
+	e := entry.New("Show.S01E03.720p", "http://tracker.example/42.torrent")
+	e.Set(entry.FieldSeriesTrackerName, "show")
+	e.Set(entry.FieldSeriesEpisodeID, "S01E03")
+
+	if err := tp.deliver(context.Background(), tc(), []*entry.Entry{e}); err != nil {
+		t.Fatal(err)
+	}
+
+	gs := grabs.NewStore(db.Bucket(grabs.BucketName))
+	rec, ok := gs.Get("abcdef0123456789abcdef0123456789abcdef01")
+	if !ok {
+		t.Fatal("grab record should exist after successful add")
+	}
+	if rec.URL != "http://tracker.example/42.torrent" {
+		t.Errorf("rec.URL = %q", rec.URL)
+	}
+	if rec.SeriesName != "show" || rec.EpisodeID != "S01E03" {
+		t.Errorf("series key = %q/%q", rec.SeriesName, rec.EpisodeID)
+	}
+	if rec.Task != "test" {
+		t.Errorf("rec.Task = %q", rec.Task)
+	}
+}
+
+func TestGrabRecordedFromDuplicateResponse(t *testing.T) {
+	srv := mockTransmission(t, func(req rpcRequest) any {
+		return map[string]any{"torrent-duplicate": map[string]any{
+			"id":         7,
+			"hashString": "1111111111111111111111111111111111111111",
+		}}
+	})
+	defer srv.Close()
+
+	db, err := store.OpenSQLite(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	p, err := newPlugin(map[string]any{}, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tp := p.(*transmissionPlugin)
+	tp.endpoint = srv.URL + "/transmission/rpc"
+
+	e := entry.New("Dup", "http://tracker.example/dup.torrent")
+	if err := tp.deliver(context.Background(), tc(), []*entry.Entry{e}); err != nil {
+		t.Fatal(err)
+	}
+
+	gs := grabs.NewStore(db.Bucket(grabs.BucketName))
+	if _, ok := gs.Get("1111111111111111111111111111111111111111"); !ok {
+		t.Fatal("grab record should exist for duplicate add")
+	}
+}
+
+func TestNoGrabRecordOnFailedAdd(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	db, err := store.OpenSQLite(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	p, err := newPlugin(map[string]any{}, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tp := p.(*transmissionPlugin)
+	tp.endpoint = srv.URL + "/transmission/rpc"
+
+	e := entry.New("Bad", "magnet:?xt=urn:btih:2222222222222222222222222222222222222222")
+	if err := tp.deliver(context.Background(), tc(), []*entry.Entry{e}); err != nil {
+		t.Fatal(err)
+	}
+	if !e.IsFailed() {
+		t.Fatal("entry should be failed")
+	}
+	gs := grabs.NewStore(db.Bucket(grabs.BucketName))
+	if _, ok := gs.Get("2222222222222222222222222222222222222222"); ok {
+		t.Error("no grab record should be written for a failed add")
 	}
 }
