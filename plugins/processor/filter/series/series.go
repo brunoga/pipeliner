@@ -114,6 +114,7 @@ type seriesPlugin struct {
 	listCache       *cache.Cache[[]match.TitleEntry]
 	tracking        tracking
 	tracker         *series.Tracker
+	inactive        *series.InactiveSet
 	rejectUnmatched bool
 }
 
@@ -143,7 +144,7 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 		ttl = d
 	}
 
-	tracker := series.NewTracker(db.Bucket("series"))
+	tracker := series.NewTracker(db.Bucket(series.TrackerBucketName))
 
 	tr := trackingStrict
 	if t, _ := cfg["tracking"].(string); t != "" {
@@ -163,6 +164,7 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 		listCache:       cache.NewPersistent[[]match.TitleEntry](ttl, db.Bucket("cache_series_list")),
 		tracking:        tr,
 		tracker:         tracker,
+		inactive:        series.NewInactiveSet(db.Bucket(series.InactiveBucketName)),
 		rejectUnmatched: rejectUnmatched,
 	}, nil
 }
@@ -209,6 +211,18 @@ func (p *seriesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *en
 	}
 
 	e.Set(seriesTrackerName, matchedShow)
+
+	// Deactivated shows (series_tracker_update sink, typically after a
+	// series_lifecycle "complete" classification) are rejected before any
+	// quality or tracker checks — searching for them is wasted work.
+	if rec, ok := p.inactive.Get(matchedShow); ok {
+		reason := rec.Reason
+		if reason == "" {
+			reason = "deactivated"
+		}
+		e.Reject(fmt.Sprintf("series: %s inactive (%s)", matchedShow, reason))
+		return nil
+	}
 
 	incomingQuality, _ := e.Quality()
 

@@ -100,7 +100,7 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 	return &premierePlugin{
 		episode:         episode,
 		season:          season,
-		tracker:         series.NewTracker(db.Bucket("series")),
+		tracker:         series.NewTracker(db.Bucket(series.TrackerBucketName)),
 		rejectUnmatched: rejectUnmatched,
 	}, nil
 }

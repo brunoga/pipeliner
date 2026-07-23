@@ -63,6 +63,24 @@ const (
 	FieldSeriesEpisodeImage       = "series_episode_image"
 	FieldSeriesService            = "series_service"
 	FieldSeriesDoubleEpisode      = "series_double_episode"
+	// FieldSeriesName is the normalized (lowercased, separator-collapsed) show
+	// name used as the series tracker key. Distinct from FieldTitle, which
+	// holds the human-readable display name.
+	FieldSeriesName = "series_name"
+	// FieldSeriesLifecycle classifies a tracked show's follow lifecycle.
+	// Values: SeriesLifecycleComplete, SeriesLifecycleDormant,
+	// SeriesLifecycleActive. Set by the series_lifecycle processor.
+	FieldSeriesLifecycle = "series_lifecycle"
+	// Tracker aggregate fields emitted by the series_tracker source — one
+	// entry per tracked show, summarising its per-episode records.
+	FieldSeriesEpisodeCount     = "series_episode_count"      // downloaded episodes on record
+	FieldSeriesNewestEpisode    = "series_newest_episode"     // highest tracked episode ID (e.g. S03E08)
+	FieldSeriesLastDownloadedAt = "series_last_downloaded_at" // most recent download timestamp
+	FieldSeriesInactive         = "series_inactive"           // true when the show is deactivated in the tracker
+	// Aired-vs-tracked comparison fields set by series_lifecycle when the
+	// TVDB episode list was fetched successfully.
+	FieldSeriesAiredEpisodeCount   = "series_aired_episode_count"
+	FieldSeriesMissingEpisodeCount = "series_missing_episode_count"
 
 	// MediaType is set by metainfo_file to classify an entry as "series",
 	// "movie", or "" (neither/unknown). Downstream filters and route() can use
@@ -72,6 +90,11 @@ const (
 	// MediaType values written by metainfo_file.
 	MediaTypeSeries = "series"
 	MediaTypeMovie  = "movie"
+
+	// FieldSeriesLifecycle values written by the series_lifecycle processor.
+	SeriesLifecycleComplete = "complete" // ended and every aired episode is tracked
+	SeriesLifecycleDormant  = "dormant"  // ended but aired episodes are missing (backfill candidate)
+	SeriesLifecycleActive   = "active"   // still running, upcoming, or status unknown
 
 	// RoutePort is set by the route processor on matched entries to identify
 	// which named port they matched. Used by route_selector nodes downstream.

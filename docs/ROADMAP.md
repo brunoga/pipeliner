@@ -83,6 +83,12 @@ tracker entry inactive (new tracker flag honored by the `series` filter).
 
 **Gaps.** Tracker-as-source plugin, `inactive` flag + `series` filter
 support, the classifier, docs.
+✅ Shipped (2026-07): `series_tracker` source, `series_lifecycle` classifier
+(TVDB status + aired-episode diff, `include_specials` opt-in, lookup failures
+classify as `active`), `series_tracker_update` sink writing a per-show
+inactive flag (parallel `series_inactive` bucket — episode records untouched)
+that the `series` filter rejects on early. Sample config
+`configs/series-lifecycle.star`; user-guide section "Series lifecycle".
 
 ## 3. Download-loop closure: session janitor and failed-grab recovery
 
