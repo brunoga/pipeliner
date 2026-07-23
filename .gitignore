@@ -11,3 +11,5 @@ cmd/pipeliner/pipeliner
 .claude/
 CLAUDE.md
 internal/web/ui/node_modules/
+/pipeliner
+/pipeliner.log
