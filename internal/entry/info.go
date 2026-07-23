@@ -56,6 +56,7 @@ const (
 	FieldSeriesStatus             = "series_status"
 	FieldSeriesFirstAirDate       = "series_first_air_date"
 	FieldSeriesLastAirDate        = "series_last_air_date"
+	FieldSeriesAirDate            = "series_air_date"
 	FieldSeriesNextAirDate        = "series_next_air_date"
 	FieldSeriesEpisodeTitle       = "series_episode_title"
 	FieldSeriesEpisodeDescription = "series_episode_description"
