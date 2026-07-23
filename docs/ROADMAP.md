@@ -22,13 +22,23 @@ list, auto-add discovered premieres to a watchlist.
 **Config sketch.**
 
 ```python
+# Follow only still-running favorites: TheTVDB's API cannot remove favorites
+# (see Gaps below), so the supported pattern filters them into a local list
+# that the series filter consumes instead of the raw favorites.
 favs   = input("tvdb_favorites")
-ended  = process("condition", upstream=favs,
+alive  = process("condition", upstream=favs,
+                 reject="series_status == 'Ended' or series_status == 'Cancelled'")
+keep   = output("list_add", upstream=alive, list="active_favorites")
+note   = output("notify", upstream=keep, via="pushover",
+                body="Still following: {{.Title}}")
+pipeline("sync-active-favorites", schedule="168h")
+
+# Trakt lists DO support removal — full remote hygiene:
+watch  = input("trakt_list", list="watchlist", type="shows")
+done   = process("condition", upstream=watch,
                  accept="series_status == 'Ended' or series_status == 'Cancelled'")
-prune  = output("tvdb_favorites", upstream=ended, action="remove")
-note   = output("notify", upstream=prune, via="pushover",
-                body="Unfavorited {{.Title}} ({{index .Fields \"series_status\"}})")
-pipeline("prune-ended-favorites", schedule="168h")
+prune  = output("trakt_list", upstream=done, list="watchlist", action="remove")
+pipeline("prune-trakt-watchlist", schedule="168h")
 ```
 
 **Exists.** `tvdb_favorites` source with rich `video_*`/`series_*` fields;
@@ -40,12 +50,13 @@ pipeline("prune-ended-favorites", schedule="168h")
 - `series_status` (Continuing/Ended/Cancelled) is not surfaced today — add it
   to the `tvdb_favorites` source and `metainfo_tvdb` enrichment (the extended
   series response carries status), register the field constant + metadata.
-- `tvdb_favorites` **sink** with `action="add"|"remove"` and `Requires:
-  tvdb_id`. ⚠ Open question: TheTVDB v4 exposes GET and PUT for
-  `/user/favorites`; a DELETE endpoint may not exist. Verify against the
-  live API first; if removal is unsupported upstream, fall back to managing a
-  local mirror list (`list_add`) and document the limitation honestly rather
-  than shipping a sink that cannot remove.
+- `tvdb_favorites` **sink**, `action="add"` only, `Requires: tvdb_id`.
+  ✅ Resolved (2026-07-23, v4 swagger): `/user/favorites` supports GET and
+  POST only — **TheTVDB's API cannot remove favorites**. `action="remove"`
+  is rejected at validation with an error explaining the limitation and
+  pointing at the supported pattern: filter on `series_status` into a local
+  list (`list_add`) or a Trakt list (which does support removal), and use
+  that list as the `series.list` source instead of raw favorites.
 - `trakt_list` **sink**: add/remove items on a user list or watchlist
   (`POST /users/{id}/lists/{list}/items[/remove]`), using the existing device
   token. `Requires` one of `tmdb_id`/`tvdb_id`/`imdb_id`/`trakt_id`.
