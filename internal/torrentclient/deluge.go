@@ -125,7 +125,7 @@ func (c *delugeClient) ListTorrents(ctx context.Context) ([]Torrent, error) {
 		// torrent makes no progress by design, and a zero-progress
 		// "downloading" torrent would be flagged by torrent_failed after
 		// stall_timeout, falsely janitoring queue backlogs.
-		state := StateDownloading
+		var state State
 		switch stateStr {
 		case "Downloading":
 			state = StateDownloading
