@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/brunoga/pipeliner/internal/entry"
+	"github.com/brunoga/pipeliner/internal/mediaserver"
 	"github.com/brunoga/pipeliner/internal/plugin"
 	"github.com/brunoga/pipeliner/internal/quality"
 )
@@ -229,5 +230,58 @@ func TestWalkErrorSkipsSubtree(t *testing.T) {
 	process(t, p, e)
 	if !e.IsRejected() {
 		t.Fatal("indexing must survive per-entry walk errors")
+	}
+}
+
+// fakeMSClient backs the server-backend index test.
+type fakeMSClient struct {
+	items []mediaserver.Item
+	err   error
+	calls int
+}
+
+func (f *fakeMSClient) ListItems(context.Context) ([]mediaserver.Item, error) {
+	f.calls++
+	return f.items, f.err
+}
+func (f *fakeMSClient) Refresh(context.Context) error { return nil }
+
+func TestServerBackendIndexAndStaleKeep(t *testing.T) {
+	f := &fakeMSClient{items: []mediaserver.Item{
+		{Type: "episode", Show: "Breaking Bad", Season: 1, Episode: 1, Resolution: "1080p"},
+		{Type: "movie", Title: "Dune Part Two", Year: 2024, Resolution: "2160p"},
+	}}
+	pl, err := newPlugin(map[string]any{"backend": "plex", "url": "http://x", "token": "t"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := pl.(*libraryPlugin)
+	p.client = f
+
+	e := mkEntry("Breaking Bad", map[string]any{entry.FieldSeriesEpisodeID: "S01E01"})
+	e.SetQuality(quality.Parse("720p WEB-DL"))
+	process(t, p, e)
+	if !e.IsRejected() {
+		t.Fatal("server-indexed episode at better quality must reject a worse release")
+	}
+
+	// Server goes down after the index exists: keep the previous index
+	// instead of treating the library as empty.
+	f.err = fs.ErrPermission
+	p.builtAt = time.Now().Add(-2 * time.Hour)
+	e2 := mkEntry("Breaking Bad", map[string]any{entry.FieldSeriesEpisodeID: "S01E01"})
+	e2.SetQuality(quality.Parse("720p WEB-DL"))
+	process(t, p, e2)
+	if !e2.IsRejected() {
+		t.Fatal("stale index must be kept when the server is unreachable")
+	}
+}
+
+func TestServerBackendValidation(t *testing.T) {
+	if errs := validate(map[string]any{"backend": "plex"}); len(errs) == 0 {
+		t.Error("plex backend without url/token must fail validation")
+	}
+	if errs := validate(map[string]any{"backend": "jellyfin", "url": "http://x", "token": "t"}); len(errs) != 0 {
+		t.Errorf("valid jellyfin config: %v", errs)
 	}
 }
