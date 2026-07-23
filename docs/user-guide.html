@@ -143,6 +143,7 @@ td code{font-size:11px}
     <a href="#metainfo_torrent" class="sub">metainfo_torrent</a>
     <a href="#metainfo_magnet" class="sub">metainfo_magnet</a>
     <a href="#series_lifecycle" class="sub">series_lifecycle</a>
+    <a href="#series_gaps" class="sub">series_gaps</a>
 
     <div class="section">Filter Plugins</div>
     <a href="#quality" class="sub">quality</a>
@@ -190,6 +191,7 @@ td code{font-size:11px}
     <a href="#list-management" class="sub">List management</a>
     <a href="#series-lifecycle" class="sub">Series lifecycle</a>
     <a href="#download-loop" class="sub">Download-loop closure</a>
+    <a href="#backfill" class="sub">Backfill</a>
 
     <div class="section">Notify Plugins</div>
     <a href="#notify-email" class="sub">email</a>
@@ -1285,6 +1287,22 @@ pipeline("real-3d-only", schedule="1h")</code></pre>
 
 <p>Only episodes whose air date is in the past count as aired; unaired and undated episodes are ignored, and specials (season 0) are excluded unless <code>include_specials=true</code>. When the lookup succeeds the entry also gets <code>series_status</code>, <code>tvdb_id</code>, and — when the episode list was fetched — <code>series_aired_episode_count</code> and <code>series_missing_episode_count</code>. The show is resolved by <code>tvdb_id</code> when the entry already carries one, otherwise by name search using <code>series_name</code>/<code>title</code>.</p>
 
+<!-- ─────────── series_gaps ─────────── -->
+<h2 id="series_gaps">series_gaps</h2>
+<p>Diffs tracked shows against TheTVDB's episode list and emits one search-query entry per missing aired episode (or per season pack). Upstream entries are shows — from <a href="#series_tracker"><code>series_tracker</code></a>, <a href="#tvdb_favorites"><code>tvdb_favorites</code></a>, <a href="#trakt_list"><code>trakt_list</code></a>, … — and the output feeds straight into <a href="#discover"><code>discover</code></a>. Like <code>discover</code>, this processor <em>replaces</em> its upstream: the show entries are consumed as context and the emitted gap entries have their own (stable, synthetic) URLs. See <a href="#backfill">Backfill</a> for the end-to-end flow.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>api_key</code></td><td>yes</td><td>—</td><td>TheTVDB v4 API key</td></tr>
+  <tr><td><code>cache_ttl</code></td><td>no</td><td><code>24h</code></td><td>How long to cache TVDB lookups</td></tr>
+  <tr><td><code>include_specials</code></td><td>no</td><td><code>false</code></td><td>Consider season-0 specials as gap candidates</td></tr>
+  <tr><td><code>include_inactive</code></td><td>no</td><td><code>false</code></td><td>Also scan shows deactivated in the series tracker</td></tr>
+  <tr><td><code>pack_threshold</code></td><td>no</td><td><code>0.5</code></td><td>Missing fraction (0–1) above which a season emits one season-pack query instead of per-episode queries; <code>1</code> disables packs</td></tr>
+  <tr><td><code>max_per_run</code></td><td>no</td><td><code>30</code></td><td>Cap on emitted entries per run (<code>0</code> = unlimited); a persisted cursor resumes next run</td></tr>
+</table>
+
+<p>Each per-episode entry carries a searchable title (<code>My Show S02E05</code>), a stable synthetic URL (<code>pipeliner://gap/my%20show/S02E05</code>), and <code>series_name</code>, <code>series_season</code>, <code>series_episode</code>, <code>series_episode_id</code>, <code>media_type=series</code>, <code>tvdb_id</code>, <code>source</code>. Season-pack entries (<code>My Show S02</code>) set <code>series_season</code> but omit <code>series_episode</code>/<code>series_episode_id</code>. Only aired episodes count: air date strictly in the past, undated episodes ignored, specials opt-in — the same rules as <code>series_lifecycle</code>. TVDB lookup failures skip the show with a warning instead of aborting the run, and shows deactivated in the tracker are skipped unless <code>include_inactive=true</code>.</p>
+
 <hr>
 <!-- ═══════════════════════════════════════════════════════════ -->
 <h1>Filter Processors</h1>
@@ -2133,6 +2151,37 @@ pipeline("failed-grab-recovery", schedule="1h")</code></pre>
 </ul>
 
 <p>Both pipelines ship as <code>configs/torrent-janitor.star</code>. Run them with <a href="#dry-run">dry-run</a> first — especially before trusting <code>remove_with_data</code>, which deletes files from disk.</p>
+
+<!-- ─────────── Backfill ─────────── -->
+<h2 id="backfill">Backfill</h2>
+<p>Adding a show only catches new episodes. The series tracker knows what you have; TheTVDB knows what exists — the diff is your backlog. The backfill flow turns that diff into searches:</p>
+
+<ol>
+  <li><a href="#series_tracker"><code>series_tracker</code></a> emits one entry per tracked show.</li>
+  <li><a href="#series_lifecycle"><code>series_lifecycle</code></a> classifies each show; a <a href="#condition"><code>condition</code></a> gate keeps only <code>dormant</code> ones (ended, gaps remain — their episode lists will never grow again, so every gap is permanent until you fill it).</li>
+  <li><a href="#series_gaps"><code>series_gaps</code></a> diffs each show's aired episodes against the tracker and emits one query entry per missing episode.</li>
+  <li><a href="#discover"><code>discover</code></a> searches the backends (e.g. <a href="#jackett"><code>jackett</code></a>) for each query; results flow through the usual episode chain (<code>seen</code> → <code>metainfo_file</code> → <code>require</code> → <code>quality</code> → <code>series</code> with <code>tracking="backfill"</code>) into the download sink.</li>
+</ol>
+
+<pre><code>shows = input("series_tracker")
+lc    = process("series_lifecycle", upstream=shows, api_key=tvdb_api_key)
+gate  = process("condition", upstream=lc, rules=[
+    {"accept": 'series_lifecycle == "dormant"'},
+    {"reject": "true"},
+])
+gaps  = process("series_gaps", upstream=gate, api_key=tvdb_api_key,
+                pack_threshold=1.0, max_per_run=30)
+found = process("discover", upstream=gaps, interval="12h",
+                search=[{"name": "jackett", "url": jackett_url,
+                         "api_key": jackett_key, "indexers": ["all"]}])</code></pre>
+
+<p><strong>Season packs.</strong> Per season, <code>series_gaps</code> compares <em>missing / aired</em>. When the fraction strictly exceeds <code>pack_threshold</code>, the whole season collapses into a single pack query (<code>My Show S02</code>) instead of per-episode queries — one indexer search instead of twenty. Exactly at the threshold stays per-episode; <code>0</code> packs any gap; <code>1</code> disables packs. The caveat: pipeliner has no season-pack tracking semantics. A pack entry is just a plain search query, pack <em>releases</em> don't parse as single episodes (a strict <code>require</code>/<code>series</code> chain drops them), and a grabbed pack is not recorded per-episode in the tracker — its episodes remain "missing" to future scans. The sample config therefore pins <code>pack_threshold=1.0</code>; lower it only with a relaxed downstream branch for pack-shaped results.</p>
+
+<p><strong>Cap and resume.</strong> A dormant library can hide thousands of gaps; searching them all in one run would hammer the indexers. <code>max_per_run</code> caps emissions per run, in deterministic (show, season, episode) order. The last emitted position is persisted per pipeline, the next run resumes right after it, and the scan wraps around at the end of the list — so the backlog drains steadily instead of re-searching the same first 30 gaps forever. Dry-run previews the next real run without advancing the cursor. Every run logs <code>emitted N of M candidate gaps</code>.</p>
+
+<p><strong>Inactive shows.</strong> Shows deactivated in the tracker (see <a href="#series-lifecycle">Series lifecycle</a> — e.g. <code>complete</code> shows) are skipped before any TVDB lookup. Set <code>include_inactive=true</code> to scan them anyway, e.g. when re-auditing a show you deactivated manually.</p>
+
+<p>The full pipeline ships as <code>configs/series-backfill.star</code>. It also works without the lifecycle gate — feed <code>series_tracker</code> (or any show list) straight into <code>series_gaps</code> to backfill still-running shows too.</p>
 
 <hr>
 <!-- ═══════════════════════════════════════════════════════════ -->
