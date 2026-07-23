@@ -11,7 +11,9 @@ import (
 	"testing"
 
 	"github.com/brunoga/pipeliner/internal/entry"
+	"github.com/brunoga/pipeliner/internal/grabs"
 	"github.com/brunoga/pipeliner/internal/plugin"
+	"github.com/brunoga/pipeliner/internal/store"
 )
 
 func makeCtx() *plugin.TaskContext {
@@ -342,12 +344,12 @@ func TestValidateTorrentURL(t *testing.T) {
 		{"http_ok", "http://example.com/x.torrent", ""},
 		{"https_ok", "https://example.com/x.torrent", ""},
 		{"magnet_ok", "magnet:?xt=urn:btih:abc", ""},
-		{"scheme_only", "http://", "no host"},                                // passes prefix check but has no host
-		{"host_only_no_scheme", "example.com/foo.torrent", "unsupported"},    // ftp-ish path-like input; prefix check missed it before
-		{"ftp_scheme", "ftp://example.com/x.torrent", "unsupported"},         // explicitly non-supported scheme
-		{"javascript_scheme", "javascript:alert(1)", "unsupported"},          // safety: dangerous scheme rejected
-		{"relative_path", "/dl/foo.torrent", "unsupported"},                  // path-only — exactly the b'' scheme case
-		{"colon_only", ":foo", "invalid URL"},                                // url.Parse rejects this outright
+		{"scheme_only", "http://", "no host"},                             // passes prefix check but has no host
+		{"host_only_no_scheme", "example.com/foo.torrent", "unsupported"}, // ftp-ish path-like input; prefix check missed it before
+		{"ftp_scheme", "ftp://example.com/x.torrent", "unsupported"},      // explicitly non-supported scheme
+		{"javascript_scheme", "javascript:alert(1)", "unsupported"},       // safety: dangerous scheme rejected
+		{"relative_path", "/dl/foo.torrent", "unsupported"},               // path-only — exactly the b'' scheme case
+		{"colon_only", ":foo", "invalid URL"},                             // url.Parse rejects this outright
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -431,5 +433,116 @@ func TestRegistration(t *testing.T) {
 	}
 	if d.Role != plugin.RoleSink {
 		t.Errorf("phase: got %v", d.Role)
+	}
+}
+
+// grabTestPlugin builds a deluge plugin wired to the mock daemon and an
+// in-memory store so grab recording can be asserted.
+func grabTestPlugin(t *testing.T, srv *httptest.Server) (*delugePlugin, *store.SQLiteStore) {
+	t.Helper()
+	db, err := store.OpenSQLite(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	p, err := newPlugin(map[string]any{"host": "127.0.0.1", "password": "secret"}, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dp := p.(*delugePlugin)
+	dp.endpoint = srv.URL + "/json"
+	return dp, db
+}
+
+func TestGrabRecordedFromInfoHashField(t *testing.T) {
+	mock := &mockDeluge{loginOK: true}
+	srv := httptest.NewServer(mock.handler())
+	defer srv.Close()
+
+	dp, db := grabTestPlugin(t, srv)
+
+	e := entry.New("Show.S01E03.720p", "http://tracker.example/42.torrent")
+	e.Set(entry.FieldTorrentInfoHash, "ABCDEF0123456789ABCDEF0123456789ABCDEF01")
+	e.Set(entry.FieldSeriesTrackerName, "show")
+	e.Set(entry.FieldSeriesEpisodeID, "S01E03")
+
+	if err := dp.deliver(context.Background(), makeCtx(), []*entry.Entry{e}); err != nil {
+		t.Fatal(err)
+	}
+
+	gs := grabs.NewStore(db.Bucket(grabs.BucketName))
+	rec, ok := gs.Get("abcdef0123456789abcdef0123456789abcdef01")
+	if !ok {
+		t.Fatal("grab record should exist after successful add")
+	}
+	if rec.URL != "http://tracker.example/42.torrent" {
+		t.Errorf("rec.URL = %q", rec.URL)
+	}
+	if rec.SeriesName != "show" || rec.EpisodeID != "S01E03" {
+		t.Errorf("series key = %q/%q", rec.SeriesName, rec.EpisodeID)
+	}
+	if rec.Task != "test" {
+		t.Errorf("rec.Task = %q", rec.Task)
+	}
+}
+
+func TestGrabRecordedFromMagnetURL(t *testing.T) {
+	mock := &mockDeluge{loginOK: true}
+	srv := httptest.NewServer(mock.handler())
+	defer srv.Close()
+
+	dp, db := grabTestPlugin(t, srv)
+
+	e := entry.New("Show", "magnet:?xt=urn:btih:1111111111111111111111111111111111111111&dn=Show")
+	if err := dp.deliver(context.Background(), makeCtx(), []*entry.Entry{e}); err != nil {
+		t.Fatal(err)
+	}
+
+	gs := grabs.NewStore(db.Bucket(grabs.BucketName))
+	if _, ok := gs.Get("1111111111111111111111111111111111111111"); !ok {
+		t.Fatal("grab record should be derived from the magnet URL")
+	}
+}
+
+func TestNoGrabRecordWithoutDeterminableHash(t *testing.T) {
+	mock := &mockDeluge{loginOK: true}
+	srv := httptest.NewServer(mock.handler())
+	defer srv.Close()
+
+	dp, _ := grabTestPlugin(t, srv)
+
+	// Bare .torrent URL, no torrent_info_hash field → the missing hash is a
+	// debug-level skip only: the add itself succeeds and the entry is not
+	// failed, matching the transmission/qbittorrent sinks.
+	e := entry.New("Bare", "http://example.com/bare.torrent")
+	if grabs.HashForEntry(e) != "" {
+		t.Fatal("test premise broken: entry should have no determinable hash")
+	}
+	if err := dp.deliver(context.Background(), makeCtx(), []*entry.Entry{e}); err != nil {
+		t.Fatal(err)
+	}
+	if e.IsFailed() {
+		t.Fatal("add itself should succeed")
+	}
+}
+
+func TestNoGrabRecordOnFailedAdd(t *testing.T) {
+	mock := &mockDeluge{loginOK: true, addError: "some unexpected rpc error"}
+	srv := httptest.NewServer(mock.handler())
+	defer srv.Close()
+
+	dp, db := grabTestPlugin(t, srv)
+
+	e := entry.New("Bad", "magnet:?xt=urn:btih:2222222222222222222222222222222222222222")
+	if err := dp.deliver(context.Background(), makeCtx(), []*entry.Entry{e}); err != nil {
+		t.Fatal(err)
+	}
+	if !e.IsFailed() {
+		t.Fatal("entry should be failed")
+	}
+	gs := grabs.NewStore(db.Bucket(grabs.BucketName))
+	if _, ok := gs.Get("2222222222222222222222222222222222222222"); ok {
+		t.Error("no grab record should be written for a failed add")
 	}
 }

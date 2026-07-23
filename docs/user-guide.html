@@ -949,13 +949,13 @@ series = process("series", upstream=src, list=[
 
 <!-- ─────────── torrent_session ─────────── -->
 <h2 id="torrent_session">torrent_session</h2>
-<p>Emits one entry per torrent in a download client's session — Transmission (JSON-RPC) or qBittorrent (Web API v2) — so janitor pipelines can inspect ratio, seed time, and state, and act via <a href="#torrent_control"><code>torrent_control</code></a> and <a href="#mark_failed"><code>mark_failed</code></a>. See <a href="#download-loop">Download-loop closure</a> for the full flow.</p>
+<p>Emits one entry per torrent in a download client's session — Transmission (JSON-RPC), qBittorrent (Web API v2), or Deluge (Web UI JSON-RPC) — so janitor pipelines can inspect ratio, seed time, and state, and act via <a href="#torrent_control"><code>torrent_control</code></a> and <a href="#mark_failed"><code>mark_failed</code></a>. See <a href="#download-loop">Download-loop closure</a> for the full flow.</p>
 
 <table>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
-  <tr><td><code>backend</code></td><td>yes</td><td>—</td><td><code>transmission</code> or <code>qbittorrent</code></td></tr>
+  <tr><td><code>backend</code></td><td>yes</td><td>—</td><td><code>transmission</code>, <code>qbittorrent</code>, or <code>deluge</code></td></tr>
   <tr><td><code>host</code></td><td>no</td><td><code>localhost</code></td><td>Client host</td></tr>
-  <tr><td><code>port</code></td><td>no</td><td><code>9091</code> / <code>8080</code></td><td>Client port (default depends on backend)</td></tr>
+  <tr><td><code>port</code></td><td>no</td><td><code>9091</code> / <code>8080</code> / <code>8112</code></td><td>Client port (default depends on backend)</td></tr>
   <tr><td><code>username</code></td><td>no</td><td>—</td><td>Auth username</td></tr>
   <tr><td><code>password</code></td><td>no</td><td>—</td><td>Auth password</td></tr>
   <tr><td><code>rpc_path</code></td><td>no</td><td><code>/transmission/rpc</code></td><td>Transmission RPC endpoint path</td></tr>
@@ -1871,7 +1871,7 @@ output("exec", upstream=cleanup, command="rm -f {file_location}")</code></pre>
 <table>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
   <tr><td><code>action</code></td><td>yes</td><td>—</td><td><code>remove</code>, <code>remove_with_data</code>, <code>pause</code>, or <code>reannounce</code></td></tr>
-  <tr><td><code>backend</code></td><td>yes</td><td>—</td><td><code>transmission</code> or <code>qbittorrent</code></td></tr>
+  <tr><td><code>backend</code></td><td>yes</td><td>—</td><td><code>transmission</code>, <code>qbittorrent</code>, or <code>deluge</code></td></tr>
   <tr><td><code>host</code>/<code>port</code>/<code>username</code>/<code>password</code>/<code>rpc_path</code>/<code>tls</code></td><td>no</td><td>—</td><td>Same connection keys as <a href="#torrent_session"><code>torrent_session</code></a></td></tr>
 </table>
 
@@ -1881,7 +1881,7 @@ output("exec", upstream=cleanup, command="rm -f {file_location}")</code></pre>
 <h2 id="mark_failed">mark_failed</h2>
 <p>Records a dead torrent's <em>original release URL</em> in the shared failed-grab bucket (<code>seen_failed</code>) and un-tracks the associated episode/movie in the series/movies trackers, so a <em>different</em> release of the same content can be grabbed on a later run while the exact failed release is never retried (put <code>retry_failed=True</code> on your download pipelines' <a href="#seen"><code>seen</code></a> filter).</p>
 
-<p>Session entries only carry the info-hash, so the release URL is resolved through the <strong>grab records</strong> the <code>transmission</code>/<code>qbittorrent</code> sinks store at add time. Entries whose hash has no grab record (added outside pipeliner, or a bare <code>.torrent</code> URL added to qBittorrent without a metainfo pass) are marked failed with a clear reason.</p>
+<p>Session entries only carry the info-hash, so the release URL is resolved through the <strong>grab records</strong> the <code>transmission</code>/<code>qbittorrent</code>/<code>deluge</code> sinks store at add time. Entries whose hash has no grab record (added outside pipeliner, or a bare <code>.torrent</code> URL added to qBittorrent without a metainfo pass) are marked failed with a clear reason.</p>
 
 <table>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
@@ -2126,7 +2126,7 @@ pipeline("failed-grab-recovery", schedule="1h")</code></pre>
 
 <p>How the pieces cooperate:</p>
 <ul>
-  <li><strong>Grab records.</strong> The <code>transmission</code>/<code>qbittorrent</code> sinks record <em>info-hash → release URL + tracker keys</em> in a shared bucket at add time. <code>mark_failed</code> resolves session torrents (whose URL is just <code>torrent://&lt;hash&gt;</code>) back to the original release through it.</li>
+  <li><strong>Grab records.</strong> The <code>transmission</code>/<code>qbittorrent</code>/<code>deluge</code> sinks record <em>info-hash → release URL + tracker keys</em> in a shared bucket at add time. <code>mark_failed</code> resolves session torrents (whose URL is just <code>torrent://&lt;hash&gt;</code>) back to the original release through it.</li>
   <li><strong>The failed bucket.</strong> <code>mark_failed</code> writes the release URL into <code>seen_failed</code>. A <a href="#seen"><code>seen</code></a> filter with <code>retry_failed=True</code> rejects those URLs forever, so the exact dead release is never re-grabbed.</li>
   <li><strong>Tracker un-marking.</strong> <code>mark_failed</code> also forgets the episode/movie in the series/movies trackers, so a <em>different</em> release of the same content passes the filters on the next run — and a <a href="#discover"><code>discover</code></a> pipeline can actively search for one.</li>
   <li><strong>Add-time failures need none of this.</strong> When the download sink itself fails an entry, the commit phase never runs, so the seen filter and trackers were never updated and the next run retries naturally. The janitor exists for grabs that were confirmed at add time but died later.</li>

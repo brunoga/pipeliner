@@ -293,7 +293,7 @@ func TestTransmissionEmptyHashesNoCalls(t *testing.T) {
 }
 
 func TestNewUnsupportedBackend(t *testing.T) {
-	if _, err := New("deluge", Config{}); err == nil {
+	if _, err := New("rtorrent", Config{}); err == nil {
 		t.Fatal("expected error for unsupported backend")
 	}
 }

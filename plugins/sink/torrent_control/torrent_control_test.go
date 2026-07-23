@@ -202,7 +202,7 @@ func TestNewPluginValidation(t *testing.T) {
 	if _, err := newPlugin(map[string]any{"action": "explode", "backend": "transmission"}, nil); err == nil {
 		t.Error("invalid action should error")
 	}
-	if _, err := newPlugin(map[string]any{"action": "remove", "backend": "deluge"}, nil); err == nil {
+	if _, err := newPlugin(map[string]any{"action": "remove", "backend": "rtorrent"}, nil); err == nil {
 		t.Error("unsupported backend should error")
 	}
 }
