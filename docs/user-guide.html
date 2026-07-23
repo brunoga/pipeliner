@@ -160,6 +160,7 @@ td code{font-size:11px}
     <a href="#require" class="sub">require</a>
     <a href="#seen" class="sub">seen</a>
     <a href="#exists" class="sub">exists</a>
+    <a href="#library" class="sub">library</a>
     <a href="#list_match" class="sub">list_match</a>
     <a href="#regexp" class="sub">regexp</a>
     <a href="#age" class="sub">age</a>
@@ -1659,6 +1660,26 @@ pipeline("tech-news", schedule="1h")</code></pre>
 </table>
 
 <!-- ─────────── list_match ─────────── -->
+<h2 id="library">library</h2>
+<p>Rejects entries whose episode or movie already exists in the media library <em>on disk</em> at equal-or-better quality. Unlike <a href="#seen"><code>seen</code></a> and the download trackers (which record what pipeliner grabbed), this checks disk truth — content acquired outside pipeliner counts too — and enables real quality upgrades: a release strictly better than the library copy passes through.</p>
+<p>The filesystem backend walks the configured paths, parses video filenames with the same release-name parsers the pipeline uses, and keeps the best quality per episode (<code>show + series_episode_id</code>) and per movie (<code>title + year</code>). The index is cached in memory and rebuilt when older than <code>ttl</code>. Remote backends (Plex, Jellyfin) are planned; the <code>backend</code> key exists so configs stay stable when they arrive.</p>
+<table>
+  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>paths</code></td><td>yes</td><td>—</td><td>Library directories to index (walked recursively)</td></tr>
+  <tr><td><code>backend</code></td><td>no</td><td><code>filesystem</code></td><td>Only <code>filesystem</code> is supported today</td></tr>
+  <tr><td><code>ttl</code></td><td>no</td><td><code>15m</code></td><td>How long the disk index is reused before rescanning</td></tr>
+  <tr><td><code>upgrade</code></td><td>no</td><td>true</td><td>Pass entries whose quality is strictly better than the library copy</td></tr>
+  <tr><td><code>extensions</code></td><td>no</td><td>common video types</td><td>File extensions to index</td></tr>
+</table>
+<p>Typical placement is right after <code>metainfo_file</code>, before quality/series filtering:</p>
+<pre><code>src  = input("rss", url="https://feeds.example.com/tv.rss")
+meta = process("metainfo_file", upstream=src)
+lib  = process("library", upstream=meta,
+               paths=["/mnt/media/tv", "/mnt/media/movies"])
+flt  = process("series", upstream=lib, static=["Breaking Bad"], quality="720p+")
+out  = output("transmission", upstream=flt, host="localhost")
+pipeline("tv", schedule="1h")</code></pre>
+
 <h2 id="list_match">list_match</h2>
 <p>Accepts entries whose title is in a named persistent list. The list is populated by the <code>list_add</code> output plugin. Pairs with <code>list_add</code> for cross-task coordination.</p>
 
