@@ -25,7 +25,7 @@ import (
 	"github.com/brunoga/pipeliner/internal/store"
 )
 
-//go:embed ui/index.html ui/style.css ui/dashboard.js ui/highlight.js ui/config-editor.js ui/visual-editor.js ui/database.js ui/plugin-debug.js ui/trakt.js ui/favicon.svg ui/fonts
+//go:embed ui/index.html ui/style.css ui/dashboard-extra.css ui/dashboard.js ui/highlight.js ui/config-editor.js ui/visual-editor.js ui/database.js ui/plugin-debug.js ui/trakt.js ui/favicon.svg ui/fonts
 var uiFS embed.FS
 
 // DaemonControl is the scheduler interface the Server uses.
@@ -74,6 +74,11 @@ type Server struct {
 
 	traktAuthMu sync.Mutex
 	traktAuth   *traktAuthSession
+
+	// startedAt is when this Server was constructed — effectively the daemon
+	// start time. Exposed via /api/status so the UI can show real uptime
+	// instead of the browser page's age.
+	startedAt time.Time
 }
 
 // PluginLogControl is the slice of *clog.PerPluginLevel that the web server
@@ -132,13 +137,14 @@ func (s *Server) isRunning(name string) bool {
 // username and password are required; all routes are protected by session auth.
 func New(tasks []TaskInfo, d DaemonControl, h *History, b *Broadcaster, version, username, password string) *Server {
 	return &Server{
-		tasks:    tasks,
-		daemon:   d,
-		history:  h,
-		bcast:    b,
-		version:  version,
-		creds:    newCredentials(username, password),
-		sessions: newSessionStore(),
+		tasks:     tasks,
+		daemon:    d,
+		history:   h,
+		bcast:     b,
+		version:   version,
+		creds:     newCredentials(username, password),
+		sessions:  newSessionStore(),
+		startedAt: time.Now(),
 	}
 }
 
@@ -307,7 +313,8 @@ func (s *Server) apiStatus(w http.ResponseWriter, _ *http.Request) {
 		Running  bool   `json:"running,omitempty"`
 	}
 	type resp struct {
-		Tasks []taskJSON `json:"tasks"`
+		Tasks     []taskJSON `json:"tasks"`
+		StartedAt string     `json:"started_at"`
 	}
 	s.tasksMu.RLock()
 	snap := s.tasks
@@ -320,7 +327,7 @@ func (s *Server) apiStatus(w http.ResponseWriter, _ *http.Request) {
 		}
 		tasks[i] = tj
 	}
-	writeJSON(w, resp{Tasks: tasks})
+	writeJSON(w, resp{Tasks: tasks, StartedAt: s.startedAt.UTC().Format(time.RFC3339)})
 }
 
 func (s *Server) apiHistory(w http.ResponseWriter, _ *http.Request) {

@@ -15,7 +15,8 @@ let pdFilter = '';
 let pdStatusTimer = null;
 
 async function loadPluginDebugSettings() {
-  if (pdLoaded) return;
+  // No pdLoaded cache — refetch every time the Settings tab is shown, so
+  // the enabled set stays correct after a daemon restart cleared it.
   const list = document.getElementById('plugin-debug-list');
   if (!list) return;
   try {
@@ -72,7 +73,7 @@ function renderPluginDebugList() {
       const checked = pdEnabled.has(p.name) ? ' checked' : '';
       const active = pdEnabled.has(p.name) ? ' plugin-debug-row-active' : '';
       html += `<label class="plugin-debug-row${active}">
-        <input type="checkbox" class="plugin-debug-cb"${checked}
+        <input type="checkbox" class="plugin-debug-cb"${checked} data-name="${esc(p.name)}"
           onchange="togglePluginDebug(${esc(JSON.stringify(p.name))}, this.checked)">
         <span class="plugin-debug-name">${esc(p.name)}</span>
         <span class="plugin-debug-desc">${esc(p.description || '')}</span>
@@ -103,6 +104,20 @@ async function togglePluginDebug(name, on) {
     pluginDebugStatus('error: ' + e.message, true);
   }
   renderPluginDebugList();
+  // The re-render replaced the checkbox node — restore keyboard focus so
+  // space/tab keep working from where the user was.
+  focusPluginDebugCheckbox(name);
+}
+
+function focusPluginDebugCheckbox(name) {
+  const list = document.getElementById('plugin-debug-list');
+  if (!list || typeof list.querySelectorAll !== 'function') return;
+  for (const cb of list.querySelectorAll('.plugin-debug-cb')) {
+    if (cb.dataset && cb.dataset.name === name) {
+      if (typeof cb.focus === 'function') cb.focus();
+      return;
+    }
+  }
 }
 
 function pluginDebugStatus(msg, isError) {

@@ -1,5 +1,18 @@
 'use strict';
 
+// ── extra dashboard stylesheet ────────────────────────────────────────────────
+//
+// index.html is owned by other tooling, so dashboard-specific CSS additions
+// live in dashboard-extra.css and are injected here. Guarded so the vitest
+// harness (which stubs a minimal document) skips the injection.
+(function () {
+  if (typeof document === 'undefined' || !document.head || typeof document.head.appendChild !== 'function') return;
+  const link = document.createElement('link');
+  link.rel = 'stylesheet';
+  link.href = 'dashboard-extra.css';
+  document.head.appendChild(link);
+})();
+
 // ── theme ─────────────────────────────────────────────────────────────────────
 
 function applyTheme(theme) {
@@ -18,7 +31,11 @@ function setTheme(theme) {
 
 // ── polling ───────────────────────────────────────────────────────────────────
 
+// Fallback uptime base: the page's own age. Replaced by the server's
+// started_at from /api/status as soon as the first poll succeeds, so the
+// header shows daemon uptime rather than browser-tab uptime.
 let startedAt = Date.now();
+let serverStartedAt = null; // epoch ms parsed from /api/status started_at
 
 // ── log viewer state ─────────────────────────────────────────────────────────
 //
@@ -54,6 +71,7 @@ function newLogState() {
     lastLivePos: null,    // pos string of the most recent SSE-delivered line
     startMarker: null,
     emptyMarker: null,
+    placeholder: null,    // "waiting for log output…" element when console is empty
     filterToken: 0,       // bumps to cancel in-flight fetches after re-filter
     filterDebounce: null,
     bridgeBusy: false,    // true while runBridge() is fetching missed lines
@@ -64,30 +82,97 @@ function newLogState() {
 // ── polling ───────────────────────────────────────────────────────────────────
 
 async function refresh() {
+  // Don't poll while the tab is hidden — the visibilitychange listener
+  // fires a refresh as soon as the tab becomes visible again.
+  if (typeof document !== 'undefined' && document.hidden) return;
   try {
     const [sr, hr] = await Promise.all([fetch('/api/status'), fetch('/api/history')]);
+    if (!sr.ok || !hr.ok) throw new Error('http ' + sr.status + '/' + hr.status);
     const status  = await sr.json();
     const history = await hr.json();
     const tasks   = status.tasks || [];
+    if (status.started_at) {
+      const t = Date.parse(status.started_at);
+      if (!isNaN(t)) serverStartedAt = t;
+    }
     render(tasks, history);
-    if (dbLoaded) loadDBSidebar();
+    // Only refresh the DB sidebar when the DB tab is actually visible —
+    // rebuilding it in the background steals keyboard focus for nothing.
+    if (dbLoaded && isDBTabVisible()) refreshDBSidebarIfChanged();
+    const upBase = serverStartedAt !== null ? serverStartedAt : startedAt;
     document.getElementById('header-meta').textContent =
-      'up ' + fmtUptime(Math.round((Date.now() - startedAt) / 1000)) +
+      'up ' + fmtUptime(Math.max(0, Math.round((Date.now() - upBase) / 1000))) +
       ' · ' + tasks.length + ' task' + (tasks.length !== 1 ? 's' : '');
     const allRunning = tasks.length > 0 && tasks.every(t => t.running);
     const runAllBtn = document.getElementById('btn-run-all');
-    runAllBtn.disabled = allRunning;
+    runAllBtn.disabled = allRunning || _runAllPending;
     runAllBtn.title = allRunning ? 'All tasks are already running' : '';
+    const runAllDryBtn = document.getElementById('btn-run-all-dry');
+    if (runAllDryBtn) {
+      runAllDryBtn.disabled = allRunning || _runAllPending;
+      if (allRunning) runAllDryBtn.title = 'All tasks are already running';
+      else runAllDryBtn.title = 'Dry-run every task — no side effects, no tracker advance';
+    }
   } catch (e) {
     document.getElementById('header-meta').textContent = 'error — retrying';
   }
+}
+
+// Refresh immediately when the tab becomes visible again (polling is
+// suspended while hidden). Guarded for the vitest document stub.
+if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) refresh();
+  });
+}
+
+function isDBTabVisible() {
+  const tab = document.getElementById('tab-db');
+  return !!tab && tab.style && tab.style.display !== 'none';
+}
+
+// refreshDBSidebarIfChanged re-renders the DB sidebar only when the bucket
+// list actually changed since the previous poll. The unconditional rebuild
+// used to steal keyboard focus from the filter box every 10 s.
+let _dbSidebarLastJSON = null;
+async function refreshDBSidebarIfChanged() {
+  try {
+    const r = await fetch('/api/db/buckets');
+    if (!r.ok) return;
+    const text = await r.text();
+    if (text === _dbSidebarLastJSON) return;
+    _dbSidebarLastJSON = text;
+    const { buckets } = JSON.parse(text);
+    for (const item of dbNavItems) {
+      const b = buckets.find(x => x.name === item.bucket);
+      item.count = b?.count ?? 0;
+    }
+    renderDBSidebar();
+  } catch (_) { /* transient — next poll retries */ }
 }
 
 // True only for the very first render after page load or tab switch.
 // Polling refreshes set this to false so cards don't re-animate every 10 s.
 let _dashboardFirstRender = true;
 
+// Cached last-rendered data so toggling a card's history panel can re-render
+// without waiting for (or issuing) a network round-trip.
+let _lastTasks = [];
+let _lastHistory = {};
+
+// Task names whose run-history panel is expanded. Module-level so the state
+// survives the innerHTML replacement done by every 10 s poll re-render.
+const _expandedHistory = new Set();
+
+function toggleTaskHistory(name) {
+  if (_expandedHistory.has(name)) _expandedHistory.delete(name);
+  else _expandedHistory.add(name);
+  if (_lastTasks.length) render(_lastTasks, _lastHistory);
+}
+
 function render(tasks, history) {
+  _lastTasks = tasks;
+  _lastHistory = history || {};
   const grid = document.getElementById('task-grid');
   if (!tasks.length) {
     grid.innerHTML = '<div class="no-tasks">No tasks configured.</div>';
@@ -97,17 +182,52 @@ function render(tasks, history) {
   // Suppress animation during background refreshes by adding no-anim before
   // replacing innerHTML — new card nodes inherit animation:none from the class.
   if (!_dashboardFirstRender) grid.classList.add('no-anim');
-  grid.innerHTML = tasks.map((t, i) => card(t, (history[t.name] || [])[0], i)).join('');
+  grid.innerHTML = tasks.map((t, i) => card(t, _lastHistory[t.name] || [], i)).join('');
   _dashboardFirstRender = false;
 }
 
-function card(t, last, idx = 0) {
+// hasRecentError reports whether any of the newest 5 runs errored — drives
+// the subtle indicator on the collapsed card so a failure that happened a
+// few runs ago is still discoverable.
+function hasRecentError(runs) {
+  return (runs || []).slice(0, 5).some(r => r && r.err);
+}
+
+// historyHtml renders the expanded run-history panel for one task.
+function historyHtml(runs) {
+  const rows = (runs || []).map(historyRowHtml).join('');
+  return `<div class="task-history">${rows || '<div class="task-history-empty">No recorded runs.</div>'}</div>`;
+}
+
+function historyRowHtml(r) {
+  const d = new Date(r.at);
+  const abs = isNaN(d.getTime()) ? '' : d.toLocaleString();
+  const when = `<span class="task-history-when" title="${esc(abs)}">${esc(relTime(d))} ago</span>`;
+  const dry = r.dry_run ? ' <span class="dry-badge" title="Dry-run — no side effects">DRY</span>' : '';
+  const counts =
+    `<span class="task-history-counts">` +
+    `<span class="thc a" title="accepted">${r.accepted ?? 0}</span>` +
+    `<span class="thc r" title="rejected">${r.rejected ?? 0}</span>` +
+    `<span class="thc f" title="failed">${r.failed ?? 0}</span>` +
+    `<span class="thc u" title="undecided">${r.undecided ?? 0}</span>` +
+    `</span>`;
+  const err = r.err ? `<div class="task-err">⚠ ${esc(r.err)}</div>` : '';
+  return `<div class="task-history-row${r.err ? ' has-err' : ''}">
+      <div class="task-history-line">${when}${dry}<span class="task-history-dur">${esc(r.duration || '')}</span>${counts}</div>
+      ${err}
+    </div>`;
+}
+
+function card(t, runs, idx = 0) {
+  runs = runs || [];
+  const last = runs[0];
+  const expanded = _expandedHistory.has(t.name);
   const nextDate   = t.nextRun ? new Date(t.nextRun) : null;
   const schedLabel = nextDate ? fmtDatetime(nextDate) : (t.schedule ? t.schedule : 'manual');
   const schedOpacity = (!nextDate && !t.schedule) ? ' style="opacity:.5"' : '';
   const schedBadge = `<span class="task-schedule"${schedOpacity} title="${esc(t.schedule || '')}">${esc(schedLabel)}</span>`;
 
-  const nextStr = nextDate ? 'in ' + relTime(nextDate) : '—';
+  const nextStr = nextRunLabel(nextDate);
   // DRY badge lives next to the "Last run" label, not next to the timing
   // text — placing it inside the right-side <b> with "1m ago · 1.5s" made
   // the whole line wrap inside narrow cards, pushing the stats grid down.
@@ -136,21 +256,35 @@ function card(t, last, idx = 0) {
   const errLine = (last && last.err)
     ? `<div class="task-err">⚠ ${esc(last.err)}</div>` : '';
 
+  // Subtle indicator on the collapsed card when a recent (last 5) run
+  // errored — a failed run followed by a successful one is otherwise
+  // invisible without expanding the history.
+  const errDot = (!expanded && hasRecentError(runs))
+    ? ` <span class="task-err-dot" title="A recent run failed — click to see run history">●</span>` : '';
+
+  // A trigger in flight (or recently failed) survives poll re-renders:
+  // card() consults the map so the button state is re-applied every render.
+  const pend = _pendingTriggers.get(t.name);
   const runBtns = t.running
     ? `<button class="btn-run running" disabled>Running…</button>`
+    : pend
+    ? `<button class="btn-run ${pend.cls}" disabled>${esc(pend.label)}</button>`
     : `<div class="btn-run-group">
          <button class="btn-run" onclick="triggerRun(${esc(JSON.stringify(t.name))}, this, false)" title="Run with side effects and tracker commits">Run now</button>
          <button class="btn-run btn-dry" onclick="triggerRun(${esc(JSON.stringify(t.name))}, this, true)" title="Dry run — no side effects, no tracker advance">Dry</button>
        </div>`;
+
+  const historyPanel = expanded ? historyHtml(runs) : '';
+  const chevron = `<span class="task-history-chevron">${expanded ? '▾' : '▸'}</span>`;
 
   // nth-child handles first 10 cards; inline delay covers beyond that.
   const extraDelay = idx >= 10 ? `;animation-delay:${idx * 50}ms` : '';
 
   return `
     <div class="task-card" style="--card-color:${cardColor}${extraDelay}">
-      <div class="task-card-header">
-        <div class="task-name">${esc(t.name)}</div>
-        ${schedBadge}
+      <div class="task-card-header task-history-toggle" onclick="toggleTaskHistory(${esc(JSON.stringify(t.name))})" title="Click to ${expanded ? 'hide' : 'show'} recent runs">
+        <div class="task-name">${esc(t.name)}${errDot}</div>
+        ${schedBadge}${chevron}
       </div>
       <div class="task-timing">
         <span><span>Next run</span><b>${nextStr}</b></span>
@@ -158,35 +292,60 @@ function card(t, last, idx = 0) {
       </div>
       ${stats}
       ${errLine}
+      ${historyPanel}
       ${runBtns}
     </div>`;
 }
 
 // ── manual trigger ────────────────────────────────────────────────────────────
 
+// name → {label, cls} for manual triggers that are in flight or recently
+// failed. Rendered by card() so the 10 s poll can't wipe the feedback, and
+// consulted by triggerRun to prevent double-triggers.
+const _pendingTriggers = new Map();
+
 async function triggerRun(name, btn, dryRun) {
+  if (_pendingTriggers.has(name)) return; // request already in flight
   const original = btn.textContent;
+  const pendingLabel = dryRun ? 'Dry…' : 'Triggered…';
+  _pendingTriggers.set(name, {label: pendingLabel, cls: 'triggered'});
   btn.disabled = true;
-  btn.textContent = dryRun ? 'Dry…' : 'Triggered…';
+  btn.textContent = pendingLabel;
   btn.classList.add('triggered');
   // Disable the sibling button too so the user can't fire both back-to-back
   // (the daemon would just drop the second, but it's confusing visually).
-  const siblings = btn.parentElement.querySelectorAll('button');
+  const siblings = btn.parentElement ? btn.parentElement.querySelectorAll('button') : [];
   siblings.forEach(s => { if (s !== btn) s.disabled = true; });
+  let failDetail = null;
   try {
-    await fetch('/api/tasks/' + encodeURIComponent(name) + '/run', {
+    const r = await fetch('/api/tasks/' + encodeURIComponent(name) + '/run', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ dry_run: !!dryRun }),
     });
-  } catch (_) {}
+    if (!r.ok) {
+      let detail = '';
+      try { detail = await r.text(); } catch (_) {}
+      failDetail = 'HTTP ' + r.status + (detail ? ' — ' + detail.trim() : '');
+    }
+  } catch (e) {
+    failDetail = String(e);
+  }
+  if (failDetail) {
+    console.warn('trigger for task "' + name + '" failed: ' + failDetail);
+    _pendingTriggers.set(name, {label: 'Failed — see log', cls: 'trigger-failed'});
+    btn.textContent = 'Failed — see log';
+    btn.classList.remove('triggered');
+    btn.classList.add('trigger-failed');
+  }
   setTimeout(() => {
+    _pendingTriggers.delete(name);
     btn.disabled = false;
     btn.textContent = original;
-    btn.classList.remove('triggered');
+    btn.classList.remove('triggered', 'trigger-failed');
     siblings.forEach(s => { s.disabled = false; });
     refresh();
-  }, 3000);
+  }, failDetail ? 4000 : 3000);
 }
 
 // ── SSE log stream ────────────────────────────────────────────────────────────
@@ -259,8 +418,18 @@ function renderInitialTail(body) {
   veLog.rendered = [];
   veLog.startMarker = null;
   veLog.emptyMarker = null;
+  veLog.placeholder = null;
   const lines = (body && Array.isArray(body.lines)) ? body.lines : [];
   for (const ln of lines) appendRenderedLine(ln.text, ln.pos, false);
+  // An empty console is a big unlabeled black void — label it. The
+  // placeholder is removed as soon as the first line arrives.
+  if (lines.length === 0 && !veLog.filter) {
+    const ph = document.createElement('div');
+    ph.className = 'log-placeholder';
+    ph.textContent = 'waiting for log output…';
+    con.appendChild(ph);
+    veLog.placeholder = ph;
+  }
   veLog.topCursor = body.older_cursor || (lines[0] ? lines[0].pos : null);
   veLog.topExhausted = !!body.exhausted;
   veLog.bottomCursor = lines.length ? lines[lines.length - 1].pos : null;
@@ -458,8 +627,9 @@ function handleRotation() {
 function appendRenderedLine(text, pos, live) {
   const con = document.getElementById('log-console');
   if (!con) return;
-  // Drop any "no matches" hint once content arrives.
+  // Drop any "no matches" / "waiting…" hints once content arrives.
   removeEmptyMarker();
+  removeLogPlaceholder();
   const el = document.createElement('div');
   el.className = 'log-line';
   el.innerHTML = renderLogLine(text);
@@ -471,6 +641,7 @@ function prependRenderedLines(items) {
   const con = document.getElementById('log-console');
   if (!con) return;
   removeEmptyMarker();
+  removeLogPlaceholder();
   const oldHeight = con.scrollHeight;
   const oldTop = con.scrollTop;
   const frag = document.createDocumentFragment();
@@ -656,24 +827,26 @@ async function applyFilter() {
   startSSE(dot, text);
 }
 
-// clearLog wipes the rendered window and re-boots from /tail. The filter
-// stays as-is (use the X next to the input to clear that).
+// clearLog wipes the rendered window client-side only. The server log is
+// untouched: no /tail re-boot happens, a "── cleared ──" marker takes the
+// place of the removed lines, and new live SSE lines resume below it.
+// Cursors are preserved so scrolling up still pages history from disk.
 function clearLog() {
-  veLog.filterToken++;
   veLog.rendered = [];
-  veLog.topCursor = null;
-  veLog.topExhausted = false;
-  veLog.bottomCursor = null;
-  veLog.bottomAtTail = true;
-  veLog.liveFollow = true;
   veLog.pendingLive = 0;
-  veLog.lastLivePos = null;
+  veLog.liveFollow = true;
   veLog.startMarker = null;
   veLog.emptyMarker = null;
+  veLog.placeholder = null;
   const con = document.getElementById('log-console');
-  if (con) con.innerHTML = '';
+  if (con) {
+    con.innerHTML = '';
+    const m = document.createElement('div');
+    m.className = 'log-history-end log-cleared';
+    m.textContent = '── cleared ──';
+    con.appendChild(m);
+  }
   updatePill();
-  loadInitialTail();
 }
 
 // ── UI affordances ───────────────────────────────────────────────────────────
@@ -725,6 +898,17 @@ function removeEmptyMarker() {
   if (veLog.emptyMarker) {
     veLog.emptyMarker.remove();
     veLog.emptyMarker = null;
+  }
+}
+
+// removeLogPlaceholder drops the "waiting for log output…" hint. Called
+// when actual content arrives; kept separate from removeEmptyMarker so
+// refreshMarkers (which runs right after the placeholder is added) does
+// not immediately delete it.
+function removeLogPlaceholder() {
+  if (veLog.placeholder) {
+    veLog.placeholder.remove();
+    veLog.placeholder = null;
   }
 }
 
@@ -891,12 +1075,21 @@ function esc(s) {
   return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-function relTime(d) {
-  const s = Math.round(Math.abs(Date.now() - d) / 1000);
+function relTime(d, now = Date.now()) {
+  const s = Math.round(Math.abs(now - d) / 1000);
   if (s < 90)    return s + 's';
   if (s < 5400)  return Math.round(s / 60) + 'm';
   if (s < 86400) return Math.round(s / 3600) + 'h';
   return Math.round(s / 86400) + 'd';
+}
+
+// nextRunLabel formats the "Next run" cell. A next-run timestamp in the
+// past reads "overdue" — relTime's Math.abs would otherwise render it as
+// a bogus future time ("in 30s" for a run 30s late).
+function nextRunLabel(nextDate, now = Date.now()) {
+  if (!nextDate) return '—';
+  if (nextDate.getTime() < now) return 'overdue';
+  return 'in ' + relTime(nextDate, now);
 }
 
 function fmtUptime(s) {
@@ -911,24 +1104,45 @@ function fmtDatetime(d) {
 
 // ── run all tasks ─────────────────────────────────────────────────────────────
 
+// True while a run-all trigger is in flight or showing feedback, so the
+// 10 s poll doesn't re-enable the button mid-window.
+let _runAllPending = false;
+
 async function runAll(btn, dryRun) {
+  if (_runAllPending) return;
+  _runAllPending = true;
   const original = btn.textContent;
   btn.disabled = true;
   btn.classList.add('triggered');
   btn.textContent = dryRun ? 'Dry…' : 'Triggered…';
+  let failDetail = null;
   try {
-    await fetch('/api/tasks/run', {
+    const r = await fetch('/api/tasks/run', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ dry_run: !!dryRun }),
     });
-  } catch (_) {}
-  setTimeout(() => {
-    btn.disabled = false;
+    if (!r.ok) {
+      let detail = '';
+      try { detail = await r.text(); } catch (_) {}
+      failDetail = 'HTTP ' + r.status + (detail ? ' — ' + detail.trim() : '');
+    }
+  } catch (e) {
+    failDetail = String(e);
+  }
+  if (failDetail) {
+    console.warn('run-all trigger failed: ' + failDetail);
+    btn.textContent = 'Failed — see log';
     btn.classList.remove('triggered');
+    btn.classList.add('trigger-failed');
+  }
+  setTimeout(() => {
+    _runAllPending = false;
+    btn.disabled = false;
+    btn.classList.remove('triggered', 'trigger-failed');
     btn.textContent = original;
     refresh();
-  }, 3000);
+  }, failDetail ? 4000 : 3000);
 }
 
 
