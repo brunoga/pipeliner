@@ -126,6 +126,7 @@ td code{font-size:11px}
     <a href="#torrent_session" class="sub">torrent_session</a>
 
     <div class="section">Dynamic Sources</div>
+    <a href="#tvdb_calendar" class="sub">tvdb_calendar</a>
     <a href="#tvdb_favorites" class="sub">tvdb_favorites</a>
     <a href="#trakt_list" class="sub">trakt_list</a>
     <a href="#bluray_releases" class="sub">bluray_releases</a>
@@ -972,6 +973,14 @@ series = process("series", upstream=src, list=[
 <pre><code>sess = input("torrent_session", backend="transmission", host="localhost")</code></pre>
 
 <!-- ─────────── tvdb_favorites ─────────── -->
+<h2 id="tvdb_calendar">tvdb_calendar</h2>
+<p>Emits one entry per upcoming episode (airing within <code>window</code>, default 24h) for every show in the series tracker, using TheTVDB air dates. Shows deactivated by <a href="#series_tracker_update"><code>series_tracker_update</code></a> are skipped unless <code>include_inactive=True</code>. Feed it into <a href="#notify"><code>notify</code></a> for a "tonight's episodes" message, or into <a href="#discover"><code>discover</code></a> for day-of searching. Each entry carries <code>series_name</code>, <code>series_episode_id</code>/<code>season</code>/<code>episode</code>, <code>series_air_date</code>, and the episode name in <code>description</code>.</p>
+<pre><code>cal  = input("tvdb_calendar", api_key=env("TVDB_API_KEY"), window="24h")
+tell = output("notify", upstream=cal, via="pushover",
+              title="Tonight: {{len .Entries}} episode(s)",
+              body="{{range .Entries}}&bull; {{.Title}}\n{{end}}")
+pipeline("tonights-episodes", schedule="0 16 * * *")</code></pre>
+
 <h2 id="tvdb_favorites">tvdb_favorites</h2>
 <p>Fetches a user's TheTVDB favorites list and emits one entry per show. Use as an upstream node for <code>discover</code> or inside <code>series.list</code> to build a dynamic show list from your TVDB account.</p>
 
@@ -2569,4 +2578,5 @@ const observer = new IntersectionObserver(entries => {
 headings.forEach(h => observer.observe(h));
 </script>
 </body>
-</html>
+</html>  <tr><td><code>digest</code></td><td>no</td><td>—</td><td>Digest window (e.g. <code>24h</code>): buffer accepted entries across runs in <code>pipeliner.db</code> and send one combined notification per window. Buffered items keep title, URL, and accept reason only. A failed send keeps the buffer and retries next window; the first run only starts the window.</td></tr>
+

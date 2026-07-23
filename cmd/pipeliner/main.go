@@ -87,6 +87,7 @@ import (
 	_ "github.com/brunoga/pipeliner/plugins/source/series_tracker"
 	_ "github.com/brunoga/pipeliner/plugins/source/torrent_session"
 	_ "github.com/brunoga/pipeliner/plugins/source/trakt_list"
+	_ "github.com/brunoga/pipeliner/plugins/source/tvdb_calendar"
 	_ "github.com/brunoga/pipeliner/plugins/source/tvdb_favorites"
 )
 

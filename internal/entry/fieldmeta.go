@@ -175,6 +175,9 @@ var KnownFields = []FieldMeta{
 	{Name: FieldSeriesLastAirDate, Type: FieldTypeTime,
 		Description: "Date of the most recently aired episode",
 		SetBy:       []string{"metainfo_tvdb", "metainfo_trakt"}},
+	{Name: FieldSeriesAirDate, Type: FieldTypeTime,
+		Description: "Air date of this specific episode",
+		SetBy:       []string{"tvdb_calendar"}},
 	{Name: FieldSeriesNextAirDate, Type: FieldTypeTime,
 		Description: "Expected air date of the next episode",
 		SetBy:       []string{"metainfo_tvdb", "metainfo_trakt"}},
@@ -441,4 +444,3 @@ func init() {
 		KnownFieldMap[f.Name] = f
 	}
 }
-
