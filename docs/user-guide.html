@@ -1961,18 +1961,20 @@ output("exec", upstream=cleanup, command="rm -f {file_location}")</code></pre>
 
 <!-- ─────────── tvdb_favorites_add ─────────── -->
 <h2 id="tvdb_favorites_add">tvdb_favorites_add</h2>
-<p>Adds accepted entries to your TheTVDB favorites list. Pairs with the <a href="#tvdb_favorites"><code>tvdb_favorites</code></a> source, which reads the same list.</p>
+<p>Adds accepted entries to your TheTVDB favorites list — or, with legacy v3 credentials, removes them. Pairs with the <a href="#tvdb_favorites"><code>tvdb_favorites</code></a> source, which reads the same list.</p>
 
 <table>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
   <tr><td><code>api_key</code></td><td>yes</td><td>—</td><td>TheTVDB v4 API key</td></tr>
   <tr><td><code>user_pin</code></td><td>yes</td><td>—</td><td>User PIN from thetvdb.com account settings</td></tr>
-  <tr><td><code>action</code></td><td>no</td><td><code>add</code></td><td>Only <code>add</code> is supported (see below)</td></tr>
+  <tr><td><code>action</code></td><td>no</td><td><code>add</code></td><td><code>add</code> or <code>remove</code>; <code>remove</code> requires the legacy credentials below</td></tr>
+  <tr><td><code>legacy_user_key</code></td><td>for <code>remove</code></td><td>—</td><td>Legacy v3 userkey (account identifier)</td></tr>
+  <tr><td><code>legacy_user_name</code></td><td>for <code>remove</code></td><td>—</td><td>Legacy v3 username</td></tr>
 </table>
 
-<p><strong>TheTVDB's v4 API cannot remove favorites.</strong> Per the official swagger, <code>/user/favorites</code> supports <code>GET</code> and <code>POST</code> only, so <code>action="remove"</code> is rejected at validation time with an error pointing at the supported alternative: filter on <code>series_status</code> into a local list (<code>list_add</code>) or a Trakt list (<code>trakt_list_update</code>, which does support removal). See <a href="#list-management">List management</a>.</p>
+<p><strong>TheTVDB's v4 API cannot remove favorites.</strong> Per the official swagger, <code>/user/favorites</code> supports <code>GET</code> and <code>POST</code> only. Removal instead goes through TheTVDB's legacy v3 API (<code>DELETE /user/favorites/{id}</code> on <code>api.thetvdb.com</code>), which uses a separate credential pair: set <code>legacy_user_key</code> and <code>legacy_user_name</code> to the "unique ID" (userkey) and username shown in your <a href="https://thetvdb.com/dashboard/account/editinfo">thetvdb.com account dashboard</a>. <code>action="remove"</code> without both keys is rejected at validation time. The v3 login is lazy — it only happens when a removal is actually issued, so a v3 outage never affects the v4 calls. If you'd rather not use the legacy API, the alternative still works: filter on <code>series_status</code> into a local list (<code>list_add</code>) or a Trakt list (<code>trakt_list_update</code>, which supports removal natively). See <a href="#list-management">List management</a>.</p>
 
-<p>Entries need a <code>tvdb_id</code> field (set by the <code>tvdb_favorites</code> source or <code>metainfo_tvdb</code>); entries without one are marked failed. Already-favorited series are detected with a single favorites fetch per run and skipped silently. In <a href="#dry-run">dry-run mode</a> the sink logs a "would add favorite" preview per entry and makes no HTTP calls.</p>
+<p>Entries need a <code>tvdb_id</code> field (set by the <code>tvdb_favorites</code> source or <code>metainfo_tvdb</code>); entries without one are marked failed. A single favorites fetch per run makes both directions idempotent: already-favorited series are skipped by <code>add</code>, and series not in the favorites are skipped by <code>remove</code>. In <a href="#dry-run">dry-run mode</a> the sink logs a "would add favorite"/"would remove favorite" preview per entry and makes no HTTP calls.</p>
 
 <pre><code># Auto-favorite highly rated shows that survive filtering.
 meta = process("metainfo_tvdb", upstream=src, api_key=env("TVDB_API_KEY"))
@@ -2004,7 +2006,7 @@ pipeline("auto-favorite", schedule="12h")</code></pre>
 <p>Pipelines can <em>write</em> lists, not just read them, which turns list hygiene into ordinary scheduled pipelines. The <code>series_status</code> field is the usual trigger: the <code>tvdb_favorites</code> and <code>trakt_list</code> sources and the <code>metainfo_tvdb</code>/<code>metainfo_trakt</code> processors surface it. TheTVDB uses capitalised values (<code>Continuing</code>, <code>Ended</code>, <code>Cancelled</code>, <code>Upcoming</code>); Trakt uses lowercase ones (<code>returning series</code>, <code>ended</code>, <code>canceled</code>).</p>
 
 <h3>Pattern 1: TheTVDB favorites → local active list</h3>
-<p>TheTVDB's API cannot remove favorites, so raw favorites cannot be pruned remotely. Instead, filter still-running shows into a local list and point <code>series.list</code> or <code>list_match</code> at that list instead of the raw favorites:</p>
+<p>TheTVDB's v4 API cannot remove favorites, so with v4 credentials alone raw favorites cannot be pruned remotely. The default pattern filters still-running shows into a local list and points <code>series.list</code> or <code>list_match</code> at that list instead of the raw favorites:</p>
 
 <pre><code>favs  = input("tvdb_favorites", api_key=tvdb_api_key, user_pin=tvdb_user_pin)
 alive = process("condition", upstream=favs, rules=[
@@ -2016,6 +2018,17 @@ note  = output("notify", upstream=keep, via="pushover",
                config={"user": pushover_user, "token": pushover_token},
                body="Still following: {{.Title}}")
 pipeline("sync-active-favorites", schedule="168h")</code></pre>
+
+<p>Alternatively, if you have legacy v3 credentials (the userkey and username from the <a href="https://thetvdb.com/dashboard/account/editinfo">thetvdb.com account dashboard</a>), ended shows can be removed from the favorites directly with <a href="#tvdb_favorites_add"><code>tvdb_favorites_add</code></a> and <code>action="remove"</code>:</p>
+
+<pre><code>ended = process("condition", upstream=favs, rules=[
+    {"accept": 'series_status == "Ended" or series_status == "Cancelled"'},
+    {"reject": 'true'},
+])
+output("tvdb_favorites_add", upstream=ended, action="remove",
+       api_key=tvdb_api_key, user_pin=tvdb_user_pin,
+       legacy_user_key=tvdb_legacy_user_key,
+       legacy_user_name=tvdb_legacy_user_name)</code></pre>
 
 <h3>Pattern 2: Trakt watchlist pruning</h3>
 <p>Trakt lists support removal, so ended shows can be pruned remotely:</p>
