@@ -190,7 +190,7 @@ series tracker), sink chaining, `pathfmt` for destination paths.
 **Gaps.** Library index (scan + cache in a store bucket with mtime
 invalidation), the filter, refresh sink, Plex/Jellyfin clients, docs.
 
-## 6. Notification upgrades: digests, calendars, skip reports
+## 6. Notification upgrades — ✅ digest mode + tvdb_calendar shipped; trakt_calendar deferred (same shape, add on demand); run_report deferred to M8 (needs persisted per-run tallies)
 
 **Motivation.** Per-entry pushes get muted; a daily/weekly summary gets read.
 The engine already records accept/reject reasons — surfacing them is cheap.
