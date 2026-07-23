@@ -1314,14 +1314,28 @@ describe('configPreview', () => {
     expect(configPreview({url: 'https://example.com'})).toContain('url: https://example.com');
   });
 
-  it('shows "N rules" for arrays of objects (rule_list)', () => {
+  it('lists port names for named rule objects (route rule_list)', () => {
     const cfg = { rules: [{name: 'a', accept: '1'}, {name: 'b', accept: '2'}] };
-    expect(configPreview(cfg)).toContain('2 rules');
+    expect(configPreview(cfg)).toContain('ports: a, b');
     expect(configPreview(cfg)).not.toContain('[object');
   });
 
-  it('shows "1 rule" singular', () => {
-    expect(configPreview({rules: [{name: 'a', accept: '1'}]})).toContain('1 rule');
+  it('lists a single port name', () => {
+    expect(configPreview({rules: [{name: 'a', accept: '1'}]})).toContain('ports: a');
+  });
+
+  it('falls back to "N ports" when the joined names are too long', () => {
+    const cfg = { rules: [
+      {name: 'a-very-long-port-name', accept: '1'},
+      {name: 'another-long-port-name', accept: '2'},
+    ]};
+    expect(configPreview(cfg)).toContain('2 ports');
+  });
+
+  it('shows "N rules" for object arrays without names', () => {
+    const cfg = { rules: [{accept: '1'}, {accept: '2'}] };
+    expect(configPreview(cfg)).toContain('2 rules');
+    expect(configPreview(cfg)).not.toContain('[object');
   });
 
   it('shows [] for empty arrays', () => {

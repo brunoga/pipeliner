@@ -713,11 +713,12 @@ func (s *Server) apiPlugins(w http.ResponseWriter, _ *http.Request) {
 		Name           string      `json:"name"`
 		Role           string      `json:"role"`
 		Description    string      `json:"description"`
-		Produces       []string    `json:"produces"`     // fields always written on every passing entry
-		MayProduce     []string    `json:"may_produce"`  // fields conditionally written (not guaranteed)
-		Requires       []string    `json:"requires"`     // fields this plugin reads (flattened OR groups)
-		InputStates    []string    `json:"input_states"` // entry states the plugin's Process/Consume sees
-		Schema         []fieldResp `json:"schema"`       // empty slice, never null
+		Produces       []string    `json:"produces"`        // fields always written on every passing entry
+		MayProduce     []string    `json:"may_produce"`     // fields conditionally written (not guaranteed)
+		Requires       []string    `json:"requires"`        // fields this plugin reads (flattened OR groups)
+		RequiresGroups [][]string  `json:"requires_groups"` // OR groups: ANY field within a group, ALL groups
+		InputStates    []string    `json:"input_states"`    // entry states the plugin's Process/Consume sees
+		Schema         []fieldResp `json:"schema"`          // empty slice, never null
 		AcceptsSearch  bool        `json:"accepts_search,omitempty"`
 		IsSearchPlugin bool        `json:"is_search_plugin,omitempty"`
 		AcceptsList    bool        `json:"accepts_list,omitempty"`
@@ -754,6 +755,10 @@ func (s *Server) apiPlugins(w http.ResponseWriter, _ *http.Request) {
 		if requires == nil {
 			requires = []string{}
 		}
+		requiresGroups := make([][]string, 0, len(d.Requires))
+		for _, grp := range d.Requires {
+			requiresGroups = append(requiresGroups, append([]string(nil), grp...))
+		}
 		states := d.EffectiveInputStates()
 		inStates := make([]string, 0, 4)
 		for _, s := range []entry.State{entry.Undecided, entry.Accepted, entry.Rejected, entry.Failed} {
@@ -768,6 +773,7 @@ func (s *Server) apiPlugins(w http.ResponseWriter, _ *http.Request) {
 			Produces:       produces,
 			MayProduce:     mayProduce,
 			Requires:       requires,
+			RequiresGroups: requiresGroups,
 			InputStates:    inStates,
 			Schema:         fields,
 			AcceptsSearch:  d.AcceptsSearch,

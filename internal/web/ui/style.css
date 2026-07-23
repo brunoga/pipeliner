@@ -3055,3 +3055,51 @@ details[open] > .ve-fields-summary::after { content:'▴'; }
    serialised config until both name and condition are set. */
 .ve-cond-rule.ve-rule-incomplete { border:1px solid #d9534f; border-radius:6px; }
 .ve-rule-incomplete-note { color:#d9534f; font-size:11px; margin-top:4px; }
+
+/* ── appended by fix/visual-editor-ux ── */
+
+/* Route port name labels: small caption under each port circle. Legible at
+   typical zoom, truncated with an ellipsis (full name in the title attr). */
+.ve-route-port { position:relative; }
+.ve-route-port-label {
+  position:absolute; top:100%; left:50%; transform:translateX(-50%);
+  margin-top:3px;
+  max-width:72px;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  font-size:9px; line-height:1.2; font-family:var(--mono-font);
+  color:var(--ve-route);
+  pointer-events:none;
+  text-shadow:0 1px 2px var(--bg);
+}
+
+/* Invalid drop targets during a connect drag: everything that would be
+   rejected on drop (cross-pipeline, duplicate edge, cycle, sink→non-sink,
+   list/search sub-nodes…). Valid targets keep the lit input port from the
+   base rules; invalid ones are dimmed and their in-port stays hidden. */
+.ve-graph-canvas.is-connecting .ve-node.ve-conn-invalid {
+  opacity:0.3; cursor:not-allowed;
+}
+.ve-graph-canvas.is-connecting .ve-node.ve-conn-invalid * { pointer-events:none; }
+.ve-graph-canvas.is-connecting .ve-node.ve-conn-invalid .ve-node-in-port {
+  opacity:0 !important;
+}
+
+/* Requires OR-group separator in the param panel */
+.ve-req-or { font-size:9px; font-weight:700; color:var(--muted); letter-spacing:.04em; }
+
+/* Selected sink-chain edge: theme token with pre-#298 fallback (the base rule
+   earlier in this file hardcodes #f0d070 and may not be edited in place). */
+.ve-chain-edge.selected { stroke:var(--chain-edge-selected, #f0d070); }
+
+/* Touch devices: the node × (remove) and # (comment) buttons are opacity:0
+   until hover in the base rules ABOVE (which also override the early
+   pointer:coarse block at the top of this file) — invisible but tappable.
+   Re-assert visible opacity here, after those base rules in the cascade. */
+@media (pointer: coarse) {
+  .ve-node .ve-node-remove,
+  .ve-node .ve-node-comment-btn { opacity:.55; }
+  /* Re-assert the coarse palette-chip padding bump: the plain .ve-chip rule
+     later in the file wins over the early pointer:coarse block by cascade
+     order; .ve-palette-body .ve-chip outranks it by specificity. */
+  .ve-palette-body .ve-chip { padding:8px 10px; font-size:12px; }
+}

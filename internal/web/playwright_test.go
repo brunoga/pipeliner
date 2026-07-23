@@ -5,6 +5,7 @@ package web_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -2820,4 +2821,428 @@ func (c *captureLogCtl) SetDebugPlugins(names []string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.plugins = append(c.plugins[:0], names...)
+}
+
+// ── fix/visual-editor-ux tests ───────────────────────────────────────────────
+
+// TestE2ERouteAutoLayoutFlowsLeftToRight loads a route config with NO stored
+// positions and asserts every edge flows left-to-right (child.x > parent.x).
+// Before the fix, nodes fed by route ports fell back to depth 0 and were
+// stacked in a left column under the source with backwards, right-to-left edges.
+func TestE2ERouteAutoLayoutFlowsLeftToRight(t *testing.T) {
+	ts := startTestServer(t, routeConfig)
+	browser, stop := pwSetup(t)
+	defer stop()
+
+	page, _ := browser.NewPage()
+	defer page.Close()
+
+	login(t, page, ts.url)
+	openConfigTab(t, page)
+	switchToVisual(t, page, routeConfig)
+
+	violations, err := page.Evaluate(`(() => {
+		const bad = [];
+		for (const g of ve.graphs) {
+			const byId = new Map(g.nodes.map(n => [n.id, n]));
+			for (const n of g.nodes) {
+				if (n.isRoutePort || n.isSearchNode || n.isListNode) continue;
+				for (const uid of (n.upstreams || [])) {
+					let up = byId.get(uid);
+					// Route ports are virtual — the visual edge starts at the route card.
+					if (up && up.isRoutePort) up = byId.get(up.routeParentId);
+					if (!up) continue;
+					if (!(n.x > up.x)) bad.push(up.id + '(' + up.x + ') !< ' + n.id + '(' + n.x + ')');
+				}
+			}
+		}
+		return JSON.stringify(bad);
+	})()`)
+	if err != nil {
+		t.Fatalf("evaluate edge directions: %v", err)
+	}
+	if violations != "[]" {
+		t.Errorf("edges not flowing left-to-right after auto-layout: %v", violations)
+	}
+}
+
+// TestE2ETidyLayoutButton verifies the toolbar's "Tidy layout" button exists
+// next to Undo and that clicking it re-lays out the active pipeline and
+// persists the new positions (pipeliner:pos comments appear in the text).
+func TestE2ETidyLayoutButton(t *testing.T) {
+	ts := startTestServer(t, routeConfig)
+	browser, stop := pwSetup(t)
+	defer stop()
+
+	page, _ := browser.NewPage()
+	defer page.Close()
+
+	login(t, page, ts.url)
+	openConfigTab(t, page)
+	switchToVisual(t, page, routeConfig)
+
+	tidy := page.Locator("#ve-tidy-btn")
+	if err := tidy.WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateVisible,
+	}); err != nil {
+		t.Fatalf("tidy button not visible: %v", err)
+	}
+	// The button must sit right after Undo in the pipeline bar.
+	prevID, err := page.Evaluate(`document.getElementById('ve-tidy-btn').previousElementSibling.id`)
+	if err != nil || prevID != "ve-undo-btn" {
+		t.Errorf("tidy button not next to Undo: prev=%v err=%v", prevID, err)
+	}
+	if err := tidy.Click(); err != nil {
+		t.Fatalf("click tidy: %v", err)
+	}
+	time.Sleep(200 * time.Millisecond)
+
+	// Positions must persist through onModelChange → text serialisation.
+	content := editorContent(t, page)
+	if !strings.Contains(content, "# pipeliner:pos") {
+		t.Errorf("tidy layout did not persist positions; text:\n%s", content)
+	}
+	// Layout must remain left-to-right after tidy.
+	page.Locator("#view-btn-visual").Click()
+	violations, err := page.Evaluate(`(() => {
+		const bad = [];
+		for (const g of ve.graphs) {
+			const byId = new Map(g.nodes.map(n => [n.id, n]));
+			for (const n of g.nodes) {
+				if (n.isRoutePort || n.isSearchNode || n.isListNode) continue;
+				for (const uid of (n.upstreams || [])) {
+					let up = byId.get(uid);
+					if (up && up.isRoutePort) up = byId.get(up.routeParentId);
+					if (!up) continue;
+					if (!(n.x > up.x)) bad.push(up.id + ' !< ' + n.id);
+				}
+			}
+		}
+		return JSON.stringify(bad);
+	})()`)
+	if err != nil {
+		t.Fatalf("evaluate after tidy: %v", err)
+	}
+	if violations != "[]" {
+		t.Errorf("edges not left-to-right after Tidy layout: %v", violations)
+	}
+}
+
+// twoPipelineConfig has two pipelines so viewport preservation can be
+// asserted on a non-default active pipeline.
+const twoPipelineConfig = `src_a = input("rss", url="https://example.com/a")
+flt_a = process("seen", upstream=src_a)
+pipeline("alpha")
+
+src_b = input("rss", url="https://example.com/b")
+flt_b = process("seen", upstream=src_b)
+pipeline("beta")`
+
+// TestE2EValidatePreservesViewport reproduces the "validate resets the view"
+// bug: select a node in the SECOND pipeline, pan the canvas, hit Validate
+// (which re-parses text → visual), and assert the active pipeline, node
+// selection + open param panel, and pan survive the round-trip.
+func TestE2EValidatePreservesViewport(t *testing.T) {
+	ts := startTestServer(t, twoPipelineConfig)
+	browser, stop := pwSetup(t)
+	defer stop()
+
+	page, _ := browser.NewPage()
+	defer page.Close()
+
+	login(t, page, ts.url)
+	openConfigTab(t, page)
+	switchToVisual(t, page, twoPipelineConfig)
+
+	// Select the seen node of pipeline "beta" (activates graph 1). Node IDs
+	// are canonicalized by the server, so resolve it from the model.
+	selID, err := page.Evaluate(`ve.graphs[1].nodes.find(n => n.plugin === 'seen').id`)
+	if err != nil {
+		t.Fatalf("resolve beta seen node id: %v", err)
+	}
+	if _, err := page.Evaluate(`selectNode(` + fmt.Sprintf("%q", selID) + `)`); err != nil {
+		t.Fatalf("select node: %v", err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	// Apply a distinctive pan so a reset (pan → 0) is detectable.
+	if _, err := page.Evaluate(`(() => { ve_panX = -37; ve_panY = -53; applyZoom(); })()`); err != nil {
+		t.Fatalf("set pan: %v", err)
+	}
+
+	// Trigger Validate via its handler — the floating param panel (opened by
+	// the node selection above) can overlap the toolbar button and make a
+	// physical click flaky; the behaviour under test is the re-parse itself.
+	if _, err := page.Evaluate(`validateConfig()`); err != nil {
+		t.Fatalf("validateConfig: %v", err)
+	}
+	// Wait for the parse round-trip to finish.
+	time.Sleep(700 * time.Millisecond)
+
+	state, err := page.Evaluate(`JSON.stringify({
+		active:    ve.graphs[ve.activeGraph] ? ve.graphs[ve.activeGraph].name : null,
+		selected:  ve.selectedNodeId,
+		panX:      ve_panX,
+		panY:      ve_panY,
+		panelOpen: document.getElementById('ve-param-title').style.display !== 'none',
+	})`)
+	if err != nil {
+		t.Fatalf("evaluate state: %v", err)
+	}
+	s, _ := state.(string)
+	wants := []string{
+		`"active":"beta"`,
+		fmt.Sprintf(`"selected":%q`, selID),
+		`"panX":-37`, `"panY":-53`, `"panelOpen":true`,
+	}
+	for _, want := range wants {
+		if !strings.Contains(s, want) {
+			t.Errorf("viewport not preserved across Validate: missing %s in %s", want, s)
+		}
+	}
+}
+
+// TestE2ERoutePortLabelsVisible asserts each route port circle carries a
+// visible name label (item: ports were anonymous dots).
+func TestE2ERoutePortLabelsVisible(t *testing.T) {
+	ts := startTestServer(t, routeConfig)
+	browser, stop := pwSetup(t)
+	defer stop()
+
+	page, _ := browser.NewPage()
+	defer page.Close()
+
+	login(t, page, ts.url)
+	openConfigTab(t, page)
+	switchToVisual(t, page, routeConfig)
+
+	labels := page.Locator(".ve-route-port-label")
+	count, err := labels.Count()
+	if err != nil || count != 2 {
+		t.Fatalf("route port labels: got %d (err=%v), want 2", count, err)
+	}
+	texts, err := labels.AllTextContents()
+	if err != nil {
+		t.Fatalf("label texts: %v", err)
+	}
+	joined := strings.Join(texts, ",")
+	if !strings.Contains(joined, "series") || !strings.Contains(joined, "movies") {
+		t.Errorf("route port labels: got %q, want series and movies", joined)
+	}
+
+	// The node body summary must name the ports, not say "2 rules".
+	// (Node IDs are canonicalized by the server, so match on the model.)
+	previewAny, err := page.Evaluate(`(() => {
+		const routeNode = ve.graphs[0].nodes.find(n => n.plugin === 'route');
+		const el = document.querySelector('.ve-node[data-id="' + routeNode.id + '"] .ve-node-preview');
+		return el ? el.textContent : '';
+	})()`)
+	if err != nil {
+		t.Fatalf("route node preview: %v", err)
+	}
+	preview, _ := previewAny.(string)
+	if strings.Contains(preview, "rules") {
+		t.Errorf("route summary still rule-count based: %q", preview)
+	}
+	if !strings.Contains(preview, "series") || !strings.Contains(preview, "movies") {
+		t.Errorf("route summary does not name the ports: %q", preview)
+	}
+}
+
+// TestE2EDeletePipelineAsksConfirmation verifies the region × button asks
+// before deleting, states what is lost, and honours Cancel.
+func TestE2EDeletePipelineAsksConfirmation(t *testing.T) {
+	ts := startTestServer(t, minimalConfig)
+	browser, stop := pwSetup(t)
+	defer stop()
+
+	page, _ := browser.NewPage()
+	defer page.Close()
+
+	var dialogMsg string
+	accept := false
+	page.OnDialog(func(d playwright.Dialog) {
+		dialogMsg = d.Message()
+		if accept {
+			_ = d.Accept()
+		} else {
+			_ = d.Dismiss()
+		}
+	})
+
+	login(t, page, ts.url)
+	openConfigTab(t, page)
+	switchToVisual(t, page, minimalConfig)
+
+	// Cancel first: the pipeline must survive.
+	if err := page.Locator(".ve-pl-delete").First().Click(); err != nil {
+		t.Fatalf("click delete: %v", err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if !strings.Contains(dialogMsg, `Delete pipeline "tv"`) || !strings.Contains(dialogMsg, "2 nodes") {
+		t.Errorf("confirm message: got %q, want pipeline name and node count", dialogMsg)
+	}
+	count, _ := page.Locator(".ve-pipeline-label").Count()
+	if count != 1 {
+		t.Fatalf("pipeline deleted despite Cancel: %d labels", count)
+	}
+
+	// Accept: the pipeline goes away.
+	accept = true
+	if err := page.Locator(".ve-pl-delete").First().Click(); err != nil {
+		t.Fatalf("click delete (accept): %v", err)
+	}
+	time.Sleep(200 * time.Millisecond)
+	count, _ = page.Locator(".ve-pipeline-label").Count()
+	if count != 0 {
+		t.Errorf("pipeline not deleted after Accept: %d labels", count)
+	}
+}
+
+// TestE2EInvalidConnectDropShowsReason drags from a sink's chain port onto a
+// processor and asserts the sync note explains the sink-chaining rule
+// (previously the drop was silently ignored).
+func TestE2EInvalidConnectDropShowsReason(t *testing.T) {
+	const cfg = `src = input("rss", url="https://example.com/rss")
+flt = process("seen", upstream=src)
+out = output("print", upstream=flt)
+pipeline("tv")`
+	ts := startTestServer(t, cfg)
+	browser, stop := pwSetup(t)
+	defer stop()
+
+	page, _ := browser.NewPage()
+	defer page.Close()
+
+	login(t, page, ts.url)
+	openConfigTab(t, page)
+	switchToVisual(t, page, cfg)
+
+	// Drag from the print sink's out-port onto the seen processor. Node IDs
+	// are canonicalized by the server — resolve them from the model.
+	ids, err := page.Evaluate(`JSON.stringify({
+		sink: ve.graphs[0].nodes.find(n => n.plugin === 'print').id,
+		proc: ve.graphs[0].nodes.find(n => n.plugin === 'seen').id,
+	})`)
+	if err != nil {
+		t.Fatalf("resolve node ids: %v", err)
+	}
+	var nodeIDs struct {
+		Sink string `json:"sink"`
+		Proc string `json:"proc"`
+	}
+	if err := json.Unmarshal([]byte(ids.(string)), &nodeIDs); err != nil {
+		t.Fatalf("unmarshal ids: %v", err)
+	}
+	outPort := page.Locator(fmt.Sprintf(`.ve-node[data-id=%q] .ve-node-out-port`, nodeIDs.Sink))
+	target := page.Locator(fmt.Sprintf(`.ve-node[data-id=%q]`, nodeIDs.Proc))
+	if err := outPort.Hover(); err != nil {
+		t.Fatalf("hover out port: %v", err)
+	}
+	if err := page.Mouse().Down(); err != nil {
+		t.Fatalf("mouse down: %v", err)
+	}
+	box, err := target.BoundingBox()
+	if err != nil || box == nil {
+		t.Fatalf("target bounding box: %v", err)
+	}
+	if err := page.Mouse().Move(box.X+box.Width/2, box.Y+box.Height/2, playwright.MouseMoveOptions{
+		Steps: playwright.Int(8),
+	}); err != nil {
+		t.Fatalf("mouse move: %v", err)
+	}
+	// During the drag, the invalid target must be marked.
+	invalidCount, _ := page.Locator(".ve-node.ve-conn-invalid").Count()
+	if invalidCount == 0 {
+		t.Errorf("no nodes marked invalid during sink connect drag")
+	}
+	if err := page.Mouse().Up(); err != nil {
+		t.Fatalf("mouse up: %v", err)
+	}
+	time.Sleep(150 * time.Millisecond)
+
+	note, err := page.Locator("#ve-sync-note").TextContent()
+	if err != nil {
+		t.Fatalf("sync note: %v", err)
+	}
+	if !strings.Contains(note, "sink output can only feed another sink") {
+		t.Errorf("sync note after invalid drop: got %q, want sink-chain reason", note)
+	}
+	// And the model must be unchanged (seen still has exactly its rss upstream).
+	ups, _ := page.Evaluate(fmt.Sprintf(`JSON.stringify(findNode(%q).upstreams)`, nodeIDs.Proc))
+	upsStr, _ := ups.(string)
+	if strings.Contains(upsStr, nodeIDs.Sink) {
+		t.Errorf("invalid drop added the sink as upstream: %v", upsStr)
+	}
+}
+
+// TestE2EFunctionEditorShowsUpstreamStub opens a processor function and
+// asserts the ⬅ upstream pseudo-node is rendered with an edge to the entry
+// node, and that it does not leak into the serialised function on save.
+func TestE2EFunctionEditorShowsUpstreamStub(t *testing.T) {
+	const cfg = `# pipeliner:param pattern  type=string  filter pattern
+def myfilter(upstream, pattern):
+    flt = process("seen", upstream=upstream)
+    return flt
+
+src = input("rss", url="https://example.com/rss")
+call_1 = myfilter(upstream=src, pattern="x")
+output("print", upstream=call_1)
+pipeline("tv")`
+	ts := startTestServer(t, cfg)
+	browser, stop := pwSetup(t)
+	defer stop()
+
+	page, _ := browser.NewPage()
+	defer page.Close()
+
+	// Auto-accept dialogs (the Back path may confirm).
+	page.OnDialog(func(d playwright.Dialog) { _ = d.Accept() })
+
+	login(t, page, ts.url)
+	openConfigTab(t, page)
+	switchToVisual(t, page, cfg)
+
+	if err := page.Locator(".ve-chip-fn-edit").Click(); err != nil {
+		t.Fatalf("open fn editor: %v", err)
+	}
+	if err := page.Locator("#ve-fn-bar").WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateVisible,
+	}); err != nil {
+		t.Fatalf("fn bar: %v", err)
+	}
+
+	// The upstream stub must be on the canvas, left of the entry node.
+	stub := page.Locator(".ve-node-upstream-pseudo")
+	if err := stub.WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateVisible,
+	}); err != nil {
+		t.Fatalf("upstream stub not visible: %v", err)
+	}
+	leftOf, err := page.Evaluate(`(() => {
+		const stub  = ve.graphs[0].nodes.find(n => n.isUpstreamPseudo);
+		const entry = ve.graphs[0].nodes.find(n => (n.upstreams||[]).includes('_upstream'));
+		return String(stub && entry && stub.x < entry.x);
+	})()`)
+	if err != nil || leftOf != "true" {
+		t.Errorf("upstream stub not left of entry node: %v (err=%v)", leftOf, err)
+	}
+	// An edge from the stub to the entry node must be drawn.
+	edgeCount, _ := page.Evaluate(`String(document.querySelectorAll('#ve-graph-svg path.ve-edge').length)`)
+	if edgeCount == "0" {
+		t.Errorf("no edge drawn from upstream stub to entry node")
+	}
+
+	// Save; the function source must keep upstream=upstream and must NOT
+	// contain any _upstream node assignment.
+	if err := page.Locator(".ve-fn-bar-save").Click(); err != nil {
+		t.Fatalf("save fn: %v", err)
+	}
+	time.Sleep(300 * time.Millisecond)
+	content := editorContent(t, page)
+	if !strings.Contains(content, "def myfilter(upstream") {
+		t.Errorf("function signature lost its upstream param:\n%s", content)
+	}
+	if strings.Contains(content, "_upstream =") {
+		t.Errorf("upstream pseudo-node leaked into serialisation:\n%s", content)
+	}
 }
