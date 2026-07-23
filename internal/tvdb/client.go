@@ -52,18 +52,41 @@ func NewWithPin(apiKey, userPin string) *Client {
 // Fields like Genres, Network, and FirstAired are populated when the search
 // result includes them; they may be absent for some entries.
 type Series struct {
-	ID         string   `json:"tvdb_id"`
-	Name       string   `json:"name"`
-	Overview   string   `json:"overview"`
-	Year       string   `json:"year"`
-	Slug       string   `json:"slug"`
-	Genres     []string `json:"genres"`           // genre names, e.g. ["Drama","Crime"]
-	Network    string   `json:"network"`          // originating network name
-	Language   string   `json:"originalLanguage"` // original language code, e.g. "eng"
-	Country    string   `json:"country"`          // country of origin, e.g. "usa"
-	ImageURL   string   `json:"image_url"`        // poster image URL
-	FirstAired string   `json:"first_air_time"`   // ISO-8601 from search; may be empty
-	Score      float64  `json:"score"`            // popularity score
+	ID         string     `json:"tvdb_id"`
+	Name       string     `json:"name"`
+	Overview   string     `json:"overview"`
+	Year       string     `json:"year"`
+	Slug       string     `json:"slug"`
+	Genres     []string   `json:"genres"`           // genre names, e.g. ["Drama","Crime"]
+	Network    string     `json:"network"`          // originating network name
+	Language   string     `json:"originalLanguage"` // original language code, e.g. "eng"
+	Country    string     `json:"country"`          // country of origin, e.g. "usa"
+	ImageURL   string     `json:"image_url"`        // poster image URL
+	FirstAired string     `json:"first_air_time"`   // ISO-8601 from search; may be empty
+	Score      float64    `json:"score"`            // popularity score
+	Status     FlexStatus `json:"status"`           // e.g. "Continuing", "Ended", "Cancelled", "Upcoming"
+}
+
+// FlexStatus is a series status that unmarshals both API shapes: the search
+// endpoint returns a plain string ("Ended") while base series records return
+// an object ({"id":2,"name":"Ended",...}). It marshals back to a plain string.
+type FlexStatus string
+
+// UnmarshalJSON accepts a JSON string or an object with a "name" key.
+func (s *FlexStatus) UnmarshalJSON(b []byte) error {
+	var str string
+	if err := json.Unmarshal(b, &str); err == nil {
+		*s = FlexStatus(str)
+		return nil
+	}
+	var obj struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(b, &obj); err != nil {
+		return fmt.Errorf("tvdb: status is neither string nor object: %w", err)
+	}
+	*s = FlexStatus(obj.Name)
+	return nil
 }
 
 // Episode represents a single episode from the series episodes endpoint.
@@ -152,6 +175,36 @@ func (c *Client) GetFavorites(ctx context.Context) ([]int, error) {
 		return nil, fmt.Errorf("tvdb: favorites: %w", err)
 	}
 	return resp.Data.Series, nil
+}
+
+// AddFavorite adds a series to the authenticated user's favorites list.
+// Requires a user pin (created via NewWithPin).
+//
+// TheTVDB's v4 API only supports adding favorites — per the official
+// swagger, /user/favorites accepts GET and POST only, so there is no
+// corresponding RemoveFavorite.
+func (c *Client) AddFavorite(ctx context.Context, seriesID int) error {
+	if err := c.ensureToken(ctx); err != nil {
+		return err
+	}
+	if c.userPin == "" {
+		return fmt.Errorf("tvdb: AddFavorite requires a user_pin")
+	}
+
+	payload, _ := json.Marshal(map[string]int{"series": seriesID})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/user/favorites", bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Content-Type", "application/json")
+
+	// The success response body is not interesting (and may be empty), so
+	// only the HTTP status is checked.
+	if err := c.do(req, nil); err != nil {
+		return fmt.Errorf("tvdb: add favorite %d: %w", seriesID, err)
+	}
+	return nil
 }
 
 // SeriesExtended holds richer metadata from the /series/{id}/extended endpoint.
@@ -406,6 +459,9 @@ func (c *Client) do(req *http.Request, dest any) error {
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("HTTP %d %s", resp.StatusCode, resp.Status)
+	}
+	if dest == nil {
+		return nil
 	}
 	return json.NewDecoder(resp.Body).Decode(dest)
 }
