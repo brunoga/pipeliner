@@ -1043,6 +1043,62 @@ func TestStaticJSServed(t *testing.T) {
 	}
 }
 
+func TestStaticDashboardExtraCSSServed(t *testing.T) {
+	srv := New(nil, stubDaemon{}, NewHistory(), NewBroadcaster(), "test", "u", "p")
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /{$}", srv.serveUI)
+	mux.Handle("/", srv.staticHandler())
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	resp := get(t, ts.URL+"/dashboard-extra.css")
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("dashboard-extra.css: got %d, want 200", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); !strings.Contains(ct, "css") {
+		t.Errorf("content-type: got %q, want css", ct)
+	}
+}
+
+// ── GET /api/status ───────────────────────────────────────────────────────────
+
+func TestAPIStatusIncludesStartedAt(t *testing.T) {
+	before := time.Now().Add(-time.Second)
+	srv := New([]TaskInfo{{Name: "t1", Schedule: "1h"}}, stubDaemon{}, NewHistory(), NewBroadcaster(), "test", "u", "p")
+
+	rec := httptest.NewRecorder()
+	srv.apiStatus(rec, httptest.NewRequest(http.MethodGet, "/api/status", nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want 200", rec.Code)
+	}
+	var body struct {
+		StartedAt string `json:"started_at"`
+		Tasks     []struct {
+			Name string `json:"name"`
+		} `json:"tasks"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body.StartedAt == "" {
+		t.Fatal("started_at missing from /api/status response")
+	}
+	ts, err := time.Parse(time.RFC3339, body.StartedAt)
+	if err != nil {
+		t.Fatalf("started_at not RFC3339: %q: %v", body.StartedAt, err)
+	}
+	after := time.Now().Add(time.Second)
+	if ts.Before(before) || ts.After(after) {
+		t.Errorf("started_at %v outside expected window [%v, %v]", ts, before, after)
+	}
+	if len(body.Tasks) != 1 || body.Tasks[0].Name != "t1" {
+		t.Errorf("tasks: got %+v, want single task t1", body.Tasks)
+	}
+}
+
 // ── scanComments unit tests ───────────────────────────────────────────────────
 
 func TestScanCommentsNodeComment(t *testing.T) {

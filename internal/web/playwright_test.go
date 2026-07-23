@@ -2348,6 +2348,71 @@ func TestE2EBlurayPaletteChipShowsBothBadges(t *testing.T) {
 	}
 }
 
+// TestE2ERunHistoryExpansion verifies that clicking a task card's header
+// toggles the run-history panel and that the expansion state survives a
+// dashboard re-render.
+func TestE2ERunHistoryExpansion(t *testing.T) {
+	ts := startTestServer(t, minimalConfig)
+	browser, stop := pwSetup(t)
+	defer stop()
+
+	page, err := browser.NewPage()
+	if err != nil {
+		t.Fatalf("new page: %v", err)
+	}
+	defer page.Close()
+
+	login(t, page, ts.url)
+
+	header := page.Locator(".task-card .task-card-header").First()
+	if err := header.WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateVisible,
+	}); err != nil {
+		t.Fatalf("wait for task card header: %v", err)
+	}
+
+	// Collapsed by default.
+	if n, _ := page.Locator(".task-history").Count(); n != 0 {
+		t.Fatalf("history panel visible before expansion: %d nodes", n)
+	}
+
+	// Click to expand — the fresh server has no runs, so the empty-state
+	// row proves the panel (not just the class) rendered.
+	if err := header.Click(); err != nil {
+		t.Fatalf("click header: %v", err)
+	}
+	if err := page.Locator(".task-history").WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateVisible,
+	}); err != nil {
+		t.Fatalf("history panel did not appear after header click: %v", err)
+	}
+	if err := page.Locator(".task-history-empty").WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateVisible,
+	}); err != nil {
+		t.Fatalf("empty-state history row missing: %v", err)
+	}
+
+	// A forced re-render (what the 10s poll does) must preserve expansion.
+	if _, err := page.Evaluate("refresh()"); err != nil {
+		t.Fatalf("force refresh: %v", err)
+	}
+	if err := page.Locator(".task-history").WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateVisible,
+	}); err != nil {
+		t.Fatalf("history panel lost after re-render: %v", err)
+	}
+
+	// Click again to collapse.
+	if err := page.Locator(".task-card .task-card-header").First().Click(); err != nil {
+		t.Fatalf("click header to collapse: %v", err)
+	}
+	if err := page.Locator(".task-history").WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateHidden,
+	}); err != nil {
+		t.Fatalf("history panel still visible after collapse: %v", err)
+	}
+}
+
 // TestE2EDashboardRunButtonHoverColor verifies the dashboard "Run now" button
 // hover uses the accent colour as its own value, not via the per-card
 // --card-color custom property. The regression was that .btn-run:hover used

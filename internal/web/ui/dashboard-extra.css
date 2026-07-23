@@ -1,0 +1,77 @@
+/* Extra dashboard styles — injected by dashboard.js (index.html is not
+   editable from the dashboard workstream). Uses the theme variables from
+   style.css so light/dark both work. */
+
+/* ── run-history panel ─────────────────────────────────────────────────── */
+
+.task-history-toggle { cursor: pointer; user-select: none; }
+
+.task-history-chevron {
+  color: var(--muted);
+  font-size: 0.65rem;
+  margin-left: 6px;
+  flex: 0 0 auto;
+}
+
+.task-err-dot {
+  color: var(--red);
+  font-size: 0.55rem;
+  vertical-align: middle;
+  margin-left: 4px;
+}
+
+.task-history {
+  margin: 8px 0 2px;
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.task-history-empty {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-style: italic;
+}
+
+.task-history-row { font-size: 0.72rem; line-height: 1.5; }
+
+.task-history-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.task-history-when { color: var(--text); }
+.task-history-dur  { color: var(--muted); }
+
+.task-history-counts { margin-left: auto; display: inline-flex; gap: 6px; }
+/* Same color mapping as the .stat-val classes in style.css. */
+.task-history-counts .thc.a { color: var(--green); }
+.task-history-counts .thc.r { color: var(--amber); }
+.task-history-counts .thc.f { color: var(--red); }
+.task-history-counts .thc.u { color: var(--muted); }
+
+.task-history-row .task-err { margin: 2px 0 0; }
+
+/* ── trigger failure feedback ──────────────────────────────────────────── */
+
+.btn-run.trigger-failed,
+.btn-reload.trigger-failed {
+  border-color: var(--red);
+  color: var(--red);
+}
+
+/* ── log console hints ─────────────────────────────────────────────────── */
+
+.log-placeholder {
+  color: var(--muted);
+  font-style: italic;
+  padding: 8px 4px;
+}
+
+.log-cleared { opacity: 0.8; }
