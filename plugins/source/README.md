@@ -14,3 +14,4 @@ Combine multiple sources with `merge(src1, src2)` — duplicate URLs are dropped
 | [`trakt_list`](trakt_list/README.md) | `trakt_list` | Fetch movies or shows from a Trakt.tv list |
 | [`tvdb_favorites`](tvdb_favorites/README.md) | `tvdb_favorites` | Fetch shows from a TheTVDB user's favorites list |
 | [`bluray_releases`](bluray_releases/README.md) | `bluray_releases` | Scrape the Blu-ray.com release calendar; also a `discover.search` backend and a `series.list` / `movies.list` title source |
+| [`series_tracker`](series_tracker/README.md) | `series_tracker` | Emit one entry per show tracked by the series tracker; also a `series.list` title source |
