@@ -3,10 +3,17 @@ package series
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/brunoga/pipeliner/internal/quality"
 )
+
+// TrackerBucketName is the store bucket holding per-episode download records.
+// It is deliberately not namespaced by task: every series/premiere filter and
+// the series_tracker source across all pipelines share one tracker, so a show
+// downloaded by one pipeline is recognised by every other.
+const TrackerBucketName = "series"
 
 // Record is persisted for each downloaded episode.
 type Record struct {
@@ -149,6 +156,66 @@ func (t *Tracker) Latest(seriesName string) (*Record, bool) {
 		}
 	}
 	return latest, latest != nil
+}
+
+// ShowSummary aggregates the tracker's per-episode records for one show.
+type ShowSummary struct {
+	// Name is the normalized show name used as the tracker key.
+	Name string
+	// DisplayName is the canonical title from the most recently downloaded
+	// record that carries one. Empty when no record has a display name.
+	DisplayName string
+	// EpisodeCount is the number of episode records for the show.
+	EpisodeCount int
+	// NewestEpisodeID is the lexicographically greatest episode ID (zero-padded
+	// IDs make lexicographic order match episode order).
+	NewestEpisodeID string
+	// LastDownloadedAt is the most recent DownloadedAt across all records.
+	LastDownloadedAt time.Time
+}
+
+// Summaries returns one ShowSummary per tracked show, sorted by Name.
+// It fetches all records in a single query.
+func (t *Tracker) Summaries() ([]ShowSummary, error) {
+	all, err := t.bucket.All()
+	if err != nil {
+		return nil, err
+	}
+	byName := make(map[string]*ShowSummary)
+	// displayAt tracks the DownloadedAt of the record that supplied each
+	// show's DisplayName, so the most recent non-empty one wins.
+	displayAt := make(map[string]time.Time)
+	for _, raw := range all {
+		var rec Record
+		if err := json.Unmarshal(raw, &rec); err != nil {
+			continue
+		}
+		if rec.SeriesName == "" {
+			continue
+		}
+		s, ok := byName[rec.SeriesName]
+		if !ok {
+			s = &ShowSummary{Name: rec.SeriesName}
+			byName[rec.SeriesName] = s
+		}
+		s.EpisodeCount++
+		if rec.EpisodeID > s.NewestEpisodeID {
+			s.NewestEpisodeID = rec.EpisodeID
+		}
+		if rec.DownloadedAt.After(s.LastDownloadedAt) {
+			s.LastDownloadedAt = rec.DownloadedAt
+		}
+		if rec.DisplayName != "" && (s.DisplayName == "" || rec.DownloadedAt.After(displayAt[rec.SeriesName])) {
+			s.DisplayName = rec.DisplayName
+			displayAt[rec.SeriesName] = rec.DownloadedAt
+		}
+	}
+	out := make([]ShowSummary, 0, len(byName))
+	for _, s := range byName {
+		out = append(out, *s)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
 }
 
 // EpisodeID returns the canonical episode identifier for an Episode.
