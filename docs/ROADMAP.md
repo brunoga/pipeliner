@@ -190,7 +190,7 @@ series tracker), sink chaining, `pathfmt` for destination paths.
 **Gaps.** Library index (scan + cache in a store bucket with mtime
 invalidation), the filter, refresh sink, Plex/Jellyfin clients, docs.
 
-## 6. Notification upgrades — ✅ digest mode + tvdb_calendar shipped; trakt_calendar deferred (same shape, add on demand); run_report deferred to M8 (needs persisted per-run tallies)
+## 6. Notification upgrades — ✅ fully shipped (digest mode, tvdb_calendar, trakt_calendar, run_report)
 
 **Motivation.** Per-entry pushes get muted; a daily/weekly summary gets read.
 The engine already records accept/reject reasons — surfacing them is cheap.
@@ -227,7 +227,7 @@ and size-capped.
 **Gaps.** Source plugin + server route + queue handoff, docs, sample config
 pairing it with autobrr.
 
-## 8. Run inspector — ✅ shipped (executor trace capture, capped trace store, /api/traces endpoints, dashboard drill-down; run_report from §6 remains open)
+## 8. Run inspector — ✅ shipped (executor trace capture, capped trace store, /api/traces endpoints, dashboard drill-down)
 
 **Motivation.** "Why didn't it grab X?" is the most common debugging
 question. The engine knows the answer per entry, per node; the dashboard

@@ -127,6 +127,8 @@ td code{font-size:11px}
 
     <div class="section">Dynamic Sources</div>
     <a href="#webhook" class="sub">webhook</a>
+    <a href="#trakt_calendar" class="sub">trakt_calendar</a>
+    <a href="#run_report" class="sub">run_report</a>
     <a href="#tvdb_calendar" class="sub">tvdb_calendar</a>
     <a href="#tvdb_favorites" class="sub">tvdb_favorites</a>
     <a href="#trakt_list" class="sub">trakt_list</a>
@@ -981,6 +983,12 @@ series = process("series", upstream=src, list=[
 <pre><code>src = input("webhook", queue="announces")
 # … the usual filter chain …
 pipeline("push-grabs")  # no schedule: runs when pushed</code></pre>
+
+<h2 id="trakt_calendar">trakt_calendar</h2>
+<p>Emits one entry per upcoming episode (within <code>window</code>, default 24h) from the authenticated Trakt user's <em>my shows</em> calendar — the shows Trakt considers followed. The Trakt-native counterpart to <a href="#tvdb_calendar"><code>tvdb_calendar</code></a> (which follows the local series tracker instead). Requires OAuth: <code>client_secret</code> (stored token from <code>pipeliner auth trakt</code>) or a static <code>access_token</code>. Entries carry episode identifiers, <code>series_air_date</code>, the episode name in <code>description</code>, and <code>tvdb_id</code>/<code>trakt_id</code> when available.</p>
+
+<h2 id="run_report">run_report</h2>
+<p>Emits one entry per traced pipeline run within <code>window</code> (default 7 days), built on the run inspector's trace store: the title is a one-line summary (<code>tv: 1 accepted, 3 rejected, 1 failed</code>) and <code>report_*</code> fields carry counts plus the top three rejection reasons. Pair with a URL-keyed <a href="#seen"><code>seen</code></a> filter (run URLs are stable) and a <a href="#notify"><code>notify</code></a> sink for a weekly "what happened and why" report. Coverage matches the inspector's bounds (last 20 runs per pipeline, 500 entries per run).</p>
 
 <h2 id="tvdb_calendar">tvdb_calendar</h2>
 <p>Emits one entry per upcoming episode (airing within <code>window</code>, default 24h) for every show in the series tracker, using TheTVDB air dates. Shows deactivated by <a href="#series_tracker_update"><code>series_tracker_update</code></a> are skipped unless <code>include_inactive=True</code>. Feed it into <a href="#notify"><code>notify</code></a> for a "tonight's episodes" message, or into <a href="#discover"><code>discover</code></a> for day-of searching. Each entry carries <code>series_name</code>, <code>series_episode_id</code>/<code>season</code>/<code>episode</code>, <code>series_air_date</code>, and the episode name in <code>description</code>.</p>
