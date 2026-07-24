@@ -340,6 +340,7 @@ func (s *Server) apiStatus(w http.ResponseWriter, _ *http.Request) {
 
 func (s *Server) apiHistory(w http.ResponseWriter, _ *http.Request) {
 	type runJSON struct {
+		RunID     string `json:"run_id,omitempty"`
 		At        string `json:"at"`
 		Accepted  int    `json:"accepted"`
 		Rejected  int    `json:"rejected"`
@@ -356,6 +357,7 @@ func (s *Server) apiHistory(w http.ResponseWriter, _ *http.Request) {
 		rj := make([]runJSON, len(runs))
 		for i, r := range runs {
 			rj[i] = runJSON{
+				RunID:     r.RunID,
 				At:        r.At.UTC().Format(time.RFC3339),
 				Accepted:  r.Accepted,
 				Rejected:  r.Rejected,

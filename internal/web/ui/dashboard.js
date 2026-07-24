@@ -194,12 +194,12 @@ function hasRecentError(runs) {
 }
 
 // historyHtml renders the expanded run-history panel for one task.
-function historyHtml(runs) {
-  const rows = (runs || []).map(historyRowHtml).join('');
+function historyHtml(runs, taskName) {
+  const rows = (runs || []).map(r => historyRowHtml(r, taskName)).join('');
   return `<div class="task-history">${rows || '<div class="task-history-empty">No recorded runs.</div>'}</div>`;
 }
 
-function historyRowHtml(r) {
+function historyRowHtml(r, taskName) {
   const d = new Date(r.at);
   const abs = isNaN(d.getTime()) ? '' : d.toLocaleString();
   const when = `<span class="task-history-when" title="${esc(abs)}">${esc(relTime(d))} ago</span>`;
@@ -212,10 +212,57 @@ function historyRowHtml(r) {
     `<span class="thc u" title="undecided">${r.undecided ?? 0}</span>` +
     `</span>`;
   const err = r.err ? `<div class="task-err">⚠ ${esc(r.err)}</div>` : '';
+  // Inspect: only runs that recorded a trace (run_id present) get the link.
+  const inspect = r.run_id && taskName
+    ? ` <button class="thr-inspect" onclick="event.stopPropagation();toggleTrace(${esc(JSON.stringify(taskName))},${esc(JSON.stringify(r.run_id))},this)">inspect</button>`
+    : '';
   return `<div class="task-history-row${r.err ? ' has-err' : ''}">
-      <div class="task-history-line">${when}${dry}<span class="task-history-dur">${esc(r.duration || '')}</span>${counts}</div>
-      ${err}
+      <div class="task-history-line">${when}${dry}<span class="task-history-dur">${esc(r.duration || '')}</span>${counts}${inspect}</div>
+      ${err}<div class="trace-panel" id="trace-${esc(taskName || '')}-${esc(r.run_id || '')}" hidden></div>
     </div>`;
+}
+
+// ── run inspector ─────────────────────────────────────────────────────────────
+
+// traceStateHtml renders one entry's final state as a colored chip.
+function traceChip(state) {
+  const cls = {accepted: 'a', rejected: 'r', failed: 'f', consumed: 'a', undecided: 'u'}[state] || 'u';
+  return `<span class="thc ${cls}">${esc(state)}</span>`;
+}
+
+// traceEntryHtml renders one entry row with its per-node steps.
+function traceEntryHtml(e) {
+  const steps = (e.steps || []).map(st =>
+    `<div class="trace-step">${traceChip(st.state)} <code>${esc(st.node)}</code>${st.reason ? ` — ${esc(st.reason)}` : ''}</div>`
+  ).join('');
+  return `<details class="trace-entry">
+      <summary>${traceChip(e.final)} <span class="trace-title">${esc(e.title)}</span>${e.reason ? ` <span class="trace-reason">${esc(e.reason)}</span>` : ''}</summary>
+      <div class="trace-steps">${steps || '<div class="trace-step">no recorded steps</div>'}</div>
+    </details>`;
+}
+
+// toggleTrace loads (once) and shows/hides the trace panel for one run.
+async function toggleTrace(task, runId, btn) {
+  const panel = document.getElementById(`trace-${task}-${runId}`);
+  if (!panel) return;
+  if (!panel.hidden) { panel.hidden = true; return; }
+  if (!panel.dataset.loaded) {
+    panel.innerHTML = '<div class="trace-loading">loading…</div>';
+    panel.hidden = false;
+    try {
+      const r = await fetch(`/api/traces/${encodeURIComponent(task)}/${encodeURIComponent(runId)}`);
+      if (!r.ok) { panel.innerHTML = `<div class="trace-loading">trace unavailable (${r.status})</div>`; return; }
+      const rt = await r.json();
+      const truncated = rt.truncated ? `<div class="trace-loading">…and ${rt.truncated} more entries ran untraced (cap)</div>` : '';
+      panel.innerHTML = (rt.entries || []).map(traceEntryHtml).join('') + truncated
+        || '<div class="trace-loading">run produced no entries</div>';
+      panel.dataset.loaded = '1';
+    } catch (e) {
+      panel.innerHTML = '<div class="trace-loading">trace fetch failed</div>';
+    }
+  } else {
+    panel.hidden = false;
+  }
 }
 
 function card(t, runs, idx = 0) {
@@ -274,7 +321,7 @@ function card(t, runs, idx = 0) {
          <button class="btn-run btn-dry" onclick="triggerRun(${esc(JSON.stringify(t.name))}, this, true)" title="Dry run — no side effects, no tracker advance">Dry</button>
        </div>`;
 
-  const historyPanel = expanded ? historyHtml(runs) : '';
+  const historyPanel = expanded ? historyHtml(runs, t.name) : '';
   const chevron = `<span class="task-history-chevron">${expanded ? '▾' : '▸'}</span>`;
 
   // nth-child handles first 10 cards; inline delay covers beyond that.

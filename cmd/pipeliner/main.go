@@ -571,6 +571,7 @@ func cmdDaemon(args []string) int {
 		ws.SetReload(reload)
 		ws.SetConfigPath(*cfgPath)
 		ws.SetStore(db)
+		ws.SetTraceStore(traceStore)
 		if tok := os.Getenv("PIPELINER_INGEST_TOKEN"); tok != "" {
 			ws.SetIngestToken(tok)
 		}

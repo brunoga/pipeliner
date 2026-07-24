@@ -75,3 +75,20 @@
 }
 
 .log-cleared { opacity: 0.8; }
+
+/* ── run inspector (M8) ─────────────────────────────────────────────────── */
+.thr-inspect {
+  margin-left: 8px; padding: 1px 8px; font-size: 10px; font-family: inherit;
+  background: none; border: 1px solid var(--border); border-radius: 4px;
+  color: var(--muted); cursor: pointer;
+}
+.thr-inspect:hover { border-color: var(--accent); color: var(--accent); }
+.trace-panel { margin: 6px 0 4px 12px; border-left: 2px solid var(--border); padding-left: 10px; }
+.trace-entry summary { cursor: pointer; padding: 2px 0; font-size: 12px; }
+.trace-entry summary::-webkit-details-marker { color: var(--muted); }
+.trace-title { margin-left: 4px; }
+.trace-reason { color: var(--muted); font-size: 11px; margin-left: 6px; }
+.trace-steps { margin: 2px 0 6px 18px; }
+.trace-step { font-size: 11px; color: var(--muted); padding: 1px 0; }
+.trace-step code { color: var(--text); font-size: 10px; }
+.trace-loading { font-size: 11px; color: var(--muted); padding: 4px 0; }
