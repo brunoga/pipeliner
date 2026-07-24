@@ -88,7 +88,7 @@ Pipeliner is built entirely from plugins. Each plugin has one of three roles:
 
 Connect multiple sources with `merge(src1, src2)`. Fan out to multiple sinks by calling `output()` more than once from the same upstream. Route entries to mutually exclusive branches with `route(upstream, tv="expr", movies="expr")`.
 
-The web UI (enabled with `daemon --web :8080`) includes a visual pipeline editor, a live config editor, and a run history view.
+The web UI (enabled with `daemon --web :8080`) includes a visual pipeline editor, a live config editor, and a run history view with a per-entry run inspector. A built-in **User Guide** — the same comprehensive reference shipped as `docs/user-guide.html` in the release archives — is reachable from the header link in-app (or at `/guide`), covering every plugin, config key, and feature in depth.
 
 See [`plugins/`](plugins/README.md) for the full plugin listing.
 

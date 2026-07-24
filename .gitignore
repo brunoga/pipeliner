@@ -13,3 +13,8 @@ CLAUDE.md
 internal/web/ui/node_modules/
 /pipeliner
 /pipeliner.log
+
+# GoReleaser staging + output
+/build/
+/dist/
+/releasedocs
