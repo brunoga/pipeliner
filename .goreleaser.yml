@@ -35,6 +35,8 @@ archives:
     files:
       # The user guide is embedded in the binary and served at /guide (with
       # its screenshots), so it is not duplicated here as a standalone file.
+      # Version history (links are absolute GitHub URLs — no rewriting needed).
+      - CHANGELOG.md
       # Annotated sample pipelines the user can copy and adapt.
       - src: configs/*.star
         dst: configs
