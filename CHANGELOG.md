@@ -5,6 +5,20 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.1] - 2026-07-24
+
+### Added
+
+- **Release archives ship the sample configs and READMEs** ([#320](https://github.com/brunoga/pipeliner/pull/320)). The binary archives now include all 34 annotated sample pipelines under `configs/`, plus the top-level `README.md` and `configs/README.md`, alongside the existing `docs/user-guide.html`. A small `releasedocs` tool run from a GoReleaser `before` hook rewrites the READMEs' repo-relative links that would escape the archive — everything under `plugins/` — into absolute GitHub URLs pinned to the release tag, so the shipped docs have no broken links while in-archive links (sibling sample configs, the cross-README reference) stay relative and resolve offline. The `pipeliner.db`/`.lock` files in the configs directory are gitignored and never leak into an archive.
+
+- **README points at the in-app User Guide** ([#320](https://github.com/brunoga/pipeliner/pull/320)). The web-UI section now notes the built-in User Guide — the same comprehensive `docs/user-guide.html` reference, reachable from the header link in-app or at `/guide` — and the per-entry run inspector added in 1.13.0.
+
+### Changed
+
+- **Documentation gaps from the 1.13.0 feature wave closed** ([#319](https://github.com/brunoga/pipeliner/pull/319)). The plugin index READMEs (`plugins/source`, `plugins/sink`, and the processor sub-indexes) gained rows for the twelve plugins added in 1.13.0; `PLUGIN_DEVELOPMENT_GUIDE.md` now documents the two contracts new plugin authors need — download sinks writing grab records so failed-grab recovery can cover them, and the shared push-ingest queues; and `SECURITY.md` covers the `POST /api/ingest/{queue}` endpoint and its bearer-token semantics.
+
+**Why 1.13.1**: a documentation-and-packaging patch on top of 1.13.0. No code changes and no behaviour change — existing configs run byte-identically and the compiled binary is unchanged. The only user-visible differences are what the release archives contain (the sample configs and linkable READMEs now travel with the binary) and more complete repository documentation. A patch bump per SemVer, comparable in scope to 1.12.1.
+
 ## [1.13.0] - 2026-07-24
 
 ### Added
