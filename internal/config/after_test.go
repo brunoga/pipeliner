@@ -48,3 +48,44 @@ func TestDependents(t *testing.T) {
 		t.Errorf("no dependents: %v", got)
 	}
 }
+
+func TestPipelineAfterParsesEndToEnd(t *testing.T) {
+	cfg, err := ParseBytes([]byte(`
+src = input("rss", url="https://example.com/rss")
+out = output("print", upstream=src)
+pipeline("a", schedule="1h")
+
+src2 = input("rss", url="https://example.com/rss2")
+out2 = output("print", upstream=src2)
+pipeline("b", after="a:accepted")
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.GraphAfter["b"] != "a:accepted" {
+		t.Fatalf("GraphAfter: %+v", cfg.GraphAfter)
+	}
+	if errs, _ := Validate(cfg); len(errs) != 0 {
+		t.Fatalf("validate: %v", errs)
+	}
+
+	// Bad reference surfaces as a validation error.
+	cfg2, err := ParseBytes([]byte(`
+src = input("rss", url="https://example.com/rss")
+out = output("print", upstream=src)
+pipeline("only", after="ghost")
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	errs, _ := Validate(cfg2)
+	found := false
+	for _, e := range errs {
+		if strings.Contains(e.Error(), "unknown pipeline") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("want unknown-pipeline error, got %v", errs)
+	}
+}
