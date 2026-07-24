@@ -3,6 +3,7 @@ package executor_test
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"log/slog"
 	"regexp"
 	"strings"
@@ -1770,5 +1771,74 @@ func TestExecutor_RunIDInLogs(t *testing.T) {
 	id2, _ := collect()
 	if id1 == id2 {
 		t.Errorf("run_id should differ between runs, both were %q", id1)
+	}
+}
+
+// ── run traces (M8) ───────────────────────────────────────────────────────────
+
+// rejectAllPlugin rejects everything, for trace assertions.
+type rejectAllPlugin struct{}
+
+func (p *rejectAllPlugin) Name() string { return "test_reject" }
+func (p *rejectAllPlugin) Process(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
+	for _, e := range entries {
+		e.Reject("test_reject: nope")
+	}
+	return entries, nil
+}
+
+func TestExecutor_TracesCaptureJourney(t *testing.T) {
+	ex := buildExec(t,
+		[]*dag.Node{
+			{ID: "src", PluginName: "test_source"},
+			{ID: "rej", PluginName: "test_reject", Upstreams: []dag.NodeID{"src"}},
+		},
+		map[dag.NodeID]*executor.PluginInstance{
+			"src": {Desc: sourceDesc(), Impl: &sourcePlugin{urls: []string{"http://a.com"}}, Config: map[string]any{}},
+			"rej": {Desc: processorDesc(), Impl: &rejectAllPlugin{}, Config: map[string]any{}},
+		},
+	)
+	res, err := ex.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.RunID == "" {
+		t.Error("RunID must be set")
+	}
+	if len(res.Traces) != 1 {
+		t.Fatalf("want 1 trace, got %d", len(res.Traces))
+	}
+	tr := res.Traces[0]
+	if tr.Final != "rejected" || tr.Reason != "test_reject: nope" {
+		t.Errorf("final: %+v", tr)
+	}
+	if len(tr.Steps) != 2 {
+		t.Fatalf("want 2 steps (emitted, rejected), got %+v", tr.Steps)
+	}
+	if tr.Steps[0].Node != "src" || tr.Steps[0].State != "undecided" {
+		t.Errorf("step0: %+v", tr.Steps[0])
+	}
+	if tr.Steps[1].Node != "rej" || tr.Steps[1].State != "rejected" || tr.Steps[1].Reason != "test_reject: nope" {
+		t.Errorf("step1: %+v", tr.Steps[1])
+	}
+}
+
+func TestExecutor_TraceCapTruncates(t *testing.T) {
+	urls := make([]string, 510)
+	for i := range urls {
+		urls[i] = fmt.Sprintf("http://x.com/%d", i)
+	}
+	ex := buildExec(t,
+		[]*dag.Node{{ID: "src", PluginName: "test_source"}},
+		map[dag.NodeID]*executor.PluginInstance{
+			"src": {Desc: sourceDesc(), Impl: &sourcePlugin{urls: urls}, Config: map[string]any{}},
+		},
+	)
+	res, err := ex.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Traces) != 500 || res.TracesTruncated != 10 {
+		t.Errorf("traces=%d truncated=%d", len(res.Traces), res.TracesTruncated)
 	}
 }

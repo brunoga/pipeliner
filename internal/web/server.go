@@ -23,6 +23,7 @@ import (
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/plugin"
 	"github.com/brunoga/pipeliner/internal/store"
+	"github.com/brunoga/pipeliner/internal/traces"
 )
 
 //go:embed ui/index.html ui/style.css ui/dashboard-extra.css ui/dashboard.js ui/highlight.js ui/config-editor.js ui/visual-editor.js ui/database.js ui/plugin-debug.js ui/trakt.js ui/favicon.svg ui/fonts
@@ -46,6 +47,7 @@ type Server struct {
 	tasks       []TaskInfo
 	daemon      DaemonControl
 	ingestToken string // non-empty enables POST /api/ingest/{queue}
+	traceStore  *traces.Store
 	history     *History
 	bcast       *Broadcaster
 	reload      func(content []byte) error // nil if reload is not configured
@@ -211,6 +213,8 @@ func (s *Server) Start(ctx context.Context, addr string, tlsCfg *tls.Config) err
 	protected.Handle("/", s.staticHandler()) // catch-all for CSS/JS assets (style.css, *.js)
 	protected.HandleFunc("GET /api/status", s.apiStatus)
 	protected.HandleFunc("GET /api/history", s.apiHistory)
+	protected.HandleFunc("GET /api/traces/{task}", s.apiTraceList)
+	protected.HandleFunc("GET /api/traces/{task}/{run}", s.apiTraceGet)
 	protected.HandleFunc("POST /api/tasks/{name}/run", s.apiTrigger)
 	protected.HandleFunc("POST /api/tasks/run", s.apiRunAll)
 	protected.HandleFunc("POST /api/reload", s.apiReload)
@@ -336,6 +340,7 @@ func (s *Server) apiStatus(w http.ResponseWriter, _ *http.Request) {
 
 func (s *Server) apiHistory(w http.ResponseWriter, _ *http.Request) {
 	type runJSON struct {
+		RunID     string `json:"run_id,omitempty"`
 		At        string `json:"at"`
 		Accepted  int    `json:"accepted"`
 		Rejected  int    `json:"rejected"`
@@ -352,6 +357,7 @@ func (s *Server) apiHistory(w http.ResponseWriter, _ *http.Request) {
 		rj := make([]runJSON, len(runs))
 		for i, r := range runs {
 			rj[i] = runJSON{
+				RunID:     r.RunID,
 				At:        r.At.UTC().Format(time.RFC3339),
 				Accepted:  r.Accepted,
 				Rejected:  r.Rejected,

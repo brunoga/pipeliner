@@ -227,7 +227,7 @@ and size-capped.
 **Gaps.** Source plugin + server route + queue handoff, docs, sample config
 pairing it with autobrr.
 
-## 8. Run inspector (web UI)
+## 8. Run inspector — ✅ shipped (executor trace capture, capped trace store, /api/traces endpoints, dashboard drill-down; run_report from §6 remains open)
 
 **Motivation.** "Why didn't it grab X?" is the most common debugging
 question. The engine knows the answer per entry, per node; the dashboard

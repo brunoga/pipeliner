@@ -32,12 +32,15 @@ func (t *Task) runFromExecutor(ctx context.Context) (*Result, error) {
 		return nil, err
 	}
 	return &Result{
-		Accepted:  r.Accepted,
-		Rejected:  r.Rejected,
-		Failed:    r.Failed,
-		Undecided: r.Undecided,
-		Total:     r.Total,
-		Duration:  r.Duration,
-		Entries:   r.Entries,
+		RunID:           r.RunID,
+		Traces:          r.Traces,
+		TracesTruncated: r.TracesTruncated,
+		Accepted:        r.Accepted,
+		Rejected:        r.Rejected,
+		Failed:          r.Failed,
+		Undecided:       r.Undecided,
+		Total:           r.Total,
+		Duration:        r.Duration,
+		Entries:         r.Entries,
 	}, nil
 }
