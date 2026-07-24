@@ -88,6 +88,7 @@ import (
 	_ "github.com/brunoga/pipeliner/plugins/source/torrent_session"
 	_ "github.com/brunoga/pipeliner/plugins/source/trakt_list"
 	_ "github.com/brunoga/pipeliner/plugins/source/tvdb_calendar"
+	_ "github.com/brunoga/pipeliner/plugins/source/webhook"
 	_ "github.com/brunoga/pipeliner/plugins/source/tvdb_favorites"
 )
 
@@ -559,6 +560,9 @@ func cmdDaemon(args []string) int {
 		ws.SetReload(reload)
 		ws.SetConfigPath(*cfgPath)
 		ws.SetStore(db)
+		if tok := os.Getenv("PIPELINER_INGEST_TOKEN"); tok != "" {
+			ws.SetIngestToken(tok)
+		}
 		ws.SetLogFile(logFilePath(*cfgPath), logFileMaxArchives)
 		ws.SetPluginLogControl(perPlugin)
 		ws.SetConfigValidator(func(data []byte) ([]string, []string) {

@@ -126,6 +126,7 @@ td code{font-size:11px}
     <a href="#torrent_session" class="sub">torrent_session</a>
 
     <div class="section">Dynamic Sources</div>
+    <a href="#webhook" class="sub">webhook</a>
     <a href="#tvdb_calendar" class="sub">tvdb_calendar</a>
     <a href="#tvdb_favorites" class="sub">tvdb_favorites</a>
     <a href="#trakt_list" class="sub">trakt_list</a>
@@ -973,6 +974,12 @@ series = process("series", upstream=src, list=[
 <pre><code>sess = input("torrent_session", backend="transmission", host="localhost")</code></pre>
 
 <!-- ─────────── tvdb_favorites ─────────── -->
+<h2 id="webhook">webhook (push ingest)</h2>
+<p>The push counterpart to polling sources: set <code>PIPELINER_INGEST_TOKEN</code> in the daemon environment, add a <code>webhook</code> source with a <code>queue</code> name, and POST JSON to <code>/api/ingest/&lt;queue&gt;</code> with <code>Authorization: Bearer &lt;token&gt;</code>. Add <code>?pipeline=&lt;name&gt;</code> to trigger the pipeline immediately after queuing — announce-to-grab latency becomes seconds instead of a polling interval. The body is one item or an array: <code>title</code> (required), <code>url</code>, <code>fields</code>. Queues are in-memory and bounded (1000): a restart drops undrained items (announcers re-announce), and the response reports <code>queued</code>/<code>dropped</code>/<code>rejected</code>. Without the token the endpoint answers 404.</p>
+<pre><code>src = input("webhook", queue="announces")
+# … the usual filter chain …
+pipeline("push-grabs")  # no schedule: runs when pushed</code></pre>
+
 <h2 id="tvdb_calendar">tvdb_calendar</h2>
 <p>Emits one entry per upcoming episode (airing within <code>window</code>, default 24h) for every show in the series tracker, using TheTVDB air dates. Shows deactivated by <a href="#series_tracker_update"><code>series_tracker_update</code></a> are skipped unless <code>include_inactive=True</code>. Feed it into <a href="#notify"><code>notify</code></a> for a "tonight's episodes" message, or into <a href="#discover"><code>discover</code></a> for day-of searching. Each entry carries <code>series_name</code>, <code>series_episode_id</code>/<code>season</code>/<code>episode</code>, <code>series_air_date</code>, and the episode name in <code>description</code>.</p>
 <pre><code>cal  = input("tvdb_calendar", api_key=env("TVDB_API_KEY"), window="24h")

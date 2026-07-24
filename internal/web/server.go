@@ -42,16 +42,17 @@ type TaskInfo struct {
 
 // Server is the HTTP status interface for the daemon.
 type Server struct {
-	tasksMu  sync.RWMutex
-	tasks    []TaskInfo
-	daemon   DaemonControl
-	history  *History
-	bcast    *Broadcaster
-	reload   func(content []byte) error // nil if reload is not configured
-	version  string
-	creds    credentials
-	sessions *sessionStore
-	secure   bool // true when serving over TLS; controls the Secure cookie flag
+	tasksMu     sync.RWMutex
+	tasks       []TaskInfo
+	daemon      DaemonControl
+	ingestToken string // non-empty enables POST /api/ingest/{queue}
+	history     *History
+	bcast       *Broadcaster
+	reload      func(content []byte) error // nil if reload is not configured
+	version     string
+	creds       credentials
+	sessions    *sessionStore
+	secure      bool // true when serving over TLS; controls the Secure cookie flag
 
 	runMu              sync.Mutex
 	running            map[string]int // task name → active run count
@@ -198,6 +199,9 @@ func (s *Server) Start(ctx context.Context, addr string, tlsCfg *tls.Config) err
 	open.HandleFunc("POST /login", s.handleLoginPost)
 	open.HandleFunc("POST /logout", s.handleLogout)
 	open.HandleFunc("GET /favicon.svg", s.serveFavicon) // unauth so the login page tab icon renders
+	// Machine push endpoint: bearer-token auth inside the handler (404 when
+	// no ingest token is configured), so it lives on the open mux.
+	open.HandleFunc("POST /api/ingest/{queue}", s.apiIngest)
 
 	// Authenticated routes wrapped in session middleware.
 	protected := http.NewServeMux()
@@ -513,11 +517,11 @@ func (s *Server) apiLogs(w http.ResponseWriter, r *http.Request) {
 // no matches were found in the scanned window so the client can rely on
 // a consistent shape.
 type logResponseShape struct {
-	Lines        []LineWithPos `json:"lines"`
-	OlderCursor  string        `json:"older_cursor,omitempty"`
-	NewerCursor  string        `json:"newer_cursor,omitempty"`
-	Exhausted    bool          `json:"exhausted,omitempty"`
-	AtTail       bool          `json:"at_tail,omitempty"`
+	Lines       []LineWithPos `json:"lines"`
+	OlderCursor string        `json:"older_cursor,omitempty"`
+	NewerCursor string        `json:"newer_cursor,omitempty"`
+	Exhausted   bool          `json:"exhausted,omitempty"`
+	AtTail      bool          `json:"at_tail,omitempty"`
 }
 
 const (
