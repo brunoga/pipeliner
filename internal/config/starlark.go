@@ -17,6 +17,7 @@ func execute(filename string, src []byte) (*Config, error) {
 	ctx := &execContext{
 		graphs:         make(map[string]*dagGraph),
 		graphSchedules: make(map[string]string),
+		graphAfter:     make(map[string]string),
 		dir:            filepath.Dir(filename),
 		loaded:         make(map[string]starlark.StringDict),
 		userFunctions:  userFuncs,
@@ -76,6 +77,7 @@ func execute(filename string, src []byte) (*Config, error) {
 		Graphs:         graphs,
 		GraphOrder:     append([]string(nil), ctx.graphOrder...),
 		GraphSchedules: ctx.graphSchedules,
+		GraphAfter:     ctx.graphAfter,
 		UserFunctions:  ctx.userFunctions,
 		FunctionCalls:  ctx.functionCalls,
 		LoadWarnings:   ctx.loadWarnings,
@@ -87,6 +89,7 @@ type execContext struct {
 	graphs         map[string]*dagGraph
 	graphOrder     []string // pipeline names in the order their pipeline() calls fired
 	graphSchedules map[string]string
+	graphAfter     map[string]string
 	pendingNodes   []*dagNodeRecord
 	nodeCounter    int
 	dir            string

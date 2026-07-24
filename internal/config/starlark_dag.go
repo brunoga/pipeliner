@@ -298,10 +298,12 @@ func (ctx *execContext) pipelineBuiltin(_ *starlark.Thread, fn *starlark.Builtin
 	var (
 		name     string
 		schedule starlark.Value = starlark.None
+		after    string
 	)
 	if err := starlark.UnpackArgs(fn.Name(), args, kwargs,
 		"name", &name,
 		"schedule?", &schedule,
+		"after?", &after,
 	); err != nil {
 		return nil, err
 	}
@@ -365,6 +367,9 @@ func (ctx *execContext) pipelineBuiltin(_ *starlark.Thread, fn *starlark.Builtin
 
 	if s, ok := starlark.AsString(schedule); ok && s != "" {
 		ctx.graphSchedules[name] = s
+	}
+	if after != "" {
+		ctx.graphAfter[name] = after
 	}
 	return starlark.None, nil
 }
