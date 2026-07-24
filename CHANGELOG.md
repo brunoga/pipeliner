@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.2] - 2026-07-24
+
+### Changed
+
+- **Release archive contents tidied** ([#322](https://github.com/brunoga/pipeliner/pull/322)). The archives no longer ship a standalone `docs/user-guide.html`: the guide is embedded in the binary and served complete — with all its screenshots — at `/guide` by the web UI, whereas the standalone copy duplicated that content and rendered with broken image references (the `docs/images/` directory was never bundled). In its place the archives now include `CHANGELOG.md`, so the extracted bundle carries offline version history alongside the `README.md` and sample configs added in 1.13.1. Each archive is now `pipeliner` + `README.md` + `CHANGELOG.md` + `configs/` (34 samples + `configs/README.md`); the README's User Guide note points at the embedded `/guide`.
+
+**Why 1.13.2**: a release-packaging patch on top of 1.13.1 — no code changes, the compiled binary and every config behave identically. Only the set of files travelling inside the release archives changed. A patch bump per SemVer.
+
 ## [1.13.1] - 2026-07-24
 
 ### Added
