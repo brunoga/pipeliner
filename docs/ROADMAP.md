@@ -244,7 +244,7 @@ making dry-run + inspector the standard config-debugging loop.
 **Gaps.** Trace capture in the executor (bounded memory), storage schema,
 API, UI table + trace view, docs.
 
-## 9. Pipeline triggers
+## 9. Pipeline triggers — ✅ shipped (after="parent[:accepted]" with cycle validation, runner cascade, dashboard indication, visual-editor round-trip)
 
 **Motivation.** Multi-stage flows (gaps → search → notify; sync-list →
 filter) currently rely on schedule phasing. An explicit trigger is simpler

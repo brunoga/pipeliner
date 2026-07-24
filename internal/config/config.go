@@ -37,6 +37,11 @@ type Config struct {
 	GraphOrder []string
 	// GraphSchedules maps pipeline names to schedule expressions ("1h", "0 * * * *").
 	GraphSchedules map[string]string
+	// GraphAfter maps pipeline names to trigger dependencies: "parent" fires
+	// the pipeline after every successful parent run, "parent:accepted" only
+	// when the parent accepted at least one entry. Dry parent runs never
+	// cascade.
+	GraphAfter map[string]string
 	// UserFunctions holds the user-defined pipeline functions discovered in the
 	// source, keyed by function name.
 	UserFunctions map[string]*UserFunctionDef
@@ -78,6 +83,7 @@ func ParseBytes(data []byte) (*Config, error) {
 // LoadWarnings emitted during config evaluation).
 func Validate(c *Config) (errs, warnings []error) {
 	warnings = append(warnings, c.LoadWarnings...)
+	errs = append(errs, validateAfter(c)...)
 	for name, g := range c.Graphs {
 		dagErrs, dagWarnings := dag.Validate(g, func(pluginName string) (*plugin.Descriptor, bool) {
 			return plugin.Lookup(pluginName)

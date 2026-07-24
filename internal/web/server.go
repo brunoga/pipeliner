@@ -39,6 +39,7 @@ type DaemonControl interface {
 type TaskInfo struct {
 	Name     string
 	Schedule string // empty for unscheduled (manual-only) tasks
+	After    string // trigger dependency ("parent" or "parent:accepted"), empty when none
 }
 
 // Server is the HTTP status interface for the daemon.
@@ -317,6 +318,7 @@ func (s *Server) apiStatus(w http.ResponseWriter, _ *http.Request) {
 	type taskJSON struct {
 		Name     string `json:"name"`
 		Schedule string `json:"schedule"`
+		After    string `json:"after,omitempty"`
 		NextRun  string `json:"nextRun,omitempty"`
 		Running  bool   `json:"running,omitempty"`
 	}
@@ -329,7 +331,7 @@ func (s *Server) apiStatus(w http.ResponseWriter, _ *http.Request) {
 	s.tasksMu.RUnlock()
 	tasks := make([]taskJSON, len(snap))
 	for i, t := range snap {
-		tj := taskJSON{Name: t.Name, Schedule: t.Schedule, Running: s.isRunning(t.Name)}
+		tj := taskJSON{Name: t.Name, Schedule: t.Schedule, After: t.After, Running: s.isRunning(t.Name)}
 		if next := s.daemon.NextRun(t.Name); !next.IsZero() {
 			tj.NextRun = next.UTC().Format(time.RFC3339)
 		}
@@ -879,6 +881,7 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 		Nodes         []nodeResp     `json:"nodes"`
 		FunctionCalls []funcCallResp `json:"function_calls,omitempty"`
 		Schedule      string         `json:"schedule,omitempty"`
+		After         string         `json:"after,omitempty"`
 		Comment       string         `json:"comment,omitempty"`
 	}
 	type funcParamResp struct {
@@ -1058,6 +1061,7 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 			Nodes:         nodes,
 			FunctionCalls: funcCalls,
 			Schedule:      c.GraphSchedules[name],
+			After:         c.GraphAfter[name],
 			Comment:       pipelineComments[name],
 		}
 	}

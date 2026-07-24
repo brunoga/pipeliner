@@ -5840,6 +5840,7 @@ async function expandAndRemoveFunction(funcName) {
     return {
       name,
       schedule: graph.schedule || existingG.schedule || '',
+      after: graph.after || existingG.after || '',
       comment:  graph.comment  || existingG.comment  || '',
       nodes, _hasLayout,
     };
@@ -6891,7 +6892,8 @@ function dagToStarlark() {
     }
 
     const schedArg = g.schedule ? `, schedule=${starLit(g.schedule)}` : '';
-    lines.push(`pipeline(${starLit(g.name)}${schedArg})`);
+    const afterArg = g.after ? `, after=${starLit(g.after)}` : '';
+    lines.push(`pipeline(${starLit(g.name)}${schedArg}${afterArg})`);
     sections.push(lines.join('\n'));
   }
 
@@ -7344,7 +7346,7 @@ async function textToVisualSync() {
 
       // A pipeline "has layout" when any main node carries a stored position.
       const _hasLayout = nodes.some(n => !n.isSearchNode && !n.isListNode && n.x != null && n.y != null);
-      return {name, schedule: graph.schedule || '', comment: graph.comment || '', nodes, _hasLayout};
+      return {name, schedule: graph.schedule || '', after: graph.after || '', comment: graph.comment || '', nodes, _hasLayout};
     });
     ve.nextId = ve.graphs.flatMap(g => g.nodes).reduce((max, n) => {
       const m = n.id.match(/_(\d+)$/);

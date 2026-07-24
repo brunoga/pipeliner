@@ -276,6 +276,8 @@ output("transmission", upstream=fmt, host="localhost", port=9091,
 pipeline("breaking-bad", schedule="1h")</code></pre>
 
 <p>Run once to test:</p>
+<p><strong>Pipeline triggers.</strong> <code>pipeline("b", after="a")</code> runs <em>b</em> whenever <em>a</em> completes a successful (non-dry) run; <code>after="a:accepted"</code> runs it only when <em>a</em> accepted at least one entry. Unknown references, self-references, and cycles are rejected by <code>pipeliner check</code>. Dry runs never cascade. A pipeline may combine <code>after=</code> with a <code>schedule=</code>, or use <code>after=</code> alone (it then runs only on trigger). The dashboard shows <em>after &lt;parent&gt;</em> in place of the next-run time for trigger-only pipelines.</p>
+
 <pre><code>pipeliner run --config config.star</code></pre>
 
 <p>Run as a daemon (with web UI):</p>
