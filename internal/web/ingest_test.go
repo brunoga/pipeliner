@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -30,7 +31,7 @@ func newIngestServer(t *testing.T, token string) (*Server, *triggerSpy, *httptes
 
 func ingestPost(t *testing.T, url, token, body string) *http.Response {
 	t.Helper()
-	req, _ := http.NewRequest(http.MethodPost, url, strings.NewReader(body))
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, url, strings.NewReader(body))
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
