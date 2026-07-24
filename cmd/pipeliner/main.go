@@ -23,6 +23,7 @@ import (
 	"github.com/brunoga/pipeliner/internal/scheduler"
 	"github.com/brunoga/pipeliner/internal/store"
 	"github.com/brunoga/pipeliner/internal/task"
+	"github.com/brunoga/pipeliner/internal/traces"
 	itrakt "github.com/brunoga/pipeliner/internal/trakt"
 	"github.com/brunoga/pipeliner/internal/web"
 
@@ -88,8 +89,8 @@ import (
 	_ "github.com/brunoga/pipeliner/plugins/source/torrent_session"
 	_ "github.com/brunoga/pipeliner/plugins/source/trakt_list"
 	_ "github.com/brunoga/pipeliner/plugins/source/tvdb_calendar"
-	_ "github.com/brunoga/pipeliner/plugins/source/webhook"
 	_ "github.com/brunoga/pipeliner/plugins/source/tvdb_favorites"
+	_ "github.com/brunoga/pipeliner/plugins/source/webhook"
 )
 
 // version is overridden at build time via:
@@ -405,6 +406,7 @@ func cmdDaemon(args []string) int {
 	}
 
 	hist := web.NewHistory()
+	traceStore := traces.NewStore(db.Bucket(traces.BucketName))
 
 	// ws is captured by both runner and reload closures below; declared before both.
 	var ws *web.Server
@@ -440,6 +442,15 @@ func cmdDaemon(args []string) int {
 			rec.Err = runErr.Error()
 			logger.Error("pipeline failed", "pipeline", name, "err", runErr, "dry_run", effectiveDry)
 		} else {
+			rec.RunID = result.RunID
+			if traceStore != nil {
+				if terr := traceStore.Put(traces.RunTrace{
+					RunID: result.RunID, Task: name, At: at, DryRun: effectiveDry,
+					Truncated: result.TracesTruncated, Entries: result.Traces,
+				}); terr != nil {
+					logger.Warn("persist run trace", "pipeline", name, "err", terr)
+				}
+			}
 			rec.Accepted = result.Accepted
 			rec.Rejected = result.Rejected
 			rec.Failed = result.Failed

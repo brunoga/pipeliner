@@ -9,6 +9,9 @@ const maxRunsPerTask = 20
 
 // RunRecord captures the outcome of one task execution.
 type RunRecord struct {
+	// RunID links this record to its persisted trace (run inspector).
+	// Empty for failed runs and records written before tracing existed.
+	RunID     string
 	Task      string
 	At        time.Time
 	Accepted  int
