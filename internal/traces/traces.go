@@ -6,6 +6,8 @@ package traces
 
 import (
 	"fmt"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/brunoga/pipeliner/internal/executor"
@@ -83,4 +85,20 @@ func (s *Store) Get(task, runID string) (*RunTrace, error) {
 		return nil, fmt.Errorf("trace not found: %s/%s", task, runID)
 	}
 	return &rt, nil
+}
+
+// Tasks lists every task that has at least one persisted run trace.
+func (s *Store) Tasks() ([]string, error) {
+	keys, err := s.bucket.Keys()
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, k := range keys {
+		if task, ok := strings.CutSuffix(k, "|_index"); ok {
+			out = append(out, task)
+		}
+	}
+	sort.Strings(out)
+	return out, nil
 }
