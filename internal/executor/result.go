@@ -23,6 +23,13 @@ import (
 //     backends: the upstream source entries used as search candidates are
 //     excluded, and the new entries (with their own URLs) are what get counted.
 type Result struct {
+	// RunID is the short hex token identifying this run in logs and traces.
+	RunID string
+	// Traces holds the per-entry, per-node state-change journey for up to
+	// maxTracedEntries entries (emission order). TracesTruncated counts
+	// entries beyond the cap that executed untraced.
+	Traces          []EntryTrace
+	TracesTruncated int
 	// NodeResults holds per-node execution details.
 	NodeResults map[dag.NodeID]*NodeResult
 	// Total is the number of distinct entries (by URL or pointer) the

@@ -129,7 +129,8 @@ func (ex *Executor) Shutdown() {
 // Run executes the pipeline and returns a Result.
 func (ex *Executor) Run(ctx context.Context) (*Result, error) {
 	start := time.Now()
-	logger := ex.logger.With("run_id", newRunID())
+	runID := newRunID()
+	logger := ex.logger.With("run_id", runID)
 	if ex.dryRun {
 		logger.Info("pipeline started (DRY RUN)")
 	} else {
@@ -145,7 +146,8 @@ func (ex *Executor) Run(ctx context.Context) (*Result, error) {
 	// Fan-out branches each get an independent slice (cloned if needed).
 	edge := make(map[edgeKey][]*entry.Entry)
 
-	res := &Result{NodeResults: make(map[dag.NodeID]*NodeResult, ex.graph.Len())}
+	res := &Result{NodeResults: make(map[dag.NodeID]*NodeResult, ex.graph.Len()), RunID: runID}
+	tracer := newTraceRecorder(maxTracedEntries)
 
 	// Track all source entries for total/state accounting.
 	var sourceEntries []*entry.Entry
@@ -176,7 +178,10 @@ func (ex *Executor) Run(ctx context.Context) (*Result, error) {
 			}
 
 			upstream := ex.collectUpstream(n, edge)
+			beforeTrace := tracer.snapshot(upstream)
 			produced, nodeErr := ex.runNode(ctx, logger, n, pi, upstream)
+			tracer.observeChanged(string(n.ID), upstream, beforeTrace)
+			tracer.observeEmitted(string(n.ID), produced)
 
 			nr := &NodeResult{In: len(upstream), Out: len(produced), Err: nodeErr}
 			if len(upstream) > len(produced) {
@@ -282,6 +287,8 @@ func (ex *Executor) Run(ctx context.Context) (*Result, error) {
 	res.Total, res.Accepted, res.Rejected, res.Failed, res.Undecided, res.Entries =
 		aggregateCounters(sourceEntries, edge, discardedEntries)
 
+	res.Traces = tracer.finalize()
+	res.TracesTruncated = tracer.truncated
 	res.Duration = time.Since(start)
 	logger.Info("pipeline done",
 		"total", res.Total,
