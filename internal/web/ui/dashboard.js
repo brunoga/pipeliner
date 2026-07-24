@@ -274,7 +274,12 @@ function card(t, runs, idx = 0) {
   const schedOpacity = (!nextDate && !t.schedule) ? ' style="opacity:.5"' : '';
   const schedBadge = `<span class="task-schedule"${schedOpacity} title="${esc(t.schedule || '')}">${esc(schedLabel)}</span>`;
 
-  const nextStr = nextRunLabel(nextDate);
+  let nextStr = nextRunLabel(nextDate);
+  // Trigger-dependent pipelines show their parent instead of a bogus dash.
+  if (nextStr === '—' && t.after) {
+    const [parent, cond] = String(t.after).split(':');
+    nextStr = `after ${parent}${cond === 'accepted' ? ' (on accepts)' : ''}`;
+  }
   // DRY badge lives next to the "Last run" label, not next to the timing
   // text — placing it inside the right-side <b> with "1m ago · 1.5s" made
   // the whole line wrap inside narrow cards, pushing the stats grid down.

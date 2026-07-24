@@ -408,6 +408,11 @@ func cmdDaemon(args []string) int {
 	hist := web.NewHistory()
 	traceStore := traces.NewStore(db.Bucket(traces.BucketName))
 
+	// afterGraph holds the pipeline trigger dependencies (pipeline after=…).
+	// Reload swaps it under the mutex; the runner reads it after every run.
+	var afterMu sync.Mutex
+	afterGraph := cfg.GraphAfter
+
 	// ws is captured by both runner and reload closures below; declared before both.
 	var ws *web.Server
 
@@ -462,6 +467,19 @@ func cmdDaemon(args []string) int {
 			// the history record here.
 		}
 		hist.Add(rec)
+
+		// Cascade: fire dependent pipelines after a successful real run.
+		// Dry runs never cascade — a dry parent triggering a real child
+		// would break the no-side-effects contract.
+		if runErr == nil && !effectiveDry {
+			afterMu.Lock()
+			deps := config.Dependents(afterGraph, name, result.Accepted)
+			afterMu.Unlock()
+			for _, dep := range deps {
+				logger.Info("triggering dependent pipeline", "parent", name, "pipeline", dep)
+				d.Trigger(dep, false)
+			}
+		}
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -535,13 +553,17 @@ func cmdDaemon(args []string) int {
 			t.Shutdown()
 		}
 
+		afterMu.Lock()
+		afterGraph = newCfg.GraphAfter
+		afterMu.Unlock()
+
 		d.Reset(scheduled)
 		logger.Info("config reloaded", "pipelines", len(newTasks))
 
 		if ws != nil {
 			infos := make([]web.TaskInfo, len(newTasks))
 			for i, t := range newTasks {
-				infos[i] = web.TaskInfo{Name: t.Name(), Schedule: newAllSched[t.Name()]}
+				infos[i] = web.TaskInfo{Name: t.Name(), Schedule: newAllSched[t.Name()], After: newCfg.GraphAfter[t.Name()]}
 			}
 			ws.SetTasks(infos)
 		}
@@ -565,7 +587,7 @@ func cmdDaemon(args []string) int {
 
 		taskInfos := make([]web.TaskInfo, len(tasks))
 		for i, t := range tasks {
-			taskInfos[i] = web.TaskInfo{Name: t.Name(), Schedule: allSched[t.Name()]}
+			taskInfos[i] = web.TaskInfo{Name: t.Name(), Schedule: allSched[t.Name()], After: cfg.GraphAfter[t.Name()]}
 		}
 		ws = web.New(taskInfos, d, hist, bcast, resolveVersion(), *webUser, *webPass)
 		ws.SetReload(reload)
