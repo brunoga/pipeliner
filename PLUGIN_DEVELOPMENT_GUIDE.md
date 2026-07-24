@@ -2230,3 +2230,21 @@ func (p *myNotify) Consume(ctx context.Context, tc *plugin.TaskContext, entries 
 `plugins/source/rss/` for a real-world source, `plugins/sink/transmission/` for a
 real-world sink, and `plugins/processor/filter/seen/` for a real-world `CommitPlugin`
 implementation.*
+
+## Grab records (download sinks)
+
+Download sinks (transmission, qbittorrent, deluge) record a mapping from the
+added torrent's info-hash to the entry's release URL and tracker keys in the
+shared `internal/grabs` bucket at add time. The `mark_failed` sink resolves
+dead torrents back to their release URL through these records to blocklist
+and un-track them. If you write a new download sink, record grabs the same
+way (see `recordGrab` in any of the three sinks) — without it, failed-grab
+recovery cannot cover your sink's downloads.
+
+## Push ingest queues (webhook-style sources)
+
+The web server's `POST /api/ingest/{queue}` endpoint enqueues pushed items
+into bounded in-memory queues (`internal/ingest`); the `webhook` source
+drains its configured queue each run. A source plugin that wants push
+semantics should reuse `ingest.Drain` with its own queue name rather than
+adding new HTTP surface — the endpoint, auth, and accounting are shared.

@@ -17,6 +17,9 @@ Call `output()` multiple times from the same upstream node for fan-out.
 | [`series_tracker_update`](series_tracker_update/README.md) | Deactivate or reactivate a tracked show in the series tracker |
 | [`tvdb_favorites_add`](tvdb_favorites/README.md) | Add accepted entries to the user's TheTVDB favorites list |
 | [`trakt_list_update`](trakt_list/README.md) | Add or remove accepted entries on a Trakt list or watchlist |
+| [`torrent_control`](torrent_control/README.md) | Remove/pause/reannounce torrents in a client session (janitor pipelines) |
+| [`mark_failed`](mark_failed/README.md) | Blocklist a dead grab's release URL and un-track it so an alternative release is retried |
+| [`library_refresh`](library_refresh/README.md) | Trigger a Plex/Jellyfin library rescan after confirmed downloads |
 
 ## Notifier sub-plugins (`plugins/sink/notify/`)
 
