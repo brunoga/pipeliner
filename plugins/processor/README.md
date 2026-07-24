@@ -11,3 +11,4 @@ They filter, enrich, or mutate entries and return what should continue downstrea
 | [`filter/`](filter/README.md) | Accept/reject processors (series, movies, seen, quality, condition, etc.) |
 | [`modify/`](modify/README.md) | Field mutation processors (pathfmt, set) |
 | [`discover/`](discover/README.md) | Active search processor |
+| [`gaps/`](gaps/README.md) | Backfill gap detection: emit search entries for missing episodes (`series_gaps`) |

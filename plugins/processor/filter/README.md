@@ -21,3 +21,5 @@ Filter processors accept or reject entries. Use them with `process("plugin-name"
 | [`accept_all`](accept_all/README.md) | Accept every undecided entry unconditionally |
 | [`dedup`](dedup/README.md) | Keep the best-quality copy when multiple entries refer to the same episode or movie |
 | [`limit`](limit/README.md) | Cap the number of accepted entries to `n`, optionally taking the top-N by a sort field |
+| [`library`](library/README.md) | Reject entries already in the media library at equal-or-better quality (filesystem/Plex/Jellyfin) |
+| [`torrent_failed`](torrent_failed/README.md) | Classify dead torrent-session entries (errored or stalled past a timeout) |

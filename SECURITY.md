@@ -29,3 +29,12 @@ The bundled web UI is designed for a **single user** running pipeliner on a trus
 - Credentials (`--web-user` / `--web-password` or the `PIPELINER_WEB_USER` / `PIPELINER_WEB_PASSWORD` env vars) are hashed with bcrypt (default cost) in memory for comparison; they are never persisted. The bcrypt comparison runs even when the username does not match so login timing does not leak whether a username exists.
 
 If you need to expose the UI to the public internet, terminate TLS at a reverse proxy and add a network-level access control (VPN, IP allow-list, or a stronger auth proxy such as Authelia or oauth2-proxy) in front of pipeliner.
+
+## Push-ingest endpoint
+
+`POST /api/ingest/{queue}` is the one machine-facing endpoint outside session
+auth. It is disabled (answers 404) unless `PIPELINER_INGEST_TOKEN` is set,
+and authenticates every request with a constant-time bearer-token compare.
+Treat the token like a password: anyone holding it can inject entries into
+webhook-source pipelines and trigger runs. On an untrusted network, put the
+endpoint behind the same TLS-terminating reverse proxy as the UI.
