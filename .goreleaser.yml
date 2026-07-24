@@ -1,5 +1,12 @@
 version: 2
 
+before:
+  hooks:
+    # Stage the top-level and configs READMEs with archive-escaping links
+    # (anything under plugins/) rewritten to absolute GitHub URLs at this tag,
+    # so the docs shipped in the archives have no broken links.
+    - go run ./internal/tools/releasedocs -tag {{ .Tag }} -out build/release-docs
+
 builds:
   - main: ./cmd/pipeliner
     env:
@@ -27,6 +34,20 @@ archives:
   - name_template: "pipeliner_{{.Version}}_{{.Os}}_{{.Arch}}{{if .Arm}}v{{.Arm}}{{end}}"
     files:
       - docs/user-guide.html
+      # Annotated sample pipelines the user can copy and adapt.
+      - src: configs/*.star
+        dst: configs
+      # READMEs with archive-escaping links rewritten by the before hook.
+      # A single-file src takes dst as the exact archive path (unlike a glob,
+      # which appends the basename), so name the file explicitly.
+      - src: build/release-docs/README.md
+        dst: README.md
+        info:
+          mode: 0644
+      - src: build/release-docs/configs/README.md
+        dst: configs/README.md
+        info:
+          mode: 0644
     format_overrides:
       - goos: windows
         formats: [zip]
