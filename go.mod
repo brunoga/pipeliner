@@ -4,7 +4,7 @@ go 1.26.2
 
 require (
 	github.com/anacrolix/torrent v1.61.0
-	github.com/mattn/go-isatty v0.0.23
+	github.com/mattn/go-isatty v0.0.24
 	github.com/mxschmitt/playwright-go v0.6100.0
 	go.starlark.net v0.0.0-20260326113308-fadfc96def35
 	golang.org/x/crypto v0.54.0
