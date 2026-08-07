@@ -5,6 +5,18 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.15.0] - 2026-08-07
+
+### Added
+
+- **Notify backend config fields can be promoted to function parameters** ([#330](https://github.com/brunoga/pipeliner/pull/330)). Inside the visual function editor, a notify backend's config fields (an email SMTP password, the Pushover token, …) now offer the same `→ param` button as top-level fields, so a credential can be exposed as a function parameter through the UI. The 1.14.0 notifier-config feature suppressed this because promotion targeted the node's top-level config key while these fields live in the nested `config={}` dict; promotion now routes the nested field to a raw-expression parameter reference (`config={"password": paramName}`) that appears in the function signature and at call sites. Unlinking reverses it, and a parameter still referenced by another node is not removed.
+
+### Fixed
+
+- **Function bodies with multi-line statements are no longer dropped by the visual editor** ([#330](https://github.com/brunoga/pipeliner/pull/330)). The function-body parser was line-based, so a node call whose arguments wrapped across lines — which a long `config={…}` dict essentially always does — parsed to nothing, leaving the whole function body empty and uneditable when opened in the visual editor (existing multi-line sample-config functions included). A quote- and comment-aware bracket-depth check now joins continuation lines until the statement's brackets balance. This was surfaced by, and is a prerequisite for, the notify-field promotion above.
+
+**Why 1.15.0**: a user-facing capability — notifier credentials in functions are now parameterizable through the UI — plus the multi-line function-body parsing fix it depends on. Additive: existing configs are unaffected, and the fix only makes previously-uneditable functions editable. A minor bump per SemVer.
+
 ## [1.14.1] - 2026-08-07
 
 ### Fixed
