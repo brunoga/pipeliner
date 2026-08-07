@@ -4852,6 +4852,18 @@ function renderField(f, config, node) {
       <div class="ve-param-ref-note">value supplied by caller</div></div>`;
   }
 
+  // ── raw Starlark expression (env(), a param used in a nested dict, …) ───────
+  // Shown read-only: the visual editor preserves it verbatim on save but can't
+  // meaningfully edit an expression inline, and rendering it as a plain input
+  // would let a keystroke silently overwrite (e.g.) env("SECRET") with a
+  // literal. Edit these in the text config.
+  if (isRawExpr(val)) {
+    return `<div class="ve-field ve-field-rawexpr">
+      <div class="ve-field-label"><span>${esc(f.key)}${f.required ? ' <span class="ve-field-required">*</span>' : ''}</span></div>
+      ${f.hint ? `<div class="ve-field-hint">— ${esc(f.hint)}</div>` : ''}
+      <div class="ve-rawexpr" title="Starlark expression — edit in the text config"><code>${esc(val.__star_raw__)}</code><span class="ve-rawexpr-note">expression — edit in text</span></div></div>`;
+  }
+
   // ── normal editable widget ─────────────────────────────────────────────────
   let widget = '';
   // Widgets rendered inline (tags, multiline popups) must resolve their target
@@ -4957,6 +4969,7 @@ function collectParams(node, schema, body, cfg) {
   for (const f of schema) {
     if (f.multiline) continue; // saved directly via openFieldPopup
     if (node._paramRefs?.[f.key]) continue; // param ref — not editable inline
+    if (isRawExpr(cfg[f.key])) continue;    // raw expression — rendered read-only
     const el = body.querySelector(`[data-field="${f.key}"]`);
     if (!el) continue;
     if (f.type === 'bool')     cfg[f.key] = el.checked;
@@ -5070,10 +5083,16 @@ function syncRoutePortsForNode(nodeId) {
 
 function renderGenericKV(cfg) {
   const entries = Object.entries(cfg || {});
-  return entries.map(([k, v], i) => `<div class="ve-kv-row">
-    <input class="ve-kv-key" placeholder="key" value="${esc(k)}" data-kv-key="${i}">
-    <input class="ve-kv-val" placeholder="value" value="${esc(typeof v==='object'?JSON.stringify(v):String(v))}" data-kv-val="${i}">
-    <button class="ve-kv-del" data-kv-del="${i}">×</button></div>`).join('')
+  return entries.map(([k, v], i) => {
+    // Raw Starlark expressions (env(), a param) are shown read-only and
+    // preserved verbatim — see the ve-field-rawexpr path in renderField.
+    const raw  = isRawExpr(v);
+    const disp = raw ? v.__star_raw__ : (typeof v === 'object' ? JSON.stringify(v) : String(v));
+    return `<div class="ve-kv-row">
+    <input class="ve-kv-key" placeholder="key" value="${esc(k)}" data-kv-key="${i}"${raw ? ' disabled' : ''}>
+    <input class="ve-kv-val" placeholder="value" value="${esc(disp)}" data-kv-val="${i}"${raw ? ' disabled data-kv-raw="1"' : ''}>
+    <button class="ve-kv-del" data-kv-del="${i}">×</button></div>`;
+  }).join('')
     + '<button class="ve-add-kv" id="ve-kv-add">+ Add key</button>';
 }
 
@@ -5081,9 +5100,12 @@ function wireGenericKV(body, node) {
   const save = () => {
     const cfg = {};
     body.querySelectorAll('.ve-kv-row').forEach(row => {
-      const k = row.querySelector('[data-kv-key]')?.value.trim();
-      const v = row.querySelector('[data-kv-val]')?.value;
-      if (k) { try { cfg[k] = JSON.parse(v); } catch { cfg[k] = v; } }
+      const k     = row.querySelector('[data-kv-key]')?.value.trim();
+      const valEl = row.querySelector('[data-kv-val]');
+      const v     = valEl?.value;
+      if (!k) return;
+      if (valEl?.dataset.kvRaw) cfg[k] = rawExpr(v);       // preserve raw expression
+      else { try { cfg[k] = JSON.parse(v); } catch { cfg[k] = v; } }
     });
     node.config = cfg;
   };
@@ -6092,9 +6114,12 @@ function fnParseLiteral(s) {
         if (typeof k === 'string') obj[k] = v;
       }
       return obj;
-    } catch (_) { return s; }
+    } catch (_) { return rawExpr(s); }
   }
-  return s; // bare identifier or unparseable — return as string
+  // Anything else — a bare identifier (function parameter), an env()/other
+  // call, or a more complex expression — is a raw Starlark expression. Wrap it
+  // so it round-trips verbatim instead of being coerced into a quoted string.
+  return rawExpr(s);
 }
 
 // fnMaybeMigrateLegacyQuality applies the legacy `quality=` rewrite on a
@@ -7028,8 +7053,19 @@ function starLit(v) {
   return '"' + v.replace(/\\/g,'\\\\').replace(/"/g,'\\"') + '"';
 }
 
+// A raw Starlark expression captured from a function body — a bare identifier
+// (function parameter), an env() call, or any expression the visual editor
+// can't reduce to a literal value. It round-trips verbatim through parse
+// (fnParseLiteral) and serialize (valToStar), so opening and saving a function
+// in the visual editor never rewrites `env("SECRET")` or a param reference into
+// a quoted string. Nesting is preserved: a raw expr inside a config={} dict
+// (e.g. an email password) survives at any depth.
+function rawExpr(s)   { return {__star_raw__: String(s)}; }
+function isRawExpr(v) { return !!v && typeof v === 'object' && typeof v.__star_raw__ === 'string'; }
+
 function valToStar(v) {
   if (v === null || v === undefined) return 'None';
+  if (isRawExpr(v))           return v.__star_raw__;
   if (typeof v === 'boolean') return v ? 'True' : 'False';
   if (typeof v === 'number')  return String(v);
   if (typeof v === 'string')  return starLit(v);

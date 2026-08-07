@@ -3389,3 +3389,58 @@ pipeline("demo", schedule="1h")
 		t.Errorf("username not serialized into config dict; text editor:\n%s", content)
 	}
 }
+
+// TestE2EFunctionEditorPreservesEnvExpression verifies raw-expression handling
+// end-to-end: opening a function whose node config uses env() shows that value
+// read-only in the fn editor (not an editable input that could overwrite it),
+// so it round-trips faithfully instead of being flattened to a literal string.
+func TestE2EFunctionEditorPreservesEnvExpression(t *testing.T) {
+	const cfg = `# pipeliner:param base  type=string  base path
+def fmt(upstream, base):
+    p = process("pathfmt", upstream=upstream, field="dest", path=env("BASE_PATH", default="/media"))
+    return p
+
+src = input("rss", url="https://example.com/rss")
+call_1 = fmt(upstream=src, base="x")
+output("print", upstream=call_1)
+pipeline("tv")`
+	ts := startTestServer(t, cfg)
+	browser, stop := pwSetup(t)
+	defer stop()
+
+	page, _ := browser.NewPage()
+	defer page.Close()
+	page.OnDialog(func(d playwright.Dialog) { _ = d.Accept() })
+
+	login(t, page, ts.url)
+	openConfigTab(t, page)
+	switchToVisual(t, page, cfg)
+
+	if err := page.Locator(".ve-chip-fn-edit").Click(); err != nil {
+		t.Fatalf("open fn editor: %v", err)
+	}
+	waitVisible(t, page.Locator("#ve-fn-bar"))
+
+	// Select the pathfmt node inside the function body.
+	if _, err := page.Evaluate(
+		`(() => { const n = ve.graphs[0].nodes.find(x => x.plugin === 'pathfmt'); if (n) selectNode(n.id); })()`,
+	); err != nil {
+		t.Fatalf("select pathfmt node: %v", err)
+	}
+
+	// The env() path must render as a read-only expression, not an input.
+	rawField := page.Locator(".ve-field-rawexpr .ve-rawexpr code")
+	if err := rawField.WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(5000),
+	}); err != nil {
+		t.Fatalf("env() value not shown as a read-only expression: %v", err)
+	}
+	text, _ := rawField.TextContent()
+	if !contains(text, "env(\"BASE_PATH\"") {
+		t.Errorf("expected the env() expression, got: %q", text)
+	}
+	if n, _ := page.Locator(`.ve-node-fields [data-field="path"]`).Count(); n != 0 {
+		t.Errorf("path rendered an editable input (%d) — env() could be overwritten", n)
+	}
+}
