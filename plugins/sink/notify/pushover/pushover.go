@@ -18,6 +18,12 @@ func init() {
 	notify.Register("pushover", notify.Descriptor{
 		Factory:  func(cfg map[string]any) (notify.Notifier, error) { return newNotifier(cfg) },
 		Validate: validate,
+		Schema: []plugin.FieldSchema{
+			{Key: "user", Type: plugin.FieldTypeString, Required: true, Hint: "Pushover user key"},
+			{Key: "token", Type: plugin.FieldTypeString, Required: true, Hint: "Pushover application token"},
+			{Key: "device", Type: plugin.FieldTypeString, Hint: "Target device name (optional)"},
+			{Key: "url", Type: plugin.FieldTypeString, Hint: "Override API URL (optional)"},
+		},
 	})
 }
 
