@@ -4819,7 +4819,7 @@ function renderNotifierSection(node) {
   const c = node.config.config;
   if (typeof c !== 'object' || c === null || Array.isArray(c)) node.config.config = {};
   const cfg    = node.config.config;
-  const pseudo = {id: 'notify$' + node.id, _noPromote: true};
+  const pseudo = {id: 'notify$' + node.id};
   let html = '<div class="ve-field-sep"></div>' +
     `<div class="ve-sub-node-header"><span class="ve-node-role-badge sink">${esc(via)}</span> <span class="ve-sub-node-plugin">settings</span></div>` +
     `<div class="ve-notifier-fields" data-notify-node="${esc(node.id)}">`;
@@ -4839,8 +4839,13 @@ function renderNotifierSection(node) {
 
 function renderField(f, config, node) {
   const val      = config[f.key];
-  const paramRef = node?._paramRefs?.[f.key];   // paramName if this field is a ref
   const inFnEditor = ve.fnEditor.active;
+  let   paramRef = node?._paramRefs?.[f.key];   // top-level param ref
+  // A raw expression naming a current function parameter is also a param
+  // reference (nested config, e.g. a notify backend field promoted to a param).
+  if (!paramRef && inFnEditor && isRawExpr(val) && fnParamNames().has(val.__star_raw__)) {
+    paramRef = val.__star_raw__;
+  }
 
   // ── param-reference mode: field is driven by a function parameter ──────────
   if (paramRef) {
@@ -4937,9 +4942,10 @@ function renderField(f, config, node) {
     }
   }
 
-  // In the function body editor, add a "→ param" button for non-multiline fields.
-  // Suppressed for notifier sub-config fields (pseudo node, not promotable).
-  const promoteBtn = (inFnEditor && !f.multiline && node && !node._noPromote)
+  // In the function body editor, add a "→ param" button for non-multiline
+  // fields. Notify backend fields work too: their node id is "notify$<id>",
+  // which fnEditorPromoteToParam routes to the nested config.
+  const promoteBtn = (inFnEditor && !f.multiline && node)
     ? `<button class="ve-param-promote-btn" title="Expose this field as a function parameter"
         onclick="fnEditorPromoteToParam(${esc(JSON.stringify(node.id))},${esc(JSON.stringify(f.key))},${esc(JSON.stringify(f.type))})">→ param</button>`
     : '';
@@ -6222,6 +6228,26 @@ function fnRegenerateSourceForMigration(funcName) {
 // _sourceText. Param references in kwargs (bare identifiers matching param names)
 // are tracked in n._paramRefs = {configKey: paramName} so nodesToFunctionSource
 // can re-emit them correctly without substituting literal values.
+// bracketDepth returns the net count of unclosed (, [, { in s, ignoring
+// brackets inside single/double-quoted strings and trailing # comments. A
+// positive result means the statement continues on the next line.
+function bracketDepth(s) {
+  let depth = 0, inStr = false, quote = '';
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (inStr) {
+      if (c === '\\') { i++; continue; }  // skip the escaped char
+      if (c === quote) inStr = false;
+      continue;
+    }
+    if (c === '"' || c === "'") { inStr = true; quote = c; continue; }
+    if (c === '#') break;                 // rest of the line is a comment
+    if (c === '(' || c === '[' || c === '{') depth++;
+    else if (c === ')' || c === ']' || c === '}') depth--;
+  }
+  return depth;
+}
+
 function parseFunctionBodyNodes(funcName) {
   const fd = ve.userFunctions[funcName];
   if (!fd?._sourceText) return null;
@@ -6241,7 +6267,7 @@ function parseFunctionBodyNodes(funcName) {
     if (!raw.trim()) continue;
     if (!/^\s/.test(raw)) break; // end of function body
 
-    const line = raw.trim();
+    let line = raw.trim();
     if (line.startsWith('return ')) {
       returnNodeId = line.slice(7).trim();
       continue;
@@ -6250,6 +6276,15 @@ function parseFunctionBodyNodes(funcName) {
     // Capture position comment so the next node can use it.
     const posM = line.match(/^#\s*pipeliner:pos\s+(-?\d+)\s+(-?\d+)/);
     if (posM) { pendingPos = {x: parseInt(posM[1], 10), y: parseInt(posM[2], 10)}; continue; }
+
+    // Join continuation lines: a node call whose args wrap across lines (a long
+    // config={…} dict is the common case) leaves brackets unbalanced. Keep
+    // appending following lines until they balance, so the statement parses as
+    // one. Without this, a wrapped node statement would be dropped and the whole
+    // function body would appear empty in the editor.
+    while (bracketDepth(line) > 0 && i + 1 < lines.length) {
+      line += ' ' + lines[++i].trim();
+    }
 
     // Match: var = input/process/output("plugin", ...kwargs...)
     // Use a non-greedy match to the last ) on the line.
@@ -6759,10 +6794,44 @@ function fnEditorUpdateHint(idx, hint) {
 // fnEditorPromoteToParam converts a hardcoded config field on a function body
 // node into a function parameter reference.  A new param is created with an
 // auto-generated unique name; the params panel opens so the user can rename it.
+// fnParamNames returns the current function's parameter names (fn editor only).
+function fnParamNames() {
+  return new Set((ve.fnEditor.paramsSnapshot || []).map(p => p.key));
+}
+
+// fnFieldTarget resolves the config object a promote/unlink acts on, from an id
+// that may be a real node id (top-level config) or the "notify$<id>" form used
+// by notify backend fields (the node's nested config={} dict). Returns
+// {host, cfg, nested} or null.
+function fnFieldTarget(nodeId) {
+  const s = String(nodeId ?? '');
+  if (s.startsWith('notify$')) {
+    const host = findNode(s.slice('notify$'.length));
+    if (!host) return null;
+    const c = host.config.config;
+    if (typeof c !== 'object' || c === null || Array.isArray(c)) host.config.config = {};
+    return {host, cfg: host.config.config, nested: true};
+  }
+  const host = findNode(nodeId);
+  return host ? {host, cfg: host.config, nested: false} : null;
+}
+
+// fnParamUsed reports whether a parameter is still referenced anywhere — a
+// top-level field via _paramRefs, or a nested config field via a raw
+// expression naming it (how notify backend fields reference params).
+function fnParamUsed(paramName) {
+  return (ve.graphs[0]?.nodes || []).some(n => {
+    if (n._paramRefs && Object.values(n._paramRefs).includes(paramName)) return true;
+    const nested = n.config?.config;
+    return nested && typeof nested === 'object' &&
+      Object.values(nested).some(v => isRawExpr(v) && v.__star_raw__ === paramName);
+  });
+}
+
 function fnEditorPromoteToParam(nodeId, configKey, fieldType) {
   if (!ve.fnEditor.active) return;
-  const node = findNode(nodeId);
-  if (!node) return;
+  const t = fnFieldTarget(nodeId);
+  if (!t) return;
 
   const params = ve.fnEditor.paramsSnapshot;
 
@@ -6774,11 +6843,17 @@ function fnEditorPromoteToParam(nodeId, configKey, fieldType) {
   // Create the new param.
   params.push({key: paramName, type: fieldType, required: true, default: null, hint: ''});
 
-  // Mark the field as a param reference on this node.
-  if (!node._paramRefs) node._paramRefs = {};
-  node._paramRefs[configKey] = paramName;
-  // Seed the config with an empty value (the real value comes from the call site).
-  node.config[configKey] = emptyForType(fieldType);
+  if (t.nested) {
+    // Nested config (notify backend field): the reference is a raw expression
+    // naming the param, which round-trips as config={"key": paramName}.
+    t.cfg[configKey] = rawExpr(paramName);
+  } else {
+    // Top-level field: mark it a param reference and seed an empty value (the
+    // real value comes from the call site).
+    if (!t.host._paramRefs) t.host._paramRefs = {};
+    t.host._paramRefs[configKey] = paramName;
+    t.cfg[configKey] = emptyForType(fieldType);
+  }
 
   renderParamPanel();
 
@@ -6794,17 +6869,24 @@ function fnEditorPromoteToParam(nodeId, configKey, fieldType) {
 // leaving the current (empty) config value in place for the user to fill in.
 function fnEditorUnlinkParamRef(nodeId, configKey) {
   if (!ve.fnEditor.active) return;
-  const node = findNode(nodeId);
-  if (!node?._paramRefs) return;
+  const t = fnFieldTarget(nodeId);
+  if (!t) return;
 
-  const paramName = node._paramRefs[configKey];
-  delete node._paramRefs[configKey];
+  let paramName;
+  if (t.nested) {
+    const v = t.cfg[configKey];
+    if (!isRawExpr(v)) return;
+    paramName = v.__star_raw__;
+    delete t.cfg[configKey]; // back to unset — the user fills in a literal
+  } else {
+    if (!t.host._paramRefs) return;
+    paramName = t.host._paramRefs[configKey];
+    delete t.host._paramRefs[configKey];
+    if (Object.keys(t.host._paramRefs).length === 0) delete t.host._paramRefs;
+  }
 
-  // Remove the param entirely if no other node still references it.
-  const stillUsed = ve.graphs[0]?.nodes.some(n =>
-    n._paramRefs && Object.values(n._paramRefs).includes(paramName)
-  );
-  if (!stillUsed) {
+  // Remove the param entirely if nothing else references it.
+  if (!fnParamUsed(paramName)) {
     ve.fnEditor.paramsSnapshot = ve.fnEditor.paramsSnapshot.filter(p => p.key !== paramName);
     if (ve.fnEditor.paramsOpen) renderFnEditorParams();
   }
