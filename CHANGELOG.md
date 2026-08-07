@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.14.1] - 2026-08-07
+
+### Fixed
+
+- **Function editor no longer corrupts `env()`/parameter values in a node's config** ([#328](https://github.com/brunoga/pipeliner/pull/328)). The visual function-body parser flattened any non-literal value — a function parameter, an `env()` call, any expression — into a plain string at every nesting depth, and the serializer re-quoted it. Opening and saving a `def` helper whose notify config used `config={"password": env("SMTP_PASS")}` (a credential) therefore rewrote it to the literal string `"env(\"SMTP_PASS\")"`, leaking or breaking the secret; the same flaw hit top-level `env()` in function bodies. A raw-expression value type now round-trips such expressions verbatim through the two choke points (`fnParseLiteral` on parse, `valToStar` on serialize), so parameters, `env()` calls, and arbitrary expressions survive at any depth in function bodies and call sites. The param panel renders these fields read-only (showing the expression) so an inline keystroke can't silently overwrite them; edit them in the text config. Follow-up to the notifier-config-in-the-UI feature (1.14.0), which surfaced the case for notify credentials. Includes ripple fixes so a raw expression renders as its source text — never `[object Object]` — in the canvas node summary, list tags, and the condition rule editor.
+
+**Why 1.14.1**: a bug-fix patch on top of 1.14.0 — it corrects a data-corruption path (an `env()` credential silently becoming a literal string) with no new features and no behaviour change for configs that don't edit such functions in the visual editor. A patch bump per SemVer.
+
 ## [1.14.0] - 2026-08-07
 
 ### Added
