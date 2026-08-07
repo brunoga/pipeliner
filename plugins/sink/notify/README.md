@@ -14,6 +14,8 @@ Sends a notification about the accepted entries via a configured notifier (webho
 
 Notifier-specific config is passed as a nested `config={}` dict. See [`notify/email`](email/README.md), [`notify/webhook`](webhook/README.md), and [`notify/pushover`](pushover/README.md) for available keys.
 
+In the visual editor, choosing a backend in the `via` dropdown reveals that backend's config fields (SMTP host/username/password, Pushover token, webhook URL, …) so they can be set through the UI, not only the text config. (The webhook `headers` map is still text-only for now.)
+
 Templates have access to `.Entries` (list of accepted entries), `.Task` (pipeline name).
 
 ## Examples

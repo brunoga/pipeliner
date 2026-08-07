@@ -15,6 +15,15 @@ func init() {
 	notify.Register("email", notify.Descriptor{
 		Factory:  func(cfg map[string]any) (notify.Notifier, error) { return newNotifier(cfg) },
 		Validate: validate,
+		Schema: []plugin.FieldSchema{
+			{Key: "smtp_host", Type: plugin.FieldTypeString, Required: true, Hint: "SMTP server hostname"},
+			{Key: "smtp_port", Type: plugin.FieldTypeInt, Default: 25, Hint: "SMTP server port"},
+			{Key: "sender", Type: plugin.FieldTypeString, Hint: "From address"},
+			{Key: "to", Type: plugin.FieldTypeList, Required: true, Hint: "Recipient addresses"},
+			{Key: "username", Type: plugin.FieldTypeString, Hint: "SMTP auth username (use env() to keep it out of the config file)"},
+			{Key: "password", Type: plugin.FieldTypeString, Hint: "SMTP auth password (use env() to keep it out of the config file)"},
+			{Key: "html", Type: plugin.FieldTypeBool, Hint: "Send an HTML body instead of plain text"},
+		},
 	})
 }
 

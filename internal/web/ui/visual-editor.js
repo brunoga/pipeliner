@@ -372,9 +372,16 @@ const ROLE_LABEL = {source: 'Sources', processor: 'Processors', sink: 'Sinks'};
 
 async function loadPalette() {
   try {
-    const [pr, fr] = await Promise.all([fetch('/api/plugins'), fetch('/api/fields')]);
+    const [pr, fr, nr] = await Promise.all([
+      fetch('/api/plugins'), fetch('/api/fields'), fetch('/api/notifiers')]);
     if (pr.ok) ve.plugins = await pr.json();
     if (fr.ok) ve.fieldRegistry = await fr.json();
+    // ve.notifiers: { <name>: [schemaField, …] } — the config schema of each
+    // notify backend, used to render its fields on a notify node.
+    if (nr.ok) {
+      ve.notifiers = {};
+      for (const n of await nr.json()) ve.notifiers[n.name] = n.schema || [];
+    }
     renderPalette('');
   } catch (_) {}
 }
@@ -3059,12 +3066,22 @@ function renderParamPanel() {
     for (const f of meta.schema) {
       // Skip 'search' and 'list' fields — managed visually by the sections above.
       if ((f.key === 'search' && meta.accepts_search) || (f.key === 'list' && meta.accepts_list)) continue;
-      html.push(renderField(f, node.config, node));
+      // On a notify node, 'via' is a dropdown of the registered backends so
+      // selecting one reveals its config fields (rendered below).
+      let ff = f;
+      if (node.plugin === 'notify' && f.key === 'via' && ve.notifiers) {
+        ff = {...f, type: 'enum', enum: ['', ...Object.keys(ve.notifiers)]};
+      }
+      html.push(renderField(ff, node.config, node));
     }
   } else {
     html.push(renderGenericKV(node.config));
   }
   html.push('</div>');
+
+  // Notify backend config: render the selected backend's schema fields, bound
+  // to the node's nested config={} dict, so credentials etc. are UI-editable.
+  if (node.plugin === 'notify') html.push(renderNotifierSection(node));
 
   // Append parameter sections for connected list and search sub-nodes so their
   // fields can also be promoted to function params (or hardcoded) from here.
@@ -3110,6 +3127,28 @@ function renderParamPanel() {
       wireGenericKV(container, n);
     }
   });
+
+  // Wire the notify backend config fields (bound to node.config.config), and
+  // re-render the whole panel when 'via' changes so the right fields appear.
+  const nf = body.querySelector('.ve-notifier-fields');
+  if (nf) {
+    const host    = findNode(nf.dataset.notifyNode);
+    const via     = host?.config?.via;
+    const nSchema = via ? ve.notifiers?.[via] : null;
+    if (host && nSchema) {
+      const c = host.config.config;
+      if (typeof c !== 'object' || c === null || Array.isArray(c)) host.config.config = {};
+      const cfg = host.config.config;
+      nf.querySelectorAll('[data-field]').forEach(el => {
+        el.addEventListener('input',  () => { collectParams(host, nSchema, nf, cfg); onModelChange(); });
+        el.addEventListener('change', () => { collectParams(host, nSchema, nf, cfg); veRender(); onModelChange(); });
+      });
+    }
+  }
+  if (node.plugin === 'notify') {
+    const viaSel = body.querySelector('.ve-node-fields [data-field="via"]');
+    if (viaSel) viaSel.addEventListener('change', () => renderParamPanel());
+  }
 }
 
 function toggleUpstream(nodeId, upId, checked) {
@@ -4762,6 +4801,38 @@ function updateCondRules() {
 // body editor (ve.fnEditor.active) and the field is a param reference, it shows
 // a read-only "param: name" indicator plus a "× literal" button.  Non-ref fields
 // get a "→ param" button so the user can promote them to function parameters.
+// renderNotifierSection renders the config fields of the notify backend
+// selected in the node's `via` field, bound to node.config.config (the nested
+// config={} dict). Field widgets thread the id "notify$<nodeId>" so their
+// write handlers target that nested object (see fieldConfigTarget).
+function renderNotifierSection(node) {
+  const via = node.config?.via;
+  if (!via) {
+    return '<div class="ve-field-sep"></div><div class="ve-field-hint">— choose a notifier in <b>via</b> to configure it</div>';
+  }
+  const schema = ve.notifiers?.[via];
+  if (!schema) return ''; // notifiers not loaded, or unknown backend
+  const c = node.config.config;
+  if (typeof c !== 'object' || c === null || Array.isArray(c)) node.config.config = {};
+  const cfg    = node.config.config;
+  const pseudo = {id: 'notify$' + node.id, _noPromote: true};
+  let html = '<div class="ve-field-sep"></div>' +
+    `<div class="ve-sub-node-header"><span class="ve-node-role-badge sink">${esc(via)}</span> <span class="ve-sub-node-plugin">settings</span></div>` +
+    `<div class="ve-notifier-fields" data-notify-node="${esc(node.id)}">`;
+  for (const f of schema) {
+    if (f.type === 'dict') {
+      // Nested map fields (e.g. webhook headers) have no inline widget yet —
+      // point the user at the text editor rather than render a broken input.
+      html += `<div class="ve-field"><div class="ve-field-label"><span>${esc(f.key)}</span></div>` +
+        `<div class="ve-field-hint">— set in the text editor (config={"${esc(f.key)}": {…}})</div></div>`;
+      continue;
+    }
+    html += renderField(f, cfg, pseudo);
+  }
+  html += '</div>';
+  return html;
+}
+
 function renderField(f, config, node) {
   const val      = config[f.key];
   const paramRef = node?._paramRefs?.[f.key];   // paramName if this field is a ref
@@ -4851,7 +4922,8 @@ function renderField(f, config, node) {
   }
 
   // In the function body editor, add a "→ param" button for non-multiline fields.
-  const promoteBtn = (inFnEditor && !f.multiline && node)
+  // Suppressed for notifier sub-config fields (pseudo node, not promotable).
+  const promoteBtn = (inFnEditor && !f.multiline && node && !node._noPromote)
     ? `<button class="ve-param-promote-btn" title="Expose this field as a function parameter"
         onclick="fnEditorPromoteToParam(${esc(JSON.stringify(node.id))},${esc(JSON.stringify(f.key))},${esc(JSON.stringify(f.type))})">→ param</button>`
     : '';
@@ -4878,18 +4950,39 @@ function openFieldPopup(fieldKey, hint, nodeId) {
   });
 }
 
-function collectParams(node, schema, body) {
+function collectParams(node, schema, body, cfg) {
+  // cfg defaults to the node's own config, but callers editing a nested config
+  // object (a notify backend's config={} dict) pass that object instead.
+  cfg = cfg || node.config;
   for (const f of schema) {
     if (f.multiline) continue; // saved directly via openFieldPopup
     if (node._paramRefs?.[f.key]) continue; // param ref — not editable inline
     const el = body.querySelector(`[data-field="${f.key}"]`);
     if (!el) continue;
-    if (f.type === 'bool')     node.config[f.key] = el.checked;
-    else if (f.type === 'int') { const v=parseInt(el.value,10); if(!isNaN(v)) node.config[f.key]=v; else delete node.config[f.key]; }
-    else if (f.type !== 'list') { if(el.value!=='') node.config[f.key]=el.value; else delete node.config[f.key]; }
+    if (f.type === 'bool')     cfg[f.key] = el.checked;
+    else if (f.type === 'int') { const v=parseInt(el.value,10); if(!isNaN(v)) cfg[f.key]=v; else delete cfg[f.key]; }
+    else if (f.type !== 'list' && f.type !== 'dict') { if(el.value!=='') cfg[f.key]=el.value; else delete cfg[f.key]; }
   }
   // Do NOT call veRender() here — it rebuilds body.innerHTML and destroys focus.
   // Callers decide whether a full re-render is needed (change vs. input event).
+}
+
+// fieldConfigTarget resolves the config object a list/tag widget writes into,
+// from the id threaded through renderField. A plain node id targets that
+// node's config; the "notify$<nodeId>" form targets the notify node's nested
+// backend config (node.config.config), created lazily. Returns null if the
+// node is gone.
+function fieldConfigTarget(id) {
+  const s = String(id ?? '');
+  if (s.startsWith('notify$')) {
+    const n = findNode(s.slice('notify$'.length));
+    if (!n) return null;
+    const c = n.config.config;
+    if (typeof c !== 'object' || c === null || Array.isArray(c)) n.config.config = {};
+    return n.config.config;
+  }
+  const n = findNode(id || ve.selectedNodeId);
+  return n ? n.config : null;
 }
 
 // Like collectParams but for a via-node (re-renders via nodes + edges).
@@ -4901,10 +4994,10 @@ function collectParams(node, schema, body) {
 function addTag(inputId, field, nodeId) {
   const input = document.getElementById(inputId);
   if (!input || !input.value.trim()) return;
-  const node = findNode(nodeId || ve.selectedNodeId);
-  if (!node) return;
-  if (!Array.isArray(node.config[field])) node.config[field] = [];
-  node.config[field].push(input.value.trim());
+  const cfg = fieldConfigTarget(nodeId);
+  if (!cfg) return;
+  if (!Array.isArray(cfg[field])) cfg[field] = [];
+  cfg[field].push(input.value.trim());
   input.value = '';
   renderParamPanel(); onModelChange();
   document.getElementById(inputId)?.focus();
@@ -4914,9 +5007,9 @@ function removeTag(btn, field, nodeId) {
   const tag  = btn.closest('.ve-tag');
   const list = tag?.closest('[data-type="list"]');
   const idx  = [...list.querySelectorAll('.ve-tag')].indexOf(tag);
-  const node = findNode(nodeId || ve.selectedNodeId);
-  if (!node || !Array.isArray(node.config[field])) return;
-  node.config[field].splice(idx, 1);
+  const cfg  = fieldConfigTarget(nodeId);
+  if (!cfg || !Array.isArray(cfg[field])) return;
+  cfg[field].splice(idx, 1);
   tag.remove(); onModelChange();
 }
 

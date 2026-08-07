@@ -1989,6 +1989,7 @@ output("exec", upstream=cleanup, command="rm -f {file_location}")</code></pre>
 <!-- ─────────── notify output ─────────── -->
 <h2 id="notify-output">notify</h2>
 <p>Sends a batch-level notification via a configured notifier. One notification per run (not per entry).</p>
+<p>Backend-specific settings (SMTP host/username/password for email, the Pushover token/user, the webhook URL) go in a nested <code>config={}</code> dict. In the visual editor, picking a backend in the <code>via</code> dropdown reveals that backend's fields so they are editable in the UI as well as the text config.</p>
 
 <table>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>

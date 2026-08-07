@@ -6,9 +6,11 @@ package notify
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 
 	"github.com/brunoga/pipeliner/internal/entry"
+	"github.com/brunoga/pipeliner/internal/plugin"
 )
 
 // Message is the payload sent to a Notifier.
@@ -26,10 +28,21 @@ type Notifier interface {
 // Factory creates a Notifier from a config map.
 type Factory func(cfg map[string]any) (Notifier, error)
 
-// Descriptor holds the factory and optional config validator for a notifier.
+// Descriptor holds the factory, optional config validator, and the config
+// schema for a notifier. The Schema drives the visual editor: when a notify
+// node selects this notifier via `via=`, the editor renders these fields
+// (bound to the notify node's nested `config={}` dict) so credentials and
+// other settings are editable through the UI, not only the text config.
 type Descriptor struct {
 	Factory  Factory
 	Validate func(cfg map[string]any) []error // nil means no validation
+	Schema   []plugin.FieldSchema             // config keys, for the visual editor
+}
+
+// Registered pairs a notifier name with its descriptor.
+type Registered struct {
+	Name string
+	Descriptor
 }
 
 var (
@@ -53,4 +66,17 @@ func Lookup(name string) (Descriptor, bool) {
 	defer mu.RUnlock()
 	d, ok := registry[name]
 	return d, ok
+}
+
+// All returns every registered notifier, sorted by name. Used by the web
+// layer to expose notifier schemas to the visual editor.
+func All() []Registered {
+	mu.RLock()
+	defer mu.RUnlock()
+	out := make([]Registered, 0, len(registry))
+	for name, d := range registry {
+		out = append(out, Registered{Name: name, Descriptor: d})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
 }

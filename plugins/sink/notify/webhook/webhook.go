@@ -18,6 +18,10 @@ func init() {
 	notify.Register("webhook", notify.Descriptor{
 		Factory:  func(cfg map[string]any) (notify.Notifier, error) { return newNotifier(cfg) },
 		Validate: validate,
+		Schema: []plugin.FieldSchema{
+			{Key: "url", Type: plugin.FieldTypeString, Required: true, Hint: "Webhook URL to POST to"},
+			{Key: "headers", Type: plugin.FieldTypeDict, Hint: "Extra HTTP headers to send"},
+		},
 	})
 }
 
