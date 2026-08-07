@@ -22,7 +22,6 @@ import (
 
 	// Register plugins needed by test configs.
 	_ "github.com/brunoga/pipeliner/plugins/processor/discover"
-	_ "github.com/brunoga/pipeliner/plugins/source/bluray_releases"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/condition"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/content"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/movies"
@@ -32,8 +31,11 @@ import (
 	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/file"
 	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/torrent"
 	_ "github.com/brunoga/pipeliner/plugins/processor/modify/pathfmt"
+	_ "github.com/brunoga/pipeliner/plugins/sink/notify"
+	_ "github.com/brunoga/pipeliner/plugins/sink/notify/email"
 	_ "github.com/brunoga/pipeliner/plugins/sink/print"
 	_ "github.com/brunoga/pipeliner/plugins/sink/transmission"
+	_ "github.com/brunoga/pipeliner/plugins/source/bluray_releases"
 	_ "github.com/brunoga/pipeliner/plugins/source/rss"
 	_ "github.com/brunoga/pipeliner/plugins/source/trakt_list"
 )
@@ -44,7 +46,7 @@ type testServer struct {
 	url  string
 	done chan struct{}
 	db   *store.SQLiteStore // exposed for tests that need to seed buckets
-	srv  *web.Server         // exposed so tests can wire optional controls (e.g. SetPluginLogControl)
+	srv  *web.Server        // exposed so tests can wire optional controls (e.g. SetPluginLogControl)
 }
 
 func startTestServer(t *testing.T, starConfig string) *testServer {
@@ -3338,5 +3340,52 @@ func TestE2ENarrowViewportNoHorizontalScroll(t *testing.T) {
 	// Allow 1px of rounding slack; anything more means a toolbar failed to wrap.
 	if n, ok := over.(int); ok && n > 1 {
 		t.Errorf("horizontal overflow at 640px: %dpx wider than the viewport", n)
+	}
+}
+
+// TestE2ENotifyBackendFieldsShown verifies the fix for notifier config being
+// invisible in the visual editor: selecting a notify node whose via="email"
+// must reveal the email backend's username/password fields (bound to the
+// nested config={} dict), and editing one must round-trip into the text config.
+func TestE2ENotifyBackendFieldsShown(t *testing.T) {
+	const cfg = `
+src  = input("rss", url="https://feeds.example.com/tv.rss")
+n    = output("notify", upstream=src, via="email",
+              config={"smtp_host": "smtp.example.com", "sender": "bot@example.com", "to": ["me@example.com"]})
+pipeline("demo", schedule="1h")
+`
+	ts := startTestServer(t, cfg)
+	browser, stop := pwSetup(t)
+	defer stop()
+
+	page, _ := browser.NewPage()
+	defer page.Close()
+
+	login(t, page, ts.url)
+	openConfigTab(t, page)
+	switchToVisual(t, page, cfg)
+
+	jsSelectNode(t, page, "notify_1")
+
+	// The email backend's credential fields must be present in the panel.
+	for _, key := range []string{"username", "password", "smtp_host"} {
+		loc := page.Locator(`.ve-notifier-fields [data-field="` + key + `"]`)
+		if err := loc.WaitFor(playwright.LocatorWaitForOptions{
+			State:   playwright.WaitForSelectorStateVisible,
+			Timeout: playwright.Float(5000),
+		}); err != nil {
+			t.Fatalf("notifier field %q not shown: %v", key, err)
+		}
+	}
+
+	// Type a username and confirm it lands in the nested config, serialized to text.
+	if err := page.Locator(`.ve-notifier-fields [data-field="username"]`).Fill("bob"); err != nil {
+		t.Fatalf("fill username: %v", err)
+	}
+	page.Locator(`.ve-notifier-fields [data-field="username"]`).Press("Tab")
+
+	content := editorContent(t, page)
+	if !contains(content, `"username": "bob"`) {
+		t.Errorf("username not serialized into config dict; text editor:\n%s", content)
 	}
 }
