@@ -25,7 +25,7 @@ const CSS={escape:s=>String(s)};
 `;
 
 let ve, fnParseLiteral, valToStar, rawExpr, isRawExpr, renderField, collectParams,
-    renderNotifierSection, findNode, configToKwargs, nodesToFunctionSource;
+    renderNotifierSection, findNode, configToKwargs, nodesToFunctionSource, configPreview;
 
 beforeAll(() => {
   const noopDoc = new Proxy({}, {
@@ -49,11 +49,12 @@ exports.renderNotifierSection = renderNotifierSection;
 exports.findNode = findNode;
 exports.configToKwargs = configToKwargs;
 exports.nodesToFunctionSource = nodesToFunctionSource;
+exports.configPreview = configPreview;
 `);
   const exports = {};
   mod(exports, noopDoc, () => Promise.reject(new Error('no fetch')), () => true);
   ({ ve, fnParseLiteral, valToStar, rawExpr, isRawExpr, renderField, collectParams,
-     renderNotifierSection, findNode, configToKwargs, nodesToFunctionSource } = exports);
+     renderNotifierSection, findNode, configToKwargs, nodesToFunctionSource, configPreview } = exports);
 });
 
 describe('raw expression round-trip (parse → serialize)', () => {
@@ -152,5 +153,27 @@ describe('function-editor save path (nodesToFunctionSource)', () => {
     expect(source).toContain('via="email"');
     expect(source).toContain('"password": env("SMTP_PASS")');
     expect(source).not.toContain('"env('); // never a quoted string
+  });
+});
+
+describe('ripple effects: raw exprs render as text, never [object Object]', () => {
+  it('configPreview shows the expression in a node summary', () => {
+    const prev = configPreview({ url: rawExpr('env("FEED_URL")'), other: 'x' });
+    expect(prev).toContain('url: env("FEED_URL")');
+    expect(prev).not.toContain('[object Object]');
+  });
+
+  it('a raw-expr element inside a list renders its text as a tag', () => {
+    const html = renderField({ key: 'to', type: 'list' },
+      { to: ['a@x', rawExpr('env("ADMIN")')] }, { id: 'n1' });
+    expect(html).toContain('env(&quot;ADMIN&quot;)');
+    expect(html).not.toContain('[object Object]');
+  });
+
+  it('survives an undo-style JSON clone (raw exprs are plain objects)', () => {
+    const cfg = { config: fnParseLiteral('{"password": env("SMTP_PASS")}') };
+    const cloned = JSON.parse(JSON.stringify(cfg));
+    expect(isRawExpr(cloned.config.password)).toBe(true);
+    expect(valToStar(cloned.config.password)).toBe('env("SMTP_PASS")');
   });
 });

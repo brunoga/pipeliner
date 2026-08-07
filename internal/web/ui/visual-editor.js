@@ -3659,9 +3659,13 @@ function condRulesFromConfig(cfg) {
     }
     return rows;
   }
+  // A raw Starlark expression (e.g. env() or a param used as the whole
+  // accept/reject value in a function body) is shown as its source text
+  // rather than [object Object].
+  const exprStr = v => isRawExpr(v) ? v.__star_raw__ : String(v);
   const rows = [];
-  if (cfg.reject != null) rows.push({type: 'reject', expr: String(cfg.reject)});
-  if (cfg.accept != null) rows.push({type: 'accept', expr: String(cfg.accept)});
+  if (cfg.reject != null) rows.push({type: 'reject', expr: exprStr(cfg.reject)});
+  if (cfg.accept != null) rows.push({type: 'accept', expr: exprStr(cfg.accept)});
   return rows;
 }
 
@@ -4896,7 +4900,7 @@ function renderField(f, config, node) {
         // schema key with the parent (or another sub-node) gets its own input.
         const fid   = 'vef-' + (node?.id ?? '') + '-' + f.key;
         widget = `<div class="ve-tag-list" data-field="${f.key}" data-type="list">${
-          items.map(s => `<span class="ve-tag">${esc(s)}<button class="ve-tag-del" onclick="removeTag(this,'${f.key}',${targetId})">×</button></span>`).join('')
+          items.map(s => `<span class="ve-tag">${esc(isRawExpr(s) ? s.__star_raw__ : s)}<button class="ve-tag-del" onclick="removeTag(this,'${f.key}',${targetId})">×</button></span>`).join('')
         }</div><div style="display:flex;gap:4px">
           <input class="ve-tag-input" id="${fid}" placeholder="add item…" onkeydown="if(event.key==='Enter'){event.preventDefault();addTag('${fid}','${f.key}',${targetId})}">
           <button class="ve-add-kv" onclick="addTag('${fid}','${f.key}',${targetId})">Add</button></div>`;
@@ -5135,7 +5139,10 @@ function configPreview(cfg) {
   const entries = Object.entries(cfg || {}).slice(0, 2);
   return entries.map(([k, v]) => {
     let vs;
-    if (Array.isArray(v)) {
+    if (isRawExpr(v)) {
+      const r = v.__star_raw__;
+      vs = r.length > 28 ? r.slice(0, 28) + '…' : r;
+    } else if (Array.isArray(v)) {
       // Array of objects (e.g. route rules): named rules list their names
       // ("ports: tv, movies"); fall back to a count for long lists or
       // unnamed rule objects.
