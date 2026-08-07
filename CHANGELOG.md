@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.14.0] - 2026-08-07
+
+### Added
+
+- **Notifier backend config is editable in the visual editor** ([#326](https://github.com/brunoga/pipeliner/pull/326)). The `notify` sink dispatches to a backend (`email`, `webhook`, `pushover`) via `via=`, but those backends register through `notify.Register` rather than `plugin.Register`, so their config keys never reached `/api/plugins` — the visual editor showed no fields for them, and settings like an email account's SMTP `username`/`password` were only editable by hand in the nested `config={}` dict of the text config. Notifier descriptors now carry a `Schema`, a new `GET /api/notifiers` endpoint exposes it, and the editor uses it: `via` becomes a dropdown of the registered backends, and choosing one renders that backend's fields (bound to the node's nested `config={}` dict) so credentials, the Pushover token/user, and the webhook URL are all set through the UI. Widget writes are routed to the nested config via a `notify$<node-id>` target so a list field (email `to`) or text field edits the backend config rather than the notify node's own kwargs; serialization already round-tripped nested dicts, so the change is purely additive. The webhook `headers` map (a `dict` field) has no inline widget yet and shows a note pointing at the text editor. Covered by a Go API test (email exposes `smtp_host`/`smtp_port`/`sender`/`to`/`username`/`password`/`html`), JS unit tests for the nested-config routing and section rendering, and a Playwright E2E that selects an `via=email` notify node, confirms the username/password fields appear, and asserts a typed username serializes into `config={"username": "…"}`.
+
+**Why 1.14.0**: a user-facing feature — the visual editor can now configure notifier backends it previously couldn't, closing a real gap toward "everything is doable through the UI". Additive across the stack (new `notify.Descriptor.Schema`, new `/api/notifiers` endpoint, new editor rendering); existing configs run byte-identically and the text editor is unaffected. A minor bump per SemVer.
+
 ## [1.13.2] - 2026-07-24
 
 ### Changed
