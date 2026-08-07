@@ -25,7 +25,8 @@ const CSS={escape:s=>String(s)};
 `;
 
 let ve, fnParseLiteral, valToStar, rawExpr, isRawExpr, renderField, collectParams,
-    renderNotifierSection, findNode, configToKwargs, nodesToFunctionSource, configPreview;
+    renderNotifierSection, findNode, configToKwargs, nodesToFunctionSource, configPreview,
+    bracketDepth, parseFunctionBodyNodes;
 
 beforeAll(() => {
   const noopDoc = new Proxy({}, {
@@ -50,11 +51,14 @@ exports.findNode = findNode;
 exports.configToKwargs = configToKwargs;
 exports.nodesToFunctionSource = nodesToFunctionSource;
 exports.configPreview = configPreview;
+exports.bracketDepth = bracketDepth;
+exports.parseFunctionBodyNodes = parseFunctionBodyNodes;
 `);
   const exports = {};
   mod(exports, noopDoc, () => Promise.reject(new Error('no fetch')), () => true);
   ({ ve, fnParseLiteral, valToStar, rawExpr, isRawExpr, renderField, collectParams,
-     renderNotifierSection, findNode, configToKwargs, nodesToFunctionSource, configPreview } = exports);
+     renderNotifierSection, findNode, configToKwargs, nodesToFunctionSource, configPreview,
+     bracketDepth, parseFunctionBodyNodes } = exports);
 });
 
 describe('raw expression round-trip (parse → serialize)', () => {
@@ -175,5 +179,31 @@ describe('ripple effects: raw exprs render as text, never [object Object]', () =
     const cloned = JSON.parse(JSON.stringify(cfg));
     expect(isRawExpr(cloned.config.password)).toBe(true);
     expect(valToStar(cloned.config.password)).toBe('env("SMTP_PASS")');
+  });
+});
+
+describe('multi-line function-body statements', () => {
+  it('bracketDepth is quote- and comment-aware', () => {
+    expect(bracketDepth('output("notify", config={"a": 1')).toBeGreaterThan(0);
+    expect(bracketDepth('output("notify")')).toBe(0);
+    expect(bracketDepth('x = f(")") # trailing (')).toBe(0);   // ) in string, ( in comment
+    expect(bracketDepth('x = f("a", [1, 2')).toBeGreaterThan(0);
+  });
+
+  it('parses a node whose config dict wraps across lines', () => {
+    ve.userFunctions = { mailer: { params: [], _sourceText:
+`def mailer(upstream):
+    n = output("notify", upstream=upstream, via="email",
+               config={"smtp_host": "smtp.x", "password": "secret"})
+    return n` } };
+    const parsed = parseFunctionBodyNodes('mailer');
+    expect(parsed).toBeTruthy();
+    const nodes = parsed.nodes || parsed; // returns {nodes,...} or nodes
+    const list = Array.isArray(nodes) ? nodes : nodes.nodes;
+    const notify = list.find(n => n.plugin === 'notify');
+    expect(notify, 'wrapped output() must parse to a node').toBeTruthy();
+    expect(notify.config.via).toBe('email');
+    expect(notify.config.config.smtp_host).toBe('smtp.x');
+    expect(notify.config.config.password).toBe('secret');
   });
 });

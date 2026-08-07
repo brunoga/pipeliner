@@ -3444,3 +3444,83 @@ pipeline("tv")`
 		t.Errorf("path rendered an editable input (%d) — env() could be overwritten", n)
 	}
 }
+
+// TestE2EPromoteNotifyFieldToParam verifies a notify backend field (email
+// password) inside a def function can be promoted to a function parameter
+// through the UI — the case that was previously suppressed.
+func TestE2EPromoteNotifyFieldToParam(t *testing.T) {
+	const cfg = `# pipeliner:param label  type=string  label
+def mailer(upstream, label):
+    n = output("notify", upstream=upstream, via="email",
+               config={"smtp_host": "smtp.x", "sender": "b@x", "to": ["m@x"], "password": "secret"})
+    return n
+
+src = input("rss", url="https://example.com/rss")
+call_1 = mailer(upstream=src, label="x")
+pipeline("tv")`
+	ts := startTestServer(t, cfg)
+	browser, stop := pwSetup(t)
+	defer stop()
+
+	page, _ := browser.NewPage()
+	defer page.Close()
+	page.OnDialog(func(d playwright.Dialog) { _ = d.Accept() })
+
+	login(t, page, ts.url)
+	openConfigTab(t, page)
+	switchToVisual(t, page, cfg)
+
+	if err := page.Locator(".ve-chip-fn-edit").Click(); err != nil {
+		t.Fatalf("open fn editor: %v", err)
+	}
+	waitVisible(t, page.Locator("#ve-fn-bar"))
+
+	// Select the notify node in the function body.
+	if _, err := page.Evaluate(
+		`(() => { const n = ve.graphs[0].nodes.find(x => x.plugin === 'notify'); if (n) selectNode(n.id); })()`,
+	); err != nil {
+		t.Fatalf("select notify node: %v", err)
+	}
+
+	// The password field must offer a "→ param" button; click it.
+	promote := page.Locator(`.ve-notifier-fields .ve-field:has([data-field="password"]) .ve-param-promote-btn`)
+	if err := promote.WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateVisible, Timeout: playwright.Float(5000),
+	}); err != nil {
+		t.Fatalf("password field has no promote button: %v", err)
+	}
+	if err := promote.Click(); err != nil {
+		t.Fatalf("click promote: %v", err)
+	}
+
+	// The model must now bind password to a raw-expr param and register it.
+	res, err := page.Evaluate(`(() => {
+		const n = ve.graphs[0].nodes.find(x => x.plugin === 'notify');
+		const v = n.config.config.password;
+		const isRef = !!v && typeof v === 'object' && typeof v.__star_raw__ === 'string';
+		return { isRef, name: isRef ? v.__star_raw__ : null,
+		         params: (ve.fnEditor.paramsSnapshot || []).map(p => p.key) };
+	})()`)
+	if err != nil {
+		t.Fatalf("read model: %v", err)
+	}
+	m := res.(map[string]any)
+	if m["isRef"] != true {
+		t.Fatalf("password not bound to a param reference: %+v", m)
+	}
+	params, _ := m["params"].([]any)
+	found := false
+	for _, p := range params {
+		if p == m["name"] {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("promoted param %v not in signature params %v", m["name"], params)
+	}
+	// The field must now render as a param-ref badge (not an editable input).
+	if n, _ := page.Locator(`.ve-notifier-fields [data-field="password"]`).Count(); n != 0 {
+		t.Errorf("password still editable after promotion (%d inputs)", n)
+	}
+	waitVisible(t, page.Locator(".ve-notifier-fields .ve-field-param-ref"))
+}
