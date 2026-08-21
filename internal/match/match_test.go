@@ -11,6 +11,15 @@ func TestNormalize(t *testing.T) {
 		{"BREAKING  BAD", "breaking bad"}, // collapsed spaces
 		{"  leading ", "leading"},
 		{"The.Wire.S01E01", "the wire s01e01"},
+		// Incidental punctuation becomes a space so canonical titles match the
+		// punctuation-stripped names scene releases use.
+		{"Star Trek: Strange New Worlds", "star trek strange new worlds"},
+		{"Marvel's Agents of S.H.I.E.L.D.", "marvels agents of s h i e l d"},
+		{"Bob's Burgers", "bobs burgers"},
+		{"Law & Order", "law order"},
+		{"Whose Line Is It Anyway!", "whose line is it anyway"},
+		// Glob metacharacters survive for Fuzzy's pattern matching.
+		{"Star Wars*", "star wars*"},
 		{"", ""},
 	}
 	for _, tc := range cases {
@@ -29,6 +38,23 @@ func TestFuzzyExact(t *testing.T) {
 func TestFuzzyGlob(t *testing.T) {
 	if !Fuzzy("breaking bad", "breaking *") {
 		t.Error("glob match should be true")
+	}
+}
+
+// TestFuzzyPunctuatedTitle covers the real-world regression: a favorited show
+// whose canonical name carries a colon ("Star Trek: Strange New Worlds") must
+// match the colon-free name a scene torrent uses, once both are normalized.
+func TestFuzzyPunctuatedTitle(t *testing.T) {
+	cases := []struct{ canonical, torrent string }{
+		{"Star Trek: Strange New Worlds", "Star Trek Strange New Worlds"},
+		{"Bob's Burgers", "Bobs Burgers"},
+		{"9-1-1: Lone Star", "9 1 1 Lone Star"},
+	}
+	for _, tc := range cases {
+		if !Fuzzy(Normalize(tc.torrent), Normalize(tc.canonical)) {
+			t.Errorf("Fuzzy(Normalize(%q), Normalize(%q)) = false, want true",
+				tc.torrent, tc.canonical)
+		}
 	}
 }
 
