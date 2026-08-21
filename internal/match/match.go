@@ -6,19 +6,40 @@ package match
 import (
 	"path/filepath"
 	"strings"
+	"unicode"
 )
 
-// Normalize lowercases s and collapses dots, underscores, hyphens, and
-// repeated spaces into single spaces, suitable for title comparison.
+// Normalize lowercases s and reduces it to the form scene-release torrent names
+// use: incidental punctuation (dots, underscores, hyphens, colons, commas,
+// exclamation marks, parentheses, …) becomes a space, apostrophes are dropped
+// outright, and runs of whitespace collapse to a single space. This is what
+// lets a favorite named "Star Trek: Strange New Worlds" match a torrent titled
+// "Star Trek Strange New Worlds", or "Marvel's Agents" match "Marvels Agents".
+//
+// The filepath.Match glob metacharacters (* ? [ ] \) are preserved verbatim so
+// static list entries like "Star Wars*" still work as patterns through Fuzzy.
 func Normalize(s string) string {
 	s = strings.ToLower(s)
-	s = strings.Map(func(r rune) rune {
-		if r == '.' || r == '_' || r == '-' {
-			return ' '
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		switch {
+		case r == '\'' || r == '’':
+			// Apostrophes vanish with no separator in scene names
+			// ("Marvel's" -> "marvels"); drop them so no spurious word
+			// break is introduced.
+		case r == '*' || r == '?' || r == '[' || r == ']' || r == '\\':
+			// Preserve glob metacharacters for Fuzzy's pattern matching.
+			b.WriteRune(r)
+		case r == ' ' || unicode.IsLetter(r) || unicode.IsDigit(r):
+			b.WriteRune(r)
+		default:
+			// Every other separator/punctuation rune becomes a space; the
+			// Fields collapse below removes the resulting runs.
+			b.WriteRune(' ')
 		}
-		return r
-	}, s)
-	return strings.Join(strings.Fields(s), " ")
+	}
+	return strings.Join(strings.Fields(b.String()), " ")
 }
 
 // Fuzzy returns true if a and b represent the same title. After normalization

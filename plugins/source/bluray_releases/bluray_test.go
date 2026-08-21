@@ -111,7 +111,7 @@ func TestIndexKey_StripsFormatTokens(t *testing.T) {
 		{"Avatar", "avatar"},
 		{"Avatar 3D", "avatar"},
 		{"Avatar 4K", "avatar"},
-		{"Avatar: The Way of Water 3D", "avatar: the way of water"},
+		{"Avatar: The Way of Water 3D", "avatar the way of water"},
 	}
 	for _, tc := range cases {
 		if got := indexKey(tc.title); got != tc.key {
