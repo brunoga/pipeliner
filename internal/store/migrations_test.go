@@ -344,3 +344,110 @@ func TestMigrateNormalizeSeriesKeys(t *testing.T) {
 		t.Errorf("downloaded_at = %q, want stale timestamp applied", rec.DownloadedAt)
 	}
 }
+
+func TestMigrateNormalizePunctuation(t *testing.T) {
+	// Bare DB with baseline + migrations 1 and 2 stamped, so only migration 3 runs.
+	s := openBare(t, ":memory:")
+	if _, err := s.db.Exec(schema); err != nil {
+		t.Fatalf("create schema: %v", err)
+	}
+	if _, err := s.db.Exec(migrationsSchema); err != nil {
+		t.Fatalf("create migrations schema: %v", err)
+	}
+	for _, v := range []int{0, 1, 2} {
+		if _, err := s.db.Exec(`INSERT INTO schema_migrations (version, applied_at) VALUES (?, '2026-01-01T00:00:00Z')`, v); err != nil {
+			t.Fatalf("stamp v%d: %v", v, err)
+		}
+	}
+
+	seedSQL := `INSERT INTO store (bucket, key, value) VALUES (?, ?, ?)`
+	type row struct{ bucket, key, value string }
+	seed := []row{
+		// series: colon and bang stripped; embedded series_name rewritten.
+		{"series", "star trek: strange new worlds|S04E05", `{"series_name":"star trek: strange new worlds","episode_id":"S04E05","downloaded_at":"2026-08-01T00:00:00Z","quality":{}}`},
+		{"series", "american dad!|S21E01", `{"series_name":"american dad!","episode_id":"S21E01","downloaded_at":"2026-08-01T00:00:00Z","quality":{}}`},
+		// series: already normalized — must be left untouched.
+		{"series", "the ark|S03E04", `{"series_name":"the ark","episode_id":"S03E04","downloaded_at":"2026-08-01T00:00:00Z","quality":{}}`},
+		// movies: colon stripped, |year suffix preserved, embedded title rewritten.
+		{"movies", "furiosa: a mad max saga|2024", `{"title":"furiosa: a mad max saga","year":2024,"downloaded_at":"2026-07-01T00:00:00Z","quality":{}}`},
+		// movies: apostrophe dropped.
+		{"movies", "nobody's fool|2018", `{"title":"nobody's fool","year":2018,"downloaded_at":"2026-07-01T00:00:00Z","quality":{}}`},
+		// movies: 3D suffix preserved.
+		{"movies", "meg 2: the trench|2023|3d", `{"title":"meg 2: the trench","year":2023,"is_3d":true,"downloaded_at":"2026-07-01T00:00:00Z","quality":{}}`},
+		// movies collision: punctuated (older) + already-normalized (newer). Newer must win.
+		{"movies", "avatar: fire and ash|2025", `{"title":"avatar: fire and ash","year":2025,"downloaded_at":"2026-01-01T00:00:00Z","quality":{}}`},
+		{"movies", "avatar fire and ash|2025", `{"title":"avatar fire and ash","year":2025,"downloaded_at":"2026-06-01T00:00:00Z","quality":{}}`},
+	}
+	for _, r := range seed {
+		if _, err := s.db.Exec(seedSQL, r.bucket, r.key, r.value); err != nil {
+			t.Fatalf("seed %s/%q: %v", r.bucket, r.key, err)
+		}
+	}
+
+	if err := s.runMigrations(migrations[2:3]); err != nil {
+		t.Fatalf("runMigrations: %v", err)
+	}
+
+	// Old punctuated keys must be gone.
+	goneKeys := []row{
+		{"series", "star trek: strange new worlds|S04E05", ""},
+		{"series", "american dad!|S21E01", ""},
+		{"movies", "furiosa: a mad max saga|2024", ""},
+		{"movies", "nobody's fool|2018", ""},
+		{"movies", "meg 2: the trench|2023|3d", ""},
+		{"movies", "avatar: fire and ash|2025", ""},
+	}
+	for _, r := range goneKeys {
+		var dummy string
+		if err := s.db.QueryRow(`SELECT value FROM store WHERE bucket=? AND key=?`, r.bucket, r.key).Scan(&dummy); err != sql.ErrNoRows {
+			t.Errorf("punctuated key %s/%q still present after migration", r.bucket, r.key)
+		}
+	}
+
+	// New keys present with the embedded name field rewritten.
+	wantName := map[string]struct {
+		bucket, key, field, name string
+	}{
+		"snw":     {"series", "star trek strange new worlds|S04E05", "series_name", "star trek strange new worlds"},
+		"amdad":   {"series", "american dad|S21E01", "series_name", "american dad"},
+		"furiosa": {"movies", "furiosa a mad max saga|2024", "title", "furiosa a mad max saga"},
+		"nobody":  {"movies", "nobodys fool|2018", "title", "nobodys fool"},
+		"meg":     {"movies", "meg 2 the trench|2023|3d", "title", "meg 2 the trench"},
+	}
+	for label, w := range wantName {
+		var val string
+		if err := s.db.QueryRow(`SELECT value FROM store WHERE bucket=? AND key=?`, w.bucket, w.key).Scan(&val); err != nil {
+			t.Errorf("%s: new key %s/%q missing: %v", label, w.bucket, w.key, err)
+			continue
+		}
+		var m map[string]any
+		if err := json.Unmarshal([]byte(val), &m); err != nil {
+			t.Errorf("%s: unmarshal: %v", label, err)
+			continue
+		}
+		if got, _ := m[w.field].(string); got != w.name {
+			t.Errorf("%s: %s = %q, want %q", label, w.field, got, w.name)
+		}
+	}
+
+	// Untouched normalized series key survives.
+	var dummy string
+	if err := s.db.QueryRow(`SELECT value FROM store WHERE bucket='series' AND key='the ark|S03E04'`).Scan(&dummy); err != nil {
+		t.Errorf("untouched key the ark|S03E04 missing: %v", err)
+	}
+
+	// Collision: the newer avatar record must survive with its own timestamp.
+	var val string
+	if err := s.db.QueryRow(`SELECT value FROM store WHERE bucket='movies' AND key='avatar fire and ash|2025'`).Scan(&val); err != nil {
+		t.Fatalf("avatar fire and ash|2025 missing: %v", err)
+	}
+	var av struct {
+		DownloadedAt string `json:"downloaded_at"`
+	}
+	if err := json.Unmarshal([]byte(val), &av); err != nil {
+		t.Fatalf("unmarshal avatar: %v", err)
+	}
+	if av.DownloadedAt != "2026-06-01T00:00:00Z" {
+		t.Errorf("avatar collision kept downloaded_at=%q, want the newer 2026-06-01", av.DownloadedAt)
+	}
+}
