@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.15.1] - 2026-08-21
+
+### Fixed
+
+- **Shows whose title contains punctuation are matched again** ([#333](https://github.com/brunoga/pipeliner/pull/333)). `match.Normalize` mapped only `.`, `_`, and `-` to spaces and left every other punctuation mark intact, so a favorited or tracked show whose canonical title carried a colon, apostrophe, comma, etc. could never match the punctuation-stripped name a scene-release torrent uses. TheTVDB lists "Star Trek: Strange New Worlds"; the torrent is "Star Trek Strange New Worlds", and the retained colon made the `series` filter reject every release with `show not in list` while colon-free favorites matched normally. `Normalize` now reduces all incidental punctuation to spaces (dropping apostrophes outright so `Marvel's` → `marvels`), while preserving the `filepath.Match` glob metacharacters (`* ? [ ] \`) that static list patterns such as `Star Wars*` rely on. The `movies`, `trakt`, and `bluray_releases` matchers share the same helper and benefit identically. Note: the `series` list cache holds pre-normalized entries for its TTL (default 1h), so a running instance picks up the fix on the next list refresh.
+
+**Why 1.15.1**: a bug-fix patch — it corrects title matching for punctuated show names (a class of favorites that silently never downloaded) with no new features and no config changes. A patch bump per SemVer.
+
 ## [1.15.0] - 2026-08-07
 
 ### Added
