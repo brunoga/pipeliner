@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.15.2] - 2026-08-21
+
+### Fixed
+
+- **Existing tracker entries are migrated to the punctuation-stripped normalization** ([#335](https://github.com/brunoga/pipeliner/pull/335)). The 1.15.1 matching fix changed how titles normalize, but `series` and `movies` tracker rows were already keyed by the old form — e.g. `star trek: strange new worlds|S04E05`, `furiosa: a mad max saga|2024`, `american dad!|S21E01`. After upgrading, the new normalized lookup key would miss those rows, so an already-downloaded show or movie looked unseen and could re-download (in the `series` filter's `follow` mode, a whole available run at once). A new store migration (version 3) rewrites the affected keys in both tracker buckets to the new normalized form — preserving the `|episode` / `|year[|3d]` suffix, rewriting the embedded name field, and merging any collision by keeping the record with the later `downloaded_at`. It mirrors the version-1 migration that did the same when `Normalize` began lowercasing, and freezes its normalization inline so replays stay deterministic. Runs automatically on startup, so upgrading is the fix — no manual database changes and no spurious re-downloads.
+
+**Why 1.15.2**: a bug-fix patch completing 1.15.1 — without the data migration, that release would re-download already-tracked shows and movies whose titles contain punctuation. The migration is idempotent, versioned, and touches only stale tracker keys. A patch bump per SemVer.
+
 ## [1.15.1] - 2026-08-21
 
 ### Fixed
