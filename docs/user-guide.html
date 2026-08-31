@@ -207,6 +207,7 @@ td code{font-size:11px}
     <div class="section">Operations</div>
     <a href="#cli">CLI Reference</a>
     <a href="#match" class="sub">Match tester</a>
+    <a href="#quality-cmd" class="sub">Quality tester</a>
     <a href="#webui">Web UI</a>
     <a href="#visual-editor" class="sub">Visual editor</a>
     <a href="#docker">Docker</a>
@@ -2346,6 +2347,19 @@ found = process("discover", upstream=gaps, interval="12h",
 </table>
 <p>The output prints the normalized input, a <code>MATCH</code>/<code>NO MATCH</code> verdict, and a table of candidates sorted matches-first then nearest-distance, flagging year mismatches and punctuation-only near-misses. The exit code is 0 on a match, 1 otherwise, so <code>match</code> works in scripts. The same tool is available in the web UI under <strong>Database → Tools → 🔍 Match tester</strong>, where it can test against a live resolved list without stopping the daemon.</p>
 
+<h3 id="quality-cmd">pipeliner quality</h3>
+<p>The quality-side companion to <a href="#match"><code>match</code></a>: parses a release title into its <a href="#quality-spec">quality</a> and, given a spec, reports dimension-by-dimension whether it satisfies it. When a download is unexpectedly filtered at a <code>quality</code> node, this shows exactly which dimension failed.</p>
+<pre><code>pipeliner quality "Show S01E01 720p WEB-DL x265"            # just parse
+pipeliner quality "Show S01E01 720p WEB-DL x265" "1080p+"  # parse + test
+pipeliner quality --spec "1080p+" "Show S01E01 720p WEB-DL x265"</code></pre>
+<table>
+  <tr><th>Flag / arg</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>&lt;title&gt;</code></td><td>—</td><td>Release title to parse (required, first positional)</td></tr>
+  <tr><td><code>&lt;spec&gt;</code></td><td>—</td><td>Quality spec to test against (second positional, or <code>--spec</code>); omit to just print the detected quality</td></tr>
+  <tr><td><code>--spec</code></td><td>—</td><td>Alternative way to supply the spec</td></tr>
+</table>
+<p>With a spec, the output shows the detected quality, a <code>MATCH</code>/<code>NO MATCH</code> verdict, and a table of the constrained dimensions with each one's constraint, detected value, and pass/fail (optional dimensions bypassed on an unknown value are noted). Exit code is 0 on a match, 1 otherwise. Also available in the web UI under <strong>Database → Tools → 🎚 Quality tester</strong>.</p>
+
 <h3>pipeliner version</h3>
 <p>Prints the version string and exits.</p>
 
@@ -2481,6 +2495,7 @@ pipeline(<span class="y-str">"my-movies"</span>, schedule=<span class="y-str">"1
 <h4>Tools</h4>
 <ul>
   <li><strong>🔍 Match tester</strong> — the web equivalent of <a href="#match"><code>pipeliner match</code></a>. Enter a release title (and, for movies, a year), pick a resolved title-list cache to compare against — or type candidate titles by hand — and see a <code>MATCH</code>/<code>NO MATCH</code> verdict with the normalized input and a nearest-first candidate table. It applies the same normalization as the <code>series</code> and <code>movies</code> filters, so a title kept from matching by a stray colon or ampersand shows up at a glance. Unlike the CLI's <code>--list</code> mode, this runs inside the daemon, so it works against the live list without stopping anything.</li>
+  <li><strong>🎚 Quality tester</strong> — the web equivalent of <a href="#quality-cmd"><code>pipeliner quality</code></a>. Enter a release title and an optional <a href="#quality-spec">quality spec</a>; it parses the title's quality and shows, per constrained dimension, whether it satisfies the spec — the fastest way to see why the <code>quality</code> filter rejected a release.</li>
 </ul>
 
 <h3>Settings tab</h3>
