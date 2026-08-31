@@ -299,36 +299,33 @@ func Parse(title string) Quality {
 		}
 	}
 
-	if m := reSource.FindString(title); m != "" {
-		ml := strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(m, "-", ""), " ", ""))
+	// A release name can carry more than one source token. Mislabeled cinema
+	// recordings routinely tag themselves with a higher tier they aren't
+	// (e.g. "Movie.2024.1080p.WEB.CAM.x264"), so we cannot just take the first
+	// or the highest match. Rule: a theatrical/pre-release marker (CAM/TS/SCR)
+	// dominates — you can't upgrade a cinema cap by adding "WEB" to the name —
+	// so if any is present the source is the lowest such marker; otherwise the
+	// best (highest) legitimate token wins, which also resolves hierarchical
+	// combos like "BluRay Remux" to Remux.
+	var lowTier, hiTier Source = SourceUnknown, SourceUnknown
+	for _, m := range reSource.FindAllString(title, -1) {
+		s := classifySource(strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(m, "-", ""), " ", "")))
 		switch {
-		case strings.Contains(ml, "remux") || strings.Contains(ml, "bdremux"):
-			q.Source = SourceRemux
-		case strings.Contains(ml, "bluray") || strings.Contains(ml, "bdrip") ||
-			ml == "bd25" || ml == "bd50" || ml == "bd100":
-			q.Source = SourceBluRay
-		case strings.Contains(ml, "webdl"):
-			q.Source = SourceWebDL
-		case strings.Contains(ml, "webrip"):
-			q.Source = SourceWEBRip
-		case ml == "web":
-			q.Source = SourceWebDL
-		case strings.Contains(ml, "hdtv"):
-			q.Source = SourceHDTV
-		case strings.Contains(ml, "dvdrip"):
-			q.Source = SourceDVDRip
-		case strings.Contains(ml, "tvrip"):
-			q.Source = SourceTVRip
-		// Theater-recorded and pre-release sources — lowest quality tier.
-		case strings.Contains(ml, "hdcam") || ml == "camrip" || ml == "cam":
-			q.Source = SourceCAM
-		case strings.Contains(ml, "hdts") || strings.Contains(ml, "telesync") ||
-			strings.Contains(ml, "hdtc") || strings.Contains(ml, "telecine") || ml == "ts" || ml == "tc":
-			q.Source = SourceTS
-		case strings.Contains(ml, "screener") || strings.Contains(ml, "dvdscr") ||
-			strings.Contains(ml, "bdscr") || ml == "scr":
-			q.Source = SourceSCR
+		case s == SourceUnknown:
+		case s <= SourceSCR: // CAM, TS, SCR — theatrical/pre-release
+			if lowTier == SourceUnknown || s < lowTier {
+				lowTier = s
+			}
+		default:
+			if s > hiTier {
+				hiTier = s
+			}
 		}
+	}
+	if lowTier != SourceUnknown {
+		q.Source = lowTier
+	} else {
+		q.Source = hiTier
 	}
 
 	if m := reCodec.FindString(title); m != "" {
@@ -720,6 +717,43 @@ func parseSource(s string) (Source, bool) {
 		return SourceRemux, true
 	}
 	return SourceUnknown, false
+}
+
+// classifySource maps a single already-normalized source token (lowercased,
+// hyphens and spaces stripped) from a release name to a Source. It uses
+// substring checks to tolerate the token variants scene names carry (bdremux,
+// bd25, hdcam, …). Returns SourceUnknown for an unrecognized token. This is the
+// release-name counterpart to parseSource, which is exact-match for spec tokens.
+func classifySource(ml string) Source {
+	switch {
+	case strings.Contains(ml, "remux") || strings.Contains(ml, "bdremux"):
+		return SourceRemux
+	case strings.Contains(ml, "bluray") || strings.Contains(ml, "bdrip") ||
+		ml == "bd25" || ml == "bd50" || ml == "bd100":
+		return SourceBluRay
+	case strings.Contains(ml, "webdl"):
+		return SourceWebDL
+	case strings.Contains(ml, "webrip"):
+		return SourceWEBRip
+	case ml == "web":
+		return SourceWebDL
+	case strings.Contains(ml, "hdtv"):
+		return SourceHDTV
+	case strings.Contains(ml, "dvdrip"):
+		return SourceDVDRip
+	case strings.Contains(ml, "tvrip"):
+		return SourceTVRip
+	// Theater-recorded and pre-release sources — lowest quality tier.
+	case strings.Contains(ml, "hdcam") || ml == "camrip" || ml == "cam":
+		return SourceCAM
+	case strings.Contains(ml, "hdts") || strings.Contains(ml, "telesync") ||
+		strings.Contains(ml, "hdtc") || strings.Contains(ml, "telecine") || ml == "ts" || ml == "tc":
+		return SourceTS
+	case strings.Contains(ml, "screener") || strings.Contains(ml, "dvdscr") ||
+		strings.Contains(ml, "bdscr") || ml == "scr":
+		return SourceSCR
+	}
+	return SourceUnknown
 }
 
 func parseCodec(s string) (Codec, bool) {
