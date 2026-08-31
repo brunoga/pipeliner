@@ -209,6 +209,7 @@ td code{font-size:11px}
     <a href="#match" class="sub">Match tester</a>
     <a href="#quality-cmd" class="sub">Quality tester</a>
     <a href="#tracker-cmd" class="sub">Tracker ops</a>
+    <a href="#migrate-cmd" class="sub">Migrations</a>
     <a href="#webui">Web UI</a>
     <a href="#visual-editor" class="sub">Visual editor</a>
     <a href="#docker">Docker</a>
@@ -2375,6 +2376,21 @@ pipeliner tracker forget-movie  "Furiosa" --year 2024</code></pre>
   <tr><td><code>mark-movie</code> / <code>forget-movie</code></td><td><code>"&lt;title&gt;" --year N [--3d]</code></td></tr>
 </table>
 <p>Common flags: <code>--config</code> (locates the database), and for <code>mark-*</code> an optional <code>--quality "…"</code> recorded on the entry (governs later upgrade decisions). <strong>The daemon must be stopped</strong>, since these open the database directly. To mark titles while the daemon is running, use the web UI under <strong>Database → Tools → ✅ Mark as downloaded</strong>; to forget while running, delete the tracker row from the Series/Movies view.</p>
+
+<h3 id="migrate-cmd">pipeliner migrate</h3>
+<p>Inspects and applies database schema/data migrations without starting the daemon. Migrations run automatically when the daemon opens the database, so this is a <strong>pre-flight</strong> tool: after upgrading the binary you can see what will run, take a backup, then apply — turning an opaque startup step into a deliberate, reversible one.</p>
+<pre><code>pipeliner migrate                          # show status (read-only, the default)
+pipeliner migrate --backup pipeliner.bak.db
+pipeliner migrate --apply                  # apply pending migrations
+pipeliner migrate --apply --backup pipeliner.bak.db</code></pre>
+<table>
+  <tr><th>Flag</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>--config</code></td><td><code>config.star</code></td><td>Locates the database</td></tr>
+  <tr><td><em>(no flag)</em></td><td>—</td><td>Print the schema version and the applied/pending migration list (read-only)</td></tr>
+  <tr><td><code>--backup</code></td><td>—</td><td>Write a consistent snapshot (SQLite <code>VACUUM INTO</code>) to this path first; the destination must not already exist</td></tr>
+  <tr><td><code>--apply</code></td><td>false</td><td>Apply all pending migrations, then list what was applied</td></tr>
+</table>
+<p><strong>The daemon must be stopped</strong> — migrate opens the database directly. A backup is a plain SQLite file you can copy back into place to roll back a migration.</p>
 
 <h3>pipeliner version</h3>
 <p>Prints the version string and exits.</p>
