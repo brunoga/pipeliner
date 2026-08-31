@@ -106,6 +106,55 @@ func (b *memBucket) Get(key string, dest any) (bool, error) {
 	return true, json.Unmarshal(raw, dest)
 }
 
+func (b *memBucket) All() (map[string][]byte, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	out := make(map[string][]byte, len(b.data))
+	for k, v := range b.data {
+		out[k] = v
+	}
+	return out, nil
+}
+
+// getOnlyBucket wraps a Bucket but hides its All method, so Values sees a
+// non-bulk bucket.
+type getOnlyBucket struct{ Bucket }
+
+func TestValuesReadsAllIgnoringExpiry(t *testing.T) {
+	bucket := newMemBucket()
+	// Expired entry (short TTL, slept past it) plus a live one; Values must
+	// return both since it reports last-known content for diagnostics.
+	c := NewPersistent[[]string](5*time.Millisecond, bucket)
+	c.Set("a", []string{"x", "y"})
+	time.Sleep(10 * time.Millisecond)
+	c2 := NewPersistent[[]string](time.Hour, bucket)
+	c2.Set("b", []string{"z"})
+
+	vals, ok := Values[[]string](bucket)
+	if !ok {
+		t.Fatal("expected bulk bucket to be supported")
+	}
+	var flat []string
+	for _, v := range vals {
+		flat = append(flat, v...)
+	}
+	got := map[string]bool{}
+	for _, s := range flat {
+		got[s] = true
+	}
+	for _, want := range []string{"x", "y", "z"} {
+		if !got[want] {
+			t.Errorf("missing %q in Values result %v", want, flat)
+		}
+	}
+}
+
+func TestValuesNonBulkBucket(t *testing.T) {
+	if _, ok := Values[string](getOnlyBucket{newMemBucket()}); ok {
+		t.Error("non-bulk bucket should report ok=false")
+	}
+}
+
 func TestPersistentHitFromBucket(t *testing.T) {
 	bucket := newMemBucket()
 

@@ -143,6 +143,36 @@ func (c *Cache[V]) Preload() {
 	}
 }
 
+// Values returns the stored value of every key in b, each decoded as V,
+// ignoring expiry. It is a package-level read-only helper (not a method,
+// so no live Cache is needed) intended for diagnostics — e.g. the match probe
+// inspecting a resolved title-list cache — where the last-known content is
+// wanted even if its TTL has lapsed. Malformed entries are skipped. ok is
+// false only when b does not support bulk reads.
+func Values[V any](b Bucket) (vals []V, ok bool) {
+	bb, ok := b.(bulkBucket)
+	if !ok {
+		return nil, false
+	}
+	all, err := bb.All()
+	if err != nil {
+		return nil, false
+	}
+	out := make([]V, 0, len(all))
+	for _, raw := range all {
+		var stored storedEntry
+		if err := json.Unmarshal(raw, &stored); err != nil {
+			continue
+		}
+		var v V
+		if err := json.Unmarshal(stored.Value, &v); err != nil {
+			continue
+		}
+		out = append(out, v)
+	}
+	return out, true
+}
+
 // Set stores value under key with the configured TTL.
 // A nil receiver or zero TTL is a no-op.
 func (c *Cache[V]) Set(key string, value V) {
