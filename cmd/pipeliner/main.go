@@ -132,6 +132,8 @@ func run(args []string) int {
 		return cmdDaemon(args[1:])
 	case "check":
 		return cmdCheck(args[1:])
+	case "match":
+		return cmdMatch(args[1:])
 	case "auth":
 		return cmdAuth(args[1:])
 	case "list-plugins":
@@ -162,6 +164,8 @@ Usage:
                          authorise Trakt via device flow and store token in pipeliner.db
 
   pipeliner check        [--config path]   validate config
+  pipeliner match        "<title>" [candidate ...]   test title matching / normalization
+                         [--config path] [--list bucket] [--year N]
   pipeliner list-plugins                   list registered plugins
   pipeliner version                        print version
 

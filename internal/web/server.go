@@ -228,6 +228,7 @@ func (s *Server) Start(ctx context.Context, addr string, tlsCfg *tls.Config) err
 	protected.HandleFunc("GET /api/plugins", s.apiPlugins)
 	protected.HandleFunc("GET /api/notifiers", s.apiNotifiers)
 	protected.HandleFunc("GET /api/fields", s.apiFields)
+	protected.HandleFunc("POST /api/match/test", s.apiMatchTest)
 	protected.HandleFunc("POST /api/config/parse", s.apiConfigParse)
 	protected.HandleFunc("GET /api/db/buckets", s.apiDBBuckets)
 	protected.HandleFunc("GET /api/db/buckets/{name}", s.apiDBGetBucket)

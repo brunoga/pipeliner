@@ -42,6 +42,8 @@ async function loadDBTab() {
   for (const b of caches) {
     dbNavItems.push({bucket: b.name, label: b.display, count: b.count, section: 'caches'});
   }
+  // Diagnostic tools (no backing bucket) live in their own section.
+  dbNavItems.push({bucket: '__match_tester__', label: '🔍 Match tester', section: 'tools'});
   dbLoaded = true;
   renderDBSidebar();
   if (dbNavItems.length && !dbActiveBucket) selectDBBucket(dbNavItems[0].bucket);
@@ -62,8 +64,21 @@ function renderDBSidebar() {
     }
     return html;
   };
+  const tools = dbNavItems.filter(i => i.section === 'tools');
+  const renderToolSection = (items, title) => {
+    if (!items.length) return '';
+    let html = `<div class="db-sidebar-section">${title}</div>`;
+    for (const item of items) {
+      const active = dbActiveBucket === item.bucket ? ' active' : '';
+      html += `<button class="db-nav-btn${active}" onclick="selectDBBucket(${esc(JSON.stringify(item.bucket))})">
+        <span>${esc(item.label)}</span>
+      </button>`;
+    }
+    return html;
+  };
   document.getElementById('db-sidebar').innerHTML =
-    renderSection(trackers, 'Trackers') + renderSection(caches, 'Caches');
+    renderSection(trackers, 'Trackers') + renderSection(caches, 'Caches') +
+    renderToolSection(tools, 'Tools');
 }
 
 function dbPageURL(name) {
@@ -75,6 +90,11 @@ function dbPageURL(name) {
 
 async function selectDBBucket(name) {
   dbActiveBucket = name;
+  if (name === '__match_tester__') {
+    renderDBSidebar();
+    renderMatchTester();
+    return;
+  }
   dbCurrentCursor = '';
   dbCursorStack = [];
   dbFilterQuery = '';
@@ -494,3 +514,115 @@ async function dbDeleteEntry(bucket, key) {
   else dbShowError(await r.text());
 }
 
+
+// ── match tester ─────────────────────────────────────────────────────────────
+// A diagnostic panel that answers "why doesn't title X match my list?" without
+// a log dive, mirroring the `pipeliner match` CLI. It POSTs to /api/match/test
+// and renders the verdict plus a nearest-first candidate table.
+
+// listCacheBuckets returns the cache buckets that hold resolved title lists
+// (cache_*_list), so the tester can offer them as candidate sources.
+function listCacheBuckets() {
+  return dbNavItems
+    .filter(i => i.section === 'caches' && /_list$/.test(i.bucket))
+    .map(i => ({bucket: i.bucket, label: i.label}));
+}
+
+function renderMatchTester() {
+  const main = document.getElementById('db-main-content');
+  const lists = listCacheBuckets();
+  const listOpts = lists.map(l =>
+    `<option value="${esc(l.bucket)}">${esc(l.label)}</option>`).join('');
+  main.innerHTML = `
+    <div class="match-tester">
+      <h2>Match tester</h2>
+      <p class="match-hint">Check whether a release title matches a show/movie list — and if not, see the nearest near-misses. This is exactly the normalization the <code>series</code> and <code>movies</code> filters apply.</p>
+      <div class="match-form">
+        <label>Title
+          <input id="match-input" type="text" placeholder="Star Trek Strange New Worlds" />
+        </label>
+        <label>Year (optional)
+          <input id="match-year" type="number" min="0" placeholder="0" />
+        </label>
+        <label>Compare against
+          <select id="match-source">
+            <option value="">Titles I type below</option>
+            ${listOpts}
+          </select>
+        </label>
+        <label id="match-candidates-wrap">Candidate titles (one per line)
+          <textarea id="match-candidates" rows="4" placeholder="Silo&#10;Star Trek: Strange New Worlds&#10;The Ark"></textarea>
+        </label>
+        <button class="btn" onclick="runMatchTest()">Test match</button>
+      </div>
+      <div id="match-results"></div>
+    </div>`;
+  const src = document.getElementById('match-source');
+  const wrap = document.getElementById('match-candidates-wrap');
+  const sync = () => { wrap.style.display = src.value === '' ? '' : 'none'; };
+  src.addEventListener('change', sync);
+  sync();
+  document.getElementById('match-input').focus();
+}
+
+async function runMatchTest() {
+  const input = document.getElementById('match-input').value.trim();
+  const results = document.getElementById('match-results');
+  if (!input) { results.innerHTML = '<div class="db-empty">Enter a title to test.</div>'; return; }
+  const year = parseInt(document.getElementById('match-year').value, 10) || 0;
+  const bucket = document.getElementById('match-source').value;
+  const body = {input, year};
+  if (bucket) body.bucket = bucket;
+  else body.candidates = document.getElementById('match-candidates').value
+    .split('\n').map(s => s.trim()).filter(Boolean);
+  results.innerHTML = '<div class="db-loading">Testing…</div>';
+  try {
+    const r = await fetch('/api/match/test', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) { results.innerHTML = `<div class="db-empty">Error: ${esc(await r.text())}</div>`; return; }
+    results.innerHTML = matchTesterResultHTML(await r.json());
+  } catch (e) {
+    results.innerHTML = `<div class="db-empty">Error: ${esc(e.message)}</div>`;
+  }
+}
+
+// matchTesterResultHTML builds the results markup from a ProbeResult. Pure
+// (no DOM/fetch) so it is unit-testable.
+function matchTesterResultHTML(res) {
+  const verdict = res.matched
+    ? `<span class="match-yes">MATCH</span> → <code>${esc(res.matched_by)}</code>`
+    : `<span class="match-no">NO MATCH</span>`;
+  let html = `<div class="match-verdict">${verdict}</div>
+    <div class="match-norm">normalized input: <code>${esc(res.input_norm)}</code></div>`;
+  const cands = res.candidates || [];
+  if (!cands.length) {
+    html += '<div class="db-empty">No candidates to compare against.</div>';
+    return html;
+  }
+  const MAX = 15;
+  let shownNonMatch = 0, hidden = 0;
+  let rows = '';
+  for (const c of cands) {
+    if (!c.matched) {
+      if (shownNonMatch >= MAX) { hidden++; continue; }
+      shownNonMatch++;
+    }
+    let note = '';
+    if (c.punctuation_only) note = 'punctuation-only diff';
+    else if (!c.matched && c.title_matched) note = 'year mismatch';
+    rows += `<tr class="${c.matched ? 'match-row-yes' : ''}">
+      <td>${c.matched ? '✓' : ''}</td>
+      <td>${c.distance}</td>
+      <td>${c.year || ''}</td>
+      <td>${esc(note)}</td>
+      <td><code>${esc(c.norm)}</code></td>
+    </tr>`;
+  }
+  html += `<table class="match-table">
+    <thead><tr><th></th><th>dist</th><th>year</th><th>note</th><th>candidate</th></tr></thead>
+    <tbody>${rows}</tbody></table>`;
+  if (hidden > 0) html += `<div class="match-norm">${hidden} more non-matching candidate(s) hidden; nearest shown first.</div>`;
+  return html;
+}

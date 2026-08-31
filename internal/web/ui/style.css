@@ -3227,3 +3227,44 @@ details[open] > .ve-fields-summary::after { content:'▴'; }
 }
 .ve-rawexpr code { font-family: var(--mono-font); font-size: 11px; color: var(--text); word-break: break-all; }
 .ve-rawexpr-note { font-size: 10px; color: var(--muted); white-space: nowrap; margin-left: auto; }
+
+/* ── match tester (Database tab → Tools) ─────────────────────────────────── */
+.match-tester { padding: 16px 20px; max-width: 900px; }
+.match-tester h2 { margin: 0 0 6px; font-size: 15px; }
+.match-hint { color: var(--muted); font-size: 12px; margin: 0 0 16px; line-height: 1.5; }
+.match-form { display: flex; flex-direction: column; gap: 10px; margin-bottom: 18px; }
+.match-form label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+.match-form input,
+.match-form select,
+.match-form textarea {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 4px;
+  padding: 6px 8px;
+  font-size: 13px;
+  font-family: inherit;
+}
+.match-form textarea { resize: vertical; }
+.match-form .btn {
+  align-self: flex-start;
+  background: var(--btn-primary-bg);
+  color: #06121f;
+  border: none;
+  border-radius: 4px;
+  padding: 7px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.match-form .btn:hover { filter: brightness(1.08); }
+.match-verdict { font-size: 14px; margin-bottom: 6px; }
+.match-yes { color: var(--green); font-weight: 700; }
+.match-no  { color: var(--red);   font-weight: 700; }
+.match-norm { color: var(--muted); font-size: 12px; margin: 4px 0; }
+.match-table { border-collapse: collapse; width: 100%; margin-top: 12px; font-size: 12px; }
+.match-table th, .match-table td {
+  text-align: left; padding: 4px 10px; border-bottom: 1px solid var(--border);
+}
+.match-table th { color: var(--muted); font-weight: 500; }
+.match-table .match-row-yes { background: color-mix(in srgb, var(--green) 8%, transparent); }
