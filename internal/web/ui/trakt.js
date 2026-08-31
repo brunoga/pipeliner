@@ -103,6 +103,7 @@ async function traktPoll() {
       traktExpiresAt = null;
       traktSetStatus('authorized', '✓ Authorization successful — token saved to database.');
       traktResetButton();
+      loadTraktStatus(); // refresh the stored-token status badge
     } else if (status === 'error') {
       clearInterval(traktPollTimer);
       clearInterval(traktCountdownTimer);
@@ -119,4 +120,63 @@ function traktSetStatus(type, html) {
   el.className = 'auth-status' + (type ? ' ' + type : '');
   el.style.display = type ? 'block' : 'none';
   body.innerHTML = html;
+}
+
+// ── token status ─────────────────────────────────────────────────────────────
+// Shows the health of the stored Trakt token(s) so a lapse is visible before it
+// breaks a pipeline. Loaded when the Settings tab opens and after authorizing.
+
+async function loadTraktStatus() {
+  const host = document.getElementById('trakt-token-status');
+  if (!host) return;
+  try {
+    const r = await fetch('/api/trakt/status');
+    if (!r.ok) { host.innerHTML = ''; return; }
+    const { tokens } = await r.json();
+    host.innerHTML = traktStatusHTML(tokens, Date.now());
+  } catch { host.innerHTML = ''; }
+}
+
+// traktStatusHTML renders the token status list. Pure (no DOM/fetch) for
+// testing; nowMs is injectable so relative times are deterministic.
+function traktStatusHTML(tokens, nowMs) {
+  tokens = tokens || [];
+  if (!tokens.length) {
+    return '<div class="trakt-status trakt-status-none">Not authorized yet — enter your credentials below and click Authorize.</div>';
+  }
+  const now = nowMs || Date.now();
+  let html = '';
+  for (const t of tokens) {
+    const idShort = (t.client_id || '').slice(0, 8);
+    let cls, label;
+    if (t.needs_reauth) {
+      cls = 'trakt-status-error';
+      label = `⚠ Authorization failed — re-authorize below${t.last_error ? ` (${escTrakt(t.last_error)})` : ''}`;
+    } else if (t.expired) {
+      cls = 'trakt-status-error';
+      label = t.refreshable
+        ? '⚠ Token expired — it will refresh automatically on the next run, or re-authorize now'
+        : '⚠ Token expired and cannot refresh — re-authorize below';
+    } else {
+      const rel = traktUntil(t.expires_at, now);
+      cls = 'trakt-status-ok';
+      label = `✓ Authorized — expires ${rel}${t.refreshable ? ' (auto-refreshes)' : ''}`;
+    }
+    html += `<div class="trakt-status ${cls}"><code>${escTrakt(idShort)}…</code> ${label}</div>`;
+  }
+  return html;
+}
+
+function escTrakt(s) {
+  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function traktUntil(iso, nowMs) {
+  const t = Date.parse(iso);
+  if (isNaN(t)) return 'unknown';
+  const s = Math.round((t - (nowMs || Date.now())) / 1000);
+  if (s <= 0) return 'now';
+  if (s < 5400) return 'in ' + Math.round(s / 60) + 'm';
+  if (s < 172800) return 'in ' + Math.round(s / 3600) + 'h';
+  return 'in ' + Math.round(s / 86400) + 'd';
 }

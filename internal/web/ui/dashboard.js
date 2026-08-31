@@ -1239,4 +1239,7 @@ function showTab(name) {
   if (name === 'settings' && typeof loadPluginDebugSettings === 'function') {
     loadPluginDebugSettings();
   }
+  if (name === 'settings' && typeof loadTraktStatus === 'function') {
+    loadTraktStatus();
+  }
 }

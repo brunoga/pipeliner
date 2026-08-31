@@ -242,6 +242,7 @@ func (s *Server) Start(ctx context.Context, addr string, tlsCfg *tls.Config) err
 	protected.HandleFunc("GET /api/downloads", s.apiDownloads)
 	protected.HandleFunc("GET /api/watchdog/stuck", s.apiWatchdogStuck)
 	protected.HandleFunc("GET /api/failures", s.apiFailures)
+	protected.HandleFunc("GET /api/trakt/status", s.apiTraktStatus)
 	protected.HandleFunc("POST /api/trakt/auth/start", s.apiTraktAuthStart)
 	protected.HandleFunc("GET /api/trakt/auth/poll", s.apiTraktAuthPoll)
 	protected.HandleFunc("GET /api/log-debug-plugins", s.apiGetLogDebugPlugins)

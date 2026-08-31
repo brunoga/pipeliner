@@ -11,6 +11,27 @@ import (
 	"github.com/brunoga/pipeliner/internal/trakt"
 )
 
+// apiTraktStatus reports the health of every stored Trakt token so the UI can
+// show whether authorization is current, expiring, or has failed and needs the
+// user to re-authorize. Read-only — never triggers a refresh.
+//
+// GET /api/trakt/status
+func (s *Server) apiTraktStatus(w http.ResponseWriter, _ *http.Request) {
+	if s.db == nil {
+		http.Error(w, "database not available", http.StatusNotImplemented)
+		return
+	}
+	statuses, err := trakt.Statuses(s.db.Bucket(trakt.AuthBucket))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if statuses == nil {
+		statuses = []trakt.TokenStatus{}
+	}
+	writeJSON(w, map[string]any{"tokens": statuses})
+}
+
 type traktAuthSession struct {
 	mu           sync.Mutex
 	clientID     string

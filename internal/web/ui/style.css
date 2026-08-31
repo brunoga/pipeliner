@@ -3293,3 +3293,10 @@ details[open] > .ve-fields-summary::after { content:'▴'; }
 .dl-table { margin-top: 8px; }
 .stale-bug { color: var(--red); font-weight: 600; }
 .fail-table .fail-reason { color: var(--red); }
+
+/* ── trakt token status (Settings) ───────────────────────────────────────── */
+.trakt-status { font-size: 12px; padding: 8px 10px; border-radius: 4px; margin-bottom: 12px; border: 1px solid var(--border); }
+.trakt-status code { font-size: 11px; color: var(--muted); }
+.trakt-status-ok { border-left: 3px solid var(--green); }
+.trakt-status-error { border-left: 3px solid var(--red); color: var(--red); }
+.trakt-status-none { color: var(--muted); }
