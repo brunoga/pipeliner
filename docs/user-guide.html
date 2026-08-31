@@ -212,6 +212,7 @@ td code{font-size:11px}
     <a href="#tracker-cmd" class="sub">Tracker ops</a>
     <a href="#migrate-cmd" class="sub">Migrations</a>
     <a href="#downloaded-cmd" class="sub">Download history</a>
+    <a href="#failures-cmd" class="sub">Failure log</a>
     <a href="#webui">Web UI</a>
     <a href="#visual-editor" class="sub">Visual editor</a>
     <a href="#docker">Docker</a>
@@ -2409,6 +2410,18 @@ pipeliner migrate --apply --backup pipeliner.bak.db</code></pre>
 <p>Output groups the matches per item and, for each, shows how many times it was downloaded (a count above one is a quality upgrade), whether it is still in the tracker, and a table of each download's date, quality, and pipeline. Exit code is 0 when history exists, 1 otherwise. The daemon must be stopped. Also available in the web UI under <strong>Database → Tools → 📥 Download history</strong>, which runs inside the daemon.</p>
 <div class="note">History is recorded from the point this log was added; downloads made before then exist in the trackers but have no log entry, so <code>downloaded</code> may report "no history" for a title you know was grabbed earlier. New downloads are logged from now on.</div>
 
+<h3 id="failures-cmd">pipeliner failures</h3>
+<p>Shows the durable <strong>failure audit log</strong>: entries that <em>failed</em> — a torrent client refusing the add, a download or <code>exec</code> error — as opposed to entries routinely rejected by a filter (which are high-volume feed churn and deliberately not logged). It is the permanent counterpart to the run inspector's traces, which are bounded to the last few runs: this answers "why did this fail last month?" long after the trace has been evicted.</p>
+<pre><code>pipeliner failures                 # recent failures across all pipelines
+pipeliner failures "star trek"     # failures whose title or reason matches</code></pre>
+<table>
+  <tr><th>Flag / arg</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>&lt;title&gt;</code></td><td>—</td><td>Optional substring matched against the failure's title and reason; omit for the most recent failures</td></tr>
+  <tr><td><code>--limit</code></td><td><code>50</code></td><td>Maximum failures to show (0 = no limit)</td></tr>
+  <tr><td><code>--config</code></td><td><code>config.star</code></td><td>Locates the database</td></tr>
+</table>
+<p>Each row shows when it failed, the pipeline and node, the title, and the reason. Exit code is 0 when failures matched, 1 otherwise. The daemon must be stopped. Also available in the web UI under <strong>Database → Tools → ❌ Failure log</strong>, which runs inside the daemon. Failures are recorded from this release forward; a failure is logged only on a real run (dry-runs skip sinks, so they produce none).</p>
+
 <h3>pipeliner version</h3>
 <p>Prints the version string and exits.</p>
 
@@ -2549,6 +2562,7 @@ pipeline(<span class="y-str">"my-movies"</span>, schedule=<span class="y-str">"1
   <li><strong>🧭 Trace search</strong> — search every kept run trace for a title and see what happened to it each time, newest first: accepted, rejected (with reason), deduped, or failed. This is cross-run history the trackers can't give you — the <code>series</code>/<code>movies</code> trackers keep only the latest download, so "was this ever grabbed, and why was the 720p copy dropped?" is answered here. Scope is the last 20 runs per pipeline (the run-inspector retention), so it is recent history rather than all time.</li>
   <li><strong>📥 Download history</strong> — the web equivalent of <a href="#downloaded-cmd"><code>pipeliner downloaded</code></a>. Search the append-only download log for a title and see how many times it was grabbed (a count above one is a quality upgrade), whether it is still tracked, and each download's date, quality, and pipeline. Unlike Trace search (recent runs only), this is permanent history of confirmed downloads — recorded from when the log was added.</li>
   <li><strong>⚠️ Stale favorites</strong> — the interactive view of the <a href="#stuck_favorites"><code>stuck_favorites</code></a> watchdog. Lists favorites whose candidates kept appearing in recent runs but were never accepted — the "it silently stopped downloading" case — with the last rejection reason and whether the block looks like a matching gap or a downstream (quality/tracking) reject. For automated alerts, build a <code>stuck_favorites → notify</code> pipeline instead.</li>
+  <li><strong>❌ Failure log</strong> — the web equivalent of <a href="#failures-cmd"><code>pipeliner failures</code></a>. The durable record of entries that failed at a sink (torrent client refused, download error), searchable by title or reason and kept permanently — so unlike Trace search, you can see why something broke long after its run trace was evicted. Leave the box empty for recent failures.</li>
 </ul>
 
 <h3>Settings tab</h3>

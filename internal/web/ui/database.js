@@ -49,6 +49,7 @@ async function loadDBTab() {
   dbNavItems.push({bucket: '__trace_search__', label: '🧭 Trace search', section: 'tools'});
   dbNavItems.push({bucket: '__download_history__', label: '📥 Download history', section: 'tools'});
   dbNavItems.push({bucket: '__stale_favorites__', label: '⚠️ Stale favorites', section: 'tools'});
+  dbNavItems.push({bucket: '__failure_log__', label: '❌ Failure log', section: 'tools'});
   dbLoaded = true;
   renderDBSidebar();
   if (dbNavItems.length && !dbActiveBucket) selectDBBucket(dbNavItems[0].bucket);
@@ -123,6 +124,11 @@ async function selectDBBucket(name) {
   if (name === '__stale_favorites__') {
     renderDBSidebar();
     renderStaleFavorites();
+    return;
+  }
+  if (name === '__failure_log__') {
+    renderDBSidebar();
+    renderFailureLog();
     return;
   }
   dbCurrentCursor = '';
@@ -1061,4 +1067,75 @@ function staleFavoritesHTML(data) {
     </div>`;
   }
   return html;
+}
+
+// ── failure log ──────────────────────────────────────────────────────────────
+// The durable failure audit log: entries that failed at a sink (torrent client
+// refused, download error), kept permanently — unlike the bounded run traces.
+// Blank search shows recent failures. Mirrors `pipeliner failures`.
+
+function renderFailureLog() {
+  const main = document.getElementById('db-main-content');
+  main.innerHTML = `
+    <div class="match-tester">
+      <h2>Failure log</h2>
+      <p class="match-hint">Entries that <em>failed</em> — a torrent client refusing the add, a download or exec error — as opposed to routinely rejected by a filter. Kept permanently, so you can see why something broke last month, long after the run trace has been evicted. Leave the box empty for recent failures across all pipelines.</p>
+      <div class="match-form">
+        <label>Title or reason contains (optional)
+          <input id="fail-q" type="text" placeholder="deluge, or a show title" />
+        </label>
+        <button class="btn" onclick="runFailureLog()">Search failures</button>
+      </div>
+      <div id="fail-results"></div>
+    </div>`;
+  const inp = document.getElementById('fail-q');
+  inp.addEventListener('keydown', e => { if (e.key === 'Enter') runFailureLog(); });
+  runFailureLog();
+}
+
+async function runFailureLog() {
+  const q = document.getElementById('fail-q').value.trim();
+  const results = document.getElementById('fail-results');
+  results.innerHTML = '<div class="db-loading">Searching…</div>';
+  try {
+    const r = await fetch('/api/failures?q=' + encodeURIComponent(q));
+    if (!r.ok) { results.innerHTML = `<div class="db-empty">Error: ${esc(await r.text())}</div>`; return; }
+    const { failures } = await r.json();
+    results.innerHTML = failureLogHTML(failures, q);
+  } catch (e) {
+    results.innerHTML = `<div class="db-empty">Error: ${esc(e.message)}</div>`;
+  }
+}
+
+// failureLogHTML renders the failure list. Pure (no DOM/fetch) for testing.
+function failureLogHTML(recs, q) {
+  recs = recs || [];
+  if (!recs.length) {
+    return q
+      ? '<div class="db-empty">No failures matching that search.</div>'
+      : '<div class="db-empty">No failures recorded — nothing has failed at a sink.</div>';
+  }
+  let rows = '';
+  for (const r of recs) {
+    rows += `<tr>
+      <td>${esc(failDate(r.failed_at))}</td>
+      <td>${esc(r.task || '')}</td>
+      <td>${esc(r.node || '')}</td>
+      <td><code>${esc(r.title || '')}</code></td>
+      <td class="fail-reason">${esc(r.reason || '')}</td>
+    </tr>`;
+  }
+  return `<div class="match-norm">${recs.length} failure(s), newest first</div>
+    <table class="match-table fail-table">
+      <thead><tr><th>when</th><th>pipeline</th><th>node</th><th>title</th><th>reason</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+function failDate(iso) {
+  const t = Date.parse(iso);
+  if (isNaN(t)) return iso || '';
+  const d = new Date(t);
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
