@@ -5,6 +5,24 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.17.0] - 2026-08-31
+
+A follow-on to the 1.16.0 diagnostics suite, driven by three concrete problems: entries that failed at a sink left no lasting trace, CAM movies slipped past a `webrip+` source floor, and managed Trakt tokens occasionally lost authentication. The first two came straight out of dogfooding the new tools.
+
+### Added
+
+- **Durable failure audit log** ([#347](https://github.com/brunoga/pipeliner/pull/347)). The download log records successes; this records entries that *failed* at a sink — a torrent client refusing the add, a download or `exec` error — as opposed to entries routinely rejected by a filter (high-volume feed churn, deliberately not logged). It is the permanent counterpart to the run inspector's traces, which are bounded to the last few runs, so it answers "why did this fail last month?" long after the trace has been evicted. Failed entries are captured centrally from every real run (dry-runs skip sinks and produce none), with the failing node resolved from the run trace. Surfaced via `pipeliner failures ["<title>"]` (recent failures, or a title/reason search) and a **Database → Tools → ❌ Failure log** panel (`GET /api/failures`). Recorded from this release forward.
+
+- **Trakt token status and failure detection** ([#349](https://github.com/brunoga/pipeliner/pull/349)). The **Settings** tab now shows the health of the stored Trakt token — authorized with its relative expiry, expiring, or a red *needs re-authorization* — so a lapsed token is visible before it breaks a pipeline. When an automatic refresh is rejected by Trakt (the refresh token was revoked, a dead end no retry can fix), pipeliner records the failure and the badge turns red with the reason; any successful re-authorization or refresh clears it automatically. Exposed via `GET /api/trakt/status`. This is detection and clear signalling, not auto-repair — re-authorization still requires approving the device code on Trakt.
+
+### Fixed
+
+- **A mislabeled CAM tagged `WEB` is no longer parsed as `WEB`** ([#348](https://github.com/brunoga/pipeliner/pull/348)). `quality.Parse` took the leftmost source token, so a cinema recording that also stuffs a higher tag into its name — `Movie.2024.1080p.WEB.CAM.x264`, `Movie 2024 WEBRip CAM x264` — parsed as WEB/WEBRip and sailed past a `webrip+` spec, downloading CAMs. Parse now scans every source token: a theatrical/pre-release marker (CAM/TS/SCR) dominates any co-occurring higher tag — you can't upgrade a cinema cap by adding "WEB" to the name — and otherwise the highest legitimate token wins, which also fixes `BluRay Remux` resolving to BluRay instead of Remux. Found by dogfooding the new `pipeliner quality` tester.
+
+- **Managed Trakt tokens no longer lose authentication under concurrent refresh** ([#349](https://github.com/brunoga/pipeliner/pull/349)). Trakt rotates the refresh token on every successful refresh and invalidates the previous one. `GetValidAccessToken` had no locking, and the trakt source/sink list, calendar, and metainfo plugins each call it independently — so two hitting the pre-expiry refresh window in the same run could consume each other's token and break auth until a manual re-auth. Refresh is now serialized per client ID with a re-check after locking, so exactly one refresh happens per rotation and concurrent callers reuse the freshly-saved token. A rejected refresh (HTTP 401/400) is also distinguished from a transient failure so a dead token surfaces immediately instead of hiding behind a still-valid access token.
+
+**Why 1.17.0**: two additive features (the failure audit log and Trakt token-status visibility) alongside two bug fixes (CAM source parsing, Trakt refresh race). No breaking changes and no config changes; the failure log begins recording from this release. A minor bump per SemVer.
+
 ## [1.16.0] - 2026-08-31
 
 A suite of diagnostic and operations tooling, prompted by the Star Trek: Strange New Worlds investigation in 1.15.1/1.15.2 — where a punctuation-normalization bug made an episode silently fail to download for weeks. Each addition removes a step of that investigation: probing why a title does or doesn't match, seeing which quality dimension a release fails, marking or forgetting tracker entries safely, inspecting migrations before they run, querying download and per-run history, and being alerted when a favorite goes quiet. The interactive tools live together under **Database → Tools** in the web UI.
