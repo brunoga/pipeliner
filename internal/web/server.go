@@ -214,6 +214,7 @@ func (s *Server) Start(ctx context.Context, addr string, tlsCfg *tls.Config) err
 	protected.Handle("/", s.staticHandler()) // catch-all for CSS/JS assets (style.css, *.js)
 	protected.HandleFunc("GET /api/status", s.apiStatus)
 	protected.HandleFunc("GET /api/history", s.apiHistory)
+	protected.HandleFunc("GET /api/traces/search", s.apiTraceSearch)
 	protected.HandleFunc("GET /api/traces/{task}", s.apiTraceList)
 	protected.HandleFunc("GET /api/traces/{task}/{run}", s.apiTraceGet)
 	protected.HandleFunc("POST /api/tasks/{name}/run", s.apiTrigger)

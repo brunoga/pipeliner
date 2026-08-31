@@ -87,6 +87,58 @@ func (s *Store) Get(task, runID string) (*RunTrace, error) {
 	return &rt, nil
 }
 
+// Occurrence is one entry's appearance in one run, carrying the run context so
+// a cross-run search can answer "every time title X was seen, and what happened
+// to it" — the tracker records only the latest download, but traces retain each
+// run's outcome (accepted, rejected with reason, deduped, etc.).
+type Occurrence struct {
+	Task   string              `json:"task"`
+	RunID  string              `json:"run_id"`
+	At     time.Time           `json:"at"`
+	DryRun bool                `json:"dry_run"`
+	Entry  executor.EntryTrace `json:"entry"`
+}
+
+// Search scans every kept run of every task for entries whose title contains
+// query (case-insensitive) and returns the matching occurrences newest-first.
+// A blank query matches nothing. limit <= 0 means no cap. The scan is bounded
+// by the store's retention (maxRunsPerTask per task), so it stays cheap.
+func (s *Store) Search(query string, limit int) ([]Occurrence, error) {
+	q := strings.ToLower(strings.TrimSpace(query))
+	if q == "" {
+		return nil, nil
+	}
+	tasks, err := s.Tasks()
+	if err != nil {
+		return nil, err
+	}
+	var out []Occurrence
+	for _, task := range tasks {
+		metas, err := s.List(task)
+		if err != nil {
+			return nil, err
+		}
+		for _, m := range metas {
+			rt, err := s.Get(task, m.RunID)
+			if err != nil {
+				continue // evicted between List and Get, or unreadable
+			}
+			for _, e := range rt.Entries {
+				if strings.Contains(strings.ToLower(e.Title), q) {
+					out = append(out, Occurrence{
+						Task: task, RunID: rt.RunID, At: rt.At, DryRun: rt.DryRun, Entry: e,
+					})
+				}
+			}
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].At.After(out[j].At) })
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
 // Tasks lists every task that has at least one persisted run trace.
 func (s *Store) Tasks() ([]string, error) {
 	keys, err := s.bucket.Keys()
