@@ -4,10 +4,18 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
 )
+
+// ErrRefreshRejected indicates the refresh token was rejected by Trakt (HTTP
+// 401 / invalid_grant) — it has been revoked or already rotated away, so no
+// retry will help and the user must re-authorize with `pipeliner auth trakt`.
+// Distinguished from transient errors so callers don't treat a dead token as a
+// blip they can retry past.
+var ErrRefreshRejected = errors.New("trakt: refresh token rejected — re-run `pipeliner auth trakt` to re-authorize")
 
 // DeviceCode is returned by RequestDeviceCode and used to drive the device auth flow.
 type DeviceCode struct {
@@ -151,6 +159,11 @@ func RefreshToken(ctx context.Context, clientID, clientSecret, refreshToken stri
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
+		// 401 (and 400 invalid_grant) mean the refresh token is no longer
+		// valid — a dead-end that needs re-authorization, not a retry.
+		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusBadRequest {
+			return nil, fmt.Errorf("%w (HTTP %d)", ErrRefreshRejected, resp.StatusCode)
+		}
 		return nil, fmt.Errorf("trakt: refresh token: HTTP %d", resp.StatusCode)
 	}
 
