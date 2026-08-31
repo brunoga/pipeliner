@@ -45,6 +45,7 @@ async function loadDBTab() {
   // Diagnostic tools (no backing bucket) live in their own section.
   dbNavItems.push({bucket: '__match_tester__', label: '🔍 Match tester', section: 'tools'});
   dbNavItems.push({bucket: '__quality_tester__', label: '🎚 Quality tester', section: 'tools'});
+  dbNavItems.push({bucket: '__mark_downloaded__', label: '✅ Mark as downloaded', section: 'tools'});
   dbLoaded = true;
   renderDBSidebar();
   if (dbNavItems.length && !dbActiveBucket) selectDBBucket(dbNavItems[0].bucket);
@@ -99,6 +100,11 @@ async function selectDBBucket(name) {
   if (name === '__quality_tester__') {
     renderDBSidebar();
     renderQualityTester();
+    return;
+  }
+  if (name === '__mark_downloaded__') {
+    renderDBSidebar();
+    renderMarkDownloaded();
     return;
   }
   dbCurrentCursor = '';
@@ -709,4 +715,99 @@ function qualityTesterResultHTML(res, spec) {
     <thead><tr><th></th><th>dimension</th><th>constraint</th><th>value</th><th>note</th></tr></thead>
     <tbody>${rows}</tbody></table>`;
   return html;
+}
+
+// ── mark as downloaded ───────────────────────────────────────────────────────
+// Seed the series/movies tracker with a title as already-downloaded, so the
+// filter treats it as seen and never grabs it — the inverse of deleting a
+// tracker row. Mirrors `pipeliner tracker mark-series|mark-movie`.
+
+function renderMarkDownloaded() {
+  const main = document.getElementById('db-main-content');
+  main.innerHTML = `
+    <div class="match-tester">
+      <h2>Mark as downloaded</h2>
+      <p class="match-hint">Tell pipeliner you already have a title so it never grabs it. The show/movie name is normalized and the episode ID canonicalized exactly as the filters do, so the record keys correctly. To force a re-download instead, delete the tracker row from the Series/Movies view.</p>
+
+      <h3 class="mark-subhead">Series episode</h3>
+      <div class="match-form">
+        <label>Show name
+          <input id="mark-series-show" type="text" placeholder="Star Trek: Strange New Worlds" />
+        </label>
+        <label>Episode ID
+          <input id="mark-series-ep" type="text" placeholder="S04E05 (or EP012, or 2023-11-15)" />
+        </label>
+        <label>Quality (optional)
+          <input id="mark-series-quality" type="text" placeholder="1080p web h264" />
+        </label>
+        <button class="btn" onclick="markSeriesDownloaded()">Mark episode</button>
+      </div>
+
+      <h3 class="mark-subhead">Movie</h3>
+      <div class="match-form">
+        <label>Title
+          <input id="mark-movie-title" type="text" placeholder="Furiosa: A Mad Max Saga" />
+        </label>
+        <label>Year
+          <input id="mark-movie-year" type="number" min="0" placeholder="2024" />
+        </label>
+        <label class="mark-checkbox"><input id="mark-movie-3d" type="checkbox" /> 3D version</label>
+        <label>Quality (optional)
+          <input id="mark-movie-quality" type="text" placeholder="1080p bluray" />
+        </label>
+        <button class="btn" onclick="markMovieDownloaded()">Mark movie</button>
+      </div>
+
+      <div id="mark-results"></div>
+    </div>`;
+}
+
+async function markSeriesDownloaded() {
+  const show = document.getElementById('mark-series-show').value.trim();
+  const ep = document.getElementById('mark-series-ep').value.trim();
+  const results = document.getElementById('mark-results');
+  if (!show || !ep) { results.innerHTML = '<div class="db-empty">Enter a show name and episode ID.</div>'; return; }
+  await postMark('/api/db/series/mark', {
+    show, episode_id: ep, quality: document.getElementById('mark-series-quality').value.trim(),
+  }, results);
+}
+
+async function markMovieDownloaded() {
+  const title = document.getElementById('mark-movie-title').value.trim();
+  const results = document.getElementById('mark-results');
+  if (!title) { results.innerHTML = '<div class="db-empty">Enter a movie title.</div>'; return; }
+  await postMark('/api/db/movies/mark', {
+    title,
+    year: parseInt(document.getElementById('mark-movie-year').value, 10) || 0,
+    is_3d: document.getElementById('mark-movie-3d').checked,
+    quality: document.getElementById('mark-movie-quality').value.trim(),
+  }, results);
+}
+
+async function postMark(url, body, results) {
+  results.innerHTML = '<div class="db-loading">Saving…</div>';
+  try {
+    const r = await fetch(url, {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body),
+    });
+    if (!r.ok) { results.innerHTML = `<div class="db-empty">Error: ${esc(await r.text())}</div>`; return; }
+    results.innerHTML = markResultHTML(await r.json());
+    loadDBSidebar(); // refresh tracker counts
+  } catch (e) {
+    results.innerHTML = `<div class="db-empty">Error: ${esc(e.message)}</div>`;
+  }
+}
+
+// markResultHTML renders the mark response. Pure (no DOM/fetch) for testing.
+function markResultHTML(res) {
+  const rec = res.record || {};
+  let what;
+  if (res.key) {
+    what = esc(res.key);
+  } else {
+    what = esc(rec.title || '') + (rec.year ? ` (${rec.year})` : '') + (rec.is_3d ? ' [3D]' : '');
+  }
+  const q = rec.quality && rec.quality.string ? ` — ${esc(rec.quality.string)}` : '';
+  const note = res.existed ? ' <span class="match-norm">(already tracked — record updated)</span>' : '';
+  return `<div class="match-verdict"><span class="match-yes">✓ Marked</span> <code>${what}</code>${q} as downloaded${note}</div>`;
 }

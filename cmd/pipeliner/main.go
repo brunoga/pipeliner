@@ -136,6 +136,8 @@ func run(args []string) int {
 		return cmdMatch(args[1:])
 	case "quality":
 		return cmdQuality(args[1:])
+	case "tracker":
+		return cmdTracker(args[1:])
 	case "auth":
 		return cmdAuth(args[1:])
 	case "list-plugins":
@@ -169,6 +171,7 @@ Usage:
   pipeliner match        "<title>" [candidate ...]   test title matching / normalization
                          [--config path] [--list bucket] [--year N]
   pipeliner quality      "<title>" ["<spec>"]        test quality parsing / spec matching
+  pipeliner tracker      <mark|forget>-<series|movie> ...   manage download trackers
   pipeliner list-plugins                   list registered plugins
   pipeliner version                        print version
 
