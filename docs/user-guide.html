@@ -208,6 +208,7 @@ td code{font-size:11px}
     <a href="#cli">CLI Reference</a>
     <a href="#match" class="sub">Match tester</a>
     <a href="#quality-cmd" class="sub">Quality tester</a>
+    <a href="#tracker-cmd" class="sub">Tracker ops</a>
     <a href="#webui">Web UI</a>
     <a href="#visual-editor" class="sub">Visual editor</a>
     <a href="#docker">Docker</a>
@@ -2362,6 +2363,19 @@ pipeliner quality --spec "1080p+" "Show S01E01 720p WEB-DL x265"</code></pre>
 </table>
 <p>With a spec, the output shows the detected quality, a <code>MATCH</code>/<code>NO MATCH</code> verdict, and a table of the constrained dimensions with each one's constraint, detected value, and pass/fail (optional dimensions bypassed on an unknown value are noted). Exit code is 0 on a match, 1 otherwise. Also available in the web UI under <strong>Database → Tools → 🎚 Quality tester</strong>.</p>
 
+<h3 id="tracker-cmd">pipeliner tracker</h3>
+<p>Manages the series/movies download trackers directly: <strong>mark</strong> a title as already-downloaded (so pipeliner never grabs it — for episodes/movies you acquired outside the tool) or <strong>forget</strong> one (so it is re-downloaded). The show/movie name is normalized and the episode ID canonicalized exactly as the filters do, so records key correctly.</p>
+<pre><code>pipeliner tracker mark-series   "Star Trek: Strange New Worlds" S04E05 --quality "1080p web"
+pipeliner tracker forget-series "Star Trek: Strange New Worlds" S04E05
+pipeliner tracker mark-movie    "Furiosa" --year 2024 --quality "1080p bluray"
+pipeliner tracker forget-movie  "Furiosa" --year 2024</code></pre>
+<table>
+  <tr><th>Op</th><th>Arguments</th></tr>
+  <tr><td><code>mark-series</code> / <code>forget-series</code></td><td><code>"&lt;show&gt;" "&lt;episode-id&gt;"</code> — episode ID as <code>S04E05</code>, <code>EP012</code>, or <code>2023-11-15</code> (loose spellings like <code>s4e5</code>/<code>4x05</code> are accepted and canonicalized)</td></tr>
+  <tr><td><code>mark-movie</code> / <code>forget-movie</code></td><td><code>"&lt;title&gt;" --year N [--3d]</code></td></tr>
+</table>
+<p>Common flags: <code>--config</code> (locates the database), and for <code>mark-*</code> an optional <code>--quality "…"</code> recorded on the entry (governs later upgrade decisions). <strong>The daemon must be stopped</strong>, since these open the database directly. To mark titles while the daemon is running, use the web UI under <strong>Database → Tools → ✅ Mark as downloaded</strong>; to forget while running, delete the tracker row from the Series/Movies view.</p>
+
 <h3>pipeliner version</h3>
 <p>Prints the version string and exits.</p>
 
@@ -2498,6 +2512,7 @@ pipeline(<span class="y-str">"my-movies"</span>, schedule=<span class="y-str">"1
 <ul>
   <li><strong>🔍 Match tester</strong> — the web equivalent of <a href="#match"><code>pipeliner match</code></a>. Enter a release title (and, for movies, a year), pick a resolved title-list cache to compare against — or type candidate titles by hand — and see a <code>MATCH</code>/<code>NO MATCH</code> verdict with the normalized input and a nearest-first candidate table. It applies the same normalization as the <code>series</code> and <code>movies</code> filters, so a title kept from matching by a stray colon or ampersand shows up at a glance. Unlike the CLI's <code>--list</code> mode, this runs inside the daemon, so it works against the live list without stopping anything.</li>
   <li><strong>🎚 Quality tester</strong> — the web equivalent of <a href="#quality-cmd"><code>pipeliner quality</code></a>. Enter a release title and an optional <a href="#quality-spec">quality spec</a>; it parses the title's quality and shows, per constrained dimension, whether it satisfies the spec — the fastest way to see why the <code>quality</code> filter rejected a release.</li>
+  <li><strong>✅ Mark as downloaded</strong> — the web equivalent of <a href="#tracker-cmd"><code>pipeliner tracker mark-series</code>/<code>mark-movie</code></a>. Seed the series or movies tracker with a title as already-downloaded (for episodes/movies acquired outside pipeliner) so it is never grabbed. The name is normalized and the episode ID canonicalized exactly as the filters do. Runs inside the daemon, so no restart is needed; to force a re-download instead, delete the tracker row from the Series/Movies view.</li>
 </ul>
 
 <h3>Settings tab</h3>

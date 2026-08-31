@@ -9,7 +9,6 @@ import (
 
 	"github.com/brunoga/pipeliner/internal/cache"
 	"github.com/brunoga/pipeliner/internal/match"
-	"github.com/brunoga/pipeliner/internal/store"
 )
 
 // maxProbeCandidatesShown caps how many non-matching candidates the match
@@ -85,9 +84,9 @@ func cmdMatch(args []string) int {
 // the union of the TitleEntry lists cached in bucket. The daemon must not be
 // running, as the store takes an exclusive file lock at open.
 func loadListCandidates(cfgPath, bucket string) ([]match.TitleEntry, error) {
-	db, err := store.OpenSQLite(dbPath(cfgPath))
+	db, err := openStore(cfgPath)
 	if err != nil {
-		return nil, fmt.Errorf("open store (is the daemon running? it holds the database lock): %w", err)
+		return nil, err
 	}
 	defer db.Close()
 

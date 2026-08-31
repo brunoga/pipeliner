@@ -236,6 +236,8 @@ func (s *Server) Start(ctx context.Context, addr string, tlsCfg *tls.Config) err
 	protected.HandleFunc("DELETE /api/db/buckets/{name}", s.apiDBClearBucket)
 	protected.HandleFunc("DELETE /api/db/entries/{name}", s.apiDBDeleteEntry)
 	protected.HandleFunc("DELETE /api/db/series/show", s.apiDBDeleteSeriesShow)
+	protected.HandleFunc("POST /api/db/series/mark", s.apiDBMarkSeries)
+	protected.HandleFunc("POST /api/db/movies/mark", s.apiDBMarkMovie)
 	protected.HandleFunc("POST /api/trakt/auth/start", s.apiTraktAuthStart)
 	protected.HandleFunc("GET /api/trakt/auth/poll", s.apiTraktAuthPoll)
 	protected.HandleFunc("GET /api/log-debug-plugins", s.apiGetLogDebugPlugins)
