@@ -140,6 +140,8 @@ func run(args []string) int {
 		return cmdTracker(args[1:])
 	case "migrate":
 		return cmdMigrate(args[1:])
+	case "downloaded":
+		return cmdDownloaded(args[1:])
 	case "auth":
 		return cmdAuth(args[1:])
 	case "list-plugins":
@@ -175,6 +177,7 @@ Usage:
   pipeliner quality      "<title>" ["<spec>"]        test quality parsing / spec matching
   pipeliner tracker      <mark|forget>-<series|movie> ...   manage download trackers
   pipeliner migrate      [--status] [--backup file] [--apply]   inspect/apply DB migrations
+  pipeliner downloaded   "<title>"         show download history (incl. re-downloads)
   pipeliner list-plugins                   list registered plugins
   pipeliner version                        print version
 

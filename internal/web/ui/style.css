@@ -3285,3 +3285,9 @@ details[open] > .ve-fields-summary::after { content:'▴'; }
 .trace-meta { color: var(--muted); font-size: 11px; margin-top: 3px; }
 .trace-reason { color: var(--text); font-size: 12px; margin-top: 4px; }
 .trace-dry { color: var(--amber, #d29922); font-weight: 700; font-size: 10px; margin-left: 4px; }
+
+/* ── download history (Database tab → Tools) ─────────────────────────────── */
+.dl-upgrade { color: var(--accent); font-weight: 600; }
+.dl-tracked { color: var(--green); font-size: 11px; font-weight: 700; text-transform: uppercase; }
+.dl-untracked { color: var(--muted); font-size: 11px; font-weight: 700; text-transform: uppercase; }
+.dl-table { margin-top: 8px; }

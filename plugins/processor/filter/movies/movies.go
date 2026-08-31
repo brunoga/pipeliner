@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/brunoga/pipeliner/internal/cache"
+	"github.com/brunoga/pipeliner/internal/downloads"
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/match"
 	imovies "github.com/brunoga/pipeliner/internal/movies"
@@ -78,6 +79,7 @@ type moviesPlugin struct {
 	listSources     []plugin.SourcePlugin
 	listCache       *cache.Cache[[]match.TitleEntry]
 	tracker         *imovies.Tracker
+	downloadLog     *downloads.Log
 	rejectUnmatched bool
 }
 
@@ -115,6 +117,7 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 		listCache:       cache.NewPersistent[[]match.TitleEntry](ttl, db.Bucket("cache_movies_list")),
 		rejectUnmatched: rejectUnmatched,
 		tracker:         imovies.NewTracker(db.Bucket(imovies.TrackerBucketName)),
+		downloadLog:     downloads.New(db.Bucket(downloads.BucketName)),
 	}, nil
 }
 
@@ -195,7 +198,7 @@ func (p *moviesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *en
 // recovery needs the tracker key to un-track a movie).
 const moviesTrackerName = entry.FieldMoviesTrackerTitle
 
-func (p *moviesPlugin) persist(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) error {
+func (p *moviesPlugin) persist(_ context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
 	for _, e := range entries {
 		// Only persist entries that were accepted by all downstream nodes.
 		// The executor passes every entry the movies node produced to Commit,
@@ -212,14 +215,34 @@ func (p *moviesPlugin) persist(_ context.Context, _ *plugin.TaskContext, entries
 		is3D := e.GetBool(entry.FieldVideoIs3D)
 		q, _ := e.Quality()
 		properOrRepack := e.GetBool(entry.FieldVideoProper) || e.GetBool(entry.FieldVideoRepack)
+		now := time.Now()
 		if err := p.tracker.Mark(imovies.Record{
-			Title:   matchedTitle,
-			Year:    year,
-			Is3D:    is3D,
-			Repack:  properOrRepack,
-			Quality: q,
+			Title:        matchedTitle,
+			Year:         year,
+			Is3D:         is3D,
+			Repack:       properOrRepack,
+			Quality:      q,
+			DownloadedAt: now,
 		}); err != nil {
 			return fmt.Errorf("movies: mark %s (%d): %w", matchedTitle, year, err)
+		}
+		// Best-effort append to the download history audit log. Optional: nil
+		// in tests that build the plugin struct directly.
+		if p.downloadLog == nil {
+			continue
+		}
+		if err := p.downloadLog.Append(downloads.Event{
+			MediaType:    "movie",
+			Name:         matchedTitle,
+			DisplayName:  e.GetString(entry.FieldTitle),
+			Year:         year,
+			Is3D:         is3D,
+			Quality:      q,
+			Repack:       properOrRepack,
+			DownloadedAt: now,
+			Task:         tc.Name,
+		}); err != nil {
+			tc.Logger.Warn("movies: append download log", "title", matchedTitle, "year", year, "err", err)
 		}
 	}
 	return nil

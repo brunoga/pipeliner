@@ -47,6 +47,7 @@ async function loadDBTab() {
   dbNavItems.push({bucket: '__quality_tester__', label: '🎚 Quality tester', section: 'tools'});
   dbNavItems.push({bucket: '__mark_downloaded__', label: '✅ Mark as downloaded', section: 'tools'});
   dbNavItems.push({bucket: '__trace_search__', label: '🧭 Trace search', section: 'tools'});
+  dbNavItems.push({bucket: '__download_history__', label: '📥 Download history', section: 'tools'});
   dbLoaded = true;
   renderDBSidebar();
   if (dbNavItems.length && !dbActiveBucket) selectDBBucket(dbNavItems[0].bucket);
@@ -111,6 +112,11 @@ async function selectDBBucket(name) {
   if (name === '__trace_search__') {
     renderDBSidebar();
     renderTraceSearch();
+    return;
+  }
+  if (name === '__download_history__') {
+    renderDBSidebar();
+    renderDownloadHistory();
     return;
   }
   dbCurrentCursor = '';
@@ -891,4 +897,97 @@ function traceRelTime(iso, nowMs) {
   if (s < 5400) return Math.round(s / 60) + 'm ago';
   if (s < 86400) return Math.round(s / 3600) + 'h ago';
   return Math.round(s / 86400) + 'd ago';
+}
+
+// ── download history ─────────────────────────────────────────────────────────
+// Was this ever downloaded, and how many times? Reads the append-only download
+// log, grouped per item, so re-downloads (quality upgrades) are visible — the
+// single-record trackers overwrite and can't show them. Mirrors the
+// `pipeliner downloaded` CLI.
+
+function renderDownloadHistory() {
+  const main = document.getElementById('db-main-content');
+  main.innerHTML = `
+    <div class="match-tester">
+      <h2>Download history</h2>
+      <p class="match-hint">See whether a title was ever downloaded and how many times — including re-downloads for quality upgrades, which the trackers overwrite. History is recorded from when the download log was added; older downloads may exist in the trackers without a log entry.</p>
+      <div class="match-form">
+        <label>Title contains
+          <input id="dl-q" type="text" placeholder="strange new worlds" />
+        </label>
+        <button class="btn" onclick="runDownloadHistory()">Search history</button>
+      </div>
+      <div id="dl-results"></div>
+    </div>`;
+  const inp = document.getElementById('dl-q');
+  inp.focus();
+  inp.addEventListener('keydown', e => { if (e.key === 'Enter') runDownloadHistory(); });
+}
+
+async function runDownloadHistory() {
+  const q = document.getElementById('dl-q').value.trim();
+  const results = document.getElementById('dl-results');
+  if (!q) { results.innerHTML = '<div class="db-empty">Enter a title to search.</div>'; return; }
+  results.innerHTML = '<div class="db-loading">Searching…</div>';
+  try {
+    const r = await fetch('/api/downloads?q=' + encodeURIComponent(q));
+    if (!r.ok) { results.innerHTML = `<div class="db-empty">Error: ${esc(await r.text())}</div>`; return; }
+    const { items } = await r.json();
+    results.innerHTML = downloadHistoryHTML(items);
+  } catch (e) {
+    results.innerHTML = `<div class="db-empty">Error: ${esc(e.message)}</div>`;
+  }
+}
+
+// downloadHistoryHTML renders the grouped item list. Pure (no DOM/fetch) for
+// testing.
+function downloadHistoryHTML(items) {
+  items = items || [];
+  if (!items.length) return '<div class="db-empty">No download history for that title.</div>';
+  let html = '';
+  for (const it of items) {
+    let label = it.display_name || it.name || '';
+    if (it.media_type === 'movie') {
+      if (it.year) label += ` (${it.year})`;
+      if (it.is_3d) label += ' [3D]';
+    } else if (it.episode_id) {
+      label += ` ${it.episode_id}`;
+    }
+    const count = it.count || (it.downloads ? it.downloads.length : 0);
+    const times = count > 1
+      ? `<span class="dl-upgrade">downloaded ${count}× (quality upgrades)</span>`
+      : 'downloaded once';
+    const tracked = it.currently_tracked
+      ? '<span class="dl-tracked">tracked</span>'
+      : '<span class="dl-untracked">not tracked</span>';
+    let rows = '';
+    for (const d of (it.downloads || [])) {
+      const q = d.quality && d.quality.string ? d.quality.string : 'unknown';
+      rows += `<tr>
+        <td>${esc(dlDate(d.downloaded_at))}</td>
+        <td><code>${esc(q)}</code></td>
+        <td>${esc(d.task || '')}</td>
+      </tr>`;
+    }
+    html += `<div class="trace-occ">
+      <div class="trace-occ-head">
+        <span class="trace-title"><code>${esc(label)}</code></span>
+        ${tracked}
+      </div>
+      <div class="trace-meta">${times}</div>
+      <table class="match-table dl-table">
+        <thead><tr><th>when</th><th>quality</th><th>pipeline</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+  }
+  return html;
+}
+
+function dlDate(iso) {
+  const t = Date.parse(iso);
+  if (isNaN(t)) return iso || '';
+  const d = new Date(t);
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }

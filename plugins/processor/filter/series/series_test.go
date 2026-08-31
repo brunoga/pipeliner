@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/brunoga/pipeliner/internal/cache"
+	"github.com/brunoga/pipeliner/internal/downloads"
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/match"
 	"github.com/brunoga/pipeliner/internal/plugin"
@@ -842,5 +843,52 @@ func TestNoListTrackerDedups(t *testing.T) {
 	p.filter(context.Background(), tc, second)
 	if !second.IsRejected() {
 		t.Errorf("second sighting should be rejected by tracker; got %v", second.State)
+	}
+}
+
+// TestDownloadLogAppendedOnPersist verifies the commit path records an event in
+// the download history log for each confirmed download, including a second
+// event for a quality upgrade of the same episode.
+func TestDownloadLogAppendedOnPersist(t *testing.T) {
+	db, err := store.OpenSQLite(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	p, err := newPlugin(map[string]any{"static": []any{"My Show"}, "tracking": "backfill"}, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sp := p.(*seriesPlugin)
+	tc := makeCtx()
+
+	e1 := makeEntry("My.Show.S01E01.720p.HDTV", "http://x/a")
+	sp.filter(context.Background(), tc, e1)
+	if !e1.IsAccepted() {
+		t.Fatalf("expected accept, got %s", e1.RejectReason)
+	}
+	if err := sp.persist(context.Background(), tc, []*entry.Entry{e1}); err != nil {
+		t.Fatal(err)
+	}
+
+	e2 := makeEntry("My.Show.S01E01.1080p.BluRay", "http://x/b")
+	sp.filter(context.Background(), tc, e2)
+	if !e2.IsAccepted() {
+		t.Fatalf("expected upgrade accept, got %s", e2.RejectReason)
+	}
+	if err := sp.persist(context.Background(), tc, []*entry.Entry{e2}); err != nil {
+		t.Fatal(err)
+	}
+
+	evs, err := downloads.New(db.Bucket(downloads.BucketName)).Query("my show")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(evs) != 2 {
+		t.Fatalf("expected 2 download events, got %d", len(evs))
+	}
+	hist := downloads.GroupByItem(evs)
+	if len(hist) != 1 || hist[0].Count != 2 {
+		t.Errorf("expected one episode downloaded twice, got %+v", hist)
 	}
 }
