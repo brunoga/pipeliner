@@ -18,6 +18,7 @@ import (
 
 	"github.com/brunoga/pipeliner/internal/clog"
 	"github.com/brunoga/pipeliner/internal/config"
+	"github.com/brunoga/pipeliner/internal/failures"
 	"github.com/brunoga/pipeliner/internal/logfile"
 	"github.com/brunoga/pipeliner/internal/plugin"
 	"github.com/brunoga/pipeliner/internal/scheduler"
@@ -143,6 +144,8 @@ func run(args []string) int {
 		return cmdMigrate(args[1:])
 	case "downloaded":
 		return cmdDownloaded(args[1:])
+	case "failures":
+		return cmdFailures(args[1:])
 	case "auth":
 		return cmdAuth(args[1:])
 	case "list-plugins":
@@ -179,6 +182,7 @@ Usage:
   pipeliner tracker      <mark|forget>-<series|movie> ...   manage download trackers
   pipeliner migrate      [--status] [--backup file] [--apply]   inspect/apply DB migrations
   pipeliner downloaded   "<title>"         show download history (incl. re-downloads)
+  pipeliner failures     ["<title>"]       show the durable failure audit log
   pipeliner list-plugins                   list registered plugins
   pipeliner version                        print version
 
@@ -237,6 +241,7 @@ func cmdRun(args []string) int {
 		return 1
 	}
 	defer db.Close()
+	failureLog := failures.New(db.Bucket(failures.BucketName))
 
 	tasks, err := config.BuildTasks(cfg, db, logger)
 	if err != nil {
@@ -283,11 +288,16 @@ func cmdRun(args []string) int {
 		if *validateFields {
 			t.SetValidateFields(true)
 		}
-		_, err := t.Run(ctx)
+		res, err := t.Run(ctx)
 		if err != nil {
 			logger.Error("pipeline failed", "pipeline", t.Name(), "err", err)
 			exitCode = 2
 			continue
+		}
+		// Record failed entries in the durable failure audit log (real runs
+		// only — dry-runs skip sinks so there are no true failures).
+		if !*dryRun {
+			logRunFailures(failureLog, res, t.Name(), time.Now(), logger)
 		}
 		// The executor itself logs "pipeline done" with the result counters
 		// at the end of every Run; logging it again here would emit two
@@ -400,6 +410,7 @@ func cmdDaemon(args []string) int {
 		return 1
 	}
 	defer db.Close()
+	failureLog := failures.New(db.Bucket(failures.BucketName))
 
 	tasks, err := config.BuildTasks(cfg, db, logger)
 	if err != nil {
@@ -481,6 +492,11 @@ func cmdDaemon(args []string) int {
 			rec.Undecided = result.Undecided
 			rec.Total = result.Total
 			rec.Duration = result.Duration
+			// Record failed entries in the durable failure audit log (real
+			// runs only — dry-runs skip sinks so there are no true failures).
+			if !effectiveDry {
+				logRunFailures(failureLog, result, name, at, logger)
+			}
 			// The executor itself logs "pipeline done" with the same
 			// counters at the end of every Run; the daemon only owns
 			// the history record here.
