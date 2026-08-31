@@ -46,6 +46,7 @@ async function loadDBTab() {
   dbNavItems.push({bucket: '__match_tester__', label: '🔍 Match tester', section: 'tools'});
   dbNavItems.push({bucket: '__quality_tester__', label: '🎚 Quality tester', section: 'tools'});
   dbNavItems.push({bucket: '__mark_downloaded__', label: '✅ Mark as downloaded', section: 'tools'});
+  dbNavItems.push({bucket: '__trace_search__', label: '🧭 Trace search', section: 'tools'});
   dbLoaded = true;
   renderDBSidebar();
   if (dbNavItems.length && !dbActiveBucket) selectDBBucket(dbNavItems[0].bucket);
@@ -105,6 +106,11 @@ async function selectDBBucket(name) {
   if (name === '__mark_downloaded__') {
     renderDBSidebar();
     renderMarkDownloaded();
+    return;
+  }
+  if (name === '__trace_search__') {
+    renderDBSidebar();
+    renderTraceSearch();
     return;
   }
   dbCurrentCursor = '';
@@ -810,4 +816,79 @@ function markResultHTML(res) {
   const q = rec.quality && rec.quality.string ? ` — ${esc(rec.quality.string)}` : '';
   const note = res.existed ? ' <span class="match-norm">(already tracked — record updated)</span>' : '';
   return `<div class="match-verdict"><span class="match-yes">✓ Marked</span> <code>${what}</code>${q} as downloaded${note}</div>`;
+}
+
+// ── trace search ─────────────────────────────────────────────────────────────
+// Search every kept run trace for a title and show what happened to it each
+// time, newest first. Answers "was X ever grabbed, and why was it rejected?"
+// across runs — history the single-record trackers can't provide.
+
+function renderTraceSearch() {
+  const main = document.getElementById('db-main-content');
+  main.innerHTML = `
+    <div class="match-tester">
+      <h2>Trace search</h2>
+      <p class="match-hint">Find every time a title appeared in a run and what happened to it — accepted, rejected (with reason), deduped, failed. Run traces are kept for the last 20 runs per pipeline, so this is recent history, not all time.</p>
+      <div class="match-form">
+        <label>Title contains
+          <input id="trace-q" type="text" placeholder="strange new worlds" />
+        </label>
+        <button class="btn" onclick="runTraceSearch()">Search runs</button>
+      </div>
+      <div id="trace-results"></div>
+    </div>`;
+  const inp = document.getElementById('trace-q');
+  inp.focus();
+  inp.addEventListener('keydown', e => { if (e.key === 'Enter') runTraceSearch(); });
+}
+
+async function runTraceSearch() {
+  const q = document.getElementById('trace-q').value.trim();
+  const results = document.getElementById('trace-results');
+  if (!q) { results.innerHTML = '<div class="db-empty">Enter a title to search.</div>'; return; }
+  results.innerHTML = '<div class="db-loading">Searching…</div>';
+  try {
+    const r = await fetch('/api/traces/search?q=' + encodeURIComponent(q));
+    if (!r.ok) { results.innerHTML = `<div class="db-empty">Error: ${esc(await r.text())}</div>`; return; }
+    const { occurrences } = await r.json();
+    results.innerHTML = traceSearchResultHTML(occurrences);
+  } catch (e) {
+    results.innerHTML = `<div class="db-empty">Error: ${esc(e.message)}</div>`;
+  }
+}
+
+// traceSearchResultHTML renders the occurrence list. Pure (no DOM/fetch) for
+// testing. `nowMs` is injectable so relative times are deterministic in tests.
+function traceSearchResultHTML(occurrences, nowMs) {
+  occurrences = occurrences || [];
+  if (!occurrences.length) return '<div class="db-empty">No matching entries in the kept run traces.</div>';
+  const stateClass = { accepted: 'trace-accepted', rejected: 'trace-rejected', failed: 'trace-failed', consumed: 'trace-consumed' };
+  let html = `<div class="match-norm">${occurrences.length} occurrence(s), newest first</div>`;
+  for (const o of occurrences) {
+    const e = o.entry || {};
+    const cls = stateClass[e.final] || '';
+    const when = traceRelTime(o.at, nowMs);
+    const dry = o.dry_run ? ' <span class="trace-dry">DRY</span>' : '';
+    const reason = e.reason ? `<div class="trace-reason">${esc(e.reason)}</div>` : '';
+    html += `<div class="trace-occ">
+      <div class="trace-occ-head">
+        <span class="trace-final ${cls}">${esc(e.final || 'undecided')}</span>
+        <span class="trace-title"><code>${esc(e.title || '')}</code></span>
+      </div>
+      <div class="trace-meta">${esc(o.task)} · ${esc(when)}${dry}</div>
+      ${reason}
+    </div>`;
+  }
+  return html;
+}
+
+function traceRelTime(iso, nowMs) {
+  const t = Date.parse(iso);
+  if (isNaN(t)) return iso || '';
+  const now = nowMs || Date.now();
+  const s = Math.round((now - t) / 1000);
+  if (s < 90) return s + 's ago';
+  if (s < 5400) return Math.round(s / 60) + 'm ago';
+  if (s < 86400) return Math.round(s / 3600) + 'h ago';
+  return Math.round(s / 86400) + 'd ago';
 }
