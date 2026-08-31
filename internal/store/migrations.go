@@ -38,6 +38,83 @@ func (s *SQLiteStore) migrate() error {
 	return s.runMigrations(migrations)
 }
 
+// MigrationInfo describes one migration for reporting via `pipeliner migrate`.
+type MigrationInfo struct {
+	Version     int    `json:"version"`
+	Description string `json:"description"`
+	AppliedAt   string `json:"applied_at,omitempty"`
+}
+
+// migrationDescription returns the compiled description for a version, or "" if
+// unknown (e.g. the version-0 baseline, which has no runnable fn).
+func migrationDescription(version int) string {
+	for _, m := range migrations {
+		if m.version == version {
+			return m.description
+		}
+	}
+	return ""
+}
+
+// CurrentVersion returns the highest applied migration version (0 for a fresh
+// or pre-migration database). It ensures the tracking table exists first.
+func (s *SQLiteStore) CurrentVersion() (int, error) {
+	if _, err := s.db.Exec(migrationsSchema); err != nil {
+		return 0, fmt.Errorf("store: create migrations table: %w", err)
+	}
+	var v int
+	if err := s.db.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&v); err != nil {
+		return 0, fmt.Errorf("store: query migration version: %w", err)
+	}
+	return v, nil
+}
+
+// AppliedMigrations returns the applied migrations (version + timestamp),
+// ascending, with descriptions filled in from the compiled set.
+func (s *SQLiteStore) AppliedMigrations() ([]MigrationInfo, error) {
+	if _, err := s.db.Exec(migrationsSchema); err != nil {
+		return nil, fmt.Errorf("store: create migrations table: %w", err)
+	}
+	rows, err := s.db.Query(`SELECT version, applied_at FROM schema_migrations ORDER BY version`)
+	if err != nil {
+		return nil, fmt.Errorf("store: query applied migrations: %w", err)
+	}
+	defer rows.Close()
+	var out []MigrationInfo
+	for rows.Next() {
+		var mi MigrationInfo
+		if err := rows.Scan(&mi.Version, &mi.AppliedAt); err != nil {
+			return nil, fmt.Errorf("store: scan migration: %w", err)
+		}
+		mi.Description = migrationDescription(mi.Version)
+		out = append(out, mi)
+	}
+	return out, rows.Err()
+}
+
+// PendingMigrations returns the migrations not yet applied, ascending. On a
+// fresh database this is every real migration (version > 0).
+func (s *SQLiteStore) PendingMigrations() ([]MigrationInfo, error) {
+	cur, err := s.CurrentVersion()
+	if err != nil {
+		return nil, err
+	}
+	var out []MigrationInfo
+	for _, m := range migrations {
+		if m.version > cur {
+			out = append(out, MigrationInfo{Version: m.version, Description: m.description})
+		}
+	}
+	return out, nil
+}
+
+// ApplyMigrations applies all pending migrations. Same effect as opening the
+// store with OpenSQLite; exposed so `pipeliner migrate` can apply explicitly
+// after a NoMigrate open (e.g. following a backup).
+func (s *SQLiteStore) ApplyMigrations() error {
+	return s.migrate()
+}
+
 // runMigrations creates the schema_migrations table if needed, stamps version 0
 // for new or pre-migration databases, then applies every pending migration in
 // order. Each migration runs in its own transaction so failures never affect

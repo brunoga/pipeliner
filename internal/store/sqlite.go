@@ -78,8 +78,31 @@ type SQLiteStore struct {
 	releaseLock func() // nil for :memory: databases
 }
 
-// OpenSQLite opens (or creates) a SQLite-backed Store at the given file path.
+// OpenSQLite opens (or creates) a SQLite-backed Store at the given file path
+// and applies any pending migrations. This is the normal entry point.
 func OpenSQLite(path string) (*SQLiteStore, error) {
+	s, err := openRaw(path)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.migrate(); err != nil {
+		s.Close()
+		return nil, err
+	}
+	return s, nil
+}
+
+// OpenSQLiteNoMigrate opens the store without running migrations. Use it for
+// pre-flight inspection (migration status) and backups, where applying
+// migrations as a side effect would be wrong. Callers are responsible for
+// applying migrations explicitly via ApplyMigrations if desired.
+func OpenSQLiteNoMigrate(path string) (*SQLiteStore, error) {
+	return openRaw(path)
+}
+
+// openRaw opens the database, sets pragmas, and ensures the base schema, but
+// does not run migrations.
+func openRaw(path string) (*SQLiteStore, error) {
 	var release func()
 	if path != ":memory:" {
 		var err error
@@ -124,15 +147,7 @@ func OpenSQLite(path string) (*SQLiteStore, error) {
 		return nil, fmt.Errorf("store: create schema: %w", err)
 	}
 
-	s := &SQLiteStore{db: db, releaseLock: release}
-	if err := s.migrate(); err != nil {
-		db.Close()
-		if release != nil {
-			release()
-		}
-		return nil, err
-	}
-	return s, nil
+	return &SQLiteStore{db: db, releaseLock: release}, nil
 }
 
 // Bucket returns a SQLite-backed Bucket for the given name.
@@ -144,6 +159,24 @@ func (s *SQLiteStore) Bucket(name string) Bucket {
 // (e.g. packages that manage their own schema in a separate table).
 func (s *SQLiteStore) DB() *sql.DB {
 	return s.db
+}
+
+// Backup writes a consistent snapshot of the database to destPath using
+// SQLite's VACUUM INTO, which is safe on a live WAL database. destPath must not
+// already exist. Intended for a pre-migration safety copy.
+func (s *SQLiteStore) Backup(destPath string) error {
+	if destPath == "" {
+		return fmt.Errorf("store: backup: empty destination path")
+	}
+	if _, err := os.Stat(destPath); err == nil {
+		return fmt.Errorf("store: backup destination %q already exists", destPath)
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("store: backup: stat destination: %w", err)
+	}
+	if _, err := s.db.Exec(`VACUUM INTO ?`, destPath); err != nil {
+		return fmt.Errorf("store: backup to %q: %w", destPath, err)
+	}
+	return nil
 }
 
 // Close closes the underlying database connection and releases the file lock.
