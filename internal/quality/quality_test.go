@@ -128,6 +128,42 @@ func TestParseSourceVariants(t *testing.T) {
 		{"Movie.HDTV.x264", SourceHDTV},
 		{"Movie.DVDRip.XviD", SourceDVDRip},
 		{"Movie.TVRip.XviD", SourceTVRip},
+		{"Movie.CAM.x264", SourceCAM},
+		{"Movie.HDCAM.x264", SourceCAM},
+		{"Movie.CAMRip.x264", SourceCAM},
+		{"Movie.HDTS.x264", SourceTS},
+		{"Movie.TELESYNC.x264", SourceTS},
+	}
+	for _, tc := range cases {
+		t.Run(tc.title, func(t *testing.T) {
+			if got := Parse(tc.title).Source; got != tc.want {
+				t.Errorf("source: got %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestParseSourceMultipleTokens is the regression guard for CAM releases that
+// mislabel themselves with a higher tier: a theatrical/pre-release marker must
+// dominate any co-occurring WEB/BluRay tag, while legitimate hierarchical
+// combos (BluRay Remux) still resolve to the higher tier.
+func TestParseSourceMultipleTokens(t *testing.T) {
+	cases := []struct {
+		title string
+		want  Source
+	}{
+		// CAM/TS marker dominates a co-occurring higher tag, regardless of order.
+		{"Movie.2024.1080p.WEB.CAM.x264", SourceCAM},
+		{"Movie 2024 WEBRip CAM x264", SourceCAM},
+		{"Movie 2024 CAM WEB-DL x264", SourceCAM},
+		{"Movie 2024 HDTS 1080p WEB x264", SourceTS},
+		{"Movie 2024 BluRay HDCAM x264", SourceCAM},
+		{"Movie 2024 SCREENER WEB x264", SourceSCR},
+		// No low-tier marker: the best legitimate token wins.
+		{"Movie 2024 1080p BluRay Remux", SourceRemux},
+		{"Movie 2024 WEB-DL BluRay", SourceBluRay},
+		// Lowest of multiple theatrical markers wins.
+		{"Movie 2024 TS CAM x264", SourceCAM},
 	}
 	for _, tc := range cases {
 		t.Run(tc.title, func(t *testing.T) {
