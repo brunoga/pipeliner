@@ -87,6 +87,7 @@ import (
 	_ "github.com/brunoga/pipeliner/plugins/source/rss"
 	_ "github.com/brunoga/pipeliner/plugins/source/run_report"
 	_ "github.com/brunoga/pipeliner/plugins/source/series_tracker"
+	_ "github.com/brunoga/pipeliner/plugins/source/stuck_favorites"
 	_ "github.com/brunoga/pipeliner/plugins/source/torrent_session"
 	_ "github.com/brunoga/pipeliner/plugins/source/trakt_calendar"
 	_ "github.com/brunoga/pipeliner/plugins/source/trakt_list"

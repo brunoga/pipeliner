@@ -240,6 +240,7 @@ func (s *Server) Start(ctx context.Context, addr string, tlsCfg *tls.Config) err
 	protected.HandleFunc("POST /api/db/series/mark", s.apiDBMarkSeries)
 	protected.HandleFunc("POST /api/db/movies/mark", s.apiDBMarkMovie)
 	protected.HandleFunc("GET /api/downloads", s.apiDownloads)
+	protected.HandleFunc("GET /api/watchdog/stuck", s.apiWatchdogStuck)
 	protected.HandleFunc("POST /api/trakt/auth/start", s.apiTraktAuthStart)
 	protected.HandleFunc("GET /api/trakt/auth/poll", s.apiTraktAuthPoll)
 	protected.HandleFunc("GET /api/log-debug-plugins", s.apiGetLogDebugPlugins)
