@@ -44,6 +44,7 @@ async function loadDBTab() {
   }
   // Diagnostic tools (no backing bucket) live in their own section.
   dbNavItems.push({bucket: '__match_tester__', label: '🔍 Match tester', section: 'tools'});
+  dbNavItems.push({bucket: '__quality_tester__', label: '🎚 Quality tester', section: 'tools'});
   dbLoaded = true;
   renderDBSidebar();
   if (dbNavItems.length && !dbActiveBucket) selectDBBucket(dbNavItems[0].bucket);
@@ -93,6 +94,11 @@ async function selectDBBucket(name) {
   if (name === '__match_tester__') {
     renderDBSidebar();
     renderMatchTester();
+    return;
+  }
+  if (name === '__quality_tester__') {
+    renderDBSidebar();
+    renderQualityTester();
     return;
   }
   dbCurrentCursor = '';
@@ -624,5 +630,83 @@ function matchTesterResultHTML(res) {
     <thead><tr><th></th><th>dist</th><th>year</th><th>note</th><th>candidate</th></tr></thead>
     <tbody>${rows}</tbody></table>`;
   if (hidden > 0) html += `<div class="match-norm">${hidden} more non-matching candidate(s) hidden; nearest shown first.</div>`;
+  return html;
+}
+
+// ── quality tester ───────────────────────────────────────────────────────────
+// The quality-side companion to the match tester: parse a release title into a
+// quality and (optionally) report per-dimension whether it satisfies a spec.
+// Mirrors the `pipeliner quality` CLI. POSTs to /api/quality/test.
+
+function renderQualityTester() {
+  const main = document.getElementById('db-main-content');
+  main.innerHTML = `
+    <div class="match-tester">
+      <h2>Quality tester</h2>
+      <p class="match-hint">Parse a release title into its quality, and check it against a spec — the same parsing and matching the <code>quality</code> filter uses. When a download is unexpectedly filtered on quality, this shows which dimension failed.</p>
+      <div class="match-form">
+        <label>Release title
+          <input id="quality-title" type="text" placeholder="Show S01E01 720p WEB-DL x265" />
+        </label>
+        <label>Spec (optional)
+          <input id="quality-spec" type="text" placeholder="720p-1080p webrip+" />
+        </label>
+        <button class="btn" onclick="runQualityTest()">Test quality</button>
+      </div>
+      <div id="quality-results"></div>
+    </div>`;
+  document.getElementById('quality-title').focus();
+}
+
+async function runQualityTest() {
+  const title = document.getElementById('quality-title').value.trim();
+  const results = document.getElementById('quality-results');
+  if (!title) { results.innerHTML = '<div class="db-empty">Enter a release title.</div>'; return; }
+  const spec = document.getElementById('quality-spec').value.trim();
+  results.innerHTML = '<div class="db-loading">Testing…</div>';
+  try {
+    const r = await fetch('/api/quality/test', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({title, spec}),
+    });
+    if (!r.ok) { results.innerHTML = `<div class="db-empty">Error: ${esc(await r.text())}</div>`; return; }
+    results.innerHTML = qualityTesterResultHTML(await r.json(), spec);
+  } catch (e) {
+    results.innerHTML = `<div class="db-empty">Error: ${esc(e.message)}</div>`;
+  }
+}
+
+// qualityTesterResultHTML builds the results markup from a SpecResult. Pure
+// (no DOM/fetch) so it is unit-testable. hasSpec controls whether the
+// per-dimension verdict table is shown (an empty spec just reports quality).
+function qualityTesterResultHTML(res, spec) {
+  let html = `<div class="match-norm">detected quality: <code>${esc(res.quality || 'unknown')}</code></div>`;
+  if (!spec) return html;
+  const verdict = res.matched
+    ? `<span class="match-yes">MATCH</span>`
+    : `<span class="match-no">NO MATCH</span>`;
+  html = `<div class="match-verdict">${verdict} <span class="match-norm">against <code>${esc(res.spec)}</code></span></div>` + html;
+  const constrained = (res.dimensions || []).filter(d => d.constrained);
+  if (!constrained.length) {
+    html += '<div class="match-norm">Spec places no constraints on any dimension.</div>';
+    return html;
+  }
+  let rows = '';
+  for (const d of constrained) {
+    const mark = d.passed ? '✓' : '✗';
+    let note = '';
+    if (d.bypassed) note = 'bypassed (optional, value unknown)';
+    else if (!d.passed) note = 'does not satisfy constraint';
+    rows += `<tr class="${d.passed ? '' : 'match-row-no'}">
+      <td>${mark}</td>
+      <td>${esc(d.name)}</td>
+      <td><code>${esc(d.constraint)}</code></td>
+      <td><code>${esc(d.value)}</code></td>
+      <td>${esc(note)}</td>
+    </tr>`;
+  }
+  html += `<table class="match-table">
+    <thead><tr><th></th><th>dimension</th><th>constraint</th><th>value</th><th>note</th></tr></thead>
+    <tbody>${rows}</tbody></table>`;
   return html;
 }
