@@ -48,6 +48,7 @@ async function loadDBTab() {
   dbNavItems.push({bucket: '__mark_downloaded__', label: '✅ Mark as downloaded', section: 'tools'});
   dbNavItems.push({bucket: '__trace_search__', label: '🧭 Trace search', section: 'tools'});
   dbNavItems.push({bucket: '__download_history__', label: '📥 Download history', section: 'tools'});
+  dbNavItems.push({bucket: '__stale_favorites__', label: '⚠️ Stale favorites', section: 'tools'});
   dbLoaded = true;
   renderDBSidebar();
   if (dbNavItems.length && !dbActiveBucket) selectDBBucket(dbNavItems[0].bucket);
@@ -117,6 +118,11 @@ async function selectDBBucket(name) {
   if (name === '__download_history__') {
     renderDBSidebar();
     renderDownloadHistory();
+    return;
+  }
+  if (name === '__stale_favorites__') {
+    renderDBSidebar();
+    renderStaleFavorites();
     return;
   }
   dbCurrentCursor = '';
@@ -990,4 +996,69 @@ function dlDate(iso) {
   const d = new Date(t);
   const pad = n => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+// ── stale favorites watchdog ─────────────────────────────────────────────────
+// Surfaces favorites whose candidates keep appearing in runs but never get
+// accepted — the silent-failure mode behind the SNW incident. Correlates the
+// resolved favorite lists with the kept run traces via /api/watchdog/stuck.
+
+function renderStaleFavorites() {
+  const main = document.getElementById('db-main-content');
+  main.innerHTML = `
+    <div class="match-tester">
+      <h2>Stale favorites</h2>
+      <p class="match-hint">Favorites whose candidates showed up in recent runs but were never accepted — the "it silently stopped downloading" case. A candidate is linked to a favorite even across a normalization gap, so a matching bug still surfaces here. Scope is the last 20 runs per pipeline.</p>
+      <div class="match-form">
+        <label>Minimum runs seen
+          <input id="stale-min" type="number" min="1" value="3" />
+        </label>
+        <button class="btn" onclick="runStaleFavorites()">Check favorites</button>
+      </div>
+      <div id="stale-results"></div>
+    </div>`;
+  runStaleFavorites();
+}
+
+async function runStaleFavorites() {
+  const results = document.getElementById('stale-results');
+  const min = parseInt(document.getElementById('stale-min').value, 10) || 3;
+  results.innerHTML = '<div class="db-loading">Checking…</div>';
+  try {
+    const r = await fetch('/api/watchdog/stuck?min_runs=' + encodeURIComponent(min));
+    if (!r.ok) { results.innerHTML = `<div class="db-empty">Error: ${esc(await r.text())}</div>`; return; }
+    const data = await r.json();
+    results.innerHTML = staleFavoritesHTML(data);
+  } catch (e) {
+    results.innerHTML = `<div class="db-empty">Error: ${esc(e.message)}</div>`;
+  }
+}
+
+// staleFavoritesHTML renders the watchdog response. Pure (no DOM/fetch) for
+// testing.
+function staleFavoritesHTML(data) {
+  const stuck = (data && data.stuck) || [];
+  const favCount = (data && data.favorite_count) || 0;
+  if (!favCount) {
+    return '<div class="db-empty">No resolved favorite lists found — run a pipeline that uses a series/movies list first.</div>';
+  }
+  if (!stuck.length) {
+    return `<div class="match-verdict"><span class="match-yes">✓ All clear</span> <span class="match-norm">across ${favCount} favorite(s) — every favorite seen in recent runs has downloaded.</span></div>`;
+  }
+  let html = `<div class="match-norm">${stuck.length} favorite(s) seeing candidates but not downloading:</div>`;
+  for (const s of stuck) {
+    const diag = s.nearest_distance > 0
+      ? `<span class="stale-bug">candidates nearly match — possible matching/normalization issue</span>`
+      : `matches, but candidates rejected downstream`;
+    html += `<div class="trace-occ">
+      <div class="trace-occ-head">
+        <span class="trace-final trace-rejected">stuck</span>
+        <span class="trace-title"><code>${esc(s.favorite)}</code></span>
+      </div>
+      <div class="trace-meta">seen in ${s.runs} run(s) · ${esc(s.last_task || '')} · ${diag}</div>
+      ${s.last_reason ? `<div class="trace-reason">last reason: ${esc(s.last_reason)}</div>` : ''}
+      ${s.example_title ? `<div class="trace-reason"><code>${esc(s.example_title)}</code></div>` : ''}
+    </div>`;
+  }
+  return html;
 }

@@ -108,6 +108,27 @@ func (s *Store) Search(query string, limit int) ([]Occurrence, error) {
 	if q == "" {
 		return nil, nil
 	}
+	all, err := s.AllOccurrences()
+	if err != nil {
+		return nil, err
+	}
+	out := all[:0]
+	for _, o := range all {
+		if strings.Contains(strings.ToLower(o.Entry.Title), q) {
+			out = append(out, o)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].At.After(out[j].At) })
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
+// AllOccurrences returns every entry occurrence across all kept runs of all
+// tasks (unsorted). It is the raw input for cross-run analyses such as the
+// stuck-candidate watchdog. Bounded by the store's retention.
+func (s *Store) AllOccurrences() ([]Occurrence, error) {
 	tasks, err := s.Tasks()
 	if err != nil {
 		return nil, err
@@ -124,17 +145,11 @@ func (s *Store) Search(query string, limit int) ([]Occurrence, error) {
 				continue // evicted between List and Get, or unreadable
 			}
 			for _, e := range rt.Entries {
-				if strings.Contains(strings.ToLower(e.Title), q) {
-					out = append(out, Occurrence{
-						Task: task, RunID: rt.RunID, At: rt.At, DryRun: rt.DryRun, Entry: e,
-					})
-				}
+				out = append(out, Occurrence{
+					Task: task, RunID: rt.RunID, At: rt.At, DryRun: rt.DryRun, Entry: e,
+				})
 			}
 		}
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].At.After(out[j].At) })
-	if limit > 0 && len(out) > limit {
-		out = out[:limit]
 	}
 	return out, nil
 }
