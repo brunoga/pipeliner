@@ -1363,6 +1363,8 @@ pipeline("tv", schedule="1h")</code></pre>
 
 <p>The show list is optional. With neither <code>static</code> nor <code>list</code> set, the filter operates in <strong>accept-all mode</strong> — every classified episode passes the upstream requirements and the quality/tracker checks. The tracker still dedups and detects upgrades by series name + episode ID, so this is the right choice for "download every quality-matching episode I find" pipelines.</p>
 
+<div class="note"><strong>Glob patterns in <code>static</code>:</strong> static list entries are matched as <a href="https://pkg.go.dev/path/filepath#Match">glob patterns</a>, so <code>"Star Wars*"</code> matches every Star Wars title. The metacharacters <code>* ? [ ]</code> are meaningful; a title that contains one literally (e.g. a show titled <code>"Whose Line Is It Anyway?"</code>) will silently behave as a wildcard. <code>pipeliner check</code> and the visual editor emit an advisory warning when a static entry contains a stray <code>?</code> or <code>[</code>, or is a malformed pattern that can never match — escape the character with a backslash (<code>\?</code>) if it is literal. The same applies to <a href="#movies"><code>movies</code></a>.</div>
+
 <div class="note"><strong>Upstream requirement:</strong> <code>series</code> reads episode metadata from entry fields rather than parsing titles itself. Run <code>metainfo_file</code> (or any plugin that sets <code>title</code>, <code>series_episode_id</code>, <code>series_season</code>, <code>series_episode</code>, and the <code>_quality</code> typed struct) upstream. The requirement is declared in the plugin descriptor so the DAG validator catches misconfigured pipelines at load time.</div>
 
 <table>

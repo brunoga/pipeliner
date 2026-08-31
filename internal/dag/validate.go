@@ -119,6 +119,11 @@ func Validate(g *Graph, reg func(name string) (*plugin.Descriptor, bool)) (errs,
 			// path=). Static-only — runtime e.Get/Set calls aren't checked.
 			deprecationWarnings(n, d, &warnings)
 
+			// Warn on static title-list entries that carry unintended glob
+			// metacharacters (a stray '?' or unbalanced '[') now that
+			// match.Normalize preserves them for intentional patterns.
+			globLintWarnings(n, &warnings)
+
 			// Warn on accept-only condition nodes — they don't reject the
 			// non-matching rest, which is almost always the user's intent.
 			if w := conditionMissingRejectWarning(n, d); w != nil {
