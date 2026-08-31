@@ -210,6 +210,7 @@ td code{font-size:11px}
     <a href="#quality-cmd" class="sub">Quality tester</a>
     <a href="#tracker-cmd" class="sub">Tracker ops</a>
     <a href="#migrate-cmd" class="sub">Migrations</a>
+    <a href="#downloaded-cmd" class="sub">Download history</a>
     <a href="#webui">Web UI</a>
     <a href="#visual-editor" class="sub">Visual editor</a>
     <a href="#docker">Docker</a>
@@ -2392,6 +2393,12 @@ pipeliner migrate --apply --backup pipeliner.bak.db</code></pre>
 </table>
 <p><strong>The daemon must be stopped</strong> — migrate opens the database directly. A backup is a plain SQLite file you can copy back into place to roll back a migration.</p>
 
+<h3 id="downloaded-cmd">pipeliner downloaded</h3>
+<p>Answers "was this ever downloaded, and how many times?" from the <strong>download history log</strong> — an append-only record written every time the <code>series</code> or <code>movies</code> filter commits a download. Because the trackers keep only the <em>latest</em> record per episode/movie (a quality upgrade overwrites it), they can't tell you a title was grabbed twice; this log can.</p>
+<pre><code>pipeliner downloaded "star trek strange new worlds"</code></pre>
+<p>Output groups the matches per item and, for each, shows how many times it was downloaded (a count above one is a quality upgrade), whether it is still in the tracker, and a table of each download's date, quality, and pipeline. Exit code is 0 when history exists, 1 otherwise. The daemon must be stopped. Also available in the web UI under <strong>Database → Tools → 📥 Download history</strong>, which runs inside the daemon.</p>
+<div class="note">History is recorded from the point this log was added; downloads made before then exist in the trackers but have no log entry, so <code>downloaded</code> may report "no history" for a title you know was grabbed earlier. New downloads are logged from now on.</div>
+
 <h3>pipeliner version</h3>
 <p>Prints the version string and exits.</p>
 
@@ -2530,6 +2537,7 @@ pipeline(<span class="y-str">"my-movies"</span>, schedule=<span class="y-str">"1
   <li><strong>🎚 Quality tester</strong> — the web equivalent of <a href="#quality-cmd"><code>pipeliner quality</code></a>. Enter a release title and an optional <a href="#quality-spec">quality spec</a>; it parses the title's quality and shows, per constrained dimension, whether it satisfies the spec — the fastest way to see why the <code>quality</code> filter rejected a release.</li>
   <li><strong>✅ Mark as downloaded</strong> — the web equivalent of <a href="#tracker-cmd"><code>pipeliner tracker mark-series</code>/<code>mark-movie</code></a>. Seed the series or movies tracker with a title as already-downloaded (for episodes/movies acquired outside pipeliner) so it is never grabbed. The name is normalized and the episode ID canonicalized exactly as the filters do. Runs inside the daemon, so no restart is needed; to force a re-download instead, delete the tracker row from the Series/Movies view.</li>
   <li><strong>🧭 Trace search</strong> — search every kept run trace for a title and see what happened to it each time, newest first: accepted, rejected (with reason), deduped, or failed. This is cross-run history the trackers can't give you — the <code>series</code>/<code>movies</code> trackers keep only the latest download, so "was this ever grabbed, and why was the 720p copy dropped?" is answered here. Scope is the last 20 runs per pipeline (the run-inspector retention), so it is recent history rather than all time.</li>
+  <li><strong>📥 Download history</strong> — the web equivalent of <a href="#downloaded-cmd"><code>pipeliner downloaded</code></a>. Search the append-only download log for a title and see how many times it was grabbed (a count above one is a quality upgrade), whether it is still tracked, and each download's date, quality, and pipeline. Unlike Trace search (recent runs only), this is permanent history of confirmed downloads — recorded from when the log was added.</li>
 </ul>
 
 <h3>Settings tab</h3>

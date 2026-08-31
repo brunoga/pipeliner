@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/brunoga/pipeliner/internal/cache"
+	"github.com/brunoga/pipeliner/internal/downloads"
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/match"
 	"github.com/brunoga/pipeliner/internal/plugin"
@@ -117,6 +118,7 @@ type seriesPlugin struct {
 	tracking        tracking
 	tracker         *series.Tracker
 	inactive        *series.InactiveSet
+	downloadLog     *downloads.Log
 	rejectUnmatched bool
 }
 
@@ -167,6 +169,7 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 		tracking:        tr,
 		tracker:         tracker,
 		inactive:        series.NewInactiveSet(db.Bucket(series.InactiveBucketName)),
+		downloadLog:     downloads.New(db.Bucket(downloads.BucketName)),
 		rejectUnmatched: rejectUnmatched,
 	}, nil
 }
@@ -283,7 +286,7 @@ func (p *seriesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *en
 	return nil
 }
 
-func (p *seriesPlugin) persist(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) error {
+func (p *seriesPlugin) persist(_ context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
 	for _, e := range entries {
 		// Only persist entries that were accepted by all downstream nodes.
 		// The executor passes every entry the series node produced to Commit,
@@ -322,6 +325,25 @@ func (p *seriesPlugin) persist(_ context.Context, _ *plugin.TaskContext, entries
 		}
 		if err := p.tracker.MarkWithParts(rec, ep); err != nil {
 			return fmt.Errorf("series: mark %s %s: %w", matchedShow, epID, err)
+		}
+		// Append to the download history audit log (best-effort — the tracker
+		// is the source of truth; the log is for reporting re-downloads and
+		// quality upgrades over time). Optional: nil in tests that build the
+		// plugin struct directly.
+		if p.downloadLog == nil {
+			continue
+		}
+		if err := p.downloadLog.Append(downloads.Event{
+			MediaType:    "series",
+			Name:         matchedShow,
+			DisplayName:  rec.DisplayName,
+			EpisodeID:    epID,
+			Quality:      q,
+			Repack:       rec.Repack,
+			DownloadedAt: rec.DownloadedAt,
+			Task:         tc.Name,
+		}); err != nil {
+			tc.Logger.Warn("series: append download log", "series", matchedShow, "episode", epID, "err", err)
 		}
 	}
 	return nil
