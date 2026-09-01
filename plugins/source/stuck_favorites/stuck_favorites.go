@@ -66,13 +66,21 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 
 func (p *stuckPlugin) Name() string { return pluginName }
 
-// favorites unions the title lists cached by the series and movies filters.
-func (p *stuckPlugin) favorites() []match.TitleEntry {
-	var out []match.TitleEntry
-	for _, bucket := range []string{"cache_series_list", "cache_movies_list"} {
-		if lists, ok := cache.Values[[]match.TitleEntry](p.db.Bucket(bucket)); ok {
+// favorites unions the title lists cached by the series and movies filters,
+// tagging each with its media kind so correlation stays scoped to the pipelines
+// that use it.
+func (p *stuckPlugin) favorites() []watchdog.Favorite {
+	var out []watchdog.Favorite
+	for _, b := range []struct {
+		bucket string
+		kind   watchdog.MediaKind
+	}{
+		{"cache_series_list", watchdog.KindSeries},
+		{"cache_movies_list", watchdog.KindMovies},
+	} {
+		if lists, ok := cache.Values[[]match.TitleEntry](p.db.Bucket(b.bucket)); ok {
 			for _, l := range lists {
-				out = append(out, l...)
+				out = append(out, watchdog.MakeFavorites(l, b.kind)...)
 			}
 		}
 	}
@@ -85,7 +93,11 @@ func (p *stuckPlugin) Generate(_ context.Context, tc *plugin.TaskContext) ([]*en
 	if err != nil {
 		return nil, fmt.Errorf("%s: read traces: %w", pluginName, err)
 	}
-	stuck := watchdog.Detect(occ, p.favorites(), p.minRuns, p.maxDistance)
+	taskKinds, err := watchdog.LoadTaskKinds(p.db.Bucket(watchdog.TaskKindsBucket))
+	if err != nil {
+		return nil, fmt.Errorf("%s: read task kinds: %w", pluginName, err)
+	}
+	stuck := watchdog.Detect(occ, p.favorites(), taskKinds, p.minRuns, p.maxDistance)
 
 	out := make([]*entry.Entry, 0, len(stuck))
 	for _, s := range stuck {

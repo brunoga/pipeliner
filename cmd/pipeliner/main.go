@@ -18,6 +18,7 @@ import (
 
 	"github.com/brunoga/pipeliner/internal/clog"
 	"github.com/brunoga/pipeliner/internal/config"
+	"github.com/brunoga/pipeliner/internal/dag"
 	"github.com/brunoga/pipeliner/internal/failures"
 	"github.com/brunoga/pipeliner/internal/logfile"
 	"github.com/brunoga/pipeliner/internal/plugin"
@@ -26,6 +27,7 @@ import (
 	"github.com/brunoga/pipeliner/internal/task"
 	"github.com/brunoga/pipeliner/internal/traces"
 	itrakt "github.com/brunoga/pipeliner/internal/trakt"
+	"github.com/brunoga/pipeliner/internal/watchdog"
 	"github.com/brunoga/pipeliner/internal/web"
 
 	// Register all built-in plugins via side-effect imports.
@@ -417,6 +419,7 @@ func cmdDaemon(args []string) int {
 		logger.Error("failed to build tasks", "err", err)
 		return 1
 	}
+	persistTaskKinds(db, cfg.Graphs, logger)
 
 	// taskByName is replaced atomically on reload; protect all accesses with taskMu.
 	var taskMu sync.RWMutex
@@ -593,6 +596,7 @@ func cmdDaemon(args []string) int {
 		afterMu.Unlock()
 
 		d.Reset(scheduled)
+		persistTaskKinds(db, newCfg.Graphs, logger)
 		logger.Info("config reloaded", "pipelines", len(newTasks))
 
 		if ws != nil {
@@ -879,6 +883,21 @@ func splitPluginFilter(s string) []string {
 // pipeliner.db in the same directory as the config file.
 func dbPath(cfgPath string) string {
 	return filepath.Join(filepath.Dir(filepath.Clean(cfgPath)), "pipeliner.db")
+}
+
+// persistTaskKinds records which media each pipeline consumes (derived from its
+// graph) so the stale-favorite watchdog — both the web handler and the
+// stuck_favorites plugin — can scope correlation to the pipelines that actually
+// use each list. Best-effort: a failure only degrades the watchdog to unscoped
+// correlation, so it warns rather than aborting the daemon.
+func persistTaskKinds(db *store.SQLiteStore, graphs map[string]*dag.Graph, logger *slog.Logger) {
+	kinds := make(map[string]watchdog.MediaKind, len(graphs))
+	for name, g := range graphs {
+		kinds[name] = watchdog.KindsForGraph(g)
+	}
+	if err := watchdog.SaveTaskKinds(db.Bucket(watchdog.TaskKindsBucket), kinds); err != nil {
+		logger.Warn("failed to persist task media kinds for watchdog scoping", "err", err)
+	}
 }
 
 // logFilePath returns the rotating log file path: pipeliner.log in the same
