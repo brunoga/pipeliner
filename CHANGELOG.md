@@ -5,6 +5,22 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.19.0] - 2026-09-01
+
+Two visual-editor improvements: centralized configs (env()/shared-dict definitions) now survive a visual-editor round-trip, and a one-click layout tidy.
+
+### Added
+
+- **Definitions (preamble) preservation and panel** ([#362](https://github.com/brunoga/pipeliner/pull/362)). Configs that centralize secrets and shared settings as module-level definitions above the pipelines — `API_KEY = env("API_KEY")`, a shared `SMTP = {…}` dict, etc. — now round-trip through the visual editor. The definition block is re-emitted verbatim on save, and any node value that references a definition (`api_key=API_KEY`, `config=SMTP`, `list=[MY_LIST]`, and references inside a `discover` search or `series` list) round-trips as that reference rather than being re-inlined as the resolved literal. The server returns reference-aware config values by parsing the Starlark AST, so even multi-line notify `body` templates don't confuse it. A new **≡ Definitions** toolbar button surfaces the preamble for viewing and editing without leaving the visual editor. (One edge case remains: a whole top-level `list=[MY_VAR]` where the entry itself is a bare variable is expanded on a visual save — wrap it in a `def` helper, which round-trips verbatim, or edit that node in the text view.)
+
+- **"Tidy" layout button** ([#363](https://github.com/brunoga/pipeliner/pull/363)). A **⇉ Tidy** button in the visual-editor toolbar re-arranges the pipeline in view left-to-right in execution (DAG) order — columns by depth, with search/list/route sub-nodes placed around their parents — for when nodes end up scattered after edits or from a config with messy saved positions. It affects only the active pipeline (others just reflow their vertical stacking) and a single Undo restores the previous layout.
+
+### Fixed
+
+- **The visual editor no longer corrupts a centralized config on save** ([#362](https://github.com/brunoga/pipeliner/pull/362)). Moving a node and saving used to drop the top-level definition block and leave the nodes referencing an undefined name (`config: <input>:8:42: undefined: JACKETT_API_KEY`), and would have re-inlined the resolved secrets into every node that referenced a variable. Both are fixed by the preamble preservation and reference-aware values above.
+
+**Why 1.19.0**: two additive visual-editor features (the Definitions panel and the Tidy button) alongside the centralized-config save fix. Web-UI only; no config changes and no effect on running pipelines. A minor bump per SemVer.
+
 ## [1.18.1] - 2026-09-01
 
 A single Deluge fix, found while wiring up a torrent-janitor pipeline.
