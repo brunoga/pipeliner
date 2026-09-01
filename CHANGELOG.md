@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.19.1] - 2026-09-01
+
+A throughput fix for the live web log during heavy pipeline runs.
+
+### Fixed
+
+- **Live web logs no longer drop lines during large pipeline runs** ([#365](https://github.com/brunoga/pipeliner/pull/365)). A big run (e.g. `movies-3d` with many entries and stages) spikes the log rate to thousands of lines per second, which overran the live log stream. The chain: the browser rendered each line into the DOM synchronously (append + scroll + window-cap per line), stalling the main thread and applying TCP backpressure to the SSE stream, which filled the server's small per-subscriber buffer and forced it to drop lines. All three links are addressed — the SSE writer now drains the channel and flushes once per batch instead of once per line, the per-subscriber buffer is much larger, and the client coalesces live lines into a single DOM append per animation frame. (Nothing was ever lost from the on-disk log; only the live view dropped lines, and it could already backfill via `/api/logs/after` — now it keeps up without needing to.)
+
+**Why 1.19.1**: a bug-fix patch for the live-log stream; web-UI only, no config changes, no effect on pipeline execution. A patch bump per SemVer.
+
 ## [1.19.0] - 2026-09-01
 
 Two visual-editor improvements: centralized configs (env()/shared-dict definitions) now survive a visual-editor round-trip, and a one-click layout tidy.
