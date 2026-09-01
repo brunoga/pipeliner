@@ -37,7 +37,14 @@ func (s *Server) apiWatchdogStuck(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	stuck := watchdog.Detect(occ, favorites, minRuns, watchdog.DefaultMaxDistance)
+	// Scope correlation to the pipelines that actually use each list, so a TV
+	// favorite never picks up rejections from a movies pipeline (and vice versa).
+	taskKinds, err := watchdog.LoadTaskKinds(s.db.Bucket(watchdog.TaskKindsBucket))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	stuck := watchdog.Detect(occ, favorites, taskKinds, minRuns, watchdog.DefaultMaxDistance)
 	if stuck == nil {
 		stuck = []watchdog.StuckFavorite{}
 	}
@@ -49,13 +56,20 @@ func (s *Server) apiWatchdogStuck(w http.ResponseWriter, r *http.Request) {
 }
 
 // resolvedFavorites unions the title lists cached by the series and movies
-// filters (the same lists they match against).
-func (s *Server) resolvedFavorites() []match.TitleEntry {
-	var out []match.TitleEntry
-	for _, bucket := range []string{"cache_series_list", "cache_movies_list"} {
-		if lists, ok := cache.Values[[]match.TitleEntry](s.db.Bucket(bucket)); ok {
+// filters (the same lists they match against), tagging each with its media kind
+// so correlation stays scoped to the pipelines that use it.
+func (s *Server) resolvedFavorites() []watchdog.Favorite {
+	var out []watchdog.Favorite
+	for _, b := range []struct {
+		bucket string
+		kind   watchdog.MediaKind
+	}{
+		{"cache_series_list", watchdog.KindSeries},
+		{"cache_movies_list", watchdog.KindMovies},
+	} {
+		if lists, ok := cache.Values[[]match.TitleEntry](s.db.Bucket(b.bucket)); ok {
 			for _, l := range lists {
-				out = append(out, l...)
+				out = append(out, watchdog.MakeFavorites(l, b.kind)...)
 			}
 		}
 	}

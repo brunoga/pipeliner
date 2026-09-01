@@ -12,6 +12,13 @@ traces. A candidate is linked to a favorite even across a normalization gap
 (within `max_distance` edits), so a matching bug still surfaces here rather than
 hiding as an unrelated "not in list" rejection.
 
+Correlation is **scoped by media kind**: a favorite from a series list is only
+matched against occurrences from pipelines that filter series, and a movie
+favorite only against pipelines that filter movies. So a TV favorite (e.g. one
+from `tvdb_favorites`, which only feeds `series` pipelines) never picks up
+rejections from an unrelated movies pipeline — which would otherwise show a
+nonsensical last reason like `missing required field: video_year`.
+
 A favorite is reported when its candidates were seen in at least `min_runs`
 distinct runs and **never accepted** in any of them. The `stuck_nearest_distance`
 field tells the story: `0` means the favorite matched but every candidate was

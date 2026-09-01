@@ -74,15 +74,16 @@ type favAssoc struct {
 	ok      bool
 }
 
-// dedupeFavorites removes duplicate favorites (same normalized name and year),
-// which arise when the series and movies list caches are unioned and the same
-// title appears in more than one pipeline. Deduping shrinks the inner Probe
-// loop and keeps the candidate ranking clean.
-func dedupeFavorites(favorites []match.TitleEntry) []match.TitleEntry {
+// dedupeFavorites removes duplicate favorites (same normalized name, year, and
+// kind), which arise when the series and movies list caches are unioned and the
+// same title appears in more than one pipeline. Deduping shrinks the inner Probe
+// loop and keeps the candidate ranking clean. A title present as both a series
+// and a movie favorite is kept once per kind so each stays correctly scoped.
+func dedupeFavorites(favorites []Favorite) []Favorite {
 	seen := make(map[string]bool, len(favorites))
 	out := favorites[:0:0]
 	for _, f := range favorites {
-		key := f.Norm + "\x00" + strconv.Itoa(f.Year)
+		key := f.Entry.Norm + "\x00" + strconv.Itoa(f.Entry.Year) + "\x00" + strconv.Itoa(int(f.Kind))
 		if seen[key] {
 			continue
 		}
@@ -90,6 +91,29 @@ func dedupeFavorites(favorites []match.TitleEntry) []match.TitleEntry {
 		out = append(out, f)
 	}
 	return out
+}
+
+// favoritesForMask returns the favorites whose kind intersects mask, as a plain
+// TitleEntry list for Probe. The result is memoized per mask by the caller.
+func favoritesForMask(favorites []Favorite, mask MediaKind) []match.TitleEntry {
+	out := make([]match.TitleEntry, 0, len(favorites))
+	for _, f := range favorites {
+		if f.Kind&mask != 0 {
+			out = append(out, f.Entry)
+		}
+	}
+	return out
+}
+
+// allowMask returns the media kinds an occurrence's task is allowed to correlate
+// against. A task with a recorded kind uses exactly that kind; an unknown task
+// (not in the map, e.g. an older database with no persisted map) falls back to
+// all kinds so scoping never hides a stuck favorite it can't yet classify.
+func allowMask(taskKinds map[string]MediaKind, task string) MediaKind {
+	if k, ok := taskKinds[task]; ok {
+		return k
+	}
+	return allKinds
 }
 
 type favAgg struct {
@@ -109,8 +133,15 @@ type favAgg struct {
 // only when within maxDistance edits of it (0 distance = exact/glob match).
 // Occurrences that match no favorite closely enough are ignored as feed noise.
 //
+// Correlation is scoped by media kind: a series favorite is only matched against
+// occurrences from tasks that filter series, and a movie favorite only against
+// tasks that filter movies, so a TV favorite never picks up rejections from an
+// unrelated movies pipeline (taskKinds maps task name → the kinds it consumes;
+// an unknown task correlates against all kinds). A nil/empty taskKinds disables
+// scoping — every task reads as unknown, the pre-scoping behavior.
+//
 // minRuns <= 0 and maxDistance <= 0 fall back to the package defaults.
-func Detect(occ []traces.Occurrence, favorites []match.TitleEntry, minRuns, maxDistance int) []StuckFavorite {
+func Detect(occ []traces.Occurrence, favorites []Favorite, taskKinds map[string]MediaKind, minRuns, maxDistance int) []StuckFavorite {
 	if minRuns <= 0 {
 		minRuns = DefaultMinRuns
 	}
@@ -125,23 +156,35 @@ func Detect(occ []traces.Occurrence, favorites []match.TitleEntry, minRuns, maxD
 	// Probing every occurrence against every favorite is O(occ × fav × len²),
 	// which blows past the web timeout on a real trace store (tens of thousands
 	// of occurrences × hundreds of favorites). The same shows recur across the
-	// kept runs, so memoize the association by show name: the expensive Probe
-	// runs once per distinct show, not once per occurrence.
-	nameCache := map[string]string{}   // raw title → showName (avoids re-parsing)
-	assocCache := map[string]favAssoc{} // showName → nearest-favorite association
+	// kept runs, so memoize the association by (allowed-kind mask, show name):
+	// the expensive Probe runs once per distinct show per mask, not once per
+	// occurrence. maskFavs memoizes the per-mask favorite sublist Probe scans.
+	nameCache := map[string]string{}    // raw title → showName (avoids re-parsing)
+	assocCache := map[string]favAssoc{} // "mask\x00showName" → nearest-favorite association
+	maskFavs := map[MediaKind][]match.TitleEntry{}
 	byFav := map[string]*favAgg{}
 	for _, o := range occ {
+		mask := allowMask(taskKinds, o.Task)
+		if mask == 0 {
+			continue // task uses no favorite lists — not correlated with any favorite
+		}
 		name, named := nameCache[o.Entry.Title]
 		if !named {
 			name = showName(o.Entry.Title)
 			nameCache[o.Entry.Title] = name
 		}
-		a, cached := assocCache[name]
+		ckey := strconv.Itoa(int(mask)) + "\x00" + name
+		a, cached := assocCache[ckey]
 		if !cached {
-			p := match.Probe(name, 0, favorites)
+			sub, ok := maskFavs[mask]
+			if !ok {
+				sub = favoritesForMask(favorites, mask)
+				maskFavs[mask] = sub
+			}
+			p := match.Probe(name, 0, sub)
 			favNorm, dist, ok := nearestFavorite(p, maxDistance)
 			a = favAssoc{favNorm: favNorm, dist: dist, ok: ok}
-			assocCache[name] = a
+			assocCache[ckey] = a
 		}
 		if !a.ok {
 			continue
