@@ -93,12 +93,19 @@ func (b *Broadcaster) NotifyRotate() {
 	b.mu.Unlock()
 }
 
+// subscriberBuffer is the per-client channel depth. It is large enough to
+// absorb the burst a big pipeline run emits (thousands of lines in a short
+// window) while the SSE writer drains and flushes it in batches, so a
+// transiently-slow browser doesn't force Publish to drop lines. Overflow beyond
+// this is still recovered by the client's gap bridge (/api/logs/after).
+const subscriberBuffer = 8192
+
 // Subscribe atomically snapshots events with seq > afterSeq and
 // registers a live channel. afterSeq=0 replays the whole ring. Returns
 // the snapshot, the live channel, and the current rotation counter so
 // the SSE handler can detect rotation that happened mid-disconnect.
 func (b *Broadcaster) Subscribe(afterSeq int64) (snapshot []LogEvent, live chan LogEvent, rotation int64) {
-	live = make(chan LogEvent, 64)
+	live = make(chan LogEvent, subscriberBuffer)
 	b.mu.Lock()
 	snapshot = b.snapAfter(afterSeq)
 	b.clients[live] = struct{}{}

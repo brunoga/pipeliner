@@ -541,14 +541,54 @@ function applyLiveLine(line) {
     updatePill();
     return;
   }
-  appendRenderedLine(line.text, line.pos, true);
+  // Cursors advance synchronously — gap detection for the next SSE line reads
+  // veLog.lastLivePos — but the DOM insert is deferred to the next animation
+  // frame and coalesced. During a big pipeline run the live rate spikes to
+  // thousands of lines/second; appending + scrolling + capping the window per
+  // line stalls the main thread, which backs up the SSE socket and makes the
+  // server drop lines. One append (+ one scroll + one cap) per frame keeps up.
   veLog.bottomCursor = line.pos || veLog.bottomCursor;
   veLog.lastLivePos = line.pos || veLog.lastLivePos;
+  (veLog.liveRenderQueue = veLog.liveRenderQueue || []).push(line);
+  scheduleLiveFlush();
+}
+
+// scheduleLiveFlush arranges for the queued live lines to be flushed to the DOM
+// once, on the next animation frame. In the test harness requestAnimationFrame
+// runs synchronously, so behaviour there is unchanged.
+function scheduleLiveFlush() {
+  if (veLog.liveFlushScheduled) return;
+  veLog.liveFlushScheduled = true;
+  const raf = (typeof requestAnimationFrame === 'function')
+    ? requestAnimationFrame
+    : (cb => setTimeout(cb, 16));
+  raf(flushLiveLines);
+}
+
+function flushLiveLines() {
+  veLog.liveFlushScheduled = false;
+  const queue = veLog.liveRenderQueue || [];
+  veLog.liveRenderQueue = [];
+  if (!queue.length) return;
+  const con = document.getElementById('log-console');
+  if (!con) return;
+  removeEmptyMarker();
+  removeLogPlaceholder();
+  // One DocumentFragment for the whole batch → a single reflow.
+  const frag = document.createDocumentFragment();
+  for (const line of queue) {
+    const el = document.createElement('div');
+    el.className = 'log-line';
+    el.innerHTML = renderLogLine(line.text);
+    frag.appendChild(el);
+    veLog.rendered.push({el, raw: line.text, pos: line.pos || null, live: true});
+  }
+  con.appendChild(frag);
   if (veLog.liveFollow) {
     scrollLogToBottom();
     capWindowFromTop();
   } else {
-    veLog.pendingLive++;
+    veLog.pendingLive += queue.length;
     updatePill();
   }
 }
