@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.17.1] - 2026-09-01
+
+A single performance fix for the stale-favorite watchdog shipped in 1.16.0, which timed out on a real trace store.
+
+### Fixed
+
+- **Stale-favorite watchdog no longer times out on a real trace store** ([#351](https://github.com/brunoga/pipeliner/pull/351)). The **Database → Tools → ⚠️ Stale favorites** panel (`GET /api/watchdog/stuck`) returned a `504 Gateway Time-out` behind a reverse proxy. `watchdog.Detect` ran `match.Probe` once per trace occurrence, and each probe computes Levenshtein + fuzzy-match + punctuation-strip against every favorite — `O(occurrences × favorites × length²)`, billions of operations on a store holding tens of thousands of occurrences across the kept runs and hundreds of favorites (further inflated because the series and movies list caches are unioned with duplicates). Favorites are now deduped by normalized name and year, and both the show-name parse and the nearest-favorite association are memoized, so the expensive probe runs once per distinct show name rather than once per occurrence. Results are identical; a 20k-occurrence / 301-favorite benchmark drops from seconds to ~12ms.
+
+**Why 1.17.1**: a bug-fix patch making the 1.16.0 stale-favorite watchdog usable on production-scale trace stores. No behavior change — the detection results are identical, only far faster — and no config changes. A patch bump per SemVer.
+
 ## [1.17.0] - 2026-08-31
 
 A follow-on to the 1.16.0 diagnostics suite, driven by three concrete problems: entries that failed at a sink left no lasting trace, CAM movies slipped past a `webrip+` source floor, and managed Trakt tokens occasionally lost authentication. The first two came straight out of dogfooding the new tools.
