@@ -924,6 +924,33 @@ body.dark {
   resize: none;   /* height is managed by fitTextEditor() */
   z-index: 1;
   overflow-y: auto;
+  /* Shift the text right so the caret lines up with the code column in the
+     highlight layer: 14px editor pad + 44px gutter + 12px code pad. The gutter
+     region (0–58px) is textarea padding, so it holds no text and can't be
+     selected. Keep in sync with .editor-hl .ln width + .editor-hl .code pad. */
+  padding-left: 70px;
+}
+/* Line-number gutter: one flex row per source line, rendered inside the
+   (transparent, pointer-events:none) highlight layer. */
+.editor-hl .hl-line { display: flex; align-items: flex-start; }
+.editor-hl .ln {
+  flex: 0 0 44px;
+  width: 44px;
+  box-sizing: border-box;
+  padding-right: 10px;
+  text-align: right;
+  border-right: 1px solid var(--border);
+  color: var(--code-comment);
+  opacity: 0.65;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.editor-hl .code {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding-left: 12px;
+  white-space: pre-wrap;
+  word-wrap: break-word;
 }
 /* Starlark token colours — use --code-* variables defined in :root.
    These are never overridden in the light-mode block because the code
