@@ -5,6 +5,20 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.18.0] - 2026-09-01
+
+Sharpens the stale-favorite watchdog from 1.16.0 — which, on a real trace store, drowned its one true signal in hundreds of false positives — and gives the diagnostic tools a home of their own.
+
+### Changed
+
+- **Diagnostic tools moved to a top-level Tools tab** ([#356](https://github.com/brunoga/pipeliner/pull/356)). The seven tools — Match tester, Quality tester, Mark as downloaded, Trace search, Download history, Stale favorites, Failure log — were wedged into the Database tab's sidebar as synthetic fake-"bucket" entries. They aren't database buckets, they're diagnostics, and the suite had grown enough to stand on its own, so they now live in their own **Tools** tab alongside Dashboard / Config / Database / Settings. The Database tab holds only Trackers and Caches. The tools themselves are unchanged.
+
+### Fixed
+
+- **Stale-favorite watchdog no longer floods with false positives** ([#355](https://github.com/brunoga/pipeliner/pull/355)). Validated against a real trace store (21k occurrences, 1090 favorites), the report listed 517 favorites — essentially all noise — where one was genuine. Three causes, now fixed: (1) `discover`/search pipelines emit a result per favorite every run and leave it *undecided* (the real download happens elsewhere), so the entire discover list read as "never accepted" — undecided occurrences are now ignored, since only a terminal block (rejected/failed) is evidence of stuckness; (2) an absolute edit-distance ceiling linked unrelated titles that share no words (*fbi*↔*vigil*, *fallout*↔*furious*) — a near-miss now requires a punctuation-only normalization gap or a distance within a quarter of the title length; (3) a favorite whose repeats were rejected as "already downloaded"/"already seen" was already acquired, so those — plus an accept or a silent consume — now mark it healthy rather than stuck.
+
+**Why 1.18.0**: a user-facing navigation change (the Tools tab) alongside a substantial correctness fix to the watchdog. No config changes and no changes to the tools' own behavior. A minor bump per SemVer.
+
 ## [1.17.2] - 2026-09-01
 
 A second fix for the stale-favorite watchdog: it was correlating favorites against pipelines that never use them.
