@@ -14,6 +14,7 @@ package watchdog
 
 import (
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/brunoga/pipeliner/internal/match"
@@ -64,6 +65,33 @@ func showName(title string) string {
 	return title
 }
 
+// favAssoc is the memoized outcome of associating one show name with the
+// favorite list: which favorite it maps to, at what distance, and whether it
+// was close enough to count.
+type favAssoc struct {
+	favNorm string
+	dist    int
+	ok      bool
+}
+
+// dedupeFavorites removes duplicate favorites (same normalized name and year),
+// which arise when the series and movies list caches are unioned and the same
+// title appears in more than one pipeline. Deduping shrinks the inner Probe
+// loop and keeps the candidate ranking clean.
+func dedupeFavorites(favorites []match.TitleEntry) []match.TitleEntry {
+	seen := make(map[string]bool, len(favorites))
+	out := favorites[:0:0]
+	for _, f := range favorites {
+		key := f.Norm + "\x00" + strconv.Itoa(f.Year)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, f)
+	}
+	return out
+}
+
 type favAgg struct {
 	runs         map[string]bool
 	occ          int
@@ -89,17 +117,36 @@ func Detect(occ []traces.Occurrence, favorites []match.TitleEntry, minRuns, maxD
 	if maxDistance <= 0 {
 		maxDistance = DefaultMaxDistance
 	}
+	favorites = dedupeFavorites(favorites)
 	if len(favorites) == 0 {
 		return nil
 	}
 
+	// Probing every occurrence against every favorite is O(occ × fav × len²),
+	// which blows past the web timeout on a real trace store (tens of thousands
+	// of occurrences × hundreds of favorites). The same shows recur across the
+	// kept runs, so memoize the association by show name: the expensive Probe
+	// runs once per distinct show, not once per occurrence.
+	nameCache := map[string]string{}   // raw title → showName (avoids re-parsing)
+	assocCache := map[string]favAssoc{} // showName → nearest-favorite association
 	byFav := map[string]*favAgg{}
 	for _, o := range occ {
-		p := match.Probe(showName(o.Entry.Title), 0, favorites)
-		favNorm, dist, ok := nearestFavorite(p, maxDistance)
-		if !ok {
+		name, named := nameCache[o.Entry.Title]
+		if !named {
+			name = showName(o.Entry.Title)
+			nameCache[o.Entry.Title] = name
+		}
+		a, cached := assocCache[name]
+		if !cached {
+			p := match.Probe(name, 0, favorites)
+			favNorm, dist, ok := nearestFavorite(p, maxDistance)
+			a = favAssoc{favNorm: favNorm, dist: dist, ok: ok}
+			assocCache[name] = a
+		}
+		if !a.ok {
 			continue
 		}
+		favNorm, dist := a.favNorm, a.dist
 		g := byFav[favNorm]
 		if g == nil {
 			g = &favAgg{runs: map[string]bool{}, minDistance: dist}

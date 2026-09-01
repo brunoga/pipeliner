@@ -1,6 +1,7 @@
 package watchdog
 
 import (
+	"strconv"
 	"testing"
 	"time"
 
@@ -107,5 +108,92 @@ func TestDetectDistanceZeroForExactMatch(t *testing.T) {
 func TestDetectNoFavorites(t *testing.T) {
 	if got := Detect([]traces.Occurrence{occ("t", "r", time.Now(), "x", "rejected", "y")}, nil, 3, 6); got != nil {
 		t.Errorf("no favorites should yield no results, got %+v", got)
+	}
+}
+
+// TestDetectDedupesFavorites verifies that the same favorite appearing more than
+// once (as it does when the series and movies list caches are unioned) still
+// yields a single stuck entry rather than being counted per duplicate.
+func TestDetectDedupesFavorites(t *testing.T) {
+	base := time.Now()
+	// "Silo" listed three times, as if resolved from three pipelines.
+	favorites := favs("Silo", "Silo", "Silo")
+	os := []traces.Occurrence{
+		occ("tv", "r1", base, "Silo S01E01 480p", "rejected", "quality too low"),
+		occ("tv", "r2", base, "Silo S01E01 480p", "rejected", "quality too low"),
+		occ("tv", "r3", base, "Silo S01E01 480p", "rejected", "quality too low"),
+	}
+	got := Detect(os, favorites, 3, 6)
+	if len(got) != 1 {
+		t.Fatalf("duplicate favorites should collapse to one stuck entry, got %d: %+v", len(got), got)
+	}
+	if got[0].Favorite != "silo" {
+		t.Errorf("favorite = %q, want silo", got[0].Favorite)
+	}
+}
+
+// TestDetectMemoizedMatchesUnmemoized guards the memoization/dedup rewrite: a
+// dataset with recurring show names and duplicate favorites must produce the
+// same result the naive per-occurrence probe would.
+func TestDetectMemoizedMatchesUnmemoized(t *testing.T) {
+	base := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	favorites := favs("Silo", "Star Trek: Strange New Worlds", "The Ark", "Silo")
+	var os []traces.Occurrence
+	for i := 0; i < 5; i++ {
+		at := base.Add(time.Duration(i) * time.Hour)
+		rid := "r" + string(rune('1'+i))
+		os = append(os,
+			occ("tv", rid, at, "Star Trek Strange New Worlds S04E05 1080p WEB", "rejected", "series: show not in list"),
+			occ("tv", rid, at, "The Ark S02E0"+string(rune('1'+i))+" 720p", "rejected", "quality"),
+		)
+	}
+	got := Detect(os, favorites, 3, 6)
+	if len(got) != 2 {
+		t.Fatalf("expected 2 stuck favorites, got %d: %+v", len(got), got)
+	}
+	// Both favorites match exactly after normalization (the colon in SNW folds),
+	// so both are seen across all 5 runs and never accepted.
+	byName := map[string]StuckFavorite{}
+	for _, s := range got {
+		byName[s.Favorite] = s
+	}
+	if s, ok := byName["star trek strange new worlds"]; !ok || s.Runs != 5 {
+		t.Errorf("SNW: %+v (ok=%v)", s, ok)
+	}
+	if s, ok := byName["the ark"]; !ok || s.Runs != 5 || s.NearestDistance != 0 {
+		t.Errorf("The Ark: %+v (ok=%v)", s, ok)
+	}
+}
+
+// BenchmarkDetectLargeStore approximates a production-scale trace store: many
+// occurrences of recurring shows against a large favorite list. Before the
+// memoization fix this was O(occ × fav × len²) and drove the web handler past
+// the reverse-proxy timeout; the per-show-name cache collapses the probe work
+// to O(distinct shows × fav).
+func BenchmarkDetectLargeStore(b *testing.B) {
+	base := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	var favorites []match.TitleEntry
+	for i := 0; i < 300; i++ {
+		favorites = append(favorites, match.NewTitleEntry("Favorite Show Number "+strconv.Itoa(i), 0))
+	}
+	favorites = append(favorites, match.NewTitleEntry("Star Trek: Strange New Worlds", 0))
+	// 40 distinct shows, each recurring across 20 runs with ~25 entries → 20k occ.
+	var os []traces.Occurrence
+	for run := 0; run < 20; run++ {
+		at := base.Add(time.Duration(run) * time.Hour)
+		rid := "r" + strconv.Itoa(run)
+		for show := 0; show < 40; show++ {
+			title := "Star Trek Strange New Worlds S04E0" + strconv.Itoa(show%9+1) + " 1080p WEB"
+			if show%2 == 0 {
+				title = "Random Feed Show " + strconv.Itoa(show) + " S01E0" + strconv.Itoa(run%9+1)
+			}
+			for dup := 0; dup < 25; dup++ {
+				os = append(os, occ("tv", rid, at, title, "rejected", "series: show not in list"))
+			}
+		}
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		Detect(os, favorites, 3, 6)
 	}
 }
