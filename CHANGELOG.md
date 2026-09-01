@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.17.2] - 2026-09-01
+
+A second fix for the stale-favorite watchdog: it was correlating favorites against pipelines that never use them.
+
+### Fixed
+
+- **Stale-favorite watchdog scopes correlation to the pipelines that use each list** ([#353](https://github.com/brunoga/pipeliner/pull/353)). The watchdog unioned every favorite (the series and movies list caches together) and correlated them against occurrences from *every* pipeline. So a TV-only favorite — e.g. one resolved from `tvdb_favorites`, which only feeds `series` pipelines — was matched against a movies pipeline's occurrences and reported as stuck citing a nonsensical movies-gate reason (`missing required field: video_year`). Correlation is now scoped by media kind: a series-list favorite is only matched against occurrences from tasks with a `series` node, and a movie-list favorite only against tasks with a `movies` node; a pipeline that filters neither is excluded entirely (which also keeps the watchdog pipeline's own output out of detection). The task-to-media-kind map is derived from the config graphs when tasks are (re)built and persisted to the store, so both the `⚠️ Stale favorites` web panel and the `stuck_favorites` source plugin scope identically; an older database with no map falls back to the previous all-kinds behavior.
+
+**Why 1.17.2**: a bug-fix patch removing false stuck-favorite reports caused by cross-media correlation, completing the 1.16.0 watchdog. No config changes; the scoping map is populated automatically on daemon start and reload. A patch bump per SemVer.
+
 ## [1.17.1] - 2026-09-01
 
 A single performance fix for the stale-favorite watchdog shipped in 1.16.0, which timed out on a real trace store.
