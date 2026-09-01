@@ -19,6 +19,7 @@ const ve = {
   plugins:          [],   // [{name, role, description, schema, produces, requires}]
   fieldRegistry:    [],   // [{name, type, description, set_by, known_values}] from /api/fields
   userFunctions:    {},   // {funcName: {name, role, description, params, _sourceText}}
+  userPreamble:     '',   // top-level definition block (env()/vars) preserved verbatim across round-trips
   syncing:          false,
   // All loaded pipelines. ve.model is a live alias for ve.graphs[ve.activeGraph].
   graphs:           [{name: 'my-pipeline', schedule: '', nodes: []}],
@@ -7105,7 +7106,12 @@ function dagToStarlark() {
   }
 
   const body = sections.join('\n\n') + '\n';
-  return preamble.length ? preamble.join('\n\n') + '\n\n' + body : body;
+  // Order: top-level definitions (env/vars) → function defs → pipelines, so the
+  // functions and nodes can reference the preamble's variables.
+  const head = [];
+  if (ve.userPreamble && ve.userPreamble.trim()) head.push(ve.userPreamble.trimEnd());
+  if (preamble.length) head.push(preamble.join('\n\n'));
+  return head.length ? head.join('\n\n') + '\n\n' + body : body;
 }
 
 // Serialise a via-connected node as a Starlark dict: {"name": "jackett", "url": "..."}.
@@ -7151,6 +7157,67 @@ function starLit(v) {
 // (e.g. an email password) survives at any depth.
 function rawExpr(s)   { return {__star_raw__: String(s)}; }
 function isRawExpr(v) { return !!v && typeof v === 'object' && typeof v.__star_raw__ === 'string'; }
+
+// Config keys whose values are rendered as separate sub-plugin nodes (list /
+// search). Their reference preservation is handled through the sub-nodes, not
+// the parent node's flat config, so overlayConfigExprs leaves them alone.
+const VE_SUBPLUGIN_KEYS = new Set(['list', 'search']);
+
+// overlayConfigExprs merges the server's reference-aware config values
+// (config_exprs) over the resolved config, so a value written as a variable
+// reference (api_key=TMDB_API_KEY, config=SMTP_CONFIG, host=DELUGE_HOST, …)
+// round-trips as that reference on save instead of being re-inlined as the
+// resolved secret. Literal values are untouched (they aren't in config_exprs).
+function overlayConfigExprs(config, exprs) {
+  const out = {...(config || {})};
+  if (exprs) {
+    for (const [k, v] of Object.entries(exprs)) {
+      if (VE_SUBPLUGIN_KEYS.has(k)) continue; // preserved via sub-nodes
+      out[k] = v;
+    }
+  }
+  return out;
+}
+
+// overlaySubConfig overlays a reference-aware list/search sub-plugin config over
+// the resolved one, so a variable referenced inside a sub-plugin dict — e.g. a
+// discover search's api_key or a series list's user_pin — round-trips as a
+// reference. `expr` is the whole parsed value for this sub-plugin slot from the
+// server; a plain dict is overlaid field-by-field, while a whole-value variable
+// reference ({__star_raw__}) can't be represented as a sub-node config and keeps
+// the resolved value.
+function overlaySubConfig(config, expr) {
+  if (expr && typeof expr === 'object' && !Array.isArray(expr) && !isRawExpr(expr)) {
+    return {...(config || {}), ...expr};
+  }
+  return config || {};
+}
+
+// extractPreamble captures the top-level definition block that precedes the
+// first modelled construct — module-level variable assignments (the centralized
+// env()/config block), plus any leading comments. dagToStarlark re-emits it so a
+// visual save doesn't drop `JACKETT_API_KEY = env(...)` and friends and leave
+// the nodes referencing an undefined name. The boundary is the first `def`,
+// node assignment (`x = input|process|output|merge(...)`), or `pipeline(...)`,
+// walking back over that construct's own leading comment block.
+function extractPreamble(content) {
+  const lines = (content || '').split('\n');
+  const isConstruct = t =>
+    /^def\s+\w+\s*\(/.test(t) ||
+    /^[A-Za-z_]\w*\s*=\s*(input|process|output|merge)\s*\(/.test(t) ||
+    /^pipeline\s*\(/.test(t);
+  let boundary = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (isConstruct(lines[i].trim())) {
+      let s = i;
+      while (s > 0 && lines[s - 1].trim().startsWith('#')) s--;
+      boundary = s;
+      break;
+    }
+  }
+  if (boundary < 0) return '';           // no modelled construct — whole file is preamble-ish; keep nothing
+  return lines.slice(0, boundary).join('\n').trimEnd();
+}
 
 function valToStar(v) {
   if (v === null || v === undefined) return 'None';
@@ -7377,6 +7444,10 @@ async function textToVisualSync() {
       fd._sourceText = extractFunctionSource(content, fd.name);
       fd.comment = parseFunctionComment(fd._sourceText);
     }
+    // Preserve the top-level definition block (centralized env()/vars) so a
+    // visual-editor save re-emits it instead of dropping it.
+    ve.userPreamble = extractPreamble(content);
+    updatePreambleBtn();
     // Second pass: rewrite _sourceText for any function whose body still
     // carries a deprecated config shape. The first pass must populate every
     // fd._sourceText first, since parseFunctionBodyNodes reads it.
@@ -7414,7 +7485,7 @@ async function textToVisualSync() {
       const nodes = rawNodes
         .filter(n => !internalNodeIds.has(n.id))
         .map(n => ({
-          id: n.id, plugin: n.plugin, config: n.config || {}, upstreams: n.upstreams || [],
+          id: n.id, plugin: n.plugin, config: overlayConfigExprs(n.config || {}, n.config_exprs), upstreams: n.upstreams || [],
           searchNodeIds: [], comment: n.comment || '',
           x: n.x ?? null, y: n.y ?? null,
           fields: n.fields || {certain: [], reachable: []},
@@ -7442,7 +7513,7 @@ async function textToVisualSync() {
             });
           } else {
             nodes.push({
-              id, plugin: s.plugin, config: s.config || {},
+              id, plugin: s.plugin, config: overlaySubConfig(s.config, raw.config_exprs?.search?.[si]),
               upstreams: [], searchNodeIds: [], listNodeIds: [], comment: '',
               isSearchNode: true, searchParentId: raw.id,
               x: s.x ?? null, y: s.y ?? null,
@@ -7466,7 +7537,7 @@ async function textToVisualSync() {
             });
           } else {
             nodes.push({
-              id, plugin: l.plugin, config: l.config || {},
+              id, plugin: l.plugin, config: overlaySubConfig(l.config, raw.config_exprs?.list?.[li]),
               upstreams: [], searchNodeIds: [], listNodeIds: [], comment: '',
               isListNode: true, listParentId: raw.id,
               x: l.x ?? null, y: l.y ?? null,
@@ -7666,6 +7737,29 @@ function veTooltipHide() {
 
 // ── text pop-up editor ────────────────────────────────────────────────────────
 // Generic multi-line text popup reusable for comments, email body, etc.
+
+// openPreambleEditor exposes the preserved top-level definition block (the
+// centralized env()/config the nodes reference) for viewing and editing without
+// leaving the visual editor. Edits are re-emitted verbatim by dagToStarlark.
+function openPreambleEditor() {
+  openTextPopup(
+    'Definitions (preamble)',
+    'Module-level definitions kept verbatim above your pipelines — e.g.\nAPI_KEY = env("API_KEY")\nSMTP = {"smtp_host": "…"}\nNodes reference these by name.',
+    ve.userPreamble || '',
+    (val) => {
+      ve.userPreamble = (val || '').replace(/\s+$/, '');
+      updatePreambleBtn();
+      if (typeof onModelChange === 'function') onModelChange();
+    }
+  );
+}
+
+// updatePreambleBtn shows the Definitions button only when a preamble exists, so
+// it stays out of the way for configs that don't use module-level definitions.
+function updatePreambleBtn() {
+  const btn = document.getElementById('ve-preamble-btn');
+  if (btn) btn.style.display = (ve.userPreamble && ve.userPreamble.trim()) ? '' : 'none';
+}
 
 function openTextPopup(title, placeholder, initialValue, onSave) {
   let modal = document.getElementById('ve-text-popup');

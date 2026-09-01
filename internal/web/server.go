@@ -842,6 +842,9 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 
 	// Scan raw text for user comments and per-node layout positions.
 	nodeComments, pipelineComments, nodePositions := scanComments(req.Content)
+	// Reference-aware config values, so the editor round-trips env/variable
+	// references instead of re-inlining the resolved literals.
+	nodeRefs := configRefs(req.Content)
 
 	// DAG graphs.
 	type subPluginResp struct {
@@ -877,6 +880,12 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 		// injected this node. The visual editor marks such nodes as not
 		// present in the text source.
 		AutoMigrated string `json:"auto_migrated,omitempty"`
+		// ConfigExprs holds, per config key, a reference-aware rendering of any
+		// value that references a variable (env/module-level), so the visual
+		// editor can round-trip `api_key=TMDB_API_KEY` etc. instead of
+		// re-inlining the resolved value. Keys absent here keep the resolved
+		// Config value. See configRefs.
+		ConfigExprs map[string]any `json:"config_exprs,omitempty"`
 	}
 	type funcCallResp struct {
 		CallKey         string         `json:"call_key"`
@@ -1030,6 +1039,7 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 				FunctionCallKey: nodeCallKey[string(n.ID)],
 				Fields:          nodeFieldsResp{Certain: nf.Certain, Reachable: nf.Reachable},
 				AutoMigrated:    n.AutoMigrated,
+				ConfigExprs:     nodeRefs[string(n.ID)],
 			}
 			// Populate route port fields for route_selector nodes.
 			if n.PluginName == "route_selector" {

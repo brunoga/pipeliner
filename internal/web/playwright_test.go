@@ -3582,3 +3582,93 @@ pipeline("tv")`
 	}
 	waitVisible(t, page.Locator(".ve-notifier-fields .ve-field-param-ref"))
 }
+
+// TestE2ECentralizedConfigRoundTrip is the "undefined: JACKETT_API_KEY on save"
+// bug: a config with top-level definitions (env/vars) referenced by nodes must
+// survive a visual-editor round-trip — the preamble is re-emitted and the node
+// values stay as references instead of being re-inlined as resolved literals.
+func TestE2ECentralizedConfigRoundTrip(t *testing.T) {
+	ts := startTestServer(t, minimalConfig)
+	browser, stop := pwSetup(t)
+	defer stop()
+	page, _ := browser.NewPage()
+	defer page.Close()
+	login(t, page, ts.url)
+	openConfigTab(t, page)
+
+	cfg := `API_KEY = "sk-secret"
+SMTP = {"smtp_host": "mail"}
+src = input("jackett", url="https://j", api_key=API_KEY, categories=["2000"])
+disc = process("discover", upstream=src, search=[{"name": "jackett", "api_key": API_KEY, "url": "https://j", "categories": ["2000"]}])
+out = output("print", upstream=disc)
+pipeline("p")`
+
+	// Enter the config in the text view.
+	if err := page.Locator("#view-btn-text").Click(); err != nil {
+		t.Fatalf("switch to text: %v", err)
+	}
+	waitVisible(t, page.Locator("#view-text"))
+	if err := page.Locator("#config-editor").Fill(cfg); err != nil {
+		t.Fatalf("fill config: %v", err)
+	}
+
+	// Switch to the visual editor (parses + overlays references), then back to
+	// text (re-serialises via dagToStarlark).
+	if err := page.Locator("#view-btn-visual").Click(); err != nil {
+		t.Fatalf("switch to visual: %v", err)
+	}
+	// Wait for the parse to populate the preamble.
+	if _, err := page.WaitForFunction(
+		`() => typeof ve !== 'undefined' && ve.userPreamble && ve.userPreamble.indexOf('API_KEY') >= 0`,
+		nil, playwright.PageWaitForFunctionOptions{Timeout: playwright.Float(8000)},
+	); err != nil {
+		t.Fatalf("preamble not captured: %v", err)
+	}
+	// The Definitions button is exposed so the preamble is viewable/editable.
+	if vis, _ := page.Locator("#ve-preamble-btn").IsVisible(); !vis {
+		t.Errorf("Definitions button should be visible when a preamble exists")
+	}
+	if err := page.Locator("#view-btn-text").Click(); err != nil {
+		t.Fatalf("switch back to text: %v", err)
+	}
+	out, err := page.Locator("#config-editor").InputValue()
+	if err != nil {
+		t.Fatalf("read serialized config: %v", err)
+	}
+
+	// The definitions block is preserved.
+	if !strings.Contains(out, `API_KEY = "sk-secret"`) {
+		t.Errorf("preamble definition dropped:\n%s", out)
+	}
+	if !strings.Contains(out, `SMTP = {"smtp_host": "mail"}`) {
+		t.Errorf("SMTP definition dropped:\n%s", out)
+	}
+	// The node value round-trips as a reference, not an inlined secret.
+	if !strings.Contains(out, "api_key=API_KEY") {
+		t.Errorf("direct api_key reference not preserved:\n%s", out)
+	}
+	if strings.Contains(out, `api_key="sk-secret"`) {
+		t.Errorf("secret was re-inlined into a node:\n%s", out)
+	}
+	// The discover search sub-plugin reference round-trips too.
+	if !strings.Contains(out, `"api_key": API_KEY`) {
+		t.Errorf("sub-plugin api_key reference not preserved:\n%s", out)
+	}
+
+	// Finally, the round-tripped config must re-parse cleanly (the original bug
+	// was a save that failed with "undefined: API_KEY"). POST through the page
+	// so the request carries the session cookie.
+	status, err := page.Evaluate(`async (content) => {
+		const r = await fetch('/api/config/parse', {
+			method: 'POST', headers: {'Content-Type': 'application/json'},
+			body: JSON.stringify({content}),
+		});
+		return r.status;
+	}`, out)
+	if err != nil {
+		t.Fatalf("re-parse fetch: %v", err)
+	}
+	if fmt.Sprint(status) != "200" {
+		t.Errorf("round-tripped config failed to re-parse: status %v\n%s", status, out)
+	}
+}
