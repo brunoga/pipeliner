@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.18.1] - 2026-09-01
+
+A single Deluge fix, found while wiring up a torrent-janitor pipeline.
+
+### Fixed
+
+- **Deluge: connect deluge-web to its daemon before issuing `core.*` RPC calls** ([#360](https://github.com/brunoga/pipeliner/pull/360)). deluge-web's JSON-RPC only exposes `web.*` methods until it is connected to a daemon host — every `core.*` call returns `RPC error: Unknown method` until then, and deluge-web does not auto-connect for programmatic clients (only when a browser opens the WebUI). The `torrent_session` source therefore failed with `deluge: get_torrents_status: RPC error: Unknown method`. After `auth.login`, both the shared torrent client (`torrent_session`/`torrent_control`) and the Deluge download sink now check `web.connected` and, if needed, run `web.get_hosts` → `web.connect` before any `core.*` call. This also fixes a latent bug in the sink: adds previously only succeeded while a browser happened to have the WebUI connected, so downloads are now reliable regardless of WebUI state.
+
+**Why 1.18.1**: a bug-fix patch. No config changes; existing pipelines behave the same, just reliably against a disconnected deluge-web. A patch bump per SemVer.
+
 ## [1.18.0] - 2026-09-01
 
 Sharpens the stale-favorite watchdog from 1.16.0 — which, on a real trace store, drowned its one true signal in hundreds of false positives — and gives the diagnostic tools a home of their own.
