@@ -27,9 +27,10 @@ type rpcCall struct {
 
 // mockDeluge records all RPC calls and returns configurable responses.
 type mockDeluge struct {
-	calls    []rpcCall
-	loginOK  bool
-	addError string
+	calls     []rpcCall
+	loginOK   bool
+	connected bool // deluge-web ↔ daemon connection state (core.* need it)
+	addError  string
 }
 
 func (m *mockDeluge) handler() http.HandlerFunc {
@@ -40,14 +41,26 @@ func (m *mockDeluge) handler() http.HandlerFunc {
 		m.calls = append(m.calls, call)
 
 		w.Header().Set("Content-Type", "application/json")
+		writeResult := func(result any) {
+			json.NewEncoder(w).Encode(map[string]any{"result": result, "error": nil, "id": 1}) //nolint:errcheck
+		}
 		switch call.Method {
 		case "auth.login":
-			json.NewEncoder(w).Encode(map[string]any{"result": m.loginOK, "error": nil, "id": 1})
+			writeResult(m.loginOK)
+		case "web.connected":
+			writeResult(m.connected)
+		case "web.get_hosts":
+			writeResult([]any{[]any{"host-1", "127.0.0.1", float64(58846), "localclient"}})
+		case "web.connect":
+			m.connected = true
+			writeResult(nil)
 		case "core.add_torrent_url", "core.add_torrent_magnet":
-			if m.addError != "" {
-				json.NewEncoder(w).Encode(map[string]any{"result": nil, "error": map[string]any{"message": m.addError}, "id": 1})
+			if !m.connected {
+				json.NewEncoder(w).Encode(map[string]any{"result": nil, "error": map[string]any{"message": "Unknown method"}, "id": 1}) //nolint:errcheck
+			} else if m.addError != "" {
+				json.NewEncoder(w).Encode(map[string]any{"result": nil, "error": map[string]any{"message": m.addError}, "id": 1}) //nolint:errcheck
 			} else {
-				json.NewEncoder(w).Encode(map[string]any{"result": "infohash123", "error": nil, "id": 1})
+				writeResult("infohash123")
 			}
 		}
 	}
@@ -94,13 +107,18 @@ func TestLoginAndAddTorrent(t *testing.T) {
 	if mock.calls[0].Method != "auth.login" {
 		t.Errorf("first call should be auth.login, got %q", mock.calls[0].Method)
 	}
-	if mock.calls[1].Method != "core.add_torrent_url" {
-		t.Errorf("second call should be core.add_torrent_url, got %q", mock.calls[1].Method)
+	// The add follows the login + daemon-connect handshake; find it by method.
+	var addParams []any
+	for _, c := range mock.calls {
+		if c.Method == "core.add_torrent_url" {
+			addParams = c.Params
+		}
 	}
-	// Verify URL was passed.
-	params := mock.calls[1].Params
-	if len(params) < 1 || params[0] != "http://example.com/ep.torrent" {
-		t.Errorf("torrent URL not passed correctly: %v", params)
+	if addParams == nil {
+		t.Fatalf("expected a core.add_torrent_url call, got %v", methods)
+	}
+	if len(addParams) < 1 || addParams[0] != "http://example.com/ep.torrent" {
+		t.Errorf("torrent URL not passed correctly: %v", addParams)
 	}
 }
 
