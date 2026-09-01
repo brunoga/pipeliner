@@ -144,6 +144,65 @@ func TestDetectDedupesFavorites(t *testing.T) {
 	}
 }
 
+// TestDetectIgnoresUndecided is the discover-pipeline bug: a discover/search
+// pipeline emits an entry per favorite every run and leaves them "undecided"
+// (the real download happens elsewhere). Those must not read as "seen but never
+// accepted" — otherwise the entire discover list reports as stuck.
+func TestDetectIgnoresUndecided(t *testing.T) {
+	base := time.Now()
+	favorites := favsKind(KindMovies, "Wicked")
+	var os []traces.Occurrence
+	for i := 0; i < 5; i++ {
+		os = append(os, occ("movies-discover", "r"+string(rune('1'+i)), base, "Wicked", "undecided", ""))
+	}
+	if got := Detect(os, favorites, nil, 3, 6); len(got) != 0 {
+		t.Errorf("undecided (discover) occurrences must not be stuck, got %+v", got)
+	}
+}
+
+// TestDetectAlreadyDownloadedIsHealthy: a favorite whose repeats are rejected as
+// already downloaded/seen was grabbed before, so it is not stuck.
+func TestDetectAlreadyDownloadedIsHealthy(t *testing.T) {
+	base := time.Now()
+	favorites := favsKind(KindSeries, "President Curtis")
+	var os []traces.Occurrence
+	for i := 0; i < 5; i++ {
+		os = append(os, occ("tv", "r"+string(rune('1'+i)), base,
+			"President Curtis S01E06 720p WEB H264 JFF", "rejected",
+			"series: president curtis S01E06 already downloaded"))
+	}
+	if got := Detect(os, favorites, nil, 3, 6); len(got) != 0 {
+		t.Errorf("an already-downloaded favorite is healthy, not stuck, got %+v", got)
+	}
+}
+
+// TestDetectRejectsLooseNearMiss: the "fbi ↔ vigil" / "fallout ↔ furious" bug —
+// unrelated titles within the absolute edit ceiling but sharing no words must
+// not associate. A punctuation-only gap and a small-ratio near-miss still do.
+func TestDetectRejectsLooseNearMiss(t *testing.T) {
+	base := time.Now()
+	favorites := favsKind(KindSeries, "Fallout")
+	loose := []traces.Occurrence{ // "furious" is 4 edits from "fallout": >1/4 of the length
+		occ("tv", "r1", base, "Furious S01E08 720p WEB H264 JFF", "rejected", "series: show not in list"),
+		occ("tv", "r2", base, "Furious S01E09 720p WEB H264 JFF", "rejected", "series: show not in list"),
+		occ("tv", "r3", base, "Furious S01E10 720p WEB H264 JFF", "rejected", "series: show not in list"),
+	}
+	if got := Detect(loose, favorites, nil, 3, 6); len(got) != 0 {
+		t.Errorf("a loose near-miss (furious↔fallout) must not associate, got %+v", got)
+	}
+
+	// A punctuation-only gap on a longer favorite is a real near-miss and counts.
+	punct := favsKind(KindSeries, "Marvels Agents of SHIELD")
+	var po []traces.Occurrence
+	for i := 0; i < 3; i++ {
+		po = append(po, occ("tv", "r"+string(rune('1'+i)), base,
+			"Marvel's Agents of S.H.I.E.L.D. S01E0"+string(rune('1'+i))+" 1080p WEB", "rejected", "series: show not in list"))
+	}
+	if got := Detect(po, punct, nil, 3, 6); len(got) != 1 {
+		t.Errorf("a punctuation-only near-miss should still be reported, got %+v", got)
+	}
+}
+
 // TestDetectScopesByMediaKind is the "lanterns" bug: a TV favorite must not pick
 // up rejections from a movies pipeline that never uses the series list. With the
 // movies task recorded as movies-only, the series favorite's candidates seen in

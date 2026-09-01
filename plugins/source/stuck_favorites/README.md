@@ -19,12 +19,27 @@ from `tvdb_favorites`, which only feeds `series` pipelines) never picks up
 rejections from an unrelated movies pipeline — which would otherwise show a
 nonsensical last reason like `missing required field: video_year`.
 
-A favorite is reported when its candidates were seen in at least `min_runs`
-distinct runs and **never accepted** in any of them. The `stuck_nearest_distance`
-field tells the story: `0` means the favorite matched but every candidate was
-rejected downstream (quality, tracking, dedup); a positive value means candidates
-only *nearly* match the favorite — the fingerprint of a matching/normalization
-problem.
+A favorite is reported when its candidates were **blocked** (rejected or failed)
+in at least `min_runs` distinct runs and **never succeeded** in any of them. The
+`stuck_nearest_distance` field tells the story: `0` means the favorite matched but
+every candidate was rejected downstream (quality, tracking); a positive value
+means candidates only *nearly* match the favorite — the fingerprint of a
+matching/normalization problem.
+
+To keep the report signal-dense, three things are deliberately **not** counted as
+stuck:
+
+- **Undecided occurrences** — a `discover`/search pipeline emits a result per
+  favorite every run and never accepts them (the actual download happens in
+  another pipeline), so those entries end *undecided* rather than rejected. They
+  are ignored; otherwise an entire discover list would report as stuck.
+- **Already-acquired favorites** — a repeat rejected with "already downloaded" or
+  "already seen" (by the `dedup`/`seen` filters) proves the pipeline grabbed it
+  before, so the favorite is healthy.
+- **Loose near-misses** — a candidate only associates to a favorite when it is an
+  exact/glob match, a punctuation-only normalization gap, or within a quarter of
+  the title length in edits. Unrelated titles that merely fall within a few edits
+  (e.g. *fbi* ↔ *vigil*, *fallout* ↔ *furious*) are treated as feed noise.
 
 ## Config
 
