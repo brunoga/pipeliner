@@ -521,7 +521,21 @@ func (s *Server) apiLogs(w http.ResponseWriter, r *http.Request) {
 		case <-r.Context().Done():
 			return
 		case ev := <-ch:
+			// Write this event, then opportunistically drain everything else
+			// already buffered on the channel and flush once for the whole
+			// batch. During a large pipeline run the log rate spikes to
+			// thousands of lines/second; a flush (and its syscall + network
+			// packet) per line can't keep up, so the buffer overflows and
+			// Publish drops. One flush per batch lets the writer keep pace.
 			writeEvent(ev)
+			for drained := true; drained; {
+				select {
+				case ev2 := <-ch:
+					writeEvent(ev2)
+				default:
+					drained = false
+				}
+			}
 			flusher.Flush()
 		case <-ticker.C:
 			fmt.Fprint(w, ": heartbeat\n\n")
