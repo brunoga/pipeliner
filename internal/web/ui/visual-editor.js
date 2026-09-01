@@ -150,6 +150,28 @@ function updateUndoButton() {
   if (btn) btn.disabled = ve_undoStack.length === 0;
 }
 
+// tidyActivePipeline re-runs the topological (execution-order) auto-layout on
+// the pipeline currently in view, discarding hand-placed positions for just that
+// pipeline so nodes flow left-to-right by DAG depth again. Other pipelines keep
+// their positions (their absolute→relative→absolute conversion in
+// initLayoutFromAbsolute is a no-op); only their vertical stacking reflows to
+// fit the re-laid-out pipeline. Undoable.
+function tidyActivePipeline() {
+  const g = ve.graphs[ve.activeGraph];
+  if (!g || !g.nodes.length) return;
+  pushUndo();
+  // Null positions → initLayout takes the full-auto-layout (layoutGraph) branch
+  // for this graph.
+  for (const n of g.nodes) { n.x = null; n.y = null; }
+  initLayoutFromAbsolute('tidy');
+  onModelChange();   // persist the new positions to the text config
+  veRender();
+  updateUndoButton();
+  if (typeof setSyncNote === 'function') {
+    setSyncNote('Arranged “' + (g.name || 'pipeline') + '” in execution order');
+  }
+}
+
 // veDebugLog is a no-op in production. To enable, set localStorage.veDebug='1'
 // in the browser devtools and reload. It logs node y/regionY transitions at
 // the spots that mutate layout (initLayout, undo, drag end, tightenPipeline)

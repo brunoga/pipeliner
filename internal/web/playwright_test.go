@@ -3672,3 +3672,68 @@ pipeline("p")`
 		t.Errorf("round-tripped config failed to re-parse: status %v\n%s", status, out)
 	}
 }
+
+// TestE2ETidyArrangesInExecutionOrder verifies the Tidy button re-lays-out a
+// pipeline left-to-right in DAG (execution) order, overriding scrambled
+// hand-placed positions.
+func TestE2ETidyArrangesInExecutionOrder(t *testing.T) {
+	ts := startTestServer(t, minimalConfig)
+	browser, stop := pwSetup(t)
+	defer stop()
+	page, _ := browser.NewPage()
+	defer page.Close()
+	login(t, page, ts.url)
+	openConfigTab(t, page)
+
+	// Positions are deliberately scrambled: the source is placed far right, the
+	// processor far left — the opposite of execution order.
+	cfg := `# pipeliner:pos 900 40
+src = input("rss", url="https://x")
+# pipeliner:pos 40 40
+proc = process("require", upstream=src, fields=["title"])
+# pipeliner:pos 500 300
+out = output("print", upstream=proc)
+pipeline("p")`
+
+	if err := page.Locator("#view-btn-text").Click(); err != nil {
+		t.Fatalf("switch to text: %v", err)
+	}
+	waitVisible(t, page.Locator("#view-text"))
+	if err := page.Locator("#config-editor").Fill(cfg); err != nil {
+		t.Fatalf("fill config: %v", err)
+	}
+	if err := page.Locator("#view-btn-visual").Click(); err != nil {
+		t.Fatalf("switch to visual: %v", err)
+	}
+	if _, err := page.WaitForFunction(
+		`() => typeof ve !== 'undefined' && ve.graphs[0] && ve.graphs[0].nodes.length === 3`,
+		nil, playwright.PageWaitForFunctionOptions{Timeout: playwright.Float(8000)},
+	); err != nil {
+		t.Fatalf("graph not parsed: %v", err)
+	}
+
+	if err := page.Locator("#ve-tidy-btn").Click(); err != nil {
+		t.Fatalf("click tidy: %v", err)
+	}
+
+	// Every node must sit strictly to the right of each of its upstreams —
+	// i.e. laid out in execution order, regardless of the scrambled input.
+	bad, err := page.Evaluate(`() => {
+		const g = ve.graphs[0];
+		const x = {}; for (const n of g.nodes) x[n.id] = n.x;
+		const violations = [];
+		for (const n of g.nodes) {
+			for (const u of (n.upstreams || [])) {
+				if (x[u] != null && !(x[n.id] > x[u])) violations.push(u + '->' + n.id);
+			}
+		}
+		return violations;
+	}`)
+	if err != nil {
+		t.Fatalf("read positions: %v", err)
+	}
+	v, _ := bad.([]interface{})
+	if len(v) != 0 {
+		t.Errorf("Tidy left edges not in execution order: %v", v)
+	}
+}
