@@ -4,17 +4,25 @@
 // episode silently failing to download for weeks with nothing to flag it.
 //
 // Detection associates each candidate seen in the run traces with its nearest
-// favorite by edit distance (so a normalization gap like a stray colon still
-// links the release to the intended favorite), then reports favorites that were
-// seen across enough runs but never accepted. A NearestDistance of 0 means the
-// favorite matched but every candidate was rejected downstream (quality,
-// tracking, dedup); a positive distance means candidates nearly match the
-// favorite but don't — the fingerprint of a matching/normalization problem.
+// favorite (an exact/glob match, or a genuine near-miss — a punctuation-only
+// normalization gap or a small fraction of the title length, so unrelated titles
+// that merely fall within a few edits are not linked), then reports favorites
+// whose candidates were blocked across enough runs and never succeeded. A
+// NearestDistance of 0 means the favorite matched but every candidate was
+// rejected downstream (quality, tracking); a positive distance means candidates
+// nearly match but don't — the fingerprint of a matching/normalization problem.
+//
+// Only a terminal block counts as evidence: an "undecided" occurrence never
+// reached an accept/reject (the shape of a discover/search pipeline, which emits
+// a result per favorite every run) and is ignored, and an accept, a silent
+// consume, or an "already downloaded"/"already seen" rejection all mark a
+// favorite healthy — proof the pipeline grabbed it, not that it is stuck.
 package watchdog
 
 import (
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/brunoga/pipeliner/internal/match"
@@ -168,6 +176,14 @@ func Detect(occ []traces.Occurrence, favorites []Favorite, taskKinds map[string]
 		if mask == 0 {
 			continue // task uses no favorite lists — not correlated with any favorite
 		}
+		// Only a terminal block is evidence of stuckness. An "undecided" entry
+		// never reached an accept/reject — the shape of a discover/search
+		// pipeline's output, which emits a result per favorite every run — so it
+		// is not a candidate being blocked and must not read as "never accepted".
+		final := o.Entry.Final
+		if final != "accepted" && final != "consumed" && final != "rejected" && final != "failed" {
+			continue
+		}
 		name, named := nameCache[o.Entry.Title]
 		if !named {
 			name = showName(o.Entry.Title)
@@ -200,7 +216,10 @@ func Detect(occ []traces.Occurrence, favorites []Favorite, taskKinds map[string]
 		if dist < g.minDistance {
 			g.minDistance = dist
 		}
-		if o.Entry.Final == "accepted" {
+		// A favorite that ever succeeds is healthy, not stuck: an accept, a silent
+		// consume, or a "already downloaded / already seen" rejection (the dedup
+		// and seen filters — proof it was grabbed before) all clear it.
+		if final == "accepted" || final == "consumed" || indicatesAlreadyHave(o.Entry.Reason) {
 			g.accepted = true
 		}
 		if o.At.After(g.lastAt) {
@@ -239,10 +258,19 @@ func Detect(occ []traces.Occurrence, favorites []Favorite, taskKinds map[string]
 	return out
 }
 
-// nearestFavorite picks the favorite a probe result associates with: the
-// matched favorite (distance 0) when the title matched, otherwise the nearest
-// candidate if it is within maxDistance. ok is false when nothing is close
-// enough.
+// nearMissRatio bounds a near-miss (distance > 0) relative to title length: a
+// candidate counts as "nearly" a favorite only when its edit distance is at most
+// this fraction of the shorter normalized title. An absolute ceiling alone
+// (maxDistance) links unrelated titles — "fbi" ↔ "vigil", "fallout" ↔ "furious"
+// are all within 6 edits yet share no words. A quarter-length bound keeps real
+// normalization near-misses (a stray character on a long title) while rejecting
+// short, coincidental collisions; a genuine separator gap is caught separately
+// by the punctuation-only signal regardless of length.
+const nearMissRatio = 0.25
+
+// nearestFavorite picks the favorite a probe result associates with: the matched
+// favorite (distance 0) when the title matched, otherwise the nearest candidate
+// if it is a genuine near-miss. ok is false when nothing is close enough.
 func nearestFavorite(p match.ProbeResult, maxDistance int) (favNorm string, dist int, ok bool) {
 	if len(p.Candidates) == 0 {
 		return "", 0, false
@@ -251,8 +279,35 @@ func nearestFavorite(p match.ProbeResult, maxDistance int) (favNorm string, dist
 	if p.Matched {
 		return best.Norm, 0, true
 	}
-	if best.Distance <= maxDistance {
+	if isNearMiss(p.InputNorm, best, maxDistance) {
 		return best.Norm, best.Distance, true
 	}
 	return "", 0, false
+}
+
+// isNearMiss reports whether a non-matching candidate is close enough to the
+// input to be treated as an intended-but-failed match rather than unrelated feed
+// noise. It must be within the absolute ceiling and either differ only by
+// punctuation (a normalization gap) or by at most a quarter of the shorter
+// title's length.
+func isNearMiss(inputNorm string, c match.CandidateResult, maxDistance int) bool {
+	if c.Distance <= 0 || c.Distance > maxDistance {
+		return false
+	}
+	if c.PunctuationOnly {
+		return true
+	}
+	minLen := len([]rune(inputNorm))
+	if n := len([]rune(c.Norm)); n < minLen {
+		minLen = n
+	}
+	return float64(c.Distance) <= nearMissRatio*float64(minLen)
+}
+
+// indicatesAlreadyHave reports whether a rejection reason means the favorite was
+// already acquired — the dedup and seen filters reject repeats with these
+// phrases, which is proof the pipeline grabbed it before, not evidence it is
+// stuck.
+func indicatesAlreadyHave(reason string) bool {
+	return strings.Contains(reason, "already downloaded") || strings.Contains(reason, "already seen")
 }
