@@ -2719,6 +2719,64 @@ func TestE2EDatabaseTabRendersCacheSection(t *testing.T) {
 	}
 }
 
+// TestE2EToolsTabHostsDiagnostics verifies the Tools tab: it is its own
+// top-level tab (not under Database), auto-opens the first tool, lists every
+// tool in its sidebar, and switches the main panel when another tool is picked.
+func TestE2EToolsTabHostsDiagnostics(t *testing.T) {
+	ts := startTestServer(t, minimalConfig)
+	browser, stop := pwSetup(t)
+	defer stop()
+
+	page, _ := browser.NewPage()
+	defer page.Close()
+	login(t, page, ts.url)
+
+	if err := page.Locator("#tab-btn-tools").Click(); err != nil {
+		t.Fatalf("click tools tab: %v", err)
+	}
+	if err := page.Locator("#tab-tools").WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateVisible,
+	}); err != nil {
+		t.Fatalf("tools tab not visible: %v", err)
+	}
+
+	// The Database tab must no longer carry a Tools section.
+	if err := page.Locator("#tab-btn-db").Click(); err != nil {
+		t.Fatalf("click database tab: %v", err)
+	}
+	if n, _ := page.Locator("#db-sidebar .db-sidebar-section", playwright.PageLocatorOptions{
+		HasText: "Tools",
+	}).Count(); n != 0 {
+		t.Errorf("Database sidebar should not have a Tools section, found %d", n)
+	}
+
+	// Back to Tools: the first tool (Match tester) auto-opens.
+	if err := page.Locator("#tab-btn-tools").Click(); err != nil {
+		t.Fatalf("re-click tools tab: %v", err)
+	}
+	if err := page.Locator("#match-input").WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateVisible,
+	}); err != nil {
+		t.Fatalf("match tester did not auto-open: %v", err)
+	}
+	// The sidebar lists all seven tools.
+	if n, _ := page.Locator("#tools-sidebar .db-nav-btn").Count(); n != 7 {
+		t.Errorf("tools sidebar: got %d buttons, want 7", n)
+	}
+
+	// Switching to another tool swaps the main panel.
+	if err := page.Locator(`#tools-sidebar .db-nav-btn`, playwright.PageLocatorOptions{
+		HasText: "Quality tester",
+	}).Click(); err != nil {
+		t.Fatalf("click quality tester: %v", err)
+	}
+	if err := page.Locator("#tools-main-content #quality-title").WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateVisible,
+	}); err != nil {
+		t.Fatalf("quality tester not rendered after switch: %v", err)
+	}
+}
+
 // TestE2EPluginDebugSettings exercises the round-trip for the Settings tab's
 // "Plugin Debug Logging" panel: the section auto-loads plugin + override
 // state when opened, clicking a checkbox PUTs the new set to

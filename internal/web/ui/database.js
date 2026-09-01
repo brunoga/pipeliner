@@ -42,14 +42,8 @@ async function loadDBTab() {
   for (const b of caches) {
     dbNavItems.push({bucket: b.name, label: b.display, count: b.count, section: 'caches'});
   }
-  // Diagnostic tools (no backing bucket) live in their own section.
-  dbNavItems.push({bucket: '__match_tester__', label: '🔍 Match tester', section: 'tools'});
-  dbNavItems.push({bucket: '__quality_tester__', label: '🎚 Quality tester', section: 'tools'});
-  dbNavItems.push({bucket: '__mark_downloaded__', label: '✅ Mark as downloaded', section: 'tools'});
-  dbNavItems.push({bucket: '__trace_search__', label: '🧭 Trace search', section: 'tools'});
-  dbNavItems.push({bucket: '__download_history__', label: '📥 Download history', section: 'tools'});
-  dbNavItems.push({bucket: '__stale_favorites__', label: '⚠️ Stale favorites', section: 'tools'});
-  dbNavItems.push({bucket: '__failure_log__', label: '❌ Failure log', section: 'tools'});
+  // Diagnostic/operations tools now live in their own top-level Tools tab
+  // (see loadToolsTab below); the Database tab holds only trackers and caches.
   dbLoaded = true;
   renderDBSidebar();
   if (dbNavItems.length && !dbActiveBucket) selectDBBucket(dbNavItems[0].bucket);
@@ -70,21 +64,46 @@ function renderDBSidebar() {
     }
     return html;
   };
-  const tools = dbNavItems.filter(i => i.section === 'tools');
-  const renderToolSection = (items, title) => {
-    if (!items.length) return '';
-    let html = `<div class="db-sidebar-section">${title}</div>`;
-    for (const item of items) {
-      const active = dbActiveBucket === item.bucket ? ' active' : '';
-      html += `<button class="db-nav-btn${active}" onclick="selectDBBucket(${esc(JSON.stringify(item.bucket))})">
-        <span>${esc(item.label)}</span>
-      </button>`;
-    }
-    return html;
-  };
   document.getElementById('db-sidebar').innerHTML =
-    renderSection(trackers, 'Trackers') + renderSection(caches, 'Caches') +
-    renderToolSection(tools, 'Tools');
+    renderSection(trackers, 'Trackers') + renderSection(caches, 'Caches');
+}
+
+// ── tools tab ────────────────────────────────────────────────────────────────
+// The diagnostic/operations tools live in their own top-level tab. Each entry
+// pairs a sidebar label with the render function (defined later in this file;
+// function declarations are hoisted, so referencing them here is safe) that
+// draws it into #tools-main-content.
+const TOOLS = [
+  {id: 'match_tester',     label: '🔍 Match tester',      render: () => renderMatchTester()},
+  {id: 'quality_tester',   label: '🎚 Quality tester',    render: () => renderQualityTester()},
+  {id: 'mark_downloaded',  label: '✅ Mark as downloaded', render: () => renderMarkDownloaded()},
+  {id: 'trace_search',     label: '🧭 Trace search',       render: () => renderTraceSearch()},
+  {id: 'download_history', label: '📥 Download history',   render: () => renderDownloadHistory()},
+  {id: 'stale_favorites',  label: '⚠️ Stale favorites',   render: () => renderStaleFavorites()},
+  {id: 'failure_log',      label: '❌ Failure log',        render: () => renderFailureLog()},
+];
+let toolsActiveId = null;
+
+function loadToolsTab() {
+  selectTool(toolsActiveId || TOOLS[0].id);
+}
+
+function renderToolsSidebar() {
+  let html = '<div class="db-sidebar-section">Tools</div>';
+  for (const t of TOOLS) {
+    const active = toolsActiveId === t.id ? ' active' : '';
+    html += `<button class="db-nav-btn${active}" onclick="selectTool(${esc(JSON.stringify(t.id))})">
+      <span>${esc(t.label)}</span>
+    </button>`;
+  }
+  document.getElementById('tools-sidebar').innerHTML = html;
+}
+
+function selectTool(id) {
+  const tool = TOOLS.find(t => t.id === id) || TOOLS[0];
+  toolsActiveId = tool.id;
+  renderToolsSidebar();
+  tool.render();
 }
 
 function dbPageURL(name) {
@@ -96,41 +115,6 @@ function dbPageURL(name) {
 
 async function selectDBBucket(name) {
   dbActiveBucket = name;
-  if (name === '__match_tester__') {
-    renderDBSidebar();
-    renderMatchTester();
-    return;
-  }
-  if (name === '__quality_tester__') {
-    renderDBSidebar();
-    renderQualityTester();
-    return;
-  }
-  if (name === '__mark_downloaded__') {
-    renderDBSidebar();
-    renderMarkDownloaded();
-    return;
-  }
-  if (name === '__trace_search__') {
-    renderDBSidebar();
-    renderTraceSearch();
-    return;
-  }
-  if (name === '__download_history__') {
-    renderDBSidebar();
-    renderDownloadHistory();
-    return;
-  }
-  if (name === '__stale_favorites__') {
-    renderDBSidebar();
-    renderStaleFavorites();
-    return;
-  }
-  if (name === '__failure_log__') {
-    renderDBSidebar();
-    renderFailureLog();
-    return;
-  }
   dbCurrentCursor = '';
   dbCursorStack = [];
   dbFilterQuery = '';
@@ -565,7 +549,7 @@ function listCacheBuckets() {
 }
 
 function renderMatchTester() {
-  const main = document.getElementById('db-main-content');
+  const main = document.getElementById('tools-main-content');
   const lists = listCacheBuckets();
   const listOpts = lists.map(l =>
     `<option value="${esc(l.bucket)}">${esc(l.label)}</option>`).join('');
@@ -669,7 +653,7 @@ function matchTesterResultHTML(res) {
 // Mirrors the `pipeliner quality` CLI. POSTs to /api/quality/test.
 
 function renderQualityTester() {
-  const main = document.getElementById('db-main-content');
+  const main = document.getElementById('tools-main-content');
   main.innerHTML = `
     <div class="match-tester">
       <h2>Quality tester</h2>
@@ -747,7 +731,7 @@ function qualityTesterResultHTML(res, spec) {
 // tracker row. Mirrors `pipeliner tracker mark-series|mark-movie`.
 
 function renderMarkDownloaded() {
-  const main = document.getElementById('db-main-content');
+  const main = document.getElementById('tools-main-content');
   main.innerHTML = `
     <div class="match-tester">
       <h2>Mark as downloaded</h2>
@@ -842,7 +826,7 @@ function markResultHTML(res) {
 // across runs — history the single-record trackers can't provide.
 
 function renderTraceSearch() {
-  const main = document.getElementById('db-main-content');
+  const main = document.getElementById('tools-main-content');
   main.innerHTML = `
     <div class="match-tester">
       <h2>Trace search</h2>
@@ -918,7 +902,7 @@ function traceRelTime(iso, nowMs) {
 // `pipeliner downloaded` CLI.
 
 function renderDownloadHistory() {
-  const main = document.getElementById('db-main-content');
+  const main = document.getElementById('tools-main-content');
   main.innerHTML = `
     <div class="match-tester">
       <h2>Download history</h2>
@@ -1010,7 +994,7 @@ function dlDate(iso) {
 // resolved favorite lists with the kept run traces via /api/watchdog/stuck.
 
 function renderStaleFavorites() {
-  const main = document.getElementById('db-main-content');
+  const main = document.getElementById('tools-main-content');
   main.innerHTML = `
     <div class="match-tester">
       <h2>Stale favorites</h2>
@@ -1075,7 +1059,7 @@ function staleFavoritesHTML(data) {
 // Blank search shows recent failures. Mirrors `pipeliner failures`.
 
 function renderFailureLog() {
-  const main = document.getElementById('db-main-content');
+  const main = document.getElementById('tools-main-content');
   main.innerHTML = `
     <div class="match-tester">
       <h2>Failure log</h2>

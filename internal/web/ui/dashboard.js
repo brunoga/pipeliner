@@ -1206,10 +1206,12 @@ function showTab(name) {
   document.getElementById('tab-dashboard').style.display  = name === 'dashboard' ? '' : 'none';
   document.getElementById('tab-config').style.display     = name === 'config'    ? '' : 'none';
   document.getElementById('tab-db').style.display         = name === 'db'        ? '' : 'none';
+  document.getElementById('tab-tools').style.display      = name === 'tools'     ? '' : 'none';
   document.getElementById('tab-settings').style.display   = name === 'settings'  ? '' : 'none';
   document.getElementById('tab-btn-dashboard').classList.toggle('active', name === 'dashboard');
   document.getElementById('tab-btn-config').classList.toggle('active', name === 'config');
   document.getElementById('tab-btn-db').classList.toggle('active', name === 'db');
+  document.getElementById('tab-btn-tools').classList.toggle('active', name === 'tools');
   document.getElementById('tab-btn-settings').classList.toggle('active', name === 'settings');
   if (name === 'dashboard') {
     // Re-play the entry animation on existing cards when switching to this tab.
@@ -1236,6 +1238,7 @@ function showTab(name) {
       if (dbActiveBucket) selectDBBucket(dbActiveBucket); // refresh content too
     }
   }
+  if (name === 'tools' && typeof loadToolsTab === 'function') loadToolsTab();
   if (name === 'settings' && typeof loadPluginDebugSettings === 'function') {
     loadPluginDebugSettings();
   }
