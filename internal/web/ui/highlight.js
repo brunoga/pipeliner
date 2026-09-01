@@ -111,9 +111,28 @@ function hlStarlarkLine(line) {
   return out;
 }
 
+// highlightStarlarkLines renders the source as one flex row per line — a
+// right-aligned line-number cell plus the highlighted code — so line numbers
+// stay pinned to their line even when a long line soft-wraps across several
+// visual rows (the number sits at the top of the wrapped block). Because the
+// gutter lives inside the highlight layer (which is transparent to pointer
+// events and behind the textarea), the numbers are never selectable and never
+// end up in a copy. The matching left padding on the textarea keeps the caret
+// aligned with the code column — see .editor-ta padding-left in style.css.
+function highlightStarlarkLines(text) {
+  _inTriple = false; _tripleQ = '';
+  const lines = text.split('\n');
+  let out = '';
+  for (let i = 0; i < lines.length; i++) {
+    out += '<div class="hl-line"><span class="ln">' + (i + 1) +
+           '</span><span class="code">' + hlStarlarkLine(lines[i]) + '</span></div>';
+  }
+  return out;
+}
+
 function syncHighlight() {
   const ta = document.getElementById('config-editor');
-  document.getElementById('editor-hl').innerHTML = highlightStarlark(ta.value);
+  document.getElementById('editor-hl').innerHTML = highlightStarlarkLines(ta.value);
   syncScroll(); // re-sync height and scroll position after content changes
 }
 

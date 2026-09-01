@@ -14,16 +14,52 @@ const src = readFileSync(join(__dir, '..', 'highlight.js'), 'utf8');
 
 // Extract the two functions we need by evaluating the source.
 // The file uses plain 'use strict' globals so we wrap it.
-let highlightStarlark, hlStarlarkLine;
+let highlightStarlark, hlStarlarkLine, highlightStarlarkLines;
 beforeAll(() => {
   const mod = new Function(
     'exports',
-    src + '\nexports.highlightStarlark = highlightStarlark;\nexports.hlStarlarkLine = hlStarlarkLine;'
+    src + '\nexports.highlightStarlark = highlightStarlark;\nexports.hlStarlarkLine = hlStarlarkLine;' +
+    '\nexports.highlightStarlarkLines = highlightStarlarkLines;'
   );
   const exports = {};
   mod(exports);
-  highlightStarlark = exports.highlightStarlark;
-  hlStarlarkLine    = exports.hlStarlarkLine;
+  highlightStarlark      = exports.highlightStarlark;
+  hlStarlarkLine         = exports.hlStarlarkLine;
+  highlightStarlarkLines = exports.highlightStarlarkLines;
+});
+
+describe('highlightStarlarkLines (line-number gutter)', () => {
+  it('emits one flex row per source line with a 1-based number', () => {
+    const html = highlightStarlarkLines('a = 1\nb = 2\nc = 3');
+    const rows = html.match(/<div class="hl-line">/g) || [];
+    expect(rows.length).toBe(3);
+    expect(html).toContain('<span class="ln">1</span>');
+    expect(html).toContain('<span class="ln">2</span>');
+    expect(html).toContain('<span class="ln">3</span>');
+  });
+
+  it('numbers a trailing empty line so it matches the textarea', () => {
+    const html = highlightStarlarkLines('x = 1\n');
+    expect((html.match(/<div class="hl-line">/g) || []).length).toBe(2);
+    expect(html).toContain('<span class="ln">2</span>');
+  });
+
+  it('keeps the highlighted code inside a .code cell', () => {
+    const html = highlightStarlarkLines('input("rss")');
+    expect(html).toContain('<span class="code">');
+    expect(html).toContain('y-builtin'); // "input" still highlighted
+  });
+
+  it('renders an empty line as an empty code cell (row height from the number)', () => {
+    const html = highlightStarlarkLines('a\n\nb');
+    expect(html).toContain('<span class="ln">2</span><span class="code"></span>');
+  });
+
+  it('escapes HTML in the code so markup in strings cannot break out', () => {
+    const html = highlightStarlarkLines('body="<img src=x>"');
+    expect(html).not.toContain('<img src=x>');
+    expect(html).toContain('&lt;img');
+  });
 });
 
 describe('highlightStarlark', () => {
