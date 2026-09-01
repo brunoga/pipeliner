@@ -175,7 +175,54 @@ func (p *delugePlugin) login(ctx context.Context) error {
 	if ok, _ := result.(bool); !ok {
 		return fmt.Errorf("authentication failed")
 	}
+	return p.ensureConnected(ctx)
+}
+
+// ensureConnected attaches deluge-web to its daemon. The web JSON-RPC exposes
+// only web.* methods until it is connected to a daemon host; every core.* call
+// (including add_torrent_*) fails with "Unknown method" until then, and
+// deluge-web does not auto-connect for programmatic clients — only when a
+// browser opens the UI. Connecting here makes adds work regardless of whether
+// anyone has the web UI open. Idempotent when already connected.
+func (p *delugePlugin) ensureConnected(ctx context.Context) error {
+	connected, err := p.rpc(ctx, "web.connected", []any{})
+	if err != nil {
+		return fmt.Errorf("web.connected: %w", err)
+	}
+	if b, _ := connected.(bool); b {
+		return nil
+	}
+	hosts, err := p.rpc(ctx, "web.get_hosts", []any{})
+	if err != nil {
+		return fmt.Errorf("web.get_hosts: %w", err)
+	}
+	hostID := firstDelugeHostID(hosts)
+	if hostID == "" {
+		return fmt.Errorf("no deluge daemon host is configured in the web UI")
+	}
+	if _, err := p.rpc(ctx, "web.connect", []any{hostID}); err != nil {
+		return fmt.Errorf("web.connect: %w", err)
+	}
 	return nil
+}
+
+// firstDelugeHostID pulls the host id from a web.get_hosts result, whose shape
+// is a list of [id, host, port, user] tuples.
+func firstDelugeHostID(hosts any) string {
+	list, ok := hosts.([]any)
+	if !ok {
+		return ""
+	}
+	for _, h := range list {
+		tuple, ok := h.([]any)
+		if !ok || len(tuple) == 0 {
+			continue
+		}
+		if id, ok := tuple[0].(string); ok && id != "" {
+			return id
+		}
+	}
+	return ""
 }
 
 func (p *delugePlugin) addTorrent(ctx context.Context, rawURL, linkType, savePath, moveCompletedPath string) error {

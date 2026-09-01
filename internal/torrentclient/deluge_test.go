@@ -17,10 +17,11 @@ type delugeRPCCall struct {
 
 // mockDelugeDaemon records every RPC call and serves configurable responses.
 type mockDelugeDaemon struct {
-	calls    []delugeRPCCall
-	loginOK  bool
-	torrents map[string]any // core.get_torrents_status result
-	rpcError string         // when set, every non-login call returns this RPC error
+	calls     []delugeRPCCall
+	loginOK   bool
+	connected bool           // deluge-web ↔ daemon connection state (core.* need it)
+	torrents  map[string]any // core.get_torrents_status result
+	rpcError  string         // when set, every non-login call returns this RPC error
 }
 
 func (m *mockDelugeDaemon) handler() http.HandlerFunc {
@@ -47,10 +48,26 @@ func (m *mockDelugeDaemon) handler() http.HandlerFunc {
 			return
 		}
 		switch call.Method {
-		case "core.get_torrents_status":
-			writeResult(m.torrents)
-		default:
+		case "web.connected":
+			writeResult(m.connected)
+		case "web.get_hosts":
+			writeResult([]any{[]any{"host-1", "127.0.0.1", float64(58846), "localclient"}})
+		case "web.connect":
+			m.connected = true
 			writeResult(nil)
+		default:
+			// core.* methods are unavailable until deluge-web is connected to a
+			// daemon — the real server answers "Unknown method" until then.
+			if !m.connected {
+				writeError("Unknown method")
+				return
+			}
+			switch call.Method {
+			case "core.get_torrents_status":
+				writeResult(m.torrents)
+			default:
+				writeResult(nil)
+			}
 		}
 	}
 }
@@ -76,6 +93,50 @@ func TestDelugeLoginSuccess(t *testing.T) {
 	}
 	if len(mock.calls[0].Params) != 1 || mock.calls[0].Params[0] != "secret" {
 		t.Errorf("auth.login params: got %v, want [secret]", mock.calls[0].Params)
+	}
+}
+
+// TestDelugeConnectsToDaemon reproduces the janitor failure: deluge-web starts
+// disconnected, so core.* returns "Unknown method" until the client calls
+// web.connect. ListTorrents must connect first, then succeed.
+func TestDelugeConnectsToDaemon(t *testing.T) {
+	mock := &mockDelugeDaemon{loginOK: true, connected: false, torrents: map[string]any{}}
+	c := newTestDelugeClient(t, mock)
+
+	if _, err := c.ListTorrents(context.Background()); err != nil {
+		t.Fatalf("ListTorrents should connect then succeed, got %v", err)
+	}
+	// web.connect must precede the first core.* call.
+	iConnect, iStatus := -1, -1
+	for i, call := range mock.calls {
+		if call.Method == "web.connect" && iConnect == -1 {
+			iConnect = i
+		}
+		if call.Method == "core.get_torrents_status" && iStatus == -1 {
+			iStatus = i
+		}
+	}
+	if iConnect == -1 {
+		t.Fatalf("expected a web.connect call, got %v", mock.calls)
+	}
+	if iStatus == -1 || iConnect > iStatus {
+		t.Errorf("web.connect (%d) must come before core.get_torrents_status (%d)", iConnect, iStatus)
+	}
+}
+
+// TestDelugeSkipsConnectWhenConnected: when deluge-web is already attached to a
+// daemon, the client must not re-run the get_hosts/connect handshake.
+func TestDelugeSkipsConnectWhenConnected(t *testing.T) {
+	mock := &mockDelugeDaemon{loginOK: true, connected: true, torrents: map[string]any{}}
+	c := newTestDelugeClient(t, mock)
+
+	if _, err := c.ListTorrents(context.Background()); err != nil {
+		t.Fatalf("ListTorrents: %v", err)
+	}
+	for _, call := range mock.calls {
+		if call.Method == "web.connect" || call.Method == "web.get_hosts" {
+			t.Errorf("already-connected client should not call %s", call.Method)
+		}
 	}
 }
 
