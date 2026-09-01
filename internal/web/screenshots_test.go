@@ -343,6 +343,21 @@ func TestScreenshots(t *testing.T) {
 		screenshotPage(t, page, dir, "ui-database-tab.png")
 	})
 
+	// ── 11b. Tools tab — the diagnostic/operations suite ──────────────────────
+	t.Run("tools_tab", func(t *testing.T) {
+		ts := startTestServer(t, normalConfig)
+		page := newPage(t)
+		defer page.Close()
+		login(t, page, ts.url)
+		if err := page.Locator("#tab-btn-tools").Click(); err != nil {
+			t.Fatalf("click tools tab: %v", err)
+		}
+		waitLocatorVisible(t, page.Locator("#tab-tools"))
+		waitLocatorVisible(t, page.Locator("#match-input")) // first tool auto-opens
+		pause(400)
+		screenshotPage(t, page, dir, "ui-tools-tab.png")
+	})
+
 	// ── 12. Text / config editor — fills the viewport height ─────────────────
 	t.Run("text_editor", func(t *testing.T) {
 		ts := startTestServer(t, normalConfig)

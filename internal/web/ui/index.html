@@ -48,6 +48,7 @@
   <button class="tab-btn active" id="tab-btn-dashboard" role="tab" aria-selected="true"  aria-controls="tab-dashboard" onclick="showTab('dashboard')">Dashboard</button>
   <button class="tab-btn" id="tab-btn-config"   role="tab" aria-selected="false" aria-controls="tab-config"   onclick="showTab('config')">Config</button>
   <button class="tab-btn" id="tab-btn-db"       role="tab" aria-selected="false" aria-controls="tab-db"       onclick="showTab('db')">Database</button>
+  <button class="tab-btn" id="tab-btn-tools"    role="tab" aria-selected="false" aria-controls="tab-tools"   onclick="showTab('tools')">Tools</button>
   <button class="tab-btn" id="tab-btn-settings" role="tab" aria-selected="false" aria-controls="tab-settings" onclick="showTab('settings')">Settings</button>
 </div>
 
@@ -268,6 +269,15 @@
   </div>
 </div>
 
+<div id="tab-tools" style="display:none" role="tabpanel" aria-labelledby="tab-btn-tools">
+  <div class="db-layout">
+    <div class="db-sidebar" id="tools-sidebar"><div class="db-loading">Loading…</div></div>
+    <div class="db-main">
+      <div id="tools-main-content"><div class="db-empty">Select a tool from the left.</div></div>
+    </div>
+  </div>
+</div>
+
 
 <script src="dashboard.js"></script>
 <script src="highlight.js"></script>
@@ -284,7 +294,7 @@
   var origShowTab = window.showTab;
   window.showTab = function(name){
     origShowTab(name);
-    ['dashboard','config','db','settings'].forEach(function(t){
+    ['dashboard','config','db','tools','settings'].forEach(function(t){
       var btn = document.getElementById('tab-btn-' + t);
       if (btn) btn.setAttribute('aria-selected', t === name ? 'true' : 'false');
     });
