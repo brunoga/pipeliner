@@ -474,3 +474,57 @@ func TestYearlessRetryFiltersNonMatchingTitles(t *testing.T) {
 		t.Errorf("tmdb_id should not be set when no valid title match found, got %d", e.GetInt("tmdb_id"))
 	}
 }
+
+// TestPickByYear covers the result-selection helper directly.
+func TestPickByYear(t *testing.T) {
+	rs := []itmdb.Movie{
+		{ID: 78, ReleaseDate: "1978-10-25"},   // popular original, re-released 2018
+		{ID: 2018, ReleaseDate: "2018-10-19"}, // the year we actually asked for
+	}
+	if got := pickByYear(rs, 2018); got.ID != 2018 {
+		t.Errorf("year 2018 → want id 2018, got %d", got.ID)
+	}
+	if got := pickByYear(rs, 1978); got.ID != 78 {
+		t.Errorf("year 1978 → want id 78, got %d", got.ID)
+	}
+	if got := pickByYear(rs, 0); got.ID != 78 {
+		t.Errorf("year 0 → want first (id 78), got %d", got.ID)
+	}
+	if got := pickByYear(rs, 1999); got.ID != 78 {
+		t.Errorf("no exact match → want first (id 78), got %d", got.ID)
+	}
+}
+
+// TestAnnotatePrefersMatchingYear is the Halloween case: a release named
+// "Halloween-2018" must enrich as the 2018 film, not the more popular 1978
+// original that TMDb's year filter also returns (via a 2018 re-release).
+func TestAnnotatePrefersMatchingYear(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/3/search/movie":
+			json.NewEncoder(w).Encode(map[string]any{"results": []map[string]any{
+				{"id": 78, "title": "Halloween", "release_date": "1978-10-25", "popularity": 90.0},
+				{"id": 2018, "title": "Halloween", "release_date": "2018-10-19", "popularity": 40.0},
+			}})
+		case "/3/movie/2018":
+			json.NewEncoder(w).Encode(map[string]any{"id": 2018, "title": "Halloween", "release_date": "2018-10-19", "runtime": 106})
+		case "/3/movie/78":
+			json.NewEncoder(w).Encode(map[string]any{"id": 78, "title": "Halloween", "release_date": "1978-10-25", "runtime": 91})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	c := itmdb.New("test-key")
+	c.BaseURL = srv.URL + "/3"
+	p := &tmdbPlugin{client: c}
+
+	e := entry.New("Halloween-2018-1080p UHD BluRay AV1", "http://x/a")
+	if err := p.annotate(context.Background(), makeCtx(), e); err != nil {
+		t.Fatal(err)
+	}
+	if v := e.GetInt("tmdb_id"); v != 2018 {
+		t.Errorf("picked the wrong film: tmdb_id=%d, want 2018", v)
+	}
+}
