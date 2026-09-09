@@ -1179,14 +1179,14 @@ func TestAPIStatusIncludesStartedAt(t *testing.T) {
 // ── scanComments unit tests ───────────────────────────────────────────────────
 
 func TestScanCommentsNodeComment(t *testing.T) {
-	nc, _, _ := scanComments("# Main source\nsrc_0 = input(\"rss\", url=\"https://example.com\")\npipeline(\"tv\")\n")
+	nc, _, _, _ := scanComments("# Main source\nsrc_0 = input(\"rss\", url=\"https://example.com\")\npipeline(\"tv\")\n")
 	if nc["src_0"] != "Main source" {
 		t.Errorf("node comment: got %q, want %q", nc["src_0"], "Main source")
 	}
 }
 
 func TestScanCommentsMultilineNodeComment(t *testing.T) {
-	nc, _, _ := scanComments("# Line one\n# Line two\nsrc_0 = input(\"rss\")\npipeline(\"tv\")\n")
+	nc, _, _, _ := scanComments("# Line one\n# Line two\nsrc_0 = input(\"rss\")\npipeline(\"tv\")\n")
 	want := "Line one\nLine two"
 	if nc["src_0"] != want {
 		t.Errorf("multiline comment: got %q, want %q", nc["src_0"], want)
@@ -1194,21 +1194,37 @@ func TestScanCommentsMultilineNodeComment(t *testing.T) {
 }
 
 func TestScanCommentsProcessorNodeComment(t *testing.T) {
-	nc, _, _ := scanComments("src = input(\"rss\")\n# Deduplicate\nseen_1 = process(\"seen\", upstream=src)\npipeline(\"p\")\n")
+	nc, _, _, _ := scanComments("src = input(\"rss\")\n# Deduplicate\nseen_1 = process(\"seen\", upstream=src)\npipeline(\"p\")\n")
 	if nc["seen_1"] != "Deduplicate" {
 		t.Errorf("processor comment: got %q, want %q", nc["seen_1"], "Deduplicate")
 	}
 }
 
 func TestScanCommentsPipelineComment(t *testing.T) {
-	_, pc, _ := scanComments("src = input(\"rss\")\n# TV shows pipeline\npipeline(\"tv\")\n")
+	_, pc, _, _ := scanComments("src = input(\"rss\")\n# TV shows pipeline\npipeline(\"tv\")\n")
 	if pc["tv"] != "TV shows pipeline" {
 		t.Errorf("pipeline comment: got %q, want %q", pc["tv"], "TV shows pipeline")
 	}
 }
 
+func TestScanCommentsNodeLabel(t *testing.T) {
+	_, _, _, labels := scanComments("# pipeliner:label Match sci-fi and fantasy\n# pipeliner:pos 50 32\nflt_0 = process(\"condition\", upstream=src)\npipeline(\"tv\")\n")
+	if labels["flt_0"] != "Match sci-fi and fantasy" {
+		t.Errorf("label: got %q, want %q", labels["flt_0"], "Match sci-fi and fantasy")
+	}
+}
+
+func TestScanCommentsLabelDoesNotCrossPipeline(t *testing.T) {
+	// A label with no following node in its pipeline must not attach to a node
+	// in the next pipeline.
+	_, _, _, labels := scanComments("# pipeliner:label Orphan\npipeline(\"a\")\nsrc_0 = input(\"rss\")\npipeline(\"b\")\n")
+	if _, ok := labels["src_0"]; ok {
+		t.Errorf("label leaked across pipeline boundary: %v", labels)
+	}
+}
+
 func TestScanCommentsPerNodePos(t *testing.T) {
-	_, _, pos := scanComments("# pipeliner:pos 50 32\nsrc_0 = input(\"rss\")\npipeline(\"tv\")\n")
+	_, _, pos, _ := scanComments("# pipeliner:pos 50 32\nsrc_0 = input(\"rss\")\npipeline(\"tv\")\n")
 	p, ok := pos["src_0"]
 	if !ok {
 		t.Fatal("position missing for src_0")
@@ -1220,7 +1236,7 @@ func TestScanCommentsPerNodePos(t *testing.T) {
 
 func TestScanCommentsPosWithSubNodes(t *testing.T) {
 	content := "# pipeliner:pos 50 32 list 10 5 20 6 search 30 7\nsrc_0 = input(\"rss\")\npipeline(\"tv\")\n"
-	_, _, pos := scanComments(content)
+	_, _, pos, _ := scanComments(content)
 	p, ok := pos["src_0"]
 	if !ok {
 		t.Fatal("position missing for src_0")
@@ -1237,7 +1253,7 @@ func TestScanCommentsPosWithSubNodes(t *testing.T) {
 }
 
 func TestScanCommentsPosWithUserComment(t *testing.T) {
-	nc, _, pos := scanComments("# My source\n# pipeliner:pos 50 32\nsrc_0 = input(\"rss\")\npipeline(\"tv\")\n")
+	nc, _, pos, _ := scanComments("# My source\n# pipeliner:pos 50 32\nsrc_0 = input(\"rss\")\npipeline(\"tv\")\n")
 	if nc["src_0"] != "My source" {
 		t.Errorf("node comment: got %q", nc["src_0"])
 	}
@@ -1252,7 +1268,7 @@ func TestScanCommentsPosWithUserComment(t *testing.T) {
 
 func TestScanCommentsLegacyLayoutBackwardCompat(t *testing.T) {
 	// Old pipeliner:layout format must still be parsed for backward compatibility.
-	_, _, pos := scanComments("src_0 = input(\"rss\")\n# pipeliner:layout {\"src_0\":[50,76]}\npipeline(\"tv\")\n")
+	_, _, pos, _ := scanComments("src_0 = input(\"rss\")\n# pipeliner:layout {\"src_0\":[50,76]}\npipeline(\"tv\")\n")
 	p, ok := pos["src_0"]
 	if !ok {
 		t.Fatal("legacy layout position missing for src_0")
@@ -1266,21 +1282,21 @@ func TestScanCommentsPosDoesNotCrossPipelineBoundary(t *testing.T) {
 	// A pipeliner:pos comment at the end of pipeline A must not be attributed
 	// to the first node of pipeline B.
 	content := "src_a = input(\"rss\")\n# pipeliner:pos 10 20\npipeline(\"a\")\n\nsrc_b = input(\"rss\")\npipeline(\"b\")\n"
-	_, _, pos := scanComments(content)
+	_, _, pos, _ := scanComments(content)
 	if _, ok := pos["src_b"]; ok {
 		t.Error("pos from pipeline A must not leak into pipeline B")
 	}
 }
 
 func TestScanCommentsBlankLineResetsComment(t *testing.T) {
-	nc, _, _ := scanComments("# Lost comment\n\nsrc_0 = input(\"rss\")\npipeline(\"tv\")\n")
+	nc, _, _, _ := scanComments("# Lost comment\n\nsrc_0 = input(\"rss\")\npipeline(\"tv\")\n")
 	if nc["src_0"] != "" {
 		t.Errorf("blank line should reset comment, got %q", nc["src_0"])
 	}
 }
 
 func TestScanCommentsNoAnnotations(t *testing.T) {
-	nc, pc, pos := scanComments("src = input(\"rss\")\npipeline(\"tv\")\n")
+	nc, pc, pos, _ := scanComments("src = input(\"rss\")\npipeline(\"tv\")\n")
 	if len(nc) != 0 || len(pc) != 0 || len(pos) != 0 {
 		t.Errorf("expected empty maps, got nc=%v pc=%v pos=%v", nc, pc, pos)
 	}
@@ -1288,7 +1304,7 @@ func TestScanCommentsNoAnnotations(t *testing.T) {
 
 func TestScanCommentsMultiplePipelines(t *testing.T) {
 	content := "# Source A\na_0 = input(\"rss\")\n# Pipeline A\npipeline(\"a\")\n\n# Source B\nb_0 = input(\"rss\")\n# Pipeline B\npipeline(\"b\")\n"
-	nc, pc, _ := scanComments(content)
+	nc, pc, _, _ := scanComments(content)
 	if nc["a_0"] != "Source A" {
 		t.Errorf("a_0: got %q", nc["a_0"])
 	}
