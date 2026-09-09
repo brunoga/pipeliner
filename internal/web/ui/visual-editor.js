@@ -840,7 +840,9 @@ function renderGraphNodes() {
       div.innerHTML = [
         '<div class="ve-node-role-bar"></div>',
         '<div class="ve-node-body">',
-          `<div class="ve-node-name">${esc(n.plugin)}</div>`,
+          n.label?.trim()
+            ? `<div class="ve-node-name" title="${esc(n.plugin)}">${esc(n.label.trim())}</div><div class="ve-node-plugin-sub">${esc(n.plugin)}</div>`
+            : `<div class="ve-node-name">${esc(n.plugin)}</div>`,
           badgeHtml,
           autoMigratedBadge,
           preview        ? `<div class="ve-node-preview">${esc(preview)}</div>` : '',
@@ -2974,6 +2976,17 @@ function renderParamPanel() {
   footer.style.display = '';
 
   const html = [];
+
+  // Optional friendly label — shown as the node's title on the canvas (with the
+  // plugin name as a subtitle). Not for sub-nodes (search/list/route ports).
+  if (!node.isSearchNode && !node.isListNode && !node.isRoutePort) {
+    html.push(`<div class="ve-label-field">
+      <label>Label <span class="ve-label-hint">optional — shown as the node title</span></label>
+      <input type="text" class="ve-label-input" value="${esc(node.label || '')}"
+        placeholder="${esc(node.plugin)}"
+        onchange="setNodeLabel(${esc(JSON.stringify(node.id))}, this.value)">
+    </div>`);
+  }
 
   // Search-connected nodes have no pipeline upstreams (they're search backends, not DAG nodes).
   if (meta.role !== 'source' && !node.isSearchNode) {
@@ -6992,14 +7005,19 @@ function dagToStarlark() {
       const cfgKw    = configToKwargs(n.config);
       const fromStr  = upstreamsStr(n.upstreams);
 
-      // Emit user comment then pipeliner:pos before the definition.
+      // Emit user comment, pipeliner:label, then pipeliner:pos before the definition.
       const hasPos     = !n.isSearchNode && !n.isListNode && n.x != null && n.y != null;
       const hasComment = !!n.comment?.trim();
-      if (hasPos || hasComment) {
+      const hasLabel   = !!n.label?.trim();
+      if (hasPos || hasComment || hasLabel) {
         if (lines.length > 0) lines.push('');
       }
       if (hasComment) {
         for (const cl of n.comment.trim().split('\n')) lines.push(`# ${cl}`);
+      }
+      if (hasLabel) {
+        // A label is a single line; collapse any newlines defensively.
+        lines.push(`# pipeliner:label ${n.label.trim().replace(/\s*\n\s*/g, ' ')}`);
       }
       if (hasPos) {
         const regionY = g._regionY ?? 0;
@@ -7177,6 +7195,17 @@ function starLit(v) {
 // in the visual editor never rewrites `env("SECRET")` or a param reference into
 // a quoted string. Nesting is preserved: a raw expr inside a config={} dict
 // (e.g. an email password) survives at any depth.
+// setNodeLabel sets a node's friendly display label (emitted as a
+// `# pipeliner:label` comment). Fires on change (blur/Enter), so re-rendering
+// to refresh the card title doesn't interrupt typing.
+function setNodeLabel(id, val) {
+  const n = findNode(id);
+  if (!n) return;
+  n.label = (val || '').trim();
+  veRender();
+  onModelChange();
+}
+
 function rawExpr(s)   { return {__star_raw__: String(s)}; }
 function isRawExpr(v) { return !!v && typeof v === 'object' && typeof v.__star_raw__ === 'string'; }
 
@@ -7508,7 +7537,7 @@ async function textToVisualSync() {
         .filter(n => !internalNodeIds.has(n.id))
         .map(n => ({
           id: n.id, plugin: n.plugin, config: overlayConfigExprs(n.config || {}, n.config_exprs), upstreams: n.upstreams || [],
-          searchNodeIds: [], comment: n.comment || '',
+          searchNodeIds: [], comment: n.comment || '', label: n.label || '',
           x: n.x ?? null, y: n.y ?? null,
           fields: n.fields || {certain: [], reachable: []},
           autoMigrated: n.auto_migrated || '',
