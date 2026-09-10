@@ -187,7 +187,13 @@ func (p *tmdbPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 		return nil
 	}
 
-	r := results[0]
+	// Prefer the result whose PRIMARY release year matches the searched year.
+	// TMDb's `year` filter also matches films merely re-released that year (a
+	// 40th-anniversary UHD of a 1978 movie matches year=2018), and results are
+	// popularity-ranked, so results[0] can be the famous original rather than
+	// the year we asked for. Picking the exact-primary-year match keeps a
+	// release named "Halloween-2018" enriched as the 2018 film, not the 1978 one.
+	r := pickByYear(results, searchYear)
 	e.Set("tmdb_id", r.ID)
 
 	detail, err := p.fetchDetail(ctx, r.ID)
@@ -330,3 +336,33 @@ func (p *tmdbPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entrie
 // ISO 639-1 → display name mapping lives in internal/locale so both metainfo_tmdb
 // and metainfo_trakt (which receive 2-letter codes from their respective APIs)
 // share the same translation table.
+
+// pickByYear returns the search result whose primary release year matches the
+// searched year, preferring it over the popularity-ranked results[0]. TMDb's
+// year filter matches re-releases too, so the most popular hit for a given year
+// can be an older film that was merely re-released that year. Falls back to the
+// first result when no year was searched or none matches exactly. results must
+// be non-empty.
+func pickByYear(results []itmdb.Movie, year int) itmdb.Movie {
+	if year > 0 {
+		for _, m := range results {
+			if releaseYear(m.ReleaseDate) == year {
+				return m
+			}
+		}
+	}
+	return results[0]
+}
+
+// releaseYear extracts the 4-digit year from a TMDb "YYYY-MM-DD" release date;
+// 0 if it can't be parsed.
+func releaseYear(date string) int {
+	if len(date) < 4 {
+		return 0
+	}
+	y, err := strconv.Atoi(date[:4])
+	if err != nil {
+		return 0
+	}
+	return y
+}

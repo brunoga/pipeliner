@@ -5,6 +5,30 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.20.1] - 2026-09-01
+
+A fan-out execution fix that caused duplicate downloads.
+
+### Fixed
+
+- **No duplicate downloads when a tracked pipeline fans out to a reject branch** ([#372](https://github.com/brunoga/pipeliner/pull/372)). A `premiere`/`series`/`movies` entry could be downloaded twice on consecutive runs (observed as a new TV premiere grabbed once at 4:00 and again at 5:00 as a different release). On a fan-out, the executor gave the first downstream branch the producer's original entry objects while other branches got clones; when that first branch rejected the entry — e.g. a reject-all condition or a genre-gate branch fanning out alongside the download path — it flipped the producer's own copy to Rejected, so the commit phase skipped recording it even though another branch had already downloaded it, and the next run re-downloaded. Fan-out now clones every branch, and the commit records an entry only if it actually reached a sink in some branch (and wasn't failed) — so it is recorded exactly once, while an entry rejected before any sink stays retryable.
+
+**Why 1.20.1**: a correctness patch for the DAG executor's commit phase. No config changes; existing pipelines behave the same, minus the duplicate grabs. A patch bump per SemVer.
+
+## [1.20.0] - 2026-09-01
+
+Custom node labels in the visual editor, plus a TMDb enrichment fix that was picking the wrong film for re-released titles.
+
+### Added
+
+- **Custom node labels** ([#370](https://github.com/brunoga/pipeliner/pull/370)). Generic plugins like `condition` and `require` appear many times in a config and all read as the same plugin name on the canvas. Each node's parameter panel now has an optional **Label** field: the label becomes the node's title (with the plugin name kept as a small subtitle), so a node can read "Match sci-fi and fantasy" instead of just "condition". It is stored as a `# pipeliner:label …` comment above the node and round-trips like the existing position/comment annotations. Purely cosmetic — no effect on execution.
+
+### Fixed
+
+- **TMDb enrichment prefers the film whose year matches the release** ([#368](https://github.com/brunoga/pipeliner/pull/368)). A release named after a re-release year enriched as the wrong film: TMDb's `year` search filter also matches films merely re-released that year (a 2018 40th-anniversary UHD of the 1978 "Halloween" matches year=2018), and results are popularity-ranked, so the most popular match — the famous original — was chosen over the year that was actually searched. Enrichment now selects the result whose primary release year equals the searched year when one exists, so a "Halloween-2018" release enriches as the 2018 film. (The downloaded file itself was always correct; only the metadata/tracker/folder year was wrong.)
+
+**Why 1.20.0**: an additive visual-editor feature (node labels) alongside the TMDb enrichment fix. Web-UI/metadata only; no config changes and no effect on which releases are grabbed. A minor bump per SemVer.
+
 ## [1.19.1] - 2026-09-01
 
 A throughput fix for the live web log during heavy pipeline runs.

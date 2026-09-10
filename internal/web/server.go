@@ -855,7 +855,7 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Scan raw text for user comments and per-node layout positions.
-	nodeComments, pipelineComments, nodePositions := scanComments(req.Content)
+	nodeComments, pipelineComments, nodePositions, nodeLabels := scanComments(req.Content)
 	// Reference-aware config values, so the editor round-trips env/variable
 	// references instead of re-inlining the resolved literals.
 	nodeRefs := configRefs(req.Content)
@@ -880,6 +880,7 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 		Search          []subPluginResp `json:"search,omitempty"`
 		List            []subPluginResp `json:"list,omitempty"`
 		Comment         string          `json:"comment,omitempty"`
+		Label           string          `json:"label,omitempty"`
 		X               *float64        `json:"x,omitempty"`
 		Y               *float64        `json:"y,omitempty"`
 		FunctionCallKey string          `json:"function_call_key,omitempty"`
@@ -1050,6 +1051,7 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 				Search:          search,
 				List:            list,
 				Comment:         nodeComments[string(n.ID)],
+				Label:           nodeLabels[string(n.ID)],
 				FunctionCallKey: nodeCallKey[string(n.ID)],
 				Fields:          nodeFieldsResp{Certain: nf.Certain, Reachable: nf.Reachable},
 				AutoMigrated:    n.AutoMigrated,
@@ -1174,16 +1176,19 @@ func scanComments(content string) (
 	nodeComments map[string]string,
 	pipelineComments map[string]string,
 	nodePositions map[string]nodePosData,
+	nodeLabels map[string]string,
 ) {
 	nodeComments = make(map[string]string)
 	pipelineComments = make(map[string]string)
 	nodePositions = make(map[string]nodePosData)
+	nodeLabels = make(map[string]string)
 
 	nodeRe := regexp.MustCompile(`^([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*[a-zA-Z_][a-zA-Z0-9_]*\s*\(`)
 	pipelineRe := regexp.MustCompile(`^pipeline\s*\(\s*"([^"]+)"`)
 
 	var commentLines []string
 	var pendingPos *nodePosData
+	var pendingLabel string
 
 	parsePairs := func(parts []string, start int, stop func(string) bool) ([][2]float64, int) {
 		var out [][2]float64
@@ -1234,6 +1239,11 @@ func scanComments(content string) (
 						pendingPos = &pd
 					}
 				}
+			case strings.HasPrefix(rest, "pipeliner:label "):
+				// Optional friendly node label shown as the node's title in the
+				// visual editor (the plugin name becomes a subtitle). Like pos,
+				// it applies to the next node assignment.
+				pendingLabel = strings.TrimSpace(strings.TrimPrefix(rest, "pipeliner:label "))
 			case strings.HasPrefix(rest, "pipeliner:layout "):
 				// Legacy aggregate format — distribute to per-node positions.
 				var legacy map[string][2]float64
@@ -1260,11 +1270,16 @@ func scanComments(content string) (
 					nodePositions[nodeID] = *pendingPos
 					pendingPos = nil
 				}
+				if pendingLabel != "" {
+					nodeLabels[nodeID] = pendingLabel
+					pendingLabel = ""
+				}
 			} else if m := pipelineRe.FindStringSubmatch(trimmed); m != nil {
 				if len(commentLines) > 0 {
 					pipelineComments[m[1]] = strings.Join(commentLines, "\n")
 				}
 				pendingPos = nil // pos must not cross pipeline boundaries
+				pendingLabel = ""
 			}
 			commentLines = nil
 		}

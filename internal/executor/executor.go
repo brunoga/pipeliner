@@ -9,8 +9,9 @@
 //  4. When a node's output fans out to more than one downstream consumer,
 //     entries are cloned per consumer so each branch has independent copies.
 //  5. After the main loop, a commit phase calls CommitPlugin.Commit for each
-//     processor node that implements CommitPlugin, passing only entries whose
-//     URL was not failed by any downstream sink across all fan-out branches.
+//     processor node that implements CommitPlugin, passing only entries that
+//     reached a sink (were downloaded/acted-on) in some fan-out branch and were
+//     not failed by any sink. URL-less entries always commit.
 //
 // All plugins must implement one of the three role interfaces:
 // SourcePlugin.Generate, ProcessorPlugin.Process, or SinkPlugin.Consume.
@@ -162,6 +163,13 @@ func (ex *Executor) Run(ctx context.Context) (*Result, error) {
 	// Used during the commit phase to exclude them from CommitPlugin.Commit calls.
 	failedURLs := map[string]bool{}
 
+	// deliveredURLs tracks URLs of entries that actually reached a sink in an
+	// accepted/consumed state — i.e. were downloaded/acted-on in at least one
+	// fan-out branch. The commit phase records only delivered entries so a
+	// premiere/series/movies producer doesn't mark something downloaded that
+	// was rejected before any sink (which would suppress a legitimate retry).
+	deliveredURLs := map[string]bool{}
+
 	// producedByNode tracks entries produced by each processor node.
 	// Used during the commit phase to find entries eligible for committing.
 	producedByNode := map[dag.NodeID][]*entry.Entry{}
@@ -215,8 +223,13 @@ func (ex *Executor) Run(ctx context.Context) (*Result, error) {
 			// don't all collide on the same map key.
 			if role == plugin.RoleSink {
 				for _, e := range upstream {
-					if e.IsFailed() && e.URL != "" {
+					if e.URL == "" {
+						continue
+					}
+					if e.IsFailed() {
 						failedURLs[e.URL] = true
+					} else if e.IsAccepted() || e.IsConsumed() {
+						deliveredURLs[e.URL] = true
 					}
 				}
 			}
@@ -254,10 +267,13 @@ func (ex *Executor) Run(ctx context.Context) (*Result, error) {
 				produced := producedByNode[n.ID]
 				toCommit := make([]*entry.Entry, 0, len(produced))
 				for _, e := range produced {
-					// Empty-URL entries can't be tracked in failedURLs (URL is
-					// the key), so they always commit. Pair with the producer-
-					// side skip above so the semantics stay consistent.
-					if e.URL == "" || !failedURLs[e.URL] {
+					// Empty-URL entries can't be tracked by URL, so they always
+					// commit (paired with the producer-side skip above). URL'd
+					// entries commit only when they were delivered to a sink in
+					// some branch and not failed by any sink — so an entry
+					// rejected before reaching a sink isn't recorded, and one
+					// downloaded in any fan-out branch is.
+					if e.URL == "" || (deliveredURLs[e.URL] && !failedURLs[e.URL]) {
 						toCommit = append(toCommit, e)
 					}
 				}
@@ -325,9 +341,14 @@ func (ex *Executor) storeOutputs(n *dag.Node, produced []*entry.Entry, edge map[
 		edge[edgeKey{n.ID, downstreams[0].ID}] = produced
 		return
 	}
-	// Fan-out: first consumer gets originals, rest get clones.
-	edge[edgeKey{n.ID, downstreams[0].ID}] = produced
-	for _, d := range downstreams[1:] {
+	// Fan-out: every consumer gets its own clones. Giving any branch the
+	// original objects lets that branch's downstream nodes mutate entries the
+	// commit phase still relies on — e.g. a branch that rejects an entry would
+	// flip a premiere/series/movies producer's own copy to Rejected, so the
+	// commit skips recording it even though another branch downloaded it, and
+	// the next run re-downloads. Cloning all branches keeps the producer's
+	// originals (used by the commit phase) reflecting the producer's own output.
+	for _, d := range downstreams {
 		edge[edgeKey{n.ID, d.ID}] = cloneAll(produced)
 	}
 }

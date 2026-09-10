@@ -80,7 +80,20 @@ jobs:
           cache: true
 
       - name: Install Playwright browsers
-        run: go run github.com/mxschmitt/playwright-go/cmd/playwright install --with-deps chromium
+        # The GitHub runner ships a Google Chrome apt source that intermittently
+        # serves a mismatched Packages index, which breaks the `apt-get update`
+        # that `--with-deps` runs (E: ... dl.google.com ... Hash Sum mismatch).
+        # We only need Playwright's own Chromium, so drop that source first and
+        # retry to ride out transient mirror hiccups.
+        run: |
+          sudo rm -f /etc/apt/sources.list.d/google-chrome.list \
+                     /etc/apt/sources.list.d/google-chrome.sources || true
+          for i in 1 2 3; do
+            go run github.com/mxschmitt/playwright-go/cmd/playwright install --with-deps chromium && exit 0
+            echo "playwright install attempt $i failed; retrying in 20s"
+            sleep 20
+          done
+          exit 1
 
       - name: Run E2E tests
         run: go test -race -timeout 120s ./internal/web/...

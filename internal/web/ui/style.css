@@ -1402,11 +1402,27 @@ body.dark {
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
   display:block; margin-bottom:3px;
 }
+/* Plugin name shown as a subtitle under a custom label. */
+.ve-node-plugin-sub {
+  font-size:10px; color:var(--muted); margin:-2px 0 3px;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  font-family:var(--mono-font); letter-spacing:0.02em;
+}
 .ve-node-preview {
   font-size:11px; color:var(--muted); margin-top:3px;
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
   font-family:var(--mono-font);
 }
+/* Node label editor in the param panel. */
+.ve-label-field { margin-bottom:10px; }
+.ve-label-field label { display:block; font-size:12px; font-weight:600; margin-bottom:4px; }
+.ve-label-field .ve-label-hint { font-weight:400; color:var(--muted); font-size:11px; }
+.ve-label-input {
+  width:100%; box-sizing:border-box; padding:6px 8px;
+  background:var(--input-bg, var(--code-bg)); color:var(--text);
+  border:1px solid var(--border); border-radius:4px; font-size:13px;
+}
+.ve-label-input:focus { outline:none; border-color:var(--accent); }
 .ve-node-remove {
   display:flex; align-items:center; padding:0 10px;
   color:var(--muted); background:none; border:none; cursor:pointer; font-size:16px;
