@@ -1842,3 +1842,87 @@ func TestExecutor_TraceCapTruncates(t *testing.T) {
 		t.Errorf("traces=%d truncated=%d", len(res.Traces), res.TracesTruncated)
 	}
 }
+
+// acceptedCommitPlugin mirrors the real premiere/series/movies commit plugins:
+// it accepts entries and, on commit, records only those still Accepted (its own
+// output copy) — the behaviour the fan-out bug corrupted.
+type acceptedCommitPlugin struct{ committed []*entry.Entry }
+
+func (p *acceptedCommitPlugin) Name() string { return "test_accepted_commit" }
+func (p *acceptedCommitPlugin) Process(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
+	for _, e := range entries {
+		e.Accept()
+	}
+	return entry.PassThrough(entries), nil
+}
+func (p *acceptedCommitPlugin) Commit(_ context.Context, _ *plugin.TaskContext, entries []*entry.Entry) error {
+	for _, e := range entries {
+		if e.IsAccepted() {
+			p.committed = append(p.committed, e)
+		}
+	}
+	return nil
+}
+
+// TestExecutor_FanOutRejectBranchStillCommitsDownloaded reproduces the duplicate-
+// download bug: a commit producer fans out to a reject branch (listed first, so
+// it used to receive the original entry objects) and a download sink. The entry
+// is downloaded via the sink, so the producer must record it — otherwise the
+// next run re-downloads. The reject branch must not suppress that record.
+func TestExecutor_FanOutRejectBranchStillCommitsDownloaded(t *testing.T) {
+	commit := &acceptedCommitPlugin{}
+	sink := &sinkPlugin{}
+
+	ex := buildExec(t,
+		[]*dag.Node{
+			{ID: "src", PluginName: "test_source"},
+			{ID: "commit", PluginName: "test_accepted_commit", Upstreams: []dag.NodeID{"src"}},
+			// Reject branch listed FIRST — it used to get the original objects.
+			{ID: "reject", PluginName: "test_reject", Upstreams: []dag.NodeID{"commit"}},
+			{ID: "sink", PluginName: "test_sink", Upstreams: []dag.NodeID{"commit"}},
+		},
+		map[dag.NodeID]*executor.PluginInstance{
+			"src":    {Desc: sourceDesc(), Impl: &sourcePlugin{urls: []string{"http://dl"}}, Config: map[string]any{}},
+			"commit": {Desc: commitDesc(), Impl: commit, Config: map[string]any{}},
+			"reject": {Desc: processorDesc(), Impl: &rejectAllPlugin{}, Config: map[string]any{}},
+			"sink":   {Desc: sinkDesc(), Impl: sink, Config: map[string]any{}},
+		},
+	)
+	if _, err := ex.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(sink.received) != 1 {
+		t.Fatalf("sink should have received the downloaded entry, got %d", len(sink.received))
+	}
+	if len(commit.committed) != 1 {
+		t.Errorf("commit: got %d recorded, want 1 (delivered via the sink despite the reject branch)", len(commit.committed))
+	}
+}
+
+// TestExecutor_RejectedBeforeSinkNotCommitted: an entry the producer accepted but
+// that is rejected before reaching any sink was not downloaded, so it must not be
+// recorded (so a later, better release can still be retried).
+func TestExecutor_RejectedBeforeSinkNotCommitted(t *testing.T) {
+	commit := &acceptedCommitPlugin{}
+
+	ex := buildExec(t,
+		[]*dag.Node{
+			{ID: "src", PluginName: "test_source"},
+			{ID: "commit", PluginName: "test_accepted_commit", Upstreams: []dag.NodeID{"src"}},
+			{ID: "reject", PluginName: "test_reject", Upstreams: []dag.NodeID{"commit"}},
+			{ID: "sink", PluginName: "test_sink", Upstreams: []dag.NodeID{"reject"}},
+		},
+		map[dag.NodeID]*executor.PluginInstance{
+			"src":    {Desc: sourceDesc(), Impl: &sourcePlugin{urls: []string{"http://dl"}}, Config: map[string]any{}},
+			"commit": {Desc: commitDesc(), Impl: commit, Config: map[string]any{}},
+			"reject": {Desc: processorDesc(), Impl: &rejectAllPlugin{}, Config: map[string]any{}},
+			"sink":   {Desc: sinkDesc(), Impl: &sinkPlugin{}, Config: map[string]any{}},
+		},
+	)
+	if _, err := ex.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(commit.committed) != 0 {
+		t.Errorf("commit: got %d recorded, want 0 (never reached a sink)", len(commit.committed))
+	}
+}
