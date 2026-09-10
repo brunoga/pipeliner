@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.20.1] - 2026-09-01
+
+A fan-out execution fix that caused duplicate downloads.
+
+### Fixed
+
+- **No duplicate downloads when a tracked pipeline fans out to a reject branch** ([#372](https://github.com/brunoga/pipeliner/pull/372)). A `premiere`/`series`/`movies` entry could be downloaded twice on consecutive runs (observed as a new TV premiere grabbed once at 4:00 and again at 5:00 as a different release). On a fan-out, the executor gave the first downstream branch the producer's original entry objects while other branches got clones; when that first branch rejected the entry — e.g. a reject-all condition or a genre-gate branch fanning out alongside the download path — it flipped the producer's own copy to Rejected, so the commit phase skipped recording it even though another branch had already downloaded it, and the next run re-downloaded. Fan-out now clones every branch, and the commit records an entry only if it actually reached a sink in some branch (and wasn't failed) — so it is recorded exactly once, while an entry rejected before any sink stays retryable.
+
+**Why 1.20.1**: a correctness patch for the DAG executor's commit phase. No config changes; existing pipelines behave the same, minus the duplicate grabs. A patch bump per SemVer.
+
 ## [1.20.0] - 2026-09-01
 
 Custom node labels in the visual editor, plus a TMDb enrichment fix that was picking the wrong film for re-released titles.
