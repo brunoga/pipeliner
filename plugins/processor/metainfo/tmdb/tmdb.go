@@ -187,13 +187,13 @@ func (p *tmdbPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 		return nil
 	}
 
-	// Prefer the result whose PRIMARY release year matches the searched year.
-	// TMDb's `year` filter also matches films merely re-released that year (a
-	// 40th-anniversary UHD of a 1978 movie matches year=2018), and results are
-	// popularity-ranked, so results[0] can be the famous original rather than
-	// the year we asked for. Picking the exact-primary-year match keeps a
-	// release named "Halloween-2018" enriched as the 2018 film, not the 1978 one.
-	r := pickByYear(results, searchYear)
+	// Choose the result that best represents the searched movie: restrict to the
+	// searched primary year (keeps a release named "Halloween-2018" on the 2018
+	// film rather than the 1978 original a re-release drags in), then prefer an
+	// exact title match over TMDb's popularity ordering (keeps "X2 2003" on the
+	// feature film rather than a same-year companion piece like "X2 Global
+	// Webcast Highlights" that happens to sort ahead of it).
+	r := pickBest(results, searchTitle, searchYear)
 	e.Set("tmdb_id", r.ID)
 
 	detail, err := p.fetchDetail(ctx, r.ID)
@@ -337,21 +337,55 @@ func (p *tmdbPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entrie
 // and metainfo_trakt (which receive 2-letter codes from their respective APIs)
 // share the same translation table.
 
-// pickByYear returns the search result whose primary release year matches the
-// searched year, preferring it over the popularity-ranked results[0]. TMDb's
-// year filter matches re-releases too, so the most popular hit for a given year
-// can be an older film that was merely re-released that year. Falls back to the
-// first result when no year was searched or none matches exactly. results must
-// be non-empty.
-func pickByYear(results []itmdb.Movie, year int) itmdb.Movie {
+// pickBest chooses the search result that best represents the searched movie.
+// Two TMDb quirks make results[0] unreliable: its `year` filter also matches
+// films merely re-released that year (a 40th-anniversary UHD of a 1978 movie
+// matches year=2018), and results are popularity-ranked so a same-year
+// companion piece sharing the film's name (a featurette, webcast special, or
+// "making of") can sort ahead of the actual film. So we first restrict to the
+// searched primary year (when any candidate matches it), then prefer a
+// candidate whose title exactly matches the searched title, breaking ties by
+// popularity. Falls back to the first (most popular) candidate. results must be
+// non-empty.
+func pickBest(results []itmdb.Movie, title string, year int) itmdb.Movie {
+	candidates := results
 	if year > 0 {
+		var byYear []itmdb.Movie
 		for _, m := range results {
 			if releaseYear(m.ReleaseDate) == year {
-				return m
+				byYear = append(byYear, m)
 			}
 		}
+		if len(byYear) > 0 {
+			candidates = byYear
+		}
 	}
-	return results[0]
+
+	norm := match.Normalize(title)
+	best := candidates[0]
+	for _, m := range candidates[1:] {
+		if betterMovieMatch(m, best, norm) {
+			best = m
+		}
+	}
+	return best
+}
+
+// betterMovieMatch reports whether cand better represents the normalized search
+// title than cur: an exact title match beats a non-exact one, and among equally
+// exact (or equally inexact) candidates the more popular one wins.
+func betterMovieMatch(cand, cur itmdb.Movie, norm string) bool {
+	ce, cure := exactTitleMatch(cand, norm), exactTitleMatch(cur, norm)
+	if ce != cure {
+		return ce
+	}
+	return cand.Popularity > cur.Popularity
+}
+
+// exactTitleMatch reports whether the movie's primary or original title equals
+// the normalized search title after normalization.
+func exactTitleMatch(m itmdb.Movie, norm string) bool {
+	return match.Normalize(m.Title) == norm || match.Normalize(m.OrigTitle) == norm
 }
 
 // releaseYear extracts the 4-digit year from a TMDb "YYYY-MM-DD" release date;
