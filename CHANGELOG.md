@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.20.2] - 2026-09-12
+
+A follow-up to the TMDb enrichment fix in 1.20.0, for same-year lookalikes.
+
+### Fixed
+
+- **TMDb enrichment prefers the film whose title matches the release** ([#374](https://github.com/brunoga/pipeliner/pull/374)). The year-preference picker from [#368](https://github.com/brunoga/pipeliner/pull/368) still chose the wrong entry when a same-year companion piece shared the film's name: a release named `X2 2003` enriched as "X2 Global Webcast Highlights" — a 17-minute 2003 documentary about the film — because both share primary release year 2003 and TMDb's popularity-ranked search returned the featurette first. Enrichment now restricts to the searched year (keeping the 1.20.0 re-release disambiguation), then prefers a result whose title or original title matches the searched title exactly, breaking ties by popularity — so `X2` wins over `X2 Global Webcast Highlights`, and even when no title matches exactly the real film still outranks a low-signal companion piece. (As before, the downloaded file itself was correct; only the metadata was wrong.)
+
+**Why 1.20.2**: a metadata-correctness patch for TMDb result selection; no config changes and no effect on which releases are grabbed. A patch bump per SemVer.
+
 ## [1.20.1] - 2026-09-01
 
 A fan-out execution fix that caused duplicate downloads.
