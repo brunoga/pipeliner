@@ -476,22 +476,43 @@ func TestYearlessRetryFiltersNonMatchingTitles(t *testing.T) {
 }
 
 // TestPickByYear covers the result-selection helper directly.
-func TestPickByYear(t *testing.T) {
+func TestPickBest(t *testing.T) {
 	rs := []itmdb.Movie{
-		{ID: 78, ReleaseDate: "1978-10-25"},   // popular original, re-released 2018
-		{ID: 2018, ReleaseDate: "2018-10-19"}, // the year we actually asked for
+		{ID: 78, Title: "Halloween", ReleaseDate: "1978-10-25"},   // popular original, re-released 2018
+		{ID: 2018, Title: "Halloween", ReleaseDate: "2018-10-19"}, // the year we actually asked for
 	}
-	if got := pickByYear(rs, 2018); got.ID != 2018 {
+	if got := pickBest(rs, "Halloween", 2018); got.ID != 2018 {
 		t.Errorf("year 2018 → want id 2018, got %d", got.ID)
 	}
-	if got := pickByYear(rs, 1978); got.ID != 78 {
+	if got := pickBest(rs, "Halloween", 1978); got.ID != 78 {
 		t.Errorf("year 1978 → want id 78, got %d", got.ID)
 	}
-	if got := pickByYear(rs, 0); got.ID != 78 {
+	if got := pickBest(rs, "Halloween", 0); got.ID != 78 {
 		t.Errorf("year 0 → want first (id 78), got %d", got.ID)
 	}
-	if got := pickByYear(rs, 1999); got.ID != 78 {
-		t.Errorf("no exact match → want first (id 78), got %d", got.ID)
+	if got := pickBest(rs, "Halloween", 1999); got.ID != 78 {
+		t.Errorf("no year match → want first (id 78), got %d", got.ID)
+	}
+
+	// X2 case: a same-year companion piece sorts first (and is even more
+	// "popular" in the raw ranking), but the actual film's title matches
+	// exactly and must win.
+	x2 := []itmdb.Movie{
+		{ID: 100, Title: "X2 Global Webcast Highlights", ReleaseDate: "2003-06-01", Popularity: 50},
+		{ID: 200, Title: "X2", ReleaseDate: "2003-04-24", Popularity: 30},
+	}
+	if got := pickBest(x2, "X2", 2003); got.ID != 200 {
+		t.Errorf("X2 → want the feature film (id 200), got %d", got.ID)
+	}
+
+	// When no candidate matches the title exactly, popularity breaks the tie so
+	// the real film still beats a low-signal companion piece.
+	inexact := []itmdb.Movie{
+		{ID: 100, Title: "X2 Global Webcast Highlights", ReleaseDate: "2003-06-01", Popularity: 5},
+		{ID: 200, Title: "X2: X-Men United", ReleaseDate: "2003-04-24", Popularity: 80},
+	}
+	if got := pickBest(inexact, "X2", 2003); got.ID != 200 {
+		t.Errorf("inexact titles → want the more popular film (id 200), got %d", got.ID)
 	}
 }
 
@@ -526,5 +547,40 @@ func TestAnnotatePrefersMatchingYear(t *testing.T) {
 	}
 	if v := e.GetInt("tmdb_id"); v != 2018 {
 		t.Errorf("picked the wrong film: tmdb_id=%d, want 2018", v)
+	}
+}
+
+// TestAnnotatePrefersTitleMatch is the X2 case: a release named "X2 2003" must
+// enrich as the feature film, not a same-year companion piece ("X2 Global
+// Webcast Highlights") that TMDb's popularity-ranked search returns first.
+func TestAnnotatePrefersTitleMatch(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/3/search/movie":
+			// The companion piece sorts first and outranks the film on popularity.
+			json.NewEncoder(w).Encode(map[string]any{"results": []map[string]any{
+				{"id": 100, "title": "X2 Global Webcast Highlights", "release_date": "2003-06-01", "popularity": 50.0},
+				{"id": 200, "title": "X2", "release_date": "2003-04-24", "popularity": 30.0},
+			}})
+		case "/3/movie/200":
+			json.NewEncoder(w).Encode(map[string]any{"id": 200, "title": "X2", "release_date": "2003-04-24", "runtime": 134})
+		case "/3/movie/100":
+			json.NewEncoder(w).Encode(map[string]any{"id": 100, "title": "X2 Global Webcast Highlights", "release_date": "2003-06-01", "runtime": 17})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	c := itmdb.New("test-key")
+	c.BaseURL = srv.URL + "/3"
+	p := &tmdbPlugin{client: c}
+
+	e := entry.New("X2 2003 2160p DSNP WEB-DL DTS-HD MA 5 1 HDR10Plus H 265-Kitsune", "http://x/b")
+	if err := p.annotate(context.Background(), makeCtx(), e); err != nil {
+		t.Fatal(err)
+	}
+	if v := e.GetInt("tmdb_id"); v != 200 {
+		t.Errorf("picked the wrong film: tmdb_id=%d, want 200 (the feature film)", v)
 	}
 }
