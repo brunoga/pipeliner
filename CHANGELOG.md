@@ -5,6 +5,20 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.21.0] - 2026-09-13
+
+A floating run inspector plus a janitor fix for torrents that stall part-way.
+
+### Added
+
+- **Run inspector opens in a floating modal** ([#381](https://github.com/brunoga/pipeliner/pull/381)). Clicking **Inspect** on a run used to expand a panel inline inside the task card, which the dashboard's 10-second poll wiped on every refresh (the card is re-rendered each cycle). The inspector now opens in a floating modal anchored to the page, so a refresh can no longer close it; dismiss it with the backdrop, the ✕, or Escape. The run-history affordance is also clearer — the bare chevron is now a labeled **"Runs ▸"** pill that highlights on hover — and the **inspect** button is no longer truncated in a tight history line.
+
+### Fixed
+
+- **The janitor now cleans up torrents that stall part-way through** ([#380](https://github.com/brunoga/pipeliner/pull/380)). `torrent_failed` only treated a downloading torrent as dead when its progress was exactly 0%, so a torrent that reached, say, 50% and then stalled was considered healthy forever and never purged. It is now judged by inactivity regardless of how far it got: no activity for `stall_timeout` means failed, whether at 0% or 50%. A fully-downloaded torrent (100%) is never removed even if the client still briefly labels it "downloading". For the Deluge backend — which has no absolute last-activity timestamp — `LastActivity` is now derived from `time_since_download`/`time_since_upload` so a genuinely-progressing slow download keeps a fresh clock and is never flagged.
+
+**Why 1.21.0**: an additive web-UI feature (the floating run inspector) alongside a janitor correctness fix. No config changes. A minor bump per SemVer.
+
 ## [1.20.3] - 2026-09-13
 
 A movie dedup fix for tracker records that were saved without a year.
