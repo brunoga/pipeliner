@@ -2477,10 +2477,10 @@ func TestE2EBlurayPaletteChipShowsBothBadges(t *testing.T) {
 	}
 }
 
-// TestE2ERunHistoryExpansion verifies that clicking a task card's header
-// toggles the run-history panel and that the expansion state survives a
-// dashboard re-render.
-func TestE2ERunHistoryExpansion(t *testing.T) {
+// TestE2ERunHistoryModal verifies that clicking a task card's "Runs" header
+// opens the run-history in a floating modal (not an inline card expansion),
+// that the modal survives a dashboard re-render, and that it closes on demand.
+func TestE2ERunHistoryModal(t *testing.T) {
 	ts := startTestServer(t, minimalConfig)
 	browser, stop := pwSetup(t)
 	defer stop()
@@ -2500,45 +2500,42 @@ func TestE2ERunHistoryExpansion(t *testing.T) {
 		t.Fatalf("wait for task card header: %v", err)
 	}
 
-	// Collapsed by default.
-	if n, _ := page.Locator(".task-history").Count(); n != 0 {
-		t.Fatalf("history panel visible before expansion: %d nodes", n)
+	// No history rendered inline in the card, and no modal yet.
+	if n, _ := page.Locator(".task-card .task-history").Count(); n != 0 {
+		t.Fatalf("history rendered inline in the card: %d nodes", n)
+	}
+	if v, _ := page.Locator("#runs-modal").IsVisible(); v {
+		t.Fatal("runs modal visible before clicking")
 	}
 
-	// Click to expand — the fresh server has no runs, so the empty-state
-	// row proves the panel (not just the class) rendered.
+	// Click to open the modal — the fresh server has no runs, so the empty-state
+	// row proves the modal body rendered.
 	if err := header.Click(); err != nil {
 		t.Fatalf("click header: %v", err)
 	}
-	if err := page.Locator(".task-history").WaitFor(playwright.LocatorWaitForOptions{
+	if err := page.Locator("#runs-modal .task-history-empty").WaitFor(playwright.LocatorWaitForOptions{
 		State: playwright.WaitForSelectorStateVisible,
 	}); err != nil {
-		t.Fatalf("history panel did not appear after header click: %v", err)
-	}
-	if err := page.Locator(".task-history-empty").WaitFor(playwright.LocatorWaitForOptions{
-		State: playwright.WaitForSelectorStateVisible,
-	}); err != nil {
-		t.Fatalf("empty-state history row missing: %v", err)
+		t.Fatalf("runs modal empty-state row missing after header click: %v", err)
 	}
 
-	// A forced re-render (what the 10s poll does) must preserve expansion.
+	// A forced re-render (what the 10s poll does) must not close the modal —
+	// it lives on <body>, outside the re-rendered task grid.
 	if _, err := page.Evaluate("refresh()"); err != nil {
 		t.Fatalf("force refresh: %v", err)
 	}
-	if err := page.Locator(".task-history").WaitFor(playwright.LocatorWaitForOptions{
-		State: playwright.WaitForSelectorStateVisible,
-	}); err != nil {
-		t.Fatalf("history panel lost after re-render: %v", err)
+	if v, _ := page.Locator("#runs-modal").IsVisible(); !v {
+		t.Fatal("runs modal closed by the dashboard re-render")
 	}
 
-	// Click again to collapse.
-	if err := page.Locator(".task-card .task-card-header").First().Click(); err != nil {
-		t.Fatalf("click header to collapse: %v", err)
+	// Close via the ✕ button.
+	if err := page.Locator("#runs-modal .app-modal-close").Click(); err != nil {
+		t.Fatalf("click modal close: %v", err)
 	}
-	if err := page.Locator(".task-history").WaitFor(playwright.LocatorWaitForOptions{
+	if err := page.Locator("#runs-modal").WaitFor(playwright.LocatorWaitForOptions{
 		State: playwright.WaitForSelectorStateHidden,
 	}); err != nil {
-		t.Fatalf("history panel still visible after collapse: %v", err)
+		t.Fatalf("runs modal still visible after close: %v", err)
 	}
 }
 

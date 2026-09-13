@@ -117,7 +117,6 @@ function loadModule(fetchImpl) {
       exports.historyRowHtml = historyRowHtml;
       exports.card = card;
       exports.render = render;
-      exports.toggleTaskHistory = toggleTaskHistory;
       exports.triggerRun = triggerRun;
       exports.runAll = runAll;
       exports.refresh = refresh;
@@ -126,7 +125,6 @@ function loadModule(fetchImpl) {
       exports.appendRenderedLine = appendRenderedLine;
       exports.state = () => veLog;
       exports.pendingTriggers = () => _pendingTriggers;
-      exports.expandedHistory = () => _expandedHistory;
     `
   );
   fn(exports, dom.document, fetchImpl, () => null, () => {}, cb => cb());
@@ -221,7 +219,7 @@ describe('history rendering helpers', () => {
 
 // ── card expansion ───────────────────────────────────────────────────────────
 
-describe('run-history expansion', () => {
+describe('run history (opens in a modal, not inline)', () => {
   let exports, dom;
   const tasks = [{ name: 'tv', schedule: '1h' }];
   const history = { tv: [runOK, runFail] };
@@ -230,34 +228,31 @@ describe('run-history expansion', () => {
     ({ exports, dom } = loadModule(async () => jsonResp({})));
   });
 
-  it('is collapsed by default but shows an error indicator for recent failures', () => {
+  it('never renders history rows inline in the card — they live in the modal', () => {
     exports.render(tasks, history);
     const html = dom.elements['task-grid'].innerHTML;
     expect(html).not.toContain('task-history-row');
-    expect(html).toContain('task-err-dot');
   });
 
-  it('expands on toggle, showing the full run list including old errors', () => {
+  it('shows a "Runs" pill wired to openRuns', () => {
     exports.render(tasks, history);
-    exports.toggleTaskHistory('tv');
     const html = dom.elements['task-grid'].innerHTML;
-    expect(html).toContain('task-history-row');
-    expect((html.match(/task-history-row/g) || []).length).toBe(2);
-    expect(html).toContain('&lt;refused&gt;'); // the 2h-old failed run is visible
+    expect(html).toContain('task-history-chevron');
+    expect(html).toContain('Runs');
+    expect(html).toContain('openRuns(');
   });
 
-  it('preserves expansion state across poll re-renders', () => {
+  it('shows an error indicator for recent failures, hidden when none failed', () => {
     exports.render(tasks, history);
-    exports.toggleTaskHistory('tv');
-    exports.render(tasks, history); // simulated 10s poll
-    expect(dom.elements['task-grid'].innerHTML).toContain('task-history-row');
-    exports.toggleTaskHistory('tv'); // collapse again
-    expect(dom.elements['task-grid'].innerHTML).not.toContain('task-history-row');
-  });
-
-  it('hides the collapsed error dot when no recent run failed', () => {
+    expect(dom.elements['task-grid'].innerHTML).toContain('task-err-dot');
     exports.render(tasks, { tv: [runOK] });
     expect(dom.elements['task-grid'].innerHTML).not.toContain('task-err-dot');
+  });
+
+  it('historyHtml (the modal body) renders one row per run including old errors', () => {
+    const html = exports.historyHtml(history.tv, 'tv');
+    expect((html.match(/task-history-row/g) || []).length).toBe(2);
+    expect(html).toContain('&lt;refused&gt;'); // the 2h-old failed run is visible
   });
 });
 

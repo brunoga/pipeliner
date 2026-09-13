@@ -155,20 +155,10 @@ async function refreshDBSidebarIfChanged() {
 // Polling refreshes set this to false so cards don't re-animate every 10 s.
 let _dashboardFirstRender = true;
 
-// Cached last-rendered data so toggling a card's history panel can re-render
-// without waiting for (or issuing) a network round-trip.
+// Cached last-rendered data. openRuns reads _lastHistory to populate the runs
+// modal without a network round-trip.
 let _lastTasks = [];
 let _lastHistory = {};
-
-// Task names whose run-history panel is expanded. Module-level so the state
-// survives the innerHTML replacement done by every 10 s poll re-render.
-const _expandedHistory = new Set();
-
-function toggleTaskHistory(name) {
-  if (_expandedHistory.has(name)) _expandedHistory.delete(name);
-  else _expandedHistory.add(name);
-  if (_lastTasks.length) render(_lastTasks, _lastHistory);
-}
 
 function render(tasks, history) {
   _lastTasks = tasks;
@@ -255,41 +245,71 @@ function traceModalBodyHtml(rt) {
     || '<div class="trace-loading">run produced no entries</div>';
 }
 
-// ensureTraceModal lazily creates the single modal element and appends it to
-// <body> — deliberately outside the #tasks container so refresh() re-rendering
-// the cards never removes it.
-function ensureTraceModal() {
-  let m = document.getElementById('trace-modal');
+// ── floating modals ───────────────────────────────────────────────────────────
+// Modals live on <body>, outside the #tasks container, so refresh()
+// re-rendering the cards never removes an open one. Two are used: the recent-
+// runs list (opened from a card's "Runs" pill) and the run inspector (opened
+// from a run's "inspect" button, stacked above the list). Neither expands the
+// card, so the grid never reflows.
+const _openModals = [];
+
+function ensureModal(id, label) {
+  let m = document.getElementById(id);
   if (m) return m;
   m = document.createElement('div');
-  m.id = 'trace-modal';
-  m.className = 'trace-modal';
+  m.id = id;
+  m.className = 'app-modal ' + id;
   m.hidden = true;
   m.innerHTML = `
-    <div class="trace-modal-backdrop" onclick="closeTrace()"></div>
-    <div class="trace-modal-panel" role="dialog" aria-modal="true" aria-label="Run inspector">
-      <div class="trace-modal-header">
-        <span class="trace-modal-title"></span>
-        <button class="trace-modal-close" onclick="closeTrace()" aria-label="Close inspector">✕</button>
+    <div class="app-modal-backdrop" onclick="closeModal('${id}')"></div>
+    <div class="app-modal-panel" role="dialog" aria-modal="true" aria-label="${label}">
+      <div class="app-modal-header">
+        <span class="app-modal-title"></span>
+        <button class="app-modal-close" onclick="closeModal('${id}')" aria-label="Close">✕</button>
       </div>
-      <div class="trace-modal-body"></div>
+      <div class="app-modal-body"></div>
     </div>`;
   document.body.appendChild(m);
   return m;
 }
 
-function _traceEsc(e) { if (e.key === 'Escape') closeTrace(); }
+// Escape closes the topmost open modal only.
+function _modalEsc(e) { if (e.key === 'Escape') closeModal(_openModals[_openModals.length - 1]); }
 
-// openTrace loads a run's trace into the floating modal. Reused element, so a
-// second inspect just replaces the contents.
-async function openTrace(task, runId) {
-  const m = ensureTraceModal();
-  const title = m.querySelector('.trace-modal-title');
-  const body = m.querySelector('.trace-modal-body');
-  if (title) title.textContent = `${task} — ${runId}`;
-  if (body) body.innerHTML = '<div class="trace-loading">loading…</div>';
+function openModal(id, label, title, bodyHtml) {
+  const m = ensureModal(id, label);
+  const t = m.querySelector('.app-modal-title');
+  const b = m.querySelector('.app-modal-body');
+  if (t) t.textContent = title;
+  if (b) b.innerHTML = bodyHtml;
   m.hidden = false;
-  document.addEventListener('keydown', _traceEsc);
+  const wasEmpty = _openModals.length === 0;
+  if (!_openModals.includes(id)) _openModals.push(id);
+  if (wasEmpty) document.addEventListener('keydown', _modalEsc); // one handler for all modals
+  return m;
+}
+
+function closeModal(id) {
+  const m = document.getElementById(id);
+  if (m) m.hidden = true;
+  const i = _openModals.indexOf(id);
+  if (i >= 0) _openModals.splice(i, 1);
+  if (_openModals.length === 0) document.removeEventListener('keydown', _modalEsc);
+}
+
+// openRuns shows a task's recent-runs list in a floating modal rather than
+// expanding the card (which reflowed the grid and showed an odd inner
+// scrollbar). The list is read from the last-rendered history.
+function openRuns(taskName) {
+  const runs = (_lastHistory && _lastHistory[taskName]) || [];
+  openModal('runs-modal', 'Recent runs', `${taskName} — recent runs`, historyHtml(runs, taskName));
+}
+
+// openTrace loads a run's trace into its own modal, stacked above the runs list.
+async function openTrace(task, runId) {
+  const m = openModal('trace-modal', 'Run inspector', `${task} — ${runId}`,
+    '<div class="trace-loading">loading…</div>');
+  const body = m.querySelector('.app-modal-body');
   try {
     const r = await fetch(`/api/traces/${encodeURIComponent(task)}/${encodeURIComponent(runId)}`);
     if (!r.ok) {
@@ -303,16 +323,9 @@ async function openTrace(task, runId) {
   }
 }
 
-function closeTrace() {
-  const m = document.getElementById('trace-modal');
-  if (m) m.hidden = true;
-  document.removeEventListener('keydown', _traceEsc);
-}
-
 function card(t, runs, idx = 0) {
   runs = runs || [];
   const last = runs[0];
-  const expanded = _expandedHistory.has(t.name);
   const nextDate   = t.nextRun ? new Date(t.nextRun) : null;
   const schedLabel = nextDate ? fmtDatetime(nextDate) : (t.schedule ? t.schedule : 'manual');
   const schedOpacity = (!nextDate && !t.schedule) ? ' style="opacity:.5"' : '';
@@ -352,11 +365,11 @@ function card(t, runs, idx = 0) {
   const errLine = (last && last.err)
     ? `<div class="task-err">⚠ ${esc(last.err)}</div>` : '';
 
-  // Subtle indicator on the collapsed card when a recent (last 5) run
-  // errored — a failed run followed by a successful one is otherwise
-  // invisible without expanding the history.
-  const errDot = (!expanded && hasRecentError(runs))
-    ? ` <span class="task-err-dot" title="A recent run failed — click to see run history">●</span>` : '';
+  // Subtle indicator on the card when a recent (last 5) run errored — a failed
+  // run followed by a successful one is otherwise invisible without opening the
+  // runs list.
+  const errDot = hasRecentError(runs)
+    ? ` <span class="task-err-dot" title="A recent run failed — open Runs to see">●</span>` : '';
 
   // A trigger in flight (or recently failed) survives poll re-renders:
   // card() consults the map so the button state is re-applied every render.
@@ -370,15 +383,14 @@ function card(t, runs, idx = 0) {
          <button class="btn-run btn-dry" onclick="triggerRun(${esc(JSON.stringify(t.name))}, this, true)" title="Dry run — no side effects, no tracker advance">Dry</button>
        </div>`;
 
-  const historyPanel = expanded ? historyHtml(runs, t.name) : '';
-  const chevron = `<span class="task-history-chevron">Runs <span class="chev">${expanded ? '▾' : '▸'}</span></span>`;
+  const chevron = `<span class="task-history-chevron">Runs <span class="chev">▸</span></span>`;
 
   // nth-child handles first 10 cards; inline delay covers beyond that.
   const extraDelay = idx >= 10 ? `;animation-delay:${idx * 50}ms` : '';
 
   return `
     <div class="task-card" style="--card-color:${cardColor}${extraDelay}">
-      <div class="task-card-header task-history-toggle" onclick="toggleTaskHistory(${esc(JSON.stringify(t.name))})" title="Click to ${expanded ? 'hide' : 'show'} recent runs">
+      <div class="task-card-header task-history-toggle" onclick="openRuns(${esc(JSON.stringify(t.name))})" title="Show recent runs">
         <div class="task-name">${esc(t.name)}${errDot}</div>
         ${schedBadge}${chevron}
       </div>
@@ -388,7 +400,6 @@ function card(t, runs, idx = 0) {
       </div>
       ${stats}
       ${errLine}
-      ${historyPanel}
       ${runBtns}
     </div>`;
 }
