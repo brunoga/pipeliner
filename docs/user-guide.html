@@ -2016,6 +2016,7 @@ output("exec", upstream=cleanup, command="rm -f {file_location}")</code></pre>
   <tr><td><code>via</code></td><td>yes</td><td>—</td><td>Notifier type: <code>webhook</code>, <code>email</code>, or <code>pushover</code></td></tr>
   <tr><td><code>title</code></td><td>no</td><td>auto</td><td>Notification title template</td></tr>
   <tr><td><code>body</code></td><td>no</td><td>auto</td><td>Notification body template</td></tr>
+  <tr><td><code>digest</code></td><td>no</td><td>—</td><td>Digest window (e.g. <code>24h</code>): buffer accepted entries across runs in <code>pipeliner.db</code> and send one combined notification per window. Buffered items keep title, URL, and accept reason only. A failed send keeps the buffer and retries next window; the first run only starts the window.</td></tr>
   <tr><td><code>on</code></td><td>no</td><td>—</td><td>Set to <code>all</code> to notify even when no entries accepted</td></tr>
 </table>
 
@@ -2709,5 +2710,5 @@ const observer = new IntersectionObserver(entries => {
 headings.forEach(h => observer.observe(h));
 </script>
 </body>
-</html>  <tr><td><code>digest</code></td><td>no</td><td>—</td><td>Digest window (e.g. <code>24h</code>): buffer accepted entries across runs in <code>pipeliner.db</code> and send one combined notification per window. Buffered items keep title, URL, and accept reason only. A failed send keeps the buffer and retries next window; the first run only starts the window.</td></tr>
+</html>
 
