@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.21.1] - 2026-09-13
+
+A grab-record fix so failed downloads with no upstream info-hash are retried.
+
+### Fixed
+
+- **Failed torrents are un-tracked even when no upstream plugin resolved the info-hash** ([#383](https://github.com/brunoga/pipeliner/pull/383)). The Deluge sink keyed its grab record by the entry's locally-known info-hash (from a magnet URL or an upstream `metainfo_torrent`/`metainfo_magnet`). A pipeline that never resolves the hash — e.g. `movies-3d-discover`, a discover chain with no `metainfo_torrent` — left it empty, so **no grab record was written**. When such a torrent later stalled and the janitor removed it, `mark_failed` couldn't walk the info-hash back to the release: it logged "no grab record for hash …" and, crucially, could not un-track the movie — so the movies tracker kept it marked as downloaded and it was **never retried**. The sink now keys the grab record by the info-hash Deluge returns from `add_torrent_url`/`add_torrent_magnet`, which always matches what the janitor sees later, falling back to the entry's hash only when the daemon returns none. Also corrected the `grabs`/`mark_failed` package docs that listed only the transmission and qbittorrent sinks as grab-record writers.
+
+**Why 1.21.1**: a correctness patch for grab recording and failed-download retry; no config changes. A patch bump per SemVer.
+
 ## [1.21.0] - 2026-09-13
 
 A floating run inspector plus a janitor fix for torrents that stall part-way.
