@@ -213,12 +213,15 @@ function historyRowHtml(r, taskName) {
     `</span>`;
   const err = r.err ? `<div class="task-err">⚠ ${esc(r.err)}</div>` : '';
   // Inspect: only runs that recorded a trace (run_id present) get the link.
+  // Opens a floating modal (not an inline panel) so the 10 s dashboard poll,
+  // which re-renders every card, can't wipe an open inspector out from under
+  // the user.
   const inspect = r.run_id && taskName
-    ? ` <button class="thr-inspect" onclick="event.stopPropagation();toggleTrace(${esc(JSON.stringify(taskName))},${esc(JSON.stringify(r.run_id))},this)">inspect</button>`
+    ? ` <button class="thr-inspect" onclick="event.stopPropagation();openTrace(${esc(JSON.stringify(taskName))},${esc(JSON.stringify(r.run_id))})">inspect</button>`
     : '';
   return `<div class="task-history-row${r.err ? ' has-err' : ''}">
       <div class="task-history-line">${when}${dry}<span class="task-history-dur">${esc(r.duration || '')}</span>${counts}${inspect}</div>
-      ${err}<div class="trace-panel" id="trace-${esc(taskName || '')}-${esc(r.run_id || '')}" hidden></div>
+      ${err}
     </div>`;
 }
 
@@ -241,28 +244,69 @@ function traceEntryHtml(e) {
     </details>`;
 }
 
-// toggleTrace loads (once) and shows/hides the trace panel for one run.
-async function toggleTrace(task, runId, btn) {
-  const panel = document.getElementById(`trace-${task}-${runId}`);
-  if (!panel) return;
-  if (!panel.hidden) { panel.hidden = true; return; }
-  if (!panel.dataset.loaded) {
-    panel.innerHTML = '<div class="trace-loading">loading…</div>';
-    panel.hidden = false;
-    try {
-      const r = await fetch(`/api/traces/${encodeURIComponent(task)}/${encodeURIComponent(runId)}`);
-      if (!r.ok) { panel.innerHTML = `<div class="trace-loading">trace unavailable (${r.status})</div>`; return; }
-      const rt = await r.json();
-      const truncated = rt.truncated ? `<div class="trace-loading">…and ${rt.truncated} more entries ran untraced (cap)</div>` : '';
-      panel.innerHTML = (rt.entries || []).map(traceEntryHtml).join('') + truncated
-        || '<div class="trace-loading">run produced no entries</div>';
-      panel.dataset.loaded = '1';
-    } catch (e) {
-      panel.innerHTML = '<div class="trace-loading">trace fetch failed</div>';
+// traceModalBodyHtml renders the inspector body from a /api/traces response.
+// Pure so it can be unit-tested without the DOM/fetch.
+function traceModalBodyHtml(rt) {
+  rt = rt || {};
+  const truncated = rt.truncated
+    ? `<div class="trace-loading">…and ${rt.truncated} more entries ran untraced (cap)</div>`
+    : '';
+  return (rt.entries || []).map(traceEntryHtml).join('') + truncated
+    || '<div class="trace-loading">run produced no entries</div>';
+}
+
+// ensureTraceModal lazily creates the single modal element and appends it to
+// <body> — deliberately outside the #tasks container so refresh() re-rendering
+// the cards never removes it.
+function ensureTraceModal() {
+  let m = document.getElementById('trace-modal');
+  if (m) return m;
+  m = document.createElement('div');
+  m.id = 'trace-modal';
+  m.className = 'trace-modal';
+  m.hidden = true;
+  m.innerHTML = `
+    <div class="trace-modal-backdrop" onclick="closeTrace()"></div>
+    <div class="trace-modal-panel" role="dialog" aria-modal="true" aria-label="Run inspector">
+      <div class="trace-modal-header">
+        <span class="trace-modal-title"></span>
+        <button class="trace-modal-close" onclick="closeTrace()" aria-label="Close inspector">✕</button>
+      </div>
+      <div class="trace-modal-body"></div>
+    </div>`;
+  document.body.appendChild(m);
+  return m;
+}
+
+function _traceEsc(e) { if (e.key === 'Escape') closeTrace(); }
+
+// openTrace loads a run's trace into the floating modal. Reused element, so a
+// second inspect just replaces the contents.
+async function openTrace(task, runId) {
+  const m = ensureTraceModal();
+  const title = m.querySelector('.trace-modal-title');
+  const body = m.querySelector('.trace-modal-body');
+  if (title) title.textContent = `${task} — ${runId}`;
+  if (body) body.innerHTML = '<div class="trace-loading">loading…</div>';
+  m.hidden = false;
+  document.addEventListener('keydown', _traceEsc);
+  try {
+    const r = await fetch(`/api/traces/${encodeURIComponent(task)}/${encodeURIComponent(runId)}`);
+    if (!r.ok) {
+      if (body) body.innerHTML = `<div class="trace-loading">trace unavailable (${r.status})</div>`;
+      return;
     }
-  } else {
-    panel.hidden = false;
+    const rt = await r.json();
+    if (body) body.innerHTML = traceModalBodyHtml(rt);
+  } catch (e) {
+    if (body) body.innerHTML = '<div class="trace-loading">trace fetch failed</div>';
   }
+}
+
+function closeTrace() {
+  const m = document.getElementById('trace-modal');
+  if (m) m.hidden = true;
+  document.removeEventListener('keydown', _traceEsc);
 }
 
 function card(t, runs, idx = 0) {
@@ -327,7 +371,7 @@ function card(t, runs, idx = 0) {
        </div>`;
 
   const historyPanel = expanded ? historyHtml(runs, t.name) : '';
-  const chevron = `<span class="task-history-chevron">${expanded ? '▾' : '▸'}</span>`;
+  const chevron = `<span class="task-history-chevron">Runs <span class="chev">${expanded ? '▾' : '▸'}</span></span>`;
 
   // nth-child handles first 10 cards; inline delay covers beyond that.
   const extraDelay = idx >= 10 ? `;animation-delay:${idx * 50}ms` : '';
