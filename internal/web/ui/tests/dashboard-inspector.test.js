@@ -72,9 +72,11 @@ function loadModule(fetchImpl) {
     shims + src + `
       exports.historyRowHtml = historyRowHtml;
       exports.traceModalBodyHtml = traceModalBodyHtml;
-      exports.ensureTraceModal = ensureTraceModal;
+      exports.ensureModal = ensureModal;
       exports.openTrace = openTrace;
-      exports.closeTrace = closeTrace;
+      exports.openRuns = openRuns;
+      exports.closeModal = closeModal;
+      exports.setHistory = (h) => { _lastHistory = h; };
     `
   );
   fn(exports, document, fetchImpl, () => null, () => {}, cb => cb());
@@ -136,18 +138,27 @@ describe('traceModalBodyHtml', () => {
 
 // ── modal lifecycle ──────────────────────────────────────────────────────────
 
-describe('run-inspector modal', () => {
-  it('creates the modal on <body>, not in the task grid, and reuses it', () => {
+describe('floating modals', () => {
+  it('creates a modal on <body>, not in the task grid, and reuses it', () => {
     const { exports, body } = loadModule(async () => jsonResp({ entries: [] }));
-    const m1 = exports.ensureTraceModal();
+    const m1 = exports.ensureModal('trace-modal', 'x');
     expect(m1.id).toBe('trace-modal');
     expect(body.children).toContain(m1); // lives on body → survives card re-renders
-    const m2 = exports.ensureTraceModal();
+    const m2 = exports.ensureModal('trace-modal', 'x');
     expect(m2).toBe(m1); // reused, not duplicated
     expect(body.children.length).toBe(1);
   });
 
-  it('opens (fetching the trace), then closes', async () => {
+  it('openRuns opens the runs list from the last-rendered history', () => {
+    const { exports, document } = loadModule(async () => jsonResp({}));
+    exports.setHistory({ movies: [{ at: Date.now(), run_id: 'r1', accepted: 2 }] });
+    exports.openRuns('movies');
+    const m = document.getElementById('runs-modal');
+    expect(m).toBeTruthy();
+    expect(m.hidden).toBe(false);
+  });
+
+  it('openTrace fetches the trace and stacks its own modal', async () => {
     const fetchMock = vi.fn(async () => jsonResp({ entries: [] }));
     const { exports, document, docListeners } = loadModule(fetchMock);
 
@@ -157,8 +168,21 @@ describe('run-inspector modal', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/traces/movies/run-42');
     expect((docListeners.keydown || []).length).toBe(1); // Esc handler attached
 
-    exports.closeTrace();
+    exports.closeModal('trace-modal');
     expect(m.hidden).toBe(true);
     expect((docListeners.keydown || []).length).toBe(0); // handler removed
+  });
+
+  it('Esc closes only the topmost modal (inspector stacked over runs)', () => {
+    const { exports, document, docListeners } = loadModule(async () => jsonResp({}));
+    exports.setHistory({ movies: [] });
+    exports.openRuns('movies');
+    // openTrace is async but the modal is shown synchronously before the fetch.
+    exports.openTrace('movies', 'r1');
+    // Fire Escape: closes the top (trace), leaves runs open.
+    (docListeners.keydown || []).forEach(fn => fn({ key: 'Escape' }));
+    expect(document.getElementById('trace-modal').hidden).toBe(true);
+    expect(document.getElementById('runs-modal').hidden).toBe(false);
+    expect((docListeners.keydown || []).length).toBe(1); // still one modal open
   });
 });
