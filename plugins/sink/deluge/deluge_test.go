@@ -27,10 +27,12 @@ type rpcCall struct {
 
 // mockDeluge records all RPC calls and returns configurable responses.
 type mockDeluge struct {
-	calls     []rpcCall
-	loginOK   bool
-	connected bool // deluge-web ↔ daemon connection state (core.* need it)
-	addError  string
+	calls      []rpcCall
+	loginOK    bool
+	connected  bool // deluge-web ↔ daemon connection state (core.* need it)
+	addError   string
+	addHashSet bool   // when true, add returns addHash (possibly "") instead of the default
+	addHash    string // info-hash the add RPC reports back
 }
 
 func (m *mockDeluge) handler() http.HandlerFunc {
@@ -60,7 +62,11 @@ func (m *mockDeluge) handler() http.HandlerFunc {
 			} else if m.addError != "" {
 				json.NewEncoder(w).Encode(map[string]any{"result": nil, "error": map[string]any{"message": m.addError}, "id": 1}) //nolint:errcheck
 			} else {
-				writeResult("infohash123")
+				hash := "infohash123"
+				if m.addHashSet {
+					hash = m.addHash
+				}
+				writeResult(hash)
 			}
 		}
 	}
@@ -473,13 +479,16 @@ func grabTestPlugin(t *testing.T, srv *httptest.Server) (*delugePlugin, *store.S
 	return dp, db
 }
 
-func TestGrabRecordedFromInfoHashField(t *testing.T) {
-	mock := &mockDeluge{loginOK: true}
+func TestGrabRecordedUnderClientHash(t *testing.T) {
+	mock := &mockDeluge{loginOK: true} // add returns "infohash123"
 	srv := httptest.NewServer(mock.handler())
 	defer srv.Close()
 
 	dp, db := grabTestPlugin(t, srv)
 
+	// The entry carries a different locally-known hash, but the record must be
+	// keyed by the hash Deluge assigned on add — that is what the janitor's
+	// torrent_session reports later, so it is the only key mark_failed can match.
 	e := entry.New("Show.S01E03.720p", "http://tracker.example/42.torrent")
 	e.Set(entry.FieldTorrentInfoHash, "ABCDEF0123456789ABCDEF0123456789ABCDEF01")
 	e.Set(entry.FieldSeriesTrackerName, "show")
@@ -490,9 +499,9 @@ func TestGrabRecordedFromInfoHashField(t *testing.T) {
 	}
 
 	gs := grabs.NewStore(db.Bucket(grabs.BucketName))
-	rec, ok := gs.Get("abcdef0123456789abcdef0123456789abcdef01")
+	rec, ok := gs.Get("infohash123")
 	if !ok {
-		t.Fatal("grab record should exist after successful add")
+		t.Fatal("grab record should be keyed by the deluge-returned hash")
 	}
 	if rec.URL != "http://tracker.example/42.torrent" {
 		t.Errorf("rec.URL = %q", rec.URL)
@@ -505,8 +514,37 @@ func TestGrabRecordedFromInfoHashField(t *testing.T) {
 	}
 }
 
-func TestGrabRecordedFromMagnetURL(t *testing.T) {
-	mock := &mockDeluge{loginOK: true}
+// TestGrabRecordedWithoutUpstreamHash is the movies-3d-discover regression: a
+// bare .torrent URL with no torrent_info_hash (a discover chain with no
+// metainfo_torrent) used to record NO grab record, so mark_failed could never
+// walk back to the release and the movie was never retried. The client-returned
+// hash now keys the record regardless.
+func TestGrabRecordedWithoutUpstreamHash(t *testing.T) {
+	mock := &mockDeluge{loginOK: true} // add returns "infohash123"
+	srv := httptest.NewServer(mock.handler())
+	defer srv.Close()
+
+	dp, db := grabTestPlugin(t, srv)
+
+	e := entry.New("Some Movie 2024 1080p", "http://example.com/movie.torrent")
+	if grabs.HashForEntry(e) != "" {
+		t.Fatal("test premise broken: entry should have no locally-determinable hash")
+	}
+	if err := dp.deliver(context.Background(), makeCtx(), []*entry.Entry{e}); err != nil {
+		t.Fatal(err)
+	}
+
+	gs := grabs.NewStore(db.Bucket(grabs.BucketName))
+	if _, ok := gs.Get("infohash123"); !ok {
+		t.Fatal("grab record should be keyed by the deluge-returned hash even without an upstream hash")
+	}
+}
+
+// TestGrabRecordFallsBackToEntryHash covers the case where Deluge reports no
+// hash on add: the record falls back to the entry's locally-known hash (here a
+// magnet URL).
+func TestGrabRecordFallsBackToEntryHash(t *testing.T) {
+	mock := &mockDeluge{loginOK: true, addHashSet: true} // add returns ""
 	srv := httptest.NewServer(mock.handler())
 	defer srv.Close()
 
@@ -519,20 +557,19 @@ func TestGrabRecordedFromMagnetURL(t *testing.T) {
 
 	gs := grabs.NewStore(db.Bucket(grabs.BucketName))
 	if _, ok := gs.Get("1111111111111111111111111111111111111111"); !ok {
-		t.Fatal("grab record should be derived from the magnet URL")
+		t.Fatal("grab record should fall back to the magnet-derived hash")
 	}
 }
 
-func TestNoGrabRecordWithoutDeterminableHash(t *testing.T) {
-	mock := &mockDeluge{loginOK: true}
+func TestNoGrabRecordWithoutAnyHash(t *testing.T) {
+	mock := &mockDeluge{loginOK: true, addHashSet: true} // add returns ""
 	srv := httptest.NewServer(mock.handler())
 	defer srv.Close()
 
-	dp, _ := grabTestPlugin(t, srv)
+	dp, db := grabTestPlugin(t, srv)
 
-	// Bare .torrent URL, no torrent_info_hash field → the missing hash is a
-	// debug-level skip only: the add itself succeeds and the entry is not
-	// failed, matching the transmission/qbittorrent sinks.
+	// No client hash and a bare .torrent URL with no info-hash field → nothing
+	// to key on. The add still succeeds and the entry is not failed.
 	e := entry.New("Bare", "http://example.com/bare.torrent")
 	if grabs.HashForEntry(e) != "" {
 		t.Fatal("test premise broken: entry should have no determinable hash")
@@ -542,6 +579,10 @@ func TestNoGrabRecordWithoutDeterminableHash(t *testing.T) {
 	}
 	if e.IsFailed() {
 		t.Fatal("add itself should succeed")
+	}
+	gs := grabs.NewStore(db.Bucket(grabs.BucketName))
+	if _, ok := gs.Get(""); ok {
+		t.Error("no grab record should be written when no hash is available")
 	}
 }
 

@@ -5,9 +5,9 @@
 //
 // Session entries only carry the torrent info-hash (their URL is
 // torrent://<hash>), so this sink resolves the original release URL through
-// the grab-record bucket that the transmission and qbittorrent sinks write
-// at add time (grabs.BucketName). Entries whose hash has no grab record are
-// failed with a clear reason — the torrent was added outside pipeliner or
+// the grab-record bucket that the deluge, transmission, and qbittorrent sinks
+// write at add time (grabs.BucketName). Entries whose hash has no grab record
+// are failed with a clear reason — the torrent was added outside pipeliner or
 // before grab recording existed, so there is no release URL to mark.
 //
 // What one successful mark does:
