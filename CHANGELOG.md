@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.21.2] - 2026-09-13
+
+A dashboard fix: the run history opens in a modal instead of expanding the card.
+
+### Changed
+
+- **Task run history opens in a floating modal** ([#385](https://github.com/brunoga/pipeliner/pull/385)). Clicking a card's **"Runs ▸"** pill expanded the history inline, which reflowed the grid and — once a task had more than ~11 runs — showed an odd inner scrollbar (the panel was height-capped). It now opens the run list in a floating modal anchored to the page, so nothing reflows and there's no inner scrollbar. The run inspector reuses the same modal and stacks above the list, so **inspect** opens the trace on top; Escape closes the topmost. Both live outside the task grid, so the 10-second poll never wipes them.
+
+**Why 1.21.2**: a web-UI refinement to the run-history interaction; no config changes and no effect on pipeline execution. A patch bump per SemVer.
+
 ## [1.21.1] - 2026-09-13
 
 A grab-record fix so failed downloads with no upstream info-hash are retried.
