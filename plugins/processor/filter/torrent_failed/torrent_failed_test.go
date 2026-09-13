@@ -120,16 +120,52 @@ func TestZeroProgressPastTimeoutAccepted(t *testing.T) {
 	}
 }
 
-// Slow but moving: downloading with progress > 0 is healthy no matter how old.
+// Slow but moving: recent activity keeps a download healthy no matter how long
+// ago it was added — the inactivity clock is driven by last-activity, not age.
 func TestSlowDownloadRejected(t *testing.T) {
 	p := newTestPlugin(t, nil)
 	e := sessionEntry("downloading", map[string]any{
-		entry.FieldTorrentProgress: 12.5,
-		entry.FieldTorrentAddedAt:  now.Add(-72 * time.Hour),
+		entry.FieldTorrentProgress:     12.5,
+		entry.FieldTorrentLastActivity: now.Add(-20 * time.Minute),
+		entry.FieldTorrentAddedAt:      now.Add(-72 * time.Hour),
 	})
 	classify(t, p, e)
 	if !e.IsRejected() {
-		t.Fatal("slow-but-progressing download should be rejected")
+		t.Fatal("slow-but-moving download (recent activity) should be rejected")
+	}
+}
+
+// A partially-downloaded torrent that then stalls — the case that previously
+// slipped through forever because it was "downloading" with progress > 0. With
+// no activity past the timeout it must be failed just like a zero-progress one.
+func TestPartialProgressStalledAccepted(t *testing.T) {
+	p := newTestPlugin(t, nil) // default 4h
+	e := sessionEntry("downloading", map[string]any{
+		entry.FieldTorrentProgress:     50.0,
+		entry.FieldTorrentLastActivity: now.Add(-5 * time.Hour),
+		entry.FieldTorrentAddedAt:      now.Add(-72 * time.Hour),
+	})
+	classify(t, p, e)
+	if !e.IsAccepted() {
+		t.Fatalf("partially-downloaded stalled torrent should be accepted, reason=%q", e.RejectReason)
+	}
+}
+
+// A fully-downloaded torrent is never failed, even if the client still labels it
+// "downloading" and it has been inactive far past the timeout — removing it with
+// data would delete a finished download.
+func TestCompleteNeverFailed(t *testing.T) {
+	p := newTestPlugin(t, nil)
+	for _, state := range []string{"downloading", "seeding"} {
+		e := sessionEntry(state, map[string]any{
+			entry.FieldTorrentProgress:     100.0,
+			entry.FieldTorrentLastActivity: now.Add(-500 * time.Hour),
+			entry.FieldTorrentAddedAt:      now.Add(-1000 * time.Hour),
+		})
+		classify(t, p, e)
+		if !e.IsRejected() {
+			t.Errorf("complete torrent (state %s) should never be failed", state)
+		}
 	}
 }
 
