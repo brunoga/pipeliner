@@ -2,9 +2,9 @@
 // janitor pipelines can walk back from a torrent in a download client's
 // session (identified only by info-hash) to the release that produced it.
 //
-// The transmission and qbittorrent sinks write one record per successful
-// torrent-add; the mark_failed sink resolves session entries through the
-// bucket to mark the original release URL failed and to un-track the
+// The deluge, transmission, and qbittorrent sinks write one record per
+// successful torrent-add; the mark_failed sink resolves session entries through
+// the bucket to mark the original release URL failed and to un-track the
 // episode/movie in the series/movies trackers.
 package grabs
 

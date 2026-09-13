@@ -129,7 +129,8 @@ func (p *delugePlugin) deliver(ctx context.Context, tc *plugin.TaskContext, entr
 			}
 		}
 		linkType := e.GetString(entry.FieldTorrentLinkType)
-		if err := p.addTorrent(ctx, e.URL, linkType, savePath, moveCompleted); err != nil {
+		clientHash, err := p.addTorrent(ctx, e.URL, linkType, savePath, moveCompleted)
+		if err != nil {
 			if strings.Contains(err.Error(), "already in session") {
 				// Torrent is already in Deluge (e.g. manually added). Mark the
 				// entry consumed so chained notification sinks (email, etc.) are
@@ -145,19 +146,29 @@ func (p *delugePlugin) deliver(ctx context.Context, tc *plugin.TaskContext, entr
 				e.Fail("deluge: " + err.Error())
 			}
 		} else {
-			p.recordGrab(tc, e)
+			p.recordGrab(tc, e, clientHash)
 		}
 	}
 	return nil
 }
 
 // recordGrab links the torrent back to its release URL so mark_failed can
-// recover it if the torrent dies.
-func (p *delugePlugin) recordGrab(tc *plugin.TaskContext, e *entry.Entry) {
+// recover it if the torrent dies. clientHash is the info-hash Deluge assigned
+// on add: it is preferred because it always matches what the janitor's
+// torrent_session later reports. The entry's locally-known hash (from a magnet
+// URL or an upstream metainfo plugin) is only a fallback for when the daemon
+// returned none. Without the client hash, a pipeline that never resolved the
+// info-hash upstream (e.g. a discover chain with no metainfo_torrent) recorded
+// no grab at all, so mark_failed could not walk back to the release — the movie
+// stayed marked as downloaded in the tracker and was never retried.
+func (p *delugePlugin) recordGrab(tc *plugin.TaskContext, e *entry.Entry, clientHash string) {
 	if p.grabStore == nil {
 		return
 	}
-	hash := grabs.HashForEntry(e)
+	hash := clientHash
+	if hash == "" {
+		hash = grabs.HashForEntry(e)
+	}
 	if hash == "" {
 		tc.Logger.Debug("deluge: no info-hash for grab record", "entry", e.Title)
 		return
@@ -225,9 +236,16 @@ func firstDelugeHostID(hosts any) string {
 	return ""
 }
 
-func (p *delugePlugin) addTorrent(ctx context.Context, rawURL, linkType, savePath, moveCompletedPath string) error {
+// addTorrent adds the torrent and returns the info-hash Deluge assigned to it.
+// core.add_torrent_url / core.add_torrent_magnet both return the torrent id
+// (its lowercase hex info-hash) on success, or null; the returned hash is the
+// authoritative key for the grab record because it always matches what the
+// janitor's torrent_session later reports for the same torrent. Returns "" for
+// the hash when the daemon reports none (the caller falls back to the entry's
+// locally-known hash).
+func (p *delugePlugin) addTorrent(ctx context.Context, rawURL, linkType, savePath, moveCompletedPath string) (string, error) {
 	if err := validateTorrentURL(rawURL); err != nil {
-		return err
+		return "", err
 	}
 	opts := map[string]any{}
 	if savePath != "" {
@@ -243,8 +261,12 @@ func (p *delugePlugin) addTorrent(ctx context.Context, rawURL, linkType, savePat
 	if linkType == "magnet" || (linkType == "" && strings.HasPrefix(rawURL, "magnet:")) {
 		method = "core.add_torrent_magnet"
 	}
-	_, err := p.rpc(ctx, method, []any{rawURL, opts})
-	return err
+	res, err := p.rpc(ctx, method, []any{rawURL, opts})
+	if err != nil {
+		return "", err
+	}
+	hash, _ := res.(string)
+	return strings.ToLower(hash), nil
 }
 
 // validateTorrentURL rejects URLs that the Deluge daemon cannot act on. The
