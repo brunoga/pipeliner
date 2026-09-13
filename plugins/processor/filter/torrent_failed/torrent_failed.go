@@ -13,16 +13,20 @@
 // Classification rules, in order:
 //
 //   - torrent_state == "errored"                          → accepted (failed)
-//   - torrent_state == "stalled", or "downloading" with
-//     torrent_progress == 0: accepted once the torrent has
-//     shown no activity for stall_timeout (measured from
-//     torrent_last_activity, falling back to
+//   - torrent_state == "stalled" or "downloading": accepted
+//     once the torrent has shown no activity for stall_timeout
+//     (measured from torrent_last_activity, falling back to
 //     torrent_added_at)                                   → accepted (failed)
 //   - everything else (seeding, paused, checking, healthy
 //     or recently-active downloads)                       → rejected
 //
-// A slow-but-moving download keeps refreshing its last-activity timestamp,
-// so it is never classified as failed no matter how long it takes.
+// The inactivity window — not the absolute progress — decides. A slow-but-
+// moving download keeps refreshing its last-activity timestamp, so it is never
+// classified as failed no matter how long it takes; a download that reached,
+// say, 50% and then stalled with no activity for stall_timeout is failed just
+// like one stuck at 0%. (Earlier versions only failed "downloading" torrents at
+// exactly 0% progress, so a partially-downloaded torrent that later stalled was
+// treated as healthy forever.)
 //
 // Config keys:
 //
@@ -108,10 +112,22 @@ func (p *failedPlugin) classify(tc *plugin.TaskContext, e *entry.Entry) {
 		return
 	}
 
+	// A fully-downloaded torrent is never failed, even if the client briefly
+	// still reports it as "downloading" before flipping to seeding. Removing a
+	// completed torrent with its data would delete a finished download.
+	if getFloat(e, entry.FieldTorrentProgress) >= 100 {
+		e.Reject(fmt.Sprintf("%s: healthy (complete)", pluginName))
+		return
+	}
+
+	// A torrent counts as potentially-dead when it is stalled or downloading,
+	// regardless of how far it got — the inactivity check below decides. A
+	// partially-downloaded torrent that stalls is just as dead as one stuck at
+	// 0%, and the client's last-activity timestamp keeps a genuinely-progressing
+	// download from being flagged.
 	stalled := state == string(torrentclient.StateStalled)
-	zeroProgress := state == string(torrentclient.StateDownloading) &&
-		getFloat(e, entry.FieldTorrentProgress) == 0
-	if !stalled && !zeroProgress {
+	downloading := state == string(torrentclient.StateDownloading)
+	if !stalled && !downloading {
 		e.Reject(fmt.Sprintf("%s: healthy (%s)", pluginName, state))
 		return
 	}

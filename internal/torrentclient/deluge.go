@@ -136,7 +136,7 @@ func (c *delugeClient) ListTorrents(ctx context.Context) ([]Torrent, error) {
 	if err := c.login(ctx); err != nil {
 		return nil, fmt.Errorf("deluge: login: %w", err)
 	}
-	keys := []string{"name", "state", "progress", "ratio", "time_added", "seeding_time", "download_location", "message"}
+	keys := []string{"name", "state", "progress", "ratio", "time_added", "seeding_time", "download_location", "message", "time_since_download", "time_since_upload"}
 	res, err := c.rpc(ctx, "core.get_torrents_status", []any{map[string]any{}, keys})
 	if err != nil {
 		return nil, fmt.Errorf("deluge: get_torrents_status: %w", err)
@@ -163,6 +163,27 @@ func (c *delugeClient) ListTorrents(ctx context.Context) ([]Torrent, error) {
 		seedingTimeF, _ := fields["seeding_time"].(float64)
 		downloadLoc, _ := fields["download_location"].(string)
 		message, _ := fields["message"].(string)
+
+		// Deluge has no absolute last-activity timestamp, but reports the
+		// seconds since the last download/upload of payload data (-1 when it
+		// never happened). Convert the most recent of the two into an absolute
+		// LastActivity so torrent_failed can tell a stalled partial download
+		// (old activity) from a healthy slow one (recent activity). Left zero
+		// when neither is available — torrent_failed then falls back to the
+		// add time.
+		tsDownload, hasD := fields["time_since_download"].(float64)
+		tsUpload, hasU := fields["time_since_upload"].(float64)
+		since := -1.0
+		if hasD && tsDownload >= 0 {
+			since = tsDownload
+		}
+		if hasU && tsUpload >= 0 && (since < 0 || tsUpload < since) {
+			since = tsUpload
+		}
+		var lastActivity time.Time
+		if since >= 0 {
+			lastActivity = time.Now().Add(-time.Duration(since * float64(time.Second)))
+		}
 
 		// Deluge state strings: Downloading, Seeding, Paused, Queued,
 		// Checking, Allocating, Moving, Error. There is no distinct
@@ -200,15 +221,16 @@ func (c *delugeClient) ListTorrents(ctx context.Context) ([]Torrent, error) {
 		}
 
 		torrents = append(torrents, Torrent{
-			Hash:        hash,
-			Name:        name,
-			State:       state,
-			Error:       message,
-			Ratio:       ratio,
-			SeedTime:    time.Duration(seedingTimeF) * time.Second,
-			AddedAt:     time.Unix(int64(timeAddedF), 0),
-			Progress:    progress,
-			DownloadDir: downloadLoc,
+			Hash:         hash,
+			Name:         name,
+			State:        state,
+			Error:        message,
+			Ratio:        ratio,
+			SeedTime:     time.Duration(seedingTimeF) * time.Second,
+			AddedAt:      time.Unix(int64(timeAddedF), 0),
+			Progress:     progress,
+			DownloadDir:  downloadLoc,
+			LastActivity: lastActivity,
 		})
 	}
 	return torrents, nil
