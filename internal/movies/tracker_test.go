@@ -117,6 +117,34 @@ func TestTrackerIsSeenYearlessFilename(t *testing.T) {
 	}
 }
 
+// TestTrackerIsSeenStoredYearZero covers the reverse of the yearless-filename
+// case: the record was stored with year 0 (the first download happened before
+// the year could be enriched), and a later release carries a real year. IsSeen
+// must still return true — a stored year of 0 means "unknown", so it should not
+// be excluded by the ±1 drift check that LatestNearYear applies. Without this,
+// the movie is re-downloaded (and, worse, never seen as a quality upgrade).
+func TestTrackerIsSeenStoredYearZero(t *testing.T) {
+	tr := NewTracker(newMemBucket())
+
+	// First download recorded no year (enrichment hadn't resolved it yet).
+	if err := tr.Mark(Record{Title: "Peaky Blinders The Immortal Man", Year: 0}); err != nil {
+		t.Fatal(err)
+	}
+
+	// A later release names it 2026 — must still be gated against the year-0 record.
+	if !tr.IsSeen("Peaky Blinders The Immortal Man", 2026, false) {
+		t.Error("IsSeen(year=2026) should return true when a year-0 record exists")
+	}
+	// The upgrade path (LatestNearYear) must also find the year-0 record.
+	if _, ok := tr.LatestNearYear("Peaky Blinders The Immortal Man", 2026, false); !ok {
+		t.Error("LatestNearYear(2026) should find the year-0 record")
+	}
+	// 3D remains independent — a non-3D year-0 record must not gate a 3D entry.
+	if tr.IsSeen("Peaky Blinders The Immortal Man", 2026, true) {
+		t.Error("IsSeen(year=2026, 3D) should return false when only a non-3D record exists")
+	}
+}
+
 // TestTrackerIsSeenYearDrift covers theatrical vs. home-video release-year
 // drift: a film stored under one year must still be detected when the
 // incoming release names it by the adjacent year. The motivating case is
