@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.20.3] - 2026-09-13
+
+A movie dedup fix for tracker records that were saved without a year.
+
+### Fixed
+
+- **A movie tracked without a year is no longer re-downloaded once its year is known** ([#377](https://github.com/brunoga/pipeliner/pull/377)). When a movie's first download happened before its release year could be enriched (from TMDb/Trakt), its tracker record was stored with year 0. A later release carrying a real year then slipped past dedup: `IsSeen` falls back to a ±1-year drift check, and `|0 − 2026| = 2026` is well outside tolerance, so the movie downloaded again — and was never even considered for a quality upgrade. A year of 0 on either side is now treated as "unknown, therefore compatible" (matching the rule the movie *matcher* already uses), so the year-0 record still gates the later release. This also fixes a quieter gap: a yearless incoming release that was already tracked skipped the upgrade comparison, so a higher-quality yearless rip was rejected as "already downloaded" instead of accepted as an upgrade.
+
+**Why 1.20.3**: a dedup-correctness patch for the movie tracker; no config changes and no effect on which releases match. A patch bump per SemVer.
+
 ## [1.20.2] - 2026-09-12
 
 A follow-up to the TMDb enrichment fix in 1.20.0, for same-year lookalikes.
