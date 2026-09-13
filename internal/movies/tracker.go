@@ -97,8 +97,18 @@ func (t *Tracker) Latest(title string, is3D bool) (*Record, bool) {
 // stored year is within ±yearDriftTolerance of the given year. Use this
 // (instead of Latest) when comparing an incoming entry against a tracked
 // one so theatrical/home-video drift is treated as the same movie.
+//
+// A year of 0 on either side means "unknown" — the release lacked a year when
+// it was recorded, or the incoming entry lacks one now — and is treated as
+// compatible rather than letting the drift check defeat dedup. Without this, a
+// record stored with year 0 (e.g. a first download before the year could be
+// enriched) would be invisible to a later IsSeen carrying a real year, causing
+// a re-download.
 func (t *Tracker) LatestNearYear(title string, year int, is3D bool) (*Record, bool) {
 	return t.latestMatching(title, is3D, func(recYear int) bool {
+		if recYear == 0 || year == 0 {
+			return true
+		}
 		diff := recYear - year
 		if diff < 0 {
 			diff = -diff
