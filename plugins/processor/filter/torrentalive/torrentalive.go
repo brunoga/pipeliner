@@ -245,6 +245,30 @@ func (p *torrentAlivePlugin) scrapeAll(ctx context.Context, tc *plugin.TaskConte
 						"duration", time.Since(t0).Round(time.Millisecond), "err", err)
 					return
 				}
+				// Many private trackers honor only ONE info_hash per scrape
+				// request and silently ignore the rest. When a multi-hash
+				// batch comes back with at most one answer, treat the tracker
+				// as single-hash-only and scrape the unanswered hashes
+				// individually — in parallel, so coverage is kept without the
+				// old one-at-a-time wall-clock.
+				if len(hashes) > 1 && len(m) <= 1 {
+					rest := make([]string, 0, len(hashes))
+					for _, h := range hashes {
+						if _, ok := m[h]; !ok {
+							rest = append(rest, h)
+						}
+					}
+					singles := p.scrapeSingles(ctx, announce, rest)
+					if m == nil {
+						m = singles
+					} else {
+						for h, s := range singles {
+							m[h] = s
+						}
+					}
+					tc.Logger.Debug("torrent_alive: single-hash tracker fallback",
+						"tracker", host, "hashes", len(rest), "answered", len(singles))
+				}
 				tc.Logger.Debug("torrent_alive: tracker scrape ok",
 					"tracker", host, "asked", len(hashes), "answered", len(m),
 					"duration", time.Since(t0).Round(time.Millisecond))
@@ -258,6 +282,41 @@ func (p *torrentAlivePlugin) scrapeAll(ctx context.Context, tc *plugin.TaskConte
 		wg.Wait()
 	}
 	return results
+}
+
+// maxConcurrentSingles bounds parallel single-hash scrapes against one
+// tracker in the single-hash-only fallback. The total request count equals
+// the old serial behavior; only the wall-clock changes.
+const maxConcurrentSingles = 8
+
+// scrapeSingles scrapes each hash individually against one tracker, in
+// parallel, for trackers that ignore extra info_hash parameters.
+func (p *torrentAlivePlugin) scrapeSingles(ctx context.Context, announce string, hashes []string) map[string]int {
+	out := make(map[string]int, len(hashes))
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, maxConcurrentSingles)
+	for _, h := range hashes {
+		wg.Add(1)
+		go func(h string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			sctx, cancel := context.WithTimeout(ctx, p.scrapeTimeout)
+			defer cancel()
+			m, err := tracker.ScrapeBatch(sctx, []string{h}, announce)
+			if err != nil {
+				return
+			}
+			if s, ok := m[h]; ok {
+				mu.Lock()
+				out[h] = s
+				mu.Unlock()
+			}
+		}(h)
+	}
+	wg.Wait()
+	return out
 }
 
 // filter applies the gate to a single entry — kept for tests and as the
