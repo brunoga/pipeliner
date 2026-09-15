@@ -316,7 +316,7 @@ func TestScrapeBatchUDP(t *testing.T) {
 				binary.BigEndian.PutUint32(resp[0:], 2)
 				copy(resp[4:8], pkt[12:16])
 				for i := 0; i < count; i++ {
-					binary.BigEndian.PutUint32(resp[8+12*i:], uint32(10+i)) // seeders
+					binary.BigEndian.PutUint32(resp[8+12*i:], uint32(10+i)) //nolint:gosec // test values are tiny
 				}
 				pc.WriteTo(resp, addr) //nolint:errcheck
 			}
