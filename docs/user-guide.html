@@ -2559,7 +2559,7 @@ output(<span class="y-str">"transmission"</span>, upstream=movies, host=<span cl
 pipeline(<span class="y-str">"my-movies"</span>, schedule=<span class="y-str">"1h"</span>)</code></pre>
 
 <h3>Database tab</h3>
-<p>Inspect and manage the download trackers and metainfo caches stored in <code>pipeliner.db</code>.</p>
+<p>Inspect and manage the download trackers and metainfo caches stored in <code>pipeliner.db</code>. A <strong>💾 Download backup</strong> button at the bottom of the sidebar streams a consistent snapshot of the entire store (trackers, caches, download log) taken live via <code>VACUUM INTO</code> — no daemon stop needed; keep one before risky maintenance.</p>
 <img src="images/ui-database-tab.png" alt="Database tab showing the Series, Movies, and Seen tracker categories in the sidebar" class="screenshot">
 <p>The sidebar is split into two sections — <strong>Trackers</strong> and <strong>Caches</strong>. Click any entry to load its contents in the main panel. A filter box and <strong>Delete all</strong> button appear for the active bucket; every row has a per-entry delete button. All deletions — per-row, per-show, and bucket-wide — ask for confirmation first, and after a row deletion the table keeps your active filter and current page.</p>
 <h4>Trackers</h4>
