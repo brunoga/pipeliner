@@ -198,10 +198,15 @@ func (p *tmdbPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 
 	detail, err := p.fetchDetail(ctx, r.ID)
 	if err != nil {
-		tc.Logger.Warn("metainfo_tmdb: detail fetch failed", "id", r.ID, "err", err)
+		// Detail failed with nothing cached (fetchDetail already fell back to
+		// a stale cache when one existed). The search result lacks genres,
+		// runtime, and cast, so don't claim enrichment: leaving `enriched`
+		// unset lets a downstream require(["enriched"]) hold the entry for
+		// the next run instead of proceeding degraded.
+		tc.Logger.Warn("metainfo_tmdb: detail unavailable — not marking enriched",
+			"id", r.ID, "entry", e.Title, "err", err)
 		// Populate with the partial info we already have from the search result.
 		var mi entry.MovieInfo
-		mi.Enriched = true
 		mi.Title = r.Title
 		mi.Description = r.Overview
 		mi.PublishedDate = r.ReleaseDate
