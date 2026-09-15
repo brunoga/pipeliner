@@ -56,6 +56,7 @@ func init() {
 			{Key: "list", Type: plugin.FieldTypeDict, Hint: "Optional dynamic list from a source plugin (e.g. trakt_list); omit to accept every classified movie"},
 			{Key: "ttl", Type: plugin.FieldTypeDuration, Default: "1h", Hint: "Cache TTL for dynamic lists"},
 			{Key: "reject_unmatched", Type: plugin.FieldTypeBool, Default: true, Hint: "Reject entries not classified as movie upstream; when a list is configured, also reject entries whose title isn't in the list"},
+			{Key: "upgrade_window", Type: plugin.FieldTypeDuration, Hint: "Accept quality upgrades only within this window after the first download (e.g. 30d as 720h; default: unlimited)"},
 		},
 		Caches: []plugin.CacheInfo{
 			{Name: "cache_movies_list", Display: "Movies Title List Cache"},
@@ -70,7 +71,10 @@ func validate(cfg map[string]any) []error {
 	if err := plugin.OptDuration(cfg, "ttl", "movies"); err != nil {
 		errs = append(errs, err)
 	}
-	errs = append(errs, plugin.OptUnknownKeys(cfg, "movies", "static", "list", "ttl", "reject_unmatched")...)
+	if err := plugin.OptDuration(cfg, "upgrade_window", "movies"); err != nil {
+		errs = append(errs, err)
+	}
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "movies", "static", "list", "ttl", "reject_unmatched", "upgrade_window")...)
 	return errs
 }
 
@@ -81,6 +85,7 @@ type moviesPlugin struct {
 	tracker         *imovies.Tracker
 	downloadLog     *downloads.Log
 	rejectUnmatched bool
+	upgradeWindow   time.Duration // 0 = upgrades accepted forever
 }
 
 func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
@@ -111,11 +116,21 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 
 	rejectUnmatched := plugin.OptBool(cfg, "reject_unmatched", true)
 
+	var upgradeWindow time.Duration
+	if v, _ := cfg["upgrade_window"].(string); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return nil, fmt.Errorf("movies: invalid upgrade_window %q: %w", v, err)
+		}
+		upgradeWindow = d
+	}
+
 	return &moviesPlugin{
 		staticTitles:    staticTitles,
 		listSources:     listSources,
 		listCache:       cache.NewPersistent[[]match.TitleEntry](ttl, db.Bucket("cache_movies_list")),
 		rejectUnmatched: rejectUnmatched,
+		upgradeWindow:   upgradeWindow,
 		tracker:         imovies.NewTracker(db.Bucket(imovies.TrackerBucketName)),
 		downloadLog:     downloads.New(db.Bucket(downloads.BucketName)),
 	}, nil
@@ -175,6 +190,14 @@ func (p *moviesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *en
 		// upgrade decision still runs when the stored record's year drifts
 		// from the incoming year by ±1 — theatrical vs. home-video release.
 		if rec, ok := p.tracker.LatestNearYear(matchedTitle, year, is3D); ok {
+			// Outside the upgrade window a better copy no longer replaces the
+			// library one — a 4K re-release years later should not re-download
+			// a film that was watched long ago.
+			if p.upgradeWindow > 0 && !rec.DownloadedAt.IsZero() &&
+				time.Since(rec.DownloadedAt) > p.upgradeWindow {
+				e.Reject(fmt.Sprintf("movies: %s (%d) already downloaded (upgrade window expired)", matchedTitle, year))
+				return nil
+			}
 			switch quality.Decide(q, rec.Quality, properOrRepack, rec.Repack) {
 			case quality.UpgradeQuality:
 				e.Accept(fmt.Sprintf("movies: %s (%d) quality upgrade", matchedTitle, year))

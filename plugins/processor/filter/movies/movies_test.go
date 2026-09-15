@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"maps"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -579,7 +580,6 @@ func TestCommit_Persists(t *testing.T) {
 	}
 }
 
-
 // TestProcessStampsMediaTypeMovie verifies that every entry the filter
 // processes — accepted or rejected — has media_type=movie stamped on it,
 // so downstream classifiers (dedup, route, condition) can rely on it.
@@ -628,4 +628,73 @@ func TestNoListTrackerDedups(t *testing.T) {
 	if !second.IsRejected() {
 		t.Errorf("second sighting should be rejected by tracker; got %v", second.State)
 	}
+}
+
+// --- upgrade_window tests ---
+
+func TestUpgradeWindowExpiredRejectsBetterCopy(t *testing.T) {
+	p := openPlugin(t, map[string]any{"upgrade_window": "720h"}) // 30 days
+	tc := makeCtx()
+
+	// Backdate the tracked download beyond the window.
+	if err := p.tracker.Mark(imovies.Record{
+		Title: "inception", Year: 2010,
+		Quality:      mustQuality(t, "Inception.2010.720p.HDTV"),
+		DownloadedAt: time.Now().Add(-40 * 24 * time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	e := makeEntry("Inception.2010.2160p.BluRay.x265", "http://x.com/b")
+	p.filter(context.Background(), tc, e)
+	if !e.IsRejected() || !strings.Contains(e.RejectReason, "upgrade window expired") {
+		t.Errorf("upgrade outside the window should be rejected, got state=%v reason=%q", e.State, e.RejectReason)
+	}
+}
+
+func TestUpgradeWindowFreshStillUpgrades(t *testing.T) {
+	p := openPlugin(t, map[string]any{"upgrade_window": "720h"})
+	tc := makeCtx()
+
+	e1 := makeEntry("Inception.2010.720p.HDTV", "http://x.com/a")
+	p.filter(context.Background(), tc, e1)
+	p.persist(context.Background(), tc, []*entry.Entry{e1})
+
+	e2 := makeEntry("Inception.2010.1080p.BluRay.x264", "http://x.com/b")
+	p.filter(context.Background(), tc, e2)
+	if !e2.IsAccepted() {
+		t.Errorf("upgrade within the window should be accepted: %s", e2.RejectReason)
+	}
+}
+
+func TestUpgradeWindowUnsetKeepsForeverUpgrades(t *testing.T) {
+	p := openPlugin(t, nil) // no window
+	tc := makeCtx()
+
+	if err := p.tracker.Mark(imovies.Record{
+		Title: "inception", Year: 2010,
+		Quality:      mustQuality(t, "Inception.2010.720p.HDTV"),
+		DownloadedAt: time.Now().Add(-3 * 365 * 24 * time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	e := makeEntry("Inception.2010.2160p.BluRay.x265", "http://x.com/b")
+	p.filter(context.Background(), tc, e)
+	if !e.IsAccepted() {
+		t.Errorf("without upgrade_window an old download still upgrades: %s", e.RejectReason)
+	}
+}
+
+func TestInvalidUpgradeWindow(t *testing.T) {
+	if errs := validate(map[string]any{"upgrade_window": "not-a-duration"}); len(errs) == 0 {
+		t.Error("validate should flag a bad upgrade_window")
+	}
+}
+
+// mustQuality parses the quality out of a release title the same way metaize
+// does, for seeding tracker records directly.
+func mustQuality(t *testing.T, title string) quality.Quality {
+	t.Helper()
+	q := quality.Parse(title)
+	return q
 }

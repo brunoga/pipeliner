@@ -74,6 +74,7 @@ func init() {
 			{Key: "tracking", Type: plugin.FieldTypeEnum, Enum: []string{"strict", "backfill", "follow"}, Default: "strict", Hint: "Episode ordering mode"},
 			{Key: "ttl", Type: plugin.FieldTypeDuration, Default: "1h", Hint: "Cache TTL for dynamic lists"},
 			{Key: "reject_unmatched", Type: plugin.FieldTypeBool, Default: true, Hint: "Reject episodes not classified as series upstream; when a list is configured, also reject episodes whose show isn't in the list"},
+			{Key: "upgrade_window", Type: plugin.FieldTypeDuration, Hint: "Accept quality upgrades only within this window after the first download (e.g. 7d as 168h; default: unlimited)"},
 		},
 		Caches: []plugin.CacheInfo{
 			{Name: "cache_series_list", Display: "Series Title List Cache"},
@@ -92,7 +93,10 @@ func validate(cfg map[string]any) []error {
 	if err := plugin.OptEnum(cfg, "tracking", "series", "strict", "backfill", "follow"); err != nil {
 		errs = append(errs, err)
 	}
-	errs = append(errs, plugin.OptUnknownKeys(cfg, "series", "static", "list", "ttl", "tracking", "reject_unmatched")...)
+	if err := plugin.OptDuration(cfg, "upgrade_window", "series"); err != nil {
+		errs = append(errs, err)
+	}
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "series", "static", "list", "ttl", "tracking", "reject_unmatched", "upgrade_window")...)
 	return errs
 }
 
@@ -120,6 +124,7 @@ type seriesPlugin struct {
 	inactive        *series.InactiveSet
 	downloadLog     *downloads.Log
 	rejectUnmatched bool
+	upgradeWindow   time.Duration // 0 = upgrades accepted forever
 }
 
 func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
@@ -162,6 +167,15 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 
 	rejectUnmatched := plugin.OptBool(cfg, "reject_unmatched", true)
 
+	var upgradeWindow time.Duration
+	if v, _ := cfg["upgrade_window"].(string); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return nil, fmt.Errorf("series: invalid upgrade_window %q: %w", v, err)
+		}
+		upgradeWindow = d
+	}
+
 	return &seriesPlugin{
 		staticShows:     staticShows,
 		listSources:     listSources,
@@ -171,6 +185,7 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 		inactive:        series.NewInactiveSet(db.Bucket(series.InactiveBucketName)),
 		downloadLog:     downloads.New(db.Bucket(downloads.BucketName)),
 		rejectUnmatched: rejectUnmatched,
+		upgradeWindow:   upgradeWindow,
 	}, nil
 }
 
@@ -232,6 +247,14 @@ func (p *seriesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *en
 	incomingQuality, _ := e.Quality()
 
 	if stored, ok := p.tracker.Get(matchedShow, epID); ok {
+		// Outside the upgrade window a better copy no longer replaces the
+		// downloaded one — an episode grabbed and watched weeks ago should not
+		// re-download because a remux appeared.
+		if p.upgradeWindow > 0 && !stored.DownloadedAt.IsZero() &&
+			time.Since(stored.DownloadedAt) > p.upgradeWindow {
+			e.Reject(fmt.Sprintf("series: %s %s already downloaded (upgrade window expired)", matchedShow, epID))
+			return nil
+		}
 		properOrRepack := e.GetBool(entry.FieldVideoProper) || e.GetBool(entry.FieldVideoRepack)
 		switch quality.Decide(incomingQuality, stored.Quality, properOrRepack, stored.Repack) {
 		case quality.UpgradeQuality:
