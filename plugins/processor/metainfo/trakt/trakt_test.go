@@ -330,3 +330,16 @@ func TestAnnotateExtendedFields(t *testing.T) {
 		t.Errorf("%s: got %v", entry.FieldVideoTrailers, trailers)
 	}
 }
+
+func TestPickItemPrefersExactTitle(t *testing.T) {
+	rs := []itrakt.Item{
+		{Title: "The Office (US) Extras"},
+		{Title: "The Office"},
+	}
+	if got := pickItem(rs, "The Office"); got.Title != "The Office" {
+		t.Errorf("exact title should win, got %q", got.Title)
+	}
+	if got := pickItem(rs, "Office Space"); got.Title != "The Office (US) Extras" {
+		t.Errorf("no exact match should fall back to results[0], got %q", got.Title)
+	}
+}
