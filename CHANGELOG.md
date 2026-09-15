@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.23.0] - 2026-09-15
+
+The last piece of the discover-scale performance work: stop re-downloading immutable torrent files.
+
+### Added
+
+- **`metainfo_torrent` persistent metadata cache** ([#404](https://github.com/brunoga/pipeliner/pull/404)). Torrent files are immutable, yet every run re-downloaded every `.torrent` it saw — ~2000 fetches from the indexer per discover run, which strained jackett and the private tracker (and was the likely cause of the `504 Gateway Time-out` errors Deluge hit fetching its own adds through the same exhausted proxy). Parsed metadata is now cached by entry URL (`cache_ttl`, default 7 days), so re-runs skip the download for URLs seen before and only genuinely new releases are ever fetched. Visible in the Database tab as "Torrent Metadata Cache".
+
+**Why 1.23.0**: an additive plugin option and a new persistent cache bucket. A minor bump per SemVer.
+
 ## [1.22.2] - 2026-09-15
 
 A coverage fix for the batched scraping shipped in 1.22.1.
