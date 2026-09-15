@@ -440,6 +440,15 @@ func (p *tvdbPlugin) fetchExtended(ctx context.Context, tc *plugin.TaskContext, 
 	t0 := time.Now()
 	ext, err := p.client.GetSeriesExtended(ctx, id)
 	if err != nil {
+		// Serve the last-known extended record rather than discard it: the
+		// search endpoint never returns genres or reliable language, so
+		// falling through to search-only data would silently blank a show's
+		// genres on a transient TVDB error — defeating the downstream genre
+		// filter (e.g. auto-favorite) and blanking notification emails.
+		if stale, ok := p.extendedCache.Peek(id); ok {
+			tc.Logger.Warn("metainfo_tvdb: extended fetch failed, serving stale cache", "id", id, "err", err)
+			return stale, nil
+		}
 		tc.Logger.Warn("metainfo_tvdb: extended fetch failed", "id", id, "err", err)
 		return nil, err
 	}
