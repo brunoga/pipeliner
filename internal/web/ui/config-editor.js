@@ -234,3 +234,73 @@ function showConfigWarnings(warnings) {
   }
 }
 
+
+// ── config history ───────────────────────────────────────────────────────────
+// Every successful save snapshots the replaced config server-side. History
+// opens the version list in a floating panel; picking one loads it into the
+// TEXT editor for review — saving it is the rollback (which itself snapshots
+// the config it replaces, so rollbacks are undoable).
+
+async function openConfigHistory() {
+  let versions = [];
+  try {
+    const r = await fetch('/api/config/history');
+    if (r.ok) versions = (await r.json()).versions || [];
+  } catch (e) { /* rendered as empty below */ }
+
+  let m = document.getElementById('config-history-modal');
+  if (!m) {
+    m = document.createElement('div');
+    m.id = 'config-history-modal';
+    m.className = 'app-modal';
+    m.innerHTML = `
+      <div class="app-modal-backdrop" onclick="closeConfigHistory()"></div>
+      <div class="app-modal-panel" role="dialog" aria-modal="true" aria-label="Config history">
+        <div class="app-modal-header">
+          <span class="app-modal-title">Config history</span>
+          <button class="app-modal-close" onclick="closeConfigHistory()" aria-label="Close">✕</button>
+        </div>
+        <div class="app-modal-body" id="config-history-body"></div>
+      </div>`;
+    document.body.appendChild(m);
+  }
+  document.getElementById('config-history-body').innerHTML = configHistoryHTML(versions);
+  m.hidden = false;
+}
+
+function closeConfigHistory() {
+  const m = document.getElementById('config-history-modal');
+  if (m) m.hidden = true;
+}
+
+// configHistoryHTML renders the version list. Pure for testing.
+function configHistoryHTML(versions) {
+  if (!versions.length) {
+    return '<div class="db-empty">No snapshots yet — one is taken automatically each time the config is saved.</div>';
+  }
+  let html = '<div class="match-hint">Load a version into the text editor to review it; Save &amp; Reload applies it (the replaced config is snapshotted too, so a rollback is undoable).</div>';
+  for (const v of versions) {
+    const when = v.saved_at ? new Date(v.saved_at).toLocaleString() : v.id;
+    html += `<div class="task-history-row"><div class="task-history-line">
+      <span class="task-history-when">${esc(when)}</span>
+      <span class="task-history-dur">${(v.size / 1024).toFixed(1)} KB</span>
+      <button class="thr-inspect" onclick="loadConfigVersion(${esc(JSON.stringify(v.id))})">load</button>
+    </div></div>`;
+  }
+  return html;
+}
+
+async function loadConfigVersion(id) {
+  try {
+    const r = await fetch('/api/config/history/' + encodeURIComponent(id));
+    if (!r.ok) return;
+    const { content } = await r.json();
+    const ta = document.getElementById('config-editor');
+    ta.value = content;
+    ve_textDirty = true;
+    syncHighlight();
+    closeConfigHistory();
+    switchView('text');
+    setConfigStatus('ok', 'Loaded snapshot — review, then Save & Reload to roll back');
+  } catch (e) { /* leave the editor untouched */ }
+}

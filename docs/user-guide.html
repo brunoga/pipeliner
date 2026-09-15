@@ -2461,6 +2461,7 @@ pipeliner failures "star trek"     # failures whose title or reason matches</cod
 <h3>Config tab — Text editor</h3>
 <p>A live Starlark editor with syntax highlighting. Use <strong>Validate</strong> to check config without saving, or <strong>Save &amp; Reload</strong> to write and apply immediately (or queue a reload if tasks are running). Tab key inserts two spaces.</p>
 <p>Two safety nets guard against losing config: navigating away with unsaved edits prompts for confirmation, and if the config fails to load from the server (so the editor would be empty) <strong>Save &amp; Reload</strong> is disabled — an empty editor is indistinguishable from an empty config, and saving it would overwrite the real file. Click <strong>Validate</strong> to retry loading.</p>
+<p>A third net is the <strong>History</strong> button: every save automatically snapshots the config it replaces (the last 20 are kept), and any snapshot can be loaded back into the text editor for review — <strong>Save &amp; Reload</strong> then applies it, making rollback a two-click operation. The rollback itself snapshots the config it replaces, so it is undoable too.</p>
 <img src="images/ui-text-editor.png" alt="Config text editor filling the full viewport height with Starlark syntax highlighting" class="screenshot">
 
 <h3 id="visual-editor">Config tab — Visual editor</h3>
