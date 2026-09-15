@@ -258,7 +258,9 @@ func TestScreenshots(t *testing.T) {
 			t.Fatalf("fill: %v", err)
 		}
 		// Click the Validate button.
-		if err := page.Locator("button.btn-config:not(.primary)").Click(); err != nil {
+		// Match by text: the toolbar has several non-primary .btn-config
+		// buttons (History, Validate).
+		if err := page.Locator(`button.btn-config`, playwright.PageLocatorOptions{HasText: "Validate"}).Click(); err != nil {
 			t.Fatalf("validate click: %v", err)
 		}
 		waitLocatorVisible(t, page.Locator("#config-warnings"))
