@@ -15,6 +15,7 @@ If the `.torrent` file cannot be fetched or parsed, the entry is failed so it wi
 | Key | Type | Required | Default | Description |
 |-----|------|----------|---------|-------------|
 | `fetch_timeout` | string | no | `30s` | HTTP timeout for downloading `.torrent` files |
+| `concurrency` | int | no | `4` | Parallel `.torrent` downloads (1–32). Serial fetching dominates wall-clock on discover-scale runs; keep modest to be kind to the indexer. |
 
 ## Fields set on entry
 

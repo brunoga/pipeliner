@@ -352,3 +352,100 @@ func TestVerifyRequiresScrape(t *testing.T) {
 		t.Errorf("verify=true alone should validate cleanly, got %v", errs)
 	}
 }
+
+// --- batch scrape tests ---
+
+// TestBatchScrapeOneRequestForManyEntries proves Process batches: many
+// entries sharing a tracker produce ONE scrape request, not one per entry.
+func TestBatchScrapeOneRequestForManyEntries(t *testing.T) {
+	const n = 25
+	hashes := make([]string, n)
+	var body string
+	{
+		files := ""
+		for i := 0; i < n; i++ {
+			var ih [20]byte
+			for j := range ih {
+				ih[j] = byte(i + 1)
+			}
+			hashes[i] = fmt.Sprintf("%x", ih)
+			seeders := i // entry i has i seeds
+			files += fmt.Sprintf("%d:%s", len(ih), string(ih[:])) +
+				fmt.Sprintf("d8:completei%de10:downloadedi0e10:incompletei0ee", seeders)
+		}
+		body = "d5:filesd" + files + "ee"
+	}
+
+	requests := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+		fmt.Fprint(w, body)
+	}))
+	defer srv.Close()
+
+	p := makePlugin(t, map[string]any{"min_seeds": 5, "scrape_timeout": "5s"})
+	tc := &plugin.TaskContext{Logger: slog.Default()}
+	entries := make([]*entry.Entry, n)
+	for i := 0; i < n; i++ {
+		e := entry.New(fmt.Sprintf("t%d", i), fmt.Sprintf("http://x/%d.torrent", i))
+		e.Set("torrent_info_hash", hashes[i])
+		e.Set("torrent_announce_list", []string{srv.URL + "/announce"})
+		entries[i] = e
+	}
+	if _, err := p.Process(context.Background(), tc, entries); err != nil {
+		t.Fatal(err)
+	}
+
+	if requests != 1 {
+		t.Errorf("scrape requests: got %d, want 1 (batched)", requests)
+	}
+	// Entries 0-4 have <5 seeds → rejected; 5+ accepted (left undecided).
+	for i, e := range entries {
+		if i < 5 && !e.IsRejected() {
+			t.Errorf("entry %d (%d seeds) should be rejected", i, i)
+		}
+		if i >= 5 && e.IsRejected() {
+			t.Errorf("entry %d (%d seeds) should pass", i, i)
+		}
+	}
+}
+
+// TestBatchScrapeUnansweredFallsBack: hashes the tracker doesn't answer fall
+// back to the feed count (verify mode) or stay undecided.
+func TestBatchScrapeUnansweredFallsBack(t *testing.T) {
+	var answered [20]byte
+	for j := range answered {
+		answered[j] = 0x0A
+	}
+	body := "d5:filesd" + fmt.Sprintf("%d:%s", len(answered), string(answered[:])) +
+		"d8:completei9e10:downloadedi0e10:incompletei0ee" + "ee"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, body)
+	}))
+	defer srv.Close()
+
+	p := makePlugin(t, map[string]any{"min_seeds": 5, "verify": true, "scrape_timeout": "5s"})
+	tc := &plugin.TaskContext{Logger: slog.Default()}
+
+	e1 := entry.New("answered", "http://x/a.torrent")
+	e1.Set("torrent_info_hash", fmt.Sprintf("%x", answered))
+	e1.Set("torrent_announce_list", []string{srv.URL + "/announce"})
+	e1.Set("torrent_seeds", 1) // feed says 1, scrape says 9 → passes
+
+	var unanswered [20]byte
+	unanswered[0] = 0x0B
+	e2 := entry.New("unanswered", "http://x/b.torrent")
+	e2.Set("torrent_info_hash", fmt.Sprintf("%x", unanswered))
+	e2.Set("torrent_announce_list", []string{srv.URL + "/announce"})
+	e2.Set("torrent_seeds", 2) // feed fallback: 2 < 5 → rejected
+
+	if _, err := p.Process(context.Background(), tc, []*entry.Entry{e1, e2}); err != nil {
+		t.Fatal(err)
+	}
+	if e1.IsRejected() {
+		t.Errorf("answered entry should pass on scraped count 9: %s", e1.RejectReason)
+	}
+	if !e2.IsRejected() {
+		t.Error("unanswered entry should fall back to the feed count (2 < 5) and be rejected")
+	}
+}
