@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.21.3] - 2026-09-13
+
+A TVDB fix so a transient API blip no longer strips a show's genres.
+
+### Fixed
+
+- **`metainfo_tvdb` keeps genres when the extended fetch fails transiently** ([#387](https://github.com/brunoga/pipeliner/pull/387)). Genres and reliable language come only from TVDB's *extended* endpoint — the search endpoint returns `genres: null`. When the extended fetch hit a transient error or rate-limit, the plugin fell back to the genre-less search data while still marking the entry enriched, silently blanking a show's genres for that run. That defeated genre-based filters (a real Sci-Fi/Fantasy show could be dropped by an auto-favorite gate) and blanked notification emails. `fetchExtended` now serves the last-known extended record on a live-fetch failure — via a new stale-read (`cache.Peek`, which ignores TTL and survives restarts) — only degrading to search-only data when nothing was ever cached.
+
+**Why 1.21.3**: a correctness patch for TVDB enrichment resilience; no config changes. A patch bump per SemVer.
+
 ## [1.21.2] - 2026-09-13
 
 A dashboard fix: the run history opens in a modal instead of expanding the card.
