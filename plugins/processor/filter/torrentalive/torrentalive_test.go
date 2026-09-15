@@ -255,3 +255,100 @@ func TestScrapeFromUDPTracker(t *testing.T) {
 		t.Errorf("12 scraped seeds should pass min_seeds=5; reason: %q", e.RejectReason)
 	}
 }
+
+// --- verify tests ---
+
+// TestVerifyScrapesDespiteFeedCount is the phantom-seed case: the indexer
+// reports a healthy count but the tracker knows better. With verify=true the
+// scrape result must win over the feed count.
+func TestVerifyScrapesDespiteFeedCount(t *testing.T) {
+	var ih [20]byte
+	for i := range ih {
+		ih[i] = byte(i + 1)
+	}
+	infoHash := fmt.Sprintf("%x", ih)
+	body := buildHTTPScrapeResponse(string(ih[:]), 1) // truth: 1 seed
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, body)
+	}))
+	defer srv.Close()
+
+	p := makePlugin(t, map[string]any{"min_seeds": 5, "verify": true, "scrape_timeout": "5s"})
+	e := entry.New("rare.3d.movie", "http://x.com/t.torrent")
+	e.Set("torrent_seeds", 10) // indexer claims 10
+	e.Set("torrent_info_hash", infoHash)
+	e.Set("torrent_announce_list", []string{srv.URL + "/announce"})
+
+	filter(t, p, e)
+
+	if !e.IsRejected() {
+		t.Error("verify should trust the scrape (1 seed) over the feed count (10) and reject")
+	}
+	if v := e.GetInt("torrent_seeds"); v != 1 {
+		t.Errorf("scraped count should be written back: got %d, want 1", v)
+	}
+}
+
+// Without verify, the same phantom feed count passes unchallenged (the
+// pre-existing fast path) — pinned here as the contrast case.
+func TestNoVerifyTrustsFeedCount(t *testing.T) {
+	p := makePlugin(t, map[string]any{"min_seeds": 5})
+	e := entry.New("rare.3d.movie", "http://x.com/t.torrent")
+	e.Set("torrent_seeds", 10)
+	filter(t, p, e)
+	if e.IsRejected() {
+		t.Error("without verify the feed count should be trusted")
+	}
+}
+
+// TestVerifyFallsBackToFeedWhenNoHash: verify wants to scrape but the entry has
+// no resolvable info hash — degrade gracefully to the feed count rather than
+// leaving the entry ungated.
+func TestVerifyFallsBackToFeedWhenNoHash(t *testing.T) {
+	p := makePlugin(t, map[string]any{"min_seeds": 5, "verify": true})
+	e := entry.New("bare", "http://x.com/t.torrent") // no hash, not a magnet
+	e.Set("torrent_seeds", 10)
+	filter(t, p, e)
+	if e.IsRejected() {
+		t.Error("verify without a scrapeable hash should fall back to the feed count (10 ≥ 5)")
+	}
+
+	low := entry.New("bare2", "http://x.com/t2.torrent")
+	low.Set("torrent_seeds", 2)
+	filter(t, p, low)
+	if !low.IsRejected() {
+		t.Error("feed fallback must still enforce min_seeds (2 < 5)")
+	}
+}
+
+// TestVerifyFallsBackToFeedOnScrapeFailure: tracker unreachable → feed count.
+func TestVerifyFallsBackToFeedOnScrapeFailure(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
+	deadURL := srv.URL
+	srv.Close() // now unreachable
+
+	var ih [20]byte
+	p := makePlugin(t, map[string]any{"min_seeds": 5, "verify": true, "scrape_timeout": "500ms"})
+	e := entry.New("rare", "http://x.com/t.torrent")
+	e.Set("torrent_seeds", 10)
+	e.Set("torrent_info_hash", fmt.Sprintf("%x", ih))
+	e.Set("torrent_announce_list", []string{deadURL + "/announce"})
+
+	filter(t, p, e)
+	if e.IsRejected() {
+		t.Error("scrape failure with verify should fall back to the feed count")
+	}
+}
+
+func TestVerifyRequiresScrape(t *testing.T) {
+	if _, err := newPlugin(map[string]any{"verify": true, "scrape": false}, nil); err == nil {
+		t.Error("newPlugin should reject verify=true with scrape=false")
+	}
+	if errs := validate(map[string]any{"verify": true, "scrape": false}); len(errs) == 0 {
+		t.Error("validate should flag verify=true with scrape=false")
+	}
+	if errs := validate(map[string]any{"verify": true}); len(errs) != 0 {
+		t.Errorf("verify=true alone should validate cleanly, got %v", errs)
+	}
+}
