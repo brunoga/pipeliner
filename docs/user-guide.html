@@ -159,7 +159,7 @@ td code{font-size:11px}
     <a href="#route" class="sub">route()</a>
     <a href="#route-field-inference" class="sub">Field inference</a>
     <a href="#report_empty" class="sub">report_empty</a>
-    <a href="#torrentalive" class="sub">torrentalive</a>
+    <a href="#torrent_alive" class="sub">torrent_alive</a>
     <a href="#torrent_failed" class="sub">torrent_failed</a>
     <a href="#trailer" class="sub">trailer</a>
     <a href="#require" class="sub">require</a>
@@ -1622,16 +1622,25 @@ output(<span class="y-str">"notify"</span>,                 upstream=alert,
 
 <p>Placing <code>report_empty</code> downstream of a filter chain (rather than directly on the source) alerts on "nothing survived filtering" instead of "the source itself returned nothing" — both are useful, the placement decides which.</p>
 
-<!-- ─────────── torrentalive ─────────── -->
-<h2 id="torrentalive">torrentalive</h2>
-<p>Rejects torrents with fewer than a minimum number of seeds. The <code>torrent_seeds</code> field is set by the RSS input, <code>jackett</code>, and <code>jackett</code>. Entries without seed data are left undecided.</p>
+<!-- ─────────── torrent_alive ─────────── -->
+<h2 id="torrent_alive">torrent_alive</h2>
+<p>Rejects torrents with fewer than a minimum number of seeds. The <code>torrent_seeds</code> field is set by the RSS input and <code>jackett</code>; when it is absent and scraping is enabled, the plugin resolves the info hash (inline for magnet URIs; via an upstream <a href="#metainfo_torrent"><code>metainfo_torrent</code></a> for <code>.torrent</code> URLs) and performs a live tracker scrape. Entries where no seed count can be determined are left undecided.</p>
+
+<p>Indexer-reported seed counts can be stale or phantom — a rare release may claim two seeders that are long gone, pass the check, and then sit at 0% forever. Set <code>verify=True</code> to always scrape the tracker even when the feed provides a count; the scrape result wins, and the feed count is only used as a fallback when scraping is impossible (no resolvable hash, or the tracker did not answer). Best paired with <code>metainfo_torrent</code> upstream so <code>.torrent</code> entries are scrapeable, and reserved for low-volume pipelines (e.g. a <code>discover</code> chain) since each entry costs a scrape round-trip.</p>
 
 <table>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
   <tr><td><code>min_seeds</code></td><td>no</td><td><code>1</code></td><td>Minimum seed count required</td></tr>
+  <tr><td><code>scrape</code></td><td>no</td><td><code>true</code></td><td>Scrape the tracker when <code>torrent_seeds</code> is absent</td></tr>
+  <tr><td><code>verify</code></td><td>no</td><td><code>false</code></td><td>Always scrape to verify feed-provided seed counts; fall back to the feed count when scraping is impossible</td></tr>
+  <tr><td><code>scrape_timeout</code></td><td>no</td><td><code>15s</code></td><td>Per-scrape deadline</td></tr>
 </table>
 
-<pre><code>alive = process("torrentalive", upstream=upstream, min_seeds=3)</code></pre>
+<pre><code>alive = process("torrent_alive", upstream=upstream, min_seeds=3)
+
+# Rare-release pipeline: don't trust the indexer's count.
+meta  = process("metainfo_torrent", upstream=found)
+alive = process("torrent_alive", upstream=meta, min_seeds=2, verify=True)</code></pre>
 
 <!-- ─────────── torrent_failed ─────────── -->
 <h2 id="torrent_failed">torrent_failed</h2>
@@ -2672,8 +2681,8 @@ docker compose up -d --no-build pipeliner</code></pre>
 <h3>Deluge "Not authenticated" errors</h3>
 <p>This was a bug where the Deluge session cookie from login was not preserved. It is fixed in v0.1.3+. Ensure you are running a current version.</p>
 
-<h3>torrentalive is slow</h3>
-<p>When entries lack a <code>torrent_seeds</code> field, <code>torrentalive</code> must resolve the info hash and scrape trackers. Use inputs that provide seed counts (<code>jackett</code>, <code>jackett</code>, nyaa RSS) to avoid scraping. Set <code>scrape: false</code> to disable tracker scraping entirely (entries without seed data will be left undecided).</p>
+<h3>torrent_alive is slow</h3>
+<p>When entries lack a <code>torrent_seeds</code> field, <code>torrent_alive</code> must resolve the info hash and scrape trackers. Use inputs that provide seed counts (<code>jackett</code>, <code>jackett</code>, nyaa RSS) to avoid scraping. Set <code>scrape: false</code> to disable tracker scraping entirely (entries without seed data will be left undecided).</p>
 
 <h3>Config validation errors</h3>
 <p><code>pipeliner check</code> validates each plugin's config and verifies that all required fields are produced by upstream nodes. If you see a field requirement error, check that the metainfo processor producing that field is connected upstream of the filter or sink that needs it.</p>

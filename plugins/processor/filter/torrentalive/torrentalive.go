@@ -3,25 +3,24 @@
 //
 // Seed counts are sourced in order:
 //  1. The torrent_seeds entry field, set by the RSS input plugin from torrent
-//     namespace extensions (nyaa, Jackett, ezrss, etc.).
-//  2. If torrent_info_hash is not already set, the plugin populates it
-//     automatically:
-//     - magnet: URIs — info hash and tracker URLs are extracted from the URI
-//     itself (no network call required).
-//     - .torrent URLs — the file is downloaded and parsed to extract the info
-//     hash and announce list.
+//     namespace extensions (nyaa, Jackett, ezrss, etc.). Skipped when
+//     verify=true — indexer-reported counts can be stale or phantom
+//     (especially for rare releases), so verify forces a live scrape and
+//     only falls back to the feed count when scraping is impossible.
+//  2. If torrent_info_hash is not already set, the plugin extracts it inline
+//     from magnet: URIs (no network call). For .torrent URL entries, add
+//     metainfo_torrent before torrent_alive so the hash and announce list
+//     are available.
 //  3. Live tracker scraping: the plugin sends a scrape request to each announce
 //     URL and uses the highest seed count returned.
 //
 // Entries where no seed count can be determined are left undecided.
-// metainfo_magnet is NOT required — magnet URIs are parsed inline.
-// For .torrent URL entries, add metainfo_torrent before torrent_alive if
-// you want seed checking on those as well.
 //
 // Config keys:
 //
 //	min_seeds      - minimum acceptable seed count (default: 1)
 //	scrape         - enable live tracker scraping when torrent_seeds absent (default: true)
+//	verify         - always scrape to verify feed-provided seed counts (default: false)
 //	scrape_timeout - per-scrape deadline, e.g. "10s" (default: "15s")
 package torrentalive
 
@@ -54,6 +53,7 @@ func init() {
 		Schema: []plugin.FieldSchema{
 			{Key: "min_seeds", Type: plugin.FieldTypeInt, Default: 1, Hint: "Minimum seed count"},
 			{Key: "scrape", Type: plugin.FieldTypeBool, Default: true, Hint: "Scrape tracker when seed count unknown"},
+			{Key: "verify", Type: plugin.FieldTypeBool, Default: false, Hint: "Always scrape to verify feed-provided seed counts (falls back to the feed count when scraping is impossible)"},
 			{Key: "scrape_timeout", Type: plugin.FieldTypeDuration, Default: "15s", Hint: "Per-scrape deadline"},
 		},
 	})
@@ -69,13 +69,19 @@ func validate(cfg map[string]any) []error {
 	if err := plugin.OptDuration(cfg, "scrape_timeout", "torrent_alive"); err != nil {
 		errs = append(errs, err)
 	}
-	errs = append(errs, plugin.OptUnknownKeys(cfg, "torrent_alive", "min_seeds", "scrape", "scrape_timeout")...)
+	if v, ok := cfg["verify"].(bool); ok && v {
+		if s, ok := cfg["scrape"].(bool); ok && !s {
+			errs = append(errs, fmt.Errorf("torrent_alive: \"verify\" requires scraping; remove \"scrape\": false"))
+		}
+	}
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "torrent_alive", "min_seeds", "scrape", "verify", "scrape_timeout")...)
 	return errs
 }
 
 type torrentAlivePlugin struct {
 	minSeeds      int
 	scrape        bool
+	verify        bool
 	scrapeTimeout time.Duration
 }
 
@@ -99,9 +105,15 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 		return nil, fmt.Errorf("torrent_alive: invalid scrape_timeout %q: %w", timeoutStr, err)
 	}
 
+	verify, _ := cfg["verify"].(bool)
+	if verify && !scrapeEnabled {
+		return nil, fmt.Errorf("torrent_alive: verify requires scraping; remove \"scrape\": false")
+	}
+
 	return &torrentAlivePlugin{
 		minSeeds:      min,
 		scrape:        scrapeEnabled,
+		verify:        verify,
 		scrapeTimeout: scrapeTimeout,
 	}, nil
 }
@@ -109,19 +121,35 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 func (p *torrentAlivePlugin) Name() string { return "torrent_alive" }
 
 func (p *torrentAlivePlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
-	// 1. Use feed-provided seed count if available (fast path — no scrape needed).
+	// Feed-provided seed count. With verify off this is the fast path; with
+	// verify on it is only the fallback for when scraping turns out to be
+	// impossible — indexer-reported counts can be stale or phantom.
+	feedSeeds, hasFeed := 0, false
 	if v, ok := e.Get(entry.FieldTorrentSeeds); ok {
-		n := toInt(v)
-		tc.Logger.Debug("torrent_alive: fast path (seeds)", "entry", e.Title, "seeds", n)
-		return p.applyMinSeeds(e, n)
+		feedSeeds, hasFeed = toInt(v), true
 	}
 
-	if !p.scrape {
-		tc.Logger.Debug("torrent_alive: no seed data, scrape disabled — leaving undecided", "entry", e.Title)
+	// fallback applies the best non-scraped information available.
+	fallback := func(why string) error {
+		if hasFeed {
+			tc.Logger.Debug("torrent_alive: "+why+" — using feed seed count",
+				"entry", e.Title, "seeds", feedSeeds)
+			return p.applyMinSeeds(e, feedSeeds)
+		}
+		tc.Logger.Debug("torrent_alive: "+why+" — leaving undecided", "entry", e.Title)
 		return nil
 	}
 
-	// 2. Populate info hash and announce list from the URL if not already set.
+	if hasFeed && !p.verify {
+		tc.Logger.Debug("torrent_alive: fast path (seeds)", "entry", e.Title, "seeds", feedSeeds)
+		return p.applyMinSeeds(e, feedSeeds)
+	}
+
+	if !p.scrape {
+		return fallback("scrape disabled")
+	}
+
+	// Populate info hash and announce list from the URL if not already set.
 	if e.GetString(entry.FieldTorrentInfoHash) == "" {
 		if err := p.populate(ctx, e); err != nil {
 			tc.Logger.Debug("torrent_alive: could not resolve torrent metadata",
@@ -132,9 +160,7 @@ func (p *torrentAlivePlugin) filter(ctx context.Context, tc *plugin.TaskContext,
 	infoHash := e.GetString(entry.FieldTorrentInfoHash)
 	announces := announceList(e)
 	if infoHash == "" || len(announces) == 0 {
-		tc.Logger.Debug("torrent_alive: no info hash or announces — leaving undecided",
-			"entry", e.Title, "has_hash", infoHash != "", "announces", len(announces))
-		return nil
+		return fallback("no info hash or announces")
 	}
 
 	// Log only the hostname of the first announce to keep lines readable.
@@ -153,7 +179,7 @@ func (p *torrentAlivePlugin) filter(ctx context.Context, tc *plugin.TaskContext,
 	if err != nil {
 		tc.Logger.Debug("torrent_alive: scrape failed",
 			"entry", e.Title, "duration", time.Since(t0).Round(time.Millisecond), "err", err)
-		return nil
+		return fallback("scrape failed")
 	}
 
 	tc.Logger.Debug("torrent_alive: scrape ok",
