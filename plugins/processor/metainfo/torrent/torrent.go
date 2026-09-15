@@ -34,6 +34,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/brunoga/pipeliner/internal/bencode"
@@ -63,6 +64,7 @@ func init() {
 		Validate: validate,
 		Schema: []plugin.FieldSchema{
 			{Key: "fetch_timeout", Type: plugin.FieldTypeDuration, Hint: "HTTP timeout when downloading .torrent files (default 30s)"},
+			{Key: "concurrency", Type: plugin.FieldTypeInt, Default: 4, Hint: "Parallel .torrent downloads (1-32; keep modest to be kind to the indexer)"},
 		},
 	})
 }
@@ -72,12 +74,18 @@ func validate(cfg map[string]any) []error {
 	if err := plugin.OptDuration(cfg, "fetch_timeout", "metainfo_torrent"); err != nil {
 		errs = append(errs, err)
 	}
-	errs = append(errs, plugin.OptUnknownKeys(cfg, "metainfo_torrent", "fetch_timeout")...)
+	if v, ok := cfg["concurrency"]; ok {
+		if n, isInt := toInt64(v); !isInt || n < 1 || n > 32 {
+			errs = append(errs, fmt.Errorf("metainfo_torrent: \"concurrency\" must be an integer between 1 and 32"))
+		}
+	}
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "metainfo_torrent", "fetch_timeout", "concurrency")...)
 	return errs
 }
 
 type torrentPlugin struct {
-	client *http.Client
+	client      *http.Client
+	concurrency int
 }
 
 func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
@@ -90,8 +98,16 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 		}
 		fetchTimeout = d
 	}
+
+	concurrency := 4
+	if v, ok := cfg["concurrency"]; ok {
+		if n, isInt := toInt64(v); isInt && n >= 1 && n <= 32 {
+			concurrency = int(n)
+		}
+	}
 	return &torrentPlugin{
-		client: &http.Client{Timeout: fetchTimeout},
+		client:      &http.Client{Timeout: fetchTimeout},
+		concurrency: concurrency,
 	}, nil
 }
 
@@ -160,14 +176,40 @@ func (p *torrentPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, e 
 }
 
 // torrentURLReason returns a short reason string if the entry's URL should be
+// Process annotates entries with bounded parallelism: each entry is an
+// independent HTTP fetch + parse, and serial fetching dominated wall-clock on
+// discover-scale runs (~2000 entries took 7+ minutes serially). Concurrency
+// defaults to a modest 4 so the indexer is not hammered.
 func (p *torrentPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, p.concurrency)
 	for _, e := range entries {
-		if err := p.annotate(ctx, tc, e); err != nil {
-			tc.Logger.Warn("metainfo_torrent error", "entry", e.Title, "err", err)
-			e.Fail(err.Error())
-		}
+		wg.Add(1)
+		go func(e *entry.Entry) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			if err := p.annotate(ctx, tc, e); err != nil {
+				tc.Logger.Warn("metainfo_torrent error", "entry", e.Title, "err", err)
+				e.Fail(err.Error())
+			}
+		}(e)
 	}
+	wg.Wait()
 	return entries, nil
+}
+
+// toInt64 normalizes the numeric types Starlark configs produce.
+func toInt64(v any) (int64, bool) {
+	switch n := v.(type) {
+	case int:
+		return int64(n), true
+	case int64:
+		return n, true
+	case float64:
+		return int64(n), true
+	}
+	return 0, false
 }
 
 // torrentURLReason returns the reason a URL should be

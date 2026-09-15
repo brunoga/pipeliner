@@ -29,6 +29,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/brunoga/pipeliner/internal/entry"
@@ -120,72 +121,151 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 
 func (p *torrentAlivePlugin) Name() string { return "torrent_alive" }
 
-func (p *torrentAlivePlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
-	// Feed-provided seed count. With verify off this is the fast path; with
-	// verify on it is only the fallback for when scraping turns out to be
-	// impossible — indexer-reported counts can be stale or phantom.
-	feedSeeds, hasFeed := 0, false
-	if v, ok := e.Get(entry.FieldTorrentSeeds); ok {
-		feedSeeds, hasFeed = toInt(v), true
-	}
+// scrapeJob is one entry whose seed count must come from a live scrape.
+type scrapeJob struct {
+	e         *entry.Entry
+	hash      string // lowercase hex info hash
+	announces []string
+	feedSeeds int
+	hasFeed   bool
+}
 
-	// fallback applies the best non-scraped information available.
-	fallback := func(why string) error {
+// maxConcurrentTrackers bounds how many distinct trackers are scraped in
+// parallel in one Process call.
+const maxConcurrentTrackers = 8
+
+// Process applies the seed gate to all entries at once. Feed-count decisions
+// are immediate; entries that need a live scrape are batched per tracker
+// (each request carries up to ~70 info hashes) with distinct trackers
+// queried in parallel, so a discover-scale run costs a handful of requests
+// instead of one 15-second-timeout scrape per entry.
+func (p *torrentAlivePlugin) Process(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
+	var jobs []scrapeJob
+	fallback := func(e *entry.Entry, feedSeeds int, hasFeed bool, why string) {
 		if hasFeed {
 			tc.Logger.Debug("torrent_alive: "+why+" — using feed seed count",
 				"entry", e.Title, "seeds", feedSeeds)
-			return p.applyMinSeeds(e, feedSeeds)
+			_ = p.applyMinSeeds(e, feedSeeds)
+			return
 		}
 		tc.Logger.Debug("torrent_alive: "+why+" — leaving undecided", "entry", e.Title)
-		return nil
 	}
 
-	if hasFeed && !p.verify {
-		tc.Logger.Debug("torrent_alive: fast path (seeds)", "entry", e.Title, "seeds", feedSeeds)
-		return p.applyMinSeeds(e, feedSeeds)
-	}
-
-	if !p.scrape {
-		return fallback("scrape disabled")
-	}
-
-	// Populate info hash and announce list from the URL if not already set.
-	if e.GetString(entry.FieldTorrentInfoHash) == "" {
-		if err := p.populate(ctx, e); err != nil {
-			tc.Logger.Debug("torrent_alive: could not resolve torrent metadata",
-				"entry", e.Title, "err", err)
+	for _, e := range entries {
+		feedSeeds, hasFeed := 0, false
+		if v, ok := e.Get(entry.FieldTorrentSeeds); ok {
+			feedSeeds, hasFeed = toInt(v), true
 		}
+		if hasFeed && !p.verify {
+			tc.Logger.Debug("torrent_alive: fast path (seeds)", "entry", e.Title, "seeds", feedSeeds)
+			_ = p.applyMinSeeds(e, feedSeeds)
+			continue
+		}
+		if !p.scrape {
+			fallback(e, feedSeeds, hasFeed, "scrape disabled")
+			continue
+		}
+		if e.GetString(entry.FieldTorrentInfoHash) == "" {
+			if err := p.populate(ctx, e); err != nil {
+				tc.Logger.Debug("torrent_alive: could not resolve torrent metadata",
+					"entry", e.Title, "err", err)
+			}
+		}
+		hash := strings.ToLower(e.GetString(entry.FieldTorrentInfoHash))
+		announces := announceList(e)
+		if hash == "" || len(announces) == 0 {
+			fallback(e, feedSeeds, hasFeed, "no info hash or announces")
+			continue
+		}
+		jobs = append(jobs, scrapeJob{e: e, hash: hash, announces: announces, feedSeeds: feedSeeds, hasFeed: hasFeed})
 	}
 
-	infoHash := e.GetString(entry.FieldTorrentInfoHash)
-	announces := announceList(e)
-	if infoHash == "" || len(announces) == 0 {
-		return fallback("no info hash or announces")
+	if len(jobs) > 0 {
+		t0 := time.Now()
+		results := p.scrapeAll(ctx, tc, jobs)
+		resolved := 0
+		for _, j := range jobs {
+			if seeds, ok := results[j.hash]; ok {
+				resolved++
+				j.e.SetTorrentInfo(entry.TorrentInfo{Seeds: seeds})
+				_ = p.applyMinSeeds(j.e, seeds)
+				continue
+			}
+			fallback(j.e, j.feedSeeds, j.hasFeed, "scrape failed")
+		}
+		tc.Logger.Info("torrent_alive: batch scrape",
+			"entries", len(jobs), "resolved", resolved,
+			"duration", time.Since(t0).Round(time.Millisecond))
 	}
+	return entry.PassThrough(entries), nil
+}
 
-	// Log only the hostname of the first announce to keep lines readable.
-	firstHost := announces[0]
-	if u, err := url.Parse(announces[0]); err == nil {
-		firstHost = u.Host
+// scrapeAll resolves seed counts for the jobs, returning hash → seeders.
+// Rounds walk each job's announce list: round r groups still-unresolved jobs
+// by announces[r] and batch-scrapes each tracker, trackers in parallel. Three
+// rounds bound the walk — beyond that a torrent's trackers are all dead.
+func (p *torrentAlivePlugin) scrapeAll(ctx context.Context, tc *plugin.TaskContext, jobs []scrapeJob) map[string]int {
+	results := make(map[string]int, len(jobs))
+	var mu sync.Mutex
+
+	const maxRounds = 3
+	for round := 0; round < maxRounds; round++ {
+		groups := map[string][]string{} // announce URL → hashes
+		for _, j := range jobs {
+			mu.Lock()
+			_, done := results[j.hash]
+			mu.Unlock()
+			if done || round >= len(j.announces) {
+				continue
+			}
+			groups[j.announces[round]] = append(groups[j.announces[round]], j.hash)
+		}
+		if len(groups) == 0 {
+			break
+		}
+		var wg sync.WaitGroup
+		sem := make(chan struct{}, maxConcurrentTrackers)
+		for announce, hashes := range groups {
+			wg.Add(1)
+			go func(announce string, hashes []string) {
+				defer wg.Done()
+				sem <- struct{}{}
+				defer func() { <-sem }()
+				scrapeCtx, cancel := context.WithTimeout(ctx, p.scrapeTimeout)
+				defer cancel()
+				t0 := time.Now()
+				m, err := tracker.ScrapeBatch(scrapeCtx, hashes, announce)
+				host := announce
+				if u, uerr := url.Parse(announce); uerr == nil {
+					host = u.Host
+				}
+				if err != nil {
+					tc.Logger.Debug("torrent_alive: tracker scrape failed",
+						"tracker", host, "hashes", len(hashes),
+						"duration", time.Since(t0).Round(time.Millisecond), "err", err)
+					return
+				}
+				tc.Logger.Debug("torrent_alive: tracker scrape ok",
+					"tracker", host, "asked", len(hashes), "answered", len(m),
+					"duration", time.Since(t0).Round(time.Millisecond))
+				mu.Lock()
+				for h, s := range m {
+					results[h] = s
+				}
+				mu.Unlock()
+			}(announce, hashes)
+		}
+		wg.Wait()
 	}
-	tc.Logger.Debug("torrent_alive: scraping",
-		"entry", e.Title, "hash", infoHash[:8]+"…", "trackers", len(announces), "first", firstHost)
+	return results
+}
 
-	t0 := time.Now()
-	scrapeCtx, cancel := context.WithTimeout(ctx, p.scrapeTimeout)
-	defer cancel()
-
-	seeds, err := tracker.Scrape(scrapeCtx, infoHash, announces)
-	if err != nil {
-		tc.Logger.Debug("torrent_alive: scrape failed",
-			"entry", e.Title, "duration", time.Since(t0).Round(time.Millisecond), "err", err)
-		return fallback("scrape failed")
-	}
-
-	tc.Logger.Debug("torrent_alive: scrape ok",
-		"entry", e.Title, "seeds", seeds, "duration", time.Since(t0).Round(time.Millisecond))
-	e.SetTorrentInfo(entry.TorrentInfo{Seeds: seeds})
-	return p.applyMinSeeds(e, seeds)
+// filter applies the gate to a single entry — kept for tests and as the
+// simplest description of per-entry semantics; Process is the batched
+// implementation used at runtime.
+func (p *torrentAlivePlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
+	_, err := p.Process(ctx, tc, []*entry.Entry{e})
+	return err
 }
 
 // populate fills torrent_info_hash and torrent_announce_list from the entry URL
@@ -256,13 +336,4 @@ func intVal(v any, def int) int {
 
 func toInt(v any) int {
 	return intVal(v, 0)
-}
-
-func (p *torrentAlivePlugin) Process(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
-	for _, e := range entries {
-		if err := p.filter(ctx, tc, e); err != nil {
-			tc.Logger.Warn("torrent_alive filter error", "entry", e.Title, "err", err)
-		}
-	}
-	return entry.PassThrough(entries), nil
 }

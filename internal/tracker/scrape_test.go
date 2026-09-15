@@ -1,6 +1,7 @@
 package tracker
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"fmt"
@@ -210,4 +211,127 @@ func TestScrapeUDPSuccess(t *testing.T) {
 
 func containsStr(s, sub string) bool {
 	return len(s) >= len(sub) && (s == sub || len(s) > 0 && containsStr(s[1:], sub) || s[:len(sub)] == sub)
+}
+
+// --- batch scraping ---
+
+func TestScrapeBatchHTTP(t *testing.T) {
+	h1 := bytes.Repeat([]byte{0x01}, 20)
+	h2 := bytes.Repeat([]byte{0x02}, 20)
+	h3 := bytes.Repeat([]byte{0x03}, 20) // tracker won't answer this one
+
+	requests := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		// All requested hashes must arrive in one request.
+		if got := len(r.URL.Query()["info_hash"]); got != 3 {
+			t.Errorf("info_hash params: got %d, want 3", got)
+		}
+		resp := "d5:filesd" +
+			fmt.Sprintf("%d:%s", len(h1), h1) + "d8:completei7e10:downloadedi0e10:incompletei1ee" +
+			fmt.Sprintf("%d:%s", len(h2), h2) + "d8:completei0e10:downloadedi0e10:incompletei0ee" +
+			"ee"
+		fmt.Fprint(w, resp)
+	}))
+	defer srv.Close()
+
+	hashes := []string{
+		fmt.Sprintf("%x", h1), fmt.Sprintf("%x", h2), fmt.Sprintf("%x", h3),
+	}
+	m, err := ScrapeBatch(context.Background(), hashes, srv.URL+"/announce")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requests != 1 {
+		t.Errorf("requests: got %d, want 1 (batched)", requests)
+	}
+	if m[hashes[0]] != 7 || m[hashes[1]] != 0 {
+		t.Errorf("results: %v", m)
+	}
+	if _, ok := m[hashes[2]]; ok {
+		t.Error("unanswered hash must be absent (unknown), not zero")
+	}
+}
+
+func TestScrapeBatchChunks(t *testing.T) {
+	// 150 hashes → 3 requests of ≤70.
+	var requests []int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hs := r.URL.Query()["info_hash"]
+		requests = append(requests, len(hs))
+		resp := "d5:filesd"
+		for _, h := range hs {
+			resp += fmt.Sprintf("%d:%s", len(h), h) + "d8:completei5e10:downloadedi0e10:incompletei0ee"
+		}
+		resp += "ee"
+		fmt.Fprint(w, resp)
+	}))
+	defer srv.Close()
+
+	hashes := make([]string, 150)
+	for i := range hashes {
+		b := bytes.Repeat([]byte{byte(i + 1)}, 20)
+		hashes[i] = fmt.Sprintf("%x", b)
+	}
+	m, err := ScrapeBatch(context.Background(), hashes, srv.URL+"/announce")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(requests) != 3 || requests[0] != 70 || requests[1] != 70 || requests[2] != 10 {
+		t.Errorf("chunking: %v", requests)
+	}
+	if len(m) != 150 {
+		t.Errorf("results: got %d, want 150", len(m))
+	}
+	if m[hashes[42]] != 5 {
+		t.Errorf("hash 42: %d", m[hashes[42]])
+	}
+}
+
+func TestScrapeBatchUDP(t *testing.T) {
+	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pc.Close()
+
+	go func() {
+		buf := make([]byte, 2048)
+		for {
+			n, addr, err := pc.ReadFrom(buf)
+			if err != nil {
+				return
+			}
+			pkt := buf[:n]
+			switch {
+			case n == 16 && binary.BigEndian.Uint32(pkt[8:]) == 0: // connect
+				resp := make([]byte, 16)
+				binary.BigEndian.PutUint32(resp[0:], 0)
+				copy(resp[4:8], pkt[12:16]) // txID
+				binary.BigEndian.PutUint64(resp[8:], 0xDEADBEEF)
+				pc.WriteTo(resp, addr) //nolint:errcheck
+			case n >= 36 && binary.BigEndian.Uint32(pkt[8:]) == 2: // scrape
+				count := (n - 16) / 20
+				resp := make([]byte, 8+12*count)
+				binary.BigEndian.PutUint32(resp[0:], 2)
+				copy(resp[4:8], pkt[12:16])
+				for i := 0; i < count; i++ {
+					binary.BigEndian.PutUint32(resp[8+12*i:], uint32(10+i)) //nolint:gosec // test values are tiny
+				}
+				pc.WriteTo(resp, addr) //nolint:errcheck
+			}
+		}
+	}()
+
+	hashes := []string{
+		fmt.Sprintf("%x", bytes.Repeat([]byte{0xAA}, 20)),
+		fmt.Sprintf("%x", bytes.Repeat([]byte{0xBB}, 20)),
+	}
+	m, err := ScrapeBatch(context.Background(), hashes, "udp://"+pc.LocalAddr().String()+"/announce")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m[hashes[0]] != 10 || m[hashes[1]] != 11 {
+		t.Errorf("UDP batch results: %v", m)
+	}
 }

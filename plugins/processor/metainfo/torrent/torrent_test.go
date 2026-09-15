@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/plugin"
@@ -283,5 +284,56 @@ func TestAnnotateNoFetchWithoutSignal(t *testing.T) {
 func TestPluginRegistered(t *testing.T) {
 	if _, ok := plugin.Lookup("metainfo_torrent"); !ok {
 		t.Error("metainfo_torrent not registered")
+	}
+}
+
+// TestProcessParallelFetch: many entries are fetched concurrently and all get
+// annotated. A slow server + generous entry count would take (n × delay)
+// serially; the wall-clock assertion is deliberately loose to stay unflaky
+// while still proving parallelism (serial would be ≥ 1.6s, parallel ~400ms).
+func TestProcessParallelFetch(t *testing.T) {
+	data := makeTorrent("parallel.test.mkv", 1_000_000)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(100 * time.Millisecond)
+		w.Write(data) //nolint:errcheck
+	}))
+	defer srv.Close()
+
+	raw, err := newPlugin(map[string]any{"concurrency": 8}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := raw.(*torrentPlugin)
+
+	const n = 16
+	entries := make([]*entry.Entry, n)
+	for i := range entries {
+		entries[i] = entry.New(fmt.Sprintf("t%d", i), fmt.Sprintf("%s/%d.torrent", srv.URL, i))
+	}
+	t0 := time.Now()
+	if _, err := p.Process(context.Background(), tc(), entries); err != nil {
+		t.Fatal(err)
+	}
+	elapsed := time.Since(t0)
+
+	for i, e := range entries {
+		if e.GetString("torrent_info_hash") == "" {
+			t.Errorf("entry %d not annotated", i)
+		}
+	}
+	if elapsed > 1200*time.Millisecond {
+		t.Errorf("16 fetches at concurrency 8 took %v — looks serial", elapsed)
+	}
+}
+
+func TestConcurrencyValidation(t *testing.T) {
+	if errs := validate(map[string]any{"concurrency": 0}); len(errs) == 0 {
+		t.Error("concurrency 0 should be rejected")
+	}
+	if errs := validate(map[string]any{"concurrency": 33}); len(errs) == 0 {
+		t.Error("concurrency 33 should be rejected")
+	}
+	if errs := validate(map[string]any{"concurrency": 8}); len(errs) != 0 {
+		t.Errorf("concurrency 8 should validate, got %v", errs)
 	}
 }

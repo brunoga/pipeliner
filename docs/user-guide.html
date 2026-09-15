@@ -1261,6 +1261,7 @@ pipeline("mixed", schedule="30m")</code></pre>
 <table>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
   <tr><td><code>fetch_timeout</code></td><td>no</td><td><code>30s</code></td><td>HTTP timeout for downloading <code>.torrent</code> files</td></tr>
+  <tr><td><code>concurrency</code></td><td>no</td><td><code>4</code></td><td>Parallel .torrent downloads (1–32); serial fetching dominates wall-clock on large runs, but keep this modest to be kind to the indexer</td></tr>
 </table>
 <p>Fields set: <code>title</code> (torrent name), <code>torrent_info_hash</code>, <code>torrent_file_size</code>, <code>torrent_file_count</code>, <code>torrent_files</code>, <code>torrent_announce</code>, <code>torrent_announce_list</code>, <code>torrent_created_by</code>, <code>torrent_creation_date</code>, <code>torrent_private</code></p>
 
@@ -1628,14 +1629,14 @@ output(<span class="y-str">"notify"</span>,                 upstream=alert,
 <h2 id="torrent_alive">torrent_alive</h2>
 <p>Rejects torrents with fewer than a minimum number of seeds. The <code>torrent_seeds</code> field is set by the RSS input and <code>jackett</code>; when it is absent and scraping is enabled, the plugin resolves the info hash (inline for magnet URIs; via an upstream <a href="#metainfo_torrent"><code>metainfo_torrent</code></a> for <code>.torrent</code> URLs) and performs a live tracker scrape. Entries where no seed count can be determined are left undecided.</p>
 
-<p>Indexer-reported seed counts can be stale or phantom — a rare release may claim two seeders that are long gone, pass the check, and then sit at 0% forever. Set <code>verify=True</code> to always scrape the tracker even when the feed provides a count; the scrape result wins, and the feed count is only used as a fallback when scraping is impossible (no resolvable hash, or the tracker did not answer). Best paired with <code>metainfo_torrent</code> upstream so <code>.torrent</code> entries are scrapeable, and reserved for low-volume pipelines (e.g. a <code>discover</code> chain) since each entry costs a scrape round-trip.</p>
+<p>Indexer-reported seed counts can be stale or phantom — a rare release may claim two seeders that are long gone, pass the check, and then sit at 0% forever. Set <code>verify=True</code> to always scrape the tracker even when the feed provides a count; the scrape result wins, and the feed count is only used as a fallback when scraping is impossible (no resolvable hash, or the tracker did not answer). Best paired with <code>metainfo_torrent</code> upstream so <code>.torrent</code> entries are scrapeable. Scraping is batched — entries are grouped by tracker with up to ~70 info hashes per request and distinct trackers queried in parallel — so even discover-scale runs cost a handful of requests rather than one per entry.</p>
 
 <table>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
   <tr><td><code>min_seeds</code></td><td>no</td><td><code>1</code></td><td>Minimum seed count required</td></tr>
   <tr><td><code>scrape</code></td><td>no</td><td><code>true</code></td><td>Scrape the tracker when <code>torrent_seeds</code> is absent</td></tr>
   <tr><td><code>verify</code></td><td>no</td><td><code>false</code></td><td>Always scrape to verify feed-provided seed counts; fall back to the feed count when scraping is impossible</td></tr>
-  <tr><td><code>scrape_timeout</code></td><td>no</td><td><code>15s</code></td><td>Per-scrape deadline</td></tr>
+  <tr><td><code>scrape_timeout</code></td><td>no</td><td><code>15s</code></td><td>Deadline per tracker request (requests are batched — one covers up to ~70 entries)</td></tr>
 </table>
 
 <pre><code>alive = process("torrent_alive", upstream=upstream, min_seeds=3)
