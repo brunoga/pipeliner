@@ -8,11 +8,13 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/plugin"
+	"github.com/brunoga/pipeliner/internal/store"
 )
 
 // --- helpers ---
@@ -335,5 +337,77 @@ func TestConcurrencyValidation(t *testing.T) {
 	}
 	if errs := validate(map[string]any{"concurrency": 8}); len(errs) != 0 {
 		t.Errorf("concurrency 8 should validate, got %v", errs)
+	}
+}
+
+// TestCacheSkipsRefetch: a URL fetched once is served from the persistent
+// cache on the next run — zero HTTP requests — with identical annotations.
+func TestCacheSkipsRefetch(t *testing.T) {
+	data := makeTorrent("cached.release.mkv", 42_000)
+	var requests atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		w.Write(data) //nolint:errcheck
+	}))
+	defer srv.Close()
+
+	db, err := store.OpenSQLite(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	raw, err := newPlugin(map[string]any{}, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := raw.(*torrentPlugin)
+
+	url := srv.URL + "/x.torrent"
+	e1 := entry.New("first", url)
+	if _, err := p.Process(context.Background(), tc(), []*entry.Entry{e1}); err != nil {
+		t.Fatal(err)
+	}
+	if requests.Load() != 1 {
+		t.Fatalf("first run: %d requests, want 1", requests.Load())
+	}
+	if e1.GetString("torrent_info_hash") == "" {
+		t.Fatal("first run should annotate")
+	}
+
+	e2 := entry.New("second", url)
+	if _, err := p.Process(context.Background(), tc(), []*entry.Entry{e2}); err != nil {
+		t.Fatal(err)
+	}
+	if requests.Load() != 1 {
+		t.Errorf("second run should hit the cache: %d requests, want 1", requests.Load())
+	}
+	if e2.GetString("torrent_info_hash") != e1.GetString("torrent_info_hash") {
+		t.Error("cached annotation should match the fetched one")
+	}
+	if e2.GetInt("torrent_file_size") != 42_000 {
+		t.Errorf("cached size: %d", e2.GetInt("torrent_file_size"))
+	}
+}
+
+// TestNilCacheSafe: without a store (db == nil) the plugin works, just
+// without caching.
+func TestNilCacheSafe(t *testing.T) {
+	data := makeTorrent("uncached.mkv", 1_000)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Write(data) //nolint:errcheck
+	}))
+	defer srv.Close()
+
+	raw, err := newPlugin(map[string]any{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := raw.(*torrentPlugin)
+	e := entry.New("x", srv.URL+"/x.torrent")
+	if _, err := p.Process(context.Background(), tc(), []*entry.Entry{e}); err != nil {
+		t.Fatal(err)
+	}
+	if e.GetString("torrent_info_hash") == "" {
+		t.Error("nil-cache plugin should still annotate")
 	}
 }

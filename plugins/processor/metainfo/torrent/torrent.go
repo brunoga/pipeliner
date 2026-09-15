@@ -38,6 +38,7 @@ import (
 	"time"
 
 	"github.com/brunoga/pipeliner/internal/bencode"
+	"github.com/brunoga/pipeliner/internal/cache"
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/plugin"
 	"github.com/brunoga/pipeliner/internal/store"
@@ -65,6 +66,10 @@ func init() {
 		Schema: []plugin.FieldSchema{
 			{Key: "fetch_timeout", Type: plugin.FieldTypeDuration, Hint: "HTTP timeout when downloading .torrent files (default 30s)"},
 			{Key: "concurrency", Type: plugin.FieldTypeInt, Default: 4, Hint: "Parallel .torrent downloads (1-32; keep modest to be kind to the indexer)"},
+			{Key: "cache_ttl", Type: plugin.FieldTypeDuration, Default: "168h", Hint: "How long parsed .torrent metadata is cached by URL (torrent files are immutable)"},
+		},
+		Caches: []plugin.CacheInfo{
+			{Name: "cache_metainfo_torrent", Display: "Torrent Metadata Cache"},
 		},
 	})
 }
@@ -79,16 +84,24 @@ func validate(cfg map[string]any) []error {
 			errs = append(errs, fmt.Errorf("metainfo_torrent: \"concurrency\" must be an integer between 1 and 32"))
 		}
 	}
-	errs = append(errs, plugin.OptUnknownKeys(cfg, "metainfo_torrent", "fetch_timeout", "concurrency")...)
+	if err := plugin.OptDuration(cfg, "cache_ttl", "metainfo_torrent"); err != nil {
+		errs = append(errs, err)
+	}
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "metainfo_torrent", "fetch_timeout", "concurrency", "cache_ttl")...)
 	return errs
 }
 
 type torrentPlugin struct {
 	client      *http.Client
 	concurrency int
+	// cache maps entry URL → parsed metadata. Torrent files are immutable, so
+	// re-runs skip the fetch entirely for URLs seen before — without it, a
+	// discover-scale pipeline re-downloaded ~2000 .torrent files from the
+	// indexer on every run. Nil when no store is available.
+	cache *cache.Cache[*bencode.TorrentInfo]
 }
 
-func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
+func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
 	fetchTimeout := 30 * time.Second
 	if v, ok := cfg["fetch_timeout"]; ok {
 		s, _ := v.(string)
@@ -105,9 +118,24 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 			concurrency = int(n)
 		}
 	}
+	var metaCache *cache.Cache[*bencode.TorrentInfo]
+	if db != nil {
+		ttl := 168 * time.Hour
+		if v, _ := cfg["cache_ttl"].(string); v != "" {
+			d, err := time.ParseDuration(v)
+			if err != nil {
+				return nil, fmt.Errorf("metainfo_torrent: invalid cache_ttl %q: %w", v, err)
+			}
+			ttl = d
+		}
+		metaCache = cache.NewPersistent[*bencode.TorrentInfo](ttl, db.Bucket("cache_metainfo_torrent"))
+		metaCache.Preload()
+	}
+
 	return &torrentPlugin{
 		client:      &http.Client{Timeout: fetchTimeout},
 		concurrency: concurrency,
+		cache:       metaCache,
 	}, nil
 }
 
@@ -120,6 +148,17 @@ func (p *torrentPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, e 
 		"entry", e.URL,
 		"has_location", loc != "",
 	)
+
+	// URL-fetched torrents are immutable: serve parsed metadata from the
+	// cache and skip the download entirely on re-runs.
+	fromURL := loc == ""
+	if fromURL {
+		if ti, ok := p.cache.Get(e.URL); ok && ti != nil {
+			log.Debug("metainfo_torrent: cache hit", "entry", e.URL)
+			applyTorrentInfo(e, ti)
+			return nil
+		}
+	}
 
 	data, err := p.readTorrent(ctx, log, e)
 	if err != nil {
@@ -140,7 +179,28 @@ func (p *torrentPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, e 
 		log.Error("metainfo_torrent: failed to decode torrent", "entry", e.URL, "err", err)
 		return fmt.Errorf("metainfo_torrent: decode: %w", err)
 	}
+	if fromURL {
+		p.cache.Set(e.URL, ti)
+	}
 
+	applyTorrentInfo(e, ti)
+
+	log.Debug("metainfo_torrent: annotated",
+		"entry", e.URL,
+		"name", ti.Name,
+		"info_hash", ti.InfoHash,
+		"size", ti.TotalSize,
+		"files", ti.FileCount,
+		"announce", ti.Announce,
+		"trackers", len(ti.AnnounceList),
+		"private", ti.IsPrivate,
+		"created_by", ti.CreatedBy,
+	)
+	return nil
+}
+
+// applyTorrentInfo writes parsed .torrent metadata onto the entry.
+func applyTorrentInfo(e *entry.Entry, ti *bencode.TorrentInfo) {
 	var creationTime time.Time
 	if ti.CreationDate != 0 {
 		creationTime = time.Unix(ti.CreationDate, 0)
@@ -160,19 +220,6 @@ func (p *torrentPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, e 
 		CreationDate: creationTime,
 		Private:      ti.IsPrivate,
 	})
-
-	log.Debug("metainfo_torrent: annotated",
-		"entry", e.URL,
-		"name", ti.Name,
-		"info_hash", ti.InfoHash,
-		"size", ti.TotalSize,
-		"files", ti.FileCount,
-		"announce", ti.Announce,
-		"trackers", len(ti.AnnounceList),
-		"private", ti.IsPrivate,
-		"created_by", ti.CreatedBy,
-	)
-	return nil
 }
 
 // torrentURLReason returns a short reason string if the entry's URL should be
