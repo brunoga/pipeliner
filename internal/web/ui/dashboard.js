@@ -86,11 +86,19 @@ async function refresh() {
   // fires a refresh as soon as the tab becomes visible again.
   if (typeof document !== 'undefined' && document.hidden) return;
   try {
-    const [sr, hr] = await Promise.all([fetch('/api/status'), fetch('/api/history')]);
+    const [sr, hr, fr] = await Promise.all([
+      fetch('/api/status'), fetch('/api/history'),
+      fetch('/api/failures?limit=5').catch(() => null),
+    ]);
     if (!sr.ok || !hr.ok) throw new Error('http ' + sr.status + '/' + hr.status);
     const status  = await sr.json();
     const history = await hr.json();
     const tasks   = status.tasks || [];
+    // Recent-failures strip: best-effort — a failures error never blocks the
+    // dashboard (the endpoint 501s when no store is wired).
+    if (fr && fr.ok) {
+      try { renderFailuresPanel((await fr.json()).failures || []); } catch (e) { /* keep panel */ }
+    }
     if (status.started_at) {
       const t = Date.parse(status.started_at);
       if (!isNaN(t)) serverStartedAt = t;
@@ -174,6 +182,39 @@ function render(tasks, history) {
   if (!_dashboardFirstRender) grid.classList.add('no-anim');
   grid.innerHTML = tasks.map((t, i) => card(t, _lastHistory[t.name] || [], i)).join('');
   _dashboardFirstRender = false;
+}
+
+// ── recent failures strip ────────────────────────────────────────────────────
+// A compact, dismiss-free surface for the durable failure log's newest rows:
+// a dead torrent purged by the janitor, a download the client refused. The
+// full searchable history lives in Tools → ❌ Failure log; this strip only
+// makes sure a failure is SEEN without opening a tool.
+
+function renderFailuresPanel(failures) {
+  const host = document.getElementById('failures-panel');
+  if (!host) return;
+  host.innerHTML = failuresPanelHTML(failures);
+}
+
+// failuresPanelHTML renders the strip. Pure (no DOM/fetch) for testing.
+// Empty input renders nothing — the panel only exists when something failed.
+function failuresPanelHTML(failures) {
+  failures = failures || [];
+  if (!failures.length) return '';
+  let rows = '';
+  for (const f of failures) {
+    const d = new Date(f.failed_at);
+    const when = isNaN(d.getTime()) ? '' : relTime(d) + ' ago';
+    rows += `<div class="task-history-row has-err"><div class="task-history-line">
+      <span class="task-history-when">${esc(when)}</span>
+      <span class="fail-title" title="${esc(f.reason || '')}">${esc(f.title)}</span>
+      <span class="task-history-dur">${esc(f.task || '')}</span>
+    </div><div class="task-err">⚠ ${esc(f.reason || 'failed')}</div></div>`;
+  }
+  return `<div class="failures-strip">
+    <div class="failures-strip-head">Recent failures <span class="task-history-dur">(full history: Tools → ❌ Failure log)</span></div>
+    ${rows}
+  </div>`;
 }
 
 // hasRecentError reports whether any of the newest 5 runs errored — drives
