@@ -5,6 +5,26 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.22.0] - 2026-09-15
+
+A hardening-and-tooling release: seed-count verification, a Plex reconcile tool, config history with rollback, database backups, upgrade windows, and better failure visibility — plus several metadata-selection fixes.
+
+### Added
+
+- **`torrent_alive` `verify` option** ([#391](https://github.com/brunoga/pipeliner/pull/391)). Indexer-reported seed counts can be stale or phantom — a rare release claiming two long-gone seeders passed `min_seeds`, got added to the client, and sat at 0% until the janitor purged it. `verify=True` forces a live tracker scrape even when the feed provides a count; the scrape result wins, with the feed count only as a fallback when scraping is impossible. Pair with `metainfo_torrent` upstream so `.torrent` entries have a hash to scrape. Also fixes the docs, which called the plugin `torrentalive` (the registered name is `torrent_alive`) and listed only one of its four config keys.
+- **Plex reconcile tool** ([#392](https://github.com/brunoga/pipeliner/pull/392)). New Tools-tab tool that compares the movies download tracker against your actual Plex libraries and lists titles marked as downloaded that are absent from Plex — the ones silently blocked from re-download. Paste a Plex account token once (remembered): servers are discovered via plex.tv (no URLs needed), connections probed in parallel, and all movie libraries read. 3D tracker entries only match libraries named "3D", matching is forgiving ("&" ≡ "and", subtitle prefixes, ±1-year drift), and selected rows can be forgotten in bulk so the titles retry. If any owned server is unreachable the reconcile aborts rather than mislabeling its whole library as missing.
+- **Config version history with two-click rollback** ([#397](https://github.com/brunoga/pipeliner/pull/397)). Every successful save snapshots the config it replaces (last 20 kept); a History button in the config toolbar loads any version into the text editor for review, and Save & Reload applies it. A rollback snapshots the config it replaces, so it is itself undoable.
+- **Database backup download** ([#396](https://github.com/brunoga/pipeliner/pull/396)). A 💾 button at the bottom of the Database sidebar streams a consistent snapshot of the whole store (trackers, caches, download log) taken live via `VACUUM INTO` — no daemon stop, no WAL-copy races.
+- **`upgrade_window` option for `movies` and `series`** ([#395](https://github.com/brunoga/pipeliner/pull/395)). Quality upgrades used to be accepted forever — a 2160p re-release years later re-downloaded a film long since watched. The new duration option limits upgrades to a window after the first download; outside it the entry is rejected as already downloaded. Unset keeps the old unlimited behavior.
+- **Recent-failures strip on the dashboard** ([#398](https://github.com/brunoga/pipeliner/pull/398)). The newest entries from the durable failure log (dead torrents purged by the janitor, refused downloads) now surface below the task grid, so a failure is seen without opening a tool. Renders nothing when the log is clean; full history stays in Tools → Failure log.
+
+### Fixed
+
+- **Metadata plugins no longer claim `enriched` on unavailable detail data** ([#393](https://github.com/brunoga/pipeliner/pull/393)). When a TMDb detail / TVDB extended fetch failed with nothing cached, entries proceeded genre-less but marked enriched — so genre-gated branches silently dropped them. `enriched` is now left unset on that path; a downstream `require(["enriched"])` holds the entry for the next run (safe: the seen filter learns URLs at commit time only).
+- **`metainfo_tvdb`/`metainfo_trakt` prefer exact title matches** ([#394](https://github.com/brunoga/pipeliner/pull/394)). Both took the first relevance-ranked search result, so a same-name spin-off or companion entry that outranks the actual title got selected — the TV analog of the 1.20.2 X2 fix. Selection now prefers an exact normalized title match, falling back to the first result.
+
+**Why 1.22.0**: several additive features (plugin options, new tools, dashboard/config UI) alongside metadata-selection fixes. No breaking changes; existing configs behave identically. A minor bump per SemVer.
+
 ## [1.21.4] - 2026-09-13
 
 The movie counterpart to the 1.21.3 TVDB genre-resilience fix.
