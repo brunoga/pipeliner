@@ -604,3 +604,34 @@ func TestAnnotateExtendedStaleFallback(t *testing.T) {
 		t.Error("stale-cache fallback should preserve genres when the extended fetch fails")
 	}
 }
+
+// TestEnrichedNotSetWhenExtendedUnavailable: extended fetch fails with nothing
+// cached → the entry must NOT be marked enriched, so a downstream
+// require(["enriched"]) holds it for the next run instead of letting a
+// genre-gated branch silently drop it.
+func TestEnrichedNotSetWhenExtendedUnavailable(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/v4/login":
+			json.NewEncoder(w).Encode(map[string]any{"data": map[string]string{"token": "jwt"}, "status": "success"}) //nolint:errcheck
+		case r.URL.Path == "/v4/search":
+			json.NewEncoder(w).Encode(map[string]any{"data": []map[string]any{{ //nolint:errcheck
+				"tvdb_id": "81189", "name": "Breaking Bad", "year": "2008", "slug": "breaking-bad",
+			}}, "status": "success"})
+		default: // extended + episodes both fail
+			http.Error(w, "boom", http.StatusInternalServerError)
+		}
+	}))
+	defer srv.Close()
+
+	p := makePlugin(t, srv)
+	e := entry.New("Breaking.Bad.S01E01.720p", "http://x/a")
+	if err := p.annotate(context.Background(), makeCtx(), e); err != nil {
+		t.Fatal(err)
+	}
+	if e.GetBool("enriched") {
+		t.Error("enriched must not be set when extended data is unavailable and nothing is cached")
+	}
+	// Provider id fields may still be present for debugging, but the gate field
+	// is what matters.
+}

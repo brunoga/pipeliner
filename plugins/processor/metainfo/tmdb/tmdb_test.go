@@ -652,3 +652,32 @@ func TestFetchDetailStaleFallback(t *testing.T) {
 		t.Error("stale-cache fallback should preserve genres when the detail fetch fails")
 	}
 }
+
+// TestEnrichedNotSetWhenDetailUnavailable: detail fetch fails with nothing
+// cached → the entry must NOT be marked enriched, so require(["enriched"])
+// holds it for the next run instead of proceeding without genres/runtime.
+func TestEnrichedNotSetWhenDetailUnavailable(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/3/search/movie":
+			json.NewEncoder(w).Encode(map[string]any{"results": []map[string]any{ //nolint:errcheck
+				{"id": 27205, "title": "Inception", "release_date": "2010-07-16"},
+			}})
+		default: // detail fails
+			http.Error(w, "boom", http.StatusInternalServerError)
+		}
+	}))
+	defer srv.Close()
+
+	c := itmdb.New("k")
+	c.BaseURL = srv.URL + "/3"
+	p := &tmdbPlugin{client: c}
+
+	e := entry.New("Inception.2010.1080p.BluRay", "http://x/a")
+	if err := p.annotate(context.Background(), makeCtx(), e); err != nil {
+		t.Fatal(err)
+	}
+	if e.GetBool("enriched") {
+		t.Error("enriched must not be set when detail data is unavailable and nothing is cached")
+	}
+}

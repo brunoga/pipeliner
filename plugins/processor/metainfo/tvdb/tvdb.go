@@ -229,7 +229,15 @@ func (p *tvdbPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 				si.OriginalTitle = name
 			}
 		} else {
-			// Extended fetch failed — fall back to search data only.
+			// Extended fetch failed with nothing cached (fetchExtended already
+			// fell back to a stale cache when one existed). The search data
+			// lacks genres and reliable language, so don't claim enrichment:
+			// leaving `enriched` unset lets a downstream require(["enriched"])
+			// hold the entry for the next run instead of proceeding degraded —
+			// a genre-gated branch would otherwise silently drop it.
+			si.Enriched = false
+			tc.Logger.Warn("metainfo_tvdb: extended data unavailable — not marking enriched",
+				"series", s.Name, "entry", e.Title)
 			si.Title = s.Name
 			si.Description = s.Overview
 			si.Poster = s.ImageURL
