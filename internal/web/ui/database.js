@@ -81,6 +81,7 @@ const TOOLS = [
   {id: 'download_history', label: '📥 Download history',   render: () => renderDownloadHistory()},
   {id: 'stale_favorites',  label: '⚠️ Stale favorites',   render: () => renderStaleFavorites()},
   {id: 'failure_log',      label: '❌ Failure log',        render: () => renderFailureLog()},
+  {id: 'plex_reconcile',   label: '🎬 Plex reconcile',     render: () => renderPlexReconcile()},
 ];
 let toolsActiveId = null;
 
@@ -1051,6 +1052,117 @@ function staleFavoritesHTML(data) {
     </div>`;
   }
   return html;
+}
+
+// ── Plex reconcile ───────────────────────────────────────────────────────────
+// Compares the movies download tracker against the actual Plex libraries and
+// lists titles marked as downloaded that are absent from Plex — the ones
+// silently blocked from re-download (e.g. removed by the janitor without
+// being un-tracked). Selected rows can be forgotten so they retry.
+
+async function renderPlexReconcile() {
+  const main = document.getElementById('tools-main-content');
+  main.innerHTML = `
+    <div class="match-tester">
+      <h2>Plex reconcile</h2>
+      <p class="match-hint">Discovers your Plex servers from an account token (plex.tv), lists every movie library, and shows tracker entries with <b>no matching movie in Plex</b>. 3D tracker entries only match libraries whose name contains "3D". Forgetting an entry lets the movie re-download when a release appears. The token is remembered after the first successful run.</p>
+      <div class="match-form">
+        <label>Plex account token
+          <input id="plexrec-token" type="password" placeholder="X-Plex-Token" />
+        </label>
+        <button class="btn" onclick="runPlexReconcile()">Reconcile</button>
+      </div>
+      <div id="plexrec-results"></div>
+    </div>`;
+  try {
+    const r = await fetch('/api/tools/plex');
+    if (r.ok) {
+      const st = await r.json();
+      if (st.has_token) {
+        const inp = document.getElementById('plexrec-token');
+        if (inp) inp.placeholder = 'saved token (leave empty to reuse)';
+      }
+    }
+  } catch (e) { /* status is cosmetic */ }
+}
+
+async function runPlexReconcile() {
+  const results = document.getElementById('plexrec-results');
+  const token = (document.getElementById('plexrec-token').value || '').trim();
+  results.innerHTML = '<div class="db-loading">Discovering servers and listing libraries…</div>';
+  try {
+    const r = await fetch('/api/tools/plex/reconcile', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({token}),
+    });
+    if (!r.ok) { results.innerHTML = `<div class="db-empty">Error: ${esc(await r.text())}</div>`; return; }
+    results.innerHTML = plexReconcileHTML(await r.json());
+  } catch (e) {
+    results.innerHTML = `<div class="db-empty">Error: ${esc(e.message)}</div>`;
+  }
+}
+
+// plexReconcileHTML renders the reconcile response. Pure (no DOM/fetch) for
+// testing.
+function plexReconcileHTML(data) {
+  data = data || {};
+  const servers = data.servers || [];
+  let head = '';
+  if (servers.length) {
+    const parts = servers.map(s => s.err
+      ? `${esc(s.name)} <span class="match-no">(unreachable: ${esc(s.err)})</span>`
+      : `${esc(s.name)} (${s.sections} movie librar${s.sections === 1 ? 'y' : 'ies'})`);
+    head = `<div class="match-norm">Servers: ${parts.join(' · ')}</div>`;
+  }
+  if (data.error) {
+    return head + `<div class="db-empty">${esc(data.error)}</div>`;
+  }
+  const missing = data.missing || [];
+  head += `<div class="match-norm">${data.tracker ?? 0} tracked movie(s) · ${data.library ?? 0} in Plex · <b>${missing.length} missing</b></div>`;
+  if (!missing.length) {
+    return head + `<div class="match-verdict"><span class="match-yes">✓ In sync</span> <span class="match-norm">every tracked movie is in Plex.</span></div>`;
+  }
+  let html = head + `
+    <div class="match-form" style="margin-top:8px">
+      <button class="btn" onclick="plexReconcileSelectAll(true)">Select all</button>
+      <button class="btn" onclick="plexReconcileSelectAll(false)">Select none</button>
+      <button class="btn" onclick="forgetPlexSelected()">Forget selected</button>
+    </div>
+    <table class="db-table"><tr><th></th><th>Title</th><th>Year</th><th>3D</th><th>Quality</th><th>Downloaded</th></tr>`;
+  for (const m of missing) {
+    const when = m.downloaded_at ? new Date(m.downloaded_at).toLocaleDateString() : '';
+    html += `<tr>
+      <td><input type="checkbox" class="plexrec-cb" value="${esc(m.key)}" /></td>
+      <td>${esc(m.title)}</td><td>${m.year || ''}</td><td>${m.is_3d ? '3D' : ''}</td>
+      <td>${esc(m.quality || '')}</td><td>${esc(when)}</td>
+    </tr>`;
+  }
+  html += '</table>';
+  return html;
+}
+
+function plexReconcileSelectAll(on) {
+  document.querySelectorAll('.plexrec-cb').forEach(cb => { cb.checked = on; });
+}
+
+async function forgetPlexSelected() {
+  const keys = Array.from(document.querySelectorAll('.plexrec-cb'))
+    .filter(cb => cb.checked).map(cb => cb.value);
+  const results = document.getElementById('plexrec-results');
+  if (!keys.length) return;
+  if (!confirm(`Forget ${keys.length} tracker entr${keys.length === 1 ? 'y' : 'ies'}? They will re-download when a release appears.`)) return;
+  try {
+    const r = await fetch('/api/tools/plex/forget', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({keys}),
+    });
+    if (!r.ok) { results.innerHTML = `<div class="db-empty">Error: ${esc(await r.text())}</div>`; return; }
+    await runPlexReconcile(); // re-run to show the post-forget state
+  } catch (e) {
+    results.innerHTML = `<div class="db-empty">Error: ${esc(e.message)}</div>`;
+  }
 }
 
 // ── failure log ──────────────────────────────────────────────────────────────
