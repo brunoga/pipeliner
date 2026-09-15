@@ -2756,9 +2756,9 @@ func TestE2EToolsTabHostsDiagnostics(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("match tester did not auto-open: %v", err)
 	}
-	// The sidebar lists all seven tools.
-	if n, _ := page.Locator("#tools-sidebar .db-nav-btn").Count(); n != 7 {
-		t.Errorf("tools sidebar: got %d buttons, want 7", n)
+	// The sidebar lists all eight tools.
+	if n, _ := page.Locator("#tools-sidebar .db-nav-btn").Count(); n != 8 {
+		t.Errorf("tools sidebar: got %d buttons, want 8", n)
 	}
 
 	// Switching to another tool swaps the main panel.

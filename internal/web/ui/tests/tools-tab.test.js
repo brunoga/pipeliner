@@ -32,11 +32,11 @@ function load() {
 }
 
 describe('Tools tab registry', () => {
-  it('lists the seven tools with stable ids', () => {
+  it('lists the eight tools with stable ids', () => {
     const { TOOLS } = load();
     expect(TOOLS.map(t => t.id)).toEqual([
       'match_tester', 'quality_tester', 'mark_downloaded', 'trace_search',
-      'download_history', 'stale_favorites', 'failure_log',
+      'download_history', 'stale_favorites', 'failure_log', 'plex_reconcile',
     ]);
     for (const t of TOOLS) {
       expect(typeof t.render).toBe('function');
