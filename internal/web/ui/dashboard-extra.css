@@ -136,3 +136,13 @@
 .trace-step { font-size: 11px; color: var(--muted); padding: 1px 0; }
 .trace-step code { color: var(--text); font-size: 10px; }
 .trace-loading { font-size: 11px; color: var(--muted); padding: 4px 0; }
+
+/* ── recent failures strip ──────────────────────────────────────────────── */
+.failures-strip {
+  margin-top: 18px; border: 1px solid var(--border); border-left: 3px solid var(--red);
+  border-radius: 6px; padding: 10px 14px; display: flex; flex-direction: column; gap: 6px;
+}
+.failures-strip-head { font-weight: 600; font-size: 0.8rem; color: var(--text); }
+.failures-strip .fail-title {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+}
