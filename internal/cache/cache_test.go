@@ -32,6 +32,39 @@ func TestExpiry(t *testing.T) {
 	}
 }
 
+func TestPeekReturnsExpiredValue(t *testing.T) {
+	// In-memory: Peek returns a value Get has expired.
+	c := NewPersistent[int](5*time.Millisecond, nil)
+	c.Set("x", 42)
+	time.Sleep(10 * time.Millisecond)
+	if _, ok := c.Get("x"); ok {
+		t.Fatal("Get should miss after expiry")
+	}
+	if v, ok := c.Peek("x"); !ok || v != 42 {
+		t.Errorf("Peek should return the stale value 42, got %d ok=%v", v, ok)
+	}
+	if _, ok := c.Peek("missing"); ok {
+		t.Error("Peek should miss for an unknown key")
+	}
+}
+
+func TestPeekReadsBucketAfterRestart(t *testing.T) {
+	// Simulate a restart: a fresh cache (empty memory) over a bucket that still
+	// holds an expired entry — Peek must recover it from the bucket.
+	bucket := newMemBucket()
+	c1 := NewPersistent[string](5*time.Millisecond, bucket)
+	c1.Set("k", "v")
+	time.Sleep(10 * time.Millisecond)
+
+	c2 := NewPersistent[string](5*time.Millisecond, bucket) // fresh memory, no Preload
+	if _, ok := c2.Get("k"); ok {
+		t.Fatal("Get should miss the expired bucket entry")
+	}
+	if v, ok := c2.Peek("k"); !ok || v != "v" {
+		t.Errorf("Peek should recover the stale value from the bucket, got %q ok=%v", v, ok)
+	}
+}
+
 func TestZeroTTLDisablesCache(t *testing.T) {
 	c := NewPersistent[string](0, nil)
 	c.Set("k", "v")

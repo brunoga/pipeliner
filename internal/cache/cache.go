@@ -103,6 +103,49 @@ func (c *Cache[V]) Get(key string) (V, bool) {
 	return value, true
 }
 
+// Peek returns the last-known value for key ignoring its TTL — it returns the
+// value even when expired. It checks the in-memory map first, then the backing
+// store. Use it as a stale fallback when a fresh upstream fetch fails and stale
+// data beats none: e.g. a transient TVDB error must not discard genres already
+// fetched. A nil or disabled cache always misses.
+func (c *Cache[V]) Peek(key string) (V, bool) {
+	if c == nil || c.ttl == 0 {
+		var zero V
+		return zero, false
+	}
+
+	c.mu.RLock()
+	if e, ok := c.entries[key]; ok {
+		v := e.value
+		c.mu.RUnlock()
+		return v, true
+	}
+	c.mu.RUnlock()
+
+	if c.bucket == nil {
+		var zero V
+		return zero, false
+	}
+
+	// The bucket retains the entry past its expiry (until overwritten), so a
+	// stale value survives even a daemon restart, where Preload skipped it.
+	var stored storedEntry
+	found, err := c.bucket.Get(key, &stored)
+	if err != nil || !found {
+		var zero V
+		return zero, false
+	}
+	var value V
+	if err := json.Unmarshal(stored.Value, &value); err != nil {
+		var zero V
+		return zero, false
+	}
+	c.mu.Lock()
+	c.entries[key] = cacheEntry[V]{value: value, expiresAt: stored.ExpiresAt}
+	c.mu.Unlock()
+	return value, true
+}
+
 // bulkBucket is an optional extension of Bucket that supports loading all
 // entries in one query, used by Preload.
 type bulkBucket interface {

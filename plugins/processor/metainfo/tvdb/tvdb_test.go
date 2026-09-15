@@ -7,7 +7,9 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/plugin"
@@ -522,5 +524,83 @@ func TestRegistration(t *testing.T) {
 	}
 	if d.Role != plugin.RoleProcessor {
 		t.Errorf("phase: got %v", d.Role)
+	}
+}
+
+// TestAnnotateExtendedStaleFallback proves that a transient extended-fetch
+// failure does not discard genres already fetched: the plugin serves the
+// stale cached extended record instead of falling through to the genre-less
+// search data. This is the regression for a show losing its genres (and being
+// dropped by the genre-based auto-favorite filter) on a TVDB blip.
+func TestAnnotateExtendedStaleFallback(t *testing.T) {
+	failExtended := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/v4/login":
+			json.NewEncoder(w).Encode(map[string]any{"data": map[string]string{"token": "jwt"}, "status": "success"}) //nolint:errcheck
+		case r.URL.Path == "/v4/search":
+			// Search omits genres, as the real endpoint does.
+			json.NewEncoder(w).Encode(map[string]any{"data": []map[string]any{{ //nolint:errcheck
+				"tvdb_id": "81189", "name": "Breaking Bad", "year": "2008", "slug": "breaking-bad", "originalLanguage": "eng", "genres": nil,
+			}}, "status": "success"})
+		case strings.HasSuffix(r.URL.Path, "/extended"):
+			if failExtended {
+				http.Error(w, "boom", http.StatusInternalServerError)
+				return
+			}
+			json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{ //nolint:errcheck
+				"name": "Breaking Bad", "slug": "breaking-bad", "year": "2008",
+				"originalLanguage": "eng", "originalCountry": "usa",
+				"status": map[string]any{"name": "Ended"},
+				"genres": []map[string]any{{"name": "Drama"}, {"name": "Crime"}},
+			}, "status": "success"})
+		case strings.HasSuffix(r.URL.Path, "/episodes/official"):
+			json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"episodes": []map[string]any{ //nolint:errcheck
+				{"seasonNumber": 1, "number": 1, "name": "Pilot", "aired": "2008-01-20"},
+			}}, "status": "success"})
+		}
+	}))
+	defer srv.Close()
+
+	// Short TTL so the extended cache expires between the two runs, forcing a
+	// live re-fetch on the second (which we then make fail).
+	db, err := store.OpenSQLite(":memory:")
+	if err != nil {
+		t.Fatalf("OpenSQLite: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	raw, err := newPlugin(map[string]any{"api_key": "k", "cache_ttl": "20ms"}, db)
+	if err != nil {
+		t.Fatalf("newPlugin: %v", err)
+	}
+	p := raw.(*tvdbPlugin)
+	p.client.BaseURL = srv.URL + "/v4"
+
+	genresOf := func(e *entry.Entry) []string {
+		v, _ := e.Get("video_genres")
+		gs, _ := v.([]string)
+		return gs
+	}
+
+	// First run: extended succeeds, genres cached.
+	e1 := entry.New("Breaking.Bad.S01E01.720p", "http://x/a")
+	if err := p.annotate(context.Background(), makeCtx(), e1); err != nil {
+		t.Fatal(err)
+	}
+	if len(genresOf(e1)) == 0 {
+		t.Fatal("first run should populate genres from the extended endpoint")
+	}
+
+	// Expire the cache and break the extended endpoint.
+	time.Sleep(30 * time.Millisecond)
+	failExtended = true
+
+	// Second run: extended fetch fails, but the stale cache preserves genres.
+	e2 := entry.New("Breaking.Bad.S01E01.720p", "http://x/b")
+	if err := p.annotate(context.Background(), makeCtx(), e2); err != nil {
+		t.Fatal(err)
+	}
+	if got := genresOf(e2); len(got) == 0 {
+		t.Error("stale-cache fallback should preserve genres when the extended fetch fails")
 	}
 }
