@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.22.1] - 2026-09-15
+
+A performance release: seed verification at discover scale in seconds, not hours.
+
+### Changed
+
+- **Tracker scrapes are batched and parallel; `.torrent` fetches are concurrent** ([#400](https://github.com/brunoga/pipeliner/pull/400)). A discover-scale run (1928 entries) spent 7m26s in `metainfo_torrent` and 11m44s in `torrent_alive`, both processing entries one at a time — one HTTP fetch or one tracker scrape (with a 15-second failure timeout) each. Both the UDP tracker protocol and the HTTP scrape convention natively support many info hashes per request, so `torrent_alive` now groups entries by tracker and sends up to ~70 hashes per request, distinct trackers in parallel — ~2000 scrapes become ~30 requests. `scrape_timeout` now bounds each tracker request rather than each entry. `metainfo_torrent` downloads `.torrent` files with bounded parallelism (new `concurrency` key, default 4, max 32). Per-entry semantics — feed fast path, `verify`, fallbacks — are unchanged.
+
+**Why 1.22.1**: a performance patch (plus one additive tuning key) for the seed-verification path shipped in 1.22.0. A patch bump per SemVer.
+
 ## [1.22.0] - 2026-09-15
 
 A hardening-and-tooling release: seed-count verification, a Plex reconcile tool, config history with rollback, database backups, upgrade windows, and better failure visibility — plus several metadata-selection fixes.
