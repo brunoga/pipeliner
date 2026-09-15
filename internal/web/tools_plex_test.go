@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,19 @@ import (
 	imovies "github.com/brunoga/pipeliner/internal/movies"
 	"github.com/brunoga/pipeliner/internal/store"
 )
+
+func getURL(t *testing.T, url string) *http.Response {
+	t.Helper()
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp
+}
 
 func newPlexToolServer(t *testing.T) (*httptest.Server, *store.SQLiteStore) {
 	t.Helper()
@@ -36,10 +50,7 @@ func TestPlexToolStatusAndTokenPersistence(t *testing.T) {
 	var status struct {
 		HasToken bool `json:"has_token"`
 	}
-	resp, err := http.Get(ts.URL + "/api/tools/plex")
-	if err != nil {
-		t.Fatal(err)
-	}
+	resp := getURL(t, ts.URL+"/api/tools/plex")
 	json.NewDecoder(resp.Body).Decode(&status) //nolint:errcheck
 	resp.Body.Close()
 	if status.HasToken {
@@ -57,7 +68,7 @@ func TestPlexToolStatusAndTokenPersistence(t *testing.T) {
 	if err := db.Bucket(toolsSettingsBucket).Put(plexTokenKey, "tok"); err != nil {
 		t.Fatal(err)
 	}
-	resp, _ = http.Get(ts.URL + "/api/tools/plex")
+	resp = getURL(t, ts.URL+"/api/tools/plex")
 	json.NewDecoder(resp.Body).Decode(&status) //nolint:errcheck
 	resp.Body.Close()
 	if !status.HasToken {
