@@ -1262,6 +1262,7 @@ pipeline("mixed", schedule="30m")</code></pre>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
   <tr><td><code>fetch_timeout</code></td><td>no</td><td><code>30s</code></td><td>HTTP timeout for downloading <code>.torrent</code> files</td></tr>
   <tr><td><code>concurrency</code></td><td>no</td><td><code>4</code></td><td>Parallel .torrent downloads (1–32); serial fetching dominates wall-clock on large runs, but keep this modest to be kind to the indexer</td></tr>
+  <tr><td><code>cache_ttl</code></td><td>no</td><td><code>168h</code></td><td>How long parsed .torrent metadata is cached by URL — torrent files are immutable, so re-runs skip the download for URLs seen before</td></tr>
 </table>
 <p>Fields set: <code>title</code> (torrent name), <code>torrent_info_hash</code>, <code>torrent_file_size</code>, <code>torrent_file_count</code>, <code>torrent_files</code>, <code>torrent_announce</code>, <code>torrent_announce_list</code>, <code>torrent_created_by</code>, <code>torrent_creation_date</code>, <code>torrent_private</code></p>
 

@@ -16,6 +16,7 @@ If the `.torrent` file cannot be fetched or parsed, the entry is failed so it wi
 |-----|------|----------|---------|-------------|
 | `fetch_timeout` | string | no | `30s` | HTTP timeout for downloading `.torrent` files |
 | `concurrency` | int | no | `4` | Parallel `.torrent` downloads (1–32). Serial fetching dominates wall-clock on discover-scale runs; keep modest to be kind to the indexer. |
+| `cache_ttl` | string | no | `168h` | How long parsed `.torrent` metadata is cached by URL. Torrent files are immutable, so re-runs skip the download entirely for URLs seen before — a discover-scale pipeline stops re-fetching ~2000 files per run. |
 
 ## Fields set on entry
 
