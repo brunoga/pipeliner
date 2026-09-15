@@ -250,6 +250,13 @@ func (p *tmdbPlugin) fetchDetail(ctx context.Context, id int) (*itmdb.MovieDetai
 	}
 	detail, err := p.client.GetMovie(ctx, id)
 	if err != nil {
+		// Serve the last-known detail rather than discard it: genres, runtime,
+		// cast, etc. come only from the detail endpoint, so falling through to
+		// the partial search result would silently blank a movie's genres on a
+		// transient TMDb error — defeating genre filters and blanking emails.
+		if stale, ok := p.detailCache.Peek(key); ok {
+			return stale, nil
+		}
 		return nil, err
 	}
 	p.detailCache.Set(key, detail)

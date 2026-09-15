@@ -584,3 +584,71 @@ func TestAnnotatePrefersTitleMatch(t *testing.T) {
 		t.Errorf("picked the wrong film: tmdb_id=%d, want 200 (the feature film)", v)
 	}
 }
+
+// TestFetchDetailStaleFallback proves a transient TMDb detail-fetch failure
+// does not discard genres already fetched: fetchDetail serves the stale cached
+// detail instead of degrading to the genre-less search result.
+func TestFetchDetailStaleFallback(t *testing.T) {
+	failDetail := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/3/search/movie":
+			json.NewEncoder(w).Encode(map[string]any{"results": []map[string]any{ //nolint:errcheck
+				{"id": 27205, "title": "Inception", "release_date": "2010-07-16"},
+			}})
+		case "/3/movie/27205":
+			if failDetail {
+				http.Error(w, "boom", http.StatusInternalServerError)
+				return
+			}
+			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+				"id": 27205, "title": "Inception", "release_date": "2010-07-16", "runtime": 148,
+				"genres": []map[string]any{{"id": 28, "name": "Action"}, {"id": 878, "name": "Science Fiction"}},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	c := itmdb.New("k")
+	c.BaseURL = srv.URL + "/3"
+	db, err := store.OpenSQLite(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	p := &tmdbPlugin{
+		client:      c,
+		cache:       cache.NewPersistent[[]itmdb.Movie](20*time.Millisecond, db.Bucket("s")),
+		detailCache: cache.NewPersistent[*itmdb.MovieDetail](20*time.Millisecond, db.Bucket("d")),
+	}
+
+	genresOf := func(e *entry.Entry) []string {
+		v, _ := e.Get("video_genres")
+		gs, _ := v.([]string)
+		return gs
+	}
+
+	// First run: detail succeeds, genres cached.
+	e1 := entry.New("Inception 2010 1080p BluRay", "http://x/a")
+	if err := p.annotate(context.Background(), makeCtx(), e1); err != nil {
+		t.Fatal(err)
+	}
+	if len(genresOf(e1)) == 0 {
+		t.Fatal("first run should populate genres from the detail endpoint")
+	}
+
+	// Expire the caches, then break the detail endpoint.
+	time.Sleep(30 * time.Millisecond)
+	failDetail = true
+
+	// Second run: detail fetch fails, but the stale cache preserves genres.
+	e2 := entry.New("Inception 2010 2160p BluRay", "http://x/b")
+	if err := p.annotate(context.Background(), makeCtx(), e2); err != nil {
+		t.Fatal(err)
+	}
+	if len(genresOf(e2)) == 0 {
+		t.Error("stale-cache fallback should preserve genres when the detail fetch fails")
+	}
+}
