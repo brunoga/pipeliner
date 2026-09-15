@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.22.2] - 2026-09-15
+
+A coverage fix for the batched scraping shipped in 1.22.1.
+
+### Fixed
+
+- **Full seed-verification coverage on single-hash-only trackers** ([#402](https://github.com/brunoga/pipeliner/pull/402)). The production run that validated 1.22.1's batching (2m13s, down from 21m30s) also revealed that some private trackers honor only one `info_hash` per scrape request and silently ignore the rest — only 78 of 1928 hashes were actually verified, with everything else falling back to unverified feed counts. When a multi-hash batch returns at most one answer, the tracker is now treated as single-hash-only and its unanswered hashes are re-scraped individually, eight in parallel — the same request count as the old serial path at a fraction of the wall-clock. Trackers that batch properly are unaffected.
+
+**Why 1.22.2**: a correctness patch for the 1.22.1 scraping change. A patch bump per SemVer.
+
 ## [1.22.1] - 2026-09-15
 
 A performance release: seed verification at discover scale in seconds, not hours.
