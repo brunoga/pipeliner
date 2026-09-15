@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.21.4] - 2026-09-13
+
+The movie counterpart to the 1.21.3 TVDB genre-resilience fix.
+
+### Fixed
+
+- **`metainfo_tmdb` keeps genres when the detail fetch fails transiently** ([#389](https://github.com/brunoga/pipeliner/pull/389)). Same failure mode as 1.21.3, for movies: a film's genres, runtime, cast, and content rating come only from TMDb's *detail* endpoint, so a transient error there degraded enrichment to the partial search result and silently blanked genres for that run. `fetchDetail` now serves the last-known detail via the stale cache read (`cache.Peek`) on a live-fetch failure, only degrading to search data when nothing was ever cached.
+
+**Why 1.21.4**: a correctness patch extending the TVDB genre-resilience fix to TMDb; no config changes. A patch bump per SemVer.
+
 ## [1.21.3] - 2026-09-13
 
 A TVDB fix so a transient API blip no longer strips a show's genres.
