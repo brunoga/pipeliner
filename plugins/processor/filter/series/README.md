@@ -34,6 +34,7 @@ The first five fields are declared via `Descriptor.Requires`, so the DAG validat
 | `tracking` | no | `strict` | Episode ordering mode: `strict`, `backfill`, or `follow` |
 | `quality` | no | — | Quality spec (e.g. `720p+` for floor, `720p` for exact, `720p-1080p` for range) |
 | `reject_unmatched` | no | `true` | Reject entries that lack `series_episode_id` (i.e. were not classified as a series episode upstream). When a list is configured, also reject entries whose show name isn't in the list. With neither `static` nor `list` set, this flag only governs the classification check. |
+| `upgrade_window` | no | — | Accept quality upgrades only within this window after the first download (e.g. `168h` for 7 days). Unset = upgrades accepted forever. |
 
 Both `static` and `list` are optional. With neither set the filter accepts every classified episode that passes the quality spec and tracker checks.
 

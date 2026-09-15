@@ -5,6 +5,7 @@ import (
 	"io"
 	"log/slog"
 	"maps"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/match"
 	"github.com/brunoga/pipeliner/internal/plugin"
+	"github.com/brunoga/pipeliner/internal/quality"
 	"github.com/brunoga/pipeliner/internal/series"
 	"github.com/brunoga/pipeliner/internal/store"
 )
@@ -890,5 +892,70 @@ func TestDownloadLogAppendedOnPersist(t *testing.T) {
 	hist := downloads.GroupByItem(evs)
 	if len(hist) != 1 || hist[0].Count != 2 {
 		t.Errorf("expected one episode downloaded twice, got %+v", hist)
+	}
+}
+
+// --- upgrade_window tests ---
+
+func TestUpgradeWindowExpiredRejectsBetterEpisode(t *testing.T) {
+	p := openPlugin(t, map[string]any{"upgrade_window": "168h"}) // 7 days
+	tc := makeCtx()
+
+	if err := p.tracker.Mark(series.Record{
+		SeriesName:   "my show",
+		EpisodeID:    "S01E01",
+		Quality:      quality.Parse("My.Show.S01E01.720p.HDTV"),
+		DownloadedAt: time.Now().Add(-14 * 24 * time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	e := entry.New("My.Show.S01E01.1080p.BluRay.x264", "http://x.com/b")
+	metaize(e)
+	p.filter(context.Background(), tc, e)
+	if !e.IsRejected() || !strings.Contains(e.RejectReason, "upgrade window expired") {
+		t.Errorf("upgrade outside the window should be rejected, got state=%v reason=%q", e.State, e.RejectReason)
+	}
+}
+
+func TestUpgradeWindowFreshEpisodeStillUpgrades(t *testing.T) {
+	p := openPlugin(t, map[string]any{"upgrade_window": "168h"})
+	tc := makeCtx()
+
+	if err := p.tracker.Mark(series.Record{
+		SeriesName:   "my show",
+		EpisodeID:    "S01E01",
+		Quality:      quality.Parse("My.Show.S01E01.720p.HDTV"),
+		DownloadedAt: time.Now().Add(-2 * 24 * time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	e := entry.New("My.Show.S01E01.1080p.BluRay.x264", "http://x.com/b")
+	metaize(e)
+	p.filter(context.Background(), tc, e)
+	if !e.IsAccepted() {
+		t.Errorf("upgrade within the window should be accepted: %s", e.RejectReason)
+	}
+}
+
+func TestUpgradeWindowUnsetEpisodeUpgradesForever(t *testing.T) {
+	p := openPlugin(t, nil)
+	tc := makeCtx()
+
+	if err := p.tracker.Mark(series.Record{
+		SeriesName:   "my show",
+		EpisodeID:    "S01E01",
+		Quality:      quality.Parse("My.Show.S01E01.720p.HDTV"),
+		DownloadedAt: time.Now().Add(-365 * 24 * time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	e := entry.New("My.Show.S01E01.1080p.BluRay.x264", "http://x.com/b")
+	metaize(e)
+	p.filter(context.Background(), tc, e)
+	if !e.IsAccepted() {
+		t.Errorf("without upgrade_window an old episode still upgrades: %s", e.RejectReason)
 	}
 }
