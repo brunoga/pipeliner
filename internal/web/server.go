@@ -233,6 +233,7 @@ func (s *Server) Start(ctx context.Context, addr string, tlsCfg *tls.Config) err
 	protected.HandleFunc("POST /api/quality/test", s.apiQualityTest)
 	protected.HandleFunc("POST /api/config/parse", s.apiConfigParse)
 	protected.HandleFunc("GET /api/db/buckets", s.apiDBBuckets)
+	protected.HandleFunc("GET /api/db/backup", s.apiDBBackup)
 	protected.HandleFunc("GET /api/db/buckets/{name}", s.apiDBGetBucket)
 	protected.HandleFunc("DELETE /api/db/buckets/{name}", s.apiDBClearBucket)
 	protected.HandleFunc("DELETE /api/db/entries/{name}", s.apiDBDeleteEntry)

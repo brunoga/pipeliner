@@ -64,8 +64,14 @@ function renderDBSidebar() {
     }
     return html;
   };
+  // Footer action: download a consistent snapshot of the whole store —
+  // trackers, caches, download log — taken live via VACUUM INTO.
+  const backup = `<div class="db-sidebar-section">Maintenance</div>
+    <button class="db-nav-btn" onclick="window.location='/api/db/backup'">
+      <span>💾 Download backup</span>
+    </button>`;
   document.getElementById('db-sidebar').innerHTML =
-    renderSection(trackers, 'Trackers') + renderSection(caches, 'Caches');
+    renderSection(trackers, 'Trackers') + renderSection(caches, 'Caches') + backup;
 }
 
 // ── tools tab ────────────────────────────────────────────────────────────────
