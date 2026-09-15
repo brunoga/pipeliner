@@ -16,6 +16,7 @@ import (
 
 	"github.com/brunoga/pipeliner/internal/cache"
 	"github.com/brunoga/pipeliner/internal/entry"
+	"github.com/brunoga/pipeliner/internal/match"
 	"github.com/brunoga/pipeliner/internal/plugin"
 	"github.com/brunoga/pipeliner/internal/series"
 	"github.com/brunoga/pipeliner/internal/store"
@@ -154,8 +155,11 @@ func (p *tvdbPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 		return nil
 	}
 
-	// Use the first result (highest relevance from TVDB).
-	s := results[0]
+	// Prefer the result whose name matches the searched series exactly (after
+	// normalization) over TVDB's relevance ranking — a same-name spin-off,
+	// reboot, or companion entry can outrank the actual show. Falls back to
+	// the first (highest-relevance) result when nothing matches exactly.
+	s := pickSeries(results, ep.SeriesName)
 	tc.Logger.Debug("metainfo_tvdb: search result", "series", ep.SeriesName, "id", s.ID, "name", s.Name)
 
 	e.Set("tvdb_id", s.ID)
@@ -467,3 +471,18 @@ func (p *tvdbPlugin) fetchExtended(ctx context.Context, tc *plugin.TaskContext, 
 
 // Date and code-name helpers (LanguageName, CountryName, ParseDate) live in
 // internal/tvdb so both this plugin and the tvdb_favorites source can share them.
+
+// pickSeries returns the search result whose name matches the searched series
+// exactly after normalization, preferring it over TVDB's relevance ranking —
+// a same-name spin-off, reboot, or companion entry can outrank the actual
+// show. Among multiple exact matches the first (highest relevance) wins;
+// with none, the first result is returned. results must be non-empty.
+func pickSeries(results []itvdb.Series, name string) itvdb.Series {
+	norm := match.Normalize(name)
+	for _, s := range results {
+		if match.Normalize(s.Name) == norm {
+			return s
+		}
+	}
+	return results[0]
+}

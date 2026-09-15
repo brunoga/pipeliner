@@ -14,6 +14,7 @@ import (
 
 	"github.com/brunoga/pipeliner/internal/cache"
 	"github.com/brunoga/pipeliner/internal/entry"
+	"github.com/brunoga/pipeliner/internal/match"
 	imovies "github.com/brunoga/pipeliner/internal/movies"
 	"github.com/brunoga/pipeliner/internal/plugin"
 	iseries "github.com/brunoga/pipeliner/internal/series"
@@ -149,7 +150,10 @@ func (p *traktMetaPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, 
 		return nil
 	}
 
-	r := results[0]
+	// Prefer the result whose title matches the searched one exactly (after
+	// normalization) over Trakt's relevance ranking — a same-name spin-off or
+	// companion entry can outrank the actual item. Falls back to results[0].
+	r := pickItem(results, title)
 	e.Set("trakt_id", r.IDs.Trakt)
 	e.Set("trakt_slug", r.IDs.Slug)
 	e.Set("trakt_tmdb_id", r.IDs.TMDB)
@@ -196,4 +200,18 @@ func (p *traktMetaPlugin) parseTitle(title string) (string, bool) {
 		return "", false
 	}
 	return mv.Title, true
+}
+
+// pickItem returns the search result whose title matches the searched one
+// exactly after normalization, preferring it over Trakt's relevance ranking.
+// Among multiple exact matches the first (highest relevance) wins; with none,
+// the first result is returned. results must be non-empty.
+func pickItem(results []itrakt.Item, title string) itrakt.Item {
+	norm := match.Normalize(title)
+	for _, r := range results {
+		if match.Normalize(r.Title) == norm {
+			return r
+		}
+	}
+	return results[0]
 }

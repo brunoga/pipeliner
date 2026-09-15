@@ -14,6 +14,7 @@ import (
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/plugin"
 	"github.com/brunoga/pipeliner/internal/store"
+	itvdb "github.com/brunoga/pipeliner/internal/tvdb"
 )
 
 func makeCtx() *plugin.TaskContext {
@@ -634,4 +635,26 @@ func TestEnrichedNotSetWhenExtendedUnavailable(t *testing.T) {
 	}
 	// Provider id fields may still be present for debugging, but the gate field
 	// is what matters.
+}
+
+func TestPickSeriesPrefersExactTitle(t *testing.T) {
+	rs := []itvdb.Series{
+		{ID: "1", Name: "Breaking Bad: The Movie"}, // companion outranks in relevance
+		{ID: "2", Name: "Breaking Bad"},
+	}
+	if got := pickSeries(rs, "Breaking Bad"); got.ID != "2" {
+		t.Errorf("exact title should win, got id %s (%s)", got.ID, got.Name)
+	}
+	// No exact match → first result.
+	if got := pickSeries(rs, "Breaking"); got.ID != "1" {
+		t.Errorf("no exact match should fall back to results[0], got %s", got.ID)
+	}
+	// Normalization: punctuation differences still count as exact.
+	rs = []itvdb.Series{
+		{ID: "1", Name: "Marvels Agents"},
+		{ID: "2", Name: "Marvel's Agents"},
+	}
+	if got := pickSeries(rs, "Marvels Agents"); got.ID != "1" {
+		t.Errorf("first exact match should win, got %s", got.ID)
+	}
 }
