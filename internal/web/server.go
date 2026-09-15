@@ -232,6 +232,8 @@ func (s *Server) Start(ctx context.Context, addr string, tlsCfg *tls.Config) err
 	protected.HandleFunc("POST /api/match/test", s.apiMatchTest)
 	protected.HandleFunc("POST /api/quality/test", s.apiQualityTest)
 	protected.HandleFunc("POST /api/config/parse", s.apiConfigParse)
+	protected.HandleFunc("GET /api/config/history", s.apiConfigHistory)
+	protected.HandleFunc("GET /api/config/history/{id}", s.apiConfigHistoryGet)
 	protected.HandleFunc("GET /api/db/buckets", s.apiDBBuckets)
 	protected.HandleFunc("GET /api/db/buckets/{name}", s.apiDBGetBucket)
 	protected.HandleFunc("DELETE /api/db/buckets/{name}", s.apiDBClearBucket)
@@ -717,6 +719,11 @@ func (s *Server) apiSaveConfig(w http.ResponseWriter, r *http.Request) {
 	// only if the build succeeds, and then commits the in-memory swap. If the
 	// build fails the on-disk config is untouched. When tasks are running we
 	// queue the bytes for TaskDone to apply once idle.
+	//
+	// Snapshot the current on-disk config into the history bucket first —
+	// whichever path applies the save (immediate or queued), the file being
+	// replaced is the one that exists now.
+	s.snapshotConfigForHistory(data)
 	s.runMu.Lock()
 	idle := len(s.running) == 0
 	if !idle {
