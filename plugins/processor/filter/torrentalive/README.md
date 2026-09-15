@@ -7,7 +7,7 @@ Rejects torrents with fewer than a minimum number of seeds. Sources seed counts 
 
 Indexer-reported counts can be stale or phantom, especially for rare releases: two claimed seeders may be long gone, letting the grab pass and then sit at 0% forever. `verify=True` forces a live scrape even when the feed provides a count; the scrape result wins, and the feed count is used only as a fallback when scraping is impossible (no resolvable hash, or the tracker did not answer). Pair it with `metainfo_torrent` upstream so `.torrent` URL entries have a hash to scrape, and reserve it for low-volume pipelines — each entry costs a scrape round-trip.
 
-Scraping is **batched**: entries are grouped by tracker and each request carries up to ~70 info hashes (both the UDP protocol and the HTTP scrape convention support this natively), with distinct trackers queried in parallel. A discover-scale run of ~2000 entries against one tracker costs ~30 requests instead of 2000 sequential ones. `scrape_timeout` bounds each tracker request, not each entry.
+Scraping is **batched**: entries are grouped by tracker and each request carries up to ~70 info hashes (both the UDP protocol and the HTTP scrape convention support this natively), with distinct trackers queried in parallel. A discover-scale run of ~2000 entries against one tracker costs ~30 requests instead of 2000 sequential ones. Trackers that honor only one `info_hash` per request (common on private trackers) are detected automatically and their hashes re-scraped individually — in parallel — so coverage is kept. `scrape_timeout` bounds each tracker request, not each entry.
 
 Entries where no seed count can be determined are left undecided (passed through unchanged).
 

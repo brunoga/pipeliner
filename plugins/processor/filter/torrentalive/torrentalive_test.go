@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
 	"github.com/brunoga/pipeliner/internal/entry"
@@ -419,8 +420,17 @@ func TestBatchScrapeUnansweredFallsBack(t *testing.T) {
 	}
 	body := "d5:filesd" + fmt.Sprintf("%d:%s", len(answered), string(answered[:])) +
 		"d8:completei9e10:downloadedi0e10:incompletei0ee" + "ee"
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		fmt.Fprint(w, body)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Only answer when the answered hash was actually requested; a
+		// single-hash request for any other hash gets an empty files dict
+		// (the single-result quirk would otherwise mis-assign the stats).
+		for _, h := range r.URL.Query()["info_hash"] {
+			if h == string(answered[:]) {
+				fmt.Fprint(w, body)
+				return
+			}
+		}
+		fmt.Fprint(w, "d5:filesdee")
 	}))
 	defer srv.Close()
 
@@ -447,5 +457,59 @@ func TestBatchScrapeUnansweredFallsBack(t *testing.T) {
 	}
 	if !e2.IsRejected() {
 		t.Error("unanswered entry should fall back to the feed count (2 < 5) and be rejected")
+	}
+}
+
+// TestSingleHashTrackerFallback: a tracker that ignores extra info_hash
+// params (answers only the first hash per request — common on private
+// trackers) still yields full coverage via the parallel per-hash fallback.
+func TestSingleHashTrackerFallback(t *testing.T) {
+	const n = 12
+	hashes := make([]string, n)
+	binByHex := map[string]string{}
+	for i := 0; i < n; i++ {
+		var ih [20]byte
+		for j := range ih {
+			ih[j] = byte(i + 1)
+		}
+		hashes[i] = fmt.Sprintf("%x", ih)
+		binByHex[hashes[i]] = string(ih[:])
+	}
+
+	var requests atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		// Answer ONLY the first requested hash, whatever was asked.
+		first := r.URL.Query()["info_hash"][0]
+		fmt.Fprint(w, "d5:filesd"+fmt.Sprintf("%d:%s", len(first), first)+
+			"d8:completei6e10:downloadedi0e10:incompletei0ee"+"ee")
+	}))
+	defer srv.Close()
+
+	p := makePlugin(t, map[string]any{"min_seeds": 5, "scrape_timeout": "5s"})
+	tc := &plugin.TaskContext{Logger: slog.Default()}
+	entries := make([]*entry.Entry, n)
+	for i := 0; i < n; i++ {
+		e := entry.New(fmt.Sprintf("t%d", i), fmt.Sprintf("http://x/%d.torrent", i))
+		e.Set("torrent_info_hash", hashes[i])
+		e.Set("torrent_announce_list", []string{srv.URL + "/announce"})
+		entries[i] = e
+	}
+	if _, err := p.Process(context.Background(), tc, entries); err != nil {
+		t.Fatal(err)
+	}
+
+	// Every entry resolved (6 seeds ≥ 5 → none rejected), via 1 batch attempt
+	// + 11 single fallbacks.
+	for i, e := range entries {
+		if e.IsRejected() {
+			t.Errorf("entry %d should pass with 6 scraped seeds: %s", i, e.RejectReason)
+		}
+		if v := e.GetInt("torrent_seeds"); v != 6 {
+			t.Errorf("entry %d seeds: got %d, want 6", i, v)
+		}
+	}
+	if got := int(requests.Load()); got != n {
+		t.Errorf("requests: got %d, want %d (1 batch + %d singles)", got, n, n-1)
 	}
 }
