@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.24.0] - 2026-09-16
+
+Sign in with Plex — no more hunting for tokens.
+
+### Added
+
+- **Sign in with Plex** ([#406](https://github.com/brunoga/pipeliner/pull/406)). The Plex reconcile tool no longer requires digging a token out of browser localStorage or a View XML URL: click *Sign in with Plex*, approve pipeliner in the plex.tv tab that opens, and the account token is fetched and saved automatically. This is the PIN "link" flow real Plex apps use — no password is entered in pipeliner and two-factor auth works unchanged. Pasting a token manually remains available as a fallback.
+
+**Why 1.24.0**: an additive authentication feature. A minor bump per SemVer.
+
 ## [1.23.0] - 2026-09-15
 
 The last piece of the discover-scale performance work: stop re-downloading immutable torrent files.
