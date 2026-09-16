@@ -9,6 +9,8 @@ release strictly better than the library copy passes through (disable with
 
 With `backend="plex"` and **no** `url`/`token`, the filter runs in **account mode**: it uses the Settings → Plex Account sign-in and indexes every server you own — no per-server config needed.
 
+Server-backed indexes grade copies by **resolution, codec, and audio** (Atmos comes straight from the listing); source and HDR are not exposed by the server APIs. Upgrades are judged only on dimensions the library copy actually knows, so unknown-vs-known never counts as an upgrade.
+
 The filesystem backend walks the configured paths and parses video filenames
 with the same release-name parsers the pipeline uses, keeping the best
 quality per episode/movie. The index is cached in memory and rebuilt when

@@ -215,7 +215,7 @@ func (p *libraryPlugin) ensureIndex(tc *plugin.TaskContext) {
 			return
 		}
 		for _, it := range items {
-			q := quality.Parse(it.Resolution)
+			q := serverItemQuality(it)
 			switch it.Type {
 			case "episode":
 				if it.Show == "" {
@@ -322,7 +322,7 @@ func (p *libraryPlugin) Process(_ context.Context, tc *plugin.TaskContext, entri
 			continue
 		}
 		eq, hasQ := e.Quality()
-		if hasQ && p.upgrade && eq.Better(hit.Quality) {
+		if hasQ && p.upgrade && upgradeComparable(eq, hit.Quality).Better(hit.Quality) {
 			tc.Logger.Info(pluginName+": upgrade candidate",
 				"entry", e.Title, "library", hit.Quality.String(), "release", eq.String())
 			continue
@@ -347,4 +347,45 @@ func toStringSlice(v any) []string {
 		return out
 	}
 	return nil
+}
+
+// serverItemQuality maps a media server item's metadata onto the release
+// quality vocabulary by synthesizing a parseable string — reusing the exact
+// token tables (codec, audio, Atmos) the filename parser applies, so the
+// library copy and incoming releases are graded identically. Servers expose
+// resolution, codec, and audio in listings; source (BluRay/WEB) and HDR are
+// not available there and stay unknown.
+func serverItemQuality(it mediaserver.Item) quality.Quality {
+	parts := []string{it.Resolution, it.VideoCodec, mapAudioCodec(it.AudioCodec), it.AudioProfile}
+	return quality.Parse(strings.Join(parts, " "))
+}
+
+// mapAudioCodec translates server API codec ids onto parser vocabulary.
+func mapAudioCodec(c string) string {
+	switch strings.ToLower(c) {
+	case "dca", "dts-hd", "dtshd":
+		return "dts"
+	}
+	return c
+}
+
+// upgradeComparable returns inc with every dimension the library copy does
+// not know zeroed out, so unknown-vs-known never counts as an upgrade. A
+// server-indexed copy has no source (BluRay/WEB) or HDR information; without
+// this mask, ANY release naming a source would "upgrade" every library entry
+// through the lexicographic comparison and re-download the whole library.
+func upgradeComparable(inc, lib quality.Quality) quality.Quality {
+	if lib.Source == 0 {
+		inc.Source = 0
+	}
+	if lib.Codec == 0 {
+		inc.Codec = 0
+	}
+	if lib.Audio == 0 {
+		inc.Audio = 0
+	}
+	if lib.ColorRange == 0 {
+		inc.ColorRange = 0
+	}
+	return inc
 }

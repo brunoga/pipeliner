@@ -279,3 +279,47 @@ func TestDiscoveryRequestsRelay(t *testing.T) {
 		t.Errorf("resources query must include includeRelay=1, got %q", query)
 	}
 }
+
+// TestPlexListingCarriesCodecAndAudio: the Media-level attributes Plex
+// exposes in section listings flow into Item so the library filter can
+// grade beyond resolution.
+func TestPlexListingCarriesCodecAndAudio(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/library/sections":
+			json.NewEncoder(w).Encode(map[string]any{"MediaContainer": map[string]any{ //nolint:errcheck
+				"Directory": []map[string]any{{"key": "1", "type": "movie"}},
+			}})
+		case "/library/sections/1/all":
+			json.NewEncoder(w).Encode(map[string]any{"MediaContainer": map[string]any{ //nolint:errcheck
+				"Metadata": []map[string]any{{
+					"type": "movie", "title": "Dune", "year": 2021,
+					"Media": []map[string]any{{
+						"videoResolution": "4k", "videoCodec": "hevc",
+						"audioCodec": "truehd", "audioProfile": "dolby truehd + dolby atmos",
+					}},
+				}},
+			}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	c, err := New("plex", srv.URL, "t")
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, err := c.ListItems(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("items: %d", len(items))
+	}
+	it := items[0]
+	if it.Resolution != "2160p" || it.VideoCodec != "hevc" || it.AudioCodec != "truehd" ||
+		it.AudioProfile != "dolby truehd + dolby atmos" {
+		t.Errorf("item: %+v", it)
+	}
+}
