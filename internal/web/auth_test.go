@@ -268,3 +268,60 @@ func TestRequireSessionBehaviorByPath(t *testing.T) {
 		})
 	}
 }
+
+// TestAPITokenBearer: a configured API token authorizes requests without a
+// session and without touching the session store (so automation doesn't kick
+// the single active browser session).
+func TestAPITokenBearer(t *testing.T) {
+	srv := New(nil, stubDaemon{}, NewHistory(), NewBroadcaster(), "test", "user", "pass")
+	srv.SetAPIToken("s3cret")
+	handler := srv.requireSession(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	do := func(auth string) int {
+		req := httptest.NewRequest(http.MethodGet, "/api/status", nil)
+		if auth != "" {
+			req.Header.Set("Authorization", auth)
+		}
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		return rec.Code
+	}
+
+	if got := do("Bearer s3cret"); got != http.StatusOK {
+		t.Errorf("valid bearer: got %d", got)
+	}
+	if got := do("Bearer wrong"); got != http.StatusUnauthorized {
+		t.Errorf("wrong bearer: got %d", got)
+	}
+	if got := do(""); got != http.StatusUnauthorized {
+		t.Errorf("no auth: got %d", got)
+	}
+
+	// A valid bearer must not clear existing sessions.
+	tok, err := srv.sessions.create()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = do("Bearer s3cret")
+	if !srv.sessions.valid(tok) {
+		t.Error("bearer request must not invalidate browser sessions")
+	}
+}
+
+// TestAPITokenDisabledByDefault: with no token configured, bearer headers are
+// ignored entirely.
+func TestAPITokenDisabledByDefault(t *testing.T) {
+	srv := New(nil, stubDaemon{}, NewHistory(), NewBroadcaster(), "test", "user", "pass")
+	handler := srv.requireSession(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	req := httptest.NewRequest(http.MethodGet, "/api/status", nil)
+	req.Header.Set("Authorization", "Bearer anything")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("bearer with no token configured: got %d, want 401", rec.Code)
+	}
+}

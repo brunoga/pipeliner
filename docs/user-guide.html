@@ -2446,6 +2446,8 @@ pipeliner failures "star trek"     # failures whose title or reason matches</cod
 
 <p>Start the web UI with <code>pipeliner daemon --web :8080 --web-user admin --web-password secret</code>. Navigate to <code>http://localhost:8080</code>.</p>
 
+<p><strong>API token for automation:</strong> the UI allows a single active session — every browser login kicks all others, so a <em>scripted</em> login also kicks the person using the UI. Set <code>PIPELINER_API_TOKEN</code> in the daemon environment and scripts can instead call the whole API with <code>Authorization: Bearer &lt;token&gt;</code> — no session created, no session kicked. Treat the token like a password (it grants full API access, including config saves); leave it unset to disable bearer auth entirely.</p>
+
 <p>The interface has four tabs: <strong>Dashboard</strong>, <strong>Config</strong>, <strong>Database</strong>, and <strong>Settings</strong>. Within the Config tab, toggle between the <strong>✏ Text</strong> editor and the <strong>⬡ Visual</strong> pipeline editor. The header contains a <strong>User Guide</strong> link and a <strong>Sign out</strong> button that ends the current session and returns to the login page.</p>
 
 <h3>Dashboard tab</h3>
