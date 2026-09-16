@@ -1072,13 +1072,10 @@ async function renderPlexReconcile() {
     <div class="match-tester">
       <h2>Plex reconcile</h2>
       <p class="match-hint">Discovers your Plex servers from an account token (plex.tv), lists every movie library, and shows tracker entries with <b>no matching movie in Plex</b>. 3D tracker entries only match libraries whose name contains "3D". Forgetting an entry lets the movie re-download when a release appears. The token is remembered after the first successful run.</p>
+      <div id="plexrec-account" class="match-norm"></div>
       <div class="match-form">
-        <button class="btn" onclick="startPlexSignIn()" title="Approve pipeliner on plex.tv — no password entered here, 2FA works">Sign in with Plex</button>
-        <span id="plexrec-signin-status" class="match-norm"></span>
-      </div>
-      <div class="match-form">
-        <label>…or paste a token
-          <input id="plexrec-token" type="password" placeholder="X-Plex-Token" />
+        <label>Plex account token (optional override)
+          <input id="plexrec-token" type="password" placeholder="uses the Settings-tab sign-in" />
         </label>
         <button class="btn" onclick="runPlexReconcile()">Reconcile</button>
       </div>
@@ -1088,9 +1085,11 @@ async function renderPlexReconcile() {
     const r = await fetch('/api/tools/plex');
     if (r.ok) {
       const st = await r.json();
-      if (st.has_token) {
-        const inp = document.getElementById('plexrec-token');
-        if (inp) inp.placeholder = 'saved token (leave empty to reuse)';
+      const acct = document.getElementById('plexrec-account');
+      if (acct) {
+        acct.innerHTML = st.has_token
+          ? '✓ Using the Plex account from <b>Settings → Plex Account</b>.'
+          : 'Not signed in — use <b>Settings → Plex Account</b> (or paste a token below).';
       }
     }
   } catch (e) { /* status is cosmetic */ }
@@ -1110,45 +1109,6 @@ async function runPlexReconcile() {
     results.innerHTML = plexReconcileHTML(await r.json());
   } catch (e) {
     results.innerHTML = `<div class="db-empty">Error: ${esc(e.message)}</div>`;
-  }
-}
-
-// startPlexSignIn runs the Plex PIN flow: create a PIN, open the plex.tv
-// approval page, poll until approved, then the token is saved server-side.
-let _plexPollTimer = null;
-async function startPlexSignIn() {
-  const status = document.getElementById('plexrec-signin-status');
-  if (_plexPollTimer) { clearInterval(_plexPollTimer); _plexPollTimer = null; }
-  status.textContent = 'starting…';
-  try {
-    const r = await fetch('/api/tools/plex/auth/start', {method: 'POST'});
-    if (!r.ok) { status.textContent = 'error: ' + await r.text(); return; }
-    const pin = await r.json();
-    window.open(pin.auth_url, '_blank', 'noopener');
-    status.textContent = 'approve pipeliner in the plex.tv tab…';
-    let polls = 0;
-    _plexPollTimer = setInterval(async () => {
-      polls++;
-      if (polls > 60) { // ~3 minutes
-        clearInterval(_plexPollTimer); _plexPollTimer = null;
-        status.textContent = 'timed out — click Sign in with Plex to retry';
-        return;
-      }
-      try {
-        const pr = await fetch('/api/tools/plex/auth/poll?id=' + pin.id);
-        if (!pr.ok) return; // transient; keep polling
-        const st = await pr.json();
-        if (st.done) {
-          clearInterval(_plexPollTimer); _plexPollTimer = null;
-          status.textContent = '✓ signed in — token saved';
-          const inp = document.getElementById('plexrec-token');
-          if (inp) { inp.value = ''; inp.placeholder = 'saved token (leave empty to reuse)'; }
-          runPlexReconcile();
-        }
-      } catch (e) { /* transient; keep polling */ }
-    }, 3000);
-  } catch (e) {
-    status.textContent = 'error: ' + e.message;
   }
 }
 

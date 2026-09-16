@@ -136,3 +136,94 @@ func TestPlexMovieSections(t *testing.T) {
 		t.Errorf("Movies section: %+v", secs[1])
 	}
 }
+
+// TestPlexAccountClient: the account client aggregates every owned server's
+// items and refreshes them all; a shared (not owned) server is ignored.
+func TestPlexAccountClient(t *testing.T) {
+	newFakeServer := func(movie string, refreshed *bool) *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/identity":
+				w.WriteHeader(http.StatusOK)
+			case "/library/sections":
+				json.NewEncoder(w).Encode(map[string]any{"MediaContainer": map[string]any{ //nolint:errcheck
+					"Directory": []map[string]any{{"key": "1", "type": "movie", "title": "Movies"}},
+				}})
+			case "/library/sections/1/all":
+				json.NewEncoder(w).Encode(map[string]any{"MediaContainer": map[string]any{ //nolint:errcheck
+					"Metadata": []map[string]any{{"type": "movie", "title": movie, "year": 2020}},
+				}})
+			case "/library/sections/all/refresh":
+				*refreshed = true
+				w.WriteHeader(http.StatusOK)
+			default:
+				http.NotFound(w, r)
+			}
+		}))
+	}
+	var r1, r2 bool
+	srv1 := newFakeServer("Alpha", &r1)
+	defer srv1.Close()
+	srv2 := newFakeServer("Beta", &r2)
+	defer srv2.Close()
+
+	tv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode([]map[string]any{ //nolint:errcheck
+			{"name": "S1", "provides": "server", "owned": true, "accessToken": "t1",
+				"connections": []map[string]any{{"uri": srv1.URL, "local": false, "relay": false}}},
+			{"name": "S2", "provides": "server", "owned": true, "accessToken": "t2",
+				"connections": []map[string]any{{"uri": srv2.URL, "local": false, "relay": false}}},
+			{"name": "Friend", "provides": "server", "owned": false, "accessToken": "t3",
+				"connections": []map[string]any{{"uri": srv1.URL, "local": false, "relay": false}}},
+		})
+	}))
+	defer tv.Close()
+	orig := PlexTVBaseURL
+	PlexTVBaseURL = tv.URL
+	defer func() { PlexTVBaseURL = orig }()
+
+	c := NewPlexAccount(func() string { return "acct" })
+	items, err := c.ListItems(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 2 { // Alpha + Beta; Friend's server not owned
+		t.Fatalf("items: %+v", items)
+	}
+	if err := c.Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !r1 || !r2 {
+		t.Errorf("both owned servers should refresh: %v %v", r1, r2)
+	}
+
+	// Not signed in → clear error, no plex.tv call needed.
+	c2 := NewPlexAccount(func() string { return "" })
+	if _, err := c2.ListItems(context.Background()); err == nil {
+		t.Error("empty token must error")
+	}
+}
+
+// TestPlexAccountClientUnreachableOwnedFails: a partial library would make the
+// library filter treat a whole server's content as missing — fail instead.
+func TestPlexAccountClientUnreachableOwnedFails(t *testing.T) {
+	dead := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	deadURL := dead.URL
+	dead.Close()
+
+	tv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode([]map[string]any{ //nolint:errcheck
+			{"name": "Down", "provides": "server", "owned": true, "accessToken": "t",
+				"connections": []map[string]any{{"uri": deadURL, "local": false, "relay": false}}},
+		})
+	}))
+	defer tv.Close()
+	orig := PlexTVBaseURL
+	PlexTVBaseURL = tv.URL
+	defer func() { PlexTVBaseURL = orig }()
+
+	c := NewPlexAccount(func() string { return "acct" })
+	if _, err := c.ListItems(context.Background()); err == nil {
+		t.Error("unreachable owned server must fail the listing")
+	}
+}

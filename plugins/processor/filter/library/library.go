@@ -67,7 +67,15 @@ func validate(cfg map[string]any) []error {
 		if paths := toStringSlice(cfg["paths"]); len(paths) == 0 {
 			errs = append(errs, fmt.Errorf("%s: 'paths' must list at least one library directory", pluginName))
 		}
-	case "plex", "jellyfin":
+	case "plex":
+		// url+token select one server; both omitted = account mode, which
+		// spans every owned server via the Settings-tab Plex sign-in.
+		u, _ := cfg["url"].(string)
+		t, _ := cfg["token"].(string)
+		if (u == "") != (t == "") {
+			errs = append(errs, fmt.Errorf("%s: backend plex needs both 'url' and 'token', or neither (account mode via Settings → Plex Account)", pluginName))
+		}
+	case "jellyfin":
 		if u, _ := cfg["url"].(string); u == "" {
 			errs = append(errs, fmt.Errorf("%s: backend %q requires 'url'", pluginName, backend))
 		}
@@ -106,7 +114,7 @@ type libraryPlugin struct {
 	client mediaserver.Client
 }
 
-func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
+func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
 	backend, _ := cfg["backend"].(string)
 	if backend == "" {
 		backend = "filesystem"
@@ -121,14 +129,27 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 	} else {
 		url, _ := cfg["url"].(string)
 		token, _ := cfg["token"].(string)
-		if url == "" || token == "" {
+		switch {
+		case backend == "plex" && url == "" && token == "":
+			// Account mode: span every owned server using the Settings-tab
+			// sign-in. The token is read per index build so signing in after
+			// daemon start takes effect without a restart.
+			if db == nil {
+				return nil, fmt.Errorf("%s: plex account mode requires the store", pluginName)
+			}
+			bucket := db.Bucket(mediaserver.PlexSettingsBucket)
+			client = mediaserver.NewPlexAccount(func() string {
+				return mediaserver.PlexAccountToken(bucket)
+			})
+		case url == "" || token == "":
 			return nil, fmt.Errorf("%s: backend %q requires 'url' and 'token'", pluginName, backend)
+		default:
+			c, err := mediaserver.New(backend, url, token)
+			if err != nil {
+				return nil, fmt.Errorf("%s: %w", pluginName, err)
+			}
+			client = c
 		}
-		c, err := mediaserver.New(backend, url, token)
-		if err != nil {
-			return nil, fmt.Errorf("%s: %w", pluginName, err)
-		}
-		client = c
 	}
 
 	ttl := 15 * time.Minute

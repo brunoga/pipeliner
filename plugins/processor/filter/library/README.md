@@ -7,6 +7,8 @@ content acquired outside pipeliner, and it enables real quality upgrades: a
 release strictly better than the library copy passes through (disable with
 `upgrade=false`).
 
+With `backend="plex"` and **no** `url`/`token`, the filter runs in **account mode**: it uses the Settings → Plex Account sign-in and indexes every server you own — no per-server config needed.
+
 The filesystem backend walks the configured paths and parses video filenames
 with the same release-name parsers the pipeline uses, keeping the best
 quality per episode/movie. The index is cached in memory and rebuilt when

@@ -1381,4 +1381,7 @@ function showTab(name) {
   if (name === 'settings' && typeof loadTraktStatus === 'function') {
     loadTraktStatus();
   }
+  if (name === 'settings' && typeof loadPlexAccountStatus === 'function') {
+    loadPlexAccountStatus();
+  }
 }
