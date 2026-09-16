@@ -248,6 +248,8 @@ func (s *Server) Start(ctx context.Context, addr string, tlsCfg *tls.Config) err
 	protected.HandleFunc("GET /api/tools/plex", s.apiToolsPlexStatus)
 	protected.HandleFunc("POST /api/tools/plex/reconcile", s.apiToolsPlexReconcile)
 	protected.HandleFunc("POST /api/tools/plex/forget", s.apiToolsPlexForget)
+	protected.HandleFunc("POST /api/tools/plex/auth/start", s.apiToolsPlexAuthStart)
+	protected.HandleFunc("GET /api/tools/plex/auth/poll", s.apiToolsPlexAuthPoll)
 	protected.HandleFunc("GET /api/trakt/status", s.apiTraktStatus)
 	protected.HandleFunc("POST /api/trakt/auth/start", s.apiTraktAuthStart)
 	protected.HandleFunc("GET /api/trakt/auth/poll", s.apiTraktAuthPoll)
