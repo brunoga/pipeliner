@@ -10,6 +10,7 @@ import (
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/mediaserver"
 	"github.com/brunoga/pipeliner/internal/plugin"
+	"github.com/brunoga/pipeliner/internal/store"
 )
 
 type fakeClient struct {
@@ -18,7 +19,7 @@ type fakeClient struct {
 }
 
 func (f *fakeClient) ListItems(context.Context) ([]mediaserver.Item, error) { return nil, nil }
-func (f *fakeClient) Refresh(context.Context) error                        { f.refreshes++; return f.err }
+func (f *fakeClient) Refresh(context.Context) error                         { f.refreshes++; return f.err }
 
 func accepted(title string) *entry.Entry {
 	e := entry.New(title, "https://example.com/"+title)
@@ -89,7 +90,27 @@ func TestValidate(t *testing.T) {
 	if errs := validate(map[string]any{"backend": "emby", "url": "http://x", "token": "t"}); len(errs) == 0 {
 		t.Error("bad backend must fail")
 	}
-	if errs := validate(map[string]any{"backend": "plex"}); len(errs) == 0 {
-		t.Error("missing url/token must fail")
+	if errs := validate(map[string]any{"backend": "plex"}); len(errs) != 0 {
+		t.Errorf("plex account mode (no url/token) should validate, got %v", errs)
+	}
+	if errs := validate(map[string]any{"backend": "plex", "url": "http://x"}); len(errs) == 0 {
+		t.Error("half a credential pair must fail")
+	}
+	if errs := validate(map[string]any{"backend": "jellyfin"}); len(errs) == 0 {
+		t.Error("jellyfin missing url/token must fail")
+	}
+}
+
+func TestPlexAccountModeConstruction(t *testing.T) {
+	if _, err := newPlugin(map[string]any{"backend": "plex"}, nil); err == nil {
+		t.Error("account mode without a store must error")
+	}
+	db, err := store.OpenSQLite(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	if _, err := newPlugin(map[string]any{"backend": "plex"}, db); err != nil {
+		t.Fatalf("account mode with a store: %v", err)
 	}
 }

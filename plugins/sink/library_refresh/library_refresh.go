@@ -26,8 +26,8 @@ func init() {
 		Validate:    validate,
 		Schema: []plugin.FieldSchema{
 			{Key: "backend", Type: plugin.FieldTypeString, Required: true, Hint: "Media server type: plex or jellyfin"},
-			{Key: "url", Type: plugin.FieldTypeString, Required: true, Hint: "Media server base URL, e.g. http://localhost:32400"},
-			{Key: "token", Type: plugin.FieldTypeString, Required: true, Hint: "Media server API token"},
+			{Key: "url", Type: plugin.FieldTypeString, Hint: "Media server base URL; omit with backend=plex for account mode (Settings → Plex Account)"},
+			{Key: "token", Type: plugin.FieldTypeString, Hint: "Media server API token; omit with backend=plex for account mode"},
 		},
 	})
 }
@@ -38,14 +38,24 @@ func validate(cfg map[string]any) []error {
 		errs = append(errs, err...)
 	}
 	b, _ := cfg["backend"].(string)
-	if b != "plex" && b != "jellyfin" {
+	u, _ := cfg["url"].(string)
+	t, _ := cfg["token"].(string)
+	switch b {
+	case "plex":
+		// url+token select one server; both omitted = account mode, which
+		// refreshes every owned server via the Settings-tab Plex sign-in.
+		if (u == "") != (t == "") {
+			errs = append(errs, fmt.Errorf("%s: backend plex needs both 'url' and 'token', or neither (account mode via Settings → Plex Account)", pluginName))
+		}
+	case "jellyfin":
+		if u == "" {
+			errs = append(errs, fmt.Errorf("%s: 'url' is required", pluginName))
+		}
+		if t == "" {
+			errs = append(errs, fmt.Errorf("%s: 'token' is required", pluginName))
+		}
+	default:
 		errs = append(errs, fmt.Errorf("%s: 'backend' must be plex or jellyfin", pluginName))
-	}
-	if u, _ := cfg["url"].(string); u == "" {
-		errs = append(errs, fmt.Errorf("%s: 'url' is required", pluginName))
-	}
-	if t, _ := cfg["token"].(string); t == "" {
-		errs = append(errs, fmt.Errorf("%s: 'token' is required", pluginName))
 	}
 	return errs
 }
@@ -55,10 +65,21 @@ type refreshPlugin struct {
 	client  mediaserver.Client
 }
 
-func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
+func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
 	backend, _ := cfg["backend"].(string)
 	url, _ := cfg["url"].(string)
 	token, _ := cfg["token"].(string)
+	if backend == "plex" && url == "" && token == "" {
+		// Account mode: refresh every owned server using the Settings-tab
+		// sign-in, read per call so signing in after daemon start works.
+		if db == nil {
+			return nil, fmt.Errorf("%s: plex account mode requires the store", pluginName)
+		}
+		bucket := db.Bucket(mediaserver.PlexSettingsBucket)
+		return &refreshPlugin{backend: backend, client: mediaserver.NewPlexAccount(func() string {
+			return mediaserver.PlexAccountToken(bucket)
+		})}, nil
+	}
 	c, err := mediaserver.New(backend, url, token)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", pluginName, err)

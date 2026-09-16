@@ -7,6 +7,8 @@ and at most once per run, however many entries arrived. A failed rescan is
 logged but never fails the downloads (the server will pick the files up on
 its own schedule).
 
+With `backend="plex"` and **no** `url`/`token`, **account mode** refreshes every owned server via the Settings → Plex Account sign-in.
+
 ## Config
 
 | Key | Type | Required | Description |

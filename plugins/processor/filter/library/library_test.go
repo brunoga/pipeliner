@@ -13,6 +13,7 @@ import (
 	"github.com/brunoga/pipeliner/internal/mediaserver"
 	"github.com/brunoga/pipeliner/internal/plugin"
 	"github.com/brunoga/pipeliner/internal/quality"
+	"github.com/brunoga/pipeliner/internal/store"
 )
 
 // fakeDirEntry satisfies fs.DirEntry for walk stubs.
@@ -207,7 +208,7 @@ func TestValidate(t *testing.T) {
 	if errs := validate(map[string]any{}); len(errs) == 0 {
 		t.Error("missing paths must fail validation")
 	}
-	if errs := validate(map[string]any{"paths": []any{"/x"}, "backend": "plex"}); len(errs) == 0 {
+	if errs := validate(map[string]any{"paths": []any{"/x"}, "backend": "emby"}); len(errs) == 0 {
 		t.Error("unsupported backend must fail validation")
 	}
 	if errs := validate(map[string]any{"paths": []any{"/x"}, "bogus": 1}); len(errs) == 0 {
@@ -278,10 +279,42 @@ func TestServerBackendIndexAndStaleKeep(t *testing.T) {
 }
 
 func TestServerBackendValidation(t *testing.T) {
-	if errs := validate(map[string]any{"backend": "plex"}); len(errs) == 0 {
-		t.Error("plex backend without url/token must fail validation")
+	// plex without url/token is ACCOUNT MODE (Settings-tab sign-in) — valid.
+	if errs := validate(map[string]any{"backend": "plex"}); len(errs) != 0 {
+		t.Errorf("plex account mode (no url/token) should validate, got %v", errs)
+	}
+	// …but half a credential pair is a mistake, not account mode.
+	if errs := validate(map[string]any{"backend": "plex", "url": "http://x"}); len(errs) == 0 {
+		t.Error("plex with url but no token must fail validation")
+	}
+	if errs := validate(map[string]any{"backend": "plex", "token": "t"}); len(errs) == 0 {
+		t.Error("plex with token but no url must fail validation")
+	}
+	// jellyfin has no account mode; both remain required.
+	if errs := validate(map[string]any{"backend": "jellyfin"}); len(errs) == 0 {
+		t.Error("jellyfin without url/token must fail validation")
 	}
 	if errs := validate(map[string]any{"backend": "jellyfin", "url": "http://x", "token": "t"}); len(errs) != 0 {
 		t.Errorf("valid jellyfin config: %v", errs)
+	}
+}
+
+// Account mode wiring: no url/token with backend=plex builds an account
+// client from the store; without a store it errors clearly.
+func TestPlexAccountModeConstruction(t *testing.T) {
+	if _, err := newPlugin(map[string]any{"backend": "plex"}, nil); err == nil {
+		t.Error("account mode without a store must error")
+	}
+	db, err := store.OpenSQLite(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	p, err := newPlugin(map[string]any{"backend": "plex"}, db)
+	if err != nil {
+		t.Fatalf("account mode with a store: %v", err)
+	}
+	if p.(*libraryPlugin).client == nil {
+		t.Error("account mode must set a client")
 	}
 }

@@ -180,3 +180,61 @@ function traktUntil(iso, nowMs) {
   if (s < 172800) return 'in ' + Math.round(s / 3600) + 'h';
   return 'in ' + Math.round(s / 86400) + 'd';
 }
+
+// ── Plex account (Settings tab) ──────────────────────────────────────────────
+// One Sign-in-with-Plex shared by every Plex integration: the library filter
+// and library_refresh sink in account mode, and the Tools reconcile. Uses the
+// PIN "link" flow — approval happens on plex.tv, no password enters pipeliner.
+
+async function loadPlexAccountStatus() {
+  const host = document.getElementById('plex-account-status');
+  if (!host) return;
+  try {
+    const r = await fetch('/api/tools/plex');
+    if (!r.ok) { host.innerHTML = ''; return; }
+    const st = await r.json();
+    host.innerHTML = plexAccountStatusHTML(st.has_token);
+  } catch (e) { host.innerHTML = ''; }
+}
+
+// plexAccountStatusHTML renders the signed-in indicator. Pure for testing.
+function plexAccountStatusHTML(hasToken) {
+  return hasToken
+    ? '<div class="trakt-status trakt-status-ok">✓ Signed in — token saved; sign in again any time to replace it.</div>'
+    : '<div class="trakt-status trakt-status-none">Not signed in — Plex integrations in account mode will wait until you sign in.</div>';
+}
+
+let _plexSettingsPollTimer = null;
+async function plexStartSignIn() {
+  const status = document.getElementById('plex-signin-status');
+  if (_plexSettingsPollTimer) { clearInterval(_plexSettingsPollTimer); _plexSettingsPollTimer = null; }
+  status.textContent = 'starting…';
+  try {
+    const r = await fetch('/api/tools/plex/auth/start', {method: 'POST'});
+    if (!r.ok) { status.textContent = 'error: ' + await r.text(); return; }
+    const pin = await r.json();
+    window.open(pin.auth_url, '_blank', 'noopener');
+    status.textContent = 'approve pipeliner in the plex.tv tab…';
+    let polls = 0;
+    _plexSettingsPollTimer = setInterval(async () => {
+      polls++;
+      if (polls > 60) { // ~3 minutes
+        clearInterval(_plexSettingsPollTimer); _plexSettingsPollTimer = null;
+        status.textContent = 'timed out — click Sign in with Plex to retry';
+        return;
+      }
+      try {
+        const pr = await fetch('/api/tools/plex/auth/poll?id=' + pin.id);
+        if (!pr.ok) return; // transient; keep polling
+        const st = await pr.json();
+        if (st.done) {
+          clearInterval(_plexSettingsPollTimer); _plexSettingsPollTimer = null;
+          status.textContent = '✓ signed in';
+          loadPlexAccountStatus();
+        }
+      } catch (e) { /* transient; keep polling */ }
+    }, 3000);
+  } catch (e) {
+    status.textContent = 'error: ' + e.message;
+  }
+}

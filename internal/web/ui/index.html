@@ -262,6 +262,13 @@
       <div id="trakt-auth-body"></div>
     </div>
   </section>
+  <section class="settings-section">
+    <h2>Plex Account</h2>
+    <p style="font-size:12px;color:var(--muted);margin-bottom:16px">Sign in once and every Plex integration shares the account: the <code>library</code> filter and <code>library_refresh</code> sink in account mode (no <code>url</code>/<code>token</code> config needed), and the Tools → Plex reconcile. Approval happens on plex.tv — no password is entered here, and two-factor auth works. The token is stored in <code>pipeliner.db</code>.</p>
+    <div id="plex-account-status"></div>
+    <button class="btn-auth" onclick="plexStartSignIn()">Sign in with Plex</button>
+    <span id="plex-signin-status" style="font-size:12px;color:var(--muted);margin-left:10px"></span>
+  </section>
 </div>
 
 <div id="tab-db" style="display:none" role="tabpanel" aria-labelledby="tab-btn-db">
