@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -225,5 +226,56 @@ func TestPlexAccountClientUnreachableOwnedFails(t *testing.T) {
 	c := NewPlexAccount(func() string { return "acct" })
 	if _, err := c.ListItems(context.Background()); err == nil {
 		t.Error("unreachable owned server must fail the listing")
+	}
+}
+
+// TestConnectFallsBackToRelay: a server whose direct connections are all
+// unreachable (e.g. a port-forward that only works from inside its LAN) is
+// still reachable through Plex's relay, which Connect tries last.
+func TestConnectFallsBackToRelay(t *testing.T) {
+	relay := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/identity" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer relay.Close()
+
+	dead := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	deadURL := dead.URL
+	dead.Close()
+
+	s := DiscoveredServer{Name: "Hex", Token: "t", conns: []plexConnection{
+		{URI: deadURL, Local: false, Relay: false},
+		{URI: relay.URL, Local: false, Relay: true},
+	}}
+	base, err := s.Connect(context.Background())
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	if base != relay.URL {
+		t.Errorf("should land on the relay, got %q", base)
+	}
+}
+
+// TestDiscoveryRequestsRelay: the resources call must ask plex.tv for relay
+// connections, or servers without a working port-forward stay unreachable.
+func TestDiscoveryRequestsRelay(t *testing.T) {
+	var query string
+	tv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		query = r.URL.RawQuery
+		json.NewEncoder(w).Encode([]map[string]any{}) //nolint:errcheck
+	}))
+	defer tv.Close()
+	orig := PlexTVBaseURL
+	PlexTVBaseURL = tv.URL
+	defer func() { PlexTVBaseURL = orig }()
+
+	if _, err := DiscoverPlexServers(context.Background(), "tok"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(query, "includeRelay=1") {
+		t.Errorf("resources query must include includeRelay=1, got %q", query)
 	}
 }

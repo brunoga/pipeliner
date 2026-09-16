@@ -58,7 +58,11 @@ func DiscoverPlexServers(ctx context.Context, accountToken string) ([]Discovered
 		"X-Plex-Client-Identifier": {plexClientID},
 		"X-Plex-Product":           {"pipeliner"},
 	}
-	url := PlexTVBaseURL + "/api/v2/resources?includeHttps=1"
+	// includeRelay: when no direct connection is reachable (a server whose
+	// port-forward only works from inside its LAN), Plex's relay endpoints
+	// still work from anywhere. Connect sorts them last, so a relay is only
+	// used when everything direct failed.
+	url := PlexTVBaseURL + "/api/v2/resources?includeHttps=1&includeRelay=1"
 	if err := getJSON(ctx, hc, url, header, &resources); err != nil {
 		return nil, fmt.Errorf("plex.tv resources: %w", err)
 	}
