@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"sync"
 
 	"github.com/brunoga/pipeliner/internal/mediaserver"
@@ -210,4 +211,48 @@ func (s *Server) apiToolsPlexForget(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, map[string]any{"forgotten": forgotten})
+}
+
+// apiToolsPlexAuthStart begins a Plex PIN sign-in: creates a PIN on plex.tv
+// and returns the approval URL for the user to open. No credentials pass
+// through pipeliner and 2FA works unchanged.
+//
+// POST /api/tools/plex/auth/start
+func (s *Server) apiToolsPlexAuthStart(w http.ResponseWriter, r *http.Request) {
+	pin, err := mediaserver.StartPlexPin(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	writeJSON(w, pin)
+}
+
+// apiToolsPlexAuthPoll checks a PIN once; when the user has approved it, the
+// account token is saved for the reconcile tool and done=true is returned.
+//
+// GET /api/tools/plex/auth/poll?id=N
+func (s *Server) apiToolsPlexAuthPoll(w http.ResponseWriter, r *http.Request) {
+	if s.db == nil {
+		http.Error(w, "database not available", http.StatusNotImplemented)
+		return
+	}
+	id, err := strconv.Atoi(r.URL.Query().Get("id"))
+	if err != nil || id <= 0 {
+		http.Error(w, "missing id", http.StatusBadRequest)
+		return
+	}
+	token, err := mediaserver.CheckPlexPin(r.Context(), id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	if token == "" {
+		writeJSON(w, map[string]any{"done": false})
+		return
+	}
+	if err := s.db.Bucket(toolsSettingsBucket).Put(plexTokenKey, token); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]any{"done": true})
 }

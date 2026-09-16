@@ -3,8 +3,10 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/brunoga/pipeliner/internal/mediaserver"
@@ -176,5 +178,82 @@ func TestPlexToolReconcileEndToEnd(t *testing.T) {
 	}
 	if !tracker.IsSeen("avatar", 2009, true) {
 		t.Error("untouched movie must stay tracked")
+	}
+}
+
+// TestPlexSignInFlow drives the PIN flow against a fake plex.tv: start
+// returns an approval URL; polling is pending until the fake attaches a
+// token; the approved token is saved for the reconcile tool.
+func TestPlexSignInFlow(t *testing.T) {
+	approved := false
+	tv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v2/pins":
+			if r.Header.Get("X-Plex-Client-Identifier") == "" {
+				http.Error(w, "missing client identifier", http.StatusBadRequest)
+				return
+			}
+			w.WriteHeader(http.StatusCreated)
+			fmt.Fprint(w, `{"id": 777, "code": "abc123"}`)
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v2/pins/777":
+			if approved {
+				fmt.Fprint(w, `{"id": 777, "authToken": "linked-token"}`)
+			} else {
+				fmt.Fprint(w, `{"id": 777, "authToken": null}`)
+			}
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer tv.Close()
+	orig := mediaserver.PlexTVBaseURL
+	mediaserver.PlexTVBaseURL = tv.URL
+	defer func() { mediaserver.PlexTVBaseURL = orig }()
+
+	db, err := store.OpenSQLite(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	srv := New(nil, stubDaemon{}, NewHistory(), NewBroadcaster(), "test", "user", "pass")
+	srv.SetStore(db)
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/tools/plex/auth/start", srv.apiToolsPlexAuthStart)
+	mux.HandleFunc("GET /api/tools/plex/auth/poll", srv.apiToolsPlexAuthPoll)
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	var pin struct {
+		ID      int    `json:"id"`
+		AuthURL string `json:"auth_url"`
+	}
+	resp := postJSON(t, ts.URL+"/api/tools/plex/auth/start", nil)
+	json.NewDecoder(resp.Body).Decode(&pin) //nolint:errcheck
+	resp.Body.Close()
+	if pin.ID != 777 || !strings.Contains(pin.AuthURL, "app.plex.tv/auth") || !strings.Contains(pin.AuthURL, "abc123") {
+		t.Fatalf("pin: %+v", pin)
+	}
+
+	var st struct {
+		Done bool `json:"done"`
+	}
+	resp = getURL(t, ts.URL+"/api/tools/plex/auth/poll?id=777")
+	json.NewDecoder(resp.Body).Decode(&st) //nolint:errcheck
+	resp.Body.Close()
+	if st.Done {
+		t.Fatal("poll should be pending before approval")
+	}
+
+	approved = true
+	resp = getURL(t, ts.URL+"/api/tools/plex/auth/poll?id=777")
+	json.NewDecoder(resp.Body).Decode(&st) //nolint:errcheck
+	resp.Body.Close()
+	if !st.Done {
+		t.Fatal("poll should report done after approval")
+	}
+
+	var tok string
+	if found, _ := db.Bucket(toolsSettingsBucket).Get(plexTokenKey, &tok); !found || tok != "linked-token" {
+		t.Errorf("approved token should be saved, got %q", tok)
 	}
 }
