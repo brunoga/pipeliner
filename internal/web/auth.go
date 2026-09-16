@@ -125,8 +125,30 @@ func (c credentials) matches(username, password string) bool {
 // SPA's fetch wrapper can detect the expiry and trigger a full-page redirect
 // — a 303→/login would otherwise be auto-followed by the browser and the JS
 // would see a successful HTML response that doesn't parse as JSON.
+// SetAPIToken enables Bearer-token authentication for the whole API. When
+// set, requests carrying "Authorization: Bearer <token>" bypass session auth
+// entirely — they neither create nor invalidate browser sessions, so
+// automation no longer kicks the single active UI session the way a scripted
+// /login does. Treat the token like a password. Empty (the default) disables
+// bearer auth.
+func (s *Server) SetAPIToken(token string) { s.apiToken = token }
+
+// bearerAuthorized reports whether the request carries the configured API
+// token. Constant-time comparison; always false when no token is configured.
+func (s *Server) bearerAuthorized(r *http.Request) bool {
+	if s.apiToken == "" {
+		return false
+	}
+	tok, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	return ok && subtle.ConstantTimeCompare([]byte(tok), []byte(s.apiToken)) == 1
+}
+
 func (s *Server) requireSession(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.bearerAuthorized(r) {
+			next.ServeHTTP(w, r)
+			return
+		}
 		cookie, err := r.Cookie(sessionCookie)
 		if err != nil || !s.sessions.valid(cookie.Value) {
 			if strings.HasPrefix(r.URL.Path, "/api/") {

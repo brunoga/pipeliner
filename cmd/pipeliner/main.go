@@ -636,6 +636,9 @@ func cmdDaemon(args []string) int {
 		if tok := os.Getenv("PIPELINER_INGEST_TOKEN"); tok != "" {
 			ws.SetIngestToken(tok)
 		}
+		if tok := os.Getenv("PIPELINER_API_TOKEN"); tok != "" {
+			ws.SetAPIToken(tok)
+		}
 		ws.SetLogFile(logFilePath(*cfgPath), logFileMaxArchives)
 		ws.SetPluginLogControl(perPlugin)
 		ws.SetConfigValidator(func(data []byte) ([]string, []string) {

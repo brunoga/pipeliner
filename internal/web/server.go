@@ -48,6 +48,7 @@ type Server struct {
 	tasks       []TaskInfo
 	daemon      DaemonControl
 	ingestToken string // non-empty enables POST /api/ingest/{queue}
+	apiToken    string // non-empty allows Bearer-token access to the whole API
 	traceStore  *traces.Store
 	history     *History
 	bcast       *Broadcaster
