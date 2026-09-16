@@ -318,3 +318,83 @@ func TestPlexAccountModeConstruction(t *testing.T) {
 		t.Error("account mode must set a client")
 	}
 }
+
+// --- quality-aware server comparison ---
+
+func TestServerItemQualityMapping(t *testing.T) {
+	q := serverItemQuality(mediaserver.Item{
+		Resolution: "2160p", VideoCodec: "hevc",
+		AudioCodec: "truehd", AudioProfile: "dolby truehd + dolby atmos",
+	})
+	if q.String() == "" || q.Resolution == 0 {
+		t.Fatalf("parse failed: %+v", q)
+	}
+	if got := q.String(); !strings.Contains(got, "2160p") || !strings.Contains(got, "H.265") || !strings.Contains(got, "Atmos") {
+		t.Errorf("mapped quality: %q", got)
+	}
+	// dca maps onto the parser's DTS vocabulary.
+	q = serverItemQuality(mediaserver.Item{Resolution: "1080p", AudioCodec: "dca"})
+	if got := q.String(); !strings.Contains(got, "DTS") {
+		t.Errorf("dca should map to DTS, got %q", got)
+	}
+}
+
+// TestAtmosUpgradePasses: equal resolution, library copy without Atmos,
+// incoming release with Atmos → passes as an upgrade.
+func TestAtmosUpgradePasses(t *testing.T) {
+	f := &fakeMSClient{items: []mediaserver.Item{
+		{Type: "movie", Title: "Dune Part Two", Year: 2024, Resolution: "2160p",
+			VideoCodec: "hevc", AudioCodec: "eac3", AudioProfile: "dolby digital plus"},
+	}}
+	pl, err := newPlugin(map[string]any{"backend": "plex", "url": "http://x", "token": "t"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := pl.(*libraryPlugin)
+	p.client = f
+
+	up := mkEntry("Dune Part Two", map[string]any{entry.FieldMediaType: "movie", entry.FieldVideoYear: 2024})
+	up.SetQuality(quality.Parse("Dune.Part.Two.2024.2160p.TrueHD.Atmos.x265"))
+	process(t, p, up)
+	if up.IsRejected() {
+		t.Errorf("Atmos over non-Atmos at equal resolution should pass: %s", up.RejectReason)
+	}
+
+	same := mkEntry("Dune Part Two", map[string]any{entry.FieldMediaType: "movie", entry.FieldVideoYear: 2024})
+	same.SetQuality(quality.Parse("Dune.Part.Two.2024.2160p.DDP5.1.x265"))
+	process(t, p, same)
+	if !same.IsRejected() {
+		t.Error("equal quality must be rejected as already-in-library")
+	}
+}
+
+// TestUnknownDimsNeverUpgrade is the masking regression: a release naming a
+// source (BluRay) or HDR must NOT count as an upgrade over a library copy
+// whose source/HDR are unknown — without the mask, every release would
+// "upgrade" every server-indexed entry through the lexicographic comparison.
+func TestUnknownDimsNeverUpgrade(t *testing.T) {
+	f := &fakeMSClient{items: []mediaserver.Item{
+		{Type: "movie", Title: "Heat", Year: 1995, Resolution: "1080p"}, // resolution only
+	}}
+	pl, err := newPlugin(map[string]any{"backend": "plex", "url": "http://x", "token": "t"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := pl.(*libraryPlugin)
+	p.client = f
+
+	e := mkEntry("Heat", map[string]any{entry.FieldMediaType: "movie", entry.FieldVideoYear: 1995})
+	e.SetQuality(quality.Parse("Heat.1995.1080p.BluRay.REMUX.TrueHD.Atmos.HDR10.x265"))
+	process(t, p, e)
+	if !e.IsRejected() {
+		t.Error("source/codec/audio/HDR unknown on the library copy must not count as upgrades")
+	}
+
+	// Resolution is always known — a real resolution upgrade still passes.
+	e2 := mkEntry("Heat", map[string]any{entry.FieldMediaType: "movie", entry.FieldVideoYear: 1995})
+	e2.SetQuality(quality.Parse("Heat.1995.2160p.WEB-DL.x265"))
+	process(t, p, e2)
+	if e2.IsRejected() {
+		t.Errorf("resolution upgrade must still pass: %s", e2.RejectReason)
+	}
+}

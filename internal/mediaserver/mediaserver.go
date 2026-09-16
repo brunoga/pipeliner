@@ -3,9 +3,10 @@
 // their video resolution) and triggering a library rescan. Both clients speak
 // JSON and authenticate with the server's API token.
 //
-// Resolution is the only quality signal these APIs expose reliably, so the
-// library filter's server backends compare resolution alone (the filesystem
-// backend, which parses release names, also sees source/codec).
+// Listings expose resolution, video/audio codec, and the audio profile
+// (which names Atmos), so the library filter grades server copies on those;
+// source (BluRay/WEB) and HDR are not available from listings and stay
+// unknown.
 package mediaserver
 
 import (
@@ -26,6 +27,11 @@ type Item struct {
 	Title      string // movie title (movies only)
 	Year       int    // movies only
 	Resolution string // normalized: "2160p", "1080p", "720p", "480p", or "" when unknown
+	// Codec/audio metadata, straight from the server's listing where exposed
+	// (Plex media attributes, Jellyfin media streams). Empty when unknown.
+	VideoCodec   string // e.g. "hevc", "h264", "av1"
+	AudioCodec   string // e.g. "truehd", "eac3", "dca"
+	AudioProfile string // e.g. "dolby truehd + dolby atmos"
 }
 
 // EpisodeID returns the SxxEyy identifier for episode items.
@@ -140,6 +146,9 @@ func (c *plexClient) ListItems(ctx context.Context) ([]Item, error) {
 					Year             int    `json:"year"`
 					Media            []struct {
 						VideoResolution string `json:"videoResolution"`
+						VideoCodec      string `json:"videoCodec"`
+						AudioCodec      string `json:"audioCodec"`
+						AudioProfile    string `json:"audioProfile"`
 					} `json:"Media"`
 				} `json:"Metadata"`
 			} `json:"MediaContainer"`
@@ -149,16 +158,21 @@ func (c *plexClient) ListItems(ctx context.Context) ([]Item, error) {
 			return nil, fmt.Errorf("plex: section %s: %w", d.Key, err)
 		}
 		for _, m := range content.MediaContainer.Metadata {
-			res := ""
+			var res, vc, ac, ap string
 			if len(m.Media) > 0 {
 				res = normalizeResolution(m.Media[0].VideoResolution)
+				vc = m.Media[0].VideoCodec
+				ac = m.Media[0].AudioCodec
+				ap = m.Media[0].AudioProfile
 			}
 			switch m.Type {
 			case "episode":
 				items = append(items, Item{Type: "episode", Show: m.GrandparentTitle,
-					Season: m.ParentIndex, Episode: m.Index, Resolution: res})
+					Season: m.ParentIndex, Episode: m.Index, Resolution: res,
+					VideoCodec: vc, AudioCodec: ac, AudioProfile: ap})
 			case "movie":
-				items = append(items, Item{Type: "movie", Title: m.Title, Year: m.Year, Resolution: res})
+				items = append(items, Item{Type: "movie", Title: m.Title, Year: m.Year, Resolution: res,
+					VideoCodec: vc, AudioCodec: ac, AudioProfile: ap})
 			}
 		}
 	}
@@ -204,8 +218,10 @@ func (c *jellyfinClient) ListItems(ctx context.Context) ([]Item, error) {
 			IndexNumber       int    `json:"IndexNumber"`
 			ProductionYear    int    `json:"ProductionYear"`
 			MediaStreams      []struct {
-				Type   string `json:"Type"`
-				Height int    `json:"Height"`
+				Type    string `json:"Type"`
+				Height  int    `json:"Height"`
+				Codec   string `json:"Codec"`
+				Profile string `json:"Profile"`
 			} `json:"MediaStreams"`
 		} `json:"Items"`
 	}
@@ -215,20 +231,30 @@ func (c *jellyfinClient) ListItems(ctx context.Context) ([]Item, error) {
 	}
 	items := make([]Item, 0, len(out.Items))
 	for _, it := range out.Items {
-		res := ""
+		var res, vc, ac, ap string
 		for _, s := range it.MediaStreams {
-			if s.Type == "Video" && s.Height > 0 {
-				res = normalizeResolution(fmt.Sprint(heightBucket(s.Height)))
-				break
+			switch s.Type {
+			case "Video":
+				if res == "" && s.Height > 0 {
+					res = normalizeResolution(fmt.Sprint(heightBucket(s.Height)))
+					vc = s.Codec
+				}
+			case "Audio":
+				if ac == "" {
+					ac = s.Codec
+					ap = s.Profile
+				}
 			}
 		}
 		switch it.Type {
 		case "Episode":
 			items = append(items, Item{Type: "episode", Show: it.SeriesName,
-				Season: it.ParentIndexNumber, Episode: it.IndexNumber, Resolution: res})
+				Season: it.ParentIndexNumber, Episode: it.IndexNumber, Resolution: res,
+				VideoCodec: vc, AudioCodec: ac, AudioProfile: ap})
 		case "Movie":
 			items = append(items, Item{Type: "movie", Title: it.Name,
-				Year: it.ProductionYear, Resolution: res})
+				Year: it.ProductionYear, Resolution: res,
+				VideoCodec: vc, AudioCodec: ac, AudioProfile: ap})
 		}
 	}
 	return items, nil
