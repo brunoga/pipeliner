@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.25.0] - 2026-09-16
+
+One Plex sign-in for everything, Trakt-style.
+
+### Changed
+
+- **Plex sign-in moves to Settings and is shared by every Plex integration** ([#408](https://github.com/brunoga/pipeliner/pull/408)). The Sign-in-with-Plex flow now lives under **Settings → Plex Account** (beside Trakt Authorization) with a signed-in indicator, and the saved account token becomes a shared credential: the `library` filter and `library_refresh` sink gain an **account mode** — `backend="plex"` with no `url`/`token` spans every server you own, discovered via plex.tv — and the Tools Plex reconcile uses the same account (manual token paste remains as an override). The token is read per operation, so signing in after daemon start takes effect without a restart, and existing sign-ins carry over unchanged.
+
+**Why 1.25.0**: additive account mode on two plugins plus the Settings-tab integration. A minor bump per SemVer.
+
 ## [1.24.0] - 2026-09-16
 
 Sign in with Plex — no more hunting for tokens.
