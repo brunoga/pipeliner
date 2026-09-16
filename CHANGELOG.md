@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.25.1] - 2026-09-16
+
+A connectivity fix for Plex servers unreachable by direct connection.
+
+### Fixed
+
+- **Plex account mode falls back to the Plex relay** ([#410](https://github.com/brunoga/pipeliner/pull/410)). A server whose port-forward only answers from inside its LAN (commonly a Windows Firewall rule scoped to the local subnet) was reported unreachable from the daemon host even though the Plex web app — running inside the LAN — reaches it fine. Server discovery now also requests Plex's relay connections; direct connections are still preferred, with the bandwidth-capped relay used only when everything direct failed, which is exactly when it is the only way through.
+
+**Why 1.25.1**: a connectivity patch for the account mode shipped in 1.25.0. A patch bump per SemVer.
+
 ## [1.25.0] - 2026-09-16
 
 One Plex sign-in for everything, Trakt-style.
