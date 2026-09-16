@@ -5,6 +5,17 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.26.0] - 2026-09-16
+
+An API token for automation, and quality-aware library comparison.
+
+### Added
+
+- **API token for automation** ([#412](https://github.com/brunoga/pipeliner/pull/412)). The UI allows a single active session — every login kicks all others — so a scripted `/login` silently kicked the person using the UI (the cause of a "page stopped rendering" report). Set `PIPELINER_API_TOKEN` in the daemon environment and scripts can call the whole API with `Authorization: Bearer <token>` instead: no session created, none invalidated. Unset disables bearer auth.
+- **`library` filter grades server copies by codec and audio** ([#413](https://github.com/brunoga/pipeliner/pull/413)). Plex/Jellyfin listings expose video codec, audio codec, and the audio profile (which names Atmos); the server-backed index now grades copies through the same quality vocabulary release names use, so a TrueHD-Atmos release passes as an upgrade over a plain copy at equal resolution. Upgrades are judged only on dimensions the library copy actually knows — a release merely naming a source (BluRay/WEB) or HDR never false-upgrades entries whose source/HDR are unknown (a latent hazard that also affected sparsely-named files on the filesystem backend).
+
+**Why 1.26.0**: two additive features. A minor bump per SemVer.
+
 ## [1.25.1] - 2026-09-16
 
 A connectivity fix for Plex servers unreachable by direct connection.
