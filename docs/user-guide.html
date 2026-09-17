@@ -155,6 +155,7 @@ td code{font-size:11px}
     <a href="#series" class="sub">series</a>
     <a href="#movies" class="sub">movies</a>
     <a href="#premiere" class="sub">premiere</a>
+    <a href="#bitrate" class="sub">bitrate</a>
     <a href="#condition" class="sub">condition</a>
     <a href="#route" class="sub">route()</a>
     <a href="#route-field-inference" class="sub">Field inference</a>
@@ -1222,7 +1223,7 @@ pipeline("mixed", schedule="30m")</code></pre>
 
 <!-- ─────────── metainfo_tmdb ─────────── -->
 <h2 id="metainfo_tmdb">metainfo_tmdb</h2>
-<p>Enriches movie entries with TMDb metadata. Only processes entries whose title parses as a movie (title + year). Results cached in <code>pipeliner.db</code>. When a year-filtered search returns no results, the plugin automatically retries without the year filter — this handles releases where the year in the filename is wrong (off-by-one error, regional release difference, etc.). The yearless retry results are filtered so that only candidates whose title fuzzy-matches the searched title are considered; this prevents popularity-ranked mismatches (e.g. "Mother's Day" appearing for a search of "Mother"). Empty results are never cached — the lookup will be retried on every run until a match is found.</p>
+<p>Enriches movie entries with TMDb metadata. Only processes entries whose title parses as a movie (title + year). Results cached in <code>pipeliner.db</code>. When a year-filtered search returns no results, the plugin automatically retries without the year filter — this handles releases where the year in the filename is wrong (off-by-one error, regional release difference, etc.). The yearless retry results are filtered so that only candidates whose title fuzzy-matches the searched title are considered; this prevents popularity-ranked mismatches (e.g. "Mother's Day" appearing for a search of "Mother"). Empty results are never cached — the lookup will be retried on every run until a match is found. Also sets <code>movie_digital_release</code> and <code>movie_physical_release</code> (earliest US-preferred dates from TMDb), so <code>condition</code> rules can gate on the release window &mdash; e.g. hold 3D conversions until the disc exists: <code>{"reject": 'movie_physical_release == "" or movie_physical_release &gt; daysago(0)'}</code>.</p>
 
 <table>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
@@ -1485,6 +1486,20 @@ output("transmission", upstream=best, host="localhost")
 pipeline("new-shows", schedule="1h")</code></pre>
 
 <!-- ─────────── condition ─────────── -->
+<h2 id="bitrate">bitrate</h2>
+<p>Gates entries on their <strong>implied bitrate</strong> — torrent size divided by runtime — the one quality signal a release name cannot fake. A "2160p" encode at 12&nbsp;Mbps is starved no matter what the name claims (the motivating case: a 4K 3D conversion that looked bad on screen but carried no CAM/TS marker). Both inputs are known <em>before</em> downloading: <code>torrent_file_size</code> from the indexer feed or <a href="#metainfo_torrent"><code>metainfo_torrent</code></a>, <code>video_runtime</code> from TMDb/TVDB enrichment.</p>
+<p>The computed rate is stamped on every entry as <code>video_bitrate_mbps</code> (usable in <a href="#condition"><code>condition</code></a> rules and notify templates); the optional per-resolution floors reject below-threshold entries directly. Entries missing size or runtime are left untouched — the gate never rejects on absent data.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>min_2160p</code></td><td>no</td><td>&mdash;</td><td>Minimum implied Mbps for 2160p entries (0/unset = no floor)</td></tr>
+  <tr><td><code>min_1080p</code></td><td>no</td><td>&mdash;</td><td>Minimum implied Mbps for 1080p entries</td></tr>
+  <tr><td><code>min_720p</code></td><td>no</td><td>&mdash;</td><td>Minimum implied Mbps for 720p entries</td></tr>
+  <tr><td><code>min_other</code></td><td>no</td><td>&mdash;</td><td>Minimum implied Mbps for other/unknown resolutions</td></tr>
+</table>
+
+<pre><code>rate = process("bitrate", upstream=meta, min_2160p=15, min_1080p=6)</code></pre>
+
 <h2 id="condition">condition</h2>
 <p>Accepts or rejects entries using boolean expressions. See the <a href="#expressions">Expression Language</a> section for full syntax.</p>
 

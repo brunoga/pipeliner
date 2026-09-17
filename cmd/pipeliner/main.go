@@ -38,6 +38,7 @@ import (
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/content"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/dedup"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/exists"
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/bitrate"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/library"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/limit"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/list_match"

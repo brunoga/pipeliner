@@ -46,6 +46,8 @@ func init() {
 			entry.FieldVideoPopularity,
 			entry.FieldVideoVotes,
 			entry.FieldVideoHomepage,
+			entry.FieldMovieDigitalRelease,
+			entry.FieldMoviePhysicalRelease,
 			"tmdb_id",
 		},
 		// trakt_tmdb_id is used when present; video_year provides the year hint when present but
@@ -332,6 +334,18 @@ func populateFromDetail(e *entry.Entry, detail *itmdb.MovieDetail) {
 			break
 		}
 	}
+
+	// Release-window dates: earliest digital (type 4) and physical (type 5)
+	// release, preferring the US entry and falling back to the earliest
+	// worldwide. Gates like "hold conversions until the disc exists" read
+	// these; absent types leave the field unset so such rules stay inert
+	// for films without an announced disc.
+	if t, ok := earliestRelease(detail.ReleaseDates.Results, 4); ok {
+		e.Set(entry.FieldMovieDigitalRelease, t)
+	}
+	if t, ok := earliestRelease(detail.ReleaseDates.Results, 5); ok {
+		e.Set(entry.FieldMoviePhysicalRelease, t)
+	}
 	e.Set(entry.FieldMediaType, entry.MediaTypeMovie)
 	e.SetMovieInfo(mi)
 }
@@ -411,4 +425,34 @@ func releaseYear(date string) int {
 		return 0
 	}
 	return y
+}
+
+// earliestRelease returns the earliest release date of the given type
+// (4 = digital, 5 = physical), preferring the US entry when it has one.
+func earliestRelease(countries []itmdb.CountryRelease, relType int) (time.Time, bool) {
+	var best time.Time
+	pick := func(iso string) {
+		for _, cr := range countries {
+			if iso != "" && cr.ISO != iso {
+				continue
+			}
+			for _, rd := range cr.Dates {
+				if rd.Type != relType || len(rd.ReleaseDate) < 10 {
+					continue
+				}
+				t, err := time.Parse("2006-01-02", rd.ReleaseDate[:10])
+				if err != nil {
+					continue
+				}
+				if best.IsZero() || t.Before(best) {
+					best = t
+				}
+			}
+		}
+	}
+	pick("US")
+	if best.IsZero() {
+		pick("")
+	}
+	return best, !best.IsZero()
 }

@@ -681,3 +681,86 @@ func TestEnrichedNotSetWhenDetailUnavailable(t *testing.T) {
 		t.Error("enriched must not be set when detail data is unavailable and nothing is cached")
 	}
 }
+
+// TestReleaseWindowFields: digital/physical release dates flow from the
+// detail response into entry fields, preferring US and picking the earliest;
+// absent types leave the fields unset.
+func TestReleaseWindowFields(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/3/search/movie":
+			json.NewEncoder(w).Encode(map[string]any{"results": []map[string]any{ //nolint:errcheck
+				{"id": 7, "title": "Supergirl", "release_date": "2026-06-26"},
+			}})
+		case "/3/movie/7":
+			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+				"id": 7, "title": "Supergirl", "release_date": "2026-06-26",
+				"release_dates": map[string]any{"results": []map[string]any{
+					{"iso_3166_1": "DE", "release_dates": []map[string]any{
+						{"type": 4, "release_date": "2026-08-15T00:00:00.000Z"},
+					}},
+					{"iso_3166_1": "US", "release_dates": []map[string]any{
+						{"type": 3, "release_date": "2026-06-26T00:00:00.000Z"},
+						{"type": 4, "release_date": "2026-07-28T00:00:00.000Z"},
+						{"type": 5, "release_date": "2026-09-08T00:00:00.000Z"},
+					}},
+				}},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	c := itmdb.New("k")
+	c.BaseURL = srv.URL + "/3"
+	p := &tmdbPlugin{client: c}
+
+	e := entry.New("Supergirl.2026.1080p.WEB-DL", "http://x/a")
+	if err := p.annotate(context.Background(), makeCtx(), e); err != nil {
+		t.Fatal(err)
+	}
+	if got := e.GetTime(entry.FieldMovieDigitalRelease); got.Format("2006-01-02") != "2026-07-28" {
+		t.Errorf("digital release: %v (US preferred over DE)", got)
+	}
+	if got := e.GetTime(entry.FieldMoviePhysicalRelease); got.Format("2006-01-02") != "2026-09-08" {
+		t.Errorf("physical release: %v", got)
+	}
+}
+
+// TestReleaseWindowFieldsAbsent: a film with no digital/physical entries
+// leaves the fields unset so deferral rules stay inert.
+func TestReleaseWindowFieldsAbsent(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/3/search/movie":
+			json.NewEncoder(w).Encode(map[string]any{"results": []map[string]any{ //nolint:errcheck
+				{"id": 8, "title": "Indie", "release_date": "2026-01-01"},
+			}})
+		case "/3/movie/8":
+			json.NewEncoder(w).Encode(map[string]any{"id": 8, "title": "Indie", //nolint:errcheck
+				"release_dates": map[string]any{"results": []map[string]any{
+					{"iso_3166_1": "US", "release_dates": []map[string]any{
+						{"type": 3, "release_date": "2026-01-01T00:00:00.000Z"},
+					}},
+				}}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	c := itmdb.New("k")
+	c.BaseURL = srv.URL + "/3"
+	p := &tmdbPlugin{client: c}
+	e := entry.New("Indie.2026.1080p.WEB-DL", "http://x/b")
+	if err := p.annotate(context.Background(), makeCtx(), e); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := e.Fields[entry.FieldMovieDigitalRelease]; ok {
+		t.Error("digital release should be unset")
+	}
+	if _, ok := e.Fields[entry.FieldMoviePhysicalRelease]; ok {
+		t.Error("physical release should be unset")
+	}
+}
