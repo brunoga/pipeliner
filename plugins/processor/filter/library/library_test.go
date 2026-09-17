@@ -398,3 +398,52 @@ func TestUnknownDimsNeverUpgrade(t *testing.T) {
 		t.Errorf("resolution upgrade must still pass: %s", e2.RejectReason)
 	}
 }
+
+// TestHDRUpgradePasses: with the library copy known-SDR, an HDR/DV release at
+// equal resolution passes as an upgrade; a known-DV copy rejects an HDR10
+// release. This is the deep-scan payoff — knowing the copy's color range is
+// what unlocks HDR-based decisions under the unknown-dims mask.
+func TestHDRUpgradePasses(t *testing.T) {
+	f := &fakeMSClient{items: []mediaserver.Item{
+		{Type: "movie", Title: "Heat", Year: 1995, Resolution: "2160p", ColorRange: "sdr"},
+		{Type: "movie", Title: "Dune", Year: 2021, Resolution: "2160p", ColorRange: "dolby vision"},
+	}}
+	pl, err := newPlugin(map[string]any{"backend": "plex", "url": "http://x", "token": "t"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := pl.(*libraryPlugin)
+	p.client = f
+
+	up := mkEntry("Heat", map[string]any{entry.FieldMediaType: "movie", entry.FieldVideoYear: 1995})
+	up.SetQuality(quality.Parse("Heat.1995.2160p.HDR10.x265"))
+	process(t, p, up)
+	if up.IsRejected() {
+		t.Errorf("HDR10 over a known-SDR copy at equal resolution should pass: %s", up.RejectReason)
+	}
+
+	worse := mkEntry("Dune", map[string]any{entry.FieldMediaType: "movie", entry.FieldVideoYear: 2021})
+	worse.SetQuality(quality.Parse("Dune.2021.2160p.HDR10.x265"))
+	process(t, p, worse)
+	if !worse.IsRejected() {
+		t.Error("HDR10 must not upgrade a known-Dolby-Vision copy")
+	}
+}
+
+func TestDeepScanConstruction(t *testing.T) {
+	// deep_scan validates and constructs with and without a store.
+	if errs := validate(map[string]any{"backend": "plex", "deep_scan": true}); len(errs) != 0 {
+		t.Errorf("deep_scan should validate: %v", errs)
+	}
+	db, err := store.OpenSQLite(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	if _, err := newPlugin(map[string]any{"backend": "plex", "deep_scan": true}, db); err != nil {
+		t.Fatalf("deep_scan account mode: %v", err)
+	}
+	if _, err := newPlugin(map[string]any{"backend": "plex", "url": "http://x", "token": "t", "deep_scan": true}, nil); err != nil {
+		t.Fatalf("deep_scan direct mode without store: %v", err)
+	}
+}

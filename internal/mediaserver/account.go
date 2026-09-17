@@ -42,6 +42,16 @@ func NewPlexAccount(tokenFn func() string) Client {
 
 type plexAccountClient struct {
 	tokenFn func() string
+
+	// deep scanning forwarded to every per-server client, cache-scoped by the
+	// stable server name (connection bases flip between direct and relay).
+	deep       bool
+	rangeCache RangeCache
+}
+
+func (c *plexAccountClient) enableDeepScan(cache RangeCache, _ string) {
+	c.deep = true
+	c.rangeCache = cache
 }
 
 // forEachOwned discovers the account's owned servers, connects to each, and
@@ -68,6 +78,11 @@ func (c *plexAccountClient) forEachOwned(ctx context.Context, fn func(name strin
 		cl, err := New("plex", base, srv.Token)
 		if err != nil {
 			return err
+		}
+		if c.deep {
+			if pc, ok := cl.(*plexClient); ok {
+				pc.enableDeepScan(c.rangeCache, srv.Name)
+			}
 		}
 		if err := fn(srv.Name, cl); err != nil {
 			return fmt.Errorf("plex server %q: %w", srv.Name, err)
