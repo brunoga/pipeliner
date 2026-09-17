@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.27.0] - 2026-09-17
+
+HDR and Dolby Vision grading for the library filter.
+
+### Added
+
+- **`library` filter `deep_scan` option: HDR/Dolby Vision detection** ([#415](https://github.com/brunoga/pipeliner/pull/415)). Plex exposes HDR metadata only in per-item stream detail, so listings-based grading could not see it. With `deep_scan=True` the Plex backend resolves each copy's color range (Dolby Vision via `DOVIPresent`, HDR10 via `smpte2084`, HLG, SDR) through per-item detail calls — 8 in parallel, remembered in a persistent cache so only never-seen items ever cost a request; the account mode forwards the scan to every owned server. Jellyfin needs no deep scan (its listings carry the video range, now mapped into the same vocabulary). The payoff: a Dolby Vision release upgrades a known-SDR copy at equal resolution, an HDR10 release cannot displace a known-DV copy, and without deep scan the range stays unknown and never false-upgrades.
+
+**Why 1.27.0**: an additive filter option and a new persistent cache bucket. A minor bump per SemVer.
+
 ## [1.26.0] - 2026-09-16
 
 An API token for automation, and quality-aware library comparison.
