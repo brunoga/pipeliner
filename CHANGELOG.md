@@ -5,6 +5,18 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.29.0] - 2026-09-17
+
+Pre-download quality machinery: a bitrate gate, release-window fields, and converter-tag awareness.
+
+### Added
+
+- **`bitrate` filter** ([#419](https://github.com/brunoga/pipeliner/pull/419)). Gates entries on implied bitrate — torrent size divided by runtime, both known before downloading — the one quality signal a release name cannot fake (the motivating case: a "2160p" 3D conversion at 12.8 Mbps with no CAM/TS marker in its name). Stamps `video_bitrate_mbps` on every entry for `condition` rules and templates; optional per-resolution floors reject starved encodes directly; absent data never rejects.
+- **Release-window fields** ([#419](https://github.com/brunoga/pipeliner/pull/419)). `metainfo_tmdb` now sets `movie_digital_release` and `movie_physical_release` (earliest, US-preferred) so `condition` rules can gate on how a release can possibly have been sourced — e.g. hold 3D conversions until the disc exists.
+- **Converter-tag vocabulary** ([#419](https://github.com/brunoga/pipeliner/pull/419)). `woz3d`, `owl3d`, and `iw3` (fan AI 2D→3D converter tags) are now strong conversion markers, so such releases parse at the Conv tier and native 3D outranks them in dedup and upgrade decisions.
+
+**Why 1.29.0**: a new plugin, new fields, and parser vocabulary — all additive. A minor bump per SemVer.
+
 ## [1.28.0] - 2026-09-17
 
 Deep-scan refinements: instant cache invalidation on file replacement, and a library_quality field.
