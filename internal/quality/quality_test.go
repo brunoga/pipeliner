@@ -1197,3 +1197,22 @@ func TestSpec3DFullRejectsBallerinaCases(t *testing.T) {
 		}
 	}
 }
+
+// Fan 2D→3D converter tags are strong conversion markers: a release carrying
+// one parses at the Conv tier so native 3D outranks it in dedup/upgrades.
+func TestConverterTagsAreStrongConvMarkers(t *testing.T) {
+	for _, title := range []string{
+		"Supergirl (2026) fsbs 3840x2160 x264 woz3d",
+		"Movie.2026.HSBS.1080p.OWL3D.x265",
+		"Movie.2026.Full-SBS.iw3.x264",
+	} {
+		q := Parse(title)
+		if q.Format3D != Format3DConv {
+			t.Errorf("%q: Format3D = %v, want Conv", title, q.Format3D)
+		}
+	}
+	// A native release with none of the tags stays native.
+	if q := Parse("Movie.2026.BD3D.MVC.1080p"); q.Format3D == Format3DConv {
+		t.Error("native BD3D must not parse as Conv")
+	}
+}

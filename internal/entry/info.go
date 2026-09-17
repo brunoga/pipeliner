@@ -16,6 +16,14 @@ const (
 	FieldPublishedDate  = "published_date"
 	FieldEnriched       = "enriched"        // true when an external metainfo provider successfully enriched this entry
 	FieldLibraryQuality = "library_quality" // quality of the matching media-library copy, set by the library filter
+
+	// Release-window dates from TMDb, for gating on how a film can have been
+	// sourced: a release appearing before the digital date is CAM/TS-sourced;
+	// before the physical date, at best a streaming/PVOD rip.
+	FieldMovieDigitalRelease  = "movie_digital_release"  // first digital (PVOD/streaming) release date
+	FieldMoviePhysicalRelease = "movie_physical_release" // first physical (disc) release date
+
+	FieldVideoBitrateMbps = "video_bitrate_mbps" // implied bitrate (torrent size / runtime), set by the bitrate filter
 	// FieldSource identifies the origin of an entry in the form "plugin:identifier"
 	// (e.g. "jackett:1337x", "rss:nyaa.si", "filesystem:/downloads/watch").
 	// Set by every source plugin; never mutated by processors or sinks.

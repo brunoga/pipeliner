@@ -248,7 +248,9 @@ var (
 	// re3DConvStrong matches conversion markers that always imply 3D-conversion
 	// regardless of whether a native 3D marker (SBS/OU/MVC/BD3D) is also present.
 	// These tokens are specific enough that they don't appear in non-3D titles.
-	re3DConvStrong = regexp.MustCompile(`(?i)(?:\b3D[\s\-]?CONV(?:ERT|ERSION)?\b|\bHT[\s\-]?CONVERSION\b|\bSTEREO[\s\-]?CRAFTER\b|\bDEPTH[\s\-]?CRAFTER\b)`)
+	// woz3d / owl3d / iw3 are known fan 2D→3D converter tags (AI depth
+	// estimation); a release carrying one is by definition a conversion.
+	re3DConvStrong = regexp.MustCompile(`(?i)(?:\b3D[\s\-]?CONV(?:ERT|ERSION)?\b|\bHT[\s\-]?CONVERSION\b|\bSTEREO[\s\-]?CRAFTER\b|\bDEPTH[\s\-]?CRAFTER\b|\bWOZ3D\b|\bOWL3D\b|\bIW3\b)`)
 	// re3DConvWeak matches generic conversion / AI-enhancement words that only
 	// imply 3D-conversion when a native 3D marker is also present in the title.
 	// Without that context "Upscaled" / "AI Enhanced" / "Conv" could appear on

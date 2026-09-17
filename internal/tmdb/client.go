@@ -101,7 +101,8 @@ type CountryRelease struct {
 	ISO   string `json:"iso_3166_1"`
 	Dates []struct {
 		Certification string `json:"certification"`
-		Type          int    `json:"type"` // 3 = theatrical
+		Type          int    `json:"type"`         // 1 premiere, 2/3 theatrical, 4 digital, 5 physical, 6 TV
+		ReleaseDate   string `json:"release_date"` // ISO-8601
 	} `json:"release_dates"`
 }
 
