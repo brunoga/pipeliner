@@ -8,8 +8,11 @@
 // filenames with the same release-name parsers the pipeline uses
 // (internal/series, internal/movies), caching the resulting index in memory
 // and refreshing it when older than ttl. The plex and jellyfin backends
-// build the same index from the server's API instead; they compare by
-// resolution only, since that is the quality signal those APIs expose.
+// build the same index from the server's API instead, grading copies by
+// resolution, codec, and audio (Atmos comes straight from listings); with
+// deep_scan=true the Plex backend also detects HDR/Dolby Vision via cached
+// per-item detail calls. Upgrades are judged only on dimensions the library
+// copy actually knows, so unknown-vs-known never counts as an upgrade.
 package library
 
 import (
@@ -21,6 +24,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/brunoga/pipeliner/internal/cache"
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/mediaserver"
 	"github.com/brunoga/pipeliner/internal/movies"
@@ -43,12 +47,16 @@ func init() {
 		Role:        plugin.RoleProcessor,
 		Requires:    plugin.RequireAll(entry.FieldTitle),
 		Factory:     newPlugin,
-		Validate:    validate,
+		Caches: []plugin.CacheInfo{
+			{Name: "cache_library_colorrange", Display: "Library HDR/DV Cache"},
+		},
+		Validate: validate,
 		Schema: []plugin.FieldSchema{
 			{Key: "paths", Type: plugin.FieldTypeList, Required: true, Hint: "Library directories to index (walked recursively)"},
 			{Key: "backend", Type: plugin.FieldTypeString, Default: "filesystem", Hint: "Library backend: filesystem (paths), plex or jellyfin (url + token)"},
 			{Key: "ttl", Type: plugin.FieldTypeDuration, Default: "15m", Hint: "How long the disk index is reused before rescanning"},
 			{Key: "upgrade", Type: plugin.FieldTypeBool, Default: true, Hint: "Pass entries whose quality is strictly better than the library copy"},
+			{Key: "deep_scan", Type: plugin.FieldTypeBool, Default: false, Hint: "Plex backend: detect HDR/Dolby Vision via per-item detail calls (results cached across runs, so only new items cost a request)"},
 			{Key: "extensions", Type: plugin.FieldTypeList, Hint: "Video file extensions to index (default: common video types; filesystem backend only)"},
 			{Key: "url", Type: plugin.FieldTypeString, Hint: "Media server base URL (plex/jellyfin backends)"},
 			{Key: "token", Type: plugin.FieldTypeString, Hint: "Media server API token (plex/jellyfin backends)"},
@@ -58,7 +66,7 @@ func init() {
 
 func validate(cfg map[string]any) []error {
 	var errs []error
-	if err := plugin.OptUnknownKeys(cfg, pluginName, "paths", "backend", "ttl", "upgrade", "extensions", "url", "token"); err != nil {
+	if err := plugin.OptUnknownKeys(cfg, pluginName, "paths", "backend", "ttl", "upgrade", "extensions", "url", "token", "deep_scan"); err != nil {
 		errs = append(errs, err...)
 	}
 	backend, _ := cfg["backend"].(string)
@@ -176,6 +184,16 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 	upgrade := true
 	if v, ok := cfg["upgrade"].(bool); ok {
 		upgrade = v
+	}
+
+	if ds, _ := cfg["deep_scan"].(bool); ds && client != nil {
+		var rc mediaserver.RangeCache
+		if db != nil {
+			// Color ranges are effectively immutable per media file; the long
+			// TTL just avoids rescanning a stable library.
+			rc = &rangeCacheAdapter{c: cache.NewPersistent[string](30*24*time.Hour, db.Bucket("cache_library_colorrange"))}
+		}
+		mediaserver.EnableDeepScan(client, rc)
 	}
 
 	return &libraryPlugin{
@@ -356,7 +374,7 @@ func toStringSlice(v any) []string {
 // resolution, codec, and audio in listings; source (BluRay/WEB) and HDR are
 // not available there and stay unknown.
 func serverItemQuality(it mediaserver.Item) quality.Quality {
-	parts := []string{it.Resolution, it.VideoCodec, mapAudioCodec(it.AudioCodec), it.AudioProfile}
+	parts := []string{it.Resolution, it.VideoCodec, mapAudioCodec(it.AudioCodec), it.AudioProfile, it.ColorRange}
 	return quality.Parse(strings.Join(parts, " "))
 }
 
@@ -389,3 +407,12 @@ func upgradeComparable(inc, lib quality.Quality) quality.Quality {
 	}
 	return inc
 }
+
+// rangeCacheAdapter exposes a persistent string cache as a
+// mediaserver.RangeCache.
+type rangeCacheAdapter struct {
+	c *cache.Cache[string]
+}
+
+func (a *rangeCacheAdapter) Get(key string) (string, bool) { return a.c.Get(key) }
+func (a *rangeCacheAdapter) Set(key, val string)           { a.c.Set(key, val) }

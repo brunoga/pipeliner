@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 )
 
@@ -321,5 +323,104 @@ func TestPlexListingCarriesCodecAndAudio(t *testing.T) {
 	if it.Resolution != "2160p" || it.VideoCodec != "hevc" || it.AudioCodec != "truehd" ||
 		it.AudioProfile != "dolby truehd + dolby atmos" {
 		t.Errorf("item: %+v", it)
+	}
+}
+
+// TestPlexDeepScan: with deep scan enabled, ListItems resolves each item's
+// HDR/DV status from stream detail, caches it, and skips the detail call on
+// the next listing.
+func TestPlexDeepScan(t *testing.T) {
+	var detailCalls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/library/sections":
+			json.NewEncoder(w).Encode(map[string]any{"MediaContainer": map[string]any{ //nolint:errcheck
+				"Directory": []map[string]any{{"key": "1", "type": "movie"}},
+			}})
+		case "/library/sections/1/all":
+			json.NewEncoder(w).Encode(map[string]any{"MediaContainer": map[string]any{ //nolint:errcheck
+				"Metadata": []map[string]any{
+					{"type": "movie", "title": "DV Movie", "year": 2024, "ratingKey": "1",
+						"Media": []map[string]any{{"videoResolution": "4k"}}},
+					{"type": "movie", "title": "SDR Movie", "year": 2020, "ratingKey": "2",
+						"Media": []map[string]any{{"videoResolution": "1080"}}},
+				},
+			}})
+		case "/library/metadata/1":
+			detailCalls.Add(1)
+			json.NewEncoder(w).Encode(map[string]any{"MediaContainer": map[string]any{ //nolint:errcheck
+				"Metadata": []map[string]any{{"Media": []map[string]any{{"Part": []map[string]any{{"Stream": []map[string]any{
+					{"streamType": 1, "colorTrc": "smpte2084", "DOVIPresent": true},
+				}}}}}}},
+			}})
+		case "/library/metadata/2":
+			detailCalls.Add(1)
+			json.NewEncoder(w).Encode(map[string]any{"MediaContainer": map[string]any{ //nolint:errcheck
+				"Metadata": []map[string]any{{"Media": []map[string]any{{"Part": []map[string]any{{"Stream": []map[string]any{
+					{"streamType": 1, "colorTrc": "bt709"},
+				}}}}}}},
+			}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	c, err := New("plex", srv.URL, "t")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cache := &memRangeCache{m: map[string]string{}}
+	if !EnableDeepScan(c, cache) {
+		t.Fatal("plex client must support deep scan")
+	}
+
+	items, err := c.ListItems(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, it := range items {
+		got[it.Title] = it.ColorRange
+	}
+	if got["DV Movie"] != "dolby vision" || got["SDR Movie"] != "sdr" {
+		t.Errorf("color ranges: %v", got)
+	}
+	if detailCalls.Load() != 2 {
+		t.Errorf("detail calls: %d, want 2", detailCalls.Load())
+	}
+
+	// Second listing: everything served from the cache — zero detail calls.
+	if _, err := c.ListItems(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if detailCalls.Load() != 2 {
+		t.Errorf("cached listing made detail calls: %d", detailCalls.Load())
+	}
+}
+
+type memRangeCache struct {
+	mu sync.Mutex
+	m  map[string]string
+}
+
+func (c *memRangeCache) Get(k string) (string, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	v, ok := c.m[k]
+	return v, ok
+}
+func (c *memRangeCache) Set(k, v string) { c.mu.Lock(); defer c.mu.Unlock(); c.m[k] = v }
+
+func TestJellyfinVideoRangeMapping(t *testing.T) {
+	cases := map[string]string{
+		"DOVI": "dolby vision", "DOVIWITHHDR10": "dolby vision",
+		"HDR10": "hdr10", "HDR10Plus": "hdr10",
+		"HLG": "hdr", "SDR": "sdr", "": "",
+	}
+	for in, want := range cases {
+		if got := jellyfinVideoRange(in); got != want {
+			t.Errorf("%q: got %q, want %q", in, got, want)
+		}
 	}
 }

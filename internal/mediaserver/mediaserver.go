@@ -14,7 +14,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -32,6 +34,13 @@ type Item struct {
 	VideoCodec   string // e.g. "hevc", "h264", "av1"
 	AudioCodec   string // e.g. "truehd", "eac3", "dca"
 	AudioProfile string // e.g. "dolby truehd + dolby atmos"
+	// ID is the server's item identifier (Plex ratingKey, Jellyfin Id);
+	// used by deep scanning to fetch stream-level detail.
+	ID string
+	// ColorRange is a release-vocabulary token: "dolby vision", "hdr10",
+	// "hdr", "sdr", or "" when unknown. Jellyfin fills it from listings;
+	// Plex needs deep scanning (per-item detail calls).
+	ColorRange string
 }
 
 // EpisodeID returns the SxxEyy identifier for episode items.
@@ -105,6 +114,47 @@ type plexClient struct {
 	base  string
 	token string
 	http  *http.Client
+
+	// Deep scanning (HDR/DV detection): when enabled, ListItems fetches each
+	// item's stream detail to read colorTrc/DOVIPresent — one extra request
+	// per item, so results are remembered in rangeCache across runs (media
+	// files rarely change). rangeScope keys the cache stably (the account
+	// client uses the server name; a direct client its base URL).
+	deep       bool
+	rangeCache RangeCache
+	rangeScope string
+}
+
+// RangeCache remembers per-item color-range results across runs. Implemented
+// by the library filter over a persistent store bucket; nil-safe usage is the
+// caller's concern (EnableDeepScan accepts nil for in-memory-only scanning).
+type RangeCache interface {
+	Get(key string) (string, bool)
+	Set(key, val string)
+}
+
+// EnableDeepScan turns on stream-level HDR/DV detection for clients that
+// support it, returning false for backends that don't need it (Jellyfin
+// exposes the video range in listings; the filesystem backend parses names).
+// cache may be nil to scan without cross-run memory.
+func EnableDeepScan(c Client, cache RangeCache) bool {
+	type scanner interface {
+		enableDeepScan(cache RangeCache, scope string)
+	}
+	if sc, ok := c.(scanner); ok {
+		sc.enableDeepScan(cache, "")
+		return true
+	}
+	return false
+}
+
+func (c *plexClient) enableDeepScan(cache RangeCache, scope string) {
+	c.deep = true
+	c.rangeCache = cache
+	if scope == "" {
+		scope = c.base
+	}
+	c.rangeScope = scope
 }
 
 func (c *plexClient) header() http.Header {
@@ -144,6 +194,7 @@ func (c *plexClient) ListItems(ctx context.Context) ([]Item, error) {
 					ParentIndex      int    `json:"parentIndex"`
 					Index            int    `json:"index"`
 					Year             int    `json:"year"`
+					RatingKey        string `json:"ratingKey"`
 					Media            []struct {
 						VideoResolution string `json:"videoResolution"`
 						VideoCodec      string `json:"videoCodec"`
@@ -169,14 +220,101 @@ func (c *plexClient) ListItems(ctx context.Context) ([]Item, error) {
 			case "episode":
 				items = append(items, Item{Type: "episode", Show: m.GrandparentTitle,
 					Season: m.ParentIndex, Episode: m.Index, Resolution: res,
-					VideoCodec: vc, AudioCodec: ac, AudioProfile: ap})
+					VideoCodec: vc, AudioCodec: ac, AudioProfile: ap, ID: m.RatingKey})
 			case "movie":
 				items = append(items, Item{Type: "movie", Title: m.Title, Year: m.Year, Resolution: res,
-					VideoCodec: vc, AudioCodec: ac, AudioProfile: ap})
+					VideoCodec: vc, AudioCodec: ac, AudioProfile: ap, ID: m.RatingKey})
 			}
 		}
 	}
+	if c.deep {
+		c.fillColorRanges(ctx, items)
+	}
 	return items, nil
+}
+
+// maxDeepScanWorkers bounds parallel per-item detail fetches.
+const maxDeepScanWorkers = 8
+
+// fillColorRanges resolves each item's HDR/DV status from its stream detail,
+// consulting the cache first so only never-seen items cost a request.
+func (c *plexClient) fillColorRanges(ctx context.Context, items []Item) {
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, maxDeepScanWorkers)
+	for i := range items {
+		if items[i].ID == "" {
+			continue
+		}
+		key := c.rangeScope + "|" + items[i].ID
+		if c.rangeCache != nil {
+			if v, ok := c.rangeCache.Get(key); ok {
+				items[i].ColorRange = v
+				continue
+			}
+		}
+		wg.Add(1)
+		go func(i int, key string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			cr, err := c.itemColorRange(ctx, items[i].ID)
+			if err != nil || cr == "" {
+				return // unknown; retried next index build
+			}
+			items[i].ColorRange = cr
+			if c.rangeCache != nil {
+				c.rangeCache.Set(key, cr)
+			}
+		}(i, key)
+	}
+	wg.Wait()
+}
+
+// itemColorRange reads the item's first video stream and maps its color
+// metadata onto release vocabulary: DOVIPresent → "dolby vision",
+// colorTrc smpte2084 → "hdr10", arib-std-b67 (HLG) → "hdr", else "sdr".
+func (c *plexClient) itemColorRange(ctx context.Context, ratingKey string) (string, error) {
+	var out struct {
+		MediaContainer struct {
+			Metadata []struct {
+				Media []struct {
+					Part []struct {
+						Stream []struct {
+							StreamType  int    `json:"streamType"`
+							ColorTrc    string `json:"colorTrc"`
+							DOVIPresent bool   `json:"DOVIPresent"`
+						} `json:"Stream"`
+					} `json:"Part"`
+				} `json:"Media"`
+			} `json:"Metadata"`
+		} `json:"MediaContainer"`
+	}
+	url := c.base + "/library/metadata/" + url.PathEscape(ratingKey)
+	if err := getJSON(ctx, c.http, url, c.header(), &out); err != nil {
+		return "", err
+	}
+	for _, m := range out.MediaContainer.Metadata {
+		for _, media := range m.Media {
+			for _, part := range media.Part {
+				for _, st := range part.Stream {
+					if st.StreamType != 1 {
+						continue
+					}
+					switch {
+					case st.DOVIPresent:
+						return "dolby vision", nil
+					case st.ColorTrc == "smpte2084":
+						return "hdr10", nil
+					case st.ColorTrc == "arib-std-b67":
+						return "hdr", nil
+					default:
+						return "sdr", nil
+					}
+				}
+			}
+		}
+	}
+	return "", nil
 }
 
 func (c *plexClient) Refresh(ctx context.Context) error {
@@ -211,6 +349,7 @@ func (c *jellyfinClient) header() http.Header {
 func (c *jellyfinClient) ListItems(ctx context.Context) ([]Item, error) {
 	var out struct {
 		Items []struct {
+			ID                string `json:"Id"`
 			Type              string `json:"Type"` // "Episode" or "Movie"
 			Name              string `json:"Name"`
 			SeriesName        string `json:"SeriesName"`
@@ -218,10 +357,11 @@ func (c *jellyfinClient) ListItems(ctx context.Context) ([]Item, error) {
 			IndexNumber       int    `json:"IndexNumber"`
 			ProductionYear    int    `json:"ProductionYear"`
 			MediaStreams      []struct {
-				Type    string `json:"Type"`
-				Height  int    `json:"Height"`
-				Codec   string `json:"Codec"`
-				Profile string `json:"Profile"`
+				Type           string `json:"Type"`
+				Height         int    `json:"Height"`
+				Codec          string `json:"Codec"`
+				Profile        string `json:"Profile"`
+				VideoRangeType string `json:"VideoRangeType"`
 			} `json:"MediaStreams"`
 		} `json:"Items"`
 	}
@@ -231,13 +371,14 @@ func (c *jellyfinClient) ListItems(ctx context.Context) ([]Item, error) {
 	}
 	items := make([]Item, 0, len(out.Items))
 	for _, it := range out.Items {
-		var res, vc, ac, ap string
+		var res, vc, ac, ap, cr string
 		for _, s := range it.MediaStreams {
 			switch s.Type {
 			case "Video":
 				if res == "" && s.Height > 0 {
 					res = normalizeResolution(fmt.Sprint(heightBucket(s.Height)))
 					vc = s.Codec
+					cr = jellyfinVideoRange(s.VideoRangeType)
 				}
 			case "Audio":
 				if ac == "" {
@@ -250,11 +391,11 @@ func (c *jellyfinClient) ListItems(ctx context.Context) ([]Item, error) {
 		case "Episode":
 			items = append(items, Item{Type: "episode", Show: it.SeriesName,
 				Season: it.ParentIndexNumber, Episode: it.IndexNumber, Resolution: res,
-				VideoCodec: vc, AudioCodec: ac, AudioProfile: ap})
+				VideoCodec: vc, AudioCodec: ac, AudioProfile: ap, ID: it.ID, ColorRange: cr})
 		case "Movie":
 			items = append(items, Item{Type: "movie", Title: it.Name,
 				Year: it.ProductionYear, Resolution: res,
-				VideoCodec: vc, AudioCodec: ac, AudioProfile: ap})
+				VideoCodec: vc, AudioCodec: ac, AudioProfile: ap, ID: it.ID, ColorRange: cr})
 		}
 	}
 	return items, nil
@@ -290,4 +431,19 @@ func (c *jellyfinClient) Refresh(ctx context.Context) error {
 		return fmt.Errorf("jellyfin: refresh: http %d", resp.StatusCode)
 	}
 	return nil
+}
+
+// jellyfinVideoRange maps Jellyfin's VideoRangeType onto release vocabulary.
+func jellyfinVideoRange(v string) string {
+	switch strings.ToUpper(v) {
+	case "DOVI", "DOVIWITHHDR10", "DOVIWITHSDR", "DOVIWITHHLG":
+		return "dolby vision"
+	case "HDR10", "HDR10PLUS":
+		return "hdr10"
+	case "HLG", "HDR":
+		return "hdr"
+	case "SDR":
+		return "sdr"
+	}
+	return ""
 }
