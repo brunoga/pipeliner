@@ -5,6 +5,20 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.28.0] - 2026-09-17
+
+Deep-scan refinements: instant cache invalidation on file replacement, and a library_quality field.
+
+### Added
+
+- **`library_quality` field** ([#417](https://github.com/brunoga/pipeliner/pull/417)). Entries that matched a media-library copy — passed as an upgrade or rejected — now carry the copy's quality string (e.g. `2160p H.265 Atmos Dolby Vision`), so a notify template can render `upgrading over: {{index .Fields "library_quality"}}` and the run inspector shows the comparison.
+
+### Fixed
+
+- **HDR cache invalidates instantly when a file is replaced** ([#417](https://github.com/brunoga/pipeliner/pull/417)). Plex keeps the same item id when the file underneath is replaced — exactly the quality-upgrade case — so the deep-scan cache could grade an upgraded file by its old color range for up to the 30-day TTL, inconsistently with the listing-fresh resolution/codec. The cache key now includes the item's `updatedAt`: a replacement misses the cache and rescans that one item on the next index build.
+
+**Why 1.28.0**: an additive field plus a cache-correctness fix. A minor bump per SemVer.
+
 ## [1.27.0] - 2026-09-17
 
 HDR and Dolby Vision grading for the library filter.
