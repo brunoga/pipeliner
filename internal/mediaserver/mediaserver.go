@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -37,6 +38,11 @@ type Item struct {
 	// ID is the server's item identifier (Plex ratingKey, Jellyfin Id);
 	// used by deep scanning to fetch stream-level detail.
 	ID string
+	// Version is a server-provided change marker for the item's media (Plex
+	// updatedAt). Deep-scan cache keys include it, so replacing the file
+	// under the same item — a quality upgrade — invalidates instantly
+	// instead of waiting out a TTL.
+	Version string
 	// ColorRange is a release-vocabulary token: "dolby vision", "hdr10",
 	// "hdr", "sdr", or "" when unknown. Jellyfin fills it from listings;
 	// Plex needs deep scanning (per-item detail calls).
@@ -195,6 +201,7 @@ func (c *plexClient) ListItems(ctx context.Context) ([]Item, error) {
 					Index            int    `json:"index"`
 					Year             int    `json:"year"`
 					RatingKey        string `json:"ratingKey"`
+					UpdatedAt        int64  `json:"updatedAt"`
 					Media            []struct {
 						VideoResolution string `json:"videoResolution"`
 						VideoCodec      string `json:"videoCodec"`
@@ -216,14 +223,18 @@ func (c *plexClient) ListItems(ctx context.Context) ([]Item, error) {
 				ac = m.Media[0].AudioCodec
 				ap = m.Media[0].AudioProfile
 			}
+			ver := ""
+			if m.UpdatedAt > 0 {
+				ver = strconv.FormatInt(m.UpdatedAt, 10)
+			}
 			switch m.Type {
 			case "episode":
 				items = append(items, Item{Type: "episode", Show: m.GrandparentTitle,
 					Season: m.ParentIndex, Episode: m.Index, Resolution: res,
-					VideoCodec: vc, AudioCodec: ac, AudioProfile: ap, ID: m.RatingKey})
+					VideoCodec: vc, AudioCodec: ac, AudioProfile: ap, ID: m.RatingKey, Version: ver})
 			case "movie":
 				items = append(items, Item{Type: "movie", Title: m.Title, Year: m.Year, Resolution: res,
-					VideoCodec: vc, AudioCodec: ac, AudioProfile: ap, ID: m.RatingKey})
+					VideoCodec: vc, AudioCodec: ac, AudioProfile: ap, ID: m.RatingKey, Version: ver})
 			}
 		}
 	}
@@ -245,7 +256,9 @@ func (c *plexClient) fillColorRanges(ctx context.Context, items []Item) {
 		if items[i].ID == "" {
 			continue
 		}
-		key := c.rangeScope + "|" + items[i].ID
+		// Version (updatedAt) in the key makes a file replacement — a quality
+		// upgrade under the same item — miss the cache and rescan immediately.
+		key := c.rangeScope + "|" + items[i].ID + "|" + items[i].Version
 		if c.rangeCache != nil {
 			if v, ok := c.rangeCache.Get(key); ok {
 				items[i].ColorRange = v

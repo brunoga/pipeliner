@@ -11,10 +11,11 @@ import "time"
 // (title, description, published_date) which apply to every entry type.
 const (
 	// GenericInfo — no prefix, universal.
-	FieldTitle         = "title"
-	FieldDescription   = "description"
-	FieldPublishedDate = "published_date"
-	FieldEnriched      = "enriched" // true when an external metainfo provider successfully enriched this entry
+	FieldTitle          = "title"
+	FieldDescription    = "description"
+	FieldPublishedDate  = "published_date"
+	FieldEnriched       = "enriched"        // true when an external metainfo provider successfully enriched this entry
+	FieldLibraryQuality = "library_quality" // quality of the matching media-library copy, set by the library filter
 	// FieldSource identifies the origin of an entry in the form "plugin:identifier"
 	// (e.g. "jackett:1337x", "rss:nyaa.si", "filesystem:/downloads/watch").
 	// Set by every source plugin; never mutated by processors or sinks.

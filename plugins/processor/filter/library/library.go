@@ -46,7 +46,11 @@ func init() {
 		Description: "reject entries already in the media library at equal-or-better quality; better releases pass as upgrades",
 		Role:        plugin.RoleProcessor,
 		Requires:    plugin.RequireAll(entry.FieldTitle),
-		Factory:     newPlugin,
+		// library_quality is stamped on entries that matched a library copy
+		// (whether passed as an upgrade or rejected), so templates and traces
+		// can show what the library already holds.
+		MayProduce: []string{entry.FieldLibraryQuality},
+		Factory:    newPlugin,
 		Caches: []plugin.CacheInfo{
 			{Name: "cache_library_colorrange", Display: "Library HDR/DV Cache"},
 		},
@@ -339,6 +343,7 @@ func (p *libraryPlugin) Process(_ context.Context, tc *plugin.TaskContext, entri
 		if !ok {
 			continue
 		}
+		e.Set(entry.FieldLibraryQuality, hit.Quality.String())
 		eq, hasQ := e.Quality()
 		if hasQ && p.upgrade && upgradeComparable(eq, hit.Quality).Better(hit.Quality) {
 			tc.Logger.Info(pluginName+": upgrade candidate",
