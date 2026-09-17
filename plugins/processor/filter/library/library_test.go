@@ -447,3 +447,39 @@ func TestDeepScanConstruction(t *testing.T) {
 		t.Fatalf("deep_scan direct mode without store: %v", err)
 	}
 }
+
+// TestLibraryQualityFieldStamped: entries that matched a library copy carry
+// the copy's quality in library_quality — on both the upgrade-pass and the
+// reject path — and unmatched entries don't.
+func TestLibraryQualityFieldStamped(t *testing.T) {
+	f := &fakeMSClient{items: []mediaserver.Item{
+		{Type: "movie", Title: "Heat", Year: 1995, Resolution: "1080p"},
+	}}
+	pl, err := newPlugin(map[string]any{"backend": "plex", "url": "http://x", "token": "t"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := pl.(*libraryPlugin)
+	p.client = f
+
+	rejected := mkEntry("Heat", map[string]any{entry.FieldMediaType: "movie", entry.FieldVideoYear: 1995})
+	rejected.SetQuality(quality.Parse("Heat.1995.1080p.x264"))
+	process(t, p, rejected)
+	if got := rejected.GetString(entry.FieldLibraryQuality); got == "" {
+		t.Error("rejected match should carry library_quality")
+	}
+
+	upgraded := mkEntry("Heat", map[string]any{entry.FieldMediaType: "movie", entry.FieldVideoYear: 1995})
+	upgraded.SetQuality(quality.Parse("Heat.1995.2160p.x265"))
+	process(t, p, upgraded)
+	if got := upgraded.GetString(entry.FieldLibraryQuality); got == "" {
+		t.Error("upgrade-pass match should carry library_quality")
+	}
+
+	miss := mkEntry("Unrelated Film", map[string]any{entry.FieldMediaType: "movie", entry.FieldVideoYear: 2000})
+	miss.SetQuality(quality.Parse("Unrelated.Film.2000.1080p"))
+	process(t, p, miss)
+	if got := miss.GetString(entry.FieldLibraryQuality); got != "" {
+		t.Errorf("unmatched entry must not carry library_quality, got %q", got)
+	}
+}

@@ -424,3 +424,64 @@ func TestJellyfinVideoRangeMapping(t *testing.T) {
 		}
 	}
 }
+
+// TestDeepScanInvalidatesOnFileReplacement: replacing the media under the
+// same Plex item bumps updatedAt; the version-aware cache key must miss and
+// rescan that one item instead of serving the old range for up to a TTL.
+func TestDeepScanInvalidatesOnFileReplacement(t *testing.T) {
+	updatedAt := int64(100)
+	colorTrc := "bt709" // starts SDR
+	var detailCalls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/library/sections":
+			json.NewEncoder(w).Encode(map[string]any{"MediaContainer": map[string]any{ //nolint:errcheck
+				"Directory": []map[string]any{{"key": "1", "type": "movie"}},
+			}})
+		case "/library/sections/1/all":
+			json.NewEncoder(w).Encode(map[string]any{"MediaContainer": map[string]any{ //nolint:errcheck
+				"Metadata": []map[string]any{{"type": "movie", "title": "Heat", "year": 1995,
+					"ratingKey": "9", "updatedAt": updatedAt,
+					"Media": []map[string]any{{"videoResolution": "4k"}}}},
+			}})
+		case "/library/metadata/9":
+			detailCalls.Add(1)
+			json.NewEncoder(w).Encode(map[string]any{"MediaContainer": map[string]any{ //nolint:errcheck
+				"Metadata": []map[string]any{{"Media": []map[string]any{{"Part": []map[string]any{{"Stream": []map[string]any{
+					{"streamType": 1, "colorTrc": colorTrc},
+				}}}}}}},
+			}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	c, err := New("plex", srv.URL, "t")
+	if err != nil {
+		t.Fatal(err)
+	}
+	EnableDeepScan(c, &memRangeCache{m: map[string]string{}})
+
+	items, _ := c.ListItems(context.Background())
+	if items[0].ColorRange != "sdr" || detailCalls.Load() != 1 {
+		t.Fatalf("first scan: range=%q calls=%d", items[0].ColorRange, detailCalls.Load())
+	}
+
+	// Unchanged updatedAt → cache hit, no new call.
+	items, _ = c.ListItems(context.Background())
+	if items[0].ColorRange != "sdr" || detailCalls.Load() != 1 {
+		t.Fatalf("cached scan: range=%q calls=%d", items[0].ColorRange, detailCalls.Load())
+	}
+
+	// File replaced with the DV remux: updatedAt bumps, stream changes.
+	updatedAt = 200
+	colorTrc = "smpte2084"
+	items, _ = c.ListItems(context.Background())
+	if items[0].ColorRange != "hdr10" {
+		t.Errorf("after replacement: range=%q, want hdr10", items[0].ColorRange)
+	}
+	if detailCalls.Load() != 2 {
+		t.Errorf("replacement should trigger exactly one rescan: calls=%d", detailCalls.Load())
+	}
+}
