@@ -126,10 +126,7 @@ func TestIngestReachableThroughTopLevelRouting(t *testing.T) {
 	}
 
 	// Other API routes still require a session.
-	other, err := http.Get(ts.URL + "/api/status")
-	if err != nil {
-		t.Fatal(err)
-	}
+	other := getURL(t, ts.URL+"/api/status")
 	other.Body.Close()
 	if other.StatusCode != http.StatusUnauthorized {
 		t.Errorf("/api/status without session: got %d, want 401", other.StatusCode)
