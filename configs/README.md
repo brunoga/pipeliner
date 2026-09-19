@@ -298,6 +298,10 @@ pipeline("my-pipeline", schedule="1h")
 
 - [`premiere-new-shows.star`](premiere-new-shows.star) — **premiere** plugin: auto-download S01E01 of new series
 
+### Remote automation
+
+- [`ondemand-request.star`](ondemand-request.star) — push a movie title to `/api/ingest/movies` (curl or [`examples/request-movie`](../examples/request-movie/)) and the pipeline searches Jackett and downloads it immediately — no schedule, no watchlist
+
 ### Notifications
 
 - [`notify-webhook.star`](notify-webhook.star) — download episodes + send a **webhook** summary (Discord, Slack, Gotify)
