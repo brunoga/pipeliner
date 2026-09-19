@@ -57,7 +57,8 @@ func TestPushServerError(t *testing.T) {
 	}
 }
 
-// TestResolveToken: flag beats env beats file; missing everything errors.
+// TestResolveToken: flag beats env beats client.conf beats the token file;
+// missing everything errors.
 func TestResolveToken(t *testing.T) {
 	dir := t.TempDir()
 	file := filepath.Join(dir, "ingest-token")
@@ -65,28 +66,55 @@ func TestResolveToken(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if tok, src, err := resolveToken("flag-tok", "env-tok", file); err != nil || tok != "flag-tok" || src != "flag" {
+	if tok, src, err := resolveToken("flag-tok", "env-tok", "conf-tok", file); err != nil || tok != "flag-tok" || src != "flag" {
 		t.Errorf("flag precedence: %q %q %v", tok, src, err)
 	}
-	if tok, src, err := resolveToken("", "env-tok", file); err != nil || tok != "env-tok" || src == "" {
+	if tok, src, err := resolveToken("", "env-tok", "conf-tok", file); err != nil || tok != "env-tok" || src == "" {
 		t.Errorf("env precedence: %q %q %v", tok, src, err)
 	}
-	if tok, _, err := resolveToken("", "", file); err != nil || tok != "file-tok" {
+	if tok, src, err := resolveToken("", "", "conf-tok", file); err != nil || tok != "conf-tok" || src == "" {
+		t.Errorf("conf precedence: %q %q %v", tok, src, err)
+	}
+	if tok, _, err := resolveToken("", "", "", file); err != nil || tok != "file-tok" {
 		t.Errorf("file fallback (trimmed): %q %v", tok, err)
 	}
-	if _, _, err := resolveToken("", "", filepath.Join(dir, "missing")); err == nil {
+	if _, _, err := resolveToken("", "", "", filepath.Join(dir, "missing")); err == nil {
 		t.Error("no source anywhere must error")
 	}
 }
 
 func TestResolveURL(t *testing.T) {
-	if got := resolveURL("https://x.example/", ""); got != "https://x.example" {
+	if got := resolveURL("https://x.example/", "", ""); got != "https://x.example" {
 		t.Errorf("flag with trailing slash: %q", got)
 	}
-	if got := resolveURL("", "https://env.example"); got != "https://env.example" {
-		t.Errorf("env: %q", got)
+	if got := resolveURL("", "https://env.example", "https://conf.example"); got != "https://env.example" {
+		t.Errorf("env beats conf: %q", got)
 	}
-	if got := resolveURL("", ""); got != "http://localhost:8080" {
+	if got := resolveURL("", "", "https://conf.example/"); got != "https://conf.example" {
+		t.Errorf("conf: %q", got)
+	}
+	if got := resolveURL("", "", ""); got != "http://localhost:8080" {
 		t.Errorf("default: %q", got)
+	}
+}
+
+// TestLoadClientConf: key=value lines with comments and junk tolerated;
+// missing file is an empty conf.
+func TestLoadClientConf(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "client.conf")
+	content := "# pipeliner client config\nurl = https://pipeliner.example.com/\n\nTOKEN=  abc123  \nnot a kv line\nignored_key = x\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	conf := loadClientConf(path)
+	if conf["url"] != "https://pipeliner.example.com/" {
+		t.Errorf("url: %q", conf["url"])
+	}
+	if conf["token"] != "abc123" {
+		t.Errorf("token (lowercased key, trimmed value): %q", conf["token"])
+	}
+	if len(loadClientConf(filepath.Join(dir, "missing"))) != 0 {
+		t.Error("missing file must be an empty conf")
 	}
 }
