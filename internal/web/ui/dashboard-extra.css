@@ -152,3 +152,6 @@
 .collapse-chevron { display: inline-block; width: 0.9em; font-size: 11px; color: var(--muted); }
 .failures-strip-head { cursor: pointer; user-select: none; }
 .failures-strip.collapsed { padding-bottom: 6px; }
+
+/* push-fed schedule chip (webhook-driven pipelines) */
+.task-schedule.push-fed { color: var(--accent); }

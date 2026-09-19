@@ -34,11 +34,11 @@ import (
 	_ "github.com/brunoga/pipeliner/plugins/processor/discover"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/accept_all"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/age"
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/bitrate"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/condition"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/content"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/dedup"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/exists"
-	_ "github.com/brunoga/pipeliner/plugins/processor/filter/bitrate"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/library"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/limit"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/list_match"
@@ -603,7 +603,8 @@ func cmdDaemon(args []string) int {
 		if ws != nil {
 			infos := make([]web.TaskInfo, len(newTasks))
 			for i, t := range newTasks {
-				infos[i] = web.TaskInfo{Name: t.Name(), Schedule: newAllSched[t.Name()], After: newCfg.GraphAfter[t.Name()]}
+				infos[i] = web.TaskInfo{Name: t.Name(), Schedule: newAllSched[t.Name()], After: newCfg.GraphAfter[t.Name()],
+					Queues: webhookQueues(newCfg.Graphs[t.Name()])}
 			}
 			ws.SetTasks(infos)
 		}
@@ -627,7 +628,8 @@ func cmdDaemon(args []string) int {
 
 		taskInfos := make([]web.TaskInfo, len(tasks))
 		for i, t := range tasks {
-			taskInfos[i] = web.TaskInfo{Name: t.Name(), Schedule: allSched[t.Name()], After: cfg.GraphAfter[t.Name()]}
+			taskInfos[i] = web.TaskInfo{Name: t.Name(), Schedule: allSched[t.Name()], After: cfg.GraphAfter[t.Name()],
+				Queues: webhookQueues(cfg.Graphs[t.Name()])}
 		}
 		ws = web.New(taskInfos, d, hist, bcast, resolveVersion(), *webUser, *webPass)
 		ws.SetReload(reload)
@@ -940,4 +942,23 @@ func buildTLSConfig(selfSigned bool, certFile, keyFile string) (*tls.Config, str
 		}, fp, nil
 	}
 	return nil, "", nil
+}
+
+// webhookQueues lists the ingest queues drained by a graph's webhook
+// sources, so the dashboard can mark push-fed pipelines and show how many
+// pushed items are waiting.
+func webhookQueues(g *dag.Graph) []string {
+	if g == nil {
+		return nil
+	}
+	var queues []string
+	for _, n := range g.Nodes() {
+		if n.PluginName != "webhook" {
+			continue
+		}
+		if q, _ := n.Config["queue"].(string); q != "" {
+			queues = append(queues, q)
+		}
+	}
+	return queues
 }

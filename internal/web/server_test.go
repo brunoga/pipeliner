@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/brunoga/pipeliner/internal/ingest"
+
 	// Register a handful of plugins so plugin.All() is non-empty in tests.
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/dedup"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/seen"
@@ -1377,5 +1379,47 @@ func TestAPIPluginsExcludesInternalPlugins(t *testing.T) {
 		if p["name"] == "route_selector" {
 			t.Error("route_selector is an internal plugin and must not appear in /api/plugins")
 		}
+	}
+}
+
+// TestStatusReportsQueueDepth: push-fed tasks expose their ingest queues and
+// the live queued-item count, so the dashboard can label them and make the
+// Run button's effect knowable before pressing it.
+func TestStatusReportsQueueDepth(t *testing.T) {
+	srv := New([]TaskInfo{
+		{Name: "ondemand", Queues: []string{"depth-test-q"}},
+		{Name: "plain", Schedule: "1h"},
+	}, stubDaemon{}, NewHistory(), NewBroadcaster(), "test", "user", "pass")
+
+	ingest.Enqueue("depth-test-q", []ingest.Item{{Title: "a"}, {Title: "b"}})
+	t.Cleanup(func() { ingest.Drain("depth-test-q") })
+
+	rec := httptest.NewRecorder()
+	srv.apiStatus(rec, httptest.NewRequest(http.MethodGet, "/api/status", nil))
+	var resp struct {
+		Tasks []struct {
+			Name   string   `json:"name"`
+			Queues []string `json:"queues"`
+			Queued int      `json:"queued"`
+		} `json:"tasks"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	byName := map[string]struct {
+		Queues []string
+		Queued int
+	}{}
+	for _, tk := range resp.Tasks {
+		byName[tk.Name] = struct {
+			Queues []string
+			Queued int
+		}{tk.Queues, tk.Queued}
+	}
+	if od := byName["ondemand"]; len(od.Queues) != 1 || od.Queued != 2 {
+		t.Errorf("ondemand: %+v, want queue + 2 queued", od)
+	}
+	if pl := byName["plain"]; len(pl.Queues) != 0 || pl.Queued != 0 {
+		t.Errorf("plain: %+v, want no queue info", pl)
 	}
 }
