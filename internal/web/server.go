@@ -196,7 +196,23 @@ func (s *Server) SetTasks(tasks []TaskInfo) {
 // (suitable for running behind a reverse proxy that terminates TLS).
 func (s *Server) Start(ctx context.Context, addr string, tlsCfg *tls.Config) error {
 	s.secure = tlsCfg != nil
+	top := s.buildHandler()
 
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           top,
+		ReadHeaderTimeout: 10 * time.Second,
+		TLSConfig:         tlsCfg,
+	}
+	return s.serve(ctx, srv, tlsCfg)
+}
+
+// buildHandler assembles the full routing tree: open routes (login, ingest)
+// dispatched before session auth, everything else behind requireSession.
+// Extracted from Start so tests can exercise the real top-level dispatch —
+// the /api/ingest route was once registered on the open mux but never routed
+// to it, an unreachable-endpoint bug only visible at this level.
+func (s *Server) buildHandler() http.Handler {
 	// Unauthenticated routes.
 	open := http.NewServeMux()
 	open.HandleFunc("GET /login", s.handleLoginGet)
@@ -262,14 +278,13 @@ func (s *Server) Start(ctx context.Context, addr string, tlsCfg *tls.Config) err
 	top.Handle("/login", open)
 	top.Handle("/logout", open)
 	top.Handle("/favicon.svg", open) // login-page tab icon needs to load without a session
+	top.Handle("/api/ingest/", open) // machine push endpoint authenticates via its own bearer token
 	top.Handle("/", s.requireSession(protected))
+	return top
+}
 
-	srv := &http.Server{
-		Addr:              addr,
-		Handler:           top,
-		ReadHeaderTimeout: 10 * time.Second,
-		TLSConfig:         tlsCfg,
-	}
+// serve runs the assembled server until ctx is cancelled.
+func (s *Server) serve(ctx context.Context, srv *http.Server, tlsCfg *tls.Config) error {
 	go func() {
 		<-ctx.Done()
 		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
