@@ -989,6 +989,8 @@ series = process("series", upstream=src, list=[
 <!-- ─────────── tvdb_favorites ─────────── -->
 <h2 id="webhook">webhook (push ingest)</h2>
 <p>The push counterpart to polling sources: set <code>PIPELINER_INGEST_TOKEN</code> in the daemon environment, add a <code>webhook</code> source with a <code>queue</code> name, and POST JSON to <code>/api/ingest/&lt;queue&gt;</code> with <code>Authorization: Bearer &lt;token&gt;</code>. Add <code>?pipeline=&lt;name&gt;</code> to trigger the pipeline immediately after queuing — announce-to-grab latency becomes seconds instead of a polling interval. The body is one item or an array: <code>title</code> (required), <code>url</code>, <code>fields</code>. Queues are in-memory and bounded (1000): a restart drops undrained items (announcers re-announce), and the response reports <code>queued</code>/<code>dropped</code>/<code>rejected</code>. Without the token the endpoint answers 404.</p>
+<p>This is the building block for <strong>remote automation</strong> — "search and download this movie, now": pair a <code>webhook</code> source with <a href="#discover"><code>discover</code></a> and the usual gates (see <code>configs/ondemand-request.star</code>), and push titles from anywhere with the ready-made Go client in <code>examples/request-movie</code> (reads the token from <code>-token</code>, <code>$PIPELINER_INGEST_TOKEN</code>, or <code>~/.config/pipeliner/ingest-token</code>):</p>
+<pre><code>go run ./examples/request-movie -url https://pipeliner.example.com "Heat 1995"</code></pre>
 <pre><code>src = input("webhook", queue="announces")
 # … the usual filter chain …
 pipeline("push-grabs")  # no schedule: runs when pushed</code></pre>
