@@ -5,6 +5,25 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.30.0] - 2026-09-19
+
+Push-fed pipelines become predictable: coalesced triggers, side-effect-free dry runs, and honest dashboard cards.
+
+### Added
+
+- **Trigger coalescing** ([#431](https://github.com/brunoga/pipeliner/pull/431)). An explicit trigger (API, UI Run, ingest `?pipeline=`) arriving while the task was already running was silently dropped — two quick on-demand pushes stranded the second item in its queue with nothing scheduled to drain it. Explicit triggers now coalesce into one follow-up run fired when the current run finishes, and a pending dry-run is upgraded when a real trigger arrives. Scheduled cron fires keep their skip-if-running semantics.
+- **Push-fed queue visibility** ([#431](https://github.com/brunoga/pipeliner/pull/431)). Task cards for webhook-fed pipelines show a ⚡ push-fed chip (instead of the misleading "manual") with a live count of pushed items waiting; the Run/Dry tooltips explain drain-vs-peek semantics.
+
+### Fixed
+
+- **Dry runs no longer consume the push queue** ([#430](https://github.com/brunoga/pipeliner/pull/430)). The webhook source drained its ingest queue even in dry-run mode, eating staged items. Dry runs now peek, enabling the staged workflow: push without `?pipeline=`, dry-run to watch the item flow, then Run for real.
+
+### Changed
+
+- **On-demand ordering documented** ([#429](https://github.com/brunoga/pipeliner/pull/429)). The example config explains why chains gating on fetched metadata must resolve it before `dedup` — a dead-swarm winner otherwise wins every deterministic search run forever.
+
+**Why 1.30.0**: scheduler behavior addition plus dashboard features and a webhook fix. A minor bump per SemVer.
+
 ## [1.29.3] - 2026-09-19
 
 Fixes the on-demand fuzzy-junk download, and the request client learns a config file.
