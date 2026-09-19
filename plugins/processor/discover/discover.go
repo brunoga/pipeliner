@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	"github.com/brunoga/pipeliner/internal/entry"
+	"github.com/brunoga/pipeliner/internal/movies"
 	"github.com/brunoga/pipeliner/internal/plugin"
 	"github.com/brunoga/pipeliner/internal/store"
 )
@@ -42,6 +43,7 @@ func init() {
 		Schema: []plugin.FieldSchema{
 			{Key: "titles", Type: plugin.FieldTypeList, Hint: "Static title strings to search for (supplements upstream source nodes)"},
 			{Key: "interval", Type: plugin.FieldTypeDuration, Hint: "Minimum time between re-searches per title (default 24h)"},
+			{Key: "match_titles", Type: plugin.FieldTypeBool, Default: false, Hint: "Drop search results whose parsed title does not match the queried title — indexer full-text search returns fuzzy junk (movie titles; strict normalized match, years within ±1)"},
 		},
 	})
 }
@@ -55,7 +57,7 @@ func validate(cfg map[string]any) []error {
 	if err := plugin.OptDuration(cfg, "interval", "discover"); err != nil {
 		errs = append(errs, err)
 	}
-	errs = append(errs, plugin.OptUnknownKeys(cfg, "discover", "titles", "search", "interval")...)
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "discover", "titles", "search", "interval", "match_titles")...)
 	return errs
 }
 
@@ -63,7 +65,13 @@ type discoverPlugin struct {
 	titles    []string
 	searchers []plugin.SearchPlugin
 	interval  time.Duration
-	db        *store.SQLiteStore
+	// matchTitles drops results whose parsed title doesn't match the query.
+	// Off by default: some discovery flows want the fuzz (a curated indexer
+	// where anything returned for the title is interesting); on-demand
+	// request pipelines want it on, or "Mystery Men" downloads "Wake Up
+	// Dead Man: A Knives Out Mystery".
+	matchTitles bool
+	db          *store.SQLiteStore
 }
 
 // searchRecord is the per-title bucket value. Results is intentionally
@@ -106,10 +114,11 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 	}
 
 	return &discoverPlugin{
-		titles:    titles,
-		searchers: searchers,
-		interval:  interval,
-		db:        db,
+		titles:      titles,
+		searchers:   searchers,
+		interval:    interval,
+		matchTitles: func() bool { b, _ := cfg["match_titles"].(bool); return b }(),
+		db:          db,
 	}, nil
 }
 
@@ -212,6 +221,9 @@ func (p *discoverPlugin) searchEntries(ctx context.Context, tc *plugin.TaskConte
 					if e == nil || seen[e.URL] {
 						continue
 					}
+					if p.matchTitles && !matchesQuery(qe.Title, e.Title) {
+						continue // cached before the option was enabled
+					}
 					seen[e.URL] = true
 					all = append(all, e)
 				}
@@ -233,6 +245,21 @@ func (p *discoverPlugin) searchEntries(ctx context.Context, tc *plugin.TaskConte
 				continue
 			}
 			titleResults = append(titleResults, results...)
+		}
+		if p.matchTitles {
+			kept := titleResults[:0]
+			for _, e := range titleResults {
+				if e == nil {
+					continue
+				}
+				if !matchesQuery(qe.Title, e.Title) {
+					tc.Logger.Debug("discover: dropping non-matching result",
+						"query", qe.Title, "result", e.Title)
+					continue
+				}
+				kept = append(kept, e)
+			}
+			titleResults = kept
 		}
 		for _, e := range titleResults {
 			if e == nil || seen[e.URL] {
@@ -266,4 +293,30 @@ func toStringSlice(v any) []string {
 		return []string{val}
 	}
 	return nil
+}
+
+// matchesQuery reports whether a search result's release name is actually
+// the queried title. Indexer full-text search happily returns "Wake Up Dead
+// Man: A Knives Out Mystery" for the query "Mystery Men"; parsing both sides
+// with the movie release-name parser and requiring normalized-title equality
+// (plus year compatibility when both sides know one) keeps only real hits.
+func matchesQuery(query, releaseName string) bool {
+	qTitle, qYear := query, 0
+	if mv, ok := movies.Parse(query); ok && mv.Title != "" {
+		qTitle, qYear = mv.Title, mv.Year
+	}
+	rTitle, rYear := releaseName, 0
+	if mv, ok := movies.Parse(releaseName); ok && mv.Title != "" {
+		rTitle, rYear = mv.Title, mv.Year
+	}
+	if movies.NormalizeTitle(qTitle) != movies.NormalizeTitle(rTitle) {
+		return false
+	}
+	if qYear != 0 && rYear != 0 {
+		d := qYear - rYear
+		if d < -1 || d > 1 {
+			return false
+		}
+	}
+	return true
 }

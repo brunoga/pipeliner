@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"maps"
+	"strings"
 	"testing"
 	"time"
 
@@ -505,5 +506,88 @@ func TestDiscoverUpstreamEntryWinsOverStaticTitle(t *testing.T) {
 	}
 	if got := mock.queries["Inception"].GetInt(entry.FieldVideoYear); got != 2010 {
 		t.Errorf("expected upstream hint to beat bare static title (year): got %d, want 2010", got)
+	}
+}
+
+// TestMatchTitlesDropsFuzzyJunk reproduces the real-world case: a jackett
+// full-text search for "Mystery Men" returns "Wake Up Dead Man: A Knives Out
+// Mystery" and "The Wrong Man" alongside the real hits; with match_titles
+// only the real hits survive.
+func TestMatchTitlesDropsFuzzyJunk(t *testing.T) {
+	mock := newMockSearch("matchtitles")
+	mock.results["Mystery Men"] = []*entry.Entry{
+		entry.New("Mystery Men 1999 1080p BluRay x264-OFT", "http://x/1"),
+		entry.New("Wake Up Dead Man A Knives Out Mystery 2025 2160p NF WEB-DL", "http://x/2"),
+		entry.New("The Wrong Man (2019) 1080p WEBRip 5.1 x264 -YTS", "http://x/3"),
+		entry.New("Mystery Men 1999 2160p UHD BluRay REMUX DV HDR", "http://x/4"),
+	}
+
+	p := buildPlugin(t, mock, []string{"Mystery Men"}, map[string]any{"match_titles": true})
+	got, err := run(context.Background(), p, taskCtx("t"))
+	if err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	if len(got) != 2 {
+		titles := make([]string, 0, len(got))
+		for _, e := range got {
+			titles = append(titles, e.Title)
+		}
+		t.Fatalf("got %d entries (%v), want the 2 Mystery Men releases", len(got), titles)
+	}
+	for _, e := range got {
+		if !strings.HasPrefix(e.Title, "Mystery Men") {
+			t.Errorf("junk survived: %q", e.Title)
+		}
+	}
+}
+
+// TestMatchTitlesFiltersCachedReplay: results cached before the option was
+// enabled are filtered on replay too.
+func TestMatchTitlesFiltersCachedReplay(t *testing.T) {
+	mock := newMockSearch("matchcached")
+	mock.results["Mystery Men"] = []*entry.Entry{
+		entry.New("Mystery Men 1999 1080p BluRay x264-OFT", "http://x/1"),
+		entry.New("The Wrong Man (2019) 1080p WEBRip", "http://x/3"),
+	}
+	// First run WITHOUT matching populates the cache with the junk included.
+	p := buildPlugin(t, mock, []string{"Mystery Men"}, nil)
+	if _, err := run(context.Background(), p, taskCtx("cached")); err != nil {
+		t.Fatal(err)
+	}
+	// Second plugin instance with matching on, same task bucket, within the
+	// interval: the cached replay must be filtered.
+	p2, err := newPlugin(map[string]any{
+		"titles": titlesToAny([]string{"Mystery Men"}), "search": []any{registerMock(mock)},
+		"interval": "1h", "match_titles": true,
+	}, p.db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := run(context.Background(), p2.(*discoverPlugin), taskCtx("cached"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || !strings.HasPrefix(got[0].Title, "Mystery Men") {
+		t.Fatalf("cached replay not filtered: %v", got)
+	}
+}
+
+func TestMatchesQuery(t *testing.T) {
+	cases := []struct {
+		query, release string
+		want           bool
+	}{
+		{"Mystery Men", "Mystery Men 1999 1080p BluRay x264-OFT", true},
+		{"Mystery Men", "Wake Up Dead Man A Knives Out Mystery 2025 2160p NF WEB-DL", false},
+		{"Mystery Men", "The Wrong Man (2019) 1080p WEBRip 5.1 x264 -YTS", false},
+		{"Mystery Men", "Dead Man's Switch A Crypto Mystery (2021) 1080p WEBRip", false},
+		{"Heat 1995", "Heat.1995.2160p.UHD.BluRay.x265", true},
+		{"Heat 1995", "Heat.2013.1080p.BluRay.x264", false}, // different film, same title
+		{"Heat 1995", "Heat.1996.1080p.BluRay.x264", true},  // ±1 year drift tolerated
+	}
+	for _, c := range cases {
+		if got := matchesQuery(c.query, c.release); got != c.want {
+			t.Errorf("matchesQuery(%q, %q) = %v, want %v", c.query, c.release, got, c.want)
+		}
 	}
 }

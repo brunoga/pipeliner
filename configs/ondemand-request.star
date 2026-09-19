@@ -28,7 +28,10 @@ requests = input("webhook", queue="movies")
 
 # One Jackett search per pushed title. interval is the per-title re-search
 # cooldown: pushing the same title twice within it reuses the first search.
-found = process("discover", upstream=requests, interval="5m",
+# match_titles is essential here: the movies filter below is accept-all, and
+# indexer full-text search returns fuzzy junk — a search for "Mystery Men"
+# also returns "Wake Up Dead Man: A Knives Out Mystery".
+found = process("discover", upstream=requests, interval="5m", match_titles=True,
                 search=[{"name": "jackett",
                          "url": jackett_url,
                          "api_key": jackett_key,
