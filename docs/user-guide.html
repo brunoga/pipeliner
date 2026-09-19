@@ -892,6 +892,7 @@ pipeline("watch-folder", schedule="5m")</code></pre>
   <tr><td><code>titles</code></td><td>conditional</td><td>—</td><td>Static list of title strings</td></tr>
   <tr><td><code>search</code></td><td>yes</td><td>—</td><td>Search plugin configs to query</td></tr>
   <tr><td><code>interval</code></td><td>no</td><td><code>24h</code></td><td>Minimum time between searches per title</td></tr>
+  <tr><td><code>match_titles</code></td><td>no</td><td><code>False</code></td><td>Drop results whose parsed title does not match the queried title (normalized match, years within &plusmn;1) — indexer full-text search returns fuzzy junk; essential when an accept-all <code>movies</code> filter follows (on-demand request pipelines)</td></tr>
 </table>
 
 <p>Titles come from <code>titles=</code> and the <code>.Title</code> field of every upstream entry — at least one source must produce titles.</p>

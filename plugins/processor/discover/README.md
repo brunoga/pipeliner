@@ -11,6 +11,7 @@ A per-title cooldown (`interval`) prevents redundant searches on successive runs
 | `titles` | list | conditional | — | Static list of title strings to search for |
 | `search` | list | yes | — | Search plugins to query |
 | `interval` | string | no | `24h` | Minimum time between live searches per title (cached results are still emitted between live searches) |
+| `match_titles` | bool | no | `false` | Drop results whose parsed title does not match the queried title (normalized match, years within ±1). Indexer full-text search returns fuzzy junk — a search for "Mystery Men" also returns "Wake Up Dead Man: A Knives Out Mystery"; essential for on-demand request pipelines where an accept-all movies filter follows. |
 
 Titles come from `titles=` (static) and the `.Title` field of every upstream entry. At least one source must produce titles. The combined title list is deduplicated case-insensitively before searching. Per-title results and the timestamp of the last live search are stored in `pipeliner.db` in the same directory as the config file. Dry-run mode bypasses this cache entirely (read and write) so a dry-run exercises the backends end-to-end without poisoning subsequent real runs.
 
