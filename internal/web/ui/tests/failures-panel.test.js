@@ -33,6 +33,27 @@ describe('failuresPanelHTML', () => {
   it('renders nothing when there are no failures', () => {
     expect(failuresPanelHTML([])).toBe('');
     expect(failuresPanelHTML(null)).toBe('');
+    expect(failuresPanelHTML([], true)).toBe('');
+  });
+
+  it('collapsed renders only the header with a count, no rows', () => {
+    const html = failuresPanelHTML([
+      { title: 'Dead.Torrent.2026.1080p', reason: 'x', task: 'movies', failed_at: new Date().toISOString() },
+      { title: 'Other.Torrent', reason: 'y', task: 'movies', failed_at: new Date().toISOString() },
+    ], true);
+    expect(html).toContain('Recent failures (2)');
+    expect(html).toContain('▸');
+    expect(html).toContain('collapsed');
+    expect(html).not.toContain('Dead.Torrent');
+  });
+
+  it('expanded shows the collapse chevron and count', () => {
+    const html = failuresPanelHTML([
+      { title: 'Dead.Torrent.2026.1080p', reason: 'x', task: 'movies', failed_at: new Date().toISOString() },
+    ], false);
+    expect(html).toContain('▾');
+    expect(html).toContain('Recent failures (1)');
+    expect(html).toContain('Dead.Torrent.2026.1080p');
   });
 
   it('renders one row per failure with reason and task', () => {
