@@ -50,6 +50,18 @@ func Drain(queue string) []Item {
 	return items
 }
 
+// Peek returns a copy of the named queue's items without removing them.
+// Dry runs use it so exercising a pipeline doesn't consume the pushed items
+// the next real run should process.
+func Peek(queue string) []Item {
+	mu.Lock()
+	defer mu.Unlock()
+	items := queues[queue]
+	out := make([]Item, len(items))
+	copy(out, items)
+	return out
+}
+
 // Len reports the current queue depth (tests and diagnostics).
 func Len(queue string) int {
 	mu.Lock()

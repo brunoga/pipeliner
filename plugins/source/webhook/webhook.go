@@ -59,7 +59,15 @@ func (p *webhookPlugin) Name() string { return pluginName }
 // Generate implements plugin.SourcePlugin: drain everything pushed since the
 // last run. Items without a URL get a synthetic one so dedup still works.
 func (p *webhookPlugin) Generate(_ context.Context, tc *plugin.TaskContext) ([]*entry.Entry, error) {
-	items := ingest.Drain(p.queue)
+	// Dry runs peek instead of draining: exercising the pipeline must not
+	// consume the pushed items the next real run should process (push
+	// without ?pipeline=, dry-run to watch it flow, then Run for real).
+	var items []ingest.Item
+	if tc.DryRun {
+		items = ingest.Peek(p.queue)
+	} else {
+		items = ingest.Drain(p.queue)
+	}
 	out := make([]*entry.Entry, 0, len(items))
 	for i, it := range items {
 		if it.Title == "" {
@@ -76,7 +84,11 @@ func (p *webhookPlugin) Generate(_ context.Context, tc *plugin.TaskContext) ([]*
 		out = append(out, e)
 	}
 	if len(out) > 0 {
-		tc.Logger.Info(pluginName+": drained pushed items", "queue", p.queue, "count", len(out))
+		verb := "drained"
+		if tc.DryRun {
+			verb = "peeked at"
+		}
+		tc.Logger.Info(pluginName+": "+verb+" pushed items", "queue", p.queue, "count", len(out))
 	}
 	return out, nil
 }

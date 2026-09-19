@@ -2,6 +2,7 @@ package webhook
 
 import (
 	"context"
+	"io"
 	"log/slog"
 	"testing"
 
@@ -45,5 +46,42 @@ func TestValidate(t *testing.T) {
 	}
 	if errs := validate(map[string]any{"queue": "q"}); len(errs) != 0 {
 		t.Errorf("valid: %v", errs)
+	}
+}
+
+// TestDryRunPeeksWithoutConsuming: a dry run must exercise the queued items
+// while leaving them for the next real run — dry-run is side-effect free.
+func TestDryRunPeeksWithoutConsuming(t *testing.T) {
+	q := "dryrun-peek"
+	ingest.Enqueue(q, []ingest.Item{{Title: "Heat 1995"}})
+
+	p, err := newPlugin(map[string]any{"queue": q}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := p.(*webhookPlugin)
+
+	dry := &plugin.TaskContext{Name: "t", Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), DryRun: true}
+	out, err := src.Generate(context.Background(), dry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 1 || out[0].Title != "Heat 1995" {
+		t.Fatalf("dry run should see the queued item: %v", out)
+	}
+	if ingest.Len(q) != 1 {
+		t.Fatalf("dry run consumed the queue: depth %d, want 1", ingest.Len(q))
+	}
+
+	real := &plugin.TaskContext{Name: "t", Logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	out, err = src.Generate(context.Background(), real)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 1 {
+		t.Fatalf("real run should drain the item: %v", out)
+	}
+	if ingest.Len(q) != 0 {
+		t.Errorf("real run must drain: depth %d, want 0", ingest.Len(q))
 	}
 }
