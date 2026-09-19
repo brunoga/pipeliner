@@ -5,6 +5,17 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.29.3] - 2026-09-19
+
+Fixes the on-demand fuzzy-junk download, and the request client learns a config file.
+
+### Added
+
+- **`discover` `match_titles` option** ([#427](https://github.com/brunoga/pipeliner/pull/427)). An on-demand request for "Mystery Men" downloaded "Wake Up Dead Man: A Knives Out Mystery" and "The Wrong Man": indexer full-text search returns anything containing the query words, and the on-demand pattern's accept-all movies filter admits every well-formed movie. With `match_titles=True`, results are kept only when their parsed title matches the queried title (normalized equality, years within ±1 when both known) — applied to fresh searches before caching and to cached replays. The `ondemand-request.star` example enables it with an explanation.
+- **`request-movie` reads `~/.config/pipeliner/client.conf`** ([#426](https://github.com/brunoga/pipeliner/pull/426)). One config file (`url = …` / `token = …`) instead of per-invocation flags or environment; precedence stays flags → environment → client.conf → the legacy token file.
+
+**Why 1.29.3**: a targeted fix for the on-demand junk-download plus an example-client refinement. A patch bump per SemVer.
+
 ## [1.29.2] - 2026-09-19
 
 A ready-made client and example config for remote automation.
