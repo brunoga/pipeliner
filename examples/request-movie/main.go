@@ -17,10 +17,14 @@
 //
 //  1. the -token flag
 //  2. the PIPELINER_INGEST_TOKEN environment variable
-//  3. the first line of ~/.config/pipeliner/ingest-token
+//  3. the "token" key of ~/.config/pipeliner/client.conf
+//  4. the first line of ~/.config/pipeliner/ingest-token
 //
-// The server URL comes from -url, then PIPELINER_URL, then
-// http://localhost:8080.
+// The server URL comes from -url, then PIPELINER_URL, then the "url" key of
+// client.conf, then http://localhost:8080. A minimal client.conf:
+//
+//	url = https://pipeliner.example.com
+//	token = your-ingest-token
 package main
 
 import (
@@ -37,7 +41,10 @@ import (
 	"time"
 )
 
-const tokenFileRel = ".config/pipeliner/ingest-token"
+const (
+	tokenFileRel = ".config/pipeliner/ingest-token"
+	confFileRel  = ".config/pipeliner/client.conf"
+)
 
 func main() {
 	var (
@@ -59,13 +66,14 @@ func main() {
 	}
 
 	home, _ := os.UserHomeDir()
-	tok, source, err := resolveToken(*token, os.Getenv("PIPELINER_INGEST_TOKEN"), filepath.Join(home, tokenFileRel))
+	conf := loadClientConf(filepath.Join(home, confFileRel))
+	tok, source, err := resolveToken(*token, os.Getenv("PIPELINER_INGEST_TOKEN"), conf["token"], filepath.Join(home, tokenFileRel))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
 
-	base := resolveURL(*urlFlag, os.Getenv("PIPELINER_URL"))
+	base := resolveURL(*urlFlag, os.Getenv("PIPELINER_URL"), conf["url"])
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -82,15 +90,40 @@ func main() {
 	}
 }
 
-// resolveToken picks the ingest token: flag, then environment, then the
-// token file. The returned source names where it came from, for the
-// confirmation line.
-func resolveToken(flagVal, envVal, tokenFile string) (token, source string, err error) {
+// loadClientConf parses ~/.config/pipeliner/client.conf: "key = value"
+// lines, # comments, unknown keys ignored. A missing file is an empty conf.
+func loadClientConf(path string) map[string]string {
+	out := map[string]string{}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return out
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		k, v, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		out[strings.ToLower(strings.TrimSpace(k))] = strings.TrimSpace(v)
+	}
+	return out
+}
+
+// resolveToken picks the ingest token: flag, then environment, then
+// client.conf, then the token file. The returned source names where it came
+// from, for the confirmation line.
+func resolveToken(flagVal, envVal, confVal, tokenFile string) (token, source string, err error) {
 	if flagVal != "" {
 		return flagVal, "flag", nil
 	}
 	if envVal != "" {
 		return envVal, "$PIPELINER_INGEST_TOKEN", nil
+	}
+	if confVal != "" {
+		return confVal, "~/" + confFileRel, nil
 	}
 	data, ferr := os.ReadFile(tokenFile)
 	if ferr == nil {
@@ -99,17 +132,16 @@ func resolveToken(flagVal, envVal, tokenFile string) (token, source string, err 
 			return strings.TrimSpace(line), tokenFile, nil
 		}
 	}
-	return "", "", fmt.Errorf("no ingest token: pass -token, set PIPELINER_INGEST_TOKEN, or write it to %s", tokenFile)
+	return "", "", fmt.Errorf("no ingest token: pass -token, set PIPELINER_INGEST_TOKEN, or add token= to ~/%s", confFileRel)
 }
 
-// resolveURL picks the server base URL: flag, then environment, then the
-// local default.
-func resolveURL(flagVal, envVal string) string {
-	switch {
-	case flagVal != "":
-		return strings.TrimRight(flagVal, "/")
-	case envVal != "":
-		return strings.TrimRight(envVal, "/")
+// resolveURL picks the server base URL: flag, then environment, then
+// client.conf, then the local default.
+func resolveURL(flagVal, envVal, confVal string) string {
+	for _, v := range []string{flagVal, envVal, confVal} {
+		if v != "" {
+			return strings.TrimRight(v, "/")
+		}
 	}
 	return "http://localhost:8080"
 }
