@@ -64,7 +64,7 @@
 
   <section>
     <div class="log-header">
-      <h2>Live Log</h2>
+      <h2 class="collapse-toggle" onclick="toggleLiveLog()" title="Click to collapse/expand"><span class="collapse-chevron" id="livelog-chevron">▾</span> Live Log</h2>
       <div class="log-controls">
         <input type="text" id="log-filter" class="log-filter" placeholder="search log…" oninput="onLogFilterInput()" autocomplete="off">
         <div class="log-filter-spinner" id="log-filter-spinner" aria-hidden="true"></div>
@@ -75,7 +75,7 @@
         <button class="btn-clear" onclick="clearLog()">Clear</button>
       </div>
     </div>
-    <div class="log-console-wrap">
+    <div class="log-console-wrap" id="log-console-wrap">
       <div class="log-console" id="log-console"></div>
       <button class="log-tail-pill" id="log-tail-pill" onclick="resumeLiveTail()" hidden>
         <span id="log-tail-pill-count">0</span> new ↓
@@ -315,6 +315,7 @@
 // Boot — runs after all scripts are loaded so shared globals (dbLoaded, etc.)
 // are guaranteed to be declared before the first refresh() call.
 applyTheme(localStorage.getItem('pipeliner-theme') || 'auto');
+applyLiveLogCollapsed();
 refresh();
 setInterval(refresh, 10000);
 connectLogs();

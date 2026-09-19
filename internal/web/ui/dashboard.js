@@ -190,17 +190,38 @@ function render(tasks, history) {
 // full searchable history lives in Tools → ❌ Failure log; this strip only
 // makes sure a failure is SEEN without opening a tool.
 
+let _lastFailures = [];
+
 function renderFailuresPanel(failures) {
   const host = document.getElementById('failures-panel');
   if (!host) return;
-  host.innerHTML = failuresPanelHTML(failures);
+  _lastFailures = failures || [];
+  host.innerHTML = failuresPanelHTML(_lastFailures, failuresCollapsed());
+}
+
+function failuresCollapsed() {
+  try { return localStorage.getItem('pipeliner-failures-collapsed') === '1'; } catch (e) { return false; }
+}
+
+function toggleFailuresPanel() {
+  const next = !failuresCollapsed();
+  try { localStorage.setItem('pipeliner-failures-collapsed', next ? '1' : '0'); } catch (e) { /* per-viewer convenience */ }
+  renderFailuresPanel(_lastFailures);
 }
 
 // failuresPanelHTML renders the strip. Pure (no DOM/fetch) for testing.
 // Empty input renders nothing — the panel only exists when something failed.
-function failuresPanelHTML(failures) {
+// Collapsed, only the header (with a count) shows; the toggle sticks via
+// localStorage so the strip stays out of the way once dismissed.
+function failuresPanelHTML(failures, collapsed) {
   failures = failures || [];
   if (!failures.length) return '';
+  const chev = collapsed ? '▸' : '▾';
+  const head = `<div class="failures-strip-head" onclick="toggleFailuresPanel()" title="Click to ${collapsed ? 'expand' : 'collapse'}">
+      <span class="collapse-chevron">${chev}</span> Recent failures (${failures.length}) <span class="task-history-dur">(full history: Tools → ❌ Failure log)</span></div>`;
+  if (collapsed) {
+    return `<div class="failures-strip collapsed">${head}</div>`;
+  }
   let rows = '';
   for (const f of failures) {
     const d = new Date(f.failed_at);
@@ -212,9 +233,28 @@ function failuresPanelHTML(failures) {
     </div><div class="task-err">⚠ ${esc(f.reason || 'failed')}</div></div>`;
   }
   return `<div class="failures-strip">
-    <div class="failures-strip-head">Recent failures <span class="task-history-dur">(full history: Tools → ❌ Failure log)</span></div>
+    ${head}
     ${rows}
   </div>`;
+}
+
+// ── live-log collapse ─────────────────────────────────────────────────────────
+
+function liveLogCollapsed() {
+  try { return localStorage.getItem('pipeliner-livelog-collapsed') === '1'; } catch (e) { return false; }
+}
+
+function applyLiveLogCollapsed() {
+  const collapsed = liveLogCollapsed();
+  const wrap = document.getElementById('log-console-wrap');
+  if (wrap) wrap.hidden = collapsed;
+  const chev = document.getElementById('livelog-chevron');
+  if (chev) chev.textContent = collapsed ? '▸' : '▾';
+}
+
+function toggleLiveLog() {
+  try { localStorage.setItem('pipeliner-livelog-collapsed', liveLogCollapsed() ? '0' : '1'); } catch (e) { /* per-viewer convenience */ }
+  applyLiveLogCollapsed();
 }
 
 // hasRecentError reports whether any of the newest 5 runs errored — drives
