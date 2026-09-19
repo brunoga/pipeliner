@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.29.2] - 2026-09-19
+
+A ready-made client and example config for remote automation.
+
+### Added
+
+- **`examples/request-movie` client and `configs/ondemand-request.star`** ([#424](https://github.com/brunoga/pipeliner/pull/424)). A small Go client that pushes a movie title to an on-demand pipeline from anywhere — `go run ./examples/request-movie "Heat 1995"` — with the ingest token resolved from the `-token` flag, `$PIPELINER_INGEST_TOKEN`, or `~/.config/pipeliner/ingest-token`. The matching sample config is the first remote-automation example: a `webhook` queue draining into a Jackett search and the usual gates, with the movies filter in accept-all mode — the request is the list, downloads still tracked. Indexed in `configs/README.md` under a new Remote automation section; the user guide's webhook section links both.
+
+**Why 1.29.2**: examples and documentation only; the served user guide changes. A patch bump per SemVer.
+
 ## [1.29.1] - 2026-09-19
 
 Dashboard decluttering, and a fix that makes push-ingest actually reachable.
