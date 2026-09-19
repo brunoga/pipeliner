@@ -47,6 +47,18 @@ quality = process("quality", upstream=req, spec="1080p+ webrip+")
 # Accept-all movies filter: no list — whatever was requested qualifies —
 # but downloads are still tracked, so repeats dedupe.
 movies  = process("movies", upstream=quality)
+
+# Ordering note: dedup crowns ONE winner per title, and an on-demand search
+# returns the same candidates every run — so if the winner turns out to be
+# unusable (e.g. a dead-swarm magnet whose metadata never resolves), the same
+# dead candidate wins every request and the movie never downloads. If your
+# chain gates on fetched metadata (require(fields=["torrent_files"]), content
+# filtering), run metainfo_torrent / metainfo_magnet and that require BEFORE
+# dedup: candidates must prove their metadata is fetchable before they may
+# win. Both metainfo stages run in parallel with caches, so this costs one
+# resolve_timeout worst-case. This minimal example hands URLs straight to the
+# client instead, so a dead winner is added, stalls, and the torrent-janitor
+# pattern cleans it up (see configs/torrent-janitor.star).
 best    = process("dedup", upstream=movies)
 
 path    = process("pathfmt", upstream=best, field="download_path",
