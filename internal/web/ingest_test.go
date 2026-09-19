@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -95,5 +96,42 @@ func TestIngestBadJSON(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("bad json: want 400, got %d", resp.StatusCode)
+	}
+}
+
+// TestIngestReachableThroughTopLevelRouting exercises the REAL routing tree
+// (buildHandler), not a hand-mounted test mux: /api/ingest/{queue} must
+// dispatch to the open mux and authenticate via the ingest bearer token —
+// never fall through to session auth. This was broken once: the route was
+// registered on the open mux but the top-level dispatcher never sent
+// /api/ingest/ traffic there, so every push died with a session 401.
+func TestIngestReachableThroughTopLevelRouting(t *testing.T) {
+	srv := New(nil, stubDaemon{}, NewHistory(), NewBroadcaster(), "test", "user", "pass")
+	srv.SetIngestToken("push-tok")
+	ts := httptest.NewServer(srv.buildHandler())
+	defer ts.Close()
+
+	resp := ingestPost(t, ts.URL+"/api/ingest/routing-check", "push-tok", `{"title":"x"}`)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("ingest through real routing: got %d (%s), want 200", resp.StatusCode, body)
+	}
+
+	// Wrong token → the handler's own 401, not a session redirect/401.
+	resp = ingestPost(t, ts.URL+"/api/ingest/routing-check", "wrong", `{"title":"x"}`)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("wrong ingest token: got %d, want 401", resp.StatusCode)
+	}
+
+	// Other API routes still require a session.
+	other, err := http.Get(ts.URL + "/api/status")
+	if err != nil {
+		t.Fatal(err)
+	}
+	other.Body.Close()
+	if other.StatusCode != http.StatusUnauthorized {
+		t.Errorf("/api/status without session: got %d, want 401", other.StatusCode)
 	}
 }
