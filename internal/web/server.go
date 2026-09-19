@@ -21,6 +21,7 @@ import (
 	"github.com/brunoga/pipeliner/internal/config"
 	"github.com/brunoga/pipeliner/internal/dag"
 	"github.com/brunoga/pipeliner/internal/entry"
+	"github.com/brunoga/pipeliner/internal/ingest"
 	"github.com/brunoga/pipeliner/internal/plugin"
 	"github.com/brunoga/pipeliner/internal/store"
 	"github.com/brunoga/pipeliner/internal/traces"
@@ -38,8 +39,9 @@ type DaemonControl interface {
 // TaskInfo describes one task shown in the UI.
 type TaskInfo struct {
 	Name     string
-	Schedule string // empty for unscheduled (manual-only) tasks
-	After    string // trigger dependency ("parent" or "parent:accepted"), empty when none
+	Schedule string   // empty for unscheduled (manual-only) tasks
+	After    string   // trigger dependency ("parent" or "parent:accepted"), empty when none
+	Queues   []string // ingest queues drained by this task's webhook sources
 }
 
 // Server is the HTTP status interface for the daemon.
@@ -350,11 +352,13 @@ func mustSub(fsys embed.FS, dir string) fs.FS {
 
 func (s *Server) apiStatus(w http.ResponseWriter, _ *http.Request) {
 	type taskJSON struct {
-		Name     string `json:"name"`
-		Schedule string `json:"schedule"`
-		After    string `json:"after,omitempty"`
-		NextRun  string `json:"nextRun,omitempty"`
-		Running  bool   `json:"running,omitempty"`
+		Name     string   `json:"name"`
+		Schedule string   `json:"schedule"`
+		After    string   `json:"after,omitempty"`
+		NextRun  string   `json:"nextRun,omitempty"`
+		Running  bool     `json:"running,omitempty"`
+		Queues   []string `json:"queues,omitempty"` // push-fed: ingest queues this task drains
+		Queued   int      `json:"queued,omitempty"` // items currently waiting across those queues
 	}
 	type resp struct {
 		Tasks     []taskJSON `json:"tasks"`
@@ -365,7 +369,10 @@ func (s *Server) apiStatus(w http.ResponseWriter, _ *http.Request) {
 	s.tasksMu.RUnlock()
 	tasks := make([]taskJSON, len(snap))
 	for i, t := range snap {
-		tj := taskJSON{Name: t.Name, Schedule: t.Schedule, After: t.After, Running: s.isRunning(t.Name)}
+		tj := taskJSON{Name: t.Name, Schedule: t.Schedule, After: t.After, Running: s.isRunning(t.Name), Queues: t.Queues}
+		for _, q := range t.Queues {
+			tj.Queued += ingest.Len(q)
+		}
 		if next := s.daemon.NextRun(t.Name); !next.IsZero() {
 			tj.NextRun = next.UTC().Format(time.RFC3339)
 		}

@@ -16,6 +16,14 @@ type TaskRunner func(ctx context.Context, taskName string, dryRun bool)
 type triggerReq struct {
 	name   string
 	dryRun bool
+	// explicit marks user-intent triggers (API/UI, ingest ?pipeline=) as
+	// opposed to scheduled fires. Only explicit triggers coalesce: one
+	// arriving while the task is already running is remembered and fired
+	// once the current run finishes, instead of being silently dropped —
+	// otherwise two quick on-demand pushes strand the second item in its
+	// queue. Scheduled fires keep skip semantics (a janitor run overlapping
+	// its cron tick must not double-run).
+	explicit bool
 }
 
 // entry holds one scheduled task.
@@ -38,9 +46,10 @@ type Daemon struct {
 	entries   []*entry
 	triggerCh chan triggerReq
 	wakeCh    chan struct{}
-	immediate []string            // tasks to fire at the start of Run
-	running   map[string]struct{} // tasks currently executing
-	wg        sync.WaitGroup      // tracks every in-flight runTask goroutine
+	immediate []string              // tasks to fire at the start of Run
+	running   map[string]struct{}   // tasks currently executing
+	pending   map[string]triggerReq // coalesced explicit triggers, fired after the current run
+	wg        sync.WaitGroup        // tracks every in-flight runTask goroutine
 }
 
 // triggerChan returns the trigger channel, creating it lazily.
@@ -91,7 +100,7 @@ func (d *Daemon) Reset(tasks []ScheduledTask) {
 func (d *Daemon) Trigger(name string, dryRun bool) {
 	ch := d.triggerChan()
 	select {
-	case ch <- triggerReq{name: name, dryRun: dryRun}:
+	case ch <- triggerReq{name: name, dryRun: dryRun, explicit: true}:
 	default:
 	}
 }
@@ -184,6 +193,18 @@ func (d *Daemon) runTask(ctx context.Context, req triggerReq, runner TaskRunner)
 
 	d.mu.Lock()
 	if _, ok := d.running[req.name]; ok {
+		// Already running: coalesce explicit triggers into one follow-up
+		// run instead of dropping them. A real run beats a pending dry-run
+		// (user intent to actually process must not be lost), and multiple
+		// pending triggers collapse to one.
+		if req.explicit {
+			if d.pending == nil {
+				d.pending = map[string]triggerReq{}
+			}
+			if cur, ok := d.pending[req.name]; !ok || (cur.dryRun && !req.dryRun) {
+				d.pending[req.name] = req
+			}
+		}
 		d.mu.Unlock()
 		return
 	}
@@ -193,7 +214,15 @@ func (d *Daemon) runTask(ctx context.Context, req triggerReq, runner TaskRunner)
 	defer func() {
 		d.mu.Lock()
 		delete(d.running, req.name)
+		next, ok := d.pending[req.name]
+		if ok {
+			delete(d.pending, req.name)
+			d.wg.Add(1)
+		}
 		d.mu.Unlock()
+		if ok {
+			go d.runTask(ctx, next, runner)
+		}
 	}()
 
 	runner(ctx, req.name, req.dryRun)

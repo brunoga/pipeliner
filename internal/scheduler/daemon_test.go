@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -260,5 +261,92 @@ func TestDaemonWaitReturnsImmediatelyWhenIdle(t *testing.T) {
 	}
 	if elapsed := time.Since(t0); elapsed > 50*time.Millisecond {
 		t.Errorf("Wait blocked for %v on an idle daemon; should be near-instant", elapsed)
+	}
+}
+
+// TestExplicitTriggerCoalescesWhileRunning: an explicit trigger arriving
+// mid-run is not dropped — exactly one follow-up run fires when the current
+// run finishes. This is what makes back-to-back on-demand pushes reliable:
+// the second push's trigger used to vanish, stranding its queued item.
+func TestExplicitTriggerCoalescesWhileRunning(t *testing.T) {
+	release := make(chan struct{})
+	started := make(chan struct{}, 8)
+	var runs atomic.Int32
+	runner := func(ctx context.Context, name string, dry bool) {
+		runs.Add(1)
+		started <- struct{}{}
+		<-release
+	}
+
+	d := &Daemon{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go d.Run(ctx, runner)
+
+	d.Trigger("t", false)
+	<-started // first run in flight
+
+	// Three more triggers while running: coalesce to ONE follow-up.
+	d.Trigger("t", false)
+	d.Trigger("t", false)
+	d.Trigger("t", false)
+	time.Sleep(100 * time.Millisecond) // let the daemon loop absorb them
+	close(release)                     // finish first run (and any follow-up)
+
+	<-started // the coalesced follow-up starts
+	deadline := time.After(2 * time.Second)
+	for runs.Load() < 2 {
+		select {
+		case <-deadline:
+			t.Fatalf("follow-up run never fired: runs=%d", runs.Load())
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+	// Give any spurious extra runs a moment to appear, then assert exactly 2.
+	time.Sleep(200 * time.Millisecond)
+	if got := runs.Load(); got != 2 {
+		t.Errorf("runs = %d, want exactly 2 (coalesced)", got)
+	}
+}
+
+// TestPendingRealRunBeatsDryRun: a pending dry-run is upgraded when a real
+// trigger arrives — user intent to actually process must not be lost.
+func TestPendingRealRunBeatsDryRun(t *testing.T) {
+	release := make(chan struct{})
+	started := make(chan struct{}, 4)
+	var dryRuns, realRuns atomic.Int32
+	runner := func(ctx context.Context, name string, dry bool) {
+		if dry {
+			dryRuns.Add(1)
+		} else {
+			realRuns.Add(1)
+		}
+		started <- struct{}{}
+		<-release
+	}
+
+	d := &Daemon{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go d.Run(ctx, runner)
+
+	d.Trigger("t", false)
+	<-started
+	d.Trigger("t", true)  // pending dry
+	d.Trigger("t", false) // upgraded to real
+	time.Sleep(100 * time.Millisecond)
+	close(release)
+	<-started
+
+	deadline := time.After(2 * time.Second)
+	for realRuns.Load() < 2 {
+		select {
+		case <-deadline:
+			t.Fatalf("follow-up real run never fired: real=%d dry=%d", realRuns.Load(), dryRuns.Load())
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+	if dryRuns.Load() != 0 {
+		t.Errorf("dry runs = %d, want 0 (upgraded to real)", dryRuns.Load())
 	}
 }

@@ -404,13 +404,28 @@ async function openTrace(task, runId) {
   }
 }
 
-function card(t, runs, idx = 0) {
-  runs = runs || [];
-  const last = runs[0];
-  const nextDate   = t.nextRun ? new Date(t.nextRun) : null;
+// schedBadgeHTML renders the schedule chip for one task. Push-fed pipelines
+// (webhook sources) get a "⚡ push-fed" badge — "manual" would misdescribe a
+// pipeline that runs on every push — plus a live count of queued items so
+// the Run button's effect is knowable before pressing it. Pure for testing.
+function schedBadgeHTML(t, nextDate) {
+  const pushFed = !!(t.queues && t.queues.length);
+  if (pushFed) {
+    const queued = t.queued > 0 ? ` · ${t.queued} queued` : '';
+    const when = nextDate ? ` · ${fmtDatetime(nextDate)}` : '';
+    return `<span class="task-schedule push-fed" title="Fed by pushes to ${esc(t.queues.map(q => '/api/ingest/' + q).join(', '))}">⚡ push-fed${esc(queued)}${esc(when)}</span>`;
+  }
   const schedLabel = nextDate ? fmtDatetime(nextDate) : (t.schedule ? t.schedule : 'manual');
   const schedOpacity = (!nextDate && !t.schedule) ? ' style="opacity:.5"' : '';
-  const schedBadge = `<span class="task-schedule"${schedOpacity} title="${esc(t.schedule || '')}">${esc(schedLabel)}</span>`;
+  return `<span class="task-schedule"${schedOpacity} title="${esc(t.schedule || '')}">${esc(schedLabel)}</span>`;
+}
+
+function card(t, runs, idx = 0) {
+  runs = runs || [];
+  const pushFed = !!(t.queues && t.queues.length);
+  const last = runs[0];
+  const nextDate   = t.nextRun ? new Date(t.nextRun) : null;
+  const schedBadge = schedBadgeHTML(t, nextDate);
 
   let nextStr = nextRunLabel(nextDate);
   // Trigger-dependent pipelines show their parent instead of a bogus dash.
@@ -460,8 +475,8 @@ function card(t, runs, idx = 0) {
     : pend
     ? `<button class="btn-run ${pend.cls}" disabled>${esc(pend.label)}</button>`
     : `<div class="btn-run-group">
-         <button class="btn-run" onclick="triggerRun(${esc(JSON.stringify(t.name))}, this, false)" title="Run with side effects and tracker commits">Run now</button>
-         <button class="btn-run btn-dry" onclick="triggerRun(${esc(JSON.stringify(t.name))}, this, true)" title="Dry run — no side effects, no tracker advance">Dry</button>
+         <button class="btn-run" onclick="triggerRun(${esc(JSON.stringify(t.name))}, this, false)" title="${pushFed ? 'Drain the push queue now (' + (t.queued || 0) + ' waiting)' : 'Run with side effects and tracker commits'}">Run now</button>
+         <button class="btn-run btn-dry" onclick="triggerRun(${esc(JSON.stringify(t.name))}, this, true)" title="${pushFed ? 'Dry run — peeks at queued items without consuming them' : 'Dry run — no side effects, no tracker advance'}">Dry</button>
        </div>`;
 
   const chevron = `<span class="task-history-chevron">Runs <span class="chev">▸</span></span>`;
