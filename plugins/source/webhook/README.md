@@ -37,3 +37,5 @@ endpoint's response reports `queued`/`dropped`/`rejected` counts honestly.
 |----------|-------|
 | Role | `source` |
 | Produces | `title` |
+
+Dry runs **peek** at the queue without consuming it, so you can push an item without `?pipeline=`, dry-run to watch it flow through the pipeline, and then trigger the real run — the item is still queued.

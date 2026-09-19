@@ -35,3 +35,20 @@ func TestQueueCap(t *testing.T) {
 	}
 	Drain(q)
 }
+
+func TestPeekLeavesQueueIntact(t *testing.T) {
+	q := "peek-test"
+	Enqueue(q, []Item{{Title: "a"}, {Title: "b"}})
+	got := Peek(q)
+	if len(got) != 2 {
+		t.Fatalf("peek: got %d items, want 2", len(got))
+	}
+	if Len(q) != 2 {
+		t.Errorf("peek must not consume: depth %d, want 2", Len(q))
+	}
+	// Mutating the returned copy must not corrupt the queue.
+	got[0].Title = "mutated"
+	if drained := Drain(q); drained[0].Title != "a" {
+		t.Errorf("peek must return a copy, queue holds %q", drained[0].Title)
+	}
+}
