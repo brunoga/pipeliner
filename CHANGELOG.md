@@ -5,6 +5,20 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.29.1] - 2026-09-19
+
+Dashboard decluttering, and a fix that makes push-ingest actually reachable.
+
+### Added
+
+- **Collapsible failures strip and Live Log** ([#421](https://github.com/brunoga/pipeliner/pull/421)). Both dashboard sections collapse from their headers — the failures strip down to a one-line count, the Live Log hiding its console — and each choice persists per browser, so a dismissed section stays dismissed while new failures still surface as a count.
+
+### Fixed
+
+- **`POST /api/ingest/{queue}` was unreachable** ([#422](https://github.com/brunoga/pipeliner/pull/422)). The push-ingest endpoint was registered on the unauthenticated mux, but the top-level dispatcher never routed `/api/ingest/` traffic there — every push fell through to session auth and died with a 401, end to end. Existing tests mounted the handler directly and never exercised the real routing tree; the mux construction is now extracted so a routing-level test drives the actual dispatch. With the fix, the documented webhook flow (ingest token + `?pipeline=` immediate trigger) works — enabling on-demand pipelines like "push a movie title, get the movie".
+
+**Why 1.29.1**: a UI refinement plus a reachability fix for an existing endpoint. A patch bump per SemVer.
+
 ## [1.29.0] - 2026-09-17
 
 Pre-download quality machinery: a bitrate gate, release-window fields, and converter-tag awareness.
