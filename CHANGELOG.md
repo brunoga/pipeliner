@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.30.1] - 2026-09-20
+
+A fix for the visual editor silently re-inlining secrets.
+
+### Fixed
+
+- **Visual editor no longer re-inlines resolved secrets** ([#433](https://github.com/brunoga/pipeliner/pull/433)). The config loader numbers nodes with its own counter, independently of the variable each node is assigned to in the source; everything recovered by scanning raw text — config references, comments, labels, layout positions — is keyed by that source variable name and was looked up by node ID. The two coincide only in a config the editor itself just wrote, so the moment a node was added or removed by hand, every lookup missed: on a real config all 24 reference-bearing nodes resolved to nothing, and the next visual save rewrote the SMTP password, download-client password, and every API key as plaintext literals. Source assignments and DAG nodes are now paired per plugin in creation order, so references (and comments, labels, positions) survive renumbering. Expanding a user function also applies the reference overlay it previously skipped.
+
+**Why 1.30.1**: a bug fix with no interface change. A patch bump per SemVer.
+
 ## [1.30.0] - 2026-09-19
 
 Push-fed pipelines become predictable: coalesced triggers, side-effect-free dry runs, and honest dashboard cards.
