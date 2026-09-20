@@ -43,6 +43,16 @@ describe('schedBadgeHTML', () => {
     expect(schedBadgeHTML({ queues: ['movies'], queued: 0 }, null)).not.toContain('queued');
   });
 
+  it('stays compact — the next-run time lives in the tooltip, not the chip', () => {
+    // A long chip squeezed the task name to one character per line in the
+    // flex card header; the datetime is already on the "Next run" row.
+    const d = new Date('2026-09-20T22:30:00Z');
+    const html = schedBadgeHTML({ queues: ['3d-movies'], queued: 0 }, d);
+    const chipText = html.replace(/^[^>]*>/, '').replace(/<[^>]*>/g, '');
+    expect(chipText.trim()).toBe('⚡ push-fed');
+    expect(html).toContain('next');           // datetime moved into title=
+  });
+
   it('keeps the plain label for normal pipelines', () => {
     expect(schedBadgeHTML({ schedule: '1h' }, null)).toContain('1h');
     expect(schedBadgeHTML({}, null)).toContain('manual');

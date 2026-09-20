@@ -411,9 +411,13 @@ async function openTrace(task, runId) {
 function schedBadgeHTML(t, nextDate) {
   const pushFed = !!(t.queues && t.queues.length);
   if (pushFed) {
+    // Deliberately compact: the next-run time is already on the "Next run"
+    // row directly below, and a long chip squeezes the task name in the
+    // flex header (it collapsed to one character per line when this chip
+    // also carried the datetime).
     const queued = t.queued > 0 ? ` · ${t.queued} queued` : '';
-    const when = nextDate ? ` · ${fmtDatetime(nextDate)}` : '';
-    return `<span class="task-schedule push-fed" title="Fed by pushes to ${esc(t.queues.map(q => '/api/ingest/' + q).join(', '))}">⚡ push-fed${esc(queued)}${esc(when)}</span>`;
+    const when = nextDate ? ` (next ${fmtDatetime(nextDate)})` : '';
+    return `<span class="task-schedule push-fed" title="Fed by pushes to ${esc(t.queues.map(q => '/api/ingest/' + q).join(', '))}${esc(when)}">⚡ push-fed${esc(queued)}</span>`;
   }
   const schedLabel = nextDate ? fmtDatetime(nextDate) : (t.schedule ? t.schedule : 'manual');
   const schedOpacity = (!nextDate && !t.schedule) ? ' style="opacity:.5"' : '';
@@ -488,7 +492,7 @@ function card(t, runs, idx = 0) {
     <div class="task-card" style="--card-color:${cardColor}${extraDelay}">
       <div class="task-card-header task-history-toggle" onclick="openRuns(${esc(JSON.stringify(t.name))})" title="Show recent runs">
         <div class="task-name">${esc(t.name)}${errDot}</div>
-        ${schedBadge}${chevron}
+        <div class="task-card-meta">${schedBadge}${chevron}</div>
       </div>
       <div class="task-timing">
         <span><span>Next run</span><b>${nextStr}</b></span>
