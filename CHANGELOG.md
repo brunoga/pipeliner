@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.31.0] - 2026-09-20
+
+The dashboard's collapsible sections now share one look.
+
+### Changed
+
+- **Live Log and Recent failures share a collapsible-section header** ([#437](https://github.com/brunoga/pipeliner/pull/437)). The two were styled independently and looked nothing alike, most obviously when collapsed: the log used the uppercase section heading but dropped the accent bar every other heading has and kept its whole controls row visible with the console hidden, while the failures strip used a larger sentence-case label inside its own bordered box. Both now render the same header — chevron, uppercase title, optional trailing meta, standard accent bar (red for failures, so severity still reads at a glance) — and collapse to a single line carrying one live fact each: the failure count, or the log connection status. The log's search and Clear controls now hide along with the console they act on.
+
+**Why 1.31.0**: a visible interface change rather than a defect fix. A minor bump per SemVer.
+
 ## [1.30.2] - 2026-09-20
 
 A dashboard card-header layout fix.
