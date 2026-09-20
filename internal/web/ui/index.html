@@ -59,22 +59,26 @@
       <button class="btn-reload btn-run-all" id="btn-run-all-dry" onclick="runAll(this, true)" title="Dry-run every task — no side effects, no tracker advance">Run all (dry)</button>
     </h2>
     <div class="task-grid" id="task-grid"><div class="no-tasks">Loading…</div></div>
-    <div id="failures-panel"></div>
   </section>
 
+  <section id="failures-panel"></section>
+
   <section>
-    <div class="log-header">
-      <h2 class="collapse-toggle" onclick="toggleLiveLog()" title="Click to collapse/expand"><span class="collapse-chevron" id="livelog-chevron">▾</span> Live Log</h2>
-      <div class="log-controls">
-        <input type="text" id="log-filter" class="log-filter" placeholder="search log…" oninput="onLogFilterInput()" autocomplete="off">
-        <div class="log-filter-spinner" id="log-filter-spinner" aria-hidden="true"></div>
+    <h2 class="section-head" onclick="toggleLiveLog()" title="Click to collapse/expand">
+      <span class="collapse-chevron" id="livelog-chevron">▾</span>
+      <span class="section-head-title">Live Log</span>
+      <div class="section-head-actions" onclick="event.stopPropagation()">
+        <span id="log-controls-collapsible" class="section-head-actions">
+          <input type="text" id="log-filter" class="log-filter" placeholder="search log…" oninput="onLogFilterInput()" autocomplete="off">
+          <div class="log-filter-spinner" id="log-filter-spinner" aria-hidden="true"></div>
+        </span>
         <div class="log-status">
           <div class="dot" id="log-dot"></div>
           <span id="log-status-text">disconnected</span>
         </div>
-        <button class="btn-clear" onclick="clearLog()">Clear</button>
+        <button class="btn-clear" id="log-clear-btn" onclick="clearLog()">Clear</button>
       </div>
-    </div>
+    </h2>
     <div class="log-console-wrap" id="log-console-wrap">
       <div class="log-console" id="log-console"></div>
       <button class="log-tail-pill" id="log-tail-pill" onclick="resumeLiveTail()" hidden>
