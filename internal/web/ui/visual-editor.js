@@ -5939,7 +5939,10 @@ async function expandAndRemoveFunction(funcName) {
     const nodes = rawNodes
       .filter(n => !hiddenIds.has(n.id))
       .map(n => ({
-        id: n.id, plugin: n.plugin, config: n.config || {}, upstreams: n.upstreams || [],
+        // Same reference overlay as textToVisualSync — without it, expanding a
+        // function re-inlines every resolved secret in the rebuilt nodes.
+        id: n.id, plugin: n.plugin, config: overlayConfigExprs(n.config || {}, n.config_exprs),
+        upstreams: n.upstreams || [],
         searchNodeIds: [], listNodeIds: [], comment: n.comment || '',
         x: n.x ?? null, y: n.y ?? null,
       }));
@@ -5954,7 +5957,7 @@ async function expandAndRemoveFunction(funcName) {
         const s = raw.search[si];
         const id = `${raw.id}__search__${si}`;
         nodes[nodeIdx].searchNodeIds.push(id);
-        nodes.push({ id, plugin: s.plugin, config: s.config || {},
+        nodes.push({ id, plugin: s.plugin, config: overlaySubConfig(s.config, raw.config_exprs?.search?.[si]),
           upstreams: [], searchNodeIds: [], listNodeIds: [], comment: '',
           isSearchNode: true, searchParentId: raw.id, x: s.x ?? null, y: s.y ?? null });
       }
@@ -5962,7 +5965,7 @@ async function expandAndRemoveFunction(funcName) {
         const l = raw.list[li];
         const id = `${raw.id}__list__${li}`;
         nodes[nodeIdx].listNodeIds.push(id);
-        nodes.push({ id, plugin: l.plugin, config: l.config || {},
+        nodes.push({ id, plugin: l.plugin, config: overlaySubConfig(l.config, raw.config_exprs?.list?.[li]),
           upstreams: [], searchNodeIds: [], listNodeIds: [], comment: '',
           isListNode: true, listParentId: raw.id, x: l.x ?? null, y: l.y ?? null });
       }

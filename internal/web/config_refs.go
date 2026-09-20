@@ -1,6 +1,9 @@
 package web
 
 import (
+	"sort"
+	"strconv"
+	"strings"
 	"unicode/utf8"
 
 	"go.starlark.net/syntax"
@@ -180,3 +183,145 @@ func sliceSpan(content string, lineOffs []int, e syntax.Expr) string {
 	}
 	return content[sb:eb]
 }
+
+// --- source variable ↔ node ID reconciliation ---
+//
+// The config loader numbers nodes with its own global counter
+// (`nextNodeID`: "deluge_35"), independently of the variable a node was
+// assigned to in the source ("deluge_32"). Everything the editor recovers by
+// scanning raw text — config references, comments, labels, layout positions —
+// is keyed by the SOURCE variable name, so looking it up by node ID only
+// works while the two happen to coincide. They stop coinciding the moment a
+// node is added or removed by hand, and then every reference silently
+// detaches: the editor re-inlines resolved secrets and drops layout.
+//
+// remapBySourceOrder rebuilds the correspondence. Nodes are created in source
+// order, so the Nth source assignment of a plugin is the Nth node of that
+// plugin — matching per plugin (rather than by one global sequence) keeps
+// unrelated edits elsewhere in the file from shifting the pairing.
+
+// sourceAssign is one top-level `var = input/process/output("plugin", …)`
+// assignment, in source order.
+type sourceAssign struct {
+	Var    string
+	Plugin string
+}
+
+// sourceAssignments lists the top-level plugin-node assignments in source
+// order. Assignments that aren't plugin constructors (function calls, plain
+// variables) are skipped — they create no node, or their nodes are internal
+// to a function call and excluded from the pairing.
+func sourceAssignments(content string) []sourceAssign {
+	f, err := (&syntax.FileOptions{}).Parse("config", []byte(content), 0)
+	if err != nil {
+		return nil
+	}
+	var out []sourceAssign
+	for _, stmt := range f.Stmts {
+		as, ok := stmt.(*syntax.AssignStmt)
+		if !ok || as.Op != syntax.EQ {
+			continue
+		}
+		lhs, ok := as.LHS.(*syntax.Ident)
+		if !ok {
+			continue
+		}
+		call, ok := as.RHS.(*syntax.CallExpr)
+		if !ok {
+			continue
+		}
+		fn, ok := call.Fn.(*syntax.Ident)
+		if !ok {
+			continue
+		}
+		switch fn.Name {
+		case "input", "process", "output":
+		default:
+			continue // user function call: its nodes are function-internal
+		}
+		if len(call.Args) == 0 {
+			continue
+		}
+		lit, ok := call.Args[0].(*syntax.Literal)
+		if !ok {
+			continue
+		}
+		name, ok := lit.Value.(string)
+		if !ok {
+			continue
+		}
+		out = append(out, sourceAssign{Var: lhs.Name, Plugin: name})
+	}
+	return out
+}
+
+// nodeCreationOrder returns the given node IDs sorted by the loader's
+// creation counter (the numeric suffix of "plugin_N"), which is source order.
+func nodeCreationOrder(ids []string) []string {
+	out := append([]string(nil), ids...)
+	sort.SliceStable(out, func(i, j int) bool { return idCounter(out[i]) < idCounter(out[j]) })
+	return out
+}
+
+// idCounter extracts N from "plugin_N"; -1 when the ID has no numeric suffix.
+func idCounter(id string) int {
+	i := strings.LastIndex(id, "_")
+	if i < 0 {
+		return -1
+	}
+	n, err := strconv.Atoi(id[i+1:])
+	if err != nil {
+		return -1
+	}
+	return n
+}
+
+// remapBySourceOrder returns nodeID → source variable name. ids must be the
+// node IDs that correspond to top-level assignments (function-internal nodes
+// excluded); pluginOf reports a node's plugin name. Pairing happens per
+// plugin name, in creation order.
+func remapBySourceOrder(content string, ids []string, pluginOf func(string) string) map[string]string {
+	assigns := sourceAssignments(content)
+	if len(assigns) == 0 {
+		return nil
+	}
+	byPlugin := map[string][]string{}
+	for _, a := range assigns {
+		byPlugin[a.Plugin] = append(byPlugin[a.Plugin], a.Var)
+	}
+	used := map[string]int{}
+	out := map[string]string{}
+	for _, id := range nodeCreationOrder(ids) {
+		p := pluginOf(id)
+		vars := byPlugin[p]
+		i := used[p]
+		if i >= len(vars) {
+			continue // more nodes than source assignments for this plugin
+		}
+		used[p]++
+		if vars[i] != id {
+			out[id] = vars[i]
+		}
+	}
+	return out
+}
+
+// rekeyBySource returns a lookup that finds a text-scanned value for a node:
+// by the node's own ID first (they coincide in a freshly-saved config), then
+// by the source variable the node was assigned to.
+func rekeyBySource[T any](byName map[string]T, idToVar map[string]string) func(string) (T, bool) {
+	return func(id string) (T, bool) {
+		if v, ok := byName[id]; ok {
+			return v, true
+		}
+		if v, ok := byName[idToVar[id]]; ok {
+			return v, true
+		}
+		var zero T
+		return zero, false
+	}
+}
+
+// firstOf drops the found flag from a rekeyBySource lookup, for call sites
+// that want the zero value when absent.
+func firstOf[T any](v T, _ bool) T { return v }

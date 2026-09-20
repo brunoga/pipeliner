@@ -68,3 +68,103 @@ func TestConfigRefsInvalidSourceIsSafe(t *testing.T) {
 		t.Errorf("invalid source should yield no refs, got %#v", refs)
 	}
 }
+
+// TestRemapBySourceOrderRecoversRenumberedNodes is the regression for the
+// silent secret re-inlining: the loader numbers nodes with its own counter,
+// so after a hand edit shifts the numbering, a node's ID no longer matches
+// the source variable it was assigned to. Everything scanned from raw text
+// is keyed by that variable name, so without reconciliation every reference
+// (and comment, label, position) detaches and the visual editor rewrites
+// resolved secrets into the config on the next save.
+func TestRemapBySourceOrderRecoversRenumberedNodes(t *testing.T) {
+	// Source names (rss_0, deluge_7) vs loader IDs (rss_2, deluge_9): the
+	// numbering diverged by two when nodes were added earlier in the file.
+	content := `
+KEY = env("K")
+rss_0 = input("rss", url="http://x/feed")
+seen_1 = process("seen", upstream=rss_0)
+deluge_7 = output("deluge", upstream=seen_1, password=KEY, host="h")
+`
+	ids := []string{"rss_2", "seen_3", "deluge_9"}
+	plugins := map[string]string{"rss_2": "rss", "seen_3": "seen", "deluge_9": "deluge"}
+	idToVar := remapBySourceOrder(content, ids, func(id string) string { return plugins[id] })
+
+	if idToVar["deluge_9"] != "deluge_7" {
+		t.Errorf("deluge_9 → %q, want deluge_7", idToVar["deluge_9"])
+	}
+	if idToVar["rss_2"] != "rss_0" {
+		t.Errorf("rss_2 → %q, want rss_0", idToVar["rss_2"])
+	}
+
+	// The reference lookup must now find the node's refs by either key.
+	refs := configRefs(content)
+	lookup := rekeyBySource(refs, idToVar)
+	got, ok := lookup("deluge_9")
+	if !ok {
+		t.Fatal("deluge_9 must resolve its source refs after remapping")
+	}
+	raw, isRaw := got["password"].(map[string]any)
+	if !isRaw || raw["__star_raw__"] != "KEY" {
+		t.Errorf("password ref = %#v, want {__star_raw__: KEY}", got["password"])
+	}
+}
+
+// Identity case: a freshly-saved config whose source names already match the
+// loader's IDs needs no remapping, and lookups still work.
+func TestRemapBySourceOrderIdentity(t *testing.T) {
+	content := `
+KEY = env("K")
+rss_0 = input("rss", url="http://x/feed")
+deluge_1 = output("deluge", upstream=rss_0, password=KEY)
+`
+	ids := []string{"rss_0", "deluge_1"}
+	plugins := map[string]string{"rss_0": "rss", "deluge_1": "deluge"}
+	idToVar := remapBySourceOrder(content, ids, func(id string) string { return plugins[id] })
+	if len(idToVar) != 0 {
+		t.Errorf("matching names need no remap entries, got %v", idToVar)
+	}
+	lookup := rekeyBySource(configRefs(content), idToVar)
+	if _, ok := lookup("deluge_1"); !ok {
+		t.Error("identity lookup must still resolve refs")
+	}
+}
+
+// User function calls create nodes internal to the call; those are excluded
+// from the pairing by the caller, and their top-level assignment (a function
+// call, not a plugin constructor) must not consume a plugin slot.
+func TestSourceAssignmentsSkipsFunctionCalls(t *testing.T) {
+	content := `
+def helper(upstream):
+    inner_0 = output("deluge", upstream=upstream, password="p")
+    return inner_0
+
+rss_0 = input("rss", url="http://x/feed")
+helper_1 = helper(upstream=rss_0)
+deluge_9 = output("deluge", upstream=rss_0, password="q")
+`
+	got := sourceAssignments(content)
+	var pairs []string
+	for _, a := range got {
+		pairs = append(pairs, a.Plugin+":"+a.Var)
+	}
+	want := []string{"rss:rss_0", "deluge:deluge_9"}
+	if len(pairs) != len(want) {
+		t.Fatalf("assignments = %v, want %v", pairs, want)
+	}
+	for i := range want {
+		if pairs[i] != want[i] {
+			t.Errorf("assignments = %v, want %v", pairs, want)
+			break
+		}
+	}
+}
+
+func TestNodeCreationOrder(t *testing.T) {
+	got := nodeCreationOrder([]string{"deluge_10", "rss_2", "seen_9"})
+	want := []string{"rss_2", "seen_9", "deluge_10"} // numeric, not lexical
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("order = %v, want %v", got, want)
+		}
+	}
+}
