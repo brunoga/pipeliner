@@ -1277,6 +1277,7 @@ pipeline("mixed", schedule="30m")</code></pre>
 <table>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
   <tr><td><code>resolve_timeout</code></td><td>no</td><td><code>30s</code></td><td>Total DHT resolution timeout for the entire batch</td></tr>
+  <tr><td><code>cache_ttl</code></td><td>no</td><td><code>720h</code></td><td>How long resolved DHT metadata is cached, keyed by info hash — resolution is typically the slowest stage in a pipeline, and an info hash commits to exactly this metadata so a cached entry can never be stale</td></tr>
 </table>
 
 <p>From URI: <code>torrent_info_hash</code>, <code>torrent_announce</code>, <code>torrent_announce_list</code>, <code>torrent_display_name</code><br>
