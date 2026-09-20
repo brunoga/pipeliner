@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.30.2] - 2026-09-20
+
+A dashboard card-header layout fix.
+
+### Fixed
+
+- **Pipeline names no longer wrap mid-word (or one character per line)** ([#435](https://github.com/brunoga/pipeliner/pull/435)). The card header packed the name, the schedule chip and the Runs affordance into a single row, leaving the name about 95px: multi-word names wrapped mid-word, and the push-fed chip introduced in 1.30.0 — carrying both the badge and the next-run datetime, and neither wrapping nor shrinking — squeezed a long name down to one character per line and stretched the whole card row. The name now has a full-width row of its own with the chip and Runs beneath it, the push-fed chip drops the datetime that the Next run row already shows (it moved to the tooltip), and long names break only where they must.
+
+**Why 1.30.2**: a UI bug fix. A patch bump per SemVer.
+
 ## [1.30.1] - 2026-09-20
 
 A fix for the visual editor silently re-inlining secrets.
