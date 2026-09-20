@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.32.0] - 2026-09-20
+
+The slowest pipeline stage now caches its results.
+
+### Added
+
+- **`metainfo_magnet` caches resolved DHT metadata by info hash** ([#439](https://github.com/brunoga/pipeliner/pull/439)). DHT resolution is typically the slowest stage in a pipeline — measured at 15.4 seconds of a 22.8-second on-demand movie request, resolving eight candidates — and it re-ran from scratch every time, including for candidates an earlier request had already resolved. Resolved name, size, file count and file paths are now cached by info hash (`cache_ttl`, default 720h, visible in the Database tab). An info hash cryptographically commits to exactly this metadata, so a cached entry can never be stale; the TTL only bounds how long unused entries linger. Keying by hash rather than URL shares one entry across magnet URIs that differ only in trackers or display name, and a hit skips the DHT client entirely.
+
+**Why 1.32.0**: an additive plugin option and a new persistent cache bucket. A minor bump per SemVer.
+
 ## [1.31.0] - 2026-09-20
 
 The dashboard's collapsible sections now share one look.
