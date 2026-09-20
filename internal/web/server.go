@@ -896,6 +896,37 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 	// references instead of re-inlining the resolved literals.
 	nodeRefs := configRefs(req.Content)
 
+	// The loader numbers nodes with its own counter, so a node's ID stops
+	// matching the source variable it was assigned to as soon as the config
+	// is hand-edited. Everything scanned from raw text above is keyed by that
+	// variable name, so reconcile the two — otherwise references, comments,
+	// labels and positions silently detach (the editor then re-inlines
+	// resolved secrets on the next save).
+	var allNodeIDs []string
+	nodePlugin := map[string]string{}
+	funcInternal := map[string]bool{}
+	for _, calls := range c.FunctionCalls {
+		for _, fc := range calls {
+			for _, id := range fc.InternalNodeIDs {
+				funcInternal[id] = true
+			}
+		}
+	}
+	for _, g := range c.Graphs {
+		for _, n := range g.Nodes() {
+			if funcInternal[string(n.ID)] {
+				continue
+			}
+			allNodeIDs = append(allNodeIDs, string(n.ID))
+			nodePlugin[string(n.ID)] = n.PluginName
+		}
+	}
+	idToVar := remapBySourceOrder(req.Content, allNodeIDs, func(id string) string { return nodePlugin[id] })
+	lookupRefs := rekeyBySource(nodeRefs, idToVar)
+	lookupComment := rekeyBySource(nodeComments, idToVar)
+	lookupLabel := rekeyBySource(nodeLabels, idToVar)
+	lookupPos := rekeyBySource(nodePositions, idToVar)
+
 	// DAG graphs.
 	type subPluginResp struct {
 		PluginName string          `json:"plugin,omitempty"`
@@ -1051,7 +1082,7 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 
-			if pos, ok := nodePositions[string(n.ID)]; ok {
+			if pos, ok := lookupPos(string(n.ID)); ok {
 				for i := range list {
 					if i < len(pos.List) {
 						lx, ly := pos.List[i][0], pos.List[i][1]
@@ -1086,12 +1117,12 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 				Upstreams:       ups,
 				Search:          search,
 				List:            list,
-				Comment:         nodeComments[string(n.ID)],
-				Label:           nodeLabels[string(n.ID)],
+				Comment:         firstOf(lookupComment(string(n.ID))),
+				Label:           firstOf(lookupLabel(string(n.ID))),
 				FunctionCallKey: nodeCallKey[string(n.ID)],
 				Fields:          nodeFieldsResp{Certain: nf.Certain, Reachable: nf.Reachable},
 				AutoMigrated:    n.AutoMigrated,
-				ConfigExprs:     nodeRefs[string(n.ID)],
+				ConfigExprs:     firstOf(lookupRefs(string(n.ID))),
 			}
 			// Populate route port fields for route_selector nodes.
 			if n.PluginName == "route_selector" {
@@ -1104,7 +1135,7 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 				// Expose the port's accept expression for client-side field inference.
 				nr.PortAcceptExpr, _ = n.Config["_port_accept_expr"].(string)
 			}
-			if pos, ok := nodePositions[string(n.ID)]; ok {
+			if pos, ok := lookupPos(string(n.ID)); ok {
 				x, y := pos.Main[0], pos.Main[1]
 				nr.X = &x
 				nr.Y = &y
