@@ -217,10 +217,14 @@ function failuresPanelHTML(failures, collapsed) {
   failures = failures || [];
   if (!failures.length) return '';
   const chev = collapsed ? '▸' : '▾';
-  const head = `<div class="failures-strip-head" onclick="toggleFailuresPanel()" title="Click to ${collapsed ? 'expand' : 'collapse'}">
-      <span class="collapse-chevron">${chev}</span> Recent failures (${failures.length}) <span class="task-history-dur">(full history: Tools → ❌ Failure log)</span></div>`;
+  // Same header shape as the Live Log section (.section-head) so the two
+  // read identically, collapsed or expanded; only the accent colour differs.
+  const head = `<h2 class="section-head danger${collapsed ? ' collapsed' : ''}" onclick="toggleFailuresPanel()" title="Click to ${collapsed ? 'expand' : 'collapse'}">
+      <span class="collapse-chevron">${chev}</span>
+      <span class="section-head-title">Recent failures (${failures.length})</span>
+      <span class="section-head-meta">full history: Tools → ❌ Failure log</span></h2>`;
   if (collapsed) {
-    return `<div class="failures-strip collapsed">${head}</div>`;
+    return head;
   }
   let rows = '';
   for (const f of failures) {
@@ -232,10 +236,7 @@ function failuresPanelHTML(failures, collapsed) {
       <span class="task-history-dur">${esc(f.task || '')}</span>
     </div><div class="task-err">⚠ ${esc(f.reason || 'failed')}</div></div>`;
   }
-  return `<div class="failures-strip">
-    ${head}
-    ${rows}
-  </div>`;
+  return `${head}<div class="section-body failures-strip">${rows}</div>`;
 }
 
 // ── live-log collapse ─────────────────────────────────────────────────────────
@@ -250,6 +251,15 @@ function applyLiveLogCollapsed() {
   if (wrap) wrap.hidden = collapsed;
   const chev = document.getElementById('livelog-chevron');
   if (chev) chev.textContent = collapsed ? '▸' : '▾';
+  // Hide the controls that only act on a visible console (search, Clear);
+  // the connection status stays, so a collapsed header still reports health
+  // — the counterpart of the failure count on the collapsed failures header.
+  for (const id of ['log-controls-collapsible', 'log-clear-btn']) {
+    const el = document.getElementById(id);
+    if (el) el.hidden = collapsed;
+  }
+  const head = document.querySelector('#tab-dashboard .section-head');
+  if (head) head.classList.toggle('collapsed', collapsed);
 }
 
 function toggleLiveLog() {

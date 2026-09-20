@@ -43,6 +43,7 @@ describe('failuresPanelHTML', () => {
     ], true);
     expect(html).toContain('Recent failures (2)');
     expect(html).toContain('▸');
+    expect(html).toContain('section-head');
     expect(html).toContain('collapsed');
     expect(html).not.toContain('Dead.Torrent');
   });

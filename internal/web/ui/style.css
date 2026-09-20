@@ -573,9 +573,6 @@ section { margin-bottom: 36px; }
 
 /* ── log console ────────────────────────────────────────────────────────────── */
 
-.log-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 10px; margin-bottom: 10px; }
-.log-header h2 { margin: 0; border-left: none; padding-left: 0; }
-.log-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 
 .log-filter {
   padding: 3px 8px;

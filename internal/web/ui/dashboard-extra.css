@@ -139,19 +139,66 @@
 
 /* ── recent failures strip ──────────────────────────────────────────────── */
 .failures-strip {
-  margin-top: 18px; border: 1px solid var(--border); border-left: 3px solid var(--red);
-  border-radius: 6px; padding: 10px 14px; display: flex; flex-direction: column; gap: 6px;
+  display: flex; flex-direction: column; gap: 6px;
 }
-.failures-strip-head { font-weight: 600; font-size: 0.8rem; color: var(--text); }
 .failures-strip .fail-title {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
 }
 
-/* ── collapsible sections (failures strip, live log) ── */
-.collapse-toggle { cursor: pointer; user-select: none; }
-.collapse-chevron { display: inline-block; width: 0.9em; font-size: 11px; color: var(--muted); }
-.failures-strip-head { cursor: pointer; user-select: none; }
-.failures-strip.collapsed { padding-bottom: 6px; }
+/* ── collapsible sections ──────────────────────────────────────────────────
+   One header treatment shared by Live Log and Recent failures, so the two
+   read the same whether collapsed or expanded. Inherits the uppercase
+   small-caps h2 styling every section heading uses; only the accent bar
+   colour varies (.danger). */
+.section-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+  margin-bottom: 10px;
+}
+.section-head.danger { border-left-color: var(--red); }
+.section-head .section-head-title { flex-shrink: 0; }
+/* Secondary text and controls opt out of the heading's uppercase tracking. */
+.section-head-meta {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 400;
+  font-size: 10px;
+  color: var(--muted);
+}
+.section-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 400;
+  cursor: auto;
+}
+.section-head > .section-head-actions { margin-left: auto; }
+.collapse-chevron {
+  display: inline-block;
+  width: 0.9em;
+  font-size: 11px;
+  color: var(--muted);
+}
+/* Collapsed: the header is the whole section, so it owns no bottom gap. */
+.section-head.collapsed { margin-bottom: 0; }
+
+/* The rows under a collapsible header. */
+.section-body {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 14px;
+}
 
 /* push-fed schedule chip (webhook-driven pipelines) */
 .task-schedule.push-fed { color: var(--accent); }
+
+/* The hidden attribute must win over any display rule a class sets —
+   otherwise `el.hidden = true` silently does nothing on a flex container. */
+[hidden] { display: none !important; }
