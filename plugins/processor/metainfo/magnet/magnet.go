@@ -15,6 +15,13 @@
 //	torrent_size       - total size in bytes (int64)
 //	torrent_file_count - number of files (int)
 //	torrent_files      - []string of file paths relative to the torrent root
+//
+// DHT resolution is the slowest stage in most pipelines (tens of seconds for
+// a batch), so results are cached by info hash. An info hash cryptographically
+// commits to exactly this metadata, so a cached entry can never be wrong — the
+// TTL only bounds how long unused entries linger. Keying by info hash rather
+// than URL means the same torrent shares one entry across magnet URIs that
+// differ only in trackers or display name.
 package magnet
 
 import (
@@ -28,6 +35,7 @@ import (
 
 	"github.com/anacrolix/torrent"
 
+	"github.com/brunoga/pipeliner/internal/cache"
 	"github.com/brunoga/pipeliner/internal/entry"
 	imagnet "github.com/brunoga/pipeliner/internal/magnet"
 	"github.com/brunoga/pipeliner/internal/plugin"
@@ -52,6 +60,10 @@ func init() {
 		Validate: validate,
 		Schema: []plugin.FieldSchema{
 			{Key: "resolve_timeout", Type: plugin.FieldTypeDuration, Default: "30s", Hint: "Max time to wait for DHT metadata"},
+			{Key: "cache_ttl", Type: plugin.FieldTypeDuration, Default: "720h", Hint: "How long resolved DHT metadata is cached by info hash (content is immutable; the TTL only expires unused entries)"},
+		},
+		Caches: []plugin.CacheInfo{
+			{Name: "cache_metainfo_magnet", Display: "Magnet Metadata Cache"},
 		},
 	})
 }
@@ -61,16 +73,30 @@ func validate(cfg map[string]any) []error {
 	if err := plugin.OptDuration(cfg, "resolve_timeout", "metainfo_magnet"); err != nil {
 		errs = append(errs, err)
 	}
-	errs = append(errs, plugin.OptUnknownKeys(cfg, "metainfo_magnet", "resolve_timeout")...)
+	if err := plugin.OptDuration(cfg, "cache_ttl", "metainfo_magnet"); err != nil {
+		errs = append(errs, err)
+	}
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "metainfo_magnet", "resolve_timeout", "cache_ttl")...)
 	return errs
+}
+
+// magnetInfo is the cacheable result of a DHT resolution — exactly what
+// applyInfo writes onto an entry.
+type magnetInfo struct {
+	Name      string   `json:"name"`
+	Size      int64    `json:"size"`
+	FileCount int      `json:"file_count"`
+	Files     []string `json:"files"`
 }
 
 type magnetPlugin struct {
 	client         *torrent.Client
 	resolveTimeout time.Duration
+	// cache maps info hash → resolved metadata. Nil when no store is wired.
+	cache *cache.Cache[*magnetInfo]
 }
 
-func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
+func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
 	resolveTimeout := 30 * time.Second
 	if v, ok := cfg["resolve_timeout"]; ok {
 		s, _ := v.(string)
@@ -92,9 +118,25 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 		return nil, err
 	}
 
+	var infoCache *cache.Cache[*magnetInfo]
+	if db != nil {
+		ttl := 720 * time.Hour
+		if v, _ := cfg["cache_ttl"].(string); v != "" {
+			d, err := time.ParseDuration(v)
+			if err != nil {
+				cl.Close()
+				return nil, fmt.Errorf("metainfo_magnet: invalid cache_ttl %q: %w", v, err)
+			}
+			ttl = d
+		}
+		infoCache = cache.NewPersistent[*magnetInfo](ttl, db.Bucket("cache_metainfo_magnet"))
+		infoCache.Preload()
+	}
+
 	return &magnetPlugin{
 		client:         cl,
 		resolveTimeout: resolveTimeout,
+		cache:          infoCache,
 	}, nil
 }
 
@@ -130,6 +172,7 @@ func (p *magnetPlugin) annotateBatch(ctx context.Context, tc *plugin.TaskContext
 	}
 
 	var jobs []work
+	cached := 0
 	for _, e := range entries {
 		if !isMagnetEntry(e) {
 			log.Debug("metainfo_magnet: skipping entry — not a magnet", "entry", e.URL)
@@ -138,6 +181,16 @@ func (p *magnetPlugin) annotateBatch(ctx context.Context, tc *plugin.TaskContext
 		if err := annotateFromURI(e); err != nil {
 			log.Error("metainfo_magnet: failed to parse magnet URI", "entry", e.URL, "err", err)
 			continue
+		}
+		// A cache hit skips the DHT client entirely — that is where the time
+		// is saved, since resolution dominates the run.
+		if hash := e.GetString(entry.FieldTorrentInfoHash); hash != "" {
+			if mi, ok := p.cache.Get(hash); ok && mi != nil {
+				applyCachedInfo(mi, e)
+				cached++
+				log.Debug("metainfo_magnet: cache hit", "entry", e.URL, "info_hash", hash)
+				continue
+			}
 		}
 		log.Debug("metainfo_magnet: URI parsed",
 			"entry", e.URL,
@@ -154,9 +207,13 @@ func (p *magnetPlugin) annotateBatch(ctx context.Context, tc *plugin.TaskContext
 		jobs = append(jobs, work{t: t, e: e})
 	}
 
-	log.Debug("metainfo_magnet: DHT resolution queued", "count", len(jobs), "timeout", p.resolveTimeout)
+	log.Debug("metainfo_magnet: DHT resolution queued",
+		"count", len(jobs), "from_cache", cached, "timeout", p.resolveTimeout)
 
 	if len(jobs) == 0 {
+		if cached > 0 {
+			log.Info("metainfo_magnet: all metadata served from cache", "entries", cached)
+		}
 		return nil
 	}
 
@@ -175,7 +232,10 @@ func (p *magnetPlugin) annotateBatch(ctx context.Context, tc *plugin.TaskContext
 			defer t.Drop()
 			select {
 			case <-t.GotInfo():
-				applyInfo(t, e)
+				mi := applyInfo(t, e)
+				if hash := e.GetString(entry.FieldTorrentInfoHash); hash != "" {
+					p.cache.Set(hash, mi)
+				}
 				resolved.Add(1)
 				size, _ := e.Get(entry.FieldTorrentFileSize)
 				log.Debug("metainfo_magnet: DHT resolved",
@@ -197,6 +257,7 @@ func (p *magnetPlugin) annotateBatch(ctx context.Context, tc *plugin.TaskContext
 
 	log.Debug("metainfo_magnet: batch complete",
 		"queued", len(jobs),
+		"from_cache", cached,
 		"resolved", resolved.Load(),
 		"timed_out", timedOut.Load(),
 	)
@@ -257,17 +318,25 @@ func announceCount(e *entry.Entry) int {
 }
 
 // applyInfo copies metadata from the resolved torrent info into the entry.
-func applyInfo(t *torrent.Torrent, e *entry.Entry) {
+func applyInfo(t *torrent.Torrent, e *entry.Entry) *magnetInfo {
 	files := t.Files()
 	paths := make([]string, len(files))
 	for i, f := range files {
 		paths[i] = f.Path()
 	}
+	mi := &magnetInfo{Name: t.Name(), Size: t.Length(), FileCount: len(files), Files: paths}
+	applyCachedInfo(mi, e)
+	return mi
+}
+
+// applyCachedInfo writes resolved metadata onto an entry. Shared by the live
+// DHT path and the cache path so both produce identical entries.
+func applyCachedInfo(mi *magnetInfo, e *entry.Entry) {
 	// Resolved torrent name is the release filename — inferred, not canonical.
-	e.SetTitleIfEmpty(t.Name())
+	e.SetTitleIfEmpty(mi.Name)
 	e.SetTorrentInfo(entry.TorrentInfo{
-		FileSize:  t.Length(),
-		FileCount: len(files),
-		Files:     paths,
+		FileSize:  mi.Size,
+		FileCount: mi.FileCount,
+		Files:     mi.Files,
 	})
 }

@@ -11,6 +11,7 @@ An entry is treated as a magnet when `torrent_link_type = "magnet"` (set by `jac
 | Key | Type | Required | Default | Description |
 |-----|------|----------|---------|-------------|
 | `resolve_timeout` | string | no | `30s` | Maximum wall-clock time to wait for DHT metadata across all entries in a batch |
+| `cache_ttl` | string | no | `720h` | How long resolved DHT metadata is cached, keyed by info hash. Resolution is the slowest stage in most pipelines; an info hash commits to exactly this metadata, so a cached entry can never be wrong and the TTL only expires unused entries. |
 
 ## Fields set on each entry
 
