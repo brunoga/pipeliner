@@ -5,6 +5,25 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.33.0] - 2026-09-23
+
+Release waves now yield a single download of the best version.
+
+### Added
+
+- **`settle` option on `movies` and `series`** ([#442](https://github.com/brunoga/pipeliner/pull/442)). Releases for a title arrive in waves — 1080p, then 2160p, then an HDR pass, then an Atmos remux, often within hours — and grabbing on sight downloaded every rung of that ladder. Delaying each release by a fixed age does not help: it shifts every rung later by the same amount and you still download all of them. `settle` anchors the delay to the title instead: the first download-worthy release starts a timer, every candidate is held until it elapses, and they then all become eligible in the same run so `dedup` picks one best copy. A download clears the timer so the next wave settles independently. Unset keeps the existing grab-on-sight behaviour; when set, nothing is downloaded until the window elapses.
+- **`hoursago()` and `minutesago()` expression functions** ([#441](https://github.com/brunoga/pipeliner/pull/441)), and `daysago`/`weeksago` now honour fractions instead of truncating to whole units.
+
+### Changed
+
+- **Colour range now outranks audio when comparing releases** ([#443](https://github.com/brunoga/pipeliner/pull/443)). A 2160p BluRay Atmos SDR release previously displaced a 2160p BluRay DTS Dolby Vision one; HDR and Dolby Vision change every frame of the picture, while an audio track is one of several a release may carry. Only the two lowest-priority dimensions swap — a 1080p release still never displaces a 2160p one. The full comparison ladder is now documented in the guide.
+
+### Fixed
+
+- **Feed dates are parseable in conditions** ([#441](https://github.com/brunoga/pipeliner/pull/441)). RSS `pubDate` and Torznab `publishdate` arrive as RFC1123Z (`Wed, 23 Sep 2026 15:56:34 -0400`), but the expression engine accepted only ISO-ish layouts — so every `condition` rule comparing `published_date` to a date silently failed to parse and could never match.
+
+**Why 1.33.0**: additive options and expression functions, plus a deliberate change to upgrade comparison semantics. A minor bump per SemVer.
+
 ## [1.32.0] - 2026-09-20
 
 The slowest pipeline stage now caches its results.
