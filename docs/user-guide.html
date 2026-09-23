@@ -732,7 +732,10 @@ pipeline("split-pipeline")</code></pre>
 <table>
   <tr><th>Function</th><th>Description</th><th>Example</th></tr>
   <tr><td><code>now()</code></td><td>Current time</td><td><code>series_first_air_date &lt; now()</code></td></tr>
-  <tr><td><code>daysago(n)</code></td><td>Time N days in the past</td><td><code>series_first_air_date &lt; daysago(365)</code></td></tr>
+  <tr><td><code>daysago(n)</code></td><td>Time N days in the past (fractions allowed)</td><td><code>series_first_air_date &lt; daysago(365)</code></td></tr>
+  <tr><td><code>hoursago(n)</code></td><td>Time N hours in the past</td><td><code>published_date &gt; hoursago(12)</code></td></tr>
+  <tr><td><code>minutesago(n)</code></td><td>Time N minutes in the past</td><td><code>published_date &gt; minutesago(30)</code></td></tr>
+  <tr><td colspan="3">Date fields are parsed from ISO forms (<code>2006-01-02</code>, RFC3339) and the RFC&nbsp;1123/822 forms feeds use (<code>Wed, 23 Sep 2026 15:56:34 -0400</code>), so <code>published_date</code> from RSS and Torznab compares correctly.</td></tr>
   <tr><td><code>weeksago(n)</code></td><td>Time N weeks in the past</td><td><code>series_first_air_date &lt; weeksago(52)</code></td></tr>
   <tr><td><code>monthsago(n)</code></td><td>Time N months in the past</td><td><code>series_first_air_date &lt; monthsago(12)</code></td></tr>
   <tr><td><code>date("YYYY-MM-DD")</code></td><td>Specific date literal</td><td><code>series_first_air_date &gt; date("2020-01-01")</code></td></tr>
