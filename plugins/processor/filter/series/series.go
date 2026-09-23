@@ -96,7 +96,10 @@ func validate(cfg map[string]any) []error {
 	if err := plugin.OptDuration(cfg, "upgrade_window", "series"); err != nil {
 		errs = append(errs, err)
 	}
-	errs = append(errs, plugin.OptUnknownKeys(cfg, "series", "static", "list", "ttl", "tracking", "reject_unmatched", "upgrade_window")...)
+	if err := plugin.OptDuration(cfg, "settle", "series"); err != nil {
+		errs = append(errs, err)
+	}
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "series", "static", "list", "ttl", "tracking", "reject_unmatched", "upgrade_window", "settle")...)
 	return errs
 }
 
@@ -125,6 +128,8 @@ type seriesPlugin struct {
 	downloadLog     *downloads.Log
 	rejectUnmatched bool
 	upgradeWindow   time.Duration // 0 = upgrades accepted forever
+	settle          time.Duration // 0 = grab on sight
+	settleTracker   *series.SettleTracker
 }
 
 func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
@@ -176,7 +181,18 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 		upgradeWindow = d
 	}
 
+	var settle time.Duration
+	if v, _ := cfg["settle"].(string); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return nil, fmt.Errorf("series: invalid settle %q: %w", v, err)
+		}
+		settle = d
+	}
+
 	return &seriesPlugin{
+		settle:          settle,
+		settleTracker:   series.NewSettleTracker(db.Bucket(series.SettleBucketName)),
 		staticShows:     staticShows,
 		listSources:     listSources,
 		listCache:       cache.NewPersistent[[]match.TitleEntry](ttl, db.Bucket("cache_series_list")),
@@ -258,9 +274,15 @@ func (p *seriesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *en
 		properOrRepack := e.GetBool(entry.FieldVideoProper) || e.GetBool(entry.FieldVideoRepack)
 		switch quality.Decide(incomingQuality, stored.Quality, properOrRepack, stored.Repack) {
 		case quality.UpgradeQuality:
+			if p.holdForSettle(e, matchedShow, epID) {
+				return nil
+			}
 			e.Accept(fmt.Sprintf("series: %s %s quality upgrade", matchedShow, epID))
 			return nil
 		case quality.UpgradeProperRepack:
+			if p.holdForSettle(e, matchedShow, epID) {
+				return nil
+			}
 			e.Accept(fmt.Sprintf("series: %s %s proper/repack accepted", matchedShow, epID))
 			return nil
 		}
@@ -305,6 +327,9 @@ func (p *seriesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *en
 		}
 	}
 
+	if p.holdForSettle(e, matchedShow, epID) {
+		return nil
+	}
 	e.Accept(fmt.Sprintf("series: %s %s matched", matchedShow, epID))
 	return nil
 }
@@ -349,6 +374,8 @@ func (p *seriesPlugin) persist(_ context.Context, tc *plugin.TaskContext, entrie
 		if err := p.tracker.MarkWithParts(rec, ep); err != nil {
 			return fmt.Errorf("series: mark %s %s: %w", matchedShow, epID, err)
 		}
+		// The wave produced a download; the next one starts a fresh timer.
+		p.settleTracker.Clear(matchedShow, epID)
 		// Append to the download history audit log (best-effort — the tracker
 		// is the source of truth; the log is for reporting re-downloads and
 		// quality upgrades over time). Optional: nil in tests that build the
@@ -448,4 +475,20 @@ func (p *seriesPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entr
 // the full pipeline (including download/output) succeeded.
 func (p *seriesPlugin) Commit(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
 	return p.persist(ctx, tc, entries)
+}
+
+// holdForSettle rejects an otherwise-downloadable entry while its episode's
+// settle window is still running, and reports whether it did. Holding every
+// release in a wave means they all become eligible in the same run once the
+// window elapses, so the downstream dedup picks one best release instead of
+// the pipeline grabbing each improvement as it appears. Rejection is per-run
+// and uncommitted, so the entry is re-evaluated on the next run.
+func (p *seriesPlugin) holdForSettle(e *entry.Entry, show, epID string) bool {
+	left := p.settleTracker.Remaining(show, epID, p.settle, time.Now())
+	if left <= 0 {
+		return false
+	}
+	e.Reject(fmt.Sprintf("series: %s %s settling for %s more (waiting for the best release of this wave)",
+		show, epID, left.Round(time.Minute)))
+	return true
 }

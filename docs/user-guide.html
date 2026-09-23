@@ -1398,6 +1398,7 @@ pipeline("tv", schedule="1h")</code></pre>
   <tr><td><code>tracking</code></td><td>no</td><td><code>strict</code></td><td>Episode ordering mode: <code>strict</code>, <code>backfill</code>, or <code>follow</code></td></tr>
   <tr><td><code>reject_unmatched</code></td><td>no</td><td><code>true</code></td><td>When <code>true</code> (default), entries that lack <code>series_episode_id</code> (i.e. were not classified as a series episode upstream) are explicitly rejected; when a list is configured, entries whose show name isn't in the list are also rejected. Set to <code>false</code> to leave such entries undecided when chaining multiple series filters. With neither <code>static</code> nor <code>list</code> set, this flag only governs the classification check.</td></tr>
   <tr><td><code>upgrade_window</code></td><td>no</td><td>—</td><td>Accept quality upgrades only within this window after the first download (e.g. <code>168h</code> for 7 days); default: unlimited</td></tr>
+  <tr><td><code>settle</code></td><td>no</td><td>&mdash;</td><td>Delay between first seeing a download-worthy release and grabbing one. Releases arrive in waves (1080p, then 2160p, then HDR, then Atmos) within hours; without this each rung is downloaded as it appears. Holding the whole wave means every release becomes eligible in the same run, so <a href="#dedup"><code>dedup</code></a> picks one best copy. Nothing is downloaded until the window elapses.</td></tr>
 </table>
 
 <h4>Tracking modes</h4>
@@ -1450,6 +1451,7 @@ pipeline("tv-dynamic", schedule="1h")</code></pre>
   <tr><td><code>ttl</code></td><td>no</td><td><code>1h</code></td><td>Cache TTL for dynamic list. An empty list from a <code>list:</code> source is not cached — the source will be queried again on the next run.</td></tr>
   <tr><td><code>reject_unmatched</code></td><td>no</td><td><code>true</code></td><td>When <code>true</code> (default), entries that lack <code>title</code> are explicitly rejected; when a list is configured, entries whose title isn't in the list are also rejected. Set to <code>false</code> to leave such entries undecided. With neither <code>static</code> nor <code>list</code> set, this flag only governs the classification check.</td></tr>
   <tr><td><code>upgrade_window</code></td><td>no</td><td>—</td><td>Accept quality upgrades only within this window after the first download (e.g. <code>720h</code> for 30 days); default: unlimited</td></tr>
+  <tr><td><code>settle</code></td><td>no</td><td>&mdash;</td><td>Delay between first seeing a download-worthy release and grabbing one. Releases arrive in waves (1080p, then 2160p, then HDR, then Atmos) within hours; without this each rung is downloaded as it appears. Holding the whole wave means every release becomes eligible in the same run, so <a href="#dedup"><code>dedup</code></a> picks one best copy. Nothing is downloaded until the window elapses.</td></tr>
 </table>
 
 <p>Fields produced: none. <code>movies</code> reads upstream metadata and only writes to its internal tracker on commit; all <code>movie_*</code> / <code>video_*</code> fields seen downstream were set by the upstream metainfo step.</p>

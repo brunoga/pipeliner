@@ -2,6 +2,7 @@ package movies
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"maps"
@@ -697,4 +698,118 @@ func mustQuality(t *testing.T, title string) quality.Quality {
 	t.Helper()
 	q := quality.Parse(title)
 	return q
+}
+
+// TestSettleCollapsesTheUpgradeLadder is the motivating case, taken from a
+// real pipeline: releases for a new title arrive as a wave (1080p, then
+// 2160p, then HDR, then Atmos) over a few hours, and grabbing on sight
+// downloads every rung. With a settle window, the whole wave is held and
+// then becomes eligible at once, so one download wins.
+func TestSettleCollapsesTheUpgradeLadder(t *testing.T) {
+	db, _ := store.OpenSQLite(":memory:")
+	defer db.Close()
+	p, err := newPlugin(map[string]any{"settle": "12h"}, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mp := p.(*moviesPlugin)
+
+	ladder := []string{
+		"Fantastic.Four.2026.1080p.WEB-DL.x264",
+		"Fantastic.Four.2026.2160p.WEB-DL.x265",
+		"Fantastic.Four.2026.2160p.WEB-DL.HDR.x265",
+		"Fantastic.Four.2026.2160p.WEB-DL.HDR.TrueHD.Atmos.x265",
+	}
+	// Every rung of the wave is held while the window runs — nothing is
+	// downloaded, which is the whole point.
+	for i, title := range ladder {
+		e := makeEntry(title, fmt.Sprintf("http://x.com/%d", i))
+		if err := mp.filter(context.Background(), makeCtx(), e); err != nil {
+			t.Fatal(err)
+		}
+		if e.IsAccepted() {
+			t.Fatalf("rung %d (%s) must be held during the settle window", i, title)
+		}
+		if !strings.Contains(e.RejectReason, "settling") {
+			t.Errorf("rung %d rejected for the wrong reason: %s", i, e.RejectReason)
+		}
+	}
+
+	// Once the window elapses every rung is eligible in the same run, so the
+	// downstream dedup gets the full set and can pick the best.
+	expireSettle(t, db, "fantastic four", 2026, 13*time.Hour)
+	accepted := 0
+	for i, title := range ladder {
+		e := makeEntry(title, fmt.Sprintf("http://x.com/%d", i))
+		if err := mp.filter(context.Background(), makeCtx(), e); err != nil {
+			t.Fatal(err)
+		}
+		if e.IsAccepted() {
+			accepted++
+		}
+	}
+	if accepted != len(ladder) {
+		t.Errorf("after the window all %d rungs should be eligible for dedup, got %d", len(ladder), accepted)
+	}
+}
+
+// A download clears the timer so the next wave settles independently.
+func TestSettleClearedAfterDownload(t *testing.T) {
+	db, _ := store.OpenSQLite(":memory:")
+	defer db.Close()
+	p, _ := newPlugin(map[string]any{"settle": "6h"}, db)
+	mp := p.(*moviesPlugin)
+
+	e := makeEntry("Some.Movie.2024.1080p.WEB-DL.x264", "http://x.com/a")
+	if err := mp.filter(context.Background(), makeCtx(), e); err != nil {
+		t.Fatal(err)
+	}
+	if e.IsAccepted() {
+		t.Fatal("first sighting should start the window, not download")
+	}
+	expireSettle(t, db, "some movie", 2024, 7*time.Hour)
+
+	e2 := makeEntry("Some.Movie.2024.1080p.WEB-DL.x264", "http://x.com/a")
+	if err := mp.filter(context.Background(), makeCtx(), e2); err != nil {
+		t.Fatal(err)
+	}
+	if !e2.IsAccepted() {
+		t.Fatalf("window elapsed, should accept: %s", e2.RejectReason)
+	}
+	if err := mp.persist(context.Background(), makeCtx(), []*entry.Entry{e2}); err != nil {
+		t.Fatal(err)
+	}
+	var rec struct {
+		FirstSeen time.Time `json:"first_seen"`
+	}
+	found, _ := db.Bucket(imovies.SettleBucketName).Get("some movie|2024", &rec)
+	if found {
+		t.Error("the settle timer must be cleared once a release was downloaded")
+	}
+}
+
+// Without settle configured, behaviour is unchanged: grab on sight.
+func TestSettleUnsetGrabsImmediately(t *testing.T) {
+	db, _ := store.OpenSQLite(":memory:")
+	defer db.Close()
+	p, _ := newPlugin(map[string]any{}, db)
+	mp := p.(*moviesPlugin)
+	e := makeEntry("Instant.Movie.2024.1080p.WEB-DL.x264", "http://x.com/a")
+	if err := mp.filter(context.Background(), makeCtx(), e); err != nil {
+		t.Fatal(err)
+	}
+	if !e.IsAccepted() {
+		t.Errorf("no settle window means grab on sight, got: %s", e.RejectReason)
+	}
+}
+
+// expireSettle backdates a title's settle timer so the window has elapsed.
+func expireSettle(t *testing.T, db *store.SQLiteStore, title string, year int, age time.Duration) {
+	t.Helper()
+	key := fmt.Sprintf("%s|%d", title, year)
+	if err := db.Bucket(imovies.SettleBucketName).Put(key, map[string]any{
+		"first_seen": time.Now().Add(-age).Format(time.RFC3339Nano),
+	}); err != nil {
+		t.Fatal(err)
+	}
 }
