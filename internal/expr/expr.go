@@ -645,7 +645,35 @@ func (n *funcNode) eval(data map[string]any) (any, error) {
 		if !ok {
 			return nil, fmt.Errorf("daysago(): argument must be numeric")
 		}
-		return time.Now().AddDate(0, 0, -int(f)), nil
+		return time.Now().Add(-time.Duration(f * float64(24*time.Hour))), nil
+
+	case "hoursago":
+		if n.arg == nil {
+			return nil, fmt.Errorf("hoursago() requires one argument")
+		}
+		v, err := n.arg.eval(data)
+		if err != nil {
+			return nil, err
+		}
+		f, ok := toFloat(v)
+		if !ok {
+			return nil, fmt.Errorf("hoursago(): argument must be numeric")
+		}
+		return time.Now().Add(-time.Duration(f * float64(time.Hour))), nil
+
+	case "minutesago":
+		if n.arg == nil {
+			return nil, fmt.Errorf("minutesago() requires one argument")
+		}
+		v, err := n.arg.eval(data)
+		if err != nil {
+			return nil, err
+		}
+		f, ok := toFloat(v)
+		if !ok {
+			return nil, fmt.Errorf("minutesago(): argument must be numeric")
+		}
+		return time.Now().Add(-time.Duration(f * float64(time.Minute))), nil
 
 	case "weeksago":
 		if n.arg == nil {
@@ -659,7 +687,7 @@ func (n *funcNode) eval(data map[string]any) (any, error) {
 		if !ok {
 			return nil, fmt.Errorf("weeksago(): argument must be numeric")
 		}
-		return time.Now().AddDate(0, 0, -7*int(f)), nil
+		return time.Now().Add(-time.Duration(f * float64(7*24*time.Hour))), nil
 
 	case "monthsago":
 		if n.arg == nil {
@@ -687,7 +715,7 @@ func (n *funcNode) eval(data map[string]any) (any, error) {
 		if !ok {
 			return nil, fmt.Errorf("date(): argument must be a string")
 		}
-		for _, layout := range []string{"2006-01-02", "2006-01-02T15:04:05Z07:00", time.RFC3339} {
+		for _, layout := range timeLayouts {
 			if t, err := time.Parse(layout, s); err == nil {
 				return t, nil
 			}
@@ -815,13 +843,28 @@ func (n *binaryNode) eval(data map[string]any) (any, error) {
 	return nil, fmt.Errorf("unknown operator %q", n.op)
 }
 
+// timeLayouts are the date formats a field value may arrive in. Feed dates
+// dominate: RSS pubDate and Torznab publishdate are RFC1123Z
+// ("Wed, 23 Sep 2026 15:56:34 -0400"), which was previously unparseable —
+// every condition comparing published_date to a date silently failed.
+var timeLayouts = []string{
+	"2006-01-02",
+	time.RFC3339,
+	"2006-01-02T15:04:05Z",
+	time.RFC1123Z,
+	time.RFC1123,
+	time.RFC822Z,
+	time.RFC822,
+	"2006-01-02 15:04:05",
+}
+
 // toTime attempts to convert a value to time.Time. Returns (zero, false) if not possible.
 func toTime(v any) (time.Time, bool) {
 	switch vv := v.(type) {
 	case time.Time:
 		return vv, true
 	case string:
-		for _, layout := range []string{"2006-01-02", time.RFC3339, "2006-01-02T15:04:05Z"} {
+		for _, layout := range timeLayouts {
 			if t, err := time.Parse(layout, vv); err == nil {
 				return t, true
 			}

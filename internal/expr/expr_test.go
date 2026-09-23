@@ -216,3 +216,50 @@ func TestComplexExpression(t *testing.T) {
 		t.Error("score < 8.0 so should be false")
 	}
 }
+
+// TestFeedDateFormatsParse: RSS pubDate and Torznab publishdate arrive as
+// RFC1123Z ("Wed, 23 Sep 2026 15:56:34 -0400"). toTime previously accepted
+// only ISO-ish layouts, so every condition comparing published_date to a
+// date silently failed to parse and could never match.
+func TestFeedDateFormatsParse(t *testing.T) {
+	for _, ts := range []string{
+		"Wed, 23 Sep 2026 15:56:34 -0400", // RFC1123Z — jackett/torznab
+		"Wed, 23 Sep 2026 19:56:34 UTC",   // RFC1123
+		"23 Sep 26 15:56 -0400",           // RFC822Z
+		"2026-09-23T19:56:34Z",            // RFC3339
+		"2026-09-23",                      // plain date
+		"2026-09-23 19:56:34",             // space-separated
+	} {
+		if _, ok := toTime(ts); !ok {
+			t.Errorf("toTime(%q) failed to parse", ts)
+		}
+	}
+	// A feed date in the past must compare as older than a recent cutoff.
+	data := map[string]any{"published_date": "Wed, 23 Sep 2020 15:56:34 -0400"}
+	if !eval(t, "published_date < daysago(30)", data) {
+		t.Error("a 2020 feed date should be older than daysago(30)")
+	}
+}
+
+// TestSubDayTimeFunctions: hoursago/minutesago exist and daysago/weeksago
+// honour fractions — previously daysago truncated to whole days, so there
+// was no way to express a window shorter than 24h.
+func TestSubDayTimeFunctions(t *testing.T) {
+	data := map[string]any{"t": time.Now().Add(-90 * time.Minute)}
+	if !eval(t, "t < hoursago(1)", data) {
+		t.Error("90 minutes ago should be before hoursago(1)")
+	}
+	if eval(t, "t < hoursago(2)", data) {
+		t.Error("90 minutes ago should NOT be before hoursago(2)")
+	}
+	if !eval(t, "t < minutesago(60)", data) {
+		t.Error("90 minutes ago should be before minutesago(60)")
+	}
+	// Fractional days now mean what they say.
+	if !eval(t, "t < daysago(0.04)", data) { // ~58 minutes
+		t.Error("90 minutes ago should be before daysago(0.04)")
+	}
+	if eval(t, "t < daysago(0.5)", data) { // 12 hours
+		t.Error("90 minutes ago should NOT be before daysago(0.5)")
+	}
+}
