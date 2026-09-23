@@ -56,6 +56,7 @@ func init() {
 			{Key: "list", Type: plugin.FieldTypeDict, Hint: "Optional dynamic list from a source plugin (e.g. trakt_list); omit to accept every classified movie"},
 			{Key: "ttl", Type: plugin.FieldTypeDuration, Default: "1h", Hint: "Cache TTL for dynamic lists"},
 			{Key: "reject_unmatched", Type: plugin.FieldTypeBool, Default: true, Hint: "Reject entries not classified as movie upstream; when a list is configured, also reject entries whose title isn't in the list"},
+			{Key: "settle", Type: plugin.FieldTypeDuration, Hint: "Delay between first seeing a download-worthy release for a title and grabbing one, so a wave of increasingly better releases yields a single download of the best (0 = grab on sight)"},
 			{Key: "upgrade_window", Type: plugin.FieldTypeDuration, Hint: "Accept quality upgrades only within this window after the first download (e.g. 30d as 720h; default: unlimited)"},
 		},
 		Caches: []plugin.CacheInfo{
@@ -74,7 +75,10 @@ func validate(cfg map[string]any) []error {
 	if err := plugin.OptDuration(cfg, "upgrade_window", "movies"); err != nil {
 		errs = append(errs, err)
 	}
-	errs = append(errs, plugin.OptUnknownKeys(cfg, "movies", "static", "list", "ttl", "reject_unmatched", "upgrade_window")...)
+	if err := plugin.OptDuration(cfg, "settle", "movies"); err != nil {
+		errs = append(errs, err)
+	}
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "movies", "static", "list", "ttl", "reject_unmatched", "upgrade_window", "settle")...)
 	return errs
 }
 
@@ -86,6 +90,8 @@ type moviesPlugin struct {
 	downloadLog     *downloads.Log
 	rejectUnmatched bool
 	upgradeWindow   time.Duration // 0 = upgrades accepted forever
+	settle          time.Duration // 0 = grab on sight
+	settleTracker   *imovies.SettleTracker
 }
 
 func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
@@ -125,8 +131,19 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 		upgradeWindow = d
 	}
 
+	var settle time.Duration
+	if v, _ := cfg["settle"].(string); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return nil, fmt.Errorf("movies: invalid settle %q: %w", v, err)
+		}
+		settle = d
+	}
+
 	return &moviesPlugin{
 		staticTitles:    staticTitles,
+		settle:          settle,
+		settleTracker:   imovies.NewSettleTracker(db.Bucket(imovies.SettleBucketName)),
 		listSources:     listSources,
 		listCache:       cache.NewPersistent[[]match.TitleEntry](ttl, db.Bucket("cache_movies_list")),
 		rejectUnmatched: rejectUnmatched,
@@ -200,9 +217,15 @@ func (p *moviesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *en
 			}
 			switch quality.Decide(q, rec.Quality, properOrRepack, rec.Repack) {
 			case quality.UpgradeQuality:
+				if p.holdForSettle(e, matchedTitle, year, is3D) {
+					return nil
+				}
 				e.Accept(fmt.Sprintf("movies: %s (%d) quality upgrade", matchedTitle, year))
 				return nil
 			case quality.UpgradeProperRepack:
+				if p.holdForSettle(e, matchedTitle, year, is3D) {
+					return nil
+				}
 				e.Accept(fmt.Sprintf("movies: %s (%d) proper/repack accepted", matchedTitle, year))
 				return nil
 			}
@@ -211,8 +234,28 @@ func (p *moviesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *en
 		return nil
 	}
 
+	if p.holdForSettle(e, matchedTitle, year, is3D) {
+		return nil
+	}
 	e.Accept(fmt.Sprintf("movies: %s (%d) matched", matchedTitle, year))
 	return nil
+}
+
+// holdForSettle rejects an otherwise-downloadable entry while its title's
+// settle window is still running, and reports whether it did. Every release
+// in a wave is held, so when the window elapses they all become eligible in
+// the same run and the downstream dedup picks the single best one — instead
+// of downloading each rung of the 1080p → 2160p → HDR → Atmos ladder as it
+// appears. Rejection is per-run and uncommitted, so the entry is re-evaluated
+// on the next run.
+func (p *moviesPlugin) holdForSettle(e *entry.Entry, title string, year int, is3D bool) bool {
+	left := p.settleTracker.Remaining(title, year, is3D, p.settle, time.Now())
+	if left <= 0 {
+		return false
+	}
+	e.Reject(fmt.Sprintf("movies: %s (%d) settling for %s more (waiting for the best release of this wave)",
+		title, year, left.Round(time.Minute)))
+	return true
 }
 
 // moviesTrackerName is the entry field used to carry the matched (normalized)
@@ -249,6 +292,8 @@ func (p *moviesPlugin) persist(_ context.Context, tc *plugin.TaskContext, entrie
 		}); err != nil {
 			return fmt.Errorf("movies: mark %s (%d): %w", matchedTitle, year, err)
 		}
+		// The wave produced a download; the next one starts a fresh timer.
+		p.settleTracker.Clear(matchedTitle, year, is3D)
 		// Best-effort append to the download history audit log. Optional: nil
 		// in tests that build the plugin struct directly.
 		if p.downloadLog == nil {

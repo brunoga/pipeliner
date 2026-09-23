@@ -959,3 +959,68 @@ func TestUpgradeWindowUnsetEpisodeUpgradesForever(t *testing.T) {
 		t.Errorf("without upgrade_window an old episode still upgrades: %s", e.RejectReason)
 	}
 }
+
+// TestSettleHoldsEpisodeWaveThenReleasesAll mirrors the movies case: an
+// episode's releases arrive as a wave, and settling holds all of them so a
+// single best one is downloaded once the window elapses.
+func TestSettleHoldsEpisodeWaveThenReleasesAll(t *testing.T) {
+	db, _ := store.OpenSQLite(":memory:")
+	defer db.Close()
+	p, err := newPlugin(map[string]any{"settle": "8h"}, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sp := p.(*seriesPlugin)
+
+	wave := []string{
+		"Some.Show.S01E01.1080p.WEB-DL.x264",
+		"Some.Show.S01E01.2160p.WEB-DL.x265",
+		"Some.Show.S01E01.2160p.WEB-DL.HDR.TrueHD.Atmos.x265",
+	}
+	for i, title := range wave {
+		e := makeEntry(title, "http://x.com/"+title)
+		if err := sp.filter(context.Background(), makeCtx(), e); err != nil {
+			t.Fatal(err)
+		}
+		if e.IsAccepted() {
+			t.Fatalf("rung %d must be held while settling", i)
+		}
+		if !strings.Contains(e.RejectReason, "settling") {
+			t.Errorf("rung %d rejected for the wrong reason: %s", i, e.RejectReason)
+		}
+	}
+
+	// Backdate the timer so the window has elapsed.
+	if err := db.Bucket(series.SettleBucketName).Put("some show|S01E01", map[string]any{
+		"first_seen": time.Now().Add(-9 * time.Hour).Format(time.RFC3339Nano),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	accepted := 0
+	for _, title := range wave {
+		e := makeEntry(title, "http://x.com/"+title)
+		if err := sp.filter(context.Background(), makeCtx(), e); err != nil {
+			t.Fatal(err)
+		}
+		if e.IsAccepted() {
+			accepted++
+		}
+	}
+	if accepted != len(wave) {
+		t.Errorf("after the window all %d releases should reach dedup, got %d", len(wave), accepted)
+	}
+}
+
+func TestSettleUnsetGrabsImmediately(t *testing.T) {
+	db, _ := store.OpenSQLite(":memory:")
+	defer db.Close()
+	p, _ := newPlugin(map[string]any{}, db)
+	sp := p.(*seriesPlugin)
+	e := makeEntry("Some.Show.S02E02.1080p.WEB-DL.x264", "http://x.com/a")
+	if err := sp.filter(context.Background(), makeCtx(), e); err != nil {
+		t.Fatal(err)
+	}
+	if !e.IsAccepted() {
+		t.Errorf("no settle window means grab on sight, got: %s", e.RejectReason)
+	}
+}

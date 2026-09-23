@@ -1216,3 +1216,52 @@ func TestConverterTagsAreStrongConvMarkers(t *testing.T) {
 		t.Error("native BD3D must not parse as Conv")
 	}
 }
+
+// TestBetterPrecedence documents exactly how "is this release better?" is
+// decided: a strict lexicographic ladder that returns at the FIRST dimension
+// that differs. Resolution outranks everything below it, so a 1080p Atmos
+// release never displaces a 2160p one — the audio comparison is never even
+// reached.
+func TestBetterPrecedence(t *testing.T) {
+	cases := []struct {
+		name       string
+		incoming   string
+		current    string
+		wantBetter bool
+	}{
+		// Resolution dominates every lower dimension.
+		{"1080p Atmos does not beat 2160p",
+			"Movie.2024.1080p.BluRay.TrueHD.Atmos.x265", "Movie.2024.2160p.WEB-DL.x265", false},
+		{"2160p beats 1080p Atmos",
+			"Movie.2024.2160p.WEB-DL.x265", "Movie.2024.1080p.BluRay.TrueHD.Atmos.x265", true},
+		{"1080p HDR does not beat 2160p SDR",
+			"Movie.2024.1080p.BluRay.HDR10.x265", "Movie.2024.2160p.WEB-DL.x265", false},
+
+		// Same resolution: source decides next.
+		{"BluRay beats WEB-DL at equal resolution",
+			"Movie.2024.2160p.BluRay.x265", "Movie.2024.2160p.WEB-DL.x265", true},
+		{"WEB-DL Atmos does not beat BluRay at equal resolution",
+			"Movie.2024.2160p.WEB-DL.TrueHD.Atmos.x265", "Movie.2024.2160p.BluRay.x265", false},
+
+		// Same resolution and source: audio outranks colour range.
+		{"Atmos beats DTS at equal resolution and source",
+			"Movie.2024.2160p.BluRay.x265.TrueHD.Atmos", "Movie.2024.2160p.BluRay.x265.DTS", true},
+		{"HDR only decides when everything above is equal",
+			"Movie.2024.2160p.BluRay.x265.DTS.HDR10", "Movie.2024.2160p.BluRay.x265.DTS", true},
+		{"Atmos SDR beats DTS Dolby Vision — audio is compared before colour",
+			"Movie.2024.2160p.BluRay.x265.TrueHD.Atmos", "Movie.2024.2160p.BluRay.x265.DTS.DV", true},
+
+		// Equal is not better — this is what stops re-downloading the same tier.
+		{"identical quality is not an upgrade",
+			"Movie.2024.2160p.BluRay.x265.DTS", "Movie.2024.2160p.BluRay.x265.DTS", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			in, cur := Parse(c.incoming), Parse(c.current)
+			if got := in.Better(cur); got != c.wantBetter {
+				t.Errorf("Better() = %v, want %v\n  incoming: %s\n  current:  %s",
+					got, c.wantBetter, in.String(), cur.String())
+			}
+		})
+	}
+}
