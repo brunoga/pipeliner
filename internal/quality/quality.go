@@ -210,10 +210,18 @@ func (q Quality) String() string {
 
 // Better reports whether q is strictly better than other.
 //
+// Comparison is lexicographic: dimensions are examined in priority order and
+// the first one that differs decides, so a lower-priority dimension can never
+// outweigh a higher one (a 1080p Atmos release does not beat a 2160p one).
+//
 // When both qualities are 3D (Format3D != Format3DNone), Format3D is the
 // primary discriminator and the remaining dimensions act as tie-breakers.
 // When either quality is non-3D the Format3D dimension is skipped and the
-// existing order applies: Resolution > Source > Codec > Audio > ColorRange.
+// order is: Resolution > Source > Codec > ColorRange > Audio.
+//
+// ColorRange outranks Audio: Dolby Vision or HDR changes every frame of the
+// picture, while an audio track is one of several a release may carry, so a
+// DV/HDR copy is the better keep when the two dimensions disagree.
 func (q Quality) Better(other Quality) bool {
 	if q.Format3D != Format3DNone && other.Format3D != Format3DNone {
 		if q.Format3D != other.Format3D {
@@ -229,10 +237,10 @@ func (q Quality) Better(other Quality) bool {
 	if q.Codec != other.Codec {
 		return q.Codec > other.Codec
 	}
-	if q.Audio != other.Audio {
-		return q.Audio > other.Audio
+	if q.ColorRange != other.ColorRange {
+		return q.ColorRange > other.ColorRange
 	}
-	return q.ColorRange > other.ColorRange
+	return q.Audio > other.Audio
 }
 
 // --- compiled regexes for Parse ---

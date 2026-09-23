@@ -756,6 +756,19 @@ pipeline("split-pipeline")</code></pre>
 
 <p>Used by the <code>quality</code> filter (and the <code>dedup</code> processor for tie-breaking). A spec is one or more space-separated tokens, each constraining one quality dimension.</p>
 
+<p><strong>Which release is "better"</strong> — used by <code>dedup</code>, by the upgrade decision in <a href="#movies"><code>movies</code></a>/<a href="#series"><code>series</code></a>, and by the <a href="#library"><code>library</code></a> filter. Dimensions are compared in priority order and <em>the first one that differs decides</em>, so a lower-priority dimension can never outweigh a higher one:</p>
+
+<ol>
+  <li><strong>3D format</strong> — only when both releases are 3D (native beats converted)</li>
+  <li><strong>Resolution</strong> — 2160p &gt; 1080p &gt; 720p &gt; …</li>
+  <li><strong>Source</strong> — Remux &gt; BluRay &gt; WEB-DL &gt; WEBRip &gt; HDTV &gt; …</li>
+  <li><strong>Codec</strong> — AV1 &gt; H.265 &gt; H.264 &gt; …</li>
+  <li><strong>Colour range</strong> — Dolby Vision &gt; HDR10 &gt; HDR &gt; SDR</li>
+  <li><strong>Audio</strong> — Atmos &gt; TrueHD &gt; DTS &gt; …</li>
+</ol>
+
+<p>So a 1080p Atmos release never displaces a 2160p one — the comparison stops at resolution and the audio dimension is never reached. Colour range outranks audio because HDR/Dolby Vision changes every frame of the picture, while an audio track is one of several a release may carry. Equal quality is never "better", which is what prevents re-downloading the same tier.</p>
+
 <table>
   <tr><th>Form</th><th>Meaning</th><th>Example</th></tr>
   <tr><td><code>value</code></td><td>Exact value</td><td><code>1080p</code>, <code>bluray</code></td></tr>

@@ -1243,13 +1243,17 @@ func TestBetterPrecedence(t *testing.T) {
 		{"WEB-DL Atmos does not beat BluRay at equal resolution",
 			"Movie.2024.2160p.WEB-DL.TrueHD.Atmos.x265", "Movie.2024.2160p.BluRay.x265", false},
 
-		// Same resolution and source: audio outranks colour range.
-		{"Atmos beats DTS at equal resolution and source",
-			"Movie.2024.2160p.BluRay.x265.TrueHD.Atmos", "Movie.2024.2160p.BluRay.x265.DTS", true},
-		{"HDR only decides when everything above is equal",
+		// Same resolution, source and codec: colour range outranks audio,
+		// because HDR/DV changes every frame while audio is one of several
+		// tracks a release may carry.
+		{"Dolby Vision beats Atmos when colour and audio disagree",
+			"Movie.2024.2160p.BluRay.x265.DTS.DV", "Movie.2024.2160p.BluRay.x265.TrueHD.Atmos", true},
+		{"Atmos SDR does not beat DTS Dolby Vision",
+			"Movie.2024.2160p.BluRay.x265.TrueHD.Atmos", "Movie.2024.2160p.BluRay.x265.DTS.DV", false},
+		{"HDR beats SDR at equal resolution, source and codec",
 			"Movie.2024.2160p.BluRay.x265.DTS.HDR10", "Movie.2024.2160p.BluRay.x265.DTS", true},
-		{"Atmos SDR beats DTS Dolby Vision — audio is compared before colour",
-			"Movie.2024.2160p.BluRay.x265.TrueHD.Atmos", "Movie.2024.2160p.BluRay.x265.DTS.DV", true},
+		{"audio decides only when colour range ties",
+			"Movie.2024.2160p.BluRay.x265.TrueHD.Atmos.HDR10", "Movie.2024.2160p.BluRay.x265.DTS.HDR10", true},
 
 		// Equal is not better — this is what stops re-downloading the same tier.
 		{"identical quality is not an upgrade",
