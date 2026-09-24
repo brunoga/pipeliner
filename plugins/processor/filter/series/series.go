@@ -31,6 +31,7 @@ import (
 	"github.com/brunoga/pipeliner/internal/plugin"
 	"github.com/brunoga/pipeliner/internal/quality"
 	"github.com/brunoga/pipeliner/internal/series"
+	"github.com/brunoga/pipeliner/internal/settle"
 	"github.com/brunoga/pipeliner/internal/store"
 )
 
@@ -129,7 +130,7 @@ type seriesPlugin struct {
 	rejectUnmatched bool
 	upgradeWindow   time.Duration // 0 = upgrades accepted forever
 	settle          time.Duration // 0 = grab on sight
-	settleTracker   *series.SettleTracker
+	settleTracker   *settle.Tracker
 }
 
 func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
@@ -181,18 +182,18 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 		upgradeWindow = d
 	}
 
-	var settle time.Duration
+	var settleWindow time.Duration
 	if v, _ := cfg["settle"].(string); v != "" {
 		d, err := time.ParseDuration(v)
 		if err != nil {
 			return nil, fmt.Errorf("series: invalid settle %q: %w", v, err)
 		}
-		settle = d
+		settleWindow = d
 	}
 
 	return &seriesPlugin{
-		settle:          settle,
-		settleTracker:   series.NewSettleTracker(db.Bucket(series.SettleBucketName)),
+		settle:          settleWindow,
+		settleTracker:   settle.New(db.Bucket(settle.SeriesBucketName)),
 		staticShows:     staticShows,
 		listSources:     listSources,
 		listCache:       cache.NewPersistent[[]match.TitleEntry](ttl, db.Bucket("cache_series_list")),
@@ -375,7 +376,7 @@ func (p *seriesPlugin) persist(_ context.Context, tc *plugin.TaskContext, entrie
 			return fmt.Errorf("series: mark %s %s: %w", matchedShow, epID, err)
 		}
 		// The wave produced a download; the next one starts a fresh timer.
-		p.settleTracker.Clear(matchedShow, epID)
+		p.settleTracker.Clear(settle.SeriesKey(matchedShow, epID))
 		// Append to the download history audit log (best-effort — the tracker
 		// is the source of truth; the log is for reporting re-downloads and
 		// quality upgrades over time). Optional: nil in tests that build the
@@ -466,6 +467,7 @@ func (p *seriesPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entr
 			tc.Logger.Warn("series filter error", "entry", e.Title, "err", err)
 		}
 	}
+	entries = append(entries, p.releaseSettled(ctx, tc, entries)...)
 	return entry.PassThrough(entries), nil
 }
 
@@ -484,11 +486,45 @@ func (p *seriesPlugin) Commit(ctx context.Context, tc *plugin.TaskContext, entri
 // the pipeline grabbing each improvement as it appears. Rejection is per-run
 // and uncommitted, so the entry is re-evaluated on the next run.
 func (p *seriesPlugin) holdForSettle(e *entry.Entry, show, epID string) bool {
-	left := p.settleTracker.Remaining(show, epID, p.settle, time.Now())
+	key := settle.SeriesKey(show, epID)
+	left := p.settleTracker.Offer(key, settle.CandidateOf(e), p.settle, time.Now())
 	if left <= 0 {
 		return false
 	}
-	e.Reject(fmt.Sprintf("series: %s %s settling for %s more (waiting for the best release of this wave)",
+	e.Reject(fmt.Sprintf("series: %s %s settling for %s more (holding the best release seen so far)",
 		show, epID, left.Round(time.Minute)))
 	return true
+}
+
+// releaseSettled downloads winners whose window elapsed but that are no
+// longer advertised by any source — indexer feeds hold only a few hours of
+// items, so a wave can scroll out before a longer window expires. Entries
+// rebuilt here flow through filter() like any other, so the tracker records
+// them at commit time.
+func (p *seriesPlugin) releaseSettled(ctx context.Context, tc *plugin.TaskContext, batch []*entry.Entry) []*entry.Entry {
+	if p.settle <= 0 {
+		return nil
+	}
+	present := make(map[string]bool, len(batch))
+	for _, e := range batch {
+		present[e.URL] = true
+	}
+	var revived []*entry.Entry
+	for _, exp := range p.settleTracker.Expired(p.settle, time.Now()) {
+		if present[exp.Best.URL] {
+			continue
+		}
+		e := exp.Best.Rebuild()
+		if err := p.filter(ctx, tc, e); err != nil {
+			tc.Logger.Warn("series: settled release", "entry", e.Title, "err", err)
+			continue
+		}
+		if !e.IsAccepted() {
+			continue
+		}
+		tc.Logger.Info("series: downloading settled release no longer in any feed",
+			"entry", e.Title, "quality", exp.Best.Quality.String())
+		revived = append(revived, e)
+	}
+	return revived
 }

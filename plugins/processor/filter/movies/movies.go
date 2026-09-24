@@ -25,6 +25,7 @@ import (
 	imovies "github.com/brunoga/pipeliner/internal/movies"
 	"github.com/brunoga/pipeliner/internal/plugin"
 	"github.com/brunoga/pipeliner/internal/quality"
+	"github.com/brunoga/pipeliner/internal/settle"
 	"github.com/brunoga/pipeliner/internal/store"
 )
 
@@ -91,7 +92,7 @@ type moviesPlugin struct {
 	rejectUnmatched bool
 	upgradeWindow   time.Duration // 0 = upgrades accepted forever
 	settle          time.Duration // 0 = grab on sight
-	settleTracker   *imovies.SettleTracker
+	settleTracker   *settle.Tracker
 }
 
 func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
@@ -131,19 +132,19 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 		upgradeWindow = d
 	}
 
-	var settle time.Duration
+	var settleWindow time.Duration
 	if v, _ := cfg["settle"].(string); v != "" {
 		d, err := time.ParseDuration(v)
 		if err != nil {
 			return nil, fmt.Errorf("movies: invalid settle %q: %w", v, err)
 		}
-		settle = d
+		settleWindow = d
 	}
 
 	return &moviesPlugin{
 		staticTitles:    staticTitles,
-		settle:          settle,
-		settleTracker:   imovies.NewSettleTracker(db.Bucket(imovies.SettleBucketName)),
+		settle:          settleWindow,
+		settleTracker:   settle.New(db.Bucket(settle.MovieBucketName)),
 		listSources:     listSources,
 		listCache:       cache.NewPersistent[[]match.TitleEntry](ttl, db.Bucket("cache_movies_list")),
 		rejectUnmatched: rejectUnmatched,
@@ -249,13 +250,49 @@ func (p *moviesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *en
 // appears. Rejection is per-run and uncommitted, so the entry is re-evaluated
 // on the next run.
 func (p *moviesPlugin) holdForSettle(e *entry.Entry, title string, year int, is3D bool) bool {
-	left := p.settleTracker.Remaining(title, year, is3D, p.settle, time.Now())
+	key := settle.MovieKey(title, year, is3D)
+	left := p.settleTracker.Offer(key, settle.CandidateOf(e), p.settle, time.Now())
 	if left <= 0 {
 		return false
 	}
-	e.Reject(fmt.Sprintf("movies: %s (%d) settling for %s more (waiting for the best release of this wave)",
+	e.Reject(fmt.Sprintf("movies: %s (%d) settling for %s more (holding the best release seen so far)",
 		title, year, left.Round(time.Minute)))
 	return true
+}
+
+// releaseSettled downloads winners whose window has elapsed but that are no
+// longer advertised by any source. Indexer feeds are shallow — commonly the
+// newest ~50 items, a few hours' worth — so a wave can scroll out entirely
+// before a longer window expires. Rebuilding the recorded winner here means
+// the wait never costs the download. Entries produced this way flow through
+// filter() like any other, so the tracker records them at commit time.
+func (p *moviesPlugin) releaseSettled(ctx context.Context, tc *plugin.TaskContext, batch []*entry.Entry) []*entry.Entry {
+	if p.settle <= 0 {
+		return nil
+	}
+	present := make(map[string]bool, len(batch))
+	for _, e := range batch {
+		present[e.URL] = true
+	}
+	var revived []*entry.Entry
+	for _, exp := range p.settleTracker.Expired(p.settle, time.Now()) {
+		if present[exp.Best.URL] {
+			continue // still advertised; it goes through the normal path
+		}
+		e := exp.Best.Rebuild()
+		e.Set(entry.FieldMediaType, entry.MediaTypeMovie)
+		if err := p.filter(ctx, tc, e); err != nil {
+			tc.Logger.Warn("movies: settled release", "entry", e.Title, "err", err)
+			continue
+		}
+		if !e.IsAccepted() {
+			continue
+		}
+		tc.Logger.Info("movies: downloading settled release no longer in any feed",
+			"entry", e.Title, "quality", exp.Best.Quality.String())
+		revived = append(revived, e)
+	}
+	return revived
 }
 
 // moviesTrackerName is the entry field used to carry the matched (normalized)
@@ -293,7 +330,7 @@ func (p *moviesPlugin) persist(_ context.Context, tc *plugin.TaskContext, entrie
 			return fmt.Errorf("movies: mark %s (%d): %w", matchedTitle, year, err)
 		}
 		// The wave produced a download; the next one starts a fresh timer.
-		p.settleTracker.Clear(matchedTitle, year, is3D)
+		p.settleTracker.Clear(settle.MovieKey(matchedTitle, year, is3D))
 		// Best-effort append to the download history audit log. Optional: nil
 		// in tests that build the plugin struct directly.
 		if p.downloadLog == nil {
@@ -345,6 +382,7 @@ func (p *moviesPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entr
 			tc.Logger.Warn("movies filter error", "entry", e.Title, "err", err)
 		}
 	}
+	entries = append(entries, p.releaseSettled(ctx, tc, entries)...)
 	return entry.PassThrough(entries), nil
 }
 

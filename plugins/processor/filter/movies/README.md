@@ -33,7 +33,7 @@ The title list is optional. When provided, it can be static via `static`, dynami
 | `ttl` | string | no | `1h` | How long to cache the dynamic list fetched via `list` |
 | `reject_unmatched` | bool | no | `true` | Reject entries that lack `title`. When a list is configured, also reject entries whose title isn't in the list. With neither `static` nor `list` set, this flag only governs the classification check. |
 | `upgrade_window` | duration | no | — | Accept quality upgrades only within this window after the first download (e.g. `720h` for 30 days). Unset = upgrades accepted forever. |
-| `settle` | string | no | — | Delay between first seeing a download-worthy release and grabbing one. Releases arrive in waves (1080p → 2160p → HDR → Atmos) within hours; holding the whole wave means they all become eligible in the same run so `dedup` picks one best copy, instead of downloading each rung as it appears. |
+| `settle` | string | no | — | Delay between first seeing a download-worthy release and grabbing one. Releases arrive in waves (1080p → 2160p → HDR → Atmos) within hours; instead of downloading each rung as it appears, the best release of the wave is remembered and downloaded when the window elapses — even if it has since scrolled out of the indexer feed (indexers typically advertise only their newest ~50 items). |
 
 Both `static` and `list` are optional. With neither set the filter accepts every classified movie that passes the tracker checks. For a quality floor, place a [`quality`](../quality/README.md) filter upstream.
 

@@ -35,7 +35,7 @@ The first five fields are declared via `Descriptor.Requires`, so the DAG validat
 | `quality` | no | — | Quality spec (e.g. `720p+` for floor, `720p` for exact, `720p-1080p` for range) |
 | `reject_unmatched` | no | `true` | Reject entries that lack `series_episode_id` (i.e. were not classified as a series episode upstream). When a list is configured, also reject entries whose show name isn't in the list. With neither `static` nor `list` set, this flag only governs the classification check. |
 | `upgrade_window` | no | — | Accept quality upgrades only within this window after the first download (e.g. `168h` for 7 days). Unset = upgrades accepted forever. |
-| `settle` | string | no | — | Delay between first seeing a download-worthy release and grabbing one. Releases arrive in waves (1080p → 2160p → HDR → Atmos) within hours; holding the whole wave means they all become eligible in the same run so `dedup` picks one best copy, instead of downloading each rung as it appears. |
+| `settle` | string | no | — | Delay between first seeing a download-worthy release and grabbing one. Releases arrive in waves (1080p → 2160p → HDR → Atmos) within hours; instead of downloading each rung as it appears, the best release of the wave is remembered and downloaded when the window elapses — even if it has since scrolled out of the indexer feed (indexers typically advertise only their newest ~50 items). |
 
 Both `static` and `list` are optional. With neither set the filter accepts every classified episode that passes the quality spec and tracker checks.
 
