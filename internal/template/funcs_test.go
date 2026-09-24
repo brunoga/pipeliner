@@ -2,6 +2,9 @@ package template
 
 import (
 	"bytes"
+	"github.com/brunoga/pipeliner/internal/actionlink"
+	"net/url"
+	"strings"
 	"testing"
 	"text/template"
 )
@@ -243,5 +246,50 @@ func TestScrubwinReplacesColonAndDot(t *testing.T) {
 	// "House: M.D." → colon replaced, trailing dot stripped on windows target.
 	if got := render(t, `{{scrubwin .}}`, "House: M.D."); got != "House_ M.D" {
 		t.Errorf("got %q", got)
+	}
+}
+
+// signedaction is how a notification body embeds a one-click link. It must
+// render nothing when links are unconfigured, so a template carrying one
+// stays valid on installs without a public URL.
+func TestSignedActionHelper(t *testing.T) {
+	render := func(tmplStr string, data any) string {
+		t.Helper()
+		tmpl, err := template.New("x").Funcs(FuncMap()).Parse(tmplStr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var sb strings.Builder
+		if err := tmpl.Execute(&sb, data); err != nil {
+			t.Fatal(err)
+		}
+		return sb.String()
+	}
+	body := `{{signedaction "favorites" "fav-pipeline" "⭐ Follow" .Title "tvdb_id" .ID}}`
+	data := map[string]any{"Title": "Some Show", "ID": 12345}
+
+	actionlink.Configure("", "")
+	if got := render(body, data); got != "" {
+		t.Errorf("unconfigured should render nothing, got %q", got)
+	}
+
+	actionlink.Configure("https://p.example.com", "secret")
+	defer actionlink.Configure("", "")
+	got := render(body, data)
+	if !strings.HasPrefix(got, "https://p.example.com/action?p=") {
+		t.Fatalf("rendered link = %q", got)
+	}
+	u, err := url.Parse(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := actionlink.Decode(u.Query().Get("p"), u.Query().Get("sig"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Non-string field values (an int tvdb_id straight from .Fields) must
+	// survive as strings rather than breaking the link.
+	if p.Title != "Some Show" || p.Fields["tvdb_id"] != "12345" || p.Label != "⭐ Follow" {
+		t.Errorf("payload = %+v", p)
 	}
 }

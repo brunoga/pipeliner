@@ -300,6 +300,7 @@ pipeline("my-pipeline", schedule="1h")
 
 ### Remote automation
 
+- [`notification-action-link.star`](notification-action-link.star) — a **one-click button in a notification email** (signed link → confirmation page → ingest queue → pipeline), e.g. "follow this series" without visiting TheTVDB
 - [`ondemand-request.star`](ondemand-request.star) — push a movie title to `/api/ingest/movies` (curl or [`examples/request-movie`](../examples/request-movie/)) and the pipeline searches Jackett and downloads it immediately — no schedule, no watchlist
 
 ### Notifications
