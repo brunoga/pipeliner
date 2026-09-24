@@ -16,6 +16,7 @@ import (
 	"github.com/brunoga/pipeliner/internal/plugin"
 	"github.com/brunoga/pipeliner/internal/quality"
 	"github.com/brunoga/pipeliner/internal/series"
+	"github.com/brunoga/pipeliner/internal/settle"
 	"github.com/brunoga/pipeliner/internal/store"
 )
 
@@ -991,11 +992,7 @@ func TestSettleHoldsEpisodeWaveThenReleasesAll(t *testing.T) {
 	}
 
 	// Backdate the timer so the window has elapsed.
-	if err := db.Bucket(series.SettleBucketName).Put("some show|S01E01", map[string]any{
-		"first_seen": time.Now().Add(-9 * time.Hour).Format(time.RFC3339Nano),
-	}); err != nil {
-		t.Fatal(err)
-	}
+	expireSeriesSettle(t, db, "some show", "S01E01", 9*time.Hour)
 	accepted := 0
 	for _, title := range wave {
 		e := makeEntry(title, "http://x.com/"+title)
@@ -1022,5 +1019,20 @@ func TestSettleUnsetGrabsImmediately(t *testing.T) {
 	}
 	if !e.IsAccepted() {
 		t.Errorf("no settle window means grab on sight, got: %s", e.RejectReason)
+	}
+}
+
+// expireSeriesSettle backdates an episode's settle window so it has elapsed,
+// leaving the recorded winner intact.
+func expireSeriesSettle(t *testing.T, db *store.SQLiteStore, show, epID string, age time.Duration) {
+	t.Helper()
+	key := settle.SeriesKey(show, epID)
+	var rec settle.Record
+	if _, err := db.Bucket(settle.SeriesBucketName).Get(key, &rec); err != nil {
+		t.Fatal(err)
+	}
+	rec.FirstSeen = time.Now().Add(-age)
+	if err := db.Bucket(settle.SeriesBucketName).Put(key, rec); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -17,6 +17,7 @@ import (
 	imovies "github.com/brunoga/pipeliner/internal/movies"
 	"github.com/brunoga/pipeliner/internal/plugin"
 	"github.com/brunoga/pipeliner/internal/quality"
+	"github.com/brunoga/pipeliner/internal/settle"
 	"github.com/brunoga/pipeliner/internal/store"
 )
 
@@ -782,7 +783,7 @@ func TestSettleClearedAfterDownload(t *testing.T) {
 	var rec struct {
 		FirstSeen time.Time `json:"first_seen"`
 	}
-	found, _ := db.Bucket(imovies.SettleBucketName).Get("some movie|2024", &rec)
+	found, _ := db.Bucket(settle.MovieBucketName).Get("some movie|2024", &rec)
 	if found {
 		t.Error("the settle timer must be cleared once a release was downloaded")
 	}
@@ -806,10 +807,114 @@ func TestSettleUnsetGrabsImmediately(t *testing.T) {
 // expireSettle backdates a title's settle timer so the window has elapsed.
 func expireSettle(t *testing.T, db *store.SQLiteStore, title string, year int, age time.Duration) {
 	t.Helper()
-	key := fmt.Sprintf("%s|%d", title, year)
-	if err := db.Bucket(imovies.SettleBucketName).Put(key, map[string]any{
-		"first_seen": time.Now().Add(-age).Format(time.RFC3339Nano),
-	}); err != nil {
+	key := settle.MovieKey(title, year, false)
+	var rec settle.Record
+	if _, err := db.Bucket(settle.MovieBucketName).Get(key, &rec); err != nil {
 		t.Fatal(err)
+	}
+	rec.FirstSeen = time.Now().Add(-age)
+	if err := db.Bucket(settle.MovieBucketName).Put(key, rec); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestSettleDownloadsWinnerAfterItLeavesTheFeed is the reason the settle
+// window records the best candidate rather than re-deriving it at expiry.
+// Indexers return only their newest ~50 items — a few hours' worth — so by
+// the time a longer window elapses the entire wave can have scrolled out of
+// the feed. Relying on the releases still being advertised would mean
+// downloading nothing at all, which is worse than the churn settling exists
+// to prevent.
+func TestSettleDownloadsWinnerAfterItLeavesTheFeed(t *testing.T) {
+	db, _ := store.OpenSQLite(":memory:")
+	defer db.Close()
+	p, err := newPlugin(map[string]any{"settle": "12h"}, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mp := p.(*moviesPlugin)
+
+	// A wave arrives and is held; the Atmos copy is the best of it.
+	wave := []string{
+		"Wave.Movie.2026.1080p.WEB-DL.x264",
+		"Wave.Movie.2026.2160p.WEB-DL.x265",
+		"Wave.Movie.2026.2160p.WEB-DL.HDR.TrueHD.Atmos.x265",
+	}
+	var batch []*entry.Entry
+	for i, title := range wave {
+		batch = append(batch, makeEntry(title, fmt.Sprintf("http://x.com/%d", i)))
+	}
+	if _, err := mp.Process(context.Background(), makeCtx(), batch); err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range batch {
+		if e.IsAccepted() {
+			t.Fatal("the whole wave must be held while settling")
+		}
+	}
+
+	// Time passes and the feed rolls over completely: the next run carries
+	// entirely unrelated entries, none of the wave.
+	expireSettle(t, db, "wave movie", 2026, 13*time.Hour)
+	unrelated := []*entry.Entry{makeEntry("Other.Film.2026.1080p.WEB-DL.x264", "http://x.com/other")}
+	out, err := mp.Process(context.Background(), makeCtx(), unrelated)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The remembered winner is downloaded anyway — and it is the best of the
+	// wave, not merely the first or last seen.
+	var revived *entry.Entry
+	for _, e := range out {
+		if strings.HasPrefix(e.Title, "Wave.Movie") {
+			revived = e
+		}
+	}
+	if revived == nil {
+		t.Fatal("the recorded winner must be downloaded even though it left the feed")
+	}
+	if !strings.Contains(revived.Title, "Atmos") {
+		t.Errorf("revived the wrong release: %s", revived.Title)
+	}
+	if !revived.IsAccepted() {
+		t.Errorf("revived release should be accepted, got: %s", revived.RejectReason)
+	}
+	if revived.URL != "http://x.com/2" {
+		t.Errorf("revived URL = %q, want the Atmos release's URL", revived.URL)
+	}
+	// Its quality must survive the store round-trip as a typed value, or
+	// downstream dedup and the tracker would see an unrated release.
+	if q, ok := revived.Quality(); !ok || q.Resolution != quality.Resolutionp2160 {
+		t.Errorf("revived quality lost in storage: %+v ok=%v", q, ok)
+	}
+}
+
+// A winner still present in the feed goes through the normal path exactly
+// once — it must not be both matched and revived.
+func TestSettleDoesNotDuplicateWinnerStillInFeed(t *testing.T) {
+	db, _ := store.OpenSQLite(":memory:")
+	defer db.Close()
+	p, _ := newPlugin(map[string]any{"settle": "6h"}, db)
+	mp := p.(*moviesPlugin)
+
+	first := []*entry.Entry{makeEntry("Present.Movie.2026.2160p.WEB-DL.x265", "http://x.com/p")}
+	if _, err := mp.Process(context.Background(), makeCtx(), first); err != nil {
+		t.Fatal(err)
+	}
+	expireSettle(t, db, "present movie", 2026, 7*time.Hour)
+
+	again := []*entry.Entry{makeEntry("Present.Movie.2026.2160p.WEB-DL.x265", "http://x.com/p")}
+	out, err := mp.Process(context.Background(), makeCtx(), again)
+	if err != nil {
+		t.Fatal(err)
+	}
+	accepted := 0
+	for _, e := range out {
+		if e.IsAccepted() && strings.HasPrefix(e.Title, "Present.Movie") {
+			accepted++
+		}
+	}
+	if accepted != 1 {
+		t.Errorf("winner still in the feed should be accepted exactly once, got %d", accepted)
 	}
 }
