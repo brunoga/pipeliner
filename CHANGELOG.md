@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.34.0] - 2026-09-24
+
+Settling is now measurable.
+
+### Added
+
+- **Settle provenance on downloads and failures** ([#447](https://github.com/brunoga/pipeliner/pull/447)). Settling trades immediacy for quality, and the risk it takes is that the winner goes stale while waiting — an expired URL, a swarm that died during the window. Releases let through a settle window now carry a `settled` field, and those rebuilt from the recorded winner after leaving the feed also carry `settled_revived`. Both marks flow into the durable failure log and the download history — successes included, so the settled failure rate has a denominator rather than being an absolute count — and appear as a badge in the dashboard failures strip and Tools → Failure log, amber for revived since that path carries the most risk.
+
+**Why 1.34.0**: additive fields and log columns. A minor bump per SemVer.
+
 ## [1.33.1] - 2026-09-24
 
 A correctness fix for the settle window introduced in 1.33.0.
