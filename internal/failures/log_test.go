@@ -147,3 +147,35 @@ func TestRecordsFromRunResolvesNodeFromTrace(t *testing.T) {
 		t.Errorf("node = %q, want deluge_7 (last failed step)", recs[0].Node)
 	}
 }
+
+// Settle provenance must survive into the durable failure log, so a rising
+// failure rate among settled releases is queryable long after the run.
+func TestRecordsCarrySettleProvenance(t *testing.T) {
+	plain := entry.New("Plain.Release", "http://x/1")
+	plain.Fail("deluge: add failed")
+	settled := entry.New("Waited.Release", "http://x/2")
+	settled.Set(entry.FieldSettled, true)
+	settled.Fail("deluge: add failed")
+	revived := entry.New("Rebuilt.Release", "http://x/3")
+	revived.Set(entry.FieldSettled, true)
+	revived.Set(entry.FieldSettledRevived, true)
+	revived.Fail("janitor: no seeds")
+
+	recs := RecordsFromEntries([]*entry.Entry{plain, settled, revived}, "movies", time.Now(), nil)
+	if len(recs) != 3 {
+		t.Fatalf("got %d records, want 3", len(recs))
+	}
+	byTitle := map[string]Record{}
+	for _, r := range recs {
+		byTitle[r.Title] = r
+	}
+	if byTitle["Plain.Release"].Settled || byTitle["Plain.Release"].Revived {
+		t.Error("an ordinary failure must not be marked settled")
+	}
+	if !byTitle["Waited.Release"].Settled || byTitle["Waited.Release"].Revived {
+		t.Errorf("settled-but-present: %+v", byTitle["Waited.Release"])
+	}
+	if !byTitle["Rebuilt.Release"].Settled || !byTitle["Rebuilt.Release"].Revived {
+		t.Errorf("revived failure must carry both marks: %+v", byTitle["Rebuilt.Release"])
+	}
+}

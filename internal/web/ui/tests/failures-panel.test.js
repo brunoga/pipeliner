@@ -22,6 +22,7 @@ beforeAll(() => {
   const mod = new Function('exports', 'document', 'fetch', 'setTimeout', 'clearTimeout', 'requestAnimationFrame',
     shims + src + `
     exports.failuresPanelHTML = failuresPanelHTML;
+    exports.settledBadge = settledBadge;
   `);
   const exports = {};
   mod(exports, { getElementById: () => null, createElement: () => ({}), addEventListener() {}, removeEventListener() {} },
@@ -73,5 +74,26 @@ describe('failuresPanelHTML', () => {
     const html = failuresPanelHTML([{ title: '<x>', reason: '<y>', failed_at: new Date().toISOString() }]);
     expect(html).toContain('&lt;x&gt;');
     expect(html).toContain('&lt;y&gt;');
+  });
+});
+
+describe('settledBadge', () => {
+  it('is absent for ordinary failures', () => {
+    expect(failuresPanelHTML([
+      { title: 'Plain.Release', reason: 'x', task: 'movies', failed_at: new Date().toISOString() },
+    ], false)).not.toContain('settled-badge');
+  });
+
+  it('marks a settled failure, and flags a revived one distinctly', () => {
+    const settled = failuresPanelHTML([
+      { title: 'Waited.Release', reason: 'x', task: 'movies', settled: true, failed_at: new Date().toISOString() },
+    ], false);
+    expect(settled).toContain('settled-badge');
+    expect(settled).not.toContain('revived');
+
+    const revived = failuresPanelHTML([
+      { title: 'Rebuilt.Release', reason: 'x', task: 'movies', settled: true, settled_revived: true, failed_at: new Date().toISOString() },
+    ], false);
+    expect(revived).toContain('revived');
   });
 });

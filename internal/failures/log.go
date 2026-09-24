@@ -39,6 +39,13 @@ type Record struct {
 	Task string `json:"task,omitempty"`
 	// MediaType is the entry's media_type when classified upstream.
 	MediaType string `json:"media_type,omitempty"`
+	// Settled marks a release that was downloaded only after waiting out a
+	// settle window, and Revived one that additionally had to be rebuilt
+	// from the recorded winner because it had left the feed. Both are
+	// recorded so a rising failure rate among settled releases — stale URLs,
+	// swarms that died during the wait — is visible rather than inferred.
+	Settled bool `json:"settled,omitempty"`
+	Revived bool `json:"settled_revived,omitempty"`
 	// FailedAt is when the run that produced the failure completed.
 	FailedAt time.Time `json:"failed_at"`
 }
@@ -166,6 +173,8 @@ func RecordsFromEntries(entries []*entry.Entry, task string, at time.Time, nodeF
 			Node:      node,
 			Task:      task,
 			MediaType: e.GetString(entry.FieldMediaType),
+			Settled:   e.GetBool(entry.FieldSettled),
+			Revived:   e.GetBool(entry.FieldSettledRevived),
 			FailedAt:  at,
 		})
 	}

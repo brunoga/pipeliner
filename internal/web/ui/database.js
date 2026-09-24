@@ -1226,7 +1226,7 @@ function failureLogHTML(recs, q) {
       <td>${esc(failDate(r.failed_at))}</td>
       <td>${esc(r.task || '')}</td>
       <td>${esc(r.node || '')}</td>
-      <td><code>${esc(r.title || '')}</code></td>
+      <td><code>${esc(r.title || '')}</code>${settledBadge(r)}</td>
       <td class="fail-reason">${esc(r.reason || '')}</td>
     </tr>`;
   }

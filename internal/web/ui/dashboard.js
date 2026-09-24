@@ -209,6 +209,22 @@ function toggleFailuresPanel() {
   renderFailuresPanel(_lastFailures);
 }
 
+// settledBadge marks a failure of a release that waited out a settle window.
+// Settling trades immediacy for quality, and the risk it takes is that the
+// winner goes stale while waiting — a cluster of these is the signal that the
+// trade is no longer paying off. "revived" additionally means the release had
+// left the feed and was rebuilt from the recorded winner, which carries the
+// most risk. Pure for testing.
+function settledBadge(r) {
+  if (!r || !r.settled && !r.settled_revived) return '';
+  const revived = !!r.settled_revived;
+  const label = revived ? 'settled · revived' : 'settled';
+  const title = revived
+    ? 'Downloaded after a settle window, rebuilt from the recorded winner (it had left the feed)'
+    : 'Downloaded after waiting out a settle window';
+  return ` <span class="settled-badge${revived ? ' revived' : ''}" title="${esc(title)}">${esc(label)}</span>`;
+}
+
 // failuresPanelHTML renders the strip. Pure (no DOM/fetch) for testing.
 // Empty input renders nothing — the panel only exists when something failed.
 // Collapsed, only the header (with a count) shows; the toggle sticks via
@@ -232,7 +248,7 @@ function failuresPanelHTML(failures, collapsed) {
     const when = isNaN(d.getTime()) ? '' : relTime(d) + ' ago';
     rows += `<div class="task-history-row has-err"><div class="task-history-line">
       <span class="task-history-when">${esc(when)}</span>
-      <span class="fail-title" title="${esc(f.reason || '')}">${esc(f.title)}</span>
+      <span class="fail-title" title="${esc(f.reason || '')}">${esc(f.title)}</span>${settledBadge(f)}
       <span class="task-history-dur">${esc(f.task || '')}</span>
     </div><div class="task-err">⚠ ${esc(f.reason || 'failed')}</div></div>`;
   }

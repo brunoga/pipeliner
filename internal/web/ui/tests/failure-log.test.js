@@ -14,7 +14,10 @@ const src = readFileSync(join(__dir, '..', 'database.js'), 'utf8');
 let failureLogHTML;
 
 beforeAll(() => {
-  const prelude = `function esc(s){return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}\n`;
+  // settledBadge lives in dashboard.js, which the page loads first; stub the
+  // shape here so this file's renderer can be exercised standalone.
+  const prelude = `function esc(s){return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}\n`
+    + `function settledBadge(r){ return (r && (r.settled || r.settled_revived)) ? ' <span class="settled-badge">settled</span>' : ''; }\n`;
   const mod = new Function('exports', prelude + src + `
     exports.failureLogHTML = failureLogHTML;
   `);
@@ -24,6 +27,13 @@ beforeAll(() => {
 });
 
 describe('failureLogHTML', () => {
+  it('marks failures of settled releases so the cost of settling is visible', () => {
+    const plain = failureLogHTML([{title: 'A', reason: 'x', failed_at: new Date().toISOString()}], '');
+    expect(plain).not.toContain('settled-badge');
+    const settled = failureLogHTML([{title: 'B', reason: 'x', settled: true, failed_at: new Date().toISOString()}], '');
+    expect(settled).toContain('settled-badge');
+  });
+
   it('shows a no-failures message for an empty blank search', () => {
     expect(failureLogHTML([], '')).toContain('No failures recorded');
   });

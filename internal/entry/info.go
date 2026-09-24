@@ -24,6 +24,13 @@ const (
 	FieldMoviePhysicalRelease = "movie_physical_release" // first physical (disc) release date
 
 	FieldVideoBitrateMbps = "video_bitrate_mbps" // implied bitrate (torrent size / runtime), set by the bitrate filter
+
+	// Settle provenance, set by the movies/series filters when a release is
+	// downloaded after waiting out a settle window. Carried into the failure
+	// and download logs so the cost of settling is measurable: if settled
+	// releases start failing disproportionately, the wait is doing harm.
+	FieldSettled        = "settled"         // released after a settle window
+	FieldSettledRevived = "settled_revived" // …and rebuilt from the recorded winner, no longer in any feed
 	// FieldSource identifies the origin of an entry in the form "plugin:identifier"
 	// (e.g. "jackett:1337x", "rss:nyaa.si", "filesystem:/downloads/watch").
 	// Set by every source plugin; never mutated by processors or sinks.
