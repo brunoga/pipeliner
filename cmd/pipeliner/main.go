@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/brunoga/pipeliner/internal/actionlink"
 	"github.com/brunoga/pipeliner/internal/clog"
 	"github.com/brunoga/pipeliner/internal/config"
 	"github.com/brunoga/pipeliner/internal/dag"
@@ -641,6 +642,14 @@ func cmdDaemon(args []string) int {
 		}
 		if tok := os.Getenv("PIPELINER_API_TOKEN"); tok != "" {
 			ws.SetAPIToken(tok)
+		}
+		// Signed notification links need a public base URL to point at and a
+		// secret to sign with; the ingest token doubles as the secret since
+		// both authorise pushing onto an ingest queue. Without a public URL
+		// the template helper renders nothing, so configs stay valid.
+		actionlink.Configure(os.Getenv("PIPELINER_PUBLIC_URL"), os.Getenv("PIPELINER_INGEST_TOKEN"))
+		if actionlink.Enabled() {
+			logger.Info("signed action links enabled", "base_url", os.Getenv("PIPELINER_PUBLIC_URL"))
 		}
 		ws.SetLogFile(logFilePath(*cfgPath), logFileMaxArchives)
 		ws.SetPluginLogControl(perPlugin)

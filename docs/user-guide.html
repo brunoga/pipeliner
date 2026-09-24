@@ -126,6 +126,7 @@ td code{font-size:11px}
     <a href="#torrent_session" class="sub">torrent_session</a>
 
     <div class="section">Dynamic Sources</div>
+    <a href="#action-links">Notification action links</a>
     <a href="#webhook" class="sub">webhook</a>
     <a href="#trakt_calendar" class="sub">trakt_calendar</a>
     <a href="#run_report" class="sub">run_report</a>
@@ -735,6 +736,7 @@ pipeline("split-pipeline")</code></pre>
   <tr><td><code>daysago(n)</code></td><td>Time N days in the past (fractions allowed)</td><td><code>series_first_air_date &lt; daysago(365)</code></td></tr>
   <tr><td><code>hoursago(n)</code></td><td>Time N hours in the past</td><td><code>published_date &gt; hoursago(12)</code></td></tr>
   <tr><td><code>minutesago(n)</code></td><td>Time N minutes in the past</td><td><code>published_date &gt; minutesago(30)</code></td></tr>
+  <tr><td><code>signedaction</code></td><td>One-click link back to pipeliner from a notification (queue, pipeline, label, title, then field/value pairs)</td><td><code>{{signedaction "favorites" "fav-add" "⭐ Follow" (index .Fields "title") "tvdb_id" (index .Fields "tvdb_id")}}</code></td></tr>
   <tr><td colspan="3">Date fields are parsed from ISO forms (<code>2006-01-02</code>, RFC3339) and the RFC&nbsp;1123/822 forms feeds use (<code>Wed, 23 Sep 2026 15:56:34 -0400</code>), so <code>published_date</code> from RSS and Torznab compares correctly.</td></tr>
   <tr><td><code>weeksago(n)</code></td><td>Time N weeks in the past</td><td><code>series_first_air_date &lt; weeksago(52)</code></td></tr>
   <tr><td><code>monthsago(n)</code></td><td>Time N months in the past</td><td><code>series_first_air_date &lt; monthsago(12)</code></td></tr>
@@ -1004,6 +1006,11 @@ series = process("series", upstream=src, list=[
 <pre><code>sess = input("torrent_session", backend="transmission", host="localhost")</code></pre>
 
 <!-- ─────────── tvdb_favorites ─────────── -->
+<h2 id="action-links">Notification action links</h2>
+<p>A notification can carry a button that acts on the item when clicked — "follow this series" without visiting TheTVDB and logging in. A mail client can only issue a GET with no custom headers, so it can use neither the <a href="#webhook">ingest endpoint's</a> bearer token nor a browser session; the <code>signedaction</code> template helper instead mints a link that carries its own HMAC signature.</p>
+<p>Set <code>PIPELINER_PUBLIC_URL</code> (where the link should point) and <code>PIPELINER_INGEST_TOKEN</code> (which doubles as the signing secret). With either unset, <code>signedaction</code> renders an empty string, so a template carrying a link stays valid on installs without a public URL.</p>
+<p>Two properties are deliberate. The signature covers the whole payload, so a link that leaks — a referrer header, a mail provider's logs, a forwarded message — can only perform the single action it was minted for; it is not a bearer credential and cannot be edited into a different request. And clicking only opens a <strong>confirmation page</strong>: mail providers and security scanners routinely prefetch links, so acting on the GET would fire for every notification the moment it arrived. Confirming pushes the item onto an ingest queue and triggers the pipeline that does the work — see <code>configs/notification-action-link.star</code>.</p>
+
 <h2 id="webhook">webhook (push ingest)</h2>
 <p>The push counterpart to polling sources: set <code>PIPELINER_INGEST_TOKEN</code> in the daemon environment, add a <code>webhook</code> source with a <code>queue</code> name, and POST JSON to <code>/api/ingest/&lt;queue&gt;</code> with <code>Authorization: Bearer &lt;token&gt;</code>. Add <code>?pipeline=&lt;name&gt;</code> to trigger the pipeline immediately after queuing — announce-to-grab latency becomes seconds instead of a polling interval. The body is one item or an array: <code>title</code> (required), <code>url</code>, <code>fields</code>. Queues are in-memory and bounded (1000): a restart drops undrained items (announcers re-announce), and the response reports <code>queued</code>/<code>dropped</code>/<code>rejected</code>. Without the token the endpoint answers 404. A <em>dry run</em> of a webhook-fed pipeline peeks at the queue without consuming it — push an item without <code>?pipeline=</code>, dry-run to watch it flow through the gates, then Run for real. A trigger that arrives while the pipeline is already running is <em>coalesced</em>: one follow-up run fires when the current run finishes, so back-to-back pushes never strand an item in the queue (scheduled cron fires keep their skip-if-running semantics).</p>
 <p>This is the building block for <strong>remote automation</strong> — "search and download this movie, now": pair a <code>webhook</code> source with <a href="#discover"><code>discover</code></a> and the usual gates (see <code>configs/ondemand-request.star</code>), and push titles from anywhere with the ready-made Go client in <code>examples/request-movie</code>. It reads the server URL and token from flags, environment (<code>$PIPELINER_URL</code>, <code>$PIPELINER_INGEST_TOKEN</code>), or <code>~/.config/pipeliner/client.conf</code> (<code>url = …</code> / <code>token = …</code> lines), so a one-time config file makes requests a single command:</p>

@@ -6,6 +6,9 @@
 package template
 
 import (
+	"fmt"
+
+	"github.com/brunoga/pipeliner/internal/actionlink"
 	"strings"
 	"text/template"
 	"time"
@@ -141,6 +144,28 @@ func FuncMap() template.FuncMap {
 		},
 
 		// formatdate fmt t — formats t using the given Go time layout string.
+		// signedaction mints a one-click link back to pipeliner, for putting
+		// "follow this series" style buttons in notifications. Pairs after
+		// the label become entry fields on the pushed item:
+		//
+		//	{{signedaction "favorites" "tvshows-favorite-add" "⭐ Follow"
+		//	   (index .Fields "title") "tvdb_id" (index .Fields "tvdb_id")}}
+		//
+		// Renders an empty string when links are not configured, so a
+		// template carrying one stays valid on installs without a public URL.
+		"signedaction": func(queue, pipeline, label, title string, kv ...any) string {
+			fields := map[string]string{}
+			for i := 0; i+1 < len(kv); i += 2 {
+				fields[fmt.Sprint(kv[i])] = fmt.Sprint(kv[i+1])
+			}
+			u, err := actionlink.URL(actionlink.Payload{
+				Queue: queue, Pipeline: pipeline, Title: title, Fields: fields, Label: label,
+			})
+			if err != nil {
+				return ""
+			}
+			return u
+		},
 		"formatdate": func(layout string, t time.Time) string {
 			return t.Format(layout)
 		},

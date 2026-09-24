@@ -224,6 +224,10 @@ func (s *Server) buildHandler() http.Handler {
 	// Machine push endpoint: bearer-token auth inside the handler (404 when
 	// no ingest token is configured), so it lives on the open mux.
 	open.HandleFunc("POST /api/ingest/{queue}", s.apiIngest)
+	// Signed one-click links from notifications: authenticated by the link's
+	// own signature, so they work from a mail client with no session.
+	open.HandleFunc("GET /action", s.apiAction)
+	open.HandleFunc("POST /action", s.apiAction)
 
 	// Authenticated routes wrapped in session middleware.
 	protected := http.NewServeMux()
@@ -281,6 +285,7 @@ func (s *Server) buildHandler() http.Handler {
 	top.Handle("/logout", open)
 	top.Handle("/favicon.svg", open) // login-page tab icon needs to load without a session
 	top.Handle("/api/ingest/", open) // machine push endpoint authenticates via its own bearer token
+	top.Handle("/action", open)      // signed notification links carry their own proof
 	top.Handle("/", s.requireSession(protected))
 	return top
 }
