@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.33.1] - 2026-09-24
+
+A correctness fix for the settle window introduced in 1.33.0.
+
+### Fixed
+
+- **The settle window now records the best release of a wave** ([#445](https://github.com/brunoga/pipeliner/pull/445)). Settling held candidates during the window and then relied on them still being advertised when it elapsed — but indexers return only their newest ~50 items regardless of the requested limit, about five hours' worth on a busy one. A window longer than that would see the whole wave scroll out of the feed with nothing left to accept, so the title downloaded nothing at all until some unrelated release appeared. Each candidate is now compared against the incumbent as it arrives and only the winner is kept, together with enough of the entry to rebuild it; when the window elapses the winner is downloaded whether or not it is still being advertised. The duplicated per-plugin trackers are unified into one internal package.
+
+**Why 1.33.1**: a defect fix for a feature shipped in 1.33.0, with no interface change. A patch bump per SemVer.
+
 ## [1.33.0] - 2026-09-23
 
 Release waves now yield a single download of the best version.
