@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.35.0] - 2026-09-24
+
+One-click actions from notification emails.
+
+### Added
+
+- **Signed action links in notifications** ([#450](https://github.com/brunoga/pipeliner/pull/450)). A notification can now carry a button that acts on the item — "⭐ Follow this series", adding it to TheTVDB favourites without leaving the email to visit the site and log in. A mail client can only issue a GET with no custom headers, reaching neither the ingest endpoint's bearer token nor a browser session, so the new `signedaction` template helper mints a link carrying its own HMAC-SHA256 signature over the whole payload: a link that leaks can perform only the single action it was minted for, and cannot be edited into a different request. Clicking opens a confirmation page rather than acting, because mail providers and security scanners routinely prefetch links; confirming pushes the item onto an ingest queue and triggers a pipeline, so the action itself stays ordinary config. Enabled by `PIPELINER_PUBLIC_URL` and `PIPELINER_INGEST_TOKEN` (which doubles as the signing secret); with either unset the helper renders an empty string so templates stay valid. Worked example: `configs/notification-action-link.star`.
+
+**Why 1.35.0**: a new template helper, endpoint and example config, all additive. A minor bump per SemVer.
+
 ## [1.34.0] - 2026-09-24
 
 Settling is now measurable.
