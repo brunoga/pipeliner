@@ -972,3 +972,66 @@ func TestSettleStampsProvenance(t *testing.T) {
 			revived.GetBool(entry.FieldSettled), revived.GetBool(entry.FieldSettledRevived))
 	}
 }
+
+// TestSettleReleasesWithNoFurtherEntries covers the plainest case: a single
+// release starts a window and nothing for that title is ever seen again —
+// not a better release, not the same one, nothing. The download must still
+// happen when the window elapses, so the sweep cannot depend on the title
+// appearing in the batch. The batch here is empty entirely, which is also
+// what a run sees when the feed goes quiet.
+func TestSettleReleasesWithNoFurtherEntries(t *testing.T) {
+	db, _ := store.OpenSQLite(":memory:")
+	defer db.Close()
+	p, _ := newPlugin(map[string]any{"settle": "6h"}, db)
+	mp := p.(*moviesPlugin)
+
+	only := []*entry.Entry{makeEntry("Lonely.Movie.2026.2160p.WEB-DL.x265", "http://x.com/only")}
+	if _, err := mp.Process(context.Background(), makeCtx(), only); err != nil {
+		t.Fatal(err)
+	}
+	if only[0].IsAccepted() {
+		t.Fatal("the first sighting starts the window, it does not download")
+	}
+
+	// Window still running, and nothing at all arrives: still no download.
+	out, err := mp.Process(context.Background(), makeCtx(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 0 {
+		t.Fatalf("nothing should be released before the window elapses, got %d", len(out))
+	}
+
+	// Window elapses. The next run carries no entries whatsoever — the sole
+	// release is long gone from the feed — and it must still be downloaded.
+	expireSettle(t, db, "lonely movie", 2026, 7*time.Hour)
+	out, err = mp.Process(context.Background(), makeCtx(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 1 {
+		t.Fatalf("the recorded release must be downloaded once the window elapses, got %d entries", len(out))
+	}
+	if !out[0].IsAccepted() {
+		t.Errorf("released entry should be accepted, got: %s", out[0].RejectReason)
+	}
+	if out[0].URL != "http://x.com/only" {
+		t.Errorf("released the wrong entry: %q", out[0].URL)
+	}
+	if !out[0].GetBool(entry.FieldSettledRevived) {
+		t.Error("it was rebuilt from the record, so it must be marked revived")
+	}
+
+	// And once downloaded, the timer is cleared — it must not be released
+	// again on every subsequent run.
+	if err := mp.persist(context.Background(), makeCtx(), out); err != nil {
+		t.Fatal(err)
+	}
+	again, err := mp.Process(context.Background(), makeCtx(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(again) != 0 {
+		t.Errorf("a downloaded release must not be re-released, got %d", len(again))
+	}
+}
