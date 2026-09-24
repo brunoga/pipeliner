@@ -918,3 +918,57 @@ func TestSettleDoesNotDuplicateWinnerStillInFeed(t *testing.T) {
 		t.Errorf("winner still in the feed should be accepted exactly once, got %d", accepted)
 	}
 }
+
+// TestSettleStampsProvenance: a release that waited out a window is marked,
+// and one rebuilt from the recorded winner is marked as revived too. Those
+// marks are what make a rising failure rate among settled releases visible —
+// the signal that settling has stopped paying for itself.
+func TestSettleStampsProvenance(t *testing.T) {
+	db, _ := store.OpenSQLite(":memory:")
+	defer db.Close()
+	p, _ := newPlugin(map[string]any{"settle": "6h"}, db)
+	mp := p.(*moviesPlugin)
+
+	// Wave held, then released while still in the feed → settled, not revived.
+	held := []*entry.Entry{makeEntry("Stamped.Movie.2026.2160p.WEB-DL.x265", "http://x.com/s")}
+	if _, err := mp.Process(context.Background(), makeCtx(), held); err != nil {
+		t.Fatal(err)
+	}
+	expireSettle(t, db, "stamped movie", 2026, 7*time.Hour)
+	again := []*entry.Entry{makeEntry("Stamped.Movie.2026.2160p.WEB-DL.x265", "http://x.com/s")}
+	if _, err := mp.Process(context.Background(), makeCtx(), again); err != nil {
+		t.Fatal(err)
+	}
+	if !again[0].GetBool(entry.FieldSettled) {
+		t.Error("a release that waited out a window must be marked settled")
+	}
+	if again[0].GetBool(entry.FieldSettledRevived) {
+		t.Error("a release still in the feed was not revived")
+	}
+
+	// A winner that left the feed → settled AND revived.
+	gone := []*entry.Entry{makeEntry("Gone.Movie.2026.2160p.WEB-DL.Atmos.x265", "http://x.com/g")}
+	if _, err := mp.Process(context.Background(), makeCtx(), gone); err != nil {
+		t.Fatal(err)
+	}
+	expireSettle(t, db, "gone movie", 2026, 7*time.Hour)
+	out, err := mp.Process(context.Background(), makeCtx(), []*entry.Entry{
+		makeEntry("Unrelated.2026.1080p.WEB-DL.x264", "http://x.com/u"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var revived *entry.Entry
+	for _, e := range out {
+		if strings.HasPrefix(e.Title, "Gone.Movie") {
+			revived = e
+		}
+	}
+	if revived == nil {
+		t.Fatal("winner should have been revived")
+	}
+	if !revived.GetBool(entry.FieldSettledRevived) || !revived.GetBool(entry.FieldSettled) {
+		t.Errorf("revived winner must be marked settled+revived: settled=%v revived=%v",
+			revived.GetBool(entry.FieldSettled), revived.GetBool(entry.FieldSettledRevived))
+	}
+}

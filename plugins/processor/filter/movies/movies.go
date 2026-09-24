@@ -253,6 +253,12 @@ func (p *moviesPlugin) holdForSettle(e *entry.Entry, title string, year int, is3
 	key := settle.MovieKey(title, year, is3D)
 	left := p.settleTracker.Offer(key, settle.CandidateOf(e), p.settle, time.Now())
 	if left <= 0 {
+		if p.settle > 0 {
+			// Offer only reports "no time left" for a window that already
+			// existed, so this release waited one out. Recorded on the entry
+			// so the failure and download logs can show what settling cost.
+			e.Set(entry.FieldSettled, true)
+		}
 		return false
 	}
 	e.Reject(fmt.Sprintf("movies: %s (%d) settling for %s more (holding the best release seen so far)",
@@ -281,6 +287,7 @@ func (p *moviesPlugin) releaseSettled(ctx context.Context, tc *plugin.TaskContex
 		}
 		e := exp.Best.Rebuild()
 		e.Set(entry.FieldMediaType, entry.MediaTypeMovie)
+		e.Set(entry.FieldSettledRevived, true)
 		if err := p.filter(ctx, tc, e); err != nil {
 			tc.Logger.Warn("movies: settled release", "entry", e.Title, "err", err)
 			continue
@@ -345,6 +352,8 @@ func (p *moviesPlugin) persist(_ context.Context, tc *plugin.TaskContext, entrie
 			Quality:      q,
 			Repack:       properOrRepack,
 			DownloadedAt: now,
+			Settled:      e.GetBool(entry.FieldSettled),
+			Revived:      e.GetBool(entry.FieldSettledRevived),
 			Task:         tc.Name,
 		}); err != nil {
 			tc.Logger.Warn("movies: append download log", "title", matchedTitle, "year", year, "err", err)

@@ -392,6 +392,8 @@ func (p *seriesPlugin) persist(_ context.Context, tc *plugin.TaskContext, entrie
 			Quality:      q,
 			Repack:       rec.Repack,
 			DownloadedAt: rec.DownloadedAt,
+			Settled:      e.GetBool(entry.FieldSettled),
+			Revived:      e.GetBool(entry.FieldSettledRevived),
 			Task:         tc.Name,
 		}); err != nil {
 			tc.Logger.Warn("series: append download log", "series", matchedShow, "episode", epID, "err", err)
@@ -489,6 +491,9 @@ func (p *seriesPlugin) holdForSettle(e *entry.Entry, show, epID string) bool {
 	key := settle.SeriesKey(show, epID)
 	left := p.settleTracker.Offer(key, settle.CandidateOf(e), p.settle, time.Now())
 	if left <= 0 {
+		if p.settle > 0 {
+			e.Set(entry.FieldSettled, true)
+		}
 		return false
 	}
 	e.Reject(fmt.Sprintf("series: %s %s settling for %s more (holding the best release seen so far)",
@@ -515,6 +520,7 @@ func (p *seriesPlugin) releaseSettled(ctx context.Context, tc *plugin.TaskContex
 			continue
 		}
 		e := exp.Best.Rebuild()
+		e.Set(entry.FieldSettledRevived, true)
 		if err := p.filter(ctx, tc, e); err != nil {
 			tc.Logger.Warn("series: settled release", "entry", e.Title, "err", err)
 			continue

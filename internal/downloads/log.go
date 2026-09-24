@@ -40,6 +40,12 @@ type Event struct {
 	Quality quality.Quality `json:"quality"`
 	// Repack reports whether the release was a PROPER/REPACK.
 	Repack bool `json:"repack,omitempty"`
+	// Settled marks a download that waited out a settle window, and Revived
+	// one rebuilt from the recorded winner after it left the feed. Recording
+	// successes as well as failures is what makes the settled failure rate
+	// meaningful rather than an absolute count.
+	Settled bool `json:"settled,omitempty"`
+	Revived bool `json:"settled_revived,omitempty"`
 	// DownloadedAt is when the download was committed.
 	DownloadedAt time.Time `json:"downloaded_at"`
 	// Task is the pipeline that produced the download.
