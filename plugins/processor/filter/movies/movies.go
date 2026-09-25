@@ -218,13 +218,13 @@ func (p *moviesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *en
 			}
 			switch quality.Decide(q, rec.Quality, properOrRepack, rec.Repack) {
 			case quality.UpgradeQuality:
-				if p.holdForSettle(e, matchedTitle, year, is3D) {
+				if p.holdForSettle(tc, e, matchedTitle, year, is3D) {
 					return nil
 				}
 				e.Accept(fmt.Sprintf("movies: %s (%d) quality upgrade", matchedTitle, year))
 				return nil
 			case quality.UpgradeProperRepack:
-				if p.holdForSettle(e, matchedTitle, year, is3D) {
+				if p.holdForSettle(tc, e, matchedTitle, year, is3D) {
 					return nil
 				}
 				e.Accept(fmt.Sprintf("movies: %s (%d) proper/repack accepted", matchedTitle, year))
@@ -235,7 +235,7 @@ func (p *moviesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *en
 		return nil
 	}
 
-	if p.holdForSettle(e, matchedTitle, year, is3D) {
+	if p.holdForSettle(tc, e, matchedTitle, year, is3D) {
 		return nil
 	}
 	e.Accept(fmt.Sprintf("movies: %s (%d) matched", matchedTitle, year))
@@ -249,8 +249,8 @@ func (p *moviesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *en
 // of downloading each rung of the 1080p → 2160p → HDR → Atmos ladder as it
 // appears. Rejection is per-run and uncommitted, so the entry is re-evaluated
 // on the next run.
-func (p *moviesPlugin) holdForSettle(e *entry.Entry, title string, year int, is3D bool) bool {
-	key := settle.MovieKey(title, year, is3D)
+func (p *moviesPlugin) holdForSettle(tc *plugin.TaskContext, e *entry.Entry, title string, year int, is3D bool) bool {
+	key := settle.MovieKey(tc.Name, title, year, is3D)
 	left := p.settleTracker.Offer(key, settle.CandidateOf(e), p.settle, time.Now())
 	if left <= 0 {
 		if p.settle > 0 {
@@ -281,7 +281,7 @@ func (p *moviesPlugin) releaseSettled(ctx context.Context, tc *plugin.TaskContex
 		present[e.URL] = true
 	}
 	var revived []*entry.Entry
-	for _, exp := range p.settleTracker.Expired(p.settle, time.Now()) {
+	for _, exp := range p.settleTracker.Expired(tc.Name, p.settle, time.Now()) {
 		if present[exp.Best.URL] {
 			continue // still advertised; it goes through the normal path
 		}
@@ -337,7 +337,7 @@ func (p *moviesPlugin) persist(_ context.Context, tc *plugin.TaskContext, entrie
 			return fmt.Errorf("movies: mark %s (%d): %w", matchedTitle, year, err)
 		}
 		// The wave produced a download; the next one starts a fresh timer.
-		p.settleTracker.Clear(settle.MovieKey(matchedTitle, year, is3D))
+		p.settleTracker.Clear(settle.MovieKey(tc.Name, matchedTitle, year, is3D))
 		// Best-effort append to the download history audit log. Optional: nil
 		// in tests that build the plugin struct directly.
 		if p.downloadLog == nil {

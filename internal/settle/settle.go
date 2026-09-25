@@ -18,6 +18,7 @@
 package settle
 
 import (
+	"strings"
 	"time"
 
 	"github.com/brunoga/pipeliner/internal/quality"
@@ -99,18 +100,27 @@ type KeyedCandidate struct {
 }
 
 // Expired lists items whose settle window has elapsed and that still hold a
-// recorded winner. Callers use it to download a winner that is no longer
-// advertised by any source.
-func (t *Tracker) Expired(window time.Duration, now time.Time) []KeyedCandidate {
-	if t == nil || t.b == nil || window <= 0 {
+// recorded winner, restricted to the keys owned by task. Callers use it to
+// download a winner that is no longer advertised by any source.
+//
+// The task restriction is load-bearing, not hygiene: a winner is revived by
+// injecting it straight into the caller's filter, skipping every upstream
+// node, so returning another pipeline's pending release would smuggle it
+// past gates it never passed.
+func (t *Tracker) Expired(task string, window time.Duration, now time.Time) []KeyedCandidate {
+	if t == nil || t.b == nil || window <= 0 || task == "" {
 		return nil
 	}
 	keys, err := t.b.Keys()
 	if err != nil {
 		return nil
 	}
+	prefix := TaskPrefix(task)
 	var out []KeyedCandidate
 	for _, k := range keys {
+		if !strings.HasPrefix(k, prefix) {
+			continue
+		}
 		var rec Record
 		found, err := t.b.Get(k, &rec)
 		if err != nil || !found || rec.FirstSeen.IsZero() || rec.Best.URL == "" {

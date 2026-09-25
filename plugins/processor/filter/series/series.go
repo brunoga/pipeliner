@@ -275,13 +275,13 @@ func (p *seriesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *en
 		properOrRepack := e.GetBool(entry.FieldVideoProper) || e.GetBool(entry.FieldVideoRepack)
 		switch quality.Decide(incomingQuality, stored.Quality, properOrRepack, stored.Repack) {
 		case quality.UpgradeQuality:
-			if p.holdForSettle(e, matchedShow, epID) {
+			if p.holdForSettle(tc, e, matchedShow, epID) {
 				return nil
 			}
 			e.Accept(fmt.Sprintf("series: %s %s quality upgrade", matchedShow, epID))
 			return nil
 		case quality.UpgradeProperRepack:
-			if p.holdForSettle(e, matchedShow, epID) {
+			if p.holdForSettle(tc, e, matchedShow, epID) {
 				return nil
 			}
 			e.Accept(fmt.Sprintf("series: %s %s proper/repack accepted", matchedShow, epID))
@@ -328,7 +328,7 @@ func (p *seriesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *en
 		}
 	}
 
-	if p.holdForSettle(e, matchedShow, epID) {
+	if p.holdForSettle(tc, e, matchedShow, epID) {
 		return nil
 	}
 	e.Accept(fmt.Sprintf("series: %s %s matched", matchedShow, epID))
@@ -376,7 +376,7 @@ func (p *seriesPlugin) persist(_ context.Context, tc *plugin.TaskContext, entrie
 			return fmt.Errorf("series: mark %s %s: %w", matchedShow, epID, err)
 		}
 		// The wave produced a download; the next one starts a fresh timer.
-		p.settleTracker.Clear(settle.SeriesKey(matchedShow, epID))
+		p.settleTracker.Clear(settle.SeriesKey(tc.Name, matchedShow, epID))
 		// Append to the download history audit log (best-effort — the tracker
 		// is the source of truth; the log is for reporting re-downloads and
 		// quality upgrades over time). Optional: nil in tests that build the
@@ -487,8 +487,8 @@ func (p *seriesPlugin) Commit(ctx context.Context, tc *plugin.TaskContext, entri
 // window elapses, so the downstream dedup picks one best release instead of
 // the pipeline grabbing each improvement as it appears. Rejection is per-run
 // and uncommitted, so the entry is re-evaluated on the next run.
-func (p *seriesPlugin) holdForSettle(e *entry.Entry, show, epID string) bool {
-	key := settle.SeriesKey(show, epID)
+func (p *seriesPlugin) holdForSettle(tc *plugin.TaskContext, e *entry.Entry, show, epID string) bool {
+	key := settle.SeriesKey(tc.Name, show, epID)
 	left := p.settleTracker.Offer(key, settle.CandidateOf(e), p.settle, time.Now())
 	if left <= 0 {
 		if p.settle > 0 {
@@ -515,7 +515,7 @@ func (p *seriesPlugin) releaseSettled(ctx context.Context, tc *plugin.TaskContex
 		present[e.URL] = true
 	}
 	var revived []*entry.Entry
-	for _, exp := range p.settleTracker.Expired(p.settle, time.Now()) {
+	for _, exp := range p.settleTracker.Expired(tc.Name, p.settle, time.Now()) {
 		if present[exp.Best.URL] {
 			continue
 		}

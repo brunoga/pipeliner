@@ -807,15 +807,7 @@ func TestSettleUnsetGrabsImmediately(t *testing.T) {
 // expireSettle backdates a title's settle timer so the window has elapsed.
 func expireSettle(t *testing.T, db *store.SQLiteStore, title string, year int, age time.Duration) {
 	t.Helper()
-	key := settle.MovieKey(title, year, false)
-	var rec settle.Record
-	if _, err := db.Bucket(settle.MovieBucketName).Get(key, &rec); err != nil {
-		t.Fatal(err)
-	}
-	rec.FirstSeen = time.Now().Add(-age)
-	if err := db.Bucket(settle.MovieBucketName).Put(key, rec); err != nil {
-		t.Fatal(err)
-	}
+	expireSettleFor(t, db, makeCtx().Name, title, year, age)
 }
 
 // TestSettleDownloadsWinnerAfterItLeavesTheFeed is the reason the settle
@@ -1033,5 +1025,71 @@ func TestSettleReleasesWithNoFurtherEntries(t *testing.T) {
 	}
 	if len(again) != 0 {
 		t.Errorf("a downloaded release must not be re-released, got %d", len(again))
+	}
+}
+
+// TestSettleDoesNotLeakAcrossPipelines reproduces a production incident. Two
+// movies pipelines share one store. A 2D release was recorded as a settle
+// winner by the 2D pipeline; the 3D pipeline's quality filter had rejected
+// that same release four times as "does not match spec 3dfull" — and then
+// its own movies node revived the other pipeline's record and downloaded it.
+//
+// Revival injects an entry straight into the filter, skipping every upstream
+// node, so a settle window must only ever release winners its own pipeline
+// recorded.
+func TestSettleDoesNotLeakAcrossPipelines(t *testing.T) {
+	db, _ := store.OpenSQLite(":memory:")
+	defer db.Close()
+
+	twoD, _ := newPlugin(map[string]any{"settle": "6h"}, db)
+	threeD, _ := newPlugin(map[string]any{"settle": "6h"}, db)
+	mp2D, mp3D := twoD.(*moviesPlugin), threeD.(*moviesPlugin)
+
+	ctx2D := &plugin.TaskContext{Name: "movies", Logger: makeCtx().Logger}
+	ctx3D := &plugin.TaskContext{Name: "movies-3d", Logger: makeCtx().Logger}
+
+	// The 2D pipeline sees a 2D release and starts settling it. The 3D
+	// pipeline never sees it — upstream its quality filter rejected it.
+	held := []*entry.Entry{makeEntry("Irresistible.2020.2160p.WEB-DL.H265.DTS.HDR", "http://x.com/irr")}
+	if _, err := mp2D.Process(context.Background(), ctx2D, held); err != nil {
+		t.Fatal(err)
+	}
+	if held[0].IsAccepted() {
+		t.Fatal("first sighting should settle, not download")
+	}
+
+	// The window elapses. The 3D pipeline sweeps and must find nothing: the
+	// record belongs to another pipeline.
+	expireSettleFor(t, db, "movies", "irresistible", 2020, 7*time.Hour)
+	out3D, err := mp3D.Process(context.Background(), ctx3D, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out3D) != 0 {
+		t.Fatalf("the 3D pipeline revived another pipeline's release: %q", out3D[0].Title)
+	}
+
+	// The pipeline that recorded it still releases it, as it should.
+	out2D, err := mp2D.Process(context.Background(), ctx2D, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out2D) != 1 || !out2D[0].IsAccepted() {
+		t.Fatalf("the owning pipeline must still release its winner, got %d", len(out2D))
+	}
+}
+
+// expireSettleFor backdates a task-scoped settle window.
+func expireSettleFor(t *testing.T, db *store.SQLiteStore, task, title string, year int, age time.Duration) {
+	t.Helper()
+	key := settle.MovieKey(task, title, year, false)
+	var rec settle.Record
+	found, err := db.Bucket(settle.MovieBucketName).Get(key, &rec)
+	if err != nil || !found {
+		t.Fatalf("no settle record at %q (found=%v err=%v)", key, found, err)
+	}
+	rec.FirstSeen = time.Now().Add(-age)
+	if err := db.Bucket(settle.MovieBucketName).Put(key, rec); err != nil {
+		t.Fatal(err)
 	}
 }
