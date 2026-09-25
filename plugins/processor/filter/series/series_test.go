@@ -1026,7 +1026,7 @@ func TestSettleUnsetGrabsImmediately(t *testing.T) {
 // leaving the recorded winner intact.
 func expireSeriesSettle(t *testing.T, db *store.SQLiteStore, show, epID string, age time.Duration) {
 	t.Helper()
-	key := settle.SeriesKey(show, epID)
+	key := settle.SeriesKey(makeCtx().Name, show, epID)
 	var rec settle.Record
 	if _, err := db.Bucket(settle.SeriesBucketName).Get(key, &rec); err != nil {
 		t.Fatal(err)
