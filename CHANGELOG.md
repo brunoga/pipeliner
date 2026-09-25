@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.35.1] - 2026-09-25
+
+An urgent fix for the settle window introduced in 1.33.0.
+
+### Fixed
+
+- **Settle windows no longer leak between pipelines** ([#452](https://github.com/brunoga/pipeliner/pull/452)). A 3D movies pipeline downloaded a plainly 2D release that its own quality filter had rejected four times as not matching `3dfull`. A 2D pipeline had recorded that release as a settle winner, and because the settle bucket was shared across pipelines, the 3D pipeline's sweep found the other pipeline's pending record and revived it. Revival injects the recorded winner straight into the caller's filter, skipping every upstream node — correct for the pipeline that recorded it, since the release passed those gates at record time, and exactly wrong for any other. Unlike a download record, which is deliberately shared because a file on disk is downloaded no matter which pipeline fetched it, a settle window is one pipeline's pending intent: keys are now scoped by task name and a window can only release into the pipeline that opened it.
+
+**Why 1.35.1**: a defect fix with no interface change. A patch bump per SemVer.
+
 ## [1.35.0] - 2026-09-24
 
 One-click actions from notification emails.
