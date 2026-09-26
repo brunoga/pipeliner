@@ -310,6 +310,8 @@ pipeliner check --config config.star --render-notifications</code></pre>
 
 <p>The two errors it is built to catch both parse cleanly and both reach the recipient rather than the log &mdash; a <code>{{index $.Fields &hellip;}}</code> nested inside <code>{{with}}</code> (<code>$</code> is the top-level data, not the entry), and a helper handed a value of the wrong type. Worth running in CI over your config, and before any notification change.</p>
 
+<p>The web editor&rsquo;s <strong>Validate</strong> button and its dry-run save run the same checks, graded differently. A template that will not <em>compile</em> is an <strong>error</strong>, because the reload would reject it anyway &mdash; and if a run happens to be in flight when you save, that reload is queued and its failure would otherwise surface nowhere. A template that compiles but fails to <em>render</em> is a <strong>warning</strong>: nearly always a real defect, but it rests on the DAG&rsquo;s field model being complete, and a false positive should not be able to block a save in the editor you write the config in. The CLI treats both as errors, which is what a CI gate wants.</p>
+
 <!-- ═══════════════════════════════════════════════════════════ -->
 <h2 id="config-file">Configuration File</h2>
 
