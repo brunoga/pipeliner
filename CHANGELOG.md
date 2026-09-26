@@ -5,6 +5,25 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.37.0] - 2026-09-26
+
+Closes a validation blind spot: nothing checked notification templates. `pipeliner check` never built a plugin, so a template that would not compile passed validation, and one that compiled but failed on a real entry was caught nowhere at all — it arrived as a missing email.
+
+### Added
+
+- **`pipeliner check --render-notifications`** ([#462](https://github.com/brunoga/pipeliner/pull/462)). Builds every plugin against a throwaway in-memory database, which surfaces template compile errors, then renders each notification against synthetic entries, which surfaces execution errors. Every node renders twice, driven by the DAG's own field analysis: once with every reachable field present, and once with only the fields the DAG guarantees. The second pass is the interesting one — a template reading a `MayProduce` field without a `{{with}}` guard works whenever enrichment succeeded and breaks on exactly the entries where it did not. Synthetic values follow each field's declared type (`_quality` is a real `quality.Quality`), because a check that handed every field a string would be blind to the type mistakes it exists to find. Plugins opt in through the new `plugin.TemplateChecker` mix-in.
+
+### Changed
+
+- **The web editor's Validate button and dry-run save check templates too** ([#463](https://github.com/brunoga/pipeliner/pull/463)). This is the path every config change actually travels, and it shared the same blind spot. The two failures are graded differently: a template that will not compile is an **error**, since the reload rejects it anyway — and when a run is in flight that reload is queued, so its failure would otherwise surface nowhere. A template that compiles but fails to render is a **warning**: nearly always a real defect, but it rests on the DAG's field model being complete, and a false positive must not block a save in the editor the config is written in. The CLI treats both as errors, which is what a CI gate wants. Rendering is skipped while structural errors stand.
+- **Notification reports can share one layout** ([#460](https://github.com/brunoga/pipeliner/pull/460)). `configs/email-report-layout.star` defines the page, header, card, stat table and footer once as top-level fragments and composes each report from them, so only the middle of a card differs per pipeline. A rich HTML body runs well over a kilobyte, and four download pipelines otherwise end up with four copies that drift — and because each copy carries the same anchor text, an edit aimed at one can land in another. The example also documents the three traps: compose by concatenation (`%` collides with `printf` verbs and CSS widths, `.format()` treats `{{` as an escape), bind `{{$e := .}}` per card (inside `{{with}}` the dot is rebound and `$` is the top-level data, not the entry), and never use a `def` helper for string assembly.
+
+### Fixed
+
+- **Three links to the `notify` sink in the user guide pointed at an anchor that does not exist** ([#461](https://github.com/brunoga/pipeliner/pull/461)). They were the only dangling internal links among the guide's 210.
+
+**Why 1.37.0**: a new CLI flag, a new optional plugin interface, and validation that now reports problems it previously missed. Additive with nothing removed, so a minor bump per SemVer. Note that a config with a broken notification template, which previously saved and failed later, will now be rejected at save.
+
 ## [1.36.0] - 2026-09-26
 
 Makes the janitor explain itself. The emails it sends were a wall of text that said a torrent had been purged but not why, largely because pipeliner was reading a fraction of what the download clients report.
