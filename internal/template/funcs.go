@@ -170,6 +170,29 @@ func FuncMap() template.FuncMap {
 			return t.Format(layout)
 		},
 
+		// duration d — renders a span as a compact human string ("3d 4h",
+		// "45m", "12s"). Accepts a time.Duration or a plain number of
+		// seconds, which is how torrent_seed_time and friends are stored.
+		// Unparseable values render as an empty string.
+		"duration": humanDuration,
+
+		// ago t — renders how long ago t was ("6 days ago", "just now").
+		// The zero time renders "never", so a template can use it directly
+		// for fields like torrent_last_activity that may be absent.
+		"ago": func(t time.Time) string {
+			if t.IsZero() {
+				return "never"
+			}
+			d := time.Since(t)
+			if d < 0 {
+				return "just now"
+			}
+			if d < time.Minute {
+				return "just now"
+			}
+			return humanDuration(d) + " ago"
+		},
+
 		// scrub s — sanitizes s for use as a path component on any filesystem
 		// (replaces characters invalid on Windows or Linux with _).
 		"scrub": func(s string) string { return scrubComponent(s, "generic") },
@@ -228,4 +251,64 @@ func isScrubInvalid(r rune, target string) bool {
 		}
 	}
 	return !unicode.IsPrint(r)
+}
+
+// humanDuration renders a span as at most two units ("3d 4h", "45m 10s").
+// It accepts a time.Duration or any numeric seconds value so templates can
+// pass stored fields such as torrent_seed_time straight through.
+func humanDuration(v any) string {
+	var d time.Duration
+	switch t := v.(type) {
+	case time.Duration:
+		d = t
+	case int:
+		d = time.Duration(t) * time.Second
+	case int64:
+		d = time.Duration(t) * time.Second
+	case float64:
+		d = time.Duration(t * float64(time.Second))
+	case string:
+		parsed, err := time.ParseDuration(t)
+		if err != nil {
+			return ""
+		}
+		d = parsed
+	default:
+		return ""
+	}
+	if d < 0 {
+		d = -d
+	}
+
+	units := []struct {
+		size time.Duration
+		name string
+	}{
+		{24 * time.Hour, "d"},
+		{time.Hour, "h"},
+		{time.Minute, "m"},
+		{time.Second, "s"},
+	}
+	// Start at the largest unit that actually has a value, then add the
+	// next one down only when it is non-zero, so a round span renders as
+	// "1h" rather than "1h 0m".
+	start := -1
+	for i, u := range units {
+		if d/u.size > 0 {
+			start = i
+			break
+		}
+	}
+	if start < 0 {
+		return "0s"
+	}
+	n := d / units[start].size
+	parts := []string{fmt.Sprintf("%d%s", n, units[start].name)}
+	d -= n * units[start].size
+	if next := start + 1; next < len(units) {
+		if n2 := d / units[next].size; n2 > 0 {
+			parts = append(parts, fmt.Sprintf("%d%s", n2, units[next].name))
+		}
+	}
+	return strings.Join(parts, " ")
 }

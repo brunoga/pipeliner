@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 	"text/template"
+	"time"
 )
 
 func render(t *testing.T, expr string, data any) string {
@@ -291,5 +292,93 @@ func TestSignedActionHelper(t *testing.T) {
 	// survive as strings rather than breaking the link.
 	if p.Title != "Some Show" || p.Fields["tvdb_id"] != "12345" || p.Label != "⭐ Follow" {
 		t.Errorf("payload = %+v", p)
+	}
+}
+
+func TestDurationFunc(t *testing.T) {
+	cases := []struct {
+		name string
+		in   any
+		want string
+	}{
+		{"seconds int64", int64(45), "45s"},
+		{"seconds int", 90, "1m 30s"},
+		{"seed time days", int64(745200), "8d 15h"},
+		{"float seconds", 3600.0, "1h"},
+		{"duration value", 3*time.Hour + 20*time.Minute, "3h 20m"},
+		{"duration string", "2h45m", "2h 45m"},
+		{"zero", int64(0), "0s"},
+		{"negative is absolute", int64(-120), "2m"},
+		{"exact day drops empty units", int64(86400), "1d"},
+		{"unparseable string", "not-a-duration", ""},
+		{"unsupported type", []int{1}, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := render(t, `{{duration .}}`, tc.in)
+			if got != tc.want {
+				t.Errorf("duration(%v) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestAgoFunc(t *testing.T) {
+	cases := []struct {
+		name string
+		in   time.Time
+		want string
+	}{
+		{"zero time", time.Time{}, "never"},
+		{"seconds ago", time.Now().Add(-30 * time.Second), "just now"},
+		{"future", time.Now().Add(time.Hour), "just now"},
+		{"hours ago", time.Now().Add(-5 * time.Hour), "5h ago"},
+		{"days ago", time.Now().Add(-49 * time.Hour), "2d 1h ago"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := render(t, `{{ago .}}`, tc.in)
+			if got != tc.want {
+				t.Errorf("ago(%v) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestNotificationFieldPatterns renders the field-access shapes notification
+// bodies use over torrent_session fields. Parsing these is checked by
+// `pipeliner check`; executing them is not, so a type mismatch between a
+// helper and the value a plugin actually stores would only surface when mail
+// is sent. The values here mirror what torrent_session.Generate writes:
+// seed time as int64 seconds, progress/ratio as float64, timestamps as
+// time.Time, and torrent_last_activity absent when the backend has no record.
+func TestNotificationFieldPatterns(t *testing.T) {
+	fields := map[string]any{
+		"torrent_state":        "errored",
+		"torrent_progress":     61.8,
+		"torrent_ratio":        0.12,
+		"torrent_seed_time":    int64(745200),
+		"torrent_added_at":     time.Now().Add(-9 * 24 * time.Hour),
+		"torrent_info_hash":    "c3efe106f580d6da62059eed0b9875ccb92a6eea",
+		"torrent_download_dir": "/data/media/movies3d",
+	}
+	data := map[string]any{"Fields": fields}
+
+	cases := []struct{ name, expr, want string }{
+		{"progress", `{{printf "%.1f" (index .Fields "torrent_progress")}}%`, "61.8%"},
+		{"bar width", `{{printf "%.0f" (index .Fields "torrent_progress")}}%`, "62%"},
+		{"ratio", `{{printf "%.2f" (index .Fields "torrent_ratio")}}`, "0.12"},
+		{"seed time", `{{duration (index .Fields "torrent_seed_time")}}`, "8d 15h"},
+		{"added", `{{ago (index .Fields "torrent_added_at")}}`, "9d ago"},
+		{"seed time skipped when zero", `{{with index .Fields "missing_seed"}}{{duration .}}{{end}}`, ""},
+		{"absent field falls back", `{{with index .Fields "torrent_last_activity"}}{{ago .}}{{else}}never{{end}}`, "never"},
+		{"state pill", `{{with index .Fields "torrent_state"}}{{upper .}}{{end}}`, "ERRORED"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := render(t, tc.expr, data); got != tc.want {
+				t.Errorf("%s = %q, want %q", tc.expr, got, tc.want)
+			}
+		})
 	}
 }
