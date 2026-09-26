@@ -834,7 +834,31 @@ pipeline("split-pipeline")</code></pre>
 
 <p>In email templates, the context is a struct with <code>.Entries</code> (slice of accepted entries). Each entry has <code>.Title</code>, <code>.URL</code>, <code>.Task</code>, and <code>.Fields</code> (map of all entry fields).</p>
 
-<p>For an HTML email, remember that mail clients only render <strong>inline styles and table layout</strong> reliably &mdash; no stylesheet, no flexbox, no grid. <code>configs/torrent-janitor.star</code> carries a worked example: a header bar, one card per entry with a state pill and a table-drawn progress bar, and a stats table that uses <code>duration</code> and <code>ago</code> so raw seconds and timestamps read as <code>8d 15h</code> and <code>2d 1h ago</code>. Keeping the body in a top-level variable (<code>JANITOR_REPORT = """&hellip;"""</code>) rather than inline on the node keeps it readable, and the <a href="#visual-editor">visual editor</a> preserves the reference instead of flattening the markup into one line. A template that fails to parse is caught by <code>pipeliner check</code>, which instantiates every plugin.</p>
+<p>For an HTML email, remember that mail clients only render <strong>inline styles and table layout</strong> reliably &mdash; no stylesheet, no flexbox, no grid, and a poster belongs in its own table cell rather than floating, which Outlook drops. <code>configs/torrent-janitor.star</code> carries a worked example: a header bar, one card per entry with a state pill and a table-drawn progress bar, and a stats table that uses <code>duration</code> and <code>ago</code> so raw seconds and timestamps read as <code>8d 15h</code> and <code>2d 1h ago</code>. Keeping the body in a top-level variable (<code>JANITOR_REPORT = """&hellip;"""</code>) rather than inline on the node keeps it readable, and the <a href="#visual-editor">visual editor</a> preserves the reference instead of flattening the markup into one line. A template that fails to parse is caught by <code>pipeliner check</code>, which instantiates every plugin.</p>
+
+<h4>Sharing one layout across pipelines</h4>
+
+<p>A rich body is well over a kilobyte of markup, so a setup with four download pipelines ends up with four copies that drift apart &mdash; and because each copy contains the same anchor text, a careless edit lands in the wrong one. <code>configs/email-report-layout.star</code> shows the alternative: define the frame once as top-level fragments and concatenate them per report.</p>
+
+<pre><code>MOVIE_REPORT = (
+    EMAIL_PAGE_OPEN
+    + EMAIL_HEAD_OPEN + "New movies"
+    + EMAIL_HEAD_MID + "{{len .Entries}} sent to the download client"
+    + EMAIL_HEAD_CLOSE
+    + "{{range .Entries}}" + EMAIL_CARD_OPEN + "{{$e := .}}"
+    + MOVIE_CARD
+    + EMAIL_CARD_CLOSE + "{{end}}"
+    + EMAIL_FOOT_OPEN + "Sent by pipeliner." + EMAIL_FOOT_CLOSE
+    + EMAIL_PAGE_CLOSE
+)</code></pre>
+
+<p>Only the card middle differs per report &mdash; a movie has rating, runtime and genres; an episode has season, network and air date; a premiere adds a <code>signedaction</code> button. Three details are worth knowing:</p>
+
+<ul>
+  <li><strong>Concatenate; don&rsquo;t use <code>%</code> or <code>.format()</code>.</strong> Both collide with template syntax: <code>%</code> clashes with <code>printf</code> verbs and CSS widths, and <code>.format()</code> treats <code>{{</code> as an escape.</li>
+  <li><strong>Bind the entry with <code>{{$e := .}}</code> at the top of each card.</strong> Inside <code>{{with}}</code> the dot is rebound, and <code>$</code> refers to the <em>top-level</em> data (the object holding <code>.Entries</code>), not the current entry &mdash; so a nested <code>{{index $.Fields "title"}}</code> fails at send time with &ldquo;index of untyped nil&rdquo;. Use <code>$e</code>.</li>
+  <li><strong>Don&rsquo;t reach for a <code>def</code> helper</strong> to build these strings. <code>def</code> helpers are discovered as pipeline functions and get a parameter schema inferred, which is not what a string-formatting helper wants.</li>
+</ul>
 
 <hr>
 <!-- ═══════════════════════════════════════════════════════════ -->
