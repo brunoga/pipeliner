@@ -44,16 +44,18 @@ SMTP = {
 
 # The purge report. Mail clients only render inline styles and table
 # layout reliably, so that is all this uses — no flexbox, no stylesheet,
-# no external images. The duration and ago helpers turn the raw torrent
-# fields (seed time in seconds, timestamps) into "8d 15h" and "2d 1h ago";
-# torrent_last_activity is a MayProduce field, hence the with/else.
+# no external images. The helpers turn raw field values into readable
+# text: filesize for byte counts, duration for seed time in seconds, ago
+# for timestamps, and sumfield to total the bytes reclaimed across the
+# batch. torrent_last_activity, torrent_tracker_host and torrent_label
+# are MayProduce fields, hence the with/else around them.
 JANITOR_REPORT = """
 {{$n := len .Entries}}<div style="margin:0;padding:24px 12px;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
 <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" width="640" style="width:100%;max-width:640px;margin:0 auto;border-collapse:collapse;">
 
 <tr><td style="background:#1f2937;border-radius:10px 10px 0 0;padding:18px 22px;">
 <div style="color:#f9fafb;font-size:17px;font-weight:600;line-height:1.3;">Torrent janitor</div>
-<div style="color:#9ca3af;font-size:13px;padding-top:4px;line-height:1.4;">Purged {{$n}} dead torrent{{if ne $n 1}}s{{end}} and removed {{if ne $n 1}}their{{else}}its{{end}} files</div>
+<div style="color:#9ca3af;font-size:13px;padding-top:4px;line-height:1.4;">Purged {{$n}} dead torrent{{if ne $n 1}}s{{end}} and reclaimed {{filesize (sumfield "torrent_downloaded" .Entries)}} of disk</div>
 </td></tr>
 
 {{range .Entries}}
@@ -77,11 +79,15 @@ JANITOR_REPORT = """
 <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%;border-collapse:collapse;margin-top:12px;font-size:13px;line-height:1.5;">
 <tr>
 <td style="padding:4px 12px 4px 0;color:#6b7280;white-space:nowrap;width:1%;">Downloaded</td>
-<td style="padding:4px 0;color:#111827;">{{printf "%.1f" $p}}%</td>
+<td style="padding:4px 0;color:#111827;">{{filesize (index .Fields "torrent_downloaded")}} of {{filesize (index .Fields "torrent_file_size")}} &middot; {{printf "%.1f" $p}}%</td>
 </tr>
 <tr>
-<td style="padding:4px 12px 4px 0;color:#6b7280;white-space:nowrap;">Ratio</td>
-<td style="padding:4px 0;color:#111827;">{{printf "%.2f" (index .Fields "torrent_ratio")}}</td>
+<td style="padding:4px 12px 4px 0;color:#6b7280;white-space:nowrap;">Swarm</td>
+<td style="padding:4px 0;color:#111827;">{{index .Fields "torrent_connected_seeds"}} seed{{if ne (index .Fields "torrent_connected_seeds") 1}}s{{end}} &middot; {{index .Fields "torrent_connected_peers"}} peer{{if ne (index .Fields "torrent_connected_peers") 1}}s{{end}} connected</td>
+</tr>
+<tr>
+<td style="padding:4px 12px 4px 0;color:#6b7280;white-space:nowrap;">Uploaded</td>
+<td style="padding:4px 0;color:#111827;">{{filesize (index .Fields "torrent_uploaded")}} &middot; ratio {{printf "%.2f" (index .Fields "torrent_ratio")}}</td>
 </tr>
 {{with index .Fields "torrent_seed_time"}}<tr>
 <td style="padding:4px 12px 4px 0;color:#6b7280;white-space:nowrap;">Seeded for</td>
@@ -95,6 +101,14 @@ JANITOR_REPORT = """
 <td style="padding:4px 12px 4px 0;color:#6b7280;white-space:nowrap;">Last activity</td>
 <td style="padding:4px 0;color:#111827;">{{with index .Fields "torrent_last_activity"}}{{ago .}}{{else}}never{{end}}</td>
 </tr>
+{{with index .Fields "torrent_tracker_host"}}<tr>
+<td style="padding:4px 12px 4px 0;color:#6b7280;white-space:nowrap;">Tracker</td>
+<td style="padding:4px 0;color:#111827;">{{.}}</td>
+</tr>{{end}}
+{{with index .Fields "torrent_label"}}<tr>
+<td style="padding:4px 12px 4px 0;color:#6b7280;white-space:nowrap;">Label</td>
+<td style="padding:4px 0;color:#111827;">{{.}}</td>
+</tr>{{end}}
 </table>
 
 <div style="margin-top:12px;padding-top:10px;border-top:1px solid #f3f4f6;color:#9ca3af;font-size:11px;line-height:1.6;word-break:break-all;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;">

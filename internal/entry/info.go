@@ -156,14 +156,24 @@ const (
 	// Torrent session fields — set by the torrent_session source, which emits
 	// one entry per torrent in a download client's session. The info-hash is
 	// carried in FieldTorrentInfoHash (same field the metainfo plugins set).
-	FieldTorrentState        = "torrent_state"         // normalized client state, see torrentclient.States
-	FieldTorrentRatio        = "torrent_ratio"         // upload ratio (float)
-	FieldTorrentSeedTime     = "torrent_seed_time"     // cumulative seeding time in seconds
-	FieldTorrentAddedAt      = "torrent_added_at"      // when the torrent was added to the session
-	FieldTorrentLastActivity = "torrent_last_activity" // last upload/download activity (absent when unknown)
-	FieldTorrentProgress     = "torrent_progress"      // download completion percentage, 0-100
-	FieldTorrentError        = "torrent_error"         // client error message when torrent_state == "errored"
-	FieldTorrentDownloadDir  = "torrent_download_dir"  // directory the torrent's data lives in
+	FieldTorrentState        = "torrent_state"           // normalized client state, see torrentclient.States
+	FieldTorrentRatio        = "torrent_ratio"           // upload ratio (float)
+	FieldTorrentSeedTime     = "torrent_seed_time"       // cumulative seeding time in seconds
+	FieldTorrentAddedAt      = "torrent_added_at"        // when the torrent was added to the session
+	FieldTorrentLastActivity = "torrent_last_activity"   // last upload/download activity (absent when unknown)
+	FieldTorrentProgress     = "torrent_progress"        // download completion percentage, 0-100
+	FieldTorrentError        = "torrent_error"           // client error message when torrent_state == "errored"
+	FieldTorrentDownloadDir  = "torrent_download_dir"    // directory the torrent's data lives in
+	FieldTorrentDownloaded   = "torrent_downloaded"      // all-time downloaded payload in bytes
+	FieldTorrentUploaded     = "torrent_uploaded"        // all-time uploaded payload in bytes
+	FieldTorrentDownRate     = "torrent_download_rate"   // current download rate in bytes/second
+	FieldTorrentUpRate       = "torrent_upload_rate"     // current upload rate in bytes/second
+	FieldTorrentConnSeeds    = "torrent_connected_seeds" // connected peers that have the complete torrent
+	FieldTorrentConnPeers    = "torrent_connected_peers" // connected peers that do not have it all
+	FieldTorrentETA          = "torrent_eta"             // estimated seconds to completion (absent when unknown)
+	FieldTorrentLabel        = "torrent_label"           // client-side label/category (absent when unset)
+	FieldTorrentTrackerHost  = "torrent_tracker_host"    // primary tracker host (absent when unknown)
+	FieldTorrentCompletedAt  = "torrent_completed_at"    // when the download finished (absent while incomplete)
 
 	// FileInfo — file_ prefix.
 	FieldFileName         = "file_name"

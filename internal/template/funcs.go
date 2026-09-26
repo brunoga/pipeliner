@@ -7,8 +7,10 @@ package template
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/brunoga/pipeliner/internal/actionlink"
+	"github.com/brunoga/pipeliner/internal/entry"
 	"strings"
 	"text/template"
 	"time"
@@ -193,6 +195,52 @@ func FuncMap() template.FuncMap {
 			return humanDuration(d) + " ago"
 		},
 
+		// filesize n — renders a byte count as "12.4 GB". Decimal units,
+		// matching what download clients and indexers display. Accepts any
+		// numeric type, which is how torrent_file_size and the transfer
+		// counters are stored.
+		"filesize": humanBytes,
+
+		// rate n — renders a bytes-per-second value as "1.2 MB/s".
+		"rate": func(v any) string {
+			s := humanBytes(v)
+			if s == "" {
+				return ""
+			}
+			return s + "/s"
+		},
+
+		// sumfield name entries — totals a numeric field across entries,
+		// for a headline figure like the bytes a purge reclaimed:
+		//
+		//	{{filesize (sumfield "torrent_downloaded" .Entries)}}
+		//
+		// Entries missing the field, or holding a non-numeric value,
+		// contribute zero rather than breaking the template.
+		"sumfield": func(name string, entries any) float64 {
+			items, ok := entries.([]*entry.Entry)
+			if !ok {
+				return 0
+			}
+			var total float64
+			for _, e := range items {
+				if e == nil {
+					continue
+				}
+				switch v := e.Fields[name].(type) {
+				case int:
+					total += float64(v)
+				case int64:
+					total += float64(v)
+				case uint64:
+					total += float64(v)
+				case float64:
+					total += v
+				}
+			}
+			return total
+		},
+
 		// scrub s — sanitizes s for use as a path component on any filesystem
 		// (replaces characters invalid on Windows or Linux with _).
 		"scrub": func(s string) string { return scrubComponent(s, "generic") },
@@ -311,4 +359,49 @@ func humanDuration(v any) string {
 		}
 	}
 	return strings.Join(parts, " ")
+}
+
+// humanBytes renders a byte count with decimal (SI) units, the convention
+// download clients and indexers display. Values under 1 kB render as plain
+// bytes; larger ones get one decimal place, dropped when it would be zero.
+func humanBytes(v any) string {
+	var n float64
+	switch t := v.(type) {
+	case int:
+		n = float64(t)
+	case int64:
+		n = float64(t)
+	case uint64:
+		n = float64(t)
+	case float64:
+		n = t
+	default:
+		return ""
+	}
+	neg := n < 0
+	if neg {
+		n = -n
+	}
+
+	const unit = 1000
+	if n < unit {
+		return fmt.Sprintf("%s%d B", sign(neg), int64(n))
+	}
+	units := []string{"kB", "MB", "GB", "TB", "PB"}
+	i := -1
+	for n >= unit && i < len(units)-1 {
+		n /= unit
+		i++
+	}
+	if n >= 100 || n == math.Trunc(n) {
+		return fmt.Sprintf("%s%.0f %s", sign(neg), n, units[i])
+	}
+	return fmt.Sprintf("%s%.1f %s", sign(neg), n, units[i])
+}
+
+func sign(neg bool) string {
+	if neg {
+		return "-"
+	}
+	return ""
 }

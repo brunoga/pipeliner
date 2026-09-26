@@ -44,7 +44,7 @@ const pluginName = "torrent_session"
 func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  pluginName,
-		Description: "emit one entry per torrent in a Transmission or qBittorrent session, with ratio/seed-time/state fields for janitor pipelines",
+		Description: "emit one entry per torrent in a Transmission, qBittorrent or Deluge session, with size, transfer, peer and state fields for janitor pipelines",
 		Role:        plugin.RoleSource,
 		Produces: []string{
 			entry.FieldTitle,
@@ -56,10 +56,21 @@ func init() {
 			entry.FieldTorrentAddedAt,
 			entry.FieldTorrentProgress,
 			entry.FieldTorrentDownloadDir,
+			entry.FieldTorrentFileSize,
+			entry.FieldTorrentDownloaded,
+			entry.FieldTorrentUploaded,
+			entry.FieldTorrentDownRate,
+			entry.FieldTorrentUpRate,
+			entry.FieldTorrentConnSeeds,
+			entry.FieldTorrentConnPeers,
 		},
 		MayProduce: []string{
 			entry.FieldTorrentError,
 			entry.FieldTorrentLastActivity,
+			entry.FieldTorrentETA,
+			entry.FieldTorrentLabel,
+			entry.FieldTorrentTrackerHost,
+			entry.FieldTorrentCompletedAt,
 		},
 		Factory:  newPlugin,
 		Validate: validate,
@@ -122,6 +133,28 @@ func (p *sessionSourcePlugin) Generate(ctx context.Context, tc *plugin.TaskConte
 		e.Set(entry.FieldTorrentAddedAt, t.AddedAt)
 		e.Set(entry.FieldTorrentProgress, t.Progress)
 		e.Set(entry.FieldTorrentDownloadDir, t.DownloadDir)
+		e.Set(entry.FieldTorrentFileSize, t.Size)
+		e.Set(entry.FieldTorrentDownloaded, t.Downloaded)
+		e.Set(entry.FieldTorrentUploaded, t.Uploaded)
+		e.Set(entry.FieldTorrentDownRate, t.DownloadRate)
+		e.Set(entry.FieldTorrentUpRate, t.UploadRate)
+		e.Set(entry.FieldTorrentConnSeeds, t.Seeds)
+		e.Set(entry.FieldTorrentConnPeers, t.Peers)
+		// The remaining fields are only set when the client actually knows
+		// them, so a template can use {{with}} to tell "zero" from
+		// "unreported" — an ETA of 0 means "cannot estimate", not "done now".
+		if t.ETA > 0 {
+			e.Set(entry.FieldTorrentETA, int64(t.ETA.Seconds()))
+		}
+		if t.Label != "" {
+			e.Set(entry.FieldTorrentLabel, t.Label)
+		}
+		if t.Tracker != "" {
+			e.Set(entry.FieldTorrentTrackerHost, t.Tracker)
+		}
+		if !t.CompletedAt.IsZero() {
+			e.Set(entry.FieldTorrentCompletedAt, t.CompletedAt)
+		}
 		if t.Error != "" {
 			e.Set(entry.FieldTorrentError, t.Error)
 		}

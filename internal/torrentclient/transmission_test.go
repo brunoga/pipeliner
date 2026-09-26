@@ -297,3 +297,123 @@ func TestNewUnsupportedBackend(t *testing.T) {
 		t.Fatal("expected error for unsupported backend")
 	}
 }
+
+// TestTransmissionRichFields covers the session detail added for janitor
+// reporting. Two Transmission specifics are asserted: Peers is derived
+// (peersConnected counts seeds too, so the non-seed count is the
+// difference), and a negative eta is the "not available"/"unknown"
+// sentinel rather than a real estimate.
+func TestTransmissionRichFields(t *testing.T) {
+	srv, _ := newTransmissionServer(t, func(req trRequest) any {
+		return transmissionListResponse([]map[string]any{
+			{
+				"hashString": "ABCDEF0123456789ABCDEF0123456789ABCDEF01",
+				"name":       "rich", "status": 4, "error": 0, "errorString": "",
+				"isStalled": false, "percentDone": 0.5,
+				"uploadRatio": 0.3, "secondsSeeding": 60,
+				"addedDate": 1700000000, "activityDate": 1700003600,
+				"downloadDir":      "/downloads",
+				"totalSize":        15_400_000_000,
+				"downloadedEver":   7_700_000_000,
+				"uploadedEver":     1_000_000_000,
+				"rateDownload":     2_500_000,
+				"rateUpload":       300_000,
+				"peersConnected":   15,
+				"peersSendingToUs": 4,
+				"eta":              2560,
+				"doneDate":         1700007200,
+				"labels":           []string{"movies", "3d"},
+				"trackerStats":     []map[string]any{{"host": "tracker.example.org"}},
+			},
+			{
+				"hashString": "1111111111111111111111111111111111111111",
+				"name":       "unknown-eta", "status": 4, "error": 0, "errorString": "",
+				"isStalled": true, "percentDone": 0.0,
+				"uploadRatio": -1, "secondsSeeding": 0,
+				"addedDate": 1700000000, "activityDate": 0,
+				"downloadDir": "/downloads",
+				"eta":         -1,
+				"doneDate":    0,
+			},
+		})
+	})
+	defer srv.Close()
+
+	host, port := hostPort(t, srv.URL)
+	c, err := New(BackendTransmission, Config{Host: host, Port: port})
+	if err != nil {
+		t.Fatal(err)
+	}
+	list, err := c.ListTorrents(context.Background())
+	if err != nil {
+		t.Fatalf("ListTorrents: %v", err)
+	}
+
+	rich := list[0]
+	if rich.Size != 15_400_000_000 {
+		t.Errorf("size: got %d", rich.Size)
+	}
+	if rich.Downloaded != 7_700_000_000 || rich.Uploaded != 1_000_000_000 {
+		t.Errorf("counters: down=%d up=%d", rich.Downloaded, rich.Uploaded)
+	}
+	if rich.DownloadRate != 2_500_000 || rich.UploadRate != 300_000 {
+		t.Errorf("rates: down=%d up=%d", rich.DownloadRate, rich.UploadRate)
+	}
+	if rich.Seeds != 4 {
+		t.Errorf("seeds: got %d, want 4 (peersSendingToUs)", rich.Seeds)
+	}
+	if rich.Peers != 11 {
+		t.Errorf("peers: got %d, want 11 (connected minus sending)", rich.Peers)
+	}
+	if rich.ETA != 2560*time.Second {
+		t.Errorf("eta: got %v", rich.ETA)
+	}
+	if rich.Label != "movies" {
+		t.Errorf("label: got %q, want the first label", rich.Label)
+	}
+	if rich.Tracker != "tracker.example.org" {
+		t.Errorf("tracker: got %q", rich.Tracker)
+	}
+	if rich.CompletedAt.Unix() != 1700007200 {
+		t.Errorf("completed at: got %v", rich.CompletedAt.Unix())
+	}
+
+	unknown := list[1]
+	if unknown.ETA != 0 {
+		t.Errorf("negative eta sentinel: got %v, want 0", unknown.ETA)
+	}
+	if !unknown.CompletedAt.IsZero() {
+		t.Errorf("doneDate 0: got %v, want zero", unknown.CompletedAt)
+	}
+	if unknown.Label != "" || unknown.Tracker != "" {
+		t.Errorf("absent optionals leaked: label=%q tracker=%q", unknown.Label, unknown.Tracker)
+	}
+}
+
+// TestTransmissionPeersNeverNegative guards the derived Peers count: a
+// backend reporting more seeds than total connections must clamp to zero,
+// not wrap into a negative peer count.
+func TestTransmissionPeersNeverNegative(t *testing.T) {
+	srv, _ := newTransmissionServer(t, func(req trRequest) any {
+		return transmissionListResponse([]map[string]any{{
+			"hashString": "ABCDEF0123456789ABCDEF0123456789ABCDEF01",
+			"name":       "odd", "status": 4, "percentDone": 0.5,
+			"addedDate": 1700000000, "downloadDir": "/downloads",
+			"peersConnected": 2, "peersSendingToUs": 5,
+		}})
+	})
+	defer srv.Close()
+
+	host, port := hostPort(t, srv.URL)
+	c, err := New(BackendTransmission, Config{Host: host, Port: port})
+	if err != nil {
+		t.Fatal(err)
+	}
+	list, err := c.ListTorrents(context.Background())
+	if err != nil {
+		t.Fatalf("ListTorrents: %v", err)
+	}
+	if list[0].Peers != 0 {
+		t.Errorf("peers: got %d, want 0", list[0].Peers)
+	}
+}

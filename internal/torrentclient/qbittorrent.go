@@ -78,6 +78,17 @@ type qbtTorrent struct {
 	LastActivity int64   `json:"last_activity"`
 	Progress     float64 `json:"progress"` // 0-1
 	SavePath     string  `json:"save_path"`
+	Size         int64   `json:"size"`
+	Downloaded   int64   `json:"downloaded"`
+	Uploaded     int64   `json:"uploaded"`
+	DlSpeed      int64   `json:"dlspeed"`
+	UpSpeed      int64   `json:"upspeed"`
+	NumSeeds     int     `json:"num_seeds"`
+	NumLeechs    int     `json:"num_leechs"`
+	ETA          int64   `json:"eta"`
+	Category     string  `json:"category"`
+	Tracker      string  `json:"tracker"`
+	CompletionOn int64   `json:"completion_on"`
 }
 
 func (c *qbittorrentClient) ListTorrents(ctx context.Context) ([]Torrent, error) {
@@ -115,6 +126,23 @@ func normalizeQBittorrent(t qbtTorrent) Torrent {
 		SeedTime:    time.Duration(t.SeedingTime) * time.Second,
 		Progress:    t.Progress * 100,
 		DownloadDir: t.SavePath,
+
+		Size:         t.Size,
+		Downloaded:   t.Downloaded,
+		Uploaded:     t.Uploaded,
+		DownloadRate: t.DlSpeed,
+		UploadRate:   t.UpSpeed,
+		Seeds:        t.NumSeeds,
+		Peers:        t.NumLeechs,
+		Label:        t.Category,
+		Tracker:      trackerHost(t.Tracker),
+	}
+	// qBittorrent reports 8640000 (100 days) for "infinite"/unknown.
+	if t.ETA > 0 && t.ETA < qbtInfiniteETA {
+		nt.ETA = time.Duration(t.ETA) * time.Second
+	}
+	if t.CompletionOn > 0 {
+		nt.CompletedAt = time.Unix(t.CompletionOn, 0)
 	}
 	if t.Ratio > 0 {
 		nt.Ratio = t.Ratio
@@ -209,3 +237,7 @@ func (c *qbittorrentClient) post(ctx context.Context, path string, form url.Valu
 	}
 	return nil
 }
+
+// qbtInfiniteETA is the sentinel qBittorrent reports (100 days in seconds)
+// when it cannot estimate a completion time.
+const qbtInfiniteETA = 8640000

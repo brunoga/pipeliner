@@ -280,3 +280,73 @@ func TestQBittorrentRemoveHTTPError(t *testing.T) {
 		t.Fatal("expected HTTP error")
 	}
 }
+
+// TestQBittorrentRichFields covers the session detail added for janitor
+// reporting. Two qBittorrent specifics are asserted: the 8640000-second
+// "infinite" ETA sentinel must not become a real estimate, and the tracker
+// is reported as a full announce URL that has to be reduced to a host.
+func TestQBittorrentRichFields(t *testing.T) {
+	info := []map[string]any{
+		{
+			"hash": "abcdef0123456789abcdef0123456789abcdef01",
+			"name": "rich", "state": "downloading",
+			"ratio": 0.3, "seeding_time": 60,
+			"added_on": 1700000000, "last_activity": 1700003600,
+			"progress": 0.5, "save_path": "/downloads",
+			"size": 15_400_000_000, "downloaded": 7_700_000_000,
+			"uploaded": 1_000_000_000, "dlspeed": 2_500_000, "upspeed": 300_000,
+			"num_seeds": 4, "num_leechs": 11, "eta": 2560,
+			"category": "movies", "tracker": "https://tracker.example.org:443/announce",
+			"completion_on": 1700007200,
+		},
+		{
+			"hash": "1111111111111111111111111111111111111111",
+			"name": "infinite-eta", "state": "stalledDL",
+			"ratio": 0, "seeding_time": 0,
+			"added_on": 1700000000, "last_activity": 0,
+			"progress": 0.0, "save_path": "/downloads",
+			"eta": 8640000, "completion_on": 0,
+		},
+	}
+	srv, _, _ := newQbtServer(t, info, nil)
+	defer srv.Close()
+
+	list, err := newQbtClient(t, srv.URL).ListTorrents(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rich := list[0]
+	if rich.Size != 15_400_000_000 {
+		t.Errorf("size: got %d", rich.Size)
+	}
+	if rich.Downloaded != 7_700_000_000 || rich.Uploaded != 1_000_000_000 {
+		t.Errorf("counters: down=%d up=%d", rich.Downloaded, rich.Uploaded)
+	}
+	if rich.DownloadRate != 2_500_000 || rich.UploadRate != 300_000 {
+		t.Errorf("rates: down=%d up=%d", rich.DownloadRate, rich.UploadRate)
+	}
+	if rich.Seeds != 4 || rich.Peers != 11 {
+		t.Errorf("peers: seeds=%d peers=%d", rich.Seeds, rich.Peers)
+	}
+	if rich.ETA != 2560*time.Second {
+		t.Errorf("eta: got %v", rich.ETA)
+	}
+	if rich.Label != "movies" {
+		t.Errorf("label: got %q", rich.Label)
+	}
+	if rich.Tracker != "tracker.example.org" {
+		t.Errorf("tracker: got %q, want the host only", rich.Tracker)
+	}
+	if rich.CompletedAt.Unix() != 1700007200 {
+		t.Errorf("completed at: got %v", rich.CompletedAt.Unix())
+	}
+
+	infinite := list[1]
+	if infinite.ETA != 0 {
+		t.Errorf("infinite eta sentinel: got %v, want 0", infinite.ETA)
+	}
+	if !infinite.CompletedAt.IsZero() {
+		t.Errorf("completion_on 0: got %v, want zero", infinite.CompletedAt)
+	}
+}
