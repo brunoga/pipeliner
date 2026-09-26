@@ -68,7 +68,7 @@ func (p *seenPlugin) Name() string { return "seen" }
 func (p *seenPlugin) filter(_ context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
 	if p.retryFailed {
 		fs := store.NewFailedStore(p.db.Bucket(store.FailedBucketName))
-		if rec, ok := fs.Get(e.URL); ok {
+		if rec, ok := fs.Lookup(e.GetString(entry.FieldTorrentInfoHash), e.URL); ok {
 			reason := rec.Reason
 			if reason == "" {
 				reason = "previous grab failed"
@@ -78,8 +78,16 @@ func (p *seenPlugin) filter(_ context.Context, tc *plugin.TaskContext, e *entry.
 		}
 	}
 	ss := p.seenStore(tc)
-	fp := fingerprint(e, p.fields)
-	if ss.IsSeen(fp) {
+	if ss.IsSeen(fingerprint(e, p.fields)) {
+		e.Reject("already seen")
+		return nil
+	}
+	// Secondary index on the info hash. The default fingerprint is the URL,
+	// which indexers rotate per search, so the same release can arrive
+	// looking brand new; the hash does not change. Checked in addition to
+	// the fingerprint, never instead of it, so existing seen records keep
+	// matching and enabling this can only block more, never less.
+	if k := hashKey(e); k != "" && ss.IsSeen(k) {
 		e.Reject("already seen")
 	}
 	return nil
@@ -88,14 +96,20 @@ func (p *seenPlugin) filter(_ context.Context, tc *plugin.TaskContext, e *entry.
 func (p *seenPlugin) persist(_ context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
 	ss := p.seenStore(tc)
 	for _, e := range entries {
-		fp := fingerprint(e, p.fields)
-		if err := ss.Mark(fp, store.SeenRecord{
+		rec := store.SeenRecord{
 			Title:  e.Title,
 			URL:    e.URL,
 			Task:   tc.Name,
 			Fields: p.fields,
-		}); err != nil {
+		}
+		fp := fingerprint(e, p.fields)
+		if err := ss.Mark(fp, rec); err != nil {
 			return fmt.Errorf("seen: mark %q: %w", fp, err)
+		}
+		if k := hashKey(e); k != "" {
+			if err := ss.Mark(k, rec); err != nil {
+				return fmt.Errorf("seen: mark %q: %w", k, err)
+			}
 		}
 	}
 	return nil
@@ -108,6 +122,16 @@ func (p *seenPlugin) seenStore(tc *plugin.TaskContext) *store.SeenStore {
 		bucket = "seen:" + tc.Name
 	}
 	return store.NewSeenStore(p.db.Bucket(bucket))
+}
+
+// hashKey is the secondary seen key for an entry with a known torrent info
+// hash. Namespaced so it cannot collide with a fingerprint digest.
+func hashKey(e *entry.Entry) string {
+	h := strings.ToLower(e.GetString(entry.FieldTorrentInfoHash))
+	if h == "" {
+		return ""
+	}
+	return "infohash:" + h
 }
 
 // fingerprint computes a SHA-256 hex digest over the specified entry fields.
