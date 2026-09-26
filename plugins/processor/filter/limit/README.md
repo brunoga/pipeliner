@@ -36,6 +36,33 @@ RSS feeds sorts chronologically.
 | Role | `processor` |
 | Produces | — |
 | Requires | — (sort field is optional and missing values are tolerated) |
+| InputStates | `accepted` only — undecided entries are not candidates yet, rejected and failed ones are terminally decided |
+
+## Placement: put it last
+
+The cap applies to whatever is accepted **at that point in the graph**, so every
+rejecting filter belongs *upstream* of it. A filter placed downstream spends
+slots on entries that will never reach the sink, and the run downloads fewer
+than `n`.
+
+The case that bites is a [`seen`](../seen/) filter after the cap. With
+`retry_failed=True` it rejects releases in the shared failed-grab bucket — but
+[`mark_failed`](../../../sink/mark_failed/) deliberately **un-tracks** the
+episode or movie when it blocklists a release, so a different release can be
+grabbed later. That un-tracking makes the blocklisted release invisible to the
+[`movies`](../movies/)/[`series`](../series/) filter upstream, so it is accepted,
+reaches the cap, takes a slot, and is only then rejected by `seen`.
+
+Nothing upstream removes it, so it takes that slot on **every** run. With a
+small `n` a handful of such releases starves the pipeline to zero downloads
+indefinitely.
+
+Move `seen` above `limit` — it defaults to `InputStates: accepted+undecided`, so
+it works before anything has accepted. Keep it after whatever sets
+`torrent_info_hash` (usually [`metainfo_torrent`](../../metainfo/torrent/)):
+indexer download URLs rotate per search, so the info hash is what actually
+matches. Doing this also skips the metadata lookups those entries would have
+consumed.
 
 ## Examples
 
