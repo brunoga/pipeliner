@@ -93,6 +93,22 @@ type CommitPlugin interface {
 	Commit(ctx context.Context, tc *TaskContext, entries []*entry.Entry) error
 }
 
+// TemplateChecker is an optional interface for plugins whose configuration
+// carries Go templates that only run when the plugin does its work. A
+// notification body is rendered at send time, so a scoping or type error in
+// it survives config validation twice over: Validate never instantiates the
+// plugin, and instantiating it only parses the template. The first sign of
+// trouble is a failed send.
+//
+// Implementations render every template they hold against the given entries,
+// discard the output, and return the first error. The entries are synthetic —
+// built from the fields the DAG says reach the node — so implementations must
+// treat them as ordinary input and must not perform any side effect.
+type TemplateChecker interface {
+	Plugin
+	CheckTemplates(entries []*entry.Entry) error
+}
+
 // SearchPlugin actively searches a source for entries matching a query entry.
 // SearchPlugins are used as search sub-plugins by the discover processor, which
 // forwards the upstream entry so search backends can opportunistically use any

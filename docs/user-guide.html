@@ -296,7 +296,19 @@ pipeline("breaking-bad", schedule="1h")</code></pre>
   --web-user admin --web-password secret</code></pre>
 
 <p>Validate config without running:</p>
-<pre><code>pipeliner check --config config.star</code></pre>
+<pre><code>pipeliner check --config config.star
+pipeliner check --config config.star --render-notifications</code></pre>
+
+<p>The plain check parses the config, validates the DAG, and runs each plugin&rsquo;s validation hook. It does <strong>not</strong> build the plugins, which means anything that only happens inside a plugin&rsquo;s constructor &mdash; notably compiling a notification template &mdash; goes unchecked.</p>
+
+<p><code>--render-notifications</code> closes that gap. It builds every plugin against a scratch in-memory database (nothing is written, and it works while the daemon holds the real database&rsquo;s lock), which surfaces template <em>parse</em> errors, then asks every plugin carrying templates to render them against synthetic entries, which surfaces <em>execution</em> errors. Each node is rendered twice:</p>
+
+<ul>
+  <li><strong>All available fields</strong> &mdash; every field the DAG says can reach the node, each holding a value of its declared type. This exercises the branches your template takes when metadata lookups succeeded.</li>
+  <li><strong>Only guaranteed fields</strong> &mdash; just the <code>Certain</code> set. A template that reads a <code>MayProduce</code> field without a <code>{{with}}</code> guard fails here, and that is a real defect: it is exactly the entry that arrives when an enrichment misses.</li>
+</ul>
+
+<p>The two errors it is built to catch both parse cleanly and both reach the recipient rather than the log &mdash; a <code>{{index $.Fields &hellip;}}</code> nested inside <code>{{with}}</code> (<code>$</code> is the top-level data, not the entry), and a helper handed a value of the wrong type. Worth running in CI over your config, and before any notification change.</p>
 
 <!-- ═══════════════════════════════════════════════════════════ -->
 <h2 id="config-file">Configuration File</h2>
@@ -834,7 +846,7 @@ pipeline("split-pipeline")</code></pre>
 
 <p>In email templates, the context is a struct with <code>.Entries</code> (slice of accepted entries). Each entry has <code>.Title</code>, <code>.URL</code>, <code>.Task</code>, and <code>.Fields</code> (map of all entry fields).</p>
 
-<p>For an HTML email, remember that mail clients only render <strong>inline styles and table layout</strong> reliably &mdash; no stylesheet, no flexbox, no grid, and a poster belongs in its own table cell rather than floating, which Outlook drops. <code>configs/torrent-janitor.star</code> carries a worked example: a header bar, one card per entry with a state pill and a table-drawn progress bar, and a stats table that uses <code>duration</code> and <code>ago</code> so raw seconds and timestamps read as <code>8d 15h</code> and <code>2d 1h ago</code>. Keeping the body in a top-level variable (<code>JANITOR_REPORT = """&hellip;"""</code>) rather than inline on the node keeps it readable, and the <a href="#visual-editor">visual editor</a> preserves the reference instead of flattening the markup into one line. A template that fails to parse is caught by <code>pipeliner check</code>, which instantiates every plugin.</p>
+<p>For an HTML email, remember that mail clients only render <strong>inline styles and table layout</strong> reliably &mdash; no stylesheet, no flexbox, no grid, and a poster belongs in its own table cell rather than floating, which Outlook drops. <code>configs/torrent-janitor.star</code> carries a worked example: a header bar, one card per entry with a state pill and a table-drawn progress bar, and a stats table that uses <code>duration</code> and <code>ago</code> so raw seconds and timestamps read as <code>8d 15h</code> and <code>2d 1h ago</code>. Keeping the body in a top-level variable (<code>JANITOR_REPORT = """&hellip;"""</code>) rather than inline on the node keeps it readable, and the <a href="#visual-editor">visual editor</a> preserves the reference instead of flattening the markup into one line. A template that fails to parse is <em>not</em> caught by a plain <code>pipeliner check</code> &mdash; templates compile when the plugin is built, which validation does not do. Run <a href="#quickstart"><code>pipeliner check --render-notifications</code></a> to compile and render them.</p>
 
 <h4>Sharing one layout across pipelines</h4>
 

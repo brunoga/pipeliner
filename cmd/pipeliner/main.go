@@ -737,6 +737,8 @@ func addSchedules(d *scheduler.Daemon, schedules map[string]string, tasks map[st
 func cmdCheck(args []string) int {
 	fs := flag.NewFlagSet("check", flag.ContinueOnError)
 	cfgPath := fs.String("config", "config.star", "path to config file")
+	renderNotifications := fs.Bool("render-notifications", false,
+		"also build every plugin and execute its notification templates against synthetic entries")
 	if err := fs.Parse(args); err != nil {
 		return 1
 	}
@@ -751,14 +753,46 @@ func cmdCheck(args []string) int {
 	for _, w := range checkWarns {
 		fmt.Fprintf(os.Stderr, "warning: %v\n", w)
 	}
-	if len(checkErrs) == 0 {
-		fmt.Println("config OK")
+	if len(checkErrs) > 0 {
+		for _, e := range checkErrs {
+			fmt.Fprintf(os.Stderr, "error: %v\n", e)
+		}
+		return 1
+	}
+
+	if *renderNotifications {
+		// Plugin factories need a store. An in-memory one keeps the check
+		// read-only with respect to the real database, and lets it run
+		// while the daemon holds the file lock.
+		//
+		// Opening it runs the migrations and building plugins can log, none
+		// of which is this command's output, so the default logger is muted
+		// for the duration and restored afterwards.
+		prevLogger := slog.Default()
+		slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
+		db, err := store.OpenSQLite(":memory:")
+		if err != nil {
+			slog.SetDefault(prevLogger)
+			fmt.Fprintf(os.Stderr, "error: open scratch store: %v\n", err)
+			return 1
+		}
+		defer db.Close()
+
+		renderErrs := config.CheckTemplates(cfg, db)
+		slog.SetDefault(prevLogger)
+
+		if len(renderErrs) > 0 {
+			for _, e := range renderErrs {
+				fmt.Fprintf(os.Stderr, "error: %v\n", e)
+			}
+			return 1
+		}
+		fmt.Println("config OK (templates rendered)")
 		return 0
 	}
-	for _, e := range checkErrs {
-		fmt.Fprintf(os.Stderr, "error: %v\n", e)
-	}
-	return 1
+
+	fmt.Println("config OK")
+	return 0
 }
 
 // --- list-plugins command ---
