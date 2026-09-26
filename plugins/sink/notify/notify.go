@@ -188,6 +188,21 @@ func (p *notifyPlugin) deliver(ctx context.Context, _ *plugin.TaskContext, entri
 	})
 }
 
+// CheckTemplates renders the title and body against the given entries and
+// throws the output away, so `pipeliner check --render-notifications` can
+// surface template errors that would otherwise wait for a real send. No
+// notifier is contacted.
+func (p *notifyPlugin) CheckTemplates(entries []*entry.Entry) error {
+	data := map[string]any{"Entries": entries}
+	if _, err := renderTmpl(p.titleTmpl, data); err != nil {
+		return fmt.Errorf("title: %w", err)
+	}
+	if _, err := renderTmpl(p.bodyTmpl, data); err != nil {
+		return fmt.Errorf("body: %w", err)
+	}
+	return nil
+}
+
 func renderTmpl(tmpl *template.Template, data map[string]any) (string, error) {
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, data); err != nil {
