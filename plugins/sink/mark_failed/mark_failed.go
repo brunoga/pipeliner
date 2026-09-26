@@ -123,8 +123,11 @@ func (p *markFailedSink) Consume(_ context.Context, tc *plugin.TaskContext, entr
 
 func (p *markFailedSink) mark(tc *plugin.TaskContext, e *entry.Entry, hash string, rec *grabs.Record) error {
 	reason := p.reasonFor(e)
-	if err := p.failedStore.MarkFailed(rec.URL, reason); err != nil {
-		return fmt.Errorf("mark failed URL %s: %w", rec.URL, err)
+	// Record under the info hash as well as the URL: indexer proxy links
+	// rotate per search, so a URL-only blocklist stops matching the moment
+	// the release is re-advertised.
+	if err := p.failedStore.MarkFailed(hash, rec.URL, reason); err != nil {
+		return fmt.Errorf("mark failed grab %s: %w", hash, err)
 	}
 
 	// Un-track the content so the series/movies filters allow a different

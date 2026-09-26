@@ -3,6 +3,7 @@ package seen
 import (
 	"context"
 	"maps"
+	"strings"
 	"testing"
 
 	"github.com/brunoga/pipeliner/internal/entry"
@@ -233,7 +234,7 @@ func TestRetryFailedRejectsFailedURL(t *testing.T) {
 
 	// Mark a release URL failed in the shared bucket (what mark_failed does).
 	fs := store.NewFailedStore(p.db.Bucket(store.FailedBucketName))
-	if err := fs.MarkFailed("http://example.com/dead.torrent", "stalled for 6h"); err != nil {
+	if err := fs.MarkFailed("", "http://example.com/dead.torrent", "stalled for 6h"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -264,7 +265,7 @@ func TestRetryFailedDefaultOffIgnoresFailedBucket(t *testing.T) {
 	tc := makeCtx("task")
 
 	fs := store.NewFailedStore(p.db.Bucket(store.FailedBucketName))
-	if err := fs.MarkFailed("http://example.com/dead.torrent", "errored"); err != nil {
+	if err := fs.MarkFailed("", "http://example.com/dead.torrent", "errored"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -274,5 +275,92 @@ func TestRetryFailedDefaultOffIgnoresFailedBucket(t *testing.T) {
 	}
 	if e.IsRejected() {
 		t.Error("failed bucket should be ignored when retry_failed is off")
+	}
+}
+
+// TestSeenBlocksRotatedURLByInfoHash: the default fingerprint is the URL,
+// and indexers rotate download URLs per search, so the same release can come
+// back looking brand new. The secondary info-hash index catches it. The
+// index is additive — the fingerprint is still checked first — so enabling
+// it can only block more, never invalidate existing seen records.
+func TestSeenBlocksRotatedURLByInfoHash(t *testing.T) {
+	db, err := store.OpenSQLite(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	p, err := newPlugin(map[string]any{}, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sp := p.(*seenPlugin)
+	const hash = "aabbccddeeff00112233445566778899aabbccdd"
+
+	first := entry.New("Encanto 2021 Full-SBS 1080p", "https://jackett/dl/?path=AAA")
+	first.Set(entry.FieldTorrentInfoHash, hash)
+	if err := sp.persist(context.Background(), makeCtx("t"), []*entry.Entry{first}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Same release, new proxy URL — must still be recognised.
+	rotated := entry.New("Encanto 2021 Full-SBS 1080p", "https://jackett/dl/?path=BBB")
+	rotated.Set(entry.FieldTorrentInfoHash, hash)
+	if err := sp.filter(context.Background(), makeCtx("t"), rotated); err != nil {
+		t.Fatal(err)
+	}
+	if !rotated.IsRejected() {
+		t.Error("a rotated URL for an already-seen release must be rejected")
+	}
+
+	// A genuinely different release is untouched.
+	other := entry.New("Some Other Release", "https://jackett/dl/?path=CCC")
+	other.Set(entry.FieldTorrentInfoHash, "ffffffffffffffffffffffffffffffffffffffff")
+	if err := sp.filter(context.Background(), makeCtx("t"), other); err != nil {
+		t.Fatal(err)
+	}
+	if other.IsRejected() {
+		t.Errorf("unrelated release must pass: %s", other.RejectReason)
+	}
+
+	// Entries with no hash still work purely on the fingerprint.
+	noHash := entry.New("No Hash", "https://jackett/dl/?path=DDD")
+	if err := sp.filter(context.Background(), makeCtx("t"), noHash); err != nil {
+		t.Fatal(err)
+	}
+	if noHash.IsRejected() {
+		t.Errorf("hashless unseen entry must pass: %s", noHash.RejectReason)
+	}
+}
+
+// retry_failed must also survive URL rotation — this is the loop that
+// re-downloaded a seedless torrent nine times.
+func TestSeenRetryFailedMatchesByInfoHash(t *testing.T) {
+	db, err := store.OpenSQLite(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	p, err := newPlugin(map[string]any{"retry_failed": true}, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sp := p.(*seenPlugin)
+	const hash = "aabbccddeeff00112233445566778899aabbccdd"
+
+	fs := store.NewFailedStore(db.Bucket(store.FailedBucketName))
+	if err := fs.MarkFailed(hash, "https://jackett/dl/?path=OLD", "janitor: no seeds"); err != nil {
+		t.Fatal(err)
+	}
+
+	again := entry.New("Encanto 2021 Full-SBS 1080p", "https://jackett/dl/?path=NEW")
+	again.Set(entry.FieldTorrentInfoHash, hash)
+	if err := sp.filter(context.Background(), makeCtx("t"), again); err != nil {
+		t.Fatal(err)
+	}
+	if !again.IsRejected() {
+		t.Fatal("a previously failed release must stay blocked when its URL rotates")
+	}
+	if !strings.Contains(again.RejectReason, "no seeds") {
+		t.Errorf("reject reason should carry the failure: %s", again.RejectReason)
 	}
 }
