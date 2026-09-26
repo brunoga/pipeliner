@@ -3,6 +3,7 @@ package template
 import (
 	"bytes"
 	"github.com/brunoga/pipeliner/internal/actionlink"
+	"github.com/brunoga/pipeliner/internal/entry"
 	"net/url"
 	"strings"
 	"testing"
@@ -380,5 +381,67 @@ func TestNotificationFieldPatterns(t *testing.T) {
 				t.Errorf("%s = %q, want %q", tc.expr, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestFilesizeFunc(t *testing.T) {
+	cases := []struct {
+		in   any
+		want string
+	}{
+		{int64(0), "0 B"},
+		{int64(512), "512 B"},
+		{int64(1000), "1 kB"},
+		{int64(1500), "1.5 kB"},
+		{int64(15_400_000_000), "15.4 GB"},
+		{int64(2_000_000_000), "2 GB"},
+		{int64(123_400_000_000), "123 GB"},
+		{int64(-1500), "-1.5 kB"},
+		{1500.0, "1.5 kB"},
+		{1500, "1.5 kB"},
+		{"nope", ""},
+	}
+	for _, tc := range cases {
+		if got := render(t, `{{filesize .}}`, tc.in); got != tc.want {
+			t.Errorf("filesize(%v) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestRateFunc(t *testing.T) {
+	if got := render(t, `{{rate .}}`, int64(1_200_000)); got != "1.2 MB/s" {
+		t.Errorf("rate(1200000) = %q, want %q", got, "1.2 MB/s")
+	}
+	if got := render(t, `{{rate .}}`, int64(0)); got != "0 B/s" {
+		t.Errorf("rate(0) = %q, want %q", got, "0 B/s")
+	}
+	if got := render(t, `{{rate .}}`, "nope"); got != "" {
+		t.Errorf("rate(bad) = %q, want empty", got)
+	}
+}
+
+func TestSumfieldFunc(t *testing.T) {
+	mk := func(v any) *entry.Entry {
+		e := entry.New("u", "t")
+		if v != nil {
+			e.Fields["torrent_downloaded"] = v
+		}
+		return e
+	}
+	entries := []*entry.Entry{
+		mk(int64(7_700_000_000)),
+		mk(int64(1_500_000_000)),
+		mk(nil),          // field absent
+		mk("not-a-size"), // wrong type
+		nil,              // nil entry
+	}
+	if got := render(t, `{{filesize (sumfield "torrent_downloaded" .)}}`, entries); got != "9.2 GB" {
+		t.Errorf("sumfield total = %q, want %q", got, "9.2 GB")
+	}
+	if got := render(t, `{{sumfield "missing" .}}`, entries); got != "0" {
+		t.Errorf("absent field total = %q, want 0", got)
+	}
+	if got := render(t, `{{sumfield "x" .}}`, "not-entries"); got != "0" {
+		t.Errorf("wrong container = %q, want 0", got)
 	}
 }

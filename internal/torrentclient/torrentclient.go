@@ -10,6 +10,7 @@ package torrentclient
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"time"
 )
 
@@ -62,6 +63,37 @@ type Torrent struct {
 	Progress float64
 	// DownloadDir is the directory the torrent's data is stored in.
 	DownloadDir string
+	// Size is the total size of the torrent's data in bytes.
+	Size int64
+	// Downloaded and Uploaded are the all-time payload byte counters for
+	// this torrent, as the client has them. They survive a restart but not
+	// a re-add.
+	Downloaded int64
+	Uploaded   int64
+	// DownloadRate and UploadRate are the current payload transfer rates
+	// in bytes per second.
+	DownloadRate int64
+	UploadRate   int64
+	// Seeds is the number of connected peers that have the complete
+	// torrent; Peers is the number of connected peers that do not. Both
+	// count live connections, not the swarm size the tracker reports, so
+	// Seeds == 0 on a downloading torrent means nothing is being served to
+	// this client right now.
+	Seeds int
+	Peers int
+	// ETA is the client's estimate of the time left to complete the
+	// download. Zero when the torrent is finished, idle, or the backend
+	// cannot estimate it — every backend spells "unknown" differently, so
+	// the sentinels are normalized away here.
+	ETA time.Duration
+	// Label is the client-side category or label, empty when unset. On
+	// Deluge this requires the Label plugin to be enabled.
+	Label string
+	// Tracker is the host of the torrent's primary tracker, empty when the
+	// backend does not report one.
+	Tracker string
+	// CompletedAt is when the download finished; zero while incomplete.
+	CompletedAt time.Time
 }
 
 // Client is the common session-query and control interface.
@@ -146,4 +178,20 @@ func New(backend string, cfg Config) (Client, error) {
 		return nil, fmt.Errorf("torrentclient: unsupported backend %q (supported: %s, %s, %s)",
 			backend, BackendTransmission, BackendQBittorrent, BackendDeluge)
 	}
+}
+
+// trackerHost reduces a tracker announce URL to its host, so the Tracker
+// field reads the same across backends: Transmission and Deluge report a
+// bare host already, qBittorrent reports the full announce URL. A value
+// that does not parse as a URL is returned unchanged — it is usually
+// already a host, and a tracker string is worth surfacing either way.
+func trackerHost(announce string) string {
+	if announce == "" {
+		return ""
+	}
+	u, err := url.Parse(announce)
+	if err != nil || u.Hostname() == "" {
+		return announce
+	}
+	return u.Hostname()
 }

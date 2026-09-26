@@ -51,18 +51,31 @@ const (
 )
 
 type trTorrent struct {
-	HashString     string  `json:"hashString"`
-	Name           string  `json:"name"`
-	Status         int     `json:"status"`
-	Error          int     `json:"error"`
-	ErrorString    string  `json:"errorString"`
-	IsStalled      bool    `json:"isStalled"`
-	PercentDone    float64 `json:"percentDone"`
-	UploadRatio    float64 `json:"uploadRatio"`
-	SecondsSeeding int64   `json:"secondsSeeding"`
-	AddedDate      int64   `json:"addedDate"`
-	ActivityDate   int64   `json:"activityDate"`
-	DownloadDir    string  `json:"downloadDir"`
+	HashString     string   `json:"hashString"`
+	Name           string   `json:"name"`
+	Status         int      `json:"status"`
+	Error          int      `json:"error"`
+	ErrorString    string   `json:"errorString"`
+	IsStalled      bool     `json:"isStalled"`
+	PercentDone    float64  `json:"percentDone"`
+	UploadRatio    float64  `json:"uploadRatio"`
+	SecondsSeeding int64    `json:"secondsSeeding"`
+	AddedDate      int64    `json:"addedDate"`
+	ActivityDate   int64    `json:"activityDate"`
+	DownloadDir    string   `json:"downloadDir"`
+	TotalSize      int64    `json:"totalSize"`
+	DownloadedEver int64    `json:"downloadedEver"`
+	UploadedEver   int64    `json:"uploadedEver"`
+	RateDownload   int64    `json:"rateDownload"`
+	RateUpload     int64    `json:"rateUpload"`
+	PeersConnected int      `json:"peersConnected"`
+	PeersSending   int      `json:"peersSendingToUs"`
+	ETA            int64    `json:"eta"`
+	DoneDate       int64    `json:"doneDate"`
+	Labels         []string `json:"labels"`
+	TrackerStats   []struct {
+		Host string `json:"host"`
+	} `json:"trackerStats"`
 }
 
 func (c *transmissionClient) ListTorrents(ctx context.Context) ([]Torrent, error) {
@@ -71,6 +84,10 @@ func (c *transmissionClient) ListTorrents(ctx context.Context) ([]Torrent, error
 			"hashString", "name", "status", "error", "errorString",
 			"isStalled", "percentDone", "uploadRatio", "secondsSeeding",
 			"addedDate", "activityDate", "downloadDir",
+			"totalSize", "downloadedEver", "uploadedEver",
+			"rateDownload", "rateUpload", "peersConnected",
+			"peersSendingToUs", "eta", "doneDate", "labels",
+			"trackerStats",
 		},
 	}
 	var result struct {
@@ -101,6 +118,26 @@ func normalizeTransmission(t trTorrent) Torrent {
 		SeedTime:    time.Duration(t.SecondsSeeding) * time.Second,
 		Progress:    t.PercentDone * 100,
 		DownloadDir: t.DownloadDir,
+
+		Size:         t.TotalSize,
+		Downloaded:   t.DownloadedEver,
+		Uploaded:     t.UploadedEver,
+		DownloadRate: t.RateDownload,
+		UploadRate:   t.RateUpload,
+		Seeds:        t.PeersSending,
+		Peers:        max(t.PeersConnected-t.PeersSending, 0),
+	}
+	if t.ETA > 0 { // -1 = not available, -2 = unknown
+		nt.ETA = time.Duration(t.ETA) * time.Second
+	}
+	if t.DoneDate > 0 {
+		nt.CompletedAt = time.Unix(t.DoneDate, 0)
+	}
+	if len(t.Labels) > 0 {
+		nt.Label = t.Labels[0]
+	}
+	if len(t.TrackerStats) > 0 {
+		nt.Tracker = t.TrackerStats[0].Host
 	}
 	if t.UploadRatio > 0 { // -1 = not available, -2 = infinite
 		nt.Ratio = t.UploadRatio

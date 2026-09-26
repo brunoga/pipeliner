@@ -31,8 +31,31 @@ Connection keys mirror the corresponding download sink's config:
 | `torrent_added_at` | time | When the torrent was added to the session |
 | `torrent_progress` | float | Download completion percentage, 0–100 |
 | `torrent_download_dir` | string | Directory the torrent's data lives in |
+| `torrent_file_size` | int | Total size of the torrent's data in bytes (same field the metainfo plugins set) |
+| `torrent_downloaded` | int | All-time downloaded payload in bytes |
+| `torrent_uploaded` | int | All-time uploaded payload in bytes |
+| `torrent_download_rate` | int | Current download rate in bytes/second |
+| `torrent_upload_rate` | int | Current upload rate in bytes/second |
+| `torrent_connected_seeds` | int | Connected peers that have the complete torrent |
+| `torrent_connected_peers` | int | Connected peers that do not |
 | `torrent_error` | string | Client error message — only when `torrent_state` is `errored` |
 | `torrent_last_activity` | time | Last transfer activity — only when the client reports one |
+| `torrent_eta` | int | Estimated seconds to completion — only when the client can estimate one |
+| `torrent_label` | string | Client-side label/category — only when set |
+| `torrent_tracker_host` | string | Primary tracker host — only when the client reports one |
+| `torrent_completed_at` | time | When the download finished — only once complete |
+
+`torrent_connected_seeds` counts **live connections to this client**, not the
+swarm size a tracker advertises. That is a different measurement from
+`torrent_seeds`, which `rss` and `jackett` set from the indexer's seeder
+column. On a torrent the janitor is about to purge, `torrent_connected_seeds`
+is the field that says why: nothing is serving it.
+
+Four of these depend on the backend knowing the answer, and are absent rather
+than zero when it does not — so a template can tell "no estimate" from
+"finishing now" with `{{with}}`. `torrent_eta` sentinels differ per client
+(Transmission `-1`/`-2`, qBittorrent `8640000`) and are normalized away.
+`torrent_label` needs the Label plugin enabled on Deluge.
 
 The entry URL is the stable `torrent://<info-hash>`, so `dedup` and cross-branch matching by URL work.
 
@@ -63,5 +86,5 @@ See `configs/torrent-janitor.star` for full session-janitor and failed-grab-reco
 | Property | Value |
 |----------|-------|
 | Role | `source` |
-| Produces | `title`, `source`, `torrent_info_hash`, `torrent_state`, `torrent_ratio`, `torrent_seed_time`, `torrent_added_at`, `torrent_progress`, `torrent_download_dir` |
-| MayProduce | `torrent_error`, `torrent_last_activity` |
+| Produces | `title`, `source`, `torrent_info_hash`, `torrent_state`, `torrent_ratio`, `torrent_seed_time`, `torrent_added_at`, `torrent_progress`, `torrent_download_dir`, `torrent_file_size`, `torrent_downloaded`, `torrent_uploaded`, `torrent_download_rate`, `torrent_upload_rate`, `torrent_connected_seeds`, `torrent_connected_peers` |
+| MayProduce | `torrent_error`, `torrent_last_activity`, `torrent_eta`, `torrent_label`, `torrent_tracker_host`, `torrent_completed_at` |

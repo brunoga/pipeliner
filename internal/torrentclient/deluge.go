@@ -136,7 +136,10 @@ func (c *delugeClient) ListTorrents(ctx context.Context) ([]Torrent, error) {
 	if err := c.login(ctx); err != nil {
 		return nil, fmt.Errorf("deluge: login: %w", err)
 	}
-	keys := []string{"name", "state", "progress", "ratio", "time_added", "seeding_time", "download_location", "message", "time_since_download", "time_since_upload"}
+	// Unknown keys are simply absent from the reply rather than an error,
+	// so requesting "label" is safe even when the Label plugin is disabled.
+	keys := []string{"name", "state", "progress", "ratio", "time_added", "seeding_time", "download_location", "message", "time_since_download", "time_since_upload",
+		"total_size", "all_time_download", "total_uploaded", "download_payload_rate", "upload_payload_rate", "num_seeds", "num_peers", "eta", "label", "tracker_host", "completed_time"}
 	res, err := c.rpc(ctx, "core.get_torrents_status", []any{map[string]any{}, keys})
 	if err != nil {
 		return nil, fmt.Errorf("deluge: get_torrents_status: %w", err)
@@ -163,6 +166,24 @@ func (c *delugeClient) ListTorrents(ctx context.Context) ([]Torrent, error) {
 		seedingTimeF, _ := fields["seeding_time"].(float64)
 		downloadLoc, _ := fields["download_location"].(string)
 		message, _ := fields["message"].(string)
+		label, _ := fields["label"].(string)
+		trackerHostName, _ := fields["tracker_host"].(string)
+
+		// Every numeric key arrives as a JSON float.
+		num := func(key string) float64 {
+			v, _ := fields[key].(float64)
+			return v
+		}
+		// Deluge reports eta 0 when it has nothing to estimate, and can
+		// report a negative value for a stalled torrent.
+		var eta time.Duration
+		if e := num("eta"); e > 0 {
+			eta = time.Duration(e) * time.Second
+		}
+		var completedAt time.Time
+		if ct := num("completed_time"); ct > 0 {
+			completedAt = time.Unix(int64(ct), 0)
+		}
 
 		// Deluge has no absolute last-activity timestamp, but reports the
 		// seconds since the last download/upload of payload data (-1 when it
@@ -231,6 +252,18 @@ func (c *delugeClient) ListTorrents(ctx context.Context) ([]Torrent, error) {
 			Progress:     progress,
 			DownloadDir:  downloadLoc,
 			LastActivity: lastActivity,
+
+			Size:         int64(num("total_size")),
+			Downloaded:   int64(num("all_time_download")),
+			Uploaded:     int64(num("total_uploaded")),
+			DownloadRate: int64(num("download_payload_rate")),
+			UploadRate:   int64(num("upload_payload_rate")),
+			Seeds:        int(num("num_seeds")),
+			Peers:        int(num("num_peers")),
+			ETA:          eta,
+			Label:        label,
+			Tracker:      trackerHost(trackerHostName),
+			CompletedAt:  completedAt,
 		})
 	}
 	return torrents, nil

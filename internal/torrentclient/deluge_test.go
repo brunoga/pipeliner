@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 type delugeRPCCall struct {
@@ -391,5 +392,83 @@ func TestDelugeNewClientDefaults(t *testing.T) {
 	tlsClient := newDelugeClient(Config{Host: "example.org", Port: 9999, TLS: true})
 	if tlsClient.endpoint != "https://example.org:9999/json" {
 		t.Errorf("tls endpoint: got %q", tlsClient.endpoint)
+	}
+}
+
+// TestDelugeListTorrentsRichFields covers the session detail added for
+// janitor reporting: sizes, transfer counters, rates, peer counts, ETA,
+// label and tracker. Deluge hands every number back as a JSON float.
+func TestDelugeListTorrentsRichFields(t *testing.T) {
+	hash := "0123456789abcdef0123456789abcdef01234567"
+	tor := delugeTorrent("Downloading", "OK")
+	tor["total_size"] = float64(15_400_000_000)
+	tor["all_time_download"] = float64(9_000_000_000)
+	tor["total_uploaded"] = float64(1_200_000_000)
+	tor["download_payload_rate"] = float64(2_500_000)
+	tor["upload_payload_rate"] = float64(300_000)
+	tor["num_seeds"] = float64(4)
+	tor["num_peers"] = float64(11)
+	tor["eta"] = float64(2560)
+	tor["label"] = "movies"
+	tor["tracker_host"] = "tracker.example.org"
+	tor["completed_time"] = float64(1700003600)
+
+	mock := &mockDelugeDaemon{loginOK: true, torrents: map[string]any{hash: tor}}
+	list, err := newTestDelugeClient(t, mock).ListTorrents(context.Background())
+	if err != nil {
+		t.Fatalf("ListTorrents: %v", err)
+	}
+	got := list[0]
+	if got.Size != 15_400_000_000 {
+		t.Errorf("size: got %d", got.Size)
+	}
+	if got.Downloaded != 9_000_000_000 || got.Uploaded != 1_200_000_000 {
+		t.Errorf("counters: got down=%d up=%d", got.Downloaded, got.Uploaded)
+	}
+	if got.DownloadRate != 2_500_000 || got.UploadRate != 300_000 {
+		t.Errorf("rates: got down=%d up=%d", got.DownloadRate, got.UploadRate)
+	}
+	if got.Seeds != 4 || got.Peers != 11 {
+		t.Errorf("peers: got seeds=%d peers=%d", got.Seeds, got.Peers)
+	}
+	if got.ETA != 2560*time.Second {
+		t.Errorf("eta: got %v", got.ETA)
+	}
+	if got.Label != "movies" {
+		t.Errorf("label: got %q", got.Label)
+	}
+	if got.Tracker != "tracker.example.org" {
+		t.Errorf("tracker: got %q", got.Tracker)
+	}
+	if got.CompletedAt.Unix() != 1700003600 {
+		t.Errorf("completed at: got %v", got.CompletedAt.Unix())
+	}
+}
+
+// TestDelugeListTorrentsMissingOptionalFields is the Label-plugin-disabled
+// case: absent keys must leave their fields zeroed rather than error, and a
+// non-positive ETA means "cannot estimate", not "finishing now".
+func TestDelugeListTorrentsMissingOptionalFields(t *testing.T) {
+	hash := "0123456789abcdef0123456789abcdef01234567"
+	tor := delugeTorrent("Downloading", "OK")
+	tor["eta"] = float64(0)
+
+	mock := &mockDelugeDaemon{loginOK: true, torrents: map[string]any{hash: tor}}
+	list, err := newTestDelugeClient(t, mock).ListTorrents(context.Background())
+	if err != nil {
+		t.Fatalf("ListTorrents: %v", err)
+	}
+	got := list[0]
+	if got.ETA != 0 {
+		t.Errorf("eta: got %v, want 0", got.ETA)
+	}
+	if got.Label != "" || got.Tracker != "" {
+		t.Errorf("absent keys leaked: label=%q tracker=%q", got.Label, got.Tracker)
+	}
+	if !got.CompletedAt.IsZero() {
+		t.Errorf("completed at: got %v, want zero", got.CompletedAt)
+	}
+	if got.Size != 0 || got.Seeds != 0 {
+		t.Errorf("absent numerics: size=%d seeds=%d", got.Size, got.Seeds)
 	}
 }
