@@ -5,6 +5,25 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.36.0] - 2026-09-26
+
+Makes the janitor explain itself. The emails it sends were a wall of text that said a torrent had been purged but not why, largely because pipeliner was reading a fraction of what the download clients report.
+
+### Added
+
+- **`torrent_session` exposes size, transfer, peer and tracker fields** ([#458](https://github.com/brunoga/pipeliner/pull/458)). Transmission, qBittorrent and Deluge all report far more per torrent than pipeliner read. The source now also emits `torrent_file_size`, `torrent_downloaded`, `torrent_uploaded`, `torrent_download_rate`, `torrent_upload_rate`, `torrent_connected_seeds` and `torrent_connected_peers`, plus `torrent_eta`, `torrent_label`, `torrent_tracker_host` and `torrent_completed_at` where the backend supplies them. The connection counts are deliberately not called `torrent_seeds`: that name is the swarm figure `rss` and `jackett` take from an indexer, and a live connection count is a different measurement. Size reuses the existing `torrent_file_size` rather than adding a synonym. The optional fields are absent rather than zero when a backend cannot answer, so a template can tell "no estimate" from "finishing now"; each client's sentinel (Transmission `-1`/`-2`, qBittorrent `8640000`, Deluge `0`) is normalized away. This makes `torrent_connected_seeds == 0` available as a condition rule, catching a dead swarm without waiting out `stall_timeout`.
+- **`filesize`, `rate`, `sumfield`, `duration` and `ago` template helpers** ([#457](https://github.com/brunoga/pipeliner/pull/457), [#458](https://github.com/brunoga/pipeliner/pull/458)). `15.4 GB`, `1.2 MB/s`, a total across entries, `8d 15h` and `2d 1h ago`. Raw seconds and Unix timestamps were never readable in a notification, and every template was formatting them by hand or not at all.
+
+### Changed
+
+- **The torrent janitor sends an HTML report** ([#457](https://github.com/brunoga/pipeliner/pull/457), [#458](https://github.com/brunoga/pipeliner/pull/458)). `configs/torrent-janitor.star` replaces its one-line-per-torrent body with a header carrying the disk reclaimed across the batch, then a card per torrent: state pill, failure reason, progress bar, downloaded-of-total, live seed and peer counts, ratio, seed time, timestamps, tracker, and the info hash and data directory. Inline styles and table layout only, which is what mail clients render. The body lives in a top-level variable so it stays readable and the visual editor keeps it as a reference instead of flattening the markup onto the node. Pushover remains documented as a drop-in swap, where plain text suits the medium better.
+
+### Fixed
+
+- **Failed-grab records written before 1.35.2 are backfilled with their info hash** ([#456](https://github.com/brunoga/pipeliner/pull/456)). 1.35.2 started keying `seen_failed` by info hash, but existing records had only a URL key — and since Jackett re-encrypts its download links on every search, those releases would still have come back under a fresh URL and been grabbed one more time each. A store migration recovers the hash from the record itself, from the magnet URI, or from the `metainfo_torrent` cache, then writes the hash-keyed record alongside the URL one. On the database this was built against, 34 URL-keyed records turned out to be 6 distinct releases, each re-downloaded and purged up to seven times. Records whose hash cannot be recovered are left untouched.
+
+**Why 1.36.0**: new fields, new template helpers and a reworked notification body. Additive with no interface removed, so a minor bump per SemVer.
+
 ## [1.35.2] - 2026-09-26
 
 Stops dead torrents being re-downloaded indefinitely.
