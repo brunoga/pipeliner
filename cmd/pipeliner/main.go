@@ -653,21 +653,7 @@ func cmdDaemon(args []string) int {
 		}
 		ws.SetLogFile(logFilePath(*cfgPath), logFileMaxArchives)
 		ws.SetPluginLogControl(perPlugin)
-		ws.SetConfigValidator(func(data []byte) ([]string, []string) {
-			c, err := config.ParseBytes(data)
-			if err != nil {
-				return []string{err.Error()}, nil
-			}
-			errs, warns := config.Validate(c)
-			toStrings := func(es []error) []string {
-				s := make([]string, len(es))
-				for i, e := range es {
-					s[i] = e.Error()
-				}
-				return s
-			}
-			return toStrings(errs), toStrings(warns)
-		})
+		ws.SetConfigValidator(configValidator(logger))
 		go func() {
 			if err := ws.Start(ctx, *webAddr, tlsCfg); err != nil {
 				logger.Error("web server error", "err", err)
@@ -761,28 +747,18 @@ func cmdCheck(args []string) int {
 	}
 
 	if *renderNotifications {
-		// Plugin factories need a store. An in-memory one keeps the check
-		// read-only with respect to the real database, and lets it run
-		// while the daemon holds the file lock.
-		//
-		// Opening it runs the migrations and building plugins can log, none
-		// of which is this command's output, so the default logger is muted
-		// for the duration and restored afterwards.
-		prevLogger := slog.Default()
-		slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
-		db, err := store.OpenSQLite(":memory:")
+		db, err := config.ScratchStore()
 		if err != nil {
-			slog.SetDefault(prevLogger)
 			fmt.Fprintf(os.Stderr, "error: open scratch store: %v\n", err)
 			return 1
 		}
 		defer db.Close()
 
-		renderErrs := config.CheckTemplates(cfg, db)
-		slog.SetDefault(prevLogger)
-
-		if len(renderErrs) > 0 {
-			for _, e := range renderErrs {
+		// The CLI is the strict caller: both kinds of failure fail the check,
+		// which is what a CI gate wants.
+		buildErrs, renderErrs := config.CheckTemplates(cfg, db)
+		if len(buildErrs)+len(renderErrs) > 0 {
+			for _, e := range append(buildErrs, renderErrs...) {
 				fmt.Fprintf(os.Stderr, "error: %v\n", e)
 			}
 			return 1
@@ -1004,4 +980,55 @@ func webhookQueues(g *dag.Graph) []string {
 		}
 	}
 	return queues
+}
+
+// configValidator is what the web editor's Validate button and its dry-run
+// save call. It layers three checks, each seeing what the previous cannot:
+// parsing, structural validation, and — since Validate never builds a plugin
+// — compiling and rendering notification templates.
+func configValidator(logger *slog.Logger) func([]byte) ([]string, []string) {
+	return func(data []byte) ([]string, []string) {
+		c, err := config.ParseBytes(data)
+		if err != nil {
+			return []string{err.Error()}, nil
+		}
+		errs, warns := config.Validate(c)
+		toStrings := func(es []error) []string {
+			s := make([]string, len(es))
+			for i, e := range es {
+				s[i] = e.Error()
+			}
+			return s
+		}
+		errStrs, warnStrs := toStrings(errs), toStrings(warns)
+		if len(errStrs) > 0 {
+			// Structural problems first: building plugins on a graph that
+			// does not validate produces noise, not signal.
+			return errStrs, warnStrs
+		}
+
+		// Validate never builds a plugin, so it cannot see a notification
+		// template at all — one that fails to compile would only surface
+		// when the reload builds tasks (and, if a run is in flight, not
+		// until the queued reload happens), and one that compiles but
+		// blows up on a real entry would only surface at send time.
+		//
+		// Compile failures join the errors: the reload would reject them
+		// anyway, so saying so here just moves the news earlier. Render
+		// failures are reported as warnings instead — they are nearly
+		// always real, but they depend on the DAG's field model being
+		// complete, and this is the editor the config is written in. A
+		// false positive should not be able to block a save.
+		scratch, serr := config.ScratchStore()
+		if serr != nil {
+			logger.Warn("config validation: template rendering skipped", "err", serr)
+			return errStrs, warnStrs
+		}
+		defer scratch.Close()
+
+		buildErrs, renderErrs := config.CheckTemplates(c, scratch)
+		errStrs = append(errStrs, toStrings(buildErrs)...)
+		warnStrs = append(warnStrs, toStrings(renderErrs)...)
+		return errStrs, warnStrs
+	}
 }

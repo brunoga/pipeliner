@@ -11,6 +11,15 @@ import (
 	"github.com/brunoga/pipeliner/internal/store"
 )
 
+// ScratchStore opens the throwaway database CheckTemplates needs to build
+// plugins with. It is in-memory, so it takes no file lock and can run while
+// the daemon holds the real database; migrations are skipped because the
+// base schema is all a freshly built plugin can want, and running them would
+// log four misleading "applied migration" lines per call.
+func ScratchStore() (*store.SQLiteStore, error) {
+	return store.OpenSQLiteNoMigrate(":memory:")
+}
+
 // CheckTemplates catches the config errors Validate structurally cannot.
 //
 // Validate only runs each plugin's descriptor Validate hook; it never calls a
@@ -30,11 +39,17 @@ import (
 //     guard fails here, and that is a real defect — it is exactly the entry
 //     that arrives when an enrichment misses.
 //
-// db is used to build plugins that need the store; an in-memory store is
-// fine and nothing is written. Plugins holding resources are shut down
+// The two kinds of failure are returned separately because they do not
+// deserve the same treatment. A buildErr means a template did not compile,
+// which is unambiguous and would fail the daemon's own reload. A renderErr
+// means it compiled but blew up on an entry we synthesised, which is almost
+// always a real defect but rests on the DAG's field model being complete —
+// so a caller serving an interactive editor can report those without
+// blocking a save.
+//
+// db should come from ScratchStore. Plugins holding resources are shut down
 // before returning.
-func CheckTemplates(c *Config, db *store.SQLiteStore) []error {
-	var errs []error
+func CheckTemplates(c *Config, db *store.SQLiteStore) (buildErrs, renderErrs []error) {
 	var built []plugin.ShutdownPlugin
 	defer func() {
 		for _, sd := range built {
@@ -55,7 +70,7 @@ func CheckTemplates(c *Config, db *store.SQLiteStore) []error {
 			}
 			impl, err := d.Factory(cfg, db)
 			if err != nil {
-				errs = append(errs, fmt.Errorf("pipeline %q node %q (plugin %q): %w",
+				buildErrs = append(buildErrs, fmt.Errorf("pipeline %q node %q (plugin %q): %w",
 					name, n.ID, n.PluginName, err))
 				continue
 			}
@@ -76,13 +91,13 @@ func CheckTemplates(c *Config, db *store.SQLiteStore) []error {
 			} {
 				entries := []*entry.Entry{syntheticEntry(sc.fields)}
 				if err := tc.CheckTemplates(entries); err != nil {
-					errs = append(errs, fmt.Errorf("pipeline %q node %q (plugin %q), %s: %w",
+					renderErrs = append(renderErrs, fmt.Errorf("pipeline %q node %q (plugin %q), %s: %w",
 						name, n.ID, n.PluginName, sc.label, err))
 				}
 			}
 		}
 	}
-	return errs
+	return buildErrs, renderErrs
 }
 
 // syntheticEntry builds one accepted entry carrying the named fields, each

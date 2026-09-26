@@ -15,17 +15,23 @@ import (
 
 func scratchStore(t *testing.T) *store.SQLiteStore {
 	t.Helper()
-	db, err := store.OpenSQLite(":memory:")
+	db, err := ScratchStore()
 	if err != nil {
-		t.Fatalf("OpenSQLite: %v", err)
+		t.Fatalf("ScratchStore: %v", err)
 	}
 	t.Cleanup(func() { db.Close() })
 	return db
 }
 
+// checkTemplatesFor returns the render failures — the ones callers treat
+// differently from compile failures.
 func checkTemplatesFor(t *testing.T, src string) []error {
 	t.Helper()
-	return CheckTemplates(parseDAGOK(t, src), scratchStore(t))
+	buildErrs, renderErrs := CheckTemplates(parseDAGOK(t, src), scratchStore(t))
+	if len(buildErrs) > 0 {
+		t.Fatalf("unexpected build errors: %s", errsText(buildErrs))
+	}
+	return renderErrs
 }
 
 // TestCheckTemplatesCatchesParseError covers the gap that motivated this:
@@ -44,12 +50,18 @@ pipeline("p")
 		t.Fatalf("Validate should not see the broken template, got %v", errs)
 	}
 
-	errs := CheckTemplates(cfg, scratchStore(t))
-	if len(errs) == 0 {
+	buildErrs, renderErrs := CheckTemplates(cfg, scratchStore(t))
+	if len(buildErrs) == 0 {
 		t.Fatal("CheckTemplates accepted an unterminated action")
 	}
-	if !strings.Contains(errs[0].Error(), "unclosed action") {
-		t.Errorf("error should name the parse failure, got: %v", errs[0])
+	if !strings.Contains(buildErrs[0].Error(), "unclosed action") {
+		t.Errorf("error should name the parse failure, got: %v", buildErrs[0])
+	}
+	// A template that will not compile cannot be rendered, so the failure
+	// must be reported once, as a build error — callers grade the two
+	// categories differently and a duplicate would be graded twice.
+	if len(renderErrs) != 0 {
+		t.Errorf("compile failure also reported as a render failure: %s", errsText(renderErrs))
 	}
 }
 
