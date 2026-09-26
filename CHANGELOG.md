@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.35.2] - 2026-09-26
+
+Stops dead torrents being re-downloaded indefinitely.
+
+### Fixed
+
+- **Failed grabs and seen releases are identified by torrent info hash** ([#454](https://github.com/brunoga/pipeliner/pull/454)). Four seedless 3D releases had been downloaded six to nine times each — grabbed, purged by the janitor for having no seeds, re-found and grabbed again, one of them every two days for a fortnight. Jackett re-encrypts its download links on every search, so the URL a failed grab was recorded under never appears again; the blocklist could not match it, and because `mark_failed` deliberately un-tracks the content so a better release can replace it, the dead torrent looked new every time. Failures are now recorded under both the info hash and the URL, and `seen` looks them up by hash first. `seen` also keeps a secondary info-hash index beside its fingerprint, since the default fingerprint is the URL and inherits the same instability — checked in addition to the fingerprint, never instead, so existing records keep matching and the change can only block more.
+
+**Why 1.35.2**: a defect fix with no interface change. A patch bump per SemVer.
+
 ## [1.35.1] - 2026-09-25
 
 An urgent fix for the settle window introduced in 1.33.0.
