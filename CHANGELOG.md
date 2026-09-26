@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.37.1] - 2026-09-26
+
+Documentation for an ordering trap around `limit` that is invisible until it starves a pipeline.
+
+### Fixed
+
+- **Documented that rejecting filters must sit above a `limit` cap** ([#465](https://github.com/brunoga/pipeliner/pull/465)). `limit` applies its cap to whatever is accepted at that point in the graph, so a rejecting filter placed downstream spends slots on entries that will never reach the sink. The plugin itself is safe — `InputStates: accepted` means rejected and undecided entries never reach it — which makes the pipeline-level hazard easy to miss. The case that bites is a `seen` filter after the cap: with `retry_failed=True` it rejects blocklisted releases, and because `mark_failed` deliberately un-tracks the episode or movie when it blocklists one, those releases are invisible to the `movies`/`series` filter upstream and sail through to the cap. Nothing removes them, so they take the same slots on every run, and with a small `n` a few of them starve the pipeline to zero downloads indefinitely. The `limit` README and the user guide now explain the placement rule, the reason `seen` can be moved above the cap at all (it defaults to `accepted+undecided`, so it acts before anything is accepted), and the constraint on how far up it can go (after whatever sets `torrent_info_hash`, since indexer URLs rotate and the hash is what matches). `limit`'s accepted-only `InputStates` is also now recorded in its README.
+
+**Why 1.37.1**: documentation only, no code changed. A patch bump per SemVer. The user guide is embedded in the binary and served by the web UI, so the note reaches the running install on upgrade.
+
 ## [1.37.0] - 2026-09-26
 
 Closes a validation blind spot: nothing checked notification templates. `pipeliner check` never built a plugin, so a template that would not compile passed validation, and one that compiled but failed on a real entry was caught nowhere at all — it arrived as a missing email.
