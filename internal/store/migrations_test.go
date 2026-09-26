@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -449,5 +450,199 @@ func TestMigrateNormalizePunctuation(t *testing.T) {
 	}
 	if av.DownloadedAt != "2026-06-01T00:00:00Z" {
 		t.Errorf("avatar collision kept downloaded_at=%q, want the newer 2026-06-01", av.DownloadedAt)
+	}
+}
+
+// --- migration 4: backfill info hashes on failed-grab records ---
+
+// TestMigrateBackfillFailedHashes covers the four shapes a pre-v1.35.2
+// seen_failed bucket holds: several rotating Jackett URLs for one cached
+// release, a magnet URI carrying its own hash, a record whose cache entry
+// expired, and a row already keyed by hash.
+func TestMigrateBackfillFailedHashes(t *testing.T) {
+	const (
+		cachedHash = "0488af222dd239e58a6bd1df24ffa5b82cf76ec0"
+		magnetHash = "95df91c5482b91f951a7c6d77d6a20d151d00569"
+		oldHash    = "384ae5d7117fa674516f2e7ff1e85328c1373370"
+	)
+	magnetURL := "magnet:?xt=urn:btih:" + magnetHash + "&dn=Raya"
+
+	s := openBare(t, ":memory:")
+	if _, err := s.db.Exec(schema); err != nil {
+		t.Fatalf("create schema: %v", err)
+	}
+	if _, err := s.db.Exec(migrationsSchema); err != nil {
+		t.Fatalf("create migrations schema: %v", err)
+	}
+	for _, v := range []int{0, 1, 2, 3} {
+		if _, err := s.db.Exec(`INSERT INTO schema_migrations (version, applied_at) VALUES (?, '2026-01-01T00:00:00Z')`, v); err != nil {
+			t.Fatalf("stamp v%d: %v", v, err)
+		}
+	}
+
+	failed := func(url, reason, at string) string {
+		return `{"url":"` + url + `","reason":"` + reason + `","failed_at":"` + at + `"}`
+	}
+	cacheEntry := func(hash string) string {
+		return `{"v":{"Name":"Encanto","InfoHash":"` + hash + `"},"e":"2027-01-01T00:00:00Z"}`
+	}
+
+	seedSQL := `INSERT INTO store (bucket, key, value) VALUES (?, ?, ?)`
+	type row struct{ bucket, key, value string }
+	for _, r := range []row{
+		// Same release, three rotating proxy URLs, all cached.
+		{FailedBucketName, "https://jackett/dl/3dtorrents/?path=A", failed("https://jackett/dl/3dtorrents/?path=A", "no seeds", "2026-09-01T00:00:00Z")},
+		{FailedBucketName, "https://jackett/dl/3dtorrents/?path=B", failed("https://jackett/dl/3dtorrents/?path=B", "stalled", "2026-09-20T00:00:00Z")},
+		{FailedBucketName, "https://jackett/dl/3dtorrents/?path=C", failed("https://jackett/dl/3dtorrents/?path=C", "no seeds", "2026-09-10T00:00:00Z")},
+		{torrentCacheBucket, "https://jackett/dl/3dtorrents/?path=A", cacheEntry(cachedHash)},
+		{torrentCacheBucket, "https://jackett/dl/3dtorrents/?path=B", cacheEntry(cachedHash)},
+		{torrentCacheBucket, "https://jackett/dl/3dtorrents/?path=C", cacheEntry(cachedHash)},
+		// Magnet URI: the hash is in the key itself, no cache row needed.
+		{FailedBucketName, magnetURL, failed(magnetURL, "dead", "2026-09-05T00:00:00Z")},
+		// Cache entry expired and was evicted: nothing to recover.
+		{FailedBucketName, "https://jackett/dl/torrenting/?path=Z", failed("https://jackett/dl/torrenting/?path=Z", "no seeds", "2026-09-02T00:00:00Z")},
+		// Already hash-keyed by a newer binary: must be left exactly as is.
+		{FailedBucketName, oldHash, `{"url":"https://jackett/dl/x","info_hash":"` + oldHash + `","reason":"no seeds","failed_at":"2026-09-25T00:00:00Z"}`},
+	} {
+		if _, err := s.db.Exec(seedSQL, r.bucket, r.key, r.value); err != nil {
+			t.Fatalf("seed %s/%q: %v", r.bucket, r.key, err)
+		}
+	}
+
+	if err := s.runMigrations(migrations[3:4]); err != nil {
+		t.Fatalf("runMigrations: %v", err)
+	}
+
+	fs := NewFailedStore(s.Bucket(FailedBucketName))
+
+	// The three rotating URLs collapse to one hash-keyed record, holding the
+	// most recent failure (path=B, 2026-09-20).
+	rec, ok := fs.Lookup(cachedHash, "")
+	if !ok {
+		t.Fatalf("cached release not reachable by hash %s", cachedHash)
+	}
+	if rec.URL != "https://jackett/dl/3dtorrents/?path=B" {
+		t.Errorf("hash record: got URL %q, want the latest failure (path=B)", rec.URL)
+	}
+	if rec.InfoHash != cachedHash {
+		t.Errorf("hash record: got info_hash %q, want %q", rec.InfoHash, cachedHash)
+	}
+
+	// A magnet URI supplies its own hash.
+	if _, ok := fs.Lookup(magnetHash, ""); !ok {
+		t.Errorf("magnet release not reachable by hash %s", magnetHash)
+	}
+
+	// Every original URL key survives, now stamped with the hash.
+	for _, url := range []string{
+		"https://jackett/dl/3dtorrents/?path=A",
+		"https://jackett/dl/3dtorrents/?path=B",
+		"https://jackett/dl/3dtorrents/?path=C",
+	} {
+		rec, ok := fs.Get(url)
+		if !ok {
+			t.Errorf("URL record %q was dropped", url)
+			continue
+		}
+		if rec.InfoHash != cachedHash {
+			t.Errorf("URL record %q: got info_hash %q, want %q", url, rec.InfoHash, cachedHash)
+		}
+	}
+
+	// Unrecoverable record keeps its URL reach and gains nothing.
+	rec, ok = fs.Get("https://jackett/dl/torrenting/?path=Z")
+	if !ok {
+		t.Fatal("unrecoverable record was dropped")
+	}
+	if rec.InfoHash != "" {
+		t.Errorf("unrecoverable record: got info_hash %q, want empty", rec.InfoHash)
+	}
+
+	// Already hash-keyed record untouched.
+	rec, ok = fs.Get(oldHash)
+	if !ok || rec.Reason != "no seeds" || rec.URL != "https://jackett/dl/x" {
+		t.Errorf("pre-existing hash record was modified: %+v", rec)
+	}
+
+	// Exactly the expected keys exist: 6 seeded + 2 new hash keys.
+	var n int
+	if err := s.db.QueryRow(
+		`SELECT count(*) FROM store WHERE bucket = ?`, FailedBucketName,
+	).Scan(&n); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if want := 8; n != want {
+		t.Errorf("failed bucket holds %d records, want %d", n, want)
+	}
+}
+
+// TestMigrateBackfillFailedHashesIdempotent re-runs the migration over its own
+// output: no duplicate keys, no rewritten records.
+func TestMigrateBackfillFailedHashesIdempotent(t *testing.T) {
+	const hash = "0488af222dd239e58a6bd1df24ffa5b82cf76ec0"
+	s := openBare(t, ":memory:")
+	if _, err := s.db.Exec(schema); err != nil {
+		t.Fatalf("create schema: %v", err)
+	}
+	if _, err := s.db.Exec(migrationsSchema); err != nil {
+		t.Fatalf("create migrations schema: %v", err)
+	}
+	seedSQL := `INSERT INTO store (bucket, key, value) VALUES (?, ?, ?)`
+	if _, err := s.db.Exec(seedSQL, FailedBucketName, "https://jackett/dl/a",
+		`{"url":"https://jackett/dl/a","reason":"no seeds","failed_at":"2026-09-01T00:00:00Z"}`); err != nil {
+		t.Fatalf("seed failed record: %v", err)
+	}
+	if _, err := s.db.Exec(seedSQL, torrentCacheBucket, "https://jackett/dl/a",
+		`{"v":{"InfoHash":"`+hash+`"},"e":"2027-01-01T00:00:00Z"}`); err != nil {
+		t.Fatalf("seed cache: %v", err)
+	}
+
+	snapshot := func() []string {
+		rows, err := s.db.Query(`SELECT key, value FROM store WHERE bucket = ? ORDER BY key`, FailedBucketName)
+		if err != nil {
+			t.Fatalf("snapshot: %v", err)
+		}
+		defer rows.Close()
+		var out []string
+		for rows.Next() {
+			var k, v string
+			if err := rows.Scan(&k, &v); err != nil {
+				t.Fatalf("scan: %v", err)
+			}
+			out = append(out, k+"="+v)
+		}
+		return out
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	if err := migrateBackfillFailedHashes(tx); err != nil {
+		t.Fatalf("first run: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+	first := snapshot()
+
+	tx, err = s.db.Begin()
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	if err := migrateBackfillFailedHashes(tx); err != nil {
+		t.Fatalf("second run: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+	second := snapshot()
+
+	if len(first) != 2 {
+		t.Fatalf("after backfill: %d records, want 2 (URL + hash)", len(first))
+	}
+	if strings.Join(first, "\n") != strings.Join(second, "\n") {
+		t.Errorf("migration is not idempotent:\nfirst:\n%s\nsecond:\n%s",
+			strings.Join(first, "\n"), strings.Join(second, "\n"))
 	}
 }
