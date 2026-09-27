@@ -5,6 +5,20 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.38.0] - 2026-09-27
+
+Makes the log on disk actually navigable, and fixes a progress bar that read 50% for everything.
+
+### Added
+
+- **The log view filters by day, pipeline and node** ([#470](https://github.com/brunoga/pipeliner/pull/470)). Three selectors beside the search box, combining with each other and with the free text, so a question like "what did `movies_5` do on the 26th when it said *settling*" is four clicks and a word. Nine days and a quarter of a million lines are retained, and until now reaching a specific point in them meant knowing an exact string or scrolling back 200 lines at a time — about 1250 loads to reach the oldest entry. The filter grammar gains `date:`, `task:` and `node:` terms, which the selectors emit and which can also be typed. These match the *shape* of a log line rather than loose text, which is the point: as a substring, `task=movies` also selects `task=movies-3d` and `task=movies-ondemand`, so `task:` and `node:` match the whole value, and `date:` is anchored to the line's own leading timestamp. A `key:value` term whose key is not one of the three stays a substring, so a query holding a bare time or a URL keeps working. Option lists come from a new `/api/logs/meta`: the retained day range, read from the first and last line rather than by scanning, plus the pipelines and nodes in the config. The node list follows the pipeline selection, and a node the new pipeline does not contain is dropped rather than left to combine two conditions that can never both hold.
+
+### Fixed
+
+- **The janitor report's progress bar showed 50% for every purged torrent** ([#469](https://github.com/brunoga/pipeliner/pull/469)). The bar is the torrent's download progress, and its filled cell carried `width="0%"` whenever nothing had transferred. A zero percentage width is ignored as though no width had been set, and the row then splits evenly between the two cells — so a torrent that downloaded nothing drew a half-full bar. Since the janitor exists to purge torrents that never got going, that was every entry. Measured in a browser: 3%, 62% and 100% were all correct and only the zero case was wrong. The filled cell is now omitted entirely below 0.5%, leaving the grey track at full width.
+
+**Why 1.38.0**: a new capability in the log view with a new endpoint behind it, plus a display fix. Additive with nothing removed, so a minor bump per SemVer.
+
 ## [1.37.2] - 2026-09-27
 
 Fixes a settle-window defect that stopped movies downloading.
