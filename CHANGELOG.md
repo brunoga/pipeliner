@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.37.2] - 2026-09-27
+
+Fixes a settle-window defect that stopped movies downloading.
+
+### Fixed
+
+- **The settle window learns when its winner cannot be downloaded, and keys revival by item rather than URL** ([#467](https://github.com/brunoga/pipeliner/pull/467)). Three days after enabling `settle`, one install went from ~5 distinct movies a day to 2, then 0, while the entries reaching the filter stayed flat at ~2050/day. Two causes, and both made the outcome depend on where a pipeline's vetoing filters happened to sit. First, revival deduped against the batch by URL — but indexers re-encrypt their download links on every search, so the URL recorded hours earlier never matched and the "still advertised, use the normal path" branch never fired. Revival therefore always ran, injecting a stale duplicate that competed with the live entry at `dedup` and, on identical quality tags, could win and then be fetched from a URL that no longer resolved. Revival is now keyed by the settle key, which is derived from the title. Second, nothing told the window its winner was unusable: the winner is chosen from quality tags alone, is only replaced by higher quality, and the window is only ended by a completed download — so a release a later node always refuses was locked in permanently and, via the first bug, crowded out the runner-up that would have worked. A revived winner that comes back rejected is now **vetoed**: dropped as the winner, never promoted again, and the runner-up takes its place. Vetoes match on release name for the same rotation reason. On the affected install this was Ant-Man holding a 6.7 GB 2160p encode `bitrate` refused as starved, and a Japanese film the language `condition` refused 38 times, each re-offered hourly. Both plugin READMEs and the user guide now state that vetoing filters can sit before or after the filter holding the window &mdash; placement changes only how soon a dud is discovered.
+
+**Why 1.37.2**: a defect fix, additive state on an existing record (`vetoed`), no interface change. A patch bump per SemVer. Existing settle records keep working; a winner already recorded is vetoed the first time a downstream node rejects it.
+
 ## [1.37.1] - 2026-09-26
 
 Documentation for an ordering trap around `limit` that is invisible until it starves a pipeline.
