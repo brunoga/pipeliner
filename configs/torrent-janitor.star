@@ -49,6 +49,13 @@ SMTP = {
 # for timestamps, and sumfield to total the bytes reclaimed across the
 # batch. torrent_last_activity, torrent_tracker_host and torrent_label
 # are MayProduce fields, hence the with/else around them.
+#
+# The progress bar is two table cells, and the filled one is dropped
+# entirely at 0% rather than given width="0%": a zero percentage width is
+# ignored as though no width had been set, and the row then splits evenly,
+# so a torrent that downloaded nothing drew a half-full bar. Since the
+# janitor mostly purges torrents that never got going, that was every
+# entry in the mail.
 JANITOR_REPORT = """
 {{$n := len .Entries}}<div style="margin:0;padding:24px 12px;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
 <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" width="640" style="width:100%;max-width:640px;margin:0 auto;border-collapse:collapse;">
@@ -71,8 +78,8 @@ JANITOR_REPORT = """
 {{$p := index .Fields "torrent_progress"}}
 <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%;border-collapse:collapse;margin-top:14px;">
 <tr>
-<td width="{{printf "%.0f" $p}}%" height="6" style="background:#ef4444;font-size:0;line-height:0;border-radius:3px 0 0 3px;">&nbsp;</td>
-<td height="6" style="background:#e5e7eb;font-size:0;line-height:0;border-radius:0 3px 3px 0;">&nbsp;</td>
+{{if ge $p 0.5}}<td width="{{printf "%.0f" $p}}%" height="6" style="background:#ef4444;font-size:0;line-height:0;border-radius:3px 0 0 3px;">&nbsp;</td>
+<td height="6" style="background:#e5e7eb;font-size:0;line-height:0;border-radius:0 3px 3px 0;">&nbsp;</td>{{else}}<td height="6" style="background:#e5e7eb;font-size:0;line-height:0;border-radius:3px;">&nbsp;</td>{{end}}
 </tr>
 </table>
 
