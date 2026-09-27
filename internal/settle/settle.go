@@ -46,6 +46,34 @@ type Candidate struct {
 type Record struct {
 	FirstSeen time.Time `json:"first_seen"`
 	Best      Candidate `json:"best"`
+	// Vetoed holds the release titles that were revived from this window and
+	// then rejected by a downstream node — a starved encode, a film in the
+	// wrong language, anything a later gate refuses. Without it the window
+	// would re-offer the same undownloadable release on every run, because
+	// Best is only ever replaced by something of higher quality and Clear
+	// only runs for a release that was actually grabbed.
+	//
+	// Release titles, not URLs: indexers re-encrypt their download links per
+	// search, so a URL recorded now identifies nothing later.
+	Vetoed []string `json:"vetoed,omitempty"`
+}
+
+// maxVetoed caps the remembered rejects per item. A wave is a handful of
+// releases; this only has to outlast one.
+const maxVetoed = 16
+
+// isVetoed reports whether a release title has already proved undownloadable.
+func (r *Record) isVetoed(title string) bool {
+	norm := strings.ToLower(strings.TrimSpace(title))
+	if norm == "" {
+		return false
+	}
+	for _, v := range r.Vetoed {
+		if v == norm {
+			return true
+		}
+	}
+	return false
 }
 
 // Tracker persists settle windows in a bucket.
@@ -70,7 +98,10 @@ func (t *Tracker) Offer(key string, c Candidate, window time.Duration, now time.
 	}
 	// Keep only the best candidate: every later offer is compared against the
 	// incumbent, so one record always holds the highest quality of the wave.
-	if c.Quality.Better(rec.Best.Quality) || rec.Best.URL == "" {
+	// A release a downstream node already rejected is never promoted, however
+	// good its quality tags look — that is what stops the window locking onto
+	// something it can never grab.
+	if !rec.isVetoed(c.Title) && (c.Quality.Better(rec.Best.Quality) || rec.Best.URL == "") {
 		rec.Best = c
 		_ = t.b.Put(key, rec)
 	}
@@ -131,6 +162,42 @@ func (t *Tracker) Expired(task string, window time.Duration, now time.Time) []Ke
 		}
 	}
 	return out
+}
+
+// Veto records that a release was revived and then rejected downstream, and
+// drops it as the winner so the next offer can take its place. The window
+// keeps running: the item is still wanted, just not via this release.
+//
+// Callers veto only a *revived* candidate. A revived entry is the recorded
+// winner and is only produced when nothing live for the item is in the batch,
+// so its rejection means the release itself is unusable — not that it lost a
+// comparison with a sibling.
+func (t *Tracker) Veto(key, releaseTitle string) {
+	if t == nil || t.b == nil {
+		return
+	}
+	norm := strings.ToLower(strings.TrimSpace(releaseTitle))
+	if norm == "" {
+		return
+	}
+	var rec Record
+	found, err := t.b.Get(key, &rec)
+	if err != nil || !found {
+		return
+	}
+	if !rec.isVetoed(norm) {
+		rec.Vetoed = append(rec.Vetoed, norm)
+		if len(rec.Vetoed) > maxVetoed {
+			rec.Vetoed = rec.Vetoed[len(rec.Vetoed)-maxVetoed:]
+		}
+	}
+	// Drop the winner if that is what was rejected, so the window is free to
+	// promote a different release. Expired skips records without a winner, so
+	// nothing is revived until one is offered.
+	if strings.ToLower(strings.TrimSpace(rec.Best.Title)) == norm {
+		rec.Best = Candidate{}
+	}
+	_ = t.b.Put(key, rec)
 }
 
 // Clear ends the window for key, so the next wave starts a fresh timer.

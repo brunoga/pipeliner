@@ -276,13 +276,21 @@ func (p *moviesPlugin) releaseSettled(ctx context.Context, tc *plugin.TaskContex
 	if p.settle <= 0 {
 		return nil
 	}
+	// Keyed by settle key, not URL. Indexers re-encrypt their download links
+	// on every search, so the URL recorded hours ago never matches the one in
+	// this run's feed — comparing URLs made this check always miss, and the
+	// stale duplicate it then revived competed with the live entry at dedup
+	// and, on equal quality tags, could win and be downloaded from a URL that
+	// no longer resolves. The key is derived from the title, so it is stable.
 	present := make(map[string]bool, len(batch))
 	for _, e := range batch {
-		present[e.URL] = true
+		if k := p.settleKeyOf(tc, e); k != "" {
+			present[k] = true
+		}
 	}
 	var revived []*entry.Entry
 	for _, exp := range p.settleTracker.Expired(tc.Name, p.settle, time.Now()) {
-		if present[exp.Best.URL] {
+		if present[exp.Key] {
 			continue // still advertised; it goes through the normal path
 		}
 		e := exp.Best.Rebuild()
@@ -302,6 +310,16 @@ func (p *moviesPlugin) releaseSettled(ctx context.Context, tc *plugin.TaskContex
 	return revived
 }
 
+// settleKeyOf returns the settle key for an entry that filter() has matched,
+// or "" when it carries no matched title (so it is not a settle candidate).
+func (p *moviesPlugin) settleKeyOf(tc *plugin.TaskContext, e *entry.Entry) string {
+	title := e.GetString(moviesTrackerName)
+	if title == "" {
+		return ""
+	}
+	return settle.MovieKey(tc.Name, title, e.GetInt(entry.FieldVideoYear), e.GetBool(entry.FieldVideoIs3D))
+}
+
 // moviesTrackerName is the entry field used to carry the matched (normalized)
 // movie title from filter() to persist(). The constant lives in the entry
 // package because the torrent sinks' grab records also read it (failed-grab
@@ -315,6 +333,23 @@ func (p *moviesPlugin) persist(_ context.Context, tc *plugin.TaskContext, entrie
 		// including those later rejected by dedup — we must filter them here
 		// so the stored quality reflects the entry that was actually downloaded.
 		if !e.IsAccepted() {
+			// A revived winner that came back rejected cannot be grabbed: a
+			// starved encode, the wrong language, whatever a later node
+			// enforces. Tell the window, or it would keep re-offering this
+			// one release forever — Best is only replaced by higher quality,
+			// and Clear only runs for a release that was downloaded. Vetoing
+			// frees the window to promote the runner-up instead.
+			//
+			// Only revived entries: they are produced solely when nothing
+			// live for the item is in the batch, so a rejection is about the
+			// release itself, not about losing dedup to a sibling.
+			if e.GetBool(entry.FieldSettledRevived) {
+				if key := p.settleKeyOf(tc, e); key != "" {
+					tc.Logger.Info("movies: settled release rejected downstream, trying another next time",
+						"entry", e.Title, "reason", e.RejectReason)
+					p.settleTracker.Veto(key, e.Title)
+				}
+			}
 			continue
 		}
 		matchedTitle := e.GetString(moviesTrackerName)
