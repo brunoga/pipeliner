@@ -588,6 +588,25 @@ section { margin-bottom: 36px; }
 .log-filter:focus { border-color: var(--accent); }
 .log-filter::placeholder { color: var(--muted); }
 
+/* Day / pipeline / node selectors sit beside the text search and narrow the
+   subset it searches. Sized to their content so three of them plus the
+   search box still fit the section header on a laptop. */
+.log-select {
+  padding: 3px 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text);
+  font-size: 11px;
+  font-family: var(--mono-font);
+  max-width: 132px;
+  outline: none;
+  cursor: pointer;
+}
+.log-select:focus { border-color: var(--accent); }
+/* A narrowed selector is worth noticing: it explains an otherwise empty log. */
+.log-select.active { border-color: var(--accent); color: var(--accent); }
+
 .log-status { font-size: 10px; color: var(--muted); display: flex; align-items: center; gap: 5px; }
 .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--red); flex-shrink: 0; }
 .dot.on {

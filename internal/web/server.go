@@ -245,6 +245,7 @@ func (s *Server) buildHandler() http.Handler {
 	protected.HandleFunc("POST /api/reload", s.apiReload)
 	protected.HandleFunc("GET /api/logs", s.apiLogs)
 	protected.HandleFunc("GET /api/logs/tail", s.apiLogsTail)
+	protected.HandleFunc("GET /api/logs/meta", s.apiLogsMeta)
 	protected.HandleFunc("GET /api/logs/before", s.apiLogsBefore)
 	protected.HandleFunc("GET /api/logs/after", s.apiLogsAfter)
 	protected.HandleFunc("GET /api/config", s.apiGetConfig)
@@ -690,6 +691,59 @@ func (s *Server) apiLogsAfter(w http.ResponseWriter, r *http.Request) {
 	resp := logResponseShape{Lines: lines, AtTail: atTail}
 	if !atTail || len(lines) > 0 {
 		resp.NewerCursor = newer.String()
+	}
+	writeJSON(w, resp)
+}
+
+// apiLogsMeta describes what the log filters can select: the span of days
+// still on disk, and the pipelines and nodes that exist in the config. The
+// UI turns these into dropdowns so a filter can be built without knowing the
+// query syntax or the node ids.
+//
+// Days come from the first and last retained line, not from a scan, so the
+// list is a range rather than a set of days that definitely have entries —
+// picking a quiet day simply matches nothing. Pipelines and nodes come from
+// the config on disk, which is authoritative and ordered; a pipeline that was
+// renamed keeps appearing in old log lines but is no longer offered, which is
+// the honest thing for a selector to do.
+func (s *Server) apiLogsMeta(w http.ResponseWriter, _ *http.Request) {
+	type taskMeta struct {
+		Name  string   `json:"name"`
+		Nodes []string `json:"nodes"`
+	}
+	resp := struct {
+		OldestDate string     `json:"oldest_date,omitempty"`
+		NewestDate string     `json:"newest_date,omitempty"`
+		Tasks      []taskMeta `json:"tasks"`
+	}{Tasks: []taskMeta{}}
+
+	if s.logFilePath != "" {
+		oldest, newest, err := s.logFiles().DateRange()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		resp.OldestDate, resp.NewestDate = oldest, newest
+	}
+
+	// Best-effort: without a readable config the day filter and free-text
+	// search still work, so a parse failure degrades rather than errors.
+	if s.configPath != "" {
+		if data, err := os.ReadFile(s.configPath); err == nil {
+			if c, err := config.ParseBytes(data); err == nil {
+				for _, name := range c.GraphOrder {
+					g, ok := c.Graphs[name]
+					if !ok {
+						continue
+					}
+					nodes := make([]string, 0, g.Len())
+					for _, n := range g.Nodes() {
+						nodes = append(nodes, string(n.ID))
+					}
+					resp.Tasks = append(resp.Tasks, taskMeta{Name: name, Nodes: nodes})
+				}
+			}
+		}
 	}
 	writeJSON(w, resp)
 }

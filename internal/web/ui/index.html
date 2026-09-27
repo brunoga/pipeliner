@@ -69,6 +69,9 @@
       <span class="section-head-title">Live Log</span>
       <div class="section-head-actions" onclick="event.stopPropagation()">
         <span id="log-controls-collapsible" class="section-head-actions">
+          <select id="log-date" class="log-select" onchange="applyFilter()" title="Limit to one day"><option value="">any day</option></select>
+          <select id="log-task" class="log-select" onchange="onLogTaskChange()" title="Limit to one pipeline"><option value="">any pipeline</option></select>
+          <select id="log-node" class="log-select" onchange="applyFilter()" title="Limit to one node"><option value="">any node</option></select>
           <input type="text" id="log-filter" class="log-filter" placeholder="search log…" oninput="onLogFilterInput()" autocomplete="off">
           <div class="log-filter-spinner" id="log-filter-spinner" aria-hidden="true"></div>
         </span>
