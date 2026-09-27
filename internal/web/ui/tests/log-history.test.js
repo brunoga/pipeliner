@@ -107,9 +107,18 @@ function makeDOM() {
   const filter = makeNode('input');
   filter.value = '';
 
+  const mkSelect = () => {
+    const el = makeNode('select');
+    el.value = '';
+    return el;
+  };
+
   const elements = {
     'log-console':        con,
     'log-filter':         filter,
+    'log-date':           mkSelect(),
+    'log-task':           mkSelect(),
+    'log-node':           mkSelect(),
     'log-dot':            makeNode('div'),
     'log-status-text':    makeNode('span'),
     'log-tail-pill':      makeNode('button'),
@@ -184,6 +193,10 @@ function loadModule(fetchImpl) {
       exports.resumeLiveTail = resumeLiveTail;
       exports.connectLogs = connectLogs;
       exports.renderLogLine = renderLogLine;
+      exports.composeFilter = composeFilter;
+      exports.loadLogMeta = loadLogMeta;
+      exports.populateNodeOptions = populateNodeOptions;
+      exports.onLogTaskChange = onLogTaskChange;
       exports.state = () => veLog;
     `
   );
@@ -713,5 +726,158 @@ describe('log viewer — handleRotation', () => {
     // Let the gated /tail resolve so handleRotation completes.
     resolveTail();
     await rotPromise;
+  });
+});
+
+// ── structured log filters (day / pipeline / node + text) ───────────────────
+
+const META = {
+  oldest_date: '2026-09-25',
+  newest_date: '2026-09-27',
+  tasks: [
+    {name: 'movies',   nodes: ['jackett_0', 'movies_5', 'dedup_6']},
+    {name: 'movies-3d', nodes: ['jackett_20', 'movies_24']},
+  ],
+};
+
+function loadWithMeta() {
+  const m = loadModule(async (url) => {
+    if (url.startsWith('/api/logs/meta')) return jsonResp(META);
+    return jsonResp({lines: [], older_cursor: '0:0'});
+  });
+  return m;
+}
+
+describe('log filter composition', () => {
+  it('emits nothing when every selector is at "any" and the box is empty', async () => {
+    const { exports } = loadWithMeta();
+    expect(exports.composeFilter()).toBe('');
+  });
+
+  it('composes day, pipeline, node and free text together', async () => {
+    const { exports, dom } = loadWithMeta();
+    dom.elements['log-date'].value = '2026-09-25';
+    dom.elements['log-task'].value = 'movies';
+    dom.elements['log-node'].value = 'movies_5';
+    dom.elements['log-filter'].value = 'starved encode';
+    expect(exports.composeFilter())
+      .toBe('date:2026-09-25 task:movies node:movies_5 starved encode');
+  });
+
+  it('omits the selectors left at "any"', async () => {
+    const { exports, dom } = loadWithMeta();
+    dom.elements['log-task'].value = 'movies-3d';
+    dom.elements['log-filter'].value = 'rejected';
+    expect(exports.composeFilter()).toBe('task:movies-3d rejected');
+  });
+
+  it('marks narrowed selectors so an empty log is explainable', async () => {
+    const { exports, dom } = loadWithMeta();
+    dom.elements['log-task'].value = 'movies';
+    exports.composeFilter();
+    expect(dom.elements['log-task'].classList.contains('active')).toBe(true);
+    expect(dom.elements['log-date'].classList.contains('active')).toBe(false);
+
+    dom.elements['log-task'].value = '';
+    exports.composeFilter();
+    expect(dom.elements['log-task'].classList.contains('active')).toBe(false);
+  });
+
+  it('trims whitespace-only input rather than emitting a blank term', async () => {
+    const { exports, dom } = loadWithMeta();
+    dom.elements['log-filter'].value = '   ';
+    expect(exports.composeFilter()).toBe('');
+  });
+});
+
+describe('log filter metadata', () => {
+  it('populates days newest-first across the retained range', async () => {
+    const { exports, dom } = loadWithMeta();
+    await exports.loadLogMeta();
+    const opts = dom.elements['log-date'].children.map(o => o.value);
+    expect(opts).toEqual(['', '2026-09-27', '2026-09-26', '2026-09-25']);
+  });
+
+  it('populates pipelines in config order', async () => {
+    const { exports, dom } = loadWithMeta();
+    await exports.loadLogMeta();
+    expect(dom.elements['log-task'].children.map(o => o.value))
+      .toEqual(['', 'movies', 'movies-3d']);
+  });
+
+  it('offers every node, de-duplicated, when no pipeline is selected', async () => {
+    const { exports, dom } = loadWithMeta();
+    await exports.loadLogMeta();
+    expect(dom.elements['log-node'].children.map(o => o.value))
+      .toEqual(['', 'jackett_0', 'movies_5', 'dedup_6', 'jackett_20', 'movies_24']);
+  });
+
+  it('narrows nodes to the selected pipeline', async () => {
+    const { exports, dom } = loadWithMeta();
+    await exports.loadLogMeta();
+    dom.elements['log-task'].value = 'movies-3d';
+    exports.populateNodeOptions();
+    expect(dom.elements['log-node'].children.map(o => o.value))
+      .toEqual(['', 'jackett_20', 'movies_24']);
+  });
+
+  // A node that does not exist in the newly-selected pipeline has to be
+  // dropped: keeping it would AND two conditions that can never both hold,
+  // silently showing an empty log.
+  it('drops a node selection that the new pipeline does not contain', async () => {
+    const { exports, dom } = loadWithMeta();
+    await exports.loadLogMeta();
+    dom.elements['log-node'].value = 'movies_5';
+    dom.elements['log-task'].value = 'movies-3d';
+    exports.populateNodeOptions();
+    expect(dom.elements['log-node'].value).toBe('');
+  });
+
+  it('keeps a node selection that the new pipeline still contains', async () => {
+    const { exports, dom } = loadWithMeta();
+    await exports.loadLogMeta();
+    dom.elements['log-node'].value = 'movies_24';
+    dom.elements['log-task'].value = 'movies-3d';
+    exports.populateNodeOptions();
+    expect(dom.elements['log-node'].value).toBe('movies_24');
+  });
+
+  // The selectors are a convenience; losing them must not break the log.
+  it('survives a failed meta fetch with the selectors left at "any"', async () => {
+    const { exports, dom } = loadModule(async (url) => {
+      if (url.startsWith('/api/logs/meta')) throw new Error('offline');
+      return jsonResp({lines: [], older_cursor: '0:0'});
+    });
+    await exports.loadLogMeta();
+    expect(dom.elements['log-task'].value).toBe('');
+    expect(exports.composeFilter()).toBe('');
+  });
+});
+
+describe('log filter application', () => {
+  it('sends the composed query on the wire', async () => {
+    const urls = [];
+    const { exports, dom } = loadModule(async (url) => {
+      urls.push(url);
+      if (url.startsWith('/api/logs/meta')) return jsonResp(META);
+      return jsonResp({lines: [], older_cursor: '0:0'});
+    });
+    dom.elements['log-date'].value = '2026-09-26';
+    dom.elements['log-task'].value = 'movies';
+    await exports.applyFilter();
+    const tail = urls.filter(u => u.startsWith('/api/logs/tail')).pop();
+    expect(tail).toContain('q=');
+    expect(decodeURIComponent(tail).replace(/\+/g, ' '))
+      .toContain('date:2026-09-26 task:movies');
+  });
+
+  it('changing the pipeline re-scopes nodes and re-filters in one step', async () => {
+    const { exports, dom } = loadWithMeta();
+    await exports.loadLogMeta();
+    dom.elements['log-node'].value = 'movies_5';
+    dom.elements['log-task'].value = 'movies-3d';
+    await exports.onLogTaskChange();
+    expect(dom.elements['log-node'].value).toBe('');
+    expect(exports.state().filter).toBe('task:movies-3d');
   });
 });

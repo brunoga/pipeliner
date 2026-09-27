@@ -38,7 +38,7 @@ func TestLogFiles_TailReturnsNewestNLinesOldestFirst(t *testing.T) {
 	writeLogFile(t, base, []string{"a", "b", "c", "d", "e"})
 	lf := &LogFiles{Path: base, MaxArchives: 0}
 
-	got, older, exhausted, err := lf.Tail(3, nil)
+	got, older, exhausted, err := lf.Tail(3, Filter{})
 	if err != nil {
 		t.Fatalf("Tail: %v", err)
 	}
@@ -61,7 +61,7 @@ func TestLogFiles_TailExhaustedWhenAllLinesFit(t *testing.T) {
 	writeLogFile(t, base, []string{"a", "b", "c"})
 	lf := &LogFiles{Path: base, MaxArchives: 0}
 
-	got, _, exhausted, err := lf.Tail(10, nil)
+	got, _, exhausted, err := lf.Tail(10, Filter{})
 	if err != nil {
 		t.Fatalf("Tail: %v", err)
 	}
@@ -80,19 +80,19 @@ func TestLogFiles_BeforePagesOlder(t *testing.T) {
 	lf := &LogFiles{Path: base, MaxArchives: 0}
 
 	// First page: newest 2.
-	page1, older, _, _ := lf.Tail(2, nil)
+	page1, older, _, _ := lf.Tail(2, Filter{})
 	if want := []string{"d", "e"}; !equalStrings(texts(page1), want) {
 		t.Fatalf("page1 = %v, want %v", texts(page1), want)
 	}
 
 	// Second page: 2 older.
-	page2, older2, _, _ := lf.Before(older, 2, nil)
+	page2, older2, _, _ := lf.Before(older, 2, Filter{})
 	if want := []string{"b", "c"}; !equalStrings(texts(page2), want) {
 		t.Fatalf("page2 = %v, want %v", texts(page2), want)
 	}
 
 	// Third page: 1 more older = ['a'], exhausted.
-	page3, _, exhausted, _ := lf.Before(older2, 2, nil)
+	page3, _, exhausted, _ := lf.Before(older2, 2, Filter{})
 	if want := []string{"a"}; !equalStrings(texts(page3), want) {
 		t.Fatalf("page3 = %v, want %v", texts(page3), want)
 	}
@@ -111,7 +111,7 @@ func TestLogFiles_BeforeAcrossArchives(t *testing.T) {
 	lf := &LogFiles{Path: base, MaxArchives: 5}
 
 	// One big page should cross all three files in chronological order.
-	got, _, exhausted, err := lf.Tail(20, nil)
+	got, _, exhausted, err := lf.Tail(20, Filter{})
 	if err != nil {
 		t.Fatalf("Tail: %v", err)
 	}
@@ -144,7 +144,7 @@ func TestLogFiles_BeforePagesOlderAcrossArchiveBoundary(t *testing.T) {
 	lf := &LogFiles{Path: base, MaxArchives: 5}
 
 	// Newest 3 lines = [old3, new1, new2]. Tail returns oldest-first.
-	page1, older, _, _ := lf.Tail(3, nil)
+	page1, older, _, _ := lf.Tail(3, Filter{})
 	if want := []string{"old3", "new1", "new2"}; !equalStrings(texts(page1), want) {
 		t.Fatalf("page1 = %v, want %v", texts(page1), want)
 	}
@@ -152,7 +152,7 @@ func TestLogFiles_BeforePagesOlderAcrossArchiveBoundary(t *testing.T) {
 		t.Errorf("old3 should be in archive 1, got %v", page1[0].Pos)
 	}
 	// Page back: 2 older = [old1, old2].
-	page2, _, exhausted, _ := lf.Before(older, 5, nil)
+	page2, _, exhausted, _ := lf.Before(older, 5, Filter{})
 	if want := []string{"old1", "old2"}; !equalStrings(texts(page2), want) {
 		t.Fatalf("page2 = %v, want %v", texts(page2), want)
 	}
@@ -238,9 +238,9 @@ func TestLogFiles_AfterReturnsNewerLines(t *testing.T) {
 	// FIRST line's start position as the After cursor to get [b, c, d, e].
 	// Use Tail to get a known position: get all 5 lines, then ask
 	// After(pos of 'b').
-	all, _, _, _ := lf.Tail(5, nil)
+	all, _, _, _ := lf.Tail(5, Filter{})
 	posOfB := all[1].Pos
-	got, _, atTail, err := lf.After(posOfB, 10, nil)
+	got, _, atTail, err := lf.After(posOfB, 10, Filter{})
 	if err != nil {
 		t.Fatalf("After: %v", err)
 	}
@@ -259,10 +259,10 @@ func TestLogFiles_AfterBridgesAcrossArchives(t *testing.T) {
 	writeLogFile(t, base, []string{"new1", "new2"})
 	lf := &LogFiles{Path: base, MaxArchives: 5}
 
-	all, _, _, _ := lf.Tail(5, nil)
+	all, _, _, _ := lf.Tail(5, Filter{})
 	// all = [old1, old2, old3, new1, new2]
 	posOfOld1 := all[0].Pos
-	got, _, atTail, err := lf.After(posOfOld1, 10, nil)
+	got, _, atTail, err := lf.After(posOfOld1, 10, Filter{})
 	if err != nil {
 		t.Fatalf("After: %v", err)
 	}
@@ -316,7 +316,7 @@ func TestLogFiles_TailHandlesEmptyFile(t *testing.T) {
 	}
 	lf := &LogFiles{Path: base, MaxArchives: 0}
 
-	got, _, exhausted, err := lf.Tail(10, nil)
+	got, _, exhausted, err := lf.Tail(10, Filter{})
 	if err != nil {
 		t.Fatalf("Tail: %v", err)
 	}
@@ -332,7 +332,7 @@ func TestLogFiles_TailHandlesMissingFile(t *testing.T) {
 	dir := t.TempDir()
 	lf := &LogFiles{Path: filepath.Join(dir, "pipeliner.log"), MaxArchives: 0}
 
-	got, _, exhausted, err := lf.Tail(10, nil)
+	got, _, exhausted, err := lf.Tail(10, Filter{})
 	if err != nil {
 		t.Fatalf("Tail: %v", err)
 	}
@@ -355,7 +355,7 @@ func TestLogFiles_BackwardScanHandlesLongLine(t *testing.T) {
 	writeLogFile(t, base, []string{"head", long, "tail"})
 	lf := &LogFiles{Path: base, MaxArchives: 0}
 
-	got, _, exhausted, err := lf.Tail(10, nil)
+	got, _, exhausted, err := lf.Tail(10, Filter{})
 	if err != nil {
 		t.Fatalf("Tail: %v", err)
 	}
@@ -388,12 +388,12 @@ func TestLogFiles_BackwardScanPagesLongLine(t *testing.T) {
 	lf := &LogFiles{Path: base, MaxArchives: 0}
 
 	// Page 1: just the long line.
-	page1, older, _, _ := lf.Tail(1, nil)
+	page1, older, _, _ := lf.Tail(1, Filter{})
 	if len(page1) != 1 || page1[0].Text != long {
 		t.Fatalf("page1 = %d lines (texts truncated)", len(page1))
 	}
 	// Page 2: the two prior short lines.
-	page2, _, exhausted, _ := lf.Before(older, 5, nil)
+	page2, _, exhausted, _ := lf.Before(older, 5, Filter{})
 	if want := []string{"old1", "old2"}; !equalStrings(texts(page2), want) {
 		t.Errorf("page2 = %v, want %v", texts(page2), want)
 	}
@@ -408,4 +408,129 @@ func mapLen(s []string) []int {
 		out[i] = len(x)
 	}
 	return out
+}
+
+// --- structured log filters ---
+
+const (
+	lineMovies   = `2026-09-25 10:10:01.123 INFO  entry accepted task=movies run_id=abc node=movies_5 plugin=movies title="Dune"`
+	lineMovies3D = `2026-09-25 10:20:02.456 INFO  entry rejected task=movies-3d run_id=def node=movies_24 plugin=movies title="Avatar"`
+	lineOtherDay = `2026-09-26 03:10:00.789 INFO  entry accepted task=movies run_id=ghi node=dedup_6 plugin=dedup title="Heat"`
+	lineTrailing = `2026-09-25 11:00:00.000 INFO  pipeline done task=movies`
+)
+
+// The collision this exists to prevent: as a plain substring "task=movies"
+// also selects task=movies-3d and task=movies-ondemand.
+func TestFilterTaskMatchesWholeValueOnly(t *testing.T) {
+	f := ParseFilter("task:movies")
+	if !f.match(lineMovies) {
+		t.Error("task:movies should match task=movies")
+	}
+	if f.match(lineMovies3D) {
+		t.Error("task:movies must NOT match task=movies-3d")
+	}
+	// A value at end-of-line has no trailing space to terminate it.
+	if !f.match(lineTrailing) {
+		t.Error("task:movies should match a task= value at end of line")
+	}
+	// And the reverse direction: the longer name must not be found by itself.
+	if ParseFilter("task:movies-3d").match(lineMovies) {
+		t.Error("task:movies-3d must not match task=movies")
+	}
+}
+
+func TestFilterNodeMatchesWholeValueOnly(t *testing.T) {
+	if !ParseFilter("node:movies_5").match(lineMovies) {
+		t.Error("node:movies_5 should match")
+	}
+	// movies_5 is a prefix of movies_53; neither may match the other.
+	longer := strings.Replace(lineMovies, "node=movies_5 ", "node=movies_53 ", 1)
+	if ParseFilter("node:movies_5").match(longer) {
+		t.Error("node:movies_5 must NOT match node=movies_53")
+	}
+}
+
+func TestFilterDateIsALeadingPrefix(t *testing.T) {
+	f := ParseFilter("date:2026-09-25")
+	if !f.match(lineMovies) {
+		t.Error("date:2026-09-25 should match a line from that day")
+	}
+	if f.match(lineOtherDay) {
+		t.Error("date:2026-09-25 must not match 2026-09-26")
+	}
+	// A date appearing later in the line is not the line's day.
+	if f.match(`2026-09-26 00:00:00.000 INFO  note about 2026-09-25 elsewhere`) {
+		t.Error("date must be anchored to the line's own timestamp")
+	}
+}
+
+// The three conditions plus free text have to compose — that is the point of
+// the feature, so it is asserted directly rather than inferred.
+func TestFilterCombinesAllConditions(t *testing.T) {
+	f := ParseFilter(`date:2026-09-25 task:movies node:movies_5 accepted dune`)
+	if !f.match(lineMovies) {
+		t.Fatalf("all conditions satisfied but no match: %+v", f)
+	}
+	for name, line := range map[string]string{
+		"wrong day":    lineOtherDay,
+		"wrong task":   lineMovies3D,
+		"wrong node":   strings.Replace(lineMovies, "node=movies_5 ", "node=dedup_6 ", 1),
+		"missing text": strings.Replace(lineMovies, `title="Dune"`, `title="Heat"`, 1),
+	} {
+		if f.match(line) {
+			t.Errorf("%s: should not match", name)
+		}
+	}
+}
+
+// Free text stays case-insensitive and order-independent, as before.
+func TestFilterFreeTextUnchanged(t *testing.T) {
+	if !ParseFilter("DUNE accepted").match(lineMovies) {
+		t.Error("free text should be case-insensitive and order-independent")
+	}
+	if ParseFilter("dune missing").match(lineMovies) {
+		t.Error("every substring must be present")
+	}
+}
+
+// Backwards compatibility: a colon in a query is only special for a known
+// key, so old queries containing timestamps, URLs or run_id: keep working.
+func TestFilterUnknownKeysStaySubstrings(t *testing.T) {
+	for _, q := range []string{"10:10", "run_id:abc", "https://example.com"} {
+		f := ParseFilter(q)
+		if f.Date != "" || f.Task != "" || f.Node != "" {
+			t.Errorf("%q was parsed as a structured condition: %+v", q, f)
+		}
+		if len(f.Subs) != 1 {
+			t.Errorf("%q should be one substring, got %+v", q, f.Subs)
+		}
+	}
+	if !ParseFilter("10:10").match(lineMovies) {
+		t.Error("a bare timestamp should still match as text")
+	}
+	// Log lines spell fields with "=", so a "run_id:abc" query is text that
+	// simply is not present — the point is that it is not silently reinterpreted
+	// as a structured condition that would have matched everything.
+	if ParseFilter("run_id:abc").match(lineMovies) {
+		t.Error("run_id:abc should be plain text, and this line has run_id=abc")
+	}
+	if !ParseFilter("run_id=abc").match(lineMovies) {
+		t.Error("run_id=abc should match as text")
+	}
+}
+
+func TestFilterEmptyMatchesEverything(t *testing.T) {
+	for _, q := range []string{"", "   ", "\t"} {
+		f := ParseFilter(q)
+		if !f.empty() {
+			t.Errorf("%q should be empty, got %+v", q, f)
+		}
+		if !f.match(lineMovies) {
+			t.Errorf("%q should match every line", q)
+		}
+	}
+	// A key with no value is not a condition; it is text.
+	if f := ParseFilter("task:"); f.Task != "" {
+		t.Errorf("task: with no value set a condition: %+v", f)
+	}
 }

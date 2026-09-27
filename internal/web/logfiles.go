@@ -56,34 +56,100 @@ type LineWithPos struct {
 	Text string  `json:"text"`
 }
 
-// Filter is an AND-list of case-insensitive substrings. Empty matches all.
-type Filter []string
+// Filter is an AND of every condition it holds; the zero value matches all.
+//
+// Structured conditions narrow to a day, a pipeline or a node and are matched
+// against the shape of a log line rather than as loose text, which is what
+// lets them be combined with a free-text search over the remainder. Matching
+// task and node by whole value matters: as a substring, "task=movies" also
+// selects task=movies-3d and task=movies-ondemand.
+type Filter struct {
+	Date string   // line's leading YYYY-MM-DD, "" for any day
+	Task string   // whole value of task=, "" for any pipeline
+	Node string   // whole value of node=, "" for any node
+	Subs []string // case-insensitive substrings, all of which must appear
+}
 
-// ParseFilter splits q on whitespace and lowercases each term. Returns nil
-// when q has no terms.
+// filterKeys maps a query prefix to where its value is stored. Adding a key
+// here is all a new structured condition needs.
+var filterKeys = map[string]func(*Filter, string){
+	"date": func(f *Filter, v string) { f.Date = v },
+	"task": func(f *Filter, v string) { f.Task = v },
+	"node": func(f *Filter, v string) { f.Node = v },
+}
+
+// ParseFilter reads a query into a Filter. A term of the form key:value sets
+// the matching structured condition; every other term is a case-insensitive
+// substring that must appear in the line.
+//
+// An unknown key is deliberately left as a substring so queries that happen
+// to contain a colon — a URL, a run_id:, a bare timestamp like "14:05" —
+// keep behaving as they always did.
 func ParseFilter(q string) Filter {
-	q = strings.TrimSpace(q)
-	if q == "" {
-		return nil
+	var f Filter
+	for _, term := range strings.Fields(strings.TrimSpace(q)) {
+		if key, val, ok := strings.Cut(term, ":"); ok && val != "" {
+			if set, known := filterKeys[strings.ToLower(key)]; known {
+				set(&f, val)
+				continue
+			}
+		}
+		f.Subs = append(f.Subs, strings.ToLower(term))
 	}
-	terms := strings.Fields(strings.ToLower(q))
-	if len(terms) == 0 {
-		return nil
-	}
-	return Filter(terms)
+	return f
+}
+
+// empty reports whether the filter constrains nothing.
+func (f Filter) empty() bool {
+	return f.Date == "" && f.Task == "" && f.Node == "" && len(f.Subs) == 0
 }
 
 func (f Filter) match(line string) bool {
-	if len(f) == 0 {
+	if f.empty() {
+		return true
+	}
+	// The timestamp leads every line, so a day is a prefix test.
+	if f.Date != "" && !strings.HasPrefix(line, f.Date) {
+		return false
+	}
+	if f.Task != "" && !hasFieldValue(line, "task=", f.Task) {
+		return false
+	}
+	if f.Node != "" && !hasFieldValue(line, "node=", f.Node) {
+		return false
+	}
+	if len(f.Subs) == 0 {
 		return true
 	}
 	lo := strings.ToLower(line)
-	for _, t := range f {
+	for _, t := range f.Subs {
 		if !strings.Contains(lo, t) {
 			return false
 		}
 	}
 	return true
+}
+
+// hasFieldValue reports whether line carries key immediately followed by val
+// as a complete value — terminated by a space or the end of the line. That
+// boundary is the whole point: without it task=movies would also match
+// task=movies-3d. Comparison is case-insensitive.
+func hasFieldValue(line, key, val string) bool {
+	lo, k, v := strings.ToLower(line), strings.ToLower(key), strings.ToLower(val)
+	for i := 0; ; {
+		j := strings.Index(lo[i:], k)
+		if j < 0 {
+			return false
+		}
+		j += i
+		rest := lo[j+len(k):]
+		if strings.HasPrefix(rest, v) {
+			if after := rest[len(v):]; after == "" || after[0] == ' ' {
+				return true
+			}
+		}
+		i = j + len(k)
+	}
 }
 
 // LogFiles is a read-only view over a base log file at Path plus its
@@ -472,3 +538,56 @@ func scanFileForward(path string, fileIdx int, startByte int64, want int, f Filt
 	return out, pos, false, nil
 }
 
+// DateRange returns the day of the oldest retained line and of the newest,
+// as YYYY-MM-DD. It reads one line from each end rather than scanning, so it
+// stays cheap no matter how much history is retained. Empty strings mean
+// there is nothing to report.
+func (lf *LogFiles) DateRange() (oldest, newest string, err error) {
+	if newestLines, _, _, e := lf.Tail(1, Filter{}); e != nil {
+		return "", "", e
+	} else if len(newestLines) > 0 {
+		newest = lineDate(newestLines[0].Text)
+	}
+	// Walk from the highest archive index down to the first file that exists;
+	// its first line is the oldest line retained.
+	for idx := lf.MaxArchives; idx >= 0; idx-- {
+		sz, exists, e := lf.fileSize(idx)
+		if e != nil {
+			return "", "", e
+		}
+		if !exists || sz == 0 {
+			continue
+		}
+		first, _, _, e := scanFileForward(lf.pathFor(idx), idx, 0, 1, Filter{})
+		if e != nil {
+			return "", "", e
+		}
+		if len(first) > 0 {
+			oldest = lineDate(first[0].Text)
+			break
+		}
+	}
+	return oldest, newest, nil
+}
+
+// lineDate extracts the leading YYYY-MM-DD from a log line, or "" when the
+// line does not start with one (a panic trace, a wrapped continuation).
+func lineDate(line string) string {
+	const want = len("2026-01-02")
+	if len(line) < want {
+		return ""
+	}
+	d := line[:want]
+	for i, r := range d {
+		if i == 4 || i == 7 {
+			if r != '-' {
+				return ""
+			}
+			continue
+		}
+		if r < '0' || r > '9' {
+			return ""
+		}
+	}
+	return d
+}

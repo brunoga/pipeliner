@@ -590,6 +590,10 @@ function connectLogs() {
   // cursors anchored to the on-disk file. SSE then takes over the live edge.
   if (!veLog.bootStarted) {
     veLog.bootStarted = true;
+    // Selector options come from the server (retained days, pipelines and
+    // their nodes); the tail does not wait on them, so a slow or failed meta
+    // fetch never delays the log appearing.
+    loadLogMeta();
     loadInitialTail();
   }
   startSSE(dot, text);
@@ -1070,9 +1074,122 @@ function onLogFilterInput() {
   }, LOG_FILTER_DEBOUNCE_MS);
 }
 
+// composeFilter builds the log query from the day/pipeline/node selectors
+// plus the free-text box. The selectors emit key:value terms the server
+// matches against the shape of a line — whole task= and node= values, and the
+// day anchored to the leading timestamp — so they narrow the subset that the
+// free text then searches. Everything travels in the existing q parameter,
+// which means paging, the SSE bridge and the spinner need no changes.
+function composeFilter() {
+  const val = id => {
+    const el = document.getElementById(id);
+    return el && el.value ? el.value.trim() : '';
+  };
+  const parts = [];
+  const day = val('log-date');
+  const task = val('log-task');
+  const node = val('log-node');
+  if (day) parts.push('date:' + day);
+  if (task) parts.push('task:' + task);
+  if (node) parts.push('node:' + node);
+  const text = val('log-filter');
+  if (text) parts.push(text);
+  // Mark narrowed selectors: an empty log is otherwise hard to explain.
+  for (const [id, v] of [['log-date', day], ['log-task', task], ['log-node', node]]) {
+    const el = document.getElementById(id);
+    if (el) el.classList.toggle('active', !!v);
+  }
+  return parts.join(' ');
+}
+
+// setSelectOptions replaces a selector's contents with an "any" entry plus
+// values, preserving prev when it is still offered. Options are built as
+// elements rather than an innerHTML string so the placeholder is a real child
+// like the rest — mixing the two makes the list hard to reason about.
+function setSelectOptions(sel, anyLabel, values, prev) {
+  sel.innerHTML = '';
+  const add = (value, text) => {
+    const o = document.createElement('option');
+    o.value = value;
+    o.textContent = text;
+    sel.appendChild(o);
+  };
+  add('', anyLabel);
+  for (const v of values) add(v, v);
+  sel.value = values.includes(prev) ? prev : '';
+}
+
+// onLogTaskChange re-populates the node list for the chosen pipeline before
+// re-filtering, so the node selector only ever offers nodes that exist in it.
+function onLogTaskChange() {
+  populateNodeOptions();
+  applyFilter();
+}
+
+// populateNodeOptions fills the node selector from logMeta, scoped to the
+// selected pipeline (or every node, de-duplicated, when none is selected).
+// A selection that still exists in the new list is preserved; one that does
+// not is dropped, because keeping it would filter everything out.
+function populateNodeOptions() {
+  const sel = document.getElementById('log-node');
+  if (!sel) return;
+  const taskEl = document.getElementById('log-task');
+  const task = taskEl ? taskEl.value : '';
+  const tasks = (veLog.meta && Array.isArray(veLog.meta.tasks)) ? veLog.meta.tasks : [];
+  let nodes = [];
+  if (task) {
+    const t = tasks.find(t => t.name === task);
+    nodes = (t && Array.isArray(t.nodes)) ? t.nodes.slice() : [];
+  } else {
+    const seen = new Set();
+    for (const t of tasks) {
+      for (const n of (t.nodes || [])) {
+        if (!seen.has(n)) { seen.add(n); nodes.push(n); }
+      }
+    }
+  }
+  setSelectOptions(sel, 'any node', nodes, sel.value);
+}
+
+// loadLogMeta fills the selectors from the server: the span of days still on
+// disk, and the pipelines and nodes in the config. Failure is non-fatal — the
+// selectors stay at "any" and the free-text search is unaffected.
+async function loadLogMeta() {
+  let meta;
+  try {
+    meta = await fetchJSON('/api/logs/meta');
+  } catch (_) {
+    return;
+  }
+  if (!meta) return;
+  veLog.meta = meta;
+
+  const dateSel = document.getElementById('log-date');
+  if (dateSel && meta.newest_date) {
+    // Walk newest→oldest so the most likely choice is nearest the top. The
+    // range is derived from the first and last retained line, so a quiet day
+    // can appear and match nothing; that is better than hiding it.
+    const opts = [];
+    const oldest = meta.oldest_date || meta.newest_date;
+    for (let d = new Date(meta.newest_date + 'T00:00:00Z'), guard = 0;
+         guard < 400; guard++) {
+      const iso = d.toISOString().slice(0, 10);
+      opts.push(iso);
+      if (iso <= oldest) break;
+      d.setUTCDate(d.getUTCDate() - 1);
+    }
+    setSelectOptions(dateSel, 'any day', opts, dateSel.value);
+  }
+
+  const taskSel = document.getElementById('log-task');
+  if (taskSel && Array.isArray(meta.tasks)) {
+    setSelectOptions(taskSel, 'any pipeline', meta.tasks.map(t => t.name), taskSel.value);
+  }
+  populateNodeOptions();
+}
+
 async function applyFilter() {
-  const input = document.getElementById('log-filter');
-  const newFilter = input ? input.value : '';
+  const newFilter = composeFilter();
   if (newFilter === veLog.filter) return;
   veLog.filter = newFilter;
   veLog.filterToken++;  // cancel pending fetches under the old filter
