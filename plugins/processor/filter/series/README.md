@@ -120,6 +120,32 @@ output("transmission", upstream=series, host="localhost")
 pipeline("tv-combined", schedule="30m")
 ```
 
+## The settle window and downstream vetoes
+
+`settle` holds every download-worthy release for an item, remembers the best of
+the wave, and grabs that one when the window closes — including when it has
+scrolled out of the feed, which is why the winner is stored rather than
+re-derived.
+
+That storage needs one safeguard. The winner is chosen from **quality tags
+alone**, so it can be a release a later node will always refuse: a starved
+encode that fails a `bitrate` floor, a film a language `condition` rejects.
+Two properties would otherwise make that permanent — the winner is only ever
+replaced by something of *higher* quality, and the window is only ended by a
+completed download. The same unusable release would be re-offered on every run
+forever, and because a revived entry beats its runner-ups at `dedup` on
+quality, it would also crowd out the release that could have been grabbed.
+
+So a revived winner that comes back rejected is **vetoed**: dropped as the
+winner, never promoted again, and the runner-up takes its place. Vetoes are
+matched on the release name rather than the URL, because indexers re-encrypt
+their download links on every search — the same reason a URL is useless as a
+release identity anywhere else in pipeliner.
+
+The practical consequence: **your vetoing filters can sit anywhere**. Running
+`bitrate` or a language `condition` before or after this filter changes only
+how soon a dud is discovered, not whether the item eventually downloads.
+
 ## DAG role
 
 | Property | Value |

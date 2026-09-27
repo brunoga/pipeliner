@@ -2,6 +2,7 @@ package settle
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -146,5 +147,112 @@ func TestExpiredIsScopedToTask(t *testing.T) {
 	// An empty task name must never match everything.
 	if got := tr.Expired("", w, now); len(got) != 0 {
 		t.Errorf("empty task must match nothing, got %+v", got)
+	}
+}
+
+// A release the caller vetoed is dropped as the winner, so the window can
+// promote the runner-up. Without this the window locks onto a release a
+// downstream node always rejects: Best is only ever replaced by higher
+// quality, and Clear only runs after a real download.
+func TestVetoPromotesRunnerUp(t *testing.T) {
+	tr := New(newMemBucket())
+	now := time.Now()
+	starved := cand("u-starved", "Film 2160p Atmos DV starved", "2160p BluRay TrueHD Atmos")
+	decent := cand("u-decent", "Film 1080p BluRay", "1080p BluRay")
+
+	tr.Offer("t|film", starved, 6*time.Hour, now)
+	tr.Offer("t|film", decent, 6*time.Hour, now)
+	if best, _ := tr.Best("t|film"); best.URL != "u-starved" {
+		t.Fatalf("pre-veto best = %q, want the highest quality", best.URL)
+	}
+
+	tr.Veto("t|film", starved.Title)
+	if _, ok := tr.Best("t|film"); ok {
+		t.Error("vetoed winner is still the winner")
+	}
+	// The window must keep running — the item is still wanted.
+	if left := tr.Offer("t|film", decent, 6*time.Hour, now.Add(time.Hour)); left <= 0 {
+		t.Errorf("window ended early after a veto: left = %v", left)
+	}
+	if best, ok := tr.Best("t|film"); !ok || best.URL != "u-decent" {
+		t.Errorf("runner-up not promoted: best = %q ok = %v", best.URL, ok)
+	}
+}
+
+// Re-offering a vetoed release must not make it the winner again, however good
+// its quality tags are — that is the loop this prevents.
+func TestVetoedReleaseIsNeverPromotedAgain(t *testing.T) {
+	tr := New(newMemBucket())
+	now := time.Now()
+	starved := cand("u-starved", "Film 2160p Atmos DV starved", "2160p BluRay TrueHD Atmos")
+	decent := cand("u-decent", "Film 1080p BluRay", "1080p BluRay")
+
+	tr.Offer("t|film", starved, 6*time.Hour, now)
+	tr.Veto("t|film", starved.Title)
+	tr.Offer("t|film", decent, 6*time.Hour, now)
+
+	// Same release, fresh URL — indexers rotate download links, so the veto
+	// has to match on the release title, not the URL.
+	tr.Offer("t|film", cand("u-starved-ROTATED", starved.Title, "2160p BluRay TrueHD Atmos"), 6*time.Hour, now)
+
+	best, ok := tr.Best("t|film")
+	if !ok || best.URL != "u-decent" {
+		t.Errorf("vetoed release regained the crown: best = %q", best.URL)
+	}
+}
+
+// A vetoed item with no replacement yet must not be revived, or the caller
+// would rebuild an empty entry every run.
+func TestExpiredSkipsVetoedWithNoReplacement(t *testing.T) {
+	tr := New(newMemBucket())
+	now := time.Now()
+	c := cand("u1", "Film 2160p", "2160p BluRay")
+	tr.Offer("t|film", c, 6*time.Hour, now)
+	tr.Veto("t|film", c.Title)
+
+	if exp := tr.Expired("t", 6*time.Hour, now.Add(7*time.Hour)); len(exp) != 0 {
+		t.Errorf("expired returned %d records with no winner, want 0", len(exp))
+	}
+}
+
+func TestVetoIsCaseAndSpaceInsensitive(t *testing.T) {
+	tr := New(newMemBucket())
+	now := time.Now()
+	tr.Offer("t|film", cand("u1", "Film 2160p Atmos", "2160p BluRay TrueHD Atmos"), 6*time.Hour, now)
+	tr.Veto("t|film", "  FILM 2160P ATMOS  ")
+	if _, ok := tr.Best("t|film"); ok {
+		t.Error("veto did not match the same title in different case/spacing")
+	}
+}
+
+func TestVetoListIsCapped(t *testing.T) {
+	tr := New(newMemBucket())
+	now := time.Now()
+	tr.Offer("t|film", cand("u0", "keeper", "1080p WEB-DL"), 6*time.Hour, now)
+	for i := 0; i < maxVetoed*2; i++ {
+		tr.Veto("t|film", fmt.Sprintf("release-%d", i))
+	}
+	var rec Record
+	found, err := tr.b.Get("t|film", &rec)
+	if err != nil || !found {
+		t.Fatalf("record missing: found=%v err=%v", found, err)
+	}
+	if len(rec.Vetoed) > maxVetoed {
+		t.Errorf("vetoed list grew to %d, cap is %d", len(rec.Vetoed), maxVetoed)
+	}
+	// The cap must drop the oldest, keeping the most recent rejects.
+	if !rec.isVetoed(fmt.Sprintf("release-%d", maxVetoed*2-1)) {
+		t.Error("most recent veto was evicted")
+	}
+}
+
+// Vetoing an unknown key must not create a record — a window nobody opened
+// should not exist.
+func TestVetoUnknownKeyIsNoop(t *testing.T) {
+	b := newMemBucket()
+	tr := New(b)
+	tr.Veto("t|nothing", "some release")
+	if len(b.data) != 0 {
+		t.Errorf("veto created %d records for an unknown key", len(b.data))
 	}
 }

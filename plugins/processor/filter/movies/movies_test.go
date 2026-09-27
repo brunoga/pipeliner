@@ -1093,3 +1093,105 @@ func expireSettleFor(t *testing.T, db *store.SQLiteStore, task, title string, ye
 		t.Fatal(err)
 	}
 }
+
+// TestSettleDoesNotDuplicateWinnerAfterURLRotation is the realistic form of
+// TestSettleDoesNotDuplicateWinnerStillInFeed. That test re-offers the winner
+// under the *same* URL, which is not what indexers do: Jackett re-encrypts its
+// download links on every search, so the same release comes back under a new
+// URL every run. Matching the recorded URL against the batch therefore always
+// missed, and the stale duplicate that got revived went on to compete with the
+// live entry at dedup — where, holding identical quality tags, it could win and
+// be downloaded from a URL that no longer resolved.
+func TestSettleDoesNotDuplicateWinnerAfterURLRotation(t *testing.T) {
+	db, _ := store.OpenSQLite(":memory:")
+	defer db.Close()
+	p, _ := newPlugin(map[string]any{"settle": "6h"}, db)
+	mp := p.(*moviesPlugin)
+
+	const release = "Rotating.Movie.2026.2160p.WEB-DL.x265"
+	first := []*entry.Entry{makeEntry(release, "http://idx/dl?path=TOKEN-A")}
+	if _, err := mp.Process(context.Background(), makeCtx(), first); err != nil {
+		t.Fatal(err)
+	}
+	expireSettle(t, db, "rotating movie", 2026, 7*time.Hour)
+
+	// Same release, new token — the only thing that changed is the URL.
+	again := []*entry.Entry{makeEntry(release, "http://idx/dl?path=TOKEN-B")}
+	out, err := mp.Process(context.Background(), makeCtx(), again)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var accepted []string
+	for _, e := range out {
+		if e.IsAccepted() && strings.HasPrefix(e.Title, "Rotating.Movie") {
+			accepted = append(accepted, e.URL)
+		}
+	}
+	if len(accepted) != 1 {
+		t.Fatalf("accepted %d copies %v, want exactly 1 — the live entry", len(accepted), accepted)
+	}
+	if accepted[0] != "http://idx/dl?path=TOKEN-B" {
+		t.Errorf("accepted URL = %q, want the live token; the stale recorded URL would not resolve", accepted[0])
+	}
+}
+
+// TestSettleVetoesWinnerRejectedDownstream: a revived winner that a later node
+// refuses cannot be grabbed, so the window must drop it and promote the
+// runner-up. Before this, Best was only ever replaced by higher quality and
+// Clear only ran after a real download, so a starved encode or a film in the
+// wrong language was re-offered on every run forever — and, because the
+// revived entry wins dedup on quality, it also crowded out the release that
+// would have worked.
+func TestSettleVetoesWinnerRejectedDownstream(t *testing.T) {
+	db, _ := store.OpenSQLite(":memory:")
+	defer db.Close()
+	p, _ := newPlugin(map[string]any{"settle": "6h"}, db)
+	mp := p.(*moviesPlugin)
+	ctx, tc := context.Background(), makeCtx()
+
+	// A wave: the quality-best release plus a humbler runner-up.
+	best := makeEntry("Veto.Movie.2026.2160p.BluRay.TrueHD.Atmos.DV.x265", "http://idx/dl?path=A")
+	runnerUp := makeEntry("Veto.Movie.2026.1080p.BluRay.x264", "http://idx/dl?path=B")
+	if _, err := mp.Process(ctx, tc, []*entry.Entry{best, runnerUp}); err != nil {
+		t.Fatal(err)
+	}
+	expireSettle(t, db, "veto movie", 2026, 7*time.Hour)
+
+	// The window closes with nothing live in the feed, so the winner revives.
+	out, err := mp.Process(ctx, tc, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var revived *entry.Entry
+	for _, e := range out {
+		if e.GetBool(entry.FieldSettledRevived) {
+			revived = e
+		}
+	}
+	if revived == nil {
+		t.Fatal("no entry was revived when the window closed")
+	}
+	if !strings.Contains(revived.Title, "2160p") {
+		t.Fatalf("revived %q, want the quality-best release", revived.Title)
+	}
+
+	// A downstream node refuses it, and Commit sees the rejected entry.
+	revived.Reject("bitrate: rejected starved encode")
+	if err := mp.persist(ctx, tc, []*entry.Entry{revived}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Next run the runner-up is offered again and must now be able to win.
+	again := makeEntry("Veto.Movie.2026.1080p.BluRay.x264", "http://idx/dl?path=B2")
+	if _, err := mp.Process(ctx, tc, []*entry.Entry{again}); err != nil {
+		t.Fatal(err)
+	}
+	tr := settle.New(db.Bucket(settle.MovieBucketName))
+	got, ok := tr.Best(settle.MovieKey(tc.Name, "veto movie", 2026, false))
+	if !ok {
+		t.Fatal("no winner recorded after the veto; the runner-up was not promoted")
+	}
+	if !strings.Contains(got.Title, "1080p") {
+		t.Errorf("winner is still %q; the vetoed release must not regain the crown", got.Title)
+	}
+}
