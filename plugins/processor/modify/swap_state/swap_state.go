@@ -8,15 +8,15 @@
 //   - cleanup pipelines: feed dedup's rejected losers into a delete sink while
 //     the accepted winners are diverted away from the same sink:
 //
-//	dedup → swap_state(swap=["accepted", "rejected"]) → exec("rm {file_location}")
+//     dedup → swap_state(swap=["accepted", "rejected"]) → exec("rm {file_location}")
 //
 //   - retry pipelines: rescue failed entries through an alternate sink:
 //
-//	primary_sink → swap_state(swap=["accepted", "failed"]) → fallback_sink
+//     primary_sink → swap_state(swap=["accepted", "failed"]) → fallback_sink
 //
 //   - re-feeding rejected entries through downstream filters:
 //
-//	condition(reject="x") → swap_state(swap=["rejected", "undecided"]) → another_filter
+//     condition(reject="x") → swap_state(swap=["rejected", "undecided"]) → another_filter
 //
 // AcceptReason / RejectReason / FailReason on the entry are preserved across
 // the swap — they document why the entry first entered its prior state and
@@ -43,6 +43,7 @@ func init() {
 		PluginName:  pluginName,
 		Description: "swap entries between two states (e.g. accepted ↔ rejected) so downstream nodes can act on entries others rejected or failed",
 		Role:        plugin.RoleProcessor,
+		Refusal:     plugin.RefusalNone,
 		// Declare access to every state — the whole point of swap_state is to
 		// operate on entries other plugins have terminally rejected or failed,
 		// so the default processor pre-filter (StatesAcceptedUndecided) would

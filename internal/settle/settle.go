@@ -50,7 +50,7 @@ type Record struct {
 	//
 	// The window keeps the whole wave rather than a running best because
 	// picking a winner here means picking it on quality *tags*, before the
-	// nodes that can actually veto a release have run — bitrate needs a
+	// nodes that can actually refuse a release have run — bitrate needs a
 	// runtime from enrichment, a language condition needs metadata. A single
 	// remembered winner therefore had to be re-chosen whenever a later gate
 	// refused it, one settle window at a time. Emitting the wave lets the

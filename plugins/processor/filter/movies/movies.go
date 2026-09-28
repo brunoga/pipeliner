@@ -34,6 +34,7 @@ func init() {
 		PluginName:  "movies",
 		Description: "accept movies from a configured list; track downloads across runs",
 		Role:        plugin.RoleProcessor,
+		Refusal:     plugin.RefusalPerItem,
 		// Movie metadata must be populated upstream — by metainfo_file in the
 		// common case, or by any other plugin that sets these fields.
 		// FieldQuality (the typed quality.Quality struct read via e.Quality())

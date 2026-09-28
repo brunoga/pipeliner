@@ -39,6 +39,7 @@ func init() {
 		PluginName:  "condition",
 		Description: "accept or reject entries via boolean expressions",
 		Role:        plugin.RoleProcessor,
+		Refusal:     plugin.RefusalPerRelease,
 		// Accept markers so users can write `accept: "empty_marker == true"`
 		// to gate marker-aware branches. The expression evaluator already
 		// reads e.Fields, so the empty_marker field is visible without any
@@ -71,8 +72,8 @@ type rule struct {
 }
 
 type conditionPlugin struct {
-	rules         []rule
-	referencesSt  bool // any rule expression references the `state` identifier
+	rules        []rule
+	referencesSt bool // any rule expression references the `state` identifier
 }
 
 func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {

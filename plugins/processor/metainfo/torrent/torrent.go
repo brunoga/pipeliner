@@ -48,6 +48,7 @@ func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "metainfo_torrent",
 		Role:        plugin.RoleProcessor,
+		Refusal:     plugin.RefusalPerRelease,
 		Description: "Annotates entries from .torrent files with name, info hash, size, and tracker metadata",
 		MayProduce: []string{
 			entry.FieldTitle,

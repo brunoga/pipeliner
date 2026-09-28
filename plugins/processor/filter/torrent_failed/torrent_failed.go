@@ -54,6 +54,7 @@ func init() {
 		PluginName:  pluginName,
 		Description: "accept dead torrents (errored, or stalled longer than stall_timeout); reject healthy ones",
 		Role:        plugin.RoleProcessor,
+		Refusal:     plugin.RefusalPerRelease,
 		Requires:    plugin.RequireAll(entry.FieldTorrentState),
 		Factory:     newPlugin,
 		Validate:    validate,

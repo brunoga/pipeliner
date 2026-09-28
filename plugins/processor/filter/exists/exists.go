@@ -20,6 +20,7 @@ func init() {
 		PluginName:  "exists",
 		Description: "reject entries whose title matches a file already present on disk",
 		Role:        plugin.RoleProcessor,
+		Refusal:     plugin.RefusalPerItem,
 		Factory:     newPlugin,
 		Validate:    validate,
 		Schema: []plugin.FieldSchema{

@@ -41,6 +41,7 @@ func init() {
 		PluginName:  "premiere",
 		Description: "accept only the first episode of series not previously seen (series premiere detection)",
 		Role:        plugin.RoleProcessor,
+		Refusal:     plugin.RefusalPerItem,
 		// Episode metadata must be populated upstream — by metainfo_file in
 		// the common case, or by any other plugin that sets these fields.
 		// FieldQuality (the typed quality.Quality struct read via e.Quality())

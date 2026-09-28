@@ -57,6 +57,7 @@ func init() {
 		PluginName:  pluginName,
 		Description: "enrich movie entries with Blu-ray.com metadata (release date, codec, 3D-edition flag)",
 		Role:        plugin.RoleProcessor,
+		Refusal:     plugin.RefusalNone,
 		MayProduce: []string{
 			entry.FieldEnriched,
 			entry.FieldBlurayID,

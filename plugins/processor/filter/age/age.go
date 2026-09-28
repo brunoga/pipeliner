@@ -27,6 +27,7 @@ func init() {
 		PluginName:  "age",
 		Description: "reject entries whose date field falls outside a configured age range",
 		Role:        plugin.RoleProcessor,
+		Refusal:     plugin.RefusalPerRelease,
 		Factory:     newPlugin,
 		Validate:    validate,
 		Schema: []plugin.FieldSchema{

@@ -33,6 +33,8 @@ func init() {
 		PluginName:  "dedup",
 		Description: "keep the best-quality copy when multiple entries refer to the same episode or movie",
 		Role:        plugin.RoleProcessor,
+		Refusal:     plugin.RefusalPerItem,
+		Collapses:   true,
 		// dedup only re-decides already-accepted entries — picking the best
 		// among them. Undecided entries have no business being compared yet
 		// (no upstream has chosen them as candidates), and rejected/failed

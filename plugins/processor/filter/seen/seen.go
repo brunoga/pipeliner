@@ -18,6 +18,7 @@ func init() {
 		PluginName:  "seen",
 		Description: "reject already-processed entries; marks accepted entries as seen in learn phase",
 		Role:        plugin.RoleProcessor,
+		Refusal:     plugin.RefusalPerItem,
 		Factory:     newPlugin,
 		Validate:    validate,
 		Schema: []plugin.FieldSchema{

@@ -27,6 +27,7 @@ func init() {
 		PluginName:  "list_match",
 		Description: "accept entries whose title is in a named persistent list; reject others",
 		Role:        plugin.RoleProcessor,
+		Refusal:     plugin.RefusalPerItem,
 		Factory:     newPlugin,
 		Validate:    validate,
 		Schema: []plugin.FieldSchema{

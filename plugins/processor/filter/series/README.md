@@ -152,7 +152,7 @@ it identifies the film or episode rather than the release, so a worse sibling
 still in the feed would suppress revival and the wait would end by downloading
 something worse than the release it spent the window identifying.
 
-### Required ordering: dedup after the vetoing gates
+### Required ordering: dedup after everything that can refuse a release
 
 `settle` releases **every** release it recorded when the window closes, and
 lets the pipeline choose. That only works if [`dedup`](../dedup/) runs *after*
@@ -168,13 +168,15 @@ dedup   = process("dedup", upstream=bitrate)                # picks the best SUR
 ```
 
 `dedup` collapses a wave to one release per item, and it chooses on quality
-tags because that is all it has. Put a vetoing gate after it and the
+tags because that is all it has. Put a node that can refuse a release after it and the
 alternatives are already gone by the time the refusal happens, so the item is
 lost for that run — and, since the same wave comes back, for every run after
 it. Put the gates first and `dedup` picks the best release that can actually
 be grabbed.
 
-`tests/integration/order_test.go` holds this as a test: the same feed and the
+`pipeliner check` and the visual editor warn when a per-release refusal sits
+below `dedup`, so this is caught rather than merely documented;
+`tests/integration/order_test.go` holds it as a test: the same feed and the
 same gate, with `dedup` on either side, produce nothing and the runner-up
 respectively.
 

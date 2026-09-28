@@ -433,6 +433,45 @@ func TestAllPluginsRegistered(t *testing.T) {
 	}
 }
 
+// Every registered processor must say whether it can refuse an entry, and
+// whether that refusal depends on the individual release. The zero value is
+// deliberately invalid: without this test a new plugin would default to
+// RefusalUnset and silently opt out of the dedup-ordering check in
+// dag.Validate, which is exactly the failure this check exists to prevent.
+func TestEveryProcessorDeclaresRefusal(t *testing.T) {
+	for _, d := range plugin.All() {
+		if d.EffectiveRole() != plugin.RoleProcessor || d.Internal {
+			continue
+		}
+		if d.Refusal == plugin.RefusalUnset {
+			t.Errorf("processor %q does not declare Refusal — pick RefusalNone, "+
+				"RefusalPerRelease or RefusalPerItem (see internal/plugin/registry.go)",
+				d.PluginName)
+		}
+	}
+}
+
+// Collapsing plugins are the anchor of the ordering check; if the flag ever
+// came off dedup the check would pass vacuously on every config.
+func TestDedupIsTheCollapsingPlugin(t *testing.T) {
+	d, ok := plugin.Lookup("dedup")
+	if !ok {
+		t.Fatal("dedup not registered")
+	}
+	if !d.Collapses {
+		t.Error("dedup must declare Collapses: it keeps one release per item and drops the rest")
+	}
+	var others []string
+	for _, o := range plugin.All() {
+		if o.Collapses && o.PluginName != "dedup" {
+			others = append(others, o.PluginName)
+		}
+	}
+	if len(others) > 0 {
+		t.Logf("note: other collapsing plugins registered: %v", others)
+	}
+}
+
 func TestAcceptAll(t *testing.T) {
 	srv := rssServer(t, []rssItem{
 		{"Article One", "http://example.com/1"},

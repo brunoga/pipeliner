@@ -40,6 +40,7 @@ func init() {
 		PluginName:  "route",
 		Description: "route entries to named ports based on conditions; unmatched entries are rejected with a warning",
 		Role:        plugin.RoleProcessor,
+		Refusal:     plugin.RefusalPerRelease,
 		Produces:    []string{entry.FieldRoutePort},
 		// Accept markers so a port expression like `"empty_marker == true"`
 		// can route the marker to a dedicated alert branch. The expression

@@ -30,6 +30,7 @@ func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName: "mock_filter",
 		Role:       plugin.RoleProcessor,
+		Refusal:    plugin.RefusalNone,
 		Factory: func(_ map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
 			return &mockFilter{}, nil
 		},
@@ -44,6 +45,7 @@ func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName: "order1",
 		Role:       plugin.RoleProcessor,
+		Refusal:    plugin.RefusalNone,
 		Factory: func(_ map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
 			return &orderPlugin{name: "order1", order: &orderList}, nil
 		},
@@ -51,6 +53,7 @@ func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName: "order2",
 		Role:       plugin.RoleProcessor,
+		Refusal:    plugin.RefusalNone,
 		Factory: func(_ map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
 			return &orderPlugin{name: "order2", order: &orderList}, nil
 		},
@@ -58,6 +61,7 @@ func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName: "order3",
 		Role:       plugin.RoleProcessor,
+		Refusal:    plugin.RefusalNone,
 		Factory: func(_ map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
 			return &orderPlugin{name: "order3", order: &orderList}, nil
 		},
@@ -175,7 +179,7 @@ pipeline("order-test")
 	}
 }
 
-// TestDedupMustFollowTheVetoingGates is the executable form of the ordering
+// TestDedupMustFollowTheRefusingNodes is the executable form of the ordering
 // requirement the settle window documents.
 //
 // dedup collapses a wave to one release per item, and whatever it keeps is
@@ -187,7 +191,7 @@ pipeline("order-test")
 // Both pipelines below accept first (as the movies and series filters do, which
 // is what gives dedup something to rank), then differ only in whether the gate
 // precedes dedup. Same feed, same gate, opposite outcomes.
-func TestDedupMustFollowTheVetoingGates(t *testing.T) {
+func TestDedupMustFollowTheRefusingNodes(t *testing.T) {
 	feed := []rssItem{
 		// Best tags, but the gate refuses it — stands in for a starved encode
 		// that a bitrate floor would reject.

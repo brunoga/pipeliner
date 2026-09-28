@@ -47,6 +47,7 @@ func init() {
 		PluginName:  "metainfo_magnet",
 		Description: "annotate entries whose URL is a magnet link with info hash, tracker and DHT metadata",
 		Role:        plugin.RoleProcessor,
+		Refusal:     plugin.RefusalNone,
 		MayProduce: []string{
 			entry.FieldTitle,
 			entry.FieldTorrentInfoHash,

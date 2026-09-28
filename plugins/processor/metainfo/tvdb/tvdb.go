@@ -36,6 +36,7 @@ func init() {
 		PluginName:  "metainfo_tvdb",
 		Description: "enrich series entries with TheTVDB metadata (title, air date, overview, popularity)",
 		Role:        plugin.RoleProcessor,
+		Refusal:     plugin.RefusalNone,
 		MayProduce: []string{
 			entry.FieldEnriched,
 			entry.FieldTitle,

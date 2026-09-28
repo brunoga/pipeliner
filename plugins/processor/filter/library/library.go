@@ -45,6 +45,7 @@ func init() {
 		PluginName:  pluginName,
 		Description: "reject entries already in the media library at equal-or-better quality; better releases pass as upgrades",
 		Role:        plugin.RoleProcessor,
+		Refusal:     plugin.RefusalPerRelease,
 		Requires:    plugin.RequireAll(entry.FieldTitle),
 		// library_quality is stamped on entries that matched a library copy
 		// (whether passed as an upgrade or rejected), so templates and traces
