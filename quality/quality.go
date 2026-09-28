@@ -269,6 +269,10 @@ var (
 	// Compound markers (FULL-SBS, H-OU, etc.) tolerate a space separator since
 	// scene releases routinely use "Full SBS" / "H OU" / "Half OU" with spaces.
 	re3D = regexp.MustCompile(`(?i)\b(BD3D|MVC|FULL[\s\-]?SBS|FULL[\s\-]?OU|FSBS|F[\s\-]SBS|FOU|F[\s\-]OU|HALF[\s\-]?SBS|HALF[\s\-]?OU|HSBS|H[\s\-]SBS|HOU|H[\s\-]OU|SBS|OU|3D)\b`)
+	// reFrameCompatible3D matches the layouts that fit both views into a single
+	// frame. Their presence rules out MVC: frame packing is a re-encode, and an
+	// ordinary decoder can play the result.
+	reFrameCompatible3D = regexp.MustCompile(`(?i)\b(FULL[\s\-]?SBS|FULL[\s\-]?OU|FSBS|F[\s\-]SBS|FOU|F[\s\-]OU|HALF[\s\-]?SBS|HALF[\s\-]?OU|HSBS|H[\s\-]SBS|HOU|H[\s\-]OU|SBS|OU)\b`)
 	// reComplete matches "COMPLETE" disc-rip labels; combined with a BluRay source
 	// and any non-conv 3D marker this implies a full BD3D disc rip.
 	reComplete = regexp.MustCompile(`(?i)\bCOMPLETE\b`)
@@ -411,6 +415,25 @@ func Parse(title string) Quality {
 	// "COMPLETE BluRay" with a non-conv 3D marker means the full Blu-ray 3D disc
 	// was ripped, which is always BD3D quality regardless of the 3D tag used.
 	if q.Format3D > Format3DConv && q.Source == SourceBluRay && reComplete.MatchString(title) {
+		q.Format3D = Format3DBD
+	}
+	// A remux carrying a bare "3D" and no frame-packing marker is a disc rip:
+	// a remux repackages the disc's streams without re-encoding, and every
+	// frame-compatible layout (SBS/OU, half or full) only exists as a
+	// re-encode — fitting two views into one frame *is* an encode. So such a
+	// release carries the disc's MVC stream, which is what BD3D denotes.
+	//
+	// The SBS/OU guard is load-bearing. An explicit layout marker says the
+	// release is frame-compatible, and that is the thing an ordinary decoder
+	// can play; MVC needs a dedicated one. Promoting "1080p 3D FSBS Remux" to
+	// BD3D would misfile a playable release as an unplayable one, so an
+	// explicit marker always wins over this inference.
+	//
+	// This matters because a bare "3D" otherwise defaults to half, and MVC
+	// remuxes are routinely named with nothing more specific —
+	// "Life of Pi 2012 1080p 3D Blu ray Remux AVC DTS-HD MA 7.1" is a disc
+	// remux that read as half-resolution.
+	if q.Format3D > Format3DConv && q.Source == SourceRemux && !reFrameCompatible3D.MatchString(title) {
 		q.Format3D = Format3DBD
 	}
 	// 3D releases without an explicit resolution tag are assumed to be

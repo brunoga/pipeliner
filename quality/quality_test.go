@@ -1269,3 +1269,109 @@ func TestBetterPrecedence(t *testing.T) {
 		})
 	}
 }
+
+// A remux repackages the disc's streams without re-encoding, and
+// half-resolution 3D only exists as a re-encode — squeezing two views into one
+// frame is an encode. So a 3D remux necessarily carries the disc's MVC stream.
+// Plain "3D" otherwise defaults to half, which was rejecting genuine full-disc
+// remuxes against a "3dfull" spec.
+func Test3DRemuxIsADiscRip(t *testing.T) {
+	cases := []struct {
+		name  string
+		title string
+	}{
+		{"the reported case", "Life of Pi 2012 1080p 3D Blu ray Remux AVC DTSHD MA 7 1(MKV)"},
+		{"dotted", "Life.of.Pi.2012.1080p.3D.BluRay.Remux.AVC.DTS-HD.MA.7.1"},
+		{"bdremux", "Avatar.2009.3D.BDRemux.1080p"},
+		{"multi-language remux", "Abominable 2019 1080p 3D Multi Language Remux zman"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			q := Parse(c.title)
+			if q.Source != SourceRemux {
+				t.Fatalf("source = %v, want Remux", q.Source)
+			}
+			if q.Format3D != Format3DBD {
+				t.Errorf("Format3D = %v, want BD3D", q.Format3D)
+			}
+		})
+	}
+}
+
+// The promotion must not invent 3D where there is none, and must not override
+// a conversion marker — an AI-converted release remuxed to MKV is still a
+// conversion, not a disc rip.
+func Test3DRemuxPromotionIsBounded(t *testing.T) {
+	if q := Parse("Life.of.Pi.2012.1080p.BluRay.Remux.AVC.DTS-HD.MA.7.1"); q.Format3D != Format3DNone {
+		t.Errorf("a non-3D remux must stay non-3D, got %v", q.Format3D)
+	}
+	if q := Parse("Some.Movie.2012.3D.CONV.1080p.Remux.AVC"); q.Format3D != Format3DConv {
+		t.Errorf("a converted 3D remux must stay 3D-Conv, got %v", q.Format3D)
+	}
+	if q := Parse("Some.Movie.2012.WOZ3D.1080p.Remux.AVC"); q.Format3D != Format3DConv {
+		t.Errorf("a known fan-conversion tag must stay 3D-Conv, got %v", q.Format3D)
+	}
+	// A non-remux source keeps the half reading: an HSBS BluRay encode is
+	// genuinely half-resolution.
+	if q := Parse("Some.Movie.2012.HSBS.1080p.BluRay.x264"); q.Format3D != Format3DHalf {
+		t.Errorf("an HSBS encode must stay 3D-Half, got %v", q.Format3D)
+	}
+}
+
+// An explicit frame-packing marker always wins over the remux inference. These
+// releases fit both views into one frame, which an ordinary decoder can play —
+// calling them BD3D would misfile a playable release as an MVC one.
+func Test3DRemuxNeverOverridesAnExplicitLayout(t *testing.T) {
+	cases := []struct {
+		title string
+		want  Format3D
+	}{
+		{"Some.Movie.2012.1080p.3D.FSBS.BluRay.Remux.AVC", Format3DFull},
+		{"Some.Movie.2012.1080p.3D.Full-SBS.Remux.AVC", Format3DFull},
+		{"Some.Movie.2012.1080p.3D.FOU.Remux.AVC", Format3DFull},
+		{"Some.Movie.2012.1080p.3D.HSBS.Remux.AVC", Format3DHalf},
+		{"Some.Movie.2012.1080p.3D.SBS.Remux.AVC", Format3DHalf},
+		{"Some.Movie.2012.1080p.3D.OU.Remux.AVC", Format3DHalf},
+	}
+	for _, c := range cases {
+		if q := Parse(c.title); q.Format3D != c.want {
+			t.Errorf("Parse(%q).Format3D = %v, want %v", c.title, q.Format3D, c.want)
+		}
+	}
+}
+
+// An explicit MVC marker needs no inference and is unaffected by source.
+func TestMVCIsAlwaysADiscRip(t *testing.T) {
+	for _, title := range []string{
+		"Abominable 2019 1080p 3D Multi Language MVC Atmos Remux  zman",
+		"Abominable 2019 1080p 3D Blu ray Re Encoded MVC Atmos 7 1 munk",
+	} {
+		if q := Parse(title); q.Format3D != Format3DBD {
+			t.Errorf("Parse(%q).Format3D = %v, want BD3D", title, q.Format3D)
+		}
+	}
+}
+
+// A 3D remux now reads as BD3D, so it passes a "3dfull+" floor. It still does
+// not match a bare "3dfull", because a bare token is an exact match and BD3D
+// ranks above Full — the same semantics as "720p" vs "720p+".
+func Test3DRemuxAgainstFullSpecs(t *testing.T) {
+	q := Parse("Life of Pi 2012 1080p 3D Blu ray Remux AVC DTSHD MA 7 1(MKV)")
+	if q.Format3D != Format3DBD {
+		t.Fatalf("Format3D = %v, want BD3D", q.Format3D)
+	}
+	floor, err := ParseSpec("3dfull+")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !floor.Matches(q) {
+		t.Errorf("%s should match the floor spec \"3dfull+\"", q.String())
+	}
+	exact, err := ParseSpec("3dfull")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if exact.Matches(q) {
+		t.Errorf("%s should NOT match the exact spec \"3dfull\" — BD3D outranks Full", q.String())
+	}
+}
