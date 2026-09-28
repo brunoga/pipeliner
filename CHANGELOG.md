@@ -5,6 +5,20 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.42.0] - 2026-09-28
+
+Makes the `exec` sink usable for the thing it is most often pointed at — a media path — and adds a converter for Blu-ray 3D sources that ordinary players cannot decode.
+
+### Added
+
+- **`bd3d2sbs`, a platform-aware MVC to side-by-side converter** ([#486](https://github.com/brunoga/pipeliner/pull/486)). MVC keeps the second eye as a dependent view of an AVC base view, and very few players decode it — Plex does not — so a Blu-ray 3D rip sits in a library unwatchable despite carrying a full image per eye. Side-by-side puts both eyes in one frame any H.264 decoder handles. A Go rewrite of [bd3d2sbs](https://github.com/Michal-Szczepaniak/bd3d2sbs), itself a shell port of the Windows tool BD3D2MK3D, with the platform differences made explicit so one binary reasons correctly on Linux, macOS and Windows; it ships for all seven targets the project already builds. `--check` reports which external tools are present, what each missing one is for and where to start, exiting non-zero so it works as a preflight. `--dry-run` assembles the four stages — demux, stack, encode, mux — generating the VapourSynth script and every argv, with the decode streaming Y4M into the encoder rather than spooling hundreds of gigabytes of raw frames, and refuses an impossible combination such as VAAPI on macOS up front rather than hours into a run. **Running the conversion is deliberately not implemented**: tsMuxeR needs a meta file naming the exact playlist and track numbers, which come from parsing its own listing of the source, and that cannot be written honestly without the tool and a real MVC source to check against.
+
+### Changed
+
+- **The `exec` sink takes arguments with spaces, and its failures are real** ([#485](https://github.com/brunoga/pipeliner/pull/485)). Arguments were split with whitespace, so `convert /media/Life of Pi (2012)/x.mkv` arrived as six of them, and quoting did not help because quotes were passed through as literal characters — there was no way for a config to express it at all. Splitting now honours single quotes, double quotes and backslash escapes, and a new `args` list gives exactly one argv element per entry where quoting is awkward; unterminated quotes fail the entry rather than executing a wrong split. Separately, a non-zero exit was only logged: the entry stayed accepted, so the commit phase recorded it as delivered and an upstream tracker marked the item done and never retried it — precisely what the commit phase exists to prevent. Failures now fail the entry, with `ignore_errors=True` to opt out, and one entry failing still never aborts the sink. There is still no shell on any platform, deliberately: the rendered string carries release titles straight from an indexer, and running argv directly is also what makes the sink portable, since there is no `sh` on Windows. The tests used `touch`, `false` and `sleep` and so only ran on Unix; they now drive the test binary as a helper process and run on Linux, macOS and Windows alike.
+
+**Why 1.42.0**: a new shipped binary and a new `exec` option, both additive. A command that exits non-zero now fails its entry, which is a behaviour change for a config that was quietly ignoring failures — `ignore_errors=True` restores the old handling. A minor bump per SemVer.
+
 ## [1.41.2] - 2026-09-28
 
 ### Fixed
