@@ -146,6 +146,27 @@ The practical consequence: **your vetoing filters can sit anywhere**. Running
 `bitrate` or a language `condition` before or after this filter changes only
 how soon a dud is discovered, not whether the item eventually downloads.
 
+### What the window remembers
+
+One release, not a list. Every candidate is compared against the incumbent and
+kept only if its quality is strictly better, so the record holds a single
+running best — plus the release names it has vetoed.
+
+When the window closes, two things decide the download together:
+
+- every release for that item arriving in that run is no longer held, so they
+  all flow on and [`dedup`](../dedup/) picks the best of that run's batch;
+- the remembered winner is revived and joins them **only when it is not itself
+  in that batch**, so it is never downloaded twice.
+
+"Is the winner still being advertised?" is answered by comparing **release
+names**. The URL cannot be used — indexers re-encrypt download links on every
+search, so a URL recorded hours ago matches nothing and the winner would be
+revived alongside its own live copy. The item's own key cannot be used either:
+it identifies the film or episode rather than the release, so a worse sibling
+still in the feed would suppress revival and the wait would end by downloading
+something worse than the release it spent the window identifying.
+
 ## DAG role
 
 | Property | Value |

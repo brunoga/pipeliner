@@ -62,9 +62,21 @@ type Record struct {
 // releases; this only has to outlast one.
 const maxVetoed = 16
 
+// NormalizeTitle is how two release names are compared for identity, both for
+// the veto list and for deciding whether a remembered winner is still being
+// advertised.
+//
+// The release name is the only stable handle a release has here. Its URL is
+// re-encrypted by the indexer on every search, and the settle key identifies
+// the *item* rather than the release — so a key comparison cannot tell the
+// recorded winner apart from a worse sibling of the same film.
+func NormalizeTitle(s string) string {
+	return strings.ToLower(strings.TrimSpace(s))
+}
+
 // isVetoed reports whether a release title has already proved undownloadable.
 func (r *Record) isVetoed(title string) bool {
-	norm := strings.ToLower(strings.TrimSpace(title))
+	norm := NormalizeTitle(title)
 	if norm == "" {
 		return false
 	}
@@ -176,7 +188,7 @@ func (t *Tracker) Veto(key, releaseTitle string) {
 	if t == nil || t.b == nil {
 		return
 	}
-	norm := strings.ToLower(strings.TrimSpace(releaseTitle))
+	norm := NormalizeTitle(releaseTitle)
 	if norm == "" {
 		return
 	}
@@ -194,7 +206,7 @@ func (t *Tracker) Veto(key, releaseTitle string) {
 	// Drop the winner if that is what was rejected, so the window is free to
 	// promote a different release. Expired skips records without a winner, so
 	// nothing is revived until one is offered.
-	if strings.ToLower(strings.TrimSpace(rec.Best.Title)) == norm {
+	if NormalizeTitle(rec.Best.Title) == norm {
 		rec.Best = Candidate{}
 	}
 	_ = t.b.Put(key, rec)
