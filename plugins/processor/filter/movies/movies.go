@@ -276,20 +276,13 @@ func (p *moviesPlugin) releaseSettled(ctx context.Context, tc *plugin.TaskContex
 	if p.settle <= 0 {
 		return nil
 	}
-	// Keyed by settle key, not URL. Indexers re-encrypt their download links
-	// on every search, so the URL recorded hours ago never matches the one in
-	// this run's feed — comparing URLs made this check always miss, and the
-	// stale duplicate it then revived competed with the live entry at dedup
-	// and, on equal quality tags, could win and be downloaded from a URL that
-	// no longer resolves. The key is derived from the title, so it is stable.
-	// Keyed by release name, which is the only stable handle a release has
-	// here. Two earlier forms of this check were both wrong: the recorded URL
-	// never matched, because indexers re-encrypt download links on every
-	// search, so the winner was revived even while it sat in the feed and the
-	// stale duplicate competed with the live entry; the settle key matched too
-	// much, because it identifies the *item*, so any sibling release of the
-	// same title suppressed revival and a six-hour wait could end in
-	// downloading a worse release than the one it had picked.
+	// Skip a candidate the feed is still advertising, matched by release name
+	// — the only stable handle a release has here. Its URL is re-encrypted by
+	// the indexer on every search, and the settle key identifies the item
+	// rather than the release, so neither can tell one release of a film from
+	// another. Without this the run would carry both the live copy and a
+	// rebuilt one, and dedup could crown the rebuilt one and fetch from a link
+	// that no longer resolves.
 	present := make(map[string]bool, len(batch))
 	for _, e := range batch {
 		if n := settle.NormalizeTitle(e.Title); n != "" {
@@ -298,10 +291,10 @@ func (p *moviesPlugin) releaseSettled(ctx context.Context, tc *plugin.TaskContex
 	}
 	var revived []*entry.Entry
 	for _, exp := range p.settleTracker.Expired(tc.Name, p.settle, time.Now()) {
-		if present[settle.NormalizeTitle(exp.Best.Title)] {
-			continue // still advertised; it goes through the normal path
+		if present[settle.NormalizeTitle(exp.Release.Title)] {
+			continue // the live copy carries it
 		}
-		e := exp.Best.Rebuild()
+		e := exp.Release.Rebuild()
 		e.Set(entry.FieldMediaType, entry.MediaTypeMovie)
 		e.Set(entry.FieldSettledRevived, true)
 		if err := p.filter(ctx, tc, e); err != nil {
@@ -311,8 +304,8 @@ func (p *moviesPlugin) releaseSettled(ctx context.Context, tc *plugin.TaskContex
 		if !e.IsAccepted() {
 			continue
 		}
-		tc.Logger.Info("movies: downloading settled release no longer in any feed",
-			"entry", e.Title, "quality", exp.Best.Quality.String())
+		tc.Logger.Info("movies: releasing settled candidate no longer in the feed",
+			"entry", e.Title, "quality", exp.Release.Quality.String())
 		revived = append(revived, e)
 	}
 	return revived

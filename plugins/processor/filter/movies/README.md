@@ -157,6 +157,43 @@ it identifies the film or episode rather than the release, so a worse sibling
 still in the feed would suppress revival and the wait would end by downloading
 something worse than the release it spent the window identifying.
 
+### Required ordering: dedup after the vetoing gates
+
+`settle` releases **every** release it recorded when the window closes, and
+lets the pipeline choose. That only works if [`dedup`](../dedup/) runs *after*
+the nodes that can refuse a release:
+
+```python
+movies  = process("movies", upstream=q, settle="6h", ...)   # releases the wave
+tmdb    = process("metainfo_tmdb", upstream=movies, ...)    # runtime, language
+req     = process("require", upstream=tmdb, fields=["enriched", "torrent_file_size", "video_runtime"])
+lang    = process("condition", upstream=req, reject='video_language != "" and video_language != "English"')
+bitrate = process("bitrate", upstream=lang, min_1080p=2, min_2160p=15)
+dedup   = process("dedup", upstream=bitrate)                # picks the best SURVIVOR
+```
+
+`dedup` collapses a wave to one release per item, and it chooses on quality
+tags because that is all it has. Put a vetoing gate after it and the
+alternatives are already gone by the time the refusal happens, so the item is
+lost for that run — and, since the same wave comes back, for every run after
+it. Put the gates first and `dedup` picks the best release that can actually
+be grabbed.
+
+`tests/integration/order_test.go` holds this as a test: the same feed and the
+same gate, with `dedup` on either side, produce nothing and the runner-up
+respectively.
+
+Two things follow from this that are easy to get wrong:
+
+- **`bitrate` cannot move earlier than enrichment.** It needs `video_runtime`,
+  which only TMDb/TVDB supply, so it has to sit after `metainfo_tmdb`. That is
+  also why it is a separate plugin from [`quality`](../quality/): `quality`
+  matches on the release name alone and can run on the raw feed, while
+  `bitrate` cannot.
+- **Enrichment stays *below* the settle filter.** Moving `metainfo_tmdb` above
+  it would run a network lookup on the whole feed rather than on the handful of
+  releases the filter accepts.
+
 ## DAG role
 
 | Property | Value |

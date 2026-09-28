@@ -87,7 +87,7 @@ func TestExpiredListsWinners(t *testing.T) {
 	tr.Offer("t|fresh", cand("u-fresh", "fresh", "2160p BluRay"), w, now.Add(-1*time.Hour))
 
 	exp := tr.Expired("t", w, now)
-	if len(exp) != 1 || exp[0].Key != "t|old" || exp[0].Best.URL != "u-old" {
+	if len(exp) != 1 || exp[0].Key != "t|old" || exp[0].Release.URL != "u-old" {
 		t.Fatalf("expired = %+v, want only the elapsed window", exp)
 	}
 	tr.Clear("t|old")
@@ -141,7 +141,7 @@ func TestExpiredIsScopedToTask(t *testing.T) {
 		t.Errorf("another pipeline's record leaked: %+v", got)
 	}
 	got := tr.Expired("movies", w, now)
-	if len(got) != 1 || got[0].Best.URL != "u-2d" {
+	if len(got) != 1 || got[0].Release.URL != "u-2d" {
 		t.Errorf("the owning task must see its own record, got %+v", got)
 	}
 	// An empty task name must never match everything.
@@ -150,10 +150,9 @@ func TestExpiredIsScopedToTask(t *testing.T) {
 	}
 }
 
-// A release the caller vetoed is dropped as the winner, so the window can
-// promote the runner-up. Without this the window locks onto a release a
-// downstream node always rejects: Best is only ever replaced by higher
-// quality, and Clear only runs after a real download.
+// Vetoing removes a release from the wave, so the runner-up is available
+// immediately — no further offer required. Under the old single-winner design
+// the record was left with no winner until the next run re-offered one.
 func TestVetoPromotesRunnerUp(t *testing.T) {
 	tr := New(newMemBucket())
 	now := time.Now()
@@ -162,20 +161,26 @@ func TestVetoPromotesRunnerUp(t *testing.T) {
 
 	tr.Offer("t|film", starved, 6*time.Hour, now)
 	tr.Offer("t|film", decent, 6*time.Hour, now)
+	if got := tr.Candidates("t|film"); len(got) != 2 {
+		t.Fatalf("wave holds %d candidates, want both", len(got))
+	}
 	if best, _ := tr.Best("t|film"); best.URL != "u-starved" {
 		t.Fatalf("pre-veto best = %q, want the highest quality", best.URL)
 	}
 
 	tr.Veto("t|film", starved.Title)
-	if _, ok := tr.Best("t|film"); ok {
-		t.Error("vetoed winner is still the winner")
+
+	cands := tr.Candidates("t|film")
+	if len(cands) != 1 || cands[0].URL != "u-decent" {
+		t.Fatalf("after veto the wave is %v, want only the runner-up", cands)
+	}
+	best, ok := tr.Best("t|film")
+	if !ok || best.URL != "u-decent" {
+		t.Errorf("runner-up not available after the veto: best=%q ok=%v", best.URL, ok)
 	}
 	// The window must keep running — the item is still wanted.
 	if left := tr.Offer("t|film", decent, 6*time.Hour, now.Add(time.Hour)); left <= 0 {
 		t.Errorf("window ended early after a veto: left = %v", left)
-	}
-	if best, ok := tr.Best("t|film"); !ok || best.URL != "u-decent" {
-		t.Errorf("runner-up not promoted: best = %q ok = %v", best.URL, ok)
 	}
 }
 
@@ -254,5 +259,124 @@ func TestVetoUnknownKeyIsNoop(t *testing.T) {
 	tr.Veto("t|nothing", "some release")
 	if len(b.data) != 0 {
 		t.Errorf("veto created %d records for an unknown key", len(b.data))
+	}
+}
+
+// ── the window keeps the whole wave ──────────────────────────────────────────
+
+// Every distinct release of a wave is kept, so the caller can release them all
+// and let the pipeline's gates and dedup decide. The old design kept a running
+// maximum, which meant choosing on quality tags before any node that could
+// veto a release had run.
+func TestOfferKeepsEveryDistinctRelease(t *testing.T) {
+	tr := New(newMemBucket())
+	now := time.Now()
+	wave := []Candidate{
+		cand("u1", "Film 1080p WEB-DL", "1080p WEB-DL"),
+		cand("u2", "Film 2160p WEB-DL", "2160p WEB-DL"),
+		cand("u3", "Film 2160p BluRay Atmos", "2160p BluRay TrueHD Atmos"),
+	}
+	for _, c := range wave {
+		tr.Offer("t|film", c, 6*time.Hour, now)
+	}
+	got := tr.Candidates("t|film")
+	if len(got) != 3 {
+		t.Fatalf("wave holds %d releases, want 3", len(got))
+	}
+	// Arrival order is preserved; the pipeline, not the tracker, ranks them.
+	for i, want := range []string{"u1", "u2", "u3"} {
+		if got[i].URL != want {
+			t.Errorf("candidate %d = %q, want %q (arrival order)", i, got[i].URL, want)
+		}
+	}
+}
+
+// The same release offered twice — which happens on every run while a window
+// is open — must not accumulate.
+func TestOfferDeduplicatesByReleaseName(t *testing.T) {
+	tr := New(newMemBucket())
+	now := time.Now()
+	c := cand("u1", "Film 2160p BluRay Atmos", "2160p BluRay TrueHD Atmos")
+	for i := 0; i < 5; i++ {
+		// Fresh URL each time, as an indexer would hand out.
+		c.URL = "u1-rotated-" + string(rune('a'+i))
+		tr.Offer("t|film", c, 6*time.Hour, now)
+	}
+	if got := tr.Candidates("t|film"); len(got) != 1 {
+		t.Errorf("wave holds %d copies of one release, want 1: %v", len(got), got)
+	}
+}
+
+// Expired hands back every candidate of an elapsed window, not just the best.
+func TestExpiredReturnsTheWholeWave(t *testing.T) {
+	tr := New(newMemBucket())
+	now := time.Now()
+	for _, c := range []Candidate{
+		cand("u1", "Film 1080p WEB-DL", "1080p WEB-DL"),
+		cand("u2", "Film 2160p BluRay Atmos", "2160p BluRay TrueHD Atmos"),
+	} {
+		tr.Offer("t|film", c, 6*time.Hour, now)
+	}
+	exp := tr.Expired("t", 6*time.Hour, now.Add(7*time.Hour))
+	if len(exp) != 2 {
+		t.Fatalf("expired returned %d releases, want the whole wave (2)", len(exp))
+	}
+	for _, e := range exp {
+		if e.Key != "t|film" {
+			t.Errorf("release %q carries key %q", e.Release.URL, e.Key)
+		}
+	}
+}
+
+func TestCandidateListIsCapped(t *testing.T) {
+	tr := New(newMemBucket())
+	now := time.Now()
+	for i := 0; i < maxCandidates*2; i++ {
+		tr.Offer("t|film", cand(fmt.Sprintf("u%d", i), fmt.Sprintf("Film release %d", i), "1080p WEB-DL"), 6*time.Hour, now)
+	}
+	got := tr.Candidates("t|film")
+	if len(got) != maxCandidates {
+		t.Fatalf("wave grew to %d, cap is %d", len(got), maxCandidates)
+	}
+	// The cap drops the oldest, so the newest release is still present.
+	last := fmt.Sprintf("u%d", maxCandidates*2-1)
+	if got[len(got)-1].URL != last {
+		t.Errorf("newest release was evicted: last kept is %q, want %q", got[len(got)-1].URL, last)
+	}
+}
+
+// Records written before the window kept the whole wave carry a single "best".
+// They must keep working: the winner is folded into the wave on first touch and
+// the legacy field is not written again.
+func TestMigratesSingleWinnerRecord(t *testing.T) {
+	b := newMemBucket()
+	tr := New(b)
+	now := time.Now()
+	legacy := cand("u-legacy", "Film 2160p BluRay Atmos", "2160p BluRay TrueHD Atmos")
+	if err := b.Put("t|film", Record{FirstSeen: now.Add(-7 * time.Hour), Best: &legacy}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Reading it surfaces the legacy winner as a candidate.
+	got := tr.Candidates("t|film")
+	if len(got) != 1 || got[0].URL != "u-legacy" {
+		t.Fatalf("legacy winner not migrated: %v", got)
+	}
+	// It is still released when the window has elapsed.
+	if exp := tr.Expired("t", 6*time.Hour, now); len(exp) != 1 || exp[0].Release.URL != "u-legacy" {
+		t.Fatalf("legacy winner not released: %v", exp)
+	}
+	// A further offer joins it rather than replacing it, and the legacy field
+	// is gone from what gets written.
+	tr.Offer("t|film", cand("u-new", "Film 1080p WEB-DL", "1080p WEB-DL"), 6*time.Hour, now)
+	if got := tr.Candidates("t|film"); len(got) != 2 {
+		t.Errorf("wave after offer holds %d, want 2 (legacy + new)", len(got))
+	}
+	var raw Record
+	if _, err := b.Get("t|film", &raw); err != nil {
+		t.Fatal(err)
+	}
+	if raw.Best != nil {
+		t.Error("the legacy best field was written back; it should be dropped")
 	}
 }

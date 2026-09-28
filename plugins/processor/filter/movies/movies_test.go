@@ -1135,64 +1135,65 @@ func TestSettleDoesNotDuplicateWinnerAfterURLRotation(t *testing.T) {
 	}
 }
 
-// TestSettleVetoesWinnerRejectedDownstream: a revived winner that a later node
-// refuses cannot be grabbed, so the window must drop it and promote the
-// runner-up. Before this, Best was only ever replaced by higher quality and
-// Clear only ran after a real download, so a starved encode or a film in the
-// wrong language was re-offered on every run forever — and, because the
-// revived entry wins dedup on quality, it also crowded out the release that
-// would have worked.
-func TestSettleVetoesWinnerRejectedDownstream(t *testing.T) {
+// TestSettleVetoesReleaseRejectedDownstream covers the refusals that survive
+// the wave design. With dedup running after the vetoing gates, a starved encode
+// is thinned out and dedup picks a survivor in the same run — no veto needed.
+// This is the rest: a release refused *after* dedup, by a stale download link
+// or a content filter, which would otherwise be re-released every run. Vetoing
+// removes it from the wave so the remaining candidates get their turn.
+func TestSettleVetoesReleaseRejectedDownstream(t *testing.T) {
 	db, _ := store.OpenSQLite(":memory:")
 	defer db.Close()
 	p, _ := newPlugin(map[string]any{"settle": "6h"}, db)
 	mp := p.(*moviesPlugin)
 	ctx, tc := context.Background(), makeCtx()
 
-	// A wave: the quality-best release plus a humbler runner-up.
-	best := makeEntry("Veto.Movie.2026.2160p.BluRay.TrueHD.Atmos.DV.x265", "http://idx/dl?path=A")
+	topTagged := makeEntry("Veto.Movie.2026.2160p.BluRay.TrueHD.Atmos.DV.x265", "http://idx/dl?path=A")
 	runnerUp := makeEntry("Veto.Movie.2026.1080p.BluRay.x264", "http://idx/dl?path=B")
-	if _, err := mp.Process(ctx, tc, []*entry.Entry{best, runnerUp}); err != nil {
+	if _, err := mp.Process(ctx, tc, []*entry.Entry{topTagged, runnerUp}); err != nil {
 		t.Fatal(err)
 	}
 	expireSettle(t, db, "veto movie", 2026, 7*time.Hour)
 
-	// The window closes with nothing live in the feed, so the winner revives.
+	// Window closed with nothing live in the feed: the whole wave is released.
 	out, err := mp.Process(ctx, tc, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var revived *entry.Entry
+	var released []*entry.Entry
 	for _, e := range out {
-		if e.GetBool(entry.FieldSettledRevived) {
-			revived = e
+		if e.GetBool(entry.FieldSettledRevived) && e.IsAccepted() {
+			released = append(released, e)
 		}
 	}
-	if revived == nil {
-		t.Fatal("no entry was revived when the window closed")
-	}
-	if !strings.Contains(revived.Title, "2160p") {
-		t.Fatalf("revived %q, want the quality-best release", revived.Title)
+	if len(released) != 2 {
+		t.Fatalf("released %d candidates, want the whole wave (2) so the gates and dedup can choose", len(released))
 	}
 
-	// A downstream node refuses it, and Commit sees the rejected entry.
-	revived.Reject("bitrate: rejected starved encode")
-	if err := mp.persist(ctx, tc, []*entry.Entry{revived}); err != nil {
+	// Something after dedup refuses the 2160p; Commit sees it rejected.
+	var refused *entry.Entry
+	for _, e := range released {
+		if strings.Contains(e.Title, "2160p") {
+			refused = e
+		}
+	}
+	if refused == nil {
+		t.Fatal("the 2160p candidate was not among those released")
+	}
+	refused.Reject("content: rejected *.iso")
+	if err := mp.persist(ctx, tc, []*entry.Entry{refused}); err != nil {
 		t.Fatal(err)
 	}
 
-	// Next run the runner-up is offered again and must now be able to win.
-	again := makeEntry("Veto.Movie.2026.1080p.BluRay.x264", "http://idx/dl?path=B2")
-	if _, err := mp.Process(ctx, tc, []*entry.Entry{again}); err != nil {
-		t.Fatal(err)
-	}
+	// It must be gone from the wave, leaving the runner-up.
 	tr := settle.New(db.Bucket(settle.MovieBucketName))
-	got, ok := tr.Best(settle.MovieKey(tc.Name, "veto movie", 2026, false))
-	if !ok {
-		t.Fatal("no winner recorded after the veto; the runner-up was not promoted")
+	key := settle.MovieKey(tc.Name, "veto movie", 2026, false)
+	cands := tr.Candidates(key)
+	if len(cands) != 1 {
+		t.Fatalf("wave holds %d candidates after the veto, want 1: %v", len(cands), cands)
 	}
-	if !strings.Contains(got.Title, "1080p") {
-		t.Errorf("winner is still %q; the vetoed release must not regain the crown", got.Title)
+	if !strings.Contains(cands[0].Title, "1080p") {
+		t.Errorf("remaining candidate is %q, want the runner-up", cands[0].Title)
 	}
 }
 

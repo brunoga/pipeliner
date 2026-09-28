@@ -2,12 +2,21 @@ package integration
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/brunoga/pipeliner/internal/config"
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/plugin"
 	"github.com/brunoga/pipeliner/internal/store"
+
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/accept_all"
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/condition"
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/dedup"
+	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/file"
+	_ "github.com/brunoga/pipeliner/plugins/sink/print"
+	_ "github.com/brunoga/pipeliner/plugins/source/rss"
 )
 
 func init() {
@@ -164,4 +173,65 @@ pipeline("order-test")
 			}
 		}
 	}
+}
+
+// TestDedupMustFollowTheVetoingGates is the executable form of the ordering
+// requirement the settle window documents.
+//
+// dedup collapses a wave to one release per item, and whatever it keeps is
+// chosen on quality tags, because that is all it has. So a gate that can refuse
+// a release — a bitrate floor, a language condition — has to run BEFORE dedup:
+// placed after it, the alternatives have already been discarded by the time the
+// refusal happens and the item is lost for that run.
+//
+// Both pipelines below accept first (as the movies and series filters do, which
+// is what gives dedup something to rank), then differ only in whether the gate
+// precedes dedup. Same feed, same gate, opposite outcomes.
+func TestDedupMustFollowTheVetoingGates(t *testing.T) {
+	feed := []rssItem{
+		// Best tags, but the gate refuses it — stands in for a starved encode
+		// that a bitrate floor would reject.
+		{"Wave.Movie.2026.2160p.BluRay.x265", "http://example.com/wave-2160p"},
+		{"Wave.Movie.2026.1080p.BluRay.x264", "http://example.com/wave-1080p"},
+	}
+	const gate = `gate = process("condition", upstream=%s, rules=[{"reject": 'video_resolution == "2160p"'}])`
+
+	run := func(t *testing.T, body string) []*entry.Entry {
+		t.Helper()
+		srv := rssServer(t, feed)
+		defer srv.Close()
+		res := buildAndRun(t, fmt.Sprintf(`
+src  = input("rss", url=%q)
+meta = process("metainfo_file", upstream=src)
+acc  = process("accept_all", upstream=meta)
+`+body+`
+pipeline("t")
+`, srv.URL))
+		return acceptedEntries(res.entries)
+	}
+
+	t.Run("gate after dedup loses the item", func(t *testing.T) {
+		accepted := run(t, `
+dd   = process("dedup", upstream=acc)
+`+fmt.Sprintf(gate, "dd")+`
+output("print", upstream=gate)
+`)
+		if len(accepted) != 0 {
+			t.Errorf("expected nothing to survive: dedup crowns the 2160p and discards the 1080p, then the gate refuses the 2160p. got %v",
+				entryTitles(accepted))
+		}
+	})
+
+	t.Run("gate before dedup keeps the runner-up", func(t *testing.T) {
+		accepted := run(t, fmt.Sprintf(gate, "acc")+`
+dd   = process("dedup", upstream=gate)
+output("print", upstream=dd)
+`)
+		if len(accepted) != 1 {
+			t.Fatalf("expected the runner-up to survive, got %v", entryTitles(accepted))
+		}
+		if !strings.Contains(accepted[0].Title, "1080p") {
+			t.Errorf("survivor is %q, want the 1080p runner-up", accepted[0].Title)
+		}
+	})
 }

@@ -45,17 +45,60 @@ type Candidate struct {
 // Record is the stored state of one item's settle window.
 type Record struct {
 	FirstSeen time.Time `json:"first_seen"`
-	Best      Candidate `json:"best"`
-	// Vetoed holds the release titles that were revived from this window and
-	// then rejected by a downstream node — a starved encode, a film in the
-	// wrong language, anything a later gate refuses. Without it the window
-	// would re-offer the same undownloadable release on every run, because
-	// Best is only ever replaced by something of higher quality and Clear
-	// only runs for a release that was actually grabbed.
+	// Candidates is every download-worthy release seen during the window, in
+	// arrival order, deduplicated by release name.
 	//
-	// Release titles, not URLs: indexers re-encrypt their download links per
+	// The window keeps the whole wave rather than a running best because
+	// picking a winner here means picking it on quality *tags*, before the
+	// nodes that can actually veto a release have run — bitrate needs a
+	// runtime from enrichment, a language condition needs metadata. A single
+	// remembered winner therefore had to be re-chosen whenever a later gate
+	// refused it, one settle window at a time. Emitting the wave lets the
+	// pipeline's own gates thin it and dedup pick the best survivor, in one
+	// pass, with no special case.
+	//
+	// This requires dedup to run *after* those gates; see the plugin READMEs.
+	Candidates []Candidate `json:"candidates,omitempty"`
+	// Vetoed holds release names that a downstream node refused after they
+	// were revived from this window. A vetoed release is never re-recorded,
+	// so a release that cannot be grabbed stops coming back.
+	//
+	// Release names, not URLs: indexers re-encrypt their download links per
 	// search, so a URL recorded now identifies nothing later.
 	Vetoed []string `json:"vetoed,omitempty"`
+
+	// Best is the single-winner field written before the window kept the
+	// whole wave. Records already on disk still carry it, so it is read and
+	// folded into Candidates on first touch and never written again.
+	Best *Candidate `json:"best,omitempty"`
+}
+
+// maxCandidates caps the wave stored per item. A real wave is a handful of
+// releases; the cap only has to survive a pathological feed.
+const maxCandidates = 24
+
+// migrate folds a pre-wave record's single winner into Candidates. Returns
+// true when the record changed and should be written back.
+func (r *Record) migrate() bool {
+	if r.Best == nil {
+		return false
+	}
+	if len(r.Candidates) == 0 && r.Best.URL != "" {
+		r.Candidates = []Candidate{*r.Best}
+	}
+	r.Best = nil
+	return true
+}
+
+// has reports whether a release name is already recorded as a candidate.
+func (r *Record) has(title string) bool {
+	norm := NormalizeTitle(title)
+	for _, c := range r.Candidates {
+		if NormalizeTitle(c.Title) == norm {
+			return true
+		}
+	}
+	return false
 }
 
 // maxVetoed caps the remembered rejects per item. A wave is a handful of
@@ -94,10 +137,13 @@ type Tracker struct{ b bucket }
 // New returns a tracker backed by the given bucket.
 func New(b bucket) *Tracker { return &Tracker{b: b} }
 
-// Offer registers a download-worthy candidate for key and reports how much of
+// Offer records a download-worthy candidate for key and reports how much of
 // the settle window remains. A non-positive result means the window has
-// elapsed and the caller should download now. The best candidate seen so far
-// is retained, so the winner survives even after the feed forgets it.
+// elapsed and the caller should release the wave now.
+//
+// Every distinct release is kept, so when the window closes the caller can
+// hand the whole wave to the pipeline and let the gates and dedup decide.
+// A release already vetoed is not recorded again.
 func (t *Tracker) Offer(key string, c Candidate, window time.Duration, now time.Time) time.Duration {
 	if t == nil || t.b == nil || window <= 0 {
 		return 0
@@ -105,16 +151,20 @@ func (t *Tracker) Offer(key string, c Candidate, window time.Duration, now time.
 	var rec Record
 	found, err := t.b.Get(key, &rec)
 	if err != nil || !found || rec.FirstSeen.IsZero() {
-		_ = t.b.Put(key, Record{FirstSeen: now, Best: c})
+		_ = t.b.Put(key, Record{FirstSeen: now, Candidates: []Candidate{c}})
 		return window
 	}
-	// Keep only the best candidate: every later offer is compared against the
-	// incumbent, so one record always holds the highest quality of the wave.
-	// A release a downstream node already rejected is never promoted, however
-	// good its quality tags look — that is what stops the window locking onto
-	// something it can never grab.
-	if !rec.isVetoed(c.Title) && (c.Quality.Better(rec.Best.Quality) || rec.Best.URL == "") {
-		rec.Best = c
+	changed := rec.migrate()
+	if !rec.isVetoed(c.Title) && !rec.has(c.Title) {
+		rec.Candidates = append(rec.Candidates, c)
+		if len(rec.Candidates) > maxCandidates {
+			// Drop the oldest: a wave that overflows this is a churning feed,
+			// and the newest releases are the ones worth keeping.
+			rec.Candidates = rec.Candidates[len(rec.Candidates)-maxCandidates:]
+		}
+		changed = true
+	}
+	if changed {
 		_ = t.b.Put(key, rec)
 	}
 	if elapsed := now.Sub(rec.FirstSeen); elapsed < window {
@@ -123,30 +173,49 @@ func (t *Tracker) Offer(key string, c Candidate, window time.Duration, now time.
 	return 0
 }
 
-// Best returns the best candidate recorded for key.
+// Best returns the highest-quality candidate recorded for key. The window no
+// longer decides on quality alone — the pipeline does — but the best-tagged
+// release is still the useful thing to report when describing a window.
 func (t *Tracker) Best(key string) (Candidate, bool) {
-	if t == nil || t.b == nil {
+	cands := t.Candidates(key)
+	if len(cands) == 0 {
 		return Candidate{}, false
+	}
+	best := cands[0]
+	for _, c := range cands[1:] {
+		if c.Quality.Better(best.Quality) {
+			best = c
+		}
+	}
+	return best, true
+}
+
+// Candidates returns every release recorded for key, in arrival order.
+func (t *Tracker) Candidates(key string) []Candidate {
+	if t == nil || t.b == nil {
+		return nil
 	}
 	var rec Record
 	found, err := t.b.Get(key, &rec)
-	if err != nil || !found || rec.Best.URL == "" {
-		return Candidate{}, false
+	if err != nil || !found {
+		return nil
 	}
-	return rec.Best, true
+	rec.migrate()
+	return rec.Candidates
 }
 
-// KeyedCandidate pairs a stored key with its winning release.
+// KeyedCandidate pairs a stored key with one of its recorded releases.
 type KeyedCandidate struct {
-	Key  string
-	Best Candidate
+	Key     string
+	Release Candidate
 }
 
-// Expired lists items whose settle window has elapsed and that still hold a
-// recorded winner, restricted to the keys owned by task. Callers use it to
-// download a winner that is no longer advertised by any source.
+// Expired lists every recorded release of every window that has elapsed,
+// restricted to the keys owned by task. One window contributes as many
+// entries as it has candidates; the caller hands them all to the pipeline,
+// whose gates thin them and whose dedup picks the survivor.
 //
-// The task restriction is load-bearing, not hygiene: a winner is revived by
+// The task restriction is load-bearing, not hygiene: a release is revived by
 // injecting it straight into the caller's filter, skipping every upstream
 // node, so returning another pipeline's pending release would smuggle it
 // past gates it never passed.
@@ -166,24 +235,32 @@ func (t *Tracker) Expired(task string, window time.Duration, now time.Time) []Ke
 		}
 		var rec Record
 		found, err := t.b.Get(k, &rec)
-		if err != nil || !found || rec.FirstSeen.IsZero() || rec.Best.URL == "" {
+		if err != nil || !found || rec.FirstSeen.IsZero() {
 			continue
 		}
-		if now.Sub(rec.FirstSeen) >= window {
-			out = append(out, KeyedCandidate{Key: k, Best: rec.Best})
+		rec.migrate()
+		if now.Sub(rec.FirstSeen) < window {
+			continue
+		}
+		for _, c := range rec.Candidates {
+			if c.URL == "" {
+				continue
+			}
+			out = append(out, KeyedCandidate{Key: k, Release: c})
 		}
 	}
 	return out
 }
 
 // Veto records that a release was revived and then rejected downstream, and
-// drops it as the winner so the next offer can take its place. The window
-// keeps running: the item is still wanted, just not via this release.
+// removes it from the wave so it is neither offered again nor re-recorded.
+// The window keeps running: the item is still wanted, just not via this
+// release.
 //
-// Callers veto only a *revived* candidate. A revived entry is the recorded
-// winner and is only produced when nothing live for the item is in the batch,
-// so its rejection means the release itself is unusable — not that it lost a
-// comparison with a sibling.
+// With dedup running after the vetoing gates, most refusals never reach here
+// — the gate thins the wave and dedup picks a survivor in the same run. This
+// covers the rest: a release refused *after* dedup, by a stale download link
+// or a content filter, which would otherwise be re-picked every run.
 func (t *Tracker) Veto(key, releaseTitle string) {
 	if t == nil || t.b == nil {
 		return
@@ -197,18 +274,20 @@ func (t *Tracker) Veto(key, releaseTitle string) {
 	if err != nil || !found {
 		return
 	}
+	rec.migrate()
 	if !rec.isVetoed(norm) {
 		rec.Vetoed = append(rec.Vetoed, norm)
 		if len(rec.Vetoed) > maxVetoed {
 			rec.Vetoed = rec.Vetoed[len(rec.Vetoed)-maxVetoed:]
 		}
 	}
-	// Drop the winner if that is what was rejected, so the window is free to
-	// promote a different release. Expired skips records without a winner, so
-	// nothing is revived until one is offered.
-	if NormalizeTitle(rec.Best.Title) == norm {
-		rec.Best = Candidate{}
+	kept := rec.Candidates[:0]
+	for _, c := range rec.Candidates {
+		if NormalizeTitle(c.Title) != norm {
+			kept = append(kept, c)
+		}
 	}
+	rec.Candidates = kept
 	_ = t.b.Put(key, rec)
 }
 
