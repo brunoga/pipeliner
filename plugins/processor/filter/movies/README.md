@@ -110,44 +110,29 @@ cond = process("condition", upstream=movies, rules=[
 ])
 ```
 
-## The settle window and downstream vetoes
+## The settle window
 
-`settle` holds every download-worthy release for an item, remembers the best of
-the wave, and grabs that one when the window closes — including when it has
-scrolled out of the feed, which is why the winner is stored rather than
-re-derived.
+`settle` holds every download-worthy release for an item, records them, and
+hands the whole wave to the pipeline when the window closes — including
+releases that have since scrolled out of the feed, which is why they are
+stored rather than re-derived.
 
-That storage needs one safeguard. The winner is chosen from **quality tags
-alone**, so it can be a release a later node will always refuse: a starved
-encode that fails a `bitrate` floor, a film a language `condition` rejects.
-Two properties would otherwise make that permanent — the winner is only ever
-replaced by something of *higher* quality, and the window is only ended by a
-completed download. The same unusable release would be re-offered on every run
-forever, and because a revived entry beats its runner-ups at `dedup` on
-quality, it would also crowd out the release that could have been grabbed.
-
-So a revived winner that comes back rejected is **vetoed**: dropped as the
-winner, never promoted again, and the runner-up takes its place. Vetoes are
-matched on the release name rather than the URL, because indexers re-encrypt
-their download links on every search — the same reason a URL is useless as a
-release identity anywhere else in pipeliner.
-
-The practical consequence: **your vetoing filters can sit anywhere**. Running
-`bitrate` or a language `condition` before or after this filter changes only
-how soon a dud is discovered, not whether the item eventually downloads.
+Nothing is chosen here. Choosing would mean choosing on quality tags, which is
+all this filter has: the nodes that can actually refuse a release run later, so
+`bitrate` needs a runtime from enrichment and a language `condition` needs
+metadata. The gates thin the wave and `dedup` picks the best survivor instead.
 
 ### What the window remembers
 
-One release, not a list. Every candidate is compared against the incumbent and
-kept only if its quality is strictly better, so the record holds a single
-running best — plus the release names it has vetoed.
+Every distinct release it saw, in arrival order, deduplicated by release name
+and capped, so a churning feed cannot grow the record without bound.
 
 When the window closes, two things decide the download together:
 
 - every release for that item arriving in that run is no longer held, so they
   all flow on and [`dedup`](../dedup/) picks the best of that run's batch;
-- the remembered winner is revived and joins them **only when it is not itself
-  in that batch**, so it is never downloaded twice.
+- every recorded release joins them, except any the batch is already carrying,
+  so nothing is handed on twice.
 
 "Is the winner still being advertised?" is answered by comparing **release
 names**. The URL cannot be used — indexers re-encrypt download links on every

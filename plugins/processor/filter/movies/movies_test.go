@@ -1135,65 +1135,51 @@ func TestSettleDoesNotDuplicateWinnerAfterURLRotation(t *testing.T) {
 	}
 }
 
-// TestSettleVetoesReleaseRejectedDownstream covers the refusals that survive
-// the wave design. With dedup running after the vetoing gates, a starved encode
-// is thinned out and dedup picks a survivor in the same run — no veto needed.
-// This is the rest: a release refused *after* dedup, by a stale download link
-// or a content filter, which would otherwise be re-released every run. Vetoing
-// removes it from the wave so the remaining candidates get their turn.
-func TestSettleVetoesReleaseRejectedDownstream(t *testing.T) {
+// TestSettleReleasesTheWholeWave: when the window closes the filter hands the
+// pipeline every release it recorded, not a winner it picked. Choosing here
+// would mean choosing on quality tags, before any node that can refuse a
+// release has run — the gates thin the wave and dedup picks the survivor.
+func TestSettleReleasesTheWholeWave(t *testing.T) {
 	db, _ := store.OpenSQLite(":memory:")
 	defer db.Close()
 	p, _ := newPlugin(map[string]any{"settle": "6h"}, db)
 	mp := p.(*moviesPlugin)
 	ctx, tc := context.Background(), makeCtx()
 
-	topTagged := makeEntry("Veto.Movie.2026.2160p.BluRay.TrueHD.Atmos.DV.x265", "http://idx/dl?path=A")
-	runnerUp := makeEntry("Veto.Movie.2026.1080p.BluRay.x264", "http://idx/dl?path=B")
-	if _, err := mp.Process(ctx, tc, []*entry.Entry{topTagged, runnerUp}); err != nil {
+	wave := []*entry.Entry{
+		makeEntry("Wave.Movie.2026.2160p.BluRay.TrueHD.Atmos.DV.x265", "http://idx/dl?path=A"),
+		makeEntry("Wave.Movie.2026.1080p.BluRay.x264", "http://idx/dl?path=B"),
+		makeEntry("Wave.Movie.2026.1080p.WEB-DL.x264", "http://idx/dl?path=C"),
+	}
+	if _, err := mp.Process(ctx, tc, wave); err != nil {
 		t.Fatal(err)
 	}
-	expireSettle(t, db, "veto movie", 2026, 7*time.Hour)
+	expireSettle(t, db, "wave movie", 2026, 7*time.Hour)
 
-	// Window closed with nothing live in the feed: the whole wave is released.
+	// Nothing live in the feed: every recorded release is handed on.
 	out, err := mp.Process(ctx, tc, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var released []*entry.Entry
+	var released []string
 	for _, e := range out {
 		if e.GetBool(entry.FieldSettledRevived) && e.IsAccepted() {
-			released = append(released, e)
+			released = append(released, e.Title)
 		}
 	}
-	if len(released) != 2 {
-		t.Fatalf("released %d candidates, want the whole wave (2) so the gates and dedup can choose", len(released))
+	if len(released) != 3 {
+		t.Fatalf("released %d of 3 recorded releases: %v", len(released), released)
 	}
-
-	// Something after dedup refuses the 2160p; Commit sees it rejected.
-	var refused *entry.Entry
-	for _, e := range released {
-		if strings.Contains(e.Title, "2160p") {
-			refused = e
+	for _, want := range []string{"2160p", "1080p.BluRay", "1080p.WEB-DL"} {
+		found := false
+		for _, r := range released {
+			if strings.Contains(r, want) {
+				found = true
+			}
 		}
-	}
-	if refused == nil {
-		t.Fatal("the 2160p candidate was not among those released")
-	}
-	refused.Reject("content: rejected *.iso")
-	if err := mp.persist(ctx, tc, []*entry.Entry{refused}); err != nil {
-		t.Fatal(err)
-	}
-
-	// It must be gone from the wave, leaving the runner-up.
-	tr := settle.New(db.Bucket(settle.MovieBucketName))
-	key := settle.MovieKey(tc.Name, "veto movie", 2026, false)
-	cands := tr.Candidates(key)
-	if len(cands) != 1 {
-		t.Fatalf("wave holds %d candidates after the veto, want 1: %v", len(cands), cands)
-	}
-	if !strings.Contains(cands[0].Title, "1080p") {
-		t.Errorf("remaining candidate is %q, want the runner-up", cands[0].Title)
+		if !found {
+			t.Errorf("%s missing from the released wave: %v", want, released)
+		}
 	}
 }
 
