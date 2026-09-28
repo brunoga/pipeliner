@@ -61,6 +61,9 @@ jobs:
         run: |
           VERSION=$(git describe --tags --dirty --always 2>/dev/null || echo "dev")
           go build -ldflags "-s -w -X main.version=${VERSION}" ./cmd/pipeliner
+          # bd3d2sbs reasons about the platform it runs on, so it has to build
+          # for every platform it claims to support, not just the host.
+          go build -ldflags "-s -w -X main.version=${VERSION}" ./cmd/bd3d2sbs
 
       - name: Verify go.mod is tidy
         if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
