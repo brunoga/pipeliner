@@ -2,6 +2,7 @@ package web
 
 import (
 	"bufio"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -26,6 +27,35 @@ type LinePos struct {
 // opaque wire cursor.
 func (p LinePos) String() string {
 	return strconv.Itoa(p.FileIdx) + ":" + strconv.FormatInt(p.ByteEnd, 10)
+}
+
+// MarshalJSON emits a position in the same "<fileIdx>:<byteEnd>" form used
+// for cursors.
+//
+// Positions and cursors are the same thing as far as a client is concerned:
+// it takes a line's position and feeds it straight back as the cursor for the
+// next page, or compares it against one. Letting the struct marshal as an
+// object while every cursor field marshalled as a string made those two uses
+// silently incompatible — a position stringified to "[object Object]" as a
+// cursor, and position comparison in the UI failed to parse and answered
+// "false" for everything, which duplicated live lines the tail had already
+// rendered. One wire format removes the whole class.
+func (p LinePos) MarshalJSON() ([]byte, error) {
+	return json.Marshal(p.String())
+}
+
+// UnmarshalJSON accepts the string form written by MarshalJSON.
+func (p *LinePos) UnmarshalJSON(b []byte) error {
+	var s string
+	if err := json.Unmarshal(b, &s); err != nil {
+		return err
+	}
+	v, err := ParseLinePos(s)
+	if err != nil {
+		return err
+	}
+	*p = v
+	return nil
 }
 
 // ParseLinePos decodes a serialized position. Empty input parses to the
