@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.41.2] - 2026-09-28
+
+### Fixed
+
+- **A 3D remux with no layout marker read as half-resolution** ([#483](https://github.com/brunoga/pipeliner/pull/483)). A remux repackages the disc's streams without re-encoding, and every frame-compatible layout — SBS or OU, half or full — only exists as a re-encode, because fitting two views into one frame *is* an encode. So a remux carrying a bare `3D` and nothing more specific is an MVC disc rip, and `BD3D` is what that means. A bare `3D` otherwise defaults to half, and MVC remuxes are routinely named with nothing more specific: `Life of Pi 2012 1080p 3D Blu ray Remux AVC DTS-HD MA 7.1` was reported as "the real thing" being rejected as half. The error ran in the direction that matters, because MVC needs a dedicated decoder while every frame-compatible layout plays on an ordinary one — so a config selecting half-resolution 3D would have accepted a file it could not play. An explicit layout marker always wins over the inference: promoting `1080p 3D FSBS Remux` to `BD3D` would misfile a playable release as an unplayable one. Nothing changes about what a `3dfull` spec accepts — a bare token is an exact match and `BD3D` already outranked `Full` — only that the rejection reason stops claiming a release is half-resolution when it is not.
+
+**Why 1.41.2**: a parsing correction. The set of releases a given spec accepts is unchanged, so a patch bump per SemVer.
+
 ## [1.41.1] - 2026-09-28
 
 ### Fixed
