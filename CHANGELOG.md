@@ -5,6 +5,20 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.41.0] - 2026-09-28
+
+Makes an ordering rule that was only written down into something the validator enforces.
+
+### Added
+
+- **`pipeliner check` and the visual editor warn when a node that can refuse an individual release runs after `dedup`** ([#479](https://github.com/brunoga/pipeliner/pull/479)). `dedup` keeps one release per item and discards the rest, choosing on quality tags because that is all it has, so anything able to refuse a specific release has to run above it. Placed below, the alternatives are already gone when the refusal lands: the item is lost for that run and, since the same wave comes back next run and collapses to the same winner, for every run after it. The rule has been documented since 1.39.0 in the `movies` and `series` READMEs, `configs/settle-window.star` and the user guide, with an integration test asserting both directions — and was still broken in five of six dedup-bearing pipelines in a real config. The case that surfaced it: a film matched eighteen releases, `dedup` kept the best-tagged one, `content` rejected it as a RAR archive, and the alternatives already discarded included one explicitly tagged NORAR. Nothing in the logs said so; the film was simply never downloaded. `Descriptor` gains `Refusal` (`none` / `per-release` / `per-item`) and `Collapses`. Only a per-release refusal warns — `seen` ("already downloaded") and `limit` ("enough items this run") would refuse the alternatives for the same reason, so their position is immaterial. A refusal on an optional fan-out branch does not warn either: when a sibling branch still reaches a sink, refusing costs that branch rather than the item. Both exclusions come from real false positives and both are tested. The zero value is deliberately invalid and a registry test fails on it, so a new processor cannot silently opt out — it caught four test fixtures the first time it ran.
+
+### Changed
+
+- **The "vetoing gates" wording is gone** ([#479](https://github.com/brunoga/pipeliner/pull/479)). Introduced with the settle window in 1.39.0, it collided with `settle.Veto` — removed in 1.39.1 — and so named a feature that no longer exists. The docs now say what they mean: nodes that can refuse a release. No `veto` remains outside historical changelog entries.
+
+**Why 1.41.0**: adds a validation warning and two `Descriptor` fields. Existing configs keep working and nothing is removed, but a pipeline with a misordered `dedup` will start reporting a warning it did not before, so a minor bump per SemVer.
+
 ## [1.40.0] - 2026-09-28
 
 Exports the quality package so other tools can rank releases the way pipeliner does.
