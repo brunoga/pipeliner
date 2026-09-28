@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/brunoga/pipeliner/internal/quality"
+	"github.com/brunoga/pipeliner/quality"
 )
 
 func TestCmdQualityMatch(t *testing.T) {

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/brunoga/pipeliner/internal/quality"
+	"github.com/brunoga/pipeliner/quality"
 )
 
 type memBucket struct{ data map[string][]byte }

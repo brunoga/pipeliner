@@ -1,6 +1,6 @@
 package entry
 
-import "github.com/brunoga/pipeliner/internal/quality"
+import "github.com/brunoga/pipeliner/quality"
 
 // FieldQuality is the Fields key under which the parsed quality.Quality struct
 // is stored. It is populated by metainfo_file (and any other plugin that parses

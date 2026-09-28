@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/brunoga/pipeliner/internal/quality"
 	"github.com/brunoga/pipeliner/internal/store"
+	"github.com/brunoga/pipeliner/quality"
 )
 
 func newLog(t *testing.T) *Log {

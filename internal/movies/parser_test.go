@@ -3,7 +3,7 @@ package movies
 import (
 	"testing"
 
-	"github.com/brunoga/pipeliner/internal/quality"
+	"github.com/brunoga/pipeliner/quality"
 )
 
 func TestParse(t *testing.T) {

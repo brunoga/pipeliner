@@ -7,8 +7,8 @@ import (
 
 	"github.com/brunoga/pipeliner/internal/match"
 	"github.com/brunoga/pipeliner/internal/movies"
-	"github.com/brunoga/pipeliner/internal/quality"
 	"github.com/brunoga/pipeliner/internal/series"
+	"github.com/brunoga/pipeliner/quality"
 )
 
 // apiDBMarkSeries seeds the series tracker with an episode as if it had already

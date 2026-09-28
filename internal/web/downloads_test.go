@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/brunoga/pipeliner/internal/downloads"
-	"github.com/brunoga/pipeliner/internal/quality"
 	"github.com/brunoga/pipeliner/internal/series"
 	"github.com/brunoga/pipeliner/internal/store"
+	"github.com/brunoga/pipeliner/quality"
 )
 
 func newDownloadsServer(t *testing.T) (*httptest.Server, *store.SQLiteStore) {

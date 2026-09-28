@@ -7,7 +7,7 @@ import (
 	"os"
 	"text/tabwriter"
 
-	"github.com/brunoga/pipeliner/internal/quality"
+	"github.com/brunoga/pipeliner/quality"
 )
 
 // cmdQuality answers "what quality does this release parse to, and does it

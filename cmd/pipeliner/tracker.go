@@ -7,9 +7,9 @@ import (
 
 	"github.com/brunoga/pipeliner/internal/match"
 	"github.com/brunoga/pipeliner/internal/movies"
-	"github.com/brunoga/pipeliner/internal/quality"
 	"github.com/brunoga/pipeliner/internal/series"
 	"github.com/brunoga/pipeliner/internal/store"
+	"github.com/brunoga/pipeliner/quality"
 )
 
 // cmdTracker manages the series/movies download trackers directly: mark a title

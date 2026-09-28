@@ -7,7 +7,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/brunoga/pipeliner/internal/quality"
+	"github.com/brunoga/pipeliner/quality"
 )
 
 // Episode holds the parsed metadata for a single episode from a release title.
