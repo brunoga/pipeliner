@@ -8,7 +8,9 @@ before:
     - go run ./internal/tools/releasedocs -tag {{ .Tag }} -out build/release-docs
 
 builds:
-  - main: ./cmd/pipeliner
+  - id: pipeliner
+    main: ./cmd/pipeliner
+    binary: pipeliner
     env:
       - CGO_ENABLED=0
     ldflags:
@@ -24,6 +26,31 @@ builds:
     goarm:
       - "7"
     # arm/v7 only makes sense on Linux; skip it for Windows and macOS.
+    ignore:
+      - goos: windows
+        goarch: arm
+      - goos: darwin
+        goarch: arm
+
+  # bd3d2sbs decides which external tools a platform needs, so it ships for
+  # every platform it reasons about rather than only the one it was built on.
+  - id: bd3d2sbs
+    main: ./cmd/bd3d2sbs
+    binary: bd3d2sbs
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+    goos:
+      - linux
+      - windows
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+      - arm
+    goarm:
+      - "7"
     ignore:
       - goos: windows
         goarch: arm
