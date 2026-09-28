@@ -2143,14 +2143,28 @@ output("exec", upstream=cleanup, command="rm -f {file_location}")</code></pre>
 
 <!-- ─────────── exec ─────────── -->
 <h2 id="exec">exec</h2>
-<p>Runs a command for each accepted entry. The command is a template rendered against the entry, then split on whitespace and executed directly — there is no shell, so pipes, globs, and variable expansion are not supported.</p>
+<p>Runs a command for each accepted entry. The command is a template rendered against the entry, then split into arguments and executed directly — <strong>there is no shell, on any platform</strong>, so pipes, globs and variable expansion are not supported. That is deliberate: the rendered string carries release titles straight from an indexer, and a shell would make them executable. It is also what makes the sink portable — there is no <code>sh</code> on Windows, and Go applies each OS's own argument quoting, so one config works on Linux, macOS and Windows.</p>
 
 <table>
-  <tr><th>Key</th><th>Required</th><th>Description</th></tr>
-  <tr><td><code>command</code></td><td>yes</td><td>Command template; split on whitespace and executed directly (no shell — no pipes, globs, or variable expansion)</td></tr>
+  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>command</code></td><td>yes</td><td>&mdash;</td><td>The program to run. Without <code>args</code> it may carry arguments too and is split quote-aware; with <code>args</code> it is the program path verbatim</td></tr>
+  <tr><td><code>args</code></td><td>no</td><td>&mdash;</td><td>Arguments, one argv element each. Nothing is split, so spaces need no quoting</td></tr>
+  <tr><td><code>ignore_errors</code></td><td>no</td><td><code>false</code></td><td>Keep the entry accepted when the command exits non-zero, instead of failing it</td></tr>
 </table>
 
-<pre><code>output("exec", upstream=ready, command='notify-send "New download" "{{.Title}}"')</code></pre>
+<p><strong>Arguments with spaces.</strong> Splitting honours single quotes, double quotes and backslash escapes, so a media path survives as one argument. Unterminated quotes fail the entry rather than executing a wrong split.</p>
+
+<pre><code>output("exec", upstream=ready, command='notify-send "New download" "{title}"')
+
+<span class="y-comment"># A path with spaces — quote it</span>
+output("exec", upstream=ready, command='convert "{file_location}" --out "{download_path}"')
+
+<span class="y-comment"># Or give the arguments exactly, where nothing is parsed at all</span>
+output("exec", upstream=ready,
+       command="/usr/local/bin/bd3d2sbs",
+       args=["--input", "{file_location}", "--output", "{download_path}"])</code></pre>
+
+<p><strong>Failures.</strong> A non-zero exit fails the entry. That matters when a tracker (<a href="#seen"><code>seen</code></a>, <a href="#movies"><code>movies</code></a>, <a href="#series"><code>series</code></a>) sits upstream: the commit phase only records entries that were delivered, so a failed command leaves the item untracked and it is retried next run. Set <code>ignore_errors=True</code> for fire-and-forget commands. One entry failing never aborts the sink.</p>
 
 <!-- ─────────── print ─────────── -->
 <h2 id="print">print</h2>
