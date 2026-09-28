@@ -8,7 +8,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/brunoga/pipeliner/internal/quality"
+	"github.com/brunoga/pipeliner/quality"
 )
 
 // Movie holds parsed metadata extracted from a release title.

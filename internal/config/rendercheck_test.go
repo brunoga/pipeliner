@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/brunoga/pipeliner/internal/entry"
-	"github.com/brunoga/pipeliner/internal/quality"
 	"github.com/brunoga/pipeliner/internal/store"
+	"github.com/brunoga/pipeliner/quality"
 
 	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/file"
 	_ "github.com/brunoga/pipeliner/plugins/source/torrent_session"

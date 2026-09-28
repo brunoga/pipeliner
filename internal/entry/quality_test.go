@@ -3,7 +3,7 @@ package entry
 import (
 	"testing"
 
-	"github.com/brunoga/pipeliner/internal/quality"
+	"github.com/brunoga/pipeliner/quality"
 )
 
 func TestQualityRoundTrip(t *testing.T) {

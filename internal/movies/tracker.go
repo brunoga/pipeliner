@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/brunoga/pipeliner/internal/quality"
+	"github.com/brunoga/pipeliner/quality"
 )
 
 // TrackerBucketName is the store bucket holding per-movie download records.

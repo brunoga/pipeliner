@@ -21,7 +21,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/brunoga/pipeliner/internal/quality"
+	"github.com/brunoga/pipeliner/quality"
 )
 
 // bucket is the minimal key-value interface the tracker requires.

@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/brunoga/pipeliner/internal/quality"
+	"github.com/brunoga/pipeliner/quality"
 )
 
 // BucketName is the store bucket holding the download audit log.

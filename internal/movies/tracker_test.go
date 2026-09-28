@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/brunoga/pipeliner/internal/quality"
+	"github.com/brunoga/pipeliner/quality"
 )
 
 // memBucket is an in-memory bucket for testing.
