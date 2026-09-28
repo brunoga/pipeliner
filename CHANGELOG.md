@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.40.0] - 2026-09-28
+
+Exports the quality package so other tools can rank releases the way pipeliner does.
+
+### Changed
+
+- **`internal/quality` is now `quality`, a public package** ([#477](https://github.com/brunoga/pipeliner/pull/477)). Quality parsing and the comparison ladder — 3D, resolution, source, codec, colour range, audio, compared lexicographically — were reachable only from inside the module. Anything else that wanted to say "this release is better than that one" had to reimplement it, and a reimplementation drifts: a companion dedup script for the media library had its own weighted-sum scoring, which ranked releases differently from the pipeline that downloaded them, so a file pipeliner considered an upgrade could be the one the script deleted. Importing `github.com/brunoga/pipeliner/quality` now gives the same parser and the same ordering, and a divergence becomes a compile error rather than a silent disagreement. No behaviour changes: the move is mechanical, across 35 files in 15 packages, with the API unchanged.
+
+**Why 1.40.0**: a package moves from `internal/` to the module's public surface. Nothing is removed and no behaviour changes, but the exported API grows, so a minor bump per SemVer.
+
 ## [1.39.1] - 2026-09-28
 
 ### Fixed
