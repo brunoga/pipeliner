@@ -19,7 +19,8 @@ func TestRunsCommand(t *testing.T) {
 	dir := t.TempDir()
 	marker := filepath.Join(dir, "marker.txt")
 
-	p, err := newPlugin(map[string]any{"command": "touch " + marker}, nil)
+	cmd, _ := helperCommand(t, "touch")
+	p, err := newPlugin(map[string]any{"command": cmd + ` "` + marker + `"`}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +37,8 @@ func TestTemplateInterpolation(t *testing.T) {
 	dir := t.TempDir()
 	marker := filepath.Join(dir, "marker.txt")
 
-	p, _ := newPlugin(map[string]any{"command": "touch " + marker + "_{{.series_season}}"}, nil)
+	cmd, _ := helperCommand(t, "touch")
+	p, _ := newPlugin(map[string]any{"command": cmd + ` "` + marker + `_{{.series_season}}"`}, nil)
 	e := entry.New("Test", "http://x.com/a")
 	e.Set("series_season", 3)
 	p.(*execPlugin).deliver(context.Background(), makeCtx(), []*entry.Entry{e})
@@ -47,9 +49,11 @@ func TestTemplateInterpolation(t *testing.T) {
 }
 
 func TestFailedCommandLogged(t *testing.T) {
-	p, _ := newPlugin(map[string]any{"command": "false"}, nil)
+	cmd, _ := helperCommand(t, "fail")
+	p, _ := newPlugin(map[string]any{"command": cmd}, nil)
 	e := entry.New("Test", "http://x.com/a")
-	// Output should not propagate individual command errors.
+	// One entry's command failing marks that entry failed (see
+	// TestNonZeroExitFailsTheEntry) but must not abort the whole sink.
 	err := p.(*execPlugin).deliver(context.Background(), makeCtx(), []*entry.Entry{e})
 	if err != nil {
 		t.Errorf("Output should not return error on per-entry command failure: %v", err)
@@ -57,7 +61,8 @@ func TestFailedCommandLogged(t *testing.T) {
 }
 
 func TestContextCancellation(t *testing.T) {
-	p, _ := newPlugin(map[string]any{"command": "sleep 60"}, nil)
+	cmd, _ := helperCommand(t, "sleep")
+	p, _ := newPlugin(map[string]any{"command": cmd}, nil)
 	e := entry.New("Test", "http://x.com/a")
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -67,7 +72,11 @@ func TestContextCancellation(t *testing.T) {
 
 func TestMultipleEntries(t *testing.T) {
 	dir := t.TempDir()
-	p, _ := newPlugin(map[string]any{"command": "touch " + dir + "/{{.series_episode}}"}, nil)
+	exe, base := helperArgv(t, "touch")
+	p, _ := newPlugin(map[string]any{
+		"command": exe,
+		"args":    append(base, filepath.Join(dir, "{{.series_episode}}")),
+	}, nil)
 	entries := []*entry.Entry{
 		func() *entry.Entry { e := entry.New("A", "http://x.com/a"); e.Set("series_episode", 1); return e }(),
 		func() *entry.Entry { e := entry.New("B", "http://x.com/b"); e.Set("series_episode", 2); return e }(),
