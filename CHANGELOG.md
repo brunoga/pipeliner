@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.41.1] - 2026-09-28
+
+### Fixed
+
+- **The log view could render the newest line twice, and forward paging was failing silently** ([#481](https://github.com/brunoga/pipeliner/pull/481)). The view treats a line's position and a paging cursor as the same value — it feeds the `pos` a response carries straight back as the cursor for the next page, or compares it against the last live position — but `LinePos` marshalled as an object (`{"file":0,"end":123}`) while every cursor field marshalled as a `"0:123"` string. Two things followed, both quiet. The client's position parser only accepts the string form, so the comparison that stops the broadcaster's in-memory ring from replaying lines the tail had already rendered returned false for everything, and a line could appear twice; it was visible under a narrow day/pipeline/node filter because only then does a single ring event match, while unfiltered the duplicates were scattered through a fast-moving tail. And a position stringified into a cursor became `"[object Object]"`, which the server rejects with 400, so forward paging and the live gap bridge failed on every request — the bridge swallows fetch errors by design, so neither surfaced. Positions now marshal and unmarshal as the same string used for cursors, which removes the class rather than patching either caller.
+
+**Why 1.41.1**: a bug fix with no API or behaviour change beyond the log view working as intended. A patch bump per SemVer.
+
 ## [1.41.0] - 2026-09-28
 
 Makes an ordering rule that was only written down into something the validator enforces.
