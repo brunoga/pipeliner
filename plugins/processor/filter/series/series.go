@@ -40,6 +40,7 @@ func init() {
 		PluginName:  "series",
 		Description: "accept episodes for configured shows; track downloads across runs",
 		Role:        plugin.RoleProcessor,
+		Refusal:     plugin.RefusalPerItem,
 		// Episode metadata must be populated upstream — by metainfo_file in
 		// the common case, or by any other plugin that sets these fields.
 		// series_season and series_episode are part of the same parsed-episode

@@ -14,6 +14,7 @@ func init() {
 		PluginName:  "accept_all",
 		Description: "accept every undecided entry unconditionally",
 		Role:        plugin.RoleProcessor,
+		Refusal:     plugin.RefusalNone,
 		// Only act on Undecided entries — never re-decide entries that have
 		// already been accepted, rejected, or failed by an upstream node.
 		InputStates: entry.StatesUndecidedOnly,

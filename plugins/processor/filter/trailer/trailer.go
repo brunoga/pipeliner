@@ -29,6 +29,7 @@ func init() {
 		PluginName:  "trailer",
 		Description: "detect trailer/teaser/featurette entries and accept or reject them",
 		Role:        plugin.RoleProcessor,
+		Refusal:     plugin.RefusalPerRelease,
 		Factory:     newPlugin,
 		Validate:    validate,
 		Schema: []plugin.FieldSchema{

@@ -36,6 +36,7 @@ func init() {
 		PluginName:  pluginName,
 		Description: "gate entries on implied bitrate (torrent size / runtime) — the quality signal a release name cannot fake",
 		Role:        plugin.RoleProcessor,
+		Refusal:     plugin.RefusalPerRelease,
 		Requires: [][]string{
 			{entry.FieldTorrentFileSize},
 			{entry.FieldVideoRuntime},

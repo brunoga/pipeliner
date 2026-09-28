@@ -31,6 +31,7 @@ func init() {
 		PluginName:  "quality",
 		Description: "reject entries whose parsed quality does not match the configured spec",
 		Role:        plugin.RoleProcessor,
+		Refusal:     plugin.RefusalPerRelease,
 		Requires:    plugin.RequireAll(entry.FieldQuality),
 		Factory:     newPlugin,
 		Validate:    validate,

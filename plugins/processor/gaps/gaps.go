@@ -60,6 +60,7 @@ func init() {
 		PluginName:  pluginName,
 		Description: "diff tracked shows against TheTVDB's episode list and emit one search-query entry per missing aired episode (or per season pack)",
 		Role:        plugin.RoleProcessor,
+		Refusal:     plugin.RefusalNone,
 		// Upstream shows carry series_name (tracker key) or at least a title.
 		Requires: plugin.RequireAny(entry.FieldSeriesName, entry.FieldTitle),
 		// Emitted entries are freshly built, so every field below is set on

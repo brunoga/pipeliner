@@ -27,6 +27,7 @@ func init() {
 		PluginName:  "metainfo_tmdb",
 		Description: "enrich movie entries with TMDb metadata (title, overview, genres, runtime)",
 		Role:        plugin.RoleProcessor,
+		Refusal:     plugin.RefusalNone,
 		MayProduce: []string{
 			entry.FieldEnriched,
 			entry.FieldTitle,

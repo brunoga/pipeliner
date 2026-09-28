@@ -16,7 +16,7 @@
 # the time the refusal happens, and the item is lost — not just for that run
 # but for every run after it, because the same wave comes back.
 #
-#   movies(settle) → enrichment → vetoing gates → dedup → sink
+#   movies(settle) → enrichment → nodes that can refuse → dedup → sink
 #
 # Two constraints fall out of that:
 #
@@ -49,7 +49,7 @@ q = process("quality", upstream=req, spec="1080p+")
 movies = process("movies", upstream=q, settle="6h",
                  static=["Inception", "Interstellar", "Dune", "Oppenheimer"])
 
-# ── Enrichment and the vetoing gates: after settle, before dedup ─────────────
+# ── Enrichment and the refusing nodes: after settle, before dedup ───────────
 
 tmdb  = process("metainfo_tmdb", upstream=movies, api_key=tmdb_key, cache_ttl="96h")
 ready = process("require", upstream=tmdb,

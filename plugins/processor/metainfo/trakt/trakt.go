@@ -27,6 +27,7 @@ func init() {
 		PluginName:  "metainfo_trakt",
 		Description: "annotate entries with Trakt.tv metadata (rating, votes, genres, overview, external IDs)",
 		Role:        plugin.RoleProcessor,
+		Refusal:     plugin.RefusalNone,
 		MayProduce: []string{
 			entry.FieldEnriched,
 			entry.FieldTitle,

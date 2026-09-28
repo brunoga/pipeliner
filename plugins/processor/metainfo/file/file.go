@@ -38,6 +38,7 @@ func init() {
 		PluginName:  "metainfo_file",
 		Description: "parse entry filename, classify as series/movie, and annotate all detectable metadata in one pass",
 		Role:        plugin.RoleProcessor,
+		Refusal:     plugin.RefusalNone,
 		MayProduce: []string{
 			entry.FieldTitle,
 			entry.FieldMediaType,

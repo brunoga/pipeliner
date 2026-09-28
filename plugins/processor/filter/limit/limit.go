@@ -30,6 +30,7 @@ func init() {
 		PluginName:  "limit",
 		Description: "cap the number of accepted entries to n; reject the rest",
 		Role:        plugin.RoleProcessor,
+		Refusal:     plugin.RefusalPerItem,
 		// limit only caps the already-accepted population. Undecided entries
 		// are not candidates yet (some upstream still has to accept them) and
 		// rejected/failed entries are terminally decided.

@@ -14,6 +14,52 @@ import (
 // state use it directly rather than opening their own connection.
 type Factory func(cfg map[string]any, db *store.SQLiteStore) (Plugin, error)
 
+// Refusal describes whether a plugin can turn an entry away and, crucially,
+// whether that decision depends on which release the entry happens to be.
+//
+// The distinction exists because some plugins keep one release per item and
+// discard the rest (see Descriptor.Collapses). A refusal that depends on the
+// release must get its say before the alternatives are thrown away; a refusal
+// that holds for every release of the item can safely come after.
+type Refusal uint8
+
+const (
+	// RefusalUnset is the zero value. Processors must declare a real value —
+	// TestEveryProcessorDeclaresRefusal fails the build otherwise, so a new
+	// plugin cannot silently opt out of the ordering check.
+	RefusalUnset Refusal = iota
+
+	// RefusalNone: the plugin never rejects or fails an entry. Enrichers and
+	// field-setters are RefusalNone (metainfo_file, pathfmt, set, swap_state).
+	RefusalNone
+
+	// RefusalPerRelease: the decision depends on this specific release — its
+	// file list, its implied bitrate, its language, the fields it carries, or
+	// whether its download link still resolves. A different release of the
+	// same item may well pass, so these must run above a collapsing plugin.
+	RefusalPerRelease
+
+	// RefusalPerItem: the plugin turns an entry away for a reason that holds
+	// for every release of that item — "already downloaded", "enough items
+	// taken this run". Swapping releases would not help, so these are safe
+	// below a collapsing plugin.
+	RefusalPerItem
+)
+
+// String renders a Refusal for diagnostics.
+func (r Refusal) String() string {
+	switch r {
+	case RefusalNone:
+		return "none"
+	case RefusalPerRelease:
+		return "per-release"
+	case RefusalPerItem:
+		return "per-item"
+	default:
+		return "unset"
+	}
+}
+
 // Descriptor holds metadata about a registered plugin type.
 type Descriptor struct {
 	PluginName  string
@@ -114,6 +160,18 @@ type Descriptor struct {
 	// candidates: any future plugin whose Process produces entries that
 	// did not exist on its input slice.
 	ReplacesUpstream bool
+
+	// Refusal declares whether this plugin can turn an entry away, and whether
+	// that decision is specific to the release or holds for the whole item.
+	// Required on processors; see the Refusal constants.
+	Refusal Refusal
+
+	// Collapses declares that this plugin keeps one release per item and drops
+	// the alternatives (today: dedup). Validate warns when a RefusalPerRelease
+	// node sits downstream of a collapsing one, because by then the release it
+	// refuses is the only one left and the item is lost for the run — and, as
+	// the same wave comes back, for every run after it.
+	Collapses bool
 
 	// Caches declares the SQLite store buckets this plugin uses as caches.
 	// The web UI's database tab merges this declaration with the buckets

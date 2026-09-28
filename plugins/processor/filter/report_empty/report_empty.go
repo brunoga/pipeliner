@@ -41,6 +41,7 @@ func init() {
 		PluginName:  "report_empty",
 		Description: "emit a marker entry when upstream is empty; emit nothing otherwise",
 		Role:        plugin.RoleProcessor,
+		Refusal:     plugin.RefusalNone,
 		// MayProduce, not Produces: the marker (and so the field) only
 		// appears on the empty-batch branch. Declaring it as Produces would
 		// promise the field on every entry the plugin emits, which is

@@ -18,6 +18,7 @@ func init() {
 		PluginName:  "require",
 		Description: "reject entries that are missing any of the specified fields",
 		Role:        plugin.RoleProcessor,
+		Refusal:     plugin.RefusalPerRelease,
 		Factory:     newPlugin,
 		Validate:    validate,
 		Schema: []plugin.FieldSchema{

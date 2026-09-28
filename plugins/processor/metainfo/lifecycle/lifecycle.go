@@ -44,6 +44,7 @@ func init() {
 		PluginName:  pluginName,
 		Description: "classify tracked shows as complete/dormant/active from TheTVDB status + episode list vs the series tracker",
 		Role:        plugin.RoleProcessor,
+		Refusal:     plugin.RefusalNone,
 		// series_name is the tracker key; title is accepted as a fallback
 		// (normalized on the fly) so entries from generic list sources work.
 		Requires: plugin.RequireAny(entry.FieldSeriesName, entry.FieldTitle),

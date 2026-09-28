@@ -155,7 +155,7 @@ func TestExpiredIsScopedToTask(t *testing.T) {
 // Every distinct release of a wave is kept, so the caller can release them all
 // and let the pipeline's gates and dedup decide. The old design kept a running
 // maximum, which meant choosing on quality tags before any node that could
-// veto a release had run.
+// refuse a release had run.
 func TestOfferKeepsEveryDistinctRelease(t *testing.T) {
 	tr := New(newMemBucket())
 	now := time.Now()

@@ -18,6 +18,7 @@ func init() {
 		PluginName:  "regexp",
 		Description: "accept or reject entries by matching regular expressions against fields",
 		Role:        plugin.RoleProcessor,
+		Refusal:     plugin.RefusalPerRelease,
 		Factory:     newRegexpPlugin,
 		Validate:    validate,
 		Schema: []plugin.FieldSchema{
