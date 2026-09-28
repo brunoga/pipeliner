@@ -1,6 +1,7 @@
 package web
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -532,5 +533,63 @@ func TestFilterEmptyMatchesEverything(t *testing.T) {
 	// A key with no value is not a condition; it is text.
 	if f := ParseFilter("task:"); f.Task != "" {
 		t.Errorf("task: with no value set a condition: %+v", f)
+	}
+}
+
+// A position and a cursor are the same thing to a client: it feeds a line's
+// position back as the cursor for the next page. They must therefore share a
+// wire format, or the round-trip silently breaks.
+func TestLinePosMarshalsAsACursorString(t *testing.T) {
+	b, err := json.Marshal(LinePos{FileIdx: 2, ByteEnd: 8305176})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(b) != `"2:8305176"` {
+		t.Errorf("got %s, want \"2:8305176\"", b)
+	}
+}
+
+func TestLinePosRoundTripsThroughJSON(t *testing.T) {
+	want := LinePos{FileIdx: 1, ByteEnd: 42}
+	b, err := json.Marshal(want)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got LinePos
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Errorf("got %+v, want %+v", got, want)
+	}
+}
+
+// The position a response carries must be usable verbatim as the cursor on
+// the next request — that is the contract the UI relies on.
+func TestAPositionFromAResponseParsesAsACursor(t *testing.T) {
+	b, err := json.Marshal(LineWithPos{Pos: LinePos{FileIdx: 0, ByteEnd: 1234}, Text: "hello"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		Pos  string `json:"pos"`
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal(b, &decoded); err != nil {
+		t.Fatalf("pos must decode as a string: %v", err)
+	}
+	got, err := ParseLinePos(decoded.Pos)
+	if err != nil {
+		t.Fatalf("ParseLinePos(%q): %v", decoded.Pos, err)
+	}
+	if want := (LinePos{FileIdx: 0, ByteEnd: 1234}); got != want {
+		t.Errorf("got %+v, want %+v", got, want)
+	}
+}
+
+func TestLinePosRejectsAMalformedString(t *testing.T) {
+	var p LinePos
+	if err := json.Unmarshal([]byte(`"not-a-position"`), &p); err == nil {
+		t.Error("a string with no colon must not unmarshal")
 	}
 }
