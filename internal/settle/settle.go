@@ -59,14 +59,6 @@ type Record struct {
 	//
 	// This requires dedup to run *after* those gates; see the plugin READMEs.
 	Candidates []Candidate `json:"candidates,omitempty"`
-	// Vetoed holds release names that a downstream node refused after they
-	// were revived from this window. A vetoed release is never re-recorded,
-	// so a release that cannot be grabbed stops coming back.
-	//
-	// Release names, not URLs: indexers re-encrypt their download links per
-	// search, so a URL recorded now identifies nothing later.
-	Vetoed []string `json:"vetoed,omitempty"`
-
 	// Best is the single-winner field written before the window kept the
 	// whole wave. Records already on disk still carry it, so it is read and
 	// folded into Candidates on first touch and never written again.
@@ -101,13 +93,8 @@ func (r *Record) has(title string) bool {
 	return false
 }
 
-// maxVetoed caps the remembered rejects per item. A wave is a handful of
-// releases; this only has to outlast one.
-const maxVetoed = 16
-
-// NormalizeTitle is how two release names are compared for identity, both for
-// the veto list and for deciding whether a remembered winner is still being
-// advertised.
+// NormalizeTitle is how two release names are compared for identity, when
+// deciding whether a recorded release is still being advertised.
 //
 // The release name is the only stable handle a release has here. Its URL is
 // re-encrypted by the indexer on every search, and the settle key identifies
@@ -115,20 +102,6 @@ const maxVetoed = 16
 // recorded winner apart from a worse sibling of the same film.
 func NormalizeTitle(s string) string {
 	return strings.ToLower(strings.TrimSpace(s))
-}
-
-// isVetoed reports whether a release title has already proved undownloadable.
-func (r *Record) isVetoed(title string) bool {
-	norm := NormalizeTitle(title)
-	if norm == "" {
-		return false
-	}
-	for _, v := range r.Vetoed {
-		if v == norm {
-			return true
-		}
-	}
-	return false
 }
 
 // Tracker persists settle windows in a bucket.
@@ -143,7 +116,6 @@ func New(b bucket) *Tracker { return &Tracker{b: b} }
 //
 // Every distinct release is kept, so when the window closes the caller can
 // hand the whole wave to the pipeline and let the gates and dedup decide.
-// A release already vetoed is not recorded again.
 func (t *Tracker) Offer(key string, c Candidate, window time.Duration, now time.Time) time.Duration {
 	if t == nil || t.b == nil || window <= 0 {
 		return 0
@@ -155,7 +127,7 @@ func (t *Tracker) Offer(key string, c Candidate, window time.Duration, now time.
 		return window
 	}
 	changed := rec.migrate()
-	if !rec.isVetoed(c.Title) && !rec.has(c.Title) {
+	if !rec.has(c.Title) {
 		rec.Candidates = append(rec.Candidates, c)
 		if len(rec.Candidates) > maxCandidates {
 			// Drop the oldest: a wave that overflows this is a churning feed,
@@ -250,45 +222,6 @@ func (t *Tracker) Expired(task string, window time.Duration, now time.Time) []Ke
 		}
 	}
 	return out
-}
-
-// Veto records that a release was revived and then rejected downstream, and
-// removes it from the wave so it is neither offered again nor re-recorded.
-// The window keeps running: the item is still wanted, just not via this
-// release.
-//
-// With dedup running after the vetoing gates, most refusals never reach here
-// — the gate thins the wave and dedup picks a survivor in the same run. This
-// covers the rest: a release refused *after* dedup, by a stale download link
-// or a content filter, which would otherwise be re-picked every run.
-func (t *Tracker) Veto(key, releaseTitle string) {
-	if t == nil || t.b == nil {
-		return
-	}
-	norm := NormalizeTitle(releaseTitle)
-	if norm == "" {
-		return
-	}
-	var rec Record
-	found, err := t.b.Get(key, &rec)
-	if err != nil || !found {
-		return
-	}
-	rec.migrate()
-	if !rec.isVetoed(norm) {
-		rec.Vetoed = append(rec.Vetoed, norm)
-		if len(rec.Vetoed) > maxVetoed {
-			rec.Vetoed = rec.Vetoed[len(rec.Vetoed)-maxVetoed:]
-		}
-	}
-	kept := rec.Candidates[:0]
-	for _, c := range rec.Candidates {
-		if NormalizeTitle(c.Title) != norm {
-			kept = append(kept, c)
-		}
-	}
-	rec.Candidates = kept
-	_ = t.b.Put(key, rec)
 }
 
 // Clear ends the window for key, so the next wave starts a fresh timer.

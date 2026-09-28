@@ -335,17 +335,6 @@ func (p *seriesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *en
 	return nil
 }
 
-// settleKeyOf returns the settle key for an entry filter() has matched, or ""
-// when it carries no matched show or episode id.
-func (p *seriesPlugin) settleKeyOf(tc *plugin.TaskContext, e *entry.Entry) string {
-	show := e.GetString(seriesTrackerName)
-	epID := e.GetString(entry.FieldSeriesEpisodeID)
-	if show == "" || epID == "" {
-		return ""
-	}
-	return settle.SeriesKey(tc.Name, show, epID)
-}
-
 func (p *seriesPlugin) persist(_ context.Context, tc *plugin.TaskContext, entries []*entry.Entry) error {
 	for _, e := range entries {
 		// Only persist entries that were accepted by all downstream nodes.
@@ -353,19 +342,6 @@ func (p *seriesPlugin) persist(_ context.Context, tc *plugin.TaskContext, entrie
 		// including those later rejected by dedup — we must filter them here
 		// so the stored quality reflects the entry that was actually downloaded.
 		if !e.IsAccepted() {
-			// A revived winner that came back rejected cannot be grabbed, so
-			// tell the window: Best is only replaced by higher quality and
-			// Clear only runs after a download, so without this it would
-			// re-offer the same unusable release forever. Revived entries only
-			// exist when nothing live for the episode is in the batch, so the
-			// rejection is about the release, not about losing dedup.
-			if e.GetBool(entry.FieldSettledRevived) {
-				if key := p.settleKeyOf(tc, e); key != "" {
-					tc.Logger.Info("series: settled release rejected downstream, trying another next time",
-						"entry", e.Title, "reason", e.RejectReason)
-					p.settleTracker.Veto(key, e.Title)
-				}
-			}
 			continue
 		}
 		// matchedShow was stamped onto the entry by filter(); reading it back
