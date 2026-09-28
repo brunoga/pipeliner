@@ -5,6 +5,20 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.39.0] - 2026-09-28
+
+The settle window now keeps the whole wave and lets the pipeline choose, instead of picking a winner it was not yet equipped to pick.
+
+### Changed
+
+- **The settle window records every release it sees and releases them all when the window closes** ([#473](https://github.com/brunoga/pipeliner/pull/473)). It used to keep a single running best, chosen on quality tags — the only signal available where the window lives, because the nodes that can actually refuse a release run later: `bitrate` needs a runtime from enrichment, a language `condition` needs metadata. A refused winner therefore had to be re-chosen one settle window at a time. Now the pipeline's own gates thin the wave and `dedup` picks the best survivor in a single pass. **This requires `dedup` to run after the vetoing gates** — it collapses a wave to one release per item and also chooses on quality tags alone, so a gate placed after it finds the alternatives already discarded and the item is lost for that run and every run after. `tests/integration/order_test.go` asserts both directions; the requirement is documented in both plugin READMEs, the user guide, and a new `configs/settle-window.star`. Records written with the old single `best` field fold into the wave on first touch, so existing windows keep working without a store migration. `bitrate` remains a separate plugin from `quality` for the same reason it cannot move earlier: `quality` matches on the release name and runs on the raw feed, `bitrate` needs `video_runtime` from enrichment.
+
+### Fixed
+
+- **A settle window could download a worse release than the one it had chosen** ([#472](https://github.com/brunoga/pipeliner/pull/472)). The winner was revived only when it was not already in the batch, and the test for that was wrong in both of its forms. Comparing the recorded URL never matched, because indexers re-encrypt download links on every search, so the winner was revived even while sitting in the feed and the stale duplicate competed with the live entry. Comparing the settle key overshot: the key identifies the item rather than the release, so any sibling of the same film suppressed revival — a window could spend six hours establishing that the 2160p Atmos release was best and then, once it had scrolled out of the shallow feed while a 1080p sibling had not, download the 1080p. Both are settled by comparing release names, the only stable handle a release has.
+
+**Why 1.39.0**: a behaviour change in how the settle window chooses, with a new ordering requirement for configs that use it. Additive with nothing removed and existing records migrating in place, so a minor bump per SemVer. Configs using `settle` should move `dedup` below their vetoing gates to get the benefit.
+
 ## [1.38.0] - 2026-09-27
 
 Makes the log on disk actually navigable, and fixes a progress bar that read 50% for everything.
