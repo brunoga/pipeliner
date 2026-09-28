@@ -1195,3 +1195,92 @@ func TestSettleVetoesWinnerRejectedDownstream(t *testing.T) {
 		t.Errorf("winner is still %q; the vetoed release must not regain the crown", got.Title)
 	}
 }
+
+// TestSettleRevivesBestWhenOnlyWorseSiblingRemains is the case the previous
+// "is it still advertised?" check got wrong in both of its forms.
+//
+// Comparing the recorded URL against the batch never matched, because
+// indexers re-encrypt download links every search — so the winner was revived
+// even when it was right there in the feed, and the stale duplicate competed
+// with the live entry. Comparing the settle *key* fixed that but went too far
+// the other way: the key identifies the item, so any sibling release of the
+// same title suppressed revival. When the remembered winner has scrolled out
+// of the feed and only a worse release for that title is still listed, the
+// window must still produce its winner — otherwise settling spends six hours
+// identifying the best release and then downloads a worse one.
+func TestSettleRevivesBestWhenOnlyWorseSiblingRemains(t *testing.T) {
+	db, _ := store.OpenSQLite(":memory:")
+	defer db.Close()
+	p, _ := newPlugin(map[string]any{"settle": "6h"}, db)
+	mp := p.(*moviesPlugin)
+	ctx, tc := context.Background(), makeCtx()
+
+	best := makeEntry("Wave.Movie.2026.2160p.BluRay.TrueHD.Atmos.DV.x265", "http://idx/dl?path=BEST")
+	worse := makeEntry("Wave.Movie.2026.1080p.WEB-DL.x264", "http://idx/dl?path=WORSE")
+	if _, err := mp.Process(ctx, tc, []*entry.Entry{best, worse}); err != nil {
+		t.Fatal(err)
+	}
+	expireSettle(t, db, "wave movie", 2026, 7*time.Hour)
+
+	// The 2160p has scrolled out; only the 1080p is still advertised.
+	stillListed := makeEntry("Wave.Movie.2026.1080p.WEB-DL.x264", "http://idx/dl?path=WORSE2")
+	out, err := mp.Process(ctx, tc, []*entry.Entry{stillListed})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var accepted []string
+	for _, e := range out {
+		if e.IsAccepted() {
+			accepted = append(accepted, e.Title)
+		}
+	}
+	has := func(sub string) bool {
+		for _, a := range accepted {
+			if strings.Contains(a, sub) {
+				return true
+			}
+		}
+		return false
+	}
+	if !has("2160p") {
+		t.Errorf("the remembered winner was not revived; accepted=%v — settling identified the best release and then discarded it", accepted)
+	}
+	if !has("1080p") {
+		t.Errorf("the live entry should also pass; dedup picks between them. accepted=%v", accepted)
+	}
+}
+
+// The counterpart: when the remembered winner IS still advertised, it must not
+// be duplicated — which is what the URL comparison failed to prevent.
+func TestSettleDoesNotDuplicateBestThatIsStillListed(t *testing.T) {
+	db, _ := store.OpenSQLite(":memory:")
+	defer db.Close()
+	p, _ := newPlugin(map[string]any{"settle": "6h"}, db)
+	mp := p.(*moviesPlugin)
+	ctx, tc := context.Background(), makeCtx()
+
+	const release = "Same.Movie.2026.2160p.BluRay.TrueHD.Atmos.DV.x265"
+	if _, err := mp.Process(ctx, tc, []*entry.Entry{makeEntry(release, "http://idx/dl?path=A")}); err != nil {
+		t.Fatal(err)
+	}
+	expireSettle(t, db, "same movie", 2026, 7*time.Hour)
+
+	// Same release, rotated URL — the only thing that changed is the token.
+	out, err := mp.Process(ctx, tc, []*entry.Entry{makeEntry(release, "http://idx/dl?path=B")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var urls []string
+	for _, e := range out {
+		if e.IsAccepted() && strings.HasPrefix(e.Title, "Same.Movie") {
+			urls = append(urls, e.URL)
+		}
+	}
+	if len(urls) != 1 {
+		t.Fatalf("accepted %d copies %v, want 1 — the live entry", len(urls), urls)
+	}
+	if urls[0] != "http://idx/dl?path=B" {
+		t.Errorf("accepted %q, want the live token; the recorded URL no longer resolves", urls[0])
+	}
+}

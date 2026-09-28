@@ -282,15 +282,23 @@ func (p *moviesPlugin) releaseSettled(ctx context.Context, tc *plugin.TaskContex
 	// stale duplicate it then revived competed with the live entry at dedup
 	// and, on equal quality tags, could win and be downloaded from a URL that
 	// no longer resolves. The key is derived from the title, so it is stable.
+	// Keyed by release name, which is the only stable handle a release has
+	// here. Two earlier forms of this check were both wrong: the recorded URL
+	// never matched, because indexers re-encrypt download links on every
+	// search, so the winner was revived even while it sat in the feed and the
+	// stale duplicate competed with the live entry; the settle key matched too
+	// much, because it identifies the *item*, so any sibling release of the
+	// same title suppressed revival and a six-hour wait could end in
+	// downloading a worse release than the one it had picked.
 	present := make(map[string]bool, len(batch))
 	for _, e := range batch {
-		if k := p.settleKeyOf(tc, e); k != "" {
-			present[k] = true
+		if n := settle.NormalizeTitle(e.Title); n != "" {
+			present[n] = true
 		}
 	}
 	var revived []*entry.Entry
 	for _, exp := range p.settleTracker.Expired(tc.Name, p.settle, time.Now()) {
-		if present[exp.Key] {
+		if present[settle.NormalizeTitle(exp.Best.Title)] {
 			continue // still advertised; it goes through the normal path
 		}
 		e := exp.Best.Rebuild()
