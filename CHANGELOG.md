@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.39.1] - 2026-09-28
+
+### Fixed
+
+- **Removed the settle veto, which could never fire** ([#475](https://github.com/brunoga/pipeliner/pull/475)). Added in 1.37.2 to drop a release the window had picked once a downstream node refused it, it never ran once in the log history. The executor only hands `Commit` the entries that reached a sink — its own comment says so — and a candidate refused by `bitrate` or a language `condition` never gets that far, so `persist` never saw it and the veto was unreachable. The unit test passed because it called `persist` directly, which proved the function worked but not that anything calls it. Nothing replaces it: now that the window hands the whole wave to the pipeline and `dedup` runs after the gates, the gates thin the wave and `dedup` takes a survivor on the same run, so convergence comes from the ordering rather than from pruning the record. Records still carrying a `vetoed` array load fine; the field is ignored and dropped on the next write.
+
+**Why 1.39.1**: removes a mechanism that never executed, with no behaviour change for anything that was working. A patch bump per SemVer.
+
 ## [1.39.0] - 2026-09-28
 
 The settle window now keeps the whole wave and lets the pipeline choose, instead of picking a winner it was not yet equipped to pick.
