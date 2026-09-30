@@ -121,22 +121,16 @@ func (t *Tracker) Forget(seriesName, episodeID string) error {
 // EP001), lexicographic order matches episode order. This represents the furthest
 // progress point and is used by "follow" tracking mode as the season floor:
 // episodes from seasons older than the highest tracked season are rejected.
-func (t *Tracker) HighestEpisode(seriesName string) (*Record, bool) {
+// Several names (the keys of one ShowRef) are searched together.
+func (t *Tracker) HighestEpisode(seriesNames ...string) (*Record, bool) {
 	all, err := t.bucket.All()
 	if err != nil {
 		return nil, false
 	}
-	prefix := seriesName + "|"
 	var highest *Record
 	for k, raw := range all {
-		if !hasPrefix(k, prefix) {
-			continue
-		}
-		var rec Record
-		if err := json.Unmarshal(raw, &rec); err != nil {
-			continue
-		}
-		if rec.SeriesName != seriesName {
+		rec, ok := recordFor(k, raw, seriesNames)
+		if !ok {
 			continue
 		}
 		if highest == nil || rec.EpisodeID > highest.EpisodeID {
@@ -149,23 +143,17 @@ func (t *Tracker) HighestEpisode(seriesName string) (*Record, bool) {
 
 // Latest returns the most recently downloaded episode for the given series,
 // determined by DownloadedAt timestamp. Uses All() to fetch all records in
-// a single query rather than Keys() + N×Get().
-func (t *Tracker) Latest(seriesName string) (*Record, bool) {
+// a single query rather than Keys() + N×Get(). Several names (the keys of one
+// ShowRef) are searched together.
+func (t *Tracker) Latest(seriesNames ...string) (*Record, bool) {
 	all, err := t.bucket.All()
 	if err != nil {
 		return nil, false
 	}
-	prefix := seriesName + "|"
 	var latest *Record
 	for k, raw := range all {
-		if !hasPrefix(k, prefix) {
-			continue
-		}
-		var rec Record
-		if err := json.Unmarshal(raw, &rec); err != nil {
-			continue
-		}
-		if rec.SeriesName != seriesName {
+		rec, ok := recordFor(k, raw, seriesNames)
+		if !ok {
 			continue
 		}
 		if latest == nil ||
@@ -253,6 +241,22 @@ func EpisodeID(ep *Episode) string {
 		return fmt.Sprintf("S%02dE%02d", ep.Season, ep.Episode)
 	}
 	return fmt.Sprintf("EP%03d", ep.Episode)
+}
+
+// recordFor decodes the record stored under key k when it belongs to one of
+// seriesNames.
+func recordFor(k string, raw []byte, seriesNames []string) (Record, bool) {
+	for _, name := range seriesNames {
+		if !hasPrefix(k, name+"|") {
+			continue
+		}
+		var rec Record
+		if err := json.Unmarshal(raw, &rec); err != nil || rec.SeriesName != name {
+			return Record{}, false
+		}
+		return rec, true
+	}
+	return Record{}, false
 }
 
 func recordKey(seriesName, episodeID string) string {

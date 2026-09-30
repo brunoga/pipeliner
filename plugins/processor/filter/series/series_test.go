@@ -67,6 +67,7 @@ func metaize(e *entry.Entry) {
 	e.SetSeriesInfo(entry.SeriesInfo{
 		VideoInfo: entry.VideoInfo{
 			GenericInfo: entry.GenericInfo{Title: ep.SeriesName},
+			Year:        ep.SeriesYear,
 			Proper:      ep.Proper,
 			Repack:      ep.Repack,
 		},
@@ -1034,5 +1035,69 @@ func expireSeriesSettle(t *testing.T, db *store.SQLiteStore, show, epID string, 
 	rec.FirstSeen = time.Now().Add(-age)
 	if err := db.Bucket(settle.SeriesBucketName).Put(key, rec); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// Brothers (2026): TheTVDB renamed the favorite from "Brothers (2026)" to
+// "Brothers". Releases still say "Brothers 2026 S01E03" and must keep
+// matching; "Brothers S01E02 2026" must be seen as the E02 already tracked
+// under the old spelling.
+func TestFavoriteYearDroppedByProvider(t *testing.T) {
+	fav := entry.New("Brothers", "")
+	fav.Set(entry.FieldVideoYear, 2026)
+	p := openWithFrom(t, &mockInput{entries: []*entry.Entry{fav}})
+	p.tracking = trackingFollow
+	// As tracked in production.
+	now := time.Now()
+	for ep, q := range map[string]string{
+		"S01E01": "2160p WEB-DL H.265 Atmos Dolby Vision",
+		"S01E02": "1080p WEB-DL H.264",
+	} {
+		rec := series.Record{SeriesName: "brothers 2026", EpisodeID: ep, DownloadedAt: now, Quality: quality.Parse(q), Repack: ep == "S01E02"}
+		if err := p.tracker.Mark(rec); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	e3 := makeEntry("Brothers 2026 S01E03 Little Woody 1080p ATVP WEB-DL DDP5 1 Atmos H 264-Kitsune", "http://x/3")
+	p.filter(context.Background(), makeCtx(), e3)
+	if !e3.IsAccepted() {
+		t.Errorf("S01E03 should match the renamed favorite: %s", e3.RejectReason)
+	}
+	if got := e3.GetString(seriesTrackerName); got != "brothers 2026" {
+		t.Errorf("tracker key: got %q, want %q", got, "brothers 2026")
+	}
+
+	// Same quality as the tracked copy, so no upgrade is in play.
+	e2 := makeEntry("Brothers S01E02 2026 1080p ATVP WEB-DL H 264-GRP", "http://x/2")
+	p.filter(context.Background(), makeCtx(), e2)
+	if !e2.IsRejected() {
+		t.Errorf("S01E02 is already downloaded under the old spelling; should be rejected, got %s", e2.AcceptReason)
+	}
+}
+
+// A listed "Line of Fire (2026)" matches releases that omit the year.
+func TestFavoriteWithYearMatchesReleaseWithout(t *testing.T) {
+	fav := entry.New("Line of Fire (2026)", "")
+	fav.Set(entry.FieldVideoYear, 2026)
+	p := openWithFrom(t, &mockInput{entries: []*entry.Entry{fav}})
+
+	e := makeEntry("Line of Fire S01E04 1080p WEB h264-GRP", "http://x/4")
+	p.filter(context.Background(), makeCtx(), e)
+	if !e.IsAccepted() {
+		t.Errorf("release without the year should match: %s", e.RejectReason)
+	}
+}
+
+// Contradicting years are different shows.
+func TestFavoriteYearContradictionRejected(t *testing.T) {
+	fav := entry.New("Doctor Who (2005)", "")
+	fav.Set(entry.FieldVideoYear, 2005)
+	p := openWithFrom(t, &mockInput{entries: []*entry.Entry{fav}})
+
+	e := makeEntry("Doctor Who 1963 S01E01 480p DVDRip", "http://x/1")
+	p.filter(context.Background(), makeCtx(), e)
+	if e.IsAccepted() {
+		t.Error("the 1963 show should not match a 2005 favorite")
 	}
 }

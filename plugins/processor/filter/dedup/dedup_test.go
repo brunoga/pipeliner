@@ -53,6 +53,36 @@ func TestDedupCaseInsensitiveSeriesName(t *testing.T) {
 	}
 }
 
+// TestDedupSeriesYearSpellings: releases name a show with its year before the
+// episode identifier, after it, or not at all; all are copies of one episode.
+func TestDedupSeriesYearSpellings(t *testing.T) {
+	p := &dedupPlugin{}
+	entries := []*entry.Entry{
+		accepted("Brothers 2026 S01E01 On the Road 2160p ATVP WEB-DL DDP5 1 Atmos DV HDR H 265-RAWR"),
+		accepted("Brothers S01E01 2026 1080p ATVP WEB-DL H 264 DDP5 1 Atmos-HHWEB"),
+		accepted("Brothers S01E01 720p WEB H264-JFF"),
+	}
+	for _, e := range entries {
+		e.Set(entry.FieldMediaType, entry.MediaTypeSeries)
+		e.Set(entry.FieldSeriesEpisodeID, "S01E01")
+	}
+
+	out, err := p.Process(context.Background(), tc(), entries)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var kept []string
+	for _, e := range out {
+		if e.IsAccepted() {
+			kept = append(kept, e.Title)
+		}
+	}
+	if len(kept) != 1 || !strings.Contains(kept[0], "RAWR") {
+		t.Errorf("want only the 2160p copy kept, got %q", kept)
+	}
+}
+
 func TestDedupKeepsBestResolution(t *testing.T) {
 	p := &dedupPlugin{}
 	entries := []*entry.Entry{

@@ -105,16 +105,19 @@ func deduKey(e *entry.Entry) string {
 		// series name like "Breaking Bad" regardless of which metainfo
 		// plugin ran. Fall back to e.Fields["title"] when e.Title does not
 		// parse as an episode (e.g. a list-sourced entry).
+		//
+		// The name is keyed without a trailing year: "Brothers 2026 S01E01"
+		// and "Brothers S01E01 2026" are copies of the same episode.
 		var name string
 		if ep, ok := series.Parse(e.Title); ok {
-			name = ep.SeriesName
+			name = series.NewShow(ep.SeriesName, ep.SeriesYear).Base
 		} else {
-			name = e.GetString(entry.FieldTitle)
+			name = series.NewShow(e.GetString(entry.FieldTitle), entry.ReleaseYear(e)).Base
 		}
 		if name == "" {
 			return ""
 		}
-		return "episode:" + strings.ToLower(name) + "/" + epID
+		return "episode:" + name + "/" + epID
 	case entry.MediaTypeMovie:
 		title := e.GetString(entry.FieldTitle)
 		if title == "" {

@@ -227,44 +227,54 @@ func (p *seriesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *en
 	}
 
 	parsedName := e.GetString(entry.FieldTitle)
+	year := entry.ReleaseYear(e)
 	// When no list is configured the filter operates in accept-all mode:
 	// every classified episode passes the upstream Requires + quality/tracker
-	// checks, with no title matching. The tracker key is the normalized parsed
+	// checks, with no title matching. The show is identified by the parsed
 	// name so dedup and upgrade detection still work across runs.
-	var matchedShow string
+	showName := parsedName
 	if p.hasList() {
-		var ok bool
-		matchedShow, ok = matchShow(parsedName, p.resolveShows(ctx, tc))
+		show, ok := matchShow(parsedName, year, p.resolveShows(ctx, tc))
 		if !ok {
 			if p.rejectUnmatched {
 				e.Reject("series: show not in list")
 			}
 			return nil
 		}
-	} else {
-		matchedShow = match.Normalize(parsedName)
-		if matchedShow == "" {
-			return nil
+		showName = show.Norm
+		if show.Year != 0 {
+			year = show.Year
 		}
 	}
+
+	// The same show is spelled with and without its year by releases and by
+	// TheTVDB over time, so it is resolved to every tracker key already
+	// holding its episodes, and to the one new records go to.
+	ref := p.tracker.Resolve(showName, year)
+	if ref.Key == "" {
+		return nil
+	}
+	matchedShow := ref.Key
 
 	e.Set(seriesTrackerName, matchedShow)
 
 	// Deactivated shows (series_tracker_update sink, typically after a
 	// series_lifecycle "complete" classification) are rejected before any
 	// quality or tracker checks — searching for them is wasted work.
-	if rec, ok := p.inactive.Get(matchedShow); ok {
-		reason := rec.Reason
-		if reason == "" {
-			reason = "deactivated"
+	for _, key := range ref.Keys {
+		if rec, ok := p.inactive.Get(key); ok {
+			reason := rec.Reason
+			if reason == "" {
+				reason = "deactivated"
+			}
+			e.Reject(fmt.Sprintf("series: %s inactive (%s)", key, reason))
+			return nil
 		}
-		e.Reject(fmt.Sprintf("series: %s inactive (%s)", matchedShow, reason))
-		return nil
 	}
 
 	incomingQuality, _ := e.Quality()
 
-	if stored, ok := p.tracker.Get(matchedShow, epID); ok {
+	if stored, ok := p.tracker.GetAny(ref.Keys, epID); ok {
 		// Outside the upgrade window a better copy no longer replaces the
 		// downloaded one — an episode grabbed and watched weeks ago should not
 		// re-download because a remux appeared.
@@ -293,7 +303,7 @@ func (p *seriesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *en
 	}
 
 	if p.tracking == trackingStrict {
-		if latest, ok := p.tracker.Latest(matchedShow); ok {
+		if latest, ok := p.tracker.Latest(ref.Keys...); ok {
 			if err := enforceStrict(tc.Logger, epID, latest); err != nil {
 				e.Reject(err.Error())
 				return nil
@@ -312,7 +322,7 @@ func (p *seriesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *en
 		// records from pulling the floor back to an earlier season.
 		// For date-based shows fall back to comparing the full episode ID
 		// string lexicographically.
-		if highest, ok := p.tracker.HighestEpisode(matchedShow); ok {
+		if highest, ok := p.tracker.HighestEpisode(ref.Keys...); ok {
 			incomingSeason := e.GetInt(entry.FieldSeriesSeason)
 			floorSeason := seasonFromEpisodeID(highest.EpisodeID)
 			if incomingSeason > 0 && floorSeason > 0 {
@@ -410,17 +420,27 @@ func (p *seriesPlugin) resolveShows(ctx context.Context, tc *plugin.TaskContext)
 	)
 }
 
-// matchShow returns the canonical show name if parsed matches any configured show.
-// Series matching is title-only — shows air over multiple years so year
-// comparison would cause false negatives for ongoing series.
-func matchShow(parsed string, shows []match.TitleEntry) (string, bool) {
+// matchShow returns the configured show that parsed (with the year the
+// release names, 0 when none) belongs to. A title match wins outright — shows
+// air over multiple years, so a release year is no reason to refuse one.
+// Failing that, the names are compared without a trailing year, which is how
+// releases and TheTVDB variously spell it: "Brothers 2026" and "Brothers"
+// (listed with year 2026) are one show, unless the years contradict each
+// other.
+func matchShow(parsed string, year int, shows []match.TitleEntry) (match.TitleEntry, bool) {
 	norm := match.Normalize(parsed)
 	for _, s := range shows {
 		if match.Fuzzy(norm, s.Norm) {
-			return s.Norm, true
+			return s, true
 		}
 	}
-	return "", false
+	release := series.NewShow(parsed, year)
+	for _, s := range shows {
+		if series.NewShow(s.Norm, s.Year).Matches(release) {
+			return s, true
+		}
+	}
+	return match.TitleEntry{}, false
 }
 
 // enforceStrict rejects episodes that skip more than one ahead of the latest

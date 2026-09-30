@@ -306,3 +306,47 @@ func TestParseEpisodeID(t *testing.T) {
 		})
 	}
 }
+
+func TestParseSeriesYear(t *testing.T) {
+	cases := []struct {
+		title string
+		name  string
+		year  int
+	}{
+		// Year before the identifier stays in the name.
+		{"Brothers 2026 S01E01 On the Road 2160p ATVP WEB-DL DDP5 1 Atmos DV HDR H 265-RAWR", "Brothers 2026", 2026},
+		{"Doctor.Who.2005.S01E01.720p.HDTV", "Doctor Who 2005", 2005},
+		// Year right after the identifier.
+		{"Brothers S01E01 2026 1080p ATVP WEB-DL H 264 DDP5 1 Atmos-HHWEB", "Brothers", 2026},
+		{"Brothers.S01E02.2026.1080p.WEB.h264-GRP", "Brothers", 2026},
+		{"Show.1x03.2019.720p.HDTV", "Show", 2019},
+		// No year, or a number that is not one.
+		{"Last Seen S01E01 1080p WEB h264-GRP", "Last Seen", 0},
+		{"Show.S01E01.2160p.WEB", "Show", 0},
+		{"Show S01E01 20260101 WEB", "Show", 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.title, func(t *testing.T) {
+			ep, ok := Parse(tc.title)
+			if !ok {
+				t.Fatalf("Parse(%q) = false, want true", tc.title)
+			}
+			if ep.SeriesName != tc.name {
+				t.Errorf("name: got %q, want %q", ep.SeriesName, tc.name)
+			}
+			if ep.SeriesYear != tc.year {
+				t.Errorf("series year: got %d, want %d", ep.SeriesYear, tc.year)
+			}
+		})
+	}
+}
+
+func TestParseDateEpisodeHasNoSeriesYear(t *testing.T) {
+	ep, ok := Parse("The.Daily.Show.2023.11.15.720p.WEB")
+	if !ok {
+		t.Fatal("expected match")
+	}
+	if ep.SeriesYear != 0 {
+		t.Errorf("series year: got %d, want 0 (the year is the air date's)", ep.SeriesYear)
+	}
+}

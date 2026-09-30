@@ -26,7 +26,6 @@ import (
 	"time"
 
 	"github.com/brunoga/pipeliner/internal/entry"
-	"github.com/brunoga/pipeliner/internal/match"
 	"github.com/brunoga/pipeliner/internal/plugin"
 	"github.com/brunoga/pipeliner/internal/series"
 	"github.com/brunoga/pipeliner/internal/store"
@@ -121,12 +120,6 @@ func (p *premierePlugin) filter(_ context.Context, _ *plugin.TaskContext, e *ent
 	episode := e.GetInt(entry.FieldSeriesEpisode)
 	displayName := e.GetString(entry.FieldTitle)
 
-	// Tracker keys are normalized so they match those written by the series
-	// plugin (which also normalizes). Stamp the normalized name so persist()
-	// can read it back without re-normalizing.
-	normalizedName := match.Normalize(displayName)
-	e.Set(premiereTrackerName, normalizedName)
-
 	if p.season != 0 && season != p.season {
 		e.Reject(fmt.Sprintf("premiere: season %d does not match premiere season %d", season, p.season))
 		return nil
@@ -137,7 +130,19 @@ func (p *premierePlugin) filter(_ context.Context, _ *plugin.TaskContext, e *ent
 		return nil
 	}
 
-	if p.tracker.IsSeen(normalizedName, epID) {
+	// Releases spell the same show with and without its year ("Last Seen
+	// S01E01", "Last Seen 2026 S01E01", "Brothers S01E01 2026"), so the show
+	// is resolved by name and year, and the premiere counts as downloaded
+	// under any spelling already tracked. The resolved key is stamped so
+	// persist() records under it; it is the key the series plugin resolves
+	// to as well.
+	ref := p.tracker.Resolve(displayName, entry.ReleaseYear(e))
+	if ref.Key == "" {
+		return nil
+	}
+	e.Set(premiereTrackerName, ref.Key)
+
+	if _, seen := p.tracker.GetAny(ref.Keys, epID); seen {
 		e.Reject(fmt.Sprintf("premiere: %s %s already downloaded", displayName, epID))
 		return nil
 	}
@@ -156,8 +161,8 @@ func (p *premierePlugin) persist(_ context.Context, _ *plugin.TaskContext, entri
 		if !e.IsAccepted() {
 			continue
 		}
-		// normalizedName was stamped by filter(); reading it back avoids
-		// re-normalizing at commit time and ensures consistent tracker keys.
+		// The resolved tracker key was stamped by filter(); reading it back
+		// keeps the record under the key the lookup used.
 		normalizedName := e.GetString(premiereTrackerName)
 		if normalizedName == "" {
 			continue

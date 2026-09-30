@@ -10,7 +10,7 @@ episode/movie) and before output sinks.
 2. **Resolution** — higher resolution wins within the same seed tier
 3. **Seeds** — more seeds wins when tier and resolution are equal
 
-Episodes are keyed by series title (case-insensitive) + episode ID; movies by movie title (case-insensitive).
+Episodes are keyed by normalized series title without a trailing year + episode ID (`Brothers 2026 S01E01` and `Brothers S01E01 2026` are one episode); movies by movie title (case-insensitive).
 Entries without either key pass through unchanged.
 
 ## Required ordering: dedup goes last among the refusals

@@ -40,6 +40,7 @@ func metaize(e *entry.Entry) {
 	e.SetSeriesInfo(entry.SeriesInfo{
 		VideoInfo: entry.VideoInfo{
 			GenericInfo: entry.GenericInfo{Title: ep.SeriesName},
+			Year:        ep.SeriesYear,
 			Proper:      ep.Proper,
 			Repack:      ep.Repack,
 		},
@@ -341,5 +342,47 @@ func TestProcessStampsMediaTypeSeries(t *testing.T) {
 		if got := e.GetString(entry.FieldMediaType); got != entry.MediaTypeSeries {
 			t.Errorf("entry %q: media_type = %q, want %q", e.Title, got, entry.MediaTypeSeries)
 		}
+	}
+}
+
+// Brothers (2026): the premiere was downloaded as "Brothers 2026 S01E01" and
+// again a week later as "Brothers S01E01 2026", because the two spellings
+// keyed two different shows.
+func TestPremiereSeenUnderEitherYearSpelling(t *testing.T) {
+	p := makePlugin(t, map[string]any{})
+	tc := makeCtx()
+
+	first := rawEntry("Brothers 2026 S01E01 On the Road 2160p ATVP WEB-DL DDP5 1 Atmos DV HDR H 265-RAWR", "http://x/1")
+	filter(t, p, first)
+	if !first.IsAccepted() {
+		t.Fatalf("first spelling should be accepted: %s", first.RejectReason)
+	}
+	if err := p.Commit(context.Background(), tc, []*entry.Entry{first}); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, title := range []string{
+		"Brothers S01E01 2026 1080p ATVP WEB-DL H 264 DDP5 1 Atmos-HHWEB",
+		"Brothers S01E01 1080p WEB h264-GRP",
+	} {
+		e := rawEntry(title, "http://x/2")
+		filter(t, p, e)
+		if !e.IsRejected() {
+			t.Errorf("%q: premiere already downloaded, should be rejected", title)
+		}
+	}
+}
+
+// A premiere tracked before shows were keyed by name and year, under the bare
+// name, still counts once the year is known.
+func TestPremiereSeenUnderLegacyKey(t *testing.T) {
+	p := makePlugin(t, map[string]any{})
+	if err := p.tracker.Mark(series.Record{SeriesName: "last seen", EpisodeID: "S01E01"}); err != nil {
+		t.Fatal(err)
+	}
+	e := rawEntry("Last Seen 2026 S01E01 The Truth 1080p ATVP WEB-DL DDP5 1 Atmos H 264-RAWR", "http://x/1")
+	filter(t, p, e)
+	if !e.IsRejected() {
+		t.Error("premiere tracked under the bare name should be rejected")
 	}
 }

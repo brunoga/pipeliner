@@ -10,6 +10,8 @@ premiere is not recorded and will be retried on the next run.
 State is persisted in `pipeliner.db` in the same directory as the config file.
 The shared tracker bucket is the same one used by the `series` plugin — a show
 downloaded via `premiere` will not be re-offered to `series` and vice versa.
+Shows are identified by name and year the same way `series` does it (see its
+README), so `Brothers 2026 S01E01` and `Brothers S01E01 2026` are one premiere.
 
 ## Upstream requirement
 
@@ -20,6 +22,7 @@ any equivalent plugin that sets the same fields) upstream:
 | Field | Used for |
 |-------|----------|
 | `title` | Show name (normalized for the tracker key) |
+| `video_year` *(optional)* | Show year the release names |
 | `series_episode_id` | Tracker key + classification gate |
 | `series_season` | Season constraint check |
 | `series_episode` | Episode constraint check |
