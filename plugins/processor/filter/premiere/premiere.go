@@ -31,9 +31,12 @@ import (
 	"github.com/brunoga/pipeliner/internal/store"
 )
 
-// premiereTrackerName is the entry field used to carry the normalized show
-// name from filter() to persist(). It is internal to this plugin.
-const premiereTrackerName = "_premiere_tracker_name"
+// premiereTrackerName is the entry field used to carry the resolved tracker
+// key from filter() to persist(). It is the field the series filter uses too,
+// because the torrent sinks copy it into their grab records: that is how
+// mark_failed un-tracks a premiere whose download died, so it is retried with
+// another release instead of being counted as downloaded forever.
+const premiereTrackerName = entry.FieldSeriesTrackerName
 
 func init() {
 	plugin.Register(&plugin.Descriptor{

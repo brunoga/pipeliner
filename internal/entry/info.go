@@ -118,9 +118,10 @@ const (
 	FieldRoutePort = "_route_port"
 
 	// FieldSeriesTrackerName carries the normalized matched show name (the
-	// series tracker key) from the series filter's match phase to its commit
-	// phase. Internal (underscore-prefixed); also read by the torrent sinks'
-	// grab records so failed-grab recovery can un-track the episode.
+	// series tracker key) from the series or premiere filter's match phase to
+	// its commit phase. Internal (underscore-prefixed); also read by the
+	// torrent sinks' grab records so failed-grab recovery can un-track the
+	// episode.
 	FieldSeriesTrackerName = "_series_tracker_name"
 
 	// FieldMoviesTrackerTitle carries the matched (normalized) movie title —
