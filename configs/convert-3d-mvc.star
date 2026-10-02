@@ -34,17 +34,17 @@
 #
 # ── Delivering the rips ──────────────────────────────────────────────────────
 #
-# The airtight way to put a rip here is to land it somewhere else and rename it
-# in. A rename within one filesystem is atomic, so this directory never holds a
-# partial file and nothing has to be inferred from timestamps:
+# stable_for handles a rip that is still arriving, at the cost of one scan
+# interval before anything is emitted. If you would rather not wait at all,
+# land the rip somewhere else and rename it in: a rename within one filesystem
+# is atomic, so this directory only ever holds complete deliveries and
+# stable_for can be dropped entirely.
 #
 #     rsync -a remote:/rips/ /media/3d-incoming/ && mv /media/3d-incoming/* /media/3d-staging/
 #
-# That matters most for a disc arriving as a directory tree, where no timestamp
-# on any single file tells you the tree is complete. For single files that
-# appear atomically — a download client with move_completed_path pointing here,
-# or rsync, which writes to a temp name and renames — stable_for alone is
-# enough, and is there for the cross-filesystem copy that is not atomic.
+# Both work. The rename is faster and needs no settling window; stable_for
+# needs no cooperation from whatever puts the files there, which is why it is
+# what this sample uses.
 
 staging = "/media/3d-staging"
 library = "/media/3dmovies"
@@ -63,12 +63,15 @@ SMTP = {
 
 # A 3D rip is an .m2ts (or an .iso / BDMV directory, which mvc2sbs also takes).
 #
-# stable_for skips a file whose mtime moved in the last two minutes, so a rip
-# still being copied in is left for a later run instead of being handed to
-# mvc2sbs half-written. A transfer in progress keeps bumping the mtime, which
-# is what makes the test work even for a torrent client that preallocates the
-# full size up front. It is a safety net rather than a completion signal: see
-# "Delivering the rips" below.
+# stable_for withholds a rip until two scans have seen it unchanged two minutes
+# apart, so one still being copied in is left for a later run instead of being
+# handed to mvc2sbs half-written. The unit is the top-level item — the
+# directory (or single file) a release arrives as — so a disc delivered as a
+# tree settles as a whole rather than one file at a time.
+#
+# Note what it does *not* do: trust timestamps. `rsync -a` preserves the
+# source's modification times, so a file that arrived seconds ago can look days
+# old; comparing contents across the window does not care.
 src = input("filesystem", path=staging, recursive=True, mask="*.m2ts",
             stable_for="2m")
 
@@ -93,9 +96,10 @@ src = input("filesystem", path=staging, recursive=True, mask="*.m2ts",
 #     args=["--input", "{{dirname .file_location}}", ...]
 #
 # dirname turns /staging/Movie/BDMV/index.bdmv into /staging/Movie/BDMV, which
-# mvc2sbs accepts. Note that index.bdmv is small and written early, so its age
-# says nothing about whether the streams beside it have finished arriving —
-# which is exactly why the next section matters for tree deliveries.
+# mvc2sbs accepts. index.bdmv is small and written early, so its own timestamp
+# says nothing about whether the streams beside it have arrived — but settling
+# is per item, so the disc is still withheld until the whole tree stops
+# changing. That is what makes matching one file inside a tree safe.
 
 # metainfo_file parses the filename into title, year and quality.
 meta = process("metainfo_file", upstream=src)

@@ -61,34 +61,38 @@ network mount, where writes made on the far side raise no local events at all.
 For the jobs this feeds, the latency a notification would save is not worth a
 second mechanism that can only ever be an optimisation.
 
-### `stable_for` is a safety net, not a completion signal
+### How `stable_for` decides
 
-It compares a file's modification time against the window, which covers the
-common case well: a copy in progress keeps bumping the mtime, so the file stays
-too young to emit. A download client that preallocates the full size and fills
-it out of order is covered too — the size being final from the start plays no
-part in the test.
+Each scan fingerprints every **item** — the top-level child of the watched
+directory — over the path, size and modification time of every file beneath it.
+An item is emitted once two scans have seen the same fingerprint, at least
+`stable_for` apart. Anything that changes in between restarts the window.
 
-Two cases defeat it:
+The item, not the file, is the unit because that is the unit things arrive in:
+a download client, a torrent and an rsync each produce one directory (or one
+file) per release. The `mask` decides what is *emitted*; it plays no part in
+deciding what has settled.
 
-- A writer that restores the original timestamp after writing (`rsync -t`
-  resuming a file, `tar -p`) can look settled while incomplete.
-- For content delivered as a **directory tree**, no single file's age says
-  anything about the tree. A disc's `BDMV/index.bdmv` is small and written
-  early, so it settles long before the streams beside it.
+Two consequences worth knowing:
 
-The airtight pattern for both is to deliver into a staging directory and rename
-into the watched one. A rename within a filesystem is atomic, so the watched
-directory never holds a partial file and nothing has to be inferred:
+- **Nothing is emitted on first sight**, which costs one scan interval of
+  latency. A single observation cannot tell a finished delivery from a paused
+  one, and for a tree there is nothing in one observation to inspect — it
+  simply has fewer files in it than it will have.
+- **Timestamps are not trusted on their own.** `rsync -t` restores the source's
+  modification time, and `rsync -a` implies it, so a file that arrived seconds
+  ago can carry a timestamp days old. An age-based test would call such a file
+  settled immediately; comparing contents across the window does not care.
 
-```sh
-rsync -a remote:/rips/ /media/incoming/ && mv /media/incoming/* /media/staging/
-```
+A change has to hide from both the size and the timestamp, for every file in
+the item, to go unnoticed.
 
 ### Directory trees
 
-The plugin emits files, never directories. For a tree, match the one file it
-has exactly one of and derive the directory with `dirname`:
+The plugin emits files, never directories — but settling is per item, so a
+whole tree is withheld while any part of it is still arriving. For a tree,
+match the one file it has exactly one of and derive the directory with
+`dirname`:
 
 ```python
 disc = input("filesystem", path="/media/3d-staging", recursive=True,
@@ -99,3 +103,14 @@ disc = input("filesystem", path="/media/3d-staging", recursive=True,
 `mask="*.m2ts"` with `recursive=True` would instead match every stream file in
 `BDMV/STREAM`, which is dozens of entries for one film. See
 `configs/convert-3d-mvc.star` for the worked example.
+
+Note that `index.bdmv` is small and written early, so a test based on *its*
+timestamp would pass long before the streams beside it had arrived. Settling
+per item is what makes matching it safe.
+
+### Cost
+
+A scan stats every file under the watched path, not just the ones the mask
+selects, because an unmasked file arriving still means its item changed.
+`recursive=False` limits that to the top level. The settle snapshots are one
+small database row per item in flight, pruned as items leave.

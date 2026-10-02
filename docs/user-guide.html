@@ -986,7 +986,7 @@ pipeline("html-feed")</code></pre>
   <tr><td><code>path</code></td><td>yes</td><td>—</td><td>Directory to scan</td></tr>
   <tr><td><code>recursive</code></td><td>no</td><td>false</td><td>Recurse into subdirectories</td></tr>
   <tr><td><code>mask</code></td><td>no</td><td>—</td><td>Glob filter (e.g. <code>*.torrent</code>)</td></tr>
-  <tr><td><code>stable_for</code></td><td>no</td><td>—</td><td>Skip a file whose content changed more recently than this (e.g. <code>2m</code>), leaving it for a later run</td></tr>
+  <tr><td><code>stable_for</code></td><td>no</td><td>—</td><td>Withhold a delivery until its contents have been observed unchanged for this long (e.g. <code>2m</code>)</td></tr>
 </table>
 
 <h4>Fields set</h4>
@@ -1000,13 +1000,20 @@ pipeline("watch-folder", schedule="5m")</code></pre>
 <h4>Using it as a watch folder</h4>
 <p>A short schedule plus a downstream <a href="#seen"><code>seen</code></a> filter is the whole mechanism: each scan emits every matching file, <code>seen</code> drops the ones already handled, and because it commits only after the sinks confirm, a file whose processing failed is retried on the next run rather than silently lost. There is no filesystem-notification path, which is deliberate &mdash; a scan cannot miss a file that appeared while the daemon was stopped, and nothing is lost on a network mount, where writes made on the far side raise no local events at all.</p>
 
-<div class="note"><strong><code>stable_for</code> is a safety net, not a completion signal.</strong> It compares a file's modification time against the window, which catches the common case well: a copy in progress keeps bumping the mtime, so the file stays too young to emit, and a download client that preallocates the full size and fills it out of order is covered too, since the size being final from the start plays no part in the test. Two cases defeat it. A writer that restores the original timestamp after writing (<code>rsync -t</code> resuming a file, <code>tar -p</code>) can look settled while incomplete. And for content delivered as a <em>directory tree</em>, no single file's age says anything about the tree &mdash; a disc's <code>BDMV/index.bdmv</code> is small and written early, so it settles long before the streams beside it. The airtight pattern for both is to deliver into a staging directory and rename into the watched one: a rename within a filesystem is atomic, so the watched directory never holds a partial file and nothing has to be inferred.</div>
+<h4>How <code>stable_for</code> decides</h4>
+<p>Each scan fingerprints every <strong>item</strong> &mdash; the top-level child of the watched directory &mdash; over the path, size and modification time of every file beneath it. An item is emitted once two scans have seen the same fingerprint, at least <code>stable_for</code> apart; anything that changes in between restarts the window. The item rather than the file is the unit because that is the unit things arrive in: a download client, a torrent and an rsync each produce one directory (or one file) per release. <code>mask</code> decides what is <em>emitted</em> and plays no part in deciding what has settled, so an unmasked file arriving still counts as its item changing.</p>
 
-<p>For a tree, match the one file a disc has exactly one of rather than recursing into its streams, and hand the tool the directory holding it:</p>
+<div class="note"><strong>Two observations, not a timestamp age.</strong> Nothing is emitted on first sight, which costs one scan interval of latency and buys the only guarantee that matters. A single observation cannot tell a finished delivery from a paused one, and for a directory tree there is nothing in one observation to inspect &mdash; the tree simply has fewer files in it than it will have. Timestamps are also not trustworthy alone: <code>rsync -t</code> restores the source's modification time and <code>rsync -a</code> implies it, so a file that arrived seconds ago can carry a timestamp days old, and an age test would call it settled at once. Comparing contents across the window does not care &mdash; a change has to hide from both the size and the timestamp, for every file in the item, to go unnoticed.</div>
+
+<p>If you would rather not wait for the window at all, deliver into a staging directory and rename into the watched one. A rename within a filesystem is atomic, so the watched directory only ever holds complete deliveries and <code>stable_for</code> can be left off:</p>
+<pre><code>rsync -a remote:/rips/ /media/incoming/ &amp;&amp; mv /media/incoming/* /media/staging/</code></pre>
+
+<p>The plugin emits files, never directories &mdash; but because settling is per item, a whole tree is withheld while any part of it is still arriving. For a tree, match the one file a disc has exactly one of rather than recursing into its streams, and hand the tool the directory holding it:</p>
 <pre><code>disc = input("filesystem", path="/media/3d-staging", recursive=True,
              mask="index.bdmv", stable_for="2m")
 # ... --input "{{dirname .file_location}}"  →  /media/3d-staging/Movie/BDMV</code></pre>
-<p><code>mask="*.m2ts"</code> with <code>recursive=True</code> would instead match every stream file in <code>BDMV/STREAM</code>, which is dozens of entries for one film. See <code>configs/convert-3d-mvc.star</code> for the worked example.</p>
+<p><code>mask="*.m2ts"</code> with <code>recursive=True</code> would instead match every stream file in <code>BDMV/STREAM</code>, which is dozens of entries for one film. <code>index.bdmv</code> is small and written early, so a test based on <em>its</em> timestamp would pass long before the streams beside it had arrived; settling per item is what makes matching it safe. See <code>configs/convert-3d-mvc.star</code> for the worked example.</p>
+<p>A scan stats every file under the watched path, not only the ones the mask selects; <code>recursive=False</code> limits that to the top level. The snapshots are one small database row per item in flight, pruned as items leave, in a bucket named <code>filesystem_settle:&lt;pipeline&gt;</code> &mdash; scoped per pipeline, so two pipelines watching one directory keep independent observations.</p>
 
 <!-- ─────────── discover ─────────── -->
 <h2 id="discover">discover</h2>
