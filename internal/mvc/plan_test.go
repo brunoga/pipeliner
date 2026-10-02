@@ -22,7 +22,7 @@ func TestBuildPlanHasTheFourStagesInOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"demux", "stack", "encode", "mux"}
+	want := []string{"demux", "decode", "encode", "mux"}
 	if len(p.Steps) != len(want) {
 		t.Fatalf("got %d steps, want %d", len(p.Steps), len(want))
 	}
@@ -37,20 +37,42 @@ func TestBuildPlanHasTheFourStagesInOrder(t *testing.T) {
 // feature film is hundreds of gigabytes.
 func TestDecodeStreamsIntoTheEncoder(t *testing.T) {
 	p, _ := BuildPlan("linux", opts("linux", nil))
-	var stack Step
+	var decode Step
 	for _, s := range p.Steps {
-		if s.Name == "stack" {
-			stack = s
+		if s.Name == "decode" {
+			decode = s
 		}
 	}
-	if stack.PipeTo != "encode" {
-		t.Errorf("stack should pipe into encode, got %q", stack.PipeTo)
+	if decode.PipeTo != "encode" {
+		t.Errorf("decode should pipe into encode, got %q", decode.PipeTo)
 	}
-	if !contains(stack.Argv, "-") {
-		t.Errorf("vspipe should write to stdout, got %v", stack.Argv)
+	if !decode.StdinIsPair {
+		t.Error("decode's stdin is the interleaved pair, written in process")
 	}
-	if !contains(stack.Argv, "y4m") {
-		t.Errorf("vspipe should emit y4m, got %v", stack.Argv)
+	if !contains(decode.Argv, "-O") {
+		t.Errorf("decode must ask for the stacked side-by-side output, got %v", decode.Argv)
+	}
+	if !contains(decode.Argv, "-k") {
+		t.Errorf("decode must keep going past the type-24 NALs a 3D disc carries, got %v", decode.Argv)
+	}
+	if !contains(decode.Argv, "-") {
+		t.Errorf("decode must read stdin, got %v", decode.Argv)
+	}
+}
+
+// Nothing in the plan may route the two views through a file: the point of
+// interleaving in process is that a multi-gigabyte pair is never copied.
+func TestNoThirdCopyOfTheStreams(t *testing.T) {
+	p, _ := BuildPlan("linux", opts("linux", nil))
+	if p.BaseView == "" || p.DependentView == "" {
+		t.Fatal("the plan must say where the demux puts the two views")
+	}
+	for _, s := range p.Steps {
+		for _, a := range s.Argv {
+			if a == "combined.264" || strings.HasSuffix(a, "interleaved.264") {
+				t.Errorf("step %q writes a combined stream to disk: %v", s.Name, s.Argv)
+			}
+		}
 	}
 }
 
@@ -110,33 +132,6 @@ func TestEncoderSelectionPicksTheRightBinary(t *testing.T) {
 				t.Errorf("%s: argv should mention %q, got %v", c.enc, c.tag, s.Argv)
 			}
 		}
-	}
-}
-
-// Full-SBS keeps both eyes at source width; half squeezes them first. Getting
-// this backwards silently halves the resolution of the whole library.
-func TestLayoutDrivesTheScript(t *testing.T) {
-	full, _ := BuildPlan("linux", opts("linux", func(o *Options) { o.Layout = LayoutFullSBS }))
-	if strings.Contains(full.Script, "resize") {
-		t.Errorf("full-SBS must not rescale:\n%s", full.Script)
-	}
-	if !strings.Contains(full.Script, "StackHorizontal") {
-		t.Error("full-SBS must stack the two views")
-	}
-	half, _ := BuildPlan("linux", opts("linux", func(o *Options) { o.Layout = LayoutHalfSBS }))
-	if !strings.Contains(half.Script, "width // 2") {
-		t.Errorf("half-SBS must halve each eye's width:\n%s", half.Script)
-	}
-}
-
-// The script is Python, and the paths it embeds are full of characters Python
-// would otherwise interpret.
-func TestScriptQuotesPathsForPython(t *testing.T) {
-	p, _ := BuildPlan("windows", opts("windows", func(o *Options) {
-		o.Input = `C:\media\Life of Pi (2012)\disc.iso`
-	}))
-	if !strings.Contains(p.Script, `r'C:\media\Life of Pi (2012)\disc.iso'`) {
-		t.Errorf("a Windows path must survive into the script intact:\n%s", p.Script)
 	}
 }
 
@@ -214,4 +209,81 @@ func contains(ss []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// edge264 emits base-left and has no swap option, so exchanging the eyes is a
+// filter on the stacked frame. The filter was verified against a real decode:
+// the result's left half is bit-identical to the source's right half.
+func TestSwapIsAFilterOnTheStackedFrame(t *testing.T) {
+	p, err := BuildPlan("linux", opts("linux", func(o *Options) {
+		o.Encoder = EncoderNVENC
+		o.SwapLR = true
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := encodeArgs(p)
+	if !strings.Contains(joined, "hstack=2") {
+		t.Errorf("swap should stack the cropped halves the other way round, got: %s", joined)
+	}
+	if !strings.Contains(joined, "crop=iw/2:ih:iw/2:0") {
+		t.Errorf("swap should crop the right eye, got: %s", joined)
+	}
+}
+
+// x264 has no filters, so asking it for a swap or a squeeze has to be refused
+// rather than silently producing a file missing what was asked for.
+func TestFilterOptionsAreRefusedWithX264(t *testing.T) {
+	if _, err := BuildPlan("linux", opts("linux", func(o *Options) { o.SwapLR = true })); err == nil {
+		t.Error("--swap-lr with x264 must be refused")
+	} else if !strings.Contains(err.Error(), "ffmpeg") {
+		t.Errorf("the error should say what to use instead, got %q", err)
+	}
+	if _, err := BuildPlan("linux", opts("linux", func(o *Options) { o.Layout = LayoutHalfSBS })); err == nil {
+		t.Error("half-SBS with x264 must be refused")
+	}
+}
+
+// Order matters: the eyes are swapped before the pair is squeezed, and VAAPI's
+// upload comes last because the filters before it work on software frames.
+func TestFilterOrderIsSwapThenSqueezeThenUpload(t *testing.T) {
+	p, err := BuildPlan("linux", opts("linux", func(o *Options) {
+		o.Encoder = EncoderVAAPI
+		o.SwapLR = true
+		o.Layout = LayoutHalfSBS
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := encodeArgs(p)
+	iSwap := strings.Index(joined, "hstack=2")
+	iHalf := strings.Index(joined, "scale=iw/2:ih")
+	iUp := strings.Index(joined, "hwupload")
+	if iSwap < 0 || iHalf < 0 || iUp < 0 {
+		t.Fatalf("all three filters should be present, got: %s", joined)
+	}
+	if !(iSwap < iHalf && iHalf < iUp) {
+		t.Errorf("filters out of order (swap %d, squeeze %d, upload %d): %s", iSwap, iHalf, iUp, joined)
+	}
+}
+
+// Full-SBS with a hardware encoder needs no resample at all: the decoder's own
+// output is already the layout we want.
+func TestFullSBSAddsNoScaleFilter(t *testing.T) {
+	p, err := BuildPlan("linux", opts("linux", func(o *Options) { o.Encoder = EncoderNVENC }))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if joined := encodeArgs(p); strings.Contains(joined, "scale=") {
+		t.Errorf("full-SBS must not rescale, got: %s", joined)
+	}
+}
+
+func encodeArgs(p *Plan) string {
+	for _, s := range p.Steps {
+		if s.Name == "encode" {
+			return strings.Join(s.Argv, " ")
+		}
+	}
+	return ""
 }

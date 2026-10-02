@@ -1,0 +1,77 @@
+# ── bd3d2sbs image ────────────────────────────────────────────────────────────
+#
+# A separate image from the pipeliner server, for two reasons that are not going
+# to change:
+#
+#  * The toolchain is amd64-only, because upstream tsMuxeR publishes one Linux
+#    build and it is x86_64. The pipeliner image is built for amd64, arm64 and
+#    arm/v7, so two of its three architectures could never run a conversion.
+#  * A conversion is hours of CPU or GPU work, and hardware encoding needs
+#    device passthrough (/dev/dri, or the NVIDIA container runtime). That
+#    belongs in a container started for the job, not in the long-lived
+#    scheduler.
+#
+# The toolchain is small because the decoder is used directly: edge264 reads an
+# MVC stream and writes the eyes side by side as Y4M, so there is no
+# frameserver, no VapourSynth, no Python and no source plugin — which is most of
+# what bd3d2sbs has to build. Everything here either comes from apt or is one
+# small C program.
+
+# ── Go build ──────────────────────────────────────────────────────────────────
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS gobuild
+ARG VERSION=dev
+WORKDIR /build
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+    go build -ldflags="-s -w -X main.version=${VERSION}" -o bd3d2sbs ./cmd/bd3d2sbs
+
+# ── edge264 ───────────────────────────────────────────────────────────────────
+FROM debian:trixie-slim AS decoder
+# The only open-source software MVC decoder; libavcodec drops the dependent view.
+# Pinned to a release tag so an image rebuild is reproducible.
+ARG EDGE264_TAG=v2026.09.22
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      build-essential git ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+# Two build settings matter here. STATIC=yes links the decoder into the one
+# binary that gets copied out, so the runtime stage needs no library. And the
+# Makefile defaults to -march=native, which would bake this builder's CPU into
+# the image, so a portable baseline is forced instead.
+RUN git clone -q https://github.com/jens-duttke/edge264-mvc.git /src/edge264 \
+    && cd /src/edge264 && git checkout -q ${EDGE264_TAG} \
+    && make STATIC=yes BUILDTEST=yes \
+         CFLAGS="-O3 -std=gnu11 -mtune=generic -flax-vector-conversions -Wno-override-init -pthread" \
+         -j"$(nproc)" \
+    && install -m755 edge264_test /out-edge264
+
+# ── tsMuxeR ───────────────────────────────────────────────────────────────────
+FROM debian:trixie-slim AS demuxer
+# Upstream's own release binary demuxes MVC — no build, and no fork: the fork
+# bd3d2sbs vendors adds GUI and translation work, nothing touching MVC.
+ARG TSMUXER_VERSION=2.7.0
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl unzip \
+    && rm -rf /var/lib/apt/lists/* \
+    && curl -fsSL -o /tmp/t.zip \
+         "https://github.com/justdan96/tsMuxer/releases/download/${TSMUXER_VERSION}/tsMuxer-${TSMUXER_VERSION}-linux.zip" \
+    && unzip -q -o /tmp/t.zip -d /tmp/t \
+    && install -m755 /tmp/t/tsMuxeR /out-tsmuxer \
+    && rm -rf /tmp/t /tmp/t.zip
+
+# ── Runtime ───────────────────────────────────────────────────────────────────
+FROM debian:trixie-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates tzdata ffmpeg x264 mkvtoolnix \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=decoder /out-edge264 /usr/local/bin/edge264
+COPY --from=demuxer /out-tsmuxer /usr/local/bin/tsMuxeR
+COPY --from=gobuild /build/bd3d2sbs /usr/local/bin/bd3d2sbs
+
+# Where a caller mounts the source and the destination library.
+VOLUME ["/media"]
+
+ENTRYPOINT ["/usr/local/bin/bd3d2sbs"]
+CMD ["--check"]

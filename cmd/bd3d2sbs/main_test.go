@@ -44,44 +44,79 @@ func TestVersion(t *testing.T) {
 	}
 }
 
-// --dry-run must not need the toolchain: its whole point is showing what would
-// run on a machine where nothing is installed yet.
+// --dry-run must work on a machine where nothing is installed yet: its whole
+// point is showing what would run. The encoder is pinned so the assertion does
+// not depend on what hardware the test machine happens to have.
 func TestDryRunNeedsNoTools(t *testing.T) {
-	out, _, code := capture(t, "--dry-run",
+	out, _, code := capture(t, "--dry-run", "--encoder", "x264",
 		"--input", "/media/Life of Pi (2012)/disc.iso",
 		"--output", "/out/Life of Pi (2012).mkv",
 		"--temp", "/tmp/w")
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0", code)
 	}
-	for _, want := range []string{"tsMuxeR", "vspipe", "x264", "mkvmerge", "StackHorizontal"} {
+	for _, want := range []string{"tsMuxeR", "edge264", "x264", "mkvmerge", "interleaved"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("dry run should mention %q, got:\n%s", want, out)
 		}
 	}
+	// The decoder stacks the eyes itself, so nothing else should.
+	for _, unwanted := range []string{"StackHorizontal", "vspipe", "vapoursynth"} {
+		if strings.Contains(out, unwanted) {
+			t.Errorf("the pipeline no longer uses %q:\n%s", unwanted, out)
+		}
+	}
 }
 
+// Full-SBS is what the decoder emits, so it needs no filter; half-SBS squeezes
+// the stacked pair, which is an ffmpeg filter and so refused with x264.
 func TestDryRunShowsTheChosenLayout(t *testing.T) {
-	full, _, _ := capture(t, "--dry-run", "--layout", "full",
+	full, _, code := capture(t, "--dry-run", "--encoder", "x264", "--layout", "full",
 		"--input", "/in/a.iso", "--output", "/out/a.mkv", "--temp", "/tmp/w")
-	if strings.Contains(full, "width // 2") {
-		t.Error("full-SBS must not rescale")
+	if code != 0 {
+		t.Fatalf("full-SBS with x264 should work, exit = %d", code)
 	}
-	half, _, _ := capture(t, "--dry-run", "--layout", "half",
+	if strings.Contains(full, "scale=") {
+		t.Errorf("full-SBS must not rescale:\n%s", full)
+	}
+	if _, _, code := capture(t, "--dry-run", "--encoder", "x264", "--layout", "half",
+		"--input", "/in/a.iso", "--output", "/out/a.mkv", "--temp", "/tmp/w"); code != 2 {
+		t.Errorf("half-SBS with x264 should be refused, exit = %d", code)
+	}
+	half, _, code := capture(t, "--dry-run", "--encoder", "nvenc", "--layout", "half",
 		"--input", "/in/a.iso", "--output", "/out/a.mkv", "--temp", "/tmp/w")
-	if !strings.Contains(half, "width // 2") {
-		t.Error("half-SBS must halve each eye")
+	if code != 0 {
+		t.Fatalf("half-SBS with an ffmpeg encoder should work, exit = %d", code)
+	}
+	if !strings.Contains(half, "scale=iw/2:ih") {
+		t.Errorf("half-SBS must squeeze the stacked pair:\n%s", half)
+	}
+}
+
+// The eye swap is also a filter, so it follows the same rule.
+func TestSwapRequiresAnFFmpegEncoder(t *testing.T) {
+	if _, _, code := capture(t, "--dry-run", "--encoder", "x264", "--swap-lr",
+		"--input", "/in/a.iso", "--output", "/out/a.mkv", "--temp", "/tmp/w"); code != 2 {
+		t.Errorf("--swap-lr with x264 should be refused, exit = %d", code)
+	}
+	out, _, code := capture(t, "--dry-run", "--encoder", "nvenc", "--swap-lr",
+		"--input", "/in/a.iso", "--output", "/out/a.mkv", "--temp", "/tmp/w")
+	if code != 0 {
+		t.Fatalf("--swap-lr with nvenc should work, exit = %d", code)
+	}
+	if !strings.Contains(out, "hstack=2") {
+		t.Errorf("the swap should stack the cropped halves the other way:\n%s", out)
 	}
 }
 
 // Bad configuration exits 2 with usage, not a panic or a partial run.
 func TestInvalidOptionsExitTwo(t *testing.T) {
 	cases := [][]string{
-		{"--dry-run", "--output", "/out/a.mkv"},                         // no input
-		{"--dry-run", "--input", "/in/a.iso"},                           // no output
-		{"--dry-run", "--input", "/in/a.iso", "--output", "/out/a.mp4"}, // not mkv
-		{"--dry-run", "--input", "/in/a.iso", "--output", "/out/a.mkv", "--crf", "99"},
-		{"--dry-run", "--input", "/in/a.iso", "--output", "/out/a.mkv", "--layout", "sbs"},
+		{"--dry-run", "--encoder", "x264", "--output", "/out/a.mkv"},                         // no input
+		{"--dry-run", "--encoder", "x264", "--input", "/in/a.iso"},                           // no output
+		{"--dry-run", "--encoder", "x264", "--input", "/in/a.iso", "--output", "/out/a.mp4"}, // not mkv
+		{"--dry-run", "--encoder", "x264", "--input", "/in/a.iso", "--output", "/out/a.mkv", "--crf", "99"},
+		{"--dry-run", "--encoder", "x264", "--input", "/in/a.iso", "--output", "/out/a.mkv", "--layout", "sbs"},
 		{"--encoder", "nonsense"},
 	}
 	for _, argv := range cases {
