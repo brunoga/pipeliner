@@ -11,18 +11,8 @@ single frame any H.264/HEVC decoder handles, at the cost of a re-encode.
 
 ## Status
 
-| Part | State |
-|---|---|
-| Toolchain detection and reporting (`--check`) | done |
-| MVC stream interleaving | done, bit-exact against a real combined stream |
-| Conversion planning and `--dry-run` | done |
-| Running the conversion | **not implemented** |
-
-The runner is missing one piece: tsMuxeR needs a *meta file* naming the exact
-playlist and track numbers to demux, and those come from parsing tsMuxeR's own
-listing of the source. That parsing cannot be written honestly without a real 3D
-Blu-ray to check it against. Everything after it is tested against real MVC
-streams.
+Complete, and tested end to end against a real MVC source — see
+[Testing without a disc](#testing-without-a-disc).
 
 ## The pipeline
 
@@ -54,14 +44,31 @@ pair and a real combined stream and comparing the output byte for byte.
 ## Usage
 
 ```sh
-mvc2sbs --check
-mvc2sbs --dry-run --input disc.iso --output "Life of Pi (2012).mkv"
+mvc2sbs --check                       # preflight: what is installed, what is not
+mvc2sbs --dry-run --input disc.m2ts --output "Life of Pi (2012).mkv"
+mvc2sbs --input disc.m2ts --output "Life of Pi (2012).mkv"
 ```
+
+It reports as it goes, because a feature film takes hours:
+
+```
+mvc2sbs: probing /media/3d-staging/disc.m2ts
+mvc2sbs: source: base view track 4113, dependent view track 4114, 2 audio, 4 subtitle
+mvc2sbs: demuxing both views and 6 other track(s)
+mvc2sbs: decoding and encoding (nvenc)
+mvc2sbs: muxing /media/3dmovies/Life of Pi (2012).mkv
+mvc2sbs: done
+```
+
+A non-zero exit means the conversion did not happen, which is what lets
+pipeliner retry it.
 
 | Flag | Default | Description |
 |---|---|---|
 | `--check` | — | Report which external tools are present and which are missing, then exit |
-| `--dry-run` | — | Print the commands that would run |
+| `--dry-run` | — | Print the commands that would run, without running them |
+| `--keep-temp` | — | Leave the demuxed streams behind instead of deleting them |
+| `--quiet` | — | Only report errors |
 | `--input` | — | A `.iso`, a BDMV directory, or an MKV from MakeMKV |
 | `--output` | — | Destination `.mkv` |
 | `--temp` | beside the output | Scratch space for the demuxed views |
@@ -129,6 +136,44 @@ cmake -S . -B build -G Ninja && ninja -C build tsmuxer
 about a minute. `Dockerfile.mvc2sbs` does exactly that, which is what makes the
 image multi-architecture.
 
+## What it does with the rest of the disc
+
+Audio and subtitle tracks are demuxed alongside the two views and muxed into the
+output in the order the source listed them, so the first audio track stays first
+and languages are preserved. A track the demux failed to produce is reported and
+skipped — that costs a language, not the film.
+
+The views are identified by **stream ID**, not by order or track number: a disc
+is not obliged to list them in any order, and taking the wrong one as the base
+gives a stream that cannot decode at all.
+
+A source that is not 3D is refused by name rather than failing obscurely:
+
+```
+mvc2sbs: no MVC track: this source is not 3D (found V_MPEG4/ISO/AVC (track 4113))
+```
+
+So are two MVC tracks, an MVC track with no AVC base view, and an elementary
+stream handed in where a container was expected.
+
+## Testing without a disc
+
+tsMuxeR muxes as well as demuxes, which makes an end-to-end test possible with
+no 3D Blu-ray: mux a pair of MVC elementary streams into a real 3D m2ts, then
+convert it. `TestRunnerConvertsARealSource` does exactly that and checks the
+output is 1280×480 with its audio intact.
+
+The MVC streams come from
+[mvc-source](https://github.com/jens-duttke/mvc-source)'s `tests/fixtures`,
+which ships `mvc_base.264`, `mvc_dependent.mvc` and `mvc_combined.264` at 35, 23
+and 57 KB — the exact shape a demux produces. Point the tests at them:
+
+```sh
+MVC_TEST_FIXTURES=/path/to/mvc-source/tests/fixtures go test ./internal/mvc/
+```
+
+They skip when it is unset, so CI stays green without the toolchain.
+
 ## Encoders per platform
 
 | Platform | Hardware | Software |
@@ -166,6 +211,28 @@ tsMuxeR is built rather than downloaded so the arm64 image is a real arm64 image
 (`x86-64-v2` or `armv8-a+simd`) instead of the Makefile's default
 `-march=native`, which would otherwise bake the builder's CPU into a distributed
 image.
+
+### Running the conversion out of the image
+
+mvc2sbs knows nothing about Docker: it runs its four tools from its own PATH, so
+inside the image it just works. That means you can skip installing the toolchain
+on the host and let pipeliner drive the image instead — `exec` takes an `args`
+list, so `docker` becomes the command and nothing needs quoting:
+
+```python
+output("exec", upstream=once, command="docker",
+       args=["run", "--rm",
+             "--volume", "/media:/media",
+             "--gpus", "all",                    # or --device /dev/dri for VAAPI
+             "ghcr.io/brunoga/mvc2sbs:latest",
+             "--input", "{file_location}",
+             "--output", "{sbs_path}", "--quiet"])
+```
+
+Both forms behave identically to the pipeline: a non-zero exit fails the entry,
+so the conversion is retried rather than recorded as done. Hardware encoding
+needs the device passed through, which is the one thing the container cannot
+arrange for itself.
 
 ### Why this is a separate image
 
