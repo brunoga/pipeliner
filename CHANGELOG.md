@@ -5,6 +5,18 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.42.1] - 2026-10-02
+
+### Changed
+
+- **`bd3d2sbs` decodes MVC directly, dropping VapourSynth entirely** ([#490](https://github.com/brunoga/pipeliner/pull/490)). edge264's `-O` decodes both MVC views and writes them side by side as Y4M on stdout, which is the whole of what VapourSynth and the mvc-source plugin were doing — so the frameserver, Python, Cython, meson, zimg and the plugin all drop out, and four source builds become one small C program. The one piece neither remaining tool provides is the join between them: tsMuxeR's documentation is explicit that it *always splits* a combined AVC/MVC track into a base `.264` and a dependent `.mvc`, while the decoder wants one stream. That is implemented here, streaming into the decoder's stdin so a multi-gigabyte pair is never copied a third time, and verified by decoding an interleaved pair and a real combined stream and comparing the output byte for byte. Three of bd3d2sbs's four builds turned out to be avoidable on inspection: upstream tsMuxeR's own release binaries demux MVC for all three platforms (the fork it vendors adds GUI, translation and changelog commits, none touching MVC, and upstream is an ancestor of it), and the VapourSynth R65 pin was a build-system artifact — bd3d2sbs's own script prefers a system install and states the real requirement is API4, i.e. R63+, confirmed working on R80. Two further corrections came out of testing: the eye swap and the half-SBS squeeze are filters on the stacked frame, so they now need an ffmpeg encoder and are refused with `x264` up front rather than producing a file quietly missing them; and automatic encoder selection runs a one-frame trial encode, because a stock ffmpeg advertises `h264_nvenc` on a machine with no NVIDIA card and discovering that at the encode step would waste the hours already spent decoding.
+
+### Added
+
+- **`Dockerfile.bd3d2sbs`** ([#490](https://github.com/brunoga/pipeliner/pull/490)), an amd64 image carrying the whole conversion toolchain (~620 MB), verified converting a real MVC stream end to end inside the container. It is deliberately separate from the server image: tsMuxeR ships only an x86_64 Linux build while that image is built for amd64, arm64 and arm/v7, and a conversion is hours of work needing device passthrough. The first attempt at bundling it is why VapourSynth was dropped rather than packaged — it does not build on Debian trixie, whose Cython rejects a flag R80 passes, and it is packaged on neither Alpine, Debian nor Ubuntu.
+
+**Why 1.42.1**: changes the external dependencies of a tool whose conversion runner is still unimplemented, so nothing that worked before behaves differently. A patch bump per SemVer.
+
 ## [1.42.0] - 2026-09-28
 
 Makes the `exec` sink usable for the thing it is most often pointed at — a media path — and adds a converter for Blu-ray 3D sources that ordinary players cannot decode.
