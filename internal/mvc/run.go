@@ -77,7 +77,7 @@ func (r *Runner) Run(ctx context.Context) error {
 		return err
 	}
 
-	video := filepath.Join(tmp, "stacked.264")
+	video := filepath.Join(tmp, "stacked"+r.Opts.Codec.streamExt())
 	if err := r.decodeAndEncode(ctx, demuxed.base, demuxed.dependent, video); err != nil {
 		return err
 	}
@@ -272,7 +272,7 @@ func (r *Runner) decodeAndEncode(ctx context.Context, base, dependent, out strin
 		return err
 	}
 	encStep := encodeStep(r.Opts, out)
-	encBin, err := r.resolve(r.encoderTool())
+	encBin, err := r.resolve(encoderTool(r.Opts.Encoder, r.Opts.Codec))
 	if err != nil {
 		return err
 	}
@@ -302,7 +302,7 @@ func (r *Runner) decodeAndEncode(ctx context.Context, base, dependent, out strin
 	dec.Stderr = &decErr
 	enc.Stderr = &encErr
 
-	r.Report.Report("decoding and encoding (%s)", r.Opts.Encoder)
+	r.Report.Report("decoding and encoding (%s, %s)", r.Opts.Codec, r.Opts.Encoder)
 	if err := dec.Start(); err != nil {
 		return fmt.Errorf("starting the decoder: %w", err)
 	}
@@ -332,14 +332,6 @@ func (r *Runner) decodeAndEncode(ctx context.Context, base, dependent, out strin
 		return fmt.Errorf("interleaving the views: %w", feedErr)
 	}
 	return nil
-}
-
-// encoderTool is the program the chosen encoder runs through.
-func (r *Runner) encoderTool() Tool {
-	if r.Opts.Encoder.UsesFFmpeg() {
-		return toolFFmpeg
-	}
-	return toolX264
 }
 
 // mux assembles the final file.

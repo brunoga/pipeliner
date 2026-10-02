@@ -48,9 +48,10 @@ func run(argv []string, stdout, stderr *os.File) int {
 		output   = fs.String("output", "", "destination .mkv")
 		tempDir  = fs.String("temp", "", "scratch directory for demuxed streams (default: alongside the output)")
 		layout   = fs.String("layout", string(mvc.LayoutFullSBS), "full (1080p per eye) or half (960p per eye, ~half the size)")
-		encoder  = fs.String("encoder", string(mvc.EncoderAuto), "auto, x264, vaapi, videotoolbox or nvenc")
-		crf      = fs.Int("crf", 18, "quality target, 0-51; lower is better")
-		preset   = fs.String("preset", "slow", "x264 speed/efficiency preset")
+		encoder  = fs.String("encoder", string(mvc.EncoderAuto), "auto, software, vaapi, videotoolbox or nvenc")
+		codec    = fs.String("codec", string(mvc.CodecH264), "output video codec: h264 (plays anywhere) or h265 (smaller)")
+		crf      = fs.Int("crf", 18, "quality target, 0-51; lower is better (not comparable between codecs)")
+		preset   = fs.String("preset", "slow", "software encoder speed/efficiency preset")
 		vaapi    = fs.String("vaapi-device", "/dev/dri/renderD128", "render node for VAAPI encoding")
 		swapLR   = fs.Bool("swap-lr", false, "exchange the eyes (default: taken from the disc's own base-view marking)")
 		keepTemp = fs.Bool("keep-temp", false, "leave the demuxed streams behind instead of deleting them")
@@ -75,17 +76,22 @@ func run(argv []string, stdout, stderr *os.File) int {
 	goos := runtime.GOOS
 	ctx := context.Background()
 
-	enc := mvc.Encoder(*encoder)
+	cod := mvc.Codec(*codec)
+	if !cod.Valid() {
+		fmt.Fprintf(stderr, "mvc2sbs: unknown codec %q\n", cod)
+		return 2
+	}
+	enc := mvc.ParseEncoder(*encoder)
 	if !mvc.SupportsEncoder(goos, enc) {
 		fmt.Fprintf(stderr, "mvc2sbs: encoder %q is not available on %s\n", enc, goos)
 		return 2
 	}
 	if enc == mvc.EncoderAuto {
-		enc = mvc.DefaultEncoder(ctx, goos, *vaapi)
+		enc = mvc.DefaultEncoder(ctx, goos, cod, *vaapi)
 	}
 
 	if *check {
-		rep := mvc.Detect(ctx, goos, enc)
+		rep := mvc.Detect(ctx, goos, enc, cod)
 		fmt.Fprint(stdout, rep.String())
 		if !rep.OK() {
 			return 1
@@ -95,7 +101,8 @@ func run(argv []string, stdout, stderr *os.File) int {
 
 	o := mvc.DefaultOptions()
 	o.Input, o.Output, o.TempDir = *input, *output, *tempDir
-	o.Layout, o.Encoder, o.CRF, o.Preset, o.VAAPIDevice = mvc.Layout(*layout), enc, *crf, *preset, *vaapi
+	o.Layout, o.Encoder, o.Codec = mvc.Layout(*layout), enc, cod
+	o.CRF, o.Preset, o.VAAPIDevice = *crf, *preset, *vaapi
 	o.SwapLR = *swapLR
 
 	plan, err := mvc.BuildPlan(goos, o)
@@ -112,7 +119,7 @@ func run(argv []string, stdout, stderr *os.File) int {
 
 	// Refuse to start rather than fail hours in. A conversion is long enough
 	// that a missing tool discovered at step three is a wasted evening.
-	if rep := mvc.Detect(ctx, goos, enc); !rep.OK() {
+	if rep := mvc.Detect(ctx, goos, enc, cod); !rep.OK() {
 		fmt.Fprint(stderr, rep.String())
 		fmt.Fprintf(stderr, "\nmvc2sbs: refusing to start with tools missing; see --check\n")
 		return 1

@@ -10,7 +10,7 @@ func opts(goos string, mut func(*Options)) Options {
 	o.Input = "/media/in/Life of Pi (2012).iso"
 	o.Output = "/media/out/Life of Pi (2012).mkv"
 	o.TempDir = "/tmp/work"
-	o.Encoder = EncoderX264
+	o.Encoder = EncoderSoftware
 	if mut != nil {
 		mut(&o)
 	}
@@ -79,7 +79,7 @@ func TestNoThirdCopyOfTheStreams(t *testing.T) {
 // Every encoder variant has to read the same Y4M stream on stdin, or the pipe
 // from the decoder cannot work.
 func TestEveryEncoderReadsY4MFromStdin(t *testing.T) {
-	for _, enc := range []Encoder{EncoderX264, EncoderVAAPI, EncoderVideoToolbox, EncoderNVENC} {
+	for _, enc := range []Encoder{EncoderSoftware, EncoderVAAPI, EncoderVideoToolbox, EncoderNVENC} {
 		goos := "linux"
 		if enc == EncoderVideoToolbox {
 			goos = "darwin"
@@ -111,7 +111,7 @@ func TestEncoderSelectionPicksTheRightBinary(t *testing.T) {
 		prog string
 		tag  string
 	}{
-		{"linux", EncoderX264, "x264", "--crf"},
+		{"linux", EncoderSoftware, "x264", "--crf"},
 		{"linux", EncoderVAAPI, "ffmpeg", "h264_vaapi"},
 		{"linux", EncoderNVENC, "ffmpeg", "h264_nvenc"},
 		{"darwin", EncoderVideoToolbox, "ffmpeg", "h264_videotoolbox"},
