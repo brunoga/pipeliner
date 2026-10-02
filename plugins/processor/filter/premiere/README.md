@@ -74,4 +74,5 @@ because `metainfo_file` (upstream) already set them.
 
 - Episode history is stored in `pipeliner.db` in the same directory as the config file.
 - The episode tracker is updated only after all downstream sinks confirm (via `CommitPlugin`). If a sink fails an entry, the series is not recorded as seen and will be retried on the next run.
+- A premiere whose torrent dies after it was added is un-tracked by [`mark_failed`](../../../sink/mark_failed/README.md) (typically in a `torrent_failed` janitor pipeline), so another release is picked up on a later run. The torrent sinks record the premiere's tracker key with the grab for this, just as they do for `series`.
 - **Double episodes** (e.g. `S01E01E02`): when a double-episode premiere is committed, both individual episodes (`S01E01` and `S01E02`) are also marked as seen, preventing re-download of either part as a standalone release later.

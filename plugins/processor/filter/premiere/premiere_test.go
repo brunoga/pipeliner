@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/brunoga/pipeliner/internal/entry"
+	"github.com/brunoga/pipeliner/internal/grabs"
 	"github.com/brunoga/pipeliner/internal/plugin"
 	"github.com/brunoga/pipeliner/internal/series"
 	"github.com/brunoga/pipeliner/internal/store"
@@ -384,5 +385,41 @@ func TestPremiereSeenUnderLegacyKey(t *testing.T) {
 	filter(t, p, e)
 	if !e.IsRejected() {
 		t.Error("premiere tracked under the bare name should be rejected")
+	}
+}
+
+// A premiere whose torrent dies must be retried. The torrent sinks copy the
+// tracker key into the grab record, and mark_failed forgets the episode under
+// that key; a premiere that did not stamp it was never un-tracked, so its show
+// was treated as downloaded for good.
+func TestFailedPremiereGrabIsUntracked(t *testing.T) {
+	p := makePlugin(t, map[string]any{})
+	tc := makeCtx()
+
+	e := rawEntry("Brothers 2026 S01E01 On the Road 2160p ATVP WEB-DL DDP5 1 Atmos DV HDR H 265-RAWR", "http://x/1")
+	filter(t, p, e)
+	if !e.IsAccepted() {
+		t.Fatalf("premiere should be accepted: %s", e.RejectReason)
+	}
+	if err := p.Commit(context.Background(), tc, []*entry.Entry{e}); err != nil {
+		t.Fatal(err)
+	}
+
+	// What the deluge/transmission/qbittorrent sinks store at add time.
+	rec := grabs.FromEntry(e, tc.Name)
+	if rec.SeriesName != "brothers 2026" || rec.EpisodeID != "S01E01" {
+		t.Fatalf("grab record: got series %q episode %q, want %q %q",
+			rec.SeriesName, rec.EpisodeID, "brothers 2026", "S01E01")
+	}
+
+	// What mark_failed does when the janitor purges the torrent.
+	if err := p.tracker.Forget(rec.SeriesName, rec.EpisodeID); err != nil {
+		t.Fatal(err)
+	}
+
+	retry := rawEntry("Brothers 2026 S01E01 On the Road 1080p ATVP WEB-DL DDP5 1 Atmos H 264-FLUX", "http://x/2")
+	filter(t, p, retry)
+	if !retry.IsAccepted() {
+		t.Errorf("premiere should be retried after the failed grab: %s", retry.RejectReason)
 	}
 }
