@@ -45,9 +45,24 @@ pair and a real combined stream and comparing the output byte for byte.
 
 ```sh
 mvc2sbs --check                       # preflight: what is installed, what is not
-mvc2sbs --dry-run --input disc.m2ts --output "Life of Pi (2012).mkv"
-mvc2sbs --input disc.m2ts --output "Life of Pi (2012).mkv"
+mvc2sbs --dry-run --input 00800.m2ts --output "Life of Pi (2012).mkv"
+mvc2sbs --input 00800.m2ts --output "Life of Pi (2012).mkv"
 ```
+
+### What you can point it at
+
+The source is whatever tsMuxeR reads, which is **TS/M2TS/MTS, VOB/MPG/EVO, MKV,
+MOV/MP4, and MPLS** — a Blu-ray playlist.
+
+| You have | Point at |
+|---|---|
+| A ripped BDMV directory | `BDMV/PLAYLIST/00800.mpls` — the playlist for the main feature, usually the largest |
+| Loose streams from a rip | the feature's `.m2ts`, under `BDMV/STREAM/` |
+| An MKV from MakeMKV | the `.mkv` |
+| An ISO | **mount it first**, then the playlist inside. ISO is an output format for tsMuxeR, not an input |
+
+Pointing at the wrong playlist gets you a trailer or a menu loop rather than the
+film, so prefer the largest one, or the one a player picks.
 
 It reports as it goes, because a feature film takes hours:
 
@@ -69,7 +84,7 @@ pipeliner retry it.
 | `--dry-run` | — | Print the commands that would run, without running them |
 | `--keep-temp` | — | Leave the demuxed streams behind instead of deleting them |
 | `--quiet` | — | Only report errors |
-| `--input` | — | A `.iso`, a BDMV directory, or an MKV from MakeMKV |
+| `--input` | — | An `.m2ts`, a `.mpls` playlist from a BDMV, or an MKV — see [What you can point it at](#what-you-can-point-it-at) |
 | `--output` | — | Destination `.mkv` |
 | `--temp` | beside the output | Scratch space for the demuxed views |
 | `--layout` | `full` | `full` (1080p per eye) or `half` (960p per eye, roughly half the size) |

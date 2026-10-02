@@ -14,8 +14,12 @@
 // Usage:
 //
 //	mvc2sbs --check
-//	mvc2sbs --dry-run --input disc.iso --output "Life of Pi (2012).mkv"
-//	mvc2sbs --input disc.iso --output "Life of Pi (2012).mkv" --layout full
+//	mvc2sbs --dry-run --input 00800.m2ts --output "Life of Pi (2012).mkv"
+//	mvc2sbs --input BDMV/PLAYLIST/00800.mpls --output "Life of Pi (2012).mkv"
+//
+// The source is whatever tsMuxeR can read: an .m2ts, a .mpls playlist from a
+// BDMV directory, an MKV, or a VOB/MP4. An ISO is not one of them — mount it
+// first and point at the playlist inside.
 package main
 
 import (
@@ -40,7 +44,7 @@ func run(argv []string, stdout, stderr *os.File) int {
 	var (
 		check    = fs.Bool("check", false, "report which external tools are present and which are missing, then exit")
 		dryRun   = fs.Bool("dry-run", false, "print the commands that would run, without running them")
-		input    = fs.String("input", "", "source: a .iso, a BDMV directory, or an MKV from MakeMKV")
+		input    = fs.String("input", "", "source: an .m2ts, a .mpls playlist from a BDMV, or an MKV")
 		output   = fs.String("output", "", "destination .mkv")
 		tempDir  = fs.String("temp", "", "scratch directory for demuxed streams (default: alongside the output)")
 		layout   = fs.String("layout", string(mvc.LayoutFullSBS), "full (1080p per eye) or half (960p per eye, ~half the size)")
