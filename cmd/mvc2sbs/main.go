@@ -44,7 +44,7 @@ func run(argv []string, stdout, stderr *os.File) int {
 	var (
 		check    = fs.Bool("check", false, "report which external tools are present and which are missing, then exit")
 		dryRun   = fs.Bool("dry-run", false, "print the commands that would run, without running them")
-		input    = fs.String("input", "", "source: an .m2ts, a .mpls playlist from a BDMV, or an MKV")
+		input    = fs.String("input", "", "source: a .iso disc image, a BDMV directory, an .m2ts, a .mpls playlist, or an MKV")
 		output   = fs.String("output", "", "destination .mkv")
 		tempDir  = fs.String("temp", "", "scratch directory for demuxed streams (default: alongside the output)")
 		layout   = fs.String("layout", string(mvc.LayoutFullSBS), "full (1080p per eye) or half (960p per eye, ~half the size)")
@@ -52,7 +52,7 @@ func run(argv []string, stdout, stderr *os.File) int {
 		crf      = fs.Int("crf", 18, "quality target, 0-51; lower is better")
 		preset   = fs.String("preset", "slow", "x264 speed/efficiency preset")
 		vaapi    = fs.String("vaapi-device", "/dev/dri/renderD128", "render node for VAAPI encoding")
-		swapLR   = fs.Bool("swap-lr", false, "exchange the eyes, for a disc whose base view is the right eye")
+		swapLR   = fs.Bool("swap-lr", false, "exchange the eyes (default: taken from the disc's own base-view marking)")
 		keepTemp = fs.Bool("keep-temp", false, "leave the demuxed streams behind instead of deleting them")
 		quiet    = fs.Bool("quiet", false, "only report errors")
 		showVer  = fs.Bool("version", false, "print the version and exit")
@@ -127,6 +127,14 @@ func run(argv []string, stdout, stderr *os.File) int {
 
 	runner := mvc.NewRunner(goos, o, report)
 	runner.KeepTemp = *keepTemp
+	// Whether --swap-lr was given, as opposed to merely defaulting to false:
+	// a disc that marks its base view as the right eye sets this itself, but
+	// must not override someone who said otherwise.
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "swap-lr" {
+			runner.SwapLRSet = true
+		}
+	})
 	if err := runner.Run(ctx); err != nil {
 		fmt.Fprintf(stderr, "mvc2sbs: %v\n", err)
 		return 1
