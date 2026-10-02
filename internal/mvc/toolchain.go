@@ -93,12 +93,19 @@ var (
 		Purpose:     "demux the base and dependent MVC views, audio, subtitles and chapters",
 		VersionArgs: nil, // prints a banner with no arguments
 		// Upstream's own release binaries demux MVC — verified against
-		// 2.7.0-linux, which carries the V_MPEG4/ISO/MVC codec. No build is
-		// needed, and no fork: the teaching-droid fork that bd3d2sbs vendors
-		// adds GUI, i18n and changelog work, nothing touching MVC.
+		// 2.7.0-linux, which carries the V_MPEG4/ISO/MVC codec. No fork needed:
+		// the teaching-droid fork bd3d2sbs vendors adds GUI, translation and
+		// changelog commits, none touching MVC, and upstream is an ancestor
+		// of it.
+		//
+		// The published Linux build is x86_64 and the macOS one is arm64, so
+		// the only case needing a build is 64-bit Arm Linux. Its CLI needs no
+		// Qt — that is the GUI alone — so it is cmake plus zlib and freetype.
 		Install: map[string]string{
-			"linux":   "unzip tsMuxer-*-linux.zip from https://github.com/justdan96/tsMuxer/releases",
-			"darwin":  "unzip tsMuxer-*-mac.zip from https://github.com/justdan96/tsMuxer/releases",
+			"linux": "x86_64: unzip tsMuxer-*-linux.zip from https://github.com/justdan96/tsMuxer/releases. " +
+				"arm64: build the CLI (no Qt needed) — apt install build-essential cmake ninja-build " +
+				"zlib1g-dev libfreetype-dev, then cmake -S . -B build -G Ninja && ninja -C build tsmuxer",
+			"darwin":  "unzip tsMuxer-*-mac.zip from https://github.com/justdan96/tsMuxer/releases (it is an arm64 build)",
 			"windows": "unzip tsMuxer-*-win64.zip from https://github.com/justdan96/tsMuxer/releases",
 		},
 	}
@@ -110,13 +117,12 @@ var (
 		// version to ask for.
 		VersionArgs: nil,
 		// The only open-source software MVC decoder: libavcodec drops the
-		// dependent view entirely, so ffmpeg cannot stand in here. It is one
-		// small C program with no dependencies and its Makefile targets macOS,
-		// Linux and Windows, which is why this pipeline uses it directly rather
-		// than through a frameserver.
+		// dependent view entirely, so ffmpeg cannot stand in here. One small C
+		// program with no dependencies, whose own CI runs the full JVT
+		// conformance corpus on arm64 macOS and arm64 Linux as well as x86_64.
 		Install: map[string]string{
-			"linux":   "git clone https://github.com/jens-duttke/edge264-mvc && make -C edge264-mvc, then put edge264_test on PATH",
-			"darwin":  "git clone https://github.com/jens-duttke/edge264-mvc && make -C edge264-mvc (its Makefile targets macOS), then put edge264_test on PATH",
+			"linux":   "git clone https://github.com/jens-duttke/edge264-mvc && make -C edge264-mvc, then put edge264_test on PATH as edge264",
+			"darwin":  "git clone https://github.com/jens-duttke/edge264-mvc && make -C edge264-mvc (its Makefile targets macOS, Apple Silicon included)",
 			"windows": "build edge264-mvc with MinGW (make OS=windows), then put edge264_test.exe on PATH",
 		},
 	}
@@ -153,19 +159,12 @@ var (
 			"windows": "https://ffmpeg.org/download.html",
 		},
 	}
-	toolFFprobe = Tool{
-		Name:        "ffprobe",
-		Binaries:    []string{"ffprobe"},
-		Purpose:     "inspect the source's streams and runtime",
-		VersionArgs: []string{"-version"},
-		Install:     toolFFmpeg.Install,
-	}
 )
 
 // Required returns the tools needed on goos for the given encoder, in the
 // order a reader would meet them in the pipeline.
 func Required(goos string, enc Encoder) []Tool {
-	tools := []Tool{toolFFprobe, toolTsMuxeR, toolEdge264}
+	tools := []Tool{toolTsMuxeR, toolEdge264}
 	if enc.UsesFFmpeg() {
 		tools = append(tools, toolFFmpeg)
 	} else {
