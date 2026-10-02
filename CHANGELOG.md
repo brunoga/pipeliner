@@ -5,6 +5,30 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.46.0] - 2026-10-02
+
+The filesystem source can hold a delivery back until it has finished arriving, which is what makes it usable as a watch folder.
+
+### Added
+
+- **`stable_for` on `filesystem`** ([#506](https://github.com/brunoga/pipeliner/pull/506)), which withholds a delivery until its contents have been observed unchanged for that long. A watch folder was already expressible — the source emits an entry per file, `seen` drops the ones already handled, and because `seen` commits only after the sinks confirm, a file whose processing failed is retried rather than lost — but nothing stopped a file being handed downstream while it was still being written. That is only partly self-correcting: a tool that fails on a truncated input fails the entry and the file is retried, but a truncated disc image whose playlist still parses can convert to a corrupt file, exit zero and be recorded as done, and even the failing case can burn hours first.
+
+  Settling is decided by comparing observations rather than by reading clocks. Each scan fingerprints every **item** over the path, size and modification time of every file beneath it, and an item is emitted once two scans have seen the same fingerprint at least `stable_for` apart. The unit is the item — the top-level child of the watched directory — not the file, because that is the unit things arrive in: a download client, a torrent and an rsync each produce one directory or one file per release. A disc delivered as a BDMV tree therefore settles as a whole, which is what makes matching one small file inside it safe. `mask` decides what is emitted and plays no part in deciding what has settled, so an unmasked file arriving still counts as its item changing.
+
+  Timestamps are not trusted on their own, and that is the point: `rsync -t` restores the source's modification time and `rsync -a` implies it, so a file that arrived seconds ago can carry a timestamp days old. An age-based test would call a half-arrived disc settled the moment it was first seen. Comparing contents does not care — a change has to hide from both the size and the timestamp, for every file in the item, to go unnoticed. The costs are one scan interval of latency, since nothing settles on first sight, and one small database row per item in flight, pruned as items leave. Snapshots are scoped per pipeline and per watched root. Without `stable_for` the walk behaves exactly as before and needs no database.
+- **`dirname` and `basename` template functions** ([#506](https://github.com/brunoga/pipeliner/pull/506)). The filesystem source emits files, never directories, and there was previously no way to reach a directory from config at all. A disc delivered as a tree is matched by `index.bdmv` — the one file every disc has exactly one of — and `{{dirname .file_location}}` yields the BDMV directory `mvc2sbs` accepts.
+
+### Fixed
+
+- **The `mvc2sbs` package comment still said an ISO had to be mounted first** ([#506](https://github.com/brunoga/pipeliner/pull/506)), untrue since 1.44.0 and contradicted by the tool's own `--input` flag help.
+
+### Documentation
+
+- **Why the template-function examples are not all written alike** ([#506](https://github.com/brunoga/pipeliner/pull/506)). The functions are the same everywhere but the data is not: a pattern (`pathfmt`, `exec`, `print`, `set`) sees one entry's fields flat, while a notify body sees the report and reaches fields through `.Entries`. The two spellings also do not mix — a pattern containing `{{` is compiled as a Go template in full, so a `{field}` brace left in the same string stays literal text, which fails silently. Both are now stated and tested.
+- **Using `filesystem` as a watch folder**, in its README and the user guide: the schedule-plus-`seen` mechanism, how `stable_for` decides, the directory-tree recipe, the cost of a scan, and the staging-and-rename alternative that needs no settling window at all. `configs/convert-3d-mvc.star` moves from a nightly schedule to `5m` and gains `stable_for="2m"`.
+
+**Why 1.46.0**: a new config key and two new template functions, all additive. A `filesystem` node without `stable_for` scans exactly as it did before, so nothing existing changes meaning — a minor bump per SemVer.
+
 ## [1.45.0] - 2026-10-02
 
 A 3D conversion can be HEVC now, and two sets of tracker records left behind by earlier fixes are repaired.
