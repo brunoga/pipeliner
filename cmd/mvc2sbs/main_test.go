@@ -39,7 +39,7 @@ func TestVersion(t *testing.T) {
 	if code != 0 {
 		t.Errorf("exit = %d, want 0", code)
 	}
-	if !strings.Contains(out, "bd3d2sbs") {
+	if !strings.Contains(out, "mvc2sbs") {
 		t.Errorf("stdout = %q, should name the tool", out)
 	}
 }

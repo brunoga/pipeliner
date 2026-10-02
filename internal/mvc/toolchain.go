@@ -8,20 +8,18 @@
 // any H.264/HEVC decoder handles.
 //
 // The work itself is done by external programs; this package decides which
-// ones a platform needs, finds them, and assembles the commands. It follows
-// the pipeline established by bd3d2sbs
-// (https://github.com/Michal-Szczepaniak/bd3d2sbs), itself a Linux port of the
-// Windows tool BD3D2MK3D:
+// ones a platform needs, finds them, and assembles the commands:
 //
-//	tsMuxeR    demux the base (AVC) and dependent (MVC) views, plus audio,
-//	           subtitles and chapters
-//	VapourSynth decode both views and stack them into one frame
-//	encoder    x264, or ffmpeg with a platform hardware encoder
-//	mkvmerge   mux the result back together
+//	tsMuxeR   demux the base (AVC) and dependent (MVC) views, plus audio,
+//	          subtitles and chapters — the two views are then interleaved into
+//	          one stream in process, which is what interleave.go does
+//	edge264   decode both views and stack them side by side, as Y4M
+//	encoder   x264, or ffmpeg with a platform hardware encoder
+//	mkvmerge  mux the result back together
 //
-// Installing those programs is left to the operator. What this package
-// guarantees is that it will say precisely which are missing, and why each is
-// needed, rather than failing partway through a multi-hour run.
+// Installing the programs is left to the operator. What this package guarantees
+// is that it will say precisely which are missing, and why each is needed,
+// rather than failing partway through a multi-hour run.
 package mvc
 
 import (
@@ -93,10 +91,8 @@ var (
 		Purpose:     "demux the base and dependent MVC views, audio, subtitles and chapters",
 		VersionArgs: nil, // prints a banner with no arguments
 		// Upstream's own release binaries demux MVC — verified against
-		// 2.7.0-linux, which carries the V_MPEG4/ISO/MVC codec. No fork needed:
-		// the teaching-droid fork bd3d2sbs vendors adds GUI, translation and
-		// changelog commits, none touching MVC, and upstream is an ancestor
-		// of it.
+		// 2.7.0-linux, which carries the V_MPEG4/ISO/MVC codec — so there is
+		// nothing to build on the platforms it publishes for.
 		//
 		// The published Linux build is x86_64 and the macOS one is arm64, so
 		// the only case needing a build is 64-bit Arm Linux. Its CLI needs no
