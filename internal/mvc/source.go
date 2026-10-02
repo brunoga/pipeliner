@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Track is one stream tsMuxeR found in a source.
@@ -60,12 +61,58 @@ func (t Track) Kind() Kind {
 }
 
 var (
+	reDuration   = regexp.MustCompile(`^Duration:\s+(\d+):(\d\d):(\d\d)(?:\.(\d+))?`)
+	reBaseView   = regexp.MustCompile(`(?i)^Base view:\s*(left|right)`)
 	reTrackID    = regexp.MustCompile(`^Track ID:\s+(\d+)`)
 	reStreamType = regexp.MustCompile(`^Stream type:\s+(.+)`)
 	reStreamID   = regexp.MustCompile(`^Stream ID:\s+(.+)`)
 	reStreamInfo = regexp.MustCompile(`^Stream info:\s*(.*)`)
 	reStreamLang = regexp.MustCompile(`^Stream lang:\s*(.*)`)
 )
+
+// ParseDuration reads the "Duration: HH:MM:SS.mmm" line tsMuxeR prints after
+// the track list. It is how a title's length is known without parsing the
+// playlist format, which is what lets the main feature be told from a trailer.
+// Returns 0 when the source does not say.
+func ParseDuration(out string) time.Duration {
+	for _, line := range strings.Split(out, "\n") {
+		m := reDuration.FindStringSubmatch(strings.TrimSpace(line))
+		if m == nil {
+			continue
+		}
+		h, _ := strconv.Atoi(m[1])
+		mi, _ := strconv.Atoi(m[2])
+		se, _ := strconv.Atoi(m[3])
+		d := time.Duration(h)*time.Hour + time.Duration(mi)*time.Minute + time.Duration(se)*time.Second
+		// The fraction matters only for a test fixture a few frames long, but
+		// dropping it would make such a source indistinguishable from one of
+		// unknown length.
+		if m[4] != "" {
+			ms, _ := strconv.Atoi((m[4] + "000")[:3])
+			d += time.Duration(ms) * time.Millisecond
+		}
+		return d
+	}
+	return 0
+}
+
+// BaseViewIsRightEye reads the "Base view:" line tsMuxeR prints for a 3D
+// playlist. Most discs put the left eye in the base view; some do not, and the
+// difference is the difference between 3D and a headache.
+//
+// The decoder stacks base-left unconditionally, so a right-eye base view has to
+// be swapped afterwards. Reading it from the disc means the operator does not
+// have to watch the result to find out.
+func BaseViewIsRightEye(out string) (isRight, known bool) {
+	for _, line := range strings.Split(out, "\n") {
+		m := reBaseView.FindStringSubmatch(strings.TrimSpace(line))
+		if m == nil {
+			continue
+		}
+		return strings.EqualFold(m[1], "right"), true
+	}
+	return false, false
+}
 
 // ParseListing reads what tsMuxeR prints when handed a source with no meta
 // file: one block per track, the blocks separated by blank lines.

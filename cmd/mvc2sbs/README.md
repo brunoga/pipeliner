@@ -51,18 +51,48 @@ mvc2sbs --input 00800.m2ts --output "Life of Pi (2012).mkv"
 
 ### What you can point it at
 
-The source is whatever tsMuxeR reads, which is **TS/M2TS/MTS, VOB/MPG/EVO, MKV,
-MOV/MP4, and MPLS** — a Blu-ray playlist.
+| You have | Point at | Who picks the title |
+|---|---|---|
+| A `.iso` disc image | the `.iso` | **it does** |
+| A ripped BDMV folder | the folder, or its `BDMV` | **it does** |
+| A specific playlist | `BDMV/PLAYLIST/00800.mpls` | you |
+| Loose streams | the feature's `.m2ts` | you |
+| An MKV from MakeMKV | the `.mkv` | you |
 
-| You have | Point at |
-|---|---|
-| A ripped BDMV directory | `BDMV/PLAYLIST/00800.mpls` — the playlist for the main feature, usually the largest |
-| Loose streams from a rip | the feature's `.m2ts`, under `BDMV/STREAM/` |
-| An MKV from MakeMKV | the `.mkv` |
-| An ISO | **mount it first**, then the playlist inside. ISO is an output format for tsMuxeR, not an input |
+**A disc image needs no mounting.** Mounting one requires root, which rules it
+out for an unattended conversion, so the image is read directly — a Blu-ray is a
+UDF 2.50 filesystem and a pure-Go reader handles it on every platform. Only the
+files a conversion needs come out of it:
 
-Pointing at the wrong playlist gets you a trailer or a menu loop rather than the
-film, so prefer the largest one, or the one a player picks.
+```
+BDMV/PLAYLIST/*.mpls     which clips make up a title; tiny
+BDMV/CLIPINF/*.clpi      stream metadata; tiny
+BDMV/STREAM/SSIF/*.ssif  base and dependent views interleaved — the 3D stream
+```
+
+The base-view `BDMV/STREAM/*.m2ts` is **skipped**: on the disc it shares extents
+with the matching SSIF, so copying both would write the base view twice, and
+tsMuxeR reads a playlist perfectly well without it. `BACKUP`, `AUXDATA`,
+`CERTIFICATE`, `JAR`, `BDJO` and `META` are skipped outright.
+
+### Choosing the title
+
+Given an image or a folder, every playlist is probed and **the longest 3D one
+wins**. A disc holds a playlist per title — the feature, its trailers, the
+menus, and often several near-duplicates of the feature — so picking by filename
+or number gets a trailer as often as the film. Length is the signal that works:
+a feature is tens of times longer than anything else on the disc.
+
+```
+mvc2sbs: reading the disc image (no mount needed)
+mvc2sbs: extracted 142 of 1206 files from the image (31.4 GiB)
+mvc2sbs: chose 00800.mpls (1h58m12s) from 37 playlists, 3 of them 3D
+```
+
+**The eye order comes from the disc too.** tsMuxeR reports whether the base view
+is the left or the right eye, and the stacking compensates automatically — most
+discs are left, some are not, and the difference is the difference between 3D
+and a headache. `--swap-lr` overrides it when given explicitly.
 
 It reports as it goes, because a feature film takes hours:
 

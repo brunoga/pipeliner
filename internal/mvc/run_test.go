@@ -13,12 +13,34 @@ import (
 
 func runnerOpts(t *testing.T) Options {
 	t.Helper()
+	dir := t.TempDir()
+	// A real file: a source that does not exist is now reported before any
+	// tool is looked up, which would mask what these tests are checking.
+	in := filepath.Join(dir, "disc.m2ts")
+	if err := os.WriteFile(in, []byte("not really an m2ts"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	o := DefaultOptions()
-	o.Input = "/in/disc.m2ts"
-	o.Output = filepath.Join(t.TempDir(), "out.mkv")
+	o.Input = in
+	o.Output = filepath.Join(dir, "out.mkv")
 	o.TempDir = t.TempDir()
 	o.Encoder = EncoderX264
 	return o
+}
+
+// A source that is not there is said so plainly, and before anything expensive.
+func TestRunnerReportsAMissingSource(t *testing.T) {
+	o := runnerOpts(t)
+	o.Input = filepath.Join(t.TempDir(), "nope.m2ts")
+	r := NewRunner("linux", o, nil)
+	r.tool = func(string) (string, error) { return "/bin/true", nil }
+	err := r.Run(context.Background())
+	if err == nil {
+		t.Fatal("a missing source must be refused")
+	}
+	if !strings.Contains(err.Error(), "nope.m2ts") {
+		t.Errorf("the error should name the source, got %q", err)
+	}
 }
 
 // A missing tool must name itself and what it is for. "executable file not
@@ -279,4 +301,114 @@ func execCommand(bin string, args ...string) (string, error) {
 	cmd := exec.CommandContext(context.Background(), bin, args...) //nolint:gosec // test helper
 	b, err := cmd.CombinedOutput()
 	return string(b), err
+}
+
+// The point of reading the image directly: mounting one needs root, which
+// rules it out for an unattended conversion. This builds a real UDF Blu-ray
+// image from the MVC fixtures and converts it without touching a mount.
+func TestRunnerConvertsADiscImage(t *testing.T) {
+	fixtures := os.Getenv("MVC_TEST_FIXTURES")
+	if fixtures == "" {
+		t.Skip("set MVC_TEST_FIXTURES to mvc-source's tests/fixtures")
+	}
+	for _, n := range []string{"tsMuxeR", "x264", "mkvmerge", "ffmpeg"} {
+		if _, err := LookPath(n); err != nil {
+			t.Skipf("%s not installed", n)
+		}
+	}
+	edge := os.Getenv("MVC_TEST_EDGE264")
+	if edge == "" {
+		p, err := LookPath("edge264")
+		if err != nil {
+			t.Skip("edge264 not found; set MVC_TEST_EDGE264")
+		}
+		edge = p
+	}
+
+	work := t.TempDir()
+	iso := buildTestISO(t, work, fixtures)
+
+	out := filepath.Join(work, "From Image (2012) 3D.mkv")
+	o := DefaultOptions()
+	o.Input, o.Output, o.TempDir = iso, out, work
+	o.Encoder, o.CRF, o.Preset = EncoderX264, 25, "ultrafast"
+
+	var lines []string
+	r := NewRunner(CurrentGOOS, o, func(f string, a ...any) { lines = append(lines, fmt.Sprintf(f, a...)) })
+	r.tool = func(name string) (string, error) {
+		if name == "edge264" || name == "edge264_test" {
+			return edge, nil
+		}
+		return LookPath(name)
+	}
+	if err := r.Run(context.Background()); err != nil {
+		t.Fatalf("converting the image failed: %v\n%s", err, strings.Join(lines, "\n"))
+	}
+	if w, h := probeSize(t, out); w != 1280 || h != 480 {
+		t.Errorf("output is %dx%d, want 1280x480", w, h)
+	}
+	// It must say it read the image and which title it picked, since on a real
+	// disc both are decisions the operator would otherwise have had to make.
+	joined := strings.Join(lines, "\n")
+	for _, want := range []string{"disc image", "chose "} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("progress should mention %q, got:\n%s", want, joined)
+		}
+	}
+	// Nothing extracted from the image may be left behind — on a real disc
+	// that is tens of gigabytes.
+	entries, _ := os.ReadDir(work)
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), "mvc2sbs-") {
+			t.Errorf("work directory left behind: %s", e.Name())
+		}
+	}
+}
+
+// buildTestISO muxes the MVC fixtures into a real UDF Blu-ray image, which is
+// what makes an image test possible without a disc.
+func buildTestISO(t *testing.T, work, fixtures string) string {
+	t.Helper()
+	audio := filepath.Join(work, "iso-audio.ac3")
+	if err := runCmd(t, "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+		"-f", "lavfi", "-i", "sine=frequency=440:duration=1",
+		"-c:a", "ac3", "-b:a", "192k", audio); err != nil {
+		t.Skipf("could not build an audio track: %v", err)
+	}
+	meta := filepath.Join(work, "bd.meta")
+	content := "MUXOPT --blu-ray --no-pcr-on-video-pid --new-audio-pes --vbr --vbv-len=500\n" +
+		`V_MPEG4/ISO/AVC, "` + filepath.Join(fixtures, "mvc_base.264") + `", fps=23.976, insertSEI, contSPS` + "\n" +
+		`V_MPEG4/ISO/MVC, "` + filepath.Join(fixtures, "mvc_dependent.mvc") + `", fps=23.976, insertSEI, contSPS` + "\n" +
+		`A_AC3, "` + audio + `", lang=eng` + "\n"
+	if err := os.WriteFile(meta, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	iso := filepath.Join(work, "disc.iso")
+	if err := runCmd(t, "tsMuxeR", meta, iso); err != nil {
+		t.Skipf("could not build a Blu-ray image: %v", err)
+	}
+	return iso
+}
+
+// An image with no Blu-ray structure must say so rather than fail obscurely.
+func TestRunnerRefusesAnImageWithNoBDMV(t *testing.T) {
+	if _, err := LookPath("tsMuxeR"); err != nil {
+		t.Skip("tsMuxeR not installed")
+	}
+	work := t.TempDir()
+	iso := filepath.Join(work, "empty.iso")
+	// Not a UDF image at all: the failure should name the image, not panic.
+	if err := os.WriteFile(iso, make([]byte, 1<<16), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	o := DefaultOptions()
+	o.Input, o.Output, o.TempDir = iso, filepath.Join(work, "x.mkv"), work
+	o.Encoder = EncoderX264
+	err := NewRunner(CurrentGOOS, o, nil).Run(context.Background())
+	if err == nil {
+		t.Fatal("a non-UDF image must be refused")
+	}
+	if !strings.Contains(err.Error(), "empty.iso") && !strings.Contains(err.Error(), "UDF") {
+		t.Errorf("error should name the image or the format, got: %v", err)
+	}
 }

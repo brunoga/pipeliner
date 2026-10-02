@@ -32,6 +32,9 @@ type Runner struct {
 	// KeepTemp leaves the demuxed streams behind, for looking at a bad result
 	// without paying for the demux again.
 	KeepTemp bool
+	// SwapLRSet records that the operator gave --swap-lr explicitly, which
+	// stops the disc's own base-view marking from overriding them.
+	SwapLRSet bool
 
 	// tool resolves a program name to a path. Indirected for tests.
 	tool func(string) (string, error)
@@ -55,14 +58,21 @@ func (r *Runner) Run(ctx context.Context) error {
 	}
 	defer cleanup()
 
-	sel, err := r.probe(ctx)
+	// An image or a disc folder is resolved to a concrete playlist first, so
+	// everything after this works on one file as before.
+	source, err := r.resolveSource(ctx, tmp)
+	if err != nil {
+		return err
+	}
+
+	sel, err := r.probe(ctx, source)
 	if err != nil {
 		return err
 	}
 	r.Report.Report("source: base view track %d, dependent view track %d, %d audio, %d subtitle",
 		sel.Base.ID, sel.Dependent.ID, len(sel.Audio), len(sel.Subtitles))
 
-	demuxed, err := r.demux(ctx, tmp, sel)
+	demuxed, err := r.demux(ctx, tmp, source, sel)
 	if err != nil {
 		return err
 	}
@@ -98,23 +108,82 @@ func (r *Runner) workDir() (string, func(), error) {
 	}, nil
 }
 
+// resolveSource turns whatever was given into the one file tsMuxeR will read.
+//
+//   - a disc image: the files that matter are extracted and a playlist chosen
+//   - a BDMV directory (or its parent): a playlist is chosen
+//   - anything else: used as given
+//
+// Choosing the playlist here rather than asking the operator to is the point of
+// the exercise: a disc holds dozens, most of them trailers and menus, and an
+// unattended conversion cannot be expected to guess.
+func (r *Runner) resolveSource(ctx context.Context, tmp string) (string, error) {
+	in := r.Opts.Input
+	if LooksLikeISO(in) {
+		r.Report.Report("reading the disc image (no mount needed)")
+		bdmv, err := ExtractBDMV(ctx, in, filepath.Join(tmp, "disc"), r.Report)
+		if err != nil {
+			return "", err
+		}
+		return r.choose(ctx, bdmv)
+	}
+	st, err := os.Stat(in)
+	if err != nil {
+		return "", fmt.Errorf("reading %s: %w", in, err)
+	}
+	if !st.IsDir() {
+		return in, nil
+	}
+	// A directory is either a BDMV or the folder holding one.
+	bdmv := in
+	if filepath.Base(strings.ToUpper(in)) != "BDMV" {
+		bdmv = filepath.Join(in, "BDMV")
+	}
+	if _, err := os.Stat(bdmv); err != nil {
+		return "", fmt.Errorf("%s is a directory but holds no BDMV", in)
+	}
+	return r.choose(ctx, bdmv)
+}
+
+// choose picks the playlist, probing each with tsMuxeR.
+func (r *Runner) choose(ctx context.Context, bdmv string) (string, error) {
+	bin, err := r.resolve(toolTsMuxeR)
+	if err != nil {
+		return "", err
+	}
+	pl, err := ChoosePlaylist(ctx, func(ctx context.Context, path string) (string, error) {
+		out, err := exec.CommandContext(ctx, bin, path).CombinedOutput() //nolint:gosec // bin came from LookPath
+		return string(out), err
+	}, bdmv, r.Report)
+	if err != nil {
+		return "", err
+	}
+	// Take the eye order from the disc unless it was given explicitly. Doing
+	// it the other way round would silently ignore an operator who had watched
+	// the result and knows better.
+	if pl.KnownEye && !r.SwapLRSet {
+		r.Opts.SwapLR = pl.BaseViewIsRight
+	}
+	return pl.Path, nil
+}
+
 // probe asks tsMuxeR what the source contains.
-func (r *Runner) probe(ctx context.Context) (Selection, error) {
+func (r *Runner) probe(ctx context.Context, source string) (Selection, error) {
 	bin, err := r.resolve(toolTsMuxeR)
 	if err != nil {
 		return Selection{}, err
 	}
-	r.Report.Report("probing %s", r.Opts.Input)
+	r.Report.Report("probing %s", source)
 	// tsMuxeR exits non-zero on some sources it nonetheless describes, so the
 	// output is parsed whatever the status and the error only surfaces when
 	// there is nothing to parse.
-	out, runErr := exec.CommandContext(ctx, bin, r.Opts.Input).CombinedOutput() //nolint:gosec // bin came from LookPath
+	out, runErr := exec.CommandContext(ctx, bin, source).CombinedOutput() //nolint:gosec // bin came from LookPath
 	tracks, err := ParseListing(string(out))
 	if err != nil {
 		if runErr != nil {
-			return Selection{}, fmt.Errorf("probing %s: %w\n%s", r.Opts.Input, runErr, strings.TrimSpace(string(out)))
+			return Selection{}, fmt.Errorf("probing %s: %w\n%s", source, runErr, strings.TrimSpace(string(out)))
 		}
-		return Selection{}, fmt.Errorf("probing %s: %w", r.Opts.Input, err)
+		return Selection{}, fmt.Errorf("probing %s: %w", source, err)
 	}
 	return SelectTracks(tracks)
 }
@@ -127,13 +196,13 @@ type demuxResult struct {
 }
 
 // demux extracts the selected tracks.
-func (r *Runner) demux(ctx context.Context, tmp string, sel Selection) (demuxResult, error) {
+func (r *Runner) demux(ctx context.Context, tmp, source string, sel Selection) (demuxResult, error) {
 	bin, err := r.resolve(toolTsMuxeR)
 	if err != nil {
 		return demuxResult{}, err
 	}
 	metaPath := filepath.Join(tmp, "demux.meta")
-	if err := os.WriteFile(metaPath, []byte(DemuxMeta(r.Opts.Input, sel)), 0o600); err != nil {
+	if err := os.WriteFile(metaPath, []byte(DemuxMeta(source, sel)), 0o600); err != nil {
 		return demuxResult{}, fmt.Errorf("writing the demux meta file: %w", err)
 	}
 	r.Report.Report("demuxing both views%s", pluralExtras(sel))
