@@ -14,7 +14,7 @@
 //	          subtitles and chapters — the two views are then interleaved into
 //	          one stream in process, which is what interleave.go does
 //	edge264   decode both views and stack them side by side, as Y4M
-//	encoder   x264, or ffmpeg with a platform hardware encoder
+//	encoder   x264 or x265, or ffmpeg with a platform hardware encoder
 //	mkvmerge  mux the result back together
 //
 // Installing the programs is left to the operator. What this package guarantees
@@ -54,8 +54,10 @@ type Encoder string
 const (
 	// EncoderAuto picks the best available for the platform.
 	EncoderAuto Encoder = "auto"
-	// EncoderX264 is software H.264. Available everywhere, slowest.
-	EncoderX264 Encoder = "x264"
+	// EncoderSoftware is CPU encoding through the codec's own command-line
+	// tool — x264 or x265, depending on the Codec. Available everywhere,
+	// slowest, and the only one whose output does not vary with the GPU.
+	EncoderSoftware Encoder = "software"
 	// EncoderVAAPI is ffmpeg VAAPI — Linux only, needs a supported GPU.
 	EncoderVAAPI Encoder = "vaapi"
 	// EncoderVideoToolbox is ffmpeg VideoToolbox — macOS only.
@@ -64,25 +66,96 @@ const (
 	EncoderNVENC Encoder = "nvenc"
 )
 
+// ParseEncoder resolves the name an operator typed. "x264" is accepted for
+// EncoderSoftware: it was the name of this setting when H.264 was the only
+// output, and it would otherwise silently become an unknown encoder.
+func ParseEncoder(s string) Encoder {
+	if s == "x264" || s == "x265" {
+		return EncoderSoftware
+	}
+	return Encoder(s)
+}
+
+// Codec is the video codec the stacked frames are compressed with. It is a
+// separate axis from the Encoder: every encoder here can produce either.
+type Codec string
+
+const (
+	// CodecH264 is AVC. The safe default — a side-by-side H.264 file plays on
+	// anything, including hardware too old to decode HEVC at all.
+	CodecH264 Codec = "h264"
+	// CodecH265 is HEVC. A full-SBS frame is double width (3840x1080 from a
+	// 1080p disc), which is exactly where HEVC's larger coding units pay off,
+	// so it is materially smaller at the same quality. The cost is decoder
+	// support: HEVC is widely but not universally direct-played, and a client
+	// that has to transcode a 3840x1080 stream is worse off than one
+	// direct-playing H.264.
+	CodecH265 Codec = "h265"
+)
+
+// Codecs returns the supported codecs, H.264 first.
+func Codecs() []Codec { return []Codec{CodecH264, CodecH265} }
+
+// Valid reports whether c is a codec this package knows.
+func (c Codec) Valid() bool {
+	for _, k := range Codecs() {
+		if k == c {
+			return true
+		}
+	}
+	return false
+}
+
+// ffmpegEncoder names the ffmpeg encoder for a codec and hardware backend,
+// e.g. "hevc_nvenc". Empty for EncoderSoftware, which does not go through
+// ffmpeg.
+func (c Codec) ffmpegEncoder(enc Encoder) string {
+	family := "h264"
+	if c == CodecH265 {
+		// ffmpeg spells the HEVC encoders "hevc_*", not "h265_*".
+		family = "hevc"
+	}
+	switch enc {
+	case EncoderVAAPI:
+		return family + "_vaapi"
+	case EncoderNVENC:
+		return family + "_nvenc"
+	case EncoderVideoToolbox:
+		return family + "_videotoolbox"
+	default:
+		return ""
+	}
+}
+
+// streamExt is the extension for the raw elementary stream the encoder writes.
+// mkvmerge identifies a raw stream by extension, so getting this wrong makes
+// the mux reject the file rather than mis-handle it.
+func (c Codec) streamExt() string {
+	if c == CodecH265 {
+		return ".265"
+	}
+	return ".264"
+}
+
 // Encoders returns the encoders that make sense on this platform, best first.
 // The list is what the platform *supports*, not what is installed; Detect
 // reports availability.
 func Encoders(goos string) []Encoder {
 	switch goos {
 	case "linux":
-		return []Encoder{EncoderNVENC, EncoderVAAPI, EncoderX264}
+		return []Encoder{EncoderNVENC, EncoderVAAPI, EncoderSoftware}
 	case "darwin":
-		return []Encoder{EncoderVideoToolbox, EncoderX264}
+		return []Encoder{EncoderVideoToolbox, EncoderSoftware}
 	case "windows":
-		return []Encoder{EncoderNVENC, EncoderX264}
+		return []Encoder{EncoderNVENC, EncoderSoftware}
 	default:
-		return []Encoder{EncoderX264}
+		return []Encoder{EncoderSoftware}
 	}
 }
 
 // UsesFFmpeg reports whether an encoder is driven through ffmpeg rather than
-// the standalone x264 binary.
-func (e Encoder) UsesFFmpeg() bool { return e != EncoderX264 && e != EncoderAuto }
+// the codec's own standalone binary.
+func (e Encoder) UsesFFmpeg() bool { return e != EncoderSoftware && e != EncoderAuto }
 
 var (
 	toolTsMuxeR = Tool{
@@ -136,12 +209,23 @@ var (
 	toolX264 = Tool{
 		Name:        "x264",
 		Binaries:    []string{"x264"},
-		Purpose:     "encode the stacked frames in software",
+		Purpose:     "encode the stacked frames in software as H.264",
 		VersionArgs: []string{"--version"},
 		Install: map[string]string{
 			"linux":   "install x264",
 			"darwin":  "brew install x264",
 			"windows": "https://www.videolan.org/developers/x264.html",
+		},
+	}
+	toolX265 = Tool{
+		Name:        "x265",
+		Binaries:    []string{"x265"},
+		Purpose:     "encode the stacked frames in software as HEVC",
+		VersionArgs: []string{"--version"},
+		Install: map[string]string{
+			"linux":   "install x265",
+			"darwin":  "brew install x265",
+			"windows": "https://www.videolan.org/developers/x265.html",
 		},
 	}
 	toolFFmpeg = Tool{
@@ -157,16 +241,27 @@ var (
 	}
 )
 
-// Required returns the tools needed on goos for the given encoder, in the
-// order a reader would meet them in the pipeline.
-func Required(goos string, enc Encoder) []Tool {
-	tools := []Tool{toolTsMuxeR, toolEdge264}
-	if enc.UsesFFmpeg() {
-		tools = append(tools, toolFFmpeg)
-	} else {
-		tools = append(tools, toolX264)
+// Required returns the tools needed on goos to produce codec with the given
+// encoder, in the order a reader would meet them in the pipeline. Only the
+// encode step varies: a hardware encoder is ffmpeg either way, and software
+// encoding is whichever of x264 / x265 matches the codec.
+func Required(goos string, enc Encoder, codec Codec) []Tool {
+	return []Tool{toolTsMuxeR, toolEdge264, encoderTool(enc, codec), toolMkvmerge}
+}
+
+// encoderTool is the program that runs the encode. The runner resolves the
+// binary from this and the plan builds the arguments from the same pair, so
+// they cannot disagree about which program is being driven — a mismatch would
+// invoke x264 with x265's flags.
+func encoderTool(enc Encoder, codec Codec) Tool {
+	switch {
+	case enc.UsesFFmpeg():
+		return toolFFmpeg
+	case codec == CodecH265:
+		return toolX265
+	default:
+		return toolX264
 	}
-	return append(tools, toolMkvmerge)
 }
 
 // Found is the outcome of looking for one tool.
@@ -185,6 +280,7 @@ func (f Found) OK() bool { return f.Path != "" }
 type Report struct {
 	GOOS    string
 	Encoder Encoder
+	Codec   Codec
 	Tools   []Found
 }
 
@@ -212,9 +308,9 @@ var LookPath = exec.LookPath
 // A version string is best-effort: several of these programs exit non-zero
 // when asked for one, and tsMuxeR has no version flag at all, so a tool that
 // was found but would not report a version is still reported as present.
-func Detect(ctx context.Context, goos string, enc Encoder) Report {
-	rep := Report{GOOS: goos, Encoder: enc}
-	for _, t := range Required(goos, enc) {
+func Detect(ctx context.Context, goos string, enc Encoder, codec Codec) Report {
+	rep := Report{GOOS: goos, Encoder: enc, Codec: codec}
+	for _, t := range Required(goos, enc, codec) {
 		f := Found{Tool: t}
 		for _, bin := range t.Binaries {
 			if p, err := LookPath(bin); err == nil {
@@ -257,7 +353,7 @@ func (t Tool) InstallHint(goos string) string {
 // String renders a report as the operator-facing check output.
 func (r Report) String() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "platform: %s   encoder: %s\n\n", r.GOOS, r.Encoder)
+	fmt.Fprintf(&b, "platform: %s   encoder: %s   codec: %s\n\n", r.GOOS, r.Encoder, r.Codec)
 	for _, f := range r.Tools {
 		switch {
 		case f.OK() && f.Version != "":
@@ -280,26 +376,29 @@ func (r Report) String() string {
 }
 
 // DefaultEncoder resolves EncoderAuto to the fastest encoder this machine can
-// actually use, falling back to x264.
+// actually use, falling back to software encoding.
 //
 // Having ffmpeg is not the same as having a GPU: a stock build advertises
 // h264_nvenc on a machine with no NVIDIA card. So each candidate is put through
 // a one-frame trial encode rather than merely having its tools located — the
 // alternative is choosing an encoder that fails at the encode step, hours into
 // a conversion.
-func DefaultEncoder(ctx context.Context, goos, vaapiDevice string) Encoder {
+func DefaultEncoder(ctx context.Context, goos string, codec Codec, vaapiDevice string) Encoder {
 	for _, enc := range Encoders(goos) {
-		if enc == EncoderX264 {
+		if enc == EncoderSoftware {
 			continue
 		}
-		if !Detect(ctx, goos, enc).OK() {
+		if !Detect(ctx, goos, enc, codec).OK() {
 			continue
 		}
-		if ProbeEncoder(ctx, enc, vaapiDevice) {
+		// Probed for the codec being produced, not for the encoder in the
+		// abstract: a GPU generation can carry an H.264 encoder and no HEVC
+		// one, so "nvenc works here" is not an answer on its own.
+		if ProbeEncoder(ctx, enc, codec, vaapiDevice) {
 			return enc
 		}
 	}
-	return EncoderX264
+	return EncoderSoftware
 }
 
 // SupportsEncoder reports whether enc is meaningful on goos. VAAPI on macOS

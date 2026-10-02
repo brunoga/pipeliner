@@ -24,7 +24,7 @@ func runnerOpts(t *testing.T) Options {
 	o.Input = in
 	o.Output = filepath.Join(dir, "out.mkv")
 	o.TempDir = t.TempDir()
-	o.Encoder = EncoderX264
+	o.Encoder = EncoderSoftware
 	return o
 }
 
@@ -64,7 +64,7 @@ func TestRunnerNamesAMissingTool(t *testing.T) {
 // so an impossible request must not get as far as the demux.
 func TestRunnerValidatesBeforeTouchingTheSource(t *testing.T) {
 	o := runnerOpts(t)
-	o.Encoder = EncoderX264
+	o.Encoder = EncoderSoftware
 	o.SwapLR = true // a filter, which x264 cannot do
 	r := NewRunner("linux", o, nil)
 	called := false
@@ -119,21 +119,46 @@ func TestNilReporterIsSafe(t *testing.T) {
 	r.Report("this must not panic %d", 1)
 }
 
-// encoderTool follows the chosen encoder, because resolving x264 for an ffmpeg
-// run would fail on a machine that has only one of them.
-func TestEncoderToolFollowsTheEncoder(t *testing.T) {
+// encoderTool follows the chosen encoder and codec, because resolving x264 for
+// an ffmpeg run would fail on a machine that has only one of them — and
+// resolving x264 for an HEVC run would invoke it with x265's flags.
+func TestEncoderToolFollowsTheEncoderAndCodec(t *testing.T) {
 	for _, c := range []struct {
-		enc  Encoder
-		want string
+		enc   Encoder
+		codec Codec
+		want  string
 	}{
-		{EncoderX264, "x264"},
-		{EncoderNVENC, "ffmpeg"},
-		{EncoderVAAPI, "ffmpeg"},
-		{EncoderVideoToolbox, "ffmpeg"},
+		{EncoderSoftware, CodecH264, "x264"},
+		{EncoderSoftware, CodecH265, "x265"},
+		{EncoderNVENC, CodecH264, "ffmpeg"},
+		{EncoderNVENC, CodecH265, "ffmpeg"},
+		{EncoderVAAPI, CodecH265, "ffmpeg"},
+		{EncoderVideoToolbox, CodecH265, "ffmpeg"},
 	} {
-		r := &Runner{Opts: Options{Encoder: c.enc}}
-		if got := r.encoderTool().Name; got != c.want {
-			t.Errorf("%s should run through %s, got %s", c.enc, c.want, got)
+		if got := encoderTool(c.enc, c.codec).Name; got != c.want {
+			t.Errorf("%s/%s should run through %s, got %s", c.enc, c.codec, c.want, got)
+		}
+	}
+}
+
+// The runner and the plan must agree on where the encoded stream goes: the
+// plan names it from the codec, and the runner builds the same path itself.
+func TestRunnerAndPlanAgreeOnTheVideoPath(t *testing.T) {
+	for _, cod := range Codecs() {
+		o := opts("linux", func(o *Options) { o.Codec = cod })
+		p, err := BuildPlan("linux", o)
+		if err != nil {
+			t.Fatalf("%s: %v", cod, err)
+		}
+		want := filepath.Join(o.TempDir, "stacked"+cod.streamExt())
+		var muxIn string
+		for _, s := range p.Steps {
+			if s.Name == "mux" {
+				muxIn = s.Argv[len(s.Argv)-1]
+			}
+		}
+		if muxIn != want {
+			t.Errorf("%s: plan muxes %q, runner writes %q", cod, muxIn, want)
 		}
 	}
 }
@@ -177,7 +202,7 @@ func TestRunnerConvertsARealSource(t *testing.T) {
 	out := filepath.Join(work, "Test Movie (2012) 3D.mkv")
 	o := DefaultOptions()
 	o.Input, o.Output, o.TempDir = source, out, work
-	o.Encoder = EncoderX264
+	o.Encoder = EncoderSoftware
 	o.CRF, o.Preset = 25, "ultrafast"
 
 	r := NewRunner(CurrentGOOS, o, nil)
@@ -227,7 +252,7 @@ func TestRunnerRefusesA2DSource(t *testing.T) {
 	}
 	o := DefaultOptions()
 	o.Input, o.Output, o.TempDir = src, filepath.Join(work, "x.mkv"), work
-	o.Encoder = EncoderX264
+	o.Encoder = EncoderSoftware
 	err := NewRunner(CurrentGOOS, o, nil).Run(context.Background())
 	if err == nil {
 		t.Fatal("a 2D source must be refused")
@@ -331,7 +356,7 @@ func TestRunnerConvertsADiscImage(t *testing.T) {
 	out := filepath.Join(work, "From Image (2012) 3D.mkv")
 	o := DefaultOptions()
 	o.Input, o.Output, o.TempDir = iso, out, work
-	o.Encoder, o.CRF, o.Preset = EncoderX264, 25, "ultrafast"
+	o.Encoder, o.CRF, o.Preset = EncoderSoftware, 25, "ultrafast"
 
 	var lines []string
 	r := NewRunner(CurrentGOOS, o, func(f string, a ...any) { lines = append(lines, fmt.Sprintf(f, a...)) })
@@ -403,7 +428,7 @@ func TestRunnerRefusesAnImageWithNoBDMV(t *testing.T) {
 	}
 	o := DefaultOptions()
 	o.Input, o.Output, o.TempDir = iso, filepath.Join(work, "x.mkv"), work
-	o.Encoder = EncoderX264
+	o.Encoder = EncoderSoftware
 	err := NewRunner(CurrentGOOS, o, nil).Run(context.Background())
 	if err == nil {
 		t.Fatal("a non-UDF image must be refused")

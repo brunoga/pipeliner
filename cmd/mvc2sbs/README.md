@@ -20,7 +20,7 @@ Complete, and tested end to end against a real MVC source — see
 tsMuxeR    demux the base (AVC) and dependent (MVC) views, audio, subs, chapters
   ↓        the two views are interleaved into one MVC stream, in process
 edge264    decode both eyes and stack them side by side, as Y4M  ─┐
-encoder    x264, or ffmpeg with a platform hardware encoder       ─┘ piped
+encoder    x264 or x265, or ffmpeg with a platform hardware encoder ─┘ piped
 mkvmerge   mux the result back together
 ```
 
@@ -118,18 +118,39 @@ pipeliner retry it.
 | `--output` | — | Destination `.mkv` |
 | `--temp` | beside the output | Scratch space for the demuxed views |
 | `--layout` | `full` | `full` (1080p per eye) or `half` (960p per eye, roughly half the size) |
-| `--encoder` | `auto` | `auto`, `x264`, `vaapi`, `videotoolbox`, `nvenc` |
+| `--encoder` | `auto` | `auto`, `software`, `vaapi`, `videotoolbox`, `nvenc` (`x264` is still accepted for `software`) |
+| `--codec` | `h264` | `h264` or `h265` — see [Codec](#codec) |
 | `--swap-lr` | — | Exchange the eyes, for a disc whose base view is the right one |
-| `--crf` | `18` | Quality target, 0–51; lower is better |
-| `--preset` | `slow` | x264 speed/efficiency trade-off |
+| `--crf` | `18` | Quality target, 0–51; lower is better. **Not comparable between codecs** |
+| `--preset` | `slow` | Software encoder speed/efficiency trade-off (x264 and x265 take the same names) |
 
 `--layout full` is almost always what a 3D library wants: it is the only layout
 that keeps the disc's resolution, and it is what the decoder emits natively, so
 it costs no resample.
 
 `--swap-lr` and `--layout half` are filters on the stacked frame, so they need an
-ffmpeg encoder; asking for either with `x264` is refused up front rather than
-producing a file quietly missing what was asked for.
+ffmpeg encoder; asking for either with a software encoder is refused up front
+rather than producing a file quietly missing what was asked for.
+
+## Codec
+
+`--codec h264` (the default) plays on anything, including hardware too old to
+decode HEVC at all. `--codec h265` is materially smaller at the same quality: a
+full-SBS frame is double width — 3840x1080 from a 1080p disc — which is exactly
+the case HEVC's larger coding units were designed for.
+
+The trade-off is decoder support. HEVC is widely but not universally
+direct-played, and a client that has to *transcode* a 3840x1080 stream is worse
+off than one direct-playing H.264. If the library is served to a mix of clients,
+H.264 is the safer default; if you know what plays it, HEVC saves real space.
+
+`--crf` means something different to each codec: x265 at a given CRF is roughly a
+step *higher* quality — and larger — than x264 at the same number. Nothing here
+adjusts it for you, because silently re-interpreting a number you typed is worse
+than saying what it means. If you want HEVC's saving rather than its extra
+quality, raise the CRF by two or three.
+
+The codec is independent of the encoder: every encoder below produces either.
 
 ## Tools, and why each is needed
 
@@ -139,14 +160,14 @@ Four, and one of them is either/or:
 |---|---|---|
 | **tsMuxeR** | Gets the base and dependent views out of the disc, plus audio, subtitles and chapters | ffmpeg cannot: libavcodec drops the MVC dependent view outright |
 | **edge264** | Decodes both eyes and stacks them side by side as Y4M | The only open-source *software* MVC decoder there is |
-| **x264** *or* **ffmpeg** | Re-encodes the stacked frames | Side-by-side is a new frame layout, so a re-encode is unavoidable. ffmpeg instead of x264 for GPU encoding or the `--swap-lr` / half-SBS filters |
+| **x264** / **x265** *or* **ffmpeg** | Re-encodes the stacked frames | Side-by-side is a new frame layout, so a re-encode is unavoidable. x264 or x265 follows `--codec`; ffmpeg instead, for GPU encoding or the `--swap-lr` / half-SBS filters |
 | **mkvmerge** | Muxes the video back with the audio, subtitles and chapters | — |
 
 Installing them is left to you; `--check` says what is missing, what each one
 does, and where to start:
 
 ```
-platform: linux   encoder: x264
+platform: linux   encoder: software   codec: h264
 
   ok       tsmuxer    /usr/local/bin/tsMuxeR
   ok       edge264    /usr/local/bin/edge264
@@ -223,15 +244,20 @@ They skip when it is unset, so CI stays green without the toolchain.
 
 | Platform | Hardware | Software |
 |---|---|---|
-| Linux | NVENC, VAAPI | x264 |
-| macOS | VideoToolbox | x264 |
-| Windows | NVENC | x264 |
+| Linux | NVENC, VAAPI | x264 / x265 |
+| macOS | VideoToolbox | x264 / x265 |
+| Windows | NVENC | x264 / x265 |
 
 `auto` runs a **one-frame trial encode** for each candidate and takes the first
-that succeeds, falling back to x264. Merely finding ffmpeg is not evidence a GPU
-is present — a stock build advertises `h264_nvenc` on a machine with no NVIDIA
-card — and discovering that at the encode step would waste the hours already
-spent decoding.
+that succeeds, falling back to software. Merely finding ffmpeg is not evidence a
+GPU is present — a stock build advertises `h264_nvenc` on a machine with no
+NVIDIA card — and discovering that at the encode step would waste the hours
+already spent decoding.
+
+The trial is run for the codec being produced, not for the encoder in the
+abstract: a GPU generation can carry an H.264 encoder and no HEVC one, so
+`--codec h265` can fall back to x265 on the same machine where `--codec h264`
+picks NVENC.
 
 ## Docker
 

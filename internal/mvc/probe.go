@@ -6,32 +6,31 @@ import (
 )
 
 // probeArgv is a one-frame trial encode: the cheapest honest answer to "can
-// this machine actually use this encoder". Listing ffmpeg's encoders is not
-// enough — a build routinely advertises h264_nvenc on a machine with no NVIDIA
-// card, and h264_vaapi on one with no supported GPU. Each variant needs its own
-// filter chain, which is why this is a table rather than one command with a
-// substituted codec name.
-func probeArgv(enc Encoder, device string) []string {
+// this machine actually use this encoder for this codec". Listing ffmpeg's
+// encoders is not enough — a build routinely advertises h264_nvenc on a machine
+// with no NVIDIA card, and h264_vaapi on one with no supported GPU — and the
+// answer differs per codec: a GPU generation can carry an H.264 encoder and no
+// HEVC one. VAAPI needs its own filter chain, which is why this is a switch
+// rather than one command with a substituted codec name.
+func probeArgv(enc Encoder, codec Codec, device string) []string {
 	const src = "testsrc2=s=320x240:d=1"
+	name := codec.ffmpegEncoder(enc)
+	if name == "" {
+		// Software encoding always works if the binary is there, which Detect
+		// already established.
+		return nil
+	}
 	switch enc {
 	case EncoderVAAPI:
 		return []string{"ffmpeg", "-hide_banner", "-loglevel", "error",
 			"-vaapi_device", device,
 			"-f", "lavfi", "-i", src, "-frames:v", "1",
-			"-vf", "format=nv12,hwupload", "-c:v", "h264_vaapi",
+			"-vf", "format=nv12,hwupload", "-c:v", name,
 			"-f", "null", "-"}
-	case EncoderNVENC:
-		return []string{"ffmpeg", "-hide_banner", "-loglevel", "error",
-			"-f", "lavfi", "-i", src, "-frames:v", "1",
-			"-c:v", "h264_nvenc", "-f", "null", "-"}
-	case EncoderVideoToolbox:
-		return []string{"ffmpeg", "-hide_banner", "-loglevel", "error",
-			"-f", "lavfi", "-i", src, "-frames:v", "1",
-			"-c:v", "h264_videotoolbox", "-f", "null", "-"}
 	default:
-		// x264 is software and always works if the binary is there, which
-		// Detect already established.
-		return nil
+		return []string{"ffmpeg", "-hide_banner", "-loglevel", "error",
+			"-f", "lavfi", "-i", src, "-frames:v", "1",
+			"-c:v", name, "-f", "null", "-"}
 	}
 }
 
@@ -42,9 +41,9 @@ var runProbe = func(ctx context.Context, argv []string) error {
 	return cmd.Run()
 }
 
-// ProbeEncoder reports whether enc actually encodes on this machine.
-func ProbeEncoder(ctx context.Context, enc Encoder, device string) bool {
-	argv := probeArgv(enc, device)
+// ProbeEncoder reports whether enc actually encodes codec on this machine.
+func ProbeEncoder(ctx context.Context, enc Encoder, codec Codec, device string) bool {
+	argv := probeArgv(enc, codec, device)
 	if argv == nil {
 		return true // software
 	}

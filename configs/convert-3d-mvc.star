@@ -77,7 +77,15 @@ once = process("seen", upstream=out, local=True, fields=["file_location"])
 # --layout full keeps 1080p per eye, which is the only reason to do this at all;
 # half would halve the horizontal detail. --encoder auto runs a one-frame trial
 # encode and takes the fastest that actually works on this machine, falling back
-# to x264.
+# to software.
+#
+# --codec h264 is the default and plays on anything. Add "--codec", "h265" for a
+# materially smaller file at the same quality — a full-SBS frame is 3840x1080,
+# which is where HEVC pays off most — but check your players direct-play it
+# first: a client that has to transcode a frame that wide is worse off than one
+# direct-playing H.264. Note that --crf does not mean the same thing to both
+# codecs; x265 at 18 is higher quality and larger than x264 at 18, so raise it
+# by two or three if what you want is the saving.
 convert = output("exec", upstream=once,
                  command="/usr/local/bin/mvc2sbs",
                  args=["--input", "{file_location}",

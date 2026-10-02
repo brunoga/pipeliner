@@ -74,7 +74,9 @@ RUN git clone -q https://github.com/justdan96/tsMuxer.git /src/tsmuxer \
 # ── Runtime ───────────────────────────────────────────────────────────────────
 FROM alpine:latest
 
-RUN apk --no-cache add ca-certificates tzdata ffmpeg x264 mkvtoolnix
+# x264 and x265 are both installed: the codec is chosen per run (--codec), and
+# an image that carried only one would fail --check for the other.
+RUN apk --no-cache add ca-certificates tzdata ffmpeg x264 x265 mkvtoolnix
 
 COPY --from=decoder /out-edge264 /usr/local/bin/edge264
 COPY --from=demuxer /out-tsmuxer /usr/local/bin/tsMuxeR
