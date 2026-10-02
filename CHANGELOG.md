@@ -5,6 +5,27 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.43.0] - 2026-10-02
+
+The 3D conversion tool actually converts, and two tracker bugs that were quietly losing shows are fixed.
+
+### Added
+
+- **`mvc2sbs` converts a Blu-ray 3D rip into a side-by-side file** ([#494](https://github.com/brunoga/pipeliner/pull/494)). MVC stores the second eye as a dependent view of an AVC base view and very few players decode it — Plex does not, and neither does libavcodec — so a 3D rip sits in a library unwatchable despite carrying a full image per eye. The tool shipped with planning and toolchain detection in 1.42.0 but could not run a conversion, because tsMuxeR needs a meta file naming the exact playlist and track numbers and those come from parsing its own listing of a source, which could not be written honestly without a disc to check it against. tsMuxeR muxes as well as demuxes, which removes the obstacle: muxing a pair of MVC elementary streams produces a real 3D source to develop and test against, so the listing parser, the meta file, the demuxed filenames and the stream plumbing are all verified against a round trip. The views are identified by stream ID rather than by order or track number, since a disc is not obliged to list them in any order and taking the wrong one as the base gives a stream that cannot decode at all. Audio and subtitles keep their source order; a track the demux failed to produce is reported and skipped, because that costs a language rather than the film. A source that is not 3D is refused by name, as are two MVC tracks, an MVC track with no base view, and an elementary stream handed in where a container was expected — each before the demux rather than hours into it. `configs/convert-3d-mvc.star` drives it from a staging directory, with `seen` last so a failed conversion is retried rather than recorded as done.
+
+### Fixed
+
+- **A show spelled two ways became two shows, so episodes downloaded twice and a renamed favorite stopped matching** ([#488](https://github.com/brunoga/pipeliner/pull/488)). The premiere and series filters keyed a show by its normalized name exactly as spelled, and the year is spelled inconsistently: releases write `Brothers 2026 S01E01`, `Brothers S01E01 2026` or `Brothers S01E01`, and TheTVDB adds and drops a `(2026)` suffix as it disambiguates names. Each spelling became its own show, so *Brothers (2026)* S01E01 was downloaded twice and every later release was rejected as "show not in list" once TheTVDB renamed the favorite. Five episodes were tracked twice this way in production. A show is now identified by name **and** year, so the spellings resolve to one key. Not a regression — the name extraction dates from May.
+- **A premiere whose download died was never offered again** ([#489](https://github.com/brunoga/pipeliner/pull/489)). When the janitor purges a dead torrent, `mark_failed` un-tracks the episode under the series-tracker key the grab record carries. The premiere filter kept its key in a private field, so a premiere's grab record had no series name and there was nothing to forget: the episode counted as downloaded forever. It now stamps the shared field, which — with the fix above resolving both filters to the same key — means the two agree.
+
+### Changed
+
+- **`bd3d2sbs` is now `mvc2sbs`** ([#493](https://github.com/brunoga/pipeliner/pull/493)). The name was borrowed from the project this started out following, and after the decoder was driven directly nothing of that design remained, so it claimed a lineage the code does not have. The documentation stands on its own now. Its image also moves to Alpine, the same base as the server image, taking it from 610 MB to 189 MB on amd64 and 165 MB on arm64.
+- **The toolchain is four tools, and builds for arm64** ([#492](https://github.com/brunoga/pipeliner/pull/492)). `ffprobe` was declared required and never run, so `--check` could fail a machine over a tool the conversion does not touch; it and two other unused pieces are gone. The image was described as amd64-only because upstream publishes one x86_64 Linux tsMuxeR binary, but that is a packaging gap rather than a portability one — its CLI needs no Qt and builds in about a minute — so the image builds it and now runs on Apple Silicon and a Raspberry Pi as well.
+- **Dependencies bumped** ([#495](https://github.com/brunoga/pipeliner/pull/495)), notably `modernc.org/sqlite` v1.56.0 to v1.60.1, which carries upstream SQLite's own fix for a journal-rollback data-corruption bug. Supersedes a dependabot PR that had gone 57 commits stale.
+
+**Why 1.43.0**: a tool that could not run a conversion now can, and a sample config is added. Two tracker fixes change which episodes are offered — for the better, but a show tracked under two spellings resolves to one key, so an episode recorded twice may be offered once more under the merged key. Additive otherwise, so a minor bump per SemVer.
+
 ## [1.42.1] - 2026-10-02
 
 ### Changed
