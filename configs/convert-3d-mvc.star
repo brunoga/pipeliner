@@ -10,8 +10,9 @@
 # Blu-ray rip sits in a library unwatchable despite carrying a full image per
 # eye. Side-by-side puts both eyes in one frame any H.264 decoder handles.
 #
-# So the shape is: watch a staging directory, convert what lands there into the
-# library, and remember what has been done so nothing is converted twice.
+# So the shape is: scan a staging directory every few minutes, convert what has
+# landed there into the library, and remember what has been done so nothing is
+# converted twice.
 #
 # ── What this needs ──────────────────────────────────────────────────────────
 #
@@ -30,6 +31,20 @@
 # a transient reason like a full disk.
 #
 # `exec` fails the entry on a non-zero exit, which is what makes that work.
+#
+# ── Delivering the rips ──────────────────────────────────────────────────────
+#
+# The airtight way to put a rip here is to land it somewhere else and rename it
+# in. A rename within one filesystem is atomic, so this directory never holds a
+# partial file and nothing has to be inferred from timestamps:
+#
+#     rsync -a remote:/rips/ /media/3d-incoming/ && mv /media/3d-incoming/* /media/3d-staging/
+#
+# That matters most for a disc arriving as a directory tree, where no timestamp
+# on any single file tells you the tree is complete. For single files that
+# appear atomically — a download client with move_completed_path pointing here,
+# or rsync, which writes to a temp name and renames — stable_for alone is
+# enough, and is there for the cross-filesystem copy that is not atomic.
 
 staging = "/media/3d-staging"
 library = "/media/3dmovies"
@@ -47,7 +62,40 @@ SMTP = {
 # ── Find the rips ────────────────────────────────────────────────────────────
 
 # A 3D rip is an .m2ts (or an .iso / BDMV directory, which mvc2sbs also takes).
-src = input("filesystem", path=staging, recursive=True, mask="*.m2ts")
+#
+# stable_for skips a file whose mtime moved in the last two minutes, so a rip
+# still being copied in is left for a later run instead of being handed to
+# mvc2sbs half-written. A transfer in progress keeps bumping the mtime, which
+# is what makes the test work even for a torrent client that preallocates the
+# full size up front. It is a safety net rather than a completion signal: see
+# "Delivering the rips" below.
+src = input("filesystem", path=staging, recursive=True, mask="*.m2ts",
+            stable_for="2m")
+
+# ── Other shapes a rip arrives in ────────────────────────────────────────────
+#
+# A disc image is one file, so it needs only a different mask:
+#
+#     iso = input("filesystem", path=staging, recursive=True, mask="*.iso",
+#                 stable_for="2m")
+#
+# A node with several upstreams merges them, so an `iso` source can feed
+# `metainfo_file` alongside `src` and the rest of the pipeline is unchanged.
+#
+# A full disc delivered as a BDMV *tree* needs more care. `mask="*.m2ts"` with
+# recursive=True matches every stream file in BDMV/STREAM, which is dozens of
+# entries for one film. Match the one file every disc has exactly one of
+# instead, and hand mvc2sbs the directory holding it:
+#
+#     disc = input("filesystem", path=staging, recursive=True,
+#                  mask="index.bdmv", stable_for="2m")
+#     ...
+#     args=["--input", "{{dirname .file_location}}", ...]
+#
+# dirname turns /staging/Movie/BDMV/index.bdmv into /staging/Movie/BDMV, which
+# mvc2sbs accepts. Note that index.bdmv is small and written early, so its age
+# says nothing about whether the streams beside it have finished arriving —
+# which is exactly why the next section matters for tree deliveries.
 
 # metainfo_file parses the filename into title, year and quality.
 meta = process("metainfo_file", upstream=src)
@@ -132,4 +180,10 @@ output("notify", upstream=convert, via="email", config=SMTP,
 
 # Overnight, and not hourly: a feature film is hours of work even on a GPU, and
 # the scheduler skips a run whose previous one is still going.
-pipeline("convert-3d", schedule="0 3 * * *")
+# Every five minutes, not nightly: a conversion is hours of CPU, so starting it
+# minutes after a rip lands rather than seconds costs nothing, and a scan of a
+# staging directory is cheap enough to run this often. The schedule is the
+# whole watching mechanism — there is no filesystem-notification path to go
+# wrong, and a rip that appears while the daemon is down is picked up by the
+# next scan rather than missed.
+pipeline("convert-3d", schedule="5m")

@@ -875,6 +875,8 @@ gone and the item is lost for this run and every run after it — move
 
 <p>Available in all pattern and template strings — <code>pathfmt</code> paths, <code>exec</code> commands, <code>print</code> format, <code>set</code> values, <code>email</code> and <code>notify</code> body templates:</p>
 
+<p>The functions are the same everywhere; what differs is how you reach a field, which is why the examples below are not all written alike. In a <strong>pattern</strong> (<code>pathfmt</code>, <code>exec</code>, <code>print</code>, <code>set</code>) the data is one entry's fields, flat: <code>{file_location}</code>, or <code>{{.file_location}}</code> when you need a function. The two spellings do not mix &mdash; a pattern containing <code>{{</code> anywhere is compiled as a Go template in full, so a <code>{field}</code> brace left in the same string stays literal text. Write the whole pattern one way or the other. In a <strong>notify body</strong> the data is the report, so you iterate <code>.Entries</code> and each entry is a struct whose fields are a map: <code>{{index .Fields "file_location"}}</code>.</p>
+
 <table>
   <tr><th>Function</th><th>Usage</th><th>Description</th></tr>
   <tr><td><code>len</code></td><td><code>{{len .Entries}}</code></td><td>Length of a slice or string</td></tr>
@@ -882,6 +884,8 @@ gone and the item is lost for this run and every run after it — move
   <tr><td><code>with</code></td><td><code>{{with .Field}}...{{end}}</code></td><td>Conditional block when value is non-zero</td></tr>
   <tr><td><code>index</code></td><td><code>{{index .Fields "video_genres"}}</code></td><td>Access map by key</td></tr>
   <tr><td><code>join</code></td><td><code>{{join ", " (index .Fields "video_cast")}}</code></td><td>Join string slice with separator</td></tr>
+  <tr><td><code>dirname</code></td><td><code>{{dirname .file_location}}</code></td><td>The directory holding a path, with no trailing separator. Turns a file a source matched into the directory a tool wants. A path with no separator gives <code>.</code>; a path that already ends in a separator names itself rather than its parent</td></tr>
+  <tr><td><code>basename</code></td><td><code>{{basename .file_location}}</code></td><td>The last element of a path &mdash; for naming an output after its source</td></tr>
   <tr><td><code>formatdate</code></td><td><code>{{formatdate "Jan 2, 2006" .series_first_air_date}}</code></td><td>Format a time.Time value</td></tr>
   <tr><td><code>filesize</code></td><td><code>{{filesize (index .Fields "torrent_file_size")}}</code></td><td>Byte count as <code>15.4 GB</code> (decimal units, as clients display)</td></tr>
   <tr><td><code>rate</code></td><td><code>{{rate (index .Fields "torrent_download_rate")}}</code></td><td>Bytes/second as <code>1.2 MB/s</code></td></tr>
@@ -982,6 +986,7 @@ pipeline("html-feed")</code></pre>
   <tr><td><code>path</code></td><td>yes</td><td>—</td><td>Directory to scan</td></tr>
   <tr><td><code>recursive</code></td><td>no</td><td>false</td><td>Recurse into subdirectories</td></tr>
   <tr><td><code>mask</code></td><td>no</td><td>—</td><td>Glob filter (e.g. <code>*.torrent</code>)</td></tr>
+  <tr><td><code>stable_for</code></td><td>no</td><td>—</td><td>Skip a file whose content changed more recently than this (e.g. <code>2m</code>), leaving it for a later run</td></tr>
 </table>
 
 <h4>Fields set</h4>
@@ -991,6 +996,17 @@ pipeline("html-feed")</code></pre>
 meta = process("metainfo_torrent", upstream=src)
 output("transmission", upstream=meta, host="localhost")
 pipeline("watch-folder", schedule="5m")</code></pre>
+
+<h4>Using it as a watch folder</h4>
+<p>A short schedule plus a downstream <a href="#seen"><code>seen</code></a> filter is the whole mechanism: each scan emits every matching file, <code>seen</code> drops the ones already handled, and because it commits only after the sinks confirm, a file whose processing failed is retried on the next run rather than silently lost. There is no filesystem-notification path, which is deliberate &mdash; a scan cannot miss a file that appeared while the daemon was stopped, and nothing is lost on a network mount, where writes made on the far side raise no local events at all.</p>
+
+<div class="note"><strong><code>stable_for</code> is a safety net, not a completion signal.</strong> It compares a file's modification time against the window, which catches the common case well: a copy in progress keeps bumping the mtime, so the file stays too young to emit, and a download client that preallocates the full size and fills it out of order is covered too, since the size being final from the start plays no part in the test. Two cases defeat it. A writer that restores the original timestamp after writing (<code>rsync -t</code> resuming a file, <code>tar -p</code>) can look settled while incomplete. And for content delivered as a <em>directory tree</em>, no single file's age says anything about the tree &mdash; a disc's <code>BDMV/index.bdmv</code> is small and written early, so it settles long before the streams beside it. The airtight pattern for both is to deliver into a staging directory and rename into the watched one: a rename within a filesystem is atomic, so the watched directory never holds a partial file and nothing has to be inferred.</div>
+
+<p>For a tree, match the one file a disc has exactly one of rather than recursing into its streams, and hand the tool the directory holding it:</p>
+<pre><code>disc = input("filesystem", path="/media/3d-staging", recursive=True,
+             mask="index.bdmv", stable_for="2m")
+# ... --input "{{dirname .file_location}}"  →  /media/3d-staging/Movie/BDMV</code></pre>
+<p><code>mask="*.m2ts"</code> with <code>recursive=True</code> would instead match every stream file in <code>BDMV/STREAM</code>, which is dozens of entries for one film. See <code>configs/convert-3d-mvc.star</code> for the worked example.</p>
 
 <!-- ─────────── discover ─────────── -->
 <h2 id="discover">discover</h2>

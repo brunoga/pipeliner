@@ -445,3 +445,31 @@ func TestSumfieldFunc(t *testing.T) {
 		t.Errorf("wrong container = %q, want 0", got)
 	}
 }
+
+// dirname is how a config turns a file a source matched into the directory a
+// tool wants. The disc case is the motivating one: the filesystem source
+// emits one entry per file, and mvc2sbs takes the BDMV directory rather than
+// any single file inside it.
+func TestDirnameAndBasename(t *testing.T) {
+	cases := []struct {
+		in, dir, base string
+	}{
+		{"/inbox/Movie (2012)/BDMV/index.bdmv", "/inbox/Movie (2012)/BDMV", "index.bdmv"},
+		{"/inbox/Movie (2012)/disc.iso", "/inbox/Movie (2012)", "disc.iso"},
+		{"/inbox/disc.iso", "/inbox", "disc.iso"},
+		// No separator at all still yields a usable directory rather than "".
+		{"disc.iso", ".", "disc.iso"},
+		// A trailing separator does not ascend: Dir cleans the path instead,
+		// so this names the directory itself rather than its parent. Worth
+		// pinning, since a path built by string concatenation often has one.
+		{"/inbox/Movie/", "/inbox/Movie", "Movie"},
+	}
+	for _, c := range cases {
+		if got := render(t, `{{dirname .}}`, c.in); got != c.dir {
+			t.Errorf("dirname %q = %q, want %q", c.in, got, c.dir)
+		}
+		if got := render(t, `{{basename .}}`, c.in); got != c.base {
+			t.Errorf("basename %q = %q, want %q", c.in, got, c.base)
+		}
+	}
+}
