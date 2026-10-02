@@ -85,9 +85,15 @@ pick = process("dedup", upstream=alive)
 
 # ── Download, and stop ───────────────────────────────────────────────────────
 
+# A first run finds dozens of these and each is tens of gigabytes, so take a
+# few a night rather than two terabytes at once. Highest-rated first, so the
+# backlog drains in a useful order. A real run of this against a 989-title
+# watchlist accepted 65 releases, which would have been about 2 TB.
+few = process("limit", upstream=pick, n=3, order="desc", sort="video_rating")
+
 # A directory per film keeps a disc image and its stray files together, and
 # gives the sync something stable to watch.
-path = process("pathfmt", upstream=pick, field="inbox_path",
+path = process("pathfmt", upstream=few, field="inbox_path",
                path=inbox + "/{title} ({video_year})")
 
 out = output("deluge", upstream=path, host="localhost", port=58846,
