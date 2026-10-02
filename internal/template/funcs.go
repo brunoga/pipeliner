@@ -8,6 +8,7 @@ package template
 import (
 	"fmt"
 	"math"
+	"path/filepath"
 
 	"github.com/brunoga/pipeliner/internal/actionlink"
 	"github.com/brunoga/pipeliner/internal/entry"
@@ -49,6 +50,22 @@ func FuncMap() template.FuncMap {
 		"replace": func(old, new, s string) string {
 			return strings.ReplaceAll(s, old, new)
 		},
+
+		// dirname p — the directory holding p, with no trailing separator:
+		// "/inbox/Movie/BDMV/index.bdmv" becomes "/inbox/Movie/BDMV". It is
+		// how a config turns a file a source matched into the directory a
+		// tool wants, which is the usual shape for disc-based work — the
+		// filesystem source emits one entry per file, and mvc2sbs takes the
+		// BDMV directory rather than any single file inside it.
+		//
+		// A path with no separator gives ".", matching filepath.Dir, so the
+		// result is always a usable directory rather than an empty string.
+		"dirname": filepath.Dir,
+
+		// basename p — the last element of p: "/inbox/Movie/disc.iso"
+		// becomes "disc.iso". The companion to dirname, for naming an output
+		// after its source.
+		"basename": filepath.Base,
 
 		// default fallback x — returns x unless x is the zero value, in which
 		// case fallback is returned. Pipe-friendly: {{.x | default "none"}}

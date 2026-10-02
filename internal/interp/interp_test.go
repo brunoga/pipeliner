@@ -159,3 +159,38 @@ func equalStringSlices(a, b []string) bool {
 	}
 	return true
 }
+
+// dirname and basename are path helpers whose whole point is being usable from
+// an exec argument or a pathfmt path, where the data is one entry's fields
+// flat rather than the report shape a notify body sees. Reaching them the
+// wrong way is a silent empty string, so the working form is pinned here.
+func TestPathHelpersInPatterns(t *testing.T) {
+	const loc = "/staging/Movie (2012)/BDMV/index.bdmv"
+	cases := []struct{ pattern, want string }{
+		// What configs/convert-3d-mvc.star hands mvc2sbs for a disc tree.
+		{`{{dirname .file_location}}`, "/staging/Movie (2012)/BDMV"},
+		{`{{basename .file_location}}`, "index.bdmv"},
+		// Nesting reaches the directory holding the BDMV, which mvc2sbs also
+		// accepts.
+		{`{{dirname (dirname .file_location)}}`, "/staging/Movie (2012)"},
+		// The two syntaxes do not mix: a pattern containing "{{" is compiled
+		// as a Go template wholesale, so a {field} brace in the same string
+		// is literal text. It fails silently, which is why it is pinned.
+		{`{{basename (dirname .file_location)}}/{file_name}`, "BDMV/{file_name}"},
+		// Written entirely in template syntax, it does what was meant.
+		{`{{basename (dirname .file_location)}}/{{.file_name}}`, "BDMV/index.bdmv"},
+	}
+	for _, c := range cases {
+		ip, err := Compile(c.pattern)
+		if err != nil {
+			t.Fatalf("compile %q: %v", c.pattern, err)
+		}
+		got, err := ip.Render(map[string]any{"file_location": loc, "file_name": "index.bdmv"})
+		if err != nil {
+			t.Fatalf("render %q: %v", c.pattern, err)
+		}
+		if got != c.want {
+			t.Errorf("%s = %q, want %q", c.pattern, got, c.want)
+		}
+	}
+}

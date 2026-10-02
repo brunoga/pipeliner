@@ -17,9 +17,11 @@
 //	mvc2sbs --dry-run --input 00800.m2ts --output "Life of Pi (2012).mkv"
 //	mvc2sbs --input BDMV/PLAYLIST/00800.mpls --output "Life of Pi (2012).mkv"
 //
-// The source is whatever tsMuxeR can read: an .m2ts, a .mpls playlist from a
-// BDMV directory, an MKV, or a VOB/MP4. An ISO is not one of them — mount it
-// first and point at the playlist inside.
+// The source is a .iso disc image, a BDMV directory (or its parent), or
+// anything tsMuxeR reads directly: an .m2ts, a .mpls playlist, an MKV, or a
+// VOB/MP4. An image and a directory are handled here rather than by tsMuxeR —
+// the image is read in place, with no mounting and no root, and in both cases
+// the feature playlist is chosen by probing.
 package main
 
 import (
