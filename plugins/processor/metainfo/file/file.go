@@ -51,6 +51,7 @@ func init() {
 			"series_container",
 			// Movie fields (only when classified as movie).
 			entry.FieldMovieTitle,
+			// Release year for movies; the show year a series release names.
 			entry.FieldVideoYear,
 			// Quality + release fields (set whenever any dimension is detected,
 			// or PROPER/REPACK markers are present, for either media type).
@@ -158,8 +159,13 @@ func annotateSeries(e *entry.Entry, ep *series.Episode) {
 	e.SetSeriesInfo(entry.SeriesInfo{
 		VideoInfo: entry.VideoInfo{
 			GenericInfo: entry.GenericInfo{Title: ep.SeriesName},
-			Proper:      ep.Proper,
-			Repack:      ep.Repack,
+			// The show year the release names, before or after the episode
+			// identifier. The series and premiere filters key shows by name
+			// and year, so "Brothers S01E01 2026" and "Brothers 2026 S01E01"
+			// land on the same show.
+			Year:   ep.SeriesYear,
+			Proper: ep.Proper,
+			Repack: ep.Repack,
 		},
 		Season:        ep.Season,
 		Episode:       ep.Episode,

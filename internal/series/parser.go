@@ -17,12 +17,17 @@ type Episode struct {
 	Episode          int
 	DoubleEpisode    int  // second episode number for double releases (e.g. S01E01E02 → 2)
 	IsDate           bool // true when the episode is identified by air date rather than number
-	Year, Month, Day int
+	Year, Month, Day int  // air date of a date-identified episode
 	IsSpecial        bool
 	Proper, Repack   bool
 	Service          string // streaming service tag, e.g. "Netflix", "AMZN", "ATVP"
 	Container        string // file container, e.g. "mkv", "mp4"
 	Quality          quality.Quality
+	// SeriesYear is the show's premiere year when the release names it,
+	// either before the episode identifier ("Brothers 2026 S01E01") or right
+	// after it ("Brothers S01E01 2026"). 0 when absent. A year before the
+	// identifier also stays in SeriesName, as it always has.
+	SeriesYear int
 }
 
 // compiled patterns, from most specific to least specific
@@ -142,6 +147,7 @@ func Parse(title string) (*Episode, bool) {
 			ep.DoubleEpisode, _ = strconv.Atoi(sub[3])
 		}
 		ep.SeriesName = extractName(title, m[0])
+		ep.SeriesYear = seriesYear(ep.SeriesName, title[m[1]:])
 		return ep, true
 	}
 
@@ -150,6 +156,7 @@ func Parse(title string) (*Episode, bool) {
 		ep.Season, _ = strconv.Atoi(sub[1])
 		ep.Episode, _ = strconv.Atoi(sub[2])
 		ep.SeriesName = extractName(title, m[0])
+		ep.SeriesYear = seriesYear(ep.SeriesName, title[m[1]:])
 		return ep, true
 	}
 
@@ -181,6 +188,7 @@ func Parse(title string) (*Episode, bool) {
 		sub := reEpisodeWord.FindStringSubmatch(title)
 		ep.Episode, _ = strconv.Atoi(sub[1])
 		ep.SeriesName = extractName(title, m[0])
+		ep.SeriesYear = seriesYear(ep.SeriesName, title[m[1]:])
 		return ep, true
 	}
 
@@ -198,6 +206,7 @@ func Parse(title string) (*Episode, bool) {
 		sub := reAbsolute.FindStringSubmatch(title)
 		ep.Episode, _ = strconv.Atoi(sub[1])
 		ep.SeriesName = extractName(title, m[0])
+		ep.SeriesYear = seriesYear(ep.SeriesName, title[m[1]:])
 		return ep, true
 	}
 
@@ -231,6 +240,28 @@ func ParseEpisodeID(id string) (season, episode int, ok bool) {
 	return 0, 0, false
 }
 
+// reLeadingYear matches a year directly after the episode identifier:
+// "Brothers.S01E01.2026.1080p" → "2026".
+var reLeadingYear = regexp.MustCompile(`^[.\s_\-]*((?:19|20)\d{2})(?:[.\s_\-]|$)`)
+
+// reNameTrailingYear matches a series name ending in a bare year.
+var reNameTrailingYear = regexp.MustCompile(`\s((?:19|20)\d{2})$`)
+
+// seriesYear returns the show year a release names next to its episode
+// identifier: a year ending the parsed name, or else one opening the text
+// after the identifier. 0 when neither is present.
+func seriesYear(name, after string) int {
+	if m := reNameTrailingYear.FindStringSubmatch(name); m != nil {
+		y, _ := strconv.Atoi(m[1])
+		return y
+	}
+	if m := reLeadingYear.FindStringSubmatch(after); m != nil {
+		y, _ := strconv.Atoi(m[1])
+		return y
+	}
+	return 0
+}
+
 // extractName derives the series name from the portion of the title that
 // precedes the episode identifier at position idx.
 func extractName(title string, idx int) string {
@@ -239,7 +270,8 @@ func extractName(title string, idx int) string {
 }
 
 // NormalizeName cleans up a raw title or name prefix:
-//   - strips trailing noise (year, quality tokens, group tags)
+//   - strips trailing noise (quality tokens, group tags); a trailing year is
+//     kept — it is often part of how a show is told apart ("Doctor Who 2005")
 //   - replaces dots and underscores with spaces
 //   - collapses repeated whitespace
 //   - applies title case

@@ -15,6 +15,7 @@ The show list is optional. When provided, it can be static via `static`, dynamic
 | Field | Used for |
 |-------|----------|
 | `title` | Show name (normalized) used for matching against the configured list |
+| `video_year` *(optional)* | Show year the release names; tells apart shows that differ only by year |
 | `series_episode_id` | Tracker key + classification gate |
 | `series_season` | `follow` season-floor logic |
 | `series_episode` | Persist + double-episode part marking |
@@ -23,6 +24,12 @@ The show list is optional. When provided, it can be static via `static`, dynamic
 | `video_proper`, `video_repack` *(optional)* | PROPER/REPACK upgrade detection |
 
 The first five fields are declared via `Descriptor.Requires`, so the DAG validator catches pipelines that wire `series` without an upstream metainfo step.
+
+## Show identity
+
+A show is its normalized name plus an optional year. Releases spell the same show as `Brothers 2026 S01E01`, `Brothers S01E01 2026` or `Brothers S01E01`, and TheTVDB adds or drops a `(2026)` suffix as it disambiguates names, so the year is compared separately: names match when they are equal without a trailing year and the years (when both are known) are within one of each other. `Doctor Who (2005)` and `Doctor Who 1963` stay apart.
+
+Episodes are looked up under every tracker key that spells the show (`brothers` and `brothers 2026` alike), so records written under an older spelling keep counting. New records go to the name+year key when that already exists, otherwise to an existing spelling (preferring one with a year), and for a new show to name+year.
 
 ## Config
 

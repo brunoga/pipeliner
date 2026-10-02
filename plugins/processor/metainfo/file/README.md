@@ -41,6 +41,7 @@ Quality fields are set whenever any quality dimension is detected, **regardless 
 | `series_double_episode` | int | `2` (for `S01E01E02`) |
 | `series_service` | string | `AMZN`, `Netflix` |
 | `series_container` | string | `mkv` |
+| `video_year` | int | `2026` — only when the release names the show year, before (`Brothers 2026 S01E01`) or right after (`Brothers S01E01 2026`) the episode identifier |
 
 ### When classified as movie
 
