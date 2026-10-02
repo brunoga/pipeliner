@@ -53,6 +53,7 @@ func run(argv []string, stdout, stderr *os.File) int {
 		crf     = fs.Int("crf", 18, "quality target, 0-51; lower is better")
 		preset  = fs.String("preset", "slow", "x264 speed/efficiency preset")
 		vaapi   = fs.String("vaapi-device", "/dev/dri/renderD128", "render node for VAAPI encoding")
+		swapLR  = fs.Bool("swap-lr", false, "exchange the eyes, for a disc whose base view is the right eye")
 		showVer = fs.Bool("version", false, "print the version and exit")
 	)
 	fs.Usage = func() {
@@ -79,7 +80,7 @@ func run(argv []string, stdout, stderr *os.File) int {
 		return 2
 	}
 	if enc == mvc.EncoderAuto {
-		enc = mvc.DefaultEncoder(ctx, goos)
+		enc = mvc.DefaultEncoder(ctx, goos, *vaapi)
 	}
 
 	if *check {
@@ -94,6 +95,7 @@ func run(argv []string, stdout, stderr *os.File) int {
 	o := mvc.DefaultOptions()
 	o.Input, o.Output, o.TempDir = *input, *output, *tempDir
 	o.Layout, o.Encoder, o.CRF, o.Preset, o.VAAPIDevice = mvc.Layout(*layout), enc, *crf, *preset, *vaapi
+	o.SwapLR = *swapLR
 
 	plan, err := mvc.BuildPlan(goos, o)
 	if err != nil {

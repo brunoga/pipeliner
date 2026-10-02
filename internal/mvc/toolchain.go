@@ -28,6 +28,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"runtime"
 	"strings"
 )
 
@@ -91,21 +92,32 @@ var (
 		Binaries:    []string{"tsMuxeR", "tsmuxer"},
 		Purpose:     "demux the base and dependent MVC views, audio, subtitles and chapters",
 		VersionArgs: nil, // prints a banner with no arguments
+		// Upstream's own release binaries demux MVC — verified against
+		// 2.7.0-linux, which carries the V_MPEG4/ISO/MVC codec. No build is
+		// needed, and no fork: the teaching-droid fork that bd3d2sbs vendors
+		// adds GUI, i18n and changelog work, nothing touching MVC.
 		Install: map[string]string{
-			"linux":   "build the fork bd3d2sbs vendors — distribution tsMuxeR packages usually lack MVC demuxing",
-			"darwin":  "build the same fork from source; Homebrew's tsmuxer is not MVC-capable",
-			"windows": "https://github.com/justdan96/tsMuxer releases",
+			"linux":   "unzip tsMuxer-*-linux.zip from https://github.com/justdan96/tsMuxer/releases",
+			"darwin":  "unzip tsMuxer-*-mac.zip from https://github.com/justdan96/tsMuxer/releases",
+			"windows": "unzip tsMuxer-*-win64.zip from https://github.com/justdan96/tsMuxer/releases",
 		},
 	}
-	toolVSPipe = Tool{
-		Name:        "vspipe",
-		Binaries:    []string{"vspipe"},
-		Purpose:     "run the VapourSynth script that decodes both views and stacks them",
-		VersionArgs: []string{"--version"},
+	toolEdge264 = Tool{
+		Name:     "edge264",
+		Binaries: []string{"edge264", "edge264_test"},
+		Purpose:  "decode both MVC views and emit them side by side as Y4M",
+		// Prints its usage and exits non-zero with no arguments, so there is no
+		// version to ask for.
+		VersionArgs: nil,
+		// The only open-source software MVC decoder: libavcodec drops the
+		// dependent view entirely, so ffmpeg cannot stand in here. It is one
+		// small C program with no dependencies and its Makefile targets macOS,
+		// Linux and Windows, which is why this pipeline uses it directly rather
+		// than through a frameserver.
 		Install: map[string]string{
-			"linux":   "install VapourSynth (R65+) plus the mvc-source plugin and the edge264-mvc decoder",
-			"darwin":  "brew install vapoursynth, then build mvc-source and edge264-mvc",
-			"windows": "VapourSynth installer from vapoursynth.com, then place mvc-source in the plugins directory",
+			"linux":   "git clone https://github.com/jens-duttke/edge264-mvc && make -C edge264-mvc, then put edge264_test on PATH",
+			"darwin":  "git clone https://github.com/jens-duttke/edge264-mvc && make -C edge264-mvc (its Makefile targets macOS), then put edge264_test on PATH",
+			"windows": "build edge264-mvc with MinGW (make OS=windows), then put edge264_test.exe on PATH",
 		},
 	}
 	toolMkvmerge = Tool{
@@ -153,7 +165,7 @@ var (
 // Required returns the tools needed on goos for the given encoder, in the
 // order a reader would meet them in the pipeline.
 func Required(goos string, enc Encoder) []Tool {
-	tools := []Tool{toolFFprobe, toolTsMuxeR, toolVSPipe}
+	tools := []Tool{toolFFprobe, toolTsMuxeR, toolEdge264}
 	if enc.UsesFFmpeg() {
 		tools = append(tools, toolFFmpeg)
 	} else {
@@ -272,14 +284,23 @@ func (r Report) String() string {
 	return b.String()
 }
 
-// DefaultEncoder resolves EncoderAuto to the best encoder actually installed
-// on goos, falling back to x264, which is always the software option.
-func DefaultEncoder(ctx context.Context, goos string) Encoder {
+// DefaultEncoder resolves EncoderAuto to the fastest encoder this machine can
+// actually use, falling back to x264.
+//
+// Having ffmpeg is not the same as having a GPU: a stock build advertises
+// h264_nvenc on a machine with no NVIDIA card. So each candidate is put through
+// a one-frame trial encode rather than merely having its tools located — the
+// alternative is choosing an encoder that fails at the encode step, hours into
+// a conversion.
+func DefaultEncoder(ctx context.Context, goos, vaapiDevice string) Encoder {
 	for _, enc := range Encoders(goos) {
 		if enc == EncoderX264 {
 			continue
 		}
-		if Detect(ctx, goos, enc).OK() {
+		if !Detect(ctx, goos, enc).OK() {
+			continue
+		}
+		if ProbeEncoder(ctx, enc, vaapiDevice) {
 			return enc
 		}
 	}
@@ -300,3 +321,6 @@ func SupportsEncoder(goos string, enc Encoder) bool {
 	}
 	return false
 }
+
+// CurrentGOOS reports the running platform, indirected for tests.
+var CurrentGOOS = runtime.GOOS
