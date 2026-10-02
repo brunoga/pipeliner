@@ -5,6 +5,26 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.45.0] - 2026-10-02
+
+A 3D conversion can be HEVC now, and two sets of tracker records left behind by earlier fixes are repaired.
+
+### Added
+
+- **`mvc2sbs --codec h265`** ([#504](https://github.com/brunoga/pipeliner/pull/504)). A full-SBS frame is double width — 3840x1080 from a 1080p disc — which is exactly where HEVC's larger coding units pay off, so the file is materially smaller at the same quality. H.264 stays the default: it plays on anything, and a client forced to transcode a frame that wide is worse off than one direct-playing H.264. The codec is a separate axis from the encoder and every encoder produces either — software encoding runs x264 or x265 to match, and the hardware backends are handed `hevc_vaapi` / `hevc_nvenc` / `hevc_videotoolbox` in place of the `h264_*` ones. Three things had to follow the codec rather than be assumed, each of which would otherwise have failed late in a multi-hour run: the program the encode is driven through (the runner resolved the binary and the plan built the arguments from separate switches, so an HEVC run would have invoked x264 with x265's flags), the raw stream's extension (mkvmerge identifies an elementary stream by extension, so HEVC written to `stacked.264` is rejected at the mux), and the one-frame selection probe (a GPU generation can carry an H.264 encoder and no HEVC one, so `--codec h265` can fall back to x265 on a machine where `--codec h264` picks NVENC). `CRF` is deliberately left alone across codecs: x265 at a given CRF is roughly a step higher quality, and larger, than x264 at the same number, so the same value yields a better-looking file rather than a smaller one. The image carries both x264 and x265, since the codec is chosen per run.
+- **The series genre in the episode emails** ([#502](https://github.com/brunoga/pipeliner/pull/502)). The premiere and episode cards listed the network and the language but not the genre, which is the thing that says at a glance whether a newly discovered show is worth keeping. `metainfo_tvdb` already supplies it, so nothing new is fetched. `video_genres` is `MayProduce` — set only for a show TheTVDB matched — so the row is guarded and disappears rather than leaving an empty line.
+
+### Fixed
+
+- **One show could hold two sets of tracker records** ([#503](https://github.com/brunoga/pipeliner/pull/503)). The series tracker key carries the premiere year when a release or metadata provider names one, and releases are inconsistent about it (`Brothers 2026 S01E01` vs `Brothers S01E01 2026`; TheTVDB adds and drops the `(2026)` suffix as it disambiguates). Before `series.Resolve`, each spelling got its own key, so a tracked show looked new under the other spelling and was downloaded twice. `Resolve` spans the spellings now, but the split records remained: the show was listed twice under **Database → Series**, every lookup paid a key scan to paper over the split, and one episode could hold two records describing two different files. A migration collapses each pair onto the year-carrying key — the one `Resolve` already prefers, so new records keep landing where the merged ones live. On collision it keeps the better quality rather than the more recent record, because the duplicate keys made the second grab take whatever the feed offered, which was frequently a downgrade. Groups whose names differ by more than the year (`the office 2001` and `the office 2005`) are different shows and are left alone.
+- **A premiere whose download died stayed counted as downloaded forever** ([#503](https://github.com/brunoga/pipeliner/pull/503)). A grab record is how `mark_failed` walks back from a dead torrent to the release that produced it, and its series name and episode ID are what let it un-track the episode so another release is tried. The `premiere` filter did not stamp the resolved tracker key onto its entries, so every episode it grabbed produced a record that could be marked failed but not un-tracked — and those are exactly the downloads old enough to have stalled. The filter stamps it as of 1.43.0; a migration now recovers it for the records already written, by cutting each release title at the episode marker and matching it against the episodes the tracker holds. Matching through the tracker rather than composing a key guarantees the name written is one `Forget` can actually delete; a grab matching no tracked episode is left alone, since there is nothing to un-track.
+
+### Changed
+
+- **`mvc2sbs --encoder x264` is now `--encoder software`** ([#504](https://github.com/brunoga/pipeliner/pull/504)), since the setting drives x265 too. `x264` is still accepted, so existing invocations keep working.
+
+**Why 1.45.0**: a new output codec for `mvc2sbs`, a new row in the episode emails, and two data migrations that repair records earlier fixes left behind. The encoder rename keeps its old spelling working, so nothing existing changes meaning — a minor bump per SemVer.
+
 ## [1.44.0] - 2026-10-02
 
 A disc image needs no mounting, and mvc2sbs picks the title off the disc itself.
