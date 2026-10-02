@@ -238,10 +238,17 @@ spent decoding.
 `Dockerfile.mvc2sbs` carries the whole toolchain, for amd64 and arm64. Alpine,
 the same base as the pipeliner image:
 
+A release publishes it, for amd64 and arm64:
+
+```sh
+docker run --rm -v /media:/media ghcr.io/brunoga/mvc2sbs:latest --check
+```
+
+Or build it yourself:
+
 ```sh
 docker build -f Dockerfile.mvc2sbs -t mvc2sbs .
 docker buildx build --platform linux/amd64,linux/arm64 -f Dockerfile.mvc2sbs -t mvc2sbs .
-docker run --rm -v /media:/media mvc2sbs --check
 ```
 
 | | size |
