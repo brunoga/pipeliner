@@ -11,14 +11,13 @@ import (
 // cannot produce that — its documentation is explicit that it "always splits"
 // a combined AVC/MVC track into a base .264 and a dependent .mvc — and the
 // decoder takes one stream. Interleaving them is the join between the two, and
-// the only reason bd3d2sbs needs VapourSynth and a frameserver plugin at all.
+// doing it here is what lets the decoder be driven directly — no frameserver, no
+// plugin, no Python.
 //
-// Doing it here instead removes VapourSynth, Python and the plugin from the
-// toolchain, which is most of what there was to install.
-//
-// The access-unit rule, and the per-AU ordering, follow mvc-source's
-// implementation, whose comments state it is bit-exact against decoding a real
-// combined stream. TestInterleaveMatchesACombinedStream holds that here too.
+// The access-unit rule and the per-AU ordering match mvc-source, the reference
+// implementation of this join, which states it is bit-exact against decoding a
+// real combined stream. TestInterleaveMatchesACombinedStream holds that here
+// too, against the same fixtures.
 
 // startCode3 is the Annex-B NAL separator. A 4-byte code is the same with a
 // leading zero, which is why the scan looks for the 3-byte form and then checks

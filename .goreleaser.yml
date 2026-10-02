@@ -32,11 +32,11 @@ builds:
       - goos: darwin
         goarch: arm
 
-  # bd3d2sbs decides which external tools a platform needs, so it ships for
+  # mvc2sbs decides which external tools a platform needs, so it ships for
   # every platform it reasons about rather than only the one it was built on.
-  - id: bd3d2sbs
-    main: ./cmd/bd3d2sbs
-    binary: bd3d2sbs
+  - id: mvc2sbs
+    main: ./cmd/mvc2sbs
+    binary: mvc2sbs
     env:
       - CGO_ENABLED=0
     ldflags:

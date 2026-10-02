@@ -24,7 +24,7 @@ For anything awkward to quote, use `args` — each element is exactly one argume
 
 ```python
 output("exec", upstream=prev,
-       command="/usr/local/bin/bd3d2sbs",
+       command="/usr/local/bin/mvc2sbs",
        args=["--input", "{file_location}", "--output", "{download_path}", "--tag", "3D SBS"])
 ```
 
