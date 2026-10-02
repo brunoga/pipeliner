@@ -86,28 +86,53 @@ producing a file quietly missing what was asked for.
 
 ## Tools, and why each is needed
 
+Four, and one of them is either/or:
+
+| Tool | What it does | Why nothing else will do |
+|---|---|---|
+| **tsMuxeR** | Gets the base and dependent views out of the disc, plus audio, subtitles and chapters | ffmpeg cannot: libavcodec drops the MVC dependent view outright |
+| **edge264** | Decodes both eyes and stacks them side by side as Y4M | The only open-source *software* MVC decoder there is |
+| **x264** *or* **ffmpeg** | Re-encodes the stacked frames | Side-by-side is a new frame layout, so a re-encode is unavoidable. ffmpeg instead of x264 for GPU encoding or the `--swap-lr` / half-SBS filters |
+| **mkvmerge** | Muxes the video back with the audio, subtitles and chapters | — |
+
 Installing them is left to you; `--check` says what is missing, what each one
 does, and where to start:
 
 ```
 platform: linux   encoder: x264
 
-  ok       ffprobe    /usr/bin/ffprobe
   ok       tsmuxer    /usr/local/bin/tsMuxeR
   ok       edge264    /usr/local/bin/edge264
   ok       x264       /usr/bin/x264
   ok       mkvmerge   /usr/bin/mkvmerge
 
-all 5 required tools present
+all 4 required tools present
 ```
 
 `--check` exits non-zero when anything is missing, so it works as a preflight.
 
-- **tsMuxeR** — upstream's own release binaries demux MVC, for Linux, macOS and
-  Windows. No build and no fork needed.
-- **edge264** — the only open-source *software* MVC decoder. One small C program
-  with no dependencies, whose Makefile targets macOS, Linux and Windows.
-- **x264 / ffmpeg / mkvmerge** — packaged everywhere.
+### Architectures
+
+Everything here works on 64-bit Arm — Apple Silicon, a Raspberry Pi 4/5 — as
+well as x86_64:
+
+| | x86_64 | arm64 |
+|---|---|---|
+| **tsMuxeR** | prebuilt (Linux, Windows) | prebuilt on macOS; **build the CLI** on Arm Linux |
+| **edge264** | build (seconds) | build; its CI runs the full JVT conformance corpus on arm64 macOS *and* arm64 Linux |
+| **x264 / ffmpeg / mkvmerge** | packaged | packaged |
+
+The one gap is that upstream publishes a single Linux tsMuxeR binary and it is
+x86_64. That is a packaging gap, not a portability one: its **CLI needs no Qt** —
+that is the GUI alone — so on Arm Linux it is
+
+```sh
+apt install build-essential cmake ninja-build zlib1g-dev libfreetype-dev
+cmake -S . -B build -G Ninja && ninja -C build tsmuxer
+```
+
+about a minute. `Dockerfile.bd3d2sbs` does exactly that, which is what makes the
+image multi-architecture.
 
 ## Encoders per platform
 
@@ -125,18 +150,24 @@ spent decoding.
 
 ## Docker
 
-`Dockerfile.bd3d2sbs` builds an amd64 image with the whole toolchain (~620 MB):
+`Dockerfile.bd3d2sbs` carries the whole toolchain, for amd64 and arm64
+(~600 MB):
 
 ```sh
 docker build -f Dockerfile.bd3d2sbs -t bd3d2sbs .
+docker buildx build --platform linux/amd64,linux/arm64 -f Dockerfile.bd3d2sbs -t bd3d2sbs .
 docker run --rm -v /media:/media bd3d2sbs --check
 ```
 
-It is deliberately **not** part of the pipeliner server image. tsMuxeR ships only
-an x86_64 Linux build while that image is built for amd64, arm64 and arm/v7; and
-a conversion is hours of work needing device passthrough (`/dev/dri`, or the
-NVIDIA runtime), which belongs in a container started for the job rather than in
-the scheduler.
+tsMuxeR is built rather than downloaded so the arm64 image is a real arm64 image
+— verified by building it and checking every binary is `ELF 64-bit ARM aarch64`.
+edge264 is given an architecture baseline (`x86-64-v2` or `armv8-a+simd`) instead
+of the Makefile's default `-march=native`, which would otherwise bake the
+builder's CPU into a distributed image.
+
+It is deliberately **not** part of the pipeliner server image: a conversion is
+hours of work needing device passthrough (`/dev/dri`, or the NVIDIA runtime),
+which belongs in a container started for the job rather than in the scheduler.
 
 ## Driving it from pipeliner
 
@@ -170,6 +201,7 @@ of those turned out to be avoidable:
 | edge264, pinned `v2026.07.22+5` | `v2026.09.22` | Two months of fixes newer. |
 | mvc-source, pinned `v0.8.0` | n/a | Upstream was already at `v0.11.0`. |
 | `fzf` for interactive track picking | not used | A scheduled conversion cannot prompt. |
+| — | `ffprobe` dropped | It was declared as a required tool and then never run. |
 
 The result is four external tools instead of four builds, and a genuinely
 cross-platform story: every remaining dependency has an official binary or a

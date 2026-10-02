@@ -151,11 +151,3 @@ func writeAU(w io.Writer, buf []byte, spans []nalSpan, au int) error {
 	}
 	return nil
 }
-
-// AccessUnitCount reports how many access units a view stream holds, which is
-// how the runner reports progress and checks a pair before committing to a
-// multi-hour decode.
-func AccessUnitCount(buf []byte, base bool) int {
-	_, n := groupAccessUnits(buf, base)
-	return n
-}

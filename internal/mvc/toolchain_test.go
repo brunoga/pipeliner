@@ -75,7 +75,7 @@ func TestRequiredToolsDependOnTheEncoder(t *testing.T) {
 }
 
 func TestDetectReportsWhatIsMissing(t *testing.T) {
-	fakeLookPath(t, "ffprobe", "mkvmerge")
+	fakeLookPath(t, "mkvmerge")
 	rep := Detect(context.Background(), "linux", EncoderX264)
 	if rep.OK() {
 		t.Fatal("report should not be OK when tools are absent")
@@ -86,7 +86,7 @@ func TestDetectReportsWhatIsMissing(t *testing.T) {
 			t.Errorf("missing list %v should contain %s", missing, want)
 		}
 	}
-	for _, unwanted := range []string{"ffprobe", "mkvmerge"} {
+	for _, unwanted := range []string{"mkvmerge"} {
 		if containsFold(missing, unwanted) {
 			t.Errorf("%s was present and must not be reported missing", unwanted)
 		}
@@ -94,7 +94,7 @@ func TestDetectReportsWhatIsMissing(t *testing.T) {
 }
 
 func TestDetectIsOKWhenEverythingIsPresent(t *testing.T) {
-	fakeLookPath(t, "ffprobe", "tsMuxeR", "edge264", "x264", "mkvmerge")
+	fakeLookPath(t, "tsMuxeR", "edge264", "x264", "mkvmerge")
 	rep := Detect(context.Background(), "linux", EncoderX264)
 	if !rep.OK() {
 		t.Errorf("expected OK, missing: %v", names(toolsOf(rep.Missing())))
@@ -104,7 +104,7 @@ func TestDetectIsOKWhenEverythingIsPresent(t *testing.T) {
 // tsMuxeR ships under two spellings; either satisfies the requirement.
 func TestDetectAcceptsEitherBinaryName(t *testing.T) {
 	for _, spelling := range []string{"tsMuxeR", "tsmuxer"} {
-		fakeLookPath(t, "ffprobe", spelling, "edge264", "x264", "mkvmerge")
+		fakeLookPath(t, spelling, "edge264", "x264", "mkvmerge")
 		if rep := Detect(context.Background(), "linux", EncoderX264); !rep.OK() {
 			t.Errorf("%s should satisfy the tsmuxer requirement", spelling)
 		}
@@ -126,7 +126,7 @@ func TestMissingToolReportExplainsItself(t *testing.T) {
 	if !strings.Contains(out, "try:") {
 		t.Error("report should offer an install hint")
 	}
-	if !strings.Contains(out, "5 of 5 tools missing") {
+	if !strings.Contains(out, "4 of 4 tools missing") {
 		t.Errorf("report should total the misses, got:\n%s", out)
 	}
 }
@@ -169,7 +169,7 @@ func TestSupportsEncoderIsPlatformAware(t *testing.T) {
 
 func TestDefaultEncoderFallsBackToSoftware(t *testing.T) {
 	// Only the software chain is installed, so auto must not pick a GPU path.
-	fakeLookPath(t, "ffprobe", "tsMuxeR", "edge264", "x264", "mkvmerge")
+	fakeLookPath(t, "tsMuxeR", "edge264", "x264", "mkvmerge")
 	fakeProbe(t)
 	if got := DefaultEncoder(context.Background(), "linux", "/dev/dri/renderD128"); got != EncoderX264 {
 		t.Errorf("got %q, want x264 when no ffmpeg is installed", got)
@@ -177,7 +177,7 @@ func TestDefaultEncoderFallsBackToSoftware(t *testing.T) {
 }
 
 func TestDefaultEncoderPrefersHardwareWhenItActuallyWorks(t *testing.T) {
-	fakeLookPath(t, "ffprobe", "tsMuxeR", "edge264", "ffmpeg", "mkvmerge")
+	fakeLookPath(t, "tsMuxeR", "edge264", "ffmpeg", "mkvmerge")
 	fakeProbe(t, EncoderVideoToolbox)
 	if got := DefaultEncoder(context.Background(), "darwin", ""); got != EncoderVideoToolbox {
 		t.Errorf("got %q, want videotoolbox when its trial encode succeeds", got)
@@ -188,7 +188,7 @@ func TestDefaultEncoderPrefersHardwareWhenItActuallyWorks(t *testing.T) {
 // with no NVIDIA card. Locating the tools is not evidence the encoder works, so
 // a failing trial must fall through rather than be chosen.
 func TestDefaultEncoderSkipsAnEncoderThatDoesNotWork(t *testing.T) {
-	fakeLookPath(t, "ffprobe", "tsMuxeR", "edge264", "ffmpeg", "mkvmerge")
+	fakeLookPath(t, "tsMuxeR", "edge264", "ffmpeg", "mkvmerge")
 	fakeProbe(t) // nothing works
 	if got := DefaultEncoder(context.Background(), "linux", "/dev/dri/renderD128"); got != EncoderX264 {
 		t.Errorf("got %q, want x264 when no hardware trial succeeds", got)
@@ -197,7 +197,7 @@ func TestDefaultEncoderSkipsAnEncoderThatDoesNotWork(t *testing.T) {
 
 // On Linux NVENC is preferred over VAAPI, but only if it actually encodes.
 func TestDefaultEncoderFallsFromNVENCToVAAPI(t *testing.T) {
-	fakeLookPath(t, "ffprobe", "tsMuxeR", "edge264", "ffmpeg", "mkvmerge")
+	fakeLookPath(t, "tsMuxeR", "edge264", "ffmpeg", "mkvmerge")
 	fakeProbe(t, EncoderVAAPI)
 	if got := DefaultEncoder(context.Background(), "linux", "/dev/dri/renderD128"); got != EncoderVAAPI {
 		t.Errorf("got %q, want vaapi when nvenc's trial fails and vaapi's passes", got)

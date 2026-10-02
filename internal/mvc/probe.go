@@ -50,7 +50,3 @@ func ProbeEncoder(ctx context.Context, enc Encoder, device string) bool {
 	}
 	return runProbe(ctx, argv) == nil
 }
-
-// probeCommands is exercised by the tests: each hardware encoder needs its own
-// filter chain, and a single shared command would silently mis-probe VAAPI,
-// which requires an explicit device and a hwupload.
