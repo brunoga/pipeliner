@@ -5,6 +5,24 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.44.0] - 2026-10-02
+
+A disc image needs no mounting, and mvc2sbs picks the title off the disc itself.
+
+### Added
+
+- **`mvc2sbs` reads a Blu-ray disc image directly** ([#498](https://github.com/brunoga/pipeliner/pull/498)). Mounting one needs root, which rules it out for an unattended conversion, so `--input` now takes a `.iso` and reads it in place: a Blu-ray is a UDF 2.50 filesystem and `golift.io/udf` handles it in pure Go, with no Cgo, on every platform this ships for. Only what a conversion needs comes out of the image — the playlists, the clip metadata and the SSIF streams. The base-view `BDMV/STREAM/*.m2ts` is skipped: on the disc it shares extents with the matching SSIF, so copying both would write the base view twice, and tsMuxeR reads a playlist perfectly well without it, which is what makes skipping it safe rather than merely frugal. `BACKUP`, `AUXDATA`, `CERTIFICATE`, `JAR`, `BDJO` and `META` are skipped outright.
+- **It picks the title itself** ([#498](https://github.com/brunoga/pipeliner/pull/498)). `--input` also takes a BDMV directory, because the same question arises for both: which of the disc's playlists is the film. A disc holds one per title — the feature, its trailers, the menus, and often several near-duplicates of the feature — so picking by filename or number gets a trailer as often as the film. Each is probed and the longest 3D one wins, length being the signal that works since a feature is tens of times longer than anything else there. The eye order comes from the disc too: tsMuxeR reports whether the base view is the left or the right eye and the stacking compensates on its own, with `--swap-lr` overriding only when given explicitly rather than merely defaulting to false.
+- **`configs/3d-mvc-harvest.star`** ([#498](https://github.com/brunoga/pipeliner/pull/498), [#499](https://github.com/brunoga/pipeliner/pull/499)), which collects MVC source material for conversion elsewhere. It is the mirror of a library pipeline: `spec="bd3d"` takes exactly the tier `spec="3dfull"` rejects, and it keeps `.iso` releases rather than rejecting them, since an MVC image is now directly convertible. A `limit` after `dedup` takes a few a night — a dry run against a 989-title watchlist accepted 65 releases, which for disc images is roughly two terabytes.
+- **A release publishes the `mvc2sbs` image** ([#500](https://github.com/brunoga/pipeliner/pull/500)) at `ghcr.io/brunoga/mvc2sbs`, for amd64 and arm64. Its README and the sample config already told people to run it; nothing built it, so both were describing an artifact that did not exist.
+
+### Fixed
+
+- **`--input` said it accepted things tsMuxeR cannot read** ([#497](https://github.com/brunoga/pipeliner/pull/497)). The flag claimed a `.iso` or a BDMV directory at a point when neither worked: tsMuxeR's input containers are TS/M2TS/MTS, VOB/MPG/EVO, MKV, MOV/MP4 and MPLS, and an ISO is an output format for it rather than an input. Anyone following the old text would have had the tool fail on the first thing they tried. Both forms work now, for different reasons, and the README has a table of what to point at.
+- **A disc with a single playlist converted nothing** ([#498](https://github.com/brunoga/pipeliner/pull/498)). Candidate titles were compared on duration alone, so the first one was never selected; and the duration parser dropped the fractional seconds, which made a short source indistinguishable from one of unknown length. A source that does not exist is also now reported before any tool is resolved.
+
+**Why 1.44.0**: new input forms, automatic title and eye-order selection, a new sample config and a new published image. Nothing is removed and no existing invocation changes meaning, so a minor bump per SemVer.
+
 ## [1.43.0] - 2026-10-02
 
 The 3D conversion tool actually converts, and two tracker bugs that were quietly losing shows are fixed.
