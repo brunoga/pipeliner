@@ -38,18 +38,20 @@ func run(argv []string, stdout, stderr *os.File) int {
 	fs := flag.NewFlagSet("mvc2sbs", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var (
-		check   = fs.Bool("check", false, "report which external tools are present and which are missing, then exit")
-		dryRun  = fs.Bool("dry-run", false, "print the commands that would run, without running them")
-		input   = fs.String("input", "", "source: a .iso, a BDMV directory, or an MKV from MakeMKV")
-		output  = fs.String("output", "", "destination .mkv")
-		tempDir = fs.String("temp", "", "scratch directory for demuxed streams (default: alongside the output)")
-		layout  = fs.String("layout", string(mvc.LayoutFullSBS), "full (1080p per eye) or half (960p per eye, ~half the size)")
-		encoder = fs.String("encoder", string(mvc.EncoderAuto), "auto, x264, vaapi, videotoolbox or nvenc")
-		crf     = fs.Int("crf", 18, "quality target, 0-51; lower is better")
-		preset  = fs.String("preset", "slow", "x264 speed/efficiency preset")
-		vaapi   = fs.String("vaapi-device", "/dev/dri/renderD128", "render node for VAAPI encoding")
-		swapLR  = fs.Bool("swap-lr", false, "exchange the eyes, for a disc whose base view is the right eye")
-		showVer = fs.Bool("version", false, "print the version and exit")
+		check    = fs.Bool("check", false, "report which external tools are present and which are missing, then exit")
+		dryRun   = fs.Bool("dry-run", false, "print the commands that would run, without running them")
+		input    = fs.String("input", "", "source: a .iso, a BDMV directory, or an MKV from MakeMKV")
+		output   = fs.String("output", "", "destination .mkv")
+		tempDir  = fs.String("temp", "", "scratch directory for demuxed streams (default: alongside the output)")
+		layout   = fs.String("layout", string(mvc.LayoutFullSBS), "full (1080p per eye) or half (960p per eye, ~half the size)")
+		encoder  = fs.String("encoder", string(mvc.EncoderAuto), "auto, x264, vaapi, videotoolbox or nvenc")
+		crf      = fs.Int("crf", 18, "quality target, 0-51; lower is better")
+		preset   = fs.String("preset", "slow", "x264 speed/efficiency preset")
+		vaapi    = fs.String("vaapi-device", "/dev/dri/renderD128", "render node for VAAPI encoding")
+		swapLR   = fs.Bool("swap-lr", false, "exchange the eyes, for a disc whose base view is the right eye")
+		keepTemp = fs.Bool("keep-temp", false, "leave the demuxed streams behind instead of deleting them")
+		quiet    = fs.Bool("quiet", false, "only report errors")
+		showVer  = fs.Bool("version", false, "print the version and exit")
 	)
 	fs.Usage = func() {
 		fmt.Fprintf(stderr, "usage: mvc2sbs [--check] [--dry-run] --input SRC --output DST.mkv\n\n"+
@@ -112,9 +114,19 @@ func run(argv []string, stdout, stderr *os.File) int {
 		return 1
 	}
 
-	fmt.Fprintf(stderr, "mvc2sbs: the conversion runner is not implemented yet.\n"+
-		"Every tool it needs is present and the plan below is what it would run.\n"+
-		"Use --dry-run to see this without the toolchain check.\n\n")
-	fmt.Fprint(stdout, plan.String())
-	return 3
+	report := mvc.Reporter(func(format string, args ...any) {
+		fmt.Fprintf(stderr, "mvc2sbs: "+format+"\n", args...)
+	})
+	if *quiet {
+		report = nil
+	}
+
+	runner := mvc.NewRunner(goos, o, report)
+	runner.KeepTemp = *keepTemp
+	if err := runner.Run(ctx); err != nil {
+		fmt.Fprintf(stderr, "mvc2sbs: %v\n", err)
+		return 1
+	}
+	report.Report("done: %s", o.Output)
+	return 0
 }
