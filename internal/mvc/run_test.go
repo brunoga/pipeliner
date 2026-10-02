@@ -276,7 +276,7 @@ func probeSize(t *testing.T, path string) (int, int) {
 }
 
 func execCommand(bin string, args ...string) (string, error) {
-	cmd := exec.Command(bin, args...) //nolint:gosec // test helper
+	cmd := exec.CommandContext(context.Background(), bin, args...) //nolint:gosec // test helper
 	b, err := cmd.CombinedOutput()
 	return string(b), err
 }

@@ -59,19 +59,6 @@ func (t Track) Kind() Kind {
 	return KindOther
 }
 
-// demuxExtension is the suffix tsMuxeR gives a demuxed track, which is how the
-// runner finds the files afterwards. Only the two views need to be certain;
-// everything else is located by its track number.
-func (t Track) demuxExtension() string {
-	switch t.Kind() {
-	case KindBaseView:
-		return ".264"
-	case KindDependentView:
-		return ".mvc"
-	}
-	return ""
-}
-
 var (
 	reTrackID    = regexp.MustCompile(`^Track ID:\s+(\d+)`)
 	reStreamType = regexp.MustCompile(`^Stream type:\s+(.+)`)
