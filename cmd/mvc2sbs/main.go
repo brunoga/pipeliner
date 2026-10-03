@@ -32,9 +32,14 @@ import (
 	"runtime"
 
 	"github.com/brunoga/pipeliner/internal/mvc"
+	pversion "github.com/brunoga/pipeliner/internal/version"
 )
 
-var version = "dev"
+// version is overridden at build time with
+// -ldflags="-X main.version=...". Left alone, version.Resolve falls back to
+// the module version the Go toolchain embeds, so a `go install` of a tagged
+// version reports that tag rather than the placeholder.
+var version = pversion.Placeholder
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
@@ -71,7 +76,7 @@ func run(argv []string, stdout, stderr *os.File) int {
 		return 2
 	}
 	if *showVer {
-		fmt.Fprintf(stdout, "mvc2sbs %s\n", version)
+		fmt.Fprintf(stdout, "mvc2sbs %s\n", pversion.Resolve(version))
 		return 0
 	}
 
