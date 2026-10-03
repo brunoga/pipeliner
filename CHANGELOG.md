@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.46.1] - 2026-10-03
+
+### Fixed
+
+- **`mvc2sbs` reported `dev` for every go-installed copy** ([#508](https://github.com/brunoga/pipeliner/pull/508)), leaving no way to tell what was running. A release build was never affected — `Dockerfile.mvc2sbs` passes `-ldflags="-X main.version=${VERSION}"`, so the published image has always been right — but `go install .../cmd/mvc2sbs@v1.46.0` passes no ldflags, and unlike `pipeliner` it had no fallback to the module version the Go toolchain embeds. Both binaries now resolve their version through one place, so a `go install` of a tagged version reports that tag. A plain `go build` from a working tree reports what the toolchain derives from VCS, such as `v1.46.0+dirty`, which says more than a placeholder; only when there is no version to derive — `-buildvcs=false`, or a build outside a repository — does the placeholder stand.
+
+**Why 1.46.1**: one user-visible fix to what a binary prints, with no behaviour change and nothing added or removed — a patch bump per SemVer.
+
 ## [1.46.0] - 2026-10-02
 
 The filesystem source can hold a delivery back until it has finished arriving, which is what makes it usable as a watch folder.
