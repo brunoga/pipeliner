@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"runtime/debug"
 	"strings"
 	"sync"
 	"syscall"
@@ -28,6 +27,7 @@ import (
 	"github.com/brunoga/pipeliner/internal/task"
 	"github.com/brunoga/pipeliner/internal/traces"
 	itrakt "github.com/brunoga/pipeliner/internal/trakt"
+	pversion "github.com/brunoga/pipeliner/internal/version"
 	"github.com/brunoga/pipeliner/internal/watchdog"
 	"github.com/brunoga/pipeliner/internal/web"
 
@@ -105,21 +105,11 @@ import (
 //
 //	go build -ldflags "-X main.version=$(git describe --tags --dirty --always)"
 //
-// When installed with "go install" (no ldflags), resolveVersion() falls back
+// When installed with "go install" (no ldflags), version.Resolve falls back
 // to the module version embedded by the Go toolchain via debug/buildinfo.
-var version = "dev"
+var version = pversion.Placeholder
 
-func resolveVersion() string {
-	if version != "dev" {
-		return version
-	}
-	if info, ok := debug.ReadBuildInfo(); ok {
-		if v := info.Main.Version; v != "" && v != "(devel)" {
-			return v
-		}
-	}
-	return version
-}
+func resolveVersion() string { return pversion.Resolve(version) }
 
 func main() {
 	os.Exit(run(os.Args[1:]))
