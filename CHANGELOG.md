@@ -5,6 +5,26 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.48.0] - 2026-10-04
+
+`mvc2sbs` can carry the disc's own video out untouched, keep fewer tracks, and no longer turns away a layout it can perfectly well produce.
+
+### Added
+
+- **`--remux` copies the disc's MVC video with no re-encoding** ([#515](https://github.com/brunoga/pipeliner/pull/515)). The video passes through bit for bit and only the filtered-out tracks are lost, so on a player that decodes MVC this is the option with no generation loss at all. It is the demux description without the demux — the same track references pointed at an output file — so one tsMuxeR pass does it with nothing decoded, stacked, encoded or written in between. The output is an MPEG-2 transport stream, since MVC has no home in Matroska that players agree on; a `.mkv` is refused by name rather than produced and found unplayable, and so are the settings that describe the convert path, because a copy of the disc's video cannot honour a rescale or an eye swap. Measured on a real disc rather than estimated: a 31.3 GiB image with eight audio and ten subtitle tracks remuxes to 24.21 GiB keeping one English TrueHD and three subtitles, against 9.09 GiB for the side-by-side HEVC conversion of the same disc. The MVC video is most of a 3D Blu-ray, so this is for quality, not for space — the obvious assumption is the wrong way round, and the README says so.
+- **`--keep-fallback` keeps the lossy core embedded in a lossless track** ([#515](https://github.com/brunoga/pipeliner/pull/515)) — the AC-3 inside TrueHD, the DTS inside DTS-HD — instead of dropping it, tagged with the same language as the track it accompanies. The tagging is the point: an unidentified track beside the one a player was told about is the defect that path exists to avoid, and that applies to a core kept on purpose as much as to one kept by accident.
+- **The output declares its stereo layout** ([#514](https://github.com/brunoga/pipeliner/pull/514)) in the Matroska `StereoMode` element, so a player need not infer 3D from the filename or be told by hand. This decides whether the resolution a conversion spends hours preserving reaches the screen: full per-eye resolution needs HDMI frame packing, which carries two complete 1920x1080 frames, and the side-by-side HDMI format cannot — it squeezes both eyes into one 1920x1080 frame, so each eye is 960 columns stretched back out whatever the file held. Kodi and CoreELEC read the flag and can then emit frame-packed 3D, making a full-SBS file a 1:1 pixel map to the panel. The eye order is a constant rather than a setting, because the decoder emits base-view-left and a disc marking its base view as the right eye is corrected before the mux, or refused.
+
+### Changed
+
+- **Half-SBS and the eye swap now work with software encoding** ([#515](https://github.com/brunoga/pipeliner/pull/515)). Both are filters on the stacked frame and neither x264 nor x265 can filter, so asking for one with `--encoder software` used to be refused. The refusal was unnecessary: ffmpeg builds the same encoder libraries, so filtered software encoding runs through `libx264` or `libx265`, with `--crf` and `--preset` passed straight to them. Unfiltered software encoding still drives the standalone binary — fewer moving parts, and it works on a machine that has x264 but no ffmpeg. `--check` follows the same rule, and because having ffmpeg is not having libx265, that path now gets the same one-frame trial encode the hardware encoders already did.
+
+### Fixed
+
+- **A conversion asked for one audio track produced two** ([#512](https://github.com/brunoga/pipeliner/pull/512), released in 1.47.1 and listed here for completeness).
+
+**Why 1.48.0**: a new output mode and two new options, plus a layout that used to be refused and now works. Nothing existing changes meaning — a conversion with no new flags behaves as it did, save for the stereo flag it should always have carried. A minor bump per SemVer.
+
 ## [1.47.1] - 2026-10-03
 
 ### Fixed
