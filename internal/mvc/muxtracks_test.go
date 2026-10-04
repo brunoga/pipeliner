@@ -216,3 +216,66 @@ func TestSquashCodecMakesSpellingsMeet(t *testing.T) {
 		t.Error("the stream ID alone should be enough to agree")
 	}
 }
+
+// --- the stereo layout flag ---
+
+// Without this flag the output is an unusually wide 2D video: a player has to
+// be told by hand that it is 3D, or guess from the filename. Plex guesses from
+// the filename and only knows the half-width layouts, so it would treat this
+// as flat; Kodi and CoreELEC read the flag and can then emit HDMI frame-packed
+// 3D, which is the only path that carries a full 1920x1080 to each eye.
+func TestMuxDeclaresTheStereoLayout(t *testing.T) {
+	argv := muxArgv("/out/Film.mkv", "/w/stacked.265", []string{"--language", "0:eng", "/w/a.thd"})
+	joined := strings.Join(argv, " ")
+	want := "-o /out/Film.mkv --stereo-mode 0:side_by_side_left_first /w/stacked.265 --language 0:eng /w/a.thd"
+	if joined != want {
+		t.Errorf("argv  = %q\nwant  = %q", joined, want)
+	}
+}
+
+// The flag must address the video track and precede it, since mkvmerge applies
+// a per-file option to the file that follows it. Landing on an audio input
+// instead would tag the wrong track and leave the video unmarked.
+func TestStereoModePrecedesTheVideo(t *testing.T) {
+	argv := muxArgv("/out/f.mkv", "/w/v.265", []string{"/w/a.thd"})
+	var flagAt, videoAt = -1, -1
+	for i, a := range argv {
+		switch a {
+		case "--stereo-mode":
+			flagAt = i
+		case "/w/v.265":
+			videoAt = i
+		}
+	}
+	if flagAt < 0 || videoAt < 0 {
+		t.Fatalf("argv missing the flag or the video: %v", argv)
+	}
+	if flagAt+2 != videoAt {
+		t.Errorf("flag at %d, video at %d; the option must immediately precede the video", flagAt, videoAt)
+	}
+}
+
+// The keyword has to be one mkvmerge accepts, and the eye order has to be
+// left-first: the decoder emits base-view-left and a right-eye-base disc is
+// corrected before the mux, so the arrangement never varies.
+func TestStereoModeKeyword(t *testing.T) {
+	if StereoMode != "side_by_side_left_first" {
+		t.Errorf("StereoMode = %q", StereoMode)
+	}
+}
+
+// Half-SBS is the same arrangement with each eye squeezed, so it carries the
+// same flag: Matroska describes the layout, and the frame's dimensions say
+// whether it is full or half.
+func TestBothLayoutsUseTheSameFlag(t *testing.T) {
+	for _, l := range []Layout{LayoutFullSBS, LayoutHalfSBS} {
+		o := opts("linux", func(o *Options) { o.Layout = l })
+		if _, err := BuildPlan("linux", o); err != nil && l == LayoutFullSBS {
+			t.Fatalf("%s: %v", l, err)
+		}
+	}
+	argv := muxArgv("/out/f.mkv", "/w/v.265", nil)
+	if !strings.Contains(strings.Join(argv, " "), StereoMode) {
+		t.Error("the layout flag is missing")
+	}
+}
