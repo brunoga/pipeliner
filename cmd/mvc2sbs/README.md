@@ -122,10 +122,15 @@ pipeliner retry it.
 | `--codec` | `h264` | `h264` or `h265` — see [Codec](#codec) |
 | `--swap-lr` | — | Exchange the eyes, for a disc whose base view is the right one |
 | `--list` | — | Print the source's tracks and exit — see [Choosing tracks](#choosing-tracks) |
+| `--list` | — | Print the source's tracks and exit — see [Choosing tracks](#choosing-tracks) |
 | `--audio-lang` | — | Keep only audio in these languages, e.g. `eng` or `eng,fra` |
 | `--audio-codec` | — | Keep only audio matching these codecs, e.g. `truehd` or `dts,ac3` |
-| `--subs-lang` | — | Keep only subtitles in these languages |
+| `--audio-best` | — | Of the audio that matches, keep only the highest-quality track |
+| `--subs-lang` | — | Keep only subtitles in these languages, e.g. `eng,pt-br` |
 | `--subs-codec` | — | Keep only subtitles matching these codecs |
+| `--keep-fallback` | — | Keep the lossy core embedded in a lossless track instead of dropping it |
+| `--name-audio-codec` | — | Append the kept audio codec to the output filename |
+| `--remux` | — | Copy the disc's MVC video out with no re-encoding — see [Remuxing](#remuxing-instead-of-converting) |
 | `--crf` | `18` | Quality target, 0–51; lower is better. **Not comparable between codecs** |
 | `--preset` | `slow` | Software encoder speed/efficiency trade-off (x264 and x265 take the same names) |
 
@@ -133,9 +138,19 @@ pipeliner retry it.
 that keeps the disc's resolution, and it is what the decoder emits natively, so
 it costs no resample.
 
-`--swap-lr` and `--layout half` are filters on the stacked frame, so they need an
-ffmpeg encoder; asking for either with a software encoder is refused up front
-rather than producing a file quietly missing what was asked for.
+`--swap-lr` and `--layout half` are filters on the stacked frame, and neither
+x264 nor x265 can filter. Asking for one with `--encoder software` therefore
+runs the encode through **ffmpeg's `libx264` or `libx265`** instead of the
+standalone binary: the same encoder library, reached by a route that can
+filter, with `--crf` and `--preset` passed straight through. Unfiltered
+software encoding still uses the standalone binary, which is fewer moving parts
+and works on a machine that has x264 but no ffmpeg.
+
+`--check` follows the same rule, so it looks for ffmpeg when a filter is asked
+for rather than reporting x265 missing on a machine that never needs it. Having
+ffmpeg is not the same as having libx265, which a build may omit, so that case
+gets a one-frame trial encode too — the alternative is finding out at the
+encode step, hours into a conversion.
 
 ## Codec
 

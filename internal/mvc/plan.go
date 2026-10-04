@@ -38,6 +38,17 @@ type Options struct {
 	// that costs no picture quality.
 	Audio TrackFilter
 	Subs  TrackFilter
+	// KeepFallback keeps the lossy core embedded in a lossless stream — the
+	// AC-3 inside TrueHD, the DTS inside DTS-HD — instead of dropping it.
+	// It costs space for audio that duplicates the track beside it, and buys
+	// a fallback for a player that cannot decode the lossless one.
+	KeepFallback bool
+	// Remux writes the disc's own streams back out with no re-encoding, so
+	// the MVC video survives bit for bit and only the filtered-out tracks are
+	// lost. The output is an MPEG-2 transport stream, since that is what MVC
+	// travels in; nothing is decoded, stacked or encoded, so the encoder,
+	// codec, layout and CRF settings do not apply.
+	Remux bool
 	// CRF is the quality target. Lower is better; 18 is visually transparent
 	// for most sources.
 	//
@@ -114,6 +125,25 @@ func (o Options) Validate(goos string) error {
 	if strings.EqualFold(o.Input, o.Output) {
 		return fmt.Errorf("input and output are the same file")
 	}
+	if o.Remux {
+		// MVC has no home in Matroska that players agree on, so a remux
+		// stays in the transport stream the disc already uses.
+		if ext := strings.ToLower(filepath.Ext(o.Output)); ext != ".m2ts" && ext != ".ts" {
+			return fmt.Errorf("a remux output must be a .m2ts or .ts (got %q); "+
+				"MVC video cannot go into a .mkv that players agree on", ext)
+		}
+		// Everything below describes the decode-and-encode path, which a
+		// remux does not take. Saying so beats silently ignoring settings.
+		if o.Layout == LayoutHalfSBS {
+			return fmt.Errorf("--remux cannot change the layout: it copies the disc's " +
+				"MVC video without re-encoding, and half-SBS needs a rescale")
+		}
+		if o.SwapLR {
+			return fmt.Errorf("--remux cannot swap the eyes: it copies the disc's " +
+				"MVC video without re-encoding, and the eyes are swapped while stacking them")
+		}
+		return nil
+	}
 	if ext := strings.ToLower(filepath.Ext(o.Output)); ext != ".mkv" {
 		return fmt.Errorf("output must be a .mkv (got %q)", ext)
 	}
@@ -132,18 +162,24 @@ func (o Options) Validate(goos string) error {
 	if o.CRF < 0 || o.CRF > 51 {
 		return fmt.Errorf("crf %d out of range 0-51", o.CRF)
 	}
-	// The eye swap and the half-SBS squeeze are both filters on the stacked
-	// frame, and neither x264 nor x265 has filters. Saying so here beats a run
-	// that produces a file silently missing what was asked for.
-	if !o.Encoder.UsesFFmpeg() && o.Encoder != EncoderAuto {
-		if o.SwapLR {
-			return fmt.Errorf("--swap-lr needs an ffmpeg encoder; the software encoders have no filters")
-		}
-		if o.Layout == LayoutHalfSBS {
-			return fmt.Errorf("half-SBS needs an ffmpeg encoder to rescale; the software encoders have no filters")
-		}
-	}
 	return nil
+}
+
+// NeedsFilters reports whether the output requires a filter on the stacked
+// frame: exchanging the eyes, or squeezing them to half width.
+//
+// It matters because neither x264 nor x265 has filters. Software encoding that
+// needs one is therefore driven through ffmpeg's libx264 or libx265 instead of
+// the standalone binary — the same encoder library, reached by a route that
+// can filter — rather than being refused, which is what used to happen.
+func (o Options) NeedsFilters() bool {
+	return o.SwapLR || o.Layout == LayoutHalfSBS
+}
+
+// EncodesViaFFmpeg reports whether ffmpeg runs the encode: always for a
+// hardware encoder, and for software encoding that needs a filter.
+func (o Options) EncodesViaFFmpeg() bool {
+	return o.Encoder.UsesFFmpeg() || (o.Encoder == EncoderSoftware && o.NeedsFilters())
 }
 
 func codecList(cs []Codec) string {
@@ -204,6 +240,17 @@ func BuildPlan(goos string, opts Options) (*Plan, error) {
 		depView  = filepath.Join(tmp, "dependent.mvc")
 		videoOut = filepath.Join(tmp, "stacked"+opts.Codec.streamExt())
 	)
+
+	if opts.Remux {
+		// One step: tsMuxeR reads the source and writes the selected tracks
+		// straight out. No decode, no encode, no interleave, and nothing
+		// intermediate beyond the meta file describing what to keep.
+		remuxMeta := filepath.Join(tmp, "remux.meta")
+		return &Plan{
+			Steps:         []Step{{Name: "remux", Argv: []string{"tsMuxeR", remuxMeta, opts.Output}}},
+			Intermediates: []string{remuxMeta},
+		}, nil
+	}
 
 	p := &Plan{
 		BaseView:      baseView,
@@ -275,6 +322,17 @@ func encodeStep(opts Options, out string) Step {
 	case EncoderNVENC:
 		return ff([]string{"-c:v", name, "-rc", "constqp", "-qp", fmt.Sprint(opts.CRF)}, "")
 	default:
+		if opts.NeedsFilters() {
+			// The standalone encoders cannot rescale or rearrange the frame,
+			// so the same encoder library is reached through ffmpeg, which
+			// can. The quality settings mean the same thing to both: ffmpeg
+			// passes -crf and -preset straight to the library.
+			return ff([]string{
+				"-c:v", opts.Codec.ffmpegSoftwareEncoder(),
+				"-crf", fmt.Sprint(opts.CRF),
+				"-preset", opts.Preset,
+			}, "")
+		}
 		if opts.Codec == CodecH265 {
 			// x265 reads stdin through --input, and needs --y4m told to it:
 			// it infers the format from the file extension, which "-" has not
@@ -299,8 +357,11 @@ func encodeStep(opts Options, out string) Step {
 // for reading, not for execution — the steps are run directly, never a shell.
 func (p *Plan) String() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "# the two demuxed views are interleaved in-process into step 2's stdin:\n")
-	fmt.Fprintf(&b, "#   %s + %s\n\n", p.BaseView, p.DependentView)
+	// A remux has no views to interleave: nothing is decoded.
+	if p.BaseView != "" && p.DependentView != "" {
+		fmt.Fprintf(&b, "# the two demuxed views are interleaved in-process into step 2's stdin:\n")
+		fmt.Fprintf(&b, "#   %s + %s\n\n", p.BaseView, p.DependentView)
+	}
 	for i, s := range p.Steps {
 		fmt.Fprintf(&b, "# step %d: %s\n", i+1, s.Name)
 		b.WriteString(strings.Join(s.Argv, " "))

@@ -36,7 +36,7 @@ func fakeProbe(t *testing.T, working ...Encoder) {
 	orig := runProbe
 	runProbe = func(_ context.Context, argv []string) error {
 		for e := range ok {
-			if sameArgv(probeArgv(e, CodecH264, "/dev/dri/renderD128"), argv) {
+			if sameArgv(probeArgv(e, CodecH264, "/dev/dri/renderD128", false), argv) {
 				return nil
 			}
 		}
@@ -58,11 +58,11 @@ func sameArgv(a, b []string) bool {
 }
 
 func TestRequiredToolsDependOnTheEncoder(t *testing.T) {
-	sw := Required("linux", EncoderSoftware, CodecH264)
+	sw := Required("linux", EncoderSoftware, CodecH264, false)
 	if !hasTool(sw, "x264") || hasTool(sw, "ffmpeg") {
 		t.Errorf("software encoding needs x264 and not ffmpeg, got %v", names(sw))
 	}
-	hw := Required("linux", EncoderVAAPI, CodecH264)
+	hw := Required("linux", EncoderVAAPI, CodecH264, false)
 	if !hasTool(hw, "ffmpeg") || hasTool(hw, "x264") {
 		t.Errorf("hardware encoding needs ffmpeg and not x264, got %v", names(hw))
 	}
@@ -76,7 +76,7 @@ func TestRequiredToolsDependOnTheEncoder(t *testing.T) {
 
 func TestDetectReportsWhatIsMissing(t *testing.T) {
 	fakeLookPath(t, "mkvmerge")
-	rep := Detect(context.Background(), "linux", EncoderSoftware, CodecH264)
+	rep := Detect(context.Background(), "linux", EncoderSoftware, CodecH264, false)
 	if rep.OK() {
 		t.Fatal("report should not be OK when tools are absent")
 	}
@@ -95,7 +95,7 @@ func TestDetectReportsWhatIsMissing(t *testing.T) {
 
 func TestDetectIsOKWhenEverythingIsPresent(t *testing.T) {
 	fakeLookPath(t, "tsMuxeR", "edge264", "x264", "mkvmerge")
-	rep := Detect(context.Background(), "linux", EncoderSoftware, CodecH264)
+	rep := Detect(context.Background(), "linux", EncoderSoftware, CodecH264, false)
 	if !rep.OK() {
 		t.Errorf("expected OK, missing: %v", names(toolsOf(rep.Missing())))
 	}
@@ -105,7 +105,7 @@ func TestDetectIsOKWhenEverythingIsPresent(t *testing.T) {
 func TestDetectAcceptsEitherBinaryName(t *testing.T) {
 	for _, spelling := range []string{"tsMuxeR", "tsmuxer"} {
 		fakeLookPath(t, spelling, "edge264", "x264", "mkvmerge")
-		if rep := Detect(context.Background(), "linux", EncoderSoftware, CodecH264); !rep.OK() {
+		if rep := Detect(context.Background(), "linux", EncoderSoftware, CodecH264, false); !rep.OK() {
 			t.Errorf("%s should satisfy the tsmuxer requirement", spelling)
 		}
 	}
@@ -116,7 +116,7 @@ func TestDetectAcceptsEitherBinaryName(t *testing.T) {
 // pipeline.
 func TestMissingToolReportExplainsItself(t *testing.T) {
 	fakeLookPath(t)
-	out := Detect(context.Background(), "linux", EncoderSoftware, CodecH264).String()
+	out := Detect(context.Background(), "linux", EncoderSoftware, CodecH264, false).String()
 	if !strings.Contains(out, "MISSING") {
 		t.Error("report should mark missing tools")
 	}

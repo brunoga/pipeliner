@@ -75,6 +75,11 @@ func (r *Runner) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+
+	if r.Opts.Remux {
+		r.Selected = sel
+		return r.remux(ctx, tmp, source, sel)
+	}
 	r.Report.Report("source: base view track %d, dependent view track %d, %d audio, %d subtitle",
 		sel.Base.ID, sel.Dependent.ID, len(sel.Audio), len(sel.Subtitles))
 	// Name the audio that was kept. With --audio-best this is the ranking's
@@ -276,6 +281,31 @@ func DescribeTracks(tracks []Track) string {
 	return b.String()
 }
 
+// remux writes the selected tracks straight back out, with no re-encoding.
+//
+// The disc's MVC video passes through bit for bit, so this keeps the full
+// stereo picture the disc carries rather than a re-encode of it. What it
+// cannot do is change anything about that picture: the layout stays
+// frame-compatible MVC rather than side by side, which means it needs a player
+// that decodes MVC. Validate refuses the options that would imply otherwise.
+func (r *Runner) remux(ctx context.Context, tmp, source string, sel Selection) error {
+	bin, err := r.resolve(toolTsMuxeR)
+	if err != nil {
+		return err
+	}
+	meta := filepath.Join(tmp, "remux.meta")
+	if err := os.WriteFile(meta, []byte(RemuxMeta(source, sel)), 0o600); err != nil {
+		return fmt.Errorf("writing the remux description: %w", err)
+	}
+	r.Report.Report("remuxing %d audio and %d subtitle track(s) with the disc's own video",
+		len(sel.Audio), len(sel.Subtitles))
+	out, runErr := exec.CommandContext(ctx, bin, meta, r.Opts.Output).CombinedOutput() //nolint:gosec // bin came from LookPath
+	if runErr != nil {
+		return fmt.Errorf("remuxing: %w\n%s", runErr, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
 // demuxResult names the files tsMuxeR wrote.
 type demuxResult struct {
 	base, dependent string
@@ -370,7 +400,7 @@ func (r *Runner) decodeAndEncode(ctx context.Context, base, dependent, out strin
 		return err
 	}
 	encStep := encodeStep(r.Opts, out)
-	encBin, err := r.resolve(encoderTool(r.Opts.Encoder, r.Opts.Codec))
+	encBin, err := r.resolve(encoderTool(r.Opts.Encoder, r.Opts.Codec, r.Opts.EncodesViaFFmpeg()))
 	if err != nil {
 		return err
 	}
@@ -509,10 +539,22 @@ func (r *Runner) extraArgs(ctx context.Context, bin string, extras []extra) ([]s
 		if have, err := identify(ctx, bin, e.path); err == nil {
 			primary, rest := primaryTrack(e.track, have)
 			id = primary.ID
-			for _, x := range rest {
-				dropped = append(dropped, droppedTrack{codec: x.Codec, of: primary.Codec})
+			if r.Opts.KeepFallback {
+				// Keeping the core means tagging it too. Leaving it
+				// unidentified beside the track it accompanies is the defect
+				// this whole path exists to avoid, and it applies just as much
+				// to a track kept on purpose as to one kept by accident.
+				for _, x := range rest {
+					if lang != "" {
+						argv = append(argv, "--language", strconv.Itoa(x.ID)+":"+lang)
+					}
+				}
+			} else {
+				for _, x := range rest {
+					dropped = append(dropped, droppedTrack{codec: x.Codec, of: primary.Codec})
+				}
+				argv = append(argv, selectorFor(primary, len(have) > 1)...)
 			}
-			argv = append(argv, selectorFor(primary, len(have) > 1)...)
 		}
 		// Identification failing is not fatal: the file still muxes, it just
 		// goes in whole and the language reaches only its first track. That

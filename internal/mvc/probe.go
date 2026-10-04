@@ -12,13 +12,22 @@ import (
 // answer differs per codec: a GPU generation can carry an H.264 encoder and no
 // HEVC one. VAAPI needs its own filter chain, which is why this is a switch
 // rather than one command with a substituted codec name.
-func probeArgv(enc Encoder, codec Codec, device string) []string {
+func probeArgv(enc Encoder, codec Codec, device string, viaFFmpeg bool) []string {
 	const src = "testsrc2=s=320x240:d=1"
 	name := codec.ffmpegEncoder(enc)
 	if name == "" {
-		// Software encoding always works if the binary is there, which Detect
-		// already established.
-		return nil
+		if !viaFFmpeg {
+			// Standalone software encoding always works if the binary is
+			// there, which Detect already established.
+			return nil
+		}
+		// Software encoding through ffmpeg does need a trial: having ffmpeg
+		// is not having libx265, which a build may simply omit, and finding
+		// that out at the encode step would waste the hours already spent
+		// decoding.
+		return []string{"ffmpeg", "-hide_banner", "-loglevel", "error",
+			"-f", "lavfi", "-i", src, "-frames:v", "1",
+			"-c:v", codec.ffmpegSoftwareEncoder(), "-f", "null", "-"}
 	}
 	switch enc {
 	case EncoderVAAPI:
@@ -42,8 +51,8 @@ var runProbe = func(ctx context.Context, argv []string) error {
 }
 
 // ProbeEncoder reports whether enc actually encodes codec on this machine.
-func ProbeEncoder(ctx context.Context, enc Encoder, codec Codec, device string) bool {
-	argv := probeArgv(enc, codec, device)
+func ProbeEncoder(ctx context.Context, enc Encoder, codec Codec, device string, viaFFmpeg bool) bool {
+	argv := probeArgv(enc, codec, device, viaFFmpeg)
 	if argv == nil {
 		return true // software
 	}

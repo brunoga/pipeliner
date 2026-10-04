@@ -231,16 +231,131 @@ func TestSwapIsAFilterOnTheStackedFrame(t *testing.T) {
 	}
 }
 
-// x264 has no filters, so asking it for a swap or a squeeze has to be refused
-// rather than silently producing a file missing what was asked for.
-func TestFilterOptionsAreRefusedWithX264(t *testing.T) {
-	if _, err := BuildPlan("linux", opts("linux", func(o *Options) { o.SwapLR = true })); err == nil {
-		t.Error("--swap-lr with x264 must be refused")
-	} else if !strings.Contains(err.Error(), "ffmpeg") {
-		t.Errorf("the error should say what to use instead, got %q", err)
+// x264 and x265 have no filters, so software encoding that needs one is
+// driven through ffmpeg's build of the same library rather than being refused.
+// Both filters have to work, and both have to reach the right encoder.
+func TestSoftwareEncodingWithFiltersGoesThroughFFmpeg(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		mut   func(*Options)
+		codec Codec
+		want  string
+	}{
+		{"eye swap, h264", func(o *Options) { o.SwapLR = true }, CodecH264, "libx264"},
+		{"eye swap, h265", func(o *Options) { o.SwapLR = true }, CodecH265, "libx265"},
+		{"half-SBS, h264", func(o *Options) { o.Layout = LayoutHalfSBS }, CodecH264, "libx264"},
+		{"half-SBS, h265", func(o *Options) { o.Layout = LayoutHalfSBS }, CodecH265, "libx265"},
+	} {
+		p, err := BuildPlan("linux", opts("linux", func(o *Options) {
+			o.Encoder, o.Codec = EncoderSoftware, c.codec
+			c.mut(o)
+		}))
+		if err != nil {
+			t.Errorf("%s: %v", c.name, err)
+			continue
+		}
+		var joined string
+		for _, st := range p.Steps {
+			if st.Name == "encode" {
+				joined = strings.Join(st.Argv, " ")
+			}
+		}
+		if !strings.HasPrefix(joined, "ffmpeg ") {
+			t.Errorf("%s: encode runs %q, want ffmpeg", c.name, joined)
+		}
+		if !strings.Contains(joined, c.want) {
+			t.Errorf("%s: want %s in %q", c.name, c.want, joined)
+		}
+		if !strings.Contains(joined, "-vf ") {
+			t.Errorf("%s: no filter chain in %q", c.name, joined)
+		}
 	}
-	if _, err := BuildPlan("linux", opts("linux", func(o *Options) { o.Layout = LayoutHalfSBS })); err == nil {
-		t.Error("half-SBS with x264 must be refused")
+}
+
+// The quality settings must still reach the encoder: ffmpeg passes -crf and
+// -preset straight to the library, so they mean what they meant before.
+func TestFilteredSoftwareEncodeKeepsQualitySettings(t *testing.T) {
+	p, err := BuildPlan("linux", opts("linux", func(o *Options) {
+		o.Encoder, o.Layout, o.CRF, o.Preset = EncoderSoftware, LayoutHalfSBS, 21, "veryslow"
+	}))
+	if err != nil {
+		t.Fatalf("BuildPlan: %v", err)
+	}
+	var joined string
+	for _, st := range p.Steps {
+		if st.Name == "encode" {
+			joined = strings.Join(st.Argv, " ")
+		}
+	}
+	for _, want := range []string{"-crf 21", "-preset veryslow"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("want %q in %q", want, joined)
+		}
+	}
+}
+
+// Unfiltered software encoding still uses the standalone binary: fewer moving
+// parts, and it works on a machine that has x264 but no ffmpeg.
+func TestUnfilteredSoftwareEncodingStillUsesTheStandaloneBinary(t *testing.T) {
+	for _, c := range []struct{ codec, want string }{{"h264", "x264"}, {"h265", "x265"}} {
+		p, err := BuildPlan("linux", opts("linux", func(o *Options) {
+			o.Encoder, o.Codec = EncoderSoftware, Codec(c.codec)
+		}))
+		if err != nil {
+			t.Fatalf("%s: %v", c.codec, err)
+		}
+		for _, st := range p.Steps {
+			if st.Name != "encode" {
+				continue
+			}
+			if st.Argv[0] != c.want {
+				t.Errorf("%s runs %q, want the standalone %s", c.codec, st.Argv[0], c.want)
+			}
+		}
+	}
+}
+
+// Which tool has to be present follows the same rule, so --check looks for
+// ffmpeg rather than reporting x265 missing on a machine that never needs it.
+func TestRequiredToolFollowsTheFilterRequirement(t *testing.T) {
+	names := func(ts []Tool) string {
+		var s []string
+		for _, t := range ts {
+			s = append(s, t.Name)
+		}
+		return strings.Join(s, " ")
+	}
+	plain := names(Required("linux", EncoderSoftware, CodecH265, false))
+	if !strings.Contains(plain, "x265") {
+		t.Errorf("unfiltered h265 software needs x265, got: %s", plain)
+	}
+	filtered := names(Required("linux", EncoderSoftware, CodecH265, true))
+	if !strings.Contains(filtered, "ffmpeg") || strings.Contains(filtered, "x265") {
+		t.Errorf("filtered h265 software needs ffmpeg, got: %s", filtered)
+	}
+}
+
+// And the options know it themselves, which is what the command and the
+// toolchain check both read.
+func TestNeedsFiltersAndEncodesViaFFmpeg(t *testing.T) {
+	plain := opts("linux", func(o *Options) { o.Encoder = EncoderSoftware })
+	if plain.NeedsFilters() || plain.EncodesViaFFmpeg() {
+		t.Error("plain full-SBS software encoding needs no filters and no ffmpeg")
+	}
+	for _, mut := range []func(*Options){
+		func(o *Options) { o.SwapLR = true },
+		func(o *Options) { o.Layout = LayoutHalfSBS },
+	} {
+		o := opts("linux", func(o *Options) { o.Encoder = EncoderSoftware })
+		mut(&o)
+		if !o.NeedsFilters() || !o.EncodesViaFFmpeg() {
+			t.Errorf("%+v should need filters and ffmpeg", o)
+		}
+	}
+	// A hardware encoder is ffmpeg regardless.
+	hw := opts("linux", func(o *Options) { o.Encoder = EncoderNVENC })
+	if !hw.EncodesViaFFmpeg() {
+		t.Error("a hardware encoder always runs through ffmpeg")
 	}
 }
 
