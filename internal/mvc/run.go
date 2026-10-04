@@ -442,12 +442,38 @@ func (r *Runner) mux(ctx context.Context, video string, extras []extra) error {
 	for _, d := range dropped {
 		r.Report.Report("dropping %s embedded in the %s track", d.codec, d.of)
 	}
-	argv := append([]string{"-o", r.Opts.Output, video}, extraArgs...)
+	argv := muxArgv(r.Opts.Output, video, extraArgs)
 	r.Report.Report("muxing %s", r.Opts.Output)
 	if out, err := exec.CommandContext(ctx, bin, argv...).CombinedOutput(); err != nil { //nolint:gosec // bin came from LookPath
 		return fmt.Errorf("muxing: %w\n%s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
+}
+
+// StereoMode is the Matroska StereoMode keyword every output carries.
+//
+// The left eye is always on the left: the decoder emits base-view-left, and a
+// disc that marks its base view as the right eye is corrected by the swap
+// filter before the mux — or the conversion is refused, since that filter
+// needs an ffmpeg encoder. So the arrangement never varies.
+//
+// Both layouts are side-by-side. Half-SBS differs only in each eye being
+// squeezed to half width, which is the same arrangement and so the same flag;
+// Matroska has no way to say "full" or "half" and does not need one, because
+// the frame's own dimensions say it.
+const StereoMode = "side_by_side_left_first"
+
+// muxArgv builds the mkvmerge command line.
+//
+// The video carries the StereoMode flag, so a player need not infer 3D from
+// the filename or be told by hand. Kodi and CoreELEC read it and can then emit
+// HDMI frame-packed 3D, which is what carries full resolution to each eye;
+// without it the file is an unusually wide 2D video, and a player that squeezes
+// it into a half-SBS output throws away half the horizontal detail the
+// conversion just spent hours preserving.
+func muxArgv(output, video string, extraArgs []string) []string {
+	argv := []string{"-o", output, "--stereo-mode", "0:" + StereoMode, video}
+	return append(argv, extraArgs...)
 }
 
 // droppedTrack names a stream left out of the mux, for reporting.

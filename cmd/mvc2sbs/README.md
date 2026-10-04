@@ -276,6 +276,34 @@ until the source has been probed, and probing a disc image twice to decide a
 filename would cost as much as the conversion's first stage. The final path is
 printed to stdout either way, so a script driving this need not guess at it.
 
+## What plays the result, and at what resolution
+
+The output declares its layout in the Matroska `StereoMode` element
+(`side_by_side_left_first`), so a player need not infer 3D from the filename or
+be told by hand. That flag is what decides whether the resolution this spent
+hours preserving survives to the screen.
+
+| player | what it does | per eye |
+|---|---|---|
+| **Kodi / CoreELEC** | reads the flag, splits the frame, emits HDMI **frame-packed** 3D | **1920x1080** |
+| Plex | recognises only *half*-SBS and *half*-TAB, from the filename; treats this as flat 2D | 960x1080 at best |
+
+Full per-eye resolution needs **frame packing**, the HDMI 3D format that carries
+two complete 1920x1080 frames in one 1920x2205 transport. The side-by-side HDMI
+format cannot: it squeezes both eyes into a single 1920x1080 frame, so each eye
+is 960 columns stretched back to 1920, whatever the source file held.
+
+So a full-SBS file is a 1:1 pixel map through a frame-packing player — each
+1920x1080 view lands on the panel untouched — and a waste through anything that
+only speaks half-SBS, which scales it down before the display ever sees it.
+That is also the ceiling worth chasing: MVC on a 3D Blu-ray is 1080p per eye,
+and consumer 3D displays present Full HD per eye, so 1920x1080 is both what the
+disc holds and what the screen can show.
+
+CoreELEC 21.1 and later handle `(F)SBS`, `(F)TAB` and MVC frame packing on
+devices using the hdmitx20 driver. Half-SBS (`--layout half`) exists for players
+that will only take that, and costs half the horizontal detail by definition.
+
 ## Tools, and why each is needed
 
 Four, and one of them is either/or:
