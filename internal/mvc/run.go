@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -437,7 +438,11 @@ func (r *Runner) mux(ctx context.Context, video string, extras []extra) error {
 	if err != nil {
 		return err
 	}
-	argv := append([]string{"-o", r.Opts.Output, video}, muxExtraArgs(extras)...)
+	extraArgs, dropped := r.extraArgs(ctx, bin, extras)
+	for _, d := range dropped {
+		r.Report.Report("dropping %s embedded in the %s track", d.codec, d.of)
+	}
+	argv := append([]string{"-o", r.Opts.Output, video}, extraArgs...)
 	r.Report.Report("muxing %s", r.Opts.Output)
 	if out, err := exec.CommandContext(ctx, bin, argv...).CombinedOutput(); err != nil { //nolint:gosec // bin came from LookPath
 		return fmt.Errorf("muxing: %w\n%s", err, strings.TrimSpace(string(out)))
@@ -445,24 +450,72 @@ func (r *Runner) mux(ctx context.Context, video string, extras []extra) error {
 	return nil
 }
 
-// muxExtraArgs renders the audio and subtitle inputs for mkvmerge, tagging
-// each with the language tsMuxeR reported for it.
+// droppedTrack names a stream left out of the mux, for reporting.
+type droppedTrack struct{ codec, of string }
+
+// extraArgs renders the audio and subtitle inputs for mkvmerge: for each
+// demuxed file, the disc track it was demuxed from, tagged with the language
+// tsMuxeR reported.
 //
-// mkvmerge applies per-file options to the file that follows them, and each
-// demuxed file holds exactly one track, so the option always addresses track
-// 0. A track the source did not give a language for is passed untagged rather
-// than guessed at: "und" is what Matroska already means by an absent tag, and
-// claiming a language the disc did not state would be worse than saying
+// A demuxed file is not reliably one track. A Blu-ray TrueHD stream carries an
+// embedded AC-3 core for players that cannot decode TrueHD, and tsMuxeR writes
+// the pair as one file — ".ac3+thd" — which mkvmerge presents as two tracks.
+// Passing that file through whole puts an extra audio track in the output that
+// the disc never listed and the probe never promised, and tagging only track 0
+// leaves it with no language at all, so a player sees an unidentified track
+// beside the one it was told about.
+//
+// So each file is identified first and only its primary track is taken. The
+// core is dropped rather than carried: it is the same audio, lossily, and the
+// output should hold the tracks the disc has.
+//
+// A track the source gave no language for is passed untagged rather than
+// guessed at: an absent tag already means undetermined in Matroska, and
+// claiming a language the disc never stated would be worse than saying
 // nothing.
-func muxExtraArgs(extras []extra) []string {
-	var argv []string
+func (r *Runner) extraArgs(ctx context.Context, bin string, extras []extra) ([]string, []droppedTrack) {
+	var (
+		argv    []string
+		dropped []droppedTrack
+	)
 	for _, e := range extras {
-		if lang := strings.TrimSpace(e.track.Lang); lang != "" {
-			argv = append(argv, "--language", "0:"+lang)
+		id, lang := 0, strings.TrimSpace(e.track.Lang)
+		if have, err := identify(ctx, bin, e.path); err == nil {
+			primary, rest := primaryTrack(e.track, have)
+			id = primary.ID
+			for _, x := range rest {
+				dropped = append(dropped, droppedTrack{codec: x.Codec, of: primary.Codec})
+			}
+			argv = append(argv, selectorFor(primary, len(have) > 1)...)
+		}
+		// Identification failing is not fatal: the file still muxes, it just
+		// goes in whole and the language reaches only its first track. That
+		// is the behaviour before any of this, so it is a safe fallback.
+		if lang != "" {
+			argv = append(argv, "--language", strconv.Itoa(id)+":"+lang)
 		}
 		argv = append(argv, e.path)
 	}
-	return argv
+	return argv, dropped
+}
+
+// selectorFor limits a file to its primary track. Nothing is emitted when the
+// file holds one track, so the common case produces the same command as
+// before and mkvmerge is not asked to filter what needs no filtering.
+func selectorFor(primary muxTrack, needed bool) []string {
+	if !needed {
+		return nil
+	}
+	flag := ""
+	switch primary.Kind {
+	case "audio":
+		flag = "--audio-tracks"
+	case "subtitles":
+		flag = "--subtitle-tracks"
+	default:
+		return nil
+	}
+	return []string{flag, strconv.Itoa(primary.ID)}
 }
 
 // resolve finds a tool, naming what is missing and what it is for rather than
