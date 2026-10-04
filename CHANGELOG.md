@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.47.1] - 2026-10-03
+
+### Fixed
+
+- **A conversion asked for one audio track produced two** ([#512](https://github.com/brunoga/pipeliner/pull/512)): the one it was told about, and an AC-3 track with no language at all. A Blu-ray TrueHD stream carries an embedded AC-3 core for players that cannot decode TrueHD, and tsMuxeR writes the pair as a single file — named `.ac3+thd` — which mkvmerge then presents as two tracks. Passing it through whole put a track in the output that the disc never listed and the probe never promised, and tagging only the first track left that one unidentified beside its companion. DTS-HD carries a plain DTS core the same way. Each demuxed file is now identified before the mux and only the track the disc listed is kept, so the output holds one track per disc track and the probe's count matches the file. The primary is matched on codec rather than position, because the two tools spell codecs differently — tsMuxeR says `TRUE-HD` where mkvmerge says `TrueHD Atmos` — and the primary is not promised to come first: the file observed on a real disc is physically AC-3 then TrueHD while mkvmerge reports TrueHD first. An unrecognised codec falls back to the first track, a single-track file is passed exactly as before, and a failure to identify leaves the file whole rather than failing the conversion. Dropped cores are reported, so a track leaving the output is never silent.
+
+**Why 1.47.1**: one fix to what lands in the output, no new options and no behaviour change for a source whose tracks demux one-to-one — a patch bump per SemVer.
+
 ## [1.47.0] - 2026-10-03
 
 `mvc2sbs` can carry fewer tracks, pick the best one on its own, and say which it picked.
