@@ -68,8 +68,10 @@ func TestDryRunNeedsNoTools(t *testing.T) {
 	}
 }
 
-// Full-SBS is what the decoder emits, so it needs no filter; half-SBS squeezes
-// the stacked pair, which is an ffmpeg filter and so refused with x264.
+// Full-SBS is what the decoder emits, so it needs no filter and the standalone
+// encoder runs it. Half-SBS squeezes the stacked pair, which x264 cannot do, so
+// the same library is reached through ffmpeg instead of the request being
+// refused.
 func TestDryRunShowsTheChosenLayout(t *testing.T) {
 	full, _, code := capture(t, "--dry-run", "--encoder", "x264", "--layout", "full",
 		"--input", "/in/a.iso", "--output", "/out/a.mkv", "--temp", "/tmp/w")
@@ -79,10 +81,19 @@ func TestDryRunShowsTheChosenLayout(t *testing.T) {
 	if strings.Contains(full, "scale=") {
 		t.Errorf("full-SBS must not rescale:\n%s", full)
 	}
-	if _, _, code := capture(t, "--dry-run", "--encoder", "x264", "--layout", "half",
-		"--input", "/in/a.iso", "--output", "/out/a.mkv", "--temp", "/tmp/w"); code != 2 {
-		t.Errorf("half-SBS with x264 should be refused, exit = %d", code)
+	if !strings.Contains(full, "x264 --demuxer y4m") {
+		t.Errorf("unfiltered software encoding should use the standalone binary:\n%s", full)
 	}
+
+	soft, _, code := capture(t, "--dry-run", "--encoder", "software", "--layout", "half",
+		"--input", "/in/a.iso", "--output", "/out/a.mkv", "--temp", "/tmp/w")
+	if code != 0 {
+		t.Fatalf("half-SBS with software encoding should work now, exit = %d", code)
+	}
+	if !strings.Contains(soft, "libx264") || !strings.Contains(soft, "scale=iw/2:ih") {
+		t.Errorf("half-SBS software encoding should squeeze through libx264:\n%s", soft)
+	}
+
 	half, _, code := capture(t, "--dry-run", "--encoder", "nvenc", "--layout", "half",
 		"--input", "/in/a.iso", "--output", "/out/a.mkv", "--temp", "/tmp/w")
 	if code != 0 {
@@ -93,11 +104,16 @@ func TestDryRunShowsTheChosenLayout(t *testing.T) {
 	}
 }
 
-// The eye swap is also a filter, so it follows the same rule.
-func TestSwapRequiresAnFFmpegEncoder(t *testing.T) {
-	if _, _, code := capture(t, "--dry-run", "--encoder", "x264", "--swap-lr",
-		"--input", "/in/a.iso", "--output", "/out/a.mkv", "--temp", "/tmp/w"); code != 2 {
-		t.Errorf("--swap-lr with x264 should be refused, exit = %d", code)
+// The eye swap is also a filter, so it follows the same rule: software
+// encoding takes the ffmpeg route rather than being turned away.
+func TestSwapWorksWithEitherEncoder(t *testing.T) {
+	soft, _, code := capture(t, "--dry-run", "--encoder", "software", "--swap-lr",
+		"--input", "/in/a.iso", "--output", "/out/a.mkv", "--temp", "/tmp/w")
+	if code != 0 {
+		t.Fatalf("--swap-lr with software encoding should work now, exit = %d", code)
+	}
+	if !strings.Contains(soft, "libx264") || !strings.Contains(soft, "hstack") {
+		t.Errorf("--swap-lr should stack through libx264:\n%s", soft)
 	}
 	out, _, code := capture(t, "--dry-run", "--encoder", "nvenc", "--swap-lr",
 		"--input", "/in/a.iso", "--output", "/out/a.mkv", "--temp", "/tmp/w")

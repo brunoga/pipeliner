@@ -400,7 +400,7 @@ func (r *Runner) decodeAndEncode(ctx context.Context, base, dependent, out strin
 		return err
 	}
 	encStep := encodeStep(r.Opts, out)
-	encBin, err := r.resolve(encoderTool(r.Opts.Encoder, r.Opts.Codec))
+	encBin, err := r.resolve(encoderTool(r.Opts.Encoder, r.Opts.Codec, r.Opts.EncodesViaFFmpeg()))
 	if err != nil {
 		return err
 	}

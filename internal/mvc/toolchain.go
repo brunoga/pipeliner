@@ -127,6 +127,17 @@ func (c Codec) ffmpegEncoder(enc Encoder) string {
 	}
 }
 
+// ffmpegSoftwareEncoder names ffmpeg's build of the software encoder for a
+// codec. It is the same library the standalone x264 and x265 binaries wrap, so
+// the output is equivalent; what differs is that ffmpeg can filter on the way
+// in, which is why this route exists at all.
+func (c Codec) ffmpegSoftwareEncoder() string {
+	if c == CodecH265 {
+		return "libx265"
+	}
+	return "libx264"
+}
+
 // streamExt is the extension for the raw elementary stream the encoder writes.
 // mkvmerge identifies a raw stream by extension, so getting this wrong makes
 // the mux reject the file rather than mis-handle it.
@@ -245,17 +256,17 @@ var (
 // encoder, in the order a reader would meet them in the pipeline. Only the
 // encode step varies: a hardware encoder is ffmpeg either way, and software
 // encoding is whichever of x264 / x265 matches the codec.
-func Required(goos string, enc Encoder, codec Codec) []Tool {
-	return []Tool{toolTsMuxeR, toolEdge264, encoderTool(enc, codec), toolMkvmerge}
+func Required(goos string, enc Encoder, codec Codec, viaFFmpeg bool) []Tool {
+	return []Tool{toolTsMuxeR, toolEdge264, encoderTool(enc, codec, viaFFmpeg), toolMkvmerge}
 }
 
 // encoderTool is the program that runs the encode. The runner resolves the
 // binary from this and the plan builds the arguments from the same pair, so
 // they cannot disagree about which program is being driven — a mismatch would
 // invoke x264 with x265's flags.
-func encoderTool(enc Encoder, codec Codec) Tool {
+func encoderTool(enc Encoder, codec Codec, viaFFmpeg bool) Tool {
 	switch {
-	case enc.UsesFFmpeg():
+	case enc.UsesFFmpeg(), viaFFmpeg:
 		return toolFFmpeg
 	case codec == CodecH265:
 		return toolX265
@@ -308,9 +319,9 @@ var LookPath = exec.LookPath
 // A version string is best-effort: several of these programs exit non-zero
 // when asked for one, and tsMuxeR has no version flag at all, so a tool that
 // was found but would not report a version is still reported as present.
-func Detect(ctx context.Context, goos string, enc Encoder, codec Codec) Report {
+func Detect(ctx context.Context, goos string, enc Encoder, codec Codec, viaFFmpeg bool) Report {
 	rep := Report{GOOS: goos, Encoder: enc, Codec: codec}
-	for _, t := range Required(goos, enc, codec) {
+	for _, t := range Required(goos, enc, codec, viaFFmpeg) {
 		f := Found{Tool: t}
 		for _, bin := range t.Binaries {
 			if p, err := LookPath(bin); err == nil {
@@ -388,13 +399,13 @@ func DefaultEncoder(ctx context.Context, goos string, codec Codec, vaapiDevice s
 		if enc == EncoderSoftware {
 			continue
 		}
-		if !Detect(ctx, goos, enc, codec).OK() {
+		if !Detect(ctx, goos, enc, codec, false).OK() {
 			continue
 		}
 		// Probed for the codec being produced, not for the encoder in the
 		// abstract: a GPU generation can carry an H.264 encoder and no HEVC
 		// one, so "nvenc works here" is not an answer on its own.
-		if ProbeEncoder(ctx, enc, codec, vaapiDevice) {
+		if ProbeEncoder(ctx, enc, codec, vaapiDevice, false) {
 			return enc
 		}
 	}

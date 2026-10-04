@@ -64,13 +64,12 @@ func TestRunnerNamesAMissingTool(t *testing.T) {
 // so an impossible request must not get as far as the demux.
 func TestRunnerValidatesBeforeTouchingTheSource(t *testing.T) {
 	o := runnerOpts(t)
-	o.Encoder = EncoderSoftware
-	o.SwapLR = true // a filter, which x264 cannot do
+	o.Output = "/nowhere/out.avi" // not a container this writes
 	r := NewRunner("linux", o, nil)
 	called := false
 	r.tool = func(n string) (string, error) { called = true; return "/bin/true", nil }
 	if err := r.Run(context.Background()); err == nil {
-		t.Fatal("an impossible encoder/filter combination must be refused")
+		t.Fatal("an impossible request must be refused")
 	}
 	if called {
 		t.Error("no tool should be resolved before the options are validated")
@@ -135,7 +134,7 @@ func TestEncoderToolFollowsTheEncoderAndCodec(t *testing.T) {
 		{EncoderVAAPI, CodecH265, "ffmpeg"},
 		{EncoderVideoToolbox, CodecH265, "ffmpeg"},
 	} {
-		if got := encoderTool(c.enc, c.codec).Name; got != c.want {
+		if got := encoderTool(c.enc, c.codec, false).Name; got != c.want {
 			t.Errorf("%s/%s should run through %s, got %s", c.enc, c.codec, c.want, got)
 		}
 	}

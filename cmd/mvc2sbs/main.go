@@ -108,15 +108,6 @@ func run(argv []string, stdout, stderr *os.File) int {
 		enc = mvc.DefaultEncoder(ctx, goos, cod, *vaapi)
 	}
 
-	if *check {
-		rep := mvc.Detect(ctx, goos, enc, cod)
-		fmt.Fprint(stdout, rep.String())
-		if !rep.OK() {
-			return 1
-		}
-		return 0
-	}
-
 	o := mvc.DefaultOptions()
 	o.Input, o.Output, o.TempDir = *input, *output, *tempDir
 	o.Layout, o.Encoder, o.Codec = mvc.Layout(*layout), enc, cod
@@ -124,6 +115,18 @@ func run(argv []string, stdout, stderr *os.File) int {
 	o.SwapLR = *swapLR
 	o.KeepFallback = *keepFall
 	o.Remux = *remux
+
+	// After the options are assembled, so --check answers for the settings
+	// given: half-SBS or an eye swap moves software encoding onto ffmpeg,
+	// which is a different tool to look for.
+	if *check {
+		rep := mvc.Detect(ctx, goos, enc, cod, o.EncodesViaFFmpeg())
+		fmt.Fprint(stdout, rep.String())
+		if !rep.OK() {
+			return 1
+		}
+		return 0
+	}
 	o.Audio = mvc.TrackFilter{Langs: mvc.ParseList(*audioLng), Codecs: mvc.ParseList(*audioCdc), Best: *audioBst}
 	o.Subs = mvc.TrackFilter{Langs: mvc.ParseList(*subsLng), Codecs: mvc.ParseList(*subsCdc)}
 
@@ -135,7 +138,7 @@ func run(argv []string, stdout, stderr *os.File) int {
 			fmt.Fprintf(stderr, "mvc2sbs: --list needs --input\n")
 			return 2
 		}
-		if rep := mvc.Detect(ctx, goos, enc, cod); !rep.OK() {
+		if rep := mvc.Detect(ctx, goos, enc, cod, o.EncodesViaFFmpeg()); !rep.OK() {
 			fmt.Fprint(stderr, rep.String())
 			fmt.Fprintf(stderr, "\nmvc2sbs: cannot list a source without the toolchain; see --check\n")
 			return 1
@@ -164,7 +167,7 @@ func run(argv []string, stdout, stderr *os.File) int {
 
 	// Refuse to start rather than fail hours in. A conversion is long enough
 	// that a missing tool discovered at step three is a wasted evening.
-	if rep := mvc.Detect(ctx, goos, enc, cod); !rep.OK() {
+	if rep := mvc.Detect(ctx, goos, enc, cod, o.EncodesViaFFmpeg()); !rep.OK() {
 		fmt.Fprint(stderr, rep.String())
 		fmt.Fprintf(stderr, "\nmvc2sbs: refusing to start with tools missing; see --check\n")
 		return 1

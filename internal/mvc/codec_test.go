@@ -135,16 +135,16 @@ func TestRequiredSoftwareToolFollowsTheCodec(t *testing.T) {
 		}
 		return strings.Join(s, " ")
 	}
-	if got := names(Required("linux", EncoderSoftware, CodecH264)); !strings.Contains(got, "x264") || strings.Contains(got, "x265") {
+	if got := names(Required("linux", EncoderSoftware, CodecH264, false)); !strings.Contains(got, "x264") || strings.Contains(got, "x265") {
 		t.Errorf("h264 software needs x264, got: %s", got)
 	}
-	if got := names(Required("linux", EncoderSoftware, CodecH265)); !strings.Contains(got, "x265") || strings.Contains(got, "x264") {
+	if got := names(Required("linux", EncoderSoftware, CodecH265, false)); !strings.Contains(got, "x265") || strings.Contains(got, "x264") {
 		t.Errorf("h265 software needs x265, got: %s", got)
 	}
 	// A hardware encoder is ffmpeg either way — the codec changes the encoder
 	// name it is given, not the program.
 	for _, cod := range Codecs() {
-		if got := names(Required("linux", EncoderVAAPI, cod)); !strings.Contains(got, "ffmpeg") {
+		if got := names(Required("linux", EncoderVAAPI, cod, true)); !strings.Contains(got, "ffmpeg") {
 			t.Errorf("%s vaapi needs ffmpeg, got: %s", cod, got)
 		}
 	}

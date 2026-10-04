@@ -162,18 +162,24 @@ func (o Options) Validate(goos string) error {
 	if o.CRF < 0 || o.CRF > 51 {
 		return fmt.Errorf("crf %d out of range 0-51", o.CRF)
 	}
-	// The eye swap and the half-SBS squeeze are both filters on the stacked
-	// frame, and neither x264 nor x265 has filters. Saying so here beats a run
-	// that produces a file silently missing what was asked for.
-	if !o.Encoder.UsesFFmpeg() && o.Encoder != EncoderAuto {
-		if o.SwapLR {
-			return fmt.Errorf("--swap-lr needs an ffmpeg encoder; the software encoders have no filters")
-		}
-		if o.Layout == LayoutHalfSBS {
-			return fmt.Errorf("half-SBS needs an ffmpeg encoder to rescale; the software encoders have no filters")
-		}
-	}
 	return nil
+}
+
+// NeedsFilters reports whether the output requires a filter on the stacked
+// frame: exchanging the eyes, or squeezing them to half width.
+//
+// It matters because neither x264 nor x265 has filters. Software encoding that
+// needs one is therefore driven through ffmpeg's libx264 or libx265 instead of
+// the standalone binary — the same encoder library, reached by a route that
+// can filter — rather than being refused, which is what used to happen.
+func (o Options) NeedsFilters() bool {
+	return o.SwapLR || o.Layout == LayoutHalfSBS
+}
+
+// EncodesViaFFmpeg reports whether ffmpeg runs the encode: always for a
+// hardware encoder, and for software encoding that needs a filter.
+func (o Options) EncodesViaFFmpeg() bool {
+	return o.Encoder.UsesFFmpeg() || (o.Encoder == EncoderSoftware && o.NeedsFilters())
 }
 
 func codecList(cs []Codec) string {
@@ -316,6 +322,17 @@ func encodeStep(opts Options, out string) Step {
 	case EncoderNVENC:
 		return ff([]string{"-c:v", name, "-rc", "constqp", "-qp", fmt.Sprint(opts.CRF)}, "")
 	default:
+		if opts.NeedsFilters() {
+			// The standalone encoders cannot rescale or rearrange the frame,
+			// so the same encoder library is reached through ffmpeg, which
+			// can. The quality settings mean the same thing to both: ffmpeg
+			// passes -crf and -preset straight to the library.
+			return ff([]string{
+				"-c:v", opts.Codec.ffmpegSoftwareEncoder(),
+				"-crf", fmt.Sprint(opts.CRF),
+				"-preset", opts.Preset,
+			}, "")
+		}
 		if opts.Codec == CodecH265 {
 			// x265 reads stdin through --input, and needs --y4m told to it:
 			// it infers the format from the file extension, which "-" has not

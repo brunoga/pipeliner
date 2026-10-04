@@ -138,9 +138,19 @@ pipeliner retry it.
 that keeps the disc's resolution, and it is what the decoder emits natively, so
 it costs no resample.
 
-`--swap-lr` and `--layout half` are filters on the stacked frame, so they need an
-ffmpeg encoder; asking for either with a software encoder is refused up front
-rather than producing a file quietly missing what was asked for.
+`--swap-lr` and `--layout half` are filters on the stacked frame, and neither
+x264 nor x265 can filter. Asking for one with `--encoder software` therefore
+runs the encode through **ffmpeg's `libx264` or `libx265`** instead of the
+standalone binary: the same encoder library, reached by a route that can
+filter, with `--crf` and `--preset` passed straight through. Unfiltered
+software encoding still uses the standalone binary, which is fewer moving parts
+and works on a machine that has x264 but no ffmpeg.
+
+`--check` follows the same rule, so it looks for ffmpeg when a filter is asked
+for rather than reporting x265 missing on a machine that never needs it. Having
+ffmpeg is not the same as having libx265, which a build may omit, so that case
+gets a one-frame trial encode too — the alternative is finding out at the
+encode step, hours into a conversion.
 
 ## Codec
 
