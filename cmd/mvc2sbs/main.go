@@ -61,6 +61,11 @@ func run(argv []string, stdout, stderr *os.File) int {
 		preset   = fs.String("preset", "slow", "software encoder speed/efficiency preset")
 		vaapi    = fs.String("vaapi-device", "/dev/dri/renderD128", "render node for VAAPI encoding")
 		swapLR   = fs.Bool("swap-lr", false, "exchange the eyes (default: taken from the disc's own base-view marking)")
+		list     = fs.Bool("list", false, "print the source's tracks and exit, to see what the track filters can select; for a disc image this reads the image, so pass --temp")
+		audioLng = fs.String("audio-lang", "", "keep only audio in these languages, e.g. eng or eng,fra (default: every track)")
+		audioCdc = fs.String("audio-codec", "", "keep only audio matching these codecs, e.g. truehd or dts,ac3 (default: every track)")
+		subsLng  = fs.String("subs-lang", "", "keep only subtitles in these languages, e.g. eng (default: every track)")
+		subsCdc  = fs.String("subs-codec", "", "keep only subtitles matching these codecs, e.g. pgs (default: every track)")
 		keepTemp = fs.Bool("keep-temp", false, "leave the demuxed streams behind instead of deleting them")
 		quiet    = fs.Bool("quiet", false, "only report errors")
 		showVer  = fs.Bool("version", false, "print the version and exit")
@@ -111,6 +116,31 @@ func run(argv []string, stdout, stderr *os.File) int {
 	o.Layout, o.Encoder, o.Codec = mvc.Layout(*layout), enc, cod
 	o.CRF, o.Preset, o.VAAPIDevice = *crf, *preset, *vaapi
 	o.SwapLR = *swapLR
+	o.Audio = mvc.TrackFilter{Langs: mvc.ParseList(*audioLng), Codecs: mvc.ParseList(*audioCdc)}
+	o.Subs = mvc.TrackFilter{Langs: mvc.ParseList(*subsLng), Codecs: mvc.ParseList(*subsCdc)}
+
+	// Listing comes before the plan is built, because it needs no output file
+	// and asking for one to see what a disc holds would be a silly thing to
+	// require.
+	if *list {
+		if o.Input == "" {
+			fmt.Fprintf(stderr, "mvc2sbs: --list needs --input\n")
+			return 2
+		}
+		if rep := mvc.Detect(ctx, goos, enc, cod); !rep.OK() {
+			fmt.Fprint(stderr, rep.String())
+			fmt.Fprintf(stderr, "\nmvc2sbs: cannot list a source without the toolchain; see --check\n")
+			return 1
+		}
+		tracks, err := mvc.NewRunner(goos, o, nil).ListTracks(ctx)
+		if err != nil {
+			fmt.Fprintf(stderr, "mvc2sbs: %v\n", err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "%-5s %-18s %-5s %-20s %s\n", "track", "kind", "lang", "codec", "info")
+		fmt.Fprint(stdout, mvc.DescribeTracks(tracks))
+		return 0
+	}
 
 	plan, err := mvc.BuildPlan(goos, o)
 	if err != nil {

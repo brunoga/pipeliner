@@ -138,6 +138,22 @@ once = process("seen", upstream=out, local=True, fields=["file_location"])
 # direct-playing H.264. Note that --crf does not mean the same thing to both
 # codecs; x265 at 18 is higher quality and larger than x264 at 18, so raise it
 # by two or three if what you want is the saving.
+# Every audio and subtitle track the disc carries is passed through by default,
+# each tagged with its language. That is often not what you want: lossless audio
+# dominates a well-compressed conversion, and on a measured disc the single
+# TrueHD Atmos track was more than twice the size of the video. Narrowing to the
+# tracks you will actually play is the largest saving that costs no picture
+# quality — around 30% of the file on a disc with half a dozen audio tracks.
+#
+# Add, for the English lossless mix and English subtitles only:
+#
+#     "--audio-lang", "eng", "--audio-codec", "truehd", "--subs-lang", "eng",
+#
+# Language and codec are both required when both are given, so that names one
+# track rather than everything English plus everything TrueHD. A filter that
+# matches nothing fails the entry before the conversion starts, which `seen`
+# then leaves untracked for a retry. Run `mvc2sbs --list --input <disc>` to see
+# what a disc offers first.
 convert = output("exec", upstream=once,
                  command="/usr/local/bin/mvc2sbs",
                  args=["--input", "{file_location}",

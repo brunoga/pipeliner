@@ -121,6 +121,11 @@ pipeliner retry it.
 | `--encoder` | `auto` | `auto`, `software`, `vaapi`, `videotoolbox`, `nvenc` (`x264` is still accepted for `software`) |
 | `--codec` | `h264` | `h264` or `h265` — see [Codec](#codec) |
 | `--swap-lr` | — | Exchange the eyes, for a disc whose base view is the right one |
+| `--list` | — | Print the source's tracks and exit — see [Choosing tracks](#choosing-tracks) |
+| `--audio-lang` | — | Keep only audio in these languages, e.g. `eng` or `eng,fra` |
+| `--audio-codec` | — | Keep only audio matching these codecs, e.g. `truehd` or `dts,ac3` |
+| `--subs-lang` | — | Keep only subtitles in these languages |
+| `--subs-codec` | — | Keep only subtitles matching these codecs |
 | `--crf` | `18` | Quality target, 0–51; lower is better. **Not comparable between codecs** |
 | `--preset` | `slow` | Software encoder speed/efficiency trade-off (x264 and x265 take the same names) |
 
@@ -151,6 +156,64 @@ than saying what it means. If you want HEVC's saving rather than its extra
 quality, raise the CRF by two or three.
 
 The codec is independent of the encoder: every encoder below produces either.
+
+## Choosing tracks
+
+By default every audio and subtitle track the disc carries is passed through
+untouched, each tagged with the language tsMuxeR reported for it, so a player
+can tell them apart.
+
+That default is often not what you want, because **lossless audio dominates the
+output**. A well-compressed conversion of a clean CG feature can come out with
+2.5 GB of video and 10 GB of audio: the single TrueHD Atmos track alone was
+more than twice the video on one measured disc. Dropping the tracks you will
+never play is the largest saving available that costs no picture quality.
+
+Start by seeing what is there:
+
+```sh
+mvc2sbs --list --input "Toy Story 1995 3D.iso" --temp /scratch
+```
+
+```
+track kind               lang  codec                info
+4113  video (base view)  und   H.264                Profile: High@4.1 Resolution: 1920:1080p
+4114  video (dependent)  und   MVC                  H.264/MVC Views: 2
+4352  audio              eng   TrueHD Atmos         Bitrate: 0Kbps Channels: 8
+4353  audio              eng   AC3                  Bitrate: 640Kbps Channels: 6
+4354  audio              fra   DTS-HD Master Audio  Channels: 6
+4356  audio              und   AC3                  Bitrate: 192Kbps Channels: 2
+4608  subtitle           eng   PGS
+```
+
+Then narrow it. Language and codec are **both** required when both are given,
+so the pair names one track rather than the union of two sets:
+
+```sh
+mvc2sbs --input disc.iso --output out.mkv         --audio-lang eng --audio-codec truehd --subs-lang eng
+```
+
+Notes on the matching:
+
+- A codec is matched as a **substring**, case-insensitively, against both the
+  stream ID and the human type. `truehd` finds `A_TRUEHD`, and `dts` finds both
+  `A_DTS` and `DTS-HD Master Audio`, so you need not know which spelling the
+  disc used.
+- A language is an ISO-639 code as the disc states it. **`und` matches a track
+  the disc gave no language for**, which is how a commentary track with no tag
+  is selected — and it means an English filter will not sweep untagged tracks
+  in.
+- A filter that matches **nothing is an error**, reported before any work is
+  done, listing what the disc actually has. Carrying every track on would
+  defeat the request, and dropping all audio would produce a film nobody can
+  watch, discovered hours later.
+- Filtering happens **before the demux**, so a narrowed selection means fewer
+  tracks to extract and less scratch space, not merely a smaller output.
+
+`--list` needs the toolchain, and for a disc image it reads the image to get at
+a playlist — there is no way to ask tsMuxeR what a source holds without
+extracting it first. Pass `--temp` somewhere with room, and expect it to cost
+what a conversion's first stage costs.
 
 ## Tools, and why each is needed
 
@@ -205,9 +268,14 @@ image multi-architecture.
 ## What it does with the rest of the disc
 
 Audio and subtitle tracks are demuxed alongside the two views and muxed into the
-output in the order the source listed them, so the first audio track stays first
-and languages are preserved. A track the demux failed to produce is reported and
-skipped — that costs a language, not the film.
+output in the order the source listed them, so the first audio track stays
+first. Each is tagged with the language tsMuxeR reported for it; a track the
+disc gave no language for is passed untagged rather than guessed at, since an
+absent tag already means undetermined in Matroska and claiming a language the
+disc never stated would be worse than saying nothing. Use
+[the track filters](#choosing-tracks) to carry fewer of them. A track the demux
+failed to produce is reported and skipped — that costs a language, not the
+film.
 
 The views are identified by **stream ID**, not by order or track number: a disc
 is not obliged to list them in any order, and taking the wrong one as the base
