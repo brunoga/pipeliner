@@ -38,6 +38,11 @@ type Runner struct {
 
 	// tool resolves a program name to a path. Indirected for tests.
 	tool func(string) (string, error)
+
+	// Selected records what the probe chose, readable once Run returns. A
+	// caller naming its output after the audio it got needs this: the codec
+	// is not known until the source has been probed.
+	Selected Selection
 }
 
 // NewRunner returns a runner for opts.
@@ -71,6 +76,13 @@ func (r *Runner) Run(ctx context.Context) error {
 	}
 	r.Report.Report("source: base view track %d, dependent view track %d, %d audio, %d subtitle",
 		sel.Base.ID, sel.Dependent.ID, len(sel.Audio), len(sel.Subtitles))
+	// Name the audio that was kept. With --audio-best this is the ranking's
+	// decision, and a decision made on the operator's behalf should be
+	// visible rather than inferred from the finished file hours later.
+	for _, a := range sel.Audio {
+		r.Report.Report("audio: %s", DescribeAudio(a))
+	}
+	r.Selected = sel
 
 	demuxed, err := r.demux(ctx, tmp, source, sel)
 	if err != nil {

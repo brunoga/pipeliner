@@ -190,7 +190,8 @@ Then narrow it. Language and codec are **both** required when both are given,
 so the pair names one track rather than the union of two sets:
 
 ```sh
-mvc2sbs --input disc.iso --output out.mkv         --audio-lang eng --audio-codec truehd --subs-lang eng
+mvc2sbs --input disc.iso --output out.mkv \
+        --audio-lang eng --audio-codec truehd --subs-lang eng
 ```
 
 Notes on the matching:
@@ -214,6 +215,66 @@ Notes on the matching:
 a playlist — there is no way to ask tsMuxeR what a source holds without
 extracting it first. Pass `--temp` somewhere with room, and expect it to cost
 what a conversion's first stage costs.
+
+### The best track, rather than a named one
+
+Naming a codec means knowing what the disc has. `--audio-best` instead keeps the
+single highest-quality track of those matching, and it composes with the
+language filter — this is "the best English track", not "the best track, if it
+happens to be English":
+
+```sh
+mvc2sbs --input disc.iso --output out.mkv \
+        --audio-lang eng --audio-best --subs-lang eng,pt-br
+```
+
+The ranking is, in order:
+
+1. **Lossless beats lossy.** TrueHD, DTS-HD Master Audio, LPCM and FLAC rank
+   above DTS-HD High Resolution and E-AC-3, which rank above AC-3, DTS and AAC.
+   No bitrate of a lossy codec puts back what it discarded.
+2. **Then channels.** A 7.1 track is what a 7.1 system is for, and a
+   higher-bitrate 5.1 mix cannot supply the two channels it does not have.
+3. **Then bitrate**, where the disc states one. Lossless tracks often do not,
+   which is why it is only ever a tie-breaker.
+4. **Then the disc's own order**, so the choice is deterministic and one disc
+   always gives one answer.
+
+The chosen track is logged, because a decision made on your behalf should be
+visible rather than inferred from the finished file hours later:
+
+```
+mvc2sbs: audio: TrueHD Atmos 8ch (eng) lossless
+```
+
+`--audio-best` does not apply to subtitles. Several are routinely wanted at
+once, and ranking PGS streams against each other would mean nothing.
+
+### Languages, and what a disc actually calls them
+
+Several languages at once is just a list: `--subs-lang eng,pt-br`.
+
+A Blu-ray has no way to say *Brazilian* Portuguese in ISO-639-2 — there is only
+`por` — so authoring tools variously emit `por`, or the non-standard `pob` or
+`ptb`. Asking for `pt-br` matches whichever the disc chose, so you need not
+know which. The same goes for the pairs where ISO-639-2 has both a
+bibliographic and a terminological code and sources disagree about which to
+use: `fra`/`fre`, `deu`/`ger` and `zho`/`chi` each match either spelling. A code
+with no alias entry matches itself, so nothing is lost by not being listed.
+
+### Naming the output after the audio
+
+`--name-audio-codec` inserts the kept codec before the extension:
+
+```
+Toy Story (1995) 3D FSBS.mkv  ->  Toy Story (1995) 3D FSBS.TrueHD-Atmos.mkv
+```
+
+Useful with `--audio-best`, where the codec is whatever the disc turned out to
+offer. The rename happens after the conversion, because the codec is not known
+until the source has been probed, and probing a disc image twice to decide a
+filename would cost as much as the conversion's first stage. The final path is
+printed to stdout either way, so a script driving this need not guess at it.
 
 ## Tools, and why each is needed
 

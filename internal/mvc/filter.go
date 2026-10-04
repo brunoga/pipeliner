@@ -18,6 +18,12 @@ type TrackFilter struct {
 	// special value "und" matches a track the source gave no language for,
 	// which is what Matroska already calls undetermined.
 	Langs []string
+	// Best keeps only the single highest-quality track of those matching,
+	// which is what "the best English track" means. Lossless beats lossy,
+	// then more channels, then higher bitrate. It applies after the language
+	// and codec filters, so the two compose: language eng plus Best is "the
+	// best English track", not "the best track, if it happens to be English".
+	Best bool
 	// Codecs are matched against the track's stream ID and its human type,
 	// case-insensitively, as substrings: "truehd" matches A_TRUEHD, and "dts"
 	// matches both A_DTS and DTS-HD Master Audio. A substring is the right
@@ -27,7 +33,59 @@ type TrackFilter struct {
 }
 
 // Empty reports whether the filter would keep everything.
-func (f TrackFilter) Empty() bool { return len(f.Langs) == 0 && len(f.Codecs) == 0 }
+func (f TrackFilter) Empty() bool {
+	return len(f.Langs) == 0 && len(f.Codecs) == 0 && !f.Best
+}
+
+// langAliases maps the spellings people and discs actually use onto the
+// ISO-639-2 code tsMuxeR reports.
+//
+// A Blu-ray has no way to say "Brazilian Portuguese" in ISO-639-2 — there is
+// only "por" — so discs variously tag it "por", or use the non-standard "pob"
+// or "ptb" that authoring tools emit. An operator asking for "pt-br" should
+// not have to know which, nor which of them a given disc chose, so every
+// spelling resolves to the same set and a filter for one matches them all.
+var langAliases = map[string][]string{
+	"pt":    {"por", "pob", "ptb"},
+	"pt-br": {"por", "pob", "ptb"},
+	"ptbr":  {"por", "pob", "ptb"},
+	"pob":   {"por", "pob", "ptb"},
+	"ptb":   {"por", "pob", "ptb"},
+	"por":   {"por", "pob", "ptb"},
+	"en":    {"eng"},
+	"es":    {"spa", "esp"},
+	"fr":    {"fra", "fre"},
+	"de":    {"deu", "ger"},
+	"it":    {"ita"},
+	"ja":    {"jpn"},
+	"zh":    {"zho", "chi"},
+	// ISO-639-2 has both a bibliographic and a terminological code for
+	// several languages, and sources disagree about which to use.
+	"fra": {"fra", "fre"},
+	"fre": {"fra", "fre"},
+	"deu": {"deu", "ger"},
+	"ger": {"deu", "ger"},
+	"zho": {"zho", "chi"},
+	"chi": {"zho", "chi"},
+}
+
+// expandLangs resolves each requested language to every spelling that means
+// it, so the filter can be compared against whatever the disc said.
+func expandLangs(langs []string) []string {
+	var out []string
+	for _, l := range langs {
+		key := strings.ToLower(strings.TrimSpace(l))
+		if key == "" {
+			continue
+		}
+		if alts, ok := langAliases[key]; ok {
+			out = append(out, alts...)
+			continue
+		}
+		out = append(out, key)
+	}
+	return out
+}
 
 // Matches reports whether t survives the filter.
 func (f TrackFilter) Matches(t Track) bool {
@@ -36,7 +94,7 @@ func (f TrackFilter) Matches(t Track) bool {
 		if lang == "" {
 			lang = "und"
 		}
-		if !containsFold(f.Langs, lang) {
+		if !containsFold(expandLangs(f.Langs), lang) {
 			return false
 		}
 	}
@@ -93,6 +151,11 @@ func (s Selection) Apply(audio, subs TrackFilter) (Selection, error) {
 			return Selection{}, fmt.Errorf("no audio track matches %s; this source has %s",
 				audio, describeTracks(s.Audio))
 		}
+		if audio.Best && len(kept) > 1 {
+			if best, ok := BestAudio(kept); ok {
+				kept = []Track{best}
+			}
+		}
 		out.Audio = kept
 	}
 	if !subs.Empty() {
@@ -101,6 +164,9 @@ func (s Selection) Apply(audio, subs TrackFilter) (Selection, error) {
 			return Selection{}, fmt.Errorf("no subtitle track matches %s; this source has %s",
 				subs, describeTracks(s.Subtitles))
 		}
+		// Best is not applied to subtitles: they are picked by language, and
+		// several are routinely wanted at once. Ranking PGS streams against
+		// each other would mean nothing anyway.
 		out.Subtitles = kept
 	}
 	return out, nil
@@ -124,6 +190,9 @@ func (f TrackFilter) String() string {
 	}
 	if len(f.Codecs) > 0 {
 		parts = append(parts, "codec "+strings.Join(f.Codecs, "/"))
+	}
+	if f.Best {
+		parts = append(parts, "the best of them")
 	}
 	if len(parts) == 0 {
 		return "anything"

@@ -145,15 +145,22 @@ once = process("seen", upstream=out, local=True, fields=["file_location"])
 # tracks you will actually play is the largest saving that costs no picture
 # quality — around 30% of the file on a disc with half a dozen audio tracks.
 #
-# Add, for the English lossless mix and English subtitles only:
+# Add, for the best English track and two subtitle languages:
 #
-#     "--audio-lang", "eng", "--audio-codec", "truehd", "--subs-lang", "eng",
+#     "--audio-lang", "eng", "--audio-best",
+#     "--subs-lang", "eng,pt-br",
+#     "--name-audio-codec",
 #
-# Language and codec are both required when both are given, so that names one
-# track rather than everything English plus everything TrueHD. A filter that
-# matches nothing fails the entry before the conversion starts, which `seen`
-# then leaves untracked for a retry. Run `mvc2sbs --list --input <disc>` to see
-# what a disc offers first.
+# --audio-best ranks what matched — lossless first, then channels, then bitrate
+# — so it needs no knowledge of what a given disc happens to carry, which
+# matters when the pipeline meets discs you have not looked at. It composes
+# with the language filter, so that is the best *English* track. The chosen
+# track is logged. --name-audio-codec puts the codec it picked in the
+# filename, which is how you can tell a TrueHD rip from a DTS one later.
+#
+# A filter that matches nothing fails the entry before the conversion starts,
+# which `seen` then leaves untracked for a retry. Run
+# `mvc2sbs --list --input <disc>` to see what a disc offers first.
 convert = output("exec", upstream=once,
                  command="/usr/local/bin/mvc2sbs",
                  args=["--input", "{file_location}",

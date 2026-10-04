@@ -285,3 +285,112 @@ func TestDescribeTracksHandlesAnEmptyListing(t *testing.T) {
 		t.Errorf("empty listing = %q, want it to say so", out)
 	}
 }
+
+// --- best-of selection and language aliases ---
+
+// "the best English track" is the request this exists for: the language
+// filter and Best compose, so it is the best of the English tracks and not
+// the best track if it happens to be English.
+func TestBestComposesWithTheLanguageFilter(t *testing.T) {
+	s := Selection{
+		Base:      Track{StreamID: "V_MPEG4/ISO/AVC"},
+		Dependent: Track{StreamID: "V_MPEG4/ISO/MVC"},
+		Audio: []Track{
+			// A French lossless 7.1 track is the best on the disc, but not English.
+			{ID: 1, StreamID: "A_DTS", Type: "DTS-HD Master Audio", Lang: "fra", Info: "Channels: 7.1"},
+			{ID: 2, StreamID: "A_AC3", Type: "AC3", Lang: "eng", Info: "Bitrate: 640Kbps Channels: 5.1"},
+			{ID: 3, StreamID: "A_TRUEHD", Type: "TrueHD Atmos", Lang: "eng", Info: "Channels: 7.1"},
+			{ID: 4, StreamID: "A_AC3", Type: "AC3", Lang: "eng", Info: "Bitrate: 192Kbps Channels: 2"},
+		},
+	}
+	got, err := s.Apply(TrackFilter{Langs: []string{"eng"}, Best: true}, TrackFilter{})
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if len(got.Audio) != 1 || got.Audio[0].ID != 3 {
+		t.Fatalf("kept %v, want only the English TrueHD 7.1 (track 3)", ids(got.Audio))
+	}
+}
+
+func TestBestAloneRanksTheWholeDisc(t *testing.T) {
+	got, err := disc().Apply(TrackFilter{Best: true}, TrackFilter{})
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if len(got.Audio) != 1 || got.Audio[0].ID != 4352 {
+		t.Errorf("kept %v, want the single best track", ids(got.Audio))
+	}
+}
+
+// Best is not Empty: a filter that only ranks still has work to do, and
+// treating it as empty would skip it entirely.
+func TestBestIsNotAnEmptyFilter(t *testing.T) {
+	if (TrackFilter{Best: true}).Empty() {
+		t.Error("a Best-only filter reported itself empty, so it would be skipped")
+	}
+}
+
+// Best never applies to subtitles. Several are routinely wanted at once, and
+// ranking PGS streams against each other would mean nothing.
+func TestBestDoesNotNarrowSubtitles(t *testing.T) {
+	got, err := disc().Apply(TrackFilter{}, TrackFilter{Langs: []string{"eng", "fra"}, Best: true})
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if !sameIDs(got.Subtitles, 4608, 4609) {
+		t.Errorf("kept %v, want both requested subtitle languages", ids(got.Subtitles))
+	}
+}
+
+// Several subtitle languages at once is the other half of the request.
+func TestSeveralSubtitleLanguages(t *testing.T) {
+	s := disc()
+	s.Subtitles = append(s.Subtitles, Track{ID: 4611, StreamID: "S_HDMV/PGS", Type: "PGS", Lang: "por"})
+	got, err := s.Apply(TrackFilter{}, TrackFilter{Langs: ParseList("eng,pt-br")})
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if !sameIDs(got.Subtitles, 4608, 4611) {
+		t.Errorf("kept %v, want the English and Portuguese subtitles", ids(got.Subtitles))
+	}
+}
+
+// A Blu-ray cannot say "Brazilian Portuguese" in ISO-639-2 — there is only
+// "por" — and authoring tools emit the non-standard "pob" or "ptb" instead.
+// Asking for pt-br must match whichever the disc chose, without the operator
+// knowing which.
+func TestPortugueseAliasesAllMatch(t *testing.T) {
+	for _, discTag := range []string{"por", "pob", "ptb"} {
+		for _, asked := range []string{"pt-br", "ptbr", "pt", "por", "pob"} {
+			f := TrackFilter{Langs: []string{asked}}
+			if !f.Matches(Track{Lang: discTag}) {
+				t.Errorf("asking for %q did not match a disc tagged %q", asked, discTag)
+			}
+		}
+	}
+	// And it must not match something unrelated.
+	if (TrackFilter{Langs: []string{"pt-br"}}).Matches(Track{Lang: "eng"}) {
+		t.Error("pt-br matched an English track")
+	}
+}
+
+// ISO-639-2 has bibliographic and terminological codes for several languages
+// and sources disagree about which to use, so both spellings resolve alike.
+func TestBibliographicAndTerminologicalCodesMatch(t *testing.T) {
+	for _, pair := range [][2]string{{"fra", "fre"}, {"deu", "ger"}, {"zho", "chi"}} {
+		if !(TrackFilter{Langs: []string{pair[0]}}).Matches(Track{Lang: pair[1]}) {
+			t.Errorf("%q did not match a track tagged %q", pair[0], pair[1])
+		}
+		if !(TrackFilter{Langs: []string{pair[1]}}).Matches(Track{Lang: pair[0]}) {
+			t.Errorf("%q did not match a track tagged %q", pair[1], pair[0])
+		}
+	}
+}
+
+// An unknown code is passed through rather than dropped, so a language with
+// no alias entry still works.
+func TestUnknownLanguageCodesStillMatch(t *testing.T) {
+	if !(TrackFilter{Langs: []string{"swe"}}).Matches(Track{Lang: "swe"}) {
+		t.Error("a code with no alias entry should still match itself")
+	}
+}
