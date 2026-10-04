@@ -5,6 +5,25 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.47.0] - 2026-10-03
+
+`mvc2sbs` can carry fewer tracks, pick the best one on its own, and say which it picked.
+
+### Added
+
+- **Track filters on `mvc2sbs`** ([#510](https://github.com/brunoga/pipeliner/pull/510)): `--audio-lang`, `--audio-codec`, `--subs-lang` and `--subs-codec` narrow which tracks reach the output. This matters more than it sounds, because lossless audio dominates a well-compressed conversion. Measured on a real disc out of this toolchain: a 12.8 GiB output whose video was 2.5 GiB and whose single TrueHD Atmos 7.1 track was 6.6 GiB, more than twice the picture. Keeping one audio track and one subtitle saves around 30% of the file at no cost to the picture. Language and codec are both required when both are given, so the pair names one track rather than the union of two sets. Codecs match as a case-insensitive substring of the stream ID and the human type together, because a disc's spelling varies and nobody should have to know whether tsMuxeR said `A_DTS` or `DTS-HD Master Audio`. The language `und` matches a track the disc left untagged, which is how an untagged commentary is selected and why an English filter does not sweep untagged tracks in. A filter matching nothing is an error, reported with what the disc does have before any work is done: carrying every track on would defeat the request, and dropping all audio would yield a film nobody can watch, discovered hours later. Filtering happens before the demux, so a narrowed selection also means fewer tracks to extract and less scratch space.
+- **`--audio-best`** ([#510](https://github.com/brunoga/pipeliner/pull/510)) keeps the highest-quality track of those matching, which is what is wanted when the pipeline meets discs nobody has looked at and so cannot name a codec for. It composes with the language filter, so it means the best *English* track rather than the best track if it happens to be English. The ranking is lossless first, then channels, then bitrate, then the disc's own order: channels outrank bitrate because a 7.1 track is what a 7.1 system is for and a fatter 5.1 mix cannot supply the two channels it lacks, and the fall-back to track order makes the choice deterministic. The chosen track is logged, since the decision is made on the operator's behalf.
+- **`--name-audio-codec`** ([#510](https://github.com/brunoga/pipeliner/pull/510)) appends the kept codec to the output name, so a TrueHD rip can be told from a DTS one later. It renames after the conversion rather than deciding up front, because the codec is not known until the source has been probed and probing a disc image twice to settle a filename would cost as much as the conversion's first stage.
+- **`--list`** ([#510](https://github.com/brunoga/pipeliner/pull/510)) prints a source's tracks, with the track number, kind, language, codec and info, so the filters can be chosen without guessing. For a disc image it reads the image, since tsMuxeR cannot describe a source without a playlist extracted first; the flag help and the README both say to pass `--temp`.
+- **Language aliases for the codes discs actually use** ([#510](https://github.com/brunoga/pipeliner/pull/510)). A Blu-ray cannot say Brazilian Portuguese in ISO-639-2 — there is only `por` — so authoring tools emit `por`, or the non-standard `pob` or `ptb`, and asking for `pt-br` meant knowing which. Every spelling now resolves to the same set, as do the bibliographic and terminological pairs sources disagree about (`fra`/`fre`, `deu`/`ger`, `zho`/`chi`). A code with no alias entry still matches itself.
+
+### Fixed
+
+- **`mvc2sbs` output had no track languages at all** ([#510](https://github.com/brunoga/pipeliner/pull/510)), so a player faced with six audio tracks had no way to tell which was English. The information was never missing: tsMuxeR reports it, the parser kept it on the track, and the demux meta asked for it. It was dropped at the last step, where the list of demuxed files kept only paths and discarded the tracks they came from, so `mkvmerge` ran with no `--language` flags. Each input is now tagged. A track the disc gave no language for is passed untagged rather than guessed at: an absent tag already means undetermined in Matroska, and claiming a language the disc never stated would be worse than saying nothing.
+- **The README claimed languages were preserved** ([#510](https://github.com/brunoga/pipeliner/pull/510)). They were not, until the above; the sentence now describes what actually happens.
+
+**Why 1.47.0**: new flags and a fix to what lands in the output, all additive — a conversion with no filters behaves as before, save that its tracks are now correctly tagged. A minor bump per SemVer.
+
 ## [1.46.1] - 2026-10-03
 
 ### Fixed
