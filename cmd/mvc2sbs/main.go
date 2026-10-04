@@ -68,6 +68,8 @@ func run(argv []string, stdout, stderr *os.File) int {
 		audioCdc = fs.String("audio-codec", "", "keep only audio matching these codecs, e.g. truehd or dts,ac3 (default: every track)")
 		audioBst = fs.Bool("audio-best", false, "of the audio tracks that match, keep only the highest quality one (lossless, then channels, then bitrate)")
 		nameCdc  = fs.Bool("name-audio-codec", false, "append the kept audio codec to the output filename, e.g. \"Film 3D FSBS.TrueHD-Atmos.mkv\"")
+		keepFall = fs.Bool("keep-fallback", false, "keep the lossy core embedded in a lossless track (the AC-3 inside TrueHD, the DTS inside DTS-HD) instead of dropping it")
+		remux    = fs.Bool("remux", false, "copy the disc's MVC video out with no re-encoding, keeping only the selected tracks; output must be .m2ts and needs a player that decodes MVC")
 		subsLng  = fs.String("subs-lang", "", "keep only subtitles in these languages, e.g. eng (default: every track)")
 		subsCdc  = fs.String("subs-codec", "", "keep only subtitles matching these codecs, e.g. pgs (default: every track)")
 		keepTemp = fs.Bool("keep-temp", false, "leave the demuxed streams behind instead of deleting them")
@@ -120,6 +122,8 @@ func run(argv []string, stdout, stderr *os.File) int {
 	o.Layout, o.Encoder, o.Codec = mvc.Layout(*layout), enc, cod
 	o.CRF, o.Preset, o.VAAPIDevice = *crf, *preset, *vaapi
 	o.SwapLR = *swapLR
+	o.KeepFallback = *keepFall
+	o.Remux = *remux
 	o.Audio = mvc.TrackFilter{Langs: mvc.ParseList(*audioLng), Codecs: mvc.ParseList(*audioCdc), Best: *audioBst}
 	o.Subs = mvc.TrackFilter{Langs: mvc.ParseList(*subsLng), Codecs: mvc.ParseList(*subsCdc)}
 

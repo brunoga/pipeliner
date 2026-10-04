@@ -220,6 +220,38 @@ func describeVideo(tracks []Track) string {
 	return strings.Join(parts, ", ")
 }
 
+// RemuxMeta renders the meta file tsMuxeR reads to write the selected tracks
+// straight back out as a stream, with no re-encoding.
+//
+// This is the demux meta without --demux: the same track references, pointed
+// at an output file instead of a directory. The MVC pair passes through
+// untouched, so the result holds the disc's own video bit for bit — the only
+// thing lost is the tracks that were filtered out, which is the point.
+//
+// insertSEI and contSPS are deliberately absent. They rebuild picture timing
+// and repeat parameter sets so an extracted elementary stream can stand alone,
+// which is what a demux needs; here the stream stays in a container that
+// carries them, and asking for them would be rewriting video that is supposed
+// to pass through unaltered.
+func RemuxMeta(input string, sel Selection) string {
+	var b strings.Builder
+	// A Blu-ray's own muxing conventions: the video PID carries no PCR, audio
+	// gets fresh PES headers, and the bitrate is variable with a VBV window
+	// the size a player expects. Without these a player that is strict about
+	// Blu-ray stream structure can refuse the result.
+	b.WriteString("MUXOPT --no-pcr-on-video-pid --new-audio-pes --vbr --vbv-len=500\n")
+	fmt.Fprintf(&b, "%s, \"%s\", track=%d\n", sel.Base.StreamID, input, sel.Base.ID)
+	fmt.Fprintf(&b, "%s, \"%s\", track=%d\n", sel.Dependent.StreamID, input, sel.Dependent.ID)
+	for _, t := range append(append([]Track(nil), sel.Audio...), sel.Subtitles...) {
+		fmt.Fprintf(&b, "%s, \"%s\", track=%d", t.StreamID, input, t.ID)
+		if t.Lang != "" {
+			fmt.Fprintf(&b, ", lang=%s", t.Lang)
+		}
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
 // DemuxMeta renders the meta file tsMuxeR reads to extract the selected tracks.
 //
 // insertSEI and contSPS on the base view are what a Blu-ray rip needs: the

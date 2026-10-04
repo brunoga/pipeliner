@@ -122,10 +122,15 @@ pipeliner retry it.
 | `--codec` | `h264` | `h264` or `h265` — see [Codec](#codec) |
 | `--swap-lr` | — | Exchange the eyes, for a disc whose base view is the right one |
 | `--list` | — | Print the source's tracks and exit — see [Choosing tracks](#choosing-tracks) |
+| `--list` | — | Print the source's tracks and exit — see [Choosing tracks](#choosing-tracks) |
 | `--audio-lang` | — | Keep only audio in these languages, e.g. `eng` or `eng,fra` |
 | `--audio-codec` | — | Keep only audio matching these codecs, e.g. `truehd` or `dts,ac3` |
-| `--subs-lang` | — | Keep only subtitles in these languages |
+| `--audio-best` | — | Of the audio that matches, keep only the highest-quality track |
+| `--subs-lang` | — | Keep only subtitles in these languages, e.g. `eng,pt-br` |
 | `--subs-codec` | — | Keep only subtitles matching these codecs |
+| `--keep-fallback` | — | Keep the lossy core embedded in a lossless track instead of dropping it |
+| `--name-audio-codec` | — | Append the kept audio codec to the output filename |
+| `--remux` | — | Copy the disc's MVC video out with no re-encoding — see [Remuxing](#remuxing-instead-of-converting) |
 | `--crf` | `18` | Quality target, 0–51; lower is better. **Not comparable between codecs** |
 | `--preset` | `slow` | Software encoder speed/efficiency trade-off (x264 and x265 take the same names) |
 

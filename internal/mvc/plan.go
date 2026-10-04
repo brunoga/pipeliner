@@ -38,6 +38,17 @@ type Options struct {
 	// that costs no picture quality.
 	Audio TrackFilter
 	Subs  TrackFilter
+	// KeepFallback keeps the lossy core embedded in a lossless stream — the
+	// AC-3 inside TrueHD, the DTS inside DTS-HD — instead of dropping it.
+	// It costs space for audio that duplicates the track beside it, and buys
+	// a fallback for a player that cannot decode the lossless one.
+	KeepFallback bool
+	// Remux writes the disc's own streams back out with no re-encoding, so
+	// the MVC video survives bit for bit and only the filtered-out tracks are
+	// lost. The output is an MPEG-2 transport stream, since that is what MVC
+	// travels in; nothing is decoded, stacked or encoded, so the encoder,
+	// codec, layout and CRF settings do not apply.
+	Remux bool
 	// CRF is the quality target. Lower is better; 18 is visually transparent
 	// for most sources.
 	//
@@ -113,6 +124,25 @@ func (o Options) Validate(goos string) error {
 	}
 	if strings.EqualFold(o.Input, o.Output) {
 		return fmt.Errorf("input and output are the same file")
+	}
+	if o.Remux {
+		// MVC has no home in Matroska that players agree on, so a remux
+		// stays in the transport stream the disc already uses.
+		if ext := strings.ToLower(filepath.Ext(o.Output)); ext != ".m2ts" && ext != ".ts" {
+			return fmt.Errorf("a remux output must be a .m2ts or .ts (got %q); "+
+				"MVC video cannot go into a .mkv that players agree on", ext)
+		}
+		// Everything below describes the decode-and-encode path, which a
+		// remux does not take. Saying so beats silently ignoring settings.
+		if o.Layout == LayoutHalfSBS {
+			return fmt.Errorf("--remux cannot change the layout: it copies the disc's " +
+				"MVC video without re-encoding, and half-SBS needs a rescale")
+		}
+		if o.SwapLR {
+			return fmt.Errorf("--remux cannot swap the eyes: it copies the disc's " +
+				"MVC video without re-encoding, and the eyes are swapped while stacking them")
+		}
+		return nil
 	}
 	if ext := strings.ToLower(filepath.Ext(o.Output)); ext != ".mkv" {
 		return fmt.Errorf("output must be a .mkv (got %q)", ext)
@@ -204,6 +234,17 @@ func BuildPlan(goos string, opts Options) (*Plan, error) {
 		depView  = filepath.Join(tmp, "dependent.mvc")
 		videoOut = filepath.Join(tmp, "stacked"+opts.Codec.streamExt())
 	)
+
+	if opts.Remux {
+		// One step: tsMuxeR reads the source and writes the selected tracks
+		// straight out. No decode, no encode, no interleave, and nothing
+		// intermediate beyond the meta file describing what to keep.
+		remuxMeta := filepath.Join(tmp, "remux.meta")
+		return &Plan{
+			Steps:         []Step{{Name: "remux", Argv: []string{"tsMuxeR", remuxMeta, opts.Output}}},
+			Intermediates: []string{remuxMeta},
+		}, nil
+	}
 
 	p := &Plan{
 		BaseView:      baseView,
@@ -299,8 +340,11 @@ func encodeStep(opts Options, out string) Step {
 // for reading, not for execution — the steps are run directly, never a shell.
 func (p *Plan) String() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "# the two demuxed views are interleaved in-process into step 2's stdin:\n")
-	fmt.Fprintf(&b, "#   %s + %s\n\n", p.BaseView, p.DependentView)
+	// A remux has no views to interleave: nothing is decoded.
+	if p.BaseView != "" && p.DependentView != "" {
+		fmt.Fprintf(&b, "# the two demuxed views are interleaved in-process into step 2's stdin:\n")
+		fmt.Fprintf(&b, "#   %s + %s\n\n", p.BaseView, p.DependentView)
+	}
 	for i, s := range p.Steps {
 		fmt.Fprintf(&b, "# step %d: %s\n", i+1, s.Name)
 		b.WriteString(strings.Join(s.Argv, " "))
