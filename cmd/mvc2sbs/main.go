@@ -29,7 +29,9 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
+	"strings"
 
 	"github.com/brunoga/pipeliner/internal/mvc"
 	pversion "github.com/brunoga/pipeliner/internal/version"
@@ -61,6 +63,13 @@ func run(argv []string, stdout, stderr *os.File) int {
 		preset   = fs.String("preset", "slow", "software encoder speed/efficiency preset")
 		vaapi    = fs.String("vaapi-device", "/dev/dri/renderD128", "render node for VAAPI encoding")
 		swapLR   = fs.Bool("swap-lr", false, "exchange the eyes (default: taken from the disc's own base-view marking)")
+		list     = fs.Bool("list", false, "print the source's tracks and exit, to see what the track filters can select; for a disc image this reads the image, so pass --temp")
+		audioLng = fs.String("audio-lang", "", "keep only audio in these languages, e.g. eng or eng,fra (default: every track)")
+		audioCdc = fs.String("audio-codec", "", "keep only audio matching these codecs, e.g. truehd or dts,ac3 (default: every track)")
+		audioBst = fs.Bool("audio-best", false, "of the audio tracks that match, keep only the highest quality one (lossless, then channels, then bitrate)")
+		nameCdc  = fs.Bool("name-audio-codec", false, "append the kept audio codec to the output filename, e.g. \"Film 3D FSBS.TrueHD-Atmos.mkv\"")
+		subsLng  = fs.String("subs-lang", "", "keep only subtitles in these languages, e.g. eng (default: every track)")
+		subsCdc  = fs.String("subs-codec", "", "keep only subtitles matching these codecs, e.g. pgs (default: every track)")
 		keepTemp = fs.Bool("keep-temp", false, "leave the demuxed streams behind instead of deleting them")
 		quiet    = fs.Bool("quiet", false, "only report errors")
 		showVer  = fs.Bool("version", false, "print the version and exit")
@@ -111,6 +120,31 @@ func run(argv []string, stdout, stderr *os.File) int {
 	o.Layout, o.Encoder, o.Codec = mvc.Layout(*layout), enc, cod
 	o.CRF, o.Preset, o.VAAPIDevice = *crf, *preset, *vaapi
 	o.SwapLR = *swapLR
+	o.Audio = mvc.TrackFilter{Langs: mvc.ParseList(*audioLng), Codecs: mvc.ParseList(*audioCdc), Best: *audioBst}
+	o.Subs = mvc.TrackFilter{Langs: mvc.ParseList(*subsLng), Codecs: mvc.ParseList(*subsCdc)}
+
+	// Listing comes before the plan is built, because it needs no output file
+	// and asking for one to see what a disc holds would be a silly thing to
+	// require.
+	if *list {
+		if o.Input == "" {
+			fmt.Fprintf(stderr, "mvc2sbs: --list needs --input\n")
+			return 2
+		}
+		if rep := mvc.Detect(ctx, goos, enc, cod); !rep.OK() {
+			fmt.Fprint(stderr, rep.String())
+			fmt.Fprintf(stderr, "\nmvc2sbs: cannot list a source without the toolchain; see --check\n")
+			return 1
+		}
+		tracks, err := mvc.NewRunner(goos, o, nil).ListTracks(ctx)
+		if err != nil {
+			fmt.Fprintf(stderr, "mvc2sbs: %v\n", err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "%-5s %-18s %-5s %-20s %s\n", "track", "kind", "lang", "codec", "info")
+		fmt.Fprint(stdout, mvc.DescribeTracks(tracks))
+		return 0
+	}
 
 	plan, err := mvc.BuildPlan(goos, o)
 	if err != nil {
@@ -153,6 +187,48 @@ func run(argv []string, stdout, stderr *os.File) int {
 		fmt.Fprintf(stderr, "mvc2sbs: %v\n", err)
 		return 1
 	}
-	report.Report("done: %s", o.Output)
+
+	final := o.Output
+	if *nameCdc {
+		// Renamed after the fact rather than decided up front, because the
+		// codec is not known until the source has been probed, and probing a
+		// disc image twice to learn a filename would cost as much as the
+		// first stage of the conversion.
+		if renamed, err := appendCodecToName(o.Output, runner.Selected.Audio); err != nil {
+			report.Report("warning: keeping %s: %v", o.Output, err)
+		} else {
+			final = renamed
+		}
+	}
+	report.Report("done: %s", final)
+	// The final path on stdout, so a script driving this does not have to
+	// guess at the name or parse the progress output.
+	fmt.Fprintln(stdout, final)
 	return 0
+}
+
+// appendCodecToName inserts the kept audio codec before the extension:
+// "Film 3D FSBS.mkv" becomes "Film 3D FSBS.TrueHD-Atmos.mkv".
+//
+// With several audio tracks kept the first is used, which is the disc's own
+// order and so its primary mix. With none kept the name is left alone: a file
+// labelled with a codec it does not contain would be worse than an unlabelled
+// one.
+func appendCodecToName(path string, audio []mvc.Track) (string, error) {
+	if len(audio) == 0 {
+		return path, nil
+	}
+	slug := mvc.CodecSlug(audio[0])
+	if slug == "" {
+		return path, nil
+	}
+	ext := filepath.Ext(path)
+	target := strings.TrimSuffix(path, ext) + "." + slug + ext
+	if target == path {
+		return path, nil
+	}
+	if err := os.Rename(path, target); err != nil {
+		return path, fmt.Errorf("renaming to %s: %w", filepath.Base(target), err)
+	}
+	return target, nil
 }

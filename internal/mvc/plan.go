@@ -30,6 +30,14 @@ type Options struct {
 	// Codec is the output video codec. H.264 plays on anything; HEVC is
 	// materially smaller for a double-width side-by-side frame.
 	Codec Codec
+	// Audio and Subs narrow which tracks are carried into the output. Zero
+	// values keep every track the disc has, which is the default. Lossless
+	// audio dominates the output of a well-compressed conversion — on a clean
+	// CG feature the TrueHD track alone can be more than twice the video — so
+	// dropping the tracks you will never play is the largest saving available
+	// that costs no picture quality.
+	Audio TrackFilter
+	Subs  TrackFilter
 	// CRF is the quality target. Lower is better; 18 is visually transparent
 	// for most sources.
 	//

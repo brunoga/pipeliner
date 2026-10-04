@@ -38,6 +38,11 @@ type Runner struct {
 
 	// tool resolves a program name to a path. Indirected for tests.
 	tool func(string) (string, error)
+
+	// Selected records what the probe chose, readable once Run returns. A
+	// caller naming its output after the audio it got needs this: the codec
+	// is not known until the source has been probed.
+	Selected Selection
 }
 
 // NewRunner returns a runner for opts.
@@ -71,6 +76,13 @@ func (r *Runner) Run(ctx context.Context) error {
 	}
 	r.Report.Report("source: base view track %d, dependent view track %d, %d audio, %d subtitle",
 		sel.Base.ID, sel.Dependent.ID, len(sel.Audio), len(sel.Subtitles))
+	// Name the audio that was kept. With --audio-best this is the ranking's
+	// decision, and a decision made on the operator's behalf should be
+	// visible rather than inferred from the finished file hours later.
+	for _, a := range sel.Audio {
+		r.Report.Report("audio: %s", DescribeAudio(a))
+	}
+	r.Selected = sel
 
 	demuxed, err := r.demux(ctx, tmp, source, sel)
 	if err != nil {
@@ -90,8 +102,13 @@ func (r *Runner) Run(ctx context.Context) error {
 // small mistake.
 func (r *Runner) workDir() (string, func(), error) {
 	tmp := r.Opts.TempDir
-	if tmp == "" {
+	if tmp == "" && r.Opts.Output != "" {
 		tmp = filepath.Dir(r.Opts.Output)
+	}
+	if tmp == "" {
+		// Only reachable from ListTracks, which needs no output file. A
+		// conversion always has one, because Validate insists on it.
+		tmp = os.TempDir()
 	}
 	dir, err := os.MkdirTemp(tmp, "mvc2sbs-")
 	if err != nil {
@@ -185,14 +202,94 @@ func (r *Runner) probe(ctx context.Context, source string) (Selection, error) {
 		}
 		return Selection{}, fmt.Errorf("probing %s: %w", source, err)
 	}
-	return SelectTracks(tracks)
+	sel, err := SelectTracks(tracks)
+	if err != nil {
+		return Selection{}, err
+	}
+	// Filter here, before the demux: narrowing now means fewer tracks to
+	// extract and less scratch space, not merely a smaller output. It is also
+	// where a filter that matches nothing can still be reported cheaply —
+	// before any of the hours a conversion takes have been spent.
+	return sel.Apply(r.Opts.Audio, r.Opts.Subs)
+}
+
+// ListTracks resolves the source and returns everything it contains, with no
+// filter applied, so an operator can see what the track filters have to work
+// with.
+//
+// It costs what a conversion's first stage costs, which for a disc image means
+// reading the image: there is no way to ask tsMuxeR what is on a playlist
+// without extracting the playlist first. That is worth knowing before running
+// it against a 40 GB image over a network share.
+func (r *Runner) ListTracks(ctx context.Context) ([]Track, error) {
+	tmp, cleanup, err := r.workDir()
+	if err != nil {
+		return nil, err
+	}
+	defer cleanup()
+
+	source, err := r.resolveSource(ctx, tmp)
+	if err != nil {
+		return nil, err
+	}
+	bin, err := r.resolve(toolTsMuxeR)
+	if err != nil {
+		return nil, err
+	}
+	out, runErr := exec.CommandContext(ctx, bin, source).CombinedOutput() //nolint:gosec // bin came from LookPath
+	tracks, err := ParseListing(string(out))
+	if err != nil {
+		if runErr != nil {
+			return nil, fmt.Errorf("probing %s: %w\n%s", source, runErr, strings.TrimSpace(string(out)))
+		}
+		return nil, fmt.Errorf("probing %s: %w", source, err)
+	}
+	return tracks, nil
+}
+
+// DescribeTracks renders a track listing for --list: one line per track, with
+// the track number a filter can also select on.
+func DescribeTracks(tracks []Track) string {
+	var b strings.Builder
+	for _, t := range tracks {
+		kind := "other"
+		switch t.Kind() {
+		case KindBaseView:
+			kind = "video (base view)"
+		case KindDependentView:
+			kind = "video (dependent)"
+		case KindAudio:
+			kind = "audio"
+		case KindSubtitle:
+			kind = "subtitle"
+		}
+		lang := strings.TrimSpace(t.Lang)
+		if lang == "" {
+			lang = "und"
+		}
+		fmt.Fprintf(&b, "  %-5d %-18s %-5s %-20s %s\n", t.ID, kind, lang, t.Type, t.Info)
+	}
+	if b.Len() == 0 {
+		return "  (no tracks found)\n"
+	}
+	return b.String()
 }
 
 // demuxResult names the files tsMuxeR wrote.
 type demuxResult struct {
 	base, dependent string
-	// extras are the audio and subtitle files, in the order they go to the muxer.
-	extras []string
+	// extras are the audio and subtitle files, in the order they go to the
+	// muxer, each paired with the track it came from. The track is kept
+	// because its language has to reach mkvmerge: tsMuxeR reports it and the
+	// demux meta asks for it, but a file path alone cannot carry it, and an
+	// output whose tracks are all untagged leaves a player no way to pick one.
+	extras []extra
+}
+
+// extra is one demuxed audio or subtitle file and the track it came from.
+type extra struct {
+	path  string
+	track Track
 }
 
 // demux extracts the selected tracks.
@@ -244,7 +341,7 @@ func (r *Runner) demux(ctx context.Context, tmp, source string, sel Selection) (
 	}
 	for _, t := range append(append([]Track(nil), sel.Audio...), sel.Subtitles...) {
 		if p := find(t.ID); p != "" {
-			res.extras = append(res.extras, p)
+			res.extras = append(res.extras, extra{path: p, track: t})
 		} else {
 			// A missing extra costs a language, not the film, so it is reported
 			// and the conversion goes on.
@@ -335,17 +432,37 @@ func (r *Runner) decodeAndEncode(ctx context.Context, base, dependent, out strin
 }
 
 // mux assembles the final file.
-func (r *Runner) mux(ctx context.Context, video string, extras []string) error {
+func (r *Runner) mux(ctx context.Context, video string, extras []extra) error {
 	bin, err := r.resolve(toolMkvmerge)
 	if err != nil {
 		return err
 	}
-	argv := append([]string{"-o", r.Opts.Output, video}, extras...)
+	argv := append([]string{"-o", r.Opts.Output, video}, muxExtraArgs(extras)...)
 	r.Report.Report("muxing %s", r.Opts.Output)
 	if out, err := exec.CommandContext(ctx, bin, argv...).CombinedOutput(); err != nil { //nolint:gosec // bin came from LookPath
 		return fmt.Errorf("muxing: %w\n%s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
+}
+
+// muxExtraArgs renders the audio and subtitle inputs for mkvmerge, tagging
+// each with the language tsMuxeR reported for it.
+//
+// mkvmerge applies per-file options to the file that follows them, and each
+// demuxed file holds exactly one track, so the option always addresses track
+// 0. A track the source did not give a language for is passed untagged rather
+// than guessed at: "und" is what Matroska already means by an absent tag, and
+// claiming a language the disc did not state would be worse than saying
+// nothing.
+func muxExtraArgs(extras []extra) []string {
+	var argv []string
+	for _, e := range extras {
+		if lang := strings.TrimSpace(e.track.Lang); lang != "" {
+			argv = append(argv, "--language", "0:"+lang)
+		}
+		argv = append(argv, e.path)
+	}
+	return argv
 }
 
 // resolve finds a tool, naming what is missing and what it is for rather than

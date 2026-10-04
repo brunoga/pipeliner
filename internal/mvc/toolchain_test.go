@@ -235,11 +235,3 @@ func toolsOf(fs []Found) []Tool {
 	}
 	return out
 }
-func containsFold(hay []string, needle string) bool {
-	for _, h := range hay {
-		if strings.EqualFold(h, needle) {
-			return true
-		}
-	}
-	return false
-}

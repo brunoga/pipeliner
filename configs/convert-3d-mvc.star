@@ -138,6 +138,29 @@ once = process("seen", upstream=out, local=True, fields=["file_location"])
 # direct-playing H.264. Note that --crf does not mean the same thing to both
 # codecs; x265 at 18 is higher quality and larger than x264 at 18, so raise it
 # by two or three if what you want is the saving.
+# Every audio and subtitle track the disc carries is passed through by default,
+# each tagged with its language. That is often not what you want: lossless audio
+# dominates a well-compressed conversion, and on a measured disc the single
+# TrueHD Atmos track was more than twice the size of the video. Narrowing to the
+# tracks you will actually play is the largest saving that costs no picture
+# quality — around 30% of the file on a disc with half a dozen audio tracks.
+#
+# Add, for the best English track and two subtitle languages:
+#
+#     "--audio-lang", "eng", "--audio-best",
+#     "--subs-lang", "eng,pt-br",
+#     "--name-audio-codec",
+#
+# --audio-best ranks what matched — lossless first, then channels, then bitrate
+# — so it needs no knowledge of what a given disc happens to carry, which
+# matters when the pipeline meets discs you have not looked at. It composes
+# with the language filter, so that is the best *English* track. The chosen
+# track is logged. --name-audio-codec puts the codec it picked in the
+# filename, which is how you can tell a TrueHD rip from a DTS one later.
+#
+# A filter that matches nothing fails the entry before the conversion starts,
+# which `seen` then leaves untracked for a retry. Run
+# `mvc2sbs --list --input <disc>` to see what a disc offers first.
 convert = output("exec", upstream=once,
                  command="/usr/local/bin/mvc2sbs",
                  args=["--input", "{file_location}",
