@@ -330,7 +330,15 @@ image multi-architecture.
 
 Audio and subtitle tracks are demuxed alongside the two views and muxed into the
 output in the order the source listed them, so the first audio track stays
-first. Each is tagged with the language tsMuxeR reported for it; a track the
+first. One output track per disc track: a Blu-ray TrueHD stream carries an
+embedded AC-3 core for players that cannot decode TrueHD, and DTS-HD carries a
+plain DTS core the same way, which tsMuxeR writes as a single file named
+`.ac3+thd`. mkvmerge presents that as two tracks, so each demuxed file is
+identified and only the track the disc listed is kept — the core is the same
+audio, lossily, and an extra track the probe never reported would be a
+surprise. The match is on the codec rather than the position, since the two
+tools spell codecs differently (`TRUE-HD` against `TrueHD Atmos`) and the
+primary is not promised to come first. Each is tagged with the language tsMuxeR reported for it; a track the
 disc gave no language for is passed untagged rather than guessed at, since an
 absent tag already means undetermined in Matroska and claiming a language the
 disc never stated would be worse than saying nothing. Use
