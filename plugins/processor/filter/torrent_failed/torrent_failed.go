@@ -12,6 +12,7 @@
 //
 // Classification rules, in order:
 //
+//   - torrent_progress >= 100                             → rejected (healthy)
 //   - torrent_state == "errored"                          → accepted (failed)
 //   - torrent_state == "stalled" or "downloading": accepted
 //     once the torrent has shown no activity for stall_timeout
@@ -103,6 +104,22 @@ func (p *failedPlugin) Process(_ context.Context, tc *plugin.TaskContext, entrie
 func (p *failedPlugin) classify(tc *plugin.TaskContext, e *entry.Entry) {
 	state := e.GetString(entry.FieldTorrentState)
 
+	// A fully-downloaded torrent is never failed — whatever the client now
+	// says about it. Its data was delivered, so the janitor's two sinks would
+	// both do damage: torrent_control(remove_with_data) deletes a finished
+	// download, and mark_failed un-tracks a film that is already in the
+	// library, which re-downloads it on the next run.
+	//
+	// This check deliberately precedes the errored branch. A complete torrent
+	// errors for reasons that say nothing about the download: the moved files
+	// are no longer where the client expects them, the tracker went away, or
+	// seeding hit an I/O error. Treating those as failed grabs was the cause
+	// of repeated same-quality re-downloads.
+	if getFloat(e, entry.FieldTorrentProgress) >= 100 {
+		e.Reject(fmt.Sprintf("%s: healthy (complete)", pluginName))
+		return
+	}
+
 	if state == string(torrentclient.StateErrored) {
 		msg := e.GetString(entry.FieldTorrentError)
 		if msg == "" {
@@ -110,14 +127,6 @@ func (p *failedPlugin) classify(tc *plugin.TaskContext, e *entry.Entry) {
 		}
 		e.Accept(fmt.Sprintf("%s: errored: %s", pluginName, msg))
 		tc.Logger.Info(pluginName+": failed torrent", "torrent", e.Title, "cause", "errored", "error", msg)
-		return
-	}
-
-	// A fully-downloaded torrent is never failed, even if the client briefly
-	// still reports it as "downloading" before flipping to seeding. Removing a
-	// completed torrent with its data would delete a finished download.
-	if getFloat(e, entry.FieldTorrentProgress) >= 100 {
-		e.Reject(fmt.Sprintf("%s: healthy (complete)", pluginName))
 		return
 	}
 

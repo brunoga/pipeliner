@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/brunoga/pipeliner/internal/entry"
+	"github.com/brunoga/pipeliner/quality"
 )
 
 // memBucket is an in-memory bucket for tests.
@@ -115,5 +116,55 @@ func TestHashForEntry(t *testing.T) {
 	u := entry.New("t", "https://x.example/a.torrent")
 	if h := HashForEntry(u); h != "" {
 		t.Errorf("expected empty hash, got %q", h)
+	}
+}
+
+// TestFromEntryUsesStampedTrackerKey is the regression guard for grab records
+// that could not un-track anything: the metadata plugins overwrite video_year
+// and may sit between the movies filter and the torrent sink, so reading
+// video_year here recorded a key that did not match the tracker row.
+func TestFromEntryUsesStampedTrackerKey(t *testing.T) {
+	e := entry.New("Aladdin 2019 1080p BluRay x264-DON", "https://example.test/a.torrent")
+	e.Set(entry.FieldMoviesTrackerTitle, "aladdin")
+	e.Set(entry.FieldMoviesTrackerYear, 2019)
+	e.Set(entry.FieldMoviesTrackerIs3D, false)
+	// metainfo_tmdb matched the 1992 animated film and rewrote video_year.
+	e.Set(entry.FieldVideoYear, 1992)
+	e.SetQuality(quality.Parse("1080p bluray x264"))
+
+	rec := FromEntry(e, "movies")
+	if rec.MovieTitle != "aladdin" {
+		t.Errorf("MovieTitle = %q", rec.MovieTitle)
+	}
+	if rec.MovieYear != 2019 {
+		t.Errorf("MovieYear = %d, want the year the filter decided with (2019)", rec.MovieYear)
+	}
+	if rec.Quality != quality.Parse("1080p bluray x264") {
+		t.Errorf("Quality = %s, want the grabbed release's quality", rec.Quality)
+	}
+}
+
+// Entries stamped by an older build carry no tracker year; the record falls
+// back to video_year rather than recording year 0.
+func TestFromEntryFallsBackToVideoYear(t *testing.T) {
+	e := entry.New("Dune 2021 2160p", "https://example.test/d.torrent")
+	e.Set(entry.FieldMoviesTrackerTitle, "dune")
+	e.Set(entry.FieldVideoYear, 2021)
+	e.Set(entry.FieldVideoIs3D, true)
+
+	rec := FromEntry(e, "movies")
+	if rec.MovieYear != 2021 || !rec.MovieIs3D {
+		t.Errorf("fallback key = (%d, 3d=%v), want (2021, 3d=true)", rec.MovieYear, rec.MovieIs3D)
+	}
+}
+
+// An entry that never passed a movies filter has no movie key to record.
+func TestFromEntryWithoutMoviesFilter(t *testing.T) {
+	e := entry.New("Some.Show.S01E01", "https://example.test/s.torrent")
+	e.Set(entry.FieldVideoYear, 2024)
+
+	rec := FromEntry(e, "tv")
+	if rec.MovieTitle != "" || rec.MovieYear != 0 {
+		t.Errorf("no movies filter ran, so no movie key: %+v", rec)
 	}
 }

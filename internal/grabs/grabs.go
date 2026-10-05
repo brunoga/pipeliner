@@ -14,6 +14,7 @@ import (
 
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/magnet"
+	"github.com/brunoga/pipeliner/quality"
 )
 
 // BucketName is the store bucket holding hash → grab records. Like the seen
@@ -31,6 +32,13 @@ type Record struct {
 	// Task is the pipeline that performed the add.
 	Task    string    `json:"task,omitempty"`
 	AddedAt time.Time `json:"added_at"`
+
+	// Quality is the parsed quality of the grabbed release. It lets failed-grab
+	// recovery tell whether the tracker row still describes THIS grab before
+	// un-tracking it: a row written by a later, different download must not be
+	// discarded because an older torrent died. Zero for records written by
+	// builds that predate the field.
+	Quality quality.Quality `json:"quality,omitempty"`
 
 	// SeriesName/EpisodeID are the series tracker key, present when the entry
 	// passed through the series filter before the sink.
@@ -88,15 +96,22 @@ func (s *Store) Delete(hash string) error {
 // FromEntry builds a Record from an entry at torrent-add time, capturing the
 // release URL plus whatever tracker keys the upstream filters stamped.
 func FromEntry(e *entry.Entry, task string) Record {
+	// Movie key comes from the stamped tracker key rather than video_year:
+	// the metadata plugins rewrite video_year and may sit between the movies
+	// filter and this sink, which would record a key that does not match the
+	// tracker row and leave failed-grab recovery un-tracking nothing.
+	movieTitle, movieYear, movieIs3D, _ := e.MoviesTrackerKey()
+	q, _ := e.Quality()
 	return Record{
 		URL:        e.URL,
 		Title:      e.Title,
 		Task:       task,
+		Quality:    q,
 		SeriesName: e.GetString(entry.FieldSeriesTrackerName),
 		EpisodeID:  e.GetString(entry.FieldSeriesEpisodeID),
-		MovieTitle: e.GetString(entry.FieldMoviesTrackerTitle),
-		MovieYear:  e.GetInt(entry.FieldVideoYear),
-		MovieIs3D:  e.GetBool(entry.FieldVideoIs3D),
+		MovieTitle: movieTitle,
+		MovieYear:  movieYear,
+		MovieIs3D:  movieIs3D,
 	}
 }
 

@@ -14,6 +14,8 @@ import (
 	"github.com/brunoga/pipeliner/internal/plugin"
 	"github.com/brunoga/pipeliner/internal/series"
 	"github.com/brunoga/pipeliner/internal/store"
+	"github.com/brunoga/pipeliner/internal/untrack"
+	"github.com/brunoga/pipeliner/quality"
 )
 
 const hash = "abcdef0123456789abcdef0123456789abcdef01"
@@ -229,5 +231,172 @@ func TestRegistration(t *testing.T) {
 	}
 	if len(d.Requires) != 1 || d.Requires[0][0] != entry.FieldTorrentInfoHash {
 		t.Errorf("Requires = %v", d.Requires)
+	}
+}
+
+// TestFailedUpgradeRollsBackInsteadOfForgetting is the regression guard for
+// the headline bug: the movies tracker holds one record per film and Mark
+// overwrites it, so deleting the record on a failed grab also erased the good
+// copy already in the library — and the next run re-downloaded the film, often
+// at worse quality than it already had.
+func TestFailedUpgradeRollsBackInsteadOfForgetting(t *testing.T) {
+	p, db := openSink(t, nil)
+	have := quality.Parse("2160p bluray x265 truehd dolby vision")
+	attempted := quality.Parse("2160p remux x265 atmos dolby vision")
+
+	tr := imovies.NewTracker(db.Bucket(imovies.TrackerBucketName))
+	// The copy in the library, then the upgrade attempt that superseded it.
+	if err := tr.Mark(imovies.Record{Title: "sinners", Year: 2025, Quality: have}); err != nil {
+		t.Fatal(err)
+	}
+	if err := tr.Mark(imovies.Record{Title: "sinners", Year: 2025, Quality: attempted}); err != nil {
+		t.Fatal(err)
+	}
+
+	gs := grabs.NewStore(db.Bucket(grabs.BucketName))
+	if err := gs.Put(hash, grabs.Record{
+		URL:        releaseURL,
+		Title:      "Sinners 2025 UHD Remux",
+		MovieTitle: "sinners",
+		MovieYear:  2025,
+		Quality:    attempted,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	e := sessionEntry(hash)
+	if err := p.Consume(context.Background(), makeCtx(false), []*entry.Entry{e}); err != nil {
+		t.Fatal(err)
+	}
+
+	rec, ok := tr.Latest("sinners", false)
+	if !ok {
+		t.Fatal("the copy already in the library must stay tracked")
+	}
+	if rec.Quality != have {
+		t.Errorf("tracked quality = %s, want the library copy %s", rec.Quality, have)
+	}
+}
+
+// With only one download on record there is nothing to roll back to, so the
+// record goes and another release can be tried.
+func TestFailedFirstGrabDeletesRecord(t *testing.T) {
+	p, db := openSink(t, nil)
+	attempted := quality.Parse("1080p web-dl x264")
+
+	tr := imovies.NewTracker(db.Bucket(imovies.TrackerBucketName))
+	if err := tr.Mark(imovies.Record{Title: "mutiny", Year: 2026, Quality: attempted}); err != nil {
+		t.Fatal(err)
+	}
+	gs := grabs.NewStore(db.Bucket(grabs.BucketName))
+	if err := gs.Put(hash, grabs.Record{
+		URL: releaseURL, Title: "Mutiny 2026 1080p", MovieTitle: "mutiny",
+		MovieYear: 2026, Quality: attempted,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := p.Consume(context.Background(), makeCtx(false), []*entry.Entry{sessionEntry(hash)}); err != nil {
+		t.Fatal(err)
+	}
+	if tr.IsSeen("mutiny", 2026, false) {
+		t.Error("record should be gone so a different release can be grabbed")
+	}
+}
+
+// A torrent that dies long after a newer, healthy download replaced its record
+// must not disturb that record.
+func TestStaleFailureLeavesLaterRecord(t *testing.T) {
+	p, db := openSink(t, nil)
+	old := quality.Parse("1080p web-dl x264")
+	current := quality.Parse("2160p bluray x265 atmos")
+
+	tr := imovies.NewTracker(db.Bucket(imovies.TrackerBucketName))
+	if err := tr.Mark(imovies.Record{Title: "mutiny", Year: 2026, Quality: current}); err != nil {
+		t.Fatal(err)
+	}
+	gs := grabs.NewStore(db.Bucket(grabs.BucketName))
+	if err := gs.Put(hash, grabs.Record{
+		URL: releaseURL, Title: "Mutiny 2026 1080p", MovieTitle: "mutiny",
+		MovieYear: 2026, Quality: old,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := p.Consume(context.Background(), makeCtx(false), []*entry.Entry{sessionEntry(hash)}); err != nil {
+		t.Fatal(err)
+	}
+	rec, ok := tr.Latest("mutiny", false)
+	if !ok || rec.Quality != current {
+		t.Errorf("the later download must stay tracked, got %+v", rec)
+	}
+	// No hold either: the record is healthy, so the normal upgrade check governs.
+	if _, held := untrack.NewStore(db.Bucket(untrack.BucketName)).Remaining(
+		untrack.MovieKey("mutiny", 2026, false), 6*time.Hour, time.Now()); held {
+		t.Error("a stale failure must not start a retry cooldown")
+	}
+}
+
+// Un-tracking starts the movies filter's retry hold, so the next scheduled run
+// does not immediately grab another release of the same film.
+func TestUntrackStartsRetryCooldown(t *testing.T) {
+	p, db := openSink(t, nil)
+	attempted := quality.Parse("1080p bluray x264")
+
+	tr := imovies.NewTracker(db.Bucket(imovies.TrackerBucketName))
+	if err := tr.Mark(imovies.Record{Title: "aladdin", Year: 2019, Quality: attempted}); err != nil {
+		t.Fatal(err)
+	}
+	gs := grabs.NewStore(db.Bucket(grabs.BucketName))
+	if err := gs.Put(hash, grabs.Record{
+		URL: releaseURL, Title: "Aladdin 2019 1080p BluRay x264-DON",
+		MovieTitle: "aladdin", MovieYear: 2019, Quality: attempted,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := p.Consume(context.Background(), makeCtx(false), []*entry.Entry{sessionEntry(hash)}); err != nil {
+		t.Fatal(err)
+	}
+
+	us := untrack.NewStore(db.Bucket(untrack.BucketName))
+	left, held := us.Remaining(untrack.MovieKey("aladdin", 2019, false), 6*time.Hour, time.Now())
+	if !held {
+		t.Fatal("un-tracking should start the retry hold")
+	}
+	if left <= 0 || left > 6*time.Hour {
+		t.Errorf("remaining hold = %s, want within the 6h window", left)
+	}
+	marker, ok := us.Last(untrack.MovieKey("aladdin", 2019, false))
+	if !ok || marker.Release != "Aladdin 2019 1080p BluRay x264-DON" {
+		t.Errorf("marker should name the release that died, got %+v", marker)
+	}
+}
+
+// A dry run must not touch the tracker or start a hold.
+func TestDryRunDoesNotUntrack(t *testing.T) {
+	p, db := openSink(t, nil)
+	attempted := quality.Parse("1080p bluray x264")
+
+	tr := imovies.NewTracker(db.Bucket(imovies.TrackerBucketName))
+	if err := tr.Mark(imovies.Record{Title: "aladdin", Year: 2019, Quality: attempted}); err != nil {
+		t.Fatal(err)
+	}
+	gs := grabs.NewStore(db.Bucket(grabs.BucketName))
+	if err := gs.Put(hash, grabs.Record{
+		URL: releaseURL, MovieTitle: "aladdin", MovieYear: 2019, Quality: attempted,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := p.Consume(context.Background(), makeCtx(true), []*entry.Entry{sessionEntry(hash)}); err != nil {
+		t.Fatal(err)
+	}
+	if !tr.IsSeen("aladdin", 2019, false) {
+		t.Error("dry run must leave the tracker alone")
+	}
+	if _, held := untrack.NewStore(db.Bucket(untrack.BucketName)).Remaining(
+		untrack.MovieKey("aladdin", 2019, false), 6*time.Hour, time.Now()); held {
+		t.Error("dry run must not start a hold")
 	}
 }

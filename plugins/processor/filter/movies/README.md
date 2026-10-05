@@ -34,6 +34,13 @@ The title list is optional. When provided, it can be static via `static`, dynami
 | `reject_unmatched` | bool | no | `true` | Reject entries that lack `title`. When a list is configured, also reject entries whose title isn't in the list. With neither `static` nor `list` set, this flag only governs the classification check. |
 | `upgrade_window` | duration | no | — | Accept quality upgrades only within this window after the first download (e.g. `720h` for 30 days). Unset = upgrades accepted forever. |
 | `settle` | string | no | — | Delay between first seeing a download-worthy release and grabbing one. Releases arrive in waves (1080p → 2160p → HDR → Atmos) within hours; instead of downloading each rung as it appears, the best release of the wave is remembered and downloaded when the window elapses — even if it has since scrolled out of the indexer feed (indexers typically advertise only their newest ~50 items). |
+| `retry_cooldown` | duration | no | `6h` | Hold off this long before grabbing another release of a title whose last grab a janitor pipeline marked failed. `0` retries on the very next run. |
+
+### `retry_cooldown`
+
+When a janitor pipeline ([`torrent_failed`](../torrent_failed/README.md) → [`mark_failed`](../../../sink/mark_failed/README.md)) declares a grab dead, the movie is un-tracked so a *different* release can be tried. Alternating releases is the point; doing it on every scheduled run is not. A film whose every release is dead otherwise burns through the indexer's whole listing at the pipeline's own cadence — seven grabs in seven consecutive hourly runs was observed in production, each one downloading and then deleting its data.
+
+`retry_cooldown` holds the title for a window after the un-track. The rejection is per-run and uncommitted, so the entry is simply re-evaluated on the next run and passes once the window elapses. The hold is keyed by `(title, year, 3D)`, like the tracker itself, and is recorded in the shared `untrack_log` bucket by `mark_failed`.
 
 Both `static` and `list` are optional. With neither set the filter accepts every classified movie that passes the tracker checks. For a quality floor, place a [`quality`](../quality/README.md) filter upstream.
 

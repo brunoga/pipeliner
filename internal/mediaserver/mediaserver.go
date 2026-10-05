@@ -43,6 +43,11 @@ type Item struct {
 	// under the same item — a quality upgrade — invalidates instantly
 	// instead of waiting out a TTL.
 	Version string
+	// Section is the library the item lives in, as the server names it
+	// ("Movies", "3D Movies", "TV Shows"). Consumers need it because one
+	// server commonly holds several movie libraries whose contents must not be
+	// pooled: a film owned only in 3D would otherwise look like a 2D copy.
+	Section string
 	// ColorRange is a release-vocabulary token: "dolby vision", "hdr10",
 	// "hdr", "sdr", or "" when unknown. Jellyfin fills it from listings;
 	// Plex needs deep scanning (per-item detail calls).
@@ -171,8 +176,9 @@ func (c *plexClient) ListItems(ctx context.Context) ([]Item, error) {
 	var sections struct {
 		MediaContainer struct {
 			Directory []struct {
-				Key  string `json:"key"`
-				Type string `json:"type"` // "show" or "movie"
+				Key   string `json:"key"`
+				Type  string `json:"type"` // "show" or "movie"
+				Title string `json:"title"`
 			} `json:"Directory"`
 		} `json:"MediaContainer"`
 	}
@@ -230,10 +236,10 @@ func (c *plexClient) ListItems(ctx context.Context) ([]Item, error) {
 			switch m.Type {
 			case "episode":
 				items = append(items, Item{Type: "episode", Show: m.GrandparentTitle,
-					Season: m.ParentIndex, Episode: m.Index, Resolution: res,
+					Season: m.ParentIndex, Episode: m.Index, Resolution: res, Section: d.Title,
 					VideoCodec: vc, AudioCodec: ac, AudioProfile: ap, ID: m.RatingKey, Version: ver})
 			case "movie":
-				items = append(items, Item{Type: "movie", Title: m.Title, Year: m.Year, Resolution: res,
+				items = append(items, Item{Type: "movie", Title: m.Title, Year: m.Year, Resolution: res, Section: d.Title,
 					VideoCodec: vc, AudioCodec: ac, AudioProfile: ap, ID: m.RatingKey, Version: ver})
 			}
 		}
@@ -378,12 +384,80 @@ func (c *jellyfinClient) ListItems(ctx context.Context) ([]Item, error) {
 			} `json:"MediaStreams"`
 		} `json:"Items"`
 	}
-	url := c.base + "/Items?Recursive=true&IncludeItemTypes=Episode,Movie&Fields=MediaStreams"
-	if err := getJSON(ctx, c.http, url, c.header(), &out); err != nil {
-		return nil, fmt.Errorf("jellyfin: list items: %w", err)
+	// One request per library rather than one flat Recursive sweep, so each
+	// item can be attributed to the library it came from. Consumers need that:
+	// a server commonly holds both "Movies" and "3D Movies", and pooling them
+	// makes a film owned only in 3D look like a 2D copy.
+	views, err := c.views(ctx)
+	if err != nil {
+		return nil, err
 	}
-	items := make([]Item, 0, len(out.Items))
-	for _, it := range out.Items {
+	var items []Item
+	for _, v := range views {
+		out.Items = nil
+		url := c.base + "/Items?Recursive=true&IncludeItemTypes=Episode,Movie&Fields=MediaStreams"
+		if v.ID != "" {
+			url += "&ParentId=" + v.ID
+		}
+		if err := getJSON(ctx, c.http, url, c.header(), &out); err != nil {
+			return nil, fmt.Errorf("jellyfin: list items in %q: %w", v.Name, err)
+		}
+		items = append(items, c.itemsFrom(out.Items, v.Name)...)
+	}
+	return items, nil
+}
+
+// jellyfinView is one of the server's libraries.
+type jellyfinView struct {
+	ID   string
+	Name string
+}
+
+// views lists the server's libraries. A server that does not answer the
+// endpoint (older builds, restricted tokens) yields a single unnamed view, so
+// ListItems falls back to the flat sweep it used to do — items then carry no
+// Section and a section filter is reported as unusable rather than silently
+// matching nothing.
+func (c *jellyfinClient) views(ctx context.Context) ([]jellyfinView, error) {
+	var out struct {
+		Items []struct {
+			ID   string `json:"ItemId"`
+			Name string `json:"Name"`
+		}
+	}
+	if err := getJSON(ctx, c.http, c.base+"/Library/VirtualFolders", c.header(), &out.Items); err != nil {
+		return []jellyfinView{{}}, nil //nolint:nilerr // fall back to the flat sweep
+	}
+	views := make([]jellyfinView, 0, len(out.Items))
+	for _, v := range out.Items {
+		if v.ID != "" {
+			views = append(views, jellyfinView{ID: v.ID, Name: v.Name})
+		}
+	}
+	if len(views) == 0 {
+		return []jellyfinView{{}}, nil
+	}
+	return views, nil
+}
+
+func (c *jellyfinClient) itemsFrom(raw []struct {
+	ID                string `json:"Id"`
+	Type              string `json:"Type"`
+	Name              string `json:"Name"`
+	SeriesName        string `json:"SeriesName"`
+	ParentIndexNumber int    `json:"ParentIndexNumber"`
+	IndexNumber       int    `json:"IndexNumber"`
+	ProductionYear    int    `json:"ProductionYear"`
+	MediaStreams      []struct {
+		Type           string `json:"Type"`
+		Height         int    `json:"Height"`
+		Codec          string `json:"Codec"`
+		Profile        string `json:"Profile"`
+		VideoRangeType string `json:"VideoRangeType"`
+	} `json:"MediaStreams"`
+}, section string) []Item {
+	items := make([]Item, 0, len(raw))
+	for _, it := range raw {
 		var res, vc, ac, ap, cr string
 		for _, s := range it.MediaStreams {
 			switch s.Type {
@@ -403,15 +477,15 @@ func (c *jellyfinClient) ListItems(ctx context.Context) ([]Item, error) {
 		switch it.Type {
 		case "Episode":
 			items = append(items, Item{Type: "episode", Show: it.SeriesName,
-				Season: it.ParentIndexNumber, Episode: it.IndexNumber, Resolution: res,
+				Season: it.ParentIndexNumber, Episode: it.IndexNumber, Resolution: res, Section: section,
 				VideoCodec: vc, AudioCodec: ac, AudioProfile: ap, ID: it.ID, ColorRange: cr})
 		case "Movie":
 			items = append(items, Item{Type: "movie", Title: it.Name,
-				Year: it.ProductionYear, Resolution: res,
+				Year: it.ProductionYear, Resolution: res, Section: section,
 				VideoCodec: vc, AudioCodec: ac, AudioProfile: ap, ID: it.ID, ColorRange: cr})
 		}
 	}
-	return items, nil
+	return items
 }
 
 // heightBucket maps a video height in pixels onto the nearest standard

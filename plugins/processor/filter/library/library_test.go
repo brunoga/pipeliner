@@ -483,3 +483,124 @@ func TestLibraryQualityFieldStamped(t *testing.T) {
 		t.Errorf("unmatched entry must not carry library_quality, got %q", got)
 	}
 }
+
+// TestSectionScoping is the guard for pooling separate server libraries. One
+// Plex server commonly holds both "Movies" and "3D Movies"; indexing them
+// together makes a film owned only in 3D reject a 2D release of it, because
+// the index keys on title+year with no notion of which library an item came
+// from.
+func TestSectionScoping(t *testing.T) {
+	items := []mediaserver.Item{
+		{Type: "movie", Title: "Dune Part Two", Year: 2024, Resolution: "2160p", Section: "Movies"},
+		{Type: "movie", Title: "Avatar", Year: 2009, Resolution: "1080p", Section: "3D Movies"},
+	}
+
+	t.Run("include list indexes only the named library", func(t *testing.T) {
+		p := serverPlugin(t, map[string]any{"sections": []any{"Movies"}}, items)
+
+		owned := mkEntry("Dune Part Two", map[string]any{entry.FieldVideoYear: 2024, entry.FieldMediaType: "movie"})
+		owned.SetQuality(quality.Parse("1080p WEB-DL"))
+		process(t, p, owned)
+		if !owned.IsRejected() {
+			t.Error("a worse release of a film in the indexed library must be rejected")
+		}
+
+		// Owned only in 3D: the 2D pipeline must still be able to grab it.
+		only3D := mkEntry("Avatar", map[string]any{entry.FieldVideoYear: 2009, entry.FieldMediaType: "movie"})
+		only3D.SetQuality(quality.Parse("1080p BluRay"))
+		process(t, p, only3D)
+		if only3D.IsRejected() {
+			t.Errorf("a film held only in an unindexed library must not be rejected: %q", only3D.RejectReason)
+		}
+	})
+
+	t.Run("exclude list skips the named library", func(t *testing.T) {
+		p := serverPlugin(t, map[string]any{"exclude_sections": []any{"3D Movies"}}, items)
+
+		only3D := mkEntry("Avatar", map[string]any{entry.FieldVideoYear: 2009, entry.FieldMediaType: "movie"})
+		only3D.SetQuality(quality.Parse("1080p BluRay"))
+		process(t, p, only3D)
+		if only3D.IsRejected() {
+			t.Errorf("the excluded library must not gate anything: %q", only3D.RejectReason)
+		}
+
+		owned := mkEntry("Dune Part Two", map[string]any{entry.FieldVideoYear: 2024, entry.FieldMediaType: "movie"})
+		owned.SetQuality(quality.Parse("1080p WEB-DL"))
+		process(t, p, owned)
+		if !owned.IsRejected() {
+			t.Error("libraries that are not excluded must still gate")
+		}
+	})
+
+	// Section names are how the server spells them; matching is case-insensitive.
+	t.Run("matching ignores case", func(t *testing.T) {
+		p := serverPlugin(t, map[string]any{"sections": []any{"movies"}}, items)
+		owned := mkEntry("Dune Part Two", map[string]any{entry.FieldVideoYear: 2024, entry.FieldMediaType: "movie"})
+		owned.SetQuality(quality.Parse("1080p WEB-DL"))
+		process(t, p, owned)
+		if !owned.IsRejected() {
+			t.Error(`"movies" should match the server's "Movies"`)
+		}
+	})
+
+	// No filter configured: every library is indexed, as before.
+	t.Run("unfiltered indexes everything", func(t *testing.T) {
+		p := serverPlugin(t, nil, items)
+		only3D := mkEntry("Avatar", map[string]any{entry.FieldVideoYear: 2009, entry.FieldMediaType: "movie"})
+		only3D.SetQuality(quality.Parse("720p BluRay"))
+		process(t, p, only3D)
+		if !only3D.IsRejected() {
+			t.Error("without a section filter all libraries gate")
+		}
+	})
+
+	// A server that cannot report library names leaves Section empty. Index
+	// everything and warn, rather than matching nothing and waving every
+	// duplicate through.
+	t.Run("unnamed sections are all indexed", func(t *testing.T) {
+		unnamed := []mediaserver.Item{
+			{Type: "movie", Title: "Dune Part Two", Year: 2024, Resolution: "2160p"},
+		}
+		p := serverPlugin(t, map[string]any{"sections": []any{"Movies"}}, unnamed)
+		owned := mkEntry("Dune Part Two", map[string]any{entry.FieldVideoYear: 2024, entry.FieldMediaType: "movie"})
+		owned.SetQuality(quality.Parse("1080p WEB-DL"))
+		process(t, p, owned)
+		if !owned.IsRejected() {
+			t.Error("an unenforceable section filter must not silently empty the index")
+		}
+	})
+}
+
+func TestSectionFilterValidation(t *testing.T) {
+	if errs := validate(map[string]any{
+		"backend": "plex", "sections": []any{"Movies"}, "exclude_sections": []any{"3D Movies"},
+	}); len(errs) == 0 {
+		t.Error("sections and exclude_sections together should be rejected")
+	}
+	// The filesystem backend selects content with paths; a section filter
+	// there would silently do nothing.
+	if errs := validate(map[string]any{
+		"paths": []any{"/data/movies"}, "sections": []any{"Movies"},
+	}); len(errs) == 0 {
+		t.Error("a section filter on the filesystem backend should be rejected")
+	}
+	if errs := validate(map[string]any{"backend": "plex", "sections": []any{"Movies"}}); len(errs) != 0 {
+		t.Errorf("a plain include list should validate: %v", errs)
+	}
+}
+
+// serverPlugin builds a server-backed plugin with a fake client.
+func serverPlugin(t *testing.T, extra map[string]any, items []mediaserver.Item) *libraryPlugin {
+	t.Helper()
+	cfg := map[string]any{"backend": "plex", "url": "http://x", "token": "t"}
+	for k, v := range extra {
+		cfg[k] = v
+	}
+	pl, err := newPlugin(cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := pl.(*libraryPlugin)
+	p.client = &fakeMSClient{items: items}
+	return p
+}

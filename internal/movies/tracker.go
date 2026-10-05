@@ -23,6 +23,20 @@ type Record struct {
 	Repack       bool            `json:"repack,omitempty"`
 	DownloadedAt time.Time       `json:"downloaded_at"`
 	Quality      quality.Quality `json:"quality"`
+
+	// Prev is the record this one replaced: one level of undo, so a failed
+	// grab can be rolled back to the download that preceded it instead of
+	// erasing the movie's history. Nil for a first download.
+	Prev *Previous `json:"prev,omitempty"`
+}
+
+// Previous is a superseded download, kept on the record that replaced it so
+// UntrackGrab can restore it. Only the fields the upgrade decision reads are
+// retained — title/year/is3D are the key and cannot differ.
+type Previous struct {
+	Repack       bool            `json:"repack,omitempty"`
+	DownloadedAt time.Time       `json:"downloaded_at"`
+	Quality      quality.Quality `json:"quality"`
 }
 
 // bucket is the minimal key-value interface that Tracker requires.
@@ -73,18 +87,104 @@ func (t *Tracker) IsSeen(title string, year int, is3D bool) bool {
 	return found
 }
 
-// Mark records that a movie has been downloaded.
+// Mark records that a movie has been downloaded. Any record already stored
+// under the same key is carried along as r.Prev so UntrackGrab can roll back
+// to it; only one level is kept, which is all failed-grab recovery needs (it
+// always refers to the most recent grab of a release).
 func (t *Tracker) Mark(r Record) error {
 	if r.DownloadedAt.IsZero() {
 		r.DownloadedAt = time.Now()
 	}
-	return t.bucket.Put(recordKey(r.Title, r.Year, r.Is3D), r)
+	key := recordKey(r.Title, r.Year, r.Is3D)
+	if r.Prev == nil {
+		var old Record
+		if found, _ := t.bucket.Get(key, &old); found {
+			r.Prev = &Previous{
+				Repack:       old.Repack,
+				DownloadedAt: old.DownloadedAt,
+				Quality:      old.Quality,
+			}
+		}
+	}
+	return t.bucket.Put(key, r)
 }
 
-// Forget removes the record for a given movie.
-// 3D and non-3D versions are tracked independently.
+// Forget removes the record for a given movie outright, history and all.
+// 3D and non-3D versions are tracked independently. This is the explicit
+// user-driven un-track (CLI, web tools); failed-grab recovery wants
+// UntrackGrab instead.
 func (t *Tracker) Forget(title string, year int, is3D bool) error {
 	return t.bucket.Delete(recordKey(title, year, is3D))
+}
+
+// UntrackOutcome reports what UntrackGrab did.
+type UntrackOutcome int
+
+const (
+	// UntrackNoRecord: nothing was stored under the key.
+	UntrackNoRecord UntrackOutcome = iota
+	// UntrackStale: the stored record describes a different download than the
+	// failed grab, so it was left alone.
+	UntrackStale
+	// UntrackRestored: the record was rolled back to the download it replaced.
+	UntrackRestored
+	// UntrackDeleted: the failed grab was the only download on record, so the
+	// record was removed.
+	UntrackDeleted
+)
+
+func (o UntrackOutcome) String() string {
+	switch o {
+	case UntrackStale:
+		return "left (record is from a later download)"
+	case UntrackRestored:
+		return "rolled back to previous download"
+	case UntrackDeleted:
+		return "deleted"
+	default:
+		return "no record"
+	}
+}
+
+// UntrackGrab rolls back the tracker after a grab turned out to be dead.
+//
+// Plain deletion is wrong here: the tracker holds one record per movie and
+// Mark overwrites it, so deleting it also erases the memory of whatever was
+// downloaded before — and the next run then re-downloads a film that is
+// already in the library, often at worse quality than the copy it has.
+// Instead the record is rolled back to the download it replaced, and only
+// deleted when the failed grab is the only one on record.
+//
+// failed is the quality of the grab that died, as recorded on its grab record.
+// When it does not match the stored record the record belongs to a later,
+// different download and is left untouched. Pass hasQuality=false for grab
+// records written before the quality was captured: the rollback still happens,
+// but the staleness check cannot run.
+func (t *Tracker) UntrackGrab(title string, year int, is3D bool, failed quality.Quality, hasQuality bool) (UntrackOutcome, error) {
+	key := recordKey(title, year, is3D)
+	var rec Record
+	found, err := t.bucket.Get(key, &rec)
+	if err != nil {
+		return UntrackNoRecord, err
+	}
+	if !found {
+		return UntrackNoRecord, nil
+	}
+	if hasQuality && rec.Quality != failed {
+		return UntrackStale, nil
+	}
+	if rec.Prev == nil {
+		return UntrackDeleted, t.bucket.Delete(key)
+	}
+	restored := Record{
+		Title:        rec.Title,
+		Year:         rec.Year,
+		Is3D:         rec.Is3D,
+		Repack:       rec.Prev.Repack,
+		DownloadedAt: rec.Prev.DownloadedAt,
+		Quality:      rec.Prev.Quality,
+	}
+	return UntrackRestored, t.bucket.Put(key, restored)
 }
 
 // Latest returns the most recently downloaded record for a movie by title,

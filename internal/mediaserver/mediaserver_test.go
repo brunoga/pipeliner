@@ -65,12 +65,22 @@ func TestJellyfinListItemsAndRefresh(t *testing.T) {
 			t.Errorf("missing jellyfin token on %s", r.URL.Path)
 		}
 		switch r.URL.Path {
+		case "/Library/VirtualFolders":
+			w.Write([]byte(`[{"ItemId":"v1","Name":"Movies"},{"ItemId":"v2","Name":"TV Shows"}]`))
 		case "/Items":
-			w.Write([]byte(`{"Items":[
-				{"Type":"Episode","SeriesName":"Severance","ParentIndexNumber":2,"IndexNumber":10,
-				 "MediaStreams":[{"Type":"Audio"},{"Type":"Video","Height":716}]},
-				{"Type":"Movie","Name":"Dune Part Two","ProductionYear":2024,
-				 "MediaStreams":[{"Type":"Video","Height":2160}]}]}`))
+			// Items are fetched per library, so each carries its Section.
+			switch r.URL.Query().Get("ParentId") {
+			case "v1":
+				w.Write([]byte(`{"Items":[
+					{"Type":"Movie","Name":"Dune Part Two","ProductionYear":2024,
+					 "MediaStreams":[{"Type":"Video","Height":2160}]}]}`))
+			case "v2":
+				w.Write([]byte(`{"Items":[
+					{"Type":"Episode","SeriesName":"Severance","ParentIndexNumber":2,"IndexNumber":10,
+					 "MediaStreams":[{"Type":"Audio"},{"Type":"Video","Height":716}]}]}`))
+			default:
+				t.Errorf("Items without a ParentId: %s", r.URL.RawQuery)
+			}
 		case "/Library/Refresh":
 			if r.Method != http.MethodPost {
 				t.Errorf("refresh method: %s", r.Method)
@@ -94,12 +104,13 @@ func TestJellyfinListItemsAndRefresh(t *testing.T) {
 	if len(items) != 2 {
 		t.Fatalf("want 2 items, got %d", len(items))
 	}
-	// 716px scan lines bucket to 720p (matte-cropped encodes are common).
-	if items[0].EpisodeID() != "S02E10" || items[0].Resolution != "720p" {
-		t.Errorf("episode: %+v", items[0])
+	movie, episode := items[0], items[1]
+	if movie.Resolution != "2160p" || movie.Section != "Movies" {
+		t.Errorf("movie: %+v", movie)
 	}
-	if items[1].Resolution != "2160p" {
-		t.Errorf("movie: %+v", items[1])
+	// 716px scan lines bucket to 720p (matte-cropped encodes are common).
+	if episode.EpisodeID() != "S02E10" || episode.Resolution != "720p" || episode.Section != "TV Shows" {
+		t.Errorf("episode: %+v", episode)
 	}
 	if err := c.Refresh(context.Background()); err != nil || !refreshed {
 		t.Errorf("refresh: err=%v hit=%v", err, refreshed)
@@ -119,5 +130,40 @@ func TestNormalizeResolution(t *testing.T) {
 		if got := normalizeResolution(in); got != want {
 			t.Errorf("normalizeResolution(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// A server that will not list its libraries (older build, restricted token)
+// falls back to the flat sweep. Items then carry no Section, which the library
+// filter reports as "section filter unusable" rather than silently matching
+// nothing.
+func TestJellyfinListItemsWithoutVirtualFolders(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/Library/VirtualFolders":
+			w.WriteHeader(http.StatusForbidden)
+		case "/Items":
+			if r.URL.Query().Get("ParentId") != "" {
+				t.Errorf("fallback must not scope by ParentId: %s", r.URL.RawQuery)
+			}
+			w.Write([]byte(`{"Items":[
+				{"Type":"Movie","Name":"Dune Part Two","ProductionYear":2024,
+				 "MediaStreams":[{"Type":"Video","Height":2160}]}]}`))
+		default:
+			t.Errorf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer ts.Close()
+
+	c, err := New("jellyfin", ts.URL, "tok")
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, err := c.ListItems(context.Background())
+	if err != nil {
+		t.Fatalf("ListItems: %v", err)
+	}
+	if len(items) != 1 || items[0].Section != "" {
+		t.Errorf("items: %+v", items)
 	}
 }

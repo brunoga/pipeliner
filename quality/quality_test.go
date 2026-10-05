@@ -57,7 +57,8 @@ func TestParseKnownTitles(t *testing.T) {
 		{
 			// Scene releases often use "H 265" (space) instead of "H.265" (dot).
 			"The Boys S05E08 2160p AMZN WEB-DL DDP5 1 Atmos DV H 265-FLUX",
-			Quality{Resolution: Resolutionp2160, Source: SourceWebDL, Codec: CodecH265, Audio: AudioAtmos, ColorRange: ColorRangeDolbyVision},
+			// DDP5 1 Atmos is the lossy DD+ carrier, not lossless TrueHD Atmos.
+			Quality{Resolution: Resolutionp2160, Source: SourceWebDL, Codec: CodecH265, Audio: AudioDDPlusAtmos, ColorRange: ColorRangeDolbyVision},
 		},
 		{
 			"No.Quality.Markers.At.All",
@@ -1373,5 +1374,91 @@ func Test3DRemuxAgainstFullSpecs(t *testing.T) {
 	}
 	if exact.Matches(q) {
 		t.Errorf("%s should NOT match the exact spec \"3dfull\" — BD3D outranks Full", q.String())
+	}
+}
+
+// TestAtmosCarrier pins the Atmos object layer to its carrier. Ranking every
+// release that merely says "Atmos" above TrueHD put a lossy DD+ Atmos 5.1
+// track above a lossless TrueHD 7.1 one, so a 19 GB DDP-Atmos encode read as
+// an upgrade over a 29.5 GB TrueHD copy and replaced it in production.
+func TestAtmosCarrier(t *testing.T) {
+	tests := []struct {
+		title string
+		want  Audio
+	}{
+		// Lossy carrier named: below TrueHD.
+		{"Sinners 2025 UHD BluRay 2160p DDP Atmos 5 1 DV x265-hallowed", AudioDDPlusAtmos},
+		{"Mutiny 2026 2160p WEB-DL DDP5 1 Atmos SDR H265-AOC", AudioDDPlusAtmos},
+		{"Movie 2024 2160p WEB-DL EAC3 Atmos 5 1 x265-GRP", AudioDDPlusAtmos},
+		{"Movie 2024 2160p WEB-DL DD+ Atmos x265-GRP", AudioDDPlusAtmos},
+		{"Movie 2024 2160p WEB-DL E-AC-3 Atmos x265-GRP", AudioDDPlusAtmos},
+		{"Mary Poppins Returns 2018 2160p WEB-DL DV HDR H 265 DDP5 1 Atmos-NoTrace", AudioDDPlusAtmos},
+
+		// Lossless carrier named, either token order: top rank.
+		{"Mickey 17 2025 2160p UHD BluRay TrueHD 7 1 Atmos x265-SPHD", AudioAtmos},
+		{"Darkest Hour 2017 2160p WEB-DL TrueHD Atmos 7 1 H 265-CHORTLE", AudioAtmos},
+		{"Forrest Gump 1994 UHD BluRay 2160p TrueHD 7 1 Atmos DV AV1-RandH", AudioAtmos},
+
+		// Bare "Atmos" keeps the top rank: on releases spelled that way it is
+		// virtually always TrueHD Atmos, and guessing otherwise would re-rank
+		// far more than the releases actually at issue.
+		{"Movie 2024 2160p BluRay Atmos x265-GRP", AudioAtmos},
+
+		// Unaffected neighbours.
+		{"Movie 2024 2160p BluRay TrueHD 7 1 x265-GRP", AudioTrueHD},
+		{"Movie 2024 1080p BluRay DTS-HD MA 5 1 x264-GRP", AudioDTS},
+		{"Movie 2024 1080p WEB-DL DDP5 1 x264-GRP", AudioDolbyDigital},
+	}
+	for _, tt := range tests {
+		if got := Parse(tt.title).Audio; got != tt.want {
+			t.Errorf("Parse(%q).Audio = %v, want %v", tt.title, audioNames[got], audioNames[tt.want])
+		}
+	}
+}
+
+// The ordering is what the upgrade decision actually consumes.
+func TestAtmosCarrierOrdering(t *testing.T) {
+	if !(AudioDolbyDigital < AudioDDPlusAtmos && AudioDDPlusAtmos < AudioTrueHD && AudioTrueHD < AudioAtmos) {
+		t.Fatalf("want DD < DD+ Atmos < TrueHD < Atmos, got %d %d %d %d",
+			AudioDolbyDigital, AudioDDPlusAtmos, AudioTrueHD, AudioAtmos)
+	}
+
+	// The production case: a lossy DD+ Atmos encode must not upgrade over the
+	// lossless TrueHD copy already in the library.
+	lib := Parse("Sinners 2025 UHD BluRay 2160p TrueHD 7 1 DV x265-GRP")
+	inc := Parse("Sinners 2025 UHD BluRay 2160p DDP Atmos 5 1 DV HDR10Plus x265-hallowed")
+	if inc.Better(lib) {
+		t.Errorf("%s must not be better than %s", inc, lib)
+	}
+	if !lib.Better(inc) {
+		t.Errorf("%s should be better than %s", lib, inc)
+	}
+}
+
+// Spec tokens address the new rung, and "atmos" no longer matches DD+ Atmos.
+func TestAudioSpecTokens(t *testing.T) {
+	ddp := Parse("Movie 2024 2160p WEB-DL DDP5 1 Atmos x265")
+	trueHDAtmos := Parse("Movie 2024 2160p BluRay TrueHD 7 1 Atmos x265")
+
+	spec, err := ParseSpec("2160p ddp-atmos+")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !spec.Matches(ddp) {
+		t.Error("ddp-atmos+ should match a DD+ Atmos release")
+	}
+	if !spec.Matches(trueHDAtmos) {
+		t.Error("ddp-atmos+ is a floor, so TrueHD Atmos should match too")
+	}
+
+	strict, err := ParseSpec("2160p atmos")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strict.Matches(ddp) {
+		t.Error("an exact atmos spec must no longer match lossy DD+ Atmos")
+	}
+	if !strict.Matches(trueHDAtmos) {
+		t.Error("an exact atmos spec should match TrueHD Atmos")
 	}
 }

@@ -26,8 +26,16 @@ import (
 	"github.com/brunoga/pipeliner/internal/plugin"
 	"github.com/brunoga/pipeliner/internal/settle"
 	"github.com/brunoga/pipeliner/internal/store"
+	"github.com/brunoga/pipeliner/internal/untrack"
 	"github.com/brunoga/pipeliner/quality"
 )
+
+// defaultRetryCooldown is how long a title is held after a janitor pipeline
+// marked its last grab failed. Non-zero by default: alternating to another
+// release of a film whose torrents keep dying is correct, but doing it on every
+// scheduled run burns through every release of the title in a few hours,
+// downloading and deleting data each time.
+const defaultRetryCooldown = 6 * time.Hour
 
 func init() {
 	plugin.Register(&plugin.Descriptor{
@@ -60,6 +68,7 @@ func init() {
 			{Key: "reject_unmatched", Type: plugin.FieldTypeBool, Default: true, Hint: "Reject entries not classified as movie upstream; when a list is configured, also reject entries whose title isn't in the list"},
 			{Key: "settle", Type: plugin.FieldTypeDuration, Hint: "Delay between first seeing a download-worthy release for a title and grabbing one, so a wave of increasingly better releases yields a single download of the best (0 = grab on sight)"},
 			{Key: "upgrade_window", Type: plugin.FieldTypeDuration, Hint: "Accept quality upgrades only within this window after the first download (e.g. 30d as 720h; default: unlimited)"},
+			{Key: "retry_cooldown", Type: plugin.FieldTypeDuration, Default: "6h", Hint: "Hold off this long before grabbing another release of a title whose last grab was marked failed by a janitor pipeline (0 = retry on the next run)"},
 		},
 		Caches: []plugin.CacheInfo{
 			{Name: "cache_movies_list", Display: "Movies Title List Cache"},
@@ -80,7 +89,10 @@ func validate(cfg map[string]any) []error {
 	if err := plugin.OptDuration(cfg, "settle", "movies"); err != nil {
 		errs = append(errs, err)
 	}
-	errs = append(errs, plugin.OptUnknownKeys(cfg, "movies", "static", "list", "ttl", "reject_unmatched", "upgrade_window", "settle")...)
+	if err := plugin.OptDuration(cfg, "retry_cooldown", "movies"); err != nil {
+		errs = append(errs, err)
+	}
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "movies", "static", "list", "ttl", "reject_unmatched", "upgrade_window", "settle", "retry_cooldown")...)
 	return errs
 }
 
@@ -94,6 +106,8 @@ type moviesPlugin struct {
 	upgradeWindow   time.Duration // 0 = upgrades accepted forever
 	settle          time.Duration // 0 = grab on sight
 	settleTracker   *settle.Tracker
+	retryCooldown   time.Duration // 0 = retry on the next run
+	untrackStore    *untrack.Store
 }
 
 func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
@@ -142,6 +156,15 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 		settleWindow = d
 	}
 
+	retryCooldown := defaultRetryCooldown
+	if v, _ := cfg["retry_cooldown"].(string); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return nil, fmt.Errorf("movies: invalid retry_cooldown %q: %w", v, err)
+		}
+		retryCooldown = d
+	}
+
 	return &moviesPlugin{
 		staticTitles:    staticTitles,
 		settle:          settleWindow,
@@ -152,6 +175,8 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 		upgradeWindow:   upgradeWindow,
 		tracker:         imovies.NewTracker(db.Bucket(imovies.TrackerBucketName)),
 		downloadLog:     downloads.New(db.Bucket(downloads.BucketName)),
+		retryCooldown:   retryCooldown,
+		untrackStore:    untrack.NewStore(db.Bucket(untrack.BucketName)),
 	}, nil
 }
 
@@ -200,9 +225,26 @@ func (p *moviesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *en
 	is3D := e.GetBool(entry.FieldVideoIs3D)
 	properOrRepack := e.GetBool(entry.FieldVideoProper) || e.GetBool(entry.FieldVideoRepack)
 
-	// Stamp the matched (normalized) title for persist() to read back at
-	// commit time, so we don't have to re-resolve the list there.
+	// Stamp the full tracker key for persist() to read back at commit time, so
+	// we don't have to re-resolve the list there — and, for year/is3D, so the
+	// record is written under the key this decision was made with. Downstream
+	// metadata plugins rewrite video_year (see FieldMoviesTrackerYear), and
+	// commit runs after them.
 	e.Set(moviesTrackerName, matchedTitle)
+	e.Set(entry.FieldMoviesTrackerYear, year)
+	e.Set(entry.FieldMoviesTrackerIs3D, is3D)
+
+	// A janitor pipeline marked this title's last grab failed very recently.
+	// Hold off instead of immediately grabbing the next release: when every
+	// release of a film is dead, retrying once per scheduled run just churns.
+	// Rejection is per-run and uncommitted, so the entry is re-evaluated on the
+	// next run and passes once the window elapses.
+	if left, held := p.untrackStore.Remaining(
+		untrack.MovieKey(matchedTitle, year, is3D), p.retryCooldown, time.Now()); held {
+		e.Reject(fmt.Sprintf("movies: %s (%d) last grab failed, retrying in %s",
+			matchedTitle, year, left.Round(time.Minute)))
+		return nil
+	}
 
 	if p.tracker.IsSeen(matchedTitle, year, is3D) {
 		// LatestNearYear (rather than Latest + exact-year check) so the
@@ -327,12 +369,13 @@ func (p *moviesPlugin) persist(_ context.Context, tc *plugin.TaskContext, entrie
 		if !e.IsAccepted() {
 			continue
 		}
-		matchedTitle := e.GetString(moviesTrackerName)
-		if matchedTitle == "" {
+		// The key the filter decided with, not a fresh read of video_year —
+		// downstream metadata plugins rewrite that field and commit runs after
+		// them (see entry.FieldMoviesTrackerYear).
+		matchedTitle, year, is3D, ok := e.MoviesTrackerKey()
+		if !ok {
 			continue
 		}
-		year := e.GetInt(entry.FieldVideoYear)
-		is3D := e.GetBool(entry.FieldVideoIs3D)
 		q, _ := e.Quality()
 		properOrRepack := e.GetBool(entry.FieldVideoProper) || e.GetBool(entry.FieldVideoRepack)
 		now := time.Now()

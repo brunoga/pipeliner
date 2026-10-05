@@ -63,6 +63,8 @@ func init() {
 			{Key: "upgrade", Type: plugin.FieldTypeBool, Default: true, Hint: "Pass entries whose quality is strictly better than the library copy"},
 			{Key: "deep_scan", Type: plugin.FieldTypeBool, Default: false, Hint: "Plex backend: detect HDR/Dolby Vision via per-item detail calls (results cached across runs, so only new items cost a request)"},
 			{Key: "extensions", Type: plugin.FieldTypeList, Hint: "Video file extensions to index (default: common video types; filesystem backend only)"},
+			{Key: "sections", Type: plugin.FieldTypeList, Hint: "Only index these server libraries, by name (e.g. [\"Movies\"]); plex/jellyfin backends. Omit to index all of them"},
+			{Key: "exclude_sections", Type: plugin.FieldTypeList, Hint: "Index every server library except these, by name (e.g. [\"3D Movies\"]); plex/jellyfin backends"},
 			{Key: "url", Type: plugin.FieldTypeString, Hint: "Media server base URL (plex/jellyfin backends)"},
 			{Key: "token", Type: plugin.FieldTypeString, Hint: "Media server API token (plex/jellyfin backends)"},
 		},
@@ -71,14 +73,22 @@ func init() {
 
 func validate(cfg map[string]any) []error {
 	var errs []error
-	if err := plugin.OptUnknownKeys(cfg, pluginName, "paths", "backend", "ttl", "upgrade", "extensions", "url", "token", "deep_scan"); err != nil {
+	if err := plugin.OptUnknownKeys(cfg, pluginName, "paths", "backend", "ttl", "upgrade", "extensions", "url", "token", "deep_scan", "sections", "exclude_sections"); err != nil {
 		errs = append(errs, err...)
+	}
+	include := toStringSlice(cfg["sections"])
+	exclude := toStringSlice(cfg["exclude_sections"])
+	if len(include) > 0 && len(exclude) > 0 {
+		errs = append(errs, fmt.Errorf("%s: set 'sections' or 'exclude_sections', not both", pluginName))
 	}
 	backend, _ := cfg["backend"].(string)
 	switch backend {
 	case "", "filesystem":
 		if paths := toStringSlice(cfg["paths"]); len(paths) == 0 {
 			errs = append(errs, fmt.Errorf("%s: 'paths' must list at least one library directory", pluginName))
+		}
+		if len(include) > 0 || len(exclude) > 0 {
+			errs = append(errs, fmt.Errorf("%s: 'sections'/'exclude_sections' need a plex or jellyfin backend; the filesystem backend selects content with 'paths'", pluginName))
 		}
 	case "plex":
 		// url+token select one server; both omitted = account mode, which
@@ -115,6 +125,13 @@ type libraryPlugin struct {
 	extensions map[string]bool
 	ttl        time.Duration
 	upgrade    bool
+
+	// include/exclude name the server libraries to index, lowercased. One
+	// server routinely holds several movie libraries whose contents must not
+	// be pooled — indexing "3D Movies" alongside "Movies" makes a film owned
+	// only in 3D reject a 2D release of it. Empty include means "all".
+	include map[string]bool
+	exclude map[string]bool
 
 	mu      sync.Mutex
 	series  map[string]indexEntry // NormalizeName(show) + "|" + episodeID
@@ -206,12 +223,42 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 		extensions: extSet,
 		ttl:        ttl,
 		upgrade:    upgrade,
+		include:    lowerSet(toStringSlice(cfg["sections"])),
+		exclude:    lowerSet(toStringSlice(cfg["exclude_sections"])),
 		walk:       filepath.WalkDir,
 		client:     client,
 	}, nil
 }
 
 func (p *libraryPlugin) Name() string { return pluginName }
+
+// lowerSet builds a case-insensitive lookup set, or nil when empty.
+func lowerSet(vals []string) map[string]bool {
+	if len(vals) == 0 {
+		return nil
+	}
+	out := make(map[string]bool, len(vals))
+	for _, v := range vals {
+		if v = strings.TrimSpace(v); v != "" {
+			out[strings.ToLower(v)] = true
+		}
+	}
+	return out
+}
+
+// wantSection reports whether a server library should be indexed.
+func (p *libraryPlugin) wantSection(name string) bool {
+	n := strings.ToLower(name)
+	if len(p.include) > 0 {
+		return p.include[n]
+	}
+	return !p.exclude[n]
+}
+
+// sectionFiltered reports whether any section filter is configured.
+func (p *libraryPlugin) sectionFiltered() bool {
+	return len(p.include) > 0 || len(p.exclude) > 0
+}
 
 // ensureIndex rebuilds the disk index when it is missing or older than ttl.
 func (p *libraryPlugin) ensureIndex(tc *plugin.TaskContext) {
@@ -237,7 +284,28 @@ func (p *libraryPlugin) ensureIndex(tc *plugin.TaskContext) {
 			p.builtAt = time.Now()
 			return
 		}
+		// A server that could not report library names makes a section filter
+		// unenforceable. Say so rather than indexing everything (which would
+		// reject releases the filter was told to ignore) or nothing (which
+		// would wave every duplicate through).
+		if p.sectionFiltered() {
+			named := false
+			for _, it := range items {
+				if it.Section != "" {
+					named = true
+					break
+				}
+			}
+			if !named {
+				tc.Logger.Warn(pluginName + ": server did not report library names, so sections/exclude_sections cannot be applied; indexing every library")
+			}
+		}
+		var skipped int
 		for _, it := range items {
+			if it.Section != "" && !p.wantSection(it.Section) {
+				skipped++
+				continue
+			}
 			q := serverItemQuality(it)
 			switch it.Type {
 			case "episode":
@@ -260,7 +328,7 @@ func (p *libraryPlugin) ensureIndex(tc *plugin.TaskContext) {
 		}
 		p.series, p.movies, p.builtAt = seriesIdx, movieIdx, time.Now()
 		tc.Logger.Info(pluginName+": indexed media server",
-			"episodes", len(seriesIdx), "movies", len(movieIdx))
+			"episodes", len(seriesIdx), "movies", len(movieIdx), "skipped_other_libraries", skipped)
 		return
 	}
 

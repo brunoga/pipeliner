@@ -68,3 +68,14 @@ describe('plexReconcileHTML', () => {
     expect(html).toContain('&lt;b&gt;x&lt;/b&gt;');
   });
 });
+
+// The forget endpoint is a dry run unless apply:true is sent, so the UI must
+// send it — otherwise "Forget selected" silently does nothing. The confirm
+// dialog is the only gate, which is why this is worth pinning.
+describe('forgetPlexSelected request', () => {
+  it('sends apply:true to /api/tools/plex/forget', () => {
+    const call = src.slice(src.indexOf("'/api/tools/plex/forget'"));
+    const body = call.slice(0, call.indexOf('});'));
+    expect(body).toMatch(/JSON\.stringify\(\{\s*keys\s*,\s*apply:\s*true\s*\}\)/);
+  });
+});

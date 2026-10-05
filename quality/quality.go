@@ -94,12 +94,24 @@ var codecNames = map[Codec]string{
 // Audio represents the audio format.
 type Audio int
 
+// Atmos is an object layer, not a codec: it rides on lossy Dolby Digital Plus
+// (E-AC-3 with JOC, typically 384–768 kbps over a 5.1 core) or on lossless
+// TrueHD. Ranking every release that merely says "Atmos" above TrueHD put a
+// lossy DD+ Atmos 5.1 track above a lossless TrueHD 7.1 one, which made
+// genuinely worse releases read as upgrades — a 19 GB DDP-Atmos encode
+// replaced a 29.5 GB TrueHD copy in production that way.
+//
+// So an Atmos track whose carrier is named as DD+/E-AC-3 gets its own rung
+// below TrueHD. Bare "Atmos" keeps the top rank: on the UHD BluRay releases
+// that spell it that way it is virtually always TrueHD Atmos, and inferring
+// otherwise would re-rank far more than the releases actually at issue.
 const (
 	AudioUnknown Audio = iota
 	AudioMP3
 	AudioAAC
 	AudioDolbyDigital
 	AudioDTS
+	AudioDDPlusAtmos
 	AudioTrueHD
 	AudioAtmos
 )
@@ -110,6 +122,7 @@ var audioNames = map[Audio]string{
 	AudioAAC:          "AAC",
 	AudioDolbyDigital: "Dolby Digital",
 	AudioDTS:          "DTS",
+	AudioDDPlusAtmos:  "DD+ Atmos",
 	AudioTrueHD:       "TrueHD",
 	AudioAtmos:        "Atmos",
 }
@@ -278,10 +291,23 @@ var (
 	reComplete = regexp.MustCompile(`(?i)\bCOMPLETE\b`)
 
 	// Audio regexes checked in priority order (highest first).
+	//
+	// audioGap spans what release names put between a codec token and the
+	// "atmos" that belongs to it — nothing, separators, or a channel layout
+	// ("DDP5 1 Atmos", "TrueHD 7.1 Atmos"). It is deliberately narrow so a
+	// title listing two separate audio tracks cannot pair the wrong two
+	// tokens across half the name.
 	reAudioPatterns = []struct {
 		re  *regexp.Regexp
 		val Audio
 	}{
+		// Atmos carrier first: the object layer alone says nothing about
+		// whether the bed is lossless. The optional "5 1"/"7.1" between the
+		// codec and "atmos" covers both "DDP Atmos" and "TrueHD 7 1 Atmos",
+		// and the mirrored alternatives cover titles that name the channel
+		// layout after the object layer instead.
+		{regexp.MustCompile(`(?i)\btruehd` + audioGap + `atmos\b|\batmos` + audioGap + `truehd\b`), AudioAtmos},
+		{regexp.MustCompile(`(?i)` + ddPlus + audioGap + `atmos\b|\batmos` + audioGap + ddPlus), AudioDDPlusAtmos},
 		{regexp.MustCompile(`(?i)\batmos\b`), AudioAtmos},
 		{regexp.MustCompile(`(?i)\btruehd\b`), AudioTrueHD},
 		{regexp.MustCompile(`(?i)\bdts[\-\s]?(hd|ma)\b`), AudioDTS},
@@ -805,6 +831,12 @@ func parseCodec(s string) (Codec, bool) {
 	return CodecUnknown, false
 }
 
+// audioGap and ddPlus are fragments of the Atmos-carrier patterns above.
+const (
+	audioGap = `[\s._\-]*(?:\d[\s._\-]?\d[\s._\-]*)?`
+	ddPlus   = `\b(?:ddp|dd\+|eac3|e[\s._\-]?ac[\s._\-]?3|ec3)`
+)
+
 func parseAudio(s string) (Audio, bool) {
 	switch strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(s, "-", ""), ".", "")) {
 	case "mp3":
@@ -817,8 +849,10 @@ func parseAudio(s string) (Audio, bool) {
 		return AudioDTS, true
 	case "truehd":
 		return AudioTrueHD, true
-	case "atmos":
+	case "atmos", "truehdatmos":
 		return AudioAtmos, true
+	case "ddpatmos", "ddatmos", "eac3atmos":
+		return AudioDDPlusAtmos, true
 	}
 	return AudioUnknown, false
 }

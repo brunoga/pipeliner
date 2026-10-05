@@ -18,6 +18,7 @@ import (
 	"github.com/brunoga/pipeliner/internal/plugin"
 	"github.com/brunoga/pipeliner/internal/settle"
 	"github.com/brunoga/pipeliner/internal/store"
+	"github.com/brunoga/pipeliner/internal/untrack"
 	"github.com/brunoga/pipeliner/quality"
 )
 
@@ -1269,5 +1270,133 @@ func TestSettleDoesNotDuplicateBestThatIsStillListed(t *testing.T) {
 	}
 	if urls[0] != "http://idx/dl?path=B" {
 		t.Errorf("accepted %q, want the live token; the recorded URL no longer resolves", urls[0])
+	}
+}
+
+// TestCommitUsesDecisionYear is the regression guard for the wrong-key writes
+// that re-downloaded films forever. The metadata plugins (metainfo_tmdb and
+// friends) overwrite video_year with the year of whichever title they matched,
+// and they normally sit DOWNSTREAM of this filter — while Commit runs last of
+// all. Reading video_year at commit time therefore stored the record under a
+// key no later lookup would find, and the film was re-grabbed on every run.
+func TestCommitUsesDecisionYear(t *testing.T) {
+	p := openPlugin(t, map[string]any{"static": []any{"Aladdin"}})
+	tc := makeCtx()
+	e := makeEntry("Aladdin.2019.1080p.BluRay.DD7.1.x264-DON", "http://x.com/aladdin")
+
+	if _, err := p.Process(context.Background(), tc, []*entry.Entry{e}); err != nil {
+		t.Fatal(err)
+	}
+	if !e.IsAccepted() {
+		t.Fatalf("entry should be accepted, reason = %q", e.RejectReason)
+	}
+
+	// Downstream enrichment picks the 1992 animated film and rewrites the year.
+	e.Set(entry.FieldVideoYear, 1992)
+
+	if err := p.Commit(context.Background(), tc, []*entry.Entry{e}); err != nil {
+		t.Fatal(err)
+	}
+
+	// The record must answer the question the next run actually asks.
+	if !p.tracker.IsSeen("aladdin", 2019, false) {
+		t.Error("tracker must hold the 2019 key the decision used")
+	}
+	rec, ok := p.tracker.Latest("aladdin", false)
+	if !ok {
+		t.Fatal("no record stored")
+	}
+	if rec.Year != 2019 {
+		t.Errorf("stored year = %d, want 2019 (not the rewritten video_year)", rec.Year)
+	}
+}
+
+// The 3D flag has the same exposure as the year.
+func TestCommitUsesDecisionIs3D(t *testing.T) {
+	p := openPlugin(t, map[string]any{"static": []any{"Avatar"}})
+	tc := makeCtx()
+	e := makeEntry("Avatar.2009.3D.Half-SBS.1080p.BluRay.x264", "http://x.com/avatar")
+
+	if _, err := p.Process(context.Background(), tc, []*entry.Entry{e}); err != nil {
+		t.Fatal(err)
+	}
+	if !e.IsAccepted() {
+		t.Fatalf("entry should be accepted, reason = %q", e.RejectReason)
+	}
+	decided := e.GetBool(entry.FieldMoviesTrackerIs3D)
+	if !decided {
+		t.Fatal("a 3D release should have been stamped as 3D")
+	}
+	// Downstream enrichment clobbers the flag.
+	e.Set(entry.FieldVideoIs3D, false)
+
+	if err := p.Commit(context.Background(), tc, []*entry.Entry{e}); err != nil {
+		t.Fatal(err)
+	}
+	if !p.tracker.IsSeen("avatar", 2009, true) {
+		t.Error("tracker must hold the 3D key the decision used")
+	}
+}
+
+// TestRetryCooldown covers the hold that stops a film whose grabs keep dying
+// from being re-grabbed on every scheduled run.
+func TestRetryCooldown(t *testing.T) {
+	p := openPlugin(t, map[string]any{"static": []any{"Inception"}, "retry_cooldown": "6h"})
+	key := untrack.MovieKey("inception", 2010, false)
+	if err := p.untrackStore.Mark(key, untrack.Record{
+		At: time.Now().Add(-1 * time.Hour), Release: "Inception.2010.720p", Reason: "stalled",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	e := makeEntry("Inception.2010.1080p.BluRay.x264", "http://x.com/i")
+	if err := p.filter(context.Background(), makeCtx(), e); err != nil {
+		t.Fatal(err)
+	}
+	if !e.IsRejected() {
+		t.Fatalf("entry should be held during the cooldown, state = %v", e.State)
+	}
+	if !strings.Contains(e.RejectReason, "retrying in") {
+		t.Errorf("reject reason = %q, want it to report the remaining hold", e.RejectReason)
+	}
+}
+
+func TestRetryCooldownElapsed(t *testing.T) {
+	p := openPlugin(t, map[string]any{"static": []any{"Inception"}, "retry_cooldown": "6h"})
+	key := untrack.MovieKey("inception", 2010, false)
+	if err := p.untrackStore.Mark(key, untrack.Record{At: time.Now().Add(-7 * time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+
+	e := makeEntry("Inception.2010.1080p.BluRay.x264", "http://x.com/i")
+	if err := p.filter(context.Background(), makeCtx(), e); err != nil {
+		t.Fatal(err)
+	}
+	if !e.IsAccepted() {
+		t.Fatalf("the hold has elapsed, entry should pass; reason = %q", e.RejectReason)
+	}
+}
+
+// retry_cooldown=0 restores the old retry-on-the-next-run behaviour.
+func TestRetryCooldownDisabled(t *testing.T) {
+	p := openPlugin(t, map[string]any{"static": []any{"Inception"}, "retry_cooldown": "0"})
+	key := untrack.MovieKey("inception", 2010, false)
+	if err := p.untrackStore.Mark(key, untrack.Record{At: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+
+	e := makeEntry("Inception.2010.1080p.BluRay.x264", "http://x.com/i")
+	if err := p.filter(context.Background(), makeCtx(), e); err != nil {
+		t.Fatal(err)
+	}
+	if !e.IsAccepted() {
+		t.Fatalf("a zero cooldown must not hold; reason = %q", e.RejectReason)
+	}
+}
+
+func TestRetryCooldownDefault(t *testing.T) {
+	p := openPlugin(t, nil)
+	if p.retryCooldown != defaultRetryCooldown {
+		t.Errorf("retryCooldown = %s, want the %s default", p.retryCooldown, defaultRetryCooldown)
 	}
 }

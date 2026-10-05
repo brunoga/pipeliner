@@ -231,3 +231,140 @@ func TestTrackerSeparates3DAndNon3D(t *testing.T) {
 		t.Error("non-3D should still be seen after also marking 3D")
 	}
 }
+
+// TestMarkKeepsPreviousDownload covers the one-level undo Mark maintains: the
+// record it replaces is carried along so a failed grab can be rolled back
+// instead of erasing the film's history.
+func TestMarkKeepsPreviousDownload(t *testing.T) {
+	tr := NewTracker(newMemBucket())
+	first := quality.Parse("1080p bluray x264")
+	second := quality.Parse("2160p bluray x265 dolby vision")
+
+	if err := tr.Mark(Record{Title: "dune", Year: 2021, Quality: first}); err != nil {
+		t.Fatal(err)
+	}
+	rec, ok := tr.Latest("dune", false)
+	if !ok {
+		t.Fatal("first download should be tracked")
+	}
+	if rec.Prev != nil {
+		t.Errorf("a first download has nothing to roll back to, got %+v", rec.Prev)
+	}
+
+	if err := tr.Mark(Record{Title: "dune", Year: 2021, Quality: second}); err != nil {
+		t.Fatal(err)
+	}
+	rec, _ = tr.Latest("dune", false)
+	if rec.Quality != second {
+		t.Errorf("current quality = %s, want %s", rec.Quality, second)
+	}
+	if rec.Prev == nil || rec.Prev.Quality != first {
+		t.Fatalf("Prev should hold the superseded download, got %+v", rec.Prev)
+	}
+}
+
+func TestUntrackGrab(t *testing.T) {
+	low := quality.Parse("1080p web-dl x264")
+	high := quality.Parse("2160p bluray x265 atmos")
+
+	t.Run("no record is a no-op", func(t *testing.T) {
+		tr := NewTracker(newMemBucket())
+		got, err := tr.UntrackGrab("dune", 2021, false, low, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != UntrackNoRecord {
+			t.Errorf("outcome = %v, want UntrackNoRecord", got)
+		}
+	})
+
+	t.Run("only download on record is deleted", func(t *testing.T) {
+		tr := NewTracker(newMemBucket())
+		if err := tr.Mark(Record{Title: "dune", Year: 2021, Quality: low}); err != nil {
+			t.Fatal(err)
+		}
+		got, err := tr.UntrackGrab("dune", 2021, false, low, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != UntrackDeleted {
+			t.Errorf("outcome = %v, want UntrackDeleted", got)
+		}
+		if tr.IsSeen("dune", 2021, false) {
+			t.Error("record should be gone so another release can be tried")
+		}
+	})
+
+	// The regression this exists for: a failed upgrade used to delete the
+	// record outright, which also forgot the good copy already in the library
+	// and re-downloaded the film — often at worse quality than it had.
+	t.Run("failed upgrade rolls back to the previous download", func(t *testing.T) {
+		tr := NewTracker(newMemBucket())
+		if err := tr.Mark(Record{Title: "dune", Year: 2021, Quality: low}); err != nil {
+			t.Fatal(err)
+		}
+		if err := tr.Mark(Record{Title: "dune", Year: 2021, Quality: high, Repack: true}); err != nil {
+			t.Fatal(err)
+		}
+		got, err := tr.UntrackGrab("dune", 2021, false, high, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != UntrackRestored {
+			t.Fatalf("outcome = %v, want UntrackRestored", got)
+		}
+		rec, ok := tr.Latest("dune", false)
+		if !ok {
+			t.Fatal("the earlier download must stay tracked")
+		}
+		if rec.Quality != low {
+			t.Errorf("restored quality = %s, want %s", rec.Quality, low)
+		}
+		if rec.Repack {
+			t.Error("restored record must carry the earlier download's repack flag")
+		}
+		if rec.Prev != nil {
+			t.Error("rollback consumes the undo level")
+		}
+	})
+
+	t.Run("record from a later download is left alone", func(t *testing.T) {
+		tr := NewTracker(newMemBucket())
+		if err := tr.Mark(Record{Title: "dune", Year: 2021, Quality: high}); err != nil {
+			t.Fatal(err)
+		}
+		// An older torrent dies after a better copy was already recorded.
+		got, err := tr.UntrackGrab("dune", 2021, false, low, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != UntrackStale {
+			t.Fatalf("outcome = %v, want UntrackStale", got)
+		}
+		rec, _ := tr.Latest("dune", false)
+		if rec.Quality != high {
+			t.Errorf("quality = %s, want the later download %s", rec.Quality, high)
+		}
+	})
+
+	t.Run("grab record without quality still rolls back", func(t *testing.T) {
+		tr := NewTracker(newMemBucket())
+		if err := tr.Mark(Record{Title: "dune", Year: 2021, Quality: low}); err != nil {
+			t.Fatal(err)
+		}
+		if err := tr.Mark(Record{Title: "dune", Year: 2021, Quality: high}); err != nil {
+			t.Fatal(err)
+		}
+		got, err := tr.UntrackGrab("dune", 2021, false, quality.Quality{}, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != UntrackRestored {
+			t.Fatalf("outcome = %v, want UntrackRestored", got)
+		}
+		rec, _ := tr.Latest("dune", false)
+		if rec.Quality != low {
+			t.Errorf("restored quality = %s, want %s", rec.Quality, low)
+		}
+	})
+}

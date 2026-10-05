@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/brunoga/pipeliner/internal/match"
 	"github.com/brunoga/pipeliner/internal/movies"
@@ -85,6 +86,13 @@ func trackerSeries(args []string, forget bool) int {
 	tracker := series.NewTracker(db.Bucket(series.TrackerBucketName))
 
 	if forget {
+		// Report what the record held before dropping it: forgetting causes a
+		// re-download, and "forgot X" alone leaves no trace of what quality
+		// the library was known to have.
+		if rec, ok := tracker.Get(norm, epID); ok {
+			fmt.Printf("forgetting %s|%s (quality: %s, downloaded %s)\n",
+				norm, epID, rec.Quality.String(), rec.DownloadedAt.Format(time.RFC3339))
+		}
 		if err := tracker.Forget(norm, epID); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			return 1
@@ -130,6 +138,11 @@ func trackerMovie(args []string, forget bool) int {
 	tracker := movies.NewTracker(db.Bucket(movies.TrackerBucketName))
 
 	if forget {
+		if rec, ok := tracker.Latest(norm, *is3D); ok {
+			fmt.Printf("forgetting %s (%d)%s (quality: %s, downloaded %s)\n",
+				norm, *year, tridSuffix(*is3D), rec.Quality.String(),
+				rec.DownloadedAt.Format(time.RFC3339))
+		}
 		if err := tracker.Forget(norm, *year, *is3D); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			return 1
