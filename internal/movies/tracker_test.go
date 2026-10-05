@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/brunoga/pipeliner/internal/untrack"
 	"github.com/brunoga/pipeliner/quality"
 )
 
@@ -273,8 +274,8 @@ func TestUntrackGrab(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got != UntrackNoRecord {
-			t.Errorf("outcome = %v, want UntrackNoRecord", got)
+		if got != untrack.NoRecord {
+			t.Errorf("outcome = %v, want untrack.NoRecord", got)
 		}
 	})
 
@@ -287,8 +288,8 @@ func TestUntrackGrab(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got != UntrackDeleted {
-			t.Errorf("outcome = %v, want UntrackDeleted", got)
+		if got != untrack.Deleted {
+			t.Errorf("outcome = %v, want untrack.Deleted", got)
 		}
 		if tr.IsSeen("dune", 2021, false) {
 			t.Error("record should be gone so another release can be tried")
@@ -310,8 +311,8 @@ func TestUntrackGrab(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got != UntrackRestored {
-			t.Fatalf("outcome = %v, want UntrackRestored", got)
+		if got != untrack.Restored {
+			t.Fatalf("outcome = %v, want untrack.Restored", got)
 		}
 		rec, ok := tr.Latest("dune", false)
 		if !ok {
@@ -338,8 +339,8 @@ func TestUntrackGrab(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got != UntrackStale {
-			t.Fatalf("outcome = %v, want UntrackStale", got)
+		if got != untrack.Stale {
+			t.Fatalf("outcome = %v, want untrack.Stale", got)
 		}
 		rec, _ := tr.Latest("dune", false)
 		if rec.Quality != high {
@@ -359,8 +360,8 @@ func TestUntrackGrab(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got != UntrackRestored {
-			t.Fatalf("outcome = %v, want UntrackRestored", got)
+		if got != untrack.Restored {
+			t.Fatalf("outcome = %v, want untrack.Restored", got)
 		}
 		rec, _ := tr.Latest("dune", false)
 		if rec.Quality != low {
