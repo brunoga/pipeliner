@@ -242,3 +242,51 @@ func TestRegistration(t *testing.T) {
 		t.Errorf("role = %v", d.Role)
 	}
 }
+
+// TestCompletedErroredTorrentNotFailed is the regression guard for the
+// re-download loop: a torrent that already reached 100% and then errors has
+// delivered its data, so failing it would let the janitor delete a finished
+// download (torrent_control remove_with_data) and un-track a film that is
+// already in the library — which re-downloads it on the next run.
+func TestCompletedErroredTorrentNotFailed(t *testing.T) {
+	p := newTestPlugin(t, nil)
+	e := sessionEntry("errored", map[string]any{
+		entry.FieldTorrentError:    "files missing from the download directory",
+		entry.FieldTorrentProgress: 100.0,
+	})
+	classify(t, p, e)
+	if e.IsAccepted() {
+		t.Fatalf("a complete torrent must never be failed, accept reason = %q", e.AcceptReason)
+	}
+	if !strings.Contains(e.RejectReason, "complete") {
+		t.Errorf("reject reason = %q, want it to name completeness", e.RejectReason)
+	}
+}
+
+// An errored torrent that never finished is still a failed grab — the fix
+// above must not make the janitor useless.
+func TestIncompleteErroredTorrentStillFailed(t *testing.T) {
+	p := newTestPlugin(t, nil)
+	e := sessionEntry("errored", map[string]any{
+		entry.FieldTorrentError:    "no space left on device",
+		entry.FieldTorrentProgress: 41.5,
+	})
+	classify(t, p, e)
+	if !e.IsAccepted() {
+		t.Fatalf("an incomplete errored torrent should be failed, reason = %q", e.RejectReason)
+	}
+}
+
+// A complete torrent that stalled past the timeout is likewise healthy: it has
+// nothing left to download.
+func TestCompletedStalledTorrentNotFailed(t *testing.T) {
+	p := newTestPlugin(t, map[string]any{"stall_timeout": "1h"})
+	e := sessionEntry("stalled", map[string]any{
+		entry.FieldTorrentProgress:     100.0,
+		entry.FieldTorrentLastActivity: now.Add(-72 * time.Hour),
+	})
+	classify(t, p, e)
+	if e.IsAccepted() {
+		t.Fatalf("a complete stalled torrent must not be failed, accept reason = %q", e.AcceptReason)
+	}
+}

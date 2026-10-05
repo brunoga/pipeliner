@@ -1,6 +1,6 @@
 # torrent_failed
 
-Classifier for dead grabs: **accepts** torrents whose download has failed — errored in the client, or stalled/zero-progress for longer than `stall_timeout` — and **rejects** healthy ones. Upstream is the [`torrent_session`](../../source/torrent_session/README.md) source.
+Classifier for dead grabs: **accepts** torrents whose download has failed — errored in the client, or stalled/zero-progress for longer than `stall_timeout` — and **rejects** healthy ones, including any torrent that already reached 100%. Upstream is the [`torrent_session`](../../source/torrent_session/README.md) source.
 
 ## Config
 
@@ -10,9 +10,10 @@ Classifier for dead grabs: **accepts** torrents whose download has failed — er
 
 ## Classification rules (in order)
 
-1. `torrent_state == "errored"` → **accepted** (reason includes the client's error message).
-2. `torrent_state == "stalled"`, or `"downloading"` with `torrent_progress == 0`: inactivity is measured from `torrent_last_activity` (falling back to `torrent_added_at`). Once it reaches `stall_timeout` → **accepted**; before that → rejected.
-3. Everything else (`seeding`, `paused`, `checking`, progressing downloads) → **rejected**.
+1. `torrent_progress >= 100` → **rejected** (`healthy (complete)`), whatever the state says. A finished torrent has already delivered its data, so the janitor's sinks would both do damage: `torrent_control(action="remove_with_data")` would delete the completed download, and `mark_failed` would un-track content that is already in the library — which re-downloads it on the next run. A complete torrent errors for reasons that say nothing about the download (the moved files are no longer where the client expects them, the tracker went away, seeding hit an I/O error), which is why this check precedes the errored rule rather than following it.
+2. `torrent_state == "errored"` → **accepted** (reason includes the client's error message).
+3. `torrent_state == "stalled"`, or `"downloading"` with `torrent_progress == 0`: inactivity is measured from `torrent_last_activity` (falling back to `torrent_added_at`). Once it reaches `stall_timeout` → **accepted**; before that → rejected.
+4. Everything else (`seeding`, `paused`, `checking`, progressing downloads) → **rejected**.
 
 A slow-but-moving download keeps refreshing its last-activity timestamp, so it is never classified as failed no matter how long it takes. A stalled torrent with no timing information at all is kept (rejected) rather than guessed at.
 
