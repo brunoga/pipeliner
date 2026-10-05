@@ -5,11 +5,27 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.50.0] - 2026-10-05
+
+The episode half of 1.49.0. The series tracker has the same shape as the movies one, so two of the five re-download causes applied to it unchanged — and looking at them turned up that the key-stability bug is live for episodes too, where it does more damage.
+
+### Added
+
+- **`series` holds an episode after a failed grab** ([#520](https://github.com/brunoga/pipeliner/pull/520)) for `retry_cooldown`, default `6h`, matching the `movies` key added in 1.49.0. Un-tracking a dead grab so a *different* release can be tried is right; doing it on every scheduled run burns through the indexer's whole listing for that episode in a few hours, downloading and deleting data each time. The hold is keyed by `(show, episode)`, so holding one episode never holds its neighbours, and the rejection is per-run and uncommitted so the episode is simply re-evaluated next run. `0` restores the old behaviour.
+
+### Changed
+
+- **Un-tracking a failed episode grab is a rollback, not a delete** ([#520](https://github.com/brunoga/pipeliner/pull/520)), the counterpart of the movies change in 1.49.0. The series tracker keeps one record per episode and each download overwrites it, so deleting the record also erased the memory of whatever was downloaded before — and the next run re-downloaded with no quality floor to compare against, able to land something worse than the copy on disk. Each download now carries the record it replaced, and a failed grab restores it; the record is deleted only when that grab is the only one on record, and left alone when it describes a *later* download. A double episode is stored as three records — the combined id plus one per part — so the rollback moves all three together, deciding on the combined one: rolling back only that would leave the episode half-tracked, with the part records still claiming a download that was undone.
+
+### Fixed
+
+- **The series tracker was keyed on an episode the decision never used** ([#520](https://github.com/brunoga/pipeliner/pull/520)). The record is written in the commit phase, which runs after every sink — and `metainfo_tvdb` re-parses the release name and overwrites `series_episode_id`, `series_season` and `series_episode` with whatever its own parse yields, while sitting *downstream* of both the `series` and `premiere` filters in a normal pipeline. Reading those fields at commit keyed the record to a different episode than the decision was about, and the damage is two-sided — worse than the movies version of the same bug: the episode actually grabbed stays untracked and is downloaded again on the next run, *and* a record appears against an episode nobody grabbed, which then blocks that episode from ever being fetched. A double episode is the easy way in (the filter decides on `S01E01E02`, a single-episode re-parse commits `S01E01`), but any disagreement between the two parses does it. The episode id and the numbers the part-marking needs are now stamped on the entry beside the already-stamped show name and read back on commit, so the write and the read always agree.
 
 ### Removed
 
 - `mvc2sbs` and its `internal/mvc` library, the Blu-ray 3D conversion tool, have moved to their own repository, [brunoga/mvc](https://github.com/brunoga/mvc), as `mvctools` — where they decode with that repository's pure-Go MVC decoder instead of an external edge264. The sample configs and the `exec` sink docs now point at `mvctools` and the `ghcr.io/brunoga/mvctools` image; the pipeliner release no longer ships a second binary or a second Docker image.
+
+**Why 1.50.0**: one new config key and two fixes, plus a tool leaving the repository. Nothing in the server changes meaning — `retry_cooldown` defaults to a non-zero hold, which is a behaviour change in the sense that an episode whose grab just failed now waits, but that is the defect being fixed rather than a reinterpretation of anything configured. The removal is of a separate binary that was never part of the pipeliner daemon, so no pipeline or config loses a capability. A minor bump per SemVer.
 
 ## [1.49.0] - 2026-10-05
 
