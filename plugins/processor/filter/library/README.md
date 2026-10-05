@@ -34,6 +34,8 @@ index is kept — an unreachable server never counts as an empty library.
 | `extensions` | list | no | common video types | File extensions to index (filesystem backend only) |
 | `url` | string | plex/jellyfin | — | Media server base URL |
 | `token` | string | plex/jellyfin | — | Media server API token |
+| `sections` | list | no | — | Only index these server libraries, by name (e.g. `["Movies"]`). Plex/Jellyfin backends. Omit to index all of them. |
+| `exclude_sections` | list | no | — | Index every server library except these, by name (e.g. `["3D Movies"]`). Plex/Jellyfin backends. |
 
 ## Matching
 
@@ -62,3 +64,18 @@ pipeline("tv", schedule="1h")
 | Role | `processor` |
 | Produces | — |
 | Requires | `title` |
+
+## Scoping to specific libraries
+
+The index keys movies on title + year and episodes on show + episode id, with no record of which library an item came from — so without a filter, every movie library on the server is pooled into one answer. That is wrong whenever a server holds more than one: with both `Movies` and `3D Movies` present, a film owned *only* in 3D makes the filter reject a 2D release of it.
+
+`sections` and `exclude_sections` scope the index by library name (case-insensitive; set one or the other, not both):
+
+```python
+lib = process("library", upstream=movies, backend="plex",
+              sections=["Movies"], deep_scan=True)
+```
+
+Both need a `plex` or `jellyfin` backend — the filesystem backend already selects content through `paths`, so a section filter there would silently do nothing and is rejected at config time.
+
+A server that cannot report its library names (an older Jellyfin build, a restricted token) leaves the name empty on every item. The filter then warns and indexes everything, because the alternatives are both worse: matching nothing would wave every duplicate through, and there is no safe way to guess which library an item belongs to.
