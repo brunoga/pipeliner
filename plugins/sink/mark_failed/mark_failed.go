@@ -144,10 +144,24 @@ func (p *markFailedSink) mark(tc *plugin.TaskContext, e *entry.Entry, hash strin
 	// pipelines with no series/movies filter) have nothing to un-track.
 	switch {
 	case rec.SeriesName != "" && rec.EpisodeID != "":
-		if err := p.seriesTracker.Forget(rec.SeriesName, rec.EpisodeID); err != nil {
-			return fmt.Errorf("forget series %s %s: %w", rec.SeriesName, rec.EpisodeID, err)
+		// Roll the record back rather than deleting it, for the same reason as
+		// movies below: each download overwrites the episode's record, so a
+		// plain delete also discards an earlier successful download and
+		// re-grabs an episode already in the library.
+		outcome, err := p.seriesTracker.UntrackGrab(
+			rec.SeriesName, rec.EpisodeID, rec.Quality, rec.Quality != quality.Quality{})
+		if err != nil {
+			return fmt.Errorf("un-track episode %s %s: %w", rec.SeriesName, rec.EpisodeID, err)
 		}
-		tc.Logger.Info(pluginName+": episode un-tracked", "series", rec.SeriesName, "episode", rec.EpisodeID)
+		tc.Logger.Info(pluginName+": episode un-tracked", "series", rec.SeriesName,
+			"episode", rec.EpisodeID, "outcome", outcome.String(),
+			"failed_quality", rec.Quality.String(), "release", rec.Title)
+		if outcome != untrack.Stale {
+			key := untrack.EpisodeKey(rec.SeriesName, rec.EpisodeID)
+			if err := p.untrackStore.Mark(key, untrack.Record{Release: rec.Title, Reason: reason}); err != nil {
+				tc.Logger.Warn(pluginName+": record un-track marker", "series", rec.SeriesName, "err", err)
+			}
+		}
 	case rec.MovieTitle != "":
 		// Roll the record back rather than deleting it: the movies tracker
 		// keeps one record per film, so a plain delete would also discard an
@@ -166,7 +180,7 @@ func (p *markFailedSink) mark(tc *plugin.TaskContext, e *entry.Entry, hash strin
 		// does not immediately grab another release of a film whose grabs keep
 		// dying. Skipped when the record was left alone: it describes a later,
 		// healthy download, and the normal upgrade check already governs it.
-		if outcome != imovies.UntrackStale {
+		if outcome != untrack.Stale {
 			key := untrack.MovieKey(rec.MovieTitle, rec.MovieYear, rec.MovieIs3D)
 			if err := p.untrackStore.Mark(key, untrack.Record{Release: rec.Title, Reason: reason}); err != nil {
 				tc.Logger.Warn(pluginName+": record un-track marker", "movie", rec.MovieTitle, "err", err)

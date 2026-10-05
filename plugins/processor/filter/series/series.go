@@ -32,6 +32,7 @@ import (
 	"github.com/brunoga/pipeliner/internal/series"
 	"github.com/brunoga/pipeliner/internal/settle"
 	"github.com/brunoga/pipeliner/internal/store"
+	"github.com/brunoga/pipeliner/internal/untrack"
 	"github.com/brunoga/pipeliner/quality"
 )
 
@@ -77,6 +78,7 @@ func init() {
 			{Key: "ttl", Type: plugin.FieldTypeDuration, Default: "1h", Hint: "Cache TTL for dynamic lists"},
 			{Key: "reject_unmatched", Type: plugin.FieldTypeBool, Default: true, Hint: "Reject episodes not classified as series upstream; when a list is configured, also reject episodes whose show isn't in the list"},
 			{Key: "upgrade_window", Type: plugin.FieldTypeDuration, Hint: "Accept quality upgrades only within this window after the first download (e.g. 7d as 168h; default: unlimited)"},
+			{Key: "retry_cooldown", Type: plugin.FieldTypeDuration, Default: "6h", Hint: "Hold off this long before grabbing another release of an episode whose last grab was marked failed by a janitor pipeline (0 = retry on the next run)"},
 		},
 		Caches: []plugin.CacheInfo{
 			{Name: "cache_series_list", Display: "Series Title List Cache"},
@@ -101,7 +103,10 @@ func validate(cfg map[string]any) []error {
 	if err := plugin.OptDuration(cfg, "settle", "series"); err != nil {
 		errs = append(errs, err)
 	}
-	errs = append(errs, plugin.OptUnknownKeys(cfg, "series", "static", "list", "ttl", "tracking", "reject_unmatched", "upgrade_window", "settle")...)
+	if err := plugin.OptDuration(cfg, "retry_cooldown", "series"); err != nil {
+		errs = append(errs, err)
+	}
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "series", "static", "list", "ttl", "tracking", "reject_unmatched", "upgrade_window", "settle", "retry_cooldown")...)
 	return errs
 }
 
@@ -132,6 +137,8 @@ type seriesPlugin struct {
 	upgradeWindow   time.Duration // 0 = upgrades accepted forever
 	settle          time.Duration // 0 = grab on sight
 	settleTracker   *settle.Tracker
+	retryCooldown   time.Duration // 0 = retry on the next run
+	untrackStore    *untrack.Store
 }
 
 func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
@@ -192,8 +199,19 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 		settleWindow = d
 	}
 
+	retryCooldown := defaultRetryCooldown
+	if v, _ := cfg["retry_cooldown"].(string); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return nil, fmt.Errorf("series: invalid retry_cooldown %q: %w", v, err)
+		}
+		retryCooldown = d
+	}
+
 	return &seriesPlugin{
 		settle:          settleWindow,
+		retryCooldown:   retryCooldown,
+		untrackStore:    untrack.NewStore(db.Bucket(untrack.BucketName)),
 		settleTracker:   settle.New(db.Bucket(settle.SeriesBucketName)),
 		staticShows:     staticShows,
 		listSources:     listSources,
@@ -206,6 +224,12 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 		upgradeWindow:   upgradeWindow,
 	}, nil
 }
+
+// defaultRetryCooldown is how long an episode is held after a janitor pipeline
+// marked its last grab failed. Non-zero by default: alternating to another
+// release of an episode whose torrents keep dying is correct, but doing it on
+// every scheduled run burns through every release of it in a few hours.
+const defaultRetryCooldown = 6 * time.Hour
 
 func (p *seriesPlugin) Name() string { return "series" }
 
@@ -256,7 +280,28 @@ func (p *seriesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *en
 	}
 	matchedShow := ref.Key
 
+	// Stamp the full tracker key for persist() to read back at commit time, so
+	// we don't have to re-resolve the show list there — and, for the episode
+	// identity, so the record is written under the key this decision was made
+	// with. metainfo_tvdb re-parses the release and rewrites series_episode_id
+	// (see entry.FieldSeriesTrackerEpisodeID), and commit runs after it.
 	e.Set(seriesTrackerName, matchedShow)
+	e.Set(entry.FieldSeriesTrackerEpisodeID, epID)
+	e.Set(entry.FieldSeriesTrackerSeason, e.GetInt(entry.FieldSeriesSeason))
+	e.Set(entry.FieldSeriesTrackerEpisode, e.GetInt(entry.FieldSeriesEpisode))
+	e.Set(entry.FieldSeriesTrackerDouble, e.GetInt(entry.FieldSeriesDoubleEpisode))
+
+	// A janitor pipeline marked this episode's last grab failed very recently.
+	// Hold off instead of immediately grabbing the next release: when every
+	// release of an episode is dead, retrying once per scheduled run just
+	// churns. Rejection is per-run and uncommitted, so the entry is
+	// re-evaluated on the next run and passes once the window elapses.
+	if left, held := p.untrackStore.Remaining(
+		untrack.EpisodeKey(matchedShow, epID), p.retryCooldown, time.Now()); held {
+		e.Reject(fmt.Sprintf("series: %s %s last grab failed, retrying in %s",
+			matchedShow, epID, left.Round(time.Minute)))
+		return nil
+	}
 
 	// Deactivated shows (series_tracker_update sink, typically after a
 	// series_lifecycle "complete" classification) are rejected before any
@@ -355,16 +400,14 @@ func (p *seriesPlugin) persist(_ context.Context, tc *plugin.TaskContext, entrie
 		if !e.IsAccepted() {
 			continue
 		}
-		// matchedShow was stamped onto the entry by filter(); reading it back
-		// here avoids re-resolving the show list at commit time.
-		matchedShow := e.GetString(seriesTrackerName)
-		if matchedShow == "" {
+		// The key the filter decided with, not a fresh read of
+		// series_episode_id — metainfo_tvdb rewrites that field and commit
+		// runs after it (see entry.FieldSeriesTrackerEpisodeID).
+		key, ok := e.SeriesTrackerKey()
+		if !ok {
 			continue
 		}
-		epID := e.GetString(entry.FieldSeriesEpisodeID)
-		if epID == "" {
-			continue
-		}
+		matchedShow, epID := key.Show, key.EpisodeID
 		q, _ := e.Quality()
 		rec := series.Record{
 			SeriesName:   matchedShow,
@@ -379,9 +422,9 @@ func (p *seriesPlugin) persist(_ context.Context, tc *plugin.TaskContext, entrie
 		// Episode, and DoubleEpisode; date-based IDs (which can't be doubles)
 		// naturally fall through with DoubleEpisode == 0.
 		ep := &series.Episode{
-			Season:        e.GetInt(entry.FieldSeriesSeason),
-			Episode:       e.GetInt(entry.FieldSeriesEpisode),
-			DoubleEpisode: e.GetInt(entry.FieldSeriesDoubleEpisode),
+			Season:        key.Season,
+			Episode:       key.Episode,
+			DoubleEpisode: key.DoubleEpisode,
 		}
 		if err := p.tracker.MarkWithParts(rec, ep); err != nil {
 			return fmt.Errorf("series: mark %s %s: %w", matchedShow, epID, err)

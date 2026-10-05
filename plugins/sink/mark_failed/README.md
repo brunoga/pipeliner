@@ -1,6 +1,6 @@
 # mark_failed
 
-Records a dead torrent's **original release URL** in the shared failed-grab bucket (`seen_failed`) and un-tracks the associated episode/movie, so a *different* release of the same content can be grabbed on a later run while the exact failed release is never retried. For movies the un-track is a one-level rollback rather than a delete, so a failed upgrade never costs the copy already in the library. Typically fed by [`torrent_failed`](../../processor/filter/torrent_failed/README.md).
+Records a dead torrent's **original release URL** in the shared failed-grab bucket (`seen_failed`) and un-tracks the associated episode/movie, so a *different* release of the same content can be grabbed on a later run while the exact failed release is never retried. The un-track is a one-level rollback rather than a delete, so a failed upgrade never costs the copy already in the library. Typically fed by [`torrent_failed`](../../processor/filter/torrent_failed/README.md).
 
 ## How the hash → release-URL linkage works
 
@@ -16,7 +16,7 @@ Entries whose hash has **no grab record** (added outside pipeliner, added before
 1. Puts the release URL into `seen_failed` with `{reason, failed_at}`. A [`seen`](../../processor/filter/seen/README.md) filter configured with `retry_failed=True` rejects that exact URL forever.
 2. Un-tracks the content so the `series`/`movies` filters stop treating it as downloaded and an alternative release passes on the next run. Grab records without tracker keys (pipelines with no series/movies filter) skip this step.
 
-   For **movies** this is a rollback, not a delete. The movies tracker holds one record per film and each download overwrites it, so deleting the record would also erase the memory of whatever was downloaded before — and the next run would re-grab a film that is already in the library, frequently at worse quality than the copy it has. Instead:
+   This is a rollback, not a delete, for **both** trackers. Each holds one record per film or episode and each download overwrites it, so deleting the record would also erase the memory of whatever was downloaded before — and the next run would re-grab content that is already in the library, frequently at worse quality than the copy it has. Instead:
 
    | Stored record | Action | Logged outcome |
    |---|---|---|
@@ -25,9 +25,9 @@ Entries whose hash has **no grab record** (added outside pipeliner, added before
    | describes a *later* download than the one that died | left untouched | `left (record is from a later download)` |
    | absent | nothing to do | `no record` |
 
-   The comparison uses the quality recorded on the grab record at add time. Grab records written before that field existed skip the staleness check but still roll back.
+   The comparison uses the quality recorded on the grab record at add time. Grab records written before that field existed skip the staleness check but still roll back. For a double episode (`S01E01E02`) the part records that [`MarkWithParts`](../../processor/filter/series/README.md) wrote alongside the combined one move with it, so the episode is never left half-tracked.
 
-3. Starts the `movies` filter's [`retry_cooldown`](../../processor/filter/movies/README.md#retry_cooldown) for the title by writing the shared `untrack_log` bucket, so the next scheduled run does not immediately grab another release of a film whose grabs keep dying. Skipped when the record was left untouched.
+3. Starts the [`movies`](../../processor/filter/movies/README.md#retry_cooldown) or [`series`](../../processor/filter/series/README.md#retry_cooldown) filter's `retry_cooldown` for the content by writing the shared `untrack_log` bucket, so the next scheduled run does not immediately grab another release of something whose grabs keep dying. Skipped when the record was left untouched.
 4. Deletes the consumed grab record.
 
 The recorded reason is the entry's accept reason (as stamped by `torrent_failed`, e.g. `torrent_failed: errored: tracker unregistered`), overridable via the `reason` key.

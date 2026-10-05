@@ -42,6 +42,7 @@ Episodes are looked up under every tracker key that spells the show (`brothers` 
 | `quality` | no | — | Quality spec (e.g. `720p+` for floor, `720p` for exact, `720p-1080p` for range) |
 | `reject_unmatched` | no | `true` | Reject entries that lack `series_episode_id` (i.e. were not classified as a series episode upstream). When a list is configured, also reject entries whose show name isn't in the list. With neither `static` nor `list` set, this flag only governs the classification check. |
 | `upgrade_window` | no | — | Accept quality upgrades only within this window after the first download (e.g. `168h` for 7 days). Unset = upgrades accepted forever. |
+| `retry_cooldown` | duration | no | `6h` | Hold off this long before grabbing another release of an episode whose last grab a janitor pipeline marked failed. `0` retries on the very next run. |
 | `settle` | string | no | — | Delay between first seeing a download-worthy release and grabbing one. Releases arrive in waves (1080p → 2160p → HDR → Atmos) within hours; instead of downloading each rung as it appears, the best release of the wave is remembered and downloaded when the window elapses — even if it has since scrolled out of the indexer feed (indexers typically advertise only their newest ~50 items). |
 
 Both `static` and `list` are optional. With neither set the filter accepts every classified episode that passes the quality spec and tracker checks.
@@ -213,3 +214,13 @@ Two things follow from this that are easy to get wrong:
 - Episode history and dynamic list cache are stored in `pipeliner.db` in the same directory as the config file.
 - The episode tracker is updated only after all downstream sinks confirm (via `CommitPlugin`). If a sink fails an entry, the episode is not recorded as downloaded and will be retried on the next run.
 - **Double episodes** (e.g. `S01E01E02`): when a double-episode release is committed, both individual episodes (`S01E01` and `S01E02`) are also marked as seen, preventing re-download of either part as a standalone release later.
+
+## `retry_cooldown`
+
+When a janitor pipeline ([`torrent_failed`](../torrent_failed/README.md) → [`mark_failed`](../../../sink/mark_failed/README.md)) declares a grab dead, the episode is un-tracked so a *different* release can be tried. Alternating releases is the point; doing it on every scheduled run is not — an episode whose every release is dead otherwise burns through the indexer's whole listing for it at the pipeline's own cadence.
+
+`retry_cooldown` holds the episode for a window after the un-track. The rejection is per-run and uncommitted, so the entry is re-evaluated on the next run and passes once the window elapses. The hold is keyed by `(show, episode)`, so holding one episode never holds its neighbours, and it is recorded in the shared `untrack_log` bucket by `mark_failed`.
+
+## Tracker key stability
+
+The tracker record is written in the commit phase, which runs after every sink. The episode identity it uses is captured when the filter *decides*, not re-read at commit time: [`metainfo_tvdb`](../../metainfo/tvdb/README.md) re-parses the release name and overwrites `series_episode_id` (along with `series_season` and `series_episode`) with whatever its own parse yields, and it normally sits downstream of this filter. Re-reading those fields on commit keyed the record to a different episode than the decision was about — which both re-downloads the episode and leaves a record against an episode nobody grabbed. The same applies to [`premiere`](../premiere/README.md).

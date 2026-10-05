@@ -17,6 +17,7 @@ import (
 	"github.com/brunoga/pipeliner/internal/series"
 	"github.com/brunoga/pipeliner/internal/settle"
 	"github.com/brunoga/pipeliner/internal/store"
+	"github.com/brunoga/pipeliner/internal/untrack"
 	"github.com/brunoga/pipeliner/quality"
 )
 
@@ -1099,5 +1100,126 @@ func TestFavoriteYearContradictionRejected(t *testing.T) {
 	p.filter(context.Background(), makeCtx(), e)
 	if e.IsAccepted() {
 		t.Error("the 1963 show should not match a 2005 favorite")
+	}
+}
+
+// TestCommitUsesDecisionEpisodeID is the regression guard for wrong-key
+// writes. metainfo_tvdb re-parses the release name and overwrites
+// series_episode_id, and it normally sits DOWNSTREAM of this filter — while
+// Commit runs last of all. Reading the field at commit time therefore stored
+// the record against a different episode than the decision was about, which
+// both re-downloads the episode and leaves a record nobody grabbed.
+func TestCommitUsesDecisionEpisodeID(t *testing.T) {
+	p := openPlugin(t, nil)
+	tc := makeCtx()
+	e := makeEntry("My.Show.S01E01E02.1080p.WEB-DL.x264", "http://x.com/a")
+
+	if _, err := p.Process(context.Background(), tc, []*entry.Entry{e}); err != nil {
+		t.Fatal(err)
+	}
+	if !e.IsAccepted() {
+		t.Fatalf("entry should be accepted, reason = %q", e.RejectReason)
+	}
+	decided := e.GetString(entry.FieldSeriesTrackerEpisodeID)
+	if decided == "" {
+		t.Fatal("filter should stamp the episode id it decided with")
+	}
+
+	// Downstream enrichment re-parses it as a single episode.
+	e.Set(entry.FieldSeriesEpisodeID, "S01E05")
+	e.Set(entry.FieldSeriesEpisode, 5)
+	e.Set(entry.FieldSeriesDoubleEpisode, 0)
+
+	if err := p.Commit(context.Background(), tc, []*entry.Entry{e}); err != nil {
+		t.Fatal(err)
+	}
+	if !p.tracker.IsSeen("my show", decided) {
+		t.Errorf("tracker must hold the %s key the decision used", decided)
+	}
+	if p.tracker.IsSeen("my show", "S01E05") {
+		t.Error("the rewritten episode id must not be tracked")
+	}
+	// The parts the decision implied are marked, so a later single-episode
+	// release of either is recognised.
+	for _, id := range []string{"S01E01", "S01E02"} {
+		if !p.tracker.IsSeen("my show", id) {
+			t.Errorf("part %s should be marked from the decided double episode", id)
+		}
+	}
+}
+
+// TestRetryCooldown covers the hold that stops an episode whose grabs keep
+// dying from being re-grabbed on every scheduled run.
+func TestRetryCooldown(t *testing.T) {
+	p := openPlugin(t, map[string]any{"retry_cooldown": "6h"})
+	key := untrack.EpisodeKey("my show", "S01E01")
+	if err := p.untrackStore.Mark(key, untrack.Record{
+		At: time.Now().Add(-1 * time.Hour), Release: "My.Show.S01E01.720p", Reason: "stalled",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	e := makeEntry("My.Show.S01E01.1080p.WEB-DL.x264", "http://x.com/b")
+	if err := p.filter(context.Background(), makeCtx(), e); err != nil {
+		t.Fatal(err)
+	}
+	if !e.IsRejected() {
+		t.Fatalf("entry should be held during the cooldown, state = %v", e.State)
+	}
+	if !strings.Contains(e.RejectReason, "retrying in") {
+		t.Errorf("reject reason = %q, want it to report the remaining hold", e.RejectReason)
+	}
+}
+
+func TestRetryCooldownElapsed(t *testing.T) {
+	p := openPlugin(t, map[string]any{"retry_cooldown": "6h"})
+	if err := p.untrackStore.Mark(untrack.EpisodeKey("my show", "S01E01"),
+		untrack.Record{At: time.Now().Add(-7 * time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	e := makeEntry("My.Show.S01E01.1080p.WEB-DL.x264", "http://x.com/c")
+	if err := p.filter(context.Background(), makeCtx(), e); err != nil {
+		t.Fatal(err)
+	}
+	if !e.IsAccepted() {
+		t.Fatalf("the hold has elapsed, entry should pass; reason = %q", e.RejectReason)
+	}
+}
+
+// A hold on one episode must not block its neighbours.
+func TestRetryCooldownIsPerEpisode(t *testing.T) {
+	p := openPlugin(t, map[string]any{"retry_cooldown": "6h"})
+	if err := p.untrackStore.Mark(untrack.EpisodeKey("my show", "S01E01"),
+		untrack.Record{At: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	e := makeEntry("My.Show.S01E02.1080p.WEB-DL.x264", "http://x.com/d")
+	if err := p.filter(context.Background(), makeCtx(), e); err != nil {
+		t.Fatal(err)
+	}
+	if !e.IsAccepted() {
+		t.Fatalf("a hold on S01E01 must not hold S01E02; reason = %q", e.RejectReason)
+	}
+}
+
+func TestRetryCooldownDisabled(t *testing.T) {
+	p := openPlugin(t, map[string]any{"retry_cooldown": "0"})
+	if err := p.untrackStore.Mark(untrack.EpisodeKey("my show", "S01E01"),
+		untrack.Record{At: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	e := makeEntry("My.Show.S01E01.1080p.WEB-DL.x264", "http://x.com/e")
+	if err := p.filter(context.Background(), makeCtx(), e); err != nil {
+		t.Fatal(err)
+	}
+	if !e.IsAccepted() {
+		t.Fatalf("a zero cooldown must not hold; reason = %q", e.RejectReason)
+	}
+}
+
+func TestRetryCooldownDefault(t *testing.T) {
+	p := openPlugin(t, nil)
+	if p.retryCooldown != defaultRetryCooldown {
+		t.Errorf("retryCooldown = %s, want the %s default", p.retryCooldown, defaultRetryCooldown)
 	}
 }

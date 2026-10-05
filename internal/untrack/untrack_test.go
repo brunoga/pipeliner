@@ -133,3 +133,39 @@ func TestMarkDefaultsToNow(t *testing.T) {
 type errFake struct{}
 
 func (errFake) Error() string { return "bucket unavailable" }
+
+func TestEpisodeKey(t *testing.T) {
+	tests := []struct {
+		show, ep, want string
+	}{
+		{"severance", "S02E10", "episode|severance|S02E10"},
+		{"Severance", "s02e10", "episode|severance|S02E10"},
+		{"show", "S01E01E02", "episode|show|S01E01E02"},
+		{"show", "2023-11-15", "episode|show|2023-11-15"},
+	}
+	for _, tt := range tests {
+		if got := EpisodeKey(tt.show, tt.ep); got != tt.want {
+			t.Errorf("EpisodeKey(%q,%q) = %q, want %q", tt.show, tt.ep, got, tt.want)
+		}
+	}
+	// Episodes and movies share the bucket, so their keys must not collide.
+	if EpisodeKey("dune", "S01E01") == MovieKey("dune", 2021, false) {
+		t.Error("episode and movie keys must differ")
+	}
+}
+
+func TestOutcomeString(t *testing.T) {
+	for _, tt := range []struct {
+		o    Outcome
+		want string
+	}{
+		{NoRecord, "no record"},
+		{Stale, "left (record is from a later download)"},
+		{Restored, "rolled back to previous download"},
+		{Deleted, "deleted"},
+	} {
+		if got := tt.o.String(); got != tt.want {
+			t.Errorf("Outcome(%d).String() = %q, want %q", tt.o, got, tt.want)
+		}
+	}
+}

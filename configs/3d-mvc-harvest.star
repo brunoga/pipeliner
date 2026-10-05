@@ -7,7 +7,7 @@
 #
 # MVC keeps the second eye as a dependent view of an AVC base view, and almost
 # nothing plays it: not Plex, not libavcodec. So an MVC release is not something
-# to put in a library — it is *source material* for mvc2sbs, which turns it into
+# to put in a library — it is *source material* for mvctools, which turns it into
 # the side-by-side form an ordinary player handles.
 #
 # That makes this the mirror image of a pipeline that feeds a library directly.
@@ -23,12 +23,12 @@
 #
 # Everything goes to one staging directory and stops there. Nothing is moved
 # into the library, because an MVC file in a library is an unplayable file in a
-# library. Sync that directory to wherever the GPU is and run mvc2sbs there:
+# library. Sync that directory to wherever the GPU is and run mvctools there:
 #
-#     mvc2sbs --input "/inbox/Life of Pi (2012)/disc.iso" \
+#     mvctools --input "/inbox/Life of Pi (2012)/disc.iso" \
 #             --output "/media/3dmovies/Life of Pi (2012).mkv"
 #
-# mvc2sbs reads a disc image without mounting it and picks the right playlist
+# mvctools reads a disc image without mounting it and picks the right playlist
 # itself, so an .iso needs no unpacking first — which is why this pipeline keeps
 # them rather than rejecting them.
 #
@@ -73,7 +73,7 @@ torrent = process("metainfo_torrent", upstream=once, fetch_timeout="1m")
 files   = process("require", upstream=torrent, fields=["torrent_files"])
 
 # Archives and installers are rejected; **disc images are not**. An .iso is the
-# most common shape for an MVC release, and mvc2sbs reads one directly — so
+# most common shape for an MVC release, and mvctools reads one directly — so
 # rejecting it, as a library pipeline must, would throw away most of this feed.
 ok = process("content", upstream=files, reject=["*.rar", "*.exe"])
 
@@ -113,7 +113,7 @@ output("notify", upstream=out, via="email",
        },
        title="3D MVC source: {{len .Entries}} arrived",
        body="""<h2>Ready to convert</h2>
-<p>Sync the inbox, then run mvc2sbs on each of these.</p>
+<p>Sync the inbox, then run mvctools on each of these.</p>
 <ul>
 {{range .Entries}}<li>{{.Title}}<br><small>{{index .Fields "inbox_path"}}</small></li>
 {{end}}</ul>""")

@@ -9,7 +9,6 @@ require (
 	go.starlark.net v0.0.0-20260326113308-fadfc96def35
 	golang.org/x/crypto v0.57.0
 	golang.org/x/sys v0.48.0
-	golift.io/udf v0.1.0
 	modernc.org/sqlite v1.60.1
 )
 

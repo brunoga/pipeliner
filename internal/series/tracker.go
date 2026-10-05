@@ -6,6 +6,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/brunoga/pipeliner/internal/untrack"
 	"github.com/brunoga/pipeliner/quality"
 )
 
@@ -28,6 +29,21 @@ type Record struct {
 	// every run. Pre-existing records (written before this field existed)
 	// default to false, which costs one extra re-download in the worst case.
 	Repack bool `json:"repack,omitempty"`
+
+	// Prev is the record this one replaced: one level of undo, so a failed
+	// grab can be rolled back to the download that preceded it instead of
+	// erasing the episode's history. Nil for a first download.
+	Prev *Previous `json:"prev,omitempty"`
+}
+
+// Previous is a superseded download, kept on the record that replaced it so
+// UntrackGrab can restore it. Only the fields the upgrade decision reads are
+// retained — the show and episode are the key and cannot differ.
+type Previous struct {
+	DisplayName  string          `json:"display_name,omitempty"`
+	Repack       bool            `json:"repack,omitempty"`
+	DownloadedAt time.Time       `json:"downloaded_at"`
+	Quality      quality.Quality `json:"quality"`
 }
 
 // bucket is the minimal key-value interface that Tracker requires.
@@ -67,9 +83,24 @@ func (t *Tracker) IsSeen(seriesName, episodeID string) bool {
 	return ok
 }
 
-// Mark records that an episode has been downloaded.
+// Mark records that an episode has been downloaded. Any record already stored
+// under the same key is carried along as r.Prev so UntrackGrab can roll back
+// to it; only one level is kept, which is all failed-grab recovery needs (it
+// always refers to the most recent grab of a release).
 func (t *Tracker) Mark(r Record) error {
-	return t.bucket.Put(recordKey(r.SeriesName, r.EpisodeID), r)
+	key := recordKey(r.SeriesName, r.EpisodeID)
+	if r.Prev == nil {
+		var old Record
+		if found, _ := t.bucket.Get(key, &old); found {
+			r.Prev = &Previous{
+				DisplayName:  old.DisplayName,
+				Repack:       old.Repack,
+				DownloadedAt: old.DownloadedAt,
+				Quality:      old.Quality,
+			}
+		}
+	}
+	return t.bucket.Put(key, r)
 }
 
 // MarkWithParts records that an episode has been downloaded and, for double
@@ -96,24 +127,100 @@ func (t *Tracker) MarkWithParts(r Record, ep *Episode) error {
 	return nil
 }
 
-// Forget removes the download record for an episode, so the series filter
-// stops considering it downloaded (failed-grab recovery). For double-episode
-// IDs (S01E01E02) the individual part records written by MarkWithParts are
-// removed too. No-op for unknown records.
+// Forget removes the download record for an episode outright, history and all,
+// so the series filter stops considering it downloaded. For double-episode IDs
+// (S01E01E02) the individual part records written by MarkWithParts are removed
+// too. No-op for unknown records.
+//
+// This is the explicit user-driven un-track (CLI, web tools); failed-grab
+// recovery wants UntrackGrab instead.
 func (t *Tracker) Forget(seriesName, episodeID string) error {
-	if err := t.bucket.Delete(recordKey(seriesName, episodeID)); err != nil {
-		return err
+	for _, key := range episodeKeys(seriesName, episodeID) {
+		if err := t.bucket.Delete(key); err != nil {
+			return err
+		}
 	}
+	return nil
+}
+
+// episodeKeys returns every bucket key MarkWithParts may have written for one
+// episode id: the id itself, plus each part of a double episode.
+func episodeKeys(seriesName, episodeID string) []string {
+	keys := []string{recordKey(seriesName, episodeID)}
 	var season, ep1, ep2 int
 	if n, err := fmt.Sscanf(episodeID, "S%dE%dE%d", &season, &ep1, &ep2); err == nil && n == 3 {
 		for _, part := range []int{ep1, ep2} {
 			partID := EpisodeID(&Episode{Season: season, Episode: part})
-			if err := t.bucket.Delete(recordKey(seriesName, partID)); err != nil {
-				return err
-			}
+			keys = append(keys, recordKey(seriesName, partID))
 		}
 	}
-	return nil
+	return keys
+}
+
+// UntrackGrab rolls the tracker back after a grab turned out to be dead.
+//
+// Plain deletion is wrong here: each download overwrites the episode's record,
+// so deleting it also erases the memory of whatever was downloaded before —
+// and the next run then re-downloads an episode that is already in the
+// library, often at worse quality than the copy it has. Instead the record is
+// rolled back to the download it replaced, and only deleted when the failed
+// grab is the only one on record. A double episode's part records move with
+// the combined one, since MarkWithParts wrote them together.
+//
+// failed is the quality of the grab that died, as recorded on its grab record.
+// When it does not match the stored record the record belongs to a later,
+// different download and is left untouched. Pass hasQuality=false for grab
+// records written before the quality was captured: the rollback still happens,
+// but the staleness check cannot run.
+func (t *Tracker) UntrackGrab(seriesName, episodeID string, failed quality.Quality, hasQuality bool) (untrack.Outcome, error) {
+	keys := episodeKeys(seriesName, episodeID)
+
+	// The combined key decides for the whole set: the parts were written from
+	// the same release, so rolling one back and not the others would leave the
+	// episode half-tracked.
+	var rec Record
+	found, err := t.bucket.Get(keys[0], &rec)
+	if err != nil {
+		return untrack.NoRecord, err
+	}
+	if !found {
+		return untrack.NoRecord, nil
+	}
+	if hasQuality && rec.Quality != failed {
+		return untrack.Stale, nil
+	}
+
+	outcome := untrack.Deleted
+	if rec.Prev != nil {
+		outcome = untrack.Restored
+	}
+	for _, key := range keys {
+		var cur Record
+		if found, _ := t.bucket.Get(key, &cur); !found {
+			continue
+		}
+		if cur.Prev == nil {
+			if err := t.bucket.Delete(key); err != nil {
+				return outcome, err
+			}
+			continue
+		}
+		restored := Record{
+			SeriesName:   cur.SeriesName,
+			DisplayName:  cur.Prev.DisplayName,
+			EpisodeID:    cur.EpisodeID,
+			DownloadedAt: cur.Prev.DownloadedAt,
+			Quality:      cur.Prev.Quality,
+			Repack:       cur.Prev.Repack,
+		}
+		if restored.DisplayName == "" {
+			restored.DisplayName = cur.DisplayName
+		}
+		if err := t.bucket.Put(key, restored); err != nil {
+			return outcome, err
+		}
+	}
+	return outcome, nil
 }
 
 // HighestEpisode returns the episode with the lexicographically greatest EpisodeID

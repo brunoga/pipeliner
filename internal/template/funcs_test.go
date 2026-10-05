@@ -448,7 +448,7 @@ func TestSumfieldFunc(t *testing.T) {
 
 // dirname is how a config turns a file a source matched into the directory a
 // tool wants. The disc case is the motivating one: the filesystem source
-// emits one entry per file, and mvc2sbs takes the BDMV directory rather than
+// emits one entry per file, and mvctools takes the BDMV directory rather than
 // any single file inside it.
 func TestDirnameAndBasename(t *testing.T) {
 	cases := []struct {

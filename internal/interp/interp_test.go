@@ -167,10 +167,10 @@ func equalStringSlices(a, b []string) bool {
 func TestPathHelpersInPatterns(t *testing.T) {
 	const loc = "/staging/Movie (2012)/BDMV/index.bdmv"
 	cases := []struct{ pattern, want string }{
-		// What configs/convert-3d-mvc.star hands mvc2sbs for a disc tree.
+		// What configs/convert-3d-mvc.star hands mvctools for a disc tree.
 		{`{{dirname .file_location}}`, "/staging/Movie (2012)/BDMV"},
 		{`{{basename .file_location}}`, "index.bdmv"},
-		// Nesting reaches the directory holding the BDMV, which mvc2sbs also
+		// Nesting reaches the directory holding the BDMV, which mvctools also
 		// accepts.
 		{`{{dirname (dirname .file_location)}}`, "/staging/Movie (2012)"},
 		// The two syntaxes do not mix: a pattern containing "{{" is compiled

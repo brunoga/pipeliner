@@ -86,6 +86,37 @@ func (s *Store) Last(key string) (Record, bool) {
 	return rec, true
 }
 
+// Outcome reports what un-tracking a failed grab did to a tracker record.
+// Both the movies and series trackers report it, so the sink that drives them
+// logs one vocabulary.
+type Outcome int
+
+const (
+	// NoRecord: nothing was stored under the key.
+	NoRecord Outcome = iota
+	// Stale: the stored record describes a different download than the failed
+	// grab, so it was left alone.
+	Stale
+	// Restored: the record was rolled back to the download it replaced.
+	Restored
+	// Deleted: the failed grab was the only download on record, so the record
+	// was removed.
+	Deleted
+)
+
+func (o Outcome) String() string {
+	switch o {
+	case Stale:
+		return "left (record is from a later download)"
+	case Restored:
+		return "rolled back to previous download"
+	case Deleted:
+		return "deleted"
+	default:
+		return "no record"
+	}
+}
+
 // MovieKey builds the key for a movie, matching the movies tracker's own
 // (title, year, 3D) identity.
 func MovieKey(title string, year int, is3D bool) string {
@@ -93,4 +124,10 @@ func MovieKey(title string, year int, is3D bool) string {
 		return fmt.Sprintf("movie|%s|%d|3d", strings.ToLower(title), year)
 	}
 	return fmt.Sprintf("movie|%s|%d", strings.ToLower(title), year)
+}
+
+// EpisodeKey builds the key for an episode, matching the series tracker's own
+// (show, episode) identity.
+func EpisodeKey(seriesName, episodeID string) string {
+	return fmt.Sprintf("episode|%s|%s", strings.ToLower(seriesName), strings.ToUpper(episodeID))
 }

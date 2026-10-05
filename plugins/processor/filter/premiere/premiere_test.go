@@ -423,3 +423,39 @@ func TestFailedPremiereGrabIsUntracked(t *testing.T) {
 		t.Errorf("premiere should be retried after the failed grab: %s", retry.RejectReason)
 	}
 }
+
+// TestCommitUsesDecisionEpisodeID is the regression guard for wrong-key
+// writes. metainfo_tvdb re-parses the release name and overwrites
+// series_episode_id, and it sits DOWNSTREAM of this filter — while Commit runs
+// last of all. Reading the field at commit time stored the record against a
+// different episode than the decision was about.
+func TestCommitUsesDecisionEpisodeID(t *testing.T) {
+	p := makePlugin(t, map[string]any{"season": 1, "episode": 1})
+	tc := makeCtx()
+	e := makeEntry("New Show", 1, 1)
+
+	if _, err := p.Process(context.Background(), tc, []*entry.Entry{e}); err != nil {
+		t.Fatal(err)
+	}
+	if !e.IsAccepted() {
+		t.Fatalf("a season-1 premiere should be accepted, reason = %q", e.RejectReason)
+	}
+	decided := e.GetString(entry.FieldSeriesTrackerEpisodeID)
+	if decided != "S01E01" {
+		t.Fatalf("stamped episode id = %q, want S01E01", decided)
+	}
+
+	// Downstream enrichment re-parses the release onto a different episode.
+	e.Set(entry.FieldSeriesEpisodeID, "S01E03")
+	e.Set(entry.FieldSeriesEpisode, 3)
+
+	if err := p.Commit(context.Background(), tc, []*entry.Entry{e}); err != nil {
+		t.Fatal(err)
+	}
+	if !p.tracker.IsSeen("new show", "S01E01") {
+		t.Error("tracker must hold the S01E01 key the decision used")
+	}
+	if p.tracker.IsSeen("new show", "S01E03") {
+		t.Error("the rewritten episode id must not be tracked")
+	}
+}

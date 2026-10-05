@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/brunoga/pipeliner/internal/store"
+	"github.com/brunoga/pipeliner/internal/untrack"
 	"github.com/brunoga/pipeliner/quality"
 )
 
@@ -245,4 +246,198 @@ func TestEpisodeID(t *testing.T) {
 			t.Errorf("EpisodeID(%+v) = %q, want %q", tc.ep, got, tc.want)
 		}
 	}
+}
+
+// TestMarkKeepsPreviousDownload covers the one-level undo Mark maintains, so a
+// failed grab can be rolled back instead of erasing the episode's history.
+func TestMarkKeepsPreviousDownload(t *testing.T) {
+	tr := openTracker(t)
+	first := quality.Parse("720p WEB-DL x264")
+	second := quality.Parse("1080p BluRay x265")
+
+	if err := tr.Mark(Record{SeriesName: "severance", EpisodeID: "S02E10", Quality: first}); err != nil {
+		t.Fatal(err)
+	}
+	rec, ok := tr.Get("severance", "S02E10")
+	if !ok {
+		t.Fatal("first download should be tracked")
+	}
+	if rec.Prev != nil {
+		t.Errorf("a first download has nothing to roll back to, got %+v", rec.Prev)
+	}
+
+	if err := tr.Mark(Record{SeriesName: "severance", EpisodeID: "S02E10", Quality: second}); err != nil {
+		t.Fatal(err)
+	}
+	rec, _ = tr.Get("severance", "S02E10")
+	if rec.Quality != second {
+		t.Errorf("current quality = %s, want %s", rec.Quality, second)
+	}
+	if rec.Prev == nil || rec.Prev.Quality != first {
+		t.Fatalf("Prev should hold the superseded download, got %+v", rec.Prev)
+	}
+}
+
+func TestUntrackGrab(t *testing.T) {
+	low := quality.Parse("720p WEB-DL x264")
+	high := quality.Parse("1080p BluRay x265")
+
+	t.Run("no record is a no-op", func(t *testing.T) {
+		tr := openTracker(t)
+		got, err := tr.UntrackGrab("severance", "S02E10", low, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != untrack.NoRecord {
+			t.Errorf("outcome = %v, want NoRecord", got)
+		}
+	})
+
+	t.Run("only download on record is deleted", func(t *testing.T) {
+		tr := openTracker(t)
+		if err := tr.Mark(Record{SeriesName: "severance", EpisodeID: "S02E10", Quality: low}); err != nil {
+			t.Fatal(err)
+		}
+		got, err := tr.UntrackGrab("severance", "S02E10", low, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != untrack.Deleted {
+			t.Errorf("outcome = %v, want Deleted", got)
+		}
+		if tr.IsSeen("severance", "S02E10") {
+			t.Error("record should be gone so another release can be tried")
+		}
+	})
+
+	// The regression this exists for: a failed upgrade used to delete the
+	// record outright, forgetting the copy already in the library and
+	// re-downloading the episode, often worse than what it had.
+	t.Run("failed upgrade rolls back to the previous download", func(t *testing.T) {
+		tr := openTracker(t)
+		if err := tr.Mark(Record{SeriesName: "severance", EpisodeID: "S02E10", DisplayName: "Severance", Quality: low}); err != nil {
+			t.Fatal(err)
+		}
+		if err := tr.Mark(Record{SeriesName: "severance", EpisodeID: "S02E10", DisplayName: "Severance", Quality: high, Repack: true}); err != nil {
+			t.Fatal(err)
+		}
+		got, err := tr.UntrackGrab("severance", "S02E10", high, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != untrack.Restored {
+			t.Fatalf("outcome = %v, want Restored", got)
+		}
+		rec, ok := tr.Get("severance", "S02E10")
+		if !ok {
+			t.Fatal("the earlier download must stay tracked")
+		}
+		if rec.Quality != low {
+			t.Errorf("restored quality = %s, want %s", rec.Quality, low)
+		}
+		if rec.Repack {
+			t.Error("restored record must carry the earlier download's repack flag")
+		}
+		if rec.Prev != nil {
+			t.Error("rollback consumes the undo level")
+		}
+	})
+
+	t.Run("record from a later download is left alone", func(t *testing.T) {
+		tr := openTracker(t)
+		if err := tr.Mark(Record{SeriesName: "severance", EpisodeID: "S02E10", Quality: high}); err != nil {
+			t.Fatal(err)
+		}
+		got, err := tr.UntrackGrab("severance", "S02E10", low, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != untrack.Stale {
+			t.Fatalf("outcome = %v, want Stale", got)
+		}
+		if rec, _ := tr.Get("severance", "S02E10"); rec.Quality != high {
+			t.Errorf("quality = %s, want the later download %s", rec.Quality, high)
+		}
+	})
+
+	// MarkWithParts writes the combined record plus one per part, so a
+	// rollback has to move all three together or the episode ends up
+	// half-tracked — the part records would still claim a download that was
+	// rolled back.
+	t.Run("double episode parts move with the combined record", func(t *testing.T) {
+		tr := openTracker(t)
+		ep := &Episode{Season: 1, Episode: 1, DoubleEpisode: 2}
+		base := Record{SeriesName: "show", EpisodeID: "S01E01E02"}
+		first, second := base, base
+		first.Quality, second.Quality = low, high
+		if err := tr.MarkWithParts(first, ep); err != nil {
+			t.Fatal(err)
+		}
+		if err := tr.MarkWithParts(second, ep); err != nil {
+			t.Fatal(err)
+		}
+		for _, id := range []string{"S01E01E02", "S01E01", "S01E02"} {
+			if rec, ok := tr.Get("show", id); !ok || rec.Quality != high {
+				t.Fatalf("%s should hold the upgrade, got %+v", id, rec)
+			}
+		}
+
+		got, err := tr.UntrackGrab("show", "S01E01E02", high, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != untrack.Restored {
+			t.Fatalf("outcome = %v, want Restored", got)
+		}
+		for _, id := range []string{"S01E01E02", "S01E01", "S01E02"} {
+			rec, ok := tr.Get("show", id)
+			if !ok {
+				t.Errorf("%s must stay tracked at the earlier quality", id)
+				continue
+			}
+			if rec.Quality != low {
+				t.Errorf("%s quality = %s, want %s", id, rec.Quality, low)
+			}
+		}
+	})
+
+	t.Run("double episode first grab deletes every part", func(t *testing.T) {
+		tr := openTracker(t)
+		ep := &Episode{Season: 1, Episode: 1, DoubleEpisode: 2}
+		if err := tr.MarkWithParts(Record{SeriesName: "show", EpisodeID: "S01E01E02", Quality: low}, ep); err != nil {
+			t.Fatal(err)
+		}
+		got, err := tr.UntrackGrab("show", "S01E01E02", low, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != untrack.Deleted {
+			t.Fatalf("outcome = %v, want Deleted", got)
+		}
+		for _, id := range []string{"S01E01E02", "S01E01", "S01E02"} {
+			if tr.IsSeen("show", id) {
+				t.Errorf("%s should be gone", id)
+			}
+		}
+	})
+
+	t.Run("grab record without quality still rolls back", func(t *testing.T) {
+		tr := openTracker(t)
+		if err := tr.Mark(Record{SeriesName: "severance", EpisodeID: "S02E10", Quality: low}); err != nil {
+			t.Fatal(err)
+		}
+		if err := tr.Mark(Record{SeriesName: "severance", EpisodeID: "S02E10", Quality: high}); err != nil {
+			t.Fatal(err)
+		}
+		got, err := tr.UntrackGrab("severance", "S02E10", quality.Quality{}, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != untrack.Restored {
+			t.Fatalf("outcome = %v, want Restored", got)
+		}
+		if rec, _ := tr.Get("severance", "S02E10"); rec.Quality != low {
+			t.Errorf("restored quality = %s, want %s", rec.Quality, low)
+		}
+	})
 }

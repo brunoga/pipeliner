@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/brunoga/pipeliner/internal/untrack"
 	"github.com/brunoga/pipeliner/quality"
 )
 
@@ -117,35 +118,6 @@ func (t *Tracker) Forget(title string, year int, is3D bool) error {
 	return t.bucket.Delete(recordKey(title, year, is3D))
 }
 
-// UntrackOutcome reports what UntrackGrab did.
-type UntrackOutcome int
-
-const (
-	// UntrackNoRecord: nothing was stored under the key.
-	UntrackNoRecord UntrackOutcome = iota
-	// UntrackStale: the stored record describes a different download than the
-	// failed grab, so it was left alone.
-	UntrackStale
-	// UntrackRestored: the record was rolled back to the download it replaced.
-	UntrackRestored
-	// UntrackDeleted: the failed grab was the only download on record, so the
-	// record was removed.
-	UntrackDeleted
-)
-
-func (o UntrackOutcome) String() string {
-	switch o {
-	case UntrackStale:
-		return "left (record is from a later download)"
-	case UntrackRestored:
-		return "rolled back to previous download"
-	case UntrackDeleted:
-		return "deleted"
-	default:
-		return "no record"
-	}
-}
-
 // UntrackGrab rolls back the tracker after a grab turned out to be dead.
 //
 // Plain deletion is wrong here: the tracker holds one record per movie and
@@ -160,21 +132,21 @@ func (o UntrackOutcome) String() string {
 // different download and is left untouched. Pass hasQuality=false for grab
 // records written before the quality was captured: the rollback still happens,
 // but the staleness check cannot run.
-func (t *Tracker) UntrackGrab(title string, year int, is3D bool, failed quality.Quality, hasQuality bool) (UntrackOutcome, error) {
+func (t *Tracker) UntrackGrab(title string, year int, is3D bool, failed quality.Quality, hasQuality bool) (untrack.Outcome, error) {
 	key := recordKey(title, year, is3D)
 	var rec Record
 	found, err := t.bucket.Get(key, &rec)
 	if err != nil {
-		return UntrackNoRecord, err
+		return untrack.NoRecord, err
 	}
 	if !found {
-		return UntrackNoRecord, nil
+		return untrack.NoRecord, nil
 	}
 	if hasQuality && rec.Quality != failed {
-		return UntrackStale, nil
+		return untrack.Stale, nil
 	}
 	if rec.Prev == nil {
-		return UntrackDeleted, t.bucket.Delete(key)
+		return untrack.Deleted, t.bucket.Delete(key)
 	}
 	restored := Record{
 		Title:        rec.Title,
@@ -184,7 +156,7 @@ func (t *Tracker) UntrackGrab(title string, year int, is3D bool, failed quality.
 		DownloadedAt: rec.Prev.DownloadedAt,
 		Quality:      rec.Prev.Quality,
 	}
-	return UntrackRestored, t.bucket.Put(key, restored)
+	return untrack.Restored, t.bucket.Put(key, restored)
 }
 
 // Latest returns the most recently downloaded record for a movie by title,

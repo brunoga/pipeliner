@@ -400,3 +400,77 @@ func TestDryRunDoesNotUntrack(t *testing.T) {
 		t.Error("dry run must not start a hold")
 	}
 }
+
+// TestFailedEpisodeUpgradeRollsBack mirrors the movies case: the series
+// tracker keeps one record per episode and each download overwrites it, so
+// deleting on a failed grab also erased the copy already in the library and
+// re-downloaded the episode.
+func TestFailedEpisodeUpgradeRollsBack(t *testing.T) {
+	p, db := openSink(t, nil)
+	have := quality.Parse("1080p BluRay x265")
+	attempted := quality.Parse("2160p WEB-DL x265")
+
+	tr := series.NewTracker(db.Bucket(series.TrackerBucketName))
+	if err := tr.Mark(series.Record{SeriesName: "some torrent", EpisodeID: "S01E03", Quality: have}); err != nil {
+		t.Fatal(err)
+	}
+	if err := tr.Mark(series.Record{SeriesName: "some torrent", EpisodeID: "S01E03", Quality: attempted}); err != nil {
+		t.Fatal(err)
+	}
+
+	gs := grabs.NewStore(db.Bucket(grabs.BucketName))
+	if err := gs.Put(hash, grabs.Record{
+		URL: releaseURL, Title: "Some.Torrent.S01E03.2160p",
+		SeriesName: "some torrent", EpisodeID: "S01E03", Quality: attempted,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := p.Consume(context.Background(), makeCtx(false), []*entry.Entry{sessionEntry(hash)}); err != nil {
+		t.Fatal(err)
+	}
+
+	rec, ok := tr.Get("some torrent", "S01E03")
+	if !ok {
+		t.Fatal("the copy already in the library must stay tracked")
+	}
+	if rec.Quality != have {
+		t.Errorf("tracked quality = %s, want the library copy %s", rec.Quality, have)
+	}
+	// The hold is started so the next run does not immediately try again.
+	if _, held := untrack.NewStore(db.Bucket(untrack.BucketName)).Remaining(
+		untrack.EpisodeKey("some torrent", "S01E03"), 6*time.Hour, time.Now()); !held {
+		t.Error("un-tracking an episode should start the retry hold")
+	}
+}
+
+// A torrent that dies after a newer, healthy episode download replaced its
+// record must not disturb that record, and must not start a hold.
+func TestStaleEpisodeFailureLeavesLaterRecord(t *testing.T) {
+	p, db := openSink(t, nil)
+	old := quality.Parse("720p WEB-DL x264")
+	current := quality.Parse("1080p BluRay x265")
+
+	tr := series.NewTracker(db.Bucket(series.TrackerBucketName))
+	if err := tr.Mark(series.Record{SeriesName: "some torrent", EpisodeID: "S01E03", Quality: current}); err != nil {
+		t.Fatal(err)
+	}
+	gs := grabs.NewStore(db.Bucket(grabs.BucketName))
+	if err := gs.Put(hash, grabs.Record{
+		URL: releaseURL, SeriesName: "some torrent", EpisodeID: "S01E03", Quality: old,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := p.Consume(context.Background(), makeCtx(false), []*entry.Entry{sessionEntry(hash)}); err != nil {
+		t.Fatal(err)
+	}
+	rec, ok := tr.Get("some torrent", "S01E03")
+	if !ok || rec.Quality != current {
+		t.Errorf("the later download must stay tracked, got %+v", rec)
+	}
+	if _, held := untrack.NewStore(db.Bucket(untrack.BucketName)).Remaining(
+		untrack.EpisodeKey("some torrent", "S01E03"), 6*time.Hour, time.Now()); held {
+		t.Error("a stale failure must not start a retry cooldown")
+	}
+}
