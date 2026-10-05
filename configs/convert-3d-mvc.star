@@ -1,7 +1,8 @@
 # convert-3d-mvc.star
 #
 # Converts Blu-ray 3D rips (MVC) into side-by-side files a normal player can
-# decode, by handing each one to the mvc2sbs binary.
+# decode, by handing each one to the mvctools binary
+# (https://github.com/brunoga/mvc).
 #
 # ── Why this pipeline exists ─────────────────────────────────────────────────
 #
@@ -16,7 +17,7 @@
 #
 # ── What this needs ──────────────────────────────────────────────────────────
 #
-#   * mvc2sbs on PATH, with its own four tools. Run `mvc2sbs --check` first: it
+#   * mvctools on PATH, with its own tools. Run `mvctools --check` first: it
 #     reports what is missing and what each one is for. Installing them is a
 #     one-off; a conversion that starts without them wastes the demux.
 #   * Somewhere to put the rips. This watches /media/3d-staging and writes into
@@ -61,11 +62,11 @@ SMTP = {
 
 # ── Find the rips ────────────────────────────────────────────────────────────
 
-# A 3D rip is an .m2ts (or an .iso / BDMV directory, which mvc2sbs also takes).
+# A 3D rip is an .m2ts (or an .iso / BDMV directory, which mvctools also takes).
 #
 # stable_for withholds a rip until two scans have seen it unchanged two minutes
 # apart, so one still being copied in is left for a later run instead of being
-# handed to mvc2sbs half-written. The unit is the top-level item — the
+# handed to mvctools half-written. The unit is the top-level item — the
 # directory (or single file) a release arrives as — so a disc delivered as a
 # tree settles as a whole rather than one file at a time.
 #
@@ -88,7 +89,7 @@ src = input("filesystem", path=staging, recursive=True, mask="*.m2ts",
 # A full disc delivered as a BDMV *tree* needs more care. `mask="*.m2ts"` with
 # recursive=True matches every stream file in BDMV/STREAM, which is dozens of
 # entries for one film. Match the one file every disc has exactly one of
-# instead, and hand mvc2sbs the directory holding it:
+# instead, and hand mvctools the directory holding it:
 #
 #     disc = input("filesystem", path=staging, recursive=True,
 #                  mask="index.bdmv", stable_for="2m")
@@ -96,7 +97,7 @@ src = input("filesystem", path=staging, recursive=True, mask="*.m2ts",
 #     args=["--input", "{{dirname .file_location}}", ...]
 #
 # dirname turns /staging/Movie/BDMV/index.bdmv into /staging/Movie/BDMV, which
-# mvc2sbs accepts. index.bdmv is small and written early, so its own timestamp
+# mvctools accepts. index.bdmv is small and written early, so its own timestamp
 # says nothing about whether the streams beside it have arrived — but settling
 # is per item, so the disc is still withheld until the whole tree stops
 # changing. That is what makes matching one file inside a tree safe.
@@ -160,9 +161,9 @@ once = process("seen", upstream=out, local=True, fields=["file_location"])
 #
 # A filter that matches nothing fails the entry before the conversion starts,
 # which `seen` then leaves untracked for a retry. Run
-# `mvc2sbs --list --input <disc>` to see what a disc offers first.
+# `mvctools --list --input <disc>` to see what a disc offers first.
 convert = output("exec", upstream=once,
-                 command="/usr/local/bin/mvc2sbs",
+                 command="/usr/local/bin/mvctools",
                  args=["--input", "{file_location}",
                        "--output", "{sbs_path}",
                        "--layout", "full",
@@ -171,7 +172,7 @@ convert = output("exec", upstream=once,
 
 # ── Alternative: run it out of its container ─────────────────────────────────
 #
-# mvc2sbs knows nothing about Docker — it runs its four tools from its own PATH,
+# mvctools knows nothing about Docker — it runs its tools from its own PATH,
 # so inside the image it just works. To drive that image from here instead of
 # installing the toolchain on the host, make `docker` the command and let the
 # args carry the rest. There is no shell, so each argument is its own element
@@ -185,7 +186,7 @@ convert = output("exec", upstream=once,
 #                          # For GPU encoding, pass the device through too:
 #                          #   "--device", "/dev/dri",            (VAAPI)
 #                          #   "--gpus", "all",                   (NVENC)
-#                          "ghcr.io/brunoga/mvc2sbs:latest",
+#                          "ghcr.io/brunoga/mvctools:latest",
 #                          "--input", "{file_location}",
 #                          "--output", "{sbs_path}",
 #                          "--layout", "full",

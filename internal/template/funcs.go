@@ -55,7 +55,7 @@ func FuncMap() template.FuncMap {
 		// "/inbox/Movie/BDMV/index.bdmv" becomes "/inbox/Movie/BDMV". It is
 		// how a config turns a file a source matched into the directory a
 		// tool wants, which is the usual shape for disc-based work — the
-		// filesystem source emits one entry per file, and mvc2sbs takes the
+		// filesystem source emits one entry per file, and mvctools takes the
 		// BDMV directory rather than any single file inside it.
 		//
 		// A path with no separator gives ".", matching filepath.Dir, so the

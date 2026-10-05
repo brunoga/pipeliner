@@ -32,31 +32,6 @@ builds:
       - goos: darwin
         goarch: arm
 
-  # mvc2sbs decides which external tools a platform needs, so it ships for
-  # every platform it reasons about rather than only the one it was built on.
-  - id: mvc2sbs
-    main: ./cmd/mvc2sbs
-    binary: mvc2sbs
-    env:
-      - CGO_ENABLED=0
-    ldflags:
-      - -s -w -X main.version={{.Version}}
-    goos:
-      - linux
-      - windows
-      - darwin
-    goarch:
-      - amd64
-      - arm64
-      - arm
-    goarm:
-      - "7"
-    ignore:
-      - goos: windows
-        goarch: arm
-      - goos: darwin
-        goarch: arm
-
 archives:
   - name_template: "pipeliner_{{.Version}}_{{.Os}}_{{.Arch}}{{if .Arm}}v{{.Arm}}{{end}}"
     files:

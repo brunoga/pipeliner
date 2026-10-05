@@ -29,7 +29,7 @@ func TestLdflagsVersionWins(t *testing.T) {
 
 // `go install module/cmd/x@v1.46.0` passes no ldflags, so the version the
 // toolchain embedded is the only thing that distinguishes one install from
-// another. This is the case mvc2sbs was missing, which made every go-installed
+// another. This is the case mvctools (then mvc2sbs, in this repository) was missing, which made every go-installed
 // copy report "dev".
 func TestEmbeddedVersionUsedWhenNoLdflags(t *testing.T) {
 	stubBuildInfo(t, "v1.46.0", true)

@@ -5,6 +5,12 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Removed
+
+- `mvc2sbs` and its `internal/mvc` library, the Blu-ray 3D conversion tool, have moved to their own repository, [brunoga/mvc](https://github.com/brunoga/mvc), as `mvctools` — where they decode with that repository's pure-Go MVC decoder instead of an external edge264. The sample configs and the `exec` sink docs now point at `mvctools` and the `ghcr.io/brunoga/mvctools` image; the pipeliner release no longer ships a second binary or a second Docker image.
+
 ## [1.49.0] - 2026-10-05
 
 Movies that were already in the library were being downloaded again, and not as upgrades. There was no single cause — five independent ones were found, each sufficient on its own, and the paths that cause a re-download were all silent about it.
