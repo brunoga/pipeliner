@@ -143,7 +143,15 @@ func (p *premierePlugin) filter(_ context.Context, _ *plugin.TaskContext, e *ent
 	if ref.Key == "" {
 		return nil
 	}
+	// Stamp the full tracker key so persist() keys the record to the episode
+	// this decision was about. metainfo_tvdb re-parses the release and
+	// rewrites series_episode_id (see entry.FieldSeriesTrackerEpisodeID), and
+	// commit runs after it.
 	e.Set(premiereTrackerName, ref.Key)
+	e.Set(entry.FieldSeriesTrackerEpisodeID, epID)
+	e.Set(entry.FieldSeriesTrackerSeason, season)
+	e.Set(entry.FieldSeriesTrackerEpisode, episode)
+	e.Set(entry.FieldSeriesTrackerDouble, e.GetInt(entry.FieldSeriesDoubleEpisode))
 
 	if _, seen := p.tracker.GetAny(ref.Keys, epID); seen {
 		e.Reject(fmt.Sprintf("premiere: %s %s already downloaded", displayName, epID))
@@ -165,15 +173,13 @@ func (p *premierePlugin) persist(_ context.Context, _ *plugin.TaskContext, entri
 			continue
 		}
 		// The resolved tracker key was stamped by filter(); reading it back
-		// keeps the record under the key the lookup used.
-		normalizedName := e.GetString(premiereTrackerName)
-		if normalizedName == "" {
+		// keeps the record under the key the lookup used — including the
+		// episode identity, which downstream enrichment rewrites.
+		key, ok := e.SeriesTrackerKey()
+		if !ok {
 			continue
 		}
-		epID := e.GetString(entry.FieldSeriesEpisodeID)
-		if epID == "" {
-			continue
-		}
+		normalizedName, epID := key.Show, key.EpisodeID
 		q, _ := e.Quality()
 		rec := series.Record{
 			SeriesName:   normalizedName,
@@ -188,9 +194,9 @@ func (p *premierePlugin) persist(_ context.Context, _ *plugin.TaskContext, entri
 		// Episode, and DoubleEpisode; date-based IDs (which can't be doubles)
 		// naturally fall through with DoubleEpisode == 0.
 		ep := &series.Episode{
-			Season:        e.GetInt(entry.FieldSeriesSeason),
-			Episode:       e.GetInt(entry.FieldSeriesEpisode),
-			DoubleEpisode: e.GetInt(entry.FieldSeriesDoubleEpisode),
+			Season:        key.Season,
+			Episode:       key.Episode,
+			DoubleEpisode: key.DoubleEpisode,
 		}
 		if err := p.tracker.MarkWithParts(rec, ep); err != nil {
 			return fmt.Errorf("premiere: mark %s %s: %w", normalizedName, epID, err)

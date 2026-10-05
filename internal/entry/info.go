@@ -129,6 +129,23 @@ const (
 	// commit phase. Internal; also read by the torrent sinks' grab records.
 	FieldMoviesTrackerTitle = "_movies_tracker_title"
 
+	// FieldSeriesTrackerEpisodeID and the three numbers beside it complete the
+	// series tracker key alongside FieldSeriesTrackerName, carrying the
+	// episode identity the filter actually decided with.
+	//
+	// They exist for the same reason the movies ones below do: series_episode_id
+	// is not stable across a run. metainfo_tvdb re-parses the release name and
+	// overwrites it (along with series_season / series_episode) with whatever
+	// its own parse yields, and it normally sits DOWNSTREAM of the series and
+	// premiere filters. Commit runs last, so reading those fields there can
+	// key the record to a different episode than the one the decision was
+	// made about — which both re-downloads the episode and leaves a record
+	// against an episode nobody grabbed.
+	FieldSeriesTrackerEpisodeID = "_series_tracker_episode_id"
+	FieldSeriesTrackerSeason    = "_series_tracker_season"
+	FieldSeriesTrackerEpisode   = "_series_tracker_episode"
+	FieldSeriesTrackerDouble    = "_series_tracker_double_episode"
+
 	// FieldMoviesTrackerYear and FieldMoviesTrackerIs3D complete the movies
 	// tracker key alongside FieldMoviesTrackerTitle, carrying the year and 3D
 	// flag the filter actually decided with.
@@ -472,6 +489,47 @@ func (e *Entry) MoviesTrackerKey() (title string, year int, is3D bool, ok bool) 
 		return title, e.GetInt(FieldMoviesTrackerYear), e.GetBool(FieldMoviesTrackerIs3D), true
 	}
 	return title, e.GetInt(FieldVideoYear), e.GetBool(FieldVideoIs3D), true
+}
+
+// SeriesTrackerKey is the series tracker key the series or premiere filter
+// decided with, plus the episode numbers the tracker needs to mark the parts
+// of a double episode.
+type SeriesTrackerKey struct {
+	Show          string
+	EpisodeID     string
+	Season        int
+	Episode       int
+	DoubleEpisode int
+}
+
+// SeriesTrackerKey returns the key the filter decided with. ok is false when
+// the entry never passed through a series or premiere filter (no matched show,
+// or no episode id), in which case there is nothing to track.
+//
+// The episode fields fall back to series_episode_id and friends for entries
+// stamped by an older build, whose records predate
+// FieldSeriesTrackerEpisodeID. The fallback reproduces the old (unstable)
+// behaviour rather than inventing an identity.
+func (e *Entry) SeriesTrackerKey() (SeriesTrackerKey, bool) {
+	k := SeriesTrackerKey{Show: e.GetString(FieldSeriesTrackerName)}
+	if k.Show == "" {
+		return SeriesTrackerKey{}, false
+	}
+	if _, stamped := e.Fields[FieldSeriesTrackerEpisodeID]; stamped {
+		k.EpisodeID = e.GetString(FieldSeriesTrackerEpisodeID)
+		k.Season = e.GetInt(FieldSeriesTrackerSeason)
+		k.Episode = e.GetInt(FieldSeriesTrackerEpisode)
+		k.DoubleEpisode = e.GetInt(FieldSeriesTrackerDouble)
+	} else {
+		k.EpisodeID = e.GetString(FieldSeriesEpisodeID)
+		k.Season = e.GetInt(FieldSeriesSeason)
+		k.Episode = e.GetInt(FieldSeriesEpisode)
+		k.DoubleEpisode = e.GetInt(FieldSeriesDoubleEpisode)
+	}
+	if k.EpisodeID == "" {
+		return SeriesTrackerKey{}, false
+	}
+	return k, true
 }
 
 // SetSeriesInfo writes non-zero SeriesInfo fields into the entry's Fields map.

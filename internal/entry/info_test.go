@@ -57,3 +57,61 @@ func TestMoviesTrackerKey(t *testing.T) {
 		}
 	})
 }
+
+// TestSeriesTrackerKey covers the stamped series tracker key. It exists
+// because series_episode_id is not stable across a run: metainfo_tvdb
+// re-parses the release and overwrites it (with series_season and
+// series_episode), so the key must be captured at decision time rather than
+// re-read at commit time.
+func TestSeriesTrackerKey(t *testing.T) {
+	t.Run("stamped key wins over rewritten episode fields", func(t *testing.T) {
+		e := New("Show S01E01E02 1080p WEB", "http://x/1")
+		e.Set(FieldSeriesTrackerName, "show")
+		e.Set(FieldSeriesTrackerEpisodeID, "S01E01E02")
+		e.Set(FieldSeriesTrackerSeason, 1)
+		e.Set(FieldSeriesTrackerEpisode, 1)
+		e.Set(FieldSeriesTrackerDouble, 2)
+		// Enrichment re-parsed it as a single episode.
+		e.Set(FieldSeriesEpisodeID, "S01E01")
+		e.Set(FieldSeriesSeason, 1)
+		e.Set(FieldSeriesEpisode, 1)
+		e.Set(FieldSeriesDoubleEpisode, 0)
+
+		k, ok := e.SeriesTrackerKey()
+		if !ok {
+			t.Fatal("ok should be true when a matched show and episode are stamped")
+		}
+		if k.Show != "show" || k.EpisodeID != "S01E01E02" || k.DoubleEpisode != 2 {
+			t.Errorf("key = %+v, want the stamped double episode", k)
+		}
+	})
+
+	t.Run("falls back to the series fields when not stamped", func(t *testing.T) {
+		e := New("Show S02E10 1080p", "http://x/2")
+		e.Set(FieldSeriesTrackerName, "show")
+		e.Set(FieldSeriesEpisodeID, "S02E10")
+		e.Set(FieldSeriesSeason, 2)
+		e.Set(FieldSeriesEpisode, 10)
+
+		k, ok := e.SeriesTrackerKey()
+		if !ok || k.EpisodeID != "S02E10" || k.Season != 2 || k.Episode != 10 {
+			t.Errorf("fallback key = %+v ok=%v", k, ok)
+		}
+	})
+
+	t.Run("no matched show means nothing to track", func(t *testing.T) {
+		e := New("Show S02E10", "http://x/3")
+		e.Set(FieldSeriesEpisodeID, "S02E10")
+		if _, ok := e.SeriesTrackerKey(); ok {
+			t.Error("ok should be false without a matched show")
+		}
+	})
+
+	t.Run("no episode id means nothing to track", func(t *testing.T) {
+		e := New("Show", "http://x/4")
+		e.Set(FieldSeriesTrackerName, "show")
+		if _, ok := e.SeriesTrackerKey(); ok {
+			t.Error("ok should be false without an episode id")
+		}
+	})
+}
