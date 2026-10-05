@@ -190,27 +190,68 @@ func (s *Server) movieTrackerRecords(_ context.Context) ([]reconcile.TrackerReco
 // apiToolsPlexForget removes the given movie-tracker keys so the titles can be
 // re-downloaded. Keys come from a prior reconcile response.
 //
-// POST /api/tools/plex/forget {"keys": ["title|year", "title|year|3d", ...]}
+// Forgetting is irreversible and its consequence is a re-download, so it only
+// happens with apply=true; without it the request is a dry run that reports
+// exactly which records would go. Every deletion is logged with the record it
+// removed — a silent delete here is indistinguishable from a tracker that was
+// never written, which made a real re-download incident undiagnosable.
+//
+// POST /api/tools/plex/forget
+//
+//	{"keys": ["title|year", "title|year|3d", ...], "apply": true}
 func (s *Server) apiToolsPlexForget(w http.ResponseWriter, r *http.Request) {
 	if s.db == nil {
 		http.Error(w, "database not available", http.StatusNotImplemented)
 		return
 	}
 	var req struct {
-		Keys []string `json:"keys"`
+		Keys  []string `json:"keys"`
+		Apply bool     `json:"apply"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.Keys) == 0 {
 		http.Error(w, "missing keys", http.StatusBadRequest)
 		return
 	}
 	b := s.db.Bucket(imovies.TrackerBucketName)
-	forgotten := 0
-	for _, k := range req.Keys {
-		if err := b.Delete(k); err == nil {
-			forgotten++
-		}
+
+	type forgotten struct {
+		Key     string `json:"key"`
+		Title   string `json:"title,omitempty"`
+		Year    int    `json:"year,omitempty"`
+		Quality string `json:"quality,omitempty"`
 	}
-	writeJSON(w, map[string]any{"forgotten": forgotten})
+	var done, skipped []forgotten
+	for _, k := range req.Keys {
+		var rec imovies.Record
+		found, _ := b.Get(k, &rec)
+		item := forgotten{Key: k, Title: rec.Title, Year: rec.Year, Quality: rec.Quality.String()}
+		if !found {
+			skipped = append(skipped, item)
+			continue
+		}
+		if !req.Apply {
+			done = append(done, item)
+			continue
+		}
+		if err := b.Delete(k); err != nil {
+			slog.Warn("tools: plex forget failed", "key", k, "err", err)
+			skipped = append(skipped, item)
+			continue
+		}
+		slog.Info("tools: movie tracker record forgotten", "key", k, "title", rec.Title,
+			"year", rec.Year, "is_3d", rec.Is3D, "quality", rec.Quality.String(),
+			"downloaded_at", rec.DownloadedAt, "source", "plex reconcile")
+		done = append(done, item)
+	}
+	if req.Apply {
+		slog.Info("tools: plex forget applied", "forgotten", len(done), "skipped", len(skipped))
+	}
+	writeJSON(w, map[string]any{
+		"applied":   req.Apply,
+		"forgotten": len(done),
+		"records":   done,
+		"skipped":   skipped,
+	})
 }
 
 // apiToolsPlexAuthStart begins a Plex PIN sign-in: creates a PIN on plex.tv

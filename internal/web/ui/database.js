@@ -1165,7 +1165,9 @@ async function forgetPlexSelected() {
     const r = await fetch('/api/tools/plex/forget', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({keys}),
+      // apply:true is required — without it the endpoint only reports what it
+      // would remove, so the confirm dialog above is the single gate.
+      body: JSON.stringify({keys, apply: true}),
     });
     if (!r.ok) { results.innerHTML = `<div class="db-empty">Error: ${esc(await r.text())}</div>`; return; }
     await runPlexReconcile(); // re-run to show the post-forget state

@@ -2,12 +2,15 @@ package web
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"sort"
 	"strconv"
 	"strings"
 
+	imovies "github.com/brunoga/pipeliner/internal/movies"
 	"github.com/brunoga/pipeliner/internal/plugin"
+	"github.com/brunoga/pipeliner/internal/series"
 )
 
 // bucketCategory classifies a bucket by its naming convention.
@@ -490,6 +493,7 @@ func (s *Server) apiDBClearBucket(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	logTrackerMutation("db browser: bucket cleared", name, "(all keys)")
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -514,7 +518,27 @@ func (s *Server) apiDBDeleteEntry(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	logTrackerMutation("db browser: entry deleted", name, req.Key)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// trackerBuckets are the buckets whose rows decide whether content counts as
+// already downloaded. Deleting from one causes a re-download, so every delete
+// path logs it: an unlogged deletion is indistinguishable from a record that
+// was never written, which is what made a real re-download incident
+// impossible to attribute after the fact.
+var trackerBuckets = map[string]bool{
+	imovies.TrackerBucketName: true,
+	series.TrackerBucketName:  true,
+}
+
+// logTrackerMutation records a deletion from a tracker bucket. Other buckets
+// (caches, logs, discover state) are not worth the noise.
+func logTrackerMutation(what, bucket, key string) {
+	if !trackerBuckets[bucket] {
+		return
+	}
+	slog.Info(what, "bucket", bucket, "key", key)
 }
 
 // apiDBDeleteSeriesShow deletes every episode of one show from the series
@@ -549,5 +573,6 @@ func (s *Server) apiDBDeleteSeriesShow(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	logTrackerMutation("db browser: series show deleted", series.TrackerBucketName, *req.SeriesName)
 	w.WriteHeader(http.StatusNoContent)
 }

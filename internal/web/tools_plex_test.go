@@ -163,15 +163,39 @@ func TestPlexToolReconcileEndToEnd(t *testing.T) {
 		t.Errorf("token should be saved after successful discovery, got %q", tok)
 	}
 
-	// Forget the missing movie; it must vanish from the tracker.
+	// Without apply the call is a dry run: it reports what would go and
+	// changes nothing. Forgetting causes a re-download, so it must not happen
+	// as a side effect of asking.
 	var forgot struct {
-		Forgotten int `json:"forgotten"`
+		Applied   bool `json:"applied"`
+		Forgotten int  `json:"forgotten"`
+		Records   []struct {
+			Key     string `json:"key"`
+			Title   string `json:"title"`
+			Quality string `json:"quality"`
+		} `json:"records"`
 	}
 	resp = postJSON(t, ts.URL+"/api/tools/plex/forget", map[string]any{"keys": []string{"the darkest hour|2011|3d"}})
 	json.NewDecoder(resp.Body).Decode(&forgot) //nolint:errcheck
 	resp.Body.Close()
-	if forgot.Forgotten != 1 {
-		t.Errorf("forgotten: %d", forgot.Forgotten)
+	if forgot.Applied {
+		t.Error("applied should be false without apply=true")
+	}
+	if forgot.Forgotten != 1 || len(forgot.Records) != 1 || forgot.Records[0].Title != "the darkest hour" {
+		t.Errorf("dry run should describe the one record: %+v", forgot)
+	}
+	if !tracker.IsSeen("the darkest hour", 2011, true) {
+		t.Fatal("dry run must not delete anything")
+	}
+
+	// With apply the movie vanishes from the tracker.
+	forgot.Records = nil
+	resp = postJSON(t, ts.URL+"/api/tools/plex/forget",
+		map[string]any{"keys": []string{"the darkest hour|2011|3d"}, "apply": true})
+	json.NewDecoder(resp.Body).Decode(&forgot) //nolint:errcheck
+	resp.Body.Close()
+	if !forgot.Applied || forgot.Forgotten != 1 {
+		t.Errorf("forgotten: %+v", forgot)
 	}
 	if tracker.IsSeen("the darkest hour", 2011, true) {
 		t.Error("forgotten movie should no longer be tracked")
