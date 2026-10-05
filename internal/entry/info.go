@@ -129,6 +129,21 @@ const (
 	// commit phase. Internal; also read by the torrent sinks' grab records.
 	FieldMoviesTrackerTitle = "_movies_tracker_title"
 
+	// FieldMoviesTrackerYear and FieldMoviesTrackerIs3D complete the movies
+	// tracker key alongside FieldMoviesTrackerTitle, carrying the year and 3D
+	// flag the filter actually decided with.
+	//
+	// They exist because video_year is not stable across a run: the external
+	// metadata plugins (metainfo_tmdb/trakt/tvdb) overwrite it with the year
+	// of whichever title they matched, and they normally sit DOWNSTREAM of the
+	// movies filter. Commit runs last, so reading video_year there can yield a
+	// different year than the upgrade decision used — storing the record under
+	// a key no later lookup will find, which re-downloads the film on every
+	// subsequent run. Stamping the key at decision time keeps the write and
+	// the read in agreement.
+	FieldMoviesTrackerYear = "_movies_tracker_year"
+	FieldMoviesTrackerIs3D = "_movies_tracker_is_3d"
+
 	// EmptyMarker is set to true on the synthetic marker entry emitted by
 	// the report_empty processor when its upstream was empty. Downstream
 	// expressions can branch on it to distinguish marker-fired runs from
@@ -437,6 +452,26 @@ func (e *Entry) SetMovieInfo(info MovieInfo) {
 	if info.Tagline != "" {
 		e.Fields[FieldMovieTagline] = info.Tagline
 	}
+}
+
+// MoviesTrackerKey returns the movies tracker key the movies filter decided
+// with: the matched title plus the year and 3D flag as they stood at decision
+// time. ok is false when the entry never passed through the movies filter (no
+// matched title), in which case there is nothing to track.
+//
+// Year falls back to video_year for entries stamped by an older build, whose
+// records predate FieldMoviesTrackerYear. The fallback reproduces the old
+// (buggy) behaviour rather than inventing a year, so nothing silently shifts
+// key on upgrade.
+func (e *Entry) MoviesTrackerKey() (title string, year int, is3D bool, ok bool) {
+	title = e.GetString(FieldMoviesTrackerTitle)
+	if title == "" {
+		return "", 0, false, false
+	}
+	if _, stamped := e.Fields[FieldMoviesTrackerYear]; stamped {
+		return title, e.GetInt(FieldMoviesTrackerYear), e.GetBool(FieldMoviesTrackerIs3D), true
+	}
+	return title, e.GetInt(FieldVideoYear), e.GetBool(FieldVideoIs3D), true
 }
 
 // SetSeriesInfo writes non-zero SeriesInfo fields into the entry's Fields map.
