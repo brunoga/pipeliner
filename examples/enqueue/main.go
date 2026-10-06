@@ -1,17 +1,25 @@
-// Command request-movie pushes a movie title to a pipeliner on-demand
-// pipeline from anywhere: a laptop, a phone SSH client, a cron job.
+// Command enqueue pushes a title to a pipeliner pipeline from anywhere: a
+// laptop, a phone SSH client, a cron job. Movies, shows, discs — whatever the
+// pipeline on the other end searches for.
 //
-// It POSTs {"title": "..."} to /api/ingest/{queue}?pipeline={pipeline},
-// authenticated with the ingest bearer token (PIPELINER_INGEST_TOKEN on the
-// daemon side). Pair it with a pipeline like configs/ondemand-request.star:
-// a webhook source draining the queue into a Jackett search, followed by the
-// usual quality gates and a download client.
+// It POSTs {"title": "..."} to /api/ingest?pipeline={pipeline}, authenticated
+// with the ingest bearer token (PIPELINER_INGEST_TOKEN on the daemon side).
+// Pair it with a pipeline like configs/ondemand-request.star: a webhook source
+// draining the queue into a Jackett search, followed by the usual quality
+// gates and a download client.
+//
+// The queue is not given, because it is not independent information: it is the
+// "queue" config of the pipeline's webhook source, so the daemon derives it
+// from the pipeline name. -queue is only for a pipeline with more than one
+// webhook source, where the daemon refuses to guess (and says which queues it
+// could have meant).
 //
 // Usage:
 //
-//	request-movie [flags] <movie title...>
-//	request-movie "Heat 1995"
-//	request-movie -url https://pipeliner.example.com "The Matrix" 1999
+//	enqueue [flags] <title...>
+//	enqueue "Heat 1995"
+//	enqueue -pipeline tvshows-favorite-add "Severance"
+//	enqueue -url https://pipeliner.example.com "The Matrix" 1999
 //
 // The ingest token is resolved, in order, from:
 //
@@ -35,6 +43,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	neturl "net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -50,11 +59,11 @@ func main() {
 	var (
 		urlFlag   = flag.String("url", "", "pipeliner base URL (default: $PIPELINER_URL, then http://localhost:8080)")
 		token     = flag.String("token", "", "ingest bearer token (default: $PIPELINER_INGEST_TOKEN, then ~/"+tokenFileRel+")")
-		queue     = flag.String("queue", "movies", "ingest queue name (the webhook source's 'queue' config)")
-		pipelineF = flag.String("pipeline", "movies-ondemand", "pipeline to trigger immediately after queueing")
+		queue     = flag.String("queue", "", "ingest queue name; only needed when the pipeline has more than one webhook source (default: derived from -pipeline)")
+		pipelineF = flag.String("pipeline", "movies-ondemand", "pipeline to queue into and trigger immediately")
 	)
 	flag.Usage = func() {
-		fmt.Fprintf(flag.CommandLine.Output(), "usage: %s [flags] <movie title...>\n\nflags:\n", os.Args[0])
+		fmt.Fprintf(flag.CommandLine.Output(), "usage: %s [flags] <title...>\n\nflags:\n", os.Args[0])
 		flag.PrintDefaults()
 	}
 	flag.Parse()
@@ -83,10 +92,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Printf("requested %q → queued=%d dropped=%d rejected=%d triggered=%v (token from %s)\n",
-		title, resp.Queued, resp.Dropped, resp.Rejected, resp.Triggered, source)
+	fmt.Printf("enqueued %q → queue=%s queued=%d dropped=%d rejected=%d triggered=%v (token from %s)\n",
+		title, resp.Queue, resp.Queued, resp.Dropped, resp.Rejected, resp.Triggered, source)
 	if !resp.Triggered {
-		fmt.Println("note: pipeline was not triggered — check the -pipeline name matches a pipeline in the config")
+		fmt.Println("note: the pipeline was not triggered — nothing new was queued, or -pipeline was empty")
 	}
 }
 
@@ -148,10 +157,13 @@ func resolveURL(flagVal, envVal, confVal string) string {
 
 // ingestResponse mirrors the /api/ingest/{queue} reply.
 type ingestResponse struct {
-	Queued    int  `json:"queued"`
-	Dropped   int  `json:"dropped"`
-	Rejected  int  `json:"rejected"`
-	Triggered bool `json:"triggered"`
+	// Queue is the queue the daemon actually used, which is the interesting
+	// field when it derived one from the pipeline name.
+	Queue     string `json:"queue"`
+	Queued    int    `json:"queued"`
+	Dropped   int    `json:"dropped"`
+	Rejected  int    `json:"rejected"`
+	Triggered bool   `json:"triggered"`
 }
 
 // push sends one title to the ingest queue and asks for an immediate
@@ -161,7 +173,16 @@ func push(ctx context.Context, hc *http.Client, base, token, queue, pipeline, ti
 	if err != nil {
 		return nil, err
 	}
-	url := fmt.Sprintf("%s/api/ingest/%s?pipeline=%s", base, queue, pipeline)
+	// No queue given: let the daemon derive it from the pipeline. Both parts
+	// are escaped — a queue or pipeline name is free text in the config.
+	endpoint := base + "/api/ingest"
+	if queue != "" {
+		endpoint += "/" + neturl.PathEscape(queue)
+	}
+	if pipeline != "" {
+		endpoint += "?pipeline=" + neturl.QueryEscape(pipeline)
+	}
+	url := endpoint
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
