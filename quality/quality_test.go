@@ -1540,3 +1540,61 @@ func TestStoredAtmosIsNotBeatenByFreshParse(t *testing.T) {
 			fresh, stored)
 	}
 }
+
+// TestCompleteDiscPromotion covers the "COMPLETE BLURAY" → BD3D inference and
+// the two ways it used to overreach: an explicitly frame-compatible release
+// claimed to be an MVC disc, and a film whose own title contains "Complete"
+// promoted on the strength of its name. Both routed side-by-side encodes into
+// an MVC-only pipeline and hid them from the pipelines that wanted them.
+func TestCompleteDiscPromotion(t *testing.T) {
+	tests := []struct {
+		title string
+		want  Format3D
+		why   string
+	}{
+		// Real disc rips: a generic 3D tag plus the COMPLETE BLURAY label.
+		{"The Nightmare Before Christmas 1993 1080p 3D Complete Bluray", Format3DBD, "generic 3D + complete disc"},
+		{"Sing 2 2021 1080p 3D Complete Bluray -iND", Format3DBD, "generic 3D + complete disc"},
+		{"Gemini Man 3D 2019 MULTi COMPLETE BLURAY GMB", Format3DBD, "uppercase, no resolution"},
+		{"Some Movie 2024 1080p 3D COMPLETE.BLURAY.AVC.MVC.DTS-HD.MA", Format3DBD, "explicit MVC as well"},
+		{"Some Movie 2024 1080p 3D BluRay COMPLETE x264", Format3DBD, "reversed token order"},
+		{"Some Movie 2024 1080p 3D COMPLETE BD50 AVC MVC", Format3DBD, "BD50 spelling"},
+
+		// Frame-compatible: fitting both views in one frame IS a re-encode, so
+		// the release cannot also be the disc's MVC stream.
+		{"Some Movie 2024 1080p 3D COMPLETE BLURAY FULL-SBS x264-GRP", Format3DFull, "explicit full-SBS"},
+		{"Some Movie 2024 1080p 3D FSBS COMPLETE BluRay AVC DTS-HD MA", Format3DFull, "explicit FSBS"},
+		{"Some Movie 2024 1080p 3D Half-SBS COMPLETE BluRay x264", Format3DHalf, "explicit half-SBS"},
+		{"Some Movie 2024 1080p 3D COMPLETE BLURAY OU x264", Format3DHalf, "over-under"},
+
+		// "Complete" in the film's own title is not a disc label.
+		{"A Complete Unknown 2024 1080p 3D FSBS BluRay x264-GRP", Format3DFull, "title word, with a layout tag"},
+		{"A Complete Unknown 2024 1080p 3D BluRay x264-GRP", Format3DHalf, "title word, generic 3D only"},
+
+		// A conversion stays a conversion whatever the disc label claims.
+		{"Some Movie 2024 1080p 3D-Conv COMPLETE BLURAY x264", Format3DConv, "conversion marker wins"},
+	}
+	for _, tt := range tests {
+		if got := Parse(tt.title).Format3D; got != tt.want {
+			t.Errorf("Parse(%q).Format3D = %s, want %s (%s)",
+				tt.title, format3DNames[got], format3DNames[tt.want], tt.why)
+		}
+	}
+}
+
+// The gate the mvc pipeline actually uses: an SBS encode must not satisfy a
+// bd3d spec, and a real disc rip must.
+func TestCompleteDiscAgainstBD3DSpec(t *testing.T) {
+	spec, err := ParseSpec("bd3d")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sbs := Parse("Some Movie 2024 1080p 3D COMPLETE BLURAY FULL-SBS x264-GRP")
+	disc := Parse("Sing 2 2021 1080p 3D Complete Bluray -iND")
+	if spec.Matches(sbs) {
+		t.Errorf("a full-SBS encode (%s) must not satisfy spec bd3d", sbs)
+	}
+	if !spec.Matches(disc) {
+		t.Errorf("a complete disc rip (%s) should satisfy spec bd3d", disc)
+	}
+}

@@ -318,9 +318,14 @@ var (
 	// frame. Their presence rules out MVC: frame packing is a re-encode, and an
 	// ordinary decoder can play the result.
 	reFrameCompatible3D = regexp.MustCompile(`(?i)\b(FULL[\s\-]?SBS|FULL[\s\-]?OU|FSBS|F[\s\-]SBS|FOU|F[\s\-]OU|HALF[\s\-]?SBS|HALF[\s\-]?OU|HSBS|H[\s\-]SBS|HOU|H[\s\-]OU|SBS|OU)\b`)
-	// reComplete matches "COMPLETE" disc-rip labels; combined with a BluRay source
-	// and any non-conv 3D marker this implies a full BD3D disc rip.
-	reComplete = regexp.MustCompile(`(?i)\bCOMPLETE\b`)
+	// reCompleteDisc matches the scene's "COMPLETE BLURAY" disc-rip label.
+	//
+	// The two tokens must be adjacent. A bare \bCOMPLETE\b anywhere in the
+	// name also matches a film whose own title contains the word — "A Complete
+	// Unknown 2024 1080p 3D FSBS BluRay" was promoted to BD3D on the strength
+	// of its title, which then routed a side-by-side encode into an
+	// MVC-only pipeline.
+	reCompleteDisc = regexp.MustCompile(`(?i)\bCOMPLETE[\s._\-]*(?:BLU[\s._\-]?RAY|BD(?:25|50|66|100)?)\b|\b(?:BLU[\s._\-]?RAY|BD(?:25|50|66|100)?)[\s._\-]*COMPLETE\b`)
 
 	// Audio regexes checked in priority order (highest first).
 	//
@@ -471,8 +476,21 @@ func Parse(title string) Quality {
 		}
 	}
 	// "COMPLETE BluRay" with a non-conv 3D marker means the full Blu-ray 3D disc
-	// was ripped, which is always BD3D quality regardless of the 3D tag used.
-	if q.Format3D > Format3DConv && q.Source == SourceBluRay && reComplete.MatchString(title) {
+	// was ripped, which is BD3D quality whichever generic 3D tag was used.
+	//
+	// The frame-compatible guard is the same load-bearing one the remux rule
+	// below carries, and for the same reason: an explicit SBS/OU marker says
+	// the release packs both views into one frame, which *is* a re-encode, so
+	// it cannot also be the disc's MVC stream. Promoting "3D COMPLETE BLURAY
+	// FULL-SBS" to BD3D claimed an MVC disc for a release any decoder can
+	// play, which routed side-by-side encodes into an MVC-only pipeline and
+	// made them invisible to the pipelines that wanted them. An explicit
+	// marker always wins over this inference.
+	//
+	// An explicit BD3D/MVC marker is unaffected: the native-marker scan above
+	// has already set BD, and this rule only ever promotes.
+	if q.Format3D > Format3DConv && q.Source == SourceBluRay &&
+		reCompleteDisc.MatchString(title) && !reFrameCompatible3D.MatchString(title) {
 		q.Format3D = Format3DBD
 	}
 	// A remux carrying a bare "3D" and no frame-packing marker is a disc rip:
