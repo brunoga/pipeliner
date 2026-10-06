@@ -180,7 +180,8 @@ func doScrapeUDP(ctx context.Context, ih [20]byte, announceURL string) (int, err
 		}
 	}
 
-	conn, err := net.DialTimeout("udp", host, timeout)
+	dialer := net.Dialer{Timeout: timeout}
+	conn, err := dialer.DialContext(ctx, "udp", host)
 	if err != nil {
 		return 0, fmt.Errorf("tracker UDP: dial %s: %w", host, err)
 	}
@@ -410,7 +411,8 @@ func doScrapeUDPBatch(ctx context.Context, chunk [][20]byte, chunkHex []string, 
 			timeout = rem
 		}
 	}
-	conn, err := net.DialTimeout("udp", host, timeout)
+	dialer := net.Dialer{Timeout: timeout}
+	conn, err := dialer.DialContext(ctx, "udp", host)
 	if err != nil {
 		return nil, fmt.Errorf("tracker UDP: dial %s: %w", host, err)
 	}
