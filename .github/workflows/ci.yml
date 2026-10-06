@@ -129,8 +129,15 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      # Pinned deliberately, on two counts. The module path must be the v2 one
+      # (v1 lives at the unversioned path and is frozen at v1.64.8, whose
+      # bundled x/tools cannot read export data from Go 1.27 or newer — any
+      # dependency that raises our go directive would break this job with
+      # typecheck errors in untouched files). And the version must be exact:
+      # with @latest, an upstream release that adds or tightens a check turns
+      # this job red on a commit that changed nothing. Bump it on purpose.
       - name: Install golangci-lint
-        run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+        run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0
 
       - name: Run golangci-lint
         run: golangci-lint run --timeout 5m

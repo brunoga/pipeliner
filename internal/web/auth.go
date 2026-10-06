@@ -199,7 +199,11 @@ func (s *Server) handleLoginPost(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	http.SetCookie(w, &http.Cookie{
+	// Secure is deliberately conditional: SECURITY.md documents plain-HTTP use
+	// on a trusted LAN, where an unconditional Secure flag would stop the
+	// cookie being sent at all and make login impossible. HttpOnly and
+	// SameSite=Strict are set unconditionally.
+	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: Secure is set from s.secure, which gosec cannot prove
 		Name:     sessionCookie,
 		Value:    token,
 		Path:     "/",
@@ -215,7 +219,11 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	if cookie, err := r.Cookie(sessionCookie); err == nil {
 		s.sessions.delete(cookie.Value)
 	}
-	http.SetCookie(w, &http.Cookie{
+	// Secure is deliberately conditional: SECURITY.md documents plain-HTTP use
+	// on a trusted LAN, where an unconditional Secure flag would stop the
+	// cookie being sent at all and make login impossible. HttpOnly and
+	// SameSite=Strict are set unconditionally.
+	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: Secure is set from s.secure, which gosec cannot prove
 		Name:     sessionCookie,
 		Path:     "/",
 		MaxAge:   -1,
