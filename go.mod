@@ -1,10 +1,10 @@
 module github.com/brunoga/pipeliner
 
-go 1.27
+go 1.26.2
 
 require (
 	github.com/anacrolix/torrent v1.61.0
-	github.com/brunoga/mvc v0.4.0
+	github.com/brunoga/mvc v0.4.1
 	github.com/mattn/go-isatty v0.0.24
 	github.com/mxschmitt/playwright-go v0.6201.1
 	go.starlark.net v0.0.0-20260326113308-fadfc96def35

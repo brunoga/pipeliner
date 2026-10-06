@@ -1,6 +1,6 @@
 # ── Build stage ───────────────────────────────────────────────────────────────
 # Run the builder on the native host platform for speed (no emulation).
-FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS builder
 
 # Docker injects these automatically for multi-platform builds.
 ARG TARGETOS=linux
