@@ -118,3 +118,51 @@ func TestLoadClientConf(t *testing.T) {
 		t.Error("missing file must be an empty conf")
 	}
 }
+
+// The new default: no queue given, so the path carries no queue segment and
+// the daemon derives it from ?pipeline=. The response's queue field is what
+// tells the user which one it picked.
+func TestPushWithoutQueueOmitsTheSegment(t *testing.T) {
+	var gotPath, gotQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath, gotQuery = r.URL.Path, r.URL.RawQuery
+		json.NewEncoder(w).Encode(map[string]any{"queue": "movies", "queued": 1, "triggered": true}) //nolint:errcheck
+	}))
+	defer srv.Close()
+
+	resp, err := push(context.Background(), srv.Client(), srv.URL, "tok", "", "movies-ondemand", "Heat 1995")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotPath != "/api/ingest" {
+		t.Errorf("path: %q, want /api/ingest with no queue segment", gotPath)
+	}
+	if gotQuery != "pipeline=movies-ondemand" {
+		t.Errorf("query: %q", gotQuery)
+	}
+	if resp.Queue != "movies" {
+		t.Errorf("queue from response: %q, want the derived %q", resp.Queue, "movies")
+	}
+}
+
+// Queue and pipeline names are free text in the config, so neither may be
+// pasted into the URL raw.
+func TestPushEscapesQueueAndPipeline(t *testing.T) {
+	var gotPath, gotPipeline string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path                                   // already decoded by net/http
+		gotPipeline = r.URL.Query().Get("pipeline")            // ditto
+		json.NewEncoder(w).Encode(map[string]any{"queued": 1}) //nolint:errcheck
+	}))
+	defer srv.Close()
+
+	if _, err := push(context.Background(), srv.Client(), srv.URL, "tok", "odd queue", "odd pipeline&x=1", "T"); err != nil {
+		t.Fatal(err)
+	}
+	if gotPath != "/api/ingest/odd queue" {
+		t.Errorf("path round-tripped as %q", gotPath)
+	}
+	if gotPipeline != "odd pipeline&x=1" {
+		t.Errorf("pipeline round-tripped as %q — an unescaped & would split the query", gotPipeline)
+	}
+}
