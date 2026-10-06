@@ -1697,14 +1697,16 @@ func TestParseReEncodedDemotesDiscTiers(t *testing.T) {
 
 		// An explicit claim of losslessness wins over the marker, for the
 		// same reason an explicit 3D layout marker beats an inference.
-		{"untouched video with re-encoded audio stays a disc rip",
-			"Some.Film.2016.COMPLETE.BLURAY.UNTOUCHED.video.re-encoded.audio", SourceBluRay},
+		// Untouched blocks the demotion, and then the lossless promotion
+		// applies for the same reason — the video was copied, not re-encoded.
+		{"untouched video with re-encoded audio is not demoted",
+			"Some.Film.2016.COMPLETE.BLURAY.UNTOUCHED.video.re-encoded.audio", SourceRemux},
 
 		// Tiers below the disc are left alone.
 		{"a web-dl re-encode is already below the rung",
 			"Some.Film.2016.1080p.WEB-DL.Re-Encode-GROUP", SourceWebDL},
-		{"untouched alone changes nothing",
-			"Some.Film.2016.1080p.BluRay.UNTOUCHED-GROUP", SourceBluRay},
+		{"untouched is itself a claim of losslessness",
+			"Some.Film.2016.1080p.BluRay.UNTOUCHED-GROUP", SourceRemux},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1765,5 +1767,64 @@ func TestSpecRejectsReEncode(t *testing.T) {
 	}
 	if disc := Parse("Some.Film.2016.1080p.BluRay.x264-GROUP"); !spec.Matches(disc) {
 		t.Error("bluray+ should still accept a BluRay rip")
+	}
+}
+
+// The lossless half: a complete disc rip is the disc, not a lossy encode of
+// one, so it belongs on the remux rung rather than below it.
+func TestParseCompleteDiscIsLossless(t *testing.T) {
+	tests := []struct {
+		name  string
+		title string
+		want  Source
+	}{
+		{"complete bluray", "Some.Film.2016.COMPLETE.BLURAY-GROUP", SourceRemux},
+		{"complete bd50", "Some.Film.2016.COMPLETE.BD50-GROUP", SourceRemux},
+		{"bluray complete, reversed", "Some.Film.2016.BLURAY.COMPLETE-GROUP", SourceRemux},
+		{"untouched", "Some.Film.2016.1080p.BluRay.UNTOUCHED-GROUP", SourceRemux},
+
+		// An ordinary encode is untouched by this: it really is the BluRay tier.
+		{"a plain bluray encode is unchanged", "Some.Film.2016.1080p.BluRay.x264-GROUP", SourceBluRay},
+		// "A Complete Unknown" — the word in a film's own title must not promote
+		// it. reCompleteDisc requires the two tokens adjacent.
+		{"the word complete in a title", "A.Complete.Unknown.2024.1080p.BluRay.x264-GROUP", SourceBluRay},
+
+		// A frame-compatible layout exists only as a re-encode, so such a
+		// release is not the disc whatever its name borrows.
+		{"complete bluray full-sbs is not the disc",
+			"Some.Film.2016.3D.COMPLETE.BLURAY.FULL-SBS.x264-GROUP", SourceBluRay},
+		// And an explicit re-encode marker still wins outright.
+		{"complete bluray re-encode is demoted, not promoted",
+			"Some.Film.2016.COMPLETE.BLURAY.RE-ENCODE-GROUP", SourceReEncode},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := Parse(tc.title).Source; got != tc.want {
+				t.Errorf("Source = %s (%d), want %s (%d)",
+					sourceNames[got], int(got), sourceNames[tc.want], int(tc.want))
+			}
+		})
+	}
+}
+
+// The promotion must not cost a complete 3D disc its BD3D inference: that rule
+// fires on SourceBluRay, and a promoted release satisfies the SourceRemux rule
+// instead. Both paths must still land on BD3D.
+func TestPromotionKeepsTheBD3DInference(t *testing.T) {
+	for _, title := range []string{
+		"Some Movie 2024 1080p 3D COMPLETE BLURAY AVC DTS-HD MA",
+		"The Nightmare Before Christmas 1993 1080p 3D Complete Bluray",
+	} {
+		q := Parse(title)
+		if q.Format3D != Format3DBD {
+			t.Errorf("%q: Format3D = %v, want BD3D", title, q.Format3D)
+		}
+		if q.Source != SourceRemux {
+			t.Errorf("%q: Source = %s, want Remux", title, sourceNames[q.Source])
+		}
+	}
+	// A conversion stays a conversion — the promotion must not lift it.
+	if got := Parse("Movie.2020.3DCONV.COMPLETE.BluRay").Format3D; got != Format3DConv {
+		t.Errorf("Format3D = %v, want Conv", got)
 	}
 }

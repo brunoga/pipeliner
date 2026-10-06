@@ -473,6 +473,29 @@ func Parse(title string) Quality {
 		q.Source = SourceReEncode
 	}
 
+	// The other half of the same correction. A complete disc rip IS the disc,
+	// and so is a stream copied off it untouched: both are lossless.
+	// SourceBluRay is the tier for a lossy encode *made from* a disc, so
+	// reading a complete rip as BluRay understates it and loses it to any
+	// remux of the same film. SourceRemux is the right rung — the same
+	// streams at the same losslessness; the disc merely also carries the menus
+	// and extras a remux drops.
+	//
+	// Runs after the demotion, so a "COMPLETE BLURAY ... RE-ENCODE" is no
+	// longer SourceBluRay by the time this is reached and is not promoted.
+	//
+	// The frame-compatible guard is the one the Format3D rules below carry,
+	// for the same reason: an SBS/OU layout exists only as a re-encode, so
+	// such a release is not the disc whatever its name borrows from one.
+	//
+	// The BD3D inference below is unaffected. It fires on SourceBluRay for a
+	// complete disc and on SourceRemux for a bare-3D remux; a release promoted
+	// here simply satisfies the second rule instead of the first.
+	if q.Source == SourceBluRay && !reFrameCompatible3D.MatchString(title) &&
+		(reCompleteDisc.MatchString(title) || reUntouched.MatchString(title)) {
+		q.Source = SourceRemux
+	}
+
 	if m := reCodec.FindString(title); m != "" {
 		ml := strings.ToLower(strings.NewReplacer(".", "", " ", "").Replace(m))
 		switch {
