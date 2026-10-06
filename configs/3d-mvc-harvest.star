@@ -121,9 +121,31 @@ ok = process("content", upstream=files, reject=["*.rar", "*.exe"])
 
 alive = process("torrent_alive", upstream=ok, min_seeds=2, verify=True)
 
+# ── Then ask the disc itself ─────────────────────────────────────────────────
+#
+# Everything above decided from the release name, and the release name lies:
+# "COMPLETE BLURAY FULL-SBS" is a side-by-side re-encode, not the MVC disc it
+# claims. `probe` fetches the torrent's first and last piece — a Blu-ray image
+# keeps its UDF directory at the front and its BDMV metadata at the end — and
+# reads the disc's own playlist. Measured on a live 40.56 GiB disc: 2 pieces,
+# 27.2 MiB, 0.066% of the torrent, 9.2 seconds.
+#
+# It goes last of the gates because it is the only one that costs bandwidth,
+# and after torrent_alive in particular: a probe needs a seeder, and that
+# filter has already established there is one.
+told = process("probe", upstream=alive, timeout="3m")
+
+# layout="mvc" means the playlist carries an MVC dependent view — the disc
+# saying it is natively 3D, rather than a name claiming it. Releases whose
+# probe could not run are left alone rather than discarded, since an
+# unreachable swarm is not evidence of anything; drop `probe_ok == true` from
+# the rule to insist on a probe instead.
+real = process("condition", upstream=told,
+               reject='probe_ok == true and probe_3d_layout != "mvc"')
+
 # One copy per film: dedup goes after everything that can refuse a release, so
 # the alternatives are still there when one is refused.
-pick = process("dedup", upstream=alive)
+pick = process("dedup", upstream=real)
 
 # ── Download, and stop ───────────────────────────────────────────────────────
 

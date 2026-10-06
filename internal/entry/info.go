@@ -25,6 +25,38 @@ const (
 
 	FieldVideoBitrateMbps = "video_bitrate_mbps" // implied bitrate (torrent size / runtime), set by the bitrate filter
 
+	// The probe_* fields report what a release's own container states, read
+	// from a sample of the torrent before it is downloaded. They exist because
+	// a release name lies and a container does not: "COMPLETE BLURAY FULL-SBS"
+	// is a side-by-side re-encode, "2160p" is sometimes a starved upscale.
+	//
+	// A field is absent when the container does not state it, so a condition
+	// should test what it needs rather than assume the set is complete. In
+	// particular FieldProbeIs3D is explicit in both directions: false means
+	// the source says it is 2D, which is as useful an answer as true.
+	FieldProbeOK          = "probe_ok"
+	FieldProbeKind        = "probe_kind"
+	FieldProbeIs3D        = "probe_is_3d"
+	FieldProbe3DLayout    = "probe_3d_layout"
+	FieldProbeWidth       = "probe_width"
+	FieldProbeHeight      = "probe_height"
+	FieldProbeVideoCodec  = "probe_video_codec"
+	FieldProbeDurationSec = "probe_duration_sec"
+	// FieldProbeBitrateMbps is measured: the torrent's size over the
+	// container's own duration, with no dependence on an enrichment runtime.
+	// Kept separate from video_bitrate_mbps so the bitrate filter's estimate
+	// and this measurement never silently overwrite one another.
+	FieldProbeBitrateMbps       = "probe_bitrate_mbps"
+	FieldProbeAudioCodecs       = "probe_audio_codecs"
+	FieldProbeAudioLanguages    = "probe_audio_languages"
+	FieldProbeSubtitleLanguages = "probe_subtitle_languages"
+	FieldProbeBaseViewRight     = "probe_base_view_right"
+	// FieldProbePieces and FieldProbeBytes record what the probe cost. On a
+	// private tracker those bytes count against a ratio, so they are reported
+	// rather than left to be guessed at.
+	FieldProbePieces = "probe_pieces"
+	FieldProbeBytes  = "probe_bytes"
+
 	// Settle provenance, set by the movies/series filters when a release is
 	// downloaded after waiting out a settle window. Carried into the failure
 	// and download logs so the cost of settling is measurable: if settled
