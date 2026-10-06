@@ -105,16 +105,48 @@ type Audio int
 // below TrueHD. Bare "Atmos" keeps the top rank: on the UHD BluRay releases
 // that spell it that way it is virtually always TrueHD Atmos, and inferring
 // otherwise would re-rank far more than the releases actually at issue.
+// The numbers are persisted: every tracker record, grab record and download-log
+// entry stores Audio as an integer, and an upgrade decision compares a stored
+// value against a freshly parsed one. So a value, once released, is frozen —
+// inserting a rung in the middle silently redefines every record already on
+// disk. 1.49.0 did exactly that, putting AudioDDPlusAtmos between DTS and
+// TrueHD: a stored Atmos (6) started reading as TrueHD and was beaten by any
+// fresh Atmos release, so ~450 films and episodes were re-downloaded as bogus
+// "quality upgrades".
+//
+// New rungs therefore go on the END, whatever their quality, and audioRank
+// below says where each one actually sits in the ladder. Comparisons go
+// through rank(), never through the raw value.
 const (
 	AudioUnknown Audio = iota
 	AudioMP3
 	AudioAAC
 	AudioDolbyDigital
 	AudioDTS
-	AudioDDPlusAtmos
 	AudioTrueHD
 	AudioAtmos
+	AudioDDPlusAtmos
 )
+
+// audioRank places each format in the quality ladder, independent of its
+// stored value: lossy DD+ Atmos sits below lossless TrueHD, and both sit below
+// Atmos on a lossless bed. Indexed by Audio; keep it in step with the consts.
+var audioRank = map[Audio]int{
+	AudioUnknown:      0,
+	AudioMP3:          1,
+	AudioAAC:          2,
+	AudioDolbyDigital: 3,
+	AudioDTS:          4,
+	AudioDDPlusAtmos:  5,
+	AudioTrueHD:       6,
+	AudioAtmos:        7,
+}
+
+// rank returns the format's position in the quality ladder. Unknown values —
+// a record written by a newer build than this one — rank as unknown rather
+// than as whatever integer they happen to be, so they never win a comparison
+// by accident.
+func (a Audio) rank() int { return audioRank[a] }
 
 var audioNames = map[Audio]string{
 	AudioUnknown:      "",
@@ -253,7 +285,7 @@ func (q Quality) Better(other Quality) bool {
 	if q.ColorRange != other.ColorRange {
 		return q.ColorRange > other.ColorRange
 	}
-	return q.Audio > other.Audio
+	return q.Audio.rank() > other.Audio.rank()
 }
 
 // --- compiled regexes for Parse ---
@@ -286,9 +318,14 @@ var (
 	// frame. Their presence rules out MVC: frame packing is a re-encode, and an
 	// ordinary decoder can play the result.
 	reFrameCompatible3D = regexp.MustCompile(`(?i)\b(FULL[\s\-]?SBS|FULL[\s\-]?OU|FSBS|F[\s\-]SBS|FOU|F[\s\-]OU|HALF[\s\-]?SBS|HALF[\s\-]?OU|HSBS|H[\s\-]SBS|HOU|H[\s\-]OU|SBS|OU)\b`)
-	// reComplete matches "COMPLETE" disc-rip labels; combined with a BluRay source
-	// and any non-conv 3D marker this implies a full BD3D disc rip.
-	reComplete = regexp.MustCompile(`(?i)\bCOMPLETE\b`)
+	// reCompleteDisc matches the scene's "COMPLETE BLURAY" disc-rip label.
+	//
+	// The two tokens must be adjacent. A bare \bCOMPLETE\b anywhere in the
+	// name also matches a film whose own title contains the word — "A Complete
+	// Unknown 2024 1080p 3D FSBS BluRay" was promoted to BD3D on the strength
+	// of its title, which then routed a side-by-side encode into an
+	// MVC-only pipeline.
+	reCompleteDisc = regexp.MustCompile(`(?i)\bCOMPLETE[\s._\-]*(?:BLU[\s._\-]?RAY|BD(?:25|50|66|100)?)\b|\b(?:BLU[\s._\-]?RAY|BD(?:25|50|66|100)?)[\s._\-]*COMPLETE\b`)
 
 	// Audio regexes checked in priority order (highest first).
 	//
@@ -439,8 +476,21 @@ func Parse(title string) Quality {
 		}
 	}
 	// "COMPLETE BluRay" with a non-conv 3D marker means the full Blu-ray 3D disc
-	// was ripped, which is always BD3D quality regardless of the 3D tag used.
-	if q.Format3D > Format3DConv && q.Source == SourceBluRay && reComplete.MatchString(title) {
+	// was ripped, which is BD3D quality whichever generic 3D tag was used.
+	//
+	// The frame-compatible guard is the same load-bearing one the remux rule
+	// below carries, and for the same reason: an explicit SBS/OU marker says
+	// the release packs both views into one frame, which *is* a re-encode, so
+	// it cannot also be the disc's MVC stream. Promoting "3D COMPLETE BLURAY
+	// FULL-SBS" to BD3D claimed an MVC disc for a release any decoder can
+	// play, which routed side-by-side encodes into an MVC-only pipeline and
+	// made them invisible to the pipelines that wanted them. An explicit
+	// marker always wins over this inference.
+	//
+	// An explicit BD3D/MVC marker is unaffected: the native-marker scan above
+	// has already set BD, and this rule only ever promotes.
+	if q.Format3D > Format3DConv && q.Source == SourceBluRay &&
+		reCompleteDisc.MatchString(title) && !reFrameCompatible3D.MatchString(title) {
 		q.Format3D = Format3DBD
 	}
 	// A remux carrying a bare "3D" and no frame-packing marker is a disc rip:
@@ -528,10 +578,10 @@ func (s Spec) Matches(q Quality) bool {
 		}
 	}
 	if !(s.OptAudio && q.Audio == AudioUnknown) {
-		if s.MinAudio > 0 && q.Audio < s.MinAudio {
+		if s.MinAudio > 0 && q.Audio.rank() < s.MinAudio.rank() {
 			return false
 		}
-		if s.MaxAudio > 0 && q.Audio > s.MaxAudio {
+		if s.MaxAudio > 0 && q.Audio.rank() > s.MaxAudio.rank() {
 			return false
 		}
 	}

@@ -1418,9 +1418,14 @@ func TestAtmosCarrier(t *testing.T) {
 
 // The ordering is what the upgrade decision actually consumes.
 func TestAtmosCarrierOrdering(t *testing.T) {
-	if !(AudioDolbyDigital < AudioDDPlusAtmos && AudioDDPlusAtmos < AudioTrueHD && AudioTrueHD < AudioAtmos) {
-		t.Fatalf("want DD < DD+ Atmos < TrueHD < Atmos, got %d %d %d %d",
-			AudioDolbyDigital, AudioDDPlusAtmos, AudioTrueHD, AudioAtmos)
+	// The ladder is the rank, not the stored value — the values are frozen by
+	// everything already on disk (see the Audio consts).
+	if !(AudioDolbyDigital.rank() < AudioDDPlusAtmos.rank() &&
+		AudioDDPlusAtmos.rank() < AudioTrueHD.rank() &&
+		AudioTrueHD.rank() < AudioAtmos.rank()) {
+		t.Fatalf("want DD < DD+ Atmos < TrueHD < Atmos by rank, got %d %d %d %d",
+			AudioDolbyDigital.rank(), AudioDDPlusAtmos.rank(),
+			AudioTrueHD.rank(), AudioAtmos.rank())
 	}
 
 	// The production case: a lossy DD+ Atmos encode must not upgrade over the
@@ -1460,5 +1465,136 @@ func TestAudioSpecTokens(t *testing.T) {
 	}
 	if !strict.Matches(trueHDAtmos) {
 		t.Error("an exact atmos spec should match TrueHD Atmos")
+	}
+}
+
+// TestAudioStoredValuesAreFrozen is the guard for the 1.49.0 regression. Audio
+// is persisted as an integer in every tracker record, grab record and
+// download-log entry, and an upgrade decision compares a stored value against
+// a freshly parsed one. Inserting a rung in the middle redefined every record
+// already on disk: a stored Atmos started reading as TrueHD and lost to any
+// fresh Atmos release, so ~450 films and episodes were re-downloaded as bogus
+// upgrades.
+//
+// These numbers are therefore part of the on-disk format. A new format goes on
+// the end and takes its ladder position from audioRank. If this test fails,
+// the change is not safe to ship without a data migration.
+func TestAudioStoredValuesAreFrozen(t *testing.T) {
+	frozen := map[Audio]int{
+		AudioUnknown:      0,
+		AudioMP3:          1,
+		AudioAAC:          2,
+		AudioDolbyDigital: 3,
+		AudioDTS:          4,
+		AudioTrueHD:       5,
+		AudioAtmos:        6,
+		AudioDDPlusAtmos:  7,
+	}
+	for a, want := range frozen {
+		if int(a) != want {
+			t.Errorf("%s = %d, want the frozen on-disk value %d", audioNames[a], int(a), want)
+		}
+	}
+	// Every declared format needs a ladder position, or it silently ranks as
+	// unknown and never wins a comparison.
+	for a := range frozen {
+		if _, ok := audioRank[a]; !ok {
+			t.Errorf("%s (%d) has no audioRank entry", audioNames[a], int(a))
+		}
+	}
+	if len(audioRank) != len(frozen) {
+		t.Errorf("audioRank has %d entries for %d formats", len(audioRank), len(frozen))
+	}
+}
+
+// A record written by a newer build carries a value this one does not know.
+// It must rank as unknown rather than as its raw integer, or it would beat
+// every known format and block all upgrades.
+func TestUnknownAudioValueRanksLast(t *testing.T) {
+	future := Audio(99)
+	if future.rank() != 0 {
+		t.Errorf("unknown audio value ranked %d, want 0", future.rank())
+	}
+	known := Quality{Resolution: Resolutionp1080, Audio: AudioAtmos}
+	unknown := Quality{Resolution: Resolutionp1080, Audio: future}
+	if unknown.Better(known) {
+		t.Error("an unrecognised audio value must not beat a known one")
+	}
+}
+
+// TestStoredAtmosIsNotBeatenByFreshParse reproduces the exact production
+// failure: a record stored before the DD+ Atmos rung existed must still
+// compare equal to a fresh parse of the same release, not be beaten by it.
+func TestStoredAtmosIsNotBeatenByFreshParse(t *testing.T) {
+	// What 1.48.0 wrote for "… Dolby Atmos 7 1 …", read back as integers.
+	stored := Quality{
+		Format3D: Format3DBD, Resolution: Resolutionp1080,
+		Source: SourceBluRay, Audio: Audio(6),
+	}
+	fresh := Parse("The Lion King 1994 1080p 3D Blu ray MVC Dolby Atmos 7 1 + DTS HD Master 7 1 zman")
+	if fresh.Audio != AudioAtmos {
+		t.Fatalf("fresh parse audio = %s, want Atmos", audioNames[fresh.Audio])
+	}
+	if fresh.Better(stored) {
+		t.Errorf("fresh %s must not be an upgrade over the stored %s it was written from",
+			fresh, stored)
+	}
+}
+
+// TestCompleteDiscPromotion covers the "COMPLETE BLURAY" → BD3D inference and
+// the two ways it used to overreach: an explicitly frame-compatible release
+// claimed to be an MVC disc, and a film whose own title contains "Complete"
+// promoted on the strength of its name. Both routed side-by-side encodes into
+// an MVC-only pipeline and hid them from the pipelines that wanted them.
+func TestCompleteDiscPromotion(t *testing.T) {
+	tests := []struct {
+		title string
+		want  Format3D
+		why   string
+	}{
+		// Real disc rips: a generic 3D tag plus the COMPLETE BLURAY label.
+		{"The Nightmare Before Christmas 1993 1080p 3D Complete Bluray", Format3DBD, "generic 3D + complete disc"},
+		{"Sing 2 2021 1080p 3D Complete Bluray -iND", Format3DBD, "generic 3D + complete disc"},
+		{"Gemini Man 3D 2019 MULTi COMPLETE BLURAY GMB", Format3DBD, "uppercase, no resolution"},
+		{"Some Movie 2024 1080p 3D COMPLETE.BLURAY.AVC.MVC.DTS-HD.MA", Format3DBD, "explicit MVC as well"},
+		{"Some Movie 2024 1080p 3D BluRay COMPLETE x264", Format3DBD, "reversed token order"},
+		{"Some Movie 2024 1080p 3D COMPLETE BD50 AVC MVC", Format3DBD, "BD50 spelling"},
+
+		// Frame-compatible: fitting both views in one frame IS a re-encode, so
+		// the release cannot also be the disc's MVC stream.
+		{"Some Movie 2024 1080p 3D COMPLETE BLURAY FULL-SBS x264-GRP", Format3DFull, "explicit full-SBS"},
+		{"Some Movie 2024 1080p 3D FSBS COMPLETE BluRay AVC DTS-HD MA", Format3DFull, "explicit FSBS"},
+		{"Some Movie 2024 1080p 3D Half-SBS COMPLETE BluRay x264", Format3DHalf, "explicit half-SBS"},
+		{"Some Movie 2024 1080p 3D COMPLETE BLURAY OU x264", Format3DHalf, "over-under"},
+
+		// "Complete" in the film's own title is not a disc label.
+		{"A Complete Unknown 2024 1080p 3D FSBS BluRay x264-GRP", Format3DFull, "title word, with a layout tag"},
+		{"A Complete Unknown 2024 1080p 3D BluRay x264-GRP", Format3DHalf, "title word, generic 3D only"},
+
+		// A conversion stays a conversion whatever the disc label claims.
+		{"Some Movie 2024 1080p 3D-Conv COMPLETE BLURAY x264", Format3DConv, "conversion marker wins"},
+	}
+	for _, tt := range tests {
+		if got := Parse(tt.title).Format3D; got != tt.want {
+			t.Errorf("Parse(%q).Format3D = %s, want %s (%s)",
+				tt.title, format3DNames[got], format3DNames[tt.want], tt.why)
+		}
+	}
+}
+
+// The gate the mvc pipeline actually uses: an SBS encode must not satisfy a
+// bd3d spec, and a real disc rip must.
+func TestCompleteDiscAgainstBD3DSpec(t *testing.T) {
+	spec, err := ParseSpec("bd3d")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sbs := Parse("Some Movie 2024 1080p 3D COMPLETE BLURAY FULL-SBS x264-GRP")
+	disc := Parse("Sing 2 2021 1080p 3D Complete Bluray -iND")
+	if spec.Matches(sbs) {
+		t.Errorf("a full-SBS encode (%s) must not satisfy spec bd3d", sbs)
+	}
+	if !spec.Matches(disc) {
+		t.Errorf("a complete disc rip (%s) should satisfy spec bd3d", disc)
 	}
 }
