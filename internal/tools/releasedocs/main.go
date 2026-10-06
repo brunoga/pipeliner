@@ -49,7 +49,9 @@ func main() {
 			fmt.Fprintf(os.Stderr, "releasedocs: mkdir %s: %v\n", filepath.Dir(j.dst), err)
 			os.Exit(1)
 		}
-		if err := os.WriteFile(j.dst, []byte(rewritten), 0o600); err != nil {
+		// j.dst is built from this tool's own -out flag, supplied by the
+		// GoReleaser hook that runs it. The operator already chooses the path.
+		if err := os.WriteFile(j.dst, []byte(rewritten), 0o600); err != nil { //nolint:gosec // G703: -out is operator-supplied, not untrusted input
 			fmt.Fprintf(os.Stderr, "releasedocs: write %s: %v\n", j.dst, err)
 			os.Exit(1)
 		}

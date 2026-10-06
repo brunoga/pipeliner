@@ -110,7 +110,10 @@ func (c *Client) get(ctx context.Context, rawURL string) ([]byte, error) {
 	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
 	req.Header.Set("Accept-Language", "en-US,en;q=0.5")
 	if c.country != "" {
-		req.AddCookie(&http.Cookie{Name: "country", Value: c.country})
+		// An outgoing request cookie. Secure, HttpOnly and SameSite are
+		// response-only attributes a server sets for a browser; they mean
+		// nothing on a Cookie header we send ourselves.
+		req.AddCookie(&http.Cookie{Name: "country", Value: c.country}) //nolint:gosec // G124: outgoing cookie, not a Set-Cookie
 	}
 
 	resp, err := c.http.Do(req)

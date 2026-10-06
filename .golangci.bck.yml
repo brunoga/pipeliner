@@ -1,0 +1,19 @@
+linters:
+  # Default linters (errcheck, govet, staticcheck, etc.) remain enabled.
+  enable:
+    - misspell   # catch common spelling mistakes in comments and strings
+    - noctx      # detect http calls without context
+    - gosec      # security checks
+    - revive     # opinionated but practical style checks
+
+linters-settings:
+  revive:
+    rules:
+      - name: exported
+        disabled: true   # don't require every exported symbol to have a doc comment
+
+issues:
+  exclude-rules:
+    # errcheck is noisy in test helpers — allow unchecked calls in _test.go files.
+    - path: _test\.go
+      linters: [errcheck]

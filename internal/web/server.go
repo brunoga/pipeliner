@@ -293,7 +293,10 @@ func (s *Server) buildHandler() http.Handler {
 
 // serve runs the assembled server until ctx is cancelled.
 func (s *Server) serve(ctx context.Context, srv *http.Server, tlsCfg *tls.Config) error {
-	go func() {
+	// A fresh context is the point: this goroutine runs *because* ctx was
+	// cancelled, so passing it to Shutdown would abort in-flight requests
+	// immediately instead of giving them five seconds to finish.
+	go func() { //nolint:gosec // G118: context.Background is correct for a post-cancellation shutdown
 		<-ctx.Done()
 		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()

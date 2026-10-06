@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 // hexHash is a valid 40-char hex info hash used in tests.
@@ -206,6 +208,72 @@ func TestScrapeUDPSuccess(t *testing.T) {
 	}
 	if seeds != 25 {
 		t.Errorf("seeds: got %d, want 25", seeds)
+	}
+}
+
+// scrapeUDP already selects on ctx.Done(), so a cancelled run returns to its
+// caller promptly either way. What it does NOT do is stop the goroutine it
+// launched: that goroutine keeps running doScrapeUDP. UDP needs no handshake,
+// so a dial to a silent listener always succeeds, and the old net.DialTimeout
+// call therefore went on to send its connect request and sit on a ten-second
+// read deadline — holding a socket, long after the result could be used. With
+// ScrapeBatch fanning out across many trackers those pile up. Dialing through
+// the context makes the abandoned goroutine unwind at once.
+//
+// So this exercises doScrapeUDP directly, past the select that would otherwise
+// hide the leak.
+func TestDoScrapeUDPHonoursCancellation(t *testing.T) {
+	// A listener that accepts packets and never replies — the worst case.
+	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen UDP: %v", err)
+	}
+	defer pc.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	var ih [20]byte
+	start := time.Now()
+	_, err = doScrapeUDP(ctx, ih, "udp://"+pc.LocalAddr().String())
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("a cancelled context should fail the scrape")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("error should wrap context.Canceled, got %v", err)
+	}
+	// The read deadline is ten seconds, so anything near that means the dial
+	// ignored the cancellation and we merely timed out waiting for a reply.
+	if elapsed > 2*time.Second {
+		t.Errorf("took %v, want a prompt return — the cancellation was ignored", elapsed)
+	}
+}
+
+// The batch path dials separately, so it needs the same guarantee.
+func TestDoScrapeUDPBatchHonoursCancellation(t *testing.T) {
+	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen UDP: %v", err)
+	}
+	defer pc.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	start := time.Now()
+	_, err = doScrapeUDPBatch(ctx, [][20]byte{{}}, []string{hexHash}, "udp://"+pc.LocalAddr().String())
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("a cancelled context should fail the batch scrape")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("error should wrap context.Canceled, got %v", err)
+	}
+	if elapsed > 2*time.Second {
+		t.Errorf("took %v, want a prompt return — the cancellation was ignored", elapsed)
 	}
 }
 

@@ -1,19 +1,66 @@
+version: "2"
+
 linters:
   # Default linters (errcheck, govet, staticcheck, etc.) remain enabled.
   enable:
     - misspell   # catch common spelling mistakes in comments and strings
-    - noctx      # detect http calls without context
+    - noctx      # detect calls that discard an available context
     - gosec      # security checks
     - revive     # opinionated but practical style checks
 
-linters-settings:
-  revive:
-    rules:
-      - name: exported
-        disabled: true   # don't require every exported symbol to have a doc comment
+  settings:
+    revive:
+      rules:
+        - name: exported
+          disabled: true   # don't require every exported symbol to have a doc comment
 
-issues:
-  exclude-rules:
-    # errcheck is noisy in test helpers — allow unchecked calls in _test.go files.
-    - path: _test\.go
-      linters: [errcheck]
+  exclusions:
+    generated: lax
+    # These four carry over golangci-lint v1's built-in default exclusions,
+    # which v2 makes explicit. Dropping them would surface ~112 inert
+    # `defer x.Close()` and `fmt.Fprintf` errcheck reports that v1 never had.
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      # staticcheck's QF ("quickfix") checks are editor refactoring offers rather
+      # than findings, and some actively read worse: QF1001 rewrites
+      # `if !(a && b)` as `if !a || !b`. Subtracted here rather than via a
+      # `checks:` list, because spelling that list out means restating
+      # golangci-lint's own ST defaults and silently enabling whatever it
+      # chooses to disable next. Every SA check — the ones that find real
+      # defects — stays on.
+      - linters: [staticcheck]
+        text: '^(QF1001|QF1002|QF1008|QF1011|QF1012|ST1023):'
+
+      # errcheck is noisy in test helpers — allow unchecked calls in _test.go files.
+      - path: _test\.go
+        linters: [errcheck]
+
+      # Test fixtures serve local, attacker-free data to themselves, so gosec's
+      # taint analysis has no untrusted source to find; and a test helper has no
+      # caller whose context it could have inherited.
+      - path: _test\.go
+        linters: [gosec, noctx]
+
+      # internal/store's SQL is synchronous by construction: migrations run
+      # inside Open() before the server accepts a request, and the single
+      # connection has no request-scoped deadline to inherit. Threading a
+      # context through them is worth doing on its own merits, but as a change
+      # with its own tests rather than as a side effect of a linter bump.
+      - path: internal/store/
+        linters: [noctx]
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+
+formatters:
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

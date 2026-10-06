@@ -134,7 +134,7 @@ func LoadToken(bucket tokenBucket, clientID string) (*StoredToken, bool) {
 func GetValidAccessToken(ctx context.Context, bucket tokenBucket, clientID, clientSecret string) (string, error) {
 	st, ok := LoadToken(bucket, clientID)
 	if !ok {
-		return "", fmt.Errorf("trakt: no stored token for client %q — run: pipeliner auth trakt --client-id=... --client-secret=...", clientID)
+		return "", fmt.Errorf("trakt: no stored token for client %q — run: pipeliner auth trakt --client-id=ID --client-secret=SECRET", clientID)
 	}
 	// Fast path: comfortably valid, no lock needed.
 	if time.Until(st.ExpiresAt) >= refreshWindow {
