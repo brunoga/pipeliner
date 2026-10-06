@@ -149,6 +149,7 @@ td code{font-size:11px}
     <a href="#metainfo_bluray" class="sub">metainfo_bluray</a>
     <a href="#metainfo_torrent" class="sub">metainfo_torrent</a>
     <a href="#metainfo_magnet" class="sub">metainfo_magnet</a>
+    <a href="#probe" class="sub">probe</a>
     <a href="#series_lifecycle" class="sub">series_lifecycle</a>
     <a href="#series_gaps" class="sub">series_gaps</a>
 
@@ -1466,6 +1467,40 @@ output("transmission", upstream=real, host="localhost")
 pipeline("real-3d-only", schedule="1h")</code></pre>
 
 <!-- ─────────── series_lifecycle ─────────── -->
+<!-- ─────────── probe ─────────── -->
+<h2 id="probe">probe</h2>
+<p>Reports what a release's own container says about itself, read from a <strong>sample of the torrent before the torrent is downloaded</strong>. A release name is not evidence: <code>COMPLETE BLURAY FULL-SBS</code> is a side-by-side re-encode rather than the MVC disc it claims, <code>2160p</code> is sometimes a 6&nbsp;Mbps upscale, and <code>DDP Atmos</code> is lossy where <code>TrueHD</code> is not. The container states the truth, and the part of it that does so is small and predictably placed.</p>
+
+<p>A Blu-ray image keeps its UDF directory at the front and its BDMV metadata &mdash; playlists, clip info &mdash; at the <em>end</em>, with the interleaved stream filling everything between. A Matroska file names its tracks in its first kilobytes. So this plugin fetches the torrent's first and last piece, hands them to the pure-Go container readers in <a href="https://github.com/brunoga/mvc">brunoga/mvc</a>, and stamps what came back. Measured on a live 40.56&nbsp;GiB disc: <strong>2 pieces, 27.2&nbsp;MiB, 0.066% of the torrent, 9.2 seconds</strong>, yielding the exact runtime, the MVC dependent view, the base-view eye, 1920&times;1080 H.264, TrueHD 7.1 at 8391&nbsp;kbps and five subtitle tracks.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>timeout</code></td><td>no</td><td><code>2m</code></td><td>Budget for one entry's probe, including fetching its pieces</td></tr>
+  <tr><td><code>max_pieces</code></td><td>no</td><td><code>6</code></td><td>Most pieces to fetch for one entry. The probe asks for more only when it names bytes it could not read, so this is a ceiling rather than a target</td></tr>
+  <tr><td><code>require</code></td><td>no</td><td><code>false</code></td><td>Reject entries whose probe could not run, instead of passing them with <code>probe_ok</code> false</td></tr>
+</table>
+
+<p>Fields produced: <code>probe_ok</code>, <code>probe_kind</code>, <code>probe_is_3d</code>, <code>probe_3d_layout</code>, <code>probe_width</code>, <code>probe_height</code>, <code>probe_video_codec</code>, <code>probe_duration_sec</code>, <code>probe_bitrate_mbps</code>, <code>probe_audio_codecs</code>, <code>probe_audio_languages</code>, <code>probe_subtitle_languages</code>, <code>probe_base_view_right</code>, <code>probe_pieces</code>, <code>probe_bytes</code>.</p>
+
+<div class="note"><strong>It reports; it does not decide.</strong> Every field is a measurement, so one plugin serves a pipeline hunting MVC discs and one hunting 2D films equally. <code>probe_is_3d</code> is explicit in <em>both</em> directions &mdash; false means the container states it is 2D, which is as definite an answer as true. What to do about any of it belongs in a <a href="#condition"><code>condition</code></a> rule downstream.</div>
+
+<pre><code>alive = process("torrent_alive", upstream=content, min_seeds=2, verify=True)
+
+<span class="y-comment"># Two pieces per entry, so run this after the cheap name-only gates.</span>
+seen  = process("probe", upstream=alive, timeout="3m")
+
+<span class="y-comment"># Now gate on measurement instead of on the release name.</span>
+real  = process("condition", upstream=seen,
+                reject='probe_ok == true and probe_3d_layout != "mvc"')</code></pre>
+
+<div class="note"><strong>What it costs.</strong> One piece is the smallest range BitTorrent can serve, and on these torrents a piece is 16&ndash;32&nbsp;MiB &mdash; so a 32&nbsp;KiB Matroska header still costs a piece. That is still under a thousandth of a 40&nbsp;GB disc, but on a <strong>private tracker those bytes count against a ratio</strong>, and each probe is an announce. <code>probe_pieces</code> and <code>probe_bytes</code> record what was spent rather than leaving it to be guessed at, and entries are probed one at a time rather than in parallel, because pulling tens of megabytes from several swarms at once is the kind of burst a tracker notices. Nothing reaches the download client and nothing is kept: the sample lives in a temporary directory that is removed when the run ends.</div>
+
+<div class="note"><strong>Retries are not belt and braces.</strong> A disc with hundreds of playlists &mdash; Disney titles routinely have them &mdash; spills its metadata past the last 16&nbsp;MiB piece, so assuming two pieces fails on real discs. When the probe cannot read a byte it says which one, and the plugin fetches the piece holding it and tries again, up to <code>max_pieces</code>. Of ten real discs measured, nine needed two pieces and one needed three; with 32&nbsp;MiB pieces all ten needed two. A <em>parse</em> failure is final and is not retried &mdash; zero-filled bytes are present bytes, and fetching more of the image will not improve them.</div>
+
+<div class="note"><strong>What a container does not state is left unset</strong>, not written as zero, so a condition can tell "it says 0" from "it did not say". Video bit depth is never stated by a disc's clip info. A disc's audio channel count and bitrate come from the stream's opening frames, which lie in the first piece on only some discs &mdash; so decide on codec and language, which are always present. Blu-ray language codes are ISO 639-2 and cannot distinguish Brazilian from European Portuguese; both read as <code>por</code>. A probe that cannot run leaves <code>probe_ok</code> false and the entry otherwise untouched, because a release should not be lost to an unreachable swarm; <code>require=True</code> rejects those instead.</div>
+
+<div class="note"><strong>Placement.</strong> <code>probe</code> needs <code>torrent_info_hash</code>, so it sits after <a href="#metainfo_torrent"><code>metainfo_torrent</code></a>. Put it after every gate that decides from the release name &mdash; <a href="#quality"><code>quality</code></a>, <a href="#trailer"><code>trailer</code></a>, the trackers, <a href="#torrent_alive"><code>torrent_alive</code></a> &mdash; because those cost nothing and this costs megabytes. <code>torrent_alive</code> in particular earns its place first: a probe needs a seeder, and that filter has already established there is one.</div>
+
 <h2 id="series_lifecycle">series_lifecycle</h2>
 <p>Classifies tracked shows by follow lifecycle using TheTVDB status and episode list, compared against the series tracker. Typically fed by the <a href="#series_tracker"><code>series_tracker</code></a> source; see <a href="#series-lifecycle">Series lifecycle</a> for the end-to-end flow.</p>
 
