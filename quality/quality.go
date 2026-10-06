@@ -105,16 +105,48 @@ type Audio int
 // below TrueHD. Bare "Atmos" keeps the top rank: on the UHD BluRay releases
 // that spell it that way it is virtually always TrueHD Atmos, and inferring
 // otherwise would re-rank far more than the releases actually at issue.
+// The numbers are persisted: every tracker record, grab record and download-log
+// entry stores Audio as an integer, and an upgrade decision compares a stored
+// value against a freshly parsed one. So a value, once released, is frozen —
+// inserting a rung in the middle silently redefines every record already on
+// disk. 1.49.0 did exactly that, putting AudioDDPlusAtmos between DTS and
+// TrueHD: a stored Atmos (6) started reading as TrueHD and was beaten by any
+// fresh Atmos release, so ~450 films and episodes were re-downloaded as bogus
+// "quality upgrades".
+//
+// New rungs therefore go on the END, whatever their quality, and audioRank
+// below says where each one actually sits in the ladder. Comparisons go
+// through rank(), never through the raw value.
 const (
 	AudioUnknown Audio = iota
 	AudioMP3
 	AudioAAC
 	AudioDolbyDigital
 	AudioDTS
-	AudioDDPlusAtmos
 	AudioTrueHD
 	AudioAtmos
+	AudioDDPlusAtmos
 )
+
+// audioRank places each format in the quality ladder, independent of its
+// stored value: lossy DD+ Atmos sits below lossless TrueHD, and both sit below
+// Atmos on a lossless bed. Indexed by Audio; keep it in step with the consts.
+var audioRank = map[Audio]int{
+	AudioUnknown:      0,
+	AudioMP3:          1,
+	AudioAAC:          2,
+	AudioDolbyDigital: 3,
+	AudioDTS:          4,
+	AudioDDPlusAtmos:  5,
+	AudioTrueHD:       6,
+	AudioAtmos:        7,
+}
+
+// rank returns the format's position in the quality ladder. Unknown values —
+// a record written by a newer build than this one — rank as unknown rather
+// than as whatever integer they happen to be, so they never win a comparison
+// by accident.
+func (a Audio) rank() int { return audioRank[a] }
 
 var audioNames = map[Audio]string{
 	AudioUnknown:      "",
@@ -253,7 +285,7 @@ func (q Quality) Better(other Quality) bool {
 	if q.ColorRange != other.ColorRange {
 		return q.ColorRange > other.ColorRange
 	}
-	return q.Audio > other.Audio
+	return q.Audio.rank() > other.Audio.rank()
 }
 
 // --- compiled regexes for Parse ---
@@ -528,10 +560,10 @@ func (s Spec) Matches(q Quality) bool {
 		}
 	}
 	if !(s.OptAudio && q.Audio == AudioUnknown) {
-		if s.MinAudio > 0 && q.Audio < s.MinAudio {
+		if s.MinAudio > 0 && q.Audio.rank() < s.MinAudio.rank() {
 			return false
 		}
-		if s.MaxAudio > 0 && q.Audio > s.MaxAudio {
+		if s.MaxAudio > 0 && q.Audio.rank() > s.MaxAudio.rank() {
 			return false
 		}
 	}
