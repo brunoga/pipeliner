@@ -418,7 +418,7 @@ func openWithFrom(t *testing.T, mock *mockInput) *moviesPlugin {
 	return &moviesPlugin{
 		listSources: []plugin.SourcePlugin{mock},
 		listCache:   cache.NewPersistent[[]match.TitleEntry](time.Hour, db.Bucket("test")),
-		tracker:     imovies.NewTracker(db.Bucket("movies")),
+		db:          db,
 	}
 }
 
@@ -456,7 +456,7 @@ func TestFromCachesResults(t *testing.T) {
 	p := &moviesPlugin{
 		listSources: []plugin.SourcePlugin{counted},
 		listCache:   cache.NewPersistent[[]match.TitleEntry](time.Hour, db.Bucket("test")),
-		tracker:     imovies.NewTracker(db.Bucket("movies")),
+		db:          db,
 	}
 	tc := makeCtx()
 	p.resolveTitles(context.Background(), tc)
@@ -474,7 +474,7 @@ func TestFromEmptyResultNotCached(t *testing.T) {
 	p := &moviesPlugin{
 		listSources: []plugin.SourcePlugin{counted},
 		listCache:   cache.NewPersistent[[]match.TitleEntry](time.Hour, db.Bucket("test")),
-		tracker:     imovies.NewTracker(db.Bucket("movies")),
+		db:          db,
 	}
 	tc := makeCtx()
 	p.resolveTitles(context.Background(), tc)
@@ -640,7 +640,7 @@ func TestUpgradeWindowExpiredRejectsBetterCopy(t *testing.T) {
 	tc := makeCtx()
 
 	// Backdate the tracked download beyond the window.
-	if err := p.tracker.Mark(imovies.Record{
+	if err := p.trackerFor(makeCtx()).Mark(imovies.Record{
 		Title: "inception", Year: 2010,
 		Quality:      mustQuality(t, "Inception.2010.720p.HDTV"),
 		DownloadedAt: time.Now().Add(-40 * 24 * time.Hour),
@@ -674,7 +674,7 @@ func TestUpgradeWindowUnsetKeepsForeverUpgrades(t *testing.T) {
 	p := openPlugin(t, nil) // no window
 	tc := makeCtx()
 
-	if err := p.tracker.Mark(imovies.Record{
+	if err := p.trackerFor(makeCtx()).Mark(imovies.Record{
 		Title: "inception", Year: 2010,
 		Quality:      mustQuality(t, "Inception.2010.720p.HDTV"),
 		DownloadedAt: time.Now().Add(-3 * 365 * 24 * time.Hour),
@@ -1299,10 +1299,10 @@ func TestCommitUsesDecisionYear(t *testing.T) {
 	}
 
 	// The record must answer the question the next run actually asks.
-	if !p.tracker.IsSeen("aladdin", 2019, false) {
+	if !p.trackerFor(makeCtx()).IsSeen("aladdin", 2019, false) {
 		t.Error("tracker must hold the 2019 key the decision used")
 	}
-	rec, ok := p.tracker.Latest("aladdin", false)
+	rec, ok := p.trackerFor(makeCtx()).Latest("aladdin", false)
 	if !ok {
 		t.Fatal("no record stored")
 	}
@@ -1333,7 +1333,7 @@ func TestCommitUsesDecisionIs3D(t *testing.T) {
 	if err := p.Commit(context.Background(), tc, []*entry.Entry{e}); err != nil {
 		t.Fatal(err)
 	}
-	if !p.tracker.IsSeen("avatar", 2009, true) {
+	if !p.trackerFor(makeCtx()).IsSeen("avatar", 2009, true) {
 		t.Error("tracker must hold the 3D key the decision used")
 	}
 }
@@ -1342,7 +1342,7 @@ func TestCommitUsesDecisionIs3D(t *testing.T) {
 // from being re-grabbed on every scheduled run.
 func TestRetryCooldown(t *testing.T) {
 	p := openPlugin(t, map[string]any{"static": []any{"Inception"}, "retry_cooldown": "6h"})
-	key := untrack.MovieKey("inception", 2010, false)
+	key := untrack.MovieKey("movies", "inception", 2010, false)
 	if err := p.untrackStore.Mark(key, untrack.Record{
 		At: time.Now().Add(-1 * time.Hour), Release: "Inception.2010.720p", Reason: "stalled",
 	}); err != nil {
@@ -1363,7 +1363,7 @@ func TestRetryCooldown(t *testing.T) {
 
 func TestRetryCooldownElapsed(t *testing.T) {
 	p := openPlugin(t, map[string]any{"static": []any{"Inception"}, "retry_cooldown": "6h"})
-	key := untrack.MovieKey("inception", 2010, false)
+	key := untrack.MovieKey("movies", "inception", 2010, false)
 	if err := p.untrackStore.Mark(key, untrack.Record{At: time.Now().Add(-7 * time.Hour)}); err != nil {
 		t.Fatal(err)
 	}
@@ -1380,7 +1380,7 @@ func TestRetryCooldownElapsed(t *testing.T) {
 // retry_cooldown=0 restores the old retry-on-the-next-run behaviour.
 func TestRetryCooldownDisabled(t *testing.T) {
 	p := openPlugin(t, map[string]any{"static": []any{"Inception"}, "retry_cooldown": "0"})
-	key := untrack.MovieKey("inception", 2010, false)
+	key := untrack.MovieKey("movies", "inception", 2010, false)
 	if err := p.untrackStore.Mark(key, untrack.Record{At: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
@@ -1398,5 +1398,150 @@ func TestRetryCooldownDefault(t *testing.T) {
 	p := openPlugin(t, nil)
 	if p.retryCooldown != defaultRetryCooldown {
 		t.Errorf("retryCooldown = %s, want the %s default", p.retryCooldown, defaultRetryCooldown)
+	}
+}
+
+// TestLocalTrackerIsolation covers local=true. The shared tracker is right for
+// pipelines feeding one library, and wrong for one collecting source material:
+// the 3D harvest pipelines fetch MVC discs to convert, and a BD3D record in the
+// shared tracker outranks every side-by-side release, so harvesting a film
+// stopped the pipelines that wanted a playable copy from getting one.
+func TestLocalTrackerIsolation(t *testing.T) {
+	db, err := store.OpenSQLite(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	build := func(local bool) *moviesPlugin {
+		cfg := map[string]any{"static": []any{"Inception"}}
+		if local {
+			cfg["local"] = true
+		}
+		p, err := newPlugin(cfg, db)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return p.(*moviesPlugin)
+	}
+	ctxFor := func(name string) *plugin.TaskContext {
+		tc := makeCtx()
+		tc.Name = name
+		return tc
+	}
+
+	shared, harvest := build(false), build(true)
+	sharedCtx, harvestCtx := ctxFor("movies-3d"), ctxFor("3d-mvc-harvest")
+
+	if got, want := harvest.trackerBucket(harvestCtx), "movies:3d-mvc-harvest"; got != want {
+		t.Errorf("local bucket = %q, want %q", got, want)
+	}
+	if got, want := shared.trackerBucket(sharedCtx), "movies"; got != want {
+		t.Errorf("shared bucket = %q, want %q", got, want)
+	}
+
+	// The harvest pipeline records a disc.
+	e := makeEntry("Inception.2010.1080p.BluRay.x264", "http://x.com/mvc")
+	if _, err := harvest.Process(context.Background(), harvestCtx, []*entry.Entry{e}); err != nil {
+		t.Fatal(err)
+	}
+	if !e.IsAccepted() {
+		t.Fatalf("harvest should accept, reason = %q", e.RejectReason)
+	}
+	if err := harvest.Commit(context.Background(), harvestCtx, []*entry.Entry{e}); err != nil {
+		t.Fatal(err)
+	}
+	if !harvest.trackerFor(harvestCtx).IsSeen("inception", 2010, false) {
+		t.Fatal("harvest must track its own download")
+	}
+
+	// The shared tracker must not see it, so the pipelines that feed the
+	// library are unaffected by what the harvest collected.
+	if shared.trackerFor(sharedCtx).IsSeen("inception", 2010, false) {
+		t.Error("a local download must not appear in the shared tracker")
+	}
+	e2 := makeEntry("Inception.2010.1080p.BluRay.x264", "http://x.com/sbs")
+	if _, err := shared.Process(context.Background(), sharedCtx, []*entry.Entry{e2}); err != nil {
+		t.Fatal(err)
+	}
+	if !e2.IsAccepted() {
+		t.Errorf("the shared pipeline should still accept the film, reason = %q", e2.RejectReason)
+	}
+
+	// And the harvest will not grab it twice.
+	e3 := makeEntry("Inception.2010.1080p.BluRay.x264", "http://x.com/mvc2")
+	if err := harvest.filter(context.Background(), harvestCtx, e3); err != nil {
+		t.Fatal(err)
+	}
+	if !e3.IsRejected() {
+		t.Error("harvest must still dedup against its own tracker")
+	}
+}
+
+// Two tasks sharing one local-mode node definition still keep separate
+// records, since the bucket is resolved from the task name at run time.
+func TestLocalTrackerIsPerTask(t *testing.T) {
+	p := openPlugin(t, map[string]any{"local": true})
+	a, b := makeCtx(), makeCtx()
+	a.Name, b.Name = "task-a", "task-b"
+	if p.trackerBucket(a) == p.trackerBucket(b) {
+		t.Fatal("two tasks must not share a local bucket")
+	}
+
+	e := makeEntry("Inception.2010.1080p.BluRay.x264", "http://x.com/a")
+	if _, err := p.Process(context.Background(), a, []*entry.Entry{e}); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Commit(context.Background(), a, []*entry.Entry{e}); err != nil {
+		t.Fatal(err)
+	}
+	if !p.trackerFor(a).IsSeen("inception", 2010, false) {
+		t.Error("task-a should have tracked it")
+	}
+	if p.trackerFor(b).IsSeen("inception", 2010, false) {
+		t.Error("task-b must not see task-a's record")
+	}
+}
+
+// The bucket is stamped on the entry so the torrent sinks' grab records can
+// tell failed-grab recovery which tracker to roll back.
+func TestTrackerBucketStampedOnEntry(t *testing.T) {
+	p := openPlugin(t, map[string]any{"local": true})
+	tc := makeCtx()
+	tc.Name = "3d-mvc-harvest"
+	e := makeEntry("Inception.2010.1080p.BluRay.x264", "http://x.com/i")
+	if err := p.filter(context.Background(), tc, e); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := e.GetString(entry.FieldMoviesTrackerBucket), "movies:3d-mvc-harvest"; got != want {
+		t.Errorf("stamped bucket = %q, want %q", got, want)
+	}
+
+	shared := openPlugin(t, nil)
+	e2 := makeEntry("Inception.2010.1080p.BluRay.x264", "http://x.com/j")
+	if err := shared.filter(context.Background(), makeCtx(), e2); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := e2.GetString(entry.FieldMoviesTrackerBucket), "movies"; got != want {
+		t.Errorf("stamped bucket = %q, want %q", got, want)
+	}
+}
+
+// The retry hold is scoped to the tracker that owns the record, so a failed
+// grab in the harvest pipeline does not hold the title in a library pipeline.
+func TestRetryCooldownScopedToTracker(t *testing.T) {
+	p := openPlugin(t, map[string]any{"local": true})
+	tc := makeCtx()
+	tc.Name = "3d-mvc-harvest"
+	if err := p.untrackStore.Mark(untrack.MovieKey("movies", "inception", 2010, false),
+		untrack.Record{At: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	e := makeEntry("Inception.2010.1080p.BluRay.x264", "http://x.com/i")
+	if err := p.filter(context.Background(), tc, e); err != nil {
+		t.Fatal(err)
+	}
+	if e.IsRejected() {
+		t.Errorf("a hold on the shared tracker must not hold a local one: %q", e.RejectReason)
 	}
 }

@@ -25,6 +25,8 @@ Entries whose hash has **no grab record** (added outside pipeliner, added before
    | describes a *later* download than the one that died | left untouched | `left (record is from a later download)` |
    | absent | nothing to do | `no record` |
 
+   The tracker is the one the grab record names: a [`movies`](../../processor/filter/movies/README.md#local--per-pipeline-tracking) node with `local=True` keeps its own bucket, and un-tracking the shared one instead would both miss the record that exists and disturb a pipeline that never grabbed anything. An empty bucket means the shared tracker, which is where every record lived before the field existed.
+
    The comparison uses the quality recorded on the grab record at add time. Grab records written before that field existed skip the staleness check but still roll back. For a double episode (`S01E01E02`) the part records that [`MarkWithParts`](../../processor/filter/series/README.md) wrote alongside the combined one move with it, so the episode is never left half-tracked.
 
 3. Starts the [`movies`](../../processor/filter/movies/README.md#retry_cooldown) or [`series`](../../processor/filter/series/README.md#retry_cooldown) filter's `retry_cooldown` for the content by writing the shared `untrack_log` bucket, so the next scheduled run does not immediately grab another release of something whose grabs keep dying. Skipped when the record was left untouched.

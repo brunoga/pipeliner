@@ -168,3 +168,22 @@ func TestFromEntryWithoutMoviesFilter(t *testing.T) {
 		t.Errorf("no movies filter ran, so no movie key: %+v", rec)
 	}
 }
+
+// The tracker bucket travels on the grab record so failed-grab recovery rolls
+// back the tracker the movies filter actually wrote to.
+func TestFromEntryCarriesTrackerBucket(t *testing.T) {
+	e := entry.New("Inception 2010 1080p BluRay x264", "https://example.test/i.torrent")
+	e.Set(entry.FieldMoviesTrackerTitle, "inception")
+	e.Set(entry.FieldMoviesTrackerYear, 2010)
+	e.Set(entry.FieldMoviesTrackerBucket, "movies:3d-mvc-harvest")
+	if got := FromEntry(e, "3d-mvc-harvest").MovieBucket; got != "movies:3d-mvc-harvest" {
+		t.Errorf("MovieBucket = %q", got)
+	}
+
+	// An entry from a shared-tracker node stamps the shared bucket; one that
+	// never passed a movies filter stamps nothing.
+	e2 := entry.New("Some.Show.S01E01", "https://example.test/s.torrent")
+	if got := FromEntry(e2, "tv").MovieBucket; got != "" {
+		t.Errorf("MovieBucket = %q, want empty", got)
+	}
+}

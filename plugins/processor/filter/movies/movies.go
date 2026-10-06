@@ -68,6 +68,7 @@ func init() {
 			{Key: "reject_unmatched", Type: plugin.FieldTypeBool, Default: true, Hint: "Reject entries not classified as movie upstream; when a list is configured, also reject entries whose title isn't in the list"},
 			{Key: "settle", Type: plugin.FieldTypeDuration, Hint: "Delay between first seeing a download-worthy release for a title and grabbing one, so a wave of increasingly better releases yields a single download of the best (0 = grab on sight)"},
 			{Key: "upgrade_window", Type: plugin.FieldTypeDuration, Hint: "Accept quality upgrades only within this window after the first download (e.g. 30d as 720h; default: unlimited)"},
+			{Key: "local", Type: plugin.FieldTypeBool, Hint: "Track this pipeline's downloads separately instead of sharing the global movie tracker"},
 			{Key: "retry_cooldown", Type: plugin.FieldTypeDuration, Default: "6h", Hint: "Hold off this long before grabbing another release of a title whose last grab was marked failed by a janitor pipeline (0 = retry on the next run)"},
 		},
 		Caches: []plugin.CacheInfo{
@@ -92,7 +93,7 @@ func validate(cfg map[string]any) []error {
 	if err := plugin.OptDuration(cfg, "retry_cooldown", "movies"); err != nil {
 		errs = append(errs, err)
 	}
-	errs = append(errs, plugin.OptUnknownKeys(cfg, "movies", "static", "list", "ttl", "reject_unmatched", "upgrade_window", "settle", "retry_cooldown")...)
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "movies", "static", "list", "ttl", "reject_unmatched", "upgrade_window", "settle", "retry_cooldown", "local")...)
 	return errs
 }
 
@@ -100,7 +101,8 @@ type moviesPlugin struct {
 	staticTitles    []match.TitleEntry // movie titles from config (year=0 for plain strings)
 	listSources     []plugin.SourcePlugin
 	listCache       *cache.Cache[[]match.TitleEntry]
-	tracker         *imovies.Tracker
+	db              *store.SQLiteStore
+	local           bool // scope the tracker to the task instead of sharing it
 	downloadLog     *downloads.Log
 	rejectUnmatched bool
 	upgradeWindow   time.Duration // 0 = upgrades accepted forever
@@ -173,7 +175,8 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 		listCache:       cache.NewPersistent[[]match.TitleEntry](ttl, db.Bucket("cache_movies_list")),
 		rejectUnmatched: rejectUnmatched,
 		upgradeWindow:   upgradeWindow,
-		tracker:         imovies.NewTracker(db.Bucket(imovies.TrackerBucketName)),
+		db:              db,
+		local:           plugin.OptBool(cfg, "local", false),
 		downloadLog:     downloads.New(db.Bucket(downloads.BucketName)),
 		retryCooldown:   retryCooldown,
 		untrackStore:    untrack.NewStore(db.Bucket(untrack.BucketName)),
@@ -181,6 +184,28 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 }
 
 func (p *moviesPlugin) Name() string { return "movies" }
+
+// trackerBucket is the store bucket holding this node's download records:
+// the shared one by default, or a per-task bucket with local=true.
+//
+// Sharing is right for pipelines that feed one library — a film downloaded by
+// any of them is downloaded. It is wrong when a pipeline collects something
+// else entirely: the 3D harvest pipelines fetch MVC discs as *source material*
+// to convert, and a BD3D record in the shared tracker outranks every
+// side-by-side release, so harvesting a film stops the pipelines that wanted a
+// playable copy from ever getting one.
+func (p *moviesPlugin) trackerBucket(tc *plugin.TaskContext) string {
+	if p.local {
+		return imovies.TrackerBucketName + ":" + tc.Name
+	}
+	return imovies.TrackerBucketName
+}
+
+// trackerFor opens the tracker this node writes to. Resolved per call because
+// the task name is only known at run time.
+func (p *moviesPlugin) trackerFor(tc *plugin.TaskContext) *imovies.Tracker {
+	return imovies.NewTracker(p.db.Bucket(p.trackerBucket(tc)))
+}
 
 // hasList reports whether the filter has any source of movie titles — either
 // a static list or one or more dynamic list source plugins. When false, the
@@ -233,6 +258,7 @@ func (p *moviesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *en
 	e.Set(moviesTrackerName, matchedTitle)
 	e.Set(entry.FieldMoviesTrackerYear, year)
 	e.Set(entry.FieldMoviesTrackerIs3D, is3D)
+	e.Set(entry.FieldMoviesTrackerBucket, p.trackerBucket(tc))
 
 	// A janitor pipeline marked this title's last grab failed very recently.
 	// Hold off instead of immediately grabbing the next release: when every
@@ -240,17 +266,18 @@ func (p *moviesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *en
 	// Rejection is per-run and uncommitted, so the entry is re-evaluated on the
 	// next run and passes once the window elapses.
 	if left, held := p.untrackStore.Remaining(
-		untrack.MovieKey(matchedTitle, year, is3D), p.retryCooldown, time.Now()); held {
+		untrack.MovieKey(p.trackerBucket(tc), matchedTitle, year, is3D), p.retryCooldown, time.Now()); held {
 		e.Reject(fmt.Sprintf("movies: %s (%d) last grab failed, retrying in %s",
 			matchedTitle, year, left.Round(time.Minute)))
 		return nil
 	}
 
-	if p.tracker.IsSeen(matchedTitle, year, is3D) {
+	tracker := p.trackerFor(tc)
+	if tracker.IsSeen(matchedTitle, year, is3D) {
 		// LatestNearYear (rather than Latest + exact-year check) so the
 		// upgrade decision still runs when the stored record's year drifts
 		// from the incoming year by ±1 — theatrical vs. home-video release.
-		if rec, ok := p.tracker.LatestNearYear(matchedTitle, year, is3D); ok {
+		if rec, ok := tracker.LatestNearYear(matchedTitle, year, is3D); ok {
 			// Outside the upgrade window a better copy no longer replaces the
 			// library one — a 4K re-release years later should not re-download
 			// a film that was watched long ago.
@@ -379,7 +406,7 @@ func (p *moviesPlugin) persist(_ context.Context, tc *plugin.TaskContext, entrie
 		q, _ := e.Quality()
 		properOrRepack := e.GetBool(entry.FieldVideoProper) || e.GetBool(entry.FieldVideoRepack)
 		now := time.Now()
-		if err := p.tracker.Mark(imovies.Record{
+		if err := p.trackerFor(tc).Mark(imovies.Record{
 			Title:        matchedTitle,
 			Year:         year,
 			Is3D:         is3D,

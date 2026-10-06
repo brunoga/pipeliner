@@ -73,6 +73,10 @@ func classifyBucket(name string, registry map[string]string) bucketCategory {
 	if strings.HasPrefix(name, "premiere:") {
 		return catTracker
 	}
+	// A movies node with local=true keeps its own bucket (movies:<task>).
+	if strings.HasPrefix(name, "movies:") || strings.HasPrefix(name, "series:") {
+		return catTracker
+	}
 	if _, ok := registry[name]; ok {
 		return catCache
 	}

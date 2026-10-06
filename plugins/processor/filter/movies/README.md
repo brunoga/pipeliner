@@ -35,6 +35,7 @@ The title list is optional. When provided, it can be static via `static`, dynami
 | `upgrade_window` | duration | no | — | Accept quality upgrades only within this window after the first download (e.g. `720h` for 30 days). Unset = upgrades accepted forever. |
 | `settle` | string | no | — | Delay between first seeing a download-worthy release and grabbing one. Releases arrive in waves (1080p → 2160p → HDR → Atmos) within hours; instead of downloading each rung as it appears, the best release of the wave is remembered and downloaded when the window elapses — even if it has since scrolled out of the indexer feed (indexers typically advertise only their newest ~50 items). |
 | `retry_cooldown` | duration | no | `6h` | Hold off this long before grabbing another release of a title whose last grab a janitor pipeline marked failed. `0` retries on the very next run. |
+| `local` | bool | no | `false` | Track this pipeline's downloads in its own bucket (`movies:<task>`) instead of sharing the global tracker |
 
 ### `retry_cooldown`
 
@@ -203,3 +204,31 @@ Two things follow from this that are easy to get wrong:
 - Download history and dynamic list cache are stored in `pipeliner.db` in the same directory as the config file.
 - The tracker is updated only after all downstream sinks confirm (via `CommitPlugin`). If a sink fails an entry, the movie is not recorded as downloaded and will be retried on the next run.
 - **Year-drift tolerance.** The tracker key is `(title, year, is3D)`. To survive theatrical-vs-Blu-ray release-year drift (e.g. *Good Boy*: 2025 theatrical / 2026 Blu-ray), `IsSeen` falls back to a ±1 year scan when the exact key misses, and the upgrade decision uses the same window. Two films sharing a title that are ≥2 years apart are still treated as independent (e.g. *The Matrix* 1999 vs. a 2021 reboot).
+
+## `local` — per-pipeline tracking
+
+The movie tracker is shared by default, and for pipelines that feed one library that is exactly right: a film downloaded by any of them is downloaded, so none of them fetches it again.
+
+It is wrong when a pipeline collects something that is not a library copy. The 3D harvest pipelines fetch **MVC Blu-ray discs as source material** to convert locally into side-by-side. Their records land under the same `(title, year, 3D)` key the side-by-side pipelines use, and BD3D outranks every frame-compatible format — so harvesting a film's disc makes a later full-SBS release read as a downgrade, and the pipeline that wanted a *playable* copy never gets one. Harvest broadly and that happens to every title you touch.
+
+`local=True` gives the node its own bucket, `movies:<task>`, resolved from the task name at run time:
+
+```python
+mvc_tracked = process("movies", upstream=gated, local=True, reject_unmatched=True)
+```
+
+The node then dedups against its own history only — it still never grabs the same film twice, and it no longer tells the other pipelines what it collected.
+
+Three things follow the bucket so the isolation is complete:
+
+- **Failed-grab recovery.** The torrent sinks stamp the bucket on their grab record, so [`mark_failed`](../../../sink/mark_failed/README.md) rolls back the tracker that actually holds the record. A grab record written before this field existed means the shared tracker.
+- **The retry hold.** [`retry_cooldown`](#retry_cooldown) is keyed by bucket too, so a dead grab in one pipeline does not hold the title in another.
+- **The database tab** lists `movies:<task>` as a tracker alongside the shared one.
+
+What does *not* follow it: the Plex reconcile tool and `pipeliner tracker mark-movie`/`forget-movie` read the shared tracker only. For a harvest pipeline that is the right default — its records describe disc images staged for conversion, not library items, so reconciling them against a movie library would report every one as missing.
+
+Losing the cross-pipeline signal is the point, but it does mean the library pipelines no longer know what the harvest collected. Gate them on disk truth instead with [`library`](../library/README.md), which also catches the converted output once it lands:
+
+```python
+process("library", upstream=movies_node, backend="plex", sections=["3D Movies"])
+```

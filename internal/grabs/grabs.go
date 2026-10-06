@@ -50,6 +50,10 @@ type Record struct {
 	MovieTitle string `json:"movie_title,omitempty"`
 	MovieYear  int    `json:"movie_year,omitempty"`
 	MovieIs3D  bool   `json:"movie_is_3d,omitempty"`
+	// MovieBucket is the tracker bucket the movies filter wrote to. Empty
+	// means the shared one — either a node without local=true, or a record
+	// written before this field existed.
+	MovieBucket string `json:"movie_bucket,omitempty"`
 }
 
 // bucket is the minimal key-value interface Store requires; store.Bucket
@@ -103,15 +107,16 @@ func FromEntry(e *entry.Entry, task string) Record {
 	movieTitle, movieYear, movieIs3D, _ := e.MoviesTrackerKey()
 	q, _ := e.Quality()
 	return Record{
-		URL:        e.URL,
-		Title:      e.Title,
-		Task:       task,
-		Quality:    q,
-		SeriesName: e.GetString(entry.FieldSeriesTrackerName),
-		EpisodeID:  e.GetString(entry.FieldSeriesEpisodeID),
-		MovieTitle: movieTitle,
-		MovieYear:  movieYear,
-		MovieIs3D:  movieIs3D,
+		URL:         e.URL,
+		Title:       e.Title,
+		Task:        task,
+		Quality:     q,
+		SeriesName:  e.GetString(entry.FieldSeriesTrackerName),
+		EpisodeID:   e.GetString(entry.FieldSeriesEpisodeID),
+		MovieTitle:  movieTitle,
+		MovieYear:   movieYear,
+		MovieIs3D:   movieIs3D,
+		MovieBucket: e.GetString(entry.FieldMoviesTrackerBucket),
 	}
 }
 

@@ -35,24 +35,34 @@ func (b *memBucket) Get(key string, dest any) (bool, error) {
 
 func TestMovieKey(t *testing.T) {
 	tests := []struct {
-		title string
-		year  int
-		is3D  bool
-		want  string
+		bucket string
+		title  string
+		year   int
+		is3D   bool
+		want   string
 	}{
-		{"dune", 2021, false, "movie|dune|2021"},
-		{"Dune", 2021, false, "movie|dune|2021"},
-		{"dune", 2021, true, "movie|dune|2021|3d"},
-		{"dune", 0, false, "movie|dune|0"},
+		{"movies", "dune", 2021, false, "movie|movies|dune|2021"},
+		{"movies", "Dune", 2021, false, "movie|movies|dune|2021"},
+		{"movies", "dune", 2021, true, "movie|movies|dune|2021|3d"},
+		{"movies", "dune", 0, false, "movie|movies|dune|0"},
+		// An empty bucket means the shared tracker, so a marker written by an
+		// older build still matches.
+		{"", "dune", 2021, false, "movie|movies|dune|2021"},
+		{"movies:3d-mvc-harvest", "dune", 2021, true, "movie|movies:3d-mvc-harvest|dune|2021|3d"},
 	}
 	for _, tt := range tests {
-		if got := MovieKey(tt.title, tt.year, tt.is3D); got != tt.want {
-			t.Errorf("MovieKey(%q,%d,%v) = %q, want %q", tt.title, tt.year, tt.is3D, got, tt.want)
+		if got := MovieKey(tt.bucket, tt.title, tt.year, tt.is3D); got != tt.want {
+			t.Errorf("MovieKey(%q,%q,%d,%v) = %q, want %q", tt.bucket, tt.title, tt.year, tt.is3D, got, tt.want)
 		}
 	}
 	// 3D and non-3D are independent holds, same as the tracker's own identity.
-	if MovieKey("dune", 2021, true) == MovieKey("dune", 2021, false) {
+	if MovieKey("movies", "dune", 2021, true) == MovieKey("movies", "dune", 2021, false) {
 		t.Error("3D and 2D keys must differ")
+	}
+	// A failed grab in a pipeline with its own tracker must not hold the title
+	// in a pipeline that shares the global one.
+	if MovieKey("movies", "dune", 2021, true) == MovieKey("movies:3d-mvc-harvest", "dune", 2021, true) {
+		t.Error("holds must be scoped to the tracker that owns the record")
 	}
 }
 
@@ -61,18 +71,18 @@ func TestRemaining(t *testing.T) {
 
 	t.Run("unmarked key is never held", func(t *testing.T) {
 		s := NewStore(newMemBucket())
-		if _, held := s.Remaining(MovieKey("dune", 2021, false), 6*time.Hour, now); held {
+		if _, held := s.Remaining(MovieKey("movies", "dune", 2021, false), 6*time.Hour, now); held {
 			t.Error("nothing was un-tracked, so nothing is held")
 		}
 	})
 
 	t.Run("inside the window", func(t *testing.T) {
 		s := NewStore(newMemBucket())
-		if err := s.Mark(MovieKey("dune", 2021, false),
+		if err := s.Mark(MovieKey("movies", "dune", 2021, false),
 			Record{At: now.Add(-2 * time.Hour), Release: "Dune 2021 1080p", Reason: "stalled"}); err != nil {
 			t.Fatal(err)
 		}
-		left, held := s.Remaining(MovieKey("dune", 2021, false), 6*time.Hour, now)
+		left, held := s.Remaining(MovieKey("movies", "dune", 2021, false), 6*time.Hour, now)
 		if !held {
 			t.Fatal("2h into a 6h window should still be held")
 		}
@@ -83,10 +93,10 @@ func TestRemaining(t *testing.T) {
 
 	t.Run("window elapsed", func(t *testing.T) {
 		s := NewStore(newMemBucket())
-		if err := s.Mark(MovieKey("dune", 2021, false), Record{At: now.Add(-7 * time.Hour)}); err != nil {
+		if err := s.Mark(MovieKey("movies", "dune", 2021, false), Record{At: now.Add(-7 * time.Hour)}); err != nil {
 			t.Fatal(err)
 		}
-		if _, held := s.Remaining(MovieKey("dune", 2021, false), 6*time.Hour, now); held {
+		if _, held := s.Remaining(MovieKey("movies", "dune", 2021, false), 6*time.Hour, now); held {
 			t.Error("7h into a 6h window should no longer be held")
 		}
 	})
@@ -94,10 +104,10 @@ func TestRemaining(t *testing.T) {
 	// A zero window is how the config disables the hold entirely.
 	t.Run("zero window disables the hold", func(t *testing.T) {
 		s := NewStore(newMemBucket())
-		if err := s.Mark(MovieKey("dune", 2021, false), Record{At: now}); err != nil {
+		if err := s.Mark(MovieKey("movies", "dune", 2021, false), Record{At: now}); err != nil {
 			t.Fatal(err)
 		}
-		if _, held := s.Remaining(MovieKey("dune", 2021, false), 0, now); held {
+		if _, held := s.Remaining(MovieKey("movies", "dune", 2021, false), 0, now); held {
 			t.Error("a zero window must never hold")
 		}
 	})
@@ -106,7 +116,7 @@ func TestRemaining(t *testing.T) {
 		b := newMemBucket()
 		b.err = errFake{}
 		s := NewStore(b)
-		if _, held := s.Remaining(MovieKey("dune", 2021, false), 6*time.Hour, now); held {
+		if _, held := s.Remaining(MovieKey("movies", "dune", 2021, false), 6*time.Hour, now); held {
 			t.Error("an unreadable marker must not block downloads")
 		}
 	})
@@ -149,7 +159,7 @@ func TestEpisodeKey(t *testing.T) {
 		}
 	}
 	// Episodes and movies share the bucket, so their keys must not collide.
-	if EpisodeKey("dune", "S01E01") == MovieKey("dune", 2021, false) {
+	if EpisodeKey("dune", "S01E01") == MovieKey("movies", "dune", 2021, false) {
 		t.Error("episode and movie keys must differ")
 	}
 }

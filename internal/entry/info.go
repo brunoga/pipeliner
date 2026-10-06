@@ -161,6 +161,12 @@ const (
 	FieldMoviesTrackerYear = "_movies_tracker_year"
 	FieldMoviesTrackerIs3D = "_movies_tracker_is_3d"
 
+	// FieldMoviesTrackerBucket names the store bucket the movies filter wrote
+	// to, so failed-grab recovery un-tracks from the same place. A node with
+	// local=true keeps its own bucket, and guessing from the task name alone
+	// would be wrong for a task whose movies node is shared.
+	FieldMoviesTrackerBucket = "_movies_tracker_bucket"
+
 	// EmptyMarker is set to true on the synthetic marker entry emitted by
 	// the report_empty processor when its upstream was empty. Downstream
 	// expressions can branch on it to distinguish marker-fired runs from

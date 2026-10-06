@@ -73,7 +73,7 @@ type markFailedSink struct {
 	grabStore     *grabs.Store
 	failedStore   *store.FailedStore
 	seriesTracker *series.Tracker
-	moviesTracker *imovies.Tracker
+	db            *store.SQLiteStore // movies trackers are opened per grab record
 	untrackStore  *untrack.Store
 }
 
@@ -84,7 +84,7 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 		grabStore:     grabs.NewStore(db.Bucket(grabs.BucketName)),
 		failedStore:   store.NewFailedStore(db.Bucket(store.FailedBucketName)),
 		seriesTracker: series.NewTracker(db.Bucket(series.TrackerBucketName)),
-		moviesTracker: imovies.NewTracker(db.Bucket(imovies.TrackerBucketName)),
+		db:            db,
 		untrackStore:  untrack.NewStore(db.Bucket(untrack.BucketName)),
 	}, nil
 }
@@ -168,20 +168,28 @@ func (p *markFailedSink) mark(tc *plugin.TaskContext, e *entry.Entry, hash strin
 		// earlier successful download and re-grab a film already in the
 		// library. hasQuality is false for grab records written before the
 		// quality was captured, which only disables the staleness check.
-		outcome, err := p.moviesTracker.UntrackGrab(
+		// The bucket comes from the grab record: a movies node with local=true
+		// keeps its own tracker, and un-tracking the shared one instead would
+		// both miss the record that exists and disturb another pipeline's.
+		bucket := rec.MovieBucket
+		if bucket == "" {
+			bucket = imovies.TrackerBucketName
+		}
+		tracker := imovies.NewTracker(p.db.Bucket(bucket))
+		outcome, err := tracker.UntrackGrab(
 			rec.MovieTitle, rec.MovieYear, rec.MovieIs3D, rec.Quality, rec.Quality != quality.Quality{})
 		if err != nil {
 			return fmt.Errorf("un-track movie %s (%d): %w", rec.MovieTitle, rec.MovieYear, err)
 		}
 		tc.Logger.Info(pluginName+": movie un-tracked", "movie", rec.MovieTitle,
-			"year", rec.MovieYear, "is_3d", rec.MovieIs3D, "outcome", outcome.String(),
+			"year", rec.MovieYear, "is_3d", rec.MovieIs3D, "tracker", bucket, "outcome", outcome.String(),
 			"failed_quality", rec.Quality.String(), "release", rec.Title)
 		// Start the movies filter's retry cooldown, so the next scheduled run
 		// does not immediately grab another release of a film whose grabs keep
 		// dying. Skipped when the record was left alone: it describes a later,
 		// healthy download, and the normal upgrade check already governs it.
 		if outcome != untrack.Stale {
-			key := untrack.MovieKey(rec.MovieTitle, rec.MovieYear, rec.MovieIs3D)
+			key := untrack.MovieKey(bucket, rec.MovieTitle, rec.MovieYear, rec.MovieIs3D)
 			if err := p.untrackStore.Mark(key, untrack.Record{Release: rec.Title, Reason: reason}); err != nil {
 				tc.Logger.Warn(pluginName+": record un-track marker", "movie", rec.MovieTitle, "err", err)
 			}
