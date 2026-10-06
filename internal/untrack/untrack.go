@@ -118,12 +118,19 @@ func (o Outcome) String() string {
 }
 
 // MovieKey builds the key for a movie, matching the movies tracker's own
-// (title, year, 3D) identity.
-func MovieKey(title string, year int, is3D bool) string {
-	if is3D {
-		return fmt.Sprintf("movie|%s|%d|3d", strings.ToLower(title), year)
+// (title, year, 3D) identity, scoped to the tracker bucket that holds it.
+//
+// The scope matters once a pipeline keeps its own tracker: a failed grab in
+// one pipeline must not hold the title in another, which is the coupling
+// local=true exists to remove.
+func MovieKey(trackerBucket, title string, year int, is3D bool) string {
+	if trackerBucket == "" {
+		trackerBucket = "movies"
 	}
-	return fmt.Sprintf("movie|%s|%d", strings.ToLower(title), year)
+	if is3D {
+		return fmt.Sprintf("movie|%s|%s|%d|3d", trackerBucket, strings.ToLower(title), year)
+	}
+	return fmt.Sprintf("movie|%s|%s|%d", trackerBucket, strings.ToLower(title), year)
 }
 
 // EpisodeKey builds the key for an episode, matching the series tracker's own

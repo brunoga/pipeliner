@@ -332,7 +332,7 @@ func TestStaleFailureLeavesLaterRecord(t *testing.T) {
 	}
 	// No hold either: the record is healthy, so the normal upgrade check governs.
 	if _, held := untrack.NewStore(db.Bucket(untrack.BucketName)).Remaining(
-		untrack.MovieKey("mutiny", 2026, false), 6*time.Hour, time.Now()); held {
+		untrack.MovieKey("movies", "mutiny", 2026, false), 6*time.Hour, time.Now()); held {
 		t.Error("a stale failure must not start a retry cooldown")
 	}
 }
@@ -360,14 +360,14 @@ func TestUntrackStartsRetryCooldown(t *testing.T) {
 	}
 
 	us := untrack.NewStore(db.Bucket(untrack.BucketName))
-	left, held := us.Remaining(untrack.MovieKey("aladdin", 2019, false), 6*time.Hour, time.Now())
+	left, held := us.Remaining(untrack.MovieKey("movies", "aladdin", 2019, false), 6*time.Hour, time.Now())
 	if !held {
 		t.Fatal("un-tracking should start the retry hold")
 	}
 	if left <= 0 || left > 6*time.Hour {
 		t.Errorf("remaining hold = %s, want within the 6h window", left)
 	}
-	marker, ok := us.Last(untrack.MovieKey("aladdin", 2019, false))
+	marker, ok := us.Last(untrack.MovieKey("movies", "aladdin", 2019, false))
 	if !ok || marker.Release != "Aladdin 2019 1080p BluRay x264-DON" {
 		t.Errorf("marker should name the release that died, got %+v", marker)
 	}
@@ -396,7 +396,7 @@ func TestDryRunDoesNotUntrack(t *testing.T) {
 		t.Error("dry run must leave the tracker alone")
 	}
 	if _, held := untrack.NewStore(db.Bucket(untrack.BucketName)).Remaining(
-		untrack.MovieKey("aladdin", 2019, false), 6*time.Hour, time.Now()); held {
+		untrack.MovieKey("movies", "aladdin", 2019, false), 6*time.Hour, time.Now()); held {
 		t.Error("dry run must not start a hold")
 	}
 }
@@ -472,5 +472,72 @@ func TestStaleEpisodeFailureLeavesLaterRecord(t *testing.T) {
 	if _, held := untrack.NewStore(db.Bucket(untrack.BucketName)).Remaining(
 		untrack.EpisodeKey("some torrent", "S01E03"), 6*time.Hour, time.Now()); held {
 		t.Error("a stale failure must not start a retry cooldown")
+	}
+}
+
+// TestUntracksTheBucketTheGrabNames covers a movies node with local=true: the
+// grab record names the tracker it wrote to, and un-tracking the shared one
+// instead would both miss the record that exists and disturb a pipeline that
+// never grabbed anything.
+func TestUntracksTheBucketTheGrabNames(t *testing.T) {
+	p, db := openSink(t, nil)
+	q := quality.Parse("1080p bluray x264")
+	const localBucket = "movies:3d-mvc-harvest"
+
+	local := imovies.NewTracker(db.Bucket(localBucket))
+	shared := imovies.NewTracker(db.Bucket(imovies.TrackerBucketName))
+	for _, tr := range []*imovies.Tracker{local, shared} {
+		if err := tr.Mark(imovies.Record{Title: "inception", Year: 2010, Quality: q}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	gs := grabs.NewStore(db.Bucket(grabs.BucketName))
+	if err := gs.Put(hash, grabs.Record{
+		URL: releaseURL, Title: "Inception 2010 1080p BluRay x264",
+		MovieTitle: "inception", MovieYear: 2010, Quality: q, MovieBucket: localBucket,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := p.Consume(context.Background(), makeCtx(false), []*entry.Entry{sessionEntry(hash)}); err != nil {
+		t.Fatal(err)
+	}
+	if local.IsSeen("inception", 2010, false) {
+		t.Error("the named bucket's record should be gone")
+	}
+	if !shared.IsSeen("inception", 2010, false) {
+		t.Error("the shared tracker must be left alone")
+	}
+	// The hold is scoped the same way.
+	us := untrack.NewStore(db.Bucket(untrack.BucketName))
+	if _, held := us.Remaining(untrack.MovieKey(localBucket, "inception", 2010, false), 6*time.Hour, time.Now()); !held {
+		t.Error("the local tracker's title should be held")
+	}
+	if _, held := us.Remaining(untrack.MovieKey(imovies.TrackerBucketName, "inception", 2010, false), 6*time.Hour, time.Now()); held {
+		t.Error("the shared tracker's title must not be held")
+	}
+}
+
+// A grab record written before the bucket field existed means the shared
+// tracker, which is where every record lived then.
+func TestEmptyBucketMeansSharedTracker(t *testing.T) {
+	p, db := openSink(t, nil)
+	q := quality.Parse("1080p bluray x264")
+	shared := imovies.NewTracker(db.Bucket(imovies.TrackerBucketName))
+	if err := shared.Mark(imovies.Record{Title: "inception", Year: 2010, Quality: q}); err != nil {
+		t.Fatal(err)
+	}
+	gs := grabs.NewStore(db.Bucket(grabs.BucketName))
+	if err := gs.Put(hash, grabs.Record{
+		URL: releaseURL, MovieTitle: "inception", MovieYear: 2010, Quality: q,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Consume(context.Background(), makeCtx(false), []*entry.Entry{sessionEntry(hash)}); err != nil {
+		t.Fatal(err)
+	}
+	if shared.IsSeen("inception", 2010, false) {
+		t.Error("a record with no bucket should un-track from the shared tracker")
 	}
 }
