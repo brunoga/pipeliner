@@ -222,6 +222,7 @@ func Validate(g *Graph, reg func(name string) (*plugin.Descriptor, bool)) (errs,
 	}
 
 	warnings = append(warnings, orderingWarnings(g, reg)...)
+	warnings = append(warnings, webhookWarnings(g)...)
 
 	return errs, warnings
 }

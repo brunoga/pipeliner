@@ -6,12 +6,14 @@
 #
 # 1. Start the daemon with an ingest token:
 #        PIPELINER_INGEST_TOKEN=secret pipeliner daemon --config ondemand-request.star --web :8080 ...
-# 2. Push a title (the ?pipeline= parameter triggers the run immediately):
+# 2. Push a title (the ?pipeline= parameter triggers the run immediately, and
+#    is enough on its own — the queue below is derived from this pipeline's
+#    webhook source, so there is no second name to keep in step):
 #        curl -X POST -H "Authorization: Bearer secret" \
-#             "http://localhost:8080/api/ingest/movies?pipeline=movies-ondemand" \
+#             "http://localhost:8080/api/ingest?pipeline=movies-ondemand" \
 #             -d '{"title": "Heat 1995"}'
 #    or use the ready-made Go client:
-#        go run ./examples/request-movie "Heat 1995"
+#        go run ./examples/enqueue "Heat 1995"
 #
 # The webhook source drains the queue; discover searches Jackett for each
 # pushed title; the rest is the usual gate chain. The movies filter (accept-all
