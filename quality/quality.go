@@ -42,6 +42,9 @@ var resolutionNames = map[Resolution]string{
 // Source represents the release source (distribution medium).
 type Source int
 
+// These values are persisted in tracker records, so they are frozen: see the
+// note above Audio for what renumbering one cost. New rungs go on the END
+// whatever their quality, and sourceRank says where each actually sits.
 const (
 	SourceUnknown Source = iota
 	SourceCAM            // CAM, HDCAM — recorded inside a cinema
@@ -54,20 +57,48 @@ const (
 	SourceWebDL
 	SourceBluRay
 	SourceRemux
+	SourceReEncode // appended; ladder position comes from sourceRank
 )
 
+// sourceRank places each source in the quality ladder, independent of its
+// stored value. A re-encode is a lossy pass over material that was already
+// encoded, so it sits below BluRay — "COMPLETE BLURAY ... RE-ENCODE" is not
+// the disc, however much its name borrows from one — while staying above the
+// web tiers, since the material underneath it still came off a disc.
+// Indexed by Source; keep it in step with the consts.
+var sourceRank = map[Source]int{
+	SourceUnknown:  0,
+	SourceCAM:      1,
+	SourceTS:       2,
+	SourceSCR:      3,
+	SourceDVDRip:   4,
+	SourceTVRip:    5,
+	SourceHDTV:     6,
+	SourceWEBRip:   7,
+	SourceWebDL:    8,
+	SourceReEncode: 9,
+	SourceBluRay:   10,
+	SourceRemux:    11,
+}
+
+// rank returns the source's position in the quality ladder. An unknown value —
+// a record written by a newer build than this one — ranks as unknown rather
+// than as whatever integer it happens to be, so it never wins by accident.
+func (s Source) rank() int { return sourceRank[s] }
+
 var sourceNames = map[Source]string{
-	SourceUnknown: "",
-	SourceCAM:     "CAM",
-	SourceTS:      "TS",
-	SourceSCR:     "SCR",
-	SourceDVDRip:  "DVDRip",
-	SourceTVRip:   "TVRip",
-	SourceHDTV:    "HDTV",
-	SourceWEBRip:  "WEBRip",
-	SourceWebDL:   "WEB-DL",
-	SourceBluRay:  "BluRay",
-	SourceRemux:   "Remux",
+	SourceUnknown:  "",
+	SourceCAM:      "CAM",
+	SourceTS:       "TS",
+	SourceSCR:      "SCR",
+	SourceDVDRip:   "DVDRip",
+	SourceTVRip:    "TVRip",
+	SourceHDTV:     "HDTV",
+	SourceWEBRip:   "WEBRip",
+	SourceWebDL:    "WEB-DL",
+	SourceBluRay:   "BluRay",
+	SourceRemux:    "Remux",
+	SourceReEncode: "ReEncode",
 }
 
 // Codec represents the video codec.
@@ -276,8 +307,8 @@ func (q Quality) Better(other Quality) bool {
 	if q.Resolution != other.Resolution {
 		return q.Resolution > other.Resolution
 	}
-	if q.Source != other.Source {
-		return q.Source > other.Source
+	if q.Source.rank() != other.Source.rank() {
+		return q.Source.rank() > other.Source.rank()
 	}
 	if q.Codec != other.Codec {
 		return q.Codec > other.Codec
@@ -326,6 +357,26 @@ var (
 	// of its title, which then routed a side-by-side encode into an
 	// MVC-only pipeline.
 	reCompleteDisc = regexp.MustCompile(`(?i)\bCOMPLETE[\s._\-]*(?:BLU[\s._\-]?RAY|BD(?:25|50|66|100)?)\b|\b(?:BLU[\s._\-]?RAY|BD(?:25|50|66|100)?)[\s._\-]*COMPLETE\b`)
+
+	// reReEncoded matches the scene's markers for a lossy second pass over
+	// material that was already encoded: RE-ENCODE, REENCODED, RE ENC, and
+	// the "x265 re-encode" style. Such a release is routinely named after the
+	// disc it came from — "COMPLETE BLURAY ... FULL-SBS RE-ENCODE" — so the
+	// source token alone reads as BluRay and the release wins comparisons it
+	// should lose.
+	//
+	// Anchored on the RE prefix so it cannot match a plain "ENCODE", which
+	// says only that the release is an encode — every BluRay rip is one.
+	reReEncoded = regexp.MustCompile(`(?i)\bRE[\s._\-]?ENC(?:ODE[DR]?|ODING|)\b`)
+
+	// reUntouched matches the marker for a stream copied off the disc with no
+	// re-compression — UNTOUCHED, or the scene's "untouched audio/video".
+	// Its job here is to defend a genuine disc rip from the re-encode
+	// demotion when a name carries both words, which happens on releases that
+	// describe what they did and did not re-encode ("video untouched,
+	// audio re-encoded"). An explicit claim of losslessness wins, for the
+	// same reason an explicit 3D layout marker beats an inference.
+	reUntouched = regexp.MustCompile(`(?i)\bUNTOUCHED\b`)
 
 	// Audio regexes checked in priority order (highest first).
 	//
@@ -403,6 +454,46 @@ func Parse(title string) Quality {
 		q.Source = lowTier
 	} else {
 		q.Source = hiTier
+	}
+
+	// A release that says it was re-encoded is not the disc tier its source
+	// token claims, however the name is dressed up. This runs before the
+	// Format3D rules below on purpose: those promote a "COMPLETE BLURAY" or a
+	// remux carrying a bare "3D" to BD3D on the reasoning that neither
+	// re-encodes, which is exactly the reasoning an explicit RE-ENCODE marker
+	// refutes. Demoting first means such a release stops matching their
+	// SourceBluRay/SourceRemux guards, so it is no longer claimed as an MVC
+	// disc — the gap that let "COMPLETE BLURAY 3D RE-ENCODE" into an MVC-only
+	// pipeline even after the frame-compatible guard closed the SBS case.
+	//
+	// Only the disc tiers are demoted. A WEB-DL re-encode is already below
+	// this rung, and dragging CAM or TS *up* to it would be absurd.
+	if (q.Source == SourceBluRay || q.Source == SourceRemux) &&
+		reReEncoded.MatchString(title) && !reUntouched.MatchString(title) {
+		q.Source = SourceReEncode
+	}
+
+	// The other half of the same correction. A complete disc rip IS the disc,
+	// and so is a stream copied off it untouched: both are lossless.
+	// SourceBluRay is the tier for a lossy encode *made from* a disc, so
+	// reading a complete rip as BluRay understates it and loses it to any
+	// remux of the same film. SourceRemux is the right rung — the same
+	// streams at the same losslessness; the disc merely also carries the menus
+	// and extras a remux drops.
+	//
+	// Runs after the demotion, so a "COMPLETE BLURAY ... RE-ENCODE" is no
+	// longer SourceBluRay by the time this is reached and is not promoted.
+	//
+	// The frame-compatible guard is the one the Format3D rules below carry,
+	// for the same reason: an SBS/OU layout exists only as a re-encode, so
+	// such a release is not the disc whatever its name borrows from one.
+	//
+	// The BD3D inference below is unaffected. It fires on SourceBluRay for a
+	// complete disc and on SourceRemux for a bare-3D remux; a release promoted
+	// here simply satisfies the second rule instead of the first.
+	if q.Source == SourceBluRay && !reFrameCompatible3D.MatchString(title) &&
+		(reCompleteDisc.MatchString(title) || reUntouched.MatchString(title)) {
+		q.Source = SourceRemux
 	}
 
 	if m := reCodec.FindString(title); m != "" {
@@ -562,10 +653,10 @@ func (s Spec) Matches(q Quality) bool {
 		}
 	}
 	if !(s.OptSource && q.Source == SourceUnknown) {
-		if s.MinSource > 0 && q.Source < s.MinSource {
+		if s.MinSource > 0 && q.Source.rank() < s.MinSource.rank() {
 			return false
 		}
-		if s.MaxSource > 0 && q.Source > s.MaxSource {
+		if s.MaxSource > 0 && q.Source.rank() > s.MaxSource.rank() {
 			return false
 		}
 	}
