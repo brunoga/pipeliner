@@ -1598,3 +1598,172 @@ func TestCompleteDiscAgainstBD3DSpec(t *testing.T) {
 		t.Errorf("a complete disc rip (%s) should satisfy spec bd3d", disc)
 	}
 }
+
+// TestSourceStoredValuesAreFrozen is the Source counterpart of
+// TestAudioStoredValuesAreFrozen, and exists for the same reason: Source is
+// persisted as an integer in every tracker record, grab record and
+// download-log entry, and an upgrade decision compares a stored value against
+// a freshly parsed one. Inserting SourceReEncode in its ladder position —
+// between WebDL and BluRay, where it belongs — would have renumbered BluRay
+// and Remux, so every disc rip already on disk would have read as one rung
+// lower and lost to any fresh release. That is exactly the 1.49.0 regression,
+// which cost ~450 bogus re-downloads.
+//
+// These numbers are part of the on-disk format. A new source goes on the end
+// and takes its ladder position from sourceRank.
+func TestSourceStoredValuesAreFrozen(t *testing.T) {
+	frozen := map[Source]int{
+		SourceUnknown:  0,
+		SourceCAM:      1,
+		SourceTS:       2,
+		SourceSCR:      3,
+		SourceDVDRip:   4,
+		SourceTVRip:    5,
+		SourceHDTV:     6,
+		SourceWEBRip:   7,
+		SourceWebDL:    8,
+		SourceBluRay:   9,
+		SourceRemux:    10,
+		SourceReEncode: 11,
+	}
+	for s, want := range frozen {
+		if int(s) != want {
+			t.Errorf("%s = %d, want the frozen on-disk value %d", sourceNames[s], int(s), want)
+		}
+	}
+	for s := range frozen {
+		if _, ok := sourceRank[s]; !ok {
+			t.Errorf("%s (%d) has no sourceRank entry", sourceNames[s], int(s))
+		}
+	}
+	if len(sourceRank) != len(frozen) {
+		t.Errorf("sourceRank has %d entries for %d sources", len(sourceRank), len(frozen))
+	}
+}
+
+// The ladder position, as distinct from the stored value: a re-encode sits
+// below both disc tiers and above the web tiers.
+func TestSourceReEncodeLadderPosition(t *testing.T) {
+	if !(sourceRank[SourceWebDL] < sourceRank[SourceReEncode]) {
+		t.Error("a re-encode should outrank WEB-DL — the material still came off a disc")
+	}
+	if !(sourceRank[SourceReEncode] < sourceRank[SourceBluRay]) {
+		t.Error("a re-encode should rank below BluRay")
+	}
+	if !(sourceRank[SourceBluRay] < sourceRank[SourceRemux]) {
+		t.Error("appending the rung must not disturb BluRay < Remux")
+	}
+}
+
+// A record written by a newer build carries a Source this one does not know,
+// and must rank as unknown rather than as its raw integer — otherwise it
+// would beat every known source and block all upgrades.
+func TestUnknownSourceRanksAsUnknown(t *testing.T) {
+	future := Source(99)
+	if future.rank() != 0 {
+		t.Errorf("Source(99).rank() = %d, want 0", future.rank())
+	}
+	known := Quality{Source: SourceWebDL}
+	if (Quality{Source: future}).Better(known) {
+		t.Error("an unknown source must not beat a known one")
+	}
+}
+
+func TestParseReEncodedDemotesDiscTiers(t *testing.T) {
+	tests := []struct {
+		name  string
+		title string
+		want  Source
+	}{
+		// The release that prompted this: named after the disc, but a
+		// side-by-side re-encode of it.
+		{"complete bluray full-sbs re-encode",
+			"Some.Film.2016.3D.COMPLETE.BLURAY.FULL-SBS.RE-ENCODE-GROUP", SourceReEncode},
+		{"reencoded one word",
+			"Some.Film.2016.1080p.BluRay.REENCODED-GROUP", SourceReEncode},
+		{"re-enc abbreviated",
+			"Some.Film.2016.1080p.BluRay.RE-ENC-GROUP", SourceReEncode},
+		{"spaced re encode",
+			"Some Film 2016 1080p BluRay Re Encode", SourceReEncode},
+		{"a remux claiming a re-encode is still demoted",
+			"Some.Film.2016.1080p.Remux.Re-Encoded-GROUP", SourceReEncode},
+
+		// A plain "encode" says only that the release is an encode, which
+		// every BluRay rip is. Matching it would demote the whole library.
+		{"plain encode is not a re-encode",
+			"Some.Film.2016.1080p.BluRay.x264.ENCODE-GROUP", SourceBluRay},
+		{"encoder credit is not a re-encode",
+			"Some.Film.2016.1080p.BluRay.x264-ENCODER", SourceBluRay},
+
+		// An explicit claim of losslessness wins over the marker, for the
+		// same reason an explicit 3D layout marker beats an inference.
+		{"untouched video with re-encoded audio stays a disc rip",
+			"Some.Film.2016.COMPLETE.BLURAY.UNTOUCHED.video.re-encoded.audio", SourceBluRay},
+
+		// Tiers below the disc are left alone.
+		{"a web-dl re-encode is already below the rung",
+			"Some.Film.2016.1080p.WEB-DL.Re-Encode-GROUP", SourceWebDL},
+		{"untouched alone changes nothing",
+			"Some.Film.2016.1080p.BluRay.UNTOUCHED-GROUP", SourceBluRay},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := Parse(tc.title).Source; got != tc.want {
+				t.Errorf("Source = %s (%d), want %s (%d)",
+					sourceNames[got], int(got), sourceNames[tc.want], int(tc.want))
+			}
+		})
+	}
+}
+
+// The demotion runs before the Format3D rules on purpose. Those promote a
+// "COMPLETE BLURAY" carrying a 3D marker to BD3D on the reasoning that a disc
+// rip does not re-encode — which an explicit RE-ENCODE marker refutes. The
+// frame-compatible guard added in 1.50.1 closed the SBS case; a re-encode with
+// no layout marker was still being claimed as an MVC disc.
+func TestReEncodedIsNotPromotedToBD3D(t *testing.T) {
+	q := Parse("Some.Film.2016.3D.COMPLETE.BLURAY.RE-ENCODE-GROUP")
+	if q.Format3D == Format3DBD {
+		t.Errorf("a re-encode was promoted to BD3D (Format3D=%v); MVC discs are not re-encoded", q.Format3D)
+	}
+	if q.Source != SourceReEncode {
+		t.Errorf("Source = %s, want ReEncode", sourceNames[q.Source])
+	}
+	// The genuine article still gets the promotion.
+	if got := Parse("Some.Film.2016.3D.COMPLETE.BLURAY-GROUP"); got.Format3D != Format3DBD {
+		t.Errorf("an unmarked COMPLETE BLURAY lost its BD3D promotion (Format3D=%v)", got.Format3D)
+	}
+}
+
+// The point of the whole change: a re-encode must not read as an upgrade over
+// a disc rip already on disk, and must not be blocked from losing to one.
+func TestReEncodeDoesNotBeatADiscRip(t *testing.T) {
+	stored := Parse("Some.Film.2016.1080p.BluRay.x264-GROUP")
+	reenc := Parse("Some.Film.2016.1080p.COMPLETE.BLURAY.FULL-SBS.RE-ENCODE-GROUP")
+
+	if reenc.Better(stored) {
+		t.Error("a re-encode must not beat a stored BluRay rip")
+	}
+	if !stored.Better(reenc) {
+		t.Error("a BluRay rip should beat a re-encode")
+	}
+	// And a re-encode still beats the web tiers, so it is not written off.
+	if web := Parse("Some.Film.2016.1080p.WEB-DL.x264-GROUP"); !reenc.Better(web) {
+		t.Error("a re-encode should still beat WEB-DL")
+	}
+}
+
+// A `bluray+` spec must reject a re-encode, since the rung sits below BluRay.
+func TestSpecRejectsReEncode(t *testing.T) {
+	spec, err := ParseSpec("bluray+")
+	if err != nil {
+		t.Fatalf("ParseSpec: %v", err)
+	}
+	reenc := Parse("Some.Film.2016.1080p.COMPLETE.BLURAY.RE-ENCODE-GROUP")
+	if spec.Matches(reenc) {
+		t.Error("bluray+ should reject a re-encode")
+	}
+	if disc := Parse("Some.Film.2016.1080p.BluRay.x264-GROUP"); !spec.Matches(disc) {
+		t.Error("bluray+ should still accept a BluRay rip")
+	}
+}
