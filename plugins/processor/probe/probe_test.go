@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log/slog"
 	"strings"
 	"testing"
 	"time"
@@ -11,6 +12,7 @@ import (
 	mvcprobe "github.com/brunoga/mvc/probe"
 
 	"github.com/brunoga/pipeliner/internal/entry"
+	"github.com/brunoga/pipeliner/internal/plugin"
 	"github.com/brunoga/pipeliner/internal/torrentpeek"
 )
 
@@ -448,3 +450,83 @@ func TestDefaults(t *testing.T) {
 		t.Errorf("defaults = %s/%d/require=%v", p.timeout, p.maxPieces, p.require)
 	}
 }
+
+func TestNewPluginDefaultsAndOverrides(t *testing.T) {
+	pl, err := newPlugin(map[string]any{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := pl.(*probePlugin)
+	// Serial by default: the bandwidth cost of a successful probe is what the
+	// serialisation protects a private tracker from.
+	if p.parallel != 1 {
+		t.Errorf("default parallel = %d, want 1", p.parallel)
+	}
+	if p.noPeerTimeout != defaultNoPeerTimeout {
+		t.Errorf("default no_peer_timeout = %v, want %v", p.noPeerTimeout, defaultNoPeerTimeout)
+	}
+
+	pl, err = newPlugin(map[string]any{"parallel": float64(3), "no_peer_timeout": "5s"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p = pl.(*probePlugin)
+	if p.parallel != 3 {
+		t.Errorf("parallel = %d, want 3", p.parallel)
+	}
+	if p.noPeerTimeout != 5*time.Second {
+		t.Errorf("no_peer_timeout = %v, want 5s", p.noPeerTimeout)
+	}
+
+	// Zero disables the early give-up rather than meaning "immediately".
+	pl, err = newPlugin(map[string]any{"no_peer_timeout": "0s"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := pl.(*probePlugin).noPeerTimeout; got != 0 {
+		t.Errorf("no_peer_timeout 0s = %v, want 0", got)
+	}
+}
+
+func TestValidateNewKeys(t *testing.T) {
+	if errs := validate(map[string]any{"parallel": float64(2), "no_peer_timeout": "15s"}); len(errs) != 0 {
+		t.Errorf("valid config rejected: %v", errs)
+	}
+	if errs := validate(map[string]any{"parallel": float64(0)}); len(errs) == 0 {
+		t.Error("parallel below 1 should be rejected")
+	}
+	if errs := validate(map[string]any{"no_peer_timeout": "soon"}); len(errs) == 0 {
+		t.Error("an unparseable no_peer_timeout should be rejected")
+	}
+	if errs := validate(map[string]any{"parallelism": float64(2)}); len(errs) == 0 {
+		t.Error("an unknown key should be rejected")
+	}
+}
+
+// Process must not build a torrent client — nor touch the network — when
+// every entry has already been refused upstream.
+func TestProcessSkipsWhenAllRejected(t *testing.T) {
+	pl, err := newPlugin(map[string]any{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := pl.(*probePlugin)
+
+	e := entry.New("Some Release", "https://example.invalid/x.torrent")
+	e.Reject("upstream said no")
+	out, err := p.Process(context.Background(), &plugin.TaskContext{Logger: discardLogger()}, []*entry.Entry{e})
+	if err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	if len(out) != 0 {
+		t.Errorf("a rejected entry should not be forwarded, got %d", len(out))
+	}
+	if p.client != nil {
+		t.Error("no torrent client should have been built")
+	}
+	if _, ok := e.Fields[entry.FieldProbeOK]; ok {
+		t.Error("a rejected entry must not be stamped with probe fields")
+	}
+}
+
+func discardLogger() *slog.Logger { return slog.New(slog.DiscardHandler) }

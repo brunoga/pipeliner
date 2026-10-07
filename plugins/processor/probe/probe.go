@@ -63,6 +63,14 @@ const pluginName = "probe"
 const (
 	defaultTimeout   = 2 * time.Minute
 	defaultMaxPieces = 6
+	// defaultParallel is 1 because the bandwidth cost of a SUCCESSFUL probe is
+	// the thing worth serialising: several at once is the kind of burst a
+	// private tracker notices. Raising it is opt-in.
+	defaultParallel = 1
+	// defaultNoPeerTimeout gives up on a swarm that has connected nothing and
+	// delivered nothing. Measured: a healthy swarm answered in 6.4s, while
+	// dead ones burned the full 2m budget each.
+	defaultNoPeerTimeout = 30 * time.Second
 	// maxTorrentFile bounds the .torrent fetch. Real ones are tens of KB; a
 	// disc image's piece hashes push that to a few hundred.
 	maxTorrentFile = 8 << 20
@@ -84,6 +92,8 @@ func init() {
 			{Key: "timeout", Type: plugin.FieldTypeDuration, Default: "2m", Hint: "Budget for one entry's probe, including fetching its pieces"},
 			{Key: "max_pieces", Type: plugin.FieldTypeInt, Default: "6", Hint: "Most pieces to fetch for one entry; the probe asks for more only when it names bytes it could not read"},
 			{Key: "require", Type: plugin.FieldTypeBool, Hint: "Reject entries whose probe could not run, instead of passing them with probe_ok false"},
+			{Key: "parallel", Type: plugin.FieldTypeInt, Default: "1", Hint: "How many entries to probe at once; a successful probe pulls 20-25 MiB, so raising this bursts at the tracker"},
+			{Key: "no_peer_timeout", Type: plugin.FieldTypeDuration, Default: "30s", Hint: "Give up early when no peer has connected and no byte has arrived; 0 disables"},
 		},
 	})
 }
@@ -92,6 +102,7 @@ var producedFields = []string{
 	entry.FieldProbeOK,
 	entry.FieldProbeKind,
 	entry.FieldProbeIs3D,
+	entry.FieldProbeUnreachable,
 	entry.FieldProbe3DLayout,
 	entry.FieldProbeWidth,
 	entry.FieldProbeHeight,
@@ -117,14 +128,26 @@ func validate(cfg map[string]any) []error {
 			errs = append(errs, fmt.Errorf("%s: 'max_pieces' must be at least 1", pluginName))
 		}
 	}
-	errs = append(errs, plugin.OptUnknownKeys(cfg, pluginName, "timeout", "max_pieces", "require")...)
+	if v, ok := cfg["parallel"]; ok {
+		n, isNum := toFloat(v)
+		if !isNum || n < 1 {
+			errs = append(errs, fmt.Errorf("%s: 'parallel' must be at least 1", pluginName))
+		}
+	}
+	if err := plugin.OptDuration(cfg, "no_peer_timeout", pluginName); err != nil {
+		errs = append(errs, err)
+	}
+	errs = append(errs, plugin.OptUnknownKeys(cfg, pluginName,
+		"timeout", "max_pieces", "require", "parallel", "no_peer_timeout")...)
 	return errs
 }
 
 type probePlugin struct {
-	timeout   time.Duration
-	maxPieces int
-	require   bool
+	timeout       time.Duration
+	maxPieces     int
+	require       bool
+	parallel      int
+	noPeerTimeout time.Duration
 
 	http *http.Client
 
@@ -156,9 +179,25 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 			maxPieces = int(n)
 		}
 	}
+	parallel := defaultParallel
+	if v, ok := cfg["parallel"]; ok {
+		if n, isNum := toFloat(v); isNum && n >= 1 {
+			parallel = int(n)
+		}
+	}
+	noPeer := defaultNoPeerTimeout
+	if v, _ := cfg["no_peer_timeout"].(string); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return nil, fmt.Errorf("%s: invalid no_peer_timeout %q: %w", pluginName, v, err)
+		}
+		noPeer = d
+	}
 	return &probePlugin{
 		timeout:       timeout,
 		maxPieces:     maxPieces,
+		parallel:      parallel,
+		noPeerTimeout: noPeer,
 		require:       plugin.OptBool(cfg, "require", false),
 		http:          &http.Client{Timeout: 60 * time.Second},
 		probeImage:    mvcprobe.Image,
@@ -225,30 +264,80 @@ func (p *probePlugin) Shutdown(_ context.Context, _ *plugin.TaskContext) error {
 // parallel: each one asks a private tracker for an announce and pulls tens of
 // megabytes, and doing that to several swarms at once is the kind of burst a
 // tracker notices.
+// Process probes each entry that is still in play.
+//
+// Entries are probed at most `parallel` at a time, 1 by default. The cost
+// being bounded is bandwidth: a successful probe pulls 20-25 MiB, and several
+// of those at once from one IP is the kind of burst a private tracker
+// notices. A FAILED probe costs no bytes at all, so the serialisation buys
+// nothing in exactly the case that is slowest — which is why raising this is
+// worth it on a feed full of dead swarms, and why the no-peer timeout matters
+// more than the concurrency does.
 func (p *probePlugin) Process(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
+	todo := make([]*entry.Entry, 0, len(entries))
 	for _, e := range entries {
-		if e.IsRejected() {
-			continue
+		if !e.IsRejected() {
+			todo = append(todo, e)
 		}
-		res, pieces, bytes, err := p.probeEntry(ctx, tc, e)
-		e.Set(entry.FieldProbePieces, pieces)
-		e.Set(entry.FieldProbeBytes, bytes)
-		if err != nil {
-			e.Set(entry.FieldProbeOK, false)
-			tc.Logger.Info(pluginName+": could not probe", "entry", e.Title, "err", err)
-			if p.require {
-				e.Reject(fmt.Sprintf("%s: could not read the release's container: %v", pluginName, err))
-			}
-			continue
-		}
-		apply(e, res)
-		tc.Logger.Info(pluginName+": probed", "entry", e.Title,
-			"kind", e.GetString(entry.FieldProbeKind),
-			"3d", res.Is3D, "layout", layoutName(res.Layout),
-			"size", fmt.Sprintf("%dx%d", widthOf(res), heightOf(res)),
-			"mbps", e.Fields[entry.FieldProbeBitrateMbps],
-			"pieces", pieces, "bytes", bytes)
 	}
+	if len(todo) == 0 {
+		return entry.PassThrough(entries), nil
+	}
+
+	parallel := p.parallel
+	if parallel < 1 {
+		parallel = 1
+	}
+	if parallel > len(todo) {
+		parallel = len(todo)
+	}
+
+	// A mutex rather than per-entry channels: the only shared state is the
+	// logger and each entry's own fields, and an entry is touched by exactly
+	// one goroutine.
+	var logMu sync.Mutex
+	sem := make(chan struct{}, parallel)
+	var wg sync.WaitGroup
+	for _, e := range todo {
+		wg.Add(1)
+		go func(e *entry.Entry) {
+			defer wg.Done()
+			select {
+			case sem <- struct{}{}:
+			case <-ctx.Done():
+				return
+			}
+			defer func() { <-sem }()
+
+			res, pieces, bytes, err := p.probeEntry(ctx, tc, e)
+			e.Set(entry.FieldProbePieces, pieces)
+			e.Set(entry.FieldProbeBytes, bytes)
+			logMu.Lock()
+			defer logMu.Unlock()
+			if err != nil {
+				e.Set(entry.FieldProbeOK, false)
+				// A swarm that served nothing is worth saying plainly: it is
+				// not just a slow probe, it is a release whose full download
+				// would not have gone any better.
+				if errors.Is(err, torrentpeek.ErrNoPeers) {
+					e.Set(entry.FieldProbeUnreachable, true)
+				}
+				tc.Logger.Info(pluginName+": could not probe", "entry", e.Title, "err", err)
+				if p.require {
+					e.Reject(fmt.Sprintf("%s: could not read the release's container: %v", pluginName, err))
+				}
+				return
+			}
+			apply(e, res)
+			tc.Logger.Info(pluginName+": probed", "entry", e.Title,
+				"kind", e.GetString(entry.FieldProbeKind),
+				"3d", res.Is3D, "layout", layoutName(res.Layout),
+				"size", fmt.Sprintf("%dx%d", widthOf(res), heightOf(res)),
+				"mbps", e.Fields[entry.FieldProbeBitrateMbps],
+				"pieces", pieces, "bytes", bytes)
+		}(e)
+	}
+	wg.Wait()
 	return entry.PassThrough(entries), nil
 }
 
@@ -295,6 +384,7 @@ func (p *probePlugin) probeEntry(ctx context.Context, tc *plugin.TaskContext, e 
 	if err != nil {
 		return nil, 0, 0, err
 	}
+	pk.NoPeerTimeout = p.noPeerTimeout
 	defer func() { _ = pk.Close() }()
 
 	res, err := p.readWithRetries(ctx, pk, nameOf(t, e))
