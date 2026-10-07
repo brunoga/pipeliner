@@ -34,6 +34,7 @@ import (
 	"time"
 
 	"github.com/anacrolix/torrent"
+	"github.com/anacrolix/torrent/storage"
 
 	"github.com/brunoga/pipeliner/internal/cache"
 	"github.com/brunoga/pipeliner/internal/entry"
@@ -93,6 +94,8 @@ type magnetInfo struct {
 type magnetPlugin struct {
 	client         *torrent.Client
 	resolveTimeout time.Duration
+	// dataDir is this client's own scratch directory, removed at shutdown.
+	dataDir string
 	// cache maps info hash → resolved metadata. Nil when no store is wired.
 	cache *cache.Cache[*magnetInfo]
 }
@@ -112,10 +115,26 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 	tcfg.NoUpload = true
 	tcfg.Seed = false
 	tcfg.ListenPort = 0
-	tcfg.DataDir = os.TempDir()
+	// Its own scratch directory, not the shared temp root. Every client with
+	// the same DataDir opens the same piece-completion database there, so a
+	// config with more than one metainfo_magnet node had the second and third
+	// lose the race and log
+	//
+	//   couldn't open piece completion db in "/tmp": timeout
+	//
+	// at every startup. The completion is in-memory for the same reason it is
+	// pointless here: piece completion carries state between runs, and this
+	// client only ever resolves metadata — it downloads no pieces at all.
+	dir, err := os.MkdirTemp("", "pipeliner-magnet-")
+	if err != nil {
+		return nil, fmt.Errorf("metainfo_magnet: scratch directory: %w", err)
+	}
+	tcfg.DataDir = dir
+	tcfg.DefaultStorage = storage.NewFileWithCompletion(dir, storage.NewMapPieceCompletion())
 
 	cl, err := torrent.NewClient(tcfg)
 	if err != nil {
+		_ = os.RemoveAll(dir)
 		return nil, err
 	}
 
@@ -137,6 +156,7 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 	return &magnetPlugin{
 		client:         cl,
 		resolveTimeout: resolveTimeout,
+		dataDir:        dir,
 		cache:          infoCache,
 	}, nil
 }
@@ -144,8 +164,14 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 func (p *magnetPlugin) Name() string { return "metainfo_magnet" }
 
 // Shutdown closes the underlying DHT client, releasing its goroutines and
-// sockets. Called at process exit (daemon) or after the run completes.
-func (p *magnetPlugin) Shutdown() { p.client.Close() }
+// sockets, and removes the scratch directory. Called at process exit (daemon)
+// or after the run completes.
+func (p *magnetPlugin) Shutdown() {
+	p.client.Close()
+	if p.dataDir != "" {
+		_ = os.RemoveAll(p.dataDir)
+	}
+}
 
 // isMagnetEntry reports whether this entry should be handled as a magnet link.
 // It checks torrent_link_type first (set by upstream sources such as Jackett),
