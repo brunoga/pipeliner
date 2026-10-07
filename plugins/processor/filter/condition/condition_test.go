@@ -2,6 +2,7 @@ package condition
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/brunoga/pipeliner/internal/entry"
@@ -245,5 +246,86 @@ func TestNoStateRefKeepsDefaultInputStates(t *testing.T) {
 	}
 	if got := p.EffectiveInputStates(); got != entry.StatesAcceptedUndecided {
 		t.Errorf("EffectiveInputStates() = %v; want StatesAcceptedUndecided", got)
+	}
+}
+
+// A rule's expression is a fine default reason — "probe_ok == true and
+// probe_3d_layout != \"mvc\"" says what happened — but it stops saying
+// anything the moment the rule is a catch-all. A lane ending in
+// {"reject": "true"} recorded `condition: true`, which names neither the
+// entry's problem nor the author's intent.
+func TestRuleReasonReplacesTheExpression(t *testing.T) {
+	p, err := newPlugin(map[string]any{"rules": []any{
+		map[string]any{
+			"reject": "true",
+			"reason": "frame-compatible: an ordinary decoder plays it, so it is not MVC source",
+		},
+	}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := entry.New("Encanto (2021) Full SBS 1080p x265", "https://x/1")
+	if err := p.(*conditionPlugin).filter(context.Background(), nil, e); err != nil {
+		t.Fatal(err)
+	}
+	if !e.IsRejected() {
+		t.Fatal("entry should be rejected")
+	}
+	if !strings.Contains(e.RejectReason, "frame-compatible") {
+		t.Errorf("reason = %q, want the author's reason", e.RejectReason)
+	}
+	if strings.Contains(e.RejectReason, "true") && !strings.Contains(e.RejectReason, "frame") {
+		t.Errorf("reason = %q, should not be the bare expression", e.RejectReason)
+	}
+}
+
+// Without a reason the expression is still used, so nothing existing changes.
+func TestRuleWithoutReasonStillRecordsTheExpression(t *testing.T) {
+	p, err := newPlugin(map[string]any{"reject": "true"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := entry.New("Movie Full SBS 1080p", "https://x/2")
+	if err := p.(*conditionPlugin).filter(context.Background(), nil, e); err != nil {
+		t.Fatal(err)
+	}
+	if !e.IsRejected() {
+		t.Fatal("entry should be rejected")
+	}
+	if e.RejectReason != "condition: true" {
+		t.Errorf("reason = %q, want the expression as the fallback", e.RejectReason)
+	}
+}
+
+// An accept rule's reason reaches notification templates as {{.AcceptReason}},
+// which is how a config explains why something was taken.
+func TestAcceptRuleReasonIsRecorded(t *testing.T) {
+	p, err := newPlugin(map[string]any{"rules": []any{
+		map[string]any{
+			"accept": "true",
+			"reason": "the disc's own playlist reports an MVC dependent view",
+		},
+	}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := entry.New("Some Disc", "https://x/3")
+	if err := p.(*conditionPlugin).filter(context.Background(), nil, e); err != nil {
+		t.Fatal(err)
+	}
+	if !e.IsAccepted() {
+		t.Fatal("entry should be accepted")
+	}
+	if !strings.Contains(e.AcceptReason, "MVC dependent view") {
+		t.Errorf("AcceptReason = %q, want the author's reason", e.AcceptReason)
+	}
+}
+
+func TestReasonIsAnAcceptedConfigKey(t *testing.T) {
+	if errs := validate(map[string]any{"reject": "true", "reason": "because"}); len(errs) != 0 {
+		t.Errorf("reason should be a known key, got %v", errs)
+	}
+	if errs := validate(map[string]any{"reject": "true", "rationale": "typo"}); len(errs) == 0 {
+		t.Error("an unknown key should still be rejected")
 	}
 }

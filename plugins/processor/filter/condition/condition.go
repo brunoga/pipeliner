@@ -50,7 +50,8 @@ func init() {
 		Schema: []plugin.FieldSchema{
 			{Key: "accept", Type: plugin.FieldTypeString, Hint: "Expression; entry accepted when true"},
 			{Key: "reject", Type: plugin.FieldTypeString, Hint: "Expression; entry rejected when true"},
-			{Key: "rules", Type: plugin.FieldTypeList, Hint: "Ordered list of {accept, reject} rule objects"},
+			{Key: "rules", Type: plugin.FieldTypeList, Hint: "Ordered list of {accept, reject, reason} rule objects"},
+			{Key: "reason", Type: plugin.FieldTypeString, Hint: "Why this rule fired, recorded instead of the expression text"},
 		},
 	})
 }
@@ -60,7 +61,7 @@ func validate(cfg map[string]any) []error {
 	if err := plugin.RequireOneOf(cfg, "condition", "rules", "accept", "reject"); err != nil {
 		errs = append(errs, err)
 	}
-	errs = append(errs, plugin.OptUnknownKeys(cfg, "condition", "rules", "accept", "reject")...)
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "condition", "rules", "accept", "reject", "reason")...)
 	return errs
 }
 
@@ -69,6 +70,13 @@ type rule struct {
 	reject     *expr.Expr
 	acceptExpr string
 	rejectExpr string
+	// reason is what the entry records when this rule fires. The expression
+	// is the fallback, and for most rules it reads perfectly well —
+	// `probe_ok == true and probe_3d_layout != "mvc"` says what happened. It
+	// stops saying anything the moment a rule is a catch-all: a lane that
+	// ends `{"reject": "true"}` logged `condition: true`, which names neither
+	// the entry's problem nor the author's intent.
+	reason string
 }
 
 type conditionPlugin struct {
@@ -169,7 +177,19 @@ func parseRule(m map[string]any, prefix string) (rule, error) {
 		r.reject = e
 		r.rejectExpr = rej
 	}
+	if reason, _ := m["reason"].(string); reason != "" {
+		r.reason = reason
+	}
 	return r, nil
+}
+
+// why is the message a fired rule records: the author's reason when given,
+// the expression otherwise.
+func (r rule) why(expression string) string {
+	if r.reason != "" {
+		return "condition: " + r.reason
+	}
+	return "condition: " + expression
 }
 
 func (p *conditionPlugin) Name() string { return "condition" }
@@ -194,7 +214,7 @@ func (p *conditionPlugin) filter(_ context.Context, _ *plugin.TaskContext, e *en
 				// almost certainly didn't mean to overwrite Failed with
 				// Rejected via a condition rule.
 				if !e.IsFailed() {
-					e.Reject(fmt.Sprintf("condition: %s", r.rejectExpr))
+					e.Reject(r.why(r.rejectExpr))
 				}
 				return nil
 			}
@@ -212,7 +232,14 @@ func (p *conditionPlugin) filter(_ context.Context, _ *plugin.TaskContext, e *en
 				// the rule's observation without lying about the entry's
 				// terminal status.
 				if !e.IsFailed() {
-					e.Accept()
+					// A reason on an accept rule is worth carrying: AcceptReason
+					// reaches notification templates as {{.AcceptReason}}, so
+					// this is how a config explains why something was taken.
+					if r.reason != "" {
+						e.Accept(r.reason)
+					} else {
+						e.Accept()
+					}
 				}
 				return nil
 			}

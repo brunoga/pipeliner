@@ -151,8 +151,12 @@ lanes = route(once,
 # Frame-compatible: an ordinary decoder plays it, which is precisely why it is
 # not source material. Rejected explicitly rather than left to fall off the
 # ports, so the reason is recorded once here instead of as a WARN per entry.
-process("condition", upstream=lanes.frame,
-        reject="true")
+process("condition", upstream=lanes.frame, rules=[
+    {"reject": "true",
+     "reason": "frame-compatible (half or full side-by-side): an ordinary " +
+               "decoder plays it, which is exactly why it is not MVC source " +
+               "material"},
+])
 
 # `pipeliner check` warns, four times, that probe and its condition sit below
 # dedup — "when it refuses, the alternatives are already gone". That is true
@@ -235,8 +239,12 @@ b_told = process("probe", upstream=b_few, timeout="2m")
 # Here the probe must VOUCH. Nothing claimed MVC, so silence is not permission:
 # only a probe that actually read the disc may let it through.
 b_ok = process("condition", upstream=b_told, rules=[
-    {"accept": 'probe_ok == true and probe_3d_layout == "mvc"'},
-    {"reject": "true"},
+    {"accept": 'probe_ok == true and probe_3d_layout == "mvc"',
+     "reason": "the disc's own playlist reports an MVC dependent view"},
+    {"reject": "true",
+     "reason": "nothing vouched for this one: the name stated no layout and " +
+               "the probe did not confirm MVC, so there is no evidence it is " +
+               "a disc"},
 ])
 
 # ── Join ─────────────────────────────────────────────────────────────────────
