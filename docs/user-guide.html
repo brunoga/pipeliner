@@ -1720,7 +1720,8 @@ pipeline("new-shows", schedule="1h")</code></pre>
   <tr><th>Key</th><th>Required</th><th>Description</th></tr>
   <tr><td><code>accept</code></td><td>conditional</td><td>Accept when expression is true</td></tr>
   <tr><td><code>reject</code></td><td>conditional</td><td>Reject when expression is true</td></tr>
-  <tr><td><code>rules</code></td><td>conditional</td><td>Ordered list of <code>{accept, reject}</code> objects (use when you need multiple conditions)</td></tr>
+  <tr><td><code>rules</code></td><td>conditional</td><td>Ordered list of <code>{accept, reject, reason}</code> objects (use when you need multiple conditions)</td></tr>
+  <tr><td><code>reason</code></td><td>no</td><td>Why this rule fired, recorded on the entry instead of the expression text</td></tr>
 </table>
 
 <pre><code>cond = process("condition", upstream=meta_node, rules=[
@@ -1729,6 +1730,11 @@ pipeline("new-shows", schedule="1h")</code></pre>
     {"reject": 'series_first_air_date != "" and series_first_air_date &lt; daysago(365)'},
     {"accept": 'video_rating >= 7.0'},
 ])</code></pre>
+
+<div class="note"><strong>Give a catch-all a <code>reason</code>.</strong> By default a fired rule records its own expression, which usually reads well &mdash; <code>condition: probe_ok == true and probe_3d_layout != "mvc"</code> says what happened. It stops saying anything the moment the rule is a catch-all: a lane ending in <code>{"reject": "true"}</code> logs <code>condition: true</code>, which names neither the entry's problem nor your intent. <code>reason</code> replaces that text:
+<pre><code>{"reject": "true",
+ "reason": "frame-compatible: an ordinary decoder plays it, so it is not MVC source"}</code></pre>
+On an <code>accept</code> rule the reason lands in <code>AcceptReason</code>, so it reaches notification templates as <code>{{.AcceptReason}}</code> &mdash; which is how a config explains why something was taken, not just why it was dropped.</div>
 
 <div class="note"><strong>Gotcha:</strong> <code>accept</code> only Accepts matching entries; non-matching entries are left <em>Undecided</em> and pass through unchanged. An <code>accept</code>-only configuration is therefore not an exclusive filter. For "keep only entries where X", use <code>reject='not (X)'</code> (or pair the accept with a catch-all <code>{"reject": "true"}</code> at the end of <code>rules</code>).</div>
 
