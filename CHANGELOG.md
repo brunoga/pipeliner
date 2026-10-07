@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.54.1] - 2026-10-07
+
+### Fixed
+
+- **`metainfo_magnet` clients no longer share a scratch directory** ([#537](https://github.com/brunoga/pipeliner/pull/537)). Every node built a torrent client with `DataDir = os.TempDir()`, so all of them opened the same piece-completion database at `/tmp/.torrent.bolt.db`. The first won the lock and the rest logged `couldn't open piece completion db in "/tmp": timeout` at every daemon start — three such nodes in a config meant two warnings each time, a bolt file in the shared temp root that nothing owned, and clients quietly falling back to in-memory completion anyway, so the file was doing nothing but being contended for. Each client now gets its own `os.MkdirTemp` directory, and `Shutdown` removes it rather than leaving one behind per config reload. The completion is explicitly in-memory, which is what it should always have been: piece completion carries state between runs, and this client resolves metadata and downloads no pieces at all.
+
+**Why 1.54.1**: one fix to a startup warning and a scratch-directory leak. No config key, field or plugin behaviour changes. A patch bump per SemVer.
+
 ## [1.54.0] - 2026-10-07
 
 A release name can be wrong in two directions. The one everybody notices is a name claiming more than the release is, and `probe` already caught that. This release is mostly about the other one — a name claiming *less*, which nobody notices, because the release is refused and never looked at again.
