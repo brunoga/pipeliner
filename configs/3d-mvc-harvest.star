@@ -89,10 +89,14 @@ all_found = merge(found, feed_mvc, feed_bd25, feed_bd50, feed_bd66, feed_bd100)
 meta = process("metainfo_file", upstream=all_found)
 req  = process("require", upstream=meta, fields=["title", "video_year", "_quality"])
 
-# Exactly MVC. This is the whole point of the pipeline.
-mvc  = process("quality", upstream=req, spec="bd3d", on_missing="reject")
+# Anything 3D at all, by rank: Half, Unspecified, Full and BD3D all pass, while
+# a 2D-to-3D conversion and a plain 2D release do not. This is deliberately
+# looser than `spec="bd3d"`, because the route below needs to see the releases
+# whose layout is merely *unstated* — and it keeps that route from warning
+# about hundreds of entries it was never going to take.
+threed = process("quality", upstream=req, spec="3d-half+", on_missing="reject")
 
-drop = process("trailer", upstream=mvc)
+drop = process("trailer", upstream=threed)
 
 # local=True keeps this pipeline's history in its own bucket (movies:<task>).
 #
@@ -109,55 +113,110 @@ drop = process("trailer", upstream=mvc)
 film = process("movies", upstream=drop, local=True, reject_unmatched=True)
 once = process("seen", upstream=film, local=True, retry_failed=True)
 
-# ── Then the ones that cost a request ────────────────────────────────────────
-
-torrent = process("metainfo_torrent", upstream=once, fetch_timeout="1m")
-files   = process("require", upstream=torrent, fields=["torrent_files"])
-
-# Archives and installers are rejected; **disc images are not**. An .iso is the
-# most common shape for an MVC release, and mvctools reads one directly — so
-# rejecting it, as a library pipeline must, would throw away most of this feed.
-ok = process("content", upstream=files, reject=["*.rar", "*.exe"])
-
-alive = process("torrent_alive", upstream=ok, min_seeds=2, verify=True)
-
-# ── Then ask the disc itself ─────────────────────────────────────────────────
+# ── Split on how much the name actually told us ──────────────────────────────
 #
-# Everything above decided from the release name, and the release name lies:
-# "COMPLETE BLURAY FULL-SBS" is a side-by-side re-encode, not the MVC disc it
-# claims. `probe` fetches the torrent's first and last piece — a Blu-ray image
-# keeps its UDF directory at the front and its BDMV metadata at the end — and
-# reads the disc's own playlist. Measured on a live 40.56 GiB disc: 2 pieces,
-# 27.2 MiB, 0.066% of the torrent, 9.2 seconds.
+# A release name can be wrong in two directions, and they need opposite
+# treatment. The direction people notice is a name claiming more than the
+# release is: "COMPLETE BLURAY FULL-SBS" is a side-by-side re-encode, not the
+# disc it names. The direction nobody notices is a name claiming *less* —
+# because the release is refused and never looked at again.
 #
-# It goes last of the gates because it is the only one that costs bandwidth,
-# and after torrent_alive in particular: a probe needs a seeder, and that
-# filter has already established there is one.
-told = process("probe", upstream=alive, timeout="3m")
+#     Pacific Rim Uprising 2018 3D BluRay 1080p AVC Atmos TrueHD7 1 MTeam
+#
+# states no layout at all. Under a single `spec="bd3d"` gate it was refused;
+# probing it showed a 49 GB MVC disc with 14 seeders, and it was the only live
+# release of the ten the indexer had. The two the gate *did* admit were
+# re-encodes with no seeders.
+#
+# So the lanes differ in exactly one thing: what to do when the probe comes
+# back empty. That is the whole reason to split.
+lanes = route(once,
+    asserted  = 'video_3d_layout == "mvc"',
+    ambiguous = 'video_3d_layout == "unspecified"',
+    frame     = 'video_3d_layout == "half" or video_3d_layout == "full"')
 
-# layout="mvc" means the playlist carries an MVC dependent view — the disc
-# saying it is natively 3D, rather than a name claiming it. Releases whose
-# probe could not run are left alone rather than discarded, since an
-# unreachable swarm is not evidence of anything; drop `probe_ok == true` from
-# the rule to insist on a probe instead.
-real = process("condition", upstream=told,
+# Frame-compatible: an ordinary decoder plays it, which is precisely why it is
+# not source material. Rejected explicitly rather than left to fall off the
+# ports, so the reason is recorded once here instead of as a WARN per entry.
+process("condition", upstream=lanes.frame,
+        reject="true")
+
+# `pipeliner check` warns, four times, that probe and its condition sit below
+# dedup — "when it refuses, the alternatives are already gone". That is true
+# and it is the accepted trade: probing above dedup would mean probing every
+# surviving candidate rather than the few about to be downloaded, which on
+# this feed is ~200 probes a night to fetch 3 discs. Below dedup it is 4.
+#
+# The cost of being wrong is bounded differently per lane. In lane A a refusal
+# loses that film for the run, and the name said MVC, so it is rare. In lane B
+# a refusal is usually *correct* — a bare-3D release that probes as half-SBS
+# is exactly what this pipeline should not take — and the waste is one probe a
+# night re-confirming it. Recording probe verdicts so they are not re-probed
+# would remove even that.
+
+# ── The gates that cost a request, shared by both lanes ──────────────────────
+
+def mvc_network_gates_fn(upstream):
+    torrent = process("metainfo_torrent", upstream=upstream, fetch_timeout="1m")
+    # torrent_info_hash is required because probe needs it downstream.
+    files = process("require", upstream=torrent,
+                    fields=["torrent_files", "torrent_info_hash"])
+    # Archives and installers are rejected; **disc images are not**. An .iso is
+    # the most common shape for an MVC release, and mvctools reads one
+    # directly — so rejecting it, as a library pipeline must, would throw away
+    # most of this feed.
+    ok = process("content", upstream=files, reject=["*.rar", "*.exe"])
+    alive = process("torrent_alive", upstream=ok, min_seeds=2, verify=True)
+    # One copy per film within the lane, after everything that can refuse a
+    # release, so the alternatives are still there when one is refused.
+    return process("dedup", upstream=alive)
+
+# ── Lane A: the name claimed MVC ─────────────────────────────────────────────
+#
+# A first run finds dozens and each is tens of gigabytes, so take a few a night
+# rather than two terabytes at once. Highest-rated first, so the backlog drains
+# in a useful order.
+a_pick = mvc_network_gates_fn(lanes.asserted)
+a_few  = process("limit", upstream=a_pick, n=3, order="desc", sort="video_rating")
+a_told = process("probe", upstream=a_few, timeout="2m")
+
+# Here the probe may only VETO. The name claimed MVC, so an unreachable swarm
+# leaves that claim standing — losing a release because nobody would serve two
+# pieces would be worse than trusting the name, which is all we had before.
+a_ok = process("condition", upstream=a_told,
                reject='probe_ok == true and probe_3d_layout != "mvc"')
 
-# One copy per film: dedup goes after everything that can refuse a release, so
-# the alternatives are still there when one is refused.
-pick = process("dedup", upstream=real)
+# ── Lane B: the name said nothing ────────────────────────────────────────────
+#
+# Sorted by size, which is triage and not a verdict: among releases whose
+# layout is unstated, the biggest is the likeliest disc — a 1080p half-SBS
+# encode is 14-18 GB and a full disc is ~45. It decides what is worth one
+# probe; the probe decides what the thing actually is.
+#
+# One per night, because this lane is speculative and must not eat the
+# night's budget.
+b_pick = mvc_network_gates_fn(lanes.ambiguous)
+b_few  = process("limit", upstream=b_pick, n=1, order="desc", sort="torrent_file_size")
+b_told = process("probe", upstream=b_few, timeout="2m")
 
-# ── Download, and stop ───────────────────────────────────────────────────────
+# Here the probe must VOUCH. Nothing claimed MVC, so silence is not permission:
+# only a probe that actually read the disc may let it through.
+b_ok = process("condition", upstream=b_told, rules=[
+    {"accept": 'probe_ok == true and probe_3d_layout == "mvc"'},
+    {"reject": "true"},
+])
 
-# A first run finds dozens of these and each is tens of gigabytes, so take a
-# few a night rather than two terabytes at once. Highest-rated first, so the
-# backlog drains in a useful order. A real run of this against a 989-title
-# watchlist accepted 65 releases, which would have been about 2 TB.
-few = process("limit", upstream=pick, n=3, order="desc", sort="video_rating")
+# ── Join ─────────────────────────────────────────────────────────────────────
+#
+# A film can appear in both lanes — Pacific Rim Uprising had two MVC-named
+# releases and one bare-3D one. A final dedup keeps a single copy, and prefers
+# the asserted lane's BD3D over the ambiguous lane's unspecified layout, which
+# ranks with Half.
+chosen = process("dedup", upstream=merge(a_ok, b_ok))
 
 # A directory per film keeps a disc image and its stray files together, and
 # gives the sync something stable to watch.
-path = process("pathfmt", upstream=few, field="inbox_path",
+path = process("pathfmt", upstream=chosen, field="inbox_path",
                path=inbox + "/{title} ({video_year})")
 
 out = output("deluge", upstream=path, host="localhost", port=58846,
