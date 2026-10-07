@@ -3,6 +3,8 @@ package magnet
 import (
 	"context"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/brunoga/pipeliner/internal/entry"
@@ -297,5 +299,58 @@ func TestCacheTTLValidation(t *testing.T) {
 	}
 	if errs := validate(map[string]any{"cache_ttl": "nonsense"}); len(errs) == 0 {
 		t.Error("invalid cache_ttl must fail validation")
+	}
+}
+
+// A config with more than one metainfo_magnet node builds more than one
+// torrent client, and they must not share a scratch directory. They used to:
+// DataDir was os.TempDir() for every one of them, so each opened the same
+// piece-completion database at <tmp>/.torrent.bolt.db, the first won the lock
+// and the rest logged
+//
+//	couldn't open piece completion db in "/tmp": timeout
+//
+// at every daemon start. Three nodes in a live config meant two warnings each
+// time, and a stray bolt file nobody owned.
+func TestClientsDoNotShareAScratchDirectory(t *testing.T) {
+	shared := filepath.Join(os.TempDir(), ".torrent.bolt.db")
+	if _, err := os.Stat(shared); err == nil {
+		t.Skipf("%s already exists; cannot attribute it", shared)
+	}
+
+	seen := map[string]bool{}
+	var plugins []*magnetPlugin
+	for i := 0; i < 3; i++ {
+		pl, err := newPlugin(map[string]any{}, nil)
+		if err != nil {
+			t.Skipf("cannot start a torrent client here: %v", err)
+		}
+		p := pl.(*magnetPlugin)
+		plugins = append(plugins, p)
+
+		if p.dataDir == "" || p.dataDir == os.TempDir() {
+			t.Errorf("client %d uses the shared temp root: %q", i, p.dataDir)
+		}
+		if seen[p.dataDir] {
+			t.Errorf("client %d reuses scratch directory %s", i, p.dataDir)
+		}
+		seen[p.dataDir] = true
+		if _, err := os.Stat(p.dataDir); err != nil {
+			t.Errorf("client %d: scratch directory missing: %v", i, err)
+		}
+	}
+
+	if _, err := os.Stat(shared); err == nil {
+		t.Errorf("a piece-completion db was created at %s; the clients are contending for it", shared)
+	}
+
+	// Shutdown takes its scratch directory with it, so a long-running daemon
+	// does not leave one behind per reload.
+	for _, p := range plugins {
+		dir := p.dataDir
+		p.Shutdown()
+		if _, err := os.Stat(dir); !os.IsNotExist(err) {
+			t.Errorf("scratch directory survived shutdown: %s", dir)
+		}
 	}
 }
