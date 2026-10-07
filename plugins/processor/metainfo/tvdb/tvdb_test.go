@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -642,19 +643,106 @@ func TestPickSeriesPrefersExactTitle(t *testing.T) {
 		{ID: "1", Name: "Breaking Bad: The Movie"}, // companion outranks in relevance
 		{ID: "2", Name: "Breaking Bad"},
 	}
-	if got := pickSeries(rs, "Breaking Bad"); got.ID != "2" {
-		t.Errorf("exact title should win, got id %s (%s)", got.ID, got.Name)
+	if got, ok := pickSeries(rs, "Breaking Bad", 0); !ok || got.ID != "2" {
+		t.Errorf("exact title should win, got id %s (%s) ok=%v", got.ID, got.Name, ok)
 	}
-	// No exact match → first result.
-	if got := pickSeries(rs, "Breaking"); got.ID != "1" {
-		t.Errorf("no exact match should fall back to results[0], got %s", got.ID)
+	// No exact match, but "Breaking Bad: The Movie" contains "Breaking" as a
+	// whole word, so it is a plausible match and still wins.
+	if got, ok := pickSeries(rs, "Breaking", 0); !ok || got.ID != "1" {
+		t.Errorf("a whole-word containment should settle it, got %s ok=%v", got.ID, ok)
 	}
 	// Normalization: punctuation differences still count as exact.
 	rs = []itvdb.Series{
 		{ID: "1", Name: "Marvels Agents"},
 		{ID: "2", Name: "Marvel's Agents"},
 	}
-	if got := pickSeries(rs, "Marvels Agents"); got.ID != "1" {
-		t.Errorf("first exact match should win, got %s", got.ID)
+	if got, ok := pickSeries(rs, "Marvels Agents", 0); !ok || got.ID != "1" {
+		t.Errorf("first exact match should win, got %s ok=%v", got.ID, ok)
 	}
 }
+
+// TestPickSeriesBrothers2026 is the reported failure, with the result set
+// TVDB actually returns. "Brothers 2026 S01E03 Little Woody ..." parses to the
+// series name "Brothers 2026" — which no show is called — so the exact
+// comparison never matched and results[0] won. Every episode of the 2026 show
+// was enriched as Big Brother: wrong name, overview, network and poster in the
+// notification, while the download itself was correct.
+func TestPickSeriesBrothers2026(t *testing.T) {
+	// Verbatim from GET /v4/search?query=Brothers%202026&type=series.
+	full := []itvdb.Series{
+		{ID: "440642", Name: "Big Brother (2023)", Year: "2023"},
+		{ID: "442120", Name: "Celebrity Big Brother (2024)", Year: "2024"},
+		{ID: "448114", Name: "Brothers", Year: "2026"},
+		{ID: "471979", Name: "สองหัวใจ", Year: "2026"},
+	}
+	// What the old code did: no name equals "Brothers 2026", so it returned
+	// results[0]. Pinning that here is what makes this a regression test — if
+	// the fallback ever becomes unconditional again, this is the show it
+	// would hand back.
+	if full[0].Name != "Big Brother (2023)" {
+		t.Fatal("fixture no longer reproduces the reported failure")
+	}
+
+	got, ok := pickSeries(full, "Brothers 2026", 2026)
+	if !ok {
+		t.Fatal("the right show is in the results; it must be found")
+	}
+	if got.ID != "448114" {
+		t.Errorf("picked %q (%s), want Brothers 2026 (448114)", got.Name, got.ID)
+	}
+}
+
+// The year disambiguates, which is the thing it is actually good for:
+// "Brothers" alone is three different shows.
+func TestPickSeriesUsesTheYearToDisambiguate(t *testing.T) {
+	rs := []itvdb.Series{
+		{ID: "71477", Name: "Brothers", Year: "1984"},
+		{ID: "387262", Name: "BROTHERS", Year: "2014"},
+		{ID: "448114", Name: "Brothers", Year: "2026"},
+	}
+	for year, want := range map[int]string{1984: "71477", 2014: "387262", 2026: "448114"} {
+		if got, ok := pickSeries(rs, "Brothers "+itoa(year), year); !ok || got.ID != want {
+			t.Errorf("year %d: picked %s, want %s", year, got.ID, want)
+		}
+	}
+	// With no year stated, relevance order decides — there is nothing better.
+	if got, ok := pickSeries(rs, "Brothers", 0); !ok || got.ID != "71477" {
+		t.Errorf("no year: got %s, want the first result", got.ID)
+	}
+}
+
+// The floor: a result sharing no whole word is never accepted, however TVDB
+// ranked it. This is the guard that keeps "Brothers" off "Big Brother" even
+// when the right show is missing from the results entirely.
+func TestPickSeriesRefusesAnUnrelatedTopHit(t *testing.T) {
+	onlyWrong := []itvdb.Series{
+		{ID: "440642", Name: "Big Brother (2023)", Year: "2023"},
+		{ID: "442120", Name: "Celebrity Big Brother (2024)", Year: "2024"},
+	}
+	if got, ok := pickSeries(onlyWrong, "Brothers 2026", 2026); ok {
+		t.Errorf("should have refused, picked %q (%s)", got.Name, got.ID)
+	}
+	// "Brother" and "Brothers" are different words, and that is the whole
+	// distinction here — no edit-distance tolerance, as match.Fuzzy documents.
+	if _, ok := pickSeries([]itvdb.Series{{ID: "1", Name: "Big Brother"}}, "Brothers", 0); ok {
+		t.Error("Brother must not match Brothers")
+	}
+	// But a genuine superset still matches.
+	if got, ok := pickSeries([]itvdb.Series{{ID: "9", Name: "The Brothers Sun"}}, "Brothers", 0); !ok || got.ID != "9" {
+		t.Errorf("a name containing the search as whole words should match, ok=%v", ok)
+	}
+}
+
+func TestMergeSeriesKeepsFirstOccurrence(t *testing.T) {
+	a := []itvdb.Series{{ID: "1", Name: "A"}, {ID: "2", Name: "B"}}
+	b := []itvdb.Series{{ID: "2", Name: "B"}, {ID: "3", Name: "C"}}
+	got := mergeSeries(a, b)
+	if len(got) != 3 || got[0].ID != "1" || got[1].ID != "2" || got[2].ID != "3" {
+		t.Errorf("merge = %+v, want 1,2,3 in order with no repeat", got)
+	}
+	if n := len(mergeSeries(nil, nil)); n != 0 {
+		t.Errorf("empty merge produced %d", n)
+	}
+}
+
+func itoa(n int) string { return strconv.Itoa(n) }
