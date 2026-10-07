@@ -32,7 +32,6 @@ func aggregateCounters(
 	sourceEntries []*entry.Entry,
 	edges map[edgeKey][]*entry.Entry,
 	discarded map[*entry.Entry]bool,
-	superseded map[*entry.Entry]bool,
 ) (total, accepted, rejected, failed, undecided int, entries []*entry.Entry) {
 	// Per group: best (highest-rank) state, plus a representative entry so we
 	// can re-publish a stable Entries slice. order preserves first-seen order
@@ -42,7 +41,7 @@ func aggregateCounters(
 	var order []string
 
 	consider := func(e *entry.Entry) {
-		if e == nil || discarded[e] || superseded[e] {
+		if e == nil || discarded[e] {
 			return
 		}
 		key := e.URL
@@ -114,3 +113,4 @@ func sortEdgeKeys(keys []edgeKey) {
 		}
 	}
 }
+

@@ -22,7 +22,7 @@ func TestAggregateCounters_SimpleSourcePassthrough(t *testing.T) {
 		mkEntry("b", "http://b", entry.Rejected),
 		mkEntry("c", "http://c", entry.Undecided),
 	}
-	total, acc, rej, fail, und, entries := aggregateCounters(src, nil, nil, nil)
+	total, acc, rej, fail, und, entries := aggregateCounters(src, nil, nil)
 	if total != 3 || acc != 1 || rej != 1 || fail != 0 || und != 1 {
 		t.Fatalf("counts: got total=%d acc=%d rej=%d fail=%d und=%d, want 3/1/1/0/1",
 			total, acc, rej, fail, und)
@@ -49,7 +49,7 @@ func TestAggregateCounters_FanOutClonesAggregateByURL(t *testing.T) {
 		{from: "src", to: "branchA"}: {src},
 		{from: "src", to: "branchB"}: {clone},
 	}
-	total, acc, rej, fail, und, _ := aggregateCounters([]*entry.Entry{src}, edges, nil, nil)
+	total, acc, rej, fail, und, _ := aggregateCounters([]*entry.Entry{src}, edges, nil)
 	if total != 1 {
 		t.Fatalf("total: got %d, want 1 (URL dedup)", total)
 	}
@@ -82,7 +82,7 @@ func TestAggregateCounters_StrongestStateWins(t *testing.T) {
 					mkEntry("t", "http://t", s),
 				}
 			}
-			_, acc, rej, fail, und, _ := aggregateCounters(nil, edges, nil, nil)
+			_, acc, rej, fail, und, _ := aggregateCounters(nil, edges, nil)
 			var got entry.State
 			switch {
 			case acc == 1:
@@ -132,7 +132,7 @@ func TestAggregateCounters_ReplacesUpstreamDiscardsConsumed(t *testing.T) {
 		discarded[e] = true
 	}
 
-	total, acc, rej, fail, und, entries := aggregateCounters(consumed, edges, discarded, nil)
+	total, acc, rej, fail, und, entries := aggregateCounters(consumed, edges, discarded)
 	if total != 4 {
 		t.Fatalf("total: got %d, want 4 (only emitted entries count)", total)
 	}
@@ -158,86 +158,12 @@ func TestAggregateCounters_EmptyURLFallsBackToPointer(t *testing.T) {
 	b := mkEntry("b", "", entry.Rejected)
 	c := mkEntry("c", "", entry.Undecided)
 	total, acc, rej, _, und, _ := aggregateCounters(
-		[]*entry.Entry{a, b, c}, nil, nil, nil,
+		[]*entry.Entry{a, b, c}, nil, nil,
 	)
 	if total != 3 {
 		t.Fatalf("total: got %d, want 3 (URL-less entries identified by pointer)", total)
 	}
 	if acc != 1 || rej != 1 || und != 1 {
 		t.Errorf("counts: got acc=%d rej=%d und=%d, want 1/1/1", acc, rej, und)
-	}
-}
-
-// TestAggregateCounters_SupersededOriginalDoesNotCount is the harvest case.
-// An entry is accepted upstream of a fan-out — the movies filter accepts a
-// matched release — and then every branch rejects it. The pre-fan-out original
-// still holds Accepted, because its state is a snapshot from before the
-// branches ran, and it is deliberately kept so the commit phase can read the
-// producer's own output. Counting it meant a run that grabbed 3 releases
-// reported 493 accepted: the number the route had fanned out, not the number
-// that went anywhere.
-func TestAggregateCounters_SupersededOriginalDoesNotCount(t *testing.T) {
-	original := mkEntry("a", "http://a", entry.Accepted) // accepted upstream
-	laneA := mkEntry("a", "http://a", entry.Rejected)
-	laneB := mkEntry("a", "http://a", entry.Rejected)
-
-	edges := map[edgeKey][]*entry.Entry{
-		{from: "route", to: "laneA"}: {laneA},
-		{from: "route", to: "laneB"}: {laneB},
-	}
-	superseded := map[*entry.Entry]bool{original: true}
-
-	total, acc, rej, _, _, _ := aggregateCounters(
-		[]*entry.Entry{original}, edges, nil, superseded)
-
-	if total != 1 {
-		t.Fatalf("total: got %d, want 1", total)
-	}
-	if acc != 0 {
-		t.Errorf("accepted: got %d, want 0 — every branch rejected it", acc)
-	}
-	if rej != 1 {
-		t.Errorf("rejected: got %d, want 1", rej)
-	}
-}
-
-// But a genuine fan-out acceptance must still win: one branch downloading is
-// the case the strongest-state rule exists for, and superseding the original
-// must not break it.
-func TestAggregateCounters_SupersededStillLetsABranchAccept(t *testing.T) {
-	original := mkEntry("a", "http://a", entry.Undecided)
-	rejectedBranch := mkEntry("a", "http://a", entry.Rejected)
-	acceptedBranch := mkEntry("a", "http://a", entry.Accepted)
-
-	edges := map[edgeKey][]*entry.Entry{
-		{from: "fan", to: "b1"}: {rejectedBranch},
-		{from: "fan", to: "b2"}: {acceptedBranch},
-	}
-	_, acc, rej, _, _, _ := aggregateCounters(
-		[]*entry.Entry{original}, edges, nil, map[*entry.Entry]bool{original: true})
-
-	if acc != 1 || rej != 0 {
-		t.Errorf("acc=%d rej=%d, want the accepting branch to win", acc, rej)
-	}
-}
-
-// The counters must still partition the total — every entry lands in exactly
-// one bucket, which is what makes the summary line readable.
-func TestAggregateCounters_BucketsPartitionTheTotal(t *testing.T) {
-	original := mkEntry("a", "http://a", entry.Accepted)
-	edges := map[edgeKey][]*entry.Entry{
-		{from: "route", to: "l1"}: {mkEntry("a", "http://a", entry.Rejected)},
-		{from: "route", to: "l2"}: {mkEntry("b", "http://b", entry.Accepted)},
-		{from: "route", to: "l3"}: {mkEntry("c", "http://c", entry.Undecided)},
-		{from: "route", to: "l4"}: {mkEntry("d", "http://d", entry.Failed)},
-	}
-	total, acc, rej, fail, und, _ := aggregateCounters(
-		[]*entry.Entry{original}, edges, nil, map[*entry.Entry]bool{original: true})
-
-	if got := acc + rej + fail + und; got != total {
-		t.Errorf("acc+rej+fail+und = %d, total = %d; the buckets must partition the total", got, total)
-	}
-	if total != 4 {
-		t.Errorf("total = %d, want 4 distinct URLs", total)
 	}
 }
