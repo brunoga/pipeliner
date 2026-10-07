@@ -128,8 +128,21 @@ once = process("seen", upstream=film, local=True, retry_failed=True)
 # release of the ten the indexer had. The two the gate *did* admit were
 # re-encodes with no seeders.
 #
-# So the lanes differ in exactly one thing: what to do when the probe comes
-# back empty. That is the whole reason to split.
+# The lanes run the same gates and differ in three small ways, and it is worth
+# being straight about which of them earns the split.
+#
+# The visible difference is what an empty probe means: in `asserted` the name
+# claimed MVC so the probe may only veto, in `ambiguous` nothing claimed it so
+# the probe must vouch. That is one row of a truth table, and on its own it
+# would not justify a route — a single lane with a compound condition could
+# express it.
+#
+# What actually needs separate lanes is the budget and the ordering. One limit
+# node means one budget and one sort key, so merged into a single lane sorted
+# by rating the ~107 asserted candidates would crowd out the ~56 ambiguous
+# ones every night and the speculative ones would never be picked at all. The
+# split is what guarantees the rescue lane its own protected slot, ordered by
+# the thing that matters there (size, as triage) rather than by rating.
 lanes = route(once,
     asserted  = 'video_3d_layout == "mvc"',
     ambiguous = 'video_3d_layout == "unspecified"',
@@ -188,14 +201,34 @@ a_ok = process("condition", upstream=a_told,
 
 # ── Lane B: the name said nothing ────────────────────────────────────────────
 #
-# Sorted by size, which is triage and not a verdict: among releases whose
-# layout is unstated, the biggest is the likeliest disc — a 1080p half-SBS
-# encode is 14-18 GB and a full disc is ~45. It decides what is worth one
-# probe; the probe decides what the thing actually is.
+# Size is used twice here, and both times to decide what is worth MEASURING —
+# never to decide what a release is. Sampled across this indexer's 3D feed:
 #
-# One per night, because this lane is speculative and must not eat the
+#     name states   n   min   median   max
+#     MVC/BD3D      8  24.8     42.4  49.8 GB
+#     unspecified   9   2.6      8.0  45.7 GB
+#     full-SBS     59   1.6      8.5  45.3 GB
+#     half-SBS     24   1.4      6.4  36.8 GB
+#
+# which is why size cannot assert: full side-by-side reaches 45.3 GB and sits
+# inside the MVC range almost entirely, so a 40 GB file is not necessarily a
+# disc. Asserting from size would be the same mistake as reading layout off a
+# name, with a different proxy — and the disc is ten megabytes and six seconds
+# from simply saying what it is.
+#
+# What size does tell you is what a release is NOT. Nothing under ~20 GB is a
+# 1080p MVC disc; the smallest observed is a BD25 at 24.8. The median
+# unspecified release is 8 GB, so without this floor the single nightly probe
+# is usually spent on something that could not possibly be the thing we want.
+# The floor sits above the network gates, so it saves the .torrent fetch and
+# the tracker scrape too, not just the probe.
+b_big  = process("condition", upstream=lanes.ambiguous,
+                 reject="torrent_file_size < 20000000000")
+
+# Then the biggest survivor, because among plausible discs the largest is the
+# likeliest. One per night: this lane is speculative and must not eat the
 # night's budget.
-b_pick = mvc_network_gates_fn(lanes.ambiguous)
+b_pick = mvc_network_gates_fn(b_big)
 b_few  = process("limit", upstream=b_pick, n=1, order="desc", sort="torrent_file_size")
 b_told = process("probe", upstream=b_few, timeout="2m")
 
