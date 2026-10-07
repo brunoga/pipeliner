@@ -159,6 +159,11 @@ func (ex *Executor) Run(ctx context.Context) (*Result, error) {
 	// counted instead — see Result doc for the full semantics.
 	discardedEntries := map[*entry.Entry]bool{}
 
+	// supersededEntries holds pre-fan-out originals whose fate is now carried
+	// by their clones. Excluded from the counter only — the commit phase still
+	// reads them. See storeOutputs.
+	supersededEntries := map[*entry.Entry]bool{}
+
 	// failedURLs tracks URLs of entries that were failed by any sink node.
 	// Used during the commit phase to exclude them from CommitPlugin.Commit calls.
 	failedURLs := map[string]bool{}
@@ -234,7 +239,7 @@ func (ex *Executor) Run(ctx context.Context) (*Result, error) {
 				}
 			}
 
-			ex.storeOutputs(n, produced, edge)
+			ex.storeOutputs(n, produced, edge, supersededEntries)
 		}
 	}
 
@@ -301,7 +306,7 @@ func (ex *Executor) Run(ctx context.Context) (*Result, error) {
 	// into the counter even when other clones (on different branches) never
 	// reached a sink.
 	res.Total, res.Accepted, res.Rejected, res.Failed, res.Undecided, res.Entries =
-		aggregateCounters(sourceEntries, edge, discardedEntries)
+		aggregateCounters(sourceEntries, edge, discardedEntries, supersededEntries)
 
 	res.Traces = tracer.finalize()
 	res.TracesTruncated = tracer.truncated
@@ -332,7 +337,7 @@ func (ex *Executor) collectUpstream(n *dag.Node, edge map[edgeKey][]*entry.Entry
 
 // storeOutputs distributes produced entries to each downstream consumer.
 // When there are multiple consumers, all but the first get cloned copies.
-func (ex *Executor) storeOutputs(n *dag.Node, produced []*entry.Entry, edge map[edgeKey][]*entry.Entry) {
+func (ex *Executor) storeOutputs(n *dag.Node, produced []*entry.Entry, edge map[edgeKey][]*entry.Entry, superseded map[*entry.Entry]bool) {
 	downstreams := ex.graph.Downstreams(n.ID)
 	if len(downstreams) == 0 {
 		return // sink node — no downstream
@@ -348,8 +353,23 @@ func (ex *Executor) storeOutputs(n *dag.Node, produced []*entry.Entry, edge map[
 	// commit skips recording it even though another branch downloaded it, and
 	// the next run re-downloads. Cloning all branches keeps the producer's
 	// originals (used by the commit phase) reflecting the producer's own output.
+	//
+	// The originals are kept for that reason, but they are no longer this
+	// entry's fate: the clones are. Their state is a snapshot from before the
+	// branches ran, so an entry accepted upstream of a fan-out and then
+	// rejected by every branch would still be holding Accepted — and since
+	// the counter takes the strongest state across an entry's copies, it
+	// would be reported as accepted despite nothing having downloaded it.
+	// That is how a harvest run that grabbed 3 releases reported 493: the
+	// movies filter accepted 493, the route fanned them out, and the lanes
+	// rejected all but 3 on the clones. Marking the originals superseded
+	// keeps them available to the commit phase while leaving the counting to
+	// the copies that actually went somewhere.
 	for _, d := range downstreams {
 		edge[edgeKey{n.ID, d.ID}] = cloneAll(produced)
+	}
+	for _, e := range produced {
+		superseded[e] = true
 	}
 }
 
