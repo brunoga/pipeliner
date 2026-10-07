@@ -37,6 +37,11 @@ const (
 	FieldProbeOK          = "probe_ok"
 	FieldProbeKind        = "probe_kind"
 	FieldProbeIs3D        = "probe_is_3d"
+	// FieldProbeUnreachable is true when nothing in the swarm would serve the
+	// sample. Distinct from probe_ok=false, which also covers a parse failure
+	// or a missing .torrent: this one says the full download would not have
+	// gone any better either, which a tracker scrape cannot tell you.
+	FieldProbeUnreachable = "probe_unreachable"
 	FieldProbe3DLayout    = "probe_3d_layout"
 	FieldProbeWidth       = "probe_width"
 	FieldProbeHeight      = "probe_height"

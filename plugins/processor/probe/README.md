@@ -15,6 +15,8 @@ Measured on a live 40.56 GiB disc: **2 pieces, 27.2 MiB, 0.066% of the torrent, 
 | `timeout` | duration | no | `2m` | Budget for one entry's probe, including fetching its pieces |
 | `max_pieces` | int | no | `6` | Most pieces to fetch for one entry. The probe asks for more only when it names bytes it could not read, so this is a ceiling rather than a target |
 | `require` | bool | no | `false` | Reject entries whose probe could not run, instead of passing them with `probe_ok` false |
+| `parallel` | int | no | `1` | How many entries to probe at once |
+| `no_peer_timeout` | duration | no | `30s` | Give up early when no peer has connected and no byte has arrived; `0` disables |
 
 ## Fields set on the entry
 
@@ -34,6 +36,7 @@ All are `MayProduce`: a probe can fail, and a container can decline to state a t
 | `probe_audio_languages` | list | ISO 639-2, deduped, untagged tracks dropped |
 | `probe_subtitle_languages` | list | ISO 639-2 |
 | `probe_base_view_right` | bool | A 3D disc says its base view is the right eye, so a conversion must swap views. Discs only |
+| `probe_unreachable` | bool | Nothing in the swarm served the sample. Narrower than `probe_ok` false, and a stronger liveness signal than a tracker scrape |
 | `probe_pieces` / `probe_bytes` | int | What the probe cost |
 
 ## It reports; it does not decide
@@ -63,7 +66,7 @@ One piece is the smallest range BitTorrent can serve, and on these torrents a pi
 
 - on a **private tracker those bytes count against a ratio**, and each probe is an announce;
 - `probe_pieces` and `probe_bytes` record what was spent rather than leaving it to be guessed at;
-- entries are probed **one at a time**, not in parallel, because pulling tens of megabytes from several swarms at once is the kind of burst a tracker notices;
+- entries are probed **one at a time** by default, because pulling tens of megabytes from several swarms at once is the kind of burst a tracker notices. `parallel` raises that when you want it — note the asymmetry: a *failed* probe transfers no bytes, so serialising buys nothing in exactly the case that is slowest;
 - nothing reaches the download client and nothing is kept — the sample lives in a temporary directory removed when the run ends.
 
 ## Retries are not belt and braces
@@ -71,6 +74,18 @@ One piece is the smallest range BitTorrent can serve, and on these torrents a pi
 A disc with hundreds of playlists — Disney titles routinely have them — spills its metadata past the last 16 MiB piece, so assuming two pieces fails on real discs. When the probe cannot read a byte it says which one; the plugin fetches the piece holding it and tries again, up to `max_pieces`. Of ten real discs measured, nine needed two pieces and one needed three; with 32 MiB pieces all ten needed two.
 
 A **parse** failure is final and is not retried. Zero-filled bytes are present bytes, and fetching more of the image will not improve them.
+
+## A dead swarm is not a slow one
+
+The expensive failure is not a slow transfer, it is a swarm that answers nothing at all. A tracker scrape reports seeders that may be long gone, so [`torrent_alive`](../filter/torrent_alive/README.md) can pass a release no peer will serve a byte of — measured on a live run, three such probes burned the full two-minute budget each, six minutes of a six-minute node, while a probe against a healthy swarm finished in **6.4 seconds**.
+
+`no_peer_timeout` ends a probe once nothing has connected *and* nothing has arrived. It is deliberately both conditions: a slow but connected swarm keeps its full budget, because that is the case where waiting pays off — the 93-second probe in that same run was downloading the whole time.
+
+Such an entry gets `probe_unreachable`, which is worth more than `probe_ok` false on its own. `probe_ok` false also covers a parse failure or a missing `.torrent`; `probe_unreachable` says something narrower and more useful — **the full download would not have gone any better either**. That is a liveness verdict a scrape cannot give you, and a condition can act on it:
+
+```python
+alive = process("condition", upstream=seen, reject="probe_unreachable == true")
+```
 
 ## What a container does not state
 

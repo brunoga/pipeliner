@@ -53,6 +53,20 @@ type Peeker struct {
 	length int64
 	piece  int64
 
+	// NoPeerTimeout gives up on a swarm that never answers, instead of
+	// spending the caller's whole budget on it. Zero disables it.
+	//
+	// This is the common failure, not the rare one: a tracker scrape reports
+	// seeders that may be long gone, so torrent_alive can pass a release that
+	// no peer will serve a byte of. Measured on a live run, three such probes
+	// burned the full two-minute budget each — six minutes of a six-minute
+	// node — while a probe against a healthy swarm finished in 6.4 seconds.
+	//
+	// It fires only when there is nothing at all to wait for: no peer
+	// connected AND no byte received. A slow-but-connected swarm keeps its
+	// full budget, because that is the case where waiting pays off.
+	NoPeerTimeout time.Duration
+
 	mu      sync.Mutex
 	r       torrent.Reader
 	fetched map[int]bool // pieces this Peeker asked for, for accounting only
@@ -141,16 +155,16 @@ func (p *Peeker) Fetch(ctx context.Context, pieces ...int) error {
 	// by ctx either way.
 	tick := time.NewTicker(100 * time.Millisecond)
 	defer tick.Stop()
+	start := time.Now()
+	missingAtStart := p.missing(want)
 	for {
-		done := true
-		for _, i := range want {
-			if p.t.PieceBytesMissing(i) != 0 {
-				done = false
-				break
-			}
-		}
-		if done {
+		missing := p.missing(want)
+		if missing == 0 {
 			return nil
+		}
+		if p.NoPeerTimeout > 0 && time.Since(start) > p.NoPeerTimeout &&
+			missing == missingAtStart && len(p.t.PeerConns()) == 0 {
+			return fmt.Errorf("torrentpeek: no peer answered for %s (%w)", p.NoPeerTimeout, ErrNoPeers)
 		}
 		select {
 		case <-ctx.Done():
@@ -158,6 +172,21 @@ func (p *Peeker) Fetch(ctx context.Context, pieces ...int) error {
 		case <-tick.C:
 		}
 	}
+}
+
+// ErrNoPeers reports that nothing in the swarm would serve the sample. It is
+// distinct from a timeout because it says something a timeout does not: the
+// full download would not have gone any better.
+var ErrNoPeers = errors.New("no peer served any of the sample")
+
+// missing totals the bytes still outstanding across the wanted pieces, which
+// is what tells a stalled fetch from a slow one.
+func (p *Peeker) missing(want []int) int64 {
+	var n int64
+	for _, i := range want {
+		n += p.t.PieceBytesMissing(i)
+	}
+	return n
 }
 
 // FetchedBytes is how much this Peeker asked the network for: the accounting

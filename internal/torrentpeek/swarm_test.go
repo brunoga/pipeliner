@@ -251,3 +251,107 @@ func TestFetchRejectsPiecesOutsideTheTorrent(t *testing.T) {
 		t.Error("a negative piece index should be rejected")
 	}
 }
+
+// A swarm that connects nothing and serves nothing must be given up on
+// quickly, rather than spending the caller's whole budget. This is the common
+// failure in practice: a tracker scrape reports seeders long gone, so a
+// liveness filter passes a release no peer will serve a byte of.
+func TestFetchGivesUpOnADeadSwarm(t *testing.T) {
+	mi, port, _ := seedTestTorrent(t)
+	// Leech with NO peer added, so nothing can ever answer.
+	cfg := torrent.NewDefaultClientConfig()
+	cfg.DataDir = t.TempDir()
+	cfg.NoDHT = true
+	cfg.DisableTrackers = true
+	cfg.NoUpload = true
+	cfg.Seed = false
+	cfg.ListenPort = 0
+	cl, err := torrent.NewClient(cfg)
+	if err != nil {
+		t.Skipf("cannot start a torrent client here: %v", err)
+	}
+	defer func() { _ = cl.Close() }()
+	tt, err := cl.AddTorrent(mi)
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-tt.GotInfo():
+	case <-time.After(10 * time.Second):
+		t.Skip("metadata did not arrive")
+	}
+	_ = port
+
+	pk, err := New(tt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = pk.Close() }()
+	pk.NoPeerTimeout = 300 * time.Millisecond
+
+	// A generous ctx: the point is that NoPeerTimeout ends this, not the ctx.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	start := time.Now()
+	err = pk.Fetch(ctx, 0)
+	elapsed := time.Since(start)
+
+	if !errors.Is(err, ErrNoPeers) {
+		t.Fatalf("err = %v, want ErrNoPeers", err)
+	}
+	// It must be the early exit, not the context deadline.
+	if elapsed > 5*time.Second {
+		t.Errorf("took %v — the no-peer timeout did not fire", elapsed)
+	}
+	if ctx.Err() != nil {
+		t.Error("the context should not have expired")
+	}
+}
+
+// A swarm that IS answering must keep its full budget: giving up on a slow
+// but live transfer is the opposite mistake, and the real probe that took 93
+// seconds was downloading the whole time.
+func TestFetchDoesNotGiveUpWhileProgressing(t *testing.T) {
+	mi, port, want := seedTestTorrent(t)
+	tt := leech(t, mi, port)
+
+	pk, err := New(tt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = pk.Close() }()
+	// Short enough that it would fire if progress were ignored.
+	pk.NoPeerTimeout = 200 * time.Millisecond
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	if err := pk.Fetch(ctx, pk.Ends()...); err != nil {
+		t.Fatalf("a live swarm must not trip the no-peer timeout: %v", err)
+	}
+	b := make([]byte, swarmPieceLen)
+	if _, err := pk.ReadAt(b, 0); err != nil {
+		t.Fatalf("reading back: %v", err)
+	}
+	if !bytes.Equal(b, want[:swarmPieceLen]) {
+		t.Error("wrong bytes after a successful fetch")
+	}
+}
+
+// Zero disables it, so the old behaviour is still reachable.
+func TestNoPeerTimeoutZeroDisables(t *testing.T) {
+	mi, port, _ := seedTestTorrent(t)
+	tt := leech(t, mi, port)
+	pk, err := New(tt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = pk.Close() }()
+	if pk.NoPeerTimeout != 0 {
+		t.Fatal("the default must be off; the probe opts in")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	if err := pk.Fetch(ctx, 0); err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+}
