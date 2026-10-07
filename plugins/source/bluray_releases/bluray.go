@@ -56,6 +56,7 @@ func init() {
 			entry.FieldSource,
 			entry.FieldMediaType,
 			entry.FieldBlurayID,
+			entry.FieldSourceID,
 			entry.FieldBlurayURL,
 			entry.FieldBlurayFormat,
 		},
@@ -128,11 +129,11 @@ type sourcePlugin struct {
 	negCache    *cache.Cache[time.Time]
 	detailCache *cache.Cache[*bluray.Release]
 
-	country               string
-	months                int
-	fromYear, fromMonth   int
-	toYear, toMonth       int
-	formats               map[bluray.Format]bool
+	country             string
+	months              int
+	fromYear, fromMonth int
+	toYear, toMonth     int
+	formats             map[bluray.Format]bool
 }
 
 func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
@@ -280,6 +281,7 @@ func (p *sourcePlugin) entryFromCalendar(ce bluray.CalendarEntry) *entry.Entry {
 	e.Set(entry.FieldMediaType, entry.MediaTypeMovie)
 	e.Set(entry.FieldSource, pluginName+":"+strings.ToLower(string(ce.Format)))
 	e.Set(entry.FieldBlurayID, ce.ID)
+	e.Set(entry.FieldSourceID, ce.ID)
 	e.Set(entry.FieldBlurayURL, url)
 	e.Set(entry.FieldBlurayFormat, string(ce.Format))
 	if ce.Studio != "" {
@@ -317,6 +319,7 @@ func (p *sourcePlugin) entriesFromIndex(rows []bluray.IndexEntry) []*entry.Entry
 		e.Set(entry.FieldMediaType, entry.MediaTypeMovie)
 		e.Set(entry.FieldSource, pluginName+":search")
 		e.Set(entry.FieldBlurayID, r.ID)
+		e.Set(entry.FieldSourceID, r.ID)
 		e.Set(entry.FieldBlurayURL, url)
 		e.Set(entry.FieldBlurayFormat, string(r.Format))
 		if r.Year > 0 {

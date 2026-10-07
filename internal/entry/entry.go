@@ -4,6 +4,7 @@ package entry
 import (
 	"fmt"
 	"maps"
+	"strings"
 	"time"
 )
 
@@ -415,4 +416,48 @@ func (e *Entry) Clone() *Entry {
 
 func (e *Entry) String() string {
 	return fmt.Sprintf("Entry{title=%q url=%q state=%s}", e.Title, e.URL, e.State)
+}
+
+// StableKeys returns the identifiers under which this entry can be recognised
+// on a later run, strongest first. Empty when the entry carries nothing
+// durable, which is the caller's cue to fall back to the URL — and to treat
+// that fallback as the unreliable thing it is.
+//
+// Identity here is a ladder rather than a single field, because the rungs have
+// different scope and conflating them would lose information:
+//
+//   - The info hash is GLOBAL. The same torrent on two trackers has the same
+//     hash, which is what lets a source merge duplicate results from several
+//     indexers and keep the best-seeded copy. Collapsing it into a
+//     source-scoped identifier would silently stop that working.
+//   - SourceID is stable only WITHIN its source, so it is namespaced by
+//     Source. A Jackett GUID is a permalink on one tracker; the same release
+//     elsewhere has a different one.
+//
+// The URL is deliberately absent. Indexer proxy links are nonces — Jackett
+// re-encrypts them on every search — so a URL is evidence of nothing beyond
+// the request that produced it.
+func (e *Entry) StableKeys() []string {
+	var keys []string
+	if h := strings.ToLower(strings.TrimSpace(e.GetString(FieldTorrentInfoHash))); h != "" {
+		keys = append(keys, "hash:"+h)
+	}
+	if id := strings.TrimSpace(e.GetString(FieldSourceID)); id != "" {
+		src := strings.TrimSpace(e.GetString(FieldSource))
+		if src == "" {
+			src = "?"
+		}
+		keys = append(keys, "src:"+src+"|"+id)
+	}
+	return keys
+}
+
+// StableKey is the strongest identifier available, or "" when the entry has
+// none. Prefer StableKeys when writing a record — storing every rung means a
+// later run recognises the entry by whichever one it happens to have.
+func (e *Entry) StableKey() string {
+	if keys := e.StableKeys(); len(keys) > 0 {
+		return keys[0]
+	}
+	return ""
 }

@@ -111,6 +111,17 @@ drop = process("trailer", upstream=threed)
 # tracker — `library` with sections=["3D Movies"] also sees the converted
 # output once it lands.
 film = process("movies", upstream=drop, local=True, reject_unmatched=True)
+# retry_failed blocks the exact release a previous grab died on, so a dead
+# torrent is not re-fetched night after night. It needs something durable to
+# match on, and for this indexer that is the point: 3dtorrents reports no
+# infohash attribute at all, and Jackett re-encrypts its download links every
+# search — so for a long time there was nothing stable left and the same dead
+# torrent came back under a fresh URL on every run.
+#
+# seen now also indexes source_id, which for Jackett is the tracker permalink
+# and does not move. No config key is needed for that; the fingerprint below
+# stays on the default "url" deliberately, because changing it would re-key
+# this pipeline's existing history and un-see everything it has downloaded.
 once = process("seen", upstream=film, local=True, retry_failed=True)
 
 # ── Split on how much the name actually told us ──────────────────────────────

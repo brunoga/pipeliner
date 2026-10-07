@@ -23,7 +23,20 @@ results = process("discover", upstream=shows,
              "categories": [5000, 5030, 5040]}],
     interval="6h")
 
-seen   = process("seen",          upstream=results)
+# fields=["source_id"] keys the seen fingerprint on Jackett's GUID — the
+# tracker permalink — instead of the default "url". Jackett re-encrypts its
+# proxy download links on every search, so a URL-keyed fingerprint sees the
+# same release as new every run; the GUID does not move.
+#
+# You do not strictly need this: seen also maintains a secondary index on
+# every durable identifier an entry carries (info hash first, then source_id),
+# so a release is recognised either way. Naming it here makes the primary key
+# stable too, which is worth doing in a NEW pipeline.
+#
+# Do NOT add it to a pipeline that already has history: the fingerprint is a
+# hash of the named fields, so changing them re-keys the store and everything
+# previously seen looks new again.
+seen   = process("seen",          upstream=results, fields=["source_id"])
 meta   = process("metainfo_file", upstream=seen)
 req    = process("require",       upstream=meta,
                   fields=["title", "series_episode_id", "series_season",

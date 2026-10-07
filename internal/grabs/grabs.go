@@ -31,6 +31,12 @@ type Record struct {
 	Title string `json:"title,omitempty"`
 	// Task is the pipeline that performed the add.
 	Task    string    `json:"task,omitempty"`
+	// StableKeys are the durable identifiers the entry carried at grab time
+	// (see Entry.StableKeys). Recorded because the URL above is not durable:
+	// indexer proxy links rotate per search, so without these a failed grab
+	// could only be recognised again by info hash — and some indexers supply
+	// none. Empty on records written before this field existed.
+	StableKeys []string `json:"stable_keys,omitempty"`
 	AddedAt time.Time `json:"added_at"`
 
 	// Quality is the parsed quality of the grabbed release. It lets failed-grab
@@ -117,6 +123,7 @@ func FromEntry(e *entry.Entry, task string) Record {
 		MovieYear:   movieYear,
 		MovieIs3D:   movieIs3D,
 		MovieBucket: e.GetString(entry.FieldMoviesTrackerBucket),
+		StableKeys:  e.StableKeys(),
 	}
 }
 

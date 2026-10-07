@@ -25,6 +25,7 @@ func init() {
 			entry.FieldFileName,
 			entry.FieldFileExtension,
 			entry.FieldFileLocation,
+			entry.FieldSourceID,
 			entry.FieldFileSize,
 			entry.FieldFileModifiedTime,
 		},
