@@ -10,6 +10,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -160,7 +161,16 @@ func (p *tvdbPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 	// normalization) over TVDB's relevance ranking — a same-name spin-off,
 	// reboot, or companion entry can outrank the actual show. Falls back to
 	// the first (highest-relevance) result when nothing matches exactly.
-	s := pickSeries(results, ep.SeriesName)
+	s, ok := pickSeries(results, ep.SeriesName, ep.SeriesYear)
+	if !ok {
+		// Leaving the entry unenriched is the point: the download still works
+		// from the parsed title, and an un-enriched notification is obviously
+		// thin, where a confidently wrong one is not.
+		tc.Logger.Warn("metainfo_tvdb: no result matched the series name; leaving the entry unenriched",
+			"series", ep.SeriesName, "year", ep.SeriesYear, "entry", e.Title,
+			"best_candidate", results[0].Name)
+		return nil
+	}
 	tc.Logger.Debug("metainfo_tvdb: search result", "series", ep.SeriesName, "id", s.ID, "name", s.Name)
 
 	e.Set("tvdb_id", s.ID)
@@ -384,15 +394,42 @@ func (p *tvdbPlugin) searchSeries(ctx context.Context, tc *plugin.TaskContext, n
 	fullRes := <-fullCh
 	strippedRes := <-strippedCh
 
-	if len(fullRes.results) > 0 {
-		return fullRes.results
+	// Both sets, not whichever is non-empty first. The full-name search used
+	// to win outright whenever it returned anything, which threw away the
+	// better answer: TVDB does not index the premiere year as part of a name,
+	// so searching "Brothers 2026" matches loosely and ranks by popularity —
+	// Big Brother first, the actual 2026 "Brothers" third — while searching
+	// "Brothers" returns the right show first. Merging lets pickSeries judge
+	// every candidate either query found.
+	merged := mergeSeries(fullRes.results, strippedRes.results)
+	if len(merged) > 0 {
+		tc.Logger.Debug("metainfo_tvdb: merged search results",
+			"original", name, "stripped", stripped,
+			"full", len(fullRes.results), "stripped_results", len(strippedRes.results))
 	}
-	if len(strippedRes.results) > 0 {
-		tc.Logger.Debug("metainfo_tvdb: results found with year stripped",
-			"original", name, "stripped", stripped)
-		return strippedRes.results
+	return merged
+}
+
+// mergeSeries concatenates result sets, keeping the first occurrence of each
+// series. Order is preserved so TVDB's own relevance still breaks ties that
+// pickSeries cannot.
+func mergeSeries(sets ...[]itvdb.Series) []itvdb.Series {
+	var out []itvdb.Series
+	seen := make(map[string]bool)
+	for _, set := range sets {
+		for _, s := range set {
+			key := s.ID
+			if key == "" {
+				key = "name:" + match.Normalize(s.Name)
+			}
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, s)
+		}
 	}
-	return nil
+	return out
 }
 
 // fetchSearch performs a single live TVDB search, caches the result, and logs timing.
@@ -478,12 +515,97 @@ func (p *tvdbPlugin) fetchExtended(ctx context.Context, tc *plugin.TaskContext, 
 // a same-name spin-off, reboot, or companion entry can outrank the actual
 // show. Among multiple exact matches the first (highest relevance) wins;
 // with none, the first result is returned. results must be non-empty.
-func pickSeries(results []itvdb.Series, name string) itvdb.Series {
+// pickSeries chooses the TVDB result that is the searched show, or reports
+// that none of them is.
+//
+// It used to fall back to results[0] whenever no name matched exactly, which
+// silently attached a different show's name, overview, network and poster to
+// every episode of the right one. TVDB ranks by relevance, not by whether a
+// result IS the thing you asked for, and a release naming its premiere year
+// makes that worse rather than better: "Brothers 2026 S01E03 ..." parses to
+// the series name "Brothers 2026", which no show is called, so the exact
+// comparison never matched and the top hit won. Searching TVDB for
+// "Brothers 2026" returns, in order:
+//
+//	[0] Big Brother (2023)
+//	[1] Celebrity Big Brother (2024)
+//	[2] Brothers              year=2026   <- the actual show
+//
+// so every episode was enriched as Big Brother. The same search without the
+// year returns the right show first.
+//
+// Three things therefore decide it now. The year the release stated is used
+// to disambiguate rather than merely to search, which is what it is good for
+// — "Brothers" alone is three different shows. The comparison is tried
+// against the year-stripped name as well as the full one, since the show is
+// not called "Brothers 2026". And when nothing plausibly matches, this says
+// so instead of guessing: no metadata beats wrong metadata, which is the rule
+// match.Fuzzy already documents for titles.
+func pickSeries(results []itvdb.Series, name string, year int) (itvdb.Series, bool) {
+	stripped, _ := stripTrailingYear(name)
 	norm := match.Normalize(name)
+	normStripped := match.Normalize(stripped)
+
+	// Exact name matches first, preferring one whose year agrees. Without the
+	// year preference "Brothers" would resolve to whichever of the 1984, 2014
+	// and 2026 shows TVDB happened to rank first.
+	var exact []itvdb.Series
 	for _, s := range results {
-		if match.Normalize(s.Name) == norm {
-			return s
+		n := match.Normalize(s.Name)
+		if n == norm || n == normStripped {
+			exact = append(exact, s)
 		}
 	}
-	return results[0]
+	if s, ok := preferYear(exact, year); ok {
+		return s, true
+	}
+
+	// No exact name. Accept a result only if one name contains the other as
+	// whole words — "Breaking" may settle on "Breaking Bad: The Movie", but
+	// "Brothers" must never settle on "Big Brother", which shares no whole
+	// word with it.
+	var near []itvdb.Series
+	want := strings.Fields(normStripped)
+	for _, s := range results {
+		got := strings.Fields(match.Normalize(s.Name))
+		if containsWords(got, want) || containsWords(want, got) {
+			near = append(near, s)
+		}
+	}
+	if s, ok := preferYear(near, year); ok {
+		return s, true
+	}
+	return itvdb.Series{}, false
+}
+
+// preferYear returns the candidate whose year matches, else the first one.
+// A result with no year stated is not excluded — TVDB leaves it blank often
+// enough that treating it as a mismatch would lose real shows.
+func preferYear(candidates []itvdb.Series, year int) (itvdb.Series, bool) {
+	if len(candidates) == 0 {
+		return itvdb.Series{}, false
+	}
+	if year > 0 {
+		for _, s := range candidates {
+			if y, err := strconv.Atoi(strings.TrimSpace(s.Year)); err == nil && y == year {
+				return s, true
+			}
+		}
+	}
+	return candidates[0], true
+}
+
+// containsWords reports whether needle appears in hay as a contiguous run of
+// whole words. Whole words, because the difference between "Brother" and
+// "Brothers" is the difference between two unrelated shows.
+func containsWords(hay, needle []string) bool {
+	if len(needle) == 0 || len(needle) > len(hay) {
+		return false
+	}
+	for i := 0; i+len(needle) <= len(hay); i++ {
+		if slices.Equal(hay[i:i+len(needle)], needle) {
+			return true
+		}
+	}
+	return false
 }
