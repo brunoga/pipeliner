@@ -215,20 +215,70 @@ var colorRangeNames = map[ColorRange]string{
 // other quality dimensions; the remaining dims act as tie-breakers.
 type Format3D int
 
+// These values are persisted in tracker records, so they are frozen: see the
+// note above Audio. New entries go on the END whatever their quality, and
+// format3DRank says where each actually sits.
 const (
 	Format3DNone Format3D = iota // not 3D
 	Format3DConv                 // 3D-CONV — artificially converted from a 2D source (incl. AI-enhanced, AI-upscaled, StereoCrafter/DepthCrafter tools)
-	Format3DHalf                 // half-resolution: bare SBS / OU, HSBS, HOU, HALF-SBS, HALF-OU, plain 3D
+	Format3DHalf                 // half-resolution: SBS / OU, HSBS, HOU, HALF-SBS, HALF-OU
 	Format3DFull                 // full-resolution: FSBS, FOU, FULL-SBS, FULL-OU (explicit full marker required)
 	Format3DBD                   // BD3D / MVC — Blu-ray 3D rip, highest quality
+	// Format3DUnspecified is 3D whose layout the name never stated: a bare
+	// "3D" with no SBS/OU/MVC marker anywhere. It is NOT a claim of half.
+	//
+	// It used to be one, and that was an inference from silence: a bare "3D"
+	// fell into the same branch as an explicit HSBS, so "Pacific Rim Uprising
+	// 2018 3D BluRay 1080p AVC Atmos TrueHD7 1 MTeam" — a 49 GB MVC disc with
+	// 14 seeders, confirmed by probing it — read as half side-by-side and was
+	// refused by a bd3d gate, while the two releases that gate did admit were
+	// re-encodes with no seeders at all. A refused release is never looked at
+	// again, so the mistake is invisible.
+	//
+	// Appended rather than placed between Conv and Half because Format3D is
+	// persisted in every tracker record. It ranks WITH Half, so it can neither
+	// win nor lose an upgrade against one — the honest position for "unknown".
+	Format3DUnspecified
 )
 
+// format3DRank places each format in the ladder, independent of its stored
+// value. Unspecified shares Half's rank deliberately: a release whose layout
+// nobody stated must not read as an upgrade over a known half, nor as a
+// downgrade from one. Only a probe can settle it.
+var format3DRank = map[Format3D]int{
+	Format3DNone:        0,
+	Format3DConv:        1,
+	Format3DHalf:        2,
+	Format3DUnspecified: 2,
+	Format3DFull:        3,
+	Format3DBD:          4,
+}
+
+// rank returns the format's ladder position. An unknown value — a record from
+// a newer build — ranks as unknown rather than as its raw integer.
+func (f Format3D) rank() int { return format3DRank[f] }
+
+// Layout is the lowercase layout name used in the video_3d_layout field and in
+// route/condition expressions. It matches probe_3d_layout's vocabulary, so a
+// rule can compare what the name says against what the disc says.
+func (f Format3D) Layout() string { return format3DLayouts[f] }
+
+var format3DLayouts = map[Format3D]string{
+	Format3DNone:        "",
+	Format3DConv:        "conv",
+	Format3DHalf:        "half",
+	Format3DFull:        "full",
+	Format3DBD:          "mvc",
+	Format3DUnspecified: "unspecified",
+}
+
 var format3DNames = map[Format3D]string{
-	Format3DNone: "",
-	Format3DConv: "3D-Conv",
-	Format3DHalf: "3D-Half",
-	Format3DFull: "3D-Full",
-	Format3DBD:   "BD3D",
+	Format3DNone:        "",
+	Format3DConv:        "3D-Conv",
+	Format3DHalf:        "3D-Half",
+	Format3DFull:        "3D-Full",
+	Format3DBD:          "BD3D",
+	Format3DUnspecified: "3D",
 }
 
 // Quality holds one value per dimension parsed from a release title.
@@ -300,8 +350,8 @@ func (q Quality) String() string {
 // DV/HDR copy is the better keep when the two dimensions disagree.
 func (q Quality) Better(other Quality) bool {
 	if q.Format3D != Format3DNone && other.Format3D != Format3DNone {
-		if q.Format3D != other.Format3D {
-			return q.Format3D > other.Format3D
+		if q.Format3D.rank() != other.Format3D.rank() {
+			return q.Format3D.rank() > other.Format3D.rank()
 		}
 	}
 	if q.Resolution != other.Resolution {
@@ -550,6 +600,11 @@ func Parse(title string) Quality {
 		// Scan native 3D markers and keep the highest-quality one. A title like
 		// "IMAX 3D FSBS" has both "3D" (Half) and "FSBS" (Full); the explicit
 		// format tag should win over the generic "3D" label.
+		// A bare "3D" is not a marker competing with the others — it is the
+		// absence of one. Taking the best EXPLICIT marker and only falling
+		// back to Unspecified when there was none keeps that distinction
+		// order-independent: "IMAX 3D FSBS" is Full because FSBS said so, and
+		// "3D BluRay AVC Atmos" is Unspecified because nothing did.
 		normalize := strings.NewReplacer("-", "", " ", "")
 		for _, m := range native3D {
 			var f Format3D
@@ -558,12 +613,17 @@ func Parse(title string) Quality {
 				f = Format3DBD
 			case "FSBS", "FOU", "FULLSBS", "FULLOU":
 				f = Format3DFull
-			default: // SBS, OU, HSBS, HOU, HALFSBS, HALFOU, 3D
+			case "3D":
+				continue // says nothing about layout
+			default: // SBS, OU, HSBS, HOU, HALFSBS, HALFOU
 				f = Format3DHalf
 			}
-			if f > q.Format3D {
+			if f.rank() > q.Format3D.rank() {
 				q.Format3D = f
 			}
+		}
+		if q.Format3D == Format3DNone {
+			q.Format3D = Format3DUnspecified
 		}
 	}
 	// "COMPLETE BluRay" with a non-conv 3D marker means the full Blu-ray 3D disc
@@ -580,7 +640,7 @@ func Parse(title string) Quality {
 	//
 	// An explicit BD3D/MVC marker is unaffected: the native-marker scan above
 	// has already set BD, and this rule only ever promotes.
-	if q.Format3D > Format3DConv && q.Source == SourceBluRay &&
+	if q.Format3D.rank() > Format3DConv.rank() && q.Source == SourceBluRay &&
 		reCompleteDisc.MatchString(title) && !reFrameCompatible3D.MatchString(title) {
 		q.Format3D = Format3DBD
 	}
@@ -600,7 +660,7 @@ func Parse(title string) Quality {
 	// remuxes are routinely named with nothing more specific —
 	// "Life of Pi 2012 1080p 3D Blu ray Remux AVC DTS-HD MA 7.1" is a disc
 	// remux that read as half-resolution.
-	if q.Format3D > Format3DConv && q.Source == SourceRemux && !reFrameCompatible3D.MatchString(title) {
+	if q.Format3D.rank() > Format3DConv.rank() && q.Source == SourceRemux && !reFrameCompatible3D.MatchString(title) {
 		q.Format3D = Format3DBD
 	}
 	// 3D releases without an explicit resolution tag are assumed to be
@@ -685,10 +745,10 @@ func (s Spec) Matches(q Quality) bool {
 		}
 	}
 	if !(s.OptFormat3D && q.Format3D == Format3DNone) {
-		if s.MinFormat3D > 0 && q.Format3D < s.MinFormat3D {
+		if s.MinFormat3D > 0 && q.Format3D.rank() < s.MinFormat3D.rank() {
 			return false
 		}
-		if s.MaxFormat3D > 0 && q.Format3D > s.MaxFormat3D {
+		if s.MaxFormat3D > 0 && q.Format3D.rank() > s.MaxFormat3D.rank() {
 			return false
 		}
 	}

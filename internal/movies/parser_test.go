@@ -56,7 +56,8 @@ func TestParse3D(t *testing.T) {
 		title      string
 		wantFormat quality.Format3D
 	}{
-		{"Avatar.2009.3D.1080p.BluRay.x264", quality.Format3DHalf},
+		// A bare "3D" states no layout, so it is Unspecified rather than Half.
+		{"Avatar.2009.3D.1080p.BluRay.x264", quality.Format3DUnspecified},
 		{"Gravity.2013.HSBS.1080p.BluRay", quality.Format3DHalf},
 		{"Interstellar.2014.H-SBS.1080p", quality.Format3DHalf},
 		{"Pacific.Rim.2013.HALF-SBS.1080p.BluRay", quality.Format3DHalf},
