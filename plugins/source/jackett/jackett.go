@@ -48,6 +48,7 @@ func init() {
 			entry.FieldTorrentSeeds,
 			entry.FieldTorrentLeechers,
 			entry.FieldTorrentInfoHash,
+			entry.FieldSourceID,
 			entry.FieldTorrentFileSize,
 			entry.FieldTorrentGrabs,
 			entry.FieldPublishedDate,

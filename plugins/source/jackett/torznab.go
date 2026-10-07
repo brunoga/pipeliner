@@ -101,6 +101,14 @@ func parseTorznab(data []byte, indexer string, logger *slog.Logger) ([]*entry.En
 		e.Set(entry.FieldTitle, title)
 		e.Set(entry.FieldTorrentLinkType, linkType)
 		e.Set(entry.FieldSource, "jackett:"+indexer)
+		// The GUID is a permalink on the tracker and does not change between
+		// searches; the download link above does, because Jackett re-encrypts
+		// it every time. Recording it gives entries from indexers that report
+		// no infohash — 3dtorrents reports none at all — something durable to
+		// be recognised by.
+		if g := strings.TrimSpace(item.GUID); g != "" {
+			e.Set(entry.FieldSourceID, g)
+		}
 
 		// --- Core torrent fields ---
 		ti := entry.TorrentInfo{}

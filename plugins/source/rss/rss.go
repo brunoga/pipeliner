@@ -43,6 +43,7 @@ func init() {
 			entry.FieldDescription,
 			entry.FieldPublishedDate,
 			entry.FieldRSSGUID,
+			entry.FieldSourceID,
 			entry.FieldRSSLink,
 			entry.FieldRSSEnclosureURL,
 			entry.FieldRSSEnclosureType,

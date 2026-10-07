@@ -110,3 +110,49 @@ func TestFailedLookupSurvivesRotatingURLs(t *testing.T) {
 		t.Error("unrelated releases must not be blocked")
 	}
 }
+
+// The bug this exists for, end to end. A Jackett release fails under one proxy
+// URL and comes back under a different one, with no info hash because the
+// indexer supplies none. Before the stable key, nothing matched and the dead
+// torrent was grabbed again — nine times, in the case that prompted the
+// original fix.
+func TestLookupMatchesAcrossARotatingProxyURL(t *testing.T) {
+	fs := NewFailedStore(openMem(t).Bucket(FailedBucketName))
+
+	const stable = "src:jackett:3dtorrents|http://www.3dtorrents.org/download.php?id=b263e30"
+	// Grabbed and failed under the URL the first search handed out.
+	if err := fs.MarkFailed("", "https://jackett/dl?path=FIRST-NONCE", "no seeds", stable); err != nil {
+		t.Fatal(err)
+	}
+
+	// The next run finds the same release under a fresh URL and still has no
+	// hash to offer — only the stable key.
+	if _, ok := fs.Lookup("", "https://jackett/dl?path=SECOND-NONCE"); ok {
+		t.Fatal("a rotating URL must not match on its own; the fixture is wrong")
+	}
+	rec, ok := fs.Lookup("", "https://jackett/dl?path=SECOND-NONCE", stable)
+	if !ok {
+		t.Fatal("the stable key should have matched the failed record")
+	}
+	if rec.Reason != "no seeds" {
+		t.Errorf("reason = %q, want it carried through", rec.Reason)
+	}
+}
+
+// The hash still outranks everything, and a record written by an older build —
+// which has no stable keys — is still found by hash or by its exact URL.
+func TestLookupPrefersHashAndKeepsLegacyRecords(t *testing.T) {
+	fs := NewFailedStore(openMem(t).Bucket(FailedBucketName))
+	if err := fs.MarkFailed("ABCDEF", "https://old/url", "legacy"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := fs.Lookup("abcdef", ""); !ok {
+		t.Error("hash lookup should match, case-insensitively")
+	}
+	if _, ok := fs.Lookup("", "https://old/url"); !ok {
+		t.Error("a legacy URL-keyed record must still be found")
+	}
+	if _, ok := fs.Lookup("", "https://other/url", "src:x|y"); ok {
+		t.Error("an unrelated key must not match")
+	}
+}

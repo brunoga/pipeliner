@@ -135,7 +135,10 @@ func (p *markFailedSink) mark(tc *plugin.TaskContext, e *entry.Entry, hash strin
 	// Record under the info hash as well as the URL: indexer proxy links
 	// rotate per search, so a URL-only blocklist stops matching the moment
 	// the release is re-advertised.
-	if err := p.failedStore.MarkFailed(hash, rec.URL, reason); err != nil {
+	// Every durable key the grab recorded, so the block still matches when the
+	// release comes back under a fresh proxy URL — which, for a Jackett
+	// source, it always does.
+	if err := p.failedStore.MarkFailed(hash, rec.URL, reason, rec.StableKeys...); err != nil {
 		return fmt.Errorf("mark failed grab %s: %w", hash, err)
 	}
 

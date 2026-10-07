@@ -69,7 +69,7 @@ func (p *seenPlugin) Name() string { return "seen" }
 func (p *seenPlugin) filter(_ context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
 	if p.retryFailed {
 		fs := store.NewFailedStore(p.db.Bucket(store.FailedBucketName))
-		if rec, ok := fs.Lookup(e.GetString(entry.FieldTorrentInfoHash), e.URL); ok {
+		if rec, ok := fs.Lookup(e.GetString(entry.FieldTorrentInfoHash), e.URL, e.StableKeys()...); ok {
 			reason := rec.Reason
 			if reason == "" {
 				reason = "previous grab failed"
@@ -83,13 +83,24 @@ func (p *seenPlugin) filter(_ context.Context, tc *plugin.TaskContext, e *entry.
 		e.Reject("already seen")
 		return nil
 	}
-	// Secondary index on the info hash. The default fingerprint is the URL,
-	// which indexers rotate per search, so the same release can arrive
-	// looking brand new; the hash does not change. Checked in addition to
-	// the fingerprint, never instead of it, so existing seen records keep
-	// matching and enabling this can only block more, never less.
-	if k := hashKey(e); k != "" && ss.IsSeen(k) {
-		e.Reject("already seen")
+	// Secondary index on every durable identifier the entry has. The default
+	// fingerprint is the URL, which indexers rotate per search, so the same
+	// release can arrive looking brand new; these do not change.
+	//
+	// The info hash covers indexers that report one. Some report none —
+	// 3dtorrents returns no infohash attribute at all — which left entries
+	// from them with nothing stable to match on, so a release could be seen
+	// and re-seen indefinitely. The source-scoped key (a Jackett GUID, say)
+	// covers those.
+	//
+	// Checked in addition to the fingerprint, never instead of it, so
+	// existing seen records keep matching: this can only block more, never
+	// less.
+	for _, k := range seenKeys(e) {
+		if ss.IsSeen(k) {
+			e.Reject("already seen")
+			return nil
+		}
 	}
 	return nil
 }
@@ -107,7 +118,7 @@ func (p *seenPlugin) persist(_ context.Context, tc *plugin.TaskContext, entries 
 		if err := ss.Mark(fp, rec); err != nil {
 			return fmt.Errorf("seen: mark %q: %w", fp, err)
 		}
-		if k := hashKey(e); k != "" {
+		for _, k := range seenKeys(e) {
 			if err := ss.Mark(k, rec); err != nil {
 				return fmt.Errorf("seen: mark %q: %w", k, err)
 			}
@@ -127,12 +138,24 @@ func (p *seenPlugin) seenStore(tc *plugin.TaskContext) *store.SeenStore {
 
 // hashKey is the secondary seen key for an entry with a known torrent info
 // hash. Namespaced so it cannot collide with a fingerprint digest.
-func hashKey(e *entry.Entry) string {
-	h := strings.ToLower(e.GetString(entry.FieldTorrentInfoHash))
-	if h == "" {
-		return ""
+// seenKeys are the durable secondary-index keys for an entry.
+//
+// The info-hash key keeps its original "infohash:" spelling rather than moving
+// to Entry.StableKeys' "hash:" prefix, because records written under it are
+// already on disk and renaming the key would silently un-see every one of
+// them. The source-scoped keys are new, so they use StableKeys' spelling.
+func seenKeys(e *entry.Entry) []string {
+	var keys []string
+	if h := strings.ToLower(strings.TrimSpace(e.GetString(entry.FieldTorrentInfoHash))); h != "" {
+		keys = append(keys, "infohash:"+h)
 	}
-	return "infohash:" + h
+	for _, k := range e.StableKeys() {
+		if strings.HasPrefix(k, "hash:") {
+			continue // already covered, under its historical spelling
+		}
+		keys = append(keys, k)
+	}
+	return keys
 }
 
 // fingerprint computes a SHA-256 hex digest over the specified entry fields.

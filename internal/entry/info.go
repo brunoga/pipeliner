@@ -34,9 +34,9 @@ const (
 	// should test what it needs rather than assume the set is complete. In
 	// particular FieldProbeIs3D is explicit in both directions: false means
 	// the source says it is 2D, which is as useful an answer as true.
-	FieldProbeOK          = "probe_ok"
-	FieldProbeKind        = "probe_kind"
-	FieldProbeIs3D        = "probe_is_3d"
+	FieldProbeOK   = "probe_ok"
+	FieldProbeKind = "probe_kind"
+	FieldProbeIs3D = "probe_is_3d"
 	// FieldProbeUnreachable is true when nothing in the swarm would serve the
 	// sample. Distinct from probe_ok=false, which also covers a parse failure
 	// or a missing .torrent: this one says the full download would not have
@@ -72,6 +72,22 @@ const (
 	// (e.g. "jackett:1337x", "rss:nyaa.si", "filesystem:/downloads/watch").
 	// Set by every source plugin; never mutated by processors or sinks.
 	FieldSource = "source"
+	// FieldSourceID is the identifier the SOURCE uses for this item, stable
+	// across runs. It is deliberately scoped to the source rather than global:
+	// a Jackett GUID identifies a torrent on one tracker, and the same torrent
+	// on another tracker has a different one. Pair it with FieldSource, which
+	// already names the origin, and the two are unique together.
+	//
+	// It exists because the obvious identifier is often not stable. Jackett
+	// re-encrypts its proxy download links on every search, so a URL-keyed
+	// blocklist never matches the same release twice — that is how one dead
+	// torrent was re-grabbed nine times. An info hash solves it where the
+	// indexer supplies one, but 3dtorrents supplies none at all, so there was
+	// nothing durable left to key on.
+	//
+	// Use Entry.StableKeys rather than reading this directly: identity is a
+	// ladder, and the info hash outranks this because it is global.
+	FieldSourceID = "source_id"
 
 	// VideoInfo — video_ prefix, shared by movies and series.
 	FieldVideoYear          = "video_year"
@@ -95,12 +111,12 @@ const (
 	// "half", "conv", or "unspecified" when the release is 3D but never said
 	// how the views are packed. It shares probe_3d_layout's vocabulary, so a
 	// rule can compare what the name claims against what the disc reports.
-	FieldVideoLayout3D      = "video_3d_layout"
-	FieldVideoProper        = "video_proper"
-	FieldVideoRepack        = "video_repack"
-	FieldVideoPopularity    = "video_popularity"
-	FieldVideoVotes         = "video_votes"
-	FieldVideoHomepage      = "video_homepage"
+	FieldVideoLayout3D   = "video_3d_layout"
+	FieldVideoProper     = "video_proper"
+	FieldVideoRepack     = "video_repack"
+	FieldVideoPopularity = "video_popularity"
+	FieldVideoVotes      = "video_votes"
+	FieldVideoHomepage   = "video_homepage"
 
 	// MovieInfo — movie_ prefix.
 	FieldMovieTitle   = "movie_title"
@@ -310,7 +326,7 @@ type GenericInfo struct {
 type VideoInfo struct {
 	GenericInfo
 	// Layout3D is the name-stated 3D layout; see FieldVideoLayout3D.
-	Layout3D string
+	Layout3D      string
 	Year          int
 	Language      string
 	OriginalTitle string
@@ -673,6 +689,11 @@ func (e *Entry) SetTorrentInfo(info TorrentInfo) {
 // SetFileInfo writes non-zero FileInfo fields into the entry's Fields map.
 func (e *Entry) SetFileInfo(info FileInfo) {
 	e.SetGenericInfo(info.GenericInfo)
+	if info.Location != "" {
+		// For a file the path IS the identity, and unlike an indexer link it
+		// does not rotate.
+		e.Fields[FieldSourceID] = info.Location
+	}
 	if info.Filename != "" {
 		e.Fields[FieldFileName] = info.Filename
 	}
@@ -698,6 +719,10 @@ func (e *Entry) SetRSSInfo(info RSSInfo) {
 	}
 	if info.GUID != "" {
 		e.Fields[FieldRSSGUID] = info.GUID
+		// An RSS GUID is required by the spec to be stable for the item, which
+		// is exactly what the identity ladder wants — including the opaque
+		// urn:uuid forms this package otherwise declines to treat as a URL.
+		e.Fields[FieldSourceID] = info.GUID
 	}
 	if info.Link != "" {
 		e.Fields[FieldRSSLink] = info.Link
