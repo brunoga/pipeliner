@@ -213,6 +213,7 @@ td code{font-size:11px}
     <a href="#cli">CLI Reference</a>
     <a href="#match" class="sub">Match tester</a>
     <a href="#quality-cmd" class="sub">Quality tester</a>
+    <a href="#probe-cmd" class="sub">Probe a release</a>
     <a href="#tracker-cmd" class="sub">Tracker ops</a>
     <a href="#migrate-cmd" class="sub">Migrations</a>
     <a href="#downloaded-cmd" class="sub">Download history</a>
@@ -2640,6 +2641,22 @@ pipeliner quality --spec "1080p+" "Show S01E01 720p WEB-DL x265"</code></pre>
   <tr><td><code>--spec</code></td><td>—</td><td>Alternative way to supply the spec</td></tr>
 </table>
 <p>With a spec, the output shows the detected quality, a <code>MATCH</code>/<code>NO MATCH</code> verdict, and a table of the constrained dimensions with each one's constraint, detected value, and pass/fail (optional dimensions bypassed on an unknown value are noted). Exit code is 0 on a match, 1 otherwise. Also available in the web UI under <strong>Tools → 🎚 Quality tester</strong>.</p>
+
+<h3 id="probe-cmd">pipeliner probe</h3>
+<p>The companion to <a href="#quality-cmd"><code>quality</code></a> for when the title is not enough. <code>quality</code> reports what a release <em>says</em> it is; <code>probe</code> reports what its container says it is, read from two pieces of the torrent before downloading any of it &mdash; the same measurement the <a href="#probe"><code>probe</code> processor</a> makes inside a pipeline, asked of one release.</p>
+<p>Reach for it when a name-based gate refused something and you need to know whether it was right. A release named <code>3D BluRay 1080p AVC Atmos</code> carries no layout marker, so it parses as half side-by-side whether it is one or a 50&nbsp;GB MVC disc &mdash; and a refused release is simply never looked at again. Settling that costs two pieces.</p>
+<pre><code>pipeliner probe "https://indexer.example/dl/...&amp;file=Some.Release.torrent"
+pipeliner probe ~/Downloads/Some.Release.torrent      # a local .torrent works too
+pipeliner probe --json "https://indexer.example/dl/..." | jq .probe_3d_layout</code></pre>
+<table>
+  <tr><th>Flag / arg</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>&lt;source&gt;</code></td><td>—</td><td>A <code>.torrent</code> URL or a path to a local <code>.torrent</code> file (required). A magnet has no <code>.torrent</code> for a tracker to serve and is refused.</td></tr>
+  <tr><td><code>-timeout</code></td><td><code>2m</code></td><td>Budget for the probe, including fetching its pieces</td></tr>
+  <tr><td><code>-max-pieces</code></td><td><code>6</code></td><td>Most pieces to fetch; the probe asks for more only when it names bytes it could not read</td></tr>
+  <tr><td><code>-json</code></td><td><code>false</code></td><td>Print the <code>probe_*</code> fields as JSON</td></tr>
+</table>
+<p>The output is the <code>probe_*</code> fields exactly as the processor would stamp them on an entry, so what you see here is what a <a href="#condition"><code>condition</code></a> rule would see &mdash; followed by what the sample cost. <strong>On a private tracker those bytes count against a ratio</strong>, and each probe is an announce.</p>
+<p>Exit code is 0 when the probe ran, and <strong>2 when it could not</strong> &mdash; an unreachable swarm is not a verdict on the release, and the exit code keeps &ldquo;could not tell&rdquo; apart from &ldquo;it is not what it claimed&rdquo;. A probe that cannot get its pieces is also a strong hint the full download would stall: it is a stricter liveness test than a tracker scrape, which reports seeds that may not answer.</p>
 
 <h3 id="tracker-cmd">pipeliner tracker</h3>
 <p>Manages the series/movies download trackers directly: <strong>mark</strong> a title as already-downloaded (so pipeliner never grabs it — for episodes/movies you acquired outside the tool) or <strong>forget</strong> one (so it is re-downloaded). The show/movie name is normalized and the episode ID canonicalized exactly as the filters do, so records key correctly.</p>
