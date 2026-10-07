@@ -59,6 +59,7 @@ func init() {
 			entry.FieldVideoResolution,
 			entry.FieldVideoSource,
 			entry.FieldVideoIs3D,
+			entry.FieldVideoLayout3D,
 			entry.FieldVideoProper,
 			entry.FieldVideoRepack,
 			entry.FieldQuality, // typed quality.Quality struct for downstream consumers
@@ -207,6 +208,7 @@ func annotateQuality(e *entry.Entry) {
 		Resolution: q.ResolutionName(),
 		Source:     q.SourceName(),
 		Is3D:       q.Format3D != quality.Format3DNone,
+		Layout3D:   q.Format3D.Layout(),
 	})
 	setIfKnown(e, "codec", codecNames[q.Codec])
 	setIfKnown(e, "audio", audioNames[q.Audio])

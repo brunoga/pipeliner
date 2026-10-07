@@ -86,6 +86,11 @@ const (
 	FieldVideoResolution    = "video_resolution"
 	FieldVideoSource        = "video_source"
 	FieldVideoIs3D          = "video_is_3d"
+	// FieldVideoLayout3D is the 3D layout the NAME states: "mvc", "full",
+	// "half", "conv", or "unspecified" when the release is 3D but never said
+	// how the views are packed. It shares probe_3d_layout's vocabulary, so a
+	// rule can compare what the name claims against what the disc reports.
+	FieldVideoLayout3D      = "video_3d_layout"
 	FieldVideoProper        = "video_proper"
 	FieldVideoRepack        = "video_repack"
 	FieldVideoPopularity    = "video_popularity"
@@ -299,6 +304,8 @@ type GenericInfo struct {
 // VideoInfo holds fields shared by all video content (movies and series).
 type VideoInfo struct {
 	GenericInfo
+	// Layout3D is the name-stated 3D layout; see FieldVideoLayout3D.
+	Layout3D string
 	Year          int
 	Language      string
 	OriginalTitle string
@@ -480,6 +487,9 @@ func (e *Entry) SetVideoInfo(info VideoInfo) {
 	}
 	if info.Is3D {
 		e.Fields[FieldVideoIs3D] = true
+	}
+	if info.Layout3D != "" {
+		e.Fields[FieldVideoLayout3D] = info.Layout3D
 	}
 	if info.Proper {
 		e.Fields[FieldVideoProper] = true

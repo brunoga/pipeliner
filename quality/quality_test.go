@@ -65,8 +65,10 @@ func TestParseKnownTitles(t *testing.T) {
 			Quality{},
 		},
 		{
+			// A bare "3D" says nothing about layout, so it is Unspecified
+			// rather than Half. The HSBS case below is the one that states it.
 			"Avatar.2009.3D.1080p.BluRay.x264",
-			Quality{Resolution: Resolutionp1080, Source: SourceBluRay, Codec: CodecH264, Format3D: Format3DHalf},
+			Quality{Resolution: Resolutionp1080, Source: SourceBluRay, Codec: CodecH264, Format3D: Format3DUnspecified},
 		},
 		{
 			"Avatar.2009.HSBS.1080p.BluRay",
@@ -355,7 +357,9 @@ func TestParse3DCompleteBluRayIsBD3D(t *testing.T) {
 		// 3DCONV + COMPLETE BluRay → still Conv (conversion stays lowest tier).
 		{"Movie.2020.3DCONV.COMPLETE.BluRay", Format3DConv},
 		// 3D + COMPLETE but not BluRay → no elevation.
-		{"Movie.2020.3D.COMPLETE.WEBRip", Format3DHalf},
+		// COMPLETE on a WEBRip is not a disc rip, so nothing promotes it and
+		// the bare "3D" stands as Unspecified.
+		{"Movie.2020.3D.COMPLETE.WEBRip", Format3DUnspecified},
 		// Non-3D COMPLETE BluRay → not elevated (no 3D marker).
 		{"Movie.2020.COMPLETE.BluRay", Format3DNone},
 	}
@@ -1569,7 +1573,7 @@ func TestCompleteDiscPromotion(t *testing.T) {
 
 		// "Complete" in the film's own title is not a disc label.
 		{"A Complete Unknown 2024 1080p 3D FSBS BluRay x264-GRP", Format3DFull, "title word, with a layout tag"},
-		{"A Complete Unknown 2024 1080p 3D BluRay x264-GRP", Format3DHalf, "title word, generic 3D only"},
+		{"A Complete Unknown 2024 1080p 3D BluRay x264-GRP", Format3DUnspecified, "title word must not promote; bare 3D states no layout"},
 
 		// A conversion stays a conversion whatever the disc label claims.
 		{"Some Movie 2024 1080p 3D-Conv COMPLETE BLURAY x264", Format3DConv, "conversion marker wins"},
@@ -1826,5 +1830,167 @@ func TestPromotionKeepsTheBD3DInference(t *testing.T) {
 	// A conversion stays a conversion — the promotion must not lift it.
 	if got := Parse("Movie.2020.3DCONV.COMPLETE.BluRay").Format3D; got != Format3DConv {
 		t.Errorf("Format3D = %v, want Conv", got)
+	}
+}
+
+// TestFormat3DStoredValuesAreFrozen guards the on-disk format the way its
+// Audio and Source counterparts do. Format3D is persisted in every tracker
+// record, and it is the FIRST dimension Better compares when both releases
+// are 3D — so renumbering it would redefine every 3D record at once.
+// Unspecified is therefore appended, not placed between Conv and Half where
+// it reads most naturally.
+func TestFormat3DStoredValuesAreFrozen(t *testing.T) {
+	frozen := map[Format3D]int{
+		Format3DNone:        0,
+		Format3DConv:        1,
+		Format3DHalf:        2,
+		Format3DFull:        3,
+		Format3DBD:          4,
+		Format3DUnspecified: 5,
+	}
+	for f, want := range frozen {
+		if int(f) != want {
+			t.Errorf("%s = %d, want the frozen on-disk value %d", format3DNames[f], int(f), want)
+		}
+	}
+	for f := range frozen {
+		if _, ok := format3DRank[f]; !ok {
+			t.Errorf("%s (%d) has no format3DRank entry", format3DNames[f], int(f))
+		}
+		if _, ok := format3DLayouts[f]; !ok {
+			t.Errorf("%s (%d) has no layout name", format3DNames[f], int(f))
+		}
+	}
+	if len(format3DRank) != len(frozen) || len(format3DLayouts) != len(frozen) {
+		t.Errorf("rank has %d and layouts %d entries for %d formats",
+			len(format3DRank), len(format3DLayouts), len(frozen))
+	}
+}
+
+// Unspecified shares Half's rank on purpose: "nobody said" must not read as
+// better or worse than "they said half".
+func TestUnspecifiedRanksWithHalf(t *testing.T) {
+	if format3DRank[Format3DUnspecified] != format3DRank[Format3DHalf] {
+		t.Fatal("Unspecified must rank with Half, so it can neither win nor lose an upgrade against one")
+	}
+	// It still sits above a conversion and below an explicit full/MVC.
+	if !(format3DRank[Format3DConv] < format3DRank[Format3DUnspecified]) {
+		t.Error("Unspecified should outrank a 2D-to-3D conversion")
+	}
+	if !(format3DRank[Format3DUnspecified] < format3DRank[Format3DFull]) {
+		t.Error("Unspecified should rank below an explicit full-resolution release")
+	}
+	if !(format3DRank[Format3DFull] < format3DRank[Format3DBD]) {
+		t.Error("appending must not disturb Full < BD3D")
+	}
+
+	// And the comparison itself: neither direction is an upgrade.
+	unspec := Quality{Format3D: Format3DUnspecified, Resolution: Resolutionp1080}
+	half := Quality{Format3D: Format3DHalf, Resolution: Resolutionp1080}
+	if unspec.Better(half) || half.Better(unspec) {
+		t.Error("neither Unspecified nor Half may beat the other on Format3D alone")
+	}
+}
+
+// A record from a newer build must rank as unknown, not as its raw integer —
+// otherwise it would beat BD3D and block every upgrade.
+func TestUnknownFormat3DRanksAsUnknown(t *testing.T) {
+	future := Format3D(99)
+	if future.rank() != 0 {
+		t.Errorf("Format3D(99).rank() = %d, want 0", future.rank())
+	}
+}
+
+// The heart of the change: an explicit layout marker is a claim, a bare "3D"
+// is silence, and the two must not be the same value.
+func TestBare3DIsUnspecifiedNotHalf(t *testing.T) {
+	tests := []struct {
+		title string
+		want  Format3D
+		why   string
+	}{
+		// The release that prompted this: a 49 GB MVC disc that read as half.
+		{"Pacific Rim Uprising 2018 3D BluRay 1080p AVC Atmos TrueHD7 1 MTeam",
+			Format3DUnspecified, "bare 3D states no layout"},
+		{"Avatar 2009 3D 1080p BluRay x264", Format3DUnspecified, "bare 3D"},
+
+		// Explicit markers are claims and still win.
+		{"Movie 2024 1080p 3D HSBS BluRay x264", Format3DHalf, "HSBS is explicit"},
+		{"Movie 2024 1080p 3D Half-SBS BluRay x264", Format3DHalf, "half-SBS is explicit"},
+		{"Movie 2024 1080p 3D OU BluRay x264", Format3DHalf, "over-under is frame-compatible"},
+		{"Movie 2024 1080p 3D FSBS BluRay x264", Format3DFull, "FSBS is explicit"},
+		{"Movie 2024 1080p 3D MVC BluRay", Format3DBD, "MVC is explicit"},
+		{"Movie 2024 1080p BD3D BluRay", Format3DBD, "BD3D is explicit"},
+
+		// Order must not matter: the explicit marker wins wherever it appears.
+		{"IMAX 3D FSBS Movie 2024 1080p BluRay", Format3DFull, "explicit marker before or after the bare 3D"},
+		{"Movie 2024 1080p FSBS 3D BluRay", Format3DFull, "ditto, reversed"},
+
+		// A conversion is still a conversion.
+		{"Movie 2024 1080p 3D-Conv BluRay x264", Format3DConv, "conversion marker wins over silence"},
+
+		// Not 3D at all stays None.
+		{"Movie 2024 1080p BluRay x264", Format3DNone, "no 3D marker"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.why, func(t *testing.T) {
+			if got := Parse(tc.title).Format3D; got != tc.want {
+				t.Errorf("Parse(%q).Format3D = %s, want %s",
+					tc.title, format3DNames[got], format3DNames[tc.want])
+			}
+		})
+	}
+}
+
+// The existing disc promotions must still fire for an unspecified layout —
+// that is how "3D COMPLETE BLURAY" and a bare-3D remux become BD3D. They are
+// gated on rank > Conv, which Unspecified satisfies.
+func TestUnspecifiedStillPromotesOnDiscEvidence(t *testing.T) {
+	for _, tc := range []struct{ title, why string }{
+		{"Some Movie 2024 1080p 3D COMPLETE BLURAY AVC DTS-HD MA", "complete disc"},
+		{"Life of Pi 2012 1080p 3D Blu ray Remux AVC DTS-HD MA 7.1", "bare-3D remux"},
+	} {
+		if got := Parse(tc.title).Format3D; got != Format3DBD {
+			t.Errorf("%s: Format3D = %s, want BD3D", tc.why, format3DNames[got])
+		}
+	}
+}
+
+// Layout() is the vocabulary route and condition expressions use, and it has
+// to match probe_3d_layout's so a rule can compare name against disc.
+func TestFormat3DLayoutNames(t *testing.T) {
+	for f, want := range map[Format3D]string{
+		Format3DNone:        "",
+		Format3DConv:        "conv",
+		Format3DHalf:        "half",
+		Format3DFull:        "full",
+		Format3DBD:          "mvc",
+		Format3DUnspecified: "unspecified",
+	} {
+		if got := f.Layout(); got != want {
+			t.Errorf("%s.Layout() = %q, want %q", format3DNames[f], got, want)
+		}
+	}
+}
+
+// A bd3d spec must still refuse an unspecified layout — we do not know it is
+// MVC, and that is exactly what a probe is for.
+func TestSpecsAgainstUnspecified(t *testing.T) {
+	unspec := Parse("Pacific Rim Uprising 2018 3D BluRay 1080p AVC Atmos TrueHD7 1 MTeam")
+	for _, tc := range []struct {
+		spec string
+		want bool
+		why  string
+	}{
+		{"bd3d", false, "bd3d must not accept an unproven layout"},
+		{"3dfull", false, "3dfull must not accept an unproven layout"},
+	} {
+		s, err := ParseSpec(tc.spec)
+		if err != nil {
+			t.Fatalf("ParseSpec(%q): %v", tc.spec, err)
+		}
+		if got := s.Matches(unspec); got != tc.want {
+			t.Errorf("%s: spec %q matched=%v, want %v", tc.why, tc.spec, got, tc.want)
+		}
 	}
 }
