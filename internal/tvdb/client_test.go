@@ -458,3 +458,64 @@ func TestV3OutageDoesNotAffectV4Calls(t *testing.T) {
 		t.Fatalf("expected one result, got %d", len(results))
 	}
 }
+
+// TestGetSeriesByIDFillsTheID pins that a series looked up by id knows its own
+// id. Series.ID reads the JSON key "tvdb_id", which /search returns and
+// /series/{id} does not — that endpoint returns "id", as a number — so the
+// field came back empty and callers passing the result on emitted "".
+// tvdb_favorites did exactly that, declaring tvdb_id in Produces while always
+// shipping it blank, which silently downgraded every downstream lookup to a
+// TheTVDB name search.
+func TestGetSeriesByIDFillsTheID(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v4/login":
+			w.Write([]byte(`{"status":"success","data":{"token":"t"}}`))
+		case "/v4/series/409591":
+			// Shaped like the real endpoint: "id" as a number, no "tvdb_id".
+			w.Write([]byte(`{"status":"success","data":{"id":409591,` +
+				`"name":"Tomb Raider: The Legend of Lara Croft","slug":"tomb-raider-anime"}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	c := New("test-key")
+	c.BaseURL = srv.URL + "/v4"
+
+	s, err := c.GetSeriesByID(context.Background(), 409591)
+	if err != nil {
+		t.Fatalf("GetSeriesByID: %v", err)
+	}
+	if s.ID != "409591" {
+		t.Errorf("ID = %q, want %q", s.ID, "409591")
+	}
+	if s.Name != "Tomb Raider: The Legend of Lara Croft" {
+		t.Errorf("Name = %q", s.Name)
+	}
+}
+
+// TestGetSeriesByIDKeepsAnIDTheResponseCarries: should the API ever return the
+// key, it wins over the id we asked with.
+func TestGetSeriesByIDKeepsAnIDTheResponseCarries(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v4/login" {
+			w.Write([]byte(`{"status":"success","data":{"token":"t"}}`))
+			return
+		}
+		w.Write([]byte(`{"status":"success","data":{"tvdb_id":"12345","name":"X"}}`))
+	}))
+	defer srv.Close()
+
+	c := New("test-key")
+	c.BaseURL = srv.URL + "/v4"
+
+	s, err := c.GetSeriesByID(context.Background(), 999)
+	if err != nil {
+		t.Fatalf("GetSeriesByID: %v", err)
+	}
+	if s.ID != "12345" {
+		t.Errorf("ID = %q, want the response's own 12345", s.ID)
+	}
+}

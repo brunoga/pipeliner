@@ -23,6 +23,7 @@ import (
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/movies"
 	"github.com/brunoga/pipeliner/internal/plugin"
+	"github.com/brunoga/pipeliner/internal/series"
 	"github.com/brunoga/pipeliner/internal/store"
 )
 
@@ -44,7 +45,7 @@ func init() {
 		Schema: []plugin.FieldSchema{
 			{Key: "titles", Type: plugin.FieldTypeList, Hint: "Static title strings to search for (supplements upstream source nodes)"},
 			{Key: "interval", Type: plugin.FieldTypeDuration, Hint: "Minimum time between re-searches per title (default 24h)"},
-			{Key: "match_titles", Type: plugin.FieldTypeBool, Default: false, Hint: "Drop search results whose parsed title does not match the queried title — indexer full-text search returns fuzzy junk (movie titles; strict normalized match, years within ±1)"},
+			{Key: "match_titles", Type: plugin.FieldTypeBool, Default: false, Hint: "Drop search results that do not match the query — indexer full-text search returns fuzzy junk. A series query is matched on show and episode; a movie query on title with a ±1 year window"},
 		},
 	})
 }
@@ -301,7 +302,47 @@ func toStringSlice(v any) []string {
 // Man: A Knives Out Mystery" for the query "Mystery Men"; parsing both sides
 // with the movie release-name parser and requiring normalized-title equality
 // (plus year compatibility when both sides know one) keeps only real hits.
+// matchesSeriesQuery compares a parsed series query against a release name:
+// same show, same episode. Show identity goes through series.Show, so a
+// release naming the premiere year ("Brothers 2026") matches a query that does
+// not ("Brothers") -- the same rule the tracker and the series filter use.
+func matchesSeriesQuery(q *series.Episode, releaseName string) bool {
+	r, ok := series.Parse(releaseName)
+	if !ok || r.SeriesName == "" {
+		// A season pack answering an episode query lands here, as does junk.
+		// Either way a downstream require(series_episode_id) would drop it.
+		return false
+	}
+	if !series.NewShow(q.SeriesName, q.SeriesYear).Matches(series.NewShow(r.SeriesName, r.SeriesYear)) {
+		return false
+	}
+	if q.IsDate || r.IsDate {
+		return q.IsDate && r.IsDate && q.Year == r.Year && q.Month == r.Month && q.Day == r.Day
+	}
+	if q.Season != r.Season {
+		return false
+	}
+	if q.Episode == r.Episode {
+		return true
+	}
+	// A double release covering the episode asked for is still that episode.
+	return r.DoubleEpisode > 0 && q.Episode > r.Episode && q.Episode <= r.DoubleEpisode
+}
+
 func matchesQuery(query, releaseName string) bool {
+	// A series query names an episode, and the movie-shaped comparison below
+	// cannot read one: it parses "Show S01E01" as a film title and compares it
+	// to a release name that carries an episode title and tags, so good
+	// releases are dropped. Measured: every result for
+	// "Tomb Raider: The Legend of Lara Croft S01E01" was discarded, because
+	// the colon survives one parse and not the other.
+	//
+	// It also could not do the one check worth doing here -- a query for S03E05
+	// used to accept S03E06, since only the title was compared.
+	if q, ok := series.Parse(query); ok && q.SeriesName != "" {
+		return matchesSeriesQuery(q, releaseName)
+	}
+
 	qTitle, qYear := query, 0
 	if mv, ok := movies.Parse(query); ok && mv.Title != "" {
 		qTitle, qYear = mv.Title, mv.Year

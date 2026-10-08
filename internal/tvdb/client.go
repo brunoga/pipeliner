@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -449,6 +450,15 @@ func (c *Client) GetSeriesByID(ctx context.Context, id int) (*Series, error) {
 	}
 	if err := c.do(req, &resp); err != nil {
 		return nil, fmt.Errorf("tvdb: series %d: %w", id, err)
+	}
+	// Series.ID reads the JSON key "tvdb_id", which is what /search returns.
+	// This endpoint instead returns "id", and as a number, so the field comes
+	// back empty and every caller sees a series that does not know its own id.
+	// Fill it from the id just asked for rather than teaching the struct two
+	// shapes: callers that look it up by id and then pass the result on -- the
+	// favourites source does exactly that -- were silently emitting "".
+	if resp.Data.ID == "" {
+		resp.Data.ID = strconv.Itoa(id)
 	}
 	return &resp.Data, nil
 }
