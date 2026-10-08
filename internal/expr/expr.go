@@ -82,6 +82,37 @@ func (e *Expr) Eval(data map[string]any) (bool, error) {
 	}
 }
 
+// AlwaysTrue reports whether the expression is a literal constant that holds
+// for every entry — `true`, a non-zero number, a truthy bare string, or any
+// parenthesised form of one — so that no entry can fail it.
+//
+// It exists so a caller can skip advice that only makes sense when some
+// entries fail the test. `condition(accept="true")` is the documented idiom
+// for "the entry reaching this node is itself the decision", as in a webhook
+// fed by a confirmed one-click link, and it leaves no non-matching entries
+// behind to warn about.
+//
+// Deliberately narrow: only a literal at the root counts, coerced exactly as
+// Eval coerces it. An expression that is universally true for some other
+// reason (`1 == 1`, a tautology over fields) reports false — proving that in
+// general is not something this parser attempts, and a false negative here
+// only leaves a warning in place rather than suppressing a real one. Template
+// expressions report false too; their text is opaque until rendered.
+func (e *Expr) AlwaysTrue() bool {
+	if e == nil || e.tmpl != nil {
+		return false
+	}
+	switch n := e.node.(type) {
+	case *boolNode:
+		return n.v
+	case *numberNode:
+		return n.v != 0
+	case *stringNode:
+		return truthy(n.v)
+	}
+	return false
+}
+
 // FieldRefs returns all entry field names (identifiers) referenced in this
 // expression. Reserved identifiers (state, reject_reason) are excluded — they
 // don't name entry fields and shouldn't trigger unknown-field warnings in the
