@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.55.1] - 2026-10-08
+
+### Fixed
+
+- **A copy a node dropped no longer votes accepted** ([#546](https://github.com/brunoga/pipeliner/pull/546)). The counter fix in 1.55.0 did not work: the next run still reported 497 accepted against 3 downloads. That fix excluded the pre-fan-out originals, which was a real problem but not this one. The copies actually voting are the ones each `route_selector` drops — `route` fans every entry out to one selector per port, and a selector keeps only the entries for its port, silently and deliberately, because rejecting the rest would mark a release rejected on three branches when one of them took it. Those dropped copies stop there still holding whatever state they had upstream, and the `movies` filter had accepted them, so an entry refused by its own lane still had Accepted copies parked on the other selectors' edges. `limit` does the same for a different reason: it drops everything past its cap and refuses none of it (measured on a live run — zero rejections logged, 104 entries dropped). Rather than special-casing either plugin, the rule is now general: a copy a node received and neither emitted nor refused is a dead end, ranked **Undecided** by the counter. Not excluded, because the release did enter the pipeline and the buckets must still add up to the total — and Undecided is the honest answer, since a cap is not a verdict. Sinks are exempt: they consume rather than forward, so receiving without emitting is their normal behaviour. The strongest-state rule is untouched and still right for the case it was written for; what changed is only which copies get a vote.
+
+**Why 1.55.1**: one counting fix. No entry's behaviour changes — nothing new is downloaded or skipped. A patch bump per SemVer.
+
 ## [1.55.0] - 2026-10-07
 
 Identity. A release that failed should still be recognisable on the next run, and a run that downloaded three things should say three.
