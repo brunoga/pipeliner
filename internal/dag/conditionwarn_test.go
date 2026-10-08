@@ -40,6 +40,29 @@ func TestConditionMissingRejectWarning(t *testing.T) {
 				map[string]any{"reject": "true"},
 			},
 		}, true},
+		// A tautological accept has no non-matching entries, so the advice
+		// to add a reject rule is moot. This is the "the entry reaching
+		// this node is itself the decision" idiom behind a webhook.
+		{"accept_true_ok", cd, map[string]any{"accept": "true"}, true},
+		{"accept_true_uppercase_ok", cd, map[string]any{"accept": "TRUE"}, true},
+		{"accept_true_parens_ok", cd, map[string]any{"accept": "(true)"}, true},
+		{"accept_true_padded_ok", cd, map[string]any{"accept": "  true  "}, true},
+		{"accept_nonzero_number_ok", cd, map[string]any{"accept": "1"}, true},
+		{"rules_accept_true_ok", cd, map[string]any{
+			"rules": []any{
+				map[string]any{"accept": "true"},
+			},
+		}, true},
+		// accept="false" matches nothing, so entries really do leak through
+		// as Undecided — the warning is correct there.
+		{"accept_false_warns", cd, map[string]any{"accept": "false"}, false},
+		{"accept_zero_warns", cd, map[string]any{"accept": "0"}, false},
+		// Only a literal counts. A tautology the parser would have to reason
+		// about still warns; a false negative leaves the advice in place.
+		{"accept_tautology_expr_warns", cd, map[string]any{"accept": "1 == 1"}, false},
+		// An unparseable accept is reported by the expression validator; this
+		// warning does not get suppressed by it.
+		{"accept_unparseable_warns", cd, map[string]any{"accept": "x =="}, false},
 		// rules present empty → still warns (no reject anywhere)
 		{"rules_empty_warns", cd, map[string]any{"rules": []any{}}, false},
 		// When rules is set, top-level reject is IGNORED by the condition plugin
