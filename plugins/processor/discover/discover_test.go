@@ -591,3 +591,85 @@ func TestMatchesQuery(t *testing.T) {
 		}
 	}
 }
+
+// ── match_titles on series queries ────────────────────────────────────────────
+
+// TestMatchesQuerySeriesKeepsRealReleases is the live failure: every result for
+// this query was discarded, because the movie-shaped comparison parses the
+// query's colon one way and the release name (which carries an episode title
+// and tags, and no colon) another.
+func TestMatchesQuerySeriesKeepsRealReleases(t *testing.T) {
+	const q = "Tomb Raider: The Legend of Lara Croft S01E01"
+	for _, rel := range []string{
+		"Tomb Raider The Legend of Lara Croft S01E01 A Single Step 1080p NF WEB-DL DDP5 1 Atmos H 264-FLUX",
+		"Tomb Raider The Legend of Lara Croft S01E01 1080p HEVC x265-MeGusta",
+		"Tomb Raider The Legend of Lara Croft S01E01 A Single Step AAC MP4-Mobile",
+	} {
+		if !matchesQuery(q, rel) {
+			t.Errorf("dropped a real release:\n  q=%q\n  r=%q", q, rel)
+		}
+	}
+}
+
+// TestMatchesQuerySeriesChecksTheEpisode is the check the old comparison could
+// not make at all: it only looked at the show, so a query for one episode
+// accepted any other episode of it.
+func TestMatchesQuerySeriesChecksTheEpisode(t *testing.T) {
+	const q = "Breaking Bad S03E05"
+	for _, tc := range []struct {
+		rel  string
+		want bool
+	}{
+		{"Breaking Bad S03E05 1080p WEB H264-GROUP", true},
+		{"Breaking.Bad.S03E05.1080p.WEB.H264-GROUP", true},
+		{"Breaking Bad S03E06 1080p WEB H264-GROUP", false},
+		{"Breaking Bad S04E05 1080p WEB H264-GROUP", false},
+		{"Better Call Saul S03E05 1080p WEB H264-GROUP", false},
+		{"Breaking Bad S03 COMPLETE 1080p WEB H264-GROUP", false}, // pack, not an episode
+		{"totally unrelated release 1080p", false},
+	} {
+		if got := matchesQuery(q, tc.rel); got != tc.want {
+			t.Errorf("matchesQuery(%q, %q) = %v, want %v", q, tc.rel, got, tc.want)
+		}
+	}
+}
+
+// TestMatchesQuerySeriesDoubleEpisode: a double release covering the episode
+// asked for is still that episode.
+func TestMatchesQuerySeriesDoubleEpisode(t *testing.T) {
+	if !matchesQuery("Some Show S01E02", "Some Show S01E01E03 1080p WEB") {
+		t.Error("a double episode spanning the one requested should match")
+	}
+	if matchesQuery("Some Show S01E05", "Some Show S01E01E03 1080p WEB") {
+		t.Error("a double episode not covering the requested one must not match")
+	}
+}
+
+// TestMatchesQuerySeriesYearVariants: the show's premiere year appears in some
+// release names and not others, and must not split one show in two.
+func TestMatchesQuerySeriesYearVariants(t *testing.T) {
+	if !matchesQuery("Brothers S01E03", "Brothers 2026 S01E03 1080p WEB H264-GROUP") {
+		t.Error("a release naming the premiere year should match a query that does not")
+	}
+	if !matchesQuery("Brothers 2026 S01E03", "Brothers S01E03 1080p WEB H264-GROUP") {
+		t.Error("and the other way round")
+	}
+}
+
+// TestMatchesQueryMovieBehaviourUnchanged: the movie path is what match_titles
+// was written for and is still in use on movie pipelines.
+func TestMatchesQueryMovieBehaviourUnchanged(t *testing.T) {
+	for _, tc := range []struct {
+		q, rel string
+		want   bool
+	}{
+		{"Dune Part Two 2024", "Dune Part Two 2024 2160p BluRay x265", true},
+		{"Dune Part Two 2024", "Dune Part Two 2025 2160p BluRay x265", true},  // ±1 year
+		{"Dune Part Two 2024", "Dune Part Two 2019 2160p BluRay x265", false}, // too far
+		{"Dune Part Two 2024", "Some Other Film 2024 2160p BluRay x265", false},
+	} {
+		if got := matchesQuery(tc.q, tc.rel); got != tc.want {
+			t.Errorf("matchesQuery(%q, %q) = %v, want %v", tc.q, tc.rel, got, tc.want)
+		}
+	}
+}
