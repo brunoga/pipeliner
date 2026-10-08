@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/brunoga/pipeliner/internal/match"
@@ -51,14 +52,18 @@ func trackerUsage() {
   pipeliner tracker mark-movie    "<title>" --year N [--3d] [--config path] [--quality "..."]
   pipeliner tracker forget-movie  "<title>" --year N [--3d] [--config path]
 
-The daemon must be stopped — these commands take the database lock.`)
+Flags may appear before or after the positional arguments.
+
+The daemon must be stopped — these commands take the database lock. To edit a
+tracker while the daemon is running, use the database browser in the web UI
+(DELETE /api/db/entries/{bucket}), which goes through the process holding it.`)
 }
 
 func trackerSeries(args []string, forget bool) int {
 	fs := flag.NewFlagSet("tracker series", flag.ContinueOnError)
 	cfgPath := fs.String("config", "config.star", "path to config file")
 	qStr := fs.String("quality", "", "quality of the release (e.g. \"1080p web h264\")")
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(flagsFirst(fs, args)); err != nil {
 		return 1
 	}
 	rest := fs.Args()
@@ -89,10 +94,15 @@ func trackerSeries(args []string, forget bool) int {
 		// Report what the record held before dropping it: forgetting causes a
 		// re-download, and "forgot X" alone leaves no trace of what quality
 		// the library was known to have.
-		if rec, ok := tracker.Get(norm, epID); ok {
-			fmt.Printf("forgetting %s|%s (quality: %s, downloaded %s)\n",
-				norm, epID, rec.Quality.String(), rec.DownloadedAt.Format(time.RFC3339))
+		rec, ok := tracker.Get(norm, epID)
+		if !ok {
+			// Reporting success here is how a typo reads exactly like a
+			// completed job. Nothing was tracked, so nothing was forgotten.
+			fmt.Fprintf(os.Stderr, "error: no tracker record for %s|%s\n", norm, epID)
+			return 1
 		}
+		fmt.Printf("forgetting %s|%s (quality: %s, downloaded %s)\n",
+			norm, epID, rec.Quality.String(), rec.DownloadedAt.Format(time.RFC3339))
 		if err := tracker.Forget(norm, epID); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			return 1
@@ -115,7 +125,7 @@ func trackerMovie(args []string, forget bool) int {
 	year := fs.Int("year", 0, "release year")
 	is3D := fs.Bool("3d", false, "the 3D version")
 	qStr := fs.String("quality", "", "quality of the release (e.g. \"1080p bluray\")")
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(flagsFirst(fs, args)); err != nil {
 		return 1
 	}
 	rest := fs.Args()
@@ -128,6 +138,12 @@ func trackerMovie(args []string, forget bool) int {
 		fmt.Fprintln(os.Stderr, "error: title is empty after normalization")
 		return 1
 	}
+	// A movie record is keyed by year, so year 0 names nothing. Reject it
+	// rather than operating on a key that cannot exist.
+	if *year <= 0 {
+		fmt.Fprintln(os.Stderr, "error: --year is required and must be a real year")
+		return 1
+	}
 
 	db, err := openStore(*cfgPath)
 	if err != nil {
@@ -138,7 +154,14 @@ func trackerMovie(args []string, forget bool) int {
 	tracker := movies.NewTracker(db.Bucket(movies.TrackerBucketName))
 
 	if forget {
-		if rec, ok := tracker.Latest(norm, *is3D); ok {
+		// Latest() ignores the year, so it could describe a different record
+		// than the one being deleted. Check the exact key instead.
+		if !tracker.IsSeen(norm, *year, *is3D) {
+			fmt.Fprintf(os.Stderr, "error: no tracker record for %s (%d)%s\n",
+				norm, *year, tridSuffix(*is3D))
+			return 1
+		}
+		if rec, ok := tracker.LatestNearYear(norm, *year, *is3D); ok {
 			fmt.Printf("forgetting %s (%d)%s (quality: %s, downloaded %s)\n",
 				norm, *year, tridSuffix(*is3D), rec.Quality.String(),
 				rec.DownloadedAt.Format(time.RFC3339))
@@ -174,4 +197,47 @@ func openStore(cfgPath string) (*store.SQLiteStore, error) {
 		return nil, fmt.Errorf("open store (is the daemon running? it holds the database lock): %w", err)
 	}
 	return db, nil
+}
+
+// flagsFirst moves flags ahead of positional arguments so that both orders
+// work. Go's flag package stops parsing at the first non-flag argument, so
+// every flag written after the title used to be dropped in silence — and the
+// usage text documented exactly that order. `forget-movie "bolt" --year 2008
+// --3d --config /etc/pipeliner/config.star` therefore reported success for
+// key "bolt|0", and, because --config went missing with the rest, opened a
+// brand-new store in the working directory instead of the configured one.
+//
+// A flag that takes a value consumes the next argument unless it was written
+// as -name=value; boolean flags never do, which is what fs.Lookup is for. An
+// explicit "--" ends flag parsing, and everything after it is positional.
+func flagsFirst(fs *flag.FlagSet, args []string) []string {
+	var flags, positional []string
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if a == "--" {
+			positional = append(positional, args[i+1:]...)
+			break
+		}
+		if len(a) > 1 && strings.HasPrefix(a, "-") {
+			flags = append(flags, a)
+			if !strings.Contains(a, "=") && !isBoolFlag(fs, a) && i+1 < len(args) {
+				i++
+				flags = append(flags, args[i])
+			}
+			continue
+		}
+		positional = append(positional, a)
+	}
+	return append(flags, positional...)
+}
+
+// isBoolFlag reports whether the named flag is a boolean, which decides
+// whether it consumes the argument after it.
+func isBoolFlag(fs *flag.FlagSet, arg string) bool {
+	f := fs.Lookup(strings.TrimLeft(arg, "-"))
+	if f == nil {
+		return false
+	}
+	b, ok := f.Value.(interface{ IsBoolFlag() bool })
+	return ok && b.IsBoolFlag()
 }
