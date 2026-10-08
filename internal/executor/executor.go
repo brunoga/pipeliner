@@ -164,6 +164,10 @@ func (ex *Executor) Run(ctx context.Context) (*Result, error) {
 	// reads them. See storeOutputs.
 	supersededEntries := map[*entry.Entry]bool{}
 
+	// droppedEntries holds copies a node received and neither emitted nor
+	// refused — a dead end that must not vote Accepted. See the node loop.
+	droppedEntries := map[*entry.Entry]bool{}
+
 	// failedURLs tracks URLs of entries that were failed by any sink node.
 	// Used during the commit phase to exclude them from CommitPlugin.Commit calls.
 	failedURLs := map[string]bool{}
@@ -214,6 +218,37 @@ func (ex *Executor) Run(ctx context.Context) (*Result, error) {
 			if pi.Desc.ReplacesUpstream {
 				for _, e := range upstream {
 					discardedEntries[e] = true
+				}
+			}
+
+			// Entries this node received and did not pass on, without
+			// refusing them either. Most filters Reject what they drop, which
+			// is a terminal state and counts as itself — but two do not, by
+			// design:
+			//
+			//   route_selector receives every routed clone and keeps only the
+			//   ones for its port; rejecting the rest would mark a release
+			//   rejected on three branches when one of them took it.
+			//
+			//   limit drops everything past its cap, which is not a verdict on
+			//   those releases — they simply did not get a slot tonight.
+			//
+			// Either way the copy stops here, while still holding whatever
+			// state it had upstream. An entry accepted by the movies filter
+			// and then dropped by a selector was being counted as accepted
+			// although nothing downloaded it, which is how a run that grabbed
+			// 3 releases reported 497. These are ranked as Undecided by the
+			// counter — not excluded, because the entry still entered the
+			// pipeline and the totals must still add up.
+			if role != plugin.RoleSink {
+				emitted := make(map[*entry.Entry]bool, len(produced))
+				for _, e := range produced {
+					emitted[e] = true
+				}
+				for _, e := range upstream {
+					if !emitted[e] && !e.IsRejected() && !e.IsFailed() {
+						droppedEntries[e] = true
+					}
 				}
 			}
 
@@ -306,7 +341,7 @@ func (ex *Executor) Run(ctx context.Context) (*Result, error) {
 	// into the counter even when other clones (on different branches) never
 	// reached a sink.
 	res.Total, res.Accepted, res.Rejected, res.Failed, res.Undecided, res.Entries =
-		aggregateCounters(sourceEntries, edge, discardedEntries, supersededEntries)
+		aggregateCounters(sourceEntries, edge, discardedEntries, supersededEntries, droppedEntries)
 
 	res.Traces = tracer.finalize()
 	res.TracesTruncated = tracer.truncated
