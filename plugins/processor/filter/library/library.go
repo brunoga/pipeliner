@@ -159,27 +159,16 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 	} else {
 		url, _ := cfg["url"].(string)
 		token, _ := cfg["token"].(string)
-		switch {
-		case backend == "plex" && url == "" && token == "":
-			// Account mode: span every owned server using the Settings-tab
-			// sign-in. The token is read per index build so signing in after
-			// daemon start takes effect without a restart.
-			if db == nil {
-				return nil, fmt.Errorf("%s: plex account mode requires the store", pluginName)
-			}
-			bucket := db.Bucket(mediaserver.PlexSettingsBucket)
-			client = mediaserver.NewPlexAccount(func() string {
-				return mediaserver.PlexAccountToken(bucket)
-			})
-		case url == "" || token == "":
-			return nil, fmt.Errorf("%s: backend %q requires 'url' and 'token'", pluginName, backend)
-		default:
-			c, err := mediaserver.New(backend, url, token)
-			if err != nil {
-				return nil, fmt.Errorf("%s: %w", pluginName, err)
-			}
-			client = c
+		// Shared with series_gaps, so the two agree on what these keys mean.
+		var bucket store.Bucket
+		if db != nil {
+			bucket = db.Bucket(mediaserver.PlexSettingsBucket)
 		}
+		c, err := mediaserver.Connect(backend, url, token, bucket)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", pluginName, err)
+		}
+		client = c
 	}
 
 	ttl := 15 * time.Minute
