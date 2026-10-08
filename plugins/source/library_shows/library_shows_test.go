@@ -163,3 +163,31 @@ func TestValidate(t *testing.T) {
 		t.Error("an unknown key should not validate")
 	}
 }
+
+// TestEmitsTVDBIDWhenTheServerPublishesOne passes the show's identity
+// downstream, so a series_gaps fed from here resolves the library by id rather
+// than by a title the provider may spell differently.
+func TestEmitsTVDBIDWhenTheServerPublishesOne(t *testing.T) {
+	withID := episode("Severance", 1, 1, "TV Shows")
+	withID.ShowTVDBID = "371980"
+	srv := &stubServer{items: []mediaserver.Item{
+		withID,
+		episode("Andor", 1, 1, "TV Shows"), // server published no id
+	}}
+	got := run(t, newWithServer(srv, mediaserver.Sections{}))
+	if len(got) != 2 {
+		t.Fatalf("want 2 shows, got %d", len(got))
+	}
+	byTitle := map[string]*entry.Entry{}
+	for _, e := range got {
+		byTitle[e.Title] = e
+	}
+	if id := byTitle["Severance"].GetString("tvdb_id"); id != "371980" {
+		t.Errorf("tvdb_id = %q, want 371980", id)
+	}
+	// Absent rather than empty: a downstream `with`/presence check must not
+	// see a field the server never supplied.
+	if _, ok := byTitle["Andor"].Fields["tvdb_id"]; ok {
+		t.Error("a show with no published id must not carry a tvdb_id field")
+	}
+}

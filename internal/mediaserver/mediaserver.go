@@ -52,6 +52,17 @@ type Item struct {
 	// "hdr", "sdr", or "" when unknown. Jellyfin fills it from listings;
 	// Plex needs deep scanning (per-item detail calls).
 	ColorRange string
+	// ShowTVDBID is the TheTVDB id of the SHOW an episode belongs to, as the
+	// server publishes it; "" when the server exposes none. Episodes only.
+	//
+	// Deliberately the show's id and not the episode's. Plex publishes both --
+	// an episode's own Guid list carries a tvdb:// id for the episode -- and
+	// the one worth having here is the show's, because titles are not stable
+	// identity: TheTVDB renames series, and a server may disambiguate a remake
+	// with a year the provider does not use ("Brothers" against
+	// "Brothers (2026)"). Matching on it lets a caller find a show it would
+	// otherwise miss by name.
+	ShowTVDBID string
 }
 
 // EpisodeID returns the SxxEyy identifier for episode items.
@@ -207,6 +218,7 @@ func (c *plexClient) ListItems(ctx context.Context) ([]Item, error) {
 					Index            int    `json:"index"`
 					Year             int    `json:"year"`
 					RatingKey        string `json:"ratingKey"`
+					GrandparentKey   string `json:"grandparentRatingKey"`
 					UpdatedAt        int64  `json:"updatedAt"`
 					Media            []struct {
 						VideoResolution string `json:"videoResolution"`
@@ -216,6 +228,14 @@ func (c *plexClient) ListItems(ctx context.Context) ([]Item, error) {
 					} `json:"Media"`
 				} `json:"Metadata"`
 			} `json:"MediaContainer"`
+		}
+		// The show listing is the only place the SHOW's external ids appear:
+		// an episode's own Guid list holds the episode's ids, and its
+		// grandparentGuid is a plex:// id, not a provider one. One extra call
+		// per show section (hundreds of rows, not thousands of episodes).
+		var showTVDB map[string]string
+		if d.Type == "show" {
+			showTVDB = c.showTVDBIDs(ctx, d.Key)
 		}
 		url := fmt.Sprintf("%s/library/sections/%s/all?type=%s", c.base, d.Key, contentType)
 		if err := getJSON(ctx, c.http, url, c.header(), &content); err != nil {
@@ -237,7 +257,8 @@ func (c *plexClient) ListItems(ctx context.Context) ([]Item, error) {
 			case "episode":
 				items = append(items, Item{Type: "episode", Show: m.GrandparentTitle,
 					Season: m.ParentIndex, Episode: m.Index, Resolution: res, Section: d.Title,
-					VideoCodec: vc, AudioCodec: ac, AudioProfile: ap, ID: m.RatingKey, Version: ver})
+					VideoCodec: vc, AudioCodec: ac, AudioProfile: ap, ID: m.RatingKey, Version: ver,
+					ShowTVDBID: showTVDB[m.GrandparentKey]})
 			case "movie":
 				items = append(items, Item{Type: "movie", Title: m.Title, Year: m.Year, Resolution: res, Section: d.Title,
 					VideoCodec: vc, AudioCodec: ac, AudioProfile: ap, ID: m.RatingKey, Version: ver})
@@ -248,6 +269,56 @@ func (c *plexClient) ListItems(ctx context.Context) ([]Item, error) {
 		c.fillColorRanges(ctx, items)
 	}
 	return items, nil
+}
+
+// showTVDBIDs maps a show section's ratingKey -> TheTVDB series id, read from
+// the show listing's Guid entries.
+//
+// Best effort: a server that does not answer, or answers without guids, yields
+// an empty map and callers fall back to matching shows by title. An id is an
+// improvement on the title, never a precondition for listing a library, so a
+// failure here must not fail ListItems.
+func (c *plexClient) showTVDBIDs(ctx context.Context, sectionKey string) map[string]string {
+	var shows struct {
+		MediaContainer struct {
+			Metadata []struct {
+				RatingKey string `json:"ratingKey"`
+				Guid      []struct {
+					ID string `json:"id"`
+				} `json:"Guid"`
+			} `json:"Metadata"`
+		} `json:"MediaContainer"`
+	}
+	url := fmt.Sprintf("%s/library/sections/%s/all?type=2&includeGuids=1", c.base, sectionKey)
+	if err := getJSON(ctx, c.http, url, c.header(), &shows); err != nil {
+		return nil
+	}
+	out := make(map[string]string, len(shows.MediaContainer.Metadata))
+	for _, m := range shows.MediaContainer.Metadata {
+		if id := tvdbIDFromGuids(m.Guid); id != "" && m.RatingKey != "" {
+			out[m.RatingKey] = id
+		}
+	}
+	return out
+}
+
+// tvdbIDFromGuids picks the TheTVDB id out of a Plex Guid list, which also
+// carries imdb:// and tmdb:// entries in no guaranteed order.
+func tvdbIDFromGuids(guids []struct {
+	ID string `json:"id"`
+}) string {
+	for _, g := range guids {
+		if rest, ok := strings.CutPrefix(g.ID, "tvdb://"); ok {
+			// Plex appends an agent suffix on some entries ("tvdb://123?lang=en").
+			if i := strings.IndexAny(rest, "?/"); i >= 0 {
+				rest = rest[:i]
+			}
+			if rest != "" {
+				return rest
+			}
+		}
+	}
+	return ""
 }
 
 // maxDeepScanWorkers bounds parallel per-item detail fetches.
@@ -367,22 +438,7 @@ func (c *jellyfinClient) header() http.Header {
 
 func (c *jellyfinClient) ListItems(ctx context.Context) ([]Item, error) {
 	var out struct {
-		Items []struct {
-			ID                string `json:"Id"`
-			Type              string `json:"Type"` // "Episode" or "Movie"
-			Name              string `json:"Name"`
-			SeriesName        string `json:"SeriesName"`
-			ParentIndexNumber int    `json:"ParentIndexNumber"`
-			IndexNumber       int    `json:"IndexNumber"`
-			ProductionYear    int    `json:"ProductionYear"`
-			MediaStreams      []struct {
-				Type           string `json:"Type"`
-				Height         int    `json:"Height"`
-				Codec          string `json:"Codec"`
-				Profile        string `json:"Profile"`
-				VideoRangeType string `json:"VideoRangeType"`
-			} `json:"MediaStreams"`
-		} `json:"Items"`
+		Items []jellyfinItem `json:"Items"`
 	}
 	// One request per library rather than one flat Recursive sweep, so each
 	// item can be attributed to the library it came from. Consumers need that:
@@ -402,9 +458,44 @@ func (c *jellyfinClient) ListItems(ctx context.Context) ([]Item, error) {
 		if err := getJSON(ctx, c.http, url, c.header(), &out); err != nil {
 			return nil, fmt.Errorf("jellyfin: list items in %q: %w", v.Name, err)
 		}
-		items = append(items, c.itemsFrom(out.Items, v.Name)...)
+		// Provider ids live on the series, not on its episodes, so they need
+		// their own listing -- one call per library, against hundreds of shows.
+		items = append(items, c.itemsFrom(out.Items, v.Name, c.seriesTVDBIDs(ctx, v.ID))...)
 	}
 	return items, nil
+}
+
+// seriesTVDBIDs maps a library's series ids -> TheTVDB id, from the series
+// listing's ProviderIds.
+//
+// Best effort, like its Plex counterpart: an error or a server without provider
+// ids yields an empty map and callers fall back to matching shows by title.
+func (c *jellyfinClient) seriesTVDBIDs(ctx context.Context, viewID string) map[string]string {
+	var out struct {
+		Items []struct {
+			ID          string            `json:"Id"`
+			ProviderIDs map[string]string `json:"ProviderIds"`
+		} `json:"Items"`
+	}
+	url := c.base + "/Items?Recursive=true&IncludeItemTypes=Series&Fields=ProviderIds"
+	if viewID != "" {
+		url += "&ParentId=" + viewID
+	}
+	if err := getJSON(ctx, c.http, url, c.header(), &out); err != nil {
+		return nil
+	}
+	ids := make(map[string]string, len(out.Items))
+	for _, it := range out.Items {
+		// Jellyfin's provider keys are not case-stable across versions
+		// ("Tvdb", "TVDB", "tvdb"), so match without regard to case.
+		for k, v := range it.ProviderIDs {
+			if strings.EqualFold(k, "tvdb") && v != "" && it.ID != "" {
+				ids[it.ID] = v
+				break
+			}
+		}
+	}
+	return ids
 }
 
 // jellyfinView is one of the server's libraries.
@@ -440,7 +531,9 @@ func (c *jellyfinClient) views(ctx context.Context) ([]jellyfinView, error) {
 	return views, nil
 }
 
-func (c *jellyfinClient) itemsFrom(raw []struct {
+// jellyfinItem is one row of a Jellyfin /Items listing. Named rather than
+// repeated inline, since both the listing and itemsFrom must agree on it.
+type jellyfinItem struct {
 	ID                string `json:"Id"`
 	Type              string `json:"Type"`
 	Name              string `json:"Name"`
@@ -455,7 +548,12 @@ func (c *jellyfinClient) itemsFrom(raw []struct {
 		Profile        string `json:"Profile"`
 		VideoRangeType string `json:"VideoRangeType"`
 	} `json:"MediaStreams"`
-}, section string) []Item {
+	// SeriesId is the server's id for an episode's SHOW, used to join
+	// against the series listing that carries the provider ids.
+	SeriesID string `json:"SeriesId"`
+}
+
+func (c *jellyfinClient) itemsFrom(raw []jellyfinItem, section string, seriesTVDB map[string]string) []Item {
 	items := make([]Item, 0, len(raw))
 	for _, it := range raw {
 		var res, vc, ac, ap, cr string
@@ -478,7 +576,8 @@ func (c *jellyfinClient) itemsFrom(raw []struct {
 		case "Episode":
 			items = append(items, Item{Type: "episode", Show: it.SeriesName,
 				Season: it.ParentIndexNumber, Episode: it.IndexNumber, Resolution: res, Section: section,
-				VideoCodec: vc, AudioCodec: ac, AudioProfile: ap, ID: it.ID, ColorRange: cr})
+				VideoCodec: vc, AudioCodec: ac, AudioProfile: ap, ID: it.ID, ColorRange: cr,
+				ShowTVDBID: seriesTVDB[it.SeriesID]})
 		case "Movie":
 			items = append(items, Item{Type: "movie", Title: it.Name,
 				Year: it.ProductionYear, Resolution: res, Section: section,

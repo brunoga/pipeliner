@@ -519,9 +519,17 @@ func (p *gapsPlugin) diffSeasons(eps []itvdb.Episode, show, trackerName, tvdbID 
 	// when episodes are missing, and seasons above it are in scope even when
 	// they hold nothing -- which is the whole point. A show the library does
 	// not have at all has no floor, so nothing of it is proposed.
+	// The library is asked by the TheTVDB id where the server published one,
+	// falling back to the normalised name. A name lookup alone misses a show
+	// the library plainly has whenever the two sources spell it differently --
+	// TheTVDB renames series, and a server may disambiguate a remake with a
+	// year the provider does not use ("Brothers" against "Brothers (2026)").
+	// The miss is silent: no floor is found and the show yields nothing.
+	libKey := owned.Resolve(tvdbID, trackerName)
+
 	floor, haveFloor := 0, true
 	if p.seasons == seasonsFromFirstOwned {
-		floor, haveFloor = owned.FirstSeasonWithAny(trackerName, p.includeSpecials)
+		floor, haveFloor = owned.FirstSeasonWithAny(libKey, p.includeSpecials)
 	}
 
 	for i := range eps {
@@ -534,7 +542,7 @@ func (p *gapsPlugin) diffSeasons(eps []itvdb.Episode, show, trackerName, tvdbID 
 		}
 		airedBySeason[ep.SeasonNumber]++
 		epID := series.EpisodeID(&series.Episode{Season: ep.SeasonNumber, Episode: ep.EpisodeNumber})
-		if p.have(trackerName, epID, ep.SeasonNumber, ep.EpisodeNumber, owned, pending) {
+		if p.have(trackerName, libKey, epID, ep.SeasonNumber, ep.EpisodeNumber, owned, pending) {
 			continue
 		}
 		missingBySeason[ep.SeasonNumber] = append(missingBySeason[ep.SeasonNumber], ep.EpisodeNumber)
@@ -660,11 +668,15 @@ func (p *gapsPlugin) ownedEpisodes(ctx context.Context, tc *plugin.TaskContext) 
 //
 // Without a media server the tracker remains the only thing that knows
 // anything, and the behaviour is unchanged from before this option existed.
-func (p *gapsPlugin) have(trackerName, epID string, season, episode int, owned *mediaserver.OwnedEpisodes, pending *pendingSet) bool {
+// trackerName keys pipeliner's own state (the tracker and the pending set);
+// libKey keys the media server's index, which Resolve may have matched by id
+// under a different spelling. They are the same string whenever the two
+// sources agree on the title, and must not be conflated when they do not.
+func (p *gapsPlugin) have(trackerName, libKey, epID string, season, episode int, owned *mediaserver.OwnedEpisodes, pending *pendingSet) bool {
 	if p.client == nil {
 		return p.tracker.IsSeen(trackerName, epID)
 	}
-	if owned.Has(trackerName, season, episode) {
+	if owned.Has(libKey, season, episode) {
 		return true
 	}
 	return pending.active(trackerName + "|" + epID)

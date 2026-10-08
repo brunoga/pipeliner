@@ -18,12 +18,20 @@ func TestPlexListItemsAndRefresh(t *testing.T) {
 			w.Write([]byte(`{"MediaContainer":{"Directory":[
 				{"key":"1","type":"show"},{"key":"2","type":"movie"},{"key":"3","type":"photo"}]}}`))
 		case "/library/sections/1/all":
-			if r.URL.Query().Get("type") != "4" {
-				t.Errorf("show section should request type=4, got %q", r.URL.Query().Get("type"))
+			switch r.URL.Query().Get("type") {
+			case "2": // the show listing, read for its provider ids
+				if r.URL.Query().Get("includeGuids") != "1" {
+					t.Errorf("show listing should ask for guids, got %q", r.URL.RawQuery)
+				}
+				w.Write([]byte(`{"MediaContainer":{"Metadata":[
+					{"ratingKey":"77","Guid":[{"id":"imdb://tt1"},{"id":"tvdb://81189"}]}]}}`))
+			case "4": // the episode leaves
+				w.Write([]byte(`{"MediaContainer":{"Metadata":[
+					{"type":"episode","grandparentTitle":"Breaking Bad","parentIndex":1,"index":2,
+					 "grandparentRatingKey":"77","Media":[{"videoResolution":"1080"}]}]}}`))
+			default:
+				t.Errorf("show section asked for type=%q", r.URL.Query().Get("type"))
 			}
-			w.Write([]byte(`{"MediaContainer":{"Metadata":[
-				{"type":"episode","grandparentTitle":"Breaking Bad","parentIndex":1,"index":2,
-				 "Media":[{"videoResolution":"1080"}]}]}}`))
 		case "/library/sections/2/all":
 			w.Write([]byte(`{"MediaContainer":{"Metadata":[
 				{"type":"movie","title":"Dune Part Two","year":2024,"Media":[{"videoResolution":"4k"}]}]}}`))
@@ -50,6 +58,10 @@ func TestPlexListItemsAndRefresh(t *testing.T) {
 	if ep.Type != "episode" || ep.Show != "Breaking Bad" || ep.EpisodeID() != "S01E02" || ep.Resolution != "1080p" {
 		t.Errorf("episode: %+v", ep)
 	}
+	// The SHOW's id, joined via grandparentRatingKey -- not the episode's own.
+	if ep.ShowTVDBID != "81189" {
+		t.Errorf("ShowTVDBID = %q, want 81189", ep.ShowTVDBID)
+	}
 	if mv.Type != "movie" || mv.Title != "Dune Part Two" || mv.Year != 2024 || mv.Resolution != "2160p" {
 		t.Errorf("movie: %+v", mv)
 	}
@@ -68,6 +80,13 @@ func TestJellyfinListItemsAndRefresh(t *testing.T) {
 		case "/Library/VirtualFolders":
 			w.Write([]byte(`[{"ItemId":"v1","Name":"Movies"},{"ItemId":"v2","Name":"TV Shows"}]`))
 		case "/Items":
+			// The series listing, read for its provider ids. Checked before
+			// ParentId so it is answered for whichever library asks.
+			if r.URL.Query().Get("IncludeItemTypes") == "Series" {
+				w.Write([]byte(`{"Items":[
+					{"Id":"s9","ProviderIds":{"Imdb":"tt2","Tvdb":"371980"}}]}`))
+				return
+			}
 			// Items are fetched per library, so each carries its Section.
 			switch r.URL.Query().Get("ParentId") {
 			case "v1":
@@ -76,7 +95,8 @@ func TestJellyfinListItemsAndRefresh(t *testing.T) {
 					 "MediaStreams":[{"Type":"Video","Height":2160}]}]}`))
 			case "v2":
 				w.Write([]byte(`{"Items":[
-					{"Type":"Episode","SeriesName":"Severance","ParentIndexNumber":2,"IndexNumber":10,
+					{"Type":"Episode","SeriesName":"Severance","SeriesId":"s9",
+					 "ParentIndexNumber":2,"IndexNumber":10,
 					 "MediaStreams":[{"Type":"Audio"},{"Type":"Video","Height":716}]}]}`))
 			default:
 				t.Errorf("Items without a ParentId: %s", r.URL.RawQuery)
@@ -111,6 +131,11 @@ func TestJellyfinListItemsAndRefresh(t *testing.T) {
 	// 716px scan lines bucket to 720p (matte-cropped encodes are common).
 	if episode.EpisodeID() != "S02E10" || episode.Resolution != "720p" || episode.Section != "TV Shows" {
 		t.Errorf("episode: %+v", episode)
+	}
+	// Joined from the series listing via SeriesId; the provider key is matched
+	// case-insensitively because Jellyfin has spelt it Tvdb/TVDB/tvdb.
+	if episode.ShowTVDBID != "371980" {
+		t.Errorf("ShowTVDBID = %q, want 371980", episode.ShowTVDBID)
 	}
 	if err := c.Refresh(context.Background()); err != nil || !refreshed {
 		t.Errorf("refresh: err=%v hit=%v", err, refreshed)

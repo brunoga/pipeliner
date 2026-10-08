@@ -18,6 +18,7 @@
 //	series_name           normalized name, the key series_gaps looks up by
 //	series_episode_count  episodes of the show held by the server
 //	media_type            series
+//	tvdb_id               the server's TheTVDB id, when it publishes one
 //
 // Config keys:
 //
@@ -54,6 +55,9 @@ func init() {
 			entry.FieldSeriesName,
 			entry.FieldSeriesEpisodeCount,
 		},
+		// Only servers that publish provider ids supply this, so it is not
+		// guaranteed on every entry.
+		MayProduce: []string{"tvdb_id"},
 		Schema: []plugin.FieldSchema{
 			{Key: "backend", Type: plugin.FieldTypeString, Default: "plex", Hint: "Media server: plex or jellyfin"},
 			{Key: "url", Type: plugin.FieldTypeString, Hint: "Media server base URL; omit for Plex account mode (sign in on the Tools tab)"},
@@ -131,6 +135,12 @@ func (p *showsSourcePlugin) Generate(ctx context.Context, tc *plugin.TaskContext
 		e.Set(entry.FieldMediaType, entry.MediaTypeSeries)
 		e.Set(entry.FieldSeriesName, norm)
 		e.Set(entry.FieldSeriesEpisodeCount, owned.EpisodeCount(norm))
+		// Pass the server's TheTVDB id on where it published one, so a
+		// downstream series_gaps resolves the show by identity rather than by
+		// a title the two sources may spell differently.
+		if id := owned.TVDBID(norm); id != "" {
+			e.Set("tvdb_id", id)
+		}
 		entries = append(entries, e)
 	}
 	tc.Logger.Debug(pluginName+": generated library shows",
