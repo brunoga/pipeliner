@@ -28,6 +28,10 @@ Omitting both `url` and `token` selects Plex **account mode**: sign in once on
 the Tools tab and every owned server is read, with the token picked up per call
 so a later sign-in needs no restart.
 
+## When not to use it
+
+This emits *every* show the server holds. Paired with `series_gaps(seasons="from_first_owned")` that makes any show in the library a backfill target — including one left behind by a premiere-grabbing pipeline, where a single unwatched `S01E01` is read as licence to fetch the whole run. Where the library is not itself the statement of intent, take the show list from what is explicitly followed (`tvdb_favorites`, `trakt_list`) and keep `backend=` on `series_gaps` so the library still decides which episodes are missing.
+
 ## Fields set
 
 | Field | Value |
