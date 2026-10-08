@@ -22,7 +22,7 @@ func TestAggregateCounters_SimpleSourcePassthrough(t *testing.T) {
 		mkEntry("b", "http://b", entry.Rejected),
 		mkEntry("c", "http://c", entry.Undecided),
 	}
-	total, acc, rej, fail, und, entries := aggregateCounters(src, nil, nil, nil)
+	total, acc, rej, fail, und, entries := aggregateCounters(src, nil, nil, nil, nil)
 	if total != 3 || acc != 1 || rej != 1 || fail != 0 || und != 1 {
 		t.Fatalf("counts: got total=%d acc=%d rej=%d fail=%d und=%d, want 3/1/1/0/1",
 			total, acc, rej, fail, und)
@@ -49,7 +49,7 @@ func TestAggregateCounters_FanOutClonesAggregateByURL(t *testing.T) {
 		{from: "src", to: "branchA"}: {src},
 		{from: "src", to: "branchB"}: {clone},
 	}
-	total, acc, rej, fail, und, _ := aggregateCounters([]*entry.Entry{src}, edges, nil, nil)
+	total, acc, rej, fail, und, _ := aggregateCounters([]*entry.Entry{src}, edges, nil, nil, nil)
 	if total != 1 {
 		t.Fatalf("total: got %d, want 1 (URL dedup)", total)
 	}
@@ -78,11 +78,11 @@ func TestAggregateCounters_StrongestStateWins(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			edges := map[edgeKey][]*entry.Entry{}
 			for i, s := range tc.clones {
-				edges[edgeKey{from: "src", to: dag.NodeID(string(rune('a'+i)))}] = []*entry.Entry{
+				edges[edgeKey{from: "src", to: dag.NodeID(string(rune('a' + i)))}] = []*entry.Entry{
 					mkEntry("t", "http://t", s),
 				}
 			}
-			_, acc, rej, fail, und, _ := aggregateCounters(nil, edges, nil, nil)
+			_, acc, rej, fail, und, _ := aggregateCounters(nil, edges, nil, nil, nil)
 			var got entry.State
 			switch {
 			case acc == 1:
@@ -132,7 +132,7 @@ func TestAggregateCounters_ReplacesUpstreamDiscardsConsumed(t *testing.T) {
 		discarded[e] = true
 	}
 
-	total, acc, rej, fail, und, entries := aggregateCounters(consumed, edges, discarded, nil)
+	total, acc, rej, fail, und, entries := aggregateCounters(consumed, edges, discarded, nil, nil)
 	if total != 4 {
 		t.Fatalf("total: got %d, want 4 (only emitted entries count)", total)
 	}
@@ -157,9 +157,7 @@ func TestAggregateCounters_EmptyURLFallsBackToPointer(t *testing.T) {
 	a := mkEntry("a", "", entry.Accepted)
 	b := mkEntry("b", "", entry.Rejected)
 	c := mkEntry("c", "", entry.Undecided)
-	total, acc, rej, _, und, _ := aggregateCounters(
-		[]*entry.Entry{a, b, c}, nil, nil, nil,
-	)
+	total, acc, rej, _, und, _ := aggregateCounters([]*entry.Entry{a, b, c}, nil, nil, nil, nil)
 	if total != 3 {
 		t.Fatalf("total: got %d, want 3 (URL-less entries identified by pointer)", total)
 	}
@@ -187,8 +185,7 @@ func TestAggregateCounters_SupersededOriginalDoesNotCount(t *testing.T) {
 	}
 	superseded := map[*entry.Entry]bool{original: true}
 
-	total, acc, rej, _, _, _ := aggregateCounters(
-		[]*entry.Entry{original}, edges, nil, superseded)
+	total, acc, rej, _, _, _ := aggregateCounters([]*entry.Entry{original}, edges, nil, superseded, nil)
 
 	if total != 1 {
 		t.Fatalf("total: got %d, want 1", total)
@@ -213,8 +210,7 @@ func TestAggregateCounters_SupersededStillLetsABranchAccept(t *testing.T) {
 		{from: "fan", to: "b1"}: {rejectedBranch},
 		{from: "fan", to: "b2"}: {acceptedBranch},
 	}
-	_, acc, rej, _, _, _ := aggregateCounters(
-		[]*entry.Entry{original}, edges, nil, map[*entry.Entry]bool{original: true})
+	_, acc, rej, _, _, _ := aggregateCounters([]*entry.Entry{original}, edges, nil, map[*entry.Entry]bool{original: true}, nil)
 
 	if acc != 1 || rej != 0 {
 		t.Errorf("acc=%d rej=%d, want the accepting branch to win", acc, rej)
@@ -231,13 +227,75 @@ func TestAggregateCounters_BucketsPartitionTheTotal(t *testing.T) {
 		{from: "route", to: "l3"}: {mkEntry("c", "http://c", entry.Undecided)},
 		{from: "route", to: "l4"}: {mkEntry("d", "http://d", entry.Failed)},
 	}
-	total, acc, rej, fail, und, _ := aggregateCounters(
-		[]*entry.Entry{original}, edges, nil, map[*entry.Entry]bool{original: true})
+	total, acc, rej, fail, und, _ := aggregateCounters([]*entry.Entry{original}, edges, nil, map[*entry.Entry]bool{original: true}, nil)
 
 	if got := acc + rej + fail + und; got != total {
 		t.Errorf("acc+rej+fail+und = %d, total = %d; the buckets must partition the total", got, total)
 	}
 	if total != 4 {
 		t.Errorf("total = %d, want 4 distinct URLs", total)
+	}
+}
+
+// TestAggregateCounters_DroppedCopyDoesNotVoteAccepted is the harvest case as
+// it actually happens, which the superseded-originals fix did not cover.
+//
+// route fans every entry out to one selector per port, and each selector keeps
+// only the entries for its port — silently, by design: rejecting the rest
+// would mark a release rejected on three branches when one of them took it.
+// But the dropped copies stop there still holding whatever state they had
+// upstream, and the movies filter had accepted them. So an entry refused by
+// its own lane still had two Accepted copies sitting on the other selectors'
+// edges, and Accepted outranks Rejected.
+func TestAggregateCounters_DroppedCopyDoesNotVoteAccepted(t *testing.T) {
+	// One release, accepted upstream, routed to the "frame" port.
+	droppedOnA := mkEntry("a", "http://a", entry.Accepted) // selector "asserted" dropped it
+	droppedOnB := mkEntry("a", "http://a", entry.Accepted) // selector "ambiguous" dropped it
+	refused := mkEntry("a", "http://a", entry.Rejected)    // its own lane refused it
+
+	edges := map[edgeKey][]*entry.Entry{
+		{from: "route", to: "selA"}:    {droppedOnA},
+		{from: "route", to: "selB"}:    {droppedOnB},
+		{from: "selFrame", to: "cond"}: {refused},
+	}
+	dropped := map[*entry.Entry]bool{droppedOnA: true, droppedOnB: true}
+
+	total, acc, rej, _, und, _ := aggregateCounters(nil, edges, nil, nil, dropped)
+	if total != 1 {
+		t.Fatalf("total = %d, want 1", total)
+	}
+	if acc != 0 {
+		t.Errorf("accepted = %d, want 0 — nothing downloaded it", acc)
+	}
+	if rej != 1 {
+		t.Errorf("rejected = %d, want 1; und=%d", rej, und)
+	}
+}
+
+// A cap is not a verdict. limit drops what exceeds n without refusing it, so
+// those releases are Undecided — they entered the pipeline and simply did not
+// get a slot — and must still appear in the total.
+func TestAggregateCounters_CappedEntriesAreUndecidedNotAccepted(t *testing.T) {
+	taken := mkEntry("a", "http://a", entry.Accepted)
+	capped := mkEntry("b", "http://b", entry.Accepted) // accepted upstream, dropped by limit
+
+	edges := map[edgeKey][]*entry.Entry{
+		{from: "limit", to: "sink"}:  {taken},
+		{from: "dedup", to: "limit"}: {taken, capped},
+	}
+	total, acc, rej, fail, und, _ := aggregateCounters(
+		nil, edges, nil, nil, map[*entry.Entry]bool{capped: true})
+
+	if total != 2 {
+		t.Fatalf("total = %d, want 2 — the capped release still entered", total)
+	}
+	if acc != 1 {
+		t.Errorf("accepted = %d, want 1", acc)
+	}
+	if und != 1 {
+		t.Errorf("undecided = %d, want 1 for the capped release", und)
+	}
+	if got := acc + rej + fail + und; got != total {
+		t.Errorf("buckets sum to %d, total %d", got, total)
 	}
 }

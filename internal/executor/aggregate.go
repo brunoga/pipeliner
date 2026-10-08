@@ -33,6 +33,7 @@ func aggregateCounters(
 	edges map[edgeKey][]*entry.Entry,
 	discarded map[*entry.Entry]bool,
 	superseded map[*entry.Entry]bool,
+	dropped map[*entry.Entry]bool,
 ) (total, accepted, rejected, failed, undecided int, entries []*entry.Entry) {
 	// Per group: best (highest-rank) state, plus a representative entry so we
 	// can re-publish a stable Entries slice. order preserves first-seen order
@@ -45,18 +46,27 @@ func aggregateCounters(
 		if e == nil || discarded[e] || superseded[e] {
 			return
 		}
+		// A copy that stopped at a node which neither emitted nor refused it
+		// is a dead end. Its state is whatever it held upstream, which for an
+		// entry accepted before a fan-out is Accepted — so it would outrank
+		// the branch that actually refused the release. It still counts, as
+		// Undecided: it entered the pipeline and went nowhere.
+		state := e.State
+		if dropped[e] {
+			state = entry.Undecided
+		}
 		key := e.URL
 		if key == "" {
 			key = fmt.Sprintf("__ptr:%p", e)
 		}
 		if _, seen := bestState[key]; !seen {
-			bestState[key] = e.State
+			bestState[key] = state
 			repr[key] = e
 			order = append(order, key)
 			return
 		}
-		if stateRank(e.State) > stateRank(bestState[key]) {
-			bestState[key] = e.State
+		if stateRank(state) > stateRank(bestState[key]) {
+			bestState[key] = state
 			repr[key] = e
 		}
 	}
