@@ -3,6 +3,7 @@ package gaps
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/brunoga/pipeliner/internal/entry"
+	"github.com/brunoga/pipeliner/internal/mediaserver"
 	"github.com/brunoga/pipeliner/internal/plugin"
 	"github.com/brunoga/pipeliner/internal/series"
 	"github.com/brunoga/pipeliner/internal/store"
@@ -555,5 +557,233 @@ func TestValidate(t *testing.T) {
 		"include_inactive": true, "pack_threshold": 0.7, "max_per_run": 10,
 	}); len(errs) != 0 {
 		t.Errorf("valid config should pass, got %v", errs)
+	}
+}
+
+// ── media-server mode ────────────────────────────────────────────────────────
+
+// stubServer is a mediaserver.Client over a fixed item list.
+type stubServer struct {
+	items []mediaserver.Item
+	err   error
+	calls int
+}
+
+func (s *stubServer) ListItems(context.Context) ([]mediaserver.Item, error) {
+	s.calls++
+	if s.err != nil {
+		return nil, s.err
+	}
+	return s.items, nil
+}
+func (s *stubServer) Refresh(context.Context) error { return nil }
+
+// owns builds a library item for one episode of "My Show".
+func owns(season, episode int) mediaserver.Item {
+	return mediaserver.Item{
+		Type: "episode", Show: "My Show", Season: season, Episode: episode,
+		Section: "TV Shows",
+	}
+}
+
+// openWithServer builds the plugin in media-server mode over a stub library.
+func openWithServer(t *testing.T, m *tvdbMock, srv *stubServer, extra map[string]any) (*gapsPlugin, *store.SQLiteStore) {
+	t.Helper()
+	cfg := map[string]any{"backend": "plex", "url": "http://x", "token": "t"}
+	maps.Copy(cfg, extra)
+	p, db := openPlugin(t, m, cfg)
+	p.client = srv
+	return p, db
+}
+
+// twoSeasons is season 1 (4 aired) plus season 2 (3 aired) plus season 3
+// (2 aired), so a floor can sit in the middle with seasons on both sides.
+func twoSeasons() []map[string]any {
+	return []map[string]any{
+		ep(1, 1, "2008-01-20"), ep(1, 2, "2008-01-27"),
+		ep(2, 1, "2009-01-20"), ep(2, 2, "2009-01-27"), ep(2, 3, "2009-02-03"),
+		ep(3, 1, "2010-01-20"), ep(3, 2, "2010-01-27"),
+	}
+}
+
+func multiSeasonShow() map[string]mockShow {
+	return map[string]mockShow{"My Show": {id: "100", episodes: twoSeasons()}}
+}
+
+// TestFromFirstOwnedAnchorsOnEarliestHeldSeason is the behaviour asked for:
+// holding only S02E01 means season 1 is out of scope, the rest of season 2 is
+// in scope, and season 3 is in scope in full even though nothing of it is
+// held.
+func TestFromFirstOwnedAnchorsOnEarliestHeldSeason(t *testing.T) {
+	m := newMockTVDB(t, multiSeasonShow())
+	srv := &stubServer{items: []mediaserver.Item{owns(2, 1)}}
+	p, _ := openWithServer(t, m, srv, map[string]any{
+		"seasons": "from_first_owned", "pack_threshold": 1.0,
+	})
+
+	got := titles(run(t, p, showEntry("My Show", "my show")))
+	want := []string{
+		"My Show S02E02", "My Show S02E03",
+		"My Show S03E01", "My Show S03E02",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+	}
+}
+
+// TestSeasonsAllIgnoresTheFloor keeps the default honest: with seasons=all a
+// library-backed run still proposes season 1.
+func TestSeasonsAllIgnoresTheFloor(t *testing.T) {
+	m := newMockTVDB(t, multiSeasonShow())
+	srv := &stubServer{items: []mediaserver.Item{owns(2, 1)}}
+	p, _ := openWithServer(t, m, srv, map[string]any{"pack_threshold": 1.0})
+
+	got := titles(run(t, p, showEntry("My Show", "my show")))
+	if len(got) != 6 {
+		t.Fatalf("want all 6 missing aired episodes, got %v", got)
+	}
+	if got[0] != "My Show S01E01" {
+		t.Errorf("season 1 should be in scope with seasons=all, got %v", got)
+	}
+}
+
+// TestDeletedEpisodeBecomesAGapAgain is the case that made consulting the
+// shared tracker wrong: the tracker says pipeliner grabbed it, the library
+// says it is gone. The library wins, or a deleted episode could never be
+// re-fetched.
+func TestDeletedEpisodeBecomesAGapAgain(t *testing.T) {
+	m := newMockTVDB(t, myShow())
+	srv := &stubServer{items: []mediaserver.Item{owns(1, 1)}}
+	p, db := openWithServer(t, m, srv, map[string]any{"pack_threshold": 1.0})
+	// Grabbed once, since deleted from the library.
+	seedTracker(t, db, "my show", "S01E02")
+
+	got := titles(run(t, p, showEntry("My Show", "my show")))
+	for _, want := range []string{"My Show S01E02", "My Show S01E03", "My Show S01E04"} {
+		found := false
+		for _, g := range got {
+			if g == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("%q missing from %v: a tracked-but-deleted episode must be a gap again", want, got)
+		}
+	}
+	for _, g := range got {
+		if g == "My Show S01E01" {
+			t.Error("S01E01 is in the library and must not be proposed")
+		}
+	}
+}
+
+// TestPendingCooldownSuppressesThenExpires covers what replaced the tracker:
+// an episode just asked for is skipped while it downloads, and comes back
+// once the cooldown lapses.
+func TestPendingCooldownSuppressesThenExpires(t *testing.T) {
+	m := newMockTVDB(t, myShow())
+	srv := &stubServer{items: []mediaserver.Item{owns(1, 1)}}
+	p, _ := openWithServer(t, m, srv, map[string]any{
+		"pack_threshold": 1.0, "retry_cooldown": "48h",
+	})
+
+	first := titles(run(t, p, showEntry("My Show", "my show")))
+	if len(first) == 0 {
+		t.Fatal("first run proposed nothing")
+	}
+	// Same run again: everything just asked for is on cooldown.
+	if second := titles(run(t, p, showEntry("My Show", "my show"))); len(second) != 0 {
+		t.Errorf("cooldown not applied, re-proposed %v", second)
+	}
+	// Past the cooldown it is fair game again — the download may have failed.
+	p.now = func() time.Time { return fixedNow.Add(72 * time.Hour) }
+	if third := titles(run(t, p, showEntry("My Show", "my show"))); len(third) != len(first) {
+		t.Errorf("after cooldown want %d proposals, got %v", len(first), third)
+	}
+}
+
+// TestFromFirstOwnedSkipsShowsNotInLibrary: with no episode of a show at all
+// there is no floor, so nothing of it is proposed. Otherwise the option would
+// backfill entire shows you have never watched.
+func TestFromFirstOwnedSkipsShowsNotInLibrary(t *testing.T) {
+	m := newMockTVDB(t, multiSeasonShow())
+	srv := &stubServer{items: []mediaserver.Item{
+		{Type: "episode", Show: "Other Show", Season: 1, Episode: 1, Section: "TV Shows"},
+	}}
+	p, _ := openWithServer(t, m, srv, map[string]any{
+		"seasons": "from_first_owned", "pack_threshold": 1.0,
+	})
+	if got := titles(run(t, p, showEntry("My Show", "my show"))); len(got) != 0 {
+		t.Errorf("a show absent from the library must be skipped, got %v", got)
+	}
+}
+
+// TestUnreachableServerProposesNothing: an empty index is indistinguishable
+// from an empty library, and acting on one would re-download everything.
+func TestUnreachableServerProposesNothing(t *testing.T) {
+	m := newMockTVDB(t, myShow())
+	srv := &stubServer{err: errors.New("connection refused")}
+	p, _ := openWithServer(t, m, srv, map[string]any{"pack_threshold": 1.0})
+	if got := titles(run(t, p, showEntry("My Show", "my show"))); len(got) != 0 {
+		t.Errorf("unreachable server should propose nothing, got %v", got)
+	}
+}
+
+// TestLibraryIndexReusedWithinTTL: one index per ttl, not one per show.
+func TestLibraryIndexReusedWithinTTL(t *testing.T) {
+	m := newMockTVDB(t, myShow())
+	srv := &stubServer{items: []mediaserver.Item{owns(1, 1)}}
+	p, _ := openWithServer(t, m, srv, map[string]any{
+		"pack_threshold": 1.0, "library_ttl": "15m",
+	})
+	run(t, p, showEntry("My Show", "my show"))
+	run(t, p, showEntry("My Show", "my show"))
+	if srv.calls != 1 {
+		t.Errorf("ListItems called %d times, want 1 within the ttl", srv.calls)
+	}
+}
+
+// TestSectionsFilterLibrary: an episode in an excluded library is not "owned".
+func TestSectionsFilterLibrary(t *testing.T) {
+	m := newMockTVDB(t, myShow())
+	item := owns(1, 1)
+	item.Section = "Kids TV"
+	srv := &stubServer{items: []mediaserver.Item{item}}
+	p, _ := openWithServer(t, m, srv, map[string]any{
+		"pack_threshold": 1.0, "sections": []any{"TV Shows"},
+	})
+	got := titles(run(t, p, showEntry("My Show", "my show")))
+	saw := false
+	for _, g := range got {
+		if g == "My Show S01E01" {
+			saw = true
+		}
+	}
+	if !saw {
+		t.Errorf("an episode outside the configured sections must not count as owned, got %v", got)
+	}
+}
+
+func TestValidateSeasonsNeedsBackend(t *testing.T) {
+	errs := validate(map[string]any{"api_key": "k", "seasons": "from_first_owned"})
+	if len(errs) == 0 {
+		t.Error("seasons=from_first_owned without a backend should not validate")
+	}
+	if errs := validate(map[string]any{
+		"api_key": "k", "seasons": "from_first_owned", "backend": "plex",
+		"url": "http://x", "token": "t",
+	}); len(errs) != 0 {
+		t.Errorf("valid config rejected: %v", errs)
+	}
+	if errs := validate(map[string]any{"api_key": "k", "seasons": "sideways"}); len(errs) == 0 {
+		t.Error("an unknown seasons value should not validate")
+	}
+	if errs := validate(map[string]any{"api_key": "k", "backend": "kodi"}); len(errs) == 0 {
+		t.Error("an unknown backend should not validate")
 	}
 }

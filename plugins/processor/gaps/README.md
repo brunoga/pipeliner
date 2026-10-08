@@ -75,4 +75,51 @@ See [`configs/series-backfill.star`](../../../configs/series-backfill.star) for 
 ## Caveats
 
 - Date-numbered shows (talk shows tracked by air date, e.g. `2023-11-15`) cannot be matched against TVDB's season/episode numbering, so all their episodes look missing. Gate on `series_lifecycle == "dormant"` and deactivate such shows, or accept the noise.
-- The gap diff is tracker-truth, not disk-truth: episodes downloaded outside pipeliner count as missing until library awareness (roadmap §5) lands.
+- Without `backend`, the gap diff is tracker-truth rather than disk-truth: episodes acquired outside pipeliner count as missing, and an episode you delete never comes back. Set `backend="plex"` (or `jellyfin"`) to diff against the library instead.
+
+## Library-truth mode
+
+With `backend` set, "already have it" means the media server says so, not that
+pipeliner once grabbed it. That matters in both directions: episodes you
+acquired outside pipeliner stop being proposed, and an episode you **delete**
+becomes a gap again — which a tracker record would have blocked forever.
+
+The shared series tracker is deliberately not consulted in this mode. A record
+there says pipeliner grabbed the episode at some point, which is not the same
+claim as "it is on disk now".
+
+What the tracker was doing usefully — not re-asking for something already in
+flight — is covered by a per-task pending set instead. An episode asked for
+within `retry_cooldown` is skipped, so the hours between a grab and the server
+indexing it don't spend a slot of `max_per_run` or an indexer query on every
+run. Unlike a tracker record it expires, so a download that failed, or a file
+later removed, comes back.
+
+```python
+shows = input("series_tracker")
+gaps  = process("series_gaps", upstream=shows, api_key=env("TVDB_API_KEY"),
+                backend="plex", sections=["TV Shows"],
+                seasons="from_first_owned",
+                pack_threshold=1.0, max_per_run=30)
+```
+
+Omit `url`/`token` for Plex **account mode**: sign in once on the Tools tab and
+every owned server is read, with the token picked up per index build so a
+later sign-in needs no restart.
+
+### Which seasons are in scope
+
+| `seasons` | Meaning |
+|---|---|
+| `all` (default) | Every aired season. Fills a show in completely. |
+| `from_first_owned` | Seasons from the earliest one you hold an episode of onwards — **including later seasons you hold nothing of**. |
+
+`from_first_owned` is "finish what I started". Holding only S02E01 puts the rest
+of season 2 in scope, puts season 3 in scope in full, and leaves season 1
+alone — you evidently did not want it. A show the library has nothing of has no
+floor, so none of it is proposed; that is what stops the option backfilling
+shows you have never watched.
+
+It needs `backend`, and `pipeliner check` says so rather than waiting for the
+first run: the floor is a fact about what is on disk, and answering it from the
+tracker would be wrong for exactly the shows the option exists for.
