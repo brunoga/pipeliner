@@ -40,7 +40,17 @@ SMTP = {
 # favourites. No schedule: it runs only when a link is confirmed.
 requests = input("webhook", queue="favorites")
 valid    = process("require", upstream=requests, fields=["tvdb_id"])
-output("tvdb_favorites_add", upstream=valid, api_key=tvdb_key, user_pin=tvdb_pin)
+
+# The click is the decision, and it has to be recorded as one. A sink only
+# ever sees Accepted entries — that is the framework's rule, so that filters
+# decide and sinks execute — and nothing above this accepts: a webhook source
+# emits Undecided, and `require` is a gate rather than a verdict. Without this
+# node the sink logs `in=0 bypassed=1` and the favourite is silently not added,
+# which is exactly what this config did before.
+confirmed = process("condition", upstream=valid, accept="true",
+                    reason="the follow link was confirmed")
+
+output("tvdb_favorites_add", upstream=confirmed, api_key=tvdb_key, user_pin=tvdb_pin)
 pipeline("tvshows-favorite-add")
 
 # ── A premiere notification carrying the link ────────────────────────────────

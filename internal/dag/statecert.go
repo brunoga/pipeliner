@@ -319,9 +319,12 @@ func (sc *stateCertainty) removeFromAcceptedUndecided(fields []string) {
 // fraction to Rejected without populating Accepted, so they keep using the
 // narrowing helper.
 func (sc *stateCertainty) promoteAccepted(promotes []string) {
-	if len(promotes) == 0 {
-		return
-	}
+	// An accept rule routes entries into Accepted whether or not it promotes
+	// any field. Returning early on an empty promote list used to skip the
+	// populated bit too, so `condition(accept="true")` — the idiomatic way to
+	// say "the decision was made elsewhere", as a confirmed action link does
+	// — left Accepted unpopulated. A downstream sink then looked statically
+	// unreachable when it was the very thing that made it reachable.
 	if !sc.populated.Has(entry.Accepted) && sc.populated.Has(entry.Undecided) {
 		sc.copyBucket(entry.Undecided, entry.Accepted)
 	}
