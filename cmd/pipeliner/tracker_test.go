@@ -195,3 +195,93 @@ func TestCmdTrackerForgetMissingFails(t *testing.T) {
 		t.Errorf("forgetting the 3D version of a 2D-only record: exit %d, want 1", code)
 	}
 }
+
+func TestMovieTrackerBucket(t *testing.T) {
+	if got := movieTrackerBucket(""); got != movies.TrackerBucketName {
+		t.Errorf("empty pipeline = %q, want %q", got, movies.TrackerBucketName)
+	}
+	if got, want := movieTrackerBucket("3d-mvc-harvest"), "movies:3d-mvc-harvest"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+// TestCmdTrackerPerPipeline covers the gap that --pipeline closes: a movies
+// node with local=true tracks into movies:<task>, which the CLI could not
+// reach at all. The two trackers must stay independent in both directions.
+func TestCmdTrackerPerPipeline(t *testing.T) {
+	cfg := tmpConfig(t)
+	const pipe = "3d-mvc-harvest"
+
+	if code := cmdTracker([]string{"mark-movie", "--config", cfg, "--year", "2001",
+		"--3d", "--pipeline", pipe, "Shrek"}); code != 0 {
+		t.Fatalf("mark-movie --pipeline exit %d", code)
+	}
+	db := openTrackerDB(t, cfg)
+	local := movies.NewTracker(db.Bucket("movies:" + pipe))
+	shared := movies.NewTracker(db.Bucket(movies.TrackerBucketName))
+	if !local.IsSeen("shrek", 2001, true) {
+		t.Error("not marked in the per-pipeline bucket")
+	}
+	if shared.IsSeen("shrek", 2001, true) {
+		t.Error("marking a pipeline tracker leaked into the shared one")
+	}
+	db.Close()
+
+	// Forgetting from the shared tracker must not touch the pipeline's.
+	if code := cmdTracker([]string{"forget-movie", "--config", cfg, "--year", "2001",
+		"--3d", "Shrek"}); code != 1 {
+		t.Error("forget from the shared tracker should fail: the record is not there")
+	}
+	db2 := openTrackerDB(t, cfg)
+	if !movies.NewTracker(db2.Bucket("movies:"+pipe)).IsSeen("shrek", 2001, true) {
+		t.Error("a failed shared-tracker forget removed the pipeline's record")
+	}
+	db2.Close()
+
+	if code := cmdTracker([]string{"forget-movie", "--config", cfg, "--year", "2001",
+		"--3d", "--pipeline", pipe, "Shrek"}); code != 0 {
+		t.Fatalf("forget-movie --pipeline exit %d", code)
+	}
+	db3 := openTrackerDB(t, cfg)
+	if movies.NewTracker(db3.Bucket("movies:"+pipe)).IsSeen("shrek", 2001, true) {
+		t.Error("still tracked in the per-pipeline bucket after forget")
+	}
+}
+
+// TestOtherMovieBuckets pins the hint that turns "no such record" into the
+// next command to run.
+func TestOtherMovieBuckets(t *testing.T) {
+	cfg := tmpConfig(t)
+	if code := cmdTracker([]string{"mark-movie", "--config", cfg, "--year", "2001",
+		"--3d", "--pipeline", "3d-mvc-harvest", "Shrek"}); code != 0 {
+		t.Fatalf("mark exit %d", code)
+	}
+	if code := cmdTracker([]string{"mark-movie", "--config", cfg, "--year", "2001",
+		"--3d", "--pipeline", "3d-mvc-ondemand", "Shrek"}); code != 0 {
+		t.Fatalf("mark exit %d", code)
+	}
+	db := openTrackerDB(t, cfg)
+	defer db.Close()
+
+	key := movies.RecordKey("shrek", 2001, true)
+	got := otherMovieBuckets(db, movies.TrackerBucketName, key)
+	want := []string{"movies:3d-mvc-harvest", "movies:3d-mvc-ondemand"}
+	if len(got) != len(want) {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			t.Fatalf("got %q, want %q", got, want)
+		}
+	}
+	// The excluded bucket is never reported back to the caller.
+	if g := otherMovieBuckets(db, "movies:3d-mvc-harvest", key); len(g) != 1 ||
+		g[0] != "movies:3d-mvc-ondemand" {
+		t.Errorf("exclude not honoured: %q", g)
+	}
+	// A key nobody tracks yields nothing.
+	if g := otherMovieBuckets(db, movies.TrackerBucketName,
+		movies.RecordKey("nope", 1999, false)); len(g) != 0 {
+		t.Errorf("unexpected buckets for an untracked key: %q", g)
+	}
+}
