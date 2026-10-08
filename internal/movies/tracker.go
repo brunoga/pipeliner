@@ -77,7 +77,7 @@ const yearDriftTolerance = 1
 //     dedup.
 func (t *Tracker) IsSeen(title string, year int, is3D bool) bool {
 	var rec Record
-	if found, _ := t.bucket.Get(recordKey(title, year, is3D), &rec); found {
+	if found, _ := t.bucket.Get(RecordKey(title, year, is3D), &rec); found {
 		return true
 	}
 	if year == 0 {
@@ -96,7 +96,7 @@ func (t *Tracker) Mark(r Record) error {
 	if r.DownloadedAt.IsZero() {
 		r.DownloadedAt = time.Now()
 	}
-	key := recordKey(r.Title, r.Year, r.Is3D)
+	key := RecordKey(r.Title, r.Year, r.Is3D)
 	if r.Prev == nil {
 		var old Record
 		if found, _ := t.bucket.Get(key, &old); found {
@@ -115,7 +115,7 @@ func (t *Tracker) Mark(r Record) error {
 // user-driven un-track (CLI, web tools); failed-grab recovery wants
 // UntrackGrab instead.
 func (t *Tracker) Forget(title string, year int, is3D bool) error {
-	return t.bucket.Delete(recordKey(title, year, is3D))
+	return t.bucket.Delete(RecordKey(title, year, is3D))
 }
 
 // UntrackGrab rolls back the tracker after a grab turned out to be dead.
@@ -133,7 +133,7 @@ func (t *Tracker) Forget(title string, year int, is3D bool) error {
 // records written before the quality was captured: the rollback still happens,
 // but the staleness check cannot run.
 func (t *Tracker) UntrackGrab(title string, year int, is3D bool, failed quality.Quality, hasQuality bool) (untrack.Outcome, error) {
-	key := recordKey(title, year, is3D)
+	key := RecordKey(title, year, is3D)
 	var rec Record
 	found, err := t.bucket.Get(key, &rec)
 	if err != nil {
@@ -218,7 +218,12 @@ func (t *Tracker) latestMatching(title string, is3D bool, yearOK func(int) bool)
 	return latest, latest != nil
 }
 
-func recordKey(title string, year int, is3D bool) string {
+// RecordKey is the tracker's storage key for a film. It is exported because
+// the same film is tracked in more than one bucket -- the shared "movies"
+// tracker and a "movies:<task>" bucket per pipeline using local=true -- so a
+// caller searching across them needs the exact key rather than its own guess
+// at the format.
+func RecordKey(title string, year int, is3D bool) string {
 	if is3D {
 		return fmt.Sprintf("%s|%d|3d", strings.ToLower(title), year)
 	}

@@ -21,7 +21,10 @@ import (
 //	pipeliner tracker mark-series  "<show>" "<episode-id>" [--quality "..."]
 //	pipeliner tracker forget-series "<show>" "<episode-id>"
 //	pipeliner tracker mark-movie   "<title>" --year N [--3d] [--quality "..."]
-//	pipeliner tracker forget-movie "<title>" --year N [--3d]
+//	pipeliner tracker forget-movie "<title>" --year N [--3d] [--pipeline name]
+//
+// A movies node with local=true tracks into "movies:<task>" rather than the
+// shared tracker, so --pipeline selects which of the two to act on.
 func cmdTracker(args []string) int {
 	if len(args) == 0 {
 		trackerUsage()
@@ -49,8 +52,11 @@ func trackerUsage() {
 	fmt.Fprintln(os.Stderr, `usage:
   pipeliner tracker mark-series   "<show>" "<episode-id>" [--config path] [--quality "..."]
   pipeliner tracker forget-series "<show>" "<episode-id>" [--config path]
-  pipeliner tracker mark-movie    "<title>" --year N [--3d] [--config path] [--quality "..."]
-  pipeliner tracker forget-movie  "<title>" --year N [--3d] [--config path]
+  pipeliner tracker mark-movie    "<title>" --year N [--3d] [--pipeline name] [--config path] [--quality "..."]
+  pipeliner tracker forget-movie  "<title>" --year N [--3d] [--pipeline name] [--config path]
+
+A movies node with local=true tracks into its own "movies:<task>" bucket
+instead of the shared tracker; --pipeline picks that one.
 
 Flags may appear before or after the positional arguments.
 
@@ -124,6 +130,7 @@ func trackerMovie(args []string, forget bool) int {
 	cfgPath := fs.String("config", "config.star", "path to config file")
 	year := fs.Int("year", 0, "release year")
 	is3D := fs.Bool("3d", false, "the 3D version")
+	pipeline := fs.String("pipeline", "", "operate on this pipeline's own tracker (movies with local=true) instead of the shared one")
 	qStr := fs.String("quality", "", "quality of the release (e.g. \"1080p bluray\")")
 	if err := fs.Parse(flagsFirst(fs, args)); err != nil {
 		return 1
@@ -151,14 +158,26 @@ func trackerMovie(args []string, forget bool) int {
 		return 1
 	}
 	defer db.Close()
-	tracker := movies.NewTracker(db.Bucket(movies.TrackerBucketName))
+	bucket := movieTrackerBucket(*pipeline)
+	tracker := movies.NewTracker(db.Bucket(bucket))
 
 	if forget {
 		// Latest() ignores the year, so it could describe a different record
 		// than the one being deleted. Check the exact key instead.
 		if !tracker.IsSeen(norm, *year, *is3D) {
-			fmt.Fprintf(os.Stderr, "error: no tracker record for %s (%d)%s\n",
-				norm, *year, tridSuffix(*is3D))
+			fmt.Fprintf(os.Stderr, "error: no tracker record for %s (%d)%s in bucket %q\n",
+				norm, *year, tridSuffix(*is3D), bucket)
+			// A pipeline with local=true keeps its own tracker, so the record
+			// is often simply in a different bucket. Saying which turns a
+			// dead end into the next command to run.
+			if elsewhere := otherMovieBuckets(db, bucket, movies.RecordKey(norm, *year, *is3D)); len(elsewhere) > 0 {
+				fmt.Fprintf(os.Stderr, "  it is tracked in: %s\n", strings.Join(elsewhere, ", "))
+				for _, b := range elsewhere {
+					if name, ok := strings.CutPrefix(b, movies.TrackerBucketName+":"); ok {
+						fmt.Fprintf(os.Stderr, "  try: --pipeline %q\n", name)
+					}
+				}
+			}
 			return 1
 		}
 		if rec, ok := tracker.LatestNearYear(norm, *year, *is3D); ok {
@@ -170,7 +189,7 @@ func trackerMovie(args []string, forget bool) int {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			return 1
 		}
-		fmt.Printf("forgot %s (%d)%s\n", norm, *year, tridSuffix(*is3D))
+		fmt.Printf("forgot %s (%d)%s from %s\n", norm, *year, tridSuffix(*is3D), bucket)
 		return 0
 	}
 	rec := movies.Record{Title: norm, Year: *year, Is3D: *is3D, Quality: quality.Parse(*qStr)}
@@ -240,4 +259,39 @@ func isBoolFlag(fs *flag.FlagSet, arg string) bool {
 	}
 	b, ok := f.Value.(interface{ IsBoolFlag() bool })
 	return ok && b.IsBoolFlag()
+}
+
+// movieTrackerBucket names the tracker a movie op should act on. A pipeline
+// configured with local=true keeps its downloads in "movies:<task>" rather
+// than the shared "movies" tracker, and until this existed the CLI could
+// only ever reach the shared one -- so a film tracked by, say,
+// 3d-mvc-harvest could not be forgotten from the command line at all.
+func movieTrackerBucket(pipeline string) string {
+	if pipeline == "" {
+		return movies.TrackerBucketName
+	}
+	return movies.TrackerBucketName + ":" + pipeline
+}
+
+// otherMovieBuckets returns the movie tracker buckets, apart from exclude,
+// that hold key. It is used to turn "no such record" into a pointer at the
+// bucket that does have it.
+func otherMovieBuckets(db *store.SQLiteStore, exclude, key string) []string {
+	rows, err := db.DB().Query(
+		`SELECT bucket FROM store WHERE key = ? AND bucket != ?`+
+			` AND (bucket = ? OR bucket LIKE ?) ORDER BY bucket`,
+		key, exclude, movies.TrackerBucketName, movies.TrackerBucketName+":%")
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var b string
+		if err := rows.Scan(&b); err != nil {
+			return out
+		}
+		out = append(out, b)
+	}
+	return out
 }
