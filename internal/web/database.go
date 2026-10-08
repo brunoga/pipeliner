@@ -191,6 +191,14 @@ func (s *Server) apiDBBuckets(w http.ResponseWriter, r *http.Request) {
 // Response fields: entries, next_cursor, has_more, total.
 // For the series bucket, entries are grouped into shows (grouped field) and the cursor
 // is a show name rather than a raw episode key.
+// Page-size bounds for the bucket browser. For every bucket but "series" these
+// count rows; "series" groups its rows by show, so there they count shows and
+// one page carries as many rows as those shows have episodes.
+const (
+	defaultDBBucketLimit = 20
+	maxDBBucketLimit     = 500
+)
+
 func (s *Server) apiDBGetBucket(w http.ResponseWriter, r *http.Request) {
 	if s.db == nil {
 		http.Error(w, "database not available", http.StatusNotImplemented)
@@ -199,9 +207,14 @@ func (s *Server) apiDBGetBucket(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	after := r.URL.Query().Get("after")
 	q := r.URL.Query().Get("q")
-	limit := 20
-	if n, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && n > 0 && n <= 500 {
-		limit = n
+	limit := defaultDBBucketLimit
+	if n, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && n > 0 {
+		// Clamp rather than ignore. Dropping an out-of-range limit back to the
+		// default made a bigger limit return *less* data than a smaller one
+		// (limit=400 returned every row of a bucket; limit=1000 silently
+		// returned 20), which reads as "that is all there is" to anything not
+		// checking has_more.
+		limit = min(n, maxDBBucketLimit)
 	}
 
 	if name == "series" {

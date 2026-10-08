@@ -777,3 +777,90 @@ func TestDBSeriesPaginationByShow(t *testing.T) {
 		t.Error("want has_more=false on last page")
 	}
 }
+
+// TestDBGetBucketLimitClamped pins that an over-large limit is clamped to the
+// maximum rather than silently dropped back to the default. The bug it guards
+// was monotonicity: limit=400 returned every row of a bucket while limit=1000
+// returned 20, so asking for more data returned less, and a caller that did
+// not inspect has_more read the short page as the whole bucket.
+func TestDBGetBucketLimitClamped(t *testing.T) {
+	_, ts, db := newDBTestServer(t)
+	defer ts.Close()
+
+	const rows = maxDBBucketLimit + 50
+	for i := range rows {
+		if err := db.Bucket("big").Put(fmt.Sprintf("k%04d", i), i); err != nil {
+			t.Fatalf("put: %v", err)
+		}
+	}
+
+	for _, tc := range []struct {
+		name  string
+		query string
+		want  int
+	}{
+		{"no limit uses the default", "", defaultDBBucketLimit},
+		{"in-range limit is honoured", "?limit=100", 100},
+		{"limit at the maximum", "?limit=500", maxDBBucketLimit},
+		{"over-large limit clamps, not resets", "?limit=1000", maxDBBucketLimit},
+		{"absurd limit clamps too", "?limit=99999", maxDBBucketLimit},
+		{"zero falls back to the default", "?limit=0", defaultDBBucketLimit},
+		{"negative falls back to the default", "?limit=-5", defaultDBBucketLimit},
+		{"garbage falls back to the default", "?limit=abc", defaultDBBucketLimit},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := get(t, ts.URL+"/api/db/buckets/big"+tc.query)
+			defer resp.Body.Close()
+			var out struct {
+				Entries []struct {
+					Key string `json:"key"`
+				} `json:"entries"`
+				HasMore bool `json:"has_more"`
+				Total   int  `json:"total"`
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+				t.Fatalf("decode: %v", err)
+			}
+			if len(out.Entries) != tc.want {
+				t.Errorf("entries = %d, want %d", len(out.Entries), tc.want)
+			}
+			if out.Total != rows {
+				t.Errorf("total = %d, want %d", out.Total, rows)
+			}
+			if !out.HasMore {
+				t.Errorf("has_more = false, but %d of %d rows were returned", len(out.Entries), rows)
+			}
+		})
+	}
+}
+
+// TestDBGetBucketLimitMonotonic is the property the bug violated: asking for
+// more rows never returns fewer.
+func TestDBGetBucketLimitMonotonic(t *testing.T) {
+	_, ts, db := newDBTestServer(t)
+	defer ts.Close()
+
+	for i := range 600 {
+		if err := db.Bucket("big").Put(fmt.Sprintf("k%04d", i), i); err != nil {
+			t.Fatalf("put: %v", err)
+		}
+	}
+
+	prev := 0
+	for _, limit := range []int{10, 50, 100, 400, 500, 1000, 5000} {
+		resp := get(t, ts.URL+fmt.Sprintf("/api/db/buckets/big?limit=%d", limit))
+		var out struct {
+			Entries []json.RawMessage `json:"entries"`
+		}
+		err := json.NewDecoder(resp.Body).Decode(&out)
+		resp.Body.Close()
+		if err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if len(out.Entries) < prev {
+			t.Errorf("limit=%d returned %d entries, fewer than the %d a smaller limit returned",
+				limit, len(out.Entries), prev)
+		}
+		prev = len(out.Entries)
+	}
+}
