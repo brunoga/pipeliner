@@ -136,6 +136,7 @@ td code{font-size:11px}
     <a href="#tvdb_favorites" class="sub">tvdb_favorites</a>
     <a href="#trakt_list" class="sub">trakt_list</a>
     <a href="#bluray_releases" class="sub">bluray_releases</a>
+    <a href="#library_shows" class="sub">library_shows</a>
     <a href="#series_tracker" class="sub">series_tracker</a>
     <a href="#trakt-auth" class="sub">Trakt Authentication</a>
     <a href="#jackett" class="sub">jackett (search)</a>
@@ -1276,6 +1277,28 @@ pipeline("upcoming-blurays", schedule="2h")</code></pre>
 <h4>Backfilling the BD3D catalog</h4>
 <p>The window cap is 600 months (50 years), so a one-shot backfill of the entire BD3D era is just <code>from_year=2010, from_month=9, to_year=&lt;current&gt;, to_month=&lt;current&gt;, formats=["BD3D"]</code>. At the default 1 req/sec that's ~180 requests in ~3 minutes; after it runs the title index is fully warm and <code>metainfo_bluray</code> enrichment for any 3D-era movie hits the local cache without an HTTP round-trip.</p>
 
+<!-- ─────────── library_shows ─────────── -->
+<h2 id="library_shows">library_shows</h2>
+<p>Emits one entry per TV show present in a Plex or Jellyfin library. This answers a different question from <a href="#series_tracker"><code>series_tracker</code></a>, which emits the shows pipeliner holds <em>download records</em> for: <code>library_shows</code> emits the shows you actually <strong>have</strong>, including every show acquired some other way that the tracker has never heard of. Pair it with <a href="#series_gaps"><code>series_gaps</code></a><code>(backend=…, seasons="from_first_owned")</code> and the whole chain is answered by the library — which shows to consider, which episodes are missing, and how far back to go. Also usable as a <code>list=</code> title source.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>backend</code></td><td>no</td><td><code>plex</code></td><td><code>plex</code> or <code>jellyfin</code></td></tr>
+  <tr><td><code>url</code>, <code>token</code></td><td>no</td><td>—</td><td>Server address and token; omit both for Plex account mode (sign in on the Tools tab)</td></tr>
+  <tr><td><code>sections</code> / <code>exclude_sections</code></td><td>no</td><td>—</td><td>Only read these server libraries by name, or read all but these</td></tr>
+</table>
+
+<h4>Fields set</h4>
+<p><code>title</code> (the show title as the server reports it), <code>series_name</code> (normalized name — the key <code>series_gaps</code> looks up by), <code>series_episode_count</code> (episodes held by the server), <code>media_type</code> (always <code>series</code>), <code>source</code> (<code>library_shows</code>). The entry URL is the stable synthetic <code>pipeliner://series/&lt;normalized-name&gt;</code> — the same shape <code>series_tracker</code> uses, so the two dedup against each other when merged.</p>
+
+<pre><code>shows = input("library_shows", sections=["TV Shows"])
+gaps  = process("series_gaps", upstream=shows, api_key=tvdb_api_key,
+                backend="plex", sections=["TV Shows"],
+                seasons="from_first_owned")</code></pre>
+
+<p>An unreachable server is an error rather than an empty list: emitting nothing would be indistinguishable from an empty library, and a downstream backfill would then do nothing while the run reported success. Movies and items with no show name are ignored.</p>
+
+<hr>
 <!-- ─────────── series_tracker ─────────── -->
 <h2 id="series_tracker">series_tracker</h2>
 <p>Emits one entry per show tracked by the series tracker — the same persistent store the <a href="#series"><code>series</code></a> and <a href="#premiere"><code>premiere</code></a> filters write per-episode download records to. The tracker store is shared across <em>all</em> pipelines (it is not namespaced by task), so this source sees every tracked show with no configuration at all. Also usable as a <code>list=</code> title source for <code>series</code>/<code>discover</code>.</p>

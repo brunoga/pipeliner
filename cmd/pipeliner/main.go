@@ -90,6 +90,7 @@ import (
 	_ "github.com/brunoga/pipeliner/plugins/source/filesystem"
 	_ "github.com/brunoga/pipeliner/plugins/source/html"
 	_ "github.com/brunoga/pipeliner/plugins/source/jackett"
+	_ "github.com/brunoga/pipeliner/plugins/source/library_shows"
 	_ "github.com/brunoga/pipeliner/plugins/source/rss"
 	_ "github.com/brunoga/pipeliner/plugins/source/run_report"
 	_ "github.com/brunoga/pipeliner/plugins/source/series_tracker"
