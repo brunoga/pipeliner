@@ -5,6 +5,18 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.55.3] - 2026-10-08
+
+A validator that complained about the idiom the previous release had just prescribed.
+
+### Fixed
+
+- **The validator warned about an accept rule that matches everything** ([#553](https://github.com/brunoga/pipeliner/pull/553)). The accept-only `condition` warning is sound in general, and worth keeping: such a node leaves every non-matching entry in state Undecided, `PassThrough` forwards them unchanged, and the filter therefore does nothing at all for most of what reaches it — silently. It misfires in exactly one case, when the accept expression is a tautology. Then there are no non-matching entries, and the advice reduces to adding a reject branch to a rule that already matches everything. That case is not hypothetical: `condition(accept="true")` is the idiom 1.55.2 introduced for "the entry reaching this node is itself the decision", which a sink needs because it only ever sees Accepted entries, so the validator was complaining about precisely the shape the fix had prescribed — in the shipped sample and in the live follow-link pipeline both. `Expr.AlwaysTrue` now reports whether an expression is a literal constant holding for every entry, coerced the way `Eval` coerces it, so `true`, `TRUE`, `(true)` and a non-zero number all qualify. It is deliberately narrow: only a literal at the root counts, so `1 == 1` still warns. The asymmetry is the whole design — a false negative leaves an advisory warning in place, while a false positive would suppress a real one, and proving general tautologies is not something this parser should attempt. Measured across all 41 sample configs: exactly one warning disappears, the one on `configs/notification-action-link.star`, and every other config's warning output is byte-identical.
+
+- **The premiere email tense fix had no test that could fail** ([#552](https://github.com/brunoga/pipeliner/pull/552)). 1.55.2 corrected an email reading `Aired October 8, 2026` for a date two days out, and that fix was config-only — so nothing in the suite covered it. The reason it shipped at all is structural: `pipeliner check` parses notification templates but never executes them, so a template whose text is simply untrue validates cleanly. Coverage now exists at the only level where it can, rendering the fragments and asserting the text — `Airs` against a future date and `Aired` against a past one, and the heading across one upcoming, one aired, two aired, and the mixed case where one entry has aired and another has not. Also corrects a sentence in the 1.55.2 notes, which claimed warning output across the sample configs was byte-identical before and after [#549](https://github.com/brunoga/pipeliner/pull/549): that holds for the certainty-model change in isolation, but not for the pull request as a whole, since the accept node added to the sample drew one advisory warning — the very false positive #553 then removed. Measured: 0 before, 1 after.
+
+**Why 1.55.3**: one validator false positive removed and the test coverage that was missing. No config key or field changes meaning, no plugin behaviour changes, and nothing an existing config has to be edited for. A patch bump per SemVer.
+
 ## [1.55.2] - 2026-10-08
 
 ### Fixed
