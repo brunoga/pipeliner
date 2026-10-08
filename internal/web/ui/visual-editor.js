@@ -7247,6 +7247,18 @@ function overlaySubConfig(config, expr) {
   return config || {};
 }
 
+// extractPreamble captures every top-level definition the visual model does
+// not itself hold -- env()/variable assignments, shared template strings,
+// anything that is not a def, a node, or a pipeline() call -- so a visual
+// save re-emits them ahead of the constructs that reference them.
+//
+// It scans the WHOLE file, not only the run of lines before the first
+// construct. A definition written between two pipelines is still a
+// definition: keeping only the leading block dropped it while leaving its
+// uses in place, and the save then failed with "undefined: NAME" -- hit live
+// on MVC_INBOX, defined after eight pipelines and referenced by two. The
+// original note follows.
+//
 // extractPreamble captures the top-level definition block that precedes the
 // first modelled construct — module-level variable assignments (the centralized
 // env()/config block), plus any leading comments. dagToStarlark re-emits it so a
@@ -7255,22 +7267,95 @@ function overlaySubConfig(config, expr) {
 // node assignment (`x = input|process|output|merge(...)`), or `pipeline(...)`,
 // walking back over that construct's own leading comment block.
 function extractPreamble(content) {
-  const lines = (content || '').split('\n');
-  const isConstruct = t =>
-    /^def\s+\w+\s*\(/.test(t) ||
-    /^[A-Za-z_]\w*\s*=\s*(input|process|output|merge)\s*\(/.test(t) ||
-    /^pipeline\s*\(/.test(t);
-  let boundary = -1;
-  for (let i = 0; i < lines.length; i++) {
-    if (isConstruct(lines[i].trim())) {
-      let s = i;
-      while (s > 0 && lines[s - 1].trim().startsWith('#')) s--;
-      boundary = s;
+  const segs = topLevelSegments(content || '');
+  if (!segs.some(s => s.isConstruct)) return '';  // nothing modelled — keep nothing
+  return segs.filter(s => !s.isConstruct)
+             .map(s => s.text.trimEnd())
+             .filter(t => t.trim())
+             .join('\n\n')
+             .trimEnd();
+}
+
+// scanLine advances bracket depth and triple-quote state across one line,
+// skipping brackets that sit inside strings or a trailing comment. Returns the
+// new [depth, openTripleQuote] so a caller can tell where a statement ends.
+function scanLine(line, depth, triple) {
+  for (let i = 0; i < line.length; ) {
+    if (triple) {
+      if (line.startsWith(triple, i)) { triple = null; i += 3; } else i++;
+      continue;
+    }
+    const c = line[i];
+    if (c === '#') break;                       // rest of the line is a comment
+    if (line.startsWith('"""', i) || line.startsWith("'''", i)) {
+      triple = line.slice(i, i + 3); i += 3; continue;
+    }
+    if (c === '"' || c === "'") {                // single-line string
+      i++;
+      while (i < line.length && line[i] !== c) i += line[i] === '\\' ? 2 : 1;
+      i++; continue;
+    }
+    if (c === '(' || c === '[' || c === '{') depth++;
+    else if (c === ')' || c === ']' || c === '}') depth--;
+    i++;
+  }
+  return [depth, triple];
+}
+
+// CONSTRUCT_CALLS are the builtins whose calls the visual model already holds,
+// so a statement calling one must never be hoisted into the preamble.
+const CONSTRUCT_CALLS = ['input', 'process', 'output', 'merge', 'route'];
+
+// topLevelSegments splits Starlark source into top-level statements, each
+// carrying the comment/blank run directly above it (a comment belongs to what
+// follows it). A statement spans as many lines as its brackets and
+// triple-quoted strings need. isConstruct marks the ones the visual model
+// re-emits itself: def, pipeline(), a builtin node call, or a call to a
+// function this file defines — bare or assigned, since the shipped configs use
+// every one of those shapes.
+function topLevelSegments(content) {
+  const lines = content.split('\n');
+  const defNames = [];
+  for (const l of lines) {
+    const m = l.match(/^def\s+(\w+)\s*\(/);
+    if (m) defNames.push(m[1]);
+  }
+  const callees = CONSTRUCT_CALLS.concat(defNames)
+    .map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+  const callRe = new RegExp('^(?:[A-Za-z_]\\w*\\s*=\\s*)?(?:' + callees + ')\\s*\\(');
+  const isConstructLine = t =>
+    /^def\s+\w+\s*\(/.test(t) || /^pipeline\s*\(/.test(t) || callRe.test(t);
+
+  const segs = [];
+  let pending = [];
+  let i = 0;
+  while (i < lines.length) {
+    const t = lines[i].trim();
+    if (t === '' || t.startsWith('#')) { pending.push(lines[i]); i++; continue; }
+    const start = i;
+    let depth = 0, triple = null;
+    for (; i < lines.length; i++) {
+      [depth, triple] = scanLine(lines[i], depth, triple);
+      if (depth <= 0 && !triple) { i++; break; }
+    }
+    // Absorb an indented block body, so a def's `return input(...)` is part of
+    // the def rather than a new top-level statement that looks un-modelled.
+    while (i < lines.length) {
+      if (/^\s+\S/.test(lines[i])) { i++; continue; }
+      if (lines[i].trim() === '') {
+        let k = i;
+        while (k < lines.length && lines[k].trim() === '') k++;
+        if (k < lines.length && /^\s+\S/.test(lines[k])) { i = k; continue; }
+      }
       break;
     }
+    segs.push({
+      isConstruct: isConstructLine(t),
+      text: pending.concat(lines.slice(start, i)).join('\n'),
+    });
+    pending = [];
   }
-  if (boundary < 0) return '';           // no modelled construct — whole file is preamble-ish; keep nothing
-  return lines.slice(0, boundary).join('\n').trimEnd();
+  return segs;                                  // trailing comments/blanks: dropped, as before
 }
 
 function valToStar(v) {
