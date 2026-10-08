@@ -125,3 +125,137 @@ describe('dagToStarlark round-trip', () => {
     expect(out.indexOf('API_KEY = env')).toBeLessThan(out.indexOf('pipeline('));
   });
 });
+
+/**
+ * Interstitial definitions. extractPreamble used to keep only the lines before
+ * the FIRST def/node/pipeline, so a top-level variable written further down —
+ * between two pipelines, say — was dropped while its uses survived, and the
+ * saved config failed to load with "undefined: NAME".
+ *
+ * Hit live on a config whose MVC_INBOX sat after eight pipelines and fed two
+ * of them: "tidy all pipelines" then save produced
+ * `config: <input>:833:65: undefined: MVC_INBOX`.
+ */
+describe('extractPreamble: definitions below the first construct', () => {
+  const cfgWithLateDef = [
+    'API_KEY = env("K")',
+    '',
+    'a = input("rss", url="x")',
+    'pipeline("first")',
+    '',
+    '# where the harvest drops its files',
+    'INBOX = "/data/inbox"',
+    '',
+    'b = input("rss", url="y")',
+    'c = output("transmission", upstream=b, path=INBOX + "/x")',
+    'pipeline("second")',
+  ].join('\n');
+
+  it('keeps a definition written between two pipelines', () => {
+    const pre = extractPreamble(cfgWithLateDef);
+    expect(pre).toContain('INBOX = "/data/inbox"');
+    expect(pre).toContain('API_KEY = env("K")');
+  });
+
+  it('keeps the definition above every use, so the result parses', () => {
+    const pre = extractPreamble(cfgWithLateDef);
+    expect(pre.indexOf('INBOX = ')).toBeGreaterThanOrEqual(0);
+    // Nothing that uses it may be hoisted along with it.
+    expect(pre).not.toContain('output(');
+    expect(pre).not.toContain('pipeline(');
+    expect(pre).not.toContain('input(');
+  });
+
+  it('carries the definition comment with it', () => {
+    expect(extractPreamble(cfgWithLateDef)).toContain('# where the harvest drops its files');
+  });
+
+  it('never hoists a node, bare or assigned', () => {
+    const cfg = [
+      'X = 1',
+      'n = input("rss", url="x")',
+      'process("seen", upstream=n)',
+      'output("print", upstream=n)',
+      'lanes = route(n, a="true")',
+      'pipeline("p")',
+    ].join('\n');
+    const pre = extractPreamble(cfg);
+    expect(pre.trim()).toBe('X = 1');
+  });
+
+  it('never hoists a call to a function the file defines', () => {
+    const cfg = [
+      'Q = "1080p"',
+      'def feed_fn(query):',
+      '    return input("jackett", api_key=query)',
+      '',
+      'feed_mvc = feed_fn(query="MVC")',
+      'out = output("print", upstream=feed_mvc)',
+      'pipeline("p")',
+    ].join('\n');
+    const pre = extractPreamble(cfg);
+    expect(pre.trim()).toBe('Q = "1080p"');
+    expect(pre).not.toContain('feed_fn(query="MVC")');
+  });
+
+  it('keeps a multi-line value whose brackets span lines', () => {
+    const cfg = [
+      'a = input("rss", url="x")',
+      'pipeline("p1")',
+      '',
+      'REPORT = (',
+      '    "head" +',
+      '    "body"',
+      ')',
+      '',
+      'b = input("rss", url="y")',
+      'pipeline("p2")',
+    ].join('\n');
+    const pre = extractPreamble(cfg);
+    expect(pre).toContain('REPORT = (');
+    expect(pre).toContain('"body"');
+    expect(pre).toContain(')');
+    expect(pre).not.toContain('pipeline(');
+  });
+
+  it('keeps a triple-quoted value and is not fooled by its contents', () => {
+    const cfg = [
+      'a = input("rss", url="x")',
+      'pipeline("p1")',
+      '',
+      'CARD = """',
+      'pipeline("not really")',
+      'n = input("nope")',
+      '"""',
+      '',
+      'b = input("rss", url="y")',
+      'pipeline("p2")',
+    ].join('\n');
+    const pre = extractPreamble(cfg);
+    expect(pre).toContain('CARD = """');
+    expect(pre).toContain('pipeline("not really")');   // inert, inside the string
+    expect(pre.match(/CARD = /g)).toHaveLength(1);
+    expect(pre).not.toContain('url="y"');
+  });
+
+  it('preserves the order definitions were written in', () => {
+    const cfg = [
+      'FIRST = 1',
+      'a = input("rss", url="x")',
+      'pipeline("p1")',
+      'SECOND = 2',
+      'b = input("rss", url="y")',
+      'pipeline("p2")',
+      'THIRD = 3',
+      'c = input("rss", url="z")',
+      'pipeline("p3")',
+    ].join('\n');
+    const pre = extractPreamble(cfg);
+    expect(pre.indexOf('FIRST')).toBeLessThan(pre.indexOf('SECOND'));
+    expect(pre.indexOf('SECOND')).toBeLessThan(pre.indexOf('THIRD'));
+  });
+
+  it('still keeps nothing when the file models no construct at all', () => {
+    expect(extractPreamble('A = 1\nB = 2\n')).toBe('');
+  });
+});
