@@ -36,6 +36,7 @@ so a later sign-in needs no restart.
 | `series_name` | normalized name — the key `series_gaps` looks up by |
 | `series_episode_count` | episodes of the show held by the server |
 | `media_type` | always `series` |
+| `tvdb_id` | the server's TheTVDB id, when it publishes one &mdash; lets a downstream `series_gaps` match the library by identity rather than by title |
 | `source` | `library_shows` |
 
 The entry URL is the stable synthetic `pipeliner://series/<normalized-name>`,

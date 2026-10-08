@@ -74,8 +74,17 @@ See [`configs/series-backfill.star`](../../../configs/series-backfill.star) for 
 
 ## Caveats
 
+- A show the media server files under a different title from TheTVDB's is matched by the id where the server publishes one; without an id it is matched by name, and a mismatch makes it contribute nothing (`from_first_owned`) or look entirely missing (`all`).
 - Date-numbered shows (talk shows tracked by air date, e.g. `2023-11-15`) cannot be matched against TVDB's season/episode numbering, so all their episodes look missing. Gate on `series_lifecycle == "dormant"` and deactivate such shows, or accept the noise.
 - Without `backend`, the gap diff is tracker-truth rather than disk-truth: episodes acquired outside pipeliner count as missing, and an episode you delete never comes back. Set `backend="plex"` (or `jellyfin"`) to diff against the library instead.
+
+## Matching the library to TheTVDB
+
+A show is looked up in the library by the **TheTVDB id** the server publishes, falling back to the normalized title when the server exposes none.
+
+The id matters because a title is not stable identity. TheTVDB renames series, and a media server may disambiguate a remake with a year the provider does not use — a library holding `Brothers (2026)` against a provider calling it `Brothers` normalizes to `brothers 2026` and `brothers`, which do not match. The failure is silent and costly in both directions: with `seasons="from_first_owned"` the show finds no season floor and contributes nothing, and with `seasons="all"` every episode you own looks missing and the whole run is proposed for download.
+
+Plex supplies ids from each library's show listing (`?type=2&includeGuids=1`) and Jellyfin from its series listing (`Fields=ProviderIds`) — one extra request per library, against shows rather than episodes. A server exposing no ids degrades to title matching exactly as before.
 
 ## Library-truth mode
 

@@ -86,6 +86,47 @@ type OwnedEpisodes struct {
 	// titles maps normalised show -> the title the server reports, kept
 	// because a normalised key is not something to put in a search query.
 	titles map[string]string
+	// byTVDB maps a TheTVDB series id -> the normalised key above, for the
+	// shows whose server publishes one. See Resolve for why it exists.
+	byTVDB map[string]string
+	// tvdbIDs is the reverse, so a caller listing the library can pass the id
+	// on to whatever consumes its output.
+	tvdbIDs map[string]string
+}
+
+// Resolve maps a show to the key this index is keyed by, preferring the
+// TheTVDB id the server published over the title, and falling back to the
+// normalised name when there is no id or no show carrying it.
+//
+// The id matters because a title is not stable identity. TheTVDB renames
+// series, and a server may disambiguate a remake with a year the provider does
+// not use -- a library holding "Brothers (2026)" against a provider calling it
+// "Brothers" normalises to "brothers 2026" and "brothers", so a name lookup
+// misses a show that is plainly present. Nothing says so in the logs either:
+// the show simply yields no season floor and contributes nothing.
+//
+// The returned key is safe to pass to Has, HasAnyInSeason and
+// FirstSeasonWithAny whether or not it matched, since an absent key answers
+// "not owned" exactly as before.
+func (o *OwnedEpisodes) Resolve(tvdbID, name string) string {
+	if o == nil {
+		return name
+	}
+	if tvdbID != "" {
+		if key, ok := o.byTVDB[tvdbID]; ok {
+			return key
+		}
+	}
+	return name
+}
+
+// TVDBID returns the TheTVDB series id the server published for a show, given
+// its index key, or "" when the server exposed none.
+func (o *OwnedEpisodes) TVDBID(show string) string {
+	if o == nil {
+		return ""
+	}
+	return o.tvdbIDs[show]
 }
 
 // Has reports whether the server holds that episode.
@@ -174,8 +215,10 @@ func BuildOwnedEpisodes(ctx context.Context, c Client, sections Sections, normal
 		return nil, err
 	}
 	o := &OwnedEpisodes{
-		shows:  map[string]map[int]map[int]bool{},
-		titles: map[string]string{},
+		shows:   map[string]map[int]map[int]bool{},
+		titles:  map[string]string{},
+		byTVDB:  map[string]string{},
+		tvdbIDs: map[string]string{},
 	}
 	for _, it := range items {
 		if it.Type != "episode" || it.Show == "" {
@@ -190,6 +233,17 @@ func BuildOwnedEpisodes(ctx context.Context, c Client, sections Sections, normal
 		}
 		if _, ok := o.titles[key]; !ok {
 			o.titles[key] = it.Show
+		}
+		if it.ShowTVDBID != "" {
+			// First writer wins, matching titles above. Two library shows
+			// claiming one id (a duplicate folder, say) would otherwise make
+			// the mapping depend on listing order.
+			if _, ok := o.byTVDB[it.ShowTVDBID]; !ok {
+				o.byTVDB[it.ShowTVDBID] = key
+			}
+			if _, ok := o.tvdbIDs[key]; !ok {
+				o.tvdbIDs[key] = it.ShowTVDBID
+			}
 		}
 		seasons := o.shows[key]
 		if seasons == nil {

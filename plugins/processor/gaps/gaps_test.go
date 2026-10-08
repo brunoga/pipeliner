@@ -787,3 +787,79 @@ func TestValidateSeasonsNeedsBackend(t *testing.T) {
 		t.Error("an unknown backend should not validate")
 	}
 }
+
+// ── the library spells a show differently from the provider ───────────────────
+
+// ownsAs is owns() with the library's own spelling of the show and the TheTVDB
+// id the server publishes for it.
+func ownsAs(libraryTitle, tvdbID string, season, episode int) mediaserver.Item {
+	return mediaserver.Item{
+		Type: "episode", Show: libraryTitle, Season: season, Episode: episode,
+		Section: "TV Shows", ShowTVDBID: tvdbID,
+	}
+}
+
+// TestLibraryTitleMayDifferFromTheProviders is the Brothers case, end to end.
+//
+// The library calls the show "My Show (2026)" because its agent disambiguated a
+// remake; TheTVDB calls it "My Show". Those normalize apart, so a name-keyed
+// lookup finds no season floor and the show contributes nothing at all — with
+// no warning, since "owns nothing of it" is a legitimate answer. Both sides
+// publish the same id, so the id settles it.
+func TestLibraryTitleMayDifferFromTheProviders(t *testing.T) {
+	m := newMockTVDB(t, myShow()) // TheTVDB id "100", named "My Show"
+	srv := &stubServer{items: []mediaserver.Item{
+		ownsAs("My Show (2026)", "100", 1, 1),
+		ownsAs("My Show (2026)", "100", 1, 2),
+	}}
+	p, _ := openWithServer(t, m, srv, map[string]any{
+		"pack_threshold": 1.0, "seasons": "from_first_owned",
+	})
+
+	got := titles(run(t, p, showEntry("My Show", "my show")))
+
+	// Season 1 is in scope (episodes are held), and only the missing ones go out.
+	want := []string{"My Show S01E03", "My Show S01E04"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v — a library title that differs from the provider's must still match", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("got[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+// TestOwnedEpisodesStillCountWhenTitlesDiffer: the same mismatch must not make
+// an episode the library holds look missing either.
+func TestOwnedEpisodesStillCountWhenTitlesDiffer(t *testing.T) {
+	m := newMockTVDB(t, myShow())
+	srv := &stubServer{items: []mediaserver.Item{
+		ownsAs("My Show (2026)", "100", 1, 1),
+		ownsAs("My Show (2026)", "100", 1, 2),
+		ownsAs("My Show (2026)", "100", 1, 3),
+		ownsAs("My Show (2026)", "100", 1, 4),
+	}}
+	p, _ := openWithServer(t, m, srv, map[string]any{"pack_threshold": 1.0})
+
+	if got := titles(run(t, p, showEntry("My Show", "my show"))); len(got) != 0 {
+		t.Errorf("every aired episode is held, so nothing should be proposed; got %v", got)
+	}
+}
+
+// TestUnmatchedIDFallsBackToTheName pins that the id is an improvement on the
+// name and never a precondition: a server publishing no ids at all behaves
+// exactly as it did before this indexing existed.
+func TestUnmatchedIDFallsBackToTheName(t *testing.T) {
+	m := newMockTVDB(t, myShow())
+	srv := &stubServer{items: []mediaserver.Item{owns(1, 1)}} // no ShowTVDBID
+	p, _ := openWithServer(t, m, srv, map[string]any{
+		"pack_threshold": 1.0, "seasons": "from_first_owned",
+	})
+
+	got := titles(run(t, p, showEntry("My Show", "my show")))
+	want := []string{"My Show S01E02", "My Show S01E03", "My Show S01E04"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
