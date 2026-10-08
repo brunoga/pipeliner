@@ -89,12 +89,26 @@ all_found = merge(found, feed_mvc, feed_bd25, feed_bd50, feed_bd66, feed_bd100)
 meta = process("metainfo_file", upstream=all_found)
 req  = process("require", upstream=meta, fields=["title", "video_year", "_quality"])
 
+# MVC is Annex H of H.264/AVC, so a Blu-ray 3D MVC disc is always AVC. An
+# H.265 tag therefore proves a release cannot be source material: re-encoding
+# to HEVC is what destroys the MVC structure in the first place. This is the
+# cheapest possible place to say so -- metainfo_file has already read the name
+# and nothing has touched the network yet -- and it is worth saying because
+# these releases were reaching the probe, which is the most expensive node in
+# the pipeline and only runs on one ambiguous release per run. An untagged
+# release leaves `codec` absent, and an absent field compares false, so only
+# an explicit H.265 claim is refused.
+avc = process("condition", upstream=req,
+              reject='codec == "H265"',
+              reason="H.265: MVC is an H.264/AVC extension, so an HEVC " +
+                     "re-encode cannot be the disc it was made from")
+
 # Anything 3D at all, by rank: Half, Unspecified, Full and BD3D all pass, while
 # a 2D-to-3D conversion and a plain 2D release do not. This is deliberately
 # looser than `spec="bd3d"`, because the route below needs to see the releases
 # whose layout is merely *unstated* — and it keeps that route from warning
 # about hundreds of entries it was never going to take.
-threed = process("quality", upstream=req, spec="3d-half+", on_missing="reject")
+threed = process("quality", upstream=avc, spec="3d-half+", on_missing="reject")
 
 drop = process("trailer", upstream=threed)
 
