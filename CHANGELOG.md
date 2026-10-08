@@ -5,6 +5,18 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.57.1] - 2026-10-08
+
+Two defects found chasing a single missing episode, each of which quietly cost the backfill most of what it should have found.
+
+### Fixed
+
+- **A series looked up by id did not know its own id** ([#567](https://github.com/brunoga/pipeliner/pull/567)). `Series.ID` reads the JSON key `tvdb_id`, which `/v4/search` returns and `/v4/series/{id}` does not — that endpoint returns `id`, as a number — so `GetSeriesByID` handed back a series with an empty id. `internal/tvdb/resolver.go` already patched that up locally; no other caller did. `tvdb_favorites` is one of them, and it declares `tvdb_id` in `Produces` while shipping it blank on every entry, so `series_gaps` never resolved a favourite by id and always fell back to a TheTVDB name search — making 1.57.0's id-based library matching unreachable from the favourites source. The fallback is not harmless: TheTVDB's search returns *no* results for `Tomb Raider: The Legend of Lara Croft`, because the colon defeats it, so the show was skipped outright; and had it searched the short name instead, the first hit for `Tomb Raider` is a different and as-yet-unreleased series. Filling the id in the client fixes every caller at once.
+
+- **`match_titles` parsed a series query as a film** ([#567](https://github.com/brunoga/pipeliner/pull/567)). `matchesQuery` ran `movies.Parse` with a ±1 year window on both sides, so it compared `Show S01E01` to a release name carrying an episode title and tags. It therefore discarded any release whose name includes the episode title — which is most WEB-DL releases — along with any query whose punctuation survived one parse and not the other. Measured on a live run proposing ten gaps: **one episode found before, nine after**. A series query now goes through `series.Parse` and is matched on show *and* episode, with show identity via `series.Show` so a release naming the premiere year (`Brothers 2026`) still matches a query that does not (`Brothers`), and a double release spanning the episode asked for counts as that episode. Movie queries keep the path they had. Worth noting what the old code was not doing: it refused a wrong episode only incidentally, because the episode tag landed inside the parsed title — the check is explicit now.
+
+**Why 1.57.1**: two bug fixes, no new config keys and no config edits required. `match_titles` keeps its meaning and gets more accurate on series queries; everything else is internal. A patch bump per SemVer.
+
 ## [1.57.0] - 2026-10-08
 
 Two silent data losses, both found by using the thing: a library lookup that missed a show it owned, and a visual save that dropped a definition it should have kept.
