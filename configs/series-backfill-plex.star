@@ -29,10 +29,13 @@ PUSHOVER_USER  = env("PUSHOVER_USER", default="YOUR_PUSHOVER_USER")
 PUSHOVER_TOKEN = env("PUSHOVER_TOKEN", default="YOUR_PUSHOVER_TOKEN")
 TV_PATH        = "/media/tv"
 
-# The show list. series_tracker names the shows pipeliner already follows;
-# tvdb_favorites or trakt_list work here too. Note this is only the list of
-# shows to consider — whether an episode is missing comes from Plex below.
-shows = input("series_tracker")
+# The show list, also from Plex. series_tracker would name only the shows
+# pipeliner has download records for, which misses every show you ripped or
+# acquired some other way; library_shows names the shows you actually have.
+#
+# With this the whole chain is answered by the library: which shows to
+# consider, which episodes are missing, and how far back to go.
+shows = input("library_shows", sections=["TV Shows"])
 
 # No url/token: Plex account mode, so sign in once on the Tools tab and every
 # owned server is read. sections keeps the scan to the TV library, since a

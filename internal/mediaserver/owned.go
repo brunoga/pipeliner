@@ -83,6 +83,9 @@ func (s Sections) Filtered() bool {
 type OwnedEpisodes struct {
 	// shows maps normalised show -> season -> set of episode numbers.
 	shows map[string]map[int]map[int]bool
+	// titles maps normalised show -> the title the server reports, kept
+	// because a normalised key is not something to put in a search query.
+	titles map[string]string
 }
 
 // Has reports whether the server holds that episode.
@@ -170,7 +173,10 @@ func BuildOwnedEpisodes(ctx context.Context, c Client, sections Sections, normal
 	if err != nil {
 		return nil, err
 	}
-	o := &OwnedEpisodes{shows: map[string]map[int]map[int]bool{}}
+	o := &OwnedEpisodes{
+		shows:  map[string]map[int]map[int]bool{},
+		titles: map[string]string{},
+	}
 	for _, it := range items {
 		if it.Type != "episode" || it.Show == "" {
 			continue
@@ -181,6 +187,9 @@ func BuildOwnedEpisodes(ctx context.Context, c Client, sections Sections, normal
 		key := normalize(it.Show)
 		if key == "" {
 			continue
+		}
+		if _, ok := o.titles[key]; !ok {
+			o.titles[key] = it.Show
 		}
 		seasons := o.shows[key]
 		if seasons == nil {
@@ -195,4 +204,44 @@ func BuildOwnedEpisodes(ctx context.Context, c Client, sections Sections, normal
 		eps[it.Episode] = true
 	}
 	return o, nil
+}
+
+// Title returns the server's spelling of a show, given its normalised key.
+// Falls back to the key when the show is not present, so a caller always has
+// something printable.
+func (o *OwnedEpisodes) Title(show string) string {
+	if o == nil {
+		return show
+	}
+	if t := o.titles[show]; t != "" {
+		return t
+	}
+	return show
+}
+
+// EpisodeCount returns how many episodes of a show are held.
+func (o *OwnedEpisodes) EpisodeCount(show string) int {
+	if o == nil {
+		return 0
+	}
+	var n int
+	for _, eps := range o.shows[show] {
+		n += len(eps)
+	}
+	return n
+}
+
+// SeasonCount returns how many distinct seasons of a show hold at least one
+// episode.
+func (o *OwnedEpisodes) SeasonCount(show string) int {
+	if o == nil {
+		return 0
+	}
+	var n int
+	for _, eps := range o.shows[show] {
+		if len(eps) > 0 {
+			n++
+		}
+	}
+	return n
 }
