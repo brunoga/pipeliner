@@ -21,6 +21,23 @@
 #   you have nothing       ->  nothing wanted (never-watched shows stay off)
 #
 # Swap it for seasons="all" to fill a show in completely, specials aside.
+#
+# ── Pick the show list to match ──────────────────────────────────────────
+#
+# library_shows below means "every show on the server". That is right when
+# everything in the library is there because you wanted it, and WRONG if any
+# other pipeline downloads shows on its own -- a premiere grabber, say. Such a
+# pipeline leaves shows in the library holding a single unwatched S01E01, and
+# from_first_owned reads that one episode as licence to fetch the entire run.
+#
+# If that describes your setup, take the list from what you explicitly follow
+# instead, and let the library stay the authority on what is held:
+#
+#   shows = input("tvdb_favorites", api_key=TVDB_API_KEY, user_pin=TVDB_USER_PIN)
+#
+# Measured on one real library: 321 shows and 2754 candidate gaps from
+# library_shows, against 109 favourites and 703 gaps -- three quarters of the
+# backlog was shows nobody had asked for.
 
 TVDB_API_KEY   = env("TVDB_API_KEY", default="YOUR_TVDB_KEY")
 JACKETT_URL    = env("JACKETT_URL", default="http://localhost:9117")

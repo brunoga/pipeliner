@@ -78,6 +78,12 @@ See [`configs/series-backfill.star`](../../../configs/series-backfill.star) for 
 - Date-numbered shows (talk shows tracked by air date, e.g. `2023-11-15`) cannot be matched against TVDB's season/episode numbering, so all their episodes look missing. Gate on `series_lifecycle == "dormant"` and deactivate such shows, or accept the noise.
 - Without `backend`, the gap diff is tracker-truth rather than disk-truth: episodes acquired outside pipeliner count as missing, and an episode you delete never comes back. Set `backend="plex"` (or `jellyfin"`) to diff against the library instead.
 
+## Choosing the show list
+
+Upstream decides *which shows are in scope*; `backend` decides *which episodes of them are missing*. Those are separate questions, and feeding the whole library into the first one is right only when everything in the library is there because someone wanted it.
+
+If another pipeline downloads shows on its own — a premiere grabber, say — it leaves shows in the library holding a single unwatched `S01E01`, and `seasons="from_first_owned"` reads that one episode as licence to fetch the entire run. Take the list from what the user explicitly follows in that case (`tvdb_favorites`, `trakt_list`, `series_tracker`) and let the library remain the authority on what is held. Measured on one real library: 321 shows and 2754 candidate gaps from `library_shows`, against 109 favourites and 703 gaps.
+
 ## Matching the library to TheTVDB
 
 A show is looked up in the library by the **TheTVDB id** the server publishes, falling back to the normalized title when the server exposes none.
