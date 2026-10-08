@@ -252,10 +252,21 @@ b_told = process("probe", upstream=b_few, timeout="2m")
 b_ok = process("condition", upstream=b_told, rules=[
     {"accept": 'probe_ok == true and probe_3d_layout == "mvc"',
      "reason": "the disc's own playlist reports an MVC dependent view"},
+    # Three different ways to not get a vouch, and they are not the same
+    # claim. One catch-all collapsed them, which lost the distinction between
+    # "we looked and this is not what we want" and "we never found out" --
+    # only the first is a verdict about the release. Ordered first-match-wins,
+    # and probe_unreachable implies probe_ok == false, so it comes first.
+    {"reject": "probe_unreachable == true",
+     "reason": "no peer served any of the sample, so the swarm is dead " +
+               "whatever the layout is -- torrent_alive scraped it as alive, " +
+               "which is the known-unreliable part"},
+    {"reject": "probe_ok == false",
+     "reason": "the probe did not finish in time, so nothing is known about " +
+               "this release yet rather than known to be wrong"},
     {"reject": "true",
-     "reason": "nothing vouched for this one: the name stated no layout and " +
-               "the probe did not confirm MVC, so there is no evidence it is " +
-               "a disc"},
+     "reason": "the probe read the container and it is not MVC, so the " +
+               "unstated layout was not a hidden disc"},
 ])
 
 # ── Join ─────────────────────────────────────────────────────────────────────
