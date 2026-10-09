@@ -5,6 +5,22 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.59.0] - 2026-10-09
+
+A request for one film came home as a 90 GB disc image, past a filter configured to refuse exactly that. Three separate things had to be wrong for it to get through, and all three were.
+
+### Added
+
+- **A playable file beats a disc image of the same quality** ([#582](https://github.com/brunoga/pipeliner/pull/582)). A 4K disc image *is* the best material there is — a complete rip is promoted to the `Remux` source rung for that very reason — but it is not a file a player can open, and `pathfmt` files it into a library where it sits unplayable until someone converts it. `Quality` grows a `DiscImage` dimension, set from the markers that say so: ISO, BDMV, AVCHD, `BD25`/`BD50`/`BD66`/`BD100`, and "complete blu-ray" in either word order with a few words allowed in between — that last part being what `reCompleteDisc` misses in `Complete 4K UHD Blu Ray ISO File`, and why the release in question parsed as a plain BluRay. It sits **last** in `Better`, after audio, and is the only rung that is not about picture or sound: a 4K disc image still beats a 1080p encode, a disc at the BluRay rung still beats a WEB-DL file, and the only thing it decides is an otherwise exact tie — which until now fell to whatever order the indexer happened to return. A re-encode is a file however much its name borrows from a disc, and an SBS/OU layout exists only as a re-encode, so neither is claimed as one; the `Source` rung already applies both corrections for the same reason. `reCompleteDisc` itself is deliberately left alone: it decides the source rung, where a false positive promotes a release above every remux of the same film, while this decides a last-resort tie-break where the worst a false positive costs is the wrong one of two equal copies. Because `Better` is shared, an otherwise-identical playable release now also counts as an upgrade over a stored disc image in the `library` filter and the `movies`/`series` trackers — replacing an unplayable file with a playable one. The field is appended, so a record written before it existed reads as a non-disc.
+
+### Fixed
+
+- **`content` matched filenames case-sensitively** ([#580](https://github.com/brunoga/pipeliner/pull/580)). The pipeline that downloaded the disc image had `reject=["*.rar", "*.iso", "*.exe"]`, and the torrent holds exactly one file: `SUPERGIRL.ISO`. `path.Match` is case-sensitive, so the check ran, found nothing to object to, and logged nothing. Release groups shout extensions as often as not, which makes a case-sensitive glob over filenames a reject that works most of the time — worse than one that never works, because you believe it. Both sides are folded now, and the two-step match (filename component, then full path) is expressed once instead of inlined twice.
+
+- **`dedup` ranked on resolution alone** ([#581](https://github.com/brunoga/pipeliner/pull/581)). `isBetter` read `quality.Parse(title).Resolution` and nothing else, so every other rung of the ladder was invisible to it: a BluRay tied a remux, a WEB-DL tied a BluRay, a plain copy tied an Atmos one. Ties fall through to seed count and then to the order the indexer returned — and that is how the disc image won, against a 2160p remux with the same 6 seeds, from a search that also offered 24 other releases. It now calls `quality.Better`, the comparator the `library` filter, the upgrade check, `settle` and the show-year migration already use, so "better" means one thing across the codebase; and it reads the typed `_quality` the pipeline gated on rather than re-parsing the title. Seed tier stays ahead of quality, as before and on purpose: a release with one seeder is a download that may never finish, and the best copy you cannot get is not the best copy. An audit of every other quality comparison found no further ad-hoc ones — `dedup` was the last.
+
+**Why 1.59.0**: one new dimension in the quality ladder, two bug fixes, no config changes and no migration. The `DiscImage` field is appended and absent in existing records. Two `String()` outputs change, both for the better: a `BD50` release now renders as `… Disc`.
+
 ## [1.58.1] - 2026-10-09
 
 A regression in 1.58.0, found on a live install within the hour and fixed here. **Upgrade straight past 1.58.0 if you use the Plex backend.**
