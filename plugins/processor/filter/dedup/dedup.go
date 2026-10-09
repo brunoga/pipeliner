@@ -3,8 +3,9 @@
 //
 // "Best" is determined by:
 //  1. Seed tier: entries with 2+ seeds beat entries with exactly 1 seed.
-//  2. Resolution: higher resolution wins within the same tier.
-//  3. Seeds: more seeds wins when tier and resolution are equal.
+//  2. Quality: quality.Quality.Better — the whole ladder, not resolution
+//     alone, so a remux beats a plain BluRay of the same resolution.
+//  3. Seeds: more seeds wins when tier and quality are equal.
 //
 // media_type drives the classification: "series" entries dedup by series
 // name + series_episode_id, "movie" entries dedup by title. Entries without
@@ -238,18 +239,46 @@ func nameKey(e *entry.Entry) string {
 	return ""
 }
 
+// isBetter reports whether a is the better copy to keep.
+//
+// Quality is compared with quality.Better, which is the same comparator the
+// library filter and the upgrade check use: Resolution > Source > Codec >
+// ColorRange > Audio (Format3D first when both are 3D). This used to read
+// .Resolution and nothing else, which made every other rung of the ladder
+// invisible here -- a BluRay tied a remux, a WEB-DL tied a BluRay, a plain
+// copy tied an Atmos one -- and ties fall through to seeds and then to input
+// order. A real example: a request returned both "Supergirl 2026 Complete 4K
+// UHD Blu Ray ISO File" and "Supergirl 2026 2160p UHD BluRay REMUX DV HDR
+// TrueHD 7 1 Atmos", each with 6 seeds, and the 90 GB disc image won because
+// the indexer happened to list it first.
+//
+// Seed tier stays ahead of quality on purpose: a release with one seeder is a
+// download that may never finish, and the best copy you cannot get is not the
+// best copy.
 func isBetter(a, b *entry.Entry) bool {
 	seedsA, seedsB := seeds(a), seeds(b)
 	tierA, tierB := seedTier(seedsA), seedTier(seedsB)
 	if tierA != tierB {
 		return tierA > tierB
 	}
-	resA := quality.Parse(a.Title).Resolution
-	resB := quality.Parse(b.Title).Resolution
-	if resA != resB {
-		return resA > resB
+	qa, qb := releaseQuality(a), releaseQuality(b)
+	if qa.Better(qb) {
+		return true
+	}
+	if qb.Better(qa) {
+		return false
 	}
 	return seedsA > seedsB
+}
+
+// releaseQuality returns the quality of the release an entry names, preferring
+// the typed value the pipeline already computed -- the one every gate upstream
+// made its decisions with -- and parsing the title only when nothing set it.
+func releaseQuality(e *entry.Entry) quality.Quality {
+	if q, ok := e.Quality(); ok {
+		return q
+	}
+	return quality.Parse(e.Title)
 }
 
 func seedTier(n int) int {

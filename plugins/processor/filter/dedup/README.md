@@ -7,8 +7,14 @@ episode/movie) and before output sinks.
 ## Selection priority
 
 1. **Seed tier** — entries with 2+ seeds beat entries with exactly 1 seed
-2. **Resolution** — higher resolution wins within the same seed tier
-3. **Seeds** — more seeds wins when tier and resolution are equal
+2. **Quality** — `quality.Better`: the whole ladder, `Resolution > Source > Codec > ColorRange > Audio` (3D format first when both releases are 3D)
+3. **Seeds** — more seeds wins when tier and quality are equal
+
+Step 2 used to read the resolution and nothing else, which made every other rung invisible here: a BluRay tied a remux, a WEB-DL tied a BluRay, a plain copy tied an Atmos one — and a tie falls through to seeds and then to the order the indexer happened to return. A request for *Supergirl (2026)* came back with both `Complete 4K UHD Blu Ray ISO File` and `2160p UHD BluRay REMUX DV HDR TrueHD Atmos`, both 2160p, both 6 seeds, and the 90 GB disc image won on list order. It is the same comparator the [`library`](../library/) filter and the upgrade check use, so "better" now means one thing across the codebase.
+
+Quality is read from the typed `_quality` field the pipeline already gated on, falling back to parsing the release name where nothing set it.
+
+**Seed tier stays ahead of quality on purpose.** A release with one seeder is a download that may never finish, and the best copy you cannot get is not the best copy.
 
 Episodes are keyed by normalized series title without a trailing year + episode ID (`Brothers 2026 S01E01` and `Brothers S01E01 2026` are one episode); movies by movie title (case-insensitive).
 Entries without either key pass through unchanged.

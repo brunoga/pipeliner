@@ -2106,9 +2106,9 @@ by_air = process("age", upstream=enriched,
 
 <p>Selection order (highest wins):</p>
 <ol>
-  <li>Seed tier — entries with 2 or more seeders beat entries with 1</li>
-  <li>Resolution — higher wins (2160p &gt; 1080p &gt; 720p &gt; …)</li>
-  <li>Seed count — more seeds wins when tier and resolution tie</li>
+  <li>Seed tier — entries with 2 or more seeders beat entries with 1. Ahead of quality on purpose: a release with one seeder is a download that may never finish, and the best copy you cannot get is not the best copy.</li>
+  <li>Quality — the whole ladder, <code>Resolution &gt; Source &gt; Codec &gt; ColorRange &gt; Audio</code> (3D format first when both are 3D), via the same comparator the <a href="#library"><code>library</code></a> filter and the upgrade check use. This read the resolution and nothing else until 1.59.0, which made every other rung invisible here: a BluRay tied a remux, a WEB-DL tied a BluRay, a plain copy tied an Atmos one — and a tie falls through to seeds and then to whatever order the indexer returned. A request for <em>Supergirl (2026)</em> returned both a <code>Complete 4K UHD Blu Ray ISO File</code> and a <code>2160p UHD BluRay REMUX DV HDR TrueHD Atmos</code>, both 2160p with 6 seeds, and the 90 GB disc image won because it was listed first.</li>
+  <li>Seed count — more seeds wins when tier and quality tie</li>
 </ol>
 <pre><code>src    = input("rss", url="https://feed.example.com/rss")
 seen   = process("seen",   upstream=src)

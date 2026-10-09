@@ -11,6 +11,7 @@ import (
 	"github.com/brunoga/pipeliner/internal/dag"
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/plugin"
+	"github.com/brunoga/pipeliner/quality"
 )
 
 func tc() *plugin.TaskContext {
@@ -506,5 +507,112 @@ func TestRejectionReasonNamesTheGroup(t *testing.T) {
 	dedupRun(t, worse, better)
 	if !strings.Contains(worse.RejectReason, "movie:dune") {
 		t.Errorf("reason = %q, want it to name movie:dune", worse.RejectReason)
+	}
+}
+
+// --- the whole quality ladder, not resolution alone ---
+
+// qualityEntry builds a movie entry whose typed quality is parsed from its
+// release name, the way metainfo_file sets it upstream.
+func qualityEntry(release string, seeds int, url string) *entry.Entry {
+	e := entry.New(release, url)
+	e.Set(entry.FieldMediaType, entry.MediaTypeMovie)
+	e.Set(entry.FieldTitle, "Supergirl")
+	e.Set(entry.FieldVideoYear, 2026)
+	e.Set(entry.FieldTorrentSeeds, seeds)
+	e.SetQuality(quality.Parse(release))
+	return e
+}
+
+// TestRemuxBeatsDiscImageAtEqualResolution is the live case: both releases are
+// 2160p with 6 seeds, so resolution and seeds both tie and the 90 GB disc
+// image won on indexer order. The ladder already ranks Remux above BluRay.
+func TestRemuxBeatsDiscImageAtEqualResolution(t *testing.T) {
+	iso := qualityEntry("Supergirl 2026 Complete 4K UHD Blu Ray ISO File [RoB]", 6, "http://x/iso")
+	remux := qualityEntry("Supergirl 2026 2160p UHD BluRay REMUX DV HDR TrueHD 7 1 Atmos Multi-d3g", 6, "http://x/remux")
+
+	// The disc image first, as the indexer listed it.
+	out := dedupRun(t, iso, remux)
+	if len(out) != 1 {
+		t.Fatalf("want 1 entry, got %d", len(out))
+	}
+	if out[0] != remux {
+		t.Errorf("kept %q, want the remux", out[0].Title)
+	}
+	if !iso.IsRejected() {
+		t.Error("the disc image should be rejected")
+	}
+}
+
+// TestLadderDimensionsAllCount: every rung the comparator knows about now
+// decides a dedup that resolution alone could not.
+func TestLadderDimensionsAllCount(t *testing.T) {
+	for _, tc := range []struct{ name, worse, better string }{
+		{"source: web-dl under bluray",
+			"Film 2026 1080p WEB-DL H 264", "Film 2026 1080p BluRay H 264"},
+		{"source: bluray under remux",
+			"Film 2026 1080p BluRay AVC", "Film 2026 1080p BluRay REMUX AVC"},
+		{"color range: sdr under dolby vision",
+			"Film 2026 2160p BluRay REMUX HDR", "Film 2026 2160p BluRay REMUX DV"},
+		{"audio: dd under atmos",
+			"Film 2026 2160p BluRay REMUX DV DD 5 1", "Film 2026 2160p BluRay REMUX DV TrueHD Atmos"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := qualityEntry(tc.worse, 10, "http://x/worse")
+			b := qualityEntry(tc.better, 10, "http://x/better")
+			out := dedupRun(t, w, b)
+			if len(out) != 1 || out[0] != b {
+				t.Errorf("kept %q, want %q", out[0].Title, tc.better)
+			}
+		})
+	}
+}
+
+// TestResolutionStillOutranksEverything: the ladder is ordered, so a better
+// source at a lower resolution does not win.
+func TestResolutionStillOutranksEverything(t *testing.T) {
+	remux1080 := qualityEntry("Film 2026 1080p BluRay REMUX AVC Atmos", 10, "http://x/1080")
+	web2160 := qualityEntry("Film 2026 2160p WEB-DL H 265", 10, "http://x/2160")
+	out := dedupRun(t, remux1080, web2160)
+	if len(out) != 1 || out[0] != web2160 {
+		t.Errorf("kept %q, want the 2160p release", out[0].Title)
+	}
+}
+
+// TestSeedTierStillComesFirst: the best copy you cannot get is not the best
+// copy, so a single-seeder release loses to a healthy one whatever its tags.
+func TestSeedTierStillComesFirst(t *testing.T) {
+	lonely := qualityEntry("Film 2026 2160p BluRay REMUX DV TrueHD Atmos", 1, "http://x/lonely")
+	healthy := qualityEntry("Film 2026 1080p WEB-DL H 264", 25, "http://x/healthy")
+	out := dedupRun(t, lonely, healthy)
+	if len(out) != 1 || out[0] != healthy {
+		t.Errorf("kept %q, want the well-seeded release", out[0].Title)
+	}
+}
+
+// TestSeedsBreakAQualityTie pins the last rung: identical quality, more seeds.
+func TestSeedsBreakAQualityTie(t *testing.T) {
+	few := qualityEntry("Film 2026 1080p BluRay x264-AAA", 4, "http://x/few")
+	many := qualityEntry("Film 2026 1080p BluRay x264-BBB", 40, "http://x/many")
+	out := dedupRun(t, few, many)
+	if len(out) != 1 || out[0] != many {
+		t.Errorf("kept %q, want the better-seeded copy", out[0].Title)
+	}
+}
+
+// TestFallsBackToParsingTheTitle: dedup may sit in a pipeline where nothing
+// set the typed field, and it still has to rank.
+func TestFallsBackToParsingTheTitle(t *testing.T) {
+	worse := entry.New("Film 2026 1080p WEB-DL H 264", "http://x/worse")
+	better := entry.New("Film 2026 1080p BluRay REMUX AVC", "http://x/better")
+	for _, e := range []*entry.Entry{worse, better} {
+		e.Set(entry.FieldMediaType, entry.MediaTypeMovie)
+		e.Set(entry.FieldTitle, "Film")
+		e.Set(entry.FieldVideoYear, 2026)
+		e.Set(entry.FieldTorrentSeeds, 10)
+	}
+	out := dedupRun(t, worse, better)
+	if len(out) != 1 || out[0] != better {
+		t.Errorf("kept %q, want the remux", out[0].Title)
 	}
 }
