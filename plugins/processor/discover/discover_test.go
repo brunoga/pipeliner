@@ -779,3 +779,70 @@ func TestDiscoverStampsTheIdentityOnCachedReplay(t *testing.T) {
 		t.Errorf("cached result: tvdb_id = %q, want 371980", got)
 	}
 }
+
+// TestDiscoverStampsMovieIdentity: a movie list source publishes ids for the
+// film it is asking about (trakt_list sets trakt_tmdb_id and trakt_imdb_id),
+// and a downstream metainfo_tmdb would otherwise resolve the release by
+// searching its name — which ranks the wrong film first for every title two
+// films share.
+func TestDiscoverStampsMovieIdentity(t *testing.T) {
+	mock := newMockSearch("stamp-movie")
+	mock.results["Michael"] = []*entry.Entry{
+		entry.New("Michael.1996.1080p.BluRay.x264", "http://x/1"),
+	}
+
+	req := entry.New("Michael", "pipeliner://movie/michael")
+	req.Set("trakt_tmdb_id", 24913)
+	req.Set("trakt_imdb_id", "tt0117318")
+
+	p := buildPlugin(t, mock, nil, nil)
+	out, err := p.Process(context.Background(), taskCtx("stamp-movie-task"), []*entry.Entry{req})
+	if err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	if len(out) != 1 {
+		t.Fatalf("got %d results, want 1", len(out))
+	}
+	if got := entry.TMDBID(out[0]); got != "24913" {
+		t.Errorf("tmdb_id = %q, want 24913", got)
+	}
+	if got := entry.IMDBID(out[0]); got != "tt0117318" {
+		t.Errorf("imdb id = %q, want tt0117318", got)
+	}
+	// The namespaces are written under pipeliner's own field names, which is
+	// what the metainfo plugins and dedup read.
+	if _, ok := out[0].Fields["tmdb_id"]; !ok {
+		t.Error("tmdb_id field not set")
+	}
+	if _, ok := out[0].Fields[entry.FieldVideoImdbID]; !ok {
+		t.Error("video_imdb_id field not set")
+	}
+}
+
+// TestDiscoverStampsOnlyTheNamespacesTheQueryHas: a series query must not
+// leave empty movie id fields behind for a downstream presence check to find.
+func TestDiscoverStampsOnlyTheNamespacesTheQueryHas(t *testing.T) {
+	mock := newMockSearch("stamp-one-ns")
+	mock.results["Severance S03E01"] = []*entry.Entry{
+		entry.New("Severance.S03E01.1080p", "http://x/1"),
+	}
+	gap := entry.New("Severance S03E01", "pipeliner://gap/1")
+	gap.Set("tvdb_id", "371980")
+
+	p := buildPlugin(t, mock, nil, nil)
+	out, err := p.Process(context.Background(), taskCtx("stamp-one-ns-task"), []*entry.Entry{gap})
+	if err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	if len(out) != 1 {
+		t.Fatalf("got %d results, want 1", len(out))
+	}
+	for _, f := range []string{"tmdb_id", entry.FieldVideoImdbID} {
+		if _, ok := out[0].Fields[f]; ok {
+			t.Errorf("%s set from a query that never had one", f)
+		}
+	}
+	if got := entry.TVDBID(out[0]); got != "371980" {
+		t.Errorf("tvdb_id = %q, want 371980", got)
+	}
+}

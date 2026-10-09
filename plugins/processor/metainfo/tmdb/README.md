@@ -1,6 +1,20 @@
 # metainfo_tmdb
 
-Enriches movie entries with metadata from The Movie Database (TMDb). Searches by parsed title and year and caches results.
+Enriches movie entries with metadata from The Movie Database (TMDb). The film is resolved by an id the entry already carries where there is one, and otherwise by searching for the parsed title and year. Results are cached.
+
+## Which film gets looked up
+
+In order:
+
+1. **A TMDb id on the entry** — `tmdb_id`, `trakt_tmdb_id` or `jackett_tmdb_id`, in that order of trust. Fetched directly; no search.
+2. **An IMDb id on the entry** — `video_imdb_id`, `trakt_imdb_id` or `jackett_imdb_id`, mapped onto TMDb's own id through `/find`. The mapping is cached, since neither id ever changes.
+3. **A title search**, with the year as a filter, exactly as before.
+
+A title search ranks by popularity and the year it is given is whatever a release name claimed, so it picks the wrong film for every title two films share — *Michael* (1996) against *Michael* (2026) is the case this was found on. An id is the film.
+
+Every shape an id arrives in is read: a string, a JSON number, a `float64` after a round trip through the store. That matters more than it sounds — the id used to be read as `e.Fields["trakt_tmdb_id"].(int)`, so a plain `tmdb_id` was ignored, an indexer's id was ignored, and anything pushed at the ingest API (whose fields come straight from JSON) arrived as a `float64` and was ignored too. The on-demand request flow, the one most likely to be handed an id, was the one taking the search path.
+
+An id TMDb has no film for falls through to the search rather than losing the entry its enrichment, and that answer is cached too.
 
 ## Config
 
