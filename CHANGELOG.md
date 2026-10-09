@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.58.1] - 2026-10-09
+
+A regression in 1.58.0, found on a live install within the hour and fixed here. **Upgrade straight past 1.58.0 if you use the Plex backend.**
+
+### Fixed
+
+- **Plex sends two guid keys and Go read them as one** ([#578](https://github.com/brunoga/pipeliner/pull/578)). Reading the movie listing's provider ids ([#576](https://github.com/brunoga/pipeliner/pull/576)) broke every Plex listing that carries them. Plex sends a lowercase `"guid"` — a `plex://` string — alongside the uppercase `"Guid"` list that `includeGuids=1` adds, and Go matches JSON keys *case-insensitively*, so the string was decoded into the list field and failed the whole section with `cannot unmarshal string into Go struct field .MediaContainer.Metadata.Guid`. The failure mode is quiet in the worst way: `ListItems` returns an error, which both `series_gaps` and `library` report as "media server unreachable", so the gap scan proposed nothing and the library gate fell back to an empty index — where it waves every duplicate through. Nothing crashes, and nothing says "Plex is fine, we just cannot read it". Found by running a backfill dry run after deploying 1.58.0 and seeing `series_gaps out=0` where the same run had produced 10 an hour earlier. The lowercase key now has a field of its own, declared and unused, so it stops being matched into the list; the show listing's struct gets the same guard, since it reads guids the same way and has only got away with it because Plex happens not to send the lowercase key on that endpoint.
+
+**Why 1.58.1**: one regression fix, no config changes and no migration.
+
 ## [1.58.0] - 2026-10-09
 
 One defect class, found by combing the codebase for it after hitting it twice in two days: **identity decided by a name where an id was available.** A title is not an identity — TheTVDB lists two series called *Tomb Raider*, there is a *Dune* from 1984 and one from 2021 — and in five places pipeliner compared names while an id sat unread on the entry.
