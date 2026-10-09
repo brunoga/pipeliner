@@ -231,6 +231,13 @@ func (c *plexClient) ListItems(ctx context.Context) ([]Item, error) {
 					RatingKey        string `json:"ratingKey"`
 					GrandparentKey   string `json:"grandparentRatingKey"`
 					UpdatedAt        int64  `json:"updatedAt"`
+					// Plex sends both "guid" (a plex:// string) and, with
+					// includeGuids=1, "Guid" (the provider id list). Go matches
+					// JSON keys case-insensitively, so the string lands in the
+					// list field and fails the whole decode unless the lowercase
+					// key has a field of its own to go to. It is declared and
+					// unused for exactly that reason.
+					PlexGUID string `json:"guid"`
 					// Movies only. An episode's own Guid list holds the episode's
 					// ids, which do not identify its show -- that is what
 					// showTVDBIDs is for.
@@ -308,7 +315,11 @@ func (c *plexClient) showTVDBIDs(ctx context.Context, sectionKey string) map[str
 		MediaContainer struct {
 			Metadata []struct {
 				RatingKey string `json:"ratingKey"`
-				Guid      []struct {
+				// Claims the lowercase "guid" string so it cannot be
+				// case-insensitively matched into Guid below. See the
+				// listing struct in ListItems.
+				PlexGUID string `json:"guid"`
+				Guid     []struct {
 					ID string `json:"id"`
 				} `json:"Guid"`
 			} `json:"Metadata"`

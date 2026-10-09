@@ -324,3 +324,89 @@ func TestJellyfinMovieProviderIDs(t *testing.T) {
 		t.Errorf("MovieIMDBID = %q, want tt1375666", movie.MovieIMDBID)
 	}
 }
+
+// TestPlexListingWithBothGuidKeys reproduces a live decode failure: Plex sends
+// a lowercase "guid" (a plex:// string) alongside the uppercase "Guid" list,
+// and Go matches JSON keys case-insensitively — so the string landed in the
+// list field and failed the decode for the whole section. Both sections are
+// exercised, since the show listing reads guids too.
+//
+// The failure mode was quiet in the worst way: ListItems errors, which both
+// series_gaps and library report as "media server unreachable". The gap scan
+// then proposed nothing and the library gate fell back to an empty index.
+func TestPlexListingWithBothGuidKeys(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/library/sections":
+			json.NewEncoder(w).Encode(map[string]any{"MediaContainer": map[string]any{
+				"Directory": []map[string]any{
+					{"key": "2", "type": "show", "title": "TV Shows"},
+					{"key": "9", "type": "movie", "title": "Movies"},
+				},
+			}})
+		case strings.HasPrefix(r.URL.Path, "/library/sections/2/all"):
+			if r.URL.Query().Get("type") == "2" { // the show listing
+				json.NewEncoder(w).Encode(map[string]any{"MediaContainer": map[string]any{
+					"Metadata": []map[string]any{{
+						"ratingKey": "500",
+						"guid":      "plex://show/5d9c08e4",
+						"Guid":      []map[string]any{{"id": "tvdb://371980"}},
+					}},
+				}})
+				return
+			}
+			json.NewEncoder(w).Encode(map[string]any{"MediaContainer": map[string]any{
+				"Metadata": []map[string]any{{
+					"type": "episode", "grandparentTitle": "Severance",
+					"grandparentRatingKey": "500", "parentIndex": 1, "index": 1,
+					"guid":                 "plex://episode/5d9c08f1",
+					"Media":                []map[string]any{{"videoResolution": "1080"}},
+				}},
+			}})
+		case strings.HasPrefix(r.URL.Path, "/library/sections/9/all"):
+			json.NewEncoder(w).Encode(map[string]any{"MediaContainer": map[string]any{
+				"Metadata": []map[string]any{{
+					"type": "movie", "title": "Dune", "year": 2021, "ratingKey": "101",
+					"guid": "plex://movie/5d776be17a53e9001e732d4f",
+					"Guid": []map[string]any{{"id": "tmdb://438631"}, {"id": "imdb://tt1160419"}},
+					"Media": []map[string]any{{"videoResolution": "4k"}},
+				}},
+			}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	c := &plexClient{base: srv.URL, token: "t", http: srv.Client()}
+	items, err := c.ListItems(context.Background())
+	if err != nil {
+		t.Fatalf("ListItems: %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("got %d items, want 2", len(items))
+	}
+	var ep, movie *Item
+	for i := range items {
+		switch items[i].Type {
+		case "episode":
+			ep = &items[i]
+		case "movie":
+			movie = &items[i]
+		}
+	}
+	if ep == nil || movie == nil {
+		t.Fatalf("want one episode and one movie, got %+v", items)
+	}
+	// The ids still come through: claiming the lowercase key must not cost us
+	// the list it was shadowing.
+	if ep.ShowTVDBID != "371980" {
+		t.Errorf("ShowTVDBID = %q, want 371980", ep.ShowTVDBID)
+	}
+	if movie.MovieTMDBID != "438631" {
+		t.Errorf("MovieTMDBID = %q, want 438631", movie.MovieTMDBID)
+	}
+	if movie.MovieIMDBID != "tt1160419" {
+		t.Errorf("MovieIMDBID = %q, want tt1160419", movie.MovieIMDBID)
+	}
+}
