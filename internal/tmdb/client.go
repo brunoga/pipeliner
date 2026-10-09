@@ -134,6 +134,37 @@ func (c *Client) SearchMovie(ctx context.Context, title string, year int) ([]Mov
 	return resp.Results, nil
 }
 
+// FindMovieByIMDB resolves a movie from an IMDb id (e.g. "tt1375666") via
+// TMDb's /find endpoint, which maps an external id onto TMDb's own.
+//
+// This is identity rather than search: an indexer that publishes an IMDb id
+// for a release has told us which film it is, where a title search only
+// guesses — and guesses badly for the films that share a title. Returns
+// (nil, nil) when TMDb knows the id but has no movie for it, so a caller can
+// fall back to searching without treating it as an error.
+func (c *Client) FindMovieByIMDB(ctx context.Context, imdbID string) (*Movie, error) {
+	params := url.Values{
+		"api_key":         {c.apiKey},
+		"external_source": {"imdb_id"},
+	}
+	u := c.BaseURL + "/find/" + url.PathEscape(imdbID) + "?" + params.Encode()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp struct {
+		MovieResults []Movie `json:"movie_results"`
+	}
+	if err := c.do(req, &resp); err != nil {
+		return nil, fmt.Errorf("tmdb: find %q: %w", imdbID, err)
+	}
+	if len(resp.MovieResults) == 0 {
+		return nil, nil
+	}
+	return &resp.MovieResults[0], nil
+}
+
 // GetMovie retrieves detailed movie information by TMDb movie ID, including
 // credits, videos, release dates, and alternative titles via append_to_response.
 func (c *Client) GetMovie(ctx context.Context, id int) (*MovieDetail, error) {

@@ -3,6 +3,7 @@ package tmdb
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -762,5 +763,164 @@ func TestReleaseWindowFieldsAbsent(t *testing.T) {
 	}
 	if _, ok := e.Fields[entry.FieldMoviePhysicalRelease]; ok {
 		t.Error("physical release should be unset")
+	}
+}
+
+// --- identity before search ---
+
+// makeCountingServer serves two films that share a title and counts requests
+// per endpoint, so a test can assert which path resolution took.
+func makeCountingServer(hits map[string]int) *httptest.Server {
+	movie := func(id int, title, date string) map[string]any {
+		return map[string]any{
+			"id": id, "title": title, "release_date": date,
+			"original_language": "en", "overview": "...", "runtime": 100,
+			"imdb_id": "tt000" + fmt.Sprint(id),
+		}
+	}
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits[r.URL.Path]++
+		switch r.URL.Path {
+		case "/3/search/movie":
+			// Popularity ranking puts the newer film first, which is the
+			// whole problem with resolving by title.
+			json.NewEncoder(w).Encode(map[string]any{
+				"results": []map[string]any{
+					movie(1156593, "Michael", "2026-04-24"),
+					movie(24913, "Michael", "1996-12-25"),
+				},
+				"page": 1, "total_results": 2,
+			})
+		case "/3/find/tt0117318":
+			json.NewEncoder(w).Encode(map[string]any{
+				"movie_results": []map[string]any{movie(24913, "Michael", "1996-12-25")},
+			})
+		case "/3/find/tt9999999":
+			json.NewEncoder(w).Encode(map[string]any{"movie_results": []map[string]any{}})
+		case "/3/movie/24913":
+			json.NewEncoder(w).Encode(movie(24913, "Michael", "1996-12-25"))
+		case "/3/movie/1156593":
+			json.NewEncoder(w).Encode(movie(1156593, "Michael", "2026-04-24"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+}
+
+func countingPlugin(t *testing.T, srv *httptest.Server) *tmdbPlugin {
+	t.Helper()
+	c := itmdb.New("test-key")
+	c.BaseURL = srv.URL + "/3"
+	return &tmdbPlugin{client: c}
+}
+
+// TestAnnotatePrefersAPlainTMDBID: the id fast path used to read only
+// trakt_tmdb_id, so a tmdb_id — the field this very plugin produces, and the
+// one a list source or an indexer sets — was ignored and the title searched.
+func TestAnnotatePrefersAPlainTMDBID(t *testing.T) {
+	hits := map[string]int{}
+	srv := makeCountingServer(hits)
+	defer srv.Close()
+	p := countingPlugin(t, srv)
+
+	e := entry.New("Michael.1996.1080p.BluRay.x264", "http://x/1")
+	e.Set("tmdb_id", 24913)
+	if err := p.annotate(context.Background(), makeCtx(), e); err != nil {
+		t.Fatal(err)
+	}
+	if got := e.GetInt("tmdb_id"); got != 24913 {
+		t.Errorf("tmdb_id = %d, want 24913", got)
+	}
+	if hits["/3/search/movie"] != 0 {
+		t.Errorf("search called %d times, want 0 when the entry carries an id", hits["/3/search/movie"])
+	}
+	if hits["/3/movie/24913"] != 1 {
+		t.Errorf("movie/24913 fetched %d times, want 1", hits["/3/movie/24913"])
+	}
+}
+
+// TestAnnotatePrefersAnIDThatArrivedAsJSON is the shape the ingest API
+// produces: ingest.Item.Fields is map[string]any straight off JSON, so every
+// numeric id arrives as float64. The old `rawID.(int)` assertion missed it, so
+// the on-demand flow — the one most likely to be handed an id by whoever makes
+// the request — was the one that took the search path.
+func TestAnnotatePrefersAnIDThatArrivedAsJSON(t *testing.T) {
+	hits := map[string]int{}
+	srv := makeCountingServer(hits)
+	defer srv.Close()
+	p := countingPlugin(t, srv)
+
+	e := entry.New("Michael.1996.1080p.BluRay.x264", "http://x/1")
+	e.Set("trakt_tmdb_id", float64(24913)) // as json.Unmarshal would leave it
+	if err := p.annotate(context.Background(), makeCtx(), e); err != nil {
+		t.Fatal(err)
+	}
+	if hits["/3/search/movie"] != 0 {
+		t.Errorf("search called %d times, want 0", hits["/3/search/movie"])
+	}
+	if got := e.GetInt("tmdb_id"); got != 24913 {
+		t.Errorf("tmdb_id = %d, want 24913", got)
+	}
+}
+
+// TestAnnotateResolvesAnIndexerIMDBID: 107 of 465 cached movie results on a
+// live install carry a jackett_imdb_id, and nothing used to read it. It names
+// the film outright, where the title search ranks the wrong one first.
+func TestAnnotateResolvesAnIndexerIMDBID(t *testing.T) {
+	hits := map[string]int{}
+	srv := makeCountingServer(hits)
+	defer srv.Close()
+	p := countingPlugin(t, srv)
+
+	e := entry.New("Michael.1996.1080p.BluRay.x264", "http://x/1")
+	e.Set("jackett_imdb_id", "tt0117318")
+	if err := p.annotate(context.Background(), makeCtx(), e); err != nil {
+		t.Fatal(err)
+	}
+	if got := e.GetInt("tmdb_id"); got != 24913 {
+		t.Errorf("tmdb_id = %d, want the 1996 film (24913)", got)
+	}
+	if hits["/3/search/movie"] != 0 {
+		t.Errorf("search called %d times, want 0", hits["/3/search/movie"])
+	}
+	if hits["/3/find/tt0117318"] != 1 {
+		t.Errorf("find called %d times, want 1", hits["/3/find/tt0117318"])
+	}
+}
+
+// TestAnnotateFallsBackToSearchWhenTMDbHasNoSuchIMDBID: an unknown external id
+// must not cost the entry its enrichment.
+func TestAnnotateFallsBackToSearchWhenTMDbHasNoSuchIMDBID(t *testing.T) {
+	hits := map[string]int{}
+	srv := makeCountingServer(hits)
+	defer srv.Close()
+	p := countingPlugin(t, srv)
+
+	e := entry.New("Michael.1996.1080p.BluRay.x264", "http://x/1")
+	e.Set("jackett_imdb_id", "tt9999999")
+	if err := p.annotate(context.Background(), makeCtx(), e); err != nil {
+		t.Fatal(err)
+	}
+	if hits["/3/search/movie"] != 1 {
+		t.Errorf("search called %d times, want 1 as the fallback", hits["/3/search/movie"])
+	}
+	if !e.GetBool(entry.FieldEnriched) {
+		t.Error("entry should still be enriched via the search fallback")
+	}
+}
+
+// TestAnnotateWithoutAnIDSearchesAsBefore pins the unchanged path.
+func TestAnnotateWithoutAnIDSearchesAsBefore(t *testing.T) {
+	hits := map[string]int{}
+	srv := makeCountingServer(hits)
+	defer srv.Close()
+	p := countingPlugin(t, srv)
+
+	e := entry.New("Michael.1996.1080p.BluRay.x264", "http://x/1")
+	if err := p.annotate(context.Background(), makeCtx(), e); err != nil {
+		t.Fatal(err)
+	}
+	if hits["/3/search/movie"] != 1 {
+		t.Errorf("search called %d times, want 1", hits["/3/search/movie"])
 	}
 }

@@ -109,14 +109,28 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 func (p *tmdbPlugin) Name() string { return "metainfo_tmdb" }
 
 func (p *tmdbPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
-	// Fast path: if a Trakt (or other) TMDB ID is already on the entry, fetch
-	// by ID directly and skip the search step. This avoids picking the wrong
-	// result when multiple movies share the same title (e.g. "Michael" 1996 vs
-	// 2026).
-	if rawID, ok := e.Fields["trakt_tmdb_id"]; ok {
-		if tmdbID, ok := rawID.(int); ok && tmdbID > 0 {
-			return p.annotateByID(ctx, tc, e, tmdbID)
+	// Identity first, where the entry already carries one. A title search
+	// guesses, and guesses badly for the films that share a title ("Michael"
+	// 1996 vs 2026): it ranks by popularity, and the year it is given is the
+	// year a release name claims. An id is the film.
+	//
+	// entry.TMDBID / entry.IMDBID read every namespace and every shape the
+	// field arrives in, which is the point: the id used to be read as
+	// e.Fields["trakt_tmdb_id"].(int), so a plain tmdb_id was ignored, an
+	// indexer's id was ignored, and anything pushed at the ingest API arrived
+	// from JSON as a float64 and was ignored too — leaving the on-demand flow,
+	// the one most likely to be handed an id, taking the search path.
+	if id := entry.TMDBID(e); id != "" {
+		if n, err := strconv.Atoi(id); err == nil && n > 0 {
+			return p.annotateByID(ctx, tc, e, n)
 		}
+	}
+	if imdbID := entry.IMDBID(e); imdbID != "" {
+		if n, ok := p.resolveIMDB(ctx, tc, imdbID); ok {
+			return p.annotateByID(ctx, tc, e, n)
+		}
+		// TMDb does not know the id, or the lookup failed: fall through to the
+		// search rather than give up on enrichment entirely.
 	}
 
 	// Parse the release title to extract the canonical movie title and year.
@@ -238,6 +252,34 @@ func (p *tmdbPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 // annotateByID fetches a movie directly by its TMDb ID, bypassing the search
 // step. Used when the entry already carries a trakt_tmdb_id so we never risk
 // picking the wrong film due to title ambiguity or popularity ranking.
+// resolveIMDB maps an IMDb id onto TMDb's own, caching the mapping alongside
+// the search results it replaces: the ids involved never change, so this is
+// the one lookup that would be pure waste to repeat.
+func (p *tmdbPlugin) resolveIMDB(ctx context.Context, tc *plugin.TaskContext, imdbID string) (int, bool) {
+	key := "imdb:" + imdbID
+	if hit, ok := p.cache.Get(key); ok {
+		if len(hit) == 0 {
+			return 0, false // cached "TMDb has no movie for this id"
+		}
+		return hit[0].ID, true
+	}
+	m, err := p.client.FindMovieByIMDB(ctx, imdbID)
+	if err != nil {
+		tc.Logger.Warn("metainfo_tmdb: find by imdb id failed", "imdb_id", imdbID, "err", err)
+		return 0, false
+	}
+	if m == nil || m.ID <= 0 {
+		// Cached: an id TMDb has no movie for will still have none next run,
+		// and the entry falls back to the title search either way.
+		p.cache.Set(key, []itmdb.Movie{})
+		tc.Logger.Debug("metainfo_tmdb: no movie for imdb id", "imdb_id", imdbID)
+		return 0, false
+	}
+	p.cache.Set(key, []itmdb.Movie{*m})
+	tc.Logger.Debug("metainfo_tmdb: resolved by imdb id", "imdb_id", imdbID, "tmdb_id", m.ID)
+	return m.ID, true
+}
+
 func (p *tmdbPlugin) annotateByID(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry, id int) error {
 	detail, err := p.fetchDetail(ctx, id)
 	if err != nil {

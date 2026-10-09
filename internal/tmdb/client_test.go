@@ -151,3 +151,75 @@ func TestSearchMovieHTTPError(t *testing.T) {
 		t.Fatal("expected error for HTTP 500")
 	}
 }
+
+// TestFindMovieByIMDB: an indexer that publishes an IMDb id has told us which
+// film a release is; /find maps it onto TMDb's own id without a title search.
+func TestFindMovieByIMDB(t *testing.T) {
+	var gotPath, gotSource string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotSource = r.URL.Query().Get("external_source")
+		json.NewEncoder(w).Encode(map[string]any{
+			"movie_results": []map[string]any{
+				{"id": 27205, "title": "Inception", "release_date": "2010-07-16"},
+			},
+			"tv_results": []map[string]any{},
+		})
+	}))
+	defer srv.Close()
+
+	c := New("test-key")
+	c.BaseURL = srv.URL + "/3"
+	m, err := c.FindMovieByIMDB(context.Background(), "tt1375666")
+	if err != nil {
+		t.Fatalf("FindMovieByIMDB: %v", err)
+	}
+	if m == nil || m.ID != 27205 || m.Title != "Inception" {
+		t.Fatalf("got %+v, want Inception/27205", m)
+	}
+	if gotPath != "/3/find/tt1375666" {
+		t.Errorf("path = %q, want /3/find/tt1375666", gotPath)
+	}
+	if gotSource != "imdb_id" {
+		t.Errorf("external_source = %q, want imdb_id", gotSource)
+	}
+}
+
+// TestFindMovieByIMDBNoMatch returns (nil, nil) rather than an error: TMDb
+// answered, it just has no movie for that id, and the caller falls back to a
+// title search instead of giving up on enrichment.
+func TestFindMovieByIMDBNoMatch(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{"movie_results": []map[string]any{}})
+	}))
+	defer srv.Close()
+
+	c := New("test-key")
+	c.BaseURL = srv.URL + "/3"
+	m, err := c.FindMovieByIMDB(context.Background(), "tt0000001")
+	if err != nil {
+		t.Fatalf("want no error, got %v", err)
+	}
+	if m != nil {
+		t.Errorf("want nil movie, got %+v", m)
+	}
+}
+
+// TestFindMovieByIMDBTVOnlyResult: /find answers for every media type, and a
+// series result is not a movie.
+func TestFindMovieByIMDBTVOnlyResult(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{
+			"movie_results": []map[string]any{},
+			"tv_results":    []map[string]any{{"id": 1396, "name": "Breaking Bad"}},
+		})
+	}))
+	defer srv.Close()
+
+	c := New("test-key")
+	c.BaseURL = srv.URL + "/3"
+	m, err := c.FindMovieByIMDB(context.Background(), "tt0903747")
+	if err != nil || m != nil {
+		t.Errorf("a tv result is not a movie: got %+v, err %v", m, err)
+	}
+}

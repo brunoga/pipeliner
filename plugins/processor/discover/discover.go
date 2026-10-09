@@ -34,10 +34,10 @@ func init() {
 		Role:        plugin.RoleProcessor,
 		Refusal:     plugin.RefusalNone,
 		// Entries come from the search sub-plugins, whose Produces/MayProduce
-		// are propagated by the DAG validator. The one field discover sets
-		// itself is the show identity of the query that found the result, and
-		// only when the query carried one — hence MayProduce.
-		MayProduce:    []string{"tvdb_id"},
+		// are propagated by the DAG validator. What discover sets itself is
+		// the identity of the query that found the result, and only when the
+		// query carried one — hence MayProduce.
+		MayProduce:    []string{"tvdb_id", "tmdb_id", entry.FieldVideoImdbID},
 		Factory:       newPlugin,
 		Validate:      validate,
 		AcceptsSearch: true,
@@ -290,20 +290,33 @@ func (p *discoverPlugin) searchEntries(ctx context.Context, tc *plugin.TaskConte
 	return all, nil
 }
 
-// stampQueryIdentity copies the show identity of the query onto a result found
-// for it. An indexer returns a release name and nothing else, and two shows can
-// share one — a downstream filter needs to know which of them we were actually
-// searching for. Only a query that carries an id contributes one, and a backend
+// identityFields are the provider namespaces a result inherits from the query
+// that found it, each read from wherever the query happens to carry it and
+// written under pipeliner's own field name for that namespace.
+var identityFields = []struct {
+	field string
+	read  func(*entry.Entry) string
+}{
+	{"tvdb_id", entry.TVDBID},
+	{"tmdb_id", entry.TMDBID},
+	{entry.FieldVideoImdbID, entry.IMDBID},
+}
+
+// stampQueryIdentity copies the identity of the query onto a result found for
+// it. An indexer returns a release name and nothing else, and two items can
+// share one — a downstream filter or metainfo plugin needs to know which of
+// them we were actually searching for, rather than guessing from the name all
+// over again. Only a query that carries an id contributes one, and a backend
 // that already identified the result keeps its own answer.
 //
 // Results are stamped per query, before the cross-query URL dedup, so the
 // identity belongs to the query that first claimed the release.
 func stampQueryIdentity(qe, result *entry.Entry) {
-	id := entry.TVDBID(qe)
-	if id == "" || entry.TVDBID(result) != "" {
-		return
+	for _, id := range identityFields {
+		if v := id.read(qe); v != "" && id.read(result) == "" {
+			result.Set(id.field, v)
+		}
 	}
-	result.Set("tvdb_id", id)
 }
 
 func toStringSlice(v any) []string {
