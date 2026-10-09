@@ -63,7 +63,18 @@ sink accepted 4 of the 100 emitted search results.
 |----------|-------|
 | Role | `processor` |
 | Produces | `torrent_seeds`, `torrent_info_hash`, `torrent_link_type` (and whatever the `search` plugins return) |
+| May produce | `tvdb_id` — the show identity of the query that found the result |
 | Requires | — |
+
+### Show identity carries over
+
+An indexer answers with a release name and nothing else. Where the upstream
+entry carries a `tvdb_id` — as [`series_gaps`](../gaps/) does, since it knows
+which series it computed the gap in — that id is copied onto every result found
+for it, so a downstream [`series`](../filter/series/) filter can tell two
+same-titled shows apart instead of guessing from the release name. A backend
+that identified the result itself keeps its own answer, and a query with no id
+leaves the field unset.
 
 ### DAG example
 

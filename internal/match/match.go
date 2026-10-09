@@ -60,6 +60,11 @@ func Fuzzy(a, b string) bool {
 type TitleEntry struct {
 	Norm string
 	Year int
+	// TVDBID is the show's TheTVDB id when the list source published one, and
+	// "" otherwise. Two shows can normalise to the same title ("Tomb Raider"
+	// the 2026 series and "Tomb Raider" the anime); only the id tells them
+	// apart, so list sources that know it pass it along here.
+	TVDBID string
 }
 
 // NewTitleEntry creates a TitleEntry from a raw title and year.

@@ -78,7 +78,12 @@ func ResolveDynamicList(
 		var titleEntries []match.TitleEntry
 		for _, e := range fromEntries {
 			if e.Title != "" {
-				titleEntries = append(titleEntries, match.NewTitleEntry(e.Title, entry.ReleaseYear(e)))
+				te := match.NewTitleEntry(e.Title, entry.ReleaseYear(e))
+				// Carried through where the source knows it: a title the
+				// provider spells one way and the release another is still the
+				// same show, and the id is what says so.
+				te.TVDBID = entry.TVDBID(e)
+				titleEntries = append(titleEntries, te)
 			}
 		}
 		if len(titleEntries) > 0 {

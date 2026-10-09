@@ -673,3 +673,109 @@ func TestMatchesQueryMovieBehaviourUnchanged(t *testing.T) {
 		}
 	}
 }
+
+// TestDiscoverStampsTheQueryShowIdentity: an indexer answers with a release
+// name and nothing else, so a result found for a gap in a known series would
+// reach the downstream series filter with no way to say which of two
+// same-titled shows it belongs to. The query's id goes along with it.
+func TestDiscoverStampsTheQueryShowIdentity(t *testing.T) {
+	mock := newMockSearch("stamp-id")
+	mock.results["Tomb Raider The Legend of Lara Croft S01E01"] = []*entry.Entry{
+		entry.New("Tomb.Raider.The.Legend.of.Lara.Croft.S01E01.1080p.WEB-DL", "http://x/1"),
+		entry.New("Tomb.Raider.S01E01.1080p.WEB-DL", "http://x/2"), // the ambiguous one
+	}
+
+	// The shape series_gaps emits: the episode to look for plus the identity
+	// of the series the gap was computed from.
+	gap := entry.New("Tomb Raider The Legend of Lara Croft S01E01", "pipeliner://gap/1")
+	gap.Set("tvdb_id", "409591")
+
+	p := buildPlugin(t, mock, nil, nil)
+	out, err := p.Process(context.Background(), taskCtx("stamp-id-task"), []*entry.Entry{gap})
+	if err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	if len(out) != 2 {
+		t.Fatalf("got %d results, want 2", len(out))
+	}
+	for _, e := range out {
+		if got := entry.TVDBID(e); got != "409591" {
+			t.Errorf("%q: tvdb_id = %q, want 409591", e.Title, got)
+		}
+	}
+}
+
+// TestDiscoverKeepsAnIdentityTheBackendSupplied: a backend that identified the
+// release itself knows better than the query that happened to find it.
+func TestDiscoverKeepsAnIdentityTheBackendSupplied(t *testing.T) {
+	mock := newMockSearch("keep-id")
+	identified := entry.New("Show.S01E01", "http://x/1")
+	identified.Set("tvdb_id", "111111")
+	mock.results["Show S01E01"] = []*entry.Entry{identified}
+
+	gap := entry.New("Show S01E01", "pipeliner://gap/1")
+	gap.Set("tvdb_id", "222222")
+
+	p := buildPlugin(t, mock, nil, nil)
+	out, err := p.Process(context.Background(), taskCtx("keep-id-task"), []*entry.Entry{gap})
+	if err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	if len(out) != 1 {
+		t.Fatalf("got %d results, want 1", len(out))
+	}
+	if got := entry.TVDBID(out[0]); got != "111111" {
+		t.Errorf("tvdb_id = %q, want the backend's 111111", got)
+	}
+}
+
+// TestDiscoverStampsNothingWithoutAQueryIdentity: a static title or a list
+// source with no ids must not leave an empty tvdb_id behind, or a downstream
+// presence check would see a field nobody supplied.
+func TestDiscoverStampsNothingWithoutAQueryIdentity(t *testing.T) {
+	mock := newMockSearch("no-id")
+	mock.results["Breaking Bad"] = []*entry.Entry{entry.New("Breaking.Bad.S01E01", "http://x/1")}
+
+	p := buildPlugin(t, mock, []string{"Breaking Bad"}, nil)
+	out, err := run(context.Background(), p, taskCtx("no-id-task"))
+	if err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	if len(out) != 1 {
+		t.Fatalf("got %d results, want 1", len(out))
+	}
+	if _, ok := out[0].Fields["tvdb_id"]; ok {
+		t.Errorf("result carries a tvdb_id nobody supplied: %v", out[0].Fields["tvdb_id"])
+	}
+}
+
+// TestDiscoverStampsTheIdentityOnCachedReplay: the id is stamped before the
+// results are cached, and again on the way out, so a cache written before this
+// behaviour existed still answers with an identity.
+func TestDiscoverStampsTheIdentityOnCachedReplay(t *testing.T) {
+	mock := newMockSearch("cached-id")
+	mock.results["Severance S03E01"] = []*entry.Entry{entry.New("Severance.S03E01.1080p", "http://x/1")}
+
+	gap := entry.New("Severance S03E01", "pipeliner://gap/1")
+	gap.Set("tvdb_id", "371980")
+
+	p := buildPlugin(t, mock, nil, nil)
+	tc := taskCtx("cached-id-task")
+	if _, err := p.Process(context.Background(), tc, []*entry.Entry{gap}); err != nil {
+		t.Fatalf("first run: %v", err)
+	}
+	second, err := p.Process(context.Background(), tc, []*entry.Entry{gap})
+	if err != nil {
+		t.Fatalf("second run: %v", err)
+	}
+	if mock.calls["Severance S03E01"] != 1 {
+		t.Fatalf("expected the second run to be served from cache, got %d calls",
+			mock.calls["Severance S03E01"])
+	}
+	if len(second) != 1 {
+		t.Fatalf("got %d cached results, want 1", len(second))
+	}
+	if got := entry.TVDBID(second[0]); got != "371980" {
+		t.Errorf("cached result: tvdb_id = %q, want 371980", got)
+	}
+}

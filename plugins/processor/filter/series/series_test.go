@@ -1223,3 +1223,140 @@ func TestRetryCooldownDefault(t *testing.T) {
 		t.Errorf("retryCooldown = %s, want the %s default", p.retryCooldown, defaultRetryCooldown)
 	}
 }
+
+// --- Matching by show identity ---
+
+// TestMatchShowPrefersTheID: two listed shows can normalise to the very same
+// title, and then a release name alone cannot say which one it belongs to.
+// Whichever the list happened to put first used to win.
+func TestMatchShowPrefersTheID(t *testing.T) {
+	// Both favourites are literally called "Tomb Raider" on TheTVDB: the 2026
+	// series and the anime, which is where this came from.
+	shows := []match.TitleEntry{
+		{Norm: "tomb raider", Year: 2026, TVDBID: "450360"},
+		{Norm: "tomb raider", Year: 2024, TVDBID: "409591"},
+	}
+	got, ok := matchShow("Tomb Raider", 0, "409591", shows)
+	if !ok {
+		t.Fatal("an id present in the list must match")
+	}
+	if got.TVDBID != "409591" || got.Year != 2024 {
+		t.Errorf("matched %+v, want the 409591/2024 show", got)
+	}
+}
+
+// TestMatchShowIDBeatsAnEarlierTitleMatch: the id is checked before any title
+// pass, so list order cannot decide the answer.
+func TestMatchShowIDBeatsAnEarlierTitleMatch(t *testing.T) {
+	shows := []match.TitleEntry{
+		{Norm: "tomb raider", Year: 2026, TVDBID: "450360"},
+		{Norm: "tomb raider the legend of lara croft", Year: 2024, TVDBID: "409591"},
+	}
+	// A release that parses to the bare name, known (by series_gaps) to be an
+	// episode of the anime.
+	got, ok := matchShow("Tomb Raider", 0, "409591", shows)
+	if !ok {
+		t.Fatal("want a match")
+	}
+	if got.Norm != "tomb raider the legend of lara croft" {
+		t.Errorf("matched %q, want the show the id names", got.Norm)
+	}
+}
+
+// TestMatchShowWithoutAnIDStillMatchesByTitle pins the behaviour every other
+// pipeline relies on: nothing upstream of `series` has to supply an id.
+func TestMatchShowWithoutAnIDStillMatchesByTitle(t *testing.T) {
+	shows := []match.TitleEntry{
+		{Norm: "brothers", Year: 2026, TVDBID: "500001"},
+		{Norm: "severance", Year: 2022},
+	}
+	if got, ok := matchShow("Brothers 2026", 2026, "", shows); !ok || got.Norm != "brothers" {
+		t.Errorf("trailing-year title match broke: %+v ok=%v", got, ok)
+	}
+	if got, ok := matchShow("Severance", 0, "", shows); !ok || got.Norm != "severance" {
+		t.Errorf("plain title match broke: %+v ok=%v", got, ok)
+	}
+}
+
+// TestMatchShowUnknownIDFallsBackToTheTitle: an id the list never published
+// must not turn a working title match into a rejection. Lists that carry no
+// ids at all (static, trakt without ids) are the common case.
+func TestMatchShowUnknownIDFallsBackToTheTitle(t *testing.T) {
+	shows := []match.TitleEntry{{Norm: "severance", Year: 2022}}
+	got, ok := matchShow("Severance", 0, "371980", shows)
+	if !ok {
+		t.Fatal("an id nobody in the list has must not block the title match")
+	}
+	if got.Norm != "severance" {
+		t.Errorf("matched %q, want severance", got.Norm)
+	}
+}
+
+// TestMatchShowMismatchingIDDoesNotRejectADifferentShow: the id only ever adds
+// an answer the titles could not give. metainfo_tvdb resolves an id from the
+// release name by search and can land on the wrong series; rejecting on that
+// would drop episodes that match by title today.
+func TestMatchShowMismatchingIDDoesNotRejectADifferentShow(t *testing.T) {
+	shows := []match.TitleEntry{{Norm: "severance", Year: 2022, TVDBID: "371980"}}
+	got, ok := matchShow("Severance", 0, "999999", shows)
+	if !ok {
+		t.Fatal("a title match must still win when the id matches nothing")
+	}
+	if got.Norm != "severance" {
+		t.Errorf("matched %q, want severance", got.Norm)
+	}
+}
+
+// TestFilterTracksTheShowTheIDNames is the end-to-end shape: series_gaps knows
+// which series it found a gap in, discover passes that identity along with the
+// release, and the episode is then tracked under that show rather than under
+// whichever same-titled favourite came first.
+func TestFilterTracksTheShowTheIDNames(t *testing.T) {
+	mock := &mockInput{entries: []*entry.Entry{}}
+	for _, s := range []struct{ title, id string }{
+		{"Tomb Raider", "450360"}, // listed first; the 2026 series, nothing aired
+		{"Tomb Raider: The Legend of Lara Croft", "409591"},
+	} {
+		le := entry.New(s.title, "")
+		le.Set("tvdb_id", s.id)
+		mock.entries = append(mock.entries, le)
+	}
+	p := openWithFrom(t, mock)
+
+	// The release name parses to the bare "Tomb Raider" and would match the
+	// 2026 series on title alone.
+	e := makeEntry("Tomb.Raider.S01E01.1080p.WEB-DL", "http://x.com/a")
+	e.Set("tvdb_id", "409591")
+	p.filter(context.Background(), makeCtx(), e)
+
+	if !e.IsAccepted() {
+		t.Fatalf("episode should be accepted: %s", e.RejectReason)
+	}
+	if got := e.GetString(seriesTrackerName); got != "tomb raider the legend of lara croft" {
+		t.Errorf("tracked under %q, want the show the id names", got)
+	}
+}
+
+// TestFilterWithoutAnIDIsUnchanged pins the other half: no id, no change —
+// the release is attributed by title exactly as before.
+func TestFilterWithoutAnIDIsUnchanged(t *testing.T) {
+	mock := &mockInput{entries: []*entry.Entry{}}
+	for _, s := range []struct{ title, id string }{
+		{"Tomb Raider", "450360"},
+		{"Tomb Raider: The Legend of Lara Croft", "409591"},
+	} {
+		le := entry.New(s.title, "")
+		le.Set("tvdb_id", s.id)
+		mock.entries = append(mock.entries, le)
+	}
+	p := openWithFrom(t, mock)
+
+	e := makeEntry("Tomb.Raider.S01E01.1080p.WEB-DL", "http://x.com/a")
+	p.filter(context.Background(), makeCtx(), e)
+	if !e.IsAccepted() {
+		t.Fatalf("episode should be accepted: %s", e.RejectReason)
+	}
+	if got := e.GetString(seriesTrackerName); got != "tomb raider" {
+		t.Errorf("tracked under %q, want tomb raider (title match)", got)
+	}
+}
