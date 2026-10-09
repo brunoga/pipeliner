@@ -746,3 +746,156 @@ func TestMergeSeriesKeepsFirstOccurrence(t *testing.T) {
 }
 
 func itoa(n int) string { return strconv.Itoa(n) }
+
+// --- resolving the series by id ---
+
+// makeServerTwoTombRaiders mirrors the real ambiguity: TheTVDB lists two shows
+// whose titles normalise to "tomb raider", and a search for that name ranks the
+// 2026 series first. Only the id separates them. Every request is counted so a
+// test can assert which endpoints were consulted.
+func makeServerTwoTombRaiders(hits map[string]int) *httptest.Server {
+	series := map[string]struct{ name, slug, poster string }{
+		"450360": {"Tomb Raider", "tomb-raider", "https://artworks.thetvdb.com/450360.jpg"},
+		"409591": {"Tomb Raider: The Legend of Lara Croft", "tomb-raider-anime", "https://artworks.thetvdb.com/409591.jpg"},
+	}
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits[r.URL.Path]++
+		switch {
+		case r.URL.Path == "/v4/login":
+			json.NewEncoder(w).Encode(map[string]any{
+				"data": map[string]string{"token": "jwt"}, "status": "success",
+			})
+		case r.URL.Path == "/v4/search":
+			// Relevance puts the 2026 series first, which is the whole problem.
+			json.NewEncoder(w).Encode(map[string]any{
+				"data": []map[string]any{
+					{"tvdb_id": "450360", "name": "Tomb Raider", "slug": "tomb-raider",
+						"originalLanguage": "eng", "image_url": series["450360"].poster},
+					{"tvdb_id": "409591", "name": "Tomb Raider: The Legend of Lara Croft",
+						"slug": "tomb-raider-anime", "originalLanguage": "eng"},
+				},
+				"status": "success",
+			})
+		case strings.HasSuffix(r.URL.Path, "/extended"):
+			id := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/v4/series/"), "/extended")
+			s, ok := series[id]
+			if !ok {
+				http.NotFound(w, r)
+				return
+			}
+			json.NewEncoder(w).Encode(map[string]any{
+				"data": map[string]any{
+					"name": s.name, "slug": s.slug, "image": s.poster,
+					"originalLanguage": "eng", "originalCountry": "usa",
+					"originalNetwork": map[string]any{"name": "Netflix"},
+					"firstAired":      "2024-10-10",
+					"status":          map[string]any{"name": "Ended"},
+					"genres":          []map[string]any{{"name": "Animation"}},
+				},
+				"status": "success",
+			})
+		case strings.HasSuffix(r.URL.Path, "/episodes/official"):
+			id := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/v4/series/"), "/episodes/official")
+			if _, ok := series[id]; !ok {
+				http.NotFound(w, r)
+				return
+			}
+			json.NewEncoder(w).Encode(map[string]any{
+				"data": map[string]any{"episodes": []map[string]any{
+					{"id": 1, "seasonNumber": 1, "number": 1,
+						"name": "A Single Step for series " + id, "aired": "2024-10-10"},
+				}},
+				"status": "success",
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+}
+
+// TestAnnotatePrefersTheEntrysID: series_gaps computed the gap for a specific
+// series and discover carries that identity onto the release it found. A search
+// for the release's parsed name would pick the other show and enrich the card
+// with its poster, its link and its episode titles — confidently wrong.
+func TestAnnotatePrefersTheEntrysID(t *testing.T) {
+	hits := map[string]int{}
+	srv := makeServerTwoTombRaiders(hits)
+	defer srv.Close()
+	p := makePlugin(t, srv)
+
+	e := entry.New("Tomb.Raider.S01E01.1080p.WEB-DL", "http://x.com/a")
+	e.Set("tvdb_id", "409591")
+	if err := p.annotate(context.Background(), makeCtx(), e); err != nil {
+		t.Fatal(err)
+	}
+
+	if v := e.GetString("tvdb_id"); v != "409591" {
+		t.Errorf("tvdb_id = %q, want the id the entry arrived with", v)
+	}
+	if v := e.GetString("tvdb_slug"); v != "tomb-raider-anime" {
+		t.Errorf("tvdb_slug = %q, want tomb-raider-anime", v)
+	}
+	if v := e.GetString("title"); v != "Tomb Raider: The Legend of Lara Croft" {
+		t.Errorf("title = %q, want the show the id names", v)
+	}
+	if v := e.GetString(entry.FieldVideoPoster); v != "https://artworks.thetvdb.com/409591.jpg" {
+		t.Errorf("video_poster = %q, want the 409591 poster", v)
+	}
+	if v := e.GetString(entry.FieldSeriesEpisodeTitle); v != "A Single Step for series 409591" {
+		t.Errorf("series_episode_title = %q, want the episode of 409591", v)
+	}
+	if !e.GetBool(entry.FieldEnriched) {
+		t.Error("entry should be enriched")
+	}
+	// Not just the right answer — the search is not consulted at all, so an
+	// ambiguous name cannot influence the outcome.
+	if n := hits["/v4/search"]; n != 0 {
+		t.Errorf("search called %d times, want 0 when the entry carries an id", n)
+	}
+}
+
+// TestAnnotateFallsBackToSearchWhenTheIDIsUnknown: an id TheTVDB does not
+// answer for must not cost the entry its enrichment — the name search is still
+// there, and behaves as it always did.
+func TestAnnotateFallsBackToSearchWhenTheIDIsUnknown(t *testing.T) {
+	hits := map[string]int{}
+	srv := makeServerTwoTombRaiders(hits)
+	defer srv.Close()
+	p := makePlugin(t, srv)
+
+	e := entry.New("Tomb.Raider.S01E01.1080p.WEB-DL", "http://x.com/a")
+	e.Set("tvdb_id", "999999") // no such series on this server
+	if err := p.annotate(context.Background(), makeCtx(), e); err != nil {
+		t.Fatal(err)
+	}
+
+	if n := hits["/v4/search"]; n != 1 {
+		t.Errorf("search called %d times, want 1 as the fallback", n)
+	}
+	if v := e.GetString("tvdb_id"); v != "450360" {
+		t.Errorf("tvdb_id = %q, want the searched show's id", v)
+	}
+	if !e.GetBool(entry.FieldEnriched) {
+		t.Error("entry should still be enriched via the search fallback")
+	}
+}
+
+// TestAnnotateWithoutAnIDSearchesAsBefore pins the path every other pipeline
+// takes: nothing upstream of metainfo_tvdb has to supply an id.
+func TestAnnotateWithoutAnIDSearchesAsBefore(t *testing.T) {
+	hits := map[string]int{}
+	srv := makeServerTwoTombRaiders(hits)
+	defer srv.Close()
+	p := makePlugin(t, srv)
+
+	e := entry.New("Tomb.Raider.S01E01.1080p.WEB-DL", "http://x.com/a")
+	if err := p.annotate(context.Background(), makeCtx(), e); err != nil {
+		t.Fatal(err)
+	}
+	if n := hits["/v4/search"]; n != 1 {
+		t.Errorf("search called %d times, want 1", n)
+	}
+	if v := e.GetString("tvdb_id"); v != "450360" {
+		t.Errorf("tvdb_id = %q, want the searched show's id", v)
+	}
+}
