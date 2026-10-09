@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.57.2] - 2026-10-08
+
+The identity a backfill already knew, carried the rest of the way.
+
+### Fixed
+
+- **A show is matched by its id before its title** ([#569](https://github.com/brunoga/pipeliner/pull/569)). `series`' `matchShow` compared normalized titles, and titles are not unique: TheTVDB lists both the 2026 *Tomb Raider* and the *Tomb Raider* anime under exactly that name. A release parsing to the bare `Tomb Raider` was attributed to whichever of the two the show list happened to return first — the 2026 series, which has not aired an episode — so an episode of one could be tracked under the other, and the real show kept looking as if it were still missing it. The id to settle it was already known at both ends and discarded in the middle: `series_gaps` stamps `tvdb_id` on every gap it emits, and `tvdb_favorites`, `library_shows` and `trakt_list` publish one per show, but `discover` returns brand new entries from the search backends and dropped the query's identity along the way, while `ResolveDynamicList` built a `TitleEntry` of title and year and dropped it on the list side. Both now carry it — `discover` stamps the query's id on each result it found for it, before the cross-query URL dedup and before the results are cached, leaving a result the backend identified itself alone — and `matchShow` checks the id against the list before any title comparison. A *mismatching* id deliberately does not rule a show out: an id is only as trustworthy as whatever supplied it, and `metainfo_tvdb` resolves one from the release name by search, which can land on the wrong series. The id only ever adds an answer the titles could not give, so a pipeline with no id upstream behaves exactly as before. `entry.TVDBID` reads the field in each shape it arrives in — string from the TheTVDB-backed plugins, JSON number from Trakt, `float64` after a store round-trip — and treats a non-positive id as absent.
+
+**Why 1.57.2**: one bug fix, no new config keys and no config edits required. The id is picked up automatically wherever something upstream already publishes one, and matching falls back to the previous title comparison everywhere else. A patch bump per SemVer.
+
 ## [1.57.1] - 2026-10-08
 
 Two defects found chasing a single missing episode, each of which quietly cost the backfill most of what it should have found.
