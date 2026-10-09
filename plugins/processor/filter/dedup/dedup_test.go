@@ -2,6 +2,7 @@ package dedup
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"strings"
@@ -342,5 +343,168 @@ func TestDedupNoMediaTypeWarningWhenClassifierFilterUpstream(t *testing.T) {
 		if strings.Contains(w.Error(), "media_type") {
 			t.Fatalf("did not expect a media_type warning, got: %v", w)
 		}
+	}
+}
+
+// --- identity: a shared name is not a shared item ---
+
+func movieEntry(title string, year int, url, res string) *entry.Entry {
+	e := entry.New(title+"."+fmt.Sprint(year)+"."+res, url)
+	e.Set(entry.FieldMediaType, entry.MediaTypeMovie)
+	e.Set(entry.FieldTitle, title)
+	e.Set(entry.FieldVideoYear, year)
+	e.Set(entry.FieldTorrentSeeds, 10)
+	return e
+}
+
+func episodeEntry(title, epID, url string) *entry.Entry {
+	e := entry.New(title, url)
+	e.Set(entry.FieldMediaType, entry.MediaTypeSeries)
+	e.Set(entry.FieldSeriesEpisodeID, epID)
+	e.Set(entry.FieldTorrentSeeds, 10)
+	return e
+}
+
+func dedupRun(t *testing.T, entries ...*entry.Entry) []*entry.Entry {
+	t.Helper()
+	p := &dedupPlugin{}
+	out, err := p.Process(context.Background(), tc(), entries)
+	if err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	return out
+}
+
+// TestTwoFilmsSharingATitleAreNotCopies is the defect: the title was the whole
+// movie key, so the 1984 Dune was rejected as "a better copy" of the 2021 one
+// and the request for it came back with the wrong film.
+func TestTwoFilmsSharingATitleAreNotCopies(t *testing.T) {
+	old := movieEntry("Dune", 1984, "http://x/1", "720p")
+	new2021 := movieEntry("Dune", 2021, "http://x/2", "2160p")
+
+	out := dedupRun(t, old, new2021)
+	if len(out) != 2 {
+		t.Fatalf("kept %d entries, want both films", len(out))
+	}
+	if old.IsRejected() || new2021.IsRejected() {
+		t.Errorf("neither film is a copy of the other: 1984 rejected=%v (%s), 2021 rejected=%v (%s)",
+			old.IsRejected(), old.RejectReason, new2021.IsRejected(), new2021.RejectReason)
+	}
+}
+
+// TestFilmsSeparatedByTheirIDs: the year is not always there to separate them,
+// but by the time dedup runs a metainfo plugin has usually resolved an id.
+func TestFilmsSeparatedByTheirIDs(t *testing.T) {
+	a := movieEntry("Michael", 0, "http://x/1", "1080p")
+	a.Set("tmdb_id", 24913)
+	b := movieEntry("Michael", 0, "http://x/2", "2160p")
+	b.Set("tmdb_id", 1156593)
+
+	out := dedupRun(t, a, b)
+	if len(out) != 2 || a.IsRejected() || b.IsRejected() {
+		t.Errorf("two tmdb ids are two films: kept %d, a rejected=%v, b rejected=%v",
+			len(out), a.IsRejected(), b.IsRejected())
+	}
+}
+
+// TestSameFilmStillDedups pins the behaviour that must not regress: two
+// releases of one film collapse to the better one.
+func TestSameFilmStillDedups(t *testing.T) {
+	worse := movieEntry("Dune", 2021, "http://x/1", "1080p")
+	better := movieEntry("Dune", 2021, "http://x/2", "2160p")
+
+	out := dedupRun(t, worse, better)
+	if len(out) != 1 || out[0] != better {
+		t.Fatalf("want only the 2160p copy, got %d entries", len(out))
+	}
+	if !worse.IsRejected() {
+		t.Error("the 1080p copy should be rejected")
+	}
+}
+
+// TestSameFilmWithAnOffByOneYear: release years disagree by one across
+// regional windows, which is why the comparison tolerates ±1 — the same
+// tolerance match.YearsCompatible applies everywhere else.
+func TestSameFilmWithAnOffByOneYear(t *testing.T) {
+	a := movieEntry("Mother", 2017, "http://x/1", "1080p")
+	b := movieEntry("Mother", 2018, "http://x/2", "2160p")
+
+	out := dedupRun(t, a, b)
+	if len(out) != 1 {
+		t.Errorf("an off-by-one year is the same film: kept %d entries", len(out))
+	}
+}
+
+// TestOneCopyWithAnIDAndOneWithout still dedups. Most releases publish no id
+// at all, and a metainfo plugin leaves an entry unenriched rather than guess —
+// so within one run a copy with an id and a copy without are routine, and
+// splitting on absence would stop dedup working for exactly those.
+func TestOneCopyWithAnIDAndOneWithout(t *testing.T) {
+	withID := movieEntry("Dune", 2021, "http://x/1", "1080p")
+	withID.Set("tmdb_id", 438631)
+	without := movieEntry("Dune", 2021, "http://x/2", "2160p")
+
+	out := dedupRun(t, withID, without)
+	if len(out) != 1 || out[0] != without {
+		t.Fatalf("want one entry (the 2160p copy), got %d", len(out))
+	}
+}
+
+// TestIDsFromDifferentNamespacesDoNotSplit: one copy identified by TMDB and
+// another by the indexer's IMDb id say nothing about each other.
+func TestIDsFromDifferentNamespacesDoNotSplit(t *testing.T) {
+	a := movieEntry("Inception", 2010, "http://x/1", "1080p")
+	a.Set("tmdb_id", 27205)
+	b := movieEntry("Inception", 2010, "http://x/2", "2160p")
+	b.Set("jackett_imdb_id", "tt1375666")
+
+	out := dedupRun(t, a, b)
+	if len(out) != 1 {
+		t.Errorf("unrelated namespaces must not split a film: kept %d entries", len(out))
+	}
+}
+
+// TestTwoShowsSharingABaseNameAreNotCopies: the series name is keyed with the
+// year stripped on purpose, so the id is the only thing left that can tell two
+// same-named shows apart.
+func TestTwoShowsSharingABaseNameAreNotCopies(t *testing.T) {
+	a := episodeEntry("Brothers.2026.S01E01.1080p.WEB", "S01E01", "http://x/1")
+	a.Set("tvdb_id", "448114")
+	b := episodeEntry("Brothers.S01E01.2160p.WEB", "S01E01", "http://x/2")
+	b.Set("tvdb_id", "500001")
+
+	out := dedupRun(t, a, b)
+	if len(out) != 2 || a.IsRejected() || b.IsRejected() {
+		t.Errorf("two tvdb ids are two shows: kept %d, a rejected=%v, b rejected=%v",
+			len(out), a.IsRejected(), b.IsRejected())
+	}
+}
+
+// TestOneShowSpelledTwoWaysStillDedups is the case the year-stripped name key
+// exists for, and it must survive the id check: same id, two spellings, one
+// episode.
+func TestOneShowSpelledTwoWaysStillDedups(t *testing.T) {
+	a := episodeEntry("Brothers.2026.S01E01.1080p.WEB", "S01E01", "http://x/1")
+	a.Set("tvdb_id", "448114")
+	b := episodeEntry("Brothers.S01E01.2160p.WEB", "S01E01", "http://x/2")
+	b.Set("tvdb_id", "448114")
+
+	out := dedupRun(t, a, b)
+	if len(out) != 1 {
+		t.Fatalf("one show, two spellings: kept %d entries, want 1", len(out))
+	}
+	if !a.IsRejected() {
+		t.Error("the 1080p copy should be rejected")
+	}
+}
+
+// TestRejectionReasonNamesTheGroup keeps the log line usable: it should say
+// which item the better copy was for.
+func TestRejectionReasonNamesTheGroup(t *testing.T) {
+	worse := movieEntry("Dune", 2021, "http://x/1", "1080p")
+	better := movieEntry("Dune", 2021, "http://x/2", "2160p")
+	dedupRun(t, worse, better)
+	if !strings.Contains(worse.RejectReason, "movie:dune") {
+		t.Errorf("reason = %q, want it to name movie:dune", worse.RejectReason)
 	}
 }

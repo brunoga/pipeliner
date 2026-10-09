@@ -10,6 +10,11 @@
 // name + series_episode_id, "movie" entries dedup by title. Entries without
 // media_type pass through unchanged.
 //
+// A name is not an identity, so two entries sharing one are only treated as
+// copies of the same item when nothing proves they are different items: a
+// provider id that disagrees, or (for movies) a release year that does. See
+// [itemIDs.conflicts].
+//
 // Place dedup after a metainfo processor that sets media_type (typically
 // metainfo_file, metainfo_tmdb, or metainfo_tvdb) and after filters that
 // accept entries, before output sinks.
@@ -64,36 +69,141 @@ func (p *dedupPlugin) Name() string { return "dedup" }
 func (p *dedupPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
 	// Executor pre-filter (InputStates=StatesAcceptedOnly) means every entry
 	// here is Accepted — no per-entry state check needed.
-	best := map[string]*entry.Entry{}
+	//
+	// Entries are grouped by name key, then split within a group into clusters
+	// of entries nothing proves apart. A plain map keyed by a single string
+	// cannot express that: "same unless proven different" is a comparison
+	// between two entries, not a property of one.
+	groups := map[string][]*cluster{}
+	owner := map[*entry.Entry]*cluster{}
 	for _, e := range entries {
-		k := deduKey(e)
+		k := nameKey(e)
 		if k == "" {
 			continue
 		}
-		if prev, ok := best[k]; !ok || isBetter(e, prev) {
-			best[k] = e
+		it := describe(e)
+		c := pick(groups[k], it)
+		if c == nil {
+			c = &cluster{key: k}
+			groups[k] = append(groups[k], c)
 		}
+		c.absorb(it)
+		if c.best == nil || isBetter(e, c.best) {
+			c.best = e
+		}
+		owner[e] = c
 	}
 
 	var out []*entry.Entry
 	for _, e := range entries {
-		k := deduKey(e)
-		if k == "" {
+		c, keyed := owner[e]
+		if !keyed {
 			// Unkeyable entries (missing media_type or title) pass through
 			// untouched — dedup has no opinion on them.
 			out = append(out, e)
 			continue
 		}
-		if best[k] == e {
+		if c.best == e {
 			out = append(out, e)
 		} else {
-			e.Reject(fmt.Sprintf("dedup: better copy already accepted for %q", k))
+			e.Reject(fmt.Sprintf("dedup: better copy already accepted for %q", c.key))
 		}
 	}
 	return out, nil
 }
 
-func deduKey(e *entry.Entry) string {
+// item is what is known about which media item an entry is a copy of, beyond
+// the name it shares with the rest of its group.
+type item struct {
+	ids  itemIDs
+	year int // movies only; series names are keyed with the year stripped
+}
+
+// cluster is a set of entries in one name group that nothing proves apart,
+// plus the best of them so far. Its identity is the union of what its members
+// published, so an entry that carries an id pins the cluster for the entries
+// compared against it afterwards.
+type cluster struct {
+	key  string
+	it   item
+	best *entry.Entry
+}
+
+// pick returns the cluster an item belongs to, or nil for a new one. First fit:
+// an entry that publishes nothing distinguishing joins the first cluster, which
+// is what dedup did for every entry before clusters existed.
+func pick(cs []*cluster, it item) *cluster {
+	for _, c := range cs {
+		if !c.it.ids.conflicts(it.ids) && yearsCompatible(c.it.year, it.year) {
+			return c
+		}
+	}
+	return nil
+}
+
+func (c *cluster) absorb(it item) {
+	c.it.ids.absorb(it.ids)
+	if c.it.year == 0 {
+		c.it.year = it.year
+	}
+}
+
+// itemIDs holds the provider ids an entry publishes, per namespace.
+type itemIDs struct{ tvdb, tmdb, imdb string }
+
+// conflicts reports whether two identities are provably different: some
+// namespace where both name an id and the two ids differ. An id missing on
+// either side proves nothing — most releases carry none at all, and splitting
+// on absence would stop dedup working for exactly those.
+func (a itemIDs) conflicts(b itemIDs) bool {
+	return differ(a.tvdb, b.tvdb) || differ(a.tmdb, b.tmdb) || differ(a.imdb, b.imdb)
+}
+
+func (a *itemIDs) absorb(b itemIDs) {
+	if a.tvdb == "" {
+		a.tvdb = b.tvdb
+	}
+	if a.tmdb == "" {
+		a.tmdb = b.tmdb
+	}
+	if a.imdb == "" {
+		a.imdb = b.imdb
+	}
+}
+
+func differ(x, y string) bool { return x != "" && y != "" && x != y }
+
+// yearsCompatible mirrors match.YearsCompatible: unknown years are compatible
+// with anything, and known years must be within one of each other, because a
+// release names the year it was given and regional windows disagree by one.
+func yearsCompatible(a, b int) bool {
+	if a == 0 || b == 0 {
+		return true
+	}
+	return a-b <= 1 && b-a <= 1
+}
+
+// describe reads the identity of the item an entry is a copy of.
+func describe(e *entry.Entry) item {
+	switch e.GetString(entry.FieldMediaType) {
+	case entry.MediaTypeSeries:
+		// Series ids only. A show's year is deliberately not compared: the
+		// name key already has it stripped, because "Brothers 2026 S01E01"
+		// and "Brothers S01E01" are one episode spelled two ways.
+		return item{ids: itemIDs{tvdb: entry.TVDBID(e)}}
+	case entry.MediaTypeMovie:
+		return item{
+			ids:  itemIDs{tmdb: entry.TMDBID(e), imdb: entry.IMDBID(e)},
+			year: entry.ReleaseYear(e),
+		}
+	}
+	return item{}
+}
+
+// nameKey groups the entries that might be copies of one another. It is
+// deliberately loose — the year is stripped from a series name and absent from
+// a movie title — and describe() supplies what separates the group again.
+func nameKey(e *entry.Entry) string {
 	switch e.GetString(entry.FieldMediaType) {
 	case entry.MediaTypeSeries:
 		epID := e.GetString(entry.FieldSeriesEpisodeID)
