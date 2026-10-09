@@ -233,6 +233,27 @@ func pageCount(resp *http.Response) int {
 // itemType is "show" or "movie" (singular).
 func (c *Client) Search(ctx context.Context, itemType, query string) ([]Item, error) {
 	u := fmt.Sprintf("%s/search/%s?query=%s&extended=full", BaseURL, itemType, url.QueryEscape(query))
+	return c.searchRequest(ctx, itemType, u, fmt.Sprintf("%s %q", itemType, query))
+}
+
+// LookupByID resolves a movie or show from a provider id instead of a name,
+// via Trakt's id search. idType is one of Trakt's external-id namespaces:
+// "imdb", "tmdb", "tvdb" or "trakt".
+//
+// A name search answers with what ranks highest for a string; this answers
+// with the item. Any pipeline that ran a list source or another metainfo
+// plugin first already has an id, and resolving it again by name is how the
+// wrong film or the wrong same-named show gets picked.
+func (c *Client) LookupByID(ctx context.Context, itemType, idType, id string) ([]Item, error) {
+	u := fmt.Sprintf("%s/search/%s/%s?type=%s&extended=full",
+		BaseURL, url.PathEscape(idType), url.PathEscape(id), url.QueryEscape(itemType))
+	return c.searchRequest(ctx, itemType, u, fmt.Sprintf("%s id %s:%s", itemType, idType, id))
+}
+
+// searchRequest performs a Trakt search-shaped GET and extracts the items.
+// Every search response is an array of wrappers whose key is the item type,
+// whether the query was a string or an id.
+func (c *Client) searchRequest(ctx context.Context, itemType, u, what string) ([]Item, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return nil, err
@@ -241,24 +262,18 @@ func (c *Client) Search(ctx context.Context, itemType, query string) ([]Item, er
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("trakt: search %s %q: %w", itemType, query, err)
+		return nil, fmt.Errorf("trakt: search %s: %w", what, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("trakt: search HTTP %d", resp.StatusCode)
+		return nil, fmt.Errorf("trakt: search %s: HTTP %d", what, resp.StatusCode)
 	}
 
-	var results []struct {
-		Type  string          `json:"type"`
-		Score float64         `json:"score"`
-		Item  json.RawMessage // key matches itemType, decoded below
-	}
 	// The JSON has either a "show" or "movie" key; decode generically then extract.
 	var rawResults []json.RawMessage
 	if err := json.NewDecoder(resp.Body).Decode(&rawResults); err != nil {
 		return nil, fmt.Errorf("trakt: search decode: %w", err)
 	}
-	_ = results
 
 	var items []Item
 	for _, raw := range rawResults {

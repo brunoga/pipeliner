@@ -1,6 +1,21 @@
 # metainfo_trakt
 
-Annotates entries with metadata from Trakt.tv via the search API. Searches by parsed show or movie name and caches results.
+Annotates entries with metadata from Trakt.tv. The item is resolved by an id the entry already carries where there is one, and otherwise by searching for the parsed show or movie name. Results are cached either way.
+
+## Which item gets looked up
+
+An id on the entry is tried first — `trakt_id`, then IMDb, then TMDb, then TheTVDB — through Trakt's id search. Which one an entry has depends on what ran upstream: `trakt_list` leaves its own `trakt_id`, `metainfo_tvdb` leaves a `tvdb_id`, an indexer may have published an IMDb id. The first namespace Trakt answers for wins; one it has no item for costs the entry nothing, because the next namespace and then the name search still follow. Both kinds of answer are cached, under a key that records which question was asked.
+
+A name search knows only a string, and a string is not an identity. It cannot separate two shows called *Tomb Raider* or two films called *Michael*, and Trakt answers it with whichever is more popular.
+
+When the name search is what runs, the result is now chosen with the year in hand:
+
+1. Exact title match (normalized) whose year is compatible — within one, since regional windows disagree by one.
+2. Exact title match, any year.
+3. Any result with a compatible year.
+4. Trakt's own relevance ranking.
+
+The year is a preference rather than a filter, because a release name frequently omits it and occasionally gets it wrong. It comes from the parsed release name, falling back to `video_year` for a clean list title that has no year of its own.
 
 ## Config
 

@@ -17,6 +17,9 @@ var (
 	tvdbIDFields = []string{"tvdb_id", "trakt_tvdb_id", "jackett_tvdb_id"}
 	tmdbIDFields = []string{"tmdb_id", "trakt_tmdb_id", "jackett_tmdb_id"}
 	imdbIDFields = []string{FieldVideoImdbID, "trakt_imdb_id", "jackett_imdb_id"}
+
+	// Trakt's own id has one home: nothing but Trakt issues it.
+	traktIDFields = []string{"trakt_id"}
 )
 
 // TVDBID returns the entry's TheTVDB series id as a string, or "" when the
@@ -27,6 +30,10 @@ func TVDBID(e *Entry) string { return providerID(e, tvdbIDFields, numericID) }
 // TMDBID returns the entry's TMDB id as a string, or "" when the entry
 // carries none.
 func TMDBID(e *Entry) string { return providerID(e, tmdbIDFields, numericID) }
+
+// TraktID returns the entry's Trakt id as a string, or "" when the entry
+// carries none.
+func TraktID(e *Entry) string { return providerID(e, traktIDFields, numericID) }
 
 // IMDBID returns the entry's IMDb id (e.g. "tt1375666"), or "" when the entry
 // carries none. IMDb ids are opaque strings rather than numbers, so they are
