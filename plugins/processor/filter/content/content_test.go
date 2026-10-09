@@ -168,3 +168,65 @@ func TestEmptyConfig(t *testing.T) {
 		t.Error("expected error when neither reject nor require is set")
 	}
 }
+
+// --- case ---
+
+// TestRejectIgnoresCase is the live failure: a request for Supergirl (2026)
+// came back with "SUPERGIRL 4K ISO [RoB]", whose torrent holds one file named
+// SUPERGIRL.ISO. The pipeline had reject=["*.rar", "*.iso", "*.exe"] and
+// path.Match is case-sensitive, so a 90 GB disc image went to the download
+// client with nothing logged — the check ran and found nothing to object to.
+func TestRejectIgnoresCase(t *testing.T) {
+	p := makePlugin(t, map[string]any{"reject": []any{"*.rar", "*.iso", "*.exe"}})
+	for _, f := range []string{"SUPERGIRL.ISO", "Supergirl.Iso", "movie.RAR", "setup.EXE"} {
+		e := entryWithFiles([]string{f})
+		filter(t, p, e)
+		if !e.IsRejected() {
+			t.Errorf("%q should be rejected", f)
+		}
+	}
+}
+
+// TestRejectPatternCaseIgnoredToo: the pattern is as likely to be shouted as
+// the filename, and neither spelling means "only this case".
+func TestRejectPatternCaseIgnoredToo(t *testing.T) {
+	p := makePlugin(t, map[string]any{"reject": []any{"*.ISO"}})
+	e := entryWithFiles([]string{"supergirl.iso"})
+	filter(t, p, e)
+	if !e.IsRejected() {
+		t.Error("an uppercase pattern should still match a lowercase file")
+	}
+}
+
+// TestRejectMatchesAtAnyDepth: the real torrent put its file in a folder, and
+// a pattern with no separator has to reach it.
+func TestRejectMatchesAtAnyDepth(t *testing.T) {
+	p := makePlugin(t, map[string]any{"reject": []any{"*.iso"}})
+	e := entryWithFiles([]string{"SUPERGIRL 4K ISO [RoB]/SUPERGIRL.ISO"})
+	filter(t, p, e)
+	if !e.IsRejected() {
+		t.Error("a nested disc image should be rejected")
+	}
+}
+
+// TestRequireIgnoresCase: the same folding applies to require, or a pipeline
+// demanding "*.mkv" would refuse a release whose file is Movie.MKV.
+func TestRequireIgnoresCase(t *testing.T) {
+	p := makePlugin(t, map[string]any{"require": []any{"*.mkv"}})
+	e := entryWithFiles([]string{"Some.Movie.2026.1080p/SOME.MOVIE.MKV"})
+	filter(t, p, e)
+	if e.IsRejected() {
+		t.Errorf("an uppercase extension should satisfy the requirement: %s", e.RejectReason)
+	}
+}
+
+// TestNonMatchingFileStillPasses pins that folding did not turn the matcher
+// into something that matches everything.
+func TestNonMatchingFileStillPasses(t *testing.T) {
+	p := makePlugin(t, map[string]any{"reject": []any{"*.iso"}})
+	e := entryWithFiles([]string{"Supergirl.2026.2160p.BluRay.REMUX.mkv"})
+	filter(t, p, e)
+	if e.IsRejected() {
+		t.Errorf("a normal release must pass: %s", e.RejectReason)
+	}
+}

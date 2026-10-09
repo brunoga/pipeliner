@@ -2085,7 +2085,7 @@ by_air = process("age", upstream=enriched,
 
 <!-- ─────────── content ─────────── -->
 <h2 id="content">content</h2>
-<p>Rejects or requires entries based on filenames. The file list is resolved in order:</p>
+<p>Rejects or requires entries based on filenames. <strong>Patterns match without regard to case</strong>, on both sides &mdash; a release group writes the extension however it pleases (<code>SUPERGIRL.ISO</code>, <code>Movie.RAR</code>, <code>sample.MKV</code>), and <code>path.Match</code> is case-sensitive, so <code>reject=["*.iso"]</code> used to pass a 90 GB disc image named <code>SUPERGIRL.ISO</code> through to the download client with nothing logged: the check ran and found nothing to object to. The file list is resolved in order:</p>
 <ol>
   <li><strong><code>torrent_files</code></strong> — set by <code>metainfo_torrent</code> or <code>metainfo_magnet</code> (DHT). Full file list from the torrent.</li>
   <li><strong><code>file_location</code> basename</strong> — set by the <code>filesystem</code> plugin for local files.</li>

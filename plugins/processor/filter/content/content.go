@@ -101,14 +101,7 @@ func (p *contentPlugin) filter(_ context.Context, tc *plugin.TaskContext, e *ent
 	// Reject if any file matches a reject pattern.
 	for _, pat := range p.reject {
 		for _, f := range files {
-			// Match against the filename component only.
-			base := path.Base(f)
-			matched, _ := path.Match(pat, base)
-			if !matched {
-				// Also try full path for patterns with directory separators.
-				matched, _ = path.Match(pat, f)
-			}
-			if matched {
+			if matchFile(pat, f) {
 				e.Reject(fmt.Sprintf("content: file %q matches reject pattern %q", f, pat))
 				return nil
 			}
@@ -119,12 +112,7 @@ func (p *contentPlugin) filter(_ context.Context, tc *plugin.TaskContext, e *ent
 	for _, pat := range p.require {
 		found := false
 		for _, f := range files {
-			base := path.Base(f)
-			if matched, _ := path.Match(pat, base); matched {
-				found = true
-				break
-			}
-			if matched, _ := path.Match(pat, f); matched {
+			if matchFile(pat, f) {
 				found = true
 				break
 			}
@@ -136,6 +124,25 @@ func (p *contentPlugin) filter(_ context.Context, tc *plugin.TaskContext, e *ent
 	}
 
 	return nil
+}
+
+// matchFile reports whether a file matches a pattern, trying the filename
+// component first and then the full path, so a pattern with no separator
+// matches a file at any depth while one with separators can still anchor.
+//
+// Matching ignores case. A release group writes the extension however it
+// pleases -- SUPERGIRL.ISO, Movie.RAR, sample.MKV -- and path.Match is
+// case-sensitive, so `reject=["*.iso"]` quietly passed a 90 GB disc image
+// named SUPERGIRL.ISO through to the download client. Nobody writing that
+// pattern means "only lowercase ones", and a filesystem that distinguishes
+// the two is not one we are matching against here.
+func matchFile(pat, file string) bool {
+	pat, file = strings.ToLower(pat), strings.ToLower(file)
+	if matched, _ := path.Match(pat, path.Base(file)); matched {
+		return true
+	}
+	matched, _ := path.Match(pat, file)
+	return matched
 }
 
 // resolveFiles returns the file list to check and the source it came from.
