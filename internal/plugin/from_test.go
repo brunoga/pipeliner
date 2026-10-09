@@ -246,3 +246,79 @@ func TestResolveDynamicListPreservesYearFromEntry(t *testing.T) {
 		t.Errorf("unexpected result: %v", result)
 	}
 }
+
+// --- show identity ---
+
+// showsFromPlugin emits entries carrying a tvdb_id, the way tvdb_favorites,
+// library_shows and trakt_list do.
+type showsFromPlugin struct {
+	name  string
+	shows map[string]any // title -> tvdb_id (absent when nil)
+	order []string
+}
+
+func (p *showsFromPlugin) Name() string { return p.name }
+func (p *showsFromPlugin) Generate(_ context.Context, _ *TaskContext) ([]*entry.Entry, error) {
+	out := make([]*entry.Entry, 0, len(p.order))
+	for _, title := range p.order {
+		e := entry.New(title, "")
+		if id := p.shows[title]; id != nil {
+			e.Set("tvdb_id", id)
+		}
+		out = append(out, e)
+	}
+	return out, nil
+}
+
+// TestResolveDynamicListCarriesTheShowID: the list is what the series/movies
+// filters match a release against, and a title alone cannot separate two shows
+// that normalise to the same string. The id the source published has to
+// survive the trip into the TitleEntry.
+func TestResolveDynamicListCarriesTheShowID(t *testing.T) {
+	src := &showsFromPlugin{
+		name:  "tvdb_favorites",
+		order: []string{"Tomb Raider", "Tomb Raider: The Legend of Lara Croft", "Severance"},
+		shows: map[string]any{
+			"Tomb Raider":                           "450360",
+			"Tomb Raider: The Legend of Lara Croft": 409591, // numeric shape too
+			// Severance: a source that publishes no id at all.
+		},
+	}
+	got := ResolveDynamicList(context.Background(), makeTC(),
+		[]SourcePlugin{src}, nil, simpleCache{}.get, simpleCache{}.set)
+
+	byNorm := map[string]match.TitleEntry{}
+	for _, te := range got {
+		byNorm[te.Norm] = te
+	}
+	if id := byNorm["tomb raider"].TVDBID; id != "450360" {
+		t.Errorf("Tomb Raider: TVDBID = %q, want 450360", id)
+	}
+	if id := byNorm["tomb raider the legend of lara croft"].TVDBID; id != "409591" {
+		t.Errorf("the anime: TVDBID = %q, want 409591", id)
+	}
+	if id := byNorm["severance"].TVDBID; id != "" {
+		t.Errorf("a show with no published id must carry no id, got %q", id)
+	}
+}
+
+// TestResolveDynamicListCachesTheShowID: the cache is what later runs read, so
+// an id dropped on the way in would be missing for the rest of the TTL.
+func TestResolveDynamicListCachesTheShowID(t *testing.T) {
+	src := &showsFromPlugin{
+		name:  "tvdb_favorites",
+		order: []string{"Severance"},
+		shows: map[string]any{"Severance": "371980"},
+	}
+	c := simpleCache{}
+	ResolveDynamicList(context.Background(), makeTC(),
+		[]SourcePlugin{src}, nil, c.get, c.set)
+
+	cached, ok := c["tvdb_favorites"]
+	if !ok {
+		t.Fatalf("nothing cached under tvdb_favorites: %v", c)
+	}
+	if len(cached) != 1 || cached[0].TVDBID != "371980" {
+		t.Errorf("cached entry = %+v, want TVDBID 371980", cached)
+	}
+}

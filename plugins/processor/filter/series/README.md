@@ -15,6 +15,7 @@ The show list is optional. When provided, it can be static via `static`, dynamic
 | Field | Used for |
 |-------|----------|
 | `title` | Show name (normalized) used for matching against the configured list |
+| `tvdb_id` *(optional)* | TheTVDB id of the show the release belongs to; matched against the list before any title comparison |
 | `video_year` *(optional)* | Show year the release names; tells apart shows that differ only by year |
 | `series_episode_id` | Tracker key + classification gate |
 | `series_season` | `follow` season-floor logic |
@@ -28,6 +29,10 @@ The first five fields are declared via `Descriptor.Requires`, so the DAG validat
 ## Show identity
 
 A show is its normalized name plus an optional year. Releases spell the same show as `Brothers 2026 S01E01`, `Brothers S01E01 2026` or `Brothers S01E01`, and TheTVDB adds or drops a `(2026)` suffix as it disambiguates names, so the year is compared separately: names match when they are equal without a trailing year and the years (when both are known) are within one of each other. `Doctor Who (2005)` and `Doctor Who 1963` stay apart.
+
+Where the release carries a `tvdb_id` and a listed show publishes the same one, that wins before any title is compared. Two shows can normalise to the identical title — TheTVDB lists both the 2026 *Tomb Raider* and the *Tomb Raider* anime under exactly that name — and a release that parses to the bare name would otherwise be attributed to whichever of them the list happened to return first. `series_gaps` knows which series it found a gap in and [`discover`](../../discover/) passes that identity along with the release, so a backfill pipeline always has it.
+
+A *mismatching* id never rules a show out. An id is only as trustworthy as whatever supplied it: `series_gaps` asked for a specific show, but `metainfo_tvdb` resolves one from the release name by search and can land on the wrong series. The id only ever adds an answer the titles could not give, so a pipeline with no id upstream behaves exactly as before.
 
 Episodes are looked up under every tracker key that spells the show (`brothers` and `brothers 2026` alike), so records written under an older spelling keep counting. New records go to the name+year key when that already exists, otherwise to an existing spelling (preferring one with a year), and for a new show to name+year.
 

@@ -33,8 +33,11 @@ func init() {
 		Description: "actively search multiple backends for items from a title list; receives a title list from upstream source nodes and returns search results",
 		Role:        plugin.RoleProcessor,
 		Refusal:     plugin.RefusalNone,
-		// discover does not set fields itself; entries come from search sub-plugins
-		// whose Produces/MayProduce are propagated by the DAG validator.
+		// Entries come from the search sub-plugins, whose Produces/MayProduce
+		// are propagated by the DAG validator. The one field discover sets
+		// itself is the show identity of the query that found the result, and
+		// only when the query carried one — hence MayProduce.
+		MayProduce:    []string{"tvdb_id"},
 		Factory:       newPlugin,
 		Validate:      validate,
 		AcceptsSearch: true,
@@ -226,6 +229,7 @@ func (p *discoverPlugin) searchEntries(ctx context.Context, tc *plugin.TaskConte
 					if p.matchTitles && !matchesQuery(qe.Title, e.Title) {
 						continue // cached before the option was enabled
 					}
+					stampQueryIdentity(qe, e) // cached before the id was carried
 					seen[e.URL] = true
 					all = append(all, e)
 				}
@@ -264,6 +268,11 @@ func (p *discoverPlugin) searchEntries(ctx context.Context, tc *plugin.TaskConte
 			titleResults = kept
 		}
 		for _, e := range titleResults {
+			if e != nil {
+				stampQueryIdentity(qe, e)
+			}
+		}
+		for _, e := range titleResults {
 			if e == nil || seen[e.URL] {
 				continue
 			}
@@ -279,6 +288,22 @@ func (p *discoverPlugin) searchEntries(ctx context.Context, tc *plugin.TaskConte
 		}
 	}
 	return all, nil
+}
+
+// stampQueryIdentity copies the show identity of the query onto a result found
+// for it. An indexer returns a release name and nothing else, and two shows can
+// share one — a downstream filter needs to know which of them we were actually
+// searching for. Only a query that carries an id contributes one, and a backend
+// that already identified the result keeps its own answer.
+//
+// Results are stamped per query, before the cross-query URL dedup, so the
+// identity belongs to the query that first claimed the release.
+func stampQueryIdentity(qe, result *entry.Entry) {
+	id := entry.TVDBID(qe)
+	if id == "" || entry.TVDBID(result) != "" {
+		return
+	}
+	result.Set("tvdb_id", id)
 }
 
 func toStringSlice(v any) []string {

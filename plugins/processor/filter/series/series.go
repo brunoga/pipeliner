@@ -258,7 +258,7 @@ func (p *seriesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *en
 	// name so dedup and upgrade detection still work across runs.
 	showName := parsedName
 	if p.hasList() {
-		show, ok := matchShow(parsedName, year, p.resolveShows(ctx, tc))
+		show, ok := matchShow(parsedName, year, entry.TVDBID(e), p.resolveShows(ctx, tc))
 		if !ok {
 			if p.rejectUnmatched {
 				e.Reject("series: show not in list")
@@ -464,13 +464,36 @@ func (p *seriesPlugin) resolveShows(ctx context.Context, tc *plugin.TaskContext)
 }
 
 // matchShow returns the configured show that parsed (with the year the
-// release names, 0 when none) belongs to. A title match wins outright — shows
-// air over multiple years, so a release year is no reason to refuse one.
-// Failing that, the names are compared without a trailing year, which is how
-// releases and TheTVDB variously spell it: "Brothers 2026" and "Brothers"
-// (listed with year 2026) are one show, unless the years contradict each
-// other.
-func matchShow(parsed string, year int, shows []match.TitleEntry) (match.TitleEntry, bool) {
+// release names, 0 when none, and the TheTVDB id it is known to belong to, ""
+// when unknown) belongs to.
+//
+// An id match wins over everything. It is the one thing a release, a list and
+// TheTVDB cannot spell three different ways, and it is the only thing that
+// separates two listed shows whose titles normalise to the same string: a
+// favourites list holding both "Tomb Raider" (2026) and the Tomb Raider anime
+// would otherwise answer a bare "Tomb.Raider.S01E01" with whichever of them
+// the list happened to put first.
+//
+// Failing that, a title match wins outright — shows air over multiple years,
+// so a release year is no reason to refuse one. Failing that, the names are
+// compared without a trailing year, which is how releases and TheTVDB
+// variously spell it: "Brothers 2026" and "Brothers" (listed with year 2026)
+// are one show, unless the years contradict each other.
+//
+// A *mismatching* id deliberately does not rule a show out. An id on the
+// release is only as trustworthy as whatever put it there: series_gaps knows
+// which show it asked for, but metainfo_tvdb resolves one from the release
+// name by search and can land on the wrong series. Rejecting on that would
+// drop episodes that match by title today, so the id only ever adds an answer
+// the titles could not give.
+func matchShow(parsed string, year int, tvdbID string, shows []match.TitleEntry) (match.TitleEntry, bool) {
+	if tvdbID != "" {
+		for _, s := range shows {
+			if s.TVDBID == tvdbID {
+				return s, true
+			}
+		}
+	}
 	norm := match.Normalize(parsed)
 	for _, s := range shows {
 		if match.Fuzzy(norm, s.Norm) {
