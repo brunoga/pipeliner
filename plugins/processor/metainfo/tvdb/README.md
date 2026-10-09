@@ -1,6 +1,6 @@
 # metainfo_tvdb
 
-Enriches series entries with metadata from TheTVDB. Searches by parsed series name and caches results. Fields missing from the search response (genres, language) are filled in automatically via a second call to the series extended endpoint. If a specific season and episode are parsed, episode-level detail is also fetched.
+Enriches series entries with metadata from TheTVDB. The series is resolved by the entry's `tvdb_id` where it already carries one, and otherwise by searching for the parsed series name. Fields missing from the search response (genres, language) are filled in automatically via a second call to the series extended endpoint. If a specific season and episode are parsed, episode-level detail is also fetched.
 
 All results are cached in `pipeliner.db` to avoid redundant API calls across runs.
 
@@ -81,6 +81,17 @@ fmt  = process("pathfmt",         upstream=req,
 output("transmission", upstream=fmt, host="localhost")
 pipeline("tv-tvdb", schedule="1h")
 ```
+
+## Which series gets looked up
+
+An `tvdb_id` already on the entry is used in preference to a name search, and nothing is spent proving it: the extended record is what the fields are built from in any case, so fetching it both confirms the id and warms the cache. Where there is no id, or TheTVDB does not answer for it, the name search runs exactly as before.
+
+The id is the better answer wherever something upstream knows it. [`series_gaps`](../../gaps/) computed the gap for a specific series and [`discover`](../../discover/) carries that identity onto the release it found; a search knows only the string, and a string is not always enough:
+
+- `Tomb Raider` names two different shows on TheTVDB — the 2026 series and the anime — so a search picks one of them by relevance, and `pickSeries`' exact-title preference cannot break the tie because both titles are exactly that.
+- A title whose punctuation defeats the search engine returns nothing at all: `Tomb Raider: The Legend of Lara Croft` yields zero results, while the short name yields seven.
+
+Getting this wrong is not a thin notification but a confident one about the wrong show, carrying its poster, its link and its episode titles.
 
 ## Notes
 

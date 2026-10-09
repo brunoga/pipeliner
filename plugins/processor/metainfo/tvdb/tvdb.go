@@ -151,27 +151,10 @@ func (p *tvdbPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 		return nil
 	}
 
-	results := p.searchSeries(ctx, tc, ep.SeriesName)
-	if len(results) == 0 {
-		tc.Logger.Warn("metainfo_tvdb: no results", "series", ep.SeriesName, "entry", e.Title)
-		return nil
-	}
-
-	// Prefer the result whose name matches the searched series exactly (after
-	// normalization) over TVDB's relevance ranking — a same-name spin-off,
-	// reboot, or companion entry can outrank the actual show. Falls back to
-	// the first (highest-relevance) result when nothing matches exactly.
-	s, ok := pickSeries(results, ep.SeriesName, ep.SeriesYear)
+	s, ok := p.resolveSeries(ctx, tc, e, ep)
 	if !ok {
-		// Leaving the entry unenriched is the point: the download still works
-		// from the parsed title, and an un-enriched notification is obviously
-		// thin, where a confidently wrong one is not.
-		tc.Logger.Warn("metainfo_tvdb: no result matched the series name; leaving the entry unenriched",
-			"series", ep.SeriesName, "year", ep.SeriesYear, "entry", e.Title,
-			"best_candidate", results[0].Name)
 		return nil
 	}
-	tc.Logger.Debug("metainfo_tvdb: search result", "series", ep.SeriesName, "id", s.ID, "name", s.Name)
 
 	e.Set("tvdb_id", s.ID)
 	if s.Slug != "" {
@@ -305,6 +288,57 @@ func (p *tvdbPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 	}
 
 	return nil
+}
+
+// resolveSeries picks the series to enrich from, preferring an id the entry
+// already carries over a search for its parsed name.
+//
+// The id is the better answer wherever something upstream knows it: series_gaps
+// computed the gap for a specific series and discover carries that identity
+// onto the release it found, while a name search knows only the string. The
+// string is not always enough — "Tomb Raider" names two different shows on
+// TheTVDB, so a search picks one of them by relevance, and a title whose
+// punctuation defeats the search engine returns nothing at all. Getting it
+// wrong here is not just a thin notification but a confident one about the
+// wrong show, with its poster and its link.
+//
+// No request is spent proving the id: the extended record is what the fields
+// are built from a few lines below and is fetched either way, so a successful
+// fetch both confirms the id and warms the cache. Where there is no id, or the
+// fetch fails, the name search is the fallback and behaves exactly as before.
+func (p *tvdbPlugin) resolveSeries(ctx context.Context, tc *plugin.TaskContext,
+	e *entry.Entry, ep *series.Episode) (itvdb.Series, bool) {
+	if id := entry.TVDBID(e); id != "" {
+		if _, err := p.fetchExtended(ctx, tc, id); err == nil {
+			tc.Logger.Debug("metainfo_tvdb: resolved by id", "id", id, "entry", e.Title)
+			return itvdb.Series{ID: id}, true
+		}
+		tc.Logger.Warn("metainfo_tvdb: lookup by the entry's id failed, falling back to a name search",
+			"tvdb_id", id, "series", ep.SeriesName, "entry", e.Title)
+	}
+
+	results := p.searchSeries(ctx, tc, ep.SeriesName)
+	if len(results) == 0 {
+		tc.Logger.Warn("metainfo_tvdb: no results", "series", ep.SeriesName, "entry", e.Title)
+		return itvdb.Series{}, false
+	}
+
+	// Prefer the result whose name matches the searched series exactly (after
+	// normalization) over TVDB's relevance ranking — a same-name spin-off,
+	// reboot, or companion entry can outrank the actual show. Falls back to
+	// the first (highest-relevance) result when nothing matches exactly.
+	s, ok := pickSeries(results, ep.SeriesName, ep.SeriesYear)
+	if !ok {
+		// Leaving the entry unenriched is the point: the download still works
+		// from the parsed title, and an un-enriched notification is obviously
+		// thin, where a confidently wrong one is not.
+		tc.Logger.Warn("metainfo_tvdb: no result matched the series name; leaving the entry unenriched",
+			"series", ep.SeriesName, "year", ep.SeriesYear, "entry", e.Title,
+			"best_candidate", results[0].Name)
+		return itvdb.Series{}, false
+	}
+	tc.Logger.Debug("metainfo_tvdb: search result", "series", ep.SeriesName, "id", s.ID, "name", s.Name)
+	return s, true
 }
 
 func (p *tvdbPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
