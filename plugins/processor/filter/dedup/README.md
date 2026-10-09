@@ -13,6 +13,23 @@ episode/movie) and before output sinks.
 Episodes are keyed by normalized series title without a trailing year + episode ID (`Brothers 2026 S01E01` and `Brothers S01E01 2026` are one episode); movies by movie title (case-insensitive).
 Entries without either key pass through unchanged.
 
+## A shared name is not a shared item
+
+Titles are not unique. TheTVDB lists two different series called *Tomb Raider*; there is a *Dune* from 1984 and one from 2021. Grouping by name alone meant the older film was rejected as "a better copy" of the newer one and the request for it came back with the wrong film — and for episodes, where the name key has the year stripped on purpose, nothing at all separated two same-named shows.
+
+So entries sharing a name key are treated as copies of one another only when nothing *proves* they are different:
+
+| Signal | Effect |
+|---|---|
+| Provider ids that disagree (`tvdb_id`, `tmdb_id`, IMDb) | different items |
+| Release years more than one apart (movies) | different items |
+| An id present on one copy and missing on the other | nothing proven — still copies |
+| Ids from different namespaces (one TMDB, one IMDb) | nothing proven — still copies |
+
+Absence never splits a group, and that matters more than it looks: most releases publish no id, a metainfo plugin leaves an entry unenriched rather than guess, so a copy with an id beside a copy without is the normal case. Splitting on absence would stop dedup working for exactly those and download the same episode twice.
+
+The id is read from what pipeliner resolved itself first (`tvdb_id`, `tmdb_id`), then a list provider's metadata (`trakt_*_id`), then the id an indexer published with the release (`jackett_*_id`) — that last is a claim about a file rather than an established identity, so it loses to the others, and here it can only ever separate two copies that share a title, never merge two that do not.
+
 ## Required ordering: dedup goes last among the refusals
 
 `dedup` keeps one release per item and discards the rest, choosing on quality
