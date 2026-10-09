@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.57.3] - 2026-10-09
+
+A notification that arrived with no poster, and the reason adding one was not enough.
+
+### Fixed
+
+- **`metainfo_tvdb` enriches the series the entry names, not the one a search ranks first** ([#571](https://github.com/brunoga/pipeliner/pull/571)). The plugin resolved the series by searching for the parsed release name, ignored any `tvdb_id` the entry already carried, and then overwrote it with whatever the search picked. A string is not always enough to identify a show: `Tomb Raider` names two different series on TheTVDB, so the search picks one by relevance and `pickSeries`' exact-title preference cannot break the tie because both titles are exactly that; and a title whose punctuation defeats the search engine returns nothing at all, `Tomb Raider: The Legend of Lara Croft` yielding zero results against the short name's seven. The result is not a thin notification but a confident one about the wrong show, carrying its poster, its link and its episode titles — and, since `metainfo_tvdb` sits upstream of `pathfmt` in the shipped pipelines, its name in the library path. `series_gaps` computed the gap for a specific series and `discover` carries that identity onto the release it found ([#569](https://github.com/brunoga/pipeliner/pull/569)), so the id is there to be used, and resolution now prefers it. No request is spent proving it — the extended record is what the fields are built from in any case, so fetching it both confirms the id and warms the cache, making the id path strictly cheaper than the search it replaces. Where there is no id, or TheTVDB does not answer for it, the name search runs exactly as before, including the deliberate "leave it unenriched rather than guess" fallback.
+
+**Why 1.57.3**: one bug fix, no new config keys and no config edits required. Every pipeline with no id upstream of `metainfo_tvdb` behaves exactly as it did. A patch bump per SemVer.
+
 ## [1.57.2] - 2026-10-08
 
 The identity a backfill already knew, carried the rest of the way.
