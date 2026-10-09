@@ -89,14 +89,16 @@ func TestParseKnownTitles(t *testing.T) {
 			Quality{Resolution: Resolutionp1080, Source: SourceBluRay, Format3D: Format3DBD},
 		},
 		{
-			// MVC = Multiview Video Coding, the Blu-ray 3D codec; no resolution tag → default 1080p
+			// MVC = Multiview Video Coding, the Blu-ray 3D codec; no resolution tag → default 1080p.
+			// BD50 is a disc label, so this ships the disc rather than a file.
 			"Everything.Everywhere.All.At.Once.BD50.MVC",
-			Quality{Resolution: Resolutionp1080, Source: SourceBluRay, Format3D: Format3DBD},
+			Quality{Resolution: Resolutionp1080, Source: SourceBluRay, Format3D: Format3DBD, DiscImage: true},
 		},
 		{
-			// BD50 = full Blu-ray disc rip, treated as BluRay source
+			// BD50 = full Blu-ray disc rip, treated as BluRay source, and a
+			// disc rather than a playable file
 			"Despicable.Me.3.BD50.Bluray",
-			Quality{Source: SourceBluRay},
+			Quality{Source: SourceBluRay, DiscImage: true},
 		},
 	}
 
@@ -1992,5 +1994,115 @@ func TestSpecsAgainstUnspecified(t *testing.T) {
 		if got := s.Matches(unspec); got != tc.want {
 			t.Errorf("%s: spec %q matched=%v, want %v", tc.why, tc.spec, got, tc.want)
 		}
+	}
+}
+
+// --- disc images ---
+
+// TestParseDiscImage covers the markers that mean "this is the disc, not a
+// file a player can open".
+func TestParseDiscImage(t *testing.T) {
+	for _, tc := range []struct {
+		title string
+		want  bool
+	}{
+		// The release this was written for: "complete" and "blu ray" with two
+		// words in between, which reCompleteDisc does not reach.
+		{"Supergirl 2026 Complete 4K UHD Blu Ray ISO File [RoB]", true},
+		{"SUPERGIRL 4K ISO [RoB]", true},
+		{"Some.Movie.2026.BDMV.1080p", true},
+		{"Some.Movie.2026.AVCHD", true},
+		{"Some.Movie.2026.BD66", true},
+		{"Some.Movie.2026.COMPLETE.BLURAY", true},
+		{"Some.Movie.2026.Blu-Ray.Complete", true},
+
+		// Not discs.
+		{"Supergirl 2026 2160p UHD BluRay REMUX DV HDR TrueHD 7 1 Atmos Multi-d3g", false},
+		{"Some.Movie.2026.1080p.BluRay.x264-GRP", false},
+		{"Some.Movie.2026.2160p.WEB-DL.H.265", false},
+		// A re-encode is a file however much its name borrows from a disc —
+		// the same correction the Source rung already applies.
+		{"Some.Movie.2026.COMPLETE.BLURAY.RE-ENCODE", false},
+		// An SBS layout exists only as a re-encode, so it is not the disc.
+		{"Some.Movie.2026.3D.COMPLETE.BLURAY.HSBS", false},
+	} {
+		t.Run(tc.title, func(t *testing.T) {
+			if got := Parse(tc.title).DiscImage; got != tc.want {
+				t.Errorf("DiscImage = %v, want %v (parsed %s)", got, tc.want, Parse(tc.title))
+			}
+		})
+	}
+}
+
+// TestDiscImageIsTheLastTieBreak: it decides an otherwise exact tie and
+// nothing more. A disc is the best material there is — the point is only that
+// a file a player can open is the better thing to keep when the two are
+// otherwise the same.
+func TestDiscImageIsTheLastTieBreak(t *testing.T) {
+	disc := Quality{Resolution: Resolutionp2160, Source: SourceRemux, DiscImage: true}
+	file := Quality{Resolution: Resolutionp2160, Source: SourceRemux}
+
+	if !file.Better(disc) {
+		t.Error("a playable file should beat an identical disc image")
+	}
+	if disc.Better(file) {
+		t.Error("the disc image should not beat the playable file")
+	}
+
+	// It cannot outweigh anything above it.
+	disc4K := Quality{Resolution: Resolutionp2160, Source: SourceBluRay, DiscImage: true}
+	file1080 := Quality{Resolution: Resolutionp1080, Source: SourceRemux}
+	if !disc4K.Better(file1080) {
+		t.Error("a 4K disc image must still beat a 1080p file")
+	}
+	if file1080.Better(disc4K) {
+		t.Error("resolution outranks the container")
+	}
+
+	// Nor over the source rung.
+	discBluRay := Quality{Resolution: Resolutionp2160, Source: SourceBluRay, DiscImage: true}
+	fileWeb := Quality{Resolution: Resolutionp2160, Source: SourceWebDL}
+	if !discBluRay.Better(fileWeb) {
+		t.Error("a disc at the BluRay rung must still beat a WEB-DL file")
+	}
+}
+
+// TestDiscImageInTheSummary: a tie lost on the container is otherwise
+// inexplicable in a log line, so the summary says so.
+func TestDiscImageInTheSummary(t *testing.T) {
+	q := Quality{Resolution: Resolutionp2160, Source: SourceRemux, DiscImage: true}
+	if got, want := q.String(), "2160p Remux Disc"; got != want {
+		t.Errorf("String() = %q, want %q", got, want)
+	}
+	q.DiscImage = false
+	if got, want := q.String(), "2160p Remux"; got != want {
+		t.Errorf("String() = %q, want %q", got, want)
+	}
+}
+
+// TestDiscImageRoundTripsThroughJSON: Quality is persisted in tracker
+// records, and a record written before this field existed must read as a
+// non-disc rather than fail to load.
+func TestDiscImageRoundTripsThroughJSON(t *testing.T) {
+	q := Quality{Resolution: Resolutionp2160, Source: SourceRemux, DiscImage: true}
+	b, err := json.Marshal(q)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	var back Quality
+	if err := json.Unmarshal(b, &back); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if !back.DiscImage {
+		t.Errorf("DiscImage lost in the round trip: %s", b)
+	}
+
+	// A record from before the field existed.
+	var old Quality
+	if err := json.Unmarshal([]byte(`{"Resolution":4,"Source":10}`), &old); err != nil {
+		t.Fatalf("Unmarshal legacy: %v", err)
+	}
+	if old.DiscImage {
+		t.Error("a record that never mentioned it must read as a non-disc")
 	}
 }

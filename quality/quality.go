@@ -290,6 +290,20 @@ type Quality struct {
 	Audio      Audio
 	ColorRange ColorRange
 	Format3D   Format3D
+	// DiscImage marks a release that is a whole disc -- an ISO, a BDMV or
+	// AVCHD folder, a sized BD label, the scene's "complete blu-ray" -- rather
+	// than a file a player can open.
+	//
+	// It is not a quality dimension: the disc is the best material there is,
+	// which is why a complete rip is promoted to SourceRemux above. It is a
+	// statement about the container, and it sits last in Better for that
+	// reason -- a 4K disc still beats a 1080p encode, and only an otherwise
+	// exact tie is decided by which of the two a player can actually open.
+	//
+	// A release whose name says nothing about it reads as false. The file
+	// list, where there is one, is the other half of this: see the content
+	// filter, which rejects by file pattern.
+	DiscImage bool
 }
 
 // ResolutionName returns the human-readable resolution name (e.g. "1080p"), or "" if unknown.
@@ -323,6 +337,7 @@ func (q Quality) String() string {
 		codecNames[q.Codec],
 		audioNames[q.Audio],
 		colorRangeNames[q.ColorRange],
+		discImageName(q.DiscImage),
 	} {
 		if s != "" {
 			parts = append(parts, s)
@@ -334,6 +349,15 @@ func (q Quality) String() string {
 	return strings.Join(parts, " ")
 }
 
+// discImageName labels a whole-disc release so a log line or the CLI says why
+// it lost a tie it looked like it should have won.
+func discImageName(disc bool) string {
+	if disc {
+		return "Disc"
+	}
+	return ""
+}
+
 // Better reports whether q is strictly better than other.
 //
 // Comparison is lexicographic: dimensions are examined in priority order and
@@ -343,7 +367,14 @@ func (q Quality) String() string {
 // When both qualities are 3D (Format3D != Format3DNone), Format3D is the
 // primary discriminator and the remaining dimensions act as tie-breakers.
 // When either quality is non-3D the Format3D dimension is skipped and the
-// order is: Resolution > Source > Codec > ColorRange > Audio.
+// order is: Resolution > Source > Codec > ColorRange > Audio > DiscImage.
+//
+// DiscImage is last and is the only dimension that is not about picture or
+// sound: between two releases that are otherwise identical, the one a player
+// can open wins over the one that has to be mounted or converted first. It
+// cannot outweigh anything above it -- a 4K disc image still beats a 1080p
+// encode -- and it only ever decides a tie that would otherwise fall to the
+// order the indexer happened to return.
 //
 // ColorRange outranks Audio: Dolby Vision or HDR changes every frame of the
 // picture, while an audio track is one of several a release may carry, so a
@@ -366,7 +397,10 @@ func (q Quality) Better(other Quality) bool {
 	if q.ColorRange != other.ColorRange {
 		return q.ColorRange > other.ColorRange
 	}
-	return q.Audio.rank() > other.Audio.rank()
+	if q.Audio.rank() != other.Audio.rank() {
+		return q.Audio.rank() > other.Audio.rank()
+	}
+	return !q.DiscImage && other.DiscImage
 }
 
 // --- compiled regexes for Parse ---
@@ -427,6 +461,24 @@ var (
 	// audio re-encoded"). An explicit claim of losslessness wins, for the
 	// same reason an explicit 3D layout marker beats an inference.
 	reUntouched = regexp.MustCompile(`(?i)\bUNTOUCHED\b`)
+
+	// reDiscImage matches a release that ships the disc rather than a file: an
+	// ISO, the BDMV/AVCHD folder structure, a sized BD label, or the scene's
+	// "complete blu-ray" wording.
+	//
+	// Looser than reCompleteDisc, which allows only separators between the two
+	// words and so misses "Complete 4K UHD Blu Ray ISO File" -- the release
+	// this was written for. reCompleteDisc is left alone because it decides
+	// the Source rung, where a false positive promotes a release above every
+	// remux of the same film; this decides a last-resort tie-break, where the
+	// worst a false positive costs is the wrong one of two equal copies.
+	reDiscImage = regexp.MustCompile(`(?i)` +
+		// The container, said outright.
+		`\b(?:iso|bdmv|avchd|bd(?:25|50|66|100))\b` +
+		// "complete blu-ray", in either order and with a few words allowed in
+		// between ("Complete 4K UHD Blu Ray").
+		`|\bcomplete\b[\s._\-]*(?:\w+[\s._\-]+){0,3}?blu[\s._\-]?ray\b` +
+		`|\bblu[\s._\-]?ray\b[\s._\-]*(?:\w+[\s._\-]+){0,3}?complete\b`)
 
 	// Audio regexes checked in priority order (highest first).
 	//
@@ -545,6 +597,12 @@ func Parse(title string) Quality {
 		(reCompleteDisc.MatchString(title) || reUntouched.MatchString(title)) {
 		q.Source = SourceRemux
 	}
+
+	// A re-encode is a file however much its name borrows from a disc, and an
+	// SBS/OU layout exists only as a re-encode -- so neither is the disc, by
+	// the same reasoning the two rules above apply to the Source rung.
+	q.DiscImage = reDiscImage.MatchString(title) &&
+		q.Source != SourceReEncode && !reFrameCompatible3D.MatchString(title)
 
 	if m := reCodec.FindString(title); m != "" {
 		ml := strings.ToLower(strings.NewReplacer(".", "", " ", "").Replace(m))
