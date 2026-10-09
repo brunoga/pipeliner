@@ -336,10 +336,223 @@ func TestPickItemPrefersExactTitle(t *testing.T) {
 		{Title: "The Office (US) Extras"},
 		{Title: "The Office"},
 	}
-	if got := pickItem(rs, "The Office"); got.Title != "The Office" {
+	if got := pickItem(rs, "The Office", 0); got.Title != "The Office" {
 		t.Errorf("exact title should win, got %q", got.Title)
 	}
-	if got := pickItem(rs, "Office Space"); got.Title != "The Office (US) Extras" {
+	if got := pickItem(rs, "Office Space", 0); got.Title != "The Office (US) Extras" {
 		t.Errorf("no exact match should fall back to results[0], got %q", got.Title)
+	}
+}
+
+// --- identity before search ---
+
+// movieSearchResponse encodes a Trakt movie search body with the fields
+// resolution depends on.
+func movieSearchResponse(items ...[2]any) []byte {
+	type ids struct {
+		Trakt int    `json:"trakt"`
+		Slug  string `json:"slug"`
+		IMDB  string `json:"imdb"`
+		TMDB  int    `json:"tmdb"`
+	}
+	type movie struct {
+		Title string `json:"title"`
+		Year  int    `json:"year"`
+		IDs   ids    `json:"ids"`
+	}
+	type wrapper struct {
+		Type  string  `json:"type"`
+		Movie movie   `json:"movie"`
+		Score float64 `json:"score"`
+	}
+	out := make([]wrapper, 0, len(items))
+	for _, it := range items {
+		title, year := it[0].(string), it[1].(int)
+		out = append(out, wrapper{
+			Type:  "movie",
+			Score: 1000,
+			Movie: movie{Title: title, Year: year, IDs: ids{Trakt: year, TMDB: year}},
+		})
+	}
+	b, _ := json.Marshal(out)
+	return b
+}
+
+// countingServer records the request paths it served, so a test can assert
+// which question was asked.
+func countingServer(t *testing.T, bodyFor func(path string) []byte, paths *[]string) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		*paths = append(*paths, r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		if b := bodyFor(r.URL.Path); b != nil {
+			w.Write(b)
+			return
+		}
+		w.Write([]byte("[]"))
+	}))
+}
+
+// TestAnnotateResolvesByTheEntrysID: a pipeline that ran trakt_list or another
+// metainfo plugin first already knows which item this is. Resolving it again by
+// name throws that away, and Trakt answers a name with whatever ranks highest.
+func TestAnnotateResolvesByTheEntrysID(t *testing.T) {
+	var paths []string
+	srv := countingServer(t, func(path string) []byte {
+		if path == "/search/tvdb/81189" {
+			return searchResponse("Breaking Bad", 2008, 1, 81189, 9.4, []string{"drama"})
+		}
+		return nil
+	}, &paths)
+	defer srv.Close()
+	itrakt.BaseURL = srv.URL
+
+	p := makePlugin(t, map[string]any{"client_id": "key", "type": "shows"})
+	e := entry.New("Breaking.Bad.S01E01.720p.HDTV", "http://example.com/1")
+	e.Set("tvdb_id", "81189")
+
+	if err := p.annotate(context.Background(), tc(), e); err != nil {
+		t.Fatal(err)
+	}
+	if v := e.GetInt("trakt_id"); v != 1 {
+		t.Errorf("trakt_id = %d, want 1", v)
+	}
+	if len(paths) != 1 || paths[0] != "/search/tvdb/81189" {
+		t.Errorf("requests = %v, want a single id lookup", paths)
+	}
+}
+
+// TestAnnotateFallsBackToTheNameSearch: an id Trakt has no item for must not
+// cost the entry its enrichment.
+func TestAnnotateFallsBackToTheNameSearch(t *testing.T) {
+	var paths []string
+	srv := countingServer(t, func(path string) []byte {
+		if path == "/search/show" {
+			return searchResponse("Breaking Bad", 2008, 1, 81189, 9.4, []string{"drama"})
+		}
+		return nil // the id lookup answers with an empty array
+	}, &paths)
+	defer srv.Close()
+	itrakt.BaseURL = srv.URL
+
+	p := makePlugin(t, map[string]any{"client_id": "key", "type": "shows"})
+	e := entry.New("Breaking.Bad.S01E01.720p.HDTV", "http://example.com/1")
+	e.Set("tvdb_id", "999999")
+
+	if err := p.annotate(context.Background(), tc(), e); err != nil {
+		t.Fatal(err)
+	}
+	if v := e.GetInt("trakt_id"); v != 1 {
+		t.Errorf("trakt_id = %d, want 1 via the search fallback", v)
+	}
+	if len(paths) != 2 || paths[0] != "/search/tvdb/999999" || paths[1] != "/search/show" {
+		t.Errorf("requests = %v, want the id lookup then the search", paths)
+	}
+}
+
+// TestAnnotateWithoutAnIDSearchesByName pins the unchanged path.
+func TestAnnotateWithoutAnIDSearchesByName(t *testing.T) {
+	var paths []string
+	srv := countingServer(t, func(path string) []byte {
+		if path == "/search/show" {
+			return searchResponse("Breaking Bad", 2008, 1, 81189, 9.4, []string{"drama"})
+		}
+		return nil
+	}, &paths)
+	defer srv.Close()
+	itrakt.BaseURL = srv.URL
+
+	p := makePlugin(t, map[string]any{"client_id": "key", "type": "shows"})
+	e := entry.New("Breaking.Bad.S01E01.720p.HDTV", "http://example.com/1")
+	if err := p.annotate(context.Background(), tc(), e); err != nil {
+		t.Fatal(err)
+	}
+	if len(paths) != 1 || paths[0] != "/search/show" {
+		t.Errorf("requests = %v, want a single name search", paths)
+	}
+}
+
+// TestAnnotateIDLookupIsCached: the mapping never changes, so repeating it
+// would be pure waste.
+func TestAnnotateIDLookupIsCached(t *testing.T) {
+	var paths []string
+	srv := countingServer(t, func(path string) []byte {
+		if path == "/search/tvdb/81189" {
+			return searchResponse("Breaking Bad", 2008, 1, 81189, 9.4, []string{"drama"})
+		}
+		return nil
+	}, &paths)
+	defer srv.Close()
+	itrakt.BaseURL = srv.URL
+
+	p := makePlugin(t, map[string]any{"client_id": "key", "type": "shows"})
+	for i := 0; i < 3; i++ {
+		e := entry.New("Breaking.Bad.S01E01.720p.HDTV", "http://example.com/1")
+		e.Set("tvdb_id", "81189")
+		if err := p.annotate(context.Background(), tc(), e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(paths) != 1 {
+		t.Errorf("requests = %v, want one lookup for three entries", paths)
+	}
+}
+
+// TestPickItemUsesTheYear: two films share the title and Trakt ranks the
+// newer one first, which is the only thing the old code looked at.
+func TestPickItemUsesTheYear(t *testing.T) {
+	rs := []itrakt.Item{
+		{Title: "Michael", Year: 2026},
+		{Title: "Michael", Year: 1996},
+	}
+	if got := pickItem(rs, "Michael", 1996); got.Year != 1996 {
+		t.Errorf("year 1996 asked for, got %d", got.Year)
+	}
+	if got := pickItem(rs, "Michael", 2026); got.Year != 2026 {
+		t.Errorf("year 2026 asked for, got %d", got.Year)
+	}
+	// Off-by-one across regional windows is the same film.
+	if got := pickItem(rs, "Michael", 1997); got.Year != 1996 {
+		t.Errorf("an off-by-one year should still pick 1996, got %d", got.Year)
+	}
+	// No year: relevance order stands, as before.
+	if got := pickItem(rs, "Michael", 0); got.Year != 2026 {
+		t.Errorf("no year should keep relevance order, got %d", got.Year)
+	}
+}
+
+// TestPickItemYearIsAPreferenceNotAFilter: a release year is often absent and
+// occasionally wrong, so a title match with no compatible year still beats
+// falling through to relevance.
+func TestPickItemYearIsAPreferenceNotAFilter(t *testing.T) {
+	rs := []itrakt.Item{
+		{Title: "Something Else", Year: 2010},
+		{Title: "Michael", Year: 1996},
+	}
+	if got := pickItem(rs, "Michael", 2020); got.Title != "Michael" {
+		t.Errorf("title match should still win, got %q", got.Title)
+	}
+}
+
+// TestAnnotateMoviePrefersTheRightYear is the end-to-end of the above: the
+// release names 1996 and the search ranks 2026 first.
+func TestAnnotateMoviePrefersTheRightYear(t *testing.T) {
+	var paths []string
+	srv := countingServer(t, func(path string) []byte {
+		if path == "/search/movie" {
+			return movieSearchResponse([2]any{"Michael", 2026}, [2]any{"Michael", 1996})
+		}
+		return nil
+	}, &paths)
+	defer srv.Close()
+	itrakt.BaseURL = srv.URL
+
+	p := makePlugin(t, map[string]any{"client_id": "key", "type": "movies"})
+	e := entry.New("Michael.1996.1080p.BluRay.x264", "http://example.com/1")
+	if err := p.annotate(context.Background(), tc(), e); err != nil {
+		t.Fatal(err)
+	}
+	if v := e.GetInt(entry.FieldVideoYear); v != 1996 {
+		t.Errorf("video_year = %d, want 1996 (the film the release names)", v)
 	}
 }

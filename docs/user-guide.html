@@ -1430,6 +1430,8 @@ pipeline("mixed", schedule="30m")</code></pre>
 <h2 id="metainfo_trakt">metainfo_trakt</h2>
 <p>Annotates entries with Trakt.tv metadata. Results cached in <code>pipeliner.db</code>. Empty (no-match) lookups are never cached and will be retried on each run.</p>
 
+<div class="note"><strong>Which item gets looked up:</strong> an id on the entry is tried first &mdash; <code>trakt_id</code>, then IMDb, then TMDb, then TheTVDB &mdash; through Trakt's id search, since which namespace an entry has depends on what ran upstream (<a href="#trakt_list"><code>trakt_list</code></a> leaves a <code>trakt_id</code>, <a href="#metainfo_tvdb"><code>metainfo_tvdb</code></a> a <code>tvdb_id</code>, an indexer an IMDb id). A namespace Trakt has no item for costs the entry nothing: the next one, and then the name search, still follow. A name search knows only a string, and a string cannot separate two shows called <em>Tomb Raider</em> or two films called <em>Michael</em> &mdash; Trakt answers it with whichever is more popular. When the name search is what runs, the result is chosen by exact title with a compatible year first, then exact title, then any compatible year, then relevance; the year is a preference rather than a filter, because release names omit it often and get it wrong occasionally.</div>
+
 <table>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
   <tr><td><code>client_id</code></td><td>yes</td><td>—</td><td>Trakt API Client ID</td></tr>
