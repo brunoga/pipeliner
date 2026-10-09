@@ -2,8 +2,10 @@ package mediaserver
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -190,5 +192,135 @@ func TestJellyfinListItemsWithoutVirtualFolders(t *testing.T) {
 	}
 	if len(items) != 1 || items[0].Section != "" {
 		t.Errorf("items: %+v", items)
+	}
+}
+
+// TestPlexMovieProviderIDs: a film's own ids are in its listing row, so asking
+// for guids on the movie listing costs a bigger response rather than another
+// request.
+func TestPlexMovieProviderIDs(t *testing.T) {
+	var movieQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/library/sections":
+			json.NewEncoder(w).Encode(map[string]any{"MediaContainer": map[string]any{
+				"Directory": []map[string]any{{"key": "9", "type": "movie", "title": "Movies"}},
+			}})
+		case strings.HasPrefix(r.URL.Path, "/library/sections/9/all"):
+			movieQuery = r.URL.RawQuery
+			json.NewEncoder(w).Encode(map[string]any{"MediaContainer": map[string]any{
+				"Metadata": []map[string]any{{
+					"type": "movie", "title": "Dune: Part Two", "year": 2024,
+					"ratingKey": "101",
+					"Guid": []map[string]any{
+						{"id": "imdb://tt15239678"},
+						{"id": "tmdb://693134?lang=en"},
+						{"id": "tvdb://373242"},
+					},
+					"Media": []map[string]any{{"videoResolution": "4k"}},
+				}},
+			}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	c := &plexClient{base: srv.URL, token: "t", http: srv.Client()}
+	items, err := c.ListItems(context.Background())
+	if err != nil {
+		t.Fatalf("ListItems: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("got %d items, want 1", len(items))
+	}
+	if !strings.Contains(movieQuery, "includeGuids=1") {
+		t.Errorf("movie listing query = %q, want includeGuids=1", movieQuery)
+	}
+	if got := items[0].MovieTMDBID; got != "693134" {
+		t.Errorf("MovieTMDBID = %q, want 693134 (agent suffix stripped)", got)
+	}
+	if got := items[0].MovieIMDBID; got != "tt15239678" {
+		t.Errorf("MovieIMDBID = %q, want tt15239678", got)
+	}
+}
+
+// TestPlexMovieWithoutGuidsCarriesNoIDs: a server exposing no provider ids
+// must leave the fields empty so callers fall back to the title.
+func TestPlexMovieWithoutGuidsCarriesNoIDs(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/library/sections":
+			json.NewEncoder(w).Encode(map[string]any{"MediaContainer": map[string]any{
+				"Directory": []map[string]any{{"key": "9", "type": "movie", "title": "Movies"}},
+			}})
+		case strings.HasPrefix(r.URL.Path, "/library/sections/9/all"):
+			json.NewEncoder(w).Encode(map[string]any{"MediaContainer": map[string]any{
+				"Metadata": []map[string]any{{"type": "movie", "title": "Dune", "year": 2021, "ratingKey": "1"}},
+			}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	c := &plexClient{base: srv.URL, token: "t", http: srv.Client()}
+	items, err := c.ListItems(context.Background())
+	if err != nil {
+		t.Fatalf("ListItems: %v", err)
+	}
+	if items[0].MovieTMDBID != "" || items[0].MovieIMDBID != "" {
+		t.Errorf("want no ids, got tmdb=%q imdb=%q", items[0].MovieTMDBID, items[0].MovieIMDBID)
+	}
+}
+
+// TestJellyfinMovieProviderIDs: ProviderIds comes back on the item, and
+// Jellyfin's keys are not case-stable across versions.
+func TestJellyfinMovieProviderIDs(t *testing.T) {
+	var fields string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/UserViews", "/Users/me/Views":
+			json.NewEncoder(w).Encode(map[string]any{"Items": []map[string]any{
+				{"Id": "v1", "Name": "Movies"},
+			}})
+		case "/Items":
+			if r.URL.Query().Get("IncludeItemTypes") == "Series" {
+				json.NewEncoder(w).Encode(map[string]any{"Items": []map[string]any{}})
+				return
+			}
+			fields = r.URL.Query().Get("Fields")
+			json.NewEncoder(w).Encode(map[string]any{"Items": []map[string]any{{
+				"Id": "m1", "Type": "Movie", "Name": "Inception", "ProductionYear": 2010,
+				"ProviderIds": map[string]string{"TMDB": "27205", "Imdb": "tt1375666"},
+			}}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	c := &jellyfinClient{base: srv.URL, token: "t", http: srv.Client()}
+	items, err := c.ListItems(context.Background())
+	if err != nil {
+		t.Fatalf("ListItems: %v", err)
+	}
+	if !strings.Contains(fields, "ProviderIds") {
+		t.Errorf("Fields = %q, want it to ask for ProviderIds", fields)
+	}
+	var movie *Item
+	for i := range items {
+		if items[i].Type == "movie" {
+			movie = &items[i]
+		}
+	}
+	if movie == nil {
+		t.Fatalf("no movie in %d items", len(items))
+	}
+	if movie.MovieTMDBID != "27205" {
+		t.Errorf("MovieTMDBID = %q, want 27205 (key case must not matter)", movie.MovieTMDBID)
+	}
+	if movie.MovieIMDBID != "tt1375666" {
+		t.Errorf("MovieIMDBID = %q, want tt1375666", movie.MovieIMDBID)
 	}
 }

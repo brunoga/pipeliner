@@ -63,6 +63,17 @@ type Item struct {
 	// "Brothers (2026)"). Matching on it lets a caller find a show it would
 	// otherwise miss by name.
 	ShowTVDBID string
+	// MovieTMDBID and MovieIMDBID are the film's provider ids as the server
+	// publishes them; "" when it exposes none. Movies only.
+	//
+	// Same reasoning as ShowTVDBID, and the same failure without them: a
+	// title is not identity. Two films share one ("Dune" 1984 and 2021), and
+	// a server and a provider disagree about punctuation and subtitles, so a
+	// library holding one film can look like a library holding the other.
+	// Plex publishes these in the movie listing's own Guid entries and
+	// Jellyfin in its ProviderIds, so neither costs an extra request.
+	MovieTMDBID string
+	MovieIMDBID string
 }
 
 // EpisodeID returns the SxxEyy identifier for episode items.
@@ -220,7 +231,13 @@ func (c *plexClient) ListItems(ctx context.Context) ([]Item, error) {
 					RatingKey        string `json:"ratingKey"`
 					GrandparentKey   string `json:"grandparentRatingKey"`
 					UpdatedAt        int64  `json:"updatedAt"`
-					Media            []struct {
+					// Movies only. An episode's own Guid list holds the episode's
+					// ids, which do not identify its show -- that is what
+					// showTVDBIDs is for.
+					Guid []struct {
+						ID string `json:"id"`
+					} `json:"Guid"`
+					Media []struct {
 						VideoResolution string `json:"videoResolution"`
 						VideoCodec      string `json:"videoCodec"`
 						AudioCodec      string `json:"audioCodec"`
@@ -238,6 +255,13 @@ func (c *plexClient) ListItems(ctx context.Context) ([]Item, error) {
 			showTVDB = c.showTVDBIDs(ctx, d.Key)
 		}
 		url := fmt.Sprintf("%s/library/sections/%s/all?type=%s", c.base, d.Key, contentType)
+		if d.Type == "movie" {
+			// A film's own ids are in its listing row, so this is a bigger
+			// response rather than another request. Shows need their own
+			// call (showTVDBIDs) because an episode row carries the
+			// episode's ids, not its show's.
+			url += "&includeGuids=1"
+		}
 		if err := getJSON(ctx, c.http, url, c.header(), &content); err != nil {
 			return nil, fmt.Errorf("plex: section %s: %w", d.Key, err)
 		}
@@ -261,7 +285,8 @@ func (c *plexClient) ListItems(ctx context.Context) ([]Item, error) {
 					ShowTVDBID: showTVDB[m.GrandparentKey]})
 			case "movie":
 				items = append(items, Item{Type: "movie", Title: m.Title, Year: m.Year, Resolution: res, Section: d.Title,
-					VideoCodec: vc, AudioCodec: ac, AudioProfile: ap, ID: m.RatingKey, Version: ver})
+					VideoCodec: vc, AudioCodec: ac, AudioProfile: ap, ID: m.RatingKey, Version: ver,
+					MovieTMDBID: guidID(m.Guid, "tmdb://"), MovieIMDBID: guidID(m.Guid, "imdb://")})
 			}
 		}
 	}
@@ -302,13 +327,21 @@ func (c *plexClient) showTVDBIDs(ctx context.Context, sectionKey string) map[str
 	return out
 }
 
-// tvdbIDFromGuids picks the TheTVDB id out of a Plex Guid list, which also
-// carries imdb:// and tmdb:// entries in no guaranteed order.
+// tvdbIDFromGuids picks the TheTVDB id out of a Plex Guid list.
 func tvdbIDFromGuids(guids []struct {
 	ID string `json:"id"`
 }) string {
+	return guidID(guids, "tvdb://")
+}
+
+// guidID picks the id with the given scheme out of a Plex Guid list, which
+// carries tvdb://, tmdb:// and imdb:// entries in no guaranteed order, and not
+// every item has every scheme.
+func guidID(guids []struct {
+	ID string `json:"id"`
+}, scheme string) string {
 	for _, g := range guids {
-		if rest, ok := strings.CutPrefix(g.ID, "tvdb://"); ok {
+		if rest, ok := strings.CutPrefix(g.ID, scheme); ok {
 			// Plex appends an agent suffix on some entries ("tvdb://123?lang=en").
 			if i := strings.IndexAny(rest, "?/"); i >= 0 {
 				rest = rest[:i]
@@ -451,7 +484,10 @@ func (c *jellyfinClient) ListItems(ctx context.Context) ([]Item, error) {
 	var items []Item
 	for _, v := range views {
 		out.Items = nil
-		url := c.base + "/Items?Recursive=true&IncludeItemTypes=Episode,Movie&Fields=MediaStreams"
+		// ProviderIds comes back on the item itself, so a film's ids cost
+		// nothing extra here. An episode's ids are its own and not its
+		// show's, which is why seriesTVDBIDs still needs its own listing.
+		url := c.base + "/Items?Recursive=true&IncludeItemTypes=Episode,Movie&Fields=MediaStreams,ProviderIds"
 		if v.ID != "" {
 			url += "&ParentId=" + v.ID
 		}
@@ -551,6 +587,22 @@ type jellyfinItem struct {
 	// SeriesId is the server's id for an episode's SHOW, used to join
 	// against the series listing that carries the provider ids.
 	SeriesID string `json:"SeriesId"`
+	// ProviderIds are the item's own external ids. Meaningful for a movie;
+	// for an episode these identify the episode, not its show.
+	ProviderIDs map[string]string `json:"ProviderIds"`
+}
+
+// providerID reads one provider's id from a Jellyfin ProviderIds map.
+// Jellyfin's keys are not case-stable across versions ("Tmdb", "TMDB",
+// "tmdb"), so they are matched without regard to case -- the same reason
+// seriesTVDBIDs compares them that way.
+func providerID(ids map[string]string, name string) string {
+	for k, v := range ids {
+		if strings.EqualFold(k, name) && v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 func (c *jellyfinClient) itemsFrom(raw []jellyfinItem, section string, seriesTVDB map[string]string) []Item {
@@ -581,7 +633,9 @@ func (c *jellyfinClient) itemsFrom(raw []jellyfinItem, section string, seriesTVD
 		case "Movie":
 			items = append(items, Item{Type: "movie", Title: it.Name,
 				Year: it.ProductionYear, Resolution: res, Section: section,
-				VideoCodec: vc, AudioCodec: ac, AudioProfile: ap, ID: it.ID, ColorRange: cr})
+				VideoCodec: vc, AudioCodec: ac, AudioProfile: ap, ID: it.ID, ColorRange: cr,
+				MovieTMDBID: providerID(it.ProviderIDs, "tmdb"),
+				MovieIMDBID: providerID(it.ProviderIDs, "imdb")})
 		}
 	}
 	return items
