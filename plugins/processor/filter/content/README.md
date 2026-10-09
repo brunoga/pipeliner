@@ -10,6 +10,8 @@ When none of the above is available the check is skipped and a warning is logged
 
 Patterns use [`path.Match`](https://pkg.go.dev/path#Match) semantics and are tested against both the full path and the filename component.
 
+**Matching ignores case**, on both sides. A release group writes the extension however it pleases — `SUPERGIRL.ISO`, `Movie.RAR`, `sample.MKV` — and `path.Match` is case-sensitive, so `reject=["*.iso"]` used to pass a 90 GB disc image named `SUPERGIRL.ISO` straight through to the download client. Nothing was logged, because the check ran and found nothing to object to. Nobody writing that pattern means "only the lowercase ones".
+
 ## Config
 
 | Key | Required | Default | Description |
