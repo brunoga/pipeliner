@@ -133,10 +133,16 @@ type libraryPlugin struct {
 	include map[string]bool
 	exclude map[string]bool
 
-	mu      sync.Mutex
-	series  map[string]indexEntry // NormalizeName(show) + "|" + episodeID
-	movies  map[string]indexEntry // NormalizeTitle(title) + "|" + year ("|0" when unknown)
-	builtAt time.Time
+	mu     sync.Mutex
+	series map[string]indexEntry // NormalizeName(show) + "|" + episodeID
+	movies map[string]indexEntry // NormalizeTitle(title) + "|" + year ("|0" when unknown)
+	// Parallel indexes keyed by what the server publishes as the item's
+	// identity rather than by its title: "tvdb:<show id>|<episodeID>" for an
+	// episode, "tmdb:<id>" / "imdb:<id>" for a film. Empty for the
+	// filesystem backend, which has only filenames to go on.
+	seriesByID map[string]indexEntry
+	moviesByID map[string]indexEntry
+	builtAt    time.Time
 
 	// walk is swappable in tests (filesystem backend).
 	walk func(root string, fn fs.WalkDirFunc) error
@@ -259,6 +265,8 @@ func (p *libraryPlugin) ensureIndex(tc *plugin.TaskContext) {
 
 	seriesIdx := make(map[string]indexEntry)
 	movieIdx := make(map[string]indexEntry)
+	seriesIDIdx := make(map[string]indexEntry)
+	movieIDIdx := make(map[string]indexEntry)
 
 	if p.client != nil {
 		items, err := p.client.ListItems(context.Background())
@@ -269,6 +277,7 @@ func (p *libraryPlugin) ensureIndex(tc *plugin.TaskContext) {
 			tc.Logger.Warn(pluginName+": media server unreachable, keeping previous index", "err", err)
 			if p.series == nil {
 				p.series, p.movies = seriesIdx, movieIdx
+				p.seriesByID, p.moviesByID = seriesIDIdx, movieIDIdx
 			}
 			p.builtAt = time.Now()
 			return
@@ -301,23 +310,34 @@ func (p *libraryPlugin) ensureIndex(tc *plugin.TaskContext) {
 				if it.Show == "" {
 					continue
 				}
-				key := series.NormalizeName(it.Show) + "|" + it.EpisodeID()
-				if cur, ok := seriesIdx[key]; !ok || q.Better(cur.Quality) {
-					seriesIdx[key] = indexEntry{Quality: q, Path: it.Show + " " + it.EpisodeID()}
+				path := it.Show + " " + it.EpisodeID()
+				put(seriesIdx, series.NormalizeName(it.Show)+"|"+it.EpisodeID(), q, path)
+				// Indexed by identity as well, where the server publishes
+				// one. The title is what a release gives us and the title is
+				// not stable: the same show is "Brothers" to the provider and
+				// "Brothers (2026)" to the server.
+				if it.ShowTVDBID != "" {
+					put(seriesIDIdx, "tvdb:"+it.ShowTVDBID+"|"+it.EpisodeID(), q, path)
 				}
 			case "movie":
 				if it.Title == "" {
 					continue
 				}
-				key := movies.NormalizeTitle(it.Title) + "|" + fmt.Sprint(it.Year)
-				if cur, ok := movieIdx[key]; !ok || q.Better(cur.Quality) {
-					movieIdx[key] = indexEntry{Quality: q, Path: it.Title}
+				put(movieIdx, movies.NormalizeTitle(it.Title)+"|"+fmt.Sprint(it.Year), q, it.Title)
+				if it.MovieTMDBID != "" {
+					put(movieIDIdx, "tmdb:"+it.MovieTMDBID, q, it.Title)
+				}
+				if it.MovieIMDBID != "" {
+					put(movieIDIdx, "imdb:"+strings.ToLower(it.MovieIMDBID), q, it.Title)
 				}
 			}
 		}
 		p.series, p.movies, p.builtAt = seriesIdx, movieIdx, time.Now()
+		p.seriesByID, p.moviesByID = seriesIDIdx, movieIDIdx
 		tc.Logger.Info(pluginName+": indexed media server",
-			"episodes", len(seriesIdx), "movies", len(movieIdx), "skipped_other_libraries", skipped)
+			"episodes", len(seriesIdx), "movies", len(movieIdx),
+			"episodes_by_id", len(seriesIDIdx), "movies_by_id", len(movieIDIdx),
+			"skipped_other_libraries", skipped)
 		return
 	}
 
@@ -354,16 +374,37 @@ func (p *libraryPlugin) ensureIndex(tc *plugin.TaskContext) {
 			tc.Logger.Warn(pluginName+": walk failed", "root", root, "err", err)
 		}
 	}
+	// A filename is all the filesystem backend has, so the id indexes stay
+	// empty and every lookup falls through to the name.
 	p.series, p.movies, p.builtAt = seriesIdx, movieIdx, time.Now()
+	p.seriesByID, p.moviesByID = seriesIDIdx, movieIDIdx
 	tc.Logger.Info(pluginName+": indexed library",
 		"files", files, "episodes", len(seriesIdx), "movies", len(movieIdx))
 }
 
+// put records the better of the copy already indexed under key and this one.
+func put(idx map[string]indexEntry, key string, q quality.Quality, path string) {
+	if cur, ok := idx[key]; !ok || q.Better(cur.Quality) {
+		idx[key] = indexEntry{Quality: q, Path: path}
+	}
+}
+
 // lookup finds the library copy matching e, if any.
+//
+// Identity is tried before the title, and a miss on it falls through to the
+// title rather than concluding anything: an id proves a hit, never a miss.
+// That keeps a wrong or unknown id harmless here, which matters because the id
+// may have come from an indexer's release metadata — and it keeps every
+// server that publishes no ids behaving exactly as it did.
 func (p *libraryPlugin) lookup(e *entry.Entry) (indexEntry, bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if epID := e.GetString(entry.FieldSeriesEpisodeID); epID != "" {
+		if id := entry.TVDBID(e); id != "" {
+			if hit, ok := p.seriesByID["tvdb:"+id+"|"+epID]; ok {
+				return hit, true
+			}
+		}
 		if hit, ok := p.series[series.NormalizeName(e.Title)+"|"+epID]; ok {
 			return hit, true
 		}
@@ -376,6 +417,16 @@ func (p *libraryPlugin) lookup(e *entry.Entry) (indexEntry, bool) {
 		}
 	}
 	if e.GetString(entry.FieldMediaType) == "movie" || e.GetString(entry.FieldSeriesEpisodeID) == "" {
+		if id := entry.TMDBID(e); id != "" {
+			if hit, ok := p.moviesByID["tmdb:"+id]; ok {
+				return hit, true
+			}
+		}
+		if id := entry.IMDBID(e); id != "" {
+			if hit, ok := p.moviesByID["imdb:"+id]; ok {
+				return hit, true
+			}
+		}
 		title := movies.NormalizeTitle(e.Title)
 		year, _ := e.Fields[entry.FieldVideoYear].(int)
 		if hit, ok := p.movies[title+"|"+fmt.Sprint(year)]; ok {

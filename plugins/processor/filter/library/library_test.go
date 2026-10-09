@@ -604,3 +604,167 @@ func serverPlugin(t *testing.T, extra map[string]any, items []mediaserver.Item) 
 	p.client = &fakeMSClient{items: items}
 	return p
 }
+
+// --- matching the library by identity ---
+
+// TestEpisodeFoundByShowIDWhenTheTitleDiffers is the gap this closes. The gate
+// keyed on the title alone, and a title is not stable identity: Plex's own
+// agent writes "Brothers (2026)" where the provider says "Brothers", so the
+// lookup missed and the entry passed through — silently, since a miss here
+// means "not owned". series_gaps, reading the same library, matches by id.
+func TestEpisodeFoundByShowIDWhenTheTitleDiffers(t *testing.T) {
+	p := serverPlugin(t, nil, []mediaserver.Item{
+		{Type: "episode", Show: "Brothers (2026)", Season: 1, Episode: 1,
+			Resolution: "1080p", ShowTVDBID: "448114"},
+	})
+
+	e := mkEntry("Brothers", map[string]any{
+		entry.FieldSeriesEpisodeID: "S01E01",
+		"tvdb_id":                  "448114",
+	})
+	e.SetQuality(quality.Parse("720p WEB-DL"))
+	process(t, p, e)
+	if !e.IsRejected() {
+		t.Error("an episode owned under a different title must still be found by its id")
+	}
+}
+
+// TestEpisodeIDMissFallsBackToTheTitle: an id proves a hit, never a miss, so a
+// release carrying an id the server does not publish must still be matched by
+// name exactly as before.
+func TestEpisodeIDMissFallsBackToTheTitle(t *testing.T) {
+	p := serverPlugin(t, nil, []mediaserver.Item{
+		{Type: "episode", Show: "Breaking Bad", Season: 1, Episode: 1, Resolution: "1080p"},
+	})
+
+	e := mkEntry("Breaking Bad", map[string]any{
+		entry.FieldSeriesEpisodeID: "S01E01",
+		"tvdb_id":                  "81189", // the server published none
+	})
+	e.SetQuality(quality.Parse("720p WEB-DL"))
+	process(t, p, e)
+	if !e.IsRejected() {
+		t.Error("the title match must still apply when the id matches nothing")
+	}
+}
+
+// TestWrongShowIDDoesNotCauseAFalseHit: the ids index is keyed per episode, so
+// owning S01E01 of a show says nothing about S02E05 of it.
+func TestWrongShowIDDoesNotCauseAFalseHit(t *testing.T) {
+	p := serverPlugin(t, nil, []mediaserver.Item{
+		{Type: "episode", Show: "Severance", Season: 1, Episode: 1,
+			Resolution: "2160p", ShowTVDBID: "371980"},
+	})
+
+	e := mkEntry("Severance", map[string]any{
+		entry.FieldSeriesEpisodeID: "S02E05",
+		"tvdb_id":                  "371980",
+	})
+	e.SetQuality(quality.Parse("720p WEB-DL"))
+	process(t, p, e)
+	if e.IsRejected() {
+		t.Errorf("an episode not owned must pass: %s", e.RejectReason)
+	}
+}
+
+// TestMovieFoundByTMDBIDWhenTheTitleDiffers: the same failure on the movie
+// side, where a server and a provider disagree about subtitles and
+// punctuation far more often than they agree.
+func TestMovieFoundByTMDBIDWhenTheTitleDiffers(t *testing.T) {
+	p := serverPlugin(t, nil, []mediaserver.Item{
+		{Type: "movie", Title: "Dune: Part Two", Year: 2024, Resolution: "2160p",
+			MovieTMDBID: "693134"},
+	})
+
+	e := mkEntry("Dune Part 2", map[string]any{
+		entry.FieldMediaType: "movie",
+		entry.FieldVideoYear: 2024,
+		"tmdb_id":            693134,
+	})
+	e.SetQuality(quality.Parse("1080p WEB-DL"))
+	process(t, p, e)
+	if !e.IsRejected() {
+		t.Error("a film owned under a different title must still be found by its id")
+	}
+}
+
+// TestMovieFoundByIMDBID: the indexer's id is often the only one on a release,
+// and it is the one Plex and Jellyfin both publish.
+func TestMovieFoundByIMDBID(t *testing.T) {
+	p := serverPlugin(t, nil, []mediaserver.Item{
+		{Type: "movie", Title: "Inception", Year: 2010, Resolution: "2160p",
+			MovieIMDBID: "tt1375666"},
+	})
+
+	e := mkEntry("Inception Origem", map[string]any{
+		entry.FieldMediaType: "movie",
+		entry.FieldVideoYear: 2010,
+		"jackett_imdb_id":    "TT1375666", // case as an indexer shouted it
+	})
+	e.SetQuality(quality.Parse("1080p BluRay"))
+	process(t, p, e)
+	if !e.IsRejected() {
+		t.Error("a film owned under a different title must be found by its IMDb id")
+	}
+}
+
+// TestTwoFilmsSharingATitleAreNotTheSameCopy: the name index keys on title and
+// year, so this already worked — pinned here because the id index must not
+// undo it by collapsing both films onto one key.
+func TestTwoFilmsSharingATitleAreNotTheSameCopy(t *testing.T) {
+	p := serverPlugin(t, nil, []mediaserver.Item{
+		{Type: "movie", Title: "Dune", Year: 2021, Resolution: "2160p", MovieTMDBID: "438631"},
+	})
+
+	e := mkEntry("Dune", map[string]any{
+		entry.FieldMediaType: "movie",
+		entry.FieldVideoYear: 1984,
+		"tmdb_id":            841, // the 1984 film, not owned
+	})
+	e.SetQuality(quality.Parse("1080p BluRay"))
+	process(t, p, e)
+	if e.IsRejected() {
+		t.Errorf("the 1984 film is not owned: %s", e.RejectReason)
+	}
+}
+
+// TestIDIndexKeepsTheBestCopy: two copies of one film arrive under the same
+// id, and the index has to hold the better one or the gate would compare
+// against the worse.
+func TestIDIndexKeepsTheBestCopy(t *testing.T) {
+	p := serverPlugin(t, nil, []mediaserver.Item{
+		{Type: "movie", Title: "Inception", Year: 2010, Resolution: "720p", MovieTMDBID: "27205"},
+		{Type: "movie", Title: "Inception", Year: 2010, Resolution: "2160p", MovieTMDBID: "27205"},
+	})
+
+	e := mkEntry("Inception", map[string]any{
+		entry.FieldMediaType: "movie",
+		entry.FieldVideoYear: 2010,
+		"tmdb_id":            27205,
+	})
+	e.SetQuality(quality.Parse("1080p WEB-DL"))
+	process(t, p, e)
+	if !e.IsRejected() {
+		t.Fatal("a 1080p release is not an upgrade on a 2160p copy")
+	}
+	if !strings.Contains(e.RejectReason, "2160p") {
+		t.Errorf("reason = %q, want it to name the 2160p copy", e.RejectReason)
+	}
+}
+
+// TestFilesystemBackendStillMatchesByName: a filename is all that backend has,
+// so its id indexes stay empty and nothing may depend on them.
+func TestFilesystemBackendStillMatchesByName(t *testing.T) {
+	p := newTestPlugin(t, nil, []string{
+		"/library/Breaking Bad/Breaking.Bad.S01E01.1080p.WEB-DL.mkv",
+	})
+	e := mkEntry("Breaking Bad", map[string]any{
+		entry.FieldSeriesEpisodeID: "S01E01",
+		"tvdb_id":                  "81189",
+	})
+	e.SetQuality(quality.Parse("720p WEB-DL"))
+	process(t, p, e)
+	if !e.IsRejected() {
+		t.Error("the filesystem backend must still match by name")
+	}
+}

@@ -39,13 +39,45 @@ index is kept — an unreachable server never counts as an empty library.
 
 ## Matching
 
+**By identity, where both sides have one:**
+
+- **Episodes**: the show's TheTVDB id + episode ID. Plex and Jellyfin both
+  publish the id on the show, and `series_gaps`, `discover` and the metainfo
+  plugins all leave one on the entry.
+- **Movies**: the film's TMDb or IMDb id, as the server publishes it.
+
+**By name otherwise**, exactly as before:
+
 - **Episodes**: normalized show name + episode ID (`series_episode_id` from
   `metainfo_file`). Decorated release titles are re-parsed as a fallback, so
   the filter also works before title cleanup.
 - **Movies**: normalized title + year (`video_year` when present, else parsed
   from the release name).
-- Entries matching nothing in the library pass through untouched; the filter
-  never accepts, it only rejects (or lets upgrades through).
+
+Entries matching nothing in the library pass through untouched; the filter
+never accepts, it only rejects (or lets upgrades through).
+
+### Why the id comes first
+
+A title is not stable identity, and this gate used to have nothing else. Plex's
+own agent writes `Brothers (2026)` where the provider says `Brothers`; a server
+and a provider disagree about a film's subtitle and punctuation more often than
+they agree. The lookup then missed — and a miss here means *not owned*, so the
+gate quietly did not fire at all for those items. On one real library, 33 of 323
+shows carry a trailing `(YYYY)`.
+
+It was also an inconsistency within a single pipeline: `series_gaps` has matched
+the library by id since 1.57.0, so the scan deciding *which episodes are
+missing* and the gate deciding *whether this release is already owned* were
+reading the same library through two different keys.
+
+**An id proves a hit, never a miss.** A release whose id the server does not
+publish falls through to the name, so a wrong id — one that came from an
+indexer's release metadata, say — can only fail to find something, never reject
+the wrong thing. A server that publishes no ids at all behaves exactly as it did.
+
+The filesystem backend has only filenames, so its id indexes stay empty and
+every lookup there takes the name path.
 
 ## Example
 
