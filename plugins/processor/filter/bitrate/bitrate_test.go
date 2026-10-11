@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"strings"
 	"testing"
 
 	"github.com/brunoga/pipeliner/internal/entry"
@@ -49,8 +50,13 @@ func TestStarvedEncodeRejected(t *testing.T) {
 	if !e.IsRejected() {
 		t.Fatalf("12.8 Mbps 2160p should be rejected under a 15 Mbps floor")
 	}
-	if got := e.Fields[entry.FieldVideoBitrateMbps]; got != 12.8 {
-		t.Errorf("video_bitrate_mbps = %v, want 12.8", got)
+	// The file is 12.8 Mbps; the video is that minus the audio, which an
+	// x264 release naming no audio format contributes 0.3 of by estimate.
+	if got := e.Fields[entry.FieldContainerBitrateMbps]; got != 12.8 {
+		t.Errorf("container_bitrate_mbps = %v, want 12.8", got)
+	}
+	if got := e.Fields[entry.FieldVideoBitrateMbps]; got != 12.5 {
+		t.Errorf("video_bitrate_mbps = %v, want 12.5", got)
 	}
 }
 
@@ -97,8 +103,11 @@ func TestNoFloorStampsOnly(t *testing.T) {
 	if e.IsRejected() {
 		t.Error("no floors configured → never rejects")
 	}
-	if e.Fields[entry.FieldVideoBitrateMbps] != 12.8 {
-		t.Errorf("field should still be stamped: %v", e.Fields[entry.FieldVideoBitrateMbps])
+	if e.Fields[entry.FieldContainerBitrateMbps] != 12.8 {
+		t.Errorf("container figure should still be stamped: %v", e.Fields[entry.FieldContainerBitrateMbps])
+	}
+	if e.Fields[entry.FieldVideoBitrateMbps] != 12.5 {
+		t.Errorf("video figure should still be stamped: %v", e.Fields[entry.FieldVideoBitrateMbps])
 	}
 }
 
@@ -111,5 +120,154 @@ func TestValidate(t *testing.T) {
 	}
 	if errs := validate(map[string]any{"bogus": 1}); len(errs) == 0 {
 		t.Error("unknown key must fail")
+	}
+}
+
+// --- the video is not the file ---
+
+// TestAudioIsNotVideo measures the case this was found on: a real 4K encode,
+// 7.12 GB over 108 minutes, carrying TrueHD Atmos 7.1 plus an AC3
+// compatibility track. The file is 8.8 Mbps; the video is 5.1. Judging the
+// container figure made 42% of the number audio.
+func TestAudioIsNotVideo(t *testing.T) {
+	p := mk(t, nil)
+	e := ent("Supergirl.2026.2160p.DV.HDR10.HEVC.10bit.TrueHD.Atmos.7.1", 7_122_905_630, 108)
+	if _, err := p.Process(context.Background(), makeCtx(), []*entry.Entry{e}); err != nil {
+		t.Fatal(err)
+	}
+	container, _ := e.Fields[entry.FieldContainerBitrateMbps].(float64)
+	video, _ := e.Fields[entry.FieldVideoBitrateMbps].(float64)
+	if container != 8.8 {
+		t.Errorf("container_bitrate_mbps = %v, want 8.8", container)
+	}
+	// 8.8 less the 3.5 an Atmos-on-TrueHD bed is estimated at. The file's
+	// true video rate is 5.12, so the estimate lands within 0.2 Mbps.
+	if video != 5.3 {
+		t.Errorf("video_bitrate_mbps = %v, want 5.3", video)
+	}
+	if video >= container {
+		t.Error("the video cannot be the whole file")
+	}
+}
+
+// TestLosslessAudioNoLongerFlattersARelease: two releases with the same video
+// and different audio used to differ by 3 Mbps in the figure the floor judged.
+func TestLosslessAudioNoLongerFlattersARelease(t *testing.T) {
+	p := mk(t, nil)
+	// Same video bitrate, 2.8 Mbps apart in audio.
+	lossless := ent("Film.2026.2160p.BluRay.x265.TrueHD.Atmos", 7_000_000_000, 108)
+	lossy := ent("Film.2026.2160p.BluRay.x265.DDP5.1.Atmos", 7_000_000_000, 108)
+	if _, err := p.Process(context.Background(), makeCtx(), []*entry.Entry{lossless, lossy}); err != nil {
+		t.Fatal(err)
+	}
+	lv, _ := lossless.Fields[entry.FieldVideoBitrateMbps].(float64)
+	yv, _ := lossy.Fields[entry.FieldVideoBitrateMbps].(float64)
+	if !(yv > lv) {
+		t.Errorf("the lossy-audio release has more room for video: lossless=%v lossy=%v", lv, yv)
+	}
+	if d := yv - lv; d < 2.5 || d > 3.0 {
+		t.Errorf("difference = %v Mbps, want the audio gap (~2.8)", d)
+	}
+}
+
+// TestUnknownAudioErrsTowardsLenient: the subtraction is an estimate, and an
+// over-estimate would refuse a release over a guess.
+func TestUnknownAudioErrsTowardsLenient(t *testing.T) {
+	p := mk(t, nil)
+	e := ent("Film.2026.2160p.BluRay.x265", 7_000_000_000, 108)
+	if _, err := p.Process(context.Background(), makeCtx(), []*entry.Entry{e}); err != nil {
+		t.Fatal(err)
+	}
+	container, _ := e.Fields[entry.FieldContainerBitrateMbps].(float64)
+	video, _ := e.Fields[entry.FieldVideoBitrateMbps].(float64)
+	if container-video > 0.5 {
+		t.Errorf("unknown audio subtracted %.1f Mbps; want a token amount", container-video)
+	}
+}
+
+// --- codec-scaled floors ---
+
+// TestFloorScalesWithCodec is the false rejection that started this: a 15 Mbps
+// floor for 2160p refused HBO Max WEB-DLs at 7-10 Mbps, which are copies of
+// what the service sent rather than encodes anyone chose the bitrate of.
+func TestFloorScalesWithCodec(t *testing.T) {
+	// 108 min, 7 GB → 8.6 Mbps container, ~7.9 video with DDP 5.1.
+	const size, mins = 7_000_000_000, 108
+	for _, tc := range []struct {
+		name   string
+		title  string
+		floor  int
+		reject bool
+	}{
+		// H.264 at this rate for 4K really is starved: full floor applies.
+		{"h264 holds the full floor", "Film.2026.2160p.WEB-DL.H.264.DDP5.1", 15, true},
+		// HEVC needs ~60% of it, so 15 means 9 — still above 7.9.
+		{"hevc scaled still rejects at 15", "Film.2026.2160p.WEB-DL.H.265.DDP5.1", 15, true},
+		// A recalibrated floor passes the same release.
+		{"hevc passes a 10 floor", "Film.2026.2160p.WEB-DL.H.265.DDP5.1", 10, false},
+		// AV1 needs less again: 15 means 6.75.
+		{"av1 passes a 12 floor", "Film.2026.2160p.WEB-DL.AV1.DDP5.1", 12, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := mk(t, map[string]any{"min_2160p": tc.floor})
+			e := ent(tc.title, size, mins)
+			if _, err := p.Process(context.Background(), makeCtx(), []*entry.Entry{e}); err != nil {
+				t.Fatal(err)
+			}
+			if got := e.IsRejected(); got != tc.reject {
+				t.Errorf("rejected = %v, want %v (video %v, reason %q)",
+					got, tc.reject, e.Fields[entry.FieldVideoBitrateMbps], e.RejectReason)
+			}
+		})
+	}
+}
+
+// TestScaledReasonNamesTheArithmetic: a release refused by a number that is
+// not the configured one has to say where that number came from.
+func TestScaledReasonNamesTheArithmetic(t *testing.T) {
+	p := mk(t, map[string]any{"min_2160p": 15})
+	e := ent("Film.2026.2160p.WEB-DL.H.265.DDP5.1", 7_000_000_000, 108)
+	if _, err := p.Process(context.Background(), makeCtx(), []*entry.Entry{e}); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"9.0 Mbps", "15 Mbps scaled by 0.60", "H.265"} {
+		if !strings.Contains(e.RejectReason, want) {
+			t.Errorf("reason %q should mention %q", e.RejectReason, want)
+		}
+	}
+}
+
+// --- runtime source ---
+
+// TestProbeDurationPreferred: a provider's runtime describes the film, the
+// container's duration describes the file, and for an extended cut they are
+// different films.
+func TestProbeDurationPreferred(t *testing.T) {
+	p := mk(t, nil)
+	e := ent("Film.2026.2160p.BluRay.x265.DDP5.1", 7_000_000_000, 108)
+	// The container says 150 minutes, not 108.
+	e.Set(entry.FieldProbeDurationSec, 150*60)
+	if _, err := p.Process(context.Background(), makeCtx(), []*entry.Entry{e}); err != nil {
+		t.Fatal(err)
+	}
+	if got := e.Fields[entry.FieldContainerBitrateMbps]; got != 6.2 {
+		t.Errorf("container_bitrate_mbps = %v, want 6.2 (7 GB over 150 min)", got)
+	}
+}
+
+// TestRuntimeFromProbeAlone: an entry with no enrichment runtime is still
+// measurable when a probe ran above this node.
+func TestRuntimeFromProbeAlone(t *testing.T) {
+	p := mk(t, map[string]any{"min_2160p": 15})
+	e := ent("Film.2026.2160p.WEB-DL.H.264.DDP5.1", 7_000_000_000, 0)
+	e.Set(entry.FieldProbeDurationSec, 108*60)
+	if _, err := p.Process(context.Background(), makeCtx(), []*entry.Entry{e}); err != nil {
+		t.Fatal(err)
+	}
+	if e.Fields[entry.FieldContainerBitrateMbps] == nil {
+		t.Fatal("probe duration alone should be enough to measure")
+	}
+	if !e.IsRejected() {
+		t.Error("7.9 Mbps of H.264 video at 2160p is below a 15 Mbps floor")
 	}
 }

@@ -23,7 +23,8 @@ const (
 	FieldMovieDigitalRelease  = "movie_digital_release"  // first digital (PVOD/streaming) release date
 	FieldMoviePhysicalRelease = "movie_physical_release" // first physical (disc) release date
 
-	FieldVideoBitrateMbps = "video_bitrate_mbps" // implied bitrate (torrent size / runtime), set by the bitrate filter
+	FieldVideoBitrateMbps     = "video_bitrate_mbps"     // implied VIDEO bitrate (container minus an audio estimate), set by the bitrate filter
+	FieldContainerBitrateMbps = "container_bitrate_mbps" // implied bitrate of the whole file (size / runtime), set by the bitrate filter
 
 	// The probe_* fields report what a release's own container states, read
 	// from a sample of the torrent before it is downloaded. They exist because

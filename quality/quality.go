@@ -312,6 +312,9 @@ func (q Quality) ResolutionName() string { return resolutionNames[q.Resolution] 
 // SourceName returns the human-readable source name (e.g. "BluRay"), or "" if unknown.
 func (q Quality) SourceName() string { return sourceNames[q.Source] }
 
+// CodecName returns the human-readable codec name (e.g. "H.265"), or "" if unknown.
+func (q Quality) CodecName() string { return codecNames[q.Codec] }
+
 // MarshalJSON serialises Quality including a precomputed "string" field so
 // the UI can display it without reconstructing the string from numeric codes.
 // The field is omitted when no quality dimensions were detected ("unknown").
