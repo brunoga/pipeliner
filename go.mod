@@ -4,12 +4,12 @@ go 1.26.2
 
 require (
 	github.com/anacrolix/torrent v1.61.0
-	github.com/brunoga/mvc v0.4.1
+	github.com/brunoga/mvc v0.5.3
 	github.com/mattn/go-isatty v0.0.24
 	github.com/mxschmitt/playwright-go v0.6201.1
 	go.starlark.net v0.0.0-20260326113308-fadfc96def35
 	golang.org/x/crypto v0.57.0
-	golang.org/x/sys v0.48.0
+	golang.org/x/sys v0.49.0
 	modernc.org/sqlite v1.60.1
 )
 
