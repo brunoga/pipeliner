@@ -419,14 +419,26 @@ var (
 	// re3DConvStrong matches conversion markers that always imply 3D-conversion
 	// regardless of whether a native 3D marker (SBS/OU/MVC/BD3D) is also present.
 	// These tokens are specific enough that they don't appear in non-3D titles.
-	// woz3d / owl3d / iw3 are known fan 2D→3D converter tags (AI depth
-	// estimation); a release carrying one is by definition a conversion.
-	re3DConvStrong = regexp.MustCompile(`(?i)(?:\b3D[\s\-]?CONV(?:ERT|ERSION)?\b|\bHT[\s\-]?CONVERSION\b|\bSTEREO[\s\-]?CRAFTER\b|\bDEPTH[\s\-]?CRAFTER\b|\bWOZ3D\b|\bOWL3D\b|\bIW3\b)`)
+	// woz3d / owl3d / iw3 / axion3d are known fan 2D→3D converter tags (AI
+	// depth estimation); a release carrying one is by definition a conversion.
+	// They have to be listed by name because such a release is otherwise
+	// indistinguishable from a native one: "How To Train Your Dragon 2010 3D
+	// FSBS 2160p AV1 60FPS DTS HD MA 7 1 AXION3D" parsed as 3D-Full and was
+	// downloaded by a pipeline asking for spec="3dfull".
+	re3DConvStrong = regexp.MustCompile(`(?i)(?:\b3D[\s\-]?CONV(?:ERT|ERSION)?\b|\bHT[\s\-]?CONVERSION\b|\bSTEREO[\s\-]?CRAFTER\b|\bDEPTH[\s\-]?CRAFTER\b|\bWOZ3D\b|\bOWL3D\b|\bIW3\b|\bAXION3D\b)`)
 	// re3DConvWeak matches generic conversion / AI-enhancement words that only
 	// imply 3D-conversion when a native 3D marker is also present in the title.
 	// Without that context "Upscaled" / "AI Enhanced" / "Conv" could appear on
 	// non-3D releases (e.g. a 4K-upscaled SDR remaster).
 	re3DConvWeak = regexp.MustCompile(`(?i)(?:\bCONV\b|\bCONVERT\b|\bCONVERSION\b|\bAI[\s\-]?ENHANCED\b|\bAI[\s\-]?UPSCALED\b|\bUPSCALED\b)`)
+	// reHighFrameRate matches a stated frame rate of 30 and up. Alongside a
+	// native 3D marker that is a conversion marker in itself and does not
+	// depend on knowing the group: Blu-ray 3D is 24p (23.976) per eye and the
+	// format has no higher mode, so a "3D 60FPS" release has been through
+	// frame interpolation whoever made it. It is weak rather than strong
+	// because a 60 fps 2D release is an ordinary thing -- sport, nature
+	// documentaries, anything shot high-frame-rate -- and must not be touched.
+	reHighFrameRate = regexp.MustCompile(`(?i)\b(?:3[0-9]|[4-9][0-9]|1[0-9]{2})(?:\.\d+)?[\s\-_.]?FPS\b`)
 	// re3D matches native 3D format markers; longer alternatives are listed first.
 	// MVC (Multiview Video Coding) is the Blu-ray 3D codec — always BD quality.
 	// Compound markers (FULL-SBS, H-OU, etc.) tolerate a space separator since
@@ -646,14 +658,15 @@ func Parse(title string) Quality {
 
 	// A conversion marker overrides any native 3D format marker — a converted
 	// release stays at the lowest 3D tier regardless of the packaging format.
-	// Strong markers (3D-Conv, StereoCrafter, etc.) trigger Conv unconditionally;
-	// weak markers (bare Conv, AI Enhanced, Upscaled) only trigger Conv when a
-	// native 3D marker is also present, so non-3D releases tagged "Upscaled"
+	// Strong markers (3D-Conv, StereoCrafter, a named converter group) trigger
+	// Conv unconditionally; weak markers (bare Conv, AI Enhanced, Upscaled, a
+	// frame rate of 30 or more) only trigger Conv when a native 3D marker is
+	// also present, so non-3D releases tagged "Upscaled" or shot at 60 fps
 	// aren't misclassified as 3D-conversions.
 	native3D := re3D.FindAllString(title, -1)
 	hasNative3D := len(native3D) > 0
 	isConv := re3DConvStrong.MatchString(title) ||
-		(hasNative3D && re3DConvWeak.MatchString(title))
+		(hasNative3D && (re3DConvWeak.MatchString(title) || reHighFrameRate.MatchString(title)))
 	switch {
 	case isConv:
 		q.Format3D = Format3DConv
