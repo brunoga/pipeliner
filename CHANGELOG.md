@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.60.3] - 2026-10-11
+
+### Fixed
+
+- **Full-resolution 3D is 1080p per eye** ([#592](https://github.com/brunoga/pipeliner/pull/592)). A 2160p full-SBS release cannot be what it says it is: Blu-ray 3D is the only stereoscopic disc format and it carries 1080p MVC, while 4K Blu-ray has no 3D mode at all — so nothing it could have been mastered from exists, and what it has been through is an upscale, which is already one of the markers that makes a release `3D-Conv`. The resolution states it without the name having to, so unlike the converter-group list this needs no maintenance as new groups appear. It is the structural rule behind the two preceding fixes: of the 135 3D films in the recent download log, 8 are 2160p, including the AXION3D release that started this. **SBS only**, and that asymmetry is geometric rather than cautious — a full-SBS frame is twice as *wide* as one eye, so 1080p per eye is 3840×1080 and "2160p" claims 4K per eye; a full-OU frame is twice as *tall*, so 1080p per eye is 1920×2160 and "2160p" on an over-under release is exactly the frame height of a legitimate encode, which demoting would punish. Measured on one catalogue sweep: of 18 full-3D releases claiming 2160p, 11 were SBS (every one an AI conversion or a 4K web source re-packed as 3D) and 7 were OU, three of them labelled `FULL OU 1920x2160p`, which states 1080p per eye outright. Resolutions below 1080p are untouched, since a 720p full-SBS encode is a real thing and a spec can set its own floor; `BD3D` and `Half` are untouched too, as a disc rip's resolution tag says nothing about its MVC streams and the MVC lanes admit `Half` on purpose.
+
+**Why 1.60.3**: one classification fix, no config changes and no migration. A release already recorded in a tracker keeps the format it was stored with; only new parses are affected.
+
 ## [1.60.2] - 2026-10-11
 
 ### Fixed
