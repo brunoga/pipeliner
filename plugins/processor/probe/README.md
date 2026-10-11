@@ -29,12 +29,30 @@ All are `MayProduce`: a probe can fail, and a container can decline to state a t
 | `probe_is_3d` | bool | Explicit in both directions — false means the container states it is 2D |
 | `probe_3d_layout` | string | `2d`, `mvc`, `sbs`, `tab`, `other` |
 | `probe_width` / `probe_height` | int | Coded frame size (a side-by-side 1080p frame is 3840 wide) |
+| `probe_upscale` | bool | The coded frame is narrower than the resolution the name claims. Explicit in both directions; absent when either side is unknown |
 | `probe_video_codec` | string | `H.264`, `HEVC`, `MVC`, … |
 | `probe_duration_sec` | int | Runtime from the container itself, needing no metadata lookup |
 | `probe_bitrate_mbps` | float | Torrent size over the container's own duration |
 | `probe_audio_codecs` | list | In track order |
 | `probe_audio_languages` | list | ISO 639-2, deduped, untagged tracks dropped |
 | `probe_subtitle_languages` | list | ISO 639-2 |
+
+### probe_upscale: the resolution claim, checked
+
+`2160p` in a release name is a claim; the coded frame is a fact. `probe_upscale` compares them, so a 1920-wide file calling itself 4K is caught by evidence rather than inferred from its bitrate — which is what [`bitrate`](../filter/bitrate/) was reaching for and cannot do, since a good 4K HEVC encode and a bad one sit at the same number.
+
+The comparison is on **width**, not height. Height varies with the aspect ratio and width does not: a 2160p scope film is commonly 3840×1600, and a height test would read the most cinematic releases there are as upscales. The thresholds (3400 / 1700 / 1100) sit well below each nominal width so a crop or a DCI 4096 frame passes, while the tier below cannot — 1920 is far under what a 2160p claim needs.
+
+A side-by-side 3D frame is twice as wide as its claim (a `1080p` SBS release is 3840 across), which clears the threshold rather than failing it: the test is for a frame too *small* for its claim.
+
+```python
+# Refuse a release whose own container contradicts its name.
+gate = process("condition", upstream=probed,
+               reject='probe_ok and probe_upscale',
+               reason="the coded frame is smaller than the resolution claimed")
+```
+
+Because `probe` runs below `dedup` in the shipped pipelines, a rejection there discards the alternatives for that run. Pair it with the failure path — mark the release failed so the next run picks the next candidate — rather than leaving the item to come back to the same winner.
 | `probe_base_view_right` | bool | A 3D disc says its base view is the right eye, so a conversion must swap views. Discs only |
 | `probe_unreachable` | bool | Nothing in the swarm served the sample. Narrower than `probe_ok` false, and a stronger liveness signal than a tracker scrape |
 | `probe_pieces` / `probe_bytes` | int | What the probe cost |

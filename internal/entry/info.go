@@ -57,6 +57,7 @@ const (
 	FieldProbeAudioLanguages    = "probe_audio_languages"
 	FieldProbeSubtitleLanguages = "probe_subtitle_languages"
 	FieldProbeBaseViewRight     = "probe_base_view_right"
+	FieldProbeUpscale           = "probe_upscale" // coded frame is smaller than the resolution the name claims
 	// FieldProbePieces and FieldProbeBytes record what the probe cost. On a
 	// private tracker those bytes count against a ratio, so they are reported
 	// rather than left to be guessed at.

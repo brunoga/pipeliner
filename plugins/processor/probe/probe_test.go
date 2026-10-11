@@ -14,6 +14,7 @@ import (
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/plugin"
 	"github.com/brunoga/pipeliner/internal/torrentpeek"
+	"github.com/brunoga/pipeliner/quality"
 )
 
 // fakeSampler stands in for a torrent: a byte slice plus the set of pieces
@@ -530,3 +531,103 @@ func TestProcessSkipsWhenAllRejected(t *testing.T) {
 }
 
 func discardLogger() *slog.Logger { return slog.New(slog.DiscardHandler) }
+
+// --- the resolution claim, checked against the frame ---
+
+func upscaleEntry(t *testing.T, title string, w, h int) *entry.Entry {
+	t.Helper()
+	e := entry.New(title, "http://x/t.torrent")
+	e.SetQuality(quality.Parse(title))
+	res := &mvcprobe.Result{
+		Kind:   mvcprobe.KindMatroska,
+		Layout: mvcprobe.Layout2D,
+		Video:  []mvcprobe.VideoTrack{{Codec: "HEVC", Width: w, Height: h}},
+	}
+	apply(e, res)
+	return e
+}
+
+// TestProbeUpscaleCaughtByTheFrame is what a bitrate floor could only infer: a
+// release calling itself 2160p whose video is 1920 wide.
+func TestProbeUpscaleCaughtByTheFrame(t *testing.T) {
+	e := upscaleEntry(t, "Film.2026.2160p.BluRay.x265", 1920, 1080)
+	up, ok := e.Fields[entry.FieldProbeUpscale].(bool)
+	if !ok {
+		t.Fatal("probe_upscale should be set when both sides are known")
+	}
+	if !up {
+		t.Error("a 1920-wide frame does not back a 2160p claim")
+	}
+}
+
+// TestProbeUpscaleFalseIsAnAnswer: the field is explicit in both directions,
+// like probe_is_3d, so a condition can require a backed claim.
+func TestProbeUpscaleFalseIsAnAnswer(t *testing.T) {
+	e := upscaleEntry(t, "Film.2026.2160p.BluRay.x265", 3840, 2160)
+	up, ok := e.Fields[entry.FieldProbeUpscale].(bool)
+	if !ok {
+		t.Fatal("probe_upscale should be set")
+	}
+	if up {
+		t.Error("3840x2160 backs a 2160p claim")
+	}
+}
+
+// TestProbeUpscaleJudgesWidthNotHeight: a scope film is 3840x1600, and a
+// height test would read the most cinematic releases there are as upscales.
+func TestProbeUpscaleJudgesWidthNotHeight(t *testing.T) {
+	for _, h := range []int{1600, 2076, 2160} {
+		e := upscaleEntry(t, "Film.2026.2160p.BluRay.x265", 3840, h)
+		if e.Fields[entry.FieldProbeUpscale] != false {
+			t.Errorf("3840x%d is a 2160p frame, got upscale=%v", h, e.Fields[entry.FieldProbeUpscale])
+		}
+	}
+}
+
+// TestProbeUpscaleSideBySideIsNotAnUpscale: an SBS frame is twice as wide as
+// its claim, which is too big rather than too small.
+func TestProbeUpscaleSideBySideIsNotAnUpscale(t *testing.T) {
+	e := upscaleEntry(t, "Film.2026.1080p.3D.HSBS.BluRay.x264", 3840, 1080)
+	if e.Fields[entry.FieldProbeUpscale] != false {
+		t.Errorf("a 3840-wide SBS frame is not an upscale of a 1080p claim: %v",
+			e.Fields[entry.FieldProbeUpscale])
+	}
+}
+
+// TestProbeUpscaleAbsentWhenEitherSideIsUnknown: fields are absent rather
+// than guessed, the rule the rest of this plugin follows.
+func TestProbeUpscaleAbsentWhenEitherSideIsUnknown(t *testing.T) {
+	// The container stated no frame size (a disc's dependent view).
+	noFrame := upscaleEntry(t, "Film.2026.2160p.BluRay.x265", 0, 0)
+	if _, ok := noFrame.Fields[entry.FieldProbeUpscale]; ok {
+		t.Error("no frame size: the field must be absent")
+	}
+	// The name claims no resolution.
+	noClaim := upscaleEntry(t, "Film.2026.BluRay.x265", 3840, 2160)
+	if _, ok := noClaim.Fields[entry.FieldProbeUpscale]; ok {
+		t.Error("no claimed resolution: the field must be absent")
+	}
+}
+
+// TestProbeUpscaleTiersDoNotBleed: each threshold has to reject the tier below
+// it while admitting its own, including a DCI frame.
+func TestProbeUpscaleTiersDoNotBleed(t *testing.T) {
+	for _, tc := range []struct {
+		title string
+		w     int
+		want  bool
+	}{
+		{"Film.2026.2160p.x265", 4096, false}, // DCI 4K
+		{"Film.2026.2160p.x265", 3840, false},
+		{"Film.2026.2160p.x265", 1920, true},
+		{"Film.2026.1080p.x265", 1920, false},
+		{"Film.2026.1080p.x265", 1280, true},
+		{"Film.2026.720p.x265", 1280, false},
+		{"Film.2026.720p.x265", 720, true},
+	} {
+		e := upscaleEntry(t, tc.title, tc.w, 0)
+		if got := e.Fields[entry.FieldProbeUpscale]; got != tc.want {
+			t.Errorf("%s at %d wide: upscale = %v, want %v", tc.title, tc.w, got, tc.want)
+		}
+	}
+}
