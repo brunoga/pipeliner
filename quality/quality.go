@@ -451,6 +451,11 @@ var (
 	// Compound markers (FULL-SBS, H-OU, etc.) tolerate a space separator since
 	// scene releases routinely use "Full SBS" / "H OU" / "Half OU" with spaces.
 	re3D = regexp.MustCompile(`(?i)\b(BD3D|MVC|FULL[\s\-]?SBS|FULL[\s\-]?OU|FSBS|F[\s\-]SBS|FOU|F[\s\-]OU|HALF[\s\-]?SBS|HALF[\s\-]?OU|HSBS|H[\s\-]SBS|HOU|H[\s\-]OU|SBS|OU|3D)\b`)
+	// reFullSBS matches the full-resolution SIDE-BY-SIDE markers only, which
+	// is a narrower set than reFrameCompatible3D on purpose: see the
+	// resolution rule in Parse, which turns on the geometry of SBS
+	// specifically and must not be applied to over-under.
+	reFullSBS = regexp.MustCompile(`(?i)\b(FULL[\s\-]?SBS|FSBS|F[\s\-]SBS)\b`)
 	// reFrameCompatible3D matches the layouts that fit both views into a single
 	// frame. Their presence rules out MVC: frame packing is a re-encode, and an
 	// ordinary decoder can play the result.
@@ -707,6 +712,34 @@ func Parse(title string) Quality {
 			q.Format3D = Format3DUnspecified
 		}
 	}
+	// Full-resolution 3D is 1080p per eye, so a full-SBS release claiming more
+	// than that has been upscaled -- and "upscaled" is already one of the
+	// markers that makes a release Conv. The resolution says it without the
+	// name having to.
+	//
+	// 1080p per eye is not a preference, it is the only thing that was ever
+	// mastered: Blu-ray 3D is the single stereoscopic disc format and it
+	// carries 1080p MVC, while 4K Blu-ray has no 3D mode at all. So nothing a
+	// 2160p 3D release could have been made from exists.
+	//
+	// SBS only, and that asymmetry is geometric rather than cautious. A
+	// full-SBS frame is twice as WIDE as one eye (1080p per eye is 3840x1080),
+	// so a "2160p" full-SBS release is claiming 4K per eye and there is no
+	// such source. A full-OU frame is twice as TALL (1080p per eye is
+	// 1920x2160), so "2160p" on an over-under release is exactly the frame
+	// height of a legitimate 1080p-per-eye encode -- "Attraction 2017 3D
+	// BluRay Full OU x265 2160p" is plausibly honest, and demoting it would
+	// refuse a release for labelling itself accurately.
+	//
+	// Measured on one catalogue sweep: of 18 full-3D releases claiming 2160p,
+	// 11 were SBS (every one of them an AI conversion or a 4K web source
+	// re-packed as 3D) and 7 were OU, including three episodes labelled
+	// "FULL OU 1920x2160p", which states 1080p per eye outright.
+	if q.Format3D == Format3DFull && q.Resolution > Resolutionp1080 &&
+		reFullSBS.MatchString(title) {
+		q.Format3D = Format3DConv
+	}
+
 	// "COMPLETE BluRay" with a non-conv 3D marker means the full Blu-ray 3D disc
 	// was ripped, which is BD3D quality whichever generic 3D tag was used.
 	//

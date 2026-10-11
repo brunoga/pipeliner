@@ -2210,3 +2210,91 @@ func TestConversionFailsA3DFullGate(t *testing.T) {
 		t.Error("a native full-resolution release must still satisfy spec 3dfull")
 	}
 }
+
+// --- full-resolution 3D is 1080p per eye ---
+
+// TestFullSBSAboveTenEightyIsAnUpscale: Blu-ray 3D is the only stereoscopic
+// disc format and it carries 1080p MVC, while 4K Blu-ray has no 3D mode at
+// all -- so nothing a 2160p full-SBS release could have been made from
+// exists. A full-SBS frame is twice as wide as one eye, so "2160p" there is a
+// claim of 4K per eye.
+func TestFullSBSAboveTenEightyIsAnUpscale(t *testing.T) {
+	for _, title := range []string{
+		// Both from a live catalogue sweep, both parsing as 3D-Full before.
+		"House of the Dragon S03E06 MULTi SDR 2160p 3D FSBS WEBrip x264 by Stycless",
+		"Gemini Man 2019 3D FSBS 2160p AV1 Atmos",
+		"Movie 2020 3D FULL-SBS 2160p x265",
+		"Movie 2020 3D F-SBS 4K x265",
+	} {
+		if got := Parse(title).Format3D; got != Format3DConv {
+			t.Errorf("%q: Format3D = %v, want Conv", title, format3DNames[got])
+		}
+	}
+}
+
+// TestFullOUAtTwentyOneSixtyIsKept is the other half of the geometry. A
+// full-OU frame is twice as TALL as one eye, so 1080p per eye is 1920x2160 and
+// "2160p" on an over-under release is exactly the frame height of a legitimate
+// encode -- refusing it would punish a release for labelling itself
+// accurately.
+func TestFullOUAtTwentyOneSixtyIsKept(t *testing.T) {
+	for _, title := range []string{
+		"Attraction 2017 3D BluRay Full OU x265 2160p 3D Est",
+		"Movie 2020 3D FOU 2160p x265",
+		// States 1080p per eye outright; "1920x2160p" is not a 2160p token.
+		"Kingdom Of Plants 2012 3D Episode 1 FULL OU 1920x2160p",
+	} {
+		if got := Parse(title).Format3D; got != Format3DFull {
+			t.Errorf("%q: Format3D = %v, want Full", title, format3DNames[got])
+		}
+	}
+}
+
+// TestFullSBSAtOrBelowTenEightyIsKept: the rule is about an impossible source,
+// not about preferring high resolution. A 720p full-SBS encode is a real
+// thing, so it stays Full and a spec can set its own floor.
+func TestFullSBSAtOrBelowTenEightyIsKept(t *testing.T) {
+	for _, title := range []string{
+		"Movie 2020 1080p FSBS BluRay x264",
+		"Movie 2020 720p FSBS BluRay x264",
+		"Movie 2020 FSBS BluRay x264",
+	} {
+		if got := Parse(title).Format3D; got != Format3DFull {
+			t.Errorf("%q: Format3D = %v, want Full", title, format3DNames[got])
+		}
+	}
+}
+
+// TestHigherResolutionDoesNotTouchTheOtherRungs: the rule demotes Full only.
+// BD3D is a disc rip whose resolution tag says nothing about its MVC streams,
+// and Half is already refused by a 3dfull gate, while the MVC lanes admit
+// Half and Unspecified on purpose.
+func TestHigherResolutionDoesNotTouchTheOtherRungs(t *testing.T) {
+	for _, tc := range []struct {
+		title string
+		want  Format3D
+	}{
+		{"Avatar 2009 BD3D 2160p BluRay AVC", Format3DBD},
+		{"Movie 2020 3D HSBS 2160p x265", Format3DHalf},
+		{"Movie 2020 3D SBS 4K x265", Format3DHalf},
+		{"Movie 2020 3D BluRay 2160p AVC Atmos", Format3DUnspecified},
+	} {
+		if got := Parse(tc.title).Format3D; got != tc.want {
+			t.Errorf("%q: Format3D = %v, want %v", tc.title, format3DNames[got], format3DNames[tc.want])
+		}
+	}
+}
+
+// TestUpscaledFullSBSFailsA3DFullGate is the end of the chain.
+func TestUpscaledFullSBSFailsA3DFullGate(t *testing.T) {
+	spec, err := ParseSpec("3dfull")
+	if err != nil {
+		t.Fatalf("ParseSpec: %v", err)
+	}
+	if spec.Matches(Parse("Gemini Man 2019 3D FSBS 2160p AV1 Atmos")) {
+		t.Error("a 2160p full-SBS release must not satisfy spec 3dfull")
+	}
+	if !spec.Matches(Parse("Movie 2020 1080p FSBS BluRay x264 TrueHD")) {
+		t.Error("a 1080p full-SBS release must still satisfy spec 3dfull")
+	}
+}
