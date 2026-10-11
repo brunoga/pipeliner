@@ -56,6 +56,7 @@ import (
 	"github.com/brunoga/pipeliner/internal/plugin"
 	"github.com/brunoga/pipeliner/internal/store"
 	"github.com/brunoga/pipeliner/internal/torrentpeek"
+	"github.com/brunoga/pipeliner/quality"
 )
 
 const pluginName = "probe"
@@ -106,6 +107,7 @@ var producedFields = []string{
 	entry.FieldProbe3DLayout,
 	entry.FieldProbeWidth,
 	entry.FieldProbeHeight,
+	entry.FieldProbeUpscale,
 	entry.FieldProbeVideoCodec,
 	entry.FieldProbeDurationSec,
 	entry.FieldProbeBitrateMbps,
@@ -510,6 +512,9 @@ func apply(e *entry.Entry, res *mvcprobe.Result) {
 	if c := videoCodec(res); c != "" {
 		e.Set(entry.FieldProbeVideoCodec, c)
 	}
+	if up, known := upscale(res, e); known {
+		e.Set(entry.FieldProbeUpscale, up)
+	}
 	if res.Duration > 0 {
 		secs := int(res.Duration.Seconds())
 		e.Set(entry.FieldProbeDurationSec, secs)
@@ -530,6 +535,44 @@ func apply(e *entry.Entry, res *mvcprobe.Result) {
 	if langs := subtitleLanguages(res); len(langs) > 0 {
 		e.Set(entry.FieldProbeSubtitleLanguages, langs)
 	}
+}
+
+// upscale compares the coded frame against the resolution the release name
+// claims. It reports (false, true) when the frame backs the claim, which is as
+// definite an answer as the other direction, and (_, false) when either side
+// is unknown — the name said nothing parseable, or the container stated no
+// frame size.
+//
+// The comparison is on WIDTH. Height varies with the aspect ratio while width
+// does not: a 2160p scope film is commonly 3840x1600, and a height test would
+// read that as an upscale. The thresholds sit well below each nominal width so
+// a crop or a DCI frame passes, while the next tier down cannot: 1920 is far
+// under the 3400 a 2160p claim needs.
+//
+// A side-by-side 3D frame is twice as wide as its claim (a "1080p" SBS release
+// is 3840 across), which clears the threshold rather than failing it — the
+// test is for a frame too small for its claim, and that one is too big.
+func upscale(res *mvcprobe.Result, e *entry.Entry) (up, known bool) {
+	w := widthOf(res)
+	if w <= 0 {
+		return false, false
+	}
+	q, ok := e.Quality()
+	if !ok {
+		return false, false
+	}
+	var min int
+	switch q.Resolution {
+	case quality.Resolutionp2160:
+		min = 3400
+	case quality.Resolutionp1080:
+		min = 1700
+	case quality.Resolutionp720:
+		min = 1100
+	default:
+		return false, false
+	}
+	return w < min, true
 }
 
 // widthOf and heightOf report the base view's frame. A 3D disc also lists its
