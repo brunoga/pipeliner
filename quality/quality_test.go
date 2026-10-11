@@ -2120,6 +2120,15 @@ func TestAIConversionGroupsAreConversions(t *testing.T) {
 		"Movie 2020 1080p FSBS BluRay x264-WOZ3D",
 		"Movie 2020 1080p HSBS OWL3D",
 		"Movie 2020 3D FSBS IW3",
+		// Found in a live catalogue sweep, parsing as 3D-Full until now, with
+		// three of them already matched to watchlist films and waiting in a
+		// settle window.
+		"Terrifier 3 2024 1080p 3D FULL SBS HEVC SBS SUB ENG HUN iFA AI3D",
+		"The.Matrix.Resurrections.2021.1080p.3D.FULL-SBS.HEVC.ENG-HUN.iFA-AI3D",
+		"Movie 2020 3D AI 3D FULL SBS x265",
+		"Movie 2020 3D AI-3D FSBS x265",
+		"Supergirl 2026 3D M2SVid FSBS DDP 5 1 Atmos AETHER",
+		"Movie 2020 3D M2S-Vid FULL OU x265",
 	} {
 		if got := Parse(title).Format3D; got != Format3DConv {
 			t.Errorf("%q: Format3D = %v, want Conv", title, format3DNames[got])
@@ -2174,6 +2183,10 @@ func TestNative3DSurvives(t *testing.T) {
 		// 24p stated explicitly is not a high frame rate.
 		{"Movie 2020 1080p FSBS 24FPS BluRay x264", Format3DFull},
 		{"Movie 2020 1080p FSBS 23.976FPS BluRay x264", Format3DFull},
+		// From the same live sweep as the conversions above: these two are
+		// genuine full-SBS releases and must survive.
+		{"Wicked 2024 1080p 3D WEBRip Full-SBS AC3 5 1 x265-CLOWNSEC", Format3DFull},
+		{"X 2022 3D Full-SBS aac 5 1-x264-JFC", Format3DFull},
 	} {
 		if got := Parse(tc.title).Format3D; got != tc.want {
 			t.Errorf("%q: Format3D = %v, want %v", tc.title, format3DNames[got], format3DNames[tc.want])

@@ -421,11 +421,18 @@ var (
 	// These tokens are specific enough that they don't appear in non-3D titles.
 	// woz3d / owl3d / iw3 / axion3d are known fan 2D→3D converter tags (AI
 	// depth estimation); a release carrying one is by definition a conversion.
+	// "AI3D" and "M2SVid" say it outright -- the first is AI 3D in two
+	// characters and a number, the second is the tool that did it -- and both
+	// are matched for the same reason, whoever released them. Measured on one
+	// catalogue sweep of the 3D indexers: 59 woz3d, 7 axion3d, 5 "iFA AI3D"
+	// and 4 M2SVid releases, and the last two groups were parsing as 3D-Full.
+	// Three of them had already matched watchlist films and were sitting in a
+	// settle window waiting to be downloaded.
 	// They have to be listed by name because such a release is otherwise
 	// indistinguishable from a native one: "How To Train Your Dragon 2010 3D
 	// FSBS 2160p AV1 60FPS DTS HD MA 7 1 AXION3D" parsed as 3D-Full and was
 	// downloaded by a pipeline asking for spec="3dfull".
-	re3DConvStrong = regexp.MustCompile(`(?i)(?:\b3D[\s\-]?CONV(?:ERT|ERSION)?\b|\bHT[\s\-]?CONVERSION\b|\bSTEREO[\s\-]?CRAFTER\b|\bDEPTH[\s\-]?CRAFTER\b|\bWOZ3D\b|\bOWL3D\b|\bIW3\b|\bAXION3D\b)`)
+	re3DConvStrong = regexp.MustCompile(`(?i)(?:\b3D[\s\-]?CONV(?:ERT|ERSION)?\b|\bHT[\s\-]?CONVERSION\b|\bSTEREO[\s\-]?CRAFTER\b|\bDEPTH[\s\-]?CRAFTER\b|\bWOZ3D\b|\bOWL3D\b|\bIW3\b|\bAXION3D\b|\bAI[\s\-_.]?3D\b|\bM2S[\s\-]?VID\b)`)
 	// re3DConvWeak matches generic conversion / AI-enhancement words that only
 	// imply 3D-conversion when a native 3D marker is also present in the title.
 	// Without that context "Upscaled" / "AI Enhanced" / "Conv" could appear on
