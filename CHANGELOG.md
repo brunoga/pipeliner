@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.60.1] - 2026-10-11
+
+### Fixed
+
+- **An AI 2D-to-3D conversion is not a native 3D release** ([#588](https://github.com/brunoga/pipeliner/pull/588)). `How To Train Your Dragon 2010 3D FSBS 2160p AV1 60FPS DTS HD MA 7 1 AXION3D` parsed as **3D-Full** and was downloaded by a pipeline asking for `spec="3dfull"` — an AI conversion that does not even play correctly. Nothing in `3D FSBS` distinguishes a conversion from a native release, so the classification has to come from elsewhere, and that release carried two signals. `AXION3D` joins the named converter groups alongside `woz3d`, `owl3d` and `iw3` — a list, because such a release is otherwise indistinguishable from a native one. And a stated frame rate of **30 or more**, alongside a native 3D marker, now implies conversion on its own: Blu-ray 3D is 24p (23.976) per eye and the format has no higher mode, so a "3D 60FPS" release has been through frame interpolation whoever made it. The second needs no knowledge of the group, which is the point — the next converter to appear is caught without an edit. The frame-rate test is weak rather than strong, applying only when a native 3D marker is present, because a 60 fps 2D release is an ordinary thing and `Planet Earth II 2016 2160p 60FPS HDR` is not a 3D conversion. No config change: the 3D pipelines already ask for `3dfull`, and this makes the answer correct.
+
+**Why 1.60.1**: one classification fix, no config changes and no migration. A release already in a tracker keeps the format it was recorded with; only new parses are affected.
+
 ## [1.60.0] - 2026-10-11
 
 The starvation gate was rejecting good releases, and the reason turned out to be three things at once. Found by measuring a real encode against it: 7.12 GB over 108 minutes, 4K HEVC 10-bit Dolby Vision off a 72.5 Mbps disc, scoring VMAF 98.0 mean and 94.31 on the worst 1% of frames — refused by a 15 Mbps floor.
