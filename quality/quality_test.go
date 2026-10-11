@@ -2106,3 +2106,94 @@ func TestDiscImageRoundTripsThroughJSON(t *testing.T) {
 		t.Error("a record that never mentioned it must read as a non-disc")
 	}
 }
+
+// --- AI 2D→3D conversions ---
+
+// TestAIConversionGroupsAreConversions: a named converter's output is
+// indistinguishable from a native release by its format markers alone, so the
+// group has to be listed. "How To Train Your Dragon 2010 3D FSBS 2160p AV1
+// 60FPS DTS HD MA 7 1 AXION3D" parsed as 3D-Full and was downloaded by a
+// pipeline asking for spec="3dfull".
+func TestAIConversionGroupsAreConversions(t *testing.T) {
+	for _, title := range []string{
+		"How To Train Your Dragon 2010 3D FSBS 2160p AV1 DTS HD MA 7 1 AXION3D",
+		"Movie 2020 1080p FSBS BluRay x264-WOZ3D",
+		"Movie 2020 1080p HSBS OWL3D",
+		"Movie 2020 3D FSBS IW3",
+	} {
+		if got := Parse(title).Format3D; got != Format3DConv {
+			t.Errorf("%q: Format3D = %v, want Conv", title, format3DNames[got])
+		}
+	}
+}
+
+// TestHighFrameRateWithA3DMarkerIsAConversion needs no knowledge of the group:
+// Blu-ray 3D is 24p per eye and the format has no higher mode, so a 3D release
+// stating 60 fps has been through frame interpolation whoever made it.
+func TestHighFrameRateWithA3DMarkerIsAConversion(t *testing.T) {
+	for _, title := range []string{
+		"Movie 2020 3D FSBS 2160p AV1 60FPS DTS",
+		"Movie 2020 3D HSBS 1080p x264 59.94FPS",
+		"Movie 2020 FSBS 1080p 48 FPS x265",
+		"Movie 2020 SBS 1080p 120fps",
+	} {
+		if got := Parse(title).Format3D; got != Format3DConv {
+			t.Errorf("%q: Format3D = %v, want Conv", title, format3DNames[got])
+		}
+	}
+}
+
+// TestHighFrameRateAloneIsNotA3DMarker: a 60 fps 2D release is an ordinary
+// thing — sport, nature documentaries, anything shot high-frame-rate — and
+// must not be read as 3D, converted or otherwise.
+func TestHighFrameRateAloneIsNotA3DMarker(t *testing.T) {
+	for _, title := range []string{
+		"Planet Earth II 2016 2160p 60FPS HDR BluRay x265",
+		"The Hobbit 2012 1080p 48FPS BluRay x264",
+		"Some Match 2026 1080p 50fps HDTV",
+	} {
+		q := Parse(title)
+		if q.Format3D != Format3DNone {
+			t.Errorf("%q: Format3D = %v, want none", title, format3DNames[q.Format3D])
+		}
+	}
+}
+
+// TestNative3DSurvives pins what must not regress: the releases a 3dfull or
+// bd3d gate exists to admit.
+func TestNative3DSurvives(t *testing.T) {
+	for _, tc := range []struct {
+		title string
+		want  Format3D
+	}{
+		{"Avatar 2009 BD3D 1080p BluRay AVC DTS-HD MA", Format3DBD},
+		{"Movie 2020 1080p FSBS BluRay x264", Format3DFull},
+		{"Movie 2020 1080p FULL-SBS BluRay x264", Format3DFull},
+		{"Gravity 2013 1080p 3D HSBS BluRay x264", Format3DHalf},
+		{"Movie 2020 BD50 MVC", Format3DBD},
+		// 24p stated explicitly is not a high frame rate.
+		{"Movie 2020 1080p FSBS 24FPS BluRay x264", Format3DFull},
+		{"Movie 2020 1080p FSBS 23.976FPS BluRay x264", Format3DFull},
+	} {
+		if got := Parse(tc.title).Format3D; got != tc.want {
+			t.Errorf("%q: Format3D = %v, want %v", tc.title, format3DNames[got], format3DNames[tc.want])
+		}
+	}
+}
+
+// TestConversionFailsA3DFullGate is the end of the chain: the classification
+// is only useful because the spec the 3D pipelines ask for refuses it.
+func TestConversionFailsA3DFullGate(t *testing.T) {
+	spec, err := ParseSpec("3dfull")
+	if err != nil {
+		t.Fatalf("ParseSpec: %v", err)
+	}
+	conv := Parse("How To Train Your Dragon 2010 3D FSBS 2160p AV1 60FPS DTS HD MA 7 1 AXION3D")
+	if spec.Matches(conv) {
+		t.Error("an AI conversion must not satisfy spec 3dfull")
+	}
+	native := Parse("Movie 2020 1080p FSBS BluRay x264 TrueHD")
+	if !spec.Matches(native) {
+		t.Error("a native full-resolution release must still satisfy spec 3dfull")
+	}
+}
