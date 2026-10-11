@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.60.2] - 2026-10-11
+
+### Fixed
+
+- **`AI3D` and `M2SVid` are conversion markers too** ([#590](https://github.com/brunoga/pipeliner/pull/590)). Found by sweeping the 3D indexers' whole catalogue rather than their newest few hundred items: of 416 results in one run, 59 `woz3d` and 7 `axion3d` releases classified correctly, while 5 tagged `iFA AI3D` and 4 tagged `M2SVid` were parsing as **3D-Full**. Not theoretically, either — three of them had already matched watchlist films and were waiting in a settle window to be handed to the download client. Both tags say outright what they are, `AI3D` being AI 3D in two characters and a number and `M2SVid` the tool that did the conversion, so both join the named converters whoever released them; `AI 3D` and `AI-3D` match as well. `iFA` is deliberately not matched — it accompanies `AI3D` in every release seen, and three letters that generic is a false positive waiting to happen. A parser fix does not rescue a release already held, because the settle store sits inside the `movies` filter and downstream of the `quality` gate, so those records were cleared by hand.
+
+**Why 1.60.2**: one classification fix, no config changes and no migration.
+
 ## [1.60.1] - 2026-10-11
 
 ### Fixed
