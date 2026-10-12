@@ -198,6 +198,16 @@ type Descriptor struct {
 	// the same wave comes back, for every run after it.
 	Collapses bool
 
+	// ReplaysPerReleaseVerdict declares that the fields this plugin produces
+	// are recorded durably per release and stamped again on later runs
+	// without the work that first produced them (today: probe, which keys
+	// cache_probe by info-hash). The ordering check uses it to tell a refusal
+	// that costs the item from one a later run repeats before the collapse —
+	// with the verdict replayed above a collapsing node, a refused release is
+	// refused again while its alternatives are still there, and the collapse
+	// picks the next one instead of the same one forever.
+	ReplaysPerReleaseVerdict bool
+
 	// Caches declares the SQLite store buckets this plugin uses as caches.
 	// The web UI's database tab merges this declaration with the buckets
 	// SQLite reports as actually present, so an unwritten cache still appears

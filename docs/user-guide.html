@@ -576,6 +576,27 @@ gone and the item is lost for this run and every run after it — move
 
 <p>A refusal on an <em>optional</em> fan-out branch is not warned about either. If a sibling branch still reaches a sink &mdash; a pipeline that downloads on one branch and adds the show to a favourites list on the other &mdash; then refusing on the favourites branch costs that branch, not the item.</p>
 
+<h3>When the refusal is remembered</h3>
+
+<p>A refusal below the collapse is also not warned about when a <em>later</em> run will make it again <strong>before</strong> the collapse. That needs the evidence to be durable and replayed above the collapse &mdash; today that means a <a href="#probe"><code>probe</code></a> node with <code>cache_only=True</code>, which stamps what earlier runs learned and touches no network.</p>
+
+<p>This is how to have both rules at once when the refusing node is expensive. A probe costs tens of megabytes, so it belongs below <a href="#limit"><code>limit</code></a> where it runs on the few releases about to be downloaded; the rule above says it belongs over <code>dedup</code>. Put the cheap replay over <code>dedup</code> and the expensive measurement under <code>limit</code>:</p>
+
+<pre><code><span class="y-comment"># Free: replays verdicts earlier runs paid for, touches no network.</span>
+known = process("probe", upstream=alive, cache_only=True)
+<span class="y-comment"># A release nobody has probed carries no probe_ok, and an absent field
+# compares false — so this refuses the known-bad and passes the unknown.</span>
+gate  = process("condition", upstream=known, reject='probe_ok == false')
+pick  = process("dedup",  upstream=gate)
+few   = process("limit",  upstream=pick, n=3)
+<span class="y-comment"># Costs megabytes, so it runs on the few: these are new to the cache.</span>
+told  = process("probe",  upstream=few, timeout="2m")
+ok    = process("condition", upstream=told, reject='probe_ok == false')</code></pre>
+
+<p>The refused release is refused again next run while its alternatives are still on the table, so <code>dedup</code> picks the <em>next</em> one and the backlog drains. Without the gate the same release wins every run, is refused every run, and the item never arrives.</p>
+
+<p>The check is on evidence, not intent: every field the lower refusal reads must be produced above the collapse by a replaying node, and those nodes must sit on <em>every</em> path from a source into the collapse &mdash; a gate on one branch of a merge leaves the other branch's releases exactly as lost as before. It deliberately does not check that the two rules agree, because nothing static could: they are different rules by design, one judging a fresh verdict and one replaying an old one. A refusal whose decision is not written out in the config at all &mdash; <a href="#content"><code>content</code></a> deciding from a file list, <a href="#torrent_alive"><code>torrent_alive</code></a> from a scrape &mdash; is never excused, because there is nothing a node above the collapse could have replayed.</p>
+
 <h3>The constraint this creates</h3>
 
 <p>Two things follow that are easy to get wrong:</p>

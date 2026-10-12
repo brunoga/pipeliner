@@ -104,8 +104,12 @@ func init() {
 		// real torrent, which is what there is to sample.
 		Requires:   plugin.RequireAll(entry.FieldTorrentInfoHash),
 		MayProduce: producedFields,
-		Factory:    newPlugin,
-		Validate:   validate,
+		// Every verdict goes into cache_probe keyed by info-hash, so a node
+		// of this plugin above a collapse stamps the same answer a later run
+		// would. See VerdictBucketName.
+		ReplaysPerReleaseVerdict: true,
+		Factory:                  newPlugin,
+		Validate:                 validate,
 		Schema: []plugin.FieldSchema{
 			{Key: "timeout", Type: plugin.FieldTypeDuration, Default: "2m", Hint: "Budget for one entry's probe, including fetching its pieces"},
 			{Key: "max_pieces", Type: plugin.FieldTypeInt, Default: "6", Hint: "Most pieces to fetch for one entry; the probe asks for more only when it names bytes it could not read"},
