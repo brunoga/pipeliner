@@ -72,6 +72,12 @@ const (
 	// delivered nothing. Measured: a healthy swarm answered in 6.4s, while
 	// dead ones burned the full 2m budget each.
 	defaultNoPeerTimeout = 30 * time.Second
+	// defaultCacheTTL is how long a FAILED probe is remembered. It has to
+	// exceed the pipeline's own interval or the cache never helps — a nightly
+	// sweep with a 24h ttl re-probes the same dead swarm every night, which
+	// is the thing the cache exists to stop. A week means a release whose
+	// swarm was dead is tried again once a week instead.
+	defaultCacheTTL = 168 * time.Hour
 	// maxTorrentFile bounds the .torrent fetch. Real ones are tens of KB; a
 	// disc image's piece hashes push that to a few hundred.
 	maxTorrentFile = 8 << 20
@@ -106,6 +112,11 @@ func init() {
 			{Key: "require", Type: plugin.FieldTypeBool, Hint: "Reject entries whose probe could not run, instead of passing them with probe_ok false"},
 			{Key: "parallel", Type: plugin.FieldTypeInt, Default: "1", Hint: "How many entries to probe at once; a successful probe pulls 20-25 MiB, so raising this bursts at the tracker"},
 			{Key: "no_peer_timeout", Type: plugin.FieldTypeDuration, Default: "30s", Hint: "Give up early when no peer has connected and no byte has arrived; 0 disables"},
+			{Key: "cache_ttl", Type: plugin.FieldTypeDuration, Default: "168h", Hint: "How long a FAILED probe is remembered before the swarm is tried again; a container that was read is remembered for good, because the info-hash pins the bytes"},
+			{Key: "cache_only", Type: plugin.FieldTypeBool, Hint: "Replay stored verdicts and never touch the network, so this node can gate on what an earlier run learned. A release nobody has probed is left untouched, with no probe_* fields at all"},
+		},
+		Caches: []plugin.CacheInfo{
+			{Name: VerdictBucketName, Display: "Probe Verdict Cache"},
 		},
 	})
 }
@@ -150,8 +161,12 @@ func validate(cfg map[string]any) []error {
 	if err := plugin.OptDuration(cfg, "no_peer_timeout", pluginName); err != nil {
 		errs = append(errs, err)
 	}
+	if err := plugin.OptDuration(cfg, "cache_ttl", pluginName); err != nil {
+		errs = append(errs, err)
+	}
 	errs = append(errs, plugin.OptUnknownKeys(cfg, pluginName,
-		"timeout", "max_pieces", "require", "parallel", "no_peer_timeout")...)
+		"timeout", "max_pieces", "require", "parallel", "no_peer_timeout",
+		"cache_ttl", "cache_only")...)
 	return errs
 }
 
@@ -161,6 +176,13 @@ type probePlugin struct {
 	require       bool
 	parallel      int
 	noPeerTimeout time.Duration
+
+	// verdicts is nil when there is no store, which disables the cache
+	// without changing anything else. cacheOnly then makes the node a no-op,
+	// which is the right answer for `pipeliner check`.
+	verdicts  store.Bucket
+	cacheTTL  time.Duration
+	cacheOnly bool
 
 	http *http.Client
 
@@ -177,7 +199,7 @@ type probePlugin struct {
 	initErr error
 }
 
-func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
+func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
 	timeout := defaultTimeout
 	if v, _ := cfg["timeout"].(string); v != "" {
 		d, err := time.ParseDuration(v)
@@ -206,11 +228,22 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 		}
 		noPeer = d
 	}
+	cacheTTL := defaultCacheTTL
+	if v, _ := cfg["cache_ttl"].(string); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return nil, fmt.Errorf("%s: invalid cache_ttl %q: %w", pluginName, v, err)
+		}
+		cacheTTL = d
+	}
 	return &probePlugin{
 		timeout:       timeout,
 		maxPieces:     maxPieces,
 		parallel:      parallel,
 		noPeerTimeout: noPeer,
+		verdicts:      verdictBucket(db),
+		cacheTTL:      cacheTTL,
+		cacheOnly:     plugin.OptBool(cfg, "cache_only", false),
 		require:       plugin.OptBool(cfg, "require", false),
 		http:          &http.Client{Timeout: 60 * time.Second},
 		probeImage:    mvcprobe.Image,
@@ -289,9 +322,27 @@ func (p *probePlugin) Shutdown(_ context.Context, _ *plugin.TaskContext) error {
 func (p *probePlugin) Process(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
 	todo := make([]*entry.Entry, 0, len(entries))
 	for _, e := range entries {
-		if !e.IsRejected() {
-			todo = append(todo, e)
+		if e.IsRejected() {
+			continue
 		}
+		// A stored verdict is replayed and costs nothing. Doing this before
+		// the budget below is the whole point: a node placed above dedup with
+		// cache_only=true replays what earlier runs learned, so the refusal
+		// lands while the alternatives are still there, and the expensive
+		// node below the collapse still probes only the few about to be
+		// downloaded.
+		if v, ok := p.loadVerdict(e); ok {
+			p.replay(e, v)
+			tc.Logger.Debug(pluginName+": verdict replayed", "entry", e.Title,
+				"ok", v.ok(), "probed_at", v.ProbedAt)
+			continue
+		}
+		todo = append(todo, e)
+	}
+	if p.cacheOnly {
+		// Nothing more to do: an unprobed release keeps no probe_* fields,
+		// which is how a gate tells "known bad" from "not looked at yet".
+		return entry.PassThrough(entries), nil
 	}
 	if len(todo) == 0 {
 		return entry.PassThrough(entries), nil
@@ -327,6 +378,12 @@ func (p *probePlugin) Process(ctx context.Context, tc *plugin.TaskContext, entri
 			e.Set(entry.FieldProbeBytes, bytes)
 			logMu.Lock()
 			defer logMu.Unlock()
+			// Recorded before the outcome is acted on, and for a failure as
+			// well as a success: a release nobody will serve is exactly the
+			// one worth not asking about again tomorrow.
+			if serr := p.saveVerdict(e, newVerdict(res, pieces, bytes, err)); serr != nil {
+				tc.Logger.Warn(pluginName+": could not store verdict", "entry", e.Title, "err", serr)
+			}
 			if err != nil {
 				e.Set(entry.FieldProbeOK, false)
 				// A swarm that served nothing is worth saying plainly: it is
