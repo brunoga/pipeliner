@@ -60,6 +60,17 @@ func (r Refusal) String() string {
 	}
 }
 
+// RefusalIn reports how this plugin refuses when configured with cfg. It is
+// what the ordering check asks, so that a plugin whose refusal is gated on a
+// config key is judged by what the node actually does rather than by what the
+// plugin could do if configured differently.
+func (d *Descriptor) RefusalIn(cfg map[string]any) Refusal {
+	if d.RefusalFor == nil {
+		return d.Refusal
+	}
+	return d.RefusalFor(cfg)
+}
+
 // Descriptor holds metadata about a registered plugin type.
 type Descriptor struct {
 	PluginName  string
@@ -163,8 +174,22 @@ type Descriptor struct {
 
 	// Refusal declares whether this plugin can turn an entry away, and whether
 	// that decision is specific to the release or holds for the whole item.
-	// Required on processors; see the Refusal constants.
+	// Required on processors; see the Refusal constants. When RefusalFor is
+	// set this is the strongest refusal the plugin is capable of, which is
+	// what a reader of the registry wants to see.
 	Refusal Refusal
+
+	// RefusalFor narrows Refusal for one configured node, for plugins whose
+	// ability to refuse is itself a config key — probe only rejects with
+	// require=true, and without it cannot reject at all. Declaring the
+	// capability statically made the ordering check warn about nodes that
+	// provably never refuse, which is the kind of false positive that
+	// teaches people to stop reading warnings.
+	//
+	// Optional. It must never return more than Refusal, since Refusal is the
+	// documented ceiling; TestRefusalForNeverExceedsRefusal checks that over
+	// every registered plugin.
+	RefusalFor func(cfg map[string]any) Refusal
 
 	// Collapses declares that this plugin keeps one release per item and drops
 	// the alternatives (today: dedup). Validate warns when a RefusalPerRelease

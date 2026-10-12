@@ -567,10 +567,12 @@ gone and the item is lost for this run and every run after it — move
 
 <table>
 <tr><th>Kind</th><th>Meaning</th><th>Plugins</th></tr>
-<tr><td><strong>per-release</strong></td><td>The decision depends on this specific release &mdash; its file list, implied bitrate, language, the fields it carries, whether its link still resolves. A different release may well pass.</td><td><code>age</code>, <code>bitrate</code>, <code>condition</code>, <code>content</code>, <code>library</code>, <code>metainfo_torrent</code>, <code>quality</code>, <code>regexp</code>, <code>require</code>, <code>route</code>, <code>torrent_alive</code>, <code>torrent_failed</code>, <code>trailer</code></td></tr>
+<tr><td><strong>per-release</strong></td><td>The decision depends on this specific release &mdash; its file list, implied bitrate, language, the fields it carries, whether its link still resolves. A different release may well pass.</td><td><code>age</code>, <code>bitrate</code>, <code>condition</code>, <code>content</code>, <code>library</code>, <code>metainfo_torrent</code>, <code>probe</code> (only with <code>require=true</code>), <code>quality</code>, <code>regexp</code>, <code>require</code>, <code>route</code>, <code>torrent_alive</code>, <code>torrent_failed</code>, <code>trailer</code></td></tr>
 <tr><td><strong>per-item</strong></td><td>The reason holds for every release of the item &mdash; "already downloaded", "enough items this run". Swapping releases would not help, so position does not matter.</td><td><code>dedup</code>, <code>exists</code>, <code>limit</code>, <code>list_match</code>, <code>movies</code>, <code>premiere</code>, <code>seen</code>, <code>series</code></td></tr>
 <tr><td><strong>none</strong></td><td>Never rejects or fails. Enrichers and field-setters.</td><td><code>metainfo_file</code>, <code>metainfo_tmdb</code>, <code>metainfo_tvdb</code>, <code>metainfo_magnet</code>, <code>pathfmt</code>, <code>set</code>, <code>swap_state</code>, &hellip;</td></tr>
 </table>
+
+<p>A few plugins only refuse when a config key says so, and the check reads the key rather than the plugin. <a href="#probe"><code>probe</code></a> is the one that matters today: without <code>require=true</code> a release it could not read keeps <code>probe_ok</code> false and is passed on, so such a node cannot cost an item its alternatives and is not warned about. Set <code>require=true</code> and it is.</p>
 
 <p>A refusal on an <em>optional</em> fan-out branch is not warned about either. If a sibling branch still reaches a sink &mdash; a pipeline that downloads on one branch and adds the show to a favourites list on the other &mdash; then refusing on the favourites branch costs that branch, not the item.</p>
 

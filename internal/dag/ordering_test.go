@@ -57,6 +57,53 @@ func TestWarnsWhenAPerReleaseRefusalFollowsACollapse(t *testing.T) {
 	}
 }
 
+// The probe case: a plugin whose refusal is a config key must be judged on
+// the node's config. Declaring the capability statically warned about two
+// probe nodes that leave require unset and therefore reject nothing, which
+// devalues the two warnings in the same set that are real.
+func TestAConfigGatedRefusalIsJudgedOnTheNodesConfig(t *testing.T) {
+	gated := &plugin.Descriptor{
+		PluginName: "probe", Role: plugin.RoleProcessor,
+		Refusal: plugin.RefusalPerRelease,
+		RefusalFor: func(cfg map[string]any) plugin.Refusal {
+			if v, _ := cfg["require"].(bool); v {
+				return plugin.RefusalPerRelease
+			}
+			return plugin.RefusalNone
+		},
+	}
+	reg := makeRegistry(sourceDescFor("rss"), collapsingDesc("dedup"), gated, sinkDescFor("transmission"))
+
+	for _, tc := range []struct {
+		name string
+		cfg  map[string]any
+		warn bool
+	}{
+		{"require unset", nil, false},
+		{"require false", map[string]any{"require": false}, false},
+		{"require true", map[string]any{"require": true}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pr := node("pr", "probe", "dd")
+			pr.Config = tc.cfg
+			g := makeGraph(t,
+				node("src", "rss"),
+				node("dd", "dedup", "src"),
+				pr,
+				node("out", "transmission", "pr"),
+			)
+			errs, warnings := dag.Validate(g, reg)
+			if len(errs) > 0 {
+				t.Fatalf("unexpected errors: %v", errs)
+			}
+			got := strings.Contains(warnText(warnings), `node "pr"`)
+			if got != tc.warn {
+				t.Errorf("ordering warning for pr = %v, want %v:\n%s", got, tc.warn, warnText(warnings))
+			}
+		})
+	}
+}
+
 func TestNoWarningWhenTheRefusalRunsFirst(t *testing.T) {
 	g := makeGraph(t,
 		node("src", "rss"),
