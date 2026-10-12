@@ -324,7 +324,7 @@ pipeliner check --config config.star --render-notifications</code></pre>
 <h3>Built-in functions</h3>
 <table>
   <tr><th>Function</th><th>Description</th></tr>
-  <tr><td><code>input("plugin", key=val, …)</code></td><td>Create a <strong>source</strong> node that produces entries</td></tr>
+  <tr><td><code>input("plugin", key=val, …)</code></td><td>Create a <strong>source</strong> node that produces entries. Takes the node-level <a href="#run-on"><code>run_on</code></a> option</td></tr>
   <tr><td><code>process("plugin", upstream=node, key=val, …)</code></td><td>Create a <strong>processor</strong> node connected to an upstream node</td></tr>
   <tr><td><code>merge(a, b, …)</code></td><td>Combine multiple source/processor nodes into one (deduplicated by URL)</td></tr>
   <tr><td><code>output("plugin", upstream=node, key=val, …)</code></td><td>Create a <strong>sink</strong> node; returns a handle so another <code>output()</code> can chain from it</td></tr>
@@ -333,6 +333,33 @@ pipeliner check --config config.star --render-notifications</code></pre>
   <tr><td><code>env(name, default=None)</code></td><td>Read an environment variable; errors if unset and no default given</td></tr>
   <tr><td><code>load("./other.star", "sym")</code></td><td>Import a symbol from another <code>.star</code> file (Starlark built-in)</td></tr>
 </table>
+
+<h3 id="run-on">run_on: which triggers a source runs on</h3>
+
+<p>A run happens for one of four reasons &mdash; a <strong>schedule</strong> fire, a person pressing Run (<strong>manual</strong>), a push to an ingest queue that named the pipeline (<strong>webhook</strong>), or the <strong>startup</strong> fire some pipelines take once when the daemon boots. A source node can say which of those it should run on:</p>
+
+<pre><code><span class="y-comment"># A push must not make the feed run.</span>
+feed = input("trakt_list", <span class="y-str">…</span>, run_on=["schedule", "manual"])
+hook = input("webhook", queue="3d-movies")        <span class="y-comment"># no run_on: every trigger</span>
+</code></pre>
+
+<p>Without this, a push triggered the whole graph, so every other source ran too. Measured on one live pipeline, a push of a single film also cost a Trakt fetch of 988 titles and a 2m09s search sweep &mdash; and the pushed film then competed with 44 unrelated candidates for the four slots a downstream <a href="#limit"><code>limit</code></a> node allowed, so the thing you asked for could lose to things you did not.</p>
+
+<table>
+  <tr><th>Token</th><th>Matches</th></tr>
+  <tr><td><code>schedule</code></td><td>A cron/interval fire &mdash; and the startup fire, since a pipeline set to run at boot is running its schedule early</td></tr>
+  <tr><td><code>manual</code></td><td>Run pressed in the UI, or the CLI running one pipeline</td></tr>
+  <tr><td><code>webhook</code></td><td>A push to any ingest queue that named this pipeline</td></tr>
+  <tr><td><code>webhook:&lt;queue&gt;</code></td><td>A push to that queue only &mdash; for a pipeline with more than one webhook</td></tr>
+  <tr><td><code>startup</code></td><td>The boot fire only</td></tr>
+  <tr><td><code>any</code></td><td>Everything; the same as leaving <code>run_on</code> out</td></tr>
+</table>
+
+<p><strong>Omitting it means every trigger</strong>, so adding the mechanism changed no existing pipeline. A skipped source simply contributes no entries; everything downstream runs normally on whatever the sources that did run produced, and the run log says <code>node skipped: trigger not in run_on</code>.</p>
+
+<div class="note"><strong>Sources only.</strong> <code>run_on</code> on a processor is a config error, not a silent no-op: a gate that stopped applying depending on <em>why</em> the run happened would be a worse trap than the one <code>run_on</code> exists to fix. <code>pipeliner check</code> also rejects a token it does not recognise &mdash; which would otherwise read as "never run" &mdash; and warns when <em>no</em> source admits some trigger, since that pipeline silently produces nothing when it fires. That last one is the shape a typo takes.</div>
+
+<p>Every plugin can also read the trigger from its <code>TaskContext</code>, so a push knows which queue it came from.</p>
 
 <h3>Structure overview</h3>
 <pre><code><span class="y-comment"># Variables — ordinary Starlark assignments</span>

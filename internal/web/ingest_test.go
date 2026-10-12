@@ -14,9 +14,14 @@ import (
 type triggerSpy struct {
 	stubDaemon
 	triggered []string
+	queues    []string
 }
 
 func (t *triggerSpy) Trigger(name string, _ bool) { t.triggered = append(t.triggered, name) }
+func (t *triggerSpy) TriggerWebhook(name, queue string) {
+	t.triggered = append(t.triggered, name)
+	t.queues = append(t.queues, queue)
+}
 
 func newIngestServer(t *testing.T, token string) (*Server, *triggerSpy, *httptest.Server) {
 	t.Helper()

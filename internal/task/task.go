@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/brunoga/pipeliner/internal/entry"
+
+	"github.com/brunoga/pipeliner/internal/plugin"
 )
 
 // Result summarises the outcome of a single pipeline run.
@@ -68,6 +70,16 @@ func (t *Task) RunDryRun(ctx context.Context) (*Result, error) {
 	t.SetDryRun(true)
 	defer t.SetDryRun(prev)
 	return t.Run(ctx)
+}
+
+// SetTrigger records why the next Run is happening, so sources that declared
+// a run_on list can decline it and every plugin can see it. Set before Run,
+// which is safe under the daemon's per-task concurrency guard -- the same
+// contract SetDryRun has.
+func (t *Task) SetTrigger(trig plugin.Trigger) {
+	if t.exec != nil {
+		t.exec.SetTrigger(trig)
+	}
 }
 
 // SetValidateFields enables per-entry field validation before each node runs.

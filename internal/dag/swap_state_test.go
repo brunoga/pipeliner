@@ -118,7 +118,7 @@ func TestSwapState_BenignPosition(t *testing.T) {
 			Requires: plugin.RequireAll("title"),
 			Produces: []string{"media_type"}},
 		"swap_state": swapStateDesc(),
-		"sink": {PluginName: "sink", Role: plugin.RoleSink},
+		"sink":       {PluginName: "sink", Role: plugin.RoleSink},
 	}
 
 	g := dag.New()

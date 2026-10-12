@@ -4,18 +4,24 @@ import (
 	"context"
 	"sync"
 	"time"
+
+	"github.com/brunoga/pipeliner/internal/plugin"
 )
 
 // TaskRunner is called by the Daemon to execute a named task. dryRun is true
 // when the fire came from a Trigger-with-dryRun call; cron-scheduled fires
-// always pass false.
-type TaskRunner func(ctx context.Context, taskName string, dryRun bool)
+// always pass false. trig says why the run is happening, which a source node
+// can decline to run on -- see plugin.Trigger.
+type TaskRunner func(ctx context.Context, taskName string, dryRun bool, trig plugin.Trigger)
 
 // triggerReq carries an explicit trigger request through the daemon's channel
 // so per-call options (currently just dryRun) reach the runner.
 type triggerReq struct {
 	name   string
 	dryRun bool
+	// trig is why this run is happening. The zero Kind means a scheduled
+	// fire, which is what an internal fire with no opinion should look like.
+	trig plugin.Trigger
 	// explicit marks user-intent triggers (API/UI, ingest ?pipeline=) as
 	// opposed to scheduled fires. Only explicit triggers coalesce: one
 	// arriving while the task is already running is remembered and fired
@@ -100,7 +106,20 @@ func (d *Daemon) Reset(tasks []ScheduledTask) {
 func (d *Daemon) Trigger(name string, dryRun bool) {
 	ch := d.triggerChan()
 	select {
-	case ch <- triggerReq{name: name, dryRun: dryRun, explicit: true}:
+	case ch <- triggerReq{name: name, dryRun: dryRun, explicit: true,
+		trig: plugin.Trigger{Kind: plugin.TriggerManual}}:
+	default:
+	}
+}
+
+// TriggerWebhook fires the named pipeline for a push to an ingest queue. The
+// queue travels with it, so a source can say it runs only for its own queue
+// and the sources that have nothing to do with the push can decline to run.
+func (d *Daemon) TriggerWebhook(name, queue string) {
+	ch := d.triggerChan()
+	select {
+	case ch <- triggerReq{name: name, explicit: true,
+		trig: plugin.Trigger{Kind: plugin.TriggerWebhook, Queue: queue}}:
 	default:
 	}
 }
@@ -152,7 +171,8 @@ func (d *Daemon) Run(ctx context.Context, runner TaskRunner) {
 	d.mu.Unlock()
 	for _, name := range imm {
 		d.wg.Add(1)
-		go d.runTask(ctx, triggerReq{name: name}, runner)
+		go d.runTask(ctx, triggerReq{name: name,
+			trig: plugin.Trigger{Kind: plugin.TriggerStartup}}, runner)
 	}
 
 	for {
@@ -225,7 +245,11 @@ func (d *Daemon) runTask(ctx context.Context, req triggerReq, runner TaskRunner)
 		}
 	}()
 
-	runner(ctx, req.name, req.dryRun)
+	trig := req.trig
+	if trig.Kind == "" {
+		trig.Kind = plugin.TriggerSchedule
+	}
+	runner(ctx, req.name, req.dryRun, trig)
 }
 
 // Wait blocks until every in-flight task goroutine has returned or shutdownCtx
@@ -271,6 +295,7 @@ func (d *Daemon) fireDue(ctx context.Context, runner TaskRunner, now time.Time) 
 
 	for _, name := range due {
 		d.wg.Add(1)
-		go d.runTask(ctx, triggerReq{name: name}, runner)
+		go d.runTask(ctx, triggerReq{name: name,
+			trig: plugin.Trigger{Kind: plugin.TriggerSchedule}}, runner)
 	}
 }

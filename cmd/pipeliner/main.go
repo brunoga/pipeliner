@@ -446,7 +446,7 @@ func cmdDaemon(args []string) int {
 	// ws is captured by both runner and reload closures below; declared before both.
 	var ws *web.Server
 
-	runner := func(ctx context.Context, name string, triggerDryRun bool) {
+	runner := func(ctx context.Context, name string, triggerDryRun bool, trig plugin.Trigger) {
 		if ws != nil {
 			ws.TaskStarted(name)
 			defer ws.TaskDone(name)
@@ -463,6 +463,8 @@ func cmdDaemon(args []string) int {
 		// restores around the single Run, safe under the daemon's per-task
 		// concurrency guard.
 		effectiveDry := triggerDryRun || t.DryRun()
+		// Why the run is happening, for the sources that declared a run_on.
+		t.SetTrigger(trig)
 		at := time.Now()
 		var result *task.Result
 		var runErr error

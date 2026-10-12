@@ -6,6 +6,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/brunoga/pipeliner/internal/plugin"
 )
 
 // fixedSchedule always fires at a fixed offset from now, for deterministic tests.
@@ -23,7 +25,7 @@ func TestDaemonFiresTask(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 
-	go d.Run(ctx, func(_ context.Context, name string, _ bool) {
+	go d.Run(ctx, func(_ context.Context, name string, _ bool, _ plugin.Trigger) {
 		mu.Lock()
 		fired = append(fired, name)
 		mu.Unlock()
@@ -54,7 +56,7 @@ func TestDaemonMultipleTasks(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()
 
-	go d.Run(ctx, func(_ context.Context, name string, _ bool) {
+	go d.Run(ctx, func(_ context.Context, name string, _ bool, _ plugin.Trigger) {
 		mu.Lock()
 		seen[name] = true
 		mu.Unlock()
@@ -80,7 +82,7 @@ func TestDaemonShutdownOnCancel(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		d.Run(ctx, func(_ context.Context, name string, _ bool) {})
+		d.Run(ctx, func(_ context.Context, name string, _ bool, _ plugin.Trigger) {})
 		close(done)
 	}()
 
@@ -102,7 +104,7 @@ func TestDaemonEmptyStartup(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		d.Run(ctx, func(_ context.Context, _ string, _ bool) {})
+		d.Run(ctx, func(_ context.Context, _ string, _ bool, _ plugin.Trigger) {})
 		close(done)
 	}()
 
@@ -124,7 +126,7 @@ func TestDaemonTriggerOverlap(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 
-	runner := func(ctx context.Context, name string, _ bool) {
+	runner := func(ctx context.Context, name string, _ bool, _ plugin.Trigger) {
 		mu.Lock()
 		running++
 		if running > maxRunning {
@@ -168,7 +170,7 @@ func TestDaemonScheduledOverlap(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
-	runner := func(ctx context.Context, name string, _ bool) {
+	runner := func(ctx context.Context, name string, _ bool, _ plugin.Trigger) {
 		mu.Lock()
 		running++
 		if running > maxRunning {
@@ -218,7 +220,7 @@ func TestDaemonWaitBlocksForInFlightTasks(t *testing.T) {
 	runDone := make(chan struct{})
 	go func() {
 		defer close(runDone)
-		d.Run(runCtx, func(ctx context.Context, _ string, _ bool) {
+		d.Run(runCtx, func(ctx context.Context, _ string, _ bool, _ plugin.Trigger) {
 			close(runnerStarted)
 			// Hold until the test releases us. The runner intentionally
 			// ignores ctx here to simulate a plugin that doesn't observe
@@ -272,7 +274,7 @@ func TestExplicitTriggerCoalescesWhileRunning(t *testing.T) {
 	release := make(chan struct{})
 	started := make(chan struct{}, 8)
 	var runs atomic.Int32
-	runner := func(ctx context.Context, name string, dry bool) {
+	runner := func(ctx context.Context, name string, dry bool, _ plugin.Trigger) {
 		runs.Add(1)
 		started <- struct{}{}
 		<-release
@@ -315,7 +317,7 @@ func TestPendingRealRunBeatsDryRun(t *testing.T) {
 	release := make(chan struct{})
 	started := make(chan struct{}, 4)
 	var dryRuns, realRuns atomic.Int32
-	runner := func(ctx context.Context, name string, dry bool) {
+	runner := func(ctx context.Context, name string, dry bool, _ plugin.Trigger) {
 		if dry {
 			dryRuns.Add(1)
 		} else {

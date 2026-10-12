@@ -57,6 +57,11 @@ func OptDuration(cfg map[string]any, key, plugin string) error {
 func OptUnknownKeys(cfg map[string]any, pluginName string, known ...string) []error {
 	var errs []error
 	for k := range cfg {
+		// Node-level keys the executor interprets are not the plugin's
+		// business, and every plugin would otherwise have to list them.
+		if slices.Contains(reservedNodeKeys, k) {
+			continue
+		}
 		if !slices.Contains(known, k) {
 			errs = append(errs, fmt.Errorf("%s: unknown config key %q", pluginName, k))
 		}

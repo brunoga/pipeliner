@@ -37,6 +37,12 @@ func Validate(g *Graph, reg func(name string) (*plugin.Descriptor, bool)) (errs,
 		return []error{err}, nil
 	}
 
+	// run_on is a node-level key the executor interprets, so it is checked
+	// here rather than by any plugin's own validator.
+	roErrs, roWarns := validateRunOn(g, reg)
+	errs = append(errs, roErrs...)
+	warnings = append(warnings, roWarns...)
+
 	// Per-node field sets built up as we process layers in order.
 	// reachable: union of all fields that might appear (Produces + MayProduce
 	//            from any path).

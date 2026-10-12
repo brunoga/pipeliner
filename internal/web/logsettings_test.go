@@ -173,4 +173,3 @@ func TestAPILogDebugPluginsNotWired(t *testing.T) {
 		t.Errorf("PUT status: got %d, want 501", r2.StatusCode)
 	}
 }
-

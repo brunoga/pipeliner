@@ -129,6 +129,7 @@ type noopDaemon struct{}
 
 func (d *noopDaemon) NextRun(_ string) time.Time { return time.Time{} }
 func (d *noopDaemon) Trigger(_ string, _ bool)   {}
+func (d *noopDaemon) TriggerWebhook(_, _ string) {}
 
 // ── playwright helpers ───────────────────────────────────────────────────────
 

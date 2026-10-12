@@ -34,6 +34,9 @@ var uiFS embed.FS
 type DaemonControl interface {
 	NextRun(name string) time.Time
 	Trigger(name string, dryRun bool)
+	// TriggerWebhook fires a pipeline for a push to an ingest queue, naming
+	// the queue so the pipeline's other sources can decline the run.
+	TriggerWebhook(name, queue string)
 }
 
 // TaskInfo describes one task shown in the UI.
@@ -295,7 +298,7 @@ func (s *Server) buildHandler() http.Handler {
 	// answer 303 to a machine. This is the bug the comment on buildHandler
 	// describes, one path segment shorter.
 	top.Handle("/api/ingest", open)
-	top.Handle("/action", open)      // signed notification links carry their own proof
+	top.Handle("/action", open) // signed notification links carry their own proof
 	top.Handle("/", s.requireSession(protected))
 	return top
 }

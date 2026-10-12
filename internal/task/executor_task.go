@@ -7,6 +7,8 @@ import (
 	"context"
 
 	"github.com/brunoga/pipeliner/internal/executor"
+
+	"github.com/brunoga/pipeliner/internal/plugin"
 )
 
 // executorRunner is the interface the task delegates to when backed by a DAG executor.
@@ -14,6 +16,7 @@ type executorRunner interface {
 	Name() string
 	Run(ctx context.Context) (*executor.Result, error)
 	SetDryRun(v bool)
+	SetTrigger(t plugin.Trigger)
 	SetValidateFields(v bool)
 	Shutdown()
 }

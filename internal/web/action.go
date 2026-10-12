@@ -54,7 +54,10 @@ func (s *Server) apiAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.daemon != nil {
-		s.daemon.Trigger(p.Pipeline, false)
+		// A signed action link is a push like any other: it enqueues to a
+		// queue, so it names that queue and the pipeline's other sources can
+		// decline the run.
+		s.daemon.TriggerWebhook(p.Pipeline, p.Queue)
 	}
 	actionPage(w, http.StatusOK, "Done",
 		fmt.Sprintf("%s was sent to %q. It will appear once the pipeline finishes.", p.Title, p.Pipeline), "")
