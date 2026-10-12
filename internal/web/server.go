@@ -265,6 +265,9 @@ func (s *Server) buildHandler() http.Handler {
 	protected.HandleFunc("POST /api/config/parse", s.apiConfigParse)
 	protected.HandleFunc("GET /api/config/history", s.apiConfigHistory)
 	protected.HandleFunc("GET /api/config/history/{id}", s.apiConfigHistoryGet)
+	protected.HandleFunc("GET /api/pipelines/state", s.apiPipelineState)
+	protected.HandleFunc("POST /api/pipelines/state/move", s.apiPipelineStateMove)
+	protected.HandleFunc("DELETE /api/pipelines/state/{name}", s.apiPipelineStateForget)
 	protected.HandleFunc("GET /api/db/buckets", s.apiDBBuckets)
 	protected.HandleFunc("GET /api/db/backup", s.apiDBBackup)
 	protected.HandleFunc("GET /api/db/buckets/{name}", s.apiDBGetBucket)
@@ -845,6 +848,9 @@ func (s *Server) apiSaveConfig(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
+		// The reload has swapped the task list, so orphaned state is now
+		// knowable -- and this is the response to the save that orphaned it.
+		warns = append(warns, s.orphanStateWarnings()...)
 		writeJSON(w, map[string]any{"status": "reloaded", "warnings": warns})
 		return
 	}

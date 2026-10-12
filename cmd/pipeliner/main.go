@@ -21,6 +21,7 @@ import (
 	"github.com/brunoga/pipeliner/internal/dag"
 	"github.com/brunoga/pipeliner/internal/failures"
 	"github.com/brunoga/pipeliner/internal/logfile"
+	"github.com/brunoga/pipeliner/internal/pipelinestate"
 	"github.com/brunoga/pipeliner/internal/plugin"
 	"github.com/brunoga/pipeliner/internal/scheduler"
 	"github.com/brunoga/pipeliner/internal/store"
@@ -138,6 +139,8 @@ func run(args []string) int {
 		return cmdProbe(args[1:])
 	case "tracker":
 		return cmdTracker(args[1:])
+	case "pipelines":
+		return cmdPipelines(args[1:])
 	case "migrate":
 		return cmdMigrate(args[1:])
 	case "downloaded":
@@ -179,6 +182,7 @@ Usage:
   pipeliner quality      "<title>" ["<spec>"]        test quality parsing / spec matching
   pipeliner probe        <.torrent URL | path>      read a release's container from two pieces of its torrent
   pipeliner tracker      <mark|forget>-<series|movie> ...   manage download trackers
+  pipeliner pipelines    <list|rename|adopt|forget> ...   move or drop a pipeline's own state
   pipeliner migrate      [--status] [--backup file] [--apply]   inspect/apply DB migrations
   pipeliner downloaded   "<title>"         show download history (incl. re-downloads)
   pipeliner failures     ["<title>"]       show the durable failure audit log
@@ -417,6 +421,7 @@ func cmdDaemon(args []string) int {
 		return 1
 	}
 	persistTaskKinds(db, cfg.Graphs, logger)
+	logOrphanState(db, cfg.Graphs, logger)
 
 	// taskByName is replaced atomically on reload; protect all accesses with taskMu.
 	var taskMu sync.RWMutex
@@ -596,6 +601,7 @@ func cmdDaemon(args []string) int {
 
 		d.Reset(scheduled)
 		persistTaskKinds(db, newCfg.Graphs, logger)
+		logOrphanState(db, newCfg.Graphs, logger)
 		logger.Info("config reloaded", "pipelines", len(newTasks))
 
 		if ws != nil {
@@ -912,6 +918,27 @@ func dbPath(cfgPath string) string {
 // stuck_favorites plugin — can scope correlation to the pipelines that actually
 // use each list. Best-effort: a failure only degrades the watchdog to unscoped
 // correlation, so it warns rather than aborting the daemon.
+// logOrphanState warns about per-pipeline state whose pipeline is not in the
+// config. It is advisory: the state is kept, because a name missing from this
+// config may be back in the next one, and deleting a tracker on a guess is the
+// one outcome with no undo. See internal/pipelinestate.
+func logOrphanState(db *store.SQLiteStore, graphs map[string]*dag.Graph, logger *slog.Logger) {
+	live := make([]string, 0, len(graphs))
+	for name := range graphs {
+		live = append(live, name)
+	}
+	orphans, err := pipelinestate.Orphans(db, live)
+	if err != nil {
+		logger.Warn("failed to check for orphaned pipeline state", "err", err)
+		return
+	}
+	for _, o := range orphans {
+		logger.Warn("orphaned pipeline state: no pipeline has this name",
+			"pipeline", o.Pipeline, "records", o.Rows(),
+			"hint", fmt.Sprintf("pipeliner pipelines adopt %s <new-name>, or forget %s", o.Pipeline, o.Pipeline))
+	}
+}
+
 func persistTaskKinds(db *store.SQLiteStore, graphs map[string]*dag.Graph, logger *slog.Logger) {
 	kinds := make(map[string]watchdog.MediaKind, len(graphs))
 	for name, g := range graphs {
