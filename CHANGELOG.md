@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.62.1] - 2026-10-12
+
+### Fixed
+
+- **A sub-plugin dict no longer round-trips a duplicate `name`** ([#600](https://github.com/brunoga/pipeliner/pull/600)). Dragging nodes to tidy a pipeline and saving failed with `duplicate key: "name"`, and the failure is the **whole save**: a user who only moved nodes could not store the new positions at all. `search=[{…}]` and `list=[{…}]` carry their plugin in a `"name"` key which the editor models as `node.plugin` and never as config — the server strips it and so does the function-body parser, but the reference overlay did not. `configRefs` renders a dict literal key by key, so `search=[{"name": "jackett", "api_key": JACKETT_API_KEY}]` handed `"name"` back into the node's config and the serializer then wrote it twice, once from the plugin and once from the config. It triggers only for a dict containing at least one **variable reference**, which is why it looks rare and is not: every such dict in a real config passes an API key by name. `overlaySubConfig` now deletes `name` from the merged result, keeping the rest of the overlay so a reference still beats the resolved value and a save cannot inline a secret; `viaNodeToStar` also skips a config `name`, because the cost of a duplicate key is not a bad node but a lost save.
+
+**Why 1.62.1**: one editor fix, no config or data changes. A dict written as `{"name": SOME_VAR}` now saves as the resolved plugin name, which is deliberate — `name` must resolve to a registered plugin, so de-referencing it beats failing the save.
+
 ## [1.62.0] - 2026-10-12
 
 Pipelines keep state under their own name, and nothing moved it. Renaming one handed it an empty bucket -- which reads as "nothing has ever been downloaded" -- while the old name's records stayed on disk, reachable only from the database tab. On one live install that is 3140 records across 17 buckets, 1139 of them belonging to a single pipeline.
