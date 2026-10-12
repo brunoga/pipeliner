@@ -5,6 +5,22 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.62.0] - 2026-10-12
+
+Pipelines keep state under their own name, and nothing moved it. Renaming one handed it an empty bucket -- which reads as "nothing has ever been downloaded" -- while the old name's records stayed on disk, reachable only from the database tab. On one live install that is 3140 records across 17 buckets, 1139 of them belonging to a single pipeline.
+
+### Added
+
+- **`pipeliner pipelines`: rename, adopt or forget a pipeline's own state** ([#598](https://github.com/brunoga/pipeliner/pull/598)). Four bucket families are namespaced by pipeline name: `seen:<name>` (a `seen` node with `local=True`), `movies:<name>` (`movies` with `local=True`), `discover:<name>` and `series_gaps:<name>`. `rename` carries them to a new name, `adopt` merges one pipeline's into another's -- which is what folding two pipelines into one needs -- and `forget` deletes the state of a pipeline that is gone. The same operations are on the API (`GET`/`POST`/`DELETE /api/pipelines/state…`), because the store takes an exclusive lock at open time and a CLI-only answer would mean stopping the daemon for every rename, while a rename is normally made in the visual editor with the daemon running.
+
+  **Nothing happens automatically, and that is the design.** A config that lost `movies-3d-discover` and gained `movies-3d-all` is indistinguishable from one that deleted the first and created the second, so guessing would sometimes merge state meant to stay apart -- `movies local=True` exists precisely because the 3D harvest pipelines must *not* share a tracker. Instead a config save that orphans state returns a warning naming the records, which is the moment the rename happened and the person who did it is still looking, and the daemon logs one at startup. Orphaned state is **kept**, never deleted on a guess.
+
+  Each bucket merges by what its records actually are, and reading the live records changed two of the four answers. `seen` is a union: keys are content fingerprints, so a key on both sides is the same release seen twice and only absence matters. `movies` keeps the better copy, because the record answers "what do I have" and keeping the worse one invites a downgrade or a re-grab of a film already owned. `discover` keeps the newer search, both being equally valid caches. And `series_gaps` is **not a set of records at all** -- one scan cursor plus a pending map -- so two of them have no union; a merged cursor would be a scan position neither pipeline was ever at, and the operation refuses until `--prefer source|dest` picks one. A generic "union the buckets" would have produced nonsense there without saying so.
+
+  A move is planned in full before anything is written. It touches several buckets with no transaction to wrap them in, so a refusal at the third would otherwise leave the first two moved -- a half-renamed pipeline, worse than either outcome.
+
+**Why 1.62.0**: new commands and endpoints, no behaviour change for an unchanged config. The new warning only fires where state is already orphaned, nothing moves or is deleted unless asked, and nothing persisted changes shape.
+
 ## [1.61.1] - 2026-10-12
 
 ### Fixed
