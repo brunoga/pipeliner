@@ -768,3 +768,60 @@ func TestFilesystemBackendStillMatchesByName(t *testing.T) {
 		t.Error("the filesystem backend must still match by name")
 	}
 }
+
+// --- an idle run must not pay for the index ---
+
+// TestNoEntriesDoesNotIndex is a cost fix, found in production: a webhook push
+// to a pipeline whose other source declined the trigger reached this node with
+// nothing to check, and the node still listed a 7850-item Plex library --
+// 21.8s of a 24.1s run. Asserted through the client's call counter rather than
+// the wall clock, since the point is that the listing does not happen at all.
+func TestNoEntriesDoesNotIndex(t *testing.T) {
+	f := &fakeMSClient{items: []mediaserver.Item{
+		{Type: "movie", Title: "Dune Part Two", Year: 2024, Resolution: "2160p"},
+	}}
+	p := serverPlugin(t, nil, nil)
+	p.client = f
+
+	out, err := p.Process(context.Background(), testTC(), nil)
+	if err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	if len(out) != 0 {
+		t.Errorf("out = %d entries, want 0", len(out))
+	}
+	if f.calls != 0 {
+		t.Errorf("media server listed %d times with no entries to look up, want 0", f.calls)
+	}
+	if p.series != nil {
+		t.Error("index was built for an empty run")
+	}
+}
+
+// TestNoEntriesStillIndexesOnTheNextRun guards the half of the fix that is easy
+// to break: skipping must not leave the plugin thinking it has a fresh index.
+// An empty run followed by a real one has to behave exactly like the real one
+// on its own, or the first push after an idle run would wave duplicates
+// through.
+func TestNoEntriesStillIndexesOnTheNextRun(t *testing.T) {
+	f := &fakeMSClient{items: []mediaserver.Item{
+		{Type: "movie", Title: "Dune Part Two", Year: 2024, Resolution: "2160p"},
+	}}
+	p := serverPlugin(t, nil, nil)
+	p.client = f
+
+	if _, err := p.Process(context.Background(), testTC(), nil); err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+
+	e := mkEntry("Dune Part Two", map[string]any{entry.FieldVideoYear: 2024})
+	e.SetQuality(quality.Parse("Dune.Part.Two.2024.2160p.BluRay"))
+	process(t, p, e)
+
+	if f.calls != 1 {
+		t.Errorf("media server listed %d times, want 1", f.calls)
+	}
+	if !e.IsRejected() {
+		t.Errorf("an owned movie must still be rejected after an idle run, state=%v", e.State)
+	}
+}

@@ -14,7 +14,10 @@ Server-backed indexes grade copies by **resolution, codec, and audio** (Atmos co
 The filesystem backend walks the configured paths and parses video filenames
 with the same release-name parsers the pipeline uses, keeping the best
 quality per episode/movie. The index is cached in memory and rebuilt when
-older than `ttl`.
+older than `ttl`, and only when there is something to look up — a run that
+reaches this node with no entries left skips indexing entirely, which matters
+for a pipeline triggered by a push (see `run_on`), where the node is often
+reached empty.
 
 The `plex` and `jellyfin` backends build the same index from the media
 server's API (`url` + `token`) instead of walking disk. Those APIs expose
