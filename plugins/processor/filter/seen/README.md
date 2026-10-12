@@ -50,4 +50,5 @@ The failed-URL check is keyed by raw URL, independent of the configured fingerpr
 
 - Fingerprints are written to the store only after all downstream sinks confirm (via `CommitPlugin`). If a sink fails an entry, that entry's fingerprint is not recorded and the entry will be retried on the next run.
 - Use `local=True` when multiple tasks consume the same feed but should track seen entries independently.
+- `local=True` stores records in `seen:<task>`, named after the pipeline. **Renaming the pipeline leaves them behind**, and an empty seen store means every entry is new again — so carry them over with `pipeliner pipelines rename <old> <new>`, or merge two pipelines' records with `adopt`. A config save that orphans a bucket warns about it.
 - State is stored in `pipeliner.db` in the same directory as the config file.

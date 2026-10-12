@@ -161,6 +161,30 @@ func (s *SQLiteStore) DB() *sql.DB {
 	return s.db
 }
 
+// Buckets returns every bucket the store contains, mapped to its row count.
+// Finding state whose owning pipeline no longer exists needs this: nothing
+// records the set of buckets up front, so the store itself is the only index.
+func (s *SQLiteStore) Buckets() (map[string]int, error) {
+	rows, err := s.db.Query(`SELECT bucket, COUNT(*) FROM store GROUP BY bucket`)
+	if err != nil {
+		return nil, fmt.Errorf("store: buckets: %w", err)
+	}
+	defer rows.Close()
+	counts := make(map[string]int)
+	for rows.Next() {
+		var name string
+		var n int
+		if err := rows.Scan(&name, &n); err != nil {
+			return nil, fmt.Errorf("store: buckets: scan: %w", err)
+		}
+		counts[name] = n
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: buckets: %w", err)
+	}
+	return counts, nil
+}
+
 // Backup writes a consistent snapshot of the database to destPath using
 // SQLite's VACUUM INTO, which is safe on a live WAL database. destPath must not
 // already exist. Intended for a pre-migration safety copy.

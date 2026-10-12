@@ -224,6 +224,7 @@ Three things follow the bucket so the isolation is complete:
 - **Failed-grab recovery.** The torrent sinks stamp the bucket on their grab record, so [`mark_failed`](../../../sink/mark_failed/README.md) rolls back the tracker that actually holds the record. A grab record written before this field existed means the shared tracker.
 - **The retry hold.** [`retry_cooldown`](#retry_cooldown) is keyed by bucket too, so a dead grab in one pipeline does not hold the title in another.
 - **The database tab** lists `movies:<task>` as a tracker alongside the shared one.
+- **A rename does not.** The bucket is named after the pipeline, so renaming the pipeline presents the node with an empty tracker and it re-grabs everything. Carry the records over with `pipeliner pipelines rename <old> <new>` (or the `/api/pipelines/state/move` endpoint while the daemon runs); a config save that orphans a bucket warns about it.
 
 What does *not* follow it: the Plex reconcile tool and `pipeliner tracker mark-movie`/`forget-movie` read the shared tracker only. For a harvest pipeline that is the right default — its records describe disc images staged for conversion, not library items, so reconciling them against a movie library would report every one as missing.
 

@@ -216,6 +216,7 @@ td code{font-size:11px}
     <a href="#quality-cmd" class="sub">Quality tester</a>
     <a href="#probe-cmd" class="sub">Probe a release</a>
     <a href="#tracker-cmd" class="sub">Tracker ops</a>
+    <a href="#pipelines-cmd" class="sub">Pipeline state</a>
     <a href="#migrate-cmd" class="sub">Migrations</a>
     <a href="#downloaded-cmd" class="sub">Download history</a>
     <a href="#failures-cmd" class="sub">Failure log</a>
@@ -2780,6 +2781,25 @@ pipeliner tracker forget-movie  "Furiosa" --year 2024</code></pre>
   <tr><td><code>mark-movie</code> / <code>forget-movie</code></td><td><code>"&lt;title&gt;" --year N [--3d]</code></td></tr>
 </table>
 <p>Common flags: <code>--config</code> (locates the database), and for <code>mark-*</code> an optional <code>--quality "…"</code> recorded on the entry (governs later upgrade decisions). <strong>The daemon must be stopped</strong>, since these open the database directly. To mark titles while the daemon is running, use the web UI under <strong>Tools → ✅ Mark as downloaded</strong>; to forget while running, delete the tracker row from the Series/Movies view.</p>
+
+<h3 id="pipelines-cmd">pipeliner pipelines</h3>
+<p>Moves or drops the state a pipeline keeps <strong>under its own name</strong>. Four kinds of record are namespaced by pipeline: <code>seen:&lt;name&gt;</code> (a <a href="#seen"><code>seen</code></a> node with <code>local=True</code>), <code>movies:&lt;name&gt;</code> (a <a href="#movies"><code>movies</code></a> filter with <code>local=True</code>), <code>discover:&lt;name&gt;</code> and <code>series_gaps:&lt;name&gt;</code>, which always scope to their pipeline.</p>
+<p><strong>Renaming a pipeline in a config moves none of it.</strong> The new name opens an empty bucket, which reads as &ldquo;nothing has ever been downloaded&rdquo; &mdash; so the pipeline re-grabs its whole history &mdash; and the old name's records stay on disk, invisible to everything but the database tab. Pipeliner cannot fix this for you: a config that lost <code>movies-3d-discover</code> and gained <code>movies-3d-all</code> is <em>indistinguishable</em> from one that deleted the first and created the second, and guessing would sometimes merge state that was meant to stay apart. So it tells you instead. A config save that orphans state returns a warning naming the records, and the daemon logs one at startup; the state is kept until you say what to do with it.</p>
+<pre><code>pipeliner pipelines list                     # what state exists, and what is orphaned
+pipeliner pipelines rename old-name new-name # carry state to a new name
+pipeliner pipelines adopt  from-name to-name # merge one pipeline's state into another's
+pipeliner pipelines forget old-name          # delete the state of a pipeline that is gone</code></pre>
+<p><code>rename</code> and <code>adopt</code> are the same operation; the two names just read correctly for the two intents. With nothing at the destination it is a rename. With state on both sides each bucket combines <strong>by what its records are</strong>:</p>
+<table>
+  <tr><th>Bucket</th><th>Records</th><th>How two combine</th></tr>
+  <tr><td><code>seen:</code></td><td>One per release, keyed by a content fingerprint</td><td><strong>Union.</strong> A key on both sides is the same release seen twice, so the two records say the same thing and only a key's absence matters</td></tr>
+  <tr><td><code>movies:</code></td><td>One per film, stating the quality that was downloaded</td><td><strong>Union, better copy wins.</strong> The record answers &ldquo;what do I have&rdquo;, so keeping the worse of two invites a downgrade or a re-grab of a film already owned</td></tr>
+  <tr><td><code>discover:</code></td><td>One per title: when it was last searched, and what came back</td><td><strong>Union, newer search wins.</strong> Both are valid; the newer is simply more recent, and keeping it avoids re-running a search already paid for</td></tr>
+  <tr><td><code>series_gaps:</code></td><td>One scan cursor plus a pending map &mdash; not a set of records</td><td><strong>Chosen, never merged.</strong> Two scan positions have no union: a merged cursor would be a position neither pipeline was ever at. With one on each side the command refuses until you pass <code>--prefer source</code> or <code>--prefer dest</code></td></tr>
+</table>
+<p>Every mutating op takes <code>--dry-run</code>, which reports exactly what it would do and writes nothing. A move is <strong>planned in full before anything is written</strong>: it touches several buckets with no transaction to wrap them in, so a problem found at the third bucket would otherwise leave the first two already moved &mdash; a half-renamed pipeline, which is worse than either outcome. <code>forget</code> prints what is at stake and asks you to type the pipeline name; it refuses outright for a pipeline that still exists, since dropping a live pipeline's state makes it re-download everything on its next run.</p>
+<p><strong>The daemon must be stopped</strong> for the CLI, which opens the database directly. A rename is usually made in the visual editor with the daemon running, so the same operations are on the API: <code>GET /api/pipelines/state</code>, <code>POST /api/pipelines/state/move</code> (<code>{"from":…,"to":…,"prefer":…,"dry_run":…}</code>) and <code>DELETE /api/pipelines/state/{name}</code>.</p>
+<div class="note"><strong>Folding two pipelines into one.</strong> This is what <code>adopt</code> is for, and the reason it exists alongside <a href="#run-on"><code>run_on</code></a> &mdash; which makes merging two pipelines practical in the first place, since the surviving pipeline's sources can each say which triggers they serve. Adopt the state <em>before</em> the merged pipeline first runs: on one live install <code>seen:movies-3d</code> and <code>seen:movies-3d-discover</code> shared no keys at all, so a merge without adoption would have re-downloaded 130 releases the other pipeline already had.</div>
 
 <h3 id="migrate-cmd">pipeliner migrate</h3>
 <p>Inspects and applies database schema/data migrations without starting the daemon. Migrations run automatically when the daemon opens the database, so this is a <strong>pre-flight</strong> tool: after upgrading the binary you can see what will run, take a backup, then apply — turning an opaque startup step into a deliberate, reversible one.</p>
