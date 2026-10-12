@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.61.1] - 2026-10-12
+
+### Fixed
+
+- **`library` no longer indexes when there is nothing to look up** ([#596](https://github.com/brunoga/pipeliner/pull/596)). Found by measuring the first `run_on` push: the pushed film matched nothing, every node below `discover` received zero entries, and `library` still listed a 7850-item Plex library — **21.8 of the run's 24.1 seconds spent building an index to check nothing against**. The indexing call sat at the top of `Process` unconditionally, and nothing else there is per-run, so returning first is the whole fix; the index is cached with a `ttl`, so the next run that does have entries builds it then. This matters more now than it did: with `run_on` keeping a push to the pushed item, reaching this node empty is the common case rather than a rare one.
+
+  The fix is **in the plugin rather than the executor**, which could have skipped `Process` for every node reached with no entries and fixed this everywhere at once. That would have been a correctness bug: `movies.Process` ends by emitting its settled releases, and a settle window exists precisely to hand a release over on a *later* run, so a central skip would strand held releases on any run whose feed came back empty. Whether a plugin has work that does not depend on its entries is something only the plugin knows. `library` is the only processor that does expensive setup before its entry loop.
+
+**Why 1.61.1**: a cost fix with no behaviour change — the same entries are rejected or passed, and an unreachable server still keeps its previous index.
+
 ## [1.61.0] - 2026-10-12
 
 A push that named one pipeline ran everything in it. Measured on `movies-3d-discover`, a request for a single film also pulled the whole Trakt watchlist and ran a search per title: `trakt_list out=988`, `discover out=883`, 2m09s in that one node and 2m44s for the run. The cost was the smaller half of it — downstream sits a `limit(n=4)`, so **the pushed film was competing with 44 unrelated candidates for four slots** and could lose to things nobody asked for.
