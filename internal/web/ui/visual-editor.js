@@ -7162,6 +7162,11 @@ function viaNodeToStar(node, nodeLookup) {
   const entries = [`${starLit('name')}: ${starLit(node.plugin)}`];
   for (const [k, val] of Object.entries(node.config || {})) {
     if (val === '' || val == null) continue;
+    // The name is already written above from node.plugin. Skipping it here is
+    // belt to overlaySubConfig's braces: whatever a future parse path puts in
+    // a sub-plugin's config, this cannot emit a dict with a duplicate key,
+    // because that does not fail the node -- it fails the entire save.
+    if (k === 'name') continue;
     const pName = nodeLookup?.[k];
     entries.push(`${starLit(k)}: ${pName ?? valToStar(val)}`);
   }
@@ -7242,7 +7247,17 @@ function overlayConfigExprs(config, exprs) {
 // the resolved value.
 function overlaySubConfig(config, expr) {
   if (expr && typeof expr === 'object' && !Array.isArray(expr) && !isRawExpr(expr)) {
-    return {...(config || {}), ...expr};
+    const merged = {...(config || {}), ...expr};
+    // "name" identifies the sub-plugin and lives in node.plugin, never in its
+    // config -- the server strips it (plugin.ResolveNameAndConfig) and so does
+    // the function-body parser. The reference overlay is the one path that does
+    // not: configRefs renders a dict literal key by key, so a dict holding any
+    // variable at all (`{"name": "jackett", "api_key": JACKETT_API_KEY}`) hands
+    // "name" back here. Left in, viaNodeToStar then emits it twice and the save
+    // dies on `duplicate key: "name"` -- which is the whole save, so a tidy of
+    // the node positions could not be stored at all.
+    delete merged.name;
+    return merged;
   }
   return config || {};
 }
