@@ -5,6 +5,25 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.61.0] - 2026-10-12
+
+A push that named one pipeline ran everything in it. Measured on `movies-3d-discover`, a request for a single film also pulled the whole Trakt watchlist and ran a search per title: `trakt_list out=988`, `discover out=883`, 2m09s in that one node and 2m44s for the run. The cost was the smaller half of it — downstream sits a `limit(n=4)`, so **the pushed film was competing with 44 unrelated candidates for four slots** and could lose to things nobody asked for.
+
+### Added
+
+- **A source can decline a trigger with `run_on`** ([#594](https://github.com/brunoga/pipeliner/pull/594)). A run now knows why it is happening, and a source node can say which reasons it serves:
+
+  ```python
+  feed = input("trakt_list", ..., run_on=["schedule", "manual"])
+  hook = input("webhook", queue="3d-movies")        # no run_on: every trigger
+  ```
+
+  The information existed and was discarded: `POST /api/ingest?pipeline=X` knew the queue, the daemon knew whether a fire was a cron tick or a button press, and all of it was flattened to a task name before the executor saw it. The daemon's `explicit` flag — which already distinguished user intent, but only to decide trigger coalescing — now folds into a trigger value that travels to the plugin, so `TaskContext.Trigger` tells a plugin the same thing the config can filter on. The tokens are `schedule`, `manual`, `webhook`, `webhook:<queue>` for a pipeline with more than one webhook, `startup`, and `any`. **Omitting it means every trigger, so nothing changes until a config asks.** A declined source contributes no entries and the rest of the graph runs normally on what the others produced; the log says `node skipped: trigger not in run_on`, and a skipped node is recorded as such rather than as a node that ran and found nothing.
+
+  Three decisions are worth stating because they are the ones that could have gone wrong. **`schedule` admits the startup fire** — a pipeline set to run at boot is running its schedule early, and the first cut of this warned about `startup` on an obviously sensible config, which was the semantics being wrong rather than the warning being noisy. **`run_on` on a processor is a config error**, not a quiet no-op: a gate that stopped applying depending on why the run happened would be a worse trap than the one this fixes. And the key **stays in the node's config** rather than being lifted into a graph field, because lifting it would have made a visual-editor save silently drop it — the same failure class as the centralized-config round-trip bug, now avoided by having the shared unknown-key check skip reserved node keys instead of asking every plugin to list them.
+
+**Why 1.61.0**: one new config key, opt-in, with no behaviour change for a pipeline that does not use it. Nothing persisted changes shape and there is no migration. **Worth a look if you have a webhook alongside other inputs**: that is the shape this is for, and `run_on=["schedule", "manual"]` on the other sources is the whole edit.
+
 ## [1.60.3] - 2026-10-11
 
 ### Fixed
