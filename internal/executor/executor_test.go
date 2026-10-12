@@ -1926,3 +1926,176 @@ func TestExecutor_RejectedBeforeSinkNotCommitted(t *testing.T) {
 		t.Errorf("commit: got %d recorded, want 0 (never reached a sink)", len(commit.committed))
 	}
 }
+
+// --- run_on: a source can decline a trigger ---
+
+// TestRunOn_PushSkipsTheFeed is the case this exists for: a push to an ingest
+// queue has no business making a pipeline's feeds run. On one live pipeline
+// that cost a 988-title Trakt fetch and a 2m09s search sweep for a push of
+// one film, and then let the pushed film lose a downstream limit to the 44
+// unrelated candidates it had dragged in.
+func TestRunOn_PushSkipsTheFeed(t *testing.T) {
+	sink := &sinkPlugin{}
+	ex := buildExec(t,
+		[]*dag.Node{
+			{ID: "feed", PluginName: "test_source",
+				Config: map[string]any{plugin.RunOnKey: []any{"schedule", "manual"}}},
+			{ID: "hook", PluginName: "test_source2",
+				Config: map[string]any{plugin.RunOnKey: "webhook"}},
+			{ID: "acc", PluginName: "test_accept", Upstreams: []dag.NodeID{"feed", "hook"}},
+			{ID: "sink", PluginName: "test_sink", Upstreams: []dag.NodeID{"acc"}},
+		},
+		map[dag.NodeID]*executor.PluginInstance{
+			"feed": {Desc: sourceDesc(), Impl: &sourcePlugin{urls: []string{"http://feed1", "http://feed2"}},
+				Config: map[string]any{plugin.RunOnKey: []any{"schedule", "manual"}}},
+			"hook": {Desc: sourceDesc(), Impl: &sourcePlugin{urls: []string{"http://pushed"}},
+				Config: map[string]any{plugin.RunOnKey: "webhook"}},
+			"acc":  {Desc: processorDesc(), Impl: &acceptAllPlugin{}, Config: map[string]any{}},
+			"sink": {Desc: sinkDesc(), Impl: sink, Config: map[string]any{}},
+		},
+	)
+
+	ex.SetTrigger(plugin.Trigger{Kind: plugin.TriggerWebhook, Queue: "movies"})
+	res, err := ex.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sink.received) != 1 {
+		t.Fatalf("only the pushed entry should reach the sink, got %d", len(sink.received))
+	}
+	if sink.received[0].URL != "http://pushed" {
+		t.Errorf("sink got %q, want the pushed entry", sink.received[0].URL)
+	}
+	if nr := res.NodeResults["feed"]; nr == nil || !nr.Skipped {
+		t.Errorf("the feed should be marked skipped, got %+v", nr)
+	}
+	if nr := res.NodeResults["hook"]; nr == nil || nr.Skipped {
+		t.Errorf("the webhook should have run, got %+v", nr)
+	}
+}
+
+// TestRunOn_ScheduleSkipsTheWebhook is the mirror: on a cron fire the feed
+// runs and a webhook-only source sits out.
+func TestRunOn_ScheduleSkipsTheWebhook(t *testing.T) {
+	sink := &sinkPlugin{}
+	ex := buildExec(t,
+		[]*dag.Node{
+			{ID: "feed", PluginName: "test_source",
+				Config: map[string]any{plugin.RunOnKey: []any{"schedule", "manual"}}},
+			{ID: "hook", PluginName: "test_source2",
+				Config: map[string]any{plugin.RunOnKey: "webhook"}},
+			{ID: "acc", PluginName: "test_accept", Upstreams: []dag.NodeID{"feed", "hook"}},
+			{ID: "sink", PluginName: "test_sink", Upstreams: []dag.NodeID{"acc"}},
+		},
+		map[dag.NodeID]*executor.PluginInstance{
+			"feed": {Desc: sourceDesc(), Impl: &sourcePlugin{urls: []string{"http://feed1", "http://feed2"}},
+				Config: map[string]any{plugin.RunOnKey: []any{"schedule", "manual"}}},
+			"hook": {Desc: sourceDesc(), Impl: &sourcePlugin{urls: []string{"http://pushed"}},
+				Config: map[string]any{plugin.RunOnKey: "webhook"}},
+			"acc":  {Desc: processorDesc(), Impl: &acceptAllPlugin{}, Config: map[string]any{}},
+			"sink": {Desc: sinkDesc(), Impl: sink, Config: map[string]any{}},
+		},
+	)
+
+	ex.SetTrigger(plugin.Trigger{Kind: plugin.TriggerSchedule})
+	if _, err := ex.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(sink.received) != 2 {
+		t.Fatalf("both feed entries should reach the sink, got %d", len(sink.received))
+	}
+}
+
+// TestRunOn_QueueQualifier: a pipeline with two webhooks runs only the one
+// whose queue was pushed.
+func TestRunOn_QueueQualifier(t *testing.T) {
+	sink := &sinkPlugin{}
+	ex := buildExec(t,
+		[]*dag.Node{
+			{ID: "mine", PluginName: "test_source",
+				Config: map[string]any{plugin.RunOnKey: "webhook:3d-movies"}},
+			{ID: "other", PluginName: "test_source2",
+				Config: map[string]any{plugin.RunOnKey: "webhook:movies"}},
+			{ID: "acc", PluginName: "test_accept", Upstreams: []dag.NodeID{"mine", "other"}},
+			{ID: "sink", PluginName: "test_sink", Upstreams: []dag.NodeID{"acc"}},
+		},
+		map[dag.NodeID]*executor.PluginInstance{
+			"mine": {Desc: sourceDesc(), Impl: &sourcePlugin{urls: []string{"http://3d"}},
+				Config: map[string]any{plugin.RunOnKey: "webhook:3d-movies"}},
+			"other": {Desc: sourceDesc(), Impl: &sourcePlugin{urls: []string{"http://2d"}},
+				Config: map[string]any{plugin.RunOnKey: "webhook:movies"}},
+			"acc":  {Desc: processorDesc(), Impl: &acceptAllPlugin{}, Config: map[string]any{}},
+			"sink": {Desc: sinkDesc(), Impl: sink, Config: map[string]any{}},
+		},
+	)
+
+	ex.SetTrigger(plugin.Trigger{Kind: plugin.TriggerWebhook, Queue: "3d-movies"})
+	if _, err := ex.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(sink.received) != 1 || sink.received[0].URL != "http://3d" {
+		t.Errorf("only the pushed queue's source should run, got %v", sink.received)
+	}
+}
+
+// TestRunOn_AbsentMeansAlways: the mechanism is invisible until a config asks.
+func TestRunOn_AbsentMeansAlways(t *testing.T) {
+	sink := &sinkPlugin{}
+	ex := buildExec(t,
+		[]*dag.Node{
+			{ID: "src", PluginName: "test_source"},
+			{ID: "acc", PluginName: "test_accept", Upstreams: []dag.NodeID{"src"}},
+			{ID: "sink", PluginName: "test_sink", Upstreams: []dag.NodeID{"acc"}},
+		},
+		map[dag.NodeID]*executor.PluginInstance{
+			"src":  {Desc: sourceDesc(), Impl: &sourcePlugin{urls: []string{"http://a"}}, Config: map[string]any{}},
+			"acc":  {Desc: processorDesc(), Impl: &acceptAllPlugin{}, Config: map[string]any{}},
+			"sink": {Desc: sinkDesc(), Impl: sink, Config: map[string]any{}},
+		},
+	)
+
+	ex.SetTrigger(plugin.Trigger{Kind: plugin.TriggerWebhook, Queue: "anything"})
+	if _, err := ex.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(sink.received) != 1 {
+		t.Errorf("a source with no run_on runs on every trigger, got %d", len(sink.received))
+	}
+}
+
+// TestRunOn_TriggerReachesThePlugins: a plugin can read why the run happened,
+// which is what lets a condition rule gate on it.
+func TestRunOn_TriggerReachesThePlugins(t *testing.T) {
+	spy := &triggerSpyPlugin{}
+	ex := buildExec(t,
+		[]*dag.Node{
+			{ID: "src", PluginName: "test_source"},
+			{ID: "spy", PluginName: "test_spy", Upstreams: []dag.NodeID{"src"}},
+			{ID: "sink", PluginName: "test_sink", Upstreams: []dag.NodeID{"spy"}},
+		},
+		map[dag.NodeID]*executor.PluginInstance{
+			"src":  {Desc: sourceDesc(), Impl: &sourcePlugin{urls: []string{"http://a"}}, Config: map[string]any{}},
+			"spy":  {Desc: processorDesc(), Impl: spy, Config: map[string]any{}},
+			"sink": {Desc: sinkDesc(), Impl: &sinkPlugin{}, Config: map[string]any{}},
+		},
+	)
+
+	ex.SetTrigger(plugin.Trigger{Kind: plugin.TriggerWebhook, Queue: "3d-movies"})
+	if _, err := ex.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if spy.seen.Kind != plugin.TriggerWebhook || spy.seen.Queue != "3d-movies" {
+		t.Errorf("plugin saw %+v, want the webhook trigger with its queue", spy.seen)
+	}
+}
+
+type triggerSpyPlugin struct{ seen plugin.Trigger }
+
+func (p *triggerSpyPlugin) Name() string { return "test_spy" }
+func (p *triggerSpyPlugin) Process(_ context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
+	p.seen = tc.Trigger
+	for _, e := range entries {
+		e.Accept("spy")
+	}
+	return entries, nil
+}

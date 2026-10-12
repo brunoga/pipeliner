@@ -83,6 +83,7 @@ type Executor struct {
 	plugins        map[dag.NodeID]*PluginInstance
 	logger         *slog.Logger
 	dryRun         bool
+	trigger        plugin.Trigger
 	validateFields bool
 }
 
@@ -112,6 +113,12 @@ func (ex *Executor) Name() string { return ex.name }
 
 // SetDryRun enables or disables dry-run mode on a running executor.
 func (ex *Executor) SetDryRun(v bool) { ex.dryRun = v }
+
+// SetTrigger records why the next run is happening. Sources that declared a
+// run_on list are skipped when it does not admit this trigger, and every
+// plugin sees it on its TaskContext. Safe to set before Run under the
+// daemon's per-task concurrency guard, the same way SetDryRun is.
+func (ex *Executor) SetTrigger(t plugin.Trigger) { ex.trigger = t }
 
 // SetValidateFields enables per-entry field validation before each node runs.
 // When true, the executor warns whenever an entry is missing all fields in a
@@ -192,6 +199,28 @@ func (ex *Executor) Run(ctx context.Context) (*Result, error) {
 			pi, ok := ex.plugins[n.ID]
 			if !ok {
 				return nil, fmt.Errorf("executor: no plugin instance for node %q", n.ID)
+			}
+
+			// A source can decline a trigger: a push to an ingest queue has
+			// no business making a pipeline's feeds run, which is what made
+			// one measured push cost a 988-title Trakt fetch and a 2m09s
+			// search sweep -- and then let the pushed film lose a
+			// downstream limit to the 44 candidates it had dragged in.
+			//
+			// Only sources are skippable. Skipping a processor would make a
+			// gate silently stop applying depending on why the run happened,
+			// which is a far worse trap than the one being fixed; the
+			// validator refuses run_on anywhere else.
+			if pi.Desc.EffectiveRole() == plugin.RoleSource {
+				runOn, _ := plugin.RunOnOf(n.Config)
+				if !ex.trigger.Matches(runOn) {
+					logger.Info("node skipped: trigger not in run_on",
+						"node", n.ID, "plugin", pi.Impl.Name(),
+						"trigger", string(ex.trigger.Kind), "queue", ex.trigger.Queue,
+						"run_on", runOn)
+					res.NodeResults[n.ID] = &NodeResult{Skipped: true}
+					continue
+				}
 			}
 
 			upstream := ex.collectUpstream(n, edge)
@@ -419,10 +448,11 @@ func (ex *Executor) runNode(
 	upstream []*entry.Entry,
 ) (produced []*entry.Entry, err error) {
 	tc := &plugin.TaskContext{
-		Name:   ex.name,
-		Config: pi.Config,
-		Logger: logger.With("node", n.ID, "plugin", pi.Impl.Name()),
-		DryRun: ex.dryRun,
+		Name:    ex.name,
+		Config:  pi.Config,
+		Logger:  logger.With("node", n.ID, "plugin", pi.Impl.Name()),
+		DryRun:  ex.dryRun,
+		Trigger: ex.trigger,
 	}
 
 	role := pi.Desc.EffectiveRole()

@@ -33,6 +33,10 @@ type TaskContext struct {
 	Logger *slog.Logger
 	// DryRun, when true, instructs sink plugins to skip side effects.
 	DryRun bool
+	// Trigger is why this run is happening — a schedule fire, a person
+	// pressing Run, or a push to an ingest queue (which names the queue).
+	// A source node can decline to run on some of those; see RunOnKey.
+	Trigger Trigger
 }
 
 // SourcePlugin generates entries from an external source.

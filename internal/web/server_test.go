@@ -28,6 +28,7 @@ type stubDaemon struct{}
 
 func (s stubDaemon) NextRun(_ string) time.Time { return time.Time{} }
 func (s stubDaemon) Trigger(_ string, _ bool)   {}
+func (s stubDaemon) TriggerWebhook(_, _ string) {}
 
 // newTestServer builds a Server wired for testing.
 // configPath and validateFn are optional; pass "" / nil to skip.

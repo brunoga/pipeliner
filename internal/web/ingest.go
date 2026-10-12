@@ -89,7 +89,10 @@ func (s *Server) apiIngest(w http.ResponseWriter, r *http.Request) {
 
 	triggered := false
 	if pipeline != "" && accepted > 0 && s.daemon != nil {
-		s.daemon.Trigger(pipeline, false)
+		// Named with the queue, so the sources that are not this webhook can
+		// opt out via run_on instead of being dragged into a run that has
+		// nothing to do with them.
+		s.daemon.TriggerWebhook(pipeline, queue)
 		triggered = true
 	}
 

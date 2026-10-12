@@ -39,3 +39,16 @@ endpoint's response reports `queued`/`dropped`/`rejected` counts honestly.
 | Produces | `title` |
 
 Dry runs **peek** at the queue without consuming it, so you can push an item without `?pipeline=`, dry-run to watch it flow through the pipeline, and then trigger the real run — the item is still queued.
+
+## A push and the pipeline's other sources
+
+A push that names a pipeline triggers the whole pipeline, which used to mean every *other* source ran too. On one live pipeline a push of a single film also cost a Trakt fetch of 988 titles and a 2m09s search sweep — and the pushed film then competed with 44 unrelated candidates for the four slots a downstream `limit` allowed.
+
+Give the sources that have nothing to do with pushes a `run_on`:
+
+```python
+feed = input("trakt_list", ..., run_on=["schedule", "manual"])
+hook = input("webhook", queue="3d-movies")
+```
+
+A webhook source for a *different* queue already costs nothing — it drains its own, empty queue — so `run_on` is for the feed sources beside it. With more than one webhook in a pipeline, `run_on="webhook:3d-movies"` narrows a source to one queue. See the user guide for the full token list.

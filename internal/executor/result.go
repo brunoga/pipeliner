@@ -64,4 +64,8 @@ type NodeResult struct {
 	Dropped int
 	// Err is the first error returned by the plugin, if any.
 	Err error
+	// Skipped marks a source that declined this run's trigger via run_on.
+	// It is distinct from a source that ran and produced nothing: one is a
+	// decision, the other is an empty feed.
+	Skipped bool
 }
