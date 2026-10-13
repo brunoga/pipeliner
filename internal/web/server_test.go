@@ -1291,10 +1291,15 @@ func TestScanCommentsPosDoesNotCrossPipelineBoundary(t *testing.T) {
 	}
 }
 
-func TestScanCommentsBlankLineResetsComment(t *testing.T) {
-	nc, _, _, _ := scanComments("# Lost comment\n\nsrc_0 = input(\"rss\")\npipeline(\"tv\")\n")
-	if nc["src_0"] != "" {
-		t.Errorf("blank line should reset comment, got %q", nc["src_0"])
+// This used to assert the opposite — that a blank line discards the comment
+// above it — and its fixture was named "Lost comment". The visual editor
+// regenerates the whole file on save, so a discarded comment is a deleted
+// comment: every section header in a config disappeared on the first visual
+// save. A blank line now ends a block without throwing it away.
+func TestScanCommentsBlankLineKeepsComment(t *testing.T) {
+	nc, _, _, _ := scanComments("# Kept comment\n\nsrc_0 = input(\"rss\")\npipeline(\"tv\")\n")
+	if nc["src_0"] != "Kept comment" {
+		t.Errorf("a comment separated by a blank line must be kept, got %q", nc["src_0"])
 	}
 }
 

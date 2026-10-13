@@ -6240,7 +6240,7 @@ async function expandAndRemoveFunction(funcName) {
         ? fc.args : parseFunctionCallArgs(content, fc.call_key, fc.func);
       nodes.push({
         id: fc.call_key, plugin: fc.func, config: recoveredArgs,
-        upstreams: entryUpstreams, searchNodeIds: [], listNodeIds: [], comment: '',
+        upstreams: entryUpstreams, searchNodeIds: [], listNodeIds: [], comment: fc.comment || '',
         isFunctionCall: true, funcCallKey: fc.call_key,
         internalNodeIds: fc.internal_node_ids, returnNodeId: fc.return_node_id,
         x: fc.x ?? null, y: fc.y ?? null,
@@ -7216,6 +7216,8 @@ function dagToStarlark() {
     }
   }
 
+  const nameOf = buildVarNameMap(graphs);
+
   // Helper: stable function name for a mini-pipeline slot.
   const miniPipelineFnName = (parentId, kind, idx) =>
     `_mini_${kind}_${parentId.replace(/[^a-zA-Z0-9]/g, '_')}_${idx}`;
@@ -7251,7 +7253,7 @@ function dagToStarlark() {
       const meta     = pluginMeta(n.plugin);
       const role     = meta?.role || 'processor';
       const cfgKw    = configToKwargs(n.config);
-      const fromStr  = upstreamsStr(n.upstreams);
+      const fromStr  = upstreamsStr(n.upstreams, nameOf);
 
       // Emit user comment, pipeliner:label, then pipeliner:pos before the definition.
       const hasPos     = !n.isSearchNode && !n.isListNode && n.x != null && n.y != null;
@@ -7325,7 +7327,7 @@ function dagToStarlark() {
           .filter(r => r.name && r.accept)
           .map(r => `${r.name}=${starLit(r.accept)}`);
         const parts = fromStr ? [fromStr, ...portParts] : portParts;
-        lines.push(`${n.id} = route(${parts.join(', ')})`);
+        lines.push(`${nameOf(n.id)} = route(${parts.join(', ')})`);
       } else if (n.isFunctionCall || ve.userFunctions[n.plugin]) {
         // Serialize as a user function call: varname = funcname(upstream=..., kwargs).
         // The second condition handles nodes whose plugin is a user function but
@@ -7347,9 +7349,9 @@ function dagToStarlark() {
         const parts = [];
         if (fromStr)   parts.push(`upstream=${fromStr}`);
         if (healedKw)  parts.push(healedKw);
-        lines.push(`${n.id} = ${n.plugin}(${parts.join(', ')})`);
+        lines.push(`${nameOf(n.id)} = ${n.plugin}(${parts.join(', ')})`);
       } else if (role === 'source') {
-        lines.push(`${n.id} = input(${[starLit(n.plugin), cfgKw].filter(Boolean).join(', ')})`);
+        lines.push(`${nameOf(n.id)} = input(${[starLit(n.plugin), cfgKw].filter(Boolean).join(', ')})`);
       } else if (role === 'processor') {
         const parts = [starLit(n.plugin)];
         if (fromStr) parts.push(`upstream=${fromStr}`);
@@ -7372,12 +7374,12 @@ function dagToStarlark() {
           parts.push(`list=[${listItems}]`);
         }
         if (cfgKw) parts.push(cfgKw);
-        lines.push(`${n.id} = process(${parts.join(', ')})`);
+        lines.push(`${nameOf(n.id)} = process(${parts.join(', ')})`);
       } else {
         const parts = [starLit(n.plugin)];
         if (fromStr) parts.push(`upstream=${fromStr}`);
         if (cfgKw)   parts.push(cfgKw);
-        lines.push(`${n.id} = output(${parts.join(', ')})`);
+        lines.push(`${nameOf(n.id)} = output(${parts.join(', ')})`);
       }
     }
 
@@ -7418,16 +7420,53 @@ function viaNodeToStar(node, nodeLookup) {
   return `{${entries.join(', ')}}`;
 }
 
-function upstreamsStr(ups) {
+function upstreamsStr(ups, nameOf = id => id) {
   if (!ups?.length) return '';
   const resolved = ups.map(id => {
     const n = findNode(id);
     // Route-selector nodes are not assigned a variable — reference via the
-    // parent route node's handles object: routeNodeId.portName
-    if (n?.isRoutePort) return `${n.routeParentId}.${n.routePortName}`;
-    return id;
+    // parent route node's handles object: routeVar.portName
+    if (n?.isRoutePort) return `${nameOf(n.routeParentId)}.${n.routePortName}`;
+    return nameOf(id);
   });
   return resolved.length === 1 ? resolved[0] : `merge(${resolved.join(', ')})`;
+}
+
+// buildVarNameMap decides the variable every node is written back under, and
+// returns it as a lookup (node ID → name).
+//
+// A node keeps the variable it was given in the source — n.varName, which the
+// server reads from the loader's globals — so a save no longer renames
+// `mvc_gate_a` to `condition_154` and strands every comment that mentions it.
+// A node without one (added in the editor, or never assigned) is written under
+// its ID, as before.
+//
+// Names must be unique across the file, and the two sources can collide: the
+// loader renumbers IDs when a node is deleted, but kept names do not move, so a
+// new node's ID can equal some other node's kept name. Kept names are reserved
+// first and a clash is resolved by suffixing the node that had no name of its
+// own — never by renaming one the author chose.
+function buildVarNameMap(graphs) {
+  const names = new Map();
+  // Function names are globals too; a node may not shadow one.
+  const taken = new Set(Object.keys(ve.userFunctions || {}));
+  const isIdent = v => typeof v === 'string' && /^[A-Za-z_][A-Za-z0-9_]*$/.test(v);
+  const nodes = graphs.flatMap(g => g.nodes)
+    .filter(n => !n.isSearchNode && !n.isListNode && !n.isRoutePort);
+  for (const n of nodes) {
+    if (isIdent(n.varName) && !taken.has(n.varName)) {
+      names.set(n.id, n.varName);
+      taken.add(n.varName);
+    }
+  }
+  for (const n of nodes) {
+    if (names.has(n.id)) continue;
+    let name = n.id;
+    for (let k = 2; taken.has(name); k++) name = `${n.id}_${k}`;
+    names.set(n.id, name);
+    taken.add(name);
+  }
+  return id => names.get(id) ?? id;
 }
 
 function configToKwargs(cfg) {
@@ -7529,8 +7568,12 @@ function overlaySubConfig(config, expr) {
 function extractPreamble(content) {
   const segs = topLevelSegments(content || '');
   if (!segs.some(s => s.isConstruct)) return '';  // nothing modelled — keep nothing
+  // Each segment carries the blank run above it, and the segments are joined
+  // with one blank line — so the carried blanks must go, or every save adds a
+  // blank line between every pair of definitions (measured: one became two
+  // after one save, three after two). Leading comments stay.
   return segs.filter(s => !s.isConstruct)
-             .map(s => s.text.trimEnd())
+             .map(s => s.text.replace(/^(?:[ \t]*\n)+/, '').trimEnd())
              .filter(t => t.trim())
              .join('\n\n')
              .trimEnd();
@@ -7886,6 +7929,9 @@ async function textToVisualSync() {
         .map(n => ({
           id: n.id, plugin: n.plugin, config: overlayConfigExprs(n.config || {}, n.config_exprs), upstreams: n.upstreams || [],
           searchNodeIds: [], comment: n.comment || '', label: n.label || '',
+          // The variable this node was assigned to in the source, when it is
+          // not the ID. Saving writes the node back under it.
+          varName: n.var || '',
           x: n.x ?? null, y: n.y ?? null,
           fields: n.fields || {certain: [], reachable: []},
           autoMigrated: n.auto_migrated || '',
@@ -8020,7 +8066,9 @@ async function textToVisualSync() {
           upstreams:        entryUpstreams,
           searchNodeIds:    [],
           listNodeIds:      [],
-          comment:          '',
+          // The comment above the call site. Hard-coded empty until the
+          // server sent it, so every visual save deleted it.
+          comment:          fc.comment || '',
           isFunctionCall:   true,
           funcCallKey:      fc.call_key,
           internalNodeIds:  fc.internal_node_ids,

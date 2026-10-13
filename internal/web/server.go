@@ -980,28 +980,19 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 	// matching the source variable it was assigned to as soon as the config
 	// is hand-edited. Everything scanned from raw text above is keyed by that
 	// variable name, so reconcile the two — otherwise references, comments,
-	// labels and positions silently detach (the editor then re-inlines
-	// resolved secrets on the next save).
-	var allNodeIDs []string
-	nodePlugin := map[string]string{}
-	funcInternal := map[string]bool{}
-	for _, calls := range c.FunctionCalls {
-		for _, fc := range calls {
-			for _, id := range fc.InternalNodeIDs {
-				funcInternal[id] = true
-			}
+	// labels and positions silently detach, or attach to a neighbour.
+	//
+	// The loader reports the variable each node was bound to, read from the
+	// module's globals after execution. That replaced pairing nodes with
+	// assignments by source order, which had to guess — an unassigned call or
+	// a node nested inside another call's arguments shifted every pairing
+	// after it.
+	idToVar := map[string]string{}
+	for id, v := range c.NodeVars {
+		if string(id) != v {
+			idToVar[string(id)] = v
 		}
 	}
-	for _, g := range c.Graphs {
-		for _, n := range g.Nodes() {
-			if funcInternal[string(n.ID)] {
-				continue
-			}
-			allNodeIDs = append(allNodeIDs, string(n.ID))
-			nodePlugin[string(n.ID)] = n.PluginName
-		}
-	}
-	idToVar := remapBySourceOrder(req.Content, allNodeIDs, func(id string) string { return nodePlugin[id] })
 	lookupRefs := rekeyBySource(nodeRefs, idToVar)
 	lookupComment := rekeyBySource(nodeComments, idToVar)
 	lookupLabel := rekeyBySource(nodeLabels, idToVar)
@@ -1020,7 +1011,12 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 		Reachable []string `json:"reachable"`
 	}
 	type nodeResp struct {
-		ID              string          `json:"id"`
+		ID string `json:"id"`
+		// Var is the variable the node was assigned to in the source, sent
+		// only when it differs from the ID. The editor writes the node back
+		// under this name, so a save does not rename `mvc_gate_a` to
+		// `condition_154` and strand every comment that mentions it.
+		Var             string          `json:"var,omitempty"`
 		PluginName      string          `json:"plugin"`
 		Config          map[string]any  `json:"config"`
 		Upstreams       []string        `json:"upstreams"`
@@ -1057,6 +1053,9 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 		ReturnNodeID    string         `json:"return_node_id"`
 		X               *float64       `json:"x,omitempty"`
 		Y               *float64       `json:"y,omitempty"`
+		// Comment is the comment block above the call site. Without it the
+		// editor had nowhere to keep one, and every visual save dropped it.
+		Comment string `json:"comment,omitempty"`
 	}
 	type graphResp struct {
 		Nodes         []nodeResp     `json:"nodes"`
@@ -1192,6 +1191,7 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 			}
 			nr := nodeResp{
 				ID:              string(n.ID),
+				Var:             idToVar[string(n.ID)],
 				PluginName:      n.PluginName,
 				Config:          cfg,
 				Upstreams:       ups,
@@ -1231,6 +1231,9 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 				Args:            fcr.Args,
 				InternalNodeIDs: fcr.InternalNodeIDs,
 				ReturnNodeID:    fcr.ReturnNodeID,
+				// A call key is the call site's variable name, not a counter
+				// ID, so it needs no reconciling — same as the position below.
+				Comment: nodeComments[fcr.CallKey],
 			}
 			if pos, ok := nodePositions[fcr.CallKey]; ok {
 				x, y := pos.Main[0], pos.Main[1]
@@ -1334,6 +1337,12 @@ func scanComments(content string) (
 	pipelineRe := regexp.MustCompile(`^pipeline\s*\(\s*"([^"]+)"`)
 
 	var commentLines []string
+	// detached holds comment blocks that a blank line separated from the next
+	// statement — a section header above a pipeline's first node, say. They
+	// used to be discarded at the blank line, which is how a visual save
+	// silently deleted every such header. Now they are kept and joined to the
+	// comment of the statement that follows, an empty line between blocks.
+	var detached []string
 	var pendingPos *nodePosData
 	var pendingLabel string
 
@@ -1359,7 +1368,14 @@ func scanComments(content string) (
 		trimmed := strings.TrimSpace(line)
 		switch {
 		case trimmed == "":
-			commentLines = nil // blank line breaks comment association
+			// A blank line ends a comment block; it does not discard it.
+			if len(commentLines) > 0 {
+				if len(detached) > 0 {
+					detached = append(detached, "")
+				}
+				detached = append(detached, commentLines...)
+				commentLines = nil
+			}
 
 		case strings.HasPrefix(trimmed, "#"):
 			rest := strings.TrimSpace(strings.TrimPrefix(trimmed, "#"))
@@ -1408,10 +1424,11 @@ func scanComments(content string) (
 			}
 
 		default:
+			comment := joinCommentBlocks(detached, commentLines)
 			if m := nodeRe.FindStringSubmatch(trimmed); m != nil {
 				nodeID := m[1]
-				if len(commentLines) > 0 {
-					nodeComments[nodeID] = strings.Join(commentLines, "\n")
+				if comment != "" {
+					nodeComments[nodeID] = comment
 				}
 				if pendingPos != nil {
 					nodePositions[nodeID] = *pendingPos
@@ -1422,16 +1439,36 @@ func scanComments(content string) (
 					pendingLabel = ""
 				}
 			} else if m := pipelineRe.FindStringSubmatch(trimmed); m != nil {
-				if len(commentLines) > 0 {
-					pipelineComments[m[1]] = strings.Join(commentLines, "\n")
+				if comment != "" {
+					pipelineComments[m[1]] = comment
 				}
 				pendingPos = nil // pos must not cross pipeline boundaries
 				pendingLabel = ""
 			}
+			// Any other statement — a def, a preamble assignment, a
+			// continuation line — has no slot for a comment, so whatever was
+			// pending belonged to it and does not carry to the next node.
 			commentLines = nil
+			detached = nil
 		}
 	}
 	return
+}
+
+// joinCommentBlocks merges the detached comment blocks above a statement with
+// the block directly attached to it, an empty line between each. The editor
+// writes an empty comment line back as `# `, so a header separated by a blank
+// line comes back joined by a `# ` line: the text survives, and from then on
+// it round-trips unchanged.
+func joinCommentBlocks(detached, attached []string) string {
+	all := append([]string(nil), detached...)
+	if len(attached) > 0 {
+		if len(all) > 0 {
+			all = append(all, "")
+		}
+		all = append(all, attached...)
+	}
+	return strings.Join(all, "\n")
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

@@ -48,6 +48,14 @@ type Config struct {
 	// FunctionCalls holds the function call invocations per pipeline, keyed by
 	// pipeline name then call key.
 	FunctionCalls map[string][]*FunctionCallRecord
+	// NodeVars maps a node to the top-level variable it was assigned to:
+	// `mvc_gate_a = process("condition", …)` → condition_154 ↦ "mvc_gate_a".
+	// It is read from the module's globals after execution, so it is exact —
+	// not inferred from source order — and survives any renumbering of the
+	// loader's IDs. Nodes bound to no global (an unassigned call, a node
+	// created inside a user function) are absent. The visual editor uses it
+	// to write each node back under the name it was given.
+	NodeVars map[dag.NodeID]string
 	// LoadWarnings holds advisory messages emitted while loading the config
 	// (e.g. auto-migration of deprecated config shapes). These do not block
 	// loading — they surface alongside Validate's warnings.
