@@ -75,6 +75,12 @@ func validateRoute(cfg map[string]any) []error {
 	var errs []error
 	if rules, _ := cfg["rules"].([]any); len(rules) == 0 {
 		errs = append(errs, fmt.Errorf("route: 'rules' must be a non-empty list"))
+	} else if _, err := parseRouteRules(cfg); err != nil {
+		// Same reason as condition.validate: the factory compiles these, but
+		// the factory does not run for `pipeliner check` or the editor's
+		// validate button, so a port expression that will not compile has to
+		// be caught here or it is not caught until a reload refuses it.
+		errs = append(errs, err)
 	}
 	errs = append(errs, plugin.OptUnknownKeys(cfg, "route", "rules", RouteGroupKey)...)
 	return errs
@@ -93,11 +99,29 @@ type routePlugin struct {
 }
 
 func newRoutePlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
+	rules, err := parseRouteRules(cfg)
+	if err != nil {
+		return nil, err
+	}
+	p := &routePlugin{rules: rules}
+	for _, r := range rules {
+		if r.expr.ReferencesState() {
+			p.referencesSt = true
+			break
+		}
+	}
+	return p, nil
+}
+
+// parseRouteRules turns a config into the port list, and is the only place
+// that does. validateRoute calls it too, so `pipeliner check` and a reload
+// cannot disagree about whether a config is loadable.
+func parseRouteRules(cfg map[string]any) ([]routeRule, error) {
 	rawRules, _ := cfg["rules"].([]any)
 	if len(rawRules) == 0 {
 		return nil, fmt.Errorf("route: 'rules' must be a non-empty list")
 	}
-	p := &routePlugin{}
+	var rules []routeRule
 	for i, r := range rawRules {
 		m, ok := r.(map[string]any)
 		if !ok {
@@ -115,12 +139,9 @@ func newRoutePlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, er
 		if err != nil {
 			return nil, fmt.Errorf("route: rules[%d] invalid accept expression: %w", i, err)
 		}
-		if e.ReferencesState() {
-			p.referencesSt = true
-		}
-		p.rules = append(p.rules, routeRule{name: name, expr: e})
+		rules = append(rules, routeRule{name: name, expr: e})
 	}
-	return p, nil
+	return rules, nil
 }
 
 func (p *routePlugin) Name() string { return "route" }

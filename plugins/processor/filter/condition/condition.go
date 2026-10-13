@@ -60,6 +60,16 @@ func validate(cfg map[string]any) []error {
 	var errs []error
 	if err := plugin.RequireOneOf(cfg, "condition", "rules", "accept", "reject"); err != nil {
 		errs = append(errs, err)
+	} else if _, err := parseRules(cfg); err != nil {
+		// Compile the expressions here and not only in the factory. The
+		// factory runs at daemon start and on reload; `pipeliner check` and
+		// the editor's validate button run only this. Without the compile a
+		// config the daemon would refuse to load reported clean, which makes
+		// the gate laxer than the thing it gates — `probe_unreachable ====
+		// true` passed `check` and the only trace was an unrelated-looking
+		// ordering warning, because an uncompilable expression makes the
+		// ordering pass give up on reading its fields.
+		errs = append(errs, err)
 	}
 	errs = append(errs, plugin.OptUnknownKeys(cfg, "condition", "rules", "accept", "reject", "reason")...)
 	return errs
@@ -85,13 +95,26 @@ type conditionPlugin struct {
 }
 
 func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
-	p := &conditionPlugin{}
+	rules, err := parseRules(cfg)
+	if err != nil {
+		return nil, err
+	}
+	p := &conditionPlugin{rules: rules}
+	p.computeStateReferences()
+	return p, nil
+}
 
+// parseRules turns a config into the rule list, and is the only place that
+// does. validate calls it too, so the check a `pipeliner check` performs and
+// the one a reload performs cannot drift apart: there is one parser, and
+// either both accept a config or neither does.
+func parseRules(cfg map[string]any) ([]rule, error) {
 	if rulesRaw, ok := cfg["rules"]; ok {
 		list, ok := rulesRaw.([]any)
 		if !ok {
 			return nil, fmt.Errorf("condition: 'rules' must be a list of {accept/reject} objects")
 		}
+		var rules []rule
 		for i, item := range list {
 			m, ok := item.(map[string]any)
 			if !ok {
@@ -101,13 +124,12 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 			if err != nil {
 				return nil, err
 			}
-			p.rules = append(p.rules, r)
+			rules = append(rules, r)
 		}
-		if len(p.rules) == 0 {
+		if len(rules) == 0 {
 			return nil, fmt.Errorf("condition: 'rules' must not be empty")
 		}
-		p.computeStateReferences()
-		return p, nil
+		return rules, nil
 	}
 
 	// Single-rule format: top-level accept/reject keys.
@@ -118,9 +140,7 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 	if r.accept == nil && r.reject == nil {
 		return nil, fmt.Errorf("condition: at least one of 'accept', 'reject', or 'rules' must be set")
 	}
-	p.rules = []rule{r}
-	p.computeStateReferences()
-	return p, nil
+	return []rule{r}, nil
 }
 
 // computeStateReferences flips referencesSt when any of the plugin's
