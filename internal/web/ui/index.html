@@ -101,8 +101,8 @@
       </div>
       <div class="config-toolbar" style="margin:0">
         <button class="btn-config" onclick="openConfigHistory()" title="Previous config versions (auto-snapshotted on every save)">History</button>
-        <button class="btn-config" onclick="validateConfig()">Validate</button>
-        <button class="btn-config primary" onclick="saveConfig()">Save &amp; Reload</button>
+        <button class="btn-config" id="btn-config-validate" onclick="validateConfig()">Validate</button>
+        <button class="btn-config primary" id="btn-config-save" onclick="saveConfig()">Save &amp; Reload</button>
         <span class="config-status" id="config-status"></span>
       </div>
     </div>
