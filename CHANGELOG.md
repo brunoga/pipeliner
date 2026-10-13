@@ -5,6 +5,18 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.63.2] - 2026-10-13
+
+### Fixed
+
+- **Tidy layout drew cards on top of each other** ([#607](https://github.com/brunoga/pipeliner/pull/607)). A sub-node -- a `list` title source, a `search` backend, a `route()` port -- was placed at a fixed offset from its parent with no check that the space was free. The slot a `list` wants is the row *above* its parent, which in any pipeline with more than one track is already somebody else's row: the reported case had a `tvdb_favorites` card drawn over a `premiere` node. The old `listPad` reserved room above the whole pipeline, which helps exactly when the list's parent is in the top row and never otherwise. Nodes are now packed with a lane reserved for whatever hangs off them, and each sub-node row is checked against real rectangles before it is placed -- a row of two is 418px against a 260px column, so it reaches into the neighbouring columns and no column-local lane can express it. A `list` row with no room above its parent goes below it rather than on top of something.
+
+- **Tidy layout bent edges that had no reason to bend** ([#607](https://github.com/brunoga/pipeliner/pull/607)). The barycentre pass ran once and looked only upstream, so a fan-out in one track pushed an unrelated track's node down a row and every edge after it ran diagonally. Ordering now alternates forward and backward passes -- which is what carries a late clearance requirement back up its own track -- each followed by a transpose, and the least-bent candidate wins. Two things were needed to make that converge: the score counts **bent edges before travel**, because total travel alone rates one unavoidable 240px drop at a fan-out exactly as good as two separate 120px kinks and so never trades the second shape for the first; and a move shifts a **whole straight-connected run** at once, because shifting one node onto its neighbour's row just moves the kink one edge along the chain, leaving the count unchanged, so every single-node move scores a tie and is rejected. Branching is still exempt: one leg of a fan-out keeps the parent's row and the others cannot, and a merge is left free to bend.
+
+- **Undo stayed greyed out after a tidy** ([#607](https://github.com/brunoga/pipeliner/pull/607)). Two definitions of `tidyActivePipeline` existed; the second won, and it was the one missing `updateUndoButton()` and the status note. The file is loaded as a plain script, where a duplicate declaration is legal and silent -- `node --check` reads it as ESM and had been failing on it for as long as it was there.
+
+**Why 1.63.2**: three fixes to one function, no new configuration and nothing outside the visual editor. Tidy now has two guarantees it did not have -- nothing overlaps, and an edge runs straight wherever the graph allows one to -- but it is the same button doing the same job, so a pipeline laid out by hand is untouched until you press it.
+
 ## [1.63.1] - 2026-10-13
 
 ### Fixed
