@@ -17,6 +17,8 @@ Measured on a live 40.56 GiB disc: **2 pieces, 27.2 MiB, 0.066% of the torrent, 
 | `require` | bool | no | `false` | Reject entries whose probe could not run, instead of passing them with `probe_ok` false |
 | `parallel` | int | no | `1` | How many entries to probe at once |
 | `no_peer_timeout` | duration | no | `30s` | Give up early when no peer has connected and no byte has arrived; `0` disables |
+| `cache_ttl` | duration | no | `168h` | How long a **failed** probe is remembered before the swarm is tried again. A container that *was* read is remembered for good. `0` disables the failure cache |
+| `cache_only` | bool | no | `false` | Replay stored verdicts and never touch the network. A release nobody has probed comes out with no `probe_*` fields at all |
 
 ## Fields set on the entry
 
@@ -114,6 +116,40 @@ Fields are left unset rather than written as zero, so a condition can tell "it s
 - **Brazilian Portuguese** cannot be distinguished: Blu-ray language codes are ISO 639-2, so it reads as `por`.
 - A probe that **cannot run** leaves `probe_ok` false and the entry otherwise untouched, because a release should not be lost to an unreachable swarm. `require=True` rejects those instead.
 
+## Verdicts are remembered
+
+Every probe is recorded in `cache_probe`, keyed by **lowercase info-hash** — the content, not the release, so two indexers posting the same torrent share one verdict and so do two pipelines.
+
+The two outcomes have different lifetimes because they are different kinds of fact:
+
+- **A container that was read** is a property of the bytes, and the info-hash pins the bytes. That answer can never change, so it is kept for good.
+- **A probe that failed** is a property of the swarm at a moment — nobody was serving, or nobody served fast enough. Swarms recover, so that one expires after `cache_ttl`.
+
+The whole `mvcprobe.Result` is stored and replayed through the same function a live probe uses, so a replayed entry and a freshly probed one cannot drift. It also keeps the two fields derived from the *entry* rather than the container correct for a release whose name differs from the one probed: `probe_upscale` compares the frame against the resolution the **name** claims, and `probe_bitrate_mbps` divides the **torrent's** size by the container's duration. Both are recomputed on replay.
+
+### Gating above a collapse
+
+`cache_only=True` is the point of all this. A probe is expensive, so it belongs below [`limit`](../filter/limit/README.md), where it runs on the few releases about to be downloaded — but a node that can refuse a release must run **above** [`dedup`](../filter/dedup/README.md), or the alternatives are already gone when the refusal lands (see the user guide's node-ordering rule). Those two pull in opposite directions.
+
+A `cache_only` node resolves it. Put one above `dedup` and it replays what earlier runs learned, for free, so the refusal happens while the alternatives are still there; the real probe stays below `limit`:
+
+```python
+# Free: replays verdicts earlier runs paid for, touches no network.
+known = process("probe", upstream=alive, cache_only=True)
+# A release nobody has probed carries no probe_ok, and an absent field
+# compares false — so this refuses the known-bad and passes the unknown.
+good  = process("condition", upstream=known,
+                reject='probe_ok == false',
+                reason="an earlier run could not read this release's container")
+pick  = process("dedup", upstream=good)
+few   = process("limit", upstream=pick, n=3)
+# Costs megabytes, so it runs on the few: these are new to the cache.
+told  = process("probe", upstream=few, timeout="2m")
+```
+
+What this buys: a release refused on its own merits is not chosen again, so the next run's `dedup` picks the **next** alternative and the backlog drains. Without it the same release wins every night, is refused every night, and the item never arrives — measured on the live `3d-mvc` ambiguous lane, which spent its whole nightly budget re-probing one release whose swarm would not serve.
+
+## Placement
 ## Placement
 
 `probe` requires `torrent_info_hash`, so it sits after [`metainfo_torrent`](../metainfo/torrent/README.md). Put it after every gate that decides from the release name — [`quality`](../filter/quality/README.md), [`trailer`](../filter/trailer/README.md), the trackers, [`torrent_alive`](../filter/torrent_alive/README.md) — because those cost nothing and this costs megabytes. `torrent_alive` earns its place first in particular: a probe needs a seeder, and that filter has already established there is one.

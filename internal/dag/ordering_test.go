@@ -275,3 +275,163 @@ func TestNoCollapseNoWarning(t *testing.T) {
 		t.Errorf("no collapse, no warning; got:\n%s", warnText(warnings))
 	}
 }
+
+// --- a refusal a later run repeats before the collapse ---
+
+// replayDesc stands in for `probe`: it may stamp its fields, and it records
+// them durably per release so a later run stamps the same answer for free.
+func replayDesc(name string, fields ...string) *plugin.Descriptor {
+	return &plugin.Descriptor{
+		PluginName: name, Role: plugin.RoleProcessor,
+		Refusal:                  plugin.RefusalNone,
+		MayProduce:               fields,
+		ReplaysPerReleaseVerdict: true,
+	}
+}
+
+func condNode(id dag.NodeID, rule string, upstreams ...dag.NodeID) *dag.Node {
+	n := node(id, "condition", upstreams...)
+	n.Config = map[string]any{"reject": rule}
+	return n
+}
+
+func mvcRegistry() func(string) (*plugin.Descriptor, bool) {
+	return makeRegistry(
+		sourceDescFor("rss"),
+		collapsingDesc("dedup"),
+		replayDesc("probe", "probe_ok", "probe_3d_layout"),
+		refusingDesc("condition", plugin.RefusalPerRelease),
+		refusingDesc("content", plugin.RefusalPerRelease),
+		&plugin.Descriptor{PluginName: "limit", Role: plugin.RoleProcessor, Refusal: plugin.RefusalPerItem},
+		sinkDescFor("transmission"),
+	)
+}
+
+// TestAReplayedVerdictExcusesARefusalBelowTheCollapse is the shape the MVC
+// lanes use: the expensive probe stays below limit, where it runs on the few
+// about to be downloaded, and a cache_only node above dedup replays what
+// earlier runs learned. The refused release is refused again next run while
+// its alternatives are still there, so the collapse picks the next one.
+func TestAReplayedVerdictExcusesARefusalBelowTheCollapse(t *testing.T) {
+	g := makeGraph(t,
+		node("src", "rss"),
+		node("known", "probe", "src"),
+		condNode("gate", `probe_ok == true and probe_3d_layout != "mvc"`, "known"),
+		node("dd", "dedup", "gate"),
+		node("few", "limit", "dd"),
+		node("told", "probe", "few"),
+		condNode("ok", `probe_ok == true and probe_3d_layout != "mvc"`, "told"),
+		node("out", "transmission", "ok"),
+	)
+	errs, warnings := dag.Validate(g, mvcRegistry())
+	if len(errs) > 0 {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+	if got := warnText(warnings); strings.Contains(got, "keeps only one release per item") {
+		t.Errorf("the refusal is replayed above the collapse and must not warn, got:\n%s", got)
+	}
+}
+
+// TestNoExcuseWithoutTheGateAboveTheCollapse is the same graph minus the one
+// node that makes it safe. Without it nothing refuses the release before the
+// alternatives are discarded, which is the bug the warning is for.
+func TestNoExcuseWithoutTheGateAboveTheCollapse(t *testing.T) {
+	g := makeGraph(t,
+		node("src", "rss"),
+		node("dd", "dedup", "src"),
+		node("few", "limit", "dd"),
+		node("told", "probe", "few"),
+		condNode("ok", `probe_ok == true and probe_3d_layout != "mvc"`, "told"),
+		node("out", "transmission", "ok"),
+	)
+	_, warnings := dag.Validate(g, mvcRegistry())
+	if got := warnText(warnings); !strings.Contains(got, `node "ok"`) {
+		t.Errorf("want an ordering warning for the condition, got:\n%s", got)
+	}
+}
+
+// TestNoExcuseWhenTheGateDoesNotProduceEveryFieldRead: half the evidence
+// arriving early is not enough — the refusal can still fire on the field the
+// gate knows nothing about.
+func TestNoExcuseWhenTheGateDoesNotProduceEveryFieldRead(t *testing.T) {
+	g := makeGraph(t,
+		node("src", "rss"),
+		node("known", "probe", "src"),
+		node("dd", "dedup", "known"),
+		node("few", "limit", "dd"),
+		node("told", "probe", "few"),
+		condNode("ok", `probe_ok == true and torrent_file_size < 20000000000`, "told"),
+		node("out", "transmission", "ok"),
+	)
+	_, warnings := dag.Validate(g, mvcRegistry())
+	if got := warnText(warnings); !strings.Contains(got, `node "ok"`) {
+		t.Errorf("torrent_file_size is not replayed, so this must still warn, got:\n%s", got)
+	}
+}
+
+// TestNoExcuseForARefusalWithNoStaticDecisionFields: `content` decides from a
+// file list. Nothing in its config says which release passes, so there is
+// nothing a node above the collapse could have replayed.
+func TestNoExcuseForARefusalWithNoStaticDecisionFields(t *testing.T) {
+	g := makeGraph(t,
+		node("src", "rss"),
+		node("known", "probe", "src"),
+		node("dd", "dedup", "known"),
+		node("cont", "content", "dd"),
+		node("out", "transmission", "cont"),
+	)
+	_, warnings := dag.Validate(g, mvcRegistry())
+	if got := warnText(warnings); !strings.Contains(got, `node "cont"`) {
+		t.Errorf("content's decision is not static, so this must still warn, got:\n%s", got)
+	}
+}
+
+// TestAGateOnOneBranchOfAMergeIsNotEnough: releases arriving on the ungated
+// branch reach the collapse with no replayed verdict, and are exactly as lost
+// as before.
+func TestAGateOnOneBranchOfAMergeIsNotEnough(t *testing.T) {
+	g := makeGraph(t,
+		node("rss1", "rss"),
+		node("rss2", "rss"),
+		node("known", "probe", "rss1"),
+		node("dd", "dedup", "known", "rss2"),
+		node("few", "limit", "dd"),
+		node("told", "probe", "few"),
+		condNode("ok", `probe_ok == true and probe_3d_layout != "mvc"`, "told"),
+		node("out", "transmission", "ok"),
+	)
+	_, warnings := dag.Validate(g, mvcRegistry())
+	if got := warnText(warnings); !strings.Contains(got, `node "ok"`) {
+		t.Errorf("the second branch bypasses the gate, so this must warn, got:\n%s", got)
+	}
+}
+
+// TestNoExcuseFromAGateThatDoesNotRecordAnything: the excuse is that a LATER
+// run makes the same refusal for free. A node that stamps the fields but
+// forgets them cannot give that.
+func TestNoExcuseFromAGateThatDoesNotRecordAnything(t *testing.T) {
+	forgetful := &plugin.Descriptor{
+		PluginName: "probe", Role: plugin.RoleProcessor,
+		Refusal:    plugin.RefusalNone,
+		MayProduce: []string{"probe_ok", "probe_3d_layout"},
+	}
+	reg := makeRegistry(
+		sourceDescFor("rss"), collapsingDesc("dedup"), forgetful,
+		refusingDesc("condition", plugin.RefusalPerRelease),
+		&plugin.Descriptor{PluginName: "limit", Role: plugin.RoleProcessor, Refusal: plugin.RefusalPerItem},
+		sinkDescFor("transmission"),
+	)
+	g := makeGraph(t,
+		node("src", "rss"),
+		node("known", "probe", "src"),
+		node("dd", "dedup", "known"),
+		node("few", "limit", "dd"),
+		node("told", "probe", "few"),
+		condNode("ok", `probe_ok == true and probe_3d_layout != "mvc"`, "told"),
+		node("out", "transmission", "ok"),
+	)
+	_, warnings := dag.Validate(g, reg)
+	if got := warnText(warnings); !strings.Contains(got, `node "ok"`) {
+		t.Errorf("a gate that records nothing is no excuse, got:\n%s", got)
+	}
+}
