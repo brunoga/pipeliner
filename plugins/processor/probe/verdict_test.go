@@ -349,3 +349,52 @@ func TestNoStoreMeansNoCache(t *testing.T) {
 		t.Errorf("saveVerdict with no store: %v", err)
 	}
 }
+
+// TestADryRunDoesNotRecordAFailure is the asymmetry that keeps a dry run from
+// changing what a real run does. A recorded failure makes a cache_only gate
+// refuse that release for a whole cache_ttl, so recording one from a
+// diagnostic run would suppress a release on the next REAL run on the strength
+// of a swarm snapshot nobody asked to act on — the trap discover avoids by not
+// stamping titles as "just searched" during a dry run.
+//
+// A success is kept either way: it is a fact about immutable bytes, so it
+// cannot go stale, and dropping it would mean re-pulling 20-25 MiB.
+func TestADryRunDoesNotRecordAFailure(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		dryRun bool
+		want   int
+	}{
+		{"dry run", true, 0},
+		{"real run", false, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db := verdictStore(t)
+			p := probeWith(t, db, map[string]any{"timeout": "5s"})
+			t.Cleanup(func() { p.Shutdown(context.Background(), nil) })
+
+			// A host that cannot resolve, so fetchMetainfo fails and the
+			// probe records a failure rather than a result.
+			e := hashEntry("Dead Swarm 2021 3D", "aabbcc")
+			out, err := p.Process(context.Background(),
+				&plugin.TaskContext{Logger: discardLogger(), DryRun: tc.dryRun},
+				[]*entry.Entry{e})
+			if err != nil {
+				t.Fatalf("Process: %v", err)
+			}
+			if len(out) != 1 {
+				t.Fatalf("a failed probe must pass the entry on, got %d", len(out))
+			}
+			if v := e.Fields[entry.FieldProbeOK]; v != false {
+				t.Errorf("probe_ok = %#v, want false", v)
+			}
+			keys, kerr := db.Bucket(VerdictBucketName).Keys()
+			if kerr != nil {
+				t.Fatal(kerr)
+			}
+			if len(keys) != tc.want {
+				t.Errorf("stored %d verdicts, want %d: %v", len(keys), tc.want, keys)
+			}
+		})
+	}
+}
