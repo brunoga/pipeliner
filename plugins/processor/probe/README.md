@@ -123,6 +123,6 @@ Fields are left unset rather than written as zero, so a condition can tell "it s
 | Property | Value |
 |---|---|
 | Role | processor |
-| Refusal | per-release |
+| Refusal | per-release with `require=true`, none without it |
 | Requires | `torrent_info_hash` |
 | MayProduce | the `probe_*` fields above |

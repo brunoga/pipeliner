@@ -183,18 +183,22 @@ process("condition", upstream=lanes.frame, rules=[
                "material"},
 ])
 
-# `pipeliner check` warns, four times, that probe and its condition sit below
-# dedup — "when it refuses, the alternatives are already gone". That is true
-# and it is the accepted trade: probing above dedup would mean probing every
-# surviving candidate rather than the few about to be downloaded, which on
-# this feed is ~200 probes a night to fetch 3 discs. Below dedup it is 4.
+# `pipeliner check` warns, twice, that the conditions reading the probe sit
+# below dedup — "when it refuses, the alternatives are already gone". That is
+# true and it is the accepted trade: probing above dedup would mean probing
+# every surviving candidate rather than the few about to be downloaded, which
+# measured on the live feed is 130 probes a night in lane A and 62 in lane B
+# to fetch 3 discs. Below dedup it is 4. The probe nodes themselves are not
+# warned about, because neither sets require=true and so neither can refuse
+# anything.
 #
 # The cost of being wrong is bounded differently per lane. In lane A a refusal
 # loses that film for the run, and the name said MVC, so it is rare. In lane B
 # a refusal is usually *correct* — a bare-3D release that probes as half-SBS
-# is exactly what this pipeline should not take — and the waste is one probe a
-# night re-confirming it. Recording probe verdicts so they are not re-probed
-# would remove even that.
+# is exactly what this pipeline should not take — but the refused release is
+# re-chosen every night, so the lane delivers nothing until a bigger release
+# appears. Recording probe verdicts so a refused release is not re-chosen is
+# what actually fixes that; reordering does not.
 
 # ── The gates that cost a request, shared by both lanes ──────────────────────
 

@@ -25,6 +25,11 @@ import (
 // run") — would refuse the alternatives for the same reason, so its position
 // relative to the collapse makes no difference.
 //
+// The question is asked of the configured node, not of the plugin: `probe`
+// can reject a release, but only with require=true, and a probe node without
+// it leaves an unreadable release accepted. Warning about such a node names a
+// refusal that cannot happen, which is how a reader learns to skip warnings.
+//
 // A refusal also only costs the item if it sits on *every* route from the
 // collapse to a sink. A fan-out branch that exists for an optional side effect
 // — adding the show to a favourites list, say — can refuse freely: the download
@@ -48,7 +53,7 @@ func orderingWarnings(g *Graph, reg func(name string) (*plugin.Descriptor, bool)
 				continue
 			}
 			seen[cur.ID] = true
-			if dd, ok := reg(cur.PluginName); ok && dd.Refusal == plugin.RefusalPerRelease {
+			if dd, ok := reg(cur.PluginName); ok && dd.RefusalIn(cur.Config) == plugin.RefusalPerRelease {
 				if !reachesSinkAvoiding(g, reg, n.ID, cur.ID) {
 					hits = append(hits, hit{string(cur.ID), cur.PluginName})
 				}

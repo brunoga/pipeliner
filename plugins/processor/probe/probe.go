@@ -82,7 +82,18 @@ func init() {
 		PluginName:  pluginName,
 		Description: "read a release's own container from a sample of its torrent, before downloading it",
 		Role:        plugin.RoleProcessor,
-		Refusal:     plugin.RefusalPerRelease,
+		// require=true is the only way this plugin rejects anything: without
+		// it an unreadable release keeps probe_ok false and is passed on, so
+		// the node cannot cost an item its alternatives whatever it sits
+		// below. Saying so here is what keeps the ordering check from
+		// warning about a refusal that cannot happen.
+		Refusal: plugin.RefusalPerRelease,
+		RefusalFor: func(cfg map[string]any) plugin.Refusal {
+			if plugin.OptBool(cfg, "require", false) {
+				return plugin.RefusalPerRelease
+			}
+			return plugin.RefusalNone
+		},
 		// torrent_info_hash means a metainfo step has resolved this entry to a
 		// real torrent, which is what there is to sample.
 		Requires:   plugin.RequireAll(entry.FieldTorrentInfoHash),

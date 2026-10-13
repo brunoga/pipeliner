@@ -451,6 +451,24 @@ func TestEveryProcessorDeclaresRefusal(t *testing.T) {
 	}
 }
 
+// TestRefusalForNeverExceedsRefusal: Refusal is documented as the strongest
+// refusal a plugin is capable of, and readers of the registry rely on that.
+// A RefusalFor that returned more would make the ordering check warn about
+// something the descriptor says cannot happen.
+func TestRefusalForNeverExceedsRefusal(t *testing.T) {
+	for _, d := range plugin.All() {
+		if d.RefusalFor == nil {
+			continue
+		}
+		// An empty config is the weakest case, and the one every schema
+		// default applies to; the per-plugin tests cover the configured ones.
+		if got := d.RefusalIn(map[string]any{}); got > d.Refusal {
+			t.Errorf("%s: RefusalIn(empty) = %v, stronger than the declared ceiling %v",
+				d.PluginName, got, d.Refusal)
+		}
+	}
+}
+
 // Collapsing plugins are the anchor of the ordering check; if the flag ever
 // came off dedup the check would pass vacuously on every config.
 func TestDedupIsTheCollapsingPlugin(t *testing.T) {

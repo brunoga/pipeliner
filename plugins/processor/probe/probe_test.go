@@ -631,3 +631,26 @@ func TestProbeUpscaleTiersDoNotBleed(t *testing.T) {
 		}
 	}
 }
+
+// TestOnlyRefusesWhenRequired pins the reason this plugin carries a
+// RefusalFor at all. Both probe nodes in a real MVC-harvest config leave
+// require unset, so an unreadable release is passed on with probe_ok false
+// and nothing is rejected here. Declaring the capability statically made the
+// DAG ordering check emit two warnings naming a rejection the configured node
+// cannot reach, next to two that were real — which is how a reader learns to
+// skip the whole set.
+func TestOnlyRefusesWhenRequired(t *testing.T) {
+	d, ok := plugin.Lookup(pluginName)
+	if !ok {
+		t.Fatal("probe not registered")
+	}
+	if got := d.RefusalIn(map[string]any{}); got != plugin.RefusalNone {
+		t.Errorf("require unset: RefusalIn = %v, want none", got)
+	}
+	if got := d.RefusalIn(map[string]any{"require": false}); got != plugin.RefusalNone {
+		t.Errorf("require=false: RefusalIn = %v, want none", got)
+	}
+	if got := d.RefusalIn(map[string]any{"require": true}); got != plugin.RefusalPerRelease {
+		t.Errorf("require=true: RefusalIn = %v, want per-release", got)
+	}
+}
