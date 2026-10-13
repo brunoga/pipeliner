@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.63.1] - 2026-10-13
+
+### Fixed
+
+- **A dry run records a probe success but not a failure** ([#605](https://github.com/brunoga/pipeliner/pull/605)). A recorded failure makes a `cache_only` gate refuse that release for a whole `cache_ttl`, so 1.63.0 let a *diagnostic* run suppress a release on the next **real** run for a week -- the same trap `discover` avoids by not stamping titles as "just searched" during a dry run. A success is kept either way, because the two outcomes differ in whether they can go stale and that is what decides it: a container that was read is a fact about immutable bytes, so recording it from a dry run can never be wrong, and dropping it would mean re-pulling 20-25 MiB for an answer already in hand. Caught before it did any harm -- `cache_probe` was still empty on the live install.
+
+**Why 1.63.1**: one guard, no config or data changes. A dry run now leaves less behind than it did in 1.63.0, never more.
+
 ## [1.63.0] - 2026-10-13
 
 Two rules in this repo pull in opposite directions, and a dry run of the live MVC harvest found the place they met. A probe costs 20-25 MiB and up to its full timeout, so it belongs below `limit`, where it runs on the few releases about to be downloaded -- measured per lane, moving it above `dedup` is 130 probes a night in one lane and 62 in the other, and ~190 private-tracker swarm joins, to fetch 3 discs. But a node that can refuse a release belongs above `dedup`, or the alternatives are already gone when the refusal lands. The ambiguous lane was losing that argument in the most expensive way available: the biggest release in the lane won `limit n=1` every night, burned the full two minutes without a peer serving its sample, was refused, and was forgotten -- so it was the biggest release again the next night. That lane delivered nothing for as long as it stayed the biggest, and would not have recovered on its own.
