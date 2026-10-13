@@ -329,3 +329,105 @@ func TestReasonIsAnAcceptedConfigKey(t *testing.T) {
 		t.Error("an unknown key should still be rejected")
 	}
 }
+
+// TestValidateCompilesExpressions pins the invariant that makes `pipeliner
+// check` worth running: a config it passes must be one the daemon can load.
+//
+// Before this, validate checked only that a rule key was present and that no
+// key was misspelled, while the expressions themselves were compiled in the
+// factory — which `check` never calls. A rule like `probe_unreachable ====
+// true` therefore printed "config OK" and was refused at the next reload.
+func TestValidateCompilesExpressions(t *testing.T) {
+	cases := []struct {
+		name string
+		cfg  map[string]any
+		want string // substring the error must name, "" when the config is good
+	}{
+		{
+			name: "single-rule reject that will not compile",
+			cfg:  map[string]any{"reject": `probe_unreachable ==== true`},
+			want: "reject",
+		},
+		{
+			name: "single-rule accept that will not compile",
+			cfg:  map[string]any{"accept": `video_year >>> 2020`},
+			want: "accept",
+		},
+		{
+			name: "bad expression inside rules[] is named by index",
+			cfg: map[string]any{"rules": []any{
+				map[string]any{"reject": `source == "CAM"`},
+				map[string]any{"reject": `probe_unreachable ==== true`},
+			}},
+			want: "rules[1]",
+		},
+		{
+			name: "a rule that is not a map",
+			cfg:  map[string]any{"rules": []any{"reject: true"}},
+			want: "rules[0]",
+		},
+		{
+			name: "valid single rule stays valid",
+			cfg:  map[string]any{"reject": `probe_unreachable == true`, "reason": "dead swarm"},
+		},
+		{
+			name: "valid rules[] stays valid",
+			cfg: map[string]any{"rules": []any{
+				map[string]any{"reject": `probe_unreachable == true`, "reason": "dead swarm"},
+				map[string]any{"accept": `probe_3d_layout == "mvc"`},
+			}},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			errs := validate(tc.cfg)
+			if tc.want == "" {
+				if len(errs) != 0 {
+					t.Fatalf("validate(%v) = %v, want no errors", tc.cfg, errs)
+				}
+				return
+			}
+			if len(errs) == 0 {
+				t.Fatalf("validate(%v) accepted a config the factory refuses", tc.cfg)
+			}
+			if !strings.Contains(errs[0].Error(), tc.want) {
+				t.Errorf("error %q does not name %q", errs[0], tc.want)
+			}
+		})
+	}
+}
+
+// TestValidateAgreesWithFactory is the general form of the above: for every
+// config either both reject it or neither does. A divergence here is the bug
+// this file's other test was written for, in whichever direction it reappears.
+func TestValidateAgreesWithFactory(t *testing.T) {
+	cfgs := []map[string]any{
+		{"reject": `probe_unreachable ==== true`},
+		{"reject": `probe_unreachable == true`},
+		{"accept": `true`},
+		{"rules": []any{map[string]any{"reject": `a ==== b`}}},
+		{"rules": []any{map[string]any{"reject": `a == b`}}},
+		{"rules": []any{}},
+		{},
+		{"rules": "not a list"},
+	}
+	for _, cfg := range cfgs {
+		validateRejects := len(validate(cfg)) > 0
+		_, factoryErr := newPlugin(cfg, nil)
+		factoryRejects := factoryErr != nil
+		if validateRejects != factoryRejects {
+			t.Errorf("cfg %v: validate rejects=%v but factory rejects=%v (factory err: %v)",
+				cfg, validateRejects, factoryRejects, factoryErr)
+		}
+	}
+}
+
+// TestValidateReportsOneErrorPerProblem guards the obvious way to write the
+// fix badly: running the compile unconditionally alongside RequireOneOf makes
+// an empty config report the same missing rule twice.
+func TestValidateReportsOneErrorPerProblem(t *testing.T) {
+	if errs := validate(map[string]any{}); len(errs) != 1 {
+		t.Errorf("an empty config should report exactly one error, got %d: %v", len(errs), errs)
+	}
+}

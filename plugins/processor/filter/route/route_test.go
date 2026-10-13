@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"strings"
 	"testing"
 
 	"github.com/brunoga/pipeliner/internal/entry"
@@ -209,5 +210,103 @@ func TestRouteNoStateRefKeepsDefaultInputStates(t *testing.T) {
 	}
 	if got := p.EffectiveInputStates(); got != entry.StatesAcceptedUndecided {
 		t.Errorf("EffectiveInputStates() = %v; want StatesAcceptedUndecided", got)
+	}
+}
+
+// TestValidateRouteCompilesExpressions is the route half of the invariant
+// pinned in the condition plugin's tests: a config `pipeliner check` passes
+// must be one the daemon can load. The port expressions were compiled only in
+// the factory, which check never calls.
+func TestValidateRouteCompilesExpressions(t *testing.T) {
+	cases := []struct {
+		name string
+		cfg  map[string]any
+		want string // substring the error must name, "" when the config is good
+	}{
+		{
+			name: "port expression that will not compile",
+			cfg: map[string]any{"rules": []any{
+				map[string]any{"name": "mvc", "accept": `video_3d_layout ==== "mvc"`},
+			}},
+			want: "rules[0]",
+		},
+		{
+			name: "the failing port is named by index",
+			cfg: map[string]any{"rules": []any{
+				map[string]any{"name": "frame", "accept": `video_3d_layout == "half"`},
+				map[string]any{"name": "mvc", "accept": `video_3d_layout ==== "mvc"`},
+			}},
+			want: "rules[1]",
+		},
+		{
+			name: "port with no name",
+			cfg: map[string]any{"rules": []any{
+				map[string]any{"accept": "true"},
+			}},
+			want: "missing 'name'",
+		},
+		{
+			name: "port with no accept expression",
+			cfg: map[string]any{"rules": []any{
+				map[string]any{"name": "mvc"},
+			}},
+			want: "missing 'accept'",
+		},
+		{
+			name: "valid ports stay valid",
+			cfg: map[string]any{"rules": []any{
+				map[string]any{"name": "frame", "accept": `video_3d_layout == "half"`},
+				map[string]any{"name": "ambiguous", "accept": "true"},
+			}},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			errs := validateRoute(tc.cfg)
+			if tc.want == "" {
+				if len(errs) != 0 {
+					t.Fatalf("validateRoute(%v) = %v, want no errors", tc.cfg, errs)
+				}
+				return
+			}
+			if len(errs) == 0 {
+				t.Fatalf("validateRoute(%v) accepted a config the factory refuses", tc.cfg)
+			}
+			if !strings.Contains(errs[0].Error(), tc.want) {
+				t.Errorf("error %q does not name %q", errs[0], tc.want)
+			}
+		})
+	}
+}
+
+// TestValidateRouteAgreesWithFactory: for every config, either both reject it
+// or neither does.
+func TestValidateRouteAgreesWithFactory(t *testing.T) {
+	cfgs := []map[string]any{
+		{"rules": []any{map[string]any{"name": "a", "accept": `x ==== 1`}}},
+		{"rules": []any{map[string]any{"name": "a", "accept": `x == 1`}}},
+		{"rules": []any{map[string]any{"accept": "true"}}},
+		{"rules": []any{map[string]any{"name": "a"}}},
+		{"rules": []any{"not a map"}},
+		{"rules": []any{}},
+		{},
+	}
+	for _, cfg := range cfgs {
+		validateRejects := len(validateRoute(cfg)) > 0
+		_, factoryErr := newRoutePlugin(cfg, nil)
+		factoryRejects := factoryErr != nil
+		if validateRejects != factoryRejects {
+			t.Errorf("cfg %v: validateRoute rejects=%v but factory rejects=%v (factory err: %v)",
+				cfg, validateRejects, factoryRejects, factoryErr)
+		}
+	}
+}
+
+// TestValidateRouteReportsOneErrorPerProblem: an empty config names the
+// missing rule list once, not twice.
+func TestValidateRouteReportsOneErrorPerProblem(t *testing.T) {
+	if errs := validateRoute(map[string]any{}); len(errs) != 1 {
+		t.Errorf("an empty config should report exactly one error, got %d: %v", len(errs), errs)
 	}
 }
