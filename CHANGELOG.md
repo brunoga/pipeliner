@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.63.3] - 2026-10-13
+
+### Fixed
+
+- **Save & Reload gave no sign it was working, and could be fired twice** ([#610](https://github.com/brunoga/pipeliner/pull/610)). A save is most of a restart -- the server parses the config, validates every graph, builds every plugin, writes the file and resets the scheduler before it answers -- which is seconds on a config of any size. The toolbar cleared its status line and waited in silence, so a save looked exactly like a click that had not registered, and the button stayed live. `POST /api/config` has no version check, so the natural second click raced the first on the same file. The pressed button now reads **Saving…** or **Validating…**, both buttons are disabled for the duration, and a call made while one is in flight is dropped rather than queued. The two reasons Save can be disabled -- a failed config load, and a request in flight -- now compose: finishing a request no longer risks re-enabling a Save that a failed load blocked, which is the guard that stops an empty editor overwriting the real config. And because `fetch()` has no timeout of its own, a request that never gets an answer is abandoned after two minutes, so a hung server cannot leave the toolbar permanently disabled.
+
+**Why 1.63.3**: one fix to the config toolbar, nothing else. No configuration, no server change, and nothing that affects how a pipeline runs.
+
 ## [1.63.2] - 2026-10-13
 
 ### Fixed
