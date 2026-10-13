@@ -259,3 +259,33 @@ describe('extractPreamble: definitions below the first construct', () => {
     expect(extractPreamble('A = 1\nB = 2\n')).toBe('');
   });
 });
+
+describe('extractPreamble is stable across saves', () => {
+  // Every visual save re-emits the preamble and the next load extracts it
+  // again. The blank run above each statement used to be carried into the
+  // output and then joined with another blank line, so the gap between two
+  // definitions grew by one line per save.
+  it('does not add blank lines on repeated extraction', () => {
+    const src = [
+      '# Definitions',
+      'A = env("A")',
+      '',
+      'B = env("B")',
+      '',
+      '',
+      '# about C',
+      'C = {"x": 1}',
+      '',
+      'src = input("rss", url=A)',
+      'pipeline("p")',
+    ].join('\n');
+    const once  = extractPreamble(src);
+    const twice = extractPreamble(once + '\n\nsrc = input("rss", url=A)\npipeline("p")\n');
+    const three = extractPreamble(twice + '\n\nsrc = input("rss", url=A)\npipeline("p")\n');
+    expect(twice).toBe(once);
+    expect(three).toBe(once);
+    expect(once).toContain('A = env("A")\n\nB = env("B")');
+    expect(once).toContain('# about C\nC = {"x": 1}');
+  });
+});
+

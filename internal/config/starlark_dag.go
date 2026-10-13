@@ -412,6 +412,10 @@ func kwargsToConfig(pluginName string, kwargs []starlark.Tuple) (map[string]any,
 type routeHandles struct {
 	ports     map[string]*nodeHandle
 	portOrder []string // preserve kwargs order for determinism
+	// routeID is the route node itself, which the variable holding these
+	// handles names — `lanes = route(...)` — even though the ports, not the
+	// route node, are what downstream code references.
+	routeID dag.NodeID
 }
 
 func (r *routeHandles) String() string {
@@ -495,7 +499,7 @@ func (ctx *execContext) routeBuiltin(thread *starlark.Thread, fn *starlark.Built
 
 	// Create one route_selector node per port. Store the accept expression so
 	// the DAG validator can infer field contracts from it.
-	handles := &routeHandles{ports: make(map[string]*nodeHandle), portOrder: make([]string, 0, len(ports))}
+	handles := &routeHandles{ports: make(map[string]*nodeHandle), portOrder: make([]string, 0, len(ports)), routeID: routeID}
 	for _, p := range ports {
 		handles.portOrder = append(handles.portOrder, p.name)
 		selID := ctx.nextNodeID("route_selector")

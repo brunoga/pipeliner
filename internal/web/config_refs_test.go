@@ -1,6 +1,7 @@
 package web
 
 import (
+	"github.com/brunoga/pipeliner/internal/config"
 	"reflect"
 	"testing"
 )
@@ -69,132 +70,50 @@ func TestConfigRefsInvalidSourceIsSafe(t *testing.T) {
 	}
 }
 
-// TestRemapBySourceOrderRecoversRenumberedNodes is the regression for the
-// silent secret re-inlining: the loader numbers nodes with its own counter,
-// so after a hand edit shifts the numbering, a node's ID no longer matches
-// the source variable it was assigned to. Everything scanned from raw text
-// is keyed by that variable name, so without reconciliation every reference
-// (and comment, label, position) detaches and the visual editor rewrites
-// resolved secrets into the config on the next save.
-func TestRemapBySourceOrderRecoversRenumberedNodes(t *testing.T) {
-	// Source names (rss_0, deluge_7) vs loader IDs (rss_2, deluge_9): the
-	// numbering diverged by two when nodes were added earlier in the file.
-	content := `
-KEY = env("K")
-rss_0 = input("rss", url="http://x/feed")
-seen_1 = process("seen", upstream=rss_0)
-deluge_7 = output("deluge", upstream=seen_1, password=KEY, host="h")
-`
-	ids := []string{"rss_2", "seen_3", "deluge_9"}
-	plugins := map[string]string{"rss_2": "rss", "seen_3": "seen", "deluge_9": "deluge"}
-	idToVar := remapBySourceOrder(content, ids, func(id string) string { return plugins[id] })
-
-	if idToVar["deluge_9"] != "deluge_7" {
-		t.Errorf("deluge_9 → %q, want deluge_7", idToVar["deluge_9"])
+// idToVarFromLoader runs content through the real loader and returns the
+// node ID → variable map the parse endpoint builds from it.
+func idToVarFromLoader(t *testing.T, content string) map[string]string {
+	t.Helper()
+	c, err := config.ParseBytes([]byte(content))
+	if err != nil {
+		t.Fatalf("ParseBytes: %v", err)
 	}
-	if idToVar["rss_2"] != "rss_0" {
-		t.Errorf("rss_2 → %q, want rss_0", idToVar["rss_2"])
-	}
-
-	// The reference lookup must now find the node's refs by either key.
-	refs := configRefs(content)
-	lookup := rekeyBySource(refs, idToVar)
-	got, ok := lookup("deluge_9")
-	if !ok {
-		t.Fatal("deluge_9 must resolve its source refs after remapping")
-	}
-	raw, isRaw := got["password"].(map[string]any)
-	if !isRaw || raw["__star_raw__"] != "KEY" {
-		t.Errorf("password ref = %#v, want {__star_raw__: KEY}", got["password"])
-	}
-}
-
-// Identity case: a freshly-saved config whose source names already match the
-// loader's IDs needs no remapping, and lookups still work.
-func TestRemapBySourceOrderIdentity(t *testing.T) {
-	content := `
-KEY = env("K")
-rss_0 = input("rss", url="http://x/feed")
-deluge_1 = output("deluge", upstream=rss_0, password=KEY)
-`
-	ids := []string{"rss_0", "deluge_1"}
-	plugins := map[string]string{"rss_0": "rss", "deluge_1": "deluge"}
-	idToVar := remapBySourceOrder(content, ids, func(id string) string { return plugins[id] })
-	if len(idToVar) != 0 {
-		t.Errorf("matching names need no remap entries, got %v", idToVar)
-	}
-	lookup := rekeyBySource(configRefs(content), idToVar)
-	if _, ok := lookup("deluge_1"); !ok {
-		t.Error("identity lookup must still resolve refs")
-	}
-}
-
-// User function calls create nodes internal to the call; those are excluded
-// from the pairing by the caller, and their top-level assignment (a function
-// call, not a plugin constructor) must not consume a plugin slot.
-func TestSourceAssignmentsSkipsFunctionCalls(t *testing.T) {
-	content := `
-def helper(upstream):
-    inner_0 = output("deluge", upstream=upstream, password="p")
-    return inner_0
-
-rss_0 = input("rss", url="http://x/feed")
-helper_1 = helper(upstream=rss_0)
-deluge_9 = output("deluge", upstream=rss_0, password="q")
-`
-	got := sourceAssignments(content)
-	var pairs []string
-	for _, a := range got {
-		pairs = append(pairs, a.Plugin+":"+a.Var)
-	}
-	want := []string{"rss:rss_0", "deluge:deluge_9"}
-	if len(pairs) != len(want) {
-		t.Fatalf("assignments = %v, want %v", pairs, want)
-	}
-	for i := range want {
-		if pairs[i] != want[i] {
-			t.Errorf("assignments = %v, want %v", pairs, want)
-			break
+	out := map[string]string{}
+	for id, v := range c.NodeVars {
+		if string(id) != v {
+			out[string(id)] = v
 		}
 	}
+	return out
 }
 
-func TestNodeCreationOrder(t *testing.T) {
-	got := nodeCreationOrder([]string{"deluge_10", "rss_2", "seen_9"})
-	want := []string{"rss_2", "seen_9", "deluge_10"} // numeric, not lexical
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("order = %v, want %v", got, want)
-		}
-	}
-}
-
-// The case the identity and offset tests above both miss: a run of
-// same-plugin nodes after a deletion. The global ID counter shifts every later
-// node down by one while the variable names keep their numbers, so each node's
-// own ID is now the name of its NEIGHBOUR's variable. The lookup must follow
-// the mapping, not the coincidental name.
+// A run of same-plugin nodes after a deletion. The global ID counter shifts
+// every later node down by one while the variable names keep their numbers,
+// so each node's own ID is now the name of its NEIGHBOUR's variable. The
+// lookup must follow the mapping, not the coincidental name.
 //
 // This is the live failure: node jackett_132 was assigned to variable
-// jackett_133 (a BD100 search with a literal url), a variable jackett_132 still
-// existed (the BD66 search, url=JACKETT_URL), and one visual save gave the
-// BD100 node the BD66 node's references.
+// jackett_133 (a BD100 search with a literal url), a variable jackett_132
+// still existed (the BD66 search, url=JACKETT_URL), and one visual save gave
+// the BD100 node the BD66 node's references.
 func TestRekeyBySourceFollowsMappingWhenOwnIDNamesANeighbour(t *testing.T) {
 	content := `
-FEED = env("FEED")
+FEED = "https://example.com/shared"
 
 # first: the shared feed
 rss_1 = input("rss", url=FEED)
 
 # second: a literal url of its own
 rss_2 = input("rss", url="https://example.com/literal")
+
+out_a = output("print", upstream=rss_1)
+out_b = output("print", upstream=rss_2)
+pipeline("tv")
 `
-	// rss_0 was deleted from the text, so the loader numbers from 0 again.
-	ids := []string{"rss_0", "rss_1"}
-	plugins := map[string]string{"rss_0": "rss", "rss_1": "rss"}
-	idToVar := remapBySourceOrder(content, ids, func(id string) string { return plugins[id] })
+	// rss_0 is not in the text, so the loader numbers the feeds from 0.
+	idToVar := idToVarFromLoader(t, content)
 	if idToVar["rss_1"] != "rss_2" {
-		t.Fatalf("node rss_1 → %q, want variable rss_2", idToVar["rss_1"])
+		t.Fatalf("node rss_1 → %q, want variable rss_2 (map %v)", idToVar["rss_1"], idToVar)
 	}
 
 	refs := rekeyBySource(configRefs(content), idToVar)

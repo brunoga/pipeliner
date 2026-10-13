@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	playwright "github.com/mxschmitt/playwright-go"
 )
 
 // roundTripConfig reproduces, in miniature, the three things one plain visual
@@ -60,24 +62,7 @@ func TestE2EVisualSaveRoundTripLosesNothing(t *testing.T) {
 	openConfigTab(t, page)
 	switchToVisual(t, page, roundTripConfig)
 
-	if _, err := page.Evaluate(`() => onModelChange()`); err != nil {
-		t.Fatalf("onModelChange: %v", err)
-	}
-	// Wait until the text actually changed — regeneration renames variables
-	// to node IDs, so the hand-written "rss_2 =" disappears.
-	var out string
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		out = editorContent(t, page)
-		if !strings.Contains(out, "rss_2 = input(") {
-			break
-		}
-		page.Locator("#view-btn-visual").Click()
-		time.Sleep(100 * time.Millisecond)
-	}
-	if strings.Contains(out, "rss_2 = input(") {
-		t.Fatalf("the text was never regenerated; the test proves nothing:\n%s", out)
-	}
+	out := regenerate(t, page)
 
 	for _, want := range []string{
 		// the detached section header
@@ -91,23 +76,84 @@ func TestE2EVisualSaveRoundTripLosesNothing(t *testing.T) {
 		// each node's own config, not its neighbour's
 		`url="https://example.com/literal"`,
 		"url=FEED",
+		// every hand-chosen variable name, not the loader's IDs
+		"rss_1 = input(",
+		"rss_2 = input(",
+		"seen_9 = process(",
+		"out = tail_fn(",
+		"shown = output(",
+		"also = output(",
+		"upstream=seen_9",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("regenerated config lost %q", want)
 		}
 	}
+	// The loader numbered the first feed rss_0; that ID must not leak out as
+	// a variable name.
+	if strings.Contains(out, "rss_0 =") {
+		t.Errorf("a node was written under its loader ID instead of its variable")
+	}
+
+	// And each comment sits above its own node.
+	if i := strings.Index(out, "with a literal url of its own"); i >= 0 {
+		rest := out[i:]
+		if j := strings.Index(rest, " = input("); j < 0 || !strings.HasPrefix(lastLine(rest[:j]), "rss_2") {
+			t.Errorf("the literal-url comment is not above rss_2:\n%s", out)
+		}
+	}
+
+	// A second save of the first save's output must change nothing. Anything
+	// that drifts per save — a name, a comment, a separator — fails here even
+	// if each save looks fine on its own.
+	//
+	// Re-parse the saved text into the model, then blank the editor so the
+	// second rewrite can only come from the model — otherwise "unchanged"
+	// would also be what no rewrite at all looks like.
+	if _, err := page.Evaluate(`async () => { await textToVisualSync(); }`); err != nil {
+		t.Fatalf("re-sync: %v", err)
+	}
+	if _, err := page.Evaluate(`() => { document.getElementById('config-editor').value = ''; }`); err != nil {
+		t.Fatalf("clear editor: %v", err)
+	}
+	again := regenerate(t, page)
+	if again != out {
+		t.Errorf("a second save changed the file:\n--- first\n%s\n--- second\n%s", out, again)
+	}
+
 	if t.Failed() {
 		t.Logf("regenerated config:\n%s", out)
 	}
+}
 
-	// And each comment sits above its own node: the literal-url comment must
-	// be followed by the literal-url node, not the FEED one.
-	i := strings.Index(out, "with a literal url of its own")
-	if i >= 0 {
-		rest := out[i:]
-		nl := strings.Index(rest, " = input(")
-		if nl < 0 || !strings.Contains(rest[:strings.Index(rest[nl:], "\n")+nl], "literal") {
-			t.Errorf("the literal-url comment is not above the literal-url node:\n%s", out)
-		}
+// regenerate forces the visual model to rewrite the text — what any canvas
+// edit (a drag, a tidy, a field change) does — and returns the text Save &
+// Reload would send. The hand-written fixture has no pipeliner:pos lines, so
+// their appearance is the sign the rewrite happened.
+func regenerate(t *testing.T, page playwright.Page) string {
+	t.Helper()
+	page.Locator("#view-btn-visual").Click()
+	if _, err := page.Evaluate(`() => onModelChange()`); err != nil {
+		t.Fatalf("onModelChange: %v", err)
 	}
+	var out string
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		out = editorContent(t, page)
+		if strings.Contains(out, "# pipeliner:pos") {
+			return out
+		}
+		page.Locator("#view-btn-visual").Click()
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatalf("the text was never regenerated; the test proves nothing:\n%s", out)
+	return ""
+}
+
+func lastLine(s string) string {
+	s = strings.TrimRight(s, "\n")
+	if i := strings.LastIndex(s, "\n"); i >= 0 {
+		return s[i+1:]
+	}
+	return s
 }

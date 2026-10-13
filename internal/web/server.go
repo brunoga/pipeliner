@@ -980,28 +980,19 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 	// matching the source variable it was assigned to as soon as the config
 	// is hand-edited. Everything scanned from raw text above is keyed by that
 	// variable name, so reconcile the two — otherwise references, comments,
-	// labels and positions silently detach (the editor then re-inlines
-	// resolved secrets on the next save).
-	var allNodeIDs []string
-	nodePlugin := map[string]string{}
-	funcInternal := map[string]bool{}
-	for _, calls := range c.FunctionCalls {
-		for _, fc := range calls {
-			for _, id := range fc.InternalNodeIDs {
-				funcInternal[id] = true
-			}
+	// labels and positions silently detach, or attach to a neighbour.
+	//
+	// The loader reports the variable each node was bound to, read from the
+	// module's globals after execution. That replaced pairing nodes with
+	// assignments by source order, which had to guess — an unassigned call or
+	// a node nested inside another call's arguments shifted every pairing
+	// after it.
+	idToVar := map[string]string{}
+	for id, v := range c.NodeVars {
+		if string(id) != v {
+			idToVar[string(id)] = v
 		}
 	}
-	for _, g := range c.Graphs {
-		for _, n := range g.Nodes() {
-			if funcInternal[string(n.ID)] {
-				continue
-			}
-			allNodeIDs = append(allNodeIDs, string(n.ID))
-			nodePlugin[string(n.ID)] = n.PluginName
-		}
-	}
-	idToVar := remapBySourceOrder(req.Content, allNodeIDs, func(id string) string { return nodePlugin[id] })
 	lookupRefs := rekeyBySource(nodeRefs, idToVar)
 	lookupComment := rekeyBySource(nodeComments, idToVar)
 	lookupLabel := rekeyBySource(nodeLabels, idToVar)
@@ -1020,7 +1011,12 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 		Reachable []string `json:"reachable"`
 	}
 	type nodeResp struct {
-		ID              string          `json:"id"`
+		ID string `json:"id"`
+		// Var is the variable the node was assigned to in the source, sent
+		// only when it differs from the ID. The editor writes the node back
+		// under this name, so a save does not rename `mvc_gate_a` to
+		// `condition_154` and strand every comment that mentions it.
+		Var             string          `json:"var,omitempty"`
 		PluginName      string          `json:"plugin"`
 		Config          map[string]any  `json:"config"`
 		Upstreams       []string        `json:"upstreams"`
@@ -1195,6 +1191,7 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 			}
 			nr := nodeResp{
 				ID:              string(n.ID),
+				Var:             idToVar[string(n.ID)],
 				PluginName:      n.PluginName,
 				Config:          cfg,
 				Upstreams:       ups,

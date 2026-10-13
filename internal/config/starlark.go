@@ -60,11 +60,26 @@ func execute(filename string, src []byte) (*Config, error) {
 			}
 		}
 	}
+	nodeVars := make(map[dag.NodeID]string)
+	bind := func(id dag.NodeID, varName string) {
+		// An alias (`b = a`) binds two names to one node. Either would do;
+		// take the smaller so the choice does not depend on map order.
+		if cur, ok := nodeVars[id]; !ok || varName < cur {
+			nodeVars[id] = varName
+		}
+	}
 	for varName, val := range globals {
-		if h, ok := val.(*nodeHandle); ok {
+		switch h := val.(type) {
+		case *nodeHandle:
 			if fcr, ok := nodeToCall[h.id]; ok {
 				fcr.CallKey = varName
 				fcr.ReturnNodeID = string(h.id)
+				continue // a call's name is its call key, not a node's
+			}
+			bind(h.id, varName)
+		case *routeHandles:
+			if h.routeID != "" {
+				bind(h.routeID, varName)
 			}
 		}
 	}
@@ -80,6 +95,7 @@ func execute(filename string, src []byte) (*Config, error) {
 		GraphAfter:     ctx.graphAfter,
 		UserFunctions:  ctx.userFunctions,
 		FunctionCalls:  ctx.functionCalls,
+		NodeVars:       nodeVars,
 		LoadWarnings:   ctx.loadWarnings,
 	}, nil
 }
