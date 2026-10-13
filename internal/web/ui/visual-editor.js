@@ -163,6 +163,9 @@ function tidyActivePipeline() {
   // Null positions → initLayout takes the full-auto-layout (layoutGraph) branch
   // for this graph.
   for (const n of g.nodes) { n.x = null; n.y = null; }
+  // Other pipelines hold ABSOLUTE y at runtime; initLayoutFromAbsolute
+  // converts back to relative before re-running initLayout so they don't
+  // drift (see the layout invariants at the top of initLayout).
   initLayoutFromAbsolute('tidy');
   onModelChange();   // persist the new positions to the text config
   veRender();
@@ -1552,41 +1555,290 @@ function layoutGraph(g, globalY) {
   }
   const depths = Object.keys(byDepth).map(Number).sort((a, b) => a - b);
 
-  // ── 2. Initial column X; Y evenly-spaced within each column ─────────────
+  // ── Vertical room each node needs for the sub-nodes hanging off it ──────
+  // Search backends and route ports sit in a row BELOW their parent, title
+  // lists in a row ABOVE it, both centred on the parent's own column. Nothing
+  // reserved that space, so a sub-node landed on whatever main node happened
+  // to occupy the slot — a `list` card sitting on top of the node one row up
+  // was the common one, since a list parent is rarely in the top row. These
+  // gaps keep the lane clear during packing; the collision pass further down
+  // is the backstop for what a column-local gap cannot express.
+  const SUB_RISE = 2 * NODE_H + 81; // clearance a list-bearing node needs above
+  const SUB_DROP = 2 * NODE_H + 86; // clearance a search/port-bearing node needs below
+  const riseOf = n => (n.listNodeIds?.length ? SUB_RISE : 0);
+  const dropOf = n => ((n.searchNodeIds?.length || n.portNodeIds?.length) ? SUB_DROP : 0);
+  // Minimum distance between the tops of two vertically adjacent nodes in a
+  // column: one row, widened when the upper needs room beneath it or the
+  // lower needs room above it.
+  const gapBetween = (upper, lower) => Math.max(ROW_H, dropOf(upper), riseOf(lower));
+
+  // ── 2. Column X, and the machinery the ordering phase below runs on ─────
   for (const d of depths) {
-    byDepth[d].forEach((id, i) => {
-      const n = g.nodes.find(n => n.id === id);
-      if (n) { n.x = PAD_X + d * COL_W; n.y = startY + i * ROW_H; }
-    });
+    for (const id of byDepth[d]) {
+      const n = nodeById.get(id);
+      if (n) n.x = PAD_X + d * COL_W;
+    }
+  }
+  const depthsDesc = [...depths].reverse();
+
+  const downstreamsOf = new Map(g.nodes.map(n => [n.id, []]));
+  for (const n of g.nodes) {
+    if (isSub(n)) continue;
+    for (const uid of n.upstreams) {
+      const key = depthKey(uid);
+      if (downstreamsOf.has(key)) downstreamsOf.get(key).push(n.id);
+    }
   }
 
-  // ── 3. Barycenter pass: pull each non-root node toward avg Y of upstreams.
-  for (const d of depths) {
-    if (d === 0) continue;
-    const ids = byDepth[d];
-    const target = {};
-    for (const id of ids) {
-      const n = g.nodes.find(n => n.id === id);
-      if (!n?.upstreams.length) { target[id] = null; continue; }
-      const upYs = n.upstreams.map(uid => (nodeById.get(depthKey(uid))?.y ?? startY));
-      target[id] = upYs.reduce((a, b) => a + b, 0) / upYs.length;
+  // packColumns stacks every column top-to-bottom in its CURRENT order, using
+  // the gaps that keep sub-node lanes clear. It turns an order into
+  // coordinates and nothing else; order is chosen in step 3.
+  const packColumns = () => {
+    for (const d of depths) {
+      let prev = null;
+      for (const id of byDepth[d]) {
+        const n = nodeById.get(id);
+        if (!n) continue;
+        n.y = prev ? prev.y + gapBetween(prev, n) : startY;
+        prev = n;
+      }
     }
-    const sorted = [...ids].sort((a, b) => (target[a] ?? startY) - (target[b] ?? startY));
-    let minY = -Infinity;
-    for (const id of sorted) {
-      const n = g.nodes.find(n => n.id === id);
+  };
+
+  const ysOf    = ids => ids.map(id => nodeById.get(id)?.y).filter(y => y != null);
+  const meanOf  = ids => { const ys = ysOf(ids); return ys.length ? ys.reduce((a, b) => a + b, 0) / ys.length : null; };
+  // The row a node would like: the MEDIAN of the neighbours it is aligning to,
+  // not their average. Averaging centres a node between its two children so
+  // that both edges bend; the median puts it on one child's row, so one edge
+  // is straight and only the others bend — which is what "prefer straight"
+  // means for a branch. For an even count the lower of the two middles is
+  // taken, consistently, so the sweeps settle instead of oscillating.
+  const medianOf = ids => {
+    const ys = ysOf(ids).sort((a, b) => a - b);
+    return ys.length ? ys[Math.floor((ys.length - 1) / 2)] : null;
+  };
+  const upIds   = n => (n?.upstreams || []).map(depthKey);
+  const downIds = n => downstreamsOf.get(n?.id) || [];
+  // A node at the end of a chain has nothing on the side being swept, and a
+  // node that never moves blocks every node its column packs against it — a
+  // sink stranded in a crowded column was enough to keep a whole track
+  // diagonal. Falling back to the other side gives every node a preference.
+  const wantUp   = n => medianOf(upIds(n))   ?? medianOf(downIds(n));
+  const wantDown = n => medianOf(downIds(n)) ?? medianOf(upIds(n));
+
+  // ── 3. Straighten: put each node on its neighbours' row where the column
+  // has room, so an edge between two nodes a column apart is horizontal.
+  //
+  // A barycentre pass that looks only upstream and runs once is not enough: a
+  // fan-out in one track pushes an unrelated track's node down a row, and
+  // from there every edge in that track runs diagonally even though nothing
+  // is competing for the rows it wants. Sweeping forward (align to upstreams)
+  // and backward (align to downstreams) lets a chain settle onto one row from
+  // either end.
+  //
+  // A node is only ever moved INSIDE the slot its own column neighbours leave
+  // it, so no number of sweeps can introduce an overlap. Edges into a merge
+  // still bend — a node cannot sit on the row of two upstreams at once — and
+  // so do all but one leg of a fan-out, which is the shape the config has.
+  const slideColumn = (d, wantOf) => {
+    const col = byDepth[d] || [];
+    for (let i = 0; i < col.length; i++) {
+      const n = nodeById.get(col[i]);
       if (!n) continue;
-      n.y = Math.max(minY, target[id] ?? startY, startY);
-      minY = n.y + ROW_H;
+      const want = wantOf(n);
+      if (want == null) continue;
+      const up = i > 0 ? nodeById.get(col[i - 1]) : null;
+      const dn = i < col.length - 1 ? nodeById.get(col[i + 1]) : null;
+      const lo = Math.max(startY, up ? up.y + gapBetween(up, n) : startY);
+      const hi = dn ? dn.y - gapBetween(n, dn) : Infinity;
+      if (hi < lo) continue; // neighbours leave no slack; nothing to do
+      n.y = Math.min(Math.max(want, lo), hi);
     }
+  };
+  const straighten = () => {
+    for (let sweep = 0; sweep < 4; sweep++) {
+      for (const d of depths)     slideColumn(d, wantUp);
+      for (const d of depthsDesc) slideColumn(d, wantDown);
+    }
+  };
+
+  // How bent the drawing is, as one number to minimise — "prefer straight
+  // arrows", stated as a score.
+  //
+  // What counts first is HOW MANY edges are not horizontal, not how far they
+  // travel. Total travel alone rates one unavoidable 240px drop at a fan-out
+  // exactly as good as two separate 120px kinks, so it sees no reason to
+  // trade the second shape for the first — and the second is the one that
+  // looks wrong. Travel stays on as a tie-break, to settle which of two
+  // equally-straight drawings is tidier.
+  const BEND_WEIGHT = 1e6;
+  const edgeBend = () => {
+    let bent = 0, travel = 0;
+    for (const n of g.nodes) {
+      if (isSub(n)) continue;
+      for (const uid of n.upstreams) {
+        const u = nodeById.get(depthKey(uid));
+        if (!u) continue;
+        const dy = Math.abs((n.y ?? 0) - (u.y ?? 0));
+        if (dy > 0.5) bent++;
+        travel += dy;
+      }
+    }
+    return bent * BEND_WEIGHT + travel;
+  };
+
+  // ── 4. Ordering: decide who sits above whom in each column ───────────────
+  //
+  // Sorting each column once by the mean row of its upstreams is the usual
+  // first move, and on its own it is not enough here, because it runs before
+  // the sub-node lanes of step 6 are known. A track whose node carries a list
+  // card needs a row and a half of clearance, and by the time that is applied
+  // a shorter, unrelated track can already be parked on the row it wants with
+  // no slack left to take it. Sliding cannot fix that — sliding never
+  // reorders — and swapping one pair makes things worse before it makes them
+  // better, because the two tracks then cross between columns.
+  //
+  // So: alternate forward (order by upstream rows) and backward (order by
+  // downstream rows) passes, which is what carries a late clearance
+  // requirement back up its own track, and follow each with a transpose that
+  // swaps adjacent pairs where that pays. Every candidate is scored by
+  // edgeBend and the least-bent one wins, so no pass can make the result
+  // worse than the pass before it.
+  let best = null;
+  const remember = () => {
+    const bend = edgeBend();
+    if (!best || bend < best.bend) {
+      best = {
+        bend,
+        order: new Map(depths.map(d => [d, [...byDepth[d]]])),
+        ys: new Map(g.nodes.map(n => [n.id, n.y])),
+      };
+    }
+  };
+  const orderColumnsBy = (seq, rowOf) => {
+    for (const d of seq) {
+      const key = {};
+      for (const id of byDepth[d]) key[id] = rowOf(nodeById.get(id)) ?? Infinity;
+      byDepth[d] = [...byDepth[d]].sort((a, b) => key[a] - key[b]);
+      packColumns();
+    }
+  };
+  // repairColumns restores the minimum gaps in every column, top-to-bottom,
+  // moving nodes DOWN only — so the order within a column is preserved.
+  const repairColumns = () => {
+    for (const d of depths) {
+      let prev = null;
+      for (const id of byDepth[d]) {
+        const n = nodeById.get(id);
+        if (!n) continue;
+        const floor = prev ? prev.y + gapBetween(prev, n) : startY;
+        if ((n.y ?? 0) < floor) n.y = floor;
+        prev = n;
+      }
+    }
+  };
+
+  // blockOf is the run of nodes already joined to n by horizontal edges — the
+  // stretch of a track that is straight and should stay that way.
+  //
+  // Moving one node at a time cannot improve anything here: shifting a node
+  // onto its neighbour's row just moves the kink one edge along the chain,
+  // leaving the count unchanged, so every single-node move scores a tie and
+  // is rejected. The run has to travel as one piece, and then the kinks at
+  // its two ends collapse into the one at the fan-out that was always going
+  // to bend.
+  const blockOf = n => {
+    const seen = new Set([n.id]);
+    const stack = [n.id];
+    while (stack.length) {
+      const cur = nodeById.get(stack.pop());
+      if (!cur) continue;
+      for (const id of [...upIds(cur), ...downIds(cur)]) {
+        const m = nodeById.get(id);
+        if (!m || isSub(m) || seen.has(id)) continue;
+        if (Math.abs((m.y ?? 0) - (cur.y ?? 0)) < 0.5) { seen.add(id); stack.push(id); }
+      }
+    }
+    return [...seen];
+  };
+
+  // One hill-climbing pass: offer every straight run the row one of its ends
+  // is reaching for, pay for it by pushing whatever is below out of the way,
+  // and keep the move only when the drawing came out straighter. Scored by
+  // edgeBend, so a push that bends three edges to straighten one is rejected.
+  const pushPass = () => {
+    let improved = false;
+    for (const n of g.nodes) {
+      if (isSub(n)) continue;
+      // Both directions are offered: the pull that matters is as often from a
+      // node's downstream as its upstream. A track forced low by a list
+      // card's clearance is pulled down from its far end.
+      for (const want of [wantUp(n), wantDown(n)]) {
+        if (want == null || want <= (n.y ?? 0)) continue; // upward moves are sliding's job
+        const delta = want - n.y;
+        const before = edgeBend();
+        const snapshot = g.nodes.map(x => x.y);
+        for (const id of blockOf(n)) {
+          const m = nodeById.get(id);
+          if (m) m.y += delta;
+        }
+        repairColumns();
+        straighten();
+        if (edgeBend() < before) improved = true;
+        else g.nodes.forEach((x, k) => { x.y = snapshot[k]; });
+      }
+    }
+    return improved;
+  };
+
+  const transpose = () => {
+    let improved = false;
+    for (const d of depths) {
+      const col = byDepth[d];
+      for (let i = 0; i + 1 < col.length; i++) {
+        const before = edgeBend();
+        const snapshot = g.nodes.map(n => n.y);
+        [col[i], col[i + 1]] = [col[i + 1], col[i]];
+        packColumns();
+        straighten();
+        if (edgeBend() < before) {
+          improved = true;
+        } else {
+          [col[i], col[i + 1]] = [col[i + 1], col[i]];
+          g.nodes.forEach((n, k) => { n.y = snapshot[k]; });
+        }
+      }
+    }
+    return improved;
+  };
+
+  packColumns();
+  straighten();
+  remember();
+  for (let iter = 0; iter < 8; iter++) {
+    orderColumnsBy(iter % 2 === 0 ? depths : depthsDesc,
+                   iter % 2 === 0 ? (n => meanOf(upIds(n)) ?? meanOf(downIds(n)))
+                                  : (n => meanOf(downIds(n)) ?? meanOf(upIds(n))));
+    straighten();
+    remember();
+    const pushed = pushPass();
+    remember();
+    const moved = transpose();
+    straighten();
+    remember();
+    if (!moved && !pushed && iter > 0) break;
+  }
+  if (best) {
+    for (const d of depths) byDepth[d] = best.order.get(d);
+    for (const n of g.nodes) if (best.ys.has(n.id)) n.y = best.ys.get(n.id);
   }
 
-  // ── 4. Shift everything so the topmost node starts at startY ─────────────
+  // ── 5. Shift everything so the topmost node starts at startY ─────────────
   let topY = Infinity;
-  for (const n of g.nodes) topY = Math.min(topY, n.y ?? Infinity);
-  if (topY > startY) {
+  for (const n of g.nodes) if (!isSub(n)) topY = Math.min(topY, n.y ?? Infinity);
+  if (topY !== Infinity && topY > startY) {
     const shift = topY - startY;
-    for (const n of g.nodes) n.y -= shift;
+    for (const n of g.nodes) if (!isSub(n)) n.y -= shift;
   }
 
   let maxY = startY + ROW_H;
@@ -1594,53 +1846,65 @@ function layoutGraph(g, globalY) {
     if (!isSub(n)) maxY = Math.max(maxY, (n.y ?? 0) + ROW_H);
   }
 
-  // Position search-connected nodes in a row below their parent.
+  // ── 6. Sub-node rows, placed clear of everything already on the canvas ───
+  // Preferred side is below the parent for search backends and route ports,
+  // above it for title lists. The row is centred on the parent, so a row of
+  // two or more is wider than one column and reaches into its neighbours' —
+  // which is why this tests real rectangles rather than trusting the lane
+  // reserved during packing.
+  const occupied = [];
   for (const n of g.nodes) {
-    if (!n.searchNodeIds?.length) continue;
-    const SEARCH_GAP = 18;
-    const totalW  = n.searchNodeIds.length * NODE_W + (n.searchNodeIds.length - 1) * SEARCH_GAP;
-    const startSX = (n.x ?? 0) + NODE_W / 2 - totalW / 2;
-    n.searchNodeIds.forEach((id, i) => {
-      const sn = g.nodes.find(x => x.id === id);
-      if (sn) {
-        sn.x = Math.max(0, startSX + i * (NODE_W + SEARCH_GAP));
-        sn.y = (n.y ?? 0) + NODE_H + 70;
-        maxY = Math.max(maxY, sn.y + NODE_H + 20);
-      }
-    });
+    if (isSub(n) || n.x == null || n.y == null) continue;
+    occupied.push({ x: n.x, y: n.y });
   }
+  const HIT_X = NODE_W + 12, HIT_Y = NODE_H + 12;
+  const clashes = (x, y) =>
+    occupied.some(r => Math.abs(r.x - x) < HIT_X && Math.abs(r.y - y) < HIT_Y);
 
-  // Position list-connected nodes in a row above their parent.
-  // Minimum Y is just below the label (globalY + 40), NOT startY (which includes
-  // listPad and would push the list node down to the same level as the parent).
-  for (const n of g.nodes) {
-    if (!n.listNodeIds?.length) continue;
-    const LIST_GAP = 18;
-    const totalW   = n.listNodeIds.length * NODE_W + (n.listNodeIds.length - 1) * LIST_GAP;
-    const startLX  = (n.x ?? 0) + NODE_W / 2 - totalW / 2;
-    n.listNodeIds.forEach((id, i) => {
-      const ln = g.nodes.find(x => x.id === id);
-      if (ln) {
-        ln.x = Math.max(0, startLX + i * (NODE_W + LIST_GAP));
-        ln.y = Math.max(globalY + 40, (n.y ?? 0) - NODE_H - 65);
-      }
+  // placeSubRow lays `ids` out as a row centred on n, stepping `dir` away from
+  // the parent a row at a time until the whole row is clear. A row above that
+  // would reach the pipeline label flips below instead, where there is always
+  // somewhere free to go — overlapping is the one outcome worth avoiding.
+  const SUB_GAP = 18;
+  const placeSubRow = (n, ids, dir, firstOffset) => {
+    const totalW  = ids.length * NODE_W + (ids.length - 1) * SUB_GAP;
+    const startSX = Math.max(0, (n.x ?? 0) + NODE_W / 2 - totalW / 2);
+    const xs = ids.map((_, i) => startSX + i * (NODE_W + SUB_GAP));
+    const ceiling = globalY + 40;
+    let step = 0, side = dir, y = (n.y ?? 0) + dir * firstOffset;
+    for (let guard = 0; guard <= g.nodes.length + 2; guard++) {
+      y = (n.y ?? 0) + side * (firstOffset + step * ROW_H);
+      if (side < 0 && y < ceiling) { side = 1; step = 0; continue; }
+      if (!xs.some(x => clashes(x, y))) break;
+      step++;
+    }
+    ids.forEach((id, i) => {
+      const sn = nodeById.get(id);
+      if (!sn) return;
+      sn.x = xs[i];
+      sn.y = y;
+      occupied.push({ x: sn.x, y: sn.y });
+      maxY = Math.max(maxY, sn.y + NODE_H + 20);
     });
-  }
+  };
 
-  // Position route-port nodes in a row below their route parent.
   for (const n of g.nodes) {
-    if (!n.portNodeIds?.length) continue;
-    const PORT_GAP = 18;
-    const totalW   = n.portNodeIds.length * NODE_W + (n.portNodeIds.length - 1) * PORT_GAP;
-    const startLX  = (n.x ?? 0) + NODE_W / 2 - totalW / 2;
-    n.portNodeIds.forEach((id, i) => {
-      const port = g.nodes.find(x => x.id === id);
-      if (port && (port.x == null || port.y == null)) {
-        port.x = Math.max(0, startLX + i * (NODE_W + PORT_GAP));
-        port.y = (n.y ?? 0) + NODE_H + 50;
-        maxY = Math.max(maxY, port.y + NODE_H + 20);
+    if (isSub(n)) continue;
+    if (n.searchNodeIds?.length) placeSubRow(n, n.searchNodeIds, +1, NODE_H + 70);
+    if (n.listNodeIds?.length)   placeSubRow(n, n.listNodeIds,   -1, NODE_H + 65);
+    if (n.portNodeIds?.length) {
+      // Route ports keep any position they already carry; only the ones with
+      // none are laid out here.
+      const fresh = n.portNodeIds.filter(id => {
+        const p = nodeById.get(id);
+        return p && (p.x == null || p.y == null);
+      });
+      for (const id of n.portNodeIds) {
+        const p = nodeById.get(id);
+        if (p && p.x != null && p.y != null) occupied.push({ x: p.x, y: p.y });
       }
-    });
+      if (fresh.length) placeSubRow(n, fresh, +1, NODE_H + 50);
+    }
   }
 
   g._regionY = g._labelY - 8;
@@ -1831,25 +2095,6 @@ function placeSubNodes(g, startY) {
 function autoLayout() {
   let globalY = 40;
   for (const g of ve.graphs) globalY = layoutGraph(g, globalY);
-}
-
-// tidyActivePipeline re-runs auto-layout for the ACTIVE pipeline only
-// ("Tidy layout" toolbar button). Stored positions of the other pipelines are
-// preserved; the active pipeline's positions are discarded so initLayout's
-// no-stored-positions branch performs a fresh layered left-to-right layout.
-// The result is persisted (onModelChange) so the new positions survive a
-// save/reload round-trip.
-function tidyActivePipeline() {
-  const g = activeG();
-  if (!g || !g.nodes.length) return;
-  pushUndo();
-  for (const n of g.nodes) { n.x = null; n.y = null; }
-  // Other pipelines hold ABSOLUTE y at runtime; initLayoutFromAbsolute
-  // converts back to relative before re-running initLayout so they don't
-  // drift (see the layout invariants at the top of initLayout).
-  initLayoutFromAbsolute('tidyLayout');
-  veRender();
-  onModelChange();
 }
 
 // veEnsureTidyButton injects the "Tidy layout" button into the pipeline bar

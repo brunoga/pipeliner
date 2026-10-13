@@ -2911,6 +2911,12 @@ pipeliner failures "star trek"     # failures whose title or reason matches</cod
 <h4>Tidy layout</h4>
 <p>The <strong>⇤ Tidy layout</strong> button (next to Undo) re-runs the automatic left-to-right layered layout for the <em>active</em> pipeline only — useful after heavy editing has left nodes scattered. Other pipelines keep their positions, the action is undoable, and the new positions are persisted as <code># pipeliner:pos</code> comments. Nodes fed by <code>route()</code> ports are placed to the right of the route node so edges always flow left-to-right.</p>
 
+<p>Two things the layout tries to guarantee:</p>
+<ul>
+  <li><strong>Nothing overlaps.</strong> The sub-cards that hang off a node — a <code>list</code> title source above it, a <code>search</code> backend or a <code>route()</code> port below it — get a reserved lane in their parent's column, and are checked against every other card before being placed. A row of two or more sub-cards is wider than one column, so it is tested against the neighbouring columns too. If a <code>list</code> row has no room above its parent it is placed below instead rather than on top of something.</li>
+  <li><strong>Arrows run straight where they can.</strong> Nodes are nudged onto their neighbours' row so an edge between two nodes one column apart is horizontal. Some edges have to bend and are left alone: a node cannot sit on the row of two upstreams at once, so an edge into a merge bends, and so do all but one leg of a fan-out. A pipeline of several independent tracks gets one row per track.</li>
+</ul>
+
 <h4>Multi-select, copy, cut and undo</h4>
 <p>Drag on empty canvas space to draw a rubber-band selection rectangle — all nodes within the rectangle are added to the selection. Alternatively, hold <kbd>Cmd</kbd> (Mac) or <kbd>Ctrl</kbd> (Windows/Linux) and click individual nodes to toggle them in or out of the selection.</p>
 <p>When two or more nodes are selected, the toolbar shows <strong>Copy</strong>, <strong>Cut</strong>, and <strong>⬡ Extract to function</strong>. Dragging any selected node moves all selected nodes together.</p>
