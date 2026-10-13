@@ -6240,7 +6240,7 @@ async function expandAndRemoveFunction(funcName) {
         ? fc.args : parseFunctionCallArgs(content, fc.call_key, fc.func);
       nodes.push({
         id: fc.call_key, plugin: fc.func, config: recoveredArgs,
-        upstreams: entryUpstreams, searchNodeIds: [], listNodeIds: [], comment: '',
+        upstreams: entryUpstreams, searchNodeIds: [], listNodeIds: [], comment: fc.comment || '',
         isFunctionCall: true, funcCallKey: fc.call_key,
         internalNodeIds: fc.internal_node_ids, returnNodeId: fc.return_node_id,
         x: fc.x ?? null, y: fc.y ?? null,
@@ -8020,7 +8020,9 @@ async function textToVisualSync() {
           upstreams:        entryUpstreams,
           searchNodeIds:    [],
           listNodeIds:      [],
-          comment:          '',
+          // The comment above the call site. Hard-coded empty until the
+          // server sent it, so every visual save deleted it.
+          comment:          fc.comment || '',
           isFunctionCall:   true,
           funcCallKey:      fc.call_key,
           internalNodeIds:  fc.internal_node_ids,

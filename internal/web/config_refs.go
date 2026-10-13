@@ -307,18 +307,26 @@ func remapBySourceOrder(content string, ids []string, pluginOf func(string) stri
 }
 
 // rekeyBySource returns a lookup that finds a text-scanned value for a node:
-// by the node's own ID first (they coincide in a freshly-saved config), then
-// by the source variable the node was assigned to.
+// by the source variable the node was assigned to when the two differ, and by
+// the node's own ID only when they do not.
+//
+// The mapping has to win outright, not be a fallback. IDs come from one global
+// counter, so deleting a node renumbers everything after it while the variable
+// names in the text keep their old numbers. In a run of same-plugin nodes the
+// node's own ID is then the name of its NEIGHBOUR's variable: node jackett_132
+// is assigned to variable jackett_133, and a variable called jackett_132 still
+// exists — it is the node before. Trying the own ID first returned that
+// neighbour's references, comment, label and position. That is how one visual
+// save of the live config gave a search node the BD66 node's api_key and url
+// references in place of its own literals.
 func rekeyBySource[T any](byName map[string]T, idToVar map[string]string) func(string) (T, bool) {
 	return func(id string) (T, bool) {
-		if v, ok := byName[id]; ok {
-			return v, true
+		name := id
+		if v, ok := idToVar[id]; ok {
+			name = v
 		}
-		if v, ok := byName[idToVar[id]]; ok {
-			return v, true
-		}
-		var zero T
-		return zero, false
+		v, ok := byName[name]
+		return v, ok
 	}
 }
 

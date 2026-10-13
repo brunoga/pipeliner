@@ -168,3 +168,102 @@ func TestNodeCreationOrder(t *testing.T) {
 		}
 	}
 }
+
+// The case the identity and offset tests above both miss: a run of
+// same-plugin nodes after a deletion. The global ID counter shifts every later
+// node down by one while the variable names keep their numbers, so each node's
+// own ID is now the name of its NEIGHBOUR's variable. The lookup must follow
+// the mapping, not the coincidental name.
+//
+// This is the live failure: node jackett_132 was assigned to variable
+// jackett_133 (a BD100 search with a literal url), a variable jackett_132 still
+// existed (the BD66 search, url=JACKETT_URL), and one visual save gave the
+// BD100 node the BD66 node's references.
+func TestRekeyBySourceFollowsMappingWhenOwnIDNamesANeighbour(t *testing.T) {
+	content := `
+FEED = env("FEED")
+
+# first: the shared feed
+rss_1 = input("rss", url=FEED)
+
+# second: a literal url of its own
+rss_2 = input("rss", url="https://example.com/literal")
+`
+	// rss_0 was deleted from the text, so the loader numbers from 0 again.
+	ids := []string{"rss_0", "rss_1"}
+	plugins := map[string]string{"rss_0": "rss", "rss_1": "rss"}
+	idToVar := remapBySourceOrder(content, ids, func(id string) string { return plugins[id] })
+	if idToVar["rss_1"] != "rss_2" {
+		t.Fatalf("node rss_1 → %q, want variable rss_2", idToVar["rss_1"])
+	}
+
+	refs := rekeyBySource(configRefs(content), idToVar)
+	if got, ok := refs("rss_1"); ok {
+		t.Errorf("node rss_1 (the literal-url node) picked up references %v — "+
+			"those belong to variable rss_1, which is node rss_0", got)
+	}
+	if got, ok := refs("rss_0"); !ok || got["url"] == nil {
+		t.Errorf("node rss_0 must keep its url=FEED reference, got %v", got)
+	}
+
+	comments, _, _, _ := scanComments(content)
+	cmt := rekeyBySource(comments, idToVar)
+	if got, _ := cmt("rss_1"); got != "second: a literal url of its own" {
+		t.Errorf("node rss_1 comment = %q, want its own", got)
+	}
+	if got, _ := cmt("rss_0"); got != "first: the shared feed" {
+		t.Errorf("node rss_0 comment = %q, want its own", got)
+	}
+}
+
+// A comment block separated from the next statement by a blank line — a
+// section header — used to be discarded at the blank line, so every visual
+// save deleted it. It is now kept and joined to the next statement's comment.
+func TestScanCommentsKeepsBlocksDetachedByABlankLine(t *testing.T) {
+	content := `
+# ── tv: a section header
+# that runs to two lines
+
+# attached to the feed
+src = input("rss", url="https://example.com/a")
+
+# a header with nothing attached below it
+
+out = output("print", upstream=src)
+
+# above the pipeline call, detached
+
+# and attached
+pipeline("tv")
+`
+	nodes, pipes, _, _ := scanComments(content)
+
+	want := "── tv: a section header\nthat runs to two lines\n\nattached to the feed"
+	if nodes["src"] != want {
+		t.Errorf("src comment = %q\nwant          %q", nodes["src"], want)
+	}
+	if nodes["out"] != "a header with nothing attached below it" {
+		t.Errorf("a detached block alone must still attach: out = %q", nodes["out"])
+	}
+	if pipes["tv"] != "above the pipeline call, detached\n\nand attached" {
+		t.Errorf("pipeline comment = %q", pipes["tv"])
+	}
+}
+
+// Detached comments must not leak across a statement that has nowhere to put
+// them. A comment above a def belongs to the def (its source text keeps it),
+// not to whatever node comes after the def's body.
+func TestScanCommentsDoesNotCarryCommentsPastOtherStatements(t *testing.T) {
+	content := `
+# describes the helper
+
+def helper(upstream):
+    return process("seen", upstream=upstream)
+
+src = input("rss", url="https://example.com/a")
+`
+	nodes, _, _, _ := scanComments(content)
+	if got := nodes["src"]; got != "" {
+		t.Errorf("src picked up a comment that belonged to the def: %q", got)
+	}
+}
