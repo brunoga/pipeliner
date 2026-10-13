@@ -385,8 +385,23 @@ func (p *probePlugin) Process(ctx context.Context, tc *plugin.TaskContext, entri
 			// Recorded before the outcome is acted on, and for a failure as
 			// well as a success: a release nobody will serve is exactly the
 			// one worth not asking about again tomorrow.
-			if serr := p.saveVerdict(e, newVerdict(res, pieces, bytes, err)); serr != nil {
-				tc.Logger.Warn(pluginName+": could not store verdict", "entry", e.Title, "err", serr)
+			//
+			// Except on a dry run, where only a success is kept. The two
+			// outcomes differ in whether they can go stale, and that is what
+			// decides it. A container that was read is a fact about immutable
+			// bytes, so recording it from a dry run can never be wrong and
+			// saves re-pulling 20-25 MiB. A failure is a snapshot of a swarm,
+			// and recording one would keep a gate refusing that release on
+			// the next REAL run for a whole cache_ttl on the strength of a
+			// diagnostic -- the same trap discover avoids by not stamping
+			// titles as "just searched" during a dry run.
+			v := newVerdict(res, pieces, bytes, err)
+			if v.ok() || !tc.DryRun {
+				if serr := p.saveVerdict(e, v); serr != nil {
+					tc.Logger.Warn(pluginName+": could not store verdict", "entry", e.Title, "err", serr)
+				}
+			} else {
+				tc.Logger.Debug(pluginName+": dry run, failure not recorded", "entry", e.Title)
 			}
 			if err != nil {
 				e.Set(entry.FieldProbeOK, false)
