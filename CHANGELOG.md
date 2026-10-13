@@ -5,6 +5,20 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.63.4] - 2026-10-13
+
+A visual-editor save of the live config, with nothing edited, deleted 47 comment lines and changed the credentials of one search node. This release makes a visual save write back exactly what it read: every comment, every variable reference, every variable name and the same graph. Saving three times in a row produces three byte-identical files.
+
+### Fixed
+
+- **A node could pick up its neighbour's references, comment, label and position** ([#612](https://github.com/brunoga/pipeliner/pull/612)). Node IDs come from one global counter, so deleting a node renumbers every node after it while the variable names in the file keep their numbers. The editor looked a node up by its own ID before using the ID-to-variable mapping, and in a run of same-plugin nodes that ID is the name of the *previous* node's variable. On the live config, a BD100 search with its own literal `api_key` and `url` was saved with the BD66 search's `JACKETT_API_KEY` and `JACKETT_URL`: a different key and a different host.
+- **Comments above function calls were deleted on every visual save** ([#612](https://github.com/brunoga/pipeliner/pull/612)). The server never sent them and the editor created call cards with an empty comment.
+- **A comment separated from the next statement by a blank line was deleted on every visual save** ([#612](https://github.com/brunoga/pipeliner/pull/612)). That removed every section header. A blank line now ends a comment block without discarding it; it comes back as an empty `#` line and is stable from then on.
+- **A visual save renamed every node after its ID** ([#612](https://github.com/brunoga/pipeliner/pull/612)). `mvc_gate_a = process("condition", ...)` came back as `condition_154 = ...`, so every comment that mentioned a node by name went stale. The loader now reads each node's variable from the module globals after execution, which is exact, and that replaces the old pairing of nodes to assignments by source order, which misnamed nodes whenever a call was unassigned. `route()` variables are kept too.
+- **The definitions block gained a blank line between every pair of definitions on every save** ([#612](https://github.com/brunoga/pipeliner/pull/612)).
+
+**Why 1.63.4**: fixes only, all in how the visual editor writes a config back. No configuration changes, and nothing that affects how a pipeline runs.
+
 ## [1.63.3] - 2026-10-13
 
 ### Fixed
