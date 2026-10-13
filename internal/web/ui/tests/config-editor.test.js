@@ -30,13 +30,16 @@ function makeNode() {
 }
 
 function loadModule(fetchImpl) {
+  const saveBtn     = makeNode();
+  const validateBtn = makeNode();
   const elements = {
-    'config-editor':   makeNode(),
-    'config-status':   makeNode(),
-    'config-errors':   makeNode(),
-    'config-warnings': makeNode(),
+    'config-editor':      makeNode(),
+    'config-status':      makeNode(),
+    'config-errors':      makeNode(),
+    'config-warnings':    makeNode(),
+    'btn-config-save':     saveBtn,
+    'btn-config-validate': validateBtn,
   };
-  const saveBtn = makeNode();
   const documentStub = {
     getElementById: id => elements[id],
     querySelector: sel => (sel === '.btn-config.primary' ? saveBtn : null),
@@ -68,7 +71,7 @@ function loadModule(fetchImpl) {
   );
   fn(exports, documentStub, windowStub, fetchImpl, () => null, () => {},
      { error: () => {}, warn: () => {} });
-  return { exports, elements, saveBtn, beforeUnloadHandlers };
+  return { exports, elements, saveBtn, validateBtn, beforeUnloadHandlers };
 }
 
 describe('loadConfig failure handling', () => {
@@ -231,5 +234,118 @@ describe('unsaved-changes tracking', () => {
     handler(ev);
     expect(ev.prevented).toBe(true);
     expect(ev.returnValue).toBe('');
+  });
+});
+
+describe('toolbar busy state', () => {
+  // A save is most of a restart server-side — parse, validate, build every
+  // plugin, write the file, reset the scheduler. These pin that the toolbar
+  // says so while it happens, and that it recovers however the request ends.
+
+  // deferredFetch hands back a fetch stub plus the resolve/reject handles for
+  // the request it is holding open, so a test can inspect the toolbar at the
+  // exact moment the request is in flight.
+  function deferredFetch(initial) {
+    let release;
+    const calls = [];
+    const fetchImpl = async (url, opts) => {
+      calls.push({ url, opts });
+      // The first call is the initial GET /api/config load.
+      if (!opts || opts.method !== 'POST') return initial;
+      return new Promise((resolve, reject) => { release = { resolve, reject }; });
+    };
+    return { fetchImpl, calls, release: () => release };
+  }
+
+  const okLoad = { ok: true, json: async () => ({ content: 'src = input("rss")\n' }) };
+
+  it('disables both buttons and relabels Save while the save is in flight', async () => {
+    const { fetchImpl, release } = deferredFetch(okLoad);
+    const { exports, saveBtn, validateBtn, elements } = loadModule(fetchImpl);
+    await exports.loadConfig();
+    expect(saveBtn.disabled).toBe(false);
+
+    const pending = exports.saveConfig();
+    expect(saveBtn.disabled).toBe(true);
+    expect(saveBtn.textContent).toBe('Saving…');
+    expect(validateBtn.disabled).toBe(true);
+    expect(elements['config-status'].textContent).toContain('Saving and reloading');
+
+    release().resolve({ ok: true, status: 200, json: async () => ({ status: 'reloaded', warnings: [] }) });
+    await pending;
+
+    expect(saveBtn.disabled).toBe(false);
+    expect(saveBtn.textContent).toBe('Save & Reload');
+    expect(validateBtn.disabled).toBe(false);
+    expect(validateBtn.textContent).toBe('Validate');
+  });
+
+  it('relabels Validate, not Save, while validating', async () => {
+    const { fetchImpl, release } = deferredFetch(okLoad);
+    const { exports, saveBtn, validateBtn } = loadModule(fetchImpl);
+    await exports.loadConfig();
+
+    const pending = exports.validateConfig();
+    expect(validateBtn.textContent).toBe('Validating…');
+    expect(saveBtn.textContent).toBe('Save & Reload');
+    expect(saveBtn.disabled).toBe(true); // still blocked while a request is out
+
+    release().resolve({ ok: true, status: 200, json: async () => ({ warnings: [] }) });
+    await pending;
+    expect(validateBtn.textContent).toBe('Validate');
+    expect(saveBtn.disabled).toBe(false);
+  });
+
+  it('drops a second save fired while the first is still in flight', async () => {
+    const { fetchImpl, calls, release } = deferredFetch(okLoad);
+    const { exports } = loadModule(fetchImpl);
+    await exports.loadConfig();
+
+    const first = exports.saveConfig();
+    await exports.saveConfig(); // the double-click
+    const posts = () => calls.filter(c => c.opts && c.opts.method === 'POST');
+    expect(posts().length).toBe(1);
+
+    release().resolve({ ok: true, status: 200, json: async () => ({ status: 'reloaded', warnings: [] }) });
+    await first;
+    expect(posts().length).toBe(1);
+  });
+
+  it('restores the toolbar when the request fails', async () => {
+    const { fetchImpl, release } = deferredFetch(okLoad);
+    const { exports, saveBtn, validateBtn, elements } = loadModule(fetchImpl);
+    await exports.loadConfig();
+
+    const pending = exports.saveConfig();
+    expect(saveBtn.disabled).toBe(true);
+    release().reject(new TypeError('Failed to fetch'));
+    await pending;
+
+    expect(saveBtn.disabled).toBe(false);
+    expect(saveBtn.textContent).toBe('Save & Reload');
+    expect(validateBtn.disabled).toBe(false);
+    expect(elements['config-status'].textContent).toContain('No response from server');
+  });
+
+  // The two reasons a button is disabled are independent, and finishing a
+  // request must not undo the other one.
+  it('leaves Save blocked after a validate when the load had failed', async () => {
+    let n = 0;
+    const calls = [];
+    const fetchImpl = async (url, opts) => {
+      calls.push({ url, opts });
+      if (!opts || opts.method !== 'POST') return { ok: false, status: 503 }; // load + retry both fail
+      n++;
+      return { ok: true, status: 200, json: async () => ({ warnings: [] }) };
+    };
+    const { exports, saveBtn, validateBtn } = loadModule(fetchImpl);
+    await exports.loadConfig();
+    expect(saveBtn.disabled).toBe(true);
+
+    await exports.validateConfig();
+    expect(n).toBe(1);                      // validation still ran
+    expect(validateBtn.disabled).toBe(false); // Validate is usable again
+    expect(saveBtn.disabled).toBe(true);      // but Save is still blocked
+    expect(saveBtn.title).toContain('Validate to retry');
   });
 });

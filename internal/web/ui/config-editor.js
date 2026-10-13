@@ -13,14 +13,77 @@ function configLoadErrorMsg(detail) {
   return 'could not load config (' + detail + ') — refusing to save until reload succeeds. Click Validate to retry.';
 }
 
-// setSaveBlocked disables/enables the Save & Reload button. The button has
-// no id in index.html, so it is located by its toolbar classes.
+// Which request is in flight, if any: null | 'save' | 'validate'.
+//
+// This is a second, independent reason for a toolbar button to be disabled —
+// the first being configLoadFailed, which persists until a load succeeds.
+// They have to compose: finishing a save must not re-enable a button that a
+// failed load disabled, which is why neither one writes `disabled` directly.
+let configBusy = null;
+
+// A save is not a quick round trip. The server parses the config, validates
+// every graph, builds every plugin, writes the file and resets the scheduler
+// before it answers — seconds, not milliseconds, on a config of any size.
+// Until this existed the toolbar gave no sign of that: the status line was
+// blank and the button stayed live, so the natural response to "nothing
+// happened" was to click again, and POST /api/config has no version check to
+// catch the resulting race.
+const CONFIG_BUTTONS = {
+  validate: { id: 'btn-config-validate', idle: 'Validate',      busy: 'Validating…' },
+  save:     { id: 'btn-config-save',     idle: 'Save & Reload', busy: 'Saving…' },
+};
+
+// Bound on how long a button may stay disabled. fetch() has no timeout of its
+// own, so without this a server that accepts the connection and then never
+// answers would leave the toolbar permanently dead — a worse failure than the
+// double-click this guards against, and one introduced by the guard itself.
+const CONFIG_REQUEST_TIMEOUT_MS = 120000;
+
+// updateConfigButtons is the only place that writes either button's enabled
+// state or label, so the two reasons for disabling cannot fight each other.
+function updateConfigButtons() {
+  if (typeof document.getElementById !== 'function') return;
+  for (const which of Object.keys(CONFIG_BUTTONS)) {
+    const spec = CONFIG_BUTTONS[which];
+    const btn = document.getElementById(spec.id);
+    if (!btn) continue;
+    const busy = configBusy === which;
+    // Validate stays available through a failed load — it is the documented
+    // way to retry one — so only Save answers to configLoadFailed.
+    btn.disabled = !!configBusy || (which === 'save' && configLoadFailed);
+    btn.textContent = busy ? spec.busy : spec.idle;
+    btn.title = configBusy
+      ? 'Waiting for the server…'
+      : (which === 'save' && configLoadFailed)
+        ? 'Saving is disabled: the config failed to load. Click Validate to retry loading.'
+        : '';
+  }
+}
+
+// setSaveBlocked records that the config failed to load and refreshes the
+// toolbar. It owns configLoadFailed so the flag and the button cannot drift.
 function setSaveBlocked(blocked) {
-  if (typeof document.querySelector !== 'function') return;
-  const btn = document.querySelector('.btn-config.primary');
-  if (!btn) return;
-  btn.disabled = blocked;
-  btn.title = blocked ? 'Saving is disabled: the config failed to load. Click Validate to retry loading.' : '';
+  configLoadFailed = blocked;
+  updateConfigButtons();
+}
+
+// withConfigBusy runs one toolbar request with both buttons disabled and the
+// active one relabelled, restoring them however it ends. A second call while
+// one is in flight is dropped rather than queued: the two requests would race
+// on the same file with no version check to order them.
+async function withConfigBusy(which, fn) {
+  if (configBusy) return;
+  configBusy = which;
+  updateConfigButtons();
+  const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+  const timer = ctl ? setTimeout(() => ctl.abort(), CONFIG_REQUEST_TIMEOUT_MS) : null;
+  try {
+    return await fn(ctl ? ctl.signal : undefined);
+  } finally {
+    if (timer) clearTimeout(timer);
+    configBusy = null;
+    updateConfigButtons();
+  }
 }
 
 async function loadConfig() {
@@ -97,13 +160,18 @@ async function validateConfig() {
   // the load so the user has a recovery path without a page refresh.
   // Validation itself is a harmless dry-run, so it proceeds either way.
   if (configLoadFailed) await retryConfigLoad();
+  return withConfigBusy('validate', signal => validateConfigRequest(signal));
+}
+
+async function validateConfigRequest(signal) {
   const content = document.getElementById('config-editor').value;
-  setConfigStatus('', '');
+  setConfigStatus('pending', '⏳ Validating…');
   try {
     const r = await fetch('/api/config', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({content, dry_run: true}),
+      signal,
     });
     const body = await r.json();
     if (r.status === 422) {
@@ -131,13 +199,20 @@ async function saveConfig() {
     setConfigStatus('err', '✗ Config failed to load — refusing to save. Click Validate to retry loading.');
     return;
   }
+  return withConfigBusy('save', signal => saveConfigRequest(signal));
+}
+
+async function saveConfigRequest(signal) {
   const content = document.getElementById('config-editor').value;
-  setConfigStatus('', '');
+  // Named for what the server is actually doing, which is most of a restart:
+  // the wait is the reload, not the write.
+  setConfigStatus('pending', '⏳ Saving and reloading…');
   try {
     const r = await fetch('/api/config', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({content}),
+      signal,
     });
     if (r.status === 422) {
       const resp = await r.json();
@@ -199,6 +274,12 @@ function pollUntilIdle() {
 // "TypeError: Failed to fetch" means the server closed the connection without
 // responding — usually a panic or crash in the request handler.
 function networkErrMsg(e) {
+  // An abort here is our own timeout firing, not the user navigating away:
+  // nothing else aborts these requests.
+  if (e && (e.name === 'AbortError' || String(e).includes('AbortError'))) {
+    return 'No answer from the server after ' + Math.round(CONFIG_REQUEST_TIMEOUT_MS / 1000) +
+           's — it may still be reloading. Check the live log before retrying, and reload this page to see the result.';
+  }
   if (e instanceof TypeError && e.message.toLowerCase().includes('fetch')) {
     return 'No response from server — pipeliner is not running, or the server crashed while parsing the config. Check the live log for details.';
   }
