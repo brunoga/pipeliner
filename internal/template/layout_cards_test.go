@@ -85,3 +85,40 @@ func snippet(html, around string) string {
 	}
 	return reTag.ReplaceAllString(html[lo:hi], " ")
 }
+
+// Without signed action links configured, signedaction returns "" and the
+// premiere card drops its Follow button. It used to fall back to the text
+// "Automatically added", which was never true — nothing in the sample adds a
+// show — and a live config copied from the sample went on telling its reader
+// a show had been followed when it had not.
+func TestPremiereCardDoesNotClaimAutoAddWithoutLinks(t *testing.T) {
+	src, err := os.ReadFile(filepath.Join("..", "..", "configs", "email-report-layout.star"))
+	if err != nil {
+		t.Skip("sample layout not readable")
+	}
+	s := string(src)
+	i := strings.Index(s, `PREMIERE_CARD = """`)
+	if i < 0 {
+		t.Fatal("PREMIERE_CARD not found in the sample layout")
+	}
+	start := i + len(`PREMIERE_CARD = """`)
+	j := strings.Index(s[start:], `"""`)
+	tpl, err := ttpl.New("p").Funcs(FuncMap()).Parse("{{$e := .}}" + s[start:start+j])
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	var out strings.Builder
+	if err := tpl.Execute(&out, map[string]any{
+		"Title":  "Some.Show.S01E01.1080p.WEB-DL-GROUP",
+		"Fields": map[string]any{"title": "Some Show", "tvdb_id": 123},
+	}); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	html := out.String()
+	if strings.Contains(html, "Automatically added") {
+		t.Error("the card claims the show was added automatically, but nothing added it")
+	}
+	if strings.Contains(html, "Add to favorites</a>") {
+		t.Error("with no links configured there is no link to offer")
+	}
+}
