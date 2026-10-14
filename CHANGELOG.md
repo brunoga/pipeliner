@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.63.5] - 2026-10-14
+
+### Fixed
+
+- **The sample email layout said a show was "Automatically added" when it had not been** ([#614](https://github.com/brunoga/pipeliner/pull/614)). In `configs/email-report-layout.star` the premiere card's fallback, shown when no Follow link could be signed, read "Automatically added". That fallback fires because the server has no public URL or no action secret, not because anything followed the show, so it claimed an action nobody took -- and on an install that can sign links it never appeared at all, so a show the config *did* auto-follow still got an "Add to favorites" button. The fallback now shows nothing, and the sample's comment says that the link's target pipeline is an unchecked string: a config that renames or merges the pipeline the link names keeps rendering the button, and a click is only picked up by whatever pipeline next reads that queue. A config that auto-follows some premieres has to repeat that rule in the template to say so, because the auto-follow branch works on its own copy of each entry and the notify branch never sees its decision.
+
+**Why 1.63.5**: one sample-config fix. No code change, nothing that affects how a pipeline runs, and no existing config changes unless it was copied from the sample.
+
 ## [1.63.4] - 2026-10-13
 
 A visual-editor save of the live config, with nothing edited, deleted 47 comment lines and changed the credentials of one search node. This release makes a visual save write back exactly what it read: every comment, every variable reference, every variable name and the same graph. Saving three times in a row produces three byte-identical files.
