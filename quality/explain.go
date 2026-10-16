@@ -52,13 +52,17 @@ func (s Spec) Explain(q Quality) SpecResult {
 		zero          int // the unknown/none sentinel for this dimension
 		opt           bool
 		render        func(int) string
+		// rank orders the values. Source, Audio and Format3D have values
+		// appended after their ladder was set, so their stored integers are
+		// not their order; Matches compares ranks, and so must this.
+		rank func(int) int
 	}{
-		{"resolution", int(s.MinResolution), int(s.MaxResolution), int(q.Resolution), int(ResolutionUnknown), s.OptResolution, func(v int) string { return resolutionNames[Resolution(v)] }},
-		{"source", int(s.MinSource), int(s.MaxSource), int(q.Source), int(SourceUnknown), s.OptSource, func(v int) string { return sourceNames[Source(v)] }},
-		{"codec", int(s.MinCodec), int(s.MaxCodec), int(q.Codec), int(CodecUnknown), s.OptCodec, func(v int) string { return codecNames[Codec(v)] }},
-		{"audio", int(s.MinAudio), int(s.MaxAudio), int(q.Audio), int(AudioUnknown), s.OptAudio, func(v int) string { return audioNames[Audio(v)] }},
-		{"color_range", int(s.MinColorRange), int(s.MaxColorRange), int(q.ColorRange), int(ColorRangeUnknown), s.OptColorRange, func(v int) string { return colorRangeNames[ColorRange(v)] }},
-		{"format_3d", int(s.MinFormat3D), int(s.MaxFormat3D), int(q.Format3D), int(Format3DNone), s.OptFormat3D, func(v int) string { return format3DNames[Format3D(v)] }},
+		{"resolution", int(s.MinResolution), int(s.MaxResolution), int(q.Resolution), int(ResolutionUnknown), s.OptResolution, func(v int) string { return resolutionNames[Resolution(v)] }, identity},
+		{"source", int(s.MinSource), int(s.MaxSource), int(q.Source), int(SourceUnknown), s.OptSource, func(v int) string { return sourceNames[Source(v)] }, func(v int) int { return Source(v).rank() }},
+		{"codec", int(s.MinCodec), int(s.MaxCodec), int(q.Codec), int(CodecUnknown), s.OptCodec, func(v int) string { return codecNames[Codec(v)] }, identity},
+		{"audio", int(s.MinAudio), int(s.MaxAudio), int(q.Audio), int(AudioUnknown), s.OptAudio, func(v int) string { return audioNames[Audio(v)] }, func(v int) int { return Audio(v).rank() }},
+		{"color_range", int(s.MinColorRange), int(s.MaxColorRange), int(q.ColorRange), int(ColorRangeUnknown), s.OptColorRange, func(v int) string { return colorRangeNames[ColorRange(v)] }, identity},
+		{"format_3d", int(s.MinFormat3D), int(s.MaxFormat3D), int(q.Format3D), int(Format3DNone), s.OptFormat3D, func(v int) string { return format3DNames[Format3D(v)] }, func(v int) int { return Format3D(v).rank() }},
 	}
 
 	res := SpecResult{Quality: q.String(), Spec: s.String(), Matched: true}
@@ -76,10 +80,10 @@ func (s Spec) Explain(q Quality) SpecResult {
 		case d.opt && d.val == d.zero:
 			dr.Bypassed = true
 		default:
-			if d.min > 0 && d.val < d.min {
+			if d.min > 0 && d.rank(d.val) < d.rank(d.min) {
 				dr.Passed = false
 			}
-			if d.max > 0 && d.val > d.max {
+			if d.max > 0 && d.rank(d.val) > d.rank(d.max) {
 				dr.Passed = false
 			}
 		}
@@ -90,6 +94,8 @@ func (s Spec) Explain(q Quality) SpecResult {
 	}
 	return res
 }
+
+func identity(v int) int { return v }
 
 // renderConstraint formats a dimension's min/max into a spec-like string:
 // "720p" (min==max), "720p-1080p" (both, differing), "720p+" (min only),

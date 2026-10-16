@@ -121,3 +121,51 @@ func TestExplainUnknownQualityValue(t *testing.T) {
 		t.Errorf("unknown resolution vs required 1080p should fail (not optional)")
 	}
 }
+
+// TestExplainAgreesWithMatches pins the promise Explain makes in its doc:
+// Matched equals s.Matches(q). Source, Audio and Format3D carry values that
+// were appended after their ladders were set -- Format3DUnspecified ranks
+// with Half, DD+ Atmos below TrueHD -- so their stored integers are not their
+// order. Matches compares ranks; Explain compared the integers, so a spec of
+// exactly "3d" passed a bare-3D release in Matches and failed it in Explain.
+func TestExplainAgreesWithMatches(t *testing.T) {
+	var sources []Source
+	for v := range sourceRank {
+		sources = append(sources, v)
+	}
+	var audios []Audio
+	for v := range audioRank {
+		audios = append(audios, v)
+	}
+	var formats []Format3D
+	for v := range format3DRank {
+		formats = append(formats, v)
+	}
+	check := func(s Spec, q Quality) {
+		t.Helper()
+		if got, want := s.Explain(q).Matched, s.Matches(q); got != want {
+			t.Errorf("spec %q, quality %+v: Explain.Matched=%v, Matches=%v", s.String(), q, got, want)
+		}
+	}
+	for _, a := range sources {
+		for _, b := range sources {
+			for _, v := range sources {
+				check(Spec{MinSource: a, MaxSource: b}, Quality{Source: v})
+			}
+		}
+	}
+	for _, a := range audios {
+		for _, b := range audios {
+			for _, v := range audios {
+				check(Spec{MinAudio: a, MaxAudio: b}, Quality{Audio: v})
+			}
+		}
+	}
+	for _, a := range formats {
+		for _, b := range formats {
+			for _, v := range formats {
+				check(Spec{MinFormat3D: a, MaxFormat3D: b}, Quality{Format3D: v})
+			}
+		}
+	}
+}

@@ -1849,6 +1849,7 @@ func TestFormat3DStoredValuesAreFrozen(t *testing.T) {
 		Format3DFull:        3,
 		Format3DBD:          4,
 		Format3DUnspecified: 5,
+		Format3DMVHEVC:      6,
 	}
 	for f, want := range frozen {
 		if int(f) != want {
@@ -2296,5 +2297,107 @@ func TestUpscaledFullSBSFailsA3DFullGate(t *testing.T) {
 	}
 	if !spec.Matches(Parse("Movie 2020 1080p FSBS BluRay x264 TrueHD")) {
 		t.Error("a 1080p full-SBS release must still satisfy spec 3dfull")
+	}
+}
+
+// TestMVHEVCDetection runs the real names from 3dtorrents, all of them taken
+// from one search on 2026-10-16. About a third of Vision Pro releases never
+// say MV-HEVC and are named only for the device and the container, so the
+// detector has to read those too, and the near misses next to them are the
+// reason "AVP" and "Spatial" do not count on their own.
+func TestMVHEVCDetection(t *testing.T) {
+	mvhevc := []string{
+		// The codec, spelled the way indexers show it (punctuation stripped)
+		// and the ways a scene name would write it.
+		"Alita Battle Angel 3D 2019 MV HEVC for Apple Vision Pro and VR mov",
+		"Jurassic Park 1993 MV HEVC mov",
+		"Piranha 3DD MV HEVC for Apple Vision Pro and VR",
+		"Hugo 3D AVP MV HEVC mov",
+		"GGODZILLA 2014 Spatial MV HEVC format for AVP mp4",
+		"The Hobbit Part 1 An Unexpected Journey 3D Spatial MV HEVC format for AVP mp4",
+		"Some.Film.2026.2160p.ATVP.WEB-DL.MV-HEVC.Atmos",
+		"Some.Film.2026.MV.HEVC.mov",
+		// Apple's own words.
+		"Those Redheads From Seattle 3D MV HEVC Spatial Video Apple Vision Pro mov",
+		"Some Film 2026 Spatial Video",
+		// Device and container only.
+		"Dial M for Murder AVP mov",
+		"House of Wax Spatial AVP mov",
+		"Parasite 3 D spatial AVP mov",
+		"Titanic 3D Complete AVP mov",
+		"World War Z 3D AVP mov",
+	}
+	for _, title := range mvhevc {
+		if got := Parse(title).Format3D; got != Format3DMVHEVC {
+			t.Errorf("%q: Format3D = %s, want MV-HEVC", title, format3DNames[got])
+		}
+	}
+
+	notMVHEVC := map[string]Format3D{
+		// AVPR is a different word, and the release says what it is.
+		"AVPR: Aliens vs Predator   Requiem 2007 3D Convert MVC DTSHD 5 1": Format3DConv,
+		// Alien vs. Predator in 2D: "AVP" with no Apple container.
+		"AVP Double Feature (Alien vs Predator / Aliens vs Predator: Requiem) 10Bit BluRay 1080p Dts-HDMa5 1 H265-d3g": Format3DNone,
+		"Barboskiny 2011-2012 DVDRip_[New-team]_by_AVP_Studio":                                                     Format3DNone,
+		// "Spatial" outside a Vision Pro name.
+		"Label: Spatial (58 releases), 2022-2026, FLAC (tracks), lossless": Format3DNone,
+		"Spatial Analysis and Geospatial Data Science With Python":         Format3DNone,
+		// Found by the same searches, matched on "Vision".
+		"Pet Sematary 1989 2160p UHD Blu ray Remux HEVC DoVi DD+ 5 1   SumVision": Format3DNone,
+		"Prophecy (1979) 4K Dolby Vision Full Disc bluto":                        Format3DNone,
+		// Plain HEVC is not multiview.
+		"Avatar The Way of Water 2022 2160p WEB DL DDP 5 1 Atmos DV HDR10 HEVC  CMRG": Format3DNone,
+	}
+	for title, want := range notMVHEVC {
+		if got := Parse(title).Format3D; got != want {
+			t.Errorf("%q: Format3D = %s, want %s", title, format3DNames[got], format3DNames[want])
+		}
+	}
+}
+
+// TestMVHEVCIsNotPromotedToTheDisc: the remux and "complete Blu-ray" rules
+// turn a bare 3D into BD3D because only the disc's MVC survives those
+// packagings. An MV-HEVC name has already said what the file is.
+func TestMVHEVCIsNotPromotedToTheDisc(t *testing.T) {
+	for _, title := range []string{
+		"Some Film 2026 1080p MV-HEVC Remux Atmos",
+		"Some Film 2012 3D COMPLETE BLURAY MV HEVC mov",
+	} {
+		if got := Parse(title).Format3D; got != Format3DMVHEVC {
+			t.Errorf("%q: Format3D = %s, want MV-HEVC", title, format3DNames[got])
+		}
+	}
+}
+
+// TestMVHEVCRanksBetweenFullAndTheDisc: a Blu-ray 3D beats its own Vision
+// Pro transcode, and a full-resolution-per-eye stream beats a frame-packed
+// one.
+func TestMVHEVCRanksBetweenFullAndTheDisc(t *testing.T) {
+	bd := Parse("Some Film 2012 1080p 3D BluRay MVC")
+	mv := Parse("Some Film 2012 3D MV HEVC for Apple Vision Pro mov")
+	full := Parse("Some Film 2012 1080p 3D FSBS BluRay")
+	if !bd.Better(mv) || mv.Better(bd) {
+		t.Errorf("BD3D (%s) must beat MV-HEVC (%s)", bd, mv)
+	}
+	if !mv.Better(full) || full.Better(mv) {
+		t.Errorf("MV-HEVC (%s) must beat full SBS (%s)", mv, full)
+	}
+
+	exact, err := ParseSpec("mvhevc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !exact.Matches(mv) || exact.Matches(bd) || exact.Matches(full) {
+		t.Errorf("spec mvhevc should match MV-HEVC only")
+	}
+	floor, err := ParseSpec("3dfull+")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !floor.Matches(mv) {
+		t.Errorf("3dfull+ should admit MV-HEVC, which ranks above Full")
+	}
+	if got := mv.Format3D.Layout(); got != "mv-hevc" {
+		t.Errorf("layout = %q, want mv-hevc", got)
 	}
 }
