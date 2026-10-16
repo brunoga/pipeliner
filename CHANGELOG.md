@@ -5,6 +5,22 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.64.0] - 2026-10-16
+
+`probe` could not be reached by any peer, and could not say why a probe failed. Since the 1.63.5 deploy, 10 of 17 live probes ended "no peer served any of the sample", and each of those is cached as a dead swarm for a week -- on the strength of a 30-second test from a host nobody could connect to.
+
+### Added
+
+- **`listen_port` on `probe`** ([#616](https://github.com/brunoga/pipeliner/pull/616)). The client listened on a random port inside the container, which the host never forwards, so only peers we could dial ever connected. A seeder behind NAT can only take part by dialling us, and to the probe it looked exactly like an empty swarm. A fixed port can be published (TCP and UDP, host port equal to container port, because the client announces its own number). Every probe node on the same port shares one reference-counted client: a config has a node per lane, two clients cannot bind one port, and on a reload the new config's nodes are built while the old ones still hold it.
+- **A failed probe logs what the swarm did** ([#616](https://github.com/brunoga/pipeliner/pull/616)): the tracker's last answer (`N peers`, its error, or `never`), peers known, dialling, connected, still active and unchoked, and useful bytes received. A refused announce, an empty swarm and peers that would not send used to read identically. The tracker is shown by host only, because a private tracker's announce URL carries the passkey; a URL quoted inside an HTTP error is cut back to its host too. Successful probes log the same at debug level.
+- **`pipeliner probe -listen-port` and `-no-peer-timeout`**, and the swarm report in its output, including for a failed probe ([#616](https://github.com/brunoga/pipeliner/pull/616)).
+
+### Fixed
+
+- **`probe` was never shut down, so every config reload leaked a torrent client and its scratch directory** ([#616](https://github.com/brunoga/pipeliner/pull/616)). The method was declared `Shutdown(ctx, tc) error`, which is a different method from `plugin.ShutdownPlugin`'s `Shutdown()`, so the executor never called it. With a random port the leak was a socket and a directory per reload; with a fixed one it would have held the port against the next config's client. A compile-time assertion now pins the interface.
+
+**Why 1.64.0**: a new plugin option and new CLI flags. Nothing changes for a config that does not set `listen_port`, apart from the extra log fields and the reload leak being gone.
+
 ## [1.63.5] - 2026-10-14
 
 ### Fixed
