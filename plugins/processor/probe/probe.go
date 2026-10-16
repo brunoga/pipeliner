@@ -459,7 +459,7 @@ func (p *probePlugin) probeEntry(ctx context.Context, tc *plugin.TaskContext, e 
 	if err != nil {
 		return nil, 0, 0, nil, err
 	}
-	t, err := sc.add(mi)
+	t, err := sc.add(ctx, mi)
 	if err != nil {
 		return nil, 0, 0, nil, fmt.Errorf("adding the torrent: %w", err)
 	}

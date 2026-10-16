@@ -99,6 +99,9 @@ func printSwarm(w io.Writer, s *probecmd.SwarmReport, elapsed time.Duration) {
 	fmt.Fprintf(w, "tracker: %s\n", s.Tracker)
 	fmt.Fprintf(w, "peers:   %d known, %d still dialling, %d connected (%d at the end), %d unchoked us\n",
 		s.Known, s.Dialling, s.Connected, s.Active, s.Unchoked)
+	if s.ToSelf > 0 {
+		fmt.Fprintf(w, "         the tracker listed us too; %d connection(s) to ourselves not counted\n", s.ToSelf)
+	}
 	fmt.Fprintf(w, "data:    %s useful in %s, listening on port %d\n",
 		humanBytes(s.Useful), elapsed.Round(time.Millisecond), s.ListenPort)
 }
