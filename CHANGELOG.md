@@ -5,6 +5,23 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.65.0] - 2026-10-16
+
+MV-HEVC -- the Apple Vision Pro's multiview HEVC, "spatial video" -- as a 3D format: recognised in release names, ranked, and verified by `probe` from a two-piece sample. The point is new films that never had a Blu-ray 3D, whose only full-resolution 3D is a streaming source.
+
+### Added
+
+- **MV-HEVC in release names** ([#620](https://github.com/brunoga/pipeliner/pull/620)). A new 3D format, ranked between Full and BD3D: nearly every MV-HEVC release is a Blu-ray 3D converted for the Vision Pro, so ranking it level would let a transcode replace its own source -- and for a film with no Blu-ray 3D it wins anyway. Detected from real 3dtorrents names: `MV HEVC` / `MV-HEVC` / `MV.HEVC`, `Apple Vision Pro` and `Spatial Video` count alone; `AVP` and `Spatial` only beside `mov` or `mp4`, because a third of Vision Pro releases are named only for device and container ("Dial M for Murder AVP mov") while `AVP` alone is also Alien vs. Predator. Layout `mv-hevc`; spec tokens `mvhevc`, `mv-hevc`, `spatial`. Stored as 6, appended.
+- **`probe` reads MP4 and QuickTime, and MV-HEVC in them** ([#621](https://github.com/brunoga/pipeliner/pull/621)), through `github.com/brunoga/bdtools` v0.13.0, the successor of `github.com/brunoga/mvc`. `probe_3d_layout == "mv-hevc"` is the same word the name parser uses, so a rule can compare claim and container; `probe_kind` gains `mp4`.
+
+### Fixed
+
+- **`probe` read folder releases as disc images** ([#621](https://github.com/brunoga/pipeliner/pull/621)). The reader was chosen by the torrent's name, which a folder does not end in an extension, so a film packaged with an `.nfo` and a sample always failed. The probe now reads the torrent's largest file, chooses the reader by its extension, and fetches the pieces at that file's ends.
+- **An unknown probe layout was recorded as 2D** ([#621](https://github.com/brunoga/pipeliner/pull/621)). It now reads as `other`.
+- **The quality tester could contradict the `quality` filter** ([#620](https://github.com/brunoga/pipeliner/pull/620)). `Spec.Explain` compared Source, Audio and 3D format by stored integer while `Matches` compares rank; all three have values appended out of order, and the two disagreed on 119 spec/value combinations.
+
+**Why 1.65.0**: a new 3D format and new probe capability. Existing specs keep their meaning, except that a range reaching above `3dfull` (for example `3dfull+` or `3d-half+`) now also admits MV-HEVC, which ranks there; an exact `3dfull` does not.
+
 ## [1.64.1] - 2026-10-16
 
 Fixes to the swarm report added in 1.64.0, found by using it: the 13 releases the live 3d-mvc probes had refused were re-probed with it, and two of its numbers were wrong.
