@@ -3,13 +3,17 @@ package probe
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	mvcprobe "github.com/brunoga/mvc/probe"
+	"github.com/anacrolix/torrent/metainfo"
+	mvcprobe "github.com/brunoga/bdtools/probe"
 
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/plugin"
@@ -120,7 +124,7 @@ func TestFetchLoopStartsAtTheEnds(t *testing.T) {
 	p.probeImage = sp.image
 	f := newFakeSampler(100<<20, 16<<20) // 7 pieces
 
-	if _, err := p.readWithRetries(context.Background(), f, "disc.iso"); err != nil {
+	if _, err := p.readWithRetries(context.Background(), f, target{name: "disc.iso"}); err != nil {
 		t.Fatal(err)
 	}
 	if len(f.fetches) != 2 || f.fetches[0] != 0 || f.fetches[1] != f.numPieces()-1 {
@@ -140,7 +144,7 @@ func TestFetchLoopRetriesThePieceTheProberNames(t *testing.T) {
 	sp := &scriptedProber{missing: []int64{int64(wantPiece)*(16<<20) + 1234}}
 	p.probeImage = sp.image
 
-	res, err := p.readWithRetries(context.Background(), f, "disc.iso")
+	res, err := p.readWithRetries(context.Background(), f, target{name: "disc.iso"})
 	if err != nil {
 		t.Fatalf("the loop should have fetched the named piece and succeeded: %v", err)
 	}
@@ -169,7 +173,7 @@ func TestFetchLoopStopsAtMaxPieces(t *testing.T) {
 	sp := &scriptedProber{missing: offs}
 	p.probeImage = sp.image
 
-	_, err := p.readWithRetries(context.Background(), f, "disc.iso")
+	_, err := p.readWithRetries(context.Background(), f, target{name: "disc.iso"})
 	if err == nil {
 		t.Fatal("a probe that never succeeds must end in an error")
 	}
@@ -193,7 +197,7 @@ func TestFetchLoopDoesNotRetryAParseError(t *testing.T) {
 	}
 	f := newFakeSampler(100<<20, 16<<20)
 
-	if _, err := p.readWithRetries(context.Background(), f, "disc.iso"); err == nil {
+	if _, err := p.readWithRetries(context.Background(), f, target{name: "disc.iso"}); err == nil {
 		t.Fatal("want the parse error")
 	}
 	if calls != 1 {
@@ -211,7 +215,7 @@ func TestFetchLoopReportsFetchFailure(t *testing.T) {
 	f := newFakeSampler(100<<20, 16<<20)
 	f.failAt = 1
 
-	if _, err := p.readWithRetries(context.Background(), f, "disc.iso"); err == nil {
+	if _, err := p.readWithRetries(context.Background(), f, target{name: "disc.iso"}); err == nil {
 		t.Fatal("want the fetch error")
 	} else if !strings.Contains(err.Error(), "unreachable") {
 		t.Errorf("error = %q, want the underlying fetch failure", err)
@@ -233,7 +237,7 @@ func TestMatroskaTakesTheMatroskaPath(t *testing.T) {
 	}
 	f := newFakeSampler(100<<20, 16<<20)
 
-	res, err := p.readWithRetries(context.Background(), f, "Some.Film.2024.1080p.mkv")
+	res, err := p.readWithRetries(context.Background(), f, target{name: "Some.Film.2024.1080p.mkv"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -243,21 +247,21 @@ func TestMatroskaTakesTheMatroskaPath(t *testing.T) {
 }
 
 func TestMissingOffset(t *testing.T) {
-	if _, ok := missingOffset(errors.New("plain")); ok {
+	if _, ok := missingOffset(errors.New("plain"), 0); ok {
 		t.Error("a plain error names no offset")
 	}
 	// The prober's own error is preferred, since it knows which bytes the
 	// format needed rather than which read happened to fail.
 	md := &mvcprobe.MissingDataError{Offset: 4242, Length: 2048}
-	if off, ok := missingOffset(md); !ok || off != 4242 {
+	if off, ok := missingOffset(md, 0); !ok || off != 4242 {
 		t.Errorf("probe error gave (%d, %v), want (4242, true)", off, ok)
 	}
 	mp := &torrentpeek.MissingPieceError{Offset: 99, Piece: 3}
-	if off, ok := missingOffset(mp); !ok || off != 99 {
+	if off, ok := missingOffset(mp, 0); !ok || off != 99 {
 		t.Errorf("reader error gave (%d, %v), want (99, true)", off, ok)
 	}
 	// Wrapped, as it arrives in practice.
-	if off, ok := missingOffset(errors.Join(errors.New("ctx"), md)); !ok || off != 4242 {
+	if off, ok := missingOffset(errors.Join(errors.New("ctx"), md), 0); !ok || off != 4242 {
 		t.Errorf("wrapped probe error gave (%d, %v)", off, ok)
 	}
 }
@@ -652,5 +656,163 @@ func TestOnlyRefusesWhenRequired(t *testing.T) {
 	}
 	if got := d.RefusalIn(map[string]any{"require": true}); got != plugin.RefusalPerRelease {
 		t.Errorf("require=true: RefusalIn = %v, want per-release", got)
+	}
+}
+
+// TestTargetIsTheLargestFile: a release packaged as a folder is probed by its
+// main file, found by size, at its place in the torrent. The torrent's own
+// name says nothing about the reader a folder needs.
+func TestTargetIsTheLargestFile(t *testing.T) {
+	info := &metainfo.Info{Name: "Hugo 3D AVP MV HEVC", Files: []metainfo.FileInfo{
+		{Path: []string{"Hugo.nfo"}, Length: 2 << 10},
+		{Path: []string{"Sample", "sample.mov"}, Length: 30 << 20},
+		{Path: []string{"Hugo.mov"}, Length: 9 << 30},
+		{Path: []string{"Hugo.srt"}, Length: 80 << 10},
+	}}
+	got := targetIn(info, "unused")
+	want := target{name: "Hugo.mov", off: 2<<10 + 30<<20, size: 9 << 30}
+	if got != want {
+		t.Errorf("target %+v, want %+v", got, want)
+	}
+	if readerFor(got.name) != "mp4" {
+		t.Errorf("reader %q for %q, want mp4", readerFor(got.name), got.name)
+	}
+
+	single := targetIn(&metainfo.Info{Name: "Some.Film.2024.iso", Length: 40 << 30}, "Some.Film.2024.iso")
+	if single != (target{name: "Some.Film.2024.iso", size: 40 << 30}) {
+		t.Errorf("single-file target %+v", single)
+	}
+}
+
+func TestReaderForExtension(t *testing.T) {
+	for name, want := range map[string]string{
+		"a.mkv": "matroska", "a.MK3D": "matroska", "a.webm": "matroska",
+		"a.mp4": "mp4", "a.MOV": "mp4", "a.m4v": "mp4",
+		"a.iso": "image", "Some Film 2012 3D BluRay": "image", "": "image",
+	} {
+		if got := readerFor(name); got != want {
+			t.Errorf("readerFor(%q) = %q, want %q", name, got, want)
+		}
+	}
+}
+
+// TestMP4InAFolderReadsTheFileAtItsOffset: the MP4 prober reads the target
+// file, not the torrent, and its "missing" offsets count from the file's
+// start. The piece fetched for one must be the torrent's piece holding
+// file offset + where the file starts -- reading it as a torrent offset
+// fetches a piece from the wrong file and the probe never finishes.
+func TestMP4InAFolderReadsTheFileAtItsOffset(t *testing.T) {
+	const piece = 16 << 20
+	f := newFakeSampler(100<<20, piece)
+	for i := range f.data {
+		f.data[i] = byte(i / piece) // each piece's bytes name it
+	}
+	tg := target{name: "Film/Film.mov", off: 20 << 20, size: 70 << 20}
+
+	p := testPlugin(t, nil)
+	p.probeImage = func(io.ReaderAt, int64, string) (*mvcprobe.Result, error) {
+		t.Error("an .mov must not be probed as a disc image")
+		return nil, errors.New("wrong path")
+	}
+	calls := 0
+	p.probeMP4 = func(r io.ReaderAt, size int64, label string) (*mvcprobe.Result, error) {
+		calls++
+		if size != tg.size || label != tg.name {
+			t.Errorf("prober given size %d label %q, want the file's", size, label)
+		}
+		if calls == 1 {
+			// The movie box, as the prober would ask for it: 40 MiB into the file.
+			return nil, &mvcprobe.MissingDataError{Offset: 40 << 20, Length: 8, Err: io.EOF}
+		}
+		var b [1]byte
+		if _, err := r.ReadAt(b[:], 40<<20); err != nil {
+			return nil, err
+		}
+		if want := byte((20<<20 + 40<<20) / piece); b[0] != want {
+			t.Errorf("file offset 40 MiB read torrent piece %d, want %d", b[0], want)
+		}
+		return &mvcprobe.Result{Kind: mvcprobe.KindMP4, Is3D: true, Layout: mvcprobe.LayoutMVHEVC}, nil
+	}
+
+	res, err := p.readWithRetries(context.Background(), f, tg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Layout != mvcprobe.LayoutMVHEVC {
+		t.Errorf("layout %v", res.Layout)
+	}
+	// First the file's two ends, then the piece the prober asked for.
+	wantFetches := []int{20 << 20 / piece, (90<<20 - 1) / piece, (60 << 20) / piece}
+	if fmt.Sprint(f.fetches) != fmt.Sprint(wantFetches) {
+		t.Errorf("fetched pieces %v, want %v", f.fetches, wantFetches)
+	}
+}
+
+// TestLayoutNames pins probe_3d_layout's vocabulary, and that a layout this
+// build has never heard of is recorded as 3D ("other"), never as "2d".
+func TestLayoutNames(t *testing.T) {
+	for l, want := range map[mvcprobe.Layout]string{
+		mvcprobe.Layout2D:         "2d",
+		mvcprobe.LayoutMVC:        "mvc",
+		mvcprobe.LayoutMVHEVC:     "mv-hevc",
+		mvcprobe.LayoutSideBySide: "sbs",
+		mvcprobe.LayoutTopBottom:  "tab",
+		mvcprobe.LayoutOther:      "other",
+		mvcprobe.Layout(99):       "other",
+	} {
+		if got := layoutName(l); got != want {
+			t.Errorf("layoutName(%d) = %q, want %q", l, got, want)
+		}
+	}
+	if kindName(mvcprobe.KindMP4) != "mp4" {
+		t.Errorf("kindName(KindMP4) = %q", kindName(mvcprobe.KindMP4))
+	}
+	// The name parser and the probe share the word for MV-HEVC, so a rule
+	// can compare what a release claims against what it is.
+	if got := quality.Parse("Hugo 3D AVP MV HEVC mov").Format3D.Layout(); got != layoutName(mvcprobe.LayoutMVHEVC) {
+		t.Errorf("name says %q, probe says %q", got, layoutName(mvcprobe.LayoutMVHEVC))
+	}
+}
+
+// TestARealMVHEVCFileInAFolder runs the real prober over a real file: a
+// 640x368 MV-HEVC QuickTime made by bdtools' own muxer (the movie box
+// last, as its muxer writes it), placed partway into a torrent beside other
+// files. Fetching starts from the file's ends and the prober's missing
+// offsets are the file's, so this exercises everything between the torrent
+// and the verdict that the fakes above stand in for.
+func TestARealMVHEVCFileInAFolder(t *testing.T) {
+	mov, err := os.ReadFile(filepath.Join("testdata", "mvhevc.mov"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const piece = 16 << 10
+	const before = 50 << 10 // an .nfo and a sample ahead of the film
+	f := newFakeSampler(int64(before+len(mov)+30<<10), piece)
+	copy(f.data[before:], mov)
+
+	p := testPlugin(t, nil)
+	tg := target{name: "Film.mov", off: before, size: int64(len(mov))}
+	res, err := p.readWithRetries(context.Background(), f, tg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := entry.New("Film 3D AVP MV HEVC", "http://x/film")
+	apply(e, res)
+	for field, want := range map[string]any{
+		entry.FieldProbeOK:       true,
+		entry.FieldProbeKind:     "mp4",
+		entry.FieldProbeIs3D:     true,
+		entry.FieldProbe3DLayout: "mv-hevc",
+		entry.FieldProbeWidth:    640,
+		entry.FieldProbeHeight:   368,
+	} {
+		if got := e.Fields[field]; got != want {
+			t.Errorf("%s = %#v, want %#v", field, got, want)
+		}
+	}
+	// The film starts in piece 3 and ends in piece 9; its movie box is at
+	// the end. Nothing in between is needed.
+	if f.FetchedPieces() > 3 {
+		t.Errorf("fetched %d pieces %v for a file whose index is in its last piece", f.FetchedPieces(), f.fetches)
 	}
 }

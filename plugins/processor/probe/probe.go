@@ -11,7 +11,7 @@
 //
 // So this plugin fetches the first and last piece of the torrent — 16 to 32
 // MiB, under a thousandth of a 46 GB disc — hands them to
-// github.com/brunoga/mvc/probe, and stamps what came back. Nothing is
+// github.com/brunoga/bdtools/probe, and stamps what came back. Nothing is
 // downloaded to the torrent client and nothing is kept: the sample lives in a
 // temporary directory that is removed when the run ends.
 //
@@ -50,7 +50,7 @@ import (
 
 	"github.com/anacrolix/torrent"
 	"github.com/anacrolix/torrent/metainfo"
-	mvcprobe "github.com/brunoga/mvc/probe"
+	mvcprobe "github.com/brunoga/bdtools/probe"
 
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/plugin"
@@ -201,6 +201,7 @@ type probePlugin struct {
 	// the part most likely to be wrong — can be driven directly in tests.
 	probeImage    func(r io.ReaderAt, size int64, label string) (*mvcprobe.Result, error)
 	probeMatroska func(r io.Reader, label string) (*mvcprobe.Result, error)
+	probeMP4      func(r io.ReaderAt, size int64, label string) (*mvcprobe.Result, error)
 
 	listenPort int
 
@@ -268,6 +269,7 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 		http:          &http.Client{Timeout: 60 * time.Second},
 		probeImage:    mvcprobe.Image,
 		probeMatroska: mvcprobe.Matroska,
+		probeMP4:      mvcprobe.MP4,
 	}, nil
 }
 
@@ -281,7 +283,6 @@ type sampler interface {
 	Size() int64
 	PieceLength() int64
 	PieceOf(off int64) int
-	Ends() []int
 	Fetch(ctx context.Context, pieces ...int) error
 	FetchedPieces() int
 }
@@ -498,34 +499,93 @@ func (p *probePlugin) probeEntry(ctx context.Context, tc *plugin.TaskContext, e 
 	pk.NoPeerTimeout = p.noPeerTimeout
 	defer func() { _ = pk.Close() }()
 
-	res, err := p.readWithRetries(ctx, pk, nameOf(t, e))
+	res, err := p.readWithRetries(ctx, pk, targetOf(t, e))
 	swarm = snapshot()
 	return res, pk.FetchedPieces(), pk.FetchedBytes(), swarm, err
 }
 
-// readWithRetries fetches the ends of the torrent, probes, and when the prober
-// names bytes it could not read, fetches the piece holding them and tries
-// again.
+// target is the file a probe reads: where it sits in the torrent, how long
+// it is, and its name, whose extension picks the reader.
+type target struct {
+	name      string
+	off, size int64
+}
+
+// targetOf picks the torrent's largest file. A single-file torrent is that
+// file. A release packaged as a folder -- a Vision Pro .mov beside an .nfo
+// and a sample -- used to be read as if the whole torrent were one disc
+// image, because the reader was chosen by the torrent's name, which a folder
+// torrent does not end in an extension; it failed on every such release.
+func targetOf(t *torrent.Torrent, e *entry.Entry) target {
+	info := t.Info()
+	if info == nil {
+		return target{name: e.Title, size: t.Length()}
+	}
+	return targetIn(info, nameOf(t, e))
+}
+
+// targetIn is targetOf over the metainfo alone. name is the single file's.
+func targetIn(info *metainfo.Info, name string) target {
+	if len(info.Files) == 0 {
+		return target{name: name, size: info.Length}
+	}
+	var best target
+	var off int64
+	for _, f := range info.UpvertedFiles() {
+		if f.Length > best.size {
+			best = target{name: f.DisplayPath(info), off: off, size: f.Length}
+		}
+		off += f.Length
+	}
+	return best
+}
+
+// reader names the prober a file's extension calls for.
+func readerFor(name string) string {
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".mkv", ".mk3d", ".webm":
+		return "matroska"
+	case ".mp4", ".mov", ".m4v":
+		return "mp4"
+	}
+	return "image"
+}
+
+// readWithRetries fetches the ends of the target file, probes, and when the
+// prober names bytes it could not read, fetches the piece holding them and
+// tries again.
 //
 // The retry is not belt and braces. A disc with hundreds of playlists — Disney
 // titles routinely have them — spills its metadata past the last 16 MiB piece,
 // so assuming two pieces would fail on real discs while the prober is sitting
 // there telling us exactly which piece it wants.
-func (p *probePlugin) readWithRetries(ctx context.Context, pk sampler, label string) (*mvcprobe.Result, error) {
-	matroska := strings.HasSuffix(strings.ToLower(label), ".mkv")
-
-	if err := pk.Fetch(ctx, pk.Ends()...); err != nil {
+//
+// An MP4's movie box is in its first or its last piece, so the same two
+// pieces serve it; when a muxer padded it past the last one, the retry finds
+// it the same way.
+func (p *probePlugin) readWithRetries(ctx context.Context, pk sampler, tg target) (*mvcprobe.Result, error) {
+	kind := readerFor(tg.name)
+	if tg.size <= 0 {
+		tg.size = pk.Size() - tg.off
+	}
+	// The pieces at the file's two ends. For a single-file torrent these are
+	// the torrent's own first and last pieces.
+	if err := pk.Fetch(ctx, pk.PieceOf(tg.off), pk.PieceOf(tg.off+tg.size-1)); err != nil {
 		return nil, err
 	}
+	file := io.NewSectionReader(pk, tg.off, tg.size)
 	for {
 		var res *mvcprobe.Result
 		var err error
-		if matroska {
+		switch kind {
+		case "matroska":
 			// A Matroska file states its tracks up front, so the first piece
 			// is the whole story and a reader over it suffices.
-			res, err = p.probeMatroska(io.NewSectionReader(pk, 0, pk.PieceLength()), label)
-		} else {
-			res, err = p.probeImage(pk, pk.Size(), label)
+			res, err = p.probeMatroska(io.NewSectionReader(file, 0, min(pk.PieceLength(), tg.size)), tg.name)
+		case "mp4":
+			res, err = p.probeMP4(file, tg.size, tg.name)
+		default:
+			res, err = p.probeImage(file, tg.size, tg.name)
 		}
 		if err == nil {
 			return res, nil
@@ -533,7 +593,9 @@ func (p *probePlugin) readWithRetries(ctx context.Context, pk sampler, label str
 
 		// The prober says which bytes it wanted; our reader says which piece
 		// holds them. Either error carries an offset, so prefer the prober's.
-		off, ok := missingOffset(err)
+		// The prober reads the file, so its offset is the file's; ours is
+		// the torrent's already.
+		off, ok := missingOffset(err, tg.off)
 		if !ok {
 			return nil, err
 		}
@@ -547,12 +609,13 @@ func (p *probePlugin) readWithRetries(ctx context.Context, pk sampler, label str
 	}
 }
 
-// missingOffset pulls the offset of the first unreadable byte out of either
-// the prober's error or our reader's.
-func missingOffset(err error) (int64, bool) {
+// missingOffset pulls the torrent offset of the first unreadable byte out of
+// either the prober's error, which counts from the start of the file it read
+// (at base in the torrent), or our reader's, which counts from the torrent's.
+func missingOffset(err error, base int64) (int64, bool) {
 	var md *mvcprobe.MissingDataError
 	if errors.As(err, &md) {
-		return md.Offset, true
+		return base + md.Offset, true
 	}
 	var mp *torrentpeek.MissingPieceError
 	if errors.As(err, &mp) {
@@ -787,22 +850,33 @@ func kindName(k mvcprobe.Kind) string {
 		return "disc"
 	case mvcprobe.KindMatroska:
 		return "matroska"
+	case mvcprobe.KindMP4:
+		return "mp4"
 	default:
 		return "unknown"
 	}
 }
 
+// layoutName is probe_3d_layout's vocabulary. "mv-hevc" matches the name
+// parser's video_3d_layout, so a rule can compare the two directly.
+//
+// A layout this build does not know reads as "other", which is 3D, not as
+// "2d". It used to be the reverse, and the prober's layouts are appended to
+// as formats are learnt: before this build knew MV-HEVC, a Vision Pro disc
+// read through a newer prober would have been recorded as a 2D release.
 func layoutName(l mvcprobe.Layout) string {
 	switch l {
+	case mvcprobe.Layout2D:
+		return "2d"
 	case mvcprobe.LayoutMVC:
 		return "mvc"
+	case mvcprobe.LayoutMVHEVC:
+		return "mv-hevc"
 	case mvcprobe.LayoutSideBySide:
 		return "sbs"
 	case mvcprobe.LayoutTopBottom:
 		return "tab"
-	case mvcprobe.LayoutOther:
-		return "other"
 	default:
-		return "2d"
+		return "other"
 	}
 }

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	mvcprobe "github.com/brunoga/mvc/probe"
+	mvcprobe "github.com/brunoga/bdtools/probe"
 
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/plugin"
