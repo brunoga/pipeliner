@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -84,10 +85,18 @@ func TestNodesOnOnePortShareOneClient(t *testing.T) {
 	if _, err := os.Stat(sa.dir); !os.IsNotExist(err) {
 		t.Errorf("the last shutdown should remove the scratch directory, stat err = %v", err)
 	}
-	// The port is free again: a fresh node can bind it.
+	// The port is free again: a fresh node can bind it. The library closes
+	// its listeners asynchronously, so allow it a moment -- which is also
+	// why ensureClient does not remember a failure.
 	c := portPlugin(t, port)
-	if _, err := c.ensureClient(); err != nil {
-		t.Errorf("the port was not released: %v", err)
+	var cerr error
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		if _, cerr = c.ensureClient(); cerr == nil {
+			break
+		}
+	}
+	if cerr != nil {
+		t.Errorf("the port was not released: %v", cerr)
 	}
 	c.Shutdown()
 }
@@ -157,11 +166,11 @@ func TestADroppedTorrentStaysForTheOtherProbe(t *testing.T) {
 	}
 	defer sc.release()
 	mi := smallTorrent(t, "")
-	t1, err := sc.add(mi)
+	t1, err := sc.add(context.Background(), mi)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t2, err := sc.add(mi)
+	t2, err := sc.add(context.Background(), mi)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,22 +188,26 @@ func TestADroppedTorrentStaysForTheOtherProbe(t *testing.T) {
 	}
 }
 
-// TestTrackerResultIsReadFromTheLibrary runs the real client against a fake
-// tracker, so the status-text parsing is checked against what the library
-// actually prints rather than against a copy of its format. A library upgrade
-// that changes that text fails here instead of quietly turning every log line
-// into "unknown".
-func TestTrackerResultIsReadFromTheLibrary(t *testing.T) {
+// TestTrackerResultIsReported runs the real announce against a fake tracker:
+// what it answered, by host, and never the passkey in the announce path.
+func TestTrackerResultIsReported(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		body string
 		want string
 	}{
 		{"refused", "d14:failure reason20:unregistered torrente", "unregistered torrent"},
-		{"one peer", "d8:intervali1800e5:peers6:\x7f\x00\x00\x01\x1a\xe1e", "1 peers"},
+		{"seeders and leechers", "d8:completei3e10:incompletei7e8:intervali1800e5:peers6:\x7f\x00\x00\x01\x1a\xe1e", "3 seeders, 7 leechers, 1 peers"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			var mu sync.Mutex
+			var gotPort, gotEvent string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Query().Get("event") == "started" {
+					mu.Lock()
+					gotPort, gotEvent = r.URL.Query().Get("port"), "started"
+					mu.Unlock()
+				}
 				_, _ = w.Write([]byte(tc.body))
 			}))
 			defer srv.Close()
@@ -207,7 +220,7 @@ func TestTrackerResultIsReadFromTheLibrary(t *testing.T) {
 			// The passkey is in the path, as private trackers put it.
 			announce := srv.URL + "/s3cr3tpasskey/announce"
 			mi := smallTorrent(t, announce)
-			tt, err := sc.add(mi)
+			tt, err := sc.add(context.Background(), mi)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -228,47 +241,13 @@ func TestTrackerResultIsReadFromTheLibrary(t *testing.T) {
 			if strings.Contains(r.Tracker, "s3cr3tpasskey") {
 				t.Errorf("the passkey reached the report: %q", r.Tracker)
 			}
+			// The port a peer is told to dial is the one the client listens on.
+			mu.Lock()
+			defer mu.Unlock()
+			if gotEvent != "started" || gotPort != strconv.Itoa(sc.cl.LocalPort()) {
+				t.Errorf("announce event=%q port=%q, want started and %d", gotEvent, gotPort, sc.cl.LocalPort())
+			}
 		})
-	}
-}
-
-func TestTrackerSummaryFromStatusText(t *testing.T) {
-	const passkey = "0123456789abcdef"
-	ann := "https://tracker.example/" + passkey + "/announce"
-	status := strings.Join([]string{
-		"# Torrents: 2 (2 incomplete)",
-		"",
-		"other",
-		"Infohash: 1111111111111111111111111111111111111111",
-		"Enabled trackers:",
-		`    URL  Extra`,
-		`    "` + ann + `"  next ann: anytime, last ann: 99 peers`,
-		"",
-		"ours",
-		"Infohash: 2222222222222222222222222222222222222222",
-		"Enabled trackers:",
-		`    URL  Extra`,
-		`    "` + ann + `"  next ann: anytime, last ann: Get "` + ann + `?info_hash=x&port=1": dial tcp: i/o timeout`,
-		`    "udp://other.example:80/announce"  next ann: anytime, last ann: never`,
-		"",
-	}, "\n")
-	got := trackerSummary(status, "2222222222222222222222222222222222222222",
-		[]string{ann, "udp://other.example:80/announce", "http://missing.example/announce"})
-	for _, want := range []string{
-		"tracker.example: Get",
-		"dial tcp: i/o timeout",
-		"other.example:80: never",
-		"missing.example: unknown",
-	} {
-		if !strings.Contains(got, want) {
-			t.Errorf("summary %q lacks %q", got, want)
-		}
-	}
-	if strings.Contains(got, "99 peers") {
-		t.Errorf("summary took another torrent's line: %q", got)
-	}
-	if strings.Contains(got, passkey) {
-		t.Errorf("summary leaks the passkey: %q", got)
 	}
 }
 
@@ -321,7 +300,7 @@ func TestReportCountsWhatThePeersDid(t *testing.T) {
 		t.Skipf("cannot start a torrent client here: %v", err)
 	}
 	defer sc.release()
-	tt, err := sc.add(mi)
+	tt, err := sc.add(context.Background(), mi)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -348,5 +327,59 @@ func TestReportCountsWhatThePeersDid(t *testing.T) {
 	}
 	if r.Tracker != "none in metainfo" {
 		t.Errorf("tracker = %q for a torrent with no announce URL", r.Tracker)
+	}
+}
+
+// TestATrackerListingOnlyUsIsNotAPeer reproduces what every dead 3dtorrents
+// swarm looked like on mrshine: the tracker lists the asking client, the
+// client dials itself, and the handshake callback fires -- both ways -- before
+// the library drops the connection. Reported as "2 connected" it read as a
+// swarm with peers that would not send, when there was nobody there.
+func TestATrackerListingOnlyUsIsNotAPeer(t *testing.T) {
+	sc, err := acquireClient(0)
+	if err != nil {
+		t.Skipf("cannot start a torrent client here: %v", err)
+	}
+	defer sc.release()
+	port := sc.cl.LocalPort()
+	if port == 0 {
+		t.Skip("the client is not listening; the sandbox forbids it")
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		peer := []byte{127, 0, 0, 1, byte(port >> 8), byte(port)}
+		_, _ = w.Write([]byte("d8:intervali1800e5:peers6:" + string(peer) + "e"))
+	}))
+	defer srv.Close()
+
+	mi := smallTorrent(t, srv.URL+"/announce")
+	tt, err := sc.add(context.Background(), mi)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sc.drop(tt)
+	// A client opens connections only for pieces it wants, as the probe's
+	// Fetch does.
+	tt.DownloadPieces(0, 1)
+
+	var r SwarmReport
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		r = sc.report(tt, mi)
+		// Stop on either count: waiting on ToSelf alone would turn a
+		// regression into a skip rather than a failure.
+		if r.ToSelf > 0 || r.Connected > 0 {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if r.ToSelf == 0 && r.Connected == 0 {
+		t.Skipf("the client never dialled itself (tracker: %s); cannot exercise the case here", r.Tracker)
+	}
+	if r.Connected != 0 {
+		t.Errorf("connected = %d, but the only peer the tracker listed was us", r.Connected)
+	}
+	if r.ToSelf == 0 {
+		t.Error("a connection to ourselves was not recorded as one")
 	}
 }
