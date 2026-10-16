@@ -109,8 +109,8 @@ const (
 	FieldVideoResolution    = "video_resolution"
 	FieldVideoSource        = "video_source"
 	FieldVideoIs3D          = "video_is_3d"
-	// FieldVideoLayout3D is the 3D layout the NAME states: "mvc", "full",
-	// "half", "conv", or "unspecified" when the release is 3D but never said
+	// FieldVideoLayout3D is the 3D layout the NAME states: "mvc", "mv-hevc",
+	// "full", "half", "conv", or "unspecified" when the release is 3D but never said
 	// how the views are packed. It shares probe_3d_layout's vocabulary, so a
 	// rule can compare what the name claims against what the disc reports.
 	FieldVideoLayout3D   = "video_3d_layout"

@@ -139,7 +139,7 @@ var KnownFields = []FieldMeta{
 	{Name: FieldVideoLayout3D, Type: FieldTypeString,
 		Description: "the 3D layout the release NAME states; \"unspecified\" means it is 3D but never said how the views are packed, which only a probe can settle",
 		SetBy:       []string{"metainfo_file"},
-		KnownValues: []string{"mvc", "full", "half", "conv", "unspecified"}},
+		KnownValues: []string{"mvc", "mv-hevc", "full", "half", "conv", "unspecified"}},
 	{Name: FieldVideoProper, Type: FieldTypeBool,
 		Description: "true when the release is tagged PROPER (corrected re-release)",
 		SetBy:       []string{"metainfo_file"}},

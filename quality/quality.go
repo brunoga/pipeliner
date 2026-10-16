@@ -239,6 +239,19 @@ const (
 	// persisted in every tracker record. It ranks WITH Half, so it can neither
 	// win nor lose an upgrade against one — the honest position for "unknown".
 	Format3DUnspecified
+	// Format3DMVHEVC is multiview HEVC, the stereo format of Apple's Vision
+	// Pro ("spatial video"). Like MVC it is one full-resolution picture per
+	// eye with the second view predicted from the first, so it is not frame
+	// packed and an ordinary HEVC decoder plays only the left eye.
+	//
+	// It ranks between Full and BD rather than with BD, and that is about
+	// provenance, not the format. Nearly every MV-HEVC release is a Blu-ray
+	// 3D put through a Vision Pro converter -- "Jurassic Park 1993 MV HEVC
+	// mov", "Piranha 3DD MV HEVC for Apple Vision Pro and VR" -- so it is the
+	// disc one generation removed, and ranking it level would let a transcode
+	// replace its own source. Where no Blu-ray 3D exists, which is what a
+	// recent streaming-only 3D film looks like, it wins anyway.
+	Format3DMVHEVC
 )
 
 // format3DRank places each format in the ladder, independent of its stored
@@ -251,7 +264,8 @@ var format3DRank = map[Format3D]int{
 	Format3DHalf:        2,
 	Format3DUnspecified: 2,
 	Format3DFull:        3,
-	Format3DBD:          4,
+	Format3DMVHEVC:      4,
+	Format3DBD:          5,
 }
 
 // rank returns the format's ladder position. An unknown value — a record from
@@ -270,6 +284,7 @@ var format3DLayouts = map[Format3D]string{
 	Format3DFull:        "full",
 	Format3DBD:          "mvc",
 	Format3DUnspecified: "unspecified",
+	Format3DMVHEVC:      "mv-hevc",
 }
 
 var format3DNames = map[Format3D]string{
@@ -279,6 +294,7 @@ var format3DNames = map[Format3D]string{
 	Format3DFull:        "3D-Full",
 	Format3DBD:          "BD3D",
 	Format3DUnspecified: "3D",
+	Format3DMVHEVC:      "MV-HEVC",
 }
 
 // Quality holds one value per dimension parsed from a release title.
@@ -451,6 +467,22 @@ var (
 	// Compound markers (FULL-SBS, H-OU, etc.) tolerate a space separator since
 	// scene releases routinely use "Full SBS" / "H OU" / "Half OU" with spaces.
 	re3D = regexp.MustCompile(`(?i)\b(BD3D|MVC|FULL[\s\-]?SBS|FULL[\s\-]?OU|FSBS|F[\s\-]SBS|FOU|F[\s\-]OU|HALF[\s\-]?SBS|HALF[\s\-]?OU|HSBS|H[\s\-]SBS|HOU|H[\s\-]OU|SBS|OU|3D)\b`)
+	// reMVHEVC matches a name that says MV-HEVC on its own: the codec, Apple's
+	// product name, or Apple's term for the format.
+	//
+	// The codec is spelled with a space, a dot or a hyphen, or none: indexers
+	// strip punctuation from what they show, which is why 3dtorrents lists
+	// "MV HEVC" and why searching it for "MVHEVC" finds nothing.
+	reMVHEVC = regexp.MustCompile(`(?i)\bMV[\s.\-]?HEVC\b|\bApple[\s.\-]?Vision[\s.\-]?Pro\b|\bSpatial[\s.\-]?Video\b`)
+	// reMVHEVCHint and reAppleContainer together match the other third of
+	// Vision Pro releases, named only for the device and the container: "Dial
+	// M for Murder AVP mov", "House of Wax Spatial AVP mov". Neither half is
+	// enough alone. "AVP" is also Alien vs. Predator ("AVP Double Feature ...
+	// H265") and a release group's tag ("by AVP_Studio"), and "Spatial" is a
+	// music label and a GIS textbook. A Vision Pro file is a .mov or .mp4,
+	// never the .mkv a scene release is.
+	reMVHEVCHint     = regexp.MustCompile(`(?i)\b(?:AVP|Spatial)\b`)
+	reAppleContainer = regexp.MustCompile(`(?i)\b(?:mov|mp4)\b`)
 	// reFullSBS matches the full-resolution SIDE-BY-SIDE markers only, which
 	// is a narrower set than reFrameCompatible3D on purpose: see the
 	// resolution rule in Parse, which turns on the geometry of SBS
@@ -676,12 +708,20 @@ func Parse(title string) Quality {
 	// also present, so non-3D releases tagged "Upscaled" or shot at 60 fps
 	// aren't misclassified as 3D-conversions.
 	native3D := re3D.FindAllString(title, -1)
-	hasNative3D := len(native3D) > 0
+	mvhevc := reMVHEVC.MatchString(title) ||
+		(reMVHEVCHint.MatchString(title) && reAppleContainer.MatchString(title))
+	hasNative3D := len(native3D) > 0 || mvhevc
 	isConv := re3DConvStrong.MatchString(title) ||
 		(hasNative3D && (re3DConvWeak.MatchString(title) || reHighFrameRate.MatchString(title)))
 	switch {
 	case isConv:
 		q.Format3D = Format3DConv
+	case mvhevc:
+		// The marker names the file's own format, so it wins over any other
+		// 3D marker in the name: "Hugo 3D AVP MV HEVC mov" is not a bare 3D,
+		// and a name that also mentions the MVC or BD3D it was converted
+		// from describes the source, not this file.
+		q.Format3D = Format3DMVHEVC
 	case hasNative3D:
 		// Scan native 3D markers and keep the highest-quality one. A title like
 		// "IMAX 3D FSBS" has both "3D" (Half) and "FSBS" (Full); the explicit
@@ -754,7 +794,11 @@ func Parse(title string) Quality {
 	//
 	// An explicit BD3D/MVC marker is unaffected: the native-marker scan above
 	// has already set BD, and this rule only ever promotes.
-	if q.Format3D.rank() > Format3DConv.rank() && q.Source == SourceBluRay &&
+	//
+	// MV-HEVC is excluded for the same reason an explicit frame-packed marker
+	// is: the name says what the file is, and it is not the disc's MVC. "Titanic
+	// 3D Complete AVP mov" is a converted disc, not the disc.
+	if q.Format3D.rank() > Format3DConv.rank() && q.Format3D != Format3DMVHEVC && q.Source == SourceBluRay &&
 		reCompleteDisc.MatchString(title) && !reFrameCompatible3D.MatchString(title) {
 		q.Format3D = Format3DBD
 	}
@@ -774,7 +818,8 @@ func Parse(title string) Quality {
 	// remuxes are routinely named with nothing more specific —
 	// "Life of Pi 2012 1080p 3D Blu ray Remux AVC DTS-HD MA 7.1" is a disc
 	// remux that read as half-resolution.
-	if q.Format3D.rank() > Format3DConv.rank() && q.Source == SourceRemux && !reFrameCompatible3D.MatchString(title) {
+	// An MV-HEVC remux is a remux of MV-HEVC, so it is excluded as above.
+	if q.Format3D.rank() > Format3DConv.rank() && q.Format3D != Format3DMVHEVC && q.Source == SourceRemux && !reFrameCompatible3D.MatchString(title) {
 		q.Format3D = Format3DBD
 	}
 	// 3D releases without an explicit resolution tag are assumed to be
@@ -1182,6 +1227,8 @@ func parseFormat3D(s string) (Format3D, bool) {
 		return Format3DFull, true
 	case "bd3d", "bd", "mvc":
 		return Format3DBD, true
+	case "mvhevc", "3dmvhevc", "spatial":
+		return Format3DMVHEVC, true
 	}
 	return Format3DNone, false
 }
