@@ -22,6 +22,17 @@ type Report struct {
 	// bytes count against a ratio, so they are reported rather than guessed at.
 	Pieces int
 	Bytes  int64
+	// Swarm is what the swarm did, nil when the probe never reached it. It is
+	// set when the probe failed too, because a failure is when it matters.
+	Swarm *SwarmReport
+}
+
+// Options are the processor's own settings that make sense for one release.
+type Options struct {
+	Timeout       time.Duration
+	MaxPieces     int
+	NoPeerTimeout time.Duration // 0 keeps the processor's default
+	ListenPort    int           // 0 picks a random port
 }
 
 // Inspect probes one torrent — a .torrent URL, or a path to a local .torrent
@@ -33,17 +44,27 @@ type Report struct {
 //
 // It runs the processor's own code path, so the answer is the answer the
 // pipeline would have got.
-func Inspect(ctx context.Context, logger *slog.Logger, src string, timeout time.Duration, maxPieces int) (*Report, error) {
+//
+// The report comes back with a probe error as well, carrying what the swarm
+// did, so a failure can be read rather than just counted.
+func Inspect(ctx context.Context, logger *slog.Logger, src string, opt Options) (*Report, error) {
 	if logger == nil {
 		logger = slog.New(slog.DiscardHandler)
 	}
-	cfg := map[string]any{"timeout": timeout.String(), "max_pieces": float64(maxPieces)}
+	cfg := map[string]any{
+		"timeout":     opt.Timeout.String(),
+		"max_pieces":  float64(opt.MaxPieces),
+		"listen_port": float64(opt.ListenPort),
+	}
+	if opt.NoPeerTimeout > 0 {
+		cfg["no_peer_timeout"] = opt.NoPeerTimeout.String()
+	}
 	pl, err := newPlugin(cfg, nil)
 	if err != nil {
 		return nil, err
 	}
 	p := pl.(*probePlugin)
-	defer func() { _ = p.Shutdown(ctx, nil) }()
+	defer p.Shutdown()
 
 	e := entry.New(src, src)
 	// A local .torrent is read from disk; anything else is fetched as a URL,
@@ -55,10 +76,11 @@ func Inspect(ctx context.Context, logger *slog.Logger, src string, timeout time.
 	}
 
 	tc := &plugin.TaskContext{Name: "probe", Logger: logger}
-	res, pieces, bytes, err := p.probeEntry(ctx, tc, e)
+	res, pieces, bytes, swarm, err := p.probeEntry(ctx, tc, e)
+	rep := &Report{Fields: e.Fields, Pieces: pieces, Bytes: bytes, Swarm: swarm}
 	if err != nil {
-		return nil, err
+		return rep, err
 	}
 	apply(e, res)
-	return &Report{Fields: e.Fields, Pieces: pieces, Bytes: bytes}, nil
+	return rep, nil
 }

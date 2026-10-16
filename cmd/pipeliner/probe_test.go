@@ -50,7 +50,7 @@ func TestInspectReportsFetchFailure(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	rep, err := probecmd.Inspect(ctx, nil, srv.URL+"/x.torrent", 5*time.Second, 6)
+	rep, err := probecmd.Inspect(ctx, nil, srv.URL+"/x.torrent", probecmd.Options{Timeout: 5 * time.Second, MaxPieces: 6})
 	if err == nil {
 		t.Fatalf("want an error for an unfetchable .torrent, got %+v", rep)
 	}
@@ -69,7 +69,7 @@ func TestInspectRejectsAMalformedTorrentFile(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	if _, err := probecmd.Inspect(ctx, nil, path, 5*time.Second, 6); err == nil {
+	if _, err := probecmd.Inspect(ctx, nil, path, probecmd.Options{Timeout: 5 * time.Second, MaxPieces: 6}); err == nil {
 		t.Fatal("a malformed .torrent must not probe successfully")
 	}
 }
@@ -79,7 +79,7 @@ func TestInspectRejectsAMalformedTorrentFile(t *testing.T) {
 func TestInspectRejectsAMagnet(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	_, err := probecmd.Inspect(ctx, nil, "magnet:?xt=urn:btih:"+strings.Repeat("a", 40), 5*time.Second, 6)
+	_, err := probecmd.Inspect(ctx, nil, "magnet:?xt=urn:btih:"+strings.Repeat("a", 40), probecmd.Options{Timeout: 5 * time.Second, MaxPieces: 6})
 	if err == nil {
 		t.Fatal("want an error for a magnet")
 	}
