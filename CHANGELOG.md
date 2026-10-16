@@ -5,6 +5,17 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.64.1] - 2026-10-16
+
+Fixes to the swarm report added in 1.64.0, found by using it: the 13 releases the live 3d-mvc probes had refused were re-probed with it, and two of its numbers were wrong.
+
+### Fixed
+
+- **A probe counted its own connections as peers** ([#618](https://github.com/brunoga/pipeliner/pull/618)). Every dead swarm on the 3D tracker reported "1 peers, 2 connected, 0 unchoked", and all of it was us: the tracker lists the client that is asking, the client dials its own published address, and the library's handshake callback runs before it notices the peer ID is its own and drops the connection -- once in each direction. Those handshakes are now `conns_to_self`, so a tracker that lists only us reads as the empty swarm it is, not as peers refusing to send.
+- **The tracker result was read through a data race** ([#618](https://github.com/brunoga/pipeliner/pull/618)). 1.64.0 parsed it from the client's status dump, which reads the library's announcer timer without the lock its own goroutine writes under. The probe now announces for itself with the library's tracker client: no status text, no race, and the report now carries the tracker's **seeder and leecher counts**, which the client never exposed. A `stopped` announce is sent when the probe ends, so the tracker stops handing out our address.
+
+**Why 1.64.1**: fixes only, both in `probe`'s diagnostics. A probe's verdict is unchanged.
+
 ## [1.64.0] - 2026-10-16
 
 `probe` could not be reached by any peer, and could not say why a probe failed. Since the 1.63.5 deploy, 10 of 17 live probes ended "no peer served any of the sample", and each of those is cached as a dead swarm for a week -- on the strength of a 30-second test from a host nobody could connect to.
