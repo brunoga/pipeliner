@@ -117,6 +117,7 @@ func init() {
 			{Key: "parallel", Type: plugin.FieldTypeInt, Default: "1", Hint: "How many entries to probe at once; a successful probe pulls 20-25 MiB, so raising this bursts at the tracker"},
 			{Key: "no_peer_timeout", Type: plugin.FieldTypeDuration, Default: "30s", Hint: "Give up early when no peer has connected and no byte has arrived; 0 disables"},
 			{Key: "cache_ttl", Type: plugin.FieldTypeDuration, Default: "168h", Hint: "How long a FAILED probe is remembered before the swarm is tried again; a container that was read is remembered for good, because the info-hash pins the bytes"},
+			{Key: "listen_port", Type: plugin.FieldTypeInt, Default: "0", Hint: "Port the torrent client listens on and announces. 0 picks a random one, which nothing outside a container can reach; publish a fixed one so peers that cannot be dialled can connect to us"},
 			{Key: "cache_only", Type: plugin.FieldTypeBool, Hint: "Replay stored verdicts and never touch the network, so this node can gate on what an earlier run learned. A release nobody has probed is left untouched, with no probe_* fields at all"},
 		},
 		Caches: []plugin.CacheInfo{
@@ -168,9 +169,15 @@ func validate(cfg map[string]any) []error {
 	if err := plugin.OptDuration(cfg, "cache_ttl", pluginName); err != nil {
 		errs = append(errs, err)
 	}
+	if v, ok := cfg["listen_port"]; ok {
+		n, isNum := toFloat(v)
+		if !isNum || n < 0 || n > 65535 || n != float64(int(n)) {
+			errs = append(errs, fmt.Errorf("%s: 'listen_port' must be a port number, or 0 for a random one", pluginName))
+		}
+	}
 	errs = append(errs, plugin.OptUnknownKeys(cfg, pluginName,
 		"timeout", "max_pieces", "require", "parallel", "no_peer_timeout",
-		"cache_ttl", "cache_only")...)
+		"cache_ttl", "cache_only", "listen_port")...)
 	return errs
 }
 
@@ -195,12 +202,14 @@ type probePlugin struct {
 	probeImage    func(r io.ReaderAt, size int64, label string) (*mvcprobe.Result, error)
 	probeMatroska func(r io.Reader, label string) (*mvcprobe.Result, error)
 
-	// The torrent client is built on first use: a pipeline that never reaches
-	// this node should not open a listening socket or a scratch directory.
-	once    sync.Once
-	client  *torrent.Client
-	dataDir string
-	initErr error
+	listenPort int
+
+	// The torrent client is acquired on first use: a pipeline that never
+	// reaches this node should not open a listening socket or a scratch
+	// directory. It is shared with every other probe node on the same port;
+	// see acquireClient.
+	clientMu sync.Mutex
+	sc       *sharedClient
 }
 
 func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
@@ -240,7 +249,14 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 		}
 		cacheTTL = d
 	}
+	listenPort := 0
+	if v, ok := cfg["listen_port"]; ok {
+		if n, isNum := toFloat(v); isNum && n >= 0 && n <= 65535 {
+			listenPort = int(n)
+		}
+	}
 	return &probePlugin{
+		listenPort:    listenPort,
 		timeout:       timeout,
 		maxPieces:     maxPieces,
 		parallel:      parallel,
@@ -270,45 +286,41 @@ type sampler interface {
 	FetchedPieces() int
 }
 
-// ensureClient builds the torrent client once.
-//
-// DHT is off: these are private torrents, whose peers come from the tracker in
-// the metainfo, and a private torrent ignores DHT and PEX anyway. Seeding and
-// upload are off because this fetches two pieces and leaves.
-func (p *probePlugin) ensureClient() (*torrent.Client, error) {
-	p.once.Do(func() {
-		dir, err := os.MkdirTemp("", "pipeliner-probe-")
-		if err != nil {
-			p.initErr = fmt.Errorf("%s: scratch directory: %w", pluginName, err)
-			return
-		}
-		cfg := torrent.NewDefaultClientConfig()
-		cfg.DataDir = dir
-		cfg.NoDHT = true
-		cfg.NoUpload = true
-		cfg.Seed = false
-		cfg.ListenPort = 0
-		cl, err := torrent.NewClient(cfg)
-		if err != nil {
-			_ = os.RemoveAll(dir)
-			p.initErr = fmt.Errorf("%s: torrent client: %w", pluginName, err)
-			return
-		}
-		p.client, p.dataDir = cl, dir
-	})
-	return p.client, p.initErr
+// ensureClient acquires the shared client for this node's port, once. A
+// failure is not remembered: the usual one is the port still being held by a
+// client that is closing, and the next entry should try again.
+func (p *probePlugin) ensureClient() (*sharedClient, error) {
+	p.clientMu.Lock()
+	defer p.clientMu.Unlock()
+	if p.sc != nil {
+		return p.sc, nil
+	}
+	sc, err := acquireClient(p.listenPort)
+	if err != nil {
+		return nil, err
+	}
+	p.sc = sc
+	return sc, nil
 }
 
-// Shutdown closes the client and removes the samples.
-func (p *probePlugin) Shutdown(_ context.Context, _ *plugin.TaskContext) error {
-	if p.client != nil {
-		p.client.Close()
+// Shutdown lets go of the shared client, which closes it and removes the
+// samples once no other node holds it.
+//
+// The signature is plugin.ShutdownPlugin's. It used to take a context and
+// return an error, which is a different method: the executor never called
+// it, and every config reload leaked a torrent client and its scratch
+// directory for the life of the daemon. Harmless on a random port, it would
+// hold a fixed one against the next config's client.
+func (p *probePlugin) Shutdown() {
+	p.clientMu.Lock()
+	defer p.clientMu.Unlock()
+	if p.sc != nil {
+		p.sc.release()
+		p.sc = nil
 	}
-	if p.dataDir != "" {
-		return os.RemoveAll(p.dataDir)
-	}
-	return nil
 }
+
+var _ plugin.ShutdownPlugin = (*probePlugin)(nil)
 
 // Process probes each entry in turn. Entries are deliberately not probed in
 // parallel: each one asks a private tracker for an announce and pulls tens of
@@ -377,7 +389,7 @@ func (p *probePlugin) Process(ctx context.Context, tc *plugin.TaskContext, entri
 			}
 			defer func() { <-sem }()
 
-			res, pieces, bytes, err := p.probeEntry(ctx, tc, e)
+			res, pieces, bytes, swarm, err := p.probeEntry(ctx, tc, e)
 			e.Set(entry.FieldProbePieces, pieces)
 			e.Set(entry.FieldProbeBytes, bytes)
 			logMu.Lock()
@@ -411,7 +423,8 @@ func (p *probePlugin) Process(ctx context.Context, tc *plugin.TaskContext, entri
 				if errors.Is(err, torrentpeek.ErrNoPeers) {
 					e.Set(entry.FieldProbeUnreachable, true)
 				}
-				tc.Logger.Info(pluginName+": could not probe", "entry", e.Title, "err", err)
+				tc.Logger.Info(pluginName+": could not probe",
+					append([]any{"entry", e.Title, "err", err}, swarm.logArgs()...)...)
 				if p.require {
 					e.Reject(fmt.Sprintf("%s: could not read the release's container: %v", pluginName, err))
 				}
@@ -424,6 +437,7 @@ func (p *probePlugin) Process(ctx context.Context, tc *plugin.TaskContext, entri
 				"size", fmt.Sprintf("%dx%d", widthOf(res), heightOf(res)),
 				"mbps", e.Fields[entry.FieldProbeBitrateMbps],
 				"pieces", pieces, "bytes", bytes)
+			tc.Logger.Debug(pluginName+": swarm", append([]any{"entry", e.Title}, swarm.logArgs()...)...)
 		}(e)
 	}
 	wg.Wait()
@@ -431,53 +445,62 @@ func (p *probePlugin) Process(ctx context.Context, tc *plugin.TaskContext, entri
 }
 
 // probeEntry samples one entry's torrent and probes it. It returns what the
-// probe cost even when it failed, so the accounting is never lost.
-func (p *probePlugin) probeEntry(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) (*mvcprobe.Result, int, int64, error) {
-	cl, err := p.ensureClient()
+// probe cost even when it failed, so the accounting is never lost, and what
+// the swarm did, which is nil when the probe never reached the swarm.
+func (p *probePlugin) probeEntry(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) (*mvcprobe.Result, int, int64, *SwarmReport, error) {
+	sc, err := p.ensureClient()
 	if err != nil {
-		return nil, 0, 0, err
+		return nil, 0, 0, nil, err
 	}
 	ctx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()
 
 	mi, err := p.fetchMetainfo(ctx, e)
 	if err != nil {
-		return nil, 0, 0, err
+		return nil, 0, 0, nil, err
 	}
-	t, err := cl.AddTorrent(mi)
+	t, err := sc.add(mi)
 	if err != nil {
-		return nil, 0, 0, fmt.Errorf("adding the torrent: %w", err)
+		return nil, 0, 0, nil, fmt.Errorf("adding the torrent: %w", err)
 	}
-	// Dropping the torrent and removing its sample is what keeps this from
-	// accumulating sparse files across a long-running daemon.
+	// The report is taken when the probe ends, success or failure, and
+	// before the torrent is dropped: afterwards there is nothing to ask.
+	var swarm *SwarmReport
 	defer func() {
 		name := ""
 		if info := t.Info(); info != nil {
 			name = info.BestName()
 		}
-		t.Drop()
-		if name != "" && p.dataDir != "" {
-			if err := os.RemoveAll(filepath.Join(p.dataDir, name)); err != nil {
+		// Dropping the torrent and removing its sample is what keeps this
+		// from accumulating sparse files across a long-running daemon.
+		if sc.drop(t) && name != "" {
+			if err := os.RemoveAll(filepath.Join(sc.dir, name)); err != nil {
 				tc.Logger.Warn(pluginName+": removing the sample", "entry", e.Title, "err", err)
 			}
 		}
 	}()
+	snapshot := func() *SwarmReport {
+		r := sc.report(t, mi)
+		return &r
+	}
 
 	select {
 	case <-t.GotInfo():
 	case <-ctx.Done():
-		return nil, 0, 0, fmt.Errorf("waiting for torrent metadata: %w", ctx.Err())
+		swarm = snapshot()
+		return nil, 0, 0, swarm, fmt.Errorf("waiting for torrent metadata: %w", ctx.Err())
 	}
 
 	pk, err := torrentpeek.New(t)
 	if err != nil {
-		return nil, 0, 0, err
+		return nil, 0, 0, nil, err
 	}
 	pk.NoPeerTimeout = p.noPeerTimeout
 	defer func() { _ = pk.Close() }()
 
 	res, err := p.readWithRetries(ctx, pk, nameOf(t, e))
-	return res, pk.FetchedPieces(), pk.FetchedBytes(), err
+	swarm = snapshot()
+	return res, pk.FetchedPieces(), pk.FetchedBytes(), swarm, err
 }
 
 // readWithRetries fetches the ends of the torrent, probes, and when the prober

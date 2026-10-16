@@ -17,6 +17,7 @@ Measured on a live 40.56 GiB disc: **2 pieces, 27.2 MiB, 0.066% of the torrent, 
 | `require` | bool | no | `false` | Reject entries whose probe could not run, instead of passing them with `probe_ok` false |
 | `parallel` | int | no | `1` | How many entries to probe at once |
 | `no_peer_timeout` | duration | no | `30s` | Give up early when no peer has connected and no byte has arrived; `0` disables |
+| `listen_port` | int | no | `0` | Port the client listens on and announces. `0` is random, which nothing outside a container can reach. Probe nodes on the same port share one client |
 | `cache_ttl` | duration | no | `168h` | How long a **failed** probe is remembered before the swarm is tried again. A container that *was* read is remembered for good. `0` disables the failure cache |
 | `cache_only` | bool | no | `false` | Replay stored verdicts and never touch the network. A release nobody has probed comes out with no `probe_*` fields at all |
 
@@ -106,6 +107,14 @@ Such an entry gets `probe_unreachable`, which is worth more than `probe_ok` fals
 ```python
 alive = process("condition", upstream=seen, reject="probe_unreachable == true")
 ```
+
+## Reachability
+
+A peer connection is opened by one side, and a seeder behind a home router cannot be dialled: it can only take part by dialling us. With `listen_port=0` inside Docker the client listens on a random port the host never forwards, so every such seeder is invisible and a live swarm can read as `probe_unreachable`. Publish a fixed port on the host for both TCP and UDP (uTP shares it), with the host port equal to the container port because the client announces its own number, and set `listen_port` on every probe node.
+
+Every node with the same `listen_port` shares one client, reference-counted and closed by the last node's `Shutdown`. That is not an optimisation: a config has a probe node per lane and two clients cannot bind one port, and on a reload the new config's nodes are built while the old ones still hold it.
+
+A failed probe logs what the swarm did — `tracker` (each announce URL's last result by host: `N peers`, the tracker's error, or `never`), `peers_known`, `peers_connected`, `peers_unchoked`, `useful_bytes` — so a refused announce, an empty swarm and peers that would not send are told apart. The tracker result is read from the library's status text, since it exposes no API for an HTTP tracker's announce result; a test runs the real client against a fake tracker so a format change fails CI instead of turning the field into `unknown`. Hosts only: an announce URL carries the passkey.
 
 ## What a container does not state
 

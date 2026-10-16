@@ -77,7 +77,7 @@ func TestASuccessfulVerdictIsReplayedWithoutProbing(t *testing.T) {
 	got := hashEntry("Some Disc 2019 3D BluRay", "abc123")
 	run(t, p2, got)
 
-	if p2.client != nil {
+	if p2.sc != nil {
 		t.Error("a replayed verdict must not build a torrent client")
 	}
 	if v := got.Fields[entry.FieldProbeOK]; v != true {
@@ -211,7 +211,7 @@ func TestCacheOnlyTellsKnownBadFromNotLookedAt(t *testing.T) {
 	fresh := hashEntry("Never Looked At 2022 3D", "unseen")
 	run(t, gate, bad, fresh)
 
-	if gate.client != nil {
+	if gate.sc != nil {
 		t.Error("cache_only must never build a torrent client")
 	}
 	if v, ok := bad.Fields[entry.FieldProbeOK]; !ok || v != false {
@@ -371,7 +371,7 @@ func TestADryRunDoesNotRecordAFailure(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			db := verdictStore(t)
 			p := probeWith(t, db, map[string]any{"timeout": "5s"})
-			t.Cleanup(func() { p.Shutdown(context.Background(), nil) })
+			t.Cleanup(func() { p.Shutdown() })
 
 			// A host that cannot resolve, so fetchMetainfo fails and the
 			// probe records a failure rather than a result.

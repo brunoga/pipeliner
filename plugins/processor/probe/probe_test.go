@@ -522,7 +522,7 @@ func TestProcessSkipsWhenAllRejected(t *testing.T) {
 	if len(out) != 0 {
 		t.Errorf("a rejected entry should not be forwarded, got %d", len(out))
 	}
-	if p.client != nil {
+	if p.sc != nil {
 		t.Error("no torrent client should have been built")
 	}
 	if _, ok := e.Fields[entry.FieldProbeOK]; ok {
