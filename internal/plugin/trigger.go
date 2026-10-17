@@ -19,6 +19,10 @@ const (
 	// TriggerStartup is the run some pipelines take once when the daemon
 	// starts.
 	TriggerStartup TriggerKind = "startup"
+	// TriggerProbe is the background probe worker reporting that a release
+	// it was asked about turned out readable, so the pipeline that asked can
+	// act on it now rather than at its next scheduled run.
+	TriggerProbe TriggerKind = "probe"
 )
 
 // Trigger is why this run is happening, and for a push, which queue it came
@@ -59,6 +63,8 @@ var reservedNodeKeys = []string{RunOnKey}
 // boot is running its schedule early, so a source that says "schedule" would
 // be surprised to sit that one out -- and nobody writing run_on is thinking
 // about the boot fire. "startup" on its own still means only the boot fire.
+// A probe fire is the same thing for the same reason: it is the pipeline's
+// scheduled work brought forward because a release it wanted became usable.
 func (t Trigger) Matches(runOn []string) bool {
 	if len(runOn) == 0 {
 		return true
@@ -68,7 +74,7 @@ func (t Trigger) Matches(runOn []string) bool {
 		if kind == "any" {
 			return true
 		}
-		if kind != string(t.Kind) && !(t.Kind == TriggerStartup && kind == string(TriggerSchedule)) {
+		if kind != string(t.Kind) && !(t.Kind.schedulelike() && kind == string(TriggerSchedule)) {
 			continue
 		}
 		if !hasQualifier {
@@ -83,13 +89,19 @@ func (t Trigger) Matches(runOn []string) bool {
 	return false
 }
 
+// schedulelike reports whether a fire of this kind is the pipeline's scheduled
+// work run early, which a source that runs on "schedule" also runs on.
+func (k TriggerKind) schedulelike() bool {
+	return k == TriggerStartup || k == TriggerProbe
+}
+
 // ValidRunOn reports whether every token in a run_on list is one this
 // executor understands, returning the first that is not.
 func ValidRunOn(runOn []string) (bad string, ok bool) {
 	for _, raw := range runOn {
 		kind, qualifier, hasQualifier := strings.Cut(strings.ToLower(strings.TrimSpace(raw)), ":")
 		switch TriggerKind(kind) {
-		case TriggerSchedule, TriggerManual, TriggerStartup:
+		case TriggerSchedule, TriggerManual, TriggerStartup, TriggerProbe:
 			if hasQualifier {
 				return raw, false // only a webhook takes a qualifier
 			}
@@ -110,7 +122,7 @@ func ValidRunOn(runOn []string) (bad string, ok bool) {
 // "no source runs on this trigger" check. A list naming "any", or an empty
 // one, admits every kind.
 func RunOnKinds(runOn []string) []TriggerKind {
-	all := []TriggerKind{TriggerSchedule, TriggerManual, TriggerWebhook, TriggerStartup}
+	all := []TriggerKind{TriggerSchedule, TriggerManual, TriggerWebhook, TriggerStartup, TriggerProbe}
 	if len(runOn) == 0 {
 		return all
 	}
@@ -129,6 +141,7 @@ func RunOnKinds(runOn []string) []TriggerKind {
 		add(k)
 		if k == TriggerSchedule {
 			add(TriggerStartup) // see Matches
+			add(TriggerProbe)
 		}
 	}
 	return out

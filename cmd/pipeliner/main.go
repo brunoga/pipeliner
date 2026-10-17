@@ -68,7 +68,7 @@ import (
 	_ "github.com/brunoga/pipeliner/plugins/processor/modify/pathfmt"
 	_ "github.com/brunoga/pipeliner/plugins/processor/modify/set"
 	_ "github.com/brunoga/pipeliner/plugins/processor/modify/swap_state"
-	_ "github.com/brunoga/pipeliner/plugins/processor/probe"
+	probecmd "github.com/brunoga/pipeliner/plugins/processor/probe"
 	_ "github.com/brunoga/pipeliner/plugins/sink/decompress"
 	_ "github.com/brunoga/pipeliner/plugins/sink/deluge"
 	_ "github.com/brunoga/pipeliner/plugins/sink/download"
@@ -664,6 +664,11 @@ func cmdDaemon(args []string) int {
 		}()
 		logger.Info("web interface enabled", "addr", scheme+"://"+*webAddr)
 	}
+
+	// The background probe worker probes what probe(background=True) nodes
+	// queued, and runs a pipeline again when a release it wanted turns out
+	// readable. Only the daemon works the queue; a CLI run just adds to it.
+	go probecmd.NewWorker(db, logger, d.TriggerProbe).Run(ctx)
 
 	logger.Info("daemon started")
 	d.Run(ctx, runner)

@@ -337,7 +337,7 @@ pipeliner check --config config.star --render-notifications</code></pre>
 
 <h3 id="run-on">run_on: which triggers a source runs on</h3>
 
-<p>A run happens for one of four reasons &mdash; a <strong>schedule</strong> fire, a person pressing Run (<strong>manual</strong>), a push to an ingest queue that named the pipeline (<strong>webhook</strong>), or the <strong>startup</strong> fire some pipelines take once when the daemon boots. A source node can say which of those it should run on:</p>
+<p>A run happens for one of five reasons &mdash; a <strong>schedule</strong> fire, a person pressing Run (<strong>manual</strong>), a push to an ingest queue that named the pipeline (<strong>webhook</strong>), the <strong>startup</strong> fire some pipelines take once when the daemon boots, or the background <a href="#probe"><code>probe</code></a> worker reporting that a release the pipeline queued turned out readable (<strong>probe</strong>). A source node can say which of those it should run on:</p>
 
 <pre><code><span class="y-comment"># A push must not make the feed run.</span>
 feed = input("trakt_list", <span class="y-str">…</span>, run_on=["schedule", "manual"])
@@ -348,11 +348,12 @@ hook = input("webhook", queue="3d-movies")        <span class="y-comment"># no r
 
 <table>
   <tr><th>Token</th><th>Matches</th></tr>
-  <tr><td><code>schedule</code></td><td>A cron/interval fire &mdash; and the startup fire, since a pipeline set to run at boot is running its schedule early</td></tr>
+  <tr><td><code>schedule</code></td><td>A cron/interval fire &mdash; and the startup and probe fires, since both are the pipeline's scheduled work run early</td></tr>
   <tr><td><code>manual</code></td><td>Run pressed in the UI, or the CLI running one pipeline</td></tr>
   <tr><td><code>webhook</code></td><td>A push to any ingest queue that named this pipeline</td></tr>
   <tr><td><code>webhook:&lt;queue&gt;</code></td><td>A push to that queue only &mdash; for a pipeline with more than one webhook</td></tr>
   <tr><td><code>startup</code></td><td>The boot fire only</td></tr>
+  <tr><td><code>probe</code></td><td>A run started by the background probe worker only (<code>probe(background=True, trigger=True)</code>)</td></tr>
   <tr><td><code>any</code></td><td>Everything; the same as leaving <code>run_on</code> out</td></tr>
 </table>
 
@@ -1594,6 +1595,10 @@ pipeline("real-3d-only", schedule="1h")</code></pre>
   <tr><td><code>listen_port</code></td><td>no</td><td><code>0</code></td><td>Port the torrent client listens on and announces to the tracker. <code>0</code> picks a random port, which nothing outside a container can reach. Every probe node with the same port shares one client, so give them all the same value. See <em>Reachability</em> below</td></tr>
   <tr><td><code>cache_ttl</code></td><td>no</td><td><code>168h</code></td><td>How long a <strong>failed</strong> probe is remembered before the swarm is tried again. A container that <em>was</em> read is remembered for good: the info-hash pins the bytes, so that answer cannot change. <code>0</code> disables the failure cache. A <strong>dry run</strong> records a success but not a failure, so a diagnostic cannot leave a gate refusing a release on the next real run</td></tr>
   <tr><td><code>cache_only</code></td><td>no</td><td><code>false</code></td><td>Replay stored verdicts and never touch the network, so this node can gate on what an earlier run learned. A release nobody has probed comes out with <strong>no</strong> <code>probe_*</code> fields at all &mdash; which is what lets a condition tell "known bad" from "not looked at yet". See <a href="#node-ordering">Node Ordering</a></td></tr>
+  <tr><td><code>background</code></td><td>no</td><td><code>false</code></td><td>Replay stored verdicts like <code>cache_only</code>, and queue every other release for the daemon's background worker instead of probing it in the run. See <em>Probing in the background</em> below</td></tr>
+  <tr><td><code>retries</code></td><td>no</td><td><code>2</code></td><td><code>background</code> only: how many more times the worker tries a release nobody served before it records the failure</td></tr>
+  <tr><td><code>retry_after</code></td><td>no</td><td><code>3h</code></td><td><code>background</code> only: the wait before the first retry; the n-th retry waits n times this</td></tr>
+  <tr><td><code>trigger</code></td><td>no</td><td><code>false</code></td><td><code>background</code> only: run the pipeline again, at most once an hour, when the worker reads a release it queued. The run is a <a href="#run-on"><code>probe</code></a> fire, which sources on <code>schedule</code> also run on</td></tr>
 </table>
 
 <p>Fields produced: <code>probe_ok</code>, <code>probe_kind</code>, <code>probe_is_3d</code>, <code>probe_3d_layout</code>, <code>probe_width</code>, <code>probe_height</code>, <code>probe_upscale</code>, <code>probe_video_codec</code>, <code>probe_duration_sec</code>, <code>probe_bitrate_mbps</code>, <code>probe_audio_codecs</code>, <code>probe_audio_languages</code>, <code>probe_subtitle_languages</code>, <code>probe_base_view_right</code>, <code>probe_unreachable</code>, <code>probe_pieces</code>, <code>probe_bytes</code>.</p>
@@ -1628,6 +1633,15 @@ probe = process("probe", upstream=meta, listen_port=50413)</code></pre>
 The host port must equal the container port, because the client announces its own port number. Each probe that fails logs what the swarm did &mdash; the tracker's answer (the seeders, leechers and peers it reported, or its error), how many peers were known, connected and unchoked us, and the bytes received &mdash; so a tracker that refused the announce, a tracker with no peers, and peers that would not send anything can be told apart. Successful probes log the same at debug level. The tracker is shown by host only: a private tracker's announce URL carries your passkey. A tracker may list the probe itself; those connections are counted separately as <code>conns_to_self</code> and not as peers, so a tracker reporting one peer with a connection to self is a swarm with nobody else in it.</div>
 
 <div class="note"><strong>What a container does not state is left unset</strong>, not written as zero, so a condition can tell "it says 0" from "it did not say". Video bit depth is never stated by a disc's clip info. A disc's audio channel count and bitrate come from the stream's opening frames, which lie in the first piece on only some discs &mdash; so decide on codec and language, which are always present. Blu-ray language codes are ISO 639-2 and cannot distinguish Brazilian from European Portuguese; both read as <code>por</code>. A probe that cannot run leaves <code>probe_ok</code> false and the entry otherwise untouched, because a release should not be lost to an unreachable swarm; <code>require=True</code> rejects those instead.</div>
+
+<div class="note"><strong>Probing in the background.</strong> A run cannot afford to wait on a swarm, and a swarm needs waiting on. Measured on one install, live MVC discs took 2m25s&ndash;2m58s to serve two pieces, and a seeder that can only dial in learns the probe exists at its next tracker announce, often 30&ndash;60 minutes away. A probe in the run either blocks every pipeline behind it for that long or gives up and refuses good releases. <code>background=True</code> takes the waiting out of the run. The node replays what is already known and queues everything else, so the run never touches a swarm, and a queued release carries <strong>no</strong> <code>probe_*</code> fields until it has been read. The daemon's worker then probes the queue one release at a time, at least 30 seconds apart, each film's best release before any film's second. A release nobody served is tried again after <code>retry_after</code>, then after twice that, and its failure is recorded only once <code>retries</code> are spent. The queue is in the database, so it survives a restart, and a CLI run can add to it; only the daemon works it. A release no run has asked for in two weeks is dropped.
+<pre><code>known = process("probe", upstream=alive, background=True, listen_port=50413,
+                timeout="10m", no_peer_timeout="3m", trigger=True)
+<span class="y-comment"># Pass only what a probe has read: a queued release waits for a later run.</span>
+read  = process("condition", upstream=known,
+                reject='probe_ok != true or (probe_3d_layout != "mvc" and probe_3d_layout != "mv-hevc")')
+pick  = process("dedup", upstream=read)</code></pre>
+Because the verdict lands before <a href="#dedup"><code>dedup</code></a>, a refusal still leaves the film's other releases in play. The cost is time: a new release is downloaded on the run after it was read, not on the night it appeared. <code>trigger=True</code> shortens that to the worker's next read, rate-limited to one run per pipeline an hour. <code>background</code> refuses <code>cache_only</code>, which never queues anything, and <code>require</code>, which would reject every release not yet probed.</div>
 
 <div class="note"><strong>Placement.</strong> <code>probe</code> needs <code>torrent_info_hash</code>, so it sits after <a href="#metainfo_torrent"><code>metainfo_torrent</code></a>. Put it after every gate that decides from the release name &mdash; <a href="#quality"><code>quality</code></a>, <a href="#trailer"><code>trailer</code></a>, the trackers, <a href="#torrent_alive"><code>torrent_alive</code></a> &mdash; because those cost nothing and this costs megabytes. <code>torrent_alive</code> in particular earns its place first: a probe needs a seeder, and that filter has already established there is one.</div>
 

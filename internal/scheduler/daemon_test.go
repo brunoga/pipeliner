@@ -352,3 +352,29 @@ func TestPendingRealRunBeatsDryRun(t *testing.T) {
 		t.Errorf("dry runs = %d, want 0 (upgraded to real)", dryRuns.Load())
 	}
 }
+
+// TestTriggerProbeRunsAsAProbeFire: the background probe worker's run reaches
+// the runner tagged as a probe fire, which is what lets a source that runs on
+// "schedule" take part and a webhook-only one sit it out.
+func TestTriggerProbeRunsAsAProbeFire(t *testing.T) {
+	got := make(chan plugin.Trigger, 1)
+	runner := func(_ context.Context, name string, dry bool, trig plugin.Trigger) {
+		if name == "3d-mvc" && !dry {
+			got <- trig
+		}
+	}
+	d := &Daemon{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go d.Run(ctx, runner)
+
+	d.TriggerProbe("3d-mvc")
+	select {
+	case trig := <-got:
+		if trig.Kind != plugin.TriggerProbe {
+			t.Errorf("kind = %q, want probe", trig.Kind)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the probe trigger never ran the pipeline")
+	}
+}

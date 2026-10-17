@@ -78,6 +78,11 @@ const (
 	// is the thing the cache exists to stop. A week means a release whose
 	// swarm was dead is tried again once a week instead.
 	defaultCacheTTL = 168 * time.Hour
+	// defaultRetries and defaultRetryAfter are a background job's second
+	// and third chances. Three hours apart, because what they wait for is
+	// the swarm's seeders announcing again, which is not minutes away.
+	defaultRetries    = 2
+	defaultRetryAfter = 3 * time.Hour
 	// maxTorrentFile bounds the .torrent fetch. Real ones are tens of KB; a
 	// disc image's piece hashes push that to a few hundred.
 	maxTorrentFile = 8 << 20
@@ -119,9 +124,14 @@ func init() {
 			{Key: "cache_ttl", Type: plugin.FieldTypeDuration, Default: "168h", Hint: "How long a FAILED probe is remembered before the swarm is tried again; a container that was read is remembered for good, because the info-hash pins the bytes"},
 			{Key: "listen_port", Type: plugin.FieldTypeInt, Default: "0", Hint: "Port the torrent client listens on and announces. 0 picks a random one, which nothing outside a container can reach; publish a fixed one so peers that cannot be dialled can connect to us"},
 			{Key: "cache_only", Type: plugin.FieldTypeBool, Hint: "Replay stored verdicts and never touch the network, so this node can gate on what an earlier run learned. A release nobody has probed is left untouched, with no probe_* fields at all"},
+			{Key: "background", Type: plugin.FieldTypeBool, Hint: "Replay stored verdicts and queue every other release for the daemon's background worker instead of probing it in the run. The run never waits on a swarm; a queued release carries no probe_* fields until the worker has read it"},
+			{Key: "retries", Type: plugin.FieldTypeInt, Default: "2", Hint: "background: how many more times the worker tries a release nobody served before recording the failure"},
+			{Key: "retry_after", Type: plugin.FieldTypeDuration, Default: "3h", Hint: "background: wait before the first retry; the n-th retry waits n times this. Long enough for the swarm's seeders to announce again"},
+			{Key: "trigger", Type: plugin.FieldTypeBool, Hint: "background: run this pipeline again, at most once an hour, when the worker reads a release it queued"},
 		},
 		Caches: []plugin.CacheInfo{
 			{Name: VerdictBucketName, Display: "Probe Verdict Cache"},
+			{Name: QueueBucketName, Display: "Probe Background Queue"},
 		},
 	})
 }
@@ -175,9 +185,36 @@ func validate(cfg map[string]any) []error {
 			errs = append(errs, fmt.Errorf("%s: 'listen_port' must be a port number, or 0 for a random one", pluginName))
 		}
 	}
+	if v, ok := cfg["retries"]; ok {
+		n, isNum := toFloat(v)
+		if !isNum || n < 0 || n != float64(int(n)) {
+			errs = append(errs, fmt.Errorf("%s: 'retries' must be a whole number, 0 or more", pluginName))
+		}
+	}
+	if err := plugin.OptDuration(cfg, "retry_after", pluginName); err != nil {
+		errs = append(errs, err)
+	}
+	background := plugin.OptBool(cfg, "background", false)
+	if background && plugin.OptBool(cfg, "cache_only", false) {
+		errs = append(errs, fmt.Errorf("%s: 'background' and 'cache_only' cannot both be set: cache_only never queues anything", pluginName))
+	}
+	if background && plugin.OptBool(cfg, "require", false) {
+		// require rejects a release the probe could not read, and a
+		// background node reads nothing in the run, so it would reject every
+		// release nobody has probed yet -- all of them, the first night.
+		errs = append(errs, fmt.Errorf("%s: 'require' cannot be used with 'background': nothing is probed in the run, so it would reject every release not yet probed; gate on probe_ok in a condition below instead", pluginName))
+	}
+	if !background {
+		for _, k := range []string{"retries", "retry_after", "trigger"} {
+			if _, ok := cfg[k]; ok {
+				errs = append(errs, fmt.Errorf("%s: '%s' only applies with background=True", pluginName, k))
+			}
+		}
+	}
 	errs = append(errs, plugin.OptUnknownKeys(cfg, pluginName,
 		"timeout", "max_pieces", "require", "parallel", "no_peer_timeout",
-		"cache_ttl", "cache_only", "listen_port")...)
+		"cache_ttl", "cache_only", "listen_port",
+		"background", "retries", "retry_after", "trigger")...)
 	return errs
 }
 
@@ -194,6 +231,14 @@ type probePlugin struct {
 	verdicts  store.Bucket
 	cacheTTL  time.Duration
 	cacheOnly bool
+
+	// background queues what has no verdict for the Worker instead of
+	// probing it here. queue is nil without a store, like verdicts.
+	background bool
+	queue      store.Bucket
+	retries    int
+	retryAfter time.Duration
+	trigger    bool
 
 	http *http.Client
 
@@ -256,21 +301,55 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 			listenPort = int(n)
 		}
 	}
+	retries := defaultRetries
+	if v, ok := cfg["retries"]; ok {
+		if n, isNum := toFloat(v); isNum && n >= 0 {
+			retries = int(n)
+		}
+	}
+	retryAfter := defaultRetryAfter
+	if v, _ := cfg["retry_after"].(string); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return nil, fmt.Errorf("%s: invalid retry_after %q: %w", pluginName, v, err)
+		}
+		retryAfter = d
+	}
+	p := defaults()
+	p.listenPort = listenPort
+	p.timeout = timeout
+	p.maxPieces = maxPieces
+	p.parallel = parallel
+	p.noPeerTimeout = noPeer
+	p.verdicts = verdictBucket(db)
+	p.cacheTTL = cacheTTL
+	p.cacheOnly = plugin.OptBool(cfg, "cache_only", false)
+	p.require = plugin.OptBool(cfg, "require", false)
+	p.background = plugin.OptBool(cfg, "background", false)
+	if p.background && db != nil {
+		p.queue = db.Bucket(QueueBucketName)
+	}
+	p.retries = retries
+	p.retryAfter = retryAfter
+	p.trigger = plugin.OptBool(cfg, "trigger", false)
+	return p, nil
+}
+
+// defaults is a probe with the default settings and the real readers.
+func defaults() *probePlugin {
 	return &probePlugin{
-		listenPort:    listenPort,
-		timeout:       timeout,
-		maxPieces:     maxPieces,
-		parallel:      parallel,
-		noPeerTimeout: noPeer,
-		verdicts:      verdictBucket(db),
-		cacheTTL:      cacheTTL,
-		cacheOnly:     plugin.OptBool(cfg, "cache_only", false),
-		require:       plugin.OptBool(cfg, "require", false),
+		timeout:       defaultTimeout,
+		maxPieces:     defaultMaxPieces,
+		parallel:      defaultParallel,
+		noPeerTimeout: defaultNoPeerTimeout,
+		cacheTTL:      defaultCacheTTL,
+		retries:       defaultRetries,
+		retryAfter:    defaultRetryAfter,
 		http:          &http.Client{Timeout: 60 * time.Second},
 		probeImage:    mvcprobe.Image,
 		probeMatroska: mvcprobe.Matroska,
 		probeMP4:      mvcprobe.MP4,
-	}, nil
+	}
 }
 
 func (p *probePlugin) Name() string { return pluginName }
@@ -359,6 +438,14 @@ func (p *probePlugin) Process(ctx context.Context, tc *plugin.TaskContext, entri
 	if p.cacheOnly {
 		// Nothing more to do: an unprobed release keeps no probe_* fields,
 		// which is how a gate tells "known bad" from "not looked at yet".
+		return entry.PassThrough(entries), nil
+	}
+	if p.background {
+		// Queued, not probed: the run moves on, and the release carries no
+		// probe_* fields until a later run replays what the worker learned.
+		if n := p.enqueue(tc, todo); n > 0 {
+			tc.Logger.Info(pluginName+": queued for a background probe", "entries", n)
+		}
 		return entry.PassThrough(entries), nil
 	}
 	if len(todo) == 0 {
