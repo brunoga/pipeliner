@@ -67,7 +67,7 @@ func TestRunOnTolerantOfSpacingAndCase(t *testing.T) {
 
 func TestValidRunOn(t *testing.T) {
 	for _, good := range [][]string{
-		{"schedule"}, {"manual"}, {"webhook"}, {"startup"}, {"any"},
+		{"schedule"}, {"manual"}, {"webhook"}, {"startup"}, {"probe"}, {"any"},
 		{"webhook:3d-movies"}, {"schedule", "manual"},
 	} {
 		if bad, ok := ValidRunOn(good); !ok {
@@ -77,6 +77,7 @@ func TestValidRunOn(t *testing.T) {
 	for _, bad := range [][]string{
 		{"cron"},             // not a kind
 		{"schedule:nightly"}, // only a webhook takes a qualifier
+		{"probe:3d-mvc"},     // ditto
 		{"any:thing"},        // ditto
 		{"webhook:"},         // empty queue
 		{"webhook", "typo"},  // one bad token in a good list
@@ -88,10 +89,10 @@ func TestValidRunOn(t *testing.T) {
 }
 
 func TestRunOnKinds(t *testing.T) {
-	if got := RunOnKinds(nil); len(got) != 4 {
+	if got := RunOnKinds(nil); len(got) != 5 {
 		t.Errorf("an empty list admits every kind, got %v", got)
 	}
-	if got := RunOnKinds([]string{"any"}); len(got) != 4 {
+	if got := RunOnKinds([]string{"any"}); len(got) != 5 {
 		t.Errorf("any admits every kind, got %v", got)
 	}
 	got := RunOnKinds([]string{"webhook:3d-movies", "manual"})
@@ -148,7 +149,26 @@ func TestScheduleAdmitsStartup(t *testing.T) {
 	if (Trigger{Kind: TriggerSchedule}).Matches([]string{"startup"}) {
 		t.Error("startup alone must not admit a scheduled fire")
 	}
-	if kinds := RunOnKinds([]string{"schedule"}); len(kinds) != 2 {
-		t.Errorf("schedule admits schedule+startup, got %v", kinds)
+	if kinds := RunOnKinds([]string{"schedule"}); len(kinds) != 3 {
+		t.Errorf("schedule admits schedule+startup+probe, got %v", kinds)
+	}
+}
+
+// TestScheduleAdmitsProbe: a run the background probe worker starts is the
+// pipeline's scheduled work brought forward, so it runs the sources a
+// scheduled run would -- and only those.
+func TestScheduleAdmitsProbe(t *testing.T) {
+	fire := Trigger{Kind: TriggerProbe}
+	if !fire.Matches([]string{"schedule"}) {
+		t.Error("schedule should admit the probe fire")
+	}
+	if !fire.Matches([]string{"probe"}) {
+		t.Error("probe should admit itself")
+	}
+	if fire.Matches([]string{"webhook"}) || fire.Matches([]string{"manual"}) {
+		t.Error("a webhook- or manual-only source must sit out the probe fire")
+	}
+	if (Trigger{Kind: TriggerSchedule}).Matches([]string{"probe"}) {
+		t.Error("probe alone must not admit a scheduled fire")
 	}
 }
