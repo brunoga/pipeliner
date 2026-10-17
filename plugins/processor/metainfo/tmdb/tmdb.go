@@ -4,6 +4,8 @@
 //
 //	api_key   - TMDb API key (required)
 //	cache_ttl - how long to cache search results, e.g. "24h" (default: "24h")
+//	only_missing_year - look up only entries with no video_year, and only
+//	                    take a film the title names unambiguously (default: false)
 package tmdb
 
 import (
@@ -58,6 +60,7 @@ func init() {
 		Schema: []plugin.FieldSchema{
 			{Key: "api_key", Type: plugin.FieldTypeString, Required: true, Hint: "TMDb API key"},
 			{Key: "cache_ttl", Type: plugin.FieldTypeDuration, Default: "24h", Hint: "How long to cache results"},
+			{Key: "only_missing_year", Type: plugin.FieldTypeBool, Default: false, Hint: "Look up only entries with no year, and only when the title names one film"},
 		},
 		Caches: []plugin.CacheInfo{
 			{Name: "cache_metainfo_tmdb", Display: "TMDb Search Cache"},
@@ -74,7 +77,12 @@ func validate(cfg map[string]any) []error {
 	if err := plugin.OptDuration(cfg, "cache_ttl", "metainfo_tmdb"); err != nil {
 		errs = append(errs, err)
 	}
-	errs = append(errs, plugin.OptUnknownKeys(cfg, "metainfo_tmdb", "api_key", "cache_ttl")...)
+	if v, ok := cfg["only_missing_year"]; ok {
+		if _, isBool := v.(bool); !isBool {
+			errs = append(errs, fmt.Errorf("metainfo_tmdb: 'only_missing_year' must be a bool"))
+		}
+	}
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "metainfo_tmdb", "api_key", "cache_ttl", "only_missing_year")...)
 	return errs
 }
 
@@ -82,6 +90,11 @@ type tmdbPlugin struct {
 	client      *itmdb.Client
 	cache       *cache.Cache[[]itmdb.Movie]      // search results by "title:year"
 	detailCache *cache.Cache[*itmdb.MovieDetail] // full detail by "detail:<id>"
+
+	// onlyMissingYear makes the plugin a year lookup for names that carry
+	// none, rather than an enricher. See pickUnambiguous for why it is also
+	// stricter about which film it takes.
+	onlyMissingYear bool
 }
 
 func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
@@ -103,6 +116,8 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 		client:      itmdb.New(apiKey),
 		cache:       cache.NewPersistent[[]itmdb.Movie](ttl, db.Bucket("cache_metainfo_tmdb")),
 		detailCache: cache.NewPersistent[*itmdb.MovieDetail](ttl, db.Bucket("cache_metainfo_tmdb_detail")),
+
+		onlyMissingYear: plugin.OptBool(cfg, "only_missing_year", false),
 	}, nil
 }
 
@@ -211,6 +226,14 @@ func (p *tmdbPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 	// feature film rather than a same-year companion piece like "X2 Global
 	// Webcast Highlights" that happens to sort ahead of it).
 	r := pickBest(results, searchTitle, searchYear)
+	if p.onlyMissingYear && searchYear == 0 {
+		var ok bool
+		if r, ok = pickUnambiguous(results, searchTitle); !ok {
+			tc.Logger.Info("metainfo_tmdb: title names no single film, leaving the year unset",
+				"title", searchTitle, "entry", e.Title)
+			return nil
+		}
+	}
 	e.Set("tmdb_id", r.ID)
 
 	detail, err := p.fetchDetail(ctx, r.ID)
@@ -395,6 +418,9 @@ func populateFromDetail(e *entry.Entry, detail *itmdb.MovieDetail) {
 
 func (p *tmdbPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entries []*entry.Entry) ([]*entry.Entry, error) {
 	for _, e := range entries {
+		if p.onlyMissingYear && entry.ReleaseYear(e) > 0 {
+			continue
+		}
 		if err := p.annotate(ctx, tc, e); err != nil {
 			tc.Logger.Warn("metainfo_tmdb error", "entry", e.Title, "err", err)
 		}
@@ -438,6 +464,49 @@ func pickBest(results []itmdb.Movie, title string, year int) itmdb.Movie {
 		}
 	}
 	return best
+}
+
+// minContenderVotes is the vote count below which a same-titled film is not
+// counted as a rival by pickUnambiguous. TMDb is full of shorts, student films
+// and TV specials that share a famous title and that nobody has rated; with
+// them counted, almost no title would be unambiguous.
+//
+// It is low on purpose. Measured on the Vision Pro releases that carry no
+// year, the rivals that matter are the obscure ones: the 3D films of 1953
+// and of the early 1980s are mostly namesakes of famous later films, and they
+// sit at 24 to 578 votes ("The Man Who Wasn't There" 1983 has 24, against
+// 1,838 for the Coen film), while the noise sits at 0 to 14.
+const minContenderVotes = 20
+
+// pickUnambiguous is pickBest for a search that had no year to go on, when a
+// wrong answer costs more than no answer: it takes the film only when the
+// title names one. That means exactly one exact title match, ignoring
+// namesakes below minContenderVotes, or exactly one exact match at all.
+//
+// Popularity cannot break the tie, which is the reason this exists. "The
+// Mask" in a 3D release is the 1961 film with 39 votes, not the 1994 one with
+// 11,676, and "House of Wax" is 1953 rather than 2005; a pick by popularity
+// is wrong exactly where it matters, and wrong silently, because the year it
+// writes becomes the film's identity downstream.
+func pickUnambiguous(results []itmdb.Movie, title string) (itmdb.Movie, bool) {
+	norm := match.Normalize(title)
+	var exact, rated []itmdb.Movie
+	for _, m := range results {
+		if !exactTitleMatch(m, norm) || releaseYear(m.ReleaseDate) == 0 {
+			continue
+		}
+		exact = append(exact, m)
+		if m.VoteCount >= minContenderVotes {
+			rated = append(rated, m)
+		}
+	}
+	switch {
+	case len(exact) == 1:
+		return exact[0], true
+	case len(rated) == 1:
+		return rated[0], true
+	}
+	return itmdb.Movie{}, false
 }
 
 // betterMovieMatch reports whether cand better represents the normalized search

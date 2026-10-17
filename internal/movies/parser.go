@@ -50,6 +50,16 @@ var (
 			`hdr10[\+]?|hdr|sdr|dolby|` +
 			`\[\w+\]|-\w+$)\b.*`)
 
+	// reVisionPro matches the words a Vision Pro release puts where a scene
+	// release puts its quality tags: "Hugo 3D AVP MV HEVC mov", "Dial M for
+	// Murder AVP mov", "Tron Legacy Spatial MV HEVC format for AVP mp4". It is
+	// only consulted once the quality parser has called the release MV-HEVC,
+	// because on its own AVP is also Alien vs. Predator and mov, mp4 and
+	// "spatial" are ordinary words; reNoise cannot carry them for that reason.
+	// "3 D" is the spaced 3D those uploaders also write ("Parasite 3 D").
+	reVisionPro = regexp.MustCompile(
+		`(?i)\b(mv[\s\-]?hevc|apple[\s\-]?vision[\s\-]?pro|spatial|avp|mov|mp4|3\sd)\b.*`)
+
 	reContainer = regexp.MustCompile(`(?i)\.(mkv|mp4|avi|mov|ts|m2ts|wmv|webm|flv|ogm|divx|asf)$`)
 
 	reProper = regexp.MustCompile(`(?i)\b(PROPER|REPACK|RERIP)\b`)
@@ -63,6 +73,7 @@ var (
 func Parse(title string) (*Movie, bool) {
 	m := &Movie{}
 	m.Quality = quality.Parse(title)
+	visionPro := m.Quality.Format3D == quality.Format3DMVHEVC
 	if tok := reProper.FindString(title); tok != "" {
 		if strings.EqualFold(tok, "repack") {
 			m.Repack = true
@@ -91,10 +102,15 @@ func Parse(title string) (*Movie, bool) {
 			return r
 		}, title)
 		loc := reNoise.FindStringIndex(converted)
+		if visionPro {
+			if vp := reVisionPro.FindStringIndex(converted); vp != nil && (loc == nil || vp[0] < loc[0]) {
+				loc = vp
+			}
+		}
 		if loc == nil {
 			return nil, false
 		}
-		m.Title = NormalizeTitle(title[:loc[0]])
+		m.Title = normalizeTitle(title[:loc[0]], visionPro)
 		if m.Title == "" {
 			return nil, false
 		}
@@ -123,7 +139,7 @@ func Parse(title string) (*Movie, bool) {
 	}
 
 	m.Year = yearVal
-	m.Title = NormalizeTitle(title[:yearIdx])
+	m.Title = normalizeTitle(title[:yearIdx], visionPro)
 	if m.Title == "" {
 		return nil, false
 	}
@@ -135,6 +151,12 @@ func Parse(title string) (*Movie, bool) {
 //   - strips trailing noise tokens
 //   - collapses whitespace, applies title case
 func NormalizeTitle(raw string) string {
+	return normalizeTitle(raw, false)
+}
+
+// normalizeTitle is NormalizeTitle that also strips the Vision Pro markers
+// when the release has been read as MV-HEVC (see reVisionPro).
+func normalizeTitle(raw string, visionPro bool) string {
 	s := strings.Map(func(r rune) rune {
 		if r == '.' || r == '_' {
 			return ' '
@@ -142,6 +164,9 @@ func NormalizeTitle(raw string) string {
 		return r
 	}, raw)
 
+	if visionPro {
+		s = reVisionPro.ReplaceAllString(s, "")
+	}
 	s = reNoise.ReplaceAllString(s, "")
 
 	fields := strings.FieldsFunc(s, func(r rune) bool {

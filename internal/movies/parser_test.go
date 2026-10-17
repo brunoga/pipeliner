@@ -138,3 +138,55 @@ func TestNormalizeTitle(t *testing.T) {
 		}
 	}
 }
+
+// TestParseVisionProNames covers the names Vision Pro uploaders write, which
+// put "AVP", "Spatial", "MV HEVC" and the container where a scene release puts
+// its quality tags, and usually leave the year out. Before reVisionPro, "Dial M
+// for Murder AVP mov" did not parse at all and "Tron Legacy Spatial MV HEVC"
+// parsed as "Tron Legacy Spatial MV".
+func TestParseVisionProNames(t *testing.T) {
+	tests := []struct {
+		title     string
+		wantTitle string
+		wantYear  int
+	}{
+		{"Dial M for Murder AVP mov", "Dial M For Murder", 0},
+		{"House of Wax Spatial AVP mov", "House Of Wax", 0},
+		{"Tron Legacy Spatial MV HEVC format for AVP mp4", "Tron Legacy", 0},
+		{"Kiss Me Kate MV HEVC Spatial Video for Apple Vision Pro and VR mp4", "Kiss Me Kate", 0},
+		{"The Mask AVP MV HEVC Spatial mov", "The Mask", 0},
+		{"Piranha 3DD MV HEVC for Apple Vision Pro and VR", "Piranha 3DD", 0},
+		{"Parasite 3 D spatial AVP mov", "Parasite", 0},
+		{"Hugo 3D AVP MV HEVC mov", "Hugo", 0},
+		{"Gog 3D 1954 horror Spatial MV HEVC for AVP mov", "Gog", 1954},
+	}
+	for _, tt := range tests {
+		t.Run(tt.title, func(t *testing.T) {
+			m, ok := Parse(tt.title)
+			if !ok {
+				t.Fatalf("Parse(%q) did not parse", tt.title)
+			}
+			if m.Title != tt.wantTitle || m.Year != tt.wantYear {
+				t.Errorf("Parse(%q) = %q (%d), want %q (%d)", tt.title, m.Title, m.Year, tt.wantTitle, tt.wantYear)
+			}
+			if m.Quality.Format3D != quality.Format3DMVHEVC {
+				t.Errorf("Parse(%q) format = %v, want MV-HEVC", tt.title, m.Quality.Format3D)
+			}
+		})
+	}
+}
+
+// TestParseVisionProWordsOutsideMVHEVC: the Vision Pro markers end a title only
+// in a release already read as MV-HEVC. Elsewhere AVP is Alien vs. Predator.
+func TestParseVisionProWordsOutsideMVHEVC(t *testing.T) {
+	tests := []struct{ title, want string }{
+		{"AVP Alien vs Predator 2004 1080p BluRay x264", "AVP Alien Vs Predator"},
+		{"AVP Alien vs Predator 2004 3D HSBS", "AVP Alien Vs Predator"},
+	}
+	for _, tt := range tests {
+		m, ok := Parse(tt.title)
+		if !ok || m.Title != tt.want {
+			t.Errorf("Parse(%q) = %v, %v; want %q", tt.title, m, ok, tt.want)
+		}
+	}
+}
