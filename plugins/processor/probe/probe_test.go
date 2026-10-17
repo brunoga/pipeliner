@@ -816,3 +816,38 @@ func TestARealMVHEVCFileInAFolder(t *testing.T) {
 		t.Errorf("fetched %d pieces %v for a file whose index is in its last piece", f.FetchedPieces(), f.fetches)
 	}
 }
+
+// TestAProvenFormatRaisesTheQuality: a disc named only "3D BluRay" reads as
+// Unspecified, and once the probe has read its MVC view it must compare as the
+// BD3D it is -- otherwise the final dedup in 3d-mvc keeps a Vision Pro copy of
+// the film over the disc. A name that claimed more, or said "conversion",
+// keeps what it said.
+func TestAProvenFormatRaisesTheQuality(t *testing.T) {
+	tests := []struct {
+		name   string
+		layout mvcprobe.Layout
+		want   quality.Format3D
+	}{
+		{"Avatar 2009 3D BluRay 1080p AVC", mvcprobe.LayoutMVC, quality.Format3DBD},
+		{"Avatar 2009 3D HSBS 1080p", mvcprobe.LayoutMVC, quality.Format3DBD},
+		{"Hugo 3D 2011 mov", mvcprobe.LayoutMVHEVC, quality.Format3DMVHEVC},
+		// Already at least what the probe proved: unchanged.
+		{"Avatar 2009 BD3D 1080p", mvcprobe.LayoutMVC, quality.Format3DBD},
+		{"Avatar 2009 BD3D 1080p", mvcprobe.LayoutMVHEVC, quality.Format3DBD},
+		// The probe reads the format, not the provenance.
+		{"AVPR Aliens vs Predator Requiem 2007 3D Convert MVC", mvcprobe.LayoutMVC, quality.Format3DConv},
+		// A layout that proves no stereo format changes nothing.
+		{"Avatar 2009 3D BluRay 1080p AVC", mvcprobe.Layout2D, quality.Format3DUnspecified},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := entry.New(tt.name, "http://x/1")
+			e.SetQuality(quality.Parse(tt.name))
+			apply(e, &mvcprobe.Result{Kind: mvcprobe.KindDisc, Is3D: true, Layout: tt.layout})
+			q, _ := e.Quality()
+			if q.Format3D != tt.want {
+				t.Errorf("format = %v, want %v", q.Format3D, tt.want)
+			}
+		})
+	}
+}
