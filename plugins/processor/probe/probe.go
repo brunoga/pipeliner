@@ -673,6 +673,12 @@ func apply(e *entry.Entry, res *mvcprobe.Result) {
 	e.Set(entry.FieldProbeKind, kindName(res.Kind))
 	e.Set(entry.FieldProbeIs3D, res.Is3D)
 	e.Set(entry.FieldProbe3DLayout, layoutName(res.Layout))
+	switch res.Layout {
+	case mvcprobe.LayoutMVC:
+		raiseFormat3D(e, quality.Format3DBD)
+	case mvcprobe.LayoutMVHEVC:
+		raiseFormat3D(e, quality.Format3DMVHEVC)
+	}
 	if res.Kind == mvcprobe.KindDisc {
 		e.Set(entry.FieldProbeBaseViewRight, res.BaseViewRight)
 	}
@@ -707,6 +713,28 @@ func apply(e *entry.Entry, res *mvcprobe.Result) {
 	}
 	if langs := subtitleLanguages(res); len(langs) > 0 {
 		e.Set(entry.FieldProbeSubtitleLanguages, langs)
+	}
+}
+
+// raiseFormat3D lifts the entry's quality to the 3D format the container
+// proved, when the name had claimed less. Without it a disc named only "3D
+// BluRay" stays at Unspecified after the probe has read its MVC dependent
+// view, and every comparison downstream still ranks it as a guess: a dedup
+// over both 3d-mvc lanes would keep a Vision Pro copy of the film over the
+// disc it was converted from.
+//
+// Never lowered, and never applied to a conversion. The probe reads the
+// format, not where the picture came from: a 2D-to-3D conversion encoded as
+// MVC is still a conversion, and the name is the only thing that says so.
+func raiseFormat3D(e *entry.Entry, f quality.Format3D) {
+	q, ok := e.Quality()
+	if !ok || q.Format3D == quality.Format3DConv {
+		return
+	}
+	up := q
+	up.Format3D = f
+	if q.Format3D == quality.Format3DNone || up.Better(q) {
+		e.SetQuality(up)
 	}
 }
 
