@@ -924,3 +924,121 @@ func TestAnnotateWithoutAnIDSearchesAsBefore(t *testing.T) {
 		t.Errorf("search called %d times, want 1", hits["/3/search/movie"])
 	}
 }
+
+// TestPickUnambiguous runs on the vote counts TMDb returned for the year-less
+// Vision Pro releases on 3dtorrents, which is what minContenderVotes was set
+// from. The cases that must be refused are the ones popularity gets wrong.
+func TestPickUnambiguous(t *testing.T) {
+	type film struct {
+		date  string
+		votes int
+	}
+	tests := []struct {
+		title string
+		films []film
+		want  string // release date of the film taken; "" = refused
+	}{
+		{"Tron Legacy", []film{{"2010-12-14", 8216}}, "2010-12-14"},
+		{"Jivaro", []film{{"1954-02-12", 13}}, "1954-02-12"},
+		{"Dial M For Murder", []film{{"1954-05-29", 2968}, {"1981-04-09", 14}, {"1967-11-15", 2}}, "1954-05-29"},
+		{"Kiss Me Kate", []film{{"1953-11-26", 103}, {"2003-02-26", 6}, {"1958-11-20", 4}}, "1953-11-26"},
+		// The 3D film is the obscure one in every pair below.
+		{"The Mask", []film{{"1994-07-29", 11676}, {"1961-10-27", 39}, {"1988-05-10", 10}}, ""},
+		{"House Of Wax", []film{{"2005-05-05", 3486}, {"1953-04-16", 402}}, ""},
+		{"The Man Who Wasn't There", []film{{"2001-10-26", 1838}, {"1983-08-12", 24}}, ""},
+		{"Parasite", []film{{"2019-05-30", 21491}, {"1982-03-12", 89}}, ""},
+		// Several namesakes, none rated: no film is named.
+		{"Dynasty", []film{{"1977-03-26", 5}, {"1976-03-13", 4}}, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.title, func(t *testing.T) {
+			// A non-matching title first, as a popularity-ranked search returns.
+			rs := []itmdb.Movie{{ID: 1, Title: tt.title + " Returns", ReleaseDate: "2020-01-01", VoteCount: 99999}}
+			for i, f := range tt.films {
+				rs = append(rs, itmdb.Movie{ID: 10 + i, Title: tt.title, ReleaseDate: f.date, VoteCount: f.votes})
+			}
+			got, ok := pickUnambiguous(rs, tt.title)
+			switch {
+			case tt.want == "" && ok:
+				t.Errorf("took %s, want refused", got.ReleaseDate)
+			case tt.want != "" && (!ok || got.ReleaseDate != tt.want):
+				t.Errorf("got %s (ok=%v), want %s", got.ReleaseDate, ok, tt.want)
+			}
+		})
+	}
+}
+
+// TestOnlyMissingYear: the option turns the plugin into a year lookup. An
+// entry that already has a year is not looked up at all, one without gets the
+// year of the film its title names, and a title two films share gets none.
+func TestOnlyMissingYear(t *testing.T) {
+	searches := map[string]int{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/3/search/movie":
+			q := r.URL.Query().Get("query")
+			searches[q]++
+			var res []map[string]any
+			switch q {
+			case "Tron Legacy":
+				res = []map[string]any{{"id": 20526, "title": "TRON: Legacy", "release_date": "2010-12-14", "vote_count": 8216}}
+			case "The Mask":
+				res = []map[string]any{
+					{"id": 854, "title": "The Mask", "release_date": "1994-07-29", "vote_count": 11676},
+					{"id": 29756, "title": "The Mask", "release_date": "1961-10-27", "vote_count": 39},
+				}
+			}
+			json.NewEncoder(w).Encode(map[string]any{"results": res})
+		case "/3/movie/20526":
+			json.NewEncoder(w).Encode(map[string]any{"id": 20526, "title": "TRON: Legacy", "release_date": "2010-12-14"})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	db, err := store.OpenSQLite(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	c := itmdb.New("test-key")
+	c.BaseURL = srv.URL + "/3"
+	p := &tmdbPlugin{
+		client:          c,
+		cache:           cache.NewPersistent[[]itmdb.Movie](time.Hour, db.Bucket("search")),
+		detailCache:     cache.NewPersistent[*itmdb.MovieDetail](time.Hour, db.Bucket("detail")),
+		onlyMissingYear: true,
+	}
+
+	dated := entry.New("Gog 3D 1954 horror Spatial MV HEVC for AVP mov", "http://x/1")
+	dated.Set(entry.FieldVideoYear, 1954)
+	tron := entry.New("Tron Legacy Spatial MV HEVC format for AVP mp4", "http://x/2")
+	mask := entry.New("The Mask AVP MV HEVC Spatial mov", "http://x/3")
+	if _, err := p.Process(context.Background(), makeCtx(), []*entry.Entry{dated, tron, mask}); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(searches) != 2 || searches["Gog"] != 0 {
+		t.Errorf("searches = %v, want only the two year-less titles", searches)
+	}
+	if got := entry.ReleaseYear(tron); got != 2010 {
+		t.Errorf("Tron Legacy year = %d, want 2010", got)
+	}
+	if got := entry.ReleaseYear(mask); got != 0 {
+		t.Errorf("The Mask year = %d, want none: 1961 and 1994 both claim the title", got)
+	}
+	if _, ok := mask.Get("tmdb_id"); ok {
+		t.Error("The Mask got a tmdb_id; an ambiguous title must not be resolved")
+	}
+}
+
+func TestOnlyMissingYearMustBeABool(t *testing.T) {
+	errs := validate(map[string]any{"api_key": "k", "only_missing_year": "yes"})
+	if len(errs) != 1 {
+		t.Fatalf("errs = %v, want one", errs)
+	}
+	if errs := validate(map[string]any{"api_key": "k", "only_missing_year": true}); len(errs) != 0 {
+		t.Errorf("errs = %v, want none", errs)
+	}
+}

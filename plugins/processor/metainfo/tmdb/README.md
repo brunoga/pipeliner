@@ -22,6 +22,13 @@ An id TMDb has no film for falls through to the search rather than losing the en
 |-----|------|----------|---------|-------------|
 | `api_key` | string | yes | — | TMDb API v3 key |
 | `cache_ttl` | string | no | `24h` | How long to cache search results |
+| `only_missing_year` | bool | no | `false` | Look up only entries with no `video_year`, and take a film only when the title names one (see below) |
+
+### `only_missing_year`
+
+A year lookup for release names that carry none, placed above a `require` that needs `video_year`. Vision Pro releases are the case it was written for (*Hugo 3D AVP MV HEVC mov*). Entries that already have a year pass through without a request.
+
+A year-less search is ranked by popularity, and the most popular match is wrong exactly where it matters. The 3D films of 1953 and the early 1980s are mostly obscure namesakes of famous later films: *The Mask* in 3D is the 1961 film (39 votes), not the 1994 one (11,676). A wrong year is also silent, because it becomes the film's identity downstream. So the plugin takes a film only when there is a single exact title match, ignoring namesakes with fewer than 20 votes (the noise sits at 0–14; the 1983 3D *The Man Who Wasn't There* has 24). Anything else is left without a year and stays refused.
 
 ## Fields set on entry
 
