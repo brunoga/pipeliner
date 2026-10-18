@@ -24,6 +24,10 @@ Measured on a live 40.56 GiB disc: **2 pieces, 27.2 MiB, 0.066% of the torrent, 
 | `listen_port` | int | no | `0` | Port the client listens on and announces. `0` is random, which nothing outside a container can reach. Probe nodes on the same port share one client |
 | `cache_ttl` | duration | no | `168h` | How long a **failed** probe is remembered before the swarm is tried again. A container that *was* read is remembered for good. `0` disables the failure cache |
 | `cache_only` | bool | no | `false` | Replay stored verdicts and never touch the network. A release nobody has probed comes out with no `probe_*` fields at all |
+| `background` | bool | no | `false` | Replay stored verdicts, and queue every other release for the daemon's background worker instead of probing it in the run |
+| `retries` | int | no | `2` | `background` only: further tries for a release nobody served before the failure is recorded |
+| `retry_after` | duration | no | `3h` | `background` only: wait before the first retry; the n-th retry waits n times this |
+| `trigger` | bool | no | `false` | `background` only: run the pipeline again, at most once an hour, when the worker reads a release it queued |
 
 ## Fields set on the entry
 
@@ -166,7 +170,30 @@ told  = process("probe", upstream=few, timeout="2m")
 
 What this buys: a release refused on its own merits is not chosen again, so the next run's `dedup` picks the **next** alternative and the backlog drains. Without it the same release wins every night, is refused every night, and the item never arrives — measured on the live `3d-mvc` ambiguous lane, which spent its whole nightly budget re-probing one release whose swarm would not serve.
 
-## Placement
+### Probing in the background
+
+`background=True` goes one step further than `cache_only`: it removes the in-run probe altogether. A run cannot afford to wait on a swarm, and a swarm needs waiting on. Live MVC discs took 2m25s–2m58s to serve two pieces, and a seeder that can only dial in learns we exist at its next tracker announce, often 30–60 minutes away.
+
+The node replays what is known and queues the rest in `probe_queue`, keyed by info-hash like the verdicts, and the run moves on. A queued release carries no `probe_*` fields until it is read. The daemon's worker:
+
+- probes one release at a time, at least 30 seconds apart, each film's best-ranked release before any film's second;
+- retries a release nobody served after `retry_after`, then twice that, and records the failure only once `retries` are spent;
+- with `trigger=True`, runs the pipeline again (a `probe` trigger, which `run_on="schedule"` sources also run on) when it reads a release, at most once per pipeline an hour;
+- drops a release no run has queued for two weeks.
+
+The queue is in the database, so it survives restarts and a CLI run can add to it; only the daemon works it. A re-queued release keeps its attempts and retry time. A dry run's job is probed too, but as for a dry-run probe in a pipeline only its success is recorded, and it triggers nothing.
+
+```python
+known = process("probe", upstream=alive, background=True, listen_port=50413,
+                timeout="10m", no_peer_timeout="3m", trigger=True)
+# Only what a probe has read passes; a queued release waits for a later run.
+read  = process("condition", upstream=known,
+                reject='probe_ok != true or (probe_3d_layout != "mvc" and probe_3d_layout != "mv-hevc")')
+pick  = process("dedup", upstream=read)
+```
+
+`background` cannot be combined with `cache_only`, which never queues anything, or with `require`, which would reject every release not yet probed.
+
 ## Placement
 
 `probe` requires `torrent_info_hash`, so it sits after [`metainfo_torrent`](../metainfo/torrent/README.md). Put it after every gate that decides from the release name — [`quality`](../filter/quality/README.md), [`trailer`](../filter/trailer/README.md), the trackers, [`torrent_alive`](../filter/torrent_alive/README.md) — because those cost nothing and this costs megabytes. `torrent_alive` earns its place first in particular: a probe needs a seeder, and that filter has already established there is one.

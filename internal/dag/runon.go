@@ -53,7 +53,7 @@ func validateRunOn(g *Graph, reg func(name string) (*plugin.Descriptor, bool)) (
 		}
 		if bad, ok := plugin.ValidRunOn(runOn); !ok {
 			errs = append(errs, fmt.Errorf(
-				"node %q (plugin %q): %q value %q is not a trigger — use schedule, manual, webhook, webhook:<queue>, startup or any",
+				"node %q (plugin %q): %q value %q is not a trigger — use schedule, manual, webhook, webhook:<queue>, startup, probe or any",
 				n.ID, n.PluginName, plugin.RunOnKey, bad))
 			continue
 		}
@@ -69,6 +69,8 @@ func validateRunOn(g *Graph, reg func(name string) (*plugin.Descriptor, bool)) (
 	// it fires. Scheduled and startup fires are only worth reporting when the
 	// graph is actually scheduled, which the graph itself does not know, so
 	// all four are reported the same way: as a warning naming the trigger.
+	// A probe fire is left out: only a pipeline with probe(trigger=True) ever
+	// gets one, and it admits whatever a scheduled fire does.
 	for _, k := range []plugin.TriggerKind{
 		plugin.TriggerSchedule, plugin.TriggerManual, plugin.TriggerWebhook, plugin.TriggerStartup,
 	} {

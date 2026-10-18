@@ -124,6 +124,18 @@ func (d *Daemon) TriggerWebhook(name, queue string) {
 	}
 }
 
+// TriggerProbe fires the named pipeline because the background probe worker
+// found a release it had queued readable. It runs as the pipeline's schedule
+// brought forward (see plugin.Trigger.Matches).
+func (d *Daemon) TriggerProbe(name string) {
+	ch := d.triggerChan()
+	select {
+	case ch <- triggerReq{name: name, explicit: true,
+		trig: plugin.Trigger{Kind: plugin.TriggerProbe}}:
+	default:
+	}
+}
+
 // NextRun returns the next scheduled fire time for the named task,
 // or the zero time if the task is not scheduled.
 func (d *Daemon) NextRun(name string) time.Time {
