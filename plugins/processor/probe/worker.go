@@ -251,24 +251,57 @@ type Worker struct {
 	mu          sync.Mutex
 	lastTrigger map[string]time.Time
 	owed        map[string]bool
+
+	// held keeps one reference to the torrent client on each port the worker
+	// has probed from, for as long as the worker runs. Without it every job
+	// released the last reference and closed the client, and the next job,
+	// often started straight after, failed to bind the port the old client's
+	// UDP socket had not let go of yet: "bind: address already in use".
+	held map[int]*sharedClient
 }
 
 // NewWorker returns a worker over db. trigger runs a pipeline; it may be nil,
 // in which case nothing is triggered.
 func NewWorker(db *store.SQLiteStore, logger *slog.Logger, trigger func(pipeline string)) *Worker {
-	return &Worker{
-		queue:    db.Bucket(QueueBucketName),
-		verdicts: db.Bucket(VerdictBucketName),
-		logger:   logger,
-		trigger:  trigger,
-		template: defaults(),
-		probe: func(ctx context.Context, p *probePlugin, tc *plugin.TaskContext, e *entry.Entry) (*mvcprobe.Result, int, int64, *SwarmReport, error) {
-			return p.probeEntry(ctx, tc, e)
-		},
+	w := &Worker{
+		queue:       db.Bucket(QueueBucketName),
+		verdicts:    db.Bucket(VerdictBucketName),
+		logger:      logger,
+		trigger:     trigger,
+		template:    defaults(),
+		held:        map[int]*sharedClient{},
 		now:         time.Now,
 		gap:         workerGap,
 		lastTrigger: map[string]time.Time{},
 		owed:        map[string]bool{},
+	}
+	w.probe = func(ctx context.Context, p *probePlugin, tc *plugin.TaskContext, e *entry.Entry) (*mvcprobe.Result, int, int64, *SwarmReport, error) {
+		if err := w.hold(p.listenPort); err != nil {
+			return nil, 0, 0, nil, err
+		}
+		return p.probeEntry(ctx, tc, e)
+	}
+	return w
+}
+
+// hold takes the worker's own reference to the client on port, once.
+func (w *Worker) hold(port int) error {
+	if _, ok := w.held[port]; ok {
+		return nil
+	}
+	sc, err := acquireClient(port)
+	if err != nil {
+		return err
+	}
+	w.held[port] = sc
+	return nil
+}
+
+// release lets go of every client the worker holds.
+func (w *Worker) release() {
+	for port, sc := range w.held {
+		sc.release()
+		delete(w.held, port)
 	}
 }
 
@@ -277,6 +310,7 @@ func NewWorker(db *store.SQLiteStore, logger *slog.Logger, trigger func(pipeline
 func (w *Worker) Run(ctx context.Context) {
 	tick := time.NewTicker(workerPoll)
 	defer tick.Stop()
+	defer w.release()
 	for {
 		w.drain(ctx)
 		select {
