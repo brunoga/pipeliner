@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.66.3] - 2026-10-18
+
+### Fixed
+
+- **`FBSB` reads as full side-by-side** ([#633](https://github.com/brunoga/pipeliner/pull/633)). It is a misspelling of `FSBS` that indexers carry: "Back to the Future Part II 1989 3D FBSB ATMOS mkv" read as 3D with an unstated layout, which fails a `spec="3dfull"` pipeline it should pass.
+
+**Why 1.66.3**: a parser fix only.
+
 ## [1.66.2] - 2026-10-18
 
 A fix to the background probe worker, which stalled on its first torrent with small pieces.
