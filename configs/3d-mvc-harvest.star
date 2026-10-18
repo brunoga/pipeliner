@@ -94,8 +94,8 @@ req  = process("require", upstream=meta, fields=["title", "video_year", "_qualit
 # to HEVC is what destroys the MVC structure in the first place. This is the
 # cheapest possible place to say so -- metainfo_file has already read the name
 # and nothing has touched the network yet -- and it is worth saying because
-# these releases were reaching the probe, which is the most expensive node in
-# the pipeline and only runs on one ambiguous release per run. An untagged
+# these releases were reaching the probe, which is the most expensive thing
+# the pipeline does and fills the background worker's queue. An untagged
 # release leaves `codec` absent, and an absent field compares false, so only
 # an explicit H.265 claim is refused.
 avc = process("condition", upstream=req,
@@ -153,14 +153,14 @@ once = process("seen", upstream=film, local=True, retry_failed=True)
 # release of the ten the indexer had. The two the gate *did* admit were
 # re-encodes with no seeders.
 #
-# The lanes run the same gates and differ in three small ways, and it is worth
+# The lanes run the same gates and differ in two small ways, and it is worth
 # being straight about which of them earns the split.
 #
-# The visible difference is what an empty probe means: in `asserted` the name
-# claimed MVC so the probe may only veto, in `ambiguous` nothing claimed it so
-# the probe must vouch. That is one row of a truth table, and on its own it
-# would not justify a route — a single lane with a compound condition could
-# express it.
+# What does NOT differ is what counts as proof. Both lanes download only a
+# release a probe has read as MVC, so a name claiming MVC buys a release a
+# place in the queue and nothing more. (An earlier version let the asserted
+# lane trust its name when the swarm would not serve; that was a compromise
+# forced by probing inside the run, and background probing removed the need.)
 #
 # What actually needs separate lanes is the budget and the ordering. One limit
 # node means one budget and one sort key, so merged into a single lane sorted
@@ -186,31 +186,29 @@ process("condition", upstream=lanes.frame, rules=[
 # Two rules pull in opposite directions here, and the resolution is worth
 # reading before changing any of the node order below.
 #
-# A probe costs 20-25 MiB and up to its full timeout, so it belongs BELOW
-# `limit`, where it runs on the few releases about to be downloaded. Measured
-# on the live feed, moving it above `dedup` means 130 probes a night in lane A
-# and 62 in lane B to fetch 3 discs; below `limit` it is 4.
-#
-# But a node that can refuse a release belongs ABOVE `dedup`, which keeps one
+# A node that can refuse a release belongs ABOVE `dedup`, which keeps one
 # release per item and discards the rest. Refuse below it and the alternatives
 # are already gone: the item is lost for the run, and since the same wave comes
 # back and collapses to the same winner, for every run after it. That is not
-# hypothetical — the live ambiguous lane spent its whole nightly budget
-# re-probing one release whose swarm would not serve, refused it, forgot, and
-# did it again the next night. It delivered nothing for as long as that
-# release stayed the biggest.
+# hypothetical — when the probe sat below `limit`, a release whose swarm would
+# not serve won the collapse every night, was refused every night, and the film
+# never arrived.
 #
-# `probe` records every verdict in cache_probe, keyed by info-hash, so the
-# answer survives the run. A `cache_only=True` node replays those verdicts and
-# touches no network at all — which lets the refusal happen above `dedup`, for
-# free, while the expensive probe stays below `limit`. A release nobody has
-# probed comes out of a cache_only node with no probe_* fields, and an absent
-# field compares false, so the gate refuses what is known bad and passes what
-# is merely unknown. The refused release is refused again next run, so the
-# collapse picks the NEXT alternative and the backlog drains.
+# But a probe is slow. A live disc takes two to three minutes to serve two
+# pieces, and a seeder that can only dial in finds us at its next announce,
+# often 30-60 minutes away. Above `dedup` there are dozens of releases a night,
+# and a run cannot wait on all of those swarms.
 #
-# `pipeliner check` understands this shape and does not warn about it. Delete
-# either gate below and it will.
+# `background=True` resolves it. The node replays every verdict an earlier
+# probe recorded in cache_probe and touches no network itself; each release
+# nobody has read yet is queued for the daemon's background worker and passes
+# through with no probe_* fields. The worker probes the queue one release at a
+# time, each film's best release first, and retries an unserved one 3h and
+# then 6h later before recording the failure. So the refusal happens above
+# `dedup`, for free, and a release read today is decided by tomorrow's run.
+#
+# The worker runs only under `pipeliner daemon`. A `pipeliner run` queues and
+# leaves the queue for the daemon to work through.
 
 # ── The gates that cost a request, shared by both lanes ──────────────────────
 
@@ -224,41 +222,43 @@ def mvc_network_gates_fn(upstream):
     # directly — so rejecting it, as a library pipeline must, would throw away
     # most of this feed.
     ok = process("content", upstream=files, reject=["*.rar", "*.exe"])
-    # Stops here rather than at dedup: each lane replays its own verdicts and
-    # applies its own rule before collapsing, and those rules differ.
-    return process("torrent_alive", upstream=ok, min_seeds=2, verify=True)
+    # Stops here rather than at dedup: each lane applies its probe gate before
+    # collapsing.
+    alive = process("torrent_alive", upstream=ok, min_seeds=2, verify=True)
+    # Replays what the worker has read and queues the rest; see above.
+    return process("probe", upstream=alive, background=True,
+                   no_peer_timeout="3m", timeout="10m")
+
+# Only what a probe has read passes, and only if it read MVC. A release still
+# in the queue carries no probe_ok, which != true rejects too: it waits for a
+# later run rather than being downloaded on the strength of its name. The rule
+# is the same in both lanes — the lanes differ in what is worth queueing, not
+# in what counts as proof.
+def mvc_probe_gate_fn(upstream):
+    return process("condition", upstream=upstream, rules=[
+        {"reject": "probe_ok != true",
+         "reason": "no probe has read this release's container yet: it is " +
+                   "queued for the background worker, or nobody served the " +
+                   "sample"},
+        {"reject": 'probe_3d_layout != "mvc"',
+         "reason": "the probe read this release's container and it is not MVC"},
+    ])
 
 # ── Lane A: the name claimed MVC ─────────────────────────────────────────────
 #
 # A first run finds dozens and each is tens of gigabytes, so take a few a night
 # rather than two terabytes at once. Highest-rated first, so the backlog drains
 # in a useful order.
-a_alive = mvc_network_gates_fn(lanes.asserted)
-# Free: replays what earlier runs' probes read, and touches nothing. The rule
-# is the same one a_ok applies below; the difference is that this one acts on
-# a release the collapse has not yet thinned, so refusing it leaves the film's
-# other releases to be tried instead.
-a_known = process("probe", upstream=a_alive, cache_only=True)
-a_gate  = process("condition", upstream=a_known,
-                  reject='probe_ok == true and probe_3d_layout != "mvc"',
-                  reason="an earlier probe read this release's container and " +
-                         "it is not MVC, so the name was wrong about it")
+a_ok   = mvc_probe_gate_fn(mvc_network_gates_fn(lanes.asserted))
 # One copy per film within the lane, after everything that can refuse a
 # release, so the alternatives are still there when one is refused.
-a_pick = process("dedup", upstream=a_gate)
+a_pick = process("dedup", upstream=a_ok)
 a_few  = process("limit", upstream=a_pick, n=3, order="desc", sort="video_rating")
-a_told = process("probe", upstream=a_few, timeout="2m")
-
-# Here the probe may only VETO. The name claimed MVC, so an unreachable swarm
-# leaves that claim standing — losing a release because nobody would serve two
-# pieces would be worse than trusting the name, which is all we had before.
-a_ok = process("condition", upstream=a_told,
-               reject='probe_ok == true and probe_3d_layout != "mvc"')
 
 # ── Lane B: the name said nothing ────────────────────────────────────────────
 #
-# Size is used twice here, and both times to decide what is worth MEASURING —
-# never to decide what a release is. Sampled across this indexer's 3D feed:
+# Size is used here to decide what is worth MEASURING — never to decide what a
+# release is. Sampled across this indexer's 3D feed:
 #
 #     name states   n   min   median   max
 #     MVC/BD3D      8  24.8     42.4  49.8 GB
@@ -269,61 +269,23 @@ a_ok = process("condition", upstream=a_told,
 # which is why size cannot assert: full side-by-side reaches 45.3 GB and sits
 # inside the MVC range almost entirely, so a 40 GB file is not necessarily a
 # disc. Asserting from size would be the same mistake as reading layout off a
-# name, with a different proxy — and the disc is ten megabytes and six seconds
-# from simply saying what it is.
+# name, with a different proxy — and the disc is ten megabytes and a few
+# minutes from simply saying what it is.
 #
 # What size does tell you is what a release is NOT. Nothing under ~20 GB is a
 # 1080p MVC disc; the smallest observed is a BD25 at 24.8. The median
-# unspecified release is 8 GB, so without this floor the single nightly probe
-# is usually spent on something that could not possibly be the thing we want.
-# The floor sits above the network gates, so it saves the .torrent fetch and
-# the tracker scrape too, not just the probe.
+# unspecified release is 8 GB, so without this floor the worker's queue fills
+# with things that could not possibly be what we want. The floor sits above
+# the network gates, so it saves the .torrent fetch and the tracker scrape too.
 b_big  = process("condition", upstream=lanes.ambiguous,
                  reject="torrent_file_size < 20000000000")
 
-# Then the biggest survivor, because among plausible discs the largest is the
-# likeliest. One per night: this lane is speculative and must not eat the
-# night's budget.
-b_alive = mvc_network_gates_fn(b_big)
-# As in lane A, but this lane needs the VOUCH rules rather than the veto one.
-# The catch-all b_ok ends with is deliberately absent: below the probe, "no
-# probe fields" means the probe just ran and said nothing useful, while here it
-# means nobody has looked yet — and an unlooked-at release is the one this
-# lane exists to look at.
-b_known = process("probe", upstream=b_alive, cache_only=True)
-b_gate  = process("condition", upstream=b_known, rules=[
-    {"reject": "probe_unreachable == true",
-     "reason": "an earlier probe found no peer serving any of the sample"},
-    {"reject": "probe_ok == false",
-     "reason": "an earlier probe could not read this release's container"},
-    {"reject": 'probe_ok == true and probe_3d_layout != "mvc"',
-     "reason": "an earlier probe read this release's container and it is not MVC"},
-])
-b_pick = process("dedup", upstream=b_gate)
+# Nothing claimed MVC here, so the probe gate is the only thing that can vouch
+# for a release — and it is the same gate as lane A's. One per night, biggest
+# first: this lane is speculative and must not eat the night's budget.
+b_ok   = mvc_probe_gate_fn(mvc_network_gates_fn(b_big))
+b_pick = process("dedup", upstream=b_ok)
 b_few  = process("limit", upstream=b_pick, n=1, order="desc", sort="torrent_file_size")
-b_told = process("probe", upstream=b_few, timeout="2m")
-
-# Here the probe must VOUCH. Nothing claimed MVC, so silence is not permission:
-# only a probe that actually read the disc may let it through.
-b_ok = process("condition", upstream=b_told, rules=[
-    {"accept": 'probe_ok == true and probe_3d_layout == "mvc"',
-     "reason": "the disc's own playlist reports an MVC dependent view"},
-    # Three different ways to not get a vouch, and they are not the same
-    # claim. One catch-all collapsed them, which lost the distinction between
-    # "we looked and this is not what we want" and "we never found out" --
-    # only the first is a verdict about the release. Ordered first-match-wins,
-    # and probe_unreachable implies probe_ok == false, so it comes first.
-    {"reject": "probe_unreachable == true",
-     "reason": "no peer served any of the sample, so the swarm is dead " +
-               "whatever the layout is -- torrent_alive scraped it as alive, " +
-               "which is the known-unreliable part"},
-    {"reject": "probe_ok == false",
-     "reason": "the probe did not finish in time, so nothing is known about " +
-               "this release yet rather than known to be wrong"},
-    {"reject": "true",
-     "reason": "the probe read the container and it is not MVC, so the " +
-               "unstated layout was not a hidden disc"},
-])
 
 # ── Join ─────────────────────────────────────────────────────────────────────
 #
@@ -331,7 +293,7 @@ b_ok = process("condition", upstream=b_told, rules=[
 # releases and one bare-3D one. A final dedup keeps a single copy, and prefers
 # the asserted lane's BD3D over the ambiguous lane's unspecified layout, which
 # ranks with Half.
-chosen = process("dedup", upstream=merge(a_ok, b_ok))
+chosen = process("dedup", upstream=merge(a_few, b_few))
 
 # A directory per film keeps a disc image and its stray files together, and
 # gives the sync something stable to watch.
