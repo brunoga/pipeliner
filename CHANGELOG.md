@@ -5,6 +5,22 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.66.2] - 2026-10-18
+
+A fix to the background probe worker, which stalled on its first torrent with small pieces.
+
+### Fixed
+
+- **A probe could spin forever on a torrent with small pieces, stalling the background worker** ([#631](https://github.com/brunoga/pipeliner/pull/631)). A failed read reported only where it started, and the retry loop fetched only the piece holding that byte. A Vision Pro `.mov` cut into 256 KiB pieces asks for 2 MiB from byte 28, so the loop fetched piece 0, which was already present, and asked again: about 700,000 times in two minutes, on two cores, past its timeout. The loop now fetches every absent piece the failed read spans, ends with an error when none is absent, and checks its deadline after every round.
+- **Probe samples were never removed** ([#631](https://github.com/brunoga/pipeliner/pull/631)). The torrent client names an incomplete file `<name>.part`, and the cleanup only removed `<name>`, so a daemon kept one sparse, image-sized file per release probed until it restarted.
+
+### Changed
+
+- **`max_pieces` is counted in 16 MiB pieces** ([#631](https://github.com/brunoga/pipeliner/pull/631)), the size it was measured on. A torrent cut into smaller pieces may fetch the same number of bytes; otherwise the default 6 would refuse a 2 MiB MP4 header on 256 KiB pieces.
+- The `3d-mvc-harvest.star` sample now probes in the background, as a live install does ([#630](https://github.com/brunoga/pipeliner/pull/630)).
+
+**Why 1.66.2**: fixes only; the `max_pieces` change admits reads it used to refuse on small-piece torrents and changes nothing for 16 MiB pieces and up.
+
 ## [1.66.1] - 2026-10-18
 
 A fix to the background probe worker added in 1.66.0, found in its first 20 minutes on a live install.
