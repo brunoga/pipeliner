@@ -222,7 +222,7 @@ const (
 	Format3DNone Format3D = iota // not 3D
 	Format3DConv                 // 3D-CONV — artificially converted from a 2D source (incl. AI-enhanced, AI-upscaled, StereoCrafter/DepthCrafter tools)
 	Format3DHalf                 // half-resolution: SBS / OU, HSBS, HOU, HALF-SBS, HALF-OU
-	Format3DFull                 // full-resolution: FSBS, FOU, FULL-SBS, FULL-OU (explicit full marker required)
+	Format3DFull                 // full-resolution: FSBS (and the FBSB misspelling), FOU, FULL-SBS, FULL-OU (explicit full marker required)
 	Format3DBD                   // BD3D / MVC — Blu-ray 3D rip, highest quality
 	// Format3DUnspecified is 3D whose layout the name never stated: a bare
 	// "3D" with no SBS/OU/MVC marker anywhere. It is NOT a claim of half.
@@ -466,7 +466,10 @@ var (
 	// MVC (Multiview Video Coding) is the Blu-ray 3D codec — always BD quality.
 	// Compound markers (FULL-SBS, H-OU, etc.) tolerate a space separator since
 	// scene releases routinely use "Full SBS" / "H OU" / "Half OU" with spaces.
-	re3D = regexp.MustCompile(`(?i)\b(BD3D|MVC|FULL[\s\-]?SBS|FULL[\s\-]?OU|FSBS|F[\s\-]SBS|FOU|F[\s\-]OU|HALF[\s\-]?SBS|HALF[\s\-]?OU|HSBS|H[\s\-]SBS|HOU|H[\s\-]OU|SBS|OU|3D)\b`)
+	// FBSB is a misspelling of FSBS that indexers carry ("Back to the Future
+	// Part II 1989 3D FBSB ATMOS mkv"); without it such a release reads as an
+	// unstated layout and fails a full-SBS spec it should pass.
+	re3D = regexp.MustCompile(`(?i)\b(BD3D|MVC|FULL[\s\-]?SBS|FULL[\s\-]?OU|FSBS|FBSB|F[\s\-]SBS|FOU|F[\s\-]OU|HALF[\s\-]?SBS|HALF[\s\-]?OU|HSBS|H[\s\-]SBS|HOU|H[\s\-]OU|SBS|OU|3D)\b`)
 	// reMVHEVC matches a name that says MV-HEVC on its own: the codec, Apple's
 	// product name, or Apple's term for the format.
 	//
@@ -487,11 +490,11 @@ var (
 	// is a narrower set than reFrameCompatible3D on purpose: see the
 	// resolution rule in Parse, which turns on the geometry of SBS
 	// specifically and must not be applied to over-under.
-	reFullSBS = regexp.MustCompile(`(?i)\b(FULL[\s\-]?SBS|FSBS|F[\s\-]SBS)\b`)
+	reFullSBS = regexp.MustCompile(`(?i)\b(FULL[\s\-]?SBS|FSBS|FBSB|F[\s\-]SBS)\b`)
 	// reFrameCompatible3D matches the layouts that fit both views into a single
 	// frame. Their presence rules out MVC: frame packing is a re-encode, and an
 	// ordinary decoder can play the result.
-	reFrameCompatible3D = regexp.MustCompile(`(?i)\b(FULL[\s\-]?SBS|FULL[\s\-]?OU|FSBS|F[\s\-]SBS|FOU|F[\s\-]OU|HALF[\s\-]?SBS|HALF[\s\-]?OU|HSBS|H[\s\-]SBS|HOU|H[\s\-]OU|SBS|OU)\b`)
+	reFrameCompatible3D = regexp.MustCompile(`(?i)\b(FULL[\s\-]?SBS|FULL[\s\-]?OU|FSBS|FBSB|F[\s\-]SBS|FOU|F[\s\-]OU|HALF[\s\-]?SBS|HALF[\s\-]?OU|HSBS|H[\s\-]SBS|HOU|H[\s\-]OU|SBS|OU)\b`)
 	// reCompleteDisc matches the scene's "COMPLETE BLURAY" disc-rip label.
 	//
 	// The two tokens must be adjacent. A bare \bCOMPLETE\b anywhere in the
@@ -737,7 +740,7 @@ func Parse(title string) Quality {
 			switch strings.ToUpper(normalize.Replace(m)) {
 			case "BD3D", "MVC":
 				f = Format3DBD
-			case "FSBS", "FOU", "FULLSBS", "FULLOU":
+			case "FSBS", "FBSB", "FOU", "FULLSBS", "FULLOU":
 				f = Format3DFull
 			case "3D":
 				continue // says nothing about layout
