@@ -17,7 +17,7 @@ Measured on a live 40.56 GiB disc: **2 pieces, 27.2 MiB, 0.066% of the torrent, 
 | Key | Type | Required | Default | Description |
 |-----|------|----------|---------|-------------|
 | `timeout` | duration | no | `2m` | Budget for one entry's probe, including fetching its pieces |
-| `max_pieces` | int | no | `6` | Most pieces to fetch for one entry. The probe asks for more only when it names bytes it could not read, so this is a ceiling rather than a target |
+| `max_pieces` | int | no | `6` | Most pieces to fetch for one entry, counted in 16 MiB pieces: a torrent cut into smaller ones may fetch the same number of bytes. The probe asks for more only when it names bytes it could not read, so this is a ceiling rather than a target |
 | `require` | bool | no | `false` | Reject entries whose probe could not run, instead of passing them with `probe_ok` false |
 | `parallel` | int | no | `1` | How many entries to probe at once |
 | `no_peer_timeout` | duration | no | `30s` | Give up early when no peer has connected and no byte has arrived; `0` disables |
@@ -100,7 +100,7 @@ One piece is the smallest range BitTorrent can serve, and on these torrents a pi
 
 ## Retries are not belt and braces
 
-A disc with hundreds of playlists — Disney titles routinely have them — spills its metadata past the last 16 MiB piece, so assuming two pieces fails on real discs. When the probe cannot read a byte it says which one; the plugin fetches the piece holding it and tries again, up to `max_pieces`. Of ten real discs measured, nine needed two pieces and one needed three; with 32 MiB pieces all ten needed two.
+A disc with hundreds of playlists — Disney titles routinely have them — spills its metadata past the last 16 MiB piece, so assuming two pieces fails on real discs. When the probe cannot read a byte it says which read failed; the plugin fetches every absent piece that read spans and tries again, up to `max_pieces`. A read that fails although all its pieces are present ends the probe rather than being retried. Of ten real discs measured, nine needed two pieces and one needed three; with 32 MiB pieces all ten needed two.
 
 A **parse** failure is final and is not retried. Zero-filled bytes are present bytes, and fetching more of the image will not improve them.
 

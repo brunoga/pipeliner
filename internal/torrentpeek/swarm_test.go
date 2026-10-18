@@ -175,6 +175,26 @@ func TestSwarmFetchesOnlyTheRequestedPieces(t *testing.T) {
 		t.Errorf("named piece %d, want 3", mp.Piece)
 	}
 
+	// A read that starts in a present piece and runs into an absent one
+	// names the absent piece and the whole read. Its offset is in piece 0,
+	// which is present, so a caller fetching only the piece holding the
+	// offset would fetch nothing and fail the same way forever.
+	span := make([]byte, swarmPieceLen)
+	_, err = pk.ReadAt(span, 8)
+	if !errors.As(err, &mp) {
+		t.Fatalf("reading across into an unfetched piece gave %v, want *MissingPieceError", err)
+	}
+	if mp.Piece != 1 || mp.Offset != 8 || mp.Length != swarmPieceLen {
+		t.Errorf("got piece %d for %d bytes at %d, want piece 1 for %d at 8", mp.Piece, mp.Length, mp.Offset, swarmPieceLen)
+	}
+
+	// HasPiece agrees with what ReadAt admits.
+	for i, want := range map[int]bool{0: true, 1: false, 3: false, swarmPieces - 1: true, -1: false, swarmPieces: false} {
+		if got := pk.HasPiece(i); got != want {
+			t.Errorf("HasPiece(%d) = %v, want %v", i, got, want)
+		}
+	}
+
 	// And the accounting reflects two pieces, which is what a private tracker
 	// will have recorded.
 	if got := pk.FetchedPieces(); got != 2 {
