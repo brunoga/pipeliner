@@ -54,7 +54,7 @@ func (f *fake) readAt(b []byte, off int64) (int, error) {
 	}
 	for i := f.pieceOf(off); i <= f.pieceOf(off+int64(len(b))-1); i++ {
 		if !f.have[i] {
-			return 0, &MissingPieceError{Offset: off, Piece: i}
+			return 0, &MissingPieceError{Offset: off, Length: int64(len(b)), Piece: i}
 		}
 	}
 	copy(b, f.data[off:off+int64(len(b))])
@@ -97,8 +97,8 @@ func TestReadOfAnUnfetchedPieceFailsAndNamesIt(t *testing.T) {
 	if !errors.As(err, &mp) {
 		t.Fatalf("err = %v, want *MissingPieceError", err)
 	}
-	if mp.Piece != 3 || mp.Offset != 350 {
-		t.Errorf("got piece %d at offset %d, want piece 3 at 350", mp.Piece, mp.Offset)
+	if mp.Piece != 3 || mp.Offset != 350 || mp.Length != 10 {
+		t.Errorf("got piece %d for %d bytes at offset %d, want piece 3 for 10 at 350", mp.Piece, mp.Length, mp.Offset)
 	}
 	if !errors.Is(err, err) || mp.Error() == "" {
 		t.Error("the error should describe itself")

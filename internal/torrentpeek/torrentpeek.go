@@ -34,9 +34,13 @@ import (
 )
 
 // MissingPieceError says a read touched a piece that has not been fetched.
-// The caller is expected to fetch Piece and retry.
+// The caller is expected to fetch every absent piece the read spans and
+// retry. Offset is where the read started, which may well be in a piece that
+// is present: a 2 MiB read over 256 KiB pieces spans eight of them, and
+// fetching only the piece holding Offset would get nowhere.
 type MissingPieceError struct {
 	Offset int64 // the read's offset into the torrent
+	Length int64 // the read's length
 	Piece  int   // the first unfetched piece the read needed
 }
 
@@ -201,6 +205,11 @@ func (p *Peeker) FetchedBytes() int64 {
 	return n
 }
 
+// HasPiece reports whether piece i is present, which is what ReadAt checks.
+func (p *Peeker) HasPiece(i int) bool {
+	return i >= 0 && i < p.t.NumPieces() && p.t.PieceBytesMissing(i) == 0
+}
+
 // FetchedPieces is how many pieces this Peeker asked for.
 func (p *Peeker) FetchedPieces() int {
 	p.mu.Lock()
@@ -242,7 +251,7 @@ func (p *Peeker) ReadAt(b []byte, off int64) (int, error) {
 	first, last := p.PieceOf(off), p.PieceOf(off+int64(len(b))-1)
 	for i := first; i <= last; i++ {
 		if p.t.PieceBytesMissing(i) != 0 {
-			return 0, &MissingPieceError{Offset: off, Piece: i}
+			return 0, &MissingPieceError{Offset: off, Length: int64(len(b)), Piece: i}
 		}
 	}
 

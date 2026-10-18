@@ -60,6 +60,7 @@ func (f *fakeSampler) Ends() []int {
 	return []int{0}
 }
 func (f *fakeSampler) FetchedPieces() int { return len(f.have) }
+func (f *fakeSampler) HasPiece(i int) bool { return f.have[i] }
 
 func (f *fakeSampler) Fetch(_ context.Context, pieces ...int) error {
 	f.calls++
@@ -83,7 +84,7 @@ func (f *fakeSampler) ReadAt(b []byte, off int64) (int, error) {
 	}
 	for i := f.PieceOf(off); i <= f.PieceOf(off+int64(len(b))-1); i++ {
 		if !f.have[i] {
-			return 0, &torrentpeek.MissingPieceError{Offset: off, Piece: i}
+			return 0, &torrentpeek.MissingPieceError{Offset: off, Length: int64(len(b)), Piece: i}
 		}
 	}
 	copy(b, f.data[off:off+int64(len(b))])
@@ -104,13 +105,18 @@ func testPlugin(t *testing.T, cfg map[string]any) *probePlugin {
 // structure, hits a byte it has not been given, and says which one.
 type scriptedProber struct {
 	missing []int64
+	length  int64 // of each missing read; 0 means 2048
 	calls   int
 }
 
 func (sp *scriptedProber) image(_ io.ReaderAt, _ int64, label string) (*mvcprobe.Result, error) {
 	defer func() { sp.calls++ }()
 	if sp.calls < len(sp.missing) {
-		return nil, &mvcprobe.MissingDataError{Offset: sp.missing[sp.calls], Length: 2048, Err: io.EOF}
+		n := sp.length
+		if n == 0 {
+			n = 2048
+		}
+		return nil, &mvcprobe.MissingDataError{Offset: sp.missing[sp.calls], Length: n, Err: io.EOF}
 	}
 	return &mvcprobe.Result{Kind: mvcprobe.KindDisc, Source: label, Is3D: true, Layout: mvcprobe.LayoutMVC}, nil
 }
@@ -185,6 +191,119 @@ func TestFetchLoopStopsAtMaxPieces(t *testing.T) {
 	}
 }
 
+// TestFetchLoopFetchesEveryAbsentPieceTheReadSpans is the Vision Pro .mov
+// that hung the daemon. Its pieces are 256 KiB, and the MP4 reader asks for
+// 2 MiB from byte 28: eight pieces, the first of which is already here. The
+// loop used to fetch only the piece holding byte 28, which fetched nothing,
+// and asked the prober the same question 700,000 times in two minutes.
+func TestFetchLoopFetchesEveryAbsentPieceTheReadSpans(t *testing.T) {
+	p := testPlugin(t, nil) // max_pieces 6: fewer than the read spans
+	f := newFakeSampler(100<<20, 256<<10)
+	sp := &scriptedProber{missing: []int64{28}, length: 2 << 20}
+	p.probeImage = sp.image
+
+	if _, err := p.readWithRetries(context.Background(), f, target{name: "disc.iso"}); err != nil {
+		t.Fatalf("the loop should have fetched the whole read and succeeded: %v", err)
+	}
+	if sp.calls != 2 {
+		t.Errorf("prober called %d times, want 2: one round fetches the whole read", sp.calls)
+	}
+	for i := 0; i <= f.PieceOf(28+2<<20-1); i++ {
+		if !f.have[i] {
+			t.Errorf("piece %d of the read was not fetched", i)
+		}
+	}
+	// The ends, then pieces 1-8 in one round; piece 0 was already here.
+	if want := 2 + 8; len(f.fetches) != want {
+		t.Errorf("fetches = %v, want %d: nothing fetched twice", f.fetches, want)
+	}
+}
+
+// A prober that names bytes which are all here already cannot be helped by
+// fetching, so the loop must end rather than ask it again.
+func TestFetchLoopEndsWhenTheNamedBytesArePresent(t *testing.T) {
+	p := testPlugin(t, nil)
+	f := newFakeSampler(100<<20, 16<<20)
+	missing := make([]int64, 1000)
+	for i := range missing {
+		missing[i] = 28 // in piece 0, one of the ends
+	}
+	sp := &scriptedProber{missing: missing}
+	p.probeImage = sp.image
+
+	_, err := p.readWithRetries(context.Background(), f, target{name: "disc.iso"})
+	if err == nil || !strings.Contains(err.Error(), "every piece holding them is here") {
+		t.Fatalf("err = %v, want the loop to say fetching cannot help", err)
+	}
+	if sp.calls != 1 {
+		t.Errorf("prober called %d times, want 1", sp.calls)
+	}
+}
+
+// The loop stops when the probe's context ends, even when every fetch it
+// makes returns at once.
+func TestFetchLoopStopsWhenCancelled(t *testing.T) {
+	p := testPlugin(t, nil)
+	f := newFakeSampler(100<<20, 16<<20)
+	sp := &scriptedProber{missing: []int64{3 << 24, 4 << 24}}
+	p.probeImage = sp.image
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if _, err := p.readWithRetries(ctx, f, target{name: "disc.iso"}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if sp.calls != 1 {
+		t.Errorf("prober called %d times, want 1", sp.calls)
+	}
+}
+
+// max_pieces is counted in 16 MiB pieces, which is what it was measured on,
+// so a torrent with smaller pieces gets the same bytes rather than the same
+// handful of pieces.
+func TestPieceBudgetCountsSixteenMiBPieces(t *testing.T) {
+	p := testPlugin(t, nil)
+	for pieceLen, want := range map[int64]int{
+		16 << 20:  6,
+		32 << 20:  6,
+		4 << 20:   24,
+		256 << 10: 384,
+		0:         6,
+	} {
+		if got := p.pieceBudget(pieceLen); got != want {
+			t.Errorf("pieceBudget(%d) = %d, want %d", pieceLen, got, want)
+		}
+	}
+}
+
+// The client names a file it has not completed name+".part", which is every
+// file a probe leaves behind; the cleanup has to find it under that name.
+func TestRemoveSampleRemovesPartialFiles(t *testing.T) {
+	dir := t.TempDir()
+	for _, f := range []string{"Disc.iso.part", "Folder/Film.mov.part", "Other.iso.part"} {
+		path := filepath.Join(dir, f)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, name := range []string{"Disc.iso", "Folder", "Never.iso"} {
+		if err := removeSample(dir, name); err != nil {
+			t.Errorf("removeSample(%q) = %v", name, err)
+		}
+	}
+	for _, gone := range []string{"Disc.iso.part", "Folder"} {
+		if _, err := os.Stat(filepath.Join(dir, gone)); !os.IsNotExist(err) {
+			t.Errorf("%s survived the cleanup", gone)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "Other.iso.part")); err != nil {
+		t.Errorf("another release's sample was removed: %v", err)
+	}
+}
+
 // A parse failure is not a missing-data failure. Zero-filled bytes are present
 // bytes, so the prober reads them and rejects them — and the loop must report
 // that rather than fetching the rest of the image hoping it improves.
@@ -246,23 +365,30 @@ func TestMatroskaTakesTheMatroskaPath(t *testing.T) {
 	}
 }
 
-func TestMissingOffset(t *testing.T) {
-	if _, ok := missingOffset(errors.New("plain"), 0); ok {
-		t.Error("a plain error names no offset")
+func TestMissingRange(t *testing.T) {
+	if _, _, ok := missingRange(errors.New("plain"), 0); ok {
+		t.Error("a plain error names no range")
 	}
 	// The prober's own error is preferred, since it knows which bytes the
-	// format needed rather than which read happened to fail.
+	// format needed rather than which read happened to fail. Its offsets are
+	// the file's, so the file's place in the torrent is added.
 	md := &mvcprobe.MissingDataError{Offset: 4242, Length: 2048}
-	if off, ok := missingOffset(md, 0); !ok || off != 4242 {
-		t.Errorf("probe error gave (%d, %v), want (4242, true)", off, ok)
+	if first, last, ok := missingRange(md, 1000); !ok || first != 5242 || last != 7289 {
+		t.Errorf("probe error gave (%d-%d, %v), want (5242-7289, true)", first, last, ok)
 	}
-	mp := &torrentpeek.MissingPieceError{Offset: 99, Piece: 3}
-	if off, ok := missingOffset(mp, 0); !ok || off != 99 {
-		t.Errorf("reader error gave (%d, %v), want (99, true)", off, ok)
+	mp := &torrentpeek.MissingPieceError{Offset: 99, Length: 10, Piece: 3}
+	if first, last, ok := missingRange(mp, 1000); !ok || first != 99 || last != 108 {
+		t.Errorf("reader error gave (%d-%d, %v), want (99-108, true)", first, last, ok)
 	}
-	// Wrapped, as it arrives in practice.
-	if off, ok := missingOffset(errors.Join(errors.New("ctx"), md), 0); !ok || off != 4242 {
-		t.Errorf("wrapped probe error gave (%d, %v)", off, ok)
+	// No length still names the one byte.
+	if first, last, ok := missingRange(&torrentpeek.MissingPieceError{Offset: 99}, 0); !ok || first != 99 || last != 99 {
+		t.Errorf("lengthless reader error gave (%d-%d, %v), want (99-99, true)", first, last, ok)
+	}
+	// Wrapped, as it arrives in practice: the prober's error wraps the
+	// reader's, and the prober's wins.
+	wrapped := &mvcprobe.MissingDataError{Offset: 4242, Length: 2048, Err: mp}
+	if first, _, ok := missingRange(errors.Join(errors.New("ctx"), wrapped), 0); !ok || first != 4242 {
+		t.Errorf("wrapped probe error gave (%d, %v)", first, ok)
 	}
 }
 

@@ -64,6 +64,11 @@ const pluginName = "probe"
 const (
 	defaultTimeout   = 2 * time.Minute
 	defaultMaxPieces = 6
+	// budgetPiece is the piece size max_pieces is counted in. It was measured
+	// on disc images, whose pieces are 16 MiB; a torrent cut into smaller
+	// pieces gets the same number of bytes, not the same number of pieces,
+	// or a 2 MiB read over 256 KiB pieces would exhaust it on its own.
+	budgetPiece = 16 << 20
 	// defaultParallel is 1 because the bandwidth cost of a SUCCESSFUL probe is
 	// the thing worth serialising: several at once is the kind of burst a
 	// private tracker notices. Raising it is opt-in.
@@ -117,7 +122,7 @@ func init() {
 		Validate:                 validate,
 		Schema: []plugin.FieldSchema{
 			{Key: "timeout", Type: plugin.FieldTypeDuration, Default: "2m", Hint: "Budget for one entry's probe, including fetching its pieces"},
-			{Key: "max_pieces", Type: plugin.FieldTypeInt, Default: "6", Hint: "Most pieces to fetch for one entry; the probe asks for more only when it names bytes it could not read"},
+			{Key: "max_pieces", Type: plugin.FieldTypeInt, Default: "6", Hint: "Most pieces to fetch for one entry, counted in 16 MiB pieces; the probe asks for more only when it names bytes it could not read"},
 			{Key: "require", Type: plugin.FieldTypeBool, Hint: "Reject entries whose probe could not run, instead of passing them with probe_ok false"},
 			{Key: "parallel", Type: plugin.FieldTypeInt, Default: "1", Hint: "How many entries to probe at once; a successful probe pulls 20-25 MiB, so raising this bursts at the tracker"},
 			{Key: "no_peer_timeout", Type: plugin.FieldTypeDuration, Default: "30s", Hint: "Give up early when no peer has connected and no byte has arrived; 0 disables"},
@@ -364,6 +369,7 @@ type sampler interface {
 	PieceOf(off int64) int
 	Fetch(ctx context.Context, pieces ...int) error
 	FetchedPieces() int
+	HasPiece(i int) bool
 }
 
 // ensureClient acquires the shared client for this node's port, once. A
@@ -562,7 +568,7 @@ func (p *probePlugin) probeEntry(ctx context.Context, tc *plugin.TaskContext, e 
 		// Dropping the torrent and removing its sample is what keeps this
 		// from accumulating sparse files across a long-running daemon.
 		if sc.drop(t) && name != "" {
-			if err := os.RemoveAll(filepath.Join(sc.dir, name)); err != nil {
+			if err := removeSample(sc.dir, name); err != nil {
 				tc.Logger.Warn(pluginName+": removing the sample", "entry", e.Title, "err", err)
 			}
 		}
@@ -589,6 +595,16 @@ func (p *probePlugin) probeEntry(ctx context.Context, tc *plugin.TaskContext, e 
 	res, err := p.readWithRetries(ctx, pk, targetOf(t, e))
 	swarm = snapshot()
 	return res, pk.FetchedPieces(), pk.FetchedBytes(), swarm, err
+}
+
+// removeSample deletes what a probe left in dir for the torrent called name:
+// a directory for a multi-file torrent, a file for a single-file one. The
+// client names a file it has not completed name+".part", which is every file
+// a probe leaves, so removing only name missed all of them and a daemon
+// accumulated one sparse, image-sized file per probed release.
+func removeSample(dir, name string) error {
+	path := filepath.Join(dir, name)
+	return errors.Join(os.RemoveAll(path), os.RemoveAll(path+".part"))
 }
 
 // target is the file a probe reads: where it sits in the torrent, how long
@@ -678,37 +694,63 @@ func (p *probePlugin) readWithRetries(ctx context.Context, pk sampler, tg target
 			return res, nil
 		}
 
-		// The prober says which bytes it wanted; our reader says which piece
-		// holds them. Either error carries an offset, so prefer the prober's.
-		// The prober reads the file, so its offset is the file's; ours is
-		// the torrent's already.
-		off, ok := missingOffset(err, tg.off)
+		// The prober says which bytes it wanted; our reader says which
+		// pieces hold them. Every absent one is fetched in one round: the
+		// read starts wherever the prober started it, often in a piece that
+		// is already here, so fetching just the piece holding its first byte
+		// fetched nothing, and the same read failed the same way forever.
+		first, last, ok := missingRange(err, tg.off)
 		if !ok {
 			return nil, err
 		}
-		if pk.FetchedPieces() >= p.maxPieces {
-			return nil, fmt.Errorf("probe still needs byte %d after %d pieces (max_pieces): %w", off, pk.FetchedPieces(), err)
+		var want []int
+		for i := pk.PieceOf(first); i <= pk.PieceOf(last); i++ {
+			if !pk.HasPiece(i) {
+				want = append(want, i)
+			}
 		}
-		want := pk.PieceOf(off)
-		if err := pk.Fetch(ctx, want); err != nil {
+		if len(want) == 0 {
+			// Nothing to fetch would change the answer, so stop rather
+			// than ask the prober the same question again.
+			return nil, fmt.Errorf("probe cannot read bytes %d-%d although every piece holding them is here: %w", first, last, err)
+		}
+		if budget := p.pieceBudget(pk.PieceLength()); pk.FetchedPieces()+len(want) > budget {
+			return nil, fmt.Errorf("probe still needs bytes %d-%d after %d pieces (max_pieces): %w", first, last, pk.FetchedPieces(), err)
+		}
+		if err := pk.Fetch(ctx, want...); err != nil {
+			return nil, err
+		}
+		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 	}
 }
 
-// missingOffset pulls the torrent offset of the first unreadable byte out of
-// either the prober's error, which counts from the start of the file it read
-// (at base in the torrent), or our reader's, which counts from the torrent's.
-func missingOffset(err error, base int64) (int64, bool) {
+// pieceBudget is max_pieces in pieces of this torrent's size. It is counted
+// in 16 MiB pieces, so a torrent with smaller ones may fetch more of them,
+// up to the same number of bytes.
+func (p *probePlugin) pieceBudget(pieceLen int64) int {
+	if pieceLen <= 0 || pieceLen >= budgetPiece {
+		return p.maxPieces
+	}
+	return int(int64(p.maxPieces) * budgetPiece / pieceLen)
+}
+
+// missingRange pulls the torrent offsets of the first and last byte of the
+// read that failed out of either the prober's error, which counts from the
+// start of the file it read (at base in the torrent), or our reader's, which
+// counts from the torrent's. The prober's is preferred, since it knows which
+// bytes the format needed rather than which read happened to fail.
+func missingRange(err error, base int64) (first, last int64, ok bool) {
 	var md *mvcprobe.MissingDataError
 	if errors.As(err, &md) {
-		return base + md.Offset, true
+		return base + md.Offset, base + md.Offset + max(md.Length, 1) - 1, true
 	}
 	var mp *torrentpeek.MissingPieceError
 	if errors.As(err, &mp) {
-		return mp.Offset, true
+		return mp.Offset, mp.Offset + max(mp.Length, 1) - 1, true
 	}
-	return 0, false
+	return 0, 0, false
 }
 
 func (p *probePlugin) fetchMetainfo(ctx context.Context, e *entry.Entry) (*metainfo.MetaInfo, error) {
