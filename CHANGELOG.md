@@ -5,6 +5,20 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.66.1] - 2026-10-18
+
+A fix to the background probe worker added in 1.66.0, found in its first 20 minutes on a live install.
+
+### Fixed
+
+- **The background worker lost a retry after every successful probe** ([#628](https://github.com/brunoga/pipeliner/pull/628)). Each job closed the shared torrent client when it finished, and the next job, often started straight after, could not bind the port the old client's UDP socket had not released yet: `bind: address already in use`. The worker now keeps one client per port open for as long as it runs.
+
+### Changed
+
+- `golang.org/x/crypto` 0.57.0 → 0.58.0 ([#626](https://github.com/brunoga/pipeliner/pull/626)).
+
+**Why 1.66.1**: a fix and a dependency bump; no behaviour changes otherwise.
+
 ## [1.66.0] - 2026-10-18
 
 `probe` moves out of the pipeline run. A swarm needs patience a run cannot afford: live MVC discs took 2m25s-2m58s to serve two pieces, and a seeder that can only dial in finds the probe at its next announce, often 30-60 minutes away. Also: Vision Pro release names that state no year now get one from TMDb, and a format the probe proves raises the release's quality.
