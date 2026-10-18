@@ -5,6 +5,23 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.66.0] - 2026-10-18
+
+`probe` moves out of the pipeline run. A swarm needs patience a run cannot afford: live MVC discs took 2m25s-2m58s to serve two pieces, and a seeder that can only dial in finds the probe at its next announce, often 30-60 minutes away. Also: Vision Pro release names that state no year now get one from TMDb, and a format the probe proves raises the release's quality.
+
+### Added
+
+- **`probe(background=True)` and the background probe worker** ([#625](https://github.com/brunoga/pipeliner/pull/625)). A background node replays known verdicts and queues every other release in a new `probe_queue` bucket instead of probing it in the run, so a run never waits on a swarm. The daemon's worker probes the queue one release at a time, at least 30 seconds apart, each film's best-ranked release before any film's second. A release nobody served is retried after `retry_after` (default `3h`, the n-th retry waits n times that) and its failure is recorded only once `retries` (default `2`) are spent. A job no run has re-queued in two weeks is dropped. The queue is in the database, so it survives restarts and a CLI run can add to it; only the daemon works it. `background` refuses `cache_only` and `require`.
+- **`trigger=True` and the `probe` trigger kind** ([#625](https://github.com/brunoga/pipeliner/pull/625)). When the worker reads a release a pipeline queued, the pipeline runs again, at most once an hour. The run is a `probe` fire, which `run_on="schedule"` sources also run on, as they do for `startup`.
+- **`only_missing_year` on `metainfo_tmdb`** ([#623](https://github.com/brunoga/pipeliner/pull/623)). Looks up only entries with no year, and takes a year only when exactly one film has the exact title, or exactly one such film has at least 20 votes. The 3D remakes make "newest wins" wrong: The Mask (1961/1994), House of Wax (1953/2005) and The Man Who Wasn't There (1983/2001) are each two real 3D films. Of 31 year-less Vision Pro names on 3dtorrents, 14 get a year and 17 are left alone.
+
+### Fixed
+
+- **Vision Pro names kept their device words in the title** ([#623](https://github.com/brunoga/pipeliner/pull/623)). "Dial M for Murder AVP mov" parsed as the title "Dial M for Murder AVP Mov"; the title now ends at `MV HEVC`, `Apple Vision Pro`, `Spatial`, `AVP`, `mov`, `mp4` or `3 D`, only for a release already read as MV-HEVC, so "AVP Alien vs Predator" keeps its title.
+- **A disc the probe proved MVC still ranked as an unknown format** ([#624](https://github.com/brunoga/pipeliner/pull/624)). A release named only "3D BluRay" parses as Unspecified, so a `dedup` after the probe kept a Vision Pro copy over the Blu-ray 3D it was made from. A probed MVC view now raises the quality to BD3D, and an MV-HEVC view to MV-HEVC. The quality is never lowered, and a name that says 2D-to-3D conversion keeps it.
+
+**Why 1.66.0**: new options and a new trigger kind. Nothing changes for a config that does not use them, except that a probed MVC disc whose name stated no format now ranks as BD3D.
+
 ## [1.65.0] - 2026-10-16
 
 MV-HEVC -- the Apple Vision Pro's multiview HEVC, "spatial video" -- as a 3D format: recognised in release names, ranked, and verified by `probe` from a two-piece sample. The point is new films that never had a Blu-ray 3D, whose only full-resolution 3D is a streaming source.
