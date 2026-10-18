@@ -2,6 +2,7 @@ package probe
 
 import (
 	"context"
+	"os"
 	"slices"
 	"testing"
 	"time"
@@ -416,5 +417,42 @@ func TestNoStoreMeansNothingQueued(t *testing.T) {
 	out := runAs(t, p, "p", false, hashEntry("Disc 2020 3D BluRay", "jjj"))
 	if len(out) != 1 || out[0].IsRejected() {
 		t.Errorf("got %v", out)
+	}
+}
+
+// TestTheWorkerKeepsItsClientBetweenJobs: each job builds its own probe and
+// shuts it down. If that closed the client, the next job -- often started
+// straight after -- found the port still held by the old client's UDP
+// socket, which the library releases asynchronously: live, "bind: address
+// already in use" on every job that followed a success.
+func TestTheWorkerKeepsItsClientBetweenJobs(t *testing.T) {
+	port := freePort(t)
+	w := NewWorker(verdictStore(t), discardLogger(), nil)
+	if err := w.hold(port); err != nil {
+		t.Fatal(err)
+	}
+	held := w.held[port]
+
+	for range 2 {
+		p := jobSettings{ListenPort: port}.prober(nil, w.template)
+		sc, err := p.ensureClient()
+		if err != nil {
+			t.Fatalf("a job could not get the client: %v", err)
+		}
+		if sc != held {
+			t.Fatal("a job built its own client instead of sharing the worker's")
+		}
+		p.Shutdown()
+		if _, err := os.Stat(held.dir); err != nil {
+			t.Fatalf("a job's shutdown closed the worker's client: %v", err)
+		}
+	}
+
+	w.release()
+	if _, err := os.Stat(held.dir); !os.IsNotExist(err) {
+		t.Errorf("release should close the client, stat err = %v", err)
+	}
+	if len(w.held) != 0 {
+		t.Errorf("held = %v after release", w.held)
 	}
 }
