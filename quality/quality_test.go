@@ -389,6 +389,9 @@ func TestParse3DHighestMarkerWins(t *testing.T) {
 		// Unhyphenated FULL/HALF variants.
 		{"Annihilation.2018.3D.1080p.FullSBS.DTS", Format3DFull},
 		{"Movie.2020.3D.1080p.HalfSBS", Format3DHalf},
+		// FBSB is a misspelling of FSBS that indexers carry, and means the
+		// same thing.
+		{"Back to the Future Part II 1989 3D FBSB ATMOS mkv", Format3DFull},
 	}
 	for _, c := range cases {
 		q := Parse(c.title)
