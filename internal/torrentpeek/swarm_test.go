@@ -105,9 +105,28 @@ func leech(t *testing.T, mi *metainfo.MetaInfo, port int) *torrent.Torrent {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tt.AddPeers([]torrent.PeerInfo{{
+	seeder := []torrent.PeerInfo{{
 		Addr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port},
-	}})
+	}}
+	tt.AddPeers(seeder)
+	// Offer the seeder again for as long as the test runs. The one peer is
+	// the whole swarm, and a connection that drops after the metadata was
+	// otherwise redialled on the client's own backoff, which could outlast
+	// a fetch's deadline: CI failed "fetching the ends" after 60s that way.
+	stop := make(chan struct{})
+	t.Cleanup(func() { close(stop) })
+	go func() {
+		tick := time.NewTicker(500 * time.Millisecond)
+		defer tick.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-tick.C:
+				tt.AddPeers(seeder)
+			}
+		}
+	}()
 	select {
 	case <-tt.GotInfo():
 	case <-time.After(10 * time.Second):
