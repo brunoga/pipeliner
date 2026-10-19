@@ -10,6 +10,7 @@ import (
 
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/plugin"
+	"github.com/brunoga/pipeliner/internal/store"
 )
 
 var now = time.Date(2026, 7, 23, 12, 0, 0, 0, time.UTC)
@@ -288,5 +289,190 @@ func TestCompletedStalledTorrentNotFailed(t *testing.T) {
 	classify(t, p, e)
 	if e.IsAccepted() {
 		t.Fatalf("a complete stalled torrent must not be failed, accept reason = %q", e.AcceptReason)
+	}
+}
+
+// ── max_eta: the trickle the inactivity window cannot see ────────────────────
+
+const gib = int64(1) << 30
+
+// slowRig runs the plugin hour by hour against one torrent, the way the
+// hourly janitor sees it.
+type slowRig struct {
+	t     *testing.T
+	p     *failedPlugin
+	clock time.Time
+	added time.Time
+}
+
+func newSlowRig(t *testing.T, cfg map[string]any) *slowRig {
+	t.Helper()
+	db, err := store.OpenSQLite(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	p, err := newPlugin(cfg, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := &slowRig{t: t, p: p.(*failedPlugin), clock: now, added: now}
+	r.p.now = func() time.Time { return r.clock }
+	return r
+}
+
+// see classifies the torrent as it stands at the rig's clock: downloaded
+// bytes so far of an 8 GiB torrent, at the given current rate.
+func (r *slowRig) see(state string, downloaded, rate int64) *entry.Entry {
+	r.t.Helper()
+	e := sessionEntry(state, map[string]any{
+		entry.FieldTorrentInfoHash:     "aaaa",
+		entry.FieldTorrentAddedAt:      r.added,
+		entry.FieldTorrentLastActivity: r.clock, // a trickle keeps this fresh
+		entry.FieldTorrentFileSize:     8 * gib,
+		entry.FieldTorrentProgress:     float64(downloaded) / float64(8*gib) * 100,
+		entry.FieldTorrentDownloaded:   downloaded,
+		entry.FieldTorrentDownRate:     rate,
+	})
+	classify(r.t, r.p, e)
+	return e
+}
+
+var slowCfg = map[string]any{"max_eta": "96h"}
+
+// The Batman Begins case: a few KB/s, steadily, for a whole day. Last
+// activity is always fresh, so stall_timeout never fires; max_eta does.
+func TestTrickleIsFailedOnceWatchedForAWindow(t *testing.T) {
+	r := newSlowRig(t, slowCfg)
+	const rate = 5 << 10 // 5 KiB/s: 8 GiB would take ~19 days
+	var e *entry.Entry
+	for h := 0; h <= 24; h++ {
+		r.clock = now.Add(time.Duration(h) * time.Hour)
+		e = r.see("downloading", int64(h)*3600*rate, rate)
+		if h < 24 && e.IsAccepted() {
+			t.Fatalf("failed after %dh, before a whole slow_window was watched: %s", h, e.AcceptReason)
+		}
+	}
+	if !e.IsAccepted() || !strings.Contains(e.AcceptReason, "too slow") {
+		t.Fatalf("a steady 5 KiB/s trickle should fail after 24h, state=%v reason=%q%q", e.State, e.RejectReason, e.AcceptReason)
+	}
+}
+
+// One slow reading must not fail a torrent that has been fast.
+func TestAMomentaryDipIsNotFailed(t *testing.T) {
+	r := newSlowRig(t, slowCfg)
+	const fast = 1 << 20 // 1 MiB/s
+	for h := 0; h <= 24; h++ {
+		r.clock = now.Add(time.Duration(h) * time.Hour)
+		rate := int64(fast)
+		if h == 24 {
+			rate = 100 // the check happens to land on a lull
+		}
+		// 25.6 KiB/s on average: 2.2 GiB in the day, the rest in under
+		// three days.
+		e := r.see("downloading", int64(h)*3600*fast/40, rate)
+		if e.IsAccepted() {
+			t.Fatalf("hour %d: a torrent averaging 25.6 KiB/s was failed: %s", h, e.AcceptReason)
+		}
+		if h == 24 && !strings.Contains(e.RejectReason, "below stall_timeout") {
+			t.Fatalf("hour 24: want the torrent judged and kept, got %q", e.RejectReason)
+		}
+	}
+}
+
+// A torrent that crawled all day and has just sped up is kept, because the
+// current rate counts.
+func TestASpeedUpRescuesASlowTorrent(t *testing.T) {
+	r := newSlowRig(t, slowCfg)
+	const crawl = 1 << 10
+	var got int64
+	for h := 0; h <= 24; h++ {
+		r.clock = now.Add(time.Duration(h) * time.Hour)
+		rate := int64(crawl)
+		if h == 24 {
+			rate = 5 << 20 // 5 MiB/s now: done in well under max_eta
+		}
+		got += 3600 * crawl
+		e := r.see("downloading", got, rate)
+		if h == 24 && e.IsAccepted() {
+			t.Fatalf("a torrent now at 5 MiB/s was failed: %s", e.AcceptReason)
+		}
+	}
+}
+
+// The watch must be continuous. A torrent paused or queued in between was
+// not downloading, so the gap is not a slow spell: its watch starts over.
+func TestAPauseRestartsTheWatch(t *testing.T) {
+	r := newSlowRig(t, slowCfg)
+	const rate = 1 << 10
+	for h := 0; h < 20; h++ {
+		r.clock = now.Add(time.Duration(h) * time.Hour)
+		r.see("downloading", int64(h)*3600*rate, rate)
+	}
+	r.clock = now.Add(20 * time.Hour)
+	r.see("paused", 20*3600*rate, 0)
+	for h := 21; h <= 30; h++ {
+		r.clock = now.Add(time.Duration(h) * time.Hour)
+		if e := r.see("downloading", int64(h)*3600*rate, rate); e.IsAccepted() {
+			t.Fatalf("hour %d: failed only %dh after the watch restarted: %s", h, h-21, e.AcceptReason)
+		}
+	}
+}
+
+// A re-added torrent starts its counter again; that is a new download, not
+// a negative rate.
+func TestAReAddRestartsTheWatch(t *testing.T) {
+	r := newSlowRig(t, slowCfg)
+	const rate = 1 << 10
+	for h := 0; h <= 23; h++ {
+		r.clock = now.Add(time.Duration(h) * time.Hour)
+		r.see("downloading", 4*gib+int64(h)*3600*rate, rate)
+	}
+	r.clock = now.Add(25 * time.Hour)
+	r.added = r.clock
+	if e := r.see("downloading", 0, rate); e.IsAccepted() {
+		t.Fatalf("a re-added torrent was failed on its first sighting: %s", e.AcceptReason)
+	}
+}
+
+// A torrent that leaves the session takes its samples with it.
+func TestSamplesOfGoneTorrentsAreDropped(t *testing.T) {
+	r := newSlowRig(t, slowCfg)
+	r.see("downloading", 1<<20, 1<<10)
+	if keys, _ := r.p.rates.Keys(); len(keys) != 1 {
+		t.Fatalf("keys = %v, want the watched torrent", keys)
+	}
+	if _, err := r.p.Process(context.Background(), makeCtx(), nil); err != nil {
+		t.Fatal(err)
+	}
+	if keys, _ := r.p.rates.Keys(); len(keys) != 0 {
+		t.Errorf("keys = %v, want none once the torrent is gone", keys)
+	}
+}
+
+// Without max_eta nothing changes: a trickle is never failed, and nothing is
+// stored.
+func TestNoMaxETAKeepsTheTrickle(t *testing.T) {
+	r := newSlowRig(t, nil)
+	for h := 0; h <= 48; h++ {
+		r.clock = now.Add(time.Duration(h) * time.Hour)
+		if e := r.see("downloading", int64(h)*3600*100, 100); e.IsAccepted() {
+			t.Fatalf("hour %d: failed without max_eta: %s", h, e.AcceptReason)
+		}
+	}
+	if keys, _ := r.p.rates.Keys(); len(keys) != 0 {
+		t.Errorf("keys = %v, want nothing stored without max_eta", keys)
+	}
+}
+
+func TestSlowWindowNeedsMaxETA(t *testing.T) {
+	if errs := validate(map[string]any{"slow_window": "12h"}); len(errs) == 0 {
+		t.Error("slow_window without max_eta should be refused")
+	}
+	if errs := validate(map[string]any{"max_eta": "96h", "slow_window": "12h"}); len(errs) != 0 {
+		t.Errorf("valid config refused: %v", errs)
+	}
+	if errs := validate(map[string]any{"max_eta": "soon"}); len(errs) == 0 {
+		t.Error("a malformed max_eta should be refused")
 	}
 }
