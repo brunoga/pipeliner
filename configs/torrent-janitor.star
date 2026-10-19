@@ -148,7 +148,11 @@ pipeline("seed-janitor", schedule="6h")
 # ── Pipeline 2: detect dead grabs, mark them failed, purge them ──────────────
 
 sess2  = input("torrent_session", backend="transmission", host=trans_host)
-failed = process("torrent_failed", upstream=sess2, stall_timeout="4h")
+# max_eta also fails a trickle: a download that, at the best of its lifetime,
+# last-24h and current rates, would still need more than four days. A swarm
+# serving a few KB/s keeps refreshing the last-activity time, so stall_timeout
+# alone never catches one.
+failed = process("torrent_failed", upstream=sess2, stall_timeout="4h", max_eta="96h")
 
 # Branch 1: record the failure so the release is never re-grabbed and the
 # episode/movie is un-tracked (a different release can be tried).

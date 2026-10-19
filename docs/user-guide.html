@@ -2042,11 +2042,15 @@ alive = process("torrent_alive", upstream=meta, min_seeds=2, verify=True)</code>
 <table>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
   <tr><td><code>stall_timeout</code></td><td>no</td><td><code>4h</code></td><td>Inactivity window before a stalled/zero-progress torrent counts as failed</td></tr>
+  <tr><td><code>max_eta</code></td><td>no</td><td>off</td><td>Fail a download that, at the <em>best</em> of its lifetime, recent and current rates, would still take longer than this to finish</td></tr>
+  <tr><td><code>slow_window</code></td><td>no</td><td><code>24h</code></td><td>With <code>max_eta</code>: how long a download is watched before it may be failed for being slow, and the span its recent rate is measured over</td></tr>
 </table>
 
-<p>Inactivity is measured from <code>torrent_last_activity</code> (falling back to <code>torrent_added_at</code>), so a slow-but-moving download keeps refreshing its clock and is never classified as failed. See <a href="#download-loop">Download-loop closure</a>.</p>
+<p>Inactivity is measured from <code>torrent_last_activity</code> (falling back to <code>torrent_added_at</code>), so a slow-but-moving download keeps refreshing its clock and <code>stall_timeout</code> never fails it. See <a href="#download-loop">Download-loop closure</a>.</p>
 
-<pre><code>failed = process("torrent_failed", upstream=sess, stall_timeout="4h")</code></pre>
+<div class="note"><strong>A trickle needs <code>max_eta</code>.</strong> A swarm serving a few KB/s keeps the last-activity time fresh while the download would take months. With <code>max_eta</code> set, each run records how much every downloading torrent has fetched, and a torrent is failed only when two things hold. First, it has been watched downloading for a whole <code>slow_window</code>; a torrent that was paused, queued or seeding in between starts the watch again. Second, even the most optimistic of three rates (over its lifetime, over the last <code>slow_window</code>, and the client's current one) leaves more than <code>max_eta</code> to go. So one slow reading never fails a torrent that has been fast, and a torrent that has just sped up is kept.</div>
+
+<pre><code>failed = process("torrent_failed", upstream=sess, stall_timeout="4h", max_eta="96h")</code></pre>
 
 <!-- ─────────── trailer ─────────── -->
 <h2 id="trailer">trailer</h2>
