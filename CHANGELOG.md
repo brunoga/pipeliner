@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.67.0] - 2026-10-19
+
+The janitor can now fail a download that is moving but will never finish.
+
+### Added
+
+- **`max_eta` on `torrent_failed`** ([#635](https://github.com/brunoga/pipeliner/pull/635)). A swarm serving a few KB/s keeps the last-activity time fresh, so `stall_timeout` never fails it while the download would take months. Each run now samples every downloading torrent's all-time downloaded counter in a new `torrent_failed_rates` bucket. A torrent is failed only once it has been watched downloading for a whole `slow_window` (default `24h`) and even the best of its lifetime, last-window and current rates leaves more than `max_eta` to go. One slow reading never fails a torrent that has been fast, and a speed-up keeps it. A pause, a re-add or leaving the session restarts the watch. Off unless set.
+
+**Why 1.67.0**: a new option; nothing changes until it is set.
+
 ## [1.66.3] - 2026-10-18
 
 ### Fixed
