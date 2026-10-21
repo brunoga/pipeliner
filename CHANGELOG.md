@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.67.1] - 2026-10-21
+
+### Fixed
+
+- **A 2D upscale ranks by what it was scaled from** ([#638](https://github.com/brunoga/pipeliner/pull/638)). "Bruce Almighty 2003-2160p UPSCALE UHD Blu-ray DTS 5 1 AV1" parsed as a native 2160p Blu-ray and outranked every real 1080p release, DTS-HD MA ones included, for a film only ever released in HD. A 2D name saying `UPSCALE`, `Upscaled`, `AI-Upscaled` or `Upscaling` is now read one resolution step down and marked `Upscaled`, which ranks straight after resolution, so a native release of that resolution wins. A `2160p` spec no longer matches an upscale. 3D names are unchanged: there the same words mean a conversion.
+
+**Why 1.67.1**: a ranking fix.
+
 ## [1.67.0] - 2026-10-19
 
 The janitor can now fail a download that is moving but will never finish.
