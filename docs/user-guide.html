@@ -881,6 +881,7 @@ ok    = process("condition", upstream=told, reject='probe_ok == false')</code></
 <ol>
   <li><strong>3D format</strong> — only when both releases are 3D (native beats converted)</li>
   <li><strong>Resolution</strong> — 2160p &gt; 1080p &gt; 720p &gt; …</li>
+  <li><strong>Native over upscaled</strong> — at the same resolution, a release that was not scaled up beats one that was</li>
   <li><strong>Source</strong> — Remux &gt; BluRay &gt; WEB-DL &gt; WEBRip &gt; HDTV &gt; …</li>
   <li><strong>Codec</strong> — AV1 &gt; H.265 &gt; H.264 &gt; …</li>
   <li><strong>Colour range</strong> — Dolby Vision &gt; HDR10 &gt; HDR &gt; SDR</li>
@@ -889,6 +890,8 @@ ok    = process("condition", upstream=told, reject='probe_ok == false')</code></
 </ol>
 
 <p><strong>The container is last</strong>, and it is the only rung that is not about picture or sound. A disc is the best material there is — a complete rip is promoted to the <code>Remux</code> source rung for exactly that reason — so this never says a disc is worse, only that between two releases that are otherwise identical the one you can play is the better keep. A 4K disc image still beats a 1080p encode; it loses only an exact tie, which would otherwise be decided by whatever order the indexer returned. A request for <em>Supergirl (2026)</em> landed a 90&nbsp;GB <code>Complete 4K UHD Blu Ray ISO File</code> that way, over a 2160p remux with the same seed count. A re-encode is a file however much its name borrows from a disc, and an SBS/OU layout exists only as a re-encode, so neither counts as one. Note that this reads the release <em>name</em>; the <a href="#content"><code>content</code></a> filter is the other half, rejecting on the file list.</p>
+
+<div class="note"><strong>An upscale ranks by what it was scaled from.</strong> A 2D name saying <code>UPSCALE</code>, <code>Upscaled</code>, <code>AI-Upscaled</code> or <code>Upscaling</code> is read one resolution step down, since the name never states the source and 2160p from 1080p is the usual case, and it is shown as <code>1080p Upscaled</code>. At that resolution a native release wins before source, codec or audio are compared. <code>Bruce Almighty 2003 2160p UPSCALE UHD Blu-ray DTS 5 1 AV1</code> had been outranking every real 1080p Blu-ray, DTS-HD MA ones included, though the film was only ever released in HD. A <code>2160p</code> spec no longer matches an upscale either. In a 3D name the same words mean a 2D-to-3D conversion and are ranked as <code>3D-Conv</code> instead.</div>
 
 <p>So a 1080p Atmos release never displaces a 2160p one — the comparison stops at resolution and the audio dimension is never reached. Colour range outranks audio because HDR/Dolby Vision changes every frame of the picture, while an audio track is one of several a release may carry. Equal quality is never "better", which is what prevents re-downloading the same tier.</p>
 
@@ -2216,7 +2219,7 @@ by_air = process("age", upstream=enriched,
 <p>Selection order (highest wins):</p>
 <ol>
   <li>Seed tier — entries with 2 or more seeders beat entries with 1. Ahead of quality on purpose: a release with one seeder is a download that may never finish, and the best copy you cannot get is not the best copy.</li>
-  <li>Quality — the whole ladder, <code>Resolution &gt; Source &gt; Codec &gt; ColorRange &gt; Audio</code> (3D format first when both are 3D), via the same comparator the <a href="#library"><code>library</code></a> filter and the upgrade check use. This read the resolution and nothing else until 1.59.0, which made every other rung invisible here: a BluRay tied a remux, a WEB-DL tied a BluRay, a plain copy tied an Atmos one — and a tie falls through to seeds and then to whatever order the indexer returned. A request for <em>Supergirl (2026)</em> returned both a <code>Complete 4K UHD Blu Ray ISO File</code> and a <code>2160p UHD BluRay REMUX DV HDR TrueHD Atmos</code>, both 2160p with 6 seeds, and the 90 GB disc image won because it was listed first.</li>
+  <li>Quality — the whole ladder, <code>Resolution &gt; Upscaled &gt; Source &gt; Codec &gt; ColorRange &gt; Audio</code> (3D format first when both are 3D), via the same comparator the <a href="#library"><code>library</code></a> filter and the upgrade check use. This read the resolution and nothing else until 1.59.0, which made every other rung invisible here: a BluRay tied a remux, a WEB-DL tied a BluRay, a plain copy tied an Atmos one — and a tie falls through to seeds and then to whatever order the indexer returned. A request for <em>Supergirl (2026)</em> returned both a <code>Complete 4K UHD Blu Ray ISO File</code> and a <code>2160p UHD BluRay REMUX DV HDR TrueHD Atmos</code>, both 2160p with 6 seeds, and the 90 GB disc image won because it was listed first.</li>
   <li>Seed count — more seeds wins when tier and quality tie</li>
 </ol>
 <pre><code>src    = input("rss", url="https://feed.example.com/rss")

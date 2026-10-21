@@ -2404,3 +2404,49 @@ func TestMVHEVCRanksBetweenFullAndTheDisc(t *testing.T) {
 		t.Errorf("layout = %q, want mv-hevc", got)
 	}
 }
+
+// An upscale ranks by what it was scaled from: one step down, and below a
+// native release of that resolution.
+func TestParseUpscaleIsDemoted(t *testing.T) {
+	cases := []struct {
+		title string
+		res   Resolution
+	}{
+		{"Bruce Almighty 2003-2160p UPSCALE UHD Blu-ray DTS 5 1 AV1-RandH", Resolutionp1080},
+		{"Movie.2019.2160p.WEB-DL.AI-Upscaled.HDR", Resolutionp1080},
+		{"Movie 2001 2160p Upscaled BluRay x265", Resolutionp1080},
+		{"Old Show 1998 1080p UPSCALING DVD x264", Resolutionp720},
+		{"Movie.2010.4K.UpScale.x265", Resolutionp1080},
+	}
+	for _, c := range cases {
+		q := Parse(c.title)
+		if !q.Upscaled || q.Resolution != c.res {
+			t.Errorf("Parse(%q) = %v (upscaled=%v), want %v upscaled", c.title, q, q.Upscaled, resolutionNames[c.res])
+		}
+	}
+	// A 3D name's upscale words mean a 2D-to-3D conversion, not this.
+	if q := Parse("Movie 2020 3D AI Upscaled FSBS 1080p"); q.Upscaled || q.Format3D != Format3DConv {
+		t.Errorf("3D upscale = %v (upscaled=%v), want 3D-Conv and not demoted", q, q.Upscaled)
+	}
+	if q := Parse("Movie 2020 2160p BluRay x265"); q.Upscaled || q.Resolution != Resolutionp2160 {
+		t.Errorf("native 2160p = %v (upscaled=%v)", q, q.Upscaled)
+	}
+}
+
+// The Bruce Almighty case: the native 1080p Blu-ray beats the 2160p upscale,
+// whatever codec the upscale was re-encoded with.
+func TestNativeBeatsUpscaleOfTheSameDetail(t *testing.T) {
+	up := Parse("Bruce Almighty 2003-2160p UPSCALE UHD Blu-ray DTS 5 1 AV1-RandH")
+	native := Parse("Bruce Almighty 2003 1080p BluRay DTS-HD MA 5.1 x264")
+	if !native.Better(up) || up.Better(native) {
+		t.Errorf("native %v should beat upscale %v", native, up)
+	}
+	// A real 2160p still beats both.
+	uhd := Parse("Bruce Almighty 2003 2160p UHD BluRay x265")
+	if !uhd.Better(up) || !uhd.Better(native) {
+		t.Errorf("native 2160p %v should beat %v and %v", uhd, up, native)
+	}
+	if got := up.String(); !strings.Contains(got, "1080p Upscaled") {
+		t.Errorf("String() = %q, want it to say the release is a 1080p upscale", got)
+	}
+}

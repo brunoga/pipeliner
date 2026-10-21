@@ -320,6 +320,11 @@ type Quality struct {
 	// list, where there is one, is the other half of this: see the content
 	// filter, which rejects by file pattern.
 	DiscImage bool
+	// Upscaled marks a 2D release whose name says it was scaled up from a
+	// smaller source ("2160p UPSCALE", "AI Upscaled"). Its Resolution has
+	// already been taken down a step to the detail it actually carries; this
+	// keeps it below a native release of that resolution.
+	Upscaled bool
 }
 
 // ResolutionName returns the human-readable resolution name (e.g. "1080p"), or "" if unknown.
@@ -352,6 +357,7 @@ func (q Quality) String() string {
 	for _, s := range []string{
 		format3DNames[q.Format3D],
 		resolutionNames[q.Resolution],
+		upscaledName(q.Upscaled),
 		sourceNames[q.Source],
 		codecNames[q.Codec],
 		audioNames[q.Audio],
@@ -366,6 +372,15 @@ func (q Quality) String() string {
 		return "unknown"
 	}
 	return strings.Join(parts, " ")
+}
+
+// upscaledName labels a demoted upscale, so "1080p Upscaled" says why a
+// release named 2160p ranks as 1080p.
+func upscaledName(up bool) string {
+	if up {
+		return "Upscaled"
+	}
+	return ""
 }
 
 // discImageName labels a whole-disc release so a log line or the CLI says why
@@ -386,7 +401,14 @@ func discImageName(disc bool) string {
 // When both qualities are 3D (Format3D != Format3DNone), Format3D is the
 // primary discriminator and the remaining dimensions act as tie-breakers.
 // When either quality is non-3D the Format3D dimension is skipped and the
-// order is: Resolution > Source > Codec > ColorRange > Audio > DiscImage.
+// order is: Resolution > Upscaled > Source > Codec > ColorRange > Audio >
+// DiscImage.
+//
+// Upscaled comes straight after Resolution. An upscale is ranked at the
+// resolution it was scaled from, and at that resolution the native release
+// wins whatever else either carries: "Bruce Almighty 2003 2160p UPSCALE UHD
+// Blu-ray DTS 5 1 AV1" is a 1080p picture re-encoded four times larger, and
+// the 1080p Blu-ray with DTS-HD MA is the better copy of the same film.
 //
 // DiscImage is last and is the only dimension that is not about picture or
 // sound: between two releases that are otherwise identical, the one a player
@@ -407,6 +429,9 @@ func (q Quality) Better(other Quality) bool {
 	if q.Resolution != other.Resolution {
 		return q.Resolution > other.Resolution
 	}
+	if q.Upscaled != other.Upscaled {
+		return !q.Upscaled
+	}
 	if q.Source.rank() != other.Source.rank() {
 		return q.Source.rank() > other.Source.rank()
 	}
@@ -426,6 +451,11 @@ func (q Quality) Better(other Quality) bool {
 
 var (
 	reResolution = regexp.MustCompile(`(?i)\b(4k|2160p|1080p|720p|576p|480p)\b`)
+	// reUpscale matches a name that says the picture was scaled up: UPSCALE,
+	// UPSCALED, UPSCALING, "AI Upscaled". In a 3D name the same words mean a
+	// 2D-to-3D conversion and are handled there (re3DConvWeak); this is for
+	// 2D releases.
+	reUpscale = regexp.MustCompile(`(?i)\bUP[\s\-]?SCAL(?:E[DS]?|ING)\b`)
 	// Bare "WEB" (no -DL / -Rip suffix) is scene shorthand for WEB-DL; it
 	// must be listed AFTER "web[\-\s]?dl" and "webrip" so the longer
 	// alternatives win on titles that include the explicit suffix.
@@ -829,6 +859,19 @@ func Parse(title string) Quality {
 	// at least 1080p — sub-HD 3D releases are effectively non-existent.
 	if q.Format3D != Format3DNone && q.Resolution == ResolutionUnknown {
 		q.Resolution = Resolutionp1080
+	}
+
+	// An upscale's resolution is a frame size, not detail. The name never
+	// says what it was scaled from, so it is taken down one step -- 2160p to
+	// 1080p, the usual case, a film that was only ever released in HD -- and
+	// marked, so a native release of that resolution still beats it. This is
+	// the 2D counterpart of the 3D-Conv rule: a picture made bigger after
+	// the fact ranks by what it was made from.
+	if q.Format3D == Format3DNone && reUpscale.MatchString(title) {
+		q.Upscaled = true
+		if q.Resolution > Resolutionp480 {
+			q.Resolution--
+		}
 	}
 
 	return q
