@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	"github.com/brunoga/pipeliner/internal/entry"
+	"github.com/brunoga/pipeliner/internal/match"
 	"github.com/brunoga/pipeliner/internal/movies"
 	"github.com/brunoga/pipeliner/internal/plugin"
 	"github.com/brunoga/pipeliner/internal/series"
@@ -389,7 +390,13 @@ func matchesQuery(query, releaseName string) bool {
 	if mv, ok := movies.Parse(releaseName); ok && mv.Title != "" {
 		rTitle, rYear = mv.Title, mv.Year
 	}
-	if movies.NormalizeTitle(qTitle) != movies.NormalizeTitle(rTitle) {
+	// Punctuation is not part of a title's identity. movies.NormalizeTitle
+	// keeps it, so "Star Wars: Episode VII The Force Awakens" missed every
+	// release spelled without the colon, and the query could only ever
+	// reach one spelling. match.Normalize is the rule the title lists
+	// already use: punctuation becomes a space, apostrophes vanish, case
+	// is ignored.
+	if match.Normalize(movies.NormalizeTitle(qTitle)) != match.Normalize(movies.NormalizeTitle(rTitle)) {
 		return false
 	}
 	if qYear != 0 && rYear != 0 {
