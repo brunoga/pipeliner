@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.67.3] - 2026-10-22
+
+### Fixed
+
+- **`discover` ignores punctuation when matching a movie query** ([#642](https://github.com/brunoga/pipeliner/pull/642)). `match_titles` kept punctuation, so "Star Wars: Episode VII The Force Awakens" missed every release spelled without the colon and an on-demand request reached only one spelling. Titles now compare the way the title lists do: punctuation and case are ignored, words are not.
+
+**Why 1.67.3**: a matching fix.
+
 ## [1.67.2] - 2026-10-22
 
 ### Fixed
