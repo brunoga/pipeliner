@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.67.2] - 2026-10-22
+
+### Fixed
+
+- **AI-enhanced and RIFE-interpolated 2D releases count as upscales** ([#640](https://github.com/brunoga/pipeliner/pull/640)). "Star Wars Episode I … 2160p Ai Enhanced BluRay 60FPS" and "… Attack of the Clones … A.I.RIFE 2160p 60fps BluRay REMUX DV" parsed as a native 2160p BluRay and a Dolby Vision remux and outranked every real copy. They now get 1.67.1's rule: one resolution step down, below a native release of that resolution. A bare `60fps` is left alone.
+
+**Why 1.67.2**: a ranking fix.
+
 ## [1.67.1] - 2026-10-21
 
 ### Fixed
