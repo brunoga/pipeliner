@@ -584,6 +584,13 @@ func TestMatchesQuery(t *testing.T) {
 		{"Heat 1995", "Heat.1995.2160p.UHD.BluRay.x265", true},
 		{"Heat 1995", "Heat.2013.1080p.BluRay.x264", false}, // different film, same title
 		{"Heat 1995", "Heat.1996.1080p.BluRay.x264", true},  // ±1 year drift tolerated
+		// Punctuation is not identity: one query reaches every spelling.
+		{"Star Wars Episode VII The Force Awakens 2015", "Star Wars: Episode VII   The Force Awakens 3D 2015 1080p Bluray AVC DTS HD MA 7 1", true},
+		{"Star Wars: Episode VII - The Force Awakens 2015", "Star Wars Episode VII The Force Awakens 2015 BD25 1080p 3D Blu ray Re Encoded MVC", true},
+		{"Rogue One A Star Wars Story 2016", "Rogue One; A Star Wars Story 3D 2016 1080p H OU BluRay x264 DTS 5 1 vice", true},
+		{"Marvel's The Avengers 2012", "Marvels The Avengers 2012 1080p BluRay", true},
+		// ...but words still are: a shorter title is a different query.
+		{"Rogue One A Star Wars Story 2016", "Rogue One 2016 1080p 3D MVC Dolby Atmos 7 1 zman", false},
 	}
 	for _, c := range cases {
 		if got := matchesQuery(c.query, c.release); got != c.want {
