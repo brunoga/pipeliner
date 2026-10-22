@@ -2417,6 +2417,9 @@ func TestParseUpscaleIsDemoted(t *testing.T) {
 		{"Movie 2001 2160p Upscaled BluRay x265", Resolutionp1080},
 		{"Old Show 1998 1080p UPSCALING DVD x264", Resolutionp720},
 		{"Movie.2010.4K.UpScale.x265", Resolutionp1080},
+		{"Star.Wars.Episode.I.The.Phantom.Menace.1999.2160p.Ai Enhanced BluRay.60FPS H265.10bit.SDR.TrueHD.7.1.Atmos-Marjenbo", Resolutionp1080},
+		{"Star.Wars.Episode.II.Attack.of.the.Clones.2002.Hybrid.A.I.RIFE.4.18v2.2160p.60fps.BluRay.REMUX.DV.P8.1.HDR10.HEVC", Resolutionp1080},
+		{"Movie 2015 1080p AI-Enhanced WEB-DL", Resolutionp720},
 	}
 	for _, c := range cases {
 		q := Parse(c.title)
@@ -2427,6 +2430,14 @@ func TestParseUpscaleIsDemoted(t *testing.T) {
 	// A 3D name's upscale words mean a 2D-to-3D conversion, not this.
 	if q := Parse("Movie 2020 3D AI Upscaled FSBS 1080p"); q.Upscaled || q.Format3D != Format3DConv {
 		t.Errorf("3D upscale = %v (upscaled=%v), want 3D-Conv and not demoted", q, q.Upscaled)
+	}
+	// A native release with nothing of the sort stays as it is, and so does
+	// a 60 fps one: high-frame-rate masters exist (Gemini Man), and the
+	// number alone does not say the frames were invented.
+	for _, title := range []string{"Movie 2020 2160p BluRay x265", "Gemini Man 2019 2160p 60fps UHD BluRay HEVC"} {
+		if q := Parse(title); q.Upscaled || q.Resolution != Resolutionp2160 {
+			t.Errorf("native %q = %v (upscaled=%v)", title, q, q.Upscaled)
+		}
 	}
 	if q := Parse("Movie 2020 2160p BluRay x265"); q.Upscaled || q.Resolution != Resolutionp2160 {
 		t.Errorf("native 2160p = %v (upscaled=%v)", q, q.Upscaled)

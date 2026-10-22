@@ -451,11 +451,18 @@ func (q Quality) Better(other Quality) bool {
 
 var (
 	reResolution = regexp.MustCompile(`(?i)\b(4k|2160p|1080p|720p|576p|480p)\b`)
-	// reUpscale matches a name that says the picture was scaled up: UPSCALE,
-	// UPSCALED, UPSCALING, "AI Upscaled". In a 3D name the same words mean a
-	// 2D-to-3D conversion and are handled there (re3DConvWeak); this is for
-	// 2D releases.
-	reUpscale = regexp.MustCompile(`(?i)\bUP[\s\-]?SCAL(?:E[DS]?|ING)\b`)
+	// reUpscale matches a name that says the picture was made after the
+	// fact: scaled up (UPSCALE, UPSCALED, UPSCALING, "AI Upscaled"),
+	// AI-enhanced, or AI frame-interpolated (RIFE). In a 3D name the same
+	// words mean a 2D-to-3D conversion and are handled there (re3DConvWeak);
+	// this is for 2D releases.
+	//
+	// The AI forms are listed because they carry the same claim with the
+	// same emptiness. "Star.Wars.Episode.I.The.Phantom.Menace.1999.2160p.Ai
+	// Enhanced BluRay.60FPS" and "...Attack.of.the.Clones.2002.Hybrid.A.I.RIFE
+	// .2160p.60fps.BluRay.REMUX.DV" parsed as a native 2160p BluRay and a 2160p
+	// Dolby Vision remux, and outranked every real copy of either film.
+	reUpscale = regexp.MustCompile(`(?i)\bUP[\s\-]?SCAL(?:E[DS]?|ING)\b|\bA\.?I\.?[\s.\-_]*ENHANCED\b|\bRIFE\b`)
 	// Bare "WEB" (no -DL / -Rip suffix) is scene shorthand for WEB-DL; it
 	// must be listed AFTER "web[\-\s]?dl" and "webrip" so the longer
 	// alternatives win on titles that include the explicit suffix.
