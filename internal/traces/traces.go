@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/brunoga/pipeliner/internal/executor"
+	"github.com/brunoga/pipeliner/internal/redact"
 	"github.com/brunoga/pipeliner/internal/store"
 )
 
@@ -43,11 +44,34 @@ type Store struct{ bucket store.Bucket }
 
 func NewStore(b store.Bucket) *Store { return &Store{bucket: b} }
 
+// redactEntries returns a copy of entries with credentials in URLs masked.
+// An indexer download URL carries its API key, and a stored trace is only
+// ever displayed, never matched against a live entry, so nothing needs the
+// secret. The caller's slice is left alone: the run finalizer still matches
+// traces to entries by their real URL.
+func redactEntries(entries []executor.EntryTrace) []executor.EntryTrace {
+	out := make([]executor.EntryTrace, len(entries))
+	for i, e := range entries {
+		e.URL = redact.String(e.URL)
+		e.Reason = redact.String(e.Reason)
+		steps := make([]executor.TraceStep, len(e.Steps))
+		for j, st := range e.Steps {
+			st.Reason = redact.String(st.Reason)
+			steps[j] = st
+		}
+		e.Steps = steps
+		out[i] = e
+	}
+	return out
+}
+
 func runKey(task, runID string) string { return task + "|" + runID }
 func indexKey(task string) string      { return task + "|_index" }
 
-// Put stores one run's trace and evicts beyond the per-task cap.
+// Put stores one run's trace and evicts beyond the per-task cap. Entry URLs
+// and reasons are stored with their credentials masked (see redactEntries).
 func (s *Store) Put(rt RunTrace) error {
+	rt.Entries = redactEntries(rt.Entries)
 	if err := s.bucket.Put(runKey(rt.Task, rt.RunID), rt); err != nil {
 		return err
 	}

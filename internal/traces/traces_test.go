@@ -2,6 +2,7 @@ package traces
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -139,5 +140,30 @@ func TestSearchBlankQuery(t *testing.T) {
 	occ, err := s.Search("   ", 0)
 	if err != nil || occ != nil {
 		t.Errorf("blank query should match nothing, got %v err=%v", occ, err)
+	}
+}
+
+func TestPutMasksCredentials(t *testing.T) {
+	s := newStore(t)
+	const u = "https://jackett.example/dl/x/?jackett_apikey=s3cr3t&file=a"
+	in := RunTrace{RunID: "r1", Task: "movies", At: time.Now(), Entries: []executor.EntryTrace{{
+		Title: "x", URL: u, Final: "failed", Reason: `Get "` + u + `": 404`,
+		Steps: []executor.TraceStep{{Node: "metainfo_torrent_1", State: "failed", Reason: `Get "` + u + `": 404`}},
+	}}}
+	if err := s.Put(in); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Get("movies", "r1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := got.Entries[0]
+	for _, v := range []string{e.URL, e.Reason, e.Steps[0].Reason} {
+		if strings.Contains(v, "s3cr3t") || !strings.Contains(v, "jackett_apikey=REDACTED") {
+			t.Errorf("not masked: %q", v)
+		}
+	}
+	if in.Entries[0].URL != u || in.Entries[0].Steps[0].Reason != `Get "`+u+`": 404` {
+		t.Errorf("caller's trace was modified: %+v", in.Entries[0])
 	}
 }
