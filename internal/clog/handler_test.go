@@ -362,3 +362,24 @@ func TestMultiOnlyHandlesEnabledHandlers(t *testing.T) {
 		t.Error("INFO message should reach the INFO-level handler")
 	}
 }
+
+func TestHandlerRedactsURLCredentials(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(New(&buf, nil)).With("url", "https://jackett.example/dl/x/?jackett_apikey=s3cr3t&file=a")
+	logger.Warn(`fetch failed: Get "https://jackett.example/api?apikey=s3cr3t&t=search": 404`,
+		"err", errString(`Get "http://u:s3cr3t@deluge.lan/json"`))
+
+	out := buf.String()
+	if strings.Contains(out, "s3cr3t") {
+		t.Fatalf("secret leaked into log line: %q", out)
+	}
+	for _, want := range []string{"jackett_apikey=REDACTED", "apikey=REDACTED&t=search", "u:REDACTED@deluge.lan"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in %q", want, out)
+		}
+	}
+}
+
+type errString string
+
+func (e errString) Error() string { return string(e) }

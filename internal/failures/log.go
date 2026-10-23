@@ -18,6 +18,7 @@ import (
 
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/executor"
+	"github.com/brunoga/pipeliner/internal/redact"
 )
 
 // BucketName is the store bucket holding the failure audit log.
@@ -64,8 +65,11 @@ func New(b bucket) *Log { return &Log{bucket: b} }
 
 // Append records one failure. The store key is time-ordered (zero-padded
 // nanoseconds) so repeated failures of the same URL are all retained and the
-// keys sort chronologically.
+// keys sort chronologically. Credentials in the URL and the reason are masked
+// first: the log is kept indefinitely and shown in the web UI.
 func (l *Log) Append(r Record) error {
+	r.URL = redact.String(r.URL)
+	r.Reason = redact.String(r.Reason)
 	if r.FailedAt.IsZero() {
 		r.FailedAt = time.Now()
 	}
