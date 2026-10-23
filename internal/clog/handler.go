@@ -14,6 +14,8 @@ import (
 	"unicode"
 
 	"github.com/mattn/go-isatty"
+
+	"github.com/brunoga/pipeliner/internal/redact"
 )
 
 const (
@@ -111,9 +113,13 @@ func (h *Handler) Handle(_ context.Context, r slog.Record) error {
 
 	buf.WriteByte('\n')
 
+	// Mask credentials last, over the whole line, so a secret is caught
+	// whether it arrived in the message, an attribute or a quoted error.
+	line := redact.Bytes(buf.Bytes())
+
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	_, err := h.w.Write(buf.Bytes())
+	_, err := h.w.Write(line)
 	return err
 }
 

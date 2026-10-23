@@ -1,6 +1,7 @@
 package failures
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -177,5 +178,34 @@ func TestRecordsCarrySettleProvenance(t *testing.T) {
 	}
 	if !byTitle["Rebuilt.Release"].Settled || !byTitle["Rebuilt.Release"].Revived {
 		t.Errorf("revived failure must carry both marks: %+v", byTitle["Rebuilt.Release"])
+	}
+}
+
+func TestAppendMasksCredentials(t *testing.T) {
+	l := newLog(t)
+	l.Append(Record{
+		Title:    "Star Wars",
+		URL:      "https://jackett.example/dl/x/?jackett_apikey=s3cr3t&file=a",
+		Reason:   `metainfo_torrent: Get "https://jackett.example/dl/x/?jackett_apikey=s3cr3t&file=a": 404`,
+		FailedAt: time.Date(2026, 10, 22, 0, 0, 0, 0, time.UTC),
+	})
+	got, err := l.Query("", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1 record, got %d", len(got))
+	}
+	if strings.Contains(got[0].URL, "s3cr3t") || strings.Contains(got[0].Reason, "s3cr3t") {
+		t.Errorf("secret kept: %+v", got[0])
+	}
+	if !strings.Contains(got[0].URL, "jackett_apikey=REDACTED") {
+		t.Errorf("URL = %q", got[0].URL)
+	}
+	raw, _ := l.bucket.All()
+	for k := range raw {
+		if strings.Contains(k, "s3cr3t") {
+			t.Errorf("secret in store key %q", k)
+		}
 	}
 }
