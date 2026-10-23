@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.68.0] - 2026-10-22
+
+### Added
+
+- **Credentials in URLs are masked in the logs** ([#644](https://github.com/brunoga/pipeliner/pull/644)). Indexer and tracker URLs carry their secret in the URL, and HTTP errors quote the whole URL, so a failed Jackett download wrote the Jackett API key into `pipeliner.log` and the Live Log. Query parameters such as `apikey`, `jackett_apikey`, `passkey`, `authkey` and `torrent_pass`, passkeys in announce paths, and `user:password@` pairs are now replaced with `REDACTED`; the host and path are kept. The failure log masks the same values before storing a record. Lines written earlier are not rewritten.
+
+**Why 1.68.0**: a new safeguard in the logging path; nothing to configure.
+
 ## [1.67.3] - 2026-10-22
 
 ### Fixed
