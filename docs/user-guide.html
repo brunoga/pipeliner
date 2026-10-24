@@ -148,6 +148,7 @@ td code{font-size:11px}
     <a href="#metainfo_tmdb" class="sub">metainfo_tmdb</a>
     <a href="#metainfo_trakt" class="sub">metainfo_trakt</a>
     <a href="#metainfo_bluray" class="sub">metainfo_bluray</a>
+    <a href="#metainfo_3d" class="sub">metainfo_3d</a>
     <a href="#metainfo_torrent" class="sub">metainfo_torrent</a>
     <a href="#metainfo_magnet" class="sub">metainfo_magnet</a>
     <a href="#probe" class="sub">probe</a>
@@ -733,6 +734,8 @@ ok    = process("condition", upstream=told, reject='probe_ok == false')</code></
   <tr><td><code>trakt_imdb_id</code></td><td>trakt_list</td><td>IMDb ID from Trakt</td></tr>
   <tr><td><code>trakt_tmdb_id</code></td><td>metainfo_trakt, trakt_list</td><td>TMDb ID from Trakt — when present, metainfo_tmdb fetches by ID directly instead of searching</td></tr>
   <tr><td><code>trakt_tvdb_id</code></td><td>metainfo_trakt</td><td>TVDB ID from Trakt</td></tr>
+  <tr><td><code>movie_3d_official</code></td><td>metainfo_3d</td><td>The studio released the film in 3D (shot in 3D, or converted for release). <code>false</code> means a 3D copy is a fan conversion; unset when the 3D film list could not be read</td></tr>
+  <tr><td><code>movie_3d_native</code></td><td>metainfo_3d</td><td>The film was shot in 3D rather than converted (only on films with a studio 3D release)</td></tr>
   <tr><td><code>bluray_id</code></td><td>metainfo_bluray, bluray_releases</td><td>Blu-ray.com release ID</td></tr>
   <tr><td><code>bluray_url</code></td><td>metainfo_bluray, bluray_releases</td><td>Canonical Blu-ray.com release URL</td></tr>
   <tr><td><code>bluray_format</code></td><td>metainfo_bluray, bluray_releases</td><td>One of <code>BD</code>, <code>UHD</code>, <code>BD3D</code>, <code>DVD</code></td></tr>
@@ -1579,6 +1582,28 @@ real   = process("condition", upstream=bluray,
                  reject="video_is_3d == true and bluray_3d_release != true")
 output("transmission", upstream=real, host="localhost")
 pipeline("real-3d-only", schedule="1h")</code></pre>
+
+<!-- ─────────── metainfo_3d ─────────── -->
+<h2 id="metainfo_3d">metainfo_3d</h2>
+<p>Marks whether a movie was released in 3D <strong>by its studio</strong>, shot in 3D or converted to 3D for release, and sets <code>movie_3d_official</code>. A 3D copy of a film without a studio 3D version was made by a fan from the 2D film, however the release is labelled. Fan-made Blu-ray 3D images exist ("Fight Club (1999) BD50 MVC"), and the <a href="#probe">probe</a> reads them as genuine MVC because they are, so neither the name nor the container can tell. This answers it from the film's history instead.</p>
+<p>The answer comes from Wikipedia's <em>List of 3D films (1914–2004)</em> and <em>List of 3D films (2005–present)</em>: every film shown in 3D in cinemas, including studio re-releases such as <em>Titanic</em> (2012) and <em>The Phantom Menace</em> (2012), and conversions that never reached a 3D disc such as <em>Mulan</em> (2020). Measured against 138 earlier 3D downloads, 77 matched; the rest are films such as <em>Oppenheimer</em>, <em>Batman Begins</em> and <em>Spirited Away</em>, which neither these lists nor 3dmovielist.com record as ever shown or sold in 3D. The narrower question of whether a film got a 3D <em>Blu-ray</em> has no reliable public source: blu-ray.com refuses automated requests, and 3dmovielist.com's Blu-ray 3D list stops in 2022. Studio 3D versions made only for streaming, never shown in cinemas, are not on the lists and read as <code>false</code>.</p>
+
+<table>
+  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>refresh</code></td><td>no</td><td><code>168h</code></td><td>How long the downloaded list is used before it is fetched again</td></tr>
+</table>
+
+<h4>Matching</h4>
+<p>A film matches when one of its titles names a listed film released within a year of the entry's <code>video_year</code>. The titles tried are TMDb's title, original title and alternative titles (when <a href="#metainfo_tmdb"><code>metainfo_tmdb</code></a> ran upstream), the movies tracker's match, and the title parsed from the release name, also with an "Episode N" removed. A listed film carries its 3D release year, its original year for a re-release, and the year in its article name, so <em>Titanic</em> matches at 1997 and 2012 while <em>Mulan</em> matches at 2020 but not 1998. Punctuation and case are ignored, a colon's halves match on their own ("Rogue One"), and a Roman numeral reads as a number ("Frozen II" for "Frozen 2").</p>
+
+<h4>Fields set</h4>
+<p><code>movie_3d_official</code> on every entry, <code>true</code> or <code>false</code>, and <code>movie_3d_native</code> on matched films. The list is stored and refetched once per <code>refresh</code>; when a refetch fails the last list is used. When no list has ever been read, nothing is set, so <code>reject="movie_3d_official != true"</code> refuses everything rather than letting conversions through.</p>
+
+<pre><code><span class="y-comment"># Keep only films their studio released in 3D.</span>
+studio = process("metainfo_3d", upstream=meta)
+real   = process("condition", upstream=studio,
+                 reject="movie_3d_official != true",
+                 reason="no studio 3D version: a fan conversion")</code></pre>
 
 <!-- ─────────── series_lifecycle ─────────── -->
 <!-- ─────────── probe ─────────── -->

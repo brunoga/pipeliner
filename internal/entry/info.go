@@ -23,6 +23,12 @@ const (
 	FieldMovieDigitalRelease  = "movie_digital_release"  // first digital (PVOD/streaming) release date
 	FieldMoviePhysicalRelease = "movie_physical_release" // first physical (disc) release date
 
+	// Whether the film was released in 3D by its studio, from the 3D film
+	// lists metainfo_3d reads. A 3D copy of a film without one is a fan
+	// conversion of the 2D film, however the release is labelled.
+	FieldMovie3DOfficial = "movie_3d_official" // the studio released the film in 3D (shot in 3D or converted for release)
+	FieldMovie3DNative   = "movie_3d_native"   // the film was shot in 3D rather than converted
+
 	FieldVideoBitrateMbps     = "video_bitrate_mbps"     // implied VIDEO bitrate (container minus an audio estimate), set by the bitrate filter
 	FieldContainerBitrateMbps = "container_bitrate_mbps" // implied bitrate of the whole file (size / runtime), set by the bitrate filter
 
