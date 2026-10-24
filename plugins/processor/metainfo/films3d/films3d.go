@@ -176,9 +176,9 @@ func titles(e *entry.Entry) []string {
 	add(e.GetString(entry.FieldMoviesTrackerTitle))
 	if m, ok := imovies.Parse(e.Title); ok && m != nil {
 		add(m.Title)
-		// "Star Wars Episode VII The Force Awakens" is listed as "Star Wars:
-		// The Force Awakens"; without TMDb's title upstream, the name is all
-		// there is to match on.
+		// "Star Wars Episode VII The Force Awakens" and "Star Wars VII The
+		// Force Awakens" are listed as "Star Wars: The Force Awakens";
+		// without TMDb's title upstream, the name is all there is to match on.
 		if ep := reEpisode.FindStringSubmatch(m.Title); ep != nil {
 			add(ep[1] + " " + ep[2])
 		}
@@ -191,7 +191,7 @@ func titles(e *entry.Entry) []string {
 	return out
 }
 
-var reEpisode = regexp.MustCompile(`(?i)^(.+?)\s+episode\s+(?:[ivx]+|\d+)\s+(.+)$`)
+var reEpisode = regexp.MustCompile(`(?i)^(.+?)\s+(?:episode\s+(?:[ivx]+|\d+)|[ivx]+)\s+(.+)$`)
 
 func year(e *entry.Entry) int {
 	if y := e.GetInt(entry.FieldVideoYear); y > 0 {

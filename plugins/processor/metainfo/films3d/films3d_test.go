@@ -118,16 +118,17 @@ func TestMarksStudio3DAndFanConversions(t *testing.T) {
 	force.Set(entry.FieldVideoYear, 2015)
 	// No TMDb title: the episode number is dropped from the name instead.
 	forceName := entry.New("Star Wars Episode VII The Force Awakens 2015 1080p BluRay 3D MVC", "u5")
+	forceBare := entry.New("Star Wars VII The Force Awakens 2015 1080p 3D BluRay MVC", "u6")
 	// Same title as a listed film, different film.
 	mulan98 := entry.New("Mulan 1998 1080p 3D BluRay Half-SBS", "u4")
 	mulan98.Set(entry.FieldVideoYear, 1998)
 
-	run(t, p, beyond, fight, force, mulan98, forceName)
+	run(t, p, beyond, fight, force, mulan98, forceName, forceBare)
 
 	for _, c := range []struct {
 		e    *entry.Entry
 		want bool
-	}{{beyond, true}, {fight, false}, {force, true}, {mulan98, false}, {forceName, true}} {
+	}{{beyond, true}, {fight, false}, {force, true}, {mulan98, false}, {forceName, true}, {forceBare, true}} {
 		got, set := official(c.e)
 		if !set || got != c.want {
 			t.Errorf("%s: movie_3d_official = %v (set %v), want %v", c.e.Title, got, set, c.want)
