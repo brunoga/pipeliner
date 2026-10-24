@@ -28,7 +28,7 @@ The answer comes from Wikipedia's *List of 3D films (1914–2004)* and *List of 
 
 ## Matching
 
-A film matches when one of its titles names a listed film released within a year of `video_year`. Titles tried: TMDb's title, original title and alternative titles (if `metainfo_tmdb` ran upstream), the movies tracker's match, and the title parsed from the release name, also with any "Episode N" removed. A listed film's years are its 3D release, its original release for a re-release, and the year in its article name, so remakes stay apart (*Mulan* 2020 is listed, *Mulan* 1998 is not).
+A film matches when one of its titles names a listed film released within two years of `video_year` (release names often carry a festival premiere year). Titles tried: TMDb's title, original title and alternative titles (if `metainfo_tmdb` ran upstream), the movies tracker's match, and the title parsed from the release name, also with an "Episode VII" or bare "VII" removed. A leading "The" is ignored. A title that only starts with a listed one ("Warcraft The Beginning" for "Warcraft") matches at the same year only, so a sequel a year later is not vouched for by the first film. A listed film's years are its 3D release, its original release for a re-release, and the year in its article name, so remakes stay apart (*Mulan* 2020 is listed, *Mulan* 1998 is not).
 
 ## Failure handling
 

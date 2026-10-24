@@ -95,6 +95,11 @@ func TestParse(t *testing.T) {
 		{"row without a date takes the section year", []string{"Avatar Fire and Ash"}, 2025, true},
 		{"unitalicised link with a reference", []string{"Fast X"}, 2023, true},
 		{"year off by one tolerated", []string{"Rogue One A Star Wars Story"}, 2017, true},
+		{"year off by two tolerated", []string{"Rogue One A Star Wars Story"}, 2014, true},
+		{"year off by three refused", []string{"Rogue One A Star Wars Story"}, 2013, false},
+		{"leading article ignored", []string{"The Mulan"}, 2020, true},
+		{"longer title at the same year", []string{"Fast X Part One"}, 2023, true},
+		{"longer title a year later refused", []string{"Fast X Part One"}, 2024, false},
 		{"unlisted film", []string{"Fight Club"}, 1999, false},
 		{"any of several titles", []string{"Star Wars Episode VIII", "Rogue One"}, 2016, true},
 	}
@@ -145,6 +150,8 @@ func TestKey(t *testing.T) {
 		"Fast & Furious":             "fast and furious",
 		"Star Wars: The Last Jedi":   "star wars the last jedi",
 		"X":                          "x",
+		"The Darkest Hour":           "darkest hour",
+		"The":                        "the",
 		"Tim Burton's The Nightmare": "tim burtons the nightmare",
 	}
 	for in, want := range cases {
@@ -215,5 +222,13 @@ func TestMergeKeepsFilmsTheNewListDropped(t *testing.T) {
 	}
 	if n := len(Merge(prev, prev)); n != len(prev) {
 		t.Errorf("merging a list with itself gave %d films, want %d", n, len(prev))
+	}
+}
+
+func TestIndexRenormalisesStoredKeys(t *testing.T) {
+	// A list stored before "The" was dropped from keys.
+	old := []Film{{Title: "The Darkest Hour", Keys: []string{"the darkest hour"}, Years: []int{2011}}}
+	if _, ok := NewIndex(old).Lookup([]string{"Darkest Hour"}, 2011); !ok {
+		t.Error("a key stored by an older build no longer matches")
 	}
 }

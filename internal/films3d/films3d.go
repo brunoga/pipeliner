@@ -206,11 +206,15 @@ var romans = map[string]string{
 	"vii": "7", "viii": "8", "ix": "9", "x": "10",
 }
 
-// Key normalises a title for matching: match.Normalize, "&" as "and", and a
-// Roman numeral after the first word read as a number, so "Frozen II" and the
+// Key normalises a title for matching: match.Normalize, "&" as "and", no
+// leading "The" ("Darkest Hour" is listed as "The Darkest Hour"), and a Roman
+// numeral after the first word read as a number, so "Frozen II" and the
 // list's "Frozen 2" agree.
 func Key(title string) string {
 	words := strings.Fields(match.Normalize(strings.ReplaceAll(title, "&", " and ")))
+	if len(words) > 1 && words[0] == "the" {
+		words = words[1:]
+	}
 	for i := 1; i < len(words); i++ {
 		if n, ok := romans[words[i]]; ok {
 			words[i] = n
@@ -253,12 +257,14 @@ type Index struct {
 	byKey map[string][]*Film
 }
 
-// NewIndex indexes films by every key.
+// NewIndex indexes films by every key. Keys are normalised again here, so a
+// list stored by an older build matches the way this one looks titles up.
 func NewIndex(films []Film) *Index {
 	ix := &Index{byKey: map[string][]*Film{}}
 	for i := range films {
 		f := &films[i]
 		for _, k := range f.Keys {
+			k = Key(k)
 			ix.byKey[k] = append(ix.byKey[k], f)
 		}
 	}
@@ -268,19 +274,48 @@ func NewIndex(films []Film) *Index {
 // Len is the number of distinct keys indexed.
 func (ix *Index) Len() int { return len(ix.byKey) }
 
-// Lookup returns the listed film one of titles names, released within a year
-// of year. A zero year matches on title alone. The year check keeps remakes
-// apart: the list has "Mulan" in 2020, which must not vouch for the 1998 film.
+// yearSlack is how far a title's year may sit from a listed year. Release
+// names carry a festival premiere ("Battle for Terra 2007", released in 3D in
+// 2009) or a wide-release year a year off the list's.
+const yearSlack = 2
+
+// Lookup returns the listed film one of titles names, released within
+// yearSlack years of year. A zero year matches on title alone. The year check
+// keeps remakes apart: the list has "Mulan" in 2020, which must not vouch for
+// the 1998 film.
+//
+// A title that only starts with a listed one ("Warcraft The Beginning", the
+// international title of the listed "Warcraft") matches at the same year and
+// no other, so a sequel a year later ("Wicked For Good" after "Wicked") is not
+// vouched for by the first film.
 func (ix *Index) Lookup(titles []string, year int) (*Film, bool) {
 	for _, t := range titles {
-		for _, f := range ix.byKey[Key(t)] {
-			if year == 0 {
+		if f, ok := ix.lookupKey(Key(t), year, yearSlack); ok {
+			return f, true
+		}
+	}
+	if year == 0 {
+		return nil, false
+	}
+	for _, t := range titles {
+		words := strings.Fields(Key(t))
+		for n := len(words) - 1; n >= 1; n-- {
+			if f, ok := ix.lookupKey(strings.Join(words[:n], " "), year, 0); ok {
 				return f, true
 			}
-			for _, y := range f.Years {
-				if y-year <= 1 && year-y <= 1 {
-					return f, true
-				}
+		}
+	}
+	return nil, false
+}
+
+func (ix *Index) lookupKey(key string, year, slack int) (*Film, bool) {
+	for _, f := range ix.byKey[key] {
+		if year == 0 {
+			return f, true
+		}
+		for _, y := range f.Years {
+			if y-year <= slack && year-y <= slack {
+				return f, true
 			}
 		}
 	}
