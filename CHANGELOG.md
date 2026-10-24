@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.69.1] - 2026-10-24
+
+### Fixed
+
+- **`metainfo_3d` matches more of the ways a release names a studio 3D film** ([#650](https://github.com/brunoga/pipeliner/pull/650)). The first live run refused four films that their studio did release in 3D, only because the name did not match the list: "Star Wars VII The Force Awakens" (a bare numeral), "Darkest Hour" (listed as "The Darkest Hour"), "Battle for Terra 2007" (a festival year, two before the 3D release) and "Warcraft The Beginning" (the international title of "Warcraft"). Numerals and a leading "The" are now ignored, the year window is two years, and a title that only starts with a listed one matches at the same year, so a sequel is never vouched for by the first film.
+
+**Why 1.69.1**: a matching fix.
+
 ## [1.69.0] - 2026-10-24
 
 ### Added
