@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.69.0] - 2026-10-24
+
+### Added
+
+- **`metainfo_3d`: was this film released in 3D by its studio?** ([#648](https://github.com/brunoga/pipeliner/pull/648)). A Blu-ray 3D image proves nothing about where its depth came from: fans author MVC discs of 2D films, and the probe reads them as genuine MVC because they are, so "Fight Club (1999) BD50 MVC" reached the 3D inbox. The new processor checks the film against Wikipedia's lists of 3D films, which cover everything shown in 3D in cinemas, shot in 3D or converted by the studio, and sets `movie_3d_official` and `movie_3d_native`. Matching uses TMDb's titles when present and the release name otherwise, at the 3D release year or, for a re-release, the original year, so *Titanic* matches at 1997 and *Mulan* at 2020 but not 1998. The list is fetched weekly and merged into the stored copy, never replaced, and when it has never been read the field stays unset so a gate refuses. The 3D sample configs gate on it before any network step, and `3d-mvc-harvest.star` also refuses MVC from a WEB source, which no service streams.
+
+**Why 1.69.0**: a new plugin.
+
 ## [1.68.1] - 2026-10-23
 
 ### Changed
