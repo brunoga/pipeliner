@@ -188,3 +188,26 @@ func TestValidate(t *testing.T) {
 		t.Errorf("valid config refused: %v", errs)
 	}
 }
+
+func TestRefreshNeverForgetsAFilm(t *testing.T) {
+	w := newWiki(t)
+	db := openDB(t)
+	run(t, newProc(t, db, w, map[string]any{"refresh": "1ms"}), entry.New("x", "u"))
+	time.Sleep(5 * time.Millisecond)
+
+	// The page now lists something else entirely.
+	srv := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		_, _ = rw.Write([]byte("====2013====\n{|\n|-\n|''[[Gravity (2013 film)|Gravity]]''\n|October 4, 2013\n|}\n"))
+	}))
+	t.Cleanup(srv.Close)
+	p := newProc(t, db, w, map[string]any{"refresh": "1ms"})
+	p.baseURL, p.client = srv.URL, srv.Client()
+
+	mulan, gravity := entry.New("Mulan 2020 3D 1080p", "u1"), entry.New("Gravity 2013 3D 1080p", "u2")
+	run(t, p, mulan, gravity)
+	for _, e := range []*entry.Entry{mulan, gravity} {
+		if got, _ := official(e); !got {
+			t.Errorf("%s: movie_3d_official = false after a refresh", e.Title)
+		}
+	}
+}

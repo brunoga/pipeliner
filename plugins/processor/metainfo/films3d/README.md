@@ -32,7 +32,7 @@ A film matches when one of its titles names a listed film released within a year
 
 ## Failure handling
 
-The parsed list is stored in `cache_metainfo_3d` and fetched again after `refresh`. A failed refetch keeps using the last list. When no list has ever been read, no field is set, so a `movie_3d_official != true` gate refuses everything instead of letting conversions through. A fetched page with no films (a redirect, a layout change) counts as a failure rather than an empty list.
+The parsed list is stored in `cache_metainfo_3d` and fetched again after `refresh` (two requests a week by default). Films are only ever added to these lists, so a refetch is merged into the stored list rather than replacing it: a vandalised or restructured page can never make a known film read as a fan conversion. A failed refetch keeps using the stored list. When no list has ever been read, no field is set, so a `movie_3d_official != true` gate refuses everything instead of letting conversions through. A fetched page with no films (a redirect, a layout change) counts as a failure rather than an empty list.
 
 ## Example
 

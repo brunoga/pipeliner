@@ -133,6 +133,12 @@ func (p *processorPlugin) loadIndex(ctx context.Context, tc *plugin.TaskContext)
 	defer cancel()
 	films, err := ifilms3d.Fetch(fctx, p.client, p.baseURL, p.pages)
 	if err == nil {
+		// Films are only ever added to these lists. Merging into the stored
+		// copy, rather than replacing it, means a vandalised or restructured
+		// page can never make a known studio 3D film read as a fan conversion.
+		if prev, ok := p.films.Peek(cacheKey); ok {
+			films = ifilms3d.Merge(prev, films)
+		}
 		p.films.Set(cacheKey, films)
 		tc.Logger.Info("metainfo_3d: read the 3D film lists", "films", len(films))
 		p.use(films, time.Hour)

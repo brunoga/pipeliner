@@ -227,6 +227,27 @@ func firstLines(s string, n int) string {
 	return strings.Join(lines, "\n")
 }
 
+// Merge returns the union of two film lists: every film in next, plus every
+// film in prev that next no longer lists. A film is the same film when it
+// shares a key and a year with one in next.
+func Merge(prev, next []Film) []Film {
+	ix := NewIndex(next)
+	out := append([]Film(nil), next...)
+	for _, f := range prev {
+		found := false
+		for _, y := range f.Years {
+			if _, ok := ix.Lookup(f.Keys, y); ok {
+				found = true
+				break
+			}
+		}
+		if !found {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
 // Index matches titles against a film list.
 type Index struct {
 	byKey map[string][]*Film

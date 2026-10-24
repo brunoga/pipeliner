@@ -200,3 +200,20 @@ func TestFetchHTTPError(t *testing.T) {
 		t.Fatal("expected an error")
 	}
 }
+
+func TestMergeKeepsFilmsTheNewListDropped(t *testing.T) {
+	prev := Parse(listPage)
+	next := []Film{{Title: "Gravity", Keys: []string{"gravity"}, Years: []int{2013}}}
+	merged := NewIndex(Merge(prev, next))
+	for _, q := range []struct {
+		title string
+		year  int
+	}{{"Gravity", 2013}, {"Mulan", 2020}, {"Titanic", 1997}} {
+		if _, ok := merged.Lookup([]string{q.title}, q.year); !ok {
+			t.Errorf("%s (%d) lost in the merge", q.title, q.year)
+		}
+	}
+	if n := len(Merge(prev, prev)); n != len(prev) {
+		t.Errorf("merging a list with itself gave %d films, want %d", n, len(prev))
+	}
+}
