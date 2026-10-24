@@ -59,6 +59,7 @@ import (
 	_ "github.com/brunoga/pipeliner/plugins/processor/gaps"
 	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/bluray"
 	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/file"
+	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/films3d"
 	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/lifecycle"
 	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/magnet"
 	_ "github.com/brunoga/pipeliner/plugins/processor/metainfo/tmdb"

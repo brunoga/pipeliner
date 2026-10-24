@@ -112,6 +112,24 @@ threed = process("quality", upstream=avc, spec="3d-half+", on_missing="reject")
 
 drop = process("trailer", upstream=threed)
 
+# Only films their studio released in 3D. A Blu-ray 3D image proves nothing
+# about where its depth came from: fans author MVC discs of 2D films too
+# ("Fight Club (1999) BD50 MVC"), and they probe as genuine MVC because they
+# are. metainfo_3d checks the film against Wikipedia's lists of 3D films, which
+# cover everything shown in 3D in cinemas, shot in 3D or converted by the
+# studio, and sets movie_3d_official. An unlisted film's 3D was made by a fan.
+#
+# It sits with the name-only gates because it is one cached lookup, and a fan
+# conversion refused here never reaches the probe worker's queue. If the list
+# has never been read, the field is unset and != true refuses: better a night
+# without downloads than a night of fan conversions.
+studio  = process("metainfo_3d", upstream=drop)
+studio3 = process("condition", upstream=studio,
+                  reject="movie_3d_official != true",
+                  reason="no studio 3D version of this film is known (it is " +
+                         "not in Wikipedia's 3D film lists), so its 3D is a " +
+                         "fan conversion of the 2D film")
+
 # local=True keeps this pipeline's history in its own bucket (movies:<task>).
 #
 # It matters because the tracker key is (title, year, 3D) and BD3D outranks
@@ -124,7 +142,7 @@ drop = process("trailer", upstream=threed)
 # The library pipelines should then gate on disk truth rather than on this
 # tracker — `library` with sections=["3D Movies"] also sees the converted
 # output once it lands.
-film = process("movies", upstream=drop, local=True, reject_unmatched=True)
+film = process("movies", upstream=studio3, local=True, reject_unmatched=True)
 # retry_failed blocks the exact release a previous grab died on, so a dead
 # torrent is not re-fetched night after night. It needs something durable to
 # match on, and for this indexer that is the point: 3dtorrents reports no
@@ -242,6 +260,14 @@ def mvc_probe_gate_fn(upstream):
                    "sample"},
         {"reject": 'probe_3d_layout != "mvc"',
          "reason": "the probe read this release's container and it is not MVC"},
+        # No streaming service delivers MVC, so MVC from a WEB source is a
+        # re-encode, usually rebuilt from a half-resolution 3D stream
+        # ("Mulan 2020 3D 1080p WEB DL HYBRID REMASTER3D"). A full-resolution
+        # web release stays MV-HEVC, which this rule does not touch.
+        {"reject": 'probe_3d_layout == "mvc" and ' +
+                   '(video_source == "WEB-DL" or video_source == "WEBRip")',
+         "reason": "MVC from a web source: no service streams MVC, so this " +
+                   "was rebuilt, usually from a half-resolution 3D stream"},
     ])
 
 # ── Lane A: the name claimed MVC ─────────────────────────────────────────────

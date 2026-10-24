@@ -48,7 +48,11 @@ seen2   = process("seen",          upstream=src2)
 meta2   = process("metainfo_file", upstream=seen2)
 req2    = process("require",       upstream=meta2, fields=_movies_required)
 q2      = process("quality",       upstream=req2, spec="1080p+ 3d+")
-movies2 = process("movies",        upstream=q2, static=movie_list)
+# Only films their studio released in 3D; any other 3D copy is a fan's 2D-to-3D
+# conversion, however the release is labelled. See metainfo_3d.
+studio2 = process("metainfo_3d",   upstream=q2)
+real2   = process("condition",     upstream=studio2, reject="movie_3d_official != true")
+movies2 = process("movies",        upstream=real2, static=movie_list)
 dd2     = process("dedup",   upstream=movies2)
 fmt2    = process("pathfmt", upstream=dd2,
                    path=movies_path + "/{title} ({video_year}) 3D",
