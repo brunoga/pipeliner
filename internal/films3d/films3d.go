@@ -206,17 +206,29 @@ var romans = map[string]string{
 	"vii": "7", "viii": "8", "ix": "9", "x": "10",
 }
 
-// Key normalises a title for matching: match.Normalize, "&" as "and", no
-// leading "The" ("Darkest Hour" is listed as "The Darkest Hour"), and a Roman
-// numeral after the first word read as a number, so "Frozen II" and the
-// list's "Frozen 2" agree.
+var numberWords = map[string]string{
+	"one": "1", "two": "2", "three": "3", "four": "4", "five": "5",
+	"six": "6", "seven": "7", "eight": "8", "nine": "9", "ten": "10",
+}
+
+// globChars are the runes match.Normalize keeps for its glob matching; in a
+// title they are punctuation ("Thunderbolts*").
+var globChars = strings.NewReplacer("*", " ", "?", " ", "[", " ", "]", " ", `\`, " ")
+
+// Key normalises a title for matching: match.Normalize without punctuation,
+// "&" as "and", no leading "The" ("Darkest Hour" is listed as "The Darkest
+// Hour"), and numbers read as digits: a number word anywhere ("The Fantastic
+// Four" and "The Fantastic 4") and a Roman numeral after the first word
+// ("Frozen II" and the list's "Frozen 2").
 func Key(title string) string {
-	words := strings.Fields(match.Normalize(strings.ReplaceAll(title, "&", " and ")))
+	words := strings.Fields(globChars.Replace(match.Normalize(strings.ReplaceAll(title, "&", " and "))))
 	if len(words) > 1 && words[0] == "the" {
 		words = words[1:]
 	}
-	for i := 1; i < len(words); i++ {
-		if n, ok := romans[words[i]]; ok {
+	for i := range words {
+		if n, ok := numberWords[words[i]]; ok {
+			words[i] = n
+		} else if n, ok := romans[words[i]]; ok && i > 0 {
 			words[i] = n
 		}
 	}

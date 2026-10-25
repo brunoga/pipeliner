@@ -73,6 +73,18 @@ const listPage = `== Feature films ==
 |United States
 |Filmed in 2D
 |
+|-
+|''[[Thunderbolts*]]''
+| rowspan="2" |May 2, 2025
+|United States
+|Filmed in 2D
+|
+|-
+|''[[The Fantastic Four: First Steps]]''
+|July 25, 2025
+|United States
+|Filmed in 2D
+|
 |}
 `
 
@@ -102,6 +114,8 @@ func TestParse(t *testing.T) {
 		{"longer title a year later refused", []string{"Fast X Part One"}, 2024, false},
 		{"unlisted film", []string{"Fight Club"}, 1999, false},
 		{"any of several titles", []string{"Star Wars Episode VIII", "Rogue One"}, 2016, true},
+		{"punctuation in the listed title ignored", []string{"Thunderbolts"}, 2025, true},
+		{"number word and digit agree", []string{"The Fantastic 4: First Steps"}, 2025, true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -153,6 +167,11 @@ func TestKey(t *testing.T) {
 		"The Darkest Hour":           "darkest hour",
 		"The":                        "the",
 		"Tim Burton's The Nightmare": "tim burtons the nightmare",
+		"Thunderbolts*":              "thunderbolts",
+		"Who Framed Roger Rabbit?":   "who framed roger rabbit",
+		"The Fantastic Four":         "fantastic 4",
+		"The Fantastic 4":            "fantastic 4",
+		"Rogue One":                  "rogue 1",
 	}
 	for in, want := range cases {
 		if got := Key(in); got != want {
