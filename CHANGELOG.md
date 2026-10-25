@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.69.2] - 2026-10-25
+
+### Fixed
+
+- **`metainfo_3d` no longer refuses *Thunderbolts\** and *The Fantastic 4: First Steps*** ([#653](https://github.com/brunoga/pipeliner/pull/653)). Checking the 3D library and the MVC inbox against the list turned up two studio 3D films read as fan conversions. The asterisk in the listed "Thunderbolts*" stayed in the match key, and "4" never matched the listed "Four". Punctuation is now ignored throughout, and number words read as digits.
+
+**Why 1.69.2**: a matching fix.
+
 ## [1.69.1] - 2026-10-24
 
 ### Fixed
