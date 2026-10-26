@@ -4,14 +4,14 @@ go 1.26.2
 
 require (
 	github.com/anacrolix/torrent v1.61.0
-	github.com/brunoga/bdtools v0.13.0
+	github.com/brunoga/bdtools v0.14.2
 	github.com/mattn/go-isatty v0.0.24
 	github.com/mxschmitt/playwright-go v0.6201.1
 	go.starlark.net v0.0.0-20260326113308-fadfc96def35
 	golang.org/x/crypto v0.58.0
-	golang.org/x/net v0.60.0
+	golang.org/x/net v0.61.0
 	golang.org/x/sys v0.49.0
-	modernc.org/sqlite v1.60.1
+	modernc.org/sqlite v1.61.0
 )
 
 require (
@@ -94,7 +94,7 @@ require (
 	golang.org/x/time v0.14.0 // indirect
 	golift.io/udf v0.1.0 // indirect
 	lukechampine.com/blake3 v1.1.6 // indirect
-	modernc.org/libc v1.77.1 // indirect
+	modernc.org/libc v1.79.0 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
 	zombiezen.com/go/sqlite v0.13.1 // indirect
