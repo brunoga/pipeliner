@@ -150,7 +150,7 @@ func TestParseSearch_Avatar(t *testing.T) {
 }
 
 func TestParseSearch_RejectsNonSearchPage(t *testing.T) {
-	// A soft block / interstitial / markup change must not be silently
+	// An unexpected page or markup change must not be silently
 	// treated as "zero results". Anything missing the search-page title
 	// marker should error so the caller can warn instead of negative-caching.
 	cases := []struct {
@@ -159,7 +159,7 @@ func TestParseSearch_RejectsNonSearchPage(t *testing.T) {
 	}{
 		{"empty", ""},
 		{"plain html", "<html><body>nothing here</body></html>"},
-		{"cloudflare-ish", "<html><head><title>Just a moment...</title></head><body>checking</body></html>"},
+		{"unexpected page", "<html><head><title>Just a moment...</title></head><body>checking</body></html>"},
 		{"wrong title", "<html><head><title>Blu-ray.com - Movies</title></head><body></body></html>"},
 	}
 	for _, tc := range cases {

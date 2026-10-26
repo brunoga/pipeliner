@@ -1,27 +1,30 @@
 // Package bluray provides a metainfo processor that enriches movie entries
 // with Blu-ray.com data: release date, studio, codec, aspect ratio, runtime,
+// audio tracks, subtitles, ratings, playback region, theatrical 3D status,
 // and the two 3D booleans (bluray_3d_release, bluray_is_3d_edition).
 //
 // Lookup order for each entry:
 //
-//  1. If the entry already has bluray_id, fetch the detail page directly.
+//  1. If the entry already has bluray_id, fetch the detail page directly
+//     (and check the embedded worldwide 3D catalog / sibling index).
 //  2. Otherwise look up (normalisedTitle, year) in the local index cache that
-//     the bluray_releases source populates from calendar passes.
+//     the bluray_releases source populates from calendar passes, augmented with
+//     the embedded 14,163-entry worldwide 3D Blu-ray catalog.
 //  3. On index miss, check the negative-search cache.
-//  4. On negative miss too, fall back to /search/ and write through to both
-//     caches.
+//  4. On negative miss too, fall back to /search/ (and theatrical master-movie
+//     edition lookup when needed) and write through to both caches.
 //
 // The same three buckets are used by the bluray_releases source so calendar
 // passes and search lookups share one accumulating local mirror of the catalog.
 //
 // Config keys:
 //
-//	country            - "us" (default), "uk", "ca", "au", "de", "fr", "kr"
+//	country            - "us" (default), "uk", "ca", "au", "de", "fr", "kr", "jp", "it", "es", "all", etc.
 //	cache_ttl          - release-detail TTL (default 168h)
 //	cache_index_ttl    - index TTL (default 720h)
 //	cache_negative_ttl - negative-cache TTL (default 168h)
 //	request_interval   - rate limit gap (default 1s)
-//	user_agent         - custom User-Agent (default generic browser)
+//	user_agent         - custom User-Agent (default Chrome 131 profile)
 package bluray
 
 import (
@@ -55,12 +58,13 @@ const (
 func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  pluginName,
-		Description: "enrich movie entries with Blu-ray.com metadata (release date, codec, 3D-edition flag)",
+		Description: "enrich movie entries with Blu-ray.com metadata (release date, codec, audio/subtitles, ratings, 3D-edition flag)",
 		Role:        plugin.RoleProcessor,
 		Refusal:     plugin.RefusalNone,
 		MayProduce: []string{
 			entry.FieldEnriched,
 			entry.FieldBlurayID,
+			entry.FieldBlurayParentID,
 			entry.FieldBlurayURL,
 			entry.FieldBlurayFormat,
 			entry.FieldBlurayStudio,
@@ -68,10 +72,21 @@ func init() {
 			entry.FieldBlurayYear,
 			entry.FieldBlurayReleaseDate,
 			entry.FieldBlurayRuntimeMin,
+			entry.FieldBlurayRated,
 			entry.FieldBlurayCodec,
 			entry.FieldBlurayResolution,
 			entry.FieldBlurayAspectRatio,
+			entry.FieldBlurayHDR,
 			entry.FieldBlurayEdition,
+			entry.FieldBlurayAudio,
+			entry.FieldBluraySubtitles,
+			entry.FieldBlurayPlayback,
+			entry.FieldBlurayCoverURL,
+			entry.FieldBlurayRating,
+			entry.FieldBlurayReviewRating,
+			entry.FieldBlurayUserRating,
+			entry.FieldBlurayNative3D,
+			entry.FieldBlurayConverted3D,
 			entry.FieldBluray3DRelease,
 			entry.FieldBlurayIs3DEdition,
 		},
@@ -79,7 +94,7 @@ func init() {
 		Validate: validate,
 		Schema: []plugin.FieldSchema{
 			{Key: "country", Type: plugin.FieldTypeEnum, Default: defaultCountry,
-				Enum: []string{"us", "uk", "ca", "au", "de", "fr", "kr"}, Hint: "Blu-ray.com locale"},
+				Enum: bluray.AllCountries, Hint: "Blu-ray.com locale (or 'all' for worldwide)"},
 			{Key: "cache_ttl", Type: plugin.FieldTypeDuration, Default: "168h",
 				Hint: "How long to cache release detail (default 7 days)"},
 			{Key: "cache_index_ttl", Type: plugin.FieldTypeDuration, Default: "720h",
@@ -88,7 +103,7 @@ func init() {
 				Hint: "How long to cache search misses (default 7 days)"},
 			{Key: "request_interval", Type: plugin.FieldTypeDuration, Default: "1s",
 				Hint: "Minimum gap between requests"},
-			{Key: "user_agent", Type: plugin.FieldTypeString, Hint: "Custom User-Agent (default generic browser)"},
+			{Key: "user_agent", Type: plugin.FieldTypeString, Hint: "Custom User-Agent (default Chrome 131)"},
 		},
 		Caches: []plugin.CacheInfo{
 			{Name: bucketIndex, Display: "Blu-ray.com Title Index"},
@@ -105,8 +120,7 @@ func validate(cfg map[string]any) []error {
 			errs = append(errs, err)
 		}
 	}
-	if err := plugin.OptEnum(cfg, "country", pluginName,
-		"us", "uk", "ca", "au", "de", "fr", "kr"); err != nil {
+	if err := plugin.OptEnum(cfg, "country", pluginName, bluray.AllCountries...); err != nil {
 		errs = append(errs, err)
 	}
 	errs = append(errs, plugin.OptUnknownKeys(cfg, pluginName,
@@ -120,6 +134,7 @@ type processorPlugin struct {
 	indexCache  *cache.Cache[[]bluray.IndexEntry]
 	negCache    *cache.Cache[time.Time]
 	detailCache *cache.Cache[*bluray.Release]
+	catalog3D   *bluray.Catalog3D
 	country     string
 }
 
@@ -138,11 +153,14 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 		opts = append(opts, bluray.WithUserAgent(ua))
 	}
 
+	cat3D, _ := bluray.Embedded3DCatalog()
+
 	p := &processorPlugin{
 		client:      bluray.New(opts...),
 		indexCache:  cache.NewPersistent[[]bluray.IndexEntry](indexTTL, db.Bucket(bucketIndex)),
 		negCache:    cache.NewPersistent[time.Time](negTTL, db.Bucket(bucketNeg)),
 		detailCache: cache.NewPersistent[*bluray.Release](detailTTL, db.Bucket(bucketDetail)),
+		catalog3D:   cat3D,
 		country:     country,
 	}
 	p.indexCache.Preload()
@@ -163,61 +181,135 @@ func (p *processorPlugin) Process(ctx context.Context, tc *plugin.TaskContext, e
 
 // annotate resolves an entry to a Release and writes bluray_* fields.
 func (p *processorPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) {
-	id, slug, siblings, ok := p.resolve(ctx, tc, e)
+	id, slug, siblings, movieDetails, ok := p.resolve(ctx, tc, e)
 	if !ok {
 		tc.Logger.Debug("metainfo_bluray: entry unresolved", "title", e.Title)
 		return
 	}
 	rel, ok := p.fetchDetail(ctx, tc, id, slug)
 	if !ok {
-		return
+		// Even if detail fetch failed, if we matched a 3D release from the embedded catalog,
+		// populate from the embedded summary so offline/cached 3D detection still works.
+		if p.catalog3D != nil {
+			if rs, found := p.catalog3D.LookupID(id); found {
+				rel = summaryToRelease(rs)
+				ok = true
+			}
+		}
+		if !ok {
+			return
+		}
 	}
-	p.populate(tc, e, rel, siblings)
+
+	// If we still don't see a 3D sibling in siblings, check if the release's ParentMovieID
+	// has 3D editions via /products/menu_ajax.php or if the embedded 3D catalog has one.
+	if !bluray.Is3DRelease(siblings) && rel.Format != bluray.FormatBD3D {
+		title := searchTitle(e)
+		year := entry.ReleaseYear(e)
+		if year == 0 {
+			year = rel.Year
+		}
+		if p.catalog3D != nil && title != "" {
+			for _, ch := range p.catalog3D.LookupTitle(title, year, bluray.CountryAll) {
+				siblings = append(siblings, ch.ToIndexEntry())
+			}
+		}
+		if !bluray.Is3DRelease(siblings) && rel.ParentMovieID != "" && !p.catalog3D.IsAuthoritativeForYear(year) {
+			if mr, err := p.client.GetMovieReleases(ctx, rel.ParentMovieID); err == nil && mr != nil {
+				key := indexKey(title)
+				for _, r3d := range mr.BluRay3D {
+					ie := r3d.ToIndexEntry()
+					siblings = append(siblings, ie)
+					if key != "" {
+						p.mergeIndex(key, ie)
+					}
+				}
+			}
+		}
+	}
+
+	p.populate(tc, e, rel, siblings, movieDetails)
 }
 
-// resolve returns the release ID/slug to fetch and the catalog siblings used
-// for the bluray_3d_release boolean. The third return value is false when no
-// candidate could be found and the entry should be left untouched.
-func (p *processorPlugin) resolve(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) (id, slug string, siblings []bluray.IndexEntry, ok bool) {
+func summaryToRelease(rs bluray.ReleaseSummary) *bluray.Release {
+	relDate := rs.ReleaseDate
+	if iso, ok := bluray.NormalizeDateISO(relDate); ok {
+		relDate = iso
+	}
+	ed := rs.Edition
+	if ed == "" {
+		ed = rs.FormatSummary
+	}
+	return &bluray.Release{
+		ID:          rs.ID,
+		Title:       rs.Title,
+		Subtitle:    rs.FormatSummary,
+		Edition:     ed,
+		URL:         rs.URL,
+		Format:      rs.Format(),
+		Country:     string(rs.Country),
+		CountryCode: rs.Country,
+		Studio:      rs.Studio,
+		Year:        rs.Year,
+		ReleaseDate: relDate,
+	}
+}
+
+// resolve returns the release ID/slug to fetch, the catalog siblings used
+// for the bluray_3d_release boolean, and optional theatrical MovieDetails.
+func (p *processorPlugin) resolve(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) (id, slug string, siblings []bluray.IndexEntry, movie *bluray.MovieDetails, ok bool) {
+	title := searchTitle(e)
+	year := entry.ReleaseYear(e)
+
 	// Fast path: the entry already carries a Blu-ray.com ID.
 	if rawID, _ := e.Fields[entry.FieldBlurayID].(string); rawID != "" {
-		// Sibling lookup is by title; without a title we cannot answer
-		// bluray_3d_release. The detail fetch alone still sets bluray_is_3d_edition.
-		key := indexKey(searchTitle(e))
+		key := indexKey(title)
 		siblings, _ = p.indexCache.Get(key)
-		// If the index knows the slug for this ID, use it so the detail URL is
-		// canonical (avoids relying on origin redirect behaviour).
+		if p.catalog3D != nil && title != "" {
+			for _, ch := range p.catalog3D.LookupTitle(title, year, bluray.CountryAll) {
+				siblings = appendUniqueIndex(siblings, ch.ToIndexEntry())
+			}
+		}
 		for _, s := range siblings {
 			if s.ID == rawID && s.Slug != "" {
 				tc.Logger.Debug("metainfo_bluray: resolve by-id (canonical slug from index)",
 					"title", e.Title, "id", rawID, "slug", s.Slug, "siblings", len(siblings))
-				return rawID, s.Slug, siblings, true
+				return rawID, s.Slug, siblings, nil, true
+			}
+		}
+		if p.catalog3D != nil {
+			if rs, found := p.catalog3D.LookupID(rawID); found {
+				s, _ := bluray.SlugAndIDFromURL(rs.URL)
+				return rawID, s, siblings, nil, true
 			}
 		}
 		tc.Logger.Debug("metainfo_bluray: resolve by-id (slug via redirect)",
 			"title", e.Title, "id", rawID, "siblings", len(siblings))
-		return rawID, "", siblings, true
+		return rawID, "", siblings, nil, true
 	}
 
-	title := searchTitle(e)
 	if title == "" {
 		tc.Logger.Debug("metainfo_bluray: no resolvable title", "entry", e.Title)
-		return "", "", nil, false
+		return "", "", nil, nil, false
 	}
-	year := entry.ReleaseYear(e)
 	key := indexKey(title)
 
 	if hits, found := p.indexCache.Get(key); found && len(hits) > 0 {
+		if p.catalog3D != nil {
+			for _, ch := range p.catalog3D.LookupTitle(title, year, bluray.CountryAll) {
+				hits = appendUniqueIndex(hits, ch.ToIndexEntry())
+			}
+		}
 		best := pickBest(hits, year)
 		tc.Logger.Debug("metainfo_bluray: index cache hit",
 			"title", title, "year", year, "key", key,
 			"hits", len(hits), "picked_id", best.ID, "picked_format", string(best.Format))
-		return best.ID, best.Slug, hits, true
+		return best.ID, best.Slug, hits, nil, true
 	}
 	if _, found := p.negCache.Get(key); found {
 		tc.Logger.Debug("metainfo_bluray: negative cache hit",
 			"title", title, "year", year, "key", key)
-		return "", "", nil, false
+		return "", "", nil, nil, false
 	}
 
 	t0 := time.Now()
@@ -226,14 +318,38 @@ func (p *processorPlugin) resolve(ctx context.Context, tc *plugin.TaskContext, e
 		tc.Logger.Warn("metainfo_bluray: search failed",
 			"title", title, "year", year, "err", err,
 			"duration", time.Since(t0).Round(time.Millisecond))
-		return "", "", nil, false
+		return "", "", nil, nil, false
 	}
+
+	// Augment with embedded worldwide 3D catalog hits if any match the title and year,
+	// even if country-scoped SearchTitle returned 0 results.
+	if p.catalog3D != nil {
+		for _, ch := range p.catalog3D.LookupTitle(title, year, bluray.CountryAll) {
+			results = appendUniqueIndex(results, ch.ToIndexEntry())
+		}
+	}
+
+	// If quicksearch + embedded 3D catalog still returned no results and the movie year
+	// is not covered authoritatively by the embedded 3D catalog (>= 2026 or unknown year),
+	// check theatrical movie search + master edition list (CheckMovieHas3D).
+	var movDetails *bluray.MovieDetails
+	if len(results) == 0 && !p.catalog3D.IsAuthoritativeForYear(year) {
+		if check, err2 := p.client.CheckMovieHas3D(ctx, title, bluray.Country(p.country)); err2 == nil && check != nil {
+			movDetails = check.Movie
+			for _, r3d := range check.Releases3D {
+				if year == 0 || r3d.Year == 0 || r3d.Year == year {
+					results = appendUniqueIndex(results, r3d.ToIndexEntry())
+				}
+			}
+		}
+	}
+
 	if len(results) == 0 {
 		tc.Logger.Debug("metainfo_bluray: search returned no results (caching negative)",
 			"title", title, "year", year, "key", key,
 			"duration", time.Since(t0).Round(time.Millisecond))
 		p.negCache.Set(key, time.Now())
-		return "", "", nil, false
+		return "", "", nil, nil, false
 	}
 	for _, r := range results {
 		p.mergeIndex(key, r)
@@ -244,7 +360,16 @@ func (p *processorPlugin) resolve(ctx context.Context, tc *plugin.TaskContext, e
 		"title", title, "year", year, "key", key,
 		"results", len(results), "picked_id", best.ID, "picked_format", string(best.Format),
 		"duration", time.Since(t0).Round(time.Millisecond))
-	return best.ID, best.Slug, hits, true
+	return best.ID, best.Slug, hits, movDetails, true
+}
+
+func appendUniqueIndex(slice []bluray.IndexEntry, item bluray.IndexEntry) []bluray.IndexEntry {
+	for _, x := range slice {
+		if x.ID == item.ID {
+			return slice
+		}
+	}
+	return append(slice, item)
 }
 
 // mergeIndex appends one IndexEntry into the persisted slice, deduped by ID.
@@ -280,8 +405,11 @@ func (p *processorPlugin) fetchDetail(ctx context.Context, tc *plugin.TaskContex
 }
 
 // populate writes the bluray_* fields from a Release plus the sibling set.
-func (p *processorPlugin) populate(tc *plugin.TaskContext, e *entry.Entry, r *bluray.Release, siblings []bluray.IndexEntry) {
+func (p *processorPlugin) populate(tc *plugin.TaskContext, e *entry.Entry, r *bluray.Release, siblings []bluray.IndexEntry, movie *bluray.MovieDetails) {
 	e.Set(entry.FieldBlurayID, r.ID)
+	if r.ParentMovieID != "" {
+		e.Set(entry.FieldBlurayParentID, r.ParentMovieID)
+	}
 	if r.URL != "" {
 		e.Set(entry.FieldBlurayURL, r.URL)
 	}
@@ -303,6 +431,9 @@ func (p *processorPlugin) populate(tc *plugin.TaskContext, e *entry.Entry, r *bl
 	if r.RuntimeMin > 0 {
 		e.Set(entry.FieldBlurayRuntimeMin, r.RuntimeMin)
 	}
+	if r.Rated != "" {
+		e.Set(entry.FieldBlurayRated, r.Rated)
+	}
 	if r.Codec != "" {
 		e.Set(entry.FieldBlurayCodec, r.Codec)
 	}
@@ -312,11 +443,54 @@ func (p *processorPlugin) populate(tc *plugin.TaskContext, e *entry.Entry, r *bl
 	if r.AspectRatio != "" {
 		e.Set(entry.FieldBlurayAspectRatio, r.AspectRatio)
 	}
+	if r.Video.HDR != "" {
+		e.Set(entry.FieldBlurayHDR, r.Video.HDR)
+	}
 	if r.Edition != "" {
 		e.Set(entry.FieldBlurayEdition, r.Edition)
 	}
+	if len(r.Audio) > 0 {
+		tracks := make([]string, 0, len(r.Audio))
+		for _, a := range r.Audio {
+			if a.Raw != "" {
+				tracks = append(tracks, a.Raw)
+			}
+		}
+		if len(tracks) > 0 {
+			e.Set(entry.FieldBlurayAudio, tracks)
+		}
+	}
+	if len(r.Subtitles) > 0 {
+		e.Set(entry.FieldBluraySubtitles, r.Subtitles)
+	}
+	if r.Playback != "" {
+		e.Set(entry.FieldBlurayPlayback, r.Playback)
+	}
+	if r.CoverURL != "" {
+		e.Set(entry.FieldBlurayCoverURL, r.CoverURL)
+	}
+	if r.Ratings.MovieScore > 0 {
+		e.Set(entry.FieldBlurayRating, r.Ratings.MovieScore)
+	}
+	if r.Ratings.ReviewOverall > 0 {
+		e.Set(entry.FieldBlurayReviewRating, r.Ratings.ReviewOverall)
+	}
+	if r.Ratings.UserOverall > 0 {
+		e.Set(entry.FieldBlurayUserRating, r.Ratings.UserOverall)
+	}
+	if movie != nil {
+		if movie.IsNative3D {
+			e.Set(entry.FieldBlurayNative3D, true)
+		}
+		if movie.IsConverted3D {
+			e.Set(entry.FieldBlurayConverted3D, true)
+		}
+	}
 
-	is3DEdition := r.Format == bluray.FormatBD3D || strings.Contains(strings.ToUpper(r.Codec), "MVC")
+	is3DEdition := r.Format == bluray.FormatBD3D ||
+		r.Video.Is3D ||
+		r.Discs.Is3D ||
+		strings.Contains(strings.ToUpper(r.Codec), "MVC")
 	if is3DEdition {
 		e.Set(entry.FieldBlurayIs3DEdition, true)
 	}
@@ -340,9 +514,6 @@ func (p *processorPlugin) populate(tc *plugin.TaskContext, e *entry.Entry, r *bl
 
 // ---------- helpers ----------
 
-// searchTitle picks the best title to query Blu-ray.com with. Preference:
-// movie_title (clean canonical), then internal/movies.Parse on the raw title,
-// then the raw title itself.
 func searchTitle(e *entry.Entry) string {
 	if v, _ := e.Fields[entry.FieldMovieTitle].(string); v != "" {
 		return v
@@ -353,27 +524,14 @@ func searchTitle(e *entry.Entry) string {
 	return strings.TrimSpace(e.Title)
 }
 
-// indexKey mirrors the source plugin's keying: strip a trailing 3D/4K token
-// from the title, then normalise.
 func indexKey(title string) string {
 	return match.Normalize(stripFormatToken(title))
 }
 
 func stripFormatToken(s string) string {
-	t := strings.TrimSpace(s)
-	low := strings.ToLower(t)
-	switch {
-	case strings.HasSuffix(low, " 3d"), strings.HasSuffix(low, " 4k"):
-		return strings.TrimSpace(t[:len(t)-3])
-	}
-	return t
+	return bluray.StripFormatTokens(s)
 }
 
-// pickBest selects the preferred release from a list of catalog hits. Rules:
-// prefer entries that match the year hint; among those, prefer plain BD over
-// UHD/BD3D so the processor's "primary" record describes the standard release,
-// not the 3D edition. The 3D boolean is computed from the sibling set, not
-// from the chosen record.
 func pickBest(hits []bluray.IndexEntry, year int) bluray.IndexEntry {
 	candidates := hits
 	if year > 0 {
@@ -387,7 +545,6 @@ func pickBest(hits []bluray.IndexEntry, year int) bluray.IndexEntry {
 			candidates = yearMatch
 		}
 	}
-	// Rank: BD > UHD > BD3D > DVD.
 	rank := map[bluray.Format]int{
 		bluray.FormatBD:   3,
 		bluray.FormatUHD:  2,

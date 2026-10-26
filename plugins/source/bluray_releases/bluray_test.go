@@ -433,12 +433,12 @@ func TestSearch_FallsBackThenCachesNegative(t *testing.T) {
 	}
 }
 
-// TestSearch_SoftBlockDoesNotCacheNegative mirrors the metainfo plugin's
-// soft-block guard: a 200 response with a body that does not look like a
-// search results page (Cloudflare interstitial, markup change, etc.) must
+// TestSearch_NonSearchPageDoesNotCacheNegative mirrors the metainfo plugin's
+// page-shape guard: a 200 response with a body that does not look like a
+// search results page (error page, markup change, etc.) must
 // NOT be written to the negative cache. The fix lives in the shared parser
 // (internal/bluray.ParseSearch), which now returns an error in that case.
-func TestSearch_SoftBlockDoesNotCacheNegative(t *testing.T) {
+func TestSearch_NonSearchPageDoesNotCacheNegative(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`<html><head><title>Just a moment...</title></head>` +
 			`<body>Checking your browser</body></html>`))
@@ -451,7 +451,7 @@ func TestSearch_SoftBlockDoesNotCacheNegative(t *testing.T) {
 		t.Fatalf("Search: %v", err)
 	}
 	if _, ok := sp.negCache.Get(indexKey("Avatar")); ok {
-		t.Error("negCache populated despite soft-block response; should NOT cache negative")
+		t.Error("negCache populated despite non-search response; should NOT cache negative")
 	}
 }
 
@@ -472,9 +472,106 @@ func TestValidate_AcceptsKnownKeys(t *testing.T) {
 	errs := validate(map[string]any{
 		"country": "us", "months": int64(3),
 		"cache_ttl": "720h", "request_interval": "1s",
+		"embedded_3d": true,
 	})
 	if len(errs) != 0 {
 		t.Errorf("validate: unexpected errors: %v", errs)
+	}
+}
+
+func TestGenerate_Embedded3DCatalog(t *testing.T) {
+	// With embedded_3d=true, Generate emits entries directly from the embedded
+	// worldwide 3D catalog without hitting any HTTP server.
+	sp := newSourceWithServer(t, "http://invalid.invalid", map[string]any{
+		"embedded_3d": true,
+		"country":     "us",
+	})
+
+	entries, err := sp.Generate(context.Background(), taskCtx())
+	if err != nil {
+		t.Fatalf("Generate(embedded_3d): %v", err)
+	}
+	if len(entries) < 500 {
+		t.Fatalf("Generate(embedded_3d, country=us): got %d entries, want >= 500", len(entries))
+	}
+	for _, e := range entries[:10] {
+		if v, _ := e.Fields[entry.FieldBluray3DRelease].(bool); !v {
+			t.Errorf("entry %q missing bluray_3d_release=true", e.Title)
+		}
+		if v, _ := e.Fields[entry.FieldBlurayIs3DEdition].(bool); !v {
+			t.Errorf("entry %q missing bluray_is_3d_edition=true", e.Title)
+		}
+	}
+}
+
+func TestSearch_BD3DOnlyUsesEmbeddedCatalog(t *testing.T) {
+	// When formats=["BD3D"], Search resolves known 3D titles from the embedded
+	// catalog without making network calls.
+	sp := newSourceWithServer(t, "http://invalid.invalid", map[string]any{
+		"country": "all",
+		"formats": []any{"BD3D"},
+	})
+	qe := entry.New("Dredd", "")
+	qe.Set(entry.FieldVideoYear, 2012)
+	results, err := sp.Search(context.Background(), taskCtx(), qe)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(results) == 0 {
+		t.Fatal("Search(Dredd, BD3D): got 0 results, expected hits from embedded 3D catalog")
+	}
+}
+
+func TestSearch_Embedded3D_PreCutoffMissSkipsHTTP(t *testing.T) {
+	httpHits := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		httpHits++
+		w.Write([]byte(`<html><head><title>Blu-ray.com - Search</title></head><body>No results.</body></html>`))
+	}))
+	defer srv.Close()
+
+	sp := newSourceWithServer(t, srv.URL, map[string]any{
+		"embedded_3d": true,
+		"country":     "all",
+	})
+	qe := entry.New("NonExistentMovieWithout3D", "")
+	qe.Set(entry.FieldVideoYear, 2019)
+	results, err := sp.Search(context.Background(), taskCtx(), qe)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(results) != 0 {
+		t.Fatalf("Search: got %d results, want 0", len(results))
+	}
+	if httpHits != 0 {
+		t.Errorf("httpHits: got %d, want 0 (pre-2026 miss in embedded_3d must not trigger live HTTP search)", httpHits)
+	}
+}
+
+func TestSearch_Embedded3D_PostCutoffMissFallsBackToHTTP(t *testing.T) {
+	httpHits := 0
+	body, err := os.ReadFile("../../../internal/bluray/testdata/search_avatar.html")
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		httpHits++
+		w.Write(body)
+	}))
+	defer srv.Close()
+
+	sp := newSourceWithServer(t, srv.URL, map[string]any{
+		"embedded_3d": true,
+		"country":     "us",
+	})
+	qe := entry.New("FutureBlockbuster", "")
+	qe.Set(entry.FieldVideoYear, 2026)
+	_, err = sp.Search(context.Background(), taskCtx(), qe)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if httpHits == 0 {
+		t.Error("httpHits: got 0, want >= 1 (2026+ miss in embedded_3d should fall back to live HTTP search)")
 	}
 }
 

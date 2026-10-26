@@ -302,20 +302,32 @@ const (
 	// metainfo_bluray processor. Distinct from video_is_3d (which describes the
 	// release file itself); bluray_3d_release means a real 3D Blu-ray exists in
 	// the Blu-ray.com catalog for this movie.
-	FieldBlurayID          = "bluray_id"
-	FieldBlurayURL         = "bluray_url"
-	FieldBlurayFormat      = "bluray_format" // "BD", "UHD", "BD3D", "DVD"
-	FieldBlurayStudio      = "bluray_studio"
-	FieldBlurayCountry     = "bluray_country"
-	FieldBlurayYear        = "bluray_year"
-	FieldBlurayReleaseDate = "bluray_release_date" // "YYYY-MM-DD"
-	FieldBlurayRuntimeMin  = "bluray_runtime_minutes"
-	FieldBlurayCodec       = "bluray_codec"
-	FieldBlurayResolution  = "bluray_resolution"
-	FieldBlurayAspectRatio = "bluray_aspect_ratio"
-	FieldBlurayEdition     = "bluray_edition"
-	FieldBluray3DRelease   = "bluray_3d_release"    // movie has a real 3D Blu-ray release
-	FieldBlurayIs3DEdition = "bluray_is_3d_edition" // this specific release is the 3D edition
+	FieldBlurayID           = "bluray_id"
+	FieldBlurayParentID     = "bluray_parent_id"
+	FieldBlurayURL          = "bluray_url"
+	FieldBlurayFormat       = "bluray_format" // "BD", "UHD", "BD3D", "DVD"
+	FieldBlurayStudio       = "bluray_studio"
+	FieldBlurayCountry      = "bluray_country"
+	FieldBlurayYear         = "bluray_year"
+	FieldBlurayReleaseDate  = "bluray_release_date" // "YYYY-MM-DD"
+	FieldBlurayRuntimeMin   = "bluray_runtime_minutes"
+	FieldBlurayRated        = "bluray_rated"
+	FieldBlurayCodec        = "bluray_codec"
+	FieldBlurayResolution   = "bluray_resolution"
+	FieldBlurayAspectRatio  = "bluray_aspect_ratio"
+	FieldBlurayHDR          = "bluray_hdr"
+	FieldBlurayEdition      = "bluray_edition"
+	FieldBlurayAudio        = "bluray_audio"
+	FieldBluraySubtitles    = "bluray_subtitles"
+	FieldBlurayPlayback     = "bluray_playback"
+	FieldBlurayCoverURL     = "bluray_cover_url"
+	FieldBlurayRating       = "bluray_rating"
+	FieldBlurayReviewRating = "bluray_review_rating"
+	FieldBlurayUserRating   = "bluray_user_rating"
+	FieldBlurayNative3D     = "bluray_native_3d"
+	FieldBlurayConverted3D  = "bluray_converted_3d"
+	FieldBluray3DRelease    = "bluray_3d_release"    // movie has a real 3D Blu-ray release
+	FieldBlurayIs3DEdition  = "bluray_is_3d_edition" // this specific release is the 3D edition
 )
 
 // --- Tier 1: Generic ---

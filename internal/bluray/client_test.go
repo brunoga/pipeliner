@@ -264,8 +264,9 @@ func TestClient_RespectsCountryCookie(t *testing.T) {
 
 func TestClient_ContextCancellationDuringRateLimit(t *testing.T) {
 	// Use a long gap so wait() blocks; cancel context partway through.
-	c := New(WithRequestInterval(1 * time.Hour))
-	c.next = time.Now().Add(1 * time.Hour)
+	rl := NewJitterRateLimiter(1*time.Hour, 0)
+	rl.lastRequest = time.Now()
+	c := New(WithRateLimiter(rl))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
