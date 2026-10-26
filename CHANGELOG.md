@@ -5,6 +5,22 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.71.0] - 2026-10-26
+
+### Added
+
+- **`metainfo_bluray` `details` and `offline` options** ([#659](https://github.com/brunoga/pipeliner/pull/659)). `details=True` fetches the release page (codec, audio, ratings) even when the embedded catalog has answered. `offline=True` never contacts Blu-ray.com: films the catalog covers are answered from it, and newer ones are left unset.
+
+### Changed
+
+- **`metainfo_bluray` answers from the embedded 3D catalog first** ([#659](https://github.com/brunoga/pipeliner/pull/659)). 1.70.0 looked at the catalog only after searching Blu-ray.com and fetching the release page, so every new title still cost two requests. Now, for a film from a year the catalog covers completely (before 2026), the catalog answers with no request at all. A listed film gets `bluray_3d_release=true` and the release's catalog fields. An unlisted one gets an explicit `bluray_3d_release=false`, so a `bluray_3d_release == false` gate refuses only films known to have no 3D Blu-ray.
+
+### Fixed
+
+- **Eight films with 3D Blu-rays were missing from catalog lookups** ([#659](https://github.com/brunoga/pipeliner/pull/659)): Eternals, Shang-Chi, Doctor Strange in the Multiverse of Madness, Deadpool & Wolverine, Ralph Breaks the Internet, The Rise of Skywalker, The Fantastic 4: First Steps and Thunderbolts*. Catalog titles kept their "4K +" and "w/ …" suffixes and "Episode IX -" prefixes. They are now stripped, and titles are keyed the way `metainfo_3d` keys them: punctuation and a leading "The" ignored, number words read as digits.
+
+**Why 1.71.0**: new options, and a lookup that no longer goes to the network for most films.
+
 ## [1.70.0] - 2026-10-26
 
 ### Added
