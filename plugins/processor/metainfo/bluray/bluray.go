@@ -104,6 +104,10 @@ func init() {
 			{Key: "request_interval", Type: plugin.FieldTypeDuration, Default: "1s",
 				Hint: "Minimum gap between requests"},
 			{Key: "user_agent", Type: plugin.FieldTypeString, Hint: "Custom User-Agent (default Chrome 131)"},
+			{Key: "details", Type: plugin.FieldTypeBool, Default: false,
+				Hint: "Fetch the release page for codec, audio and ratings even when the embedded 3D catalog answers"},
+			{Key: "offline", Type: plugin.FieldTypeBool, Default: false,
+				Hint: "Never contact Blu-ray.com; answer from the embedded 3D catalog only"},
 		},
 		Caches: []plugin.CacheInfo{
 			{Name: bucketIndex, Display: "Blu-ray.com Title Index"},
@@ -125,7 +129,7 @@ func validate(cfg map[string]any) []error {
 	}
 	errs = append(errs, plugin.OptUnknownKeys(cfg, pluginName,
 		"country", "cache_ttl", "cache_index_ttl", "cache_negative_ttl",
-		"request_interval", "user_agent")...)
+		"request_interval", "user_agent", "details", "offline")...)
 	return errs
 }
 
@@ -136,6 +140,8 @@ type processorPlugin struct {
 	detailCache *cache.Cache[*bluray.Release]
 	catalog3D   *bluray.Catalog3D
 	country     string
+	details     bool // fetch release pages even when the catalog answers
+	offline     bool // never contact Blu-ray.com
 }
 
 func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
@@ -163,6 +169,8 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 		catalog3D:   cat3D,
 		country:     country,
 	}
+	p.details, _ = cfg["details"].(bool)
+	p.offline, _ = cfg["offline"].(bool)
 	p.indexCache.Preload()
 	return p, nil
 }
@@ -181,6 +189,13 @@ func (p *processorPlugin) Process(ctx context.Context, tc *plugin.TaskContext, e
 
 // annotate resolves an entry to a Release and writes bluray_* fields.
 func (p *processorPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) {
+	if (!p.details || p.offline) && p.answerFromCatalog(tc, e) {
+		return
+	}
+	if p.offline {
+		tc.Logger.Debug("metainfo_bluray: not in the catalog's complete years; offline, left unset", "title", e.Title)
+		return
+	}
 	id, slug, siblings, movieDetails, ok := p.resolve(ctx, tc, e)
 	if !ok {
 		tc.Logger.Debug("metainfo_bluray: entry unresolved", "title", e.Title)
@@ -229,6 +244,50 @@ func (p *processorPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, 
 	}
 
 	p.populate(tc, e, rel, siblings, movieDetails)
+}
+
+// answerFromCatalog answers an entry from the embedded 3D catalog alone, with
+// no request to Blu-ray.com, when the catalog is complete for the entry's
+// year: a listed film gets the catalog release's fields and
+// bluray_3d_release=true, an unlisted one bluray_3d_release=false. It returns
+// false, leaving the entry untouched, when the catalog cannot answer.
+func (p *processorPlugin) answerFromCatalog(tc *plugin.TaskContext, e *entry.Entry) bool {
+	title, year := searchTitle(e), entry.ReleaseYear(e)
+	// An entry that names its release is answered for that release; one the
+	// catalog does not hold (a 2D edition) needs the release page.
+	if rawID, _ := e.Fields[entry.FieldBlurayID].(string); rawID != "" {
+		rs, ok := p.catalog3D.LookupID(rawID)
+		if !ok {
+			return false
+		}
+		siblings := []bluray.IndexEntry{rs.ToIndexEntry()}
+		for _, h := range p.catalog3D.LookupTitle(title, year, bluray.CountryAll) {
+			siblings = appendUniqueIndex(siblings, h.ToIndexEntry())
+		}
+		p.populate(tc, e, summaryToRelease(rs), siblings, nil)
+		return true
+	}
+	if title == "" || !p.catalog3D.IsAuthoritativeForYear(year) {
+		return false
+	}
+	hits := p.catalog3D.LookupTitle(title, year, bluray.CountryAll)
+	if len(hits) == 0 {
+		e.Set(entry.FieldBluray3DRelease, false)
+		tc.Logger.Debug("metainfo_bluray: no 3D Blu-ray in the catalog", "title", title, "year", year)
+		return true
+	}
+	siblings := make([]bluray.IndexEntry, 0, len(hits))
+	for _, h := range hits {
+		siblings = append(siblings, h.ToIndexEntry())
+	}
+	best := pickBest(siblings, year)
+	rs, ok := p.catalog3D.LookupID(best.ID)
+	if !ok {
+		rs = hits[0]
+	}
+	tc.Logger.Debug("metainfo_bluray: 3D Blu-ray in the catalog", "title", title, "year", year, "releases", len(hits), "picked_id", rs.ID)
+	p.populate(tc, e, summaryToRelease(rs), siblings, nil)
+	return true
 }
 
 func summaryToRelease(rs bluray.ReleaseSummary) *bluray.Release {

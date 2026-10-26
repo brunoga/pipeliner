@@ -6,10 +6,11 @@ import (
 	"compress/gzip"
 	_ "embed"
 	"encoding/json"
+	"regexp"
 	"strings"
 	"sync"
 
-	"github.com/brunoga/pipeliner/internal/match"
+	"github.com/brunoga/pipeliner/internal/films3d"
 )
 
 //go:embed releases_3d_worldwide.jsonl.gz
@@ -133,9 +134,17 @@ func parseCatalogGZ(gzData []byte) (*Catalog3D, error) {
 	return cat, nil
 }
 
-// CatalogKey returns the normalized lookup key for a movie title.
+// reEpisode matches a numbered episode before the subtitle ("Star Wars:
+// Episode IX - The Rise of Skywalker"), which release names and TMDb titles
+// usually leave out.
+var reEpisode = regexp.MustCompile(`(?i)\bepisode\s+(?:[ivx]+|\d+)\s*[-–:]\s*`)
+
+// CatalogKey returns the normalized lookup key for a movie title: the
+// format suffixes and any "Episode N -" dropped, then keyed as films3d.Key
+// does, so "Thunderbolts*" and "Thunderbolts", or "The Fantastic Four" and
+// "The Fantastic 4", agree.
 func CatalogKey(title string) string {
-	return match.Normalize(StripFormatTokens(title))
+	return films3d.Key(reEpisode.ReplaceAllString(StripFormatTokens(title), ""))
 }
 
 func catalogKeysForRelease(item ReleaseSummary) []string {

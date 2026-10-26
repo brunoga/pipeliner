@@ -59,14 +59,19 @@ func FormatFromTitle(title string) Format {
 	}
 }
 
-// StripFormatTokens removes trailing Blu-ray format suffixes (" Blu-ray", " in 3D", " 3D", " 4K", " DVD")
-// from a Blu-ray.com release title so that consumers matching on canonical movie title match cleanly.
+// reBundleSuffix matches a bundle note after the format ("4K + 3D w/ STUFF
+// Blu-ray"): the "w/" and everything after it.
+var reBundleSuffix = regexp.MustCompile(`(?i)\s+w/.*$`)
+
+// StripFormatTokens removes trailing Blu-ray format suffixes (" Blu-ray", " in 3D", " 3D", " 4K", " DVD",
+// the "+" of "4K + 3D", and a "w/ ..." bundle note) from a Blu-ray.com release title so that consumers
+// matching on canonical movie title match cleanly.
 func StripFormatTokens(s string) string {
-	t := strings.TrimSpace(s)
+	t := reBundleSuffix.ReplaceAllString(strings.TrimSpace(s), "")
 	for {
 		low := strings.ToLower(t)
 		stripped := false
-		for _, suf := range []string{" blu-ray", " in 3d", " 3d", " 4k", " dvd"} {
+		for _, suf := range []string{" blu-ray", " in 3d", " 3d", " 4k", " dvd", " +"} {
 			if strings.HasSuffix(low, suf) {
 				t = strings.TrimSpace(t[:len(t)-len(suf)])
 				stripped = true
@@ -786,7 +791,7 @@ var monthIndex = map[string]int{
 	"february": 2, "feb": 2,
 	"march": 3, "mar": 3,
 	"april": 4, "apr": 4,
-	"may": 5,
+	"may":  5,
 	"june": 6, "jun": 6,
 	"july": 7, "jul": 7,
 	"august": 8, "aug": 8,
