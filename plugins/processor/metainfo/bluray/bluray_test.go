@@ -69,6 +69,7 @@ func TestProcess_ByExistingID(t *testing.T) {
 	defer srv.Close()
 
 	pp := newProcessor(t, srv.URL)
+	pp.details = true // the codec comes from the release page
 	e := entry.New("Avatar (2009)", "https://example.com/avatar")
 	e.Set(entry.FieldBlurayID, "26954")
 	// Pre-seed siblings so the 3D-release boolean lights up AND so resolve can
@@ -124,6 +125,7 @@ func TestProcess_BySearchFallback(t *testing.T) {
 	defer srv.Close()
 
 	pp := newProcessor(t, srv.URL)
+	pp.details = true // Avatar is in the embedded catalog, which would answer without searching
 	e := entry.New("Avatar (2009)", "https://example.com/avatar")
 	e.Set(entry.FieldVideoYear, int(2009))
 

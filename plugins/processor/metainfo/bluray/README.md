@@ -12,10 +12,12 @@ Enriches movie entries with metadata parsed from [Blu-ray.com](https://www.blu-r
 | `cache_negative_ttl` | duration | no | `168h` | How long to remember "we searched, found nothing" |
 | `request_interval` | duration | no | `1s` | Minimum gap between HTTP requests |
 | `user_agent` | string | no | Chrome 131 UA | Custom `User-Agent` |
+| `details` | bool | no | `false` | Fetch the release page (codec, audio, ratings) even when the embedded 3D catalog answers |
+| `offline` | bool | no | `false` | Never contact Blu-ray.com; answer from the embedded 3D catalog only |
 
 ## Fields set on entry
 
-All fields are written only when the Blu-ray.com lookup succeeds. The entry is otherwise left untouched (no errors).
+Fields are written only when the lookup succeeds, from the embedded catalog or Blu-ray.com. The one exception is `bluray_3d_release=false`, set when the embedded catalog is sure no 3D Blu-ray exists. When the plugin cannot tell (a newer film offline, or a failed lookup), the entry is left untouched (no errors).
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -63,7 +65,9 @@ All fields are written only when the Blu-ray.com lookup succeeds. The entry is o
 
 ## Lookup strategy
 
-The plugin resolves entries in this order:
+**Embedded catalog first.** The plugin carries a snapshot of every 3D Blu-ray release Blu-ray.com lists worldwide (14,163 releases), treated as complete for films released before 2026. For those films it answers with no request at all: a listed film gets `bluray_3d_release=true` and the catalog release's ID, URL, studio, country, year, date and edition; an unlisted one gets `bluray_3d_release=false`. An entry that already carries a `bluray_id` the catalog holds is answered for that release. Titles match ignoring punctuation, a leading "The", an "Episode N -" prefix and the "4K + 3D" / "w/ ..." format suffixes, and number words read as digits ("The Fantastic 4" for "The Fantastic Four").
+
+Everything else (newer films, films with no known year, and every film when `details=True`) goes through the live lookup below, unless `offline=True`, which leaves them unset:
 
 1. **By ID** — if the entry already carries `bluray_id`, fetch the detail page directly.
 2. **From the local index** — look up the normalised title (with format tokens like " 3D" / " 4K" stripped) in the SQLite-backed `cache_bluray_index`. The `bluray_releases` source plugin populates this from monthly calendar passes, so common-case titles never trigger a search.

@@ -1557,10 +1557,14 @@ After DHT: <code>torrent_file_size</code>, <code>torrent_file_count</code>, <cod
   <tr><td><code>cache_index_ttl</code></td><td>no</td><td><code>720h</code></td><td>How long to cache the title→ID index</td></tr>
   <tr><td><code>cache_negative_ttl</code></td><td>no</td><td><code>168h</code></td><td>How long to remember "we searched, found nothing"</td></tr>
   <tr><td><code>request_interval</code></td><td>no</td><td><code>1s</code></td><td>Minimum gap between HTTP requests</td></tr>
-  <tr><td><code>user_agent</code></td><td>no</td><td>generic Chrome UA</td><td>Custom <code>User-Agent</code></td></tr>
+  <tr><td><code>user_agent</code></td><td>no</td><td>Chrome 131 UA</td><td>Custom <code>User-Agent</code></td></tr>
+  <tr><td><code>details</code></td><td>no</td><td><code>false</code></td><td>Fetch the release page (codec, audio, ratings) even when the embedded 3D catalog answers</td></tr>
+  <tr><td><code>offline</code></td><td>no</td><td><code>false</code></td><td>Never contact Blu-ray.com; answer from the embedded 3D catalog only</td></tr>
 </table>
 
 <h4>Lookup chain</h4>
+<p>The plugin carries a snapshot of every 3D Blu-ray release Blu-ray.com lists worldwide, treated as complete for films released before 2026. For those films the snapshot answers on its own, with no request to Blu-ray.com: a listed film gets <code>bluray_3d_release=true</code> and the release's ID, URL, studio, country, year, date and edition; an unlisted one gets <code>bluray_3d_release=false</code>. Titles are matched ignoring punctuation, a leading "The", an "Episode N –" prefix and the "4K + 3D" format suffix, and number words read as digits. Set <code>details=True</code> to fetch the release page anyway, for codec, audio and ratings.</p>
+<p>Newer films, films with no known year, and (with <code>details</code>) every film go through the live lookup, unless <code>offline=True</code>, which leaves them unset:</p>
 <ol>
   <li>If the entry already carries <code>bluray_id</code>, fetch the detail page directly.</li>
   <li>Otherwise look up the title in <code>cache_bluray_index</code> (populated by <code>bluray_releases</code> calendar passes).</li>
@@ -1569,7 +1573,8 @@ After DHT: <code>torrent_file_size</code>, <code>torrent_file_count</code>, <cod
 </ol>
 
 <h4>Fields set</h4>
-<p>On a successful lookup: <code>enriched</code> (<code>true</code>), <code>bluray_id</code>, <code>bluray_url</code>, <code>bluray_format</code>, <code>bluray_studio</code>, <code>bluray_country</code>, <code>bluray_year</code>, <code>bluray_release_date</code>, <code>bluray_runtime_minutes</code>, <code>bluray_codec</code> (e.g. <code>MPEG-4 MVC</code> for 3D), <code>bluray_resolution</code>, <code>bluray_aspect_ratio</code>, <code>bluray_edition</code>, <code>bluray_3d_release</code>, <code>bluray_is_3d_edition</code>.</p>
+<p>On a successful lookup: <code>enriched</code> (<code>true</code>), <code>bluray_id</code>, <code>bluray_url</code>, <code>bluray_format</code>, <code>bluray_studio</code>, <code>bluray_country</code>, <code>bluray_year</code>, <code>bluray_release_date</code>, <code>bluray_runtime_minutes</code>, <code>bluray_codec</code> (e.g. <code>MPEG-4 MVC</code> for 3D), <code>bluray_resolution</code>, <code>bluray_aspect_ratio</code>, <code>bluray_edition</code>, <code>bluray_3d_release</code>, <code>bluray_is_3d_edition</code>. The release page adds <code>bluray_parent_id</code>, <code>bluray_rated</code>, <code>bluray_hdr</code>, <code>bluray_audio</code>, <code>bluray_subtitles</code>, <code>bluray_playback</code>, <code>bluray_cover_url</code>, the three ratings, <code>bluray_native_3d</code> and <code>bluray_converted_3d</code>.</p>
+<p><code>bluray_3d_release</code> is <code>false</code> only when the catalog is sure; when the plugin cannot tell (a newer film offline, or a failed lookup) it is left unset. So <code>bluray_3d_release == false</code> refuses only films known to have no 3D Blu-ray, while <code>bluray_3d_release != true</code> also refuses the unknown ones.</p>
 
 <div class="note"><strong><code>bluray_3d_release</code> vs <code>video_is_3d</code>:</strong> <code>video_is_3d</code> means the release filename parses as 3D (set by <code>metainfo_file</code>); <code>bluray_3d_release</code> means Blu-ray.com actually has a 3D release for this movie. False here when <code>video_is_3d</code> is true is a strong signal the rip is fake or upscaled.</div>
 
