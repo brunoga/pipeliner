@@ -1,6 +1,6 @@
 # bluray_releases
 
-Scrapes the [Blu-ray.com](https://www.blu-ray.com/movies/releasedates.php) release calendar and emits one entry per release. Also implements `SearchPlugin` so it can be used as a search backend inside `discover(search=[...])` and as a title list inside `series.list=[...]` / `movies.list=[...]`.
+Parses the [Blu-ray.com](https://www.blu-ray.com/movies/releasedates.php) release calendar and emits one entry per release. Also implements `SearchPlugin` so it can be used as a search backend inside `discover(search=[...])` and as a title list inside `series.list=[...]` / `movies.list=[...]`.
 
 Calendar passes warm the local title-to-ID index that `metainfo_bluray` (and the plugin's own `Search` method) read from. The shared index means repeated runs almost never hit the search endpoint.
 
@@ -8,29 +8,31 @@ Calendar passes warm the local title-to-ID index that `metainfo_bluray` (and the
 
 | Key | Type | Required | Default | Description |
 |-----|------|----------|---------|-------------|
-| `country` | enum | no | `us` | Blu-ray.com locale (`us`, `uk`, `ca`, `au`, `de`, `fr`, `kr`) |
+| `country` | enum | no | `us` | Blu-ray.com locale (`us`, `uk`, `ca`, `au`, `de`, `fr`, `kr`, `jp`, `it`, `es`, `all`, etc.) |
 | `months` | int | no | `1` | Number of months back from current month to scan |
 | `from_year` / `from_month` | int | no | — | Explicit start month (overrides `months`) |
 | `to_year` / `to_month` | int | no | current | Explicit end month |
 | `formats` | list | no | `[BD, UHD, BD3D]` | Subset of formats to emit (aliases: `3D`=`BD3D`, `4K`=`UHD`) |
+| `embedded_3d` | bool | no | `false` | Emit the embedded worldwide 3D Blu-ray catalog (14,163 releases) in `Generate`, and consult it first in `Search` (authoritative for movie years `< 2026`, falling back to live search only for `>= 2026` or unknown years) |
 | `cache_ttl` | duration | no | `720h` | Title-index TTL (30 days) |
 | `cache_detail_ttl` | duration | no | `168h` | Release-detail TTL (7 days) |
 | `cache_negative_ttl` | duration | no | `168h` | Search-miss TTL (7 days) |
 | `request_interval` | duration | no | `1s` | Minimum gap between HTTP requests |
-| `user_agent` | string | no | generic Chrome UA | Custom `User-Agent` |
+| `user_agent` | string | no | Chrome 131 UA | Custom `User-Agent` |
 
 ## Fields set on entry
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `title` | string | Title as listed on the calendar, with any trailing " 3D" / " 4K" format token stripped (the format lives in `bluray_format`) |
+| `title` | string | Title as listed on the calendar/catalog, with any trailing " 3D" / " 4K" / " Blu-ray" format token stripped (the format lives in `bluray_format`) |
 | `movie_title` | string | Same as `title`; **deprecated** mirror — prefer `title` |
 | `media_type` | string | `"movie"` |
 | `source` | string | `"bluray_releases:<format>"` |
 | `bluray_id` | string | Numeric release ID |
 | `bluray_url` | string | Canonical detail-page URL |
 | `bluray_format` | string | `BD`, `UHD`, `BD3D`, or `DVD` |
-| `bluray_studio` | string | Distributing studio (when present in calendar row) |
+| `bluray_studio` | string | Distributing studio (when present) |
+| `bluray_country` | string | Release country code (e.g. `us`, `de`) when present |
 | `bluray_year` | int | Production year |
 | `video_year` | int | Same as `bluray_year` (mirror for downstream filters) |
 | `bluray_release_date` | string | `YYYY-MM-DD` |
@@ -136,5 +138,4 @@ That's ~180 monthly windows, ~3 minutes at the default 1 req/sec interval, and f
 ## Notes
 
 - The calendar page embeds the full month's release list as a JavaScript data dump, which is far more stable to parse than the surrounding DOM. Parsing is therefore tolerant to the site's frequent layout tweaks.
-- Blu-ray.com's `robots.txt` disallows `/search/`; this plugin uses it as a fallback inside `Search()` and relies on caching to keep request volume low. `Generate()` only ever hits `/movies/releasedates.php` (or `/3d/releasedates.php` in 3D-only mode), both of which are allowed.
 - All caches are persisted to the shared `pipeliner.db` so cold starts replay warmly.

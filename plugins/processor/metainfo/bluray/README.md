@@ -1,17 +1,17 @@
 # metainfo_bluray
 
-Enriches movie entries with metadata scraped from [Blu-ray.com](https://www.blu-ray.com/): release date, studio, codec, aspect ratio, and — most usefully — `bluray_3d_release`, a boolean that tells you whether a movie actually has a real 3D Blu-ray release in the catalog. This is the answer to "is the 3D label on this torrent real or a fake/upscale?"
+Enriches movie entries with metadata parsed from [Blu-ray.com](https://www.blu-ray.com/): release date, studio, codec, aspect ratio, and — most usefully — `bluray_3d_release`, a boolean that tells you whether a movie actually has a real 3D Blu-ray release in the catalog. This is the answer to "is the 3D label on this torrent real or a fake/upscale?"
 
 ## Config
 
 | Key | Type | Required | Default | Description |
 |-----|------|----------|---------|-------------|
-| `country` | enum | no | `us` | Blu-ray.com locale (`us`, `uk`, `ca`, `au`, `de`, `fr`, `kr`) |
+| `country` | enum | no | `us` | Blu-ray.com locale (`us`, `uk`, `ca`, `au`, `de`, `fr`, `kr`, `jp`, `it`, `es`, `all`, etc.) |
 | `cache_ttl` | duration | no | `168h` | How long to cache release-detail pages |
 | `cache_index_ttl` | duration | no | `720h` | How long to cache the title-to-ID index |
 | `cache_negative_ttl` | duration | no | `168h` | How long to remember "we searched, found nothing" |
 | `request_interval` | duration | no | `1s` | Minimum gap between HTTP requests |
-| `user_agent` | string | no | generic Chrome UA | Custom `User-Agent` |
+| `user_agent` | string | no | Chrome 131 UA | Custom `User-Agent` |
 
 ## Fields set on entry
 
@@ -21,6 +21,7 @@ All fields are written only when the Blu-ray.com lookup succeeds. The entry is o
 |-------|------|-------------|
 | `enriched` | bool | `true` — Blu-ray.com successfully resolved this entry |
 | `bluray_id` | string | Numeric release ID, e.g. `26954` |
+| `bluray_parent_id` | string | Master theatrical movie ID, e.g. `128351` |
 | `bluray_url` | string | Canonical detail-page URL |
 | `bluray_format` | string | `BD`, `UHD`, `BD3D`, or `DVD` |
 | `bluray_studio` | string | Distributing studio, e.g. `20th Century Fox` |
@@ -28,10 +29,21 @@ All fields are written only when the Blu-ray.com lookup succeeds. The entry is o
 | `bluray_year` | int | Production year |
 | `bluray_release_date` | string | `YYYY-MM-DD` |
 | `bluray_runtime_minutes` | int | Runtime in minutes |
+| `bluray_rated` | string | Content rating, e.g. `Rated PG-13` |
 | `bluray_codec` | string | Video codec, e.g. `MPEG-4 MVC` (the 3D codec), `HEVC`, `AVC` |
 | `bluray_resolution` | string | e.g. `1080p`, `2160p` |
 | `bluray_aspect_ratio` | string | e.g. `1.78:1` |
+| `bluray_hdr` | string | HDR specification, e.g. `HDR10, Dolby Vision` |
 | `bluray_edition` | string | Edition tag from the page title, e.g. `Limited 3D Edition` |
+| `bluray_audio` | string_list | Audio track descriptions |
+| `bluray_subtitles` | string_list | Subtitle languages |
+| `bluray_playback` | string | Region playback compatibility, e.g. `2K Blu-ray: Region A (locked)` |
+| `bluray_cover_url` | string | Cover image URL |
+| `bluray_rating` | float | Movie score out of 10 |
+| `bluray_review_rating` | float | Official review overall score out of 5 |
+| `bluray_user_rating` | float | User overall score out of 5 |
+| `bluray_native_3d` | bool | True when theatrical technical details state `Native 3D` |
+| `bluray_converted_3d` | bool | True when theatrical technical details state `Converted 3D` |
 | `bluray_3d_release` | bool | **The movie has a real 3D Blu-ray release in the catalog.** |
 | `bluray_is_3d_edition` | bool | This specific release IS the 3D edition (format=BD3D or codec=MPEG-4 MVC) |
 
@@ -54,9 +66,9 @@ All fields are written only when the Blu-ray.com lookup succeeds. The entry is o
 The plugin resolves entries in this order:
 
 1. **By ID** — if the entry already carries `bluray_id`, fetch the detail page directly.
-2. **From the local index** — look up the normalised title (with format tokens like " 3D" / " 4K" stripped) in the SQLite-backed `cache_bluray_index`. The `bluray_releases` source plugin populates this from monthly calendar scrapes, so common-case titles never trigger a search.
+2. **From the local index** — look up the normalised title (with format tokens like " 3D" / " 4K" stripped) in the SQLite-backed `cache_bluray_index`. The `bluray_releases` source plugin populates this from monthly calendar passes, so common-case titles never trigger a search.
 3. **Negative cache** — if a recent search returned zero hits for this title, skip.
-4. **Live search** — fall back to `/search/` on Blu-ray.com. Successful results are written through to `cache_bluray_index`; empty results are written to `cache_bluray_search_neg`. Subsequent runs hit the cache.
+4. **Live search + embedded 3D catalog** — fall back to `/search/` on Blu-ray.com and merge any matches from the embedded worldwide 3D Blu-ray catalog (14,163 releases). For current/future titles (`year >= 2026` or unknown year) not yet in the embedded snapshot, the plugin also queries Blu-ray.com's theatrical master release list (`/products/menu_ajax.php`) to discover newly announced 3D editions. Successful results are written through to `cache_bluray_index`; empty results are written to `cache_bluray_search_neg`. Subsequent runs hit the cache.
 
 Both caches use the SQLite store at `pipeliner.db` and persist across restarts.
 
@@ -80,5 +92,4 @@ pipeline("real-3d-only", schedule="1h")
 ## Notes
 
 - The plugin is most effective when paired with `bluray_releases` on a weekly schedule, which warms `cache_bluray_index` so detail lookups skip the search step.
-- Blu-ray.com's `robots.txt` disallows `/search/`; this plugin uses it anyway and relies on aggressive caching to keep request volume low.
 - Failures (network errors, 404s, unparseable pages) are logged at WARN and the entry is passed through unchanged. The pipeline does not fail.

@@ -188,16 +188,14 @@ func TestProcess_SearchMissCachesNegative(t *testing.T) {
 	}
 }
 
-// TestProcess_SoftBlockDoesNotCacheNegative confirms that a 200 response with
-// a body that does not look like a search results page (e.g. a Cloudflare
-// interstitial, an anti-bot challenge, or a markup change we have not adapted
-// to) is treated as a search failure — surfaced as a Warn log and NOT written
-// to the negative cache. Otherwise a single bad scrape window would poison
-// the cache for the negative TTL (default 168h).
-func TestProcess_SoftBlockDoesNotCacheNegative(t *testing.T) {
+// TestProcess_NonSearchPageDoesNotCacheNegative confirms that a 200 response with
+// a body that does not look like a search results page (e.g. an unexpected error
+// page or a markup change we have not adapted to) is treated as a search failure —
+// surfaced as a Warn log and NOT written to the negative cache.
+func TestProcess_NonSearchPageDoesNotCacheNegative(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// HTTP 200 with body that lacks the "<title>Blu-ray.com - Search"
-		// marker — simulates a soft block.
+		// marker — simulates an unexpected page.
 		w.Write([]byte(`<html><head><title>Just a moment...</title></head>` +
 			`<body>Checking your browser</body></html>`))
 	}))
@@ -209,10 +207,10 @@ func TestProcess_SoftBlockDoesNotCacheNegative(t *testing.T) {
 		t.Fatalf("Process: %v", err)
 	}
 	if _, ok := pp.negCache.Get(indexKey("Avatar")); ok {
-		t.Error("negCache populated despite soft-block response; should NOT cache negative")
+		t.Error("negCache populated despite non-search response; should NOT cache negative")
 	}
 	if _, ok := e.Fields[entry.FieldBlurayID]; ok {
-		t.Error("bluray_id set despite soft-block; entry should be untouched")
+		t.Error("bluray_id set despite non-search response; entry should be untouched")
 	}
 }
 
@@ -262,6 +260,166 @@ func TestValidate_RejectsUnknownKeys(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("validate: expected unknown-key error, got %v", errs)
+	}
+}
+
+func TestProcess_ExtendedFieldsAndCheckMovieHas3DFallback(t *testing.T) {
+	// Simulate a 2026 movie where quicksearch (/search/?section=bluraymovies) returns
+	// empty and the embedded 3D catalog does not yet have it, so metainfo_bluray falls
+	// back to CheckMovieHas3D (theatrical search -> movie detail -> /products/menu_ajax.php)
+	// and then fetches the release detail.
+	theatricalHTML := `<!DOCTYPE html><html><head><title>Blu-ray.com - Search</title></head><body>
+<h4>1 match for "Custom3DMovie"</h4>
+<div class="figure">
+	<a class="alphaborder hoverlink" data-globalproductid="128351" href="https://www.blu-ray.com/Custom3DMovie/128351/" alt="Custom3DMovie (2026)"></a>
+	<div class="figurecaptiontop"><span class="fa fa-star"> 8.1</span></div>
+	<div class="figurecaptionbottom"><div>Custom3DMovie</div><div>2026</div></div>
+</div>
+</body></html>`
+
+	movieHTML := `<!DOCTYPE html><html><body>
+<div class="blackbox"><h1 class="eurostile">Custom3DMovie</h1><font class="oswald">2026</font></div>
+<div id="content_overview">
+	<table>
+		<tr><td class="specmenu">Technical details</td><td class="specitem">2.39:1<br><span>Native 3D, 110 mins</span><br></td></tr>
+	</table>
+</div>
+</body></html>`
+
+	releasesAllHTML := `<table><tr><td>
+<h3>3D Blu-ray Editions (1)</h3><br>
+<img src="https://images.static-bluray.com/flags/DE.png" title="Germany">
+<a href="https://www.blu-ray.com/movies/Custom3DMovie-3D-Blu-ray/999888/" title="Custom3DMovie 3D">Custom3DMovie 3D</a>
+<small style="color: #999999">Turbine Medien</small><br>
+</td></tr></table>`
+
+	releaseDetailHTML := `<!DOCTYPE html><html><body>
+<table><tr><td width="518">
+<a class="black noline" data-globalparentid="128351" href="https://www.blu-ray.com/Custom3DMovie/128351/"><h1>Custom3DMovie 3D Blu-ray</h1></a><img src="https://images.static-bluray.com/flags/DE.png" title="Germany">
+</td></tr></table>
+<span class="subheadingtitle">Blu-ray 3D + Blu-ray</span>
+<span class="subheading grey">Turbine Medien | 2026 | 110 min | Rated PG-13 | Jan 15, 2026</span>
+<img class="coverfront" id="frontimage_overlay" src="https://images.static-bluray.com/movies/covers/999888_medium.jpg">
+<table><tr>
+<td width="228px">
+	<span class="subheading">Video</span><br>
+	Codec: MPEG-4 MVC (28.00 Mbps)<br>
+	Resolution: 1080p<br>
+	Aspect ratio: 2.39:1<br>
+	<span class="subheading">Audio</span><br>
+	<div id="longaudio">English: Dolby Atmos<br>German: DTS-HD Master Audio 5.1<br>(less)</div>
+	<span class="subheading">Subtitles</span><br>
+	<div id="longsubs">English, German (less)</div>
+	<span class="subheading">Discs</span><br>
+	Blu-ray 3D<br>Single disc (1 BD-50)<br>
+	<span class="subheading">Playback</span><br>
+	2K Blu-ray: Region free<br>
+</td>
+<td width="266px">
+	<div id="ratingscore_128351_0">8.1</div>
+	<div id="review_rating"><table><tr><td>Overall</td><td></td><td><b>4.5</b></td></tr></table></div>
+	<div id="user_rating"><table><tr><td>Overall</td><td></td><td><b>4.3</b></td></tr></table></div>
+</td>
+</tr></table>
+</body></html>`
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/search/":
+			if r.URL.Query().Get("section") == "theatrical" {
+				w.Write([]byte(theatricalHTML))
+				return
+			}
+			w.Write([]byte(`<html><head><title>Blu-ray.com - Search</title></head><body>No results.</body></html>`))
+		case "/Movie/128351/", "/Custom3DMovie/128351/":
+			w.Write([]byte(movieHTML))
+		case "/products/menu_ajax.php":
+			w.Write([]byte(releasesAllHTML))
+		case "/movies/Custom3DMovie-3D-Blu-ray/999888/":
+			w.Write([]byte(releaseDetailHTML))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	p, err := newPlugin(map[string]any{"country": "all"}, tempStore(t))
+	if err != nil {
+		t.Fatalf("newPlugin: %v", err)
+	}
+	pp := p.(*processorPlugin)
+	pp.client = ibluray.New(
+		ibluray.WithBaseURL(srv.URL),
+		ibluray.WithRequestInterval(0),
+		ibluray.WithCountry("all"),
+	)
+
+	e := entry.New("Custom3DMovie (2026)", "https://example.com/custom3d")
+	e.Set(entry.FieldVideoYear, 2026)
+
+	_, err = pp.Process(context.Background(), taskCtx(), []*entry.Entry{e})
+	if err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+
+	if got := e.GetString(entry.FieldBlurayID); got != "999888" {
+		t.Errorf("bluray_id: got %q, want 999888", got)
+	}
+	if got := e.GetString(entry.FieldBlurayParentID); got != "128351" {
+		t.Errorf("bluray_parent_id: got %q, want 128351", got)
+	}
+	if got, _ := e.Fields[entry.FieldBlurayNative3D].(bool); !got {
+		t.Errorf("bluray_native_3d: got false, want true")
+	}
+	if got, _ := e.Fields[entry.FieldBluray3DRelease].(bool); !got {
+		t.Errorf("bluray_3d_release: got false, want true")
+	}
+	if got, _ := e.Fields[entry.FieldBlurayAudio].([]string); len(got) != 2 {
+		t.Errorf("bluray_audio: got %v, want 2 tracks", got)
+	}
+	if got, _ := e.Fields[entry.FieldBluraySubtitles].([]string); len(got) != 2 {
+		t.Errorf("bluray_subtitles: got %v, want 2 languages", got)
+	}
+	if got := e.GetString(entry.FieldBlurayPlayback); got != "2K Blu-ray: Region free" {
+		t.Errorf("bluray_playback: got %q, want '2K Blu-ray: Region free'", got)
+	}
+	if got, _ := e.Fields[entry.FieldBlurayRating].(float64); got != 8.1 {
+		t.Errorf("bluray_rating: got %v, want 8.1", got)
+	}
+	if got, _ := e.Fields[entry.FieldBlurayReviewRating].(float64); got != 4.5 {
+		t.Errorf("bluray_review_rating: got %v, want 4.5", got)
+	}
+	if got, _ := e.Fields[entry.FieldBlurayUserRating].(float64); got != 4.3 {
+		t.Errorf("bluray_user_rating: got %v, want 4.3", got)
+	}
+}
+
+func TestProcess_Embedded3DRescueWhenCountrySearchEmpty(t *testing.T) {
+	// Even if country-scoped /search/ returns 0 hits and detail fetch 404s,
+	// a title present in the embedded worldwide 3D catalog (e.g. Dredd 2012)
+	// must be rescued from the embedded catalog and NOT negative-cached.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/search/" {
+			w.Write([]byte(`<html><head><title>Blu-ray.com - Search</title></head><body>No results.</body></html>`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	pp := newProcessor(t, srv.URL)
+	e := entry.New("Dredd (2012)", "https://example.com/dredd")
+	e.Set(entry.FieldVideoYear, 2012)
+
+	_, err := pp.Process(context.Background(), taskCtx(), []*entry.Entry{e})
+	if err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	if got, _ := e.Fields[entry.FieldBluray3DRelease].(bool); !got {
+		t.Error("bluray_3d_release: got false, want true (rescued from embedded 3D catalog)")
+	}
+	if _, neg := pp.negCache.Get(indexKey("Dredd")); neg {
+		t.Error("negCache populated for Dredd despite embedded 3D catalog match")
 	}
 }
 
