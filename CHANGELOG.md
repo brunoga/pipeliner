@@ -5,6 +5,29 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.70.0] - 2026-10-26
+
+### Added
+
+- **A worldwide 3D Blu-ray catalog built into the Blu-ray.com plugins** ([#655](https://github.com/brunoga/pipeliner/pull/655)). `metainfo_bluray` and `bluray_releases` now carry an embedded snapshot of every 3D Blu-ray release Blu-ray.com lists worldwide: 14,163 releases of about 3,000 films, cut down to ID, title, edition, country, studio, year and date. `bluray_3d_release` is answered from the snapshot first. For films released before 2026 it is treated as complete, so a miss means no 3D Blu-ray exists and no request is made. Newer films and films with no known year still fall back to a live search. `bluray_releases` gains `embedded_3d=True`, which emits the snapshot as entries without touching the network.
+- **More Blu-ray.com detail on each entry** ([#655](https://github.com/brunoga/pipeliner/pull/655)). `metainfo_bluray` parses more of the release and film pages and sets:
+  - `bluray_parent_id`
+  - `bluray_rated`
+  - `bluray_hdr`
+  - `bluray_audio` and `bluray_subtitles`
+  - `bluray_playback` (region)
+  - `bluray_cover_url`
+  - `bluray_rating`, `bluray_review_rating` and `bluray_user_rating`
+  - `bluray_native_3d` and `bluray_converted_3d`, from the film page's 3D notes
+
+  When a release has no 3D sibling in the index, the film's full edition list is checked too.
+
+### Changed
+
+- **The Blu-ray.com client sends a full browser request profile** ([#655](https://github.com/brunoga/pipeliner/pull/655)): Chrome client hints and fetch-metadata headers, a session cookie jar with an optional homepage warm-up, and jittered rate limiting. `country` accepts every Blu-ray.com locale, plus `all` for worldwide results.
+
+**Why 1.70.0**: new data and fields in two plugins; existing configs keep working unchanged.
+
 ## [1.69.2] - 2026-10-25
 
 ### Fixed
