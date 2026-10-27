@@ -84,6 +84,25 @@ func TestCatalogMatchesReleaseTitleForms(t *testing.T) {
 	}
 }
 
+func TestCatalogMatchesNumberedReleaseNames(t *testing.T) {
+	srv, hits := recordingServer(t)
+	pp := newProcessor(t, srv.URL)
+	// No TMDb title: the name parses to "Star Wars VII The Force Awakens".
+	for _, name := range []string{
+		"Star Wars VII The Force Awakens 2015 PROPER BD25 1080p 3D Blu ray Re Encoded MVC",
+		"Star Wars Episode VII The Force Awakens 2015 1080p BluRay 3D MVC",
+	} {
+		e := movie(name, "", 2015)
+		run(t, pp, e)
+		if v, _ := e.Fields[entry.FieldBluray3DRelease].(bool); !v {
+			t.Errorf("%s: no 3D Blu-ray found; the catalog lists The Force Awakens", name)
+		}
+	}
+	if n := hits.Load(); n != 0 {
+		t.Errorf("made %d requests", n)
+	}
+}
+
 func TestCatalogKeepsTheEntrysOwnRelease(t *testing.T) {
 	srv, hits := recordingServer(t)
 	pp := newProcessor(t, srv.URL)
