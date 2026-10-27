@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.71.1] - 2026-10-27
+
+### Fixed
+
+- **`metainfo_bluray` matches numbered release names in the 3D catalog** ([#661](https://github.com/brunoga/pipeliner/pull/661)). The first live dry run with the catalog refused "Star Wars VII The Force Awakens … MVC" as having no 3D Blu-ray: without TMDb's title upstream, the release name keeps its numeral, which the catalog's "Star Wars: Episode VII - The Force Awakens" never matched. A miss is now retried with the numeral removed, as `metainfo_3d` does.
+
+**Why 1.71.1**: a matching fix.
+
 ## [1.71.0] - 2026-10-26
 
 ### Added
