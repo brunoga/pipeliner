@@ -29,6 +29,7 @@ package bluray
 
 import (
 	"context"
+	"regexp"
 	"strings"
 	"time"
 
@@ -271,6 +272,14 @@ func (p *processorPlugin) answerFromCatalog(tc *plugin.TaskContext, e *entry.Ent
 		return false
 	}
 	hits := p.catalog3D.LookupTitle(title, year, bluray.CountryAll)
+	if len(hits) == 0 {
+		// "Star Wars VII The Force Awakens" is listed as "Star Wars:
+		// Episode VII - The Force Awakens" and "Star Wars: The Force
+		// Awakens"; without TMDb's title upstream, try it unnumbered.
+		if ep := reNumbered.FindStringSubmatch(title); ep != nil {
+			hits = p.catalog3D.LookupTitle(ep[1]+" "+ep[2], year, bluray.CountryAll)
+		}
+	}
 	if len(hits) == 0 {
 		e.Set(entry.FieldBluray3DRelease, false)
 		tc.Logger.Debug("metainfo_bluray: no 3D Blu-ray in the catalog", "title", title, "year", year)
@@ -572,6 +581,10 @@ func (p *processorPlugin) populate(tc *plugin.TaskContext, e *entry.Entry, r *bl
 }
 
 // ---------- helpers ----------
+
+// reNumbered splits a title around an episode number or a bare Roman
+// numeral after its first words: "Star Wars VII The Force Awakens".
+var reNumbered = regexp.MustCompile(`(?i)^(.+?)\s+(?:episode\s+(?:[ivx]+|\d+)|[ivx]+)\s+(.+)$`)
 
 func searchTitle(e *entry.Entry) string {
 	if v, _ := e.Fields[entry.FieldMovieTitle].(string); v != "" {
