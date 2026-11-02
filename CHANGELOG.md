@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.71.2] - 2026-11-02
+
+### Fixed
+
+- **`library` grades full-frame 3D files per eye** ([#663](https://github.com/brunoga/pipeliner/pull/663)). A full side-by-side 1080p file is a 3840x1080 frame, and Plex grades resolution by width, so it reported such files as "4k". The 3D library therefore read as 2160p, and every 1080p 3D release of a film it held was refused ("already in library at 2160p"). Plex listings now also read the frame's width and height. A frame 3:1 or wider, or narrower than 1.25:1, holds two views and is graded by one of them; every other Plex item keeps Plex's own resolution. Jellyfin, which grades by height, had the same problem with full over-under (1920x2160). It now also reads the width and takes the larger of the two classes, so a scope 1080p film (1920x800) is 1080p rather than 720p.
+
+**Why 1.71.2**: a bug fix.
+
 ## [1.71.1] - 2026-10-27
 
 ### Fixed
