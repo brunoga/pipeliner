@@ -246,6 +246,8 @@ func (c *plexClient) ListItems(ctx context.Context) ([]Item, error) {
 					} `json:"Guid"`
 					Media []struct {
 						VideoResolution string `json:"videoResolution"`
+						Width           int    `json:"width"`
+						Height          int    `json:"height"`
 						VideoCodec      string `json:"videoCodec"`
 						AudioCodec      string `json:"audioCodec"`
 						AudioProfile    string `json:"audioProfile"`
@@ -276,6 +278,12 @@ func (c *plexClient) ListItems(ctx context.Context) ([]Item, error) {
 			var res, vc, ac, ap string
 			if len(m.Media) > 0 {
 				res = normalizeResolution(m.Media[0].VideoResolution)
+				// Plex grades a frame by its width, which makes a full-SBS
+				// 1080p file "4k". Only a packed frame is regraded; anything
+				// else keeps Plex's own answer.
+				if w, h := m.Media[0].Width, m.Media[0].Height; framePacked(w, h) {
+					res = frameResolution(w, h)
+				}
 				vc = m.Media[0].VideoCodec
 				ac = m.Media[0].AudioCodec
 				ap = m.Media[0].AudioProfile
@@ -590,6 +598,7 @@ type jellyfinItem struct {
 	ProductionYear    int    `json:"ProductionYear"`
 	MediaStreams      []struct {
 		Type           string `json:"Type"`
+		Width          int    `json:"Width"`
 		Height         int    `json:"Height"`
 		Codec          string `json:"Codec"`
 		Profile        string `json:"Profile"`
@@ -625,6 +634,9 @@ func (c *jellyfinClient) itemsFrom(raw []jellyfinItem, section string, seriesTVD
 			case "Video":
 				if res == "" && s.Height > 0 {
 					res = normalizeResolution(fmt.Sprint(heightBucket(s.Height)))
+					if s.Width > 0 {
+						res = frameResolution(s.Width, s.Height)
+					}
 					vc = s.Codec
 					cr = jellyfinVideoRange(s.VideoRangeType)
 				}
@@ -650,6 +662,58 @@ func (c *jellyfinClient) itemsFrom(raw []jellyfinItem, section string, seriesTVD
 		}
 	}
 	return items
+}
+
+// frameResolution grades a video by its frame size, after undoing full-frame
+// 3D packing.
+//
+// A full side-by-side 1080p file is 3840x1080 and a full over-under one is
+// 1920x2160: one 1080p view per eye, but a frame a server grades as 4K --
+// Plex's videoResolution goes by width, a Jellyfin height by height. Graded
+// that way, a 3D library reads as 2160p and no 1080p 3D release can ever
+// replace or upgrade a copy in it. No 2D film is 3:1 or wider, nor narrower
+// than 1.25:1 (4:3 is 1.33), so a frame past either is two views and is
+// graded by one of them.
+//
+// The class is the larger of the width's and the height's, so a scope film
+// (1920x800) is 1080p rather than the 720p its height alone would say.
+// Returns "" when either dimension is unknown.
+func frameResolution(w, h int) string {
+	if w <= 0 || h <= 0 {
+		return ""
+	}
+	switch {
+	case w >= 3*h:
+		w /= 2
+	case 4*w < 5*h:
+		h /= 2
+	}
+	b := heightBucket(h)
+	if wb := widthBucket(w); wb > b {
+		b = wb
+	}
+	return normalizeResolution(strconv.Itoa(b))
+}
+
+// framePacked reports whether a w x h frame holds two full-resolution views
+// (see frameResolution).
+func framePacked(w, h int) bool {
+	return w > 0 && h > 0 && (w >= 3*h || 4*w < 5*h)
+}
+
+// widthBucket maps a video width in pixels onto the nearest standard
+// resolution class (2160/1080/720/480).
+func widthBucket(w int) int {
+	switch {
+	case w >= 3200:
+		return 2160
+	case w >= 1700:
+		return 1080
+	case w >= 1200:
+		return 720
+	default:
+		return 480
+	}
 }
 
 // heightBucket maps a video height in pixels onto the nearest standard
