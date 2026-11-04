@@ -1360,3 +1360,40 @@ func TestFilterWithoutAnIDIsUnchanged(t *testing.T) {
 		t.Errorf("tracked under %q, want tomb raider (title match)", got)
 	}
 }
+
+// TestFilterStampsTheListedShowsID: a release that names no year ("Brothers
+// S01E08 ... TURG") is matched to the listed show by title, and that show's id
+// goes onto the entry. Without it metainfo_tvdb searched TheTVDB for "Brothers",
+// took the 1984 sitcom, and the episode was filed under its name and poster.
+func TestFilterStampsTheListedShowsID(t *testing.T) {
+	le := entry.New("Brothers", "")
+	le.Set("tvdb_id", "448114")
+	p := openWithFrom(t, &mockInput{entries: []*entry.Entry{le}})
+
+	e := makeEntry("Brothers.S01E08.1080p.ATVP.WEB-DL.DUAL.DDP5.1.Atmos.H.264-TURG", "http://x.com/a")
+	p.filter(context.Background(), makeCtx(), e)
+	if !e.IsAccepted() {
+		t.Fatalf("episode should be accepted: %s", e.RejectReason)
+	}
+	if got := entry.TVDBID(e); got != "448114" {
+		t.Errorf("tvdb_id = %q, want the listed show's 448114", got)
+	}
+}
+
+// TestFilterKeepsAnIDTheEntryAlreadyHas: an id pipeliner resolved upstream
+// (series_gaps names the series it found a gap in) is not overwritten.
+func TestFilterKeepsAnIDTheEntryAlreadyHas(t *testing.T) {
+	le := entry.New("Severance", "")
+	le.Set("tvdb_id", "371980")
+	p := openWithFrom(t, &mockInput{entries: []*entry.Entry{le}})
+
+	e := makeEntry("Severance.S02E01.1080p.WEB-DL", "http://x.com/a")
+	e.Set("tvdb_id", "999999")
+	p.filter(context.Background(), makeCtx(), e)
+	if !e.IsAccepted() {
+		t.Fatalf("episode should be accepted: %s", e.RejectReason)
+	}
+	if got := entry.TVDBID(e); got != "999999" {
+		t.Errorf("tvdb_id = %q, want the entry's own 999999", got)
+	}
+}
