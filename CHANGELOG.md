@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.72.1] - 2026-11-04
+
+### Fixed
+
+- **`quality` names the failing dimension in its rejection reason** ([#668](https://github.com/brunoga/pipeliner/pull/668)). "1080p H.265 does not match spec "720p-1080p hdtv+"" was the whole message for "American Dad S04E16 1080p HEVC x265-MeGusta", and it reads as a match. What failed was the source, which the release never states and which therefore does not appear in the quality string. The reason now lists each failed dimension with what was detected and what the spec needs: "source not stated, needs HDTV+ (a trailing ? accepts an unstated one)".
+
+**Why 1.72.1**: a message fix.
+
 ## [1.72.0] - 2026-11-04
 
 ### Added
