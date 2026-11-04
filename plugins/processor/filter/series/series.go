@@ -68,6 +68,8 @@ func init() {
 		Produces: []string{
 			entry.FieldMediaType,
 		},
+		// Set when the matched list show carries a TheTVDB id.
+		MayProduce:  []string{"tvdb_id"},
 		Factory:     newPlugin,
 		Validate:    validate,
 		AcceptsList: true,
@@ -268,6 +270,16 @@ func (p *seriesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *en
 		showName = show.Norm
 		if show.Year != 0 {
 			year = show.Year
+		}
+		// The list knows which show it means; the release name may not.
+		// "Brothers S01E08 ... TURG" names no year, and a TheTVDB search for
+		// "Brothers" answers with the 1984 sitcom, so metainfo_tvdb filed the
+		// episode under that show's name and poster, and dedup, which tells
+		// shows apart by id, kept it alongside the right copy. Stamping the
+		// listed show's id lets metainfo_tvdb resolve by id instead. An id
+		// pipeliner already resolved (series_gaps) is left alone.
+		if _, has := e.Get("tvdb_id"); !has && show.TVDBID != "" {
+			e.Set("tvdb_id", show.TVDBID)
 		}
 	}
 
