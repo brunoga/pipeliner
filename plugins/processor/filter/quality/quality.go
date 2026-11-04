@@ -19,6 +19,7 @@ package quality
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/plugin"
@@ -91,8 +92,27 @@ func (p *qualityPlugin) Process(_ context.Context, _ *plugin.TaskContext, entrie
 			continue
 		}
 		if !p.spec.Matches(q) {
-			e.Reject(fmt.Sprintf("quality: %s does not match spec %q", q.String(), p.specStr))
+			e.Reject(fmt.Sprintf("quality: %s does not match spec %q: %s", q.String(), p.specStr, whyNot(p.spec, q)))
 		}
 	}
 	return entry.PassThrough(entries), nil
+}
+
+// whyNot names the dimensions q failed. The quality string alone hides the
+// usual cause: "1080p H.265" against "720p-1080p hdtv+" reads as a match,
+// because what failed is the source the release never stated, and a
+// dimension with nothing detected does not appear in the string at all.
+func whyNot(s quality.Spec, q quality.Quality) string {
+	var parts []string
+	for _, d := range s.Explain(q).Dimensions {
+		if d.Passed {
+			continue
+		}
+		if d.Value == "unknown" {
+			parts = append(parts, fmt.Sprintf("%s not stated, needs %s (a trailing ? accepts an unstated one)", d.Name, d.Constraint))
+		} else {
+			parts = append(parts, fmt.Sprintf("%s %s, needs %s", d.Name, d.Value, d.Constraint))
+		}
+	}
+	return strings.Join(parts, "; ")
 }

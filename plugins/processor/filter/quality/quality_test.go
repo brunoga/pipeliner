@@ -98,3 +98,22 @@ func TestAlreadyRejectedEntryIgnored(t *testing.T) {
 		t.Errorf("reject reason changed: %q", e.RejectReason)
 	}
 }
+
+// The reason names the dimension that failed. "1080p H.265 does not match
+// spec \"720p-1080p hdtv+\"" was the whole message for a release that states
+// no source, which reads as if it should have matched.
+func TestRejectReasonNamesTheFailingDimension(t *testing.T) {
+	cases := []struct{ title, spec, want string }{
+		{"American Dad S04E16 1080p HEVC x265-MeGusta", "720p-1080p hdtv+",
+			`quality: 1080p H.265 does not match spec "720p-1080p hdtv+": source not stated, needs HDTV+ (a trailing ? accepts an unstated one)`},
+		{"Show S01E01 2160p WEB-DL", "720p-1080p webrip+",
+			`quality: 2160p WEB-DL does not match spec "720p-1080p webrip+": resolution 2160p, needs 720p-1080p`},
+	}
+	for _, c := range cases {
+		e := entryAt(c.title, quality.Parse(c.title))
+		runFilter(t, map[string]any{"spec": c.spec}, e)
+		if e.RejectReason != c.want {
+			t.Errorf("%s:\n got  %s\n want %s", c.title, e.RejectReason, c.want)
+		}
+	}
+}
