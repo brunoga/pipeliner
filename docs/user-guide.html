@@ -1743,6 +1743,8 @@ Because the verdict lands before <a href="#dedup"><code>dedup</code></a>, a refu
   <tr><td><code>on_missing</code></td><td>no</td><td><code>pass</code></td><td><code>pass</code> lets entries without <code>_quality</code> through; <code>reject</code> drops them</td></tr>
 </table>
 
+<p>The rejection reason names each dimension that failed, with what was detected and what the spec needs. A dimension the release name never states is reported that way: <em>quality: 1080p H.265 does not match spec "720p-1080p hdtv+": source not stated, needs HDTV+ (a trailing ? accepts an unstated one)</em>. Many re-encodes (<em>American Dad S04E16 1080p HEVC x265-MeGusta</em>) carry no source tag, so a floor written <code>hdtv+</code> refuses them all and <code>hdtv+?</code> lets them through.</p>
+
 <pre><code>src    = input("rss", url="https://feed.example.com/rss")
 meta   = process("metainfo_file", upstream=src)
 q      = process("quality", upstream=meta, spec="720p+")
