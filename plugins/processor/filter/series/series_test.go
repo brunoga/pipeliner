@@ -1397,3 +1397,77 @@ func TestFilterKeepsAnIDTheEntryAlreadyHas(t *testing.T) {
 		t.Errorf("tvdb_id = %q, want the entry's own 999999", got)
 	}
 }
+
+// TestCommitRecordsTheListedShowsID: the id the decision was made with is
+// written to the tracker record, so later releases can be checked against it
+// even where no list supplies one.
+func TestCommitRecordsTheListedShowsID(t *testing.T) {
+	le := entry.New("Brothers", "")
+	le.Set("tvdb_id", "448114")
+	p := openWithFrom(t, &mockInput{entries: []*entry.Entry{le}})
+	tc := makeCtx()
+
+	e := makeEntry("Brothers.2026.S01E08.1080p.ATVP.WEB-DL-playWEB", "http://x.com/a")
+	p.filter(context.Background(), tc, e)
+	if !e.IsAccepted() {
+		t.Fatalf("episode should be accepted: %s", e.RejectReason)
+	}
+	// metainfo_tvdb runs between filter and commit and may rewrite tvdb_id;
+	// the record takes the id the decision used, not that one.
+	e.Set("tvdb_id", "71477")
+	if err := p.Commit(context.Background(), tc, []*entry.Entry{e}); err != nil {
+		t.Fatal(err)
+	}
+	key, _ := e.SeriesTrackerKey()
+	rec, ok := p.tracker.Get(key.Show, key.EpisodeID)
+	if !ok {
+		t.Fatal("episode should be tracked")
+	}
+	if rec.TVDBID != "448114" {
+		t.Errorf("record TVDBID = %q, want 448114", rec.TVDBID)
+	}
+}
+
+// TestRecordedIDStampsLaterReleases: a static list carries no ids, so the
+// one an earlier download recorded is what identifies the show.
+func TestRecordedIDStampsLaterReleases(t *testing.T) {
+	p := openPlugin(t, nil)
+	if err := p.tracker.Mark(series.Record{SeriesName: "my show", EpisodeID: "S01E01", DownloadedAt: time.Now(), TVDBID: "1234"}); err != nil {
+		t.Fatal(err)
+	}
+	e := makeEntry("My.Show.S01E02.720p.HDTV", "http://x.com/a")
+	p.filter(context.Background(), makeCtx(), e)
+	if !e.IsAccepted() {
+		t.Fatalf("episode should be accepted: %s", e.RejectReason)
+	}
+	if got := e.GetString("tvdb_id"); got != "1234" {
+		t.Errorf("tvdb_id = %q, want the recorded 1234", got)
+	}
+}
+
+// TestRejectsAReleaseTheIndexerSaysIsAnotherShow: a same-named show matches
+// by title, but the indexer's id says which show the file is.
+func TestRejectsAReleaseTheIndexerSaysIsAnotherShow(t *testing.T) {
+	le := entry.New("Brothers", "")
+	le.Set("tvdb_id", "448114")
+	for _, c := range []struct {
+		claim  any
+		accept bool
+	}{
+		{"71477", false}, // the 1984 sitcom
+		{"448114", true},
+		{448114, true},
+		{"0", true}, // torznab's "unknown"
+		{nil, true},
+	} {
+		p := openWithFrom(t, &mockInput{entries: []*entry.Entry{le}})
+		e := makeEntry("Brothers.S01E08.1080p.WEB-DL-GRP", "http://x.com/a")
+		if c.claim != nil {
+			e.Set("jackett_tvdb_id", c.claim)
+		}
+		p.filter(context.Background(), makeCtx(), e)
+		if e.IsAccepted() != c.accept {
+			t.Errorf("claim %v: accepted = %v, want %v (%s)", c.claim, e.IsAccepted(), c.accept, e.RejectReason)
+		}
+	}
+}

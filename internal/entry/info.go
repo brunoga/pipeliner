@@ -212,6 +212,13 @@ const (
 	FieldSeriesTrackerEpisode   = "_series_tracker_episode"
 	FieldSeriesTrackerDouble    = "_series_tracker_double_episode"
 
+	// FieldSeriesTrackerTVDBID carries the TheTVDB id the series filter knows
+	// the matched show by, from the list or from the tracker's own records, to
+	// commit, which records it. Never an id metainfo_tvdb resolved by name
+	// search: that runs downstream and can land on a same-named show, and a
+	// wrong id recorded here would then refuse the right show's releases.
+	FieldSeriesTrackerTVDBID = "_series_tracker_tvdb_id"
+
 	// FieldMoviesTrackerYear and FieldMoviesTrackerIs3D complete the movies
 	// tracker key alongside FieldMoviesTrackerTitle, carrying the year and 3D
 	// flag the filter actually decided with.

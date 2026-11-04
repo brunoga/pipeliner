@@ -34,6 +34,8 @@ Where the release carries a `tvdb_id` and a listed show publishes the same one, 
 
 A *mismatching* id never rules a show out. An id is only as trustworthy as whatever supplied it: `series_gaps` asked for a specific show, but `metainfo_tvdb` resolves one from the release name by search and can land on the wrong series. The id only ever adds an answer the titles could not give, so a pipeline with no id upstream behaves exactly as before.
 
+Once matched, the show has an id of its own: the one the list published for it, else the one its earlier downloads were recorded with (each tracker record stores it). That id is set as `tvdb_id` on an entry that has none, so `metainfo_tvdb` resolves the show by id rather than by name — `Brothers S01E08` names no year, and TheTVDB answers a search for `Brothers` with the 1984 sitcom. A release whose indexer published a different id (`jackett_tvdb_id`) is rejected as a same-named show. Only list ids and recorded ids count; an id `metainfo_tvdb` found by name search is never recorded, since a wrong one would then refuse the right show's releases.
+
 Episodes are looked up under every tracker key that spells the show (`brothers` and `brothers 2026` alike), so records written under an older spelling keep counting. New records go to the name+year key when that already exists, otherwise to an existing spelling (preferring one with a year), and for a new show to name+year.
 
 ## Config
