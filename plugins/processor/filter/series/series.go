@@ -22,6 +22,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/brunoga/pipeliner/internal/cache"
@@ -259,6 +260,7 @@ func (p *seriesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *en
 	// checks, with no title matching. The show is identified by the parsed
 	// name so dedup and upgrade detection still work across runs.
 	showName := parsedName
+	var knownID string
 	if p.hasList() {
 		show, ok := matchShow(parsedName, year, entry.TVDBID(e), p.resolveShows(ctx, tc))
 		if !ok {
@@ -271,16 +273,7 @@ func (p *seriesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *en
 		if show.Year != 0 {
 			year = show.Year
 		}
-		// The list knows which show it means; the release name may not.
-		// "Brothers S01E08 ... TURG" names no year, and a TheTVDB search for
-		// "Brothers" answers with the 1984 sitcom, so metainfo_tvdb filed the
-		// episode under that show's name and poster, and dedup, which tells
-		// shows apart by id, kept it alongside the right copy. Stamping the
-		// listed show's id lets metainfo_tvdb resolve by id instead. An id
-		// pipeliner already resolved (series_gaps) is left alone.
-		if _, has := e.Get("tvdb_id"); !has && show.TVDBID != "" {
-			e.Set("tvdb_id", show.TVDBID)
-		}
+		knownID = show.TVDBID
 	}
 
 	// The same show is spelled with and without its year by releases and by
@@ -291,6 +284,32 @@ func (p *seriesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *en
 		return nil
 	}
 	matchedShow := ref.Key
+
+	// The id the show is known by: the list's, else the one its earlier
+	// downloads were recorded with. The name alone is ambiguous — "Brothers"
+	// is three shows on TheTVDB.
+	if knownID == "" {
+		knownID = p.tracker.KnownTVDBID(ref.Keys...)
+	}
+	if knownID != "" {
+		// An indexer that publishes an id for the release is saying which
+		// show the file is. When that is not the show we follow, the title
+		// match was a same-named show.
+		if claim := releaseTVDBID(e); claim != "" && claim != knownID {
+			e.Reject(fmt.Sprintf("series: release is TheTVDB %s, not %s (%s)", claim, matchedShow, knownID))
+			return nil
+		}
+		// "Brothers S01E08 ... TURG" names no year, and a TheTVDB search for
+		// "Brothers" answers with the 1984 sitcom: metainfo_tvdb filed the
+		// episode under that show's name and poster, and dedup, which tells
+		// shows apart by id, kept it beside the right copy. With the id on
+		// the entry metainfo_tvdb resolves by id instead. An id pipeliner
+		// already resolved (series_gaps) is left alone.
+		if _, has := e.Get("tvdb_id"); !has {
+			e.Set("tvdb_id", knownID)
+		}
+		e.Set(entry.FieldSeriesTrackerTVDBID, knownID)
+	}
 
 	// Stamp the full tracker key for persist() to read back at commit time, so
 	// we don't have to re-resolve the show list there — and, for the episode
@@ -428,6 +447,7 @@ func (p *seriesPlugin) persist(_ context.Context, tc *plugin.TaskContext, entrie
 			Quality:      q,
 			DownloadedAt: time.Now(),
 			Repack:       e.GetBool(entry.FieldVideoProper) || e.GetBool(entry.FieldVideoRepack),
+			TVDBID:       e.GetString(entry.FieldSeriesTrackerTVDBID),
 		}
 		// Build a minimal Episode for MarkWithParts so double-episode releases
 		// also mark each individual part. MarkWithParts only consults Season,
@@ -473,6 +493,20 @@ func (p *seriesPlugin) resolveShows(ctx context.Context, tc *plugin.TaskContext)
 		func(src string) ([]match.TitleEntry, bool) { return p.listCache.Get(src) },
 		func(src string, v []match.TitleEntry) { p.listCache.Set(src, v) },
 	)
+}
+
+// releaseTVDBID returns the TheTVDB id the indexer published for the
+// release, or "" when it published none. Torznab feeds send 0 for "unknown".
+func releaseTVDBID(e *entry.Entry) string {
+	v, ok := e.Get("jackett_tvdb_id")
+	if !ok {
+		return ""
+	}
+	s := strings.TrimSpace(fmt.Sprint(v))
+	if s == "0" {
+		return ""
+	}
+	return s
 }
 
 // matchShow returns the configured show that parsed (with the year the

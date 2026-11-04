@@ -30,6 +30,11 @@ type Record struct {
 	// default to false, which costs one extra re-download in the worst case.
 	Repack bool `json:"repack,omitempty"`
 
+	// TVDBID is the TheTVDB id the show was known by when this episode was
+	// downloaded: the list's, or one an earlier record held. Empty when
+	// nothing trustworthy named it, and on records written before it existed.
+	TVDBID string `json:"tvdb_id,omitempty"`
+
 	// Prev is the record this one replaced: one level of undo, so a failed
 	// grab can be rolled back to the download that preceded it instead of
 	// erasing the episode's history. Nil for a first download.
@@ -271,6 +276,31 @@ func (t *Tracker) Latest(seriesNames ...string) (*Record, bool) {
 		}
 	}
 	return latest, latest != nil
+}
+
+// KnownTVDBID returns the TheTVDB id the most recent record of the given
+// series carries, or "" when none does. Several names (the keys of one
+// ShowRef) are searched together.
+func (t *Tracker) KnownTVDBID(seriesNames ...string) string {
+	all, err := t.bucket.All()
+	if err != nil {
+		return ""
+	}
+	var best *Record
+	for k, raw := range all {
+		rec, ok := recordFor(k, raw, seriesNames)
+		if !ok || rec.TVDBID == "" {
+			continue
+		}
+		if best == nil || rec.DownloadedAt.After(best.DownloadedAt) {
+			r := rec
+			best = &r
+		}
+	}
+	if best == nil {
+		return ""
+	}
+	return best.TVDBID
 }
 
 // ShowSummary aggregates the tracker's per-episode records for one show.

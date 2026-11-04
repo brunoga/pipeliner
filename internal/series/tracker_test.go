@@ -441,3 +441,24 @@ func TestUntrackGrab(t *testing.T) {
 		}
 	})
 }
+
+func TestKnownTVDBIDTakesTheMostRecentRecordWithOne(t *testing.T) {
+	tr := openTracker(t)
+	now := time.Now()
+	for _, r := range []Record{
+		{SeriesName: "brothers", EpisodeID: "S01E01", DownloadedAt: now.Add(-3 * time.Hour), TVDBID: "111"},
+		{SeriesName: "brothers", EpisodeID: "S01E02", DownloadedAt: now.Add(-2 * time.Hour), TVDBID: "448114"},
+		{SeriesName: "brothers", EpisodeID: "S01E03", DownloadedAt: now.Add(-1 * time.Hour)}, // pre-dates the field
+		{SeriesName: "other", EpisodeID: "S01E01", DownloadedAt: now, TVDBID: "999"},
+	} {
+		if err := tr.Mark(r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := tr.KnownTVDBID("brothers"); got != "448114" {
+		t.Errorf("KnownTVDBID = %q, want 448114", got)
+	}
+	if got := tr.KnownTVDBID("nobody"); got != "" {
+		t.Errorf("KnownTVDBID(unknown) = %q, want empty", got)
+	}
+}
