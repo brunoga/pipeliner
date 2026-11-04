@@ -5,6 +5,18 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.72.0] - 2026-11-04
+
+### Added
+
+- **`series` tracks each show's TheTVDB id and refuses other shows' releases** ([#666](https://github.com/brunoga/pipeliner/pull/666)). A series record now stores the id the show was known by when the episode was downloaded: the list's id, or one an earlier record held. That id is set as `tvdb_id` on releases that carry none, so `metainfo_tvdb` resolves the show by id even with a static list. A release whose indexer published a different `jackett_tvdb_id` is rejected as a same-named show ("series: release is TheTVDB 71477, not brothers (448114)"). An id `metainfo_tvdb` found by name search is never recorded, since a wrong one would then refuse the right show's releases.
+
+### Fixed
+
+- **`series` stamps the matched list show's TheTVDB id** ([#665](https://github.com/brunoga/pipeliner/pull/665)). "Brothers S01E08 … TURG" names no year, so `metainfo_tvdb` searched TheTVDB for "Brothers" and took the 1984 sitcom. The episode was filed under that show's folder and poster, and `dedup`, which separates shows by id, downloaded it next to the correct copy. The id from the favourites list is now on the entry before `metainfo_tvdb` runs.
+
+**Why 1.72.0**: the id check is new filter behaviour; the stamp is the bug fix it builds on.
+
 ## [1.71.2] - 2026-11-02
 
 ### Fixed
