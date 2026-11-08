@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.72.2] - 2026-11-08
+
+### Fixed
+
+- **HDR and HDR10 rank the same** ([#671](https://github.com/brunoga/pipeliner/pull/671)). The quality ladder put `HDR` below `HDR10`, though HDR10 is the base layer of every HDR release and the two words describe the same picture. `movies` therefore downloaded "The Odyssey 2026 2160p UHD Blu-ray Remux HEVC HDR10 DTS-HD MA 5 1-SPHD" as an upgrade over the CiNEPHiLES remux named "HDR", and the two were the same file. Dolby Vision still ranks above both, and a `hdr10` spec now accepts a release named "HDR".
+
+**Why 1.72.2**: a ranking fix.
+
 ## [1.72.1] - 2026-11-04
 
 ### Fixed
