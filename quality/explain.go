@@ -53,15 +53,15 @@ func (s Spec) Explain(q Quality) SpecResult {
 		opt           bool
 		render        func(int) string
 		// rank orders the values. Source, Audio and Format3D have values
-		// appended after their ladder was set, so their stored integers are
-		// not their order; Matches compares ranks, and so must this.
+		// appended after their ladder was set, and HDR and HDR10 share a
+		// rank, so their stored integers are not their order; Matches compares ranks, and so must this.
 		rank func(int) int
 	}{
 		{"resolution", int(s.MinResolution), int(s.MaxResolution), int(q.Resolution), int(ResolutionUnknown), s.OptResolution, func(v int) string { return resolutionNames[Resolution(v)] }, identity},
 		{"source", int(s.MinSource), int(s.MaxSource), int(q.Source), int(SourceUnknown), s.OptSource, func(v int) string { return sourceNames[Source(v)] }, func(v int) int { return Source(v).rank() }},
 		{"codec", int(s.MinCodec), int(s.MaxCodec), int(q.Codec), int(CodecUnknown), s.OptCodec, func(v int) string { return codecNames[Codec(v)] }, identity},
 		{"audio", int(s.MinAudio), int(s.MaxAudio), int(q.Audio), int(AudioUnknown), s.OptAudio, func(v int) string { return audioNames[Audio(v)] }, func(v int) int { return Audio(v).rank() }},
-		{"color_range", int(s.MinColorRange), int(s.MaxColorRange), int(q.ColorRange), int(ColorRangeUnknown), s.OptColorRange, func(v int) string { return colorRangeNames[ColorRange(v)] }, identity},
+		{"color_range", int(s.MinColorRange), int(s.MaxColorRange), int(q.ColorRange), int(ColorRangeUnknown), s.OptColorRange, func(v int) string { return colorRangeNames[ColorRange(v)] }, func(v int) int { return ColorRange(v).rank() }},
 		{"format_3d", int(s.MinFormat3D), int(s.MaxFormat3D), int(q.Format3D), int(Format3DNone), s.OptFormat3D, func(v int) string { return format3DNames[Format3D(v)] }, func(v int) int { return Format3D(v).rank() }},
 	}
 

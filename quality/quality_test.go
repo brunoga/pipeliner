@@ -2341,13 +2341,13 @@ func TestMVHEVCDetection(t *testing.T) {
 		"AVPR: Aliens vs Predator   Requiem 2007 3D Convert MVC DTSHD 5 1": Format3DConv,
 		// Alien vs. Predator in 2D: "AVP" with no Apple container.
 		"AVP Double Feature (Alien vs Predator / Aliens vs Predator: Requiem) 10Bit BluRay 1080p Dts-HDMa5 1 H265-d3g": Format3DNone,
-		"Barboskiny 2011-2012 DVDRip_[New-team]_by_AVP_Studio":                                                     Format3DNone,
+		"Barboskiny 2011-2012 DVDRip_[New-team]_by_AVP_Studio":                                                         Format3DNone,
 		// "Spatial" outside a Vision Pro name.
 		"Label: Spatial (58 releases), 2022-2026, FLAC (tracks), lossless": Format3DNone,
 		"Spatial Analysis and Geospatial Data Science With Python":         Format3DNone,
 		// Found by the same searches, matched on "Vision".
 		"Pet Sematary 1989 2160p UHD Blu ray Remux HEVC DoVi DD+ 5 1   SumVision": Format3DNone,
-		"Prophecy (1979) 4K Dolby Vision Full Disc bluto":                        Format3DNone,
+		"Prophecy (1979) 4K Dolby Vision Full Disc bluto":                         Format3DNone,
 		// Plain HEVC is not multiview.
 		"Avatar The Way of Water 2022 2160p WEB DL DDP 5 1 Atmos DV HDR10 HEVC  CMRG": Format3DNone,
 	}
@@ -2459,5 +2459,47 @@ func TestNativeBeatsUpscaleOfTheSameDetail(t *testing.T) {
 	}
 	if got := up.String(); !strings.Contains(got, "1080p Upscaled") {
 		t.Errorf("String() = %q, want it to say the release is a 1080p upscale", got)
+	}
+}
+
+// "HDR" and "HDR10" in a release name describe the same picture: two remuxes
+// of The Odyssey's UHD disc, one named each way, were the same file, and the
+// "HDR10" one was downloaded again as an upgrade.
+func TestBetterHDRAndHDR10AreTheSame(t *testing.T) {
+	hdr := Parse("The Odyssey 2026 2160p UHD Blu-ray Remux HDR HEVC DTS-HD MA 5 1-CiNEPHiLES")
+	hdr10 := Parse("The Odyssey 2026 2160p UHD Blu-ray Remux HEVC HDR10 DTS-HD MA 5 1-SPHD")
+	if hdr.ColorRange != ColorRangeHDR || hdr10.ColorRange != ColorRangeHDR10 {
+		t.Fatalf("parsed %v / %v, want HDR / HDR10", hdr.ColorRange, hdr10.ColorRange)
+	}
+	if hdr10.Better(hdr) || hdr.Better(hdr10) {
+		t.Errorf("HDR and HDR10 copies of the same disc rank apart")
+	}
+	dv := Parse("The Odyssey 2026 2160p UHD Blu-ray Remux DV HEVC DTS-HD MA 5 1-X")
+	if !dv.Better(hdr10) || !dv.Better(hdr) {
+		t.Errorf("Dolby Vision no longer outranks HDR")
+	}
+	sdr := Parse("The Odyssey 2026 2160p UHD Blu-ray Remux SDR HEVC DTS-HD MA 5 1-X")
+	if !hdr.Better(sdr) {
+		t.Errorf("HDR no longer outranks SDR")
+	}
+}
+
+func TestSpecHDR10AcceptsPlainHDR(t *testing.T) {
+	hdr := Parse("Film 2026 2160p BluRay HDR x265")
+	for _, spec := range []string{"hdr10", "hdr10+", "hdr"} {
+		s, err := ParseSpec(spec)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !s.Matches(hdr) {
+			t.Errorf("spec %q refuses a release named HDR", spec)
+		}
+		if !s.Explain(hdr).Matched {
+			t.Errorf("spec %q: Explain disagrees with Matches", spec)
+		}
+	}
+	dv, _ := ParseSpec("dv")
+	if dv.Matches(hdr) {
+		t.Errorf("spec dv accepts a release named HDR")
 	}
 }
