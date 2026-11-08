@@ -201,6 +201,20 @@ const (
 	ColorRangeDolbyVision
 )
 
+// colorRangeRank orders the colour ranges. HDR and HDR10 share a rank: HDR10
+// is the base layer of every HDR release, so a name saying "HDR" and one
+// saying "HDR10" describe the same picture, and ranking them apart made a
+// renamed remux of the same disc an upgrade.
+var colorRangeRank = map[ColorRange]int{
+	ColorRangeUnknown:     0,
+	ColorRangeSDR:         1,
+	ColorRangeHDR:         2,
+	ColorRangeHDR10:       2,
+	ColorRangeDolbyVision: 3,
+}
+
+func (c ColorRange) rank() int { return colorRangeRank[c] }
+
 var colorRangeNames = map[ColorRange]string{
 	ColorRangeUnknown:     "",
 	ColorRangeSDR:         "SDR",
@@ -438,8 +452,8 @@ func (q Quality) Better(other Quality) bool {
 	if q.Codec != other.Codec {
 		return q.Codec > other.Codec
 	}
-	if q.ColorRange != other.ColorRange {
-		return q.ColorRange > other.ColorRange
+	if q.ColorRange.rank() != other.ColorRange.rank() {
+		return q.ColorRange.rank() > other.ColorRange.rank()
 	}
 	if q.Audio.rank() != other.Audio.rank() {
 		return q.Audio.rank() > other.Audio.rank()
@@ -949,10 +963,10 @@ func (s Spec) Matches(q Quality) bool {
 		}
 	}
 	if !(s.OptColorRange && q.ColorRange == ColorRangeUnknown) {
-		if s.MinColorRange > 0 && q.ColorRange < s.MinColorRange {
+		if s.MinColorRange > 0 && q.ColorRange.rank() < s.MinColorRange.rank() {
 			return false
 		}
-		if s.MaxColorRange > 0 && q.ColorRange > s.MaxColorRange {
+		if s.MaxColorRange > 0 && q.ColorRange.rank() > s.MaxColorRange.rank() {
 			return false
 		}
 	}
