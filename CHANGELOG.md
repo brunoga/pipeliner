@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.72.3] - 2026-11-11
+
+### Fixed
+
+- **HTTP tracker scrapes stay under 2 KB** ([#673](https://github.com/brunoga/pipeliner/pull/673)). A scrape carried up to 70 info hashes, a 4.4 KB URL, and 3dtorrents' tracker resets the connection on any URL over 4107 bytes. On 3d-mvc the first chunk failed every night, so 72 of 88 torrents came back with an unknown seed count instead of 0, and `torrent_alive` let dead swarms through to the probe, which spent 3 minutes on each. An HTTP request now also stops at a 2 KB URL, about 30 hashes.
+
+**Why 1.72.3**: a scrape fix.
+
 ## [1.72.2] - 2026-11-08
 
 ### Fixed
