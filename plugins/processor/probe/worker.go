@@ -3,7 +3,9 @@ package probe
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
+	"runtime/debug"
 	"slices"
 	"sort"
 	"strconv"
@@ -109,6 +111,7 @@ func (s jobSettings) prober(verdicts store.Bucket, template *probePlugin) *probe
 		probeImage:    template.probeImage,
 		probeMatroska: template.probeMatroska,
 		probeMP4:      template.probeMP4,
+		probeM2TS:     template.probeM2TS,
 	}
 }
 
@@ -409,7 +412,7 @@ func (w *Worker) work(ctx context.Context, j job) {
 		Logger: w.logger.With("pipeline", strings.Join(j.Pipelines, ",")),
 	}
 
-	res, pieces, bytes, swarm, err := w.probe(ctx, p, tc, e)
+	res, pieces, bytes, swarm, err := w.safeProbe(ctx, p, tc, e)
 	if ctx.Err() != nil {
 		// The daemon is stopping. Nothing was learned about the swarm, so
 		// the job stays exactly as it was.
@@ -452,6 +455,21 @@ func (w *Worker) work(ctx context.Context, j job) {
 	_ = w.queue.Delete(j.InfoHash)
 	w.logger.Info(pluginName+": background probe gave up", append([]any{
 		"entry", j.Title, "err", err, "attempts", j.Attempts}, swarm.logArgs()...)...)
+}
+
+// safeProbe is w.probe with a panic turned into a failed probe. The worker
+// runs in the daemon's own process and a job stays queued until it is
+// settled, so a panic in one probe crashed the daemon on that job after every
+// restart: 1.73.0 did, on a nil reader, until it was rolled back. As a
+// failure the job takes the ordinary retry and give-up path instead.
+func (w *Worker) safeProbe(ctx context.Context, p *probePlugin, tc *plugin.TaskContext, e *entry.Entry) (res *mvcprobe.Result, pieces int, bytes int64, swarm *SwarmReport, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			w.logger.Error(pluginName+": background probe panicked", "entry", e.Title, "panic", r, "stack", string(debug.Stack()))
+			res, pieces, bytes, swarm, err = nil, 0, 0, nil, fmt.Errorf("probe panicked: %v", r)
+		}
+	}()
+	return w.probe(ctx, p, tc, e)
 }
 
 func decodeJob(raw []byte, j *job) error { return json.Unmarshal(raw, j) }

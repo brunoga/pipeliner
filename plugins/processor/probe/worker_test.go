@@ -3,7 +3,9 @@ package probe
 import (
 	"context"
 	"os"
+	"reflect"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -454,5 +456,42 @@ func TestTheWorkerKeepsItsClientBetweenJobs(t *testing.T) {
 	}
 	if len(w.held) != 0 {
 		t.Errorf("held = %v after release", w.held)
+	}
+}
+
+// TestJobProberKeepsEveryReader: a job's probe is rebuilt field by field from
+// the template, and a reader left out is a nil func the first job of that
+// container calls. 1.73.0 added probeM2TS to defaults but not here, and the
+// daemon panicked on the first queued .m2ts -- and again on every restart,
+// since the job was still queued.
+func TestJobProberKeepsEveryReader(t *testing.T) {
+	tmpl := defaults()
+	got := reflect.ValueOf(jobSettings{}.prober(nil, tmpl)).Elem()
+	want := reflect.ValueOf(tmpl).Elem()
+	for i := range want.NumField() {
+		f := want.Type().Field(i)
+		if f.Type.Kind() == reflect.Func && !want.Field(i).IsNil() && got.Field(i).IsNil() {
+			t.Errorf("a job's probe has no %s", f.Name)
+		}
+	}
+}
+
+// TestAPanickingProbeIsAFailedAttempt: a panic in one job must not take the
+// daemon down -- with the job still queued, it went down again on every
+// restart. It is spent as an attempt, like any other failure.
+func TestAPanickingProbeIsAFailedAttempt(t *testing.T) {
+	db := verdictStore(t)
+	runAs(t, background(t, db, nil), "p", false, hashEntry("Remux 2015 3D MVC", "ppp"))
+	w := testWorker(t, db, &fakeSwarm{}, newClock(), &triggers{})
+	w.probe = func(context.Context, *probePlugin, *plugin.TaskContext, *entry.Entry) (*mvcprobe.Result, int, int64, *SwarmReport, error) {
+		var f func()
+		f() // the 1.73.0 crash: a nil reader
+		return nil, 0, 0, nil, nil
+	}
+	j, _ := queued(t, db, "ppp")
+	w.work(context.Background(), j)
+	got, found := queued(t, db, "ppp")
+	if !found || got.Attempts != 1 || !strings.Contains(got.LastErr, "panicked") {
+		t.Errorf("after a panic: found=%v attempts=%d err=%q, want a failed attempt", found, got.Attempts, got.LastErr)
 	}
 }
