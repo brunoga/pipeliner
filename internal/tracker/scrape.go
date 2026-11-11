@@ -244,9 +244,16 @@ func doScrapeUDP(ctx context.Context, ih [20]byte, announceURL string) (int, err
 // entries from one tracker become ~30 requests instead of 2000.
 
 // maxHashesPerScrape caps hashes per request: the UDP response is 8+12·N
-// bytes and must fit a typical MTU, and huge HTTP query strings risk server
-// URL-length limits.
+// bytes and must fit a typical MTU.
 const maxHashesPerScrape = 70
+
+// maxScrapeURLLen caps an HTTP scrape URL, which a hash count alone does not:
+// each escaped hash is up to 60 bytes, so 70 of them make a 4.4 KB URL, and
+// 3dtorrents' tracker resets the connection on any URL over 4107 bytes (a
+// 4 KB request line). Every full chunk failed there after the timeout, its
+// torrents came back unknown rather than dead, and torrent_alive let them
+// through. 2048 is the length servers commonly accept.
+const maxScrapeURLLen = 2048
 
 // ScrapeBatch returns seeder counts for the given info hashes from a single
 // tracker, chunking into requests of at most maxHashesPerScrape hashes. The
@@ -276,24 +283,40 @@ func ScrapeBatch(ctx context.Context, infoHashesHex []string, announceURL string
 		return nil, fmt.Errorf("tracker: no valid info hashes")
 	}
 
+	lower := strings.ToLower(announceURL)
+	isHTTP := strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://")
+	if !isHTTP && !strings.HasPrefix(lower, "udp://") {
+		return nil, fmt.Errorf("unsupported scheme in %q", announceURL)
+	}
+	var bounds []int
+	if isHTTP {
+		scrapeURL, err := announceToScrapeURL(announceURL)
+		if err != nil {
+			return nil, err
+		}
+		bounds = httpChunkBounds(scrapeURL, hashes)
+	} else {
+		for start := maxHashesPerScrape; start < len(hashes); start += maxHashesPerScrape {
+			bounds = append(bounds, start)
+		}
+		bounds = append(bounds, len(hashes))
+	}
+
 	out := make(map[string]int, len(hashes))
 	var lastErr error
 	okChunks := 0
-	for start := 0; start < len(hashes); start += maxHashesPerScrape {
-		end := min(start+maxHashesPerScrape, len(hashes))
+	start := 0
+	for _, end := range bounds {
 		chunk := hashes[start:end]
 		chunkHex := hexByIdx[start:end]
+		start = end
 
 		var res map[string]int
 		var err error
-		lower := strings.ToLower(announceURL)
-		switch {
-		case strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://"):
+		if isHTTP {
 			res, err = scrapeHTTPBatch(ctx, chunk, chunkHex, announceURL)
-		case strings.HasPrefix(lower, "udp://"):
+		} else {
 			res, err = scrapeUDPBatch(ctx, chunk, chunkHex, announceURL)
-		default:
-			return nil, fmt.Errorf("unsupported scheme in %q", announceURL)
 		}
 		if err != nil {
 			lastErr = err
@@ -308,6 +331,25 @@ func ScrapeBatch(ctx context.Context, infoHashesHex []string, announceURL string
 		return nil, fmt.Errorf("tracker: batch scrape failed: %w", lastErr)
 	}
 	return out, nil
+}
+
+// httpChunkBounds splits hashes into HTTP scrape requests, returning each
+// chunk's end index. A chunk holds at most maxHashesPerScrape hashes and is
+// cut early when its URL would pass maxScrapeURLLen; a chunk always holds at
+// least one hash, however long the scrape URL itself is.
+func httpChunkBounds(scrapeURL string, hashes [][20]byte) []int {
+	var bounds []int
+	n, length := 0, len(scrapeURL)
+	for i, ih := range hashes {
+		add := len("?info_hash=") + len(url.QueryEscape(string(ih[:])))
+		if n > 0 && (n == maxHashesPerScrape || length+add > maxScrapeURLLen) {
+			bounds = append(bounds, i)
+			n, length = 0, len(scrapeURL)
+		}
+		n++
+		length += add
+	}
+	return append(bounds, len(hashes))
 }
 
 func scrapeHTTPBatch(ctx context.Context, chunk [][20]byte, chunkHex []string, announceURL string) (map[string]int, error) {

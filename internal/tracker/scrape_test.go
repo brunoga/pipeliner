@@ -322,11 +322,13 @@ func TestScrapeBatchHTTP(t *testing.T) {
 }
 
 func TestScrapeBatchChunks(t *testing.T) {
-	// 150 hashes → 3 requests of ≤70.
+	// 150 hashes → several requests, each within the URL and hash caps.
 	var requests []int
+	var longest int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hs := r.URL.Query()["info_hash"]
 		requests = append(requests, len(hs))
+		longest = max(longest, len("http://"+r.Host+r.RequestURI))
 		resp := "d5:filesd"
 		for _, h := range hs {
 			resp += fmt.Sprintf("%d:%s", len(h), h) + "d8:completei5e10:downloadedi0e10:incompletei0ee"
@@ -345,14 +347,64 @@ func TestScrapeBatchChunks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(requests) != 3 || requests[0] != 70 || requests[1] != 70 || requests[2] != 10 {
+	total := 0
+	for _, n := range requests {
+		if n > maxHashesPerScrape {
+			t.Errorf("a request carried %d hashes, cap is %d", n, maxHashesPerScrape)
+		}
+		total += n
+	}
+	if total != 150 || len(requests) < 3 {
 		t.Errorf("chunking: %v", requests)
+	}
+	if longest > maxScrapeURLLen {
+		t.Errorf("longest scrape URL is %d bytes, cap is %d", longest, maxScrapeURLLen)
 	}
 	if len(m) != 150 {
 		t.Errorf("results: got %d, want 150", len(m))
 	}
 	if m[hashes[42]] != 5 {
 		t.Errorf("hash 42: %d", m[hashes[42]])
+	}
+}
+
+// 3dtorrents' tracker resets the connection on a URL over 4107 bytes. 70
+// hashes that escape to 60 bytes each make 4.4 KB, so the first chunk of an
+// 88-entry run failed and 72 dead torrents came back unknown instead of 0.
+func TestScrapeBatchFitsATrackerWithA4KBRequestLine(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if len("http://"+r.Host+r.RequestURI) > 4107 {
+			hj, _ := w.(http.Hijacker)
+			conn, _, _ := hj.Hijack()
+			_ = conn.Close()
+			return
+		}
+		resp := "d5:filesd"
+		for _, h := range r.URL.Query()["info_hash"] {
+			resp += fmt.Sprintf("%d:%s", len(h), h) + "d8:completei0e10:downloadedi81e10:incompletei0ee"
+		}
+		resp += "ee"
+		fmt.Fprint(w, resp)
+	}))
+	defer srv.Close()
+
+	// Bytes outside the unreserved set escape to %XX, the worst case.
+	hashes := make([]string, 88)
+	for i := range hashes {
+		b := bytes.Repeat([]byte{0x80 + byte(i)}, 20)
+		hashes[i] = fmt.Sprintf("%x", b)
+	}
+	m, err := ScrapeBatch(context.Background(), hashes, srv.URL+"/a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6/announce")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(m) != 88 {
+		t.Errorf("answered %d of 88", len(m))
+	}
+	for _, h := range hashes {
+		if s, ok := m[h]; !ok || s != 0 {
+			t.Fatalf("%s: seeds=%d known=%v, want a known 0", h, s, ok)
+		}
 	}
 }
 
