@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.73.1] - 2026-11-11
+
+### Fixed
+
+- **The background probe worker has the transport stream reader, and survives a panic** ([#678](https://github.com/brunoga/pipeliner/pull/678)). 1.73.0 gave the probe its new `.m2ts` reader, but the background worker rebuilds each job's probe field by field and left the reader out. The first queued `.m2ts` called a nil function and panicked the daemon. The job was still queued, so the daemon panicked again after every restart until it was rolled back. The worker now has the reader. A panic in one job is logged with its stack and counted as a failed attempt, so the daemon stays up.
+
+**Why 1.73.1**: 1.73.0 must not be run; this is its fix.
+
 ## [1.73.0] - 2026-11-11
 
 ### Added
