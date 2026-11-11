@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.73.0] - 2026-11-11
+
+### Added
+
+- **`probe` reads bare transport streams** ([#675](https://github.com/brunoga/pipeliner/pull/675)). A main file ending in `.m2ts`, `.mts` or `.ts` is now read by bdtools v0.19.0's transport stream reader, which takes the program table from the file's first piece. A stream of type 0x20, the MVC dependent view, gives `probe_3d_layout == "mvc"`; a plain AVC, HEVC or VC-1 stream gives `2d`. The result reports `probe_kind == "m2ts"`, codecs and languages, but no duration or picture size. These files used to go to the disc image reader, which can only fail on them, so "San Andreas … MVC Remux", shipped as one `.m2ts`, timed out its probe on 3d-mvc every night. A BDMV-folder torrent is now read by its main clip as well.
+
+**Why 1.73.0**: a new container the probe can read.
+
 ## [1.72.3] - 2026-11-11
 
 ### Fixed
