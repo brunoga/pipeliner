@@ -6,7 +6,7 @@ A release name is not evidence. `COMPLETE BLURAY FULL-SBS` is a side-by-side re-
 
 A Blu-ray image keeps its UDF directory at the front and its BDMV metadata — playlists, clip info — at the **end**, with the interleaved stream filling everything between. A Matroska file names its tracks in its first kilobytes. An MP4 or QuickTime file keeps every track's description in its movie box, which sits before or after the media data. So this plugin fetches the first and last piece of the release's main file, hands them to the pure-Go container readers in [brunoga/bdtools](https://github.com/brunoga/bdtools), and stamps what came back.
 
-The main file is the torrent's largest, and its extension picks the reader: `.mkv`/`.mk3d`/`.webm` Matroska, `.mp4`/`.mov`/`.m4v` MP4, anything else a disc image. A release packaged as a folder — a Vision Pro `.mov` beside an `.nfo` and a sample — is read at that file's place in the torrent; the reader used to be chosen by the torrent's name, which a folder does not end in an extension.
+The main file is the torrent's largest, and its extension picks the reader: `.mkv`/`.mk3d`/`.webm` Matroska, `.mp4`/`.mov`/`.m4v` MP4, `.m2ts`/`.mts`/`.ts` a bare transport stream (read from its program table: 3D when it carries an MVC dependent view, no duration or picture size), anything else a disc image. A release packaged as a folder — a Vision Pro `.mov` beside an `.nfo` and a sample — is read at that file's place in the torrent; the reader used to be chosen by the torrent's name, which a folder does not end in an extension.
 
 **MV-HEVC** (Apple's spatial video, for Vision Pro and Quest) is read from an MP4's layered video configuration and reported as `probe_3d_layout == "mv-hevc"` — the same word the name parser writes into `video_3d_layout`, so a rule can compare claim and container directly.
 
@@ -36,7 +36,7 @@ All are `MayProduce`: a probe can fail, and a container can decline to state a t
 | Field | Type | Description |
 |-------|------|-------------|
 | `probe_ok` | bool | The probe succeeded; the rest are only meaningful when this is true |
-| `probe_kind` | string | `disc`, `matroska` or `mp4` |
+| `probe_kind` | string | `disc`, `matroska`, `mp4` or `m2ts` |
 | `probe_is_3d` | bool | Explicit in both directions — false means the container states it is 2D |
 | `probe_3d_layout` | string | `2d`, `mvc`, `mv-hevc`, `sbs`, `tab`, `other`. A layout this build does not know reads as `other`, never as `2d` |
 | `probe_width` / `probe_height` | int | Coded frame size (a side-by-side 1080p frame is 3840 wide) |

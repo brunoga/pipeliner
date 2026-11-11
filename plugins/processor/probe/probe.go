@@ -252,6 +252,7 @@ type probePlugin struct {
 	probeImage    func(r io.ReaderAt, size int64, label string) (*mvcprobe.Result, error)
 	probeMatroska func(r io.Reader, label string) (*mvcprobe.Result, error)
 	probeMP4      func(r io.ReaderAt, size int64, label string) (*mvcprobe.Result, error)
+	probeM2TS     func(r io.ReaderAt, size int64, label string) (*mvcprobe.Result, error)
 
 	listenPort int
 
@@ -354,6 +355,7 @@ func defaults() *probePlugin {
 		probeImage:    mvcprobe.Image,
 		probeMatroska: mvcprobe.Matroska,
 		probeMP4:      mvcprobe.MP4,
+		probeM2TS:     mvcprobe.M2TS,
 	}
 }
 
@@ -650,6 +652,8 @@ func readerFor(name string) string {
 		return "matroska"
 	case ".mp4", ".mov", ".m4v":
 		return "mp4"
+	case ".m2ts", ".mts", ".ts":
+		return "m2ts"
 	}
 	return "image"
 }
@@ -666,6 +670,11 @@ func readerFor(name string) string {
 // An MP4's movie box is in its first or its last piece, so the same two
 // pieces serve it; when a muxer padded it past the last one, the retry finds
 // it the same way.
+//
+// A bare transport stream repeats its program tables every few hundred
+// milliseconds, so the first piece holds them. These used to go to the disc
+// image reader, which can only fail on them: an MVC remux shipped as one
+// .m2ts timed out its probe every night and never reached a download.
 func (p *probePlugin) readWithRetries(ctx context.Context, pk sampler, tg target) (*mvcprobe.Result, error) {
 	kind := readerFor(tg.name)
 	if tg.size <= 0 {
@@ -687,6 +696,8 @@ func (p *probePlugin) readWithRetries(ctx context.Context, pk sampler, tg target
 			res, err = p.probeMatroska(io.NewSectionReader(file, 0, min(pk.PieceLength(), tg.size)), tg.name)
 		case "mp4":
 			res, err = p.probeMP4(file, tg.size, tg.name)
+		case "m2ts":
+			res, err = p.probeM2TS(file, tg.size, tg.name)
 		default:
 			res, err = p.probeImage(file, tg.size, tg.name)
 		}
@@ -1009,6 +1020,8 @@ func kindName(k mvcprobe.Kind) string {
 		return "matroska"
 	case mvcprobe.KindMP4:
 		return "mp4"
+	case mvcprobe.KindTransportStream:
+		return "m2ts"
 	default:
 		return "unknown"
 	}

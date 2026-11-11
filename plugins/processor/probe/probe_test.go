@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/anacrolix/torrent/metainfo"
+	"github.com/brunoga/bdtools/m2ts"
 	mvcprobe "github.com/brunoga/bdtools/probe"
 
 	"github.com/brunoga/pipeliner/internal/entry"
@@ -814,6 +815,7 @@ func TestReaderForExtension(t *testing.T) {
 	for name, want := range map[string]string{
 		"a.mkv": "matroska", "a.MK3D": "matroska", "a.webm": "matroska",
 		"a.mp4": "mp4", "a.MOV": "mp4", "a.m4v": "mp4",
+		"a.m2ts": "m2ts", "a.MTS": "m2ts", "a.ts": "m2ts",
 		"a.iso": "image", "Some Film 2012 3D BluRay": "image", "": "image",
 	} {
 		if got := readerFor(name); got != want {
@@ -892,6 +894,9 @@ func TestLayoutNames(t *testing.T) {
 	}
 	if kindName(mvcprobe.KindMP4) != "mp4" {
 		t.Errorf("kindName(KindMP4) = %q", kindName(mvcprobe.KindMP4))
+	}
+	if kindName(mvcprobe.KindTransportStream) != "m2ts" || !declaredValue(entry.FieldProbeKind, "m2ts") {
+		t.Errorf("kindName(KindTransportStream) = %q, or it is not in the field metadata", kindName(mvcprobe.KindTransportStream))
 	}
 	// The name parser and the probe share the word for MV-HEVC, so a rule
 	// can compare what a release claims against what it is.
@@ -975,5 +980,55 @@ func TestAProvenFormatRaisesTheQuality(t *testing.T) {
 				t.Errorf("format = %v, want %v", q.Format3D, tt.want)
 			}
 		})
+	}
+}
+
+// tsPacket is one 192-byte Blu-ray packet (4-byte header, then 188 bytes of
+// transport stream) starting a section on pid, padded with 0xff.
+func tsPacket(pid uint16, section []byte) []byte {
+	p := make([]byte, 192)
+	ts := p[4:]
+	ts[0], ts[1], ts[2], ts[3] = 0x47, 0x40|byte(pid>>8), byte(pid), 0x10
+	n := copy(ts[5:], section) // ts[4] is the pointer field, 0
+	for i := 5 + n; i < len(ts); i++ {
+		ts[i] = 0xff
+	}
+	return p
+}
+
+// TestM2TSRemuxReadsAsMVC: a bare .m2ts in a folder torrent -- the shape of
+// an MVC remux like "San Andreas 2015 MVC Remux" -- goes to the transport
+// stream reader, which finds the dependent view in the program table at the
+// file's start. These used to go to the disc image reader and time out.
+func TestM2TSRemuxReadsAsMVC(t *testing.T) {
+	const piece = 4 << 20
+	f := newFakeSampler(40<<20, piece)
+	tg := target{name: "San Andreas/San Andreas.m2ts", off: 1 << 20, size: 38 << 20}
+	prog := &m2ts.Program{Number: 1, PCRPID: 0x1011, Streams: []m2ts.ProgramStream{
+		{PID: 0x1011, Type: m2ts.TypeAVC},
+		{PID: 0x1012, Type: m2ts.TypeMVC},
+		{PID: 0x1100, Type: m2ts.TypeDTSHDMA},
+	}}
+	ts := append(tsPacket(0, m2ts.Section(0, 1, 0, m2ts.PATBody(1, 0x100))),
+		tsPacket(0x100, m2ts.Section(2, 1, 0, m2ts.PMTBody(prog)))...)
+	copy(f.data[tg.off:], ts)
+
+	p := testPlugin(t, nil)
+	p.probeImage = func(io.ReaderAt, int64, string) (*mvcprobe.Result, error) {
+		t.Error("an .m2ts must not be probed as a disc image")
+		return nil, errors.New("wrong path")
+	}
+	res, err := p.readWithRetries(context.Background(), f, tg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := entry.New("San Andreas 2015 MVC Remux", "http://x/1")
+	apply(e, res)
+	if e.GetString(entry.FieldProbeKind) != "m2ts" || e.GetString(entry.FieldProbe3DLayout) != "mvc" || !e.GetBool(entry.FieldProbeIs3D) {
+		t.Errorf("kind %q layout %q 3D %v, want m2ts mvc true", e.GetString(entry.FieldProbeKind), e.GetString(entry.FieldProbe3DLayout), e.GetBool(entry.FieldProbeIs3D))
+	}
+	// The file's two ends are all it takes.
+	if want := []int{0, (39<<20 - 1) / piece}; fmt.Sprint(f.fetches) != fmt.Sprint(want) {
+		t.Errorf("fetched pieces %v, want %v", f.fetches, want)
 	}
 }
