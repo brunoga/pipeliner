@@ -1218,6 +1218,8 @@ series = process("series", upstream=src, list=[
 
 <pre><code>sess = input("torrent_session", backend="transmission", host="localhost")</code></pre>
 
+<p><strong>Seeding retention.</strong> <code>configs/torrent-retention.star</code> removes finished torrents (keeping their files) once they have seeded enough, with a different rule per tracker. A private tracker with a minimum share ratio keeps its torrents until they reach 2.0 themselves, however long that takes; everything else goes after 7 days, or at 2.0 after a day. A flat "7 days, whatever the ratio" rule is what took one 3dtorrents account below its required 1.0: niche torrents there often have no leechers for days, so removing them at a near-zero ratio turned every download into a net loss.</p>
+
 <!-- ─────────── tvdb_favorites ─────────── -->
 <h2 id="action-links">Notification action links</h2>
 <p>A notification can carry a button that acts on the item when clicked — "follow this series" without visiting TheTVDB and logging in. A mail client can only issue a GET with no custom headers, so it can use neither the <a href="#webhook">ingest endpoint's</a> bearer token nor a browser session; the <code>signedaction</code> template helper instead mints a link that carries its own HMAC signature.</p>
