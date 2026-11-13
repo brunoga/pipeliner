@@ -1,8 +1,10 @@
 # torrent-retention.star
 #
-# Removes finished torrents from Deluge once they have seeded enough. Only
-# the torrent is removed; the files stay where they are. The rule differs per
-# tracker, which a cron job built around one rule could not express:
+# Two nightly pipelines that keep a download box from filling up without
+# hurting share ratios.
+#
+# torrent-retention removes finished torrents from Deluge once they have
+# seeded enough, and their files with them. The rule differs per tracker:
 #
 #   - a private tracker with a minimum share ratio (here 3dtorrents, which
 #     disables accounts below 1.0) keeps its torrents until they reach 2.0
@@ -14,16 +16,27 @@
 # niche torrents on a private tracker often have no leechers for days, and
 # removing them at a 0.0-0.3 ratio makes every download a net loss.
 #
-# Rules are evaluated in order and the first that fires decides. Change the
-# tracker name and thresholds to suit; run it as a dry run first to see what
-# it would remove.
+# media-cleanup then deletes media files older than 7 days that no torrent
+# uses: what an extraction or a conversion produced, and what was left behind
+# by torrents removed without their data. torrent_in_use keeps every file a
+# torrent still seeds from -- so a 3dtorrents download outliving the 7 days
+# keeps seeding -- and keeps everything when Deluge cannot be asked. delete
+# never removes a library root, even an emptied one.
 #
-# Requirements: DELUGE_PASSWORD
+# Run each as a dry run first to see what it would remove.
+#
+# Requirements: DELUGE_PASSWORD; pipeliner must see the media folders at the
+# same paths Deluge does.
 
 DELUGE_HOST = env("DELUGE_HOST", default="localhost")
 DELUGE_PASSWORD = env("DELUGE_PASSWORD", default="deluge")
 
+MEDIA = "/data/media"
+LIBRARIES = [MEDIA + "/series", MEDIA + "/movies", MEDIA + "/3dmovies", MEDIA + "/3d-mvc-inbox"]
+
 DAY = 86400
+
+# --- torrent-retention ------------------------------------------------------
 
 session = input("torrent_session", backend="deluge", host=DELUGE_HOST, password=DELUGE_PASSWORD)
 
@@ -39,8 +52,25 @@ due = process("condition", upstream=session, rules=[
     {"reject": "true"},
 ])
 
-# "remove" keeps the data; "remove_with_data" would delete the files too.
-output("torrent_control", upstream=due, action="remove", backend="deluge",
+# Once a torrent stops seeding its files go too; "remove" would keep them.
+output("torrent_control", upstream=due, action="remove_with_data", backend="deluge",
        host=DELUGE_HOST, password=DELUGE_PASSWORD)
 
 pipeline("torrent-retention", schedule="0 0 * * *")
+
+# --- media-cleanup ----------------------------------------------------------
+
+files = input("filesystem", path=MEDIA, recursive=True)
+
+old = process("condition", upstream=files, rules=[
+    {"accept": "file_modified_time < daysago(7)"},
+    {"reject": "true"},
+])
+
+free = process("torrent_in_use", upstream=old, backend="deluge", host=DELUGE_HOST,
+               password=DELUGE_PASSWORD)
+
+output("delete", upstream=free, roots=LIBRARIES)
+
+# After torrent-retention, so a torrent it removes tonight is gone first.
+pipeline("media-cleanup", schedule="30 0 * * *")
