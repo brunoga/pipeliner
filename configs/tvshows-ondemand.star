@@ -74,7 +74,10 @@ held = process("library", upstream=graded, backend="plex", sections=["TV Shows"]
                ttl="15m", upgrade=False)
 
 files = process("metainfo_torrent", upstream=held, fetch_timeout="1m")
-listed = process("require", upstream=files, fields=["torrent_files"])
+# Most TV indexers serve magnets, which carry no file list until resolved:
+# without this, 13 of 22 good season-1 packs were refused on the first live run.
+magnets = process("metainfo_magnet", upstream=files, resolve_timeout="30s")
+listed = process("require", upstream=magnets, fields=["torrent_files"])
 clean = process("content", upstream=listed, reject=["*.exe", "*.iso", "*.scr", "*.lnk"])
 
 # Canonical show name for the folder, poster for the email.
@@ -82,7 +85,12 @@ info = process("metainfo_tvdb", upstream=clean, api_key=TVDB_API_KEY, cache_ttl=
 
 # Releases already grabbed, or blocklisted after a failed grab. Above dedup
 # and limit, so neither spends its choice on one that would be refused after.
-fresh = process("seen", upstream=info, local=True, retry_failed=True)
+# Everything that reached here is what was asked for. No list filter accepts
+# it the way movies does for films, so this does; without it dedup, limit
+# and the download client, which act on accepted entries, saw nothing.
+wanted = process("accept_all", upstream=info)
+
+fresh = process("seen", upstream=wanted, local=True, retry_failed=True)
 
 # One release per pack or episode, after everything that can refuse one.
 best = process("dedup", upstream=fresh)
