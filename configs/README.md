@@ -281,6 +281,11 @@ pipeline("my-pipeline", schedule="1h")
 - [`ars-technica-email.star`](ars-technica-email.star) — RSS → keyword filter → email
 - [`news-fanout.star`](news-fanout.star) — two RSS feeds merged → **fan-out** to email + persistent list
 
+### Download client housekeeping
+
+- [`torrent-janitor.star`](torrent-janitor.star) — fail and purge stalled or trickling downloads, so another release can be grabbed
+- [`torrent-retention.star`](torrent-retention.star) — remove finished torrents once they have seeded enough, with a **per-tracker rule**: a ratio-strict private tracker seeds to 2.0, everything else for 7 days
+
 ### Filesystem
 
 - [`filesystem-cleanup.star`](filesystem-cleanup.star) — scan for *.part files → delete via exec
