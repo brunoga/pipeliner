@@ -26,7 +26,7 @@ Fields marked **always** are set on every entry. All others depend on whether th
 | `source` | ✓ | Origin in the form `jackett:<indexer>` (e.g. `jackett:1337x`) |
 | `torrent_link_type` | ✓ | `"torrent"` or `"magnet"` |
 | `torrent_seeds` | | Seeder count |
-| `torrent_leechers` | | Leecher count |
+| `torrent_leechers` | | Leecher count: Torznab `peers` minus `seeders`, since Jackett sends no leecher count (a `leechers` attribute is used when present) |
 | `torrent_file_size` | | Total size in bytes |
 | `torrent_info_hash` | | SHA-1 info hash (lowercase hex) |
 | `torrent_grabs` | | Number of times downloaded from the indexer |

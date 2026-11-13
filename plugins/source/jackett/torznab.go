@@ -120,11 +120,7 @@ func parseTorznab(data []byte, indexer string, logger *slog.Logger) ([]*entry.En
 				ti.Seeds = int(n)
 			}
 		}
-		if v := attrs["leechers"]; v != "" {
-			if n, err := strconv.ParseInt(v, 10, 64); err == nil {
-				ti.Leechers = int(n)
-			}
-		}
+		ti.Leechers = leechersOf(attrs)
 		if v := attrs["infohash"]; v != "" {
 			ti.InfoHash = strings.ToLower(v)
 		}
@@ -426,4 +422,21 @@ func ensureMagnetDN(magnetURI, proxyURL string) string {
 		return mu.String()
 	}
 	return magnetURI
+}
+
+// leechersOf reads the leecher count. Torznab has no leechers attribute:
+// Jackett sends "peers", which counts seeders AND leechers, so the leechers
+// are peers minus seeders. A "leechers" attribute, which some other Torznab
+// servers send, is taken as is. Reading only that left torrent_leechers unset
+// on every Jackett result, so a rule on it saw no leechers anywhere.
+func leechersOf(attrs map[string]string) int {
+	if n, err := strconv.Atoi(attrs["leechers"]); err == nil {
+		return n
+	}
+	peers, err := strconv.Atoi(attrs["peers"])
+	if err != nil {
+		return 0
+	}
+	seeds, _ := strconv.Atoi(attrs["seeders"])
+	return max(peers-seeds, 0)
 }
