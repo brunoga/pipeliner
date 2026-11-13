@@ -71,11 +71,30 @@ alternatives for the same reason.
 
 ## Config
 
-No configuration options.
+| Key | Required | Default | Description |
+|-----|----------|---------|-------------|
+| `invert` | no | `false` | Pass on the inferior copies instead, for cleanups: keep the best copy of each item, act on the rest |
 
 ```python
 process("dedup")
 ```
+
+## Deleting the inferior copies
+
+With `invert=True` dedup passes on the copies it would have discarded. The best copy of each item is set aside (rejected, "dedup: kept, the best copy of …"), and so is every entry it cannot group, so having no opinion on a file never reads as "delete it". Flipping a plain dedup with [`swap_state`](../../modify/swap_state/) does not work: a filter drops the entries it rejects, so swap_state never sees the losers.
+
+dedup only compares accepted entries, so a filesystem scan needs `accept_all` first:
+
+```python
+files = input("filesystem", path="/data/media", recursive=True)
+meta  = process("metainfo_file", upstream=files)
+cands = process("accept_all",    upstream=meta)
+extra = process("dedup",         upstream=cands, invert=True)
+output("delete", upstream=extra, roots=["/data/media"])
+pipeline("dedup-cleanup")
+```
+
+See `configs/dedup-cleanup.star`. Run it with `--dry-run` first.
 
 ## DAG role
 

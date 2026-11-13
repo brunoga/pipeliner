@@ -47,24 +47,9 @@ Notify templates can render both the original reason and the swap:
 
 ## Limitation: it only sees what upstream returned
 
-Filters drop the entries they reject from their output, so `swap_state` never sees an entry rejected by the node before it. Only entries an upstream node returned can be flipped. In particular, `dedup` → `swap_state` does **not** hand `dedup`'s losers to the next node. Verified: of two copies of one film, `dedup` rejected the 720p one and dropped it, `swap_state` flipped the 1080p winner to rejected, and nothing reached the sink. The example below, and `configs/dedup-cleanup.star`, therefore delete nothing until `dedup` returns its losers. To keep the best n and act on the rest, use [`limit`](../../filter/limit/) with `invert=True`.
+Filters drop the entries they reject from their output, so `swap_state` never sees an entry rejected by the node before it. Only entries an upstream node returned can be flipped. In particular, `dedup` → `swap_state` does **not** hand `dedup`'s losers to the next node. Verified: of two copies of one film, `dedup` rejected the 720p one and dropped it, `swap_state` flipped the 1080p winner to rejected, and nothing reached the sink. To act on dedup's inferior copies, use [`dedup`](../../filter/dedup/) with `invert=True`, as `configs/dedup-cleanup.star` does; to keep the best n and act on the rest, [`limit`](../../filter/limit/) with `invert=True`.
 
 ## Examples
-
-### Cleanup pipeline — delete dedup's losers, leave winners alone
-
-`dedup` keeps the best-quality copy and rejects the rest. To actually delete the rejected duplicates from disk while keeping the winners safe:
-
-```python
-src    = input("filesystem", path="/media/movies", recursive=True)
-meta   = process("metainfo_file", upstream=src)
-best   = process("dedup",         upstream=meta)
-flip   = process("swap_state",    upstream=best, swap=["accepted", "rejected"])
-output("exec", upstream=flip, command="rm -f {file_location}")
-pipeline("dedup-cleanup")
-```
-
-After the swap, the dedup *losers* (originally rejected) are Accepted and reach `exec`. The dedup *winners* (originally accepted) are Rejected and are filtered out by `exec`'s `FilterAccepted`, so they are never touched. The bidirectional flip is what makes a single sink correctly delete only the duplicates.
 
 ### Retry pipeline — route failed entries through a fallback sink
 
@@ -93,4 +78,4 @@ Entries that the strict gate rejected are returned to Undecided so the relaxed g
 
 - The two states in `swap=` must be distinct. `swap=["accepted", "accepted"]` is a config error.
 - An entry in a state not named in `swap=` is left completely untouched — no state change, no `LastStateChange` record.
-- The DAG validator tracks field certainty per entry state. `swap_state` is modelled as exchanging the two named state buckets, so a downstream node whose `Requires` were only satisfied by upstream narrowing (a `require` filter, or a `condition` that rejected entries missing the field) will get a *may not be present* warning when those rejected entries are revived. This is intentional — the revived entries don't have the narrowed field, so the downstream guarantee no longer holds. Two patterns avoid the warning: put the swap immediately before a sink that doesn't care about specific fields (the `dedup`/`exec` cleanup pattern), or add a downstream `require` / `condition` to re-establish the contract on the revived population.
+- The DAG validator tracks field certainty per entry state. `swap_state` is modelled as exchanging the two named state buckets, so a downstream node whose `Requires` were only satisfied by upstream narrowing (a `require` filter, or a `condition` that rejected entries missing the field) will get a *may not be present* warning when those rejected entries are revived. This is intentional — the revived entries don't have the narrowed field, so the downstream guarantee no longer holds. Two patterns avoid the warning: put the swap immediately before a sink that doesn't care about specific fields, or add a downstream `require` / `condition` to re-establish the contract on the revived population.

@@ -643,3 +643,60 @@ func TestDedupSeasonPacks(t *testing.T) {
 	}
 	_ = out
 }
+
+// TestInvertPassesOnOnlyTheInferiorCopies: a cleanup deletes what an inverted
+// dedup passes on, so the best copy of each item, an item with one copy, and
+// an entry it cannot key must all be held back.
+func TestInvertPassesOnOnlyTheInferiorCopies(t *testing.T) {
+	d, ok := plugin.Lookup("dedup")
+	if !ok {
+		t.Fatal("dedup is not registered")
+	}
+	raw, err := d.Factory(map[string]any{"invert": true}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := raw.(*dedupPlugin)
+
+	best := accepted("Dune 2021 2160p BluRay REMUX")
+	worse := accepted("Dune 2021 720p WEB-DL")
+	worst := accepted("Dune 2021 480p DVDRip")
+	only := accepted("Arrival 2016 1080p BluRay")
+	for _, e := range []*entry.Entry{best, worse, worst, only} {
+		e.Set(entry.FieldMediaType, entry.MediaTypeMovie)
+	}
+	best.Set(entry.FieldTitle, "Dune")
+	worse.Set(entry.FieldTitle, "Dune")
+	worst.Set(entry.FieldTitle, "Dune")
+	only.Set(entry.FieldTitle, "Arrival")
+	unkeyed := accepted("notes.mkv")
+
+	out, err := p.Process(context.Background(), tc(), []*entry.Entry{best, worse, worst, only, unkeyed})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 2 || out[0] != worse || out[1] != worst {
+		titles := make([]string, len(out))
+		for i, e := range out {
+			titles[i] = e.Title
+		}
+		t.Fatalf("passed on %v, want the 720p and 480p copies", titles)
+	}
+	for _, e := range out {
+		if !e.IsAccepted() {
+			t.Errorf("%q passed on but not accepted", e.Title)
+		}
+	}
+	for _, e := range []*entry.Entry{best, only, unkeyed} {
+		if !e.IsRejected() || !strings.HasPrefix(e.RejectReason, "dedup: kept") {
+			t.Errorf("%q: rejected=%v reason=%q, want kept", e.Title, e.IsRejected(), e.RejectReason)
+		}
+	}
+}
+
+func TestInvertIsAKnownKey(t *testing.T) {
+	d, _ := plugin.Lookup("dedup")
+	if errs := d.Validate(map[string]any{"invert": true}); len(errs) != 0 {
+		t.Errorf("invert refused: %v", errs)
+	}
+}

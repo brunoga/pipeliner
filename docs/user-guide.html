@@ -2273,7 +2273,11 @@ by_air = process("age", upstream=enriched,
 <!-- ─────────── dedup ─────────── -->
 <h2 id="dedup">dedup</h2>
 <p>Keeps the best-quality copy when multiple entries for the same episode or movie arrive in one run. The <code>series</code> and <code>movies</code> filters accept <em>all</em> quality variants so you can get the best available copy — place <code>dedup</code> after them to select the winner.</p>
-<p>Takes no config. <code>media_type</code> classifies the entry: <code>"series"</code> entries dedup by series name + <code>series_episode_id</code>, <code>"movie"</code> entries by <code>title</code>. Entries without <code>media_type</code> pass through unchanged. Place <code>metainfo_file</code>, <code>metainfo_tmdb</code>, or <code>metainfo_tvdb</code> upstream so the classifier is set — the DAG validator emits a warning when no upstream is guaranteed to produce <code>media_type</code>.</p>
+<table>
+  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>invert</code></td><td>no</td><td><code>false</code></td><td>Pass on the inferior copies instead, for a cleanup that deletes them: the best copy of each item is set aside as kept, and so is every entry dedup cannot group, so &ldquo;no opinion&rdquo; never reads as &ldquo;delete it&rdquo;. Flipping a plain <code>dedup</code> with <a href="#swap_state"><code>swap_state</code></a> does not work, because a filter drops what it rejects. See <code>configs/dedup-cleanup.star</code>.</td></tr>
+</table>
+<p><code>media_type</code> classifies the entry: <code>"series"</code> entries dedup by series name + <code>series_episode_id</code>, <code>"movie"</code> entries by <code>title</code>. Entries without <code>media_type</code> pass through unchanged. Place <code>metainfo_file</code>, <code>metainfo_tmdb</code>, or <code>metainfo_tvdb</code> upstream so the classifier is set — the DAG validator emits a warning when no upstream is guaranteed to produce <code>media_type</code>.</p>
 <div class="note"><strong>A shared name is not a shared item:</strong> titles are not unique — TheTVDB lists two different series called <em>Tomb Raider</em>, and there is a <em>Dune</em> from 1984 and one from 2021. Entries sharing a name key are treated as copies of one another only when nothing <em>proves</em> them different: provider ids that disagree (<code>tvdb_id</code>, <code>tmdb_id</code>, IMDb), or release years more than one apart for a movie. Absence never splits a group — an id on one copy and none on the other proves nothing, and neither do ids from different namespaces — because most releases publish no id and a metainfo plugin leaves an entry unenriched rather than guess, so splitting on absence would download the same episode twice. The id is read from what pipeliner resolved itself first (<code>tvdb_id</code>, <code>tmdb_id</code>), then a list provider's metadata (<code>trakt_*_id</code>), then what an indexer published with the release (<code>jackett_*_id</code>).</div>
 
 <p>Selection order (highest wins):</p>
@@ -2291,6 +2295,13 @@ series = process("series", upstream=q,
 best   = process("dedup",  upstream=series)
 output("transmission", upstream=best, host="localhost")
 pipeline("tv")</code></pre>
+<p>A cleanup that deletes the inferior copies of what is on disk. <code>accept_all</code> is needed because dedup only compares accepted entries:</p>
+<pre><code>files = input("filesystem", path="/data/media", recursive=True)
+meta  = process("metainfo_file", upstream=files)
+cands = process("accept_all",    upstream=meta)
+extra = process("dedup",         upstream=cands, invert=True)
+output("delete", upstream=extra, roots=["/data/media"])
+pipeline("dedup-cleanup")</code></pre>
 
 <!-- ─────────── limit ─────────── -->
 <h2 id="limit">limit</h2>
@@ -2355,15 +2366,17 @@ pipeline("3d-movies")  <span class="y-comment"># manual trigger only</span></cod
 
 <!-- ─────────── swap_state ─────────── -->
 <h2 id="swap_state">swap_state</h2>
-<p>Swaps entries between two states (e.g. <code>accepted</code> ↔ <code>rejected</code>). Unlike most processors it deliberately operates on rejected and failed entries — its purpose is to flip them so downstream nodes can act on them. The classic use case is a cleanup pipeline: <code>dedup</code> rejects duplicate copies of a movie, and <code>swap_state</code> flips those losers into <code>accepted</code> (reaching a delete sink) while simultaneously flipping the winners into <code>rejected</code> (filtered out by the sink). The bidirectional swap is what makes a single sink target only the duplicates.</p>
+<p>Swaps entries between two states (e.g. <code>accepted</code> ↔ <code>rejected</code>). Unlike most processors it deliberately operates on rejected and failed entries — its purpose is to flip them so downstream nodes can act on them.</p>
+<div class="note"><strong>It only sees what its upstream returned.</strong> Filters drop the entries they reject from their output, so <code>swap_state</code> cannot revive an entry the node before it rejected. <code>dedup</code> &rarr; <code>swap_state</code> in particular does not hand dedup's losers on: it flips the winners to rejected and nothing reaches the sink. To act on the inferior copies use <a href="#dedup"><code>dedup</code></a> with <code>invert=True</code>; to keep the best n and act on the rest, <a href="#limit"><code>limit</code></a> with <code>invert=True</code>.</div>
 
 <table>
   <tr><th>Key</th><th>Required</th><th>Description</th></tr>
   <tr><td><code>swap</code></td><td>yes</td><td>Two distinct state names from <code>{accepted, rejected, failed, undecided}</code>; entries in either state are flipped to the other, entries in any third state are untouched</td></tr>
 </table>
 
-<pre><code>cleanup = process("swap_state", upstream=dedup_node, swap=["accepted", "rejected"])
-output("exec", upstream=cleanup, command="rm -f {file_location}")</code></pre>
+<pre><code>primary = output("deluge", upstream=meta, host="primary.lan", password=env("DELUGE_PASS"))
+rescued = process("swap_state", upstream=primary, swap=["accepted", "failed"])
+output("deluge", upstream=rescued, host="fallback.lan", password=env("DELUGE_PASS"))</code></pre>
 
 <p><code>AcceptReason</code> / <code>RejectReason</code> / <code>FailReason</code> survive the swap as audit history — a rescued failed entry still carries its original <code>FailReason</code> for templates. The swap itself is recorded on <code>Entry.LastStateChange</code> (<code>From</code>, <code>To</code>, <code>Plugin</code>, <code>Reason</code>, <code>At</code>) so notify templates can render both:</p>
 
