@@ -8,6 +8,8 @@
 //	n     - max number of accepted entries to forward (required, must be >= 1)
 //	sort  - entry field to sort by; absent means first-N arrival order
 //	order - "desc" (default) or "asc" — direction when sort is set
+//	invert - act on the rest instead: the top n are set aside (rejected, as
+//	         kept) and every other accepted entry goes on
 //
 // Entries missing the sort field are bucketed last regardless of order, so
 // they never beat an entry that has the field.
@@ -41,6 +43,7 @@ func init() {
 			{Key: "n", Type: plugin.FieldTypeInt, Required: true, Hint: "Maximum number of accepted entries to forward"},
 			{Key: "sort", Type: plugin.FieldTypeString, Hint: "Entry field to sort by (default: arrival order)"},
 			{Key: "order", Type: plugin.FieldTypeEnum, Enum: []string{"desc", "asc"}, Default: "desc", Hint: "Sort direction when sort is set (default: desc)"},
+			{Key: "invert", Type: plugin.FieldTypeBool, Hint: "Pass on everything beyond the top n instead, for cleanups: keep the best n, act on the rest"},
 		},
 	})
 }
@@ -58,14 +61,15 @@ func validate(cfg map[string]any) []error {
 			errs = append(errs, fmt.Errorf("limit: %q has no effect without %q", "order", "sort"))
 		}
 	}
-	errs = append(errs, plugin.OptUnknownKeys(cfg, "limit", "n", "sort", "order")...)
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "limit", "n", "sort", "order", "invert")...)
 	return errs
 }
 
 type limitPlugin struct {
-	n     int
-	sort  string
-	order string // "desc" or "asc"
+	n      int
+	sort   string
+	order  string // "desc" or "asc"
+	invert bool
 }
 
 func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
@@ -78,7 +82,8 @@ func newPlugin(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) 
 	if order == "" {
 		order = "desc"
 	}
-	return &limitPlugin{n: n, sort: sortField, order: order}, nil
+	invert, _ := cfg["invert"].(bool)
+	return &limitPlugin{n: n, sort: sortField, order: order, invert: invert}, nil
 }
 
 func (p *limitPlugin) Name() string { return "limit" }
@@ -135,11 +140,21 @@ func (p *limitPlugin) Process(_ context.Context, _ *plugin.TaskContext, entries 
 		})
 	}
 
-	if len(accepted) > p.n {
-		reason := fmt.Sprintf("limit: %d-entry cap reached", p.n)
-		if p.sort != "" {
-			reason += fmt.Sprintf(" (ordered by %s %s)", p.sort, p.order)
+	order := ""
+	if p.sort != "" {
+		order = fmt.Sprintf(" (ordered by %s %s)", p.sort, p.order)
+	}
+	if p.invert {
+		// The top n are what is kept, so they are the ones taken out of the
+		// flow; the rest stay accepted for whatever acts on them. Rejecting
+		// the excess and flipping it with swap_state cannot work: a filter
+		// drops the entries it rejects from its output, so swap_state never
+		// sees them.
+		for _, s := range accepted[:min(p.n, len(accepted))] {
+			s.e.Reject(fmt.Sprintf("limit: kept, within the top %d%s", p.n, order))
 		}
+	} else if len(accepted) > p.n {
+		reason := fmt.Sprintf("limit: %d-entry cap reached%s", p.n, order)
 		for _, s := range accepted[p.n:] {
 			s.e.Reject(reason)
 		}
