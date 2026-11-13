@@ -146,6 +146,14 @@ const (
 	FieldSeriesEpisodeImage       = "series_episode_image"
 	FieldSeriesService            = "series_service"
 	FieldSeriesDoubleEpisode      = "series_double_episode"
+	// A season pack: series_pack is true, series_pack_id is its identity within
+	// the show ("S01", "S01-S03", "COMPLETE"), series_season its first season
+	// and series_season_end its last when it covers more than one. A pack has
+	// no series_episode_id, which is what keeps it out of every episode-shaped
+	// pipeline.
+	FieldSeriesPack      = "series_pack"
+	FieldSeriesPackID    = "series_pack_id"
+	FieldSeriesSeasonEnd = "series_season_end"
 	// FieldSeriesName is the normalized (lowercased, separator-collapsed) show
 	// name used as the series tracker key. Distinct from FieldTitle, which
 	// holds the human-readable display name.

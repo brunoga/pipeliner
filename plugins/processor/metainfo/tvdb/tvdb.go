@@ -147,8 +147,16 @@ func (p *tvdbPlugin) Name() string { return "metainfo_tvdb" }
 func (p *tvdbPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
 	ep, ok := series.Parse(e.Title)
 	if !ok {
-		tc.Logger.Warn("metainfo_tvdb: title did not parse as series episode", "entry", e.Title)
-		return nil
+		// A season pack names the show and no episode. The show is all the
+		// lookup needs -- the poster, the canonical name the folder is
+		// written under -- and with no episode the per-episode part below
+		// simply does not apply.
+		pk, isPack := series.ParsePack(e.Title)
+		if !isPack {
+			tc.Logger.Warn("metainfo_tvdb: title did not parse as series episode", "entry", e.Title)
+			return nil
+		}
+		ep = &series.Episode{SeriesName: pk.SeriesName, SeriesYear: pk.SeriesYear}
 	}
 
 	s, ok := p.resolveSeries(ctx, tc, e, ep)

@@ -48,6 +48,9 @@ func init() {
 			entry.FieldSeriesEpisodeID,
 			entry.FieldSeriesDoubleEpisode,
 			entry.FieldSeriesService,
+			entry.FieldSeriesPack,
+			entry.FieldSeriesPackID,
+			entry.FieldSeriesSeasonEnd,
 			"series_container",
 			// Movie fields (only when classified as movie).
 			entry.FieldMovieTitle,
@@ -129,6 +132,16 @@ func annotate(log *slog.Logger, e *entry.Entry) {
 			"season", ep.Season, "episode", ep.Episode)
 		return
 	}
+	// A pack before a film: "Agatha All Along S01 1080p" has no episode
+	// marker, and the film parser would otherwise take it for a film called
+	// "Agatha All Along S01".
+	if pk, ok := series.ParsePack(e.Title); ok {
+		annotatePack(e, pk)
+		annotateQuality(e)
+		log.Debug("metainfo_file: classified as season pack",
+			"entry", e.Title, "series", pk.SeriesName, "pack", series.PackID(pk))
+		return
+	}
 	if m, ok := imovies.Parse(e.Title); ok {
 		annotateMovie(e, m)
 		annotateQuality(e)
@@ -174,6 +187,29 @@ func annotateSeries(e *entry.Entry, ep *series.Episode) {
 		DoubleEpisode: ep.DoubleEpisode,
 		Service:       ep.Service,
 	})
+}
+
+// annotatePack sets the series fields a pack can carry. It sets no episode
+// fields, so every require(series_episode_id) and the series filter go on
+// refusing packs exactly as before; only a pipeline that asks for packs sees
+// them.
+func annotatePack(e *entry.Entry, pk *series.Pack) {
+	e.Set(entry.FieldMediaType, entry.MediaTypeSeries)
+	e.SetSeriesInfo(entry.SeriesInfo{
+		VideoInfo: entry.VideoInfo{
+			GenericInfo: entry.GenericInfo{Title: pk.SeriesName},
+			Year:        pk.SeriesYear,
+			Proper:      pk.Proper,
+			Repack:      pk.Repack,
+		},
+		Season:  pk.Season,
+		Service: pk.Service,
+	})
+	e.Set(entry.FieldSeriesPack, true)
+	e.Set(entry.FieldSeriesPackID, series.PackID(pk))
+	if pk.LastSeason > pk.Season {
+		e.Set(entry.FieldSeriesSeasonEnd, pk.LastSeason)
+	}
 }
 
 func annotateMovie(e *entry.Entry, m *imovies.Movie) {

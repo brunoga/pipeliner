@@ -41,6 +41,9 @@ Quality fields are set whenever any quality dimension is detected, **regardless 
 | `series_double_episode` | int | `2` (for `S01E01E02`) |
 | `series_service` | string | `AMZN`, `Netflix` |
 | `series_container` | string | `mkv` |
+| `series_pack` | bool | `true` — season packs only (`Show.S01`, `Show Season 2`, `Show S01-S03`, `Show The Complete Series`); a pack has no `series_episode*` fields, so episode pipelines keep refusing it |
+| `series_pack_id` | string | `S01`, `S01-S03`, `COMPLETE` — packs only |
+| `series_season_end` | int | `3` — last season of a multi-season pack only |
 | `video_year` | int | `2026` — only when the release names the show year, before (`Brothers 2026 S01E01`) or right after (`Brothers S01E01 2026`) the episode identifier |
 
 ### When classified as movie

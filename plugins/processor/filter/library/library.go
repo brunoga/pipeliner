@@ -399,6 +399,14 @@ func put(idx map[string]indexEntry, key string, q quality.Quality, path string) 
 func (p *libraryPlugin) lookup(e *entry.Entry) (indexEntry, bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	// A season pack is never "in the library": the index holds episodes, and
+	// a pack has no episode to look up. Without this it fell through to the
+	// film lookup below -- it has no episode id -- and a film sharing the
+	// show's name would have refused it. Whether the season is wanted is
+	// series_gaps' call, made from the full episode list.
+	if e.GetBool(entry.FieldSeriesPack) {
+		return indexEntry{}, false
+	}
 	if epID := e.GetString(entry.FieldSeriesEpisodeID); epID != "" {
 		if id := entry.TVDBID(e); id != "" {
 			if hit, ok := p.seriesByID["tvdb:"+id+"|"+epID]; ok {

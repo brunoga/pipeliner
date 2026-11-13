@@ -36,6 +36,10 @@ Absence never splits a group, and that matters more than it looks: most releases
 
 The id is read from what pipeliner resolved itself first (`tvdb_id`, `tmdb_id`), then a list provider's metadata (`trakt_*_id`), then the id an indexer published with the release (`jackett_*_id`) — that last is a claim about a file rather than an established identity, so it loses to the others, and here it can only ever separate two copies that share a title, never merge two that do not.
 
+## Season packs
+
+A season pack (`series_pack_id` set by `metainfo_file`) is grouped with other copies of the same show and the same seasons — `S01` with `S01`, `S01-S03` with `S01-S03`. A pack and the episodes it holds are not copies of one another and are never grouped.
+
 ## Required ordering: dedup goes last among the refusals
 
 `dedup` keeps one release per item and discards the rest, choosing on quality

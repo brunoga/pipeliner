@@ -368,6 +368,23 @@ func matchesSeriesQuery(q *series.Episode, releaseName string) bool {
 	return r.DoubleEpisode > 0 && q.Episode > r.Episode && q.Episode <= r.DoubleEpisode
 }
 
+// matchesPackQuery compares a season-pack query ("Show S02", which
+// series_gaps emits for a mostly-missing season) against a release name: a
+// pack of the same show covering exactly the seasons asked for. A pack of more
+// seasons than were asked for is refused rather than taken, because it would
+// download seasons nobody wanted; an episode is refused because it is not the
+// season.
+func matchesPackQuery(q *series.Pack, releaseName string) bool {
+	r, ok := series.ParsePack(releaseName)
+	if !ok {
+		return false
+	}
+	if !series.NewShow(q.SeriesName, q.SeriesYear).Matches(series.NewShow(r.SeriesName, r.SeriesYear)) {
+		return false
+	}
+	return series.PackID(q) == series.PackID(r)
+}
+
 func matchesQuery(query, releaseName string) bool {
 	// A series query names an episode, and the movie-shaped comparison below
 	// cannot read one: it parses "Show S01E01" as a film title and compares it
@@ -380,6 +397,9 @@ func matchesQuery(query, releaseName string) bool {
 	// used to accept S03E06, since only the title was compared.
 	if q, ok := series.Parse(query); ok && q.SeriesName != "" {
 		return matchesSeriesQuery(q, releaseName)
+	}
+	if q, ok := series.ParsePack(query); ok {
+		return matchesPackQuery(q, releaseName)
 	}
 
 	qTitle, qYear := query, 0

@@ -60,6 +60,8 @@ index is kept — an unreachable server never counts as an empty library.
 Entries matching nothing in the library pass through untouched; the filter
 never accepts, it only rejects (or lets upgrades through).
 
+A season pack (`series_pack`) is never reported as held: the index holds episodes, and a pack names none. Whether a season is wanted is decided upstream, by `series_gaps` from the full episode list.
+
 ### Why the id comes first
 
 A title is not stable identity, and this gate used to have nothing else. Plex's

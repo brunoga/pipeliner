@@ -825,3 +825,18 @@ func TestNoEntriesStillIndexesOnTheNextRun(t *testing.T) {
 		t.Errorf("an owned movie must still be rejected after an idle run, state=%v", e.State)
 	}
 }
+
+// TestSeasonPackIsNeverInTheLibrary: a pack has no episode id, so it used to
+// fall through to the film lookup, where a film sharing the show's name
+// refused it.
+func TestSeasonPackIsNeverInTheLibrary(t *testing.T) {
+	p := newTestPlugin(t, nil, []string{"/library/movies/Fargo.1996.1080p.BluRay.mkv"})
+	e := mkEntry("Fargo", map[string]any{
+		entry.FieldMediaType: entry.MediaTypeSeries, entry.FieldVideoYear: 1996,
+		entry.FieldSeriesPack: true, entry.FieldSeriesPackID: "S01", entry.FieldSeriesSeason: 1})
+	e.SetQuality(quality.Parse("1080p BluRay"))
+	process(t, p, e)
+	if e.IsRejected() {
+		t.Fatalf("a season pack must not be matched against films: %q", e.RejectReason)
+	}
+}
