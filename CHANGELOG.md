@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.78.0] - 2026-11-13
+
+### Added
+
+- **Pipeline descriptions** ([#699](https://github.com/brunoga/pipeliner/pull/699)). `pipeline("name", description="…")` attaches a free-text explanation to a pipeline whose purpose isn't obvious from its name. Hovering the name shows it: on the dashboard card, where the name gets a dotted underline when a description is set, and on the pipeline label in the visual editor, where a new ⓘ button edits it. `/api/status` and `/api/config/parse` include it. `configs/torrent-retention.star` describes its three pipelines.
+
+**Why 1.78.0**: a new config option.
+
 ## [1.77.1] - 2026-11-13
 
 ### Fixed
