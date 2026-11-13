@@ -2504,14 +2504,21 @@ output("exec", upstream=ready,
 
 <!-- ─────────── decompress ─────────── -->
 <h2 id="decompress">decompress</h2>
-<p>Extracts RAR, ZIP, and 7z archives. Requires <code>unrar</code>, <code>7z</code>, or <code>unar</code> on <code>$PATH</code>.</p>
+<p>Extracts RAR, ZIP and 7z archives. RAR (versions 1.5 to 5, including multi-volume sets named <code>.r00</code> or <code>.part1.rar</code>) and ZIP are extracted in-process, so no tool needs to be installed; 7z uses the system <code>7z</code>, which the Docker image includes. A system tool can be forced for everything with <code>tool</code>. Before 1.74 a system tool was required, and the Docker image had none, so the plugin could not start there.</p>
+
+<p>What to extract comes from <code>file_location</code> (set by <code>filesystem</code> or <code>download</code>), or from a torrent's <code>torrent_download_dir</code> plus its name (set by <code>torrent_session</code>). A folder is searched recursively for the first volume of every archive set, because a season pack is often one RAR set per episode. <code>Sample</code> folders and files are skipped.</p>
+
+<p><strong>Nothing is overwritten.</strong> A file that already exists is skipped, and each file is written under a <code>.partial</code> name that is renamed when complete. Extracting the same torrent twice is therefore harmless, and an interrupted run leaves nothing a later run would take for finished. An archive entry whose name is absolute, or climbs out with <code>..</code>, fails the extraction rather than writing outside the destination.</p>
+
+<p><strong><code>mirror_from</code></strong> maps a staging tree onto a library. With <code>mirror_from="/data/downloads/tv-staging"</code> and <code>to="/data/media/series"</code>, a torrent downloaded into <code>tv-staging/Agatha All Along/Season 01</code> is extracted into <code>series/Agatha All Along/Season 01</code>. The release's own folder name is not carried over. A torrent outside <code>mirror_from</code> fails rather than being extracted to a guessed place.</p>
 
 <table>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
   <tr><td><code>to</code></td><td>yes</td><td>—</td><td>Destination directory</td></tr>
-  <tr><td><code>keep_dirs</code></td><td>no</td><td>true</td><td>Preserve internal directory structure</td></tr>
-  <tr><td><code>delete_archive</code></td><td>no</td><td>false</td><td>Remove archive after extraction</td></tr>
-  <tr><td><code>tool</code></td><td>no</td><td>auto</td><td>Force tool: <code>unrar</code>, <code>7z</code>, or <code>unar</code></td></tr>
+  <tr><td><code>mirror_from</code></td><td>no</td><td>—</td><td>Staging root whose sub-path is kept below <code>to</code></td></tr>
+  <tr><td><code>keep_dirs</code></td><td>no</td><td>true</td><td>Preserve the archive's internal directory structure</td></tr>
+  <tr><td><code>delete_archive</code></td><td>no</td><td>false</td><td>Remove the whole archive set (every volume) after a successful extraction</td></tr>
+  <tr><td><code>tool</code></td><td>no</td><td><code>builtin</code></td><td><code>builtin</code>, or force <code>unrar</code>, <code>7z</code> or <code>unar</code> (each is run with its skip-existing flag)</td></tr>
 </table>
 
 <!-- ─────────── list_add ─────────── -->

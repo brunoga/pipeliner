@@ -27,7 +27,9 @@ FROM alpine:latest
 
 # ca-certificates: needed for HTTPS calls to external APIs (TVDB, TMDB, etc.)
 # tzdata: needed for correct time zone handling in scheduled tasks
-RUN apk --no-cache add ca-certificates tzdata
+# 7zip: decompress extracts 7z archives with it (RAR and ZIP are in-process;
+#       Alpine's 7zip cannot read RAR)
+RUN apk --no-cache add ca-certificates tzdata 7zip
 
 WORKDIR /app
 COPY --from=builder /build/pipeliner .
