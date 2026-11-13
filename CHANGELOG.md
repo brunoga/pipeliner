@@ -5,6 +5,36 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.74.0] - 2026-11-13
+
+Whole shows and seasons on demand. You push a show name (or a season), and pipeliner downloads what Plex is missing, as season packs where most of a season is missing. Packs shipped as plain video go straight to the library. Packs shipped in archives are extracted from a staging area once the download finishes.
+
+### Added
+
+- **Season packs** ([#680](https://github.com/brunoga/pipeliner/pull/680)).
+  - `metainfo_file` reads `Show.S01`, `Show Season 2`, `Show S01-S03` and `Show The Complete Series` as packs. It sets `series_pack`, `series_pack_id` (`S01`, `S01-S03`, `COMPLETE`), `series_season` and `series_season_end`, and no episode id, so every episode pipeline keeps refusing packs. Before, a pack had no series reading and was classified as a film called "Agatha All Along S01".
+  - `discover`'s `match_titles` matches a pack query only to a pack of the same show and exactly those seasons.
+  - `dedup` keeps one copy per show and pack.
+  - `library` never reports a pack as held. Before, a pack fell through to the film lookup, where a film with the same name refused it.
+  - `metainfo_tvdb` enriches a pack by its show.
+- **`series_gaps` scans only the seasons a request names** ([#681](https://github.com/brunoga/pipeliner/pull/681)). Seasons can be named with `series_season`/`series_season_end`, or with a title such as `Breaking Bad S02` or `The Wire S01-S03`. A named season overrides the `from_first_owned` floor, and two requests for different seasons of one show are both scanned. Before, `Breaking Bad S02` was searched on TheTVDB as a show of that name.
+- **`torrent_archive`** ([#682](https://github.com/brunoga/pipeliner/pull/682)): `true` when a torrent's video is packed in RAR/ZIP/7z archives and it holds no video file other than a sample. `condition` cannot test a list, so a pipeline had no way to route archived releases.
+- **`decompress` extracts RAR and ZIP in-process, and unpacks torrents from a staging area** ([#683](https://github.com/brunoga/pipeliner/pull/683)).
+  - RAR 1.5–5 and multi-volume sets in both naming styles are read with `nwaples/rardecode`.
+  - An entry from `torrent_session` is read at its download directory, and every archive set in it is extracted, skipping samples.
+  - `mirror_from` maps a staging tree onto the library.
+  - Nothing is ever overwritten. Files are written as `.partial` and renamed when complete, and an archive path that tries to escape the destination fails the extraction.
+  - Extracted folders and files take the destination root's owner, group and permissions.
+  - The Docker image gains `7zip` for 7z archives.
+- **`configs/tvshows-ondemand.star`** ([#684](https://github.com/brunoga/pipeliner/pull/684)): the `tvshows-ondemand` and `tvshows-unpack` pipelines described above.
+
+### Fixed
+
+- **`decompress` could not start in the Docker image** ([#683](https://github.com/brunoga/pipeliner/pull/683)). It required `unrar`, `7z` or `unar` on PATH, and the image had none. Alpine's `7zip` cannot read RAR, and Alpine packages neither `unrar` nor `unar`.
+- **`decompress` overwrote existing files** ([#683](https://github.com/brunoga/pipeliner/pull/683)). The system tools ran with `-y` / `-force-overwrite`; they now skip existing files. `delete_archive` now also removes `.partN.rar` and `.7z.NNN` volumes.
+
+**Why 1.74.0**: new features (season packs, on-demand shows, in-process extraction), no breaking changes.
+
 ## [1.73.1] - 2026-11-11
 
 ### Fixed
