@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.77.1] - 2026-11-13
+
+### Fixed
+
+- **`torrent_leechers` is now set on Jackett results** ([#697](https://github.com/brunoga/pipeliner/pull/697)). Jackett's Torznab feed has no `leechers` attribute. It sends `peers`, which counts seeders and leechers together. Only `leechers` was read, so the field was never set, and every rule on it saw zero leechers. It is now `peers` minus `seeders`; a `leechers` attribute is still used when a server sends one.
+
+**Why 1.77.1**: a fix.
+
 ## [1.77.0] - 2026-11-13
 
 ### Added
