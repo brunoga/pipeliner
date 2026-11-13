@@ -5,6 +5,18 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.76.0] - 2026-11-13
+
+### Added
+
+- **`limit` gains `invert`** ([#691](https://github.com/brunoga/pipeliner/pull/691)). With `invert=True` the top `n` are set aside as kept and everything ranked below them goes on, still accepted. That is the shape of a cleanup: keep the best n torrents, remove the rest. `configs/torrent-retention.star` gains `torrent-cap`, which keeps Deluge under its active-seeding limit, where queued torrents neither upload nor earn bonus points. It removes the excess with its data: least-protected trackers first, oldest first within each, and never a torrent still downloading.
+
+### Known issue
+
+- **`configs/dedup-cleanup.star` deletes nothing** ([#691](https://github.com/brunoga/pipeliner/pull/691)). A filter drops the entries it rejects from its output, so `swap_state` never sees `dedup`'s losers: it flips the winners to rejected, and nothing reaches the sinks. The same applies to the `swap_state` README example it was based on. Both now say so. The fix, having `dedup` hand its losers downstream, comes separately.
+
+**Why 1.76.0**: a new plugin option.
+
 ## [1.75.0] - 2026-11-13
 
 Housekeeping for a download box that does not cost share ratio. Torrents are retired per tracker, their files go with them, and an age-based sweep deletes leftover media files without touching anything a torrent still seeds from.
