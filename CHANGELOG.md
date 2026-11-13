@@ -5,6 +5,28 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.75.0] - 2026-11-13
+
+Housekeeping for a download box that does not cost share ratio. Torrents are retired per tracker, their files go with them, and an age-based sweep deletes leftover media files without touching anything a torrent still seeds from.
+
+### Added
+
+- **`torrent_in_use`** filter ([#689](https://github.com/brunoga/pipeliner/pull/689)): rejects files a download client's torrent still uses (anything below its download directory joined with its name). When the client can't be asked, every file is rejected. It is the guard in front of an age-based cleanup: deleting a file a torrent seeds from stops the seeding, and on a ratio-strict tracker that costs the account.
+- **`delete`** sink ([#689](https://github.com/brunoga/pipeliner/pull/689)): deletes the file at `file_location`, and the folders that leaves empty.
+  - It deletes only below the configured `roots`, and never a root itself, even an emptied one.
+  - Paths outside the roots, `..` escapes and directories fail the entry.
+  - Symlinks are removed, never followed. A dry run deletes nothing.
+- **`configs/torrent-retention.star`** ([#688](https://github.com/brunoga/pipeliner/pull/688), [#689](https://github.com/brunoga/pipeliner/pull/689)): two nightly pipelines.
+  - `torrent-retention` removes torrents with their data, under a per-tracker rule: a ratio-strict private tracker seeds to 2.0, everything else for 7 days or to 2.0 after a day.
+  - `media-cleanup` deletes media files older than 7 days that no torrent uses.
+  - Both email what they removed, with each torrent's share ratio, upload/download totals, seeding time, tracker, and the reason it was removed.
+
+### Changed
+
+- **`configs/tvshows-ondemand.star`**: `tvshows-unpack` no longer removes a torrent once it has extracted it ([#689](https://github.com/brunoga/pipeliner/pull/689)). Removing it straight away stopped it seeding. Each torrent is now extracted once and retired later by retention. The config also gains `accept_all` and `metainfo_magnet` ([#687](https://github.com/brunoga/pipeliner/pull/687)): without them nothing was accepted, and magnet packs had no file list.
+
+**Why 1.75.0**: two new plugins.
+
 ## [1.74.0] - 2026-11-13
 
 Whole shows and seasons on demand. You push a show name (or a season), and pipeliner downloads what Plex is missing, as season packs where most of a season is missing. Packs shipped as plain video go straight to the library. Packs shipped in archives are extracted from a staging area once the download finishes.
