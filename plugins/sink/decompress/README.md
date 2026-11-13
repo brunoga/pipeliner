@@ -23,6 +23,7 @@ A folder is searched recursively for the **first volume of every archive set**: 
 - **Nothing is overwritten.** A file that already exists is skipped (the system tools are run with `-o-`, `-aos` or `-skip`). Running the same extraction twice is harmless.
 - Each file is written as `name.partial` and renamed when complete, so an interrupted run leaves nothing a later run would mistake for a finished file.
 - An archive entry with an absolute name, or one that climbs out with `..`, fails the extraction instead of writing outside the destination.
+- Extracted folders and files **take after the destination root** (`to`): its owner and group, and its permission bits (setgid included; files without execute). Pipeliner often runs as root in a container while the library belongs to a user and a group shared with the download client. Without this, an extracted season folder was root's with mode 0755, and the client could not move a later episode into it.
 - A failed archive fails the entry. The other archive sets of the same torrent are still extracted.
 
 ## Config

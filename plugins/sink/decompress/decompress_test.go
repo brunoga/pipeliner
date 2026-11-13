@@ -358,3 +358,40 @@ func TestToolSelection(t *testing.T) {
 		t.Error("'to' is required")
 	}
 }
+
+// TestExtractedFilesTakeAfterTheDestination: a season folder made by an
+// extraction gets the library root's permissions (setgid and group write
+// included), so the download client can still move later episodes into it.
+// Ownership follows too, which only root can change and is not tested here.
+func TestExtractedFilesTakeAfterTheDestination(t *testing.T) {
+	tmp := t.TempDir()
+	series := filepath.Join(tmp, "series")
+	if err := os.Mkdir(series, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(series, 0o775|os.ModeSetgid); err != nil {
+		t.Fatal(err)
+	}
+	staging := filepath.Join(tmp, "staging")
+	dir := filepath.Join(staging, "Show", "Season 01")
+	write(t, filepath.Join(dir, "Show.S01", "s.rar"), rarVolumes("Show.S01E01.mkv", [][]byte{[]byte("x")}, false)[0])
+
+	p := newDecompress(t, map[string]any{"to": series, "mirror_from": staging})
+	e := torrentEntry("Show.S01", dir)
+	if err := p.Consume(context.Background(), tc(), []*entry.Entry{e}); err != nil || e.IsFailed() {
+		t.Fatalf("err=%v %s", err, e.FailReason)
+	}
+	for path, want := range map[string]os.FileMode{
+		filepath.Join(series, "Show"):                                 0o775 | os.ModeSetgid | os.ModeDir,
+		filepath.Join(series, "Show", "Season 01"):                    0o775 | os.ModeSetgid | os.ModeDir,
+		filepath.Join(series, "Show", "Season 01", "Show.S01E01.mkv"): 0o664,
+	} {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := info.Mode() & (os.ModePerm | os.ModeSetgid | os.ModeDir); got != want {
+			t.Errorf("%s: mode %v, want %v", path, got, want)
+		}
+	}
+}

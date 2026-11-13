@@ -145,7 +145,8 @@ func (p *decompressPlugin) extractEntry(ctx context.Context, tc *plugin.TaskCont
 	if len(archives) == 0 {
 		return fmt.Errorf("no archive in %s", root)
 	}
-	if err := os.MkdirAll(dest, 0o755); err != nil {
+	own := ownerOf(p.to)
+	if err := own.mkdirAll(dest); err != nil {
 		return fmt.Errorf("create destination: %w", err)
 	}
 
@@ -154,7 +155,7 @@ func (p *decompressPlugin) extractEntry(ctx context.Context, tc *plugin.TaskCont
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		n, skipped, err := p.extractOne(ctx, a, dest)
+		n, skipped, err := p.extractOne(ctx, a, dest, own)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", filepath.Base(a), err))
 			continue
@@ -168,13 +169,13 @@ func (p *decompressPlugin) extractEntry(ctx context.Context, tc *plugin.TaskCont
 	return errors.Join(errs...)
 }
 
-func (p *decompressPlugin) extractOne(ctx context.Context, archive, dest string) (written, skipped int, err error) {
+func (p *decompressPlugin) extractOne(ctx context.Context, archive, dest string, own owner) (written, skipped int, err error) {
 	if p.tool == "builtin" {
 		switch kindOf(archive) {
 		case "rar":
-			return extractRAR(archive, dest, p.keepDirs)
+			return extractRAR(archive, dest, p.keepDirs, own)
 		case "zip":
-			return extractZIP(archive, dest, p.keepDirs)
+			return extractZIP(archive, dest, p.keepDirs, own)
 		}
 		// 7z has no in-process reader here; the system tool does it.
 		path, err := exec.LookPath("7z")

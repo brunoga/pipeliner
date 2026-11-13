@@ -14,7 +14,7 @@ import (
 )
 
 // extractRAR extracts a RAR archive, following its volumes, into dest.
-func extractRAR(archive, dest string, keepDirs bool) (written, skipped int, err error) {
+func extractRAR(archive, dest string, keepDirs bool, own owner) (written, skipped int, err error) {
 	r, err := rardecode.OpenReader(archive)
 	if err != nil {
 		return 0, 0, err
@@ -31,7 +31,7 @@ func extractRAR(archive, dest string, keepDirs bool) (written, skipped int, err 
 		if h.IsDir {
 			continue
 		}
-		ok, err := writeFile(dest, h.Name, keepDirs, r)
+		ok, err := writeFile(dest, h.Name, keepDirs, r, own)
 		if err != nil {
 			return written, skipped, err
 		}
@@ -44,7 +44,7 @@ func extractRAR(archive, dest string, keepDirs bool) (written, skipped int, err 
 }
 
 // extractZIP extracts a ZIP archive into dest.
-func extractZIP(archive, dest string, keepDirs bool) (written, skipped int, err error) {
+func extractZIP(archive, dest string, keepDirs bool, own owner) (written, skipped int, err error) {
 	z, err := zip.OpenReader(archive)
 	if err != nil {
 		return 0, 0, err
@@ -58,7 +58,7 @@ func extractZIP(archive, dest string, keepDirs bool) (written, skipped int, err 
 		if err != nil {
 			return written, skipped, err
 		}
-		ok, err := writeFile(dest, f.Name, keepDirs, rc)
+		ok, err := writeFile(dest, f.Name, keepDirs, rc, own)
 		rc.Close()
 		if err != nil {
 			return written, skipped, err
@@ -80,7 +80,7 @@ func extractZIP(archive, dest string, keepDirs bool) (written, skipped int, err 
 // or climbs out with ".." is refused, so an archive cannot write outside
 // dest. The data goes to a ".partial" file that is renamed into place only
 // once complete.
-func writeFile(dest, name string, keepDirs bool, r io.Reader) (bool, error) {
+func writeFile(dest, name string, keepDirs bool, r io.Reader, own owner) (bool, error) {
 	name = path.Clean(strings.ReplaceAll(name, `\`, "/"))
 	if path.IsAbs(name) || name == ".." || strings.HasPrefix(name, "../") {
 		return false, fmt.Errorf("archive entry %q escapes the destination", name)
@@ -92,7 +92,7 @@ func writeFile(dest, name string, keepDirs bool, r io.Reader) (bool, error) {
 	if _, err := os.Lstat(target); err == nil {
 		return false, nil
 	}
-	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+	if err := own.mkdirAll(filepath.Dir(target)); err != nil {
 		return false, err
 	}
 	tmp := target + ".partial"
@@ -109,5 +109,6 @@ func writeFile(dest, name string, keepDirs bool, r io.Reader) (bool, error) {
 		os.Remove(tmp)
 		return false, err
 	}
+	own.apply(tmp, false)
 	return true, os.Rename(tmp, target)
 }
