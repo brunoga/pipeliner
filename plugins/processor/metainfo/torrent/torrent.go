@@ -56,6 +56,7 @@ func init() {
 			entry.FieldTorrentFileSize,
 			entry.FieldTorrentFileCount,
 			entry.FieldTorrentFiles,
+			entry.FieldTorrentArchive,
 			entry.FieldTorrentAnnounce,
 			entry.FieldTorrentAnnounceList,
 			entry.FieldTorrentCreatedBy,

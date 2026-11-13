@@ -57,6 +57,7 @@ func init() {
 			entry.FieldTorrentFileSize,
 			entry.FieldTorrentFileCount,
 			entry.FieldTorrentFiles,
+			entry.FieldTorrentArchive,
 		},
 		Factory:  newPlugin,
 		Validate: validate,

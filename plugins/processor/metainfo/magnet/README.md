@@ -31,7 +31,8 @@ An entry is treated as a magnet when `torrent_link_type = "magnet"` (set by `jac
 | `title` | string | Name from the info dict. Only written if no `title` is already set, so a canonical title from `metainfo_tmdb`/`tvdb`/`trakt` upstream is preserved. |
 | `torrent_file_size` | int64 | Total size in bytes |
 | `torrent_file_count` | int | Number of files |
-| `torrent_files` | []string | File paths relative to the torrent root |
+| `torrent_files`, `torrent_archive` | []string | File paths relative to the torrent root |
+| `torrent_archive` | bool | `true` when the video is packed in archives (RAR, `.r00` volumes, ZIP, 7z) and there is no video file apart from a sample; route on it to extract before the media server sees the files |
 
 DHT resolution fields are absent when the timeout expires before peers respond. The entry is still passed to output plugins with only the URI-derived fields.
 
@@ -40,7 +41,7 @@ DHT resolution fields are absent when the timeout expires before peers respond. 
 | Property | Value |
 |----------|-------|
 | Role | `processor` |
-| Produces | `title`, `torrent_info_hash`, `torrent_announce`, `torrent_announce_list`, `torrent_file_size`, `torrent_file_count`, `torrent_files` |
+| Produces | `title`, `torrent_info_hash`, `torrent_announce`, `torrent_announce_list`, `torrent_file_size`, `torrent_file_count`, `torrent_files`, `torrent_archive` |
 | Requires | — |
 
 ## Example

@@ -27,7 +27,8 @@ If the `.torrent` file cannot be fetched or parsed, the entry is failed so it wi
 | `torrent_info_hash` | string | SHA-1 info hash (hex) |
 | `torrent_file_size` | int64 | Total content size in bytes |
 | `torrent_file_count` | int | Number of files in the torrent |
-| `torrent_files` | []string | Relative file paths within the torrent |
+| `torrent_files`, `torrent_archive` | []string | Relative file paths within the torrent |
+| `torrent_archive` | bool | `true` when the video is packed in archives (RAR, `.r00` volumes, ZIP, 7z) and there is no video file apart from a sample; route on it to extract before the media server sees the files |
 | `torrent_announce` | string | Primary tracker URL |
 | `torrent_announce_list` | []string | All tracker announce URLs |
 | `torrent_created_by` | string | Client that created the torrent (if set) |
@@ -39,7 +40,7 @@ If the `.torrent` file cannot be fetched or parsed, the entry is failed so it wi
 | Property | Value |
 |----------|-------|
 | Role | `processor` |
-| Produces | `title`, `torrent_info_hash`, `torrent_file_size`, `torrent_file_count`, `torrent_files`, `torrent_announce`, `torrent_announce_list`, `torrent_created_by`, `torrent_creation_date`, `torrent_private` |
+| Produces | `title`, `torrent_info_hash`, `torrent_file_size`, `torrent_file_count`, `torrent_files`, `torrent_archive`, `torrent_announce`, `torrent_announce_list`, `torrent_created_by`, `torrent_creation_date`, `torrent_private` |
 | Requires | — |
 
 ## Example

@@ -259,6 +259,10 @@ const (
 	FieldTorrentFileSize     = "torrent_file_size"
 	FieldTorrentFileCount    = "torrent_file_count"
 	FieldTorrentFiles        = "torrent_files"
+	// FieldTorrentArchive is true when the torrent's video is packed in
+	// archives (RAR, ZIP, 7z) rather than shipped as video files; see
+	// ArchivedPayload.
+	FieldTorrentArchive = "torrent_archive"
 	FieldTorrentSeeds        = "torrent_seeds"
 	FieldTorrentLeechers     = "torrent_leechers"
 	FieldTorrentGrabs        = "torrent_grabs" // number of times downloaded from the indexer
@@ -694,6 +698,7 @@ func (e *Entry) SetTorrentInfo(info TorrentInfo) {
 	}
 	if len(info.Files) > 0 {
 		e.Fields[FieldTorrentFiles] = info.Files
+		e.Fields[FieldTorrentArchive] = ArchivedPayload(info.Files)
 	}
 	if info.Seeds > 0 {
 		e.Fields[FieldTorrentSeeds] = info.Seeds
