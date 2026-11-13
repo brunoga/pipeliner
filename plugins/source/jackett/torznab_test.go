@@ -543,3 +543,35 @@ func TestBuildSearchParams(t *testing.T) {
 		})
 	}
 }
+
+// TestLeechersComeFromPeers: Jackett reports "peers" (seeders plus leechers)
+// and no "leechers" attribute, so the leechers are the difference.
+func TestLeechersComeFromPeers(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		attrs []torznabAttr
+		want  int
+	}{
+		{"jackett peers", []torznabAttr{{Name: "seeders", Value: "1"}, {Name: "peers", Value: "7"}}, 6},
+		{"leechers stated", []torznabAttr{{Name: "seeders", Value: "1"}, {Name: "peers", Value: "7"}, {Name: "leechers", Value: "2"}}, 2},
+		{"peers below seeders", []torznabAttr{{Name: "seeders", Value: "5"}, {Name: "peers", Value: "3"}}, 0},
+		{"nothing stated", []torznabAttr{{Name: "seeders", Value: "5"}}, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			data := buildXML([]torznabItem{{
+				Title: "Some.Film.2020.3D.1080p",
+				Enclosure: struct {
+					URL string `xml:"url,attr"`
+				}{URL: "https://jackett.host/dl/idx/?path=xyz"},
+				Attrs: tc.attrs,
+			}})
+			entries, err := parseTorznab(data, "idx", nil)
+			if err != nil || len(entries) != 1 {
+				t.Fatalf("parse: %v, %d entries", err, len(entries))
+			}
+			if got := entries[0].GetInt(entry.FieldTorrentLeechers); got != tc.want {
+				t.Errorf("torrent_leechers = %d, want %d", got, tc.want)
+			}
+		})
+	}
+}
