@@ -7,6 +7,7 @@ require (
 	github.com/brunoga/bdtools v0.19.0
 	github.com/mattn/go-isatty v0.0.24
 	github.com/mxschmitt/playwright-go v0.6201.1
+	github.com/nwaples/rardecode/v2 v2.4.5
 	go.starlark.net v0.0.0-20260326113308-fadfc96def35
 	golang.org/x/crypto v0.58.0
 	golang.org/x/net v0.60.0
