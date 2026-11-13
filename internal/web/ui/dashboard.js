@@ -517,7 +517,7 @@ function card(t, runs, idx = 0) {
   return `
     <div class="task-card" style="--card-color:${cardColor}${extraDelay}">
       <div class="task-card-header task-history-toggle" onclick="openRuns(${esc(JSON.stringify(t.name))})" title="Show recent runs">
-        <div class="task-name">${esc(t.name)}${errDot}</div>
+        <div class="task-name${t.description ? ' has-desc' : ''}"${t.description ? ` title="${esc(t.description)}"` : ''}>${esc(t.name)}${errDot}</div>
         <div class="task-card-meta">${schedBadge}${chevron}</div>
       </div>
       <div class="task-timing">

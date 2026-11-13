@@ -1015,9 +1015,12 @@ function renderPipelineLabels() {
     const regionEl = canvas.querySelector(`.ve-pipeline-region[data-graph-idx="${i}"]`);
     if (regionEl) label.style.width = regionEl.style.width;
     const commentBtnCls = g.comment?.trim() ? ' has-comment' : '';
+    const desc = g.description?.trim() || '';
+    const nameTip = (desc ? desc + '\n\n' : '') + 'Click to activate · Double-click to rename';
     label.innerHTML = [
-      `<span class="ve-pl-name" title="Click to activate · Double-click to rename">${esc(g.name)}</span>`,
+      `<span class="ve-pl-name" title="${esc(nameTip)}">${esc(g.name)}</span>`,
       `<button class="ve-pl-comment-btn${commentBtnCls}" title="Edit pipeline comment">#</button>`,
+      `<button class="ve-pl-desc-btn${desc ? ' has-desc' : ''}" title="Edit pipeline description (shown when hovering the name, here and on the dashboard)">ⓘ</button>`,
       `<span class="ve-pl-sep">schedule:</span>`,
       `<input class="ve-pl-sched" placeholder="e.g. 1h" value="${esc(g.schedule || '')}" title="Cron or interval schedule">`,
       ve.fnEditor.active ? '' : `<button class="ve-pl-delete" tabindex="-1" title="Delete pipeline and all its nodes">×</button>`,
@@ -1105,6 +1108,15 @@ function renderPipelineLabels() {
         'Enter a comment (shown above pipeline() in the config file)…',
         ve.graphs[gi].comment || '',
         text => { ve.graphs[gi].comment = text; renderPipelineLabels(); onModelChange(); }
+      );
+    });
+    label.querySelector('.ve-pl-desc-btn').addEventListener('click', e => {
+      e.stopPropagation();
+      openTextPopup(
+        `Description — pipeline "${g.name}"`,
+        'What this pipeline does (written as description= on pipeline())…',
+        ve.graphs[gi].description || '',
+        text => { ve.graphs[gi].description = text.trim(); renderPipelineLabels(); onModelChange(); }
       );
     });
     if (!ve.fnEditor.active) {
@@ -6253,6 +6265,7 @@ async function expandAndRemoveFunction(funcName) {
       name,
       schedule: graph.schedule || existingG.schedule || '',
       after: graph.after || existingG.after || '',
+      description: graph.description || '',
       comment:  graph.comment  || existingG.comment  || '',
       nodes, _hasLayout,
     };
@@ -7391,7 +7404,8 @@ function dagToStarlark() {
 
     const schedArg = g.schedule ? `, schedule=${starLit(g.schedule)}` : '';
     const afterArg = g.after ? `, after=${starLit(g.after)}` : '';
-    lines.push(`pipeline(${starLit(g.name)}${schedArg}${afterArg})`);
+    const descArg = g.description?.trim() ? `, description=${starLit(g.description.trim())}` : '';
+    lines.push(`pipeline(${starLit(g.name)}${schedArg}${afterArg}${descArg})`);
     sections.push(lines.join('\n'));
   }
 
@@ -8082,7 +8096,7 @@ async function textToVisualSync() {
 
       // A pipeline "has layout" when any main node carries a stored position.
       const _hasLayout = nodes.some(n => !n.isSearchNode && !n.isListNode && n.x != null && n.y != null);
-      return {name, schedule: graph.schedule || '', after: graph.after || '', comment: graph.comment || '', nodes, _hasLayout};
+      return {name, schedule: graph.schedule || '', after: graph.after || '', description: graph.description || '', comment: graph.comment || '', nodes, _hasLayout};
     });
     ve.nextId = ve.graphs.flatMap(g => g.nodes).reduce((max, n) => {
       const m = n.id.match(/_(\d+)$/);

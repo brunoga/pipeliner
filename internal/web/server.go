@@ -41,10 +41,11 @@ type DaemonControl interface {
 
 // TaskInfo describes one task shown in the UI.
 type TaskInfo struct {
-	Name     string
-	Schedule string   // empty for unscheduled (manual-only) tasks
-	After    string   // trigger dependency ("parent" or "parent:accepted"), empty when none
-	Queues   []string // ingest queues drained by this task's webhook sources
+	Name        string
+	Schedule    string   // empty for unscheduled (manual-only) tasks
+	After       string   // trigger dependency ("parent" or "parent:accepted"), empty when none
+	Description string   // pipeline("name", description="…"), empty when none
+	Queues      []string // ingest queues drained by this task's webhook sources
 }
 
 // Server is the HTTP status interface for the daemon.
@@ -376,13 +377,14 @@ func mustSub(fsys embed.FS, dir string) fs.FS {
 
 func (s *Server) apiStatus(w http.ResponseWriter, _ *http.Request) {
 	type taskJSON struct {
-		Name     string   `json:"name"`
-		Schedule string   `json:"schedule"`
-		After    string   `json:"after,omitempty"`
-		NextRun  string   `json:"nextRun,omitempty"`
-		Running  bool     `json:"running,omitempty"`
-		Queues   []string `json:"queues,omitempty"` // push-fed: ingest queues this task drains
-		Queued   int      `json:"queued,omitempty"` // items currently waiting across those queues
+		Name        string   `json:"name"`
+		Schedule    string   `json:"schedule"`
+		After       string   `json:"after,omitempty"`
+		Description string   `json:"description,omitempty"`
+		NextRun     string   `json:"nextRun,omitempty"`
+		Running     bool     `json:"running,omitempty"`
+		Queues      []string `json:"queues,omitempty"` // push-fed: ingest queues this task drains
+		Queued      int      `json:"queued,omitempty"` // items currently waiting across those queues
 	}
 	type resp struct {
 		Tasks     []taskJSON `json:"tasks"`
@@ -393,7 +395,7 @@ func (s *Server) apiStatus(w http.ResponseWriter, _ *http.Request) {
 	s.tasksMu.RUnlock()
 	tasks := make([]taskJSON, len(snap))
 	for i, t := range snap {
-		tj := taskJSON{Name: t.Name, Schedule: t.Schedule, After: t.After, Running: s.isRunning(t.Name), Queues: t.Queues}
+		tj := taskJSON{Name: t.Name, Schedule: t.Schedule, After: t.After, Description: t.Description, Running: s.isRunning(t.Name), Queues: t.Queues}
 		for _, q := range t.Queues {
 			tj.Queued += ingest.Len(q)
 		}
@@ -1062,6 +1064,7 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 		FunctionCalls []funcCallResp `json:"function_calls,omitempty"`
 		Schedule      string         `json:"schedule,omitempty"`
 		After         string         `json:"after,omitempty"`
+		Description   string         `json:"description,omitempty"`
 		Comment       string         `json:"comment,omitempty"`
 	}
 	type funcParamResp struct {
@@ -1248,6 +1251,7 @@ func (s *Server) apiConfigParse(w http.ResponseWriter, r *http.Request) {
 			FunctionCalls: funcCalls,
 			Schedule:      c.GraphSchedules[name],
 			After:         c.GraphAfter[name],
+			Description:   c.GraphDescriptions[name],
 			Comment:       pipelineComments[name],
 		}
 	}

@@ -296,14 +296,16 @@ func (ctx *execContext) resolveNodePipelines() {
 // Assembles all pending nodes into a dag.Graph and registers it.
 func (ctx *execContext) pipelineBuiltin(_ *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var (
-		name     string
-		schedule starlark.Value = starlark.None
-		after    string
+		name        string
+		schedule    starlark.Value = starlark.None
+		after       string
+		description string
 	)
 	if err := starlark.UnpackArgs(fn.Name(), args, kwargs,
 		"name", &name,
 		"schedule?", &schedule,
 		"after?", &after,
+		"description?", &description,
 	); err != nil {
 		return nil, err
 	}
@@ -370,6 +372,9 @@ func (ctx *execContext) pipelineBuiltin(_ *starlark.Thread, fn *starlark.Builtin
 	}
 	if after != "" {
 		ctx.graphAfter[name] = after
+	}
+	if d := strings.TrimSpace(description); d != "" {
+		ctx.graphDescriptions[name] = d
 	}
 	return starlark.None, nil
 }

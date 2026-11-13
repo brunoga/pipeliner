@@ -421,6 +421,13 @@ section { margin-bottom: 36px; }
   letter-spacing: -0.01em;
 }
 
+.task-name.has-desc {
+  /* The pipeline has a description, shown as the hover tooltip. */
+  text-decoration: underline dotted var(--muted);
+  text-underline-offset: 3px;
+  cursor: help;
+}
+
 .task-schedule {
   font-size: 9px;
   color: var(--muted);
@@ -1236,12 +1243,12 @@ body.dark {
   border-bottom:1px solid var(--accent); outline:none;
   padding:0; margin:0; min-width:60px;
 }
-.ve-pl-comment-btn {
+.ve-pl-comment-btn, .ve-pl-desc-btn {
   background:none; border:none; color:var(--muted); cursor:pointer;
   font-size:11px; padding:0 3px; border-radius:3px; flex-shrink:0; line-height:1;
 }
-.ve-pl-comment-btn:hover { color:var(--accent); }
-.ve-pl-comment-btn.has-comment { color:var(--accent); }
+.ve-pl-comment-btn:hover, .ve-pl-desc-btn:hover { color:var(--accent); }
+.ve-pl-comment-btn.has-comment, .ve-pl-desc-btn.has-desc { color:var(--accent); }
 
 /* Delete pipeline button */
 .ve-pl-delete {
