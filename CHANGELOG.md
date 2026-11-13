@@ -5,6 +5,18 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.77.0] - 2026-11-13
+
+### Added
+
+- **`dedup` gains `invert`** ([#695](https://github.com/brunoga/pipeliner/pull/695)). With `invert=True` the best copy of each item is set aside as kept, and the inferior copies go on, still accepted, for a cleanup to delete. An entry dedup cannot group is also kept, so having no opinion on a file never reads as "delete it". This fixes the 1.76.0 known issue: `configs/dedup-cleanup.star` now runs `accept_all → dedup(invert=True) → delete` and deletes the duplicates. The `swap_state` docs no longer show the dedup cleanup as working.
+
+### Fixed
+
+- **A probe no tracker answered is no longer a dead swarm** ([#694](https://github.com/brunoga/pipeliner/pull/694)). A tracker refusal, such as 3dtorrents' "torrents limit reached" while the account is at its torrent limit, left the probe with no peers. It was recorded as `probe_unreachable` for a whole `cache_ttl`, so gates refused the release for a week, and in the background it used up a retry. When every tracker errored and no piece data arrived, nothing is recorded now. A background job is retried after `retry_after` without being charged an attempt, and after 8 such tries it leaves the queue for the next run to queue again.
+
+**Why 1.77.0**: a new plugin option, plus a fix.
+
 ## [1.76.0] - 2026-11-13
 
 ### Added
