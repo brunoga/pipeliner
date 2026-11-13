@@ -36,25 +36,56 @@ LIBRARIES = [MEDIA + "/series", MEDIA + "/movies", MEDIA + "/3dmovies", MEDIA + 
 
 DAY = 86400
 
+SMTP = {
+    "smtp_host": env("SMTP_HOST", default="smtp.example.com"),
+    "smtp_port": 587,
+    "username": env("SMTP_USER", default="you@example.com"),
+    "password": env("SMTP_PASSWORD", default="YOUR_SMTP_PASSWORD"),
+    "sender": env("SMTP_USER", default="you@example.com"),
+    "to": env("NOTIFY_TO", default="you@example.com"),
+}
+
+# What each run removed, with the share ratio each torrent earned: on a
+# ratio-strict tracker that is the number to watch.
+REMOVED = """Removed {{len .Entries}} torrent(s), freeing {{filesize (sumfield "torrent_file_size" .Entries)}}; they uploaded {{filesize (sumfield "torrent_uploaded" .Entries)}} in all.
+{{range .Entries}}
+{{.Title}}
+  why:     {{.AcceptReason}}
+  ratio:   {{printf "%.2f" (index .Fields "torrent_ratio")}} ({{filesize (index .Fields "torrent_uploaded")}} up / {{filesize (index .Fields "torrent_downloaded")}} down)
+  seeded:  {{duration (index .Fields "torrent_seed_time")}}
+  tracker: {{with index .Fields "torrent_tracker_host"}}{{.}}{{else}}unknown{{end}}
+  freed:   {{filesize (index .Fields "torrent_file_size")}} from {{index .Fields "torrent_download_dir"}}
+{{end}}"""
+
+DELETED = """Deleted {{len .Entries}} file(s) older than 7 days that no torrent uses, freeing {{filesize (sumfield "file_size" .Entries)}}.
+{{range .Entries}}
+{{index .Fields "file_location"}}
+  {{filesize (index .Fields "file_size")}}, last modified {{ago (index .Fields "file_modified_time")}}
+{{end}}"""
+
 # --- torrent-retention ------------------------------------------------------
 
 session = input("torrent_session", backend="deluge", host=DELUGE_HOST, password=DELUGE_PASSWORD)
 
 due = process("condition", upstream=session, rules=[
-    # Only torrents that have finished and are seeding.
-    {"reject": 'torrent_state != "seeding"'},
+    # Only torrents that have finished and are seeding. Each reason says, in
+    # the report, why a torrent was removed.
+    {"reject": 'torrent_state != "seeding"', "reason": "not seeding"},
     # The ratio-strict private tracker: seed to 2.0, then at least 3 days.
-    {"accept": 'torrent_tracker_host contains "3dtorrents" and torrent_ratio >= 2.0 and torrent_seed_time >= %d' % (3 * DAY)},
-    {"reject": 'torrent_tracker_host contains "3dtorrents"'},
+    {"accept": 'torrent_tracker_host contains "3dtorrents" and torrent_ratio >= 2.0 and torrent_seed_time >= %d' % (3 * DAY),
+     "reason": "3dtorrents: reached a 2.0 ratio and seeded at least 3 days"},
+    {"reject": 'torrent_tracker_host contains "3dtorrents"', "reason": "3dtorrents: seeds until a 2.0 ratio"},
     # Everyone else.
-    {"accept": "torrent_seed_time >= %d" % (7 * DAY)},
-    {"accept": "torrent_ratio >= 2.0 and torrent_seed_time >= %d" % DAY},
-    {"reject": "true"},
+    {"accept": "torrent_seed_time >= %d" % (7 * DAY), "reason": "seeded 7 days"},
+    {"accept": "torrent_ratio >= 2.0 and torrent_seed_time >= %d" % DAY, "reason": "reached a 2.0 ratio after a day of seeding"},
+    {"reject": "true", "reason": "still seeding"},
 ])
 
 # Once a torrent stops seeding its files go too; "remove" would keep them.
-output("torrent_control", upstream=due, action="remove_with_data", backend="deluge",
-       host=DELUGE_HOST, password=DELUGE_PASSWORD)
+removed = output("torrent_control", upstream=due, action="remove_with_data", backend="deluge",
+                 host=DELUGE_HOST, password=DELUGE_PASSWORD)
+output("notify", upstream=removed, via="email", config=SMTP,
+       title="Retention: {{len .Entries}} torrent(s) removed", body=REMOVED)
 
 pipeline("torrent-retention", schedule="0 0 * * *")
 
@@ -70,7 +101,9 @@ old = process("condition", upstream=files, rules=[
 free = process("torrent_in_use", upstream=old, backend="deluge", host=DELUGE_HOST,
                password=DELUGE_PASSWORD)
 
-output("delete", upstream=free, roots=LIBRARIES)
+deleted = output("delete", upstream=free, roots=LIBRARIES)
+output("notify", upstream=deleted, via="email", config=SMTP,
+       title="Media cleanup: {{len .Entries}} file(s) deleted", body=DELETED)
 
 # After torrent-retention, so a torrent it removes tonight is gone first.
 pipeline("media-cleanup", schedule="30 0 * * *")
