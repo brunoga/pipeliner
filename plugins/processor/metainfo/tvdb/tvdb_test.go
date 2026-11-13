@@ -899,3 +899,23 @@ func TestAnnotateWithoutAnIDSearchesAsBefore(t *testing.T) {
 		t.Errorf("tvdb_id = %q, want the searched show's id", v)
 	}
 }
+
+// TestAnnotateSeasonPack: a pack names the show and no episode, which is all
+// the show lookup needs. It used to be skipped with a warning, so a pack's
+// email had no poster and its folder took the release's spelling of the name.
+func TestAnnotateSeasonPack(t *testing.T) {
+	srv := makeServer()
+	defer srv.Close()
+	p := makePlugin(t, srv)
+
+	e := entry.New("Breaking.Bad.S02.720p.BluRay", "http://x.com/p")
+	if err := p.annotate(context.Background(), makeCtx(), e); err != nil {
+		t.Fatal(err)
+	}
+	if e.GetString("tvdb_id") != "81189" || e.GetString("title") != "Breaking Bad" || e.GetString("video_poster") == "" {
+		t.Errorf("pack not enriched: %v", e.Fields)
+	}
+	if _, ok := e.Fields[entry.FieldSeriesEpisodeID]; ok {
+		t.Error("enrichment must not give a pack an episode")
+	}
+}

@@ -209,7 +209,7 @@ func nameKey(e *entry.Entry) string {
 	case entry.MediaTypeSeries:
 		epID := e.GetString(entry.FieldSeriesEpisodeID)
 		if epID == "" {
-			return ""
+			return packKey(e)
 		}
 		// Derive a normalised series name. Prefer parsing e.Title (the raw
 		// entry title / torrent filename), which always yields a clean
@@ -237,6 +237,27 @@ func nameKey(e *entry.Entry) string {
 		return "movie:" + strings.ToLower(title)
 	}
 	return ""
+}
+
+// packKey groups copies of one season pack: the same show and the same
+// seasons. A pack and the episodes it holds are not grouped -- they are not
+// copies of one another, and the pipelines that take packs ask for one or the
+// other per season.
+func packKey(e *entry.Entry) string {
+	id := e.GetString(entry.FieldSeriesPackID)
+	if id == "" {
+		return ""
+	}
+	var name string
+	if pk, ok := series.ParsePack(e.Title); ok {
+		name = series.NewShow(pk.SeriesName, pk.SeriesYear).Base
+	} else {
+		name = series.NewShow(e.GetString(entry.FieldTitle), entry.ReleaseYear(e)).Base
+	}
+	if name == "" {
+		return ""
+	}
+	return "pack:" + name + "/" + id
 }
 
 // isBetter reports whether a is the better copy to keep.

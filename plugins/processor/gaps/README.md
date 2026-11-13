@@ -39,7 +39,7 @@ Per-episode entry:
 | `tvdb_id` | `81189` |
 | `source` | `series_gaps:tvdb` |
 
-Season-pack entry: title `Breaking Bad S02`, URL `pipeliner://gap/breaking%20bad/S02`, `series_season` set, **no** `series_episode`/`series_episode_id`. The codebase has no season-pack tracking semantics: downstream the pack entry is just a plain search query, and season-pack *releases* found for it don't parse as single episodes — a strict `require(fields=["series_episode_id", …])` / `series` chain will drop them. Keep `pack_threshold=1.0` (packs disabled) with such a chain, or relax the chain on a dedicated branch if you want pack grabs. Pack grabs are also not recorded per-episode in the tracker, so the episodes they cover remain "missing" to future gap scans until tracked by other means.
+Season-pack entry: title `Breaking Bad S02`, URL `pipeliner://gap/breaking%20bad/S02`, `series_season` set, **no** `series_episode`/`series_episode_id`. Season-pack *releases* are read by `metainfo_file` as packs (`series_pack`, `series_pack_id`, `series_season`) and matched to the pack query by `discover`'s `match_titles`, but they carry no episode id — a strict `require(fields=["series_episode_id", …])` / `series` chain drops them. Keep `pack_threshold=1.0` (packs disabled) with such a chain, or require `series_season` instead on a pipeline built for packs. Pack grabs are also not recorded per-episode in the tracker, so the episodes they cover remain "missing" to future gap scans until tracked by other means.
 
 ## Season packs
 

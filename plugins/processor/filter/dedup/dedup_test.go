@@ -616,3 +616,30 @@ func TestFallsBackToParsingTheTitle(t *testing.T) {
 		t.Errorf("kept %q, want the remux", out[0].Title)
 	}
 }
+
+func packEntry(release, packID string, seeds int, url string) *entry.Entry {
+	e := entry.New(release, url)
+	e.Set(entry.FieldMediaType, entry.MediaTypeSeries)
+	e.Set(entry.FieldSeriesPack, true)
+	e.Set(entry.FieldSeriesPackID, packID)
+	e.Set(entry.FieldTorrentSeeds, seeds)
+	e.SetQuality(quality.Parse(release))
+	e.Accept()
+	return e
+}
+
+// TestDedupSeasonPacks: copies of one pack collapse to the best, and a pack
+// of a different season, or of a different show, is not a copy. Before, a
+// pack had no key at all and every copy was downloaded.
+func TestDedupSeasonPacks(t *testing.T) {
+	a720 := packEntry("Agatha.All.Along.S01.720p.WEB", "S01", 10, "http://x/1")
+	a1080 := packEntry("Agatha.All.Along.S01.1080p.WEB", "S01", 10, "http://x/2")
+	s2 := packEntry("Agatha.All.Along.S02.720p.WEB", "S02", 10, "http://x/3")
+	other := packEntry("WandaVision.S01.720p.WEB", "S01", 10, "http://x/4")
+	out := dedupRun(t, a720, a1080, s2, other)
+	if !a720.IsRejected() || a1080.IsRejected() || s2.IsRejected() || other.IsRejected() {
+		t.Errorf("rejected: 720p=%v 1080p=%v S02=%v other=%v, want only the 720p copy",
+			a720.IsRejected(), a1080.IsRejected(), s2.IsRejected(), other.IsRejected())
+	}
+	_ = out
+}

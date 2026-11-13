@@ -10,6 +10,7 @@ import (
 
 	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/plugin"
+	"github.com/brunoga/pipeliner/quality"
 )
 
 func makeCtx() *plugin.TaskContext {
@@ -373,5 +374,35 @@ func TestRegistration(t *testing.T) {
 	// MayProduce must include media_type, the classification marker.
 	if !slices.Contains(d.MayProduce, entry.FieldMediaType) {
 		t.Error("MayProduce must include media_type")
+	}
+}
+
+// TestSeasonPack: a pack is a series with a season and a pack id, and no
+// episode -- it used to be read as a film called "Agatha All Along S01".
+func TestSeasonPack(t *testing.T) {
+	e := annotateTitle(t, "Agatha.All.Along.S01.1080p.DSNP.WEB-DL.DDP5.1.H.264-NTb")
+	if v := e.GetString(entry.FieldMediaType); v != entry.MediaTypeSeries {
+		t.Errorf("media_type: got %q, want series", v)
+	}
+	if e.GetString(entry.FieldTitle) != "Agatha All Along" || e.GetInt(entry.FieldSeriesSeason) != 1 ||
+		!e.GetBool(entry.FieldSeriesPack) || e.GetString(entry.FieldSeriesPackID) != "S01" {
+		t.Errorf("fields: %v", e.Fields)
+	}
+	for _, f := range []string{entry.FieldSeriesEpisodeID, entry.FieldSeriesEpisode, entry.FieldSeriesSeasonEnd, entry.FieldMovieTitle} {
+		if _, ok := e.Fields[f]; ok {
+			t.Errorf("a single-season pack must not carry %s", f)
+		}
+	}
+	if q, ok := e.Quality(); !ok || q.Resolution != quality.Resolutionp1080 {
+		t.Errorf("quality: %v %v", q, ok)
+	}
+
+	r := annotateTitle(t, "The Wire S01-S05 720p BluRay")
+	if r.GetInt(entry.FieldSeriesSeason) != 1 || r.GetInt(entry.FieldSeriesSeasonEnd) != 5 || r.GetString(entry.FieldSeriesPackID) != "S01-S05" {
+		t.Errorf("range: %v", r.Fields)
+	}
+	c := annotateTitle(t, "Firefly The Complete Series 1080p BluRay")
+	if _, ok := c.Fields[entry.FieldSeriesSeason]; ok || c.GetString(entry.FieldSeriesPackID) != "COMPLETE" {
+		t.Errorf("complete: %v", c.Fields)
 	}
 }

@@ -853,3 +853,28 @@ func TestDiscoverStampsOnlyTheNamespacesTheQueryHas(t *testing.T) {
 		t.Errorf("tvdb_id = %q, want 371980", got)
 	}
 }
+
+// TestMatchesQuerySeasonPack: series_gaps asks "Show S02" for a mostly-missing
+// season. Only a pack of that show and exactly that season answers it; the
+// episodes a full-text search also returns, a neighbouring season, and a pack
+// of more seasons than asked for do not. Before, the query was read as a film
+// title and nothing matched it.
+func TestMatchesQuerySeasonPack(t *testing.T) {
+	q := "Agatha All Along S01"
+	for release, want := range map[string]bool{
+		"Agatha.All.Along.S01.1080p.DSNP.WEB-DL.DDP5.1.H.264-NTb": true,
+		"Agatha All Along Season 1 720p WEB":                       true,
+		"Agatha.All.Along.S01E03.1080p.WEB":                        false,
+		"Agatha.All.Along.S02.1080p.WEB":                           false,
+		"Agatha.All.Along.S01-S02.1080p.WEB":                       false,
+		"Agatha All Along The Complete Series 1080p":               false,
+		"WandaVision.S01.1080p.WEB":                                false,
+	} {
+		if got := matchesQuery(q, release); got != want {
+			t.Errorf("matchesQuery(%q, %q) = %v, want %v", q, release, got, want)
+		}
+	}
+	if !matchesQuery("The Wire S01-S05", "The.Wire.S01-S05.720p.BluRay") {
+		t.Error("a range query should match the same range")
+	}
+}
