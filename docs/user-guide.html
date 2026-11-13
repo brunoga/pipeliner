@@ -698,6 +698,7 @@ ok    = process("condition", upstream=told, reject='probe_ok == false')</code></
   <tr><td><code>torrent_file_size</code></td><td>Total torrent size in bytes</td></tr>
   <tr><td><code>torrent_file_count</code></td><td>Number of files in torrent</td></tr>
   <tr><td><code>torrent_files</code></td><td>List of file paths inside the torrent</td></tr>
+  <tr><td><code>torrent_archive</code></td><td><code>true</code> for a torrent whose video is packed in archives (RAR, old-style <code>.r00</code> volumes, ZIP, 7z) with no video file of its own; a sample clip does not count as video, and archives beside real videos (<code>subs.rar</code>) do not make it archived</td></tr>
   <tr><td><code>torrent_seeds</code></td><td>Seeder count</td></tr>
   <tr><td><code>torrent_leechers</code></td><td>Leecher count</td></tr>
   <tr><td><code>torrent_announce</code></td><td>Primary tracker announce URL</td></tr>
@@ -822,6 +823,7 @@ ok    = process("condition", upstream=told, reject='probe_ok == false')</code></
   <tr><td><code>torrent_grabs</code></td><td>rss (nyaa), jackett</td><td>Number of times downloaded from the indexer</td></tr>
   <tr><td><code>torrent_file_size</code></td><td>metainfo_torrent, metainfo_magnet, jackett</td><td>Total torrent size in bytes</td></tr>
   <tr><td><code>torrent_files</code></td><td>metainfo_torrent, metainfo_magnet</td><td>List of file paths inside torrent</td></tr>
+  <tr><td><code>torrent_archive</code></td><td>metainfo_torrent, metainfo_magnet</td><td>The video is in archives and must be extracted before it plays</td></tr>
   <tr><td><code>tvdb_id</code></td><td>metainfo_tvdb</td><td>TheTVDB series ID</td></tr>
   <tr><td><code>tmdb_id</code></td><td>metainfo_tmdb</td><td>TMDb movie/series ID</td></tr>
   <tr><td><code>trakt_id</code></td><td>metainfo_trakt, trakt_list</td><td>Trakt internal ID</td></tr>
