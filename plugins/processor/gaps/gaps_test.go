@@ -863,3 +863,56 @@ func TestUnmatchedIDFallsBackToTheName(t *testing.T) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
 }
+
+// TestARequestedSeasonLimitsTheScan: a request for one season gets that
+// season, whether it names it in a field or in a pack-shaped title. Before,
+// the title "My Show S02" was searched on TheTVDB as a show of that name.
+func TestARequestedSeasonLimitsTheScan(t *testing.T) {
+	m := newMockTVDB(t, multiSeasonShow())
+	srv := &stubServer{}
+	p, _ := openWithServer(t, m, srv, map[string]any{"pack_threshold": 1.0})
+
+	byTitle := titles(run(t, p, entry.New("My Show S02", "pipeliner://req/1")))
+	if fmt.Sprint(byTitle) != "[My Show S02E01 My Show S02E02 My Show S02E03]" {
+		t.Errorf("title-named season: got %v", byTitle)
+	}
+
+	byField := entry.New("My Show", "pipeliner://req/2")
+	byField.Set(entry.FieldSeriesSeason, 1)
+	byField.Set(entry.FieldSeriesSeasonEnd, 3)
+	p2, _ := openWithServer(t, m, srv, map[string]any{"pack_threshold": 1.0, "max_per_run": 0})
+	if got := titles(run(t, p2, byField)); len(got) != 7 {
+		t.Errorf("field-named range S01-S03: got %v, want all 7", got)
+	}
+
+	// A fresh plugin: the request above put these episodes in the pending set.
+	p3, _ := openWithServer(t, m, srv, map[string]any{"pack_threshold": 1.0, "max_per_run": 0})
+	ranged := titles(run(t, p3, entry.New("My Show S02-S03", "pipeliner://req/3")))
+	if len(ranged) != 5 || ranged[0] != "My Show S02E01" {
+		t.Errorf("title-named range: got %v", ranged)
+	}
+}
+
+// TestARequestedSeasonOverridesTheFloor: from_first_owned leaves season 1
+// alone when only season 2 is held, but a request for season 1 is explicit.
+func TestARequestedSeasonOverridesTheFloor(t *testing.T) {
+	m := newMockTVDB(t, multiSeasonShow())
+	srv := &stubServer{items: []mediaserver.Item{owns(2, 1)}}
+	p, _ := openWithServer(t, m, srv, map[string]any{"seasons": "from_first_owned"})
+
+	got := titles(run(t, p, entry.New("My Show S01", "pipeliner://req/1")))
+	if fmt.Sprint(got) != "[My Show S01]" {
+		t.Errorf("got %v, want the season-1 pack query", got)
+	}
+}
+
+// TestTwoSeasonRequestsForOneShowAreBothScanned: the per-run show dedup used
+// to key on the show alone, so the second request was dropped.
+func TestTwoSeasonRequestsForOneShowAreBothScanned(t *testing.T) {
+	m := newMockTVDB(t, multiSeasonShow())
+	p, _ := openWithServer(t, m, &stubServer{}, map[string]any{})
+	got := titles(run(t, p, entry.New("My Show S01", "pipeliner://req/1"), entry.New("My Show S03", "pipeliner://req/2")))
+	if fmt.Sprint(got) != "[My Show S01 My Show S03]" {
+		t.Errorf("got %v, want both season packs", got)
+	}
+}
