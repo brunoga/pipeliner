@@ -504,11 +504,17 @@ func (p *probePlugin) Process(ctx context.Context, tc *plugin.TaskContext, entri
 			// diagnostic -- the same trap discover avoids by not stamping
 			// titles as "just searched" during a dry run.
 			v := newVerdict(res, pieces, bytes, err)
-			if v.ok() || !tc.DryRun {
+			//
+			// Nor is a failure no tracker answered for: it is not even a
+			// snapshot of the swarm.
+			switch {
+			case errors.Is(err, ErrNotAnnounced):
+				tc.Logger.Debug(pluginName+": no tracker answered, failure not recorded", "entry", e.Title)
+			case v.ok() || !tc.DryRun:
 				if serr := p.saveVerdict(e, v); serr != nil {
 					tc.Logger.Warn(pluginName+": could not store verdict", "entry", e.Title, "err", serr)
 				}
-			} else {
+			default:
 				tc.Logger.Debug(pluginName+": dry run, failure not recorded", "entry", e.Title)
 			}
 			if err != nil {
@@ -584,7 +590,7 @@ func (p *probePlugin) probeEntry(ctx context.Context, tc *plugin.TaskContext, e 
 	case <-t.GotInfo():
 	case <-ctx.Done():
 		swarm = snapshot()
-		return nil, 0, 0, swarm, fmt.Errorf("waiting for torrent metadata: %w", ctx.Err())
+		return nil, 0, 0, swarm, unannounced(fmt.Errorf("waiting for torrent metadata: %w", ctx.Err()), swarm)
 	}
 
 	pk, err := torrentpeek.New(t)
@@ -596,7 +602,26 @@ func (p *probePlugin) probeEntry(ctx context.Context, tc *plugin.TaskContext, e 
 
 	res, err := p.readWithRetries(ctx, pk, targetOf(t, e))
 	swarm = snapshot()
-	return res, pk.FetchedPieces(), pk.FetchedBytes(), swarm, err
+	return res, pk.FetchedPieces(), pk.FetchedBytes(), swarm, unannounced(err, swarm)
+}
+
+// ErrNotAnnounced reports a probe that failed without any tracker answering
+// its announce. It says nothing about the swarm: 3dtorrents refuses with
+// "torrents limit reached" while the account is at its torrent limit, and that
+// used to be recorded as a dead swarm, keeping a gate refusing the release for
+// a whole cache_ttl. It is never recorded as a verdict and, in the
+// background, does not use up a retry.
+var ErrNotAnnounced = errors.New("no tracker answered the announce")
+
+// unannounced replaces a failure with ErrNotAnnounced when no tracker answered
+// and no piece data arrived. With data the swarm was reached, however it came
+// to be, and the failure stands. The tracker results go into the message;
+// they are hosts and redacted errors, never a passkey.
+func unannounced(err error, swarm *SwarmReport) error {
+	if err == nil || swarm == nil || !swarm.Refused || swarm.Useful > 0 {
+		return err
+	}
+	return fmt.Errorf("%w (%s)", ErrNotAnnounced, swarm.Tracker)
 }
 
 // removeSample deletes what a probe left in dir for the torrent called name:

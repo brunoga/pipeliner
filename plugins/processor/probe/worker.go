@@ -3,6 +3,7 @@ package probe
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"runtime/debug"
@@ -45,6 +46,11 @@ const (
 	// pipeline re-queues what it still sees on every run (keeping the job's
 	// attempts), so this only removes releases the indexers stopped listing.
 	maxJobAge = 14 * 24 * time.Hour
+	// maxUnannounced drops a job after this many probes no tracker answered,
+	// without a verdict, so a tracker that keeps refusing does not hold a
+	// queue slot for the whole maxJobAge. At the default retry_after that is
+	// a day; the next run that still sees the release queues it again.
+	maxUnannounced = 8
 	// retriggerGap is the least time between two runs the worker starts for
 	// one pipeline. A backlog can turn up several readable releases in a row,
 	// and each run re-searches every indexer the pipeline reads; one run an
@@ -79,10 +85,13 @@ type job struct {
 
 	Settings jobSettings `json:"settings"`
 
-	QueuedAt  time.Time `json:"queued_at"`
-	Attempts  int       `json:"attempts,omitempty"`
-	NotBefore time.Time `json:"not_before,omitzero"`
-	LastErr   string    `json:"last_err,omitempty"`
+	QueuedAt time.Time `json:"queued_at"`
+	Attempts int       `json:"attempts,omitempty"`
+	// Unannounced counts probes no tracker answered. They are not attempts:
+	// they learned nothing about the swarm. See maxUnannounced.
+	Unannounced int       `json:"unannounced,omitempty"`
+	NotBefore   time.Time `json:"not_before,omitzero"`
+	LastErr     string    `json:"last_err,omitempty"`
 }
 
 // jobSettings are the asking node's probe settings.
@@ -432,8 +441,12 @@ func (w *Worker) work(ctx context.Context, j job) {
 		return
 	}
 
-	j.Attempts++
 	j.LastErr = err.Error()
+	if errors.Is(err, ErrNotAnnounced) {
+		w.unannounced(j, swarm)
+		return
+	}
+	j.Attempts++
 	if j.Attempts <= j.Settings.Retries {
 		// Tried again later rather than written off: a swarm nobody served
 		// now may be served once its seeders next announce, and a seeder we
@@ -455,6 +468,26 @@ func (w *Worker) work(ctx context.Context, j job) {
 	_ = w.queue.Delete(j.InfoHash)
 	w.logger.Info(pluginName+": background probe gave up", append([]any{
 		"entry", j.Title, "err", err, "attempts", j.Attempts}, swarm.logArgs()...)...)
+}
+
+// unannounced puts back a job whose probe no tracker answered. The probe
+// learned nothing about the swarm, so it is neither an attempt nor a verdict:
+// the job waits retry_after and is tried again with its attempts intact.
+func (w *Worker) unannounced(j job, swarm *SwarmReport) {
+	j.Unannounced++
+	if j.Unannounced >= maxUnannounced {
+		_ = w.queue.Delete(j.InfoHash)
+		w.logger.Info(pluginName+": background probe dropped, no tracker answered", append([]any{
+			"entry", j.Title, "err", j.LastErr, "tries", j.Unannounced}, swarm.logArgs()...)...)
+		return
+	}
+	j.NotBefore = w.now().Add(j.Settings.RetryAfter)
+	if perr := w.queue.Put(j.InfoHash, &j); perr != nil {
+		w.logger.Warn(pluginName+": could not requeue", "entry", j.Title, "err", perr)
+	}
+	w.logger.Info(pluginName+": no tracker answered, will try again", append([]any{
+		"entry", j.Title, "err", j.LastErr, "tries", j.Unannounced, "retry_at", j.NotBefore.Format(time.RFC3339)},
+		swarm.logArgs()...)...)
 }
 
 // safeProbe is w.probe with a panic turned into a failed probe. The worker

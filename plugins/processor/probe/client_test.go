@@ -17,6 +17,7 @@ import (
 	"github.com/anacrolix/torrent/bencode"
 	"github.com/anacrolix/torrent/metainfo"
 
+	"github.com/brunoga/pipeliner/internal/entry"
 	"github.com/brunoga/pipeliner/internal/plugin"
 )
 
@@ -192,12 +193,13 @@ func TestADroppedTorrentStaysForTheOtherProbe(t *testing.T) {
 // what it answered, by host, and never the passkey in the announce path.
 func TestTrackerResultIsReported(t *testing.T) {
 	for _, tc := range []struct {
-		name string
-		body string
-		want string
+		name    string
+		body    string
+		want    string
+		refused bool
 	}{
-		{"refused", "d14:failure reason20:unregistered torrente", "unregistered torrent"},
-		{"seeders and leechers", "d8:completei3e10:incompletei7e8:intervali1800e5:peers6:\x7f\x00\x00\x01\x1a\xe1e", "3 seeders, 7 leechers, 1 peers"},
+		{"refused", "d14:failure reason20:unregistered torrente", "unregistered torrent", true},
+		{"seeders and leechers", "d8:completei3e10:incompletei7e8:intervali1800e5:peers6:\x7f\x00\x00\x01\x1a\xe1e", "3 seeders, 7 leechers, 1 peers", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var mu sync.Mutex
@@ -237,6 +239,9 @@ func TestTrackerResultIsReported(t *testing.T) {
 			}
 			if !strings.Contains(r.Tracker, tc.want) {
 				t.Fatalf("tracker = %q, want it to contain %q", r.Tracker, tc.want)
+			}
+			if r.Refused != tc.refused {
+				t.Errorf("refused = %v, want %v", r.Refused, tc.refused)
 			}
 			if strings.Contains(r.Tracker, "s3cr3tpasskey") {
 				t.Errorf("the passkey reached the report: %q", r.Tracker)
@@ -381,5 +386,60 @@ func TestATrackerListingOnlyUsIsNotAPeer(t *testing.T) {
 	}
 	if r.ToSelf == 0 {
 		t.Error("a connection to ourselves was not recorded as one")
+	}
+}
+
+// TestAProbeNoTrackerAnsweredRecordsNothing drives a real probe against a
+// tracker that refuses it, as 3dtorrents does with "torrents limit reached"
+// while the account is at its limit. The refusal says nothing about the
+// swarm, so it must not be recorded as unreachable for a whole cache_ttl;
+// a tracker that answers with no peers still is.
+func TestAProbeNoTrackerAnsweredRecordsNothing(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		body       string
+		wantStored bool
+	}{
+		{"refused", "d14:failure reason22:torrents limit reachede", false},
+		{"answered with no peers", "d8:completei0e10:incompletei0e8:intervali1800e5:peers0:e", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer srv.Close()
+			mi := smallTorrent(t, srv.URL+"/s3cr3tpasskey/announce")
+			path := filepath.Join(t.TempDir(), "x.torrent")
+			f, err := os.Create(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := mi.Write(f); err != nil {
+				t.Fatal(err)
+			}
+			_ = f.Close()
+
+			db := verdictStore(t)
+			p := probeWith(t, db, map[string]any{"timeout": "20s", "no_peer_timeout": "1s"})
+			t.Cleanup(func() { p.Shutdown() })
+			e := hashEntry("Limited 2021 3D", mi.HashInfoBytes().HexString())
+			e.Set(entry.FieldFileLocation, path)
+			if _, err := p.Process(context.Background(), &plugin.TaskContext{Logger: discardLogger()}, []*entry.Entry{e}); err != nil {
+				t.Fatalf("Process: %v", err)
+			}
+			if v := e.Fields[entry.FieldProbeOK]; v != false {
+				t.Fatalf("probe_ok = %#v, want false", v)
+			}
+			if got := e.GetBool(entry.FieldProbeUnreachable); got != tc.wantStored {
+				t.Errorf("probe_unreachable = %v, want %v", got, tc.wantStored)
+			}
+			keys, err := db.Bucket(VerdictBucketName).Keys()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if stored := len(keys) == 1; stored != tc.wantStored {
+				t.Errorf("verdict stored = %v, want %v", stored, tc.wantStored)
+			}
+		})
 	}
 }

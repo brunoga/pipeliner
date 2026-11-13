@@ -60,7 +60,7 @@ func (f *fakeSampler) Ends() []int {
 	}
 	return []int{0}
 }
-func (f *fakeSampler) FetchedPieces() int { return len(f.have) }
+func (f *fakeSampler) FetchedPieces() int  { return len(f.have) }
 func (f *fakeSampler) HasPiece(i int) bool { return f.have[i] }
 
 func (f *fakeSampler) Fetch(_ context.Context, pieces ...int) error {
