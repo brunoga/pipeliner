@@ -2391,6 +2391,7 @@ output("exec", upstream=cleanup, command="rm -f {file_location}")</code></pre>
   <tr><td><code>tls</code></td><td>no</td><td>false</td><td>Use HTTPS</td></tr>
   <tr><td><code>path</code></td><td>no</td><td><code>{{.download_path}}</code></td><td>Download directory template</td></tr>
   <tr><td><code>move_completed_path</code></td><td>no</td><td>—</td><td>Move completed downloads here</td></tr>
+  <tr><td><code>max_upload_slots</code></td><td>no</td><td>Deluge's own</td><td>Peers each added torrent may upload to at once. A torrent can only be capped below Deluge's global limit, never given more, so to favour a ratio-strict tracker, cap the pipelines that grab from the others.</td></tr>
 </table>
 
 <pre><code>output("deluge", upstream=ready,

@@ -605,3 +605,42 @@ func TestNoGrabRecordOnFailedAdd(t *testing.T) {
 		t.Error("no grab record should be written for a failed add")
 	}
 }
+
+// TestMaxUploadSlotsIsSentWithTheTorrent: the cap goes in the add options,
+// and leaving it out leaves Deluge's own setting alone.
+func TestMaxUploadSlotsIsSentWithTheTorrent(t *testing.T) {
+	for _, tc := range []struct {
+		cfg  map[string]any
+		want any
+	}{
+		{map[string]any{"host": "127.0.0.1", "password": "x", "max_upload_slots": 10}, float64(10)},
+		{map[string]any{"host": "127.0.0.1", "password": "x"}, nil},
+	} {
+		mock := &mockDeluge{loginOK: true}
+		srv := httptest.NewServer(mock.handler())
+		p, err := newPlugin(tc.cfg, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		dp := p.(*delugePlugin)
+		dp.endpoint = srv.URL + "/json"
+		dp.deliver(context.Background(), makeCtx(), []*entry.Entry{entry.New("x", "http://x.com/a.torrent")})
+		srv.Close()
+		found := false
+		for _, c := range mock.calls {
+			if c.Method == "core.add_torrent_url" && len(c.Params) >= 2 {
+				found = true
+				opts, _ := c.Params[1].(map[string]any)
+				if got := opts["max_upload_slots"]; got != tc.want {
+					t.Errorf("cfg %v: max_upload_slots sent %v, want %v", tc.cfg, got, tc.want)
+				}
+			}
+		}
+		if !found {
+			t.Fatal("no add_torrent_url call")
+		}
+	}
+	if errs := validate(map[string]any{"max_upload_slots": 0}); len(errs) == 0 {
+		t.Error("a zero cap must be refused")
+	}
+}
