@@ -284,7 +284,7 @@ pipeline("my-pipeline", schedule="1h")
 ### Download client housekeeping
 
 - [`torrent-janitor.star`](torrent-janitor.star) — fail and purge stalled or trickling downloads, so another release can be grabbed
-- [`torrent-retention.star`](torrent-retention.star) — remove finished torrents and their files once they have seeded enough, with a **per-tracker rule** (a ratio-strict private tracker seeds to 2.0, everything else for 7 days); plus `media-cleanup`, which deletes media files older than 7 days that no torrent still uses (`torrent_in_use` + `delete`)
+- [`torrent-retention.star`](torrent-retention.star) — remove finished torrents and their files once they have seeded enough, with a **per-tracker rule** (a ratio-strict private tracker seeds to 2.0, everything else for 7 days); plus `media-cleanup`, which deletes media files older than 7 days that no torrent still uses (`torrent_in_use` + `delete`), and `torrent-cap`, which keeps the torrent count under the seeding limit (`limit` with `invert`)
 
 ### Filesystem
 

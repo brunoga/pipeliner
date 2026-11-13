@@ -23,6 +23,12 @@
 # keeps seeding -- and keeps everything when Deluge cannot be asked. delete
 # never removes a library root, even an emptied one.
 #
+# torrent-cap keeps Deluge within CAP torrents, under its active-seeding
+# limit: past it Deluge queues the extras, which then neither upload nor earn
+# bonus points. The excess is removed with its data, least protected first --
+# public trackers, then the healthy private one, then the ratio-strict one --
+# and oldest first within each; a torrent still downloading is never removed.
+#
 # Run each as a dry run first to see what it would remove.
 #
 # Requirements: DELUGE_PASSWORD; pipeliner must see the media folders at the
@@ -35,6 +41,7 @@ MEDIA = "/data/media"
 LIBRARIES = [MEDIA + "/series", MEDIA + "/movies", MEDIA + "/3dmovies", MEDIA + "/3d-mvc-inbox"]
 
 DAY = 86400
+CAP = 290  # under Deluge's max_active_seeding of 300
 
 SMTP = {
     "smtp_host": env("SMTP_HOST", default="smtp.example.com"),
@@ -107,3 +114,24 @@ output("notify", upstream=deleted, via="email", config=SMTP,
 
 # After torrent-retention, so a torrent it removes tonight is gone first.
 pipeline("media-cleanup", schedule="30 0 * * *")
+
+# --- torrent-cap ------------------------------------------------------------
+
+capped = input("torrent_session", backend="deluge", host=DELUGE_HOST, password=DELUGE_PASSWORD)
+
+# Higher keeps: 9 still downloading, 2 the ratio-strict tracker, 1 the other
+# private one, 0 everything else; then the newest first within each.
+ranked = process("set", upstream=capped, keep_rank='{{$h := default "" .torrent_tracker_host}}' +
+    '{{if ne .torrent_state "seeding"}}9{{else if contains "3dtorrents" $h}}2' +
+    '{{else if contains "torrenting" $h}}1{{else}}0{{end}}-{{.torrent_added_at.Unix}}')
+candidates = process("accept_all", upstream=ranked)
+
+# invert: the top CAP are kept and everything below them goes on.
+excess = process("limit", upstream=candidates, n=CAP, sort="keep_rank", order="desc", invert=True)
+
+trimmed = output("torrent_control", upstream=excess, action="remove_with_data", backend="deluge",
+                 host=DELUGE_HOST, password=DELUGE_PASSWORD)
+output("notify", upstream=trimmed, via="email", config=SMTP,
+       title="Torrent cap: {{len .Entries}} torrent(s) removed", body=REMOVED)
+
+pipeline("torrent-cap", schedule="45 * * * *")

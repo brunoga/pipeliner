@@ -45,6 +45,10 @@ Notify templates can render both the original reason and the swap:
 | Produces | — |
 | Requires | — |
 
+## Limitation: it only sees what upstream returned
+
+Filters drop the entries they reject from their output, so `swap_state` never sees an entry rejected by the node before it. Only entries an upstream node returned can be flipped. In particular, `dedup` → `swap_state` does **not** hand `dedup`'s losers to the next node. Verified: of two copies of one film, `dedup` rejected the 720p one and dropped it, `swap_state` flipped the 1080p winner to rejected, and nothing reached the sink. The example below, and `configs/dedup-cleanup.star`, therefore delete nothing until `dedup` returns its losers. To keep the best n and act on the rest, use [`limit`](../../filter/limit/) with `invert=True`.
+
 ## Examples
 
 ### Cleanup pipeline — delete dedup's losers, leave winners alone

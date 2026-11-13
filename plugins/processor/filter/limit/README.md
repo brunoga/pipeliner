@@ -15,6 +15,7 @@ Without `sort`, the first `n` accepted entries in arrival order win. With
 | `n` | yes | — | Maximum number of accepted entries to forward (>= 1) |
 | `sort` | no | — | Entry field to sort by; absent means arrival order |
 | `order` | no | `desc` | Sort direction when `sort` is set: `desc` or `asc` |
+| `invert` | no | `false` | Pass on everything *beyond* the top `n` instead: the top `n` are set aside (rejected with "kept, within the top n") and the rest stay accepted |
 
 Entries missing the `sort` field are bucketed last regardless of `order`, so
 they never beat an entry that has the field.
@@ -37,6 +38,19 @@ RSS feeds sorts chronologically.
 | Produces | — |
 | Requires | — (sort field is optional and missing values are tolerated) |
 | InputStates | `accepted` only — undecided entries are not candidates yet, rejected and failed ones are terminally decided |
+
+## `invert`: keep the best n, act on the rest
+
+For a cleanup the population to act on is the excess, not the winners. With `invert=True` the top `n` are the ones taken out of the flow, and everything ranked below them goes on, still accepted, to the sink that removes it. A torrent cap that keeps the best 290 torrents and removes the rest:
+
+```python
+ranked = process("set", upstream=session, keep_rank="...")   # higher = keep
+all    = process("accept_all", upstream=ranked)
+excess = process("limit", upstream=all, n=290, sort="keep_rank", order="desc", invert=True)
+output("torrent_control", upstream=excess, action="remove_with_data", backend="deluge")
+```
+
+Ranking the excess down and flipping it with `swap_state` does not work: a filter drops the entries it rejects from its output, so `swap_state` never sees them.
 
 ## Placement: put it last
 

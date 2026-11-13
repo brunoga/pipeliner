@@ -1,5 +1,9 @@
 # dedup-cleanup.star
 #
+# NOTE: as written this deletes nothing. dedup drops the copies it rejects
+# from its output, so swap_state never sees them: it flips the winners to
+# rejected and the losers never reach the sinks. See the swap_state README.
+#
 # Scans a media library directory tree, identifies duplicate copies of the
 # same movie or episode, and deletes the lower-quality copies — keeping the
 # best copy of each title on disk.

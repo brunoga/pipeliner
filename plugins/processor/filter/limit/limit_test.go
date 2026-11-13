@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -242,5 +243,58 @@ func TestStableArrivalOrderOnTie(t *testing.T) {
 	}
 	if !c.IsRejected() {
 		t.Error("c should be rejected")
+	}
+}
+
+// TestInvertPassesOnTheRest is the cleanup shape: keep the best n, act on
+// the others. The torrent cap ranks torrents by a "<priority>-<added unix
+// time>" string and removes all but the top 290; here the top 2 of 5.
+func TestInvertPassesOnTheRest(t *testing.T) {
+	p, err := newPlugin(map[string]any{"n": 2, "sort": "keep_rank", "invert": true}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mk := func(title, rank string) *entry.Entry {
+		e := accepted(title)
+		e.Set("keep_rank", rank)
+		return e
+	}
+	downloading := mk("downloading", "9-1700000000")
+	private := mk("private-old", "2-1600000000")
+	publicNew := mk("public-new", "0-1790000000")
+	publicOld := mk("public-old", "0-1700000000")
+	other := mk("other", "1-1750000000")
+	out, err := p.(*limitPlugin).Process(context.Background(), tc(), []*entry.Entry{publicOld, downloading, publicNew, other, private})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range []*entry.Entry{downloading, private} {
+		if !e.IsRejected() || !strings.Contains(e.RejectReason, "kept, within the top 2") {
+			t.Errorf("%s should be kept (rejected as kept), got state %v %q", e.Title, e.State, e.RejectReason)
+		}
+	}
+	for _, e := range []*entry.Entry{other, publicNew, publicOld} {
+		if !e.IsAccepted() {
+			t.Errorf("%s is beyond the top 2 and should go on, got %v", e.Title, e.State)
+		}
+	}
+	if len(out) != 3 {
+		t.Errorf("out = %d entries, want the 3 beyond the top 2", len(out))
+	}
+}
+
+// TestInvertUnderTheCapPassesNothing: with n or fewer entries, all are kept.
+func TestInvertUnderTheCapPassesNothing(t *testing.T) {
+	p, err := newPlugin(map[string]any{"n": 5, "invert": true}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, b := accepted("a"), accepted("b")
+	out, err := p.(*limitPlugin).Process(context.Background(), tc(), []*entry.Entry{a, b})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 0 || !a.IsRejected() || !b.IsRejected() {
+		t.Errorf("under the cap nothing goes on: out=%d a=%v b=%v", len(out), a.State, b.State)
 	}
 }
