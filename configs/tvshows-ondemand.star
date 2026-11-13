@@ -5,7 +5,8 @@
 # single episodes where only a few are. A pack shipped as plain video files
 # goes straight into the series folder. One packed in RAR/ZIP/7z archives
 # goes to a staging area, and a second pipeline extracts it into the series
-# folder once Deluge has finished the download.
+# folder once Deluge has finished the download, while the torrent keeps
+# seeding.
 #
 #   curl -X POST -H "Authorization: Bearer $PIPELINER_INGEST_TOKEN" \
 #        "http://localhost:8080/api/ingest/tvshows?pipeline=tvshows-ondemand" \
@@ -128,13 +129,13 @@ done = process("condition", upstream=session, rules=[
 ])
 
 # Extract into the series folder that mirrors the staging one, never
-# overwriting a file. A failure leaves the torrent alone and is retried next
-# run; a success removes the torrent and its archives, which are no use once
-# extracted.
-unpacked = output("decompress", upstream=done, to=SERIES, mirror_from=STAGING)
-removed = output("torrent_control", upstream=unpacked, action="remove_with_data",
-                 backend="deluge", host=DELUGE_HOST, password=DELUGE_PASSWORD)
-output("notify", upstream=removed, via="email", config=SMTP,
+# overwriting a file. The torrent and its archives stay and keep seeding:
+# removing them right away would cost share ratio. Whatever retires torrents
+# removes them later (see torrent-retention.star). seen extracts each torrent
+# once; a failed extraction is not recorded and is tried again next run.
+new = process("seen", upstream=done, local=True)
+unpacked = output("decompress", upstream=new, to=SERIES, mirror_from=STAGING)
+output("notify", upstream=unpacked, via="email", config=SMTP,
        title="Pipeliner unpacked {{len .Entries}} download(s)", body=UNPACKED)
 
 pipeline("tvshows-unpack", schedule="10m")

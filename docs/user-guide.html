@@ -171,6 +171,7 @@ td code{font-size:11px}
     <a href="#require" class="sub">require</a>
     <a href="#seen" class="sub">seen</a>
     <a href="#exists" class="sub">exists</a>
+    <a href="#torrent_in_use" class="sub">torrent_in_use</a>
     <a href="#library" class="sub">library</a>
     <a href="#list_match" class="sub">list_match</a>
     <a href="#regexp" class="sub">regexp</a>
@@ -196,6 +197,7 @@ td code{font-size:11px}
     <a href="#print" class="sub">print</a>
     <a href="#notify-output" class="sub">notify</a>
     <a href="#decompress" class="sub">decompress</a>
+    <a href="#delete" class="sub">delete</a>
     <a href="#library_refresh" class="sub">library_refresh</a>
     <a href="#list_add" class="sub">list_add</a>
     <a href="#tvdb_favorites_add" class="sub">tvdb_favorites_add</a>
@@ -1218,7 +1220,7 @@ series = process("series", upstream=src, list=[
 
 <pre><code>sess = input("torrent_session", backend="transmission", host="localhost")</code></pre>
 
-<p><strong>Seeding retention.</strong> <code>configs/torrent-retention.star</code> removes finished torrents (keeping their files) once they have seeded enough, with a different rule per tracker. A private tracker with a minimum share ratio keeps its torrents until they reach 2.0 themselves, however long that takes; everything else goes after 7 days, or at 2.0 after a day. A flat "7 days, whatever the ratio" rule is what took one 3dtorrents account below its required 1.0: niche torrents there often have no leechers for days, so removing them at a near-zero ratio turned every download into a net loss.</p>
+<p><strong>Seeding retention.</strong> <code>configs/torrent-retention.star</code> removes finished torrents, files included, once they have seeded enough, with a different rule per tracker. A private tracker with a minimum share ratio keeps its torrents until they reach 2.0 themselves, however long that takes; everything else goes after 7 days, or at 2.0 after a day. A flat "7 days, whatever the ratio" rule is what took one 3dtorrents account below its required 1.0: niche torrents there often have no leechers for days, so removing them at a near-zero ratio turned every download into a net loss. A second pipeline in the same file, <code>media-cleanup</code>, deletes media files older than 7 days that no torrent still uses, with <a href="#torrent_in_use"><code>torrent_in_use</code></a> and <a href="#delete"><code>delete</code></a>.</p>
 
 <!-- ─────────── tvdb_favorites ─────────── -->
 <h2 id="action-links">Notification action links</h2>
@@ -1235,7 +1237,7 @@ series = process("series", upstream=src, list=[
   <li>A season that is mostly missing is searched as one <strong>season pack</strong>; one missing a few episodes is searched episode by episode.</li>
   <li>At most three torrents go to Deluge per run.</li>
   <li>A pack of plain video files is moved straight into the series folder.</li>
-  <li>A pack shipped as RAR/ZIP/7z (<code>torrent_archive</code>) is moved into a staging folder that mirrors the series tree. A second pipeline, <code>tvshows-unpack</code>, then extracts it into the series folder with <a href="#decompress"><code>decompress</code></a> once Deluge has finished, never overwriting a file, and removes the torrent.</li>
+  <li>A pack shipped as RAR/ZIP/7z (<code>torrent_archive</code>) is moved into a staging folder that mirrors the series tree. A second pipeline, <code>tvshows-unpack</code>, then extracts it into the series folder with <a href="#decompress"><code>decompress</code></a> once Deluge has finished, never overwriting a file. The torrent keeps seeding; removing it straight away would cost share ratio.</li>
 </ul></p>
 <pre><code>go run ./examples/enqueue "Heat 1995"
 go run ./examples/enqueue -pipeline tvshows-favorite-add "Severance"</code></pre>
@@ -2168,6 +2170,10 @@ pipeline("tech-news", schedule="1h")</code></pre>
   <tr><td><code>recursive</code></td><td>no</td><td>false</td><td>Check subdirectories recursively</td></tr>
 </table>
 
+<h2 id="torrent_in_use">torrent_in_use</h2>
+<p>Rejects files that a download client's torrent still uses, so an age-based cleanup can't stop a torrent seeding. On a tracker that enforces a share ratio, stopping a seed costs the account. A torrent uses everything below its download directory joined with its name. The client is asked once per run, and <strong>when it can't be asked, every file is rejected</strong>: deleting a file that might be seeding is the mistake this filter exists to prevent. Connection keys are those of <a href="#torrent_session"><code>torrent_session</code></a>. The paths must be the ones the client sees, so a containerised pipeliner mounts the media folders at the same paths. Requires <code>file_location</code>.</p>
+<pre><code>free = process("torrent_in_use", upstream=old, backend="deluge", password=env("DELUGE_PASSWORD"))</code></pre>
+
 <!-- ─────────── list_match ─────────── -->
 <h2 id="library">library</h2>
 <p>Rejects entries whose episode or movie already exists in the media library <em>on disk</em> at equal-or-better quality. Unlike <a href="#seen"><code>seen</code></a> and the download trackers (which record what pipeliner grabbed), this checks disk truth — content acquired outside pipeliner counts too — and enables real quality upgrades: a release strictly better than the library copy passes through. With <code>backend="plex"</code> and no <code>url</code>/<code>token</code>, the filter runs in <em>account mode</em>: it uses the <strong>Settings → Plex Account</strong> sign-in and indexes every server you own — no per-server config. Server-backed indexes grade copies by <strong>resolution, codec, and audio</strong> (Atmos is read straight from the server's listing), so a TrueHD-Atmos release passes as an upgrade over a plain copy at the same resolution. With <code>deep_scan=True</code> the Plex backend also detects <strong>HDR10, HLG, and Dolby Vision</strong> via per-item detail calls — cached persistently keyed by the item's <code>updatedAt</code>, so only never-seen items cost a request and replacing a file (a quality upgrade) rescans that one item immediately — unlocking upgrades like a DV release over a known-SDR copy (Jellyfin exposes the video range in listings and needs no deep scan). Source (BluRay/WEB) is not exposed by the server APIs and stays unknown — and upgrades are judged <em>only on dimensions the library copy actually knows</em>, so a release merely naming a source (or HDR, without deep scan) never false-upgrades the whole library.</p>
@@ -2538,6 +2544,15 @@ output("exec", upstream=ready,
   <tr><td><code>delete_archive</code></td><td>no</td><td>false</td><td>Remove the whole archive set (every volume) after a successful extraction</td></tr>
   <tr><td><code>tool</code></td><td>no</td><td><code>builtin</code></td><td><code>builtin</code>, or force <code>unrar</code>, <code>7z</code> or <code>unar</code> (each is run with its skip-existing flag)</td></tr>
 </table>
+
+<h2 id="delete">delete</h2>
+<p>Deletes the file at each entry's <code>file_location</code>, and the folders that leaves empty. It only deletes below the configured <code>roots</code> and never removes a root itself, even an emptied one. An entry outside every root fails instead of deleting anything. Only files are deleted: a directory or a missing path fails the entry, a symbolic link is removed as a link and never followed, and a dry run deletes nothing.</p>
+<table>
+  <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>roots</code></td><td>yes</td><td>—</td><td>Absolute directories below which files may be deleted (<code>/</code> is refused)</td></tr>
+  <tr><td><code>prune_empty</code></td><td>no</td><td><code>true</code></td><td>Remove folders a deletion leaves empty, up to the root</td></tr>
+</table>
+<p>With <a href="#filesystem"><code>filesystem</code></a>, a <code>condition</code> on <code>file_modified_time &lt; daysago(7)</code> and <a href="#torrent_in_use"><code>torrent_in_use</code></a> in front, it replaces a "delete files older than N days" script without touching anything a torrent still seeds from. See <code>configs/torrent-retention.star</code>.</p>
 
 <!-- ─────────── list_add ─────────── -->
 <h2 id="library_refresh">library_refresh</h2>

@@ -284,7 +284,7 @@ pipeline("my-pipeline", schedule="1h")
 ### Download client housekeeping
 
 - [`torrent-janitor.star`](torrent-janitor.star) — fail and purge stalled or trickling downloads, so another release can be grabbed
-- [`torrent-retention.star`](torrent-retention.star) — remove finished torrents once they have seeded enough, with a **per-tracker rule**: a ratio-strict private tracker seeds to 2.0, everything else for 7 days
+- [`torrent-retention.star`](torrent-retention.star) — remove finished torrents and their files once they have seeded enough, with a **per-tracker rule** (a ratio-strict private tracker seeds to 2.0, everything else for 7 days); plus `media-cleanup`, which deletes media files older than 7 days that no torrent still uses (`torrent_in_use` + `delete`)
 
 ### Filesystem
 
@@ -307,7 +307,7 @@ pipeline("my-pipeline", schedule="1h")
 
 - [`notification-action-link.star`](notification-action-link.star) — a **one-click button in a notification email** (signed link → confirmation page → ingest queue → pipeline), e.g. "follow this series" without visiting TheTVDB
 - [`ondemand-request.star`](ondemand-request.star) — push a movie title to `/api/ingest?pipeline=movies-ondemand` (curl or [`examples/enqueue`](../examples/enqueue/)) and the pipeline searches Jackett and downloads it immediately — no schedule, no watchlist
-- [`tvshows-ondemand.star`](tvshows-ondemand.star) — push a show (`Agatha All Along`) or a season (`Breaking Bad S02`) to `/api/ingest/tvshows?pipeline=tvshows-ondemand`. Plex says what is missing, and a season that is mostly missing is grabbed as one **season pack**. Plain video goes straight into the series folder; a pack shipped as **RAR/ZIP/7z** waits in staging, and `tvshows-unpack` extracts it into the series folder when Deluge finishes, then removes the torrent. At most 3 torrents per run
+- [`tvshows-ondemand.star`](tvshows-ondemand.star) — push a show (`Agatha All Along`) or a season (`Breaking Bad S02`) to `/api/ingest/tvshows?pipeline=tvshows-ondemand`. Plex says what is missing, and a season that is mostly missing is grabbed as one **season pack**. Plain video goes straight into the series folder; a pack shipped as **RAR/ZIP/7z** waits in staging, and `tvshows-unpack` extracts it into the series folder when Deluge finishes, and the torrent keeps seeding. At most 3 torrents per run
 
 ### Notifications
 
