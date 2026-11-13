@@ -11,6 +11,7 @@ Adds accepted torrents to a Deluge client via its Web UI JSON-RPC API.
 | `password` | string | yes | — | Web UI password |
 | `tls` | bool | no | false | Use HTTPS |
 | `path` | string | no | `{{.download_path}}` | Download directory template |
+| `max_upload_slots` | int | no | Deluge's own | Peers each added torrent may upload to at once. A torrent can only be capped below Deluge's global upload-slot limit, never given more, so to favour one tracker (one with a strict share ratio, say) cap the pipelines that grab from the others |
 
 ## Error handling
 

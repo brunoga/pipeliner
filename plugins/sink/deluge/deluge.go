@@ -32,6 +32,7 @@ func init() {
 			{Key: "path", Type: plugin.FieldTypePattern, Hint: "Download location template, e.g. /data/{title}"},
 			{Key: "move_completed_path", Type: plugin.FieldTypePattern, Hint: "Move-completed path template"},
 			{Key: "tls", Type: plugin.FieldTypeBool, Hint: "Use HTTPS to connect"},
+			{Key: "max_upload_slots", Type: plugin.FieldTypeInt, Hint: "Peers each added torrent may upload to at once (default: Deluge's own setting); cap busy trackers so a ratio-strict one keeps free slots"},
 		},
 	})
 }
@@ -43,7 +44,12 @@ func validate(cfg map[string]any) []error {
 			errs = append(errs, fmt.Errorf("deluge: \"port\" must be a positive integer"))
 		}
 	}
-	errs = append(errs, plugin.OptUnknownKeys(cfg, "deluge", "host", "port", "password", "path", "move_completed_path", "tls")...)
+	if v, ok := cfg["max_upload_slots"]; ok {
+		if n := intVal(v, 0); n < 1 {
+			errs = append(errs, fmt.Errorf("deluge: \"max_upload_slots\" must be a positive integer"))
+		}
+	}
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "deluge", "host", "port", "password", "path", "move_completed_path", "tls", "max_upload_slots")...)
 	return errs
 }
 
@@ -52,8 +58,13 @@ type delugePlugin struct {
 	password        string
 	pathIP          *interp.Interpolator
 	moveCompletedIP *interp.Interpolator // nil = don't set move_completed
-	client          *http.Client
-	grabStore       *grabs.Store
+	// maxUploadSlots caps each added torrent's upload slots; 0 leaves
+	// Deluge's own setting. A torrent can only be capped below the global
+	// limit, never given more, so favouring one tracker means capping the
+	// others.
+	maxUploadSlots int
+	client         *http.Client
+	grabStore      *grabs.Store
 }
 
 func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error) {
@@ -98,6 +109,7 @@ func newPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plugin, error)
 		password:        password,
 		pathIP:          pathIP,
 		moveCompletedIP: moveCompletedIP,
+		maxUploadSlots:  intVal(cfg["max_upload_slots"], 0),
 		client:          &http.Client{Jar: jar},
 		grabStore:       grabStore,
 	}, nil
@@ -254,6 +266,9 @@ func (p *delugePlugin) addTorrent(ctx context.Context, rawURL, linkType, savePat
 	if moveCompletedPath != "" {
 		opts["move_completed"] = true
 		opts["move_completed_path"] = moveCompletedPath
+	}
+	if p.maxUploadSlots > 0 {
+		opts["max_upload_slots"] = p.maxUploadSlots
 	}
 	// Check torrent_link_type first (set by sources such as Jackett that know
 	// the type without an HTTP fetch), then fall back to URL prefix inspection.
