@@ -4,7 +4,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"syscall"
 )
 
 // owner is what extracted files and folders take after: the destination
@@ -29,9 +28,7 @@ func ownerOf(root string) owner {
 		if err == nil {
 			o := owner{dirMode: info.Mode().Perm() | info.Mode()&fs.ModeSetgid,
 				fileMode: info.Mode().Perm() &^ 0o111}
-			if st, ok := info.Sys().(*syscall.Stat_t); ok {
-				o.uid, o.gid, o.known = int(st.Uid), int(st.Gid), true
-			}
+			o.uid, o.gid, o.known = fileIDs(info)
 			return o
 		}
 		if parent := filepath.Dir(p); parent == p {
