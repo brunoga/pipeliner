@@ -42,6 +42,10 @@ type Config struct {
 	// when the parent accepted at least one entry. Dry parent runs never
 	// cascade.
 	GraphAfter map[string]string
+	// GraphDescriptions maps pipeline names to the optional free-text
+	// description given by pipeline("name", description="…"). The dashboard
+	// and the visual editor show it when hovering the pipeline's name.
+	GraphDescriptions map[string]string
 	// UserFunctions holds the user-defined pipeline functions discovered in the
 	// source, keyed by function name.
 	UserFunctions map[string]*UserFunctionDef

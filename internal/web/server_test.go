@@ -1429,3 +1429,43 @@ func TestStatusReportsQueueDepth(t *testing.T) {
 		t.Errorf("plain: %+v, want no queue info", pl)
 	}
 }
+
+func TestAPIStatusIncludesDescription(t *testing.T) {
+	srv := New([]TaskInfo{{Name: "t1", Description: "What t1 does"}, {Name: "t2"}}, stubDaemon{}, NewHistory(), NewBroadcaster(), "test", "u", "p")
+
+	rec := httptest.NewRecorder()
+	srv.apiStatus(rec, httptest.NewRequest(http.MethodGet, "/api/status", nil))
+
+	var body struct {
+		Tasks []map[string]any `json:"tasks"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body.Tasks[0]["description"] != "What t1 does" {
+		t.Errorf("t1 description: got %v", body.Tasks[0]["description"])
+	}
+	if _, ok := body.Tasks[1]["description"]; ok {
+		t.Errorf("t2 must omit an empty description: %v", body.Tasks[1])
+	}
+}
+
+func TestAPIConfigParseReturnsDescription(t *testing.T) {
+	ts := newParseServer(t)
+	defer ts.Close()
+
+	body, _ := json.Marshal(map[string]string{
+		"content": "rss_0 = input(\"rss\", url=\"https://example.com\")\npipeline(\"tv\", description=\"Fetches TV\")\n",
+	})
+	resp := post(t, ts.URL+"/api/config/parse", "application/json", body)
+	defer resp.Body.Close()
+
+	var result map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	tv := result["graphs"].(map[string]any)["tv"].(map[string]any)
+	if tv["description"] != "Fetches TV" {
+		t.Errorf("description: got %v", tv["description"])
+	}
+}

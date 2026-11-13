@@ -76,3 +76,35 @@ describe('node label round-trip', () => {
     expect(dagToStarlark()).not.toContain('# pipeliner:label');
   });
 });
+
+describe('pipeline description round-trip', () => {
+  it('emits description= on the pipeline() call', () => {
+    ve.userPreamble = '';
+    ve.userFunctions = {};
+    ve.graphs = [{
+      name: 'p', schedule: '1h', description: '  Grabs "ratio" fillers  ',
+      nodes: [{ id: 'src', plugin: 'jackett', upstreams: [], config: {} }],
+    }];
+    expect(dagToStarlark()).toContain('pipeline("p", schedule="1h", description="Grabs \\"ratio\\" fillers")');
+  });
+
+  it('keeps a multi-line description', () => {
+    ve.userPreamble = '';
+    ve.userFunctions = {};
+    ve.graphs = [{
+      name: 'p', schedule: '', description: 'line one\nline two',
+      nodes: [{ id: 'src', plugin: 'jackett', upstreams: [], config: {} }],
+    }];
+    expect(dagToStarlark()).toContain('pipeline("p", description="""line one\nline two""")');
+  });
+
+  it('omits description= when blank', () => {
+    ve.userPreamble = '';
+    ve.userFunctions = {};
+    ve.graphs = [{
+      name: 'p', schedule: '', description: '   ',
+      nodes: [{ id: 'src', plugin: 'jackett', upstreams: [], config: {} }],
+    }];
+    expect(dagToStarlark()).not.toContain('description=');
+  });
+});

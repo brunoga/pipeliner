@@ -94,7 +94,8 @@ removed = output("torrent_control", upstream=due, action="remove_with_data", bac
 output("notify", upstream=removed, via="email", config=SMTP,
        title="Retention: {{len .Entries}} torrent(s) removed", body=REMOVED)
 
-pipeline("torrent-retention", schedule="0 0 * * *")
+pipeline("torrent-retention", schedule="0 0 * * *",
+         description="Removes finished torrents from the client once they have seeded long enough or reached their ratio")
 
 # --- media-cleanup ----------------------------------------------------------
 
@@ -113,7 +114,8 @@ output("notify", upstream=deleted, via="email", config=SMTP,
        title="Media cleanup: {{len .Entries}} file(s) deleted", body=DELETED)
 
 # After torrent-retention, so a torrent it removes tonight is gone first.
-pipeline("media-cleanup", schedule="30 0 * * *")
+pipeline("media-cleanup", schedule="30 0 * * *",
+         description="Deletes downloaded files that no torrent in the client still uses")
 
 # --- torrent-cap ------------------------------------------------------------
 
@@ -134,4 +136,5 @@ trimmed = output("torrent_control", upstream=excess, action="remove_with_data", 
 output("notify", upstream=trimmed, via="email", config=SMTP,
        title="Torrent cap: {{len .Entries}} torrent(s) removed", body=REMOVED)
 
-pipeline("torrent-cap", schedule="45 * * * *")
+pipeline("torrent-cap", schedule="45 * * * *",
+         description="Keeps the client under a torrent count by removing the oldest, least valuable torrents first")

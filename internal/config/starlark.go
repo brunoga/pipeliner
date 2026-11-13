@@ -15,13 +15,14 @@ import (
 func execute(filename string, src []byte) (*Config, error) {
 	userFuncs := scanUserFunctions(string(src))
 	ctx := &execContext{
-		graphs:         make(map[string]*dagGraph),
-		graphSchedules: make(map[string]string),
-		graphAfter:     make(map[string]string),
-		dir:            filepath.Dir(filename),
-		loaded:         make(map[string]starlark.StringDict),
-		userFunctions:  userFuncs,
-		functionCalls:  make(map[string][]*FunctionCallRecord),
+		graphs:            make(map[string]*dagGraph),
+		graphSchedules:    make(map[string]string),
+		graphAfter:        make(map[string]string),
+		graphDescriptions: make(map[string]string),
+		dir:               filepath.Dir(filename),
+		loaded:            make(map[string]starlark.StringDict),
+		userFunctions:     userFuncs,
+		functionCalls:     make(map[string][]*FunctionCallRecord),
 	}
 
 	thread := &starlark.Thread{
@@ -89,27 +90,29 @@ func execute(filename string, src []byte) (*Config, error) {
 		graphs[name] = dg.graph
 	}
 	return &Config{
-		Graphs:         graphs,
-		GraphOrder:     append([]string(nil), ctx.graphOrder...),
-		GraphSchedules: ctx.graphSchedules,
-		GraphAfter:     ctx.graphAfter,
-		UserFunctions:  ctx.userFunctions,
-		FunctionCalls:  ctx.functionCalls,
-		NodeVars:       nodeVars,
-		LoadWarnings:   ctx.loadWarnings,
+		Graphs:            graphs,
+		GraphOrder:        append([]string(nil), ctx.graphOrder...),
+		GraphSchedules:    ctx.graphSchedules,
+		GraphAfter:        ctx.graphAfter,
+		GraphDescriptions: ctx.graphDescriptions,
+		UserFunctions:     ctx.userFunctions,
+		FunctionCalls:     ctx.functionCalls,
+		NodeVars:          nodeVars,
+		LoadWarnings:      ctx.loadWarnings,
 	}, nil
 }
 
 // execContext accumulates DAG pipeline graphs registered during Starlark execution.
 type execContext struct {
-	graphs         map[string]*dagGraph
-	graphOrder     []string // pipeline names in the order their pipeline() calls fired
-	graphSchedules map[string]string
-	graphAfter     map[string]string
-	pendingNodes   []*dagNodeRecord
-	nodeCounter    int
-	dir            string
-	loaded         map[string]starlark.StringDict
+	graphs            map[string]*dagGraph
+	graphOrder        []string // pipeline names in the order their pipeline() calls fired
+	graphSchedules    map[string]string
+	graphAfter        map[string]string
+	graphDescriptions map[string]string
+	pendingNodes      []*dagNodeRecord
+	nodeCounter       int
+	dir               string
+	loaded            map[string]starlark.StringDict
 	// User function support.
 	userFunctions map[string]*UserFunctionDef      // discovered before execution
 	functionCalls map[string][]*FunctionCallRecord // populated by pipelineBuiltin

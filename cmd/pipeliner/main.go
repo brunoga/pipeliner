@@ -41,7 +41,6 @@ import (
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/content"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/dedup"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/exists"
-	_ "github.com/brunoga/pipeliner/plugins/processor/filter/torrent_in_use"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/library"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/limit"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/list_match"
@@ -55,6 +54,7 @@ import (
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/seen"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/series"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/torrent_failed"
+	_ "github.com/brunoga/pipeliner/plugins/processor/filter/torrent_in_use"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/torrentalive"
 	_ "github.com/brunoga/pipeliner/plugins/processor/filter/trailer"
 	_ "github.com/brunoga/pipeliner/plugins/processor/gaps"
@@ -611,7 +611,8 @@ func cmdDaemon(args []string) int {
 			infos := make([]web.TaskInfo, len(newTasks))
 			for i, t := range newTasks {
 				infos[i] = web.TaskInfo{Name: t.Name(), Schedule: newAllSched[t.Name()], After: newCfg.GraphAfter[t.Name()],
-					Queues: dag.WebhookQueues(newCfg.Graphs[t.Name()])}
+					Description: newCfg.GraphDescriptions[t.Name()],
+					Queues:      dag.WebhookQueues(newCfg.Graphs[t.Name()])}
 			}
 			ws.SetTasks(infos)
 		}
@@ -636,7 +637,8 @@ func cmdDaemon(args []string) int {
 		taskInfos := make([]web.TaskInfo, len(tasks))
 		for i, t := range tasks {
 			taskInfos[i] = web.TaskInfo{Name: t.Name(), Schedule: allSched[t.Name()], After: cfg.GraphAfter[t.Name()],
-				Queues: dag.WebhookQueues(cfg.Graphs[t.Name()])}
+				Description: cfg.GraphDescriptions[t.Name()],
+				Queues:      dag.WebhookQueues(cfg.Graphs[t.Name()])}
 		}
 		ws = web.New(taskInfos, d, hist, bcast, resolveVersion(), *webUser, *webPass)
 		ws.SetReload(reload)

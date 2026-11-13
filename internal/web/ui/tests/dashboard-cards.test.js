@@ -438,3 +438,17 @@ describe('empty log placeholder', () => {
     expect(dom.elements['log-console'].children.some(c => c.className === 'log-placeholder')).toBe(false);
   });
 });
+
+describe('pipeline description tooltip', () => {
+  it('puts the description on the name as a hover tooltip', () => {
+    const { exports } = loadModule(async () => ({ ok: true, json: async () => ({}) }));
+    const html = exports.card({ name: 'tv', description: 'Grabs <TV> "shows"' }, []);
+    expect(html).toContain('class="task-name has-desc" title="Grabs &lt;TV&gt; &quot;shows&quot;"');
+  });
+
+  it('adds no tooltip without a description', () => {
+    const { exports } = loadModule(async () => ({ ok: true, json: async () => ({}) }));
+    const html = exports.card({ name: 'tv' }, []);
+    expect(html).toContain('<div class="task-name">tv');
+  });
+});
