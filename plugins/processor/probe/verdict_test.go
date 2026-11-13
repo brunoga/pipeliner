@@ -398,3 +398,23 @@ func TestADryRunDoesNotRecordAFailure(t *testing.T) {
 		})
 	}
 }
+
+func TestUnannouncedNeedsNoTrackerAndNoData(t *testing.T) {
+	refused := &SwarmReport{Tracker: "tracker.invalid: torrents limit reached", Refused: true}
+	if err := unannounced(torrentpeek.ErrNoPeers, refused); !errors.Is(err, ErrNotAnnounced) || errors.Is(err, torrentpeek.ErrNoPeers) {
+		t.Errorf("refused, no data: %v, want ErrNotAnnounced and not ErrNoPeers", err)
+	}
+	withData := &SwarmReport{Refused: true, Useful: 1}
+	if err := unannounced(torrentpeek.ErrNoPeers, withData); !errors.Is(err, torrentpeek.ErrNoPeers) {
+		t.Errorf("data arrived: %v, the failure must stand", err)
+	}
+	if err := unannounced(torrentpeek.ErrNoPeers, &SwarmReport{}); !errors.Is(err, torrentpeek.ErrNoPeers) {
+		t.Errorf("a tracker answered: %v, the failure must stand", err)
+	}
+	if err := unannounced(torrentpeek.ErrNoPeers, nil); !errors.Is(err, torrentpeek.ErrNoPeers) {
+		t.Errorf("no report: %v, the failure must stand", err)
+	}
+	if err := unannounced(nil, refused); err != nil {
+		t.Errorf("success: %v, want nil", err)
+	}
+}

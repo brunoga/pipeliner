@@ -2,6 +2,7 @@ package probe
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"reflect"
 	"slices"
@@ -291,6 +292,41 @@ func TestAnUnservedReleaseIsRetriedThenRecorded(t *testing.T) {
 	var v verdict
 	if found, _ := db.Bucket(VerdictBucketName).Get("ggg", &v); !found || v.ok() || !v.Unreachable {
 		t.Errorf("the failure should be recorded as unreachable, got found=%v %+v", found, v)
+	}
+}
+
+// TestAnUnannouncedProbeIsNotAnAttempt: a probe no tracker answered learned
+// nothing about the swarm. It is tried again after retry_after with its
+// attempts intact, is never recorded, and gives up its queue slot after
+// maxUnannounced tries, still without a verdict.
+func TestAnUnannouncedProbeIsNotAnAttempt(t *testing.T) {
+	db := verdictStore(t)
+	runAs(t, background(t, db, map[string]any{"retries": 2, "retry_after": "3h"}), "p", false, hashEntry("Limited 2020 3D BluRay", "lim"))
+	refused := fmt.Errorf("%w (tracker.invalid: torrents limit reached)", ErrNotAnnounced)
+	sw := &fakeSwarm{errs: map[string]error{"lim": refused}}
+	c := newClock()
+	w := testWorker(t, db, sw, c, &triggers{})
+
+	for i := 1; i < maxUnannounced; i++ {
+		w.drain(context.Background())
+		j, found := queued(t, db, "lim")
+		if !found || j.Attempts != 0 || j.Unannounced != i || !j.NotBefore.Equal(c.at(3*time.Hour)) {
+			t.Fatalf("after %d refusals: found=%v job=%+v", i, found, j)
+		}
+		if w.hasVerdict(j) {
+			t.Fatal("a refusal must not be recorded")
+		}
+		c.advance(3 * time.Hour)
+	}
+	w.drain(context.Background())
+	if len(sw.probed) != maxUnannounced {
+		t.Errorf("probed %d times, want %d", len(sw.probed), maxUnannounced)
+	}
+	if _, found := queued(t, db, "lim"); found {
+		t.Error("a release no tracker ever answered for must leave the queue")
+	}
+	if found, _ := db.Bucket(VerdictBucketName).Get("lim", &verdict{}); found {
+		t.Error("giving up on a refusal must not record a verdict")
 	}
 }
 

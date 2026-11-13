@@ -146,6 +146,8 @@ The two outcomes have different lifetimes because they are different kinds of fa
 
 A **dry run keeps a success and discards a failure**, because the two differ in whether they can go stale. A container that was read is a fact about immutable bytes, so recording it from a dry run can never be wrong and saves re-pulling 20-25 MiB. A failure is a snapshot of a swarm, and recording one would keep a gate refusing that release on the next *real* run for a whole `cache_ttl` on the strength of a diagnostic.
 
+A probe that failed **without any tracker answering its announce** is not recorded at all, on any run. A refusal ("torrents limit reached", "unregistered torrent") or an unreachable tracker says nothing about the swarm, and it used to be recorded as `probe_unreachable`: 3dtorrents refuses while the account is at its torrent limit, and a gate then turned the release away for a week. A probe that got any piece data counts as having reached the swarm, whatever the tracker said.
+
 The whole `mvcprobe.Result` is stored and replayed through the same function a live probe uses, so a replayed entry and a freshly probed one cannot drift. It also keeps the two fields derived from the *entry* rather than the container correct for a release whose name differs from the one probed: `probe_upscale` compares the frame against the resolution the **name** claims, and `probe_bitrate_mbps` divides the **torrent's** size by the container's duration. Both are recomputed on replay.
 
 ### Gating above a collapse
@@ -178,6 +180,7 @@ The node replays what is known and queues the rest in `probe_queue`, keyed by in
 
 - probes one release at a time, at least 30 seconds apart, each film's best-ranked release before any film's second;
 - retries a release nobody served after `retry_after`, then twice that, and records the failure only once `retries` are spent;
+- tries a release no tracker answered for again after `retry_after`, without using up a retry, and after 8 such tries drops it from the queue without recording anything, so the next run that still sees it queues it afresh;
 - with `trigger=True`, runs the pipeline again (a `probe` trigger, which `run_on="schedule"` sources also run on) when it reads a release, at most once per pipeline an hour;
 - drops a release no run has queued for two weeks.
 

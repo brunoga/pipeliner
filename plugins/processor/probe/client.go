@@ -332,6 +332,11 @@ type SwarmReport struct {
 	Useful int64
 	// ListenPort is the port the client announced.
 	ListenPort int
+	// Refused is true when every tracker in the metainfo was asked and none
+	// answered: a refusal ("torrents limit reached") or an error. The probe
+	// then knows nothing about the swarm, which is not the same as knowing
+	// it is dead.
+	Refused bool
 }
 
 func (sc *sharedClient) report(t *torrent.Torrent, mi *metainfo.MetaInfo) SwarmReport {
@@ -355,6 +360,7 @@ func (sc *sharedClient) report(t *torrent.Torrent, mi *metainfo.MetaInfo) SwarmR
 			r.Tracker = "still announcing"
 		case len(s.tracker) > 0:
 			r.Tracker = strings.Join(s.tracker, "; ")
+			r.Refused = s.announced == ""
 		}
 	}
 	return r
