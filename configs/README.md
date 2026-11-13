@@ -302,6 +302,7 @@ pipeline("my-pipeline", schedule="1h")
 
 - [`notification-action-link.star`](notification-action-link.star) — a **one-click button in a notification email** (signed link → confirmation page → ingest queue → pipeline), e.g. "follow this series" without visiting TheTVDB
 - [`ondemand-request.star`](ondemand-request.star) — push a movie title to `/api/ingest?pipeline=movies-ondemand` (curl or [`examples/enqueue`](../examples/enqueue/)) and the pipeline searches Jackett and downloads it immediately — no schedule, no watchlist
+- [`tvshows-ondemand.star`](tvshows-ondemand.star) — push a show (`Agatha All Along`) or a season (`Breaking Bad S02`) to `/api/ingest/tvshows?pipeline=tvshows-ondemand`. Plex says what is missing, and a season that is mostly missing is grabbed as one **season pack**. Plain video goes straight into the series folder; a pack shipped as **RAR/ZIP/7z** waits in staging, and `tvshows-unpack` extracts it into the series folder when Deluge finishes, then removes the torrent. At most 3 torrents per run
 
 ### Notifications
 
