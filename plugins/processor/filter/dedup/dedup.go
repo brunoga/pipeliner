@@ -19,6 +19,10 @@
 // Place dedup after a metainfo processor that sets media_type (typically
 // metainfo_file, metainfo_tmdb, or metainfo_tvdb) and after filters that
 // accept entries, before output sinks.
+//
+// With invert=true it passes on the copies it would have discarded instead,
+// for a cleanup that deletes them: the best copy of each item, and every entry
+// it cannot key, is set aside (rejected) and the rest stay accepted.
 package dedup
 
 import (
@@ -56,14 +60,22 @@ func init() {
 			{entry.FieldMediaType},
 			{entry.FieldSeriesEpisodeID, entry.FieldTitle},
 		},
-		Factory: func(_ map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) { return &dedupPlugin{}, nil },
+		Schema: []plugin.FieldSchema{
+			{Key: "invert", Type: plugin.FieldTypeBool, Hint: "Pass on the inferior copies instead, for cleanups: keep the best copy of each item, act on the rest"},
+		},
+		Factory: func(cfg map[string]any, _ *store.SQLiteStore) (plugin.Plugin, error) {
+			invert, _ := cfg["invert"].(bool)
+			return &dedupPlugin{invert: invert}, nil
+		},
 		Validate: func(cfg map[string]any) []error {
-			return plugin.OptUnknownKeys(cfg, "dedup")
+			return plugin.OptUnknownKeys(cfg, "dedup", "invert")
 		},
 	})
 }
 
-type dedupPlugin struct{}
+type dedupPlugin struct {
+	invert bool
+}
 
 func (p *dedupPlugin) Name() string { return "dedup" }
 
@@ -95,6 +107,10 @@ func (p *dedupPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entri
 		owner[e] = c
 	}
 
+	if p.invert {
+		return p.inverted(entries, owner), nil
+	}
+
 	var out []*entry.Entry
 	for _, e := range entries {
 		c, keyed := owner[e]
@@ -111,6 +127,27 @@ func (p *dedupPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entri
 		}
 	}
 	return out, nil
+}
+
+// inverted passes on the copies dedup would have discarded. The best copy of
+// each item is what a cleanup keeps, so it is taken out of the flow, and so is
+// an entry dedup cannot key: having no opinion on it must not read as "delete
+// it". Rejecting the losers and flipping them with swap_state cannot work,
+// because a filter drops the entries it rejects from its output.
+func (p *dedupPlugin) inverted(entries []*entry.Entry, owner map[*entry.Entry]*cluster) []*entry.Entry {
+	var out []*entry.Entry
+	for _, e := range entries {
+		c, keyed := owner[e]
+		switch {
+		case !keyed:
+			e.Reject("dedup: kept, no media_type or title to group it by")
+		case c.best == e:
+			e.Reject(fmt.Sprintf("dedup: kept, the best copy of %q", c.key))
+		default:
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 // item is what is known about which media item an entry is a copy of, beyond
