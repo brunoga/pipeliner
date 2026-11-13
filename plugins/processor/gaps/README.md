@@ -41,6 +41,10 @@ Per-episode entry:
 
 Season-pack entry: title `Breaking Bad S02`, URL `pipeliner://gap/breaking%20bad/S02`, `series_season` set, **no** `series_episode`/`series_episode_id`. Season-pack *releases* are read by `metainfo_file` as packs (`series_pack`, `series_pack_id`, `series_season`) and matched to the pack query by `discover`'s `match_titles`, but they carry no episode id — a strict `require(fields=["series_episode_id", …])` / `series` chain drops them. Keep `pack_threshold=1.0` (packs disabled) with such a chain, or require `series_season` instead on a pipeline built for packs. Pack grabs are also not recorded per-episode in the tracker, so the episodes they cover remain "missing" to future gap scans until tracked by other means.
 
+## Requesting seasons
+
+An upstream entry may name the seasons it wants. It can do so with a `series_season` field, plus `series_season_end` for a run of seasons, or with a pack-shaped title: `Breaking Bad S02` or `The Wire S01-S03`. In the title case, the show name before the marker is what gets looked up. Only those seasons are diffed. A named season overrides the `from_first_owned` floor, because a request for season 1 means season 1 even when the library starts at season 2. Two requests for different seasons of one show are both scanned. This is how an on-demand pipeline fed by a `webhook` asks for "Agatha All Along" (every aired season) or "Breaking Bad S02" (one season).
+
 ## Season packs
 
 Per season, the plugin compares `missing / aired`. When that fraction **strictly exceeds** `pack_threshold`, the whole season collapses into one pack query. Boundaries:

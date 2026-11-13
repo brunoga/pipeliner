@@ -458,6 +458,16 @@ func (p *gapsPlugin) Process(ctx context.Context, tc *plugin.TaskContext, entrie
 // abort a big backlog scan); duplicates and inactive shows return nothing.
 func (p *gapsPlugin) showCandidates(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry, seenShow map[string]bool, owned *mediaserver.OwnedEpisodes, pending *pendingSet) []*candidate {
 	searchName := e.GetString(entry.FieldTitle)
+	// A request may name the seasons it wants: a series_season (and
+	// series_season_end) field, or a title that reads as a pack ("Breaking
+	// Bad S02", "The Wire S01-S03"), whose show name is then the search name.
+	scope := requestedSeasons(e)
+	if pk, ok := series.ParsePack(searchName); ok && !pk.Complete {
+		searchName = pk.SeriesName
+		if scope.first == 0 {
+			scope = seasonRange{pk.Season, pk.LastSeason}
+		}
+	}
 	trackerName := e.GetString(entry.FieldSeriesName)
 	if searchName == "" {
 		searchName = trackerName
@@ -469,10 +479,11 @@ func (p *gapsPlugin) showCandidates(ctx context.Context, tc *plugin.TaskContext,
 		tc.Logger.Warn(pluginName + ": entry has neither series_name nor title; skipping")
 		return nil
 	}
-	if seenShow[trackerName] {
+	// Two requests for different seasons of one show are two requests.
+	if seenShow[trackerName+scope.String()] {
 		return nil
 	}
-	seenShow[trackerName] = true
+	seenShow[trackerName+scope.String()] = true
 
 	if !p.includeInactive && p.inactive.IsInactive(trackerName) {
 		tc.Logger.Debug(pluginName+": skipping inactive show", "series", trackerName)
@@ -502,14 +513,45 @@ func (p *gapsPlugin) showCandidates(ctx context.Context, tc *plugin.TaskContext,
 		show = searchName
 	}
 
-	return p.diffSeasons(eps, show, trackerName, s.ID, owned, pending)
+	return p.diffSeasons(eps, show, trackerName, s.ID, scope, owned, pending)
+}
+
+// seasonRange is the seasons a request asked for; the zero value is every
+// season the plugin's own settings put in scope.
+type seasonRange struct{ first, last int }
+
+func (r seasonRange) all() bool { return r.first == 0 }
+
+func (r seasonRange) holds(season int) bool {
+	return r.all() || (season >= r.first && season <= r.last)
+}
+
+func (r seasonRange) String() string {
+	if r.all() {
+		return ""
+	}
+	return fmt.Sprintf("|S%02d-S%02d", r.first, r.last)
+}
+
+// requestedSeasons reads the seasons an upstream entry asks for from its
+// series_season and series_season_end fields.
+func requestedSeasons(e *entry.Entry) seasonRange {
+	first := e.GetInt(entry.FieldSeriesSeason)
+	if first <= 0 {
+		return seasonRange{}
+	}
+	last := e.GetInt(entry.FieldSeriesSeasonEnd)
+	if last < first {
+		last = first
+	}
+	return seasonRange{first, last}
 }
 
 // diffSeasons groups aired episodes by season, finds the ones missing from
 // the tracker, and applies the season-pack heuristic: when the missing
 // fraction of a season's aired episodes strictly exceeds pack_threshold, one
 // pack candidate replaces that season's per-episode candidates.
-func (p *gapsPlugin) diffSeasons(eps []itvdb.Episode, show, trackerName, tvdbID string, owned *mediaserver.OwnedEpisodes, pending *pendingSet) []*candidate {
+func (p *gapsPlugin) diffSeasons(eps []itvdb.Episode, show, trackerName, tvdbID string, scope seasonRange, owned *mediaserver.OwnedEpisodes, pending *pendingSet) []*candidate {
 	now := p.now()
 	airedBySeason := map[int]int{}
 	missingBySeason := map[int][]int{}
@@ -527,8 +569,11 @@ func (p *gapsPlugin) diffSeasons(eps []itvdb.Episode, show, trackerName, tvdbID 
 	// The miss is silent: no floor is found and the show yields nothing.
 	libKey := owned.Resolve(tvdbID, trackerName)
 
+	// A request that names its seasons is explicit about scope, so the floor
+	// does not apply to it: asking for season 1 of a show you hold from
+	// season 2 means season 1.
 	floor, haveFloor := 0, true
-	if p.seasons == seasonsFromFirstOwned {
+	if p.seasons == seasonsFromFirstOwned && scope.all() {
 		floor, haveFloor = owned.FirstSeasonWithAny(libKey, p.includeSpecials)
 	}
 
@@ -537,7 +582,7 @@ func (p *gapsPlugin) diffSeasons(eps []itvdb.Episode, show, trackerName, tvdbID 
 		if !itvdb.EpisodeAired(ep, now, p.includeSpecials) {
 			continue
 		}
-		if !haveFloor || ep.SeasonNumber < floor {
+		if !haveFloor || ep.SeasonNumber < floor || !scope.holds(ep.SeasonNumber) {
 			continue
 		}
 		airedBySeason[ep.SeasonNumber]++
