@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.79.0] - 2026-11-15
+
+### Added
+
+- **`filesystem` gains `empty_dirs`, and `delete` removes empty folders** ([#702](https://github.com/brunoga/pipeliner/pull/702)). When a torrent client deletes a removed torrent's files, it usually leaves the folder they were in. `delete` only pruned folders that one of its own deletions had emptied, so a media cleanup never removed these folders. With `empty_dirs=True`, the `filesystem` input also emits one entry per empty folder below its path. The mask does not apply to folders, and the scanned path itself is never emitted. `delete` now removes an empty folder as well as a file, and it still fails a folder that holds anything. `configs/torrent-retention.star` uses the option in media-cleanup.
+
+**Why 1.79.0**: a new plugin option, and a sink that accepts a new kind of entry.
+
 ## [1.78.0] - 2026-11-13
 
 ### Added
