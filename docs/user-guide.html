@@ -1085,7 +1085,9 @@ pipeline("html-feed")</code></pre>
   <tr><td><code>recursive</code></td><td>no</td><td>false</td><td>Recurse into subdirectories</td></tr>
   <tr><td><code>mask</code></td><td>no</td><td>—</td><td>Glob filter (e.g. <code>*.torrent</code>)</td></tr>
   <tr><td><code>stable_for</code></td><td>no</td><td>—</td><td>Withhold a delivery until its contents have been observed unchanged for this long (e.g. <code>2m</code>)</td></tr>
+  <tr><td><code>empty_dirs</code></td><td>no</td><td>false</td><td>Also emit one entry per empty folder (top level only unless <code>recursive</code>). The mask does not apply to folders, and <code>path</code> itself is never emitted</td></tr>
 </table>
+<p>An empty folder's <code>file_size</code> is 0 and its <code>file_modified_time</code> is when its last file was removed. A torrent client that deletes a torrent's files usually leaves their folder behind, so a cleanup sets <code>empty_dirs=True</code> and hands those folders to <a href="#delete"><code>delete</code></a>.</p>
 
 <h4>Fields set</h4>
 <p><code>source</code> (e.g. <code>filesystem:/downloads/watch</code>), <code>file_location</code> (absolute path), <code>file_name</code>, <code>file_extension</code>, <code>file_size</code>, <code>file_modified_time</code>.</p>
@@ -2562,13 +2564,13 @@ output("exec", upstream=ready,
 </table>
 
 <h2 id="delete">delete</h2>
-<p>Deletes the file at each entry's <code>file_location</code>, and the folders that leaves empty. It only deletes below the configured <code>roots</code> and never removes a root itself, even an emptied one. An entry outside every root fails instead of deleting anything. Only files are deleted: a directory or a missing path fails the entry, a symbolic link is removed as a link and never followed, and a dry run deletes nothing.</p>
+<p>Deletes the file at each entry's <code>file_location</code>, and the folders that leaves empty. It only deletes below the configured <code>roots</code> and never removes a root itself, even an emptied one. An entry outside every root fails instead of deleting anything. Files and empty folders are deleted. A folder that still holds anything fails the entry and keeps its contents, and so does a missing path. A symbolic link is removed as a link and never followed, and a dry run deletes nothing.</p>
 <table>
   <tr><th>Key</th><th>Required</th><th>Default</th><th>Description</th></tr>
   <tr><td><code>roots</code></td><td>yes</td><td>—</td><td>Absolute directories below which files may be deleted (<code>/</code> is refused)</td></tr>
   <tr><td><code>prune_empty</code></td><td>no</td><td><code>true</code></td><td>Remove folders a deletion leaves empty, up to the root</td></tr>
 </table>
-<p>With <a href="#filesystem"><code>filesystem</code></a>, a <code>condition</code> on <code>file_modified_time &lt; daysago(7)</code> and <a href="#torrent_in_use"><code>torrent_in_use</code></a> in front, it replaces a "delete files older than N days" script without touching anything a torrent still seeds from. See <code>configs/torrent-retention.star</code>.</p>
+<p>With <a href="#filesystem"><code>filesystem</code></a>, a <code>condition</code> on <code>file_modified_time &lt; daysago(7)</code> and <a href="#torrent_in_use"><code>torrent_in_use</code></a> in front, it replaces a "delete files older than N days" script without touching anything a torrent still seeds from. Give the <code>filesystem</code> input <code>empty_dirs=True</code> and the same cleanup also removes the folders a torrent client leaves empty. See <code>configs/torrent-retention.star</code>.</p>
 
 <!-- ─────────── list_add ─────────── -->
 <h2 id="library_refresh">library_refresh</h2>

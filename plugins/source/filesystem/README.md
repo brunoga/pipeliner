@@ -10,6 +10,13 @@ Walks a local directory and emits one entry per file. Entry URLs use the `file:/
 | `recursive` | no | `false` | Recurse into subdirectories |
 | `mask` | no | — | Glob pattern to filter filenames (e.g. `*.torrent`) |
 | `stable_for` | no | — | Skip a file whose content changed more recently than this (e.g. `2m`), leaving it for a later run |
+| `empty_dirs` | no | `false` | Also emit one entry per empty folder below `path` (top level only unless `recursive`). The mask does not apply to folders, and `path` itself is never emitted |
+
+## Empty folders
+
+With `empty_dirs=True`, an empty folder is emitted like a file. Its `file_location` is the folder, its `file_size` is 0, and its `file_modified_time` is the folder's own modification time, which changes when its last file is removed. A folder that holds only empty folders is not itself empty, so only the innermost one is emitted. [`delete`](../../sink/delete/README.md) removes it and then prunes the parents it leaves empty.
+
+This is for cleanups. A torrent client that deletes a torrent's files usually leaves the folder they were in, and a cleanup that only sees files never removes it.
 
 ## Fields set on entry
 

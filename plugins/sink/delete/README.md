@@ -1,10 +1,12 @@
 # delete
 
-Deletes the file at each entry's `file_location`, and the folders that leaves empty.
+Deletes the file or empty folder at each entry's `file_location`, and the folders that leaves empty.
 
 It only deletes **below the configured `roots`**, and never removes a root itself. An entry whose file is outside every root fails instead. Emptied folders are removed up to, but not including, the root, so a library folder such as `/data/media/3d-mvc-inbox` survives being emptied (a `rmdir -p` would have removed it).
 
-Only files are deleted. A directory, or a path that does not exist, fails the entry. A symbolic link is removed as a link and never followed. A dry run deletes nothing.
+Files and empty folders are deleted. A folder that still holds anything fails the entry and keeps its contents, and so does a path that does not exist. A symbolic link is removed as a link and never followed. A dry run deletes nothing.
+
+An empty folder usually reaches this sink from [`filesystem`](../../source/filesystem/README.md) with `empty_dirs=True`. That is how a cleanup removes the folder a torrent client leaves behind when it deletes a torrent's files, because no file deletion inside the folder would ever prune it.
 
 ## Config
 
