@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/brunoga/pipeliner/internal/entry"
@@ -138,5 +139,43 @@ func TestValidate(t *testing.T) {
 	}
 	if errs := validate(map[string]any{"roots": []any{"/data/media/series"}, "prune_empty": false}); len(errs) != 0 {
 		t.Errorf("valid config refused: %v", errs)
+	}
+}
+
+// TestEmptyFolderIsRemoved: an empty folder below a root goes, and so do the
+// parents it leaves empty, which is how the folder a torrent client leaves
+// behind after deleting a torrent's files is cleaned up. The root stays.
+func TestEmptyFolderIsRemoved(t *testing.T) {
+	tmp := t.TempDir()
+	root := filepath.Join(tmp, "series")
+	empty := filepath.Join(root, "Show", "Season 02")
+	if err := os.MkdirAll(empty, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	es := run(t, map[string]any{"roots": []any{root}}, false, empty)
+	if es[0].IsFailed() {
+		t.Fatalf("empty folder refused: %s", es[0].FailReason)
+	}
+	if exists(empty) || exists(filepath.Join(root, "Show")) {
+		t.Error("the empty folder and the parent it emptied should be gone")
+	}
+	if !exists(root) {
+		t.Error("the root must stay")
+	}
+}
+
+// TestFolderThatFilledUpIsKept: a folder that is no longer empty when the
+// sink reaches it fails and keeps its contents.
+func TestFolderThatFilledUpIsKept(t *testing.T) {
+	tmp := t.TempDir()
+	root := filepath.Join(tmp, "movies")
+	dir := filepath.Join(root, "Film (2020)")
+	touch(t, filepath.Join(dir, "film.mkv"))
+	es := run(t, map[string]any{"roots": []any{root}}, false, dir)
+	if !es[0].IsFailed() || !strings.Contains(es[0].FailReason, "not empty") {
+		t.Errorf("want a not-empty failure, got failed=%v %q", es[0].IsFailed(), es[0].FailReason)
+	}
+	if !exists(filepath.Join(dir, "film.mkv")) {
+		t.Error("a folder that holds a file must keep it")
 	}
 }

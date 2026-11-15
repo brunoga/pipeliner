@@ -7,8 +7,9 @@
 // library folder such as /data/media/3d-mvc-inbox survives being emptied --
 // the mistake a "rmdir -p" would make.
 //
-// Only files are deleted. A directory, or a path that does not exist, fails
-// the entry; a symbolic link is removed as a link, never followed.
+// Files and empty folders are deleted. A folder that still holds anything, or
+// a path that does not exist, fails the entry; a symbolic link is removed as a
+// link, never followed.
 package delete
 
 import (
@@ -30,7 +31,7 @@ const pluginName = "delete"
 func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  pluginName,
-		Description: "delete the file at file_location and the folders that leaves empty, never outside the given roots",
+		Description: "delete the file or empty folder at file_location and the folders that leaves empty, never outside the given roots",
 		Role:        plugin.RoleSink,
 		Requires:    plugin.RequireAll(entry.FieldFileLocation),
 		Factory:     newPlugin,
@@ -107,7 +108,13 @@ func (p *deletePlugin) remove(loc string) error {
 		return err
 	}
 	if info.IsDir() {
-		return fmt.Errorf("%s is a directory; only files are deleted", path)
+		children, err := os.ReadDir(path)
+		if err != nil {
+			return err
+		}
+		if len(children) > 0 {
+			return fmt.Errorf("%s is a folder that is not empty; only files and empty folders are deleted", path)
+		}
 	}
 	if err := os.Remove(path); err != nil {
 		return err

@@ -124,3 +124,59 @@ func TestRegistered(t *testing.T) {
 		t.Errorf("want phase input, got %s", d.Role)
 	}
 }
+
+// TestEmptyDirs: with empty_dirs, every empty folder below the path is
+// emitted beside the files, whatever the mask, and the scanned folder itself
+// never is. A folder holding only an empty folder is not empty: removing the
+// inner one empties it, and delete prunes it then.
+func TestEmptyDirs(t *testing.T) {
+	dir := t.TempDir()
+	for _, d := range []string{"Film (2020)", "Show/Season 02", "Full"} {
+		if err := os.MkdirAll(filepath.Join(dir, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "Full", "a.mkv"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gen := func(cfg map[string]any) map[string]bool {
+		t.Helper()
+		p, err := newFilesystemPlugin(cfg, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		es, err := p.(*filesystemPlugin).Generate(context.Background(), makeCtx(t))
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := map[string]bool{}
+		for _, e := range es {
+			rel, _ := filepath.Rel(dir, e.GetString("file_location"))
+			got[rel] = true
+		}
+		return got
+	}
+
+	got := gen(map[string]any{"path": dir, "recursive": true, "empty_dirs": true, "mask": "*.mkv"})
+	want := map[string]bool{"Film (2020)": true, filepath.Join("Show", "Season 02"): true, filepath.Join("Full", "a.mkv"): true}
+	if len(got) != len(want) {
+		t.Errorf("recursive: got %v, want %v", got, want)
+	}
+	for k := range want {
+		if !got[k] {
+			t.Errorf("recursive: missing %s in %v", k, got)
+		}
+	}
+
+	// Not recursive: only the top level is looked at.
+	got = gen(map[string]any{"path": dir, "empty_dirs": true})
+	if len(got) != 1 || !got["Film (2020)"] {
+		t.Errorf("top level: got %v, want only Film (2020)", got)
+	}
+
+	// Off by default.
+	got = gen(map[string]any{"path": dir, "recursive": true})
+	if len(got) != 1 || !got[filepath.Join("Full", "a.mkv")] {
+		t.Errorf("default: got %v, want only the file", got)
+	}
+}

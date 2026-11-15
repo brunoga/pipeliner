@@ -17,7 +17,7 @@ import (
 func init() {
 	plugin.Register(&plugin.Descriptor{
 		PluginName:  "filesystem",
-		Description: "scan a local directory and emit one entry per file",
+		Description: "scan a local directory and emit one entry per file (and, optionally, per empty folder)",
 		Role:        plugin.RoleSource,
 		Produces: []string{
 			entry.FieldSource,
@@ -36,6 +36,7 @@ func init() {
 			{Key: "mask", Type: plugin.FieldTypeString, Hint: "Glob pattern, e.g. *.torrent"},
 			{Key: "recursive", Type: plugin.FieldTypeBool, Hint: "Scan subdirectories"},
 			{Key: "stable_for", Type: plugin.FieldTypeString, Hint: "Skip files modified more recently than this, e.g. 2m"},
+			{Key: "empty_dirs", Type: plugin.FieldTypeBool, Hint: "Also emit one entry per empty folder, for a cleanup to remove"},
 		},
 	})
 }
@@ -48,7 +49,7 @@ func validate(cfg map[string]any) []error {
 	if err := plugin.OptDuration(cfg, "stable_for", "filesystem"); err != nil {
 		errs = append(errs, err)
 	}
-	errs = append(errs, plugin.OptUnknownKeys(cfg, "filesystem", "path", "recursive", "mask", "stable_for")...)
+	errs = append(errs, plugin.OptUnknownKeys(cfg, "filesystem", "path", "recursive", "mask", "stable_for", "empty_dirs")...)
 	return errs
 }
 
@@ -59,6 +60,10 @@ type filesystemPlugin struct {
 	// stableFor, when non-zero, withholds an item until its contents have
 	// been observed unchanged for at least this long. See Generate.
 	stableFor time.Duration
+	// emptyDirs also emits every empty folder below path, so a cleanup can
+	// remove the folders a torrent client leaves behind when it deletes a
+	// torrent's files. The mask does not apply to them.
+	emptyDirs bool
 	db        *store.SQLiteStore
 }
 
@@ -69,6 +74,7 @@ func newFilesystemPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plug
 	}
 	recursive, _ := cfg["recursive"].(bool)
 	mask, _ := cfg["mask"].(string)
+	emptyDirs, _ := cfg["empty_dirs"].(bool)
 	var stableFor time.Duration
 	if s, ok := cfg["stable_for"].(string); ok && s != "" {
 		d, err := time.ParseDuration(s)
@@ -84,7 +90,7 @@ func newFilesystemPlugin(cfg map[string]any, db *store.SQLiteStore) (plugin.Plug
 		return nil, fmt.Errorf("filesystem: stable_for needs a database to record what it observed")
 	}
 	return &filesystemPlugin{
-		path: path, recursive: recursive, mask: mask, stableFor: stableFor, db: db,
+		path: path, recursive: recursive, mask: mask, stableFor: stableFor, emptyDirs: emptyDirs, db: db,
 	}, nil
 }
 
@@ -214,7 +220,15 @@ func (f *filesystemPlugin) scan(ctx context.Context) ([]scanned, error) {
 			return ctx.Err()
 		}
 		if d.IsDir() {
-			if path != f.path && !f.recursive {
+			if path == f.path {
+				return nil
+			}
+			if f.emptyDirs {
+				if s, ok := emptyDir(path, f.path); ok {
+					out = append(out, s)
+				}
+			}
+			if !f.recursive {
 				return filepath.SkipDir
 			}
 			return nil
@@ -242,6 +256,25 @@ func (f *filesystemPlugin) scan(ctx context.Context) ([]scanned, error) {
 		return nil, fmt.Errorf("filesystem: walk %q: %w", f.path, err)
 	}
 	return out, nil
+}
+
+// emptyDir reports dir as an item when it holds nothing at all. The scanned
+// path itself is never one, because a cleanup must not remove the folder it
+// was pointed at.
+func emptyDir(dir, root string) (scanned, bool) {
+	children, err := os.ReadDir(dir)
+	if err != nil || len(children) > 0 {
+		return scanned{}, false
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		return scanned{}, false
+	}
+	rel, err := filepath.Rel(root, dir)
+	if err != nil {
+		return scanned{}, false
+	}
+	return scanned{path: dir, rel: rel, modTime: info.ModTime(), matches: true}, true
 }
 
 // Stat is the os.Stat function; replaced in tests.

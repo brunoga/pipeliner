@@ -99,7 +99,10 @@ pipeline("torrent-retention", schedule="0 0 * * *",
 
 # --- media-cleanup ----------------------------------------------------------
 
-files = input("filesystem", path=MEDIA, recursive=True)
+# empty_dirs: Deluge deletes a removed torrent's files but leaves the folder
+# they were in. No file deletion inside it would ever prune it, so the empty
+# folders are listed too, and the same age rule applies to them.
+files = input("filesystem", path=MEDIA, recursive=True, empty_dirs=True)
 
 old = process("condition", upstream=files, rules=[
     {"accept": "file_modified_time < daysago(7)"},
