@@ -227,7 +227,7 @@ func (p *discoverPlugin) searchEntries(ctx context.Context, tc *plugin.TaskConte
 					if e == nil || seen[e.URL] {
 						continue
 					}
-					if p.matchTitles && !matchesQuery(qe.Title, e.Title) {
+					if p.matchTitles && !matchesQueryEntry(qe, e.Title) {
 						continue // cached before the option was enabled
 					}
 					stampQueryIdentity(qe, e) // cached before the id was carried
@@ -259,7 +259,7 @@ func (p *discoverPlugin) searchEntries(ctx context.Context, tc *plugin.TaskConte
 				if e == nil {
 					continue
 				}
-				if !matchesQuery(qe.Title, e.Title) {
+				if !matchesQueryEntry(qe, e.Title) {
 					tc.Logger.Debug("discover: dropping non-matching result",
 						"query", qe.Title, "result", e.Title)
 					continue
@@ -385,7 +385,22 @@ func matchesPackQuery(q *series.Pack, releaseName string) bool {
 	return series.PackID(q) == series.PackID(r)
 }
 
+// matchesQueryEntry is matchesQuery for a query entry, which may know its
+// year without naming it. A watchlist entry is titled "Dune" and carries
+// video_year 2021, so the year has to come from the field: read from the title
+// alone, "Dune (1984) ... fullSBS" passed as a hit for it, inherited the 2021
+// film's TMDb id from stampQueryIdentity, and was filed as Dune (2021).
+func matchesQueryEntry(qe *entry.Entry, releaseName string) bool {
+	return matchesQueryYear(qe.Title, entry.ReleaseYear(qe), releaseName)
+}
+
 func matchesQuery(query, releaseName string) bool {
+	return matchesQueryYear(query, 0, releaseName)
+}
+
+// matchesQueryYear is matchesQuery with a fallback year for the query, used
+// only when the query's own text names none.
+func matchesQueryYear(query string, queryYear int, releaseName string) bool {
 	// A series query names an episode, and the movie-shaped comparison below
 	// cannot read one: it parses "Show S01E01" as a film title and compares it
 	// to a release name that carries an episode title and tags, so good
@@ -405,6 +420,9 @@ func matchesQuery(query, releaseName string) bool {
 	qTitle, qYear := query, 0
 	if mv, ok := movies.Parse(query); ok && mv.Title != "" {
 		qTitle, qYear = mv.Title, mv.Year
+	}
+	if qYear == 0 {
+		qYear = queryYear
 	}
 	rTitle, rYear := releaseName, 0
 	if mv, ok := movies.Parse(releaseName); ok && mv.Title != "" {

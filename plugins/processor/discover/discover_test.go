@@ -878,3 +878,57 @@ func TestMatchesQuerySeasonPack(t *testing.T) {
 		t.Error("a range query should match the same range")
 	}
 }
+
+// TestMatchTitlesUsesTheQueryEntryYear: a watchlist entry is titled "Dune"
+// and carries video_year 2021. A release of the 1984 film must not count as a
+// hit for it, or it inherits the 2021 film's TMDb id and is filed under that
+// film. This happened on mrshine to two Dune (1984) 3D releases. A release of
+// the queried year, or one naming no year, is still kept.
+func TestMatchTitlesUsesTheQueryEntryYear(t *testing.T) {
+	mock := newMockSearch("query-year")
+	mock.results["Dune"] = []*entry.Entry{
+		entry.New("Dune (1984) The Alternative Edition Redux fullSBS 1080p NeFuD", "http://x/1984"),
+		entry.New("Dune 2021 1080p BluRay Full SBS DTS x264", "http://x/2021"),
+		entry.New("Dune 3D 1080p BluRay Full SBS", "http://x/noyear"),
+	}
+	req := entry.New("Dune", "pipeliner://movie/dune")
+	req.Set(entry.FieldVideoYear, 2021)
+	req.Set("trakt_tmdb_id", 438631)
+
+	p := buildPlugin(t, mock, nil, map[string]any{"match_titles": true})
+	out, err := p.Process(context.Background(), taskCtx("query-year-task"), []*entry.Entry{req})
+	if err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	got := map[string]bool{}
+	for _, e := range out {
+		got[e.URL] = true
+		if id := entry.TMDBID(e); id != "438631" {
+			t.Errorf("%s: tmdb_id = %q, want 438631", e.Title, id)
+		}
+	}
+	if got["http://x/1984"] {
+		t.Error("the 1984 release matched a query for the 2021 film")
+	}
+	if !got["http://x/2021"] || !got["http://x/noyear"] {
+		t.Errorf("a 2021 or year-less release was dropped: %v", got)
+	}
+}
+
+func TestMatchesQueryYearFallback(t *testing.T) {
+	for _, tc := range []struct {
+		query string
+		year  int
+		rel   string
+		want  bool
+	}{
+		{"Dune", 2021, "Dune 1984 SBS 3D blu ray rip 1080p", false},
+		{"Dune", 2021, "Dune 2022 1080p WEB", true}, // the ±1 window
+		{"Dune", 0, "Dune 1984 SBS 3D blu ray rip 1080p", true},
+		{"Dune 1984", 2021, "Dune 1984 SBS 3D blu ray rip 1080p", true}, // the text wins
+	} {
+		if got := matchesQueryYear(tc.query, tc.year, tc.rel); got != tc.want {
+			t.Errorf("matchesQueryYear(%q, %d, %q) = %v, want %v", tc.query, tc.year, tc.rel, got, tc.want)
+		}
+	}
+}
