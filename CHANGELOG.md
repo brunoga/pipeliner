@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.79.1] - 2026-11-16
+
+### Fixed
+
+- **`discover` no longer files an older film under a newer one with the same title** ([#704](https://github.com/brunoga/pipeliner/pull/704)). `match_titles` compared years only when the query's text named one. A watchlist entry is titled "Dune" and carries the year 2021 in a field, so a release of Dune (1984) passed as a match for it. The release then inherited the 2021 film's TMDb ID, and `metainfo_tmdb`, which trusts an ID over the release name, relabelled it as Dune (2021). Two Dune (1984) 3D releases were filed as `Dune (2021)` this way. When the query text names no year, the query entry's `video_year` is now used.
+
+**Why 1.79.1**: a fix.
+
 ## [1.79.0] - 2026-11-15
 
 ### Added
