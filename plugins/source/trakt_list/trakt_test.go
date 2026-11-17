@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -356,5 +357,74 @@ func TestEnrichesShowFromListResponse(t *testing.T) {
 	}
 	if tval.Format("2006-01-02") != "2008-01-20" {
 		t.Errorf("series_first_air_date: got %v", tval)
+	}
+}
+
+// TestUserListReadsTheUsersOwnList: user_list fetches one of the user's own
+// lists by slug, with the token, and tags the entries with that list.
+func TestUserListReadsTheUsersOwnList(t *testing.T) {
+	var gotPath, gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath, gotAuth = r.URL.Path, r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]map[string]any{
+			{"rank": 1, "type": "movie", "movie": map[string]any{"title": "Hugo", "year": 2011, "ids": map[string]any{"trakt": 1, "slug": "hugo-2011", "tmdb": 44826}}},
+		})
+	}))
+	t.Cleanup(srv.Close)
+	orig := itrakt.BaseURL
+	itrakt.BaseURL = srv.URL
+	t.Cleanup(func() { itrakt.BaseURL = orig })
+
+	p, err := newPlugin(map[string]any{"client_id": "c", "type": "movies", "user_list": "3d-library", "access_token": "tok"}, nil)
+	if err != nil {
+		t.Fatalf("newPlugin: %v", err)
+	}
+	tp := p.(*traktSourcePlugin)
+	entries, err := tp.Generate(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	if gotPath != "/users/me/lists/3d-library/items/movies" {
+		t.Errorf("path = %q", gotPath)
+	}
+	if gotAuth != "Bearer tok" {
+		t.Errorf("Authorization = %q", gotAuth)
+	}
+	if len(entries) != 1 || entries[0].Title != "Hugo" {
+		t.Fatalf("entries = %v", entries)
+	}
+	if v, _ := entries[0].Get("trakt_tmdb_id"); v != 44826 {
+		t.Errorf("trakt_tmdb_id = %v", v)
+	}
+	if src := entries[0].GetString(entry.FieldSource); src != "trakt_list:user:3d-library" {
+		t.Errorf("source = %q", src)
+	}
+	if k := tp.CacheKey(); k != "trakt_list:movies:user:3d-library" {
+		t.Errorf("CacheKey = %q", k)
+	}
+}
+
+func TestUserListValidation(t *testing.T) {
+	for _, tc := range []struct {
+		cfg  map[string]any
+		want string
+	}{
+		{map[string]any{"client_id": "c", "type": "movies", "user_list": "3D Library", "access_token": "t"}, "not a Trakt list slug"},
+		{map[string]any{"client_id": "c", "type": "movies", "user_list": "3d-library"}, "needs client_secret or access_token"},
+	} {
+		errs := validate(tc.cfg)
+		found := false
+		for _, e := range errs {
+			if strings.Contains(e.Error(), tc.want) {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("%v: want an error containing %q, got %v", tc.cfg, tc.want, errs)
+		}
+	}
+	if errs := validate(map[string]any{"client_id": "c", "type": "movies", "user_list": "3d-library", "client_secret": "s"}); len(errs) != 0 {
+		t.Errorf("valid config refused: %v", errs)
 	}
 }

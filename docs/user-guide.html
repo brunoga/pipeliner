@@ -1305,12 +1305,13 @@ pipeline("tv-tvdb", schedule="1h")</code></pre>
   <tr><td><code>client_id</code></td><td>yes</td><td>—</td><td>Trakt API Client ID</td></tr>
   <tr><td><code>type</code></td><td>yes</td><td>—</td><td><code>movies</code> or <code>shows</code></td></tr>
   <tr><td><code>list</code></td><td>no</td><td><code>watchlist</code></td><td><code>watchlist</code>, <code>trending</code>, <code>popular</code>, <code>watched</code>, <code>ratings</code>, <code>collection</code></td></tr>
+  <tr><td><code>user_list</code></td><td>no</td><td>—</td><td>Slug of one of your own Trakt lists, the last part of its URL (<code>3d-library</code> for <code>https://trakt.tv/users/you/lists/3d-library</code>). Replaces <code>list</code>; only items of the plugin's <code>type</code> are returned</td></tr>
   <tr><td><code>client_secret</code></td><td>conditional</td><td>—</td><td>OAuth client secret — enables automatic token management (see <a href="#trakt-auth">Trakt Authentication</a>)</td></tr>
   <tr><td><code>access_token</code></td><td>conditional</td><td>—</td><td>Static OAuth bearer token (alternative to <code>client_secret</code>)</td></tr>
   <tr><td><code>limit</code></td><td>no</td><td><code>100</code></td><td>Max results for public lists</td></tr>
 </table>
 
-<p>One of <code>client_secret</code> or <code>access_token</code> is required for <code>watchlist</code>, <code>ratings</code>, and <code>collection</code>. Public lists (<code>trending</code>, <code>popular</code>, <code>watched</code>) need neither. See <a href="#trakt-auth">Trakt Authentication</a> for setup instructions.</p>
+<p>One of <code>client_secret</code> or <code>access_token</code> is required for <code>watchlist</code>, <code>ratings</code>, <code>collection</code> and any <code>user_list</code>. Public lists (<code>trending</code>, <code>popular</code>, <code>watched</code>) need neither. See <a href="#trakt-auth">Trakt Authentication</a> for setup instructions.</p>
 
 <h4>Fields set</h4>
 <p><code>source</code> (e.g. <code>trakt_list:watchlist</code>). Optionally: <code>video_year</code>, <code>trakt_id</code>, <code>trakt_imdb_id</code>, <code>trakt_tmdb_id</code>, <code>series_status</code> (lowercase Trakt values: <code>returning series</code>, <code>ended</code>, <code>canceled</code>) and the other enrichment fields carried by <code>extended=full</code> responses. See <a href="#list-management">List management</a> for status-based watchlist pruning.</p>
