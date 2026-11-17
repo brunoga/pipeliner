@@ -467,3 +467,22 @@ func TestHTTPError(t *testing.T) {
 		t.Error("expected error on HTTP 503")
 	}
 }
+
+func TestGetUserListNeedsAToken(t *testing.T) {
+	if _, err := New("key").GetUserList(context.Background(), "movies", "3d-library"); err == nil {
+		t.Error("want an error without an access token")
+	}
+}
+
+func TestGetUserListKeepsOnlyTheRequestedType(t *testing.T) {
+	srv := mockServer(t, "/users/me/lists/mixed/items/shows", watchlistResponse([]string{"Severance"}), 200)
+	defer srv.Close()
+	BaseURL = srv.URL
+	items, err := NewWithToken("key", "tok").GetUserList(context.Background(), "shows", "mixed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].Title != "Severance" {
+		t.Errorf("got %v", items)
+	}
+}

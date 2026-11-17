@@ -136,7 +136,24 @@ func (c *Client) GetList(ctx context.Context, itemType, list string, limit int) 
 		endpoint := fmt.Sprintf("%s&limit=%d", base, limit)
 		return c.fetchPage(ctx, endpoint, private, singular, list)
 	}
+	return c.fetchAllPages(ctx, base, itemType, list)
+}
 
+// GetUserList fetches every item of one of the authenticated user's own
+// lists, named by its slug (the last part of its trakt.tv URL). Only items of
+// itemType are returned, so a list mixing films and shows serves both kinds
+// of pipeline.
+func (c *Client) GetUserList(ctx context.Context, itemType, slug string) ([]Item, error) {
+	if c.AccessToken == "" {
+		return nil, fmt.Errorf("trakt: list %q requires an access_token", slug)
+	}
+	base := fmt.Sprintf("%s/users/me/lists/%s/items/%s?extended=full", BaseURL, url.PathEscape(slug), itemType)
+	return c.fetchAllPages(ctx, base, itemType, slug)
+}
+
+// fetchAllPages reads every page of a private, paginated list endpoint.
+func (c *Client) fetchAllPages(ctx context.Context, base, itemType, list string) ([]Item, error) {
+	singular := itemType[:len(itemType)-1]
 	var all []Item
 	for page := 1; ; page++ {
 		endpoint := fmt.Sprintf("%s&limit=%d&page=%d", base, pageSize, page)

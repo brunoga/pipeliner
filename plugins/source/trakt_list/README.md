@@ -11,11 +11,14 @@ Use as a standalone `input()` source node, or inside `series.list`, `movies.list
 | `client_id` | yes | — | Trakt API Client ID |
 | `type` | yes | — | `movies` or `shows` |
 | `list` | no | `watchlist` | `watchlist`, `trending`, `popular`, `watched`, `ratings`, `collection` |
+| `user_list` | no | — | Slug of one of your own Trakt lists, the last part of its URL (`https://trakt.tv/users/you/lists/3d-library` → `3d-library`). Replaces `list`, and needs `client_secret` or `access_token` |
 | `client_secret` | conditional | — | OAuth client secret — required for `watchlist`, `ratings`, and `collection`. Enables automatic token management. |
 | `access_token` | conditional | — | Static OAuth bearer token (alternative to `client_secret`) |
 | `limit` | no | `100` | Max results for public lists |
 
-One of `client_secret` or `access_token` is required for `watchlist`, `ratings`, and `collection`. Public lists (`trending`, `popular`, `watched`) need neither.
+One of `client_secret` or `access_token` is required for `watchlist`, `ratings`, `collection` and any `user_list`. Public lists (`trending`, `popular`, `watched`) need neither.
+
+A `user_list` returns only the items of the plugin's `type`, so one list can hold both films and shows. Its entries carry `source` = `trakt_list:user:<slug>`.
 
 ## Authentication
 
