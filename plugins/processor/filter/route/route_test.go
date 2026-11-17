@@ -310,3 +310,19 @@ func TestValidateRouteReportsOneErrorPerProblem(t *testing.T) {
 		t.Errorf("an empty config should report exactly one error, got %d: %v", len(errs), errs)
 	}
 }
+
+func TestRouteRefusalDependsOnACatchAllPort(t *testing.T) {
+	withCatchAll := map[string]any{"rules": []any{
+		map[string]any{"name": "big", "accept": `video_resolution == "2160p"`},
+		map[string]any{"name": "rest", "accept": "true"},
+	}}
+	withoutCatchAll := map[string]any{"rules": []any{
+		map[string]any{"name": "big", "accept": `video_resolution == "2160p"`},
+	}}
+	if got := routeRefusal(withCatchAll); got != plugin.RefusalNone {
+		t.Errorf("with a catch-all port: %v, want RefusalNone", got)
+	}
+	if got := routeRefusal(withoutCatchAll); got != plugin.RefusalPerRelease {
+		t.Errorf("without a catch-all port: %v, want RefusalPerRelease", got)
+	}
+}

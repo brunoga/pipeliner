@@ -70,6 +70,8 @@ routes = route(upstream, port_a="condition_a", port_b="condition_b")
 1. **Cleaner validation** — at merge points the validator uses correct field semantics (no spurious warnings).
 2. **Explicit intent** — unmatched entries are explicitly rejected with a clear log message.
 
+A route whose last port is `"true"` has no unmatched entries, so it never refuses anything. The ordering check knows this. Such a route may sit below `dedup` without a warning, which is how a pipeline splits the releases dedup kept into groups that each get their own `limit`.
+
 ## Validator behaviour
 
 ### Merge points
