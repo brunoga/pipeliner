@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.80.0] - 2026-11-17
+
+### Added
+
+- **`trakt_list` gains `user_list`** ([#706](https://github.com/brunoga/pipeliner/pull/706)). It takes the slug of one of your own Trakt lists, the last part of the list's URL, and reads the whole list with your Trakt login. Before this, only Trakt's built-in lists such as the watchlist could be read. A pipeline can now be driven by a list you edit in Trakt. Only items of the plugin's `type` are returned, so one list can hold films and shows.
+
+**Why 1.80.0**: a new plugin option.
+
 ## [1.79.1] - 2026-11-16
 
 ### Fixed
