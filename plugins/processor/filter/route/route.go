@@ -41,6 +41,7 @@ func init() {
 		Description: "route entries to named ports based on conditions; unmatched entries are rejected with a warning",
 		Role:        plugin.RoleProcessor,
 		Refusal:     plugin.RefusalPerRelease,
+		RefusalFor:  routeRefusal,
 		Produces:    []string{entry.FieldRoutePort},
 		// Accept markers so a port expression like `"empty_marker == true"`
 		// can route the marker to a dedicated alert branch. The expression
@@ -69,6 +70,23 @@ func init() {
 				"_port_accept_expr")
 		},
 	})
+}
+
+// routeRefusal is RefusalNone for a route with a catch-all port: an entry that
+// matches no other port lands in the one whose expression is always true, so
+// the route itself never refuses anything. Without one, an unmatched entry is
+// rejected, and that depends on the release's own fields.
+func routeRefusal(cfg map[string]any) plugin.Refusal {
+	rules, err := parseRouteRules(cfg)
+	if err != nil {
+		return plugin.RefusalPerRelease
+	}
+	for _, r := range rules {
+		if r.expr.AlwaysTrue() {
+			return plugin.RefusalNone
+		}
+	}
+	return plugin.RefusalPerRelease
 }
 
 func validateRoute(cfg map[string]any) []error {
