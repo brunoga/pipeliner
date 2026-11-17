@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.80.1] - 2026-11-17
+
+### Fixed
+
+- **A `route` with a catch-all port no longer warns below `dedup`** ([#708](https://github.com/brunoga/pipeliner/pull/708)). The ordering check treated every `route` as able to refuse a release, so a route placed after `dedup` was always flagged. A route with a port whose expression is always true hands every entry to some port and never refuses anything. Such a route is how a pipeline gives each group of kept releases its own `limit`, and now it passes without a warning.
+
+**Why 1.80.1**: a fix.
+
 ## [1.80.0] - 2026-11-17
 
 ### Added
