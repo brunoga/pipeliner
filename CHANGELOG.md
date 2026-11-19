@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.80.2] - 2026-11-19
+
+### Fixed
+
+- **The `movies` settle window waits once per film, not once per year** ([#710](https://github.com/brunoga/pipeliner/pull/710)). The window was keyed on the exact year in the release name, while the download tracker treats years one apart as the same film. A film named with both its festival year and its release year therefore waited twice and was downloaded twice. *The Life of Chuck* premiered in 2024 and opened in 2025: its 1080p remux, named 2024, and its UHD remux, named 2025, each settled on its own. A release now joins a window already open for the same title one year either side, so the 2160p wins and only it is downloaded.
+
+**Why 1.80.2**: a fix.
+
 ## [1.80.1] - 2026-11-17
 
 ### Fixed
