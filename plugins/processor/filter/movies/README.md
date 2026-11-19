@@ -130,6 +130,10 @@ all this filter has: the nodes that can actually refuse a release run later, so
 `bitrate` needs a runtime from enrichment and a language `condition` needs
 metadata. The gates thin the wave and `dedup` picks the best survivor instead.
 
+### One window per film, not per year
+
+A film is often named with two years, its festival premiere and its theatrical release. *The Life of Chuck* premiered in 2024 and opened in 2025, and its releases use either year. The download tracker already treats years one apart as the same film, and the window does the same. A release joins a window already open for the same title one year either side, and only opens its own when there is none. Without this, each year held its own wave, and both a 1080p named 2024 and a 2160p named 2025 were downloaded.
+
 ### What the window remembers
 
 Every distinct release it saw, in arrival order, deduplicated by release name

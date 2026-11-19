@@ -1545,3 +1545,72 @@ func TestRetryCooldownScopedToTracker(t *testing.T) {
 		t.Errorf("a hold on the shared tracker must not hold a local one: %q", e.RejectReason)
 	}
 }
+
+// TestSettleJoinsTheWindowOneYearOff replays The Life of Chuck on mrshine
+// (2026-11-19). The film premiered in 2024 and opened in 2025, and one group
+// named its 1080p remux 2024 and its UHD remux 2025. Keyed on the exact year,
+// each opened its own window, both settled, and both were downloaded. The
+// 2160p must join the 2024 window, become its best candidate, and clear it
+// when it is the one committed.
+func TestSettleJoinsTheWindowOneYearOff(t *testing.T) {
+	db, _ := store.OpenSQLite(":memory:")
+	defer db.Close()
+	p, err := newPlugin(map[string]any{"settle": "6h"}, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mp := p.(*moviesPlugin)
+	tc := makeCtx()
+
+	hd := makeEntry("The Life of Chuck 2024 1080p BluRay REMUX AVC DTS-HD MA 5 1-TRiToN", "http://x.com/1080")
+	uhd := makeEntry("The Life of Chuck 2025 2160p UHD BluRay REMUX HDR HEVC DTS-HD MA 5 1-TRiToN", "http://x.com/2160")
+	for _, e := range []*entry.Entry{hd, uhd} {
+		if err := mp.filter(context.Background(), tc, e); err != nil {
+			t.Fatal(err)
+		}
+		if e.IsAccepted() || !strings.Contains(e.RejectReason, "settling") {
+			t.Fatalf("%s should be held, got accepted=%v %q", e.Title, e.IsAccepted(), e.RejectReason)
+		}
+	}
+
+	k2024 := settle.MovieKey(tc.Name, "the life of chuck", 2024, false)
+	k2025 := settle.MovieKey(tc.Name, "the life of chuck", 2025, false)
+	if _, open := mp.settleTracker.Best(k2025); open {
+		t.Error("the 2025 release opened a window of its own instead of joining the 2024 one")
+	}
+	best, open := mp.settleTracker.Best(k2024)
+	if !open {
+		t.Fatal("no window for the film")
+	}
+	if !strings.Contains(best.Title, "2160p") {
+		t.Errorf("best candidate = %q, want the 2160p", best.Title)
+	}
+
+	// The window elapses, the 2160p is the one downloaded, and committing it
+	// clears the window it was held in although its own year is 2025.
+	expireSettle(t, db, "the life of chuck", 2024, 7*time.Hour)
+	again := makeEntry(uhd.Title, "http://x.com/2160-again")
+	if err := mp.filter(context.Background(), tc, again); err != nil {
+		t.Fatal(err)
+	}
+	if !again.IsAccepted() {
+		t.Fatalf("window elapsed, should accept: %s", again.RejectReason)
+	}
+	if err := mp.persist(context.Background(), tc, []*entry.Entry{again}); err != nil {
+		t.Fatal(err)
+	}
+	if _, open := mp.settleTracker.Best(k2024); open {
+		t.Error("committing the 2160p left the 2024 window open")
+	}
+}
+
+// A release with no year never joins another film's window.
+func TestSettleKeyWithoutAYearStaysOwn(t *testing.T) {
+	db, _ := store.OpenSQLite(":memory:")
+	defer db.Close()
+	p, _ := newPlugin(map[string]any{"settle": "6h"}, db)
+	mp := p.(*moviesPlugin)
+	if got, want := mp.settleKey("t", "film", 0, false), settle.MovieKey("t", "film", 0, false); got != want {
+		t.Errorf("settleKey = %q, want %q", got, want)
+	}
+}

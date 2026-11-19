@@ -242,6 +242,13 @@ const (
 	FieldMoviesTrackerYear = "_movies_tracker_year"
 	FieldMoviesTrackerIs3D = "_movies_tracker_is_3d"
 
+	// FieldMoviesSettleKey is the settle window the movies filter held a
+	// release in. It can differ from the tracker key's year by one: a film
+	// released a year after its festival premiere is named with either year,
+	// and both releases join one window. Commit clears this key, so it clears
+	// the window that actually held the release.
+	FieldMoviesSettleKey = "_movies_settle_key"
+
 	// FieldMoviesTrackerBucket names the store bucket the movies filter wrote
 	// to, so failed-grab recovery un-tracks from the same place. A node with
 	// local=true keeps its own bucket, and guessing from the task name alone
