@@ -320,7 +320,8 @@ func (p *moviesPlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *en
 // appears. Rejection is per-run and uncommitted, so the entry is re-evaluated
 // on the next run.
 func (p *moviesPlugin) holdForSettle(tc *plugin.TaskContext, e *entry.Entry, title string, year int, is3D bool) bool {
-	key := settle.MovieKey(tc.Name, title, year, is3D)
+	key := p.settleKey(tc.Name, title, year, is3D)
+	e.Set(entry.FieldMoviesSettleKey, key)
 	left := p.settleTracker.Offer(key, settle.CandidateOf(e), p.settle, time.Now())
 	if left <= 0 {
 		if p.settle > 0 {
@@ -334,6 +335,31 @@ func (p *moviesPlugin) holdForSettle(tc *plugin.TaskContext, e *entry.Entry, tit
 	e.Reject(fmt.Sprintf("movies: %s (%d) settling for %s more (holding the best release seen so far)",
 		title, year, left.Round(time.Minute)))
 	return true
+}
+
+// settleKey picks the window a release joins. A film often carries two years
+// in release names, its festival premiere and its theatrical release: "The
+// Life of Chuck" is named 2024 by one release and 2025 by the next. The
+// tracker already treats years one apart as the same film (LatestNearYear),
+// so the settle window must too. Otherwise each year holds its own wave, and
+// a 1080p named 2024 is downloaded beside a 2160p named 2025 that the window
+// existed to wait for. A window already open for the film one year either
+// side is joined; if none is open, the release's own year starts one.
+func (p *moviesPlugin) settleKey(task, title string, year int, is3D bool) string {
+	own := settle.MovieKey(task, title, year, is3D)
+	if year == 0 {
+		return own
+	}
+	if _, open := p.settleTracker.Best(own); open {
+		return own
+	}
+	for _, y := range []int{year - 1, year + 1} {
+		k := settle.MovieKey(task, title, y, is3D)
+		if _, open := p.settleTracker.Best(k); open {
+			return k
+		}
+	}
+	return own
 }
 
 // releaseSettled downloads winners whose window has elapsed but that are no
@@ -417,7 +443,13 @@ func (p *moviesPlugin) persist(_ context.Context, tc *plugin.TaskContext, entrie
 			return fmt.Errorf("movies: mark %s (%d): %w", matchedTitle, year, err)
 		}
 		// The wave produced a download; the next one starts a fresh timer.
-		p.settleTracker.Clear(settle.MovieKey(tc.Name, matchedTitle, year, is3D))
+		// Clear the window that held the release, which may be keyed one
+		// year off the tracker record (see settleKey).
+		if k := e.GetString(entry.FieldMoviesSettleKey); k != "" {
+			p.settleTracker.Clear(k)
+		} else {
+			p.settleTracker.Clear(settle.MovieKey(tc.Name, matchedTitle, year, is3D))
+		}
 		// Best-effort append to the download history audit log. Optional: nil
 		// in tests that build the plugin struct directly.
 		if p.downloadLog == nil {
