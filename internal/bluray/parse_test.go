@@ -53,7 +53,7 @@ func TestSlugAndIDFromURL(t *testing.T) {
 
 func TestParseDetail_Avatar3D(t *testing.T) {
 	body := readFixture(t, "release_detail_avatar3d.html")
-	r, err := ParseDetail(body, "https://www.blu-ray.com/movies/Avatar-3D-Blu-ray/26954/")
+	r, err := ParseReleaseDetails(body, "https://www.blu-ray.com/movies/Avatar-3D-Blu-ray/26954/")
 	if err != nil {
 		t.Fatalf("ParseDetail: %v", err)
 	}
@@ -90,7 +90,7 @@ func TestParseDetail_Avatar3D(t *testing.T) {
 }
 
 func TestParseDetail_EmptyBody(t *testing.T) {
-	if _, err := ParseDetail([]byte("<html><body>nothing here</body></html>"),
+	if _, err := ParseReleaseDetails([]byte("<html><body>nothing here</body></html>"),
 		"https://www.blu-ray.com/movies/Foo-Blu-ray/0/"); err == nil {
 		t.Fatalf("ParseDetail on empty page: want error, got nil")
 	}

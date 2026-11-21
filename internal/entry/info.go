@@ -262,14 +262,14 @@ const (
 	FieldEmptyMarker = "empty_marker"
 
 	// TorrentInfo — torrent_ prefix.
-	FieldTorrentInfoHash     = "torrent_info_hash"
-	FieldTorrentFileSize     = "torrent_file_size"
-	FieldTorrentFileCount    = "torrent_file_count"
-	FieldTorrentFiles        = "torrent_files"
+	FieldTorrentInfoHash  = "torrent_info_hash"
+	FieldTorrentFileSize  = "torrent_file_size"
+	FieldTorrentFileCount = "torrent_file_count"
+	FieldTorrentFiles     = "torrent_files"
 	// FieldTorrentArchive is true when the torrent's video is packed in
 	// archives (RAR, ZIP, 7z) rather than shipped as video files; see
 	// ArchivedPayload.
-	FieldTorrentArchive = "torrent_archive"
+	FieldTorrentArchive      = "torrent_archive"
 	FieldTorrentSeeds        = "torrent_seeds"
 	FieldTorrentLeechers     = "torrent_leechers"
 	FieldTorrentGrabs        = "torrent_grabs" // number of times downloaded from the indexer

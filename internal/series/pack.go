@@ -27,20 +27,6 @@ type Pack struct {
 	Quality        quality.Quality
 }
 
-// MultiSeason reports whether the pack covers more than one season, which is
-// what decides whether it belongs in a season folder or in the show's.
-func (p *Pack) MultiSeason() bool {
-	return p.Complete || p.LastSeason > p.Season
-}
-
-// Covers reports whether the pack holds the given season.
-func (p *Pack) Covers(season int) bool {
-	if p.Complete && p.Season == 0 {
-		return season > 0
-	}
-	return season >= p.Season && season <= p.LastSeason
-}
-
 // maxPackSeason bounds a season number read from a pack name. Nothing airs
 // past it, and it keeps "S2160" and the like out of a name that is not a pack.
 const maxPackSeason = 60

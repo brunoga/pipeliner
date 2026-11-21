@@ -19,15 +19,6 @@ const DefaultBaseURL = "https://www.blu-ray.com"
 // Option configures a Client.
 type Option func(*Client)
 
-// WithTransport sets a custom HTTP/TLS Transport.
-func WithTransport(t Transport) Option {
-	return func(c *Client) {
-		if t != nil {
-			c.transport = t
-		}
-	}
-}
-
 // WithCountry sets the default country/region edition filter (e.g., "us", "uk", "all").
 func WithCountry[T ~string](country T) Option {
 	return func(c *Client) {
@@ -65,31 +56,6 @@ func WithRateLimiter(rl RateLimiter) Option {
 	}
 }
 
-// WithRateLimit configures a JitterRateLimiter with minInterval and maxJitter.
-func WithRateLimit(minInterval, maxJitter time.Duration) Option {
-	return func(c *Client) {
-		if minInterval <= 0 && maxJitter <= 0 {
-			c.rateLimiter = nil
-		} else {
-			c.rateLimiter = NewJitterRateLimiter(minInterval, maxJitter)
-		}
-	}
-}
-
-// WithCache sets a ResponseCache (e.g., MemoryCache or DiskCache) to avoid redundant fetches.
-func WithCache(cache ResponseCache) Option {
-	return func(c *Client) {
-		c.cache = cache
-	}
-}
-
-// WithBrowserProfile sets a custom BrowserProfile (User-Agent and Client Hints).
-func WithBrowserProfile(profile BrowserProfile) Option {
-	return func(c *Client) {
-		c.profile = profile
-	}
-}
-
 // WithWarmup enables or disables automatic session warm-up (visiting homepage first to acquire session cookies).
 func WithWarmup(enabled bool) Option {
 	return func(c *Client) {
@@ -111,7 +77,6 @@ type Client struct {
 	transport   Transport
 	profile     BrowserProfile
 	rateLimiter RateLimiter
-	cache       ResponseCache
 
 	mu          sync.Mutex
 	country     Country
@@ -143,11 +108,6 @@ func New(opts ...Option) *Client {
 
 	c.syncCookies(c.country)
 	return c
-}
-
-// NewClient is an alias for New that returns (*Client, error) for compatibility with bluraycom callers.
-func NewClient(opts ...Option) (*Client, error) {
-	return New(opts...), nil
 }
 
 func (c *Client) syncCookies(country Country) {
@@ -266,13 +226,6 @@ func (c *Client) get(ctx context.Context, targetURL string, opts ...any) ([]byte
 		effectiveCountry = Country(strings.ToLower(string(countryOverride)))
 	}
 
-	cacheKey := fmt.Sprintf("GET|%s|%s", effectiveCountry, targetURL)
-	if c.cache != nil {
-		if data, ok := c.cache.Get(cacheKey); ok {
-			return data, nil
-		}
-	}
-
 	if c.autoWarmup {
 		if err := c.Warmup(ctx); err != nil {
 			return nil, err
@@ -329,23 +282,12 @@ func (c *Client) get(ctx context.Context, targetURL string, opts ...any) ([]byte
 		c.mu.Unlock()
 	}
 
-	if c.cache != nil {
-		c.cache.Set(cacheKey, body)
-	}
-
 	return body, nil
 }
 
-// postForm performs a rate-limited, cached POST request with form data and XHR browser headers.
+// postForm performs a rate-limited POST request with form data and XHR browser headers.
 func (c *Client) postForm(ctx context.Context, targetURL string, form url.Values) ([]byte, error) {
 	encoded := form.Encode()
-	cacheKey := fmt.Sprintf("POST|%s|%s", targetURL, encoded)
-	if c.cache != nil {
-		if data, ok := c.cache.Get(cacheKey); ok {
-			return data, nil
-		}
-	}
-
 	if c.autoWarmup {
 		if err := c.Warmup(ctx); err != nil {
 			return nil, err
@@ -384,10 +326,6 @@ func (c *Client) postForm(ctx context.Context, targetURL string, form url.Values
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("bluray: read POST %s: %w", targetURL, err)
-	}
-
-	if c.cache != nil {
-		c.cache.Set(cacheKey, body)
 	}
 
 	return body, nil

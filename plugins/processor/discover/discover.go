@@ -394,10 +394,6 @@ func matchesQueryEntry(qe *entry.Entry, releaseName string) bool {
 	return matchesQueryYear(qe.Title, entry.ReleaseYear(qe), releaseName)
 }
 
-func matchesQuery(query, releaseName string) bool {
-	return matchesQueryYear(query, 0, releaseName)
-}
-
 // matchesQueryYear is matchesQuery with a fallback year for the query, used
 // only when the query's own text names none.
 func matchesQueryYear(query string, queryYear int, releaseName string) bool {
