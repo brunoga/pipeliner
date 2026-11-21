@@ -651,6 +651,16 @@ func (n *boolNode) eval(_ map[string]any) (any, error)   { return n.v, nil }
 func (n *stringNode) eval(_ map[string]any) (any, error) { return n.v, nil }
 func (n *numberNode) eval(_ map[string]any) (any, error) { return n.v, nil }
 
+// absentField reports whether nd names a field the entry does not carry.
+func absentField(nd node, data map[string]any) bool {
+	id, ok := nd.(*identNode)
+	if !ok {
+		return false
+	}
+	_, present := data[id.name]
+	return !present
+}
+
 func (n *identNode) eval(data map[string]any) (any, error) {
 	if v, ok := data[n.name]; ok {
 		return v, nil
@@ -815,6 +825,18 @@ func (n *binaryNode) eval(data map[string]any) (any, error) {
 			return nil, fmt.Errorf("or: right: %w", err)
 		}
 		return rb, nil
+
+	case "<", "<=", ">", ">=":
+		// An ordering against a field the entry does not carry is false. The
+		// lookup turns an absent field into "", and "" sorts before every
+		// date and number, so `torrent_last_activity < daysago(30)` read an
+		// unknown activity time as older than any date. On mrshine that rule
+		// would have removed every 3dtorrents torrent whose activity Deluge
+		// did not report. Equality keeps the "" reading: `field != ""` is how
+		// a rule asks whether a field is present.
+		if absentField(n.left, data) || absentField(n.right, data) {
+			return false, nil
+		}
 	}
 
 	l, err := n.left.eval(data)
