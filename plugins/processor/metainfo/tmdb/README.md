@@ -8,7 +8,7 @@ In order:
 
 1. **A TMDb id on the entry** — `tmdb_id`, `trakt_tmdb_id` or `jackett_tmdb_id`, in that order of trust. Fetched directly; no search.
 2. **An IMDb id on the entry** — `video_imdb_id`, `trakt_imdb_id` or `jackett_imdb_id`, mapped onto TMDb's own id through `/find`. The mapping is cached, since neither id ever changes.
-3. **A title search**, with the year as a filter, exactly as before.
+3. **A title search**, with the year as a filter, exactly as before. When it finds nothing, the search is repeated without the year, keeping only results whose title matches. When that finds nothing either and the title numbers a film within its series ("The Hobbit Part 1 An Unexpected Journey"), it is searched once more without the numbering, which finds *The Hobbit: An Unexpected Journey*. A title that really contains a part, such as *Dune: Part Two*, is found as itself before that step.
 
 A title search ranks by popularity and the year it is given is whatever a release name claimed, so it picks the wrong film for every title two films share — *Michael* (1996) against *Michael* (2026) is the case this was found on. An id is the film.
 

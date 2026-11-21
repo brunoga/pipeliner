@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -1040,5 +1041,71 @@ func TestOnlyMissingYearMustBeABool(t *testing.T) {
 	}
 	if errs := validate(map[string]any{"api_key": "k", "only_missing_year": true}); len(errs) != 0 {
 		t.Errorf("errs = %v, want none", errs)
+	}
+}
+
+// TestPartNumberingRetry: 3d-mvc on mrshine refused three Hobbit MV-HEVC
+// releases every night because "The Hobbit Part 1 An Unexpected Journey" is
+// no TMDb title, so the year lookup found nothing. Without the numbering the
+// search finds "The Hobbit: An Unexpected Journey", and the year is set. The
+// second run is served from the cache and must pick the same film.
+func TestPartNumberingRetry(t *testing.T) {
+	var queries []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/3/search/movie":
+			q := r.URL.Query().Get("query")
+			queries = append(queries, q)
+			if q == "The Hobbit An Unexpected Journey" {
+				json.NewEncoder(w).Encode(map[string]any{"results": []map[string]any{
+					{"id": 49051, "title": "The Hobbit: An Unexpected Journey", "release_date": "2012-12-12", "popularity": 50.0, "vote_count": 19000},
+				}, "page": 1, "total_results": 1})
+				return
+			}
+			json.NewEncoder(w).Encode(map[string]any{"results": []any{}, "page": 1, "total_results": 0})
+		case strings.HasPrefix(r.URL.Path, "/3/movie/49051"):
+			json.NewEncoder(w).Encode(map[string]any{"id": 49051, "title": "The Hobbit: An Unexpected Journey", "release_date": "2012-12-12", "runtime": 169})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	c := itmdb.New("test-key")
+	c.BaseURL = srv.URL + "/3"
+	db, _ := store.OpenSQLite(":memory:")
+	defer db.Close()
+	p := &tmdbPlugin{
+		client:          c,
+		cache:           cache.NewPersistent[[]itmdb.Movie](time.Hour, db.Bucket("cache_tmdb_test")),
+		detailCache:     cache.NewPersistent[*itmdb.MovieDetail](time.Hour, db.Bucket("cache_tmdb_detail_test")),
+		onlyMissingYear: true,
+	}
+
+	for run := 1; run <= 2; run++ {
+		e := entry.New("The Hobbit Part 1 An Unexpected Journey 3D Spatial MV HEVC format for AVP mp4", "http://x.com/1")
+		if err := p.annotate(context.Background(), makeCtx(), e); err != nil {
+			t.Fatal(err)
+		}
+		if got := e.GetInt(entry.FieldVideoYear); got != 2012 {
+			t.Errorf("run %d: video_year = %d, want 2012 (queries: %q)", run, got, queries)
+		}
+		if got := e.GetInt("tmdb_id"); got != 49051 {
+			t.Errorf("run %d: tmdb_id = %d, want 49051", run, got)
+		}
+	}
+}
+
+func TestWithoutPartNumber(t *testing.T) {
+	for in, want := range map[string]string{
+		"The Hobbit Part 1 An Unexpected Journey": "The Hobbit An Unexpected Journey",
+		"Harry Potter Part II":                    "Harry Potter",
+		"Dune Part Two":                           "Dune",
+		"Partisan":                                "",
+		"The Departed":                            "",
+	} {
+		if got := withoutPartNumber(in); got != want {
+			t.Errorf("withoutPartNumber(%q) = %q, want %q", in, got, want)
+		}
 	}
 }

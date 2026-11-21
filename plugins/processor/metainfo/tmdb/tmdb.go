@@ -11,7 +11,9 @@ package tmdb
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/brunoga/pipeliner/internal/cache"
@@ -179,32 +181,21 @@ func (p *tmdbPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 	key := fmt.Sprintf("%s:%d", searchTitle, searchYear)
 	results, cached := p.cache.Get(key)
 	if !cached {
-		var err error
-		results, err = p.client.SearchMovie(ctx, searchTitle, searchYear)
-		if err != nil {
-			tc.Logger.Warn("metainfo_tmdb: search failed", "title", searchTitle, "err", err)
+		var ok bool
+		if results, ok = p.search(ctx, tc, searchTitle, searchYear); !ok {
 			return nil
 		}
-		// Year in the release name may be wrong (off-by-one, regional difference,
-		// etc.). Retry without the year filter before giving up.
-		if len(results) == 0 && searchYear > 0 {
-			results, err = p.client.SearchMovie(ctx, searchTitle, 0)
-			if err != nil {
-				tc.Logger.Warn("metainfo_tmdb: search failed", "title", searchTitle, "err", err)
-				return nil
-			}
-			// The yearless search returns popularity-ranked results that may have
-			// nothing to do with the searched title (e.g. "Mother's Day" for "Mother").
-			// Filter to only candidates whose title fuzzy-matches the search title.
-			if len(results) > 0 {
-				normSearch := match.Normalize(searchTitle)
-				filtered := results[:0]
-				for _, r := range results {
-					if match.Fuzzy(normSearch, match.Normalize(r.Title)) {
-						filtered = append(filtered, r)
-					}
+		// A release that numbers a film inside its series ("The Hobbit Part 1
+		// An Unexpected Journey") is not a title TMDb knows, so the search
+		// finds nothing; without the numbering it finds "The Hobbit: An
+		// Unexpected Journey". Tried only after the full title missed, so a
+		// title that really contains a part ("Dune: Part Two") is found as
+		// itself.
+		if len(results) == 0 {
+			if alt := withoutPartNumber(searchTitle); alt != "" {
+				if results, ok = p.search(ctx, tc, alt, searchYear); !ok {
+					return nil
 				}
-				results = filtered
 			}
 		}
 		// Only cache hits — an empty result must not be stored so the next
@@ -217,6 +208,12 @@ func (p *tmdbPlugin) annotate(ctx context.Context, tc *plugin.TaskContext, e *en
 	if len(results) == 0 {
 		tc.Logger.Warn("metainfo_tmdb: no results", "title", searchTitle, "year", searchYear, "entry", e.Title)
 		return nil
+	}
+	// Choose among the results by the title that found them: the shortened
+	// one when the full title matches none of them, which is the case
+	// withoutPartNumber exists for, on a cached run as on a fresh one.
+	if alt := withoutPartNumber(searchTitle); alt != "" && !anyFuzzy(results, searchTitle) {
+		searchTitle = alt
 	}
 
 	// Choose the result that best represents the searched movie: restrict to the
@@ -524,6 +521,60 @@ func betterMovieMatch(cand, cur itmdb.Movie, norm string) bool {
 // the normalized search title after normalization.
 func exactTitleMatch(m itmdb.Movie, norm string) bool {
 	return match.Normalize(m.Title) == norm || match.Normalize(m.OrigTitle) == norm
+}
+
+// search looks up a title on TMDb, first with the year and then, if that finds
+// nothing, without it. The year in a release name may be wrong (off by one, a
+// regional release), and the yearless results are popularity-ranked and may
+// have nothing to do with the title ("Mother's Day" for "Mother"), so only
+// candidates whose title fuzzy-matches are kept. ok is false when the API
+// failed, which is logged here.
+func (p *tmdbPlugin) search(ctx context.Context, tc *plugin.TaskContext, title string, year int) ([]itmdb.Movie, bool) {
+	results, err := p.client.SearchMovie(ctx, title, year)
+	if err != nil {
+		tc.Logger.Warn("metainfo_tmdb: search failed", "title", title, "err", err)
+		return nil, false
+	}
+	if len(results) > 0 || year == 0 {
+		return results, true
+	}
+	results, err = p.client.SearchMovie(ctx, title, 0)
+	if err != nil {
+		tc.Logger.Warn("metainfo_tmdb: search failed", "title", title, "err", err)
+		return nil, false
+	}
+	normSearch := match.Normalize(title)
+	filtered := results[:0]
+	for _, r := range results {
+		if match.Fuzzy(normSearch, match.Normalize(r.Title)) {
+			filtered = append(filtered, r)
+		}
+	}
+	return filtered, true
+}
+
+// rePartNumber matches a film's number within its series in a release name:
+// "Part 1", "Part II", "Part One".
+var rePartNumber = regexp.MustCompile(`(?i)\s+part\s+(?:\d+|[ivx]+|one|two|three|four|five|six)\b`)
+
+// withoutPartNumber returns title with its part numbering removed, or "" when
+// it has none.
+func withoutPartNumber(title string) string {
+	if !rePartNumber.MatchString(title) {
+		return ""
+	}
+	return strings.Join(strings.Fields(rePartNumber.ReplaceAllString(title, " ")), " ")
+}
+
+// anyFuzzy reports whether any result's title fuzzy-matches title.
+func anyFuzzy(results []itmdb.Movie, title string) bool {
+	norm := match.Normalize(title)
+	for _, r := range results {
+		if match.Fuzzy(norm, match.Normalize(r.Title)) {
+			return true
+		}
+	}
+	return false
 }
 
 // releaseYear extracts the 4-digit year from a TMDb "YYYY-MM-DD" release date;
