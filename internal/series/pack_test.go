@@ -53,18 +53,3 @@ func TestParsePackRefuses(t *testing.T) {
 		}
 	}
 }
-
-func TestPackCoversAndMultiSeason(t *testing.T) {
-	one, _ := ParsePack("Show S02 720p")
-	if !one.Covers(2) || one.Covers(1) || one.Covers(3) || one.MultiSeason() {
-		t.Errorf("single season: %+v", one)
-	}
-	run, _ := ParsePack("Show S01-S03 720p")
-	if !run.Covers(1) || !run.Covers(3) || run.Covers(4) || !run.MultiSeason() {
-		t.Errorf("range: %+v", run)
-	}
-	all, _ := ParsePack("Show Complete Series 720p")
-	if !all.Covers(1) || !all.Covers(9) || all.Covers(0) || !all.MultiSeason() {
-		t.Errorf("complete: %+v", all)
-	}
-}

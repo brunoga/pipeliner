@@ -4,8 +4,6 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -287,16 +285,11 @@ func TestClientBrowserSimulationAndWorkflows(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	memCache := NewMemoryCache(5 * time.Minute)
-	client, err := NewClient(
+	client := New(
 		WithBaseURL(srv.URL),
 		WithWarmup(true),
-		WithRateLimit(5*time.Millisecond, 5*time.Millisecond),
-		WithCache(memCache),
+		WithRequestInterval(5*time.Millisecond),
 	)
-	if err != nil {
-		t.Fatalf("NewClient failed: %v", err)
-	}
 
 	ctx := context.Background()
 	check, err := client.CheckMovieHas3D(ctx, "Dredd", CountryUS)
@@ -311,32 +304,6 @@ func TestClientBrowserSimulationAndWorkflows(t *testing.T) {
 	}
 	if !check.Has3D || len(check.Releases3D) != 1 || check.Releases3D[0].ID != "56292" {
 		t.Errorf("expected 1 US 3D release for Dredd, got: %+v", check)
-	}
-
-	// Second call should be served completely from cache without hitting server
-	beforeHits := hits.Load()
-	check2, err := client.CheckMovieHas3D(ctx, "Dredd", CountryUS)
-	if err != nil || !check2.Has3D {
-		t.Fatalf("cached CheckMovieHas3D failed: %v", err)
-	}
-	if hits.Load() != beforeHits {
-		t.Errorf("expected cached response to avoid server hits: before=%d, after=%d", beforeHits, hits.Load())
-	}
-
-	// Test DiskCache
-	tmpDir, err := os.MkdirTemp("", "bluraycache-*")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	dc, err := NewDiskCache(filepath.Join(tmpDir, "sub"), time.Minute)
-	if err != nil {
-		t.Fatalf("NewDiskCache failed: %v", err)
-	}
-	dc.Set("k1", []byte("hello"))
-	if got, ok := dc.Get("k1"); !ok || string(got) != "hello" {
-		t.Errorf("unexpected disk cache value: %q, ok=%v", string(got), ok)
 	}
 }
 

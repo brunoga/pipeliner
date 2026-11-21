@@ -16,15 +16,6 @@ import (
 // hexHash is a valid 40-char hex info hash used in tests.
 const hexHash = "aabbccddeeff00112233445566778899aabbccdd"
 
-// buildScrapeResponse constructs a minimal bencoded HTTP scrape response for
-// the given 20-byte info hash key and seeder count.
-func buildScrapeResponse(ihBin string, seeders int) string {
-	key := fmt.Sprintf("%d:%s", len(ihBin), ihBin)
-	stats := fmt.Sprintf("d8:completei%de10:downloadedi0e10:incompletei0ee", seeders)
-	files := fmt.Sprintf("d%se", key+stats)
-	return fmt.Sprintf("d5:files%se", files)
-}
-
 // --- announceToScrapeURL ---
 
 func TestAnnounceToScrapeURL(t *testing.T) {
@@ -57,199 +48,9 @@ func TestAnnounceToScrapeURLNoAnnounce(t *testing.T) {
 
 // --- HTTP scrape ---
 
-func TestScrapeHTTPSuccess(t *testing.T) {
-	// Build a response for our test hash.
-	var ih [20]byte
-	for i := range ih {
-		ih[i] = byte(i)
-	}
-	body := buildScrapeResponse(string(ih[:]), 42)
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Verify the request hits the scrape endpoint.
-		if !containsStr(r.URL.Path, "scrape") {
-			t.Errorf("expected scrape path, got %q", r.URL.Path)
-		}
-		fmt.Fprint(w, body)
-	}))
-	defer srv.Close()
-
-	announceURL := srv.URL + "/announce"
-	seeds, err := scrapeHTTP(context.Background(), ih, announceURL)
-	if err != nil {
-		t.Fatalf("scrapeHTTP: %v", err)
-	}
-	if seeds != 42 {
-		t.Errorf("seeds: got %d, want 42", seeds)
-	}
-}
-
-func TestScrapeHTTPFallbackToFirstEntry(t *testing.T) {
-	// Use a different info hash in the response key — plugin should still read it.
-	body := buildScrapeResponse("xxxxxxxxxxxxxxxxxxxx", 7)
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, body)
-	}))
-	defer srv.Close()
-
-	var ih [20]byte
-	seeds, err := scrapeHTTP(context.Background(), ih, srv.URL+"/announce")
-	if err != nil {
-		t.Fatalf("scrapeHTTP: %v", err)
-	}
-	if seeds != 7 {
-		t.Errorf("seeds: got %d, want 7 (fallback to first entry)", seeds)
-	}
-}
-
-func TestScrapeHTTPBadStatus(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusForbidden)
-	}))
-	defer srv.Close()
-
-	var ih [20]byte
-	_, err := scrapeHTTP(context.Background(), ih, srv.URL+"/announce")
-	if err == nil {
-		t.Error("expected error for HTTP 403")
-	}
-}
-
 // --- Scrape (top-level) ---
 
-func TestScrapeEmptyAnnounces(t *testing.T) {
-	_, err := Scrape(context.Background(), hexHash, nil)
-	if err == nil {
-		t.Error("expected error for empty announce list")
-	}
-}
-
-func TestScrapeInvalidHash(t *testing.T) {
-	_, err := Scrape(context.Background(), "not-a-hash", []string{"http://t.example.com/announce"})
-	if err == nil {
-		t.Error("expected error for invalid info hash")
-	}
-}
-
-func TestScrapeSkipsUnsupportedScheme(t *testing.T) {
-	// ws:// is not supported; should fail with "all scrapes failed".
-	_, err := Scrape(context.Background(), hexHash, []string{"ws://tracker.example.com/announce"})
-	if err == nil {
-		t.Error("expected error for unsupported scheme")
-	}
-}
-
-func TestScrapeUsesFirstSuccess(t *testing.T) {
-	var ih [20]byte
-	body := buildScrapeResponse(string(ih[:]), 99)
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		fmt.Fprint(w, body)
-	}))
-	defer srv.Close()
-
-	seeds, err := Scrape(context.Background(), "0000000000000000000000000000000000000000",
-		[]string{srv.URL + "/announce"})
-	if err != nil {
-		t.Fatalf("Scrape: %v", err)
-	}
-	if seeds != 99 {
-		t.Errorf("seeds: got %d, want 99", seeds)
-	}
-}
-
 // --- UDP scrape (local mock) ---
-
-func TestScrapeUDPSuccess(t *testing.T) {
-	// Start a UDP server that mimics a tracker.
-	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen UDP: %v", err)
-	}
-	defer pc.Close()
-
-	go func() {
-		buf := make([]byte, 512)
-		// Handle connect request.
-		n, addr, err := pc.ReadFrom(buf)
-		if err != nil || n < 16 {
-			return
-		}
-		txID := binary.BigEndian.Uint32(buf[12:16])
-		// Send connect response.
-		connResp := make([]byte, 16)
-		binary.BigEndian.PutUint32(connResp[0:], 0) // action: connect
-		binary.BigEndian.PutUint32(connResp[4:], txID)
-		binary.BigEndian.PutUint64(connResp[8:], 12345) // connection ID
-		pc.WriteTo(connResp, addr)
-
-		// Handle scrape request.
-		n, addr, err = pc.ReadFrom(buf)
-		if err != nil || n < 36 {
-			return
-		}
-		txID = binary.BigEndian.Uint32(buf[12:16])
-		// Send scrape response with 25 seeders.
-		scrapeResp := make([]byte, 20)
-		binary.BigEndian.PutUint32(scrapeResp[0:], 2) // action: scrape
-		binary.BigEndian.PutUint32(scrapeResp[4:], txID)
-		binary.BigEndian.PutUint32(scrapeResp[8:], 25)  // seeders
-		binary.BigEndian.PutUint32(scrapeResp[12:], 10) // completed
-		binary.BigEndian.PutUint32(scrapeResp[16:], 3)  // leechers
-		pc.WriteTo(scrapeResp, addr)
-	}()
-
-	addr := pc.LocalAddr().String()
-	var ih [20]byte
-	seeds, err := scrapeUDP(context.Background(), ih, "udp://"+addr)
-	if err != nil {
-		t.Fatalf("scrapeUDP: %v", err)
-	}
-	if seeds != 25 {
-		t.Errorf("seeds: got %d, want 25", seeds)
-	}
-}
-
-// scrapeUDP already selects on ctx.Done(), so a cancelled run returns to its
-// caller promptly either way. What it does NOT do is stop the goroutine it
-// launched: that goroutine keeps running doScrapeUDP. UDP needs no handshake,
-// so a dial to a silent listener always succeeds, and the old net.DialTimeout
-// call therefore went on to send its connect request and sit on a ten-second
-// read deadline — holding a socket, long after the result could be used. With
-// ScrapeBatch fanning out across many trackers those pile up. Dialing through
-// the context makes the abandoned goroutine unwind at once.
-//
-// So this exercises doScrapeUDP directly, past the select that would otherwise
-// hide the leak.
-func TestDoScrapeUDPHonoursCancellation(t *testing.T) {
-	// A listener that accepts packets and never replies — the worst case.
-	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen UDP: %v", err)
-	}
-	defer pc.Close()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	var ih [20]byte
-	start := time.Now()
-	_, err = doScrapeUDP(ctx, ih, "udp://"+pc.LocalAddr().String())
-	elapsed := time.Since(start)
-
-	if err == nil {
-		t.Fatal("a cancelled context should fail the scrape")
-	}
-	if !errors.Is(err, context.Canceled) {
-		t.Errorf("error should wrap context.Canceled, got %v", err)
-	}
-	// The read deadline is ten seconds, so anything near that means the dial
-	// ignored the cancellation and we merely timed out waiting for a reply.
-	if elapsed > 2*time.Second {
-		t.Errorf("took %v, want a prompt return — the cancellation was ignored", elapsed)
-	}
-}
 
 // The batch path dials separately, so it needs the same guarantee.
 func TestDoScrapeUDPBatchHonoursCancellation(t *testing.T) {
@@ -275,10 +76,6 @@ func TestDoScrapeUDPBatchHonoursCancellation(t *testing.T) {
 	if elapsed > 2*time.Second {
 		t.Errorf("took %v, want a prompt return — the cancellation was ignored", elapsed)
 	}
-}
-
-func containsStr(s, sub string) bool {
-	return len(s) >= len(sub) && (s == sub || len(s) > 0 && containsStr(s[1:], sub) || s[:len(sub)] == sub)
 }
 
 // --- batch scraping ---

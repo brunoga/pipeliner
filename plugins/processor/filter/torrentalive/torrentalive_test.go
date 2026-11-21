@@ -513,3 +513,11 @@ func TestSingleHashTrackerFallback(t *testing.T) {
 		t.Errorf("requests: got %d, want %d (1 batch + %d singles)", got, n, n-1)
 	}
 }
+
+// filter applies the gate to a single entry — kept for tests and as the
+// simplest description of per-entry semantics; Process is the batched
+// implementation used at runtime.
+func (p *torrentAlivePlugin) filter(ctx context.Context, tc *plugin.TaskContext, e *entry.Entry) error {
+	_, err := p.Process(ctx, tc, []*entry.Entry{e})
+	return err
+}

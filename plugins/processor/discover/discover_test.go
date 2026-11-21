@@ -593,8 +593,8 @@ func TestMatchesQuery(t *testing.T) {
 		{"Rogue One A Star Wars Story 2016", "Rogue One 2016 1080p 3D MVC Dolby Atmos 7 1 zman", false},
 	}
 	for _, c := range cases {
-		if got := matchesQuery(c.query, c.release); got != c.want {
-			t.Errorf("matchesQuery(%q, %q) = %v, want %v", c.query, c.release, got, c.want)
+		if got := matchesQueryYear(c.query, 0, c.release); got != c.want {
+			t.Errorf("matchesQueryYear(%q, 0, %q) = %v, want %v", c.query, c.release, got, c.want)
 		}
 	}
 }
@@ -612,7 +612,7 @@ func TestMatchesQuerySeriesKeepsRealReleases(t *testing.T) {
 		"Tomb Raider The Legend of Lara Croft S01E01 1080p HEVC x265-MeGusta",
 		"Tomb Raider The Legend of Lara Croft S01E01 A Single Step AAC MP4-Mobile",
 	} {
-		if !matchesQuery(q, rel) {
+		if !matchesQueryYear(q, 0, rel) {
 			t.Errorf("dropped a real release:\n  q=%q\n  r=%q", q, rel)
 		}
 	}
@@ -635,8 +635,8 @@ func TestMatchesQuerySeriesChecksTheEpisode(t *testing.T) {
 		{"Breaking Bad S03 COMPLETE 1080p WEB H264-GROUP", false}, // pack, not an episode
 		{"totally unrelated release 1080p", false},
 	} {
-		if got := matchesQuery(q, tc.rel); got != tc.want {
-			t.Errorf("matchesQuery(%q, %q) = %v, want %v", q, tc.rel, got, tc.want)
+		if got := matchesQueryYear(q, 0, tc.rel); got != tc.want {
+			t.Errorf("matchesQueryYear(%q, 0, %q) = %v, want %v", q, tc.rel, got, tc.want)
 		}
 	}
 }
@@ -644,10 +644,10 @@ func TestMatchesQuerySeriesChecksTheEpisode(t *testing.T) {
 // TestMatchesQuerySeriesDoubleEpisode: a double release covering the episode
 // asked for is still that episode.
 func TestMatchesQuerySeriesDoubleEpisode(t *testing.T) {
-	if !matchesQuery("Some Show S01E02", "Some Show S01E01E03 1080p WEB") {
+	if !matchesQueryYear("Some Show S01E02", 0, "Some Show S01E01E03 1080p WEB") {
 		t.Error("a double episode spanning the one requested should match")
 	}
-	if matchesQuery("Some Show S01E05", "Some Show S01E01E03 1080p WEB") {
+	if matchesQueryYear("Some Show S01E05", 0, "Some Show S01E01E03 1080p WEB") {
 		t.Error("a double episode not covering the requested one must not match")
 	}
 }
@@ -655,10 +655,10 @@ func TestMatchesQuerySeriesDoubleEpisode(t *testing.T) {
 // TestMatchesQuerySeriesYearVariants: the show's premiere year appears in some
 // release names and not others, and must not split one show in two.
 func TestMatchesQuerySeriesYearVariants(t *testing.T) {
-	if !matchesQuery("Brothers S01E03", "Brothers 2026 S01E03 1080p WEB H264-GROUP") {
+	if !matchesQueryYear("Brothers S01E03", 0, "Brothers 2026 S01E03 1080p WEB H264-GROUP") {
 		t.Error("a release naming the premiere year should match a query that does not")
 	}
-	if !matchesQuery("Brothers 2026 S01E03", "Brothers S01E03 1080p WEB H264-GROUP") {
+	if !matchesQueryYear("Brothers 2026 S01E03", 0, "Brothers S01E03 1080p WEB H264-GROUP") {
 		t.Error("and the other way round")
 	}
 }
@@ -675,8 +675,8 @@ func TestMatchesQueryMovieBehaviourUnchanged(t *testing.T) {
 		{"Dune Part Two 2024", "Dune Part Two 2019 2160p BluRay x265", false}, // too far
 		{"Dune Part Two 2024", "Some Other Film 2024 2160p BluRay x265", false},
 	} {
-		if got := matchesQuery(tc.q, tc.rel); got != tc.want {
-			t.Errorf("matchesQuery(%q, %q) = %v, want %v", tc.q, tc.rel, got, tc.want)
+		if got := matchesQueryYear(tc.q, 0, tc.rel); got != tc.want {
+			t.Errorf("matchesQueryYear(%q, 0, %q) = %v, want %v", tc.q, tc.rel, got, tc.want)
 		}
 	}
 }
@@ -870,11 +870,11 @@ func TestMatchesQuerySeasonPack(t *testing.T) {
 		"Agatha All Along The Complete Series 1080p":               false,
 		"WandaVision.S01.1080p.WEB":                                false,
 	} {
-		if got := matchesQuery(q, release); got != want {
-			t.Errorf("matchesQuery(%q, %q) = %v, want %v", q, release, got, want)
+		if got := matchesQueryYear(q, 0, release); got != want {
+			t.Errorf("matchesQueryYear(%q, 0, %q) = %v, want %v", q, release, got, want)
 		}
 	}
-	if !matchesQuery("The Wire S01-S05", "The.Wire.S01-S05.720p.BluRay") {
+	if !matchesQueryYear("The Wire S01-S05", 0, "The.Wire.S01-S05.720p.BluRay") {
 		t.Error("a range query should match the same range")
 	}
 }

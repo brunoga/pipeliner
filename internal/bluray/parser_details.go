@@ -18,12 +18,6 @@ var (
 	reBitrateParen   = regexp.MustCompile(`\s*\([\d.]+\s*Mbps\)\s*$`)
 )
 
-// ParseDetail extracts a Release from a /movies/<slug>/<id>/ page.
-// It is an alias for ParseReleaseDetails.
-func ParseDetail(rawHTML []byte, pageURL string) (*Release, error) {
-	return ParseReleaseDetails(rawHTML, pageURL)
-}
-
 // ParseReleaseDetails parses a Blu-ray release detail page (e.g., /movies/Dredd-3D-Blu-ray/56292/).
 func ParseReleaseDetails(rawHTML []byte, pageURL string) (*ReleaseDetails, error) {
 	htmlStr := EnsureUTF8(rawHTML)

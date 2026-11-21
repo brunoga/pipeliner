@@ -153,27 +153,6 @@ func AcceptAbsenceRemoved(exprStr string, reachableFields []string) []string {
 	return removed
 }
 
-// ApplyPortAcceptNarrowing applies field-availability inference from a route
-// port's accept expression to the provided reachable/certain maps in-place.
-// Retained for external callers and tests; the per-state validator uses
-// applyPortAcceptNarrowingStateful below, which delegates to the same
-// narrowing primitives.
-func ApplyPortAcceptNarrowing(acceptExpr string, reach, cert map[string]bool) {
-	if acceptExpr == "" {
-		return
-	}
-	reachSlice := mapKeys(reach)
-	certSlice := mapKeys(cert)
-	for _, f := range NarrowCertain(acceptExpr, certSlice, reachSlice) {
-		reach[f] = true
-		cert[f] = true
-	}
-	for _, f := range AcceptAbsenceRemoved(acceptExpr, reachSlice) {
-		delete(reach, f)
-		delete(cert, f)
-	}
-}
-
 // applyPortAcceptNarrowingStateful is the per-state-aware counterpart used by
 // the validator. Route ports only forward matching entries, so promoted
 // fields are guaranteed on the passing buckets (Accepted, Undecided);
