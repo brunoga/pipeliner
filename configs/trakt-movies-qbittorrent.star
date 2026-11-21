@@ -59,7 +59,7 @@ movies2 = process("movies",        upstream=q2,
                           "type": "movies", "list": "ratings"}])
 cond2   = process("condition", upstream=movies2, rules=[
     {"reject": 'video_source == "CAM"'},
-    {"reject": 'video_rating < 7.5'},
+    {"reject": 'video_rating == "" or video_rating < 7.5'},
 ])
 qbit_output(cond2, category="movies")
 

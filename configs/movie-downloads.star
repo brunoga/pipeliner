@@ -20,7 +20,7 @@ q      = process("quality",       upstream=tmdb, spec="1080p")
 movies = process("movies",        upstream=q,
                   static=["Inception", "Interstellar", "The Dark Knight",
                            "Oppenheimer", "Dune"])
-cond   = process("condition",        upstream=movies, reject="video_rating < 7.0")
+cond   = process("condition",        upstream=movies, reject='video_rating == "" or video_rating < 7.0')
 fmt    = process("pathfmt",          upstream=cond,
                   path=movies_path + "/{title} ({video_year})",
                   field="download_path")

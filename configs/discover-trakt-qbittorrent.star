@@ -53,7 +53,7 @@ flt_movies   = process("movies",        upstream=q_movies,
                                "type": "movies", "list": "watchlist"}])
 cond_movies  = process("condition", upstream=flt_movies, rules=[
     {"reject": 'video_source == "CAM"'},
-    {"reject": 'video_rating < 6.5'},
+    {"reject": 'video_rating == "" or video_rating < 6.5'},
 ])
 qbit_output(cond_movies,
             savepath=movies_path + "/{title} ({video_year})",

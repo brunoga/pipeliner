@@ -18,6 +18,21 @@ func TestMissingFieldComparesFalse(t *testing.T) {
 		{`absent_field == "x"`, false},
 		{"absent_field != true", true},
 		{"absent_field > 0", false},
+		// Every ordering is false against an absent field, on either side.
+		// "" sorts before any number or date, so before this rule `<` and
+		// `<=` read an absent field as smaller than anything.
+		{"absent_field < 5", false},
+		{"absent_field <= 5", false},
+		{"absent_field >= 0", false},
+		{"5 > absent_field", false},
+		{"absent_field < daysago(30)", false},
+		{"not (absent_field < 5)", true},
+		// Equality still reads an absent field as "", which is how a rule
+		// asks whether a field is present.
+		{`absent_field == ""`, true},
+		{`absent_field != "" and absent_field < 5`, false},
+		// A present field still compares normally.
+		{"present < 5", true},
 	}
 	for _, c := range cases {
 		e, err := Compile(c.src)

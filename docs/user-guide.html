@@ -850,6 +850,8 @@ ok    = process("condition", upstream=told, reject='probe_ok == false')</code></
 
 <p>Used by the <code>condition</code> filter, <code>route()</code> port conditions, and anywhere a boolean expression is accepted. Identifiers resolve to entry fields; unknown fields return <code>""</code>.</p>
 
+<p><strong>Fields an entry does not carry.</strong> Equality reads an absent field as <code>""</code>, so <code>field != ""</code> asks whether the field is present. An ordering (<code>&lt;</code>, <code>&lt;=</code>, <code>&gt;</code>, <code>&gt;=</code>) against an absent field is always false. Before 1.80.3, <code>""</code> was compared as text, so it sorted before every date and number: <code>torrent_last_activity &lt; daysago(30)</code> read an unknown time as older than any date. A reject rule that should also refuse entries without the field now says so: <code>video_rating == "" or video_rating &lt; 7.0</code>.</p>
+
 <h3>Operators</h3>
 <table>
   <tr><th>Operator</th><th>Meaning</th><th>Example</th></tr>
