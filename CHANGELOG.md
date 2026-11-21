@@ -5,6 +5,18 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.81.0] - 2026-11-21
+
+### Changed
+
+- **An ordering against a field an entry doesn't carry is now false** ([#712](https://github.com/brunoga/pipeliner/pull/712)). Expressions read an absent field as `""`. The comparisons `<`, `<=`, `>` and `>=` then compared it as text, and `""` sorts before every date and number. So `torrent_last_activity < daysago(30)` treated an unknown activity time as older than any date, and a retention rule written that way would have removed every torrent whose activity the client didn't report. Equality is unchanged, so `field != ""` still asks whether a field is present. A reject rule such as `video_rating < 7.0` used to refuse an entry with no rating and now lets it through. To keep refusing those, write `video_rating == "" or video_rating < 7.0`. The sample configs that relied on the old behaviour now say this explicitly.
+
+### Fixed
+
+- **`metainfo_tmdb` finds a film whose release name numbers its part** ([#713](https://github.com/brunoga/pipeliner/pull/713)). "The Hobbit Part 1 An Unexpected Journey" isn't a TMDb title, so a release named that way got no year and was refused. When the full title finds nothing, the search is repeated without "Part 1", "Part II" or "Part One", and finds *The Hobbit: An Unexpected Journey*. A title that really contains a part, such as *Dune: Part Two*, is still found as itself first.
+
+**Why 1.81.0**: the expression change alters how existing rules evaluate.
+
 ## [1.80.2] - 2026-11-19
 
 ### Fixed
